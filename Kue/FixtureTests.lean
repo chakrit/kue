@@ -31,4 +31,12 @@ theorem fixture_default_disjunction_manifest :
       = .ok "x: \"prod\"" := by
   rfl
 
+theorem fixture_regular_struct_meet :
+    formatField "x"
+      (meet
+        (.struct [("a", .regular, .kind .int)] true)
+        (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
+      = "x: {a: 1, b: \"x\"}" := by
+  native_decide
+
 end Kue

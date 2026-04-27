@@ -133,9 +133,44 @@ evaluation.
    lake exe kue
    ```
 
+## Completed Slice: Open Structs and Field Classes
+
+Goal: introduce structs with explicit field classes before implementing
+closedness, field-level bottom, or provenance-heavy diagnostics.
+
+### Steps
+
+1. Extend the value domain with open structs. Completed in the struct slice.
+   Represent fields as labels, field classes, and values. Include regular,
+   optional, required, hidden, and definition classes even if the first lattice
+   behavior only handles regular fields.
+
+2. Add tests first. Completed in the struct slice.
+   Cover:
+   - formatting a regular-field struct;
+   - meeting disjoint regular-field structs merges fields;
+   - meeting the same regular field unifies field values;
+   - conflicting same-label regular fields currently bottom the whole struct;
+   - non-regular field classes are representable and format distinctly.
+
+3. Update `Kue/Lattice.lean`. Completed in the struct slice.
+   Implement open regular-field struct meet only. Leave optional/required/hidden
+   class semantics, closedness, and field-level bottom as explicit later work.
+
+4. Update fixtures and smoke examples with one simple struct case. Completed in
+   the struct slice.
+
+5. Verify. Completed in the struct slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add structs with explicit field classes before implementing closedness.
+- Add semantic behavior for optional, required, hidden, and definition fields.
 - Add field-level bottom and diagnostic provenance.
+- Add closedness and ellipsis handling.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

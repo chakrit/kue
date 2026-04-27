@@ -20,17 +20,40 @@ def joinWith (separator : String) : List String -> String
   | [value] => value
   | value :: values => value ++ separator ++ joinWith separator values
 
-mutual
-  def formatAlternative : Mark × Value -> String
-    | (.regular, value) => formatValue value
-    | (.default, value) => "*" ++ formatValue value
+def formatFuel : Nat :=
+  100
 
-  def formatValue : Value -> String
-    | .top => "_"
-    | .bottom => "_|_"
-    | .prim prim => formatPrim prim
-    | .kind kind => formatKind kind
-    | .disj alternatives => joinWith " | " (alternatives.map formatAlternative)
+mutual
+  def formatAlternativeWithFuel : Nat -> Mark × Value -> String
+    | 0, _ => "..."
+    | fuel + 1, (.regular, value) => formatValueWithFuel fuel value
+    | fuel + 1, (.default, value) => "*" ++ formatValueWithFuel fuel value
+
+  def formatStructFieldWithFuel : Nat -> Field -> String
+    | 0, _ => "..."
+    | fuel + 1, field =>
+        let label := Field.label field
+        let value := formatValueWithFuel fuel (Field.value field)
+        match Field.fieldClass field with
+        | .regular => s!"{label}: {value}"
+        | .optional => s!"{label}?: {value}"
+        | .required => s!"{label}!: {value}"
+        | .hidden => s!"{label}: {value}"
+        | .definition => s!"{label}: {value}"
+
+  def formatValueWithFuel : Nat -> Value -> String
+    | 0, _ => "..."
+    | _, .top => "_"
+    | _, .bottom => "_|_"
+    | _, .prim prim => formatPrim prim
+    | _, .kind kind => formatKind kind
+    | fuel + 1, .disj alternatives =>
+        joinWith " | " (alternatives.map (formatAlternativeWithFuel fuel))
+    | fuel + 1, .struct fields _ =>
+        "{" ++ joinWith ", " (fields.map (formatStructFieldWithFuel fuel)) ++ "}"
 end
+
+def formatValue (value : Value) : String :=
+  formatValueWithFuel formatFuel value
 
 end Kue

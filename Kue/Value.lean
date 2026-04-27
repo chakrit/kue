@@ -29,12 +29,39 @@ inductive Mark where
   | default
 deriving Repr, BEq, DecidableEq
 
+inductive FieldClass where
+  | regular
+  | optional
+  | required
+  | hidden
+  | definition
+deriving Repr, BEq, DecidableEq
+
 inductive Value where
   | top
   | bottom
   | prim (value : Prim)
   | kind (kind : Kind)
   | disj (alternatives : List (Mark × Value))
+  | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
 deriving Repr, BEq
+
+abbrev Field := String × FieldClass × Value
+
+namespace Field
+
+def label (field : Field) : String :=
+  field.fst
+
+def fieldClass (field : Field) : FieldClass :=
+  field.snd.fst
+
+def value (field : Field) : Value :=
+  field.snd.snd
+
+def regular (label : String) (value : Value) : Field :=
+  (label, .regular, value)
+
+end Field
 
 end Kue

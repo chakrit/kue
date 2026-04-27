@@ -20,12 +20,14 @@ def manifestCore : Value -> Except ManifestError Prim
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
   | .disj alternatives => .error (.ambiguous alternatives)
+  | .struct fields open_ => .error (.incomplete (.struct fields open_))
 
 def manifest : Value -> Except ManifestError Prim
   | .prim prim => .ok prim
   | .bottom => .error .contradiction
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
+  | .struct fields open_ => .error (.incomplete (.struct fields open_))
   | .disj alternatives =>
       let live := liveAlternatives alternatives
       let defaults := defaultAlternatives live

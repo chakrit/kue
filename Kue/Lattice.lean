@@ -61,8 +61,42 @@ def meetCore (left right : Value) : Value :=
       else
         .bottom
   | .prim leftPrim, .prim rightPrim => meetPrim leftPrim rightPrim
+  | .struct _ _, .struct _ _ => .bottom
   | .disj _, _ => .bottom
   | _, .disj _ => .bottom
+  | .struct .., _ => .bottom
+  | _, .struct .. => .bottom
+
+def mergeFieldValue (left right : Field) : Option Field :=
+  if Field.fieldClass left == .regular && Field.fieldClass right == .regular then
+    let value := meetCore (Field.value left) (Field.value right)
+    if isBottom value then
+      none
+    else
+      some (Field.regular (Field.label left) value)
+  else
+    none
+
+def mergeFieldInto (fields : List Field) (field : Field) : Option (List Field) :=
+  match fields with
+  | [] => some [field]
+  | current :: rest =>
+      if Field.label current = Field.label field then
+        match mergeFieldValue current field with
+        | some merged => some (merged :: rest)
+        | none => none
+      else
+        match mergeFieldInto rest field with
+        | some mergedRest => some (current :: mergedRest)
+        | none => none
+
+def mergeStructFields (leftFields rightFields : List Field) : Option (List Field) :=
+  rightFields.foldl
+    (fun merged field =>
+      match merged with
+      | some fields => mergeFieldInto fields field
+      | none => none)
+    (some leftFields)
 
 def meet (left right : Value) : Value :=
   match left, right with
@@ -70,6 +104,10 @@ def meet (left right : Value) : Value :=
   | _, .bottom => .bottom
   | .top, value => value
   | value, .top => value
+  | .struct leftFields leftOpen, .struct rightFields rightOpen =>
+      match mergeStructFields leftFields rightFields with
+      | some fields => .struct fields (leftOpen || rightOpen)
+      | none => .bottom
   | .disj leftAlternatives, .disj rightAlternatives =>
       let flatLeft := flattenAlternatives leftAlternatives
       let flatRight := flattenAlternatives rightAlternatives
@@ -133,5 +171,6 @@ def join (left right : Value) : Value :=
       normalizeDisj (alternatives ++ [(.regular, value)])
   | value, .disj alternatives =>
       normalizeDisj ((.regular, value) :: alternatives)
+  | value, other => disjOfValues value other
 
 end Kue
