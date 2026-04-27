@@ -167,9 +167,39 @@ closedness, field-level bottom, or provenance-heavy diagnostics.
    lake exe kue
    ```
 
+## Completed Slice: Field-Class Struct Semantics
+
+Goal: give the explicit field classes their first semantic behavior without
+adding closedness, field-level bottom, or export filtering yet.
+
+### Steps
+
+1. Add tests first. Completed in the field-class semantics slice.
+   Cover:
+   - optional fields constrain matching regular fields but stay optional when
+     no regular field is present;
+   - required fields constrain matching regular fields and become regular when
+     satisfied;
+   - conflicting optional or required constraints bottom the whole struct for now;
+   - same-label hidden fields unify by value and remain hidden;
+   - same-label definition fields unify by value and remain definitions.
+
+2. Update `Kue/Lattice.lean`. Completed in the field-class semantics slice.
+   Extend field merging with a small field-class combination function. Keep
+   unsupported class combinations conservative by bottoming the whole struct.
+
+3. Update fixtures or smoke examples only if they clarify behavior. No fixture
+   changes needed; this slice only broadens struct meet behavior.
+
+4. Verify. Completed in the field-class semantics slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add semantic behavior for optional, required, hidden, and definition fields.
 - Add field-level bottom and diagnostic provenance.
 - Add closedness and ellipsis handling.
 - Expand the compatibility harness against more official CUE examples.

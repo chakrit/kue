@@ -67,15 +67,31 @@ def meetCore (left right : Value) : Value :=
   | .struct .., _ => .bottom
   | _, .struct .. => .bottom
 
+def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
+  match left, right with
+  | .regular, .regular => some .regular
+  | .optional, .regular => some .regular
+  | .regular, .optional => some .regular
+  | .required, .regular => some .regular
+  | .regular, .required => some .regular
+  | .optional, .optional => some .optional
+  | .required, .required => some .required
+  | .hidden, .hidden => some .hidden
+  | .definition, .definition => some .definition
+  | _, _ => none
+
+def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : Field :=
+  (label, fieldClass, value)
+
 def mergeFieldValue (left right : Field) : Option Field :=
-  if Field.fieldClass left == .regular && Field.fieldClass right == .regular then
-    let value := meetCore (Field.value left) (Field.value right)
-    if isBottom value then
-      none
-    else
-      some (Field.regular (Field.label left) value)
-  else
-    none
+  match mergeFieldClass (Field.fieldClass left) (Field.fieldClass right) with
+  | some fieldClass =>
+      let value := meetCore (Field.value left) (Field.value right)
+      if isBottom value then
+        none
+      else
+        some (fieldWithClass fieldClass (Field.label left) value)
+  | none => none
 
 def mergeFieldInto (fields : List Field) (field : Field) : Option (List Field) :=
   match fields with
