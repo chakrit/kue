@@ -20,14 +20,14 @@ semantic core.
 
 ### Steps
 
-1. Add `Kue/Value.lean`.
+1. Add `Kue/Value.lean`. Completed in `84a2d45`.
    Define a deliberately small CUE value domain:
    - `top`;
    - `bottom`;
    - primitive concrete values;
    - basic kind constraints such as `int`, `string`, `bool`, and `null`.
 
-2. Add tests first.
+2. Add tests first. Completed in the lattice slice.
    Use theorem checks and tiny executable examples for the initial laws:
    - `_ & v = v`;
    - `_|_ & v = _|_`;
@@ -36,8 +36,13 @@ semantic core.
    - identical primitive values meet to themselves;
    - conflicting primitive values meet to bottom.
 
-3. Add `Kue/Lattice.lean`.
+3. Add `Kue/Lattice.lean`. Completed in the lattice slice.
    Implement first-pass `meet` and `join` over the small value domain.
+   Until unresolved disjunctions exist, `join` should compute the least value
+   available in the tiny abstract domain: identical values stay unchanged,
+   primitive/kind joins widen to their kind when possible, and unrelated kinds
+   widen to top. This is an explicit approximation to replace in the disjunction
+   slice, not final CUE disjunction semantics.
 
 4. Replace the hello executable.
    Make `lake exe kue` print a small semantic smoke example, such as:
