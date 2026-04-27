@@ -60,7 +60,7 @@ semantic core.
    lake exe kue
    ```
 
-## Current Slice: Unresolved Disjunctions
+## Completed Slice: Unresolved Disjunctions
 
 Goal: represent CUE disjunctions directly instead of approximating every join in
 the tiny kind lattice.
@@ -101,9 +101,40 @@ the tiny kind lattice.
    lake exe kue
    ```
 
+## Completed Slice: Manifestation and Defaults
+
+Goal: add the first export-like operation that selects defaults and rejects
+incomplete or ambiguous values instead of forcing concreteness during lattice
+evaluation.
+
+### Steps
+
+1. Add tests first. Completed in the manifestation slice.
+   Cover:
+   - manifesting a primitive succeeds;
+   - manifesting a kind constraint fails as incomplete;
+   - manifesting top fails as incomplete;
+   - manifesting bottom fails as contradiction;
+   - manifesting an unresolved non-default disjunction fails as ambiguous;
+   - manifesting a disjunction with one default selects that default.
+
+2. Add `Kue/Manifest.lean`. Completed in the manifestation slice.
+   Use an explicit `ManifestError` type and return `Except ManifestError Prim`.
+   Keep errors structural for now; diagnostic text can come later.
+
+3. Add or update fixture ports. Completed in the manifestation slice.
+   Keep core `.expected` files for evaluation-like output and add manifestation
+   expectations only where defaults are intentionally selected.
+
+4. Verify. Completed in the manifestation slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add manifestation/default selection rules.
 - Add structs with explicit field classes before implementing closedness.
 - Add field-level bottom and diagnostic provenance.
 - Expand the compatibility harness against more official CUE examples.
