@@ -12,3 +12,7 @@
 .claude/skills
 ace.local.toml
 # end ACE
+
+# Lean / Lake build output
+.lake/
+build/
