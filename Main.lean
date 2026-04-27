@@ -1,4 +1,5 @@
 import Kue
 
 def main : IO Unit :=
-  IO.println Kue.greeting
+  for line in Kue.smokeLines do
+    IO.println line

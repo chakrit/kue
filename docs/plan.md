@@ -44,7 +44,7 @@ semantic core.
    widen to top. This is an explicit approximation to replace in the disjunction
    slice, not final CUE disjunction semantics.
 
-4. Replace the hello executable.
+4. Replace the hello executable. Completed in the smoke executable slice.
    Make `lake exe kue` print a small semantic smoke example, such as:
 
    ```text

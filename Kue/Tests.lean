@@ -21,7 +21,7 @@ theorem meet_conflicting_ints :
     meet (.prim (.int 1)) (.prim (.int 2)) = .bottom := by
   rfl
 
-#eval meet (.kind .int) (.prim (.int 1)) == .prim (.int 1)
-#eval meet (.prim (.string "a")) (.prim (.string "b")) == .bottom
+#guard meet (.kind .int) (.prim (.int 1)) == .prim (.int 1)
+#guard meet (.prim (.string "a")) (.prim (.string "b")) == .bottom
 
 end Kue
