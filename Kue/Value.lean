@@ -24,11 +24,17 @@ def kind : Prim -> Kind
 
 end Prim
 
+inductive Mark where
+  | regular
+  | default
+deriving Repr, BEq, DecidableEq
+
 inductive Value where
   | top
   | bottom
   | prim (value : Prim)
   | kind (kind : Kind)
-deriving Repr, BEq, DecidableEq
+  | disj (alternatives : List (Mark × Value))
+deriving Repr, BEq
 
 end Kue

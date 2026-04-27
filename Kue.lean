@@ -3,3 +3,4 @@ import Kue.Lattice
 import Kue.Tests
 import Kue.Format
 import Kue.Examples
+import Kue.FixtureTests

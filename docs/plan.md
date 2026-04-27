@@ -13,7 +13,7 @@ actionable. Prefer one focused slice at a time.
 - Avoid dependencies until they clearly remove more complexity than they add.
 - Keep each commit small enough to review, revert, or extend safely.
 
-## Current Slice: First Semantic Core
+## Completed Slice: First Semantic Core
 
 Goal: replace the placeholder `Kue.Hello` module with the smallest useful CUE
 semantic core.
@@ -52,8 +52,49 @@ semantic core.
    "a" & "b" => _|_
    ```
 
-5. Keep verification minimal but real.
+5. Keep verification minimal but real. Completed in the smoke executable slice.
    Run:
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
+## Current Slice: Unresolved Disjunctions
+
+Goal: represent CUE disjunctions directly instead of approximating every join in
+the tiny kind lattice.
+
+### Steps
+
+1. Extend `Kue/Value.lean` with marked disjunction alternatives.
+   Each alternative should carry a value and a marker for regular vs default.
+   Keep this representation deliberately small; default selection belongs to a
+   later manifestation/export slice. Completed in the disjunction slice.
+
+2. Add tests first. Completed in the disjunction slice.
+   Cover:
+   - joining distinct primitive values retains both alternatives;
+   - joining a value with bottom still returns the value;
+   - meeting a disjunction distributes over its alternatives;
+   - bottom alternatives are removed after distribution;
+   - default markers survive through joins and distribution.
+   Add real CUE fixtures under `testdata/cue/` with `.expected` files for the
+   current Kue semantic phase, and port each fixture into Lean theorem checks
+   against expected behavior from the docs/specs. Do not compare against the
+   `cue` binary.
+
+3. Update `Kue/Lattice.lean`. Completed in the disjunction slice.
+   Replace join widening for distinct primitives with unresolved disjunctions.
+   Implement the smallest normalization needed by the tests: flatten nested
+   disjunctions, remove bottom alternatives, and collapse zero or one remaining
+   alternatives.
+
+4. Update formatting and smoke examples. Completed in the disjunction slice.
+   Render unresolved disjunctions in a stable CUE-like form, preserving `*` on
+   default alternatives.
+
+5. Verify. Completed in the disjunction slice.
 
    ```sh
    lake build
@@ -62,8 +103,8 @@ semantic core.
 
 ## Later Slices
 
-- Add unresolved disjunctions and default markers.
+- Add manifestation/default selection rules.
 - Add structs with explicit field classes before implementing closedness.
 - Add field-level bottom and diagnostic provenance.
-- Add a compatibility test harness against official CUE examples.
+- Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.
