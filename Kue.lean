@@ -9,3 +9,5 @@ import Kue.ManifestTests
 import Kue.StructTests
 import Kue.Order
 import Kue.OrderTests
+import Kue.Normalize
+import Kue.NormalizeTests

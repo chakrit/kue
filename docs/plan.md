@@ -355,8 +355,41 @@ that applies to extra regular fields.
    lake exe kue
    ```
 
+## Completed Slice: Definition-Implied Closedness
+
+Goal: add a small normalization layer for the CUE rule that definition structs
+are closed, before implementing references to definitions.
+
+### Steps
+
+1. Add tests first. Completed in the definition normalization slice.
+   Cover:
+   - a definition field containing an open plain struct normalizes that struct
+     to closed;
+   - regular fields containing open structs remain open;
+   - typed-tail structs in definitions stay typed-tail/open;
+   - nested definition structs normalize recursively.
+
+2. Add `Kue/Normalize.lean`. Completed in the definition normalization slice.
+   Implement an executable `normalizeDefinitions : Value -> Value` with bounded
+   recursion. Keep the function explicit and small; general normalization can
+   grow in later slices.
+
+3. Add `Kue/NormalizeTests.lean` and import both modules from `Kue.lean`.
+   Completed in the definition normalization slice.
+
+4. Add a CUE fixture port for definition-implied closedness. Completed in the
+   definition normalization slice.
+
+5. Verify. Completed in the definition normalization slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add definition-implied closedness.
+- Add references and definition application.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

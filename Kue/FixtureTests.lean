@@ -1,6 +1,7 @@
 import Kue.Format
 import Kue.Lattice
 import Kue.Manifest
+import Kue.Normalize
 
 namespace Kue
 
@@ -61,6 +62,12 @@ theorem fixture_typed_ellipsis :
         (.structTail [("a", .regular, .kind .int)] (.kind .string))
         (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
       = "x: {a: 1, b: \"x\", ...string}" := by
+  native_decide
+
+theorem fixture_definition_struct_normalizes_closed :
+    (normalizeDefinitions
+        (.struct [("#A", .definition, .struct [("a", .regular, .kind .int)] true)] true)
+      == .struct [("#A", .definition, .struct [("a", .regular, .kind .int)] false)] true) = true := by
   native_decide
 
 end Kue
