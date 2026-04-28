@@ -77,4 +77,12 @@ theorem fixture_definition_reference :
       = "x: {#A: int, x: int}" := by
   native_decide
 
+theorem fixture_list_unification :
+    formatField "x"
+      (meet
+        (.list [.kind .int, .kind .string])
+        (.list [.prim (.int 1), .prim (.string "x")]))
+      = "x: [1, \"x\"]" := by
+  native_decide
+
 end Kue

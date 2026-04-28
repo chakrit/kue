@@ -27,6 +27,12 @@ def refSmokeResult : String :=
     (evalStructRefs
       (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true))
 
+def listSmokeResult : String :=
+  formatValue
+    (meet
+      (.list [.kind .int, .kind .string])
+      (.list [.prim (.int 1), .prim (.string "x")]))
+
 def smokeLines : List String :=
   [
     s!"int & 1 => {formatValue (meet (.kind .int) (.prim (.int 1)))}",
@@ -36,7 +42,8 @@ def smokeLines : List String :=
     "{a: int} & {a: 1, b: \"x\"} => " ++ structSmokeResult,
     "{a: \"a\"} & {a: \"b\"} => " ++ fieldConflictSmokeResult,
     "{a: int, ...string} & {a: 1, b: \"x\"} => " ++ typedTailSmokeResult,
-    "{#A: int, x: #A} => " ++ refSmokeResult
+    "{#A: int, x: #A} => " ++ refSmokeResult,
+    "[int, string] & [1, \"x\"] => " ++ listSmokeResult
   ]
 
 theorem smoke_lines_match_plan :
@@ -49,7 +56,8 @@ theorem smoke_lines_match_plan :
         "{a: int} & {a: 1, b: \"x\"} => {a: 1, b: \"x\"}",
         "{a: \"a\"} & {a: \"b\"} => {a: _|_}",
         "{a: int, ...string} & {a: 1, b: \"x\"} => {a: 1, b: \"x\", ...string}",
-        "{#A: int, x: #A} => {#A: int, x: int}"
+        "{#A: int, x: #A} => {#A: int, x: int}",
+        "[int, string] & [1, \"x\"] => [1, \"x\"]"
       ] := by
   native_decide
 

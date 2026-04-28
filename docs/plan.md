@@ -451,6 +451,37 @@ resolution from later value lookup.
    lake exe kue
    ```
 
+## Completed Slice: Closed Lists
+
+Goal: add the first list value representation and closed-list unification.
+
+### Steps
+
+1. Extend the value domain with closed lists. Completed in the closed list
+   slice.
+
+2. Add tests first. Completed in the closed list slice.
+   Cover:
+   - formatting closed lists;
+   - same-length lists meet element-wise;
+   - conflicting elements become element-level bottom;
+   - different-length closed lists bottom for now;
+   - subsumption checks list elements positionally.
+
+3. Update lattice, order, format, manifest, and evaluation helpers. Completed
+   in the closed list slice.
+   Keep open lists and comprehensions out of scope.
+
+4. Add one CUE fixture port for list unification. Completed in the closed list
+   slice.
+
+5. Verify. Completed in the closed list slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Add a separate syntax resolver that converts string references to binding ids.

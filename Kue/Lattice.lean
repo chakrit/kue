@@ -57,12 +57,12 @@ def meetCore (left right : Value) : Value :=
       if Prim.kind prim = kind then
         .prim prim
       else
-        .bottom
+        .bottomWith [.kindConflict kind (Prim.kind prim)]
   | .prim prim, .kind kind =>
       if Prim.kind prim = kind then
         .prim prim
       else
-        .bottom
+        .bottomWith [.kindConflict (Prim.kind prim) kind]
   | .prim leftPrim, .prim rightPrim => meetPrim leftPrim rightPrim
   | .ref leftLabel, .ref rightLabel =>
       if leftLabel = rightLabel then
@@ -76,6 +76,9 @@ def meetCore (left right : Value) : Value :=
         .bottom
   | .refId _, _ => .bottom
   | _, .refId _ => .bottom
+  | .list _, .list _ => .bottom
+  | .list _, _ => .bottom
+  | _, .list _ => .bottom
   | .ref _, _ => .bottom
   | _, .ref _ => .bottom
   | .struct _ _, .struct _ _ => .bottom
@@ -180,6 +183,14 @@ def mergeStructTailWithStruct (tailFields : List Field) (tail : Value) (fields :
   | some mergedFields => .structTail (applyTailToExtras tailFields tail mergedFields) tail
   | none => .bottom
 
+def meetList : List Value -> List Value -> Option (List Value)
+  | [], [] => some []
+  | left :: leftItems, right :: rightItems =>
+      match meetList leftItems rightItems with
+      | some items => some (meetCore left right :: items)
+      | none => none
+  | _, _ => none
+
 def meet (left right : Value) : Value :=
   match left, right with
   | .bottom, _ => .bottom
@@ -209,6 +220,10 @@ def meet (left right : Value) : Value :=
             .structTail
               (applyTailToExtras leftFields leftTail (applyTailToExtras rightFields rightTail mergedFields))
               tail
+      | none => .bottom
+  | .list leftItems, .list rightItems =>
+      match meetList leftItems rightItems with
+      | some items => .list items
       | none => .bottom
   | .disj leftAlternatives, .disj rightAlternatives =>
       let flatLeft := flattenAlternatives leftAlternatives

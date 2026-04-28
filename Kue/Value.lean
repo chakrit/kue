@@ -62,6 +62,7 @@ inductive Value where
   | disj (alternatives : List (Mark × Value))
   | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
   | structTail (fields : List (String × FieldClass × Value)) (tail : Value)
+  | list (items : List Value)
 deriving Repr, BEq
 
 abbrev Field := String × FieldClass × Value

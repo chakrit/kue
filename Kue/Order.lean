@@ -57,6 +57,12 @@ mutual
     let extraSatisfied := extraFieldsSatisfyTailWithFuel fuel expectedFields actualFields tail
     expectedSatisfied && extraSatisfied
 
+  def listSubsumesWithFuel (fuel : Nat) : List Value -> List Value -> Bool
+    | [], [] => true
+    | expected :: expectedItems, actual :: actualItems =>
+        subsumesWithFuel fuel expected actual && listSubsumesWithFuel fuel expectedItems actualItems
+    | _, _ => false
+
   def disjSubsumesWithFuel (fuel : Nat) (alternatives : List (Mark × Value)) (actual : Value) : Bool :=
     alternatives.any fun alternative => subsumesWithFuel fuel alternative.snd actual
 
@@ -77,6 +83,8 @@ mutual
         structTailSubsumesWithFuel fuel expectedFields actualFields tail
     | fuel + 1, .structTail expectedFields tail, .structTail actualFields _ =>
         structTailSubsumesWithFuel fuel expectedFields actualFields tail
+    | fuel + 1, .list expectedItems, .list actualItems =>
+        listSubsumesWithFuel fuel expectedItems actualItems
     | _ + 1, _, _ => false
 end
 

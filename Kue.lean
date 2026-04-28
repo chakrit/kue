@@ -13,3 +13,4 @@ import Kue.Normalize
 import Kue.NormalizeTests
 import Kue.Eval
 import Kue.EvalTests
+import Kue.ListTests
