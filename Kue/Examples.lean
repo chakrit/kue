@@ -9,13 +9,20 @@ def structSmokeResult : String :=
       (.struct [("a", .regular, .kind .int)] true)
       (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
 
+def fieldConflictSmokeResult : String :=
+  formatValue
+    (meet
+      (.struct [("a", .regular, .prim (.string "a"))] true)
+      (.struct [("a", .regular, .prim (.string "b"))] true))
+
 def smokeLines : List String :=
   [
     s!"int & 1 => {formatValue (meet (.kind .int) (.prim (.int 1)))}",
     s!"\"a\" & \"b\" => {formatValue (meet (.prim (.string "a")) (.prim (.string "b")))}",
     s!"\"a\" | \"b\" => {formatValue (join (.prim (.string "a")) (.prim (.string "b")))}",
     s!"*\"prod\" | \"dev\" => {formatValue (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])}",
-    "{a: int} & {a: 1, b: \"x\"} => " ++ structSmokeResult
+    "{a: int} & {a: 1, b: \"x\"} => " ++ structSmokeResult,
+    "{a: \"a\"} & {a: \"b\"} => " ++ fieldConflictSmokeResult
   ]
 
 theorem smoke_lines_match_plan :
@@ -25,7 +32,8 @@ theorem smoke_lines_match_plan :
         "\"a\" & \"b\" => _|_",
         "\"a\" | \"b\" => \"a\" | \"b\"",
         "*\"prod\" | \"dev\" => *\"prod\" | \"dev\"",
-        "{a: int} & {a: 1, b: \"x\"} => {a: 1, b: \"x\"}"
+        "{a: int} & {a: 1, b: \"x\"} => {a: 1, b: \"x\"}",
+        "{a: \"a\"} & {a: \"b\"} => {a: _|_}"
       ] := by
   native_decide
 

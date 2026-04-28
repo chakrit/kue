@@ -39,4 +39,12 @@ theorem fixture_regular_struct_meet :
       = "x: {a: 1, b: \"x\"}" := by
   native_decide
 
+theorem fixture_field_conflict :
+    formatField "x"
+      (meet
+        (.struct [("a", .regular, .prim (.string "a"))] true)
+        (.struct [("a", .regular, .prim (.string "b"))] true))
+      = "x: {a: _|_}" := by
+  native_decide
+
 end Kue

@@ -87,10 +87,7 @@ def mergeFieldValue (left right : Field) : Option Field :=
   match mergeFieldClass (Field.fieldClass left) (Field.fieldClass right) with
   | some fieldClass =>
       let value := meetCore (Field.value left) (Field.value right)
-      if isBottom value then
-        none
-      else
-        some (fieldWithClass fieldClass (Field.label left) value)
+      some (fieldWithClass fieldClass (Field.label left) value)
   | none => none
 
 def mergeFieldInto (fields : List Field) (field : Field) : Option (List Field) :=

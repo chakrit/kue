@@ -198,9 +198,38 @@ adding closedness, field-level bottom, or export filtering yet.
    lake exe kue
    ```
 
+## Completed Slice: Field-Level Bottom
+
+Goal: allow field conflicts to remain localized in the struct instead of
+collapsing the whole struct to bottom.
+
+### Steps
+
+1. Add tests first. Completed in the field-level bottom slice.
+   Cover:
+   - conflicting regular fields produce a regular field with bottom value;
+   - conflicting required-vs-regular fields produce a regular field with bottom
+     value;
+   - formatting a struct with a bottom field shows `_|_` at that field;
+   - unsupported field-class combinations still bottom the whole struct.
+
+2. Update `Kue/Lattice.lean`. Completed in the field-level bottom slice.
+   Change supported same-label field merges to keep `.bottom` as the merged field
+   value. Keep `none` only for unsupported field-class combinations.
+
+3. Add a real CUE fixture port for a conflicting field. Completed in the
+   field-level bottom slice.
+
+4. Verify. Completed in the field-level bottom slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add field-level bottom and diagnostic provenance.
+- Add diagnostic provenance to bottom values.
 - Add closedness and ellipsis handling.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.
