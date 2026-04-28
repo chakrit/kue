@@ -109,4 +109,50 @@ theorem meet_definition_field_values :
       = .struct [("#A", .definition, .prim (.int 1))] true := by
   rfl
 
+theorem meet_closed_struct_allows_matching_field :
+    meet
+      (.struct [("a", .regular, .kind .int)] false)
+      (.struct [("a", .regular, .prim (.int 1))] true)
+      = .struct [("a", .regular, .prim (.int 1))] false := by
+  rfl
+
+theorem meet_closed_left_rejects_extra_right_field :
+    meet
+      (.struct [("a", .regular, .kind .int)] false)
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      =
+        .struct
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("b", .regular, .bottomWith [.fieldNotAllowed "b"])
+          ]
+          false := by
+  rfl
+
+theorem meet_closed_right_rejects_extra_left_field :
+    meet
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      (.struct [("a", .regular, .kind .int)] false)
+      =
+        .struct
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("b", .regular, .bottomWith [.fieldNotAllowed "b"])
+          ]
+          false := by
+  rfl
+
+theorem meet_open_structs_accept_extra_field :
+    meet
+      (.struct [("a", .regular, .kind .int)] true)
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      =
+        .struct
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("b", .regular, .prim (.string "x"))
+          ]
+          true := by
+  rfl
+
 end Kue

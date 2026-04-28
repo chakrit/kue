@@ -259,8 +259,39 @@ their lattice role or display form.
    lake exe kue
    ```
 
+## Completed Slice: Minimal Closedness
+
+Goal: give the existing struct `open_` flag its first semantics before modeling
+ellipsis values, definitions-as-closed, or provenance-rich diagnostics.
+
+### Steps
+
+1. Extend bottom provenance. Completed in the minimal closedness slice.
+   Add a `fieldNotAllowed` reason for closed struct rejections.
+
+2. Add tests first. Completed in the minimal closedness slice.
+   Cover:
+   - a closed struct allows matching fields to unify;
+   - a closed left struct rejects extra right fields as field-level bottom;
+   - a closed right struct rejects extra left fields as field-level bottom;
+   - open structs still accept extra fields.
+
+3. Update `Kue/Lattice.lean`. Completed in the minimal closedness slice.
+   Apply closedness after regular field merging by marking fields absent from a
+   closed counterpart as bottom-valued fields.
+
+4. Add one CUE fixture port documenting the closed-extra-field case. Completed
+   in the minimal closedness slice.
+
+5. Verify. Completed in the minimal closedness slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add closedness and ellipsis handling.
+- Add ellipsis handling and definition-implied closedness.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

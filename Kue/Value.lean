@@ -41,6 +41,7 @@ inductive BottomReason where
   | primitiveConflict (left right : Prim)
   | kindConflict (left right : Kind)
   | fieldConflict (label : String)
+  | fieldNotAllowed (label : String)
 deriving Repr, BEq, DecidableEq
 
 inductive Value where

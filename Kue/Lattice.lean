@@ -117,6 +117,34 @@ def mergeStructFields (leftFields rightFields : List Field) : Option (List Field
       | none => none)
     (some leftFields)
 
+def hasFieldLabel (label : String) : List Field -> Bool
+  | [] => false
+  | field :: fields =>
+      if Field.label field = label then
+        true
+      else
+        hasFieldLabel label fields
+
+def markDisallowedField (field : Field) : Field :=
+  fieldWithClass (Field.fieldClass field) (Field.label field)
+    (.bottomWith [.fieldNotAllowed (Field.label field)])
+
+def applyClosednessFrom (allowedFields : List Field) (isOpen : Bool) (fields : List Field) : List Field :=
+  if isOpen then
+    fields
+  else
+    fields.map fun field =>
+      if hasFieldLabel (Field.label field) allowedFields then
+        field
+      else
+        markDisallowedField field
+
+def applyStructClosedness
+    (leftFields rightFields mergedFields : List Field)
+    (leftOpen rightOpen : Bool) : List Field :=
+  let checkedByLeft := applyClosednessFrom leftFields leftOpen mergedFields
+  applyClosednessFrom rightFields rightOpen checkedByLeft
+
 def meet (left right : Value) : Value :=
   match left, right with
   | .bottom, _ => .bottom
@@ -127,7 +155,10 @@ def meet (left right : Value) : Value :=
   | value, .top => value
   | .struct leftFields leftOpen, .struct rightFields rightOpen =>
       match mergeStructFields leftFields rightFields with
-      | some fields => .struct fields (leftOpen || rightOpen)
+      | some fields =>
+          .struct
+            (applyStructClosedness leftFields rightFields fields leftOpen rightOpen)
+            (leftOpen && rightOpen)
       | none => .bottom
   | .disj leftAlternatives, .disj rightAlternatives =>
       let flatLeft := flattenAlternatives leftAlternatives
