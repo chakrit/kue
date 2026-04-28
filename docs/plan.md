@@ -422,8 +422,37 @@ the same struct, especially references to definition fields.
    lake exe kue
    ```
 
+## Completed Slice: Resolved Binding References
+
+Goal: introduce binding identities for references so evaluation can distinguish
+resolution from later value lookup.
+
+### Steps
+
+1. Extend the value domain. Completed in the resolved binding slice.
+   Add a small `BindingId` type and a resolved reference value. Keep `.ref String`
+   as the unresolved, syntax-facing form for now.
+
+2. Add tests first. Completed in the resolved binding slice.
+   Cover:
+   - resolved references evaluate by binding id;
+   - missing binding ids produce bottom with reference provenance;
+   - same label but different binding id resolves to the bound field, not a
+     string lookup by label.
+
+3. Update `Kue/Eval.lean`. Completed in the resolved binding slice.
+   Build a simple field environment from struct order, assigning stable binding
+   ids by field position. Resolve `.refId id` against that environment.
+
+4. Verify. Completed in the resolved binding slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Replace string references with resolved binding identities.
+- Add a separate syntax resolver that converts string references to binding ids.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

@@ -37,6 +37,10 @@ inductive FieldClass where
   | definition
 deriving Repr, BEq, DecidableEq
 
+structure BindingId where
+  index : Nat
+deriving Repr, BEq, DecidableEq
+
 inductive BottomReason where
   | primitiveConflict (left right : Prim)
   | kindConflict (left right : Kind)
@@ -44,6 +48,7 @@ inductive BottomReason where
   | fieldNotAllowed (label : String)
   | fieldConstraint (label : String)
   | unresolvedReference (label : String)
+  | unresolvedBinding (id : BindingId)
 deriving Repr, BEq, DecidableEq
 
 inductive Value where
@@ -53,6 +58,7 @@ inductive Value where
   | prim (value : Prim)
   | kind (kind : Kind)
   | ref (label : String)
+  | refId (id : BindingId)
   | disj (alternatives : List (Mark × Value))
   | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
   | structTail (fields : List (String × FieldClass × Value)) (tail : Value)

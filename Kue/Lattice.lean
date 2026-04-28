@@ -69,6 +69,13 @@ def meetCore (left right : Value) : Value :=
         .ref leftLabel
       else
         .bottom
+  | .refId leftId, .refId rightId =>
+      if leftId == rightId then
+        .refId leftId
+      else
+        .bottom
+  | .refId _, _ => .bottom
+  | _, .refId _ => .bottom
   | .ref _, _ => .bottom
   | _, .ref _ => .bottom
   | .struct _ _, .struct _ _ => .bottom

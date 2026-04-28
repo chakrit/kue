@@ -69,6 +69,7 @@ mutual
     | _ + 1, .kind expectedKind, .prim prim => expectedKind == Prim.kind prim
     | _ + 1, .prim expectedPrim, .prim actualPrim => expectedPrim == actualPrim
     | _ + 1, .ref expectedLabel, .ref actualLabel => expectedLabel == actualLabel
+    | _ + 1, .refId expectedId, .refId actualId => expectedId == actualId
     | fuel + 1, .disj alternatives, value => disjSubsumesWithFuel fuel alternatives value
     | fuel + 1, .struct expectedFields expectedOpen, .struct actualFields _ =>
         structSubsumesWithFuel fuel expectedFields actualFields expectedOpen

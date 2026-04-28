@@ -21,6 +21,7 @@ def manifestCore : Value -> Except ManifestError Prim
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
   | .ref label => .error (.incomplete (.ref label))
+  | .refId id => .error (.incomplete (.refId id))
   | .disj alternatives => .error (.ambiguous alternatives)
   | .struct fields open_ => .error (.incomplete (.struct fields open_))
   | .structTail fields tail => .error (.incomplete (.structTail fields tail))
@@ -32,6 +33,7 @@ def manifest : Value -> Except ManifestError Prim
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
   | .ref label => .error (.incomplete (.ref label))
+  | .refId id => .error (.incomplete (.refId id))
   | .struct fields open_ => .error (.incomplete (.struct fields open_))
   | .structTail fields tail => .error (.incomplete (.structTail fields tail))
   | .disj alternatives =>
