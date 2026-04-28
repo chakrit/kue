@@ -611,6 +611,39 @@ ids.
    lake exe kue
    ```
 
+## Completed Slice: Structured Manifestation
+
+Goal: let manifestation/export produce concrete struct and list data instead of
+only primitive values.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - primitive manifestation still succeeds;
+   - concrete lists manifest element-wise;
+   - concrete structs manifest regular fields;
+   - hidden, definition, and optional fields are excluded from output;
+   - incomplete regular fields and unsatisfied required fields fail.
+   Completed in the structured manifestation slice.
+
+2. Add an explicit manifest data type for exportable primitives, structs, and
+   lists.
+   Completed in the structured manifestation slice.
+
+3. Update manifestation helpers and fixture formatting to use manifest data.
+   Completed in the structured manifestation slice.
+
+4. Add one CUE fixture port for export field filtering.
+   Completed in the structured manifestation slice.
+
+5. Verify. Completed in the structured manifestation slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

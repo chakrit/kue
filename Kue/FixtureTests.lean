@@ -11,7 +11,7 @@ def formatField (name : String) (value : Value) : String :=
 
 def formatManifestField (name : String) (value : Value) : Except ManifestError String :=
   match manifest value with
-  | .ok prim => .ok s!"{name}: {formatPrim prim}"
+  | .ok data => .ok s!"{name}: {formatManifestValue data}"
   | .error error => .error error
 
 theorem fixture_kind_meet_int :
@@ -100,5 +100,33 @@ theorem fixture_open_list_tail :
         (.list [.prim (.int 1), .prim (.string "x"), .prim (.string "y")]))
       = "x: [1, \"x\", \"y\"]" := by
   native_decide
+
+theorem fixture_manifest_field_filtering :
+    manifest
+      (.struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("b", .regular, .list [.prim (.string "x")]),
+          ("_hidden", .hidden, .prim (.bool true)),
+          ("#Schema", .definition, .kind .int),
+          ("optional", .optional, .prim (.string "skip"))
+        ]
+        true)
+      = .ok (.struct [("a", .prim (.int 1)), ("b", .list [.prim (.string "x")])]) := by
+  rfl
+
+theorem fixture_manifest_field_filtering_format :
+    formatManifestField "x"
+      (.struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("b", .regular, .list [.prim (.string "x")]),
+          ("_hidden", .hidden, .prim (.bool true)),
+          ("#Schema", .definition, .kind .int),
+          ("optional", .optional, .prim (.string "skip"))
+        ]
+        true)
+      = .ok "x: {a: 1, b: [\"x\"]}" := by
+  rfl
 
 end Kue

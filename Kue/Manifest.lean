@@ -1,6 +1,13 @@
+import Kue.Format
 import Kue.Lattice
 
 namespace Kue
+
+inductive ManifestValue where
+  | prim (value : Prim)
+  | struct (fields : List (String × ManifestValue))
+  | list (items : List ManifestValue)
+deriving Repr, BEq
 
 inductive ManifestError where
   | contradiction
@@ -14,47 +21,89 @@ def liveAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value
 def defaultAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
   alternatives.filter fun alternative => alternative.fst == .default
 
-def manifestCore : Value -> Except ManifestError Prim
-  | .prim prim => .ok prim
-  | .bottom => .error .contradiction
-  | .bottomWith _ => .error .contradiction
-  | .top => .error (.incomplete .top)
-  | .kind kind => .error (.incomplete (.kind kind))
-  | .intGe minimum => .error (.incomplete (.intGe minimum))
-  | .intLe maximum => .error (.incomplete (.intLe maximum))
-  | .conj constraints => .error (.incomplete (.conj constraints))
-  | .ref label => .error (.incomplete (.ref label))
-  | .refId id => .error (.incomplete (.refId id))
-  | .disj alternatives => .error (.ambiguous alternatives)
-  | .struct fields open_ => .error (.incomplete (.struct fields open_))
-  | .structTail fields tail => .error (.incomplete (.structTail fields tail))
-  | .list items => .error (.incomplete (.list items))
-  | .listTail items tail => .error (.incomplete (.listTail items tail))
+def manifestFuel : Nat :=
+  100
 
-def manifest : Value -> Except ManifestError Prim
-  | .prim prim => .ok prim
-  | .bottom => .error .contradiction
-  | .bottomWith _ => .error .contradiction
-  | .top => .error (.incomplete .top)
-  | .kind kind => .error (.incomplete (.kind kind))
-  | .intGe minimum => .error (.incomplete (.intGe minimum))
-  | .intLe maximum => .error (.incomplete (.intLe maximum))
-  | .conj constraints => .error (.incomplete (.conj constraints))
-  | .ref label => .error (.incomplete (.ref label))
-  | .refId id => .error (.incomplete (.refId id))
-  | .struct fields open_ => .error (.incomplete (.struct fields open_))
-  | .structTail fields tail => .error (.incomplete (.structTail fields tail))
-  | .list items => .error (.incomplete (.list items))
-  | .listTail items tail => .error (.incomplete (.listTail items tail))
-  | .disj alternatives =>
-      let live := liveAlternatives alternatives
-      let defaults := defaultAlternatives live
-      match defaults with
-      | [(_, value)] => manifestCore value
-      | [] =>
-          match live with
-          | [(.regular, value)] => manifestCore value
-          | alternatives => .error (.ambiguous alternatives)
-      | alternatives => .error (.ambiguous alternatives)
+mutual
+  def manifestFieldsWithFuel : Nat -> List Field -> Except ManifestError (List (String × ManifestValue))
+    | 0, _ => .error (.incomplete .top)
+    | _ + 1, [] => .ok []
+    | fuel + 1, field :: fields =>
+        match Field.fieldClass field with
+        | .regular =>
+            match manifestWithFuel fuel (Field.value field), manifestFieldsWithFuel fuel fields with
+            | .ok value, .ok rest => .ok ((Field.label field, value) :: rest)
+            | .error error, _ => .error error
+            | _, .error error => .error error
+        | .required => .error (.incomplete (Field.value field))
+        | .optional => manifestFieldsWithFuel fuel fields
+        | .hidden => manifestFieldsWithFuel fuel fields
+        | .definition => manifestFieldsWithFuel fuel fields
+
+  def manifestItemsWithFuel : Nat -> List Value -> Except ManifestError (List ManifestValue)
+    | 0, _ => .error (.incomplete .top)
+    | _ + 1, [] => .ok []
+    | fuel + 1, item :: items =>
+        match manifestWithFuel fuel item, manifestItemsWithFuel fuel items with
+        | .ok value, .ok rest => .ok (value :: rest)
+        | .error error, _ => .error error
+        | _, .error error => .error error
+
+  def manifestWithFuel : Nat -> Value -> Except ManifestError ManifestValue
+    | 0, value => .error (.incomplete value)
+    | _ + 1, .prim prim => .ok (.prim prim)
+    | _ + 1, .bottom => .error .contradiction
+    | _ + 1, .bottomWith _ => .error .contradiction
+    | _ + 1, .top => .error (.incomplete .top)
+    | _ + 1, .kind kind => .error (.incomplete (.kind kind))
+    | _ + 1, .intGe minimum => .error (.incomplete (.intGe minimum))
+    | _ + 1, .intLe maximum => .error (.incomplete (.intLe maximum))
+    | _ + 1, .conj constraints => .error (.incomplete (.conj constraints))
+    | _ + 1, .ref label => .error (.incomplete (.ref label))
+    | _ + 1, .refId id => .error (.incomplete (.refId id))
+    | fuel + 1, .struct fields _ =>
+        match manifestFieldsWithFuel fuel fields with
+        | .ok fields => .ok (.struct fields)
+        | .error error => .error error
+    | fuel + 1, .structTail fields _ =>
+        match manifestFieldsWithFuel fuel fields with
+        | .ok fields => .ok (.struct fields)
+        | .error error => .error error
+    | fuel + 1, .list items =>
+        match manifestItemsWithFuel fuel items with
+        | .ok items => .ok (.list items)
+        | .error error => .error error
+    | _ + 1, .listTail items tail => .error (.incomplete (.listTail items tail))
+    | fuel + 1, .disj alternatives =>
+        let live := liveAlternatives alternatives
+        let defaults := defaultAlternatives live
+        match defaults with
+        | [(_, value)] => manifestWithFuel fuel value
+        | [] =>
+            match live with
+            | [(.regular, value)] => manifestWithFuel fuel value
+            | alternatives => .error (.ambiguous alternatives)
+        | alternatives => .error (.ambiguous alternatives)
+end
+
+def manifest (value : Value) : Except ManifestError ManifestValue :=
+  manifestWithFuel manifestFuel value
+
+mutual
+  def formatManifestFieldWithFuel : Nat -> String × ManifestValue -> String
+    | 0, _ => "..."
+    | fuel + 1, field => s!"{field.fst}: {formatManifestValueWithFuel fuel field.snd}"
+
+  def formatManifestValueWithFuel : Nat -> ManifestValue -> String
+    | 0, _ => "..."
+    | _, .prim prim => formatPrim prim
+    | fuel + 1, .struct fields =>
+        "{" ++ joinWith ", " (fields.map (formatManifestFieldWithFuel fuel)) ++ "}"
+    | fuel + 1, .list items =>
+        "[" ++ joinWith ", " (items.map (formatManifestValueWithFuel fuel)) ++ "]"
+end
+
+def formatManifestValue (value : ManifestValue) : String :=
+  formatManifestValueWithFuel formatFuel value
 
 end Kue

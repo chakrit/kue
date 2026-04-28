@@ -3,7 +3,40 @@ import Kue.Manifest
 namespace Kue
 
 theorem manifest_primitive :
-    manifest (.prim (.int 1)) = .ok (.int 1) := by
+    manifest (.prim (.int 1)) = .ok (.prim (.int 1)) := by
+  rfl
+
+theorem manifest_concrete_list :
+    manifest (.list [.prim (.int 1), .prim (.string "x")])
+      = .ok (.list [.prim (.int 1), .prim (.string "x")]) := by
+  rfl
+
+theorem manifest_concrete_struct :
+    manifest (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      = .ok (.struct [("a", .prim (.int 1)), ("b", .prim (.string "x"))]) := by
+  rfl
+
+theorem manifest_filters_non_output_fields :
+    manifest
+      (.struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("b", .optional, .prim (.int 2)),
+          ("_c", .hidden, .prim (.int 3)),
+          ("#D", .definition, .kind .int)
+        ]
+        true)
+      = .ok (.struct [("a", .prim (.int 1))]) := by
+  rfl
+
+theorem manifest_incomplete_regular_field_fails :
+    manifest (.struct [("a", .regular, .kind .int)] true)
+      = .error (.incomplete (.kind .int)) := by
+  rfl
+
+theorem manifest_unsatisfied_required_field_fails :
+    manifest (.struct [("a", .required, .prim (.int 1))] true)
+      = .error (.incomplete (.prim (.int 1))) := by
   rfl
 
 theorem manifest_kind_incomplete :
@@ -25,7 +58,7 @@ theorem manifest_ambiguous_disjunction :
 
 theorem manifest_selects_single_default :
     manifest (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
-      = .ok (.string "prod") := by
+      = .ok (.prim (.string "prod")) := by
   rfl
 
 end Kue
