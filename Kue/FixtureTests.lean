@@ -55,4 +55,12 @@ theorem fixture_closed_extra_field :
       = "x: {a: 1, b: _|_}" := by
   native_decide
 
+theorem fixture_typed_ellipsis :
+    formatField "x"
+      (meet
+        (.structTail [("a", .regular, .kind .int)] (.kind .string))
+        (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
+      = "x: {a: 1, b: \"x\", ...string}" := by
+  native_decide
+
 end Kue

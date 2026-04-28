@@ -65,6 +65,8 @@ def meetCore (left right : Value) : Value :=
         .bottom
   | .prim leftPrim, .prim rightPrim => meetPrim leftPrim rightPrim
   | .struct _ _, .struct _ _ => .bottom
+  | .structTail _ _, _ => .bottom
+  | _, .structTail _ _ => .bottom
   | .disj _, _ => .bottom
   | _, .disj _ => .bottom
   | .struct .., _ => .bottom
@@ -145,6 +147,25 @@ def applyStructClosedness
   let checkedByLeft := applyClosednessFrom leftFields leftOpen mergedFields
   applyClosednessFrom rightFields rightOpen checkedByLeft
 
+def applyTailToField (declaredFields : List Field) (tail : Value) (field : Field) : Field :=
+  if hasFieldLabel (Field.label field) declaredFields then
+    field
+  else
+    let value := meetCore tail (Field.value field)
+    if isBottom value then
+      fieldWithClass (Field.fieldClass field) (Field.label field)
+        (.bottomWith [.fieldConstraint (Field.label field)])
+    else
+      fieldWithClass (Field.fieldClass field) (Field.label field) value
+
+def applyTailToExtras (declaredFields : List Field) (tail : Value) (fields : List Field) : List Field :=
+  fields.map (applyTailToField declaredFields tail)
+
+def mergeStructTailWithStruct (tailFields : List Field) (tail : Value) (fields : List Field) : Value :=
+  match mergeStructFields tailFields fields with
+  | some mergedFields => .structTail (applyTailToExtras tailFields tail mergedFields) tail
+  | none => .bottom
+
 def meet (left right : Value) : Value :=
   match left, right with
   | .bottom, _ => .bottom
@@ -159,6 +180,21 @@ def meet (left right : Value) : Value :=
           .struct
             (applyStructClosedness leftFields rightFields fields leftOpen rightOpen)
             (leftOpen && rightOpen)
+      | none => .bottom
+  | .structTail tailFields tail, .struct fields _ =>
+      mergeStructTailWithStruct tailFields tail fields
+  | .struct fields _, .structTail tailFields tail =>
+      mergeStructTailWithStruct tailFields tail fields
+  | .structTail leftFields leftTail, .structTail rightFields rightTail =>
+      match mergeStructFields leftFields rightFields with
+      | some mergedFields =>
+          let tail := meetCore leftTail rightTail
+          if isBottom tail then
+            .bottom
+          else
+            .structTail
+              (applyTailToExtras leftFields leftTail (applyTailToExtras rightFields rightTail mergedFields))
+              tail
       | none => .bottom
   | .disj leftAlternatives, .disj rightAlternatives =>
       let flatLeft := flattenAlternatives leftAlternatives

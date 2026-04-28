@@ -155,4 +155,42 @@ theorem meet_open_structs_accept_extra_field :
           true := by
   rfl
 
+theorem format_typed_ellipsis :
+    formatValue (.structTail [("a", .regular, .kind .int)] (.kind .string))
+      = "{a: int, ...string}" := by
+  native_decide
+
+theorem meet_typed_ellipsis_accepts_matching_extra_field :
+    meet
+      (.structTail [("a", .regular, .kind .int)] (.kind .string))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      =
+        .structTail
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("b", .regular, .prim (.string "x"))
+          ]
+          (.kind .string) := by
+  rfl
+
+theorem meet_typed_ellipsis_rejects_conflicting_extra_field :
+    meet
+      (.structTail [("a", .regular, .kind .int)] (.kind .string))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true)
+      =
+        .structTail
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("b", .regular, .bottomWith [.fieldConstraint "b"])
+          ]
+          (.kind .string) := by
+  rfl
+
+theorem meet_typed_ellipsis_does_not_constrain_declared_field_by_tail :
+    meet
+      (.structTail [("a", .regular, .kind .int)] (.kind .string))
+      (.struct [("a", .regular, .prim (.int 1))] true)
+      = .structTail [("a", .regular, .prim (.int 1))] (.kind .string) := by
+  rfl
+
 end Kue

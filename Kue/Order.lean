@@ -40,6 +40,23 @@ mutual
     let noExtra := expectedOpen || noExtraActualFields expectedFields actualFields
     expectedSatisfied && noExtra
 
+  def extraFieldsSatisfyTailWithFuel
+      (fuel : Nat)
+      (expectedFields actualFields : List Field)
+      (tail : Value) : Bool :=
+    actualFields.all fun actualField =>
+      match findField (Field.label actualField) expectedFields with
+      | some _ => true
+      | none => subsumesWithFuel fuel tail (Field.value actualField)
+
+  def structTailSubsumesWithFuel
+      (fuel : Nat)
+      (expectedFields actualFields : List Field)
+      (tail : Value) : Bool :=
+    let expectedSatisfied := allExpectedFieldsSubsumedWithFuel fuel expectedFields actualFields
+    let extraSatisfied := extraFieldsSatisfyTailWithFuel fuel expectedFields actualFields tail
+    expectedSatisfied && extraSatisfied
+
   def disjSubsumesWithFuel (fuel : Nat) (alternatives : List (Mark × Value)) (actual : Value) : Bool :=
     alternatives.any fun alternative => subsumesWithFuel fuel alternative.snd actual
 
@@ -54,6 +71,10 @@ mutual
     | fuel + 1, .disj alternatives, value => disjSubsumesWithFuel fuel alternatives value
     | fuel + 1, .struct expectedFields expectedOpen, .struct actualFields _ =>
         structSubsumesWithFuel fuel expectedFields actualFields expectedOpen
+    | fuel + 1, .structTail expectedFields tail, .struct actualFields _ =>
+        structTailSubsumesWithFuel fuel expectedFields actualFields tail
+    | fuel + 1, .structTail expectedFields tail, .structTail actualFields _ =>
+        structTailSubsumesWithFuel fuel expectedFields actualFields tail
     | _ + 1, _, _ => false
 end
 

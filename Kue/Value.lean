@@ -42,6 +42,7 @@ inductive BottomReason where
   | kindConflict (left right : Kind)
   | fieldConflict (label : String)
   | fieldNotAllowed (label : String)
+  | fieldConstraint (label : String)
 deriving Repr, BEq, DecidableEq
 
 inductive Value where
@@ -52,6 +53,7 @@ inductive Value where
   | kind (kind : Kind)
   | disj (alternatives : List (Mark × Value))
   | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
+  | structTail (fields : List (String × FieldClass × Value)) (tail : Value)
 deriving Repr, BEq
 
 abbrev Field := String × FieldClass × Value

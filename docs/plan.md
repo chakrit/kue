@@ -321,8 +321,42 @@ value is at least as general as another.
    lake exe kue
    ```
 
+## Completed Slice: Typed Ellipsis
+
+Goal: model the first ellipsis form, `...T`, as an open struct tail constraint
+that applies to extra regular fields.
+
+### Steps
+
+1. Extend the value domain. Completed in the typed ellipsis slice.
+   Add a typed-tail struct representation for open structs with an additional
+   field constraint. Keep plain open and closed structs as-is.
+
+2. Add tests first. Completed in the typed ellipsis slice.
+   Cover:
+   - formatting typed ellipsis;
+   - extra regular fields satisfying the tail constraint are preserved;
+   - extra regular fields conflicting with the tail become field-level bottom;
+   - declared fields are unified by their declared constraints, not by the tail;
+   - subsumption treats typed tails as accepting matching extra fields and
+     rejecting conflicting ones.
+
+3. Update lattice, order, format, and manifest helpers. Completed in the typed
+   ellipsis slice.
+   Keep the first implementation limited to regular extra fields.
+
+4. Add one CUE fixture port for a typed ellipsis struct. Completed in the typed
+   ellipsis slice.
+
+5. Verify. Completed in the typed ellipsis slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add ellipsis handling and definition-implied closedness.
+- Add definition-implied closedness.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

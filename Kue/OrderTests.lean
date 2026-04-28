@@ -54,4 +54,18 @@ theorem open_struct_accepts_extra_field :
       = true := by
   native_decide
 
+theorem typed_tail_subsumes_matching_extra_field :
+    subsumes
+      (.structTail [("a", .regular, .kind .int)] (.kind .string))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      = true := by
+  native_decide
+
+theorem typed_tail_rejects_conflicting_extra_field :
+    subsumes
+      (.structTail [("a", .regular, .kind .int)] (.kind .string))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true)
+      = false := by
+  native_decide
+
 end Kue
