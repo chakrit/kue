@@ -28,4 +28,29 @@ theorem eval_after_resolve_reference_to_definition :
       == .struct [("#A", .definition, .kind .int), ("x", .regular, .kind .int)] true) = true := by
   native_decide
 
+theorem resolve_reference_inside_list :
+    (resolveStructRefs
+      (.struct [("#A", .definition, .kind .int), ("x", .regular, .list [.ref "#A"])] true)
+      == .struct [("#A", .definition, .kind .int), ("x", .regular, .list [.refId ⟨0⟩])] true) = true := by
+  native_decide
+
+theorem eval_resolved_reference_inside_list :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct [("#A", .definition, .kind .int), ("x", .regular, .list [.ref "#A"])] true))
+      == .struct [("#A", .definition, .kind .int), ("x", .regular, .list [.kind .int])] true) = true := by
+  native_decide
+
+theorem resolve_reference_inside_conjunction :
+    (resolveStructRefs
+      (.struct [("#A", .definition, .kind .int), ("x", .regular, .conj [.ref "#A", .intGe 0])] true)
+      == .struct [("#A", .definition, .kind .int), ("x", .regular, .conj [.refId ⟨0⟩, .intGe 0])] true) = true := by
+  native_decide
+
+theorem resolve_reference_inside_disjunction :
+    (resolveStructRefs
+      (.struct [("#A", .definition, .kind .int), ("x", .regular, .disj [(.regular, .ref "#A"), (.regular, .kind .string)])] true)
+      == .struct [("#A", .definition, .kind .int), ("x", .regular, .disj [(.regular, .refId ⟨0⟩), (.regular, .kind .string)])] true) = true := by
+  native_decide
+
 end Kue

@@ -25,19 +25,50 @@ def findBinding (id : BindingId) : List (BindingId × Field) -> Option Field
       else
         findBinding id bindings
 
-def evalRefValue (fields : List Field) (bindings : List (BindingId × Field)) : Value -> Value
-  | .ref label =>
-      match findEvalField label fields with
-      | some field => Field.value field
-      | none => .bottomWith [.unresolvedReference label]
-  | .refId id =>
-      match findBinding id bindings with
-      | some field => Field.value field
-      | none => .bottomWith [.unresolvedBinding id]
-  | value => value
+def evalFuel : Nat :=
+  100
+
+mutual
+  def evalFieldRefsWithFuel
+      (fuel : Nat)
+      (fields : List Field)
+      (bindings : List (BindingId × Field))
+      (field : Field) : Field :=
+    (Field.label field, Field.fieldClass field, evalValueWithFuel fuel fields bindings (Field.value field))
+
+  def evalValueWithFuel : Nat -> List Field -> List (BindingId × Field) -> Value -> Value
+    | 0, _, _, value => value
+    | _ + 1, fields, _, .ref label =>
+        match findEvalField label fields with
+        | some field => Field.value field
+        | none => .bottomWith [.unresolvedReference label]
+    | _ + 1, _, bindings, .refId id =>
+        match findBinding id bindings with
+        | some field => Field.value field
+        | none => .bottomWith [.unresolvedBinding id]
+    | fuel + 1, fields, bindings, .conj constraints =>
+        .conj (constraints.map (evalValueWithFuel fuel fields bindings))
+    | fuel + 1, fields, bindings, .disj alternatives =>
+        .disj (alternatives.map fun alternative =>
+          (alternative.fst, evalValueWithFuel fuel fields bindings alternative.snd)
+        )
+    | fuel + 1, fields, bindings, .struct nestedFields open_ =>
+        .struct (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings)) open_
+    | fuel + 1, fields, bindings, .structTail nestedFields tail =>
+        .structTail
+          (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings))
+          (evalValueWithFuel fuel fields bindings tail)
+    | fuel + 1, fields, bindings, .list items =>
+        .list (items.map (evalValueWithFuel fuel fields bindings))
+    | fuel + 1, fields, bindings, .listTail items tail =>
+        .listTail
+          (items.map (evalValueWithFuel fuel fields bindings))
+          (evalValueWithFuel fuel fields bindings tail)
+    | _, _, _, value => value
+end
 
 def evalFieldRefs (fields : List Field) (bindings : List (BindingId × Field)) (field : Field) : Field :=
-  (Field.label field, Field.fieldClass field, evalRefValue fields bindings (Field.value field))
+  evalFieldRefsWithFuel evalFuel fields bindings field
 
 def evalStructRefs (value : Value) : Value :=
   match normalizeDefinitions value with

@@ -670,6 +670,35 @@ not only at the top level.
    lake exe kue
    ```
 
+## Completed Slice: Nested Reference Values
+
+Goal: resolve and evaluate references nested inside compound values such as
+lists, conjunctions, and disjunction alternatives.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - resolving a reference inside a list item;
+   - evaluating a resolved reference inside a list item;
+   - resolving references inside conjunctions and disjunction alternatives.
+   Completed in the nested reference values slice.
+
+2. Update resolver traversal to recurse through the current compound value
+   constructors.
+   Completed in the nested reference values slice.
+
+3. Update evaluator traversal to evaluate resolved references inside the same
+   compound value constructors.
+   Completed in the nested reference values slice.
+
+4. Verify. Completed in the nested reference values slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.
