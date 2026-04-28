@@ -388,8 +388,42 @@ are closed, before implementing references to definitions.
    lake exe kue
    ```
 
+## Completed Slice: Same-Struct References
+
+Goal: introduce the first evaluation layer by resolving simple references within
+the same struct, especially references to definition fields.
+
+### Steps
+
+1. Extend the value domain with a symbolic reference value. Completed in the
+   same-struct references slice.
+   Keep this temporary and explicit; a resolver with binding identities should
+   replace string labels later.
+
+2. Add tests first. Completed in the same-struct references slice.
+   Cover:
+   - a regular field referencing a definition field evaluates to the definition
+     value;
+   - references to missing fields produce bottom with reference provenance;
+   - formatting unresolved references is stable;
+   - manifestation treats unresolved references as incomplete.
+
+3. Add `Kue/Eval.lean`. Completed in the same-struct references slice.
+   Implement `evalStructRefs : Value -> Value` for one struct level. Resolve
+   references against fields in that same struct after definition normalization.
+
+4. Add one CUE fixture port for a field using a definition reference. Completed
+   in the same-struct references slice.
+
+5. Verify. Completed in the same-struct references slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add references and definition application.
+- Replace string references with resolved binding identities.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

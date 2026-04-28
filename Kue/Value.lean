@@ -43,6 +43,7 @@ inductive BottomReason where
   | fieldConflict (label : String)
   | fieldNotAllowed (label : String)
   | fieldConstraint (label : String)
+  | unresolvedReference (label : String)
 deriving Repr, BEq, DecidableEq
 
 inductive Value where
@@ -51,6 +52,7 @@ inductive Value where
   | bottomWith (reasons : List BottomReason)
   | prim (value : Prim)
   | kind (kind : Kind)
+  | ref (label : String)
   | disj (alternatives : List (Mark × Value))
   | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
   | structTail (fields : List (String × FieldClass × Value)) (tail : Value)

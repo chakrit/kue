@@ -1,5 +1,6 @@
 import Kue.Format
 import Kue.Lattice
+import Kue.Eval
 
 namespace Kue
 
@@ -21,6 +22,11 @@ def typedTailSmokeResult : String :=
       (.structTail [("a", .regular, .kind .int)] (.kind .string))
       (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
 
+def refSmokeResult : String :=
+  formatValue
+    (evalStructRefs
+      (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true))
+
 def smokeLines : List String :=
   [
     s!"int & 1 => {formatValue (meet (.kind .int) (.prim (.int 1)))}",
@@ -29,7 +35,8 @@ def smokeLines : List String :=
     s!"*\"prod\" | \"dev\" => {formatValue (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])}",
     "{a: int} & {a: 1, b: \"x\"} => " ++ structSmokeResult,
     "{a: \"a\"} & {a: \"b\"} => " ++ fieldConflictSmokeResult,
-    "{a: int, ...string} & {a: 1, b: \"x\"} => " ++ typedTailSmokeResult
+    "{a: int, ...string} & {a: 1, b: \"x\"} => " ++ typedTailSmokeResult,
+    "{#A: int, x: #A} => " ++ refSmokeResult
   ]
 
 theorem smoke_lines_match_plan :
@@ -41,7 +48,8 @@ theorem smoke_lines_match_plan :
         "*\"prod\" | \"dev\" => *\"prod\" | \"dev\"",
         "{a: int} & {a: 1, b: \"x\"} => {a: 1, b: \"x\"}",
         "{a: \"a\"} & {a: \"b\"} => {a: _|_}",
-        "{a: int, ...string} & {a: 1, b: \"x\"} => {a: 1, b: \"x\", ...string}"
+        "{a: int, ...string} & {a: 1, b: \"x\"} => {a: 1, b: \"x\", ...string}",
+        "{#A: int, x: #A} => {#A: int, x: int}"
       ] := by
   native_decide
 

@@ -48,6 +48,7 @@ mutual
     | _, .bottomWith _ => "_|_"
     | _, .prim prim => formatPrim prim
     | _, .kind kind => formatKind kind
+    | _, .ref label => label
     | fuel + 1, .disj alternatives =>
         joinWith " | " (alternatives.map (formatAlternativeWithFuel fuel))
     | fuel + 1, .struct fields _ =>

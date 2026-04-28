@@ -2,6 +2,7 @@ import Kue.Format
 import Kue.Lattice
 import Kue.Manifest
 import Kue.Normalize
+import Kue.Eval
 
 namespace Kue
 
@@ -68,6 +69,12 @@ theorem fixture_definition_struct_normalizes_closed :
     (normalizeDefinitions
         (.struct [("#A", .definition, .struct [("a", .regular, .kind .int)] true)] true)
       == .struct [("#A", .definition, .struct [("a", .regular, .kind .int)] false)] true) = true := by
+  native_decide
+
+theorem fixture_definition_reference :
+    formatField "x"
+      (evalStructRefs (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true))
+      = "x: {#A: int, x: int}" := by
   native_decide
 
 end Kue

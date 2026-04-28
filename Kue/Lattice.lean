@@ -64,6 +64,13 @@ def meetCore (left right : Value) : Value :=
       else
         .bottom
   | .prim leftPrim, .prim rightPrim => meetPrim leftPrim rightPrim
+  | .ref leftLabel, .ref rightLabel =>
+      if leftLabel = rightLabel then
+        .ref leftLabel
+      else
+        .bottom
+  | .ref _, _ => .bottom
+  | _, .ref _ => .bottom
   | .struct _ _, .struct _ _ => .bottom
   | .structTail _ _, _ => .bottom
   | _, .structTail _ _ => .bottom

@@ -11,3 +11,5 @@ import Kue.Order
 import Kue.OrderTests
 import Kue.Normalize
 import Kue.NormalizeTests
+import Kue.Eval
+import Kue.EvalTests
