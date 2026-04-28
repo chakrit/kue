@@ -93,4 +93,12 @@ theorem fixture_int_bounds :
       = "x: 7" := by
   native_decide
 
+theorem fixture_open_list_tail :
+    formatField "x"
+      (meet
+        (.listTail [.kind .int] (.kind .string))
+        (.list [.prim (.int 1), .prim (.string "x"), .prim (.string "y")]))
+      = "x: [1, \"x\", \"y\"]" := by
+  native_decide
+
 end Kue

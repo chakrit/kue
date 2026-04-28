@@ -29,6 +29,7 @@ def manifestCore : Value -> Except ManifestError Prim
   | .struct fields open_ => .error (.incomplete (.struct fields open_))
   | .structTail fields tail => .error (.incomplete (.structTail fields tail))
   | .list items => .error (.incomplete (.list items))
+  | .listTail items tail => .error (.incomplete (.listTail items tail))
 
 def manifest : Value -> Except ManifestError Prim
   | .prim prim => .ok prim
@@ -44,6 +45,7 @@ def manifest : Value -> Except ManifestError Prim
   | .struct fields open_ => .error (.incomplete (.struct fields open_))
   | .structTail fields tail => .error (.incomplete (.structTail fields tail))
   | .list items => .error (.incomplete (.list items))
+  | .listTail items tail => .error (.incomplete (.listTail items tail))
   | .disj alternatives =>
       let live := liveAlternatives alternatives
       let defaults := defaultAlternatives live

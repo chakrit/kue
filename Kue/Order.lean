@@ -63,6 +63,17 @@ mutual
         subsumesWithFuel fuel expected actual && listSubsumesWithFuel fuel expectedItems actualItems
     | _, _ => false
 
+  def listTailSubsumesListWithFuel : Nat -> List Value -> Value -> List Value -> Bool
+    | 0, _, _, _ => false
+    | _ + 1, [], _, [] => true
+    | _ + 1, _ :: _, _, [] => false
+    | fuel + 1, [], tail, actual :: actualItems =>
+        subsumesWithFuel fuel tail actual
+          && listTailSubsumesListWithFuel fuel [] tail actualItems
+    | fuel + 1, expected :: expectedItems, tail, actual :: actualItems =>
+        subsumesWithFuel fuel expected actual
+          && listTailSubsumesListWithFuel fuel expectedItems tail actualItems
+
   def allConstraintsSubsumeWithFuel (fuel : Nat) (constraints : List Value) (actual : Value) : Bool :=
     constraints.all fun constraint => subsumesWithFuel fuel constraint actual
 
@@ -93,6 +104,8 @@ mutual
         structTailSubsumesWithFuel fuel expectedFields actualFields tail
     | fuel + 1, .list expectedItems, .list actualItems =>
         listSubsumesWithFuel fuel expectedItems actualItems
+    | fuel + 1, .listTail fixed tail, .list actualItems =>
+        listTailSubsumesListWithFuel fuel fixed tail actualItems
     | _ + 1, _, _ => false
 end
 

@@ -138,6 +138,8 @@ def meetCore (left right : Value) : Value :=
   | .refId _, _ => .bottom
   | _, .refId _ => .bottom
   | .list _, .list _ => .bottom
+  | .listTail _ _, _ => .bottom
+  | _, .listTail _ _ => .bottom
   | .list _, _ => .bottom
   | _, .list _ => .bottom
   | .ref _, _ => .bottom
@@ -252,6 +254,14 @@ def meetList : List Value -> List Value -> Option (List Value)
       | none => none
   | _, _ => none
 
+def meetListPrefixTail : List Value -> Value -> List Value -> Option (List Value)
+  | [], tail, items => some (items.map (fun item => meetCore tail item))
+  | expected :: expectedItems, tail, actual :: actualItems =>
+      match meetListPrefixTail expectedItems tail actualItems with
+      | some items => some (meetCore expected actual :: items)
+      | none => none
+  | _ :: _, _, [] => none
+
 def meetConjValue (constraints : List Value) (value : Value) : Value :=
   constraints.foldl
     (fun current constraint =>
@@ -295,6 +305,14 @@ def meet (left right : Value) : Value :=
       | none => .bottom
   | .list leftItems, .list rightItems =>
       match meetList leftItems rightItems with
+      | some items => .list items
+      | none => .bottom
+  | .listTail fixed tail, .list items =>
+      match meetListPrefixTail fixed tail items with
+      | some items => .list items
+      | none => .bottom
+  | .list items, .listTail fixed tail =>
+      match meetListPrefixTail fixed tail items with
       | some items => .list items
       | none => .bottom
   | .disj leftAlternatives, .disj rightAlternatives =>

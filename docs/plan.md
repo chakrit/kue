@@ -518,9 +518,44 @@ Goal: add the first scalar bounds for integer constraints such as `>=0` and
    lake exe kue
    ```
 
+## Completed Slice: Open List Tails
+
+Goal: add the first open-list representation for typed tails such as
+`[int, ...string]`.
+
+### Steps
+
+1. Extend the value domain with an open list tail value that stores fixed prefix
+   items and a tail constraint.
+   Completed in the open list tail slice.
+
+2. Add tests first.
+   Cover:
+   - formatting open list tails;
+   - meeting a typed-tail list with a longer closed list applies the tail to
+     extra elements;
+   - conflicting extra elements become element-level bottom;
+   - fixed prefix elements still unify positionally;
+   - a closed list shorter than the fixed prefix bottoms;
+   - subsumption accepts matching extra elements and rejects conflicting extras.
+   Completed in the open list tail slice.
+
+3. Update lattice, order, format, manifest, and examples.
+   Keep list comprehensions and length arithmetic out of scope.
+   Completed in the open list tail slice.
+
+4. Add one CUE fixture port for an open list tail.
+   Completed in the open list tail slice.
+
+5. Verify. Completed in the open list tail slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add open list values with typed tails, such as `[int, ...string]`.
 - Add a separate syntax resolver that converts string references to binding ids.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

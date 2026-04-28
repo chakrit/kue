@@ -8,6 +8,10 @@ theorem format_closed_list :
     formatValue (.list [.prim (.int 1), .prim (.string "x")]) = "[1, \"x\"]" := by
   native_decide
 
+theorem format_open_list_tail :
+    formatValue (.listTail [.kind .int] (.kind .string)) = "[int, ...string]" := by
+  native_decide
+
 theorem meet_lists_elementwise :
     meet
       (.list [.kind .int, .kind .string])
@@ -29,6 +33,27 @@ theorem meet_lists_different_lengths_bottom :
       = .bottom := by
   rfl
 
+theorem meet_open_list_tail_with_longer_closed_list :
+    meet
+      (.listTail [.kind .int] (.kind .string))
+      (.list [.prim (.int 1), .prim (.string "x"), .prim (.string "y")])
+      = .list [.prim (.int 1), .prim (.string "x"), .prim (.string "y")] := by
+  rfl
+
+theorem meet_open_list_tail_preserves_extra_bottom :
+    meet
+      (.listTail [.kind .int] (.kind .string))
+      (.list [.prim (.int 1), .prim (.int 2)])
+      = .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]] := by
+  rfl
+
+theorem meet_open_list_tail_rejects_short_closed_list :
+    meet
+      (.listTail [.kind .int, .kind .string] (.kind .bool))
+      (.list [.prim (.int 1)])
+      = .bottom := by
+  rfl
+
 theorem list_subsumes_matching_items :
     subsumes
       (.list [.kind .int, .kind .string])
@@ -39,6 +64,20 @@ theorem list_subsumes_matching_items :
 theorem list_rejects_different_length :
     subsumes
       (.list [.kind .int])
+      (.list [.prim (.int 1), .prim (.int 2)])
+      = false := by
+  native_decide
+
+theorem open_list_tail_subsumes_matching_extra_items :
+    subsumes
+      (.listTail [.kind .int] (.kind .string))
+      (.list [.prim (.int 1), .prim (.string "x"), .prim (.string "y")])
+      = true := by
+  native_decide
+
+theorem open_list_tail_rejects_conflicting_extra_item :
+    subsumes
+      (.listTail [.kind .int] (.kind .string))
       (.list [.prim (.int 1), .prim (.int 2)])
       = false := by
   native_decide

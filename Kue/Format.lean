@@ -64,6 +64,10 @@ mutual
         "{" ++ joinWith ", " (fieldText ++ [tailText]) ++ "}"
     | fuel + 1, .list items =>
         "[" ++ joinWith ", " (items.map (formatValueWithFuel fuel)) ++ "]"
+    | fuel + 1, .listTail items tail =>
+        let itemText := items.map (formatValueWithFuel fuel)
+        let tailText := "..." ++ formatValueWithFuel fuel tail
+        "[" ++ joinWith ", " (itemText ++ [tailText]) ++ "]"
 end
 
 def formatValue (value : Value) : String :=
