@@ -290,6 +290,37 @@ ellipsis values, definitions-as-closed, or provenance-rich diagnostics.
    lake exe kue
    ```
 
+## Completed Slice: First Subsumption Predicate
+
+Goal: add the first order-layer predicate so tests can state when one semantic
+value is at least as general as another.
+
+### Steps
+
+1. Add tests first. Completed in the first order slice.
+   Cover:
+   - top subsumes every value in the initial domain;
+   - every value subsumes bottom;
+   - kind constraints subsume matching primitive values;
+   - primitive values only subsume identical primitive values;
+   - closed structs subsume matching structs but not structs with extra fields;
+   - open structs subsume matching structs with extra fields.
+
+2. Add `Kue/Order.lean`. Completed in the first order slice.
+   Implement a conservative executable `subsumes expected actual : Bool`.
+   Keep disjunction handling minimal: a disjunction subsumes a value when any
+   alternative subsumes it.
+
+3. Add `Kue/OrderTests.lean` and import both modules from `Kue.lean`.
+   Completed in the first order slice.
+
+4. Verify. Completed in the first order slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Add ellipsis handling and definition-implied closedness.
