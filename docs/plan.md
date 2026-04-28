@@ -554,6 +554,31 @@ Goal: add the first open-list representation for typed tails such as
    lake exe kue
    ```
 
+## Completed Slice: Nested Compound Meets
+
+Goal: make compound constraints apply consistently when they appear inside
+struct fields, not only as top-level values.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - a field constrained by `>=0 & <=10` accepts a concrete integer field;
+   - a field constrained by `[int, ...string]` accepts a longer concrete list;
+   - conflicting extra list elements remain element-level bottom inside fields.
+   Completed in the nested compound meets slice.
+
+2. Refactor lattice field merging to use the same compound meet helper as
+   top-level list-tail and integer-bound paths.
+   Completed in the nested compound meets slice.
+
+3. Verify. Completed in the nested compound meets slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Add a separate syntax resolver that converts string references to binding ids.

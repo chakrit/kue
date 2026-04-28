@@ -152,6 +152,26 @@ def meetCore (left right : Value) : Value :=
   | .struct .., _ => .bottom
   | _, .struct .. => .bottom
 
+def meetListPrefixTail : List Value -> Value -> List Value -> Option (List Value)
+  | [], tail, items => some (items.map (fun item => meetCore tail item))
+  | expected :: expectedItems, tail, actual :: actualItems =>
+      match meetListPrefixTail expectedItems tail actualItems with
+      | some items => some (meetCore expected actual :: items)
+      | none => none
+  | _ :: _, _, [] => none
+
+def meetCompoundCore (left right : Value) : Value :=
+  match left, right with
+  | .listTail fixed tail, .list items =>
+      match meetListPrefixTail fixed tail items with
+      | some items => .list items
+      | none => .bottom
+  | .list items, .listTail fixed tail =>
+      match meetListPrefixTail fixed tail items with
+      | some items => .list items
+      | none => .bottom
+  | value, other => meetCore value other
+
 def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
   match left, right with
   | .regular, .regular => some .regular
@@ -171,7 +191,7 @@ def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : 
 def mergeFieldValue (left right : Field) : Option Field :=
   match mergeFieldClass (Field.fieldClass left) (Field.fieldClass right) with
   | some fieldClass =>
-      let value := meetCore (Field.value left) (Field.value right)
+      let value := meetCompoundCore (Field.value left) (Field.value right)
       if isBottom value then
         some (fieldWithClass fieldClass (Field.label left) (.bottomWith [.fieldConflict (Field.label left)]))
       else
@@ -231,7 +251,7 @@ def applyTailToField (declaredFields : List Field) (tail : Value) (field : Field
   if hasFieldLabel (Field.label field) declaredFields then
     field
   else
-    let value := meetCore tail (Field.value field)
+    let value := meetCompoundCore tail (Field.value field)
     if isBottom value then
       fieldWithClass (Field.fieldClass field) (Field.label field)
         (.bottomWith [.fieldConstraint (Field.label field)])
@@ -250,17 +270,9 @@ def meetList : List Value -> List Value -> Option (List Value)
   | [], [] => some []
   | left :: leftItems, right :: rightItems =>
       match meetList leftItems rightItems with
-      | some items => some (meetCore left right :: items)
+      | some items => some (meetCompoundCore left right :: items)
       | none => none
   | _, _ => none
-
-def meetListPrefixTail : List Value -> Value -> List Value -> Option (List Value)
-  | [], tail, items => some (items.map (fun item => meetCore tail item))
-  | expected :: expectedItems, tail, actual :: actualItems =>
-      match meetListPrefixTail expectedItems tail actualItems with
-      | some items => some (meetCore expected actual :: items)
-      | none => none
-  | _ :: _, _, [] => none
 
 def meetConjValue (constraints : List Value) (value : Value) : Value :=
   constraints.foldl

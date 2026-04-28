@@ -47,6 +47,20 @@ theorem meet_open_list_tail_preserves_extra_bottom :
       = .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]] := by
   rfl
 
+theorem meet_struct_field_open_list_tail_with_longer_closed_list :
+    meet
+      (.struct [("x", .regular, .listTail [.kind .int] (.kind .string))] true)
+      (.struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true)
+      = .struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true := by
+  rfl
+
+theorem meet_struct_field_open_list_tail_preserves_extra_bottom :
+    meet
+      (.struct [("x", .regular, .listTail [.kind .int] (.kind .string))] true)
+      (.struct [("x", .regular, .list [.prim (.int 1), .prim (.int 2)])] true)
+      = .struct [("x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]])] true := by
+  rfl
+
 theorem meet_open_list_tail_rejects_short_closed_list :
     meet
       (.listTail [.kind .int, .kind .string] (.kind .bool))
