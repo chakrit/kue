@@ -1,6 +1,7 @@
 import Kue.Format
 import Kue.Lattice
 import Kue.Eval
+import Kue.Resolve
 
 namespace Kue
 
@@ -25,7 +26,8 @@ def typedTailSmokeResult : String :=
 def refSmokeResult : String :=
   formatValue
     (evalStructRefs
-      (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true))
+      (resolveStructRefs
+        (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true)))
 
 def listSmokeResult : String :=
   formatValue

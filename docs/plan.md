@@ -579,8 +579,39 @@ struct fields, not only as top-level values.
    lake exe kue
    ```
 
+## Completed Slice: Syntax Reference Resolver
+
+Goal: separate syntax-facing label references from evaluation-facing binding
+ids.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - resolving a same-struct label reference to the binding id of the matching
+     field;
+   - duplicate labels resolve by binding position, not by later string lookup;
+   - missing labels remain syntax references so evaluation can report the
+     unresolved reference provenance;
+   - evaluation after resolution still produces the same value as direct label
+     evaluation.
+   Completed in the syntax reference resolver slice.
+
+2. Add a resolver module that builds a label-to-binding environment from struct
+   fields and rewrites `.ref` values to `.refId` values.
+   Completed in the syntax reference resolver slice.
+
+3. Update examples or fixture ports where this clarifies the evaluation path.
+   Completed in the syntax reference resolver slice.
+
+4. Verify. Completed in the syntax reference resolver slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add a separate syntax resolver that converts string references to binding ids.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.
