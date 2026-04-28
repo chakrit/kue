@@ -3,6 +3,7 @@ import Kue.Lattice
 import Kue.Manifest
 import Kue.Normalize
 import Kue.Eval
+import Kue.Resolve
 
 namespace Kue
 
@@ -139,5 +140,13 @@ theorem fixture_manifest_nested_default :
         true)
       = .ok "x: {mode: \"prod\"}" := by
   rfl
+
+theorem fixture_nested_reference_list :
+    formatField "x"
+      (evalStructRefs
+        (resolveStructRefs
+          (.struct [("#A", .definition, .kind .int), ("x", .regular, .list [.ref "#A"])] true)))
+      = "x: {#A: int, x: [int]}" := by
+  native_decide
 
 end Kue

@@ -699,6 +699,26 @@ lists, conjunctions, and disjunction alternatives.
    lake exe kue
    ```
 
+## Completed Slice: Nested Reference Fixture Port
+
+Goal: add a real CUE fixture for references nested inside list values.
+
+### Steps
+
+1. Add a `.cue` fixture and expected output for a list item that references a
+   definition in the same struct.
+   Completed in the nested reference fixture port slice.
+
+2. Port the fixture into `Kue/FixtureTests.lean`.
+   Completed in the nested reference fixture port slice.
+
+3. Verify. Completed in the nested reference fixture port slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.
