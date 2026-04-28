@@ -63,6 +63,9 @@ mutual
         subsumesWithFuel fuel expected actual && listSubsumesWithFuel fuel expectedItems actualItems
     | _, _ => false
 
+  def allConstraintsSubsumeWithFuel (fuel : Nat) (constraints : List Value) (actual : Value) : Bool :=
+    constraints.all fun constraint => subsumesWithFuel fuel constraint actual
+
   def disjSubsumesWithFuel (fuel : Nat) (alternatives : List (Mark × Value)) (actual : Value) : Bool :=
     alternatives.any fun alternative => subsumesWithFuel fuel alternative.snd actual
 
@@ -74,6 +77,11 @@ mutual
     | _ + 1, .kind expectedKind, .kind actualKind => expectedKind == actualKind
     | _ + 1, .kind expectedKind, .prim prim => expectedKind == Prim.kind prim
     | _ + 1, .prim expectedPrim, .prim actualPrim => expectedPrim == actualPrim
+    | _ + 1, .intGe minimum, .prim (.int value) => minimum <= value
+    | _ + 1, .intGe expectedMinimum, .intGe actualMinimum => expectedMinimum <= actualMinimum
+    | _ + 1, .intLe maximum, .prim (.int value) => value <= maximum
+    | _ + 1, .intLe expectedMaximum, .intLe actualMaximum => actualMaximum <= expectedMaximum
+    | fuel + 1, .conj constraints, value => allConstraintsSubsumeWithFuel fuel constraints value
     | _ + 1, .ref expectedLabel, .ref actualLabel => expectedLabel == actualLabel
     | _ + 1, .refId expectedId, .refId actualId => expectedId == actualId
     | fuel + 1, .disj alternatives, value => disjSubsumesWithFuel fuel alternatives value

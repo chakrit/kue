@@ -20,6 +20,9 @@ def manifestCore : Value -> Except ManifestError Prim
   | .bottomWith _ => .error .contradiction
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
+  | .intGe minimum => .error (.incomplete (.intGe minimum))
+  | .intLe maximum => .error (.incomplete (.intLe maximum))
+  | .conj constraints => .error (.incomplete (.conj constraints))
   | .ref label => .error (.incomplete (.ref label))
   | .refId id => .error (.incomplete (.refId id))
   | .disj alternatives => .error (.ambiguous alternatives)
@@ -33,6 +36,9 @@ def manifest : Value -> Except ManifestError Prim
   | .bottomWith _ => .error .contradiction
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
+  | .intGe minimum => .error (.incomplete (.intGe minimum))
+  | .intLe maximum => .error (.incomplete (.intLe maximum))
+  | .conj constraints => .error (.incomplete (.conj constraints))
   | .ref label => .error (.incomplete (.ref label))
   | .refId id => .error (.incomplete (.refId id))
   | .struct fields open_ => .error (.incomplete (.struct fields open_))

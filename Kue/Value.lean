@@ -49,6 +49,7 @@ inductive BottomReason where
   | fieldConstraint (label : String)
   | unresolvedReference (label : String)
   | unresolvedBinding (id : BindingId)
+  | intBoundConflict
 deriving Repr, BEq, DecidableEq
 
 inductive Value where
@@ -57,6 +58,9 @@ inductive Value where
   | bottomWith (reasons : List BottomReason)
   | prim (value : Prim)
   | kind (kind : Kind)
+  | intGe (minimum : Int)
+  | intLe (maximum : Int)
+  | conj (constraints : List Value)
   | ref (label : String)
   | refId (id : BindingId)
   | disj (alternatives : List (Mark × Value))

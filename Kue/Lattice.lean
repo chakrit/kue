@@ -8,6 +8,39 @@ def meetPrim (left right : Prim) : Value :=
   else
     .bottomWith [.primitiveConflict left right]
 
+def maxInt (left right : Int) : Int :=
+  if left <= right then right else left
+
+def minInt (left right : Int) : Int :=
+  if left <= right then left else right
+
+def meetIntGePrim (minimum : Int) (prim : Prim) : Value :=
+  match prim with
+  | .int value =>
+      if minimum <= value then
+        .prim prim
+      else
+        .bottomWith [.intBoundConflict]
+  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+
+def meetIntLePrim (maximum : Int) (prim : Prim) : Value :=
+  match prim with
+  | .int value =>
+      if value <= maximum then
+        .prim prim
+      else
+        .bottomWith [.intBoundConflict]
+  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+
+def meetIntRangePrim (minimum maximum : Int) (prim : Prim) : Value :=
+  match prim with
+  | .int value =>
+      if minimum <= value && value <= maximum then
+        .prim prim
+      else
+        .bottomWith [.intBoundConflict]
+  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+
 def isBottom : Value -> Bool
   | .bottom => true
   | .bottomWith _ => true
@@ -64,6 +97,34 @@ def meetCore (left right : Value) : Value :=
       else
         .bottomWith [.kindConflict (Prim.kind prim) kind]
   | .prim leftPrim, .prim rightPrim => meetPrim leftPrim rightPrim
+  | .intGe minimum, .prim prim => meetIntGePrim minimum prim
+  | .prim prim, .intGe minimum => meetIntGePrim minimum prim
+  | .intLe maximum, .prim prim => meetIntLePrim maximum prim
+  | .prim prim, .intLe maximum => meetIntLePrim maximum prim
+  | .kind .int, .intGe minimum => .intGe minimum
+  | .intGe minimum, .kind .int => .intGe minimum
+  | .kind .int, .intLe maximum => .intLe maximum
+  | .intLe maximum, .kind .int => .intLe maximum
+  | .kind kind, .intGe _ => .bottomWith [.kindConflict kind .int]
+  | .intGe _, .kind kind => .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intLe _ => .bottomWith [.kindConflict kind .int]
+  | .intLe _, .kind kind => .bottomWith [.kindConflict .int kind]
+  | .intGe leftMinimum, .intGe rightMinimum => .intGe (maxInt leftMinimum rightMinimum)
+  | .intLe leftMaximum, .intLe rightMaximum => .intLe (minInt leftMaximum rightMaximum)
+  | .intGe minimum, .intLe maximum =>
+      if minimum <= maximum then
+        .conj [.intGe minimum, .intLe maximum]
+      else
+        .bottomWith [.intBoundConflict]
+  | .intLe maximum, .intGe minimum =>
+      if minimum <= maximum then
+        .conj [.intGe minimum, .intLe maximum]
+      else
+        .bottomWith [.intBoundConflict]
+  | .conj [.intGe minimum, .intLe maximum], .prim prim => meetIntRangePrim minimum maximum prim
+  | .prim prim, .conj [.intGe minimum, .intLe maximum] => meetIntRangePrim minimum maximum prim
+  | .conj _, _ => .bottom
+  | _, .conj _ => .bottom
   | .ref leftLabel, .ref rightLabel =>
       if leftLabel = rightLabel then
         .ref leftLabel
@@ -191,6 +252,15 @@ def meetList : List Value -> List Value -> Option (List Value)
       | none => none
   | _, _ => none
 
+def meetConjValue (constraints : List Value) (value : Value) : Value :=
+  constraints.foldl
+    (fun current constraint =>
+      if isBottom current then
+        current
+      else
+        meetCore constraint current)
+    value
+
 def meet (left right : Value) : Value :=
   match left, right with
   | .bottom, _ => .bottom
@@ -199,6 +269,8 @@ def meet (left right : Value) : Value :=
   | _, .bottomWith reasons => .bottomWith reasons
   | .top, value => value
   | value, .top => value
+  | .conj constraints, value => meetConjValue constraints value
+  | value, .conj constraints => meetConjValue constraints value
   | .struct leftFields leftOpen, .struct rightFields rightOpen =>
       match mergeStructFields leftFields rightFields with
       | some fields =>

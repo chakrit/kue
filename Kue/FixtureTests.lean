@@ -85,4 +85,12 @@ theorem fixture_list_unification :
       = "x: [1, \"x\"]" := by
   native_decide
 
+theorem fixture_int_bounds :
+    formatField "x"
+      (meet
+        (meet (.intGe 0) (.intLe 10))
+        (.prim (.int 7)))
+      = "x: 7" := by
+  native_decide
+
 end Kue

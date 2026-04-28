@@ -482,8 +482,45 @@ Goal: add the first list value representation and closed-list unification.
    lake exe kue
    ```
 
+## Completed Slice: Integer Bounds
+
+Goal: add the first scalar bounds for integer constraints such as `>=0` and
+`<=65535`.
+
+### Steps
+
+1. Extend the value domain with integer lower and upper bound constraints.
+   Completed in the integer bounds slice.
+
+2. Add tests first.
+   Cover:
+   - formatting integer bounds;
+   - meeting a bound with a satisfying integer returns the integer;
+   - meeting a bound with a violating integer returns bottom with bound
+     provenance;
+   - meeting two lower bounds keeps the stricter lower bound;
+   - meeting lower and upper bounds keeps both constraints as a conjunction for
+     now;
+   - subsumption recognizes bounds over concrete integers.
+   Completed in the integer bounds slice.
+
+3. Update lattice, order, format, manifest, and examples.
+   Keep non-integer numeric kinds out of scope.
+   Completed in the integer bounds slice.
+
+4. Add one CUE fixture port for integer bounds.
+   Completed in the integer bounds slice.
+
+5. Verify. Completed in the integer bounds slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
+- Add open list values with typed tails, such as `[int, ...string]`.
 - Add a separate syntax resolver that converts string references to binding ids.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

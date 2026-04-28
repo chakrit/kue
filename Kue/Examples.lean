@@ -33,6 +33,12 @@ def listSmokeResult : String :=
       (.list [.kind .int, .kind .string])
       (.list [.prim (.int 1), .prim (.string "x")]))
 
+def intBoundsSmokeResult : String :=
+  formatValue
+    (meet
+      (meet (.intGe 0) (.intLe 10))
+      (.prim (.int 7)))
+
 def smokeLines : List String :=
   [
     s!"int & 1 => {formatValue (meet (.kind .int) (.prim (.int 1)))}",
@@ -43,7 +49,8 @@ def smokeLines : List String :=
     "{a: \"a\"} & {a: \"b\"} => " ++ fieldConflictSmokeResult,
     "{a: int, ...string} & {a: 1, b: \"x\"} => " ++ typedTailSmokeResult,
     "{#A: int, x: #A} => " ++ refSmokeResult,
-    "[int, string] & [1, \"x\"] => " ++ listSmokeResult
+    "[int, string] & [1, \"x\"] => " ++ listSmokeResult,
+    ">=0 & <=10 & 7 => " ++ intBoundsSmokeResult
   ]
 
 theorem smoke_lines_match_plan :
@@ -57,7 +64,8 @@ theorem smoke_lines_match_plan :
         "{a: \"a\"} & {a: \"b\"} => {a: _|_}",
         "{a: int, ...string} & {a: 1, b: \"x\"} => {a: 1, b: \"x\", ...string}",
         "{#A: int, x: #A} => {#A: int, x: int}",
-        "[int, string] & [1, \"x\"] => [1, \"x\"]"
+        "[int, string] & [1, \"x\"] => [1, \"x\"]",
+        ">=0 & <=10 & 7 => 7"
       ] := by
   native_decide
 

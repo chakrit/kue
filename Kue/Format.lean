@@ -48,6 +48,10 @@ mutual
     | _, .bottomWith _ => "_|_"
     | _, .prim prim => formatPrim prim
     | _, .kind kind => formatKind kind
+    | _, .intGe minimum => s!">={minimum}"
+    | _, .intLe maximum => s!"<={maximum}"
+    | fuel + 1, .conj constraints =>
+        joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | _, .ref label => label
     | _, .refId id => s!"@{id.index}"
     | fuel + 1, .disj alternatives =>
