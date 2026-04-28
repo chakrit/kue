@@ -6,10 +6,11 @@ def meetPrim (left right : Prim) : Value :=
   if left = right then
     .prim left
   else
-    .bottom
+    .bottomWith [.primitiveConflict left right]
 
 def isBottom : Value -> Bool
   | .bottom => true
+  | .bottomWith _ => true
   | _ => false
 
 def combineMark : Mark -> Mark -> Mark
@@ -43,13 +44,15 @@ def meetCore (left right : Value) : Value :=
   match left, right with
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
   | .top, value => value
   | value, .top => value
   | .kind leftKind, .kind rightKind =>
       if leftKind = rightKind then
         .kind leftKind
       else
-        .bottom
+        .bottomWith [.kindConflict leftKind rightKind]
   | .kind kind, .prim prim =>
       if Prim.kind prim = kind then
         .prim prim
@@ -87,7 +90,10 @@ def mergeFieldValue (left right : Field) : Option Field :=
   match mergeFieldClass (Field.fieldClass left) (Field.fieldClass right) with
   | some fieldClass =>
       let value := meetCore (Field.value left) (Field.value right)
-      some (fieldWithClass fieldClass (Field.label left) value)
+      if isBottom value then
+        some (fieldWithClass fieldClass (Field.label left) (.bottomWith [.fieldConflict (Field.label left)]))
+      else
+        some (fieldWithClass fieldClass (Field.label left) value)
   | none => none
 
 def mergeFieldInto (fields : List Field) (field : Field) : Option (List Field) :=
@@ -115,6 +121,8 @@ def meet (left right : Value) : Value :=
   match left, right with
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
   | .top, value => value
   | value, .top => value
   | .struct leftFields leftOpen, .struct rightFields rightOpen =>

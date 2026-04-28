@@ -47,7 +47,7 @@ theorem meet_conflicting_regular_field_bottoms_struct :
     meet
       (.struct [("a", .regular, .prim (.string "a"))] true)
       (.struct [("a", .regular, .prim (.string "b"))] true)
-      = .struct [("a", .regular, .bottom)] true := by
+      = .struct [("a", .regular, .bottomWith [.fieldConflict "a"])] true := by
   rfl
 
 theorem meet_optional_field_waits_when_absent :
@@ -81,11 +81,11 @@ theorem meet_conflicting_required_field_bottoms_struct :
     meet
       (.struct [("a", .required, .kind .int)] true)
       (.struct [("a", .regular, .prim (.string "x"))] true)
-      = .struct [("a", .regular, .bottom)] true := by
+      = .struct [("a", .regular, .bottomWith [.fieldConflict "a"])] true := by
   rfl
 
 theorem format_field_level_bottom :
-    formatValue (.struct [("a", .regular, .bottom)] true) = "{a: _|_}" := by
+    formatValue (.struct [("a", .regular, .bottomWith [.fieldConflict "a"])] true) = "{a: _|_}" := by
   native_decide
 
 theorem meet_unsupported_field_class_combination_bottoms_struct :

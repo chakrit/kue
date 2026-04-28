@@ -227,9 +227,40 @@ collapsing the whole struct to bottom.
    lake exe kue
    ```
 
+## Completed Slice: Bottom Provenance
+
+Goal: attach first-pass structural provenance to bottom values without changing
+their lattice role or display form.
+
+### Steps
+
+1. Extend the value domain. Completed in the bottom provenance slice.
+   Add a small `BottomReason` type and a provenance-carrying bottom value. Keep
+   plain bottom available for law statements and unsupported whole-value errors.
+
+2. Add tests first. Completed in the bottom provenance slice.
+   Cover:
+   - conflicting primitive values produce a bottom value with primitive conflict
+     provenance;
+   - conflicting kind values produce a bottom value with kind conflict
+     provenance;
+   - `isBottom` recognizes both plain and provenance-carrying bottom values;
+   - formatting provenance-carrying bottom still renders `_|_`;
+   - field conflicts attach field conflict provenance at the field value.
+
+3. Update `Kue/Lattice.lean` and format/manifest helpers. Completed in the
+   bottom provenance slice.
+   Treat provenance bottom as bottom for normalization and manifestation.
+
+4. Verify. Completed in the bottom provenance slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
-- Add diagnostic provenance to bottom values.
 - Add closedness and ellipsis handling.
 - Expand the compatibility harness against more official CUE examples.
 - Add resolver and cycle handling only after the core value operations are stable.

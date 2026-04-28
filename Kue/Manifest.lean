@@ -17,6 +17,7 @@ def defaultAlternatives (alternatives : List (Mark × Value)) : List (Mark × Va
 def manifestCore : Value -> Except ManifestError Prim
   | .prim prim => .ok prim
   | .bottom => .error .contradiction
+  | .bottomWith _ => .error .contradiction
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
   | .disj alternatives => .error (.ambiguous alternatives)
@@ -25,6 +26,7 @@ def manifestCore : Value -> Except ManifestError Prim
 def manifest : Value -> Except ManifestError Prim
   | .prim prim => .ok prim
   | .bottom => .error .contradiction
+  | .bottomWith _ => .error .contradiction
   | .top => .error (.incomplete .top)
   | .kind kind => .error (.incomplete (.kind kind))
   | .struct fields open_ => .error (.incomplete (.struct fields open_))

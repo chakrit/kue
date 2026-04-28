@@ -37,9 +37,16 @@ inductive FieldClass where
   | definition
 deriving Repr, BEq, DecidableEq
 
+inductive BottomReason where
+  | primitiveConflict (left right : Prim)
+  | kindConflict (left right : Kind)
+  | fieldConflict (label : String)
+deriving Repr, BEq, DecidableEq
+
 inductive Value where
   | top
   | bottom
+  | bottomWith (reasons : List BottomReason)
   | prim (value : Prim)
   | kind (kind : Kind)
   | disj (alternatives : List (Mark × Value))

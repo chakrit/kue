@@ -1,3 +1,4 @@
+import Kue.Format
 import Kue.Lattice
 
 namespace Kue
@@ -18,7 +19,13 @@ theorem meet_identical_prim (prim : Prim) : meet (.prim prim) (.prim prim) = .pr
   cases prim <;> simp [meet, meetCore, meetPrim]
 
 theorem meet_conflicting_ints :
-    meet (.prim (.int 1)) (.prim (.int 2)) = .bottom := by
+    meet (.prim (.int 1)) (.prim (.int 2))
+      = .bottomWith [.primitiveConflict (.int 1) (.int 2)] := by
+  rfl
+
+theorem meet_conflicting_kinds_has_provenance :
+    meet (.kind .int) (.kind .string)
+      = .bottomWith [.kindConflict .int .string] := by
   rfl
 
 theorem join_distinct_primitives_keeps_disjunction :
@@ -41,7 +48,8 @@ theorem meet_disjunction_preserves_default_marker :
   rfl
 
 #guard meet (.kind .int) (.prim (.int 1)) == .prim (.int 1)
-#guard meet (.prim (.string "a")) (.prim (.string "b")) == .bottom
+#guard isBottom (meet (.prim (.string "a")) (.prim (.string "b")))
+#guard formatValue (.bottomWith [.primitiveConflict (.string "a") (.string "b")]) == "_|_"
 #guard join (.prim (.int 1)) (.prim (.int 2))
   == .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]
 

@@ -45,6 +45,7 @@ mutual
     | 0, _ => "..."
     | _, .top => "_"
     | _, .bottom => "_|_"
+    | _, .bottomWith _ => "_|_"
     | _, .prim prim => formatPrim prim
     | _, .kind kind => formatKind kind
     | fuel + 1, .disj alternatives =>
