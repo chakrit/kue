@@ -129,4 +129,15 @@ theorem fixture_manifest_field_filtering_format :
       = .ok "x: {a: 1, b: [\"x\"]}" := by
   rfl
 
+theorem fixture_manifest_nested_default :
+    formatManifestField "x"
+      (.struct
+        [
+          ("mode", .regular,
+            .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
+        ]
+        true)
+      = .ok "x: {mode: \"prod\"}" := by
+  rfl
+
 end Kue

@@ -1,0 +1,3 @@
+x: {
+  mode: *"prod" | "dev"
+}

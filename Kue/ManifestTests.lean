@@ -61,4 +61,18 @@ theorem manifest_selects_single_default :
       = .ok (.prim (.string "prod")) := by
   rfl
 
+theorem manifest_selects_struct_field_default :
+    manifest
+      (.struct
+        [("mode", .regular, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])]
+        true)
+      = .ok (.struct [("mode", .prim (.string "prod"))]) := by
+  rfl
+
+theorem manifest_selects_list_item_default :
+    manifest
+      (.list [.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]])
+      = .ok (.list [.prim (.string "prod")]) := by
+  rfl
+
 end Kue

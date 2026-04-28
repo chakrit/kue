@@ -644,6 +644,32 @@ only primitive values.
    lake exe kue
    ```
 
+## Completed Slice: Recursive Manifest Defaults
+
+Goal: ensure manifestation selects defaults inside concrete structs and lists,
+not only at the top level.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - a regular struct field containing a default disjunction manifests to the
+     selected default;
+   - a list item containing a default disjunction manifests to the selected
+     default.
+   Completed in the recursive manifest defaults slice.
+
+2. Add one CUE fixture port for a struct field default selected during
+   manifestation.
+   Completed in the recursive manifest defaults slice.
+
+3. Verify. Completed in the recursive manifest defaults slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.
