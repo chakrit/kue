@@ -774,6 +774,36 @@ reference each other evaluate to top.
    lake exe kue
    ```
 
+## Completed Slice: Strict Integer Bounds
+
+Goal: add strict integer bounds for constraints such as `>0` and `<10`.
+
+### Steps
+
+1. Extend the value domain with strict lower and upper integer bound values.
+   Completed in the strict integer bounds slice.
+
+2. Add tests first.
+   Cover:
+   - formatting strict bounds;
+   - meeting strict bounds with satisfying and violating integers;
+   - meeting strict lower and upper bounds keeps both constraints;
+   - subsumption recognizes strict bounds over concrete integers.
+   Completed in the strict integer bounds slice.
+
+3. Update lattice, order, format, and manifest helpers.
+   Completed in the strict integer bounds slice.
+
+4. Add one CUE fixture port for strict integer bounds.
+   Completed in the strict integer bounds slice.
+
+5. Verify. Completed in the strict integer bounds slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

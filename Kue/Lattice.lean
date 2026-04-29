@@ -23,6 +23,15 @@ def meetIntGePrim (minimum : Int) (prim : Prim) : Value :=
         .bottomWith [.intBoundConflict]
   | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
 
+def meetIntGtPrim (minimum : Int) (prim : Prim) : Value :=
+  match prim with
+  | .int value =>
+      if minimum < value then
+        .prim prim
+      else
+        .bottomWith [.intBoundConflict]
+  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+
 def meetIntLePrim (maximum : Int) (prim : Prim) : Value :=
   match prim with
   | .int value =>
@@ -32,10 +41,28 @@ def meetIntLePrim (maximum : Int) (prim : Prim) : Value :=
         .bottomWith [.intBoundConflict]
   | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
 
+def meetIntLtPrim (maximum : Int) (prim : Prim) : Value :=
+  match prim with
+  | .int value =>
+      if value < maximum then
+        .prim prim
+      else
+        .bottomWith [.intBoundConflict]
+  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+
 def meetIntRangePrim (minimum maximum : Int) (prim : Prim) : Value :=
   match prim with
   | .int value =>
       if minimum <= value && value <= maximum then
+        .prim prim
+      else
+        .bottomWith [.intBoundConflict]
+  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+
+def meetStrictIntRangePrim (minimum maximum : Int) (prim : Prim) : Value :=
+  match prim with
+  | .int value =>
+      if minimum < value && value < maximum then
         .prim prim
       else
         .bottomWith [.intBoundConflict]
@@ -99,18 +126,36 @@ def meetCore (left right : Value) : Value :=
   | .prim leftPrim, .prim rightPrim => meetPrim leftPrim rightPrim
   | .intGe minimum, .prim prim => meetIntGePrim minimum prim
   | .prim prim, .intGe minimum => meetIntGePrim minimum prim
+  | .intGt minimum, .prim prim => meetIntGtPrim minimum prim
+  | .prim prim, .intGt minimum => meetIntGtPrim minimum prim
   | .intLe maximum, .prim prim => meetIntLePrim maximum prim
   | .prim prim, .intLe maximum => meetIntLePrim maximum prim
+  | .intLt maximum, .prim prim => meetIntLtPrim maximum prim
+  | .prim prim, .intLt maximum => meetIntLtPrim maximum prim
   | .kind .int, .intGe minimum => .intGe minimum
   | .intGe minimum, .kind .int => .intGe minimum
+  | .kind .int, .intGt minimum => .intGt minimum
+  | .intGt minimum, .kind .int => .intGt minimum
   | .kind .int, .intLe maximum => .intLe maximum
   | .intLe maximum, .kind .int => .intLe maximum
+  | .kind .int, .intLt maximum => .intLt maximum
+  | .intLt maximum, .kind .int => .intLt maximum
   | .kind kind, .intGe _ => .bottomWith [.kindConflict kind .int]
   | .intGe _, .kind kind => .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intGt _ => .bottomWith [.kindConflict kind .int]
+  | .intGt _, .kind kind => .bottomWith [.kindConflict .int kind]
   | .kind kind, .intLe _ => .bottomWith [.kindConflict kind .int]
   | .intLe _, .kind kind => .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intLt _ => .bottomWith [.kindConflict kind .int]
+  | .intLt _, .kind kind => .bottomWith [.kindConflict .int kind]
   | .intGe leftMinimum, .intGe rightMinimum => .intGe (maxInt leftMinimum rightMinimum)
+  | .intGt leftMinimum, .intGt rightMinimum => .intGt (maxInt leftMinimum rightMinimum)
+  | .intGe minimum, .intGt strictMinimum => .conj [.intGe minimum, .intGt strictMinimum]
+  | .intGt strictMinimum, .intGe minimum => .conj [.intGe minimum, .intGt strictMinimum]
   | .intLe leftMaximum, .intLe rightMaximum => .intLe (minInt leftMaximum rightMaximum)
+  | .intLt leftMaximum, .intLt rightMaximum => .intLt (minInt leftMaximum rightMaximum)
+  | .intLe maximum, .intLt strictMaximum => .conj [.intLe maximum, .intLt strictMaximum]
+  | .intLt strictMaximum, .intLe maximum => .conj [.intLe maximum, .intLt strictMaximum]
   | .intGe minimum, .intLe maximum =>
       if minimum <= maximum then
         .conj [.intGe minimum, .intLe maximum]
@@ -121,8 +166,40 @@ def meetCore (left right : Value) : Value :=
         .conj [.intGe minimum, .intLe maximum]
       else
         .bottomWith [.intBoundConflict]
+  | .intGe minimum, .intLt maximum =>
+      if minimum < maximum then
+        .conj [.intGe minimum, .intLt maximum]
+      else
+        .bottomWith [.intBoundConflict]
+  | .intLt maximum, .intGe minimum =>
+      if minimum < maximum then
+        .conj [.intGe minimum, .intLt maximum]
+      else
+        .bottomWith [.intBoundConflict]
+  | .intGt minimum, .intLe maximum =>
+      if minimum < maximum then
+        .conj [.intGt minimum, .intLe maximum]
+      else
+        .bottomWith [.intBoundConflict]
+  | .intLe maximum, .intGt minimum =>
+      if minimum < maximum then
+        .conj [.intGt minimum, .intLe maximum]
+      else
+        .bottomWith [.intBoundConflict]
+  | .intGt minimum, .intLt maximum =>
+      if minimum < maximum then
+        .conj [.intGt minimum, .intLt maximum]
+      else
+        .bottomWith [.intBoundConflict]
+  | .intLt maximum, .intGt minimum =>
+      if minimum < maximum then
+        .conj [.intGt minimum, .intLt maximum]
+      else
+        .bottomWith [.intBoundConflict]
   | .conj [.intGe minimum, .intLe maximum], .prim prim => meetIntRangePrim minimum maximum prim
   | .prim prim, .conj [.intGe minimum, .intLe maximum] => meetIntRangePrim minimum maximum prim
+  | .conj [.intGt minimum, .intLt maximum], .prim prim => meetStrictIntRangePrim minimum maximum prim
+  | .prim prim, .conj [.intGt minimum, .intLt maximum] => meetStrictIntRangePrim minimum maximum prim
   | .conj _, _ => .bottom
   | _, .conj _ => .bottom
   | .ref leftLabel, .ref rightLabel =>

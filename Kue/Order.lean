@@ -90,8 +90,12 @@ mutual
     | _ + 1, .prim expectedPrim, .prim actualPrim => expectedPrim == actualPrim
     | _ + 1, .intGe minimum, .prim (.int value) => minimum <= value
     | _ + 1, .intGe expectedMinimum, .intGe actualMinimum => expectedMinimum <= actualMinimum
+    | _ + 1, .intGt minimum, .prim (.int value) => minimum < value
+    | _ + 1, .intGt expectedMinimum, .intGt actualMinimum => expectedMinimum <= actualMinimum
     | _ + 1, .intLe maximum, .prim (.int value) => value <= maximum
     | _ + 1, .intLe expectedMaximum, .intLe actualMaximum => actualMaximum <= expectedMaximum
+    | _ + 1, .intLt maximum, .prim (.int value) => value < maximum
+    | _ + 1, .intLt expectedMaximum, .intLt actualMaximum => actualMaximum <= expectedMaximum
     | fuel + 1, .conj constraints, value => allConstraintsSubsumeWithFuel fuel constraints value
     | _ + 1, .ref expectedLabel, .ref actualLabel => expectedLabel == actualLabel
     | _ + 1, .refId expectedId, .refId actualId => expectedId == actualId

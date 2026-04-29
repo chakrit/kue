@@ -41,6 +41,12 @@ def intBoundsSmokeResult : String :=
       (meet (.intGe 0) (.intLe 10))
       (.prim (.int 7)))
 
+def strictIntBoundsSmokeResult : String :=
+  formatValue
+    (meet
+      (meet (.intGt 0) (.intLt 10))
+      (.prim (.int 7)))
+
 def openListTailSmokeResult : String :=
   formatValue
     (meet
@@ -59,6 +65,7 @@ def smokeLines : List String :=
     "{#A: int, x: #A} => " ++ refSmokeResult,
     "[int, string] & [1, \"x\"] => " ++ listSmokeResult,
     ">=0 & <=10 & 7 => " ++ intBoundsSmokeResult,
+    ">0 & <10 & 7 => " ++ strictIntBoundsSmokeResult,
     "[int, ...string] & [1, \"x\", \"y\"] => " ++ openListTailSmokeResult
   ]
 
@@ -75,6 +82,7 @@ theorem smoke_lines_match_plan :
         "{#A: int, x: #A} => {#A: int, x: int}",
         "[int, string] & [1, \"x\"] => [1, \"x\"]",
         ">=0 & <=10 & 7 => 7",
+        ">0 & <10 & 7 => 7",
         "[int, ...string] & [1, \"x\", \"y\"] => [1, \"x\", \"y\"]"
       ] := by
   native_decide

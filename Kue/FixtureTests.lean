@@ -94,6 +94,14 @@ theorem fixture_int_bounds :
       = "x: 7" := by
   native_decide
 
+theorem fixture_strict_int_bounds :
+    formatField "x"
+      (meet
+        (meet (.intGt 0) (.intLt 10))
+        (.prim (.int 7)))
+      = "x: 7" := by
+  native_decide
+
 theorem fixture_open_list_tail :
     formatField "x"
       (meet
