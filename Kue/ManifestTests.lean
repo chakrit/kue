@@ -101,4 +101,22 @@ theorem manifest_selects_optional_default_when_regular_field_exists :
       = .ok (.struct [("mode", .prim (.string "prod"))]) := by
   rfl
 
+theorem manifest_unsatisfied_required_default_fails :
+    manifest
+      (.struct
+        [("mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])]
+        true)
+      = .error (.incomplete (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])) := by
+  rfl
+
+theorem manifest_selects_required_default_when_regular_field_exists :
+    manifest
+      (meet
+        (.struct
+          [("mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])]
+          true)
+        (.struct [("mode", .regular, .top)] true))
+      = .ok (.struct [("mode", .prim (.string "prod"))]) := by
+  rfl
+
 end Kue
