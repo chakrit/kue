@@ -83,4 +83,22 @@ theorem manifest_default_override_after_regular_unification :
       = .ok (.prim (.string "dev")) := by
   rfl
 
+theorem manifest_ignores_absent_optional_default :
+    manifest
+      (.struct
+        [("mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])]
+        true)
+      = .ok (.struct []) := by
+  rfl
+
+theorem manifest_selects_optional_default_when_regular_field_exists :
+    manifest
+      (meet
+        (.struct
+          [("mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])]
+          true)
+        (.struct [("mode", .regular, .top)] true))
+      = .ok (.struct [("mode", .prim (.string "prod"))]) := by
+  rfl
+
 end Kue

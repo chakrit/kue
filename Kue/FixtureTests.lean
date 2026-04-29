@@ -161,6 +161,24 @@ theorem fixture_manifest_nested_default :
       = .ok "x: {mode: \"prod\"}" := by
   rfl
 
+theorem fixture_manifest_ignores_absent_optional_default :
+    formatManifestField "x"
+      (.struct
+        [("mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])]
+        true)
+      = .ok "x: {}" := by
+  rfl
+
+theorem fixture_manifest_selects_materialized_optional_default :
+    formatManifestField "x"
+      (meet
+        (.struct
+          [("mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])]
+          true)
+        (.struct [("mode", .regular, .top)] true))
+      = .ok "x: {mode: \"prod\"}" := by
+  rfl
+
 theorem fixture_nested_reference_list :
     formatField "x"
       (evalStructRefs

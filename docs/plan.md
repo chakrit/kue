@@ -879,6 +879,28 @@ Goal: add the first not-equal value constraint, such as `!=0`.
    lake exe kue
    ```
 
+## Completed Slice: Optional Field Defaults
+
+Goal: record CUE's optional-field default behavior at manifestation.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - an optional field with a default is excluded when no regular field exists;
+   - when unified with a regular field, the optional default can be selected.
+   Completed in the optional field defaults slice.
+
+2. Add one CUE fixture port for each observable behavior.
+   Completed in the optional field defaults slice.
+
+3. Verify. Completed in the optional field defaults slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.
