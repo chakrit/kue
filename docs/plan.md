@@ -804,6 +804,29 @@ Goal: add strict integer bounds for constraints such as `>0` and `<10`.
    lake exe kue
    ```
 
+## Completed Slice: General Nested Conjunction Meets
+
+Goal: apply conjunction constraints consistently inside nested positions such as
+struct fields and list elements.
+
+### Steps
+
+1. Add tests first.
+   Cover a struct field constrained by a strict integer range and a concrete
+   integer value.
+   Completed in the general nested conjunction meets slice.
+
+2. Route compound nested meet handling through the same conjunction fold used by
+   top-level meet.
+   Completed in the general nested conjunction meets slice.
+
+3. Verify. Completed in the general nested conjunction meets slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

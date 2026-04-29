@@ -229,6 +229,15 @@ def meetCore (left right : Value) : Value :=
   | .struct .., _ => .bottom
   | _, .struct .. => .bottom
 
+def meetConjValue (constraints : List Value) (value : Value) : Value :=
+  constraints.foldl
+    (fun current constraint =>
+      if isBottom current then
+        current
+      else
+        meetCore constraint current)
+    value
+
 def meetListPrefixTail : List Value -> Value -> List Value -> Option (List Value)
   | [], tail, items => some (items.map (fun item => meetCore tail item))
   | expected :: expectedItems, tail, actual :: actualItems =>
@@ -239,6 +248,8 @@ def meetListPrefixTail : List Value -> Value -> List Value -> Option (List Value
 
 def meetCompoundCore (left right : Value) : Value :=
   match left, right with
+  | .conj constraints, value => meetConjValue constraints value
+  | value, .conj constraints => meetConjValue constraints value
   | .listTail fixed tail, .list items =>
       match meetListPrefixTail fixed tail items with
       | some items => .list items
@@ -350,15 +361,6 @@ def meetList : List Value -> List Value -> Option (List Value)
       | some items => some (meetCompoundCore left right :: items)
       | none => none
   | _, _ => none
-
-def meetConjValue (constraints : List Value) (value : Value) : Value :=
-  constraints.foldl
-    (fun current constraint =>
-      if isBottom current then
-        current
-      else
-        meetCore constraint current)
-    value
 
 def meet (left right : Value) : Value :=
   match left, right with

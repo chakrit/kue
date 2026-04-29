@@ -59,6 +59,13 @@ theorem meet_struct_field_bound_conjunction_with_satisfying_int :
       = .struct [("x", .regular, .prim (.int 7))] true := by
   rfl
 
+theorem meet_struct_field_strict_bound_conjunction_with_satisfying_int :
+    meet
+      (.struct [("x", .regular, .conj [.intGt 0, .intLt 10])] true)
+      (.struct [("x", .regular, .prim (.int 7))] true)
+      = .struct [("x", .regular, .prim (.int 7))] true := by
+  rfl
+
 theorem lower_bound_subsumes_satisfying_int :
     subsumes (.intGe 0) (.prim (.int 1)) = true := by
   native_decide
