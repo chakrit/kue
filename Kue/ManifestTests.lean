@@ -75,4 +75,12 @@ theorem manifest_selects_list_item_default :
       = .ok (.list [.prim (.string "prod")]) := by
   rfl
 
+theorem manifest_default_override_after_regular_unification :
+    manifest
+      (meet
+        (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
+        (.prim (.string "dev")))
+      = .ok (.prim (.string "dev")) := by
+  rfl
+
 end Kue

@@ -34,6 +34,14 @@ theorem fixture_default_disjunction_manifest :
       = .ok "x: \"prod\"" := by
   rfl
 
+theorem fixture_default_override_manifest :
+    formatManifestField "x"
+      (meet
+        (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
+        (.prim (.string "dev")))
+      = .ok "x: \"dev\"" := by
+  rfl
+
 theorem fixture_regular_struct_meet :
     formatField "x"
       (meet

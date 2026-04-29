@@ -827,6 +827,27 @@ struct fields and list elements.
    lake exe kue
    ```
 
+## Completed Slice: Default Override Selection
+
+Goal: record the CUE rule that regular unification can override a default
+alternative.
+
+### Steps
+
+1. Add tests first.
+   Cover `(*"prod" | "dev") & "dev"` evaluating and manifesting to `"dev"`.
+   Completed in the default override selection slice.
+
+2. Add one CUE fixture port for default override selection.
+   Completed in the default override selection slice.
+
+3. Verify. Completed in the default override selection slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.
