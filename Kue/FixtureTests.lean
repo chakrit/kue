@@ -149,4 +149,10 @@ theorem fixture_nested_reference_list :
       = "x: {#A: int, x: [int]}" := by
   native_decide
 
+theorem fixture_direct_self_reference_cycle :
+    formatField "x"
+      (evalStructRefs (resolveStructRefs (.struct [("x", .regular, .ref "x")] true)))
+      = "x: {x: _}" := by
+  native_decide
+
 end Kue

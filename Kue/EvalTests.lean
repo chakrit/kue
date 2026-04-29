@@ -1,6 +1,7 @@
 import Kue.Eval
 import Kue.Format
 import Kue.Manifest
+import Kue.Resolve
 
 namespace Kue
 
@@ -40,6 +41,18 @@ theorem eval_binding_id_not_label_lookup :
     (evalStructRefs
       (.struct [("same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .refId ⟨1⟩)] true)
       == .struct [("same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .kind .string)] true) = true := by
+  native_decide
+
+theorem resolve_direct_self_reference :
+    (resolveStructRefs
+      (.struct [("x", .regular, .ref "x")] true)
+      == .struct [("x", .regular, .refId ⟨0⟩)] true) = true := by
+  native_decide
+
+theorem eval_direct_self_reference_as_top :
+    (evalStructRefs
+      (resolveStructRefs (.struct [("x", .regular, .ref "x")] true))
+      == .struct [("x", .regular, .top)] true) = true := by
   native_decide
 
 end Kue

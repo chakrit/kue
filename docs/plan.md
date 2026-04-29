@@ -719,6 +719,34 @@ Goal: add a real CUE fixture for references nested inside list values.
    lake exe kue
    ```
 
+## Completed Slice: Direct Reference Cycles
+
+Goal: handle the first CUE reference cycle case explicitly: a field that
+directly references itself evaluates to top.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - resolving `x: x` to a self binding reference;
+   - evaluating that self binding reference to top;
+   - unrelated binding references still evaluate normally.
+   Completed in the direct reference cycles slice.
+
+2. Thread the current binding id through field evaluation and treat a direct
+   self-reference as top.
+   Completed in the direct reference cycles slice.
+
+3. Add one CUE fixture port for `x: x`.
+   Completed in the direct reference cycles slice.
+
+4. Verify. Completed in the direct reference cycles slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

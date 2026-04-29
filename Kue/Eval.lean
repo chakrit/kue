@@ -33,51 +33,58 @@ mutual
       (fuel : Nat)
       (fields : List Field)
       (bindings : List (BindingId × Field))
+      (current : Option BindingId)
       (field : Field) : Field :=
-    (Field.label field, Field.fieldClass field, evalValueWithFuel fuel fields bindings (Field.value field))
+    (Field.label field, Field.fieldClass field, evalValueWithFuel fuel fields bindings current (Field.value field))
 
-  def evalValueWithFuel : Nat -> List Field -> List (BindingId × Field) -> Value -> Value
-    | 0, _, _, value => value
-    | _ + 1, fields, _, .ref label =>
+  def evalValueWithFuel : Nat -> List Field -> List (BindingId × Field) -> Option BindingId -> Value -> Value
+    | 0, _, _, _, value => value
+    | _ + 1, fields, _, _, .ref label =>
         match findEvalField label fields with
         | some field => Field.value field
         | none => .bottomWith [.unresolvedReference label]
-    | _ + 1, _, bindings, .refId id =>
-        match findBinding id bindings with
-        | some field => Field.value field
-        | none => .bottomWith [.unresolvedBinding id]
-    | fuel + 1, fields, bindings, .conj constraints =>
-        .conj (constraints.map (evalValueWithFuel fuel fields bindings))
-    | fuel + 1, fields, bindings, .disj alternatives =>
+    | _ + 1, _, bindings, current, .refId id =>
+        if some id == current then
+          .top
+        else
+          match findBinding id bindings with
+          | some field => Field.value field
+          | none => .bottomWith [.unresolvedBinding id]
+    | fuel + 1, fields, bindings, current, .conj constraints =>
+        .conj (constraints.map (evalValueWithFuel fuel fields bindings current))
+    | fuel + 1, fields, bindings, current, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
-          (alternative.fst, evalValueWithFuel fuel fields bindings alternative.snd)
+          (alternative.fst, evalValueWithFuel fuel fields bindings current alternative.snd)
         )
-    | fuel + 1, fields, bindings, .struct nestedFields open_ =>
-        .struct (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings)) open_
-    | fuel + 1, fields, bindings, .structTail nestedFields tail =>
+    | fuel + 1, fields, bindings, current, .struct nestedFields open_ =>
+        .struct (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings current)) open_
+    | fuel + 1, fields, bindings, current, .structTail nestedFields tail =>
         .structTail
-          (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings))
-          (evalValueWithFuel fuel fields bindings tail)
-    | fuel + 1, fields, bindings, .list items =>
-        .list (items.map (evalValueWithFuel fuel fields bindings))
-    | fuel + 1, fields, bindings, .listTail items tail =>
+          (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings current))
+          (evalValueWithFuel fuel fields bindings current tail)
+    | fuel + 1, fields, bindings, current, .list items =>
+        .list (items.map (evalValueWithFuel fuel fields bindings current))
+    | fuel + 1, fields, bindings, current, .listTail items tail =>
         .listTail
-          (items.map (evalValueWithFuel fuel fields bindings))
-          (evalValueWithFuel fuel fields bindings tail)
-    | _, _, _, value => value
+          (items.map (evalValueWithFuel fuel fields bindings current))
+          (evalValueWithFuel fuel fields bindings current tail)
+    | _, _, _, _, value => value
 end
 
 def evalFieldRefs (fields : List Field) (bindings : List (BindingId × Field)) (field : Field) : Field :=
-  evalFieldRefsWithFuel evalFuel fields bindings field
+  evalFieldRefsWithFuel evalFuel fields bindings none field
+
+def evalBindingField (fields : List Field) (bindings : List (BindingId × Field)) (binding : BindingId × Field) : Field :=
+  evalFieldRefsWithFuel evalFuel fields bindings (some binding.fst) binding.snd
 
 def evalStructRefs (value : Value) : Value :=
   match normalizeDefinitions value with
   | .struct fields open_ =>
       let bindings := buildBindingEnv fields
-      .struct (fields.map (evalFieldRefs fields bindings)) open_
+      .struct (bindings.map (evalBindingField fields bindings)) open_
   | .structTail fields tail =>
       let bindings := buildBindingEnv fields
-      .structTail (fields.map (evalFieldRefs fields bindings)) tail
+      .structTail (bindings.map (evalBindingField fields bindings)) tail
   | value => value
 
 end Kue
