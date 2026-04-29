@@ -747,6 +747,33 @@ directly references itself evaluates to top.
    lake exe kue
    ```
 
+## Completed Slice: Mutual Reference Cycles
+
+Goal: handle the next small CUE reference cycle case: two fields that directly
+reference each other evaluate to top.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - `x: y, y: x` evaluates both fields to top after resolution;
+   - non-cycle references still evaluate to their target value.
+   Completed in the mutual reference cycles slice.
+
+2. Extend binding evaluation with a bounded one-hop cycle check for resolved
+   references.
+   Completed in the mutual reference cycles slice.
+
+3. Add one CUE fixture port for the mutual reference cycle.
+   Completed in the mutual reference cycles slice.
+
+4. Verify. Completed in the mutual reference cycles slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

@@ -155,4 +155,11 @@ theorem fixture_direct_self_reference_cycle :
       = "x: {x: _}" := by
   native_decide
 
+theorem fixture_mutual_reference_cycle :
+    formatField "x"
+      (evalStructRefs
+        (resolveStructRefs (.struct [("x", .regular, .ref "y"), ("y", .regular, .ref "x")] true)))
+      = "x: {x: _, y: _}" := by
+  native_decide
+
 end Kue

@@ -25,6 +25,10 @@ def findBinding (id : BindingId) : List (BindingId × Field) -> Option Field
       else
         findBinding id bindings
 
+def isRefToBinding (id : BindingId) : Value -> Bool
+  | .refId target => target == id
+  | _ => false
+
 def evalFuel : Nat :=
   100
 
@@ -48,7 +52,14 @@ mutual
           .top
         else
           match findBinding id bindings with
-          | some field => Field.value field
+          | some field =>
+              match current with
+              | some currentId =>
+                  if isRefToBinding currentId (Field.value field) then
+                    .top
+                  else
+                    Field.value field
+              | none => Field.value field
           | none => .bottomWith [.unresolvedBinding id]
     | fuel + 1, fields, bindings, current, .conj constraints =>
         .conj (constraints.map (evalValueWithFuel fuel fields bindings current))
