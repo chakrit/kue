@@ -8,6 +8,12 @@ def meetPrim (left right : Prim) : Value :=
   else
     .bottomWith [.primitiveConflict left right]
 
+def meetNotPrimPrim (forbidden prim : Prim) : Value :=
+  if forbidden = prim then
+    .bottomWith [.excludedValue forbidden]
+  else
+    .prim prim
+
 def maxInt (left right : Int) : Int :=
   if left <= right then right else left
 
@@ -124,6 +130,39 @@ def meetCore (left right : Value) : Value :=
       else
         .bottomWith [.kindConflict (Prim.kind prim) kind]
   | .prim leftPrim, .prim rightPrim => meetPrim leftPrim rightPrim
+  | .notPrim forbidden, .prim prim => meetNotPrimPrim forbidden prim
+  | .prim prim, .notPrim forbidden => meetNotPrimPrim forbidden prim
+  | .kind kind, .notPrim forbidden =>
+      if Prim.kind forbidden = kind then
+        .notPrim forbidden
+      else
+        .kind kind
+  | .notPrim forbidden, .kind kind =>
+      if Prim.kind forbidden = kind then
+        .notPrim forbidden
+      else
+        .kind kind
+  | .notPrim leftForbidden, .notPrim rightForbidden =>
+      if leftForbidden = rightForbidden then
+        .notPrim leftForbidden
+      else
+        .conj [.notPrim leftForbidden, .notPrim rightForbidden]
+  | .intGe minimum, .notPrim forbidden =>
+      if Prim.kind forbidden = .int then .conj [.intGe minimum, .notPrim forbidden] else .intGe minimum
+  | .notPrim forbidden, .intGe minimum =>
+      if Prim.kind forbidden = .int then .conj [.intGe minimum, .notPrim forbidden] else .intGe minimum
+  | .intGt minimum, .notPrim forbidden =>
+      if Prim.kind forbidden = .int then .conj [.intGt minimum, .notPrim forbidden] else .intGt minimum
+  | .notPrim forbidden, .intGt minimum =>
+      if Prim.kind forbidden = .int then .conj [.intGt minimum, .notPrim forbidden] else .intGt minimum
+  | .intLe maximum, .notPrim forbidden =>
+      if Prim.kind forbidden = .int then .conj [.intLe maximum, .notPrim forbidden] else .intLe maximum
+  | .notPrim forbidden, .intLe maximum =>
+      if Prim.kind forbidden = .int then .conj [.intLe maximum, .notPrim forbidden] else .intLe maximum
+  | .intLt maximum, .notPrim forbidden =>
+      if Prim.kind forbidden = .int then .conj [.intLt maximum, .notPrim forbidden] else .intLt maximum
+  | .notPrim forbidden, .intLt maximum =>
+      if Prim.kind forbidden = .int then .conj [.intLt maximum, .notPrim forbidden] else .intLt maximum
   | .intGe minimum, .prim prim => meetIntGePrim minimum prim
   | .prim prim, .intGe minimum => meetIntGePrim minimum prim
   | .intGt minimum, .prim prim => meetIntGtPrim minimum prim

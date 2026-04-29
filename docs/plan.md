@@ -848,6 +848,37 @@ alternative.
    lake exe kue
    ```
 
+## Completed Slice: Primitive Exclusion Constraints
+
+Goal: add the first not-equal value constraint, such as `!=0`.
+
+### Steps
+
+1. Extend the value domain with a primitive exclusion constraint.
+   Completed in the primitive exclusion constraints slice.
+
+2. Add tests first.
+   Cover:
+   - formatting primitive exclusions;
+   - meeting an exclusion with an allowed primitive returns the primitive;
+   - meeting an exclusion with the forbidden primitive returns bottom with
+     provenance;
+   - subsumption recognizes exclusions over concrete primitives.
+   Completed in the primitive exclusion constraints slice.
+
+3. Update lattice, order, format, and manifest helpers.
+   Completed in the primitive exclusion constraints slice.
+
+4. Add one CUE fixture port for primitive exclusion.
+   Completed in the primitive exclusion constraints slice.
+
+5. Verify. Completed in the primitive exclusion constraints slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

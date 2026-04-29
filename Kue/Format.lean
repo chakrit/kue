@@ -48,6 +48,7 @@ mutual
     | _, .bottomWith _ => "_|_"
     | _, .prim prim => formatPrim prim
     | _, .kind kind => formatKind kind
+    | _, .notPrim prim => "!=" ++ formatPrim prim
     | _, .intGe minimum => s!">={minimum}"
     | _, .intGt minimum => s!">{minimum}"
     | _, .intLe maximum => s!"<={maximum}"

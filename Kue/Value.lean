@@ -50,6 +50,7 @@ inductive BottomReason where
   | unresolvedReference (label : String)
   | unresolvedBinding (id : BindingId)
   | intBoundConflict
+  | excludedValue (value : Prim)
 deriving Repr, BEq, DecidableEq
 
 inductive Value where
@@ -58,6 +59,7 @@ inductive Value where
   | bottomWith (reasons : List BottomReason)
   | prim (value : Prim)
   | kind (kind : Kind)
+  | notPrim (value : Prim)
   | intGe (minimum : Int)
   | intGt (minimum : Int)
   | intLe (maximum : Int)
