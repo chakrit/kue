@@ -923,6 +923,30 @@ Goal: record required-field default behavior at manifestation.
    lake exe kue
    ```
 
+## Completed Slice: Hidden Field References
+
+Goal: record that hidden fields participate in evaluation and reference
+resolution, even though they are excluded from manifestation.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - a regular field can reference a hidden field;
+   - manifestation filters the hidden field but exports the regular reference
+     result.
+   Completed in the hidden field references slice.
+
+2. Add one CUE fixture port for hidden field reference manifestation.
+   Completed in the hidden field references slice.
+
+3. Verify. Completed in the hidden field references slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

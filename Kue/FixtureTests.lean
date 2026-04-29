@@ -15,6 +15,11 @@ def formatManifestField (name : String) (value : Value) : Except ManifestError S
   | .ok data => .ok s!"{name}: {formatManifestValue data}"
   | .error error => .error error
 
+def manifestFieldMatches (name : String) (value : Value) (expected : String) : Bool :=
+  match formatManifestField name value with
+  | .ok actual => actual == expected
+  | .error _ => false
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide
@@ -208,6 +213,14 @@ theorem fixture_mutual_reference_cycle :
       (evalStructRefs
         (resolveStructRefs (.struct [("x", .regular, .ref "y"), ("y", .regular, .ref "x")] true)))
       = "x: {x: _, y: _}" := by
+  native_decide
+
+theorem fixture_manifest_hidden_field_reference :
+    manifestFieldMatches "x"
+        (evalStructRefs
+          (resolveStructRefs
+            (.struct [("_secret", .hidden, .prim (.string "x")), ("value", .regular, .ref "_secret")] true)))
+        "x: {value: \"x\"}" = true := by
   native_decide
 
 end Kue
