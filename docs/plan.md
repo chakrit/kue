@@ -1068,6 +1068,31 @@ already subsumes the other.
    lake exe kue
    ```
 
+## Completed Slice: Fixture Pairing Check
+
+Goal: make the real CUE fixture corpus mechanically checkable without relying on
+the external `cue` binary.
+
+### Steps
+
+1. Add a shell fixture check.
+   Cover:
+   - every `testdata/cue/*.cue` file has at least one expected output file;
+   - every `*.expected` or `*.manifest.expected` file has a matching `.cue`
+     source file.
+   Completed in the fixture pairing check slice.
+
+2. Run the fixture check and `shellcheck`.
+   Completed in the fixture pairing check slice.
+
+3. Verify. Completed in the fixture pairing check slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.
