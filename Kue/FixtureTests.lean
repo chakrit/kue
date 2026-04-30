@@ -119,6 +119,10 @@ theorem fixture_primitive_exclusion :
     formatField "x" (meet (.notPrim (.int 0)) (.prim (.int 1))) = "x: 1" := by
   native_decide
 
+theorem fixture_bytes_kind :
+    formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc"))) = "x: #\"abc\"#" := by
+  native_decide
+
 theorem fixture_open_list_tail :
     formatField "x"
       (meet

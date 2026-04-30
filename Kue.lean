@@ -18,3 +18,4 @@ import Kue.ResolveTests
 import Kue.ListTests
 import Kue.BoundTests
 import Kue.ExclusionTests
+import Kue.BytesTests

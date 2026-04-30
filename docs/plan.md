@@ -947,6 +947,37 @@ resolution, even though they are excluded from manifestation.
    lake exe kue
    ```
 
+## Completed Slice: Bytes Kind
+
+Goal: add bytes as a primitive value and kind distinct from string.
+
+### Steps
+
+1. Extend the value domain with a `bytes` kind and byte primitive represented
+   as a Lean string payload for now.
+   Completed in the bytes kind slice.
+
+2. Add tests first.
+   Cover:
+   - formatting the bytes kind and a byte literal;
+   - meeting `bytes` with a byte primitive succeeds;
+   - meeting `string` with a byte primitive bottoms with kind provenance;
+   - subsumption recognizes the bytes kind over byte primitives.
+   Completed in the bytes kind slice.
+
+3. Update lattice, order, format, and examples.
+   Completed in the bytes kind slice.
+
+4. Add one CUE fixture port for bytes kind unification.
+   Completed in the bytes kind slice.
+
+5. Verify. Completed in the bytes kind slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

@@ -7,6 +7,7 @@ def formatKind : Kind -> String
   | .bool => "bool"
   | .int => "int"
   | .string => "string"
+  | .bytes => "bytes"
 
 def formatPrim : Prim -> String
   | .null => "null"
@@ -14,6 +15,7 @@ def formatPrim : Prim -> String
   | .bool false => "false"
   | .int value => toString value
   | .string value => s!"\"{value}\""
+  | .bytes value => "#\"" ++ value ++ "\"#"
 
 def joinWith (separator : String) : List String -> String
   | [] => ""
