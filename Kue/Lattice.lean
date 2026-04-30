@@ -8,6 +8,12 @@ def meetPrim (left right : Prim) : Value :=
   else
     .bottomWith [.primitiveConflict left right]
 
+def kindAcceptsPrim (kind : Kind) (prim : Prim) : Bool :=
+  kind == Prim.kind prim || (kind == .number && (Prim.kind prim == .int || Prim.kind prim == .float))
+
+def kindAcceptsKind (expected actual : Kind) : Bool :=
+  expected == actual || (expected == .number && (actual == .int || actual == .float))
+
 def meetNotPrimPrim (forbidden prim : Prim) : Value :=
   if forbidden = prim then
     .bottomWith [.excludedValue forbidden]
@@ -115,17 +121,19 @@ def meetCore (left right : Value) : Value :=
   | .top, value => value
   | value, .top => value
   | .kind leftKind, .kind rightKind =>
-      if leftKind = rightKind then
+      if kindAcceptsKind leftKind rightKind then
+        .kind rightKind
+      else if kindAcceptsKind rightKind leftKind then
         .kind leftKind
       else
         .bottomWith [.kindConflict leftKind rightKind]
   | .kind kind, .prim prim =>
-      if Prim.kind prim = kind then
+      if kindAcceptsPrim kind prim then
         .prim prim
       else
         .bottomWith [.kindConflict kind (Prim.kind prim)]
   | .prim prim, .kind kind =>
-      if Prim.kind prim = kind then
+      if kindAcceptsPrim kind prim then
         .prim prim
       else
         .bottomWith [.kindConflict (Prim.kind prim) kind]
@@ -133,12 +141,12 @@ def meetCore (left right : Value) : Value :=
   | .notPrim forbidden, .prim prim => meetNotPrimPrim forbidden prim
   | .prim prim, .notPrim forbidden => meetNotPrimPrim forbidden prim
   | .kind kind, .notPrim forbidden =>
-      if Prim.kind forbidden = kind then
+      if kindAcceptsPrim kind forbidden then
         .notPrim forbidden
       else
         .kind kind
   | .notPrim forbidden, .kind kind =>
-      if Prim.kind forbidden = kind then
+      if kindAcceptsPrim kind forbidden then
         .notPrim forbidden
       else
         .kind kind

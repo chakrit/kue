@@ -3,6 +3,7 @@ namespace Kue
 inductive Kind where
   | null
   | bool
+  | number
   | int
   | float
   | string

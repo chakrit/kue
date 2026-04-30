@@ -127,6 +127,10 @@ theorem fixture_float_kind :
     formatField "x" (meet (.kind .float) (.prim (.float "1.5"))) = "x: 1.5" := by
   native_decide
 
+theorem fixture_number_kind :
+    formatField "x" (meet (.kind .number) (.prim (.float "1.5"))) = "x: 1.5" := by
+  native_decide
+
 theorem fixture_open_list_tail :
     formatField "x"
       (meet

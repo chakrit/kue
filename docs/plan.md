@@ -1008,6 +1008,37 @@ Goal: add a first float primitive and kind distinct from int.
    lake exe kue
    ```
 
+## Completed Slice: Number Kind
+
+Goal: add a first `number` kind that accepts both int and float primitives.
+
+### Steps
+
+1. Extend the value domain with a `number` kind.
+   Completed in the number kind slice.
+
+2. Add tests first.
+   Cover:
+   - formatting the number kind;
+   - meeting `number` with int and float primitives succeeds;
+   - meeting `number` with int and float kinds narrows to the specific kind;
+   - meeting `number` with string bottoms with kind provenance;
+   - subsumption recognizes number over int and float primitives.
+   Completed in the number kind slice.
+
+3. Update lattice, order, format, and examples.
+   Completed in the number kind slice.
+
+4. Add one CUE fixture port for number kind unification.
+   Completed in the number kind slice.
+
+5. Verify. Completed in the number kind slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

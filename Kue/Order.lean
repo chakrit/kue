@@ -13,6 +13,12 @@ def findField (label : String) : List Field -> Option Field
       else
         findField label fields
 
+def kindSubsumesPrim (kind : Kind) (prim : Prim) : Bool :=
+  kind == Prim.kind prim || (kind == .number && (Prim.kind prim == .int || Prim.kind prim == .float))
+
+def kindSubsumesKind (expected actual : Kind) : Bool :=
+  expected == actual || (expected == .number && (actual == .int || actual == .float))
+
 mutual
   def fieldSubsumesWithFuel (fuel : Nat) (expected actual : Field) : Bool :=
     Field.fieldClass expected == Field.fieldClass actual
@@ -85,8 +91,8 @@ mutual
     | _ + 1, .top, _ => true
     | _ + 1, _, .bottom => true
     | _ + 1, _, .bottomWith _ => true
-    | _ + 1, .kind expectedKind, .kind actualKind => expectedKind == actualKind
-    | _ + 1, .kind expectedKind, .prim prim => expectedKind == Prim.kind prim
+    | _ + 1, .kind expectedKind, .kind actualKind => kindSubsumesKind expectedKind actualKind
+    | _ + 1, .kind expectedKind, .prim prim => kindSubsumesPrim expectedKind prim
     | _ + 1, .prim expectedPrim, .prim actualPrim => expectedPrim == actualPrim
     | _ + 1, .notPrim forbidden, .prim prim => forbidden != prim
     | _ + 1, .notPrim expectedForbidden, .notPrim actualForbidden => expectedForbidden == actualForbidden

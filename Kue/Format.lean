@@ -5,6 +5,7 @@ namespace Kue
 def formatKind : Kind -> String
   | .null => "null"
   | .bool => "bool"
+  | .number => "number"
   | .int => "int"
   | .float => "float"
   | .string => "string"
