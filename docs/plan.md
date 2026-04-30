@@ -1093,6 +1093,41 @@ the external `cue` binary.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Number With Integer Bounds
+
+Goal: let the `number` kind accept the existing integer-bound constraints as
+numeric constraints, while keeping the current int-backed bound representation.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - `number & >=0` keeps the bound;
+   - `<=10 & number` keeps the bound;
+   - `number | >0` normalizes to `number`;
+   - `number` subsumes integer bounds;
+   - non-numeric kinds still conflict with integer bounds.
+   Completed in the number with integer bounds slice.
+
+2. Update `Kue/Lattice.lean` kind-bound meet and join paths to use the numeric
+   hierarchy predicate.
+   Completed in the number with integer bounds slice.
+
+3. Update `Kue/Order.lean` so `number` subsumes integer-bound constraints.
+   Completed in the number with integer bounds slice.
+
+4. Add one CUE fixture port for `number & >=0 & 7`.
+   Completed in the number with integer bounds slice.
+
+5. Verify. Completed in the number with integer bounds slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

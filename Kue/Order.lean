@@ -96,6 +96,10 @@ mutual
     | _ + 1, .prim expectedPrim, .prim actualPrim => expectedPrim == actualPrim
     | _ + 1, .notPrim forbidden, .prim prim => forbidden != prim
     | _ + 1, .notPrim expectedForbidden, .notPrim actualForbidden => expectedForbidden == actualForbidden
+    | _ + 1, .kind expectedKind, .intGe _ => kindSubsumesKind expectedKind .int
+    | _ + 1, .kind expectedKind, .intGt _ => kindSubsumesKind expectedKind .int
+    | _ + 1, .kind expectedKind, .intLe _ => kindSubsumesKind expectedKind .int
+    | _ + 1, .kind expectedKind, .intLt _ => kindSubsumesKind expectedKind .int
     | _ + 1, .intGe minimum, .prim (.int value) => minimum <= value
     | _ + 1, .intGe expectedMinimum, .intGe actualMinimum => expectedMinimum <= actualMinimum
     | _ + 1, .intGt minimum, .prim (.int value) => minimum < value

@@ -179,22 +179,22 @@ def meetCore (left right : Value) : Value :=
   | .prim prim, .intLe maximum => meetIntLePrim maximum prim
   | .intLt maximum, .prim prim => meetIntLtPrim maximum prim
   | .prim prim, .intLt maximum => meetIntLtPrim maximum prim
-  | .kind .int, .intGe minimum => .intGe minimum
-  | .intGe minimum, .kind .int => .intGe minimum
-  | .kind .int, .intGt minimum => .intGt minimum
-  | .intGt minimum, .kind .int => .intGt minimum
-  | .kind .int, .intLe maximum => .intLe maximum
-  | .intLe maximum, .kind .int => .intLe maximum
-  | .kind .int, .intLt maximum => .intLt maximum
-  | .intLt maximum, .kind .int => .intLt maximum
-  | .kind kind, .intGe _ => .bottomWith [.kindConflict kind .int]
-  | .intGe _, .kind kind => .bottomWith [.kindConflict .int kind]
-  | .kind kind, .intGt _ => .bottomWith [.kindConflict kind .int]
-  | .intGt _, .kind kind => .bottomWith [.kindConflict .int kind]
-  | .kind kind, .intLe _ => .bottomWith [.kindConflict kind .int]
-  | .intLe _, .kind kind => .bottomWith [.kindConflict .int kind]
-  | .kind kind, .intLt _ => .bottomWith [.kindConflict kind .int]
-  | .intLt _, .kind kind => .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intGe minimum =>
+      if kindAcceptsKind kind .int then .intGe minimum else .bottomWith [.kindConflict kind .int]
+  | .intGe minimum, .kind kind =>
+      if kindAcceptsKind kind .int then .intGe minimum else .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intGt minimum =>
+      if kindAcceptsKind kind .int then .intGt minimum else .bottomWith [.kindConflict kind .int]
+  | .intGt minimum, .kind kind =>
+      if kindAcceptsKind kind .int then .intGt minimum else .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intLe maximum =>
+      if kindAcceptsKind kind .int then .intLe maximum else .bottomWith [.kindConflict kind .int]
+  | .intLe maximum, .kind kind =>
+      if kindAcceptsKind kind .int then .intLe maximum else .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intLt maximum =>
+      if kindAcceptsKind kind .int then .intLt maximum else .bottomWith [.kindConflict kind .int]
+  | .intLt maximum, .kind kind =>
+      if kindAcceptsKind kind .int then .intLt maximum else .bottomWith [.kindConflict .int kind]
   | .intGe leftMinimum, .intGe rightMinimum => .intGe (maxInt leftMinimum rightMinimum)
   | .intGt leftMinimum, .intGt rightMinimum => .intGt (maxInt leftMinimum rightMinimum)
   | .intGe minimum, .intGt strictMinimum => .conj [.intGe minimum, .intGt strictMinimum]
@@ -511,6 +511,22 @@ def join (left right : Value) : Value :=
         .kind kind
       else
         disjOfValues (.prim prim) (.kind kind)
+  | .kind kind, .intGe minimum =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intGe minimum)
+  | .intGe minimum, .kind kind =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intGe minimum) (.kind kind)
+  | .kind kind, .intGt minimum =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intGt minimum)
+  | .intGt minimum, .kind kind =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intGt minimum) (.kind kind)
+  | .kind kind, .intLe maximum =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intLe maximum)
+  | .intLe maximum, .kind kind =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intLe maximum) (.kind kind)
+  | .kind kind, .intLt maximum =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intLt maximum)
+  | .intLt maximum, .kind kind =>
+      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intLt maximum) (.kind kind)
   | .prim leftPrim, .prim rightPrim => joinPrim leftPrim rightPrim
   | .disj leftAlternatives, .disj rightAlternatives =>
       normalizeDisj (leftAlternatives ++ rightAlternatives)

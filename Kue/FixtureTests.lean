@@ -135,6 +135,10 @@ theorem fixture_number_disjunction :
     formatField "x" (join (.kind .number) (.prim (.int 1))) = "x: number" := by
   native_decide
 
+theorem fixture_number_int_bound :
+    formatField "x" (meet (meet (.kind .number) (.intGe 0)) (.prim (.int 7))) = "x: 7" := by
+  native_decide
+
 theorem fixture_open_list_tail :
     formatField "x"
       (meet
