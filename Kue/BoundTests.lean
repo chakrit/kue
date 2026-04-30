@@ -90,4 +90,20 @@ theorem bound_conjunction_subsumes_satisfying_int :
     subsumes (.conj [.intGe 0, .intLe 10]) (.prim (.int 7)) = true := by
   native_decide
 
+theorem join_lower_bounds_keeps_weaker_bound :
+    join (.intGe 5) (.intGe 0) = .intGe 0 := by
+  rfl
+
+theorem join_strict_lower_bounds_keeps_weaker_bound :
+    join (.intGt 5) (.intGt 0) = .intGt 0 := by
+  rfl
+
+theorem join_upper_bounds_keeps_weaker_bound :
+    join (.intLe 5) (.intLe 10) = .intLe 10 := by
+  rfl
+
+theorem join_strict_upper_bounds_keeps_weaker_bound :
+    join (.intLt 5) (.intLt 10) = .intLt 10 := by
+  rfl
+
 end Kue

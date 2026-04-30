@@ -115,6 +115,10 @@ theorem fixture_strict_int_bounds :
       = "x: 7" := by
   native_decide
 
+theorem fixture_int_bound_disjunction :
+    formatField "x" (join (.intGe 5) (.intGe 0)) = "x: >=0" := by
+  native_decide
+
 theorem fixture_primitive_exclusion :
     formatField "x" (meet (.notPrim (.int 0)) (.prim (.int 1))) = "x: 1" := by
   native_decide

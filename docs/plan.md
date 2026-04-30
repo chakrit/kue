@@ -1128,6 +1128,36 @@ numeric constraints, while keeping the current int-backed bound representation.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Integer Bound Joins
+
+Goal: make disjunction/join over same-direction integer bounds keep the weaker
+bound instead of preserving redundant alternatives.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - `>=5 | >=0` normalizes to `>=0`;
+   - `>5 | >0` normalizes to `>0`;
+   - `<=5 | <=10` normalizes to `<=10`;
+   - `<5 | <10` normalizes to `<10`.
+   Completed in the integer bound joins slice.
+
+2. Update `Kue/Lattice.lean` join paths for same-direction integer bounds.
+   Completed in the integer bound joins slice.
+
+3. Add one CUE fixture port for a redundant integer-bound disjunction.
+   Completed in the integer bound joins slice.
+
+4. Verify. Completed in the integer bound joins slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

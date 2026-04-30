@@ -494,6 +494,10 @@ def join (left right : Value) : Value :=
   | _, .top => .top
   | .bottom, value => value
   | value, .bottom => value
+  | .intGe leftMinimum, .intGe rightMinimum => .intGe (minInt leftMinimum rightMinimum)
+  | .intGt leftMinimum, .intGt rightMinimum => .intGt (minInt leftMinimum rightMinimum)
+  | .intLe leftMaximum, .intLe rightMaximum => .intLe (maxInt leftMaximum rightMaximum)
+  | .intLt leftMaximum, .intLt rightMaximum => .intLt (maxInt leftMaximum rightMaximum)
   | .kind leftKind, .kind rightKind =>
       if kindAcceptsKind leftKind rightKind then
         .kind leftKind
