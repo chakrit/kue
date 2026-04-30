@@ -19,3 +19,4 @@ import Kue.ListTests
 import Kue.BoundTests
 import Kue.ExclusionTests
 import Kue.BytesTests
+import Kue.FloatTests

@@ -4,6 +4,7 @@ inductive Kind where
   | null
   | bool
   | int
+  | float
   | string
   | bytes
 deriving Repr, BEq, DecidableEq
@@ -12,6 +13,7 @@ inductive Prim where
   | null
   | bool (value : Bool)
   | int (value : Int)
+  | float (value : String)
   | string (value : String)
   | bytes (value : String)
 deriving Repr, BEq, DecidableEq
@@ -22,6 +24,7 @@ def kind : Prim -> Kind
   | .null => .null
   | .bool _ => .bool
   | .int _ => .int
+  | .float _ => .float
   | .string _ => .string
   | .bytes _ => .bytes
 

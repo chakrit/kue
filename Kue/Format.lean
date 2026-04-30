@@ -6,6 +6,7 @@ def formatKind : Kind -> String
   | .null => "null"
   | .bool => "bool"
   | .int => "int"
+  | .float => "float"
   | .string => "string"
   | .bytes => "bytes"
 
@@ -14,6 +15,7 @@ def formatPrim : Prim -> String
   | .bool true => "true"
   | .bool false => "false"
   | .int value => toString value
+  | .float value => value
   | .string value => s!"\"{value}\""
   | .bytes value => "#\"" ++ value ++ "\"#"
 

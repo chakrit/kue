@@ -978,6 +978,36 @@ Goal: add bytes as a primitive value and kind distinct from string.
    lake exe kue
    ```
 
+## Completed Slice: Float Kind
+
+Goal: add a first float primitive and kind distinct from int.
+
+### Steps
+
+1. Extend the value domain with a `float` kind and string-backed float literal.
+   Completed in the float kind slice.
+
+2. Add tests first.
+   Cover:
+   - formatting the float kind and a float literal;
+   - meeting `float` with a float primitive succeeds;
+   - meeting `int` with a float primitive bottoms with kind provenance;
+   - subsumption recognizes the float kind over float primitives.
+   Completed in the float kind slice.
+
+3. Update lattice, order, format, manifest, and examples.
+   Completed in the float kind slice.
+
+4. Add one CUE fixture port for float kind unification.
+   Completed in the float kind slice.
+
+5. Verify. Completed in the float kind slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

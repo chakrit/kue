@@ -53,6 +53,9 @@ def primitiveExclusionSmokeResult : String :=
 def bytesSmokeResult : String :=
   formatValue (meet (.kind .bytes) (.prim (.bytes "abc")))
 
+def floatSmokeResult : String :=
+  formatValue (meet (.kind .float) (.prim (.float "1.5")))
+
 def openListTailSmokeResult : String :=
   formatValue
     (meet
@@ -74,6 +77,7 @@ def smokeLines : List String :=
     ">0 & <10 & 7 => " ++ strictIntBoundsSmokeResult,
     "!=0 & 1 => " ++ primitiveExclusionSmokeResult,
     "bytes & #\"abc\"# => " ++ bytesSmokeResult,
+    "float & 1.5 => " ++ floatSmokeResult,
     "[int, ...string] & [1, \"x\", \"y\"] => " ++ openListTailSmokeResult
   ]
 
@@ -93,6 +97,7 @@ theorem smoke_lines_match_plan :
         ">0 & <10 & 7 => 7",
         "!=0 & 1 => 1",
         "bytes & #\"abc\"# => #\"abc\"#",
+        "float & 1.5 => 1.5",
         "[int, ...string] & [1, \"x\", \"y\"] => [1, \"x\", \"y\"]"
       ] := by
   native_decide
