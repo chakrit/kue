@@ -1039,6 +1039,35 @@ Goal: add a first `number` kind that accepts both int and float primitives.
    lake exe kue
    ```
 
+## Completed Slice: Number Join Normalization
+
+Goal: make disjunction/join respect the new numeric kind hierarchy when one side
+already subsumes the other.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - `number | int` normalizes to `number`;
+   - `float | number` normalizes to `number`;
+   - `number | 1` normalizes to `number`;
+   - unrelated kinds still remain an explicit disjunction.
+   Completed in the number join normalization slice.
+
+2. Update `Kue/Lattice.lean` join paths for kind-kind and kind-primitive pairs
+   to use the same hierarchy predicates as meet.
+   Completed in the number join normalization slice.
+
+3. Add one CUE fixture port for redundant numeric disjunction normalization.
+   Completed in the number join normalization slice.
+
+4. Verify. Completed in the number join normalization slice.
+
+   ```sh
+   lake build
+   lake exe kue
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness against more official CUE examples.

@@ -495,17 +495,19 @@ def join (left right : Value) : Value :=
   | .bottom, value => value
   | value, .bottom => value
   | .kind leftKind, .kind rightKind =>
-      if leftKind = rightKind then
+      if kindAcceptsKind leftKind rightKind then
         .kind leftKind
+      else if kindAcceptsKind rightKind leftKind then
+        .kind rightKind
       else
         disjOfValues (.kind leftKind) (.kind rightKind)
   | .kind kind, .prim prim =>
-      if Prim.kind prim = kind then
+      if kindAcceptsPrim kind prim then
         .kind kind
       else
         disjOfValues (.kind kind) (.prim prim)
   | .prim prim, .kind kind =>
-      if Prim.kind prim = kind then
+      if kindAcceptsPrim kind prim then
         .kind kind
       else
         disjOfValues (.prim prim) (.kind kind)

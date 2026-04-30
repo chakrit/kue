@@ -52,4 +52,21 @@ theorem number_kind_rejects_string_primitive :
     subsumes (.kind .number) (.prim (.string "x")) = false := by
   native_decide
 
+theorem join_number_kind_with_int_kind_normalizes :
+    join (.kind .number) (.kind .int) = .kind .number := by
+  rfl
+
+theorem join_float_kind_with_number_kind_normalizes :
+    join (.kind .float) (.kind .number) = .kind .number := by
+  rfl
+
+theorem join_number_kind_with_int_primitive_normalizes :
+    join (.kind .number) (.prim (.int 1)) = .kind .number := by
+  rfl
+
+theorem join_number_kind_with_string_kind_keeps_disjunction :
+    join (.kind .number) (.kind .string) =
+      .disj [(.regular, .kind .number), (.regular, .kind .string)] := by
+  rfl
+
 end Kue
