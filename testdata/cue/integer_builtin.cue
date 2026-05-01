@@ -1,0 +1,6 @@
+divValue:      div(-7, 3)
+modValue:      mod(-7, 3)
+quoValue:      quo(-7, 3)
+remValue:      rem(-7, 3)
+incompleteDiv: div(int, 3)
+zeroDivisor:   div(7, 0)

@@ -34,4 +34,37 @@ def orValues : List Value -> Value
   | [] => .builtinCall "or" [.list []]
   | value :: values => values.foldl (fun current next => join current next) value
 
+def intBinaryBuiltinValue (name : String) (op : Int -> Int -> Int) (left right : Value) : Value :=
+  match left, right with
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | .prim (.int leftInt), .prim (.int rightInt) =>
+      if rightInt == 0 then
+        .bottomWith [.divisionByZero]
+      else
+        .prim (.int (op leftInt rightInt))
+  | left, right =>
+      let leftAsInt := meet (.kind .int) left
+      let rightAsInt := meet (.kind .int) right
+      if containsBottom leftAsInt then
+        leftAsInt
+      else if containsBottom rightAsInt then
+        rightAsInt
+      else
+        .builtinCall name [left, right]
+
+def divValue (left right : Value) : Value :=
+  intBinaryBuiltinValue "div" Int.ediv left right
+
+def modValue (left right : Value) : Value :=
+  intBinaryBuiltinValue "mod" Int.emod left right
+
+def quoValue (left right : Value) : Value :=
+  intBinaryBuiltinValue "quo" Int.tdiv left right
+
+def remValue (left right : Value) : Value :=
+  intBinaryBuiltinValue "rem" Int.tmod left right
+
 end Kue

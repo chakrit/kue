@@ -17,6 +17,23 @@ theorem fixture_and_or_builtin :
       = "andValue: 7\norValue: \"a\" | \"b\"" := by
   native_decide
 
+theorem fixture_integer_builtin :
+    formatTopLevel
+      (.struct
+        [
+          ("divValue", .regular, divValue (.prim (.int (-7))) (.prim (.int 3))),
+          ("modValue", .regular, modValue (.prim (.int (-7))) (.prim (.int 3))),
+          ("quoValue", .regular, quoValue (.prim (.int (-7))) (.prim (.int 3))),
+          ("remValue", .regular, remValue (.prim (.int (-7))) (.prim (.int 3))),
+          ("incompleteDiv", .regular, divValue (.kind .int) (.prim (.int 3))),
+          ("zeroDivisor", .regular, divValue (.prim (.int 7)) (.prim (.int 0)))
+        ]
+        true)
+      =
+        "divValue: -3\nmodValue: 2\nquoValue: -2\nremValue: -1\n"
+        ++ "incompleteDiv: div(int, 3)\nzeroDivisor: _|_" := by
+  native_decide
+
 theorem fixture_disjunction :
     formatField "x" (join (.prim (.string "a")) (.prim (.string "b")))
       = "x: \"a\" | \"b\"" := by

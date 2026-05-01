@@ -74,4 +74,40 @@ theorem or_values_empty_preserves_builtin_call :
     orValues [] = .builtinCall "or" [.list []] := by
   rfl
 
+theorem div_value_euclidean_negative_dividend :
+    divValue (.prim (.int (-7))) (.prim (.int 3)) = .prim (.int (-3)) := by
+  rfl
+
+theorem mod_value_euclidean_negative_dividend :
+    modValue (.prim (.int (-7))) (.prim (.int 3)) = .prim (.int 2) := by
+  rfl
+
+theorem div_value_euclidean_negative_divisor :
+    divValue (.prim (.int 7)) (.prim (.int (-3))) = .prim (.int (-2)) := by
+  rfl
+
+theorem mod_value_euclidean_negative_divisor :
+    modValue (.prim (.int 7)) (.prim (.int (-3))) = .prim (.int 1) := by
+  rfl
+
+theorem quo_value_truncates_toward_zero :
+    quoValue (.prim (.int (-7))) (.prim (.int 3)) = .prim (.int (-2)) := by
+  rfl
+
+theorem rem_value_truncating_remainder_keeps_dividend_sign :
+    remValue (.prim (.int (-7))) (.prim (.int 3)) = .prim (.int (-1)) := by
+  rfl
+
+theorem div_value_preserves_incomplete_int_call :
+    divValue (.kind .int) (.prim (.int 3)) = .builtinCall "div" [.kind .int, .prim (.int 3)] := by
+  rfl
+
+theorem div_value_rejects_non_integer_argument :
+    divValue (.prim (.string "x")) (.prim (.int 3)) = .bottomWith [.kindConflict .int .string] := by
+  rfl
+
+theorem div_value_rejects_division_by_zero :
+    divValue (.prim (.int 7)) (.prim (.int 0)) = .bottomWith [.divisionByZero] := by
+  rfl
+
 end Kue

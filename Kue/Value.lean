@@ -59,6 +59,7 @@ inductive BottomReason where
   | unresolvedReference (label : String)
   | unresolvedBinding (id : BindingId)
   | intBoundConflict
+  | divisionByZero
   | excludedValue (value : Prim)
 deriving Repr, BEq, DecidableEq
 

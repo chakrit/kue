@@ -1,0 +1,6 @@
+divValue: -3
+modValue: 2
+quoValue: -2
+remValue: -1
+incompleteDiv: div(int, 3)
+zeroDivisor: _|_

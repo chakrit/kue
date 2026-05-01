@@ -1552,6 +1552,41 @@ them into approximations.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Integer Quotient Builtins
+
+Goal: add concrete predeclared integer quotient and remainder builtins.
+
+### Steps
+
+1. Extend `Kue/Builtin.lean`.
+   Completed in the integer quotient builtin slice.
+   Add helpers for `div`, `mod`, `quo`, and `rem`.
+   `div`/`mod` use Euclidean division and modulus, matching CUE's behavior for
+   negative dividends and negative divisors.
+   `quo`/`rem` use truncating division and remainder.
+
+2. Preserve incomplete calls.
+   Completed in the integer quotient builtin slice.
+   Non-concrete arguments that remain compatible with `int` are kept as
+   `.builtinCall` values, such as `div(int, 3)`.
+
+3. Add error behavior.
+   Completed in the integer quotient builtin slice.
+   Concrete division by zero now yields provenance-carrying bottom through
+   `.divisionByZero`, and non-integer concrete arguments produce kind-conflict
+   bottom values.
+
+4. Add a CUE fixture port for integer builtins.
+   Completed in the integer quotient builtin slice.
+
+5. Verify. Completed in the integer quotient builtin slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
@@ -1563,5 +1598,6 @@ them into approximations.
   represented for more than same-struct fields.
 - Expand cycle handling for constrained cycles, arithmetic cycles, and richer
   validation behavior.
-- Add remaining builtin functions.
+- Add remaining builtin functions beyond the implemented `close`, `len`, `and`,
+  `or`, `div`, `mod`, `quo`, and `rem` helpers.
 - Add package/file merging and imports after the syntax and resolver layers exist.

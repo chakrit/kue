@@ -56,6 +56,21 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
+      fileName := "integer_builtin.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("divValue", .regular, divValue (.prim (.int (-7))) (.prim (.int 3))),
+              ("modValue", .regular, modValue (.prim (.int (-7))) (.prim (.int 3))),
+              ("quoValue", .regular, quoValue (.prim (.int (-7))) (.prim (.int 3))),
+              ("remValue", .regular, remValue (.prim (.int (-7))) (.prim (.int 3))),
+              ("incompleteDiv", .regular, divValue (.kind .int) (.prim (.int 3))),
+              ("zeroDivisor", .regular, divValue (.prim (.int 7)) (.prim (.int 0)))
+            ]
+            true)
+    },
+    {
       fileName := "closed_extra_field.expected",
       content :=
         formatField "x"
