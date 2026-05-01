@@ -1,5 +1,1 @@
-x: {
-	#A: close({
-		a: int
-	})
-}
+x: {#A: {a: int}}

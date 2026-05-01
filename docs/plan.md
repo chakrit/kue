@@ -1327,10 +1327,46 @@ the label pattern and the field-value constraint.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Lean Fixture Port Comparison
+
+Goal: make the real CUE fixture corpus mechanically compare each `.expected`
+file against a Lean fixture port, not only check source/expected pairing.
+
+### Steps
+
+1. Add a Lean fixture registry.
+   Completed in the Lean fixture port comparison slice.
+   `Kue/FixturePorts.lean` now records every checked `.expected` and
+   `.manifest.expected` file as a computed Kue output.
+
+2. Add a small Lean writer entry point.
+   Completed in the Lean fixture port comparison slice.
+   `scripts/write-fixture-ports.lean` writes the registry into a generated
+   directory for shell comparison without putting a `main` declaration in an
+   imported library module.
+
+3. Extend `scripts/check-fixtures.sh`.
+   Completed in the Lean fixture port comparison slice.
+   The checker now builds the fixture registry, generates expected outputs into
+   a temporary directory, diffs every checked file, and reports stale Lean ports
+   or stale expected files.
+
+4. Align fixture expected files with the generated Lean ports.
+   Completed in the Lean fixture port comparison slice.
+   This normalized older hand-formatted fixture outputs to Kue's current
+   one-line formatter and made multi-top-level reference fixtures render as
+   top-level fields.
+
+5. Verify. Completed in the Lean fixture port comparison slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
-- Expand the compatibility harness so fixture contents are compared against the
-  Lean fixture ports, not only paired for presence.
 - Expand pattern constraints beyond broad `[string]: T`: regular-expression
   label patterns, non-string label patterns, hidden/definition interactions, and
   closedness interactions.

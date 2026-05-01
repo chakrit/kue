@@ -1,4 +1,1 @@
-x: {
-	#A: int
-	x: int
-}
+x: {#A: int, x: int}

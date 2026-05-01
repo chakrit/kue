@@ -1,4 +1,1 @@
-x: {
-	kind: "web"
-	port: 80
-}
+x: {kind: "web", port: 80}

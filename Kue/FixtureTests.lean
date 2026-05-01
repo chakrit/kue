@@ -1,24 +1,6 @@
-import Kue.Format
-import Kue.Lattice
-import Kue.Manifest
-import Kue.Normalize
-import Kue.Eval
-import Kue.Resolve
+import Kue.FixturePorts
 
 namespace Kue
-
-def formatField (name : String) (value : Value) : String :=
-  s!"{name}: {formatValue value}"
-
-def formatManifestField (name : String) (value : Value) : Except ManifestError String :=
-  match manifest value with
-  | .ok data => .ok s!"{name}: {formatManifestValue data}"
-  | .error error => .error error
-
-def manifestFieldMatches (name : String) (value : Value) (expected : String) : Bool :=
-  match formatManifestField name value with
-  | .ok actual => actual == expected
-  | .error _ => false
 
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
@@ -276,24 +258,20 @@ theorem fixture_manifest_selects_materialized_required_default :
   rfl
 
 theorem fixture_nested_reference_list :
-    formatField "x"
-      (evalStructRefs
-        (resolveStructRefs
-          (.struct [("#A", .definition, .kind .int), ("x", .regular, .list [.ref "#A"])] true)))
-      = "x: {#A: int, x: [int]}" := by
+    formatTopLevel
+      (resolveAndEval
+        (.struct [("#A", .definition, .kind .int), ("x", .regular, .list [.ref "#A"])] true))
+      = "#A: int\nx: [int]" := by
   native_decide
 
 theorem fixture_direct_self_reference_cycle :
-    formatField "x"
-      (evalStructRefs (resolveStructRefs (.struct [("x", .regular, .ref "x")] true)))
-      = "x: {x: _}" := by
+    formatTopLevel (resolveAndEval (.struct [("x", .regular, .ref "x")] true)) = "x: _" := by
   native_decide
 
 theorem fixture_mutual_reference_cycle :
-    formatField "x"
-      (evalStructRefs
-        (resolveStructRefs (.struct [("x", .regular, .ref "y"), ("y", .regular, .ref "x")] true)))
-      = "x: {x: _, y: _}" := by
+    formatTopLevel
+      (resolveAndEval (.struct [("x", .regular, .ref "y"), ("y", .regular, .ref "x")] true))
+      = "x: _\ny: _" := by
   native_decide
 
 theorem fixture_manifest_hidden_field_reference :
