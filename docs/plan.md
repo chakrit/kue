@@ -2057,11 +2057,41 @@ through the existing resolver and evaluator.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Parser Field Pattern Syntax
+
+Goal: let stdin CUE source express the field pattern constraints that Kue's
+semantic core already supports.
+
+### Steps
+
+1. Add parser tests first.
+   Cover `[string]: int`, `["a"]: int`, and `[=~"^a$"]: int` inside a struct
+   with matching and nonmatching regular fields.
+   Completed in the parser field pattern syntax slice.
+
+2. Parse pattern fields separately from regular fields.
+   Completed in the parser field pattern syntax slice.
+   `Kue/Parse.lean` now collects `[expr]: value` entries and lowers them to
+   `structPattern` values with the surrounding regular fields.
+
+3. Document the remaining representation caveat.
+   Completed in the parser field pattern syntax slice.
+   Multiple pattern fields still share the current single-pattern semantic
+   representation and are tracked in `docs/compat-assumptions.md`.
+
+4. Verify. Completed in the parser field pattern syntax slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
-- Expand pattern constraints beyond broad `[string]: T`: complete regular
-  expression label matching beyond the current literal/dot/quantifier/class
-  escape subset, and non-string label patterns.
+- Expand pattern constraints beyond the current single-pattern representation:
+  independent multiple patterns, non-string label patterns, and fuller regular
+  expression matching.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

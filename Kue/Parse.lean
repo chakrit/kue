@@ -9,6 +9,10 @@ deriving Repr, BEq, DecidableEq, Inhabited
 
 abbrev ParseResult (α : Type) := Except ParseError (α × List Char)
 
+inductive ParsedField where
+  | field (field : Field)
+  | pattern (labelPattern constraint : Value)
+
 def parseError (message : String) : Except ParseError α :=
   .error { message := message }
 
@@ -198,6 +202,30 @@ def parseFieldTerminator (terminator : Option Char) (chars : List Char) : Bool :
   | none, [] => true
   | _, _ => false
 
+def splitParsedFields : List ParsedField -> List Field × List (Value × Value)
+  | [] => ([], [])
+  | .field field :: rest =>
+      let split := splitParsedFields rest
+      (field :: split.fst, split.snd)
+  | .pattern labelPattern constraint :: rest =>
+      let split := splitParsedFields rest
+      (split.fst, (labelPattern, constraint) :: split.snd)
+
+def patternValuesWithFields (fields : List Field) : List (Value × Value) -> List Value
+  | [] => []
+  | pattern :: rest =>
+      .structPattern fields pattern.fst pattern.snd true
+        :: rest.map fun restPattern => .structPattern [] restPattern.fst restPattern.snd true
+
+def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
+  let split := splitParsedFields parsedFields
+  match split.snd with
+  | [] => .struct split.fst true
+  | patterns =>
+      match patternValuesWithFields split.fst patterns with
+      | [value] => value
+      | values => .conj values
+
 mutual
   partial def parseExpression (chars : List Char) : ParseResult Value :=
     parseDisjunction chars
@@ -334,12 +362,12 @@ mutual
   partial def parseStruct (chars : List Char) : ParseResult Value :=
     match parseFieldsUntil (some '}') chars [] with
     | .error error => .error error
-    | .ok (fields, rest) => parseOk (.struct fields true) rest
+    | .ok (fields, rest) => parseOk (parsedFieldsValue fields) rest
 
   partial def parseFieldsUntil
       (terminator : Option Char)
       (chars : List Char)
-      (fields : List Field) : ParseResult (List Field) :=
+      (fields : List ParsedField) : ParseResult (List ParsedField) :=
     let chars := skipTrivia chars
     if parseFieldTerminator terminator chars then
       match terminator, chars with
@@ -352,17 +380,37 @@ mutual
       | .ok (field, rest) =>
           parseFieldsUntil terminator (parseCommaOrSemicolon (skipTrivia rest)) (fields ++ [field])
 
-  partial def parseField (chars : List Char) : ParseResult Field :=
-    match parseLabel chars with
-    | .error error => .error error
-    | .ok (label, rest) =>
-        let (fieldClass, rest) := parseFieldClass label rest
-        match skipTrivia rest with
-        | ':' :: rest =>
-            match parseExpression rest with
-            | .error error => .error error
-            | .ok (value, rest) => parseOk (label, fieldClass, value) rest
-        | _ => parseError "expected ':' after field label"
+  partial def parsePatternField (chars : List Char) : ParseResult ParsedField :=
+    match skipTrivia chars with
+    | '[' :: rest =>
+        match parseExpression rest with
+        | .error error => .error error
+        | .ok (labelPattern, rest) =>
+            match skipTrivia rest with
+            | ']' :: rest =>
+                match skipTrivia rest with
+                | ':' :: rest =>
+                    match parseExpression rest with
+                    | .error error => .error error
+                    | .ok (constraint, rest) => parseOk (.pattern labelPattern constraint) rest
+                | _ => parseError "expected ':' after pattern label"
+            | _ => parseError "expected ']' after pattern label"
+    | _ => parseError "expected pattern field"
+
+  partial def parseField (chars : List Char) : ParseResult ParsedField :=
+    match skipTrivia chars with
+    | '[' :: _ => parsePatternField chars
+    | chars =>
+        match parseLabel chars with
+        | .error error => .error error
+        | .ok (label, rest) =>
+            let (fieldClass, rest) := parseFieldClass label rest
+            match skipTrivia rest with
+            | ':' :: rest =>
+                match parseExpression rest with
+                | .error error => .error error
+                | .ok (value, rest) => parseOk (.field (label, fieldClass, value)) rest
+            | _ => parseError "expected ':' after field label"
 end
 
 def parseDocument (chars : List Char) : Except ParseError Value :=
@@ -371,7 +419,7 @@ def parseDocument (chars : List Char) : Except ParseError Value :=
   | .error error => .error error
   | .ok (fields, rest) =>
       match skipTrivia rest with
-      | [] => .ok (.struct fields true)
+      | [] => .ok (parsedFieldsValue fields)
       | _ => parseError "unexpected trailing input"
 
 def parseSource (source : String) : Except ParseError Value :=

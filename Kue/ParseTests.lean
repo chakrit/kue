@@ -31,6 +31,24 @@ theorem parse_disjunction_defaults_and_bounds :
       "mode: *\"prod\" | \"dev\"\nsmall: 7" = true := by
   native_decide
 
+theorem parse_string_pattern_field :
+    parseOutputMatches
+      "x: {[string]: int, a: 1, b: 2}\n"
+      "x: {a: 1, b: 2, [string]: int}" = true := by
+  native_decide
+
+theorem parse_exact_label_pattern_field :
+    parseOutputMatches
+      "x: {[\"a\"]: int, a: 1, b: \"skip\"}\n"
+      "x: {a: 1, b: \"skip\", [\"a\"]: int}" = true := by
+  native_decide
+
+theorem parse_regex_pattern_field :
+    parseOutputMatches
+      "x: {[=~\"^a$\"]: int, a: 1, b: \"skip\"}\n"
+      "x: {a: 1, b: \"skip\", [=~\"^a$\"]: int}" = true := by
+  native_decide
+
 theorem parse_imports_are_unsupported :
     parseFails "import \"strings\"\nx: 1\n" = true := by
   native_decide
