@@ -2233,6 +2233,30 @@ implemented by `join`, so source such as `>=5 | >=0` evaluates to `>=0`.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: CLI Fixture Regression Check
+
+Goal: make the current CUE fixture corpus mechanically guard the stdin parser
+and runtime path, not only the hand-written Lean fixture ports.
+
+### Steps
+
+1. Extend the fixture checker.
+   Completed in the CLI fixture regression check slice.
+   `scripts/check-fixtures.sh` now builds the `kue` executable and compares
+   `kue < fixture.cue` output against every non-manifest `.expected` file.
+
+2. Update documentation.
+   Completed in the CLI fixture regression check slice.
+   `README.md` now describes CLI fixture comparison as part of fixture checks.
+
+3. Verify. Completed in the CLI fixture regression check slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current single-pattern representation:

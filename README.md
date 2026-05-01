@@ -14,7 +14,7 @@ eventually proved.
 - `testdata/cue/` — paired `.cue` source and `.expected` (or `.manifest.expected`)
   fixtures used for compatibility checks against `cue`.
 - `scripts/check-fixtures.sh` — validates fixture pairs, regenerates Lean fixture
-  ports, and runs `cue fmt --check`.
+  ports, compares stdin CLI output, and runs `cue fmt --check`.
 - `docs/` — design docs. Start at [`docs/index.md`](docs/index.md).
 - `lakefile.lean`, `lean-toolchain` — Lake build config (Lean `v4.29.1`).
 - `AGENTS.md`, `ace.toml` — AI agent environment config (managed by
@@ -50,7 +50,8 @@ With empty stdin it preserves the semantic smoke output for quick checks.
 ```
 
 Diffs Lean-generated outputs against the canonical `.expected` files in
-`testdata/cue/` and verifies CUE source formatting.
+`testdata/cue/`, compares `kue` stdin output against non-manifest expectations,
+and verifies CUE source formatting.
 
 ## Documentation
 

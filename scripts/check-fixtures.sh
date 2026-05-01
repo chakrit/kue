@@ -71,6 +71,43 @@ check_lean_fixture_ports() {
   return "${status}"
 }
 
+check_cli_fixture_outputs() {
+  local generated_dir=$1
+  local cli_dir="${generated_dir}/cli"
+  local kue_exe="${repo_root}/.lake/build/bin/kue"
+  local status=0
+  local cue_file
+  local expected_file
+  local output_file
+  local stem
+
+  mkdir -p -- "${cli_dir}"
+
+  if ! lake build kue:exe >/dev/null; then
+    printf 'failed to build kue executable\n' >&2
+    return 1
+  fi
+
+  for expected_file in "${fixture_dir}"/*.expected; do
+    stem="${expected_file%.expected}"
+    if [[ "${stem}" == *.manifest ]]; then
+      continue
+    fi
+
+    cue_file="${stem}.cue"
+    output_file="${cli_dir}/${expected_file##*/}"
+
+    if ! "${kue_exe}" <"${cue_file}" >"${output_file}"; then
+      printf 'failed to evaluate CLI fixture %s\n' "${cue_file}" >&2
+      status=1
+    elif ! diff -u "${expected_file}" "${output_file}"; then
+      status=1
+    fi
+  done
+
+  return "${status}"
+}
+
 main() {
   local status=0
   local cue_file
@@ -107,6 +144,10 @@ main() {
   if ! generate_lean_fixtures "${generated_dir}"; then
     status=1
   elif ! check_lean_fixture_ports "${generated_dir}"; then
+    status=1
+  fi
+
+  if ! check_cli_fixture_outputs "${generated_dir}"; then
     status=1
   fi
 
