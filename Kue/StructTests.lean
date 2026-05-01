@@ -168,6 +168,10 @@ theorem format_exact_label_pattern_constraint :
     formatValue (.structPattern [] (.prim (.string "a")) (.kind .int)) = "{[\"a\"]: int}" := by
   native_decide
 
+theorem format_regex_label_pattern_constraint :
+    formatValue (.structPattern [] (.stringRegex "^a$") (.kind .int)) = "{[=~\"^a$\"]: int}" := by
+  native_decide
+
 theorem meet_typed_ellipsis_accepts_matching_extra_field :
     meet
       (.structTail [("a", .regular, .kind .int)] (.kind .string))
@@ -253,5 +257,27 @@ theorem meet_exact_label_pattern_rejects_matching_conflict :
           (.prim (.string "a"))
           (.kind .int) := by
   rfl
+
+theorem meet_regex_label_pattern_skips_non_matching_regular_fields :
+    (meet
+      (.structPattern [] (.stringRegex "^a$") (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      ==
+        .structPattern
+          [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))]
+          (.stringRegex "^a$")
+          (.kind .int)) = true := by
+  native_decide
+
+theorem meet_regex_label_pattern_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a$") (.kind .int))
+      (.struct [("a", .regular, .prim (.string "x")), ("b", .regular, .prim (.string "x"))] true)
+      ==
+        .structPattern
+          [("a", .regular, .bottomWith [.fieldConstraint "a"]), ("b", .regular, .prim (.string "x"))]
+          (.stringRegex "^a$")
+          (.kind .int)) = true := by
+  native_decide
 
 end Kue

@@ -1,3 +1,5 @@
+import Init.Data.String.Search
+
 namespace Kue
 
 inductive Kind where
@@ -67,6 +69,7 @@ inductive Value where
   | prim (value : Prim)
   | kind (kind : Kind)
   | notPrim (value : Prim)
+  | stringRegex (pattern : String)
   | intGe (minimum : Int)
   | intGt (minimum : Int)
   | intLe (maximum : Int)
@@ -99,5 +102,15 @@ def regular (label : String) (value : Value) : Field :=
   (label, .regular, value)
 
 end Field
+
+def stringRegexMatches (pattern value : String) : Bool :=
+  if pattern.startsWith "^" && pattern.endsWith "$" then
+    value == ((pattern.drop 1).dropEnd 1).copy
+  else if pattern.startsWith "^" then
+    (pattern.drop 1).copy |>.isPrefixOf value
+  else if pattern.endsWith "$" then
+    value.endsWith (pattern.dropEnd 1).copy
+  else
+    value.contains pattern
 
 end Kue

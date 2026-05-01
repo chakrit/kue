@@ -54,6 +54,7 @@ mutual
     | _, .prim prim => formatPrim prim
     | _, .kind kind => formatKind kind
     | _, .notPrim prim => "!=" ++ formatPrim prim
+    | _, .stringRegex pattern => s!"=~\"{pattern}\""
     | _, .intGe minimum => s!">={minimum}"
     | _, .intGt minimum => s!">{minimum}"
     | _, .intLe maximum => s!"<={maximum}"

@@ -1365,11 +1365,46 @@ file against a Lean fixture port, not only check source/expected pairing.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Regex Label Patterns
+
+Goal: add the first regular-expression label pattern behavior for struct
+patterns such as `[=~"^a$"]: int`.
+
+### Steps
+
+1. Extend the value domain.
+   Completed in the regex label pattern slice.
+   Add `.stringRegex pattern` as a semantic string-label constraint and render it
+   in CUE-like form as `=~"pattern"`.
+
+2. Add tests first. Completed in the regex label pattern slice.
+   Cover:
+   - formatting a regex label pattern;
+   - meeting a regex pattern with matching and non-matching regular fields;
+   - subsumption over matching and non-matching regular fields.
+
+3. Update lattice and order behavior.
+   Completed in the regex label pattern slice.
+   Regex label matching currently supports a deliberately small literal subset:
+   `^literal$`, `^prefix`, `suffix$`, and unanchored literal containment. A full
+   regex engine remains later work.
+
+4. Add a CUE fixture port for `[=~"^a$"]: int`.
+   Completed in the regex label pattern slice.
+
+5. Verify. Completed in the regex label pattern slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
-- Expand pattern constraints beyond broad `[string]: T`: regular-expression
-  label patterns, non-string label patterns, hidden/definition interactions, and
-  closedness interactions.
+- Expand pattern constraints beyond broad `[string]: T`: complete regular
+  expression label matching, non-string label patterns, hidden/definition
+  interactions, and closedness interactions.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

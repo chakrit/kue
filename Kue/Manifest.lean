@@ -57,6 +57,7 @@ mutual
     | _ + 1, .top => .error (.incomplete .top)
     | _ + 1, .kind kind => .error (.incomplete (.kind kind))
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))
+    | _ + 1, .stringRegex pattern => .error (.incomplete (.stringRegex pattern))
     | _ + 1, .intGe minimum => .error (.incomplete (.intGe minimum))
     | _ + 1, .intGt minimum => .error (.incomplete (.intGt minimum))
     | _ + 1, .intLe maximum => .error (.incomplete (.intLe maximum))

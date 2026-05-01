@@ -117,9 +117,13 @@ mutual
     | _ + 1, _, .bottomWith _ => true
     | _ + 1, .kind expectedKind, .kind actualKind => kindSubsumesKind expectedKind actualKind
     | _ + 1, .kind expectedKind, .prim prim => kindSubsumesPrim expectedKind prim
+    | _ + 1, .kind expectedKind, .stringRegex _ => kindSubsumesKind expectedKind .string
     | _ + 1, .prim expectedPrim, .prim actualPrim => expectedPrim == actualPrim
     | _ + 1, .notPrim forbidden, .prim prim => forbidden != prim
     | _ + 1, .notPrim expectedForbidden, .notPrim actualForbidden => expectedForbidden == actualForbidden
+    | _ + 1, .stringRegex pattern, .prim (.string value) => stringRegexMatches pattern value
+    | _ + 1, .stringRegex expectedPattern, .stringRegex actualPattern =>
+        expectedPattern == actualPattern
     | _ + 1, .kind expectedKind, .intGe _ => kindSubsumesKind expectedKind .int
     | _ + 1, .kind expectedKind, .intGt _ => kindSubsumesKind expectedKind .int
     | _ + 1, .kind expectedKind, .intLe _ => kindSubsumesKind expectedKind .int

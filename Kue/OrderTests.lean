@@ -96,4 +96,18 @@ theorem exact_label_pattern_rejects_matching_conflict :
       = false := by
   native_decide
 
+theorem regex_label_pattern_ignores_non_matching_regular_field :
+    subsumes
+      (.structPattern [] (.stringRegex "^a$") (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      = true := by
+  native_decide
+
+theorem regex_label_pattern_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a$") (.kind .int))
+      (.struct [("a", .regular, .prim (.string "x")), ("b", .regular, .prim (.string "x"))] true)
+      = false := by
+  native_decide
+
 end Kue

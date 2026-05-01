@@ -20,6 +20,15 @@ def meetNotPrimPrim (forbidden prim : Prim) : Value :=
   else
     .prim prim
 
+def meetStringRegexPrim (pattern : String) (prim : Prim) : Value :=
+  match prim with
+  | .string value =>
+      if stringRegexMatches pattern value then
+        .prim prim
+      else
+        .bottom
+  | _ => .bottomWith [.kindConflict .string (Prim.kind prim)]
+
 def maxInt (left right : Int) : Int :=
   if left <= right then right else left
 
@@ -182,6 +191,41 @@ def meetCore (left right : Value) : Value :=
         .notPrim leftForbidden
       else
         .conj [.notPrim leftForbidden, .notPrim rightForbidden]
+  | .stringRegex leftPattern, .stringRegex rightPattern =>
+      if leftPattern = rightPattern then
+        .stringRegex leftPattern
+      else
+        .conj [.stringRegex leftPattern, .stringRegex rightPattern]
+  | .stringRegex pattern, .prim prim => meetStringRegexPrim pattern prim
+  | .prim prim, .stringRegex pattern => meetStringRegexPrim pattern prim
+  | .kind kind, .stringRegex pattern =>
+      if kindAcceptsKind kind .string then
+        .stringRegex pattern
+      else
+        .bottomWith [.kindConflict kind .string]
+  | .stringRegex pattern, .kind kind =>
+      if kindAcceptsKind kind .string then
+        .stringRegex pattern
+      else
+        .bottomWith [.kindConflict .string kind]
+  | .notPrim forbidden, .stringRegex pattern =>
+      if Prim.kind forbidden = .string then
+        .conj [.stringRegex pattern, .notPrim forbidden]
+      else
+        .stringRegex pattern
+  | .stringRegex pattern, .notPrim forbidden =>
+      if Prim.kind forbidden = .string then
+        .conj [.stringRegex pattern, .notPrim forbidden]
+      else
+        .stringRegex pattern
+  | .stringRegex _, .intGe _ => .bottomWith [.kindConflict .string .int]
+  | .intGe _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
+  | .stringRegex _, .intGt _ => .bottomWith [.kindConflict .string .int]
+  | .intGt _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
+  | .stringRegex _, .intLe _ => .bottomWith [.kindConflict .string .int]
+  | .intLe _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
+  | .stringRegex _, .intLt _ => .bottomWith [.kindConflict .string .int]
+  | .intLt _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
   | .intGe minimum, .notPrim forbidden =>
       if Prim.kind forbidden = .int then .conj [.intGe minimum, .notPrim forbidden] else .intGe minimum
   | .notPrim forbidden, .intGe minimum =>
@@ -632,6 +676,25 @@ def join (left right : Value) : Value :=
       if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intLt maximum)
   | .intLt maximum, .kind kind =>
       if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intLt maximum) (.kind kind)
+  | .kind kind, .stringRegex pattern =>
+      if kindAcceptsKind kind .string then .kind kind else disjOfValues (.kind kind) (.stringRegex pattern)
+  | .stringRegex pattern, .kind kind =>
+      if kindAcceptsKind kind .string then .kind kind else disjOfValues (.stringRegex pattern) (.kind kind)
+  | .stringRegex pattern, .prim prim =>
+      if containsBottom (meetStringRegexPrim pattern prim) then
+        disjOfValues (.stringRegex pattern) (.prim prim)
+      else
+        .stringRegex pattern
+  | .prim prim, .stringRegex pattern =>
+      if containsBottom (meetStringRegexPrim pattern prim) then
+        disjOfValues (.prim prim) (.stringRegex pattern)
+      else
+        .stringRegex pattern
+  | .stringRegex leftPattern, .stringRegex rightPattern =>
+      if leftPattern = rightPattern then
+        .stringRegex leftPattern
+      else
+        disjOfValues (.stringRegex leftPattern) (.stringRegex rightPattern)
   | .prim leftPrim, .prim rightPrim => joinPrim leftPrim rightPrim
   | .disj leftAlternatives, .disj rightAlternatives =>
       normalizeDisj (leftAlternatives ++ rightAlternatives)

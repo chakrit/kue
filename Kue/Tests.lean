@@ -68,5 +68,8 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
 #guard formatValue (.bottomWith [.primitiveConflict (.string "a") (.string "b")]) == "_|_"
 #guard join (.prim (.int 1)) (.prim (.int 2))
   == .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]
+#guard meet (.stringRegex "^a$") (.prim (.string "a")) == .prim (.string "a")
+#guard isBottom (meet (.stringRegex "^a$") (.prim (.string "b")))
+#guard join (.kind .string) (.stringRegex "^a$") == .kind .string
 
 end Kue

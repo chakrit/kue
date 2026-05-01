@@ -253,6 +253,14 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
+      fileName := "regex_label_pattern.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPattern [] (.stringRegex "^a$") (.kind .int))
+            (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
+    },
+    {
       fileName := "required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"

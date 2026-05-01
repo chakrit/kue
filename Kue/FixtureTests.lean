@@ -138,6 +138,14 @@ theorem fixture_exact_label_pattern :
       = "x: {a: 1, b: \"x\", [\"a\"]: int}" := by
   native_decide
 
+theorem fixture_regex_label_pattern :
+    formatField "x"
+      (meet
+        (.structPattern [] (.stringRegex "^a$") (.kind .int))
+        (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
+      = "x: {a: 1, b: \"x\", [=~\"^a$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet
