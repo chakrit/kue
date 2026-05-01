@@ -1158,7 +1158,54 @@ bound instead of preserving redundant alternatives.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Recursive Compound Meets
+
+Goal: make nested compound values use the same meet semantics as top-level
+values, so structs, lists, and disjunctions behave consistently inside fields
+and list elements.
+
+### Steps
+
+1. Add tests first.
+   Cover:
+   - a struct field containing a nested struct unifies with another nested
+     struct;
+   - a struct field containing a closed list unifies element-wise;
+   - a list element containing a disjunction distributes over the concrete
+     element;
+   - a disjunction of structs distributes through struct meet and removes the
+     invalid alternative.
+   Completed in the recursive compound meets slice.
+
+2. Refactor `Kue/Lattice.lean` to route nested field, list, tail, conjunction,
+   and disjunction meets through an explicit `meetWithFuel` recursion.
+   Completed in the recursive compound meets slice.
+
+3. Add recursive bottom detection for disjunction normalization so alternatives
+   containing field-level or element-level bottom are removed.
+   Completed in the recursive compound meets slice.
+
+4. Add CUE fixture ports for nested struct meets, nested list meets, list-item
+   disjunctions, and struct-disjunction meets.
+   Completed in the recursive compound meets slice.
+
+5. Verify. Completed in the recursive compound meets slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
-- Expand the compatibility harness against more official CUE examples.
-- Add resolver and cycle handling only after the core value operations are stable.
+- Expand the compatibility harness so fixture contents are compared against the
+  Lean fixture ports, not only paired for presence.
+- Add pattern constraints for structs and use them in closedness/subsumption.
+- Add embeddings, aliases, and `let` bindings in a syntax layer instead of
+  constructing semantic values directly.
+- Add dynamic fields and comprehensions after lexical binding identities are
+  represented for more than same-struct fields.
+- Expand cycle handling beyond direct and one-hop mutual references.
+- Add builtins such as `len`, `close`, `and`, and `or` as semantic functions.
+- Add package/file merging and imports after the syntax and resolver layers exist.

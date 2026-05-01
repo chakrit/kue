@@ -61,6 +61,20 @@ theorem meet_struct_field_open_list_tail_preserves_extra_bottom :
       = .struct [("x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]])] true := by
   rfl
 
+theorem meet_struct_field_closed_list_uses_list_meet :
+    meet
+      (.struct [("x", .regular, .list [.kind .int, .kind .string])] true)
+      (.struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true)
+      = .struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true := by
+  rfl
+
+theorem meet_list_item_disjunction_distributes :
+    meet
+      (.list [.disj [(.regular, .kind .int), (.regular, .kind .string)]])
+      (.list [.prim (.int 1)])
+      = .list [.prim (.int 1)] := by
+  rfl
+
 theorem meet_open_list_tail_rejects_short_closed_list :
     meet
       (.listTail [.kind .int, .kind .string] (.kind .bool))

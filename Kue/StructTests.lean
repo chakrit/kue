@@ -193,4 +193,11 @@ theorem meet_typed_ellipsis_does_not_constrain_declared_field_by_tail :
       = .structTail [("a", .regular, .prim (.int 1))] (.kind .string) := by
   rfl
 
+theorem meet_nested_struct_field_uses_struct_meet :
+    meet
+      (.struct [("x", .regular, .struct [("a", .regular, .kind .int)] true)] true)
+      (.struct [("x", .regular, .struct [("a", .regular, .prim (.int 1))] true)] true)
+      = .struct [("x", .regular, .struct [("a", .regular, .prim (.int 1))] true)] true := by
+  rfl
+
 end Kue

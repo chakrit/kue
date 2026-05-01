@@ -1,0 +1,4 @@
+x: {
+	kind: "web"
+	port: 80
+}

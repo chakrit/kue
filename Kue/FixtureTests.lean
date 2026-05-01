@@ -99,6 +99,47 @@ theorem fixture_list_unification :
       = "x: [1, \"x\"]" := by
   native_decide
 
+theorem fixture_nested_struct_field :
+    formatField "x"
+      (meet
+        (.struct [("a", .regular, .kind .int)] true)
+        (.struct [("a", .regular, .prim (.int 1))] true))
+      = "x: {a: 1}" := by
+  native_decide
+
+theorem fixture_nested_list_field :
+    formatField "x"
+      (meet
+        (.struct [("items", .regular, .list [.kind .int, .kind .string])] true)
+        (.struct [("items", .regular, .list [.prim (.int 1), .prim (.string "x")])] true))
+      = "x: {items: [1, \"x\"]}" := by
+  native_decide
+
+theorem fixture_list_item_disjunction :
+    formatField "x"
+      (meet
+        (.list [.disj [(.regular, .kind .int), (.regular, .kind .string)]])
+        (.list [.prim (.int 1)]))
+      = "x: [1]" := by
+  native_decide
+
+theorem fixture_struct_disjunction_meet :
+    formatField "x"
+      (meet
+        (.disj
+          [
+            (.regular, .struct [("kind", .regular, .prim (.string "web"))] true),
+            (.regular, .struct [("kind", .regular, .prim (.string "db"))] true)
+          ])
+        (.struct
+          [
+            ("kind", .regular, .prim (.string "web")),
+            ("port", .regular, .prim (.int 80))
+          ]
+          true))
+      = "x: {kind: \"web\", port: 80}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

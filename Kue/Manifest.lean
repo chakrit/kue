@@ -16,7 +16,7 @@ inductive ManifestError where
 deriving Repr, BEq
 
 def liveAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
-  (flattenAlternatives alternatives).filter fun alternative => !isBottom alternative.snd
+  (flattenAlternatives alternatives).filter fun alternative => !containsBottom alternative.snd
 
 def defaultAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
   alternatives.filter fun alternative => alternative.fst == .default

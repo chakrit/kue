@@ -16,7 +16,7 @@ theorem join_top_left (value : Value) : join .top value = .top := by
   cases value <;> rfl
 
 theorem meet_identical_prim (prim : Prim) : meet (.prim prim) (.prim prim) = .prim prim := by
-  cases prim <;> simp [meet, meetCore, meetPrim]
+  cases prim <;> simp [meet, meetWithFuel, meetFuel, meetCore, meetPrim]
 
 theorem meet_conflicting_ints :
     meet (.prim (.int 1)) (.prim (.int 2))
@@ -45,6 +45,22 @@ theorem meet_disjunction_preserves_default_marker :
       (.disj [(.default, .prim (.int 1)), (.regular, .prim (.string "a"))])
       (.kind .int)
       = .disj [(.default, .prim (.int 1))] := by
+  rfl
+
+theorem meet_struct_disjunction_distributes_with_struct_meet :
+    meet
+      (.disj
+        [
+          (.regular, .struct [("kind", .regular, .prim (.string "web"))] true),
+          (.regular, .struct [("kind", .regular, .prim (.string "db"))] true)
+        ])
+      (.struct
+        [("kind", .regular, .prim (.string "web")), ("port", .regular, .prim (.int 80))]
+        true)
+      =
+        .struct
+          [("kind", .regular, .prim (.string "web")), ("port", .regular, .prim (.int 80))]
+          true := by
   rfl
 
 #guard meet (.kind .int) (.prim (.int 1)) == .prim (.int 1)

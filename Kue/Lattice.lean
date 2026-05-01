@@ -85,6 +85,31 @@ def isBottom : Value -> Bool
   | .bottomWith _ => true
   | _ => false
 
+def containsBottomFuel : Nat :=
+  100
+
+def containsBottomWithFuel : Nat -> Value -> Bool
+  | 0, _ => false
+  | _ + 1, .bottom => true
+  | _ + 1, .bottomWith _ => true
+  | fuel + 1, .conj constraints =>
+      constraints.any (containsBottomWithFuel fuel)
+  | fuel + 1, .disj alternatives =>
+      alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
+  | fuel + 1, .struct fields _ =>
+      fields.any fun field => containsBottomWithFuel fuel (Field.value field)
+  | fuel + 1, .structTail fields tail =>
+      fields.any (fun field => containsBottomWithFuel fuel (Field.value field))
+        || containsBottomWithFuel fuel tail
+  | fuel + 1, .list items =>
+      items.any (containsBottomWithFuel fuel)
+  | fuel + 1, .listTail items tail =>
+      items.any (containsBottomWithFuel fuel) || containsBottomWithFuel fuel tail
+  | _ + 1, _ => false
+
+def containsBottom (value : Value) : Bool :=
+  containsBottomWithFuel containsBottomFuel value
+
 def combineMark : Mark -> Mark -> Mark
   | .default, _ => .default
   | _, .default => .default
@@ -103,7 +128,7 @@ def flattenAlternatives (alternatives : List (Mark × Value)) : List (Mark × Va
 
 def normalizeDisj (alternatives : List (Mark × Value)) : Value :=
   let flattened := flattenAlternatives alternatives
-  let live := flattened.filter fun alternative => !isBottom alternative.snd
+  let live := flattened.filter fun alternative => !containsBottom alternative.snd
   match live with
   | [] => .bottom
   | [(.regular, value)] => value
@@ -276,36 +301,24 @@ def meetCore (left right : Value) : Value :=
   | .struct .., _ => .bottom
   | _, .struct .. => .bottom
 
-def meetConjValue (constraints : List Value) (value : Value) : Value :=
+def meetConjValueWith
+    (meetValue : Value -> Value -> Value) (constraints : List Value) (value : Value) : Value :=
   constraints.foldl
     (fun current constraint =>
       if isBottom current then
         current
       else
-        meetCore constraint current)
+        meetValue constraint current)
     value
 
-def meetListPrefixTail : List Value -> Value -> List Value -> Option (List Value)
-  | [], tail, items => some (items.map (fun item => meetCore tail item))
+def meetListPrefixTailWith
+    (meetValue : Value -> Value -> Value) : List Value -> Value -> List Value -> Option (List Value)
+  | [], tail, items => some (items.map (fun item => meetValue tail item))
   | expected :: expectedItems, tail, actual :: actualItems =>
-      match meetListPrefixTail expectedItems tail actualItems with
-      | some items => some (meetCore expected actual :: items)
+      match meetListPrefixTailWith meetValue expectedItems tail actualItems with
+      | some items => some (meetValue expected actual :: items)
       | none => none
   | _ :: _, _, [] => none
-
-def meetCompoundCore (left right : Value) : Value :=
-  match left, right with
-  | .conj constraints, value => meetConjValue constraints value
-  | value, .conj constraints => meetConjValue constraints value
-  | .listTail fixed tail, .list items =>
-      match meetListPrefixTail fixed tail items with
-      | some items => .list items
-      | none => .bottom
-  | .list items, .listTail fixed tail =>
-      match meetListPrefixTail fixed tail items with
-      | some items => .list items
-      | none => .bottom
-  | value, other => meetCore value other
 
 def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
   match left, right with
@@ -323,34 +336,36 @@ def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
 def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : Field :=
   (label, fieldClass, value)
 
-def mergeFieldValue (left right : Field) : Option Field :=
+def mergeFieldValueWith (meetValue : Value -> Value -> Value) (left right : Field) : Option Field :=
   match mergeFieldClass (Field.fieldClass left) (Field.fieldClass right) with
   | some fieldClass =>
-      let value := meetCompoundCore (Field.value left) (Field.value right)
+      let value := meetValue (Field.value left) (Field.value right)
       if isBottom value then
         some (fieldWithClass fieldClass (Field.label left) (.bottomWith [.fieldConflict (Field.label left)]))
       else
         some (fieldWithClass fieldClass (Field.label left) value)
   | none => none
 
-def mergeFieldInto (fields : List Field) (field : Field) : Option (List Field) :=
+def mergeFieldIntoWith
+    (meetValue : Value -> Value -> Value) (fields : List Field) (field : Field) : Option (List Field) :=
   match fields with
   | [] => some [field]
   | current :: rest =>
       if Field.label current = Field.label field then
-        match mergeFieldValue current field with
+        match mergeFieldValueWith meetValue current field with
         | some merged => some (merged :: rest)
         | none => none
       else
-        match mergeFieldInto rest field with
+        match mergeFieldIntoWith meetValue rest field with
         | some mergedRest => some (current :: mergedRest)
         | none => none
 
-def mergeStructFields (leftFields rightFields : List Field) : Option (List Field) :=
+def mergeStructFieldsWith
+    (meetValue : Value -> Value -> Value) (leftFields rightFields : List Field) : Option (List Field) :=
   rightFields.foldl
     (fun merged field =>
       match merged with
-      | some fields => mergeFieldInto fields field
+      | some fields => mergeFieldIntoWith meetValue fields field
       | none => none)
     (some leftFields)
 
@@ -382,75 +397,94 @@ def applyStructClosedness
   let checkedByLeft := applyClosednessFrom leftFields leftOpen mergedFields
   applyClosednessFrom rightFields rightOpen checkedByLeft
 
-def applyTailToField (declaredFields : List Field) (tail : Value) (field : Field) : Field :=
+def applyTailToFieldWith
+    (meetValue : Value -> Value -> Value)
+    (declaredFields : List Field)
+    (tail : Value)
+    (field : Field) : Field :=
   if hasFieldLabel (Field.label field) declaredFields then
     field
   else
-    let value := meetCompoundCore tail (Field.value field)
+    let value := meetValue tail (Field.value field)
     if isBottom value then
       fieldWithClass (Field.fieldClass field) (Field.label field)
         (.bottomWith [.fieldConstraint (Field.label field)])
     else
       fieldWithClass (Field.fieldClass field) (Field.label field) value
 
-def applyTailToExtras (declaredFields : List Field) (tail : Value) (fields : List Field) : List Field :=
-  fields.map (applyTailToField declaredFields tail)
+def applyTailToExtrasWith
+    (meetValue : Value -> Value -> Value) (declaredFields : List Field) (tail : Value) (fields : List Field) :
+    List Field :=
+  fields.map (applyTailToFieldWith meetValue declaredFields tail)
 
-def mergeStructTailWithStruct (tailFields : List Field) (tail : Value) (fields : List Field) : Value :=
-  match mergeStructFields tailFields fields with
-  | some mergedFields => .structTail (applyTailToExtras tailFields tail mergedFields) tail
+def mergeStructTailWithStructWith
+    (meetValue : Value -> Value -> Value)
+    (tailFields : List Field)
+    (tail : Value)
+    (fields : List Field) : Value :=
+  match mergeStructFieldsWith meetValue tailFields fields with
+  | some mergedFields => .structTail (applyTailToExtrasWith meetValue tailFields tail mergedFields) tail
   | none => .bottom
 
-def meetList : List Value -> List Value -> Option (List Value)
+def meetListWith (meetValue : Value -> Value -> Value) : List Value -> List Value -> Option (List Value)
   | [], [] => some []
   | left :: leftItems, right :: rightItems =>
-      match meetList leftItems rightItems with
-      | some items => some (meetCompoundCore left right :: items)
+      match meetListWith meetValue leftItems rightItems with
+      | some items => some (meetValue left right :: items)
       | none => none
   | _, _ => none
 
-def meet (left right : Value) : Value :=
-  match left, right with
+def meetFuel : Nat :=
+  100
+
+def meetWithFuel : Nat -> Value -> Value -> Value
+  | 0, left, right => meetCore left right
+  | fuel + 1, left, right =>
+    match left, right with
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
   | .top, value => value
   | value, .top => value
-  | .conj constraints, value => meetConjValue constraints value
-  | value, .conj constraints => meetConjValue constraints value
+  | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
+  | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
   | .struct leftFields leftOpen, .struct rightFields rightOpen =>
-      match mergeStructFields leftFields rightFields with
+      match mergeStructFieldsWith (meetWithFuel fuel) leftFields rightFields with
       | some fields =>
           .struct
             (applyStructClosedness leftFields rightFields fields leftOpen rightOpen)
             (leftOpen && rightOpen)
       | none => .bottom
   | .structTail tailFields tail, .struct fields _ =>
-      mergeStructTailWithStruct tailFields tail fields
+      mergeStructTailWithStructWith (meetWithFuel fuel) tailFields tail fields
   | .struct fields _, .structTail tailFields tail =>
-      mergeStructTailWithStruct tailFields tail fields
+      mergeStructTailWithStructWith (meetWithFuel fuel) tailFields tail fields
   | .structTail leftFields leftTail, .structTail rightFields rightTail =>
-      match mergeStructFields leftFields rightFields with
+      match mergeStructFieldsWith (meetWithFuel fuel) leftFields rightFields with
       | some mergedFields =>
-          let tail := meetCore leftTail rightTail
+          let tail := meetWithFuel fuel leftTail rightTail
           if isBottom tail then
             .bottom
           else
             .structTail
-              (applyTailToExtras leftFields leftTail (applyTailToExtras rightFields rightTail mergedFields))
+              (applyTailToExtrasWith
+                (meetWithFuel fuel)
+                leftFields
+                leftTail
+                (applyTailToExtrasWith (meetWithFuel fuel) rightFields rightTail mergedFields))
               tail
       | none => .bottom
   | .list leftItems, .list rightItems =>
-      match meetList leftItems rightItems with
+      match meetListWith (meetWithFuel fuel) leftItems rightItems with
       | some items => .list items
       | none => .bottom
   | .listTail fixed tail, .list items =>
-      match meetListPrefixTail fixed tail items with
+      match meetListPrefixTailWith (meetWithFuel fuel) fixed tail items with
       | some items => .list items
       | none => .bottom
   | .list items, .listTail fixed tail =>
-      match meetListPrefixTail fixed tail items with
+      match meetListPrefixTailWith (meetWithFuel fuel) fixed tail items with
       | some items => .list items
       | none => .bottom
   | .disj leftAlternatives, .disj rightAlternatives =>
@@ -463,7 +497,7 @@ def meet (left right : Value) : Value :=
               flatRight.map fun rightAlternative =>
                 (
                   combineMark leftAlternative.fst rightAlternative.fst,
-                  meetCore leftAlternative.snd rightAlternative.snd
+                  meetWithFuel fuel leftAlternative.snd rightAlternative.snd
                 )
             paired ++ combined)
           []
@@ -472,15 +506,18 @@ def meet (left right : Value) : Value :=
       let flatAlternatives := flattenAlternatives alternatives
       let distributed :=
         flatAlternatives.map fun alternative =>
-          (alternative.fst, meetCore alternative.snd value)
+          (alternative.fst, meetWithFuel fuel alternative.snd value)
       normalizeDisj distributed
   | value, .disj alternatives =>
       let flatAlternatives := flattenAlternatives alternatives
       let distributed :=
         flatAlternatives.map fun alternative =>
-          (alternative.fst, meetCore value alternative.snd)
+          (alternative.fst, meetWithFuel fuel value alternative.snd)
       normalizeDisj distributed
   | value, other => meetCore value other
+
+def meet (left right : Value) : Value :=
+  meetWithFuel meetFuel left right
 
 def joinPrim (left right : Prim) : Value :=
   if left = right then
