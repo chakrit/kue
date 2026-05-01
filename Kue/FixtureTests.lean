@@ -338,6 +338,20 @@ theorem fixture_regex_shorthand_pattern :
         ++ "y: {a5z: \"skip\", adz: 1, [=~\"^a\\\\Dz$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_alternation_pattern :
+    formatField "x"
+      (meet
+        (.structPattern [] (.stringRegex "^cat$|^dog$") (.kind .int) true)
+        (.struct
+          [
+            ("cat", .regular, .prim (.string "bad")),
+            ("dog", .regular, .prim (.int 2)),
+            ("cow", .regular, .prim (.string "skip"))
+          ]
+          true))
+      = "x: {cat: _|_, dog: 2, cow: \"skip\", [=~\"^cat$|^dog$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

@@ -214,7 +214,26 @@ mutual
              | _ :: remaining => regexMatchAnywhereWithFuel fuel anchoredEnd pattern remaining
 end
 
-def stringRegexMatches (pattern value : String) : Bool :=
+def splitRegexAlternativesWithState :
+    List Char -> Bool -> List Char -> List (List Char) -> List (List Char)
+  | [], _, current, alternatives => (current.reverse :: alternatives).reverse
+  | '\\' :: value :: rest, inClass, current, alternatives =>
+      splitRegexAlternativesWithState rest inClass (value :: '\\' :: current) alternatives
+  | ['\\'], inClass, current, alternatives =>
+      splitRegexAlternativesWithState [] inClass ('\\' :: current) alternatives
+  | '[' :: rest, false, current, alternatives =>
+      splitRegexAlternativesWithState rest true ('[' :: current) alternatives
+  | ']' :: rest, true, current, alternatives =>
+      splitRegexAlternativesWithState rest false (']' :: current) alternatives
+  | '|' :: rest, false, current, alternatives =>
+      splitRegexAlternativesWithState rest false [] (current.reverse :: alternatives)
+  | value :: rest, inClass, current, alternatives =>
+      splitRegexAlternativesWithState rest inClass (value :: current) alternatives
+
+def splitRegexAlternatives (pattern : String) : List String :=
+  (splitRegexAlternativesWithState pattern.toList false [] []).map String.ofList
+
+def stringRegexAlternativeMatches (pattern value : String) : Bool :=
   let anchoredStart := pattern.startsWith "^"
   let withoutStart := if anchoredStart then (pattern.drop 1).copy else pattern
   let anchoredEnd := withoutStart.endsWith "$"
@@ -226,5 +245,9 @@ def stringRegexMatches (pattern value : String) : Bool :=
     regexMatchHereWithFuel fuel anchoredEnd patternChars valueChars
   else
     regexMatchAnywhereWithFuel fuel anchoredEnd patternChars valueChars
+
+def stringRegexMatches (pattern value : String) : Bool :=
+  (splitRegexAlternatives pattern).any fun alternative =>
+    stringRegexAlternativeMatches alternative value
 
 end Kue
