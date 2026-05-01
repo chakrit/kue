@@ -141,6 +141,24 @@ def regexWordRanges : List (Char × Char) :=
 def regexSpaceRanges : List (Char × Char) :=
   [(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')]
 
+def regexDigitValue? (value : Char) : Option Nat :=
+  if charInRegexRange '0' '9' value then
+    some (value.toNat - '0'.toNat)
+  else
+    none
+
+def parseRegexExactRepeatDigits : List Char -> Nat -> Bool -> Option (Nat × List Char)
+  | [], _, _ => none
+  | '}' :: rest, count, true => some (count, rest)
+  | value :: rest, count, _ =>
+      match regexDigitValue? value with
+      | some digit => parseRegexExactRepeatDigits rest (count * 10 + digit) true
+      | none => none
+
+def parseRegexExactRepeat : List Char -> Option (Nat × List Char)
+  | '{' :: rest => parseRegexExactRepeatDigits rest 0 false
+  | _ => none
+
 namespace RegexAtom
 
 def matchesChar : RegexAtom -> Char -> Bool
@@ -199,11 +217,14 @@ mutual
                 atom.matchesChar current
                   && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
         | some (atom, rest) =>
-            match value with
-            | [] => false
-            | current :: remaining =>
-                atom.matchesChar current
-                  && regexMatchHereWithFuel fuel anchoredEnd rest remaining
+            match parseRegexExactRepeat rest with
+            | some (count, rest) => regexMatchRepeatWithFuel fuel anchoredEnd atom count rest value
+            | none =>
+                match value with
+                | [] => false
+                | current :: remaining =>
+                    atom.matchesChar current
+                      && regexMatchHereWithFuel fuel anchoredEnd rest remaining
 
   def regexMatchStarWithFuel : Nat -> Bool -> RegexAtom -> List Char -> List Char -> Bool
     | 0, _, _, _, _ => false
@@ -214,6 +235,17 @@ mutual
              | current :: remaining =>
                  atom.matchesChar current
                    && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
+
+  def regexMatchRepeatWithFuel : Nat -> Bool -> RegexAtom -> Nat -> List Char -> List Char -> Bool
+    | 0, _, _, _, _, _ => false
+    | fuel + 1, anchoredEnd, _, 0, rest, value =>
+        regexMatchHereWithFuel fuel anchoredEnd rest value
+    | fuel + 1, anchoredEnd, atom, count + 1, rest, value =>
+        match value with
+        | [] => false
+        | current :: remaining =>
+            atom.matchesChar current
+              && regexMatchRepeatWithFuel fuel anchoredEnd atom count rest remaining
 
   def regexMatchAnywhereWithFuel : Nat -> Bool -> List Char -> List Char -> Bool
     | 0, _, _, _ => false

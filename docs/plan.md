@@ -1960,6 +1960,33 @@ Goal: support whitespace shorthand character classes in label pattern matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Exact Regex Repetition Label Patterns
+
+Goal: support exact `{n}` repetition over regex atoms in label pattern matching.
+
+### Steps
+
+1. Add red tests for exact repetition.
+   Completed in the exact regex repetition label patterns slice.
+   Cover `^a\\d{2}z$` matching a two-digit label segment while leaving a
+   one-digit label unconstrained.
+
+2. Parse and match exact repetition quantifiers.
+   Completed in the exact regex repetition label patterns slice.
+   The matcher now parses `{digits}` after an atom and consumes exactly that
+   many matching characters before continuing with the remaining pattern.
+
+3. Add a CUE fixture port for exact repetition label patterns.
+   Completed in the exact regex repetition label patterns slice.
+
+4. Verify. Completed in the exact regex repetition label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
