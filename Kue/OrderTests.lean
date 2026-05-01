@@ -171,6 +171,20 @@ theorem escaped_regex_label_pattern_rejects_matching_conflict :
       = false := by
   native_decide
 
+theorem regex_digit_shorthand_subsumes_digit_and_ignores_literal_d :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\dz$") (.kind .int) true)
+      (.struct [("a5z", .regular, .prim (.int 1)), ("adz", .regular, .prim (.string "skip"))] true)
+      = true := by
+  native_decide
+
+theorem regex_negated_digit_shorthand_subsumes_non_digit :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\Dz$") (.kind .int) true)
+      (.struct [("a5z", .regular, .prim (.string "skip")), ("adz", .regular, .prim (.int 1))] true)
+      = true := by
+  native_decide
+
 theorem closed_regex_pattern_rejects_non_matching_regular_field :
     subsumes
       (.structPattern [] (.stringRegex "^a$") (.kind .int) false)

@@ -1826,6 +1826,32 @@ Goal: support the `?` regex quantifier in label pattern matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Regex Digit Shorthand Label Patterns
+
+Goal: support digit shorthand character classes in label pattern matching.
+
+### Steps
+
+1. Add red tests for digit shorthand classes.
+   Completed in the regex digit shorthand label patterns slice.
+   Cover `\\d` matching a digit label segment while not matching literal `d`,
+   and cover the negated `\\D` form.
+
+2. Parse digit shorthands as regex class atoms.
+   Completed in the regex digit shorthand label patterns slice.
+   `\\d` now maps to `[0-9]`, and `\\D` maps to the negated digit class.
+
+3. Add a CUE fixture port for digit shorthand label patterns.
+   Completed in the regex digit shorthand label patterns slice.
+
+4. Verify. Completed in the regex digit shorthand label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular

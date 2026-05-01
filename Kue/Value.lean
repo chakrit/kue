@@ -132,6 +132,9 @@ def charInRegexRange (lower upper value : Char) : Bool :=
 def regexClassMatches (ranges : List (Char × Char)) (value : Char) : Bool :=
   ranges.any fun range => charInRegexRange range.fst range.snd value
 
+def regexDigitRanges : List (Char × Char) :=
+  [('0', '9')]
+
 namespace RegexAtom
 
 def matchesChar : RegexAtom -> Char -> Bool
@@ -150,6 +153,8 @@ def parseRegexClassRanges : List Char -> List (Char × Char) -> Option (List (Ch
 
 def parseRegexAtom : List Char -> Option (RegexAtom × List Char)
   | [] => none
+  | '\\' :: 'd' :: rest => some (.charClass regexDigitRanges false, rest)
+  | '\\' :: 'D' :: rest => some (.charClass regexDigitRanges true, rest)
   | '\\' :: value :: rest => some (.literal value, rest)
   | ['\\'] => some (.literal '\\', [])
   | '[' :: '^' :: rest =>

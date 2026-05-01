@@ -428,6 +428,36 @@ theorem meet_escaped_regex_label_pattern_rejects_matching_conflict :
           true) = true := by
   native_decide
 
+theorem meet_regex_digit_shorthand_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a\\dz$") (.kind .int) true)
+      (.struct [("a5z", .regular, .prim (.string "bad")), ("adz", .regular, .prim (.string "skip"))] true)
+      ==
+        .structPattern
+          [
+            ("a5z", .regular, .bottomWith [.fieldConstraint "a5z"]),
+            ("adz", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^a\\dz$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
+theorem meet_regex_negated_digit_shorthand_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a\\Dz$") (.kind .int) true)
+      (.struct [("a5z", .regular, .prim (.string "skip")), ("adz", .regular, .prim (.string "bad"))] true)
+      ==
+        .structPattern
+          [
+            ("a5z", .regular, .prim (.string "skip")),
+            ("adz", .regular, .bottomWith [.fieldConstraint "adz"])
+          ]
+          (.stringRegex "^a\\Dz$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
 theorem close_value_marks_struct_pattern_closed :
     closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true)
       = .structPattern [] (.stringRegex "^a$") (.kind .int) false := by

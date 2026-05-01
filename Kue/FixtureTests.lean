@@ -315,6 +315,29 @@ theorem fixture_regex_question_pattern :
       = "x: {color: _|_, colour: 2, colouur: \"skip\", [=~\"^colou?r$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_shorthand_pattern :
+    formatTopLevel
+      (.struct
+        [
+          ("x", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a\\dz$") (.kind .int) true)
+              (.struct
+                [("a5z", .regular, .prim (.string "bad")), ("adz", .regular, .prim (.string "skip"))]
+                true)),
+          ("y", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a\\Dz$") (.kind .int) true)
+              (.struct
+                [("a5z", .regular, .prim (.string "skip")), ("adz", .regular, .prim (.int 1))]
+                true))
+        ]
+        true)
+      =
+        "x: {a5z: _|_, adz: \"skip\", [=~\"^a\\\\dz$\"]: int}\n"
+        ++ "y: {a5z: \"skip\", adz: 1, [=~\"^a\\\\Dz$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

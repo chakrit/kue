@@ -1,0 +1,2 @@
+x: {a5z: _|_, adz: "skip", [=~"^a\\dz$"]: int}
+y: {a5z: "skip", adz: 1, [=~"^a\\Dz$"]: int}

@@ -440,6 +440,27 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "regex_shorthand_pattern.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("x", .regular,
+                meet
+                  (.structPattern [] (.stringRegex "^a\\dz$") (.kind .int) true)
+                  (.struct
+                    [("a5z", .regular, .prim (.string "bad")), ("adz", .regular, .prim (.string "skip"))]
+                    true)),
+              ("y", .regular,
+                meet
+                  (.structPattern [] (.stringRegex "^a\\Dz$") (.kind .int) true)
+                  (.struct
+                    [("a5z", .regular, .prim (.string "skip")), ("adz", .regular, .prim (.int 1))]
+                    true))
+            ]
+            true)
+    },
+    {
       fileName := "required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"
