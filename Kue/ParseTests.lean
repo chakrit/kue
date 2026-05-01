@@ -37,6 +37,18 @@ theorem parse_disjunction_defaults_and_bounds :
       "mode: *\"prod\" | \"dev\"\nsmall: 7" = true := by
   native_decide
 
+theorem parse_integer_bound_disjunction_normalizes :
+    parseOutputMatches
+      "x: >=5 | >=0\n"
+      "x: >=0" = true := by
+  native_decide
+
+theorem parse_number_disjunction_normalizes :
+    parseOutputMatches
+      "x: number | 1\n"
+      "x: number" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

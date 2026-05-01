@@ -98,6 +98,12 @@ theorem eval_non_cycle_reference_still_uses_target_value :
       == .struct [("x", .regular, .kind .int), ("y", .regular, .kind .int)] true) = true := by
   native_decide
 
+theorem eval_regular_disjunction_uses_join_normalization :
+    (evalStructRefs
+      (.struct [("x", .regular, .disj [(.regular, .intGe 5), (.regular, .intGe 0)])] true)
+      == .struct [("x", .regular, .intGe 0)] true) = true := by
+  native_decide
+
 theorem eval_regular_field_reference_to_hidden :
     (evalStructRefs
       (resolveStructRefs (.struct [("_secret", .hidden, .prim (.string "x")), ("value", .regular, .ref "_secret")] true))

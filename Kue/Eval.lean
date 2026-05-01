@@ -44,6 +44,21 @@ def applyEvaluatedStructPattern
     (open_ : Bool) : Value :=
   meet (.structPattern [] labelPattern constraint open_) (.struct fields true)
 
+def allRegularAlternatives : List (Mark × Value) -> Bool
+  | [] => true
+  | alternative :: alternatives =>
+      alternative.fst == .regular && allRegularAlternatives alternatives
+
+def joinValues : List Value -> Value
+  | [] => .bottom
+  | value :: values => values.foldl join value
+
+def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
+  if allRegularAlternatives alternatives then
+    joinValues (alternatives.map Prod.snd)
+  else
+    .disj alternatives
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -72,9 +87,9 @@ mutual
     | fuel + 1, fields, bindings, visited, .builtinCall name args =>
         evalBuiltinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .disj alternatives =>
-        .disj (alternatives.map fun alternative =>
+        let evaluated := alternatives.map fun alternative =>
           (alternative.fst, evalValueWithFuel fuel fields bindings visited alternative.snd)
-        )
+        normalizeEvaluatedDisj evaluated
     | fuel + 1, fields, _, _, .struct nestedFields open_ =>
         let nestedBindings := buildBindingEnv nestedFields
         let visibleFields := nestedFields ++ fields

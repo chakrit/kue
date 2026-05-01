@@ -2207,6 +2207,32 @@ label-based outer references.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Evaluated Disjunction Normalization
+
+Goal: make parsed regular disjunctions use the same normalization already
+implemented by `join`, so source such as `>=5 | >=0` evaluates to `>=0`.
+
+### Steps
+
+1. Add failing tests first.
+   Cover evaluator normalization for integer-bound disjunctions and parser
+   normalization for both `>=5 | >=0` and `number | 1`.
+   Completed in the evaluated disjunction normalization slice.
+
+2. Normalize all-regular evaluated disjunctions.
+   Completed in the evaluated disjunction normalization slice.
+   `Kue/Eval.lean` folds regular alternatives with `join` after evaluating
+   them. Default-marked disjunctions stay explicit so manifestation semantics
+   are unchanged.
+
+3. Verify. Completed in the evaluated disjunction normalization slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current single-pattern representation:
