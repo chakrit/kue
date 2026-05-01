@@ -1206,7 +1206,7 @@ fields as well as later fields.
 
 ### Steps
 
-1. Extend the value domain with `structPattern fields pattern`.
+1. Extend the value domain with `structPattern fields labelPattern constraint`.
    Completed in the broad string pattern constraints slice.
 
 2. Add tests first.
@@ -1286,6 +1286,40 @@ syntax.
    Completed in the bytes literal compatibility slice.
 
 4. Verify. Completed in the bytes literal compatibility slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
+## Completed Slice: Pattern Label Values
+
+Goal: represent pattern constraints with both semantic parts from the CUE spec:
+the label pattern and the field-value constraint.
+
+### Steps
+
+1. Refactor `structPattern` from an implicit broad string pattern to
+   `structPattern fields labelPattern constraint`.
+   Completed in the pattern label values slice.
+
+2. Add tests for exact-label patterns such as `["a"]: int`.
+   Cover:
+   - exact-label pattern formatting;
+   - non-matching fields are left unconstrained;
+   - matching conflicts become field-level bottom;
+   - subsumption checks only matching regular fields.
+   Completed in the pattern label values slice.
+
+3. Update lattice, order, formatting, manifestation, normalization, resolution,
+   and evaluation traversal for the new pattern shape.
+   Completed in the pattern label values slice.
+
+4. Add a CUE fixture port for an exact-label pattern.
+   Completed in the pattern label values slice.
+
+5. Verify. Completed in the pattern label values slice.
 
    ```sh
    lake build

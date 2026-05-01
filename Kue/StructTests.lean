@@ -161,7 +161,11 @@ theorem format_typed_ellipsis :
   native_decide
 
 theorem format_string_pattern_constraint :
-    formatValue (.structPattern [] (.kind .int)) = "{[string]: int}" := by
+    formatValue (.structPattern [] (.kind .string) (.kind .int)) = "{[string]: int}" := by
+  native_decide
+
+theorem format_exact_label_pattern_constraint :
+    formatValue (.structPattern [] (.prim (.string "a")) (.kind .int)) = "{[\"a\"]: int}" := by
   native_decide
 
 theorem meet_typed_ellipsis_accepts_matching_extra_field :
@@ -206,23 +210,48 @@ theorem meet_nested_struct_field_uses_struct_meet :
 
 theorem meet_string_pattern_constrains_regular_field :
     meet
-      (.structPattern [] (.kind .int))
+      (.structPattern [] (.kind .string) (.kind .int))
       (.struct [("a", .regular, .prim (.int 1))] true)
-      = .structPattern [("a", .regular, .prim (.int 1))] (.kind .int) := by
+      = .structPattern [("a", .regular, .prim (.int 1))] (.kind .string) (.kind .int) := by
   rfl
 
 theorem meet_string_pattern_rejects_conflicting_regular_field :
     meet
-      (.structPattern [] (.kind .int))
+      (.structPattern [] (.kind .string) (.kind .int))
       (.struct [("a", .regular, .prim (.string "x"))] true)
-      = .structPattern [("a", .regular, .bottomWith [.fieldConstraint "a"])] (.kind .int) := by
+      = .structPattern
+          [("a", .regular, .bottomWith [.fieldConstraint "a"])]
+          (.kind .string)
+          (.kind .int) := by
   rfl
 
 theorem meet_string_pattern_constrains_declared_pattern_field :
     meet
-      (.structPattern [("a", .regular, .kind .number)] (.kind .int))
+      (.structPattern [("a", .regular, .kind .number)] (.kind .string) (.kind .int))
       (.struct [("a", .regular, .prim (.int 1))] true)
-      = .structPattern [("a", .regular, .prim (.int 1))] (.kind .int) := by
+      = .structPattern [("a", .regular, .prim (.int 1))] (.kind .string) (.kind .int) := by
+  rfl
+
+theorem meet_exact_label_pattern_skips_other_regular_fields :
+    meet
+      (.structPattern [] (.prim (.string "a")) (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      =
+        .structPattern
+          [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))]
+          (.prim (.string "a"))
+          (.kind .int) := by
+  rfl
+
+theorem meet_exact_label_pattern_rejects_matching_conflict :
+    meet
+      (.structPattern [] (.prim (.string "a")) (.kind .int))
+      (.struct [("a", .regular, .prim (.string "x")), ("b", .regular, .prim (.string "x"))] true)
+      =
+        .structPattern
+          [("a", .regular, .bottomWith [.fieldConstraint "a"]), ("b", .regular, .prim (.string "x"))]
+          (.prim (.string "a"))
+          (.kind .int) := by
   rfl
 
 end Kue

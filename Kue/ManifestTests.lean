@@ -17,7 +17,7 @@ theorem manifest_concrete_struct :
   rfl
 
 theorem manifest_string_pattern_struct_outputs_regular_fields :
-    manifest (.structPattern [("a", .regular, .prim (.int 1))] (.kind .int))
+    manifest (.structPattern [("a", .regular, .prim (.int 1))] (.kind .string) (.kind .int))
       = .ok (.struct [("a", .prim (.int 1))]) := by
   rfl
 

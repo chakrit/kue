@@ -63,19 +63,28 @@ mutual
     let extraSatisfied := extraFieldsSatisfyTailWithFuel fuel expectedFields actualFields tail
     expectedSatisfied && extraSatisfied
 
-  def regularFieldsSatisfyPatternWithFuel (fuel : Nat) (fields : List Field) (pattern : Value) : Bool :=
+  def labelMatchesPatternWithFuel (fuel : Nat) (labelPattern : Value) (label : String) : Bool :=
+    subsumesWithFuel fuel labelPattern (.prim (.string label))
+
+  def regularFieldsSatisfyPatternWithFuel
+      (fuel : Nat)
+      (fields : List Field)
+      (labelPattern constraint : Value) : Bool :=
     fields.all fun field =>
-      if Field.fieldClass field == .regular then
-        subsumesWithFuel fuel pattern (Field.value field)
+      let isRegular := Field.fieldClass field == .regular
+      let labelMatches := labelMatchesPatternWithFuel fuel labelPattern (Field.label field)
+      if isRegular && labelMatches then
+        subsumesWithFuel fuel constraint (Field.value field)
       else
         true
 
   def structPatternSubsumesWithFuel
       (fuel : Nat)
       (expectedFields actualFields : List Field)
-      (pattern : Value) : Bool :=
+      (labelPattern constraint : Value) : Bool :=
     let expectedSatisfied := allExpectedFieldsSubsumedWithFuel fuel expectedFields actualFields
-    let patternSatisfied := regularFieldsSatisfyPatternWithFuel fuel actualFields pattern
+    let patternSatisfied :=
+      regularFieldsSatisfyPatternWithFuel fuel actualFields labelPattern constraint
     expectedSatisfied && patternSatisfied
 
   def listSubsumesWithFuel (fuel : Nat) : List Value -> List Value -> Bool
@@ -133,11 +142,14 @@ mutual
         structTailSubsumesWithFuel fuel expectedFields actualFields tail
     | fuel + 1, .structTail expectedFields tail, .structTail actualFields _ =>
         structTailSubsumesWithFuel fuel expectedFields actualFields tail
-    | fuel + 1, .structPattern expectedFields pattern, .struct actualFields _ =>
-        structPatternSubsumesWithFuel fuel expectedFields actualFields pattern
-    | fuel + 1, .structPattern expectedFields pattern, .structPattern actualFields actualPattern =>
-        structPatternSubsumesWithFuel fuel expectedFields actualFields pattern
-          && subsumesWithFuel fuel pattern actualPattern
+    | fuel + 1, .structPattern expectedFields labelPattern constraint, .struct actualFields _ =>
+        structPatternSubsumesWithFuel fuel expectedFields actualFields labelPattern constraint
+    | fuel + 1,
+      .structPattern expectedFields labelPattern constraint,
+      .structPattern actualFields actualLabel actualConstraint =>
+        structPatternSubsumesWithFuel fuel expectedFields actualFields labelPattern constraint
+          && subsumesWithFuel fuel labelPattern actualLabel
+          && subsumesWithFuel fuel constraint actualConstraint
     | fuel + 1, .list expectedItems, .list actualItems =>
         listSubsumesWithFuel fuel expectedItems actualItems
     | fuel + 1, .listTail fixed tail, .list actualItems =>

@@ -77,7 +77,7 @@ inductive Value where
   | disj (alternatives : List (Mark × Value))
   | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
   | structTail (fields : List (String × FieldClass × Value)) (tail : Value)
-  | structPattern (fields : List (String × FieldClass × Value)) (pattern : Value)
+  | structPattern (fields : List (String × FieldClass × Value)) (labelPattern constraint : Value)
   | list (items : List Value)
   | listTail (items : List Value) (tail : Value)
 deriving Repr, BEq

@@ -135,7 +135,7 @@ theorem fixture_struct_disjunction_meet :
 theorem fixture_string_pattern_constraint :
     formatField "x"
       (meet
-        (.structPattern [] (.kind .int))
+        (.structPattern [] (.kind .string) (.kind .int))
         (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
       = "x: {a: 1, b: 2, [string]: int}" := by
   native_decide
@@ -143,9 +143,17 @@ theorem fixture_string_pattern_constraint :
 theorem fixture_string_pattern_conflict :
     formatField "x"
       (meet
-        (.structPattern [] (.kind .int))
+        (.structPattern [] (.kind .string) (.kind .int))
         (.struct [("a", .regular, .prim (.string "x"))] true))
       = "x: {a: _|_, [string]: int}" := by
+  native_decide
+
+theorem fixture_exact_label_pattern :
+    formatField "x"
+      (meet
+        (.structPattern [] (.prim (.string "a")) (.kind .int))
+        (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
+      = "x: {a: 1, b: \"x\", [\"a\"]: int}" := by
   native_decide
 
 theorem fixture_int_bounds :

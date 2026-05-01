@@ -70,15 +70,29 @@ theorem typed_tail_rejects_conflicting_extra_field :
 
 theorem string_pattern_subsumes_matching_regular_fields :
     subsumes
-      (.structPattern [] (.kind .int))
+      (.structPattern [] (.kind .string) (.kind .int))
       (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true)
       = true := by
   native_decide
 
 theorem string_pattern_rejects_conflicting_regular_field :
     subsumes
-      (.structPattern [] (.kind .int))
+      (.structPattern [] (.kind .string) (.kind .int))
       (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      = false := by
+  native_decide
+
+theorem exact_label_pattern_ignores_non_matching_regular_field :
+    subsumes
+      (.structPattern [] (.prim (.string "a")) (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      = true := by
+  native_decide
+
+theorem exact_label_pattern_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.prim (.string "a")) (.kind .int))
+      (.struct [("a", .regular, .prim (.string "x")), ("b", .regular, .prim (.string "x"))] true)
       = false := by
   native_decide
 

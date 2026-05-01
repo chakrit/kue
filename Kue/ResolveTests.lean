@@ -61,8 +61,8 @@ theorem resolve_reference_inside_struct_tail :
 
 theorem resolve_reference_inside_struct_pattern :
     (resolveStructRefs
-      (.structPattern [("#A", .definition, .kind .int)] (.ref "#A"))
-      == .structPattern [("#A", .definition, .kind .int)] (.refId ⟨0⟩)) = true := by
+      (.structPattern [("#A", .definition, .kind .int)] (.kind .string) (.ref "#A"))
+      == .structPattern [("#A", .definition, .kind .int)] (.kind .string) (.refId ⟨0⟩)) = true := by
   native_decide
 
 end Kue

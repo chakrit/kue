@@ -101,7 +101,7 @@ def containsBottomWithFuel : Nat -> Value -> Bool
   | fuel + 1, .structTail fields tail =>
       fields.any (fun field => containsBottomWithFuel fuel (Field.value field))
         || containsBottomWithFuel fuel tail
-  | fuel + 1, .structPattern fields _ =>
+  | fuel + 1, .structPattern fields _ _ =>
       fields.any fun field => containsBottomWithFuel fuel (Field.value field)
   | fuel + 1, .list items =>
       items.any (containsBottomWithFuel fuel)
@@ -298,8 +298,8 @@ def meetCore (left right : Value) : Value :=
   | .struct _ _, .struct _ _ => .bottom
   | .structTail _ _, _ => .bottom
   | _, .structTail _ _ => .bottom
-  | .structPattern _ _, _ => .bottom
-  | _, .structPattern _ _ => .bottom
+  | .structPattern _ _ _, _ => .bottom
+  | _, .structPattern _ _ _ => .bottom
   | .disj _, _ => .bottom
   | _, .disj _ => .bottom
   | .struct .., _ => .bottom
@@ -421,10 +421,20 @@ def applyTailToExtrasWith
     List Field :=
   fields.map (applyTailToFieldWith meetValue declaredFields tail)
 
-def applyStringPatternToFieldWith
-    (meetValue : Value -> Value -> Value) (pattern : Value) (field : Field) : Field :=
-  if Field.fieldClass field == .regular then
-    let value := meetValue pattern (Field.value field)
+def labelMatchesPatternWith
+    (meetValue : Value -> Value -> Value)
+    (labelPattern : Value)
+    (label : String) : Bool :=
+  !containsBottom (meetValue labelPattern (.prim (.string label)))
+
+def applyPatternToFieldWith
+    (meetValue : Value -> Value -> Value)
+    (labelPattern constraint : Value)
+    (field : Field) : Field :=
+  let isRegular := Field.fieldClass field == .regular
+  let labelMatches := labelMatchesPatternWith meetValue labelPattern (Field.label field)
+  if isRegular && labelMatches then
+    let value := meetValue constraint (Field.value field)
     if isBottom value then
       fieldWithClass (Field.fieldClass field) (Field.label field)
         (.bottomWith [.fieldConstraint (Field.label field)])
@@ -433,9 +443,11 @@ def applyStringPatternToFieldWith
   else
     field
 
-def applyStringPatternToFieldsWith
-    (meetValue : Value -> Value -> Value) (pattern : Value) (fields : List Field) : List Field :=
-  fields.map (applyStringPatternToFieldWith meetValue pattern)
+def applyPatternToFieldsWith
+    (meetValue : Value -> Value -> Value)
+    (labelPattern constraint : Value)
+    (fields : List Field) : List Field :=
+  fields.map (applyPatternToFieldWith meetValue labelPattern constraint)
 
 def mergeStructTailWithStructWith
     (meetValue : Value -> Value -> Value)
@@ -449,11 +461,14 @@ def mergeStructTailWithStructWith
 def mergeStructPatternWithStructWith
     (meetValue : Value -> Value -> Value)
     (patternFields : List Field)
-    (pattern : Value)
+    (labelPattern constraint : Value)
     (fields : List Field) : Value :=
   match mergeStructFieldsWith meetValue patternFields fields with
   | some mergedFields =>
-      .structPattern (applyStringPatternToFieldsWith meetValue pattern mergedFields) pattern
+      .structPattern
+        (applyPatternToFieldsWith meetValue labelPattern constraint mergedFields)
+        labelPattern
+        constraint
   | none => .bottom
 
 def meetListWith (meetValue : Value -> Value -> Value) : List Value -> List Value -> Option (List Value)
@@ -505,20 +520,24 @@ def meetWithFuel : Nat -> Value -> Value -> Value
                 (applyTailToExtrasWith (meetWithFuel fuel) rightFields rightTail mergedFields))
               tail
       | none => .bottom
-  | .structPattern patternFields pattern, .struct fields _ =>
-      mergeStructPatternWithStructWith (meetWithFuel fuel) patternFields pattern fields
-  | .struct fields _, .structPattern patternFields pattern =>
-      mergeStructPatternWithStructWith (meetWithFuel fuel) patternFields pattern fields
-  | .structPattern leftFields leftPattern, .structPattern rightFields rightPattern =>
+  | .structPattern patternFields labelPattern constraint, .struct fields _ =>
+      mergeStructPatternWithStructWith (meetWithFuel fuel) patternFields labelPattern constraint fields
+  | .struct fields _, .structPattern patternFields labelPattern constraint =>
+      mergeStructPatternWithStructWith (meetWithFuel fuel) patternFields labelPattern constraint fields
+  | .structPattern leftFields leftLabel leftConstraint,
+    .structPattern rightFields rightLabel rightConstraint =>
       match mergeStructFieldsWith (meetWithFuel fuel) leftFields rightFields with
       | some mergedFields =>
-          let pattern := meetWithFuel fuel leftPattern rightPattern
+          let labelPattern := if leftLabel == rightLabel then leftLabel else disjOfValues leftLabel rightLabel
+          let constraint := meetWithFuel fuel leftConstraint rightConstraint
           .structPattern
-            (applyStringPatternToFieldsWith
+            (applyPatternToFieldsWith
               (meetWithFuel fuel)
-              leftPattern
-              (applyStringPatternToFieldsWith (meetWithFuel fuel) rightPattern mergedFields))
-            pattern
+              leftLabel
+              leftConstraint
+              (applyPatternToFieldsWith (meetWithFuel fuel) rightLabel rightConstraint mergedFields))
+            labelPattern
+            constraint
       | none => .bottom
   | .list leftItems, .list rightItems =>
       match meetListWith (meetWithFuel fuel) leftItems rightItems with
