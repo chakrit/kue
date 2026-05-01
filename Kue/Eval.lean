@@ -72,11 +72,12 @@ mutual
         .structTail
           (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings visited))
           (evalValueWithFuel fuel fields bindings visited tail)
-    | fuel + 1, fields, bindings, visited, .structPattern nestedFields labelPattern constraint =>
+    | fuel + 1, fields, bindings, visited, .structPattern nestedFields labelPattern constraint open_ =>
         .structPattern
           (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings visited))
           (evalValueWithFuel fuel fields bindings visited labelPattern)
           (evalValueWithFuel fuel fields bindings visited constraint)
+          open_
     | fuel + 1, fields, bindings, visited, .list items =>
         .list (items.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .listTail items tail =>
@@ -102,12 +103,13 @@ def evalStructRefs (value : Value) : Value :=
       .structTail
         (bindings.map (evalBindingField fields bindings))
         (evalValueWithFuel evalFuel fields bindings [] tail)
-  | .structPattern fields labelPattern constraint =>
+  | .structPattern fields labelPattern constraint open_ =>
       let bindings := buildBindingEnv fields
       .structPattern
         (bindings.map (evalBindingField fields bindings))
         (evalValueWithFuel evalFuel fields bindings [] labelPattern)
         (evalValueWithFuel evalFuel fields bindings [] constraint)
+        open_
   | value => value
 
 end Kue

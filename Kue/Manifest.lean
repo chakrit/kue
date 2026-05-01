@@ -74,7 +74,7 @@ mutual
         match manifestFieldsWithFuel fuel fields with
         | .ok fields => .ok (.struct fields)
         | .error error => .error error
-    | fuel + 1, .structPattern fields _ _ =>
+    | fuel + 1, .structPattern fields _ _ _ =>
         match manifestFieldsWithFuel fuel fields with
         | .ok fields => .ok (.struct fields)
         | .error error => .error error

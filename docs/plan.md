@@ -1235,6 +1235,8 @@ fields as well as later fields.
 
 1. Extend the value domain with `structPattern fields labelPattern constraint`.
    Completed in the broad string pattern constraints slice.
+   This constructor later gained an openness flag in the closed pattern
+   constraints slice.
 
 2. Add tests first.
    Cover:
@@ -1330,6 +1332,7 @@ the label pattern and the field-value constraint.
 1. Refactor `structPattern` from an implicit broad string pattern to
    `structPattern fields labelPattern constraint`.
    Completed in the pattern label values slice.
+   This was later refined to carry an openness flag for `close` interactions.
 
 2. Add tests for exact-label patterns such as `["a"]: int`.
    Cover:
@@ -1587,11 +1590,44 @@ Goal: add concrete predeclared integer quotient and remainder builtins.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Closed Pattern Constraints
+
+Goal: make `close` interact with pattern-constrained structs.
+
+### Steps
+
+1. Extend `structPattern` with an openness flag.
+   Completed in the closed pattern constraints slice.
+   Open pattern structs keep current behavior: matching regular fields are
+   constrained, while nonmatching regular fields remain allowed.
+
+2. Update `closeValue`.
+   Completed in the closed pattern constraints slice.
+   Closing a pattern struct now flips the openness flag to false without
+   recursively closing nested structs.
+
+3. Apply pattern closedness during meet and subsumption.
+   Completed in the closed pattern constraints slice.
+   Declared fields and fields whose regular labels match the pattern are allowed.
+   Nonmatching regular fields in a closed pattern struct are marked as
+   `.fieldNotAllowed`.
+
+4. Add a CUE fixture port for closed regex patterns.
+   Completed in the closed pattern constraints slice.
+
+5. Verify. Completed in the closed pattern constraints slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
-  expression label matching, non-string label patterns, hidden/definition
-  interactions, and closedness interactions.
+  expression label matching, non-string label patterns, and hidden/definition
+  interactions.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

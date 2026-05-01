@@ -44,11 +44,12 @@ mutual
         .structTail
           (fields.map (resolveFieldRefsWithFuel fuel bindings))
           (resolveValueWithFuel fuel bindings tail)
-    | fuel + 1, bindings, .structPattern fields labelPattern constraint =>
+    | fuel + 1, bindings, .structPattern fields labelPattern constraint open_ =>
         .structPattern
           (fields.map (resolveFieldRefsWithFuel fuel bindings))
           (resolveValueWithFuel fuel bindings labelPattern)
           (resolveValueWithFuel fuel bindings constraint)
+          open_
     | fuel + 1, bindings, .list items =>
         .list (items.map (resolveValueWithFuel fuel bindings))
     | fuel + 1, bindings, .listTail items tail =>
@@ -70,12 +71,13 @@ def resolveStructRefs : Value -> Value
       .structTail
         (fields.map (resolveFieldRefs bindings))
         (resolveValueWithFuel resolveFuel bindings tail)
-  | .structPattern fields labelPattern constraint =>
+  | .structPattern fields labelPattern constraint open_ =>
       let bindings := buildLabelBindings fields
       .structPattern
         (fields.map (resolveFieldRefs bindings))
         (resolveValueWithFuel resolveFuel bindings labelPattern)
         (resolveValueWithFuel resolveFuel bindings constraint)
+        open_
   | value => value
 
 end Kue

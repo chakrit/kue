@@ -79,6 +79,14 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
+      fileName := "closed_regex_pattern.expected",
+      content :=
+        formatField "x"
+          (meet
+            (closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true))
+            (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
+    },
+    {
       fileName := "default_disjunction.expected",
       content :=
         formatField "x"
@@ -124,7 +132,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.prim (.string "a")) (.kind .int))
+            (.structPattern [] (.prim (.string "a")) (.kind .int) true)
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
@@ -316,7 +324,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^a$") (.kind .int))
+            (.structPattern [] (.stringRegex "^a$") (.kind .int) true)
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
@@ -339,7 +347,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.kind .string) (.kind .int))
+            (.structPattern [] (.kind .string) (.kind .int) true)
             (.struct [("a", .regular, .prim (.string "x"))] true))
     },
     {
@@ -347,7 +355,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.kind .string) (.kind .int))
+            (.structPattern [] (.kind .string) (.kind .int) true)
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
     },
     {

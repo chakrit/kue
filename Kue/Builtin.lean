@@ -4,6 +4,8 @@ namespace Kue
 
 def closeValue : Value -> Value
   | .struct fields _ => .struct fields false
+  | .structPattern fields labelPattern constraint _ =>
+      .structPattern fields labelPattern constraint false
   | value => value
 
 def countRegularFields : List Field -> Nat
@@ -24,7 +26,7 @@ def lenValue : Value -> Value
   | .listTail items _ => .prim (.int (Int.ofNat items.length))
   | .struct fields _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | .structTail fields _ => .prim (.int (Int.ofNat (countRegularFields fields)))
-  | .structPattern fields _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
+  | .structPattern fields _ _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | value => .builtinCall "len" [value]
 
 def andValues (values : List Value) : Value :=
