@@ -45,6 +45,21 @@ def fixturePorts : List FixturePort :=
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },
     {
+      fileName := "builtin_reference_eval.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("x", .regular, .prim (.string "abc")),
+                ("n", .regular, .prim (.int (-7))),
+                ("lenX", .regular, .builtinCall "len" [.ref "x"]),
+                ("divN", .regular, .builtinCall "div" [.ref "n", .prim (.int 3)]),
+                ("incomplete", .regular, .builtinCall "len" [.kind .string])
+              ]
+              true))
+    },
+    {
       fileName := "and_or_builtin.expected",
       content :=
         formatTopLevel

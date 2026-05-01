@@ -116,4 +116,28 @@ theorem eval_reference_inside_struct_pattern :
       == .structPattern [("#A", .definition, .kind .int)] (.kind .string) (.kind .int) true) = true := by
   native_decide
 
+theorem eval_len_builtin_call_after_reference_resolution :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct [("x", .regular, .prim (.string "abc")), ("y", .regular, .builtinCall "len" [.ref "x"])] true))
+      == .struct [("x", .regular, .prim (.string "abc")), ("y", .regular, .prim (.int 3))] true) = true := by
+  native_decide
+
+theorem eval_integer_builtin_call_after_reference_resolution :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [
+            ("n", .regular, .prim (.int (-7))),
+            ("q", .regular, .builtinCall "div" [.ref "n", .prim (.int 3)])
+          ]
+          true))
+      == .struct [("n", .regular, .prim (.int (-7))), ("q", .regular, .prim (.int (-3)))] true) = true := by
+  native_decide
+
+theorem eval_incomplete_builtin_call_remains_call :
+    (evalStructRefs (.struct [("x", .regular, .builtinCall "len" [.kind .string])] true)
+      == .struct [("x", .regular, .builtinCall "len" [.kind .string])] true) = true := by
+  native_decide
+
 end Kue

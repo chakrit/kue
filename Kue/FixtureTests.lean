@@ -6,6 +6,21 @@ theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide
 
+theorem fixture_builtin_reference_eval :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("x", .regular, .prim (.string "abc")),
+            ("n", .regular, .prim (.int (-7))),
+            ("lenX", .regular, .builtinCall "len" [.ref "x"]),
+            ("divN", .regular, .builtinCall "div" [.ref "n", .prim (.int 3)]),
+            ("incomplete", .regular, .builtinCall "len" [.kind .string])
+          ]
+          true))
+      = "x: \"abc\"\nn: -7\nlenX: 3\ndivN: -3\nincomplete: len(string)" := by
+  native_decide
+
 theorem fixture_and_or_builtin :
     formatTopLevel
       (.struct

@@ -69,4 +69,15 @@ def quoValue (left right : Value) : Value :=
 def remValue (left right : Value) : Value :=
   intBinaryBuiltinValue "rem" Int.tmod left right
 
+def evalBuiltinCall : String -> List Value -> Value
+  | "close", [value] => closeValue value
+  | "len", [value] => lenValue value
+  | "and", [.list values] => andValues values
+  | "or", [.list values] => orValues values
+  | "div", [left, right] => divValue left right
+  | "mod", [left, right] => modValue left right
+  | "quo", [left, right] => quoValue left right
+  | "rem", [left, right] => remValue left right
+  | name, args => .builtinCall name args
+
 end Kue

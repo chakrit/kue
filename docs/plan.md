@@ -1682,6 +1682,37 @@ Goal: preserve non-cyclic constraints when a reference cycle contributes top.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Builtin Call Evaluation
+
+Goal: evaluate known builtin calls after their arguments are evaluated.
+
+### Steps
+
+1. Add evaluator tests for builtin calls with reference arguments.
+   Completed in the builtin call evaluation slice.
+   Cover `len(x)` and `div(n, 3)` where `x` and `n` are same-struct
+   references.
+
+2. Add a builtin call dispatcher.
+   Completed in the builtin call evaluation slice.
+   Known calls for `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, and `rem`
+   are routed through the existing helper semantics after argument evaluation.
+
+3. Preserve incomplete calls.
+   Completed in the builtin call evaluation slice.
+   Calls such as `len(string)` still render as unresolved builtin-call values.
+
+4. Add a CUE fixture port for builtin calls over references.
+   Completed in the builtin call evaluation slice.
+
+5. Verify. Completed in the builtin call evaluation slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular

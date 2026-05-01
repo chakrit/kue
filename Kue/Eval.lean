@@ -1,3 +1,4 @@
+import Kue.Builtin
 import Kue.Lattice
 import Kue.Normalize
 
@@ -63,7 +64,7 @@ mutual
         let evaluated := constraints.map (evalValueWithFuel fuel fields bindings visited)
         evaluated.foldl (fun current constraint => meet current constraint) .top
     | fuel + 1, fields, bindings, visited, .builtinCall name args =>
-        .builtinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
+        evalBuiltinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, evalValueWithFuel fuel fields bindings visited alternative.snd)
