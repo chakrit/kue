@@ -2145,6 +2145,32 @@ existing bytes kind and byte primitive semantics.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Evaluate Struct Pattern Fields
+
+Goal: make parsed pattern structs constrain their own declared regular fields,
+matching CUE's behavior for `{[string]: int, a: "bad"}`.
+
+### Steps
+
+1. Add failing tests first.
+   Cover direct `structPattern` evaluation and stdin parsing of a conflicting
+   pattern field.
+   Completed in the evaluate struct pattern fields slice.
+
+2. Apply patterns during evaluation.
+   Completed in the evaluate struct pattern fields slice.
+   `Kue/Eval.lean` now evaluates the fields, label pattern, and constraint,
+   then uses the existing lattice meet to apply that pattern to the evaluated
+   fields.
+
+3. Verify. Completed in the evaluate struct pattern fields slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current single-pattern representation:

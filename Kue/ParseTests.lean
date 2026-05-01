@@ -49,6 +49,12 @@ theorem parse_regex_pattern_field :
       "x: {a: 1, b: \"skip\", [=~\"^a$\"]: int}" = true := by
   native_decide
 
+theorem parse_pattern_field_constrains_matching_fields :
+    parseOutputMatches
+      "x: {[string]: int, a: \"bad\"}\n"
+      "x: {a: _|_, [string]: int}" = true := by
+  native_decide
+
 theorem parse_list_tail_schema :
     parseOutputMatches
       "xs: [...int]\nys: [int, ...string]\n"

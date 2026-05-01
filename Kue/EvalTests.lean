@@ -116,6 +116,16 @@ theorem eval_reference_inside_struct_pattern :
       == .structPattern [("#A", .definition, .kind .int)] (.kind .string) (.kind .int) true) = true := by
   native_decide
 
+theorem eval_struct_pattern_constrains_own_regular_field :
+    (evalStructRefs
+      (.structPattern [("a", .regular, .prim (.string "bad"))] (.kind .string) (.kind .int) true)
+      == .structPattern
+        [("a", .regular, .bottomWith [.fieldConstraint "a"])]
+        (.kind .string)
+        (.kind .int)
+        true) = true := by
+  native_decide
+
 theorem eval_len_builtin_call_after_reference_resolution :
     (evalStructRefs
       (resolveStructRefs

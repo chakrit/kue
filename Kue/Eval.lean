@@ -38,6 +38,12 @@ def bindingVisited (id : BindingId) : List BindingId -> Bool
 def evalFuel : Nat :=
   100
 
+def applyEvaluatedStructPattern
+    (fields : List Field)
+    (labelPattern constraint : Value)
+    (open_ : Bool) : Value :=
+  meet (.structPattern [] labelPattern constraint open_) (.struct fields true)
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -76,7 +82,7 @@ mutual
           (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings visited))
           (evalValueWithFuel fuel fields bindings visited tail)
     | fuel + 1, fields, bindings, visited, .structPattern nestedFields labelPattern constraint open_ =>
-        .structPattern
+        applyEvaluatedStructPattern
           (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings visited))
           (evalValueWithFuel fuel fields bindings visited labelPattern)
           (evalValueWithFuel fuel fields bindings visited constraint)
@@ -108,7 +114,7 @@ def evalStructRefs (value : Value) : Value :=
         (evalValueWithFuel evalFuel fields bindings [] tail)
   | .structPattern fields labelPattern constraint open_ =>
       let bindings := buildBindingEnv fields
-      .structPattern
+      applyEvaluatedStructPattern
         (bindings.map (evalBindingField fields bindings))
         (evalValueWithFuel evalFuel fields bindings [] labelPattern)
         (evalValueWithFuel evalFuel fields bindings [] constraint)
