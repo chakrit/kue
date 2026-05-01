@@ -364,6 +364,19 @@ theorem fixture_mutual_reference_cycle :
       = "x: _\ny: _" := by
   native_decide
 
+theorem fixture_constrained_reference_cycle :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("x", .regular, .conj [.ref "x", .intGe 0]),
+            ("a", .regular, .conj [.ref "b", .intGe 0]),
+            ("b", .regular, .ref "a")
+          ]
+          true))
+      = "x: >=0\na: >=0\nb: >=0" := by
+  native_decide
+
 theorem fixture_three_reference_cycle :
     formatTopLevel
       (resolveAndEval

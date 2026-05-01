@@ -1,3 +1,4 @@
+import Kue.Lattice
 import Kue.Normalize
 
 namespace Kue
@@ -59,7 +60,8 @@ mutual
           | some field => evalValueWithFuel fuel fields bindings (id :: visited) (Field.value field)
           | none => .bottomWith [.unresolvedBinding id]
     | fuel + 1, fields, bindings, visited, .conj constraints =>
-        .conj (constraints.map (evalValueWithFuel fuel fields bindings visited))
+        let evaluated := constraints.map (evalValueWithFuel fuel fields bindings visited)
+        evaluated.foldl (fun current constraint => meet current constraint) .top
     | fuel + 1, fields, bindings, visited, .builtinCall name args =>
         .builtinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .disj alternatives =>

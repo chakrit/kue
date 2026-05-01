@@ -1655,6 +1655,33 @@ Goal: align closedness with CUE's treatment of hidden and definition fields.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Constrained Reference Cycles
+
+Goal: preserve non-cyclic constraints when a reference cycle contributes top.
+
+### Steps
+
+1. Add evaluator tests for constrained cycles.
+   Completed in the constrained reference cycles slice.
+   Cover a direct cycle such as `x: x & >=0` and a mutual cycle where one side
+   contributes `>=0`.
+
+2. Evaluate conjunctions through lattice meet.
+   Completed in the constrained reference cycles slice.
+   Evaluated conjunction constraints are folded with `meet` from top, so a cyclic
+   reference evaluates to `_` while sibling constraints survive.
+
+3. Add a CUE fixture port for constrained reference cycles.
+   Completed in the constrained reference cycles slice.
+
+4. Verify. Completed in the constrained reference cycles slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
@@ -1663,8 +1690,7 @@ Goal: align closedness with CUE's treatment of hidden and definition fields.
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are
   represented for more than same-struct fields.
-- Expand cycle handling for constrained cycles, arithmetic cycles, and richer
-  validation behavior.
+- Expand cycle handling for arithmetic cycles and richer validation behavior.
 - Add remaining builtin functions beyond the implemented `close`, `len`, `and`,
   `or`, `div`, `mod`, `quo`, and `rem` helpers.
 - Add package/file merging and imports after the syntax and resolver layers exist.

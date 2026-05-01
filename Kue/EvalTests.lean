@@ -74,6 +74,24 @@ theorem eval_three_reference_cycle_as_top :
       == .struct [("x", .regular, .top), ("y", .regular, .top), ("z", .regular, .top)] true) = true := by
   native_decide
 
+theorem eval_direct_constrained_cycle_keeps_constraint :
+    (evalStructRefs
+      (resolveStructRefs (.struct [("x", .regular, .conj [.ref "x", .intGe 0])] true))
+      == .struct [("x", .regular, .intGe 0)] true) = true := by
+  native_decide
+
+theorem eval_mutual_constrained_cycle_keeps_constraint :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [
+            ("a", .regular, .conj [.ref "b", .intGe 0]),
+            ("b", .regular, .ref "a")
+          ]
+          true))
+      == .struct [("a", .regular, .intGe 0), ("b", .regular, .intGe 0)] true) = true := by
+  native_decide
+
 theorem eval_non_cycle_reference_still_uses_target_value :
     (evalStructRefs
       (resolveStructRefs (.struct [("x", .regular, .kind .int), ("y", .regular, .ref "x")] true))

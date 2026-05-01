@@ -138,6 +138,19 @@ def fixturePorts : List FixturePort :=
       content := formatTopLevel (resolveAndEval (.struct [("x", .regular, .ref "x")] true))
     },
     {
+      fileName := "constrained_reference_cycle.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("x", .regular, .conj [.ref "x", .intGe 0]),
+                ("a", .regular, .conj [.ref "b", .intGe 0]),
+                ("b", .regular, .ref "a")
+              ]
+              true))
+    },
+    {
       fileName := "disjunction.expected",
       content := formatField "x" (join (.prim (.string "a")) (.prim (.string "b")))
     },
