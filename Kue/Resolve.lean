@@ -38,17 +38,20 @@ mutual
         .disj (alternatives.map fun alternative =>
           (alternative.fst, resolveValueWithFuel fuel bindings alternative.snd)
         )
-    | fuel + 1, bindings, .struct fields open_ =>
-        .struct (fields.map (resolveFieldRefsWithFuel fuel bindings)) open_
-    | fuel + 1, bindings, .structTail fields tail =>
+    | fuel + 1, _, .struct fields open_ =>
+        let nestedBindings := buildLabelBindings fields
+        .struct (fields.map (resolveFieldRefsWithFuel fuel nestedBindings)) open_
+    | fuel + 1, _, .structTail fields tail =>
+        let nestedBindings := buildLabelBindings fields
         .structTail
-          (fields.map (resolveFieldRefsWithFuel fuel bindings))
-          (resolveValueWithFuel fuel bindings tail)
-    | fuel + 1, bindings, .structPattern fields labelPattern constraint open_ =>
+          (fields.map (resolveFieldRefsWithFuel fuel nestedBindings))
+          (resolveValueWithFuel fuel nestedBindings tail)
+    | fuel + 1, _, .structPattern fields labelPattern constraint open_ =>
+        let nestedBindings := buildLabelBindings fields
         .structPattern
-          (fields.map (resolveFieldRefsWithFuel fuel bindings))
-          (resolveValueWithFuel fuel bindings labelPattern)
-          (resolveValueWithFuel fuel bindings constraint)
+          (fields.map (resolveFieldRefsWithFuel fuel nestedBindings))
+          (resolveValueWithFuel fuel nestedBindings labelPattern)
+          (resolveValueWithFuel fuel nestedBindings constraint)
           open_
     | fuel + 1, bindings, .list items =>
         .list (items.map (resolveValueWithFuel fuel bindings))

@@ -2171,6 +2171,42 @@ matching CUE's behavior for `{[string]: int, a: "bad"}`.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Nested Struct Reference Scopes
+
+Goal: resolve references inside nested structs against their nearest local
+struct fields, while preserving fallback to enclosing fields for currently
+label-based outer references.
+
+### Steps
+
+1. Add failing tests first.
+   Cover `x: {#A: int, x: #A}` through both the resolver/evaluator layer and
+   stdin parsing.
+   Completed in the nested struct reference scopes slice.
+
+2. Give nested compound structs local binding environments.
+   Completed in the nested struct reference scopes slice.
+   `Kue/Resolve.lean` now resolves nested structs, struct tails, and pattern
+   structs against their own fields instead of reusing the enclosing binding
+   ids.
+
+3. Preserve outer fallback during evaluation.
+   Completed in the nested struct reference scopes slice.
+   `Kue/Eval.lean` evaluates nested resolved references with local bindings,
+   while unresolved labels see `nested ++ outer` visible fields.
+
+4. Document the scoped-binding compromise.
+   Completed in the nested struct reference scopes slice.
+   See `docs/compat-assumptions.md`.
+
+5. Verify. Completed in the nested struct reference scopes slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current single-pattern representation:

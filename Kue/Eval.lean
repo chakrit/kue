@@ -75,17 +75,28 @@ mutual
         .disj (alternatives.map fun alternative =>
           (alternative.fst, evalValueWithFuel fuel fields bindings visited alternative.snd)
         )
-    | fuel + 1, fields, bindings, visited, .struct nestedFields open_ =>
-        .struct (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings visited)) open_
-    | fuel + 1, fields, bindings, visited, .structTail nestedFields tail =>
+    | fuel + 1, fields, _, _, .struct nestedFields open_ =>
+        let nestedBindings := buildBindingEnv nestedFields
+        let visibleFields := nestedFields ++ fields
+        .struct
+          (nestedBindings.map fun binding =>
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
+          open_
+    | fuel + 1, fields, _, _, .structTail nestedFields tail =>
+        let nestedBindings := buildBindingEnv nestedFields
+        let visibleFields := nestedFields ++ fields
         .structTail
-          (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings visited))
-          (evalValueWithFuel fuel fields bindings visited tail)
-    | fuel + 1, fields, bindings, visited, .structPattern nestedFields labelPattern constraint open_ =>
+          (nestedBindings.map fun binding =>
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
+          (evalValueWithFuel fuel visibleFields nestedBindings [] tail)
+    | fuel + 1, fields, _, _, .structPattern nestedFields labelPattern constraint open_ =>
+        let nestedBindings := buildBindingEnv nestedFields
+        let visibleFields := nestedFields ++ fields
         applyEvaluatedStructPattern
-          (nestedFields.map (evalFieldRefsWithFuel fuel fields bindings visited))
-          (evalValueWithFuel fuel fields bindings visited labelPattern)
-          (evalValueWithFuel fuel fields bindings visited constraint)
+          (nestedBindings.map fun binding =>
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
+          (evalValueWithFuel fuel visibleFields nestedBindings [] labelPattern)
+          (evalValueWithFuel fuel visibleFields nestedBindings [] constraint)
           open_
     | fuel + 1, fields, bindings, visited, .list items =>
         .list (items.map (evalValueWithFuel fuel fields bindings visited))

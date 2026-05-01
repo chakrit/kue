@@ -25,6 +25,12 @@ theorem parse_compound_values_and_builtins :
       "xs: [1, \"x\"]\nmeta: {name: \"api\", n: 2}" = true := by
   native_decide
 
+theorem parse_nested_struct_resolves_local_definition :
+    parseOutputMatches
+      "x: {#A: int, x: #A}\n"
+      "x: {#A: int, x: int}" = true := by
+  native_decide
+
 theorem parse_disjunction_defaults_and_bounds :
     parseOutputMatches
       "mode: *\"prod\" | \"dev\"\nsmall: >0 & <10 & 7\n"

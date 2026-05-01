@@ -29,6 +29,9 @@ Current assumptions:
 - Multiple pattern fields parse through the current single-pattern semantic model. This
   preserves executable behavior but is not a final representation of independent CUE
   pattern constraints.
+- Nested structs resolve same-struct references with local binding ids. References that
+  fall through to an enclosing struct remain label-based during evaluation until binding
+  ids can carry explicit scope identity.
 - The executable reads CUE from stdin and prints resolved/evaluated Kue output. Empty
   stdin still prints the existing semantic smoke output for quick build checks.
 

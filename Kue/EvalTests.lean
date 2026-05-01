@@ -110,6 +110,17 @@ theorem eval_reference_inside_struct_tail :
       == .structTail [("#A", .definition, .kind .int)] (.kind .int)) = true := by
   native_decide
 
+theorem eval_reference_inside_nested_struct :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [("x", .regular, .struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true)]
+          true))
+      == .struct
+        [("x", .regular, .struct [("#A", .definition, .kind .int), ("x", .regular, .kind .int)] true)]
+        true) = true := by
+  native_decide
+
 theorem eval_reference_inside_struct_pattern :
     (evalStructRefs
       (resolveStructRefs (.structPattern [("#A", .definition, .kind .int)] (.kind .string) (.ref "#A") true))
