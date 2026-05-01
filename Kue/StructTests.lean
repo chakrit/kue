@@ -488,6 +488,36 @@ theorem meet_regex_negated_word_shorthand_rejects_matching_conflict :
           true) = true := by
   native_decide
 
+theorem meet_regex_space_shorthand_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a\\sz$") (.kind .int) true)
+      (.struct [("a z", .regular, .prim (.string "bad")), ("a_z", .regular, .prim (.string "skip"))] true)
+      ==
+        .structPattern
+          [
+            ("a z", .regular, .bottomWith [.fieldConstraint "a z"]),
+            ("a_z", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^a\\sz$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
+theorem meet_regex_negated_space_shorthand_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a\\Sz$") (.kind .int) true)
+      (.struct [("a z", .regular, .prim (.string "skip")), ("a_z", .regular, .prim (.string "bad"))] true)
+      ==
+        .structPattern
+          [
+            ("a z", .regular, .prim (.string "skip")),
+            ("a_z", .regular, .bottomWith [.fieldConstraint "a_z"])
+          ]
+          (.stringRegex "^a\\Sz$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
 theorem meet_regex_top_level_alternation_constrains_each_alternative :
     (meet
       (.structPattern [] (.stringRegex "^cat$|^dog$") (.kind .int) true)

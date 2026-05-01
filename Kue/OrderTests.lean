@@ -199,6 +199,20 @@ theorem regex_negated_word_shorthand_rejects_matching_conflict :
       = false := by
   native_decide
 
+theorem regex_space_shorthand_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\sz$") (.kind .int) true)
+      (.struct [("a z", .regular, .prim (.string "bad")), ("a_z", .regular, .prim (.string "skip"))] true)
+      = false := by
+  native_decide
+
+theorem regex_negated_space_shorthand_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\Sz$") (.kind .int) true)
+      (.struct [("a z", .regular, .prim (.string "skip")), ("a_z", .regular, .prim (.string "bad"))] true)
+      = false := by
+  native_decide
+
 theorem regex_top_level_alternation_subsumes_each_alternative :
     subsumes
       (.structPattern [] (.stringRegex "^cat$|^dog$") (.kind .int) true)

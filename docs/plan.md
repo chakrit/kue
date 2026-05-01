@@ -1933,6 +1933,33 @@ Goal: support word shorthand character classes in label pattern matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Regex Whitespace Shorthand Label Patterns
+
+Goal: support whitespace shorthand character classes in label pattern matching.
+
+### Steps
+
+1. Add red tests for whitespace shorthand classes.
+   Completed in the regex whitespace shorthand label patterns slice.
+   Cover `\\s` matching a space in a quoted label, and cover the negated `\\S`
+   form for non-whitespace label characters.
+
+2. Parse whitespace shorthands as regex class atoms.
+   Completed in the regex whitespace shorthand label patterns slice.
+   `\\s` now maps to common ASCII whitespace characters, and `\\S` maps to the
+   negated whitespace class.
+
+3. Add a CUE fixture port for whitespace shorthand label patterns.
+   Completed in the regex whitespace shorthand label patterns slice.
+
+4. Verify. Completed in the regex whitespace shorthand label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular

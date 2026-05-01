@@ -389,6 +389,29 @@ theorem fixture_regex_word_shorthand_pattern :
         ++ "y: {a_z: \"skip\", \"a-z\": _|_, [=~\"^a\\\\Wz$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_space_shorthand_pattern :
+    formatTopLevel
+      (.struct
+        [
+          ("x", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a\\sz$") (.kind .int) true)
+              (.struct
+                [("a z", .regular, .prim (.string "bad")), ("a_z", .regular, .prim (.string "skip"))]
+                true)),
+          ("y", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a\\Sz$") (.kind .int) true)
+              (.struct
+                [("a z", .regular, .prim (.string "skip")), ("a_z", .regular, .prim (.string "bad"))]
+                true))
+        ]
+        true)
+      =
+        "x: {\"a z\": _|_, a_z: \"skip\", [=~\"^a\\\\sz$\"]: int}\n"
+        ++ "y: {\"a z\": \"skip\", a_z: _|_, [=~\"^a\\\\Sz$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet
