@@ -1267,6 +1267,32 @@ toolchain, not just paired by filename.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Bytes Literal Compatibility
+
+Goal: align Kue byte literal formatting and fixtures with CUE byte sequence
+syntax.
+
+### Steps
+
+1. Add tests first by changing bytes formatting expectations from raw string
+   syntax to byte literal syntax.
+   Completed in the bytes literal compatibility slice.
+
+2. Update `Kue/Format.lean` so `.bytes "abc"` renders as `'abc'`.
+   Completed in the bytes literal compatibility slice.
+
+3. Update bytes examples and the `bytes_kind` fixture to use CUE byte literal
+   syntax.
+   Completed in the bytes literal compatibility slice.
+
+4. Verify. Completed in the bytes literal compatibility slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness so fixture contents are compared against the

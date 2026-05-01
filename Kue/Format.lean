@@ -18,7 +18,7 @@ def formatPrim : Prim -> String
   | .int value => toString value
   | .float value => value
   | .string value => s!"\"{value}\""
-  | .bytes value => "#\"" ++ value ++ "\"#"
+  | .bytes value => "'" ++ value ++ "'"
 
 def joinWith (separator : String) : List String -> String
   | [] => ""

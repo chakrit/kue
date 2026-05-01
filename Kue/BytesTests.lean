@@ -5,7 +5,7 @@ import Kue.Order
 namespace Kue
 
 theorem format_bytes_kind_and_primitive :
-    formatValue (.kind .bytes) = "bytes" ∧ formatValue (.prim (.bytes "abc")) = "#\"abc\"#" := by
+    formatValue (.kind .bytes) = "bytes" ∧ formatValue (.prim (.bytes "abc")) = "'abc'" := by
   native_decide
 
 theorem meet_bytes_kind_with_bytes_primitive :

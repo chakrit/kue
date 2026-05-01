@@ -173,7 +173,7 @@ theorem fixture_primitive_exclusion :
   native_decide
 
 theorem fixture_bytes_kind :
-    formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc"))) = "x: #\"abc\"#" := by
+    formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc"))) = "x: 'abc'" := by
   native_decide
 
 theorem fixture_float_kind :

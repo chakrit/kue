@@ -1,1 +1,1 @@
-x: bytes & #"abc"#
+x: bytes & 'abc'
