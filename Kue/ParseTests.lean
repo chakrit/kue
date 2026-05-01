@@ -31,6 +31,18 @@ theorem parse_nested_struct_resolves_local_definition :
       "x: {#A: int, x: int}" = true := by
   native_decide
 
+theorem parse_struct_reference_embedding :
+    parseOutputMatches
+      "#Base: {a: int}\nx: {#Base, a: 1}\n"
+      "#Base: {a: int}\nx: {a: 1}" = true := by
+  native_decide
+
+theorem parse_struct_literal_embedding :
+    parseOutputMatches
+      "x: {{a: int}, a: 1, b: \"ok\"}\n"
+      "x: {a: 1, b: \"ok\"}" = true := by
+  native_decide
+
 theorem parse_disjunction_defaults_and_bounds :
     parseOutputMatches
       "mode: *\"prod\" | \"dev\"\nsmall: >0 & <10 & 7\n"

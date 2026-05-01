@@ -12,6 +12,12 @@ abbrev ParseResult (α : Type) := Except ParseError (α × List Char)
 inductive ParsedField where
   | field (field : Field)
   | pattern (labelPattern constraint : Value)
+  | embedding (value : Value)
+
+structure ParsedFieldParts where
+  fields : List Field
+  patterns : List (Value × Value)
+  embeddings : List Value
 
 def parseError (message : String) : Except ParseError α :=
   .error { message := message }
@@ -206,14 +212,17 @@ def parseFieldTerminator (terminator : Option Char) (chars : List Char) : Bool :
   | none, [] => true
   | _, _ => false
 
-def splitParsedFields : List ParsedField -> List Field × List (Value × Value)
-  | [] => ([], [])
+def splitParsedFields : List ParsedField -> ParsedFieldParts
+  | [] => { fields := [], patterns := [], embeddings := [] }
   | .field field :: rest =>
       let split := splitParsedFields rest
-      (field :: split.fst, split.snd)
+      { split with fields := field :: split.fields }
   | .pattern labelPattern constraint :: rest =>
       let split := splitParsedFields rest
-      (split.fst, (labelPattern, constraint) :: split.snd)
+      { split with patterns := (labelPattern, constraint) :: split.patterns }
+  | .embedding value :: rest =>
+      let split := splitParsedFields rest
+      { split with embeddings := value :: split.embeddings }
 
 def patternValuesWithFields (fields : List Field) : List (Value × Value) -> List Value
   | [] => []
@@ -221,14 +230,19 @@ def patternValuesWithFields (fields : List Field) : List (Value × Value) -> Lis
       .structPattern fields pattern.fst pattern.snd true
         :: rest.map fun restPattern => .structPattern [] restPattern.fst restPattern.snd true
 
-def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
-  let split := splitParsedFields parsedFields
-  match split.snd with
-  | [] => .struct split.fst true
+def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
+  | [] => .struct fields true
   | patterns =>
-      match patternValuesWithFields split.fst patterns with
+      match patternValuesWithFields fields patterns with
       | [value] => value
       | values => .conj values
+
+def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
+  let parts := splitParsedFields parsedFields
+  let base := parsedFieldsBaseValue parts.fields parts.patterns
+  match parts.embeddings with
+  | [] => base
+  | embeddings => .conj (embeddings ++ [base])
 
 mutual
   partial def parseExpression (chars : List Char) : ParseResult Value :=
@@ -431,30 +445,45 @@ mutual
             | _ => parseError "expected ']' after pattern label"
     | _ => parseError "expected pattern field"
 
+  partial def parseEmbedding (chars : List Char) : ParseResult ParsedField :=
+    match parseExpression chars with
+    | .error error => .error error
+    | .ok (value, rest) => parseOk (.embedding value) rest
+
+  partial def parseLabeledField (label : String) (rest : List Char) : ParseResult ParsedField :=
+    let (fieldClass, rest) := parseFieldClass label rest
+    match skipTrivia rest with
+    | ':' :: rest =>
+        match parseExpression rest with
+        | .error error => .error error
+        | .ok (value, rest) => parseOk (.field (label, fieldClass, value)) rest
+    | _ => parseError "expected ':' after field label"
+
   partial def parseField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
     | '[' :: _ => parsePatternField chars
     | chars =>
         match parseLabel chars with
-        | .error error => .error error
+        | .error _ => parseEmbedding chars
         | .ok (label, rest) =>
-            let (fieldClass, rest) := parseFieldClass label rest
             match skipTrivia rest with
-            | ':' :: rest =>
-                match parseExpression rest with
-                | .error error => .error error
-                | .ok (value, rest) => parseOk (.field (label, fieldClass, value)) rest
-            | _ => parseError "expected ':' after field label"
+            | ':' :: _ => parseLabeledField label rest
+            | '?' :: _ => parseLabeledField label rest
+            | '!' :: _ => parseLabeledField label rest
+            | _ => parseEmbedding chars
 end
 
 def parseDocument (chars : List Char) : Except ParseError Value :=
   let chars := consumePackageClauses chars
-  match parseFieldsUntil none chars [] with
-  | .error error => .error error
-  | .ok (fields, rest) =>
-      match skipTrivia rest with
-      | [] => .ok (parsedFieldsValue fields)
-      | _ => parseError "unexpected trailing input"
+  if startsWithWord "import" (skipTrivia chars) then
+    parseError "imports are not supported yet"
+  else
+    match parseFieldsUntil none chars [] with
+    | .error error => .error error
+    | .ok (fields, rest) =>
+        match skipTrivia rest with
+        | [] => .ok (parsedFieldsValue fields)
+        | _ => parseError "unexpected trailing input"
 
 def parseSource (source : String) : Except ParseError Value :=
   parseDocument source.toList

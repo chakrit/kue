@@ -2257,6 +2257,40 @@ and runtime path, not only the hand-written Lean fixture ports.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Parser Struct Embeddings
+
+Goal: support common CUE schema composition forms such as `{#Base, a: 1}` by
+lowering struct embeddings to existing conjunction and meet semantics.
+
+### Steps
+
+1. Add parser tests first.
+   Cover embedding a definition reference and embedding an inline struct
+   literal inside another struct.
+   Completed in the parser struct embeddings slice.
+
+2. Represent parsed embeddings.
+   Completed in the parser struct embeddings slice.
+   `Kue/Parse.lean` now tracks embedding entries separately from regular fields
+   and pattern fields, then lowers them to a conjunction with the declared
+   struct body.
+
+3. Keep imports explicitly unsupported.
+   Completed in the parser struct embeddings slice.
+   Top-level `import` clauses now fail before normal field or embedding parsing.
+
+4. Document the lowering assumption.
+   Completed in the parser struct embeddings slice.
+   See `docs/compat-assumptions.md`.
+
+5. Verify. Completed in the parser struct embeddings slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current single-pattern representation:

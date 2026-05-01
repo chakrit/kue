@@ -22,10 +22,12 @@ Current assumptions:
 - The parser supports the language forms already backed by semantic values: scalars,
   primitive kinds, structs, lists, refs, `&`, `|`, defaults, integer bounds, primitive
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
-  and existing builtin call values.
-- The parser does not yet support imports, aliases, `let`, embeddings, comprehensions,
-  dynamic fields, string interpolation, full numeric literal syntax, or struct ellipsis
-  syntax.
+  struct embeddings, and existing builtin call values.
+- Struct embeddings are lowered to conjunctions with the declared fields. This is a
+  useful executable model for schema composition, but it is not yet a full embedding
+  validator for every non-struct expression shape.
+- The parser does not yet support imports, aliases, `let`, comprehensions, dynamic
+  fields, string interpolation, full numeric literal syntax, or struct ellipsis syntax.
 - Multiple pattern fields parse through the current single-pattern semantic model. This
   preserves executable behavior but is not a final representation of independent CUE
   pattern constraints.
