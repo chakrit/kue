@@ -230,8 +230,54 @@ def splitRegexAlternativesWithState :
   | value :: rest, inClass, current, alternatives =>
       splitRegexAlternativesWithState rest inClass (value :: current) alternatives
 
+def splitRegexAlternativeChars (pattern : List Char) : List (List Char) :=
+  splitRegexAlternativesWithState pattern false [] []
+
 def splitRegexAlternatives (pattern : String) : List String :=
-  (splitRegexAlternativesWithState pattern.toList false [] []).map String.ofList
+  (splitRegexAlternativeChars pattern.toList).map String.ofList
+
+def parseRegexGroupBodyWithState : List Char -> Bool -> List Char -> Option (List Char × List Char)
+  | [], _, _ => none
+  | '\\' :: value :: rest, inClass, current =>
+      parseRegexGroupBodyWithState rest inClass (value :: '\\' :: current)
+  | ['\\'], _, _ => none
+  | '[' :: rest, false, current =>
+      parseRegexGroupBodyWithState rest true ('[' :: current)
+  | ']' :: rest, true, current =>
+      parseRegexGroupBodyWithState rest false (']' :: current)
+  | ')' :: rest, false, current => some (current.reverse, rest)
+  | value :: rest, inClass, current =>
+      parseRegexGroupBodyWithState rest inClass (value :: current)
+
+def findFirstRegexGroupWithState :
+    List Char -> Bool -> List Char -> Option (List Char × List Char × List Char)
+  | [], _, _ => none
+  | '\\' :: value :: rest, inClass, leading =>
+      findFirstRegexGroupWithState rest inClass (value :: '\\' :: leading)
+  | ['\\'], inClass, leading =>
+      findFirstRegexGroupWithState [] inClass ('\\' :: leading)
+  | '[' :: rest, false, leading =>
+      findFirstRegexGroupWithState rest true ('[' :: leading)
+  | ']' :: rest, true, leading =>
+      findFirstRegexGroupWithState rest false (']' :: leading)
+  | '(' :: rest, false, leading =>
+      match parseRegexGroupBodyWithState rest false [] with
+      | some (body, suffix) => some (leading.reverse, body, suffix)
+      | none => findFirstRegexGroupWithState rest false ('(' :: leading)
+  | value :: rest, inClass, leading =>
+      findFirstRegexGroupWithState rest inClass (value :: leading)
+
+def expandRegexGroupAlternatives : List Char -> List (List Char) -> List Char -> List String
+  | _, [], _ => []
+  | leading, alternative :: alternatives, suffix =>
+      String.ofList (leading ++ alternative ++ suffix)
+        :: expandRegexGroupAlternatives leading alternatives suffix
+
+def expandFirstRegexGroup (pattern : String) : Option (List String) :=
+  match findFirstRegexGroupWithState pattern.toList false [] with
+  | none => none
+  | some (leading, body, suffix) =>
+      some (expandRegexGroupAlternatives leading (splitRegexAlternativeChars body) suffix)
 
 def stringRegexAlternativeMatches (pattern value : String) : Bool :=
   let anchoredStart := pattern.startsWith "^"
@@ -247,7 +293,10 @@ def stringRegexAlternativeMatches (pattern value : String) : Bool :=
     regexMatchAnywhereWithFuel fuel anchoredEnd patternChars valueChars
 
 def stringRegexMatches (pattern value : String) : Bool :=
-  (splitRegexAlternatives pattern).any fun alternative =>
-    stringRegexAlternativeMatches alternative value
+  let alternatives :=
+    match expandFirstRegexGroup pattern with
+    | some alternatives => alternatives
+    | none => splitRegexAlternatives pattern
+  alternatives.any fun alternative => stringRegexAlternativeMatches alternative value
 
 end Kue

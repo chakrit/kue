@@ -1,0 +1,1 @@
+x: {cat: _|_, dog: 2, cow: "skip", [=~"^(cat|dog)$"]: int}

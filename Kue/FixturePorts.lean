@@ -475,6 +475,20 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "regex_group_alternation_pattern.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPattern [] (.stringRegex "^(cat|dog)$") (.kind .int) true)
+            (.struct
+              [
+                ("cat", .regular, .prim (.string "bad")),
+                ("dog", .regular, .prim (.int 2)),
+                ("cow", .regular, .prim (.string "skip"))
+              ]
+              true))
+    },
+    {
       fileName := "required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"

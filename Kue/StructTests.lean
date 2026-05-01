@@ -480,6 +480,28 @@ theorem meet_regex_top_level_alternation_constrains_each_alternative :
           true) = true := by
   native_decide
 
+theorem meet_regex_parenthesized_alternation_constrains_each_alternative :
+    (meet
+      (.structPattern [] (.stringRegex "^(cat|dog)$") (.kind .int) true)
+      (.struct
+        [
+          ("cat", .regular, .prim (.string "bad")),
+          ("dog", .regular, .prim (.int 2)),
+          ("cow", .regular, .prim (.string "skip"))
+        ]
+        true)
+      ==
+        .structPattern
+          [
+            ("cat", .regular, .bottomWith [.fieldConstraint "cat"]),
+            ("dog", .regular, .prim (.int 2)),
+            ("cow", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^(cat|dog)$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
 theorem close_value_marks_struct_pattern_closed :
     closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true)
       = .structPattern [] (.stringRegex "^a$") (.kind .int) false := by

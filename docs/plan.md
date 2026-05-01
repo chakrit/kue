@@ -1879,6 +1879,34 @@ Goal: support top-level `|` alternatives in regex label pattern matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Parenthesized Regex Alternation Label Patterns
+
+Goal: support simple parenthesized alternatives in regex label pattern matching.
+
+### Steps
+
+1. Add red tests for parenthesized alternatives.
+   Completed in the parenthesized regex alternation label patterns slice.
+   Cover `^(cat|dog)$` constraining both `cat` and `dog`, while leaving
+   nonmatching labels unconstrained.
+
+2. Expand the first flat regex group before matching.
+   Completed in the parenthesized regex alternation label patterns slice.
+   The expansion preserves escapes and character classes inside the group body,
+   then reuses the existing top-level alternative matcher.
+
+3. Add a CUE fixture port for parenthesized alternation label patterns.
+   Completed in the parenthesized regex alternation label patterns slice.
+
+4. Verify. Completed in the parenthesized regex alternation label patterns
+   slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular

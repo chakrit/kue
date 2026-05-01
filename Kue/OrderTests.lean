@@ -198,6 +198,19 @@ theorem regex_top_level_alternation_subsumes_each_alternative :
       = false := by
   native_decide
 
+theorem regex_parenthesized_alternation_subsumes_each_alternative :
+    subsumes
+      (.structPattern [] (.stringRegex "^(cat|dog)$") (.kind .int) true)
+      (.struct
+        [
+          ("cat", .regular, .prim (.string "bad")),
+          ("dog", .regular, .prim (.int 2)),
+          ("cow", .regular, .prim (.string "skip"))
+        ]
+        true)
+      = false := by
+  native_decide
+
 theorem closed_regex_pattern_rejects_non_matching_regular_field :
     subsumes
       (.structPattern [] (.stringRegex "^a$") (.kind .int) false)
