@@ -75,6 +75,7 @@ inductive Value where
   | intLe (maximum : Int)
   | intLt (maximum : Int)
   | conj (constraints : List Value)
+  | builtinCall (name : String) (args : List Value)
   | ref (label : String)
   | refId (id : BindingId)
   | disj (alternatives : List (Mark × Value))

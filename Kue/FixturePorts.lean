@@ -181,6 +181,17 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
+      fileName := "unresolved_builtin.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("lenString", .regular, lenValue (.kind .string)),
+              ("emptyOr", .regular, orValues [])
+            ]
+            true)
+    },
+    {
       fileName := "manifest_field_filtering.manifest.expected",
       content :=
         formatManifestFieldResult "x"

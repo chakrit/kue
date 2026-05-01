@@ -18,20 +18,20 @@ def countRegularFields : List Field -> Nat
 def lenValue : Value -> Value
   | .prim (.string value) => .prim (.int (Int.ofNat value.utf8ByteSize))
   | .prim (.bytes value) => .prim (.int (Int.ofNat value.utf8ByteSize))
-  | .kind .string => .kind .int
-  | .kind .bytes => .kind .int
+  | .kind .string => .builtinCall "len" [.kind .string]
+  | .kind .bytes => .builtinCall "len" [.kind .bytes]
   | .list items => .prim (.int (Int.ofNat items.length))
   | .listTail items _ => .prim (.int (Int.ofNat items.length))
   | .struct fields _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | .structTail fields _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | .structPattern fields _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
-  | _ => .bottom
+  | value => .builtinCall "len" [value]
 
 def andValues (values : List Value) : Value :=
   values.foldl (fun current value => meet current value) .top
 
 def orValues : List Value -> Value
-  | [] => .bottom
+  | [] => .builtinCall "or" [.list []]
   | value :: values => values.foldl (fun current next => join current next) value
 
 end Kue

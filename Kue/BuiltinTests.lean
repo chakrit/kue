@@ -49,6 +49,10 @@ theorem len_value_counts_regular_struct_fields_only :
       = .prim (.int 1) := by
   rfl
 
+theorem len_value_preserves_incomplete_string_call :
+    lenValue (.kind .string) = .builtinCall "len" [.kind .string] := by
+  rfl
+
 theorem and_values_meets_constraints :
     (andValues [.kind .int, .intGt 0, .prim (.int 7)] == .prim (.int 7)) = true := by
   native_decide
@@ -65,5 +69,9 @@ theorem or_values_joins_values :
 theorem or_values_joins_numeric_kind :
     (orValues [.kind .number, .prim (.int 1)] == .kind .number) = true := by
   native_decide
+
+theorem or_values_empty_preserves_builtin_call :
+    orValues [] = .builtinCall "or" [.list []] := by
+  rfl
 
 end Kue

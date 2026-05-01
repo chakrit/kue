@@ -71,5 +71,7 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
 #guard meet (.stringRegex "^a$") (.prim (.string "a")) == .prim (.string "a")
 #guard isBottom (meet (.stringRegex "^a$") (.prim (.string "b")))
 #guard join (.kind .string) (.stringRegex "^a$") == .kind .string
+#guard formatValue (.builtinCall "len" [.kind .string]) == "len(string)"
+#guard formatValue (.builtinCall "or" [.list []]) == "or([])"
 
 end Kue

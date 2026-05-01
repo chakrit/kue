@@ -1468,6 +1468,8 @@ Goal: add the first semantic helper for CUE's `len` builtin over concrete values
    - concrete strings and bytes by UTF-8 byte length;
    - closed and open lists by their known fixed item count;
    - structs by counting regular fields only.
+   Incomplete cases such as `len(string)` are now preserved by the later
+   expression-level builtin call slice.
 
 2. Add tests first. Completed in the concrete len builtin slice.
    Cover:
@@ -1496,9 +1498,8 @@ finite lists of existing Kue values.
 1. Extend `Kue/Builtin.lean`.
    Completed in the finite and/or builtin slice.
    `andValues` folds values with meet from top, matching `and([]) == _`.
-   `orValues` folds non-empty values with join. Empty `or([])` currently maps to
-   bottom as the lattice identity; preserving CUE's unresolved `or([])` display
-   needs a later expression-level builtin representation.
+   `orValues` folds non-empty values with join. Empty `or([])` is now preserved
+   by the later expression-level builtin call slice.
 
 2. Add tests first. Completed in the finite and/or builtin slice.
    Cover:
@@ -1518,6 +1519,39 @@ finite lists of existing Kue values.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Expression-Level Builtin Calls
+
+Goal: preserve unresolved builtin calls as semantic values instead of collapsing
+them into approximations.
+
+### Steps
+
+1. Extend the value domain.
+   Completed in the expression-level builtin calls slice.
+   Add `.builtinCall name args` and render it in function-call form, such as
+   `len(string)` and `or([])`.
+
+2. Thread builtin calls through core operations.
+   Completed in the expression-level builtin calls slice.
+   Formatting, manifestation incompleteness, bottom search, reference
+   resolution, evaluation, normalization, meet/join equality, and subsumption now
+   all handle builtin call values explicitly.
+
+3. Update builtin helpers. Completed in the expression-level builtin calls slice.
+   `lenValue` preserves incomplete calls such as `len(string)`, and `orValues []`
+   preserves CUE's unresolved `or([])` display.
+
+4. Add a CUE fixture port for unresolved builtin calls.
+   Completed in the expression-level builtin calls slice.
+
+5. Verify. Completed in the expression-level builtin calls slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
@@ -1529,5 +1563,5 @@ finite lists of existing Kue values.
   represented for more than same-struct fields.
 - Expand cycle handling for constrained cycles, arithmetic cycles, and richer
   validation behavior.
-- Add expression-level builtin representation and remaining builtin functions.
+- Add remaining builtin functions.
 - Add package/file merging and imports after the syntax and resolver layers exist.

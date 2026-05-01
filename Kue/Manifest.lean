@@ -63,6 +63,7 @@ mutual
     | _ + 1, .intLe maximum => .error (.incomplete (.intLe maximum))
     | _ + 1, .intLt maximum => .error (.incomplete (.intLt maximum))
     | _ + 1, .conj constraints => .error (.incomplete (.conj constraints))
+    | _ + 1, .builtinCall name args => .error (.incomplete (.builtinCall name args))
     | _ + 1, .ref label => .error (.incomplete (.ref label))
     | _ + 1, .refId id => .error (.incomplete (.refId id))
     | fuel + 1, .struct fields _ =>

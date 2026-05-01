@@ -61,6 +61,8 @@ mutual
     | _, .intLt maximum => s!"<{maximum}"
     | fuel + 1, .conj constraints =>
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
+    | fuel + 1, .builtinCall name args =>
+        name ++ "(" ++ joinWith ", " (args.map (formatValueWithFuel fuel)) ++ ")"
     | _, .ref label => label
     | _, .refId id => s!"@{id.index}"
     | fuel + 1, .disj alternatives =>

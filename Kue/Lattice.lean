@@ -103,6 +103,8 @@ def containsBottomWithFuel : Nat -> Value -> Bool
   | _ + 1, .bottomWith _ => true
   | fuel + 1, .conj constraints =>
       constraints.any (containsBottomWithFuel fuel)
+  | fuel + 1, .builtinCall _ args =>
+      args.any (containsBottomWithFuel fuel)
   | fuel + 1, .disj alternatives =>
       alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
   | fuel + 1, .struct fields _ =>
@@ -191,6 +193,11 @@ def meetCore (left right : Value) : Value :=
         .notPrim leftForbidden
       else
         .conj [.notPrim leftForbidden, .notPrim rightForbidden]
+  | .builtinCall leftName leftArgs, .builtinCall rightName rightArgs =>
+      if leftName = rightName && leftArgs == rightArgs then
+        .builtinCall leftName leftArgs
+      else
+        .bottom
   | .stringRegex leftPattern, .stringRegex rightPattern =>
       if leftPattern = rightPattern then
         .stringRegex leftPattern
@@ -320,6 +327,8 @@ def meetCore (left right : Value) : Value :=
   | .prim prim, .conj [.intGt minimum, .intLt maximum] => meetStrictIntRangePrim minimum maximum prim
   | .conj _, _ => .bottom
   | _, .conj _ => .bottom
+  | .builtinCall _ _, _ => .bottom
+  | _, .builtinCall _ _ => .bottom
   | .ref leftLabel, .ref rightLabel =>
       if leftLabel = rightLabel then
         .ref leftLabel
@@ -695,6 +704,11 @@ def join (left right : Value) : Value :=
         .stringRegex leftPattern
       else
         disjOfValues (.stringRegex leftPattern) (.stringRegex rightPattern)
+  | .builtinCall leftName leftArgs, .builtinCall rightName rightArgs =>
+      if leftName = rightName && leftArgs == rightArgs then
+        .builtinCall leftName leftArgs
+      else
+        disjOfValues (.builtinCall leftName leftArgs) (.builtinCall rightName rightArgs)
   | .prim leftPrim, .prim rightPrim => joinPrim leftPrim rightPrim
   | .disj leftAlternatives, .disj rightAlternatives =>
       normalizeDisj (leftAlternatives ++ rightAlternatives)

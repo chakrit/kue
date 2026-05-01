@@ -105,6 +105,17 @@ theorem fixture_len_builtin :
       = "stringLen: 3\nlistLen: 3\nstructLen: 1" := by
   native_decide
 
+theorem fixture_unresolved_builtin :
+    formatTopLevel
+      (.struct
+        [
+          ("lenString", .regular, lenValue (.kind .string)),
+          ("emptyOr", .regular, orValues [])
+        ]
+        true)
+      = "lenString: len(string)\nemptyOr: or([])" := by
+  native_decide
+
 theorem fixture_nested_struct_field :
     formatField "x"
       (meet

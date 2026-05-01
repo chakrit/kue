@@ -19,6 +19,8 @@ mutual
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionValueWithFuel fuel alternative.snd)
         )
+    | fuel + 1, .builtinCall name args =>
+        .builtinCall name (args.map (normalizeDefinitionValueWithFuel fuel))
     | _, value => value
 
   def normalizeFieldWithFuel : Nat -> Field -> Field
@@ -42,6 +44,8 @@ mutual
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionsWithFuel fuel alternative.snd)
         )
+    | fuel + 1, .builtinCall name args =>
+        .builtinCall name (args.map (normalizeDefinitionsWithFuel fuel))
     | _, value => value
 end
 

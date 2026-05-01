@@ -60,6 +60,8 @@ mutual
           | none => .bottomWith [.unresolvedBinding id]
     | fuel + 1, fields, bindings, visited, .conj constraints =>
         .conj (constraints.map (evalValueWithFuel fuel fields bindings visited))
+    | fuel + 1, fields, bindings, visited, .builtinCall name args =>
+        .builtinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, evalValueWithFuel fuel fields bindings visited alternative.snd)

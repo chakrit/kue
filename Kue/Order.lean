@@ -137,6 +137,8 @@ mutual
     | _ + 1, .intLt maximum, .prim (.int value) => value < maximum
     | _ + 1, .intLt expectedMaximum, .intLt actualMaximum => actualMaximum <= expectedMaximum
     | fuel + 1, .conj constraints, value => allConstraintsSubsumeWithFuel fuel constraints value
+    | _ + 1, .builtinCall expectedName expectedArgs, .builtinCall actualName actualArgs =>
+        expectedName = actualName && expectedArgs == actualArgs
     | _ + 1, .ref expectedLabel, .ref actualLabel => expectedLabel == actualLabel
     | _ + 1, .refId expectedId, .refId actualId => expectedId == actualId
     | fuel + 1, .disj alternatives, value => disjSubsumesWithFuel fuel alternatives value
