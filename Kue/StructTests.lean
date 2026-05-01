@@ -306,6 +306,45 @@ theorem meet_regex_label_pattern_rejects_matching_conflict :
           true) = true := by
   native_decide
 
+theorem meet_regex_wildcard_label_pattern_constrains_matching_field :
+    (meet
+      (.structPattern [] (.stringRegex "^a.*z$") (.kind .int) true)
+      (.struct [("abcz", .regular, .prim (.int 1)), ("abcy", .regular, .prim (.string "skip"))] true)
+      ==
+        .structPattern
+          [("abcz", .regular, .prim (.int 1)), ("abcy", .regular, .prim (.string "skip"))]
+          (.stringRegex "^a.*z$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
+theorem meet_regex_wildcard_label_pattern_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a.*z$") (.kind .int) true)
+      (.struct [("abcz", .regular, .prim (.string "bad")), ("abcy", .regular, .prim (.string "skip"))] true)
+      ==
+        .structPattern
+          [
+            ("abcz", .regular, .bottomWith [.fieldConstraint "abcz"]),
+            ("abcy", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^a.*z$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
+theorem meet_regex_plus_label_pattern_requires_one_character :
+    (meet
+      (.structPattern [] (.stringRegex "^a.+z$") (.kind .int) true)
+      (.struct [("az", .regular, .prim (.string "skip")), ("abz", .regular, .prim (.int 2))] true)
+      ==
+        .structPattern
+          [("az", .regular, .prim (.string "skip")), ("abz", .regular, .prim (.int 2))]
+          (.stringRegex "^a.+z$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
 theorem close_value_marks_struct_pattern_closed :
     closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true)
       = .structPattern [] (.stringRegex "^a$") (.kind .int) false := by

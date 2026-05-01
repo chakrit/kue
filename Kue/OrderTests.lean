@@ -110,6 +110,27 @@ theorem regex_label_pattern_rejects_matching_conflict :
       = false := by
   native_decide
 
+theorem regex_wildcard_label_pattern_ignores_non_matching_regular_field :
+    subsumes
+      (.structPattern [] (.stringRegex "^a.*z$") (.kind .int) true)
+      (.struct [("abcz", .regular, .prim (.int 1)), ("abcy", .regular, .prim (.string "skip"))] true)
+      = true := by
+  native_decide
+
+theorem regex_wildcard_label_pattern_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a.*z$") (.kind .int) true)
+      (.struct [("abcz", .regular, .prim (.string "bad")), ("abcy", .regular, .prim (.string "skip"))] true)
+      = false := by
+  native_decide
+
+theorem regex_plus_label_pattern_requires_one_character :
+    subsumes
+      (.structPattern [] (.stringRegex "^a.+z$") (.kind .int) true)
+      (.struct [("az", .regular, .prim (.string "skip")), ("abz", .regular, .prim (.int 2))] true)
+      = true := by
+  native_decide
+
 theorem closed_regex_pattern_rejects_non_matching_regular_field :
     subsumes
       (.structPattern [] (.stringRegex "^a$") (.kind .int) false)

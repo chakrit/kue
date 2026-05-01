@@ -370,6 +370,27 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
+      fileName := "regex_wildcard_pattern.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("x", .regular,
+                meet
+                  (.structPattern [] (.stringRegex "^a.*z$") (.kind .int) true)
+                  (.struct
+                    [("abcz", .regular, .prim (.int 1)), ("abcy", .regular, .prim (.string "skip"))]
+                    true)),
+              ("y", .regular,
+                meet
+                  (.structPattern [] (.stringRegex "^a.+z$") (.kind .int) true)
+                  (.struct
+                    [("az", .regular, .prim (.string "skip")), ("abz", .regular, .prim (.int 2))]
+                    true))
+            ]
+            true)
+    },
+    {
       fileName := "required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"

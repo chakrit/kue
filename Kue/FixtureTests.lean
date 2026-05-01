@@ -243,6 +243,29 @@ theorem fixture_regex_label_pattern :
       = "x: {a: 1, b: \"x\", [=~\"^a$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_wildcard_pattern :
+    formatTopLevel
+      (.struct
+        [
+          ("x", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a.*z$") (.kind .int) true)
+              (.struct
+                [("abcz", .regular, .prim (.int 1)), ("abcy", .regular, .prim (.string "skip"))]
+                true)),
+          ("y", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a.+z$") (.kind .int) true)
+              (.struct
+                [("az", .regular, .prim (.string "skip")), ("abz", .regular, .prim (.int 2))]
+                true))
+        ]
+        true)
+      =
+        "x: {abcz: 1, abcy: \"skip\", [=~\"^a.*z$\"]: int}\n"
+        ++ "y: {az: \"skip\", abz: 2, [=~\"^a.+z$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

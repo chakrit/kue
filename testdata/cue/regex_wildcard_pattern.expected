@@ -1,0 +1,2 @@
+x: {abcz: 1, abcy: "skip", [=~"^a.*z$"]: int}
+y: {az: "skip", abz: 2, [=~"^a.+z$"]: int}

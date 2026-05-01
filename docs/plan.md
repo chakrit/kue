@@ -1713,10 +1713,38 @@ Goal: evaluate known builtin calls after their arguments are evaluated.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Regex Quantifier Label Patterns
+
+Goal: extend string-regex label matching beyond literal prefix/suffix matching.
+
+### Steps
+
+1. Add red tests for wildcard regex label patterns.
+   Completed in the regex quantifier label patterns slice.
+   Cover `^a.*z$` matching `abcz` while leaving `abcy` alone, including a
+   matching-field conflict.
+
+2. Replace the literal-only regex helper.
+   Completed in the regex quantifier label patterns slice.
+   `stringRegexMatches` now uses a small anchored matcher over character lists,
+   supporting literal atoms, `.`, `*`, `+`, `^`, and `$`.
+
+3. Add a CUE fixture port for wildcard regex patterns.
+   Completed in the regex quantifier label patterns slice.
+
+4. Verify. Completed in the regex quantifier label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
-  expression label matching and non-string label patterns.
+  expression label matching beyond the current literal/dot/quantifier subset,
+  and non-string label patterns.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

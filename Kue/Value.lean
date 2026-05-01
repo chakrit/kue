@@ -120,14 +120,59 @@ def regular (label : String) (value : Value) : Field :=
 
 end Field
 
+def regexAtomMatches (atom : Char) (value : Char) : Bool :=
+  atom == '.' || atom == value
+
+mutual
+  def regexMatchHereWithFuel : Nat -> Bool -> List Char -> List Char -> Bool
+    | 0, _, _, _ => false
+    | _ + 1, anchoredEnd, [], value =>
+        !anchoredEnd || value.isEmpty
+    | fuel + 1, anchoredEnd, atom :: '*' :: rest, value =>
+        regexMatchStarWithFuel fuel anchoredEnd atom rest value
+    | fuel + 1, anchoredEnd, atom :: '+' :: rest, value =>
+        match value with
+        | [] => false
+        | current :: remaining =>
+            regexAtomMatches atom current
+              && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
+    | fuel + 1, anchoredEnd, atom :: rest, value =>
+        match value with
+        | [] => false
+        | current :: remaining =>
+            regexAtomMatches atom current
+              && regexMatchHereWithFuel fuel anchoredEnd rest remaining
+
+  def regexMatchStarWithFuel : Nat -> Bool -> Char -> List Char -> List Char -> Bool
+    | 0, _, _, _, _ => false
+    | fuel + 1, anchoredEnd, atom, rest, value =>
+        regexMatchHereWithFuel fuel anchoredEnd rest value
+          || match value with
+             | [] => false
+             | current :: remaining =>
+                 regexAtomMatches atom current
+                   && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
+
+  def regexMatchAnywhereWithFuel : Nat -> Bool -> List Char -> List Char -> Bool
+    | 0, _, _, _ => false
+    | fuel + 1, anchoredEnd, pattern, value =>
+        regexMatchHereWithFuel fuel anchoredEnd pattern value
+          || match value with
+             | [] => false
+             | _ :: remaining => regexMatchAnywhereWithFuel fuel anchoredEnd pattern remaining
+end
+
 def stringRegexMatches (pattern value : String) : Bool :=
-  if pattern.startsWith "^" && pattern.endsWith "$" then
-    value == ((pattern.drop 1).dropEnd 1).copy
-  else if pattern.startsWith "^" then
-    (pattern.drop 1).copy |>.isPrefixOf value
-  else if pattern.endsWith "$" then
-    value.endsWith (pattern.dropEnd 1).copy
+  let anchoredStart := pattern.startsWith "^"
+  let withoutStart := if anchoredStart then (pattern.drop 1).copy else pattern
+  let anchoredEnd := withoutStart.endsWith "$"
+  let body := if anchoredEnd then (withoutStart.dropEnd 1).copy else withoutStart
+  let patternChars := body.toList
+  let valueChars := value.toList
+  let fuel := ((patternChars.length + 1) * (valueChars.length + 1) * 4) + 10
+  if anchoredStart then
+    regexMatchHereWithFuel fuel anchoredEnd patternChars valueChars
   else
-    value.contains pattern
+    regexMatchAnywhereWithFuel fuel anchoredEnd patternChars valueChars
 
 end Kue
