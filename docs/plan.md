@@ -345,8 +345,9 @@ that applies to extra regular fields.
    ellipsis slice.
    Keep the first implementation limited to regular extra fields.
 
-4. Add one CUE fixture port for a typed ellipsis struct. Completed in the typed
-   ellipsis slice.
+4. Keep typed-tail behavior covered by Lean theorem checks only.
+   A later fixture audit removed the old `testdata/cue/typed_ellipsis.cue`
+   sample because CUE v0.15.4 does not accept that struct ellipsis syntax.
 
 5. Verify. Completed in the typed ellipsis slice.
 
@@ -1229,6 +1230,36 @@ fields as well as later fields.
    Completed in the broad string pattern constraints slice.
 
 5. Verify. Completed in the broad string pattern constraints slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
+## Completed Slice: Fixture Syntax Check
+
+Goal: make the CUE fixture corpus mechanically parseable by the installed CUE
+toolchain, not just paired by filename.
+
+### Steps
+
+1. Audit `testdata/cue/*.cue` with CUE v0.15.4.
+   Completed in the fixture syntax check slice.
+
+2. Remove the old `typed_ellipsis.cue` fixture from the CUE corpus because the
+   installed CUE parser rejects that struct ellipsis syntax. Keep the semantic
+   behavior covered in Lean struct tests.
+   Completed in the fixture syntax check slice.
+
+3. Run `cue fmt --files testdata/cue` to normalize the remaining CUE fixtures.
+   Completed in the fixture syntax check slice.
+
+4. Extend `scripts/check-fixtures.sh` to run `cue fmt --check --files
+   testdata/cue`, catching invalid or unformatted CUE fixture files.
+   Completed in the fixture syntax check slice.
+
+5. Verify. Completed in the fixture syntax check slice.
 
    ```sh
    lake build

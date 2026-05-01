@@ -1,4 +1,4 @@
 x: {
-  mode?: *"prod" | "dev"
-  mode: _
+	mode?: *"prod" | "dev"
+	mode:  _
 }

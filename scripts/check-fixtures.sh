@@ -9,6 +9,18 @@ readonly repo_root
 
 readonly fixture_dir="${repo_root}/testdata/cue"
 
+check_cue_format() {
+  if ! command -v cue >/dev/null 2>&1; then
+    printf 'cue command not found; cannot validate CUE fixture syntax\n' >&2
+    return 1
+  fi
+
+  if ! cue fmt --check --files "${fixture_dir}"; then
+    printf 'CUE fixtures are not parseable or formatted; run cue fmt --files testdata/cue\n' >&2
+    return 1
+  fi
+}
+
 main() {
   local status=0
   local cue_file
@@ -38,6 +50,10 @@ main() {
       status=1
     fi
   done
+
+  if ! check_cue_format; then
+    status=1
+  fi
 
   if [[ "${status}" -eq 0 ]]; then
     printf 'fixture pairs ok\n'
