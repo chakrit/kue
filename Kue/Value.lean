@@ -150,6 +150,8 @@ def parseRegexClassRanges : List Char -> List (Char × Char) -> Option (List (Ch
 
 def parseRegexAtom : List Char -> Option (RegexAtom × List Char)
   | [] => none
+  | '\\' :: value :: rest => some (.literal value, rest)
+  | ['\\'] => some (.literal '\\', [])
   | '[' :: '^' :: rest =>
       match parseRegexClassRanges rest [] with
       | some (ranges, rest) => some (.charClass ranges true, rest)

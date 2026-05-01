@@ -193,6 +193,15 @@ theorem format_regex_label_pattern_constraint :
     formatValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true) = "{[=~\"^a$\"]: int}" := by
   native_decide
 
+theorem format_regular_field_label_requiring_quotes :
+    formatValue (.struct [("a.z", .regular, .prim (.int 1))] true) = "{\"a.z\": 1}" := by
+  native_decide
+
+theorem format_escaped_regex_label_pattern_constraint :
+    formatValue (.structPattern [] (.stringRegex "^a\\.z$") (.kind .int) true)
+      = "{[=~\"^a\\\\.z$\"]: int}" := by
+  native_decide
+
 theorem meet_typed_ellipsis_accepts_matching_extra_field :
     meet
       (.structTail [("a", .regular, .kind .int)] (.kind .string))
@@ -378,6 +387,21 @@ theorem meet_regex_range_label_pattern_rejects_matching_conflict :
             ("axz", .regular, .prim (.string "skip"))
           ]
           (.stringRegex "^a[0-9]z$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
+theorem meet_escaped_regex_label_pattern_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a\\.z$") (.kind .int) true)
+      (.struct [("a.z", .regular, .prim (.string "bad")), ("abz", .regular, .prim (.string "skip"))] true)
+      ==
+        .structPattern
+          [
+            ("a.z", .regular, .bottomWith [.fieldConstraint "a.z"]),
+            ("abz", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^a\\.z$")
           (.kind .int)
           true) = true := by
   native_decide

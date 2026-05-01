@@ -416,6 +416,16 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
+      fileName := "regex_escape_pattern.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPattern [] (.stringRegex "^a\\.z$") (.kind .int) true)
+            (.struct
+              [("a.z", .regular, .prim (.string "bad")), ("abz", .regular, .prim (.string "skip"))]
+              true))
+    },
+    {
       fileName := "required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"

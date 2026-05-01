@@ -1767,11 +1767,43 @@ Goal: support common regex character classes in label pattern matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Escaped Regex Label Patterns
+
+Goal: support escaped regex atoms in label pattern matching and render escaped
+CUE strings/labels correctly for fixture output.
+
+### Steps
+
+1. Add red tests for escaped regex atoms.
+   Completed in the escaped regex label patterns slice.
+   Cover `^a\\.z$` matching the literal label `a.z` and rejecting a conflicting
+   value, plus CUE string escaping for rendered regex patterns.
+
+2. Parse backslash escapes as literal regex atoms.
+   Completed in the escaped regex label patterns slice.
+   Escaped atoms such as `\\.` now match the escaped literal character instead
+   of treating `\\` as a normal pattern character.
+
+3. Quote rendered field labels when CUE syntax requires it.
+   Completed in the escaped regex label patterns slice.
+   This keeps labels such as `a.z` valid in generated fixture output.
+
+4. Add a CUE fixture port for escaped regex label patterns.
+   Completed in the escaped regex label patterns slice.
+
+5. Verify. Completed in the escaped regex label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
   expression label matching beyond the current literal/dot/quantifier/class
-  subset, and non-string label patterns.
+  escape subset, and non-string label patterns.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

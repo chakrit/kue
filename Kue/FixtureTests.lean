@@ -293,6 +293,14 @@ theorem fixture_regex_class_pattern :
         ++ "y: {a5z: 1, axz: \"skip\", [=~\"^a[0-9]z$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_escape_pattern :
+    formatField "x"
+      (meet
+        (.structPattern [] (.stringRegex "^a\\.z$") (.kind .int) true)
+        (.struct [("a.z", .regular, .prim (.string "bad")), ("abz", .regular, .prim (.string "skip"))] true))
+      = "x: {\"a.z\": _|_, abz: \"skip\", [=~\"^a\\\\.z$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

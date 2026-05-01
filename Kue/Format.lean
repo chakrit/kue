@@ -11,13 +11,52 @@ def formatKind : Kind -> String
   | .string => "string"
   | .bytes => "bytes"
 
+def escapeCueStringChar : Char -> List Char
+  | '"' => ['\\', '"']
+  | '\\' => ['\\', '\\']
+  | '\n' => ['\\', 'n']
+  | '\r' => ['\\', 'r']
+  | '\t' => ['\\', 't']
+  | value => [value]
+
+def escapeCueStringChars : List Char -> List Char
+  | [] => []
+  | value :: values => escapeCueStringChar value ++ escapeCueStringChars values
+
+def escapeCueStringContent (value : String) : String :=
+  String.ofList (escapeCueStringChars value.toList)
+
+def asciiCharBetween (lower upper value : Char) : Bool :=
+  lower.toNat <= value.toNat && value.toNat <= upper.toNat
+
+def isCueIdentifierStart (value : Char) : Bool :=
+  asciiCharBetween 'a' 'z' value
+    || asciiCharBetween 'A' 'Z' value
+    || value == '_'
+    || value == '#'
+
+def isCueIdentifierRest (value : Char) : Bool :=
+  isCueIdentifierStart value || asciiCharBetween '0' '9' value
+
+def allCueIdentifierRest : List Char -> Bool
+  | [] => true
+  | value :: values => isCueIdentifierRest value && allCueIdentifierRest values
+
+def isCueBareLabel (label : String) : Bool :=
+  match label.toList with
+  | [] => false
+  | value :: values => isCueIdentifierStart value && allCueIdentifierRest values
+
+def formatFieldLabel (label : String) : String :=
+  if isCueBareLabel label then label else s!"\"{escapeCueStringContent label}\""
+
 def formatPrim : Prim -> String
   | .null => "null"
   | .bool true => "true"
   | .bool false => "false"
   | .int value => toString value
   | .float value => value
-  | .string value => s!"\"{value}\""
+  | .string value => s!"\"{escapeCueStringContent value}\""
   | .bytes value => "'" ++ value ++ "'"
 
 def joinWith (separator : String) : List String -> String
@@ -37,7 +76,7 @@ mutual
   def formatStructFieldWithFuel : Nat -> Field -> String
     | 0, _ => "..."
     | fuel + 1, field =>
-        let label := Field.label field
+        let label := formatFieldLabel (Field.label field)
         let value := formatValueWithFuel fuel (Field.value field)
         match Field.fieldClass field with
         | .regular => s!"{label}: {value}"
@@ -54,7 +93,7 @@ mutual
     | _, .prim prim => formatPrim prim
     | _, .kind kind => formatKind kind
     | _, .notPrim prim => "!=" ++ formatPrim prim
-    | _, .stringRegex pattern => s!"=~\"{pattern}\""
+    | _, .stringRegex pattern => s!"=~\"{escapeCueStringContent pattern}\""
     | _, .intGe minimum => s!">={minimum}"
     | _, .intGt minimum => s!">{minimum}"
     | _, .intLe maximum => s!"<={maximum}"

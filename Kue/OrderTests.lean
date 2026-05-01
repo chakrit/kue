@@ -151,6 +151,13 @@ theorem regex_range_label_pattern_rejects_matching_conflict :
       = false := by
   native_decide
 
+theorem escaped_regex_label_pattern_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\.z$") (.kind .int) true)
+      (.struct [("a.z", .regular, .prim (.string "bad")), ("abz", .regular, .prim (.string "skip"))] true)
+      = false := by
+  native_decide
+
 theorem closed_regex_pattern_rejects_non_matching_regular_field :
     subsumes
       (.structPattern [] (.stringRegex "^a$") (.kind .int) false)
