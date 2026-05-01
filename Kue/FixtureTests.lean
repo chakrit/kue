@@ -420,6 +420,20 @@ theorem fixture_regex_exact_repetition_pattern :
       = "x: {a12z: _|_, a1z: \"skip\", [=~\"^a\\\\d{2}z$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_bounded_repetition_pattern :
+    formatField "x"
+      (meet
+        (.structPattern [] (.stringRegex "^a\\d{2,3}z$") (.kind .int) true)
+        (.struct
+          [
+            ("a12z", .regular, .prim (.int 2)),
+            ("a123z", .regular, .prim (.string "bad")),
+            ("a1z", .regular, .prim (.string "skip"))
+          ]
+          true))
+      = "x: {a12z: 2, a123z: _|_, a1z: \"skip\", [=~\"^a\\\\d{2,3}z$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

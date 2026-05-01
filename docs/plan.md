@@ -1987,6 +1987,38 @@ Goal: support exact `{n}` repetition over regex atoms in label pattern matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Bounded Regex Repetition Label Patterns
+
+Goal: support bounded `{m,n}` repetition over regex atoms in label pattern
+matching.
+
+### Steps
+
+1. Add red tests for bounded repetition.
+   Completed in the bounded regex repetition label patterns slice.
+   Cover `^a\\d{2,3}z$` matching two- and three-digit label segments while
+   leaving a one-digit label unconstrained.
+
+2. Parse repetition quantifiers as minimum and maximum counts.
+   Completed in the bounded regex repetition label patterns slice.
+   Exact `{n}` now goes through the same range matcher as `{m,n}`.
+
+3. Add range matching for repeated atoms.
+   Completed in the bounded regex repetition label patterns slice.
+   The matcher consumes required occurrences first, then tries up to the maximum
+   allowed optional occurrences before continuing with the rest of the pattern.
+
+4. Add a CUE fixture port for bounded repetition label patterns.
+   Completed in the bounded regex repetition label patterns slice.
+
+5. Verify. Completed in the bounded regex repetition label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular

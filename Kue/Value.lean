@@ -147,16 +147,23 @@ def regexDigitValue? (value : Char) : Option Nat :=
   else
     none
 
-def parseRegexExactRepeatDigits : List Char -> Nat -> Bool -> Option (Nat × List Char)
+def parseRegexNatDigits : List Char -> Nat -> Bool -> Option (Nat × List Char)
   | [], _, _ => none
-  | '}' :: rest, count, true => some (count, rest)
-  | value :: rest, count, _ =>
+  | value :: rest, count, seen =>
       match regexDigitValue? value with
-      | some digit => parseRegexExactRepeatDigits rest (count * 10 + digit) true
-      | none => none
+      | some digit => parseRegexNatDigits rest (count * 10 + digit) true
+      | none => if seen then some (count, value :: rest) else none
 
-def parseRegexExactRepeat : List Char -> Option (Nat × List Char)
-  | '{' :: rest => parseRegexExactRepeatDigits rest 0 false
+def parseRegexRepeat : List Char -> Option (Nat × Nat × List Char)
+  | '{' :: rest =>
+      match parseRegexNatDigits rest 0 false with
+      | some (minimum, '}' :: rest) => some (minimum, minimum, rest)
+      | some (minimum, ',' :: rest) =>
+          match parseRegexNatDigits rest 0 false with
+          | some (maximum, '}' :: rest) =>
+              if minimum <= maximum then some (minimum, maximum, rest) else none
+          | _ => none
+      | _ => none
   | _ => none
 
 namespace RegexAtom
@@ -217,8 +224,9 @@ mutual
                 atom.matchesChar current
                   && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
         | some (atom, rest) =>
-            match parseRegexExactRepeat rest with
-            | some (count, rest) => regexMatchRepeatWithFuel fuel anchoredEnd atom count rest value
+            match parseRegexRepeat rest with
+            | some (minimum, maximum, rest) =>
+                regexMatchRepeatRangeWithFuel fuel anchoredEnd atom minimum maximum rest value
             | none =>
                 match value with
                 | [] => false
@@ -236,16 +244,29 @@ mutual
                  atom.matchesChar current
                    && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
 
-  def regexMatchRepeatWithFuel : Nat -> Bool -> RegexAtom -> Nat -> List Char -> List Char -> Bool
+  def regexMatchAtMostWithFuel : Nat -> Bool -> RegexAtom -> Nat -> List Char -> List Char -> Bool
     | 0, _, _, _, _, _ => false
     | fuel + 1, anchoredEnd, _, 0, rest, value =>
         regexMatchHereWithFuel fuel anchoredEnd rest value
     | fuel + 1, anchoredEnd, atom, count + 1, rest, value =>
+        regexMatchHereWithFuel fuel anchoredEnd rest value
+          || match value with
+             | [] => false
+             | current :: remaining =>
+                 atom.matchesChar current
+                   && regexMatchAtMostWithFuel fuel anchoredEnd atom count rest remaining
+
+  def regexMatchRepeatRangeWithFuel : Nat -> Bool -> RegexAtom -> Nat -> Nat -> List Char -> List Char -> Bool
+    | 0, _, _, _, _, _, _ => false
+    | fuel + 1, anchoredEnd, atom, 0, maximum, rest, value =>
+        regexMatchAtMostWithFuel fuel anchoredEnd atom maximum rest value
+    | fuel + 1, anchoredEnd, atom, minimum + 1, maximum + 1, rest, value =>
         match value with
         | [] => false
         | current :: remaining =>
             atom.matchesChar current
-              && regexMatchRepeatWithFuel fuel anchoredEnd atom count rest remaining
+              && regexMatchRepeatRangeWithFuel fuel anchoredEnd atom minimum maximum rest remaining
+    | _, _, _, _ + 1, 0, _, _ => false
 
   def regexMatchAnywhereWithFuel : Nat -> Bool -> List Char -> List Char -> Bool
     | 0, _, _, _ => false

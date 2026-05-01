@@ -541,6 +541,20 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "regex_bounded_repetition_pattern.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPattern [] (.stringRegex "^a\\d{2,3}z$") (.kind .int) true)
+            (.struct
+              [
+                ("a12z", .regular, .prim (.int 2)),
+                ("a123z", .regular, .prim (.string "bad")),
+                ("a1z", .regular, .prim (.string "skip"))
+              ]
+              true))
+    },
+    {
       fileName := "required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"

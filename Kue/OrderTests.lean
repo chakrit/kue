@@ -220,6 +220,19 @@ theorem regex_exact_repetition_rejects_matching_conflict :
       = false := by
   native_decide
 
+theorem regex_bounded_repetition_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\d{2,3}z$") (.kind .int) true)
+      (.struct
+        [
+          ("a12z", .regular, .prim (.int 2)),
+          ("a123z", .regular, .prim (.string "bad")),
+          ("a1z", .regular, .prim (.string "skip"))
+        ]
+        true)
+      = false := by
+  native_decide
+
 theorem regex_top_level_alternation_subsumes_each_alternative :
     subsumes
       (.structPattern [] (.stringRegex "^cat$|^dog$") (.kind .int) true)
