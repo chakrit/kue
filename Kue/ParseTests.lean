@@ -49,6 +49,18 @@ theorem parse_regex_pattern_field :
       "x: {a: 1, b: \"skip\", [=~\"^a$\"]: int}" = true := by
   native_decide
 
+theorem parse_list_tail_schema :
+    parseOutputMatches
+      "xs: [...int]\nys: [int, ...string]\n"
+      "xs: [...int]\nys: [int, ...string]" = true := by
+  native_decide
+
+theorem parse_list_tail_unification :
+    parseOutputMatches
+      "x: [int, ...string] & [1, \"x\", \"y\"]\n"
+      "x: [1, \"x\", \"y\"]" = true := by
+  native_decide
+
 theorem parse_imports_are_unsupported :
     parseFails "import \"strings\"\nx: 1\n" = true := by
   native_decide

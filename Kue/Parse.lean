@@ -339,9 +339,35 @@ mutual
     | .ok (args, rest) => parseOk (.builtinCall name args) rest
 
   partial def parseList (chars : List Char) : ParseResult Value :=
-    match parseExpressionListUntil ']' chars [] with
-    | .error error => .error error
-    | .ok (items, rest) => parseOk (.list items) rest
+    parseListItems chars []
+
+  partial def parseListTailEnd (value : Value) (chars : List Char) : ParseResult Value :=
+    match parseCommaOrSemicolon (skipTrivia chars) with
+    | ']' :: rest => parseOk value rest
+    | _ => parseError "expected ']' after list tail"
+
+  partial def parseListTail (items : List Value) (chars : List Char) : ParseResult Value :=
+    match skipTrivia chars with
+    | '.' :: '.' :: '.' :: rest =>
+        match skipTrivia rest with
+        | ']' :: rest => parseOk (.listTail items .top) rest
+        | rest =>
+            match parseExpression rest with
+            | .error error => .error error
+            | .ok (tail, rest) => parseListTailEnd (.listTail items tail) rest
+    | _ => parseError "expected list tail"
+
+  partial def parseListItems (chars : List Char) (items : List Value) : ParseResult Value :=
+    match skipTrivia chars with
+    | ']' :: rest => parseOk (.list items) rest
+    | '.' :: '.' :: '.' :: _ => parseListTail items chars
+    | value :: rest =>
+        let chars := value :: rest
+        match parseExpression chars with
+        | .error error => .error error
+        | .ok (item, rest) =>
+            parseListItems (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
+    | [] => parseError "expected ']'"
 
   partial def parseExpressionListUntil
       (terminator : Char)

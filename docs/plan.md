@@ -2087,6 +2087,35 @@ semantic core already supports.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Parser List Ellipsis Syntax
+
+Goal: let stdin CUE source express open list tails such as `[int, ...string]`,
+which Kue already models as `listTail` values.
+
+### Steps
+
+1. Add parser tests first.
+   Cover `[...int]` and `[int, ...string] & [1, "x", "y"]`.
+   Completed in the parser list ellipsis syntax slice.
+
+2. Specialize list parsing for ellipsis tails.
+   Completed in the parser list ellipsis syntax slice.
+   `Kue/Parse.lean` now recognizes typed `...T` entries in list position and
+   requires the tail to be the final list element.
+
+3. Update parser assumptions.
+   Completed in the parser list ellipsis syntax slice.
+   `docs/compat-assumptions.md` now distinguishes supported list ellipses from
+   unsupported struct ellipsis syntax.
+
+4. Verify. Completed in the parser list ellipsis syntax slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current single-pattern representation:
