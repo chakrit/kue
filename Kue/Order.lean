@@ -36,7 +36,7 @@ mutual
     actualFields.all fun actualField =>
       match findField (Field.label actualField) expectedFields with
       | some _ => true
-      | none => false
+      | none => Field.ignoresClosedness actualField
 
   def structSubsumesWithFuel
       (fuel : Nat)
@@ -84,6 +84,7 @@ mutual
       (labelPattern : Value)
       (field : Field) : Bool :=
     (findField (Field.label field) expectedFields).isSome
+      || Field.ignoresClosedness field
       || (Field.fieldClass field == .regular
         && labelMatchesPatternWithFuel fuel labelPattern (Field.label field))
 

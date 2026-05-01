@@ -117,4 +117,30 @@ theorem closed_regex_pattern_rejects_non_matching_regular_field :
       = false := by
   native_decide
 
+theorem closed_struct_subsumes_hidden_and_definition_extra_fields :
+    subsumes
+      (.struct [("a", .regular, .kind .int)] false)
+      (.struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("_h", .hidden, .prim (.string "secret")),
+          ("#D", .definition, .kind .string)
+        ]
+        true)
+      = true := by
+  native_decide
+
+theorem closed_regex_pattern_subsumes_hidden_and_definition_extra_fields :
+    subsumes
+      (.structPattern [] (.stringRegex "^a$") (.kind .int) false)
+      (.struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("_h", .hidden, .prim (.string "secret")),
+          ("#D", .definition, .kind .string)
+        ]
+        true)
+      = true := by
+  native_decide
+
 end Kue

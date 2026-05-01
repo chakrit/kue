@@ -79,6 +79,20 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
+      fileName := "closed_hidden_definition.expected",
+      content :=
+        formatField "x"
+          (meet
+            (closeValue (.struct [("a", .regular, .kind .int)] true))
+            (.struct
+              [
+                ("a", .regular, .prim (.int 1)),
+                ("_h", .hidden, .prim (.string "secret")),
+                ("#D", .definition, .kind .string)
+              ]
+              true))
+    },
+    {
       fileName := "closed_regex_pattern.expected",
       content :=
         formatField "x"

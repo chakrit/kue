@@ -1623,11 +1623,42 @@ Goal: make `close` interact with pattern-constrained structs.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Hidden Definition Closedness
+
+Goal: align closedness with CUE's treatment of hidden and definition fields.
+
+### Steps
+
+1. Add a field-class closedness exemption.
+   Completed in the hidden definition closedness slice.
+   Hidden fields and definition fields now ignore closedness checks, while
+   regular fields remain subject to closed struct and closed pattern rules.
+
+2. Apply the exemption in lattice meet.
+   Completed in the hidden definition closedness slice.
+   Closed structs and closed pattern structs now preserve undeclared hidden and
+   definition fields instead of marking them as `.fieldNotAllowed`.
+
+3. Apply the exemption in subsumption.
+   Completed in the hidden definition closedness slice.
+   Closed struct and closed pattern predicates now allow hidden and definition
+   extras.
+
+4. Add a CUE fixture port for closed hidden/definition fields.
+   Completed in the hidden definition closedness slice.
+
+5. Verify. Completed in the hidden definition closedness slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
-  expression label matching, non-string label patterns, and hidden/definition
-  interactions.
+  expression label matching and non-string label patterns.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

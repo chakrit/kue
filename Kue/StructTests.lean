@@ -130,6 +130,26 @@ theorem meet_closed_left_rejects_extra_right_field :
           false := by
   rfl
 
+theorem meet_closed_struct_allows_hidden_and_definition_extra_fields :
+    meet
+      (.struct [("a", .regular, .kind .int)] false)
+      (.struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("_h", .hidden, .prim (.string "secret")),
+          ("#D", .definition, .kind .string)
+        ]
+        true)
+      =
+        .struct
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("_h", .hidden, .prim (.string "secret")),
+            ("#D", .definition, .kind .string)
+          ]
+          false := by
+  rfl
+
 theorem meet_closed_right_rejects_extra_left_field :
     meet
       (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
@@ -298,6 +318,28 @@ theorem closed_pattern_rejects_non_matching_extra_regular_field :
       ==
         .structPattern
           [("a", .regular, .prim (.int 1)), ("b", .regular, .bottomWith [.fieldNotAllowed "b"])]
+          (.stringRegex "^a$")
+          (.kind .int)
+          false) = true := by
+  native_decide
+
+theorem closed_pattern_allows_hidden_and_definition_extra_fields :
+    (meet
+      (closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true))
+      (.struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("_h", .hidden, .prim (.string "secret")),
+          ("#D", .definition, .kind .string)
+        ]
+        true)
+      ==
+        .structPattern
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("_h", .hidden, .prim (.string "secret")),
+            ("#D", .definition, .kind .string)
+          ]
           (.stringRegex "^a$")
           (.kind .int)
           false) = true := by

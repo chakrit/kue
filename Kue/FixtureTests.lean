@@ -81,6 +81,20 @@ theorem fixture_closed_extra_field :
       = "x: {a: 1, b: _|_}" := by
   native_decide
 
+theorem fixture_closed_hidden_definition :
+    formatField "x"
+      (meet
+        (closeValue (.struct [("a", .regular, .kind .int)] true))
+        (.struct
+          [
+            ("a", .regular, .prim (.int 1)),
+            ("_h", .hidden, .prim (.string "secret")),
+            ("#D", .definition, .kind .string)
+          ]
+          true))
+      = "x: {a: 1, _h: \"secret\", #D: string}" := by
+  native_decide
+
 theorem fixture_closed_regex_pattern :
     formatField "x"
       (meet

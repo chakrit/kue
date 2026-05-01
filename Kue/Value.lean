@@ -46,6 +46,15 @@ inductive FieldClass where
   | definition
 deriving Repr, BEq, DecidableEq
 
+namespace FieldClass
+
+def ignoresClosedness : FieldClass -> Bool
+  | .hidden => true
+  | .definition => true
+  | _ => false
+
+end FieldClass
+
 structure BindingId where
   index : Nat
 deriving Repr, BEq, DecidableEq
@@ -99,6 +108,9 @@ def label (field : Field) : String :=
 
 def fieldClass (field : Field) : FieldClass :=
   field.snd.fst
+
+def ignoresClosedness (field : Field) : Bool :=
+  FieldClass.ignoresClosedness (fieldClass field)
 
 def value (field : Field) : Value :=
   field.snd.snd

@@ -445,7 +445,7 @@ def applyClosednessFrom (allowedFields : List Field) (isOpen : Bool) (fields : L
     fields
   else
     fields.map fun field =>
-      if hasFieldLabel (Field.label field) allowedFields then
+      if hasFieldLabel (Field.label field) allowedFields || Field.ignoresClosedness field then
         field
       else
         markDisallowedField field
@@ -515,7 +515,9 @@ def fieldAllowedByPatternWith
     (declaredFields : List Field)
     (labelPattern : Value)
     (field : Field) : Bool :=
-  hasFieldLabel (Field.label field) declaredFields || fieldMatchesPatternWith meetValue labelPattern field
+  hasFieldLabel (Field.label field) declaredFields
+    || Field.ignoresClosedness field
+    || fieldMatchesPatternWith meetValue labelPattern field
 
 def applyPatternClosednessToFieldWith
     (meetValue : Value -> Value -> Value)
