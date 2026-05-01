@@ -266,6 +266,33 @@ theorem fixture_regex_wildcard_pattern :
         ++ "y: {az: \"skip\", abz: 2, [=~\"^a.+z$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_class_pattern :
+    formatTopLevel
+      (.struct
+        [
+          ("x", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^[ab]cz$") (.kind .int) true)
+              (.struct
+                [
+                  ("acz", .regular, .prim (.int 1)),
+                  ("bcz", .regular, .prim (.int 2)),
+                  ("ccz", .regular, .prim (.string "skip"))
+                ]
+                true)),
+          ("y", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a[0-9]z$") (.kind .int) true)
+              (.struct
+                [("a5z", .regular, .prim (.int 1)), ("axz", .regular, .prim (.string "skip"))]
+                true))
+        ]
+        true)
+      =
+        "x: {acz: 1, bcz: 2, ccz: \"skip\", [=~\"^[ab]cz$\"]: int}\n"
+        ++ "y: {a5z: 1, axz: \"skip\", [=~\"^a[0-9]z$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

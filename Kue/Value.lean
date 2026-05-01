@@ -120,37 +120,75 @@ def regular (label : String) (value : Value) : Field :=
 
 end Field
 
-def regexAtomMatches (atom : Char) (value : Char) : Bool :=
-  atom == '.' || atom == value
+inductive RegexAtom where
+  | literal (value : Char)
+  | any
+  | charClass (ranges : List (Char × Char)) (negated : Bool)
+deriving Repr, BEq
+
+def charInRegexRange (lower upper value : Char) : Bool :=
+  lower.toNat <= value.toNat && value.toNat <= upper.toNat
+
+def regexClassMatches (ranges : List (Char × Char)) (value : Char) : Bool :=
+  ranges.any fun range => charInRegexRange range.fst range.snd value
+
+namespace RegexAtom
+
+def matchesChar : RegexAtom -> Char -> Bool
+  | .literal expected, value => expected == value
+  | .any, _ => true
+  | .charClass ranges false, value => regexClassMatches ranges value
+  | .charClass ranges true, value => !regexClassMatches ranges value
+
+end RegexAtom
+
+def parseRegexClassRanges : List Char -> List (Char × Char) -> Option (List (Char × Char) × List Char)
+  | [], _ => none
+  | ']' :: rest, ranges => some (ranges.reverse, rest)
+  | lower :: '-' :: upper :: rest, ranges => parseRegexClassRanges rest ((lower, upper) :: ranges)
+  | value :: rest, ranges => parseRegexClassRanges rest ((value, value) :: ranges)
+
+def parseRegexAtom : List Char -> Option (RegexAtom × List Char)
+  | [] => none
+  | '[' :: '^' :: rest =>
+      match parseRegexClassRanges rest [] with
+      | some (ranges, rest) => some (.charClass ranges true, rest)
+      | none => some (.literal '[', '^' :: rest)
+  | '[' :: rest =>
+      match parseRegexClassRanges rest [] with
+      | some (ranges, rest) => some (.charClass ranges false, rest)
+      | none => some (.literal '[', rest)
+  | '.' :: rest => some (.any, rest)
+  | value :: rest => some (.literal value, rest)
 
 mutual
   def regexMatchHereWithFuel : Nat -> Bool -> List Char -> List Char -> Bool
     | 0, _, _, _ => false
-    | _ + 1, anchoredEnd, [], value =>
-        !anchoredEnd || value.isEmpty
-    | fuel + 1, anchoredEnd, atom :: '*' :: rest, value =>
-        regexMatchStarWithFuel fuel anchoredEnd atom rest value
-    | fuel + 1, anchoredEnd, atom :: '+' :: rest, value =>
-        match value with
-        | [] => false
-        | current :: remaining =>
-            regexAtomMatches atom current
-              && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
-    | fuel + 1, anchoredEnd, atom :: rest, value =>
-        match value with
-        | [] => false
-        | current :: remaining =>
-            regexAtomMatches atom current
-              && regexMatchHereWithFuel fuel anchoredEnd rest remaining
+    | fuel + 1, anchoredEnd, pattern, value =>
+        match parseRegexAtom pattern with
+        | none => !anchoredEnd || value.isEmpty
+        | some (atom, '*' :: rest) => regexMatchStarWithFuel fuel anchoredEnd atom rest value
+        | some (atom, '+' :: rest) =>
+            match value with
+            | [] => false
+            | current :: remaining =>
+                atom.matchesChar current
+                  && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
+        | some (atom, rest) =>
+            match value with
+            | [] => false
+            | current :: remaining =>
+                atom.matchesChar current
+                  && regexMatchHereWithFuel fuel anchoredEnd rest remaining
 
-  def regexMatchStarWithFuel : Nat -> Bool -> Char -> List Char -> List Char -> Bool
+  def regexMatchStarWithFuel : Nat -> Bool -> RegexAtom -> List Char -> List Char -> Bool
     | 0, _, _, _, _ => false
     | fuel + 1, anchoredEnd, atom, rest, value =>
         regexMatchHereWithFuel fuel anchoredEnd rest value
           || match value with
              | [] => false
              | current :: remaining =>
-                 regexAtomMatches atom current
+                 atom.matchesChar current
                    && regexMatchStarWithFuel fuel anchoredEnd atom rest remaining
 
   def regexMatchAnywhereWithFuel : Nat -> Bool -> List Char -> List Char -> Bool

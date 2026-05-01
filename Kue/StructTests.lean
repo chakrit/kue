@@ -345,6 +345,43 @@ theorem meet_regex_plus_label_pattern_requires_one_character :
           true) = true := by
   native_decide
 
+theorem meet_regex_class_label_pattern_constrains_matching_fields :
+    (meet
+      (.structPattern [] (.stringRegex "^[ab]cz$") (.kind .int) true)
+      (.struct
+        [
+          ("acz", .regular, .prim (.int 1)),
+          ("bcz", .regular, .prim (.int 2)),
+          ("ccz", .regular, .prim (.string "skip"))
+        ]
+        true)
+      ==
+        .structPattern
+          [
+            ("acz", .regular, .prim (.int 1)),
+            ("bcz", .regular, .prim (.int 2)),
+            ("ccz", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^[ab]cz$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
+theorem meet_regex_range_label_pattern_rejects_matching_conflict :
+    (meet
+      (.structPattern [] (.stringRegex "^a[0-9]z$") (.kind .int) true)
+      (.struct [("a5z", .regular, .prim (.string "bad")), ("axz", .regular, .prim (.string "skip"))] true)
+      ==
+        .structPattern
+          [
+            ("a5z", .regular, .bottomWith [.fieldConstraint "a5z"]),
+            ("axz", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^a[0-9]z$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
 theorem close_value_marks_struct_pattern_closed :
     closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true)
       = .structPattern [] (.stringRegex "^a$") (.kind .int) false := by

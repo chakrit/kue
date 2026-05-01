@@ -1,0 +1,2 @@
+x: {acz: 1, bcz: 2, ccz: "skip", [=~"^[ab]cz$"]: int}
+y: {a5z: 1, axz: "skip", [=~"^a[0-9]z$"]: int}

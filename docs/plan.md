@@ -1740,11 +1740,38 @@ Goal: extend string-regex label matching beyond literal prefix/suffix matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Regex Character-Class Label Patterns
+
+Goal: support common regex character classes in label pattern matching.
+
+### Steps
+
+1. Add red tests for character classes and ranges.
+   Completed in the regex character-class label patterns slice.
+   Cover `[ab]` matching two explicit characters and `[0-9]` matching digit
+   labels while leaving nonmatching labels alone.
+
+2. Refactor the matcher to parse regex atoms.
+   Completed in the regex character-class label patterns slice.
+   Regex atoms now include literals, `.`, and character classes with optional
+   negation and simple ranges.
+
+3. Add a CUE fixture port for class and range regex patterns.
+   Completed in the regex character-class label patterns slice.
+
+4. Verify. Completed in the regex character-class label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
-  expression label matching beyond the current literal/dot/quantifier subset,
-  and non-string label patterns.
+  expression label matching beyond the current literal/dot/quantifier/class
+  subset, and non-string label patterns.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are
