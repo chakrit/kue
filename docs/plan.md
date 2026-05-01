@@ -2019,6 +2019,44 @@ matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Basic Stdin Parser CLI
+
+Goal: make the `kue` executable usable on small real CUE snippets by parsing stdin
+through the existing resolver and evaluator.
+
+### Steps
+
+1. Add parser tests first.
+   Cover package clauses, top-level fields, definition references, lists, nested
+   structs, builtin calls, defaults, and integer bounds.
+   Completed in the basic stdin parser CLI slice.
+
+2. Add a narrow recursive-descent parser.
+   Completed in the basic stdin parser CLI slice.
+   `Kue/Parse.lean` accepts the syntax already backed by semantic values and
+   rejects unsupported CUE syntax with a parse error.
+
+3. Add runtime helpers shared by fixtures and the CLI.
+   Completed in the basic stdin parser CLI slice.
+   `Kue/Runtime.lean` centralizes top-level formatting and resolve/eval flow.
+
+4. Update `Main.lean` to read stdin.
+   Completed in the basic stdin parser CLI slice.
+   Non-empty stdin is parsed and resolved to stdout. Empty stdin keeps the
+   existing semantic smoke output.
+
+5. Document parser compatibility assumptions.
+   Completed in the basic stdin parser CLI slice.
+   See `docs/compat-assumptions.md`.
+
+6. Verify. Completed in the basic stdin parser CLI slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular

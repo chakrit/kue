@@ -3,6 +3,9 @@ import Kue.Lattice
 import Kue.Tests
 import Kue.Format
 import Kue.Examples
+import Kue.Parse
+import Kue.Runtime
+import Kue.ParseTests
 import Kue.FixturePorts
 import Kue.FixtureTests
 import Kue.Manifest

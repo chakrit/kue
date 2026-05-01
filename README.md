@@ -30,13 +30,18 @@ eventually proved.
 ## Build & Run
 
 ```sh
-lake build              # build the library and `kue` exe
-lake exe kue            # run the smoke entry point
-lake build Kue.Tests    # build the test aggregator module
+lake build                # build the library and `kue` exe
+lake exe kue              # run the smoke entry point
+lake build Kue.Tests      # build the test aggregator module
+printf 'x: int & 1\n' | lake exe kue
 ```
 
 All test modules are imported from `Kue.lean`, so `lake build` exercises the full
 suite at elaboration time.
+
+When stdin contains CUE source, `kue` parses the supported subset, resolves same-file
+references, evaluates known builtins, and writes the resolved Kue output to stdout.
+With empty stdin it preserves the semantic smoke output for quick checks.
 
 ## Fixtures
 
@@ -55,4 +60,6 @@ Read in this order (see [`docs/index.md`](docs/index.md)):
    must preserve.
 2. [`docs/lean4-guide.md`](docs/lean4-guide.md) — Lean 4 setup and proof workflow.
 3. [`docs/architecture.md`](docs/architecture.md) — module layering and boundaries.
-4. [`docs/plan.md`](docs/plan.md) — current implementation slice and TDD checkpoints.
+4. [`docs/compat-assumptions.md`](docs/compat-assumptions.md) — compatibility
+   assumptions and deliberately narrow choices.
+5. [`docs/plan.md`](docs/plan.md) — current implementation slice and TDD checkpoints.

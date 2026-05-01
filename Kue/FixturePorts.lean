@@ -1,10 +1,8 @@
 import Kue.Builtin
-import Kue.Eval
 import Kue.Format
 import Kue.Lattice
 import Kue.Manifest
-import Kue.Normalize
-import Kue.Resolve
+import Kue.Runtime
 
 namespace Kue
 
@@ -30,13 +28,6 @@ def formatManifestFieldResult (name : String) (value : Value) : String :=
   match formatManifestField name value with
   | .ok actual => actual
   | .error _ => "manifest error"
-
-def formatTopLevel : Value -> String
-  | .struct fields _ => joinWith "\n" (fields.map (formatStructFieldWithFuel formatFuel))
-  | value => formatValue value
-
-def resolveAndEval (value : Value) : Value :=
-  evalStructRefs (resolveStructRefs value)
 
 def fixturePorts : List FixturePort :=
   [

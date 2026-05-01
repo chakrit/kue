@@ -1,0 +1,38 @@
+import Kue.Parse
+import Kue.Runtime
+
+namespace Kue
+
+def parseOutputMatches (source expected : String) : Bool :=
+  match parseSource source with
+  | .ok value => formatResolvedTopLevel value == expected
+  | .error _ => false
+
+def parseFails (source : String) : Bool :=
+  match parseSource source with
+  | .ok _ => false
+  | .error _ => true
+
+theorem parse_basic_document_resolves_references :
+    parseOutputMatches
+      "package demo\n#Port: int & >=0 & <=65535\nport: #Port & 8080\nname: \"api\"\n"
+      "#Port: >=0 & <=65535\nport: 8080\nname: \"api\"" = true := by
+  native_decide
+
+theorem parse_compound_values_and_builtins :
+    parseOutputMatches
+      "xs: [1, \"x\"]\nmeta: {name: \"api\", n: len(xs)}\n"
+      "xs: [1, \"x\"]\nmeta: {name: \"api\", n: 2}" = true := by
+  native_decide
+
+theorem parse_disjunction_defaults_and_bounds :
+    parseOutputMatches
+      "mode: *\"prod\" | \"dev\"\nsmall: >0 & <10 & 7\n"
+      "mode: *\"prod\" | \"dev\"\nsmall: 7" = true := by
+  native_decide
+
+theorem parse_imports_are_unsupported :
+    parseFails "import \"strings\"\nx: 1\n" = true := by
+  native_decide
+
+end Kue
