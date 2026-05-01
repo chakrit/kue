@@ -1427,6 +1427,35 @@ patterns such as `[=~"^a$"]: int`.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Shallow Close Builtin
+
+Goal: add the first semantic builtin helper for CUE's `close`, using the existing
+closed-struct representation.
+
+### Steps
+
+1. Add `Kue/Builtin.lean`.
+   Completed in the shallow close builtin slice.
+   `closeValue` marks regular structs as closed and leaves other values
+   unchanged for now.
+
+2. Add tests first. Completed in the shallow close builtin slice.
+   Cover:
+   - closing an open struct flips its open flag;
+   - unifying a closed struct with an extra field marks the extra field bottom;
+   - close is shallow for nested regular structs, matching CUE v0.15.4 behavior.
+
+3. Route the existing closed-extra-field fixture port through `closeValue`.
+   Completed in the shallow close builtin slice.
+
+4. Verify. Completed in the shallow close builtin slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
@@ -1438,5 +1467,5 @@ patterns such as `[=~"^a$"]: int`.
   represented for more than same-struct fields.
 - Expand cycle handling for constrained cycles, arithmetic cycles, and richer
   validation behavior.
-- Add builtins such as `len`, `close`, `and`, and `or` as semantic functions.
+- Add builtins such as `len`, `and`, and `or` as semantic functions.
 - Add package/file merging and imports after the syntax and resolver layers exist.

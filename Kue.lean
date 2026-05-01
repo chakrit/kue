@@ -22,3 +22,5 @@ import Kue.ExclusionTests
 import Kue.BytesTests
 import Kue.FloatTests
 import Kue.NumberTests
+import Kue.Builtin
+import Kue.BuiltinTests

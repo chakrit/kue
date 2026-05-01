@@ -1,3 +1,4 @@
+import Kue.Builtin
 import Kue.Eval
 import Kue.Format
 import Kue.Lattice
@@ -48,7 +49,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.struct [("a", .regular, .kind .int)] false)
+            (closeValue (.struct [("a", .regular, .kind .int)] true))
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
