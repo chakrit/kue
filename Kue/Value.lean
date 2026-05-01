@@ -170,6 +170,13 @@ mutual
         match parseRegexAtom pattern with
         | none => !anchoredEnd || value.isEmpty
         | some (atom, '*' :: rest) => regexMatchStarWithFuel fuel anchoredEnd atom rest value
+        | some (atom, '?' :: rest) =>
+            regexMatchHereWithFuel fuel anchoredEnd rest value
+              || match value with
+                 | [] => false
+                 | current :: remaining =>
+                     atom.matchesChar current
+                       && regexMatchHereWithFuel fuel anchoredEnd rest remaining
         | some (atom, '+' :: rest) =>
             match value with
             | [] => false

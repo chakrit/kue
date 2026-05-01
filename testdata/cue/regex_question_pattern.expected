@@ -1,0 +1,1 @@
+x: {color: _|_, colour: 2, colouur: "skip", [=~"^colou?r$"]: int}

@@ -354,6 +354,28 @@ theorem meet_regex_plus_label_pattern_requires_one_character :
           true) = true := by
   native_decide
 
+theorem meet_regex_question_label_pattern_allows_zero_or_one_atom :
+    (meet
+      (.structPattern [] (.stringRegex "^colou?r$") (.kind .int) true)
+      (.struct
+        [
+          ("color", .regular, .prim (.string "bad")),
+          ("colour", .regular, .prim (.int 2)),
+          ("colouur", .regular, .prim (.string "skip"))
+        ]
+        true)
+      ==
+        .structPattern
+          [
+            ("color", .regular, .bottomWith [.fieldConstraint "color"]),
+            ("colour", .regular, .prim (.int 2)),
+            ("colouur", .regular, .prim (.string "skip"))
+          ]
+          (.stringRegex "^colou?r$")
+          (.kind .int)
+          true) = true := by
+  native_decide
+
 theorem meet_regex_class_label_pattern_constrains_matching_fields :
     (meet
       (.structPattern [] (.stringRegex "^[ab]cz$") (.kind .int) true)

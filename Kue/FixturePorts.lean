@@ -426,6 +426,20 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "regex_question_pattern.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPattern [] (.stringRegex "^colou?r$") (.kind .int) true)
+            (.struct
+              [
+                ("color", .regular, .prim (.string "bad")),
+                ("colour", .regular, .prim (.int 2)),
+                ("colouur", .regular, .prim (.string "skip"))
+              ]
+              true))
+    },
+    {
       fileName := "required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"

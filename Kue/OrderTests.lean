@@ -131,6 +131,19 @@ theorem regex_plus_label_pattern_requires_one_character :
       = true := by
   native_decide
 
+theorem regex_question_label_pattern_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^colou?r$") (.kind .int) true)
+      (.struct
+        [
+          ("color", .regular, .prim (.string "bad")),
+          ("colour", .regular, .prim (.int 2)),
+          ("colouur", .regular, .prim (.string "skip"))
+        ]
+        true)
+      = false := by
+  native_decide
+
 theorem regex_class_label_pattern_subsumes_matching_regular_fields :
     subsumes
       (.structPattern [] (.stringRegex "^[ab]cz$") (.kind .int) true)

@@ -301,6 +301,20 @@ theorem fixture_regex_escape_pattern :
       = "x: {\"a.z\": _|_, abz: \"skip\", [=~\"^a\\\\.z$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_question_pattern :
+    formatField "x"
+      (meet
+        (.structPattern [] (.stringRegex "^colou?r$") (.kind .int) true)
+        (.struct
+          [
+            ("color", .regular, .prim (.string "bad")),
+            ("colour", .regular, .prim (.int 2)),
+            ("colouur", .regular, .prim (.string "skip"))
+          ]
+          true))
+      = "x: {color: _|_, colour: 2, colouur: \"skip\", [=~\"^colou?r$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

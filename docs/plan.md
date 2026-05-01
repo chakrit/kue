@@ -1799,6 +1799,33 @@ CUE strings/labels correctly for fixture output.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Optional Regex Quantifier Label Patterns
+
+Goal: support the `?` regex quantifier in label pattern matching.
+
+### Steps
+
+1. Add red tests for optional regex atoms.
+   Completed in the optional regex quantifier label patterns slice.
+   Cover `^colou?r$` matching both `color` and `colour`, while leaving
+   `colouur` unconstrained.
+
+2. Implement `?` beside the existing `*` and `+` quantifiers.
+   Completed in the optional regex quantifier label patterns slice.
+   The matcher now accepts either zero occurrences of the parsed atom or one
+   matching occurrence before continuing with the rest of the pattern.
+
+3. Add a CUE fixture port for optional regex quantifier label patterns.
+   Completed in the optional regex quantifier label patterns slice.
+
+4. Verify. Completed in the optional regex quantifier label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
