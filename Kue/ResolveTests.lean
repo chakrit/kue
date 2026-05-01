@@ -53,4 +53,16 @@ theorem resolve_reference_inside_disjunction :
       == .struct [("#A", .definition, .kind .int), ("x", .regular, .disj [(.regular, .refId ⟨0⟩), (.regular, .kind .string)])] true) = true := by
   native_decide
 
+theorem resolve_reference_inside_struct_tail :
+    (resolveStructRefs
+      (.structTail [("#A", .definition, .kind .int)] (.ref "#A"))
+      == .structTail [("#A", .definition, .kind .int)] (.refId ⟨0⟩)) = true := by
+  native_decide
+
+theorem resolve_reference_inside_struct_pattern :
+    (resolveStructRefs
+      (.structPattern [("#A", .definition, .kind .int)] (.ref "#A"))
+      == .structPattern [("#A", .definition, .kind .int)] (.refId ⟨0⟩)) = true := by
+  native_decide
+
 end Kue

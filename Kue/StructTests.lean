@@ -160,6 +160,10 @@ theorem format_typed_ellipsis :
       = "{a: int, ...string}" := by
   native_decide
 
+theorem format_string_pattern_constraint :
+    formatValue (.structPattern [] (.kind .int)) = "{[string]: int}" := by
+  native_decide
+
 theorem meet_typed_ellipsis_accepts_matching_extra_field :
     meet
       (.structTail [("a", .regular, .kind .int)] (.kind .string))
@@ -198,6 +202,27 @@ theorem meet_nested_struct_field_uses_struct_meet :
       (.struct [("x", .regular, .struct [("a", .regular, .kind .int)] true)] true)
       (.struct [("x", .regular, .struct [("a", .regular, .prim (.int 1))] true)] true)
       = .struct [("x", .regular, .struct [("a", .regular, .prim (.int 1))] true)] true := by
+  rfl
+
+theorem meet_string_pattern_constrains_regular_field :
+    meet
+      (.structPattern [] (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1))] true)
+      = .structPattern [("a", .regular, .prim (.int 1))] (.kind .int) := by
+  rfl
+
+theorem meet_string_pattern_rejects_conflicting_regular_field :
+    meet
+      (.structPattern [] (.kind .int))
+      (.struct [("a", .regular, .prim (.string "x"))] true)
+      = .structPattern [("a", .regular, .bottomWith [.fieldConstraint "a"])] (.kind .int) := by
+  rfl
+
+theorem meet_string_pattern_constrains_declared_pattern_field :
+    meet
+      (.structPattern [("a", .regular, .kind .number)] (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1))] true)
+      = .structPattern [("a", .regular, .prim (.int 1))] (.kind .int) := by
   rfl
 
 end Kue

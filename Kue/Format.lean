@@ -70,6 +70,10 @@ mutual
         let fieldText := fields.map (formatStructFieldWithFuel fuel)
         let tailText := "..." ++ formatValueWithFuel fuel tail
         "{" ++ joinWith ", " (fieldText ++ [tailText]) ++ "}"
+    | fuel + 1, .structPattern fields pattern =>
+        let fieldText := fields.map (formatStructFieldWithFuel fuel)
+        let patternText := "[string]: " ++ formatValueWithFuel fuel pattern
+        "{" ++ joinWith ", " (fieldText ++ [patternText]) ++ "}"
     | fuel + 1, .list items =>
         "[" ++ joinWith ", " (items.map (formatValueWithFuel fuel)) ++ "]"
     | fuel + 1, .listTail items tail =>

@@ -73,4 +73,16 @@ theorem eval_regular_field_reference_to_hidden :
       == .struct [("_secret", .hidden, .prim (.string "x")), ("value", .regular, .prim (.string "x"))] true) = true := by
   native_decide
 
+theorem eval_reference_inside_struct_tail :
+    (evalStructRefs
+      (resolveStructRefs (.structTail [("#A", .definition, .kind .int)] (.ref "#A")))
+      == .structTail [("#A", .definition, .kind .int)] (.kind .int)) = true := by
+  native_decide
+
+theorem eval_reference_inside_struct_pattern :
+    (evalStructRefs
+      (resolveStructRefs (.structPattern [("#A", .definition, .kind .int)] (.ref "#A")))
+      == .structPattern [("#A", .definition, .kind .int)] (.kind .int)) = true := by
+  native_decide
+
 end Kue

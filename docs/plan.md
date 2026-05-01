@@ -1197,11 +1197,52 @@ and list elements.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Broad String Pattern Constraints
+
+Goal: add the first struct pattern constraint form, `[string]: T`, and keep it
+distinct from typed ellipsis because CUE patterns constrain declared regular
+fields as well as later fields.
+
+### Steps
+
+1. Extend the value domain with `structPattern fields pattern`.
+   Completed in the broad string pattern constraints slice.
+
+2. Add tests first.
+   Cover:
+   - formatting `[string]: int`;
+   - matching regular fields satisfy the pattern;
+   - conflicting regular fields become field-level bottom;
+   - declared fields in the patterned struct are still constrained by the
+     pattern;
+   - subsumption accepts or rejects actual structs by checking every regular
+     field against the pattern;
+   - manifestation emits regular fields and omits the pattern itself.
+   Completed in the broad string pattern constraints slice.
+
+3. Update lattice, order, manifestation, formatting, normalization, resolution,
+   and evaluation traversal for `structPattern`.
+   Completed in the broad string pattern constraints slice.
+
+4. Add fixture ports for a matching `[string]: int` struct and a conflicting
+   string-pattern field.
+   Completed in the broad string pattern constraints slice.
+
+5. Verify. Completed in the broad string pattern constraints slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand the compatibility harness so fixture contents are compared against the
   Lean fixture ports, not only paired for presence.
-- Add pattern constraints for structs and use them in closedness/subsumption.
+- Expand pattern constraints beyond broad `[string]: T`: regular-expression
+  label patterns, non-string label patterns, hidden/definition interactions, and
+  closedness interactions.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

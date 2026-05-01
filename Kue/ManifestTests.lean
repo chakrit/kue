@@ -16,6 +16,11 @@ theorem manifest_concrete_struct :
       = .ok (.struct [("a", .prim (.int 1)), ("b", .prim (.string "x"))]) := by
   rfl
 
+theorem manifest_string_pattern_struct_outputs_regular_fields :
+    manifest (.structPattern [("a", .regular, .prim (.int 1))] (.kind .int))
+      = .ok (.struct [("a", .prim (.int 1))]) := by
+  rfl
+
 theorem manifest_filters_non_output_fields :
     manifest
       (.struct

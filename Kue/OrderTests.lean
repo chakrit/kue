@@ -68,4 +68,18 @@ theorem typed_tail_rejects_conflicting_extra_field :
       = false := by
   native_decide
 
+theorem string_pattern_subsumes_matching_regular_fields :
+    subsumes
+      (.structPattern [] (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true)
+      = true := by
+  native_decide
+
+theorem string_pattern_rejects_conflicting_regular_field :
+    subsumes
+      (.structPattern [] (.kind .int))
+      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
+      = false := by
+  native_decide
+
 end Kue

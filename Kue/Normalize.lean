@@ -10,6 +10,10 @@ mutual
     | 0, value => value
     | fuel + 1, .struct fields _ =>
         .struct (fields.map (normalizeFieldWithFuel fuel)) false
+    | fuel + 1, .structPattern fields pattern =>
+        .structPattern
+          (fields.map (normalizeFieldWithFuel fuel))
+          (normalizeDefinitionValueWithFuel fuel pattern)
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionValueWithFuel fuel alternative.snd)
@@ -28,6 +32,10 @@ mutual
     | 0, value => value
     | fuel + 1, .struct fields open_ =>
         .struct (fields.map (normalizeFieldWithFuel fuel)) open_
+    | fuel + 1, .structPattern fields pattern =>
+        .structPattern
+          (fields.map (normalizeFieldWithFuel fuel))
+          (normalizeDefinitionsWithFuel fuel pattern)
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionsWithFuel fuel alternative.snd)
