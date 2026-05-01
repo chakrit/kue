@@ -1486,6 +1486,38 @@ Goal: add the first semantic helper for CUE's `len` builtin over concrete values
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Finite And/Or Builtins
+
+Goal: add semantic helpers for CUE's `and` and non-empty `or` builtins over
+finite lists of existing Kue values.
+
+### Steps
+
+1. Extend `Kue/Builtin.lean`.
+   Completed in the finite and/or builtin slice.
+   `andValues` folds values with meet from top, matching `and([]) == _`.
+   `orValues` folds non-empty values with join. Empty `or([])` currently maps to
+   bottom as the lattice identity; preserving CUE's unresolved `or([])` display
+   needs a later expression-level builtin representation.
+
+2. Add tests first. Completed in the finite and/or builtin slice.
+   Cover:
+   - `and` meeting kind, bound, and concrete value constraints;
+   - `and([])` returning top;
+   - `or` retaining unresolved disjunction alternatives;
+   - `or` respecting existing numeric join normalization.
+
+3. Add a CUE fixture port for finite `and` and `or`.
+   Completed in the finite and/or builtin slice.
+
+4. Verify. Completed in the finite and/or builtin slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
@@ -1497,5 +1529,5 @@ Goal: add the first semantic helper for CUE's `len` builtin over concrete values
   represented for more than same-struct fields.
 - Expand cycle handling for constrained cycles, arithmetic cycles, and richer
   validation behavior.
-- Add builtins such as `and` and `or` as semantic functions.
+- Add expression-level builtin representation and remaining builtin functions.
 - Add package/file merging and imports after the syntax and resolver layers exist.

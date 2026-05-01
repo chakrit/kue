@@ -45,6 +45,17 @@ def fixturePorts : List FixturePort :=
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },
     {
+      fileName := "and_or_builtin.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("andValue", .regular, andValues [.kind .int, .intGt 0, .prim (.int 7)]),
+              ("orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")])
+            ]
+            true)
+    },
+    {
       fileName := "closed_extra_field.expected",
       content :=
         formatField "x"

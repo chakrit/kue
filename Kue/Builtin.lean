@@ -1,4 +1,4 @@
-import Kue.Value
+import Kue.Lattice
 
 namespace Kue
 
@@ -26,5 +26,12 @@ def lenValue : Value -> Value
   | .structTail fields _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | .structPattern fields _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | _ => .bottom
+
+def andValues (values : List Value) : Value :=
+  values.foldl (fun current value => meet current value) .top
+
+def orValues : List Value -> Value
+  | [] => .bottom
+  | value :: values => values.foldl (fun current next => join current next) value
 
 end Kue

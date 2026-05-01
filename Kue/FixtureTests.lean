@@ -6,6 +6,17 @@ theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide
 
+theorem fixture_and_or_builtin :
+    formatTopLevel
+      (.struct
+        [
+          ("andValue", .regular, andValues [.kind .int, .intGt 0, .prim (.int 7)]),
+          ("orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")])
+        ]
+        true)
+      = "andValue: 7\norValue: \"a\" | \"b\"" := by
+  native_decide
+
 theorem fixture_disjunction :
     formatField "x" (join (.prim (.string "a")) (.prim (.string "b")))
       = "x: \"a\" | \"b\"" := by
