@@ -307,6 +307,19 @@ def fixturePorts : List FixturePort :=
                 ("port", .regular, .prim (.int 80))
               ]
               true))
+    },
+    {
+      fileName := "three_reference_cycle.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("x", .regular, .ref "y"),
+                ("y", .regular, .ref "z"),
+                ("z", .regular, .ref "x")
+              ]
+              true))
     }
   ]
 

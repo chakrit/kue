@@ -775,6 +775,33 @@ reference each other evaluate to top.
    lake exe kue
    ```
 
+## Completed Slice: Longer Reference Cycles
+
+Goal: handle reference cycles beyond direct and one-hop mutual references.
+
+### Steps
+
+1. Add tests first. Completed in the longer reference cycles slice.
+   Cover:
+   - `x: y, y: z, z: x` evaluates all fields to top after resolution;
+   - existing direct, mutual, and acyclic reference tests still pass.
+
+2. Replace the one-hop cycle check with a visited binding path.
+   Completed in the longer reference cycles slice.
+   Resolved binding evaluation now walks reference chains with bounded fuel and
+   returns top when a binding id is seen again.
+
+3. Add one CUE fixture port for the three-field reference cycle.
+   Completed in the longer reference cycles slice.
+
+4. Verify. Completed in the longer reference cycles slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Completed Slice: Strict Integer Bounds
 
 Goal: add strict integer bounds for constraints such as `>0` and `<10`.
@@ -1409,6 +1436,7 @@ patterns such as `[=~"^a$"]: int`.
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are
   represented for more than same-struct fields.
-- Expand cycle handling beyond direct and one-hop mutual references.
+- Expand cycle handling for constrained cycles, arithmetic cycles, and richer
+  validation behavior.
 - Add builtins such as `len`, `close`, `and`, and `or` as semantic functions.
 - Add package/file merging and imports after the syntax and resolver layers exist.

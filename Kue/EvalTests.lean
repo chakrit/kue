@@ -61,6 +61,19 @@ theorem eval_mutual_reference_cycle_as_top :
       == .struct [("x", .regular, .top), ("y", .regular, .top)] true) = true := by
   native_decide
 
+theorem eval_three_reference_cycle_as_top :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [
+            ("x", .regular, .ref "y"),
+            ("y", .regular, .ref "z"),
+            ("z", .regular, .ref "x")
+          ]
+          true))
+      == .struct [("x", .regular, .top), ("y", .regular, .top), ("z", .regular, .top)] true) = true := by
+  native_decide
+
 theorem eval_non_cycle_reference_still_uses_target_value :
     (evalStructRefs
       (resolveStructRefs (.struct [("x", .regular, .kind .int), ("y", .regular, .ref "x")] true))

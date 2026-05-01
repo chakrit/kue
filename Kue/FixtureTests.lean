@@ -282,6 +282,19 @@ theorem fixture_mutual_reference_cycle :
       = "x: _\ny: _" := by
   native_decide
 
+theorem fixture_three_reference_cycle :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("x", .regular, .ref "y"),
+            ("y", .regular, .ref "z"),
+            ("z", .regular, .ref "x")
+          ]
+          true))
+      = "x: _\ny: _\nz: _" := by
+  native_decide
+
 theorem fixture_manifest_hidden_field_reference :
     manifestFieldMatches "x"
         (evalStructRefs
