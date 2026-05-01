@@ -1907,6 +1907,32 @@ Goal: support simple parenthesized alternatives in regex label pattern matching.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Regex Word Shorthand Label Patterns
+
+Goal: support word shorthand character classes in label pattern matching.
+
+### Steps
+
+1. Add red tests for word shorthand classes.
+   Completed in the regex word shorthand label patterns slice.
+   Cover `\\w` matching ASCII letters, digits, and underscore, and cover the
+   negated `\\W` form for non-word label characters.
+
+2. Parse word shorthands as regex class atoms.
+   Completed in the regex word shorthand label patterns slice.
+   `\\w` now maps to `[0-9A-Z_a-z]`, and `\\W` maps to the negated word class.
+
+3. Add a CUE fixture port for word shorthand label patterns.
+   Completed in the regex word shorthand label patterns slice.
+
+4. Verify. Completed in the regex word shorthand label patterns slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular

@@ -185,6 +185,20 @@ theorem regex_negated_digit_shorthand_subsumes_non_digit :
       = true := by
   native_decide
 
+theorem regex_word_shorthand_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\wz$") (.kind .int) true)
+      (.struct [("a_z", .regular, .prim (.string "bad")), ("a-z", .regular, .prim (.string "skip"))] true)
+      = false := by
+  native_decide
+
+theorem regex_negated_word_shorthand_rejects_matching_conflict :
+    subsumes
+      (.structPattern [] (.stringRegex "^a\\Wz$") (.kind .int) true)
+      (.struct [("a_z", .regular, .prim (.string "skip")), ("a-z", .regular, .prim (.string "bad"))] true)
+      = false := by
+  native_decide
+
 theorem regex_top_level_alternation_subsumes_each_alternative :
     subsumes
       (.structPattern [] (.stringRegex "^cat$|^dog$") (.kind .int) true)

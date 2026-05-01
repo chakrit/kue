@@ -366,6 +366,29 @@ theorem fixture_regex_group_alternation_pattern :
       = "x: {cat: _|_, dog: 2, cow: \"skip\", [=~\"^(cat|dog)$\"]: int}" := by
   native_decide
 
+theorem fixture_regex_word_shorthand_pattern :
+    formatTopLevel
+      (.struct
+        [
+          ("x", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a\\wz$") (.kind .int) true)
+              (.struct
+                [("a_z", .regular, .prim (.string "bad")), ("a-z", .regular, .prim (.string "skip"))]
+                true)),
+          ("y", .regular,
+            meet
+              (.structPattern [] (.stringRegex "^a\\Wz$") (.kind .int) true)
+              (.struct
+                [("a_z", .regular, .prim (.string "skip")), ("a-z", .regular, .prim (.string "bad"))]
+                true))
+        ]
+        true)
+      =
+        "x: {a_z: _|_, \"a-z\": \"skip\", [=~\"^a\\\\wz$\"]: int}\n"
+        ++ "y: {a_z: \"skip\", \"a-z\": _|_, [=~\"^a\\\\Wz$\"]: int}" := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet
