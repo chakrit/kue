@@ -98,6 +98,10 @@ def parseQuotedString : List Char -> ParseResult String
   | '"' :: rest => parseQuotedWith '"' rest []
   | _ => parseError "expected string literal"
 
+def parseQuotedBytes : List Char -> ParseResult String
+  | '\'' :: rest => parseQuotedWith '\'' rest []
+  | _ => parseError "expected byte literal"
+
 def parseQuotedLabel : List Char -> ParseResult String :=
   parseQuotedString
 
@@ -290,6 +294,10 @@ mutual
         match parseQuotedString ('"' :: rest) with
         | .error error => .error error
         | .ok (value, rest) => parseOk (.prim (.string value)) rest
+    | '\'' :: rest =>
+        match parseQuotedBytes ('\'' :: rest) with
+        | .error error => .error error
+        | .ok (value, rest) => parseOk (.prim (.bytes value)) rest
     | '_' :: '|' :: '_' :: rest => parseOk .bottom rest
     | '_' :: rest => parseOk .top rest
     | '!' :: '=' :: rest =>

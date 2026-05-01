@@ -2116,6 +2116,35 @@ which Kue already models as `listTail` values.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Parser Byte Literals
+
+Goal: let stdin CUE source express byte literals such as `'abc'`, matching the
+existing bytes kind and byte primitive semantics.
+
+### Steps
+
+1. Add parser tests first.
+   Cover a standalone byte literal field and `bytes & 'abc'`.
+   Completed in the parser byte literals slice.
+
+2. Parse single-quoted literals as bytes.
+   Completed in the parser byte literals slice.
+   `Kue/Parse.lean` now uses the quoted-literal helper for `'...'` and lowers
+   the result to `.prim (.bytes value)`.
+
+3. Update parser assumptions.
+   Completed in the parser byte literals slice.
+   Byte literals are no longer listed as unsupported in
+   `docs/compat-assumptions.md`.
+
+4. Verify. Completed in the parser byte literals slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current single-pattern representation:

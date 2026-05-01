@@ -21,11 +21,11 @@ Current assumptions:
   should implement CUE's newline and semicolon insertion rules directly.
 - The parser supports the language forms already backed by semantic values: scalars,
   primitive kinds, structs, lists, refs, `&`, `|`, defaults, integer bounds, primitive
-  exclusions, regex constraints, field pattern constraints, list ellipses, and existing
-  builtin call values.
+  exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
+  and existing builtin call values.
 - The parser does not yet support imports, aliases, `let`, embeddings, comprehensions,
-  dynamic fields, string interpolation, full numeric literal syntax, byte literals,
-  or struct ellipsis syntax.
+  dynamic fields, string interpolation, full numeric literal syntax, or struct ellipsis
+  syntax.
 - Multiple pattern fields parse through the current single-pattern semantic model. This
   preserves executable behavior but is not a final representation of independent CUE
   pattern constraints.

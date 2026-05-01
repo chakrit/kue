@@ -61,6 +61,18 @@ theorem parse_list_tail_unification :
       "x: [1, \"x\", \"y\"]" = true := by
   native_decide
 
+theorem parse_byte_literal :
+    parseOutputMatches
+      "data: 'abc'\n"
+      "data: 'abc'" = true := by
+  native_decide
+
+theorem parse_bytes_kind_unification :
+    parseOutputMatches
+      "x: bytes & 'abc'\n"
+      "x: 'abc'" = true := by
+  native_decide
+
 theorem parse_imports_are_unsupported :
     parseFails "import \"strings\"\nx: 1\n" = true := by
   native_decide
