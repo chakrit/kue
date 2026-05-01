@@ -1456,6 +1456,36 @@ closed-struct representation.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Concrete Len Builtin
+
+Goal: add the first semantic helper for CUE's `len` builtin over concrete values.
+
+### Steps
+
+1. Extend `Kue/Builtin.lean`.
+   Completed in the concrete len builtin slice.
+   `lenValue` now evaluates:
+   - concrete strings and bytes by UTF-8 byte length;
+   - closed and open lists by their known fixed item count;
+   - structs by counting regular fields only.
+
+2. Add tests first. Completed in the concrete len builtin slice.
+   Cover:
+   - ASCII and non-ASCII string lengths;
+   - list lengths;
+   - struct lengths excluding optional, hidden, and definition fields.
+
+3. Add a CUE fixture port for `len`.
+   Completed in the concrete len builtin slice.
+
+4. Verify. Completed in the concrete len builtin slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond broad `[string]: T`: complete regular
@@ -1467,5 +1497,5 @@ closed-struct representation.
   represented for more than same-struct fields.
 - Expand cycle handling for constrained cycles, arithmetic cycles, and richer
   validation behavior.
-- Add builtins such as `len`, `and`, and `or` as semantic functions.
+- Add builtins such as `and` and `or` as semantic functions.
 - Add package/file merging and imports after the syntax and resolver layers exist.

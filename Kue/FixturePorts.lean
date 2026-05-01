@@ -149,6 +149,27 @@ def fixturePorts : List FixturePort :=
             (.list [.prim (.int 1), .prim (.string "x")]))
     },
     {
+      fileName := "len_builtin.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("stringLen", .regular, lenValue (.prim (.string "abc"))),
+              ("listLen", .regular, lenValue (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])),
+              ("structLen", .regular,
+                lenValue
+                  (.struct
+                    [
+                      ("a", .regular, .prim (.int 1)),
+                      ("b", .optional, .prim (.int 2)),
+                      ("_c", .hidden, .prim (.int 3)),
+                      ("#D", .definition, .prim (.int 4))
+                    ]
+                    true))
+            ]
+            true)
+    },
+    {
       fileName := "manifest_field_filtering.manifest.expected",
       content :=
         formatManifestFieldResult "x"

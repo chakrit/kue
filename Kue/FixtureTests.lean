@@ -73,6 +73,27 @@ theorem fixture_list_unification :
       = "x: [1, \"x\"]" := by
   native_decide
 
+theorem fixture_len_builtin :
+    formatTopLevel
+      (.struct
+        [
+          ("stringLen", .regular, lenValue (.prim (.string "abc"))),
+          ("listLen", .regular, lenValue (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])),
+          ("structLen", .regular,
+            lenValue
+              (.struct
+                [
+                  ("a", .regular, .prim (.int 1)),
+                  ("b", .optional, .prim (.int 2)),
+                  ("_c", .hidden, .prim (.int 3)),
+                  ("#D", .definition, .prim (.int 4))
+                ]
+                true))
+        ]
+        true)
+      = "stringLen: 3\nlistLen: 3\nstructLen: 1" := by
+  native_decide
+
 theorem fixture_nested_struct_field :
     formatField "x"
       (meet
