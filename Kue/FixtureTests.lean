@@ -88,6 +88,19 @@ theorem fixture_field_conflict :
       = "x: {a: _|_}" := by
   native_decide
 
+theorem fixture_field_alias :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("not an identifier", .regular, .prim (.int 4)),
+            ("A", .letBinding, .ref "not an identifier"),
+            ("foo", .regular, .ref "A")
+          ]
+          true))
+      = "\"not an identifier\": 4\nfoo: 4" := by
+  native_decide
+
 theorem fixture_duplicate_fields :
     formatTopLevel
       (resolveAndEval

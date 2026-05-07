@@ -177,6 +177,19 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.string "b"))] true))
     },
     {
+      fileName := "field_alias.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("not an identifier", .regular, .prim (.int 4)),
+                ("A", .letBinding, .ref "not an identifier"),
+                ("foo", .regular, .ref "A")
+              ]
+              true))
+    },
+    {
       fileName := "duplicate_fields.expected",
       content :=
         formatTopLevel

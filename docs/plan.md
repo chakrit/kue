@@ -2433,11 +2433,47 @@ one evaluated field, matching CUE's struct literal semantics.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Static Field Aliases
+
+Goal: support the common static field alias form `A="label": value`, so fields
+whose labels are not valid identifiers can be referenced by an alias.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover a static field alias for a quoted label and a regular field that
+   references the alias.
+   Completed in the static field aliases slice.
+
+2. Parse aliased static fields.
+   Completed in the static field aliases slice.
+   `Kue/Parse.lean` now recognizes `identifier=label: value` and keeps the
+   declared field plus a non-output alias binding.
+
+3. Reuse existing binding resolution.
+   Completed in the static field aliases slice.
+   The alias lowers to a `.letBinding` reference to the aliased label, so no new
+   evaluator path is needed for this narrow form.
+
+4. Document unsupported alias positions.
+   Completed in the static field aliases slice.
+   See `docs/compat-assumptions.md`.
+
+5. Verify.
+   Completed in the static field aliases slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:
   non-string label patterns and fuller regular expression matching.
-- Add aliases in a syntax layer instead of constructing semantic values directly.
+- Add remaining alias positions in a syntax layer instead of constructing
+  semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are
   represented for more than same-struct fields.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.

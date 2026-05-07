@@ -49,6 +49,12 @@ theorem parse_struct_reference_embedding :
       "#Base: {a: int}\nx: {a: 1}" = true := by
   native_decide
 
+theorem parse_static_field_alias :
+    parseOutputMatches
+      "A=\"not an identifier\": 4\nfoo: A\n"
+      "\"not an identifier\": 4\nfoo: 4" = true := by
+  native_decide
+
 theorem parse_struct_literal_embedding :
     parseOutputMatches
       "x: {{a: int}, a: 1, b: \"ok\"}\n"

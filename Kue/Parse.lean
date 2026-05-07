@@ -11,6 +11,7 @@ abbrev ParseResult (α : Type) := Except ParseError (α × List Char)
 
 inductive ParsedField where
   | field (field : Field)
+  | fieldAlias (alias : String) (field : Field)
   | pattern (labelPattern constraint : Value)
   | embedding (value : Value)
   | letBinding (name : String) (value : Value)
@@ -220,6 +221,9 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
   | .field field :: rest =>
       let split := splitParsedFields rest
       { split with fields := field :: split.fields }
+  | .fieldAlias alias field :: rest =>
+      let split := splitParsedFields rest
+      { split with fields := field :: (alias, .letBinding, .ref (Field.label field)) :: split.fields }
   | .pattern labelPattern constraint :: rest =>
       let split := splitParsedFields rest
       { split with patterns := (labelPattern, constraint) :: split.patterns }
@@ -501,6 +505,24 @@ mutual
         | .ok (value, rest) => parseOk (.field (label, fieldClass, value)) rest
     | _ => parseError "expected ':' after field label"
 
+  partial def parseAliasedField (chars : List Char) : ParseResult ParsedField :=
+    match parseIdentifier chars with
+    | .error error => .error error
+    | .ok (alias, rest) =>
+        match skipTrivia rest with
+        | '=' :: rest =>
+            match parseLabel (skipTrivia rest) with
+            | .error error => .error error
+            | .ok (label, rest) =>
+                let (fieldClass, rest) := parseFieldClass label rest
+                match skipTrivia rest with
+                | ':' :: rest =>
+                    match parseExpression rest with
+                    | .error error => .error error
+                    | .ok (value, rest) => parseOk (.fieldAlias alias (label, fieldClass, value)) rest
+                | _ => parseError "expected ':' after aliased field label"
+        | _ => parseError "expected '=' after field alias"
+
   partial def parseField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
     | '[' :: _ => parsePatternField chars
@@ -509,14 +531,17 @@ mutual
         match parseLetBinding chars with
         | .ok parsed => .ok parsed
         | .error _ =>
-            match parseLabel chars with
-            | .error _ => parseEmbedding chars
-            | .ok (label, rest) =>
-                match skipTrivia rest with
-                | ':' :: _ => parseLabeledField label rest
-                | '?' :: _ => parseLabeledField label rest
-                | '!' :: _ => parseLabeledField label rest
-                | _ => parseEmbedding chars
+            match parseAliasedField chars with
+            | .ok parsed => .ok parsed
+            | .error _ =>
+                match parseLabel chars with
+                | .error _ => parseEmbedding chars
+                | .ok (label, rest) =>
+                    match skipTrivia rest with
+                    | ':' :: _ => parseLabeledField label rest
+                    | '?' :: _ => parseLabeledField label rest
+                    | '!' :: _ => parseLabeledField label rest
+                    | _ => parseEmbedding chars
 end
 
 def parseDocument (chars : List Char) : Except ParseError Value :=

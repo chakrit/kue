@@ -22,8 +22,8 @@ Current assumptions:
 - The parser supports the language forms already backed by semantic values: scalars,
   primitive kinds, structs, lists, refs, `&`, `|`, defaults, integer bounds, primitive
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
-  struct embeddings, untyped struct ellipses, `let` declarations, and existing builtin
-  call values.
+  struct embeddings, untyped struct ellipses, static field aliases, `let` declarations,
+  and existing builtin call values.
 - Struct embeddings are lowered to conjunctions with the declared fields. This is a
   useful executable model for schema composition, but it is not yet a full embedding
   validator for every non-struct expression shape.
@@ -37,8 +37,12 @@ Current assumptions:
   ordered field list as regular fields. This supports ordinary top-level and nested
   references, but duplicate names between `let` bindings and fields still follow Kue's
   current first-binding resolver instead of a complete lexical binding graph.
-- The parser does not yet support imports, aliases, comprehensions, dynamic fields,
-  string interpolation, full numeric literal syntax, or typed struct ellipsis syntax.
+- Static field aliases such as `A="label": value` are represented as non-output binding
+  fields that refer to the aliased field label. Other alias positions are still
+  unsupported.
+- The parser does not yet support imports, non-field aliases, comprehensions, dynamic
+  fields, string interpolation, full numeric literal syntax, or typed struct ellipsis
+  syntax.
 - Multiple pattern fields are represented as independent pattern constraints. Label
   pattern values are still limited to the existing string-kind, exact-string, and
   supported regex subset.
