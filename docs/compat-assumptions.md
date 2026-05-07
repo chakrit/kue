@@ -11,9 +11,10 @@ evaluator that fixture ports use.
 
 Current assumptions:
 
-- `package` clauses are accepted and ignored. Explicit CLI file arguments are merged by
-  unifying their parsed package bodies, but package identity and imports are not modeled
-  yet.
+- `package` clauses are accepted and otherwise ignored by the source parser. Explicit
+  CLI file arguments are merged by unifying their parsed package bodies; mismatched
+  package names are rejected, and package-less files can merge with named packages.
+  Imports are not modeled yet.
 - Top-level fields are parsed into one open struct. References are resolved with the
   current same-struct binding resolver.
 - Unsupported source forms generally fail with a parse error instead of being

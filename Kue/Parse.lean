@@ -132,6 +132,34 @@ def parseIdentifier : List Char -> ParseResult String
         parseError "expected identifier"
   | [] => parseError "expected identifier"
 
+partial def parsePackageClauseNames (chars : List Char) : Except ParseError (List String) :=
+  let trimmed := skipTrivia chars
+  if startsWithWord "package" trimmed then
+    match dropPrefix? "package".toList trimmed with
+    | some rest =>
+        match parseIdentifier (skipTrivia rest) with
+        | .ok (name, rest) => do
+            let names ← parsePackageClauseNames (dropLine rest)
+            pure (name :: names)
+        | .error _ => parseError "expected package name"
+    | none => .ok []
+  else
+    .ok []
+
+def packageNamesMatch (name : String) : List String -> Bool
+  | [] => true
+  | other :: names => other == name && packageNamesMatch name names
+
+def sourcePackageName (source : String) : Except ParseError (Option String) := do
+  let names ← parsePackageClauseNames source.toList
+  match names with
+  | [] => pure none
+  | name :: names =>
+      if packageNamesMatch name names then
+        pure (some name)
+      else
+        parseError "conflicting package clauses"
+
 def parseLabel : List Char -> ParseResult String
   | '"' :: rest => parseQuotedLabel ('"' :: rest)
   | chars => parseIdentifier chars

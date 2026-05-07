@@ -2502,6 +2502,39 @@ files are passed explicitly on the command line.
    .lake/build/bin/kue /tmp/kue-cue-merge-check/a.cue /tmp/kue-cue-merge-check/b.cue
    ```
 
+## Completed Slice: Package Name Consistency
+
+Goal: reject explicit multi-file evaluations that provide different package names,
+matching the first package identity check exposed by `cue eval`.
+
+### Steps
+
+1. Add failing runtime tests first.
+   Cover rejecting two explicit files with different package names, and keep the
+   upstream-compatible case where a package-less file merges with a named package.
+   Completed in the package name consistency slice.
+
+2. Extract leading package clause names.
+   Completed in the package name consistency slice.
+   `Kue.Parse.sourcePackageName` reads leading `package` clauses using the current
+   parser's identifier rules.
+
+3. Check package names in the multi-source runtime path.
+   Completed in the package name consistency slice.
+   `Kue.Runtime.evalSourcesToString` rejects conflicting named packages before
+   parsing and merging package bodies.
+
+4. Document the remaining package boundary.
+   Completed in the package name consistency slice.
+   Imports and full module resolution remain unsupported.
+
+5. Verify.
+   Completed in the package name consistency slice.
+
+   ```sh
+   lake build Kue.RuntimeTests
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:
@@ -2513,4 +2546,4 @@ files are passed explicitly on the command line.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
 - Add remaining builtin functions beyond the implemented `close`, `len`, `and`,
   `or`, `div`, `mod`, `quo`, and `rem` helpers.
-- Add package identity checks and imports after the syntax and resolver layers exist.
+- Add imports and full module resolution after the syntax and resolver layers exist.
