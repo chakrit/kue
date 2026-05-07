@@ -95,6 +95,10 @@ inductive Value where
       (fields : List (String × FieldClass × Value))
       (labelPattern constraint : Value)
       (open_ : Bool)
+  | structPatterns
+      (fields : List (String × FieldClass × Value))
+      (patterns : List (Value × Value))
+      (open_ : Bool)
   | list (items : List Value)
   | listTail (items : List Value) (tail : Value)
 deriving Repr, BEq

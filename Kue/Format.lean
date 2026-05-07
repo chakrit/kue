@@ -117,6 +117,11 @@ mutual
         let patternText :=
           "[" ++ formatValueWithFuel fuel labelPattern ++ "]: " ++ formatValueWithFuel fuel constraint
         "{" ++ joinWith ", " (fieldText ++ [patternText]) ++ "}"
+    | fuel + 1, .structPatterns fields patterns _ =>
+        let fieldText := fields.map (formatStructFieldWithFuel fuel)
+        let patternText := patterns.map fun pattern =>
+          "[" ++ formatValueWithFuel fuel pattern.fst ++ "]: " ++ formatValueWithFuel fuel pattern.snd
+        "{" ++ joinWith ", " (fieldText ++ patternText) ++ "}"
     | fuel + 1, .list items =>
         "[" ++ joinWith ", " (items.map (formatValueWithFuel fuel)) ++ "]"
     | fuel + 1, .listTail items tail =>

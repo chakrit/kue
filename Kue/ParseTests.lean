@@ -85,6 +85,12 @@ theorem parse_pattern_field_constrains_matching_fields :
       "x: {a: _|_, [string]: int}" = true := by
   native_decide
 
+theorem parse_multiple_pattern_fields_remain_independent :
+    parseOutputMatches
+      "x: {[=~\"^a\"]: int, [=~\"z$\"]: string, az: 1, ax: 2, bz: \"ok\"}\n"
+      "x: {az: _|_, ax: 2, bz: \"ok\", [=~\"^a\"]: int, [=~\"z$\"]: string}" = true := by
+  native_decide
+
 theorem parse_list_tail_schema :
     parseOutputMatches
       "xs: [...int]\nys: [int, ...string]\n"

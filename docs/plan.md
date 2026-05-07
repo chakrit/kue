@@ -2291,11 +2291,47 @@ lowering struct embeddings to existing conjunction and meet semantics.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Independent Multiple Pattern Fields
+
+Goal: preserve independent CUE pattern fields instead of collapsing them into a
+single combined pattern constraint.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover a struct with two regex pattern fields where one declared field matches
+   both patterns, and other declared fields match only one pattern each.
+   Completed in the independent multiple pattern fields slice.
+
+2. Extend the value domain with `structPatterns`.
+   Completed in the independent multiple pattern fields slice.
+   The existing `structPattern` constructor remains for singleton patterns, while
+   multiple pattern fields carry a list of independent label-pattern/constraint
+   pairs.
+
+3. Update lattice, order, formatting, manifestation, normalization, resolution,
+   evaluation, and builtin traversal.
+   Completed in the independent multiple pattern fields slice.
+   Multiple pattern constraints are applied sequentially to matching regular
+   fields, and closed pattern structs allow regular fields that match any one
+   pattern.
+
+4. Update compatibility assumptions.
+   Completed in the independent multiple pattern fields slice.
+
+5. Verify.
+   Completed in the independent multiple pattern fields slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
-- Expand pattern constraints beyond the current single-pattern representation:
-  independent multiple patterns, non-string label patterns, and fuller regular
-  expression matching.
+- Expand pattern constraints beyond the current string-label representation:
+  non-string label patterns and fuller regular expression matching.
 - Add embeddings, aliases, and `let` bindings in a syntax layer instead of
   constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are

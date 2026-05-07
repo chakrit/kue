@@ -16,6 +16,15 @@ mutual
           (normalizeDefinitionValueWithFuel fuel labelPattern)
           (normalizeDefinitionValueWithFuel fuel constraint)
           open_
+    | fuel + 1, .structPatterns fields patterns open_ =>
+        .structPatterns
+          (fields.map (normalizeFieldWithFuel fuel))
+          (patterns.map fun pattern =>
+            (
+              normalizeDefinitionValueWithFuel fuel pattern.fst,
+              normalizeDefinitionValueWithFuel fuel pattern.snd
+            ))
+          open_
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionValueWithFuel fuel alternative.snd)
@@ -41,6 +50,15 @@ mutual
           (fields.map (normalizeFieldWithFuel fuel))
           (normalizeDefinitionsWithFuel fuel labelPattern)
           (normalizeDefinitionsWithFuel fuel constraint)
+          open_
+    | fuel + 1, .structPatterns fields patterns open_ =>
+        .structPatterns
+          (fields.map (normalizeFieldWithFuel fuel))
+          (patterns.map fun pattern =>
+            (
+              normalizeDefinitionsWithFuel fuel pattern.fst,
+              normalizeDefinitionsWithFuel fuel pattern.snd
+            ))
           open_
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>

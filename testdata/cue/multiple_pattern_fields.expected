@@ -1,0 +1,1 @@
+x: {az: _|_, ax: 2, bz: "ok", [=~"^a"]: int, [=~"z$"]: string}

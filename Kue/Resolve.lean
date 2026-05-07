@@ -53,6 +53,16 @@ mutual
           (resolveValueWithFuel fuel nestedBindings labelPattern)
           (resolveValueWithFuel fuel nestedBindings constraint)
           open_
+    | fuel + 1, _, .structPatterns fields patterns open_ =>
+        let nestedBindings := buildLabelBindings fields
+        .structPatterns
+          (fields.map (resolveFieldRefsWithFuel fuel nestedBindings))
+          (patterns.map fun pattern =>
+            (
+              resolveValueWithFuel fuel nestedBindings pattern.fst,
+              resolveValueWithFuel fuel nestedBindings pattern.snd
+            ))
+          open_
     | fuel + 1, bindings, .list items =>
         .list (items.map (resolveValueWithFuel fuel bindings))
     | fuel + 1, bindings, .listTail items tail =>
@@ -80,6 +90,16 @@ def resolveStructRefs : Value -> Value
         (fields.map (resolveFieldRefs bindings))
         (resolveValueWithFuel resolveFuel bindings labelPattern)
         (resolveValueWithFuel resolveFuel bindings constraint)
+        open_
+  | .structPatterns fields patterns open_ =>
+      let bindings := buildLabelBindings fields
+      .structPatterns
+        (fields.map (resolveFieldRefs bindings))
+        (patterns.map fun pattern =>
+          (
+            resolveValueWithFuel resolveFuel bindings pattern.fst,
+            resolveValueWithFuel resolveFuel bindings pattern.snd
+          ))
         open_
   | value => value
 

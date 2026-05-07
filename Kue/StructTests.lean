@@ -193,6 +193,15 @@ theorem format_regex_label_pattern_constraint :
     formatValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true) = "{[=~\"^a$\"]: int}" := by
   native_decide
 
+theorem format_multiple_pattern_constraints :
+    formatValue
+      (.structPatterns
+        []
+        [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
+        true)
+      = "{[=~\"^a\"]: int, [=~\"z$\"]: string}" := by
+  native_decide
+
 theorem format_regular_field_label_requiring_quotes :
     formatValue (.struct [("a.z", .regular, .prim (.int 1))] true) = "{\"a.z\": 1}" := by
   native_decide
@@ -599,6 +608,30 @@ theorem meet_regex_parenthesized_alternation_constrains_each_alternative :
           true) = true := by
   native_decide
 
+theorem meet_multiple_pattern_constraints_remain_independent :
+    (meet
+      (.structPatterns
+        []
+        [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
+        true)
+      (.struct
+        [
+          ("az", .regular, .prim (.int 1)),
+          ("ax", .regular, .prim (.int 2)),
+          ("bz", .regular, .prim (.string "ok"))
+        ]
+        true)
+      ==
+        .structPatterns
+          [
+            ("az", .regular, .bottomWith [.fieldConstraint "az"]),
+            ("ax", .regular, .prim (.int 2)),
+            ("bz", .regular, .prim (.string "ok"))
+          ]
+          [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
+          true) = true := by
+  native_decide
+
 theorem close_value_marks_struct_pattern_closed :
     closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true)
       = .structPattern [] (.stringRegex "^a$") (.kind .int) false := by
@@ -635,6 +668,31 @@ theorem closed_pattern_allows_hidden_and_definition_extra_fields :
           ]
           (.stringRegex "^a$")
           (.kind .int)
+          false) = true := by
+  native_decide
+
+theorem closed_multiple_patterns_allow_any_matching_regular_field :
+    (meet
+      (closeValue
+        (.structPatterns
+          []
+          [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
+          true))
+      (.struct
+        [
+          ("ax", .regular, .prim (.int 2)),
+          ("bz", .regular, .prim (.string "ok")),
+          ("m", .regular, .prim (.int 3))
+        ]
+        true)
+      ==
+        .structPatterns
+          [
+            ("ax", .regular, .prim (.int 2)),
+            ("bz", .regular, .prim (.string "ok")),
+            ("m", .regular, .bottomWith [.fieldNotAllowed "m"])
+          ]
+          [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
           false) = true := by
   native_decide
 

@@ -361,6 +361,23 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
+      fileName := "multiple_pattern_fields.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPatterns
+              []
+              [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
+              true)
+            (.struct
+              [
+                ("az", .regular, .prim (.int 1)),
+                ("ax", .regular, .prim (.int 2)),
+                ("bz", .regular, .prim (.string "ok"))
+              ]
+              true))
+    },
+    {
       fileName := "regex_wildcard_pattern.expected",
       content :=
         formatTopLevel

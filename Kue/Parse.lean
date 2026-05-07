@@ -224,18 +224,10 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
       let split := splitParsedFields rest
       { split with embeddings := value :: split.embeddings }
 
-def patternValuesWithFields (fields : List Field) : List (Value × Value) -> List Value
-  | [] => []
-  | pattern :: rest =>
-      .structPattern fields pattern.fst pattern.snd true
-        :: rest.map fun restPattern => .structPattern [] restPattern.fst restPattern.snd true
-
 def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
   | [] => .struct fields true
-  | patterns =>
-      match patternValuesWithFields fields patterns with
-      | [value] => value
-      | values => .conj values
+  | [pattern] => .structPattern fields pattern.fst pattern.snd true
+  | patterns => .structPatterns fields patterns true
 
 def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   let parts := splitParsedFields parsedFields

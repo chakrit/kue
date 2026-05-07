@@ -28,9 +28,9 @@ Current assumptions:
   validator for every non-struct expression shape.
 - The parser does not yet support imports, aliases, `let`, comprehensions, dynamic
   fields, string interpolation, full numeric literal syntax, or struct ellipsis syntax.
-- Multiple pattern fields parse through the current single-pattern semantic model. This
-  preserves executable behavior but is not a final representation of independent CUE
-  pattern constraints.
+- Multiple pattern fields are represented as independent pattern constraints. Label
+  pattern values are still limited to the existing string-kind, exact-string, and
+  supported regex subset.
 - Nested structs resolve same-struct references with local binding ids. References that
   fall through to an enclosing struct remain label-based during evaluation until binding
   ids can carry explicit scope identity.

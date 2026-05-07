@@ -78,6 +78,13 @@ mutual
       else
         true
 
+  def regularFieldsSatisfyPatternsWithFuel
+      (fuel : Nat)
+      (fields : List Field)
+      (patterns : List (Value × Value)) : Bool :=
+    patterns.all fun pattern =>
+      regularFieldsSatisfyPatternWithFuel fuel fields pattern.fst pattern.snd
+
   def fieldAllowedByPatternWithFuel
       (fuel : Nat)
       (expectedFields : List Field)
@@ -94,6 +101,22 @@ mutual
       (labelPattern : Value) : Bool :=
     actualFields.all (fieldAllowedByPatternWithFuel fuel expectedFields labelPattern)
 
+  def fieldAllowedByPatternsWithFuel
+      (fuel : Nat)
+      (expectedFields : List Field)
+      (patterns : List (Value × Value))
+      (field : Field) : Bool :=
+    (findField (Field.label field) expectedFields).isSome
+      || Field.ignoresClosedness field
+      || (Field.fieldClass field == .regular
+        && patterns.any fun pattern => labelMatchesPatternWithFuel fuel pattern.fst (Field.label field))
+
+  def fieldsAllowedByPatternsWithFuel
+      (fuel : Nat)
+      (expectedFields actualFields : List Field)
+      (patterns : List (Value × Value)) : Bool :=
+    actualFields.all (fieldAllowedByPatternsWithFuel fuel expectedFields patterns)
+
   def structPatternSubsumesWithFuel
       (fuel : Nat)
       (expectedFields actualFields : List Field)
@@ -105,6 +128,25 @@ mutual
     let closednessSatisfied :=
       open_ || fieldsAllowedByPatternWithFuel fuel expectedFields actualFields labelPattern
     expectedSatisfied && patternSatisfied && closednessSatisfied
+
+  def structPatternsSubsumesWithFuel
+      (fuel : Nat)
+      (expectedFields actualFields : List Field)
+      (patterns : List (Value × Value))
+      (open_ : Bool) : Bool :=
+    let expectedSatisfied := allExpectedFieldsSubsumedWithFuel fuel expectedFields actualFields
+    let patternsSatisfied := regularFieldsSatisfyPatternsWithFuel fuel actualFields patterns
+    let closednessSatisfied :=
+      open_ || fieldsAllowedByPatternsWithFuel fuel expectedFields actualFields patterns
+    expectedSatisfied && patternsSatisfied && closednessSatisfied
+
+  def patternsSubsumeWithFuel
+      (fuel : Nat)
+      (expectedPatterns actualPatterns : List (Value × Value)) : Bool :=
+    expectedPatterns.all fun expectedPattern =>
+      actualPatterns.any fun actualPattern =>
+        subsumesWithFuel fuel expectedPattern.fst actualPattern.fst
+          && subsumesWithFuel fuel expectedPattern.snd actualPattern.snd
 
   def listSubsumesWithFuel (fuel : Nat) : List Value -> List Value -> Bool
     | [], [] => true
@@ -169,12 +211,32 @@ mutual
         structTailSubsumesWithFuel fuel expectedFields actualFields tail
     | fuel + 1, .structPattern expectedFields labelPattern constraint expectedOpen, .struct actualFields _ =>
         structPatternSubsumesWithFuel fuel expectedFields actualFields labelPattern constraint expectedOpen
+    | fuel + 1, .structPatterns expectedFields patterns expectedOpen, .struct actualFields _ =>
+        structPatternsSubsumesWithFuel fuel expectedFields actualFields patterns expectedOpen
     | fuel + 1,
       .structPattern expectedFields labelPattern constraint expectedOpen,
       .structPattern actualFields actualLabel actualConstraint actualOpen =>
         structPatternSubsumesWithFuel fuel expectedFields actualFields labelPattern constraint expectedOpen
           && subsumesWithFuel fuel labelPattern actualLabel
           && subsumesWithFuel fuel constraint actualConstraint
+          && (expectedOpen || !actualOpen)
+    | fuel + 1,
+      .structPattern expectedFields labelPattern constraint expectedOpen,
+      .structPatterns actualFields actualPatterns actualOpen =>
+        structPatternSubsumesWithFuel fuel expectedFields actualFields labelPattern constraint expectedOpen
+          && patternsSubsumeWithFuel fuel [(labelPattern, constraint)] actualPatterns
+          && (expectedOpen || !actualOpen)
+    | fuel + 1,
+      .structPatterns expectedFields patterns expectedOpen,
+      .structPattern actualFields actualLabel actualConstraint actualOpen =>
+        structPatternsSubsumesWithFuel fuel expectedFields actualFields patterns expectedOpen
+          && patternsSubsumeWithFuel fuel patterns [(actualLabel, actualConstraint)]
+          && (expectedOpen || !actualOpen)
+    | fuel + 1,
+      .structPatterns expectedFields patterns expectedOpen,
+      .structPatterns actualFields actualPatterns actualOpen =>
+        structPatternsSubsumesWithFuel fuel expectedFields actualFields patterns expectedOpen
+          && patternsSubsumeWithFuel fuel patterns actualPatterns
           && (expectedOpen || !actualOpen)
     | fuel + 1, .list expectedItems, .list actualItems =>
         listSubsumesWithFuel fuel expectedItems actualItems

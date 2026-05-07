@@ -259,6 +259,31 @@ theorem regex_parenthesized_alternation_subsumes_each_alternative :
       = false := by
   native_decide
 
+theorem multiple_patterns_subsume_fields_satisfying_each_independent_constraint :
+    subsumes
+      (.structPatterns
+        []
+        [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
+        true)
+      (.struct
+        [
+          ("ax", .regular, .prim (.int 2)),
+          ("bz", .regular, .prim (.string "ok"))
+        ]
+        true)
+      = true := by
+  native_decide
+
+theorem multiple_patterns_reject_field_matching_conflicting_constraints :
+    subsumes
+      (.structPatterns
+        []
+        [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
+        true)
+      (.struct [("az", .regular, .prim (.int 1))] true)
+      = false := by
+  native_decide
+
 theorem closed_regex_pattern_rejects_non_matching_regular_field :
     subsumes
       (.structPattern [] (.stringRegex "^a$") (.kind .int) false)

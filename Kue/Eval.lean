@@ -44,6 +44,12 @@ def applyEvaluatedStructPattern
     (open_ : Bool) : Value :=
   meet (.structPattern [] labelPattern constraint open_) (.struct fields true)
 
+def applyEvaluatedStructPatterns
+    (fields : List Field)
+    (patterns : List (Value × Value))
+    (open_ : Bool) : Value :=
+  meet (.structPatterns [] patterns open_) (.struct fields true)
+
 def allRegularAlternatives : List (Mark × Value) -> Bool
   | [] => true
   | alternative :: alternatives =>
@@ -113,6 +119,18 @@ mutual
           (evalValueWithFuel fuel visibleFields nestedBindings [] labelPattern)
           (evalValueWithFuel fuel visibleFields nestedBindings [] constraint)
           open_
+    | fuel + 1, fields, _, _, .structPatterns nestedFields patterns open_ =>
+        let nestedBindings := buildBindingEnv nestedFields
+        let visibleFields := nestedFields ++ fields
+        applyEvaluatedStructPatterns
+          (nestedBindings.map fun binding =>
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
+          (patterns.map fun pattern =>
+            (
+              evalValueWithFuel fuel visibleFields nestedBindings [] pattern.fst,
+              evalValueWithFuel fuel visibleFields nestedBindings [] pattern.snd
+            ))
+          open_
     | fuel + 1, fields, bindings, visited, .list items =>
         .list (items.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .listTail items tail =>
@@ -144,6 +162,16 @@ def evalStructRefs (value : Value) : Value :=
         (bindings.map (evalBindingField fields bindings))
         (evalValueWithFuel evalFuel fields bindings [] labelPattern)
         (evalValueWithFuel evalFuel fields bindings [] constraint)
+        open_
+  | .structPatterns fields patterns open_ =>
+      let bindings := buildBindingEnv fields
+      applyEvaluatedStructPatterns
+        (bindings.map (evalBindingField fields bindings))
+        (patterns.map fun pattern =>
+          (
+            evalValueWithFuel evalFuel fields bindings [] pattern.fst,
+            evalValueWithFuel evalFuel fields bindings [] pattern.snd
+          ))
         open_
   | value => value
 
