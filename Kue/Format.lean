@@ -94,6 +94,11 @@ mutual
         | some text => text :: formatStructFieldsWithFuel fuel fields
         | none => formatStructFieldsWithFuel fuel fields
 
+  def formatTailWithFuel : Nat -> Value -> String
+    | 0, _ => "..."
+    | _ + 1, .top => "..."
+    | fuel + 1, tail => "..." ++ formatValueWithFuel fuel tail
+
   def formatValueWithFuel : Nat -> Value -> String
     | 0, _ => "..."
     | _, .top => "_"
@@ -119,7 +124,7 @@ mutual
         "{" ++ joinWith ", " (formatStructFieldsWithFuel fuel fields) ++ "}"
     | fuel + 1, .structTail fields tail =>
         let fieldText := formatStructFieldsWithFuel fuel fields
-        let tailText := "..." ++ formatValueWithFuel fuel tail
+        let tailText := formatTailWithFuel fuel tail
         "{" ++ joinWith ", " (fieldText ++ [tailText]) ++ "}"
     | fuel + 1, .structPattern fields labelPattern constraint _ =>
         let fieldText := formatStructFieldsWithFuel fuel fields
@@ -135,7 +140,7 @@ mutual
         "[" ++ joinWith ", " (items.map (formatValueWithFuel fuel)) ++ "]"
     | fuel + 1, .listTail items tail =>
         let itemText := items.map (formatValueWithFuel fuel)
-        let tailText := "..." ++ formatValueWithFuel fuel tail
+        let tailText := formatTailWithFuel fuel tail
         "[" ++ joinWith ", " (itemText ++ [tailText]) ++ "]"
 end
 

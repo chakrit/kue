@@ -14,11 +14,13 @@ inductive ParsedField where
   | pattern (labelPattern constraint : Value)
   | embedding (value : Value)
   | letBinding (name : String) (value : Value)
+  | ellipsis (tail : Value)
 
 structure ParsedFieldParts where
   fields : List Field
   patterns : List (Value × Value)
   embeddings : List Value
+  tail : Option Value
 
 def parseError (message : String) : Except ParseError α :=
   .error { message := message }
@@ -214,7 +216,7 @@ def parseFieldTerminator (terminator : Option Char) (chars : List Char) : Bool :
   | _, _ => false
 
 def splitParsedFields : List ParsedField -> ParsedFieldParts
-  | [] => { fields := [], patterns := [], embeddings := [] }
+  | [] => { fields := [], patterns := [], embeddings := [], tail := none }
   | .field field :: rest =>
       let split := splitParsedFields rest
       { split with fields := field :: split.fields }
@@ -227,6 +229,9 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
   | .letBinding name value :: rest =>
       let split := splitParsedFields rest
       { split with fields := (name, .letBinding, value) :: split.fields }
+  | .ellipsis tail :: rest =>
+      let split := splitParsedFields rest
+      { split with tail := some tail }
 
 def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
   | [] => .struct fields true
@@ -235,10 +240,24 @@ def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
 
 def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   let parts := splitParsedFields parsedFields
-  let base := parsedFieldsBaseValue parts.fields parts.patterns
+  let declared := parsedFieldsBaseValue parts.fields parts.patterns
+  let base :=
+    match parts.tail with
+    | none => declared
+    | some tail =>
+        match parts.patterns with
+        | [] => .structTail parts.fields tail
+        | _ => .conj [declared, .structTail parts.fields tail]
   match parts.embeddings with
   | [] => base
   | embeddings => .conj (embeddings ++ [base])
+
+def structEllipsisEndsHere : List Char -> Bool
+  | [] => true
+  | ',' :: _ => true
+  | ';' :: _ => true
+  | '}' :: _ => true
+  | _ => false
 
 mutual
   partial def parseExpression (chars : List Char) : ParseResult Value :=
@@ -459,6 +478,15 @@ mutual
     else
       parseError "expected let binding"
 
+  partial def parseStructEllipsis (chars : List Char) : ParseResult ParsedField :=
+    match skipTrivia chars with
+    | '.' :: '.' :: '.' :: rest =>
+        if structEllipsisEndsHere (skipTrivia rest) then
+          parseOk (.ellipsis .top) rest
+        else
+          parseError "typed struct ellipsis is not supported yet"
+    | _ => parseError "expected struct ellipsis"
+
   partial def parseEmbedding (chars : List Char) : ParseResult ParsedField :=
     match parseExpression chars with
     | .error error => .error error
@@ -476,6 +504,7 @@ mutual
   partial def parseField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
     | '[' :: _ => parsePatternField chars
+    | '.' :: '.' :: '.' :: _ => parseStructEllipsis chars
     | chars =>
         match parseLetBinding chars with
         | .ok parsed => .ok parsed

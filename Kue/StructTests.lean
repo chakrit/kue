@@ -187,6 +187,11 @@ theorem format_typed_ellipsis :
       = "{a: int, ...string}" := by
   native_decide
 
+theorem format_untyped_struct_ellipsis :
+    formatValue (.structTail [("a", .regular, .kind .int)] .top)
+      = "{a: int, ...}" := by
+  native_decide
+
 theorem format_string_pattern_constraint :
     formatValue (.structPattern [] (.kind .string) (.kind .int) true) = "{[string]: int}" := by
   native_decide

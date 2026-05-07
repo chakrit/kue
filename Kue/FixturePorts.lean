@@ -613,6 +613,14 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
     },
     {
+      fileName := "struct_ellipsis.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structTail [("a", .regular, .kind .int)] .top)
+            (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "ok"))] true))
+    },
+    {
       fileName := "struct_disjunction_meet.expected",
       content :=
         formatField "x"

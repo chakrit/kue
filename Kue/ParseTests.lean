@@ -115,6 +115,18 @@ theorem parse_list_tail_unification :
       "x: [1, \"x\", \"y\"]" = true := by
   native_decide
 
+theorem parse_struct_ellipsis_schema :
+    parseOutputMatches
+      "x: {a: int, ...}\n"
+      "x: {a: int, ...}" = true := by
+  native_decide
+
+theorem parse_struct_ellipsis_unification :
+    parseOutputMatches
+      "x: {a: int, ...} & {a: 1, b: \"ok\"}\n"
+      "x: {a: 1, b: \"ok\", ...}" = true := by
+  native_decide
+
 theorem parse_byte_literal :
     parseOutputMatches
       "data: 'abc'\n"

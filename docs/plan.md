@@ -2363,6 +2363,41 @@ can participate in reference resolution without appearing in output.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Parser Untyped Struct Ellipsis
+
+Goal: let stdin CUE source express untyped `...` declarations in structs,
+preserving open-tail intent through parsing, formatting, and CLI fixtures.
+
+### Steps
+
+1. Add failing parser and formatter tests first.
+   Cover formatting `.structTail ... .top`, parsing `{a: int, ...}`, and
+   unifying an untyped ellipsis struct with an extra concrete field.
+   Completed in the parser untyped struct ellipsis slice.
+
+2. Parse untyped struct ellipses.
+   Completed in the parser untyped struct ellipsis slice.
+   `Kue/Parse.lean` now tracks an optional struct tail and lowers bare `...` to
+   `.structTail fields .top`.
+
+3. Render top tails as bare ellipses.
+   Completed in the parser untyped struct ellipsis slice.
+   `Kue/Format.lean` now prints `.structTail ... .top` as `...` instead of
+   `..._`, which also applies to open list tails with top.
+
+4. Document the typed-tail compatibility boundary.
+   Completed in the parser untyped struct ellipsis slice.
+   See `docs/compat-assumptions.md`.
+
+5. Verify.
+   Completed in the parser untyped struct ellipsis slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

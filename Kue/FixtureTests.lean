@@ -211,6 +211,14 @@ theorem fixture_struct_disjunction_meet :
       = "x: {kind: \"web\", port: 80}" := by
   native_decide
 
+theorem fixture_struct_ellipsis :
+    formatField "x"
+      (meet
+        (.structTail [("a", .regular, .kind .int)] .top)
+        (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "ok"))] true))
+      = "x: {a: 1, b: \"ok\", ...}" := by
+  native_decide
+
 theorem fixture_string_pattern_constraint :
     formatField "x"
       (meet
