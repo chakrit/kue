@@ -2468,6 +2468,40 @@ whose labels are not valid identifiers can be referenced by an alias.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Explicit File-Argument Merging
+
+Goal: let the executable evaluate multiple source files as one CUE package when those
+files are passed explicitly on the command line.
+
+### Steps
+
+1. Add a failing runtime test first.
+   Cover two `package demo` sources where one file constrains `a: int` and the
+   other provides `a: 1` plus a reference `b: a`.
+   Completed in the explicit file-argument merging slice.
+
+2. Add a pure multi-source runtime helper.
+   Completed in the explicit file-argument merging slice.
+   `Kue.Runtime.evalSourcesToString` parses each source, unifies the parsed values,
+   and then runs the existing resolve/evaluate/format path.
+
+3. Wire executable file arguments to the helper.
+   Completed in the explicit file-argument merging slice.
+   `kue file1.cue file2.cue` now reads all given files and evaluates them together.
+
+4. Document the package identity boundary.
+   Completed in the explicit file-argument merging slice.
+   Package names are still ignored and imports are still unsupported.
+
+5. Verify.
+   Completed in the explicit file-argument merging slice.
+
+   ```sh
+   lake build Kue.RuntimeTests
+   lake build kue:exe
+   .lake/build/bin/kue /tmp/kue-cue-merge-check/a.cue /tmp/kue-cue-merge-check/b.cue
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:
@@ -2479,4 +2513,4 @@ whose labels are not valid identifiers can be referenced by an alias.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
 - Add remaining builtin functions beyond the implemented `close`, `len`, `and`,
   `or`, `div`, `mod`, `quo`, and `rem` helpers.
-- Add package/file merging and imports after the syntax and resolver layers exist.
+- Add package identity checks and imports after the syntax and resolver layers exist.
