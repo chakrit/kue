@@ -34,6 +34,8 @@ mutual
         .conj (constraints.map (resolveValueWithFuel fuel bindings))
     | fuel + 1, bindings, .builtinCall name args =>
         .builtinCall name (args.map (resolveValueWithFuel fuel bindings))
+    | fuel + 1, bindings, .selector base label =>
+        .selector (resolveValueWithFuel fuel bindings base) label
     | fuel + 1, bindings, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, resolveValueWithFuel fuel bindings alternative.snd)

@@ -67,6 +67,7 @@ mutual
     | _ + 1, .builtinCall name args => .error (.incomplete (.builtinCall name args))
     | _ + 1, .ref label => .error (.incomplete (.ref label))
     | _ + 1, .refId id => .error (.incomplete (.refId id))
+    | _ + 1, .selector base label => .error (.incomplete (.selector base label))
     | fuel + 1, .struct fields _ =>
         match manifestFieldsWithFuel fuel fields with
         | .ok fields => .ok (.struct fields)

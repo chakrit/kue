@@ -31,6 +31,8 @@ mutual
         )
     | fuel + 1, .builtinCall name args =>
         .builtinCall name (args.map (normalizeDefinitionValueWithFuel fuel))
+    | fuel + 1, .selector base label =>
+        .selector (normalizeDefinitionValueWithFuel fuel base) label
     | _, value => value
 
   def normalizeFieldWithFuel : Nat -> Field -> Field
@@ -66,6 +68,8 @@ mutual
         )
     | fuel + 1, .builtinCall name args =>
         .builtinCall name (args.map (normalizeDefinitionsWithFuel fuel))
+    | fuel + 1, .selector base label =>
+        .selector (normalizeDefinitionsWithFuel fuel base) label
     | _, value => value
 end
 

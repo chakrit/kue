@@ -2,6 +2,7 @@ import Kue.Eval
 import Kue.Format
 import Kue.Manifest
 import Kue.Resolve
+import Kue.Runtime
 
 namespace Kue
 
@@ -29,6 +30,18 @@ theorem eval_resolved_reference_by_binding_id :
     (evalStructRefs
       (.struct [("#A", .definition, .kind .int), ("x", .regular, .refId ⟨0⟩)] true)
       == .struct [("#A", .definition, .kind .int), ("x", .regular, .kind .int)] true) = true := by
+  native_decide
+
+theorem eval_static_field_selector :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("base", .regular, .struct [("inner", .regular, .prim (.int 4))] true),
+            ("x", .regular, .selector (.ref "base") "inner")
+          ]
+          true))
+      = "base: {inner: 4}\nx: 4" := by
   native_decide
 
 theorem eval_missing_binding_id_bottom :

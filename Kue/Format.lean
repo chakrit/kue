@@ -118,6 +118,8 @@ mutual
         name ++ "(" ++ joinWith ", " (args.map (formatValueWithFuel fuel)) ++ ")"
     | _, .ref label => label
     | _, .refId id => s!"@{id.index}"
+    | fuel + 1, .selector base label =>
+        formatValueWithFuel fuel base ++ "." ++ formatFieldLabel label
     | fuel + 1, .disj alternatives =>
         joinWith " | " (alternatives.map (formatAlternativeWithFuel fuel))
     | fuel + 1, .struct fields _ =>

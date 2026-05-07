@@ -2568,6 +2568,43 @@ separator underscores and exponent notation in the tested CUE-compatible forms.
    lake build Kue.ParseTests Kue.FixtureTests
    ```
 
+## Completed Slice: Static Field Selectors
+
+Goal: support static selector expressions such as `base.inner` for declared struct
+fields, using the existing resolver and evaluator pipeline.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover a top-level `base.inner` selector where `base` is a struct containing
+   `inner: 4`.
+   Completed in the static field selectors slice.
+
+2. Add a selector value form.
+   Completed in the static field selectors slice.
+   `Value.selector` carries the base expression and static label.
+
+3. Parse selector postfixes.
+   Completed in the static field selectors slice.
+   `Kue.Parse` now parses repeated `.label` postfixes after primary expressions.
+
+4. Resolve and evaluate selectors.
+   Completed in the static field selectors slice.
+   Selector bases are resolved recursively; evaluation selects declared fields from
+   evaluated structs and leaves missing struct selectors incomplete.
+
+5. Document the selector boundary.
+   Completed in the static field selectors slice.
+   Index selection, dynamic selection, and richer selector diagnostics remain later
+   work.
+
+6. Verify.
+   Completed in the static field selectors slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

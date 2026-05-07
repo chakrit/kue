@@ -90,6 +90,7 @@ inductive Value where
   | builtinCall (name : String) (args : List Value)
   | ref (label : String)
   | refId (id : BindingId)
+  | selector (base : Value) (label : String)
   | disj (alternatives : List (Mark × Value))
   | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
   | structTail (fields : List (String × FieldClass × Value)) (tail : Value)

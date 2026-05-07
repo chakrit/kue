@@ -25,7 +25,7 @@ Current assumptions:
   primitive kinds, structs, lists, refs, `&`, `|`, defaults, integer bounds, primitive
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
   struct embeddings, untyped struct ellipses, static field aliases, `let` declarations,
-  and existing builtin call values.
+  static field selectors, and existing builtin call values.
 - Struct embeddings are lowered to conjunctions with the declared fields. This is a
   useful executable model for schema composition, but it is not yet a full embedding
   validator for every non-struct expression shape.
@@ -45,6 +45,10 @@ Current assumptions:
 - Static field aliases such as `A="label": value` are represented as non-output binding
   fields that refer to the aliased field label. Other alias positions are still
   unsupported.
+- Static field selectors such as `base.inner` are represented explicitly and evaluate
+  declared fields on evaluated structs. Missing struct selectors remain incomplete
+  selector values; selector diagnostics, index selection, and dynamic selection remain
+  later work.
 - The parser does not yet support imports, non-field aliases, comprehensions, dynamic
   fields, string interpolation, non-decimal numeric bases, numeric suffixes, or typed
   struct ellipsis syntax.

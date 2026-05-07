@@ -377,6 +377,19 @@ mutual
         | values => parseOk (.conj values) rest
 
   partial def parsePrimary (chars : List Char) : ParseResult Value :=
+    match parsePrimaryAtom chars with
+    | .error error => .error error
+    | .ok (value, rest) => parseSelectorRest value rest
+
+  partial def parseSelectorRest (base : Value) (chars : List Char) : ParseResult Value :=
+    match skipTrivia chars with
+    | '.' :: rest =>
+        match parseLabel (skipTrivia rest) with
+        | .error error => .error error
+        | .ok (label, rest) => parseSelectorRest (.selector base label) rest
+    | rest => parseOk base rest
+
+  partial def parsePrimaryAtom (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | '(' :: rest =>
         match parseExpression rest with

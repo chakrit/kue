@@ -101,6 +101,18 @@ theorem fixture_field_alias :
       = "\"not an identifier\": 4\nfoo: 4" := by
   native_decide
 
+theorem fixture_field_selector :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("base", .regular, .struct [("inner", .regular, .prim (.int 4))] true),
+            ("x", .regular, .selector (.ref "base") "inner")
+          ]
+          true))
+      = "base: {inner: 4}\nx: 4" := by
+  native_decide
+
 theorem fixture_number_literals :
     formatTopLevel
       (.struct

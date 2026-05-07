@@ -31,6 +31,12 @@ theorem parse_nested_struct_resolves_local_definition :
       "x: {#A: int, x: int}" = true := by
   native_decide
 
+theorem parse_static_field_selector :
+    parseOutputMatches
+      "base: {inner: 4}\nx: base.inner\n"
+      "base: {inner: 4}\nx: 4" = true := by
+  native_decide
+
 theorem parse_duplicate_fields_unify :
     parseOutputMatches
       "a: int\na: 1\n"

@@ -105,6 +105,8 @@ def containsBottomWithFuel : Nat -> Value -> Bool
       constraints.any (containsBottomWithFuel fuel)
   | fuel + 1, .builtinCall _ args =>
       args.any (containsBottomWithFuel fuel)
+  | fuel + 1, .selector base _ =>
+      containsBottomWithFuel fuel base
   | fuel + 1, .disj alternatives =>
       alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
   | fuel + 1, .struct fields _ =>
@@ -345,8 +347,15 @@ def meetCore (left right : Value) : Value :=
         .refId leftId
       else
         .bottom
+  | .selector leftBase leftLabel, .selector rightBase rightLabel =>
+      if leftLabel = rightLabel && leftBase == rightBase then
+        .selector leftBase leftLabel
+      else
+        .bottom
   | .refId _, _ => .bottom
   | _, .refId _ => .bottom
+  | .selector _ _, _ => .bottom
+  | _, .selector _ _ => .bottom
   | .list _, .list _ => .bottom
   | .listTail _ _, _ => .bottom
   | _, .listTail _ _ => .bottom

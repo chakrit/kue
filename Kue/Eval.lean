@@ -68,6 +68,28 @@ def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
   else
     .disj alternatives
 
+def selectEvaluatedField (base : Value) (label : String) : Value :=
+  match base with
+  | .struct fields _ =>
+      match findEvalField label fields with
+      | some field => Field.value field
+      | none => .selector base label
+  | .structTail fields _ =>
+      match findEvalField label fields with
+      | some field => Field.value field
+      | none => .selector base label
+  | .structPattern fields _ _ _ =>
+      match findEvalField label fields with
+      | some field => Field.value field
+      | none => .selector base label
+  | .structPatterns fields _ _ =>
+      match findEvalField label fields with
+      | some field => Field.value field
+      | none => .selector base label
+  | .bottom => .bottom
+  | .bottomWith reasons => .bottomWith reasons
+  | _ => .bottom
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -95,6 +117,8 @@ mutual
         evaluated.foldl (fun current constraint => meet current constraint) .top
     | fuel + 1, fields, bindings, visited, .builtinCall name args =>
         evalBuiltinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
+    | fuel + 1, fields, bindings, visited, .selector base label =>
+        selectEvaluatedField (evalValueWithFuel fuel fields bindings visited base) label
     | fuel + 1, fields, bindings, visited, .disj alternatives =>
         let evaluated := alternatives.map fun alternative =>
           (alternative.fst, evalValueWithFuel fuel fields bindings visited alternative.snd)

@@ -190,6 +190,18 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "field_selector.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("base", .regular, .struct [("inner", .regular, .prim (.int 4))] true),
+                ("x", .regular, .selector (.ref "base") "inner")
+              ]
+              true))
+    },
+    {
       fileName := "duplicate_fields.expected",
       content :=
         formatTopLevel
