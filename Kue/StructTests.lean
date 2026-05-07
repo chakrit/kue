@@ -24,6 +24,12 @@ theorem format_non_regular_field_classes :
       = "{a?: int, b!: string, _c: true, #D: bool}" := by
   native_decide
 
+theorem format_let_bindings_are_not_output_fields :
+    formatValue
+      (.struct [("base", .letBinding, .prim (.int 2)), ("x", .regular, .prim (.int 2))] true)
+      = "{x: 2}" := by
+  native_decide
+
 theorem meet_disjoint_regular_structs :
     meet
       (.struct [("a", .regular, .prim (.int 1))] true)

@@ -396,6 +396,7 @@ def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
   | .required, .required => some .required
   | .hidden, .hidden => some .hidden
   | .definition, .definition => some .definition
+  | .letBinding, .letBinding => some .letBinding
   | _, _ => none
 
 def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : Field :=

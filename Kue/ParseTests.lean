@@ -43,6 +43,18 @@ theorem parse_struct_literal_embedding :
       "x: {a: 1, b: \"ok\"}" = true := by
   native_decide
 
+theorem parse_top_level_let_binding :
+    parseOutputMatches
+      "let base = 2\nx: base & int\n"
+      "x: 2" = true := by
+  native_decide
+
+theorem parse_nested_let_binding :
+    parseOutputMatches
+      "x: {let base = string, value: base & \"ok\"}\n"
+      "x: {value: \"ok\"}" = true := by
+  native_decide
+
 theorem parse_disjunction_defaults_and_bounds :
     parseOutputMatches
       "mode: *\"prod\" | \"dev\"\nsmall: >0 & <10 & 7\n"

@@ -6,7 +6,7 @@ import Kue.Resolve
 namespace Kue
 
 def formatTopLevel : Value -> String
-  | .struct fields _ => joinWith "\n" (fields.map (formatStructFieldWithFuel formatFuel))
+  | .struct fields _ => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
   | value => formatValue value
 
 def resolveAndEval (value : Value) : Value :=

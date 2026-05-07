@@ -553,6 +553,25 @@ theorem fixture_manifest_selects_materialized_required_default :
       = .ok "x: {mode: \"prod\"}" := by
   rfl
 
+theorem fixture_let_binding :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("base", .letBinding, .prim (.int 2)),
+            ("x", .regular, .conj [.ref "base", .kind .int]),
+            ("nested", .regular,
+              .struct
+                [
+                  ("kind", .letBinding, .kind .string),
+                  ("value", .regular, .conj [.ref "kind", .prim (.string "ok")])
+                ]
+                true)
+          ]
+          true))
+      = "x: 2\nnested: {value: \"ok\"}" := by
+  native_decide
+
 theorem fixture_nested_reference_list :
     formatTopLevel
       (resolveAndEval

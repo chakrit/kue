@@ -273,6 +273,25 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
+      fileName := "let_binding.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("base", .letBinding, .prim (.int 2)),
+                ("x", .regular, .conj [.ref "base", .kind .int]),
+                ("nested", .regular,
+                  .struct
+                    [
+                      ("kind", .letBinding, .kind .string),
+                      ("value", .regular, .conj [.ref "kind", .prim (.string "ok")])
+                    ]
+                    true)
+              ]
+              true))
+    },
+    {
       fileName := "mutual_reference_cycle.expected",
       content :=
         formatTopLevel

@@ -44,6 +44,7 @@ inductive FieldClass where
   | required
   | hidden
   | definition
+  | letBinding
 deriving Repr, BEq, DecidableEq
 
 namespace FieldClass
@@ -51,6 +52,7 @@ namespace FieldClass
 def ignoresClosedness : FieldClass -> Bool
   | .hidden => true
   | .definition => true
+  | .letBinding => true
   | _ => false
 
 end FieldClass

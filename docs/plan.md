@@ -2328,12 +2328,46 @@ single combined pattern constraint.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Parser Let Bindings
+
+Goal: let stdin CUE source express ordinary `let` declarations so local helpers
+can participate in reference resolution without appearing in output.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover a top-level `let` binding and a nested struct `let` binding whose value
+   is unified through a regular output field.
+   Completed in the parser let bindings slice.
+
+2. Represent `let` declarations as non-output binding fields.
+   Completed in the parser let bindings slice.
+   `Kue/Parse.lean` lowers `let name = expr` entries to `.letBinding` fields so
+   the existing resolver and evaluator can reuse their binding-id path.
+
+3. Filter `let` bindings from formatting and manifestation.
+   Completed in the parser let bindings slice.
+   `Kue/Format.lean` and `Kue/Manifest.lean` now skip `.letBinding` fields
+   while still allowing them to resolve references.
+
+4. Document the binding-model assumption.
+   Completed in the parser let bindings slice.
+   See `docs/compat-assumptions.md`.
+
+5. Verify.
+   Completed in the parser let bindings slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:
   non-string label patterns and fuller regular expression matching.
-- Add embeddings, aliases, and `let` bindings in a syntax layer instead of
-  constructing semantic values directly.
+- Add aliases in a syntax layer instead of constructing semantic values directly.
 - Add dynamic fields and comprehensions after lexical binding identities are
   represented for more than same-struct fields.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.

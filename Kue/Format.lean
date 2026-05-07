@@ -73,17 +73,26 @@ mutual
     | fuel + 1, (.regular, value) => formatValueWithFuel fuel value
     | fuel + 1, (.default, value) => "*" ++ formatValueWithFuel fuel value
 
-  def formatStructFieldWithFuel : Nat -> Field -> String
-    | 0, _ => "..."
+  def formatStructFieldWithFuel? : Nat -> Field -> Option String
+    | 0, _ => some "..."
     | fuel + 1, field =>
         let label := formatFieldLabel (Field.label field)
         let value := formatValueWithFuel fuel (Field.value field)
         match Field.fieldClass field with
-        | .regular => s!"{label}: {value}"
-        | .optional => s!"{label}?: {value}"
-        | .required => s!"{label}!: {value}"
-        | .hidden => s!"{label}: {value}"
-        | .definition => s!"{label}: {value}"
+        | .regular => some s!"{label}: {value}"
+        | .optional => some s!"{label}?: {value}"
+        | .required => some s!"{label}!: {value}"
+        | .hidden => some s!"{label}: {value}"
+        | .definition => some s!"{label}: {value}"
+        | .letBinding => none
+
+  def formatStructFieldsWithFuel : Nat -> List Field -> List String
+    | 0, _ => ["..."]
+    | _ + 1, [] => []
+    | fuel + 1, field :: fields =>
+        match formatStructFieldWithFuel? fuel field with
+        | some text => text :: formatStructFieldsWithFuel fuel fields
+        | none => formatStructFieldsWithFuel fuel fields
 
   def formatValueWithFuel : Nat -> Value -> String
     | 0, _ => "..."
@@ -107,18 +116,18 @@ mutual
     | fuel + 1, .disj alternatives =>
         joinWith " | " (alternatives.map (formatAlternativeWithFuel fuel))
     | fuel + 1, .struct fields _ =>
-        "{" ++ joinWith ", " (fields.map (formatStructFieldWithFuel fuel)) ++ "}"
+        "{" ++ joinWith ", " (formatStructFieldsWithFuel fuel fields) ++ "}"
     | fuel + 1, .structTail fields tail =>
-        let fieldText := fields.map (formatStructFieldWithFuel fuel)
+        let fieldText := formatStructFieldsWithFuel fuel fields
         let tailText := "..." ++ formatValueWithFuel fuel tail
         "{" ++ joinWith ", " (fieldText ++ [tailText]) ++ "}"
     | fuel + 1, .structPattern fields labelPattern constraint _ =>
-        let fieldText := fields.map (formatStructFieldWithFuel fuel)
+        let fieldText := formatStructFieldsWithFuel fuel fields
         let patternText :=
           "[" ++ formatValueWithFuel fuel labelPattern ++ "]: " ++ formatValueWithFuel fuel constraint
         "{" ++ joinWith ", " (fieldText ++ [patternText]) ++ "}"
     | fuel + 1, .structPatterns fields patterns _ =>
-        let fieldText := fields.map (formatStructFieldWithFuel fuel)
+        let fieldText := formatStructFieldsWithFuel fuel fields
         let patternText := patterns.map fun pattern =>
           "[" ++ formatValueWithFuel fuel pattern.fst ++ "]: " ++ formatValueWithFuel fuel pattern.snd
         "{" ++ joinWith ", " (fieldText ++ patternText) ++ "}"
@@ -129,6 +138,11 @@ mutual
         let tailText := "..." ++ formatValueWithFuel fuel tail
         "[" ++ joinWith ", " (itemText ++ [tailText]) ++ "]"
 end
+
+def formatStructFieldWithFuel (fuel : Nat) (field : Field) : String :=
+  match formatStructFieldWithFuel? fuel field with
+  | some text => text
+  | none => ""
 
 def formatValue (value : Value) : String :=
   formatValueWithFuel formatFuel value
