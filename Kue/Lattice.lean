@@ -435,6 +435,15 @@ def mergeStructFieldsWith
       | none => none)
     (some leftFields)
 
+def mergeFieldListWith (meetValue : Value -> Value -> Value) (fields : List Field) : Option (List Field) :=
+  some
+    (fields.foldl
+      (fun merged field =>
+        match mergeFieldIntoWith meetValue merged field with
+        | some fields => fields
+        | none => merged ++ [field])
+      [])
+
 def hasFieldLabel (label : String) : List Field -> Bool
   | [] => false
   | field :: fields =>

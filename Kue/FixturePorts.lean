@@ -177,6 +177,20 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.string "b"))] true))
     },
     {
+      fileName := "duplicate_fields.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("x", .regular, .kind .int),
+                ("x", .regular, .prim (.int 1)),
+                ("conflict", .regular, .prim (.string "a")),
+                ("conflict", .regular, .prim (.string "b"))
+              ]
+              true))
+    },
+    {
       fileName := "float_kind.expected",
       content := formatField "x" (meet (.kind .float) (.prim (.float "1.5")))
     },

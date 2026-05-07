@@ -88,6 +88,20 @@ theorem fixture_field_conflict :
       = "x: {a: _|_}" := by
   native_decide
 
+theorem fixture_duplicate_fields :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("x", .regular, .kind .int),
+            ("x", .regular, .prim (.int 1)),
+            ("conflict", .regular, .prim (.string "a")),
+            ("conflict", .regular, .prim (.string "b"))
+          ]
+          true))
+      = "x: 1\nconflict: _|_" := by
+  native_decide
+
 theorem fixture_closed_extra_field :
     formatField "x"
       (meet

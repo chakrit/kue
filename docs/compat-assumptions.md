@@ -27,6 +27,9 @@ Current assumptions:
 - Struct embeddings are lowered to conjunctions with the declared fields. This is a
   useful executable model for schema composition, but it is not yet a full embedding
   validator for every non-struct expression shape.
+- Duplicate fields are merged after reference evaluation when their field classes have
+  an existing merge rule. Unsupported same-label class combinations are kept distinct
+  in this pass; diagnostic provenance and output ordering are still first-pass.
 - Untyped struct ellipses are represented as `.structTail` values with a top tail. Typed
   struct tails remain semantic-only because the pinned CUE v0.15.4 tool rejects
   `...T` source syntax.

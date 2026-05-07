@@ -59,6 +59,9 @@ def joinValues : List Value -> Value
   | [] => .bottom
   | value :: values => values.foldl join value
 
+def mergeEvaluatedFields (fields : List Field) : Option (List Field) :=
+  mergeFieldListWith meet fields
+
 def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
   if allRegularAlternatives alternatives then
     joinValues (alternatives.map Prod.snd)
@@ -99,38 +102,49 @@ mutual
     | fuel + 1, fields, _, _, .struct nestedFields open_ =>
         let nestedBindings := buildBindingEnv nestedFields
         let visibleFields := nestedFields ++ fields
-        .struct
+        match mergeEvaluatedFields
           (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
-          open_
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+        | some nestedFields => .struct nestedFields open_
+        | none => .bottom
     | fuel + 1, fields, _, _, .structTail nestedFields tail =>
         let nestedBindings := buildBindingEnv nestedFields
         let visibleFields := nestedFields ++ fields
-        .structTail
+        match mergeEvaluatedFields
           (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
-          (evalValueWithFuel fuel visibleFields nestedBindings [] tail)
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+        | some nestedFields =>
+            .structTail nestedFields (evalValueWithFuel fuel visibleFields nestedBindings [] tail)
+        | none => .bottom
     | fuel + 1, fields, _, _, .structPattern nestedFields labelPattern constraint open_ =>
         let nestedBindings := buildBindingEnv nestedFields
         let visibleFields := nestedFields ++ fields
-        applyEvaluatedStructPattern
+        match mergeEvaluatedFields
           (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
-          (evalValueWithFuel fuel visibleFields nestedBindings [] labelPattern)
-          (evalValueWithFuel fuel visibleFields nestedBindings [] constraint)
-          open_
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+        | some nestedFields =>
+            applyEvaluatedStructPattern
+              nestedFields
+              (evalValueWithFuel fuel visibleFields nestedBindings [] labelPattern)
+              (evalValueWithFuel fuel visibleFields nestedBindings [] constraint)
+              open_
+        | none => .bottom
     | fuel + 1, fields, _, _, .structPatterns nestedFields patterns open_ =>
         let nestedBindings := buildBindingEnv nestedFields
         let visibleFields := nestedFields ++ fields
-        applyEvaluatedStructPatterns
+        match mergeEvaluatedFields
           (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd)
-          (patterns.map fun pattern =>
-            (
-              evalValueWithFuel fuel visibleFields nestedBindings [] pattern.fst,
-              evalValueWithFuel fuel visibleFields nestedBindings [] pattern.snd
-            ))
-          open_
+            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+        | some nestedFields =>
+            applyEvaluatedStructPatterns
+              nestedFields
+              (patterns.map fun pattern =>
+                (
+                  evalValueWithFuel fuel visibleFields nestedBindings [] pattern.fst,
+                  evalValueWithFuel fuel visibleFields nestedBindings [] pattern.snd
+                ))
+              open_
+        | none => .bottom
     | fuel + 1, fields, bindings, visited, .list items =>
         .list (items.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .listTail items tail =>
@@ -150,29 +164,37 @@ def evalStructRefs (value : Value) : Value :=
   match normalizeDefinitions value with
   | .struct fields open_ =>
       let bindings := buildBindingEnv fields
-      .struct (bindings.map (evalBindingField fields bindings)) open_
+      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
+      | some fields => .struct fields open_
+      | none => .bottom
   | .structTail fields tail =>
       let bindings := buildBindingEnv fields
-      .structTail
-        (bindings.map (evalBindingField fields bindings))
-        (evalValueWithFuel evalFuel fields bindings [] tail)
+      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
+      | some fields => .structTail fields (evalValueWithFuel evalFuel fields bindings [] tail)
+      | none => .bottom
   | .structPattern fields labelPattern constraint open_ =>
       let bindings := buildBindingEnv fields
-      applyEvaluatedStructPattern
-        (bindings.map (evalBindingField fields bindings))
-        (evalValueWithFuel evalFuel fields bindings [] labelPattern)
-        (evalValueWithFuel evalFuel fields bindings [] constraint)
-        open_
+      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
+      | some fields =>
+          applyEvaluatedStructPattern
+            fields
+            (evalValueWithFuel evalFuel fields bindings [] labelPattern)
+            (evalValueWithFuel evalFuel fields bindings [] constraint)
+            open_
+      | none => .bottom
   | .structPatterns fields patterns open_ =>
       let bindings := buildBindingEnv fields
-      applyEvaluatedStructPatterns
-        (bindings.map (evalBindingField fields bindings))
-        (patterns.map fun pattern =>
-          (
-            evalValueWithFuel evalFuel fields bindings [] pattern.fst,
-            evalValueWithFuel evalFuel fields bindings [] pattern.snd
-          ))
-        open_
+      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
+      | some fields =>
+          applyEvaluatedStructPatterns
+            fields
+            (patterns.map fun pattern =>
+              (
+                evalValueWithFuel evalFuel fields bindings [] pattern.fst,
+                evalValueWithFuel evalFuel fields bindings [] pattern.snd
+              ))
+            open_
+      | none => .bottom
   | value => value
 
 end Kue

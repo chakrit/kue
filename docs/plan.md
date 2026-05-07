@@ -2398,6 +2398,41 @@ preserving open-tail intent through parsing, formatting, and CLI fixtures.
    shellcheck scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Duplicate Field Unification
+
+Goal: make multiple fields with the same label inside one parsed struct unify to
+one evaluated field, matching CUE's struct literal semantics.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover compatible duplicate fields (`int` and `1`) and conflicting duplicate
+   fields that preserve field-level bottom.
+   Completed in the duplicate field unification slice.
+
+2. Add a reusable duplicate-field merge helper.
+   Completed in the duplicate field unification slice.
+   `Kue/Lattice.lean` now exposes `mergeFieldListWith` as a fold over the
+   existing field merge rules.
+
+3. Normalize evaluated struct fields.
+   Completed in the duplicate field unification slice.
+   `Kue/Eval.lean` now merges duplicate fields after evaluating references in
+   structs, struct tails, and pattern structs.
+
+4. Document the provenance boundary.
+   Completed in the duplicate field unification slice.
+   See `docs/compat-assumptions.md`.
+
+5. Verify.
+   Completed in the duplicate field unification slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:
