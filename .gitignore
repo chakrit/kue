@@ -13,6 +13,9 @@
 ace.local.toml
 # end ACE
 
+# Local tooling state
+.rtk/
+
 # Lean / Lake build output
 .lake/
 build/
