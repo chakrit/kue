@@ -2535,6 +2535,39 @@ matching the first package identity check exposed by `cue eval`.
    lake build Kue.RuntimeTests
    ```
 
+## Completed Slice: Decimal Numeric Separators and Exponents
+
+Goal: parse common decimal numeric literal spelling that CUE accepts, including
+separator underscores and exponent notation in the tested CUE-compatible forms.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover `1_000`, `1.25e3`, and `-2e3`, using expected output checked against
+   `cue eval`.
+   Completed in the decimal numeric separators and exponents slice.
+
+2. Normalize numeric tokens at parse time.
+   Completed in the decimal numeric separators and exponents slice.
+   The parser strips `_` separators and inserts an explicit `+` sign for exponent
+   literals that omit one.
+
+3. Preserve the current semantic representation.
+   Completed in the decimal numeric separators and exponents slice.
+   Exponent values still store a float spelling string; full numeric
+   canonicalization remains later work.
+
+4. Document the numeric canonicalization boundary.
+   Completed in the decimal numeric separators and exponents slice.
+   See `docs/compat-assumptions.md`.
+
+5. Verify.
+   Completed in the decimal numeric separators and exponents slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.FixtureTests
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

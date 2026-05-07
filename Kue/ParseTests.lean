@@ -91,6 +91,12 @@ theorem parse_number_disjunction_normalizes :
       "x: number" = true := by
   native_decide
 
+theorem parse_decimal_separators_and_exponents :
+    parseOutputMatches
+      "x: 1_000\ny: 1.25e3\nz: -2e3\n"
+      "x: 1000\ny: 1.25e+3\nz: -2e+3" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

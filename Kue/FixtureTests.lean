@@ -101,6 +101,18 @@ theorem fixture_field_alias :
       = "\"not an identifier\": 4\nfoo: 4" := by
   native_decide
 
+theorem fixture_number_literals :
+    formatTopLevel
+      (.struct
+        [
+          ("x", .regular, .prim (.int 1000)),
+          ("y", .regular, .prim (.float "1.25e+3")),
+          ("z", .regular, .prim (.float "-2e+3"))
+        ]
+        true)
+      = "x: 1000\ny: 1.25e+3\nz: -2e+3" := by
+  native_decide
+
 theorem fixture_duplicate_fields :
     formatTopLevel
       (resolveAndEval

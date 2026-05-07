@@ -186,39 +186,75 @@ def parseKindName? : String -> Option Kind
   | "bytes" => some .bytes
   | _ => none
 
+def parseDigitOrSeparator (value : Char) : Bool :=
+  parseDigit value || value == '_'
+
+def stripNumericSeparators : List Char -> List Char
+  | [] => []
+  | '_' :: rest => stripNumericSeparators rest
+  | value :: rest => value :: stripNumericSeparators rest
+
+def digitSequenceValidAfter (previousWasDigit : Bool) : List Char -> Bool
+  | [] => previousWasDigit
+  | value :: rest =>
+      if parseDigit value then
+        digitSequenceValidAfter true rest
+      else if value == '_' then
+        previousWasDigit && digitSequenceValidAfter false rest
+      else
+        false
+
+def digitSequenceValid (chars : List Char) : Bool :=
+  digitSequenceValidAfter false chars
+
+def parseDigitSequence (context : String) (chars : List Char) : ParseResult String :=
+  let digits := takeWhileChars parseDigitOrSeparator chars []
+  if digitSequenceValid digits.fst then
+    parseOk (String.ofList (stripNumericSeparators digits.fst)) digits.snd
+  else
+    parseError s!"expected {context} digits"
+
+def parseExponentDigits (sign : String) (chars : List Char) : ParseResult String :=
+  match parseDigitSequence "exponent" chars with
+  | .ok (digits, rest) => parseOk ("e" ++ sign ++ digits) rest
+  | .error error => .error error
+
+def parseExponentSign : List Char -> ParseResult String
+  | '+' :: rest => parseExponentDigits "+" rest
+  | '-' :: rest => parseExponentDigits "-" rest
+  | chars => parseExponentDigits "+" chars
+
+def parseExponentToken : List Char -> ParseResult String
+  | 'e' :: rest => parseExponentSign rest
+  | 'E' :: rest => parseExponentSign rest
+  | chars => parseOk "" chars
+
+def parseNumberWithSign (sign : String) (chars : List Char) : ParseResult String :=
+  match parseDigitSequence "number" chars with
+  | .error error => .error error
+  | .ok (whole, rest) =>
+      match rest with
+      | '.' :: afterDot =>
+          match parseDigitSequence "fraction" afterDot with
+          | .error error => .error error
+          | .ok (fraction, rest) =>
+              match parseExponentToken rest with
+              | .error error => .error error
+              | .ok (exponent, rest) => parseOk (sign ++ whole ++ "." ++ fraction ++ exponent) rest
+      | rest =>
+          match parseExponentToken rest with
+          | .error error => .error error
+          | .ok (exponent, rest) => parseOk (sign ++ whole ++ exponent) rest
+
 def parseNumberToken : List Char -> ParseResult String
-  | '-' :: rest =>
-      let digits := takeWhileChars parseDigit rest []
-      if digits.fst.isEmpty then
-        parseError "expected digits after '-'"
-      else
-        match digits.snd with
-        | '.' :: afterDot =>
-            let fraction := takeWhileChars parseDigit afterDot []
-            if fraction.fst.isEmpty then
-              parseOk (String.ofList ('-' :: digits.fst)) digits.snd
-            else
-              parseOk (String.ofList ('-' :: digits.fst ++ ('.' :: fraction.fst))) fraction.snd
-        | rest => parseOk (String.ofList ('-' :: digits.fst)) rest
-  | chars =>
-      let digits := takeWhileChars parseDigit chars []
-      if digits.fst.isEmpty then
-        parseError "expected number"
-      else
-        match digits.snd with
-        | '.' :: afterDot =>
-            let fraction := takeWhileChars parseDigit afterDot []
-            if fraction.fst.isEmpty then
-              parseOk (String.ofList digits.fst) digits.snd
-            else
-              parseOk (String.ofList (digits.fst ++ ('.' :: fraction.fst))) fraction.snd
-        | rest => parseOk (String.ofList digits.fst) rest
+  | '-' :: rest => parseNumberWithSign "-" rest
+  | chars => parseNumberWithSign "" chars
 
 def parseNumberValue (chars : List Char) : ParseResult Value :=
   match parseNumberToken chars with
   | .error error => .error error
   | .ok (token, rest) =>
-      if token.contains '.' then
+      if token.contains '.' || token.contains 'e' then
         parseOk (.prim (.float token)) rest
       else
         match token.toInt? with

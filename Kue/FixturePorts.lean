@@ -208,6 +208,18 @@ def fixturePorts : List FixturePort :=
       content := formatField "x" (meet (.kind .float) (.prim (.float "1.5")))
     },
     {
+      fileName := "number_literals.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("x", .regular, .prim (.int 1000)),
+              ("y", .regular, .prim (.float "1.25e+3")),
+              ("z", .regular, .prim (.float "-2e+3"))
+            ]
+            true)
+    },
+    {
       fileName := "hidden_field_reference.manifest.expected",
       content :=
         formatManifestFieldResult "x"

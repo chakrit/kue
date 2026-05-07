@@ -29,6 +29,9 @@ Current assumptions:
 - Struct embeddings are lowered to conjunctions with the declared fields. This is a
   useful executable model for schema composition, but it is not yet a full embedding
   validator for every non-struct expression shape.
+- Decimal numeric separators are stripped while parsing. Exponent literals are accepted
+  as float strings with normalized exponent signs, but Kue does not yet canonicalize all
+  exponent arithmetic the way `cue eval` does.
 - Duplicate fields are merged after reference evaluation when their field classes have
   an existing merge rule. Unsupported same-label class combinations are kept distinct
   in this pass; diagnostic provenance and output ordering are still first-pass.
@@ -43,8 +46,8 @@ Current assumptions:
   fields that refer to the aliased field label. Other alias positions are still
   unsupported.
 - The parser does not yet support imports, non-field aliases, comprehensions, dynamic
-  fields, string interpolation, full numeric literal syntax, or typed struct ellipsis
-  syntax.
+  fields, string interpolation, non-decimal numeric bases, numeric suffixes, or typed
+  struct ellipsis syntax.
 - Multiple pattern fields are represented as independent pattern constraints. Label
   pattern values are still limited to the existing string-kind, exact-string, and
   supported regex subset.
