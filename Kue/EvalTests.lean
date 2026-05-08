@@ -44,6 +44,47 @@ theorem eval_static_field_selector :
       = "base: {inner: 4}\nx: 4" := by
   native_decide
 
+theorem eval_static_list_index :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("xs", .regular, .list [.prim (.int 10), .prim (.int 20)]),
+            ("x", .regular, .index (.ref "xs") (.prim (.int 1)))
+          ]
+          true))
+      = "xs: [10, 20]\nx: 20" := by
+  native_decide
+
+theorem eval_static_string_field_index :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("base", .regular, .struct [("inner", .regular, .prim (.int 4))] true),
+            ("x", .regular, .index (.ref "base") (.prim (.string "inner")))
+          ]
+          true))
+      = "base: {inner: 4}\nx: 4" := by
+  native_decide
+
+theorem eval_list_index_out_of_range_bottom :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [
+            ("xs", .regular, .list [.prim (.int 10)]),
+            ("x", .regular, .index (.ref "xs") (.prim (.int 2)))
+          ]
+          true))
+      == .struct
+        [
+          ("xs", .regular, .list [.prim (.int 10)]),
+          ("x", .regular, .bottomWith [.indexOutOfRange 2 1])
+        ]
+        true) = true := by
+  native_decide
+
 theorem eval_missing_binding_id_bottom :
     (evalStructRefs
       (.struct [("x", .regular, .refId ⟨2⟩)] true)

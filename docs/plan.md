@@ -2596,13 +2596,55 @@ fields, using the existing resolver and evaluator pipeline.
 5. Document the selector boundary.
    Completed in the static field selectors slice.
    Index selection, dynamic selection, and richer selector diagnostics remain later
-   work.
+   work at this point in the plan.
 
 6. Verify.
    Completed in the static field selectors slice.
 
    ```sh
    lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   ```
+
+## Completed Slice: Static Index Expressions
+
+Goal: support common static index expressions such as `xs[1]` and `base["inner"]`
+using the existing resolver and evaluator pipeline.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover a closed-list index and a string-literal struct field index, with expected
+   output checked against `cue eval`.
+   Completed in the static index expressions slice.
+
+2. Add an index value form.
+   Completed in the static index expressions slice.
+   `Value.index` carries the base expression and key expression so keys can resolve
+   through existing bindings before selection.
+
+3. Parse index postfixes.
+   Completed in the static index expressions slice.
+   `Kue.Parse` now parses `[expr]` postfixes after primary expressions alongside
+   repeated `.label` selectors.
+
+4. Resolve and evaluate indices.
+   Completed in the static index expressions slice.
+   Index bases and keys are resolved recursively. Evaluation selects concrete integer
+   indices from closed lists, concrete string keys from declared struct fields, and keeps
+   missing string fields incomplete. Closed-list out-of-range indices bottom out with
+   first-pass provenance.
+
+5. Document the index boundary.
+   Completed in the static index expressions slice.
+   Dynamic fields, comprehensions, selector diagnostics, and full open-list index
+   reasoning remain later work.
+
+6. Verify.
+   Completed in the static index expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
    ```
 
 ## Later Slices

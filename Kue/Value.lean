@@ -69,6 +69,8 @@ inductive BottomReason where
   | fieldConstraint (label : String)
   | unresolvedReference (label : String)
   | unresolvedBinding (id : BindingId)
+  | invalidIndex (index : Int)
+  | indexOutOfRange (index : Int) (length : Nat)
   | intBoundConflict
   | divisionByZero
   | excludedValue (value : Prim)
@@ -91,6 +93,7 @@ inductive Value where
   | ref (label : String)
   | refId (id : BindingId)
   | selector (base : Value) (label : String)
+  | index (base key : Value)
   | disj (alternatives : List (Mark × Value))
   | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
   | structTail (fields : List (String × FieldClass × Value)) (tail : Value)

@@ -37,6 +37,18 @@ theorem parse_static_field_selector :
       "base: {inner: 4}\nx: 4" = true := by
   native_decide
 
+theorem parse_static_list_index :
+    parseOutputMatches
+      "xs: [10, 20]\nx: xs[1]\n"
+      "xs: [10, 20]\nx: 20" = true := by
+  native_decide
+
+theorem parse_static_string_field_index :
+    parseOutputMatches
+      "base: {inner: 4}\nx: base[\"inner\"]\n"
+      "base: {inner: 4}\nx: 4" = true := by
+  native_decide
+
 theorem parse_duplicate_fields_unify :
     parseOutputMatches
       "a: int\na: 1\n"
@@ -131,6 +143,12 @@ theorem parse_multiple_pattern_fields_remain_independent :
     parseOutputMatches
       "x: {[=~\"^a\"]: int, [=~\"z$\"]: string, az: 1, ax: 2, bz: \"ok\"}\n"
       "x: {az: _|_, ax: 2, bz: \"ok\", [=~\"^a\"]: int, [=~\"z$\"]: string}" = true := by
+  native_decide
+
+theorem parse_newline_pattern_field_after_identifier_constraint :
+    parseOutputMatches
+      "x: {\n[=~\"^a\"]: int\n[=~\"z$\"]: string\naz: 1\n}\n"
+      "x: {az: _|_, [=~\"^a\"]: int, [=~\"z$\"]: string}" = true := by
   native_decide
 
 theorem parse_list_tail_schema :

@@ -90,6 +90,56 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
   | .bottomWith reasons => .bottomWith reasons
   | _ => .bottom
 
+def getListValue? : Nat -> List Value -> Option Value
+  | _, [] => none
+  | 0, value :: _ => some value
+  | index + 1, _ :: values => getListValue? index values
+
+def selectEvaluatedListIndex (base key : Value) (items : List Value) : Value :=
+  match key with
+  | .prim (.int index) =>
+      if index < 0 then
+        .bottomWith [.invalidIndex index]
+      else
+        match getListValue? index.toNat items with
+        | some item => item
+        | none => .bottomWith [.indexOutOfRange index items.length]
+  | .prim _ => .bottom
+  | _ => .index base key
+
+def selectEvaluatedListTailIndex (base key : Value) (items : List Value) : Value :=
+  match key with
+  | .prim (.int index) =>
+      if index < 0 then
+        .bottomWith [.invalidIndex index]
+      else
+        match getListValue? index.toNat items with
+        | some item => item
+        | none => .index base key
+  | .prim _ => .bottom
+  | _ => .index base key
+
+def selectEvaluatedFieldIndex (base key : Value) (fields : List Field) : Value :=
+  match key with
+  | .prim (.string label) =>
+      match findEvalField label fields with
+      | some field => Field.value field
+      | none => .index base key
+  | .prim _ => .bottom
+  | _ => .index base key
+
+def selectEvaluatedIndex (base key : Value) : Value :=
+  match base with
+  | .struct fields _ => selectEvaluatedFieldIndex base key fields
+  | .structTail fields _ => selectEvaluatedFieldIndex base key fields
+  | .structPattern fields _ _ _ => selectEvaluatedFieldIndex base key fields
+  | .structPatterns fields _ _ => selectEvaluatedFieldIndex base key fields
+  | .list items => selectEvaluatedListIndex base key items
+  | .listTail items _ => selectEvaluatedListTailIndex base key items
+  | .bottom => .bottom
+  | .bottomWith reasons => .bottomWith reasons
+  | _ => .bottom
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -119,6 +169,10 @@ mutual
         evalBuiltinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
     | fuel + 1, fields, bindings, visited, .selector base label =>
         selectEvaluatedField (evalValueWithFuel fuel fields bindings visited base) label
+    | fuel + 1, fields, bindings, visited, .index base key =>
+        selectEvaluatedIndex
+          (evalValueWithFuel fuel fields bindings visited base)
+          (evalValueWithFuel fuel fields bindings visited key)
     | fuel + 1, fields, bindings, visited, .disj alternatives =>
         let evaluated := alternatives.map fun alternative =>
           (alternative.fst, evalValueWithFuel fuel fields bindings visited alternative.snd)

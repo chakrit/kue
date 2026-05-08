@@ -202,6 +202,30 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "list_index.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("xs", .regular, .list [.prim (.int 10), .prim (.int 20)]),
+                ("x", .regular, .index (.ref "xs") (.prim (.int 1)))
+              ]
+              true))
+    },
+    {
+      fileName := "string_field_index.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("base", .regular, .struct [("inner", .regular, .prim (.int 4))] true),
+                ("x", .regular, .index (.ref "base") (.prim (.string "inner")))
+              ]
+              true))
+    },
+    {
       fileName := "duplicate_fields.expected",
       content :=
         formatTopLevel

@@ -36,6 +36,10 @@ mutual
         .builtinCall name (args.map (resolveValueWithFuel fuel bindings))
     | fuel + 1, bindings, .selector base label =>
         .selector (resolveValueWithFuel fuel bindings base) label
+    | fuel + 1, bindings, .index base key =>
+        .index
+          (resolveValueWithFuel fuel bindings base)
+          (resolveValueWithFuel fuel bindings key)
     | fuel + 1, bindings, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, resolveValueWithFuel fuel bindings alternative.snd)

@@ -120,6 +120,8 @@ mutual
     | _, .refId id => s!"@{id.index}"
     | fuel + 1, .selector base label =>
         formatValueWithFuel fuel base ++ "." ++ formatFieldLabel label
+    | fuel + 1, .index base key =>
+        formatValueWithFuel fuel base ++ "[" ++ formatValueWithFuel fuel key ++ "]"
     | fuel + 1, .disj alternatives =>
         joinWith " | " (alternatives.map (formatAlternativeWithFuel fuel))
     | fuel + 1, .struct fields _ =>

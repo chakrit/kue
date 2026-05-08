@@ -35,6 +35,9 @@ def parseAsciiBetween (lower upper value : Char) : Bool :=
 def parseWhitespace (value : Char) : Bool :=
   value == ' ' || value == '\n' || value == '\r' || value == '\t'
 
+def parseHorizontalWhitespace (value : Char) : Bool :=
+  value == ' ' || value == '\t' || value == '\r'
+
 def parseIdentifierStart (value : Char) : Bool :=
   parseAsciiBetween 'a' 'z' value
     || parseAsciiBetween 'A' 'Z' value
@@ -64,6 +67,14 @@ partial def skipTrivia : List Char -> List Char
   | value :: rest =>
       if parseWhitespace value then
         skipTrivia rest
+      else
+        value :: rest
+
+partial def skipPostfixTrivia : List Char -> List Char
+  | [] => []
+  | value :: rest =>
+      if parseHorizontalWhitespace value then
+        skipPostfixTrivia rest
       else
         value :: rest
 
@@ -382,11 +393,18 @@ mutual
     | .ok (value, rest) => parseSelectorRest value rest
 
   partial def parseSelectorRest (base : Value) (chars : List Char) : ParseResult Value :=
-    match skipTrivia chars with
+    match skipPostfixTrivia chars with
     | '.' :: rest =>
         match parseLabel (skipTrivia rest) with
         | .error error => .error error
         | .ok (label, rest) => parseSelectorRest (.selector base label) rest
+    | '[' :: rest =>
+        match parseExpression rest with
+        | .error error => .error error
+        | .ok (key, rest) =>
+            match skipTrivia rest with
+            | ']' :: rest => parseSelectorRest (.index base key) rest
+            | _ => parseError "expected ']' after index"
     | rest => parseOk base rest
 
   partial def parsePrimaryAtom (chars : List Char) : ParseResult Value :=
@@ -439,9 +457,9 @@ mutual
     match parseIdentifier chars with
     | .error error => .error error
     | .ok (name, rest) =>
-        match skipTrivia rest with
+        match skipPostfixTrivia rest with
         | '(' :: rest => parseCall name rest
-        | rest =>
+        | _ =>
             match name with
             | "true" => parseOk (.prim (.bool true)) rest
             | "false" => parseOk (.prim (.bool false)) rest

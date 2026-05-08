@@ -204,6 +204,8 @@ mutual
     | _ + 1, .refId expectedId, .refId actualId => expectedId == actualId
     | fuel + 1, .selector expectedBase expectedLabel, .selector actualBase actualLabel =>
         expectedLabel == actualLabel && subsumesWithFuel fuel expectedBase actualBase
+    | fuel + 1, .index expectedBase expectedKey, .index actualBase actualKey =>
+        subsumesWithFuel fuel expectedBase actualBase && subsumesWithFuel fuel expectedKey actualKey
     | fuel + 1, .disj alternatives, value => disjSubsumesWithFuel fuel alternatives value
     | fuel + 1, .struct expectedFields expectedOpen, .struct actualFields _ =>
         structSubsumesWithFuel fuel expectedFields actualFields expectedOpen
