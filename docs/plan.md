@@ -2677,6 +2677,30 @@ canonicalizes to decimal integers.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Unary Plus Numeric Literals
+
+Goal: parse unary plus on numeric literals without treating it as binary addition.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover unary plus on decimal integers, decimal floats, and base-prefixed integers,
+   with expected output checked against `cue eval`.
+   Completed in the unary plus numeric literals slice.
+
+2. Reuse the number token path.
+   Completed in the unary plus numeric literals slice.
+   `Kue.Parse` now accepts a leading `+` in numeric primary expressions and strips it
+   before decimal, float, or base-prefixed integer lowering.
+
+3. Verify.
+   Completed in the unary plus numeric literals slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

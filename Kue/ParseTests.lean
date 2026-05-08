@@ -121,6 +121,12 @@ theorem parse_non_decimal_integer_literals :
       "hex: 31\noct: 15\nbin: 10\nnegHex: -16\nsep: 10" = true := by
   native_decide
 
+theorem parse_unary_plus_numeric_literals :
+    parseOutputMatches
+      "x: +1\ny: +1.5\nz: +0x10\n"
+      "x: 1\ny: 1.5\nz: 16" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

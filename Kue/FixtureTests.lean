@@ -163,6 +163,18 @@ theorem fixture_non_decimal_numbers :
       = "hex: 31\noct: 15\nbin: 10\nnegHex: -16\nsep: 10" := by
   native_decide
 
+theorem fixture_unary_plus_numbers :
+    formatTopLevel
+      (.struct
+        [
+          ("x", .regular, .prim (.int 1)),
+          ("y", .regular, .prim (.float "1.5")),
+          ("z", .regular, .prim (.int 16))
+        ]
+        true)
+      = "x: 1\ny: 1.5\nz: 16" := by
+  native_decide
+
 theorem fixture_duplicate_fields :
     formatTopLevel
       (resolveAndEval

@@ -270,6 +270,18 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
+      fileName := "unary_plus_numbers.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("x", .regular, .prim (.int 1)),
+              ("y", .regular, .prim (.float "1.5")),
+              ("z", .regular, .prim (.int 16))
+            ]
+            true)
+    },
+    {
       fileName := "hidden_field_reference.manifest.expected",
       content :=
         formatManifestFieldResult "x"

@@ -311,6 +311,7 @@ def parseNumberWithSign (sign : String) (chars : List Char) : ParseResult String
               | .ok (exponent, rest) => parseOk (sign ++ whole ++ exponent) rest
 
 def parseNumberToken : List Char -> ParseResult String
+  | '+' :: rest => parseNumberWithSign "" rest
   | '-' :: rest => parseNumberWithSign "-" rest
   | chars => parseNumberWithSign "" chars
 
@@ -496,6 +497,7 @@ mutual
     | '>' :: rest => parseIntBoundValue .intGt rest
     | '<' :: '=' :: rest => parseIntBoundValue .intLe rest
     | '<' :: rest => parseIntBoundValue .intLt rest
+    | '+' :: _ => parseNumberValue (skipTrivia chars)
     | '-' :: _ => parseNumberValue (skipTrivia chars)
     | value :: _ =>
         if parseDigit value then
