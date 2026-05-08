@@ -115,6 +115,12 @@ theorem parse_decimal_separators_and_exponents :
       "x: 1000\ny: 1.25e+3\nz: -2e+3" = true := by
   native_decide
 
+theorem parse_non_decimal_integer_literals :
+    parseOutputMatches
+      "hex: 0x1f\noct: 0o17\nbin: 0b1010\nnegHex: -0x10\nsep: 0b10_10\n"
+      "hex: 31\noct: 15\nbin: 10\nnegHex: -16\nsep: 10" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

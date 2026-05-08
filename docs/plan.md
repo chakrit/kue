@@ -2647,6 +2647,36 @@ using the existing resolver and evaluator pipeline.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Non-Decimal Integer Literals
+
+Goal: parse common non-decimal integer spellings that `cue eval` accepts and
+canonicalizes to decimal integers.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover lowercase hexadecimal, octal, binary, negative hexadecimal, and separated binary
+   integer literals, with expected output checked against `cue eval`.
+   Completed in the non-decimal integer literals slice.
+
+2. Refactor digit parsing by base.
+   Completed in the non-decimal integer literals slice.
+   `Kue.Parse` now shares separator validation across decimal and base-prefixed digit
+   sequences, then canonicalizes `0x`, `0o`, and `0b` integer tokens to decimal strings
+   before lowering to `Prim.int`.
+
+3. Document the numeric boundary.
+   Completed in the non-decimal integer literals slice.
+   Numeric suffixes and broader float canonicalization remain later work.
+
+4. Verify.
+   Completed in the non-decimal integer literals slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

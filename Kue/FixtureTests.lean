@@ -149,6 +149,20 @@ theorem fixture_number_literals :
       = "x: 1000\ny: 1.25e+3\nz: -2e+3" := by
   native_decide
 
+theorem fixture_non_decimal_numbers :
+    formatTopLevel
+      (.struct
+        [
+          ("hex", .regular, .prim (.int 31)),
+          ("oct", .regular, .prim (.int 15)),
+          ("bin", .regular, .prim (.int 10)),
+          ("negHex", .regular, .prim (.int (-16))),
+          ("sep", .regular, .prim (.int 10))
+        ]
+        true)
+      = "hex: 31\noct: 15\nbin: 10\nnegHex: -16\nsep: 10" := by
+  native_decide
+
 theorem fixture_duplicate_fields :
     formatTopLevel
       (resolveAndEval

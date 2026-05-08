@@ -256,6 +256,20 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
+      fileName := "non_decimal_numbers.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("hex", .regular, .prim (.int 31)),
+              ("oct", .regular, .prim (.int 15)),
+              ("bin", .regular, .prim (.int 10)),
+              ("negHex", .regular, .prim (.int (-16))),
+              ("sep", .regular, .prim (.int 10))
+            ]
+            true)
+    },
+    {
       fileName := "hidden_field_reference.manifest.expected",
       content :=
         formatManifestFieldResult "x"

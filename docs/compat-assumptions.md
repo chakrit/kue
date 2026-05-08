@@ -32,6 +32,9 @@ Current assumptions:
 - Decimal numeric separators are stripped while parsing. Exponent literals are accepted
   as float strings with normalized exponent signs, but Kue does not yet canonicalize all
   exponent arithmetic the way `cue eval` does.
+- Lowercase non-decimal integer literals with `0x`, `0o`, and `0b` prefixes are
+  canonicalized to decimal integers while parsing. Separators are accepted in their digit
+  sequences. Numeric suffixes remain unsupported.
 - Duplicate fields are merged after reference evaluation when their field classes have
   an existing merge rule. Unsupported same-label class combinations are kept distinct
   in this pass; diagnostic provenance and output ordering are still first-pass.
@@ -54,8 +57,7 @@ Current assumptions:
   provenance only; richer index diagnostics and non-field dynamic selection remain later
   work.
 - The parser does not yet support imports, non-field aliases, comprehensions, dynamic
-  fields, string interpolation, non-decimal numeric bases, numeric suffixes, or typed
-  struct ellipsis syntax.
+  fields, string interpolation, numeric suffixes, or typed struct ellipsis syntax.
 - Multiple pattern fields are represented as independent pattern constraints. Label
   pattern values are still limited to the existing string-kind, exact-string, and
   supported regex subset.

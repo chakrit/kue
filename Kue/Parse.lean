@@ -50,6 +50,9 @@ def parseIdentifierRest (value : Char) : Bool :=
 def parseDigit (value : Char) : Bool :=
   parseAsciiBetween '0' '9' value
 
+def parseLowerHexLetter (value : Char) : Bool :=
+  parseAsciiBetween 'a' 'f' value
+
 def dropLine : List Char -> List Char
   | [] => []
   | '\n' :: rest => rest
@@ -197,33 +200,78 @@ def parseKindName? : String -> Option Kind
   | "bytes" => some .bytes
   | _ => none
 
-def parseDigitOrSeparator (value : Char) : Bool :=
-  parseDigit value || value == '_'
-
 def stripNumericSeparators : List Char -> List Char
   | [] => []
   | '_' :: rest => stripNumericSeparators rest
   | value :: rest => value :: stripNumericSeparators rest
 
-def digitSequenceValidAfter (previousWasDigit : Bool) : List Char -> Bool
+def digitSequenceValidAfterWith (isDigit : Char -> Bool) (previousWasDigit : Bool) : List Char -> Bool
   | [] => previousWasDigit
   | value :: rest =>
-      if parseDigit value then
-        digitSequenceValidAfter true rest
+      if isDigit value then
+        digitSequenceValidAfterWith isDigit true rest
       else if value == '_' then
-        previousWasDigit && digitSequenceValidAfter false rest
+        previousWasDigit && digitSequenceValidAfterWith isDigit false rest
       else
         false
 
-def digitSequenceValid (chars : List Char) : Bool :=
-  digitSequenceValidAfter false chars
+def parseDigitOrSeparatorWith (isDigit : Char -> Bool) (value : Char) : Bool :=
+  isDigit value || value == '_'
 
-def parseDigitSequence (context : String) (chars : List Char) : ParseResult String :=
-  let digits := takeWhileChars parseDigitOrSeparator chars []
-  if digitSequenceValid digits.fst then
+def parseDigitSequenceWith
+    (context : String)
+    (isDigit : Char -> Bool)
+    (chars : List Char) : ParseResult String :=
+  let digits := takeWhileChars (parseDigitOrSeparatorWith isDigit) chars []
+  if digitSequenceValidAfterWith isDigit false digits.fst then
     parseOk (String.ofList (stripNumericSeparators digits.fst)) digits.snd
   else
     parseError s!"expected {context} digits"
+
+def parseDigitSequence (context : String) (chars : List Char) : ParseResult String :=
+  parseDigitSequenceWith context parseDigit chars
+
+def parseDigitValue? (value : Char) : Option Nat :=
+  if parseDigit value then
+    some (value.toNat - '0'.toNat)
+  else if parseLowerHexLetter value then
+    some (10 + value.toNat - 'a'.toNat)
+  else
+    none
+
+def parseDigitForBase (base : Nat) (value : Char) : Bool :=
+  match parseDigitValue? value with
+  | some digit => digit < base
+  | none => false
+
+def digitsValueWithBase (base : Nat) : List Char -> Nat -> Option Nat
+  | [], value => some value
+  | digit :: digits, value =>
+      match parseDigitValue? digit with
+      | some next =>
+          if next < base then
+            digitsValueWithBase base digits (value * base + next)
+          else
+            none
+      | none => none
+
+def applyNumberSign (sign : String) (value : Nat) : Int :=
+  if sign == "-" then
+    -(Int.ofNat value)
+  else
+    Int.ofNat value
+
+def parseBasedIntegerWithSign
+    (sign : String)
+    (base : Nat)
+    (context : String)
+    (chars : List Char) : ParseResult String :=
+  match parseDigitSequenceWith context (parseDigitForBase base) chars with
+  | .error error => .error error
+  | .ok (digits, rest) =>
+      match digitsValueWithBase base digits.toList 0 with
+      | some value => parseOk (toString (applyNumberSign sign value)) rest
+      | none => parseError s!"invalid {context} literal"
 
 def parseExponentDigits (sign : String) (chars : List Char) : ParseResult String :=
   match parseDigitSequence "exponent" chars with
@@ -241,21 +289,26 @@ def parseExponentToken : List Char -> ParseResult String
   | chars => parseOk "" chars
 
 def parseNumberWithSign (sign : String) (chars : List Char) : ParseResult String :=
-  match parseDigitSequence "number" chars with
-  | .error error => .error error
-  | .ok (whole, rest) =>
-      match rest with
-      | '.' :: afterDot =>
-          match parseDigitSequence "fraction" afterDot with
-          | .error error => .error error
-          | .ok (fraction, rest) =>
+  match chars with
+  | '0' :: 'x' :: rest => parseBasedIntegerWithSign sign 16 "hexadecimal" rest
+  | '0' :: 'o' :: rest => parseBasedIntegerWithSign sign 8 "octal" rest
+  | '0' :: 'b' :: rest => parseBasedIntegerWithSign sign 2 "binary" rest
+  | _ =>
+      match parseDigitSequence "number" chars with
+      | .error error => .error error
+      | .ok (whole, rest) =>
+          match rest with
+          | '.' :: afterDot =>
+              match parseDigitSequence "fraction" afterDot with
+              | .error error => .error error
+              | .ok (fraction, rest) =>
+                  match parseExponentToken rest with
+                  | .error error => .error error
+                  | .ok (exponent, rest) => parseOk (sign ++ whole ++ "." ++ fraction ++ exponent) rest
+          | rest =>
               match parseExponentToken rest with
               | .error error => .error error
-              | .ok (exponent, rest) => parseOk (sign ++ whole ++ "." ++ fraction ++ exponent) rest
-      | rest =>
-          match parseExponentToken rest with
-          | .error error => .error error
-          | .ok (exponent, rest) => parseOk (sign ++ whole ++ exponent) rest
+              | .ok (exponent, rest) => parseOk (sign ++ whole ++ exponent) rest
 
 def parseNumberToken : List Char -> ParseResult String
   | '-' :: rest => parseNumberWithSign "-" rest
