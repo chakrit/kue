@@ -261,6 +261,44 @@ def applyNumberSign (sign : String) (value : Nat) : Int :=
   else
     Int.ofNat value
 
+def powNat (base : Nat) : Nat -> Nat
+  | 0 => 1
+  | exponent + 1 => base * powNat base exponent
+
+def decimalDigitsValue? (digits : String) : Option Nat :=
+  digitsValueWithBase 10 digits.toList 0
+
+def parseNumberSuffix? : List Char -> Option (Nat × List Char)
+  | 'K' :: 'i' :: rest => some (powNat 1024 1, rest)
+  | 'M' :: 'i' :: rest => some (powNat 1024 2, rest)
+  | 'G' :: 'i' :: rest => some (powNat 1024 3, rest)
+  | 'T' :: 'i' :: rest => some (powNat 1024 4, rest)
+  | 'P' :: 'i' :: rest => some (powNat 1024 5, rest)
+  | 'K' :: rest => some (powNat 1000 1, rest)
+  | 'M' :: rest => some (powNat 1000 2, rest)
+  | 'G' :: rest => some (powNat 1000 3, rest)
+  | 'T' :: rest => some (powNat 1000 4, rest)
+  | 'P' :: rest => some (powNat 1000 5, rest)
+  | _ => none
+
+def applyNumericSuffix
+    (sign : String)
+    (whole fraction : String)
+    (rest : List Char) : ParseResult String :=
+  match parseNumberSuffix? rest with
+  | none => parseOk "" rest
+  | some (multiplier, rest) =>
+      match decimalDigitsValue? whole, decimalDigitsValue? fraction with
+      | some wholeValue, some fractionValue =>
+          let scale := powNat 10 fraction.toList.length
+          let numerator := wholeValue * scale + fractionValue
+          let scaled := numerator * multiplier
+          if scaled % scale == 0 then
+            parseOk (toString (applyNumberSign sign (scaled / scale))) rest
+          else
+            parseError "number cannot be represented as int"
+      | _, _ => parseError "invalid suffixed number"
+
 def parseBasedIntegerWithSign
     (sign : String)
     (base : Nat)
@@ -288,6 +326,26 @@ def parseExponentToken : List Char -> ParseResult String
   | 'E' :: rest => parseExponentSign rest
   | chars => parseOk "" chars
 
+def parseIntegerSuffixOrExponent (sign whole : String) (chars : List Char) : ParseResult String :=
+  match applyNumericSuffix sign whole "" chars with
+  | .error error => .error error
+  | .ok ("", rest) =>
+      match parseExponentToken rest with
+      | .error error => .error error
+      | .ok (exponent, rest) => parseOk (sign ++ whole ++ exponent) rest
+  | .ok (token, rest) => parseOk token rest
+
+def parseFractionSuffixOrExponent
+    (sign whole fraction : String)
+    (chars : List Char) : ParseResult String :=
+  match applyNumericSuffix sign whole fraction chars with
+  | .error error => .error error
+  | .ok ("", rest) =>
+      match parseExponentToken rest with
+      | .error error => .error error
+      | .ok (exponent, rest) => parseOk (sign ++ whole ++ "." ++ fraction ++ exponent) rest
+  | .ok (token, rest) => parseOk token rest
+
 def parseNumberWithSign (sign : String) (chars : List Char) : ParseResult String :=
   match chars with
   | '0' :: 'x' :: rest => parseBasedIntegerWithSign sign 16 "hexadecimal" rest
@@ -301,14 +359,8 @@ def parseNumberWithSign (sign : String) (chars : List Char) : ParseResult String
           | '.' :: afterDot =>
               match parseDigitSequence "fraction" afterDot with
               | .error error => .error error
-              | .ok (fraction, rest) =>
-                  match parseExponentToken rest with
-                  | .error error => .error error
-                  | .ok (exponent, rest) => parseOk (sign ++ whole ++ "." ++ fraction ++ exponent) rest
-          | rest =>
-              match parseExponentToken rest with
-              | .error error => .error error
-              | .ok (exponent, rest) => parseOk (sign ++ whole ++ exponent) rest
+              | .ok (fraction, rest) => parseFractionSuffixOrExponent sign whole fraction rest
+          | rest => parseIntegerSuffixOrExponent sign whole rest
 
 def parseNumberToken : List Char -> ParseResult String
   | '+' :: rest => parseNumberWithSign "" rest

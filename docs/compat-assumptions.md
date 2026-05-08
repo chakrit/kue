@@ -34,7 +34,11 @@ Current assumptions:
   exponent arithmetic the way `cue eval` does.
 - Lowercase non-decimal integer literals with `0x`, `0o`, and `0b` prefixes are
   canonicalized to decimal integers while parsing. Separators are accepted in their digit
-  sequences. Numeric suffixes remain unsupported.
+  sequences.
+- CUE's decimal numeric suffix multipliers `K`, `M`, `G`, `T`, `P` and binary suffixes
+  `Ki`, `Mi`, `Gi`, `Ti`, `Pi` are accepted on decimal integer and decimal fraction
+  literals when the multiplied result is exactly representable as an integer. Inexact
+  suffix products fail during parsing, matching `cue eval`.
 - Duplicate fields are merged after reference evaluation when their field classes have
   an existing merge rule. Unsupported same-label class combinations are kept distinct
   in this pass; diagnostic provenance and output ordering are still first-pass.
@@ -57,7 +61,7 @@ Current assumptions:
   provenance only; richer index diagnostics and non-field dynamic selection remain later
   work.
 - The parser does not yet support imports, non-field aliases, comprehensions, dynamic
-  fields, string interpolation, numeric suffixes, or typed struct ellipsis syntax.
+  fields, string interpolation, or typed struct ellipsis syntax.
 - Multiple pattern fields are represented as independent pattern constraints. Label
   pattern values are still limited to the existing string-kind, exact-string, and
   supported regex subset.

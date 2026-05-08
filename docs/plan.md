@@ -2701,6 +2701,37 @@ Goal: parse unary plus on numeric literals without treating it as binary additio
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Numeric Suffix Multipliers
+
+Goal: parse CUE's decimal and binary numeric suffix multipliers when they produce exact
+integer values.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover `K`, `Ki`, fractional decimal suffixes such as `1.5K` and `1.5Ki`, and a
+   negative suffixed decimal. Also cover that an inexact product such as `0.1Ki` fails.
+   Completed in the numeric suffix multipliers slice.
+
+2. Add exact multiplier parsing.
+   Completed in the numeric suffix multipliers slice.
+   `Kue.Parse` now recognizes `K`, `M`, `G`, `T`, `P` and `Ki`, `Mi`, `Gi`, `Ti`,
+   `Pi` after decimal integer and decimal fraction literals. It multiplies using
+   natural-number arithmetic over the decimal numerator and scale, then rejects products
+   that cannot be represented as an integer.
+
+3. Document the suffix boundary.
+   Completed in the numeric suffix multipliers slice.
+   Exponent-plus-suffix forms remain unsupported because `cue eval` rejects them.
+
+4. Verify.
+   Completed in the numeric suffix multipliers slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

@@ -282,6 +282,20 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
+      fileName := "numeric_suffixes.expected",
+      content :=
+        formatTopLevel
+          (.struct
+            [
+              ("k", .regular, .prim (.int 1000)),
+              ("ki", .regular, .prim (.int 1024)),
+              ("fracK", .regular, .prim (.int 1500)),
+              ("fracKi", .regular, .prim (.int 1536)),
+              ("neg", .regular, .prim (.int (-1500)))
+            ]
+            true)
+    },
+    {
       fileName := "hidden_field_reference.manifest.expected",
       content :=
         formatManifestFieldResult "x"

@@ -175,6 +175,20 @@ theorem fixture_unary_plus_numbers :
       = "x: 1\ny: 1.5\nz: 16" := by
   native_decide
 
+theorem fixture_numeric_suffixes :
+    formatTopLevel
+      (.struct
+        [
+          ("k", .regular, .prim (.int 1000)),
+          ("ki", .regular, .prim (.int 1024)),
+          ("fracK", .regular, .prim (.int 1500)),
+          ("fracKi", .regular, .prim (.int 1536)),
+          ("neg", .regular, .prim (.int (-1500)))
+        ]
+        true)
+      = "k: 1000\nki: 1024\nfracK: 1500\nfracKi: 1536\nneg: -1500" := by
+  native_decide
+
 theorem fixture_duplicate_fields :
     formatTopLevel
       (resolveAndEval

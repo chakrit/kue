@@ -127,6 +127,16 @@ theorem parse_unary_plus_numeric_literals :
       "x: 1\ny: 1.5\nz: 16" = true := by
   native_decide
 
+theorem parse_numeric_suffix_literals :
+    parseOutputMatches
+      "k: 1K\nki: 1Ki\nfracK: 1.5K\nfracKi: 1.5Ki\nneg: -1.5K\n"
+      "k: 1000\nki: 1024\nfracK: 1500\nfracKi: 1536\nneg: -1500" = true := by
+  native_decide
+
+theorem parse_inexact_numeric_suffix_fails :
+    parseFails "bad: 0.1Ki\n" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"
