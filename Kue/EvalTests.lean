@@ -75,10 +75,11 @@ theorem eval_additive_expressions :
           [
             ("sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2))),
             ("diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3))),
-            ("cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b")))
+            ("cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b"))),
+            ("bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd")))
           ]
           true))
-      = "sum: 3\ndiff: 2\ncat: \"ab\"" := by
+      = "sum: 3\ndiff: 2\ncat: \"ab\"\nbytes: 'abcd'" := by
   native_decide
 
 theorem eval_multiplication_expressions :

@@ -2804,6 +2804,37 @@ and comparison system at once.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Bytes Additive Expressions
+
+Goal: support byte-sequence concatenation with `+`, matching CUE's additive behavior
+for concrete byte literals.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover simple byte concatenation and left-associative chained byte concatenation, with
+   expected output checked against `cue eval`.
+   Completed in the bytes additive expressions slice.
+
+2. Extend additive evaluation.
+   Completed in the bytes additive expressions slice.
+   `evalAdd` now concatenates concrete `Prim.bytes` operands in addition to ints and
+   strings.
+
+3. Document the list arithmetic boundary.
+   Completed in the bytes additive expressions slice.
+   Local `cue eval` for v0.15.4 rejects list `+` with the `v0.11-list-arithmetic`
+   diagnostic and points users to `list.Concat`, so list `+` is not a compatibility
+   target for this operator.
+
+4. Verify.
+   Completed in the bytes additive expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Completed Slice: Multiplication Expressions
 
 Goal: add the first multiplicative operator while preserving CUE's precedence over

@@ -45,6 +45,24 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "bytes_additive_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd"))),
+                (
+                  "left",
+                  .regular,
+                  .binary .add
+                    (.binary .add (.prim (.bytes "a")) (.prim (.bytes "b")))
+                    (.prim (.bytes "c"))
+                )
+              ]
+              true))
+    },
+    {
       fileName := "multiplication_expressions.expected",
       content :=
         formatTopLevel

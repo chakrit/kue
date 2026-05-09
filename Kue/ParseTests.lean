@@ -149,6 +149,12 @@ theorem parse_additive_expressions :
       "sum: 3\ndiff: 2\ncat: \"ab\"" = true := by
   native_decide
 
+theorem parse_bytes_additive_expressions :
+    parseOutputMatches
+      "bytes: 'ab' + 'cd'\nleft: 'a' + 'b' + 'c'\n"
+      "bytes: 'abcd'\nleft: 'abc'" = true := by
+  native_decide
+
 theorem parse_multiplication_expressions :
     parseOutputMatches
       "mul: 3 * 4\nprecedence: 1 + 2 * 3\nleft: 2 * 3 * 4\n"

@@ -15,6 +15,24 @@ theorem fixture_additive_expressions :
       = "sum: 3\ndiff: 2\ncat: \"ab\"" := by
   native_decide
 
+theorem fixture_bytes_additive_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd"))),
+            (
+              "left",
+              .regular,
+              .binary .add
+                (.binary .add (.prim (.bytes "a")) (.prim (.bytes "b")))
+                (.prim (.bytes "c"))
+            )
+          ]
+          true))
+      = "bytes: 'abcd'\nleft: 'abc'" := by
+  native_decide
+
 theorem fixture_multiplication_expressions :
     formatTopLevel
       (resolveAndEval

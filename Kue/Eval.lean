@@ -144,6 +144,7 @@ def evalAdd (left right : Value) : Value :=
   match left, right with
   | .prim (.int left), .prim (.int right) => .prim (.int (left + right))
   | .prim (.string left), .prim (.string right) => .prim (.string (left ++ right))
+  | .prim (.bytes left), .prim (.bytes right) => .prim (.bytes (left ++ right))
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
