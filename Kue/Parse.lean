@@ -444,6 +444,26 @@ def structEllipsisEndsHere : List Char -> Bool
   | '}' :: _ => true
   | _ => false
 
+def dropWord? (word : String) (chars : List Char) : Option (List Char) :=
+  if startsWithWord word chars then
+    dropPrefix? word.toList chars
+  else
+    none
+
+def parseMultiplicativeKeywordOp? (chars : List Char) : Option (BinaryOp × List Char) :=
+  match dropWord? "div" chars with
+  | some rest => some (.intDiv, rest)
+  | none =>
+      match dropWord? "mod" chars with
+      | some rest => some (.intMod, rest)
+      | none =>
+          match dropWord? "quo" chars with
+          | some rest => some (.intQuo, rest)
+          | none =>
+              match dropWord? "rem" chars with
+              | some rest => some (.intRem, rest)
+              | none => none
+
 mutual
   partial def parseExpression (chars : List Char) : ParseResult Value :=
     parseDisjunction chars
@@ -581,7 +601,8 @@ mutual
     | .ok (first, rest) => parseMultiplicativeRest first rest
 
   partial def parseMultiplicativeRest (left : Value) (chars : List Char) : ParseResult Value :=
-    match skipTrivia chars with
+    let chars := skipTrivia chars
+    match chars with
     | '*' :: rest =>
         match parseUnary rest with
         | .error error => .error error
@@ -590,7 +611,13 @@ mutual
         match parseUnary rest with
         | .error error => .error error
         | .ok (right, rest) => parseMultiplicativeRest (.binary .div left right) rest
-    | rest => parseOk left rest
+    | rest =>
+        match parseMultiplicativeKeywordOp? rest with
+        | some (op, rest) =>
+            match parseUnary rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseMultiplicativeRest (.binary op left right) rest
+        | none => parseOk left rest
 
   partial def parseUnary (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with

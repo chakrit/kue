@@ -49,6 +49,10 @@ Current assumptions:
   integer division produces decimal float text, including one fractional digit for whole
   results and 34 fractional digits for non-terminating decimal expansions. Division by
   zero bottoms out with structural provenance. Float operands remain later work.
+- Integer keyword expressions `div`, `mod`, `quo`, and `rem` are parsed at
+  multiplicative precedence and reuse the existing integer builtin semantics. Concrete
+  integer operands evaluate now; incomplete operands remain as residual infix binary
+  expressions.
 - Equality expressions `==` and `!=` are parsed after additive/multiplicative
   expressions. The evaluator currently handles concrete primitive equality only; equality
   over incomplete values and compound values remains later work.

@@ -115,6 +115,24 @@ theorem eval_division_by_zero_bottom :
     evalBinary .div (.prim (.int 1)) (.prim (.int 0)) = .bottomWith [.divisionByZero] := by
   rfl
 
+theorem eval_integer_keyword_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("divValue", .regular, .binary .intDiv (.prim (.int (-7))) (.prim (.int 3))),
+            ("modValue", .regular, .binary .intMod (.prim (.int (-7))) (.prim (.int 3))),
+            ("quoValue", .regular, .binary .intQuo (.prim (.int (-7))) (.prim (.int 3))),
+            ("remValue", .regular, .binary .intRem (.prim (.int (-7))) (.prim (.int 3)))
+          ]
+          true))
+      = "divValue: -3\nmodValue: 2\nquoValue: -2\nremValue: -1" := by
+  native_decide
+
+theorem eval_integer_keyword_incomplete_keeps_infix :
+    formatValue (evalBinary .intDiv (.kind .int) (.prim (.int 3))) = "int div 3" := by
+  native_decide
+
 theorem eval_equality_expressions :
     formatTopLevel
       (resolveAndEval

@@ -2839,6 +2839,42 @@ ordinary division as decimal float output.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Integer Keyword Expressions
+
+Goal: support CUE's integer keyword operators `div`, `mod`, `quo`, and `rem` as infix
+multiplicative expressions.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover Euclidean `div`/`mod`, truncated `quo`/`rem`, and additive precedence after
+   keyword integer operators, with expected output checked against `cue eval`.
+   Completed in the integer keyword expressions slice.
+
+2. Extend binary operator syntax.
+   Completed in the integer keyword expressions slice.
+   `BinaryOp.intDiv`, `intMod`, `intQuo`, and `intRem` preserve CUE's infix spelling
+   for residual formatting.
+
+3. Reuse existing integer builtin semantics.
+   Completed in the integer keyword expressions slice.
+   The evaluator delegates the keyword operators to `divValue`, `modValue`, `quoValue`,
+   and `remValue`, keeping division-by-zero and incomplete integer handling aligned with
+   the existing builtin tests.
+
+4. Parse keyword operators at multiplicative precedence.
+   Completed in the integer keyword expressions slice.
+   `Kue.Parse` recognizes keyword operators only at word boundaries, so identifiers
+   such as `divide` are not consumed as `div`.
+
+5. Verify.
+   Completed in the integer keyword expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Completed Slice: Equality Expressions
 
 Goal: support concrete `==` and `!=` expressions as the first comparison layer.

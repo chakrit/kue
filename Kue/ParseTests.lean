@@ -155,6 +155,12 @@ theorem parse_division_expressions :
       "div: 2.5\nwhole: 2.0\nthird: 0.3333333333333333333333333333333333\nnegative: -2.5" = true := by
   native_decide
 
+theorem parse_integer_keyword_expressions :
+    parseOutputMatches
+      "divValue: -7 div 3\nmodValue: -7 mod 3\nquoValue: -7 quo 3\nremValue: -7 rem 3\nprecedence: 1 + 7 div 3\n"
+      "divValue: -3\nmodValue: 2\nquoValue: -2\nremValue: -1\nprecedence: 3" = true := by
+  native_decide
+
 theorem parse_equality_expressions :
     parseOutputMatches
       "same: 1 == 1\ndiff: 1 != 2\ntext: \"a\" == \"b\"\nprecedence: 1 + 1 == 2\n"

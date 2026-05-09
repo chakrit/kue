@@ -50,6 +50,25 @@ theorem fixture_division_expressions :
       = "div: 2.5\nwhole: 2.0\nthird: 0.3333333333333333333333333333333333\nnegative: -2.5" := by
   native_decide
 
+theorem fixture_integer_keyword_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("divValue", .regular, .binary .intDiv (.prim (.int (-7))) (.prim (.int 3))),
+            ("modValue", .regular, .binary .intMod (.prim (.int (-7))) (.prim (.int 3))),
+            ("quoValue", .regular, .binary .intQuo (.prim (.int (-7))) (.prim (.int 3))),
+            ("remValue", .regular, .binary .intRem (.prim (.int (-7))) (.prim (.int 3))),
+            (
+              "precedence",
+              .regular,
+              .binary .add (.prim (.int 1)) (.binary .intDiv (.prim (.int 7)) (.prim (.int 3)))
+            )
+          ]
+          true))
+      = "divValue: -3\nmodValue: 2\nquoValue: -2\nremValue: -1\nprecedence: 3" := by
+  native_decide
+
 theorem fixture_equality_expressions :
     formatTopLevel
       (resolveAndEval

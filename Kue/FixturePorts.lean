@@ -80,6 +80,25 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "integer_keyword_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("divValue", .regular, .binary .intDiv (.prim (.int (-7))) (.prim (.int 3))),
+                ("modValue", .regular, .binary .intMod (.prim (.int (-7))) (.prim (.int 3))),
+                ("quoValue", .regular, .binary .intQuo (.prim (.int (-7))) (.prim (.int 3))),
+                ("remValue", .regular, .binary .intRem (.prim (.int (-7))) (.prim (.int 3))),
+                (
+                  "precedence",
+                  .regular,
+                  .binary .add (.prim (.int 1)) (.binary .intDiv (.prim (.int 7)) (.prim (.int 3)))
+                )
+              ]
+              true))
+    },
+    {
       fileName := "equality_expressions.expected",
       content :=
         formatTopLevel

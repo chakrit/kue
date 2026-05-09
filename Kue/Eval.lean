@@ -277,6 +277,14 @@ def evalRegexNotMatch (left right : Value) : Value :=
   | .binary .regexMatch left right => .binary .regexNotMatch left right
   | value => value
 
+def evalIntKeywordBinary
+    (op : BinaryOp)
+    (intEval : Value -> Value -> Value)
+    (left right : Value) : Value :=
+  match intEval left right with
+  | .builtinCall _ _ => .binary op left right
+  | value => value
+
 def evalBoolBinary (op : BinaryOp) (boolOp : Bool -> Bool -> Bool) (left right : Value) : Value :=
   match left, right with
   | .prim (.bool left), .prim (.bool right) => .prim (.bool (boolOp left right))
@@ -305,6 +313,10 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .sub => evalSub left right
   | .mul => evalMul left right
   | .div => evalDiv left right
+  | .intDiv => evalIntKeywordBinary .intDiv divValue left right
+  | .intMod => evalIntKeywordBinary .intMod modValue left right
+  | .intQuo => evalIntKeywordBinary .intQuo quoValue left right
+  | .intRem => evalIntKeywordBinary .intRem remValue left right
   | .eq => evalEq left right
   | .ne => evalNe left right
   | .lt => evalPrimitiveOrdering (fun left right => left < right) stringsLt .lt left right

@@ -47,6 +47,10 @@ inductive BinaryOp where
   | sub
   | mul
   | div
+  | intDiv
+  | intMod
+  | intQuo
+  | intRem
   | eq
   | ne
   | lt
