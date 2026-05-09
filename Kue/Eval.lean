@@ -140,6 +140,32 @@ def selectEvaluatedIndex (base key : Value) : Value :=
   | .bottomWith reasons => .bottomWith reasons
   | _ => .bottom
 
+def evalAdd (left right : Value) : Value :=
+  match left, right with
+  | .prim (.int left), .prim (.int right) => .prim (.int (left + right))
+  | .prim (.string left), .prim (.string right) => .prim (.string (left ++ right))
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | .prim _, .prim _ => .bottom
+  | _, _ => .binary .add left right
+
+def evalSub (left right : Value) : Value :=
+  match left, right with
+  | .prim (.int left), .prim (.int right) => .prim (.int (left - right))
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | .prim _, .prim _ => .bottom
+  | _, _ => .binary .sub left right
+
+def evalBinary (op : BinaryOp) (left right : Value) : Value :=
+  match op with
+  | .add => evalAdd left right
+  | .sub => evalSub left right
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -167,6 +193,10 @@ mutual
         evaluated.foldl (fun current constraint => meet current constraint) .top
     | fuel + 1, fields, bindings, visited, .builtinCall name args =>
         evalBuiltinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
+    | fuel + 1, fields, bindings, visited, .binary op left right =>
+        evalBinary op
+          (evalValueWithFuel fuel fields bindings visited left)
+          (evalValueWithFuel fuel fields bindings visited right)
     | fuel + 1, fields, bindings, visited, .selector base label =>
         selectEvaluatedField (evalValueWithFuel fuel fields bindings visited base) label
     | fuel + 1, fields, bindings, visited, .index base key =>

@@ -65,6 +65,7 @@ mutual
     | _ + 1, .intLt maximum => .error (.incomplete (.intLt maximum))
     | _ + 1, .conj constraints => .error (.incomplete (.conj constraints))
     | _ + 1, .builtinCall name args => .error (.incomplete (.builtinCall name args))
+    | _ + 1, .binary op left right => .error (.incomplete (.binary op left right))
     | _ + 1, .ref label => .error (.incomplete (.ref label))
     | _ + 1, .refId id => .error (.incomplete (.refId id))
     | _ + 1, .selector base label => .error (.incomplete (.selector base label))

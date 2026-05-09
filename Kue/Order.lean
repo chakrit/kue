@@ -200,6 +200,10 @@ mutual
     | fuel + 1, .conj constraints, value => allConstraintsSubsumeWithFuel fuel constraints value
     | _ + 1, .builtinCall expectedName expectedArgs, .builtinCall actualName actualArgs =>
         expectedName = actualName && expectedArgs == actualArgs
+    | fuel + 1, .binary expectedOp expectedLeft expectedRight, .binary actualOp actualLeft actualRight =>
+        expectedOp == actualOp
+          && subsumesWithFuel fuel expectedLeft actualLeft
+          && subsumesWithFuel fuel expectedRight actualRight
     | _ + 1, .ref expectedLabel, .ref actualLabel => expectedLabel == actualLabel
     | _ + 1, .refId expectedId, .refId actualId => expectedId == actualId
     | fuel + 1, .selector expectedBase expectedLabel, .selector actualBase actualLabel =>

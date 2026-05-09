@@ -32,6 +32,19 @@ def formatManifestFieldResult (name : String) (value : Value) : String :=
 def fixturePorts : List FixturePort :=
   [
     {
+      fileName := "additive_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2))),
+                ("diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3))),
+                ("cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b")))
+              ]
+              true))
+    },
+    {
       fileName := "bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

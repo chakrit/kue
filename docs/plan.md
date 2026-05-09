@@ -2732,6 +2732,41 @@ integer values.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Additive Expressions
+
+Goal: support the first infix expression layer without introducing the full arithmetic
+and comparison system at once.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover concrete integer addition, concrete integer subtraction, and string
+   concatenation, with expected output checked against `cue eval`.
+   Completed in the additive expressions slice.
+
+2. Add an additive expression representation.
+   Completed in the additive expressions slice.
+   `Value.binary` carries a small `BinaryOp` for `+` and `-`, and traversal layers now
+   resolve, normalize, format, manifest, and evaluate binary operands consistently.
+
+3. Parse additive expressions between primary expressions and conjunction.
+   Completed in the additive expressions slice.
+   `Kue.Parse` now parses `+` and `-` as left-associative infix operators before `&`
+   and `|` folding.
+
+4. Document the arithmetic boundary.
+   Completed in the additive expressions slice.
+   Float arithmetic, list concatenation, multiplication/division operators,
+   comparisons, and boolean operators remain later work.
+
+5. Verify.
+   Completed in the additive expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

@@ -137,6 +137,12 @@ theorem parse_inexact_numeric_suffix_fails :
     parseFails "bad: 0.1Ki\n" = true := by
   native_decide
 
+theorem parse_additive_expressions :
+    parseOutputMatches
+      "sum: 1 + 2\ndiff: 5 - 3\ncat: \"a\" + \"b\"\n"
+      "sum: 3\ndiff: 2\ncat: \"ab\"" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

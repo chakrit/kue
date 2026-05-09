@@ -68,6 +68,19 @@ theorem eval_static_string_field_index :
       = "base: {inner: 4}\nx: 4" := by
   native_decide
 
+theorem eval_additive_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2))),
+            ("diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3))),
+            ("cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b")))
+          ]
+          true))
+      = "sum: 3\ndiff: 2\ncat: \"ab\"" := by
+  native_decide
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs

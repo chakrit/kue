@@ -2,6 +2,19 @@ import Kue.FixturePorts
 
 namespace Kue
 
+theorem fixture_additive_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2))),
+            ("diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3))),
+            ("cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b")))
+          ]
+          true))
+      = "sum: 3\ndiff: 2\ncat: \"ab\"" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide

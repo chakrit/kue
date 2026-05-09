@@ -64,6 +64,10 @@ def joinWith (separator : String) : List String -> String
   | [value] => value
   | value :: values => value ++ separator ++ joinWith separator values
 
+def formatBinaryOp : BinaryOp -> String
+  | .add => "+"
+  | .sub => "-"
+
 def formatFuel : Nat :=
   100
 
@@ -116,6 +120,12 @@ mutual
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | fuel + 1, .builtinCall name args =>
         name ++ "(" ++ joinWith ", " (args.map (formatValueWithFuel fuel)) ++ ")"
+    | fuel + 1, .binary op left right =>
+        formatValueWithFuel fuel left
+          ++ " "
+          ++ formatBinaryOp op
+          ++ " "
+          ++ formatValueWithFuel fuel right
     | _, .ref label => label
     | _, .refId id => s!"@{id.index}"
     | fuel + 1, .selector base label =>
