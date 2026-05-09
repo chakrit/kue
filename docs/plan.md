@@ -2803,6 +2803,42 @@ additive expressions.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Division Expressions
+
+Goal: support `/` separately from the existing integer `div` builtin because CUE renders
+ordinary division as decimal float output.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover `5 / 2`, whole integer division as `2.0`, a recurring decimal `1 / 3`, and a
+   negative division. Also cover division by zero at the evaluator level.
+   Completed in the division expressions slice.
+
+2. Extend binary evaluation with decimal rational rendering.
+   Completed in the division expressions slice.
+   `BinaryOp.div` evaluates concrete integer operands to `Prim.float` text. Terminating
+   decimals are trimmed to their significant fractional digits, whole results keep `.0`,
+   and recurring decimals are rendered to the 34 fractional digits observed from
+   `cue eval`.
+
+3. Parse division with multiplication precedence.
+   Completed in the division expressions slice.
+   `Kue.Parse` folds `/` left-associatively with `*`.
+
+4. Document the float operand boundary.
+   Completed in the division expressions slice.
+   Division over existing float literals remains later work because Kue still stores
+   floats as spelling strings rather than normalized numeric values.
+
+5. Verify.
+   Completed in the division expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

@@ -42,6 +42,7 @@ inductive BinaryOp where
   | add
   | sub
   | mul
+  | div
 deriving Repr, BEq, DecidableEq
 
 inductive FieldClass where

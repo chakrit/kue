@@ -97,6 +97,24 @@ theorem eval_multiplication_expressions :
       = "mul: 12\nprecedence: 7" := by
   native_decide
 
+theorem eval_division_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("div", .regular, .binary .div (.prim (.int 5)) (.prim (.int 2))),
+            ("whole", .regular, .binary .div (.prim (.int 6)) (.prim (.int 3))),
+            ("third", .regular, .binary .div (.prim (.int 1)) (.prim (.int 3))),
+            ("negative", .regular, .binary .div (.prim (.int (-5))) (.prim (.int 2)))
+          ]
+          true))
+      = "div: 2.5\nwhole: 2.0\nthird: 0.3333333333333333333333333333333333\nnegative: -2.5" := by
+  native_decide
+
+theorem eval_division_by_zero_bottom :
+    evalBinary .div (.prim (.int 1)) (.prim (.int 0)) = .bottomWith [.divisionByZero] := by
+  rfl
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs

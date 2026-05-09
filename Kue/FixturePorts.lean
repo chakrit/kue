@@ -66,6 +66,20 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "division_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("div", .regular, .binary .div (.prim (.int 5)) (.prim (.int 2))),
+                ("whole", .regular, .binary .div (.prim (.int 6)) (.prim (.int 3))),
+                ("third", .regular, .binary .div (.prim (.int 1)) (.prim (.int 3))),
+                ("negative", .regular, .binary .div (.prim (.int (-5))) (.prim (.int 2)))
+              ]
+              true))
+    },
+    {
       fileName := "bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

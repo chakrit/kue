@@ -149,6 +149,12 @@ theorem parse_multiplication_expressions :
       "mul: 12\nprecedence: 7\nleft: 24" = true := by
   native_decide
 
+theorem parse_division_expressions :
+    parseOutputMatches
+      "div: 5 / 2\nwhole: 6 / 3\nthird: 1 / 3\nnegative: -5 / 2\n"
+      "div: 2.5\nwhole: 2.0\nthird: 0.3333333333333333333333333333333333\nnegative: -2.5" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

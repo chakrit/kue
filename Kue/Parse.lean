@@ -521,6 +521,10 @@ mutual
         match parsePrimary rest with
         | .error error => .error error
         | .ok (right, rest) => parseMultiplicativeRest (.binary .mul left right) rest
+    | '/' :: rest =>
+        match parsePrimary rest with
+        | .error error => .error error
+        | .ok (right, rest) => parseMultiplicativeRest (.binary .div left right) rest
     | rest => parseOk left rest
 
   partial def parsePrimary (chars : List Char) : ParseResult Value :=

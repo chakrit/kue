@@ -68,6 +68,7 @@ def formatBinaryOp : BinaryOp -> String
   | .add => "+"
   | .sub => "-"
   | .mul => "*"
+  | .div => "/"
 
 def formatFuel : Nat :=
   100

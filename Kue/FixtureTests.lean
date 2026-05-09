@@ -36,6 +36,20 @@ theorem fixture_multiplication_expressions :
       = "mul: 12\nprecedence: 7\nleft: 24" := by
   native_decide
 
+theorem fixture_division_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("div", .regular, .binary .div (.prim (.int 5)) (.prim (.int 2))),
+            ("whole", .regular, .binary .div (.prim (.int 6)) (.prim (.int 3))),
+            ("third", .regular, .binary .div (.prim (.int 1)) (.prim (.int 3))),
+            ("negative", .regular, .binary .div (.prim (.int (-5))) (.prim (.int 2)))
+          ]
+          true))
+      = "div: 2.5\nwhole: 2.0\nthird: 0.3333333333333333333333333333333333\nnegative: -2.5" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide
