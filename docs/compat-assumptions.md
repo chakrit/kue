@@ -45,8 +45,10 @@ Current assumptions:
   modeled.
 - Additive expressions are represented explicitly. The evaluator currently handles
   concrete integer addition/subtraction plus concrete string and byte concatenation.
-  Float arithmetic and richer numeric promotion remain later work. List arithmetic is
-  not targeted for `+` because CUE v0.15.4 rejects it in favor of `list.Concat`.
+  Finite decimal float addition/subtraction is evaluated exactly with scaled integer
+  arithmetic, including exponent spellings. Float multiplication/division and richer
+  numeric promotion remain later work. List arithmetic is not targeted for `+` because
+  CUE v0.15.4 rejects it in favor of `list.Concat`.
 - Multiplication expressions are parsed with higher precedence than additive
   expressions. The evaluator currently handles concrete integer multiplication only.
   Float multiplication remains later work.

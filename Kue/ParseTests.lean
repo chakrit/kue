@@ -155,6 +155,12 @@ theorem parse_bytes_additive_expressions :
       "bytes: 'abcd'\nleft: 'abc'" = true := by
   native_decide
 
+theorem parse_float_additive_expressions :
+    parseOutputMatches
+      "floatSum: 1.5 + 2.25\nintFloat: 1 + 2.5\nfloatSub: 5.5 - 2\nwhole: 1.5 + 1.5\nexp: 1e3 + 2\nsmall: 0.1 + 0.2\n"
+      "floatSum: 3.75\nintFloat: 3.5\nfloatSub: 3.5\nwhole: 3.0\nexp: 1002.0\nsmall: 0.3" = true := by
+  native_decide
+
 theorem parse_multiplication_expressions :
     parseOutputMatches
       "mul: 3 * 4\nprecedence: 1 + 2 * 3\nleft: 2 * 3 * 4\n"

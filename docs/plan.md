@@ -2835,6 +2835,41 @@ for concrete byte literals.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Float Additive Expressions
+
+Goal: support finite decimal float addition and subtraction without introducing a full
+numeric tower.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover decimal addition, int-plus-float promotion, float subtraction, whole float
+   output with `.0`, exponent spelling, and exact decimal `0.1 + 0.2`, with expected
+   output checked against `cue eval`.
+   Completed in the float additive expressions slice.
+
+2. Add finite-decimal parsing.
+   Completed in the float additive expressions slice.
+   `Kue.Eval` now parses int and float primitive spellings into scaled integer decimal
+   values, including `e`/`E` exponents.
+
+3. Evaluate additive decimal arithmetic exactly.
+   Completed in the float additive expressions slice.
+   Add/sub align decimal scales, perform integer arithmetic, trim redundant fractional
+   zeroes, and keep `.0` when a float operand produced a whole-number result.
+
+4. Document the numeric boundary.
+   Completed in the float additive expressions slice.
+   Float multiplication/division and richer numeric equivalence remain later work.
+
+5. Verify.
+   Completed in the float additive expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Completed Slice: Multiplication Expressions
 
 Goal: add the first multiplicative operator while preserving CUE's precedence over

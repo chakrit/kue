@@ -33,6 +33,22 @@ theorem fixture_bytes_additive_expressions :
       = "bytes: 'abcd'\nleft: 'abc'" := by
   native_decide
 
+theorem fixture_float_additive_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25"))),
+            ("intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5"))),
+            ("floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2))),
+            ("whole", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "1.5"))),
+            ("exp", .regular, .binary .add (.prim (.float "1e+3")) (.prim (.int 2))),
+            ("small", .regular, .binary .add (.prim (.float "0.1")) (.prim (.float "0.2")))
+          ]
+          true))
+      = "floatSum: 3.75\nintFloat: 3.5\nfloatSub: 3.5\nwhole: 3.0\nexp: 1002.0\nsmall: 0.3" := by
+  native_decide
+
 theorem fixture_multiplication_expressions :
     formatTopLevel
       (resolveAndEval

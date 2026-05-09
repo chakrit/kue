@@ -63,6 +63,22 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "float_additive_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25"))),
+                ("intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5"))),
+                ("floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2))),
+                ("whole", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "1.5"))),
+                ("exp", .regular, .binary .add (.prim (.float "1e+3")) (.prim (.int 2))),
+                ("small", .regular, .binary .add (.prim (.float "0.1")) (.prim (.float "0.2")))
+              ]
+              true))
+    },
+    {
       fileName := "multiplication_expressions.expected",
       content :=
         formatTopLevel
