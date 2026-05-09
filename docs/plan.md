@@ -2872,6 +2872,40 @@ Goal: support concrete `==` and `!=` expressions as the first comparison layer.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Ordering Expressions
+
+Goal: support concrete primitive ordering comparisons after additive and multiplicative
+expressions.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover `<`, `<=`, `>`, `>=`, string ordering, and additive precedence before ordering,
+   with expected output checked against `cue eval`.
+   Completed in the ordering expressions slice.
+
+2. Extend binary evaluation with ordering operators.
+   Completed in the ordering expressions slice.
+   `BinaryOp.lt`, `le`, `gt`, and `ge` evaluate concrete integer operands and concrete
+   string operands to booleans. Mixed primitive kinds bottom out for now.
+
+3. Parse ordering at comparison precedence.
+   Completed in the ordering expressions slice.
+   `Kue.Parse` now parses ordering operators in the same comparison layer as equality
+   after arithmetic parsing.
+
+4. Document the ordering boundary.
+   Completed in the ordering expressions slice.
+   Float ordering and ordering over incomplete or compound values remain later work.
+
+5. Verify.
+   Completed in the ordering expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

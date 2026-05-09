@@ -52,6 +52,10 @@ Current assumptions:
 - Equality expressions `==` and `!=` are parsed after additive/multiplicative
   expressions. The evaluator currently handles concrete primitive equality only; equality
   over incomplete values and compound values remains later work.
+- Ordering expressions `<`, `<=`, `>`, and `>=` are parsed at the same comparison
+  precedence as equality. The evaluator currently handles concrete integer and string
+  operands. Mixed-kind ordering bottoms out; ordering over floats, bytes, incomplete
+  values, and compound values remains later work.
 - Duplicate fields are merged after reference evaluation when their field classes have
   an existing merge rule. Unsupported same-label class combinations are kept distinct
   in this pass; diagnostic provenance and output ordering are still first-pass.
@@ -74,8 +78,7 @@ Current assumptions:
   provenance only; richer index diagnostics and non-field dynamic selection remain later
   work.
 - The parser does not yet support imports, non-field aliases, comprehensions, dynamic
-  fields, string interpolation, ordering/logical expressions, or typed struct ellipsis
-  syntax.
+  fields, string interpolation, logical expressions, or typed struct ellipsis syntax.
 - Multiple pattern fields are represented as independent pattern constraints. Label
   pattern values are still limited to the existing string-kind, exact-string, and
   supported regex subset.

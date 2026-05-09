@@ -498,6 +498,14 @@ mutual
     | .error error => .error error
     | .ok (left, rest) =>
         match skipTrivia rest with
+        | '<' :: '=' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .le left right) rest
+        | '>' :: '=' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .ge left right) rest
         | '=' :: '=' :: rest =>
             match parseAdditive rest with
             | .error error => .error error
@@ -506,6 +514,14 @@ mutual
             match parseAdditive rest with
             | .error error => .error error
             | .ok (right, rest) => parseOk (.binary .ne left right) rest
+        | '<' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .lt left right) rest
+        | '>' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .gt left right) rest
         | rest => parseOk left rest
 
   partial def parseAdditive (chars : List Char) : ParseResult Value :=

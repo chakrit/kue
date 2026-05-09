@@ -68,6 +68,26 @@ theorem fixture_equality_expressions :
       = "same: true\ndiff: true\ntext: false\nprecedence: true" := by
   native_decide
 
+theorem fixture_ordering_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("lt", .regular, .binary .lt (.prim (.int 1)) (.prim (.int 2))),
+            ("le", .regular, .binary .le (.prim (.int 2)) (.prim (.int 2))),
+            ("gt", .regular, .binary .gt (.prim (.int 3)) (.prim (.int 2))),
+            ("ge", .regular, .binary .ge (.prim (.int 3)) (.prim (.int 4))),
+            ("slt", .regular, .binary .lt (.prim (.string "a")) (.prim (.string "b"))),
+            (
+              "precedence",
+              .regular,
+              .binary .lt (.binary .add (.prim (.int 1)) (.prim (.int 2))) (.prim (.int 4))
+            )
+          ]
+          true))
+      = "lt: true\nle: true\ngt: true\nge: false\nslt: true\nprecedence: true" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide

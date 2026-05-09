@@ -45,6 +45,10 @@ inductive BinaryOp where
   | div
   | eq
   | ne
+  | lt
+  | le
+  | gt
+  | ge
 deriving Repr, BEq, DecidableEq
 
 inductive FieldClass where

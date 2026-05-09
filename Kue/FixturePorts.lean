@@ -98,6 +98,26 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "ordering_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("lt", .regular, .binary .lt (.prim (.int 1)) (.prim (.int 2))),
+                ("le", .regular, .binary .le (.prim (.int 2)) (.prim (.int 2))),
+                ("gt", .regular, .binary .gt (.prim (.int 3)) (.prim (.int 2))),
+                ("ge", .regular, .binary .ge (.prim (.int 3)) (.prim (.int 4))),
+                ("slt", .regular, .binary .lt (.prim (.string "a")) (.prim (.string "b"))),
+                (
+                  "precedence",
+                  .regular,
+                  .binary .lt (.binary .add (.prim (.int 1)) (.prim (.int 2))) (.prim (.int 4))
+                )
+              ]
+              true))
+    },
+    {
       fileName := "bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

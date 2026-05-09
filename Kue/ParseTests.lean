@@ -161,6 +161,12 @@ theorem parse_equality_expressions :
       "same: true\ndiff: true\ntext: false\nprecedence: true" = true := by
   native_decide
 
+theorem parse_ordering_expressions :
+    parseOutputMatches
+      "lt: 1 < 2\nle: 2 <= 2\ngt: 3 > 2\nge: 3 >= 4\nslt: \"a\" < \"b\"\nprecedence: 1 + 2 < 4\n"
+      "lt: true\nle: true\ngt: true\nge: false\nslt: true\nprecedence: true" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

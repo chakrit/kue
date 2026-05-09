@@ -1,0 +1,6 @@
+lt: true
+le: true
+gt: true
+ge: false
+slt: true
+precedence: true

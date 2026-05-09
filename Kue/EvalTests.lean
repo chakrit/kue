@@ -128,6 +128,21 @@ theorem eval_equality_expressions :
       = "same: true\ndiff: true\ntext: false" := by
   native_decide
 
+theorem eval_ordering_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("lt", .regular, .binary .lt (.prim (.int 1)) (.prim (.int 2))),
+            ("le", .regular, .binary .le (.prim (.int 2)) (.prim (.int 2))),
+            ("gt", .regular, .binary .gt (.prim (.int 3)) (.prim (.int 2))),
+            ("ge", .regular, .binary .ge (.prim (.int 3)) (.prim (.int 4))),
+            ("slt", .regular, .binary .lt (.prim (.string "a")) (.prim (.string "b")))
+          ]
+          true))
+      = "lt: true\nle: true\ngt: true\nge: false\nslt: true" := by
+  native_decide
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs

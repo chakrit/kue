@@ -233,6 +233,34 @@ def evalNe (left right : Value) : Value :=
   | .binary .eq left right => .binary .ne left right
   | value => value
 
+def charsLt : List Char -> List Char -> Bool
+  | [], [] => false
+  | [], _ :: _ => true
+  | _ :: _, [] => false
+  | left :: leftRest, right :: rightRest =>
+      if left.toNat == right.toNat then
+        charsLt leftRest rightRest
+      else
+        left.toNat < right.toNat
+
+def stringsLt (left right : String) : Bool :=
+  charsLt left.toList right.toList
+
+def evalPrimitiveOrdering
+    (intOp : Int -> Int -> Bool)
+    (stringOp : String -> String -> Bool)
+    (op : BinaryOp)
+    (left right : Value) : Value :=
+  match left, right with
+  | .prim (.int left), .prim (.int right) => .prim (.bool (intOp left right))
+  | .prim (.string left), .prim (.string right) => .prim (.bool (stringOp left right))
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | .prim _, .prim _ => .bottom
+  | _, _ => .binary op left right
+
 def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   match op with
   | .add => evalAdd left right
@@ -241,6 +269,10 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .div => evalDiv left right
   | .eq => evalEq left right
   | .ne => evalNe left right
+  | .lt => evalPrimitiveOrdering (fun left right => left < right) stringsLt .lt left right
+  | .le => evalPrimitiveOrdering (fun left right => left <= right) (fun left right => !stringsLt right left) .le left right
+  | .gt => evalPrimitiveOrdering (fun left right => left > right) (fun left right => stringsLt right left) .gt left right
+  | .ge => evalPrimitiveOrdering (fun left right => left >= right) (fun left right => !stringsLt left right) .ge left right
 
 mutual
   def evalFieldRefsWithFuel
