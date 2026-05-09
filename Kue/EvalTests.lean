@@ -175,6 +175,19 @@ theorem eval_logical_not_expressions :
       = "notFalse: true\nnotCmp: false\ndouble: true" := by
   native_decide
 
+theorem eval_regex_match_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("match", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))),
+            ("miss", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "z"))),
+            ("notMatch", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "z")))
+          ]
+          true))
+      = "match: true\nmiss: false\nnotMatch: true" := by
+  native_decide
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs

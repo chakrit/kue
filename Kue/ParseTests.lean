@@ -179,6 +179,12 @@ theorem parse_logical_not_expressions :
       "notFalse: true\nnotCmp: false\ndouble: true" = true := by
   native_decide
 
+theorem parse_regex_match_expressions :
+    parseOutputMatches
+      "match: \"abc\" =~ \"^a\"\nmiss: \"abc\" =~ \"z\"\nnotMatch: \"abc\" !~ \"z\"\nnotMiss: \"abc\" !~ \"^a\"\nprecedence: \"ab\" + \"c\" =~ \"^abc$\"\n"
+      "match: true\nmiss: false\nnotMatch: true\nnotMiss: false\nprecedence: true" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

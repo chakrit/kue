@@ -53,6 +53,8 @@ inductive BinaryOp where
   | le
   | gt
   | ge
+  | regexMatch
+  | regexNotMatch
   | boolAnd
   | boolOr
 deriving Repr, BEq, DecidableEq

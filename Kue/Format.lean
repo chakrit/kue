@@ -78,6 +78,8 @@ def formatBinaryOp : BinaryOp -> String
   | .le => "<="
   | .gt => ">"
   | .ge => ">="
+  | .regexMatch => "=~"
+  | .regexNotMatch => "!~"
   | .boolAnd => "&&"
   | .boolOr => "||"
 

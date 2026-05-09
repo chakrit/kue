@@ -164,6 +164,27 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "regex_match_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("match", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))),
+                ("miss", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "z"))),
+                ("notMatch", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "z"))),
+                ("notMiss", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "^a"))),
+                (
+                  "precedence",
+                  .regular,
+                  .binary .regexMatch
+                    (.binary .add (.prim (.string "ab")) (.prim (.string "c")))
+                    (.prim (.string "^abc$"))
+                )
+              ]
+              true))
+    },
+    {
       fileName := "bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

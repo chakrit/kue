@@ -1,0 +1,5 @@
+match:      "abc" =~ "^a"
+miss:       "abc" =~ "z"
+notMatch:   "abc" !~ "z"
+notMiss:    "abc" !~ "^a"
+precedence: "ab"+"c" =~ "^abc$"

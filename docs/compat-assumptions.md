@@ -56,6 +56,10 @@ Current assumptions:
   precedence as equality. The evaluator currently handles concrete integer and string
   operands. Mixed-kind ordering bottoms out; ordering over floats, bytes, incomplete
   values, and compound values remains later work.
+- Binary regex match expressions `=~` and `!~` are parsed at comparison precedence.
+  The evaluator currently handles concrete string operands using Kue's existing regex
+  subset. Non-string concrete primitive operands bottom out; incomplete operands remain
+  residual binary expressions.
 - Logical expressions `&&` and `||` are parsed above CUE unification/disjunction and
   below equality/ordering comparison precedence. The evaluator currently handles
   concrete boolean operands only. CUE rejects incomplete logical operands as invalid;

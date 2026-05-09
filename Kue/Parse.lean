@@ -532,6 +532,14 @@ mutual
             match parseAdditive rest with
             | .error error => .error error
             | .ok (right, rest) => parseOk (.binary .ge left right) rest
+        | '=' :: '~' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .regexMatch left right) rest
+        | '!' :: '~' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .regexNotMatch left right) rest
         | '=' :: '=' :: rest =>
             match parseAdditive rest with
             | .error error => .error error

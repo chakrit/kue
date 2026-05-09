@@ -2978,6 +2978,42 @@ Goal: support concrete boolean unary `!` without lowering it into equality synta
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Regex Match Expressions
+
+Goal: support concrete binary `=~` and `!~` expressions using Kue's existing regex
+matcher.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover positive match, failed match, negative match, failed negative match, and string
+   concatenation before regex comparison. Expected output was checked against `cue eval`.
+   Completed in the regex match expressions slice.
+
+2. Extend binary evaluation with regex operators.
+   Completed in the regex match expressions slice.
+   `BinaryOp.regexMatch` and `regexNotMatch` evaluate concrete string operands to
+   booleans. Concrete non-string primitive operands bottom out, and incomplete operands
+   remain residual binary expressions.
+
+3. Parse regex match at comparison precedence.
+   Completed in the regex match expressions slice.
+   `Kue.Parse` now parses `=~` and `!~` with equality and ordering comparisons, after
+   additive parsing, so string concatenation binds first.
+
+4. Document the regex boundary.
+   Completed in the regex match expressions slice.
+   Binary regex matching reuses the regex subset already implemented for label patterns;
+   full CUE/RE2 compatibility remains later work.
+
+5. Verify.
+   Completed in the regex match expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

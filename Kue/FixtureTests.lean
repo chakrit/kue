@@ -134,6 +134,27 @@ theorem fixture_logical_not_expressions :
       = "notFalse: true\nnotCmp: false\ndouble: true" := by
   native_decide
 
+theorem fixture_regex_match_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("match", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))),
+            ("miss", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "z"))),
+            ("notMatch", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "z"))),
+            ("notMiss", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "^a"))),
+            (
+              "precedence",
+              .regular,
+              .binary .regexMatch
+                (.binary .add (.prim (.string "ab")) (.prim (.string "c")))
+                (.prim (.string "^abc$"))
+            )
+          ]
+          true))
+      = "match: true\nmiss: false\nnotMatch: true\nnotMiss: false\nprecedence: true" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide

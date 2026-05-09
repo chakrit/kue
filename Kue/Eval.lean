@@ -261,6 +261,22 @@ def evalPrimitiveOrdering
   | .prim _, .prim _ => .bottom
   | _, _ => .binary op left right
 
+def evalRegexMatch (left right : Value) : Value :=
+  match left, right with
+  | .prim (.string value), .prim (.string pattern) => .prim (.bool (stringRegexMatches pattern value))
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | .prim _, .prim _ => .bottom
+  | _, _ => .binary .regexMatch left right
+
+def evalRegexNotMatch (left right : Value) : Value :=
+  match evalRegexMatch left right with
+  | .prim (.bool value) => .prim (.bool (!value))
+  | .binary .regexMatch left right => .binary .regexNotMatch left right
+  | value => value
+
 def evalBoolBinary (op : BinaryOp) (boolOp : Bool -> Bool -> Bool) (left right : Value) : Value :=
   match left, right with
   | .prim (.bool left), .prim (.bool right) => .prim (.bool (boolOp left right))
@@ -295,6 +311,8 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .le => evalPrimitiveOrdering (fun left right => left <= right) (fun left right => !stringsLt right left) .le left right
   | .gt => evalPrimitiveOrdering (fun left right => left > right) (fun left right => stringsLt right left) .gt left right
   | .ge => evalPrimitiveOrdering (fun left right => left >= right) (fun left right => !stringsLt left right) .ge left right
+  | .regexMatch => evalRegexMatch left right
+  | .regexNotMatch => evalRegexNotMatch left right
   | .boolAnd => evalBoolBinary .boolAnd (fun left right => left && right) left right
   | .boolOr => evalBoolBinary .boolOr (fun left right => left || right) left right
 
