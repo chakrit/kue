@@ -69,6 +69,8 @@ def formatBinaryOp : BinaryOp -> String
   | .sub => "-"
   | .mul => "*"
   | .div => "/"
+  | .eq => "=="
+  | .ne => "!="
 
 def formatFuel : Nat :=
   100

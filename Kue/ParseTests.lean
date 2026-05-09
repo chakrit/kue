@@ -155,6 +155,12 @@ theorem parse_division_expressions :
       "div: 2.5\nwhole: 2.0\nthird: 0.3333333333333333333333333333333333\nnegative: -2.5" = true := by
   native_decide
 
+theorem parse_equality_expressions :
+    parseOutputMatches
+      "same: 1 == 1\ndiff: 1 != 2\ntext: \"a\" == \"b\"\nprecedence: 1 + 1 == 2\n"
+      "same: true\ndiff: true\ntext: false\nprecedence: true" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

@@ -50,6 +50,24 @@ theorem fixture_division_expressions :
       = "div: 2.5\nwhole: 2.0\nthird: 0.3333333333333333333333333333333333\nnegative: -2.5" := by
   native_decide
 
+theorem fixture_equality_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("same", .regular, .binary .eq (.prim (.int 1)) (.prim (.int 1))),
+            ("diff", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))),
+            ("text", .regular, .binary .eq (.prim (.string "a")) (.prim (.string "b"))),
+            (
+              "precedence",
+              .regular,
+              .binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2))
+            )
+          ]
+          true))
+      = "same: true\ndiff: true\ntext: false\nprecedence: true" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide

@@ -80,6 +80,24 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "equality_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("same", .regular, .binary .eq (.prim (.int 1)) (.prim (.int 1))),
+                ("diff", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))),
+                ("text", .regular, .binary .eq (.prim (.string "a")) (.prim (.string "b"))),
+                (
+                  "precedence",
+                  .regular,
+                  .binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2))
+                )
+              ]
+              true))
+    },
+    {
       fileName := "bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

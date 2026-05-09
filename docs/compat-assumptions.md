@@ -49,6 +49,9 @@ Current assumptions:
   integer division produces decimal float text, including one fractional digit for whole
   results and 34 fractional digits for non-terminating decimal expansions. Division by
   zero bottoms out with structural provenance. Float operands remain later work.
+- Equality expressions `==` and `!=` are parsed after additive/multiplicative
+  expressions. The evaluator currently handles concrete primitive equality only; equality
+  over incomplete values and compound values remains later work.
 - Duplicate fields are merged after reference evaluation when their field classes have
   an existing merge rule. Unsupported same-label class combinations are kept distinct
   in this pass; diagnostic provenance and output ordering are still first-pass.
@@ -71,7 +74,7 @@ Current assumptions:
   provenance only; richer index diagnostics and non-field dynamic selection remain later
   work.
 - The parser does not yet support imports, non-field aliases, comprehensions, dynamic
-  fields, string interpolation, comparison/logical expressions, or typed struct ellipsis
+  fields, string interpolation, ordering/logical expressions, or typed struct ellipsis
   syntax.
 - Multiple pattern fields are represented as independent pattern constraints. Label
   pattern values are still limited to the existing string-kind, exact-string, and

@@ -2839,6 +2839,39 @@ ordinary division as decimal float output.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Equality Expressions
+
+Goal: support concrete `==` and `!=` expressions as the first comparison layer.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover integer equality, integer inequality, string equality, and additive precedence
+   before equality, with expected output checked against `cue eval`.
+   Completed in the equality expressions slice.
+
+2. Extend binary evaluation with equality operators.
+   Completed in the equality expressions slice.
+   `BinaryOp.eq` and `BinaryOp.ne` evaluate concrete primitive operands to booleans.
+   Incomplete and compound equality remains represented as a binary expression.
+
+3. Parse equality after additive and multiplicative expressions.
+   Completed in the equality expressions slice.
+   `Kue.Parse` now parses `==` and `!=` after arithmetic parsing, so
+   `1 + 1 == 2` evaluates as `true`.
+
+4. Document the comparison boundary.
+   Completed in the equality expressions slice.
+   Ordering comparisons and logical operators remain later work.
+
+5. Verify.
+   Completed in the equality expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

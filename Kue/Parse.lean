@@ -478,20 +478,35 @@ mutual
         | .ok (value, rest) => parseOk (.regular, value) rest
 
   partial def parseConjunction (chars : List Char) : ParseResult Value :=
-    match parseAdditive chars with
+    match parseComparison chars with
     | .error error => .error error
     | .ok (first, rest) => parseConjunctionRest [first] rest
 
   partial def parseConjunctionRest (constraints : List Value) (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | '&' :: rest =>
-        match parseAdditive rest with
+        match parseComparison rest with
         | .error error => .error error
         | .ok (constraint, rest) => parseConjunctionRest (constraints ++ [constraint]) rest
     | rest =>
         match constraints with
         | [value] => parseOk value rest
         | values => parseOk (.conj values) rest
+
+  partial def parseComparison (chars : List Char) : ParseResult Value :=
+    match parseAdditive chars with
+    | .error error => .error error
+    | .ok (left, rest) =>
+        match skipTrivia rest with
+        | '=' :: '=' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .eq left right) rest
+        | '!' :: '=' :: rest =>
+            match parseAdditive rest with
+            | .error error => .error error
+            | .ok (right, rest) => parseOk (.binary .ne left right) rest
+        | rest => parseOk left rest
 
   partial def parseAdditive (chars : List Char) : ParseResult Value :=
     match parseMultiplicative chars with

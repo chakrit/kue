@@ -218,12 +218,29 @@ def evalDiv (left right : Value) : Value :=
   | .prim _, .prim _ => .bottom
   | _, _ => .binary .div left right
 
+def evalEq (left right : Value) : Value :=
+  match left, right with
+  | .prim left, .prim right => .prim (.bool (left == right))
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | _, _ => .binary .eq left right
+
+def evalNe (left right : Value) : Value :=
+  match evalEq left right with
+  | .prim (.bool value) => .prim (.bool (!value))
+  | .binary .eq left right => .binary .ne left right
+  | value => value
+
 def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   match op with
   | .add => evalAdd left right
   | .sub => evalSub left right
   | .mul => evalMul left right
   | .div => evalDiv left right
+  | .eq => evalEq left right
+  | .ne => evalNe left right
 
 mutual
   def evalFieldRefsWithFuel

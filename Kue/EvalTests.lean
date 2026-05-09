@@ -115,6 +115,19 @@ theorem eval_division_by_zero_bottom :
     evalBinary .div (.prim (.int 1)) (.prim (.int 0)) = .bottomWith [.divisionByZero] := by
   rfl
 
+theorem eval_equality_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("same", .regular, .binary .eq (.prim (.int 1)) (.prim (.int 1))),
+            ("diff", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))),
+            ("text", .regular, .binary .eq (.prim (.string "a")) (.prim (.string "b")))
+          ]
+          true))
+      = "same: true\ndiff: true\ntext: false" := by
+  native_decide
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs
