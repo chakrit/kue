@@ -2767,6 +2767,42 @@ and comparison system at once.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Multiplication Expressions
+
+Goal: add the first multiplicative operator while preserving CUE's precedence over
+additive expressions.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover concrete integer multiplication, multiplication before addition, and
+   left-associative chained multiplication, with expected output checked against
+   `cue eval`.
+   Completed in the multiplication expressions slice.
+
+2. Extend the binary operator representation.
+   Completed in the multiplication expressions slice.
+   `BinaryOp.mul` reuses the same `Value.binary` traversal and formatting path as
+   additive expressions.
+
+3. Parse multiplication above additive expressions.
+   Completed in the multiplication expressions slice.
+   `Kue.Parse` now folds `*` left-associatively before additive folding, so
+   `1 + 2 * 3` evaluates as `7`.
+
+4. Document the division boundary.
+   Completed in the multiplication expressions slice.
+   `/` remains unsupported because CUE renders it as float output even for whole
+   integer division, so it belongs with a deliberate float-canonicalization pass.
+
+5. Verify.
+   Completed in the multiplication expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

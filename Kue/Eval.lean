@@ -161,10 +161,21 @@ def evalSub (left right : Value) : Value :=
   | .prim _, .prim _ => .bottom
   | _, _ => .binary .sub left right
 
+def evalMul (left right : Value) : Value :=
+  match left, right with
+  | .prim (.int left), .prim (.int right) => .prim (.int (left * right))
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | .prim _, .prim _ => .bottom
+  | _, _ => .binary .mul left right
+
 def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   match op with
   | .add => evalAdd left right
   | .sub => evalSub left right
+  | .mul => evalMul left right
 
 mutual
   def evalFieldRefsWithFuel

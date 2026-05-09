@@ -15,6 +15,27 @@ theorem fixture_additive_expressions :
       = "sum: 3\ndiff: 2\ncat: \"ab\"" := by
   native_decide
 
+theorem fixture_multiplication_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("mul", .regular, .binary .mul (.prim (.int 3)) (.prim (.int 4))),
+            (
+              "precedence",
+              .regular,
+              .binary .add (.prim (.int 1)) (.binary .mul (.prim (.int 2)) (.prim (.int 3)))
+            ),
+            (
+              "left",
+              .regular,
+              .binary .mul (.binary .mul (.prim (.int 2)) (.prim (.int 3))) (.prim (.int 4))
+            )
+          ]
+          true))
+      = "mul: 12\nprecedence: 7\nleft: 24" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide

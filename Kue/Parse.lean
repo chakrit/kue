@@ -494,20 +494,33 @@ mutual
         | values => parseOk (.conj values) rest
 
   partial def parseAdditive (chars : List Char) : ParseResult Value :=
-    match parsePrimary chars with
+    match parseMultiplicative chars with
     | .error error => .error error
     | .ok (first, rest) => parseAdditiveRest first rest
 
   partial def parseAdditiveRest (left : Value) (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | '+' :: rest =>
-        match parsePrimary rest with
+        match parseMultiplicative rest with
         | .error error => .error error
         | .ok (right, rest) => parseAdditiveRest (.binary .add left right) rest
     | '-' :: rest =>
-        match parsePrimary rest with
+        match parseMultiplicative rest with
         | .error error => .error error
         | .ok (right, rest) => parseAdditiveRest (.binary .sub left right) rest
+    | rest => parseOk left rest
+
+  partial def parseMultiplicative (chars : List Char) : ParseResult Value :=
+    match parsePrimary chars with
+    | .error error => .error error
+    | .ok (first, rest) => parseMultiplicativeRest first rest
+
+  partial def parseMultiplicativeRest (left : Value) (chars : List Char) : ParseResult Value :=
+    match skipTrivia chars with
+    | '*' :: rest =>
+        match parsePrimary rest with
+        | .error error => .error error
+        | .ok (right, rest) => parseMultiplicativeRest (.binary .mul left right) rest
     | rest => parseOk left rest
 
   partial def parsePrimary (chars : List Char) : ParseResult Value :=

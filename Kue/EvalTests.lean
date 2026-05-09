@@ -81,6 +81,22 @@ theorem eval_additive_expressions :
       = "sum: 3\ndiff: 2\ncat: \"ab\"" := by
   native_decide
 
+theorem eval_multiplication_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("mul", .regular, .binary .mul (.prim (.int 3)) (.prim (.int 4))),
+            (
+              "precedence",
+              .regular,
+              .binary .add (.prim (.int 1)) (.binary .mul (.prim (.int 2)) (.prim (.int 3)))
+            )
+          ]
+          true))
+      = "mul: 12\nprecedence: 7" := by
+  native_decide
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs

@@ -67,6 +67,7 @@ def joinWith (separator : String) : List String -> String
 def formatBinaryOp : BinaryOp -> String
   | .add => "+"
   | .sub => "-"
+  | .mul => "*"
 
 def formatFuel : Nat :=
   100
