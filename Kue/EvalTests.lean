@@ -193,6 +193,19 @@ theorem eval_logical_not_expressions :
       = "notFalse: true\nnotCmp: false\ndouble: true" := by
   native_decide
 
+theorem eval_unary_numeric_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2)))),
+            ("posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2)))),
+            ("negFloat", .regular, .unary .numNeg (.prim (.float "1.5")))
+          ]
+          true))
+      = "negGroup: -3\nposGroup: 3\nnegFloat: -1.5" := by
+  native_decide
+
 theorem eval_regex_match_expressions :
     formatTopLevel
       (resolveAndEval

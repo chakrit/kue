@@ -66,6 +66,8 @@ def joinWith (separator : String) : List String -> String
 
 def formatUnaryOp : UnaryOp -> String
   | .boolNot => "!"
+  | .numPos => "+"
+  | .numNeg => "-"
 
 def formatBinaryOp : BinaryOp -> String
   | .add => "+"

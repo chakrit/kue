@@ -2701,6 +2701,43 @@ Goal: parse unary plus on numeric literals without treating it as binary additio
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Unary Numeric Expressions
+
+Goal: parse and evaluate expression-level unary numeric `+` and `-`, not only signed
+numeric literals.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover grouped arithmetic operands, unary plus, unary minus over a reference, and
+   unary precedence before multiplication, with expected output checked against
+   `cue eval`.
+   Completed in the unary numeric expressions slice.
+
+2. Extend the unary operator representation.
+   Completed in the unary numeric expressions slice.
+   `UnaryOp.numPos` and `numNeg` preserve non-literal sign syntax through the shared
+   residual expression path.
+
+3. Evaluate concrete numeric operands.
+   Completed in the unary numeric expressions slice.
+   The evaluator handles concrete integers and float spelling strings. Incomplete
+   numeric operands remain residual unary expressions until invalid operand diagnostics
+   are modeled.
+
+4. Parse numeric signs at unary precedence.
+   Completed in the unary numeric expressions slice.
+   `Kue.Parse` folds `+` and `-` recursively before multiplicative expressions, so
+   `-2 * 3` evaluates as `-6`.
+
+5. Verify.
+   Completed in the unary numeric expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Completed Slice: Numeric Suffix Multipliers
 
 Goal: parse CUE's decimal and binary numeric suffix multipliers when they produce exact

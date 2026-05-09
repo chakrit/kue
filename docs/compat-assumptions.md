@@ -39,6 +39,10 @@ Current assumptions:
   `Ki`, `Mi`, `Gi`, `Ti`, `Pi` are accepted on decimal integer and decimal fraction
   literals when the multiplied result is exactly representable as an integer. Inexact
   suffix products fail during parsing, matching `cue eval`.
+- Unary numeric `+` and `-` are represented explicitly for non-literal operands.
+  Concrete integer operands and float spelling strings evaluate now. Incomplete numeric
+  operands remain residual unary expressions until invalid operand diagnostics are
+  modeled.
 - Additive expressions are represented explicitly. The evaluator currently handles
   concrete integer addition/subtraction and concrete string concatenation. Float
   arithmetic, list concatenation, and richer numeric promotion remain later work.

@@ -153,6 +153,21 @@ theorem fixture_logical_not_expressions :
       = "notFalse: true\nnotCmp: false\ndouble: true" := by
   native_decide
 
+theorem fixture_unary_numeric_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2)))),
+            ("posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2)))),
+            ("negRefBase", .regular, .prim (.int 3)),
+            ("negRef", .regular, .unary .numNeg (.ref "negRefBase")),
+            ("precedence", .regular, .binary .mul (.unary .numNeg (.prim (.int 2))) (.prim (.int 3)))
+          ]
+          true))
+      = "negGroup: -3\nposGroup: 3\nnegRefBase: 3\nnegRef: -3\nprecedence: -6" := by
+  native_decide
+
 theorem fixture_regex_match_expressions :
     formatTopLevel
       (resolveAndEval

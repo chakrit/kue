@@ -626,6 +626,14 @@ mutual
         match parseUnary rest with
         | .error error => .error error
         | .ok (value, rest) => parseOk (.unary .boolNot value) rest
+    | '+' :: rest =>
+        match parseUnary rest with
+        | .error error => .error error
+        | .ok (value, rest) => parseOk (.unary .numPos value) rest
+    | '-' :: rest =>
+        match parseUnary rest with
+        | .error error => .error error
+        | .ok (value, rest) => parseOk (.unary .numNeg value) rest
     | _ => parsePrimary chars
 
   partial def parsePrimary (chars : List Char) : ParseResult Value :=

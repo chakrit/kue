@@ -303,9 +303,34 @@ def evalBoolNot (value : Value) : Value :=
   | .prim _ => .bottom
   | _ => .unary .boolNot value
 
+def negateFloatText (value : String) : String :=
+  match value.toList with
+  | '-' :: rest => String.ofList rest
+  | _ => "-" ++ value
+
+def evalNumPos (value : Value) : Value :=
+  match value with
+  | .prim (.int value) => .prim (.int value)
+  | .prim (.float value) => .prim (.float value)
+  | .bottom => .bottom
+  | .bottomWith reasons => .bottomWith reasons
+  | .prim _ => .bottom
+  | _ => .unary .numPos value
+
+def evalNumNeg (value : Value) : Value :=
+  match value with
+  | .prim (.int value) => .prim (.int (-value))
+  | .prim (.float value) => .prim (.float (negateFloatText value))
+  | .bottom => .bottom
+  | .bottomWith reasons => .bottomWith reasons
+  | .prim _ => .bottom
+  | _ => .unary .numNeg value
+
 def evalUnary (op : UnaryOp) (value : Value) : Value :=
   match op with
   | .boolNot => evalBoolNot value
+  | .numPos => evalNumPos value
+  | .numNeg => evalNumNeg value
 
 def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   match op with

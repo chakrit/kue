@@ -183,6 +183,21 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "unary_numeric_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2)))),
+                ("posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2)))),
+                ("negRefBase", .regular, .prim (.int 3)),
+                ("negRef", .regular, .unary .numNeg (.ref "negRefBase")),
+                ("precedence", .regular, .binary .mul (.unary .numNeg (.prim (.int 2))) (.prim (.int 3)))
+              ]
+              true))
+    },
+    {
       fileName := "regex_match_expressions.expected",
       content :=
         formatTopLevel

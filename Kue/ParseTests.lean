@@ -127,6 +127,12 @@ theorem parse_unary_plus_numeric_literals :
       "x: 1\ny: 1.5\nz: 16" = true := by
   native_decide
 
+theorem parse_unary_numeric_expressions :
+    parseOutputMatches
+      "negGroup: -(1 + 2)\nposGroup: +(1 + 2)\nnegRefBase: 3\nnegRef: -negRefBase\nprecedence: -2 * 3\n"
+      "negGroup: -3\nposGroup: 3\nnegRefBase: 3\nnegRef: -3\nprecedence: -6" = true := by
+  native_decide
+
 theorem parse_numeric_suffix_literals :
     parseOutputMatches
       "k: 1K\nki: 1Ki\nfracK: 1.5K\nfracKi: 1.5Ki\nneg: -1.5K\n"

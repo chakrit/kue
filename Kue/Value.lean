@@ -40,6 +40,8 @@ deriving Repr, BEq, DecidableEq
 
 inductive UnaryOp where
   | boolNot
+  | numPos
+  | numNeg
 deriving Repr, BEq, DecidableEq
 
 inductive BinaryOp where
