@@ -162,6 +162,19 @@ theorem eval_logical_expressions :
       = "andFalse: false\norTrue: true\nandCmp: true" := by
   native_decide
 
+theorem eval_logical_not_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("notFalse", .regular, .unary .boolNot (.prim (.bool false))),
+            ("notCmp", .regular, .unary .boolNot (.binary .lt (.prim (.int 1)) (.prim (.int 2)))),
+            ("double", .regular, .unary .boolNot (.unary .boolNot (.prim (.bool true))))
+          ]
+          true))
+      = "notFalse: true\nnotCmp: false\ndouble: true" := by
+  native_decide
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs

@@ -31,6 +31,8 @@ mutual
         )
     | fuel + 1, .builtinCall name args =>
         .builtinCall name (args.map (normalizeDefinitionValueWithFuel fuel))
+    | fuel + 1, .unary op value =>
+        .unary op (normalizeDefinitionValueWithFuel fuel value)
     | fuel + 1, .binary op left right =>
         .binary op
           (normalizeDefinitionValueWithFuel fuel left)
@@ -76,6 +78,8 @@ mutual
         )
     | fuel + 1, .builtinCall name args =>
         .builtinCall name (args.map (normalizeDefinitionsWithFuel fuel))
+    | fuel + 1, .unary op value =>
+        .unary op (normalizeDefinitionsWithFuel fuel value)
     | fuel + 1, .binary op left right =>
         .binary op
           (normalizeDefinitionsWithFuel fuel left)

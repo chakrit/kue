@@ -151,6 +151,19 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "logical_not_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("notFalse", .regular, .unary .boolNot (.prim (.bool false))),
+                ("notCmp", .regular, .unary .boolNot (.binary .lt (.prim (.int 1)) (.prim (.int 2)))),
+                ("double", .regular, .unary .boolNot (.unary .boolNot (.prim (.bool true))))
+              ]
+              true))
+    },
+    {
       fileName := "bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

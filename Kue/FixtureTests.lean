@@ -121,6 +121,19 @@ theorem fixture_logical_expressions :
       = "andFalse: false\norTrue: true\nandCmp: true\norCmp: true\ngrouped: true" := by
   native_decide
 
+theorem fixture_logical_not_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("notFalse", .regular, .unary .boolNot (.prim (.bool false))),
+            ("notCmp", .regular, .unary .boolNot (.binary .lt (.prim (.int 1)) (.prim (.int 2)))),
+            ("double", .regular, .unary .boolNot (.unary .boolNot (.prim (.bool true))))
+          ]
+          true))
+      = "notFalse: true\nnotCmp: false\ndouble: true" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide

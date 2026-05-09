@@ -271,6 +271,18 @@ def evalBoolBinary (op : BinaryOp) (boolOp : Bool -> Bool -> Bool) (left right :
   | .prim _, .prim _ => .bottom
   | _, _ => .binary op left right
 
+def evalBoolNot (value : Value) : Value :=
+  match value with
+  | .prim (.bool value) => .prim (.bool (!value))
+  | .bottom => .bottom
+  | .bottomWith reasons => .bottomWith reasons
+  | .prim _ => .bottom
+  | _ => .unary .boolNot value
+
+def evalUnary (op : UnaryOp) (value : Value) : Value :=
+  match op with
+  | .boolNot => evalBoolNot value
+
 def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   match op with
   | .add => evalAdd left right
@@ -313,6 +325,8 @@ mutual
         evaluated.foldl (fun current constraint => meet current constraint) .top
     | fuel + 1, fields, bindings, visited, .builtinCall name args =>
         evalBuiltinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
+    | fuel + 1, fields, bindings, visited, .unary op value =>
+        evalUnary op (evalValueWithFuel fuel fields bindings visited value)
     | fuel + 1, fields, bindings, visited, .binary op left right =>
         evalBinary op
           (evalValueWithFuel fuel fields bindings visited left)

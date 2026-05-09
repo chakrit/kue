@@ -2943,6 +2943,41 @@ operand evaluation behavior.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Logical Not Expressions
+
+Goal: support concrete boolean unary `!` without lowering it into equality syntax.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover `!false`, a grouped comparison operand, and double negation, with expected
+   output checked against `cue eval`.
+   Completed in the logical not expressions slice.
+
+2. Add an explicit unary expression node.
+   Completed in the logical not expressions slice.
+   `UnaryOp.boolNot` and `Value.unary` preserve residual syntax through formatting,
+   resolving, normalization, manifest incompleteness, lattice bottom detection, and
+   subsumption.
+
+3. Evaluate concrete boolean negation.
+   Completed in the logical not expressions slice.
+   The evaluator negates concrete boolean operands, bottoms out concrete non-boolean
+   primitive operands, and keeps incomplete operands as residual unary expressions.
+
+4. Parse `!` at unary precedence.
+   Completed in the logical not expressions slice.
+   `Kue.Parse` folds `!` recursively before multiplicative expressions while leaving
+   the existing `!=literal` primitive exclusion parser intact.
+
+5. Verify.
+   Completed in the logical not expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

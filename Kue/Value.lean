@@ -38,6 +38,10 @@ inductive Mark where
   | default
 deriving Repr, BEq, DecidableEq
 
+inductive UnaryOp where
+  | boolNot
+deriving Repr, BEq, DecidableEq
+
 inductive BinaryOp where
   | add
   | sub
@@ -105,6 +109,7 @@ inductive Value where
   | intLt (maximum : Int)
   | conj (constraints : List Value)
   | builtinCall (name : String) (args : List Value)
+  | unary (op : UnaryOp) (value : Value)
   | binary (op : BinaryOp) (left right : Value)
   | ref (label : String)
   | refId (id : BindingId)

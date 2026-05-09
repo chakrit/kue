@@ -60,6 +60,9 @@ Current assumptions:
   below equality/ordering comparison precedence. The evaluator currently handles
   concrete boolean operands only. CUE rejects incomplete logical operands as invalid;
   Kue keeps them as residual binary expressions until diagnostic modeling exists.
+- Logical negation `!` is represented as a residual unary expression when its operand
+  is incomplete. Concrete boolean operands evaluate to concrete booleans, and concrete
+  non-boolean primitive operands bottom out.
 - Duplicate fields are merged after reference evaluation when their field classes have
   an existing merge rule. Unsupported same-label class combinations are kept distinct
   in this pass; diagnostic provenance and output ordering are still first-pass.

@@ -173,6 +173,12 @@ theorem parse_logical_expressions :
       "andFalse: false\norTrue: true\nandCmp: true\norCmp: true\ngrouped: true" = true := by
   native_decide
 
+theorem parse_logical_not_expressions :
+    parseOutputMatches
+      "notFalse: !false\nnotCmp: !(1 < 2)\ndouble: !!true\n"
+      "notFalse: true\nnotCmp: false\ndouble: true" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

@@ -64,6 +64,9 @@ def joinWith (separator : String) : List String -> String
   | [value] => value
   | value :: values => value ++ separator ++ joinWith separator values
 
+def formatUnaryOp : UnaryOp -> String
+  | .boolNot => "!"
+
 def formatBinaryOp : BinaryOp -> String
   | .add => "+"
   | .sub => "-"
@@ -113,6 +116,13 @@ mutual
     | _ + 1, .top => "..."
     | fuel + 1, tail => "..." ++ formatValueWithFuel fuel tail
 
+  def formatUnaryOperandWithFuel : Nat -> Value -> String
+    | 0, _ => "..."
+    | fuel + 1, value =>
+        match value with
+        | .binary _ _ _ => "(" ++ formatValueWithFuel fuel value ++ ")"
+        | _ => formatValueWithFuel fuel value
+
   def formatValueWithFuel : Nat -> Value -> String
     | 0, _ => "..."
     | _, .top => "_"
@@ -130,6 +140,8 @@ mutual
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | fuel + 1, .builtinCall name args =>
         name ++ "(" ++ joinWith ", " (args.map (formatValueWithFuel fuel)) ++ ")"
+    | fuel + 1, .unary op value =>
+        formatUnaryOp op ++ formatUnaryOperandWithFuel fuel value
     | fuel + 1, .binary op left right =>
         formatValueWithFuel fuel left
           ++ " "

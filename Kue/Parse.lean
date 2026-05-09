@@ -568,21 +568,30 @@ mutual
     | rest => parseOk left rest
 
   partial def parseMultiplicative (chars : List Char) : ParseResult Value :=
-    match parsePrimary chars with
+    match parseUnary chars with
     | .error error => .error error
     | .ok (first, rest) => parseMultiplicativeRest first rest
 
   partial def parseMultiplicativeRest (left : Value) (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | '*' :: rest =>
-        match parsePrimary rest with
+        match parseUnary rest with
         | .error error => .error error
         | .ok (right, rest) => parseMultiplicativeRest (.binary .mul left right) rest
     | '/' :: rest =>
-        match parsePrimary rest with
+        match parseUnary rest with
         | .error error => .error error
         | .ok (right, rest) => parseMultiplicativeRest (.binary .div left right) rest
     | rest => parseOk left rest
+
+  partial def parseUnary (chars : List Char) : ParseResult Value :=
+    match skipTrivia chars with
+    | '!' :: '=' :: _ => parsePrimary chars
+    | '!' :: rest =>
+        match parseUnary rest with
+        | .error error => .error error
+        | .ok (value, rest) => parseOk (.unary .boolNot value) rest
+    | _ => parsePrimary chars
 
   partial def parsePrimary (chars : List Char) : ParseResult Value :=
     match parsePrimaryAtom chars with
