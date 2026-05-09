@@ -167,6 +167,12 @@ theorem parse_ordering_expressions :
       "lt: true\nle: true\ngt: true\nge: false\nslt: true\nprecedence: true" = true := by
   native_decide
 
+theorem parse_logical_expressions :
+    parseOutputMatches
+      "andFalse: true && false\norTrue: false || true\nandCmp: 1 < 2 && 3 > 2\norCmp: false || 1 + 1 == 2\ngrouped: (false || true) && true\n"
+      "andFalse: false\norTrue: true\nandCmp: true\norCmp: true\ngrouped: true" = true := by
+  native_decide
+
 theorem parse_string_pattern_field :
     parseOutputMatches
       "x: {[string]: int, a: 1, b: 2}\n"

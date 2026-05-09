@@ -143,6 +143,25 @@ theorem eval_ordering_expressions :
       = "lt: true\nle: true\ngt: true\nge: false\nslt: true" := by
   native_decide
 
+theorem eval_logical_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("andFalse", .regular, .binary .boolAnd (.prim (.bool true)) (.prim (.bool false))),
+            ("orTrue", .regular, .binary .boolOr (.prim (.bool false)) (.prim (.bool true))),
+            (
+              "andCmp",
+              .regular,
+              .binary .boolAnd
+                (.binary .lt (.prim (.int 1)) (.prim (.int 2)))
+                (.binary .gt (.prim (.int 3)) (.prim (.int 2)))
+            )
+          ]
+          true))
+      = "andFalse: false\norTrue: true\nandCmp: true" := by
+  native_decide
+
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs

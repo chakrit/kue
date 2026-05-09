@@ -118,6 +118,39 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "logical_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("andFalse", .regular, .binary .boolAnd (.prim (.bool true)) (.prim (.bool false))),
+                ("orTrue", .regular, .binary .boolOr (.prim (.bool false)) (.prim (.bool true))),
+                (
+                  "andCmp",
+                  .regular,
+                  .binary .boolAnd
+                    (.binary .lt (.prim (.int 1)) (.prim (.int 2)))
+                    (.binary .gt (.prim (.int 3)) (.prim (.int 2)))
+                ),
+                (
+                  "orCmp",
+                  .regular,
+                  .binary .boolOr
+                    (.prim (.bool false))
+                    (.binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2)))
+                ),
+                (
+                  "grouped",
+                  .regular,
+                  .binary .boolAnd
+                    (.binary .boolOr (.prim (.bool false)) (.prim (.bool true)))
+                    (.prim (.bool true))
+                )
+              ]
+              true))
+    },
+    {
       fileName := "bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

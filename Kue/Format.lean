@@ -75,6 +75,8 @@ def formatBinaryOp : BinaryOp -> String
   | .le => "<="
   | .gt => ">"
   | .ge => ">="
+  | .boolAnd => "&&"
+  | .boolOr => "||"
 
 def formatFuel : Nat :=
   100

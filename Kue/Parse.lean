@@ -478,20 +478,46 @@ mutual
         | .ok (value, rest) => parseOk (.regular, value) rest
 
   partial def parseConjunction (chars : List Char) : ParseResult Value :=
-    match parseComparison chars with
+    match parseLogicalOr chars with
     | .error error => .error error
     | .ok (first, rest) => parseConjunctionRest [first] rest
 
   partial def parseConjunctionRest (constraints : List Value) (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | '&' :: rest =>
-        match parseComparison rest with
+        match parseLogicalOr rest with
         | .error error => .error error
         | .ok (constraint, rest) => parseConjunctionRest (constraints ++ [constraint]) rest
     | rest =>
         match constraints with
         | [value] => parseOk value rest
         | values => parseOk (.conj values) rest
+
+  partial def parseLogicalOr (chars : List Char) : ParseResult Value :=
+    match parseLogicalAnd chars with
+    | .error error => .error error
+    | .ok (first, rest) => parseLogicalOrRest first rest
+
+  partial def parseLogicalOrRest (left : Value) (chars : List Char) : ParseResult Value :=
+    match skipTrivia chars with
+    | '|' :: '|' :: rest =>
+        match parseLogicalAnd rest with
+        | .error error => .error error
+        | .ok (right, rest) => parseLogicalOrRest (.binary .boolOr left right) rest
+    | rest => parseOk left rest
+
+  partial def parseLogicalAnd (chars : List Char) : ParseResult Value :=
+    match parseComparison chars with
+    | .error error => .error error
+    | .ok (first, rest) => parseLogicalAndRest first rest
+
+  partial def parseLogicalAndRest (left : Value) (chars : List Char) : ParseResult Value :=
+    match skipTrivia chars with
+    | '&' :: '&' :: rest =>
+        match parseComparison rest with
+        | .error error => .error error
+        | .ok (right, rest) => parseLogicalAndRest (.binary .boolAnd left right) rest
+    | rest => parseOk left rest
 
   partial def parseComparison (chars : List Char) : ParseResult Value :=
     match parseAdditive chars with

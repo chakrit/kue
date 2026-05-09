@@ -2906,6 +2906,43 @@ expressions.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Logical Expressions
+
+Goal: support concrete boolean `&&` and `||` expressions with CUE's non-short-circuit
+operand evaluation behavior.
+
+### Steps
+
+1. Add failing parser, evaluator, and fixture tests first.
+   Cover concrete boolean conjunction/disjunction, comparison operands before logical
+   operators, arithmetic before comparison, and explicit grouping.
+   Completed in the logical expressions slice.
+
+2. Extend binary evaluation with logical operators.
+   Completed in the logical expressions slice.
+   `BinaryOp.boolAnd` and `boolOr` evaluate concrete boolean operands to booleans.
+   Non-boolean concrete primitive operands bottom out. Incomplete logical operands
+   remain residual binary expressions until Kue models CUE's invalid operand diagnostics.
+
+3. Parse logical expressions between comparison and CUE value combination.
+   Completed in the logical expressions slice.
+   `Kue.Parse` now folds `&&` above `||`; both bind tighter than CUE `&` and `|`
+   value operators and looser than equality/ordering comparisons.
+
+4. Document the diagnostic boundary.
+   Completed in the logical expressions slice.
+   Local `cue eval` checks show `&&` and `||` require concrete values and do not
+   short-circuit division errors. Kue mirrors the eager operand evaluation but defers
+   incomplete operand diagnostics.
+
+5. Verify.
+   Completed in the logical expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

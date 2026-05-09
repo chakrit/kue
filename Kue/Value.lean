@@ -49,6 +49,8 @@ inductive BinaryOp where
   | le
   | gt
   | ge
+  | boolAnd
+  | boolOr
 deriving Repr, BEq, DecidableEq
 
 inductive FieldClass where

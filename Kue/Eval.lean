@@ -261,6 +261,16 @@ def evalPrimitiveOrdering
   | .prim _, .prim _ => .bottom
   | _, _ => .binary op left right
 
+def evalBoolBinary (op : BinaryOp) (boolOp : Bool -> Bool -> Bool) (left right : Value) : Value :=
+  match left, right with
+  | .prim (.bool left), .prim (.bool right) => .prim (.bool (boolOp left right))
+  | .bottom, _ => .bottom
+  | _, .bottom => .bottom
+  | .bottomWith reasons, _ => .bottomWith reasons
+  | _, .bottomWith reasons => .bottomWith reasons
+  | .prim _, .prim _ => .bottom
+  | _, _ => .binary op left right
+
 def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   match op with
   | .add => evalAdd left right
@@ -273,6 +283,8 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .le => evalPrimitiveOrdering (fun left right => left <= right) (fun left right => !stringsLt right left) .le left right
   | .gt => evalPrimitiveOrdering (fun left right => left > right) (fun left right => stringsLt right left) .gt left right
   | .ge => evalPrimitiveOrdering (fun left right => left >= right) (fun left right => !stringsLt left right) .ge left right
+  | .boolAnd => evalBoolBinary .boolAnd (fun left right => left && right) left right
+  | .boolOr => evalBoolBinary .boolOr (fun left right => left || right) left right
 
 mutual
   def evalFieldRefsWithFuel

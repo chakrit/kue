@@ -88,6 +88,39 @@ theorem fixture_ordering_expressions :
       = "lt: true\nle: true\ngt: true\nge: false\nslt: true\nprecedence: true" := by
   native_decide
 
+theorem fixture_logical_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("andFalse", .regular, .binary .boolAnd (.prim (.bool true)) (.prim (.bool false))),
+            ("orTrue", .regular, .binary .boolOr (.prim (.bool false)) (.prim (.bool true))),
+            (
+              "andCmp",
+              .regular,
+              .binary .boolAnd
+                (.binary .lt (.prim (.int 1)) (.prim (.int 2)))
+                (.binary .gt (.prim (.int 3)) (.prim (.int 2)))
+            ),
+            (
+              "orCmp",
+              .regular,
+              .binary .boolOr
+                (.prim (.bool false))
+                (.binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2)))
+            ),
+            (
+              "grouped",
+              .regular,
+              .binary .boolAnd
+                (.binary .boolOr (.prim (.bool false)) (.prim (.bool true)))
+                (.prim (.bool true))
+            )
+          ]
+          true))
+      = "andFalse: false\norTrue: true\nandCmp: true\norCmp: true\ngrouped: true" := by
+  native_decide
+
 theorem fixture_kind_meet_int :
     formatField "x" (meet (.kind .int) (.prim (.int 1))) = "x: 1" := by
   native_decide
