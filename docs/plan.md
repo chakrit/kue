@@ -3045,6 +3045,39 @@ expressions.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Numeric Comparison Expressions
+
+Goal: compare concrete ints and finite decimal floats as one numeric domain.
+
+### Steps
+
+1. Add failing parser and fixture tests first.
+   Cover int/float ordering, trailing-zero equality, exponent ordering, and numeric
+   equality/inequality, with expected output checked against `cue eval`.
+   Completed in the numeric comparison expressions slice.
+
+2. Reuse finite-decimal parsing for comparisons.
+   Completed in the numeric comparison expressions slice.
+   The evaluator aligns decimal scales before equality and ordering comparisons, so
+   `1 == 1.0` and `1e3 > 999.9` match CUE behavior.
+
+3. Keep string ordering unchanged.
+   Completed in the numeric comparison expressions slice.
+   Numeric operands use scaled decimal comparison, string operands use the existing
+   lexicographic ordering, and mixed concrete primitive kinds still bottom out.
+
+4. Document the remaining comparison boundary.
+   Completed in the numeric comparison expressions slice.
+   Bytes, incomplete values, compound values, and richer diagnostics remain later work.
+
+5. Verify.
+   Completed in the numeric comparison expressions slice.
+
+   ```sh
+   lake build Kue.ParseTests Kue.EvalTests Kue.FixtureTests
+   scripts/check-fixtures.sh
+   ```
+
 ## Completed Slice: Logical Expressions
 
 Goal: support concrete boolean `&&` and `||` expressions with CUE's non-short-circuit

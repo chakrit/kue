@@ -262,6 +262,18 @@ def subDecimalValues (left right : DecimalValue) : DecimalValue :=
     scale := scale
   }
 
+def decimalCompareNumerators (left right : DecimalValue) : Int × Int :=
+  let scale := maxNat left.scale right.scale
+  (scaleDecimalNumerator scale left, scaleDecimalNumerator scale right)
+
+def decimalEqValues (left right : DecimalValue) : Bool :=
+  let compared := decimalCompareNumerators left right
+  compared.fst == compared.snd
+
+def decimalLtValues (left right : DecimalValue) : Bool :=
+  let compared := decimalCompareNumerators left right
+  compared.fst < compared.snd
+
 def trimDecimalZerosWith : Int -> Nat -> DecimalValue
   | numerator, 0 => { numerator := numerator, scale := 0 }
   | numerator, scale + 1 =>
@@ -302,6 +314,13 @@ def evalDecimalBinary?
     (left right : Prim) : Option Prim :=
   match decimalFromPrim? left, decimalFromPrim? right with
   | some left, some right => some (.float (formatFiniteDecimal (op left right) true))
+  | _, _ => none
+
+def evalDecimalCompare?
+    (op : DecimalValue -> DecimalValue -> Bool)
+    (left right : Prim) : Option Bool :=
+  match decimalFromPrim? left, decimalFromPrim? right with
+  | some left, some right => some (op left right)
   | _, _ => none
 
 def evalAdd (left right : Value) : Value :=
@@ -391,7 +410,10 @@ def evalDiv (left right : Value) : Value :=
 
 def evalEq (left right : Value) : Value :=
   match left, right with
-  | .prim left, .prim right => .prim (.bool (left == right))
+  | .prim left, .prim right =>
+      match evalDecimalCompare? decimalEqValues left right with
+      | some value => .prim (.bool value)
+      | none => .prim (.bool (left == right))
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
@@ -418,18 +440,22 @@ def stringsLt (left right : String) : Bool :=
   charsLt left.toList right.toList
 
 def evalPrimitiveOrdering
-    (intOp : Int -> Int -> Bool)
+    (decimalOp : DecimalValue -> DecimalValue -> Bool)
     (stringOp : String -> String -> Bool)
     (op : BinaryOp)
     (left right : Value) : Value :=
   match left, right with
-  | .prim (.int left), .prim (.int right) => .prim (.bool (intOp left right))
-  | .prim (.string left), .prim (.string right) => .prim (.bool (stringOp left right))
+  | .prim left, .prim right =>
+      match evalDecimalCompare? decimalOp left right with
+      | some value => .prim (.bool value)
+      | none =>
+          match left, right with
+          | .string left, .string right => .prim (.bool (stringOp left right))
+          | _, _ => .bottom
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
-  | .prim _, .prim _ => .bottom
   | _, _ => .binary op left right
 
 def evalRegexMatch (left right : Value) : Value :=
@@ -515,10 +541,22 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .intRem => evalIntKeywordBinary .intRem remValue left right
   | .eq => evalEq left right
   | .ne => evalNe left right
-  | .lt => evalPrimitiveOrdering (fun left right => left < right) stringsLt .lt left right
-  | .le => evalPrimitiveOrdering (fun left right => left <= right) (fun left right => !stringsLt right left) .le left right
-  | .gt => evalPrimitiveOrdering (fun left right => left > right) (fun left right => stringsLt right left) .gt left right
-  | .ge => evalPrimitiveOrdering (fun left right => left >= right) (fun left right => !stringsLt left right) .ge left right
+  | .lt => evalPrimitiveOrdering decimalLtValues stringsLt .lt left right
+  | .le =>
+      evalPrimitiveOrdering
+        (fun left right => decimalEqValues left right || decimalLtValues left right)
+        (fun left right => !stringsLt right left)
+        .le
+        left
+        right
+  | .gt => evalPrimitiveOrdering (fun left right => decimalLtValues right left) (fun left right => stringsLt right left) .gt left right
+  | .ge =>
+      evalPrimitiveOrdering
+        (fun left right => decimalEqValues left right || decimalLtValues right left)
+        (fun left right => !stringsLt left right)
+        .ge
+        left
+        right
   | .regexMatch => evalRegexMatch left right
   | .regexNotMatch => evalRegexNotMatch left right
   | .boolAnd => evalBoolBinary .boolAnd (fun left right => left && right) left right

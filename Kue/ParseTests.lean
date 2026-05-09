@@ -191,6 +191,12 @@ theorem parse_ordering_expressions :
       "lt: true\nle: true\ngt: true\nge: false\nslt: true\nprecedence: true" = true := by
   native_decide
 
+theorem parse_numeric_comparison_expressions :
+    parseOutputMatches
+      "lt: 1.5 < 2\nle: 1.5 <= 1.50\ngt: 1e3 > 999.9\nge: 1.0 >= 1\neq: 1 == 1.0\nne: 1 != 1.0\n"
+      "lt: true\nle: true\ngt: true\nge: true\neq: true\nne: false" = true := by
+  native_decide
+
 theorem parse_logical_expressions :
     parseOutputMatches
       "andFalse: true && false\norTrue: false || true\nandCmp: 1 < 2 && 3 > 2\norCmp: false || 1 + 1 == 2\ngrouped: (false || true) && true\n"

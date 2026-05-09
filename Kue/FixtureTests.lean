@@ -141,6 +141,22 @@ theorem fixture_ordering_expressions :
       = "lt: true\nle: true\ngt: true\nge: false\nslt: true\nprecedence: true" := by
   native_decide
 
+theorem fixture_numeric_comparison_expressions :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2))),
+            ("le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50"))),
+            ("gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9"))),
+            ("ge", .regular, .binary .ge (.prim (.float "1.0")) (.prim (.int 1))),
+            ("eq", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0"))),
+            ("ne", .regular, .binary .ne (.prim (.int 1)) (.prim (.float "1.0")))
+          ]
+          true))
+      = "lt: true\nle: true\ngt: true\nge: true\neq: true\nne: false" := by
+  native_decide
+
 theorem fixture_logical_expressions :
     formatTopLevel
       (resolveAndEval

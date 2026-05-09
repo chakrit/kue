@@ -1,0 +1,6 @@
+lt: true
+le: true
+gt: true
+ge: true
+eq: true
+ne: false

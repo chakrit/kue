@@ -61,12 +61,13 @@ Current assumptions:
   integer operands evaluate now; incomplete operands remain as residual infix binary
   expressions.
 - Equality expressions `==` and `!=` are parsed after additive/multiplicative
-  expressions. The evaluator currently handles concrete primitive equality only; equality
-  over incomplete values and compound values remains later work.
+  expressions. The evaluator currently handles concrete primitive equality and numeric
+  equality across int/float spellings. Equality over incomplete values and compound
+  values remains later work.
 - Ordering expressions `<`, `<=`, `>`, and `>=` are parsed at the same comparison
-  precedence as equality. The evaluator currently handles concrete integer and string
-  operands. Mixed-kind ordering bottoms out; ordering over floats, bytes, incomplete
-  values, and compound values remains later work.
+  precedence as equality. The evaluator currently handles concrete numeric and string
+  operands. Mixed-kind ordering bottoms out; ordering over bytes, incomplete values, and
+  compound values remains later work.
 - Binary regex match expressions `=~` and `!~` are parsed at comparison precedence.
   The evaluator currently handles concrete string operands using Kue's existing regex
   subset. Non-string concrete primitive operands bottom out; incomplete operands remain
