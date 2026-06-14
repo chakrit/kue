@@ -26,6 +26,9 @@ Standing grant for this repo, given by chakrit 2026-06-14:
   unrepresentable and push correctness into the type system wherever it buys real safety.
 - **Commit/push freely.** Standing permission to commit and push (on the current
   branch, `main` included) without asking, as part of advancing the work.
+- **Go fast.** Use every tool that genuinely speeds the work: subagents for parallel
+  fan-out, batched/parallel tool calls, concurrent independent edits. Parallelize only
+  when it actually helps — never when coordination overhead would make the whole slower.
 - Autonomy covers direction and execution, not destruction. Two rules still bind, no
   exceptions: no working-tree-overwriting git (`checkout`/`restore`/`reset --hard`
   without asking), and **no environment mutation outside the project tree** (global
