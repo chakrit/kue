@@ -35,11 +35,11 @@ stays v0.15.4 (local `cue` is v0.16.1, used only for `cue fmt`). See the ADR.
    candidates: comprehensions / dynamic fields (needs richer lexical binding scope), or
    remaining builtins. One slice per commit; commit subject mirrors the slice title;
    append the completed slice to `reference/implementation-log.md`.
-2. **Fixture-as-oracle audit (from the ADR consequence).** `testdata/cue/*.expected` were
-   cross-checked against `cue eval`, so they may encode official-v0.15 bugs. Before
-   leaning on them as ground truth, audit against *intended* semantics and, where the
-   binary is wrong, encode the correct value with a noted divergence. Good standalone
-   slice.
+2. ~~**Fixture-as-oracle audit (from the ADR consequence).**~~ ✅ **Done** —
+   see [`2026-06-14-fixture-oracle-audit.md`](2026-06-14-fixture-oracle-audit.md). All 82
+   pairs audited against intended semantics; none encode a binary bug. Suite is
+   trustworthy as an oracle. Only open item: `1.25e3` exponent rendering (already a
+   documented compat boundary).
 
 ## Process notes
 
