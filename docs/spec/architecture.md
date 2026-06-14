@@ -1,172 +1,102 @@
 # Kue Architecture
 
-This document sketches the first implementation architecture for Kue. It is a
-starting point, not a commitment to a final representation. The goal is to make
-CUE's semantic laws executable and eventually provable while keeping parser,
-evaluation, manifestation, and compatibility concerns separate.
+How the implementation is layered today. The representation is still free to change; what
+holds stable is the separation of concerns — parsing, resolution, semantic values, lattice
+operations, evaluation, manifestation, and the compatibility harness stay distinct.
 
 ## Design Goal
 
-Kue should model CUE as a single semantic value domain where types, constraints,
-schemas, and concrete data are all values. Unification is meet, disjunction is
-join, bottom is an ordinary semantic value, and export/manifestation is a later
+Kue models CUE as a single semantic value domain where types, constraints, schemas, and
+concrete data are all values. Unification is meet, disjunction is join, bottom is an
+ordinary semantic value (not a thrown exception), and export/manifestation is a separate
 phase that demands concreteness.
 
-The implementation should optimize for:
+The target is **correct CUE v0.15 semantics** — the language as specified, not bug-for-bug
+parity with the official `cue` binary (see
+[`../decisions/2026-06-14-cue-compatibility-target.md`](../decisions/2026-06-14-cue-compatibility-target.md)).
+
+The implementation optimizes for:
 
 - explicit semantic invariants;
 - total operations over the core value domain;
-- small executable examples before broad syntax coverage;
-- theorem statements for laws that matter;
-- compatibility tests against official CUE behavior once the model can run.
+- small executable examples and fixture ports before broad syntax coverage;
+- theorem statements for the laws that matter;
+- mechanical compatibility checks against expected CUE behavior.
 
-## Layers
+## Layers and Modules
 
-### 1. Surface Syntax
+Modules live under `Kue/`; `Kue.lean` is the library root that imports them (and every
+`*Tests.lean`, so `lake build` exercises the suite at elaboration time). `Main.lean` is the
+`kue` executable.
 
-The syntax layer represents parsed CUE source without trying to solve semantic
-questions. It should keep source locations, package declarations, imports,
-fields, comprehensions, references, defaults, and embeddings visible.
+### 1. Surface syntax — `Parse.lean`
 
-Planned module:
+A narrow recursive-descent parser over the subset already backed by semantic values. It
+keeps package clauses, fields, pattern fields, embeddings, lists, refs, defaults, bounds,
+`let`, aliases, selectors, indices, numeric literal spellings, and the expression grammar
+visible. Unsupported source forms fail with a parse error rather than being approximated.
+Boundaries are tracked in [`compat-assumptions.md`](compat-assumptions.md).
 
-```text
-Kue/Syntax.lean
-```
+### 2. Binding and resolution — `Resolve.lean`
 
-This layer should not decide closedness, resolve references by string lookup, or
-force values to be concrete.
+Converts syntax-level label references into binding identities (`refId`) against a
+field environment, including nested-struct local scopes. The evaluator consumes resolved
+references instead of repeatedly searching strings in nested maps.
 
-### 2. Binding and Resolution
+### 3. Semantic values — `Value.lean`
 
-The resolver converts syntax-level references into binding identities. CUE's
-lexical scoping, field scopes, aliases, `let`, imports, and comprehension
-variables should be handled here before evaluation.
+The core domain: top, bottom with structural provenance (`BottomReason`), primitives
+(int, float, number, string, bytes, bool, null), kinds, integer bounds, primitive
+exclusions, structs with field classes, lists and list tails, struct patterns,
+disjunctions with default markers, references, selectors/indices, builtin calls, and
+unary/binary expression nodes.
 
-Planned module:
+### 4. Order and lattice — `Order.lean`, `Lattice.lean`, `Normalize.lean`
 
-```text
-Kue/Resolve.lean
-```
+`Order.lean` defines subsumption (`subsumes`). `Lattice.lean` implements total `meet`/
+`join` with fuel-bounded recursion through compound values and the normalization the laws
+need (flatten disjunctions, drop bottom alternatives, numeric-kind hierarchy).
+`Normalize.lean` carries definition-implied closedness normalization. Target laws:
+commutativity, associativity, idempotence, top/bottom identities, and distribution of
+meet over finite disjunctions.
 
-The evaluator should consume resolved references rather than repeatedly searching
-strings in nested maps.
+### 5. Evaluation — `Eval.lean`, `Builtin.lean`
 
-### 3. Semantic Values
+`Eval.lean` resolves references, applies constraints, distributes meets, evaluates
+expressions, and handles reference cycles explicitly with a visited-binding path and
+bounded fuel (host-language recursion failure is not acceptable cycle semantics). It does
+not require export-level concreteness — `int`, `string | int`, `>0 & <10` are valid
+results. `Builtin.lean` holds the builtin helpers (`close`, `len`, `and`, `or`, `div`,
+`mod`, `quo`, `rem`); `Eval` dispatches resolved builtin calls and preserves incomplete
+ones as semantic values.
 
-The value layer is the core of Kue. It models top, bottom, primitive values,
-kinds, bounds, structs, lists, disjunctions, defaults, and eventually provenance.
+### 6. Manifestation and formatting — `Manifest.lean`, `Format.lean`
 
-Planned modules:
+`Manifest.lean` is the export phase: it selects defaults (recursively), filters hidden/
+definition/optional/`let` fields, and rejects unresolved or ambiguous values via an
+explicit `ManifestError`, kept separate from evaluation to preserve CUE's `eval` vs
+`export` distinction. `Format.lean` renders values in stable CUE-like text.
 
-```text
-Kue/Value.lean
-Kue/Default.lean
-Kue/Closedness.lean
-```
+### 7. Runtime and compatibility harness — `Runtime.lean`, `FixturePorts.lean`, `Examples.lean`, tests
 
-Bottom belongs in this layer as data. Diagnostics may attach to bottom, but
-bottom itself should not be represented as a thrown exception.
+`Runtime.lean` centralizes the resolve → evaluate → format flow shared by the CLI and
+fixtures, including multi-source merging with package-name consistency. The compatibility
+corpus lives in `testdata/cue/` as paired `.cue` / `.expected` files; `FixturePorts.lean`
+records each expected output as a computed Kue value, and `scripts/check-fixtures.sh`
+generates ports, diffs them, compares `kue` CLI output, and runs `cue fmt --check`.
+`*Tests.lean` modules carry theorem-style and executable checks.
 
-### 4. Order and Lattice Operations
+## Where We Are / What's Next
 
-The order layer defines subsumption and the lattice operations that CUE relies
-on. Early implementations can use simple constructors and normalization; later
-iterations can replace the representation while preserving the same laws.
-
-Planned modules:
-
-```text
-Kue/Order.lean
-Kue/Lattice.lean
-Kue/Normalize.lean
-```
-
-Target laws include commutativity, associativity, idempotence, identities for top
-and bottom, and distribution of meet over finite disjunctions.
-
-### 5. Evaluation
-
-Evaluation computes constraints and references into semantic values. It should
-not require export-level concreteness. Incomplete values such as `int`,
-`string | int`, or `>0 & <10` are valid evaluation results.
-
-Planned modules:
-
-```text
-Kue/Eval.lean
-Kue/Cycle.lean
-Kue/Builtin.lean
-```
-
-Cycles should be explicit in the evaluator design. Host-language recursion
-failure is not an acceptable cycle semantics.
-
-### 6. Manifestation and Export
-
-Manifestation applies default selection where required, rejects unresolved
-non-concrete values, and produces data suitable for JSON/YAML-style output.
-
-Planned modules:
-
-```text
-Kue/Manifest.lean
-Kue/Encode.lean
-```
-
-This phase is intentionally separate from evaluation so Kue can preserve CUE's
-distinction between `cue eval` and `cue export`.
-
-### 7. Compatibility Harness
-
-Compatibility tests should compare selected Kue behavior with official CUE. Each
-test should record its observable surface: eval, export, validation, or
-diagnostic behavior.
-
-Planned modules and directories:
-
-```text
-Kue/Examples.lean
-Kue/Tests.lean
-testdata/cue/
-```
-
-The first tests should target lattice behavior, defaults, closedness, optional
-fields, cycles, comprehensions, and eval/export differences.
-
-## Initial Repository Shape
-
-The first Lean scaffold contains only a library and a tiny executable:
-
-```text
-lakefile.lean
-lean-toolchain
-Kue.lean
-Kue/Hello.lean
-Main.lean
-```
-
-Run it with:
-
-```sh
-lake exe kue
-```
-
-The executable currently prints a greeting. That is only a tooling smoke test;
-the next meaningful implementation step is to replace `Kue.Hello` with the first
-semantic value module.
-
-## Near-Term Milestones
-
-1. Define `Prim` and an intentionally small `Value` domain.
-2. Add total `meet` and `join` functions for top, bottom, primitive equality,
-   and basic kind constraints.
-3. State and prove the easiest lattice laws for the initial domain.
-4. Add unresolved disjunctions and default markers.
-5. Add structs with explicit field classes before implementing closedness.
-6. Add compatibility examples from the CUE guide as executable checks.
+The semantic core, evaluator, manifestation, CLI, and a broad expression layer are
+implemented. The live roadmap and the standing-capability summary are in
+[`plan.md`](plan.md); the full slice-by-slice history is in
+[`../reference/implementation-log.md`](../reference/implementation-log.md). Major
+not-yet-modeled areas: comprehensions, dynamic fields, imports/module resolution,
+full lexical binding scope, and a complete regex engine.
 
 ## Tooling
 
-Use `elan` to install Lean and Lake. This repository pins its Lean version in
-`lean-toolchain` so builds do not depend on a globally floating toolchain.
+Use `elan` to install Lean and Lake; the Lean version is pinned in `lean-toolchain` so
+builds don't depend on a globally floating toolchain. `cue` is required by the fixture
+checker.

@@ -3,13 +3,19 @@
 This file records deliberate compatibility assumptions made while CUE behavior is still
 being modeled. Each item should be testable and replaceable by a narrower semantic slice.
 
-## Basic Parser and CLI
+**Target:** correct CUE **v0.15** semantics, not bug-for-bug parity with the official
+binary — see
+[`../decisions/2026-06-14-cue-compatibility-target.md`](../decisions/2026-06-14-cue-compatibility-target.md).
+References to v0.15.4 below are the deliberate version pin; the local toolchain (v0.16.1)
+is used only for `cue fmt` and ad-hoc cross-checks.
 
-The first parser is a syntax layer over Kue's existing semantic core, not a full CUE
-front end. It exists so real source snippets can flow through the same resolver and
-evaluator that fixture ports use.
+The first parser is a syntax layer over Kue's existing semantic core, not a full CUE front
+end. It exists so real source snippets can flow through the same resolver and evaluator
+that fixture ports use. Rationale: this keeps language-compliance work tied to executable
+semantics while avoiding a large parser detour before the core value model can express
+those forms.
 
-Current assumptions:
+## Parser and CLI scope
 
 - `package` clauses are accepted and otherwise ignored by the source parser. Explicit
   CLI file arguments are merged by unifying their parsed package bodies; mismatched
@@ -26,9 +32,29 @@ Current assumptions:
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
   struct embeddings, untyped struct ellipses, static field aliases, `let` declarations,
   static field selectors, static index expressions, and existing builtin call values.
+- The parser does not yet support imports, non-field aliases, comprehensions, dynamic
+  fields, string interpolation, or typed struct ellipsis syntax.
+- The executable reads CUE from stdin or from explicit file arguments and prints
+  resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
+  output for quick build checks.
+
+## Structs, embeddings, and patterns
+
 - Struct embeddings are lowered to conjunctions with the declared fields. This is a
   useful executable model for schema composition, but it is not yet a full embedding
   validator for every non-struct expression shape.
+- Duplicate fields are merged after reference evaluation when their field classes have
+  an existing merge rule. Unsupported same-label class combinations are kept distinct
+  in this pass; diagnostic provenance and output ordering are still first-pass.
+- Untyped struct ellipses are represented as `.structTail` values with a top tail. Typed
+  struct tails remain semantic-only because the pinned CUE v0.15.4 tool rejects
+  `...T` source syntax.
+- Multiple pattern fields are represented as independent pattern constraints. Label
+  pattern values are still limited to the existing string-kind, exact-string, and
+  supported regex subset.
+
+## Numeric literals
+
 - Decimal numeric separators are stripped while parsing. Exponent literals are accepted
   as float strings with normalized exponent signs, but Kue does not yet canonicalize all
   exponent arithmetic the way `cue eval` does.
@@ -39,6 +65,9 @@ Current assumptions:
   `Ki`, `Mi`, `Gi`, `Ti`, `Pi` are accepted on decimal integer and decimal fraction
   literals when the multiplied result is exactly representable as an integer. Inexact
   suffix products fail during parsing, matching `cue eval`.
+
+## Arithmetic expressions
+
 - Unary numeric `+` and `-` are represented explicitly for non-literal operands.
   Concrete integer operands and float spelling strings evaluate now. Incomplete numeric
   operands remain residual unary expressions until invalid operand diagnostics are
@@ -60,6 +89,9 @@ Current assumptions:
   multiplicative precedence and reuse the existing integer builtin semantics. Concrete
   integer operands evaluate now; incomplete operands remain as residual infix binary
   expressions.
+
+## Comparison and logical expressions
+
 - Equality expressions `==` and `!=` are parsed after additive/multiplicative
   expressions. The evaluator currently handles concrete primitive equality and numeric
   equality across int/float spellings. Equality over incomplete values and compound
@@ -79,12 +111,9 @@ Current assumptions:
 - Logical negation `!` is represented as a residual unary expression when its operand
   is incomplete. Concrete boolean operands evaluate to concrete booleans, and concrete
   non-boolean primitive operands bottom out.
-- Duplicate fields are merged after reference evaluation when their field classes have
-  an existing merge rule. Unsupported same-label class combinations are kept distinct
-  in this pass; diagnostic provenance and output ordering are still first-pass.
-- Untyped struct ellipses are represented as `.structTail` values with a top tail. Typed
-  struct tails remain semantic-only because the pinned CUE v0.15.4 tool rejects
-  `...T` source syntax.
+
+## References, bindings, and selectors
+
 - `let` declarations are represented as non-output binding fields inside the same
   ordered field list as regular fields. This supports ordinary top-level and nested
   references, but duplicate names between `let` bindings and fields still follow Kue's
@@ -100,17 +129,6 @@ Current assumptions:
   remain incomplete. Invalid closed-list indices bottom out with first-pass structural
   provenance only; richer index diagnostics and non-field dynamic selection remain later
   work.
-- The parser does not yet support imports, non-field aliases, comprehensions, dynamic
-  fields, string interpolation, or typed struct ellipsis syntax.
-- Multiple pattern fields are represented as independent pattern constraints. Label
-  pattern values are still limited to the existing string-kind, exact-string, and
-  supported regex subset.
 - Nested structs resolve same-struct references with local binding ids. References that
   fall through to an enclosing struct remain label-based during evaluation until binding
   ids can carry explicit scope identity.
-- The executable reads CUE from stdin or from explicit file arguments and prints
-  resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
-  output for quick build checks.
-
-Rationale: this keeps language compliance work tied to executable semantics while
-avoiding a large parser detour before the core value model can express those forms.

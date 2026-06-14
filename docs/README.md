@@ -29,7 +29,11 @@ do-a-task steps → `guides/`; a defended ruling → `decisions/`; everything el
   boundaries, and near-term milestones.
 - [Compatibility Assumptions](spec/compat-assumptions.md) — assumptions and deliberately
   narrow choices made while matching CUE behavior.
-- [Plan](spec/plan.md) — current implementation slice, TDD checkpoints, and later slices.
+- [Plan](spec/plan.md) — live roadmap: standing capabilities and the next slices.
+- [Implementation Log](reference/implementation-log.md) — the full slice-by-slice record
+  of completed work, retained for verification.
+- [Compatibility Target](decisions/2026-06-14-cue-compatibility-target.md) — why Kue
+  targets *correct* CUE v0.15 semantics over bug-for-bug parity.
 - [Lean 4 Guide](guides/lean4-guide.md) — repo-local Lean 4 quickstart: Lake setup,
   module layout, proof workflow, and how to model CUE semantics in Lean.
 

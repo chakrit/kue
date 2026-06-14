@@ -74,20 +74,25 @@ lake build
 
 ## File Organization
 
-Start with this layout unless the codebase establishes something better:
+The current module layout (see [`../spec/architecture.md`](../spec/architecture.md) for
+how the layers fit together):
 
 ```text
 Kue/
-  Syntax.lean        # parsed/abstract CUE syntax
-  Value.lean         # semantic value domain
+  Parse.lean         # recursive-descent parser over the supported subset
+  Resolve.lean       # label references -> binding ids, nested scopes
+  Value.lean         # semantic value domain (+ bottom provenance)
   Order.lean         # subsumption / partial order
-  Lattice.lean       # meet, join, top, bottom laws
-  Default.lean       # marked/unmarked default semantics
-  Eval.lean          # evaluator / normalization
-  Closedness.lean    # closed structs, definitions, field admissibility
-  Cycle.lean         # cycle detection and recursive values
+  Lattice.lean       # meet, join, normalization, top/bottom laws
+  Normalize.lean     # definition-implied closedness
+  Eval.lean          # evaluator, cycles, builtin dispatch
+  Builtin.lean       # close, len, and, or, div, mod, quo, rem helpers
+  Manifest.lean      # export: default selection, field filtering, errors
+  Format.lean        # stable CUE-like rendering
+  Runtime.lean       # shared resolve -> eval -> format flow for CLI + fixtures
+  FixturePorts.lean  # computed Kue values for the testdata/cue corpus
   Examples.lean      # tiny executable examples
-  Tests.lean         # theorem-style and executable checks
+  Tests.lean         # test aggregator; per-area checks in *Tests.lean
 ```
 
 Keep parser concerns separate from semantic concerns. A mathematically clean value
