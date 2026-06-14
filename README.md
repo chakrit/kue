@@ -17,7 +17,7 @@ eventually proved.
   ports, compares stdin CLI output, and runs `cue fmt --check`.
 - `docs/` — durable docs (usage + design record). Start at [`docs/README.md`](docs/README.md).
 - `lakefile.lean`, `lean-toolchain` — Lake build config (Lean `v4.29.1`).
-- `AGENTS.md`, `ace.toml` — AI agent environment config (managed by
+- `CLAUDE.md`, `ace.toml` — AI agent environment config (managed by
   [ACE](https://github.com/prod9/ace)).
 
 ## Requirements
