@@ -10,6 +10,25 @@ and make type-system, constraint-solving, and proof-related tradeoffs explicit.
 Prefer designs that are precise, testable, and amenable to formal reasoning over
 loosely typed or ad hoc implementations.
 
+## Working Agreement (standing — surface at the start of every fresh session)
+
+Standing grant for this repo, given by chakrit 2026-06-14:
+
+- **Autonomy.** Decide and proceed without the propose-then-wait gate, so long as the
+  work inches Kue toward its goal (correct CUE v0.15 semantics). The ACE
+  propose-and-confirm steps are relaxed here: pick the next slice, plan it, and
+  implement it. Ask only when genuinely blocked or at a real fork; otherwise think and
+  proceed.
+- **Lean into Lean 4.** Use the language's facilities — dependent types, total
+  functions, theorem checks, `structure`/`inductive` invariants — to make illegal states
+  unrepresentable and push correctness into the type system wherever it buys real safety.
+- Autonomy covers direction and execution, not destruction: the global safety rules
+  still hold (no working-tree-overwriting git, no out-of-tree mutation, commit/push only
+  when asked).
+
+At the start of every fresh session, state that this grant is in effect before
+beginning work.
+
 Start with [docs/README.md](docs/README.md), the index for repo-local docs. `docs/`
 holds usage docs (`guides/`, `reference/`; sorted by type) and a design record (`spec/`,
 `decisions/`, `notes/`; sorted by permanence). Default new artifacts to `notes/`; see
