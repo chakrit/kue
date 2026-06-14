@@ -29,6 +29,11 @@ Standing grant for this repo, given by chakrit 2026-06-14:
 - **Go fast.** Use every tool that genuinely speeds the work: subagents for parallel
   fan-out, batched/parallel tool calls, concurrent independent edits. Parallelize only
   when it actually helps — never when coordination overhead would make the whole slower.
+- **Keep specs current as a restore point.** Treat `docs/spec/` (plan, architecture,
+  compat-assumptions), `docs/reference/implementation-log.md`, decisions, and notes as
+  the crash-safe source of truth. Update them as work lands — not in a batch at the end —
+  so a session crash, machine failure, or `/clear` leaves a clean restore point and a
+  fork point for subagents. A slice is not done until its spec/log entry is written.
 - Autonomy covers direction and execution, not destruction. Two rules still bind, no
   exceptions: no working-tree-overwriting git (`checkout`/`restore`/`reset --hard`
   without asking), and **no environment mutation outside the project tree** (global
