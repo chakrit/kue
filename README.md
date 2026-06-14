@@ -15,7 +15,7 @@ eventually proved.
   fixtures used for compatibility checks against `cue`.
 - `scripts/check-fixtures.sh` — validates fixture pairs, regenerates Lean fixture
   ports, compares stdin CLI output, and runs `cue fmt --check`.
-- `docs/` — design docs. Start at [`docs/index.md`](docs/index.md).
+- `docs/` — durable docs (usage + design record). Start at [`docs/README.md`](docs/README.md).
 - `lakefile.lean`, `lean-toolchain` — Lake build config (Lean `v4.29.1`).
 - `AGENTS.md`, `ace.toml` — AI agent environment config (managed by
   [ACE](https://github.com/prod9/ace)).
@@ -55,12 +55,15 @@ and verifies CUE source formatting.
 
 ## Documentation
 
-Read in this order (see [`docs/index.md`](docs/index.md)):
+Read in this order (see [`docs/README.md`](docs/README.md)):
 
-1. [`docs/cue-language-guide.md`](docs/cue-language-guide.md) — CUE semantics Kue
-   must preserve.
-2. [`docs/lean4-guide.md`](docs/lean4-guide.md) — Lean 4 setup and proof workflow.
-3. [`docs/architecture.md`](docs/architecture.md) — module layering and boundaries.
-4. [`docs/compat-assumptions.md`](docs/compat-assumptions.md) — compatibility
+1. [`docs/spec/cue-language-guide.md`](docs/spec/cue-language-guide.md) — CUE semantics
+   Kue must preserve.
+2. [`docs/guides/lean4-guide.md`](docs/guides/lean4-guide.md) — Lean 4 setup and proof
+   workflow.
+3. [`docs/spec/architecture.md`](docs/spec/architecture.md) — module layering and
+   boundaries.
+4. [`docs/spec/compat-assumptions.md`](docs/spec/compat-assumptions.md) — compatibility
    assumptions and deliberately narrow choices.
-5. [`docs/plan.md`](docs/plan.md) — current implementation slice and TDD checkpoints.
+5. [`docs/spec/plan.md`](docs/spec/plan.md) — current implementation slice and TDD
+   checkpoints.

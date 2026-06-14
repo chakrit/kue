@@ -2047,7 +2047,7 @@ through the existing resolver and evaluator.
 
 5. Document parser compatibility assumptions.
    Completed in the basic stdin parser CLI slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 6. Verify. Completed in the basic stdin parser CLI slice.
 
@@ -2077,7 +2077,7 @@ semantic core already supports.
 3. Document the remaining representation caveat.
    Completed in the parser field pattern syntax slice.
    Multiple pattern fields still share the current single-pattern semantic
-   representation and are tracked in `docs/compat-assumptions.md`.
+   representation and are tracked in `docs/spec/compat-assumptions.md`.
 
 4. Verify. Completed in the parser field pattern syntax slice.
 
@@ -2105,7 +2105,7 @@ which Kue already models as `listTail` values.
 
 3. Update parser assumptions.
    Completed in the parser list ellipsis syntax slice.
-   `docs/compat-assumptions.md` now distinguishes supported list ellipses from
+   `docs/spec/compat-assumptions.md` now distinguishes supported list ellipses from
    unsupported struct ellipsis syntax.
 
 4. Verify. Completed in the parser list ellipsis syntax slice.
@@ -2135,7 +2135,7 @@ existing bytes kind and byte primitive semantics.
 3. Update parser assumptions.
    Completed in the parser byte literals slice.
    Byte literals are no longer listed as unsupported in
-   `docs/compat-assumptions.md`.
+   `docs/spec/compat-assumptions.md`.
 
 4. Verify. Completed in the parser byte literals slice.
 
@@ -2197,7 +2197,7 @@ label-based outer references.
 
 4. Document the scoped-binding compromise.
    Completed in the nested struct reference scopes slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 5. Verify. Completed in the nested struct reference scopes slice.
 
@@ -2281,7 +2281,7 @@ lowering struct embeddings to existing conjunction and meet semantics.
 
 4. Document the lowering assumption.
    Completed in the parser struct embeddings slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 5. Verify. Completed in the parser struct embeddings slice.
 
@@ -2352,7 +2352,7 @@ can participate in reference resolution without appearing in output.
 
 4. Document the binding-model assumption.
    Completed in the parser let bindings slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 5. Verify.
    Completed in the parser let bindings slice.
@@ -2387,7 +2387,7 @@ preserving open-tail intent through parsing, formatting, and CLI fixtures.
 
 4. Document the typed-tail compatibility boundary.
    Completed in the parser untyped struct ellipsis slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 5. Verify.
    Completed in the parser untyped struct ellipsis slice.
@@ -2422,7 +2422,7 @@ one evaluated field, matching CUE's struct literal semantics.
 
 4. Document the provenance boundary.
    Completed in the duplicate field unification slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 5. Verify.
    Completed in the duplicate field unification slice.
@@ -2457,7 +2457,7 @@ whose labels are not valid identifiers can be referenced by an alias.
 
 4. Document unsupported alias positions.
    Completed in the static field aliases slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 5. Verify.
    Completed in the static field aliases slice.
@@ -2559,7 +2559,7 @@ separator underscores and exponent notation in the tested CUE-compatible forms.
 
 4. Document the numeric canonicalization boundary.
    Completed in the decimal numeric separators and exponents slice.
-   See `docs/compat-assumptions.md`.
+   See `docs/spec/compat-assumptions.md`.
 
 5. Verify.
    Completed in the decimal numeric separators and exponents slice.

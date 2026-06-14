@@ -10,8 +10,12 @@ and make type-system, constraint-solving, and proof-related tradeoffs explicit.
 Prefer designs that are precise, testable, and amenable to formal reasoning over
 loosely typed or ad hoc implementations.
 
-Start with [docs/index.md](docs/index.md) for repo-local guides. Current guides cover
-the CUE language semantics and the Lean 4 implementation/proof workflow.
+Start with [docs/README.md](docs/README.md), the index for repo-local docs. `docs/`
+holds usage docs (`guides/`, `reference/`; sorted by type) and a design record (`spec/`,
+`decisions/`, `notes/`; sorted by permanence). Default new artifacts to `notes/`; see
+`docs/README.md` and the per-directory READMEs for routing. The CUE language semantics,
+architecture, compatibility assumptions, and implementation plan live under `spec/`; the
+Lean 4 workflow guide under `guides/`.
 
 ## Agent Environment
 
