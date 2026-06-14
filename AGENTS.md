@@ -22,8 +22,3 @@ Agent skills and conventions are provided by the **PRODIGY9 Coding School** scho
 and are symlinked into the active agent environment. Skill edits go through symlinks
 into the school clone; propose changes back to the school repo when ready. Run
 `ace config` or `ace paths` to debug configuration issues.
-
-## Command Output
-
-Read [RTK.md](RTK.md) for token-optimized shell usage. Prefix shell commands with
-`rtk` unless exact, unfiltered output is required.
