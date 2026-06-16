@@ -69,6 +69,18 @@ import/module mechanism (B3). Remaining stdlib builtins (`strings.Trim*`/`Runes`
 `list.Sort`/`SortStable`, unicode case folding) stay parked — infra doesn't need them.
 Full gap report: agent run 2026-06-16; reproduce by running kue against the prod9 modules.
 
+**PENDING AUDIT — parser+alias batch (`0795530`/`7ec51a4`/`f6c18b5`/`804f1ca`).** The
+`/ace-audit` depth pass over this batch failed three times on transient API 500s (twice
+instantly, once after 35 tool calls) and did NOT complete or commit. An orchestrator
+spot-check of the #1 risk (new `Value.thisStruct` constructor) confirmed it is EXPLICITLY
+handled — `Lattice.lean:380-382` (meet arms), `Format.lean:161` (`@self`),
+`Manifest.lean:72` (incomplete error), `Eval.lean` (Self.field→sibling rewrite); not
+silently absorbed by a wildcard, doesn't leak to output. `Normalize`/`Order` don't
+reference it (it only exists as a non-output letBinding value, so it never reaches them
+standalone). Residual: a FULL audit of this batch is still owed — re-run when the API is
+stable (B1 AST-identity across all label forms, parser-position off-by-ones, B2 deferred-
+position correctness). Do not let this block forward slices.
+
 ## Implementation Status
 
 The semantic core, evaluator, manifestation, a stdin/file CLI, and a broad expression
