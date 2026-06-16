@@ -66,11 +66,23 @@ The primary agent (you) is a thin orchestrator, not the implementer:
 3. **Spawn one subagent per slice.** It runs the full ace workflow (plan → TDD → verify:
    `lake build` + `scripts/check-fixtures.sh` + `shellcheck` → commit/push → update the
    plan, implementation-log, and breadcrumb). It works in fresh context, so the heavy
-   reads/edits never bloat the orchestrator.
+   reads/edits never bloat the orchestrator. Two standing per-slice duties beyond the code:
+   - **Tests are first-class.** Don't settle for one happy-path fixture — audit the
+     slice's edge/error cases and expand coverage (fixtures + `native_decide` theorems)
+     until the behavior is pinned. Strengthen weak existing tests you touch.
+   - **Log CUE divergences.** While oracle-checking against `cue`, watch for cases where
+     `cue` is buggy or surprising and Kue does the correct thing. Record each in
+     `docs/reference/cue-divergences.md` (claim, `cue` output, Kue output, why Kue is
+     right, `cue` version).
 4. **Cheaply verify, don't re-do.** On return, confirm the slice landed — tree clean,
    pushed, build/fixtures green, log+breadcrumb updated — with a light check (git state,
    one build/fixture run). No full skill-compliance sweep; the subagent owns depth.
-5. **Loop or stop.** If verification passes and planned slices remain, spawn the next.
+5. **Periodic `/ace-audit`.** Every ~3–4 landed slices, or at a family/milestone
+   boundary, spawn a subagent running `/ace-audit` over the recently landed work — the
+   per-slice cheap check is deliberately shallow; this is the depth pass for
+   skill-compliance and implementation quality. Fold its findings into the plan as
+   fix-slices. Cadence, not every iteration — don't let it stall forward motion.
+6. **Loop or stop.** If verification passes and planned slices remain, spawn the next.
    Stop only at a genuine blocker, a failed verify the subagent couldn't fix, or an empty
    plan — and leave the breadcrumb pointing at the next step.
 
