@@ -3934,3 +3934,51 @@ zero-step ⇒ bottom. Fixture `list_builtin_float.{cue,expected}` (15 fields) + 
 
 `lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No CUE divergence logged
 (Kue's integral-collapse matches cue exactly).
+
+## Completed Slice: Post-Audit Hardening 2 — Totalize Decimal `partial def`s
+
+Commit `d6c54a5`. Closes the float-numeric audit fix-slices (audit 2026-06-16): two new
+`partial def`s in `Kue/Decimal.lean` plus two borderline cleanups and a doc fix.
+
+### Totalization
+
+- **`divisionDigits`** — the inner `.loop` recursed on `remainder` (modular, not
+  structurally decreasing) under the `sigEmitted > divisionSigDigits` budget. Lifted to a
+  fuel-bounded total `divisionDigitsLoop (den) : fuel rem sig saw acc → …`, fuel supplied
+  by `divisionDigitsFuel den = divisionSigDigits + 1 + (toString den).toList.length`. Sound
+  bound: the only non-emitting iterations are leading fractional zeros, bounded by the den
+  digit count (each multiplies the remainder by 10, so within that many steps the first
+  significant digit fires); significant emission is hard-capped at `divisionSigDigits + 1`.
+  Hence the over-budget exit always fires before fuel exhausts — the `fuel = 0` arm
+  (returns `terminated = false`) is unreachable on real inputs, making the total form
+  behaviorally identical to the prior partial one.
+- **`roundDigits`** — `partial` was gratuitous (no self-recursion). Dropped it; the inner
+  `bump` is lifted to a structural `roundDigitsBump : List Nat → List Nat × Bool`. Plain
+  `def` type-checks via structural recursion.
+- No `partial def` remains in `Kue/Decimal.lean`.
+
+### Borderline cleanups
+
+- **`rangeCount (start limit step : Int) : Int`** extracted from the verbatim ascending/
+  descending count formula duplicated in `listRange` and `listRangeDecimal`
+  (`Kue/Builtin.lean`); both now call it (decimal passes scaled-to-common-denominator
+  ints). Behavior-preserving.
+- **`DecimalDivideResult`** (`nonNumeric | divByZero | ok String`) replaces
+  `evalDecimalDivide?`'s `Option (Option String)`; the `evalDiv` callsite in `Kue/Eval.lean`
+  reads the three arms directly. Illegal states unrepresentable.
+- Doc fix: `docs/notes/2026-06-16-float-muldiv-landed.md` no longer mis-attributes `partial`
+  to `divideDecimalRational?`.
+
+### Tests
+
+All pre-existing division/avg `native_decide` theorems pass **unchanged** under the
+totalized defs (the fuel/`Nat.rec` form still reduces under `native_decide`, confirming the
+bound does not diverge). Added two high-fuel pins in `EvalTests.lean`:
+`eval_div_repeating_full_sig` (`1.0/7.0` — full 34 sig digits, no leading zeros) and
+`eval_div_repeating_leading_zeros` (`1.0/700.0` — 2 leading zeros, leaning on the
+`+ <den digit count>` slack). Both oracle-checked against cue v0.16.1.
+
+### Verify
+
+`lake build` 68 jobs, `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.
+No CUE divergence logged (pure refactor — no semantic change).
