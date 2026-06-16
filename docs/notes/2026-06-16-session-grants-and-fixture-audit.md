@@ -40,14 +40,23 @@ so no re-verify needed.)
 substantive next step; "remaining builtins" is thin without import/package infra (top-level
 builtins are already done).
 
-- **Prerequisite called out in the plan:** needs lexical binding identities represented for
-  more than same-struct fields. Design that representation *first*, then drive the feature
-  TDD.
-- **Scope:** multi-module — touches `Kue/Resolve.lean`, `Kue/Eval.lean`, `Kue/Parse.lean`
-  together. Cross-module reasoning → consider isolated agents per non-overlapping file
-  group per the ACE TDD-execution sizing rule.
+- **Prerequisite — DONE (`32520fb`).** Lexical binding identities now represented beyond
+  same-struct scope: `BindingId = (depth, index)`, resolver carries a scope-frame stack,
+  eval carries a matching env stack, dynamic name-fallback removed. Full slice record in
+  `docs/reference/implementation-log.md` → "Completed Slice: Lexical Scope Chain". The
+  scope-chain machinery is the foundation comprehensions plug into.
+- **Next: comprehensions (`for` / `if` field clauses), then dynamic fields `(expr): v`.**
+  A `for k, v in expr { body }` introduces ONE new scope kind that is *not* a struct field
+  (the loop variable) — push it as a new frame on the same scope stack (resolver) / env
+  stack (eval) built in this slice. `if cond { body }` is a guard producing 0-or-more
+  fields. Both desugar into fields merged into the enclosing struct.
+- **Scope:** multi-module — `Kue/Parse.lean` (new AST: comprehension clause + dynamic
+  label; struct-body parsing), `Kue/Value.lean` (field/clause representation), then
+  `Kue/Resolve.lean` + `Kue/Eval.lean` (push the loop-var frame, iterate/guard, merge).
+  Start with the parser + a failing fixture checked against `cue eval`.
 - **Discipline:** one slice per commit; subject mirrors slice title; append the completed
-  slice to `docs/reference/implementation-log.md`; lean on the type system.
+  slice to `docs/reference/implementation-log.md`; lean on the type system. Resolve design
+  forks by the project philosophy (see CLAUDE.md), don't stop to ask.
 
 ## Verify gate (unchanged)
 
