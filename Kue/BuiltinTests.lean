@@ -150,6 +150,12 @@ theorem strings_call_stays_unresolved_on_abstract_arg :
       == .builtinCall "strings.Contains" [.kind .string, .prim (.string "x")]) = true := by
   native_decide
 
+theorem strings_replace_zero_count_is_unchanged :
+    (evalBuiltinCall "strings.Replace"
+        [.prim (.string "aaaa"), .prim (.string "a"), .prim (.string "b"), .prim (.int 0)]
+      == .prim (.string "aaaa")) = true := by
+  native_decide
+
 theorem list_concat_flattens_one_level :
     (evalBuiltinCall "list.Concat"
         [.list [.list [.prim (.int 1)], .list [.prim (.int 2), .prim (.int 3)]]]
@@ -182,6 +188,12 @@ theorem list_range_zero_step_is_bottom :
 theorem list_slice_out_of_range_is_bottom :
     (evalBuiltinCall "list.Slice"
         [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 1), .prim (.int 5)]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_slice_negative_low_is_bottom :
+    (evalBuiltinCall "list.Slice"
+        [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int (-1)), .prim (.int 2)]
       == .bottom) = true := by
   native_decide
 

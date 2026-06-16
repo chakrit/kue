@@ -476,4 +476,19 @@ theorem eval_comprehension_for_source_sees_sibling_field :
       = true := by
   native_decide
 
+/-- Deferred-boundary pin: float×float arithmetic is not yet wired to the lifted
+    decimal layer, so two float operands currently collapse to bottom. Asserting it
+    makes the transition to real float multiplication a visible, test-breaking change
+    rather than a silent one. -/
+theorem eval_mul_two_floats_is_bottom_deferred :
+    evalMul (.prim (.float "1.5")) (.prim (.float "2.0")) = .bottom := by
+  rfl
+
+/-- Deferred-boundary pin: float÷float likewise collapses to bottom for now.
+    Integer division already routes through `formatIntegerDivision`; the float path
+    awaits the decimal lift. Breaking this theorem flags that wiring landing. -/
+theorem eval_div_two_floats_is_bottom_deferred :
+    evalDiv (.prim (.float "3.0")) (.prim (.float "2.0")) = .bottom := by
+  rfl
+
 end Kue

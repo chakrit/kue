@@ -1,0 +1,2 @@
+v: "sibling"
+out: {keep: "sibling", k10: 10, k20: 20}

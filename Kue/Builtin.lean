@@ -124,30 +124,33 @@ def stringSplit (value sep : String) : List Value :=
   else
     (value.splitOn sep).map (fun piece => .prim (.string piece))
 
+/-- Replace one occurrence per step until `fuel`/`remaining` runs out, then append
+    the unconsumed tail. `remaining < 0` means "no count cap" (replace every match);
+    `fuel` is a structural bound on the number of steps (one match consumes ≥ 1 byte
+    of `rest`, so its UTF-8 size bounds the matches). -/
+def stringReplaceLoop (fuel : Nat) (acc rest old new : String) (remaining : Int) : String :=
+  match fuel with
+  | 0 => acc ++ rest
+  | fuel + 1 =>
+      if remaining == 0 then
+        acc ++ rest
+      else
+        let idx := stringByteIndex rest old
+        if idx < 0 then
+          acc ++ rest
+        else
+          let before := String.fromUTF8! (rest.toUTF8.extract 0 idx.toNat)
+          let after := String.fromUTF8! (rest.toUTF8.extract (idx.toNat + old.utf8ByteSize) rest.utf8ByteSize)
+          let nextRemaining := if remaining > 0 then remaining - 1 else remaining
+          stringReplaceLoop fuel (acc ++ before ++ new) after old new nextRemaining
+
 /-- Replace the first `count` non-overlapping occurrences of `old` with `new`
     in `value`; `count < 0` replaces all. Mirrors Go's `strings.Replace`. -/
-partial def stringReplace (value old new : String) (count : Int) : String := Id.run do
-  if count == 0 then
-    return value
-  if old.isEmpty then
-    return value
-  let mut acc := ""
-  let mut rest := value
-  let mut remaining := count
-  while remaining != 0 do
-    let idx := stringByteIndex rest old
-    if idx < 0 then
-      acc := acc ++ rest
-      rest := ""
-      remaining := 0
-    else
-      let before := String.fromUTF8! (rest.toUTF8.extract 0 idx.toNat)
-      let after := String.fromUTF8! (rest.toUTF8.extract (idx.toNat + old.utf8ByteSize) rest.utf8ByteSize)
-      acc := acc ++ before ++ new
-      rest := after
-      if remaining > 0 then
-        remaining := remaining - 1
-  return acc ++ rest
+def stringReplace (value old new : String) (count : Int) : String :=
+  if count == 0 || old.isEmpty then
+    value
+  else
+    stringReplaceLoop value.utf8ByteSize "" value old new count
 
 /-- Concatenate `pieces` with `sep`; any non-string element yields bottom. -/
 def stringJoin (pieces : List Value) (sep : String) : Value :=
@@ -192,16 +195,34 @@ def listConcat (lists : List Value) : Value :=
   | some items => .list items
   | none => .bottom
 
+/-- Maximum nesting depth of list values in `items`: how many `.list` levels can be
+    peeled before only non-list elements remain. A structural upper bound on the
+    fuel `list.FlattenN` needs to flatten fully. -/
+def listNestingDepth : List Value -> Nat
+  | [] => 0
+  | item :: rest =>
+      let here :=
+        match item with
+        | .list inner => listNestingDepth inner + 1
+        | _ => 0
+      max here (listNestingDepth rest)
+
+/-- Flatten at most `fuel` nested levels of `items`; a non-list element is emitted
+    as-is. Fuel decreases by one per level of descent, so the recursion is total. -/
+def listFlattenFuel (fuel : Nat) (items : List Value) : List Value :=
+  match fuel with
+  | 0 => items
+  | fuel + 1 =>
+      items.flatMap fun item =>
+        match item with
+        | .list inner => listFlattenFuel fuel inner
+        | other => [other]
+
 /-- Flatten nested lists up to `depth` levels; `depth < 0` flattens fully.
     A non-list element is emitted as-is. Mirrors CUE's `list.FlattenN`. -/
-partial def listFlattenN (items : List Value) (depth : Int) : List Value :=
-  if depth == 0 then
-    items
-  else
-    items.flatMap fun item =>
-      match item with
-      | .list inner => listFlattenN inner (depth - 1)
-      | other => [other]
+def listFlattenN (items : List Value) (depth : Int) : List Value :=
+  let fuel := if depth < 0 then listNestingDepth items else depth.toNat
+  listFlattenFuel fuel items
 
 /-- `count` copies of `items` concatenated; negative count is an error (bottom).
     Mirrors CUE's `list.Repeat`. -/
@@ -285,6 +306,26 @@ def listMaxInt : List Value -> Value
       go first rest
   | _ => .bottom
 
+/-- Whether an argument is a fully-evaluated concrete value (no kinds, refs, or
+    unresolved calls). Used to decide a builtin dispatcher's fallback. -/
+def isConcreteArg : Value -> Bool
+  | .prim _ => true
+  | .list _ => true
+  | _ => false
+
+/-- Shared fallback for every package builtin dispatcher (`strings.*`, `list.*`,
+    and the upcoming `math.*`): a call that matched no known arm resolves to
+    bottom when any argument is bottom or all arguments are concrete (a genuine
+    CUE type error), and otherwise stays unresolved as a `.builtinCall` so a later
+    evaluation pass can complete it once references resolve. -/
+def unresolvedOrBottom (name : String) (args : List Value) : Value :=
+  if args.any containsBottom then
+    .bottom
+  else if args.all isConcreteArg then
+    .bottom
+  else
+    .builtinCall name args
+
 /-- Dispatch a `list.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design.
     Deferred (kept unresolved/not matched): `Avg`, float-domain `Sum`/`Min`/`Max`,
@@ -304,26 +345,7 @@ def evalListBuiltin : String -> List Value -> Value
   | "list.Sum", [.list items] => listSumInt items
   | "list.Min", [.list items] => listMinInt items
   | "list.Max", [.list items] => listMaxInt items
-  | name, args =>
-      if containsAnyBottom args then
-        .bottom
-      else if argsFullyEvaluated args then
-        .bottom
-      else
-        .builtinCall name args
-where
-  containsAnyBottom : List Value -> Bool
-    | [] => false
-    | value :: rest => containsBottom value || containsAnyBottom rest
-  /-- A list call whose args are all concrete (no kinds/refs/unresolved) but did
-      not match a known arm is a type error => bottom. Otherwise keep it unresolved. -/
-  argsFullyEvaluated : List Value -> Bool
-    | [] => true
-    | value :: rest => isConcreteArg value && argsFullyEvaluated rest
-  isConcreteArg : Value -> Bool
-    | .prim _ => true
-    | .list _ => true
-    | _ => false
+  | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `strings.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design. -/
@@ -350,26 +372,7 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.string (String.ofList (s.toList.dropWhile (·.isWhitespace) |>.reverse.dropWhile (·.isWhitespace) |>.reverse)))
   | "strings.Fields", [.prim (.string s)] =>
       .list (stringFields s)
-  | name, args =>
-      if containsAnyBottom args then
-        .bottom
-      else if argsFullyEvaluated args then
-        .bottom
-      else
-        .builtinCall name args
-where
-  containsAnyBottom : List Value -> Bool
-    | [] => false
-    | value :: rest => containsBottom value || containsAnyBottom rest
-  /-- A strings call whose args are all concrete (no kinds/refs/unresolved) but did
-      not match a known arm is a type error => bottom. Otherwise keep it unresolved. -/
-  argsFullyEvaluated : List Value -> Bool
-    | [] => true
-    | value :: rest => isConcreteArg value && argsFullyEvaluated rest
-  isConcreteArg : Value -> Bool
-    | .prim _ => true
-    | .list _ => true
-    | _ => false
+  | name, args => unresolvedOrBottom name args
 
 def evalBuiltinCall : String -> List Value -> Value
   | "close", [value] => closeValue value

@@ -1118,6 +1118,32 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "comprehension_loopvar_shadow.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("v", .regular, .prim (.string "sibling")),
+                (
+                  "out",
+                  .regular,
+                  .structComp
+                    [("keep", .regular, .ref "v")]
+                    [
+                      .comprehension
+                        [.forIn none "v" (.list [.prim (.int 10), .prim (.int 20)])]
+                        (.structComp
+                          []
+                          [.dynamicField
+                            (.interpolation [.prim (.string "k"), .ref "v"]) .regular (.ref "v")]
+                          true)
+                    ]
+                    true)
+              ]
+              true))
+    },
+    {
       fileName := "struct_embedding_scope.expected",
       content :=
         formatTopLevel
