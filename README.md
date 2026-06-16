@@ -6,6 +6,27 @@ disjunction, defaults, and bottom are modeled as ordinary semantic values so tha
 laws governing them can be executed, tested against the official `cue` binary, and
 eventually proved.
 
+## Installation
+
+macOS (Apple Silicon) via Homebrew:
+
+```sh
+brew install chakrit/tap/kue
+```
+
+This pulls a prebuilt, self-contained binary (Lean's runtime is linked statically;
+no toolchain install required). Other platforms — and Apple Silicon if you prefer —
+build from source:
+
+```sh
+git clone https://github.com/chakrit/kue && cd kue
+lake build kue            # produces .lake/build/bin/kue
+```
+
+`lake build` fetches the toolchain pinned by `lean-toolchain` via `elan` on first run.
+Prebuilt binaries for each release (macOS arm64/x64, Linux x64) are attached to the
+[GitHub releases](https://github.com/chakrit/kue/releases).
+
 ## Repository Layout
 
 - `Main.lean`, `Kue.lean` — executable entry point and library root.
