@@ -24,23 +24,40 @@ reference implementation. See
 - Keep each commit small enough to review, revert, or extend safely. One slice per
   commit; the commit subject mirrors the slice title.
 
-## Current Focus (priority, set 2026-06-16 by chakrit)
+## Current Focus — data-driven roadmap to replace `cue` for prod9/infra (2026-06-16)
 
-The semantic core is broad and largely in place; supporting stdlib builtins
-(`strings`/`list`/`math`) are now **lower priority** than core-language completeness.
-Work the loop in this order:
+**Real goal (chakrit):** make kue able to evaluate PRODIGY9's actual infra CUE so it can
+replace `cue`, mostly for `prod9/infra` and related repos — as fast as possible.
 
-1. **Parser completeness (active).** Close the gap between forms the semantic core
-   already supports and what the CLI parser accepts, so real `.cue` files parse and
-   evaluate end-to-end instead of hard-erroring; add real CUE-style error diagnostics
-   (not residual expressions) and the newline/semicolon separator-insertion rules.
-2. **Local imports & modules (sort-of working).** Make local/relative imports and
-   module resolution at least partially function (single module, on-disk files).
-3. **Full packages — deferred to LAST.** Multi-file package merge and full package-clause
-   semantics are the final feature set, after everything else.
+A read-only gap analysis ran kue against 92 sampled real files across `prod9/infra`,
+`infra-defs`, `infra-stage9`. Result: **kue evaluates ZERO real manifest-producing files
+today; 85/92 fail at the *parser*** on two ubiquitous-but-trivial forms the fixture suite
+never exercised (so the earlier "parser is feature-complete" read was wrong — it only
+checked semantic-core features). Slices, in evidence-ranked order (cheap independent wins
+first, the big import subsystem last because it gates the real workflow):
 
-Remaining stdlib builtins (`strings.Trim*`/`Runes`/`ContainsAny`/`LastIndex`,
-`list.Sort`/`SortStable`, unicode case folding) stay parked until the above lands.
+1. **B1 — colon-shorthand nested fields** (`a: b: c: 1`). Pure parser; desugar chained
+   labels to nested structs. Unblocks the single largest tranche of files. **(active)**
+2. **B2 — value/field aliases** (`X=expr`, esp. `#Def: Self={…}` self-reference; 50/92
+   files). Parser + resolver binding so `Self.#f` resolves.
+3. **B4 — multiline strings** (`"""…"""` currently → `_|_`). Lexer/dedent fix; unblocks
+   secret/argo files.
+4. **B6 — encoding builtins** `base64.Encode`, `json.Marshal` (load-bearing inside
+   `#Secret`/`#ConfigMap`). Small pure functions; kue already has the value AST.
+5. **B5 — manifest output**: a YAML/JSON serializer over `Kue/Manifest.lean` + a
+   `cue export`-style CLI mode (select expr, `--out yaml/json`, multi-doc streams).
+   First true end-to-end manifest on a self-contained leaf file. `yaml.Marshal` shares
+   this code.
+6. **B3 — module/import resolution** (the big one, LAST): `cue.mod` deps, loading
+   `prodigy9.co/defs*` packages from disk, cross-package symbols, multi-file package
+   merge. Gates every real `infra/apps/*.cue`. "Packages last" = packages are the final
+   and largest blocker, NOT optional.
+
+Note: `strings.*`/`list.*` work *without* an `import` because kue hardcodes those
+namespaces and ignores the `import` clause — this masks the absence of any general
+import/module mechanism (B3). Remaining stdlib builtins (`strings.Trim*`/`Runes`/…,
+`list.Sort`/`SortStable`, unicode case folding) stay parked — infra doesn't need them.
+Full gap report: agent run 2026-06-16; reproduce by running kue against the prod9 modules.
 
 ## Implementation Status
 
