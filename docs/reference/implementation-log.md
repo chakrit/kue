@@ -4221,3 +4221,55 @@ insertion remains unimplemented (next-step parser work, alongside non-field alia
 
 `lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs
 ok`, `shellcheck scripts/check-fixtures.sh` clean. No CUE divergence logged.
+
+## Completed Slice: B1 — Colon-Shorthand Nested Fields (`a: b: c: 1`)
+
+Parser-only slice. CUE's most basic idiom `a: b: c: 1` is sugar for `a: {b: {c: 1}}`.
+The prod9/infra gap analysis ranked this the #1 blocker (85/92 sampled real files failed
+at the parser; `tests: namespace: [...]` → `parse error: unexpected character ':'`).
+
+### Desugaring (recursion point)
+
+`Kue/Parse.lean`, new `parseFieldValue` inside the parser's mutual block. After a field
+label and its `:`, the value position is inspected by the pure lookahead
+`valuePositionStartsField`: it skips one label token (`skipLabelToken?` — identifier/
+definition, `"…"` quoted via `skipQuotedToken?`, or `(…)` dynamic via `skipBalancedParens`),
+then an optional `?`/`!` class marker, and checks for a following `:`. On a hit,
+`parseFieldValue` recurses into `parseField` and wraps the single resulting field via
+`parsedFieldsValue [inner]` — the **same** builder the brace path (`parseStruct`) uses.
+That is the brace-identity guarantee: `a: b: 1` constructs exactly what `a: {b: 1}`
+constructs, so it unifies/closes/exports identically. On a miss, the value position falls
+through to `parseExpression` unchanged (so `a: b` stays a reference, not a shorthand).
+
+Routed through `parseFieldValue`: `parseLabeledField`, `parseAliasedField`,
+`parseDynamicField`, `parseQuotedLabelField` — every `:`-introduced value position, so
+shorthand chains through quoted and dynamic inner labels too (`a: "x/y": 1`, `a: ("k"): 1`).
+
+### Label forms supported (oracle-checked vs `cue` v0.16.1)
+
+Inner labels: plain identifiers, definitions (`#x: y: 1`), quoted strings (incl. dotted
+`"prodigy9.co/app": "v"`), `(expr)` dynamic; each with optional `?`/`!` markers. Verified
+identical export to the brace form for each. Definition/optional inner fields export empty
+(hidden), required inner fields error as incomplete — all matching the brace equivalents.
+
+### Tests
+
+New fixture pair `colon_shorthand.{cue,expected}` + `FixturePorts.lean` entry. The port
+builds the explicit-**brace** AST; the CLI port independently evaluates the **shorthand**
+`.cue`. Both matching `.expected` pins the desugaring. Fixture exercises 2/3-level chains,
+quoted dotted inner label, mixed shorthand+brace, and shorthand-sibling merge (`spec:`
+twice).
+
+13 new `native_decide` theorems in `ParseTests.lean`. KEY equality pins via new
+`parseSameValue left right` (compares the two pre-resolution `Value` ASTs with `==`):
+`a: b: 1` ≡ `a: {b: 1}`, 3-level, quoted-inner, mixed-with-brace, dynamic-inner — all
+prove AST identity, not just equal output. Plus resolve-level pins (2/3-level, quoted,
+sibling merge, alongside-sibling, prod9 `metadata: name:` snippet) and a regression pin
+that `a: b` (no colon) stays an ordinary reference.
+
+### Verify
+
+`lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs
+ok` (no regressions — brace forms still work), `shellcheck scripts/check-fixtures.sh`
+clean. No CUE divergence logged (`cue` and Kue agree; `cue` even normalizes the brace
+form back to shorthand on export).

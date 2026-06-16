@@ -486,6 +486,53 @@ def dropWord? (word : String) (chars : List Char) : Option (List Char) :=
   else
     none
 
+/-- Skip a quoted token (string `"…"` or bytes `'…'`) for lookahead, returning the
+    remainder after the closing quote. Honors `\`-escapes so an escaped quote does not
+    end the token early. -/
+def skipQuotedToken? (quote : Char) : List Char -> Option (List Char)
+  | [] => none
+  | '\\' :: _ :: rest => skipQuotedToken? quote rest
+  | value :: rest =>
+      if value == quote then some rest else skipQuotedToken? quote rest
+
+/-- Skip a balanced parenthesized group for lookahead, returning the remainder after the
+    matching `)`. `depth` tracks nesting so inner parens (e.g. a call) don't close early. -/
+def skipBalancedParens (depth : Nat) : List Char -> Option (List Char)
+  | [] => none
+  | '(' :: rest => skipBalancedParens (depth + 1) rest
+  | ')' :: rest => match depth with
+      | 0 => some rest
+      | d + 1 => skipBalancedParens d rest
+  | _ :: rest => skipBalancedParens depth rest
+
+/-- Skip the remainder after a single field-label token (identifier/definition, quoted
+    string, or `(expr)` dynamic). `none` if the value position does not begin a label. -/
+def skipLabelToken? : List Char -> Option (List Char)
+  | '"' :: rest => skipQuotedToken? '"' rest
+  | '(' :: rest => skipBalancedParens 0 rest
+  | value :: rest =>
+      if parseIdentifierStart value then
+        some (takeWhileChars parseIdentifierRest rest [value]).snd
+      else
+        none
+  | [] => none
+
+/-- Whether the value position begins another field (`label [?|!] :`), i.e. the
+    colon-shorthand `a: b: …` form. Drives the desugaring recursion in `parseField`;
+    a `false` verdict means the value position is an ordinary expression. -/
+def valuePositionStartsField (chars : List Char) : Bool :=
+  match skipLabelToken? (skipTrivia chars) with
+  | none => false
+  | some afterLabel =>
+      let afterClass :=
+        match skipTrivia afterLabel with
+        | '?' :: rest => rest
+        | '!' :: rest => rest
+        | rest => rest
+      match skipTrivia afterClass with
+      | ':' :: _ => true
+      | _ => false
+
 def parseMultiplicativeKeywordOp? (chars : List Char) : Option (BinaryOp × List Char) :=
   match dropWord? "div" chars with
   | some rest => some (.intDiv, rest)
@@ -975,11 +1022,23 @@ mutual
     | .error error => .error error
     | .ok (value, rest) => parseOk (.embedding value) rest
 
+  /-- Parse the value position of a field. If it begins another field (`a: b: …`),
+      desugar the colon-shorthand chain into a nested single-field struct identical to
+      the brace form (`a: {b: …}`) by recursing through `parseField` and the same
+      `parsedFieldsValue` builder the brace path uses. Otherwise parse an expression. -/
+  partial def parseFieldValue (chars : List Char) : ParseResult Value :=
+    if valuePositionStartsField chars then
+      match parseField chars with
+      | .error error => .error error
+      | .ok (inner, rest) => parseOk (parsedFieldsValue [inner]) rest
+    else
+      parseExpression chars
+
   partial def parseLabeledField (label : String) (rest : List Char) : ParseResult ParsedField :=
     let (fieldClass, rest) := parseFieldClass label rest
     match skipTrivia rest with
     | ':' :: rest =>
-        match parseExpression rest with
+        match parseFieldValue rest with
         | .error error => .error error
         | .ok (value, rest) => parseOk (.field (label, fieldClass, value)) rest
     | rest => parseError rest "expected ':' after field label"
@@ -996,7 +1055,7 @@ mutual
                 let (fieldClass, rest) := parseFieldClass label rest
                 match skipTrivia rest with
                 | ':' :: rest =>
-                    match parseExpression rest with
+                    match parseFieldValue rest with
                     | .error error => .error error
                     | .ok (value, rest) => parseOk (.fieldAlias alias (label, fieldClass, value)) rest
                 | rest => parseError rest "expected ':' after aliased field label"
@@ -1017,7 +1076,7 @@ mutual
                   | rest => (FieldClass.regular, rest)
                 match skipTrivia rest with
                 | ':' :: rest =>
-                    match parseExpression rest with
+                    match parseFieldValue rest with
                     | .error error => .error error
                     | .ok (value, rest) => parseOk (.dynamicField label fieldClass value) rest
                 | rest => parseError rest "expected ':' after dynamic field label"
@@ -1041,7 +1100,7 @@ mutual
               | rest => (FieldClass.regular, rest)
             match skipTrivia afterClass with
             | ':' :: afterColon =>
-                match parseExpression afterColon with
+                match parseFieldValue afterColon with
                 | .error error => .error error
                 | .ok (value, rest) =>
                     match labelValue with

@@ -37,8 +37,11 @@ those forms.
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
   struct embeddings, untyped struct ellipses, static field aliases, `let` declarations,
   static field selectors, static index expressions, existing builtin call values,
-  comprehensions (`for`/`if` field clauses), dynamic fields (`(expr): v`), and string
-  interpolation (`"\(expr)"`).
+  comprehensions (`for`/`if` field clauses), dynamic fields (`(expr): v`), string
+  interpolation (`"\(expr)"`), and colon-shorthand nested fields (`a: b: c: 1`,
+  desugared to the brace form `a: {b: {c: 1}}` — same AST, so it unifies/closes/exports
+  identically; inner labels may be identifiers, definitions, quoted strings, or `(expr)`
+  dynamic, each with optional `?`/`!` markers).
 - The parser does not yet support non-field aliases, typed struct ellipsis syntax
   (`...T`, which cue v0.15.4 also rejects), or imports with module resolution.
 - The executable reads CUE from stdin or from explicit file arguments and prints

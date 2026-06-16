@@ -37,9 +37,13 @@ checked semantic-core features). Slices, in evidence-ranked order (cheap indepen
 first, the big import subsystem last because it gates the real workflow):
 
 1. **B1 — colon-shorthand nested fields** (`a: b: c: 1`). Pure parser; desugar chained
-   labels to nested structs. Unblocks the single largest tranche of files. **(active)**
+   labels to nested structs. Unblocks the single largest tranche of files. **DONE**
+   (commit pending) — `parseFieldValue` recurses through the same `parsedFieldsValue`
+   builder the brace path uses, so `a: b: 1` builds the identical AST to `a: {b: 1}`
+   (pinned by `parseSameValue` theorems). Inner labels: identifiers, definitions, quoted
+   strings (incl. dotted `"prodigy9.co/app"`), `(expr)` dynamic; optional `?`/`!` markers.
 2. **B2 — value/field aliases** (`X=expr`, esp. `#Def: Self={…}` self-reference; 50/92
-   files). Parser + resolver binding so `Self.#f` resolves.
+   files). Parser + resolver binding so `Self.#f` resolves. **(active — next)**
 3. **B4 — multiline strings** (`"""…"""` currently → `_|_`). Lexer/dedent fix; unblocks
    secret/argo files.
 4. **B6 — encoding builtins** `base64.Encode`, `json.Marshal` (load-bearing inside
@@ -111,8 +115,11 @@ implementation log):
   parse and are ignored since the package is implicit in the dotted builtin name.
   Parse errors now carry a source position: `ParseError` records the remaining-suffix
   length at the failure site, which `parseSource` converts to 1-based `line`/`column`;
-  the CLI prints `kue: parse error: <line>:<col>: <message>`. Remaining parser
-  completeness work: non-field aliases and strict CUE newline/semicolon separator
+  the CLI prints `kue: parse error: <line>:<col>: <message>`. Colon-shorthand nested
+  fields (`a: b: c: 1`) desugar to the brace form via `parseFieldValue` (lookahead
+  `valuePositionStartsField` gates the recursion; the inner field routes through the same
+  `parsedFieldsValue` builder, so the AST is brace-identical). Remaining parser
+  completeness work: non-field aliases (B2) and strict CUE newline/semicolon separator
   insertion (separator handling is still permissive around whitespace).
 - **Expressions** — unary/additive/multiplicative/division/integer-keyword arithmetic,
   equality, ordering, numeric comparison across int/float, logical `&&`/`||`/`!`, and

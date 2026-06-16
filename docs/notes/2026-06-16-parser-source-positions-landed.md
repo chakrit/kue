@@ -1,8 +1,9 @@
 # Session 2026-06-16 — parser source positions landed
 
-Latest resume breadcrumb. Supersedes
+Superseded by
+[`2026-06-17-b1-colon-shorthand-landed.md`](2026-06-17-b1-colon-shorthand-landed.md).
+Supersedes
 [`2026-06-16-strings-splitn-landed.md`](2026-06-16-strings-splitn-landed.md).
-Resuming **implementation** next session.
 
 ## What was done
 

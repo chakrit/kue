@@ -334,4 +334,63 @@ theorem parse_error_position_unterminated_string :
     parseFailsAt "a: \"unterminated\n" 2 1 = true := by
   native_decide
 
+/-- Two sources parse to the same pre-resolution `Value` AST. The colon-shorthand
+    contract: `a: b: 1` must build exactly what `a: {b: 1}` builds. -/
+def parseSameValue (left right : String) : Bool :=
+  match parseSource left, parseSource right with
+  | .ok l, .ok r => l == r
+  | _, _ => false
+
+theorem shorthand_two_level_equals_brace :
+    parseSameValue "a: b: 1\n" "a: {b: 1}\n" = true := by
+  native_decide
+
+theorem shorthand_three_level_equals_brace :
+    parseSameValue "a: b: c: 1\n" "a: {b: {c: 1}}\n" = true := by
+  native_decide
+
+theorem shorthand_quoted_inner_equals_brace :
+    parseSameValue "a: \"x/y\": 1\n" "a: {\"x/y\": 1}\n" = true := by
+  native_decide
+
+theorem shorthand_mixed_with_brace_equals_brace :
+    parseSameValue "a: b: {c: 1}\n" "a: {b: {c: 1}}\n" = true := by
+  native_decide
+
+theorem shorthand_dynamic_inner_equals_brace :
+    parseSameValue "a: (\"k\"): 1\n" "a: {(\"k\"): 1}\n" = true := by
+  native_decide
+
+theorem shorthand_two_level_resolves :
+    parseOutputMatches "a: b: 1\n" "a: {b: 1}" = true := by
+  native_decide
+
+theorem shorthand_three_level_resolves :
+    parseOutputMatches "a: b: c: 1\n" "a: {b: {c: 1}}" = true := by
+  native_decide
+
+theorem shorthand_quoted_inner_resolves :
+    parseOutputMatches "a: \"x/y\": 1\n" "a: {\"x/y\": 1}" = true := by
+  native_decide
+
+theorem shorthand_siblings_merge :
+    parseOutputMatches "top: a: 1\ntop: b: 2\n" "top: {a: 1, b: 2}" = true := by
+  native_decide
+
+theorem shorthand_alongside_sibling_field :
+    parseOutputMatches "a: b: 1\nx: 2\n" "a: {b: 1}\nx: 2" = true := by
+  native_decide
+
+theorem shorthand_prod9_metadata :
+    parseOutputMatches
+      "metadata: name: \"api\"\nspec: replicas: 3\n"
+      "metadata: {name: \"api\"}\nspec: {replicas: 3}" = true := by
+  native_decide
+
+/-- The `a: b` reference form is unchanged: a bare label NOT followed by `:` stays an
+    ordinary value, never a shorthand field. -/
+theorem reference_value_not_treated_as_shorthand :
+    parseOutputMatches "b: 2\na: b\n" "b: 2\na: 2" = true := by
+  native_decide
+
 end Kue

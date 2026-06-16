@@ -1571,6 +1571,42 @@ def fixturePorts : List FixturePort :=
                   .builtinCall "math.Trunc" [.prim (.int 5)])
               ]
               true))
+    },
+    {
+      -- Colon-shorthand (`a: b: c: 1`) desugars to the brace form. This port builds the
+      -- explicit-brace AST; the CLI port independently evaluates the shorthand `.cue`.
+      -- Both matching `.expected` pins that shorthand produces the brace-identical value.
+      fileName := "colon_shorthand.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("metadata", .regular,
+                  .struct [("name", .regular, .prim (.string "api"))] true),
+                ("spec", .regular,
+                  .struct
+                    [
+                      ("replicas", .regular, .prim (.int 3)),
+                      ("template", .regular,
+                        .struct
+                          [("spec", .regular,
+                            .struct
+                              [("containers", .regular, .list [.prim (.string "c")])]
+                              true)]
+                          true)
+                    ]
+                    true),
+                ("labels", .regular,
+                  .struct [("prodigy9.co/app", .regular, .prim (.string "web"))] true),
+                ("mixed", .regular,
+                  .struct
+                    [("a", .regular,
+                      .struct [("b", .regular,
+                        .struct [("c", .regular, .prim (.int 1))] true)] true)]
+                    true)
+              ]
+              true))
     }
   ]
 
