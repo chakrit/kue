@@ -294,6 +294,31 @@ def listDrop (items : List Value) (count : Int) : Value :=
 def listContains (items : List Value) (needle : Value) : Bool :=
   items.any (· == needle)
 
+/-- Lexicographic `≤` on UTF-8 byte sequences — the ordering Go's `sort.Strings`
+    (hence CUE's `list.SortStrings`) uses. For valid UTF-8 this coincides with
+    Unicode codepoint order, so `"Z" < "a" < "é"`. -/
+def byteSeqLe : List UInt8 -> List UInt8 -> Bool
+  | [], _ => true
+  | _ :: _, [] => false
+  | a :: as, b :: bs =>
+      if a < b then true
+      else if b < a then false
+      else byteSeqLe as bs
+
+/-- Sort a list of strings ascending by UTF-8 byte order; any non-string element
+    yields bottom. Uses the total, stable `List.mergeSort` with a byte-lexicographic
+    `≤`. Mirrors CUE's `list.SortStrings`. -/
+def listSortStrings (items : List Value) : Value :=
+  let rec collect : List Value -> Option (List String)
+    | [] => some []
+    | .prim (.string s) :: rest => (collect rest).map (s :: ·)
+    | _ => none
+  match collect items with
+  | some strings =>
+      let sorted := strings.mergeSort fun a b => byteSeqLe a.toUTF8.toList b.toUTF8.toList
+      .list (sorted.map (fun s => .prim (.string s)))
+  | none => .bottom
+
 /-- Collect a numeric list as exact decimals; any non-numeric element ⇒ `none`.
     Shared by the float-domain `Sum`/`Min`/`Max`/`Avg` arms. -/
 def listToDecimals : List Value -> Option (List DecimalValue)
@@ -386,7 +411,7 @@ def unresolvedOrBottom (name : String) (args : List Value) : Value :=
 
 /-- Dispatch a `list.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design.
-    Deferred (kept unresolved/not matched): `Sort`/`SortStable`/`SortStrings`
+    Deferred (kept unresolved/not matched): `Sort`/`SortStable`
     (comparator-struct evaluation). -/
 def evalListBuiltin : String -> List Value -> Value
   | "list.Concat", [.list lists] => listConcat lists
@@ -408,6 +433,7 @@ def evalListBuiltin : String -> List Value -> Value
   | "list.Min", [.list items] => listMin items
   | "list.Max", [.list items] => listMax items
   | "list.Avg", [.list items] => listAvg items
+  | "list.SortStrings", [.list items] => listSortStrings items
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `strings.*` builtin over already-evaluated arguments.

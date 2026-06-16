@@ -3982,3 +3982,56 @@ bound does not diverge). Added two high-fuel pins in `EvalTests.lean`:
 
 `lake build` 68 jobs, `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.
 No CUE divergence logged (pure refactor — no semantic change).
+
+## Completed Slice: `list.SortStrings`
+
+The comparator-free string sort — the last `list` function that needs no
+comparator-struct evaluation. `Sort`/`SortStable` (which evaluate a `list.Ascending`-style
+comparator struct) stay deferred.
+
+### Semantics — oracle-driven (cue v0.16.1)
+
+Ordering rule confirmed against `cue`: **byte-lexicographic** (Go's `sort.Strings`, i.e.
+`<` on the raw UTF-8 bytes). For valid UTF-8 this coincides with Unicode codepoint order,
+so capitals sort before lowercase (`"A"` 0x41 < `"a"` 0x61) and multibyte runes sort after
+all ASCII (`"é"` 0xC3… > `"z"` 0x7A). Probed cases, all matching cue:
+
+- `["banana","apple","cherry"] → ["apple","banana","cherry"]`
+- duplicates kept: `["b","a","b","a"] → ["a","a","b","b"]`
+- empty `[] → []`, single `["x"] → ["x"]`, already-sorted and reverse
+- caps: `["b","A","a","B"] → ["A","B","a","b"]`
+- multibyte: `["é","a","z","Z"] → ["Z","a","z","é"]`
+- non-string element (`["a",1,"b"]`) ⇒ cue errors `invalid list element` ⇒ Kue bottom
+- non-list arg (`"abc"`) ⇒ cue errors `cannot use … as list` ⇒ Kue bottom
+
+### Implementation (`Kue/Builtin.lean`)
+
+- `byteSeqLe : List UInt8 → List UInt8 → Bool` — total, structural lexicographic `≤` on
+  UTF-8 byte sequences.
+- `listSortStrings (items) : Value` — collects elements as strings (any non-string ⇒
+  `none` ⇒ bottom), then `List.mergeSort` with `fun a b => byteSeqLe a.toUTF8.toList
+  b.toUTF8.toList`. `List.mergeSort` is total (no `partial`) and stable, so equal strings
+  keep input order (unobservable, since equal strings are identical).
+- Dispatch arm `| "list.SortStrings", [.list items] => listSortStrings items` added to
+  `evalListBuiltin`; the catch-all `unresolvedOrBottom` fallback is unchanged, so a
+  non-list arg / abstract arg flows through it (bottom vs. preserved `.builtinCall`).
+
+### Tests
+
+11 `native_decide` theorems in `BuiltinTests.lean`: ascending, duplicates, empty,
+singleton, already-sorted, reverse, caps-before-lowercase byte order, multibyte-after-ASCII,
+non-string-element ⇒ bottom, abstract-arg ⇒ unresolved. New fixture
+`testdata/cue/list_sort_strings.{cue,expected}` + a `FixturePorts.lean` entry covering the
+eight clean (non-error) cases; the error cases are theorem-only (the CLI fixture path
+diffs concrete output, and bottom rendering is already exercised elsewhere).
+
+### Deferred
+
+`list.Sort` / `list.SortStable` — both take a comparator struct (`{x:_, y:_, less: x<y}`,
+e.g. `list.Ascending`) that must be evaluated per comparison; needs struct-evaluation
+plumbing the builtin layer does not yet have. This was the only remaining `list` work.
+
+### Verify
+
+`lake build` 68 jobs, `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.
+No CUE divergence logged (cue and Kue agree on every probed case).

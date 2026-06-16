@@ -1,0 +1,8 @@
+basic: ["apple", "banana", "cherry"]
+dup: ["a", "a", "b", "b"]
+empty: []
+single: ["x"]
+sorted: ["a", "b", "c"]
+reverse: ["a", "b", "c"]
+caps: ["A", "B", "a", "b"]
+unicode: ["Z", "a", "z", "é"]

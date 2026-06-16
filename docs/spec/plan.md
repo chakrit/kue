@@ -148,8 +148,12 @@ by post-audit hardening 2** (commit `d6c54a5`):
   1.333…333`, 34 sig digits). New `collapseDecimalToValue` / `avgDecimalValue?` in
   `Kue/Decimal.lean`; `Builtin` accumulates via `addDecimalValues`, compares via
   `decimalLtValues`, divides via `divideDecimalRational?`. The all-int fast path on
-  `Sum`/`Min`/`Max` is preserved. Still deferred from `list`:
-  `Sort`/`SortStable`/`SortStrings` (need comparator-struct evaluation) — the only
+  `Sum`/`Min`/`Max` is preserved.
+  **`list.SortStrings` landed** (this slice): the comparator-free string sort.
+  `listSortStrings` collects the elements as strings (any non-string ⇒ bottom) and runs
+  the total, stable `List.mergeSort` with a byte-lexicographic `≤` (`byteSeqLe` over
+  `String.toUTF8` — matches Go's `sort.Strings`, so `"Z" < "a" < "é"`). Still deferred
+  from `list`: `Sort`/`SortStable` (need comparator-struct evaluation) — the only
   remaining `list` work.
   Then the deferred `strings` functions that need unicode case folding
   (`ToUpper`/`ToLower`/`ToTitle`) or are otherwise unimplemented (`SplitN`,

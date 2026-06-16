@@ -1351,6 +1351,38 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "list_sort_strings.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("basic", .regular,
+                  .builtinCall "list.SortStrings"
+                    [.list [.prim (.string "banana"), .prim (.string "apple"), .prim (.string "cherry")]]),
+                ("dup", .regular,
+                  .builtinCall "list.SortStrings"
+                    [.list [.prim (.string "b"), .prim (.string "a"), .prim (.string "b"), .prim (.string "a")]]),
+                ("empty", .regular,
+                  .builtinCall "list.SortStrings" [.list []]),
+                ("single", .regular,
+                  .builtinCall "list.SortStrings" [.list [.prim (.string "x")]]),
+                ("sorted", .regular,
+                  .builtinCall "list.SortStrings"
+                    [.list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]]),
+                ("reverse", .regular,
+                  .builtinCall "list.SortStrings"
+                    [.list [.prim (.string "c"), .prim (.string "b"), .prim (.string "a")]]),
+                ("caps", .regular,
+                  .builtinCall "list.SortStrings"
+                    [.list [.prim (.string "b"), .prim (.string "A"), .prim (.string "a"), .prim (.string "B")]]),
+                ("unicode", .regular,
+                  .builtinCall "list.SortStrings"
+                    [.list [.prim (.string "é"), .prim (.string "a"), .prim (.string "z"), .prim (.string "Z")]])
+              ]
+              true))
+    },
+    {
       fileName := "list_builtin_float.expected",
       content :=
         formatTopLevel

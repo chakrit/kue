@@ -241,6 +241,68 @@ theorem list_call_stays_unresolved_on_abstract_arg :
       == .builtinCall "list.Sum" [.kind .number]) = true := by
   native_decide
 
+theorem list_sort_strings_orders_ascending :
+    (evalBuiltinCall "list.SortStrings"
+        [.list [.prim (.string "banana"), .prim (.string "apple"), .prim (.string "cherry")]]
+      == .list [.prim (.string "apple"), .prim (.string "banana"), .prim (.string "cherry")])
+      = true := by
+  native_decide
+
+theorem list_sort_strings_keeps_duplicates :
+    (evalBuiltinCall "list.SortStrings"
+        [.list [.prim (.string "b"), .prim (.string "a"), .prim (.string "b"), .prim (.string "a")]]
+      == .list [.prim (.string "a"), .prim (.string "a"), .prim (.string "b"), .prim (.string "b")])
+      = true := by
+  native_decide
+
+theorem list_sort_strings_empty_is_empty :
+    (evalBuiltinCall "list.SortStrings" [.list []] == .list []) = true := by
+  native_decide
+
+theorem list_sort_strings_singleton_is_identity :
+    (evalBuiltinCall "list.SortStrings" [.list [.prim (.string "x")]]
+      == .list [.prim (.string "x")]) = true := by
+  native_decide
+
+theorem list_sort_strings_already_sorted_is_stable :
+    (evalBuiltinCall "list.SortStrings"
+        [.list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]]
+      == .list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")])
+      = true := by
+  native_decide
+
+theorem list_sort_strings_reverse_sorted :
+    (evalBuiltinCall "list.SortStrings"
+        [.list [.prim (.string "c"), .prim (.string "b"), .prim (.string "a")]]
+      == .list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")])
+      = true := by
+  native_decide
+
+theorem list_sort_strings_byte_order_caps_before_lowercase :
+    (evalBuiltinCall "list.SortStrings"
+        [.list [.prim (.string "b"), .prim (.string "A"), .prim (.string "a"), .prim (.string "B")]]
+      == .list [.prim (.string "A"), .prim (.string "B"), .prim (.string "a"), .prim (.string "b")])
+      = true := by
+  native_decide
+
+theorem list_sort_strings_multibyte_after_ascii :
+    (evalBuiltinCall "list.SortStrings"
+        [.list [.prim (.string "é"), .prim (.string "a"), .prim (.string "z"), .prim (.string "Z")]]
+      == .list [.prim (.string "Z"), .prim (.string "a"), .prim (.string "z"), .prim (.string "é")])
+      = true := by
+  native_decide
+
+theorem list_sort_strings_non_string_element_is_bottom :
+    (evalBuiltinCall "list.SortStrings"
+        [.list [.prim (.string "a"), .prim (.int 1), .prim (.string "b")]]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_sort_strings_abstract_arg_stays_unresolved :
+    (evalBuiltinCall "list.SortStrings" [.kind .number]
+      == .builtinCall "list.SortStrings" [.kind .number]) = true := by
+  native_decide
+
 theorem list_sum_float_collapses_integral :
     (evalBuiltinCall "list.Sum"
         [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]]
