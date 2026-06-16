@@ -63,8 +63,11 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   non-string label patterns and fuller regular expression matching.
 - Add remaining alias positions in a syntax layer instead of constructing
   semantic values directly.
-- Add dynamic fields and comprehensions after lexical binding identities are
-  represented for more than same-struct fields.
+- Add dynamic fields and comprehensions. The prerequisite — lexical binding
+  identities represented for more than same-struct fields — has landed: `BindingId`
+  now carries `(depth, index)` and resolution/evaluation thread a lexical scope chain
+  (see the lexical scope chain slice). Comprehensions add one further scope kind (the
+  `for` loop variable), which is not a struct field; dynamic fields add computed labels.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
 - Add remaining builtin functions beyond the implemented `close`, `len`, `and`,
   `or`, `div`, `mod`, `quo`, and `rem` helpers.

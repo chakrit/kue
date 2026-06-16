@@ -4,6 +4,14 @@ import Kue.Normalize
 
 namespace Kue
 
+/--
+Evaluation mirrors resolution's lexical scope chain: the environment is a stack of
+frames (innermost first), each frame the syntactic field list of an enclosing struct.
+A `refId ⟨depth, index⟩` selects the field at `index` in the frame `depth` steps out.
+Cycle detection tracks visited slot indices within the current frame; following an
+outer reference (`depth > 0`) re-bases onto the outer stack, where lexical cycles back
+into a deeper frame cannot form, so the visited set resets.
+-/
 def findEvalField (label : String) : List Field -> Option Field
   | [] => none
   | field :: fields =>
@@ -12,28 +20,27 @@ def findEvalField (label : String) : List Field -> Option Field
       else
         findEvalField label fields
 
-def buildBindingEnvFrom (index : Nat) : List Field -> List (BindingId × Field)
+def indexedFieldsFrom (index : Nat) : List Field -> List (Nat × Field)
   | [] => []
-  | field :: fields => (⟨index⟩, field) :: buildBindingEnvFrom (index + 1) fields
+  | field :: fields => (index, field) :: indexedFieldsFrom (index + 1) fields
 
-def buildBindingEnv (fields : List Field) : List (BindingId × Field) :=
-  buildBindingEnvFrom 0 fields
+def indexedFields (fields : List Field) : List (Nat × Field) :=
+  indexedFieldsFrom 0 fields
 
-def findBinding (id : BindingId) : List (BindingId × Field) -> Option Field
+def nthField (index : Nat) : List Field -> Option Field
   | [] => none
-  | binding :: bindings =>
-      if binding.fst == id then
-        some binding.snd
-      else
-        findBinding id bindings
+  | field :: fields =>
+      match index with
+      | 0 => some field
+      | n + 1 => nthField n fields
 
-def bindingVisited (id : BindingId) : List BindingId -> Bool
+def slotVisited (index : Nat) : List Nat -> Bool
   | [] => false
   | visited :: rest =>
-      if visited == id then
+      if visited == index then
         true
       else
-        bindingVisited id rest
+        slotVisited index rest
 
 def evalFuel : Nat :=
   100
@@ -565,139 +572,134 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
-      (fields : List Field)
-      (bindings : List (BindingId × Field))
-      (visited : List BindingId)
+      (env : List (List Field))
+      (visited : List Nat)
       (field : Field) : Field :=
-    (Field.label field, Field.fieldClass field, evalValueWithFuel fuel fields bindings visited (Field.value field))
+    (Field.label field, Field.fieldClass field, evalValueWithFuel fuel env visited (Field.value field))
 
-  def evalValueWithFuel : Nat -> List Field -> List (BindingId × Field) -> List BindingId -> Value -> Value
-    | 0, _, _, _, value => value
-    | _ + 1, fields, _, _, .ref label =>
-        match findEvalField label fields with
-        | some field => Field.value field
-        | none => .bottomWith [.unresolvedReference label]
-    | fuel + 1, fields, bindings, visited, .refId id =>
-        if bindingVisited id visited then
-          .top
-        else
-          match findBinding id bindings with
-          | some field => evalValueWithFuel fuel fields bindings (id :: visited) (Field.value field)
-          | none => .bottomWith [.unresolvedBinding id]
-    | fuel + 1, fields, bindings, visited, .conj constraints =>
-        let evaluated := constraints.map (evalValueWithFuel fuel fields bindings visited)
+  def evalValueWithFuel : Nat -> List (List Field) -> List Nat -> Value -> Value
+    | 0, _, _, value => value
+    | _ + 1, _, _, .ref label =>
+        .bottomWith [.unresolvedReference label]
+    | fuel + 1, env, visited, .refId id =>
+        match env.drop id.depth with
+        | [] => .bottomWith [.unresolvedBinding id]
+        | frame :: outer =>
+            match nthField id.index frame with
+            | none => .bottomWith [.unresolvedBinding id]
+            | some field =>
+                if id.depth == 0 then
+                  if slotVisited id.index visited then
+                    .top
+                  else
+                    evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
+                else
+                  evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
+    | fuel + 1, env, visited, .conj constraints =>
+        let evaluated := constraints.map (evalValueWithFuel fuel env visited)
         evaluated.foldl (fun current constraint => meet current constraint) .top
-    | fuel + 1, fields, bindings, visited, .builtinCall name args =>
-        evalBuiltinCall name (args.map (evalValueWithFuel fuel fields bindings visited))
-    | fuel + 1, fields, bindings, visited, .unary op value =>
-        evalUnary op (evalValueWithFuel fuel fields bindings visited value)
-    | fuel + 1, fields, bindings, visited, .binary op left right =>
+    | fuel + 1, env, visited, .builtinCall name args =>
+        evalBuiltinCall name (args.map (evalValueWithFuel fuel env visited))
+    | fuel + 1, env, visited, .unary op value =>
+        evalUnary op (evalValueWithFuel fuel env visited value)
+    | fuel + 1, env, visited, .binary op left right =>
         evalBinary op
-          (evalValueWithFuel fuel fields bindings visited left)
-          (evalValueWithFuel fuel fields bindings visited right)
-    | fuel + 1, fields, bindings, visited, .selector base label =>
-        selectEvaluatedField (evalValueWithFuel fuel fields bindings visited base) label
-    | fuel + 1, fields, bindings, visited, .index base key =>
+          (evalValueWithFuel fuel env visited left)
+          (evalValueWithFuel fuel env visited right)
+    | fuel + 1, env, visited, .selector base label =>
+        selectEvaluatedField (evalValueWithFuel fuel env visited base) label
+    | fuel + 1, env, visited, .index base key =>
         selectEvaluatedIndex
-          (evalValueWithFuel fuel fields bindings visited base)
-          (evalValueWithFuel fuel fields bindings visited key)
-    | fuel + 1, fields, bindings, visited, .disj alternatives =>
+          (evalValueWithFuel fuel env visited base)
+          (evalValueWithFuel fuel env visited key)
+    | fuel + 1, env, visited, .disj alternatives =>
         let evaluated := alternatives.map fun alternative =>
-          (alternative.fst, evalValueWithFuel fuel fields bindings visited alternative.snd)
+          (alternative.fst, evalValueWithFuel fuel env visited alternative.snd)
         normalizeEvaluatedDisj evaluated
-    | fuel + 1, fields, _, _, .struct nestedFields open_ =>
-        let nestedBindings := buildBindingEnv nestedFields
-        let visibleFields := nestedFields ++ fields
+    | fuel + 1, env, _, .struct nestedFields open_ =>
+        let nested := nestedFields :: env
         match mergeEvaluatedFields
-          (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+          ((indexedFields nestedFields).map fun indexed =>
+            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
         | some nestedFields => .struct nestedFields open_
         | none => .bottom
-    | fuel + 1, fields, _, _, .structTail nestedFields tail =>
-        let nestedBindings := buildBindingEnv nestedFields
-        let visibleFields := nestedFields ++ fields
+    | fuel + 1, env, _, .structTail nestedFields tail =>
+        let nested := nestedFields :: env
         match mergeEvaluatedFields
-          (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+          ((indexedFields nestedFields).map fun indexed =>
+            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
         | some nestedFields =>
-            .structTail nestedFields (evalValueWithFuel fuel visibleFields nestedBindings [] tail)
+            .structTail nestedFields (evalValueWithFuel fuel nested [] tail)
         | none => .bottom
-    | fuel + 1, fields, _, _, .structPattern nestedFields labelPattern constraint open_ =>
-        let nestedBindings := buildBindingEnv nestedFields
-        let visibleFields := nestedFields ++ fields
+    | fuel + 1, env, _, .structPattern nestedFields labelPattern constraint open_ =>
+        let nested := nestedFields :: env
         match mergeEvaluatedFields
-          (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+          ((indexedFields nestedFields).map fun indexed =>
+            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
         | some nestedFields =>
             applyEvaluatedStructPattern
               nestedFields
-              (evalValueWithFuel fuel visibleFields nestedBindings [] labelPattern)
-              (evalValueWithFuel fuel visibleFields nestedBindings [] constraint)
+              (evalValueWithFuel fuel nested [] labelPattern)
+              (evalValueWithFuel fuel nested [] constraint)
               open_
         | none => .bottom
-    | fuel + 1, fields, _, _, .structPatterns nestedFields patterns open_ =>
-        let nestedBindings := buildBindingEnv nestedFields
-        let visibleFields := nestedFields ++ fields
+    | fuel + 1, env, _, .structPatterns nestedFields patterns open_ =>
+        let nested := nestedFields :: env
         match mergeEvaluatedFields
-          (nestedBindings.map fun binding =>
-            evalFieldRefsWithFuel fuel visibleFields nestedBindings [binding.fst] binding.snd) with
+          ((indexedFields nestedFields).map fun indexed =>
+            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
         | some nestedFields =>
             applyEvaluatedStructPatterns
               nestedFields
               (patterns.map fun pattern =>
                 (
-                  evalValueWithFuel fuel visibleFields nestedBindings [] pattern.fst,
-                  evalValueWithFuel fuel visibleFields nestedBindings [] pattern.snd
+                  evalValueWithFuel fuel nested [] pattern.fst,
+                  evalValueWithFuel fuel nested [] pattern.snd
                 ))
               open_
         | none => .bottom
-    | fuel + 1, fields, bindings, visited, .list items =>
-        .list (items.map (evalValueWithFuel fuel fields bindings visited))
-    | fuel + 1, fields, bindings, visited, .listTail items tail =>
+    | fuel + 1, env, visited, .list items =>
+        .list (items.map (evalValueWithFuel fuel env visited))
+    | fuel + 1, env, visited, .listTail items tail =>
         .listTail
-          (items.map (evalValueWithFuel fuel fields bindings visited))
-          (evalValueWithFuel fuel fields bindings visited tail)
-    | _, _, _, _, value => value
+          (items.map (evalValueWithFuel fuel env visited))
+          (evalValueWithFuel fuel env visited tail)
+    | _, _, _, value => value
 end
 
-def evalFieldRefs (fields : List Field) (bindings : List (BindingId × Field)) (field : Field) : Field :=
-  evalFieldRefsWithFuel evalFuel fields bindings [] field
-
-def evalBindingField (fields : List Field) (bindings : List (BindingId × Field)) (binding : BindingId × Field) : Field :=
-  evalFieldRefsWithFuel evalFuel fields bindings [binding.fst] binding.snd
+def evalTopFields (fields : List Field) : Option (List Field) :=
+  mergeEvaluatedFields
+    ((indexedFields fields).map fun indexed =>
+      evalFieldRefsWithFuel evalFuel [fields] [indexed.fst] indexed.snd)
 
 def evalStructRefs (value : Value) : Value :=
   match normalizeDefinitions value with
   | .struct fields open_ =>
-      let bindings := buildBindingEnv fields
-      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
+      match evalTopFields fields with
       | some fields => .struct fields open_
       | none => .bottom
   | .structTail fields tail =>
-      let bindings := buildBindingEnv fields
-      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
-      | some fields => .structTail fields (evalValueWithFuel evalFuel fields bindings [] tail)
+      match evalTopFields fields with
+      | some merged => .structTail merged (evalValueWithFuel evalFuel [fields] [] tail)
       | none => .bottom
   | .structPattern fields labelPattern constraint open_ =>
-      let bindings := buildBindingEnv fields
-      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
-      | some fields =>
+      match evalTopFields fields with
+      | some merged =>
           applyEvaluatedStructPattern
-            fields
-            (evalValueWithFuel evalFuel fields bindings [] labelPattern)
-            (evalValueWithFuel evalFuel fields bindings [] constraint)
+            merged
+            (evalValueWithFuel evalFuel [fields] [] labelPattern)
+            (evalValueWithFuel evalFuel [fields] [] constraint)
             open_
       | none => .bottom
   | .structPatterns fields patterns open_ =>
-      let bindings := buildBindingEnv fields
-      match mergeEvaluatedFields (bindings.map (evalBindingField fields bindings)) with
-      | some fields =>
+      match evalTopFields fields with
+      | some merged =>
           applyEvaluatedStructPatterns
-            fields
+            merged
             (patterns.map fun pattern =>
               (
-                evalValueWithFuel evalFuel fields bindings [] pattern.fst,
-                evalValueWithFuel evalFuel fields bindings [] pattern.snd
+                evalValueWithFuel evalFuel [fields] [] pattern.fst,
+                evalValueWithFuel evalFuel [fields] [] pattern.snd
               ))
             open_
       | none => .bottom

@@ -85,6 +85,7 @@ def ignoresClosedness : FieldClass -> Bool
 end FieldClass
 
 structure BindingId where
+  depth : Nat
   index : Nat
 deriving Repr, BEq, DecidableEq
 

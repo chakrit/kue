@@ -478,7 +478,7 @@ theorem fixture_definition_struct_normalizes_closed :
 
 theorem fixture_definition_reference :
     formatField "x"
-      (evalStructRefs (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true))
+      (evalStructRefs (resolveStructRefs (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true)))
       = "x: {#A: int, x: int}" := by
   native_decide
 

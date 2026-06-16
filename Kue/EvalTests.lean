@@ -16,7 +16,8 @@ theorem manifest_unresolved_ref_incomplete :
 
 theorem eval_regular_field_reference_to_definition :
     (evalStructRefs
-      (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true)
+      (resolveStructRefs
+        (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true))
       == .struct [("#A", .definition, .kind .int), ("x", .regular, .kind .int)] true) = true := by
   native_decide
 
@@ -28,7 +29,7 @@ theorem eval_missing_reference_bottom :
 
 theorem eval_resolved_reference_by_binding_id :
     (evalStructRefs
-      (.struct [("#A", .definition, .kind .int), ("x", .regular, .refId ⟨0⟩)] true)
+      (.struct [("#A", .definition, .kind .int), ("x", .regular, .refId ⟨0, 0⟩)] true)
       == .struct [("#A", .definition, .kind .int), ("x", .regular, .kind .int)] true) = true := by
   native_decide
 
@@ -270,20 +271,20 @@ theorem eval_list_index_out_of_range_bottom :
 
 theorem eval_missing_binding_id_bottom :
     (evalStructRefs
-      (.struct [("x", .regular, .refId ⟨2⟩)] true)
-      == .struct [("x", .regular, .bottomWith [.unresolvedBinding ⟨2⟩])] true) = true := by
+      (.struct [("x", .regular, .refId ⟨0, 2⟩)] true)
+      == .struct [("x", .regular, .bottomWith [.unresolvedBinding ⟨0, 2⟩])] true) = true := by
   native_decide
 
 theorem eval_binding_id_not_label_lookup :
     (evalStructRefs
-      (.struct [("same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .refId ⟨1⟩)] true)
+      (.struct [("same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .refId ⟨0, 1⟩)] true)
       == .struct [("same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .kind .string)] true) = true := by
   native_decide
 
 theorem resolve_direct_self_reference :
     (resolveStructRefs
       (.struct [("x", .regular, .ref "x")] true)
-      == .struct [("x", .regular, .refId ⟨0⟩)] true) = true := by
+      == .struct [("x", .regular, .refId ⟨0, 0⟩)] true) = true := by
   native_decide
 
 theorem eval_direct_self_reference_as_top :

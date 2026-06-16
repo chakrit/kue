@@ -3183,3 +3183,57 @@ matcher.
    scripts/check-fixtures.sh
    ```
 
+## Completed Slice: Lexical Scope Chain
+
+Goal: represent lexical binding identities for scopes beyond the immediately
+containing struct — the prerequisite the plan named for comprehensions and dynamic
+fields. Loop variables and outer-struct fields had no lexical representation; outer
+references survived only via a dynamic name-lookup fallback at evaluation time, which
+is not lexically correct (shadowing, scope discipline).
+
+Design fork resolved by the repo philosophy (precise/testable/formal over ad hoc): a
+de Bruijn-style scope chain, not a synthetic-binding patch over the dynamic fallback.
+
+### Steps
+
+1. Widen `BindingId` from `{ index : Nat }` to `{ depth, index : Nat }`.
+   `depth` counts scope frames outward (0 = innermost); `index` is the slot within
+   that frame. `Format` renders a resolved reference as `@depth.index`. All existing
+   references are same-struct, hence depth 0 — a mechanical migration of literals.
+
+2. Resolve against a scope stack (`Kue/Resolve.lean`).
+   `resolveValueWithFuel` now carries `scopes : List (List (String × Nat))` — a stack
+   of label→slot frames, innermost first. Entering any struct pushes that struct's
+   frame instead of discarding the outer scope. A `ref` resolves by searching frames
+   innermost-first; `depth` is the frame distance, `index` the slot. An in-scope outer
+   reference now resolves to a `refId` with `depth > 0` rather than surviving as a bare
+   `ref`.
+
+3. Evaluate against a matching environment stack (`Kue/Eval.lean`).
+   `evalValueWithFuel` carries `env : List (List Field)` mirroring the resolver's
+   frames. `refId ⟨depth, index⟩` drops `depth` frames and selects slot `index`,
+   evaluating that field's value in the env visible at its definition scope. Cycle
+   detection tracks visited slot indices within the current frame; following an outer
+   reference re-bases onto the outer stack (where a lexical cycle back into a deeper
+   frame cannot form) and resets the visited set.
+
+4. Remove the dynamic name-lookup fallback.
+   `evalValueWithFuel` no longer resolves a bare `ref` by scanning visible field names;
+   an unresolved `ref` reaching evaluation is now `bottom` with `unresolvedReference`.
+   All in-scope references are resolved lexically by step 2. Two unit tests that fed an
+   unresolved `ref` straight to evaluation were rerouted through the real
+   resolve-then-eval pipeline; the full fixture suite confirmed nothing depended on the
+   fallback.
+
+5. Verify.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
+   New unit tests lock the capability: an inner field referencing an outer field
+   resolves to `refId ⟨1, 0⟩`, prefers the nearest scope on shadowing (`⟨0, 0⟩`), and
+   evaluates through to the outer value. All 82 fixture pairs stay green.
+

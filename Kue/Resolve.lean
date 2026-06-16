@@ -2,115 +2,126 @@ import Kue.Value
 
 namespace Kue
 
-def buildLabelBindingsFrom (index : Nat) : List Field -> List (String × BindingId)
+/--
+A lexical scope frame: each label in a struct mapped to its positional index.
+Resolution carries a stack of frames (innermost first); a reference resolves to
+a `BindingId` whose `depth` counts frames outward and whose `index` is the slot
+within that frame. This represents lexical scope explicitly instead of relying on
+dynamic name lookup at evaluation time.
+-/
+def buildFrameFrom (index : Nat) : List Field -> List (String × Nat)
   | [] => []
-  | field :: fields => (Field.label field, ⟨index⟩) :: buildLabelBindingsFrom (index + 1) fields
+  | field :: fields => (Field.label field, index) :: buildFrameFrom (index + 1) fields
 
-def buildLabelBindings (fields : List Field) : List (String × BindingId) :=
-  buildLabelBindingsFrom 0 fields
+def buildFrame (fields : List Field) : List (String × Nat) :=
+  buildFrameFrom 0 fields
 
-def findLabelBinding (label : String) : List (String × BindingId) -> Option BindingId
+def findInFrame (label : String) : List (String × Nat) -> Option Nat
   | [] => none
-  | binding :: bindings =>
-      if binding.fst = label then
-        some binding.snd
+  | entry :: rest =>
+      if entry.fst = label then
+        some entry.snd
       else
-        findLabelBinding label bindings
+        findInFrame label rest
+
+def findInScopes (label : String) (depth : Nat) : List (List (String × Nat)) -> Option BindingId
+  | [] => none
+  | frame :: outer =>
+      match findInFrame label frame with
+      | some index => some ⟨depth, index⟩
+      | none => findInScopes label (depth + 1) outer
 
 def resolveFuel : Nat :=
   100
 
 mutual
-  def resolveFieldRefsWithFuel (fuel : Nat) (bindings : List (String × BindingId)) (field : Field) : Field :=
-    (Field.label field, Field.fieldClass field, resolveValueWithFuel fuel bindings (Field.value field))
+  def resolveFieldRefsWithFuel (fuel : Nat) (scopes : List (List (String × Nat))) (field : Field) : Field :=
+    (Field.label field, Field.fieldClass field, resolveValueWithFuel fuel scopes (Field.value field))
 
-  def resolveValueWithFuel : Nat -> List (String × BindingId) -> Value -> Value
+  def resolveValueWithFuel : Nat -> List (List (String × Nat)) -> Value -> Value
     | 0, _, value => value
-    | _ + 1, bindings, .ref label =>
-        match findLabelBinding label bindings with
+    | _ + 1, scopes, .ref label =>
+        match findInScopes label 0 scopes with
         | some id => .refId id
         | none => .ref label
-    | fuel + 1, bindings, .conj constraints =>
-        .conj (constraints.map (resolveValueWithFuel fuel bindings))
-    | fuel + 1, bindings, .builtinCall name args =>
-        .builtinCall name (args.map (resolveValueWithFuel fuel bindings))
-    | fuel + 1, bindings, .unary op value =>
-        .unary op (resolveValueWithFuel fuel bindings value)
-    | fuel + 1, bindings, .binary op left right =>
+    | fuel + 1, scopes, .conj constraints =>
+        .conj (constraints.map (resolveValueWithFuel fuel scopes))
+    | fuel + 1, scopes, .builtinCall name args =>
+        .builtinCall name (args.map (resolveValueWithFuel fuel scopes))
+    | fuel + 1, scopes, .unary op value =>
+        .unary op (resolveValueWithFuel fuel scopes value)
+    | fuel + 1, scopes, .binary op left right =>
         .binary op
-          (resolveValueWithFuel fuel bindings left)
-          (resolveValueWithFuel fuel bindings right)
-    | fuel + 1, bindings, .selector base label =>
-        .selector (resolveValueWithFuel fuel bindings base) label
-    | fuel + 1, bindings, .index base key =>
+          (resolveValueWithFuel fuel scopes left)
+          (resolveValueWithFuel fuel scopes right)
+    | fuel + 1, scopes, .selector base label =>
+        .selector (resolveValueWithFuel fuel scopes base) label
+    | fuel + 1, scopes, .index base key =>
         .index
-          (resolveValueWithFuel fuel bindings base)
-          (resolveValueWithFuel fuel bindings key)
-    | fuel + 1, bindings, .disj alternatives =>
+          (resolveValueWithFuel fuel scopes base)
+          (resolveValueWithFuel fuel scopes key)
+    | fuel + 1, scopes, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
-          (alternative.fst, resolveValueWithFuel fuel bindings alternative.snd)
+          (alternative.fst, resolveValueWithFuel fuel scopes alternative.snd)
         )
-    | fuel + 1, _, .struct fields open_ =>
-        let nestedBindings := buildLabelBindings fields
-        .struct (fields.map (resolveFieldRefsWithFuel fuel nestedBindings)) open_
-    | fuel + 1, _, .structTail fields tail =>
-        let nestedBindings := buildLabelBindings fields
+    | fuel + 1, scopes, .struct fields open_ =>
+        let nested := buildFrame fields :: scopes
+        .struct (fields.map (resolveFieldRefsWithFuel fuel nested)) open_
+    | fuel + 1, scopes, .structTail fields tail =>
+        let nested := buildFrame fields :: scopes
         .structTail
-          (fields.map (resolveFieldRefsWithFuel fuel nestedBindings))
-          (resolveValueWithFuel fuel nestedBindings tail)
-    | fuel + 1, _, .structPattern fields labelPattern constraint open_ =>
-        let nestedBindings := buildLabelBindings fields
+          (fields.map (resolveFieldRefsWithFuel fuel nested))
+          (resolveValueWithFuel fuel nested tail)
+    | fuel + 1, scopes, .structPattern fields labelPattern constraint open_ =>
+        let nested := buildFrame fields :: scopes
         .structPattern
-          (fields.map (resolveFieldRefsWithFuel fuel nestedBindings))
-          (resolveValueWithFuel fuel nestedBindings labelPattern)
-          (resolveValueWithFuel fuel nestedBindings constraint)
+          (fields.map (resolveFieldRefsWithFuel fuel nested))
+          (resolveValueWithFuel fuel nested labelPattern)
+          (resolveValueWithFuel fuel nested constraint)
           open_
-    | fuel + 1, _, .structPatterns fields patterns open_ =>
-        let nestedBindings := buildLabelBindings fields
+    | fuel + 1, scopes, .structPatterns fields patterns open_ =>
+        let nested := buildFrame fields :: scopes
         .structPatterns
-          (fields.map (resolveFieldRefsWithFuel fuel nestedBindings))
+          (fields.map (resolveFieldRefsWithFuel fuel nested))
           (patterns.map fun pattern =>
             (
-              resolveValueWithFuel fuel nestedBindings pattern.fst,
-              resolveValueWithFuel fuel nestedBindings pattern.snd
+              resolveValueWithFuel fuel nested pattern.fst,
+              resolveValueWithFuel fuel nested pattern.snd
             ))
           open_
-    | fuel + 1, bindings, .list items =>
-        .list (items.map (resolveValueWithFuel fuel bindings))
-    | fuel + 1, bindings, .listTail items tail =>
+    | fuel + 1, scopes, .list items =>
+        .list (items.map (resolveValueWithFuel fuel scopes))
+    | fuel + 1, scopes, .listTail items tail =>
         .listTail
-          (items.map (resolveValueWithFuel fuel bindings))
-          (resolveValueWithFuel fuel bindings tail)
+          (items.map (resolveValueWithFuel fuel scopes))
+          (resolveValueWithFuel fuel scopes tail)
     | _, _, value => value
 end
 
-def resolveFieldRefs (bindings : List (String × BindingId)) (field : Field) : Field :=
-  resolveFieldRefsWithFuel resolveFuel bindings field
-
 def resolveStructRefs : Value -> Value
   | .struct fields open_ =>
-      let bindings := buildLabelBindings fields
-      .struct (fields.map (resolveFieldRefs bindings)) open_
+      let scopes := [buildFrame fields]
+      .struct (fields.map (resolveFieldRefsWithFuel resolveFuel scopes)) open_
   | .structTail fields tail =>
-      let bindings := buildLabelBindings fields
+      let scopes := [buildFrame fields]
       .structTail
-        (fields.map (resolveFieldRefs bindings))
-        (resolveValueWithFuel resolveFuel bindings tail)
+        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
+        (resolveValueWithFuel resolveFuel scopes tail)
   | .structPattern fields labelPattern constraint open_ =>
-      let bindings := buildLabelBindings fields
+      let scopes := [buildFrame fields]
       .structPattern
-        (fields.map (resolveFieldRefs bindings))
-        (resolveValueWithFuel resolveFuel bindings labelPattern)
-        (resolveValueWithFuel resolveFuel bindings constraint)
+        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
+        (resolveValueWithFuel resolveFuel scopes labelPattern)
+        (resolveValueWithFuel resolveFuel scopes constraint)
         open_
   | .structPatterns fields patterns open_ =>
-      let bindings := buildLabelBindings fields
+      let scopes := [buildFrame fields]
       .structPatterns
-        (fields.map (resolveFieldRefs bindings))
+        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
         (patterns.map fun pattern =>
           (
-            resolveValueWithFuel resolveFuel bindings pattern.fst,
-            resolveValueWithFuel resolveFuel bindings pattern.snd
+            resolveValueWithFuel resolveFuel scopes pattern.fst,
+            resolveValueWithFuel resolveFuel scopes pattern.snd
           ))
         open_
   | value => value
