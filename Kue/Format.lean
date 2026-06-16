@@ -186,6 +186,21 @@ mutual
         let itemText := items.map (formatValueWithFuel fuel)
         let tailText := formatTailWithFuel fuel tail
         "[" ++ joinWith ", " (itemText ++ [tailText]) ++ "]"
+    | fuel + 1, .comprehension clauses body =>
+        joinWith " " (clauses.map (formatClauseWithFuel fuel)) ++ " " ++ formatValueWithFuel fuel body
+    | fuel + 1, .structComp fields comprehensions _ =>
+        let fieldText := formatStructFieldsWithFuel fuel fields
+        let compText := comprehensions.map (formatValueWithFuel fuel)
+        "{" ++ joinWith ", " (fieldText ++ compText) ++ "}"
+
+  def formatClauseWithFuel : Nat -> Clause Value -> String
+    | 0, _ => "..."
+    | fuel + 1, .forIn (some key) value source =>
+        s!"for {key}, {value} in " ++ formatValueWithFuel fuel source
+    | fuel + 1, .forIn none value source =>
+        s!"for {value} in " ++ formatValueWithFuel fuel source
+    | fuel + 1, .guard condition =>
+        "if " ++ formatValueWithFuel fuel condition
 end
 
 def formatStructFieldWithFuel (fuel : Nat) (field : Field) : String :=

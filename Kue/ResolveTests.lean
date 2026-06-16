@@ -90,4 +90,36 @@ theorem eval_inner_reference_to_outer_field :
                   ("b", .regular, .struct [("c", .regular, .prim (.int 1))] true)] true) = true := by
   native_decide
 
+theorem resolve_comprehension_loop_vars_to_binding_ids :
+    (resolveStructRefs
+      (.structComp
+        []
+        [
+          .comprehension
+            [.forIn (some "k") "v" (.struct [("x", .regular, .prim (.int 1))] true)]
+            (.struct [("key", .regular, .ref "k"), ("val", .regular, .ref "v")] true)
+        ]
+        true)
+      == .structComp
+          []
+          [
+            .comprehension
+              [.forIn (some "k") "v" (.struct [("x", .regular, .prim (.int 1))] true)]
+              (.struct [("key", .regular, .refId ⟨1, 0⟩), ("val", .regular, .refId ⟨1, 1⟩)] true)
+          ]
+          true) = true := by
+  native_decide
+
+theorem resolve_comprehension_body_outer_field_depth :
+    (resolveStructRefs
+      (.structComp
+        [("base", .regular, .prim (.int 7))]
+        [.comprehension [.guard (.prim (.bool true))] (.struct [("copy", .regular, .ref "base")] true)]
+        true)
+      == .structComp
+          [("base", .regular, .prim (.int 7))]
+          [.comprehension [.guard (.prim (.bool true))] (.struct [("copy", .regular, .refId ⟨1, 0⟩)] true)]
+          true) = true := by
+  native_decide
+
 end Kue

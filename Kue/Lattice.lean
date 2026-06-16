@@ -399,6 +399,10 @@ def meetCore (left right : Value) : Value :=
   | _, .structPatterns _ _ _ => .bottom
   | .disj _, _ => .bottom
   | _, .disj _ => .bottom
+  | .structComp _ _ _, _ => .bottom
+  | _, .structComp _ _ _ => .bottom
+  | .comprehension _ _, _ => .bottom
+  | _, .comprehension _ _ => .bottom
   | .struct .., _ => .bottom
   | _, .struct .. => .bottom
 

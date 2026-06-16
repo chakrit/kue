@@ -15,8 +15,13 @@ theorem join_bottom_left (value : Value) : join .bottom value = value := by
 theorem join_top_left (value : Value) : join .top value = .top := by
   cases value <;> rfl
 
+theorem meetWithFuel_identical_prim (prim : Prim) :
+    meetWithFuel 100 (.prim prim) (.prim prim) = .prim prim := by
+  rw [meetWithFuel] <;> first | (unfold meetCore; simp [meetPrim]) | simp
+
 theorem meet_identical_prim (prim : Prim) : meet (.prim prim) (.prim prim) = .prim prim := by
-  cases prim <;> simp [meet, meetWithFuel, meetFuel, meetCore, meetPrim]
+  rw [meet]
+  exact meetWithFuel_identical_prim prim
 
 theorem meet_conflicting_ints :
     meet (.prim (.int 1)) (.prim (.int 2))

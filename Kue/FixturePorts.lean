@@ -1001,6 +1001,59 @@ def fixturePorts : List FixturePort :=
                 ("z", .regular, .ref "x")
               ]
               true))
+    },
+    {
+      fileName := "comprehension_for.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                (
+                  "out",
+                  .regular,
+                  .structComp
+                    []
+                    [
+                      .comprehension
+                        [.forIn (some "k") "v" (.struct [("x", .regular, .prim (.int 1))] true)]
+                        (.struct
+                          [
+                            ("key", .regular, .ref "k"),
+                            ("val", .regular, .ref "v")
+                          ]
+                          true)
+                    ]
+                    true)
+              ]
+              true))
+    },
+    {
+      fileName := "comprehension_guard.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                (
+                  "out",
+                  .regular,
+                  .structComp
+                    [("base", .regular, .prim (.int 0))]
+                    [
+                      .comprehension
+                        [.forIn none "v" (.list [.prim (.int 42)])]
+                        (.struct [("only", .regular, .ref "v")] true),
+                      .comprehension
+                        [.guard (.prim (.bool true))]
+                        (.struct [("flag", .regular, .prim (.bool true))] true),
+                      .comprehension
+                        [.guard (.prim (.bool false))]
+                        (.struct [("hidden", .regular, .prim (.int 1))] true)
+                    ]
+                    true)
+              ]
+              true))
     }
   ]
 

@@ -34,9 +34,37 @@ def findInScopes (label : String) (depth : Nat) : List (List (String × Nat)) ->
 def resolveFuel : Nat :=
   100
 
+/--
+The lexical frame a `for` clause introduces for its loop variables. A keyed
+`for k, v in …` binds `k` at index 0 and `v` at index 1; an unkeyed `for v in …`
+binds `v` at index 0. Resolution and evaluation must agree on this ordering, since
+`refId` uses positional indices.
+-/
+def clauseLoopFrame (key : Option String) (value : String) : List (String × Nat) :=
+  match key with
+  | some key => [(key, 0), (value, 1)]
+  | none => [(value, 0)]
+
 mutual
   def resolveFieldRefsWithFuel (fuel : Nat) (scopes : List (List (String × Nat))) (field : Field) : Field :=
     (Field.label field, Field.fieldClass field, resolveValueWithFuel fuel scopes (Field.value field))
+
+  def resolveClausesWithFuel
+      (fuel : Nat)
+      (scopes : List (List (String × Nat)))
+      (clauses : List (Clause Value))
+      (body : Value) : List (Clause Value) × Value :=
+    match clauses with
+    | [] => ([], resolveValueWithFuel fuel scopes body)
+    | .forIn key value source :: rest =>
+        let resolvedSource := resolveValueWithFuel fuel scopes source
+        let nested := clauseLoopFrame key value :: scopes
+        let (restClauses, resolvedBody) := resolveClausesWithFuel fuel nested rest body
+        (.forIn key value resolvedSource :: restClauses, resolvedBody)
+    | .guard condition :: rest =>
+        let resolvedCondition := resolveValueWithFuel fuel scopes condition
+        let (restClauses, resolvedBody) := resolveClausesWithFuel fuel scopes rest body
+        (.guard resolvedCondition :: restClauses, resolvedBody)
 
   def resolveValueWithFuel : Nat -> List (List (String × Nat)) -> Value -> Value
     | 0, _, value => value
@@ -95,6 +123,15 @@ mutual
         .listTail
           (items.map (resolveValueWithFuel fuel scopes))
           (resolveValueWithFuel fuel scopes tail)
+    | fuel + 1, scopes, .comprehension clauses body =>
+        let (resolvedClauses, resolvedBody) := resolveClausesWithFuel fuel scopes clauses body
+        .comprehension resolvedClauses resolvedBody
+    | fuel + 1, scopes, .structComp fields comprehensions open_ =>
+        let nested := buildFrame fields :: scopes
+        .structComp
+          (fields.map (resolveFieldRefsWithFuel fuel nested))
+          (comprehensions.map (resolveValueWithFuel fuel nested))
+          open_
     | _, _, value => value
 end
 
@@ -123,6 +160,12 @@ def resolveStructRefs : Value -> Value
             resolveValueWithFuel resolveFuel scopes pattern.fst,
             resolveValueWithFuel resolveFuel scopes pattern.snd
           ))
+        open_
+  | .structComp fields comprehensions open_ =>
+      let scopes := [buildFrame fields]
+      .structComp
+        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
+        (comprehensions.map (resolveValueWithFuel resolveFuel scopes))
         open_
   | value => value
 

@@ -104,6 +104,17 @@ inductive BottomReason where
   | excludedValue (value : Prim)
 deriving Repr, BEq, DecidableEq
 
+/--
+A comprehension clause. `forIn` binds a value variable (and optionally a key
+variable) over an iterable source; `guard` admits its body only when the condition
+holds. Clauses chain left-to-right: each `forIn` pushes one lexical scope frame
+holding its loop variables, so later clauses and the body resolve against them.
+-/
+inductive Clause (Value : Type) where
+  | forIn (key : Option String) (value : String) (source : Value)
+  | guard (condition : Value)
+deriving Repr, BEq
+
 inductive Value where
   | top
   | bottom
@@ -137,6 +148,8 @@ inductive Value where
       (open_ : Bool)
   | list (items : List Value)
   | listTail (items : List Value) (tail : Value)
+  | comprehension (clauses : List (Clause Value)) (body : Value)
+  | structComp (fields : List (String × FieldClass × Value)) (comprehensions : List Value) (open_ : Bool)
 deriving Repr, BEq
 
 abbrev Field := String × FieldClass × Value

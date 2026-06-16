@@ -569,6 +569,38 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .boolAnd => evalBoolBinary .boolAnd (fun left right => left && right) left right
   | .boolOr => evalBoolBinary .boolOr (fun left right => left || right) left right
 
+/--
+The synthetic env frame a `for` iteration introduces. Mirrors `clauseLoopFrame`
+in `Resolve`: keyed iterations bind the key at index 0 and the value at index 1,
+unkeyed iterations bind the value at index 0. The bound values are already
+evaluated, so referencing them re-evaluates a concrete value.
+-/
+def loopFrame (key : Option String) (keyValue : Value) (value : String) (element : Value) : List Field :=
+  match key with
+  | some key => [(key, .regular, keyValue), (value, .regular, element)]
+  | none => [(value, .regular, element)]
+
+def listPairsFrom (index : Nat) : List Value -> List (Value × Value)
+  | [] => []
+  | item :: items => (.prim (.int index), item) :: listPairsFrom (index + 1) items
+
+def structPairs : List Field -> List (Value × Value)
+  | [] => []
+  | field :: fields =>
+      match Field.fieldClass field with
+      | .regular => (.prim (.string (Field.label field)), Field.value field) :: structPairs fields
+      | _ => structPairs fields
+
+/-- The (key, value) iteration pairs a source produces, or `none` if it is not iterable. -/
+def comprehensionPairs : Value -> Option (List (Value × Value))
+  | .list items => some (listPairsFrom 0 items)
+  | .listTail items _ => some (listPairsFrom 0 items)
+  | .struct fields _ => some (structPairs fields)
+  | .structTail fields _ => some (structPairs fields)
+  | .structPattern fields _ _ _ => some (structPairs fields)
+  | .structPatterns fields _ _ => some (structPairs fields)
+  | _ => none
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -664,7 +696,61 @@ mutual
         .listTail
           (items.map (evalValueWithFuel fuel env visited))
           (evalValueWithFuel fuel env visited tail)
+    | fuel + 1, env, _, .comprehension clauses body =>
+        match mergeEvaluatedFields (expandClausesWithFuel fuel env clauses body) with
+        | some fields => .struct fields true
+        | none => .bottom
+    | fuel + 1, env, _, .structComp fields comprehensions open_ =>
+        let nested := fields :: env
+        let staticFields :=
+          (indexedFields fields).map fun indexed =>
+            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd
+        let expanded :=
+          comprehensions.foldl
+            (fun acc comprehension => acc ++ expandComprehensionWithFuel fuel nested comprehension)
+            []
+        match mergeEvaluatedFields (staticFields ++ expanded) with
+        | some merged => .struct merged open_
+        | none => .bottom
     | _, _, _, value => value
+
+  /-- Expand one comprehension value into the fields it contributes to its enclosing struct. -/
+  def expandComprehensionWithFuel (fuel : Nat) (env : List (List Field)) : Value -> List Field
+    | .comprehension clauses body => expandClausesWithFuel fuel env clauses body
+    | _ => []
+
+  /--
+  Walk a comprehension's clause chain, evaluating each clause's source/condition in
+  the current env. Each `for` iteration pushes a fresh loop-variable frame; each `if`
+  guard either admits or drops its remaining expansion. With no clauses left, the body
+  struct is evaluated and its fields are emitted for merging.
+  -/
+  def expandClausesWithFuel
+      (fuel : Nat)
+      (env : List (List Field))
+      (clauses : List (Clause Value))
+      (body : Value) : List Field :=
+    match fuel with
+    | 0 => []
+    | fuel + 1 =>
+        match clauses with
+        | [] =>
+            match evalValueWithFuel fuel env [] body with
+            | .struct fields _ => fields
+            | _ => []
+        | .guard condition :: rest =>
+            match evalValueWithFuel fuel env [] condition with
+            | .prim (.bool true) => expandClausesWithFuel fuel env rest body
+            | _ => []
+        | .forIn key value source :: rest =>
+            match comprehensionPairs (evalValueWithFuel fuel env [] source) with
+            | none => []
+            | some pairs =>
+                pairs.foldl
+                  (fun acc pair =>
+                    let frame := loopFrame key pair.fst value pair.snd
+                    acc ++ expandClausesWithFuel fuel (frame :: env) rest body)
+                  []
 end
 
 def evalTopFields (fields : List Field) : Option (List Field) :=
@@ -703,6 +789,7 @@ def evalStructRefs (value : Value) : Value :=
               ))
             open_
       | none => .bottom
+  | normalized@(.structComp _ _ _) => evalValueWithFuel evalFuel [] [] normalized
   | value => value
 
 end Kue

@@ -16,11 +16,13 @@ inductive ParsedField where
   | embedding (value : Value)
   | letBinding (name : String) (value : Value)
   | ellipsis (tail : Value)
+  | comprehension (clauses : List (Clause Value)) (body : Value)
 
 structure ParsedFieldParts where
   fields : List Field
   patterns : List (Value × Value)
   embeddings : List Value
+  comprehensions : List Value
   tail : Option Value
 
 def parseError (message : String) : Except ParseError α :=
@@ -398,7 +400,7 @@ def parseFieldTerminator (terminator : Option Char) (chars : List Char) : Bool :
   | _, _ => false
 
 def splitParsedFields : List ParsedField -> ParsedFieldParts
-  | [] => { fields := [], patterns := [], embeddings := [], tail := none }
+  | [] => { fields := [], patterns := [], embeddings := [], comprehensions := [], tail := none }
   | .field field :: rest =>
       let split := splitParsedFields rest
       { split with fields := field :: split.fields }
@@ -417,6 +419,9 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
   | .ellipsis tail :: rest =>
       let split := splitParsedFields rest
       { split with tail := some tail }
+  | .comprehension clauses body :: rest =>
+      let split := splitParsedFields rest
+      { split with comprehensions := .comprehension clauses body :: split.comprehensions }
 
 def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
   | [] => .struct fields true
@@ -425,14 +430,20 @@ def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
 
 def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   let parts := splitParsedFields parsedFields
-  let declared := parsedFieldsBaseValue parts.fields parts.patterns
+  let declared :=
+    match parts.comprehensions with
+    | [] => parsedFieldsBaseValue parts.fields parts.patterns
+    | comprehensions =>
+        match parts.patterns with
+        | [] => .structComp parts.fields comprehensions true
+        | _ => .conj [parsedFieldsBaseValue parts.fields parts.patterns, .structComp parts.fields comprehensions true]
   let base :=
     match parts.tail with
     | none => declared
     | some tail =>
-        match parts.patterns with
-        | [] => .structTail parts.fields tail
-        | _ => .conj [declared, .structTail parts.fields tail]
+        match parts.patterns, parts.comprehensions with
+        | [], [] => .structTail parts.fields tail
+        | _, _ => .conj [declared, .structTail parts.fields tail]
   match parts.embeddings with
   | [] => base
   | embeddings => .conj (embeddings ++ [base])
@@ -836,6 +847,66 @@ mutual
           parseError "typed struct ellipsis is not supported yet"
     | _ => parseError "expected struct ellipsis"
 
+  partial def parseForClause (chars : List Char) : ParseResult (Clause Value) :=
+    match dropWord? "for" (skipTrivia chars) with
+    | none => parseError "expected for clause"
+    | some rest =>
+        match parseIdentifier (skipTrivia rest) with
+        | .error error => .error error
+        | .ok (first, rest) =>
+            match skipTrivia rest with
+            | ',' :: rest =>
+                match parseIdentifier (skipTrivia rest) with
+                | .error error => .error error
+                | .ok (value, rest) =>
+                    match dropWord? "in" (skipTrivia rest) with
+                    | none => parseError "expected 'in' in for clause"
+                    | some rest =>
+                        match parseExpression rest with
+                        | .error error => .error error
+                        | .ok (source, rest) => parseOk (.forIn (some first) value source) rest
+            | rest =>
+                match dropWord? "in" rest with
+                | none => parseError "expected 'in' in for clause"
+                | some rest =>
+                    match parseExpression rest with
+                    | .error error => .error error
+                    | .ok (source, rest) => parseOk (.forIn none first source) rest
+
+  partial def parseIfClause (chars : List Char) : ParseResult (Clause Value) :=
+    match dropWord? "if" (skipTrivia chars) with
+    | none => parseError "expected if clause"
+    | some rest =>
+        match parseExpression rest with
+        | .error error => .error error
+        | .ok (condition, rest) => parseOk (.guard condition) rest
+
+  partial def parseClause (chars : List Char) : ParseResult (Clause Value) :=
+    match parseForClause chars with
+    | .ok parsed => .ok parsed
+    | .error _ => parseIfClause chars
+
+  partial def parseComprehensionClauses
+      (chars : List Char)
+      (clauses : List (Clause Value)) : ParseResult (List (Clause Value) × Value) :=
+    match parseClause chars with
+    | .ok (clause, rest) => parseComprehensionClauses rest (clauses ++ [clause])
+    | .error _ =>
+        match skipTrivia chars with
+        | '{' :: rest =>
+            match parseStruct rest with
+            | .error error => .error error
+            | .ok (body, rest) => parseOk (clauses, body) rest
+        | _ => parseError "expected comprehension body struct"
+
+  partial def parseComprehension (chars : List Char) : ParseResult ParsedField :=
+    match parseClause chars with
+    | .error error => .error error
+    | .ok (clause, rest) =>
+        match parseComprehensionClauses rest [clause] with
+        | .error error => .error error
+        | .ok ((clauses, body), rest) => parseOk (.comprehension clauses body) rest
+
   partial def parseEmbedding (chars : List Char) : ParseResult ParsedField :=
     match parseExpression chars with
     | .error error => .error error
@@ -873,6 +944,9 @@ mutual
     | '[' :: _ => parsePatternField chars
     | '.' :: '.' :: '.' :: _ => parseStructEllipsis chars
     | chars =>
+        if startsWithWord "for" chars || startsWithWord "if" chars then
+          parseComprehension chars
+        else
         match parseLetBinding chars with
         | .ok parsed => .ok parsed
         | .error _ =>

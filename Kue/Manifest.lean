@@ -92,6 +92,9 @@ mutual
         | .ok items => .ok (.list items)
         | .error error => .error error
     | _ + 1, .listTail items tail => .error (.incomplete (.listTail items tail))
+    | _ + 1, .comprehension clauses body => .error (.incomplete (.comprehension clauses body))
+    | _ + 1, .structComp fields comprehensions open_ =>
+        .error (.incomplete (.structComp fields comprehensions open_))
     | fuel + 1, .disj alternatives =>
         let live := liveAlternatives alternatives
         let defaults := defaultAlternatives live

@@ -405,4 +405,75 @@ theorem eval_incomplete_builtin_call_remains_call :
       == .struct [("x", .regular, .builtinCall "len" [.kind .string])] true) = true := by
   native_decide
 
+theorem eval_comprehension_for_keyed_over_struct :
+    (evalStructRefs
+      (resolveStructRefs
+        (.structComp
+          []
+          [
+            .comprehension
+              [.forIn (some "k") "v" (.struct [("x", .regular, .prim (.int 1))] true)]
+              (.struct [("key", .regular, .ref "k"), ("val", .regular, .ref "v")] true)
+          ]
+          true))
+      == .struct [("key", .regular, .prim (.string "x")), ("val", .regular, .prim (.int 1))] true)
+      = true := by
+  native_decide
+
+theorem eval_comprehension_for_over_list :
+    (evalStructRefs
+      (resolveStructRefs
+        (.structComp
+          []
+          [
+            .comprehension
+              [.forIn none "v" (.list [.prim (.int 42)])]
+              (.struct [("only", .regular, .ref "v")] true)
+          ]
+          true))
+      == .struct [("only", .regular, .prim (.int 42))] true) = true := by
+  native_decide
+
+theorem eval_comprehension_if_true_admits :
+    (evalStructRefs
+      (resolveStructRefs
+        (.structComp
+          []
+          [.comprehension [.guard (.prim (.bool true))] (.struct [("flag", .regular, .prim (.bool true))] true)]
+          true))
+      == .struct [("flag", .regular, .prim (.bool true))] true) = true := by
+  native_decide
+
+theorem eval_comprehension_if_false_drops :
+    (evalStructRefs
+      (resolveStructRefs
+        (.structComp
+          []
+          [.comprehension [.guard (.prim (.bool false))] (.struct [("hidden", .regular, .prim (.int 1))] true)]
+          true))
+      == .struct [] true) = true := by
+  native_decide
+
+theorem eval_comprehension_body_sees_sibling_field :
+    (evalStructRefs
+      (resolveStructRefs
+        (.structComp
+          [("base", .regular, .prim (.int 7))]
+          [.comprehension [.guard (.prim (.bool true))] (.struct [("copy", .regular, .ref "base")] true)]
+          true))
+      == .struct [("base", .regular, .prim (.int 7)), ("copy", .regular, .prim (.int 7))] true)
+      = true := by
+  native_decide
+
+theorem eval_comprehension_for_source_sees_sibling_field :
+    (evalStructRefs
+      (resolveStructRefs
+        (.structComp
+          [("k", .regular, .prim (.int 3))]
+          [.comprehension [.forIn none "v" (.list [.ref "k"])] (.struct [("g", .regular, .ref "v")] true)]
+          true))
+      == .struct [("k", .regular, .prim (.int 3)), ("g", .regular, .prim (.int 3))] true)
+      = true := by
+  native_decide
+
 end Kue
