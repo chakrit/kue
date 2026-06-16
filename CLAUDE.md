@@ -49,6 +49,33 @@ Standing grant for this repo, given by chakrit 2026-06-14:
 At the start of every fresh session, state that this grant is in effect before
 beginning work.
 
+### Continuous slice loop ("Go")
+
+Goal: from any fresh session — new machine, new clone, after `/clear` — a single "Go"
+(or "keep going", "continue") re-enters an autonomous loop with no further setup.
+
+The primary agent (you) is a thin orchestrator, not the implementer:
+
+1. **Ensure auto-compact is on** so the loop survives long runs; the orchestrator only
+   accumulates slice summaries, never the heavy work.
+2. **Re-orient** from the durable record — breadcrumb (`docs/notes/…`), plan
+   (`docs/spec/plan.md`), implementation-log (`docs/reference/implementation-log.md`).
+   These are the only cross-session/cross-machine memory; trust them over conversation.
+3. **Spawn one subagent per slice.** It runs the full ace workflow (plan → TDD → verify:
+   `lake build` + `scripts/check-fixtures.sh` + `shellcheck` → commit/push → update the
+   plan, implementation-log, and breadcrumb). It works in fresh context, so the heavy
+   reads/edits never bloat the orchestrator.
+4. **Cheaply verify, don't re-do.** On return, confirm the slice landed — tree clean,
+   pushed, build/fixtures green, log+breadcrumb updated — with a light check (git state,
+   one build/fixture run). No full skill-compliance sweep; the subagent owns depth.
+5. **Loop or stop.** If verification passes and planned slices remain, spawn the next.
+   Stop only at a genuine blocker, a failed verify the subagent couldn't fix, or an empty
+   plan — and leave the breadcrumb pointing at the next step.
+
+The subagent keeps specs current as it goes (grant above); the orchestrator's extra job
+is the cheap done-check and re-spawn. No manual `/ace-save` or `/clear` between slices —
+the subagent boundary gives fresh context, the breadcrumb gives continuity.
+
 ## Docs
 
 Start with [docs/README.md](docs/README.md), the index for repo-local docs. `docs/`
