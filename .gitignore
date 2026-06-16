@@ -18,3 +18,4 @@ ace.local.toml
 # Lean / Lake build output
 .lake/
 build/
+dist/

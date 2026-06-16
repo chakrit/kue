@@ -24,8 +24,9 @@ lake build kue            # produces .lake/build/bin/kue
 ```
 
 `lake build` fetches the toolchain pinned by `lean-toolchain` via `elan` on first run.
-Prebuilt binaries for each release (macOS arm64/x64, Linux x64) are attached to the
-[GitHub releases](https://github.com/chakrit/kue/releases).
+The prebuilt macOS arm64 binary is attached to the
+[GitHub releases](https://github.com/chakrit/kue/releases); other platforms build from
+source as above. Releases are cut locally with [`scripts/release.sh`](scripts/release.sh).
 
 ## Repository Layout
 
