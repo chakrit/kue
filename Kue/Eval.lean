@@ -197,9 +197,9 @@ def evalDiv (left right : Value) : Value :=
   | _, .bottomWith reasons => .bottomWith reasons
   | .prim left, .prim right =>
       match evalDecimalDivide? left right with
-      | some (some text) => .prim (.float text)
-      | some none => .bottomWith [.divisionByZero]
-      | none => .bottom
+      | .ok text => .prim (.float text)
+      | .divByZero => .bottomWith [.divisionByZero]
+      | .nonNumeric => .bottom
   | _, _ => .binary .div left right
 
 def evalEq (left right : Value) : Value :=

@@ -80,9 +80,13 @@ not formatting), and the deferred `strings` funcs (unicode case folding; `SplitN
   check script diffs the CLI path against the Lean-port path. Float literals in a port are
   `.prim (.float "3.7")` (Prim stores the float as a String).
 - `Value` derives `BEq` but **not** `DecidableEq` — assert `(a == b) = true := by
-  native_decide`. **`divideDecimalRational?` is `partial`**, so division results do NOT
-  reduce under `rfl`; use `native_decide` for any division theorem (mul terminates and
-  `rfl`-reduces fine).
+  native_decide`. Division results do NOT reduce under `rfl`; use `native_decide` for any
+  division theorem (mul terminates and `rfl`-reduces fine). [Correction: this note
+  originally attributed `partial` to `divideDecimalRational?` — it was always a plain
+  `def`; the `partial` markers were on its dependencies `divisionDigits`/`roundDigits`.
+  Both are now fuel-bounded/structural total defs (post-audit hardening 2, 2026-06-16), so
+  no `partial` remains in `Decimal.lean`. The `native_decide` guidance still holds — the
+  fuel/`Nat.rec` form does not `rfl`-reduce either.]
 - **Cycle constraint:** `Builtin` cannot import `Eval`, but CAN import `Decimal`.
 
 ### Still pending (later slices, unchanged)

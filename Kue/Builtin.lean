@@ -233,6 +233,16 @@ def listRepeat (items : List Value) (count : Int) : Value :=
   else
     .list (List.flatten (List.replicate count.toNat items))
 
+/-- Element count of the integer arithmetic sequence `[start, start+step, …)`
+    bounded by `limit` (ceiling division of the span by the step magnitude),
+    ascending when `step > 0`, descending when `step < 0`. Assumes `step ≠ 0`.
+    Shared by the integer and (scaled-to-common-denominator) decimal `list.Range`. -/
+def rangeCount (start limit step : Int) : Int :=
+  if step > 0 then
+    if limit <= start then 0 else (limit - start + step - 1) / step
+  else
+    if start <= limit then 0 else (start - limit + (-step) - 1) / (-step)
+
 /-- Integer arithmetic sequence `[start, start+step, …)` bounded by `limit`,
     ascending when `step > 0`, descending when `step < 0`; `step == 0` is an
     error (bottom). Mirrors CUE's `list.Range` on integers. -/
@@ -240,11 +250,7 @@ def listRange (start limit step : Int) : Value :=
   if step == 0 then
     .bottom
   else
-    let count : Int :=
-      if step > 0 then
-        if limit <= start then 0 else (limit - start + step - 1) / step
-      else
-        if start <= limit then 0 else (start - limit + (-step) - 1) / (-step)
+    let count := rangeCount start limit step
     .list ((List.range count.toNat).map fun i => .prim (.int (start + step * Int.ofNat i)))
 
 /-- Decimal arithmetic sequence `[start, start+step, …)` bounded by `limit`,
@@ -260,11 +266,7 @@ def listRangeDecimal (start limit step : DecimalValue) : Value :=
   if st == 0 then
     .bottom
   else
-    let count : Int :=
-      if st > 0 then
-        if l <= s then 0 else (l - s + st - 1) / st
-      else
-        if s <= l then 0 else (s - l + (-st) - 1) / (-st)
+    let count := rangeCount s l st
     .list ((List.range count.toNat).map fun i =>
       collapseDecimalToValue { numerator := s + st * Int.ofNat i, scale := scale })
 

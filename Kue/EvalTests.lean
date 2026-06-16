@@ -572,4 +572,22 @@ theorem eval_div_repeating_round_up :
       == .prim (.float "14.28571428571428571428571428571429")) = true := by
   native_decide
 
+/-- High-fuel pin: a full-34-significant-digit repeating quotient with no leading
+    zeros. `1.0 / 7.0 = 0.142857…429` emits the maximum significant digits plus the
+    guard, so the `divisionDigitsFuel` ceiling must not be exhausted before the
+    over-budget exit. Reduces under `native_decide` ⇒ the bound is sufficient. -/
+theorem eval_div_repeating_full_sig :
+    (evalDiv (.prim (.float "1.0")) (.prim (.float "7.0"))
+      == .prim (.float "0.1428571428571428571428571428571429")) = true := by
+  native_decide
+
+/-- High-fuel pin exercising the leading-zero slack in the fuel bound: `1.0 / 700.0
+    = 0.001428…429` has two leading fractional zeros (non-emitting iterations) on
+    top of the 34 significant digits, so it leans on the `+ <den digit count>` term
+    of `divisionDigitsFuel`. -/
+theorem eval_div_repeating_leading_zeros :
+    (evalDiv (.prim (.float "1.0")) (.prim (.float "700.0"))
+      == .prim (.float "0.001428571428571428571428571428571429")) = true := by
+  native_decide
+
 end Kue
