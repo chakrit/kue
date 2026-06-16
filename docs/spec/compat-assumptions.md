@@ -75,16 +75,26 @@ those forms.
 - Additive expressions are represented explicitly. The evaluator currently handles
   concrete integer addition/subtraction plus concrete string and byte concatenation.
   Finite decimal float addition/subtraction is evaluated exactly with scaled integer
-  arithmetic, including exponent spellings. Float multiplication/division and richer
-  numeric promotion remain later work. List arithmetic is not targeted for `+` because
-  CUE v0.15.4 rejects it in favor of `list.Concat`.
+  arithmetic, including exponent spellings. List arithmetic is not targeted for `+`
+  because CUE v0.15.4 rejects it in favor of `list.Concat`.
 - Multiplication expressions are parsed with higher precedence than additive
-  expressions. The evaluator currently handles concrete integer multiplication only.
-  Float multiplication remains later work.
-- Division expressions are parsed at the same precedence as multiplication. Concrete
-  integer division produces decimal float text, including one fractional digit for whole
-  results and 34 fractional digits for non-terminating decimal expansions. Division by
-  zero bottoms out with structural provenance. Float operands remain later work.
+  expressions. Concrete integer multiplication yields an int. Float multiplication
+  (and mixed int×float, which promotes to float) is evaluated exactly through the
+  `Decimal` module: numerators multiply and scales add, and CUE preserves the summed
+  scale verbatim with no trailing-zero trim (`1.0 * 1.0 = 1.00`, `1.5 * 2.0 = 3.00`).
+  Oracle-confirmed against cue v0.16.1.
+- Division expressions are parsed at the same precedence as multiplication. `/` always
+  yields a float, never an int (`4.0 / 2.0 = 2.0`, `6 / 2 = 3.0`); integer division is
+  the separate `div`/`quo` keywords. All four operand domains (int÷int, int÷float,
+  float÷int, float÷float) route through one `Decimal` divider. Terminating quotients
+  render exactly (`1.0 / 4.0 = 0.25`); non-terminating quotients render at **34
+  significant digits** (apd context, matching cue v0.16.1) with round-half-up on the
+  guard digit. Round-half-up vs apd's nominal `ROUND_HALF_EVEN` is unobservable here:
+  a rational repeating expansion never produces an exact tie, so the guard digit alone
+  decides. Division by zero (any zero divisor, int or float) bottoms out with
+  `divisionByZero` provenance. No documented division case remains deferred — the prior
+  fixed-34-fractional-digit int divider, which over-emitted for quotients ≥ 1, was
+  replaced by the shared significant-digit divider as part of this slice.
 - Integer keyword expressions `div`, `mod`, `quo`, and `rem` are parsed at
   multiplicative precedence and reuse the existing integer builtin semantics. Concrete
   integer operands evaluate now; incomplete operands remain as residual infix binary

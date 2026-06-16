@@ -183,54 +183,23 @@ def evalMul (left right : Value) : Value :=
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
-  | .prim _, .prim _ => .bottom
+  | .prim left, .prim right =>
+      match evalDecimalMultiply? left right with
+      | some value => .prim value
+      | none => .bottom
   | _, _ => .binary .mul left right
-
-def decimalPrecision : Nat :=
-  34
-
-def joinStrings : List String -> String
-  | [] => ""
-  | value :: values => value ++ joinStrings values
-
-def intAbsNat (value : Int) : Nat :=
-  if value < 0 then
-    (-value).toNat
-  else
-    value.toNat
-
-def rationalIsNegative (numerator denominator : Int) : Bool :=
-  (numerator < 0 && 0 < denominator) || (0 < numerator && denominator < 0)
-
-def decimalFractionDigits : Nat -> Nat -> Nat -> List String
-  | 0, _, _ => []
-  | _, 0, _ => []
-  | fuel + 1, remainder, denominator =>
-      let scaled := remainder * 10
-      let digit := scaled / denominator
-      let next := scaled % denominator
-      toString digit :: decimalFractionDigits fuel next denominator
-
-def formatIntegerDivision (numerator denominator : Int) : String :=
-  let numeratorAbs := intAbsNat numerator
-  let denominatorAbs := intAbsNat denominator
-  let quotient := numeratorAbs / denominatorAbs
-  let remainder := numeratorAbs % denominatorAbs
-  let sign := if rationalIsNegative numerator denominator then "-" else ""
-  if remainder == 0 then
-    sign ++ toString quotient ++ ".0"
-  else
-    sign ++ toString quotient ++ "." ++ joinStrings (decimalFractionDigits decimalPrecision remainder denominatorAbs)
 
 def evalDiv (left right : Value) : Value :=
   match left, right with
-  | .prim (.int _), .prim (.int 0) => .bottomWith [.divisionByZero]
-  | .prim (.int left), .prim (.int right) => .prim (.float (formatIntegerDivision left right))
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
-  | .prim _, .prim _ => .bottom
+  | .prim left, .prim right =>
+      match evalDecimalDivide? left right with
+      | some (some text) => .prim (.float text)
+      | some none => .bottomWith [.divisionByZero]
+      | none => .bottom
   | _, _ => .binary .div left right
 
 def evalEq (left right : Value) : Value :=

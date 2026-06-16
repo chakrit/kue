@@ -476,19 +476,100 @@ theorem eval_comprehension_for_source_sees_sibling_field :
       = true := by
   native_decide
 
-/-- Deferred-boundary pin: float×float arithmetic is not yet wired to the lifted
-    decimal layer, so two float operands currently collapse to bottom. Asserting it
-    makes the transition to real float multiplication a visible, test-breaking change
-    rather than a silent one. -/
-theorem eval_mul_two_floats_is_bottom_deferred :
-    evalMul (.prim (.float "1.5")) (.prim (.float "2.0")) = .bottom := by
+/-- Was a deferred-bottom pin; float×float now evaluates exactly through the decimal
+    layer. Scales add and CUE preserves the summed scale verbatim: `1.5 * 2.0 = 3.00`
+    (oracle-confirmed, cue v0.16.1), no trailing-zero trim. -/
+theorem eval_mul_two_floats :
+    evalMul (.prim (.float "1.5")) (.prim (.float "2.0")) = .prim (.float "3.00") := by
   rfl
 
-/-- Deferred-boundary pin: float÷float likewise collapses to bottom for now.
-    Integer division already routes through `formatIntegerDivision`; the float path
-    awaits the decimal lift. Breaking this theorem flags that wiring landing. -/
-theorem eval_div_two_floats_is_bottom_deferred :
-    evalDiv (.prim (.float "3.0")) (.prim (.float "2.0")) = .bottom := by
+/-- Was a deferred-bottom pin; float÷float now evaluates through the decimal layer.
+    `/` always yields a float; `3.0 / 2.0 = 1.5` terminates cleanly (oracle-confirmed,
+    cue v0.16.1). -/
+theorem eval_div_two_floats :
+    (evalDiv (.prim (.float "3.0")) (.prim (.float "2.0")) == .prim (.float "1.5")) = true := by
+  native_decide
+
+/-- Multiplication preserves the full summed scale: `1.0 * 1.0 = 1.00`. -/
+theorem eval_mul_scale_preserved :
+    (evalMul (.prim (.float "1.0")) (.prim (.float "1.0")) == .prim (.float "1.00")) = true := by
+  native_decide
+
+/-- Mixed int×float promotes to float; int contributes scale 0. -/
+theorem eval_mul_int_float :
+    (evalMul (.prim (.int 2)) (.prim (.float "1.5")) == .prim (.float "3.0")) = true := by
+  native_decide
+
+/-- float×int likewise. -/
+theorem eval_mul_float_int :
+    (evalMul (.prim (.float "1.5")) (.prim (.int 2)) == .prim (.float "3.0")) = true := by
+  native_decide
+
+/-- Negative operand carries through multiplication. -/
+theorem eval_mul_negative :
+    (evalMul (.prim (.float "-1.5")) (.prim (.float "2.0")) == .prim (.float "-3.00")) = true := by
+  native_decide
+
+/-- int×int stays int (no float promotion). -/
+theorem eval_mul_int_int :
+    evalMul (.prim (.int 3)) (.prim (.int 4)) = .prim (.int 12) := by
   rfl
+
+/-- Terminating division renders without padding. -/
+theorem eval_div_terminating :
+    (evalDiv (.prim (.float "1.0")) (.prim (.float "4.0")) == .prim (.float "0.25")) = true := by
+  native_decide
+
+/-- Clean division still yields a float, never an int: `4.0 / 2.0 = 2.0`. -/
+theorem eval_div_clean_is_float :
+    (evalDiv (.prim (.float "4.0")) (.prim (.float "2.0")) == .prim (.float "2.0")) = true := by
+  native_decide
+
+/-- Mixed float÷int promotes; `3.0 / 2 = 1.5`. -/
+theorem eval_div_float_int :
+    (evalDiv (.prim (.float "3.0")) (.prim (.int 2)) == .prim (.float "1.5")) = true := by
+  native_decide
+
+/-- Mixed int÷float promotes; `2 / 4.0 = 0.5`. -/
+theorem eval_div_int_float :
+    (evalDiv (.prim (.int 2)) (.prim (.float "4.0")) == .prim (.float "0.5")) = true := by
+  native_decide
+
+/-- Negative division carries the sign. -/
+theorem eval_div_negative :
+    (evalDiv (.prim (.float "-1.0")) (.prim (.float "4.0")) == .prim (.float "-0.25")) = true := by
+  native_decide
+
+/-- Float division by zero is bottom with divisionByZero provenance. -/
+theorem eval_div_float_by_zero :
+    (evalDiv (.prim (.float "1.0")) (.prim (.float "0.0")) == .bottomWith [.divisionByZero]) = true := by
+  native_decide
+
+/-- int÷int now routes through the same decimal divider and yields a float: `6 / 2 = 3.0`. -/
+theorem eval_div_int_int_is_float :
+    (evalDiv (.prim (.int 6)) (.prim (.int 2)) == .prim (.float "3.0")) = true := by
+  native_decide
+
+/-- Repeating-decimal division renders at 34 significant digits, round-half-up.
+    `2.0 / 3.0 = 0.666…667` (34 sig digits). This is the apd-context subset that is
+    now reachable; see compat-assumptions for the rounding-tie boundary. -/
+theorem eval_div_repeating :
+    (evalDiv (.prim (.float "2.0")) (.prim (.float "3.0"))
+      == .prim (.float "0.6666666666666666666666666666666667")) = true := by
+  native_decide
+
+/-- Repeating division with an integer part rounds at 34 sig digits, not 34 frac
+    digits: `10.0 / 3.0 = 3.33…3` (33 frac digits). Pins the significant-digit rule
+    that the prior fixed-fraction int divider got wrong for quotients ≥ 1. -/
+theorem eval_div_repeating_int_part :
+    (evalDiv (.prim (.float "10.0")) (.prim (.float "3.0"))
+      == .prim (.float "3.333333333333333333333333333333333")) = true := by
+  native_decide
+
+/-- Rounding carries past 9s: `100.0 / 7.0 = 14.28…29`, last digit rounded up. -/
+theorem eval_div_repeating_round_up :
+    (evalDiv (.prim (.float "100.0")) (.prim (.float "7.0"))
+      == .prim (.float "14.28571428571428571428571428571429")) = true := by
+  native_decide
 
 end Kue

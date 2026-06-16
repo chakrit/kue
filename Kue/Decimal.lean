@@ -157,11 +157,10 @@ def repeatZeros : Nat -> String
 def leftPadZeros (width : Nat) (value : String) : String :=
   repeatZeros (width - value.toList.length) ++ value
 
-def formatFiniteDecimal (value : DecimalValue) (forceFloat : Bool) : String :=
-  let trimmed := trimDecimalZerosWith value.numerator value.scale
-  let sign := if trimmed.numerator < 0 then "-" else ""
-  let abs := decimalIntAbsNat trimmed.numerator
-  match trimmed.scale with
+def formatDecimalAtScale (value : DecimalValue) (forceFloat : Bool) : String :=
+  let sign := if value.numerator < 0 then "-" else ""
+  let abs := decimalIntAbsNat value.numerator
+  match value.scale with
   | 0 =>
       let whole := sign ++ toString abs
       if forceFloat then whole ++ ".0" else whole
@@ -170,6 +169,117 @@ def formatFiniteDecimal (value : DecimalValue) (forceFloat : Bool) : String :=
       let whole := abs / divisor
       let fraction := abs % divisor
       sign ++ toString whole ++ "." ++ leftPadZeros scale (toString fraction)
+
+def formatFiniteDecimal (value : DecimalValue) (forceFloat : Bool) : String :=
+  formatDecimalAtScale (trimDecimalZerosWith value.numerator value.scale) forceFloat
+
+/-- Multiplication is exact: numerators multiply, scales add. CUE preserves the
+    summed scale verbatim (no trailing-zero trimming): `1.0 * 1.0 = 1.00`. -/
+def mulDecimalValues (left right : DecimalValue) : DecimalValue :=
+  {
+    numerator := left.numerator * right.numerator,
+    scale := left.scale + right.scale
+  }
+
+/-- 34 significant digits, matching CUE's apd context for `/`. -/
+def divisionSigDigits : Nat :=
+  34
+
+/-- Decimal long division of `num / den` (both positive) producing the digit
+    string and the position of the decimal point (number of integer digits).
+    Generates `divisionSigDigits + 1` significant digits — the extra guard digit
+    drives rounding. Leading zeros before the first significant digit do not count
+    against the budget. Returns `(digits, intDigitCount, terminated)`. -/
+partial def divisionDigits (num den : Nat) : List Nat × Nat × Bool :=
+  let intPart := num / den
+  let intDigits := (toString intPart).toList.length
+  let intDigitCount := if intPart == 0 then 0 else intDigits
+  let rec loop (remainder sigEmitted : Nat) (sawSignificant : Bool) (acc : List Nat) : List Nat × Bool :=
+    if remainder == 0 then
+      (acc.reverse, true)
+    else if sigEmitted > divisionSigDigits then
+      (acc.reverse, false)
+    else
+      let scaled := remainder * 10
+      let digit := scaled / den
+      let nextSaw := sawSignificant || digit != 0
+      let nextEmitted := if nextSaw then sigEmitted + 1 else sigEmitted
+      loop (scaled % den) nextEmitted nextSaw (digit :: acc)
+  let intList := if intPart == 0 then [] else (toString intPart).toList.map (fun c => c.toNat - '0'.toNat)
+  let intSig := if intPart == 0 then 0 else intDigits
+  let (fracDigits, terminated) := loop (num % den) intSig (intPart != 0) []
+  (intList ++ fracDigits, intDigitCount, terminated)
+
+/-- Round a big-endian digit list to `keep` significant digits using the guard
+    digit at position `keep` (round-half-up; repeating expansions never tie).
+    `sigStart` is the index of the first significant digit. Returns the rounded
+    digit list and a carry-out flag (overflow grew the integer part). -/
+partial def roundDigits (digits : List Nat) (sigStart keep : Nat) : List Nat × Bool :=
+  let cutoff := sigStart + keep
+  if digits.length <= cutoff then
+    (digits, false)
+  else
+    let kept := digits.take cutoff
+    let guard := digits.getD cutoff 0
+    if guard < 5 then
+      (kept, false)
+    else
+      let rec bump : List Nat -> List Nat × Bool
+        | [] => ([], true)
+        | d :: rest =>
+            if d == 9 then
+              let (bumped, carry) := bump rest
+              (0 :: bumped, carry)
+            else
+              ((d + 1) :: rest, false)
+      let (bumpedRev, carry) := bump kept.reverse
+      (bumpedRev.reverse, carry)
+
+def digitsToString : List Nat -> String
+  | [] => ""
+  | d :: rest => toString d ++ digitsToString rest
+
+/-- Format `num / den` (signed) as CUE renders `/`: always a float, exact when the
+    expansion terminates, else 34 significant digits round-half-up. Returns `none`
+    when `den == 0` so the caller can raise divisionByZero. -/
+def divideDecimalRational? (num den : Int) : Option String :=
+  if den == 0 then
+    none
+  else
+    let negative := (num < 0) != (den < 0)
+    let n := decimalIntAbsNat num
+    let d := decimalIntAbsNat den
+    let (digits, intDigitCount, _) := divisionDigits n d
+    let sigStart := if intDigitCount == 0 then
+        digits.takeWhile (· == 0) |>.length
+      else 0
+    let (rounded, carry) := roundDigits digits sigStart divisionSigDigits
+    let (final, intCount) := if carry then (1 :: rounded, intDigitCount + 1) else (rounded, intDigitCount)
+    let intCount := if intCount == 0 then 0 else intCount
+    let intStr := digitsToString (final.take intCount)
+    let fracStr := digitsToString (final.drop intCount)
+    let sign := if negative then "-" else ""
+    let wholePart := if intStr == "" then "0" else intStr
+    let body := if fracStr == "" then wholePart ++ ".0" else wholePart ++ "." ++ fracStr
+    some (sign ++ body)
+
+/-- Multiplication of two decimal primitives, always yielding a float. The summed
+    scale is preserved verbatim (no trailing-zero trim): `1.0 * 1.0 = 1.00`. -/
+def evalDecimalMultiply? (left right : Prim) : Option Prim :=
+  match decimalFromPrim? left, decimalFromPrim? right with
+  | some left, some right =>
+      some (.float (formatDecimalAtScale (mulDecimalValues left right) true))
+  | _, _ => none
+
+/-- Division of two decimal primitives, always yielding a float. `(n1/10^s1) /
+    (n2/10^s2) = (n1 * 10^s2) / (n2 * 10^s1)`. -/
+def evalDecimalDivide? (left right : Prim) : Option (Option String) :=
+  match decimalFromPrim? left, decimalFromPrim? right with
+  | some left, some right =>
+      let num := left.numerator * Int.ofNat (evalPow10 right.scale)
+      let den := right.numerator * Int.ofNat (evalPow10 left.scale)
+      some (divideDecimalRational? num den)
+  | _, _ => none
 
 def evalDecimalBinary?
     (op : DecimalValue -> DecimalValue -> DecimalValue)

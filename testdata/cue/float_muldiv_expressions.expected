@@ -1,0 +1,10 @@
+mulFloats: 3.00
+mulScale: 1.00
+mulIntFloat: 3.0
+mulNegative: -3.00
+divTerminate: 0.25
+divClean: 2.0
+divFloatInt: 1.5
+divRepeat: 0.6666666666666666666666666666666667
+divRepeatInt: 3.333333333333333333333333333333333
+divRoundUp: 14.28571428571428571428571428571429

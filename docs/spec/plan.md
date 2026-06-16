@@ -75,7 +75,12 @@ implementation log):
   parse and are ignored since the package is implicit in the dotted builtin name.
 - **Expressions** — unary/additive/multiplicative/division/integer-keyword arithmetic,
   equality, ordering, numeric comparison across int/float, logical `&&`/`||`/`!`, and
-  binary regex match `=~`/`!~`.
+  binary regex match `=~`/`!~`. Float multiplication and division are now evaluated
+  exactly through `Kue/Decimal.lean`: mul preserves the summed scale verbatim
+  (`1.5 * 2.0 = 3.00`); `/` always yields a float and renders non-terminating quotients
+  at 34 significant digits (apd context) with round-half-up. All operand domains
+  (int/int, int/float, float/int, float/float) share one divider; zero divisor bottoms
+  with `divisionByZero`.
 
 Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assumptions.md).
 
@@ -94,8 +99,14 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   hardening landed** (commit `1edc760`): the duplicated dispatch fallback is now one
   shared `unresolvedOrBottom` + `isConcreteArg` (reuse it in the `math` dispatcher
   instead of re-duplicating); `stringReplace` and `listFlattenN` are fuel-bounded total
-  (no more `partial`); deferred float-mul/div, `strings.Replace` count==0, `list.Slice`
+  (no more `partial`); `strings.Replace` count==0, `list.Slice`
   negative-low, and a loop-var-shadows-sibling comprehension are pinned by tests.
+  **Float mul/div landed** (this slice): the float-mul/div deferral pins were flipped to
+  positive assertions; `evalMul`/`evalDiv` route float and mixed operands through
+  `mulDecimalValues` / `divideDecimalRational?` in `Kue/Decimal.lean`. The shared divider
+  replaced the prior int-only `formatIntegerDivision`, which over-emitted (fixed 34
+  *fractional* digits rather than 34 *significant*) for quotients ≥ 1 — a latent bug now
+  corrected.
   **`math` family rational-exact subset landed** (`Abs`, `MultipleOf`,
   `Floor`/`Ceil`/`Round`/`Trunc`): `evalMathBuiltin` reuses the shared
   `unresolvedOrBottom` fallback and does exact-decimal work via `parseDecimalText` +

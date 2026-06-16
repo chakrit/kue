@@ -114,6 +114,26 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "float_muldiv_expressions.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("mulFloats", .regular, .binary .mul (.prim (.float "1.5")) (.prim (.float "2.0"))),
+                ("mulScale", .regular, .binary .mul (.prim (.float "1.0")) (.prim (.float "1.0"))),
+                ("mulIntFloat", .regular, .binary .mul (.prim (.int 2)) (.prim (.float "1.5"))),
+                ("mulNegative", .regular, .binary .mul (.prim (.float "-1.5")) (.prim (.float "2.0"))),
+                ("divTerminate", .regular, .binary .div (.prim (.float "1.0")) (.prim (.float "4.0"))),
+                ("divClean", .regular, .binary .div (.prim (.float "4.0")) (.prim (.float "2.0"))),
+                ("divFloatInt", .regular, .binary .div (.prim (.float "3.0")) (.prim (.int 2))),
+                ("divRepeat", .regular, .binary .div (.prim (.float "2.0")) (.prim (.float "3.0"))),
+                ("divRepeatInt", .regular, .binary .div (.prim (.float "10.0")) (.prim (.float "3.0"))),
+                ("divRoundUp", .regular, .binary .div (.prim (.float "100.0")) (.prim (.float "7.0")))
+              ]
+              true))
+    },
+    {
       fileName := "integer_keyword_expressions.expected",
       content :=
         formatTopLevel

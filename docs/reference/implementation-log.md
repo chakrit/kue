@@ -3813,3 +3813,69 @@ shellcheck scripts/check-fixtures.sh
 changed (only the new `math_builtin` pair). No CUE divergence logged — Kue matches the
 oracle exactly on all 23 fields; the `Sqrt(-1)=NaN.0` non-erroring behavior is noted as a
 deferral rationale, not a Kue-is-more-correct divergence (Kue does not yet evaluate it).
+
+---
+
+## Completed Slice: Float Multiplication and Division (decimal-lift wiring)
+
+Flips the long-standing float-mul/div deferral: `evalMul` and `evalDiv` in `Kue/Eval.lean`
+now route float and mixed int/float operands through exact-decimal helpers in
+`Kue/Decimal.lean` rather than collapsing to `.bottom`. This was the alpha-gating gap —
+basic float arithmetic a tester hits immediately.
+
+### Behavior (all oracle-confirmed against cue v0.16.1)
+
+- **Multiplication.** `int × int` stays `int`. Any float operand (incl. mixed `int×float`
+  / `float×int`) promotes to float and is evaluated exactly: numerators multiply, scales
+  add, and the summed scale is preserved **verbatim with no trailing-zero trim** —
+  `1.0 * 1.0 = 1.00`, `1.5 * 2.0 = 3.00`, `0.1 * 0.2 = 0.02`, `-1.5 * 2.0 = -3.00`. New
+  `mulDecimalValues` + `evalDecimalMultiply?` (uses `formatDecimalAtScale`, the no-trim
+  renderer split out of `formatFiniteDecimal`).
+- **Division.** `/` **always yields a float**, never an int (`4.0 / 2.0 = 2.0`,
+  `6 / 2 = 3.0`); integer division remains the separate `div`/`quo` keywords. All four
+  operand domains share one divider, `divideDecimalRational?`: it reduces the two decimals
+  to a single rational `num/den` and renders. Terminating quotients render exactly
+  (`1.0 / 4.0 = 0.25`); non-terminating quotients render at **34 significant digits** (apd
+  context) with **round-half-up** on the guard digit (`2.0 / 3.0 = 0.666…667`,
+  `100.0 / 7.0 = 14.28…29`). Round-half-up vs apd's nominal `ROUND_HALF_EVEN` is
+  unobservable: a rational repeating expansion never yields an exact tie.
+- **Division by zero** (any zero divisor, int or float) ⇒ `.bottomWith [.divisionByZero]`.
+
+### Latent bug fixed at the source
+
+The prior int-only `formatIntegerDivision` (with its `decimalPrecision`,
+`decimalFractionDigits`, `joinStrings`, `rationalIsNegative`, `intAbsNat` helpers) emitted
+a fixed 34 **fractional** digits, which is correct only for quotients < 1. For `10/3` it
+produced 34 threes where cue gives 33 (34 *significant*), and it never rounded the last
+digit. Rather than wire float-div alongside a buggy int-div, the int÷int path was migrated
+onto the new shared significant-digit divider and the old helpers removed. The existing
+`1/3` fixture (`< 1`, so 34 sig == 34 frac) is unaffected.
+
+### Tests
+
+- Two deferral pins flipped to positive assertions: `eval_mul_two_floats` (= `3.00`) and
+  `eval_div_two_floats` (= `1.5`).
+- 16 further `native_decide`/`rfl` theorems in `EvalTests.lean`: scale preservation,
+  int×float / float×int promotion, negative mul, int×int stays int, terminating div,
+  clean-div-is-float, float÷int / int÷float promotion, negative div, float-by-zero ⇒
+  divisionByZero, int÷int routes through the new divider, and three repeating-division
+  cases pinning the significant-digit rule and rounding (`2/3`, `10/3`, `100/7`).
+- Fixture `float_muldiv_expressions.{cue,expected}` (10 fields) + a `FixturePorts.lean`
+  entry; oracle-checked against cue v0.16.1 — Kue matches on every field.
+
+### Deferred
+
+None for mul/div. The full operand matrix and the 34-sig-digit repeating case land here;
+there is no remaining division subset to defer.
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No existing `.expected`
+changed (only the new `float_muldiv_expressions` pair). No CUE divergence logged — the
+int-div correction is Kue fixing its own bug, not Kue diverging from a correct cue.
