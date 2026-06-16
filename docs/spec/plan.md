@@ -84,6 +84,43 @@ implementation log):
 
 Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assumptions.md).
 
+## Audit Fix-Slices (float-numeric family, audit 2026-06-16)
+
+Findings from the `/ace-audit` depth pass over `31a85ba`/`3626ea2`/`9f1d797`. Ordered by
+severity; fold each into a slice.
+
+- **[Violation] Totalize `divisionDigits` and `roundDigits` (`Kue/Decimal.lean`).** The
+  prior audit's whole theme was converting `partial def`s to fuel-bounded total functions
+  (`stringReplace`, `listFlattenN` → `evalFuel`/`resolveFuel` idiom). This batch introduced
+  two new `partial def`s that cut against that grain with no rationale at the definition
+  site. Both are totalizable:
+  - `divisionDigits.loop` recurses on `remainder` (modular, not structurally decreasing)
+    guarded by the fixed `sigEmitted > divisionSigDigits` budget. Add a `fuel : Nat`
+    bound — sound ceiling is `divisionSigDigits + 1 + <den digit count>` (leading-zero
+    positions before the first significant digit are bounded by operand magnitude; sig
+    emission is hard-capped). Terminate on `fuel = 0 ∨ remainder = 0 ∨ over-budget`.
+  - `roundDigits` has no self-recursion; only its inner `bump` recurses, and that is
+    structural on the list. The `partial` marker looks gratuitous — try dropping it
+    (lift `bump` to a structural `def` if Lean needs the nudge).
+  - Re-run all division/avg theorems after; a fuel-bounded form may shift reduction, so
+    confirm `native_decide` still closes. NOT an inline patch — proper slice with a sound
+    fuel-bound argument. If `partial` is ever genuinely justified, document it at the site.
+- **[Borderline] DRY the integer range-count formula.** `listRange` (`Kue/Builtin.lean`
+  ~243-248) and `listRangeDecimal` (~263-269) duplicate the ascending/descending
+  count formula verbatim with renamed vars. Extract `rangeCount (start limit step : Int)
+  : Int` (a named abstraction — the element count of an integer arithmetic sequence) and
+  call it from both; the decimal path passes its scaled-to-common-denominator integers.
+- **[Borderline] `evalDecimalDivide?` returns `Option (Option String)`.** The nested
+  Option encodes three outcomes (non-numeric ⇒ outer `none`, div-by-zero ⇒ `some none`,
+  ok ⇒ `some (some text)`). The callsite in `evalDiv` handles all three, but a small sum
+  type (`nonNumeric | divByZero | ok String`) would be more illegal-states-unrepresentable
+  and self-documenting per the repo's stated philosophy. Low cost, low urgency.
+- **[Out of scope / doc fix] `2026-06-16-float-muldiv-landed.md` line ~83** says
+  "`divideDecimalRational?` is `partial`". It is a plain `def`; the `partial` markers are
+  on its dependencies `divisionDigits`/`roundDigits`. The functional claim (results don't
+  `rfl`-reduce, use `native_decide`) is correct. Folds naturally into the totalization
+  slice above (which removes the `partial`s and moots the note).
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:
