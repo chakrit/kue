@@ -181,6 +181,150 @@ def stringFields (value : String) : List Value := Id.run do
     fields := fields.push (.prim (.string (String.ofList current.reverse)))
   return fields.toList
 
+/-- Concatenate a list of lists; any non-list element yields bottom.
+    Mirrors CUE's `list.Concat`. -/
+def listConcat (lists : List Value) : Value :=
+  let rec collect : List Value -> Option (List Value)
+    | [] => some []
+    | .list items :: rest => (collect rest).map (items ++ ·)
+    | _ => none
+  match collect lists with
+  | some items => .list items
+  | none => .bottom
+
+/-- Flatten nested lists up to `depth` levels; `depth < 0` flattens fully.
+    A non-list element is emitted as-is. Mirrors CUE's `list.FlattenN`. -/
+partial def listFlattenN (items : List Value) (depth : Int) : List Value :=
+  if depth == 0 then
+    items
+  else
+    items.flatMap fun item =>
+      match item with
+      | .list inner => listFlattenN inner (depth - 1)
+      | other => [other]
+
+/-- `count` copies of `items` concatenated; negative count is an error (bottom).
+    Mirrors CUE's `list.Repeat`. -/
+def listRepeat (items : List Value) (count : Int) : Value :=
+  if count < 0 then
+    .bottom
+  else
+    .list (List.flatten (List.replicate count.toNat items))
+
+/-- Integer arithmetic sequence `[start, start+step, …)` bounded by `limit`,
+    ascending when `step > 0`, descending when `step < 0`; `step == 0` is an
+    error (bottom). Mirrors CUE's `list.Range` on integers. -/
+def listRange (start limit step : Int) : Value :=
+  if step == 0 then
+    .bottom
+  else
+    let count : Int :=
+      if step > 0 then
+        if limit <= start then 0 else (limit - start + step - 1) / step
+      else
+        if start <= limit then 0 else (start - limit + (-step) - 1) / (-step)
+    .list ((List.range count.toNat).map fun i => .prim (.int (start + step * Int.ofNat i)))
+
+/-- Sub-slice `items[low:high]`; out-of-range or inverted bounds yield bottom.
+    Mirrors CUE's `list.Slice`. -/
+def listSlice (items : List Value) (low high : Int) : Value :=
+  if low < 0 || high < 0 then
+    .bottom
+  else if high > Int.ofNat items.length || low > high then
+    .bottom
+  else
+    .list ((items.drop low.toNat).take (high - low).toNat)
+
+/-- First `count` elements; negative count yields bottom. Mirrors `list.Take`. -/
+def listTake (items : List Value) (count : Int) : Value :=
+  if count < 0 then .bottom else .list (items.take count.toNat)
+
+/-- All but the first `count` elements; negative count yields bottom.
+    Mirrors `list.Drop`. -/
+def listDrop (items : List Value) (count : Int) : Value :=
+  if count < 0 then .bottom else .list (items.drop count.toNat)
+
+/-- Whether `items` contains a value equal to `needle` (structural `BEq`).
+    Mirrors CUE's `list.Contains`. -/
+def listContains (items : List Value) (needle : Value) : Bool :=
+  items.any (· == needle)
+
+/-- Sum of an integer list; a non-integer element yields bottom. The float
+    domain is deferred (needs the shared decimal arithmetic in `Eval`).
+    Mirrors CUE's `list.Sum` on integers (empty list ⇒ 0). -/
+def listSumInt (items : List Value) : Value :=
+  let rec go : List Value -> Option Int
+    | [] => some 0
+    | .prim (.int n) :: rest => (go rest).map (n + ·)
+    | _ => none
+  match go items with
+  | some total => .prim (.int total)
+  | none => .bottom
+
+/-- Minimum of a non-empty integer list; empty list or a non-integer element
+    yields bottom. Float domain deferred. Mirrors CUE's `list.Min`. -/
+def listMinInt : List Value -> Value
+  | [] => .bottom
+  | .prim (.int first) :: rest =>
+      let rec go : Int -> List Value -> Value
+        | acc, [] => .prim (.int acc)
+        | acc, .prim (.int n) :: rest => go (if n < acc then n else acc) rest
+        | _, _ => .bottom
+      go first rest
+  | _ => .bottom
+
+/-- Maximum of a non-empty integer list; empty list or a non-integer element
+    yields bottom. Float domain deferred. Mirrors CUE's `list.Max`. -/
+def listMaxInt : List Value -> Value
+  | [] => .bottom
+  | .prim (.int first) :: rest =>
+      let rec go : Int -> List Value -> Value
+        | acc, [] => .prim (.int acc)
+        | acc, .prim (.int n) :: rest => go (if n > acc then n else acc) rest
+        | _, _ => .bottom
+      go first rest
+  | _ => .bottom
+
+/-- Dispatch a `list.*` builtin over already-evaluated arguments.
+    Wrong argument shapes resolve to bottom (CUE error), per total-function design.
+    Deferred (kept unresolved/not matched): `Avg`, float-domain `Sum`/`Min`/`Max`,
+    `Sort`/`SortStable`/`SortStrings` (comparator-struct evaluation). -/
+def evalListBuiltin : String -> List Value -> Value
+  | "list.Concat", [.list lists] => listConcat lists
+  | "list.FlattenN", [.list items, .prim (.int depth)] => .list (listFlattenN items depth)
+  | "list.Repeat", [.list items, .prim (.int n)] => listRepeat items n
+  | "list.Range", [.prim (.int start), .prim (.int limit), .prim (.int step)] =>
+      listRange start limit step
+  | "list.Slice", [.list items, .prim (.int low), .prim (.int high)] =>
+      listSlice items low high
+  | "list.Take", [.list items, .prim (.int n)] => listTake items n
+  | "list.Drop", [.list items, .prim (.int n)] => listDrop items n
+  | "list.Contains", [.list items, .prim p] => .prim (.bool (listContains items (.prim p)))
+  | "list.Contains", [.list items, .list needle] => .prim (.bool (listContains items (.list needle)))
+  | "list.Sum", [.list items] => listSumInt items
+  | "list.Min", [.list items] => listMinInt items
+  | "list.Max", [.list items] => listMaxInt items
+  | name, args =>
+      if containsAnyBottom args then
+        .bottom
+      else if argsFullyEvaluated args then
+        .bottom
+      else
+        .builtinCall name args
+where
+  containsAnyBottom : List Value -> Bool
+    | [] => false
+    | value :: rest => containsBottom value || containsAnyBottom rest
+  /-- A list call whose args are all concrete (no kinds/refs/unresolved) but did
+      not match a known arm is a type error => bottom. Otherwise keep it unresolved. -/
+  argsFullyEvaluated : List Value -> Bool
+    | [] => true
+    | value :: rest => isConcreteArg value && argsFullyEvaluated rest
+  isConcreteArg : Value -> Bool
+    | .prim _ => true
+    | .list _ => true
+    | _ => false
+
 /-- Dispatch a `strings.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design. -/
 def evalStringsBuiltin : String -> List Value -> Value
@@ -239,6 +383,8 @@ def evalBuiltinCall : String -> List Value -> Value
   | name, args =>
       if name.startsWith "strings." then
         evalStringsBuiltin name args
+      else if name.startsWith "list." then
+        evalListBuiltin name args
       else
         .builtinCall name args
 

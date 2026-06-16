@@ -1219,6 +1219,90 @@ def fixturePorts : List FixturePort :=
                   .builtinCall "strings.Fields" [.prim (.string "  a  b c ")])
               ]
               true))
+    },
+    {
+      fileName := "list_builtin.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("concat", .regular,
+                  .builtinCall "list.Concat"
+                    [.list [.list [.prim (.int 1), .prim (.int 2)], .list [.prim (.int 3)],
+                            .list [.prim (.int 4), .prim (.int 5)]]]),
+                ("concatEmpty", .regular,
+                  .builtinCall "list.Concat" [.list []]),
+                ("flatten1", .regular,
+                  .builtinCall "list.FlattenN"
+                    [.list [.list [.prim (.int 1), .list [.prim (.int 2)]], .list [.prim (.int 3)]],
+                     .prim (.int 1)]),
+                ("flatten2", .regular,
+                  .builtinCall "list.FlattenN"
+                    [.list [.list [.prim (.int 1), .list [.prim (.int 2)]], .list [.prim (.int 3)]],
+                     .prim (.int 2)]),
+                ("flattenAll", .regular,
+                  .builtinCall "list.FlattenN"
+                    [.list [.prim (.int 1),
+                            .list [.prim (.int 2), .list [.prim (.int 3), .list [.prim (.int 4)]]]],
+                     .prim (.int (-1))]),
+                ("flatten0", .regular,
+                  .builtinCall "list.FlattenN"
+                    [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]], .prim (.int 0)]),
+                ("repeat", .regular,
+                  .builtinCall "list.Repeat"
+                    [.list [.prim (.int 1), .prim (.int 2)], .prim (.int 3)]),
+                ("repeat0", .regular,
+                  .builtinCall "list.Repeat"
+                    [.list [.prim (.int 1), .prim (.int 2)], .prim (.int 0)]),
+                ("rangeUp", .regular,
+                  .builtinCall "list.Range" [.prim (.int 0), .prim (.int 5), .prim (.int 1)]),
+                ("rangeStep", .regular,
+                  .builtinCall "list.Range" [.prim (.int 0), .prim (.int 10), .prim (.int 2)]),
+                ("rangeDown", .regular,
+                  .builtinCall "list.Range" [.prim (.int 5), .prim (.int 0), .prim (.int (-1))]),
+                ("rangeEmpty", .regular,
+                  .builtinCall "list.Range" [.prim (.int 1), .prim (.int 1), .prim (.int 1)]),
+                ("slice", .regular,
+                  .builtinCall "list.Slice"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)],
+                     .prim (.int 1), .prim (.int 3)]),
+                ("take", .regular,
+                  .builtinCall "list.Take"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)],
+                     .prim (.int 2)]),
+                ("takeOver", .regular,
+                  .builtinCall "list.Take"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 5)]),
+                ("drop", .regular,
+                  .builtinCall "list.Drop"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)],
+                     .prim (.int 2)]),
+                ("dropOver", .regular,
+                  .builtinCall "list.Drop"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 5)]),
+                ("contains", .regular,
+                  .builtinCall "list.Contains"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 2)]),
+                ("containsNo", .regular,
+                  .builtinCall "list.Contains"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 9)]),
+                ("containsSub", .regular,
+                  .builtinCall "list.Contains"
+                    [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]], .list [.prim (.int 1)]]),
+                ("sum", .regular,
+                  .builtinCall "list.Sum"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]),
+                ("sumEmpty", .regular,
+                  .builtinCall "list.Sum" [.list []]),
+                ("min", .regular,
+                  .builtinCall "list.Min"
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)]]),
+                ("max", .regular,
+                  .builtinCall "list.Max"
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)]])
+              ]
+              true))
     }
   ]
 

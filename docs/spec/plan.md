@@ -61,8 +61,10 @@ implementation log):
   field-class filtering, and incompleteness/ambiguity rejection.
 - **Builtins** — top-level `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, plus
   the package-qualified `strings` family (`Contains`, `HasPrefix`, `HasSuffix`, `Index`,
-  `Count`, `Split`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`). Unresolved calls
-  preserved as semantic values; concrete type-mismatch args resolve to bottom.
+  `Count`, `Split`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`) and the `list`
+  family (`Concat`, `FlattenN`, `Repeat`, `Range`, `Slice`, `Take`, `Drop`, `Contains`,
+  and integer-domain `Sum`/`Min`/`Max`). Unresolved calls preserved as semantic values;
+  concrete type-mismatch args resolve to bottom.
 - **Parser/CLI** — recursive-descent parser over the supported subset; numeric literal
   spellings (non-decimal, separators, exponents, suffix multipliers); stdin and explicit
   multi-file evaluation with package-name consistency. Package-qualified builtin calls
@@ -81,13 +83,17 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
 - Add remaining alias positions in a syntax layer instead of constructing
   semantic values directly.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
-- **Builtin families.** Top-level helpers and the `strings` package are landed
-  (see Implementation Status). **Next: the `list` family** (`list.Concat`,
-  `list.FlattenN`, `list.Sort`, `list.Range`, …) and then the `math` family, plus the
-  deferred `strings` functions that need unicode case folding (`ToUpper`/`ToLower`/
-  `ToTitle`) or are otherwise unimplemented (`SplitN`, `Trim`/`TrimPrefix`/`TrimSuffix`,
-  `Runes`, `ContainsAny`, `LastIndex`, …). Each is oracle-checked against `cue` v0.16.1;
-  the package-qualified dispatch (call-on-selector → dotted `.builtinCall` name) is in
-  place, so a new family is an `evalXBuiltin` helper, a catch-all route in
-  `evalBuiltinCall`, a fixture, and unit theorems.
+- **Builtin families.** Top-level helpers, the `strings` package, and the `list`
+  package (integer domain) are landed (see Implementation Status). **Next: the `math`
+  family.** Remaining `list` work, deferred by design choice and noted in the
+  implementation log: `list.Avg` (exact-rational mean with apd 34-sig-digit float
+  formatting); float-domain `Sum`/`Min`/`Max` and float `Range` (need the decimal
+  arithmetic in `Eval` lifted to a lower module — Builtin can't import Eval without a
+  cycle); and `Sort`/`SortStable`/`SortStrings` (need comparator-struct evaluation).
+  Then the deferred `strings` functions that need unicode case folding
+  (`ToUpper`/`ToLower`/`ToTitle`) or are otherwise unimplemented (`SplitN`,
+  `Trim`/`TrimPrefix`/`TrimSuffix`, `Runes`, `ContainsAny`, `LastIndex`, …). Each is
+  oracle-checked against `cue` v0.16.1; the package-qualified dispatch (call-on-selector
+  → dotted `.builtinCall` name) is in place, so a new family is an `evalXBuiltin` helper,
+  a catch-all route in `evalBuiltinCall`, a fixture, and unit theorems.
 - Add imports and full module resolution after the syntax and resolver layers exist.

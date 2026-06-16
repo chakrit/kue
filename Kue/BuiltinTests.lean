@@ -150,4 +150,83 @@ theorem strings_call_stays_unresolved_on_abstract_arg :
       == .builtinCall "strings.Contains" [.kind .string, .prim (.string "x")]) = true := by
   native_decide
 
+theorem list_concat_flattens_one_level :
+    (evalBuiltinCall "list.Concat"
+        [.list [.list [.prim (.int 1)], .list [.prim (.int 2), .prim (.int 3)]]]
+      == .list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]) = true := by
+  native_decide
+
+theorem list_flattenN_depth_one_keeps_inner_lists :
+    (evalBuiltinCall "list.FlattenN"
+        [.list [.list [.prim (.int 1), .list [.prim (.int 2)]]], .prim (.int 1)]
+      == .list [.prim (.int 1), .list [.prim (.int 2)]]) = true := by
+  native_decide
+
+theorem list_flattenN_negative_depth_flattens_fully :
+    (evalBuiltinCall "list.FlattenN"
+        [.list [.prim (.int 1), .list [.list [.prim (.int 2)]]], .prim (.int (-1))]
+      == .list [.prim (.int 1), .prim (.int 2)]) = true := by
+  native_decide
+
+theorem list_range_descending :
+    (evalBuiltinCall "list.Range" [.prim (.int 5), .prim (.int 0), .prim (.int (-1))]
+      == .list [.prim (.int 5), .prim (.int 4), .prim (.int 3), .prim (.int 2), .prim (.int 1)])
+      = true := by
+  native_decide
+
+theorem list_range_zero_step_is_bottom :
+    (evalBuiltinCall "list.Range" [.prim (.int 0), .prim (.int 5), .prim (.int 0)]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_slice_out_of_range_is_bottom :
+    (evalBuiltinCall "list.Slice"
+        [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 1), .prim (.int 5)]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_slice_inverted_bounds_is_bottom :
+    (evalBuiltinCall "list.Slice"
+        [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 2), .prim (.int 1)]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_repeat_negative_count_is_bottom :
+    (evalBuiltinCall "list.Repeat" [.list [.prim (.int 1)], .prim (.int (-1))]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_take_negative_count_is_bottom :
+    (evalBuiltinCall "list.Take" [.list [.prim (.int 1)], .prim (.int (-1))]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_sum_empty_is_zero :
+    (evalBuiltinCall "list.Sum" [.list []] == .prim (.int 0)) = true := by
+  native_decide
+
+theorem list_sum_non_int_element_is_bottom :
+    (evalBuiltinCall "list.Sum" [.list [.prim (.int 1), .prim (.string "x")]]
+      == .bottom) = true := by
+  native_decide
+
+theorem list_min_empty_is_bottom :
+    (evalBuiltinCall "list.Min" [.list []] == .bottom) = true := by
+  native_decide
+
+theorem list_max_empty_is_bottom :
+    (evalBuiltinCall "list.Max" [.list []] == .bottom) = true := by
+  native_decide
+
+theorem list_contains_structural_element :
+    (evalBuiltinCall "list.Contains"
+        [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]], .list [.prim (.int 1)]]
+      == .prim (.bool true)) = true := by
+  native_decide
+
+theorem list_call_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "list.Sum" [.kind .number]
+      == .builtinCall "list.Sum" [.kind .number]) = true := by
+  native_decide
+
 end Kue

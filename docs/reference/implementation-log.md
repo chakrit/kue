@@ -3535,3 +3535,81 @@ shellcheck scripts/check-fixtures.sh
 ```
 
 `lake build` 66 jobs, `fixture pairs ok`, shellcheck clean.
+
+## Completed Slice: list Builtins
+
+Goal: add a coherent, oracle-verified subset of CUE's `list` package, reusing the
+package-qualified dispatch landed in the strings slice. No new infrastructure — an
+`evalListBuiltin` helper plus a `name.startsWith "list."` catch-all route in
+`evalBuiltinCall`.
+
+### Dispatch + implementation
+
+`evalBuiltinCall` now routes `list.*` to `evalListBuiltin`, mirroring the strings
+arm (concrete-arg type-mismatch ⇒ bottom; all-concrete-but-unmatched ⇒ bottom;
+abstract args keep the call unresolved). Args arrive fully evaluated. Implemented,
+each oracle-checked against `cue` v0.16.1:
+
+- `list.Concat([[…],…])` — concatenate sub-lists; a non-list element ⇒ bottom.
+- `list.FlattenN(list, depth)` — flatten up to `depth` levels; `depth == 0` is a
+  no-op, `depth < 0` flattens fully; non-list elements pass through.
+  (`FlattenN([[1,[2]],[3]], 1) = [1,[2],3]`.)
+- `list.Repeat(list, n)` — `n` copies concatenated; `n < 0` ⇒ bottom.
+- `list.Range(start, limit, step)` — integer arithmetic sequence, half-open at
+  `limit`; ascending for `step > 0`, descending for `step < 0`; `step == 0` ⇒
+  bottom ("step must be non zero"). Element count computed by ceiling division so
+  the off-by-one at the bound matches the oracle (`Range(0,5,2) = [0,2,4]`).
+- `list.Slice(list, low, high)` — sub-slice; negative index or `high > len` or
+  `low > high` ⇒ bottom (CUE distinguishes the messages; we collapse to bottom).
+- `list.Take(list, n)` / `list.Drop(list, n)` — prefix / suffix; `n` past the end
+  is clamped (Take all / Drop to empty); negative `n` ⇒ bottom.
+- `list.Contains(list, x)` — structural `BEq` membership. Restricted to concrete
+  `.prim`/`.list` needles so an abstract needle still routes to the unresolved arm.
+- `list.Sum(list)` — integer sum, empty ⇒ 0; a non-integer element ⇒ bottom.
+- `list.Min(list)` / `list.Max(list)` — integer min/max; empty ⇒ bottom; a
+  non-integer element ⇒ bottom.
+
+All helpers are total: error cases are explicit bottom, not partial matches. Only
+`FlattenN` is `partial` (depth recursion); the rest are structural.
+
+### Deferred (noted, not faked)
+
+- **`list.Avg`** — CUE returns an *exact rational* mean, collapsing to `int` when the
+  count divides the sum evenly (`Avg([1,2,3]) = 2`, `Avg([1,2]) = 1.5`) and otherwise
+  a float printed with apd's 34-significant-digit context (`Avg([1,2,4]) = 2.333…`
+  to 33 digits). kue's `/` operator always yields a `.0`-suffixed float, so Avg can't
+  reuse it; matching the int-collapse + sig-digit rounding needs the shared decimal
+  formatter. Deferred to avoid a non-oracle-exact approximation.
+- **Float-domain `Sum`/`Min`/`Max` and float `list.Range`** — these need decimal
+  arithmetic (`addDecimalValues`, decimal compare) which currently lives in `Eval`.
+  `Builtin` cannot import `Eval` (Eval imports Builtin — a cycle), so the decimal
+  machinery (`DecimalValue`, `addDecimalValues`, `formatFiniteDecimal`,
+  `decimalFromPrim?`) must first be lifted into a lower module (`Lattice` or a new
+  `Decimal` module) before the builtin layer can reuse it. Scoped as its own refactor
+  slice. Integer domain is implemented and oracle-exact now.
+- **`list.Sort` / `list.SortStable` / `list.SortStrings`** — `Sort` takes a *comparator
+  struct* `{x: _, y: _, less: x < y}` (with `list.Ascending`/`list.Descending` being
+  predefined such structs), not a plain function value. Evaluating `less` against
+  per-pair `x`/`y` bindings is beyond what the builtin layer can express today; deferred
+  rather than faked.
+
+### Tests
+
+`list_builtin` fixture exercises every implemented function incl. the no-op/negative
+FlattenN depths, descending Range, over-range Take/Drop clamps, structural Contains,
+and empty Sum. CLI path and hand-built FixturePort both diff clean against the
+oracle-derived `.expected`. Sixteen `native_decide` theorems in `BuiltinTests` lock
+the edges: Concat one-level, FlattenN depth-1 vs full, descending Range, zero-step
+bottom, Slice out-of-range and inverted bottom, negative Repeat/Take bottom, Sum
+empty = 0, Sum non-int bottom, Min/Max empty bottom, structural Contains, and
+abstract-arg stays unresolved.
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 66 jobs, `fixture pairs ok`, shellcheck clean.
