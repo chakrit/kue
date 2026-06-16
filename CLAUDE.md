@@ -19,8 +19,15 @@ Standing grant for this repo, given by chakrit 2026-06-14:
 - **Autonomy.** Decide and proceed without the propose-then-wait gate, so long as the
   work inches Kue toward its goal (correct CUE v0.15 semantics). The ACE
   propose-and-confirm steps are relaxed here: pick the next slice, plan it, and
-  implement it. Ask only when genuinely blocked or at a real fork; otherwise think and
-  proceed.
+  implement it. Ask only when genuinely blocked; otherwise think and proceed.
+- **Resolve forks by philosophy, don't ask.** A design fork is not a reason to stop.
+  Default to the option that is most precise, testable, and amenable to formal reasoning
+  — strongly typed over ad hoc, illegal-states-unrepresentable over convention, lexical
+  over dynamic, total over partial. The repo's stated preferences (this file's Project
+  section; `Lean into Lean 4` below) already decide most forks; apply them and proceed,
+  noting the choice and its rationale in the spec/log rather than in a question. Surface a
+  fork to the user only when the philosophy is genuinely silent or two options are
+  equally principled *and* the choice is expensive to reverse.
 - **Lean into Lean 4.** Use the language's facilities — dependent types, total
   functions, theorem checks, `structure`/`inductive` invariants — to make illegal states
   unrepresentable and push correctness into the type system wherever it buys real safety.
