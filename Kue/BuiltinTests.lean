@@ -303,6 +303,116 @@ theorem list_sort_strings_abstract_arg_stays_unresolved :
       == .builtinCall "list.SortStrings" [.kind .number]) = true := by
   native_decide
 
+theorem strings_to_upper_lowercases :
+    (evalBuiltinCall "strings.ToUpper" [.prim (.string "hello world")]
+      == .prim (.string "HELLO WORLD")) = true := by
+  native_decide
+
+theorem strings_to_upper_already_upper :
+    (evalBuiltinCall "strings.ToUpper" [.prim (.string "ABC")]
+      == .prim (.string "ABC")) = true := by
+  native_decide
+
+theorem strings_to_upper_empty :
+    (evalBuiltinCall "strings.ToUpper" [.prim (.string "")]
+      == .prim (.string "")) = true := by
+  native_decide
+
+theorem strings_to_upper_digits_punct_unchanged :
+    (evalBuiltinCall "strings.ToUpper" [.prim (.string "abc123!@#")]
+      == .prim (.string "ABC123!@#")) = true := by
+  native_decide
+
+theorem strings_to_lower_uppercases :
+    (evalBuiltinCall "strings.ToLower" [.prim (.string "Hello WORLD")]
+      == .prim (.string "hello world")) = true := by
+  native_decide
+
+theorem strings_to_lower_already_lower :
+    (evalBuiltinCall "strings.ToLower" [.prim (.string "abc")]
+      == .prim (.string "abc")) = true := by
+  native_decide
+
+theorem strings_to_lower_empty :
+    (evalBuiltinCall "strings.ToLower" [.prim (.string "")]
+      == .prim (.string "")) = true := by
+  native_decide
+
+theorem strings_to_lower_digits_punct_unchanged :
+    (evalBuiltinCall "strings.ToLower" [.prim (.string "ABC123!@#")]
+      == .prim (.string "abc123!@#")) = true := by
+  native_decide
+
+/-- `ToTitle` is per-word capitalization — the first letter of each whitespace-delimited
+    word — NOT "upper-case every letter". A multi-word lowercase input proves it. -/
+theorem strings_to_title_capitalizes_each_word :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.string "hello world foo")]
+      == .prim (.string "Hello World Foo")) = true := by
+  native_decide
+
+/-- Already-upper input is left as-is (ToTitle only upper-cases word-initial letters;
+    it never lower-cases the rest, distinguishing it from a "capitalize" that downcases). -/
+theorem strings_to_title_leaves_upper_word_as_is :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.string "HELLO WORLD")]
+      == .prim (.string "HELLO WORLD")) = true := by
+  native_decide
+
+theorem strings_to_title_empty :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.string "")]
+      == .prim (.string "")) = true := by
+  native_decide
+
+/-- Word boundary is whitespace ONLY: `-`, `.`, `_`, `/` do NOT start a new word,
+    so the letter after them is not capitalized. -/
+theorem strings_to_title_non_whitespace_separators_dont_split :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.string "a-b a.b a_b a/b")]
+      == .prim (.string "A-b A.b A_b A/b")) = true := by
+  native_decide
+
+/-- A digit is not a word separator: the letter following a digit mid-token is not
+    capitalized; the letter after whitespace is. -/
+theorem strings_to_title_digit_is_not_separator :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.string "3 abc a3bc")]
+      == .prim (.string "3 Abc A3bc")) = true := by
+  native_decide
+
+theorem strings_to_title_leading_whitespace :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.string "  leading")]
+      == .prim (.string "  Leading")) = true := by
+  native_decide
+
+/-- Non-ASCII deferral boundary (ToUpper): non-ASCII letters pass through unchanged
+    (`Char.toUpper` is ASCII-only). Kue: "CAFé"; cue: "CAFÉ". Documented divergence. -/
+theorem strings_to_upper_non_ascii_passthrough :
+    (evalBuiltinCall "strings.ToUpper" [.prim (.string "café")]
+      == .prim (.string "CAFé")) = true := by
+  native_decide
+
+/-- Non-ASCII deferral boundary (ToLower): non-ASCII letters pass through unchanged.
+    Kue: "cafÉ"; cue: "café". Documented divergence. -/
+theorem strings_to_lower_non_ascii_passthrough :
+    (evalBuiltinCall "strings.ToLower" [.prim (.string "CAFÉ")]
+      == .prim (.string "cafÉ")) = true := by
+  native_decide
+
+/-- Non-ASCII deferral boundary (ToTitle): a non-ASCII word-initial letter is not
+    title-cased. Kue: "über alles" word `über` stays lowercase → "über Alles";
+    cue: "Über Alles". Documented divergence. -/
+theorem strings_to_title_non_ascii_passthrough :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.string "über alles")]
+      == .prim (.string "über Alles")) = true := by
+  native_decide
+
+theorem strings_to_upper_abstract_arg_stays_unresolved :
+    (evalBuiltinCall "strings.ToUpper" [.kind .string]
+      == .builtinCall "strings.ToUpper" [.kind .string]) = true := by
+  native_decide
+
+theorem strings_to_title_non_string_is_bottom :
+    (evalBuiltinCall "strings.ToTitle" [.prim (.int 1)]
+      == .bottom) = true := by
+  native_decide
+
 theorem list_sum_float_collapses_integral :
     (evalBuiltinCall "list.Sum"
         [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]]

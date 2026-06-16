@@ -4035,3 +4035,69 @@ plumbing the builtin layer does not yet have. This was the only remaining `list`
 
 `lake build` 68 jobs, `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.
 No CUE divergence logged (cue and Kue agree on every probed case).
+
+## Completed Slice: `strings.ToUpper`/`ToLower`/`ToTitle` (ASCII)
+
+The case-folding triple, landed for the **ASCII** subset with an explicit, documented
+non-ASCII deferral. Pure `String → String` maps over the existing `strings.*` dispatch — no
+new `Value` variants, no struct evaluation.
+
+### Semantics — oracle-driven (cue v0.16.1)
+
+- **`ToUpper`/`ToLower`:** ASCII letter case mapping. Digits and punctuation unchanged;
+  empty string unchanged.
+- **`ToTitle` is per-word capitalization, NOT "upper-case every letter".** This contradicts
+  the common assumption that cue's `ToTitle` matches Go's `strings.ToTitle` (which does
+  upper-case all letters). cue's `strings.ToTitle` upper-cases only the **first character of
+  each whitespace-delimited word**, leaving the rest untouched. Probed exhaustively, all
+  matching cue:
+  - `ToTitle("hello world foo") → "Hello World Foo"`
+  - `ToTitle("HELLO WORLD") → "HELLO WORLD"` (word-initial already upper; rest not lowered)
+  - word separator is **whitespace ONLY**: `ToTitle("a-b a.b a_b a/b") → "A-b A.b A_b A/b"`
+    (`-`, `.`, `_`, `/` do NOT start a word)
+  - digit is not a separator: `ToTitle("3 abc a3bc") → "3 Abc A3bc"`
+  - leading whitespace preserved: `ToTitle("  leading") → "  Leading"`
+- **Non-ASCII deferral = passthrough.** Non-ASCII runes are emitted unchanged (Lean's
+  `Char.toUpper`/`toLower` are ASCII-only). Chosen over bottoming for consistency with the
+  other byte-faithful `strings.*` builtins and to stay total + ASCII-exact. Divergences (all
+  non-ASCII): `ToUpper("café")` → Kue `"CAFé"` / cue `"CAFÉ"`; `ToLower("CAFÉ")` → Kue
+  `"cafÉ"` / cue `"café"`; `ToTitle("über alles")` → Kue `"über Alles"` / cue `"Über Alles"`.
+  Documented in `docs/spec/compat-assumptions.md` → "String case folding". **Not** logged in
+  `cue-divergences.md` — cue is correct here; Kue is deliberately limited (that file is for
+  cue defects).
+
+### Implementation (`Kue/Builtin.lean`)
+
+- `asciiToUpper`/`asciiToLower (value) : String` — `String.ofList (value.toList.map
+  Char.toUpper/toLower)`.
+- `asciiTitleSeparator (c) : Bool` — true for the six ASCII whitespace runes
+  (`\t \n \v \f \r` and space); false otherwise, including all non-ASCII (so non-ASCII
+  whitespace such as NBSP does not start a word — the deferral boundary). Spelled
+  explicitly because Lean's `Char.isWhitespace` misses `\v`/`\f`.
+- `asciiToTitle (value) : String` — single left-to-right pass; title-case a rune iff the
+  previous rune was a separator (first rune counts as word-start).
+- Three arms in `evalStringsBuiltin` (`strings.ToUpper`/`ToLower`/`ToTitle`, each
+  `[.prim (.string s)]`); catch-all `unresolvedOrBottom` unchanged, so non-string / abstract
+  args flow through it.
+
+### Tests
+
+19 `native_decide` theorems in `BuiltinTests.lean`: ToUpper/ToLower each over
+lowercase/uppercase/empty/digits+punct; ToTitle per-word capitalization, leaves-upper-as-is,
+empty, whitespace-only-separators, digit-not-separator, leading-whitespace; three non-ASCII
+passthrough boundary theorems (ToUpper/ToLower/ToTitle); abstract-arg ⇒ unresolved;
+non-string ⇒ bottom. New fixture `testdata/cue/strings_case.{cue,expected}` (14 ASCII cases)
++ a `FixturePorts.lean` entry. Non-ASCII cases are theorem-only (fixtures stay in the
+supported ASCII domain).
+
+### Deferred
+
+Full Unicode case folding (Go `unicode.ToUpper`/`ToLower`/`ToTitle` + `x/text/cases`,
+including ß / dotless ı / title-case digraphs) — needs a Unicode case-mapping table. An
+alpha boundary alongside imports and `list.Sort`.
+
+### Verify
+
+`lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
+`shellcheck` clean. No CUE divergence logged (the non-ASCII gap is a documented deferral in
+`compat-assumptions.md`, not a cue defect).

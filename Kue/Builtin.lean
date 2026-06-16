@@ -185,6 +185,43 @@ def stringFields (value : String) : List Value := Id.run do
     fields := fields.push (.prim (.string (String.ofList current.reverse)))
   return fields.toList
 
+/-- ASCII upper-case map: `Char.toUpper` casefolds only `a`–`z`; every other rune
+    (digits, punctuation, and all non-ASCII) passes through unchanged. The non-ASCII
+    passthrough is the deliberate deferral boundary — see `docs/spec/compat-assumptions.md`.
+    Mirrors CUE's `strings.ToUpper` on the ASCII subset. -/
+def asciiToUpper (value : String) : String :=
+  String.ofList (value.toList.map Char.toUpper)
+
+/-- ASCII lower-case map: `Char.toLower` casefolds only `A`–`Z`; every other rune
+    passes through unchanged (same non-ASCII deferral as `asciiToUpper`).
+    Mirrors CUE's `strings.ToLower` on the ASCII subset. -/
+def asciiToLower (value : String) : String :=
+  String.ofList (value.toList.map Char.toLower)
+
+/-- ASCII whitespace word-boundary predicate for `asciiToTitle`. CUE's `strings.ToTitle`
+    capitalizes the first character of each whitespace-delimited word (separator =
+    `unicode.IsSpace`), NOT after every non-letter — `-`, `.`, `_`, digits do NOT start a
+    word. This covers the six ASCII whitespace runes (`\t \n \v \f \r` and space); non-ASCII
+    whitespace (e.g. NBSP) is treated as a non-separator — the deferral boundary. -/
+def asciiTitleSeparator (c : Char) : Bool :=
+  c == ' ' || c == '\t' || c == '\n' || c == '\r'
+    || c == Char.ofNat 0x0b || c == Char.ofNat 0x0c
+
+/-- Title-case the first ASCII letter of each whitespace-delimited word; the first
+    character of the string also starts a word. Non-ASCII runes pass through unchanged
+    (`Char.toUpper` is ASCII-only) and never start a word. Mirrors CUE's `strings.ToTitle`
+    on ASCII — per-word capitalization, NOT "upper-case every letter". -/
+def asciiToTitle (value : String) : String := Id.run do
+  let mut out : List Char := []
+  let mut prevSep := true
+  for c in value.toList do
+    if prevSep then
+      out := c.toUpper :: out
+    else
+      out := c :: out
+    prevSep := asciiTitleSeparator c
+  return String.ofList out.reverse
+
 /-- Concatenate a list of lists; any non-list element yields bottom.
     Mirrors CUE's `list.Concat`. -/
 def listConcat (lists : List Value) : Value :=
@@ -461,6 +498,12 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.string (String.ofList (s.toList.dropWhile (·.isWhitespace) |>.reverse.dropWhile (·.isWhitespace) |>.reverse)))
   | "strings.Fields", [.prim (.string s)] =>
       .list (stringFields s)
+  | "strings.ToUpper", [.prim (.string s)] =>
+      .prim (.string (asciiToUpper s))
+  | "strings.ToLower", [.prim (.string s)] =>
+      .prim (.string (asciiToLower s))
+  | "strings.ToTitle", [.prim (.string s)] =>
+      .prim (.string (asciiToTitle s))
   | name, args => unresolvedOrBottom name args
 
 /-- Absolute value, preserving the numeric domain: int stays int, float stays float.

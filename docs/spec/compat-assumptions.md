@@ -142,3 +142,34 @@ those forms.
 - Nested structs resolve same-struct references with local binding ids. References that
   fall through to an enclosing struct remain label-based during evaluation until binding
   ids can carry explicit scope identity.
+
+## String case folding (`ToUpper` / `ToLower` / `ToTitle`)
+
+- **ASCII-only case mapping; non-ASCII passes through unchanged.** `strings.ToUpper`,
+  `strings.ToLower`, and `strings.ToTitle` map only the ASCII letter range (`A`–`Z` ↔
+  `a`–`z`); every non-ASCII rune is emitted byte-for-byte unchanged. Lean's
+  `Char.toUpper`/`toLower` are themselves ASCII-only, so this is the natural total-function
+  boundary — no `partial`, no Unicode case-table dependency. The boundary is deliberate and
+  documented rather than silent: ASCII inputs are exactly oracle-faithful to `cue` v0.16.1;
+  non-ASCII inputs diverge in a single, predictable way (see below).
+- **Why passthrough, not bottom.** Passthrough keeps the ASCII domain 100% correct while
+  staying total over the full string space, consistent with the rest of the string builtins
+  (`Index`/`Count`/`Split` are byte-faithful, never bottoming on non-ASCII). Bottoming on
+  any non-ASCII rune would make a large class of otherwise-valid strings unusable for an
+  internal limitation. The divergence is recorded in `docs/reference/cue-divergences.md`.
+- **`ToTitle` is per-word capitalization, NOT "upper-case every letter".** Oracle-confirmed
+  (`cue` v0.16.1): `strings.ToTitle` upper-cases the first character of each
+  **whitespace-delimited** word (`unicode.IsSpace` separator) and leaves the rest of each
+  word untouched — it is NOT Go's `strings.ToTitle` (which upper-cases all letters), and the
+  word separator is whitespace ONLY. `-`, `.`, `_`, `/`, digits, and other punctuation do
+  NOT start a new word: `ToTitle("a-b a.b")` → `"A-b A.b"`. The ASCII whitespace set covered
+  is the six runes `\t \n \v \f \r` and space; non-ASCII whitespace (e.g. NBSP) is treated as
+  a non-separator (deferral boundary), so it does not trigger title-casing.
+- **Divergence summary (Kue vs `cue` v0.16.1), all non-ASCII only:**
+  - `ToUpper("café")` → Kue `"CAFé"`, cue `"CAFÉ"`.
+  - `ToLower("CAFÉ")` → Kue `"cafÉ"`, cue `"café"`.
+  - `ToTitle("über alles")` → Kue `"über Alles"`, cue `"Über Alles"`.
+- **Lifting the boundary later** means a Unicode case-mapping table (mirroring Go's
+  `unicode.ToUpper`/`ToLower`/`ToTitle` and `x/text/cases`), including locale-insensitive
+  full-case-folding edge cases (German ß, Turkish dotless ı, title-case digraphs). Until
+  then this is an alpha boundary alongside imports and `list.Sort`.

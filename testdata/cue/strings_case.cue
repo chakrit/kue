@@ -1,0 +1,16 @@
+import "strings"
+
+upperLower: strings.ToUpper("hello World 123!")
+upperUpper: strings.ToUpper("ALREADY UP")
+lowerMixed: strings.ToLower("Hello WORLD 123!")
+lowerLower: strings.ToLower("already low")
+upperEmpty: strings.ToUpper("")
+lowerEmpty: strings.ToLower("")
+upperPunct: strings.ToUpper("abc123!@#")
+lowerPunct: strings.ToLower("ABC123!@#")
+titleWords: strings.ToTitle("hello world foo")
+titleUpper: strings.ToTitle("HELLO WORLD")
+titleEmpty: strings.ToTitle("")
+titleSeps:  strings.ToTitle("a-b a.b a_b a/b")
+titleDigit: strings.ToTitle("3 abc a3bc")
+titleLead:  strings.ToTitle("  leading")

@@ -1383,6 +1383,44 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "strings_case.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("upperLower", .regular,
+                  .builtinCall "strings.ToUpper" [.prim (.string "hello World 123!")]),
+                ("upperUpper", .regular,
+                  .builtinCall "strings.ToUpper" [.prim (.string "ALREADY UP")]),
+                ("lowerMixed", .regular,
+                  .builtinCall "strings.ToLower" [.prim (.string "Hello WORLD 123!")]),
+                ("lowerLower", .regular,
+                  .builtinCall "strings.ToLower" [.prim (.string "already low")]),
+                ("upperEmpty", .regular,
+                  .builtinCall "strings.ToUpper" [.prim (.string "")]),
+                ("lowerEmpty", .regular,
+                  .builtinCall "strings.ToLower" [.prim (.string "")]),
+                ("upperPunct", .regular,
+                  .builtinCall "strings.ToUpper" [.prim (.string "abc123!@#")]),
+                ("lowerPunct", .regular,
+                  .builtinCall "strings.ToLower" [.prim (.string "ABC123!@#")]),
+                ("titleWords", .regular,
+                  .builtinCall "strings.ToTitle" [.prim (.string "hello world foo")]),
+                ("titleUpper", .regular,
+                  .builtinCall "strings.ToTitle" [.prim (.string "HELLO WORLD")]),
+                ("titleEmpty", .regular,
+                  .builtinCall "strings.ToTitle" [.prim (.string "")]),
+                ("titleSeps", .regular,
+                  .builtinCall "strings.ToTitle" [.prim (.string "a-b a.b a_b a/b")]),
+                ("titleDigit", .regular,
+                  .builtinCall "strings.ToTitle" [.prim (.string "3 abc a3bc")]),
+                ("titleLead", .regular,
+                  .builtinCall "strings.ToTitle" [.prim (.string "  leading")])
+              ]
+              true))
+    },
+    {
       fileName := "list_builtin_float.expected",
       content :=
         formatTopLevel

@@ -155,10 +155,16 @@ by post-audit hardening 2** (commit `d6c54a5`):
   `String.toUTF8` — matches Go's `sort.Strings`, so `"Z" < "a" < "é"`). Still deferred
   from `list`: `Sort`/`SortStable` (need comparator-struct evaluation) — the only
   remaining `list` work.
-  Then the deferred `strings` functions that need unicode case folding
-  (`ToUpper`/`ToLower`/`ToTitle`) or are otherwise unimplemented (`SplitN`,
-  `Trim`/`TrimPrefix`/`TrimSuffix`, `Runes`, `ContainsAny`, `LastIndex`, …). Each is
-  oracle-checked against `cue` v0.16.1; the package-qualified dispatch (call-on-selector
-  → dotted `.builtinCall` name) is in place, so a new family is an `evalXBuiltin` helper,
-  a catch-all route in `evalBuiltinCall`, a fixture, and unit theorems.
+  **`strings.ToUpper`/`ToLower`/`ToTitle` landed (ASCII subset)** (this slice):
+  `asciiToUpper`/`asciiToLower` map via `Char.toUpper`/`toLower` (ASCII-only, non-ASCII
+  passes through unchanged); `asciiToTitle` capitalizes the first letter of each
+  whitespace-delimited word (oracle-confirmed: per-word, NOT upper-case-every-letter; word
+  separator is whitespace only). Non-ASCII case folding is a documented deferral boundary
+  (`compat-assumptions.md` → String case folding; divergences in `cue-divergences.md`).
+  Then the still-unimplemented `strings` functions (`SplitN`,
+  `Trim`/`TrimPrefix`/`TrimSuffix`, `Runes`, `ContainsAny`, `LastIndex`, …) and full
+  Unicode case folding. Each is oracle-checked against `cue` v0.16.1; the
+  package-qualified dispatch (call-on-selector → dotted `.builtinCall` name) is in place,
+  so a new family is an `evalXBuiltin` helper, a catch-all route in `evalBuiltinCall`, a
+  fixture, and unit theorems.
 - Add imports and full module resolution after the syntax and resolver layers exist.
