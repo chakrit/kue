@@ -1,0 +1,17 @@
+import "list"
+
+avgDiv: list.Avg([1, 2, 3])
+avgNoDiv: list.Avg([1, 2])
+avgThirds: list.Avg([1, 1, 2])
+avgQuarter: list.Avg([1, 1, 1, 2])
+avgFloat: list.Avg([1.0, 2.0])
+avgMixed: list.Avg([1, 2.0])
+sumFloat: list.Sum([1.0, 2.0, 3.0])
+sumMixed: list.Sum([1, 2.0, 3])
+sumMixedFrac: list.Sum([1, 2.5, 3])
+minFloat: list.Min([3.0, 1.0, 2.0])
+minMixed: list.Min([3, 1.5, 2])
+maxFloat: list.Max([3.0, 1.0, 2.0])
+maxMixed: list.Max([3, 1.5, 2])
+rangeFloat: list.Range(0.0, 2.0, 0.5)
+rangeNeg:   list.Range(2.0, 0.0, -0.5)

@@ -1,0 +1,15 @@
+avgDiv: 2
+avgNoDiv: 1.5
+avgThirds: 1.333333333333333333333333333333333
+avgQuarter: 1.25
+avgFloat: 1.5
+avgMixed: 1.5
+sumFloat: 6
+sumMixed: 6
+sumMixedFrac: 6.5
+minFloat: 1
+minMixed: 1.5
+maxFloat: 3
+maxMixed: 3
+rangeFloat: [0, 0.5, 1, 1.5]
+rangeNeg: [2, 1.5, 1, 0.5]

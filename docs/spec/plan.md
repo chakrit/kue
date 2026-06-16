@@ -63,7 +63,7 @@ implementation log):
   the package-qualified `strings` family (`Contains`, `HasPrefix`, `HasSuffix`, `Index`,
   `Count`, `Split`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`), the `list`
   family (`Concat`, `FlattenN`, `Repeat`, `Range`, `Slice`, `Take`, `Drop`, `Contains`,
-  and integer-domain `Sum`/`Min`/`Max`), and the `math` family
+  and full int+float-domain `Sum`/`Min`/`Max`/`Avg`/`Range`), and the `math` family
   (`Abs` domain-preserving int→int / float→float, `MultipleOf`, and float→int
   `Floor`/`Ceil`/`Round`/`Trunc` via exact-decimal truncation; `Round` is
   half-away-from-zero). Unresolved calls preserved as semantic values; concrete
@@ -116,11 +116,17 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   apd sig-digit context — `cue` gives `Sqrt(2)=1.4142135623730951` at ~17 digits but
   `Pow(2,0.5)=1.414…209698` at 34 digits, and `Sqrt(-1)=NaN.0` rather than erroring, so
   they need both apd-context formatting and a NaN value Kue does not yet model) plus the
-  trig/log/`Exp` family. Remaining `list` work, now
-  **unblocked** by the refactor: `list.Avg` (exact-rational mean with apd 34-sig-digit
-  float formatting) and float-domain `Sum`/`Min`/`Max` and float `Range` (use
-  `addDecimalValues` / `decimalLtValues` from `Builtin`). Still deferred:
-  `Sort`/`SortStable`/`SortStrings` (need comparator-struct evaluation).
+  trig/log/`Exp` family.
+  **Float-domain `list` builtins landed** (this slice): `list.Avg` plus float/mixed
+  `Sum`/`Min`/`Max`/`Range`. The numeric builtins follow CUE's integral-collapse rule —
+  an integral result renders as `int` (`list.Sum([1.0,2.0,3.0]) = 6`,
+  `list.Avg([1,2,3]) = 2`), a non-integral one as float (`list.Avg([1,1,2]) =
+  1.333…333`, 34 sig digits). New `collapseDecimalToValue` / `avgDecimalValue?` in
+  `Kue/Decimal.lean`; `Builtin` accumulates via `addDecimalValues`, compares via
+  `decimalLtValues`, divides via `divideDecimalRational?`. The all-int fast path on
+  `Sum`/`Min`/`Max` is preserved. Still deferred from `list`:
+  `Sort`/`SortStable`/`SortStrings` (need comparator-struct evaluation) — the only
+  remaining `list` work.
   Then the deferred `strings` functions that need unicode case folding
   (`ToUpper`/`ToLower`/`ToTitle`) or are otherwise unimplemented (`SplitN`,
   `Trim`/`TrimPrefix`/`TrimSuffix`, `Runes`, `ContainsAny`, `LastIndex`, …). Each is

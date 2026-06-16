@@ -247,6 +247,27 @@ def listRange (start limit step : Int) : Value :=
         if start <= limit then 0 else (start - limit + (-step) - 1) / (-step)
     .list ((List.range count.toNat).map fun i => .prim (.int (start + step * Int.ofNat i)))
 
+/-- Decimal arithmetic sequence `[start, start+step, …)` bounded by `limit`,
+    ascending when `step > 0`, descending when `step < 0`; `step == 0` ⇒ bottom.
+    Operands are scaled to a common denominator so the count reduces to the integer
+    `list.Range` formula; each element collapses an integral value back to int (CUE:
+    `list.Range(0.0,2.0,0.5) = [0,0.5,1,1.5]`). Mirrors CUE's `list.Range` on floats. -/
+def listRangeDecimal (start limit step : DecimalValue) : Value :=
+  let scale := maxNat (maxNat start.scale limit.scale) step.scale
+  let s := scaleDecimalNumerator scale start
+  let l := scaleDecimalNumerator scale limit
+  let st := scaleDecimalNumerator scale step
+  if st == 0 then
+    .bottom
+  else
+    let count : Int :=
+      if st > 0 then
+        if l <= s then 0 else (l - s + st - 1) / st
+      else
+        if s <= l then 0 else (s - l + (-st) - 1) / (-st)
+    .list ((List.range count.toNat).map fun i =>
+      collapseDecimalToValue { numerator := s + st * Int.ofNat i, scale := scale })
+
 /-- Sub-slice `items[low:high]`; out-of-range or inverted bounds yield bottom.
     Mirrors CUE's `list.Slice`. -/
 def listSlice (items : List Value) (low high : Int) : Value :=
@@ -271,41 +292,75 @@ def listDrop (items : List Value) (count : Int) : Value :=
 def listContains (items : List Value) (needle : Value) : Bool :=
   items.any (· == needle)
 
-/-- Sum of an integer list; a non-integer element yields bottom. The float
-    domain is deferred (needs the shared decimal arithmetic in `Eval`).
-    Mirrors CUE's `list.Sum` on integers (empty list ⇒ 0). -/
-def listSumInt (items : List Value) : Value :=
-  let rec go : List Value -> Option Int
-    | [] => some 0
-    | .prim (.int n) :: rest => (go rest).map (n + ·)
-    | _ => none
-  match go items with
-  | some total => .prim (.int total)
+/-- Collect a numeric list as exact decimals; any non-numeric element ⇒ `none`.
+    Shared by the float-domain `Sum`/`Min`/`Max`/`Avg` arms. -/
+def listToDecimals : List Value -> Option (List DecimalValue)
+  | [] => some []
+  | .prim p :: rest =>
+      match decimalFromPrim? p with
+      | some d => (listToDecimals rest).map (d :: ·)
+      | none => none
+  | _ => none
+
+/-- Whether every element of a numeric list is an integer (`.int`). The all-int
+    fast path renders `Sum`/`Min`/`Max` as plain ints; a `.float` element promotes
+    the whole computation to the decimal path, then collapses integral results. -/
+def listAllInts (items : List Value) : Bool :=
+  items.all fun item => match item with
+    | .prim (.int _) => true
+    | _ => false
+
+/-- Sum of a numeric list. All-int ⇒ exact int (empty list ⇒ 0). Any `.float`
+    element promotes to exact decimal accumulation, collapsing an integral result
+    back to int (CUE: `list.Sum([1.0,2.0,3.0]) = 6`). A non-numeric element ⇒
+    bottom. Mirrors CUE's `list.Sum`. -/
+def listSum (items : List Value) : Value :=
+  if listAllInts items then
+    let total := items.foldl (fun acc item =>
+      match item with
+      | .prim (.int n) => acc + n
+      | _ => acc) 0
+    .prim (.int total)
+  else
+    match listToDecimals items with
+    | some decimals =>
+        let total := decimals.foldl addDecimalValues { numerator := 0, scale := 0 }
+        collapseDecimalToValue total
+    | none => .bottom
+
+/-- Minimum of a non-empty numeric list; empty list or a non-numeric element ⇒
+    bottom. All-int stays int; a `.float` element promotes to the decimal compare
+    path, collapsing the chosen element (CUE: `list.Min([3.0,1.0,2.0]) = 1`).
+    Mirrors CUE's `list.Min`. -/
+def listMin (items : List Value) : Value :=
+  match listToDecimals items with
+  | some (first :: rest) =>
+      let best := rest.foldl (fun acc d => if decimalLtValues d acc then d else acc) first
+      collapseDecimalToValue best
+  | _ => .bottom
+
+/-- Maximum of a non-empty numeric list; empty list or a non-numeric element ⇒
+    bottom. All-int stays int; a `.float` element promotes to the decimal compare
+    path, collapsing the chosen element. Mirrors CUE's `list.Max`. -/
+def listMax (items : List Value) : Value :=
+  match listToDecimals items with
+  | some (first :: rest) =>
+      let best := rest.foldl (fun acc d => if decimalLtValues acc d then d else acc) first
+      collapseDecimalToValue best
+  | _ => .bottom
+
+/-- Exact-rational mean of a numeric list; empty list or a non-numeric element ⇒
+    bottom. Sums the elements as exact decimals and divides by the count: integral
+    means collapse to int (`list.Avg([1,2,3]) = 2`), else a 34-sig-digit float
+    (`list.Avg([1,1,2]) = 1.333…333`). Mirrors CUE's `list.Avg`. -/
+def listAvg (items : List Value) : Value :=
+  match listToDecimals items with
+  | some decimals =>
+      let total := decimals.foldl addDecimalValues { numerator := 0, scale := 0 }
+      match avgDecimalValue? total decimals.length with
+      | some value => value
+      | none => .bottom
   | none => .bottom
-
-/-- Minimum of a non-empty integer list; empty list or a non-integer element
-    yields bottom. Float domain deferred. Mirrors CUE's `list.Min`. -/
-def listMinInt : List Value -> Value
-  | [] => .bottom
-  | .prim (.int first) :: rest =>
-      let rec go : Int -> List Value -> Value
-        | acc, [] => .prim (.int acc)
-        | acc, .prim (.int n) :: rest => go (if n < acc then n else acc) rest
-        | _, _ => .bottom
-      go first rest
-  | _ => .bottom
-
-/-- Maximum of a non-empty integer list; empty list or a non-integer element
-    yields bottom. Float domain deferred. Mirrors CUE's `list.Max`. -/
-def listMaxInt : List Value -> Value
-  | [] => .bottom
-  | .prim (.int first) :: rest =>
-      let rec go : Int -> List Value -> Value
-        | acc, [] => .prim (.int acc)
-        | acc, .prim (.int n) :: rest => go (if n > acc then n else acc) rest
-        | _, _ => .bottom
-      go first rest
-  | _ => .bottom
 
 /-- Whether an argument is a fully-evaluated concrete value (no kinds, refs, or
     unresolved calls). Used to decide a builtin dispatcher's fallback. -/
@@ -329,23 +384,28 @@ def unresolvedOrBottom (name : String) (args : List Value) : Value :=
 
 /-- Dispatch a `list.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design.
-    Deferred (kept unresolved/not matched): `Avg`, float-domain `Sum`/`Min`/`Max`,
-    `Sort`/`SortStable`/`SortStrings` (comparator-struct evaluation). -/
+    Deferred (kept unresolved/not matched): `Sort`/`SortStable`/`SortStrings`
+    (comparator-struct evaluation). -/
 def evalListBuiltin : String -> List Value -> Value
   | "list.Concat", [.list lists] => listConcat lists
   | "list.FlattenN", [.list items, .prim (.int depth)] => .list (listFlattenN items depth)
   | "list.Repeat", [.list items, .prim (.int n)] => listRepeat items n
   | "list.Range", [.prim (.int start), .prim (.int limit), .prim (.int step)] =>
       listRange start limit step
+  | "list.Range", [.prim start, .prim limit, .prim step] =>
+      match decimalFromPrim? start, decimalFromPrim? limit, decimalFromPrim? step with
+      | some start, some limit, some step => listRangeDecimal start limit step
+      | _, _, _ => .bottom
   | "list.Slice", [.list items, .prim (.int low), .prim (.int high)] =>
       listSlice items low high
   | "list.Take", [.list items, .prim (.int n)] => listTake items n
   | "list.Drop", [.list items, .prim (.int n)] => listDrop items n
   | "list.Contains", [.list items, .prim p] => .prim (.bool (listContains items (.prim p)))
   | "list.Contains", [.list items, .list needle] => .prim (.bool (listContains items (.list needle)))
-  | "list.Sum", [.list items] => listSumInt items
-  | "list.Min", [.list items] => listMinInt items
-  | "list.Max", [.list items] => listMaxInt items
+  | "list.Sum", [.list items] => listSum items
+  | "list.Min", [.list items] => listMin items
+  | "list.Max", [.list items] => listMax items
+  | "list.Avg", [.list items] => listAvg items
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `strings.*` builtin over already-evaluated arguments.

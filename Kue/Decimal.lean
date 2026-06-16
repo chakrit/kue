@@ -173,6 +173,18 @@ def formatDecimalAtScale (value : DecimalValue) (forceFloat : Bool) : String :=
 def formatFiniteDecimal (value : DecimalValue) (forceFloat : Bool) : String :=
   formatDecimalAtScale (trimDecimalZerosWith value.numerator value.scale) forceFloat
 
+/-- Render a decimal as CUE renders a numeric *builtin* result: collapse to an
+    integer when the trimmed value is whole (`6.0 ⇒ 6`, `list.Sum([1.0,2.0,3.0])`),
+    otherwise a float at minimal scale (`1.5`). This differs from literal float
+    arithmetic, which preserves the operand scale verbatim — CUE's `list`/numeric
+    builtins reduce integral results back to `int`-kind. -/
+def collapseDecimalToValue (value : DecimalValue) : Value :=
+  let trimmed := trimDecimalZerosWith value.numerator value.scale
+  if trimmed.scale == 0 then
+    .prim (.int trimmed.numerator)
+  else
+    .prim (.float (formatDecimalAtScale trimmed false))
+
 /-- Multiplication is exact: numerators multiply, scales add. CUE preserves the
     summed scale verbatim (no trailing-zero trimming): `1.0 * 1.0 = 1.00`. -/
 def mulDecimalValues (left right : DecimalValue) : DecimalValue :=
@@ -280,6 +292,21 @@ def evalDecimalDivide? (left right : Prim) : Option (Option String) :=
       let den := right.numerator * Int.ofNat (evalPow10 left.scale)
       some (divideDecimalRational? num den)
   | _, _ => none
+
+/-- Exact-rational mean of a decimal `sum` over `count` elements. The value is
+    `sum.numerator / (10^sum.scale * count)`; when that divides evenly the result
+    collapses to an integer (`list.Avg([1,2,3]) = 2`), otherwise it is rendered as a
+    float at 34 significant digits round-half-up via the shared division renderer
+    (`list.Avg([1,1,2]) = 1.333…333`). `count == 0` (empty list) yields `none`. -/
+def avgDecimalValue? (sum : DecimalValue) (count : Nat) : Option Value :=
+  if count == 0 then
+    none
+  else
+    let den := Int.ofNat (evalPow10 sum.scale * count)
+    if sum.numerator % den == 0 then
+      some (.prim (.int (sum.numerator / den)))
+    else
+      (divideDecimalRational? sum.numerator den).map (fun text => .prim (.float text))
 
 def evalDecimalBinary?
     (op : DecimalValue -> DecimalValue -> DecimalValue)

@@ -3879,3 +3879,58 @@ shellcheck scripts/check-fixtures.sh
 `lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No existing `.expected`
 changed (only the new `float_muldiv_expressions` pair). No CUE divergence logged — the
 int-div correction is Kue fixing its own bug, not Kue diverging from a correct cue.
+
+## Completed Slice: Float-Domain `list` Builtins
+
+Goal: extend the integer-only `list.Sum`/`Min`/`Max`/`Range` arms to the float/decimal
+domain and add `list.Avg`. Unblocked by the decimal-lift refactor and the float-mul/div
+slice (`Kue/Decimal.lean` now carries add/sub/mul/div/compare/format).
+
+### Semantics — CUE's integral-collapse rule
+
+Oracle-checking against `cue` v0.16.1 surfaced the governing rule: CUE's numeric `list`
+builtins **collapse an integral result back to `int`-kind**, unlike literal float
+arithmetic which preserves the operand scale. Confirmed via `(expr & int) != _|_`:
+
+- `list.Sum([1.0,2.0,3.0])` ⇒ `6` (int), `list.Sum([1,2.0,3])` ⇒ `6` (int),
+  `list.Sum([1,2.5,3])` ⇒ `6.5` (float). Empty ⇒ `0`.
+- `list.Min([3.0,1.0,2.0])` ⇒ `1` (int), `list.Min([3,1.5,2])` ⇒ `1.5` (float).
+  `Max` symmetric.
+- `list.Avg([1,2,3])` ⇒ `2` (int, exact divide), `list.Avg([1,2])` ⇒ `1.5`,
+  `list.Avg([1,1,2])` ⇒ `1.333…333` (34 sig digits, round-half-up).
+- `list.Range(0.0,2.0,0.5)` ⇒ `[0, 0.5, 1, 1.5]` (end exclusive; integral elements
+  collapse to int); negative step descends; zero step ⇒ error.
+- Empty `Avg`/`Min`/`Max` and zero-step `Range` are CUE errors; Kue renders `_|_`,
+  matching its existing builtin error model.
+
+### Implementation
+
+- `Kue/Decimal.lean`: `collapseDecimalToValue` (trim → int if scale 0, else float) and
+  `avgDecimalValue?` (exact divide via `sum.numerator / (10^scale * count)`; integral ⇒
+  int, else `divideDecimalRational?`).
+- `Kue/Builtin.lean`: `listToDecimals` / `listAllInts` helpers; `listSum` (all-int fast
+  path preserved, else decimal accumulate via `addDecimalValues`), `listMin`/`listMax`
+  (compare via `decimalLtValues`, collapse the chosen element), `listAvg`,
+  `listRangeDecimal` (scale operands to a common denominator, reuse the integer count
+  formula, collapse each element). Dispatch: `list.Sum`/`Min`/`Max` route to the new
+  functions, new `list.Avg` arm, new float `list.Range` arm after the int one. Catch-all
+  unchanged (`unresolvedOrBottom`).
+
+### Tests
+
+16 `native_decide` theorems in `BuiltinTests.lean`: float Sum collapse, mixed-int/float
+Sum promotion (frac and integral), float Min/Max collapse, mixed Min, Avg exact-divisible
+/ terminating / non-terminating-34-sig / float-input, Avg empty ⇒ bottom, Avg non-numeric
+⇒ bottom, Avg abstract-arg ⇒ unresolved, float Range collapse, negative-step descend,
+zero-step ⇒ bottom. Fixture `list_builtin_float.{cue,expected}` (15 fields) + a
+`FixturePorts.lean` entry; oracle-checked — Kue matches cue on every field.
+
+### Deferred
+
+`list.Sort`/`SortStable`/`SortStrings` (comparator-struct evaluation) — the only remaining
+`list` work.
+
+### Verify
+
+`lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No CUE divergence logged
+(Kue's integral-collapse matches cue exactly).

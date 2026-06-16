@@ -241,6 +241,99 @@ theorem list_call_stays_unresolved_on_abstract_arg :
       == .builtinCall "list.Sum" [.kind .number]) = true := by
   native_decide
 
+theorem list_sum_float_collapses_integral :
+    (evalBuiltinCall "list.Sum"
+        [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]]
+      == .prim (.int 6)) = true := by
+  native_decide
+
+theorem list_sum_mixed_int_float_promotes :
+    (evalBuiltinCall "list.Sum"
+        [.list [.prim (.int 1), .prim (.float "2.5"), .prim (.int 3)]]
+      == .prim (.float "6.5")) = true := by
+  native_decide
+
+theorem list_sum_mixed_integral_collapses_int :
+    (evalBuiltinCall "list.Sum"
+        [.list [.prim (.int 1), .prim (.float "2.0"), .prim (.int 3)]]
+      == .prim (.int 6)) = true := by
+  native_decide
+
+theorem list_min_float_collapses_integral :
+    (evalBuiltinCall "list.Min"
+        [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]
+      == .prim (.int 1)) = true := by
+  native_decide
+
+theorem list_min_mixed_picks_float :
+    (evalBuiltinCall "list.Min"
+        [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]]
+      == .prim (.float "1.5")) = true := by
+  native_decide
+
+theorem list_max_float_collapses_integral :
+    (evalBuiltinCall "list.Max"
+        [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]
+      == .prim (.int 3)) = true := by
+  native_decide
+
+theorem list_avg_exact_divisible_collapses_int :
+    (evalBuiltinCall "list.Avg"
+        [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]
+      == .prim (.int 2)) = true := by
+  native_decide
+
+theorem list_avg_terminating_is_float :
+    (evalBuiltinCall "list.Avg"
+        [.list [.prim (.int 1), .prim (.int 2)]]
+      == .prim (.float "1.5")) = true := by
+  native_decide
+
+theorem list_avg_nonterminating_is_34_sig_digit_float :
+    (evalBuiltinCall "list.Avg"
+        [.list [.prim (.int 1), .prim (.int 1), .prim (.int 2)]]
+      == .prim (.float "1.333333333333333333333333333333333")) = true := by
+  native_decide
+
+theorem list_avg_float_input :
+    (evalBuiltinCall "list.Avg"
+        [.list [.prim (.float "1.0"), .prim (.float "2.0")]]
+      == .prim (.float "1.5")) = true := by
+  native_decide
+
+theorem list_avg_empty_is_bottom :
+    (evalBuiltinCall "list.Avg" [.list []] == .bottom) = true := by
+  native_decide
+
+theorem list_avg_non_numeric_element_is_bottom :
+    (evalBuiltinCall "list.Avg" [.list [.prim (.bool true)]] == .bottom) = true := by
+  native_decide
+
+theorem list_avg_abstract_arg_stays_unresolved :
+    (evalBuiltinCall "list.Avg" [.kind .number]
+      == .builtinCall "list.Avg" [.kind .number]) = true := by
+  native_decide
+
+theorem list_range_float_step_collapses_elements :
+    (evalBuiltinCall "list.Range"
+        [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.5")]
+      == .list [.prim (.int 0), .prim (.float "0.5"), .prim (.int 1), .prim (.float "1.5")])
+      = true := by
+  native_decide
+
+theorem list_range_float_negative_step_descends :
+    (evalBuiltinCall "list.Range"
+        [.prim (.float "2.0"), .prim (.float "0.0"), .prim (.float "-0.5")]
+      == .list [.prim (.int 2), .prim (.float "1.5"), .prim (.int 1), .prim (.float "0.5")])
+      = true := by
+  native_decide
+
+theorem list_range_float_zero_step_is_bottom :
+    (evalBuiltinCall "list.Range"
+        [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.0")]
+      == .bottom) = true := by
+  native_decide
+
 theorem math_abs_int_stays_int :
     (evalBuiltinCall "math.Abs" [.prim (.int (-5))] == .prim (.int 5)) = true := by
   native_decide

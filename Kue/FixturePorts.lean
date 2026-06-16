@@ -1351,6 +1351,59 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "list_builtin_float.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("avgDiv", .regular,
+                  .builtinCall "list.Avg"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]),
+                ("avgNoDiv", .regular,
+                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (.int 2)]]),
+                ("avgThirds", .regular,
+                  .builtinCall "list.Avg"
+                    [.list [.prim (.int 1), .prim (.int 1), .prim (.int 2)]]),
+                ("avgQuarter", .regular,
+                  .builtinCall "list.Avg"
+                    [.list [.prim (.int 1), .prim (.int 1), .prim (.int 1), .prim (.int 2)]]),
+                ("avgFloat", .regular,
+                  .builtinCall "list.Avg"
+                    [.list [.prim (.float "1.0"), .prim (.float "2.0")]]),
+                ("avgMixed", .regular,
+                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (.float "2.0")]]),
+                ("sumFloat", .regular,
+                  .builtinCall "list.Sum"
+                    [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]]),
+                ("sumMixed", .regular,
+                  .builtinCall "list.Sum"
+                    [.list [.prim (.int 1), .prim (.float "2.0"), .prim (.int 3)]]),
+                ("sumMixedFrac", .regular,
+                  .builtinCall "list.Sum"
+                    [.list [.prim (.int 1), .prim (.float "2.5"), .prim (.int 3)]]),
+                ("minFloat", .regular,
+                  .builtinCall "list.Min"
+                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]),
+                ("minMixed", .regular,
+                  .builtinCall "list.Min"
+                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]]),
+                ("maxFloat", .regular,
+                  .builtinCall "list.Max"
+                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]),
+                ("maxMixed", .regular,
+                  .builtinCall "list.Max"
+                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]]),
+                ("rangeFloat", .regular,
+                  .builtinCall "list.Range"
+                    [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.5")]),
+                ("rangeNeg", .regular,
+                  .builtinCall "list.Range"
+                    [.prim (.float "2.0"), .prim (.float "0.0"), .prim (.float "-0.5")])
+              ]
+              true))
+    },
+    {
       fileName := "math_builtin.expected",
       content :=
         formatTopLevel
