@@ -133,6 +133,7 @@ inductive Value where
   | binary (op : BinaryOp) (left right : Value)
   | ref (label : String)
   | refId (id : BindingId)
+  | thisStruct
   | selector (base : Value) (label : String)
   | index (base key : Value)
   | disj (alternatives : List (Mark × Value))

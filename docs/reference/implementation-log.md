@@ -4273,3 +4273,80 @@ that `a: b` (no colon) stays an ordinary reference.
 ok` (no regressions — brace forms still work), `shellcheck scripts/check-fixtures.sh`
 clean. No CUE divergence logged (`cue` and Kue agree; `cue` even normalizes the brace
 form back to shorthand on export).
+
+---
+
+## Completed Slice: B2 — Value/Field Aliases
+
+Value-position aliases — `label: X=value`, especially the `#Def: Self={…}` self-reference
+form (50/92 sampled real prod9/infra files; the `=` was a parser blocker:
+`infra-defs/role.cue:7` `#Role: Self={` → `parse error: 7:12: unexpected character '='`).
+
+### Parser
+
+`parseFieldValue` (the single value-position chokepoint all field kinds route through)
+first checks `valueAliasHead?`: a value alias is an identifier immediately followed by a
+single `=`, NOT `==` (which is equality). The lookahead reuses `skipLabelToken?`, then
+inspects the next non-trivia char — `'=' :: '=' :: _` ⇒ `none` (equality), `'=' :: rest`
+⇒ the alias. On a hit, the aliased value is parsed (recursively, so colon-shorthand and
+nested aliases compose) and lowered through `bindValueAlias name`.
+
+`bindValueAlias` encodes CUE's value-alias scoping (oracle-confirmed vs `cue` v0.16.1: the
+alias is visible only within its own value and its descendants — NOT to siblings or the
+enclosing struct — and refers to the whole value). For a struct value it prepends a
+non-output `(name, .letBinding, .thisStruct)` field; for a non-struct (scalar) value it is
+inert (passthrough), since a scalar cannot reference its own alias and siblings cannot see
+it.
+
+### Resolver / eval
+
+A new nullary `Value.thisStruct` marker is the binding target — illegal-states-
+unrepresentable over re-inlining the struct (which would be an infinite term). It never
+surfaces in output: it lives only as a `let`-binding value and is consumed during eval.
+The resolver passes it through (catch-all); `Lattice.meet`, `Format`, and `Manifest` get
+residual arms it never actually reaches in a final value.
+
+`Self.field` is the load-bearing access. The eval `.selector (.refId id) label` arm calls
+`thisStructFieldIndex?`: if `id` points at a `.thisStruct` binding, it finds `label`'s
+index in that frame and rewrites the selection to `.refId ⟨id.depth, labelIndex⟩` — i.e.
+`Self.field` evaluates exactly as an ordinary same-struct sibling reference to `field`.
+This inherits the existing same-struct cycle guard for free, so self-reference cycles
+bound to top rather than diverging. (The initial reconstruct-the-whole-struct encoding was
+discarded — it re-evaluated every sibling per `Self.x`, blowing up exponentially across
+multiple `Self` refs; the sibling-rewrite is O(1) per access.)
+
+### Scope confirmed (oracle, `cue` v0.16.1)
+
+- `#D: Self={x:1, y:Self.x}` then `#D & {x:5}`: `Self.x` resolves; cue gives `y:5`
+  post-unification. Kue resolves the in-definition self-reference (`y:5` when `x` is
+  concrete in the def) but, like every Kue reference, against the lexical frame not the
+  post-unification merge — so `#D & {x:5}` leaves `y:int`. This is a pre-existing resolver
+  boundary affecting plain sibling refs identically (`y: x` under unify), documented in
+  compat-assumptions, not an alias-specific gap.
+- Value alias visible within its value and all descendants (`inner: {q: Self.x}` resolves);
+  NOT visible to siblings (`a: X=…; b: X` ⇒ `cue` "reference not found").
+- Bare `Self` (whole-struct copy) is a structural-cycle error in `cue`; Kue emits the
+  residual `@self`. Deferred — the real pattern is always `Self.field`.
+
+### Tests
+
+New fixture pair `value_aliases.{cue,expected}` + `FixturePorts.lean` entry (the port
+builds the desugared `.thisStruct`-prepended AST; the CLI port parses/evaluates the alias
+`.cue`; both match `.expected`). Fixture covers a `#Secret`-shaped `Self.#name` hidden
+self-reference, a named non-`Self` alias referenced inside its value, and a `Self.port`
+nested-via-colon-shorthand reference — all oracle-confirmed.
+
+9 new `ParseTests.lean` theorems (self-reference, hidden self-reference, named alias,
+deep-nested visibility, alias + colon-shorthand, bounded self-reference cycle, the
+`a == b` equality regression asserted at Value level, and a malformed `X=` reporting
+`2:1`). 2 new `EvalTests.lean` theorems pin the `.thisStruct` mechanism directly
+(self-reference resolves; cycle bounds to top).
+
+### Verify
+
+`lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs
+ok` (no regressions), `shellcheck scripts/check-fixtures.sh` clean. Cleared the `=` parse
+barrier on real infra: `infra-defs/role.cue` now parses+evaluates (exit 0); 28/32
+infra-defs files parse+evaluate (remaining 4 blocked on B4/B3). No CUE divergence logged —
+the unreferenced-alias case is a Kue-permissiveness boundary (Kue does less), recorded in
+compat-assumptions, not the divergence log.

@@ -35,15 +35,17 @@ those forms.
 - The parser supports the language forms already backed by semantic values: scalars,
   primitive kinds, structs, lists, refs, `&`, `|`, defaults, integer bounds, primitive
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
-  struct embeddings, untyped struct ellipses, static field aliases, `let` declarations,
+  struct embeddings, untyped struct ellipses, static field aliases, value-position
+  aliases (`label: X=value`, incl. `#Def: Self={…}` self-reference), `let` declarations,
   static field selectors, static index expressions, existing builtin call values,
   comprehensions (`for`/`if` field clauses), dynamic fields (`(expr): v`), string
   interpolation (`"\(expr)"`), and colon-shorthand nested fields (`a: b: c: 1`,
   desugared to the brace form `a: {b: {c: 1}}` — same AST, so it unifies/closes/exports
   identically; inner labels may be identifiers, definitions, quoted strings, or `(expr)`
   dynamic, each with optional `?`/`!` markers).
-- The parser does not yet support non-field aliases, typed struct ellipsis syntax
-  (`...T`, which cue v0.15.4 also rejects), or imports with module resolution.
+- The parser does not yet support typed struct ellipsis syntax (`...T`, which cue v0.15.4
+  also rejects) or imports with module resolution. Value-position aliases are now
+  supported (see References, bindings, and selectors below).
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.
@@ -139,8 +141,33 @@ those forms.
   references, but duplicate names between `let` bindings and fields still follow Kue's
   current first-binding resolver instead of a complete lexical binding graph.
 - Static field aliases such as `A="label": value` are represented as non-output binding
-  fields that refer to the aliased field label. Other alias positions are still
-  unsupported.
+  fields that refer to the aliased field label.
+- **Value-position aliases** such as `label: X=value` (esp. `#Def: Self={…}`) are
+  supported. The alias is visible within the value it labels and refers to the whole
+  value — oracle-confirmed against `cue` v0.16.1: an alias is **not** visible to siblings
+  or the enclosing struct, only inside its own value and that value's descendants. For a
+  struct value, a non-output `let`-binding (`.letBinding`) named by the alias is prepended
+  to the struct's fields with the value `.thisStruct`; a `Self.field` selector on that
+  binding is resolved as an ordinary same-struct sibling reference (it inherits the
+  same-struct cycle guard, so self-reference cycles bound to top rather than diverging).
+  For a non-struct (scalar) value the alias is inert — a scalar cannot reference its own
+  alias and siblings cannot see it, so the value passes through unchanged.
+  - **Deferred:** like every Kue reference, a `Self.field` self-reference resolves against
+    the value's **lexical** frame, not the post-unification merge. So `#D & {x: 5}` where
+    `#D` is `Self={x: int, y: Self.x}` leaves `y: int` (cue gives `y: 5`). This is the
+    same pre-existing boundary that affects plain sibling refs (`y: x` under unification),
+    not specific to aliases — lifting it requires re-resolving references against the
+    merged value and is tracked as broader resolver work, not an alias gap.
+  - **Deferred:** a **bare** `Self` (the whole struct as a value, e.g. `copy: Self`) emits
+    the residual `@self` rather than a value; `cue` rejects it as a structural cycle.
+    The load-bearing prod9 pattern is always `Self.field` (a selector), never bare `Self`,
+    so this is left as a documented boundary.
+  - **Permissiveness note (not a divergence):** `cue` rejects an *unreferenced* value
+    alias as a hard error (`unreferenced alias or let clause X`); Kue accepts it and emits
+    the value. This is consistent with Kue's standing permissive stance (cf. separators)
+    and is a Kue-does-less boundary, not a `cue` defect, so it is not in
+    `docs/reference/cue-divergences.md`. A scalar alias (`a: X="hi"`) is therefore always
+    "unreferenced" by `cue`'s rule but evaluates fine in Kue.
 - Static field selectors such as `base.inner` are represented explicitly and evaluate
   declared fields on evaluated structs. Static index expressions such as `xs[1]` and
   `base["inner"]` evaluate concrete integer list indices and concrete string field

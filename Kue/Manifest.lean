@@ -69,6 +69,7 @@ mutual
     | _ + 1, .binary op left right => .error (.incomplete (.binary op left right))
     | _ + 1, .ref label => .error (.incomplete (.ref label))
     | _ + 1, .refId id => .error (.incomplete (.refId id))
+    | _ + 1, .thisStruct => .error (.incomplete .thisStruct)
     | _ + 1, .selector base label => .error (.incomplete (.selector base label))
     | _ + 1, .index base key => .error (.incomplete (.index base key))
     | fuel + 1, .struct fields _ =>

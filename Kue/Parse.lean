@@ -533,6 +533,38 @@ def valuePositionStartsField (chars : List Char) : Bool :=
       | ':' :: _ => true
       | _ => false
 
+/-- A value-position alias `X=value` (`#Def: Self={…}`). `none` unless the value position
+    is an identifier followed by a single `=` (NOT `==`, which is equality). Returns the
+    alias name and the remainder positioned at the aliased value expression. -/
+def valueAliasHead? (chars : List Char) : Option (String × List Char) :=
+  match skipLabelToken? (skipTrivia chars) with
+  | some afterIdent =>
+      match skipTrivia afterIdent with
+      | '=' :: '=' :: _ => none
+      | '=' :: rest =>
+          match parseIdentifier (skipTrivia chars) with
+          | .ok (name, _) => some (name, rest)
+          | .error _ => none
+      | _ => none
+  | none => none
+
+/-- Bind a value-position alias `name` to `value` per CUE scoping: the alias is visible
+    within `value` (and its descendants) and refers to the whole value. For a struct value
+    this prepends a non-output `let`-binding whose value is `.thisStruct`, so `name.field`
+    resolves against the enclosing struct (incl. siblings/hidden fields) and survives
+    unification. For a non-struct value the alias is inert — a scalar cannot reference its
+    own alias and siblings cannot see it, so the value passes through unchanged. -/
+def bindValueAlias (name : String) : Value -> Value
+  | .struct fields open_ => .struct ((name, .letBinding, .thisStruct) :: fields) open_
+  | .structTail fields tail => .structTail ((name, .letBinding, .thisStruct) :: fields) tail
+  | .structPattern fields lp c open_ =>
+      .structPattern ((name, .letBinding, .thisStruct) :: fields) lp c open_
+  | .structPatterns fields ps open_ =>
+      .structPatterns ((name, .letBinding, .thisStruct) :: fields) ps open_
+  | .structComp fields cs open_ =>
+      .structComp ((name, .letBinding, .thisStruct) :: fields) cs open_
+  | value => value
+
 def parseMultiplicativeKeywordOp? (chars : List Char) : Option (BinaryOp × List Char) :=
   match dropWord? "div" chars with
   | some rest => some (.intDiv, rest)
@@ -1027,12 +1059,18 @@ mutual
       the brace form (`a: {b: …}`) by recursing through `parseField` and the same
       `parsedFieldsValue` builder the brace path uses. Otherwise parse an expression. -/
   partial def parseFieldValue (chars : List Char) : ParseResult Value :=
-    if valuePositionStartsField chars then
-      match parseField chars with
-      | .error error => .error error
-      | .ok (inner, rest) => parseOk (parsedFieldsValue [inner]) rest
-    else
-      parseExpression chars
+    match valueAliasHead? chars with
+    | some (name, rest) =>
+        match parseFieldValue rest with
+        | .error error => .error error
+        | .ok (value, rest) => parseOk (bindValueAlias name value) rest
+    | none =>
+      if valuePositionStartsField chars then
+        match parseField chars with
+        | .error error => .error error
+        | .ok (inner, rest) => parseOk (parsedFieldsValue [inner]) rest
+      else
+        parseExpression chars
 
   partial def parseLabeledField (label : String) (rest : List Char) : ParseResult ParsedField :=
     let (fieldClass, rest) := parseFieldClass label rest

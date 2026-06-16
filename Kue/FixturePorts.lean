@@ -1607,6 +1607,46 @@ def fixturePorts : List FixturePort :=
                     true)
               ]
               true))
+    },
+    {
+      -- Value aliases (`label: X={…}`, esp. `#Def: Self={…}`). This port builds the
+      -- desugared AST: a value alias prepends a non-output `Self`/`X` let-binding whose
+      -- value is `.thisStruct`, so `Self.field` resolves as a same-struct sibling
+      -- reference. The CLI port independently parses/evaluates the alias `.cue`; both
+      -- matching `.expected` pins that the alias binding resolves correctly.
+      fileName := "value_aliases.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("#Secret", .definition,
+                  .struct
+                    [
+                      ("Self", .letBinding, .thisStruct),
+                      ("#name", .definition, .prim (.string "tls")),
+                      ("data", .regular, .selector (.ref "Self") "#name")
+                    ]
+                    false),
+                ("aliased", .regular,
+                  .struct
+                    [
+                      ("X", .letBinding, .thisStruct),
+                      ("greeting", .regular, .prim (.string "hi")),
+                      ("echo", .regular, .selector (.ref "X") "greeting")
+                    ]
+                    true),
+                ("nestedSelf", .regular,
+                  .struct
+                    [
+                      ("Self", .letBinding, .thisStruct),
+                      ("port", .regular, .prim (.int 8080)),
+                      ("inner", .regular,
+                        .struct [("lo", .regular, .selector (.ref "Self") "port")] true)
+                    ]
+                    true)
+              ]
+              true))
     }
   ]
 

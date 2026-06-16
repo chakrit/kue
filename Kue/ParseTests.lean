@@ -78,6 +78,64 @@ theorem parse_static_field_alias :
       "\"not an identifier\": 4\nfoo: 4" = true := by
   native_decide
 
+/-- A `#Def: Self={…}` value alias: `Self.field` self-reference resolves within the
+    definition (the load-bearing prod9/infra pattern). -/
+theorem parse_value_alias_self_reference :
+    parseOutputMatches
+      "#D: Self={\n\tx: 5\n\ty: Self.x\n}\n"
+      "#D: {x: 5, y: 5}" = true := by
+  native_decide
+
+/-- A `Self.#hidden` self-reference resolves the hidden field — the `#Secret`/`#ConfigMap`
+    shape that base64/encoding builtins wrap. -/
+theorem parse_value_alias_hidden_self_reference :
+    parseOutputMatches
+      "#S: Self={\n\t#name: \"tls\"\n\tdata: Self.#name\n}\n"
+      "#S: {#name: \"tls\", data: \"tls\"}" = true := by
+  native_decide
+
+/-- A non-`Self` value alias whose name is referenced inside its own value. The alias is
+    visible within the value it labels (not to siblings, per CUE scoping). -/
+theorem parse_value_alias_named :
+    parseOutputMatches
+      "a: X={\n\tg: \"hi\"\n\te: X.g\n}\n"
+      "a: {g: \"hi\", e: \"hi\"}" = true := by
+  native_decide
+
+/-- The alias is visible from arbitrarily deep nested fields within its value. -/
+theorem parse_value_alias_deep_nested :
+    parseOutputMatches
+      "a: Self={\n\tx: 1\n\tinner: {q: Self.x}\n}\n"
+      "a: {x: 1, inner: {q: 1}}" = true := by
+  native_decide
+
+/-- Value alias composes with B1 colon-shorthand: `b: c: Self.a` desugars under the alias. -/
+theorem parse_value_alias_with_colon_shorthand :
+    parseOutputMatches
+      "f: Self={\n\ta: 7\n\tb: c: Self.a\n}\n"
+      "f: {a: 7, b: {c: 7}}" = true := by
+  native_decide
+
+/-- A self-reference cycle through the alias terminates at top (bounded), never loops. -/
+theorem parse_value_alias_cycle_bounded :
+    parseOutputMatches
+      "a: Self={\n\tx: Self.y\n\ty: Self.x\n}\n"
+      "a: {x: _, y: _}" = true := by
+  native_decide
+
+/-- Regression: `a == b` stays an equality expression, NOT a `X=`-style alias. Asserted at
+    the Value level — the evaluated result is the concrete boolean. -/
+theorem parse_equality_not_alias :
+    parseOutputMatches
+      "r: 1 == 1\ns: 1 == 2\n"
+      "r: true\ns: false" = true := by
+  native_decide
+
+/-- A malformed `X=` with no value expression reports a sensible line:col. -/
+theorem parse_value_alias_missing_value_fails :
+    parseFailsAt "a: X=\n" 2 1 = true := by
+  native_decide
+
 theorem parse_struct_literal_embedding :
     parseOutputMatches
       "x: {{a: int}, a: 1, b: \"ok\"}\n"

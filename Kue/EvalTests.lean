@@ -336,6 +336,48 @@ theorem eval_non_cycle_reference_still_uses_target_value :
       == .struct [("x", .regular, .kind .int), ("y", .regular, .kind .int)] true) = true := by
   native_decide
 
+/-- A value alias (`Self={…}`) lowers to a `.thisStruct` let-binding; `Self.field`
+    (a selector on the binding) resolves as a same-struct sibling reference. Pins the
+    eval-level `thisStruct` mechanism directly. -/
+theorem eval_value_alias_self_reference :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [
+            ("Self", .letBinding, .thisStruct),
+            ("x", .regular, .prim (.int 5)),
+            ("y", .regular, .selector (.ref "Self") "x")
+          ]
+          true))
+      == .struct
+        [
+          ("Self", .letBinding, .thisStruct),
+          ("x", .regular, .prim (.int 5)),
+          ("y", .regular, .prim (.int 5))
+        ]
+        true) = true := by
+  native_decide
+
+/-- A self-reference cycle through the alias is bounded to top, never diverging. -/
+theorem eval_value_alias_cycle_bounds_to_top :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [
+            ("Self", .letBinding, .thisStruct),
+            ("x", .regular, .selector (.ref "Self") "y"),
+            ("y", .regular, .selector (.ref "Self") "x")
+          ]
+          true))
+      == .struct
+        [
+          ("Self", .letBinding, .thisStruct),
+          ("x", .regular, .top),
+          ("y", .regular, .top)
+        ]
+        true) = true := by
+  native_decide
+
 theorem eval_regular_disjunction_uses_join_normalization :
     (evalStructRefs
       (.struct [("x", .regular, .disj [(.regular, .intGe 5), (.regular, .intGe 0)])] true)

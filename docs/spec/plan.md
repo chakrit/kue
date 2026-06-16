@@ -43,9 +43,15 @@ first, the big import subsystem last because it gates the real workflow):
    (pinned by `parseSameValue` theorems). Inner labels: identifiers, definitions, quoted
    strings (incl. dotted `"prodigy9.co/app"`), `(expr)` dynamic; optional `?`/`!` markers.
 2. **B2 — value/field aliases** (`X=expr`, esp. `#Def: Self={…}` self-reference; 50/92
-   files). Parser + resolver binding so `Self.#f` resolves. **(active — next)**
+   files). Parser + resolver binding so `Self.#f` resolves. **DONE** — value-position
+   aliases parse via `valueAliasHead?` (`Ident =`, distinguished from `==`); a struct
+   alias prepends a `.thisStruct` `let`-binding, and `Self.field` resolves as a same-struct
+   sibling ref via a dedicated `selector (refId …)` eval arm (inherits the cycle guard).
+   Self-reference within a def resolves; post-unification re-resolution and bare `Self`
+   deferred (compat-assumptions). Cleared the `=` parse barrier across real infra-defs
+   (28/32 files now parse+evaluate; the remaining 4 are B4/B3).
 3. **B4 — multiline strings** (`"""…"""` currently → `_|_`). Lexer/dedent fix; unblocks
-   secret/argo files.
+   secret/argo files. **(active — next)**
 4. **B6 — encoding builtins** `base64.Encode`, `json.Marshal` (load-bearing inside
    `#Secret`/`#ConfigMap`). Small pure functions; kue already has the value AST.
 5. **B5 — manifest output**: a YAML/JSON serializer over `Kue/Manifest.lean` + a
@@ -118,8 +124,13 @@ implementation log):
   the CLI prints `kue: parse error: <line>:<col>: <message>`. Colon-shorthand nested
   fields (`a: b: c: 1`) desugar to the brace form via `parseFieldValue` (lookahead
   `valuePositionStartsField` gates the recursion; the inner field routes through the same
-  `parsedFieldsValue` builder, so the AST is brace-identical). Remaining parser
-  completeness work: non-field aliases (B2) and strict CUE newline/semicolon separator
+  `parsedFieldsValue` builder, so the AST is brace-identical). Value-position aliases
+  (`label: X=value`, incl. `#Def: Self={…}` self-reference) parse via `valueAliasHead?`
+  (an identifier followed by a single `=`, NOT `==`) and lower through `bindValueAlias`:
+  a struct alias prepends a non-output `.thisStruct` `let`-binding, so `Self.field`
+  resolves as a same-struct sibling reference (a `selector (refId …) field` eval arm
+  rewrites it to the `BindingId` of `field` in the alias frame, inheriting the cycle
+  guard). Remaining parser completeness work: strict CUE newline/semicolon separator
   insertion (separator handling is still permissive around whitespace).
 - **Expressions** — unary/additive/multiplicative/division/integer-keyword arithmetic,
   equality, ordering, numeric comparison across int/float, logical `&&`/`||`/`!`, and
@@ -183,8 +194,9 @@ before the sort. Tests are strong behavior pins, not smoke.
 
 - Expand pattern constraints beyond the current string-label representation:
   non-string label patterns and fuller regular expression matching.
-- Add remaining alias positions in a syntax layer instead of constructing
-  semantic values directly.
+- Re-resolve references against the post-unification merge (not just the lexical frame),
+  so `#D & {x: 5}` resolves `y: Self.x`/`y: x` to `5` rather than leaving the constraint.
+  Affects plain sibling refs and value-alias `Self.field` alike (see compat-assumptions).
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
 - **Builtin families.** Top-level helpers, the `strings` package, and the `list`
   package (integer domain) are landed (see Implementation Status). The decimal-lift

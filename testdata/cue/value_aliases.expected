@@ -1,0 +1,3 @@
+#Secret: {#name: "tls", data: "tls"}
+aliased: {greeting: "hi", echo: "hi"}
+nestedSelf: {port: 8080, inner: {lo: 8080}}

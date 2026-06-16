@@ -43,6 +43,34 @@ def slotVisited (index : Nat) : List Nat -> Bool
       else
         slotVisited index rest
 
+def fieldLabelIndexFrom (label : String) (index : Nat) : List Field -> Option Nat
+  | [] => none
+  | field :: fields =>
+      if Field.label field = label then
+        some index
+      else
+        fieldLabelIndexFrom label (index + 1) fields
+
+/-- Resolve a `Self.label` selection on a value-alias binding. When `id` points at a
+    `.thisStruct` binding (a `label: Self={…}` value alias), `Self.label` is just a sibling
+    reference resolved in the aliased struct's own frame, so this rewrites it to the
+    `BindingId` of `label` in that frame — inheriting the ordinary same-struct cycle and
+    resolution machinery. `none` when `id` is not a `thisStruct` binding or `label` is
+    absent, leaving the generic selector path to handle it. -/
+def thisStructFieldIndex? (env : List (List Field)) (id : BindingId) (label : String) : Option BindingId :=
+  match env.drop id.depth with
+  | [] => none
+  | frame :: _ =>
+      match nthField id.index frame with
+      | some field =>
+          match Field.value field with
+          | .thisStruct =>
+              match fieldLabelIndexFrom label 0 frame with
+              | some labelIndex => some ⟨id.depth, labelIndex⟩
+              | none => none
+          | _ => none
+      | none => none
+
 def evalFuel : Nat :=
   100
 
@@ -471,6 +499,10 @@ mutual
         evalBinary op
           (evalValueWithFuel fuel env visited left)
           (evalValueWithFuel fuel env visited right)
+    | fuel + 1, env, visited, .selector (.refId id) label =>
+        match thisStructFieldIndex? env id label with
+        | some labelId => evalValueWithFuel fuel env visited (.refId labelId)
+        | none => selectEvaluatedField (evalValueWithFuel fuel env visited (.refId id)) label
     | fuel + 1, env, visited, .selector base label =>
         selectEvaluatedField (evalValueWithFuel fuel env visited base) label
     | fuel + 1, env, visited, .index base key =>

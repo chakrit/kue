@@ -377,6 +377,9 @@ def meetCore (left right : Value) : Value :=
         .index leftBase leftKey
       else
         .bottom
+  | .thisStruct, .thisStruct => .thisStruct
+  | .thisStruct, _ => .bottom
+  | _, .thisStruct => .bottom
   | .refId _, _ => .bottom
   | _, .refId _ => .bottom
   | .selector _ _, _ => .bottom
