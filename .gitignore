@@ -19,3 +19,4 @@ ace.local.toml
 .lake/
 build/
 dist/
+.claude/
