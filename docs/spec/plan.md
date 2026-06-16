@@ -61,7 +61,8 @@ implementation log):
   field-class filtering, and incompleteness/ambiguity rejection.
 - **Builtins** — top-level `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, plus
   the package-qualified `strings` family (`Contains`, `HasPrefix`, `HasSuffix`, `Index`,
-  `Count`, `Split`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`), the `list`
+  `Count`, `Split`, `SplitN`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`,
+  `ToUpper`/`ToLower`/`ToTitle` (ASCII)), the `list`
   family (`Concat`, `FlattenN`, `Repeat`, `Range`, `Slice`, `Take`, `Drop`, `Contains`,
   and full int+float-domain `Sum`/`Min`/`Max`/`Avg`/`Range`), and the `math` family
   (`Abs` domain-preserving int→int / float→float, `MultipleOf`, and float→int
@@ -184,8 +185,14 @@ before the sort. Tests are strong behavior pins, not smoke.
   whitespace-delimited word (oracle-confirmed: per-word, NOT upper-case-every-letter; word
   separator is whitespace only). Non-ASCII case folding is a documented deferral boundary
   (`compat-assumptions.md` → String case folding; divergences in `cue-divergences.md`).
-  Then the still-unimplemented `strings` functions (`SplitN`,
-  `Trim`/`TrimPrefix`/`TrimSuffix`, `Runes`, `ContainsAny`, `LastIndex`, …) and full
+  **`strings.SplitN` landed** (this slice): `stringSplitN` over a factored-out
+  `stringSplitParts` (raw-string core now shared by `Split` and `SplitN`). Oracle-confirmed
+  Go/cue `n` semantics — `n==0` ⇒ `[]`, `n<0` ⇒ all pieces (= `Split`), `n>0` ⇒ first
+  `n-1` pieces verbatim with the remainder rejoined (via `sep`) as the last piece; empty
+  `sep` splits to runes (then n-capped), empty `s` ⇒ `[""]` for non-empty sep. No
+  deferral; empty-sep is cleanly supported.
+  Then the still-unimplemented `strings` functions
+  (`Trim`/`TrimPrefix`/`TrimSuffix`, `Runes`, `ContainsAny`, `LastIndex`, …) and full
   Unicode case folding. Each is oracle-checked against `cue` v0.16.1; the
   package-qualified dispatch (call-on-selector → dotted `.builtinCall` name) is in place,
   so a new family is an `evalXBuiltin` helper, a catch-all route in `evalBuiltinCall`, a

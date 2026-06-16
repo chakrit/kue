@@ -4101,3 +4101,50 @@ alpha boundary alongside imports and `list.Sort`.
 `lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
 `shellcheck` clean. No CUE divergence logged (the non-ASCII gap is a documented deferral in
 `compat-assumptions.md`, not a cue defect).
+
+## Completed Slice: `strings.SplitN`
+
+`strings.SplitN(s, sep, n)` — split `s` on `sep`, capped at `n` pieces. The cleanest of the
+remaining `strings` functions; shares its splitting core with `strings.Split`.
+
+### Crux — `n` semantics (oracle-confirmed, cue v0.16.1, matches Go)
+
+Probed every case against `cue export … --out json` before encoding:
+
+- `n == 0` ⇒ `[]` (empty list; JSON `[]`, kue `[]`).
+- `n < 0` ⇒ all pieces, identical to `Split`.
+- `n > 0` ⇒ at most `n` pieces; the first `n-1` are verbatim, the LAST is the unsplit
+  remainder. `SplitN("a,b,c", ",", 2)` ⇒ `["a", "b,c"]`; `n == 1` ⇒ `[s]`.
+- `n` larger than the piece count ⇒ all pieces, no padding.
+- Empty `sep` ⇒ split into UTF-8 runes, then n-capped. `SplitN("abc", "", 2)` ⇒
+  `["a", "bc"]` (the rejoin uses `sep == ""`, so the tail runes concatenate).
+- Empty `s`, non-empty `sep` ⇒ `[""]`. Empty `s` and empty `sep` ⇒ `[]`.
+- `sep` absent from `s` ⇒ `[s]`.
+
+No deferral — empty-sep is cleanly supported; cue and Go agree on every probed case.
+
+### Implementation (`Kue/Builtin.lean`)
+
+- Factored the raw-string splitting core out of `stringSplit` into `stringSplitParts
+  (value sep) : List String` (empty sep ⇒ per-rune; else `splitOn`). `stringSplit` now maps
+  it to `Value`s — behavior identical to before.
+- `stringSplitN (value sep) (n : Int) : List Value` — total, no recursion/fuel: `n == 0` ⇒
+  `[]`; `n < 0` ⇒ `stringSplit`; `n > 0` ⇒ if `parts.length ≤ n` return all, else
+  `parts.take (n-1) ++ [intercalate sep (parts.drop (n-1))]`. The rejoin reconstructs the
+  remainder, including for empty sep.
+- One arm in `evalStringsBuiltin` (`strings.SplitN`, `[.prim (.string s), .prim (.string
+  sep), .prim (.int n)]`); catch-all `unresolvedOrBottom` unchanged, so non-string `s`/`sep`
+  / non-int `n` (all-concrete) ⇒ bottom, abstract args ⇒ unresolved `.builtinCall`.
+
+### Tests
+
+11 `native_decide` theorems in `BuiltinTests.lean`: positive-remainder, `n==0`⇒`[]`,
+`n<0`⇒all, count-exceeds-pieces, separator-absent, empty-string, empty-sep-capped,
+empty-sep-unbounded, empty-both, type-mismatch (`n` as string)⇒bottom, abstract-arg
+⇒unresolved. New fixture `testdata/cue/strings_splitn.{cue,expected}` (11 cases covering
+every `n`-branch + empty-sep + empty-string) and a `FixturePorts.lean` entry.
+
+### Verify
+
+`lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
+`shellcheck` clean. No CUE divergence logged — cue is correct on all cases.

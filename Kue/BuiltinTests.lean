@@ -125,6 +125,73 @@ theorem strings_split_empty_separator_splits_runes :
       == .list [.prim (.string "a"), .prim (.string "b")]) = true := by
   native_decide
 
+theorem strings_splitn_positive_last_piece_is_remainder :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 2)]
+      == .list [.prim (.string "a"), .prim (.string "b,c")]) = true := by
+  native_decide
+
+theorem strings_splitn_zero_is_empty_list :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 0)]
+      == .list []) = true := by
+  native_decide
+
+theorem strings_splitn_negative_is_all_pieces :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int (-1))]
+      == .list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]) = true := by
+  native_decide
+
+theorem strings_splitn_count_exceeds_pieces_is_all_pieces :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 5)]
+      == .list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]) = true := by
+  native_decide
+
+theorem strings_splitn_separator_absent_is_singleton :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "xyz"), .prim (.string ","), .prim (.int 2)]
+      == .list [.prim (.string "xyz")]) = true := by
+  native_decide
+
+theorem strings_splitn_empty_string_is_single_empty :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string ""), .prim (.string ","), .prim (.int 2)]
+      == .list [.prim (.string "")]) = true := by
+  native_decide
+
+theorem strings_splitn_empty_separator_caps_runes :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "abc"), .prim (.string ""), .prim (.int 2)]
+      == .list [.prim (.string "a"), .prim (.string "bc")]) = true := by
+  native_decide
+
+theorem strings_splitn_empty_separator_unbounded_is_runes :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "abc"), .prim (.string ""), .prim (.int (-1))]
+      == .list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]) = true := by
+  native_decide
+
+theorem strings_splitn_empty_both_is_empty_list :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string ""), .prim (.string ""), .prim (.int (-1))]
+      == .list []) = true := by
+  native_decide
+
+theorem strings_splitn_type_mismatch_is_bottom :
+    (evalBuiltinCall "strings.SplitN"
+        [.prim (.string "a,b"), .prim (.string ","), .prim (.string "2")]
+      == .bottom) = true := by
+  native_decide
+
+theorem strings_splitn_abstract_arg_stays_unresolved :
+    (evalBuiltinCall "strings.SplitN"
+        [.kind .string, .prim (.string ","), .prim (.int 2)]
+      == .builtinCall "strings.SplitN"
+        [.kind .string, .prim (.string ","), .prim (.int 2)]) = true := by
+  native_decide
+
 theorem strings_count_empty_needle_is_rune_count_plus_one :
     (evalBuiltinCall "strings.Count" [.prim (.string "abc"), .prim (.string "")]
       == .prim (.int 4)) = true := by

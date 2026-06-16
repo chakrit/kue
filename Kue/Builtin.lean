@@ -117,13 +117,37 @@ def stringCount (hay needle : String) : Nat := Id.run do
       i := i + 1
   return total
 
+/-- Raw string pieces of `value` split on `sep`; an empty separator splits into runes
+    (CUE/Go semantics), keeping trailing empty fields. -/
+def stringSplitParts (value sep : String) : List String :=
+  if sep.isEmpty then
+    value.toList.map String.singleton
+  else
+    value.splitOn sep
+
 /-- Split `value` on `sep`; an empty separator splits into runes
     (CUE/Go semantics), keeping trailing empty fields. -/
 def stringSplit (value sep : String) : List Value :=
-  if sep.isEmpty then
-    value.toList.map (fun c => .prim (.string (String.singleton c)))
+  (stringSplitParts value sep).map (fun piece => .prim (.string piece))
+
+/-- `strings.SplitN`: split `value` on `sep`, capping at `n` pieces. `n < 0` is
+    unbounded (= `Split`); `n == 0` yields the empty list; `n > 0` keeps the first
+    `n - 1` pieces verbatim and rejoins the remainder (with `sep`) as the last piece.
+    Mirrors Go's `strings.SplitN`, which CUE follows. -/
+def stringSplitN (value sep : String) (n : Int) : List Value :=
+  if n == 0 then
+    []
+  else if n < 0 then
+    stringSplit value sep
   else
-    (value.splitOn sep).map (fun piece => .prim (.string piece))
+    let parts := stringSplitParts value sep
+    let cap := n.toNat
+    if parts.length <= cap then
+      parts.map (fun piece => .prim (.string piece))
+    else
+      let head := parts.take (cap - 1)
+      let tail := String.intercalate sep (parts.drop (cap - 1))
+      (head ++ [tail]).map (fun piece => .prim (.string piece))
 
 /-- Replace one occurrence per step until `fuel`/`remaining` runs out, then append
     the unconsumed tail. `remaining < 0` means "no count cap" (replace every match);
@@ -488,6 +512,8 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.int (Int.ofNat (stringCount s sub)))
   | "strings.Split", [.prim (.string s), .prim (.string sep)] =>
       .list (stringSplit s sep)
+  | "strings.SplitN", [.prim (.string s), .prim (.string sep), .prim (.int n)] =>
+      .list (stringSplitN s sep n)
   | "strings.Join", [.list pieces, .prim (.string sep)] =>
       stringJoin pieces sep
   | "strings.Replace", [.prim (.string s), .prim (.string old), .prim (.string new), .prim (.int n)] =>

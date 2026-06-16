@@ -1421,6 +1421,49 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "strings_splitn.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("remainder", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 2)]),
+                ("zero", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 0)]),
+                ("negative", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int (-1))]),
+                ("exceed", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 5)]),
+                ("exact", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 3)]),
+                ("one", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 1)]),
+                ("absent", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "xyz"), .prim (.string ","), .prim (.int 2)]),
+                ("emptyStr", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string ""), .prim (.string ","), .prim (.int 2)]),
+                ("emptySepN", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "abc"), .prim (.string ""), .prim (.int 2)]),
+                ("emptySepA", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string "abc"), .prim (.string ""), .prim (.int (-1))]),
+                ("emptyBoth", .regular,
+                  .builtinCall "strings.SplitN"
+                    [.prim (.string ""), .prim (.string ""), .prim (.int (-1))])
+              ]
+              true))
+    },
+    {
       fileName := "list_builtin_float.expected",
       content :=
         formatTopLevel
