@@ -3394,3 +3394,63 @@ representation are co-dependent (interpolated labels are *the* dynamic-field for
 and the edits interleave within the same hunks of `Value`/`Parse`/`Eval`. A clean
 two-commit split would need interactive staging or a non-building intermediate, so
 this landed as one atomic green commit covering both.
+
+## Completed Slice: Struct-Embedding Scope
+
+The general struct-embedding scope bug deferred during comprehensions and
+re-confirmed during dynamic fields. A `{ … }` embedded directly in a struct
+(`out: { base: 7, {copy: base} }`) resolved its body against the *embedded*
+struct's lexical frame, so an inner reference to an enclosing field became bottom
+(`copy: _|_`). Oracle `cue` v0.16.1 resolves `copy: 7`.
+
+### Root cause
+
+`parsedFieldsValue` (`Kue/Parse.lean`) emitted plain embeddings as a flat
+`.conj (embeddings ++ [base])`. Resolution's `.conj` arm maps each member in the
+*current* scope; an embedded `{copy: base}` is itself a `.struct`, whose Resolve
+arm pushes only its own `buildFrame` — `base` is absent there, so it stayed an
+unresolved `.ref` and evaluated to bottom. The comprehension and dynamic-field
+paths never hit this because they ride `structComp`, whose Resolve/Eval arms push
+the enclosing `buildFrame fields :: scopes` before touching the `comprehensions`
+bucket.
+
+### Fix (uniform: embeddings join the `structComp` bucket)
+
+1. **Parser.** `splitParsedFields` routes `.embedding value` into the
+   `comprehensions` bucket instead of a separate `embeddings` list (which is now
+   removed from `ParsedFieldParts`, along with the trailing `match parts.embeddings`
+   in `parsedFieldsValue`). Embeddings preserve source order alongside
+   comprehensions/dynamic fields. A struct with any embedding is thus a
+   `structComp`, resolved in its own frame.
+
+2. **Eval.** The `structComp` arm splits the bucket: field-producing members
+   (`.comprehension`, `.dynamicField`) expand to fields merged with the static
+   fields as before; plain embeddings (`isEmbeddingValue`: anything not a
+   comprehension or dynamic field) are evaluated in the enclosing `nested` env and
+   `meet`-folded into the assembled `.struct`. So a struct embedding merges its
+   fields (collisions meet — same value unifies, conflict → field bottom) and a
+   non-struct embedding (`{ x: 1, 5 }`) conflicts to bottom — both via the lattice,
+   both in the enclosing lexical frame. `expandComprehensionWithFuel`'s catch-all
+   already returns `[]` for embeddings, so they never double-contribute fields.
+
+No signature change to `structComp` or its Lattice/Manifest/Format arms — the
+bucket stays opaque to them.
+
+### Fixtures
+
+Oracle `cue` v0.16.1. `struct_embedding_scope` (`{base: 7, {copy: base}}` =>
+`copy: 7`), `struct_embedding_nested` (embedding referencing outer through a deeper
+struct), `struct_embedding_siblings` (one embedding referencing two enclosing
+fields). CLI path and hand-built Lean-AST FixturePorts both diff clean.
+Regression-checked by hand against the oracle: comprehension+dynamic+embedding mix,
+same-value collision merge, conflicting collision, and scalar embedding.
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 66 jobs, `fixture pairs ok`, shellcheck clean.
