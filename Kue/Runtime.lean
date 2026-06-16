@@ -34,7 +34,7 @@ def mergePackageNames (left right : Option String) : Except ParseError (Option S
       if leftName == rightName then
         pure (some leftName)
       else
-        parseError "conflicting package names"
+        parseError [] "conflicting package names"
 
 def checkSourcePackageNamesWith :
     Option String -> List String -> Except ParseError (Option String)

@@ -92,6 +92,11 @@ implementation log):
   multi-file evaluation with package-name consistency. Package-qualified builtin calls
   (`strings.X(...)`) parse via call-on-selector; `import` clauses (single and grouped)
   parse and are ignored since the package is implicit in the dotted builtin name.
+  Parse errors now carry a source position: `ParseError` records the remaining-suffix
+  length at the failure site, which `parseSource` converts to 1-based `line`/`column`;
+  the CLI prints `kue: parse error: <line>:<col>: <message>`. Remaining parser
+  completeness work: non-field aliases and strict CUE newline/semicolon separator
+  insertion (separator handling is still permissive around whitespace).
 - **Expressions** — unary/additive/multiplicative/division/integer-keyword arithmetic,
   equality, ordering, numeric comparison across int/float, logical `&&`/`||`/`!`, and
   binary regex match `=~`/`!~`. Float multiplication and division are now evaluated

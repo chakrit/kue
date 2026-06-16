@@ -5,6 +5,9 @@ namespace Kue
 
 structure ParseError where
   message : String
+  remaining : Nat := 0
+  line : Nat := 0
+  column : Nat := 0
 deriving Repr, BEq, DecidableEq, Inhabited
 
 abbrev ParseResult (α : Type) := Except ParseError (α × List Char)
@@ -25,8 +28,8 @@ structure ParsedFieldParts where
   comprehensions : List Value
   tail : Option Value
 
-def parseError (message : String) : Except ParseError α :=
-  .error { message := message }
+def parseError (chars : List Char) (message : String) : Except ParseError α :=
+  .error { message := message, remaining := chars.length }
 
 def parseOk (value : α) (rest : List Char) : ParseResult α :=
   .ok (value, rest)
@@ -132,24 +135,24 @@ def parseStringEscape : Char -> Char
   | value => value
 
 partial def parseQuotedWith (quote : Char) : List Char -> List Char -> ParseResult String
-  | [], _ => parseError "unterminated string literal"
+  | [], _ => parseError [] "unterminated string literal"
   | value :: rest, acc =>
       if value == quote then
         parseOk (String.ofList acc.reverse) rest
       else if value == '\\' then
         match rest with
-        | [] => parseError "unterminated string escape"
+        | [] => parseError [] "unterminated string escape"
         | escaped :: rest => parseQuotedWith quote rest (parseStringEscape escaped :: acc)
       else
         parseQuotedWith quote rest (value :: acc)
 
 def parseQuotedString : List Char -> ParseResult String
   | '"' :: rest => parseQuotedWith '"' rest []
-  | _ => parseError "expected string literal"
+  | chars => parseError chars "expected string literal"
 
 def parseQuotedBytes : List Char -> ParseResult String
   | '\'' :: rest => parseQuotedWith '\'' rest []
-  | _ => parseError "expected byte literal"
+  | chars => parseError chars "expected byte literal"
 
 def parseQuotedLabel : List Char -> ParseResult String :=
   parseQuotedString
@@ -168,8 +171,8 @@ def parseIdentifier : List Char -> ParseResult String
         let taken := takeWhileChars parseIdentifierRest rest [value]
         parseOk (String.ofList taken.fst) taken.snd
       else
-        parseError "expected identifier"
-  | [] => parseError "expected identifier"
+        parseError (value :: rest) "expected identifier"
+  | [] => parseError [] "expected identifier"
 
 partial def parsePackageClauseNames (chars : List Char) : Except ParseError (List String) :=
   let trimmed := skipTrivia chars
@@ -180,7 +183,7 @@ partial def parsePackageClauseNames (chars : List Char) : Except ParseError (Lis
         | .ok (name, rest) => do
             let names ← parsePackageClauseNames (dropLine rest)
             pure (name :: names)
-        | .error _ => parseError "expected package name"
+        | .error _ => parseError [] "expected package name"
     | none => .ok []
   else
     .ok []
@@ -197,7 +200,7 @@ def sourcePackageName (source : String) : Except ParseError (Option String) := d
       if packageNamesMatch name names then
         pure (some name)
       else
-        parseError "conflicting package clauses"
+        parseError [] "conflicting package clauses"
 
 def parseLabel : List Char -> ParseResult String
   | '"' :: rest => parseQuotedLabel ('"' :: rest)
@@ -251,7 +254,7 @@ def parseDigitSequenceWith
   if digitSequenceValidAfterWith isDigit false digits.fst then
     parseOk (String.ofList (stripNumericSeparators digits.fst)) digits.snd
   else
-    parseError s!"expected {context} digits"
+    parseError chars s!"expected {context} digits"
 
 def parseDigitSequence (context : String) (chars : List Char) : ParseResult String :=
   parseDigitSequenceWith context parseDigit chars
@@ -321,8 +324,8 @@ def applyNumericSuffix
           if scaled % scale == 0 then
             parseOk (toString (applyNumberSign sign (scaled / scale))) rest
           else
-            parseError "number cannot be represented as int"
-      | _, _ => parseError "invalid suffixed number"
+            parseError rest "number cannot be represented as int"
+      | _, _ => parseError rest "invalid suffixed number"
 
 def parseBasedIntegerWithSign
     (sign : String)
@@ -334,7 +337,7 @@ def parseBasedIntegerWithSign
   | .ok (digits, rest) =>
       match digitsValueWithBase base digits.toList 0 with
       | some value => parseOk (toString (applyNumberSign sign value)) rest
-      | none => parseError s!"invalid {context} literal"
+      | none => parseError chars s!"invalid {context} literal"
 
 def parseExponentDigits (sign : String) (chars : List Char) : ParseResult String :=
   match parseDigitSequence "exponent" chars with
@@ -401,7 +404,7 @@ def parseNumberValue (chars : List Char) : ParseResult Value :=
       else
         match token.toInt? with
         | some value => parseOk (.prim (.int value)) rest
-        | none => parseError s!"invalid integer literal {token}"
+        | none => parseError chars s!"invalid integer literal {token}"
 
 def parseIntBoundValue (mk : Int -> Value) (chars : List Char) : ParseResult Value :=
   match parseNumberToken (skipTrivia chars) with
@@ -409,7 +412,7 @@ def parseIntBoundValue (mk : Int -> Value) (chars : List Char) : ParseResult Val
   | .ok (token, rest) =>
       match token.toInt? with
       | some value => parseOk (mk value) rest
-      | none => parseError "integer bound requires an integer literal"
+      | none => parseError chars "integer bound requires an integer literal"
 
 def parseCommaOrSemicolon : List Char -> List Char
   | ',' :: rest => skipTrivia rest
@@ -697,7 +700,7 @@ mutual
         | .ok (key, rest) =>
             match skipTrivia rest with
             | ']' :: rest => parseSelectorRest (.index base key) rest
-            | _ => parseError "expected ']' after index"
+            | rest => parseError rest "expected ']' after index"
     | rest => parseOk base rest
 
   partial def parsePrimaryAtom (chars : List Char) : ParseResult Value :=
@@ -708,7 +711,7 @@ mutual
         | .ok (value, rest) =>
             match skipTrivia rest with
             | ')' :: rest => parseOk value rest
-            | _ => parseError "expected ')'"
+            | rest => parseError rest "expected ')'"
     | '{' :: rest => parseStruct rest
     | '[' :: rest => parseList rest
     | '"' :: rest => parseInterpolatedString rest [] []
@@ -724,7 +727,7 @@ mutual
         | .ok (value, rest) =>
             match value with
             | .prim prim => parseOk (.notPrim prim) rest
-            | _ => parseError "!= currently requires a primitive literal"
+            | _ => parseError rest "!= currently requires a primitive literal"
     | '=' :: '~' :: rest =>
         match parseQuotedString (skipTrivia rest) with
         | .error error => .error error
@@ -735,14 +738,14 @@ mutual
     | '<' :: rest => parseIntBoundValue .intLt rest
     | '+' :: _ => parseNumberValue (skipTrivia chars)
     | '-' :: _ => parseNumberValue (skipTrivia chars)
-    | value :: _ =>
+    | value :: rest =>
         if parseDigit value then
           parseNumberValue (skipTrivia chars)
         else if parseIdentifierStart value then
           parseIdentifierValue (skipTrivia chars)
         else
-          parseError s!"unexpected character '{value}'"
-    | [] => parseError "expected expression"
+          parseError (value :: rest) s!"unexpected character '{value}'"
+    | [] => parseError [] "expected expression"
 
   partial def interpolationResult (parts : List Value) (rest : List Char) : ParseResult Value :=
     match parts with
@@ -760,7 +763,7 @@ mutual
       (acc : List Char)
       (parts : List Value) : ParseResult Value :=
     match chars with
-    | [] => parseError "unterminated string literal"
+    | [] => parseError [] "unterminated string literal"
     | '"' :: rest => interpolationResult (appendStringSegment acc parts) rest
     | '\\' :: '(' :: rest =>
         match parseExpression rest with
@@ -769,9 +772,9 @@ mutual
             match skipTrivia rest with
             | ')' :: rest =>
                 parseInterpolatedString rest [] (appendStringSegment acc parts ++ [hole])
-            | _ => parseError "expected ')' to close interpolation"
+            | rest => parseError rest "expected ')' to close interpolation"
     | '\\' :: escaped :: rest => parseInterpolatedString rest (parseStringEscape escaped :: acc) parts
-    | ['\\'] => parseError "unterminated string escape"
+    | ['\\'] => parseError [] "unterminated string escape"
     | value :: rest => parseInterpolatedString rest (value :: acc) parts
 
   partial def parseIdentifierValue (chars : List Char) : ParseResult Value :=
@@ -801,7 +804,7 @@ mutual
   partial def parseListTailEnd (value : Value) (chars : List Char) : ParseResult Value :=
     match parseCommaOrSemicolon (skipTrivia chars) with
     | ']' :: rest => parseOk value rest
-    | _ => parseError "expected ']' after list tail"
+    | rest => parseError rest "expected ']' after list tail"
 
   partial def parseListTail (items : List Value) (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
@@ -812,7 +815,7 @@ mutual
             match parseExpression rest with
             | .error error => .error error
             | .ok (tail, rest) => parseListTailEnd (.listTail items tail) rest
-    | _ => parseError "expected list tail"
+    | rest => parseError rest "expected list tail"
 
   partial def parseListItems (chars : List Char) (items : List Value) : ParseResult Value :=
     match skipTrivia chars with
@@ -824,7 +827,7 @@ mutual
         | .error error => .error error
         | .ok (item, rest) =>
             parseListItems (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
-    | [] => parseError "expected ']'"
+    | [] => parseError [] "expected ']'"
 
   partial def parseExpressionListUntil
       (terminator : Char)
@@ -840,7 +843,7 @@ mutual
           | .error error => .error error
           | .ok (item, rest) =>
               parseExpressionListUntil terminator (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
-    | [] => parseError s!"expected '{terminator}'"
+    | [] => parseError [] s!"expected '{terminator}'"
 
   partial def parseStruct (chars : List Char) : ParseResult Value :=
     match parseFieldsUntil (some '}') chars [] with
@@ -876,9 +879,9 @@ mutual
                     match parseExpression rest with
                     | .error error => .error error
                     | .ok (constraint, rest) => parseOk (.pattern labelPattern constraint) rest
-                | _ => parseError "expected ':' after pattern label"
-            | _ => parseError "expected ']' after pattern label"
-    | _ => parseError "expected pattern field"
+                | rest => parseError rest "expected ':' after pattern label"
+            | rest => parseError rest "expected ']' after pattern label"
+    | rest => parseError rest "expected pattern field"
 
   partial def parseLetBinding (chars : List Char) : ParseResult ParsedField :=
     let chars := skipTrivia chars
@@ -893,10 +896,10 @@ mutual
                   match parseExpression rest with
                   | .error error => .error error
                   | .ok (value, rest) => parseOk (.letBinding name value) rest
-              | _ => parseError "expected '=' after let binding name"
-      | none => parseError "expected let binding"
+              | rest => parseError rest "expected '=' after let binding name"
+      | none => parseError chars "expected let binding"
     else
-      parseError "expected let binding"
+      parseError chars "expected let binding"
 
   partial def parseStructEllipsis (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
@@ -904,12 +907,12 @@ mutual
         if structEllipsisEndsHere (skipTrivia rest) then
           parseOk (.ellipsis .top) rest
         else
-          parseError "typed struct ellipsis is not supported yet"
-    | _ => parseError "expected struct ellipsis"
+          parseError (skipTrivia rest) "typed struct ellipsis is not supported yet"
+    | rest => parseError rest "expected struct ellipsis"
 
   partial def parseForClause (chars : List Char) : ParseResult (Clause Value) :=
     match dropWord? "for" (skipTrivia chars) with
-    | none => parseError "expected for clause"
+    | none => parseError (skipTrivia chars) "expected for clause"
     | some rest =>
         match parseIdentifier (skipTrivia rest) with
         | .error error => .error error
@@ -920,14 +923,14 @@ mutual
                 | .error error => .error error
                 | .ok (value, rest) =>
                     match dropWord? "in" (skipTrivia rest) with
-                    | none => parseError "expected 'in' in for clause"
+                    | none => parseError (skipTrivia rest) "expected 'in' in for clause"
                     | some rest =>
                         match parseExpression rest with
                         | .error error => .error error
                         | .ok (source, rest) => parseOk (.forIn (some first) value source) rest
             | rest =>
                 match dropWord? "in" rest with
-                | none => parseError "expected 'in' in for clause"
+                | none => parseError rest "expected 'in' in for clause"
                 | some rest =>
                     match parseExpression rest with
                     | .error error => .error error
@@ -935,7 +938,7 @@ mutual
 
   partial def parseIfClause (chars : List Char) : ParseResult (Clause Value) :=
     match dropWord? "if" (skipTrivia chars) with
-    | none => parseError "expected if clause"
+    | none => parseError (skipTrivia chars) "expected if clause"
     | some rest =>
         match parseExpression rest with
         | .error error => .error error
@@ -957,7 +960,7 @@ mutual
             match parseStruct rest with
             | .error error => .error error
             | .ok (body, rest) => parseOk (clauses, body) rest
-        | _ => parseError "expected comprehension body struct"
+        | rest => parseError rest "expected comprehension body struct"
 
   partial def parseComprehension (chars : List Char) : ParseResult ParsedField :=
     match parseClause chars with
@@ -979,7 +982,7 @@ mutual
         match parseExpression rest with
         | .error error => .error error
         | .ok (value, rest) => parseOk (.field (label, fieldClass, value)) rest
-    | _ => parseError "expected ':' after field label"
+    | rest => parseError rest "expected ':' after field label"
 
   partial def parseAliasedField (chars : List Char) : ParseResult ParsedField :=
     match parseIdentifier chars with
@@ -996,8 +999,8 @@ mutual
                     match parseExpression rest with
                     | .error error => .error error
                     | .ok (value, rest) => parseOk (.fieldAlias alias (label, fieldClass, value)) rest
-                | _ => parseError "expected ':' after aliased field label"
-        | _ => parseError "expected '=' after field alias"
+                | rest => parseError rest "expected ':' after aliased field label"
+        | rest => parseError rest "expected '=' after field alias"
 
   partial def parseDynamicField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
@@ -1017,9 +1020,9 @@ mutual
                     match parseExpression rest with
                     | .error error => .error error
                     | .ok (value, rest) => parseOk (.dynamicField label fieldClass value) rest
-                | _ => parseError "expected ':' after dynamic field label"
-            | _ => parseError "expected ')' after dynamic field label"
-    | _ => parseError "expected dynamic field"
+                | rest => parseError rest "expected ':' after dynamic field label"
+            | rest => parseError rest "expected ')' after dynamic field label"
+    | rest => parseError rest "expected dynamic field"
 
   /--
   A quoted field label. A plain string literal is a static label; one carrying an
@@ -1044,8 +1047,8 @@ mutual
                     match labelValue with
                     | .prim (.string label) => parseOk (.field (label, fieldClass, value)) rest
                     | _ => parseOk (.dynamicField labelValue fieldClass value) rest
-            | _ => parseError "expected ':' after quoted field label"
-    | _ => parseError "expected quoted field label"
+            | rest => parseError rest "expected ':' after quoted field label"
+    | rest => parseError rest "expected quoted field label"
 
   partial def parseField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
@@ -1086,9 +1089,32 @@ def parseDocument (chars : List Char) : Except ParseError Value :=
   | .ok (fields, rest) =>
       match skipTrivia rest with
       | [] => .ok (parsedFieldsValue fields)
-      | _ => parseError "unexpected trailing input"
+      | rest => parseError rest "unexpected trailing input"
+
+/-- 1-based line and column for a char offset into `source`. Walks the first `offset`
+    chars, counting newlines; the column resets to 1 after each `'\n'`. Total: recurses
+    structurally on the char list with `offset` as decreasing fuel. -/
+def offsetToLineColumn (source : List Char) (offset : Nat) : Nat × Nat :=
+  go source offset 1 1
+where
+  go : List Char -> Nat -> Nat -> Nat -> Nat × Nat
+    | _, 0, line, col => (line, col)
+    | [], _, line, col => (line, col)
+    | c :: rest, fuel + 1, line, col =>
+        if c == '\n' then go rest fuel (line + 1) 1
+        else go rest fuel line (col + 1)
+
+/-- Fill in `line`/`column` on a parse error from its `remaining` suffix length, using
+    the original source to derive the offset. The error reason (`message`) is left as-is;
+    callers print `line:column: message`. -/
+def withPosition (source : List Char) : Except ParseError α -> Except ParseError α
+  | .ok value => .ok value
+  | .error error =>
+      let offset := source.length - error.remaining
+      let (line, column) := offsetToLineColumn source offset
+      .error { error with line := line, column := column }
 
 def parseSource (source : String) : Except ParseError Value :=
-  parseDocument source.toList
+  withPosition source.toList (parseDocument source.toList)
 
 end Kue

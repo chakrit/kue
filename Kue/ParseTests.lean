@@ -13,6 +13,11 @@ def parseFails (source : String) : Bool :=
   | .ok _ => false
   | .error _ => true
 
+def parseFailsAt (source : String) (line col : Nat) : Bool :=
+  match parseSource source with
+  | .ok _ => false
+  | .error error => error.line == line && error.column == col
+
 theorem parse_basic_document_resolves_references :
     parseOutputMatches
       "package demo\n#Port: int & >=0 & <=65535\nport: #Port & 8080\nname: \"api\"\n"
@@ -297,6 +302,36 @@ theorem parse_grouped_import_clause_is_ignored :
     parseOutputMatches
       "import (\n\t\"strings\"\n)\nx: 1\n"
       "x: 1" = true := by
+  native_decide
+
+-- Parse errors carry 1-based source positions (line:column at the stuck offset).
+
+theorem parse_error_position_line_one_column_one :
+    parseFailsAt "@\n" 1 1 = true := by
+  native_decide
+
+theorem parse_error_position_line_one_midline :
+    parseFailsAt "name: 4 @ 5\n" 1 9 = true := by
+  native_decide
+
+theorem parse_error_position_selector_after_dot :
+    parseFailsAt "foo: bar.@\n" 1 10 = true := by
+  native_decide
+
+theorem parse_error_position_later_line :
+    parseFailsAt "a: 1\nb: @\n" 2 4 = true := by
+  native_decide
+
+theorem parse_error_position_multiline_struct :
+    parseFailsAt "x: {\n  a: 1\n  b: @\n}\n" 3 6 = true := by
+  native_decide
+
+theorem parse_error_position_eof_unclosed_list :
+    parseFailsAt "a: 1\nb: 2\nx: [1, 2\n" 4 1 = true := by
+  native_decide
+
+theorem parse_error_position_unterminated_string :
+    parseFailsAt "a: \"unterminated\n" 2 1 = true := by
   native_decide
 
 end Kue

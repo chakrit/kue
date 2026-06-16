@@ -25,15 +25,22 @@ those forms.
   current same-struct binding resolver.
 - Unsupported source forms generally fail with a parse error instead of being
   approximated. This parser is not a complete CUE syntax validator yet.
+- Parse errors carry a source position. Every error records the remaining-suffix length
+  at the failure point; `parseSource` converts that to a 1-based `line`/`column` (via a
+  total `offsetToLineColumn` walk over the source) stored on `ParseError` alongside the
+  raw `message`. The CLI prints `kue: parse error: <line>:<col>: <message>` (CUE-style
+  `line:col`). Package-clause conflicts (rare, non-cursor errors) report at `1:1`.
 - Separator handling is currently permissive around whitespace. A later parser slice
   should implement CUE's newline and semicolon insertion rules directly.
 - The parser supports the language forms already backed by semantic values: scalars,
   primitive kinds, structs, lists, refs, `&`, `|`, defaults, integer bounds, primitive
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
   struct embeddings, untyped struct ellipses, static field aliases, `let` declarations,
-  static field selectors, static index expressions, and existing builtin call values.
-- The parser does not yet support imports, non-field aliases, comprehensions, dynamic
-  fields, string interpolation, or typed struct ellipsis syntax.
+  static field selectors, static index expressions, existing builtin call values,
+  comprehensions (`for`/`if` field clauses), dynamic fields (`(expr): v`), and string
+  interpolation (`"\(expr)"`).
+- The parser does not yet support non-field aliases, typed struct ellipsis syntax
+  (`...T`, which cue v0.15.4 also rejects), or imports with module resolution.
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.

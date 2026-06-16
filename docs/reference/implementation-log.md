@@ -4148,3 +4148,76 @@ every `n`-branch + empty-sep + empty-string) and a `FixturePorts.lean` entry.
 
 `lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
 `shellcheck` clean. No CUE divergence logged — cue is correct on all cases.
+
+---
+
+## Completed Slice: Source-position tracking + structured parse errors
+
+Goal: make parse failures point at *where* they occurred. `ParseError` carried only a
+`message` with no source location; this is the foundation for legible import/eval errors
+later and the substantive remaining parser-completeness work after the form gap closed.
+
+### `ParseError` shape (`Kue/Parse.lean`)
+
+```
+structure ParseError where
+  message  : String
+  remaining : Nat := 0   -- chars left in the suffix at the failure point
+  line     : Nat := 0    -- 1-based, filled at the parseSource boundary
+  column   : Nat := 0
+deriving Repr, BEq, DecidableEq, Inhabited
+```
+
+### How position is threaded
+
+The parser is recursive descent over `List Char` (no state monad), so position is
+*how far into the suffix the parser got*. The lowest-churn total design:
+
+- `parseError` gained a leading `chars : List Char` arg and records
+  `remaining := chars.length`. Every throw site passes the most-local suffix
+  representing where the parser is stuck (previously-discarded `| _ =>` arms were bound
+  to `| rest =>` where the scrutinee was `skipTrivia …`; genuine EOF arms pass `[]` ⇒
+  `remaining 0`). 48 sites in `Parse.lean` + 1 in `Runtime.lean` (`conflicting package
+  names`, a non-cursor error, passes `[]` ⇒ reports `1:1`).
+- A total `offsetToLineColumn (source : List Char) (offset : Nat) : Nat × Nat` walks the
+  first `offset` chars (structural recursion with `offset` as decreasing fuel — no
+  `partial`), `line+1`/`col:=1` on `'\n'`, else `col+1`. 1-based.
+- `withPosition (source : List Char)` maps an error: `offset := source.length -
+  remaining`, then stamps `(line, column)`. `parseSource` applies it, so BOTH
+  `evalSourceToString` and the multi-file `parseSources` path (which call `parseSource`)
+  get positioned errors.
+
+### CLI print format (`Main.lean`)
+
+`kue: parse error: <line>:<col>: <message>` (CUE-style `line:col`), e.g.
+`kue: parse error: 2:4: unexpected character '@'`.
+
+### Tests
+
+7 new `native_decide` theorems in `ParseTests.lean` via a new `parseFailsAt source line
+col` helper. Every asserted position empirically confirmed against the built binary:
+
+- `@\n` → **1:1** (error on line 1, col 1)
+- `name: 4 @ 5\n` → **1:9** (mid-line on line 1, col > 1)
+- `foo: bar.@\n` → **1:10** (expected identifier after `.`)
+- `a: 1\nb: @\n` → **2:4** (line increments past the newline)
+- `x: {\n  a: 1\n  b: @\n}\n` → **3:6** (inside a multi-line struct)
+- `a: 1\nb: 2\nx: [1, 2\n` → **4:1** (EOF, unclosed list, remaining 0)
+- `a: "unterminated\n` → **2:1** (EOF, unterminated string)
+
+`ParseError` BEq/DecidableEq derive over the new fields, but no existing test compares
+whole `ParseError` values (all go through `parseOutputMatches`/`parseFails`, which inspect
+the `.ok`/error tag only). Positive fixtures unchanged — no regressions.
+
+### Note: separators stay permissive
+
+The parser does not enforce field separators — `a: 1 b: 2\n` parses as two fields with no
+newline/comma and no error — which is why the position tests use unambiguous failing
+tokens (`@`, dangling `.`, unclosed `[`/`(`/`"`) rather than separator violations. This
+confirms the standing permissive-separator assumption; strict CUE newline/semicolon
+insertion remains unimplemented (next-step parser work, alongside non-field aliases).
+
+### Verify
+
+`lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs
+ok`, `shellcheck scripts/check-fixtures.sh` clean. No CUE divergence logged.

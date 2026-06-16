@@ -10,7 +10,7 @@ def printEvalResult (result : Except Kue.ParseError String) : IO UInt32 := do
       IO.println output
       pure 0
   | .error error =>
-      IO.eprintln s!"kue: parse error: {error.message}"
+      IO.eprintln s!"kue: parse error: {error.line}:{error.column}: {error.message}"
       pure 1
 
 def readFileSources : List String -> IO (List String)
