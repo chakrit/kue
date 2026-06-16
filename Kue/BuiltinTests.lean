@@ -110,4 +110,44 @@ theorem div_value_rejects_division_by_zero :
     divValue (.prim (.int 7)) (.prim (.int 0)) = .bottomWith [.divisionByZero] := by
   rfl
 
+theorem strings_index_is_byte_based :
+    (evalBuiltinCall "strings.Index" [.prim (.string "héllo"), .prim (.string "llo")]
+      == .prim (.int 3)) = true := by
+  native_decide
+
+theorem strings_index_missing_is_minus_one :
+    (evalBuiltinCall "strings.Index" [.prim (.string "chicken"), .prim (.string "xyz")]
+      == .prim (.int (-1))) = true := by
+  native_decide
+
+theorem strings_split_empty_separator_splits_runes :
+    (evalBuiltinCall "strings.Split" [.prim (.string "ab"), .prim (.string "")]
+      == .list [.prim (.string "a"), .prim (.string "b")]) = true := by
+  native_decide
+
+theorem strings_count_empty_needle_is_rune_count_plus_one :
+    (evalBuiltinCall "strings.Count" [.prim (.string "abc"), .prim (.string "")]
+      == .prim (.int 4)) = true := by
+  native_decide
+
+theorem strings_join_non_string_element_is_bottom :
+    (evalBuiltinCall "strings.Join" [.list [.prim (.int 1)], .prim (.string ",")]
+      == .bottom) = true := by
+  native_decide
+
+theorem strings_repeat_negative_count_is_bottom :
+    (evalBuiltinCall "strings.Repeat" [.prim (.string "a"), .prim (.int (-1))]
+      == .bottom) = true := by
+  native_decide
+
+theorem strings_type_mismatch_is_bottom :
+    (evalBuiltinCall "strings.Contains" [.prim (.int 5), .prim (.string "x")]
+      == .bottom) = true := by
+  native_decide
+
+theorem strings_call_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "strings.Contains" [.kind .string, .prim (.string "x")]
+      == .builtinCall "strings.Contains" [.kind .string, .prim (.string "x")]) = true := by
+  native_decide
+
 end Kue

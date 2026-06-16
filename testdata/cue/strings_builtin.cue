@@ -1,0 +1,17 @@
+import "strings"
+
+contains:      strings.Contains("seafood", "foo")
+hasPrefix:     strings.HasPrefix("seafood", "sea")
+hasSuffix:     strings.HasSuffix("seafood", "food")
+index:         strings.Index("héllo", "llo")
+indexMiss:     strings.Index("chicken", "xyz")
+count:         strings.Count("cheese", "e")
+split:         strings.Split("a,b,c", ",")
+splitEmptySep: strings.Split("héllo", "")
+splitTrailing: strings.Split("a,b,", ",")
+join: strings.Join(["a", "b", "c"], "-")
+replaceN:   strings.Replace("aaaa", "a", "b", 2)
+replaceAll: strings.Replace("oink oink", "k", "ky", -1)
+repeat:     strings.Repeat("ab", 3)
+trimSpace:  strings.TrimSpace("  hi  ")
+fields:     strings.Fields("  a  b c ")

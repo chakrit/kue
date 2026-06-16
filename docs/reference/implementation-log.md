@@ -3454,3 +3454,84 @@ shellcheck scripts/check-fixtures.sh
 ```
 
 `lake build` 66 jobs, `fixture pairs ok`, shellcheck clean.
+
+---
+
+## Completed Slice: strings Builtins
+
+Goal: add the first package-qualified builtin family — a coherent, oracle-verified
+subset of CUE's `strings` package — and the dispatch infrastructure that
+package-qualified calls (`strings.X(...)`) require, since none existed before.
+
+### Dispatch infrastructure (the slice's core)
+
+Package-qualified calls did not parse at all. `strings.ToUpper("x")` parsed as
+`.ref "strings"` → `parseSelectorRest` made `.selector (.ref "strings") "ToUpper"`,
+then hit `(` with no arm and left it unconsumed. Two parser changes:
+
+1. **Call-on-selector.** `parseSelectorRest` gains a `'(' :: …` arm after reading a
+   selector label: when the selector base is a bare `.ref pkg`, it parses the call
+   and emits `.builtinCall "pkg.label" args` (the package name is folded into the
+   builtin name, dotted). Deeper selectors (`a.b.c(...)`) stay ordinary field access
+   — only the single `pkg.fn(...)` shape is a builtin, matching how `strings.*`
+   resolves. No new `Value` constructor: qualified builtins reuse `.builtinCall` with
+   a dotted name, so Resolve/Eval/Manifest/Format need no new arms.
+2. **Imports accepted.** `import "strings"` and grouped `import ( … )` blocks are now
+   consumed and ignored (`consumeImportClauses`, paralleling `consumePackageClauses`)
+   instead of `parseError "imports are not supported yet"`. The package is implicit
+   in the qualified builtin name, so no symbol binding is needed yet. The old
+   `parse_imports_are_unsupported` test is replaced by two tests asserting single and
+   grouped import clauses parse and are dropped.
+
+### Dispatch + implementation
+
+`evalBuiltinCall`'s catch-all routes any `name.startsWith "strings."` to a new
+`evalStringsBuiltin`. Args arrive fully evaluated (Eval evaluates args before
+dispatch), so arms match on concrete `.prim`/`.list` shapes. Implemented (Go/CUE
+semantics, each oracle-checked against `cue` v0.16.1):
+
+- `strings.Contains`, `strings.HasPrefix`, `strings.HasSuffix` — byte substring /
+  prefix / suffix.
+- `strings.Index` — **byte** offset of first match, `-1` if absent (Go semantics;
+  `Index("héllo","llo") = 3`, the byte offset, confirmed against the oracle).
+- `strings.Count` — non-overlapping count; empty needle ⇒ rune-count + 1.
+- `strings.Split` — `splitOn`, keeping trailing empties; **empty separator splits
+  per rune** (`Split("héllo","") = ["h","é","l","l","o"]`, not per byte).
+- `strings.Join` — intercalate; any non-string element ⇒ bottom.
+- `strings.Replace` — first `count` non-overlapping replacements, `count < 0` ⇒ all.
+- `strings.Repeat` — `n` copies; negative `n` ⇒ bottom (CUE errors).
+- `strings.TrimSpace` — strip leading/trailing unicode whitespace.
+- `strings.Fields` — split on unicode-whitespace runs, dropping empties.
+
+**Totality / illegal states.** An unmatched `strings.*` call is bottom iff its args
+are all concrete (a genuine type error, e.g. `strings.Contains(5, "x")`); if any arg
+is still abstract (`.kind`, `.ref`, an unresolved call) the call round-trips
+unresolved as `.builtinCall`, so it can resolve once unified further. Bottom args
+propagate to bottom.
+
+**Deliberately deferred (noted as remaining):** `strings.ToUpper`/`ToLower`/`ToTitle`
+need full unicode case folding — Lean's `String.toUpper`/`toLower` are ASCII-only
+(`"héllo".toUpper = "HéLLO"`, diverging from CUE's `"HÉLLO"`). Implementing them would
+require a unicode case table; left out to keep this slice oracle-exact. Also remaining:
+`strings.SplitN`, `TrimPrefix`/`TrimSuffix`/`Trim`, `Title`, `Runes`, `MinRunes`/
+`MaxRunes`, `ContainsAny`, `LastIndex`, etc.
+
+### Fixtures + tests
+
+`strings_builtin` fixture exercises all 11 implemented functions (incl. multibyte
+index, per-rune empty-sep split, trailing-empty split, count-limited replace).
+CLI path and hand-built FixturePort both diff clean against the oracle-derived
+`.expected`. Eight `native_decide` unit theorems in `BuiltinTests` lock the edge
+cases: byte-index, missing-index `-1`, per-rune split, empty-needle count, join
+type-error bottom, negative-repeat bottom, concrete type-mismatch bottom, and
+abstract-arg stays unresolved.
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 66 jobs, `fixture pairs ok`, shellcheck clean.

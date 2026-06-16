@@ -59,11 +59,15 @@ implementation log):
   meet), a non-struct embedding conflicts to bottom.
 - **Manifestation** — structured export with default selection (incl. nested),
   field-class filtering, and incompleteness/ambiguity rejection.
-- **Builtins** — `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, with
-  unresolved calls preserved as semantic values.
+- **Builtins** — top-level `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, plus
+  the package-qualified `strings` family (`Contains`, `HasPrefix`, `HasSuffix`, `Index`,
+  `Count`, `Split`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`). Unresolved calls
+  preserved as semantic values; concrete type-mismatch args resolve to bottom.
 - **Parser/CLI** — recursive-descent parser over the supported subset; numeric literal
   spellings (non-decimal, separators, exponents, suffix multipliers); stdin and explicit
-  multi-file evaluation with package-name consistency.
+  multi-file evaluation with package-name consistency. Package-qualified builtin calls
+  (`strings.X(...)`) parse via call-on-selector; `import` clauses (single and grouped)
+  parse and are ignored since the package is implicit in the dotted builtin name.
 - **Expressions** — unary/additive/multiplicative/division/integer-keyword arithmetic,
   equality, ordering, numeric comparison across int/float, logical `&&`/`||`/`!`, and
   binary regex match `=~`/`!~`.
@@ -77,9 +81,13 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
 - Add remaining alias positions in a syntax layer instead of constructing
   semantic values directly.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
-- **Next: add remaining builtin functions** beyond the implemented `close`, `len`,
-  `and`, `or`, `div`, `mod`, `quo`, and `rem` helpers — e.g. string/list helpers
-  (`strings.*`, `list.*`) and numeric/`math` builtins, oracle-checked against `cue`
-  v0.16.1. Builtin calls already preserve unresolved as semantic values, so each new
-  builtin is an arm in `evalBuiltinCall` plus a fixture.
+- **Builtin families.** Top-level helpers and the `strings` package are landed
+  (see Implementation Status). **Next: the `list` family** (`list.Concat`,
+  `list.FlattenN`, `list.Sort`, `list.Range`, …) and then the `math` family, plus the
+  deferred `strings` functions that need unicode case folding (`ToUpper`/`ToLower`/
+  `ToTitle`) or are otherwise unimplemented (`SplitN`, `Trim`/`TrimPrefix`/`TrimSuffix`,
+  `Runes`, `ContainsAny`, `LastIndex`, …). Each is oracle-checked against `cue` v0.16.1;
+  the package-qualified dispatch (call-on-selector → dotted `.builtinCall` name) is in
+  place, so a new family is an `evalXBuiltin` helper, a catch-all route in
+  `evalBuiltinCall`, a fixture, and unit theorems.
 - Add imports and full module resolution after the syntax and resolver layers exist.

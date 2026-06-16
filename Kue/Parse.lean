@@ -102,6 +102,29 @@ partial def consumePackageClauses (chars : List Char) : List Char :=
   else
     trimmed
 
+/-- Drop characters up to and including the first `)`. Used to skip a grouped
+    `import ( … )` block; imports are ignored since the package is implicit in the
+    qualified builtin name (`strings.ToUpper`). -/
+partial def dropToCloseParen : List Char -> List Char
+  | [] => []
+  | ')' :: rest => rest
+  | _ :: rest => dropToCloseParen rest
+
+/-- Consume any leading `import` declarations (single-line or grouped) and ignore
+    them. Package-qualified builtins (`strings.*`) need no symbol binding, so the
+    import is a no-op beyond syntactic acceptance. -/
+partial def consumeImportClauses (chars : List Char) : List Char :=
+  let trimmed := skipTrivia chars
+  if startsWithWord "import" trimmed then
+    match dropPrefix? "import".toList trimmed with
+    | some rest =>
+        match skipTrivia rest with
+        | '(' :: grouped => consumeImportClauses (dropToCloseParen grouped)
+        | line => consumeImportClauses (dropLine line)
+    | none => trimmed
+  else
+    trimmed
+
 def parseStringEscape : Char -> Char
   | 'n' => '\n'
   | 'r' => '\r'
@@ -656,7 +679,18 @@ mutual
     | '.' :: rest =>
         match parseLabel (skipTrivia rest) with
         | .error error => .error error
-        | .ok (label, rest) => parseSelectorRest (.selector base label) rest
+        | .ok (label, rest) =>
+            match skipPostfixTrivia rest with
+            | '(' :: rest =>
+                -- Package-qualified call, e.g. `strings.ToUpper(x)`. Only a single
+                -- `pkg.fn(...)` shape is a builtin; deeper selectors stay field access.
+                match base with
+                | .ref pkg =>
+                    match parseCall s!"{pkg}.{label}" rest with
+                    | .error error => .error error
+                    | .ok (call, rest) => parseSelectorRest call rest
+                | _ => parseSelectorRest (.selector base label) rest
+            | _ => parseSelectorRest (.selector base label) rest
     | '[' :: rest =>
         match parseExpression rest with
         | .error error => .error error
@@ -1046,16 +1080,13 @@ mutual
 end
 
 def parseDocument (chars : List Char) : Except ParseError Value :=
-  let chars := consumePackageClauses chars
-  if startsWithWord "import" (skipTrivia chars) then
-    parseError "imports are not supported yet"
-  else
-    match parseFieldsUntil none chars [] with
-    | .error error => .error error
-    | .ok (fields, rest) =>
-        match skipTrivia rest with
-        | [] => .ok (parsedFieldsValue fields)
-        | _ => parseError "unexpected trailing input"
+  let chars := consumeImportClauses (consumePackageClauses chars)
+  match parseFieldsUntil none chars [] with
+  | .error error => .error error
+  | .ok (fields, rest) =>
+      match skipTrivia rest with
+      | [] => .ok (parsedFieldsValue fields)
+      | _ => parseError "unexpected trailing input"
 
 def parseSource (source : String) : Except ParseError Value :=
   parseDocument source.toList

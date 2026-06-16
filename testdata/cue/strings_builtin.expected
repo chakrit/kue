@@ -1,0 +1,15 @@
+contains: true
+hasPrefix: true
+hasSuffix: true
+index: 3
+indexMiss: -1
+count: 3
+split: ["a", "b", "c"]
+splitEmptySep: ["h", "é", "l", "l", "o"]
+splitTrailing: ["a", "b", ""]
+join: "a-b-c"
+replaceN: "bbaa"
+replaceAll: "oinky oinky"
+repeat: "ababab"
+trimSpace: "hi"
+fields: ["a", "b", "c"]

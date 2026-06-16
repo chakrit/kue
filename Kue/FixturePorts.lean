@@ -1175,6 +1175,50 @@ def fixturePorts : List FixturePort :=
                     true)
               ]
               true))
+    },
+    {
+      fileName := "strings_builtin.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("contains", .regular,
+                  .builtinCall "strings.Contains" [.prim (.string "seafood"), .prim (.string "foo")]),
+                ("hasPrefix", .regular,
+                  .builtinCall "strings.HasPrefix" [.prim (.string "seafood"), .prim (.string "sea")]),
+                ("hasSuffix", .regular,
+                  .builtinCall "strings.HasSuffix" [.prim (.string "seafood"), .prim (.string "food")]),
+                ("index", .regular,
+                  .builtinCall "strings.Index" [.prim (.string "héllo"), .prim (.string "llo")]),
+                ("indexMiss", .regular,
+                  .builtinCall "strings.Index" [.prim (.string "chicken"), .prim (.string "xyz")]),
+                ("count", .regular,
+                  .builtinCall "strings.Count" [.prim (.string "cheese"), .prim (.string "e")]),
+                ("split", .regular,
+                  .builtinCall "strings.Split" [.prim (.string "a,b,c"), .prim (.string ",")]),
+                ("splitEmptySep", .regular,
+                  .builtinCall "strings.Split" [.prim (.string "héllo"), .prim (.string "")]),
+                ("splitTrailing", .regular,
+                  .builtinCall "strings.Split" [.prim (.string "a,b,"), .prim (.string ",")]),
+                ("join", .regular,
+                  .builtinCall "strings.Join"
+                    [.list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")],
+                     .prim (.string "-")]),
+                ("replaceN", .regular,
+                  .builtinCall "strings.Replace"
+                    [.prim (.string "aaaa"), .prim (.string "a"), .prim (.string "b"), .prim (.int 2)]),
+                ("replaceAll", .regular,
+                  .builtinCall "strings.Replace"
+                    [.prim (.string "oink oink"), .prim (.string "k"), .prim (.string "ky"), .prim (.int (-1))]),
+                ("repeat", .regular,
+                  .builtinCall "strings.Repeat" [.prim (.string "ab"), .prim (.int 3)]),
+                ("trimSpace", .regular,
+                  .builtinCall "strings.TrimSpace" [.prim (.string "  hi  ")]),
+                ("fields", .regular,
+                  .builtinCall "strings.Fields" [.prim (.string "  a  b c ")])
+              ]
+              true))
     }
   ]
 

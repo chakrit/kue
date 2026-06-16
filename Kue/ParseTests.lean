@@ -287,8 +287,16 @@ theorem parse_bytes_kind_unification :
       "x: 'abc'" = true := by
   native_decide
 
-theorem parse_imports_are_unsupported :
-    parseFails "import \"strings\"\nx: 1\n" = true := by
+theorem parse_import_clause_is_ignored :
+    parseOutputMatches
+      "import \"strings\"\nx: 1\n"
+      "x: 1" = true := by
+  native_decide
+
+theorem parse_grouped_import_clause_is_ignored :
+    parseOutputMatches
+      "import (\n\t\"strings\"\n)\nx: 1\n"
+      "x: 1" = true := by
   native_decide
 
 end Kue
