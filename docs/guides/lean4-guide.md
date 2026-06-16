@@ -40,53 +40,42 @@ proofs as invariants stabilize.
 
 ## Project Setup
 
-Lean projects are normally managed with Lake.
+The project is already initialized. The toolchain is pinned in `lean-toolchain` to
+`leanprover/lean4:v4.29.1`; `lake` follows it via `elan`. There are no external
+dependencies (`lake-manifest.json` lists none) — no Mathlib, no cache step.
 
-Common commands:
+`lakefile.lean` defines one library (`Kue`) and one default executable (`kue`, rooted at
+`Main`). Test modules are ordinary library modules, not a `lake test` target; they are
+checked by `lake build` (`native_decide`/`decide`/`rfl` theorems run at elaboration).
 
-```sh
-lake init kue
-lake build
-lake test
-lake exe kue
-lake update
-```
-
-Expected shape after initialization:
-
-```text
-lakefile.lean        # package, libraries, executables
-lean-toolchain       # exact Lean toolchain version
-Kue.lean             # top-level library module
-Kue/                 # library modules
-Main.lean            # executable entry point, if any
-```
-
-Use `lean-toolchain` to pin the Lean version. Do not rely on a globally floating
-toolchain for semantic work.
-
-If Mathlib is added later, use the cache before building:
+Build and run:
 
 ```sh
-lake exe cache get
-lake build
+lake build              # builds the Kue library + the kue exe; checks all theorems
+lake build Kue.Builtin  # build a single module while iterating
+.lake/build/bin/kue     # the built CLI; reads CUE from stdin, prints to stdout
 ```
+
+The CLI reads source from **stdin** when given no args (empty input prints a smoke
+banner), or reads each path argument as a source file. The fixture check drives the
+stdin path.
 
 ## File Organization
 
-The current module layout (see [`../spec/architecture.md`](../spec/architecture.md) for
-how the layers fit together):
+The library aggregator `Kue.lean` imports every module. Current layout (see
+[`../spec/architecture.md`](../spec/architecture.md) for how the layers fit together):
 
 ```text
 Kue/
   Parse.lean         # recursive-descent parser over the supported subset
   Resolve.lean       # label references -> binding ids, nested scopes
   Value.lean         # semantic value domain (+ bottom provenance)
+  Decimal.lean       # exact-decimal: DecimalValue, parse/add/sub/mul/div/cmp/format
   Order.lean         # subsumption / partial order
   Lattice.lean       # meet, join, normalization, top/bottom laws
   Normalize.lean     # definition-implied closedness
+  Builtin.lean       # close, len, math/list/strings builtins, div/mod/quo/rem
   Eval.lean          # evaluator, cycles, builtin dispatch
-  Builtin.lean       # close, len, and, or, div, mod, quo, rem helpers
   Manifest.lean      # export: default selection, field filtering, errors
   Format.lean        # stable CUE-like rendering
   Runtime.lean       # shared resolve -> eval -> format flow for CLI + fixtures
@@ -97,6 +86,18 @@ Kue/
 
 Keep parser concerns separate from semantic concerns. A mathematically clean value
 domain is more important than accepting all source syntax early.
+
+### Module layering and the import-cycle constraint
+
+The decimal-lift refactor put exact-decimal machinery in `Kue/Decimal.lean`, below both
+the builtin and evaluator layers. The load-bearing edges:
+
+- `Decimal` imports only `Value`.
+- `Builtin` imports `Decimal` and `Lattice` — **never `Eval`.**
+- `Eval` imports `Builtin`, `Decimal`, `Lattice`, `Normalize` — it sits above `Builtin`.
+
+So builtins are usable from the evaluator's dispatch without a cycle. When a builtin
+needs decimal arithmetic, add it to `Decimal`; do not reach up into `Eval`.
 
 ## Syntax Essentials
 
@@ -174,9 +175,12 @@ deriving Repr, BEq
 end Kue
 ```
 
-This is an AST-like value representation, not yet the final normalized semantic
-domain. That is acceptable early. The first milestone is to make operations total
-and laws explicit.
+This is an illustrative sketch, **not** the current domain. The real `Value` lives in
+`Kue/Value.lean` and has diverged: meet/join are `conj`/`disj` (n-ary), bottom carries
+provenance (`bottomWith (reasons : List BottomReason)`), and there are dedicated arms for
+bounds, regex, struct patterns, comprehensions, builtin calls, references, and
+interpolation. Read `Kue/Value.lean` before adding a constructor — do not model from this
+sketch.
 
 ## CUE Laws to Encode
 
@@ -235,19 +239,86 @@ omega         -- arithmetic over Nat/Int when available
 Use theorem failures as design feedback. If a basic law is painful to prove, the
 representation may be wrong for the semantic layer.
 
+### Proof idiom: `native_decide` vs `rfl` vs `decide` (project convention)
+
+`Value` (and `Clause`) derive `BEq` but **not** `DecidableEq` — the type is large and
+the comparison kernel-reduces slowly. This dictates how results are asserted:
+
+| Result shape                              | Assertion form                            |
+| ----------------------------------------- | ----------------------------------------- |
+| Two `Value`s (any builtin/eval output)    | `(a == b) = true := by native_decide`     |
+| A fully-reducing literal (e.g. `.int 3`)  | `result = .prim (.int 3) := by rfl`        |
+
+Use `==` + `native_decide` for `Value` comparisons — `a = b := by decide` fails for lack
+of `DecidableEq`, and kernel `rfl` on a structural `Value` equality is slow or stalls.
+Reserve `:= by rfl` for cases where the function reduces all the way to a literal with no
+residual `Value` comparison (`lenValue (.list [..]) = .prim (.int 3)` is the canonical
+one). `native_decide` compiles the decision procedure to native code, so it is the
+default for anything touching `Value`.
+
+### Totality idiom: fuel over `partial def`
+
+Prefer total functions. When recursion is not obviously structural, use a fuel-bounded
+loop (a `Nat` argument that strictly decreases, with the `fuel + 1` match arm) instead of
+`partial def` — see `stringReplaceLoop`/`listFlattenFuel` in `Builtin.lean`, where the
+fuel is a real structural bound (UTF-8 byte length, nesting depth). Compute the fuel from
+the input so it cannot under-run.
+
+`partial def` is acceptable only where a total encoding is genuinely impractical (the
+recursive-descent parser in `Parse.lean` is the standing exception). Anywhere else,
+`partial def` is a debt slated for fuel conversion — document the rationale at the
+definition site if you must introduce one.
+
 ## Executable Tests
 
-Lean proofs are not a substitute for compatibility tests against CUE. Use both.
+Lean proofs are not a substitute for compatibility tests against CUE. Use both. `#eval`
+is fine for scratch checks during development; durable tests are theorems in the
+`*Tests.lean` modules plus the fixture corpus below.
 
-Use `#eval` for tiny checks during development:
+### Fixture dual-entry
 
-```lean
-#eval add1 41
+A test fixture is verified along **two** paths that must agree, so a new fixture needs
+both entries:
+
+1. `testdata/cue/<name>.cue` + `testdata/cue/<name>.expected` — the source and KUE's
+   expected output. `.expected` is **Kue's** output format, not raw CUE's.
+2. A hand-built `<name>.expected` entry in `Kue/FixturePorts.lean` — the same value
+   constructed directly as a Lean `Value` and formatted.
+
+`scripts/check-fixtures.sh` diffs the CLI path (`kue < <name>.cue`) against the
+Lean-port path; a missing entry on either side fails the run. For `manifest` output, use
+the `<name>.manifest.expected` suffix and the manifest helpers in `FixturePorts.lean`.
+
+### The full verify gate
+
+A slice is not done until all three pass:
+
+```sh
+lake build                  # builds + checks every theorem
+scripts/check-fixtures.sh   # fixture pairs (CLI path == Lean-port path == .expected)
+shellcheck scripts/*.sh     # any shell you touched
 ```
 
-For durable tests, add theorem checks for laws and executable examples for expected
-normal forms. Later, add golden tests comparing Kue output with the official CUE
-implementation on selected examples.
+### Oracle-checking against `cue`
+
+Behavior is validated against the reference `cue` binary at `/Users/chakrit/go/bin/cue`,
+**v0.16.1**. (Target semantics are CUE v0.15 — Kue chases *correct* v0.15 behavior, not
+bug-for-bug parity; see
+[`../decisions/2026-06-14-cue-compatibility-target.md`](../decisions/2026-06-14-cue-compatibility-target.md).)
+
+Mechanics that bite:
+
+- `cue` needs file arguments, and builtin-using fixtures need an `import` line
+  (`import "list"`, `import "math"`, `import "strings"`).
+- `scripts/check-fixtures.sh` runs `cue fmt --check`, so format the fixture first:
+  `cue fmt --files testdata/cue/<name>.cue`.
+- `kue` reads stdin; `cue` reads files — keep that asymmetry in mind when comparing.
+- A useful kind probe: `(<expr> & int) != _|_` tells you whether `cue` collapsed a
+  result to `int`-kind (e.g. the numeric-`list`-builtin integral-collapse rule).
+
+When `cue` is buggy or surprising and Kue does the correct thing, log it in
+[`../reference/cue-divergences.md`](../reference/cue-divergences.md) (claim, `cue`
+output, Kue output, why Kue is right, `cue` version).
 
 ## Design Rules for This Repo
 
@@ -274,10 +345,10 @@ implementation on selected examples.
 
 ## External References
 
-- Lean 4 home and overview: https://lean4.dev/
-- Lean 4 language guide: https://lean4.dev/language
+- Lean 4 home: https://lean-lang.org/
+- Lean 4 language reference: https://lean-lang.org/doc/reference/latest/
 - Lake build system: https://lean-lang.org/doc/reference/latest/Build-Tools-and-Distribution/Lake/
-- Functional Programming in Lean: https://docs.lean-lang.org/lean4/doc/fplean.html
-- Theorem Proving in Lean 4: https://leanprover.github.io/theorem_proving_in_lean4/
+- Functional Programming in Lean: https://lean-lang.org/functional_programming_in_lean/
+- Theorem Proving in Lean 4: https://lean-lang.org/theorem_proving_in_lean4/
 - CUE language spec: https://cuelang.org/docs/reference/spec/
 - CUE logic overview: https://cuelang.org/docs/concept/the-logic-of-cue/
