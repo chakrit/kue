@@ -47,6 +47,11 @@ implementation log):
 - **Comprehensions** — `for k, v in expr` / `for v in expr` / `if cond` field clauses,
   desugaring into fields merged into the enclosing struct; the loop variable is one
   further lexical scope frame, expansion runs at eval time over lists and struct values.
+- **Dynamic fields & interpolation** — `(expr): v` computed labels and `"\(expr)"`
+  string interpolation. Dynamic fields ride the `structComp` scope machinery, resolving
+  their label expr in the enclosing struct's frame and expanding to a concrete field at
+  eval time once the label is a string; interpolated labels (`"\(k)": v`) are the common
+  form. Interpolation coerces int/float/bool/null/string holes to their CUE spelling.
 - **Manifestation** — structured export with default selection (incl. nested),
   field-class filtering, and incompleteness/ambiguity rejection.
 - **Builtins** — `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, with
@@ -66,17 +71,13 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   non-string label patterns and fuller regular expression matching.
 - Add remaining alias positions in a syntax layer instead of constructing
   semantic values directly.
-- Add dynamic fields `(expr): v` (computed labels). The prerequisite scope chain has
-  landed (`BindingId = (depth, index)`, lexical scope frames in resolution/evaluation),
-  and **comprehensions are done** (see the comprehensions slice): `for k, v in expr` /
-  `for v in expr` / `if cond` field clauses now desugar into fields merged into the
-  enclosing struct, with the loop variable as one further scope frame. Dynamic fields
-  are the remaining piece — labels computed from an expression, evaluated against the
-  enclosing struct's scope.
-- Fix general struct-embedding scope: a `{ … }` embedded directly in a struct currently
-  resolves its references against the embedded struct, not the enclosing one (the
-  comprehension slice sidestepped this for its own bodies via `structComp`; the broad
-  fix is still pending).
+- **Next: fix general struct-embedding scope.** A `{ … }` embedded directly in a struct
+  currently resolves its references against the embedded struct, not the enclosing one —
+  e.g. `out: { base: 7, {copy: base} }` yields a bottom `copy` where the reference binary
+  resolves it to `7`. The comprehension and dynamic-field slices sidestepped this for
+  their own bodies via `structComp` (which carries embeddings inside the enclosing frame);
+  the broad fix — plain embeddings resolving in the enclosing scope — is still pending and
+  is the next slice.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
 - Add remaining builtin functions beyond the implemented `close`, `len`, `and`,
   `or`, `div`, `mod`, `quo`, and `rem` helpers.

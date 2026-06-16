@@ -3318,3 +3318,79 @@ than the enclosing struct — e.g. `out: { base: 7, {copy: base} }` yields a
 bottom `copy` where the reference binary resolves it to `7`. The comprehension
 path sidesteps this by carrying its bodies inside `structComp`; the general
 embedding-scope fix is a separate slice.
+
+---
+
+## Completed Slice: Dynamic Fields
+
+Commit `804ceff`. Computed field labels `(expr): v`, plus the string
+interpolation `"\(expr)"` that is the common label form. Behavioral target: a
+dynamic field's label is an expression evaluated against the enclosing struct's
+scope; the canonical use is a comprehension body emitting distinct labels per
+iteration — `for k, v in {a: 1, b: 2} {"\(k)": v}` => `{a: 1, b: 2}`.
+
+### Representation
+
+1. `Value.interpolation (parts : List Value)`. Literal segments are string prims,
+   holes are exprs (alternating, but stored uniformly). Eval coerces each
+   evaluated part to its CUE string rendering — string content verbatim;
+   int/float/bool/null by literal spelling (`interpolationText?`) — and
+   concatenates. A bottom hole propagates bottom; a hole with no string rendering
+   (bytes, or an unresolved non-primitive) leaves the `.interpolation` residual.
+
+2. `Value.dynamicField (label : Value) (fieldClass) (value : Value)`. Carried in
+   `structComp`'s `comprehensions` list, so it resolves in the struct's own
+   lexical frame (`buildFrame fields :: scopes`) exactly like static fields and
+   `for`-loop variables, and composes with the `(depth, index)` scope chain. It
+   expands at eval time: evaluate `label`; if it is a string prim, emit the single
+   field `(name, fieldClass, eval value)`; otherwise the field is bottom / dropped.
+   Same-label collisions meet through the existing `structComp` merge (verified:
+   `{a: 1, (k): 1}` with `k: "a"` => `{a: 1}`).
+
+### Parser
+
+3. Interpolation-aware string scanner (`parseInterpolatedString`) splits a quoted
+   literal on `\( … )`, recursing into `parseExpression` for each hole. No holes =>
+   `.prim (.string …)` (unchanged behavior); holes => `.interpolation`.
+
+4. `(expr): v` (with optional `?`/`!` class) parses to `.dynamicField`
+   (`parseDynamicField`). A quoted label carrying interpolation
+   (`parseQuotedLabelField`) becomes a dynamic field whose label is the
+   interpolation value; a plain quoted label stays a static field. Both forms fall
+   back to embedding on mismatch. `ParsedField.dynamicField` routes through the
+   `comprehensions` bucket in `splitParsedFields`, so `parsedFieldsValue` builds a
+   `structComp`.
+
+### Totality plumbing
+
+5. Format renders both new constructors (`"\(…)"` and `(label): value`). Resolve
+   recurses into interpolation parts and the dynamic-field label/value in the
+   current scope. Lattice `meetCore` and Manifest get arms for the two pre-eval
+   forms (residual bottom / incomplete). `expandComprehensionWithFuel` was made
+   fuel-destructuring so its new dynamic-field eval calls satisfy structural
+   recursion.
+
+### Fixtures
+
+6. Oracle `cue` v0.16.1. `string_interpolation` (number-in-string),
+   `dynamic_field` (direct `(k): 42`), `dynamic_field_comprehension` (the
+   interpolated-label oracle). Both the CLI path and hand-built Lean-AST
+   FixturePorts diff clean against the `.expected`.
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 66 jobs, `fixture pairs ok`, shellcheck clean.
+
+### Note on commit granularity
+
+Interpolation was the planned precursor, but its parser and the dynamic-field
+representation are co-dependent (interpolated labels are *the* dynamic-field form),
+and the edits interleave within the same hunks of `Value`/`Parse`/`Eval`. A clean
+two-commit split would need interactive staging or a non-building intermediate, so
+this landed as one atomic green commit covering both.
