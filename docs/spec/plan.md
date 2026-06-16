@@ -87,8 +87,13 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   package (integer domain) are landed (see Implementation Status). The decimal-lift
   refactor is also landed: `DecimalValue` and its arithmetic/compare/format helpers now
   live in `Kue/Decimal.lean` (below both `Eval` and `Builtin`), so `Builtin` can do
-  exact-decimal work without the old `Builtin → Eval` cycle. **Next: the `math`
-  family** — now implementable for float-returning functions (`Sqrt`, `Pow`, `Floor`,
+  exact-decimal work without the old `Builtin → Eval` cycle. **Post-audit builtin
+  hardening landed** (commit `1edc760`): the duplicated dispatch fallback is now one
+  shared `unresolvedOrBottom` + `isConcreteArg` (reuse it in the `math` dispatcher
+  instead of re-duplicating); `stringReplace` and `listFlattenN` are fuel-bounded total
+  (no more `partial`); deferred float-mul/div, `strings.Replace` count==0, `list.Slice`
+  negative-low, and a loop-var-shadows-sibling comprehension are pinned by tests.
+  **Next: the `math` family** — now implementable for float-returning functions (`Sqrt`, `Pow`, `Floor`,
   …) via `formatFiniteDecimal`, not just integer-only. Remaining `list` work, now
   **unblocked** by the refactor: `list.Avg` (exact-rational mean with apd 34-sig-digit
   float formatting) and float-domain `Sum`/`Min`/`Max` and float `Range` (use

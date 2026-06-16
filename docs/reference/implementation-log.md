@@ -3681,3 +3681,68 @@ shellcheck scripts/check-fixtures.sh
 
 `lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No `.expected` changed
 (git status: only `Kue/Eval.lean` modified, `Kue/Decimal.lean` added).
+
+---
+
+## Completed Slice: Post-audit builtin hardening
+
+Goal: close three findings from the periodic `/ace-audit` of `b92035b..8af9e2f` before
+the `math` family lands. The first finding gates `math` directly — without it, the new
+dispatcher would clone a duplicated helper triplet a third time.
+
+### Finding 1 — DRY the builtin-dispatch fallback
+
+`containsAnyBottom`, `argsFullyEvaluated`, and `isConcreteArg` were byte-identical
+`where` helpers under both `evalListBuiltin` and `evalStringsBuiltin`. Extracted one
+shared `isConcreteArg : Value → Bool` and one named `unresolvedOrBottom (name) (args)`
+at module scope (above all dispatchers), capturing the rule once: a call matching no
+known arm is bottom when any arg is bottom or all args are concrete (a real CUE type
+error), else it stays unresolved as `.builtinCall name args`. Both dispatchers now call
+`unresolvedOrBottom name args`; the `math` dispatcher will reuse the same helper rather
+than re-duplicate. Behavior-preserving — extraction of identical logic, fixtures green,
+no `.expected` edits.
+
+### Finding 2 — Totalize the two `partial def`s
+
+- `stringReplace` (was a fuel-free `while`/index-advance `Id.run` loop) now delegates to
+  a structurally-recursive `stringReplaceLoop (fuel) (acc rest old new) (remaining)`.
+  Fuel = source UTF-8 byte size, a sound upper bound: each replacement consumes ≥ 1 byte
+  of `rest`, so the loop cannot outrun it. `remaining < 0` keeps the "replace all"
+  semantics (no count cap); `remaining > 0` decrements. `partial` dropped.
+- `listFlattenN` (was `partial`, recursing on `depth - 1` with negative depth = flatten
+  fully) now routes through `listFlattenFuel (fuel : Nat) (items)`, which decrements one
+  level per descent and is structurally terminating. The full-flatten path derives its
+  fuel from a new `listNestingDepth : List Value → Nat` (the max `.list` nesting), a
+  structural ceiling that guarantees complete flattening. `partial` dropped.
+
+Both consistent with the `evalFuel`/`resolveFuel` fuel-bounded idiom used elsewhere.
+Behavior-preserving — the existing `list.FlattenN` / `strings.Replace` fixtures and
+theorems pass unchanged, no `.expected` edits.
+
+### Finding 3 — Pin the deferred-boundary + edge tests
+
+- `EvalTests.lean`: `eval_mul_two_floats_is_bottom_deferred` and
+  `eval_div_two_floats_is_bottom_deferred` assert that float×float / float÷float
+  currently collapse to `.bottom` (decimal arithmetic not yet wired into `evalMul` /
+  `evalDiv`). Pinning makes the eventual transition to real float arithmetic a visible,
+  test-breaking change instead of a silent one.
+- `comprehension_loopvar_shadow.{cue,expected}` + `FixturePorts.lean` entry: a
+  `for v in [10, 20]` body emits `"k\(v)": v` while a sibling `keep: v` sits outside the
+  loop. Oracle-checked against `cue` v0.16.1: inside the loop `v` binds the loop var
+  (10/20); `keep` resolves the sibling/outer `v` (`"sibling"`). Exercises the riskiest
+  new machinery — the `(depth, index)` lexical scope chain — for shadowing correctness.
+- `BuiltinTests.lean`: `strings_replace_zero_count_is_unchanged` (count == 0 returns the
+  input verbatim) and `list_slice_negative_low_is_bottom` (negative low bound is a CUE
+  error ⇒ bottom).
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No existing `.expected`
+changed (the only new `.expected` is the `comprehension_loopvar_shadow` fixture);
+findings 1 and 2 are behavior-preserving. Commit `1edc760`.

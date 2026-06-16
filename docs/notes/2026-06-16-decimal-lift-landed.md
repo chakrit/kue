@@ -1,8 +1,8 @@
 # Session 2026-06-16 — decimal-lift refactor landed
 
-Latest resume breadcrumb. Supersedes
+Superseded by [`2026-06-16-builtin-hardening-landed.md`](2026-06-16-builtin-hardening-landed.md)
+— see it for the live next step. Supersedes
 [`2026-06-16-list-builtins-landed.md`](2026-06-16-list-builtins-landed.md).
-Resuming **implementation** next session.
 
 ## What was done
 
