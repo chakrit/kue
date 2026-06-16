@@ -241,4 +241,60 @@ theorem list_call_stays_unresolved_on_abstract_arg :
       == .builtinCall "list.Sum" [.kind .number]) = true := by
   native_decide
 
+theorem math_abs_int_stays_int :
+    (evalBuiltinCall "math.Abs" [.prim (.int (-5))] == .prim (.int 5)) = true := by
+  native_decide
+
+theorem math_abs_float_stays_float :
+    (evalBuiltinCall "math.Abs" [.prim (.float "-3.5")] == .prim (.float "3.5")) = true := by
+  native_decide
+
+theorem math_multiple_of_true_for_divisible :
+    (evalBuiltinCall "math.MultipleOf" [.prim (.int 12), .prim (.int 3)]
+      == .prim (.bool true)) = true := by
+  native_decide
+
+theorem math_multiple_of_false_for_indivisible :
+    (evalBuiltinCall "math.MultipleOf" [.prim (.int 13), .prim (.int 3)]
+      == .prim (.bool false)) = true := by
+  native_decide
+
+theorem math_multiple_of_zero_divisor_is_division_by_zero :
+    (evalBuiltinCall "math.MultipleOf" [.prim (.int 5), .prim (.int 0)]
+      == .bottomWith [.divisionByZero]) = true := by
+  native_decide
+
+theorem math_floor_rounds_toward_negative_infinity :
+    (evalBuiltinCall "math.Floor" [.prim (.float "-3.2")] == .prim (.int (-4))) = true := by
+  native_decide
+
+theorem math_ceil_rounds_toward_positive_infinity :
+    (evalBuiltinCall "math.Ceil" [.prim (.float "-3.7")] == .prim (.int (-3))) = true := by
+  native_decide
+
+theorem math_round_half_away_from_zero_positive :
+    (evalBuiltinCall "math.Round" [.prim (.float "2.5")] == .prim (.int 3)) = true := by
+  native_decide
+
+theorem math_round_half_away_from_zero_negative :
+    (evalBuiltinCall "math.Round" [.prim (.float "-2.5")] == .prim (.int (-3))) = true := by
+  native_decide
+
+theorem math_trunc_drops_fraction_toward_zero :
+    (evalBuiltinCall "math.Trunc" [.prim (.float "-3.99")] == .prim (.int (-3))) = true := by
+  native_decide
+
+theorem math_floor_of_integer_is_identity :
+    (evalBuiltinCall "math.Floor" [.prim (.int 5)] == .prim (.int 5)) = true := by
+  native_decide
+
+theorem math_type_mismatch_is_bottom :
+    (evalBuiltinCall "math.Abs" [.prim (.string "x")] == .bottom) = true := by
+  native_decide
+
+theorem math_call_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "math.Floor" [.kind .number]
+      == .builtinCall "math.Floor" [.kind .number]) = true := by
+  native_decide
+
 end Kue

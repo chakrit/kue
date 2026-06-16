@@ -1,4 +1,5 @@
 import Kue.Lattice
+import Kue.Decimal
 
 namespace Kue
 
@@ -374,6 +375,73 @@ def evalStringsBuiltin : String -> List Value -> Value
       .list (stringFields s)
   | name, args => unresolvedOrBottom name args
 
+/-- Absolute value, preserving the numeric domain: int stays int, float stays float.
+    Mirrors CUE's `math.Abs` (int → int, float → float). -/
+def mathAbs : Prim -> Value
+  | .int value => .prim (.int value.natAbs)
+  | .float text =>
+      match parseDecimalText text with
+      | some value =>
+          let absValue := { value with numerator := value.numerator.natAbs }
+          .prim (.float (formatFiniteDecimal absValue true))
+      | none => .bottom
+  | _ => .bottom
+
+/-- Whether `value` is an integer multiple of `divisor`; a zero divisor is an
+    error (bottom), mirroring CUE's `math.MultipleOf` division-by-zero. -/
+def mathMultipleOf (value divisor : Int) : Value :=
+  if divisor == 0 then
+    .bottomWith [.divisionByZero]
+  else
+    .prim (.bool (value % divisor == 0))
+
+/-- Rounding mode for the `math.Floor`/`Ceil`/`Round`/`Trunc` family: each maps a
+    finite decimal to the integer part chosen by its mode. -/
+inductive RoundMode where
+  | floor
+  | ceil
+  | round
+  | trunc
+deriving Repr, BEq
+
+/-- Integer part of `value` under `mode`. `divisor = 10^scale`, so an integer
+    input (`scale = 0`, `divisor = 1`) is returned unchanged. -/
+def roundDecimalToInt (mode : RoundMode) (value : DecimalValue) : Int :=
+  let divisor := Int.ofNat (evalPow10 value.scale)
+  match mode with
+  | .floor => Int.fdiv value.numerator divisor
+  | .ceil => -(Int.fdiv (-value.numerator) divisor)
+  | .trunc => Int.tdiv value.numerator divisor
+  | .round =>
+      let magnitude := (value.numerator.natAbs + (evalPow10 value.scale) / 2) / (evalPow10 value.scale)
+      if value.numerator < 0 then -(Int.ofNat magnitude) else Int.ofNat magnitude
+
+/-- Round a numeric argument to an integer under `mode`. An int passes through;
+    a float is parsed to an exact decimal first. Mirrors CUE, where
+    `math.Floor`/`Ceil`/`Round`/`Trunc` return an integer. -/
+def mathRound (mode : RoundMode) : Prim -> Value
+  | .int value => .prim (.int value)
+  | .float text =>
+      match parseDecimalText text with
+      | some value => .prim (.int (roundDecimalToInt mode value))
+      | none => .bottom
+  | _ => .bottom
+
+/-- Dispatch a `math.*` builtin over already-evaluated arguments.
+    Wrong argument shapes resolve to bottom (CUE error), per total-function design.
+    Deferred (kept unresolved/not matched): `Sqrt`/`Pow` (irrational results need
+    apd sig-digit context; `Sqrt` of a negative yields `NaN`, a value Kue does not
+    yet model) and the trig/log family. -/
+def evalMathBuiltin : String -> List Value -> Value
+  | "math.Abs", [.prim p] => mathAbs p
+  | "math.MultipleOf", [.prim (.int value), .prim (.int divisor)] =>
+      mathMultipleOf value divisor
+  | "math.Floor", [.prim p] => mathRound .floor p
+  | "math.Ceil", [.prim p] => mathRound .ceil p
+  | "math.Round", [.prim p] => mathRound .round p
+  | "math.Trunc", [.prim p] => mathRound .trunc p
+  | name, args => unresolvedOrBottom name args
+
 def evalBuiltinCall : String -> List Value -> Value
   | "close", [value] => closeValue value
   | "len", [value] => lenValue value
@@ -388,6 +456,8 @@ def evalBuiltinCall : String -> List Value -> Value
         evalStringsBuiltin name args
       else if name.startsWith "list." then
         evalListBuiltin name args
+      else if name.startsWith "math." then
+        evalMathBuiltin name args
       else
         .builtinCall name args
 

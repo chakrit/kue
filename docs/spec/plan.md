@@ -61,10 +61,13 @@ implementation log):
   field-class filtering, and incompleteness/ambiguity rejection.
 - **Builtins** — top-level `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, plus
   the package-qualified `strings` family (`Contains`, `HasPrefix`, `HasSuffix`, `Index`,
-  `Count`, `Split`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`) and the `list`
+  `Count`, `Split`, `Join`, `Replace`, `Repeat`, `TrimSpace`, `Fields`), the `list`
   family (`Concat`, `FlattenN`, `Repeat`, `Range`, `Slice`, `Take`, `Drop`, `Contains`,
-  and integer-domain `Sum`/`Min`/`Max`). Unresolved calls preserved as semantic values;
-  concrete type-mismatch args resolve to bottom.
+  and integer-domain `Sum`/`Min`/`Max`), and the `math` family
+  (`Abs` domain-preserving int→int / float→float, `MultipleOf`, and float→int
+  `Floor`/`Ceil`/`Round`/`Trunc` via exact-decimal truncation; `Round` is
+  half-away-from-zero). Unresolved calls preserved as semantic values; concrete
+  type-mismatch args resolve to bottom.
 - **Parser/CLI** — recursive-descent parser over the supported subset; numeric literal
   spellings (non-decimal, separators, exponents, suffix multipliers); stdin and explicit
   multi-file evaluation with package-name consistency. Package-qualified builtin calls
@@ -93,8 +96,16 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   instead of re-duplicating); `stringReplace` and `listFlattenN` are fuel-bounded total
   (no more `partial`); deferred float-mul/div, `strings.Replace` count==0, `list.Slice`
   negative-low, and a loop-var-shadows-sibling comprehension are pinned by tests.
-  **Next: the `math` family** — now implementable for float-returning functions (`Sqrt`, `Pow`, `Floor`,
-  …) via `formatFiniteDecimal`, not just integer-only. Remaining `list` work, now
+  **`math` family rational-exact subset landed** (`Abs`, `MultipleOf`,
+  `Floor`/`Ceil`/`Round`/`Trunc`): `evalMathBuiltin` reuses the shared
+  `unresolvedOrBottom` fallback and does exact-decimal work via `parseDecimalText` +
+  `formatFiniteDecimal`. `Abs` is domain-preserving (int→int, float→float);
+  `Floor`/`Ceil`/`Round`/`Trunc` take a number and return an int (`Round` is
+  half-away-from-zero). **Deferred from `math`:** `Sqrt`/`Pow` (irrational results need
+  apd sig-digit context — `cue` gives `Sqrt(2)=1.4142135623730951` at ~17 digits but
+  `Pow(2,0.5)=1.414…209698` at 34 digits, and `Sqrt(-1)=NaN.0` rather than erroring, so
+  they need both apd-context formatting and a NaN value Kue does not yet model) plus the
+  trig/log/`Exp` family. Remaining `list` work, now
   **unblocked** by the refactor: `list.Avg` (exact-rational mean with apd 34-sig-digit
   float formatting) and float-domain `Sum`/`Min`/`Max` and float `Range` (use
   `addDecimalValues` / `decimalLtValues` from `Builtin`). Still deferred:

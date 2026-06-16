@@ -1329,6 +1329,62 @@ def fixturePorts : List FixturePort :=
                     [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)]])
               ]
               true))
+    },
+    {
+      fileName := "math_builtin.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("absNegInt", .regular,
+                  .builtinCall "math.Abs" [.prim (.int (-5))]),
+                ("absPosInt", .regular,
+                  .builtinCall "math.Abs" [.prim (.int 5)]),
+                ("absZero", .regular,
+                  .builtinCall "math.Abs" [.prim (.int 0)]),
+                ("absFloat", .regular,
+                  .builtinCall "math.Abs" [.prim (.float "-3.5")]),
+                ("absBigFloat", .regular,
+                  .builtinCall "math.Abs" [.prim (.float "-123.456")]),
+                ("multTrue", .regular,
+                  .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int 3)]),
+                ("multFalse", .regular,
+                  .builtinCall "math.MultipleOf" [.prim (.int 13), .prim (.int 3)]),
+                ("multNegValue", .regular,
+                  .builtinCall "math.MultipleOf" [.prim (.int (-12)), .prim (.int 3)]),
+                ("multNegDivisor", .regular,
+                  .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int (-3))]),
+                ("floorPos", .regular,
+                  .builtinCall "math.Floor" [.prim (.float "3.7")]),
+                ("floorNeg", .regular,
+                  .builtinCall "math.Floor" [.prim (.float "-3.2")]),
+                ("floorInt", .regular,
+                  .builtinCall "math.Floor" [.prim (.int 5)]),
+                ("floorExact", .regular,
+                  .builtinCall "math.Floor" [.prim (.float "3.0")]),
+                ("ceilPos", .regular,
+                  .builtinCall "math.Ceil" [.prim (.float "3.2")]),
+                ("ceilNeg", .regular,
+                  .builtinCall "math.Ceil" [.prim (.float "-3.7")]),
+                ("ceilInt", .regular,
+                  .builtinCall "math.Ceil" [.prim (.int 5)]),
+                ("roundHalf", .regular,
+                  .builtinCall "math.Round" [.prim (.float "2.5")]),
+                ("roundNegHalf", .regular,
+                  .builtinCall "math.Round" [.prim (.float "-2.5")]),
+                ("roundDown", .regular,
+                  .builtinCall "math.Round" [.prim (.float "2.4")]),
+                ("roundUp", .regular,
+                  .builtinCall "math.Round" [.prim (.float "0.5")]),
+                ("truncPos", .regular,
+                  .builtinCall "math.Trunc" [.prim (.float "3.7")]),
+                ("truncNeg", .regular,
+                  .builtinCall "math.Trunc" [.prim (.float "-3.99")]),
+                ("truncInt", .regular,
+                  .builtinCall "math.Trunc" [.prim (.int 5)])
+              ]
+              true))
     }
   ]
 

@@ -3746,3 +3746,70 @@ shellcheck scripts/check-fixtures.sh
 `lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No existing `.expected`
 changed (the only new `.expected` is the `comprehension_loopvar_shadow` fixture);
 findings 1 and 2 are behavior-preserving. Commit `1edc760`.
+
+## Completed Slice: Math Builtin Family (rational-exact subset)
+
+Goal: add the `math.*` builtin family, mirroring the `strings`/`list` dispatcher shape,
+for every function whose result is rational-exact under Kue's existing `DecimalValue`
+machinery. Functions whose results are irrational (need apd sig-digit context) or model
+`NaN` are scoped to a documented follow-up rather than encoded with a guessed value.
+
+### What landed
+
+`Kue/Builtin.lean` now `import Kue.Decimal` (legal — `Builtin` may import `Decimal`, only
+not `Eval`) and adds:
+
+- `mathAbs : Prim → Value` — **domain-preserving** absolute value: `int → int`,
+  `float → float`. Oracle-confirmed: `cue`'s `math.Abs(-5) = 5` stays int (unifies with
+  `int`), `math.Abs(-3.5) = 3.5` stays float (does not unify with `int`). The float arm
+  parses to `DecimalValue`, negates the numerator's sign, and re-formats via
+  `formatFiniteDecimal _ true`.
+- `mathMultipleOf (value divisor : Int) : Value` — `value % divisor == 0` as a bool; a
+  zero divisor is `.bottomWith [.divisionByZero]`, mirroring `cue`'s
+  "division by zero" error on `math.MultipleOf(_, 0)`.
+- A `RoundMode` sum type (`floor`/`ceil`/`round`/`trunc`) + `roundDecimalToInt` +
+  `mathRound : RoundMode → Prim → Value`. `Floor`/`Ceil`/`Round`/`Trunc` take a number
+  and **return an int** (oracle-confirmed: all four unify with `int`; e.g.
+  `math.Floor(3.7) = 3`, no `.0`). An int input is identity. A float is parsed to an
+  exact decimal and reduced over `divisor = 10^scale`: floor = `Int.fdiv`, ceil =
+  `-(Int.fdiv (-num) div)`, trunc = `Int.tdiv`, round = half-away-from-zero
+  (`(|num| + div/2) / div`, sign reapplied; `div` is even for any `scale ≥ 1`, so
+  `div/2` is exact). Oracle-confirmed `Round(2.5)=3`, `Round(-2.5)=-3`, `Round(0.5)=1`.
+- `evalMathBuiltin : String → List Value → Value` with catch-all
+  `| name, args => unresolvedOrBottom name args` (reuses the shared fallback from the
+  post-audit hardening slice — no duplicated triplet), plus a `name.startsWith "math."`
+  route in `evalBuiltinCall`.
+
+### Deferred (documented, not encoded)
+
+- `math.Sqrt` / `math.Pow`: irrational results need apd's sig-digit rounding context, and
+  the two functions use *different* precisions in `cue` — `Sqrt(2) = 1.4142135623730951`
+  (~17 digits) vs `Pow(2, 0.5) = 1.414…209698` (34 digits). `Sqrt(-1)` returns `NaN.0`
+  rather than erroring, so `Sqrt` also needs a `NaN` value Kue does not model. Both need
+  apd-context formatting before they can match the oracle exactly.
+- The trig/log/`Exp` and constant (`Pi`, `E`) families: same apd-context requirement.
+
+### Tests
+
+- Fixture `math_builtin.{cue,expected}` (23 fields) + a hand-built `FixturePorts.lean`
+  entry, oracle-checked against `cue` v0.16.1 (`cue fmt` clean, `cue export` matches Kue
+  on every field). Covers int/float Abs, zero, `MultipleOf` true/false/negative-value/
+  negative-divisor, and the four rounding modes on positive/negative/exact/integer inputs.
+- 14 `native_decide` theorems in `BuiltinTests.lean`: domain preservation (int↔int,
+  float↔float), `MultipleOf` truth + zero-divisor bottom, floor-toward-−∞,
+  ceil-toward-+∞, round-half-away-from-zero (both signs), trunc-toward-zero,
+  floor-of-int identity, string-arg type-mismatch ⇒ bottom, and abstract-arg ⇒ unresolved
+  `.builtinCall`.
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No existing `.expected`
+changed (only the new `math_builtin` pair). No CUE divergence logged — Kue matches the
+oracle exactly on all 23 fields; the `Sqrt(-1)=NaN.0` non-erroring behavior is noted as a
+deferral rationale, not a Kue-is-more-correct divergence (Kue does not yet evaluate it).
