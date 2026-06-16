@@ -49,10 +49,12 @@ Standing grant for this repo, given by chakrit 2026-06-14:
 At the start of every fresh session, state that this grant is in effect before
 beginning work.
 
-### Continuous slice loop ("Go")
+### Continuous slice loop ("Keep going")
 
-Goal: from any fresh session — new machine, new clone, after `/clear` — a single "Go"
-(or "keep going", "continue") re-enters an autonomous loop with no further setup.
+Goal: from any fresh session — new machine, new clone, after `/clear` — a single
+"Keep going" (or close variants: "keep it going", "keep going on Kue", "carry on")
+re-enters this autonomous loop with no further setup. Treat the longer phrase as the
+deliberate loop trigger; a bare "go"/"continue" stays an ordinary nudge.
 
 The primary agent (you) is a thin orchestrator, not the implementer:
 
