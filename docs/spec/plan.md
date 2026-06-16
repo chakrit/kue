@@ -24,6 +24,24 @@ reference implementation. See
 - Keep each commit small enough to review, revert, or extend safely. One slice per
   commit; the commit subject mirrors the slice title.
 
+## Current Focus (priority, set 2026-06-16 by chakrit)
+
+The semantic core is broad and largely in place; supporting stdlib builtins
+(`strings`/`list`/`math`) are now **lower priority** than core-language completeness.
+Work the loop in this order:
+
+1. **Parser completeness (active).** Close the gap between forms the semantic core
+   already supports and what the CLI parser accepts, so real `.cue` files parse and
+   evaluate end-to-end instead of hard-erroring; add real CUE-style error diagnostics
+   (not residual expressions) and the newline/semicolon separator-insertion rules.
+2. **Local imports & modules (sort-of working).** Make local/relative imports and
+   module resolution at least partially function (single module, on-disk files).
+3. **Full packages — deferred to LAST.** Multi-file package merge and full package-clause
+   semantics are the final feature set, after everything else.
+
+Remaining stdlib builtins (`strings.Trim*`/`Runes`/`ContainsAny`/`LastIndex`,
+`list.Sort`/`SortStable`, unicode case folding) stay parked until the above lands.
+
 ## Implementation Status
 
 The semantic core, evaluator, manifestation, a stdin/file CLI, and a broad expression
