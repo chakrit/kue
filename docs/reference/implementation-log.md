@@ -3237,3 +3237,84 @@ de Bruijn-style scope chain, not a synthetic-binding patch over the dynamic fall
    resolves to `refId ⟨1, 0⟩`, prefers the nearest scope on shadowing (`⟨0, 0⟩`), and
    evaluates through to the outer value. All 82 fixture pairs stay green.
 
+
+## Completed Slice: Comprehensions
+
+Goal: add `for` / `if` field comprehensions that desugar into fields merged into
+the enclosing struct, introducing one new scope kind (the loop variable) on the
+lexical scope chain built by the previous slice. Dynamic fields `(expr): v` are
+deliberately out of scope (next slice).
+
+### Steps
+
+1. Extend the value domain. Completed in the comprehensions slice.
+   Add a `Clause Value` inductive — `forIn (key : Option String) (value : String)
+   (source : Value)` and `guard (condition : Value)` — and two `Value`
+   constructors: `comprehension (clauses) (body)`, and `structComp (fields)
+   (comprehensions) (open_)`. `structComp` is a struct body that carries its
+   comprehension embeddings so they resolve and evaluate within the struct's own
+   lexical frame (a plain `.conj`-of-embeddings would have lost that scope —
+   confirmed against the reference binary, where a comprehension body sees its
+   sibling fields).
+
+2. Parser. Completed in the comprehensions slice.
+   `parseComprehension` parses a chain of `for k, v in expr` / `for v in expr` /
+   `if cond` clauses followed by a `{ body }` struct. Clauses are recognised by
+   the `for`/`if` keywords with a word boundary (so `format:` is still a field).
+   Comprehensions are split into their own `ParsedFieldParts.comprehensions` list;
+   `parsedFieldsValue` emits a `structComp` when any are present.
+
+3. Resolver. Completed in the comprehensions slice.
+   `clauseLoopFrame` defines the loop-variable frame: a keyed `for k, v` binds
+   `k` at index 0 and `v` at index 1; an unkeyed `for v` binds `v` at index 0.
+   `resolveClausesWithFuel` resolves each clause's source/condition in the scope
+   that precedes it, then pushes the loop frame for subsequent clauses and the
+   body. `structComp` resolves its fields and comprehensions against
+   `buildFrame fields :: scopes`, so loop vars and enclosing fields both resolve
+   to `(depth, index)` binding ids.
+
+4. Evaluator. Completed in the comprehensions slice.
+   `structComp` evaluates its static fields, then expands each comprehension at
+   eval time and merges the produced fields via the existing same-label meet
+   (matching the reference binary, where two iterations emitting the same static
+   label unify — and conflict to field-level bottom when their values differ).
+   `comprehensionPairs` iterates lists as `(int index, element)` and structs as
+   `(string label, value)` over regular fields. `expandClausesWithFuel` walks the
+   clause chain: each `for` pushes a synthetic loop frame (`loopFrame`, mirroring
+   `clauseLoopFrame`) per iteration; each `if` admits its remaining expansion only
+   when the condition evaluates to `true`, else contributes nothing; with no
+   clauses left, the body struct is evaluated in the current env and its fields
+   emitted.
+
+5. Totality plumbing. Completed in the comprehensions slice.
+   Format renders the new constructors; Manifest treats both as incomplete (they
+   evaluate away before manifestation); Lattice `meetCore` adds bottom-producing
+   fallthroughs for the pre-eval forms. `meet_identical_prim` was reproved via an
+   explicit `meetWithFuel`/`meetCore` rewrite chain — the enlarged `Value` match
+   made the old full-unfold `simp` exceed the inner whnf heartbeat cap.
+
+6. Fixtures and unit tests. Completed in the comprehensions slice.
+   Oracle: `cue` v0.16.1. `comprehension_for` covers `for k, v` over a struct;
+   `comprehension_guard` covers a list `for` plus `if true` / `if false` guards
+   alongside a regular field. Lean Eval/Resolve theorems lock both loop-var forms,
+   struct/list iteration, guard admit/drop, loop-var binding ids, and body
+   references to sibling and outer fields.
+
+7. Verify. Completed in the comprehensions slice.
+
+   ```sh
+   lake build
+   scripts/check-fixtures.sh
+   shellcheck scripts/check-fixtures.sh
+   ```
+
+   All fixture pairs stay green.
+
+### Follow-up surfaced (not in this slice)
+
+Plain struct embeddings (`{ … }` embedded directly, not via a comprehension)
+still resolve their references against the embedded struct's own scope rather
+than the enclosing struct — e.g. `out: { base: 7, {copy: base} }` yields a
+bottom `copy` where the reference binary resolves it to `7`. The comprehension
+path sidesteps this by carrying its bodies inside `structComp`; the general
+embedding-scope fix is a separate slice.

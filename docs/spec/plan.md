@@ -44,6 +44,9 @@ implementation log):
 - **References & cycles** — same-struct and nested-scope resolution via binding ids,
   `let` bindings, static field aliases, and bounded cycle handling (direct, mutual,
   longer; constraints preserved across cycles).
+- **Comprehensions** — `for k, v in expr` / `for v in expr` / `if cond` field clauses,
+  desugaring into fields merged into the enclosing struct; the loop variable is one
+  further lexical scope frame, expansion runs at eval time over lists and struct values.
 - **Manifestation** — structured export with default selection (incl. nested),
   field-class filtering, and incompleteness/ambiguity rejection.
 - **Builtins** — `close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, with
@@ -63,11 +66,17 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   non-string label patterns and fuller regular expression matching.
 - Add remaining alias positions in a syntax layer instead of constructing
   semantic values directly.
-- Add dynamic fields and comprehensions. The prerequisite — lexical binding
-  identities represented for more than same-struct fields — has landed: `BindingId`
-  now carries `(depth, index)` and resolution/evaluation thread a lexical scope chain
-  (see the lexical scope chain slice). Comprehensions add one further scope kind (the
-  `for` loop variable), which is not a struct field; dynamic fields add computed labels.
+- Add dynamic fields `(expr): v` (computed labels). The prerequisite scope chain has
+  landed (`BindingId = (depth, index)`, lexical scope frames in resolution/evaluation),
+  and **comprehensions are done** (see the comprehensions slice): `for k, v in expr` /
+  `for v in expr` / `if cond` field clauses now desugar into fields merged into the
+  enclosing struct, with the loop variable as one further scope frame. Dynamic fields
+  are the remaining piece — labels computed from an expression, evaluated against the
+  enclosing struct's scope.
+- Fix general struct-embedding scope: a `{ … }` embedded directly in a struct currently
+  resolves its references against the embedded struct, not the enclosing one (the
+  comprehension slice sidestepped this for its own bodies via `structComp`; the broad
+  fix is still pending).
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
 - Add remaining builtin functions beyond the implemented `close`, `len`, `and`,
   `or`, `div`, `mod`, `quo`, and `rem` helpers.
