@@ -1116,6 +1116,65 @@ def fixturePorts : List FixturePort :=
                     true)
               ]
               true))
+    },
+    {
+      fileName := "struct_embedding_scope.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                (
+                  "out",
+                  .regular,
+                  .structComp
+                    [("base", .regular, .prim (.int 7))]
+                    [.struct [("copy", .regular, .ref "base")] true]
+                    true)
+              ]
+              true))
+    },
+    {
+      fileName := "struct_embedding_nested.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                (
+                  "out",
+                  .regular,
+                  .structComp
+                    [("base", .regular, .prim (.int 7))]
+                    [.struct [("inner", .regular, .struct [("deep", .regular, .ref "base")] true)] true]
+                    true)
+              ]
+              true))
+    },
+    {
+      fileName := "struct_embedding_siblings.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                (
+                  "out",
+                  .regular,
+                  .structComp
+                    [
+                      ("base", .regular, .prim (.int 7)),
+                      ("sib", .regular, .prim (.int 9))
+                    ]
+                    [.struct
+                      [
+                        ("copy", .regular, .ref "base"),
+                        ("copy2", .regular, .ref "sib")
+                      ]
+                      true]
+                    true)
+              ]
+              true))
     }
   ]
 

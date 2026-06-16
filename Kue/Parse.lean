@@ -22,7 +22,6 @@ inductive ParsedField where
 structure ParsedFieldParts where
   fields : List Field
   patterns : List (Value × Value)
-  embeddings : List Value
   comprehensions : List Value
   tail : Option Value
 
@@ -401,7 +400,7 @@ def parseFieldTerminator (terminator : Option Char) (chars : List Char) : Bool :
   | _, _ => false
 
 def splitParsedFields : List ParsedField -> ParsedFieldParts
-  | [] => { fields := [], patterns := [], embeddings := [], comprehensions := [], tail := none }
+  | [] => { fields := [], patterns := [], comprehensions := [], tail := none }
   | .field field :: rest =>
       let split := splitParsedFields rest
       { split with fields := field :: split.fields }
@@ -413,7 +412,7 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
       { split with patterns := (labelPattern, constraint) :: split.patterns }
   | .embedding value :: rest =>
       let split := splitParsedFields rest
-      { split with embeddings := value :: split.embeddings }
+      { split with comprehensions := value :: split.comprehensions }
   | .letBinding name value :: rest =>
       let split := splitParsedFields rest
       { split with fields := (name, .letBinding, value) :: split.fields }
@@ -441,16 +440,12 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
         match parts.patterns with
         | [] => .structComp parts.fields comprehensions true
         | _ => .conj [parsedFieldsBaseValue parts.fields parts.patterns, .structComp parts.fields comprehensions true]
-  let base :=
-    match parts.tail with
-    | none => declared
-    | some tail =>
-        match parts.patterns, parts.comprehensions with
-        | [], [] => .structTail parts.fields tail
-        | _, _ => .conj [declared, .structTail parts.fields tail]
-  match parts.embeddings with
-  | [] => base
-  | embeddings => .conj (embeddings ++ [base])
+  match parts.tail with
+  | none => declared
+  | some tail =>
+      match parts.patterns, parts.comprehensions with
+      | [], [] => .structTail parts.fields tail
+      | _, _ => .conj [declared, .structTail parts.fields tail]
 
 def structEllipsisEndsHere : List Char -> Bool
   | [] => true

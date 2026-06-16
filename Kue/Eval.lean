@@ -614,6 +614,18 @@ def evalInterpolation (parts : List Value) : Value :=
     | some text => .prim (.string text)
     | none => .interpolation parts
 
+/--
+A `structComp` carries three kinds of member in its `comprehensions` bucket: field
+comprehensions, dynamic fields, and plain embeddings. The first two expand to fields
+merged into the struct; an embedding is an arbitrary value unified (`meet`) with the
+whole struct, so a struct embedding merges its fields and a non-struct embedding
+conflicts. Both kinds resolve in the enclosing struct's lexical frame.
+-/
+def isEmbeddingValue : Value -> Bool
+  | .comprehension _ _ => false
+  | .dynamicField _ _ _ => false
+  | _ => true
+
 def listPairsFrom (index : Nat) : List Value -> List (Value × Value)
   | [] => []
   | item :: items => (.prim (.int index), item) :: listPairsFrom (index + 1) items
@@ -744,8 +756,12 @@ mutual
             (fun acc comprehension => acc ++ expandComprehensionWithFuel fuel nested comprehension)
             []
         match mergeEvaluatedFields (staticFields ++ expanded) with
-        | some merged => .struct merged open_
         | none => .bottom
+        | some merged =>
+            let embeddings := comprehensions.filter isEmbeddingValue
+            embeddings.foldl
+              (fun current embedding => meet current (evalValueWithFuel fuel nested [] embedding))
+              (.struct merged open_)
     | fuel + 1, env, visited, .interpolation parts =>
         evalInterpolation (parts.map (evalValueWithFuel fuel env visited))
     | fuel + 1, env, visited, .dynamicField label _ value =>
