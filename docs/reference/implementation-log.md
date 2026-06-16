@@ -3613,3 +3613,71 @@ shellcheck scripts/check-fixtures.sh
 ```
 
 `lake build` 66 jobs, `fixture pairs ok`, shellcheck clean.
+
+---
+
+## Completed Slice: Decimal-Lift Refactor
+
+Goal: break the `Builtin → Eval` import cycle so the builtin layer can do
+exact-decimal arithmetic, comparison, and formatting — the blocker noted in the
+`list` and `strings` slices for `list.Avg`, float-domain `Sum`/`Min`/`Max`, and float
+`list.Range`. Pure structural move; **zero behavior change**.
+
+### What moved
+
+The entire decimal block left `Kue/Eval.lean` for a new `Kue/Decimal.lean`:
+
+- **Type:** `DecimalValue` (exact `numerator : Int` / `scale : Nat` rational-of-ten).
+- **Parsing:** `parseDecimalText`, `decimalFromPrim?`, and their helpers
+  (`evalPow10`, `evalDigitValue?`, `parseEvalDigits`/`…WithCount`,
+  `parseDecimalMantissa`, `parseDecimalExponent`, `applyDecimalExponent`,
+  `applyDecimalSign`, `parseUnsignedDecimalText`).
+- **Arithmetic:** `addDecimalValues`, `subDecimalValues`, `scaleDecimalNumerator`,
+  `maxNat`.
+- **Comparison:** `decimalCompareNumerators`, `decimalEqValues`, `decimalLtValues`.
+- **Formatting:** `formatFiniteDecimal` and helpers (`trimDecimalZerosWith`,
+  `decimalIntAbsNat`, `repeatZeros`, `leftPadZeros`).
+- **Prim adapters:** `evalDecimalBinary?`, `evalDecimalCompare?`.
+
+`Eval` keeps everything from `evalAdd` onward (the `Value`-level operators that consume
+these); it now `import Kue.Decimal` and references the lifted symbols unchanged. Names
+were kept stable — no rename churn.
+
+### Layering
+
+`Kue/Decimal.lean` imports only `Kue.Value`, so the new edge is `Value → Decimal`. This
+is the lowest clean home: it has no dependency on `Eval`, `Builtin`, `Lattice`, or
+`Normalize`, and both `Eval` and `Builtin` may import it without a cycle. Chosen over
+folding into `Lattice` because the decimal machinery is an independent concern (numeric
+representation/formatting), not lattice algebra — keeping it its own module honors the
+illegal-states-unrepresentable / single-responsibility bias and keeps the import DAG
+read as a clean layering rather than a grab-bag.
+
+`Builtin` is **not** yet wired to import `Decimal` — that belongs to the slices that
+actually consume it (no dead import). The unblock is purely that the DAG now permits it.
+
+### Now unblocked
+
+- **`list.Avg`** — exact-rational mean via `addDecimalValues` + `formatFiniteDecimal`
+  (int-collapse when count divides sum, else apd-style float).
+- **Float-domain `list.Sum` / `list.Min` / `list.Max`** — `addDecimalValues` and
+  `decimalLtValues` are now importable from `Builtin`.
+- **Float `list.Range`** — decimal stepping via the lifted arithmetic.
+- **`math` family floats** — `Sqrt`, `Pow`, `Floor`/`Ceil`/`Round` (float-valued), etc.
+  can format through `formatFiniteDecimal` instead of being stuck integer-only.
+
+### Tests
+
+No new fixture or theorem — a behavior-preserving refactor's safety net is that the
+existing suite stays green with no `.expected` edits. It did.
+
+### Verify
+
+```sh
+lake build
+scripts/check-fixtures.sh
+shellcheck scripts/check-fixtures.sh
+```
+
+`lake build` 68 jobs, `fixture pairs ok`, shellcheck clean. No `.expected` changed
+(git status: only `Kue/Eval.lean` modified, `Kue/Decimal.lean` added).

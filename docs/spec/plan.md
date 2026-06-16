@@ -84,12 +84,16 @@ Known deliberate boundaries are tracked in [`compat-assumptions.md`](compat-assu
   semantic values directly.
 - Expand cycle handling for arithmetic cycles and richer validation behavior.
 - **Builtin families.** Top-level helpers, the `strings` package, and the `list`
-  package (integer domain) are landed (see Implementation Status). **Next: the `math`
-  family.** Remaining `list` work, deferred by design choice and noted in the
-  implementation log: `list.Avg` (exact-rational mean with apd 34-sig-digit float
-  formatting); float-domain `Sum`/`Min`/`Max` and float `Range` (need the decimal
-  arithmetic in `Eval` lifted to a lower module — Builtin can't import Eval without a
-  cycle); and `Sort`/`SortStable`/`SortStrings` (need comparator-struct evaluation).
+  package (integer domain) are landed (see Implementation Status). The decimal-lift
+  refactor is also landed: `DecimalValue` and its arithmetic/compare/format helpers now
+  live in `Kue/Decimal.lean` (below both `Eval` and `Builtin`), so `Builtin` can do
+  exact-decimal work without the old `Builtin → Eval` cycle. **Next: the `math`
+  family** — now implementable for float-returning functions (`Sqrt`, `Pow`, `Floor`,
+  …) via `formatFiniteDecimal`, not just integer-only. Remaining `list` work, now
+  **unblocked** by the refactor: `list.Avg` (exact-rational mean with apd 34-sig-digit
+  float formatting) and float-domain `Sum`/`Min`/`Max` and float `Range` (use
+  `addDecimalValues` / `decimalLtValues` from `Builtin`). Still deferred:
+  `Sort`/`SortStable`/`SortStrings` (need comparator-struct evaluation).
   Then the deferred `strings` functions that need unicode case folding
   (`ToUpper`/`ToLower`/`ToTitle`) or are otherwise unimplemented (`SplitN`,
   `Trim`/`TrimPrefix`/`TrimSuffix`, `Runes`, `ContainsAny`, `LastIndex`, …). Each is
