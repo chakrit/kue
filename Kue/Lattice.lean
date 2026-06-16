@@ -403,6 +403,10 @@ def meetCore (left right : Value) : Value :=
   | _, .structComp _ _ _ => .bottom
   | .comprehension _ _, _ => .bottom
   | _, .comprehension _ _ => .bottom
+  | .interpolation _, _ => .bottom
+  | _, .interpolation _ => .bottom
+  | .dynamicField _ _ _, _ => .bottom
+  | _, .dynamicField _ _ _ => .bottom
   | .struct .., _ => .bottom
   | _, .struct .. => .bottom
 

@@ -150,6 +150,8 @@ inductive Value where
   | listTail (items : List Value) (tail : Value)
   | comprehension (clauses : List (Clause Value)) (body : Value)
   | structComp (fields : List (String × FieldClass × Value)) (comprehensions : List Value) (open_ : Bool)
+  | interpolation (parts : List Value)
+  | dynamicField (label : Value) (fieldClass : FieldClass) (value : Value)
 deriving Repr, BEq
 
 abbrev Field := String × FieldClass × Value

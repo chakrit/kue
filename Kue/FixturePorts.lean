@@ -1054,6 +1054,68 @@ def fixturePorts : List FixturePort :=
                     true)
               ]
               true))
+    },
+    {
+      fileName := "string_interpolation.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("n", .regular, .prim (.int 3)),
+                (
+                  "out",
+                  .regular,
+                  .interpolation [.prim (.string "v"), .ref "n", .prim (.string "x")]
+                )
+              ]
+              true))
+    },
+    {
+      fileName := "dynamic_field.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("k", .regular, .prim (.string "name")),
+                (
+                  "out",
+                  .regular,
+                  .structComp [] [.dynamicField (.ref "k") .regular (.prim (.int 42))] true
+                )
+              ]
+              true))
+    },
+    {
+      fileName := "dynamic_field_comprehension.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                (
+                  "out",
+                  .regular,
+                  .structComp
+                    []
+                    [
+                      .comprehension
+                        [.forIn (some "k") "v"
+                          (.struct
+                            [
+                              ("a", .regular, .prim (.int 1)),
+                              ("b", .regular, .prim (.int 2))
+                            ]
+                            true)]
+                        (.structComp
+                          []
+                          [.dynamicField (.interpolation [.ref "k"]) .regular (.ref "v")]
+                          true)
+                    ]
+                    true)
+              ]
+              true))
     }
   ]
 

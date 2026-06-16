@@ -132,6 +132,13 @@ mutual
           (fields.map (resolveFieldRefsWithFuel fuel nested))
           (comprehensions.map (resolveValueWithFuel fuel nested))
           open_
+    | fuel + 1, scopes, .interpolation parts =>
+        .interpolation (parts.map (resolveValueWithFuel fuel scopes))
+    | fuel + 1, scopes, .dynamicField label fieldClass value =>
+        .dynamicField
+          (resolveValueWithFuel fuel scopes label)
+          fieldClass
+          (resolveValueWithFuel fuel scopes value)
     | _, _, value => value
 end
 

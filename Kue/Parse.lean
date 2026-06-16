@@ -17,6 +17,7 @@ inductive ParsedField where
   | letBinding (name : String) (value : Value)
   | ellipsis (tail : Value)
   | comprehension (clauses : List (Clause Value)) (body : Value)
+  | dynamicField (label : Value) (fieldClass : FieldClass) (value : Value)
 
 structure ParsedFieldParts where
   fields : List Field
@@ -422,6 +423,9 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
   | .comprehension clauses body :: rest =>
       let split := splitParsedFields rest
       { split with comprehensions := .comprehension clauses body :: split.comprehensions }
+  | .dynamicField label fieldClass value :: rest =>
+      let split := splitParsedFields rest
+      { split with comprehensions := .dynamicField label fieldClass value :: split.comprehensions }
 
 def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
   | [] => .struct fields true
@@ -678,10 +682,7 @@ mutual
             | _ => parseError "expected ')'"
     | '{' :: rest => parseStruct rest
     | '[' :: rest => parseList rest
-    | '"' :: rest =>
-        match parseQuotedString ('"' :: rest) with
-        | .error error => .error error
-        | .ok (value, rest) => parseOk (.prim (.string value)) rest
+    | '"' :: rest => parseInterpolatedString rest [] []
     | '\'' :: rest =>
         match parseQuotedBytes ('\'' :: rest) with
         | .error error => .error error
@@ -713,6 +714,36 @@ mutual
         else
           parseError s!"unexpected character '{value}'"
     | [] => parseError "expected expression"
+
+  partial def interpolationResult (parts : List Value) (rest : List Char) : ParseResult Value :=
+    match parts with
+    | [] => parseOk (.prim (.string "")) rest
+    | [.prim (.string value)] => parseOk (.prim (.string value)) rest
+    | parts => parseOk (.interpolation parts) rest
+
+  partial def appendStringSegment (acc : List Char) (parts : List Value) : List Value :=
+    match acc with
+    | [] => parts
+    | acc => parts ++ [.prim (.string (String.ofList acc.reverse))]
+
+  partial def parseInterpolatedString
+      (chars : List Char)
+      (acc : List Char)
+      (parts : List Value) : ParseResult Value :=
+    match chars with
+    | [] => parseError "unterminated string literal"
+    | '"' :: rest => interpolationResult (appendStringSegment acc parts) rest
+    | '\\' :: '(' :: rest =>
+        match parseExpression rest with
+        | .error error => .error error
+        | .ok (hole, rest) =>
+            match skipTrivia rest with
+            | ')' :: rest =>
+                parseInterpolatedString rest [] (appendStringSegment acc parts ++ [hole])
+            | _ => parseError "expected ')' to close interpolation"
+    | '\\' :: escaped :: rest => parseInterpolatedString rest (parseStringEscape escaped :: acc) parts
+    | ['\\'] => parseError "unterminated string escape"
+    | value :: rest => parseInterpolatedString rest (value :: acc) parts
 
   partial def parseIdentifierValue (chars : List Char) : ParseResult Value :=
     match parseIdentifier chars with
@@ -939,10 +970,66 @@ mutual
                 | _ => parseError "expected ':' after aliased field label"
         | _ => parseError "expected '=' after field alias"
 
+  partial def parseDynamicField (chars : List Char) : ParseResult ParsedField :=
+    match skipTrivia chars with
+    | '(' :: rest =>
+        match parseExpression rest with
+        | .error error => .error error
+        | .ok (label, rest) =>
+            match skipTrivia rest with
+            | ')' :: rest =>
+                let (fieldClass, rest) :=
+                  match skipTrivia rest with
+                  | '?' :: rest => (FieldClass.optional, rest)
+                  | '!' :: rest => (FieldClass.required, rest)
+                  | rest => (FieldClass.regular, rest)
+                match skipTrivia rest with
+                | ':' :: rest =>
+                    match parseExpression rest with
+                    | .error error => .error error
+                    | .ok (value, rest) => parseOk (.dynamicField label fieldClass value) rest
+                | _ => parseError "expected ':' after dynamic field label"
+            | _ => parseError "expected ')' after dynamic field label"
+    | _ => parseError "expected dynamic field"
+
+  /--
+  A quoted field label. A plain string literal is a static label; one carrying an
+  interpolation is a dynamic field whose label is computed from the enclosing scope.
+  -/
+  partial def parseQuotedLabelField (chars : List Char) : ParseResult ParsedField :=
+    match skipTrivia chars with
+    | '"' :: rest =>
+        match parseInterpolatedString rest [] [] with
+        | .error error => .error error
+        | .ok (labelValue, rest) =>
+            let (fieldClass, afterClass) :=
+              match skipTrivia rest with
+              | '?' :: rest => (FieldClass.optional, rest)
+              | '!' :: rest => (FieldClass.required, rest)
+              | rest => (FieldClass.regular, rest)
+            match skipTrivia afterClass with
+            | ':' :: afterColon =>
+                match parseExpression afterColon with
+                | .error error => .error error
+                | .ok (value, rest) =>
+                    match labelValue with
+                    | .prim (.string label) => parseOk (.field (label, fieldClass, value)) rest
+                    | _ => parseOk (.dynamicField labelValue fieldClass value) rest
+            | _ => parseError "expected ':' after quoted field label"
+    | _ => parseError "expected quoted field label"
+
   partial def parseField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
     | '[' :: _ => parsePatternField chars
     | '.' :: '.' :: '.' :: _ => parseStructEllipsis chars
+    | '"' :: _ =>
+        match parseQuotedLabelField chars with
+        | .ok parsed => .ok parsed
+        | .error _ => parseEmbedding chars
+    | '(' :: _ =>
+        match parseDynamicField chars with
+        | .ok parsed => .ok parsed
+        | .error _ => parseEmbedding chars
     | chars =>
         if startsWithWord "for" chars || startsWithWord "if" chars then
           parseComprehension chars

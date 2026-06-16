@@ -580,6 +580,40 @@ def loopFrame (key : Option String) (keyValue : Value) (value : String) (element
   | some key => [(key, .regular, keyValue), (value, .regular, element)]
   | none => [(value, .regular, element)]
 
+/--
+CUE renders interpolation holes by their natural string form: a string contributes its
+raw content, numbers and booleans and null their literal spelling. Non-string-coercible
+primitives (bytes) and non-primitive holes have no interpolation rendering.
+-/
+def interpolationText? : Value -> Option String
+  | .prim (.string value) => some value
+  | .prim (.int value) => some (toString value)
+  | .prim (.float value) => some value
+  | .prim (.bool true) => some "true"
+  | .prim (.bool false) => some "false"
+  | .prim .null => some "null"
+  | _ => none
+
+def interpolatePartsText? : List Value -> Option String
+  | [] => some ""
+  | part :: parts =>
+      match interpolationText? part, interpolatePartsText? parts with
+      | some head, some rest => some (head ++ rest)
+      | _, _ => none
+
+def partIsBottom : Value -> Bool
+  | .bottom => true
+  | .bottomWith _ => true
+  | _ => false
+
+def evalInterpolation (parts : List Value) : Value :=
+  if parts.any partIsBottom then
+    .bottom
+  else
+    match interpolatePartsText? parts with
+    | some text => .prim (.string text)
+    | none => .interpolation parts
+
 def listPairsFrom (index : Nat) : List Value -> List (Value × Value)
   | [] => []
   | item :: items => (.prim (.int index), item) :: listPairsFrom (index + 1) items
@@ -712,12 +746,24 @@ mutual
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | some merged => .struct merged open_
         | none => .bottom
+    | fuel + 1, env, visited, .interpolation parts =>
+        evalInterpolation (parts.map (evalValueWithFuel fuel env visited))
+    | fuel + 1, env, visited, .dynamicField label _ value =>
+        match evalValueWithFuel fuel env visited label with
+        | .prim (.string name) =>
+            .struct [(name, .regular, evalValueWithFuel fuel env visited value)] true
+        | _ => .bottom
     | _, _, _, value => value
 
-  /-- Expand one comprehension value into the fields it contributes to its enclosing struct. -/
-  def expandComprehensionWithFuel (fuel : Nat) (env : List (List Field)) : Value -> List Field
-    | .comprehension clauses body => expandClausesWithFuel fuel env clauses body
-    | _ => []
+  /-- Expand one embedded comprehension/dynamic field into the fields it contributes. -/
+  def expandComprehensionWithFuel : Nat -> List (List Field) -> Value -> List Field
+    | 0, _, _ => []
+    | fuel + 1, env, .comprehension clauses body => expandClausesWithFuel fuel env clauses body
+    | fuel + 1, env, .dynamicField label fieldClass value =>
+        match evalValueWithFuel fuel env [] label with
+        | .prim (.string name) => [(name, fieldClass, evalValueWithFuel fuel env [] value)]
+        | _ => []
+    | _, _, _ => []
 
   /--
   Walk a comprehension's clause chain, evaluating each clause's source/condition in

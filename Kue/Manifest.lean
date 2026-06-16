@@ -95,6 +95,9 @@ mutual
     | _ + 1, .comprehension clauses body => .error (.incomplete (.comprehension clauses body))
     | _ + 1, .structComp fields comprehensions open_ =>
         .error (.incomplete (.structComp fields comprehensions open_))
+    | _ + 1, .interpolation parts => .error (.incomplete (.interpolation parts))
+    | _ + 1, .dynamicField label fieldClass value =>
+        .error (.incomplete (.dynamicField label fieldClass value))
     | fuel + 1, .disj alternatives =>
         let live := liveAlternatives alternatives
         let defaults := defaultAlternatives live

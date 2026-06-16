@@ -192,6 +192,15 @@ mutual
         let fieldText := formatStructFieldsWithFuel fuel fields
         let compText := comprehensions.map (formatValueWithFuel fuel)
         "{" ++ joinWith ", " (fieldText ++ compText) ++ "}"
+    | fuel + 1, .interpolation parts =>
+        "\"\\(" ++ joinWith ")\\(" (parts.map (formatValueWithFuel fuel)) ++ ")\""
+    | fuel + 1, .dynamicField label fieldClass value =>
+        let suffix :=
+          match fieldClass with
+          | .optional => "?"
+          | .required => "!"
+          | _ => ""
+        "(" ++ formatValueWithFuel fuel label ++ ")" ++ suffix ++ ": " ++ formatValueWithFuel fuel value
 
   def formatClauseWithFuel : Nat -> Clause Value -> String
     | 0, _ => "..."
