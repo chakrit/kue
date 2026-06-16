@@ -108,6 +108,29 @@ by post-audit hardening 2** (commit `d6c54a5`):
 - **[Doc fix] `2026-06-16-float-muldiv-landed.md` partial attribution. DONE.** Corrected;
   the note now records that no `partial` remains in `Decimal.lean`.
 
+## Audit Fix-Slices (sort/case-folding family, audit 2026-06-16 #2)
+
+Findings from the `/ace-audit` depth pass over `d6c54a5`/`1703008`/`cf2da93`. Scrutiny
+verdicts: totalization sound (empirically confirmed on worst-case leading-zero +
+non-terminating inputs, e.g. `1/7·10²⁰` renders full 34 sig digits, no fuel exhaustion);
+`ToTitle` correct and dead-code-free (matches `cue` v0.16.1 on `mIxEd CaSe`, hyphen/dot
+non-separators); `byteSeqLe` a correct total lexicographic order, non-string→bottom resolved
+before the sort. Tests are strong behavior pins, not smoke.
+
+- **[Doc fix] compat-assumptions false cross-reference. DONE (this audit).** The
+  case-folding section claimed the non-ASCII passthrough divergence "is recorded in
+  `docs/reference/cue-divergences.md`", but it was never added there — correctly, since that
+  file records only `cue`-is-wrong cases and this is a Kue deferred-capability (Kue does
+  *less* than `cue`). Reworded to state the boundary lives in compat-assumptions, not the
+  divergence log.
+- **[Borderline / optional] No theorem pins the `divisionDigitsFuel` sufficiency.** The
+  `fuel = 0` arm returns `(acc.reverse, false)` — a silent truncation, not a loud failure —
+  so an off-by-one in the ceiling would yield subtly-wrong (truncated) quotients rather than
+  crashing. Soundness currently rests on a prose argument plus `native_decide` pins at
+  specific inputs, not a proof over all `(num, den)`. Low risk (worst-cases pass), but a
+  Lean lemma bounding loop iterations by `divisionDigitsFuel den` would close the gap
+  permanently. Schedule only if the decimal layer is revisited; not blocking.
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

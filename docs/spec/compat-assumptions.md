@@ -156,7 +156,10 @@ those forms.
   staying total over the full string space, consistent with the rest of the string builtins
   (`Index`/`Count`/`Split` are byte-faithful, never bottoming on non-ASCII). Bottoming on
   any non-ASCII rune would make a large class of otherwise-valid strings unusable for an
-  internal limitation. The divergence is recorded in `docs/reference/cue-divergences.md`.
+  internal limitation. This is a deferred-capability boundary (Kue does *less* than `cue`
+  here), not a `cue` defect, so it is documented here and not in
+  `docs/reference/cue-divergences.md` (which records only cases where `cue` is wrong and
+  Kue is right).
 - **`ToTitle` is per-word capitalization, NOT "upper-case every letter".** Oracle-confirmed
   (`cue` v0.16.1): `strings.ToTitle` upper-cases the first character of each
   **whitespace-delimited** word (`unicode.IsSpace` separator) and leaves the rest of each
