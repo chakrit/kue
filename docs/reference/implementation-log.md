@@ -5833,3 +5833,54 @@ scripts/check-fixtures.sh` clean. Real prod9 (read-only): `kue export -e portal 
 infra/apps>` now descends the whole package and reaches import resolution, surfacing the
 clean B3d deferral on `prodigy9.co/defs/packs` — the merge is unblocked; next blocker is
 the registry/dep-table fetch (item 6).
+
+---
+
+## Diagnosis Slice: Real-App Eval Blocker — Cross-Package Def-Meet (DEFERRED, no code)
+
+Goal: find the ACTUAL current real-app eval blocker (post the import-resolution and
+`[...]`/`[string]:`/presence/lazy-resolution/bound fixes), reduce it, oracle-diagnose, and
+fix the construct — or, if deep, land a precise diagnosis breadcrumb (safe-failure path).
+
+### Finding
+
+Real prod9 apps (`kue export -e <app> <infra/apps>`, READ-ONLY) no longer hit a fast
+`conflicting values`; they now **time out** (CPU-bound, 30–40s) where cue exports in <1s.
+Bisection split the gap into TWO independent deep blockers:
+
+1. **Cross-package def-meet laziness (correctness).** `pkg.#Def & {use-site}` evaluates the
+   def body's own sibling/`Self` self-references prematurely — in the imported def's frame,
+   before the use-site fields unify in. Minimal repro (2-package module): `parts.#M: {#name:
+   string; out: #name}` + `t1: parts.#M & {#name: "keel"}` → kue `incomplete value: string`,
+   cue v0.16.1 `{"out":"keel"}`. **Same-package is fine** (2c.2 lazy-conj fires). Root
+   cause: `conjStructOperand?` deliberately refuses depth>0 operands (documented safety
+   boundary), and `pkg.#Def` is a depth>0 selector into a hidden import binding, so the
+   conjunction falls to eval-then-`meet`, which collapses the def body first. DEEP: a safe
+   fix needs a frame-carrying deferral (closure/thunk Value, or a selector-into-import
+   special case in the `.conj` arm) — out of 2c.2's flat-splice scope, which excluded
+   depth>0 because the def's own cross-package refs (e.g. `attr.#Metadata` embed) would
+   mis-resolve under a flat splice.
+2. **Eval fan-out / perf hang (separate).** `defs.#Deployment`/`#ServiceAccount` alone burn
+   30–40s CPU to timeout though their reduced shapes are instant — fan-out scaling with def
+   size (the `Self.#components.X` re-eval the `EvalKey` memo comment names). Profile-first.
+
+### Decision
+
+No engine change. Both blockers are architectural; per the slice brief's safe-failure path,
+this slice commits the diagnosis + reduced repros + recommended approach. Land blocker 1
+(gating correctness bug, crispest repro) and blocker 2 (perf) as separate future slices.
+When 1 lands, add `testdata/modules/crosspkg_defmeet/` pinning oracle JSON (the
+module-fixture harness has no expected-failure mode, so the pin can't precede the fix).
+
+### Artifacts
+
+- Breadcrumb: `docs/notes/2026-06-17-realapp-eval-crosspkg-defmeet-diagnosis.md` (full
+  repros, root cause, recommended approach for both blockers).
+- `docs/spec/plan.md` next-work list + `docs/spec/compat-assumptions.md` eager-def-meet
+  section updated with the cross-package variant and the perf blocker.
+
+### Verify
+
+`lake build` → success (no code touched). `scripts/check-fixtures.sh` → `fixture pairs ok`
+(no fixture change). `shellcheck scripts/check-fixtures.sh` clean. Behavior-preserving by
+construction — docs-only.

@@ -279,10 +279,32 @@ genuinely deferred/out-of-scope; cue populates the cache, kue reads it.)
 
 **The actual remaining blocker for real apps to fully export is the EVAL layer**, surfaced
 as `conflicting values`/`incomplete value` on real `infra/apps/*.cue` AFTER imports
-resolve. Next substantive work: diagnose the CURRENT real-app eval error (data-driven —
-post the `[...]`/`[string]:`/presence/lazy-resolution/bound fixes already landed; the
-B3c-era ranked list of open-list/closedness/hidden-field/`[string]:` may be partly stale)
-and fix the actual current construct. Then the field-ordering provenance change (DEEP,
+resolve. **DIAGNOSED 2026-06-17** (breadcrumb
+`docs/notes/2026-06-17-realapp-eval-crosspkg-defmeet-diagnosis.md`): real apps now in fact
+**TIME OUT** (CPU-bound, 30–40s), and the diagnosis split the gap into TWO independent deep
+blockers:
+
+  1. **Cross-package def-meet laziness (correctness).** `pkg.#Def & {use-site}` evaluates
+     the def body's own sibling/`Self` self-references *prematurely* — in the imported def's
+     frame, before the use-site fields unify in — giving `incomplete value`/`conflicting
+     values`; cue resolves it. Minimal repro: `parts.#M: {#name: string; out: #name}` +
+     `t1: parts.#M & {#name: "keel"}` → kue `incomplete value: string`, cue `{"out":"keel"}`.
+     **Same-package is fine** — the bug is specifically the import boundary. Root cause: the
+     2c.2 lazy-conj path (`lazyConjMergedFields`/`conjStructOperand?`) deliberately refuses
+     depth>0 operands (the documented safety boundary), and `pkg.#Def` is a depth>0 selector
+     into a hidden import binding, so it falls to eval-then-`meet` which collapses the body
+     first. DEEP: a safe fix needs a frame-carrying deferral (closure/thunk Value, or a
+     selector-into-import special case in the `.conj` arm) so the body unifies with the
+     use-site before its depth>0 refs resolve — explicitly out of 2c.2's flat-splice scope.
+  2. **Eval fan-out / perf hang (separate).** `defs.#Deployment`/`#ServiceAccount` alone
+     burn 30–40s CPU to timeout though their reduced shapes are instant — fan-out scaling
+     with def size (the `Self.#components.X` re-eval the `EvalKey` memo comment names).
+     Profile-first; deepen memoization or compute sub-structs once per frame.
+
+  Land 1 and 2 as SEPARATE slices; 1 is the gating correctness bug (crispest repro), 2
+  gates running full apps to completion. When 1 lands, add `testdata/modules/
+  crosspkg_defmeet/` pinning the oracle JSON (no expected-failure fixture mode, so it can't
+  land before the fix). Then the field-ordering provenance change (DEEP,
 Finding 1 — cue orders `x: ref & {own}` own-fields-first; needs a per-Field provenance key
 through meet/manifest; multi-slice + design spike). Cheap lock-in available: a
 `testdata/modules/crossmod_nodeps/` fixture pinning the deps-less-module-with-self-import
