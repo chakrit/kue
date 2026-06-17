@@ -2,6 +2,7 @@ import Kue.Builtin
 import Kue.Decimal
 import Kue.Lattice
 import Kue.Normalize
+import Std.Data.HashMap
 
 namespace Kue
 
@@ -57,15 +58,15 @@ def fieldLabelIndexFrom (label : String) (index : Nat) : List Field -> Option Na
     `BindingId` of `label` in that frame — inheriting the ordinary same-struct cycle and
     resolution machinery. `none` when `id` is not a `thisStruct` binding or `label` is
     absent, leaving the generic selector path to handle it. -/
-def thisStructFieldIndex? (env : List (List Field)) (id : BindingId) (label : String) : Option BindingId :=
+def thisStructFieldIndex? (env : List (Nat × List Field)) (id : BindingId) (label : String) : Option BindingId :=
   match env.drop id.depth with
   | [] => none
   | frame :: _ =>
-      match nthField id.index frame with
+      match nthField id.index frame.snd with
       | some field =>
           match Field.value field with
           | .thisStruct =>
-              match fieldLabelIndexFrom label 0 frame with
+              match fieldLabelIndexFrom label 0 frame.snd with
               | some labelIndex => some ⟨id.depth, labelIndex⟩
               | none => none
           | _ => none
@@ -462,143 +463,322 @@ def comprehensionPairs : Value -> Option (List (Value × Value))
   | .structPatterns fields _ _ => some (structPairs fields)
   | _ => none
 
+/--
+Memoization key. Evaluation of a `Value` is a pure function of `(fuel, env, visited,
+value)`: the same tuple always yields the same result, so caching on the full tuple is
+behavior-preserving — it shares an already-computed result rather than re-deriving it.
+The `visited` slot set is part of the key, so a binding caught mid-cycle is keyed
+separately from the same binding reached fresh; cycle detection is untouched.
+
+The hash is deliberately *shallow* — `fuel`, `visited`, the env frame-count, and the
+value's top constructor tag — so a cache probe never traverses the (large) env/value
+subtree. Structural `BEq` only runs on a hash-bucket match, i.e. on a genuine hit or a
+tag collision; misses stay O(1) on the hash.
+
+The fan-out this kills: a `Self.#components.X` selector re-evaluates the entire
+`#components` struct per selection; three sibling selections in a struct embedding (the
+`packs.#Argo` shape) re-derive it three times, multiplying per fuel level. Cached,
+`#components` is computed once and shared.
+-/
+def valueTag : Value -> UInt64
+  | .top => 0
+  | .bottom => 1
+  | .bottomWith _ => 2
+  | .prim _ => 3
+  | .kind _ => 4
+  | .notPrim _ => 5
+  | .stringRegex _ => 6
+  | .intGe _ => 7
+  | .intGt _ => 8
+  | .intLe _ => 9
+  | .intLt _ => 10
+  | .conj _ => 11
+  | .builtinCall _ _ => 12
+  | .unary _ _ => 13
+  | .binary _ _ _ => 14
+  | .ref _ => 15
+  | .refId _ => 16
+  | .thisStruct => 17
+  | .selector _ _ => 18
+  | .index _ _ => 19
+  | .disj _ => 20
+  | .struct _ _ => 21
+  | .structTail _ _ => 22
+  | .structPattern _ _ _ _ => 23
+  | .structPatterns _ _ _ => 24
+  | .list _ => 25
+  | .listTail _ _ => 26
+  | .comprehension _ _ => 27
+  | .structComp _ _ _ => 28
+  | .interpolation _ => 29
+  | .dynamicField _ _ _ => 30
+
+/--
+A scope frame paired with a process-unique identity. Each frame push allocates a fresh
+`id` from the evaluation state's counter; the id is the frame's identity for caching.
+Two evaluations that thread the *same* frame object (the depth-0 self-reference and the
+`env.drop` rebase both reuse an existing frame) carry the same id, so they share a cache
+entry; independently-built frames get distinct ids and never falsely share.
+-/
+abbrev Frame := Nat × List Field
+
+namespace Frame
+def id (frame : Frame) : Nat := frame.fst
+def fields (frame : Frame) : List Field := frame.snd
+end Frame
+
+abbrev Env := List Frame
+
+/-- The id stack of an env — its cheap identity for cache-key equality. -/
+def Env.ids (env : Env) : List Nat := env.map Frame.id
+
+/--
+Memoization key. Evaluation is a pure function of `(fuel, env, visited, value)`, so
+caching on it is behavior-preserving. The env is keyed by its *id stack* (`envIds`), not
+its (deep) frame contents — frame ids uniquely identify frame objects within one run, so
+`List Nat` equality is sound and O(depth). `visited` is part of the key, so a binding
+caught mid-cycle is keyed apart from the same binding reached fresh; cycle detection is
+untouched. The hash is shallow (fuel, visited, env depth, value's top tag) so a probe
+never traverses the value subtree; `BEq` runs only on a hash-bucket match.
+
+The fan-out this kills: a `Self.#components.X` selector re-evaluates the whole
+`#components` struct per selection; three sibling selections in a struct embedding (the
+`packs.#Argo` shape) re-derive it three times, multiplying per fuel level. Cached,
+`#components` is computed once and shared.
+-/
+structure EvalKey where
+  fuel : Nat
+  envIds : List Nat
+  visited : List Nat
+  value : Value
+deriving BEq
+
+instance : Hashable EvalKey where
+  hash key := mixHash (hash key.fuel) (mixHash (hash key.visited)
+    (mixHash (hash key.envIds.length) (valueTag key.value)))
+
+/-- Evaluation state: the memo cache plus the next frame id to hand out. -/
+structure EvalState where
+  cache : Std.HashMap EvalKey Value
+  nextFrameId : Nat
+
+abbrev EvalM := StateM EvalState
+
+/-- Push a frame onto the env, allocating it a fresh identity. -/
+def pushFrame (fields : List Field) (env : Env) : EvalM Env := do
+  let state <- get
+  set { state with nextFrameId := state.nextFrameId + 1 }
+  pure ((state.nextFrameId, fields) :: env)
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
-      (env : List (List Field))
+      (env : Env)
       (visited : List Nat)
-      (field : Field) : Field :=
-    (Field.label field, Field.fieldClass field, evalValueWithFuel fuel env visited (Field.value field))
+      (field : Field) : EvalM Field := do
+    let evaluated <- evalValueWithFuel fuel env visited (Field.value field)
+    pure (Field.label field, Field.fieldClass field, evaluated)
+  termination_by (fuel, 2, 0)
 
-  def evalValueWithFuel : Nat -> List (List Field) -> List Nat -> Value -> Value
-    | 0, _, _, value => value
-    | _ + 1, _, _, .ref label =>
-        .bottomWith [.unresolvedReference label]
-    | fuel + 1, env, visited, .refId id =>
+  def evalFieldRefsListWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (indexed : List (Nat × Field)) : EvalM (List Field) := do
+    match indexed with
+    | [] => pure []
+    | (index, field) :: rest =>
+        let evaluated <- evalFieldRefsWithFuel fuel env [index] field
+        let restEvaluated <- evalFieldRefsListWithFuel fuel env rest
+        pure (evaluated :: restEvaluated)
+  termination_by (fuel, 3, indexed.length)
+
+  def evalValuesWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (visited : List Nat) : List Value -> EvalM (List Value)
+    | [] => pure []
+    | value :: rest => do
+        let evaluated <- evalValueWithFuel fuel env visited value
+        let restEvaluated <- evalValuesWithFuel fuel env visited rest
+        pure (evaluated :: restEvaluated)
+  termination_by values => (fuel, 3, values.length)
+
+  /-- Cached entry into the evaluator: read the memo, computing and storing on a miss. -/
+  def evalValueWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (visited : List Nat)
+      (value : Value) : EvalM Value := do
+    let key : EvalKey := ⟨fuel, env.ids, visited, value⟩
+    match (<- get).cache.get? key with
+    | some cached => pure cached
+    | none =>
+        let result <- evalValueCoreWithFuel fuel env visited value
+        modify (fun state => { state with cache := state.cache.insert key result })
+        pure result
+  termination_by (fuel, 1, 0)
+
+  def evalValueCoreWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (visited : List Nat)
+      (value : Value) : EvalM Value := do
+    match fuel, value with
+    | 0, value => pure value
+    | _ + 1, .ref label =>
+        pure (.bottomWith [.unresolvedReference label])
+    | fuel + 1, .refId id =>
         match env.drop id.depth with
-        | [] => .bottomWith [.unresolvedBinding id]
+        | [] => pure (.bottomWith [.unresolvedBinding id])
         | frame :: outer =>
-            match nthField id.index frame with
-            | none => .bottomWith [.unresolvedBinding id]
+            match nthField id.index frame.snd with
+            | none => pure (.bottomWith [.unresolvedBinding id])
             | some field =>
                 if id.depth == 0 then
                   if slotVisited id.index visited then
-                    .top
+                    pure .top
                   else
                     evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
                 else
                   evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
-    | fuel + 1, env, visited, .conj constraints =>
-        let evaluated := constraints.map (evalValueWithFuel fuel env visited)
-        evaluated.foldl (fun current constraint => meet current constraint) .top
-    | fuel + 1, env, visited, .builtinCall name args =>
-        evalBuiltinCall name (args.map (evalValueWithFuel fuel env visited))
-    | fuel + 1, env, visited, .unary op value =>
-        evalUnary op (evalValueWithFuel fuel env visited value)
-    | fuel + 1, env, visited, .binary op left right =>
-        evalBinary op
-          (evalValueWithFuel fuel env visited left)
-          (evalValueWithFuel fuel env visited right)
-    | fuel + 1, env, visited, .selector (.refId id) label =>
+    | fuel + 1, .conj constraints => do
+        let evaluated <- evalValuesWithFuel fuel env visited constraints
+        pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
+    | fuel + 1, .builtinCall name args => do
+        let evaluated <- evalValuesWithFuel fuel env visited args
+        pure (evalBuiltinCall name evaluated)
+    | fuel + 1, .unary op value => do
+        let evaluated <- evalValueWithFuel fuel env visited value
+        pure (evalUnary op evaluated)
+    | fuel + 1, .binary op left right => do
+        let leftEvaluated <- evalValueWithFuel fuel env visited left
+        let rightEvaluated <- evalValueWithFuel fuel env visited right
+        pure (evalBinary op leftEvaluated rightEvaluated)
+    | fuel + 1, .selector (.refId id) label =>
         match thisStructFieldIndex? env id label with
         | some labelId => evalValueWithFuel fuel env visited (.refId labelId)
-        | none => selectEvaluatedField (evalValueWithFuel fuel env visited (.refId id)) label
-    | fuel + 1, env, visited, .selector base label =>
-        selectEvaluatedField (evalValueWithFuel fuel env visited base) label
-    | fuel + 1, env, visited, .index base key =>
-        selectEvaluatedIndex
-          (evalValueWithFuel fuel env visited base)
-          (evalValueWithFuel fuel env visited key)
-    | fuel + 1, env, visited, .disj alternatives =>
-        let evaluated := alternatives.map fun alternative =>
-          (alternative.fst, evalValueWithFuel fuel env visited alternative.snd)
-        normalizeEvaluatedDisj evaluated
-    | fuel + 1, env, _, .struct nestedFields open_ =>
-        let nested := nestedFields :: env
-        match mergeEvaluatedFields
-          ((indexedFields nestedFields).map fun indexed =>
-            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
-        | some nestedFields => .struct nestedFields open_
-        | none => .bottom
-    | fuel + 1, env, _, .structTail nestedFields tail =>
-        let nested := nestedFields :: env
-        match mergeEvaluatedFields
-          ((indexedFields nestedFields).map fun indexed =>
-            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
+        | none => do
+            let base <- evalValueWithFuel fuel env visited (.refId id)
+            pure (selectEvaluatedField base label)
+    | fuel + 1, .selector base label => do
+        let baseEvaluated <- evalValueWithFuel fuel env visited base
+        pure (selectEvaluatedField baseEvaluated label)
+    | fuel + 1, .index base key => do
+        let baseEvaluated <- evalValueWithFuel fuel env visited base
+        let keyEvaluated <- evalValueWithFuel fuel env visited key
+        pure (selectEvaluatedIndex baseEvaluated keyEvaluated)
+    | fuel + 1, .disj alternatives => do
+        let evaluated <- alternatives.mapM fun alternative => do
+          let evaluatedValue <- evalValueWithFuel fuel env visited alternative.snd
+          pure (alternative.fst, evaluatedValue)
+        pure (normalizeEvaluatedDisj evaluated)
+    | fuel + 1, .struct nestedFields open_ => do
+        let nested <- pushFrame nestedFields env
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
+        match mergeEvaluatedFields evaluatedFields with
+        | some nestedFields => pure (.struct nestedFields open_)
+        | none => pure .bottom
+    | fuel + 1, .structTail nestedFields tail => do
+        let nested <- pushFrame nestedFields env
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
+        match mergeEvaluatedFields evaluatedFields with
         | some nestedFields =>
-            .structTail nestedFields (evalValueWithFuel fuel nested [] tail)
-        | none => .bottom
-    | fuel + 1, env, _, .structPattern nestedFields labelPattern constraint open_ =>
-        let nested := nestedFields :: env
-        match mergeEvaluatedFields
-          ((indexedFields nestedFields).map fun indexed =>
-            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
+            let evaluatedTail <- evalValueWithFuel fuel nested [] tail
+            pure (.structTail nestedFields evaluatedTail)
+        | none => pure .bottom
+    | fuel + 1, .structPattern nestedFields labelPattern constraint open_ => do
+        let nested <- pushFrame nestedFields env
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
+        match mergeEvaluatedFields evaluatedFields with
         | some nestedFields =>
-            applyEvaluatedStructPattern
-              nestedFields
-              (evalValueWithFuel fuel nested [] labelPattern)
-              (evalValueWithFuel fuel nested [] constraint)
-              open_
-        | none => .bottom
-    | fuel + 1, env, _, .structPatterns nestedFields patterns open_ =>
-        let nested := nestedFields :: env
-        match mergeEvaluatedFields
-          ((indexedFields nestedFields).map fun indexed =>
-            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd) with
+            let evaluatedLabel <- evalValueWithFuel fuel nested [] labelPattern
+            let evaluatedConstraint <- evalValueWithFuel fuel nested [] constraint
+            pure (applyEvaluatedStructPattern nestedFields evaluatedLabel evaluatedConstraint open_)
+        | none => pure .bottom
+    | fuel + 1, .structPatterns nestedFields patterns open_ => do
+        let nested <- pushFrame nestedFields env
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
+        match mergeEvaluatedFields evaluatedFields with
         | some nestedFields =>
-            applyEvaluatedStructPatterns
-              nestedFields
-              (patterns.map fun pattern =>
-                (
-                  evalValueWithFuel fuel nested [] pattern.fst,
-                  evalValueWithFuel fuel nested [] pattern.snd
-                ))
-              open_
-        | none => .bottom
-    | fuel + 1, env, visited, .list items =>
-        .list (items.map (evalValueWithFuel fuel env visited))
-    | fuel + 1, env, visited, .listTail items tail =>
-        .listTail
-          (items.map (evalValueWithFuel fuel env visited))
-          (evalValueWithFuel fuel env visited tail)
-    | fuel + 1, env, _, .comprehension clauses body =>
-        match mergeEvaluatedFields (expandClausesWithFuel fuel env clauses body) with
-        | some fields => .struct fields true
-        | none => .bottom
-    | fuel + 1, env, _, .structComp fields comprehensions open_ =>
-        let nested := fields :: env
-        let staticFields :=
-          (indexedFields fields).map fun indexed =>
-            evalFieldRefsWithFuel fuel nested [indexed.fst] indexed.snd
-        let expanded :=
-          comprehensions.foldl
-            (fun acc comprehension => acc ++ expandComprehensionWithFuel fuel nested comprehension)
-            []
+            let evaluatedPatterns <- patterns.mapM fun pattern => do
+              let evaluatedLabel <- evalValueWithFuel fuel nested [] pattern.fst
+              let evaluatedConstraint <- evalValueWithFuel fuel nested [] pattern.snd
+              pure (evaluatedLabel, evaluatedConstraint)
+            pure (applyEvaluatedStructPatterns nestedFields evaluatedPatterns open_)
+        | none => pure .bottom
+    | fuel + 1, .list items => do
+        let evaluated <- evalValuesWithFuel fuel env visited items
+        pure (.list evaluated)
+    | fuel + 1, .listTail items tail => do
+        let evaluatedItems <- evalValuesWithFuel fuel env visited items
+        let evaluatedTail <- evalValueWithFuel fuel env visited tail
+        pure (.listTail evaluatedItems evaluatedTail)
+    | fuel + 1, .comprehension clauses body => do
+        let expanded <- expandClausesWithFuel fuel env clauses body
+        match mergeEvaluatedFields expanded with
+        | some fields => pure (.struct fields true)
+        | none => pure .bottom
+    | fuel + 1, .structComp fields comprehensions open_ => do
+        let nested <- pushFrame fields env
+        let staticFields <- evalFieldRefsListWithFuel fuel nested (indexedFields fields)
+        let expanded <- expandComprehensionsWithFuel fuel nested comprehensions
         match mergeEvaluatedFields (staticFields ++ expanded) with
-        | none => .bottom
+        | none => pure .bottom
         | some merged =>
             let embeddings := comprehensions.filter isEmbeddingValue
-            embeddings.foldl
-              (fun current embedding => meet current (evalValueWithFuel fuel nested [] embedding))
-              (.struct merged open_)
-    | fuel + 1, env, visited, .interpolation parts =>
-        evalInterpolation (parts.map (evalValueWithFuel fuel env visited))
-    | fuel + 1, env, visited, .dynamicField label _ value =>
-        match evalValueWithFuel fuel env visited label with
-        | .prim (.string name) =>
-            .struct [(name, .regular, evalValueWithFuel fuel env visited value)] true
-        | _ => .bottom
-    | _, _, _, value => value
+            meetEmbeddingsWithFuel fuel nested (.struct merged open_) embeddings
+    | fuel + 1, .interpolation parts => do
+        let evaluated <- evalValuesWithFuel fuel env visited parts
+        pure (evalInterpolation evaluated)
+    | fuel + 1, .dynamicField label _ value => do
+        let evaluatedLabel <- evalValueWithFuel fuel env visited label
+        match evaluatedLabel with
+        | .prim (.string name) => do
+            let evaluatedValue <- evalValueWithFuel fuel env visited value
+            pure (.struct [(name, .regular, evaluatedValue)] true)
+        | _ => pure .bottom
+    | _, value => pure value
+  termination_by (fuel, 0, 0)
+
+  /-- Meet a struct against each embedding in turn, evaluating each in the nested frame. -/
+  def meetEmbeddingsWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (current : Value) : List Value -> EvalM Value
+    | [] => pure current
+    | embedding :: rest => do
+        let evaluated <- evalValueWithFuel fuel env [] embedding
+        meetEmbeddingsWithFuel fuel env (meet current evaluated) rest
+  termination_by embeddings => (fuel, 3, embeddings.length)
+
+  /-- Expand each embedded comprehension/dynamic field and concatenate the contributed fields. -/
+  def expandComprehensionsWithFuel
+      (fuel : Nat)
+      (env : Env) : List Value -> EvalM (List Field)
+    | [] => pure []
+    | comprehension :: rest => do
+        let head <- expandComprehensionWithFuel fuel env comprehension
+        let tail <- expandComprehensionsWithFuel fuel env rest
+        pure (head ++ tail)
+  termination_by comprehensions => (fuel, 3, comprehensions.length)
 
   /-- Expand one embedded comprehension/dynamic field into the fields it contributes. -/
-  def expandComprehensionWithFuel : Nat -> List (List Field) -> Value -> List Field
-    | 0, _, _ => []
-    | fuel + 1, env, .comprehension clauses body => expandClausesWithFuel fuel env clauses body
-    | fuel + 1, env, .dynamicField label fieldClass value =>
-        match evalValueWithFuel fuel env [] label with
-        | .prim (.string name) => [(name, fieldClass, evalValueWithFuel fuel env [] value)]
-        | _ => []
-    | _, _, _ => []
+  def expandComprehensionWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (value : Value) : EvalM (List Field) := do
+    match fuel, value with
+    | 0, _ => pure []
+    | fuel + 1, .comprehension clauses body => expandClausesWithFuel fuel env clauses body
+    | fuel + 1, .dynamicField label fieldClass value => do
+        let evaluatedLabel <- evalValueWithFuel fuel env [] label
+        match evaluatedLabel with
+        | .prim (.string name) => do
+            let evaluatedValue <- evalValueWithFuel fuel env [] value
+            pure [(name, fieldClass, evaluatedValue)]
+        | _ => pure []
+    | _, _ => pure []
+  termination_by (fuel, 0, 0)
 
   /--
   Walk a comprehension's clause chain, evaluating each clause's source/condition in
@@ -608,69 +788,92 @@ mutual
   -/
   def expandClausesWithFuel
       (fuel : Nat)
-      (env : List (List Field))
+      (env : Env)
       (clauses : List (Clause Value))
-      (body : Value) : List Field :=
+      (body : Value) : EvalM (List Field) := do
     match fuel with
-    | 0 => []
+    | 0 => pure []
     | fuel + 1 =>
         match clauses with
-        | [] =>
-            match evalValueWithFuel fuel env [] body with
-            | .struct fields _ => fields
-            | _ => []
-        | .guard condition :: rest =>
-            match evalValueWithFuel fuel env [] condition with
+        | [] => do
+            let evaluatedBody <- evalValueWithFuel fuel env [] body
+            match evaluatedBody with
+            | .struct fields _ => pure fields
+            | _ => pure []
+        | .guard condition :: rest => do
+            let evaluatedCondition <- evalValueWithFuel fuel env [] condition
+            match evaluatedCondition with
             | .prim (.bool true) => expandClausesWithFuel fuel env rest body
-            | _ => []
-        | .forIn key value source :: rest =>
-            match comprehensionPairs (evalValueWithFuel fuel env [] source) with
-            | none => []
-            | some pairs =>
-                pairs.foldl
-                  (fun acc pair =>
-                    let frame := loopFrame key pair.fst value pair.snd
-                    acc ++ expandClausesWithFuel fuel (frame :: env) rest body)
-                  []
+            | _ => pure []
+        | .forIn key value source :: rest => do
+            let evaluatedSource <- evalValueWithFuel fuel env [] source
+            match comprehensionPairs evaluatedSource with
+            | none => pure []
+            | some pairs => expandForPairsWithFuel fuel env key value rest body pairs
+  termination_by (fuel, 0, 0)
+
+  /-- Expand the remaining clause chain once per iteration pair, concatenating results. -/
+  def expandForPairsWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (key : Option String)
+      (value : String)
+      (rest : List (Clause Value))
+      (body : Value) : List (Value × Value) -> EvalM (List Field)
+    | [] => pure []
+    | pair :: pairs => do
+        let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
+        let head <- expandClausesWithFuel fuel nested rest body
+        let tail <- expandForPairsWithFuel fuel env key value rest body pairs
+        pure (head ++ tail)
+  termination_by pairs => (fuel, 3, pairs.length)
 end
 
-def evalTopFields (fields : List Field) : Option (List Field) :=
-  mergeEvaluatedFields
-    ((indexedFields fields).map fun indexed =>
-      evalFieldRefsWithFuel evalFuel [fields] [indexed.fst] indexed.snd)
+/-- Run an evaluation action with a fresh cache, discarding the cache. The cache shares
+    computed-once results within one top-level evaluation; it never escapes. -/
+def runEval (action : EvalM α) : α :=
+  (action.run { cache := ∅, nextFrameId := 0 }).fst
 
-def evalStructRefs (value : Value) : Value :=
+def evalTopFieldsM (fields : List Field) : EvalM (Option (List Field)) := do
+  let top <- pushFrame fields []
+  let evaluated <- evalFieldRefsListWithFuel evalFuel top (indexedFields fields)
+  pure (mergeEvaluatedFields evaluated)
+
+def evalStructRefsM (value : Value) : EvalM Value := do
   match normalizeDefinitions value with
   | .struct fields open_ =>
-      match evalTopFields fields with
-      | some fields => .struct fields open_
-      | none => .bottom
+      match (<- evalTopFieldsM fields) with
+      | some fields => pure (.struct fields open_)
+      | none => pure .bottom
   | .structTail fields tail =>
-      match evalTopFields fields with
-      | some merged => .structTail merged (evalValueWithFuel evalFuel [fields] [] tail)
-      | none => .bottom
+      match (<- evalTopFieldsM fields) with
+      | some merged =>
+          let top <- pushFrame fields []
+          let evaluatedTail <- evalValueWithFuel evalFuel top [] tail
+          pure (.structTail merged evaluatedTail)
+      | none => pure .bottom
   | .structPattern fields labelPattern constraint open_ =>
-      match evalTopFields fields with
+      match (<- evalTopFieldsM fields) with
       | some merged =>
-          applyEvaluatedStructPattern
-            merged
-            (evalValueWithFuel evalFuel [fields] [] labelPattern)
-            (evalValueWithFuel evalFuel [fields] [] constraint)
-            open_
-      | none => .bottom
+          let top <- pushFrame fields []
+          let evaluatedLabel <- evalValueWithFuel evalFuel top [] labelPattern
+          let evaluatedConstraint <- evalValueWithFuel evalFuel top [] constraint
+          pure (applyEvaluatedStructPattern merged evaluatedLabel evaluatedConstraint open_)
+      | none => pure .bottom
   | .structPatterns fields patterns open_ =>
-      match evalTopFields fields with
+      match (<- evalTopFieldsM fields) with
       | some merged =>
-          applyEvaluatedStructPatterns
-            merged
-            (patterns.map fun pattern =>
-              (
-                evalValueWithFuel evalFuel [fields] [] pattern.fst,
-                evalValueWithFuel evalFuel [fields] [] pattern.snd
-              ))
-            open_
-      | none => .bottom
+          let top <- pushFrame fields []
+          let evaluatedPatterns <- patterns.mapM fun pattern => do
+            let evaluatedLabel <- evalValueWithFuel evalFuel top [] pattern.fst
+            let evaluatedConstraint <- evalValueWithFuel evalFuel top [] pattern.snd
+            pure (evaluatedLabel, evaluatedConstraint)
+          pure (applyEvaluatedStructPatterns merged evaluatedPatterns open_)
+      | none => pure .bottom
   | normalized@(.structComp _ _ _) => evalValueWithFuel evalFuel [] [] normalized
-  | value => value
+  | value => pure value
+
+def evalStructRefs (value : Value) : Value :=
+  runEval (evalStructRefsM value)
 
 end Kue

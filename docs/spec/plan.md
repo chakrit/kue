@@ -642,15 +642,30 @@ make the re-eval unrepresentable.
 
 Ordered by goal-impact (replace `cue` for prod9/infra) vs cost:
 
-1. **[HIGH — eval blowup, gates the workflow] Memoize evaluation** (the headline above).
-   Without it, every real prod9 file using `Self`+`#components`+embedding (i.e. every
-   `packs.#Argo` app, plus `#components`-style defs throughout `infra-defs`) is
-   un-evaluable in practice. Pairs with / precedes the `[...]` eval-laziness slice (item 2)
-   since both touch the embedding eval path.
-2. **[HIGH — semantic, parked] `[...]` open-list embedding eval + `meet(struct,list)=⊥`
-   laziness + `if _x != _|_` presence-test eval.** The remaining argocd eval-layer
-   blockers once memoization lands. Already tracked under "Later Slices"; promote alongside
-   item 1 — they share the embedding/comprehension eval surface.
+1. **[HIGH — eval blowup, gates the workflow] Memoize evaluation. DONE (2026-06-17,
+   breadcrumb `docs/notes/2026-06-17-eval-memoization-landed.md`).** `evalValueWithFuel` is
+   now a `StateM EvalState` action with a memo cache (`EvalKey → Value`) keyed on
+   `(fuel, env-id-stack, visited, value)`. The env carries a process-unique **frame id**
+   per push (`pushFrame` allocates from a state counter), so cache equality compares the
+   cheap `List Nat` id-stack instead of the deep frame contents; the hash is shallow
+   (`fuel`, `visited`, env depth, value top-tag). `visited` stays in the key, so a binding
+   caught mid-cycle is keyed apart from the same binding reached fresh — cycle detection is
+   untouched. Behavior-preserving: all 574 theorems + every fixture pass unchanged. The
+   `packs.#Argo` minimal repro went from ~2.6h (effectively infinite) to ~7s; real
+   `kue export apps/argocd.cue` now **completes** (~57s) instead of hanging — exposing the
+   next blocker (item 2) rather than masking it. Mutual-block totality is held by an explicit
+   lexicographic `termination_by (fuel, phase, listLen)`; no `partial def`. New tests:
+   `shared_selection_fan` fixture + `eval_shared_repeated_selection` /
+   `eval_cycle_with_repeated_selection` theorems.
+2. **[HIGH — semantic, NOW the #1 blocker] `[...]` open-list embedding eval +
+   `meet(struct,list)=⊥` laziness + `if _x != _|_` presence-test eval.** With memoization
+   landed, this is the live blocker: `kue export apps/argocd.cue` completes but returns
+   `conflicting values (bottom)` because evaluating `packs.#Argo` eagerly forces the
+   trailing `[Self.#components.repo, …]` list embedding, which meets against the
+   hidden-field struct and conflicts (`meet(struct,list)=⊥`). CUE's laziness never forces
+   this latent conflict — the value is only ever *selected into* (`.#name`, `.#out`), never
+   emitted whole. Needs the hidden-only-struct + list-embed rule and/or lazy selection.
+   Shares the embedding/comprehension eval surface; next slice.
 3. **[MEDIUM — type-system leverage] Collapse `intGe/intGt/intLe/intLt` into one
    `boundConstraint (bound : Int) (kind : BoundKind)`.** Four parallel `Value`
    constructors over one domain (integer bounds) with a parallel `meetIntGePrim/Gt/Le/Lt`

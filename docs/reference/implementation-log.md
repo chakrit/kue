@@ -4888,3 +4888,78 @@ parsed but `_`-idents did not.
 parse error to an eval error (`conflicting values (bottom)`), which is the known
 `meet(struct,list)=⊥` / `[...]` laziness eval blocker, not a parse gap. That eval blocker
 is the next real-file gate.
+
+## Completed Slice: Memoize Evaluation (fix the exponential re-eval blowup)
+
+Goal: kill the exponential blowup that made `kue export apps/argocd.cue` hang (~2.6h at
+`evalFuel=100`). Phase B diagnosed it as fuel-bounded *exponential re-evaluation*, not
+non-termination: a `Self.#components.X` selector re-evaluated the entire `#components`
+struct per selection, and three sibling selections in the `packs.#Argo` embedding
+re-derived it multiplicatively per fuel level, with no memoization anywhere. The fix is a
+behavior-preserving optimization — compute each binding/struct once and share it
+(CUE's computed-once vertex model).
+
+### Design
+
+Threaded a memo cache through the evaluator as explicit `StateM` state. `evalValueWithFuel`
+is now an `EvalM := StateM EvalState` action; `EvalState` holds the cache
+(`Std.HashMap EvalKey Value`) plus a frame-id counter. Evaluation is a pure function of
+`(fuel, env, visited, value)`, so caching on that tuple shares an already-computed result
+rather than re-deriving it — same value, computed once.
+
+The cost that the naive full-tuple key incurs is hashing/comparing the deep `env` on every
+probe. To make the key cheap, each scope frame is tagged with a **process-unique id** when
+pushed (`pushFrame` allocates from the state counter); the env becomes `Env := List (Nat ×
+List Field)`. The cache key stores the frame **id stack** (`env.ids : List Nat`) instead of
+the frame contents, so equality is O(depth) over `Nat`s. Frame ids track frame *identity*:
+the depth-0 self-reference (`env` unchanged) and the `env.drop` rebase (a suffix) keep their
+ids, so the three `Self.#components.X` selections thread the *same* frame ids and hit the
+cache; independently-built frames get distinct ids and never falsely share. The hash is
+deliberately *shallow* (`fuel`, `visited`, env depth, value's top constructor tag via
+`valueTag`), so a probe never traverses the value subtree; structural `BEq` runs only on a
+hash-bucket match.
+
+**Cycle interaction (the load-bearing soundness point):** `visited` (the slot set that
+drives cycle detection) is part of the key, so a binding caught mid-cycle (its slot in
+`visited`) is keyed *separately* from the same binding reached fresh — a wrong mid-cycle
+partial can never be cached and replayed where the cycle guard would not have fired. The
+`.refId`/`slotVisited`/`⊤`-on-revisit logic is byte-identical to before; only its result is
+now memoized under the exact `(fuel, env-ids, visited, value)` it was computed for.
+
+### Steps
+
+1. Cache plumbing (`Kue/Eval.lean`). Added `valueTag`, `Frame`/`Env`/`Env.ids`, `EvalKey`
+   (+ custom shallow `Hashable`, derived `BEq`), `EvalState`, `EvalM`, `pushFrame`, and
+   `runEval`. Rewrote the eval mutual block into `StateM`: split `evalValueWithFuel` into a
+   thin cache wrapper + `evalValueCoreWithFuel`; converted the `.map`/`.foldl` fan-outs that
+   call eval into monadic list helpers (`evalValuesWithFuel`, `evalFieldRefsListWithFuel`,
+   `meetEmbeddingsWithFuel`, `expandComprehensionsWithFuel`, `expandForPairsWithFuel`); all
+   frame pushes route through `pushFrame`; `.refId`/`thisStructFieldIndex?` read `frame.snd`.
+   `evalStructRefs` runs the action with a fresh state via `runEval`.
+
+2. Totality. The monadic split broke automatic structural-recursion inference, so each
+   mutual function carries an explicit lexicographic `termination_by (fuel, phase, listLen)`:
+   `fuel` decreases on the real recursion; `phase` orders the equal-fuel hops
+   (folders 3 → field-refs 2 → wrapper 1 → core/leaf 0); `listLen` covers same-fuel
+   self-recursion over shrinking lists. No `partial def`.
+
+3. Tests. `shared_selection_fan` fixture (`.cue`/`.expected` + `FixturePorts` entry) pins
+   the repeated-selection blowup shape (`components.X.who` selected three times,
+   oracle-matched byte-for-byte to `cue export`). Two `EvalTests` `native_decide` theorems:
+   `eval_shared_repeated_selection` (shared sub-struct selected twice) and
+   `eval_cycle_with_repeated_selection` (`x: x & {p: 1}`, then `x.p` selected twice —
+   proves the cache+`visited` interaction preserves bounded-cycle resolution;
+   oracle-matched to `cue`).
+
+4. Verify. `lake build` (all 574 theorems + every fixture pass UNCHANGED — behavior
+   preserved), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean. The
+   four committed cycle fixtures (direct/mutual/three/constrained) pass untouched.
+
+### Timing / real-file (READ-ONLY, prod9/infra + cue cache)
+
+Phase B's minimal repro (`packs.#Argo & {#name:"stage9"}`, `defs@v0.3.19`) went from a
+30s+ timeout (extrapolating to ~2.6h at fuel 100) to **~7s** — and now *completes*. The
+local `Self`-fan repro (the exact multiplicative shape) evaluates in **~0.006s**. Real
+`kue export apps/argocd.cue` (was the ~2.6h hang) now **completes in ~57s**, returning
+`conflicting values (bottom)` — the next blocker, the `[...]` open-list-embedding
+`meet(struct,list)=⊥` eager-vs-lazy semantics (plan item 2), no longer masked by the hang.

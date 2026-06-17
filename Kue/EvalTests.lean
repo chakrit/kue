@@ -69,6 +69,48 @@ theorem eval_static_string_field_index :
       = "base: {inner: 4}\nx: 4" := by
   native_decide
 
+-- Memoization regression pins. Evaluation now shares computed-once results via a
+-- frame-id-keyed cache; these prove the cache is behavior-preserving on the shapes it
+-- targets — repeated selection into a shared sub-struct, and a cycle reached through such
+-- repeated selection (the cache must not let a mid-cycle partial leak as a wrong cached
+-- value; cycle detection via `visited` must still fire identically).
+
+theorem eval_shared_repeated_selection :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("base", .regular, .prim (.string "v")),
+            ("components", .regular,
+              .struct
+                [
+                  ("a", .regular, .struct [("who", .regular, .ref "base")] true),
+                  ("b", .regular, .struct [("who", .regular, .ref "base")] true)
+                ]
+                true),
+            ("aWho", .regular, .selector (.selector (.ref "components") "a") "who"),
+            ("bWho", .regular, .selector (.selector (.ref "components") "b") "who")
+          ]
+          true))
+      = "base: \"v\"\ncomponents: {a: {who: \"v\"}, b: {who: \"v\"}}\naWho: \"v\"\nbWho: \"v\"" := by
+  native_decide
+
+-- A direct self-cycle selected twice: caching must not turn the bounded-cycle `⊤` into a
+-- wrong value, and both selections must agree. `x: x & {p: 1}` resolves the cycle to its
+-- constraint; `p1`/`p2` select the same field from the cyclic struct.
+theorem eval_cycle_with_repeated_selection :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("x", .regular, .conj [.ref "x", .struct [("p", .regular, .prim (.int 1))] true]),
+            ("p1", .regular, .selector (.ref "x") "p"),
+            ("p2", .regular, .selector (.ref "x") "p")
+          ]
+          true))
+      = "x: {p: 1}\np1: 1\np2: 1" := by
+  native_decide
+
 theorem eval_additive_expressions :
     formatTopLevel
       (resolveAndEval

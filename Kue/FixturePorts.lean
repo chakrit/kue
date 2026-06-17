@@ -401,6 +401,36 @@ def fixturePorts : List FixturePort :=
       content := formatTopLevel (resolveAndEval (.struct [("x", .regular, .ref "x")] true))
     },
     {
+      -- Repeated selection into a shared sub-struct (`components.X.who`), the eval-blowup
+      -- shape: each of the three `*Who` fields re-selects `components` and its child. Before
+      -- memoization this re-evaluated `components` per selection, multiplying per fuel level;
+      -- the frame-id cache computes it once and shares it. Behavior is unchanged — this pins
+      -- both the correct shared value and (implicitly) that it completes under normal fuel.
+      fileName := "shared_selection_fan.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("base", .regular, .prim (.string "stage9")),
+                ("components", .regular,
+                  .struct
+                    [
+                      ("repo", .regular, .struct [("who", .regular, .ref "base")] true),
+                      ("project", .regular, .struct [("who", .regular, .ref "base")] true),
+                      ("app", .regular, .struct [("who", .regular, .ref "base")] true)
+                    ]
+                    true),
+                ("repoWho", .regular,
+                  .selector (.selector (.ref "components") "repo") "who"),
+                ("projectWho", .regular,
+                  .selector (.selector (.ref "components") "project") "who"),
+                ("appWho", .regular,
+                  .selector (.selector (.ref "components") "app") "who")
+              ]
+              true))
+    },
+    {
       fileName := "constrained_reference_cycle.expected",
       content :=
         formatTopLevel
