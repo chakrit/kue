@@ -1,0 +1,11 @@
+{
+    "common": {
+        "registry": "ghcr.io",
+        "replicas": 2
+    },
+    "portal": {
+        "name": "portal",
+        "image": "ghcr.io/portal",
+        "replicas": 2
+    }
+}

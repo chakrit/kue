@@ -41,7 +41,7 @@ def printLoaded (loaded : Except String Kue.Value) : IO UInt32 := do
     A read failure (missing/unreadable file) is reported as a clean diagnostic rather than
     an uncaught exception. -/
 def runEvalFile (path : String) : IO UInt32 := do
-  match ← (Kue.loadFileBound path).toBaseIO with
+  match ← (Kue.loadEntry path).toBaseIO with
   | .error ioError =>
       IO.eprintln s!"kue: cannot read {path}: {ioError.toString}"
       pure evalErrorCode
@@ -80,7 +80,7 @@ def exportBoundValue (opts : Kue.Cli.ExportOpts) (value : Kue.Value) :
 def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
   match opts.file with
   | some path =>
-      match ← Kue.loadFileBound path with
+      match ← Kue.loadEntry path with
       | .error message =>
           IO.eprintln s!"kue: {message}"
           pure evalErrorCode

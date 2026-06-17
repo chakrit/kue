@@ -5777,3 +5777,59 @@ fixture passes UNCHANGED, with **no** `rfl`→`native_decide` switch required.
 `lake build` → 86 jobs, success (all theorems elaborate + pass; derived `BEq`/`Repr`
 byte-identical confirmed by the suite). `scripts/check-fixtures.sh` → `fixture pairs ok`,
 unchanged. `shellcheck scripts/check-fixtures.sh` clean.
+
+---
+
+## Completed Slice: Package-Dir Merge at the Entry (plan item 5)
+
+Goal: multi-file-package apps (real `infra/apps/*.cue`, whose definitions span sibling
+files in one package directory) must evaluate/export. The gap was at the IO entry only:
+`loadFileBound` loaded a single file with no sibling merge, while `loadPackage` already
+performed the full same-package meet-merge for *imported* packages.
+
+### Oracle (cue v0.16.1)
+
+- `cue export ./apps` (dir arg) merges all same-package `*.cue` siblings — resolves
+  cross-file references. `cue export apps/argocd.cue` (bare file arg) does **not** merge —
+  errors `reference "…" not found` on a sibling-defined symbol. So **the directory is the
+  package unit, not the file.**
+- `cue export -e <app> ./apps` = merge then field-select.
+- A directory containing two differing named packages errors `found packages "a" and "b"`.
+- A no-package-clause file evaluates standalone (`{}` / its fields).
+
+### Steps
+
+1. `Kue/Module.lean`: add `loadPackageDir` (discover module root + deps, then reuse
+   `loadPackage ctx [] dir` for the same-package sibling merge — no duplicated merge logic)
+   and `loadEntry` (branch on `System.FilePath.isDir`: directory ⇒ `loadPackageDir`,
+   file ⇒ `loadFileBound` unchanged). `loadFileBound` doc clarified: it loads one file with
+   no sibling merge, matching cue's bare-file contract.
+2. `Main.lean`: route `runEvalFile` and `runExport`'s file branch through `loadEntry`
+   instead of `loadFileBound`. Stdin and bare multi-file-arg paths untouched.
+3. Fixture `testdata/modules/package_dir/`: a `subpaths` fixture whose subpath is the
+   `apps` *directory* (common.cue defines `common`, portal.cue defines `portal` referencing
+   `common` — the real-world distinct-top-level-fields shape). `expected.apps` is the
+   `cue export --out json ./apps` oracle output, byte-matched.
+
+### Scope finding
+
+**Contained-reuse, not a redesign.** No package abstraction, no Cli change — the existing
+file-arg positional already accepts a directory; the only change is the `isDir` branch at
+the IO boundary. Single-file/stdin entry byte-unchanged (cue's own file-vs-dir contract
+means a lone unique-package file merges only itself).
+
+### Divergence note (pre-existing, out of scope)
+
+cue interleaves fields for `x: ref & {own}` with the *own* fields first (`name` before the
+referenced `replicas`/`image`); kue's `meet` orders the left struct first. This is a
+single-file `meet`-ordering divergence independent of package merge — the fixture avoids it
+by using distinct top-level fields per file.
+
+### Verify
+
+`lake build` → 86 jobs, success. `scripts/check-fixtures.sh` → `fixture pairs ok` (new
+`package_dir` fixture green, all single-file fixtures unchanged). `shellcheck
+scripts/check-fixtures.sh` clean. Real prod9 (read-only): `kue export -e portal <hatari
+infra/apps>` now descends the whole package and reaches import resolution, surfacing the
+clean B3d deferral on `prodigy9.co/defs/packs` — the merge is unblocked; next blocker is
+the registry/dep-table fetch (item 6).

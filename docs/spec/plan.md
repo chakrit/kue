@@ -582,9 +582,25 @@ demonstrates real-file viability.
    helper branches on `System.Platform.isOSX` so Linux defaults to `~/.cache/cue`, macOS to
    `~/Library/Caches/cue`, absent `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME` (mirrors Go
    `os.UserCacheDir`). Precedence unchanged; 5 `native_decide` theorems pin both OS branches.
-5. **[MEDIUM — real-file reach, larger] Multi-file package-dir export.** `kue export ./apps`
-   merges all `package apps` files in a dir before manifesting. Loader slice (`Module` +
-   `Cli`); meets real usage but bigger than `-e`. Schedule only for full dir-parity.
+5. **Multi-file package-dir export (DONE, 2026-06-17).** `kue export ./apps` /
+   `kue eval ./apps` (and `-e <app> ./apps`) now load the *directory* as a package: discover
+   its module, then merge all same-package sibling `*.cue` via the existing `loadPackage`
+   (package-name consistency + sibling meet-merge + per-file import binding). **Scope was
+   contained-reuse, not a redesign** — the gap was purely at the IO entry: `loadFileBound`
+   loaded a single file with no sibling merge, while `loadPackage` already did the full
+   merge for *imported* packages. Added `loadPackageDir` (discover + `loadPackage` on the
+   dir) and `loadEntry` (branches on `FilePath.isDir`: dir ⇒ `loadPackageDir`, file ⇒
+   `loadFileBound` unchanged); Main's eval-file and export-file paths route through
+   `loadEntry`. **Matches `cue`'s file-vs-dir contract exactly:** a bare file arg does *not*
+   pull in package siblings (`cue export apps/argocd.cue` errors on a sibling-defined ref),
+   only a dir/package arg does — so the single-file/stdin entry is byte-unchanged (all
+   fixtures green). Fixture: `testdata/modules/package_dir/` (a `subpaths` fixture exporting
+   the `apps` dir, oracle-matched). Real prod9 unblocked: `kue export -e portal <hatari
+   apps>` now descends the whole package and reaches import resolution, surfacing the clean
+   B3d deferral on `prodigy9.co/defs/packs` (next blocker, item 6). Ordering note: cue's
+   field interleaving for `x: ref & {own}` (own fields first) is a pre-existing single-file
+   `meet`-order divergence, independent of package merge — fixtures avoid it by using the
+   real-world shape (distinct top-level fields per file, cross-file refs).
 6. **[MEDIUM — real-file reach, largest, = old B3d] Registry/module-cache import fetch.**
    Resolve `prodigy9.co/defs/packs`-style imports from `~/Library/Caches/cue/mod/…`.
    Largest loader slice; required for any real app that imports prod9 defs.

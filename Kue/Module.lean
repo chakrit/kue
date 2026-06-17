@@ -368,9 +368,35 @@ mutual
                   collectBindings visited ctx rest ((bindName, value) :: acc)
 end
 
+/-- Load a package *directory* as the entry: discover its module, then merge all
+    same-package sibling `*.cue` via `loadPackage` (package-name consistency, sibling
+    meet-merge, and each file's imports bound — the same machinery imported packages use).
+    Returns the merged package value; `cue` resolves cross-file definitions exactly this way
+    when given a directory or package argument.
+
+    Distinct from `loadFileBound`, which loads a single file with no sibling merge —
+    matching `cue`'s contract that a bare file argument does *not* pull in its package
+    siblings (`cue export apps/argocd.cue` errors on a sibling-defined reference, while
+    `cue export ./apps` resolves it). -/
+def loadPackageDir (path : String) : IO (Except String Value) := do
+  let cwd ← IO.currentDir
+  let dir := absolutePath cwd (System.FilePath.mk path)
+  match ← findModuleRoot dir with
+  | none => return .error "no cue.mod/module.cue found in any parent directory"
+  | some root =>
+      match ← readModuleInfo root with
+      | .error message => return .error message
+      | .ok (modPath, deps) =>
+          let ctx := { root, modPath, deps }
+          match ← loadPackage ctx [] dir with
+          | .error message => return .error message
+          | .ok (_, value) => return .ok value
+
 /-- Load a top-level file, resolve and bind its in-module imports, and return the bound
-    value for the existing pure resolve/eval pipeline. The single IO entry the CLI routes
-    through; a file with no imports parses, binds nothing, and behaves exactly as before. -/
+    value for the existing pure resolve/eval pipeline. A file with no imports parses, binds
+    nothing, and behaves exactly as the pre-import pipeline. Sibling files in the same
+    package are *not* merged — that is `loadPackageDir`'s job, reached only via a directory
+    argument, matching `cue`'s bare-file-vs-package contract. -/
 def loadFileBound (path : String) : IO (Except String Value) := do
   let source ← IO.FS.readFile (System.FilePath.mk path)
   match parseSourceFile source with
@@ -392,5 +418,15 @@ def loadFileBound (path : String) : IO (Except String Value) := do
               match ← collectBindings [] ctx parsed.imports [] with
               | .error message => return .error message
               | .ok bindings => return .ok (bindImports bindings parsed.value)
+
+/-- The single IO entry the CLI routes through: a directory argument loads the package
+    (sibling merge); a file argument loads that one file (no merge), exactly as before.
+    The file-vs-directory split is `cue`'s own: a package is the directory's same-package
+    `*.cue` files, and a bare file is just that file. -/
+def loadEntry (path : String) : IO (Except String Value) := do
+  if ← (System.FilePath.mk path).isDir then
+    loadPackageDir path
+  else
+    loadFileBound path
 
 end Kue

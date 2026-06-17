@@ -193,6 +193,16 @@ those forms.
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.
+- **File-vs-directory entry (`loadEntry`, matches `cue`).** A *directory* argument to
+  `kue eval`/`kue export` loads the directory as a package: all same-package `*.cue`
+  siblings are meet-merged (reusing the imported-package loader `loadPackage` — package-name
+  consistency, sibling merge, per-file import binding) before eval/export/`-e`-selection.
+  A bare *file* argument loads only that file with **no** sibling merge — exactly `cue`'s
+  contract (`cue export apps/argocd.cue` errors on a sibling-defined reference; `cue export
+  ./apps` resolves it). The split is `FilePath.isDir` at the IO boundary; the single-file
+  and stdin paths are byte-unchanged. A directory with two differing named packages is
+  rejected (kue via the conflicting-package-name fold; cue with its `found packages …`
+  diagnostic — both reject, message text differs).
 - **CLI surface (subcommand dispatcher, `Kue/Cli.lean`).** `parse : List String → Command`
   is a pure fold into a `Command` sum type; `Main` dispatches exhaustively. Surface:
   `kue eval [file…]` (explicit name for the default internal-format path — stdin, single
