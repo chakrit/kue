@@ -372,6 +372,78 @@ contradictory value to bottom / a non-zero exit, never partial garbage.
   entry if treated as a surprising-`cue` case; otherwise leave as the documented intended
   behavior.
 
+## Audit Fix-Slices (import-resolution + embedding family, Phase A audit 2026-06-17)
+
+Phase A code-quality pass over `2329df2` (B3a in-module imports), `e642e93` (B3c
+cross-module/vendored), `05c5c8a` (`[...]` list-embedding parse fix). The import subsystem
+(`Kue/Module.lean`, new + IO-heavy) was the headline scrutiny target. **No Violations
+found; two LOW-RISK items fixed inline (re-verified + committed). Remaining items are
+notes/flags for Phase B.**
+
+**Correctness & totality — SOUND.**
+- `findModuleRoot` terminates: parent-walk stops on the `parent == start` fixpoint
+  (filesystem root: `/.parent == /` → `none`). The `partial def` is justified (IO, and the
+  bound is the finite path depth, not structurally evident). No root loop.
+- Cycle guard sound across module hops: `visited` is keyed on absolute `dir.toString`,
+  added in `loadPackage` and threaded `loadPackage → parseAndBindFiles → collectBindings →
+  loadPackage`. Persists across cross-module hops (dirs absolute), so A→B→A is caught
+  (`cycle/` fixture: mutual `a/`↔`b/`). Sibling/diamond imports of the same package each
+  pass independently — correct, not a false cycle.
+- `parseDeps` / `depKeyModulePath` robust on malformed `module.cue`: non-struct → `[]`;
+  `deps` entry lacking a string `v` → skipped (`filterMap`); a key with no `@` → verbatim.
+  All pure, total.
+- `locateModuleDir` priority correct: vendored-versioned → vendored-bare → cache extract,
+  first-existing wins. `cacheRoot` honors `CUE_CACHE_DIR` → `XDG_CACHE_HOME/cue` → macOS
+  default, each branch named (no `or`-chain). Linux/XDG-only hosts fall through to the
+  macOS path only if `XDG_CACHE_HOME` is unset — acceptable for now (flag for Phase B: a
+  `~/.cache/cue` Linux default is missing).
+
+**IO-boundary purity — CONFIRMED.** All FS access (`findModuleRoot`, `readModuleInfo`,
+`locateModuleDir`, `listPackageFiles`, the `loadPackage` mutual block, `loadFileBound`)
+lives behind `IO` in `Module.lean`. The pure core (`resolveImportSubpath`,
+`resolveCrossModule`, `parseDeps`, `loadPackageFromParsed`, `bindImports`) is disk-free and
+total. `Eval.lean`/`Resolve.lean` unchanged — the loader hands a fully bound `Value` to the
+existing pure pipeline (`exportValue`/`formatResolvedTopLevel`). No IO leaked in.
+
+**Intermediate-deps leniency — SOUND boundary for B3c, but a latent wrong-resolution path;
+FLAG for B3d, not a bug today.** Kue reads each transitive module's *own* `deps` per hop
+rather than CUE's flat MVS over the root's dependency set. When root and an intermediate
+module pin *different* versions of a shared transitive dep, MVS selects the max and only
+that one copy is extracted on disk; kue's per-hop lookup would try the intermediate's
+pinned version and miss (or load a stale vendored copy). Today's fixtures keep versions
+consistent (root+mid both pin `core@v0.2.0`), oracle matches. Documented in
+`compat-assumptions.md` §B3c. **Action:** when B3d lands MVS version solving, this per-hop
+read must be replaced by the flat resolved set — do not let it persist silently.
+
+**`parseField` `[`-fallback (05c5c8a) — NO REGRESSION.** Follows the exact existing
+shape of the `'"'` and `'('` arms: try the structured parse (`parsePatternField`), fall
+back to `parseEmbedding` only on `.error`. So a valid `[label]: value` pattern still wins
+(it parses successfully → never reaches the fallback); only a `[...]`/`[1,2,3]` that fails
+the pattern parse becomes an embedding. No ambiguity: the pattern parse is the
+discriminator, and it is deterministic. Pinned by `parse_open_list_embedding_in_struct`,
+`parse_list_literal_embedding_in_struct`, plus the pre-existing `[...int]`/`[label]:`
+no-regression tests.
+
+**Test strength — REAL PINS, not smoke.** `ModuleTests` `native_decide` theorems pin the
+pure logic at edges: textual-but-not-segment prefix is cross-module (`example.computer` vs
+`example.com`), longest-prefix dep ownership, `@major` stripping, conflicting package
+names rejected, `bindImports` binds `hidden` (output-excluded). Module fixtures cover
+cycle, missing-pkg, cross-module-miss (no dep), declared-but-absent-on-disk, vendor vs
+cache, transitive, and `mixed_builtin` (stdlib `strings` skip + real import in one grouped
+block, exercising builtin dotted-dispatch no-regression). **Note (correct by design):**
+module fixtures are CLI-driven via `check_module_fixtures` (file pair + `expected`/
+`expected.err`), so the "every fixture needs a FixturePorts entry" rule does NOT apply to
+them — that rule is for the Lean-port `testdata/cue/*` fixtures, which the `let_*` additions
+satisfy. The `_cache/` + `CUE_CACHE_DIR` isolation (never touches the user's real cache,
+for both kue and oracle) is a good harness touch.
+
+**Fixed inline this audit (LOW-RISK, re-verified):**
+- `bindImports` doc said "regular field" but binds `FieldClass.hidden` — stale comment
+  corrected to state the hidden/output-exclusion intent the test pins.
+- `subpathDir` was byte-identical to `joinModulePath` (fold slash-split onto base, skip
+  empties) — collapsed `subpathDir` to call `joinModulePath`, keeping the named wrapper for
+  intent at its callsites. DRY.
+
 ## Audit Fix-Slices (parser+alias+multiline family, audit 2026-06-17)
 
 Findings from the `/ace-audit` depth pass over `0795530` (`strings.SplitN`), `7ec51a4`

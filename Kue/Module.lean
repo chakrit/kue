@@ -129,10 +129,11 @@ where
         let merged ← mergePackageNames acc name
         foldPackageNames merged rest
 
-/-- Inject each `(localName, packageValue)` binding as a synthetic top-level regular field
+/-- Inject each `(localName, packageValue)` binding as a synthetic top-level hidden field
     of the importing file's struct, prepended ahead of the body so a later same-named body
-    field would shadow it (none occur in practice). Non-struct top-level values are wrapped
-    so the bindings still land in scope. -/
+    field would shadow it (none occur in practice). Hidden so the binding is in scope for
+    `pkg.#Symbol` references but excluded from output. Non-struct top-level values are
+    wrapped so the bindings still land in scope. -/
 def bindImports (bindings : List (String × Value)) : Value -> Value
   | .struct fields open_ =>
       .struct (bindings.map (fun b => (b.fst, FieldClass.hidden, b.snd)) ++ fields) open_
@@ -241,10 +242,9 @@ def listPackageFiles (dir : System.FilePath) : IO (List System.FilePath) := do
   pure (cueFiles.toArray.qsort (fun a b => a.toString < b.toString)).toList
 
 /-- The directory holding the package at module-relative `subpath` (`""` ⇒ the module
-    root). Joins each non-empty path segment onto `root`. -/
+    root) — the same segment-join as `joinModulePath`, named for the subpath use. -/
 def subpathDir (root : System.FilePath) (subpath : String) : System.FilePath :=
-  subpath.splitOn "/" |>.foldl (init := root) fun acc segment =>
-    if segment.isEmpty then acc else acc / segment
+  joinModulePath root subpath
 
 /-- Resolve a single non-builtin import path, within module `ctx`, to the context and
     directory its package loads from.
