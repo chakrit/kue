@@ -246,6 +246,62 @@ before the sort. Tests are strong behavior pins, not smoke.
   Lean lemma bounding loop iterations by `divisionDigitsFuel den` would close the gap
   permanently. Schedule only if the decimal layer is revisited; not blocking.
 
+## Audit Fix-Slices (serialization/export family, audit 2026-06-17)
+
+Findings from the `/ace-audit` depth pass over `ec920f3` (B6: `Json.lean`,
+`base64.Encode`/`json.Marshal`) and `a5f9c97` (B5: `Yaml.lean`, pretty-JSON, the `export`
+CLI mode). This is the serialization layer the "kue replaces cue" claim rests on; it had
+never been audited. Verdicts: **serializers are total** (no `partial def`; `manifestToJson`,
+`manifestToJsonPretty`, `manifestToYaml` and their mutual helpers are structural recursion
+over `ManifestValue`, and `manifest` itself is fuel-bounded). JSON escaping (control chars,
+`\b`/`\f`, non-HTML-escaping of `<>&/`), number-text passthrough, source-key-order, and the
+YAML bare/single/double quoting matrix all oracle-match `cue` v0.16.1. The no-flag CLI path
+(`kue < file`, `kue file…` → `formatValue`) is genuinely unchanged — only `"export" :: rest`
+was prepended to the `main` dispatch. DRY between `Json` and `Yaml` is clean (shared
+`base64Encode`/`jsonString`; the primitive-scalar logic is *intentionally* distinct because
+JSON always-quotes strings and YAML quotes conditionally — not a drift risk). Incompleteness
+rejection is correct: `json.Marshal`/`yaml.Marshal`/`export` all route a non-concrete or
+contradictory value to bottom / a non-zero exit, never partial garbage.
+
+- **[HIGH — data loss, FIXED inline this audit] YAML block scalars always emitted `|-`,
+  silently dropping trailing newlines.** `yamlBlockScalar` used a fixed `|-` chomp and
+  rejoined via `splitOn`, so a string ending in `\n` (a file body, a PEM cert, a script —
+  exactly what k8s ConfigMaps/Secrets carry) round-tripped to its content *minus* the
+  trailing newline. `kue export` of `a: "x\n"` produced `a: |-\n  x` (round-trips to `"x"`)
+  where `cue` produces `a: |\n  x` (round-trips to `"x\n"`). Fixed by emitting the chomping
+  indicator `cue`/go-yaml chooses: `|-` (strip) for zero trailing newlines, `|` (clip) for
+  exactly one, `|+` (keep) for two or more, reconstructing the explicit trailing blank lines
+  in the `|+` case. Pinned by four new oracle-matched theorems + end-to-end binary
+  comparison across 0/1/2/3 trailing newlines.
+- **[HIGH — invalid/ambiguous YAML, FIXED inline this audit] Block scalar with a
+  leading-space first line emitted no indentation indicator.** `a: " x\ny"` produced
+  `a: |-\n   x\n  y`, whose first content line's indentation is ambiguous to a parser; `cue`
+  emits `a: |2-\n   x\n  y`. Fixed by emitting the `|2` indentation indicator when the first
+  line begins with a space. The indicator is the indent *increment* (fixed at 2 in this
+  layout), not the absolute column — verified at top level, nested-map, and in-list depths.
+  Pinned by a new theorem + depth comparison.
+- **[LOW — lossy corner, FOLDED] All-newline block scalar.** A string that is *only*
+  newlines (`"\n"`, `"\n\n"`) — no non-empty content line — needs `|2+` in `cue` (forced
+  indentation indicator + keep, because there's no content line to anchor indentation).
+  Kue emits `|` and loses the newlines. Degenerate (a value that is purely newlines does not
+  occur in real manifests); folded rather than risk the common-case fix. Generalize
+  `firstLineIndented`/chomp interaction to the empty-first-content-line case when revisited.
+- **[LOW — robustness, FOLDED] `kue export` silently drops extra positional files.**
+  `parseExportArgs` keeps the first bare arg as the input file and silently ignores any
+  further positionals (`some _ => parsed`). `cue` merges multiple files; Kue export is
+  documented single-input, but a silent drop is worse than an error — make a second
+  positional an error (exit 2) until multi-file merge is wired.
+- **[LOW — diagnostic quality, FOLDED] `runExport` file-not-found throws an uncaught IO
+  exception** rather than a clean `kue: …: no such file` + `exit 1`. Same preexisting
+  behavior as the no-flag `readFileSources` path (not a regression), but the new `export`
+  path repeats it; wrap `IO.FS.readFile` in both paths with a positioned diagnostic.
+- **[Candidate divergence to log, not a bug] `json.Marshal({a: int})` → bottom.** `cue eval`
+  *displays* the call unevaluated, but under concreteness demand (`cue eval -c`, `cue
+  export`) it is an error ("cannot convert incomplete value"). Kue mapping it to bottom is
+  correct — `cue`'s deferred display is a lazy-eval artifact. Worth a `cue-divergences.md`
+  entry if treated as a surprising-`cue` case; otherwise leave as the documented intended
+  behavior.
+
 ## Later Slices
 
 - Expand pattern constraints beyond the current string-label representation:

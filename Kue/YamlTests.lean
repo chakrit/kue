@@ -62,10 +62,34 @@ theorem yaml_list_in_list :
     manifestToYaml (.struct [("d", .list [.list [], .list [.prim (.int 1)]])])
       = "d:\n  - []\n  - - 1" := by native_decide
 
--- Block scalar `|-` for a string containing newlines (chomped).
+-- Block scalar `|-` for a string containing newlines (chomped, no trailing newline).
 theorem yaml_block_scalar :
     manifestToYaml (.struct [("a", .prim (.string "line one\nline two"))])
       = "a: |-\n  line one\n  line two" := by native_decide
+
+-- Chomping indicators encode trailing newlines so the string round-trips losslessly.
+-- One trailing newline clips (`|`); two or more keep (`|+`) with explicit blank lines.
+-- Oracle: `cue export --out yaml` v0.16.1.
+theorem yaml_block_scalar_clip_one_trailing :
+    manifestToYaml (.struct [("a", .prim (.string "x\ny\n"))])
+      = "a: |\n  x\n  y" := by native_decide
+theorem yaml_block_scalar_keep_two_trailing :
+    manifestToYaml (.struct [("a", .prim (.string "x\ny\n\n"))])
+      = "a: |+\n  x\n  y\n" := by native_decide
+theorem yaml_block_scalar_keep_three_trailing :
+    manifestToYaml (.struct [("a", .prim (.string "x\ny\n\n\n"))])
+      = "a: |+\n  x\n  y\n\n" := by native_decide
+
+-- Interior blank line stays blank (no chomp change, no indent on the empty line).
+theorem yaml_block_scalar_interior_blank :
+    manifestToYaml (.struct [("a", .prim (.string "x\n\ny"))])
+      = "a: |-\n  x\n\n  y" := by native_decide
+
+-- A leading-space first line forces the explicit indentation indicator (`|N-`), else the
+-- block's indentation would be ambiguous to a reader/parser. Oracle: `cue` emits `|2-`.
+theorem yaml_block_scalar_leading_space_indent_indicator :
+    manifestToYaml (.struct [("a", .prim (.string " x\ny"))])
+      = "a: |2-\n   x\n  y" := by native_decide
 
 -- bytes → base64 string scalar (matches JSON's byte handling).
 theorem yaml_bytes_base64 :

@@ -151,15 +151,48 @@ def yamlIsInlineEmpty : ManifestValue -> Bool
   | .list [] => true
   | _ => false
 
-/-- The line(s) of a block scalar `|-` for a string containing newlines: each source
-    line is indented by `indent`, and `|-` strips the trailing newline (chomp). Matches
-    `cue` (`|-` style; no final blank line). -/
+/-- Count the trailing `\n` characters of `s` (the run of newlines at the very end). -/
+def yamlTrailingNewlines (s : String) : Nat :=
+  let rec go : List Char -> Nat
+    | '\n' :: rest => 1 + go rest
+    | _ => 0
+  go s.toList.reverse
+
+/-- Indent one content line of a block scalar: an empty line stays empty (no trailing
+    whitespace), a non-empty line gets the `pad` prefix. -/
+def yamlBlockLine (pad : String) (line : String) : String :=
+  if line.isEmpty then "" else pad ++ line
+
+/-- A block scalar for a string containing newlines, matching `cue` (go-yaml v3) exactly,
+    including the chomping indicator that encodes how many trailing newlines the string
+    carries — `|-` (strip) for none, `|` (clip) for exactly one, `|+` (keep) for two or
+    more — and the explicit indentation indicator `|2` when the first content line begins
+    with a space (otherwise the block's indentation would be ambiguous). The indicator is
+    the indent *increment* over the introducer line, which is a fixed 2 in this layout (it
+    is NOT the absolute column). Content lines are indented by `indent`; getting the chomp
+    wrong silently drops or adds trailing newlines, so a file body ending in `\n`
+    round-trips losslessly. -/
 def yamlBlockScalar (indent : Nat) (s : String) : String :=
-  let lines := s.splitOn "\n"
   let pad := yamlIndent indent
-  let body := joinWith "\n" (lines.map fun line =>
-    if line.isEmpty then "" else pad ++ line)
-  "|-\n" ++ body
+  let trailing := yamlTrailingNewlines s
+  let firstLineIndented := (s.toList.head? == some ' ')
+  let indentTag := if firstLineIndented then "2" else ""
+  if trailing == 0 then
+    let body := joinWith "\n" ((s.splitOn "\n").map (yamlBlockLine pad))
+    "|" ++ indentTag ++ "-\n" ++ body
+  else if trailing == 1 then
+    -- clip: one trailing newline is implied by the block, so drop the empty segment
+    -- splitOn left at the end and emit no chomp indicator.
+    let core := s.dropRight 1
+    let body := joinWith "\n" ((core.splitOn "\n").map (yamlBlockLine pad))
+    "|" ++ indentTag ++ "\n" ++ body
+  else
+    -- keep: the block implies one trailing newline; the remaining `trailing - 1` newlines
+    -- become explicit blank lines after the content.
+    let core := s.dropRight trailing
+    let coreBody := joinWith "\n" ((core.splitOn "\n").map (yamlBlockLine pad))
+    let blanks := String.ofList (List.replicate (trailing - 1) '\n')
+    "|" ++ indentTag ++ "+\n" ++ coreBody ++ blanks
 
 mutual
   /-- Serialize a manifested value at block `indent`, as the value following a `key:` or
