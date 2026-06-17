@@ -156,7 +156,8 @@ first, the big import subsystem last because it gates the real workflow):
           this needs the embedding rule (hidden-only struct + list embed) and/or lazy
           selection — tracked as the next slice.
        3. Then the deeper semantic gaps (closedness enforcement under
-          import/unification, bare hidden-field references, `[string]:` patterns).
+          import/unification, bare hidden-field references). **`[string]:` kind/type label
+          patterns ✅ DONE 2026-06-17** — see item below.
      - **Design boundary (kue more lenient than cue, not a divergence):** kue reads the
        *intermediate* module's `deps` for a transitive cross-module hop; `cue` requires every
        transitive dep pinned **flat** in the *main* module's `deps` (MVS graph). Both resolve
@@ -588,9 +589,28 @@ Ranked (highest value first):
    pattern-constraint parse (blocker, below), not discovery.
 
 5. **[LOW — candidate-gap, keep parked] Closedness gap / hidden-field refs / `[...]` eval
-   laziness / `[string]:` non-string label patterns.** Already tracked under "Later Slices"
-   and `compat-assumptions`; these are feature work, not architecture debt. Not promoted by
-   this pass — they belong to the semantic roadmap, not the refactor backlog.
+   laziness.** Already tracked under "Later Slices" and `compat-assumptions`; these are
+   feature work, not architecture debt. Not promoted by this pass — they belong to the
+   semantic roadmap, not the refactor backlog.
+
+   **`[string]:` kind/type label patterns — ✅ DONE 2026-06-17.** Diagnosis: the
+   semantic model (`structPattern`/`structPatterns`, `labelMatchesPatternWith`) already
+   matched any constraint-valued label pattern, and the brace form `{[string]: int}`
+   already parsed+typed correctly. The only gap was the **bare colon-shorthand**
+   `#labels?: [string]: string` (= `#labels?: {[string]: string}`): `parseFieldValue`
+   recognized labeled-field shorthand (`a: b: …`) but not a pattern field in value
+   position, so it fell through to `parseExpression` → `parseList`, which choked on the
+   trailing `:` ("unexpected character ':'"). Fix: a `valuePositionStartsPatternField`
+   lookahead (balanced `[ … ]` immediately followed by `:`, via `skipBalancedBrackets`)
+   routes a value-position pattern field through `parseField` + `parsedFieldsValue`,
+   identical to the labeled-shorthand path. The bracket value is an arbitrary
+   `parseExpression`, so kind (`[string]:`/`[int]:`/`[bool]:`), exact (`["a"]:`), bound
+   (`[>0]:`), and regex (`[=~"re"]:`) all parse; `[1,2,3]` (no trailing `:`) stays a list
+   embedding. Oracle-matched v0.16.1: typed field → typed; mismatch → ⊥; pattern-only →
+   `{}`. Pinned by 4 fixtures + 2 `native_decide` EvalTests theorems. `defs/attr/
+   metadata.cue` now parses. **Next real-file wall (NEW, not the `[...]` blocker):**
+   `defs@v0.3.19/parts/pod_tolerations.cue` → "unexpected character '='" (an alias/`=`
+   form), surfaced once `[string]:` cleared on `kue export apps/argocd.cue`.
 
 6. **[LOW — keep documented] B3c intermediate-deps leniency (per-hop deps vs MVS flat).**
    A deliberate, documented divergence from `cue` (compat-assumptions:109–113); both
@@ -605,8 +625,10 @@ spotted.
 
 ## Later Slices
 
-- Expand pattern constraints beyond the current string-label representation:
-  non-string label patterns and fuller regular expression matching.
+- Pattern-constraint label values are now general (any constraint expression parses+matches
+  via both brace and colon-shorthand surface forms — done 2026-06-17). Remaining pattern
+  work: fuller regular-expression matching in `meetValue` (the regex *subset* still bounds
+  which `[=~"…"]:` patterns match), not the surface syntax.
 - Re-resolve references against the post-unification merge (not just the lexical frame),
   so `#D & {x: 5}` resolves `y: Self.x`/`y: x` to `5` rather than leaving the constraint.
   Affects plain sibling refs and value-alias `Self.field` alike (see compat-assumptions).

@@ -426,6 +426,35 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
+      fileName := "string_kind_pattern.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPattern [] (.kind .string) (.kind .int) true)
+            (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
+    },
+    {
+      fileName := "string_kind_pattern_mismatch.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.structPattern [] (.kind .string) (.kind .int) true)
+            (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
+    },
+    {
+      fileName := "string_kind_pattern_only.expected",
+      content := formatField "x" (.structPattern [] (.kind .string) (.kind .int) true)
+    },
+    {
+      fileName := "type_label_colon_shorthand.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [("#labels", .optional, .structPattern [] (.kind .string) (.kind .string) true)]
+              true))
+    },
+    {
       fileName := "field_conflict.expected",
       content :=
         formatField "x"

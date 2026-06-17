@@ -130,9 +130,18 @@ those forms.
 - Untyped struct ellipses are represented as `.structTail` values with a top tail. Typed
   struct tails remain semantic-only because the pinned CUE v0.15.4 tool rejects
   `...T` source syntax.
-- Multiple pattern fields are represented as independent pattern constraints. Label
-  pattern values are still limited to the existing string-kind, exact-string, and
-  supported regex subset.
+- Multiple pattern fields are represented as independent pattern constraints. The label
+  pattern is an arbitrary constraint expression — kind/type (`[string]:`, `[int]:`,
+  `[bool]:`), exact string (`["a"]:`), bound (`[>0]:`), and the supported regex subset
+  (`[=~"re"]:`) all parse and match (a field whose string label unifies with the pattern
+  is constrained by the value). Both surface forms reach the same `structPattern`
+  representation: the brace form `{[string]: T}` and the bare colon-shorthand
+  `f: [string]: T` (= `f: {[string]: T}`), the latter including under optional/definition
+  outer fields (`#labels?: [string]: string`). The bracket-`[`-in-field-position
+  disambiguation: a balanced `[ … ]` immediately followed by `:` is a pattern; otherwise
+  it is a list embedding (`[1, 2, 3]`). Matching reach for the pattern value is still
+  bounded by `meetValue` (regex by its supported subset, etc.); the surface syntax itself
+  is general.
 
 ## Numeric literals
 

@@ -568,6 +568,40 @@ def skipLabelToken? : List Char -> Option (List Char)
         none
   | [] => none
 
+/-- Skip a balanced bracket group `[ … ]` for lookahead, returning the remainder after
+    the matching `]`. `depth` tracks nesting; quoted strings/bytes inside are skipped whole
+    so a `]` in a literal does not close early. -/
+partial def skipBalancedBrackets (depth : Nat) : List Char -> Option (List Char)
+  | [] => none
+  | '"' :: rest =>
+      match skipQuotedToken? '"' rest with
+      | some rest => skipBalancedBrackets depth rest
+      | none => none
+  | '\'' :: rest =>
+      match skipQuotedToken? '\'' rest with
+      | some rest => skipBalancedBrackets depth rest
+      | none => none
+  | '[' :: rest => skipBalancedBrackets (depth + 1) rest
+  | ']' :: rest => match depth with
+      | 0 => some rest
+      | d + 1 => skipBalancedBrackets d rest
+  | _ :: rest => skipBalancedBrackets depth rest
+
+/-- Whether the value position begins a label-pattern field (`[<expr>]: …`), i.e. the
+    colon-shorthand `f: [string]: T` form (= `f: {[string]: T}`). A balanced `[ … ]`
+    immediately followed by `:` is a pattern; a bracket group NOT followed by `:`
+    (`[1, 2, 3]`) is an ordinary list and parses as an expression. -/
+def valuePositionStartsPatternField (chars : List Char) : Bool :=
+  match skipTrivia chars with
+  | '[' :: rest =>
+      match skipBalancedBrackets 0 rest with
+      | some afterBracket =>
+          match skipTrivia afterBracket with
+          | ':' :: _ => true
+          | _ => false
+      | none => false
+  | _ => false
+
 /-- Whether the value position begins another field (`label [?|!] :`), i.e. the
     colon-shorthand `a: b: …` form. Drives the desugaring recursion in `parseField`;
     a `false` verdict means the value position is an ordinary expression. -/
@@ -1228,7 +1262,7 @@ mutual
         | .error error => .error error
         | .ok (value, rest) => parseOk (bindValueAlias name value) rest
     | none =>
-      if valuePositionStartsField chars then
+      if valuePositionStartsField chars || valuePositionStartsPatternField chars then
         match parseField chars with
         | .error error => .error error
         | .ok (inner, rest) => parseOk (parsedFieldsValue [inner]) rest

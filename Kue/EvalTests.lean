@@ -423,6 +423,20 @@ theorem eval_struct_pattern_constrains_own_regular_field :
         true) = true := by
   native_decide
 
+theorem string_kind_pattern_types_matching_field :
+    (meet
+      (.structPattern [] (.kind .string) (.kind .int) true)
+      (.struct [("a", .regular, .prim (.int 1))] true)
+      == .structPattern [("a", .regular, .prim (.int 1))] (.kind .string) (.kind .int) true) = true := by
+  native_decide
+
+theorem string_kind_pattern_rejects_type_mismatch :
+    containsBottom
+      (meet
+        (.structPattern [] (.kind .string) (.kind .int) true)
+        (.struct [("a", .regular, .prim (.string "x"))] true)) = true := by
+  native_decide
+
 theorem eval_len_builtin_call_after_reference_resolution :
     (evalStructRefs
       (resolveStructRefs

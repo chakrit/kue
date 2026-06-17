@@ -4780,3 +4780,60 @@ dependency** — `defs@v0.3.19/attr/metadata.cue: unexpected character ':'` on
 parse (tracked blocker). So real-file export is gated on (1) `[...]` embedding eval and (2)
 `[string]:` pattern-constraint parse, not on module discovery.
 — a pre-existing export-mode path issue, out of this slice's scope.)
+
+---
+
+## Completed Slice: `[string]:` kind/type label-pattern colon-shorthand parse
+
+Goal: parse the canonical CUE open-map / constraint-key label pattern `[string]: T` (and
+the general kind/bound/exact/regex bracket form) in **value position** — the bare
+colon-shorthand `#labels?: [string]: string` (= `#labels?: {[string]: string}`) — which the
+most-imported prod9 dep `defs@v0.3.19/attr/metadata.cue` uses and which blocked real-file
+export.
+
+### Diagnosis
+
+The semantic model already supported it end-to-end: `structPattern`/`structPatterns` hold an
+arbitrary `Value` label pattern, and `labelMatchesPatternWith` matches a field iff
+`meetValue labelPattern (.string label)` is non-bottom — so `[string]:` (`.kind .string`)
+already typed string-labeled fields, and the **brace** form `{[string]: int}` already
+parsed+typed correctly. The sole gap was surface syntax: `parseFieldValue` recognized
+labeled-field colon-shorthand (`a: b: …`) via `valuePositionStartsField`, but had no case for
+a *pattern* field in value position. So `f: [string]: T` fell through to `parseExpression` →
+`parsePrimaryAtom` `'['` → `parseList`, which parsed `string` then choked on the trailing `:`
+("unexpected character ':'", the reported failure).
+
+### Steps
+
+1. Parser (`Kue/Parse.lean`). New `skipBalancedBrackets` (depth-tracked `[ … ]` lookahead,
+   skipping quoted literals whole) and `valuePositionStartsPatternField` (a balanced bracket
+   group immediately followed by `:`). `parseFieldValue` now routes such a value position
+   through `parseField` + `parsedFieldsValue` — identical to the labeled-shorthand path —
+   wrapping `[…]: T` into a single-pattern struct. Disambiguation order at `[` in value
+   position: trailing `:` ⇒ pattern; otherwise list embedding (`[1,2,3]`). The existing
+   field-position `[`-handling (try `parsePatternField`, else `parseEmbedding`) is unchanged,
+   so `["a"]:`, `[=~"re"]:`, and `[...]` embedding all still parse. The bracket value is an
+   arbitrary `parseExpression`, so kind (`[string]:`/`[int]:`/`[bool]:`), exact, bound
+   (`[>0]:`), and regex forms all parse uniformly — no deferral.
+
+2. Tests. 4 fixtures + `FixturePorts` entries: `string_kind_pattern` (`[string]: int` typing
+   two concrete int fields via the `{…}&{…}` form), `string_kind_pattern_mismatch` (a string
+   field → `_|_`), `string_kind_pattern_only` (pattern-only struct), and
+   `type_label_colon_shorthand` (the defs shape `#labels?: [string]: string` via bare
+   colon-shorthand under an optional definition). 2 `native_decide` EvalTests theorems:
+   `string_kind_pattern_types_matching_field` (meet types a matching int field) and
+   `string_kind_pattern_rejects_type_mismatch` (`containsBottom` on a string field).
+
+3. Oracle (cue v0.16.1). `{[string]: int, a: 1}` → `a:1` int; `a: "x"` → conflict; pattern
+   alone exports `{}` — all matched.
+
+4. Verify. `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
+   `shellcheck` clean.
+
+### Real-file spot-check (READ-ONLY, prod9/infra)
+
+`defs@v0.3.19/attr/metadata.cue` now parses (`#Metadata: {…, #labels?: {[string]: string},
+…}`). `kue export apps/argocd.cue` advances past the `[string]:` wall to a **new** parse
+error one dep deeper: `defs@v0.3.19/parts/pod_tolerations.cue: unexpected character '='` (an
+alias/`=` form). That, plus the still-open `[...]` embedding eval laziness, are the next
+real-file gates — neither is this slice.
