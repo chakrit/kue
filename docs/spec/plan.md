@@ -373,6 +373,59 @@ contradictory value to bottom / a non-zero exit, never partial garbage.
   entry if treated as a surprising-`cue` case; otherwise leave as the documented intended
   behavior.
 
+## Audit Fix-Slices (parser batch: `_`-ident + type-label patterns + export discovery, Phase A audit 2026-06-17)
+
+Phase A code-quality pass over `ccda409` (export `cue.mod` discovery from subdir/relative
+path), `2bda996` (`[string]:`/`[int]:` type-label-pattern colon-shorthand), `e82f107`
+(`_`-prefixed identifier lexing fix). **No Violations found in the landed slices; one
+LOW-severity correctness gap (NOT a regression) folded as a fix-slice below.** Verify gate
+green (`lake build`, `check-fixtures.sh`, `shellcheck`) on the as-landed tree before any edit.
+
+**`_`-ident lexing (`e82f107`) — COMPLETE, no regression.** The `'_' :: next :: rest` arm
+sits after `'_' :: '|' :: '_'` (bottom) and before bare `'_'` (top at EOF). Verified against
+the oracle across every position: `_x`/`__bar` (ident), `_` alone (top), `_|_` (bottom),
+`_x.y` (selector base), `a._x` (hidden selector tail), `_x` in list/call-arg, `_ | 3`
+(disjunction with `_` as top — `|` is not ident-rest so the bare-top arm fires). The
+ident-rest predicate is correct (`parseIdentifierStart || 0-9`, i.e. letters, `_`, `#`,
+digits). No mis-lexed position found; no regression to bottom/top/normal idents.
+
+**`[`-disambiguation (`2bda996`) — CORRECT; `skipBalancedBrackets` total.**
+`valuePositionStartsPatternField` = balanced `[…]` immediately followed by `:`; a `[…]` not
+followed by `:` stays a list expression. Disjoint from `valuePositionStartsField`
+(`skipLabelToken?` returns `none` on `[`), so no double-classification. `skipBalancedBrackets`
+recurses on a strictly shorter list in every arm (quoted-literal arms delegate to
+`skipQuotedToken?`, which always returns a proper suffix), so it terminates — `partial` only
+because Lean can't auto-derive it (parser standing exception). Quoted `]` inside the pattern
+is skipped whole; nesting tracked by `depth`. The type-pattern reuses the existing
+`.structPattern`/`.kind` representation — NO redundant new rep (constraint + label both parse
+as plain expressions via `parseExpression`).
+
+**Type-system-first — CLEAN.** No new loose reps introduced. `.pattern`/`.structPattern`
+reuse existing constructors; `Import.alias : Option String` is the natural shape (alias is
+genuinely absent in the bare-path form). `absolutePath`/`discoveryStartDir` are total and
+pure (the `cwd` lookup is the IO caller's job), correct on `.`/`..`/trailing-slash via the
+downstream parent-walk. No new catch-all `_` that swallows a future constructor; no partial
+that should be total.
+
+**Test strength — REAL PINS.** `_`-ident exercised across ref/`!=`/`+`/`==`/selector
+positions (`underscore_ident_reference`) and top/bottom (`underscore_top_bottom`); pattern
+typing + mismatch pinned via `containsBottom` (`string_kind_pattern{,_mismatch,_only}`,
+`type_label_colon_shorthand`). All six new `testdata/cue/*` fixtures have FixturePorts
+entries; the `export_subdir` module fixture is CLI-driven (`subpaths` + `expected.<name>`),
+correctly exempt from the FixturePorts rule.
+
+**[LOW — parser, NOT a regression] Nested pattern-shorthand on the constraint side fails.**
+`f: [string]: [int]: bool` parses fine in CUE (pure constraint, no concrete output) but Kue
+errors at the second `:` (`parse error: unexpected character ':'`). Cause: `parsePatternField`
+(`Parse.lean` ~L1161) parses the constraint with `parseExpression`, NOT `parseFieldValue`, so
+the colon-shorthand desugaring `valuePositionStartsField || valuePositionStartsPatternField`
+never runs on a pattern field's value. The named-field value-position case (the `2bda996`
+target, `f: [string]: int`) works — this is the missed *constraint-of-pattern* twin, a
+pre-existing asymmetry the slice surfaced rather than introduced. **Fix-slice:** route the
+`parsePatternField` constraint through `parseFieldValue` (mirroring `parseLabeledField`),
+then pin with a `nested_pattern_shorthand` fixture + oracle check. Low-risk but a parse-path
+change → its own slice, not inline.
+
 ## Audit Fix-Slices (import-resolution + embedding family, Phase A audit 2026-06-17)
 
 Phase A code-quality pass over `2329df2` (B3a in-module imports), `e642e93` (B3c
