@@ -5698,3 +5698,36 @@ in `Kue/Base64.lean`, a leaf module that imports nothing (depends only on
 `lake build` → 86 jobs, success. `scripts/check-fixtures.sh` → `fixture pairs ok` (no
 `.expected` touched; base64/json/yaml fixtures — `base64_encode`, `encoding_infra_chain` —
 unchanged). `shellcheck scripts/check-fixtures.sh` clean.
+
+---
+
+## Completed Slice: Linux `cacheRoot` default (per-OS user cache)
+
+Plan item 4 (portability). The cross-module extract-cache root (B3c) fell back to the macOS
+`~/Library/Caches/cue` on every OS absent `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`, so a Linux
+dev/CI with neither set silently missed the cache and cross-module imports failed to resolve.
+
+### Intended behavior
+
+Match Go's `os.UserCacheDir` (what `cue` uses): `$CUE_CACHE_DIR` wins; else
+`$XDG_CACHE_HOME/cue`; else the per-OS user cache — macOS `~/Library/Caches/cue`, other Unix
+`~/.cache/cue`. The two env-var branches were already cross-OS-correct and are unchanged.
+
+### Changes
+
+- **`Module.lean`** — new pure `cacheDirFor (cueCacheDir xdgCacheHome home : Option String)
+  (isOSX : Bool) : System.FilePath` holds the full precedence + per-OS branch. `cacheRoot`
+  is now a thin IO wrapper: read the three env vars + `System.Platform.isOSX`, hand them to
+  `cacheDirFor`. OS detected via Lean's `System.Platform.isOSX` (compile-time extern `Bool`);
+  `isOSX` is opaque so it never reduces under `native_decide`, but the pure helper takes it
+  as an explicit argument, so theorems pass literal `true`/`false`.
+- **`Tests/ModuleTests.lean`** — 5 `native_decide` theorems: `CUE_CACHE_DIR` verbatim (wins
+  over XDG/HOME/OS); `XDG_CACHE_HOME/cue` over per-OS fallback; macOS fallback; Linux
+  fallback (the bug); missing-`HOME` → `/.cache/cue` (no crash; `FilePath.mk "" / ".cache"`
+  normalizes to `/.cache`).
+
+### Verify
+
+`lake build` → 86 jobs, success. `scripts/check-fixtures.sh` → `fixture pairs ok` (module
+fixtures override `CUE_CACHE_DIR`, so unaffected). `shellcheck scripts/check-fixtures.sh`
+clean.

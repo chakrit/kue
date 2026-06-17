@@ -157,7 +157,8 @@ those forms.
   from `deps.<key>.v`; the owning dep is chosen by longest module-path prefix. The module is
   located **read-only** in priority order: vendored `cue.mod/pkg/<modpath>[@ver]/`, then the
   extract cache `<cacheRoot>/mod/extract/<modpath>@<ver>/`, where `cacheRoot` honors
-  `$CUE_CACHE_DIR`, else `$XDG_CACHE_HOME/cue`, else `~/Library/Caches/cue`. The subpath is
+  `$CUE_CACHE_DIR`, else `$XDG_CACHE_HOME/cue`, else the per-OS user cache (Go
+  `os.UserCacheDir`): macOS `~/Library/Caches/cue`, other Unix `~/.cache/cue`. The subpath is
   mapped within the located module root and loaded via the same `loadPackage` machinery; a
   cross-module import *inside* a loaded module hops to that module's own context, so
   transitive cross-module resolves recursively. A path matching neither the module prefix

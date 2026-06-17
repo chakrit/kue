@@ -210,18 +210,29 @@ where
           | _ => none
     | _ => none
 
-/-- The CUE module cache root, honoring `CUE_CACHE_DIR`, then `XDG_CACHE_HOME/cue`, falling
-    back to the macOS default `~/Library/Caches/cue`. The extract tree lives under
-    `<cacheRoot>/mod/extract/`. -/
-def cacheRoot : IO System.FilePath := do
-  match ← IO.getEnv "CUE_CACHE_DIR" with
-  | some dir => pure (System.FilePath.mk dir)
+/-- The CUE module cache root, from the resolved env vars and OS, mirroring Go's
+    `os.UserCacheDir` (which `cue` uses): `CUE_CACHE_DIR` wins; else `XDG_CACHE_HOME/cue`;
+    else the per-OS user cache — macOS `~/Library/Caches/cue`, other Unix `~/.cache/cue`.
+    Pure so the precedence is `native_decide`-checkable; the IO wrapper only reads env+OS. -/
+def cacheDirFor (cueCacheDir xdgCacheHome home : Option String) (isOSX : Bool) :
+    System.FilePath :=
+  match cueCacheDir with
+  | some dir => System.FilePath.mk dir
   | none =>
-      match ← IO.getEnv "XDG_CACHE_HOME" with
-      | some dir => pure (System.FilePath.mk dir / "cue")
+      match xdgCacheHome with
+      | some dir => System.FilePath.mk dir / "cue"
       | none =>
-          let home := (← IO.getEnv "HOME").getD ""
-          pure (System.FilePath.mk home / "Library" / "Caches" / "cue")
+          let homeDir := System.FilePath.mk (home.getD "")
+          if isOSX then homeDir / "Library" / "Caches" / "cue"
+          else homeDir / ".cache" / "cue"
+
+/-- The CUE module cache root: read the env vars and OS, then build the path purely via
+    `cacheDirFor`. The extract tree lives under `<cacheRoot>/mod/extract/`. -/
+def cacheRoot : IO System.FilePath := do
+  let cueCacheDir ← IO.getEnv "CUE_CACHE_DIR"
+  let xdgCacheHome ← IO.getEnv "XDG_CACHE_HOME"
+  let home ← IO.getEnv "HOME"
+  pure (cacheDirFor cueCacheDir xdgCacheHome home System.Platform.isOSX)
 
 /-- Join a slash-separated module path onto a base directory, segment by segment. -/
 def joinModulePath (base : System.FilePath) (modPath : String) : System.FilePath :=

@@ -532,9 +532,10 @@ demonstrates real-file viability.
    `Kue/Base64.lean` (decode/encode is not JSON's concern; `Json`/`Builtin` import it).
    `Field` tuple → `structure { label, fieldClass, value }`, ~122 destructure sites via the
    existing accessors. Behavior-preserving; build-gated.
-4. **[MEDIUM — portability] Linux `cacheRoot` default** (`Module.lean`): branch on
-   `System.Platform` so Linux defaults to `~/.cache/cue` not `~/Library/Caches/cue` absent
-   `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`. Small, independent.
+4. **[DONE — portability] Linux `cacheRoot` default** (`Module.lean`): pure `cacheDirFor`
+   helper branches on `System.Platform.isOSX` so Linux defaults to `~/.cache/cue`, macOS to
+   `~/Library/Caches/cue`, absent `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME` (mirrors Go
+   `os.UserCacheDir`). Precedence unchanged; 5 `native_decide` theorems pin both OS branches.
 5. **[MEDIUM — real-file reach, larger] Multi-file package-dir export.** `kue export ./apps`
    merges all `package apps` files in a dir before manifesting. Loader slice (`Module` +
    `Cli`); meets real usage but bigger than `-e`. Schedule only for full dir-parity.
@@ -675,9 +676,8 @@ taken together, do 1's commutativity theorems against the post-fold representati
      truncating/mangling listing output (the CLAUDE.md-documented flip-flop) — high risk for
      mechanical text surgery, low risk via the Edit tool but unverifiable mid-stream. Core
      reorg shrinks the navigation surface already; splits remain queued.
-4. **[MEDIUM — promote] Linux `cacheRoot` default** (`Module.lean`): branch on
-   `System.Platform` so Linux defaults to `~/.cache/cue` not `~/Library/Caches/cue` absent
-   `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`. Small portability slice; independent of the above.
+4. **[DONE] Linux `cacheRoot` default** (`Module.lean`): landed via pure `cacheDirFor`
+   branching on `System.Platform.isOSX` (Linux `~/.cache/cue`, macOS `~/Library/Caches/cue`).
 5. **[LOW — type-system leverage] Refine `embeddedList.decls` element type.** "decls =
    non-output only" enforced by the `declFields` filter, not the type. A `NonOutputField`
    newtype (smart ctor) makes it unrepresentable but ripples through `Manifest`/`Format`/

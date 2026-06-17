@@ -165,4 +165,39 @@ example :
       = "/var/m/sub" := by
   native_decide
 
+/-! ## Cache-root path resolution (per-OS, env-driven)
+
+    `cacheDirFor` mirrors Go's `os.UserCacheDir` precedence (`cue`'s cache discovery):
+    `CUE_CACHE_DIR` wins outright; else `XDG_CACHE_HOME/cue`; else the per-OS user cache.
+    The IO wrapper supplies `System.Platform.isOSX`; here we pin both OS branches. -/
+
+/-- `CUE_CACHE_DIR` is used verbatim, ignoring XDG, HOME, and OS. -/
+example :
+    (cacheDirFor (some "/explicit/cache") (some "/xdg") (some "/home/me") true).toString
+      = "/explicit/cache" := by
+  native_decide
+
+/-- With no `CUE_CACHE_DIR`, `XDG_CACHE_HOME/cue` wins over the per-OS fallback. -/
+example :
+    (cacheDirFor none (some "/xdg") (some "/home/me") false).toString
+      = "/xdg/cue" := by
+  native_decide
+
+/-- Neither env var on macOS: the `~/Library/Caches/cue` default. -/
+example :
+    (cacheDirFor none none (some "/Users/me") true).toString
+      = "/Users/me/Library/Caches/cue" := by
+  native_decide
+
+/-- Neither env var on Linux: the `~/.cache/cue` default (the bug this slice fixes). -/
+example :
+    (cacheDirFor none none (some "/home/me") false).toString
+      = "/home/me/.cache/cue" := by
+  native_decide
+
+/-- A missing `HOME` falls back to a root-relative cache dir rather than crashing. -/
+example :
+    (cacheDirFor none none none false).toString = "/.cache/cue" := by
+  native_decide
+
 end Kue
