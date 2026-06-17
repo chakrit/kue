@@ -142,9 +142,12 @@ def ignoresClosedness : FieldClass -> Bool
     presence). Used to decide whether a struct embedding a list conflicts (an output field
     present) or becomes the list (only non-output members). -/
 def producesOutput : FieldClass -> Bool
+  | .field true _ _ => false
+  | .field _ true _ => false
   | .field false false .regular => true
   | .field false false .required => true
-  | _ => false
+  | .field false false .optional => false
+  | .letBinding => false
 
 end FieldClass
 
