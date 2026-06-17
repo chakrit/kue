@@ -5884,3 +5884,43 @@ module-fixture harness has no expected-failure mode, so the pin can't precede th
 `lake build` → success (no code touched). `scripts/check-fixtures.sh` → `fixture pairs ok`
 (no fixture change). `shellcheck scripts/check-fixtures.sh` clean. Behavior-preserving by
 construction — docs-only.
+
+## Completed Slice: Loader Robustness — missing-file diagnostic + crossmod_nodeps pin
+
+Goal: two cheap, behavior-safe loader items off the non-fork tail (NOT the surfaced
+Value-model fork). (A) clean diagnostic for a missing file/dir arg on `export`; (B) a
+self-contained regression fixture pinning the deps-less-module-imports-its-own-subpackage
+resolution.
+
+### Steps
+
+1. **Item A — export missing-file diagnostic.** `runExport`'s file branch in `Main.lean`
+   called `Kue.loadEntry path` bare, so a missing path threw an uncaught IO exception (ugly
+   stack). `runEval` already wrapped it in `.toBaseIO`. Mirrored that: wrap in `.toBaseIO`,
+   match `.error ioError` → `kue: cannot read <path>: <reason>` + exit 1, with the loader's
+   own `.error message` still surfacing as `kue: <message>`. Both eval and export, file and
+   missing-directory args, now give the clean diagnostic (both route through `loadEntry`).
+   Caught at the IO boundary (not a `pathExists` guard) so mid-load read failures are
+   covered too and the pure loader stays read-then-fail. Success paths byte-identical.
+
+2. **Item B — `testdata/modules/crossmod_nodeps/`.** App `example.com/app` deps-on
+   `example.com/lib@v0.1.0`; the lib module ships an empty `deps` table yet imports its OWN
+   `example.com/lib/sub` subpackage; the app imports both `lib` and `lib/sub`. Self-contained
+   committed `_cache/mod/extract/example.com/lib@v0.1.0/` (the `check_module_fixtures` stage
+   points `CUE_CACHE_DIR` at it — never touches the real cue cache). `expected` is the
+   byte-for-byte `cue export --out json` oracle (cue v0.16.1, `CUE_OFFLINE=1`). All cue files
+   `cue fmt`-clean (the harness fmt-checks them). Concrete values only — deliberately steers
+   clear of the cross-package def-meet bug (Value-model fork, surfaced to chakrit) so the
+   fixture pins *resolution*, not eval.
+
+3. **Theorems.** Two `native_decide` pins in `Kue/Tests/ModuleTests.lean`: the app→lib
+   `resolveCrossModule [{example.com/lib, v0.1.0}] "example.com/lib/sub"` hop and the
+   deps-less lib→sub `resolveImportSubpath "example.com/lib" "example.com/lib/sub" = some
+   "sub"` hop.
+
+### Verify
+
+`lake build` → success (new theorems compile). `scripts/check-fixtures.sh` → `fixture pairs
+ok` (crossmod_nodeps export matches oracle). `shellcheck scripts/check-fixtures.sh` clean.
+Manually: `kue eval /no/such.cue` and `kue export /no/such.cue` both print `kue: cannot read
+…` + exit 1 (no stack), as does a missing-dir arg.

@@ -80,11 +80,14 @@ def exportBoundValue (opts : Kue.Cli.ExportOpts) (value : Kue.Value) :
 def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
   match opts.file with
   | some path =>
-      match ← Kue.loadEntry path with
-      | .error message =>
+      match ← (Kue.loadEntry path).toBaseIO with
+      | .error ioError =>
+          IO.eprintln s!"kue: cannot read {path}: {ioError.toString}"
+          pure evalErrorCode
+      | .ok (.error message) =>
           IO.eprintln s!"kue: {message}"
           pure evalErrorCode
-      | .ok value =>
+      | .ok (.ok value) =>
           match exportBoundValue opts value with
           | .error message =>
               IO.eprintln s!"kue: export error: {message}"

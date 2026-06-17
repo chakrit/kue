@@ -254,15 +254,15 @@ this pass changed only `plan.md`.
    B3d, with a provenance-key design spike first. Affects the dominant `#Def & {…}` prod9
    pattern's exported field order → a real byte-parity blocker for app output, but only on
    apps that already resolve.
-2. **[LOW — pre-existing, NOT in this diff] Bare nonexistent-file arg throws uncaught IO
-   exception.** `kue export /tmp/missing.cue` prints `uncaught exception: no such file or
-   directory` instead of a clean diagnostic; cue prints `stat …: no such file` exit 1.
-   `loadEntry`'s `isDir` returns `false` for a missing path → `loadFileBound` → bare
-   `IO.FS.readFile` throws. Confirmed pre-existing at `25d66a7` (loadFileBound read the file
-   directly before this diff too) — `loadEntry` faithfully preserves single-file behavior,
-   so not a regression. Fix: a `pathExists` guard in `loadFileBound` returning `.error`.
-   Small, low-risk, but a behavior change with no current test → schedule as a tiny slice
-   (TDD with an `expected.err` module fixture), not an inline audit fix.
+2. **[DONE 2026-06-17 — loader-robustness slice] Bare nonexistent-file arg threw uncaught
+   IO exception.** Was: `kue export /tmp/missing.cue` printed `uncaught exception: no such
+   file or directory`. Fixed by wrapping the `export` file-mode `loadEntry` in `.toBaseIO`
+   in `Main.lean` (eval already had it) → clean `kue: cannot read <path>: <reason>` + exit
+   1, covering file and missing-directory args (both route through `loadEntry`). Done at
+   the IO boundary rather than a `pathExists` guard in `loadFileBound` so the catch also
+   covers mid-load read failures (e.g. an unreadable cue.mod), and keeps the pure loader
+   read-then-fail. Success paths byte-identical; check-fixtures uses valid paths so no
+   regression.
 
 ### Re-ranked next-work list — CORRECTED by B3d recon (2026-06-17)
 
@@ -310,6 +310,16 @@ through meet/manifest; multi-slice + design spike). Cheap lock-in available: a
 `testdata/modules/crossmod_nodeps/` fixture pinning the deps-less-module-with-self-import
 guarantee (recon §5). Finding 2 (missing-file diagnostic) is a cheap ride-along when
 Module.lean is next touched.
+
+**DONE 2026-06-17 (loader-robustness slice).** `testdata/modules/crossmod_nodeps/` landed:
+app `example.com/app` deps-on `example.com/lib@v0.1.0`; the lib module has an empty `deps`
+table yet imports its OWN `example.com/lib/sub` subpackage, and the app imports both `lib`
+and `lib/sub` directly. Self-contained committed `_cache/`; `expected` is the byte-for-byte
+`cue export` oracle (v0.16.1). Concrete values only — deliberately avoids the cross-package
+def-meet bug (#1 below) so it pins resolution, not eval. Two `native_decide` theorems in
+`ModuleTests.lean` pin the app→lib `resolveCrossModule` hop and the lib→sub
+`resolveImportSubpath` deps-less hop. Finding 2 (missing-file diagnostic) landed in the same
+slice.
 
 ## DECISION NEEDED — full real-app export gated on a Value-model fork (recon 2026-06-17)
 

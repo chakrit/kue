@@ -127,6 +127,26 @@ example : resolveCrossModule deps "unknown.org/x" = none := by
 example : resolveCrossModule deps "prodigy9.com/defs" = none := by
   native_decide
 
+/-! ## `crossmod_nodeps` regression pins (testdata/modules/crossmod_nodeps)
+
+    A deps-less dependency module that imports its OWN subpackage. The app declares only
+    `example.com/lib@v0.1.0`; the lib module has an empty `deps` table yet imports
+    `example.com/lib/sub`. Both hops resolve purely: the app→lib hop is a cross-module
+    lookup, the lib→sub hop is a same-module subpath. Pins the topology the fixture's
+    oracle-matched export verifies end-to-end. -/
+
+/-- The app's cross-module import of the lib resolves to its dep at the module root. -/
+example :
+    resolveCrossModule [{ modPath := "example.com/lib", version := "v0.1.0" }]
+        "example.com/lib/sub"
+      = some ({ modPath := "example.com/lib", version := "v0.1.0" }, "sub") := by
+  native_decide
+
+/-- The deps-less hop: the lib module resolving its own `/sub` subpackage maps to the
+    in-module subpath `sub` (no dep table consulted). -/
+example : resolveImportSubpath "example.com/lib" "example.com/lib/sub" = some "sub" := by
+  native_decide
+
 /-! ## Path resolution for module discovery
 
     `absolutePath`/`discoveryStartDir` decide where the cue.mod parent-walk starts. The
