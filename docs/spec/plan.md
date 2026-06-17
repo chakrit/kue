@@ -317,6 +317,73 @@ before the sort. Tests are strong behavior pins, not smoke.
   Lean lemma bounding loop iterations by `divisionDigitsFuel den` would close the gap
   permanently. Schedule only if the decimal layer is revisited; not blocking.
 
+## Audit Fix-Slices (lazy-resolution + FieldClass family, Phase A audit 2026-06-17)
+
+Phase A code-quality pass over `f885fe7` (2c.1 in-struct duplicate-label canonicalization),
+`04cf1db` (2c.2 lazy resolution through struct conjunction), `70e6ec0` (optional-definition
+orthogonal `FieldClass` refactor). Type-system-first lens. Oracle: `cue` v0.16.1.
+
+**Headline verdicts (no soundness bug found):**
+
+- **`remapConjRefs` de-Bruijn shift is sound.** Each conjunct is rebased at `frameDepth 0`
+  against its OWN `oldLabels` → merged-layout `mergedMap`; only refs whose `depth ==
+  frameDepth` (the merged-frame layer) are remapped, descending a `.struct`/`.structTail`/
+  `.structPattern(s)` increments `frameDepth` so nested bodies still target the merged frame
+  from their new depth, and depth>0 refs pass through untouched. Adversarial cases all
+  oracle-match: conjunct with its own duplicate labels (`{a:int,a:>0,b:a}&{a:1}` → `a:1
+  b:1`), 3-way `&`, depth>0 outer-sibling ref preserved (`{a:int,b:p}&{a:1}` with `p:5` →
+  `b:5`), ref to a label only in the other conjunct returns `none` from `nthField` and is
+  left unchanged (then bottoms). No off-by-one, no mis-rebased index observed.
+- **`conjStructOperand?` depth-0 boundary is safe.** It splices struct bodies only via
+  `depth == 0` sibling refIds; lists/primitives/patterns/tails/disjunctions/outer-refs all
+  return `none` and take the eval-then-`meet` fallback. The fallback is correct in every
+  probed case (struct&list → bottom; `(a|b)&c` → distributed meet, NOT mis-merged). No
+  case found where it should-merge-but-doesn't and silently yields a wrong value.
+- **Closedness via `applyConjClosedness` matches binary-meet.** `#D & {extra}` still closes
+  (`extra: _|_`); disjunction-in-conjunction takes the meet path; struct&list bottoms.
+- **Memo/cycle safe.** Merged/canonicalized frame is built fresh (no stale `b:int` hit
+  observed: `b:int; x:({a:b}&{a:1})` → `b:int, x:{a:1}`); self-ref through a merged
+  conjunct (`{a:a}&{a:1}`) hits `slotVisited`→`.top` and collapses to `1`.
+- **FieldClass 5 match sites correct + exhaustive.** `Manifest` (`.field _ _ .required →
+  error` — oracle-confirmed `#b!` is required-not-present even as a definition), `Format`,
+  `Eval.structPairs`, `Normalize`, `mergeFieldClass` all handle `.field …`/`.letBinding`
+  with no constructor-swallowing wildcard. `mergeFieldClass` lattice oracle-matches all
+  probed combos (`#x?&#x`, `_x?&_x`, `#y!&#y`, `a?&a!=a!`, `optional&optional`).
+- **Both test rewrites independently oracle-confirmed, NOT made-to-pass.** (1)
+  `eval_binding_id_not_label_lookup` `"same"`→`"#same"`: makes a `.definition`-classed slot
+  internally consistent (defs are `#`-prefixed); the test's purpose (id-lookup not
+  label-lookup) is preserved. (2) `meet_optional_with_required_yields_required` `.bottom`→
+  `a!`: `cue` v0.16.1 confirms `a? & a! = a!` (the old enum wrongly bottomed it).
+- **Type-system-first: the refactor is a genuine tightening.** The flat 6-variant enum
+  could not represent `#x?`/`#x!`/`_x?`; the orthogonal `field (isDef) (isHidden)
+  (Optionality) | letBinding` makes those first-class and the parser now preserves both
+  modifiers (old parser dropped definition-ness on seeing `?`/`!`). `Optionality.meet` is
+  total; all FieldClass projections are exhaustive.
+
+### Findings (all LOW severity — fold as fix-slices)
+
+1. **[LOW — type-system-first] `producesOutput` catch-all `_ => false` spans `Optionality`
+   values, not just `FieldClass` constructors.** Not a constructor-swallow risk (already
+   assessed in the deep-eval audit, item 1), but a *new* `Optionality` rung would silently
+   be non-output. Spelling out all three `Optionality` arms under `.field false false` would
+   make a future rung a compile error. Trivial; do alongside any `Optionality` change.
+
+2. **[LOW — recorded divergence, both reject] cross-conjunct lexical scope.** `{a:int,b:a} &
+   {a:1, c:b}`: `cue` errors `reference "b" not found` (each struct literal is its own
+   lexical scope; `b` is not a sibling of `c`); Kue yields `c: _|_` (unresolved-reference
+   bottom). Both REJECT — confirmed Kue does NOT mis-splice the first conjunct's `b` into
+   the second (value-independence probe: `c` stays `_|_` whether first-conjunct `b` is `1`
+   or `7`). Different diagnostic, same verdict. Candidate for `cue-divergences.md` only if
+   we want diagnostic parity; no behavioral fix needed.
+
+3. **[LOW — edge] `#_x`/`_#x` label prefix interaction unprobed.** `parseFieldClass` sets
+   `isHidden := !isDefinition && startsWith "_"`, so a `#`-prefixed label is never also
+   hidden. Whether `cue` treats any combined-prefix label as both is untested; low value.
+
+No inline fixes applied — all findings are LOW and none is a one-liner safe to land without
+a dedicated TDD slice. Build + fixtures were re-verified green during the audit (no code
+changed). Folded as fix-slices above.
+
 ## Audit Fix-Slices (serialization/export family, audit 2026-06-17)
 
 Findings from the `/ace-audit` depth pass over `ec920f3` (B6: `Json.lean`,
