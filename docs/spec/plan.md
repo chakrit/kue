@@ -518,9 +518,84 @@ it (no regression); Go/CUE semantics correct (`n==0`→`[]`, `n<0`→unbounded, 
 LOW/borderline items to fold (none blocking):
 - **[Borderline, FOLDED] field-alias inner label in colon-shorthand** — see B1 boundary
   above.
-- **[Out of scope — preexisting] `Yaml.lean:186,192` use deprecated `String.dropRight`**
-  (now returns `String.Slice`, not `String`). Compiles with a warning; B6 serialization
-  code, already audited. Migrate to `String.dropEnd` opportunistically.
+- **[DONE — Phase B, commit `5a0d057`] `Yaml.lean:186,192` deprecated `String.dropRight`**
+  migrated to `String.dropEnd` (`.toString` coerces the new `String.Slice` return back).
+  Behavior unchanged; the two build warnings are cleared.
+
+## Architecture Fix-Slices (Phase B audit 2026-06-17)
+
+Whole-module-graph pass (broader than Phase A's diff lens). **Layering verdict: clean.**
+The internal import DAG is acyclic with the intended shape — `Value` at the base; pure
+cores (`Lattice`/`Order`/`Normalize`/`Format`/`Decimal`/`Resolve`/`Parse`) over it;
+`Builtin → {Lattice, Decimal, Json, Yaml}` (NOT `Builtin → Eval`, the old cycle stays
+broken); `Eval → {Builtin, Decimal, Lattice, Normalize}`; serializers `Json`/`Yaml` over
+`Manifest`/`Format` (`Yaml → Json` is a single-call reuse of `jsonString` for escaping —
+legitimate, not a back-edge); `Runtime` as the wiring layer; `Module` at the top
+(`→ Parse, Runtime`) with IO above the pure core. **No cycles, no back-edges, no muddled
+module.** `Module.lean` is cohesive and does NOT need to split: the pure resolution core
+(lines ~19–155) and the IO loader boundary (~157+) are already cleanly separated within
+one file behind a documented split, and the IO entry points are thin — a physical
+two-file split would buy nothing and add an import edge. Leave as-is.
+
+Ranked (highest value first):
+
+1. **[MEDIUM — function in wrong module] Move base64 out of `Json.lean`.** `base64Encode`
+   / `base64Alphabet` live in `Kue/Json.lean` but base64 is not JSON; consumers are
+   `Yaml.lean:137` (bytes scalar) and `Builtin.lean:623,625` (`encoding/base64`). It rode
+   into `Json` with B6. Extract to a small `Kue/Base64.lean` (or a `Kue/Encoding/` home if
+   base32/hex land later), re-point the 3 callsites + imports. Pure mechanical move, but
+   crosses 3 modules so it's a scoped slice, not an inline fix. Low risk, build-verified.
+
+2. **[MEDIUM — test/fixture organization, chakrit-flagged] Reorganize tests + `testdata/`.**
+   Concrete plan, executable as ONE slice:
+   - **`testdata/cue/` is a flat 114-fixture dir.** Group into subsystem subdirs:
+     `numeric/` (additive/bytes-additive/number/float/bound), `strings/`, `lists/`,
+     `structs/` (closed*/definition*/embed/pattern/comprehension*), `disjunctions/`
+     (default*/disjunction), `builtins/` (base64/and_or/builtin*), `refs/`
+     (reference/cycle/alias). Update the path roots in `FixturePorts.lean` +
+     `check-fixtures.sh` glob in the same slice. `testdata/export/` and
+     `testdata/modules/` are already coherent — leave them.
+   - **Split the two oversized test modules.** `FixtureTests` (986 lines) and
+     `BuiltinTests` (735) dwarf the rest. Split `BuiltinTests` by family
+     (`StringsBuiltinTests` / `ListBuiltinTests` / `MathBuiltinTests` / `EncodingBuiltinTests`)
+     — the families already exist as `evalXBuiltin` dispatchers, so the test split mirrors
+     the code. `FixtureTests` is generated-style port assertions; assess whether it can be
+     mechanically regenerated per-subdir after the `testdata/` regrouping rather than
+     hand-split.
+   - **`StructTests` (710) / `EvalTests` (635) / `ParseTests` (553)** are large but
+     single-subsystem and cohesive — defer splitting unless they keep growing.
+   Do NOT do the move in this audit (it's the periodic organization pass); this entry
+   specifies it precisely so it runs as one clean slice.
+
+3. **[MEDIUM — promote candidate-gap] Linux `cacheRoot` default.** `Module.lean:203`
+   `cacheRoot` falls back to `~/Library/Caches/cue` (macOS) when neither `$CUE_CACHE_DIR`
+   nor `$XDG_CACHE_HOME` is set — on Linux cue defaults to `~/.cache/cue`, so a Linux
+   dev/CI without the env vars silently misses the cache. Cheap, real portability gap for
+   the prod9 workflow. Fix: branch on `System.Platform` (or probe `~/.cache` vs
+   `~/Library/Caches`) for the OS-correct default. Small slice.
+
+4. **[MEDIUM — promote candidate-gap] `kue export` cue.mod-discovery-from-subdir.** When
+   `kue export` runs against a file in a module *subdirectory*, confirm `findModuleRoot`
+   walks up correctly and the dep table is read from the true module root (not the
+   subdir). Flagged as a known bug in the audit brief; reproduce against a real
+   `infra/apps/*.cue` invoked from the repo root vs the subdir, pin with a fixture, fix the
+   discovery path. Gates the real workflow ergonomics.
+
+5. **[LOW — candidate-gap, keep parked] Closedness gap / hidden-field refs / `[...]` eval
+   laziness / `[string]:` non-string label patterns.** Already tracked under "Later Slices"
+   and `compat-assumptions`; these are feature work, not architecture debt. Not promoted by
+   this pass — they belong to the semantic roadmap, not the refactor backlog.
+
+6. **[LOW — keep documented] B3c intermediate-deps leniency (per-hop deps vs MVS flat).**
+   A deliberate, documented divergence from `cue` (compat-assumptions:109–113); both
+   resolve when the artifact is on disk. Not debt — leave as the documented B3c boundary
+   until B3d (registry + MVS solving) lands.
+
+**Other findings:** none higher than the above. No dead code, no leftover scaffolding, no
+cross-module duplication beyond the misplaced-base64 item. `joinModulePath`/`subpathDir`
+in `Module.lean` look like near-dupes but `subpathDir` is a deliberate named alias for the
+subpath use-site (documented) — acceptable. Representations are tight; no over-engineering
+spotted.
 
 ## Later Slices
 
