@@ -38,6 +38,60 @@ inductive Mark where
   | default
 deriving Repr, BEq, DecidableEq
 
+/-- The comparator carried by a numeric bound constraint (`>=n`, `>n`, `<=n`, `<n`). The
+    four CUE bound forms collapse to one `boundConstraint` parameterized over this kind, so
+    the meet/format/order layers carry one bound arm with a per-kind comparator rather than
+    four parallel constructors. `lower`/`upper` classify which side of a range a kind bounds;
+    `strict` distinguishes `>`/`<` from `>=`/`<=`. -/
+inductive BoundKind where
+  | ge
+  | gt
+  | le
+  | lt
+deriving Repr, BEq, DecidableEq
+
+namespace BoundKind
+
+/-- Does this bound constrain values from below (`>=`/`>`)? -/
+def lower : BoundKind -> Bool
+  | .ge => true
+  | .gt => true
+  | .le => false
+  | .lt => false
+
+/-- Is this bound strict (`>`/`<`, exclusive) rather than inclusive (`>=`/`<=`)? -/
+def strict : BoundKind -> Bool
+  | .ge => false
+  | .gt => true
+  | .le => false
+  | .lt => true
+
+/-- The display prefix CUE writes for this bound. -/
+def symbol : BoundKind -> String
+  | .ge => ">="
+  | .gt => ">"
+  | .le => "<="
+  | .lt => "<"
+
+/-- A stable rank used to order bound kinds within a canonical conjunction; `>=`<`>`<`<=`<`<`,
+    so lower bounds sort before upper bounds and inclusive before strict — matching CUE's
+    display order (`>=0 & <=10`). -/
+def rank : BoundKind -> Nat
+  | .ge => 0
+  | .gt => 1
+  | .le => 2
+  | .lt => 3
+
+/-- Does `value` satisfy a bound of this kind against `limit`? -/
+def admits (kind : BoundKind) (limit value : Int) : Bool :=
+  match kind with
+  | .ge => limit <= value
+  | .gt => limit < value
+  | .le => value <= limit
+  | .lt => value < limit
+
+end BoundKind
+
 inductive UnaryOp where
   | boolNot
   | numPos
@@ -190,10 +244,11 @@ inductive Value where
   | kind (kind : Kind)
   | notPrim (value : Prim)
   | stringRegex (pattern : String)
-  | intGe (minimum : Int)
-  | intGt (minimum : Int)
-  | intLe (maximum : Int)
-  | intLt (maximum : Int)
+  /-- A numeric bound constraint (`>=n`, `>n`, `<=n`, `<n`), the `kind` selecting the
+      comparator. `bound` is integer-valued in the current model; the shape is chosen to
+      extend toward decimal-valued, domain-tagged bounds (Phase B `2b`) by later widening
+      `bound` and adding a domain tag, without reshaping the meet/format/order arms. -/
+  | boundConstraint (bound : Int) (kind : BoundKind)
   | conj (constraints : List Value)
   | builtinCall (name : String) (args : List Value)
   | unary (op : UnaryOp) (value : Value)

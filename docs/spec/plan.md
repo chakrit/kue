@@ -295,26 +295,33 @@ them in one slice avoids that. They are sequenced 1-then-3 (not merged) only bec
 is sound-today/cosmetic and ships a fast win, while item 3 is a big multi-module slice; if
 taken together, do 1's commutativity theorems against the post-fold representation.
 
-1. **[MEDIUM — non-commutative canonical conj form, real equality hazard + cosmetic
-   cue-divergence] Sort `.conj` members into a canonical order after the flat-set fold.**
-   `a & b` and `b & a` produce different `Value`s and different formatted output
-   (`int & >0 & <10` vs `<10 & int & >0`); sound today (no mis-admit/reject) but any future
-   equality/dedup/memo keyed on `.conj` structure breaks, and the formatted divergence from
-   cue (kind-first canonical) is user-visible. Fix: canonicalize member order in
-   `meetConjValueWith`'s re-wrap (kind first, then bounds by `(cmp, domain)`, then others).
-   Cheap, total, makes the type carry "set not sequence". TDD: `meet a b == meet b a`
-   commutativity theorems for the 3-way / mixed-side cases that currently diverge. **Pairs
-   with item 3** (see rationale); land 3's representation first if taken together.
-2. **[MEDIUM — type-system leverage, FOLDS the bare-bound divergence] Collapse
-   `intGe/intGt/intLe/intLt` → `boundConstraint (bound : Decimal) (cmp : BoundKind)
-   (domain : Kind)`.** Four parallel ctors over one domain with a parallel `meetIntGe/Gt/Le/
-   Lt` family — textbook fold into an indexed type. Principled close of the `int & >0`
-   divergence: a bound must carry (a) `BoundKind = ge|gt|le|lt`, (b) a numeric domain so a
-   bare `>0` is a *number* bound (admits `1.5`, matching cue) while `int & >0` narrows to
-   int, and (c) a `Decimal` value so `>0.5` parses and float-domain comparison works.
-   Touches `Value`/`Lattice`/`Format`/parser/`valueTag`/`Order`/`Manifest`/`Examples` +
-   ~70 test refs (~130 occurrences total, 9 modules). Big blast radius — its own slice.
-   **Land together with item 1** (shared `meetConjValueWith` re-wrap + comparator).
+1. **DONE (2026-06-17, breadcrumb `2026-06-17-boundconstraint-conjsort-landed.md`) — `.conj`
+   canonical member sort.** `meetConjValueWith`'s re-wrap now `sortConjMembers`-sorts the
+   reduced constraint list by `conjMemberKey` (kind by `kindRank`, then bounds by
+   `(BoundKind.rank, limit)`, then `notPrim` by excluded-prim string, then `stringRegex` by
+   pattern length-then-string, then any residual). `meet a b == meet b a` commutativity
+   theorems landed in `BoundTests.lean` (bound-pair, strict-pair, kind+bound, 3-way conj,
+   bound+notPrim, plus a canonical-order check). Behavior-preserving: no `.expected` file
+   changed (the sort matched cue's existing kind-first display order in every observable
+   fixture), no theorem value changed.
+2a. **DONE (2026-06-17, same breadcrumb) — `intGe/Gt/Le/Lt` → one `boundConstraint`.** Four
+   parallel ctors + the `meetIntGe/Gt/Le/Lt`/range-prim family folded into
+   `boundConstraint (bound : Int) (kind : BoundKind)` with `BoundKind = ge|gt|le|lt` and per-
+   kind helpers (`lower`/`strict`/`symbol`/`rank`/`admits`). Meet arms collapsed to
+   `meetBoundPrim` + `meetTwoBounds` (`tightenSameSide`/`rangeFeasible`); join to one
+   same-kind-widens arm; `Order` to `boundSubsumesBound`; `Format`/`Parse`/`Manifest`/
+   `valueTag`/`Examples` + all test refs migrated (build was the coverage ground truth).
+   **Behavior-preserving**: `Int`-valued bound, int-only acceptance unchanged (`int & >0`
+   stays, bare `>0` still rejects `1.5` via `int`-domain prim conflict — NOT 2b). Shape is
+   deliberately extensible toward 2b: widen `bound` to `Decimal` + add a domain tag without
+   reshaping the arms.
+2b. **[HIGH — bound-model semantics, NEXT bound item] Decimal/domain-tagged bound semantics.**
+   The deferred SEMANTIC half: a bare `>0` should be a *number* bound (admits `1.5`, matching
+   cue) while `int & >0` narrows to int, and `>0.5` should parse. Add (a) a numeric domain
+   tag to `boundConstraint` so a bare bound is number-typed, and (b) a `Decimal`-valued bound
+   so `>0.5` parses and float-domain comparison works. This is where `(int&>0)&1.5`→⊥ stays
+   but bare `>0 & 1.5` starts matching cue. The 2a fold left the representation one field
+   short of this on purpose. Touches the same `meetBound*`/`Format`/`Parse` arms.
 3. **[MEDIUM — consolidation + test-reorg batch, OVERDUE, chakrit-flagged] base64-out-of-
    Json + test/`testdata` reorg + `Field`→structure + Manifest-FieldClass tighten.** Four
    independent mechanical sub-tasks, one verify cycle. **Do this before items 1/2** to
@@ -1121,14 +1128,11 @@ Ordered by goal-impact (replace `cue` for prod9/infra) vs cost:
    definition's comprehension body and field references must resolve against the *meet
    result* (post-`&`), not the definition's own incomplete scope. This is the layer behind
    2b that still blocks `apps/argocd.cue`. Next slice.
-3. **[MEDIUM — type-system leverage] Collapse `intGe/intGt/intLe/intLt` into one
-   `boundConstraint (bound : Int) (kind : BoundKind)`.** Four parallel `Value`
-   constructors over one domain (integer bounds) with a parallel `meetIntGePrim/Gt/Le/Lt`
-   family in `Lattice.lean` — a textbook "parallel structures, fold into an indexed type"
-   smell. A `BoundKind = ge | gt | le | lt` sum makes the four meet helpers one
-   `kind`-dispatched helper and the four constructors one. Medium refactor (touches
-   `Value`, `Lattice`, `Format`, parser); real illegal-states win (can't have a bound
-   without a kind, can't mismatch). Own slice.
+3. **DONE (2026-06-17) — Collapse `intGe/intGt/intLe/intLt` into `boundConstraint (bound :
+   Int) (kind : BoundKind)`.** Landed as the authoritative-list items 1 + 2a (see "Phase B
+   audit #5 — AUTHORITATIVE" above). `BoundKind = ge|gt|le|lt`, one `kind`-dispatched meet
+   helper, one ctor; behavior-preserving (Int-valued, int-only acceptance). Decimal/domain
+   semantics (the bare-`>0`-is-number divergence) deferred to authoritative item 2b.
 4. **[MEDIUM — function in wrong module] Move base64 out of `Json.lean`** (unchanged from
    prior pass, item 1 below). Extract `base64Encode`/`base64Alphabet` to `Kue/Base64.lean`;
    re-point `Yaml`, `Builtin`, `Module` callsites. Scoped mechanical slice.

@@ -35,59 +35,65 @@ def maxInt (left right : Int) : Int :=
 def minInt (left right : Int) : Int :=
   if left <= right then left else right
 
-def meetIntGePrim (minimum : Int) (prim : Prim) : Value :=
+/-- Meet a single integer bound (`>=`/`>`/`<=`/`<`) against a primitive. The bound is
+    integer-restricted in the current model, so only an `int` prim engages the comparator;
+    any other prim conflicts on kind. -/
+def meetBoundPrim (bound : Int) (kind : BoundKind) (prim : Prim) : Value :=
   match prim with
   | .int value =>
-      if minimum <= value then
+      if kind.admits bound value then
         .prim prim
       else
         .bottomWith [.intBoundConflict]
   | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
 
-def meetIntGtPrim (minimum : Int) (prim : Prim) : Value :=
+/-- Meet a two-sided integer range (a lower bound and an upper bound) against a primitive. -/
+def meetRangePrim
+    (lowerBound upperBound : Int) (lowerKind upperKind : BoundKind) (prim : Prim) : Value :=
   match prim with
   | .int value =>
-      if minimum < value then
+      if lowerKind.admits lowerBound value && upperKind.admits upperBound value then
         .prim prim
       else
         .bottomWith [.intBoundConflict]
   | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
 
-def meetIntLePrim (maximum : Int) (prim : Prim) : Value :=
-  match prim with
-  | .int value =>
-      if value <= maximum then
-        .prim prim
-      else
-        .bottomWith [.intBoundConflict]
-  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+/-- Tighten two same-side bounds (both lower, or both upper) into one. For lower bounds the
+    tighter is the larger limit; for upper bounds the smaller. When the two limits tie, the
+    strict kind (`>`/`<`) wins as the tighter constraint. -/
+def tightenSameSide (leftBound rightBound : Int) (leftKind rightKind : BoundKind) : Value :=
+  let lower := leftKind.lower
+  let pickLeft :=
+    if leftBound == rightBound then
+      leftKind.strict || !rightKind.strict
+    else if lower then
+      rightBound <= leftBound
+    else
+      leftBound <= rightBound
+  if pickLeft then .boundConstraint leftBound leftKind
+  else .boundConstraint rightBound rightKind
 
-def meetIntLtPrim (maximum : Int) (prim : Prim) : Value :=
-  match prim with
-  | .int value =>
-      if value < maximum then
-        .prim prim
-      else
-        .bottomWith [.intBoundConflict]
-  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+/-- Is the integer interval bounded by `lowerKind lowerBound` below and `upperKind upperBound`
+    above non-empty? A strict bound on either side requires strict inequality of the limits. -/
+def rangeFeasible (lowerBound upperBound : Int) (lowerKind upperKind : BoundKind) : Bool :=
+  if lowerKind.strict || upperKind.strict then lowerBound < upperBound
+  else lowerBound <= upperBound
 
-def meetIntRangePrim (minimum maximum : Int) (prim : Prim) : Value :=
-  match prim with
-  | .int value =>
-      if minimum <= value && value <= maximum then
-        .prim prim
-      else
-        .bottomWith [.intBoundConflict]
-  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
-
-def meetStrictIntRangePrim (minimum maximum : Int) (prim : Prim) : Value :=
-  match prim with
-  | .int value =>
-      if minimum < value && value < maximum then
-        .prim prim
-      else
-        .bottomWith [.intBoundConflict]
-  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+/-- Meet two integer bounds. Same-side bounds tighten to one; opposite-side bounds form a
+    canonical `lower & upper` conjunction (lower member first, matching CUE's display order)
+    when feasible, else `⊥`. -/
+def meetTwoBounds (leftBound rightBound : Int) (leftKind rightKind : BoundKind) : Value :=
+  if leftKind.lower == rightKind.lower then
+    tightenSameSide leftBound rightBound leftKind rightKind
+  else
+    let lowerBound := if leftKind.lower then leftBound else rightBound
+    let lowerKind := if leftKind.lower then leftKind else rightKind
+    let upperBound := if leftKind.lower then rightBound else leftBound
+    let upperKind := if leftKind.lower then rightKind else leftKind
+    if rangeFeasible lowerBound upperBound lowerKind upperKind then
+      .conj [.boundConstraint lowerBound lowerKind, .boundConstraint upperBound upperKind]
+    else
+      .bottomWith [.intBoundConflict]
 
 /-- Meet a numeric `kind` against an integer bound (`>n`/`>=n`/`<n`/`<=n`). The bound is
     integer-restricted in Kue's current bound model, so only `int` (exactly) and `number`
@@ -255,98 +261,30 @@ def meetCore (left right : Value) : Value :=
         .conj [.stringRegex pattern, .notPrim forbidden]
       else
         .stringRegex pattern
-  | .stringRegex _, .intGe _ => .bottomWith [.kindConflict .string .int]
-  | .intGe _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
-  | .stringRegex _, .intGt _ => .bottomWith [.kindConflict .string .int]
-  | .intGt _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
-  | .stringRegex _, .intLe _ => .bottomWith [.kindConflict .string .int]
-  | .intLe _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
-  | .stringRegex _, .intLt _ => .bottomWith [.kindConflict .string .int]
-  | .intLt _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
-  | .intGe minimum, .notPrim forbidden =>
-      if Prim.kind forbidden = .int then .conj [.intGe minimum, .notPrim forbidden] else .intGe minimum
-  | .notPrim forbidden, .intGe minimum =>
-      if Prim.kind forbidden = .int then .conj [.intGe minimum, .notPrim forbidden] else .intGe minimum
-  | .intGt minimum, .notPrim forbidden =>
-      if Prim.kind forbidden = .int then .conj [.intGt minimum, .notPrim forbidden] else .intGt minimum
-  | .notPrim forbidden, .intGt minimum =>
-      if Prim.kind forbidden = .int then .conj [.intGt minimum, .notPrim forbidden] else .intGt minimum
-  | .intLe maximum, .notPrim forbidden =>
-      if Prim.kind forbidden = .int then .conj [.intLe maximum, .notPrim forbidden] else .intLe maximum
-  | .notPrim forbidden, .intLe maximum =>
-      if Prim.kind forbidden = .int then .conj [.intLe maximum, .notPrim forbidden] else .intLe maximum
-  | .intLt maximum, .notPrim forbidden =>
-      if Prim.kind forbidden = .int then .conj [.intLt maximum, .notPrim forbidden] else .intLt maximum
-  | .notPrim forbidden, .intLt maximum =>
-      if Prim.kind forbidden = .int then .conj [.intLt maximum, .notPrim forbidden] else .intLt maximum
-  | .intGe minimum, .prim prim => meetIntGePrim minimum prim
-  | .prim prim, .intGe minimum => meetIntGePrim minimum prim
-  | .intGt minimum, .prim prim => meetIntGtPrim minimum prim
-  | .prim prim, .intGt minimum => meetIntGtPrim minimum prim
-  | .intLe maximum, .prim prim => meetIntLePrim maximum prim
-  | .prim prim, .intLe maximum => meetIntLePrim maximum prim
-  | .intLt maximum, .prim prim => meetIntLtPrim maximum prim
-  | .prim prim, .intLt maximum => meetIntLtPrim maximum prim
-  | .kind kind, .intGe minimum => meetKindWithIntBound kind (.intGe minimum)
-  | .intGe minimum, .kind kind => meetKindWithIntBound kind (.intGe minimum)
-  | .kind kind, .intGt minimum => meetKindWithIntBound kind (.intGt minimum)
-  | .intGt minimum, .kind kind => meetKindWithIntBound kind (.intGt minimum)
-  | .kind kind, .intLe maximum => meetKindWithIntBound kind (.intLe maximum)
-  | .intLe maximum, .kind kind => meetKindWithIntBound kind (.intLe maximum)
-  | .kind kind, .intLt maximum => meetKindWithIntBound kind (.intLt maximum)
-  | .intLt maximum, .kind kind => meetKindWithIntBound kind (.intLt maximum)
-  | .intGe leftMinimum, .intGe rightMinimum => .intGe (maxInt leftMinimum rightMinimum)
-  | .intGt leftMinimum, .intGt rightMinimum => .intGt (maxInt leftMinimum rightMinimum)
-  | .intGe minimum, .intGt strictMinimum => .conj [.intGe minimum, .intGt strictMinimum]
-  | .intGt strictMinimum, .intGe minimum => .conj [.intGe minimum, .intGt strictMinimum]
-  | .intLe leftMaximum, .intLe rightMaximum => .intLe (minInt leftMaximum rightMaximum)
-  | .intLt leftMaximum, .intLt rightMaximum => .intLt (minInt leftMaximum rightMaximum)
-  | .intLe maximum, .intLt strictMaximum => .conj [.intLe maximum, .intLt strictMaximum]
-  | .intLt strictMaximum, .intLe maximum => .conj [.intLe maximum, .intLt strictMaximum]
-  | .intGe minimum, .intLe maximum =>
-      if minimum <= maximum then
-        .conj [.intGe minimum, .intLe maximum]
+  | .stringRegex _, .boundConstraint _ _ => .bottomWith [.kindConflict .string .int]
+  | .boundConstraint _ _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
+  | .boundConstraint bound kind, .notPrim forbidden =>
+      if Prim.kind forbidden = .int then
+        .conj [.boundConstraint bound kind, .notPrim forbidden]
       else
-        .bottomWith [.intBoundConflict]
-  | .intLe maximum, .intGe minimum =>
-      if minimum <= maximum then
-        .conj [.intGe minimum, .intLe maximum]
+        .boundConstraint bound kind
+  | .notPrim forbidden, .boundConstraint bound kind =>
+      if Prim.kind forbidden = .int then
+        .conj [.boundConstraint bound kind, .notPrim forbidden]
       else
-        .bottomWith [.intBoundConflict]
-  | .intGe minimum, .intLt maximum =>
-      if minimum < maximum then
-        .conj [.intGe minimum, .intLt maximum]
-      else
-        .bottomWith [.intBoundConflict]
-  | .intLt maximum, .intGe minimum =>
-      if minimum < maximum then
-        .conj [.intGe minimum, .intLt maximum]
-      else
-        .bottomWith [.intBoundConflict]
-  | .intGt minimum, .intLe maximum =>
-      if minimum < maximum then
-        .conj [.intGt minimum, .intLe maximum]
-      else
-        .bottomWith [.intBoundConflict]
-  | .intLe maximum, .intGt minimum =>
-      if minimum < maximum then
-        .conj [.intGt minimum, .intLe maximum]
-      else
-        .bottomWith [.intBoundConflict]
-  | .intGt minimum, .intLt maximum =>
-      if minimum < maximum then
-        .conj [.intGt minimum, .intLt maximum]
-      else
-        .bottomWith [.intBoundConflict]
-  | .intLt maximum, .intGt minimum =>
-      if minimum < maximum then
-        .conj [.intGt minimum, .intLt maximum]
-      else
-        .bottomWith [.intBoundConflict]
-  | .conj [.intGe minimum, .intLe maximum], .prim prim => meetIntRangePrim minimum maximum prim
-  | .prim prim, .conj [.intGe minimum, .intLe maximum] => meetIntRangePrim minimum maximum prim
-  | .conj [.intGt minimum, .intLt maximum], .prim prim => meetStrictIntRangePrim minimum maximum prim
-  | .prim prim, .conj [.intGt minimum, .intLt maximum] => meetStrictIntRangePrim minimum maximum prim
+        .boundConstraint bound kind
+  | .boundConstraint bound kind, .prim prim => meetBoundPrim bound kind prim
+  | .prim prim, .boundConstraint bound kind => meetBoundPrim bound kind prim
+  | .kind kind, .boundConstraint bound boundKind =>
+      meetKindWithIntBound kind (.boundConstraint bound boundKind)
+  | .boundConstraint bound boundKind, .kind kind =>
+      meetKindWithIntBound kind (.boundConstraint bound boundKind)
+  | .boundConstraint leftBound leftKind, .boundConstraint rightBound rightKind =>
+      meetTwoBounds leftBound rightBound leftKind rightKind
+  | .conj [.boundConstraint lowerBound lowerKind, .boundConstraint upperBound upperKind], .prim prim =>
+      meetRangePrim lowerBound upperBound lowerKind upperKind prim
+  | .prim prim, .conj [.boundConstraint lowerBound lowerKind, .boundConstraint upperBound upperKind] =>
+      meetRangePrim lowerBound upperBound lowerKind upperKind prim
   | .conj _, _ => .bottom
   | _, .conj _ => .bottom
   | .builtinCall _ _, _ => .bottom
@@ -431,6 +369,49 @@ def flattenConj : Value -> List Value
   | .conj constraints => constraints.flatMap flattenConj
   | value => [value]
 
+/-- A stable rank for the kinds that appear as conj members, in CUE display order. -/
+def kindRank : Kind -> Nat
+  | .null => 0
+  | .bool => 1
+  | .number => 2
+  | .int => 3
+  | .float => 4
+  | .string => 5
+  | .bytes => 6
+
+/-- A textual sort key for an excluded primitive (`!=v`). -/
+def primSortKey : Prim -> String
+  | .null => "null"
+  | .bool value => toString value
+  | .int value => toString value
+  | .float value => value
+  | .string value => value
+  | .bytes value => value
+
+/-- A canonical sort key for a constraint that may appear as a `.conj` member. The primary
+    rank is by constructor (kind before bounds before notPrim before stringRegex before any
+    residual), the secondary by the constructor's own ordering (bound kind then limit; prim
+    kind for notPrim; pattern length-then-string for regex). Used to canonicalize `.conj`
+    member order so meet is commutative on the canonical form: `a & b` and `b & a` re-wrap
+    to the same sorted constraint list. Members it cannot distinguish keep stable order. -/
+def conjMemberKey : Value -> Nat × Nat × Int × String
+  | .kind kind => (0, kindRank kind, 0, "")
+  | .boundConstraint bound kind => (1, kind.rank, bound, "")
+  | .notPrim prim => (2, 0, 0, primSortKey prim)
+  | .stringRegex pattern => (3, pattern.length, 0, pattern)
+  | _ => (4, 0, 0, "")
+
+/-- A lexicographic `<=` over the four-component conj sort key. -/
+def conjKeyLe (left right : Nat × Nat × Int × String) : Bool :=
+  if left.1 != right.1 then left.1 <= right.1
+  else if left.2.1 != right.2.1 then left.2.1 <= right.2.1
+  else if left.2.2.1 != right.2.2.1 then left.2.2.1 <= right.2.2.1
+  else left.2.2.2 <= right.2.2.2
+
+/-- Sort a flat constraint list into canonical member order. -/
+def sortConjMembers (members : List Value) : List Value :=
+  members.mergeSort (fun a b => conjKeyLe (conjMemberKey a) (conjMemberKey b))
+
 /-- Meet a single constraint into a flat, already-reduced constraint list. Tries to merge
     `constraint` pairwise with each existing member via `meetValue`: a merge that collapses
     to a single non-conjunction (e.g. two bounds → a tighter bound, `kind int & >0` →
@@ -468,7 +449,7 @@ def meetConjValueWith
   match reduced with
   | [] => .top
   | [single] => single
-  | members => .conj members
+  | members => .conj (sortConjMembers members)
 
 def meetListPrefixTailWith
     (meetValue : Value -> Value -> Value) : List Value -> Value -> List Value -> Option (List Value)
@@ -1023,10 +1004,6 @@ def join (left right : Value) : Value :=
   | _, .top => .top
   | .bottom, value => value
   | value, .bottom => value
-  | .intGe leftMinimum, .intGe rightMinimum => .intGe (minInt leftMinimum rightMinimum)
-  | .intGt leftMinimum, .intGt rightMinimum => .intGt (minInt leftMinimum rightMinimum)
-  | .intLe leftMaximum, .intLe rightMaximum => .intLe (maxInt leftMaximum rightMaximum)
-  | .intLt leftMaximum, .intLt rightMaximum => .intLt (maxInt leftMaximum rightMaximum)
   | .kind leftKind, .kind rightKind =>
       if kindAcceptsKind leftKind rightKind then
         .kind leftKind
@@ -1044,22 +1021,20 @@ def join (left right : Value) : Value :=
         .kind kind
       else
         disjOfValues (.prim prim) (.kind kind)
-  | .kind kind, .intGe minimum =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intGe minimum)
-  | .intGe minimum, .kind kind =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intGe minimum) (.kind kind)
-  | .kind kind, .intGt minimum =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intGt minimum)
-  | .intGt minimum, .kind kind =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intGt minimum) (.kind kind)
-  | .kind kind, .intLe maximum =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intLe maximum)
-  | .intLe maximum, .kind kind =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intLe maximum) (.kind kind)
-  | .kind kind, .intLt maximum =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.kind kind) (.intLt maximum)
-  | .intLt maximum, .kind kind =>
-      if kindAcceptsKind kind .int then .kind kind else disjOfValues (.intLt maximum) (.kind kind)
+  | .boundConstraint leftBound leftKind, .boundConstraint rightBound rightKind =>
+      if leftKind == rightKind then
+        -- Same comparator: the join (least upper bound) is the looser limit — the smaller
+        -- limit for a lower bound, the larger for an upper bound.
+        let widened := if leftKind.lower then minInt leftBound rightBound else maxInt leftBound rightBound
+        .boundConstraint widened leftKind
+      else
+        disjOfValues (.boundConstraint leftBound leftKind) (.boundConstraint rightBound rightKind)
+  | .kind kind, .boundConstraint bound boundKind =>
+      if kindAcceptsKind kind .int then .kind kind
+      else disjOfValues (.kind kind) (.boundConstraint bound boundKind)
+  | .boundConstraint bound boundKind, .kind kind =>
+      if kindAcceptsKind kind .int then .kind kind
+      else disjOfValues (.boundConstraint bound boundKind) (.kind kind)
   | .kind kind, .stringRegex pattern =>
       if kindAcceptsKind kind .string then .kind kind else disjOfValues (.kind kind) (.stringRegex pattern)
   | .stringRegex pattern, .kind kind =>

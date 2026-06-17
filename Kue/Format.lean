@@ -142,10 +142,7 @@ mutual
     | _, .kind kind => formatKind kind
     | _, .notPrim prim => "!=" ++ formatPrim prim
     | _, .stringRegex pattern => s!"=~\"{escapeCueStringContent pattern}\""
-    | _, .intGe minimum => s!">={minimum}"
-    | _, .intGt minimum => s!">{minimum}"
-    | _, .intLe maximum => s!"<={maximum}"
-    | _, .intLt maximum => s!"<{maximum}"
+    | _, .boundConstraint bound kind => kind.symbol ++ toString bound
     | fuel + 1, .conj constraints =>
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | fuel + 1, .builtinCall name args =>

@@ -38,13 +38,13 @@ def listSmokeResult : String :=
 def intBoundsSmokeResult : String :=
   formatValue
     (meet
-      (meet (.intGe 0) (.intLe 10))
+      (meet (.boundConstraint 0 .ge) (.boundConstraint 10 .le))
       (.prim (.int 7)))
 
 def strictIntBoundsSmokeResult : String :=
   formatValue
     (meet
-      (meet (.intGt 0) (.intLt 10))
+      (meet (.boundConstraint 0 .gt) (.boundConstraint 10 .lt))
       (.prim (.int 7)))
 
 def primitiveExclusionSmokeResult : String :=

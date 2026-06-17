@@ -313,7 +313,7 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (.struct
             [
-              ("andValue", .regular, andValues [.kind .int, .intGt 0, .prim (.int 7)]),
+              ("andValue", .regular, andValues [.kind .int, .boundConstraint 0 .gt, .prim (.int 7)]),
               ("orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")])
             ]
             true)
@@ -449,8 +449,8 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (.struct
               [
-                ("x", .regular, .conj [.ref "x", .intGe 0]),
-                ("a", .regular, .conj [.ref "b", .intGe 0]),
+                ("x", .regular, .conj [.ref "x", .boundConstraint 0 .ge]),
+                ("a", .regular, .conj [.ref "b", .boundConstraint 0 .ge]),
                 ("b", .regular, .ref "a")
               ]
               true))
@@ -668,11 +668,11 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "disjunctions/int_bound_disjunction.expected",
-      content := formatField "x" (join (.intGe 5) (.intGe 0))
+      content := formatField "x" (join (.boundConstraint 5 .ge) (.boundConstraint 0 .ge))
     },
     {
       fileName := "bounds/int_bounds.expected",
-      content := formatField "x" (meet (meet (.intGe 0) (.intLe 10)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.boundConstraint 0 .ge) (.boundConstraint 10 .le)) (.prim (.int 7)))
     },
     {
       fileName := "bounds/kind_meet_int.expected",
@@ -867,7 +867,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "bounds/number_int_bound.expected",
-      content := formatField "x" (meet (meet (.kind .number) (.intGe 0)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.kind .number) (.boundConstraint 0 .ge)) (.prim (.int 7)))
     },
     {
       fileName := "numeric/number_kind.expected",
@@ -1136,7 +1136,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "bounds/strict_int_bounds.expected",
-      content := formatField "x" (meet (meet (.intGt 0) (.intLt 10)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.boundConstraint 0 .gt) (.boundConstraint 10 .lt)) (.prim (.int 7)))
     },
     {
       fileName := "definitions/string_pattern_conflict.expected",
@@ -2204,7 +2204,7 @@ def fixturePorts : List FixturePort :=
             (.struct
               [
                 ("d", .regular, .struct [("a", .regular, .kind .int), ("b", .regular, .ref "a")] true),
-                ("y", .regular, .conj [.ref "d", .struct [("a", .regular, .intGt 0)] true])
+                ("y", .regular, .conj [.ref "d", .struct [("a", .regular, .boundConstraint 0 .gt)] true])
               ]
               true))
     },

@@ -43,8 +43,8 @@ theorem eval_resolved_reference_inside_list :
 
 theorem resolve_reference_inside_conjunction :
     (resolveStructRefs
-      (.struct [("#A", .definition, .kind .int), ("x", .regular, .conj [.ref "#A", .intGe 0])] true)
-      == .struct [("#A", .definition, .kind .int), ("x", .regular, .conj [.refId ⟨0, 0⟩, .intGe 0])] true) = true := by
+      (.struct [("#A", .definition, .kind .int), ("x", .regular, .conj [.ref "#A", .boundConstraint 0 .ge])] true)
+      == .struct [("#A", .definition, .kind .int), ("x", .regular, .conj [.refId ⟨0, 0⟩, .boundConstraint 0 .ge])] true) = true := by
   native_decide
 
 theorem resolve_reference_inside_disjunction :

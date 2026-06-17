@@ -19,6 +19,17 @@ def kindSubsumesPrim (kind : Kind) (prim : Prim) : Bool :=
 def kindSubsumesKind (expected actual : Kind) : Bool :=
   expected == actual || (expected == .number && (actual == .int || actual == .float))
 
+/-- Does the `expected` bound subsume the `actual` bound (every value the actual admits, the
+    expected admits too)? Only same-comparator bounds are comparable here, matching the
+    pre-fold arms: a looser lower bound (smaller limit) subsumes a tighter one; a looser
+    upper bound (larger limit) subsumes a tighter one. Cross-comparator pairs are not
+    subsumption-related (`false`). -/
+def boundSubsumesBound (expectedBound : Int) (expectedKind : BoundKind)
+    (actualBound : Int) (actualKind : BoundKind) : Bool :=
+  if expectedKind != actualKind then false
+  else if expectedKind.lower then expectedBound <= actualBound
+  else actualBound <= expectedBound
+
 mutual
   def fieldSubsumesWithFuel (fuel : Nat) (expected actual : Field) : Bool :=
     Field.fieldClass expected == Field.fieldClass actual
@@ -185,18 +196,10 @@ mutual
     | _ + 1, .stringRegex pattern, .prim (.string value) => stringRegexMatches pattern value
     | _ + 1, .stringRegex expectedPattern, .stringRegex actualPattern =>
         expectedPattern == actualPattern
-    | _ + 1, .kind expectedKind, .intGe _ => kindSubsumesKind expectedKind .int
-    | _ + 1, .kind expectedKind, .intGt _ => kindSubsumesKind expectedKind .int
-    | _ + 1, .kind expectedKind, .intLe _ => kindSubsumesKind expectedKind .int
-    | _ + 1, .kind expectedKind, .intLt _ => kindSubsumesKind expectedKind .int
-    | _ + 1, .intGe minimum, .prim (.int value) => minimum <= value
-    | _ + 1, .intGe expectedMinimum, .intGe actualMinimum => expectedMinimum <= actualMinimum
-    | _ + 1, .intGt minimum, .prim (.int value) => minimum < value
-    | _ + 1, .intGt expectedMinimum, .intGt actualMinimum => expectedMinimum <= actualMinimum
-    | _ + 1, .intLe maximum, .prim (.int value) => value <= maximum
-    | _ + 1, .intLe expectedMaximum, .intLe actualMaximum => actualMaximum <= expectedMaximum
-    | _ + 1, .intLt maximum, .prim (.int value) => value < maximum
-    | _ + 1, .intLt expectedMaximum, .intLt actualMaximum => actualMaximum <= expectedMaximum
+    | _ + 1, .kind expectedKind, .boundConstraint _ _ => kindSubsumesKind expectedKind .int
+    | _ + 1, .boundConstraint bound kind, .prim (.int value) => kind.admits bound value
+    | _ + 1, .boundConstraint expectedBound expectedKind, .boundConstraint actualBound actualKind =>
+        boundSubsumesBound expectedBound expectedKind actualBound actualKind
     | fuel + 1, .conj constraints, value => allConstraintsSubsumeWithFuel fuel constraints value
     | _ + 1, .builtinCall expectedName expectedArgs, .builtinCall actualName actualArgs =>
         expectedName = actualName && expectedArgs == actualArgs

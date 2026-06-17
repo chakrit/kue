@@ -305,14 +305,16 @@ those forms.
   operands. Mixed-kind ordering bottoms out; ordering over bytes, incomplete values, and
   compound values remains later work.
 - **Numeric bounds are integer-restricted (`>0` means `int & >0`, not CUE's number-`>0`).**
-  Kue parses `>n`/`>=n`/`<n`/`<=n` into `intGe/Gt/Le/Lt`, which only admit `int` primitives;
-  there is no float or general-number bound, and `>0.5` is a parse error. CUE's `>0` is a
-  *number* bound that admits floats (`>0 & 1.5` → `1.5` in cue v0.16.1), so kue is **stricter
-  than cue on a bare bound**: kue's `>0 & 1.5` → `_|_`. This is a known divergence, folded
-  behind the bound-kind work: closing it needs float/number bound literals + float-domain
-  bound comparison (a `boundConstraint (bound : Decimal) (cmp : BoundKind) (kind : Kind)`
-  generalization), tracked as plan items 1's deeper twin and item 3. In practice infra CUE
-  uses `int & >0` / `>=0 & <=N` (int ranges), where kue is correct.
+  Kue parses `>n`/`>=n`/`<n`/`<=n` into a single `boundConstraint (bound : Int) (kind :
+  BoundKind)` (since 2026-06-17; previously four `intGe/Gt/Le/Lt` ctors). The bound is
+  `Int`-valued and only admits `int` primitives; there is no float or general-number bound,
+  and `>0.5` is a parse error. CUE's `>0` is a *number* bound that admits floats (`>0 & 1.5`
+  → `1.5` in cue v0.16.1), so kue is **stricter than cue on a bare bound**: kue's `>0 & 1.5`
+  → `_|_`. This is a known divergence, tracked as plan authoritative item **2b**: closing it
+  needs a numeric domain tag on `boundConstraint` (bare bound = number-typed) plus a
+  `Decimal`-valued bound (so `>0.5` parses and float-domain comparison works). The 2a fold
+  (one ctor, `BoundKind`) deliberately left the representation one field short of 2b. In
+  practice infra CUE uses `int & >0` / `>=0 & <=N` (int ranges), where kue is correct.
 - **`kind int` meeting a bound retains the kind as a conjunction (`int & >0`).** Meeting a
   numeric kind with an integer bound: `int` is retained (`int & >0` → `.conj [kind int, >0]`,
   formatting `int & >0`), because the `int` is load-bearing — a bare `>0` would otherwise admit
@@ -322,7 +324,11 @@ those forms.
   `int & >=0 & <=65535` (cue *displays* this as the alias `uint16`; kue keeps the structural
   conjunction — a cosmetic-only divergence, same value). Conjunction meets reduce over a
   *flat* constraint set (`flattenConj` + `addConstraintWith` in `Lattice.lean`) so nested/
-  multi-bound conjunctions merge pairwise without nesting or scrambling into bottom.
+  multi-bound conjunctions merge pairwise without nesting or scrambling into bottom, then
+  the re-wrap `sortConjMembers`-sorts the members into a **canonical order** (kind first,
+  then bounds by `(BoundKind.rank, limit)`, then `notPrim`, then `stringRegex`). This makes
+  meet commutative on the canonical form (`meet a b == meet b a`) and matches cue's
+  kind-first display order — closing the Phase-A `a & b ≠ b & a` canonical-`Value` hazard.
 - Binary regex match expressions `=~` and `!~` are parsed at comparison precedence.
   The evaluator currently handles concrete string operands using Kue's existing regex
   subset. Non-string concrete primitive operands bottom out; incomplete operands remain

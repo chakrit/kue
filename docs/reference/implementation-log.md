@@ -5412,3 +5412,51 @@ from new locations) is the proof. Breadcrumb:
 `fixture pairs ok` (141 pairs from new locations; export + module stages byte-identical;
 pure renames confirmed — `git diff -M` shows zero content lines changed),
 `shellcheck scripts/check-fixtures.sh` clean.
+
+## Completed Slice: boundConstraint Fold + Canonical Conj Sort
+
+Goal (plan authoritative items 1 + 2a): two paired type-system-first refactors, both
+**behavior-preserving** — fold the four parallel integer-bound constructors into one
+parameterized constructor, and canonicalize `.conj` member order so meet is commutative on
+the canonical form. The decimal/number-domain bound *semantics* change (item 2b) is
+explicitly NOT in this slice.
+
+### Steps
+
+1. `Kue/Value.lean`: add `inductive BoundKind = ge|gt|le|lt` with helpers
+   `lower`/`strict`/`symbol`/`rank`/`admits`, and replace the four
+   `intGe/intGt/intLe/intLt` constructors with one `boundConstraint (bound : Int) (kind :
+   BoundKind)`. The shape is chosen extensible toward 2b (widen `bound` to `Decimal`, add a
+   domain tag) without reshaping the meet/format/order arms.
+
+2. `Kue/Lattice.lean`: collapse the `meetIntGe/Gt/Le/Lt`/range-prim family into
+   `meetBoundPrim` (one `BoundKind.admits` comparator) + `meetRangePrim`; collapse the
+   pairwise bound-meet arms into `meetTwoBounds` (`tightenSameSide` for same-side bounds,
+   `rangeFeasible` + canonical `lower & upper` conj for opposite sides). `join` to one
+   same-kind-widens arm. Add the canonical conj sort: `conjMemberKey` (kind by `kindRank`,
+   then bounds by `(BoundKind.rank, limit)`, then `notPrim` by excluded-prim string, then
+   `stringRegex` by pattern length-then-string, then residual) + `conjKeyLe` +
+   `sortConjMembers`, applied in `meetConjValueWith`'s re-wrap.
+
+3. `Kue/Order.lean`: `boundSubsumesBound` (same-comparator-only, matching the pre-fold
+   arms); `Kue/Format.lean`: one `boundConstraint` arm using `BoundKind.symbol`;
+   `Kue/Parse.lean`: `parseIntBoundValue` takes a `BoundKind`; `Kue/Manifest.lean`,
+   `Kue/Eval.lean` (`valueTag`, renumbered contiguous), `Kue/Examples.lean` + all test refs
+   migrated.
+
+4. Tests: every existing bound/conj theorem migrated to `boundConstraint`/`BoundKind` with
+   **identical values** (no value changed; no `rfl`→`native_decide` switch needed). Added
+   commutativity theorems in `BoundTests.lean`: bound-pair, strict-pair, kind+bound, 3-way
+   conj, bound+notPrim, plus a canonical-member-order check — all `native_decide` over the
+   `==`/`= true` BEq form (`Value` has `BEq`, not `DecidableEq`).
+
+### Verify
+
+Coverage of the ~130 migration sites was established by **removing the old constructors
+entirely and driving `lake build` to green** (the compiler errors on every unmigrated
+site; iterate until clean) — robust against the session's flaky output filter. `lake
+build` (84 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok` (**no `.expected` file
+changed** — the canonical sort matched cue's existing kind-first display order in every
+observable fixture, so behavior-preserving held end-to-end), `shellcheck
+scripts/check-fixtures.sh` clean.
+
