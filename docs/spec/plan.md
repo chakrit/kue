@@ -182,6 +182,99 @@ AST-identical to the brace form across all inner-label forms; B4 multiline is to
 correct; parser positions have no off-by-one; the three B2 deferred boundaries are real
 and correctly documented.
 
+## Audit Fix-Slices (Field-struct + package-dir family — Phase A + B, audit 2026-06-17 #8)
+
+Combined Phase A (code-quality) + Phase B (architecture), type-system-first lens, over the
+two slices since the last light audit `25d66a7`: `be2e987` (`Field` tuple → `structure`)
+and `1595d2a` (package-dir merge at the entry). Verify gate green at audit time: `lake
+build` 86 jobs, `check-fixtures.sh` "fixture pairs ok". Oracle: `cue` v0.16.1
+(`/Users/chakrit/go/bin/cue`). No code findings warranted an inline change (see Findings);
+this pass changed only `plan.md`.
+
+### Headline verdicts (all CLEAR)
+
+- **`Field`→structure derived-`BEq` equivalence — verdict: `Value` `==` byte-identical, by
+  construction.** `structure Field` declares `label : String; fieldClass : FieldClass;
+  value : Value` — the exact components and order of the former `String × FieldClass ×
+  Value` tuple. Lean's derived structure `BEq` compares fields in declaration order with
+  short-circuit `&&`, identical to the tuple's derived `BEq` (`.fst == .fst && .snd.fst ==
+  … && .snd.snd == …`): same components, same order, same underlying `FieldClass`/`Value`
+  instances. So meet/dedup/manifest equality is unchanged — confirmed *why*, not merely
+  that fixtures pass. No instance widened or narrowed: still `BEq` (not `DecidableEq`) on
+  `Value` (the deliberate kernel-perf carve-out; `native_decide` pins behavior), `Repr`
+  present, nothing new (`Hashable`/`Ord`) that a downstream `==`/sort/map could silently
+  pick up. The mutual block was forced purely definitionally (`structure Field` references
+  `Value`, `Value`'s struct constructors carry `List Field`); constructor signatures'
+  meaning is unchanged — `List Field` stands where the tuple list stood and every one of
+  the ~70 sites migrated to `.label`/`.fieldClass`/`.value`/`⟨…⟩`.
+- **Package-dir merge (`loadPackageDir`/`loadEntry`) — verdict: correct, no single-file
+  regression.** `loadEntry` branches on `FilePath.isDir`: a dir routes to `loadPackageDir`
+  (discover module root → `readModuleInfo` → `loadPackage` on the dir), a file routes to
+  `loadFileBound` *unchanged*. `loadPackageDir` reuses `loadPackage` verbatim — no
+  duplicated merge — so package-name consistency (`foldPackageNames`→`mergePackageNames`),
+  sibling meet-merge, and per-file import binding (B3a/B3c) all flow through the same
+  machinery imported packages use; `-e` selection applies post-merge in Main. Oracle-checked
+  byte-for-byte: `kue export --out json apps` == `cue export --out json ./apps` on the
+  `package_dir` fixture (the `subpaths` harness exercises exactly the dir branch). Edge
+  cases: empty dir / no `cue.mod` → clean `"no cue.mod/module.cue found…"`; mixed package
+  names → clean `"package merge error: conflicting package names"` (cue errors too, exit 1).
+  **No single-file/stdin regression**: every `testdata/cue` fixture is a lone file → routes
+  to `loadFileBound` (a lone file is its own package, merging only itself); all green,
+  byte-unchanged. IO stays at the Module boundary; pure core untouched.
+- **Layering — verdict: clean, acyclic, base unchanged.** `Value.lean` still imports only
+  `Init` — the `Field`/`Value` mutual block added NO import, so the base module stays the
+  base. `Module → {Parse, Runtime}`, `Main → {Kue, Kue.Cli}`, `Lattice → Value`: no
+  back-edge, no cycle. `loadEntry`/`loadPackageDir` are pure-IO additions at the existing
+  Module boundary.
+- **Alpha-readiness (HEAD) — verdict: RELEASABLE.** Build green (86 jobs), full fixture
+  suite green, no half-landed work, no crash on the documented paths. Same alpha bar as
+  `…alpha.20260617.3`. The two known gaps are documented and non-blocking for an alpha:
+  B3d registry fetch (item 6) and the field-ordering divergence (Finding 1 below) — both
+  affect *reach/parity on apps*, not correctness of what already resolves. Fine to cut a
+  `.4` from HEAD.
+
+### Findings (ranked)
+
+1. **[MEDIUM — output parity, Phase B; DEEP, not a small fix] `ref & {literal}` field
+   ordering diverges from cue.** For `y: base & {c: 3, a: 1}` cue exports `c, a, b` (the RHS
+   literal's *own* fields first, in source order, then the referent's remaining fields),
+   while kue exports `a, b, c` (left-struct-first). Root cause: `mergeStructFieldsWith`
+   (`Lattice.lean:538`) folds `rightFields` into a `some leftFields` base, appending unseen
+   right-fields at the tail — so every meet emits `left ∪ (right∖left)`, structurally
+   left-first. **Scope = DEEP, not a meet/manifest reorder.** (a) The primitive is the
+   single meet merge, called from 8+ sites (struct meet, tail/pattern merge, embeddedList
+   decls); flipping its base order churns ordering for *all* meets and most fixtures encode
+   the current left-first order. (b) cue's rule is not simply "right-first": field position
+   tracks where each label is *first introduced* across conjuncts in evaluation order, with
+   a referenced definition contributing its fields at the point of reference — faithful
+   replication needs field-introduction *provenance* carried through meet (a per-`Field`
+   order key on the `Field` structure + threading it through every merge/manifest site), not
+   a one-line fold flip (which would fix `base & {c,a}` but break `{a,b} & {c}` and
+   definition-embedding order). Recommend: schedule as its own multi-slice change *after*
+   B3d, with a provenance-key design spike first. Affects the dominant `#Def & {…}` prod9
+   pattern's exported field order → a real byte-parity blocker for app output, but only on
+   apps that already resolve.
+2. **[LOW — pre-existing, NOT in this diff] Bare nonexistent-file arg throws uncaught IO
+   exception.** `kue export /tmp/missing.cue` prints `uncaught exception: no such file or
+   directory` instead of a clean diagnostic; cue prints `stat …: no such file` exit 1.
+   `loadEntry`'s `isDir` returns `false` for a missing path → `loadFileBound` → bare
+   `IO.FS.readFile` throws. Confirmed pre-existing at `25d66a7` (loadFileBound read the file
+   directly before this diff too) — `loadEntry` faithfully preserves single-file behavior,
+   so not a regression. Fix: a `pathExists` guard in `loadFileBound` returning `.error`.
+   Small, low-risk, but a behavior change with no current test → schedule as a tiny slice
+   (TDD with an `expected.err` module fixture), not an inline audit fix.
+
+### Re-ranked next-work list (folds into item 6/7 of the roadmap above)
+
+Authoritative recommendation for the next substantive item: **B3d (registry/module-cache
+fetch) FIRST, then the field-ordering provenance change.** Rationale: B3d unblocks *more
+apps reaching evaluation at all* (the dominant prod9 apps import `prodigy9.co/defs/packs`
+and currently dead-end at the deferred-import error before any output); field-ordering only
+improves *parity on apps that already fully resolve*, of which there are few until B3d
+lands. B3d is also self-contained (`defs/packs` cue.mod has no further deps). Sequence:
+B3d → field-ordering provenance spike → field-ordering implementation. Finding 2 (missing
+-file diagnostic) is a cheap ride-along whenever Module.lean is next touched.
+
 ## Audit Fix-Slices (cleanup batch — LIGHT Phase A + Phase B, audit 2026-06-17 #7)
 
 Light combined audit over the 3 small/mechanical cleanup slices since `3827fb7`:
