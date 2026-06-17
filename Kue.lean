@@ -21,6 +21,7 @@ import Kue.Normalize
 import Kue.NormalizeTests
 import Kue.Eval
 import Kue.EvalTests
+import Kue.PresenceTests
 import Kue.Resolve
 import Kue.ResolveTests
 import Kue.ListTests

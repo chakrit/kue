@@ -1,0 +1,6 @@
+concrete: true
+missing: false
+streq: false
+present: {f: 3, seen: 3}
+absent: {base: {f: 3}}
+ordinary: true

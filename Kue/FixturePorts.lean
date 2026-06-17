@@ -2042,6 +2042,48 @@ def fixturePorts : List FixturePort :=
                         [.struct [("auths", .regular, .ref "registry")] true]])
               ]
               true))
+    },
+    {
+      -- `e == _|_` / `e != _|_` is CUE's definedness test, not value equality. A concrete
+      -- operand is "defined" (`!= _|_` true); an absent-field selection is "incomplete" so
+      -- the guard drops. Pins the comparison + the comprehension guard firing on present
+      -- and dropping on absent.
+      fileName := "presence_test_guard.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("concrete", .regular, .binary .ne (.prim (.int 1)) .bottom),
+                ("missing", .regular, .binary .eq (.prim (.int 1)) .bottom),
+                ("streq", .regular, .binary .eq (.prim (.string "a")) .bottom),
+                (
+                  "present",
+                  .regular,
+                  .structComp
+                    [("f", .regular, .prim (.int 3))]
+                    [
+                      .comprehension
+                        [.guard (.binary .ne (.ref "f") .bottom)]
+                        (.struct [("seen", .regular, .ref "f")] true)
+                    ]
+                    true
+                ),
+                (
+                  "absent",
+                  .regular,
+                  .structComp
+                    [("base", .regular, .struct [("f", .regular, .prim (.int 3))] true)]
+                    [
+                      .comprehension
+                        [.guard (.binary .ne (.selector (.ref "base") "g") .bottom)]
+                        (.struct [("seen", .regular, .prim (.bool true))] true)
+                    ]
+                    true
+                ),
+                ("ordinary", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2)))
+              ]
+              true))
     }
   ]
 

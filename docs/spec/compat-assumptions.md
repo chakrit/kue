@@ -101,9 +101,11 @@ those forms.
     and `cue` (struct/list conflict): the consuming struct must itself carry a `[...]` embed
     (`configs: packs.#Argo & {[...], #name:…}`, as the real prod9 files do) for the
     embeddedList path to engage. With `[...]` present, `cue` proceeds and the next gate is
-    the **`if Self.#x != _|_` presence-test comprehension guard** (a separate slice): kue's
-    guard does not fire, leaving `#components` fields incomplete, so `apps/argocd.cue`
-    export still returns `⊥`. That is blocker #2, not a list-embedding gap — the embedding
+    the **`if Self.#x != _|_` presence-test comprehension guard**. The `!= _|_` *comparison*
+    is now fixed (see Comparison section — definedness test landed 2026-06-17), but the real
+    argocd guard still does not fire: the remaining gate is **lazy field resolution through
+    definition-meet** (slice 2c), where a definition's comprehension body resolves against
+    its pre-meet scope rather than the meet result. Not a list-embedding gap — the embedding
     semantics here are complete and oracle-clean.
 - **In-module imports resolve (B3a).** A single file (or `export` file-mode) routes through
   the import-aware loader: `cue.mod/module.cue` is discovered by walking parent dirs, an
@@ -217,6 +219,31 @@ those forms.
   expressions. The evaluator currently handles concrete primitive equality and numeric
   equality across int/float spellings. Equality over incomplete values and compound
   values remains later work.
+- **`e == _|_` / `e != _|_` is CUE's definedness test, not value equality** (the
+  `if Self.#x != _|_` idiom). Oracle-pinned (`cue` v0.16.1): evaluate the non-`_|_` operand
+  and classify three-way — a *defined* value (prim/struct/list/…) gives `!= _|_` true /
+  `== _|_` false; an *error* (evaluated bottom: a missing field, a conflict) gives `== _|_`
+  true; an *incomplete* operand (kind `int`, a bound `>5`, an unresolved ref/disj, `_`/top)
+  keeps the comparison itself incomplete — it does NOT resolve to a bool, matching `cue`'s
+  "non-concrete value in operand to ==" / "requires concrete value". Triggered only on the
+  **syntactic `_|_` literal** (parses to bare `.bottom`) at the `.binary` dispatch; ordinary
+  `==`/`!=` whose operand merely *evaluated* to an error still propagates that error
+  (`(1/0) == 2` → the error, not `false`), also oracle-confirmed. `classifyDefinedness` /
+  `evalPresenceTest` in `Eval.lean`; `presence_test_guard` fixture + `PresenceTests`.
+  - **kue-side deferral (NOT a `cue` divergence).** kue models a missing-field selection on
+    a *concrete closed struct* as a residual `.selector` (→ *incomplete*), whereas `cue`
+    treats it as a definite *bottom* (so `x.absent == _|_` → `true` in `cue`). The observable
+    guard behavior agrees — both make `if x.absent != _|_` drop — so the real idiom is
+    unaffected; only a bare `x.absent == _|_` outside a guard would differ. Tightening
+    missing-field-on-closed-struct to bottom is the principled fix (the loose
+    incomplete/bottom conflation the type-system lens flags) but has broad blast radius
+    across every selection path and does NOT unblock the argocd gate, so it is deferred.
+  - **Still-blocking layer (separate slice 2c):** the *real* `#D & {#x:"hi"}` def-meet
+    guard does not fire — but that is **lazy field resolution through definition-meet**, not
+    the comparison. kue eagerly evaluates a definition's comprehension body + field refs
+    against the definition's own pre-meet scope (`#x: string`) instead of deferring until the
+    meet supplies `#x: "hi"`. Confirmed orthogonal: `#D: {#x?: string, out: {if true {val:
+    #x}}}; y: #D & {#x:"hi"}` → `cue` `out.val: "hi"`, kue `out.val: string` / `y: ⊥`.
 - Ordering expressions `<`, `<=`, `>`, and `>=` are parsed at the same comparison
   precedence as equality. The evaluator currently handles concrete numeric and string
   operands. Mixed-kind ordering bottoms out; ordering over bytes, incomplete values, and

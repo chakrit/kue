@@ -237,6 +237,50 @@ def evalDiv (left right : Value) : Value :=
       | .nonNumeric => .bottom
   | _, _ => .binary .div left right
 
+/--
+Definedness classes for the `e == _|_` / `e != _|_` presence test (CUE's "is this
+defined" idiom, as in `if Self.#field != _|_`). The test is NOT value equality against a
+sentinel: CUE evaluates the non-`_|_` operand and asks which of three states it landed in.
+- `defined`: a resolved, present value (prim, struct, list, …) — `== _|_` is `false`.
+- `error`: an evaluated bottom (absent field, conflict, …) — `== _|_` is `true`.
+- `incomplete`: a residual/unresolved form (kind, bound, ref, unresolved disj, …) — the
+  comparison itself stays incomplete and propagates, so a comprehension guard drops.
+-/
+inductive Definedness where
+  | defined
+  | error
+  | incomplete
+deriving DecidableEq
+
+def classifyDefinedness : Value -> Definedness
+  | .bottom => .error
+  | .bottomWith _ => .error
+  | .prim _ => .defined
+  | .struct _ _ => .defined
+  | .structTail _ _ => .defined
+  | .list _ => .defined
+  | .listTail _ _ => .defined
+  | .embeddedList _ _ _ => .defined
+  | _ => .incomplete
+
+def isPresenceTestOp : BinaryOp -> Bool
+  | .eq => true
+  | .ne => true
+  | _ => false
+
+/--
+Evaluate one side of an `== _|_` / `!= _|_` presence test against the literal `_|_`.
+`equality` is `true` for `==`, `false` for `!=`. The non-`_|_` operand `value` is already
+evaluated. An `incomplete` operand yields a residual comparison node against `_|_` (so the
+shape round-trips), which a comprehension guard treats as not-true.
+-/
+def evalPresenceTest (equality : Bool) (value : Value) : Value :=
+  match classifyDefinedness value with
+  | .defined => .prim (.bool (!equality))
+  | .error => .prim (.bool equality)
+  | .incomplete =>
+      if equality then .binary .eq value .bottom else .binary .ne value .bottom
+
 def evalEq (left right : Value) : Value :=
   match left, right with
   | .prim left, .prim right =>
@@ -657,6 +701,20 @@ mutual
     | fuel + 1, .unary op value => do
         let evaluated <- evalValueWithFuel fuel env visited value
         pure (evalUnary op evaluated)
+    | fuel + 1, .binary op (.bottom) right =>
+        if isPresenceTestOp op then do
+          let evaluated <- evalValueWithFuel fuel env visited right
+          pure (evalPresenceTest (op == .eq) evaluated)
+        else do
+          let rightEvaluated <- evalValueWithFuel fuel env visited right
+          pure (evalBinary op .bottom rightEvaluated)
+    | fuel + 1, .binary op left (.bottom) =>
+        if isPresenceTestOp op then do
+          let evaluated <- evalValueWithFuel fuel env visited left
+          pure (evalPresenceTest (op == .eq) evaluated)
+        else do
+          let leftEvaluated <- evalValueWithFuel fuel env visited left
+          pure (evalBinary op leftEvaluated .bottom)
     | fuel + 1, .binary op left right => do
         let leftEvaluated <- evalValueWithFuel fuel env visited left
         let rightEvaluated <- evalValueWithFuel fuel env visited right

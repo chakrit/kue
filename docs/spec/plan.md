@@ -673,13 +673,29 @@ Ordered by goal-impact (replace `cue` for prod9/infra) vs cost:
    next blocker (2b), NOT this — confirmed both kue and `cue` error on the direct
    `packs.#Argo & {#name:…}` form; with `[...]` in the consuming struct `cue` proceeds and
    the next gate is the `if _x != _|_` guard.
-2b. **[HIGH — NOW the #1 blocker] `if _x != _|_` presence-test comprehension-guard eval.**
-   kue parses `if Self.#x != _|_ { … }` but the guard does not fire where `cue`'s does
-   (the `!= _|_` presence test), so `#components` def-meet bodies stay incomplete and
-   `apps/argocd.cue` export returns `⊥`. Isolated repro:
-   `#D: Self={#x?: string, out: {if Self.#x != _|_ {val: Self.#x}}}; y: #D & {#x: "hi"}` →
-   `cue` gives `out.val: "hi"`, kue gives `out: {}` and `y: ⊥`. The live argocd gate; next
-   slice.
+2b. **[HIGH] `if _x != _|_` presence-test comparison eval. DONE (2026-06-17, breadcrumb
+   `docs/notes/2026-06-17-presence-test-guard-landed.md`).** Oracle (`cue` v0.16.1) pinned
+   `e == _|_` / `e != _|_` as CUE's **definedness test**, not value equality: evaluate the
+   non-`_|_` operand and classify three-way — `defined` (resolved value: prim/struct/list/…)
+   → `!= _|_` true; `error` (evaluated bottom) → `== _|_` true; `incomplete` (residual:
+   kind/bound/ref/unresolved-disj/…) → the comparison stays incomplete (residual node), so a
+   guard drops. kue's bug was blanket bottom-propagation in `evalEq` (`concrete != _|_`
+   gave `⊥`, not `true`). Fix: intercept `.eq`/`.ne` against the **syntactic** `_|_` literal
+   at the `.binary` dispatch (the literal parses to bare `.bottom`; this preserves genuine
+   error-propagation for `(1/0)==2`-style non-`_|_` operands — also oracle-confirmed), new
+   `classifyDefinedness`/`evalPresenceTest`. Verified: concrete `!= _|_`→true, `== _|_`→false;
+   same-scope present guard fires (`out.has: 3`), absent guard drops (`out: {}`) — matches
+   `cue` exactly. 12 `PresenceTests` theorems + `presence_test_guard` fixture.
+   **Deeper blocker now exposed (2c):** the *real* `#D & {#x:"hi"}` def-meet guard still
+   yields `out: {}`/`y: ⊥` — NOT the comparison, but **lazy field resolution through
+   definition-meet**: kue eagerly evaluates a definition's comprehension body + field refs
+   against the definition's own pre-meet scope (`#x: string`), instead of deferring until the
+   meet supplies `#x: "hi"`. Confirmed: `#D: {#x?: string, out: {if true {val: #x}}}; y: #D &
+   {#x:"hi"}` → `cue` `out.val: "hi"`, kue `out.val: string` / `y: ⊥`. See compat-assumptions.
+2c. **[HIGH — NOW the argocd gate] Lazy field resolution through definition-meet.** A
+   definition's comprehension body and field references must resolve against the *meet
+   result* (post-`&`), not the definition's own incomplete scope. This is the layer behind
+   2b that still blocks `apps/argocd.cue`. Next slice.
 3. **[MEDIUM — type-system leverage] Collapse `intGe/intGt/intLe/intLt` into one
    `boundConstraint (bound : Int) (kind : BoundKind)`.** Four parallel `Value`
    constructors over one domain (integer bounds) with a parallel `meetIntGePrim/Gt/Le/Lt`

@@ -5012,3 +5012,61 @@ kue and `cue`; with the consuming struct's own `[...]` present `cue` proceeds an
 gate is the `if Self.#x != _|_` presence-test comprehension guard (plan item 2b), confirmed
 in isolation (`#D: Self={#x?:string, out:{if Self.#x != _|_ {val: Self.#x}}}; y: #D &
 {#x:"hi"}` → `cue` `out.val:"hi"`, kue `out:{}`/`y:⊥`).
+
+---
+
+## Completed Slice: `== _|_` / `!= _|_` Presence Test (Definedness)
+
+**Behavior.** `e == _|_` / `e != _|_` is CUE's *definedness test*, not value equality —
+the engine behind the `if Self.#field != _|_ { … }` conditional-inclusion idiom. Oracle
+(`cue` v0.16.1): evaluate the non-`_|_` operand and classify three-way.
+- *Defined* — a resolved value (prim, struct, list, embeddedList): `!= _|_` → `true`,
+  `== _|_` → `false`. (`1 != _|_` → true; `{x:1} != _|_` → true.)
+- *Error* — an evaluated bottom (missing field on a known struct, a conflict): `== _|_` →
+  `true`, `!= _|_` → `false`. (`_|_ == _|_` → true.)
+- *Incomplete* — a residual/unresolved form (kind `int`, bound `>5`, unresolved ref/disj,
+  `_`/top): the comparison itself stays incomplete and does not resolve to a bool —
+  matching `cue`'s "non-concrete value in operand to ==" / "requires concrete value". In a
+  comprehension guard the residual reads as not-true, so the guard drops.
+
+**The bug.** `evalEq` blanket-propagated a bottom operand (`.bottom, _ => .bottom`), so
+`a != _|_` on a concrete `a` produced `⊥` instead of `true`, and the present-field guard
+never fired.
+
+**Fix (type-system-first).** The presence test triggers only on the **syntactic `_|_`
+literal** — which parses to bare `.bottom` — intercepted at the `.binary` dispatch in
+`evalValueWithFuel` before generic operand evaluation. This is the only point where the
+literal is distinguishable from an operand that merely *evaluated* to a bottom: keeping the
+trigger syntactic preserves genuine error propagation for non-`_|_` operands (`(1/0) == 2`
+→ the error, not `false` — oracle-confirmed). New `inductive Definedness`,
+`classifyDefinedness : Value → Definedness`, and `evalPresenceTest`. An incomplete operand
+yields a clean residual `e != _|_` (the `_|_` side normalized back to `.bottom`).
+
+**Verified vs `cue`.** Concrete `!= _|_`→true / `== _|_`→false; `"a" == _|_`→false;
+same-scope present guard fires (`if f != _|_ {seen:f}` → `seen: 3`); absent-field guard
+drops (`if base.g != _|_ {…}` → empty) — observably identical to `cue` on every probed
+case.
+
+**Tightening flagged, deferred.** kue models a missing-field selection on a concrete closed
+struct as a residual `.selector` (→ *incomplete*), where `cue` makes it a definite bottom.
+Guard behavior agrees (both drop `if x.absent != _|_`); only a bare `x.absent == _|_`
+outside a guard would differ. The principled fix (missing-field-on-closed-struct → bottom,
+resolving the incomplete/bottom conflation) has broad blast radius and does not unblock the
+argocd gate, so it is deferred (see compat-assumptions).
+
+**Tests.** `presence_test_guard` fixture (+ FixturePorts entry): concrete `!=`/`==`,
+string `==`, present-guard-fires, absent-guard-drops, ordinary `!=` regression. 12
+`PresenceTests` `native_decide` theorems pinning the three-way classification, the
+concrete/incomplete comparisons, guard fire/drop, and ordinary-`==`/`!=` unchanged.
+Theorem count 663 → 675. Verify gate green: `lake build`, `scripts/check-fixtures.sh` ⇒
+`fixture pairs ok`, `shellcheck` clean.
+
+**Next blocker (read-only check).** `kue export apps/argocd.cue` is not present on this
+host (external prod9 tree, remote-fs split), but the isolated real-shape repro still fails:
+`#D: {#x?: string, out: {if Self.#x != _|_ {val: Self.#x}}}; y: #D & {#x:"hi"}` → kue
+`out:{}` / `y:⊥`, `cue` `out.val:"hi"`. This is NOT the comparison — it is **lazy field
+resolution through definition-meet** (plan slice 2c): kue eagerly evaluates a definition's
+comprehension body + field refs against the definition's own pre-meet scope (`#x: string`),
+rather than deferring until the meet supplies `#x: "hi"`. Confirmed orthogonal via
+`if true {val: #x}` (no comparison): kue `out.val: string`, `cue` `out.val: "hi"`. That
+lazy-meet-resolution layer is the live argocd gate.
