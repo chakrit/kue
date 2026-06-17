@@ -576,7 +576,120 @@ LOW/borderline items to fold (none blocking):
   migrated to `String.dropEnd` (`.toString` coerces the new `String.Slice` return back).
   Behavior unchanged; the two build warnings are cleared.
 
-## Architecture Fix-Slices (Phase B audit 2026-06-17)
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #2 — eval-blowup diagnosis)
+
+Second Phase B pass, headlined by the priority diagnosis of the `kue export
+apps/argocd.cue` hang. Layering verdict from the prior pass (below) is **re-confirmed
+unchanged** — the import DAG is still acyclic and correctly shaped. New findings here
+supersede the ranking below; the base64 / test-reorg / cacheRoot items from the prior pass
+remain valid and are re-ranked into this list.
+
+### HEADLINE — the `kue export apps/argocd.cue` hang is EXPONENTIAL BLOWUP, not non-termination
+
+**Verdict: fuel-bounded exponential re-evaluation. NOT a totality violation.** Every core
+recursion (`evalValueWithFuel`, `meetWithFuel`, `resolveValueWithFuel`) is fuel-bounded
+(`evalFuel = meetFuel = resolveFuel = 100`); none can run forever. Proven empirically by
+temporarily lowering `evalFuel` and timing the minimal repro: fuel 14–40 → ~6–10 s (IO
+floor), fuel 50 → 33 s, fuel 60 → >40 s (timeout). Growth ≈ 3.2× per +10 fuel ⇒ fuel 100
+is ~2.6 h+ — effectively infinite, but it *would* terminate. Working tree restored to
+`evalFuel = 100`; no code changed.
+
+**Minimal repro** (hangs; `/tmp/kuerepro/t3.cue`, module `prodigy9.co`, dep
+`defs@v0.3.19` in cache):
+```cue
+package apps
+import "prodigy9.co/defs/packs"
+x: packs.#Argo & {#name: "stage9"}
+```
+Bisection isolated the trigger to the `packs.#Argo` definition itself (the `[...]`
+open-list embedding is NOT the cause — `t3` omits it and still hangs; a local-only
+reconstruction of the same shape does NOT hang, so the cross-module def-meet path is
+load-bearing). `#Argo` is a `Self={…}` value alias whose body ends with a top-level
+embedding `[Self.#components.repo, Self.#components.project, Self.#components.app]`, where
+`#components` holds three `defs.#ArgoX & { if Self.#f != _|_ {…} }` cross-module def meets,
+each re-selecting `Self`.
+
+**Root cause — unmemoized repeated substitution.** `Kue/Eval.lean`:
+- `.selector (.refId id) label` (lines 502–505) evaluates the ENTIRE base struct
+  (`evalValueWithFuel … (.refId id)`) and then `selectEvaluatedField` plucks one field and
+  throws the rest away. So `Self.#components.repo` fully re-evaluates `Self` *and*
+  `#components`; the three embedding elements do this 3× over.
+- The depth>0 `.refId` arm (line 490) re-evaluates `Field.value field` from scratch every
+  visit with the cycle-`visited` set RESET (`[id.index]`) — depth>0 refs (every `Self.x`)
+  have NO sharing and NO revisit guard, only the fuel cap.
+- `selectEvaluatedField` (lines 107–127) returns the field's *unevaluated* `Value`, so each
+  selection re-forces it.
+There is no evaluation-result cache anywhere (`grep memo/cache/HashMap` in `Eval.lean` →
+none). Each fuel level multiplies the work by the per-node fan (≈3 here), giving the
+observed exponential. This is exactly the `Self.x`-style re-eval the audit brief
+anticipated.
+
+**The fix it needs (own slice — HIGH, gates the real prod9 workflow; precedes/pairs with
+the `[...]` eval-laziness slice).** Memoize evaluation: compute each binding's value once
+and share it, CUE-style (the reference implementation evaluates a vertex graph with
+computed-once nodes). Concretely — thread an evaluation cache keyed by `BindingId`
+(depth-adjusted) through `evalValueWithFuel`, OR evaluate each struct's fields once into a
+resolved frame and have `.refId`/`.selector` read the already-evaluated frame instead of
+re-evaluating `Field.value`. The depth>0 `.refId` arm and the `.selector (.refId id)` arm
+are the two hot sites. This is a real design change (the eval environment grows a memo /
+becomes a graph), not a one-line fuel guard — so it is folded, not applied inline.
+**Type-system connection:** the missing structure is precisely a *computed-once node* the
+representation does not yet model; today `Value` re-substitution stands in for graph
+sharing. Encoding "evaluated vs unevaluated" in the type (a thunk/`Computed` node) would
+make the re-eval unrepresentable.
+
+### Ranked next-work list (this audit — supersedes the older ranking below)
+
+Ordered by goal-impact (replace `cue` for prod9/infra) vs cost:
+
+1. **[HIGH — eval blowup, gates the workflow] Memoize evaluation** (the headline above).
+   Without it, every real prod9 file using `Self`+`#components`+embedding (i.e. every
+   `packs.#Argo` app, plus `#components`-style defs throughout `infra-defs`) is
+   un-evaluable in practice. Pairs with / precedes the `[...]` eval-laziness slice (item 2)
+   since both touch the embedding eval path.
+2. **[HIGH — semantic, parked] `[...]` open-list embedding eval + `meet(struct,list)=⊥`
+   laziness + `if _x != _|_` presence-test eval.** The remaining argocd eval-layer
+   blockers once memoization lands. Already tracked under "Later Slices"; promote alongside
+   item 1 — they share the embedding/comprehension eval surface.
+3. **[MEDIUM — type-system leverage] Collapse `intGe/intGt/intLe/intLt` into one
+   `boundConstraint (bound : Int) (kind : BoundKind)`.** Four parallel `Value`
+   constructors over one domain (integer bounds) with a parallel `meetIntGePrim/Gt/Le/Lt`
+   family in `Lattice.lean` — a textbook "parallel structures, fold into an indexed type"
+   smell. A `BoundKind = ge | gt | le | lt` sum makes the four meet helpers one
+   `kind`-dispatched helper and the four constructors one. Medium refactor (touches
+   `Value`, `Lattice`, `Format`, parser); real illegal-states win (can't have a bound
+   without a kind, can't mismatch). Own slice.
+4. **[MEDIUM — function in wrong module] Move base64 out of `Json.lean`** (unchanged from
+   prior pass, item 1 below). Extract `base64Encode`/`base64Alphabet` to `Kue/Base64.lean`;
+   re-point `Yaml`, `Builtin`, `Module` callsites. Scoped mechanical slice.
+5. **[MEDIUM — test/fixture organization, chakrit-flagged] Reorganize tests + `testdata/`**
+   (unchanged from prior pass, item 2 below). Now overdue: `FixturePorts.lean` is 1936
+   lines, `FixtureTests` 1033, `BuiltinTests` 735 — the three largest modules are all test
+   infra. Concrete plan in the prior pass's item 2. Schedule as the periodic organization
+   pass; one slice.
+6. **[LOW — type-system leverage] Make `Field` a `structure`, not a `String × FieldClass ×
+   Value` tuple `abbrev`.** `Kue/Value.lean:158`. Accessors `Field.label/fieldClass/value`
+   already exist; the tuple still admits positional confusion and forces `.snd.snd`
+   internally. A `structure Field where label; fieldClass; value` (with `Field.regular`
+   smart ctor kept) tightens it with named projections. Low-impact, broad mechanical touch
+   — defer behind the higher items; fold into the test-reorg or a quiet slice.
+7. **[MEDIUM — promote candidate-gap] Linux `cacheRoot` default** (unchanged; item 3
+   below). Real portability gap for Linux CI/dev without `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`.
+   Small slice.
+
+**Parser cohesion (`Parse.lean`, 1442 lines) — split is OPTIONAL, not urgent.** Structure
+is three cohesive zones: a lexer/trivia/import/multiline-scan prelude (≈ lines 70–705), one
+big `mutual` recursive-descent grammar block (706–1386, must stay together for Lean mutual
+recursion), and a thin file driver (1387–1442). The available split is extracting the
+lexer/lookahead prelude into `Kue/Lex.lean`, leaving Parse as grammar+driver. It's a real
+cohesion win but a sizable mechanical move with no behavior change and no current pain
+(the file is large but navigable and single-responsibility: "surface syntax → AST"). **Do
+NOT split now** — it ranks below every item above on goal-impact. Revisit if the grammar
+keeps growing or the prelude accretes more lexer state.
+
+---
+
+## Architecture Fix-Slices (Phase B audit 2026-06-17) — prior pass, layering still valid
 
 Whole-module-graph pass (broader than Phase A's diff lens). **Layering verdict: clean.**
 The internal import DAG is acyclic with the intended shape — `Value` at the base; pure
