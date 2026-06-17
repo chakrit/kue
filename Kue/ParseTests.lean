@@ -26,7 +26,7 @@ def parseFailsAt (source : String) (line col : Nat) : Bool :=
 theorem parse_basic_document_resolves_references :
     parseOutputMatches
       "package demo\n#Port: int & >=0 & <=65535\nport: #Port & 8080\nname: \"api\"\n"
-      "#Port: >=0 & <=65535\nport: 8080\nname: \"api\"" = true := by
+      "#Port: int & >=0 & <=65535\nport: 8080\nname: \"api\"" = true := by
   native_decide
 
 /-- An optional definition field (`#x?`) parses with both modifiers — definition and

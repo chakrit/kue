@@ -1,2 +1,2 @@
 d: {a: int, b: int}
-y: {a: >0, b: >0}
+y: {a: int & >0, b: int & >0}

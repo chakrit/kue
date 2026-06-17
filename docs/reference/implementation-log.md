@@ -5236,3 +5236,46 @@ total; FULL existing suite passes UNCHANGED. Verify gate green: `lake build`,
 `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean. `def_meet_template` still
 byte-identical. Reduced argo-like optional-def shape (`#meta?` + nested `dest?`) now exports
 byte-identical to cue.
+
+---
+
+## Completed Slice: Retain `int` conjunct in `int & >0` (bound kind-retention)
+
+Goal: fix the #1 known wrong-output on the supported subset — `int & >0` collapsed to `>0`,
+dropping the load-bearing `int` kind (a bare `>0` admits floats in CUE, so `int &` is what
+rejects them). Oracle: `cue` v0.16.1 prints `int & >0` for `x: int & >0`.
+
+**Diagnosis (precise).** The drop was in MEET, not just format. `Lattice.meetCore`'s eight
+`kind k & intGe/Gt/Le/Lt` arms returned the bare bound whenever `kindAcceptsKind k .int`,
+discarding the kind. (Float rejection already worked incidentally, because kue's bounds are
+*integer-restricted* — `intGt 0` itself rejects `1.5` — so `(int & >0) & 1.5` was already
+`_|_`; only the displayed/structural `int` was lost.) A deeper, separate divergence surfaced
+and was FOLDED: kue has no float/number bounds (`>0.5` is a parse error; bare `>0 & 1.5` →
+`_|_` vs cue's `1.5`) — closing that needs decimal-valued, domain-tagged bounds (plan item 3).
+
+**Fix.** New `meetKindWithIntBound (kind) (bound)`: `int` → `.conj [.kind .int, bound]`
+(retains, formats `int & >0`); `number` → bare `bound` (a bound is implicitly number-typed —
+cue drops it); else `kindConflict`. The eager conj-injection broke multi-bound int ranges:
+`int & >=0 & <=65535` ping-ponged through `meetConjValueWith`'s left-fold into nested `.conj`,
+which `meetCore`'s pairwise arms cannot collapse, bottoming the value. Rewrote conjunction
+meet to reduce over a **flat constraint set**: `flattenConj` (recursively splice nested
+`.conj`), `addConstraintWith` (meet a constraint pairwise into a reduced list — a single-value
+simplification replaces + re-folds against the rest, a `.conj` result means no merge so append,
+bottom short-circuits), and `meetConjValueWith` flattens both sides, folds, re-wraps. Order is
+source-preserving; idempotent; flat.
+
+**boundConstraint refactor (plan item 3) FOLDED** — 96 `intG*` refs in `Lattice` + ~70 in
+tests = high blast radius; the plan sequences it as the consolidation-batch lead, and it now
+also carries the decimal/domain generalization the deeper twin needs.
+
+**Tests.** +9 `BoundTests` theorems (kind-retention both orders, `int & >0` format,
+`number & >0` drop, float-rejection, int-admit, flat range, range-admit, idempotent). Four
+pre-existing conj-meet theorems switched `rfl`→`native_decide` over `==` (the new meet body no
+longer definitionally reduces; `Value` has `BEq` not `DecidableEq`, so equality is via `==`).
+`testdata/cue/meet_lazy_incomplete.expected` updated `{a: >0, b: >0}` → `{a: int & >0, b: int &
+>0}` — oracle-confirmed `cue` v0.16.1 produces exactly this (kue now MATCHES where it diverged).
+706 theorems total; FULL existing suite passes UNCHANGED except that one oracle-confirmed fixture.
+Verify gate green: `lake build` (80 jobs), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
+`shellcheck` clean. CLI oracle-matched: `int & >0`, `>0 & int`, `(int&>0)&1.5`→`_|_`,
+`(int&>0)&5`→`5`, `int & >0 & <10`, `#Port: int & >=0 & <=65535`, `number & >0`→`>0`,
+`>0 & 5`→`5`.

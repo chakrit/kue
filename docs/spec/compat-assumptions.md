@@ -282,6 +282,25 @@ those forms.
   precedence as equality. The evaluator currently handles concrete numeric and string
   operands. Mixed-kind ordering bottoms out; ordering over bytes, incomplete values, and
   compound values remains later work.
+- **Numeric bounds are integer-restricted (`>0` means `int & >0`, not CUE's number-`>0`).**
+  Kue parses `>n`/`>=n`/`<n`/`<=n` into `intGe/Gt/Le/Lt`, which only admit `int` primitives;
+  there is no float or general-number bound, and `>0.5` is a parse error. CUE's `>0` is a
+  *number* bound that admits floats (`>0 & 1.5` → `1.5` in cue v0.16.1), so kue is **stricter
+  than cue on a bare bound**: kue's `>0 & 1.5` → `_|_`. This is a known divergence, folded
+  behind the bound-kind work: closing it needs float/number bound literals + float-domain
+  bound comparison (a `boundConstraint (bound : Decimal) (cmp : BoundKind) (kind : Kind)`
+  generalization), tracked as plan items 1's deeper twin and item 3. In practice infra CUE
+  uses `int & >0` / `>=0 & <=N` (int ranges), where kue is correct.
+- **`kind int` meeting a bound retains the kind as a conjunction (`int & >0`).** Meeting a
+  numeric kind with an integer bound: `int` is retained (`int & >0` → `.conj [kind int, >0]`,
+  formatting `int & >0`), because the `int` is load-bearing — a bare `>0` would otherwise admit
+  floats in CUE; `number` is dropped (`number & >0` → `>0`, a bound is implicitly number-typed);
+  `float`/other conflict. Oracle-pinned to cue v0.16.1: `int & >0` prints `int & >0`,
+  `(int & >0) & 1.5` → `_|_`, `(int & >0) & 5` → `5`, `int & >=0 & <=65535` → the flat
+  `int & >=0 & <=65535` (cue *displays* this as the alias `uint16`; kue keeps the structural
+  conjunction — a cosmetic-only divergence, same value). Conjunction meets reduce over a
+  *flat* constraint set (`flattenConj` + `addConstraintWith` in `Lattice.lean`) so nested/
+  multi-bound conjunctions merge pairwise without nesting or scrambling into bottom.
 - Binary regex match expressions `=~` and `!~` are parsed at comparison precedence.
   The evaluator currently handles concrete string operands using Kue's existing regex
   subset. Non-string concrete primitive operands bottom out; incomplete operands remain

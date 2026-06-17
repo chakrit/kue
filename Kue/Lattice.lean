@@ -89,6 +89,18 @@ def meetStrictIntRangePrim (minimum maximum : Int) (prim : Prim) : Value :=
         .bottomWith [.intBoundConflict]
   | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
 
+/-- Meet a numeric `kind` against an integer bound (`>n`/`>=n`/`<n`/`<=n`). The bound is
+    integer-restricted in Kue's current bound model, so only `int` (exactly) and `number`
+    (which subsumes int) accept it. CUE keeps an explicit `int &` conjunct (`int & >0`,
+    because a bare `>0` admits floats — `int` is load-bearing) but drops a redundant
+    `number &` (a bound is implicitly number-typed). So: `int` retains the kind as a
+    conjunction; `number` collapses to the bare bound; anything else conflicts. -/
+def meetKindWithIntBound (kind : Kind) (bound : Value) : Value :=
+  match kind with
+  | .int => .conj [.kind .int, bound]
+  | .number => bound
+  | _ => .bottomWith [.kindConflict kind .int]
+
 def isBottom : Value -> Bool
   | .bottom => true
   | .bottomWith _ => true
@@ -275,22 +287,14 @@ def meetCore (left right : Value) : Value :=
   | .prim prim, .intLe maximum => meetIntLePrim maximum prim
   | .intLt maximum, .prim prim => meetIntLtPrim maximum prim
   | .prim prim, .intLt maximum => meetIntLtPrim maximum prim
-  | .kind kind, .intGe minimum =>
-      if kindAcceptsKind kind .int then .intGe minimum else .bottomWith [.kindConflict kind .int]
-  | .intGe minimum, .kind kind =>
-      if kindAcceptsKind kind .int then .intGe minimum else .bottomWith [.kindConflict .int kind]
-  | .kind kind, .intGt minimum =>
-      if kindAcceptsKind kind .int then .intGt minimum else .bottomWith [.kindConflict kind .int]
-  | .intGt minimum, .kind kind =>
-      if kindAcceptsKind kind .int then .intGt minimum else .bottomWith [.kindConflict .int kind]
-  | .kind kind, .intLe maximum =>
-      if kindAcceptsKind kind .int then .intLe maximum else .bottomWith [.kindConflict kind .int]
-  | .intLe maximum, .kind kind =>
-      if kindAcceptsKind kind .int then .intLe maximum else .bottomWith [.kindConflict .int kind]
-  | .kind kind, .intLt maximum =>
-      if kindAcceptsKind kind .int then .intLt maximum else .bottomWith [.kindConflict kind .int]
-  | .intLt maximum, .kind kind =>
-      if kindAcceptsKind kind .int then .intLt maximum else .bottomWith [.kindConflict .int kind]
+  | .kind kind, .intGe minimum => meetKindWithIntBound kind (.intGe minimum)
+  | .intGe minimum, .kind kind => meetKindWithIntBound kind (.intGe minimum)
+  | .kind kind, .intGt minimum => meetKindWithIntBound kind (.intGt minimum)
+  | .intGt minimum, .kind kind => meetKindWithIntBound kind (.intGt minimum)
+  | .kind kind, .intLe maximum => meetKindWithIntBound kind (.intLe maximum)
+  | .intLe maximum, .kind kind => meetKindWithIntBound kind (.intLe maximum)
+  | .kind kind, .intLt maximum => meetKindWithIntBound kind (.intLt maximum)
+  | .intLt maximum, .kind kind => meetKindWithIntBound kind (.intLt maximum)
   | .intGe leftMinimum, .intGe rightMinimum => .intGe (maxInt leftMinimum rightMinimum)
   | .intGt leftMinimum, .intGt rightMinimum => .intGt (maxInt leftMinimum rightMinimum)
   | .intGe minimum, .intGt strictMinimum => .conj [.intGe minimum, .intGt strictMinimum]
@@ -419,15 +423,52 @@ def meetCore (left right : Value) : Value :=
   | .embeddedList _ _ _, _ => .bottom
   | _, .embeddedList _ _ _ => .bottom
 
+/-- Flatten a value into its top-level conjunction members, recursing into nested
+    `.conj`. A non-conjunction is a singleton. Used so conjunction meets reduce over a
+    flat constraint set instead of nesting `.conj` inside `.conj` (which the pairwise
+    bound/kind merge arms in `meetCore` cannot collapse). -/
+def flattenConj : Value -> List Value
+  | .conj constraints => constraints.flatMap flattenConj
+  | value => [value]
+
+/-- Meet a single constraint into a flat, already-reduced constraint list. Tries to merge
+    `constraint` pairwise with each existing member via `meetValue`: a merge that collapses
+    to a single non-conjunction (e.g. two bounds → a tighter bound, `kind int & >0` →
+    nothing tighter so it stays paired) replaces that member; a bottom short-circuits; a
+    result that re-splits into a conjunction means no single-member simplification was
+    possible, so the constraint is kept alongside (appended). This keeps the constraint set
+    flat and order-insensitive, so `int & >=0 & <=65535` reduces to the flat
+    `[kind int, >=0, <=65535]` rather than ping-ponging into nested conjunctions. -/
+def addConstraintWith
+    (meetValue : Value -> Value -> Value) : List Value -> Value -> List Value
+  | [], constraint => [constraint]
+  | member :: rest, constraint =>
+      match meetValue member constraint with
+      | .bottom => [.bottom]
+      | .bottomWith reasons => [.bottomWith reasons]
+      | .conj _ => member :: addConstraintWith meetValue rest constraint
+      | merged => addConstraintWith meetValue rest merged
+
+/-- Meet a conjunction's constraints into a value by reducing the whole constraint set
+    flat. Both sides are flattened (`flattenConj`), then folded pairwise via
+    `addConstraintWith`. The final list re-wraps as a single value (`.bottom`/the lone
+    member/`.conj`). Replaces the previous left-fold-into-accumulator form, which nested
+    `.conj` results and bottomed multi-bound int ranges like `int & >=0 & <=65535`. -/
 def meetConjValueWith
     (meetValue : Value -> Value -> Value) (constraints : List Value) (value : Value) : Value :=
-  constraints.foldl
-    (fun current constraint =>
-      if isBottom current then
-        current
-      else
-        meetValue constraint current)
-    value
+  let initial := constraints.flatMap flattenConj
+  let reduced :=
+    (flattenConj value).foldl
+      (fun current constraint =>
+        match current with
+        | [.bottom] => [.bottom]
+        | [.bottomWith reasons] => [.bottomWith reasons]
+        | _ => addConstraintWith meetValue current constraint)
+      initial
+  match reduced with
+  | [] => .top
+  | [single] => single
+  | members => .conj members
 
 def meetListPrefixTailWith
     (meetValue : Value -> Value -> Value) : List Value -> Value -> List Value -> Option (List Value)

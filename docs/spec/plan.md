@@ -955,31 +955,43 @@ template exporting byte-identically, the codebase IS at a good consolidation poi
 consolidation is pure debt-reduction with zero goal-unblock, and there is exactly one
 known wrong-output bug left on the supported subset (`int & >0`). Fix the bug first, then
 run the consolidation+test-reorg batch (items 3–4) as one verify cycle before the next
-feature family. Next 3–4 slices, in order: **1 → 2 → 3 → 4**.
+feature family. Next 3–4 slices, in order: **1 → 2 → 3 → 4**. **Item 1 DONE (2026-06-17);
+next is item 2 (open-list collapse on Manifest), then the consolidation+test-reorg batch
+(items 3–4).**
 
-1. **[HIGH — live next-real-file blocker, WRONG OUTPUT] `int & >0` keeps both conjuncts.**
-   Oracle (`cue` v0.16.1): `x: int & >0` → `cue eval` prints `x: int & >0` (both conjuncts
-   retained); kue collapses to `x: >0`, **dropping the `int` kind**. This is a `meet`/format
-   bug, not just bound-collapse formatting: meeting `kind int` with `intGt 0` discards the
-   `int` rather than keeping the conjunction (cue keeps `int & >0` because `>0` alone admits
-   floats — `1.5 & >0` is fine — so `int &` is load-bearing). Smallest real divergence still
-   on the supported subset; gates clean real-file export. Fix the `meet(kind int, intGt/…)`
-   arm in `Lattice.lean` to retain a conjunction (or a kind-tagged bound) instead of
-   collapsing to the bound. Oracle-pin float-vs-int (`1.5 & >0` ok, `1.5 & (int & >0)` ⊥).
-   Own slice. **Pairs naturally with item 3** (a kind-tagged `boundConstraint` would make
-   "this bound is int-restricted" representable) — consider doing 3 first if the fix wants
-   the richer bound type, else fix the meet arm directly and let 3 follow.
+1. **[HIGH — live next-real-file blocker, WRONG OUTPUT] `int & >0` keeps both conjuncts.
+   DONE (2026-06-17).** The bug was in MEET: `meetCore`'s `kind int & intGt/Ge/Le/Lt` arms
+   collapsed to the bare bound, dropping `int`. Fix: `meetKindWithIntBound` retains `int` as
+   `.conj [.kind .int, bound]` (formats `int & >0`), drops a redundant `number`, conflicts
+   on `float`/other. The eager conj-injection broke multi-bound int ranges
+   (`int & >=0 & <=65535` ping-ponged into nested conjs → `_|_`), so `meetConjValueWith` was
+   rewritten to reduce over a **flat** constraint set (`flattenConj` + `addConstraintWith`):
+   both sides flatten, fold pairwise, merge-or-append, re-fold a simplified member against the
+   rest. Oracle-matched cue v0.16.1: `int & >0`→`int & >0`, `(int&>0)&1.5`→`_|_`,
+   `(int&>0)&5`→`5`, `int & >=0 & <=65535`→flat (cue *displays* `uint16` — cosmetic alias,
+   same value). 9 new `BoundTests` theorems; `meet_lazy_incomplete` fixture updated
+   (oracle-confirmed cue agrees). **boundConstraint refactor (item 3) FOLDED** — 96
+   `intG*` occurrences in `Lattice` + ~70 in tests = high blast radius, and the plan already
+   sequences it as the consolidation batch lead. **Deeper twin folded too:** kue's bounds are
+   int-only (`>0.5` parse error; bare `>0 & 1.5`→`_|_` vs cue's `1.5`) — needs float/number
+   bound literals, tracked in compat-assumptions and item 3. Infra uses int bounds, so kue is
+   correct there.
 2. **[HIGH — semantic correctness] Open-list collapse on Manifest (`[1,...]`).** Phase A
    finding #4: `Manifest` returns `.incomplete` for an open-list tail where `cue` collapses
    `[1,...]` → concrete prefix `[1]` at manifest time. Real output divergence on any open
    list reaching output. Confirm exact cue collapse rule (prefix-only vs tail-default-fill)
    against oracle, then fix `Manifest`'s `listTail`/`embeddedList`-with-tail arm. Own slice.
-3. **[MEDIUM — type-system leverage, pairs with 1] Collapse `intGe/intGt/intLe/intLt` →
-   `boundConstraint (bound : Int) (kind : BoundKind)`.** Four parallel `Value` ctors over one
-   domain with a parallel `meetIntGe/Gt/Le/Lt` family in `Lattice` — textbook fold into an
-   indexed type. `BoundKind = ge | gt | le | lt` makes the four meet helpers one dispatched
-   helper and the four ctors one; no bound without a kind. Touches `Value`/`Lattice`/`Format`/
-   parser/`valueTag`. Lead item of the post-bug consolidation batch.
+3. **[MEDIUM — type-system leverage, FOLDS item-1's deeper twin] Collapse `intGe/intGt/intLe/intLt`
+   → a kind+domain-tagged bound.** Four parallel `Value` ctors over one domain with a parallel
+   `meetIntGe/Gt/Le/Lt` family in `Lattice` — textbook fold into an indexed type. Now the lead
+   of the consolidation batch AND the principled close of the bare-bound divergence item 1
+   surfaced: a bound must carry (a) a comparison `BoundKind = ge | gt | le | lt` AND (b) a
+   numeric **domain** so a bare `>0` is a *number* bound (admits `1.5`, matching cue) while
+   `int & >0` narrows to int. The bound value must widen from `Int` to a decimal so `>0.5`
+   parses and float-domain comparison works. Target shape: `boundConstraint (bound : Decimal)
+   (cmp : BoundKind) (domain : Kind)`. Touches `Value`/`Lattice`/`Format`/parser/`valueTag` +
+   ~70 test references. Big blast radius — its own slice/batch, deliberately deferred past the
+   manifest-collapse goal-unblock (item 2).
 4. **[MEDIUM — consolidation + test-reorg batch, NOW DUE] base64-out-of-Json + test/`testdata`
    reorg + `Field`→structure + Manifest-dispatch tighten.** Run together (independent,
    mechanical, one verify cycle):

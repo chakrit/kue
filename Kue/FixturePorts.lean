@@ -2195,7 +2195,8 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- 2c.2: a still-incomplete merged slot stays symbolic and the sibling tracks it —
-      -- `d.b: a`, `d & {a: >0}` leaves `a` (and thus `b`) as the `>0` bound.
+      -- `d.b: a`, `d & {a: >0}` leaves `a` (and thus `b`) as `int & >0`: the `int` kind from
+      -- `d.a` is retained alongside the `>0` bound (oracle cue v0.16.1: `{a: int & >0, b: int & >0}`).
       fileName := "meet_lazy_incomplete.expected",
       content :=
         formatTopLevel
