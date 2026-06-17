@@ -242,7 +242,161 @@ prefix still surfaces `.incomplete`, `open_lists` fixture byte-matches cue; inte
 types tight; `parse`/dispatch total + exhaustive; exit codes consistent (usage=2, eval=1);
 back-compat eval paths preserved; 25 parse theorems are real input→Command pins.
 
-**Inline fixes applied this audit:** none (finding 1 is MEDIUM with behavior change → TDD
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #5 — consolidation batch, AUTHORITATIVE)
+
+Whole-graph pass with the type-system-first lens, after the int-bound-retention + CLI +
+open-list family landed (`e98fb65`, `7697b1d`, `d94af33`, Phase A `20fe8fa`). This is the
+SINGLE authoritative ranking; #4 and below are retained as the design record only. Verify
+gate green at audit time (`lake build` 84 jobs; this pass changed no code).
+
+### Verdicts (whole-graph, re-confirmed this pass)
+
+- **`Main`/`Cli`/`Runtime` layering — verdict: clean, no back-edge, cohesive.** New DAG
+  edge `Main → {Kue, Kue.Cli}`, `Kue.Cli → Kue.Runtime`, `Kue.Runtime → {Eval, Format,
+  Lattice, Parse, Resolve, Json, Yaml}`. `Cli` is pure argv→`Command` parsing + usage text
+  (no IO); `Main` owns all IO and dispatches `Command`; `Runtime` is the pure
+  source→value/string façade. The `Command`/`ExportOpts`/`HelpTopic` sum types are tight
+  (no nonsense combinations); `parse`/`parseEval`/`parseExport`/`runCommand` are total and
+  exhaustive. No `Cli → Main` back-edge, no IO leak into `Cli`. Nothing to change.
+- **`Eval.lean` (1191) cohesion — verdict UNCHANGED: keep whole.** The `meetConjValueWith`
+  rewrite landed in `Lattice`, not `Eval`, so `Eval`'s shape is unchanged since #4. The
+  `evalAdd…evalBinary` pure-op family remains the one clean future extraction
+  (`Kue/EvalOps.lean`) but at no navigation pain today — stays LOW (item 7). No split now.
+- **Module layering — verdict: clean, acyclic.** Re-confirmed the #4 DAG plus the CLI tier
+  on top. `Builtin → Eval` forbidden edge still absent. No cycle, no new edge.
+- **`Manifest.manifestWithFuel` (Value dispatch) — verdict: ALREADY exhaustive.** Every
+  `Value` ctor is spelled out with no catch-all `_` over `Value`; the `_` patterns are all
+  on `fuel` or ignored sub-fields. The Phase-A "Manifest dispatch wildcard" item refers to
+  `manifestFieldsWithFuel`'s `_ =>` over `FieldClass` (line ~39) — that one stands (item 4d).
+- **Loose reps (re-confirmed, all folded below):** `intGe/Gt/Le/Lt` 4 parallel ctors →
+  `boundConstraint` (item 2, ~130 non-test occurrences across 9 modules — big blast
+  radius); `.conj` member order arg-order-dependent so `a&b ≠ b&a` as canonical `Value`s
+  (item 1, the Phase-A MEDIUM); `Field = String × FieldClass × Value` tuple → `structure`
+  (item 4c, ~95 destructure sites — NOT small, rides the mechanical batch);
+  `embeddedList.decls` non-output invariant unenforced by type (item 6).
+- **Inline fixes applied this audit:** NONE. The Phase-A CLI flag-scan DRY nit
+  (`args.find? (·.startsWith "-")` in `parse` + `parseEval`) is deliberately NOT extracted:
+  each callsite carries distinct per-context error text ("unknown flag" vs "unknown eval
+  flag"), which is the Code-Typography *contrast* the skill protects; extracting would
+  force threading a message-builder and erase that contrast. `Field`→structure and the
+  Manifest-FieldClass tighten are both larger than "small clean swap" (95 / dispatch
+  behavior-adjacent) → folded, not applied.
+
+### Ranked next-work list — recommended sequence: 1 → 2 → 3 → (4) → (5/6/7)
+
+Rationale: do the cheap, churn-free type-tightenings and the overdue test-reorg FIRST to
+shrink the surface every later refactor has to touch, THEN the two representation refactors
+that share `meetConjValueWith`/the conj-bound code together. The conj-sort (item 1) and the
+`boundConstraint` fold (item 3) **PAIR**: both edit `meetConjValueWith`'s re-wrap and the
+canonical member-order comparator — after the fold the 4 per-op bound ctors collapse to one
+`boundConstraint (cmp, domain)`, so the sort key is computed once over the new ctor instead
+of 4 tags. Writing the comparator before the fold means rewriting it during the fold; doing
+them in one slice avoids that. They are sequenced 1-then-3 (not merged) only because item 1
+is sound-today/cosmetic and ships a fast win, while item 3 is a big multi-module slice; if
+taken together, do 1's commutativity theorems against the post-fold representation.
+
+1. **[MEDIUM — non-commutative canonical conj form, real equality hazard + cosmetic
+   cue-divergence] Sort `.conj` members into a canonical order after the flat-set fold.**
+   `a & b` and `b & a` produce different `Value`s and different formatted output
+   (`int & >0 & <10` vs `<10 & int & >0`); sound today (no mis-admit/reject) but any future
+   equality/dedup/memo keyed on `.conj` structure breaks, and the formatted divergence from
+   cue (kind-first canonical) is user-visible. Fix: canonicalize member order in
+   `meetConjValueWith`'s re-wrap (kind first, then bounds by `(cmp, domain)`, then others).
+   Cheap, total, makes the type carry "set not sequence". TDD: `meet a b == meet b a`
+   commutativity theorems for the 3-way / mixed-side cases that currently diverge. **Pairs
+   with item 3** (see rationale); land 3's representation first if taken together.
+2. **[MEDIUM — type-system leverage, FOLDS the bare-bound divergence] Collapse
+   `intGe/intGt/intLe/intLt` → `boundConstraint (bound : Decimal) (cmp : BoundKind)
+   (domain : Kind)`.** Four parallel ctors over one domain with a parallel `meetIntGe/Gt/Le/
+   Lt` family — textbook fold into an indexed type. Principled close of the `int & >0`
+   divergence: a bound must carry (a) `BoundKind = ge|gt|le|lt`, (b) a numeric domain so a
+   bare `>0` is a *number* bound (admits `1.5`, matching cue) while `int & >0` narrows to
+   int, and (c) a `Decimal` value so `>0.5` parses and float-domain comparison works.
+   Touches `Value`/`Lattice`/`Format`/parser/`valueTag`/`Order`/`Manifest`/`Examples` +
+   ~70 test refs (~130 occurrences total, 9 modules). Big blast radius — its own slice.
+   **Land together with item 1** (shared `meetConjValueWith` re-wrap + comparator).
+3. **[MEDIUM — consolidation + test-reorg batch, OVERDUE, chakrit-flagged] base64-out-of-
+   Json + test/`testdata` reorg + `Field`→structure + Manifest-FieldClass tighten.** Four
+   independent mechanical sub-tasks, one verify cycle. **Do this before items 1/2** to
+   shrink the test surface the representation refactors must touch (fewer, smaller test
+   modules to chase `intG*`/conj references through). Concrete move-plan below (4a–4d).
+4. **[MEDIUM — promote] Linux `cacheRoot` default** (`Module.lean`): branch on
+   `System.Platform` so Linux defaults to `~/.cache/cue` not `~/Library/Caches/cue` absent
+   `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`. Small portability slice; independent of the above.
+5. **[LOW — type-system leverage] Refine `embeddedList.decls` element type.** "decls =
+   non-output only" enforced by the `declFields` filter, not the type. A `NonOutputField`
+   newtype (smart ctor) makes it unrepresentable but ripples through `Manifest`/`Format`/
+   `Eval`/`Lattice` + deriving. Defer; do alongside item 2 if `BoundKind` proves the
+   newtype pattern out (same indexed-type technique).
+6. **[LOW — cohesion, optional] Extract `Eval` arithmetic/comparison dispatch →
+   `Kue/EvalOps`.** No pain today; revisit on next `Eval` growth. The conjunction-merge
+   cluster is NOT a split candidate (coupled to the `mutual`).
+
+**Parser split (`Parse.lean`, 1440) — still OPTIONAL, do NOT split now.** Three cohesive
+zones; ranks below every goal item.
+
+### Item 3 — concrete one-slice move-plan (so a subagent executes it mechanically)
+
+**3a. base64 out of `Json.lean` → `Kue/Base64.lean`.** Move `base64Encode`/`base64Alphabet`
+(currently in `Json.lean`) into a new `Kue/Base64.lean` over no Kue deps. Re-point the
+three consumers' imports: `Yaml.lean` (bytes scalar), `Builtin.lean` (`encoding/base64`),
+`Module.lean` if it references it. Add `Kue/Base64.lean` to the `Kue` umbrella import.
+
+**3b. `testdata/cue/` flat → subsystem subdirs.** ~140 fixtures (283 files) currently flat.
+Group into subdirs by subsystem; suggested taxonomy (assign each existing `<name>.{cue,
+expected,manifest.expected}` triple to one):
+   - `scalars/` — additive/division/equality/integer-keyword expressions, float kind/
+     muldiv/additive, bytes kind/additive, number/float scalar cases.
+   - `structs/` — field conflict/selector/alias, in-struct sibling merge/conflict,
+     duplicate fields, colon-shorthand, dynamic fields, hidden-field reference.
+   - `definitions/` — definition closed/reference, closed extra-field/hidden-definition/
+     regex-pattern, exact-label pattern.
+   - `disjunctions/` — disjunction, default override/disjunction, int-bound disjunction.
+   - `bounds/` — int_bounds, int_bound_disjunction (or keep under disjunctions), bound cases.
+   - `refs/` — builtin/definition/hidden-field/constrained reference, reference cycles,
+     direct self-reference.
+   - `comprehensions/` — comprehension for/guard/loopvar-shadow, dynamic-field
+     comprehension.
+   - `builtins/` — and_or, base64_encode, integer_builtin, encoding_infra_chain.
+   (Bucket each remaining fixture by its dominant feature; one dir per fixture, no dup.)
+
+**3c. Harness rewiring (SAME slice — must land atomically with 3b):**
+   - `FixturePort.fileName` becomes a *relative subpath* (`"builtins/base64_encode.expected"`);
+     `writeFixturePort` already does `targetDir / fileName` so it must `mkdir -p` the parent.
+   - `scripts/check-fixtures.sh`: replace every flat `"${fixture_dir}"/*.cue` /
+     `*.expected` glob (6 sites: lines 63, 74, 103, 346, 354 + manifest pairing) with a
+     recursive `find "${fixture_dir}" -name '*.expected'` walk, and change the
+     `${expected_file##*/}` basename-strip to a path-relative form
+     (`${expected_file#"${fixture_dir}/"}`) so subdir structure round-trips into the
+     generated dir without name collisions. `cue fmt --check --files "${fixture_dir}"`
+     already recurses — leave it.
+   - Verify: `scripts/check-fixtures.sh` green after the move (byte-identical outputs, just
+     relocated).
+
+**3d. Split the three oversized test modules by family (SAME slice or a follow-up — they
+are pure test-file moves, no behavior):**
+   - `FixturePorts.lean` (2293) → split the `fixturePorts` list by the same subsystem
+     taxonomy as 3b (`FixturePorts/Scalars.lean`, `.../Structs.lean`, …) re-exported from a
+     thin `FixturePorts.lean`, OR at minimum extract the `def fixturePorts` body into
+     per-family sub-lists concatenated at the root.
+   - `FixtureTests.lean` (1033) and `BuiltinTests.lean` (735) → split by family the same way.
+   - Update `Kue/Tests.lean` (the test umbrella) imports accordingly.
+
+**3e. `Field` tuple → `structure` (SAME slice):** `Value.lean:234` `abbrev Field = String ×
+FieldClass × Value` → `structure Field where label : String; fieldClass : FieldClass;
+value : Value`. The `label`/`fieldClass`/`value` projections already exist as helpers and
+become real fields; the `Field.regular` smart ctor stays. ~95 positional `.snd.snd` /
+triple-destructure sites across non-test src must move to named access (LSP-rename the
+projections, then fix the literal `(name, .regular, v)` tuple constructions to `{label :=
+…}` or a positional `Field.mk`). Mechanical but wide — keep the struct ctors' field type
+`List Field` after the change to kill the spelled-out `List (String × FieldClass × Value)`.
+
+**3f. `Manifest.manifestFieldsWithFuel` `_ =>` (line ~39) → explicit FieldClass arms** so a
+new ctor/optionality rung breaks the build at the emission site (small; rides this batch).
+
+---
+
+**Inline fixes applied this audit (Phase A section):** none (finding 1 is MEDIUM with behavior change → TDD
 slice, not inline). Verify gate was re-run read-only and is green.
 
 ## Implementation Status
@@ -986,7 +1140,7 @@ keeps growing or the prelude accretes more lexer state.
 
 ---
 
-## Architecture Fix-Slices (Phase B audit 2026-06-17 #4 — post 2c.5 / FieldClass-refactor) — AUTHORITATIVE
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #4 — post 2c.5 / FieldClass-refactor) — SUPERSEDED by #5
 
 Whole-graph pass after tonight's deep-eval growth (imports, memo, embeddedList,
 presence-test, 2c lazy-conjunction-eval, FieldClass orthogonal refactor). A real def-meet
