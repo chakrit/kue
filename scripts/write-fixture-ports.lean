@@ -1,4 +1,4 @@
-import Kue.FixturePorts
+import Kue.Tests.FixturePorts
 
 def main (args : List String) : IO UInt32 := do
   match args with

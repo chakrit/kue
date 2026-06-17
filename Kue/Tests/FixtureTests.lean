@@ -1,4 +1,4 @@
-import Kue.FixturePorts
+import Kue.Tests.FixturePorts
 
 namespace Kue
 

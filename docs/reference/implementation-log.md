@@ -5624,3 +5624,44 @@ checked `yamlScalarString` against the `cue` oracle: 0 failures.
 `infra` pair); `shellcheck scripts/check-fixtures.sh` clean. **Real prod9 (read-only):**
 whole-file `kue export --out yaml hatari/infra/apps/common.cue` is now **byte-identical**
 to `cue` v0.16.1 (IPs bare) — `diff` empty.
+
+## Completed Slice: tests-out reorg — `Kue/Tests/` (2c, tests-out part)
+
+Purely organizational: separate engine from checks. Zero behavior/theorem-content change;
+the verify gate (every theorem still elaborated under `lake build`, every fixture still
+checked) is the proof.
+
+### Changes
+
+- `git mv` (history-preserving) of all 21 test/port modules `Kue/*.lean` → `Kue/Tests/*.lean`:
+  `BoundTests BuiltinTests BytesTests CliTests EvalTests ExclusionTests FixturePorts
+  FixtureTests FloatTests ListTests ManifestTests ModuleTests NormalizeTests NumberTests
+  OrderTests ParseTests PresenceTests ResolveTests RuntimeTests StructTests YamlTests`.
+  Their `namespace`/`module`-body code is unchanged (namespaces were already `Kue` /
+  `Kue.Cli`, which are namespace decls, not file paths). Their `import` lines reference only
+  engine modules (`Kue.Foo`), which did NOT move — so only `FixtureTests`'s
+  `import Kue.FixturePorts` → `import Kue.Tests.FixturePorts` changed.
+- `Kue/Tests.lean` (the pre-existing lattice-theorem module) repurposed as the aggregator:
+  keeps its own theorems and now `import`s all 21 `Kue.Tests.*` modules.
+- `Kue.lean`: ~20 direct test imports replaced by the single `import Kue.Tests`; 16 engine
+  imports retained. Every test module stays transitively imported (`Kue → Kue.Tests → 21`),
+  so no theorem silently stops elaborating.
+- `scripts/write-fixture-ports.lean` and `scripts/check-fixtures.sh` rewired from
+  `Kue.FixturePorts` → `Kue.Tests.FixturePorts` (`lake build` target + the `import`).
+- 16 engine modules stay in `Kue/` (source-layering deferred per plan default).
+
+### Scope / deferrals
+
+Oversized-module splits (`FixturePorts` 2314 / `FixtureTests` 1033 / `BuiltinTests` 735)
+DEFERRED — landed the SAFE-FAILURE partial (moves + rewire, fully green). `FixturePorts` is
+one monolithic `def fixturePorts : List FixturePort` whose 145 entries are heavily
+interleaved by subsystem (54 runs across 11 prefixes); a "by subsystem" split is brace-block
+extraction + reorder of a generated list literal, not a contiguous cut — the interleaved-
+surgery risk the slice flags, against a cosmetic-only payoff. Subsumes-3d remains open.
+
+### Verify
+
+`lake build` 84 jobs (unchanged vs baseline — file count unchanged since no split; every
+`Kue.Tests.*` module shown elaborated in the build log → no silent test loss).
+`scripts/check-fixtures.sh` → `fixture pairs ok` (145 fixture entries unchanged, no
+`.expected` touched). `shellcheck scripts/check-fixtures.sh` clean.

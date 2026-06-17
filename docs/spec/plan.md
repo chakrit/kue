@@ -513,12 +513,20 @@ demonstrates real-file viability.
    42-case oracle battery + 38 new `YamlTests.lean` theorems; `testdata/export/infra.*`
    fixture. **Whole-file `--out yaml` of `hatari/infra/apps/common.cue` is now
    byte-identical to `cue` v0.16.1.** JSON / internal `formatValue` untouched.
-2. **[MEDIUM — `Kue/` source-dir organization, chakrit-flagged] tests-out reorg (2c).**
-   Move the ~14 `*Tests.lean` + `FixturePorts.lean` into `Kue/Tests/` via a `Kue/Tests.lean`
-   aggregator; split the oversized ones (`FixturePorts` 2314 / `FixtureTests` 1033 /
-   `BuiltinTests` 735) by subsystem as they move (subsumes deferred 3d). `git mv`; `lake
-   build` is the stale-import ground truth. Source-layering (Core/Syntax/Eval/Output/Driver)
-   stays OPTIONAL pending chakrit's taste call.
+2. **[DONE (tests-out) — `Kue/` source-dir organization, chakrit-flagged] tests-out reorg
+   (2c).** All 21 `*Tests.lean` + `FixturePorts.lean` `git mv`'d into `Kue/Tests/`, module
+   paths `Kue.Foo`→`Kue.Tests.Foo`; `Kue/Tests.lean` is now the aggregator importing all 21
+   (plus its own lattice theorems), and `Kue.lean` imports only `Kue.Tests` instead of ~20
+   direct test imports. `FixtureTests`/`write-fixture-ports.lean`/`check-fixtures.sh`
+   rewired to `Kue.Tests.FixturePorts`. 16 engine modules stay in `Kue/`. Build 84 jobs
+   (unchanged — no silent test loss; all theorems still elaborated), `fixture pairs ok`
+   (145 entries unchanged). **Oversized-module splits DEFERRED** (subsumed-3d still open):
+   `FixturePorts` (2314) is one monolithic `def fixturePorts : List FixturePort` whose 145
+   entries are heavily interleaved by subsystem (54 runs across 11 prefixes), so a split is
+   brace-block surgery + reorder of a generated list, not a contiguous line-range cut —
+   high-risk/low-reward, deferred per the slice's SAFE-FAILURE clause. `FixtureTests` (1033)
+   / `BuiltinTests` (735) splits ride along when revisited. Source-layering
+   (Core/Syntax/Eval/Output/Driver) stays OPTIONAL pending chakrit's taste call.
 3. **[MEDIUM — cleanup batch] base64-out-of-Json (3a) + `Field`→structure (3e).** Two
    independent mechanical sub-tasks, one verify cycle. `base64Encode`/`Decode` →
    `Kue/Base64.lean` (decode/encode is not JSON's concern; `Json`/`Builtin` import it).

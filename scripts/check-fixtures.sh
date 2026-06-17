@@ -21,7 +21,7 @@ cleanup() {
 generate_lean_fixtures() {
   local generated_dir=$1
 
-  if ! lake build Kue.FixturePorts >/dev/null; then
+  if ! lake build Kue.Tests.FixturePorts >/dev/null; then
     printf 'failed to build Lean fixture ports\n' >&2
     return 1
   fi

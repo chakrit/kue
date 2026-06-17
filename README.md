@@ -31,8 +31,11 @@ source as above. Releases are cut locally with [`scripts/release.sh`](scripts/re
 ## Repository Layout
 
 - `Main.lean`, `Kue.lean` — executable entry point and library root.
-- `Kue/` — Lean modules: `Value`, `Lattice`, `Order`, `Normalize`, `Eval`, `Resolve`,
-  `Manifest`, `Format`, `Builtin`, plus `*Tests.lean` modules and CUE fixture ports.
+- `Kue/` — engine modules: `Value`, `Lattice`, `Order`, `Normalize`, `Eval`, `Resolve`,
+  `Manifest`, `Format`, `Builtin`, etc.
+- `Kue/Tests/` — every `*Tests.lean` module plus the `FixturePorts` CUE fixture ports,
+  aggregated by `Kue/Tests.lean` (imported from `Kue.lean`, so `lake build` elaborates
+  all their theorems).
 - `testdata/cue/` — paired `.cue` source and `.expected` (or `.manifest.expected`)
   fixtures used for compatibility checks against `cue`, grouped into subsystem subdirs
   (`numeric/ bounds/ disjunctions/ structs/ definitions/ lists/ refs/ comprehensions/

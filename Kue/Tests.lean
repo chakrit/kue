@@ -1,5 +1,26 @@
 import Kue.Format
 import Kue.Lattice
+import Kue.Tests.BoundTests
+import Kue.Tests.BuiltinTests
+import Kue.Tests.BytesTests
+import Kue.Tests.CliTests
+import Kue.Tests.EvalTests
+import Kue.Tests.ExclusionTests
+import Kue.Tests.FixturePorts
+import Kue.Tests.FixtureTests
+import Kue.Tests.FloatTests
+import Kue.Tests.ListTests
+import Kue.Tests.ManifestTests
+import Kue.Tests.ModuleTests
+import Kue.Tests.NormalizeTests
+import Kue.Tests.NumberTests
+import Kue.Tests.OrderTests
+import Kue.Tests.ParseTests
+import Kue.Tests.PresenceTests
+import Kue.Tests.ResolveTests
+import Kue.Tests.RuntimeTests
+import Kue.Tests.StructTests
+import Kue.Tests.YamlTests
 
 namespace Kue
 
