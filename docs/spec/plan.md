@@ -311,6 +311,45 @@ through meet/manifest; multi-slice + design spike). Cheap lock-in available: a
 guarantee (recon §5). Finding 2 (missing-file diagnostic) is a cheap ride-along when
 Module.lean is next touched.
 
+## DECISION NEEDED — full real-app export gated on a Value-model fork (recon 2026-06-17)
+
+Recon (commit after `4e5ccca`; breadcrumb `2026-06-17-realapp-eval-crosspkg-defmeet-diagnosis.md`)
+established that the full-real-app-export gap is THREE deep items, none a clean unattended
+slice. **Surfaced to chakrit — do NOT implement #1 unilaterally; it's a Value-model design
+fork.**
+
+1. **Cross-package def-meet laziness (correctness) — Value.closure FORK, chakrit's call.**
+   `parts.#M & {#name:"keel"}` (def from an imported pkg) → kue `incomplete value: string`,
+   cue `out:"keel"`. Root cause: `conjStructOperand?` (`Eval.lean:815-830`) has no
+   `.selector` arm, so an import-selector conjunct falls to eval-then-`meet`; the def body
+   evaluates in the package frame (collapsing `out:#name`→`string`) before the use-site
+   `#name:"keel"` unifies; pure `meet` (`Lattice.lean:1026`) can't re-derive it. The ONLY
+   fix that unblocks the REAL apps is **(b) an env-carrying `Value.closure (frame) (body)`**
+   — the general lazy-cross-frame fix — which REOPENS the "meet is pure / refs opaque to
+   meet" invariant the whole 2c family relies on (`Lattice.lean:387`) and touches every
+   `Value` consumer (meet/manifest/Format/Json/Yaml/`valueTag` memo hash/BEq) + cycle
+   handling (a closure capturing a self-referencing frame is a new cycle shape). The cheap
+   **(a)-narrowed** (selector arm that splices only depth-0-ref def bodies) is a clean
+   single safe-failure slice BUT provably does NOT unblock the real `#ServiceAccount`/
+   `#Deployment` (their bodies have depth>0 cross-package embeds) — fixes a toy fixture,
+   manufactures false progress. (c) re-eval-after-meet collapses into (b). **Awaiting
+   chakrit: `Value.closure` direction, or a different decomposition?**
+2. **Perf hang (separate, profile-first).** `defs.#Deployment`/`#ServiceAccount` alone burn
+   30–40s CPU. Root cause: memo `EvalKey` keys on `fuel` (`Eval.lean:781-790`), so a
+   sub-struct re-derives once per fuel level — large nested defs cascade. NOT the import
+   boundary (cache is uniform, fresh per `runEval`). Independent memo/perf slice: make
+   selection memo fuel-insensitive (memoize on `(frame-id, label)`). Gates *running* real
+   apps to completion even after #1. Profile to confirm before implementing.
+3. **Field-ordering parity (DEEP, Finding 1).** cue orders `ref & {own}` own-fields-first;
+   kue left-struct-first (`mergeStructFieldsWith`). Per-`Field` provenance key threaded
+   through meet/manifest; multi-slice + design spike. Affects byte-parity on apps that
+   already resolve.
+
+Cheap NON-fork work available meanwhile: `testdata/modules/crosspkg_defmeet/` +
+`crossmod_nodeps/` regression fixtures (can only land WITH their fix / as offline pins),
+Finding 2 (missing-file clean diagnostic in `loadFileBound`), the deferred test-module
+splits, and LOW items (embeddedList.decls newtype, EvalOps/Regex extraction).
+
 ## Audit Fix-Slices (cleanup batch — LIGHT Phase A + Phase B, audit 2026-06-17 #7)
 
 Light combined audit over the 3 small/mechanical cleanup slices since `3827fb7`:
