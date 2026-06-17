@@ -688,4 +688,61 @@ theorem eval_div_repeating_leading_zeros :
       == .prim (.float "0.001428571428571428571428571428571429")) = true := by
   native_decide
 
+/-- Slice 2c.1: an in-struct sibling reference (`b: a`) sees the FULLY-MERGED value of a
+    duplicated label, not the first conjunct. `{a: int, b: a, a: 1}` canonicalizes the two
+    `a` slots into `.conj [int, 1]` at slot 0, so `b` evaluates to `1`, and the duplicate
+    collapses to a single `a` field. -/
+theorem eval_in_struct_sibling_merge :
+    (resolveAndEval
+      (.struct
+        [("a", .regular, .kind .int), ("b", .regular, .ref "a"), ("a", .regular, .prim (.int 1))]
+        true)
+      == .struct
+        [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 1))]
+        true) = true := by
+  native_decide
+
+/-- A duplicate-label conflict bottoms both the label and any sibling referencing it:
+    `{a: 1, b: a, a: 2}` -> `a` and `b` both bottom. -/
+theorem eval_in_struct_sibling_conflict :
+    (resolveAndEval
+      (.struct
+        [("a", .regular, .prim (.int 1)), ("b", .regular, .ref "a"), ("a", .regular, .prim (.int 2))]
+        true)
+      == .struct
+        [
+          ("a", .regular, .bottomWith [.primitiveConflict (.int 1) (.int 2)]),
+          ("b", .regular, .bottomWith [.primitiveConflict (.int 1) (.int 2)])
+        ]
+        true) = true := by
+  native_decide
+
+/-- Canonicalization is visible through nested sub-structs: `c.e` references the outer `a`,
+    seeing the merged `int & 1 = 1`. -/
+theorem eval_nested_sibling_merge :
+    (resolveAndEval
+      (.struct
+        [
+          ("a", .regular, .kind .int),
+          ("c", .regular, .struct [("e", .regular, .ref "a")] true),
+          ("a", .regular, .prim (.int 1))
+        ]
+        true)
+      == .struct
+        [
+          ("a", .regular, .prim (.int 1)),
+          ("c", .regular, .struct [("e", .regular, .prim (.int 1))] true)
+        ]
+        true) = true := by
+  native_decide
+
+/-- A self-referential merged slot must not loop: `{a: a, a: 1}` canonicalizes to
+    `.conj [a, 1]` at slot 0; the self-ref hits the `slotVisited` -> `.top` guard, so the
+    meet collapses to `1` rather than diverging. -/
+theorem eval_merged_self_ref_cycle :
+    (resolveAndEval
+      (.struct [("a", .regular, .ref "a"), ("a", .regular, .prim (.int 1))] true)
+      == .struct [("a", .regular, .prim (.int 1))] true) = true := by
+  native_decide
+
 end Kue

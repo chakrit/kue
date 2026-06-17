@@ -882,13 +882,23 @@ causing miscompiles. Push the deep semantics to first green on the target file, 
 a consolidation batch (items 3–4 below) before the next feature family. Do not let the
 MEDIUM cleanups jump the queue ahead of the one thing gating the goal.
 
-1. **[HIGH — NOW the argocd gate] 2c: Lazy field resolution through definition-meet.** A
-   definition's comprehension body + field references must resolve against the *meet result*
-   (post-`#D & {…}`), not the definition's own pre-meet incomplete scope. Today kue eagerly
-   evaluates `#D`'s body against `#x: string` instead of deferring until the meet supplies
-   `#x: "hi"` (`#D & {#x:"hi"}` → kue `out.val: string`/`y: ⊥`, cue `out.val: "hi"`). This
-   is the layer behind the landed 2b and the last gate on `apps/argocd.cue`. Own slice;
-   the deep one. Pin with the `#D & {#x:…}` repro + the argocd fixture once green.
+1. **[HIGH — NOW the argocd gate] 2c: Lazy field resolution through definition-meet.**
+   Family. **2c.1 LANDED** (in-struct duplicate-label canonicalization): `canonicalizeFields`
+   collapses duplicate-label slots in a struct frame into one first-occurrence slot carrying
+   the unevaluated `.conj` of the conjuncts, applied before every `pushFrame` (the 5 struct
+   arms + the top-level `evalStructRefsM` arms). `{a:int,b:a,a:1}` → `b:1`; nested visibility
+   (`c:{e:a}`) works; conflicts bottom; the self-ref cycle guard holds. CORRECTION to the
+   2c plan: the inlined-def case `d:{a:int,b:a}; y:d&{a:1}` is NOT fixed by 2c.1 — it is a
+   *meet* of two independently-evaluated structs (`b` captures `int` before the meet brings
+   in `a:1`), structurally identical to the referenced-`#D` path. Both are 2c.2.
+   **2c.2 (NEXT, the deep one): meet-produced def bodies.** `#D & {…}` (referenced) and
+   `{a:int,b:a} & {a:1}` (literal meet) must re-evaluate colliding bodies after the meet —
+   meet is pure `Value→Value→Value` over already-evaluated structs, so it must wrap colliding
+   field bodies in `.conj` and defer eval to the meet site (or defer def-field eval to the
+   meet). kue `out.val: string`/`y: ⊥`, cue `out.val: "hi"`. Pin with `#D & {#x:…}` (hidden),
+   `{a:int,b:a}&{a:1}`, and the argocd fixture once green. **2c.3:** nested sub-struct
+   visibility — already proven free by 2c.1's `nested_sibling_merge`; fold remaining checks
+   in. **2c.4:** `apps/argocd.cue` end-to-end export fixture.
 2. **[HIGH — semantic correctness] Open-list collapse on Manifest (`[1,...]`).** Phase A
    finding #4: `Manifest` returns `.incomplete` for an open-list tail where `cue` collapses
    `[1,...]` to the concrete prefix `[1]` at manifest time. Smaller than 2c, real output

@@ -99,6 +99,23 @@ def joinValues : List Value -> Value
 def mergeEvaluatedFields (fields : List Field) : Option (List Field) :=
   mergeFieldListWith meet fields
 
+/-- Combine two *unevaluated* bodies for the same label into a deferred conjunction. The
+    bodies have not been evaluated yet (field-ref `BindingId`s are unresolved), so they
+    cannot be `meet`-ed; `.conj` re-evaluates them lazily once the frame is in scope. -/
+def joinUnevaluated (left right : Value) : Value :=
+  .conj [left, right]
+
+/-- Canonicalize a syntactic field list by collapsing duplicate-label slots into a single
+    first-occurrence slot whose body is the unevaluated `.conj` of the conjuncts, so the
+    frame the evaluator indexes is deduplicated. `mergeFieldListWith` folds
+    merge-into-existing-else-append, which preserves first-occurrence order and shifts no
+    earlier index — `b`'s `refId ⟨0,0⟩` still lands on slot 0, now carrying the merged body.
+    Field class is combined via `mergeFieldClass` (same logic as `mergeEvaluatedFields`); a
+    class mismatch keeps the slots separate, matching merge semantics. Total: foldl over a
+    finite list. -/
+def canonicalizeFields (fields : List Field) : List Field :=
+  (mergeFieldListWith joinUnevaluated fields).getD fields
+
 def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
   if allRegularAlternatives alternatives then
     joinValues (alternatives.map Prod.snd)
@@ -738,12 +755,14 @@ mutual
           pure (alternative.fst, evaluatedValue)
         pure (normalizeEvaluatedDisj evaluated)
     | fuel + 1, .struct nestedFields open_ => do
+        let nestedFields := canonicalizeFields nestedFields
         let nested <- pushFrame nestedFields env
         let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
         match mergeEvaluatedFields evaluatedFields with
         | some nestedFields => pure (.struct nestedFields open_)
         | none => pure .bottom
     | fuel + 1, .structTail nestedFields tail => do
+        let nestedFields := canonicalizeFields nestedFields
         let nested <- pushFrame nestedFields env
         let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
         match mergeEvaluatedFields evaluatedFields with
@@ -752,6 +771,7 @@ mutual
             pure (.structTail nestedFields evaluatedTail)
         | none => pure .bottom
     | fuel + 1, .structPattern nestedFields labelPattern constraint open_ => do
+        let nestedFields := canonicalizeFields nestedFields
         let nested <- pushFrame nestedFields env
         let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
         match mergeEvaluatedFields evaluatedFields with
@@ -761,6 +781,7 @@ mutual
             pure (applyEvaluatedStructPattern nestedFields evaluatedLabel evaluatedConstraint open_)
         | none => pure .bottom
     | fuel + 1, .structPatterns nestedFields patterns open_ => do
+        let nestedFields := canonicalizeFields nestedFields
         let nested <- pushFrame nestedFields env
         let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
         match mergeEvaluatedFields evaluatedFields with
@@ -784,6 +805,7 @@ mutual
         | some fields => pure (.struct fields true)
         | none => pure .bottom
     | fuel + 1, .structComp fields comprehensions open_ => do
+        let fields := canonicalizeFields fields
         let nested <- pushFrame fields env
         let staticFields <- evalFieldRefsListWithFuel fuel nested (indexedFields fields)
         let expanded <- expandComprehensionsWithFuel fuel nested comprehensions
@@ -907,10 +929,12 @@ def evalTopFieldsM (fields : List Field) : EvalM (Option (List Field)) := do
 def evalStructRefsM (value : Value) : EvalM Value := do
   match normalizeDefinitions value with
   | .struct fields open_ =>
+      let fields := canonicalizeFields fields
       match (<- evalTopFieldsM fields) with
       | some fields => pure (.struct fields open_)
       | none => pure .bottom
   | .structTail fields tail =>
+      let fields := canonicalizeFields fields
       match (<- evalTopFieldsM fields) with
       | some merged =>
           let top <- pushFrame fields []
@@ -918,6 +942,7 @@ def evalStructRefsM (value : Value) : EvalM Value := do
           pure (.structTail merged evaluatedTail)
       | none => pure .bottom
   | .structPattern fields labelPattern constraint open_ =>
+      let fields := canonicalizeFields fields
       match (<- evalTopFieldsM fields) with
       | some merged =>
           let top <- pushFrame fields []
@@ -926,6 +951,7 @@ def evalStructRefsM (value : Value) : EvalM Value := do
           pure (applyEvaluatedStructPattern merged evaluatedLabel evaluatedConstraint open_)
       | none => pure .bottom
   | .structPatterns fields patterns open_ =>
+      let fields := canonicalizeFields fields
       match (<- evalTopFieldsM fields) with
       | some merged =>
           let top <- pushFrame fields []

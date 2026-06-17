@@ -5070,3 +5070,50 @@ comprehension body + field refs against the definition's own pre-meet scope (`#x
 rather than deferring until the meet supplies `#x: "hi"`. Confirmed orthogonal via
 `if true {val: #x}` (no comparison): kue `out.val: string`, `cue` `out.val: "hi"`. That
 lazy-meet-resolution layer is the live argocd gate.
+
+## Completed Slice: In-struct duplicate-label canonicalization (2c.1)
+
+Goal (plan slice 2c.1, lazy field resolution increment 1): a field body that references a
+sibling label must see that label's FULLY-MERGED value, not the first conjunct. kue
+evaluated bodies eagerly against the pre-merge slot list, so `{a: int, b: a, a: 1}` gave
+`b: int` (cue `b: 1`). Approach (c) from the 2c plan: canonicalize the struct frame BEFORE
+it is pushed, so the list the evaluator indexes is already deduplicated to first-occurrence.
+
+**Mechanism.** New `joinUnevaluated l r := .conj [l, r]` and `canonicalizeFields : List
+Field → List Field := (mergeFieldListWith joinUnevaluated fields).getD fields`
+(`Eval.lean`). `mergeFieldListWith`'s foldl is merge-into-existing-else-append, so it
+preserves first-occurrence order and shifts no earlier index — `b`'s `refId ⟨0,0⟩` still
+lands on slot 0, now carrying the merged body. Bodies are NOT yet evaluated (field refs are
+unresolved `BindingId`s), so they cannot be `meet`-ed; `.conj` re-evaluates them lazily once
+the frame is in scope. Field class is combined via `mergeFieldClass` (the same logic
+`mergeEvaluatedFields` uses); a class mismatch keeps the slots separate, matching merge
+semantics. Total (foldl over a finite list; no new `partial def`).
+
+**Applied at every frame push.** The 5 struct arms in `evalValueCoreWithFuel` (`.struct`,
+`.structTail`, `.structPattern`, `.structPatterns`, `.structComp`) immediately before
+`pushFrame`, AND the top-level arms in `evalStructRefsM` (`.struct`/`.structTail`/
+`.structPattern`/`.structPatterns`) — the top-level path goes through `evalTopFieldsM`, not
+the `.struct` arm, so it needed its own canonicalization. Exactly one canonicalize per arm;
+id-allocation and memo logic untouched.
+
+**Invariants preserved.** Memo cache: canonicalize before `pushFrame`, which allocates a
+fresh id, so a canonicalized frame is a distinct object → fresh id → no stale `b:int` hit;
+`nextFrameId`/`EvalKey` untouched. Cycles: a merged self-ref slot (`{a:a, a:1}` →
+`.conj [a,1]` at slot 0) still hits the `slotVisited`→`.top` guard, collapsing to `1` rather
+than looping (pinned by `eval_merged_self_ref_cycle`). FULL existing fixture suite + all
+existing theorems pass UNCHANGED (zero `.expected` diffs).
+
+**Scope correction to the 2c plan.** 2c.1 fixes in-struct duplicates and nested visibility,
+but NOT the inlined-def case `d:{a:int,b:a}; y:d&{a:1}` the plan listed under 2c.1. That
+case is a *meet* of two independently-evaluated structs (`{a:int,b:a}` evaluates `b` to
+`int` before the meet brings in `a:1`), structurally identical to the referenced-`#D` path —
+`meet` is pure `Value→Value→Value` over already-evaluated structs. Both are 2c.2 (meet must
+wrap colliding bodies in `.conj` and re-evaluate). Verified: `{a:int,b:a}&{a:1}`,
+`#D&{a:1}`, and `d&{a:1}` all still give `b:int` post-2c.1.
+
+**Tests.** Four fixtures (`.cue`/`.expected` + FixturePorts entries): `in_struct_sibling_merge`
+(`{a:int,b:a,a:1}`→`a:1,b:1`), `in_struct_sibling_conflict` (`{a:1,b:a,a:2}`→both bottom),
+`nested_sibling_merge` (`{a:int,c:{e:a},a:1}`→`c.e:1`, proves 2c.3 free), `merged_self_ref_cycle`
+(`{a:a,a:1}`→`a:1`, cycle guard). Four matching `native_decide` theorems in `EvalTests`
+asserting the full evaluated struct. Verify gate green: `lake build`,
+`scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.

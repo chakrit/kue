@@ -2084,6 +2084,68 @@ def fixturePorts : List FixturePort :=
                 ("ordinary", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2)))
               ]
               true))
+    },
+    {
+      -- In-struct duplicate-label canonicalization (slice 2c.1). A sibling body (`b: a`)
+      -- must see the fully-merged value of the duplicated label `a`, not the first
+      -- conjunct. Canonicalization collapses the two `a` slots into one first-occurrence
+      -- slot carrying `.conj [int, 1]`, so `b`'s ref lands on `1`.
+      fileName := "in_struct_sibling_merge.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("a", .regular, .kind .int),
+                ("b", .regular, .ref "a"),
+                ("a", .regular, .prim (.int 1))
+              ]
+              true))
+    },
+    {
+      -- A duplicate-label conflict still bottoms both the conflicting label and any sibling
+      -- referencing it (`a: 1; b: a; a: 2` -> `a` and `b` both bottom).
+      fileName := "in_struct_sibling_conflict.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("a", .regular, .prim (.int 1)),
+                ("b", .regular, .ref "a"),
+                ("a", .regular, .prim (.int 2))
+              ]
+              true))
+    },
+    {
+      -- Canonicalization is visible through nested sub-structs: `c.e` references the
+      -- outer `a`, which sees the merged `int & 1 = 1`.
+      fileName := "nested_sibling_merge.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("a", .regular, .kind .int),
+                ("c", .regular, .struct [("e", .regular, .ref "a")] true),
+                ("a", .regular, .prim (.int 1))
+              ]
+              true))
+    },
+    {
+      -- A self-referential merged slot must not loop: `a: a; a: 1` canonicalizes to
+      -- `.conj [a, 1]` at slot 0; the self-ref hits the `slotVisited` -> `.top` guard, so
+      -- the meet collapses to `1` rather than diverging.
+      fileName := "merged_self_ref_cycle.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("a", .regular, .ref "a"),
+                ("a", .regular, .prim (.int 1))
+              ]
+              true))
     }
   ]
 
