@@ -1,6 +1,7 @@
 import Kue.Lattice
 import Kue.Decimal
 import Kue.Json
+import Kue.Yaml
 
 namespace Kue
 
@@ -638,6 +639,20 @@ def evalJsonBuiltin : String -> List Value -> Value
           else .bottom
   | name, args => unresolvedOrBottom name args
 
+/-- Dispatch a `yaml.*` builtin over already-evaluated arguments. `Marshal` manifests
+    its argument and serializes it to a YAML document (with the trailing newline `cue`
+    emits); an incomplete or contradictory value is bottom, an unresolved ref form is
+    preserved. Deferred: `yaml.MarshalStream` (multi-doc `---`), `yaml.Unmarshal`,
+    `yaml.Validate`, `yaml.ValidatePartial`. -/
+def evalYamlBuiltin : String -> List Value -> Value
+  | "yaml.Marshal", [value] =>
+      match valueToYaml value with
+      | .ok text => .prim (.string text)
+      | .error _ =>
+          if isPendingArg value then .builtinCall "yaml.Marshal" [value]
+          else .bottom
+  | name, args => unresolvedOrBottom name args
+
 def evalBuiltinCall : String -> List Value -> Value
   | "close", [value] => closeValue value
   | "len", [value] => lenValue value
@@ -658,6 +673,8 @@ def evalBuiltinCall : String -> List Value -> Value
         evalBase64Builtin name args
       else if name.startsWith "json." then
         evalJsonBuiltin name args
+      else if name.startsWith "yaml." then
+        evalYamlBuiltin name args
       else
         .builtinCall name args
 

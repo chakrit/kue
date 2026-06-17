@@ -12,6 +12,8 @@ import Kue.FixtureTests
 import Kue.Manifest
 import Kue.ManifestTests
 import Kue.Json
+import Kue.Yaml
+import Kue.YamlTests
 import Kue.StructTests
 import Kue.Order
 import Kue.OrderTests

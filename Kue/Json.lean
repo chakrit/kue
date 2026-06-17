@@ -116,4 +116,39 @@ end
 def valueToJson (value : Value) : Except ManifestError String :=
   (manifest value).map manifestToJson
 
+/-- Indentation prefix of `n` spaces for pretty JSON. -/
+def jsonIndent (n : Nat) : String := String.ofList (List.replicate n ' ')
+
+mutual
+  /-- Pretty (4-space-indented) JSON of a manifested value, matching `cue export`'s
+      DEFAULT output (and explicit `--out json`): keys in source order, `": "` between
+      key and value, one element per line, closing brace/bracket dedented. An empty
+      object/array is `{}`/`[]` on one line. `indent` is the current nesting depth's
+      leading width. Distinct from the compact `manifestToJson` used by `json.Marshal`. -/
+  def manifestToJsonPretty (indent : Nat) : ManifestValue -> String
+    | .prim prim => manifestPrimToJson prim
+    | .struct [] => "{}"
+    | .list [] => "[]"
+    | .struct fields => "{\n" ++ jsonPrettyFields (indent + 4) fields ++ "\n" ++ jsonIndent indent ++ "}"
+    | .list items => "[\n" ++ jsonPrettyItems (indent + 4) items ++ "\n" ++ jsonIndent indent ++ "]"
+
+  def jsonPrettyFields (indent : Nat) : List (String × ManifestValue) -> String
+    | [] => ""
+    | [field] => jsonIndent indent ++ jsonString field.fst ++ ": " ++ manifestToJsonPretty indent field.snd
+    | field :: rest =>
+        jsonIndent indent ++ jsonString field.fst ++ ": " ++ manifestToJsonPretty indent field.snd
+          ++ ",\n" ++ jsonPrettyFields indent rest
+
+  def jsonPrettyItems (indent : Nat) : List ManifestValue -> String
+    | [] => ""
+    | [item] => jsonIndent indent ++ manifestToJsonPretty indent item
+    | item :: rest =>
+        jsonIndent indent ++ manifestToJsonPretty indent item ++ ",\n" ++ jsonPrettyItems indent rest
+end
+
+/-- Manifest `value` then serialize to pretty JSON (the `cue export` default), with a
+    trailing newline as `cue` emits. -/
+def valueToJsonPretty (value : Value) : Except ManifestError String :=
+  (manifest value).map (fun mv => manifestToJsonPretty 0 mv ++ "\n")
+
 end Kue

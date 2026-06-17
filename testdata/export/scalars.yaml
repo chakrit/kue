@@ -1,0 +1,14 @@
+plain: hello
+spaced: with space
+numeric: "123"
+boolword: "true"
+empty: ""
+colon: a:b
+yamlfals: "f"
+leadhash: '#x'
+colonsp: 'a: b'
+trailcol: 'x:'
+intval: 1
+floatval: 1.50
+boolval: true
+nullval: null

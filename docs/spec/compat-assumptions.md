@@ -267,3 +267,49 @@ serializer lives in the reusable `Kue/Json.lean` (`manifestToJson`), shared with
   → bottom, while `cue` resolves it), and `secret.cue` is additionally still blocked at
   the non-string label-pattern parser gap (`[string]: string`). The encoding builtins
   themselves are not the blocker.
+
+## Manifest output: `export` CLI mode, YAML serializer, `yaml.Marshal`
+
+Supported (B5). `kue export [--out yaml|json] [file]` is a `cue export`-style mode that
+manifests then serializes; the existing no-flag CLI (`kue < file` / `kue file…` →
+internal `formatValue`) is unchanged. Default `--out` is **json** (matches `cue export`).
+Reads a file arg or stdin. A parse error exits 1 with the positioned diagnostic; a
+non-concrete/contradictory value exits 1 with `kue: export error: <reason>`; a bad flag
+exits 2.
+
+- **JSON (`--out json` / default)** is pretty-printed: 4-space indent, source-order keys,
+  `": "` separators, trailing newline — `valueToJsonPretty` in `Kue/Json.lean`, distinct
+  from B6's compact `manifestToJson` (used by `json.Marshal`). Oracle-matched byte-for-byte.
+- **YAML (`--out yaml`)** is `Kue/Yaml.lean`'s total `manifestToYaml`, matching `cue`'s
+  go-yaml v3 emitter on the **infra-relevant core**: 2-space block nesting; `- ` block
+  sequences (a compound item's first line rides the `- ` introducer; nested lists →
+  `- - 1`); `|-` block scalars for strings containing `\n` (chomped, indented under the
+  key); empty `{}` / `[]` inline; bytes → base64 scalar. **Scalar quoting** reproduces
+  cue's decision exactly for these cases: **bare** when safe; **double-quoted** when the
+  plain form would be resolver-ambiguous — the YAML 1.1 bool/null tokens
+  (`y n t f yes no on off true false null ~`, case-insensitive) and numeric-looking
+  strings (decimal int/float with `_`/sign/exponent, `0b`/`0o`/`0x`, `.inf`/`.nan`);
+  **single-quoted** when structurally unsafe but not ambiguous — a leading indicator
+  (`,[]{}#&*!|>'"%@`-backtick), a leading `-`/`?`/`:` followed by a space, a `: `
+  (colon-space) or ` #` (space-hash) anywhere, a trailing `:`, or leading/trailing/all
+  space. Keys follow the same string rule (so a `f`/`n` key is quoted). A top-level
+  scalar emits the bare scalar; a top-level list emits a YAML sequence.
+- **`yaml.Marshal(value)`** routes via the `yaml.` dotted dispatch (shared
+  `unresolvedOrBottom` / `isPendingArg`, same shape as `json.Marshal`); it manifests then
+  emits the YAML document **with a trailing newline** (oracle-confirmed framing). Incomplete
+  → bottom; unresolved-ref form preserved.
+- **No `---` multi-document streams.** Oracle-confirmed (`cue` v0.16.1): `cue export
+  --out yaml` of a top-level list produces a single YAML sequence, NOT `---`-separated
+  documents; cue emits `---` framing only through `yaml.MarshalStream`. So Kue emits no
+  `---`, and `yaml.MarshalStream` is **deferred**. (The B5 plan note hypothesizing `---`
+  for top-level lists was wrong — the oracle corrected it; this is cue-correct behavior,
+  not a `cue-divergence`.)
+- **Deferrals (Kue-does-less, not cue defects):** `-e`/`--expression` sub-expression
+  selection (export currently serializes the whole evaluated root); `yaml.MarshalStream`
+  / `yaml.Unmarshal` / `yaml.Validate` / `yaml.ValidatePartial`; and the exotic go-yaml
+  scalar/layout surface Kue does not reproduce — flow style (`{a: 1}` inline), anchors and
+  aliases, complex/non-string keys, line folding/column-width wrapping, the `>` folded
+  block style, and sexagesimal number detection (cue's go-yaml v3 treats `1:2:3` as a
+  bare string, which Kue matches). A top-level bare scalar or list **literal** as a whole
+  source file is a pre-existing parser limitation (top level must be a field set), not an
+  export-mode gap.

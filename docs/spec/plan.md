@@ -79,11 +79,23 @@ first, the big import subsystem last because it gates the real workflow):
    docker-config chain `base64.Encode(null, json.Marshal({auths: …}))` evaluates
    byte-for-byte against `cue`.
 5. **B5 — manifest output**: a YAML/JSON serializer over `Kue/Manifest.lean` + a
-   `cue export`-style CLI mode (select expr, `--out yaml/json`, multi-doc streams).
-   First true end-to-end manifest on a self-contained leaf file. **Reuses B6's
-   `Kue/Json.lean` `manifestToJson` for `--out json`**; adds a YAML serializer over the
-   same `ManifestValue` plus `yaml.Marshal` (sharing that code). **(active — next)**
-6. **B3 — module/import resolution** (the big one, LAST): `cue.mod` deps, loading
+   `cue export`-style CLI mode. **DONE** — `kue export [--out yaml|json] [file]` (default
+   `--out json`, reads file arg or stdin) manifests then serializes; on a real k8s
+   Deployment `kue export --out yaml`/`--out json` are **byte-identical to `cue export`**.
+   New `Kue/Yaml.lean` (`manifestToYaml`, total mutual recursion) matches `cue`'s go-yaml
+   emitter on the infra core: 2-space block nesting, `- ` sequences (incl. `- - 1`), `|-`
+   block scalars for newline strings, empty `{}`/`[]`, and the scalar-quoting rules cue
+   actually emits — bare when safe; double-quoted when resolver-ambiguous (YAML 1.1
+   bool/null tokens `y/n/t/f/yes/no/on/off/true/false/null/~`, numeric-looking); single-
+   quoted when structurally unsafe (leading indicator, `: `, ` #`, trailing `:`, all/edge
+   space). Pretty-JSON (`valueToJsonPretty`, 4-space, source-order) added alongside B6's
+   compact `manifestToJson`. `yaml.Marshal` builtin routes via the `yaml.` dotted dispatch
+   reusing the shared `unresolvedOrBottom`. **No `---` multi-doc**: a top-level list exports
+   as a single YAML sequence (oracle-confirmed — cue uses `---` only via `yaml.MarshalStream`,
+   deferred). `-e`/`--expression` selection deferred (documented). 33 `YamlTests.lean`
+   `native_decide` theorems + 4 oracle-matched `testdata/export/` CLI fixtures
+   (`deployment` yaml+json, `scalars`, `shapes`).
+6. **B3 — module/import resolution** (the big one, LAST — **next active slice**): `cue.mod` deps, loading
    `prodigy9.co/defs*` packages from disk, cross-package symbols, multi-file package
    merge. Gates every real `infra/apps/*.cue`. "Packages last" = packages are the final
    and largest blocker, NOT optional.

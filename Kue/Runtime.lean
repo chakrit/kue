@@ -3,6 +3,8 @@ import Kue.Format
 import Kue.Lattice
 import Kue.Parse
 import Kue.Resolve
+import Kue.Json
+import Kue.Yaml
 
 namespace Kue
 
@@ -55,5 +57,33 @@ def evalSourcesToString (sources : List String) : Except ParseError String := do
   let _ ← checkSourcePackageNames sources
   let values ← parseSources sources
   pure (formatResolvedTopLevel (mergeSourceValues values))
+
+/-- The output encoding selected by the `export` CLI mode. -/
+inductive ExportFormat where
+  | json
+  | yaml
+deriving Repr, BEq
+
+/-- A human-readable reason an `export` failed to produce concrete output, mirroring how
+    `cue export` reports a non-concrete or contradictory value. -/
+def formatManifestError : ManifestError -> String
+  | .contradiction => "conflicting values (bottom)"
+  | .incomplete value => s!"incomplete value: {formatValue value}"
+  | .ambiguous _ => "ambiguous value: multiple non-default disjuncts remain"
+
+/-- Resolve, evaluate, manifest, and serialize the merged sources in the chosen format.
+    Returns a positioned `ParseError` on parse failure (caught upstream by the CLI) or a
+    `ManifestError` message when the value is not concrete — the CLI maps the latter to a
+    non-zero exit. Output carries the trailing newline `cue export` emits. -/
+def exportSourcesToString (format : ExportFormat) (sources : List String) :
+    Except ParseError (Except String String) := do
+  let _ ← checkSourcePackageNames sources
+  let values ← parseSources sources
+  let value := resolveAndEval (mergeSourceValues values)
+  let serialized : Except ManifestError String :=
+    match format with
+    | .json => valueToJsonPretty value
+    | .yaml => valueToYaml value
+  pure (serialized.mapError formatManifestError)
 
 end Kue

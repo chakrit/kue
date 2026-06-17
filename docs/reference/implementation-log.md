@@ -4478,3 +4478,88 @@ unevaluated / bottom.
 
 Verify gate green: `lake build` (70 jobs), `scripts/check-fixtures.sh` ⇒ `fixture pairs
 ok`, `shellcheck` clean.
+
+---
+
+## Completed Slice: B5 — Manifest Output (YAML/JSON serializer + `cue export` CLI mode)
+
+Goal: the first time Kue can EMIT a real manifest — `kue export` as the `cue export`
+equivalent (prod9's pipeline is `cue export` → `k8s/*.yaml` → `kubectl apply`). A YAML
+serializer over `ManifestValue`, a pretty-JSON path reusing B6's `Kue/Json.lean`, an
+additive `export` CLI mode, and a `yaml.Marshal` builtin.
+
+### Milestone proof
+
+On a self-contained k8s-Deployment `.cue`, `kue export --out yaml` and `kue export
+--out json` are **byte-identical to `cue export`** (oracle: `cue` v0.16.1). First true
+end-to-end manifest.
+
+### What landed
+
+- **`Kue/Yaml.lean`** — total `manifestToYaml : ManifestValue → String` (mutual structural
+  recursion, no `partial`) matching `cue`'s go-yaml v3 emitter on the infra core, plus
+  `valueToYaml` (manifest-then-serialize, trailing newline). Block layout: 2-space nesting
+  (`yamlValue` recurses children at `indent+2`); `- ` sequences where a compound item's
+  first line rides the introducer (`yamlItemBody` renders the block at `indent+2` and drops
+  that many leading-space chars), nested lists → `- - 1`; `|-` block scalars for strings
+  with `\n` (chomped, lines indented under the key); empty `{}`/`[]` inline.
+- **Scalar quoting** (`yamlScalarString`), oracle-pinned to cue's exact decision:
+  double-quote (reusing JSON's `jsonString` escaper) when resolver-ambiguous — the YAML
+  1.1 bool/null tokens `y n t f yes no on off true false null ~` (case-insensitive, via
+  `yamlReservedWords`) or numeric-looking (`yamlLooksNumeric`: decimal int/float with
+  `_`/sign/exponent, `0b`/`0o`/`0x`, `.inf`/`.nan`); single-quote (`yamlSingleQuoted`,
+  doubling interior `'`) when structurally unsafe but not ambiguous (`yamlNeedsSingleQuote`:
+  leading indicator char, leading `-`/`?`/`:` + space, `: `/` #` anywhere, trailing `:`,
+  leading/trailing/all space); else bare. Keys use the same rule (`yamlKey`), so a `f`/`n`
+  key is quoted.
+- **`Kue/Json.lean`** — added `manifestToJsonPretty` (4-space indent, source-order keys,
+  `": "`) + `valueToJsonPretty` (trailing newline), the `cue export` default. Distinct from
+  the compact `manifestToJson` (`json.Marshal`).
+- **`Kue/Builtin.lean`** — `evalYamlBuiltin` routed by the `yaml.` name prefix, reusing the
+  shared `unresolvedOrBottom` / `isPendingArg` (no duplicated fallback). `yaml.Marshal`
+  manifests then emits the YAML doc with a trailing newline; incomplete → bottom,
+  unresolved-ref form preserved.
+- **`Kue/Runtime.lean`** — `ExportFormat` (`json`/`yaml`), `formatManifestError`, and
+  `exportSourcesToString : ExportFormat → List String → Except ParseError (Except String
+  String)` (parse error outer, manifest-error message inner).
+- **`Main.lean`** — additive `export` subcommand: `parseExportArgs` (default `--out json`,
+  optional file arg else stdin, rejects unknown flags) + `runExport` (exit 0 ok / 1
+  parse-or-export-error / 2 bad-flag). **The no-flag path is unchanged** — `kue < file` /
+  `kue file…` still print the internal `formatValue`, so `check-fixtures.sh`'s
+  internal-format CLI check does not regress.
+
+### Oracle-confirmed semantics (`cue` v0.16.1)
+
+- `cue export` default `--out` is **json**, pretty (4-space). `--out yaml` is go-yaml v3.
+- **No `---` multi-doc**: a top-level list exports as a single YAML sequence; `---`
+  framing comes only from `yaml.MarshalStream` (deferred). The plan's `---`-for-lists
+  hypothesis was wrong; the oracle corrected it (cue-correct, not a divergence).
+- `yaml.Marshal` and `cue export --out yaml` both emit a trailing newline.
+- Scalar quoting matrix as encoded above (verified across ~40 string cases).
+
+### Tests
+
+- **`Kue/YamlTests.lean`** — 33 `native_decide` theorems on the serializers: scalars
+  (int/float/bool/null), all three quoting branches (bare/single/double) incl. the
+  bare-but-risky cases (`-x`, `comma,`), empty `{}`/`[]`, nested map (with quoted `f`
+  key), list of scalars, list-of-maps multi (`- … - …`), nested list (`- - 1`), `|-`
+  block scalar, bytes→base64, the full k8s Deployment (byte-for-byte vs cue),
+  `yaml.Marshal` trailing-newline framing (struct + list), and pretty-JSON nested.
+- **`testdata/export/`** — 4 CLI fixtures driven through the `kue export` binary and
+  diffed against committed expected outputs (each oracle-matched to `cue export`):
+  `deployment` (yaml + json), `scalars` (quoting matrix), `shapes` (empties, nested list,
+  list-of-maps, block scalar). New `check_export_fixtures` in `check-fixtures.sh` runs
+  `kue export --out <fmt>` per fixture — wholly separate from the protected internal-format
+  path; the export `.cue` files are also `cue fmt --check`ed.
+
+### Boundaries (compat-assumptions)
+
+- `-e`/`--expression` selection deferred (serializes the whole evaluated root).
+- `yaml.MarshalStream` (`---`), `yaml.Unmarshal`/`Validate`/`ValidatePartial` deferred.
+- Exotic go-yaml surface deferred: flow style, anchors/aliases, complex keys, line
+  folding/wrapping, `>` folded style, sexagesimal (cue treats `1:2:3` as a bare string,
+  which Kue matches). Top-level bare scalar/list **literal** as a whole file is a
+  pre-existing parser limitation, not an export-mode gap.
+
+Verify gate green: `lake build` (74 jobs), `scripts/check-fixtures.sh` ⇒ `fixture pairs
+ok`, `shellcheck` clean.
