@@ -444,7 +444,7 @@ inductive BottomReason where
   | unresolvedBinding (id : BindingId)
   | invalidIndex (index : Int)
   | indexOutOfRange (index : Int) (length : Nat)
-  | intBoundConflict
+  | boundConflict
   | divisionByZero
   | excludedValue (value : Prim)
 deriving Repr, BEq, DecidableEq

@@ -17,7 +17,7 @@ theorem meet_lower_bound_with_satisfying_int :
   rfl
 
 theorem meet_lower_bound_with_violating_int :
-    meet (.boundConstraint (intDecimal 0) .ge .number) (.prim (.int (-1))) = .bottomWith [.intBoundConflict] := by
+    meet (.boundConstraint (intDecimal 0) .ge .number) (.prim (.int (-1))) = .bottomWith [.boundConflict] := by
   rfl
 
 theorem meet_strict_lower_bound_with_satisfying_int :
@@ -25,7 +25,7 @@ theorem meet_strict_lower_bound_with_satisfying_int :
   rfl
 
 theorem meet_strict_lower_bound_with_violating_int :
-    meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 0)) = .bottomWith [.intBoundConflict] := by
+    meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 0)) = .bottomWith [.boundConflict] := by
   rfl
 
 theorem meet_lower_bounds_keeps_stricter_bound :
@@ -216,7 +216,7 @@ theorem meet_float_bound_rejects_int :
 theorem meet_decimal_bound_admits_and_rejects :
     (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (.float "1.0")) == .prim (.float "1.0")) = true
       ∧ (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (.float "0.25"))
-          == .bottomWith [.intBoundConflict]) = true := by
+          == .bottomWith [.boundConflict]) = true := by
   native_decide
 
 /-- A decimal bound prints with its fractional limit (`>0.5`), a whole limit without
@@ -236,7 +236,7 @@ theorem meet_negative_decimal_bound_admits :
     the non-strict bound admits — no trailing-zero/precision artifact. -/
 theorem meet_decimal_bound_trailing_zero_tie :
     (meet (.boundConstraint { numerator := 50, scale := 2 } .gt .number) (.prim (.float "0.5"))
-        == .bottomWith [.intBoundConflict]) = true
+        == .bottomWith [.boundConflict]) = true
       ∧ (meet (.boundConstraint { numerator := 50, scale := 2 } .ge .number) (.prim (.float "0.5"))
           == .prim (.float "0.5")) = true := by
   native_decide

@@ -323,7 +323,139 @@ prefix still surfaces `.incomplete`, `open_lists` fixture byte-matches cue; inte
 types tight; `parse`/dispatch total + exhaustive; exit codes consistent (usage=2, eval=1);
 back-compat eval paths preserved; 25 parse theorems are real input→Command pins.
 
-## Architecture Fix-Slices (Phase B audit 2026-06-17 #5 — consolidation batch, AUTHORITATIVE)
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #6 — post DecimalValue-move, AUTHORITATIVE)
+
+Whole-graph pass with the type-system-first lens, after the bound family + `DecimalValue`
+move into `Value.lean` landed. Phase A ran at `b3aeb53`. This is the SINGLE authoritative
+ranking; #5 and below are retained as the design record only. Verify gate green at audit
+time (`lake build` 84 jobs; `check-fixtures.sh` ok; `shellcheck` clean) after the one inline
+fix below.
+
+### Inline fix applied this pass
+
+- **`BottomReason.intBoundConflict` → `boundConflict`** (Phase-A #1). Clean mechanical
+  rename, 8 sites (1 ctor in `Value`, 3 in `Lattice`, 4 in `BoundTests`). The reason is no
+  longer int-specific — bounds carry a decimal limit + `number|int|float` domain — so the
+  `int` prefix was stale. Behavior-preserving; verify gate re-run green; committed.
+
+### Verdicts (whole-graph, this pass)
+
+- **`Value.lean` (795) cohesion — verdict: KEEP WHOLE, do not extract.** It carries the
+  `Value` inductive + `DecimalValue` + `boundConstraint`/`BoundKind`/`NumberDomain` +
+  `FieldClass`/`Optionality` + `Import`/`ParsedFile` + the regex engine. This reads as a lot,
+  but every type except the regex engine is in `Value`'s own transitive closure: `Value`'s
+  ctors mention `DecimalValue` (`boundConstraint`), `BoundKind`, `NumberDomain`, `FieldClass`
+  (`struct`/`dynamicField`), `Prim`, `BottomReason`, `Clause` — they MUST be defined before
+  `Value` in the same module (Lean has no forward refs across modules without an import, and
+  `Value` can't import a module that itself needs `Value`). `Import`/`ParsedFile` are the one
+  loosely-coupled pair (used by `Module`/`Parse`, not by `Value`'s ctors) but cost nothing
+  where they sit. The `DecimalValue` move was correct and is NOT worth reversing into a
+  `Kue/Decimal/Base.lean`: the helpers (parse/compare/format) are 160 lines but they're the
+  exact surface `boundConstraint` meet/format/order needs, and a base module would just be a
+  file `Value` imports — net zero illegal-states benefit, pure churn. The regex engine
+  (~240 lines, lines 553–793) is the one genuinely separable block — it depends only on
+  `Char`/`String`, nothing `Value`-specific — but it's stable, self-contained, and only
+  `Eval`/`Builtin` consume `stringRegexMatches`; extracting to `Kue/Regex.lean` is a LOW
+  cohesion-only move (item 7), not a complexity win. No extraction recommended now.
+- **Module layering after the move — verdict: clean, acyclic, intended shape.** Edges:
+  `Value ← {everything}`; `Decimal ← Value`; `Lattice ← Value`; `Eval ← {Builtin, Decimal,
+  Lattice, Normalize}`; `Builtin ← {Lattice, Decimal, Json, Yaml}`; `Manifest ← {Format,
+  Lattice}`; `Runtime ← {Eval, Format, Lattice, Parse, Resolve, Json, Yaml}`; `Cli ←
+  Runtime`. The `DecimalValue` move did NOT create a back-edge: `Decimal.lean` still
+  `import Kue.Value` and reuses the moved helpers — it lost types, gained nothing it
+  shouldn't. `Builtin → Eval` forbidden edge absent. No cycle. No mis-placed module.
+- **`meetRangePrim` discards the 2nd bound's domain — verdict: NOT A BUG, no `Range` type
+  needed (Phase-A #2 RESOLVED as won't-fix).** Re-read `Lattice.lean:56–68`: `meetRangePrim`
+  takes a SINGLE `domain` param, not two — both bounds in a canonical range share one domain
+  by construction (`meetTwoBounds` narrows the two domains via `NumberDomain.narrow` BEFORE
+  emitting `.conj [boundConstraint … domain, boundConstraint … domain]`, line 99–110, same
+  `domain` in both). So there is no second domain to discard; the range is already
+  domain-coherent. A dedicated `Range` type carrying one domain would just re-encode an
+  invariant the construction already guarantees — and `.conj` of two `boundConstraint`s is
+  what CUE displays (`>=0 & <=10`), so a `Range` ctor would need to unfold back to `.conj`
+  for format/manifest anyway. Dropped from the ranking.
+- **`Field` tuple → structure (item 4c/3e) — verdict: still worth doing, still rides the
+  mechanical batch.** `Field = String × FieldClass × Value` with 122 `.fst`/`.snd.snd`-style
+  destructures. The `Field.label`/`fieldClass`/`value` accessors already paper over it, so
+  the type is loose but not actively dangerous (no nonsense combination — all three slots
+  always meant). MEDIUM, churn-heavy, behavior-preserving. Keep in the cleanup batch.
+- **`embeddedList.decls` invariant — verdict: LOW, unchanged.** "decls = non-output only"
+  enforced by the `declFields` filter, not the type. `NonOutputField` newtype makes it
+  unrepresentable but ripples through Manifest/Format/Eval/Lattice. Defer (item 6).
+
+### Real-file export status check (read-only, this pass)
+
+Ran `kue export` against real prod9-style `apps/*.cue` (naxon-ai/infra, hatari/infra) and
+oracle-compared with `cue`. **Verdict: the engine semantics are essentially met; the
+remaining gaps are CLI/loader features, not constraint-solving gaps.** Three blockers, in
+bite order:
+
+1. **No `-e <expr>` expression selector.** `kue export` takes a single file or stdin and
+   manifests the whole top-level struct. Real usage is `cue export ./apps -e argocd`. On a
+   self-contained file (`hatari/infra/apps/common.cue`, no imports) kue exports correctly
+   and matches cue's STRUCTURE — the only diff is kue emits the `common: {…}` wrapper where
+   `cue -e common` strips it. That is the missing `-e`, NOT a semantic divergence. **This is
+   the next concrete real-file blocker.**
+2. **No multi-file package merge.** `kue export apps/argocd.cue` returns `⊥` because the
+   file's definitions span sibling files in the same package (`dev.cue` etc.); kue exports
+   one file, not a package dir. `cue export ./apps` merges the dir.
+3. **No registry/module-cache import fetch (known B3d).** `apps/minio.cue` imports
+   `prodigy9.co/defs/packs`; kue reports `unresolved import: … registry fetch is B3d`. cue
+   resolves it from `~/Library/Caches/cue`.
+
+Notable: `cue export ./apps` itself fails with `incomplete value` on argocd/gateway/minio
+(these files need injected values), so the FULL-package-concrete bar is not even what cue
+clears unaided — the realistic target is `-e <expr>` on a single concrete app. **Orchestrator
+takeaway: the goal is in the cleanup-only tail for SEMANTICS, but NOT yet for CLI reach —
+`-e` selection (and eventually package-dir merge + registry fetch) are real feature slices
+standing between kue and "export a real apps file". These are loader/CLI work, not
+lattice/eval work.**
+
+### Ranked next-work list (SINGLE authoritative — recommendation after the list)
+
+Recommendation: **the engine is done; spend the tail half on CLI reach, half on cleanup.**
+The single highest-leverage real-file unblock is **item 1 (`-e` selector)** — it's small,
+it's the literal thing standing between kue and exporting a real concrete app, and it
+proves the export path end-to-end on real input. Do it FIRST. Then drain the churn-heavy
+cleanup batch (items 2–4) while the engine is quiet, so the foundation is tidy. The
+package-dir merge + registry fetch (items 5–6) are larger loader slices — schedule them
+only if chakrit wants full `cue export ./apps` parity; the `-e`-on-single-file path already
+demonstrates real-file viability.
+
+1. **[HIGH — real-file reach, NEW] `kue export -e <expr>` expression selector.** Add an
+   expression-path flag to `export` (and `eval`): after manifesting the top-level struct,
+   select the named field (`-e argocd` → the `argocd` value, stripping the wrapper), dotted
+   paths (`-e a.b`) as a stretch. Mirrors `cue export -e`. Pure `Runtime`/`Cli` work — no
+   lattice change. This is the one slice that turns a self-contained real file into a
+   cue-matching export. Smallest path to "kue exports a real apps file".
+2. **[MEDIUM — `Kue/` source-dir organization, chakrit-flagged] tests-out reorg (2c).**
+   Move the ~14 `*Tests.lean` + `FixturePorts.lean` into `Kue/Tests/` via a `Kue/Tests.lean`
+   aggregator; split the oversized ones (`FixturePorts` 2314 / `FixtureTests` 1033 /
+   `BuiltinTests` 735) by subsystem as they move (subsumes deferred 3d). `git mv`; `lake
+   build` is the stale-import ground truth. Source-layering (Core/Syntax/Eval/Output/Driver)
+   stays OPTIONAL pending chakrit's taste call.
+3. **[MEDIUM — cleanup batch] base64-out-of-Json (3a) + `Field`→structure (3e).** Two
+   independent mechanical sub-tasks, one verify cycle. `base64Encode`/`Decode` →
+   `Kue/Base64.lean` (decode/encode is not JSON's concern; `Json`/`Builtin` import it).
+   `Field` tuple → `structure { label, fieldClass, value }`, ~122 destructure sites via the
+   existing accessors. Behavior-preserving; build-gated.
+4. **[MEDIUM — portability] Linux `cacheRoot` default** (`Module.lean`): branch on
+   `System.Platform` so Linux defaults to `~/.cache/cue` not `~/Library/Caches/cue` absent
+   `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`. Small, independent.
+5. **[MEDIUM — real-file reach, larger] Multi-file package-dir export.** `kue export ./apps`
+   merges all `package apps` files in a dir before manifesting. Loader slice (`Module` +
+   `Cli`); meets real usage but bigger than `-e`. Schedule only for full dir-parity.
+6. **[MEDIUM — real-file reach, largest, = old B3d] Registry/module-cache import fetch.**
+   Resolve `prodigy9.co/defs/packs`-style imports from `~/Library/Caches/cue/mod/…`.
+   Largest loader slice; required for any real app that imports prod9 defs.
+7. **[LOW — cohesion] `embeddedList.decls` newtype (old 5); `Eval` arith dispatch →
+   `Kue/EvalOps` (old 6); regex engine → `Kue/Regex.lean`.** All cohesion-only, no pain
+   today, no illegal-states win. Defer indefinitely; do opportunistically if a neighboring
+   slice already touches the area.
+
+---
+
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #5 — consolidation batch, SUPERSEDED by #6)
 
 Whole-graph pass with the type-system-first lens, after the int-bound-retention + CLI +
 open-list family landed (`e98fb65`, `7697b1d`, `d94af33`, Phase A `20fe8fa`). This is the

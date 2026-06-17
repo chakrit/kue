@@ -46,7 +46,7 @@ def meetBoundPrim (bound : DecimalValue) (kind : BoundKind) (domain : NumberDoma
         if kind.admits bound value then
           .prim prim
         else
-          .bottomWith [.intBoundConflict]
+          .bottomWith [.boundConflict]
     | none => .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
   else
     .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
@@ -62,7 +62,7 @@ def meetRangePrim
         if lowerKind.admits lowerBound value && upperKind.admits upperBound value then
           .prim prim
         else
-          .bottomWith [.intBoundConflict]
+          .bottomWith [.boundConflict]
     | none => .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
   else
     .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
@@ -109,7 +109,7 @@ def meetTwoBounds
       if rangeFeasible lowerBound upperBound lowerKind upperKind then
         .conj [.boundConstraint lowerBound lowerKind domain, .boundConstraint upperBound upperKind domain]
       else
-        .bottomWith [.intBoundConflict]
+        .bottomWith [.boundConflict]
 
 /-- Meet a numeric `kind` against a bound. CUE keeps an explicit `int &`/`float &` conjunct
     in the display (`int & >0`, `float & >0`) — a bare bound is number-typed, so `int` is
