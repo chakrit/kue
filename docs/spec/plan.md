@@ -657,15 +657,29 @@ Ordered by goal-impact (replace `cue` for prod9/infra) vs cost:
    lexicographic `termination_by (fuel, phase, listLen)`; no `partial def`. New tests:
    `shared_selection_fan` fixture + `eval_shared_repeated_selection` /
    `eval_cycle_with_repeated_selection` theorems.
-2. **[HIGH — semantic, NOW the #1 blocker] `[...]` open-list embedding eval +
-   `meet(struct,list)=⊥` laziness + `if _x != _|_` presence-test eval.** With memoization
-   landed, this is the live blocker: `kue export apps/argocd.cue` completes but returns
-   `conflicting values (bottom)` because evaluating `packs.#Argo` eagerly forces the
-   trailing `[Self.#components.repo, …]` list embedding, which meets against the
-   hidden-field struct and conflicts (`meet(struct,list)=⊥`). CUE's laziness never forces
-   this latent conflict — the value is only ever *selected into* (`.#name`, `.#out`), never
-   emitted whole. Needs the hidden-only-struct + list-embed rule and/or lazy selection.
-   Shares the embedding/comprehension eval surface; next slice.
+2. **[HIGH — semantic] `[...]` open-list embedding eval + `meet(struct,list)`. DONE
+   (2026-06-17, breadcrumb `docs/notes/2026-06-17-list-embedding-eval-landed.md`).** The
+   earlier "cue tolerates lazily" hypothesis was WRONG — measured against `cue` v0.16.1,
+   the rule is *eager and structural*: a struct embedding a list IS the list **iff it has
+   no regular/required (output) field** — only hidden/definition/optional/let members — in
+   which case it manifests/indexes as the list while its declarations stay selectable; any
+   output field → genuine `⊥` conflict. Modeled with a new
+   `Value.embeddedList items (tail : Option Value) decls` constructor (type-system-first:
+   the dual list/decls nature is one value). `meet` arms build/merge it; `Manifest` emits
+   the items; `Eval` selects decls + indexes items; `containsBottom` recurses in. Pivots on
+   `FieldClass.producesOutput` (true only for `regular`/`required`). Oracle-matched on every
+   probed case (8 `list_embedding_*`/`list_struct_*` fixtures + 9 `ListTests` theorems).
+   Genuine `{a:1}&[1,2]` conflicts still bottom. The remaining `apps/argocd.cue` `⊥` is the
+   next blocker (2b), NOT this — confirmed both kue and `cue` error on the direct
+   `packs.#Argo & {#name:…}` form; with `[...]` in the consuming struct `cue` proceeds and
+   the next gate is the `if _x != _|_` guard.
+2b. **[HIGH — NOW the #1 blocker] `if _x != _|_` presence-test comprehension-guard eval.**
+   kue parses `if Self.#x != _|_ { … }` but the guard does not fire where `cue`'s does
+   (the `!= _|_` presence test), so `#components` def-meet bodies stay incomplete and
+   `apps/argocd.cue` export returns `⊥`. Isolated repro:
+   `#D: Self={#x?: string, out: {if Self.#x != _|_ {val: Self.#x}}}; y: #D & {#x: "hi"}` →
+   `cue` gives `out.val: "hi"`, kue gives `out: {}` and `y: ⊥`. The live argocd gate; next
+   slice.
 3. **[MEDIUM — type-system leverage] Collapse `intGe/intGt/intLe/intLt` into one
    `boundConstraint (bound : Int) (kind : BoundKind)`.** Four parallel `Value`
    constructors over one domain (integer bounds) with a parallel `meetIntGePrim/Gt/Le/Lt`

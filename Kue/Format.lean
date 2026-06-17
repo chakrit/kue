@@ -187,6 +187,15 @@ mutual
         let itemText := items.map (formatValueWithFuel fuel)
         let tailText := formatTailWithFuel fuel tail
         "[" ++ joinWith ", " (itemText ++ [tailText]) ++ "]"
+    | fuel + 1, .embeddedList items tail decls =>
+        let declText := formatStructFieldsWithFuel fuel decls
+        let itemText := items.map (formatValueWithFuel fuel)
+        let listInner :=
+          match tail with
+          | none => itemText
+          | some t => itemText ++ [formatTailWithFuel fuel t]
+        let listText := "[" ++ joinWith ", " listInner ++ "]"
+        "{" ++ joinWith ", " (declText ++ [listText]) ++ "}"
     | fuel + 1, .comprehension clauses body =>
         joinWith " " (clauses.map (formatClauseWithFuel fuel)) ++ " " ++ formatValueWithFuel fuel body
     | fuel + 1, .structComp fields comprehensions _ =>

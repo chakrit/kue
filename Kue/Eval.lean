@@ -123,6 +123,10 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       match findEvalField label fields with
       | some field => Field.value field
       | none => .selector base label
+  | .embeddedList _ _ decls =>
+      match findEvalField label decls with
+      | some field => Field.value field
+      | none => .selector base label
   | .bottom => .bottom
   | .bottomWith reasons => .bottomWith reasons
   | _ => .bottom
@@ -173,6 +177,8 @@ def selectEvaluatedIndex (base key : Value) : Value :=
   | .structPatterns fields _ _ => selectEvaluatedFieldIndex base key fields
   | .list items => selectEvaluatedListIndex base key items
   | .listTail items _ => selectEvaluatedListTailIndex base key items
+  | .embeddedList items none _ => selectEvaluatedListIndex base key items
+  | .embeddedList items (some _) _ => selectEvaluatedListTailIndex base key items
   | .bottom => .bottom
   | .bottomWith reasons => .bottomWith reasons
   | _ => .bottom
@@ -512,6 +518,7 @@ def valueTag : Value -> UInt64
   | .structComp _ _ _ => 28
   | .interpolation _ => 29
   | .dynamicField _ _ _ => 30
+  | .embeddedList _ _ _ => 31
 
 /--
 A scope frame paired with a process-unique identity. Each frame push allocates a fresh

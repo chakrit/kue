@@ -132,6 +132,10 @@ def containsBottomWithFuel : Nat -> Value -> Bool
       items.any (containsBottomWithFuel fuel)
   | fuel + 1, .listTail items tail =>
       items.any (containsBottomWithFuel fuel) || containsBottomWithFuel fuel tail
+  | fuel + 1, .embeddedList items tail decls =>
+      items.any (containsBottomWithFuel fuel)
+        || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
+        || decls.any (fun field => containsBottomWithFuel fuel (Field.value field))
   | _ + 1, _ => false
 
 def containsBottom (value : Value) : Bool :=
@@ -412,6 +416,8 @@ def meetCore (left right : Value) : Value :=
   | _, .dynamicField _ _ _ => .bottom
   | .struct .., _ => .bottom
   | _, .struct .. => .bottom
+  | .embeddedList _ _ _, _ => .bottom
+  | _, .embeddedList _ _ _ => .bottom
 
 def meetConjValueWith
     (meetValue : Value -> Value -> Value) (constraints : List Value) (value : Value) : Value :=
@@ -729,6 +735,56 @@ def meetListWith (meetValue : Value -> Value -> Value) : List Value -> List Valu
       | none => none
   | _, _ => none
 
+/-- Does the struct field list carry a member that produces manifest output
+    (a `regular`/`required` field)? Such a field makes a list embedding conflict. -/
+def structHasOutputField (fields : List (String × FieldClass × Value)) : Bool :=
+  fields.any (fun f => FieldClass.producesOutput (Field.fieldClass f))
+
+/-- The non-output (hidden/definition/optional/let) fields — those that survive as
+    selectable declarations when a struct becomes its embedded list. -/
+def declFields (fields : List (String × FieldClass × Value)) : List (String × FieldClass × Value) :=
+  fields.filter (fun f => !FieldClass.producesOutput (Field.fieldClass f))
+
+/-- Normalize a list-shaped value to `(items, optional-tail)`: `none` for the
+    non-list values, `some` otherwise. `[...]` is `([], some .top)`. -/
+def asListPair : Value -> Option (List Value × Option Value)
+  | .list items => some (items, none)
+  | .listTail items tail => some (items, some tail)
+  | .embeddedList items tail _ => some (items, tail)
+  | _ => none
+
+/-- Meet two `(items, tail)` list shapes. Closed×closed needs equal length;
+    a tail constrains the other list's overflow / open tail. -/
+def meetListPairWith
+    (meetValue : Value -> Value -> Value)
+    : (List Value × Option Value) -> (List Value × Option Value) -> Option (List Value × Option Value)
+  | (leftItems, none), (rightItems, none) =>
+      match meetListWith meetValue leftItems rightItems with
+      | some items => some (items, none)
+      | none => none
+  | (fixed, some tail), (items, none) =>
+      match meetListPrefixTailWith meetValue fixed tail items with
+      | some items => some (items, none)
+      | none => none
+  | (items, none), (fixed, some tail) =>
+      match meetListPrefixTailWith meetValue fixed tail items with
+      | some items => some (items, none)
+      | none => none
+  | (leftFixed, some leftTail), (rightFixed, some rightTail) =>
+      -- two open lists: align the shared prefix, longer prefix's overflow meets the
+      -- shorter's tail, result stays open with the met tail.
+      let met := meetValue leftTail rightTail
+      let rec align : List Value -> List Value -> Option (List Value)
+        | [], rs => some (rs.map (meetValue leftTail))
+        | ls, [] => some (ls.map (meetValue rightTail))
+        | l :: ls, r :: rs =>
+            match align ls rs with
+            | some rest => some (meetValue l r :: rest)
+            | none => none
+      match align leftFixed rightFixed with
+      | some items => some (items, some met)
+      | none => none
+
 def meetFuel : Nat :=
   100
 
@@ -857,6 +913,58 @@ def meetWithFuel : Nat -> Value -> Value -> Value
         flatAlternatives.map fun alternative =>
           (alternative.fst, meetWithFuel fuel value alternative.snd)
       normalizeDisj distributed
+  -- A struct with only non-output members embedding a list IS that list, carrying its
+  -- declarations as selectable. With an output (regular/required) field present it
+  -- conflicts (falls through to bottom). CUE v0.16.1: `{ #a:1, [1,2] }` → `[1,2]`;
+  -- `{ a:1, [1,2] }` → conflict. The `.embeddedList` arms precede the struct arms so a
+  -- left embeddedList keeps its own decls instead of being swallowed by `listLike, .struct`.
+  | .embeddedList leftItems leftTail leftDecls, rightLike =>
+      match asListPair rightLike with
+      | some rightPair =>
+          match meetListPairWith (meetWithFuel fuel) (leftItems, leftTail) rightPair with
+          | some (items, tail) =>
+              -- right side may carry its own decls (another embeddedList)
+              let rightDecls := match rightLike with | .embeddedList _ _ d => d | _ => []
+              match mergeStructFieldsWith (meetWithFuel fuel) leftDecls rightDecls with
+              | some decls => .embeddedList items tail decls
+              | none => .bottom
+          | none => .bottom
+      | none =>
+          match rightLike with
+          | .struct fields _ =>
+              if structHasOutputField fields then .bottom
+              else
+                match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
+                | some decls => .embeddedList leftItems leftTail decls
+                | none => .bottom
+          | _ => meetCore (.embeddedList leftItems leftTail leftDecls) rightLike
+  | leftLike, .embeddedList rightItems rightTail rightDecls =>
+      match asListPair leftLike with
+      | some leftPair =>
+          match meetListPairWith (meetWithFuel fuel) leftPair (rightItems, rightTail) with
+          | some (items, tail) => .embeddedList items tail rightDecls
+          | none => .bottom
+      | none =>
+          match leftLike with
+          | .struct fields _ =>
+              if structHasOutputField fields then .bottom
+              else
+                match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
+                | some decls => .embeddedList rightItems rightTail decls
+                | none => .bottom
+          | _ => meetCore leftLike (.embeddedList rightItems rightTail rightDecls)
+  | .struct fields _, listLike =>
+      match asListPair listLike with
+      | some (items, tail) =>
+          if structHasOutputField fields then .bottom
+          else .embeddedList items tail (declFields fields)
+      | none => meetCore (.struct fields true) listLike
+  | listLike, .struct fields _ =>
+      match asListPair listLike with
+      | some (items, tail) =>
+          if structHasOutputField fields then .bottom
+          else .embeddedList items tail (declFields fields)
+      | none => meetCore listLike (.struct fields true)
   | value, other => meetCore value other
 
 def meet (left right : Value) : Value :=

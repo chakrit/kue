@@ -4963,3 +4963,52 @@ local `Self`-fan repro (the exact multiplicative shape) evaluates in **~0.006s**
 `kue export apps/argocd.cue` (was the ~2.6h hang) now **completes in ~57s**, returning
 `conflicting values (bottom)` — the next blocker, the `[...]` open-list-embedding
 `meet(struct,list)=⊥` eager-vs-lazy semantics (plan item 2), no longer masked by the hang.
+
+---
+
+## Completed Slice: List-Embedding-in-Struct Eval (`meet(struct, list)`)
+
+Implemented the eval semantics of a list embedded in a struct — the construct behind the
+real prod9 `#Argo: Self={ …hidden…, [Self.#components.repo, …] }` definitions. **Diagnosed
+oracle-first against `cue` v0.16.1; the prior breadcrumb's "cue tolerates the conflict
+lazily" hypothesis was measured WRONG.**
+
+**Measured rule (eager, structural — not lazy):** a struct embedding a list IS that list
+**iff the struct carries no output field** (output = `regular` or `required`; hidden `_x`,
+definition `#x`, optional `a?:`, and `let` are all non-output). In that case the value
+manifests and indexes as the list while its declarations stay selectable; with any output
+field the struct/list embed is a genuine conflict (`⊥`). Oracle evidence: `{[1,2,3]}`→
+`[1,2,3]`, `{#a:1,[1,2]}`→`[1,2]`, `{#a:1,[...]}`→`[]`, `{a:1,[1,2]}`→conflict,
+`{a?:int,[1,2]}`→`[1,2]`, `{a:1}&[1,2]`→conflict; `v.#a`=1 and `v[0]`=10 both resolve on
+the same `{#a:1,[10,20]}` value (genuinely dual-natured).
+
+**Type-system-first model.** New `Value.embeddedList (items : List Value) (tail : Option
+Value) (decls : List Field)` constructor: the list nature and the surviving non-output
+declarations are one value (illegal-states-unrepresentable — no flagged struct). The
+decision pivots on the new total `FieldClass.producesOutput` (true only for
+`regular`/`required`). `Lattice.meetWithFuel` gains arms (placed before the struct arms so
+a left `embeddedList` keeps its own decls): build it from `meet(only-non-output struct,
+list)`; merge two embeddedLists (decls meet struct-wise, lists meet via the new
+`meetListPairWith` over `(items, optional-tail)` shapes); meet one against a further
+struct/list. `meetCore`'s fuel-0 fallback bottoms it conservatively. `Manifest` emits the
+concrete items (decls + open tail dropped). `Eval.selectEvaluatedField` reads decls;
+`selectEvaluatedIndex` indexes items (open tail → tail-index semantics). `containsBottom`
+recurses into items/tail/decls, so a conflicting embedded element (`{#a:1,[1]} &
+{#b:2,[9]}` → `x.0` conflict) surfaces and export errors — matching `cue`. `Format` formats
+it as `{decls…, [items…]}`.
+
+**Genuine conflicts preserved.** `{a:1} & [1,2]` and `{a:1, [1,2]}` still bottom (output
+field present), oracle-matched.
+
+**Tests.** 8 fixtures (`list_embedding_pure/hidden/open/regular_conflict/optional/meet_two/
+select_index`, `list_struct_genuine_conflict`) each with a FixturePorts entry; 9
+`ListTests` `native_decide` theorems pinning the build/merge/conflict/manifest behavior.
+Theorem count 574 → 663 (includes prior slices' growth). Verify gate green: `lake build`,
+`scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.
+
+**Next blocker (read-only check).** `kue export apps/argocd.cue` still returns `⊥` — but
+this is NOT a list-embedding gap: the direct `packs.#Argo & {#name:…}` form errors in both
+kue and `cue`; with the consuming struct's own `[...]` present `cue` proceeds and the next
+gate is the `if Self.#x != _|_` presence-test comprehension guard (plan item 2b), confirmed
+in isolation (`#D: Self={#x?:string, out:{if Self.#x != _|_ {val: Self.#x}}}; y: #D &
+{#x:"hi"}` → `cue` `out.val:"hi"`, kue `out:{}`/`y:⊥`).

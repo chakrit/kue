@@ -1440,6 +1440,96 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      -- `{[1, 2, 3]}`: a list embedded in a struct with no other members IS the list.
+      fileName := "list_embedding_pure.expected",
+      content :=
+        formatField "x"
+          (resolveAndEval
+            (.structComp [] [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]] true))
+    },
+    {
+      -- `{#a: 1, [1, 2]}`: only-non-output struct + list embed → embeddedList with decls.
+      fileName := "list_embedding_hidden.expected",
+      content :=
+        formatField "x"
+          (resolveAndEval
+            (.structComp
+              [("#a", .definition, .prim (.int 1))]
+              [.list [.prim (.int 1), .prim (.int 2)]]
+              true))
+    },
+    {
+      -- `{#a: 1, [...]}`: open list embed; manifests as `[]`, eval keeps `[...]`.
+      fileName := "list_embedding_open.expected",
+      content :=
+        formatField "x"
+          (resolveAndEval
+            (.structComp
+              [("#a", .definition, .prim (.int 1))]
+              [.listTail [] .top]
+              true))
+    },
+    {
+      -- `{a: 1, [1, 2]}`: a regular (output) field present → genuine struct/list conflict.
+      fileName := "list_embedding_regular_conflict.expected",
+      content :=
+        formatField "x"
+          (resolveAndEval
+            (.structComp
+              [("a", .regular, .prim (.int 1))]
+              [.list [.prim (.int 1), .prim (.int 2)]]
+              true))
+    },
+    {
+      -- `{a: 1} & [1, 2]`: explicit struct meet list, struct has an output field → bottom.
+      fileName := "list_struct_genuine_conflict.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.struct [("a", .regular, .prim (.int 1))] true)
+            (.list [.prim (.int 1), .prim (.int 2)]))
+    },
+    {
+      -- `{a?: int, [1, 2]}`: optional is non-output, so the list embed survives.
+      fileName := "list_embedding_optional.expected",
+      content :=
+        formatField "x"
+          (resolveAndEval
+            (.structComp
+              [("a", .optional, .kind .int)]
+              [.list [.prim (.int 1), .prim (.int 2)]]
+              true))
+    },
+    {
+      -- `{#a: 1, [...int]} & {#b: 2, [1, 2]}`: meet of two embeddedLists — decls merge,
+      -- lists meet (`[...int] & [1, 2] = [1, 2]`).
+      fileName := "list_embedding_meet_two.expected",
+      content :=
+        formatField "x"
+          (meet
+            (resolveAndEval
+              (.structComp [("#a", .definition, .prim (.int 1))] [.listTail [] (.kind .int)] true))
+            (resolveAndEval
+              (.structComp [("#b", .definition, .prim (.int 2))]
+                [.list [.prim (.int 1), .prim (.int 2)]] true)))
+    },
+    {
+      -- `{#a: 1, [10, 20]}.#a` selects a decl; `[0]` indexes the embedded list.
+      fileName := "list_embedding_select_index.expected",
+      content :=
+        let base : Value :=
+          .structComp [("#a", .definition, .prim (.int 1))]
+            [.list [.prim (.int 10), .prim (.int 20)]] true
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("p", .regular, .selector base "#a"),
+                ("q", .regular, .index base (.prim (.int 0)))
+              ]
+              true))
+    },
+    {
       fileName := "strings_builtin.expected",
       content :=
         formatTopLevel

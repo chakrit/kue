@@ -78,15 +78,33 @@ those forms.
   `cue` *errors* on an unreferenced `let`/alias (`unreferenced alias or let clause` —
   intentional dead-binding detection); kue silently drops it. Tightening kue to match is a
   later slice if a real file needs the diagnostic.
-- **Open-list `[...]` embedding — parse supported, eval DEFERRED.** A list embedded as a
-  struct member parses (above). Evaluation is not yet faithful: `cue` permits a list
-  embedded in a struct with *no regular exported fields* (only `#hidden`/`_`/`let`) — the
-  result emits as the list while definitions stay selectable — and *conflicts* when any
-  regular field is present. It also tolerates the latent conflict lazily when the value is
-  only selected into, never emitted. kue is eager and yields `⊥` for `meet(struct, list)`.
-  Real prod9 files now parse + locally evaluate (15/15), but the `let`-bound
-  `#Basics & {…[...]}` values resolve to `⊥` under kue's eager strategy; the list-embedding
-  eval rule (and/or lazy selection) is the next slice.
+- **List-embedding-in-struct eval — IMPLEMENTED (2026-06-17), oracle-matched.** A struct
+  whose members are *all non-output* (hidden `_x`, definition `#x`, optional `a?:`, or
+  `let`) embedding a list *is* that list: it manifests as the list, indexes as the list,
+  yet its declarations stay selectable (`v.#x`). With any **regular or required** field
+  present the struct/list embed is a genuine conflict (`⊥`). Modeled by a dedicated
+  `Value.embeddedList (items) (tail : Option Value) (decls)` constructor (illegal-states
+  win: the list nature and the surviving decls are one value, not a flagged struct). The
+  decision pivots on `FieldClass.producesOutput` (true only for `regular`/`required`).
+  Meet arms in `Lattice.meetWithFuel` build it (`meet(only-non-output struct, list)`),
+  merge two of them (decls meet struct-wise, lists meet via `meetListPairWith`), and meet
+  one against a further struct/list; `meetCore`'s fuel-0 fallback bottoms it conservatively.
+  `Manifest` emits its concrete items (decls + open tail dropped — `{#a:1, [...]}` → `[]`);
+  `Eval.selectEvaluatedField`/`selectEvaluatedIndex` read decls/items; `containsBottom`
+  recurses into items/tail/decls so an element conflict surfaces (`{#a:1,[1]} & {#b:2,[9]}`
+  → `x.0` conflict, export errors — matches `cue`). Oracle evidence (`cue` v0.16.1):
+  `{[1,2,3]}`→`[1,2,3]`; `{#a:1,[1,2]}`→`[1,2]`; `{#a:1,[...]}`→`[]`; `{a:1,[1,2]}`→conflict;
+  `{a?:int,[1,2]}`→`[1,2]`; `{a:1}&[1,2]`→conflict; `v.#a` and `v[0]` both work on the
+  dual-nature value.
+  - **DEFERRED — the `nsp`/`#Argo` *direct* manifest still bottoms, but that matches `cue`.**
+    `x: packs.#Argo & {#name:…}` (no `[...]` in the consuming struct) errors in *both* kue
+    and `cue` (struct/list conflict): the consuming struct must itself carry a `[...]` embed
+    (`configs: packs.#Argo & {[...], #name:…}`, as the real prod9 files do) for the
+    embeddedList path to engage. With `[...]` present, `cue` proceeds and the next gate is
+    the **`if Self.#x != _|_` presence-test comprehension guard** (a separate slice): kue's
+    guard does not fire, leaving `#components` fields incomplete, so `apps/argocd.cue`
+    export still returns `⊥`. That is blocker #2, not a list-embedding gap — the embedding
+    semantics here are complete and oracle-clean.
 - **In-module imports resolve (B3a).** A single file (or `export` file-mode) routes through
   the import-aware loader: `cue.mod/module.cue` is discovered by walking parent dirs, an
   import path `<module>` or `<module>/<subpath>` is resolved to the corresponding dir under

@@ -82,6 +82,15 @@ def ignoresClosedness : FieldClass -> Bool
   | .letBinding => true
   | _ => false
 
+/-- A class that contributes a concrete value to manifest output. `optional` does not
+    (no concrete value until satisfied); only `regular`/`required` do. Used to decide
+    whether a struct embedding a list conflicts (a regular/required field present) or
+    becomes the list (only non-output members). -/
+def producesOutput : FieldClass -> Bool
+  | .regular => true
+  | .required => true
+  | _ => false
+
 end FieldClass
 
 structure BindingId where
@@ -149,6 +158,15 @@ inductive Value where
       (open_ : Bool)
   | list (items : List Value)
   | listTail (items : List Value) (tail : Value)
+  /--
+  A list value carrying selectable non-output declarations. CUE: a struct whose only
+  members are non-regular (hidden/definition/optional/let) plus an embedded list *is*
+  that list — it manifests as the list, indexes as the list, yet its declarations stay
+  selectable (`v.#x`). With any regular/required field present the struct/list embed
+  conflicts (bottom) instead. `tail` carries an open-list tail (`[...]` → `some .top`);
+  `none` is a closed list. `decls` are the surviving non-output fields.
+  -/
+  | embeddedList (items : List Value) (tail : Option Value) (decls : List (String × FieldClass × Value))
   | comprehension (clauses : List (Clause Value)) (body : Value)
   | structComp (fields : List (String × FieldClass × Value)) (comprehensions : List Value) (open_ : Bool)
   | interpolation (parts : List Value)
