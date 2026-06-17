@@ -183,13 +183,13 @@ def yamlBlockScalar (indent : Nat) (s : String) : String :=
   else if trailing == 1 then
     -- clip: one trailing newline is implied by the block, so drop the empty segment
     -- splitOn left at the end and emit no chomp indicator.
-    let core := s.dropRight 1
+    let core := (s.dropEnd 1).toString
     let body := joinWith "\n" ((core.splitOn "\n").map (yamlBlockLine pad))
     "|" ++ indentTag ++ "\n" ++ body
   else
     -- keep: the block implies one trailing newline; the remaining `trailing - 1` newlines
     -- become explicit blank lines after the content.
-    let core := s.dropRight trailing
+    let core := (s.dropEnd trailing).toString
     let coreBody := joinWith "\n" ((core.splitOn "\n").map (yamlBlockLine pad))
     let blanks := String.ofList (List.replicate (trailing - 1) '\n')
     "|" ++ indentTag ++ "+\n" ++ coreBody ++ blanks
