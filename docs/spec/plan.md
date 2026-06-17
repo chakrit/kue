@@ -182,6 +182,69 @@ AST-identical to the brace form across all inner-label forms; B4 multiline is to
 correct; parser positions have no off-by-one; the three B2 deferred boundaries are real
 and correctly documented.
 
+## Audit Fix-Slices (int-bound-retention + CLI + open-list family, Phase A audit 2026-06-17)
+
+Phase A depth pass over `e98fb65` (int-bound kind retention + `meetConjValueWith`
+flat-set rewrite), `7697b1d` (CLI `Command` sum type), `d94af33` (open-list manifest
+collapse). Verify gate green at audit time (`lake build`, `check-fixtures.sh`, shellcheck
+all pass). Headline verdicts below; findings folded as fix-slices.
+
+**`meetConjValueWith` algebra — SOUND but NOT a canonical commutative form.** Probed
+adversarially: no dropped constraint (value-satisfaction is order-invariant — `8080`
+admitted by `int & >=0 & <=65535` under any arg order), no duplicated constraint (`int &
+>0 & >0` → `[int, >0]`), bounds still tighten (`>5 & >0` → `>5`), idempotent on the merged
+form. **But the resulting `.conj` member *order* is argument-order-dependent**, and
+structural `BEq` on `.conj` is order-sensitive, so `a & b != b & a` as canonical values.
+Concrete: `(int & >0) & (>0 & <10)` formats `int & >0 & <10`; the commuted product formats
+`<10 & int & >0` — same constraint, two user-visible outputs; cue's display order is
+canonical (kind first). Root cause: `addConstraintWith` appends a non-merging constraint
+at the position it lands, and RHS members fold in after LHS `initial`. Pre-existing meet
+arms already hardcode a kind-then-bound order (e.g. `.intGe & .intGt → .conj [.intGe,
+.intGt]`), so the convention exists but isn't enforced post-fold.
+
+### Findings (ranked)
+
+1. **[MEDIUM — non-commutative canonical conj form] Sort `.conj` members into a canonical
+   order after the flat-set fold (or make `.conj` equality order-insensitive).** Sound
+   today (no mis-admit/reject), but `a & b` and `b & a` produce different `Value`s and
+   different formatted output, and any future equality/dedup/memoization keyed on `.conj`
+   structure will see them as distinct. Fix: canonicalize member order in
+   `meetConjValueWith`'s re-wrap (kind first, then bounds by op, then others) — cheap,
+   total, and makes the type carry the "set, not sequence" invariant. TDD: add
+   commutativity theorems (`meet a b == meet b a`) for the 3-way / mixed-side cases that
+   currently diverge.
+
+2. **[LOW — pre-existing divergence, NOT this slice] `float & >0` wrongly bottoms.** cue
+   v0.16.1: `float & >0` → `float & >0`; Kue → `bottomWith [kindConflict float int]`. NOT
+   a regression — old code used `kindAcceptsKind kind .int` which is also `false` for
+   float, and `meetKindWithIntBound` preserves that. Stems from the integer-restricted
+   bound model (only `intGt`/`intGe`/… exist; no float bounds). Track as a bound-model gap
+   for the float/math family; log in `cue-divergences.md`. `int`/`number`/`bool`/`string`
+   bound×kind pairs all match the oracle.
+
+3. **[LOW — DRY] CLI flag-scan + help-flag handling duplicated.** `args.find?
+   (·.startsWith "-")` appears in both `parse` and `parseExport`; `--help`/`-h` arms repeat
+   across `parse`/`parseEval`/`parseExport`. Acceptable (distinct error text per context);
+   extract only if a fourth subcommand lands.
+
+4. **[LOW — minor CLI divergence] `--` not treated as end-of-flags.** Kue: `parse ["--"]`
+   → `error "unknown flag: --"`. cue treats `--` as a separator. Defensible fail-closed
+   given no flag takes `--`-style values; revisit if a future flag needs literal-`-`
+   positionals.
+
+**No-regression confirmations (no action):** open-list manifest mirrors the closed-list /
+embedded-list arms exactly (recurse `manifestItemsWithFuel`, drop tail), non-concrete
+prefix still surfaces `.incomplete`, `open_lists` fixture byte-matches cue; internal
+`formatValue` (Format.lean) untouched. The 4 `rfl`→`native_decide` switches are legit
+(richer fold no longer kernel-reduces; spot-checked values unchanged — `meet (.conj
+[.intGe 0, .intLe 10]) (.prim (.int 7))` still `.prim (.int 7)`). All new defs total (no
+`partial`; structural recursion accepted by Lean). `Command`/`ExportOpts`/`HelpTopic` sum
+types tight; `parse`/dispatch total + exhaustive; exit codes consistent (usage=2, eval=1);
+back-compat eval paths preserved; 25 parse theorems are real input→Command pins.
+
+**Inline fixes applied this audit:** none (finding 1 is MEDIUM with behavior change → TDD
+slice, not inline). Verify gate was re-run read-only and is green.
+
 ## Implementation Status
 
 The semantic core, evaluator, manifestation, a stdin/file CLI, and a broad expression
