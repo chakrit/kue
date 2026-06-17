@@ -4414,3 +4414,67 @@ cleared on all four multiline-using prod9 files; `infra/apps/argocd.cue` now
 parses+evaluates to exit 0 (the other three — `argo/bluepages.cue`, `argo/stage9.cue`,
 `infra-defs/secret.cue` — now fail at separate, later parser gaps: open-list `[...]`
 expressions and non-string label patterns `[string]: string`, not the multiline form).
+
+---
+
+## Completed Slice: B6 — Encoding Builtins (`base64.Encode`, `json.Marshal`)
+
+Goal: implement the two `encoding` builtins the prod9/infra gap analysis found
+load-bearing inside `#Secret`/`#ConfigMap` (the docker-config
+`base64.Encode(null, json.Marshal({auths: …}))` chain). Both previously returned
+unevaluated / bottom.
+
+### What landed
+
+- **New `Kue/Json.lean` — reusable, total JSON serializer.** `manifestToJson :
+  ManifestValue → String` (mutual structural recursion over fields/items, no `partial`)
+  emits compact JSON byte-for-byte matching `cue` v0.16.1: `,`/`:` separators with no
+  spaces, **object keys in source/insertion order (NOT sorted)**, floats rendered from
+  their exact stored decimal text verbatim (`1.0`→`"1.0"`, `1.50`→`"1.50"`), a bytes
+  value as a base64 JSON string (Go `[]byte`), control chars `<0x20` as `\b\f\n\r\t` or
+  `\uXXXX`, and `<>&/` plus non-ASCII passed through (cue disables Go's HTML escaping).
+  `valueToJson : Value → Except ManifestError String` manifests first, then serializes.
+  Factored as a standalone module (imports `Manifest`; `Builtin` imports it) so **B5
+  reuses `manifestToJson` verbatim for `--out json`**. Also houses the standard padded
+  base64 encoder `base64Encode : List UInt8 → String` (RFC 4648 alphabet + `=` padding,
+  via `Id.run` array loop).
+- **`Kue/Builtin.lean` dispatch.** Two new package dispatchers following the established
+  pattern: `evalBase64Builtin` (`base64.Encode` with a `null` encoding selector over a
+  string/bytes payload's UTF-8 bytes; non-null selector → bottom via the shared
+  `unresolvedOrBottom`) and `evalJsonBuiltin` (`json.Marshal` → `valueToJson`; `.ok` →
+  the JSON string, `.error` → bottom unless the arg is a still-pending reference form, in
+  which case the call is preserved). Both routed from `evalBuiltinCall` by `base64.` /
+  `json.` name prefix, each ending in the single shared `unresolvedOrBottom` fallback. A
+  new `isPendingArg` predicate distinguishes a genuinely-incomplete concrete shape
+  (`{a: int}` → bottom) from an unresolved `.ref`/`.selector`/`.index`/`.builtinCall`
+  (preserved for a later pass).
+- **Oracle-confirmed semantics (`cue` v0.16.1):** `base64.Encode(null, …)` = standard
+  padded base64; non-null selector errors ("unsupported encoding"). `json.Marshal` keys
+  preserve source order; output is compact; floats keep their exact spelling; bytes →
+  base64 string; HTML chars are NOT escaped; incomplete value errors.
+
+### Tests
+
+- 3 fixture pairs + `FixturePorts.lean` AST ports (each AST port and the independent CLI
+  evaluation of the `.cue` both diff-match the same `.expected`):
+  `base64_encode` (ASCII/empty/multibyte, 0/1/2-byte padding, over-bytes, non-null →
+  bottom), `json_marshal` (scalar/int/negInt/float/whole-float/bool/null, nested
+  key-order, list, empty struct+list, escapes, incomplete → bottom), and
+  `encoding_infra_chain` (the docker-config `base64.Encode(null, json.Marshal({auths:
+  registry}))` shape, oracle-matched).
+- 17 `BuiltinTests.lean` `native_decide` theorems pinning every base64 padding case,
+  non-null → bottom, abstract-arg preservation, all json scalar/compound/escape cases,
+  source-order keys, incomplete → bottom, and abstract-arg preservation.
+
+### Boundaries (compat-assumptions)
+
+- `base64.Encode` non-null encodings and `base64.Decode` deferred; `json.MarshalStream`
+  / `Indent` / `Unmarshal` / `Validate` deferred.
+- The infra chain evaluates byte-for-byte against `cue` when the inner fields resolve.
+  The real `infra-defs/secret.cue` references a **hidden** field (`_auths`);
+  hidden-field references do not yet resolve in Kue (pre-existing reference-resolution
+  gap, separate from B6), and `secret.cue` is additionally blocked at the non-string
+  label-pattern parser gap — the encoding builtins are not the blocker.
+
+Verify gate green: `lake build` (70 jobs), `scripts/check-fixtures.sh` ⇒ `fixture pairs
+ok`, `shellcheck` clean.

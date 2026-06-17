@@ -66,12 +66,23 @@ first, the big import subsystem last because it gates the real workflow):
    now parses+evaluates to exit 0 (the other three hit separate later gaps — open-list
    `[...]` and non-string label patterns — not the `"""` barrier).
 4. **B6 — encoding builtins** `base64.Encode`, `json.Marshal` (load-bearing inside
-   `#Secret`/`#ConfigMap`). Small pure functions; kue already has the value AST.
-   **(active — next)**
+   `#Secret`/`#ConfigMap`). **DONE** — `base64.Encode(null, …)` is standard padded
+   base64 (RFC 4648) over the UTF-8 bytes of a string or bytes value; a non-null
+   encoding selector is bottom (`cue` errors "unsupported encoding"). `json.Marshal`
+   manifests its arg then serializes via the new **reusable** `Kue/Json.lean`
+   (`manifestToJson : ManifestValue → String`, total mutual recursion): compact (`,`/`:`,
+   no spaces), **source-order keys (NOT sorted)**, floats rendered from their exact
+   stored decimal text verbatim (`1.50`→`"1.50"`), bytes→base64 JSON string, control
+   chars `<0x20` escaped (`\b\f\n\r\t`/`\uXXXX`), `<>&/` and non-ASCII passed through
+   (cue disables Go's HTML escaping). Incomplete/contradictory ⇒ bottom; still-pending
+   refs (`.ref`/`.selector`/`.builtinCall`/…) preserved as `.builtinCall`. The
+   docker-config chain `base64.Encode(null, json.Marshal({auths: …}))` evaluates
+   byte-for-byte against `cue`.
 5. **B5 — manifest output**: a YAML/JSON serializer over `Kue/Manifest.lean` + a
    `cue export`-style CLI mode (select expr, `--out yaml/json`, multi-doc streams).
-   First true end-to-end manifest on a self-contained leaf file. `yaml.Marshal` shares
-   this code.
+   First true end-to-end manifest on a self-contained leaf file. **Reuses B6's
+   `Kue/Json.lean` `manifestToJson` for `--out json`**; adds a YAML serializer over the
+   same `ManifestValue` plus `yaml.Marshal` (sharing that code). **(active — next)**
 6. **B3 — module/import resolution** (the big one, LAST): `cue.mod` deps, loading
    `prodigy9.co/defs*` packages from disk, cross-package symbols, multi-file package
    merge. Gates every real `infra/apps/*.cue`. "Packages last" = packages are the final
@@ -138,8 +149,10 @@ implementation log):
   and full int+float-domain `Sum`/`Min`/`Max`/`Avg`/`Range`), and the `math` family
   (`Abs` domain-preserving int→int / float→float, `MultipleOf`, and float→int
   `Floor`/`Ceil`/`Round`/`Trunc` via exact-decimal truncation; `Round` is
-  half-away-from-zero). Unresolved calls preserved as semantic values; concrete
-  type-mismatch args resolve to bottom.
+  half-away-from-zero), and the `encoding` builtins `base64.Encode` (standard padded
+  base64, null encoding only) and `json.Marshal` (compact, source-order keys,
+  exact-decimal floats; via the reusable `Kue/Json.lean` serializer). Unresolved calls
+  preserved as semantic values; concrete type-mismatch args resolve to bottom.
 - **Parser/CLI** — recursive-descent parser over the supported subset; numeric literal
   spellings (non-decimal, separators, exponents, suffix multipliers); stdin and explicit
   multi-file evaluation with package-name consistency. Package-qualified builtin calls

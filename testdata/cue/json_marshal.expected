@@ -1,0 +1,13 @@
+str: "\"hi\""
+intVal: "42"
+negInt: "-5"
+floatVal: "1.5"
+floatWhole: "1.0"
+boolVal: "true"
+nullVal: "null"
+nested: "{\"b\":2,\"a\":1,\"c\":{\"z\":1,\"y\":2}}"
+listVal: "[1,2,3]"
+emptyObj: "{}"
+emptyList: "[]"
+escapes: "{\"html\":\"<a>&\\\"b\\\\c\\n\\t\"}"
+incomplete: _|_

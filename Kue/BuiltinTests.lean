@@ -629,4 +629,107 @@ theorem math_call_stays_unresolved_on_abstract_arg :
       == .builtinCall "math.Floor" [.kind .number]) = true := by
   native_decide
 
+-- base64.Encode (standard padded base64; null encoding only)
+
+theorem base64_encode_ascii_padding_zero :
+    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.string "abc")]
+      == .prim (.string "YWJj")) = true := by
+  native_decide
+
+theorem base64_encode_one_byte_double_padded :
+    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.string "a")]
+      == .prim (.string "YQ==")) = true := by
+  native_decide
+
+theorem base64_encode_two_bytes_single_padded :
+    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.string "ab")]
+      == .prim (.string "YWI=")) = true := by
+  native_decide
+
+theorem base64_encode_empty_is_empty :
+    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.string "")]
+      == .prim (.string "")) = true := by
+  native_decide
+
+theorem base64_encode_multibyte_over_utf8 :
+    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.string "héllo")]
+      == .prim (.string "aMOpbGxv")) = true := by
+  native_decide
+
+theorem base64_encode_over_bytes_value :
+    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.bytes "hello")]
+      == .prim (.string "aGVsbG8=")) = true := by
+  native_decide
+
+theorem base64_encode_non_null_encoding_is_bottom :
+    (evalBuiltinCall "base64.Encode" [.prim (.string "std"), .prim (.string "hello")]
+      == .bottom) = true := by
+  native_decide
+
+theorem base64_encode_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "base64.Encode" [.prim .null, .kind .string]
+      == .builtinCall "base64.Encode" [.prim .null, .kind .string]) = true := by
+  native_decide
+
+-- json.Marshal (compact, source-order keys, exact-decimal floats)
+
+theorem json_marshal_scalar_string :
+    (evalBuiltinCall "json.Marshal" [.prim (.string "hi")]
+      == .prim (.string "\"hi\"")) = true := by
+  native_decide
+
+theorem json_marshal_int :
+    (evalBuiltinCall "json.Marshal" [.prim (.int 42)]
+      == .prim (.string "42")) = true := by
+  native_decide
+
+theorem json_marshal_float_preserves_text :
+    (evalBuiltinCall "json.Marshal" [.prim (.float "1.50")]
+      == .prim (.string "1.50")) = true := by
+  native_decide
+
+theorem json_marshal_bool_and_null :
+    (evalBuiltinCall "json.Marshal" [.prim (.bool true)] == .prim (.string "true"))
+      && (evalBuiltinCall "json.Marshal" [.prim .null] == .prim (.string "null")) = true := by
+  native_decide
+
+theorem json_marshal_nested_preserves_key_order :
+    (evalBuiltinCall "json.Marshal"
+      [.struct
+        [
+          ("b", .regular, .prim (.int 2)),
+          ("a", .regular, .prim (.int 1)),
+          ("c", .regular,
+            .struct [("z", .regular, .prim (.int 1)), ("y", .regular, .prim (.int 2))] true)
+        ]
+        true]
+      == .prim (.string "{\"b\":2,\"a\":1,\"c\":{\"z\":1,\"y\":2}}")) = true := by
+  native_decide
+
+theorem json_marshal_list :
+    (evalBuiltinCall "json.Marshal" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]
+      == .prim (.string "[1,2,3]")) = true := by
+  native_decide
+
+theorem json_marshal_empty_struct_and_list :
+    (evalBuiltinCall "json.Marshal" [.struct [] true] == .prim (.string "{}"))
+      && (evalBuiltinCall "json.Marshal" [.list []] == .prim (.string "[]")) = true := by
+  native_decide
+
+theorem json_marshal_escapes_quote_backslash_control_not_html :
+    (evalBuiltinCall "json.Marshal"
+      [.struct [("html", .regular, .prim (.string "<a>&\"b\\c\n\t"))] true]
+      == .prim (.string "{\"html\":\"<a>&\\\"b\\\\c\\n\\t\"}")) = true := by
+  native_decide
+
+theorem json_marshal_incomplete_is_bottom :
+    (evalBuiltinCall "json.Marshal" [.struct [("a", .regular, .kind .int)] true]
+      == .bottom) = true := by
+  native_decide
+
+theorem json_marshal_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "json.Marshal" [.ref "x"]
+      == .builtinCall "json.Marshal" [.ref "x"]) = true := by
+  native_decide
+
 end Kue

@@ -1,0 +1,119 @@
+import Kue.Manifest
+
+namespace Kue
+
+/-- Lowercase hex nibble (0–15) for `\uXXXX` JSON escapes. -/
+def jsonHexDigit (value : Nat) : Char :=
+  if value < 10 then Char.ofNat ('0'.toNat + value)
+  else Char.ofNat ('a'.toNat + (value - 10))
+
+/-- Four-digit lowercase `\uXXXX` escape of a code point below 0x10000. -/
+def jsonUnicodeEscape (code : Nat) : List Char :=
+  ['\\', 'u',
+    jsonHexDigit (code / 4096 % 16),
+    jsonHexDigit (code / 256 % 16),
+    jsonHexDigit (code / 16 % 16),
+    jsonHexDigit (code % 16)]
+
+/-- Escape one character for a JSON string body, matching `cue`'s `json.Marshal`
+    (Go's encoder with HTML escaping disabled): `"` and `\` are backslash-escaped;
+    `\b \f \n \r \t` use their short forms; every other control character below
+    0x20 becomes `\uXXXX`; `<`, `>`, `&`, `/` and all non-control runes (including
+    non-ASCII) pass through verbatim. -/
+def escapeJsonChar : Char -> List Char
+  | '"' => ['\\', '"']
+  | '\\' => ['\\', '\\']
+  | '\n' => ['\\', 'n']
+  | '\r' => ['\\', 'r']
+  | '\t' => ['\\', 't']
+  | c =>
+      if c == Char.ofNat 0x08 then ['\\', 'b']
+      else if c == Char.ofNat 0x0c then ['\\', 'f']
+      else if c.toNat < 0x20 then jsonUnicodeEscape c.toNat
+      else [c]
+
+def escapeJsonChars : List Char -> List Char
+  | [] => []
+  | c :: rest => escapeJsonChar c ++ escapeJsonChars rest
+
+/-- A JSON string literal (including surrounding quotes) for `value`. -/
+def jsonString (value : String) : String :=
+  "\"" ++ String.ofList (escapeJsonChars value.toList) ++ "\""
+
+/-- Standard-base64 alphabet (RFC 4648), index 0–63. -/
+def base64Alphabet : Array Char :=
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toList.toArray
+
+/-- Standard padded base64 of `bytes` (RFC 4648), matching Go's `base64.StdEncoding`.
+    Full 3-byte groups emit 4 symbols; a trailing 1- or 2-byte group emits 2 or 3
+    symbols plus `=` padding to a 4-symbol quantum. -/
+def base64Encode (bytes : List UInt8) : String := Id.run do
+  let mut out : Array Char := #[]
+  let arr := bytes.toArray
+  let mut i := 0
+  while i + 3 <= arr.size do
+    let b0 := arr[i]!.toNat
+    let b1 := arr[i + 1]!.toNat
+    let b2 := arr[i + 2]!.toNat
+    out := out.push base64Alphabet[b0 >>> 2]!
+    out := out.push base64Alphabet[((b0 &&& 0x03) <<< 4) ||| (b1 >>> 4)]!
+    out := out.push base64Alphabet[((b1 &&& 0x0f) <<< 2) ||| (b2 >>> 6)]!
+    out := out.push base64Alphabet[b2 &&& 0x3f]!
+    i := i + 3
+  let remaining := arr.size - i
+  if remaining == 1 then
+    let b0 := arr[i]!.toNat
+    out := out.push base64Alphabet[b0 >>> 2]!
+    out := out.push base64Alphabet[(b0 &&& 0x03) <<< 4]!
+    out := out.push '='
+    out := out.push '='
+  else if remaining == 2 then
+    let b0 := arr[i]!.toNat
+    let b1 := arr[i + 1]!.toNat
+    out := out.push base64Alphabet[b0 >>> 2]!
+    out := out.push base64Alphabet[((b0 &&& 0x03) <<< 4) ||| (b1 >>> 4)]!
+    out := out.push base64Alphabet[(b1 &&& 0x0f) <<< 2]!
+    out := out.push '='
+  return String.ofList out.toList
+
+/-- JSON rendering of a manifested primitive. A `.bytes` payload is base64-encoded as
+    a JSON string (Go marshals `[]byte` to standard base64); a float is rendered from
+    its exact stored decimal text verbatim (`cue` preserves `1.50`, `10.0`). -/
+def manifestPrimToJson : Prim -> String
+  | .null => "null"
+  | .bool true => "true"
+  | .bool false => "false"
+  | .int value => toString value
+  | .float value => value
+  | .string value => jsonString value
+  | .bytes value => jsonString (base64Encode value.toUTF8.toList)
+
+mutual
+  /-- Compact JSON of a manifested value: object keys in source order (`cue`/Go preserve
+      insertion order, they do NOT sort), `,`/`:` separators with no spaces, matching
+      `cue`'s `json.Marshal` byte-for-byte. Reused by B5's `--out json` mode. The mutual
+      helpers fold the struct/list children structurally so the recursion stays total. -/
+  def manifestToJson : ManifestValue -> String
+    | .prim prim => manifestPrimToJson prim
+    | .struct fields => "{" ++ jsonFields fields ++ "}"
+    | .list items => "[" ++ jsonItems items ++ "]"
+
+  def jsonFields : List (String × ManifestValue) -> String
+    | [] => ""
+    | [field] => jsonString field.fst ++ ":" ++ manifestToJson field.snd
+    | field :: rest =>
+        jsonString field.fst ++ ":" ++ manifestToJson field.snd ++ "," ++ jsonFields rest
+
+  def jsonItems : List ManifestValue -> String
+    | [] => ""
+    | [item] => manifestToJson item
+    | item :: rest => manifestToJson item ++ "," ++ jsonItems rest
+end
+
+/-- Manifest `value` (applying defaults/incompleteness rules) then serialize it to
+    compact JSON. An incomplete or contradictory value surfaces as a `ManifestError`,
+    which the `json.Marshal` builtin maps to bottom (`cue` errors). -/
+def valueToJson (value : Value) : Except ManifestError String :=
+  (manifest value).map manifestToJson
+
+end Kue

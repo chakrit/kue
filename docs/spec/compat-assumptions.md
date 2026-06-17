@@ -228,3 +228,42 @@ those forms.
   `unicode.ToUpper`/`ToLower`/`ToTitle` and `x/text/cases`), including locale-insensitive
   full-case-folding edge cases (German ß, Turkish dotless ı, title-case digraphs). Until
   then this is an alpha boundary alongside imports and `list.Sort`.
+
+## Encoding builtins (`base64.Encode`, `json.Marshal`)
+
+Supported. Both dispatch on the dotted builtin name (`import "encoding/base64"` /
+`import "encoding/json"` parsed-and-ignored, like the other families). The JSON
+serializer lives in the reusable `Kue/Json.lean` (`manifestToJson`), shared with B5.
+
+- **`base64.Encode(encoding, data)` supports only the `null` encoding** —
+  standard padded base64 (RFC 4648, `base64.StdEncoding`) over the UTF-8 bytes of a
+  string or bytes payload. Oracle-confirmed (`cue` v0.16.1): `null` selects standard
+  padding; any non-null encoding selector is an error (`cue`: "base64: unsupported
+  encoding: cannot use value … as null"), so Kue resolves it to bottom. Encoding over a
+  string uses its UTF-8 bytes (`"héllo"` → `"aMOpbGxv"`), identical to encoding the
+  equivalent bytes value. **Deferred:** non-null encodings (`base64.URLEncoding` etc.)
+  and `base64.Decode` (no error/bytes-result path for malformed input yet). Kue-does-less
+  boundary, not a `cue` defect.
+- **`json.Marshal(value)` produces compact JSON byte-for-byte matching `cue`.**
+  Oracle-confirmed (`cue` v0.16.1): object keys are emitted in **source/insertion order,
+  NOT sorted** (`{b,a,c}` → `{"b":…,"a":…,"c":…}`); separators are `,` and `:` with no
+  spaces; floats render from their exact stored decimal text verbatim (`1.0`→`"1.0"`,
+  `1.50`→`"1.50"`, `0.1`→`"0.1"`); a bytes value marshals to a base64 JSON string (Go
+  `[]byte` semantics); control characters below `0x20` escape as `\b\f\n\r\t` or
+  `\uXXXX`; `<`, `>`, `&`, `/` and all non-ASCII runes pass through verbatim — `cue`
+  disables Go's default HTML-escaping (this is `cue`'s documented behavior, not a defect,
+  so it is NOT a `cue-divergence`). The value is manifested first, so defaults and
+  incompleteness rules apply: an incomplete or contradictory value (e.g. `{a: int}`) is
+  bottom (`cue` errors "cannot convert incomplete value … to JSON"). An argument that is
+  still an unresolved reference form (`.ref`/`.selector`/`.index`/`.builtinCall`) is
+  preserved as an unresolved `.builtinCall` so a later evaluation pass can complete it.
+  **Deferred:** `json.MarshalStream` (multi-doc), `json.Indent` (pretty-printing),
+  `json.Unmarshal`/`json.Validate` (parsing).
+- **Composition note (infra docker-config).** The prod9/infra
+  `base64.Encode(null, json.Marshal({auths: …}))` chain evaluates correctly when the
+  inner struct's fields resolve. The real `infra-defs/secret.cue` use references a
+  **hidden** field (`_auths`); hidden-field references do not yet resolve in Kue (a
+  pre-existing reference-resolution gap, separate from B6 — `y: _a` where `_a` is hidden
+  → bottom, while `cue` resolves it), and `secret.cue` is additionally still blocked at
+  the non-string label-pattern parser gap (`[string]: string`). The encoding builtins
+  themselves are not the blocker.

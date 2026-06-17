@@ -1,0 +1,15 @@
+import "encoding/json"
+
+str:        json.Marshal("hi")
+intVal:     json.Marshal(42)
+negInt:     json.Marshal(-5)
+floatVal:   json.Marshal(1.5)
+floatWhole: json.Marshal(1.0)
+boolVal:    json.Marshal(true)
+nullVal:    json.Marshal(null)
+nested: json.Marshal({b: 2, a: 1, c: {z: 1, y: 2}})
+listVal: json.Marshal([1, 2, 3])
+emptyObj: json.Marshal({})
+emptyList: json.Marshal([])
+escapes: json.Marshal({html: "<a>&\"b\\c\n\t"})
+incomplete: json.Marshal({a: int})

@@ -1,5 +1,6 @@
 import Kue.Lattice
 import Kue.Decimal
+import Kue.Json
 
 namespace Kue
 
@@ -457,6 +458,17 @@ def isConcreteArg : Value -> Bool
   | .list _ => true
   | _ => false
 
+/-- Whether a value is still an unresolved reference-like form that a later evaluation
+    pass might complete (so a builtin should defer rather than bottom). Distinguished
+    from a genuinely-incomplete concrete shape such as `{a: int}`, which is a CUE error. -/
+def isPendingArg : Value -> Bool
+  | .ref _ => true
+  | .refId _ => true
+  | .selector _ _ => true
+  | .index _ _ => true
+  | .builtinCall _ _ => true
+  | _ => false
+
 /-- Shared fallback for every package builtin dispatcher (`strings.*`, `list.*`,
     and the upcoming `math.*`): a call that matched no known arm resolves to
     bottom when any argument is bottom or all arguments are concrete (a genuine
@@ -599,6 +611,33 @@ def evalMathBuiltin : String -> List Value -> Value
   | "math.Trunc", [.prim p] => mathRound .trunc p
   | name, args => unresolvedOrBottom name args
 
+/-- Dispatch a `base64.*` builtin over already-evaluated arguments. `Encode`'s first
+    argument is the encoding selector: only `null` (standard padded base64) is
+    supported — any other concrete value is bottom (`cue` errors with "unsupported
+    encoding"). The payload is a string or bytes value, encoded over its UTF-8 bytes.
+    Deferred: non-null encodings, `base64.Decode` (Kue has no error/bytes-result path
+    for malformed input yet). -/
+def evalBase64Builtin : String -> List Value -> Value
+  | "base64.Encode", [.prim .null, .prim (.string s)] =>
+      .prim (.string (base64Encode s.toUTF8.toList))
+  | "base64.Encode", [.prim .null, .prim (.bytes b)] =>
+      .prim (.string (base64Encode b.toUTF8.toList))
+  | name, args => unresolvedOrBottom name args
+
+/-- Dispatch a `json.*` builtin over already-evaluated arguments. `Marshal` manifests
+    its argument and serializes the result to compact JSON; an incomplete or
+    contradictory value is bottom (`cue` errors). Deferred: `json.MarshalStream`,
+    `json.Indent`, `json.Unmarshal`, `json.Validate` (need multi-doc, pretty-printing,
+    or parsing Kue does not yet model). -/
+def evalJsonBuiltin : String -> List Value -> Value
+  | "json.Marshal", [value] =>
+      match valueToJson value with
+      | .ok text => .prim (.string text)
+      | .error _ =>
+          if isPendingArg value then .builtinCall "json.Marshal" [value]
+          else .bottom
+  | name, args => unresolvedOrBottom name args
+
 def evalBuiltinCall : String -> List Value -> Value
   | "close", [value] => closeValue value
   | "len", [value] => lenValue value
@@ -615,6 +654,10 @@ def evalBuiltinCall : String -> List Value -> Value
         evalListBuiltin name args
       else if name.startsWith "math." then
         evalMathBuiltin name args
+      else if name.startsWith "base64." then
+        evalBase64Builtin name args
+      else if name.startsWith "json." then
+        evalJsonBuiltin name args
       else
         .builtinCall name args
 

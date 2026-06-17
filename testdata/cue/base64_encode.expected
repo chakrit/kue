@@ -1,0 +1,8 @@
+ascii: "aGVsbG8="
+empty: ""
+multibyte: "aMOpbGxv"
+pad1: "YQ=="
+pad2: "YWI="
+pad0: "YWJj"
+overBytes: "aGVsbG8="
+nonNull: _|_

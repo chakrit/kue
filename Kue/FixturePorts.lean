@@ -1706,6 +1706,94 @@ def fixturePorts : List FixturePort :=
                     true)
               ]
               true))
+    },
+    {
+      fileName := "base64_encode.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("ascii", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "hello")]),
+                ("empty", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "")]),
+                ("multibyte", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "héllo")]),
+                ("pad1", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "a")]),
+                ("pad2", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "ab")]),
+                ("pad0", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "abc")]),
+                ("overBytes", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.bytes "hello")]),
+                ("nonNull", .regular,
+                  .builtinCall "base64.Encode" [.prim (.string "std"), .prim (.string "hello")])
+              ]
+              true))
+    },
+    {
+      fileName := "json_marshal.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("str", .regular, .builtinCall "json.Marshal" [.prim (.string "hi")]),
+                ("intVal", .regular, .builtinCall "json.Marshal" [.prim (.int 42)]),
+                ("negInt", .regular, .builtinCall "json.Marshal" [.prim (.int (-5))]),
+                ("floatVal", .regular, .builtinCall "json.Marshal" [.prim (.float "1.5")]),
+                ("floatWhole", .regular, .builtinCall "json.Marshal" [.prim (.float "1.0")]),
+                ("boolVal", .regular, .builtinCall "json.Marshal" [.prim (.bool true)]),
+                ("nullVal", .regular, .builtinCall "json.Marshal" [.prim .null]),
+                ("nested", .regular,
+                  .builtinCall "json.Marshal"
+                    [.struct
+                      [
+                        ("b", .regular, .prim (.int 2)),
+                        ("a", .regular, .prim (.int 1)),
+                        ("c", .regular,
+                          .struct
+                            [("z", .regular, .prim (.int 1)), ("y", .regular, .prim (.int 2))]
+                            true)
+                      ]
+                      true]),
+                ("listVal", .regular,
+                  .builtinCall "json.Marshal"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]),
+                ("emptyObj", .regular, .builtinCall "json.Marshal" [.struct [] true]),
+                ("emptyList", .regular, .builtinCall "json.Marshal" [.list []]),
+                ("escapes", .regular,
+                  .builtinCall "json.Marshal"
+                    [.struct [("html", .regular, .prim (.string "<a>&\"b\\c\n\t"))] true]),
+                ("incomplete", .regular,
+                  .builtinCall "json.Marshal" [.struct [("a", .regular, .kind .int)] true])
+              ]
+              true))
+    },
+    {
+      -- The prod9/infra docker-config chain: a registry-auth struct is JSON-marshalled
+      -- then base64-encoded. The CLI port independently evaluates the `.cue`; both
+      -- matching `.expected` pins that `base64.Encode(null, json.Marshal({...}))` composes.
+      fileName := "encoding_infra_chain.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("registry", .regular,
+                  .struct
+                    [("reg.io", .regular,
+                      .struct [("auth", .regular, .prim (.string "abc"))] true)]
+                    true),
+                ("data", .regular,
+                  .builtinCall "base64.Encode"
+                    [.prim .null,
+                      .builtinCall "json.Marshal"
+                        [.struct [("auths", .regular, .ref "registry")] true]])
+              ]
+              true))
     }
   ]
 
