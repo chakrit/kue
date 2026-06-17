@@ -1,0 +1,4 @@
+#D: {#x?: string, _y?: int}
+provided: {#x: "hi", _y: 7}
+selected: "hi"
+hidden: 7

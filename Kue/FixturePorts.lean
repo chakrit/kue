@@ -356,6 +356,18 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      -- Optional definition (`#x?`) and optional hidden (`_x?`) fields: both modifiers are
+      -- orthogonal, so the optional field merges with the provided value (`#x?` + `#x` →
+      -- present definition), and selection sees the narrowed value. Driven through parse so
+      -- the `#x?`/`_y?` lexing is exercised alongside the merge.
+      fileName := "optional_definition_field.expected",
+      content :=
+        match parseSource
+            "#D: {\n\t#x?: string\n\t_y?: int\n}\nprovided: #D & {\n\t#x: \"hi\"\n\t_y: 7\n}\nselected: provided.#x\nhidden:   provided._y\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "closed_regex_pattern.expected",
       content :=
         formatField "x"

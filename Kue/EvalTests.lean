@@ -319,8 +319,8 @@ theorem eval_missing_binding_id_bottom :
 
 theorem eval_binding_id_not_label_lookup :
     (evalStructRefs
-      (.struct [("same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .refId ⟨0, 1⟩)] true)
-      == .struct [("same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .kind .string)] true) = true := by
+      (.struct [("#same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .refId ⟨0, 1⟩)] true)
+      == .struct [("#same", .definition, .kind .int), ("same", .regular, .kind .string), ("x", .regular, .kind .string)] true) = true := by
   native_decide
 
 theorem resolve_direct_self_reference :

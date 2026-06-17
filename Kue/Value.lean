@@ -65,36 +65,86 @@ inductive BinaryOp where
   | boolOr
 deriving Repr, BEq, DecidableEq
 
-inductive FieldClass where
+/-- The presence axis of a field: a plain field (`regular`), one that need not be
+    present (`optional`, `x?`), or one that must be supplied (`required`, `x!`). These
+    are the three rungs of one lattice; definition-ness and hidden-ness are *separate*
+    axes (`FieldClass`). `required` is the strongest rung, `optional` the weakest. -/
+inductive Optionality where
   | regular
   | optional
   | required
-  | hidden
-  | definition
+deriving Repr, BEq, DecidableEq
+
+namespace Optionality
+
+/-- Meet on the presence lattice. A `regular` conjunct *is* present and satisfies any
+    requirement, so it dominates (`x! & x = x`, `x? & x = x`). Failing a present conjunct,
+    a `required` one keeps the field required-but-absent (`x! & x! = x!`, `x! & x? = x!`).
+    Only `optional & optional` stays optional. Total, matching CUE: providing a concrete
+    field discharges `!`, but two `!`s never self-satisfy. -/
+def meet : Optionality -> Optionality -> Optionality
+  | .regular, _ => .regular
+  | _, .regular => .regular
+  | .required, _ => .required
+  | _, .required => .required
+  | .optional, .optional => .optional
+
+end Optionality
+
+/-- A field's modifiers, modelled as **orthogonal** axes — exactly as CUE treats them.
+    A field independently is/isn't a definition (`#x`), is/isn't hidden (`_x`), and sits
+    on the presence lattice (`Optionality`). `letBinding` is a distinct kind (a `let`
+    binding is not a field and composes with nothing), kept as its own constructor so the
+    field axes never have to encode a non-field. This makes the formerly-illegal
+    combinations — `#x?` (optional definition), `#x!` (required definition), `_x?`
+    (optional hidden) — first-class and merge per-axis. -/
+inductive FieldClass where
+  | field (isDefinition : Bool) (isHidden : Bool) (optionality : Optionality)
   | letBinding
 deriving Repr, BEq, DecidableEq
 
 namespace FieldClass
 
-def ignoresClosedness : FieldClass -> Bool
-  | .hidden => true
-  | .definition => true
-  | .letBinding => true
-  | .regular => false
-  | .optional => false
-  | .required => false
+/-- A plain output field: not a definition, not hidden, present. -/
+def regular : FieldClass := .field false false .regular
+/-- An optional field (`x?`): not a definition, not hidden, optional. -/
+def optional : FieldClass := .field false false .optional
+/-- A required field (`x!`): not a definition, not hidden, required. -/
+def required : FieldClass := .field false false .required
+/-- A hidden field (`_x`): not a definition, hidden, present. -/
+def hidden : FieldClass := .field false true .regular
+/-- A definition field (`#x`): a definition, not hidden, present. -/
+def definition : FieldClass := .field true false .regular
 
-/-- A class that contributes a concrete value to manifest output. `optional` does not
-    (no concrete value until satisfied); only `regular`/`required` do. Used to decide
-    whether a struct embedding a list conflicts (a regular/required field present) or
-    becomes the list (only non-output members). -/
-def producesOutput : FieldClass -> Bool
-  | .regular => true
-  | .required => true
-  | .optional => false
-  | .hidden => false
-  | .definition => false
+def isDefinition : FieldClass -> Bool
+  | .field d _ _ => d
   | .letBinding => false
+
+def isHidden : FieldClass -> Bool
+  | .field _ h _ => h
+  | .letBinding => false
+
+def optionality : FieldClass -> Optionality
+  | .field _ _ o => o
+  | .letBinding => .regular
+
+/-- A definition, hidden, or `let` field does not participate in closedness — its
+    presence neither requires an allowing pattern nor is rejected by a closed struct.
+    Orthogonal: a field that is *either* a definition or hidden ignores closedness,
+    independent of its presence axis (so `#x?` and `_x?` both ignore it). -/
+def ignoresClosedness : FieldClass -> Bool
+  | .field d h _ => d || h
+  | .letBinding => true
+
+/-- A class that contributes a concrete value to manifest output. A non-definition,
+    non-hidden field on the `regular` or `required` rung does (an `optional` field carries
+    no settled value; any definition/hidden/`let` field is non-output regardless of
+    presence). Used to decide whether a struct embedding a list conflicts (an output field
+    present) or becomes the list (only non-output members). -/
+def producesOutput : FieldClass -> Bool
+  | .field false false .regular => true
+  | .field false false .required => true
+  | _ => false
 
 end FieldClass
 

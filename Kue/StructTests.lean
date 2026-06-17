@@ -95,11 +95,15 @@ theorem format_field_level_bottom :
     formatValue (.struct [("a", .regular, .bottomWith [.fieldConflict "a"])] true) = "{a: _|_}" := by
   native_decide
 
-theorem meet_unsupported_field_class_combination_bottoms_struct :
+/-- Optionality is a lattice, not a set of incompatible tags: `a? & a!` meets to `a!`
+    (required dominates over optional; oracle-confirmed `cue v0.16.1` — the result is a
+    required-but-not-present field, not a contradiction). The pre-orthogonality enum wrongly
+    bottomed this combination. -/
+theorem meet_optional_with_required_yields_required :
     meet
       (.struct [("a", .optional, .kind .int)] true)
       (.struct [("a", .required, .kind .int)] true)
-      = .bottom := by
+      = .struct [("a", .required, .kind .int)] true := by
   rfl
 
 theorem meet_hidden_field_values :
@@ -115,6 +119,57 @@ theorem meet_definition_field_values :
       (.struct [("#A", .definition, .prim (.int 1))] true)
       = .struct [("#A", .definition, .prim (.int 1))] true := by
   rfl
+
+/-- Optional definition (`#x?`) meets the provided definition (`#x`) to a present
+    definition carrying the value — the orthogonal axes compose (definition stays,
+    optional → regular). The pre-orthogonality enum could not represent `#x?` at all and
+    refused this merge. Oracle: `cue v0.16.1` `#D:{#x?:string}; y:#D&{#x:"hi"}` → `#x:"hi"`. -/
+theorem meet_optional_definition_with_provided_definition :
+    meet
+      (.struct [("#x", .field true false .optional, .kind .string)] true)
+      (.struct [("#x", .definition, .prim (.string "hi"))] true)
+      = .struct [("#x", .definition, .prim (.string "hi"))] true := by
+  rfl
+
+/-- Optional hidden (`_x?`) meets provided hidden (`_x`): hidden stays, optional →
+    regular. Oracle: `cue v0.16.1` `{_x?:int} & {_x:5}` selects `_x` as `5`. -/
+theorem meet_optional_hidden_with_provided_hidden :
+    meet
+      (.struct [("_x", .field false true .optional, .kind .int)] true)
+      (.struct [("_x", .hidden, .prim (.int 5))] true)
+      = .struct [("_x", .hidden, .prim (.int 5))] true := by
+  rfl
+
+/-- Required definition (`#x!`) meets provided definition (`#x`): the regular conjunct
+    discharges `!`, so the field becomes present. Oracle: `#y!:int` & `#y:3` → `#y:3`. -/
+theorem meet_required_definition_discharged_by_value :
+    meet
+      (.struct [("#y", .field true false .required, .kind .int)] true)
+      (.struct [("#y", .definition, .prim (.int 3))] true)
+      = .struct [("#y", .definition, .prim (.int 3))] true := by
+  rfl
+
+/-- A definition (`#x?`/`#x`) — optional or not — ignores closedness on both axes;
+    a definition does not contribute to manifest output regardless of its presence rung;
+    an optional definition is not output, but a provided (`regular`) definition is still
+    non-output (it is a definition). -/
+theorem optional_definition_axes :
+    (FieldClass.isDefinition (.field true false .optional) == true
+      && FieldClass.ignoresClosedness (.field true false .optional) == true
+      && FieldClass.producesOutput (.field true false .optional) == false
+      && FieldClass.producesOutput (.field true false .regular) == false) = true := by
+  native_decide
+
+/-- The optionality lattice: `regular` (present) dominates and discharges `required`;
+    `required` dominates `optional`; `optional & optional` stays optional. -/
+theorem optionality_meet_lattice :
+    (Optionality.meet .regular .required == .regular
+      && Optionality.meet .required .regular == .regular
+      && Optionality.meet .required .optional == .required
+      && Optionality.meet .optional .required == .required
+      && Optionality.meet .optional .optional == .optional
+      && Optionality.meet .regular .optional == .regular) = true := by
+  native_decide
 
 theorem meet_closed_struct_allows_matching_field :
     meet

@@ -569,12 +569,12 @@ idiom, NOT a masked bug.
 
 ### Findings (LOW severity — fold as fix-slices)
 
-1. **[LOW — type-system-first] `FieldClass.producesOutput` uses `_ => false` wildcard.**
-   New this batch (`Value.lean`). `FieldClass` is a 6-variant enum; a future variant would
-   silently default to non-output, the exact "new constructor swallowed" risk the
-   philosophy flags. Replace with explicit arms for all 6 (regular/required → true; the
-   rest → false). Same pattern in the pre-existing `ignoresClosedness` — tighten both in
-   one slice. Mechanical, but touches a hot enum → not a blind inline fix.
+1. **[SUPERSEDED by 2c.5] `FieldClass.producesOutput` wildcard.** The flat 6-variant enum
+   is gone — `FieldClass` is now orthogonal axes (`field isDef isHidden optionality` +
+   `letBinding`). `producesOutput`/`ignoresClosedness` are total over the new shape (a
+   present plain field / `isDefinition || isHidden`). The "new variant swallowed" risk no
+   longer applies the same way; the remaining wildcard in `producesOutput` (`_ => false`)
+   ranges over the finite optionality×def×hidden cube, all genuinely non-output. No action.
 
 2. **[LOW — type-system-first] `embeddedList.decls` invariant ("non-output fields only")
    is unenforced.** The field type `List (String × FieldClass × Value)` admits output
@@ -904,11 +904,18 @@ MEDIUM cleanups jump the queue ahead of the one thing gating the goal.
    push ONCE, eval. So `d & {a:1}` evaluates `{a: conj[int,1], b: a}` → `b: 1`. Fixtures:
    `meet_lazy_{sibling_ref,literal,incomplete,hidden_def,chain,disj_operand}` + export
    `def_meet_template` (reduced `packs.#Argo` shape — exports byte-identical to cue). 2c.1's
-   in-struct canonicalization handles dup labels; 2c.2 extends it across `&`. **Known gap (NOT
-   2c.2): optional-definition class.** `#x?` + `#x` won't merge — `FieldClass` can't represent
-   "optional definition", so `mergeFieldClass` rejects `optional`+`definition`; the `#x?` form
-   of the hidden-def case stays wrong. Own modeling slice (orthogonal optionality on
-   FieldClass). **2c.3:** nested sub-struct visibility — proven free (`meet_lazy_hidden_def`,
+   in-struct canonicalization handles dup labels; 2c.2 extends it across `&`. **2c.5 LANDED
+   (optional-definition class — the last real-file blocker):** `FieldClass` refactored from a
+   flat enum into orthogonal axes `field (isDefinition isHidden : Bool) (optionality :
+   Optionality)` + `letBinding` (a type-system-first fix — the flat enum admitted the illegal
+   "uncombineable" `optional`+`definition` state). Legacy ctor names kept as smart constructors
+   so the ~28-file blast radius collapses to 5 match sites (Manifest/Format/Eval/Normalize) +
+   `mergeFieldClass`, which now merges per-axis (OR def/hidden, meet optionality on a
+   present-dominates lattice). `#x?` (optional def), `#x!` (required def), `_x?` (optional
+   hidden) are now first-class and merge correctly: `#D: {#x?: string}; y: #D & {#x: "hi"}` →
+   `#x: "hi"` (eval), `{}` (export) — oracle-matched. Also fixed a flat-enum bug: `x? & x! = x!`
+   (was wrongly `_|_`). Full suite green, +6 theorems +2 fixture pairs. **2c.3:** nested
+   sub-struct visibility — proven free (`meet_lazy_hidden_def`,
    `def_meet_template` exercise 2–3 level nesting through def-meet). **2c.4:** `apps/argocd.cue`
    end-to-end — file not present on this machine; the reduced `packs.#Argo` def-meet templating
    shape is green, so the core path is unblocked. A fresh datestamped alpha is warranted.

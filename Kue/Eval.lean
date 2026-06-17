@@ -682,9 +682,10 @@ def listPairsFrom (index : Nat) : List Value -> List (Value × Value)
 def structPairs : List Field -> List (Value × Value)
   | [] => []
   | field :: fields =>
-      match Field.fieldClass field with
-      | .regular => (.prim (.string (Field.label field)), Field.value field) :: structPairs fields
-      | _ => structPairs fields
+      if Field.fieldClass field == .regular then
+        (.prim (.string (Field.label field)), Field.value field) :: structPairs fields
+      else
+        structPairs fields
 
 /-- The (key, value) iteration pairs a source produces, or `none` if it is not iterable. -/
 def comprehensionPairs : Value -> Option (List (Value × Value))

@@ -30,16 +30,13 @@ mutual
     | _ + 1, [] => .ok []
     | fuel + 1, field :: fields =>
         match Field.fieldClass field with
-        | .regular =>
+        | .field false false .regular =>
             match manifestWithFuel fuel (Field.value field), manifestFieldsWithFuel fuel fields with
             | .ok value, .ok rest => .ok ((Field.label field, value) :: rest)
             | .error error, _ => .error error
             | _, .error error => .error error
-        | .required => .error (.incomplete (Field.value field))
-        | .optional => manifestFieldsWithFuel fuel fields
-        | .hidden => manifestFieldsWithFuel fuel fields
-        | .definition => manifestFieldsWithFuel fuel fields
-        | .letBinding => manifestFieldsWithFuel fuel fields
+        | .field _ _ .required => .error (.incomplete (Field.value field))
+        | _ => manifestFieldsWithFuel fuel fields
 
   def manifestItemsWithFuel : Nat -> List Value -> Except ManifestError (List ManifestValue)
     | 0, _ => .error (.incomplete .top)

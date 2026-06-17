@@ -120,9 +120,27 @@ those forms.
   keep the eval-then-`meet` path unchanged. **Closedness is preserved exactly:** each closed
   conjunct (a definition normalizes to a closed struct) still rejects fields outside its
   declared labels (`#D & {extra}` → `extra` bottoms), folded identically to binary meet's
-  `applyStructClosedness`; the result of conjoining a closed def stays closed. **Known modeling
-  gap:** `#x?` (optional definition) does not merge with `#x` — `FieldClass` has no
-  "optional definition" variant, so `mergeFieldClass` rejects the pair. Orthogonal slice.
+  `applyStructClosedness`; the result of conjoining a closed def stays closed.
+- **Field modifiers are orthogonal axes (resolved the `#x?` gap).** `FieldClass` is no longer
+  a flat enum. It is `field (isDefinition isHidden : Bool) (optionality : Optionality)` plus a
+  distinct `letBinding` constructor, where `Optionality = regular | optional | required`. The
+  legacy names (`.regular`, `.optional`, `.required`, `.hidden`, `.definition`) survive as
+  smart constructors, so every existing construction/`==` site is unchanged; only the few
+  *match* sites (Manifest/Format/Eval/Normalize) and `mergeFieldClass` were rewritten to
+  operate per-axis. `mergeFieldClass` now ORs `isDefinition`/`isHidden` and meets optionality
+  on a lattice where a present (`regular`) conjunct dominates and discharges `required`
+  (`x! & x = x`), `required` dominates `optional` (`x! & x? = x!`), and `optional & optional`
+  stays optional — oracle-confirmed `cue v0.16.1`. This makes `#x?` (optional definition),
+  `#x!` (required definition), and `_x?` (optional hidden) first-class: `#D: {#x?: string}; y:
+  #D & {#x: "hi"}` merges `#x` to a present definition `"hi"` (eval), exports `{}` (definitions
+  are non-output). `producesOutput` is true only for a plain present field (`field false false
+  regular`) or a satisfied required field (`field false false required`), matching the prior
+  enum; `ignoresClosedness` is `isDefinition || isHidden` (so `#x?`/`_x?` ignore closedness on
+  the def/hidden axis regardless of optionality). The label string still carries the `#`/`_`
+  prefix, so `#x` and `x` are distinct labels and `mergeFieldClass` is only ever invoked for
+  same-prefix fields — the cross-prefix combinations the old enum rejected never actually
+  arise. **Note:** `mergeFieldClass`'s previous *rejection* of `optional & required` was a bug
+  the flat enum forced; oracle confirms `x? & x! = x!` (not `_|_`).
 - **In-module imports resolve (B3a).** A single file (or `export` file-mode) routes through
   the import-aware loader: `cue.mod/module.cue` is discovered by walking parent dirs, an
   import path `<module>` or `<module>/<subpath>` is resolved to the corresponding dir under

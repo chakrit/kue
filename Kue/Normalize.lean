@@ -48,7 +48,7 @@ mutual
   def normalizeFieldWithFuel : Nat -> Field -> Field
     | 0, field => field
     | fuel + 1, field =>
-        if Field.fieldClass field == .definition then
+        if FieldClass.isDefinition (Field.fieldClass field) then
           (Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field))
         else
           field

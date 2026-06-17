@@ -29,6 +29,16 @@ theorem parse_basic_document_resolves_references :
       "#Port: >=0 & <=65535\nport: 8080\nname: \"api\"" = true := by
   native_decide
 
+/-- An optional definition field (`#x?`) parses with both modifiers — definition and
+    optional — and meeting the definition against a provided `#x` merges the slot to a
+    present definition. Oracle: `cue v0.16.1` evals `y` to `{#x: "hi"}`. The flat-enum
+    parser dropped the definition-ness when it saw `?`, so this never merged. -/
+theorem parse_optional_definition_merges_when_provided :
+    parseOutputMatches
+      "#D: {#x?: string}\ny: #D & {#x: \"hi\"}\n"
+      "#D: {#x?: string}\ny: {#x: \"hi\"}" = true := by
+  native_decide
+
 theorem parse_compound_values_and_builtins :
     parseOutputMatches
       "xs: [1, \"x\"]\nmeta: {name: \"api\", n: len(xs)}\n"

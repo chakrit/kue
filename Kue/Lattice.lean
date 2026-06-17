@@ -438,19 +438,19 @@ def meetListPrefixTailWith
       | none => none
   | _ :: _, _, [] => none
 
+/-- Merge two field classes by composing each orthogonal axis: a `let` binding merges
+    only with another `let` binding; two real fields merge by OR-ing definition-ness,
+    OR-ing hidden-ness, and meeting on the presence lattice (`#x? & #x` → definition +
+    present; `x? & x!` → required; `_x? & _x` → hidden + present). A `let` and a non-`let`
+    do not merge (`none`), matching the old enum's refusal to combine `letBinding` with
+    any other class. -/
 def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
   match left, right with
-  | .regular, .regular => some .regular
-  | .optional, .regular => some .regular
-  | .regular, .optional => some .regular
-  | .required, .regular => some .regular
-  | .regular, .required => some .regular
-  | .optional, .optional => some .optional
-  | .required, .required => some .required
-  | .hidden, .hidden => some .hidden
-  | .definition, .definition => some .definition
   | .letBinding, .letBinding => some .letBinding
-  | _, _ => none
+  | .letBinding, _ => none
+  | _, .letBinding => none
+  | .field ld lh lo, .field rd rh ro =>
+      some (.field (ld || rd) (lh || rh) (lo.meet ro))
 
 def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : Field :=
   (label, fieldClass, value)

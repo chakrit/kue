@@ -258,16 +258,14 @@ def parseLabel : List Char -> ParseResult String
   | chars => parseIdentifier chars
 
 def parseFieldClass (label : String) (chars : List Char) : FieldClass × List Char :=
-  match skipTrivia chars with
-  | '?' :: rest => (.optional, rest)
-  | '!' :: rest => (.required, rest)
-  | rest =>
-      if label.startsWith "#" then
-        (.definition, rest)
-      else if label.startsWith "_" then
-        (.hidden, rest)
-      else
-        (.regular, rest)
+  let (optionality, rest) :=
+    match skipTrivia chars with
+    | '?' :: rest => (Optionality.optional, rest)
+    | '!' :: rest => (Optionality.required, rest)
+    | rest => (Optionality.regular, rest)
+  let isDefinition := label.startsWith "#"
+  let isHidden := !isDefinition && label.startsWith "_"
+  (.field isDefinition isHidden optionality, rest)
 
 def parseKindName? : String -> Option Kind
   | "null" => some .null

@@ -104,12 +104,14 @@ mutual
         let label := formatFieldLabel (Field.label field)
         let value := formatValueWithFuel fuel (Field.value field)
         match Field.fieldClass field with
-        | .regular => some s!"{label}: {value}"
-        | .optional => some s!"{label}?: {value}"
-        | .required => some s!"{label}!: {value}"
-        | .hidden => some s!"{label}: {value}"
-        | .definition => some s!"{label}: {value}"
         | .letBinding => none
+        | .field _ _ optionality =>
+            let suffix :=
+              match optionality with
+              | .optional => "?"
+              | .required => "!"
+              | .regular => ""
+            some s!"{label}{suffix}: {value}"
 
   def formatStructFieldsWithFuel : Nat -> List Field -> List String
     | 0, _ => ["..."]
@@ -206,10 +208,10 @@ mutual
         "\"\\(" ++ joinWith ")\\(" (parts.map (formatValueWithFuel fuel)) ++ ")\""
     | fuel + 1, .dynamicField label fieldClass value =>
         let suffix :=
-          match fieldClass with
+          match FieldClass.optionality fieldClass with
           | .optional => "?"
           | .required => "!"
-          | _ => ""
+          | .regular => ""
         "(" ++ formatValueWithFuel fuel label ++ ")" ++ suffix ++ ": " ++ formatValueWithFuel fuel value
 
   def formatClauseWithFuel : Nat -> Clause Value -> String

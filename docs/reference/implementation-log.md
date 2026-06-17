@@ -5175,3 +5175,64 @@ already resolved within their conjunct at resolve-time, so unresolved refs stay 
 theorems in `EvalTests` pinning the full evaluated struct for the sibling-ref, literal, chain,
 and hidden-def cases. FULL existing suite + all existing theorems pass UNCHANGED. Verify gate
 green: `lake build`, `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.
+
+## Completed Slice: Optional-definition fields — orthogonal `FieldClass` (2c.5)
+
+**Problem (type-system-first finding).** `#x?` (an optional definition field) could not merge
+with a provided `#x`: `FieldClass` was a flat enum (`regular | optional | required | hidden |
+definition | letBinding`) that admits no "optional AND definition" state. `mergeFieldClass`
+returned `none` for `optional`+`definition`, so `#D: {#x?: string}; y: #D & {#x: "hi"}` left the
+two `#x` slots unmerged. In CUE these are **orthogonal** modifiers — a field independently
+is/isn't a definition, is/isn't hidden, and sits on a presence rung — so the flat enum was the
+illegal-state-admitting design (`docs/guides/slice-loop.md` philosophy). The last real-file
+blocker after 2c.2.
+
+**Decision: Option B (orthogonal refactor), enabled by smart constructors.** Blast radius of the
+*representation* change is ~28 files (every test constructs `.hidden`/`.regular`/… literally),
+but only 5 sites *match* on the class (`Manifest`/`Format`/`Eval.structPairs`/`Normalize` +
+`mergeFieldClass`). Keeping the legacy names as `def`s (smart constructors over the new
+structure) leaves all construction/`==` sites compiling unchanged, so the real edit is just the
+5 match sites — making B tractable and on-philosophy. Chose B over the minimal "add an
+`optionalDefinition` variant" (A), which would re-create the can't-compose problem on the next
+axis pair.
+
+**Encoding.** `inductive Optionality | regular | optional | required` with a `meet` lattice
+(present `regular` dominates and discharges `required`; `required` dominates `optional`;
+`optional & optional` stays optional). `inductive FieldClass | field (isDefinition isHidden :
+Bool) (optionality : Optionality) | letBinding` — `letBinding` stays a distinct constructor (a
+`let` is not a field and composes with nothing), so the field axes never encode a non-field.
+Smart ctors: `.regular = field false false regular`, `.optional`/`.required` shift optionality,
+`.hidden = field false true regular`, `.definition = field true false regular`.
+`ignoresClosedness = isDefinition || isHidden` (so `#x?`/`_x?` ignore closedness regardless of
+presence); `producesOutput` true only for `field false false regular` and `field false false
+required` (preserving the old enum's regular/required→output). `mergeFieldClass` ORs def/hidden
+and meets optionality; `letBinding` merges only with `letBinding`.
+
+**What it fixes (oracle-confirmed, cue v0.16.1).** `#D: {#x?: string}; y: #D & {#x: "hi"}` →
+`#x: "hi"` present definition (eval), `y` exports `{}` (definitions non-output);
+`y.#x` selects `"hi"`. `_x?` + `_x: 5` → `_x` present, selects `5`. `#y!` + `#y: 3` → present
+(required discharged by the regular conjunct). An optional non-def and a definition behave
+exactly as before. Also corrected a **flat-enum bug**: `{a?: int} & {a!: int}` is `a!` (required,
+not present), NOT `_|_` — the old `mergeFieldClass` wrongly bottomed `optional & required`. Two
+test fixtures encoded the old bug (`meet_unsupported_field_class_combination_bottoms_struct`,
+and an artificial same-string `"same"`/`"same"` label collision in
+`eval_binding_id_not_label_lookup`); both rewritten to the oracle-correct behavior (the second
+to realistic distinct `#same`/`same` labels, since the parser always keeps the `#`/`_` prefix in
+the label string — `#x` and `x` are distinct labels and never collide, so `mergeFieldClass` is
+only ever called for same-prefix fields).
+
+**Parser.** `parseFieldClass` now reads `?`/`!` into an `Optionality` and the `#`/`_` label
+prefix into `isDefinition`/`isHidden` independently, instead of the `?`/`!` short-circuit that
+dropped definition-ness. `#x?` → `field true false optional`. `#_x` → definition (def-prefix
+wins over `_`), matching cue.
+
+**Tests.** +6 theorems (`StructTests`: `meet_optional_with_required_yields_required`,
+`meet_optional_definition_with_provided_definition`, `meet_optional_hidden_with_provided_hidden`,
+`meet_required_definition_discharged_by_value`, `optional_definition_axes`,
+`optionality_meet_lattice`; `ParseTests`: `parse_optional_definition_merges_when_provided`).
++2 fixture pairs: CLI `optional_definition_field.{cue,expected}` (+ FixturePort, parse-driven)
+and export `optional_definition_field.{cue,json}` (byte-identical to `cue export`). 688 theorems
+total; FULL existing suite passes UNCHANGED. Verify gate green: `lake build`,
+`scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean. `def_meet_template` still
+byte-identical. Reduced argo-like optional-def shape (`#meta?` + nested `dest?`) now exports
+byte-identical to cue.
