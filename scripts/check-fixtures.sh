@@ -124,6 +124,11 @@ check_cli_fixture_outputs() {
 # Drive the `kue export` CLI mode over every `testdata/export/*.cue` for each committed
 # `<stem>.yaml` / `<stem>.json` expected output (byte-for-byte matching `cue export`),
 # wholly separate from the internal-format CLI path above so it never perturbs it.
+#
+# A fixture stem may carry a sidecar `<stem>.args` file (one extra `kue export` argument
+# per line) — e.g. an `-e` field-path selector. Its args are passed before `--out` and the
+# source file, so the committed `<stem>.json`/`<stem>.yaml` must be the
+# `cue export <args> --out <fmt> <file>` oracle output. Stems without `.args` run unchanged.
 check_export_fixtures() {
   local kue_exe="${repo_root}/.lake/build/bin/kue"
   local status=0
@@ -131,6 +136,9 @@ check_export_fixtures() {
   local stem
   local cue_file
   local out_format
+  local args_file
+  local extra_args
+  local arg
 
   if [[ ! -d "${export_dir}" ]]; then
     return 0
@@ -150,7 +158,17 @@ check_export_fixtures() {
       continue
     fi
 
-    if ! diff -u "${expected_file}" <("${kue_exe}" export --out "${out_format}" "${cue_file}"); then
+    extra_args=()
+    args_file="${stem}.args"
+    if [[ -f "${args_file}" ]]; then
+      while IFS= read -r arg; do
+        [[ -z "${arg}" ]] && continue
+        extra_args+=("${arg}")
+      done <"${args_file}"
+    fi
+
+    if ! diff -u "${expected_file}" \
+      <("${kue_exe}" export ${extra_args[@]+"${extra_args[@]}"} --out "${out_format}" "${cue_file}"); then
       status=1
     fi
   done
@@ -327,6 +345,18 @@ check_cli_behavior() {
   elif [[ "$("${kue_exe}" export --out bogus 2>&1 1>/dev/null)" != *"unsupported --out format"* ]]; then
     printf 'kue export --out bogus did not report a format error on stderr\n' >&2
     status=1
+  fi
+
+  # `-e` selecting a missing field → eval error (exit 1) with a "not found" diagnostic.
+  local select_fixture="${export_dir}/select_common.cue"
+  if [[ -f "${select_fixture}" ]]; then
+    if "${kue_exe}" export -e nope_missing "${select_fixture}" >/dev/null 2>&1; then
+      printf 'kue export -e nope_missing unexpectedly succeeded\n' >&2
+      status=1
+    elif [[ "$("${kue_exe}" export -e nope_missing "${select_fixture}" 2>&1 1>/dev/null)" != *"not found"* ]]; then
+      printf 'kue export -e nope_missing did not report a not-found error on stderr\n' >&2
+      status=1
+    fi
   fi
 
   return "${status}"

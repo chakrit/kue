@@ -5513,3 +5513,57 @@ int and float, matching cue), decimal bound literals parse, and `int & >0` stays
 `.expected` changed** — no committed fixture exercised the over-strict bare-bound path;
 the 3 new fixtures are net-new), `shellcheck scripts/check-fixtures.sh` clean. Every
 probed oracle case matches cue v0.16.1 via the kue CLI.
+
+---
+
+## Completed Slice: `kue export -e <expr>` Expression Selector
+
+**Intended behavior:** `kue export -e <path> <file>` (or `--expression`) evaluates the
+input, selects the dotted field path from the root, and exports just that value (no
+`{name: …}` wrapper) — byte-matching `cue export -e` for both JSON (default) and `--out
+yaml`. Works in file mode and stdin mode. Closes Phase-B-audit item 1, the
+highest-leverage real-file export unblock.
+
+### Changes
+
+1. `Kue/Cli.lean`: `ExportOpts` gains `expr : Option String`. `parseExport` gains a fourth
+   curried arg and arms for `-e <v>` / `--expression <v>` (each `-e`/`--expression` with no
+   value → `.error "missing value for -e"` / `…--expression`). `parse`'s `export` dispatch
+   passes the new `expr := none`. Export help text documents the flag. `parse` stays
+   total/exhaustive.
+
+2. `Kue/Runtime.lean`: `lookupField?` (struct-variant field lookup distinguishing absence
+   from presence, reusing `findEvalField`); `selectExprPath` walks the path, calling
+   `resolveAndEval` between segments so a nested field's refs bind before the next lookup,
+   and errors `reference "<seg>" not found` on a missing segment; `parseExprPath` splits on
+   `.` and rejects empty segments (malformed path → `invalid -e expression`);
+   `exportValueSelecting` ties parse+select+`exportValue` together.
+
+3. `Main.lean`: `exportBoundValue` routes a bound value through `exportValueSelecting` when
+   `opts.expr` is set, else the unchanged `exportValue`. `runExport`'s stdin path inlined to
+   `parseSources`/`checkSourcePackageNames`/`mergeSourceValues` so the selector applies to
+   the stdin root too (the whole-file stdin behavior is byte-identical when no `-e`).
+
+4. Tests/fixtures: 7 new `CliTests.lean` theorems (`-e`/`--expression` short+long, with
+   `--out yaml`, stdin, two missing-value errors). New export fixture
+   `testdata/export/select_common.{cue,args,json,yaml}` — an `.args` sidecar convention
+   (one arg per line, here `-e\ncommon`) passed by `check_export_fixtures` before
+   `--out`/file; oracle outputs are `cue export -e common …`. New `check_cli_behavior`
+   assertion: `-e nope_missing` exits non-zero with a "not found" stderr diagnostic.
+
+### Scope / deferrals
+
+Dotted field paths only (`common`, `a.b.c`). Deferred (each a clean later add): index/slice
+selectors (`a[0]`), repeated `-e` → multi-doc output, arbitrary CUE expressions as the
+selector. Recorded in compat-assumptions.
+
+### Verify
+
+`lake build` (84 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok` (no existing
+fixture changed; net-new `select_common` pair + CLI-behavior assertion),
+`shellcheck scripts/check-fixtures.sh` clean. Oracle (cue v0.16.1): `-e common`,
+`-e common.nested.a.b`, scalar `-e common.name`, `--out yaml`, missing→exit1,
+incomplete→exit1, stdin — all match. **Real prod9 (read-only):**
+`hatari/infra/apps/common.cue` `kue export -e common` and `-e common.domains` JSON-match
+`cue` exactly. Pre-existing (non-`-e`) YAML divergence noted: kue quotes dotted-numeric
+strings (`"34.142.159.249"`) where cue emits bare; JSON matches.

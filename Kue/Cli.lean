@@ -4,10 +4,12 @@ namespace Kue.Cli
 
 open Kue (ExportFormat)
 
-/-- Options for the `export` subcommand: the output encoding and the optional input file
+/-- Options for the `export` subcommand: the output encoding, an optional `-e`
+    field-path selector (`none` = export the whole root), and the optional input file
     (none = read stdin). Mirrors the historical `parseExportArgs` shape. -/
 structure ExportOpts where
   format : ExportFormat
+  expr : Option String
   file : Option String
 deriving Repr, BEq, DecidableEq
 
@@ -33,22 +35,27 @@ deriving Repr, BEq, DecidableEq
     default. A bare positional argument is the input file; absence means stdin. Only the
     first positional is taken as the file; trailing positionals are ignored, matching the
     historical parser. -/
-def parseExport (format : ExportFormat) (file : Option String) : List String -> Command
-  | [] => .export { format, file }
+def parseExport (format : ExportFormat) (expr file : Option String) :
+    List String -> Command
+  | [] => .export { format, expr, file }
   | "--help" :: _ => .help (some .export)
   | "-h" :: _ => .help (some .export)
-  | "--out" :: "json" :: rest => parseExport .json file rest
-  | "--out" :: "yaml" :: rest => parseExport .yaml file rest
+  | "--out" :: "json" :: rest => parseExport .json expr file rest
+  | "--out" :: "yaml" :: rest => parseExport .yaml expr file rest
   | "--out" :: other :: _ =>
       .error s!"unsupported --out format: {other} (expected json or yaml)"
   | "--out" :: [] => .error "missing value for --out"
+  | "-e" :: value :: rest => parseExport format (some value) file rest
+  | "-e" :: [] => .error "missing value for -e"
+  | "--expression" :: value :: rest => parseExport format (some value) file rest
+  | "--expression" :: [] => .error "missing value for --expression"
   | arg :: rest =>
       if arg.startsWith "-" then
         .error s!"unknown export flag: {arg}"
       else
         match file with
-        | none => parseExport format (some arg) rest
-        | some _ => parseExport format file rest
+        | none => parseExport format expr (some arg) rest
+        | some _ => parseExport format expr file rest
 
 /-- Validate the positional arguments to `eval`: every argument is a file path; a flag-like
     token (leading `-`, other than the recognized help flags handled by the caller) is a
@@ -69,7 +76,7 @@ def parseEval : List String -> Command
 def parse : List String -> Command
   | [] => .eval []
   | "eval" :: rest => parseEval rest
-  | "export" :: rest => parseExport .json none rest
+  | "export" :: rest => parseExport .json none none rest
   | "version" :: _ => .version
   | "--version" :: _ => .version
   | "-V" :: _ => .version
@@ -117,13 +124,15 @@ def exportHelp : String :=
   "kue export — manifest a concrete value and serialize it
 
 Usage:
-  kue export [--out json|yaml] [file]
+  kue export [--out json|yaml] [-e expr] [file]
 
 With no file argument, reads CUE from stdin. Emits the manifested value as JSON (the
-default) or YAML, byte-compatible with `cue export`.
+default) or YAML, byte-compatible with `cue export`. With `-e`, exports only the value at
+the given dotted field path (e.g. `-e common` or `-e a.b.c`) instead of the whole root.
 
 Flags:
-  --out json|yaml          output format (default: json)"
+  --out json|yaml          output format (default: json)
+  -e, --expression expr    export the value at field path expr (e.g. common.name)"
 
 /-- Resolve a help request to its usage text. -/
 def helpText : Option HelpTopic -> String

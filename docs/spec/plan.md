@@ -390,12 +390,12 @@ oracle-compared with `cue`. **Verdict: the engine semantics are essentially met;
 remaining gaps are CLI/loader features, not constraint-solving gaps.** Three blockers, in
 bite order:
 
-1. **No `-e <expr>` expression selector.** `kue export` takes a single file or stdin and
-   manifests the whole top-level struct. Real usage is `cue export ./apps -e argocd`. On a
-   self-contained file (`hatari/infra/apps/common.cue`, no imports) kue exports correctly
-   and matches cue's STRUCTURE — the only diff is kue emits the `common: {…}` wrapper where
-   `cue -e common` strips it. That is the missing `-e`, NOT a semantic divergence. **This is
-   the next concrete real-file blocker.**
+1. **`-e <expr>` expression selector — DONE (2026-06-17).** `kue export -e <path>` now
+   selects a dotted field path from the root before manifesting, byte-matching `cue export
+   -e` (json + yaml). Verified on `hatari/infra/apps/common.cue`: `kue export -e common`
+   (and `-e common.domains`) JSON-matches cue exactly. Field-path scope only (no indices /
+   repeated `-e` / arbitrary expressions — deferred, see compat-assumptions). See breadcrumb
+   `docs/notes/2026-06-17-export-expr-selector-landed.md`.
 2. **No multi-file package merge.** `kue export apps/argocd.cue` returns `⊥` because the
    file's definitions span sibling files in the same package (`dev.cue` etc.); kue exports
    one file, not a package dir. `cue export ./apps` merges the dir.
@@ -422,12 +422,11 @@ package-dir merge + registry fetch (items 5–6) are larger loader slices — sc
 only if chakrit wants full `cue export ./apps` parity; the `-e`-on-single-file path already
 demonstrates real-file viability.
 
-1. **[HIGH — real-file reach, NEW] `kue export -e <expr>` expression selector.** Add an
-   expression-path flag to `export` (and `eval`): after manifesting the top-level struct,
-   select the named field (`-e argocd` → the `argocd` value, stripping the wrapper), dotted
-   paths (`-e a.b`) as a stretch. Mirrors `cue export -e`. Pure `Runtime`/`Cli` work — no
-   lattice change. This is the one slice that turns a self-contained real file into a
-   cue-matching export. Smallest path to "kue exports a real apps file".
+1. **[DONE 2026-06-17] `kue export -e <expr>` expression selector.** Landed: `-e` /
+   `--expression` parse into `ExportOpts.expr`; selection walks the dotted path via
+   `Runtime.selectExprPath` (reuses `findEvalField`, resolves between segments) before
+   manifest. Field-path scope; indices / repeated-`-e` / arbitrary expressions deferred.
+   Real-file proof: `hatari/infra/apps/common.cue` `-e common` exports cue-identically (JSON).
 2. **[MEDIUM — `Kue/` source-dir organization, chakrit-flagged] tests-out reorg (2c).**
    Move the ~14 `*Tests.lean` + `FixturePorts.lean` into `Kue/Tests/` via a `Kue/Tests.lean`
    aggregator; split the oversized ones (`FixturePorts` 2314 / `FixtureTests` 1033 /

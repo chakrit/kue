@@ -64,9 +64,19 @@ def runEval : List String -> IO UInt32
       let sources ← readFileSources paths
       printEvalResult (Kue.evalSourcesToString sources)
 
-/-- The `export` subcommand: read a single CUE input (file or stdin), evaluate it, and
-    print the manifested value as JSON (default) or YAML, matching `cue export`. File mode
-    routes through the import-aware loader; stdin mode has no module context. -/
+/-- Manifest a bound value to output, honoring an optional `-e` field-path selector. With
+    a selector, a missing/invalid path is a clean error; without one, the whole root is
+    exported as before. -/
+def exportBoundValue (opts : Kue.Cli.ExportOpts) (value : Kue.Value) :
+    Except String String :=
+  match opts.expr with
+  | some expr => Kue.exportValueSelecting opts.format expr value
+  | none => Kue.exportValue opts.format value
+
+/-- The `export` subcommand: read a single CUE input (file or stdin), evaluate it, apply an
+    optional `-e` field-path selector, and print the manifested value as JSON (default) or
+    YAML, matching `cue export`. File mode routes through the import-aware loader; stdin
+    mode has no module context. -/
 def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
   match opts.file with
   | some path =>
@@ -75,7 +85,7 @@ def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
           IO.eprintln s!"kue: {message}"
           pure evalErrorCode
       | .ok value =>
-          match Kue.exportValue opts.format value with
+          match exportBoundValue opts value with
           | .error message =>
               IO.eprintln s!"kue: export error: {message}"
               pure evalErrorCode
@@ -85,16 +95,23 @@ def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
   | none =>
       let stdin ← IO.getStdin
       let source ← stdin.readToEnd
-      match Kue.exportSourcesToString opts.format [source] with
+      match Kue.parseSources [source] with
       | .error parseError =>
           IO.eprintln s!"kue: parse error: {parseError.line}:{parseError.column}: {parseError.message}"
           pure evalErrorCode
-      | .ok (.error message) =>
-          IO.eprintln s!"kue: export error: {message}"
-          pure evalErrorCode
-      | .ok (.ok output) =>
-          IO.print output
-          pure 0
+      | .ok values =>
+          match Kue.checkSourcePackageNames [source] with
+          | .error parseError =>
+              IO.eprintln s!"kue: parse error: {parseError.line}:{parseError.column}: {parseError.message}"
+              pure evalErrorCode
+          | .ok _ =>
+              match exportBoundValue opts (Kue.mergeSourceValues values) with
+              | .error message =>
+                  IO.eprintln s!"kue: export error: {message}"
+                  pure evalErrorCode
+              | .ok output =>
+                  IO.print output
+                  pure 0
 
 def runCommand : Kue.Cli.Command -> IO UInt32
   | .eval files => runEval files

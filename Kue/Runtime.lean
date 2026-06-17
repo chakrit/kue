@@ -75,6 +75,38 @@ def formatManifestError : ManifestError -> String
   | .incomplete value => s!"incomplete value: {formatValue value}"
   | .ambiguous _ => "ambiguous value: multiple non-default disjuncts remain"
 
+/-- Look up a field by label on a resolved struct-like value, returning its value when
+    present. Mirrors the struct cases of `selectEvaluatedField` but distinguishes a genuine
+    absence (`none`) from a present field, so the `-e` selector can report a clean
+    "field not found" rather than silently exporting bottom. -/
+def lookupField? (base : Value) (label : String) : Option Value :=
+  match base with
+  | .struct fields _ => (findEvalField label fields).map Field.value
+  | .structTail fields _ => (findEvalField label fields).map Field.value
+  | .structPattern fields _ _ _ => (findEvalField label fields).map Field.value
+  | .structPatterns fields _ _ => (findEvalField label fields).map Field.value
+  | .embeddedList _ _ decls => (findEvalField label decls).map Field.value
+  | _ => none
+
+/-- Evaluate `-e` field-path selection against an already-bound root value. Splits the
+    expression on `.` and walks each segment, resolving/evaluating between steps so a
+    nested field's own references are bound before the next lookup. A missing segment is a
+    clean error mirroring `cue export -e`'s `reference "<seg>" not found`. Scope: dotted
+    field paths only (no indices, slices, or arbitrary expressions). -/
+def selectExprPath (root : Value) : List String -> Except String Value
+  | [] => .ok root
+  | segment :: rest =>
+      let resolved := resolveAndEval root
+      match lookupField? resolved segment with
+      | some value => selectExprPath value rest
+      | none => .error s!"reference \"{segment}\" not found"
+
+/-- Split a dotted `-e` expression into its path segments. An empty segment (leading,
+    trailing, or doubled dot) is a malformed path and yields `none`. -/
+def parseExprPath (expr : String) : Option (List String) :=
+  let segments := expr.splitOn "."
+  if segments.any (·.isEmpty) then none else some segments
+
 /-- Manifest and serialize an already-bound value in the chosen format. Shared by the
     source-list export path and the import-aware loader, which supplies a value whose
     imports are already resolved and bound. -/
@@ -85,6 +117,17 @@ def exportValue (format : ExportFormat) (value : Value) : Except String String :
     | .json => valueToJsonPretty resolved
     | .yaml => valueToYaml resolved
   serialized.mapError formatManifestError
+
+/-- Like `exportValue`, but first selects the dotted field-path `expr` from the root (the
+    `kue export -e <expr>` path). A malformed path or a missing segment is a clean error;
+    a present-but-incomplete selection falls through to the usual manifest error. -/
+def exportValueSelecting (format : ExportFormat) (expr : String) (value : Value) :
+    Except String String := do
+  match parseExprPath expr with
+  | none => .error s!"invalid -e expression: {expr}"
+  | some segments =>
+      let selected ← selectExprPath value segments
+      exportValue format selected
 
 /-- Resolve, evaluate, manifest, and serialize the merged sources in the chosen format.
     Returns a positioned `ParseError` on parse failure (caught upstream by the CLI) or a

@@ -172,6 +172,23 @@ those forms.
   trailing-comma robustness. Real prod9 grouped imports parse fine today, so this stays
   parked. The stdin and multi-file CLI paths still discard imports (pre-B3a behavior), so a
   stdin file with a non-builtin import is unaffected.
+- **`export -e <expr>` field-path selector — IMPLEMENTED (2026-06-17), oracle-matched.**
+  `kue export -e <path>` (or `--expression`) selects a dotted field path from the
+  evaluated root and exports just that value, with no `{name: …}` wrapper — byte-matching
+  `cue export -e` (json default + `--out yaml`). Works in both file mode and stdin mode.
+  Selection walks the path via `Runtime.selectExprPath`, resolving/evaluating between
+  segments so a nested field's own refs bind before the next lookup. A missing segment
+  errors with `reference "<seg>" not found` and exit 1 (mirrors `cue`); a
+  present-but-incomplete selection falls through to the usual `incomplete value …` manifest
+  error. **Scope: dotted field paths only** (`common`, `a.b.c`). **Deferred** (not yet
+  needed for real prod9 apps, each a clean add when wanted): index/slice selectors
+  (`a[0]`), repeated `-e` → multi-document output (`cue` emits one doc per `-e`), and
+  arbitrary CUE expressions as the selector (`cue` evaluates `-e` in the root scope, so
+  e.g. `-e 'a.b & {x:1}'` works there). A malformed path (empty segment from a
+  leading/trailing/doubled dot) is a clean `invalid -e expression` error, not a crash.
+  **CUE divergence noted (pre-existing, not `-e`):** kue's YAML serializer quotes a string
+  that looks dotted-numeric (`"34.142.159.249"`) where `cue` emits it bare; JSON matches
+  exactly. Same on a whole-file `--out yaml` — independent of the selector.
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.

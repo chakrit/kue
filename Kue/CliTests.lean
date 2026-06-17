@@ -13,20 +13,50 @@ theorem parse_eval_subcommand : parse ["eval", "a.cue"] = .eval ["a.cue"] := by 
 
 theorem parse_eval_stdin : parse ["eval"] = .eval [] := by native_decide
 
-theorem parse_export_default : parse ["export"] = .export { format := .json, file := none } := by
+theorem parse_export_default :
+    parse ["export"] = .export { format := .json, expr := none, file := none } := by
   native_decide
 
 theorem parse_export_yaml :
-    parse ["export", "--out", "yaml"] = .export { format := .yaml, file := none } := by
+    parse ["export", "--out", "yaml"]
+      = .export { format := .yaml, expr := none, file := none } := by
   native_decide
 
 theorem parse_export_json_file :
     parse ["export", "--out", "json", "x.cue"]
-      = .export { format := .json, file := some "x.cue" } := by
+      = .export { format := .json, expr := none, file := some "x.cue" } := by
   native_decide
 
 theorem parse_export_file_only :
-    parse ["export", "x.cue"] = .export { format := .json, file := some "x.cue" } := by
+    parse ["export", "x.cue"]
+      = .export { format := .json, expr := none, file := some "x.cue" } := by
+  native_decide
+
+theorem parse_export_expr_short :
+    parse ["export", "-e", "foo", "f.cue"]
+      = .export { format := .json, expr := some "foo", file := some "f.cue" } := by
+  native_decide
+
+theorem parse_export_expr_long :
+    parse ["export", "--expression", "a.b.c", "f.cue"]
+      = .export { format := .json, expr := some "a.b.c", file := some "f.cue" } := by
+  native_decide
+
+theorem parse_export_expr_with_out_yaml :
+    parse ["export", "-e", "common", "--out", "yaml", "f.cue"]
+      = .export { format := .yaml, expr := some "common", file := some "f.cue" } := by
+  native_decide
+
+theorem parse_export_expr_stdin :
+    parse ["export", "-e", "foo"]
+      = .export { format := .json, expr := some "foo", file := none } := by
+  native_decide
+
+theorem parse_export_expr_missing_value_is_error :
+    parse ["export", "-e"] = .error "missing value for -e" := by native_decide
+
+theorem parse_export_expression_missing_value_is_error :
+    parse ["export", "--expression"] = .error "missing value for --expression" := by
   native_decide
 
 theorem parse_version_subcommand : parse ["version"] = .version := by native_decide
