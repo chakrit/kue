@@ -262,7 +262,7 @@ theorem fixture_and_or_builtin :
     formatTopLevel
       (.struct
         [
-          ("andValue", .regular, andValues [.kind .int, .boundConstraint 0 .gt, .prim (.int 7)]),
+          ("andValue", .regular, andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)]),
           ("orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")])
         ]
         true)
@@ -797,7 +797,7 @@ theorem fixture_regex_bounded_repetition_pattern :
 theorem fixture_int_bounds :
     formatField "x"
       (meet
-        (meet (.boundConstraint 0 .ge) (.boundConstraint 10 .le))
+        (meet (.boundConstraint (intDecimal 0) .ge .number) (.boundConstraint (intDecimal 10) .le .number))
         (.prim (.int 7)))
       = "x: 7" := by
   native_decide
@@ -805,13 +805,13 @@ theorem fixture_int_bounds :
 theorem fixture_strict_int_bounds :
     formatField "x"
       (meet
-        (meet (.boundConstraint 0 .gt) (.boundConstraint 10 .lt))
+        (meet (.boundConstraint (intDecimal 0) .gt .number) (.boundConstraint (intDecimal 10) .lt .number))
         (.prim (.int 7)))
       = "x: 7" := by
   native_decide
 
 theorem fixture_int_bound_disjunction :
-    formatField "x" (join (.boundConstraint 5 .ge) (.boundConstraint 0 .ge)) = "x: >=0" := by
+    formatField "x" (join (.boundConstraint (intDecimal 5) .ge .number) (.boundConstraint (intDecimal 0) .ge .number)) = "x: >=0" := by
   native_decide
 
 theorem fixture_primitive_exclusion :
@@ -835,7 +835,7 @@ theorem fixture_number_disjunction :
   native_decide
 
 theorem fixture_number_int_bound :
-    formatField "x" (meet (meet (.kind .number) (.boundConstraint 0 .ge)) (.prim (.int 7))) = "x: 7" := by
+    formatField "x" (meet (meet (.kind .number) (.boundConstraint (intDecimal 0) .ge .number)) (.prim (.int 7))) = "x: 7" := by
   native_decide
 
 theorem fixture_open_list_tail :
@@ -954,8 +954,8 @@ theorem fixture_constrained_reference_cycle :
       (resolveAndEval
         (.struct
           [
-            ("x", .regular, .conj [.ref "x", .boundConstraint 0 .ge]),
-            ("a", .regular, .conj [.ref "b", .boundConstraint 0 .ge]),
+            ("x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number]),
+            ("a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number]),
             ("b", .regular, .ref "a")
           ]
           true))

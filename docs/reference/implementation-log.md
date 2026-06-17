@@ -5460,3 +5460,56 @@ changed** — the canonical sort matched cue's existing kind-first display order
 observable fixture, so behavior-preserving held end-to-end), `shellcheck
 scripts/check-fixtures.sh` clean.
 
+
+## Completed Slice: Decimal/Domain-Tagged Bound Semantics (item 2b)
+
+Closed the last known bound divergence: a bare `>0` is now a *number* bound (admits both
+int and float, matching cue), decimal bound literals parse, and `int & >0` stays int-only.
+
+### What changed
+
+1. `Kue/Value.lean`: `boundConstraint` widened from `(bound : Int) (kind : BoundKind)` to
+   `(bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)`. New `NumberDomain =
+   number | int | float` (a proper sum — `kind`/`admitsKind`/`narrow`/`rank` helpers).
+   `BoundKind.admits` now compares `DecimalValue`s via `decimalLeValues`/`decimalLtValues`
+   (exact base-10 rational order, no float rounding). To let `Value` carry a `DecimalValue`,
+   moved the decimal struct + its parse/compare/format helpers (`DecimalValue`, `evalPow10`,
+   `maxNat`, `scaleDecimalNumerator`, `decimalCompare/Eq/Lt/LeValues`, the
+   `parseDecimalText` chain, `trimDecimalZerosWith`→`formatFiniteDecimal`,
+   `decimalFromPrim?`) from `Decimal.lean` into `Value.lean`; `Decimal.lean` keeps the
+   arithmetic/division layer and re-uses them via the existing `import Kue.Value`. Added
+   `intDecimal`, `formatBoundLimit`.
+
+2. `Kue/Lattice.lean`: `meetBoundPrim`/`meetRangePrim` gate on the bound's `domain`
+   (`domain.admitsKind (Prim.kind prim)`) then decimal-compare; `tightenSameSide`/
+   `rangeFeasible`/`meetTwoBounds` over decimal limits (`meetTwoBounds` also narrows the two
+   domains). `meetKindWithIntBound` → `meetKindWithBound`: `int`/`float` retain the kind
+   conjunct (the load-bearing guard) WITHOUT narrowing the bound's domain — leaving the
+   bound at `number` keeps meet commutative (a pairwise-reduced range can't narrow every
+   member uniformly, and need not: the kept kind conjunct guards them all). `number` drops.
+   `conjMemberKey`/`conjKeyLe` → `conjMemberLe` (a direct value comparator: bounds of equal
+   kind compare by `decimalLeValues`, so different scales order correctly). `join` bound arm
+   over decimals + domain. Removed now-dead `minInt`/`maxInt`.
+
+3. `Kue/Parse.lean`: `parseIntBoundValue` → `parseBoundValue`, parses the limit via
+   `parseDecimalText` (so `>0.5`/`>-1.5`/`<3.14` parse), domain defaults to `number`.
+   `Kue/Format.lean`: bound arm prints `kind.symbol ++ formatBoundLimit bound`.
+   `Kue/Order.lean`: `boundSubsumesBound` over decimals; the `.boundConstraint .prim` arm
+   gates on `domain.admitsKind` + decimal-compares. `Kue/Manifest.lean`, `Kue/Eval.lean`
+   (`valueTag`) + all test/example refs migrated (`.boundConstraint N kind` →
+   `.boundConstraint (intDecimal N) kind .number`).
+
+4. Tests/fixtures: 7 new `BoundTests.lean` theorems (bare-bound-admits-float,
+   int-bound-rejects-float, float-bound-rejects-int, decimal-bound admits/rejects, decimal
+   format, negative-decimal bound). 3 new fixtures (`bounds/number_bound_float` `>0 & 1.5`
+   → `1.5`, `bounds/decimal_bound_float` `>0.5 & 1.0` → `1.0`, `bounds/number_range_float`
+   `>=0 & <=10 & 5.5` → `5.5`), all cue-oracle-confirmed (v0.16.1). Pre-2b int-domain
+   expectations (e.g. `int & >0`) left at `.number` domain — unchanged in value, since the
+   kind conjunct (not the bound domain) does the narrowing.
+
+### Verify
+
+`lake build` (84 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok` (**no existing
+`.expected` changed** — no committed fixture exercised the over-strict bare-bound path;
+the 3 new fixtures are net-new), `shellcheck scripts/check-fixtures.sh` clean. Every
+probed oracle case matches cue v0.16.1 via the kue CLI.

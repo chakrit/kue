@@ -315,13 +315,20 @@ taken together, do 1's commutativity theorems against the post-fold representati
    stays, bare `>0` still rejects `1.5` via `int`-domain prim conflict — NOT 2b). Shape is
    deliberately extensible toward 2b: widen `bound` to `Decimal` + add a domain tag without
    reshaping the arms.
-2b. **[HIGH — bound-model semantics, NEXT bound item] Decimal/domain-tagged bound semantics.**
-   The deferred SEMANTIC half: a bare `>0` should be a *number* bound (admits `1.5`, matching
-   cue) while `int & >0` narrows to int, and `>0.5` should parse. Add (a) a numeric domain
-   tag to `boundConstraint` so a bare bound is number-typed, and (b) a `Decimal`-valued bound
-   so `>0.5` parses and float-domain comparison works. This is where `(int&>0)&1.5`→⊥ stays
-   but bare `>0 & 1.5` starts matching cue. The 2a fold left the representation one field
-   short of this on purpose. Touches the same `meetBound*`/`Format`/`Parse` arms.
+2b. **DONE (2026-06-17, breadcrumb `2026-06-17-decimal-bound-semantics-landed.md`) —
+   Decimal/domain-tagged bound semantics.** `boundConstraint` now carries
+   `(bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)`. (a) Decimal limits:
+   `>0.5`/`>-1.5`/`<3.14` parse (`parseBoundValue` via `parseDecimalText`), comparator
+   compares via `decimalLeValues`/`decimalLtValues` (exact, no float rounding). (b) Domain
+   tag (`number|int|float`, a proper sum): a bare bound is `number`-domain and admits int+float
+   — bare `>0 & 1.5` → `1.5` (the prior over-strict ⊥, now correct); `>0.5 & 1.0` → `1.0`,
+   `>0.5 & 0.25` → ⊥; `>=0 & <=10 & 5.5` → `5.5`. `int & >0` stays int-only via the kept
+   `kind int` conjunct (NOT bound narrowing — keeps meet commutative), so `(int&>0)&1.5` → ⊥,
+   `(int&>0)&5` → `5`; `float & >0 & 1` → ⊥. `DecimalValue` + the decimal parse/compare/format
+   helpers moved `Decimal.lean`→`Value.lean` (so `Value` can carry one). 7 new BoundTests
+   theorems + 3 new fixtures (`bounds/number_bound_float`, `decimal_bound_float`,
+   `number_range_float`). No existing `.expected` changed (no committed fixture hit the
+   over-strict path). Last known bound divergence closed.
 2c. **[MEDIUM — `Kue/` source-dir organization, chakrit-flagged 2026-06-17] Declutter the
    flat `Kue/` (~28 files: ~16 source + ~12 test/port).** Schedule AFTER the bound refactors
    (2b) settle — moving a module changes its Lean import path (`Kue.Foo`→`Kue.Sub.Foo`), so

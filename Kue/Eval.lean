@@ -722,7 +722,7 @@ def valueTag : Value -> UInt64
   | .kind _ => 4
   | .notPrim _ => 5
   | .stringRegex _ => 6
-  | .boundConstraint _ _ => 7
+  | .boundConstraint _ _ _ => 7
   | .conj _ => 8
   | .builtinCall _ _ => 9
   | .unary _ _ => 10

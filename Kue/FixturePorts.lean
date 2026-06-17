@@ -313,7 +313,7 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (.struct
             [
-              ("andValue", .regular, andValues [.kind .int, .boundConstraint 0 .gt, .prim (.int 7)]),
+              ("andValue", .regular, andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)]),
               ("orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")])
             ]
             true)
@@ -449,8 +449,8 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (.struct
               [
-                ("x", .regular, .conj [.ref "x", .boundConstraint 0 .ge]),
-                ("a", .regular, .conj [.ref "b", .boundConstraint 0 .ge]),
+                ("x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number]),
+                ("a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number]),
                 ("b", .regular, .ref "a")
               ]
               true))
@@ -668,11 +668,11 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "disjunctions/int_bound_disjunction.expected",
-      content := formatField "x" (join (.boundConstraint 5 .ge) (.boundConstraint 0 .ge))
+      content := formatField "x" (join (.boundConstraint (intDecimal 5) .ge .number) (.boundConstraint (intDecimal 0) .ge .number))
     },
     {
       fileName := "bounds/int_bounds.expected",
-      content := formatField "x" (meet (meet (.boundConstraint 0 .ge) (.boundConstraint 10 .le)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.boundConstraint (intDecimal 0) .ge .number) (.boundConstraint (intDecimal 10) .le .number)) (.prim (.int 7)))
     },
     {
       fileName := "bounds/kind_meet_int.expected",
@@ -867,7 +867,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "bounds/number_int_bound.expected",
-      content := formatField "x" (meet (meet (.kind .number) (.boundConstraint 0 .ge)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.kind .number) (.boundConstraint (intDecimal 0) .ge .number)) (.prim (.int 7)))
     },
     {
       fileName := "numeric/number_kind.expected",
@@ -1136,7 +1136,25 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "bounds/strict_int_bounds.expected",
-      content := formatField "x" (meet (meet (.boundConstraint 0 .gt) (.boundConstraint 10 .lt)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.boundConstraint (intDecimal 0) .gt .number) (.boundConstraint (intDecimal 10) .lt .number)) (.prim (.int 7)))
+    },
+    {
+      -- A bare bound is number-domain: it admits a float operand (`>0 & 1.5` ⇒ `1.5`),
+      -- where an int-only bound would conflict. The 2b fix to the prior over-strict bound.
+      fileName := "bounds/number_bound_float.expected",
+      content := formatField "x" (meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (.float "1.5")))
+    },
+    {
+      -- A decimal bound literal (`>0.5`) compares its limit exactly against a float operand.
+      fileName := "bounds/decimal_bound_float.expected",
+      content := formatField "x" (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (.float "1.0")))
+    },
+    {
+      -- A bare two-sided range is number-domain on both ends: `>=0 & <=10 & 5.5` ⇒ `5.5`.
+      fileName := "bounds/number_range_float.expected",
+      content :=
+        formatField "x"
+          (meet (meet (.boundConstraint (intDecimal 0) .ge .number) (.boundConstraint (intDecimal 10) .le .number)) (.prim (.float "5.5")))
     },
     {
       fileName := "definitions/string_pattern_conflict.expected",
@@ -2204,7 +2222,7 @@ def fixturePorts : List FixturePort :=
             (.struct
               [
                 ("d", .regular, .struct [("a", .regular, .kind .int), ("b", .regular, .ref "a")] true),
-                ("y", .regular, .conj [.ref "d", .struct [("a", .regular, .boundConstraint 0 .gt)] true])
+                ("y", .regular, .conj [.ref "d", .struct [("a", .regular, .boundConstraint (intDecimal 0) .gt .number)] true])
               ]
               true))
     },

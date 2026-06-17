@@ -29,83 +29,110 @@ def meetStringRegexPrim (pattern : String) (prim : Prim) : Value :=
         .bottom
   | _ => .bottomWith [.kindConflict .string (Prim.kind prim)]
 
-def maxInt (left right : Int) : Int :=
-  if left <= right then right else left
+def minDecimal (left right : DecimalValue) : DecimalValue :=
+  if decimalLeValues left right then left else right
 
-def minInt (left right : Int) : Int :=
-  if left <= right then left else right
+def maxDecimal (left right : DecimalValue) : DecimalValue :=
+  if decimalLeValues left right then right else left
 
-/-- Meet a single integer bound (`>=`/`>`/`<=`/`<`) against a primitive. The bound is
-    integer-restricted in the current model, so only an `int` prim engages the comparator;
-    any other prim conflicts on kind. -/
-def meetBoundPrim (bound : Int) (kind : BoundKind) (prim : Prim) : Value :=
-  match prim with
-  | .int value =>
-      if kind.admits bound value then
-        .prim prim
-      else
-        .bottomWith [.intBoundConflict]
-  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+/-- Meet a single bound (`>=`/`>`/`<=`/`<`) against a primitive. The bound's `domain`
+    decides which numeric kinds engage: a `number`-domain (bare) bound admits both int and
+    float, an `int`/`float`-domain bound only its own kind; a non-numeric prim conflicts on
+    kind. The limit is decimal-compared so `>0.5 & 1.0` ⇒ `1.0`, `>0 & 1.5` ⇒ `1.5`. -/
+def meetBoundPrim (bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain) (prim : Prim) : Value :=
+  if domain.admitsKind (Prim.kind prim) then
+    match decimalFromPrim? prim with
+    | some value =>
+        if kind.admits bound value then
+          .prim prim
+        else
+          .bottomWith [.intBoundConflict]
+    | none => .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
+  else
+    .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
 
-/-- Meet a two-sided integer range (a lower bound and an upper bound) against a primitive. -/
+/-- Meet a two-sided range (a lower bound and an upper bound, sharing a `domain`) against a
+    primitive. -/
 def meetRangePrim
-    (lowerBound upperBound : Int) (lowerKind upperKind : BoundKind) (prim : Prim) : Value :=
-  match prim with
-  | .int value =>
-      if lowerKind.admits lowerBound value && upperKind.admits upperBound value then
-        .prim prim
-      else
-        .bottomWith [.intBoundConflict]
-  | _ => .bottomWith [.kindConflict .int (Prim.kind prim)]
+    (lowerBound upperBound : DecimalValue) (lowerKind upperKind : BoundKind)
+    (domain : NumberDomain) (prim : Prim) : Value :=
+  if domain.admitsKind (Prim.kind prim) then
+    match decimalFromPrim? prim with
+    | some value =>
+        if lowerKind.admits lowerBound value && upperKind.admits upperBound value then
+          .prim prim
+        else
+          .bottomWith [.intBoundConflict]
+    | none => .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
+  else
+    .bottomWith [.kindConflict domain.kind (Prim.kind prim)]
 
 /-- Tighten two same-side bounds (both lower, or both upper) into one. For lower bounds the
     tighter is the larger limit; for upper bounds the smaller. When the two limits tie, the
-    strict kind (`>`/`<`) wins as the tighter constraint. -/
-def tightenSameSide (leftBound rightBound : Int) (leftKind rightKind : BoundKind) : Value :=
+    strict kind (`>`/`<`) wins as the tighter constraint. Both bounds already share `domain`. -/
+def tightenSameSide
+    (leftBound rightBound : DecimalValue) (leftKind rightKind : BoundKind) (domain : NumberDomain) : Value :=
   let lower := leftKind.lower
   let pickLeft :=
-    if leftBound == rightBound then
+    if decimalEqValues leftBound rightBound then
       leftKind.strict || !rightKind.strict
     else if lower then
-      rightBound <= leftBound
+      decimalLeValues rightBound leftBound
     else
-      leftBound <= rightBound
-  if pickLeft then .boundConstraint leftBound leftKind
-  else .boundConstraint rightBound rightKind
+      decimalLeValues leftBound rightBound
+  if pickLeft then .boundConstraint leftBound leftKind domain
+  else .boundConstraint rightBound rightKind domain
 
-/-- Is the integer interval bounded by `lowerKind lowerBound` below and `upperKind upperBound`
+/-- Is the interval bounded by `lowerKind lowerBound` below and `upperKind upperBound`
     above non-empty? A strict bound on either side requires strict inequality of the limits. -/
-def rangeFeasible (lowerBound upperBound : Int) (lowerKind upperKind : BoundKind) : Bool :=
-  if lowerKind.strict || upperKind.strict then lowerBound < upperBound
-  else lowerBound <= upperBound
+def rangeFeasible (lowerBound upperBound : DecimalValue) (lowerKind upperKind : BoundKind) : Bool :=
+  if lowerKind.strict || upperKind.strict then decimalLtValues lowerBound upperBound
+  else decimalLeValues lowerBound upperBound
 
-/-- Meet two integer bounds. Same-side bounds tighten to one; opposite-side bounds form a
-    canonical `lower & upper` conjunction (lower member first, matching CUE's display order)
-    when feasible, else `⊥`. -/
-def meetTwoBounds (leftBound rightBound : Int) (leftKind rightKind : BoundKind) : Value :=
-  if leftKind.lower == rightKind.lower then
-    tightenSameSide leftBound rightBound leftKind rightKind
-  else
-    let lowerBound := if leftKind.lower then leftBound else rightBound
-    let lowerKind := if leftKind.lower then leftKind else rightKind
-    let upperBound := if leftKind.lower then rightBound else leftBound
-    let upperKind := if leftKind.lower then rightKind else leftKind
-    if rangeFeasible lowerBound upperBound lowerKind upperKind then
-      .conj [.boundConstraint lowerBound lowerKind, .boundConstraint upperBound upperKind]
+/-- Meet two bounds. Same-side bounds tighten to one; opposite-side bounds form a canonical
+    `lower & upper` conjunction (lower member first, matching CUE's display order) when
+    feasible, else `⊥`. The two domains are narrowed (`number & int` ⇒ `int`); an
+    incompatible pair (`int` vs `float`) has no inhabitant and conflicts. -/
+def meetTwoBounds
+    (leftBound rightBound : DecimalValue) (leftKind rightKind : BoundKind)
+    (leftDomain rightDomain : NumberDomain) : Value :=
+  match leftDomain.narrow rightDomain with
+  | none => .bottomWith [.kindConflict leftDomain.kind rightDomain.kind]
+  | some domain =>
+    if leftKind.lower == rightKind.lower then
+      tightenSameSide leftBound rightBound leftKind rightKind domain
     else
-      .bottomWith [.intBoundConflict]
+      let lowerBound := if leftKind.lower then leftBound else rightBound
+      let lowerKind := if leftKind.lower then leftKind else rightKind
+      let upperBound := if leftKind.lower then rightBound else leftBound
+      let upperKind := if leftKind.lower then rightKind else leftKind
+      if rangeFeasible lowerBound upperBound lowerKind upperKind then
+        .conj [.boundConstraint lowerBound lowerKind domain, .boundConstraint upperBound upperKind domain]
+      else
+        .bottomWith [.intBoundConflict]
 
-/-- Meet a numeric `kind` against an integer bound (`>n`/`>=n`/`<n`/`<=n`). The bound is
-    integer-restricted in Kue's current bound model, so only `int` (exactly) and `number`
-    (which subsumes int) accept it. CUE keeps an explicit `int &` conjunct (`int & >0`,
-    because a bare `>0` admits floats — `int` is load-bearing) but drops a redundant
-    `number &` (a bound is implicitly number-typed). So: `int` retains the kind as a
-    conjunction; `number` collapses to the bare bound; anything else conflicts. -/
-def meetKindWithIntBound (kind : Kind) (bound : Value) : Value :=
+/-- Meet a numeric `kind` against a bound. CUE keeps an explicit `int &`/`float &` conjunct
+    in the display (`int & >0`, `float & >0`) — a bare bound is number-typed, so `int` is
+    load-bearing: it is the conjunct that rejects floats, not the bound. So `int`/`float`
+    retain the kind as a conjunction alongside the (still number-domain) bound; `number` is
+    redundant and drops to the bare bound; anything else conflicts on kind.
+
+    The bound keeps its `number` domain rather than being narrowed because the kept kind
+    conjunct already enforces the narrowing against any primitive, and leaving the bound
+    untouched keeps meet commutative (a range `[>=0, <=n]` that `& int` reduces pairwise
+    cannot narrow every member uniformly — but it does not need to: the `int` conjunct
+    guards them all). The domain tag is load-bearing only for a *bare* bound (where `number`
+    admits floats, matching `>0 & 1.5` ⇒ `1.5`). -/
+def meetKindWithBound (kind : Kind) (bound : DecimalValue) (boundKind : BoundKind) (domain : NumberDomain) : Value :=
+  let keep (k : Kind) (target : NumberDomain) : Value :=
+    match domain.narrow target with
+    | some _ => .conj [.kind k, .boundConstraint bound boundKind domain]
+    | none => .bottomWith [.kindConflict kind domain.kind]
   match kind with
-  | .int => .conj [.kind .int, bound]
-  | .number => bound
-  | _ => .bottomWith [.kindConflict kind .int]
+  | .int => keep .int .int
+  | .float => keep .float .float
+  | .number => .boundConstraint bound boundKind domain
+  | _ => .bottomWith [.kindConflict kind domain.kind]
 
 def isBottom : Value -> Bool
   | .bottom => true
@@ -261,30 +288,30 @@ def meetCore (left right : Value) : Value :=
         .conj [.stringRegex pattern, .notPrim forbidden]
       else
         .stringRegex pattern
-  | .stringRegex _, .boundConstraint _ _ => .bottomWith [.kindConflict .string .int]
-  | .boundConstraint _ _, .stringRegex _ => .bottomWith [.kindConflict .int .string]
-  | .boundConstraint bound kind, .notPrim forbidden =>
-      if Prim.kind forbidden = .int then
-        .conj [.boundConstraint bound kind, .notPrim forbidden]
+  | .stringRegex _, .boundConstraint _ _ d => .bottomWith [.kindConflict .string d.kind]
+  | .boundConstraint _ _ d, .stringRegex _ => .bottomWith [.kindConflict d.kind .string]
+  | .boundConstraint bound kind domain, .notPrim forbidden =>
+      if domain.admitsKind (Prim.kind forbidden) then
+        .conj [.boundConstraint bound kind domain, .notPrim forbidden]
       else
-        .boundConstraint bound kind
-  | .notPrim forbidden, .boundConstraint bound kind =>
-      if Prim.kind forbidden = .int then
-        .conj [.boundConstraint bound kind, .notPrim forbidden]
+        .boundConstraint bound kind domain
+  | .notPrim forbidden, .boundConstraint bound kind domain =>
+      if domain.admitsKind (Prim.kind forbidden) then
+        .conj [.boundConstraint bound kind domain, .notPrim forbidden]
       else
-        .boundConstraint bound kind
-  | .boundConstraint bound kind, .prim prim => meetBoundPrim bound kind prim
-  | .prim prim, .boundConstraint bound kind => meetBoundPrim bound kind prim
-  | .kind kind, .boundConstraint bound boundKind =>
-      meetKindWithIntBound kind (.boundConstraint bound boundKind)
-  | .boundConstraint bound boundKind, .kind kind =>
-      meetKindWithIntBound kind (.boundConstraint bound boundKind)
-  | .boundConstraint leftBound leftKind, .boundConstraint rightBound rightKind =>
-      meetTwoBounds leftBound rightBound leftKind rightKind
-  | .conj [.boundConstraint lowerBound lowerKind, .boundConstraint upperBound upperKind], .prim prim =>
-      meetRangePrim lowerBound upperBound lowerKind upperKind prim
-  | .prim prim, .conj [.boundConstraint lowerBound lowerKind, .boundConstraint upperBound upperKind] =>
-      meetRangePrim lowerBound upperBound lowerKind upperKind prim
+        .boundConstraint bound kind domain
+  | .boundConstraint bound kind domain, .prim prim => meetBoundPrim bound kind domain prim
+  | .prim prim, .boundConstraint bound kind domain => meetBoundPrim bound kind domain prim
+  | .kind kind, .boundConstraint bound boundKind domain =>
+      meetKindWithBound kind bound boundKind domain
+  | .boundConstraint bound boundKind domain, .kind kind =>
+      meetKindWithBound kind bound boundKind domain
+  | .boundConstraint leftBound leftKind leftDomain, .boundConstraint rightBound rightKind rightDomain =>
+      meetTwoBounds leftBound rightBound leftKind rightKind leftDomain rightDomain
+  | .conj [.boundConstraint lowerBound lowerKind lowerDomain, .boundConstraint upperBound upperKind _], .prim prim =>
+      meetRangePrim lowerBound upperBound lowerKind upperKind lowerDomain prim
+  | .prim prim, .conj [.boundConstraint lowerBound lowerKind lowerDomain, .boundConstraint upperBound upperKind _] =>
+      meetRangePrim lowerBound upperBound lowerKind upperKind lowerDomain prim
   | .conj _, _ => .bottom
   | _, .conj _ => .bottom
   | .builtinCall _ _, _ => .bottom
@@ -388,29 +415,36 @@ def primSortKey : Prim -> String
   | .string value => value
   | .bytes value => value
 
-/-- A canonical sort key for a constraint that may appear as a `.conj` member. The primary
-    rank is by constructor (kind before bounds before notPrim before stringRegex before any
-    residual), the secondary by the constructor's own ordering (bound kind then limit; prim
-    kind for notPrim; pattern length-then-string for regex). Used to canonicalize `.conj`
-    member order so meet is commutative on the canonical form: `a & b` and `b & a` re-wrap
-    to the same sorted constraint list. Members it cannot distinguish keep stable order. -/
-def conjMemberKey : Value -> Nat × Nat × Int × String
-  | .kind kind => (0, kindRank kind, 0, "")
-  | .boundConstraint bound kind => (1, kind.rank, bound, "")
-  | .notPrim prim => (2, 0, 0, primSortKey prim)
-  | .stringRegex pattern => (3, pattern.length, 0, pattern)
-  | _ => (4, 0, 0, "")
+/-- The primary/secondary sort key for a constraint that may appear as a `.conj` member,
+    minus a bound's decimal limit (which `conjMemberLe` compares directly so different
+    scales order correctly). Primary rank is by constructor (kind before bounds before
+    notPrim before stringRegex before residual), secondary by the constructor's own ordering
+    (bound kind; prim kind for notPrim; pattern length-then-string for regex). -/
+def conjMemberKey : Value -> Nat × Nat × String
+  | .kind kind => (0, kindRank kind, "")
+  | .boundConstraint _ kind _ => (1, kind.rank, "")
+  | .notPrim prim => (2, 0, primSortKey prim)
+  | .stringRegex pattern => (3, pattern.length, pattern)
+  | _ => (4, 0, "")
 
-/-- A lexicographic `<=` over the four-component conj sort key. -/
-def conjKeyLe (left right : Nat × Nat × Int × String) : Bool :=
-  if left.1 != right.1 then left.1 <= right.1
-  else if left.2.1 != right.2.1 then left.2.1 <= right.2.1
-  else if left.2.2.1 != right.2.2.1 then left.2.2.1 <= right.2.2.1
-  else left.2.2.2 <= right.2.2.2
+/-- A canonical `<=` over two conj members: primary/secondary by `conjMemberKey`, then —
+    for two bounds of equal kind — by decimal limit (so `>0.5 & >1` orders by limit across
+    scales). Members it cannot distinguish keep stable order. Used to canonicalize `.conj`
+    member order so `a & b` and `b & a` re-wrap to the same sorted list (meet commutative on
+    the canonical form). -/
+def conjMemberLe (left right : Value) : Bool :=
+  let lk := conjMemberKey left
+  let rk := conjMemberKey right
+  if lk.1 != rk.1 then lk.1 <= rk.1
+  else if lk.2.1 != rk.2.1 then lk.2.1 <= rk.2.1
+  else
+    match left, right with
+    | .boundConstraint lb _ _, .boundConstraint rb _ _ => decimalLeValues lb rb
+    | _, _ => lk.2.2 <= rk.2.2
 
 /-- Sort a flat constraint list into canonical member order. -/
 def sortConjMembers (members : List Value) : List Value :=
-  members.mergeSort (fun a b => conjKeyLe (conjMemberKey a) (conjMemberKey b))
+  members.mergeSort conjMemberLe
 
 /-- Meet a single constraint into a flat, already-reduced constraint list. Tries to merge
     `constraint` pairwise with each existing member via `meetValue`: a merge that collapses
@@ -1021,20 +1055,20 @@ def join (left right : Value) : Value :=
         .kind kind
       else
         disjOfValues (.prim prim) (.kind kind)
-  | .boundConstraint leftBound leftKind, .boundConstraint rightBound rightKind =>
-      if leftKind == rightKind then
-        -- Same comparator: the join (least upper bound) is the looser limit — the smaller
-        -- limit for a lower bound, the larger for an upper bound.
-        let widened := if leftKind.lower then minInt leftBound rightBound else maxInt leftBound rightBound
-        .boundConstraint widened leftKind
+  | .boundConstraint leftBound leftKind leftDomain, .boundConstraint rightBound rightKind rightDomain =>
+      if leftKind == rightKind && leftDomain == rightDomain then
+        -- Same comparator and domain: the join (least upper bound) is the looser limit — the
+        -- smaller limit for a lower bound, the larger for an upper bound.
+        let widened := if leftKind.lower then minDecimal leftBound rightBound else maxDecimal leftBound rightBound
+        .boundConstraint widened leftKind leftDomain
       else
-        disjOfValues (.boundConstraint leftBound leftKind) (.boundConstraint rightBound rightKind)
-  | .kind kind, .boundConstraint bound boundKind =>
-      if kindAcceptsKind kind .int then .kind kind
-      else disjOfValues (.kind kind) (.boundConstraint bound boundKind)
-  | .boundConstraint bound boundKind, .kind kind =>
-      if kindAcceptsKind kind .int then .kind kind
-      else disjOfValues (.boundConstraint bound boundKind) (.kind kind)
+        disjOfValues (.boundConstraint leftBound leftKind leftDomain) (.boundConstraint rightBound rightKind rightDomain)
+  | .kind kind, .boundConstraint bound boundKind domain =>
+      if kindAcceptsKind kind domain.kind then .kind kind
+      else disjOfValues (.kind kind) (.boundConstraint bound boundKind domain)
+  | .boundConstraint bound boundKind domain, .kind kind =>
+      if kindAcceptsKind kind domain.kind then .kind kind
+      else disjOfValues (.boundConstraint bound boundKind domain) (.kind kind)
   | .kind kind, .stringRegex pattern =>
       if kindAcceptsKind kind .string then .kind kind else disjOfValues (.kind kind) (.stringRegex pattern)
   | .stringRegex pattern, .kind kind =>

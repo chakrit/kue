@@ -356,8 +356,8 @@ theorem eval_three_reference_cycle_as_top :
 
 theorem eval_direct_constrained_cycle_keeps_constraint :
     (evalStructRefs
-      (resolveStructRefs (.struct [("x", .regular, .conj [.ref "x", .boundConstraint 0 .ge])] true))
-      == .struct [("x", .regular, .boundConstraint 0 .ge)] true) = true := by
+      (resolveStructRefs (.struct [("x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number])] true))
+      == .struct [("x", .regular, .boundConstraint (intDecimal 0) .ge .number)] true) = true := by
   native_decide
 
 theorem eval_mutual_constrained_cycle_keeps_constraint :
@@ -365,11 +365,11 @@ theorem eval_mutual_constrained_cycle_keeps_constraint :
       (resolveStructRefs
         (.struct
           [
-            ("a", .regular, .conj [.ref "b", .boundConstraint 0 .ge]),
+            ("a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number]),
             ("b", .regular, .ref "a")
           ]
           true))
-      == .struct [("a", .regular, .boundConstraint 0 .ge), ("b", .regular, .boundConstraint 0 .ge)] true) = true := by
+      == .struct [("a", .regular, .boundConstraint (intDecimal 0) .ge .number), ("b", .regular, .boundConstraint (intDecimal 0) .ge .number)] true) = true := by
   native_decide
 
 theorem eval_non_cycle_reference_still_uses_target_value :
@@ -422,8 +422,8 @@ theorem eval_value_alias_cycle_bounds_to_top :
 
 theorem eval_regular_disjunction_uses_join_normalization :
     (evalStructRefs
-      (.struct [("x", .regular, .disj [(.regular, .boundConstraint 5 .ge), (.regular, .boundConstraint 0 .ge)])] true)
-      == .struct [("x", .regular, .boundConstraint 0 .ge)] true) = true := by
+      (.struct [("x", .regular, .disj [(.regular, .boundConstraint (intDecimal 5) .ge .number), (.regular, .boundConstraint (intDecimal 0) .ge .number)])] true)
+      == .struct [("x", .regular, .boundConstraint (intDecimal 0) .ge .number)] true) = true := by
   native_decide
 
 theorem eval_regular_field_reference_to_hidden :

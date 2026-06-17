@@ -455,13 +455,13 @@ def parseNumberValue (chars : List Char) : ParseResult Value :=
         | some value => parseOk (.prim (.int value)) rest
         | none => parseError chars s!"invalid integer literal {token}"
 
-def parseIntBoundValue (kind : BoundKind) (chars : List Char) : ParseResult Value :=
+def parseBoundValue (kind : BoundKind) (chars : List Char) : ParseResult Value :=
   match parseNumberToken (skipTrivia chars) with
   | .error error => .error error
   | .ok (token, rest) =>
-      match token.toInt? with
-      | some value => parseOk (.boundConstraint value kind) rest
-      | none => parseError chars "integer bound requires an integer literal"
+      match parseDecimalText token with
+      | some value => parseOk (.boundConstraint value kind .number) rest
+      | none => parseError chars "numeric bound requires a numeric literal"
 
 def parseCommaOrSemicolon : List Char -> List Char
   | ',' :: rest => skipTrivia rest
@@ -941,10 +941,10 @@ mutual
         match parseQuotedString (skipTrivia rest) with
         | .error error => .error error
         | .ok (pattern, rest) => parseOk (.stringRegex pattern) rest
-    | '>' :: '=' :: rest => parseIntBoundValue .ge rest
-    | '>' :: rest => parseIntBoundValue .gt rest
-    | '<' :: '=' :: rest => parseIntBoundValue .le rest
-    | '<' :: rest => parseIntBoundValue .lt rest
+    | '>' :: '=' :: rest => parseBoundValue .ge rest
+    | '>' :: rest => parseBoundValue .gt rest
+    | '<' :: '=' :: rest => parseBoundValue .le rest
+    | '<' :: rest => parseBoundValue .lt rest
     | '+' :: _ => parseNumberValue (skipTrivia chars)
     | '-' :: _ => parseNumberValue (skipTrivia chars)
     | value :: rest =>

@@ -304,25 +304,33 @@ those forms.
   precedence as equality. The evaluator currently handles concrete numeric and string
   operands. Mixed-kind ordering bottoms out; ordering over bytes, incomplete values, and
   compound values remains later work.
-- **Numeric bounds are integer-restricted (`>0` means `int & >0`, not CUE's number-`>0`).**
-  Kue parses `>n`/`>=n`/`<n`/`<=n` into a single `boundConstraint (bound : Int) (kind :
-  BoundKind)` (since 2026-06-17; previously four `intGe/Gt/Le/Lt` ctors). The bound is
-  `Int`-valued and only admits `int` primitives; there is no float or general-number bound,
-  and `>0.5` is a parse error. CUE's `>0` is a *number* bound that admits floats (`>0 & 1.5`
-  → `1.5` in cue v0.16.1), so kue is **stricter than cue on a bare bound**: kue's `>0 & 1.5`
-  → `_|_`. This is a known divergence, tracked as plan authoritative item **2b**: closing it
-  needs a numeric domain tag on `boundConstraint` (bare bound = number-typed) plus a
-  `Decimal`-valued bound (so `>0.5` parses and float-domain comparison works). The 2a fold
-  (one ctor, `BoundKind`) deliberately left the representation one field short of 2b. In
-  practice infra CUE uses `int & >0` / `>=0 & <=N` (int ranges), where kue is correct.
-- **`kind int` meeting a bound retains the kind as a conjunction (`int & >0`).** Meeting a
-  numeric kind with an integer bound: `int` is retained (`int & >0` → `.conj [kind int, >0]`,
-  formatting `int & >0`), because the `int` is load-bearing — a bare `>0` would otherwise admit
-  floats in CUE; `number` is dropped (`number & >0` → `>0`, a bound is implicitly number-typed);
-  `float`/other conflict. Oracle-pinned to cue v0.16.1: `int & >0` prints `int & >0`,
-  `(int & >0) & 1.5` → `_|_`, `(int & >0) & 5` → `5`, `int & >=0 & <=65535` → the flat
-  `int & >=0 & <=65535` (cue *displays* this as the alias `uint16`; kue keeps the structural
-  conjunction — a cosmetic-only divergence, same value). Conjunction meets reduce over a
+- **Numeric bounds are decimal-valued and domain-tagged (`>0` is a number bound — matches
+  CUE).** Kue parses `>n`/`>=n`/`<n`/`<=n` into a single
+  `boundConstraint (bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)`
+  (decimal limit + domain tag since 2026-06-17 item **2b**; the 2a fold landed the single
+  ctor with an `Int` limit and no domain, deliberately one field short). The limit is an
+  exact base-10 rational (`Kue.DecimalValue`, reused from the decimal arithmetic layer), so
+  decimal bound literals **parse** (`>0.5`, `>-1.5`, `<3.14`) and the comparator
+  (`BoundKind.admits`) compares via `decimalLeValues`/`decimalLtValues` — no float rounding.
+  `NumberDomain = number | int | float` (a proper sum, not a flag) tags which numeric kinds
+  a bound admits: a **bare** bound is `number`-domain and admits **both int and float**,
+  matching cue (`>0 & 1.5` → `1.5`, `>0.5 & 1.0` → `1.0`, `>=0 & <=10 & 5.5` → `5.5`). The
+  prior over-strict divergence (kue `>0 & 1.5` → `_|_`) is **closed**. A bound's `domain` is
+  narrowed to `int`/`float` only conceptually — see the kind-meet rule below; in practice a
+  parsed bound is always `number`-domain and the kind conjunct does the narrowing.
+- **A numeric kind meeting a bound retains the kind as a conjunction (`int & >0`,
+  `float & >0`).** Meeting a numeric kind with a bound (`meetKindWithBound`): `int`/`float`
+  are retained as a conjunct (`int & >0` → `.conj [kind int, >0]`, formatting `int & >0`;
+  likewise `float & >0`), because the kept kind is load-bearing — it is the conjunct that
+  rejects the wrong primitive kind, *not* the bound. The bound keeps its `number` domain
+  rather than being narrowed: the kept kind conjunct already guards every operand, and
+  leaving the bound untouched keeps meet **commutative** (a range `[>=0, <=n]` that `& int`
+  reduces pairwise cannot narrow every member uniformly — but it does not need to). `number`
+  is dropped (`number & >0` → `>0`, redundant); `string`/non-numeric conflict. Oracle-pinned
+  to cue v0.16.1: `int & >0` prints `int & >0`, `(int & >0) & 1.5` → `_|_`, `(int & >0) & 5`
+  → `5`, `float & >0 & 1.0` → `1.0`, `float & >0 & 1` → `_|_`, `int & >=0 & <=65535` → the
+  flat `int & >=0 & <=65535` (cue *displays* this as the alias `uint16`; kue keeps the
+  structural conjunction — a cosmetic-only divergence, same value). Conjunction meets reduce over a
   *flat* constraint set (`flattenConj` + `addConstraintWith` in `Lattice.lean`) so nested/
   multi-bound conjunctions merge pairwise without nesting or scrambling into bottom, then
   the re-wrap `sortConjMembers`-sorts the members into a **canonical order** (kind first,

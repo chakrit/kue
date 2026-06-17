@@ -70,27 +70,27 @@ theorem join_number_kind_with_string_kind_keeps_disjunction :
   rfl
 
 theorem meet_number_kind_with_integer_lower_bound :
-    meet (.kind .number) (.boundConstraint 0 .ge) = .boundConstraint 0 .ge := by
+    meet (.kind .number) (.boundConstraint (intDecimal 0) .ge .number) = .boundConstraint (intDecimal 0) .ge .number := by
   rfl
 
 theorem meet_integer_upper_bound_with_number_kind :
-    meet (.boundConstraint 10 .le) (.kind .number) = .boundConstraint 10 .le := by
+    meet (.boundConstraint (intDecimal 10) .le .number) (.kind .number) = .boundConstraint (intDecimal 10) .le .number := by
   rfl
 
 theorem meet_string_kind_with_integer_lower_bound_bottoms :
-    meet (.kind .string) (.boundConstraint 0 .ge) = .bottomWith [.kindConflict .string .int] := by
+    meet (.kind .string) (.boundConstraint (intDecimal 0) .ge .number) = .bottomWith [.kindConflict .string .number] := by
   rfl
 
 theorem join_number_kind_with_integer_strict_lower_bound_normalizes :
-    join (.kind .number) (.boundConstraint 0 .gt) = .kind .number := by
+    join (.kind .number) (.boundConstraint (intDecimal 0) .gt .number) = .kind .number := by
   rfl
 
 theorem join_integer_strict_upper_bound_with_number_kind_normalizes :
-    join (.boundConstraint 10 .lt) (.kind .number) = .kind .number := by
+    join (.boundConstraint (intDecimal 10) .lt .number) (.kind .number) = .kind .number := by
   rfl
 
 theorem number_kind_subsumes_integer_lower_bound :
-    subsumes (.kind .number) (.boundConstraint 0 .ge) = true := by
+    subsumes (.kind .number) (.boundConstraint (intDecimal 0) .ge .number) = true := by
   native_decide
 
 end Kue

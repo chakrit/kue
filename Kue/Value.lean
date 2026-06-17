@@ -38,6 +38,228 @@ inductive Mark where
   | default
 deriving Repr, BEq, DecidableEq
 
+/-- An exact base-10 rational: `numerator / 10^scale`. The canonical numeric value used
+    for decimal literals and bound limits, so comparison and arithmetic are total and
+    exact (no float rounding). Lives here (rather than `Decimal.lean`) because
+    `boundConstraint` carries one and `Value` must see the type. -/
+structure DecimalValue where
+  numerator : Int
+  scale : Nat
+deriving Repr, BEq, DecidableEq
+
+def evalPow10 : Nat -> Nat
+  | 0 => 1
+  | exponent + 1 => 10 * evalPow10 exponent
+
+def maxNat (left right : Nat) : Nat :=
+  if left <= right then right else left
+
+def scaleDecimalNumerator (targetScale : Nat) (value : DecimalValue) : Int :=
+  value.numerator * Int.ofNat (evalPow10 (targetScale - value.scale))
+
+def decimalCompareNumerators (left right : DecimalValue) : Int × Int :=
+  let scale := maxNat left.scale right.scale
+  (scaleDecimalNumerator scale left, scaleDecimalNumerator scale right)
+
+def decimalEqValues (left right : DecimalValue) : Bool :=
+  let compared := decimalCompareNumerators left right
+  compared.fst == compared.snd
+
+def decimalLtValues (left right : DecimalValue) : Bool :=
+  let compared := decimalCompareNumerators left right
+  compared.fst < compared.snd
+
+def decimalLeValues (left right : DecimalValue) : Bool :=
+  let compared := decimalCompareNumerators left right
+  compared.fst <= compared.snd
+
+/-- A whole-number decimal (scale 0). The lift used when an integer literal seeds a
+    bound limit (`>0` ⇒ `intDecimal 0`). -/
+def intDecimal (value : Int) : DecimalValue :=
+  { numerator := value, scale := 0 }
+
+def trimDecimalZerosWith : Int -> Nat -> DecimalValue
+  | numerator, 0 => { numerator := numerator, scale := 0 }
+  | numerator, scale + 1 =>
+      if numerator % 10 == 0 then
+        trimDecimalZerosWith (numerator / 10) scale
+      else
+        { numerator := numerator, scale := scale + 1 }
+
+def decimalIntAbsNat (value : Int) : Nat :=
+  if value < 0 then
+    (-value).toNat
+  else
+    value.toNat
+
+def repeatZeros : Nat -> String
+  | 0 => ""
+  | count + 1 => "0" ++ repeatZeros count
+
+def leftPadZeros (width : Nat) (value : String) : String :=
+  repeatZeros (width - value.toList.length) ++ value
+
+def formatDecimalAtScale (value : DecimalValue) (forceFloat : Bool) : String :=
+  let sign := if value.numerator < 0 then "-" else ""
+  let abs := decimalIntAbsNat value.numerator
+  match value.scale with
+  | 0 =>
+      let whole := sign ++ toString abs
+      if forceFloat then whole ++ ".0" else whole
+  | scale =>
+      let divisor := evalPow10 scale
+      let whole := abs / divisor
+      let fraction := abs % divisor
+      sign ++ toString whole ++ "." ++ leftPadZeros scale (toString fraction)
+
+def formatFiniteDecimal (value : DecimalValue) (forceFloat : Bool) : String :=
+  formatDecimalAtScale (trimDecimalZerosWith value.numerator value.scale) forceFloat
+
+/-- Render a bound's decimal limit as CUE prints it inside a bound (`>0`, `>0.5`,
+    `>-1.5`): the trimmed value at minimal scale, never force-floated (a whole limit
+    prints as an integer, `>0` not `>0.0`). -/
+def formatBoundLimit (value : DecimalValue) : String :=
+  formatFiniteDecimal value false
+
+def evalDigitValue? (value : Char) : Option Nat :=
+  if '0'.toNat <= value.toNat && value.toNat <= '9'.toNat then
+    some (value.toNat - '0'.toNat)
+  else
+    none
+
+def parseEvalDigitsWithCount : List Char -> Nat -> Nat -> Option (Nat × Nat × List Char)
+  | [], _, 0 => none
+  | [], value, count => some (value, count, [])
+  | char :: chars, value, count =>
+      match evalDigitValue? char with
+      | some digit => parseEvalDigitsWithCount chars (value * 10 + digit) (count + 1)
+      | none =>
+          if count == 0 then
+            none
+          else
+            some (value, count, char :: chars)
+
+def parseEvalDigits (chars : List Char) : Option (Nat × Nat × List Char) :=
+  parseEvalDigitsWithCount chars 0 0
+
+def parseDecimalMantissa (chars : List Char) : Option (DecimalValue × List Char) :=
+  match parseEvalDigits chars with
+  | none => none
+  | some (whole, _, '.' :: rest) =>
+      match parseEvalDigits rest with
+      | none => none
+      | some (fraction, fractionCount, rest) =>
+          let scale := evalPow10 fractionCount
+          some ({ numerator := Int.ofNat (whole * scale + fraction), scale := fractionCount }, rest)
+  | some (whole, _, rest) => some ({ numerator := Int.ofNat whole, scale := 0 }, rest)
+
+def parseDecimalExponent : List Char -> Option (Int × List Char)
+  | '+' :: rest =>
+      match parseEvalDigits rest with
+      | some (exponent, _, rest) => some (Int.ofNat exponent, rest)
+      | none => none
+  | '-' :: rest =>
+      match parseEvalDigits rest with
+      | some (exponent, _, rest) => some (-(Int.ofNat exponent), rest)
+      | none => none
+  | chars =>
+      match parseEvalDigits chars with
+      | some (exponent, _, rest) => some (Int.ofNat exponent, rest)
+      | none => none
+
+def applyDecimalExponent (value : DecimalValue) (exponent : Int) : DecimalValue :=
+  if exponent < 0 then
+    { value with scale := value.scale + (-exponent).toNat }
+  else
+    let shift := exponent.toNat
+    if value.scale <= shift then
+      {
+        numerator := value.numerator * Int.ofNat (evalPow10 (shift - value.scale)),
+        scale := 0
+      }
+    else
+      { value with scale := value.scale - shift }
+
+def applyDecimalSign (negative : Bool) (value : DecimalValue) : DecimalValue :=
+  if negative then
+    { value with numerator := -value.numerator }
+  else
+    value
+
+def parseUnsignedDecimalText (negative : Bool) (chars : List Char) : Option DecimalValue :=
+  match parseDecimalMantissa chars with
+  | none => none
+  | some (mantissa, rest) =>
+      let signed := applyDecimalSign negative mantissa
+      match rest with
+      | [] => some signed
+      | 'e' :: rest =>
+          match parseDecimalExponent rest with
+          | some (exponent, []) => some (applyDecimalExponent signed exponent)
+          | _ => none
+      | 'E' :: rest =>
+          match parseDecimalExponent rest with
+          | some (exponent, []) => some (applyDecimalExponent signed exponent)
+          | _ => none
+      | _ => none
+
+def parseDecimalText (value : String) : Option DecimalValue :=
+  match value.toList with
+  | '-' :: rest => parseUnsignedDecimalText true rest
+  | '+' :: rest => parseUnsignedDecimalText false rest
+  | chars => parseUnsignedDecimalText false chars
+
+def decimalFromPrim? : Prim -> Option DecimalValue
+  | .int value => some { numerator := value, scale := 0 }
+  | .float value => parseDecimalText value
+  | _ => none
+
+/-- The numeric domain a bound constrains. A bare bound (`>0`) is `number` — it admits
+    both `int` and `float` operands, matching CUE (`>0 & 1.5` ⇒ `1.5`). Meeting with a
+    `kind` narrows it: `int & >0` ⇒ `int`-domain (rejects floats), `float & >0` ⇒
+    `float`-domain (rejects ints). A proper sum, not a flag, so the three states are the
+    only representable ones. -/
+inductive NumberDomain where
+  | number
+  | int
+  | float
+deriving Repr, BEq, DecidableEq
+
+namespace NumberDomain
+
+/-- The `Kind` this domain narrows to, used when meeting a bound's domain with a kind. -/
+def kind : NumberDomain -> Kind
+  | .number => .number
+  | .int => .int
+  | .float => .float
+
+/-- Does this domain admit a primitive of the given kind? `number` admits int and float;
+    `int`/`float` admit only their own. Non-numeric kinds never match. -/
+def admitsKind : NumberDomain -> Kind -> Bool
+  | .number, .int => true
+  | .number, .float => true
+  | .int, .int => true
+  | .float, .float => true
+  | _, _ => false
+
+/-- Narrow a bound's domain by meeting with a numeric kind. `number` (the bare default)
+    yields to either `int` or `float`; the same domain is idempotent; an incompatible
+    pair (`int` vs `float`) has no inhabitant — `none`. -/
+def narrow : NumberDomain -> NumberDomain -> Option NumberDomain
+  | .number, other => some other
+  | other, .number => some other
+  | .int, .int => some .int
+  | .float, .float => some .float
+  | _, _ => none
+
+/-- A stable rank for canonical ordering. -/
+def rank : NumberDomain -> Nat
+  | .number => 0
+  | .int => 1
+  | .float => 2
+
+end NumberDomain
+
 /-- The comparator carried by a numeric bound constraint (`>=n`, `>n`, `<=n`, `<n`). The
     four CUE bound forms collapse to one `boundConstraint` parameterized over this kind, so
     the meet/format/order layers carry one bound arm with a per-kind comparator rather than
@@ -82,13 +304,15 @@ def rank : BoundKind -> Nat
   | .le => 2
   | .lt => 3
 
-/-- Does `value` satisfy a bound of this kind against `limit`? -/
-def admits (kind : BoundKind) (limit value : Int) : Bool :=
+/-- Does `value` satisfy a bound of this kind against `limit`? Decimal-valued, comparing
+    via the exact base-10 rational order (`decimalLtValues`/`decimalLeValues`) so a bound
+    like `>0.5` admits `1.0` and rejects `0.25` without float rounding. -/
+def admits (kind : BoundKind) (limit value : DecimalValue) : Bool :=
   match kind with
-  | .ge => limit <= value
-  | .gt => limit < value
-  | .le => value <= limit
-  | .lt => value < limit
+  | .ge => decimalLeValues limit value
+  | .gt => decimalLtValues limit value
+  | .le => decimalLeValues value limit
+  | .lt => decimalLtValues value limit
 
 end BoundKind
 
@@ -244,11 +468,12 @@ inductive Value where
   | kind (kind : Kind)
   | notPrim (value : Prim)
   | stringRegex (pattern : String)
-  /-- A numeric bound constraint (`>=n`, `>n`, `<=n`, `<n`), the `kind` selecting the
-      comparator. `bound` is integer-valued in the current model; the shape is chosen to
-      extend toward decimal-valued, domain-tagged bounds (Phase B `2b`) by later widening
-      `bound` and adding a domain tag, without reshaping the meet/format/order arms. -/
-  | boundConstraint (bound : Int) (kind : BoundKind)
+  /-- A numeric bound constraint (`>=n`, `>n`, `<=n`, `<n`). `kind` selects the comparator,
+      `bound` is an exact decimal limit (so `>0.5` is representable), and `domain` is the
+      numeric domain it admits: a bare bound is `number` (admits both int and float, e.g.
+      `>0 & 1.5` ⇒ `1.5`), narrowed to `int`/`float` by meeting with the matching kind
+      (`int & >0` rejects floats). -/
+  | boundConstraint (bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)
   | conj (constraints : List Value)
   | builtinCall (name : String) (args : List Value)
   | unary (op : UnaryOp) (value : Value)

@@ -54,7 +54,7 @@ theorem len_value_preserves_incomplete_string_call :
   rfl
 
 theorem and_values_meets_constraints :
-    (andValues [.kind .int, .boundConstraint 0 .gt, .prim (.int 7)] == .prim (.int 7)) = true := by
+    (andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)] == .prim (.int 7)) = true := by
   native_decide
 
 theorem and_values_empty_is_top :

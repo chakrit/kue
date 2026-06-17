@@ -58,7 +58,7 @@ mutual
     | _ + 1, .kind kind => .error (.incomplete (.kind kind))
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))
     | _ + 1, .stringRegex pattern => .error (.incomplete (.stringRegex pattern))
-    | _ + 1, .boundConstraint bound kind => .error (.incomplete (.boundConstraint bound kind))
+    | _ + 1, .boundConstraint bound kind domain => .error (.incomplete (.boundConstraint bound kind domain))
     | _ + 1, .conj constraints => .error (.incomplete (.conj constraints))
     | _ + 1, .builtinCall name args => .error (.incomplete (.builtinCall name args))
     | _ + 1, .unary op value => .error (.incomplete (.unary op value))

@@ -24,11 +24,11 @@ def kindSubsumesKind (expected actual : Kind) : Bool :=
     pre-fold arms: a looser lower bound (smaller limit) subsumes a tighter one; a looser
     upper bound (larger limit) subsumes a tighter one. Cross-comparator pairs are not
     subsumption-related (`false`). -/
-def boundSubsumesBound (expectedBound : Int) (expectedKind : BoundKind)
-    (actualBound : Int) (actualKind : BoundKind) : Bool :=
+def boundSubsumesBound (expectedBound : DecimalValue) (expectedKind : BoundKind)
+    (actualBound : DecimalValue) (actualKind : BoundKind) : Bool :=
   if expectedKind != actualKind then false
-  else if expectedKind.lower then expectedBound <= actualBound
-  else actualBound <= expectedBound
+  else if expectedKind.lower then decimalLeValues expectedBound actualBound
+  else decimalLeValues actualBound expectedBound
 
 mutual
   def fieldSubsumesWithFuel (fuel : Nat) (expected actual : Field) : Bool :=
@@ -196,9 +196,13 @@ mutual
     | _ + 1, .stringRegex pattern, .prim (.string value) => stringRegexMatches pattern value
     | _ + 1, .stringRegex expectedPattern, .stringRegex actualPattern =>
         expectedPattern == actualPattern
-    | _ + 1, .kind expectedKind, .boundConstraint _ _ => kindSubsumesKind expectedKind .int
-    | _ + 1, .boundConstraint bound kind, .prim (.int value) => kind.admits bound value
-    | _ + 1, .boundConstraint expectedBound expectedKind, .boundConstraint actualBound actualKind =>
+    | _ + 1, .kind expectedKind, .boundConstraint _ _ domain => kindSubsumesKind expectedKind domain.kind
+    | _ + 1, .boundConstraint bound kind domain, .prim prim =>
+        domain.admitsKind (Prim.kind prim)
+          && (match decimalFromPrim? prim with
+              | some value => kind.admits bound value
+              | none => false)
+    | _ + 1, .boundConstraint expectedBound expectedKind _, .boundConstraint actualBound actualKind _ =>
         boundSubsumesBound expectedBound expectedKind actualBound actualKind
     | fuel + 1, .conj constraints, value => allConstraintsSubsumeWithFuel fuel constraints value
     | _ + 1, .builtinCall expectedName expectedArgs, .builtinCall actualName actualArgs =>

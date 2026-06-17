@@ -142,7 +142,7 @@ mutual
     | _, .kind kind => formatKind kind
     | _, .notPrim prim => "!=" ++ formatPrim prim
     | _, .stringRegex pattern => s!"=~\"{escapeCueStringContent pattern}\""
-    | _, .boundConstraint bound kind => kind.symbol ++ toString bound
+    | _, .boundConstraint bound kind _ => kind.symbol ++ formatBoundLimit bound
     | fuel + 1, .conj constraints =>
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | fuel + 1, .builtinCall name args =>
