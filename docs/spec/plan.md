@@ -629,6 +629,13 @@ Value-matching site has a correct explicit arm:
 - `Manifest.lean:96` — emits items, excludes tail + decls. Open-tail embeddedList
   manifests as a concrete list (drops tail) — **oracle-confirmed correct** (`{#x:1,[1,...]}`
   → `[1]` in cue v0.16.1).
+- **DONE (2026-06-17): bare open-list collapse on manifest (audit item 2).** The bare
+  `listTail items tail` arm now manifests as its concrete prefix (drops the open/typed
+  tail), matching the embeddedList arm and `cue export`: `[1,...]`→`[1]`, `[...]`→`[]`,
+  `[1,2,...int]`→`[1,2]`, `[1,...string]`→`[1]`. A non-concrete prefix element still
+  surfaces as `.incomplete` (oracle-confirmed: `[int,...]` errors in cue). Was returning
+  `.incomplete (.listTail …)`. INTERNAL `formatValue`/`embeddedList` representation
+  unchanged. See compat-assumptions "open-list export collapse".
 - `Eval.lean` — `selectEvaluatedField:126` (decls selectable via `findEvalField`),
   `selectEvaluatedIndex:180-181` (items indexed, tail-aware), `classifyDefinedness:263`
   (`.defined`), `valueTag:565` (31). `Format.lean:190` prints `{decls…, [items…]}`.

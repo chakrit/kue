@@ -5324,3 +5324,36 @@ kue` and `| kue eval` both `x: 3`; `kue version`/`-V`/`--version` ⇒ `0.1.0-alp
 `kue --help`/`kue help eval`; `kue export --out yaml <f>` and default-json; `kue --bogus`
 ⇒ exit 2; `kue export --out bogus` ⇒ exit 2; `kue nonexistent.cue` ⇒ clean read error,
 exit 1.
+
+## Completed Slice: Open-List Collapse on Manifest/Export
+
+Goal: a bare open list manifests/exports as its concrete prefix, dropping the open/typed
+tail, matching `cue export`. Was returning `.incomplete (.listTail …)`; the
+struct-embedded list (`embeddedList`) already collapsed via the earlier list-embedding
+slice — this closes the bare top-level / plain open-list gap (audit item 2).
+
+### Oracle rule (cue v0.16.1)
+
+On EXPORT, an open-list tail is always dropped and the concrete prefix is emitted as a
+concrete list: `[1,...]`→`[1]`, `[...]`→`[]`, `[1,2,...int]`→`[1,2]`, `[1,...string]`→`[1]`.
+No open-list shape is incomplete *because of* its tail. A non-concrete prefix *element* is
+genuinely incomplete: `[int,...]`→`x.0: incomplete value int`, `[1,int,...]`→`x.1:
+incomplete`. (`cue eval` agrees: `[1,...]`→`[1]`.)
+
+### Steps
+
+1. Tests first. `Kue/ManifestTests.lean` — six `rfl` theorems: `[1,...]`→`[1]`, `[...]`→
+   `[]`, `[1,2,...int]`→`[1,2]`, `[1,...string]`→`[1]`, `[int,...]`→`.incomplete (.kind
+   .int)`, and nested-in-struct `{xs:[10,...]}`→`{xs:[10]}`.
+2. Fix `Kue/Manifest.lean` `listTail` arm: recurse via `manifestItemsWithFuel fuel items`
+   (drop `tail`), mirroring the `embeddedList` arm. A non-concrete prefix element surfaces
+   as `.incomplete` naturally through the recursion. INTERNAL `formatValue` representation
+   of open lists left untouched (check-fixtures depends on `[1, ...]`).
+3. Export fixture `testdata/export/open_lists.cue` + oracle-generated `.json` covering all
+   five shapes plus a nested struct, byte-matched by `check_export_fixtures`.
+
+### Verify
+
+`lake build` (84 jobs, theorems `rfl`-checked), `scripts/check-fixtures.sh` →
+`fixture pairs ok` (internal-format `list_embedding_open` fixture unchanged — no
+regression), `shellcheck scripts/check-fixtures.sh` clean.

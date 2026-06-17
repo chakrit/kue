@@ -1,0 +1,22 @@
+{
+    "bare": [
+        1
+    ],
+    "empty": [],
+    "typedTail": [
+        1,
+        2
+    ],
+    "stringTail": [
+        1
+    ],
+    "closed": [
+        1,
+        2
+    ],
+    "nested": {
+        "xs": [
+            10
+        ]
+    }
+}

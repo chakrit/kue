@@ -202,6 +202,13 @@ those forms.
 - Untyped struct ellipses are represented as `.structTail` values with a top tail. Typed
   struct tails remain semantic-only because the pinned CUE v0.15.4 tool rejects
   `...T` source syntax.
+- **Open-list export collapse.** On the manifest/export path an open list collapses to its
+  concrete prefix — the open/typed tail is dropped, matching `cue export` (oracle v0.16.1):
+  `[1,...]`→`[1]`, `[...]`→`[]`, `[1,2,...int]`→`[1,2]`, `[1,...string]`→`[1]`. No
+  open-list shape is genuinely incomplete *because of* its tail; a non-concrete prefix
+  *element* is still incomplete (`[int,...]` errors in both cue and kue). The INTERNAL
+  `formatValue` representation keeps the open form (`[1, ...]`) — this is a manifest-only
+  collapse, applied identically to bare `listTail` and struct-`embeddedList` tails.
 - Multiple pattern fields are represented as independent pattern constraints. The label
   pattern is an arbitrary constraint expression — kind/type (`[string]:`, `[int]:`,
   `[bool]:`), exact string (`["a"]:`), bound (`[>0]:`), and the supported regex subset

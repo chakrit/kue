@@ -11,6 +11,36 @@ theorem manifest_concrete_list :
       = .ok (.list [.prim (.int 1), .prim (.string "x")]) := by
   rfl
 
+theorem manifest_open_list_drops_tail :
+    manifest (.listTail [.prim (.int 1)] .top)
+      = .ok (.list [.prim (.int 1)]) := by
+  rfl
+
+theorem manifest_empty_open_list :
+    manifest (.listTail [] .top)
+      = .ok (.list []) := by
+  rfl
+
+theorem manifest_open_list_typed_tail_drops_tail :
+    manifest (.listTail [.prim (.int 1), .prim (.int 2)] (.kind .int))
+      = .ok (.list [.prim (.int 1), .prim (.int 2)]) := by
+  rfl
+
+theorem manifest_open_list_string_tail_keeps_prefix :
+    manifest (.listTail [.prim (.int 1)] (.kind .string))
+      = .ok (.list [.prim (.int 1)]) := by
+  rfl
+
+theorem manifest_open_list_non_concrete_prefix_incomplete :
+    manifest (.listTail [.kind .int] .top)
+      = .error (.incomplete (.kind .int)) := by
+  rfl
+
+theorem manifest_open_list_nested_in_struct :
+    manifest (.struct [("xs", .regular, .listTail [.prim (.int 1)] .top)] true)
+      = .ok (.struct [("xs", .list [.prim (.int 1)])]) := by
+  rfl
+
 theorem manifest_concrete_struct :
     manifest (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true)
       = .ok (.struct [("a", .prim (.int 1)), ("b", .prim (.string "x"))]) := by

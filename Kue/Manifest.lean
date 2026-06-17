@@ -89,7 +89,13 @@ mutual
         match manifestItemsWithFuel fuel items with
         | .ok items => .ok (.list items)
         | .error error => .error error
-    | _ + 1, .listTail items tail => .error (.incomplete (.listTail items tail))
+    | fuel + 1, .listTail items _ =>
+        -- an open list manifests as its concrete prefix; the open/typed tail is dropped
+        -- on export, matching `cue` (`[1, ...]` -> `[1]`, `[...]` -> `[]`). A non-concrete
+        -- prefix element still surfaces as incomplete via the recursion below.
+        match manifestItemsWithFuel fuel items with
+        | .ok items => .ok (.list items)
+        | .error error => .error error
     | fuel + 1, .embeddedList items _ _ =>
         -- a struct-embedded list manifests as its (concrete) items; the open tail and
         -- the non-output decls do not appear in output.
