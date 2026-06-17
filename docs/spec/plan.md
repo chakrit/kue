@@ -676,7 +676,7 @@ LOW/borderline items to fold (none blocking):
   migrated to `String.dropEnd` (`.toString` coerces the new `String.Slice` return back).
   Behavior unchanged; the two build warnings are cleared.
 
-## Architecture Fix-Slices (Phase B audit 2026-06-17 #2 — eval-blowup diagnosis)
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #2 — eval-blowup diagnosis) — SUPERSEDED by #3
 
 Second Phase B pass, headlined by the priority diagnosis of the `kue export
 apps/argocd.cue` hang. Layering verdict from the prior pass (below) is **re-confirmed
@@ -834,7 +834,109 @@ keeps growing or the prelude accretes more lexer state.
 
 ---
 
-## Architecture Fix-Slices (Phase B audit 2026-06-17) — prior pass, layering still valid
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #3 — post deep-eval batch) — AUTHORITATIVE
+
+Whole-module-graph pass after the import/parser/memo/embeddedList/presence-test growth.
+This is the current authoritative ranking; the two sections below (#2 eval-blowup, and
+the original prior pass) are SUPERSEDED for ranking purposes but retained as the design
+record. Items 1/2/2b already landed; the remaining work is re-ranked here.
+
+**`Eval.lean` cohesion — verdict: keep as one module, do NOT extract.** It is one
+responsibility ("AST `Value` → evaluated `Value`") expressed as one big `mutual` block
+plus its pure dispatch helpers. The memo/`EvalState` infra (`Frame`/`Env`/`EvalKey`/
+`EvalState`/`pushFrame`/`runEval`, ~90 lines) is tightly coupled to that `mutual` —
+`pushFrame` is a `EvalM` action threaded through every recursive arm, and an `EvalCache`
+module would have to either re-export the `mutual` or be imported BY it while depending on
+its key type, forcing a `Value`-only split that buys nothing. The presence/definedness
+piece (`Definedness`/`classifyDefinedness`/`evalPresenceTest`, ~40 lines) is pure and self-
+contained — it *could* live in a `Kue/Presence.lean` over `Value`, but it's small, only
+consumed by the one `.binary … .bottom` arm, and moving it adds an import edge for no
+complexity reduction. Churn > pain on both. Revisit only if the arithmetic/comparison
+dispatch family (`evalAdd…evalBinary`, ~250 lines, all pure over `Value`) keeps growing —
+*that* block, not the memo infra, is the clean future extraction (`Kue/EvalOps.lean` over
+`Value`+`Decimal`), and it would shrink `Eval.lean` by a quarter. Folded as a LOW item
+below, not urgent.
+
+**Module-layering — verdict: clean, no back-edge from the growth.** Re-checked the full
+DAG after embeddedList + memo. `Value` base; pure cores (`Lattice`/`Order`/`Normalize`/
+`Format`/`Decimal`/`Resolve`/`Parse`) over it; `Manifest → {Format, Lattice}`;
+`Json → Manifest`; `Yaml → Json`; `Builtin → {Lattice, Decimal, Json, Yaml}` (NOT
+`→ Eval` — old cycle stays broken); `Eval → {Builtin, Decimal, Lattice, Normalize}`;
+`Runtime` wiring; `Module → {Parse, Runtime}` at the top. embeddedList is a `Value`
+constructor so it added zero edges — `Lattice` builds/merges it, `Manifest`/`Format`/`Eval`
+consume it, all already depending on `Value`. The memo `StateM EvalState` lives entirely
+inside `Eval`; no module learned about it. **No cycles, no back-edges.**
+
+**Inline fix applied this audit (commit `d11f80e`):** `FieldClass.producesOutput` and
+`ignoresClosedness` were `_ => false` wildcards over the 6-variant enum (new-constructor-
+swallow risk). Made exhaustive (explicit arm per variant) — a new `FieldClass` now breaks
+the build at both decision sites until classified. Verify gate green.
+
+### Ranked next-work list (goal = replace `cue` for prod9/infra)
+
+**Recommendation: do 2c FIRST, before the cleanup batch.** 2c is the single remaining
+real-file blocker for `apps/argocd.cue` (the canonical prod9 target) — every cleanup item
+is pure debt-reduction with zero goal-unblock. Accumulated debt is real but bounded
+(largest items are *test* infra, not core), and none of it is blocking a feature or
+causing miscompiles. Push the deep semantics to first green on the target file, THEN spend
+a consolidation batch (items 3–4 below) before the next feature family. Do not let the
+MEDIUM cleanups jump the queue ahead of the one thing gating the goal.
+
+1. **[HIGH — NOW the argocd gate] 2c: Lazy field resolution through definition-meet.** A
+   definition's comprehension body + field references must resolve against the *meet result*
+   (post-`#D & {…}`), not the definition's own pre-meet incomplete scope. Today kue eagerly
+   evaluates `#D`'s body against `#x: string` instead of deferring until the meet supplies
+   `#x: "hi"` (`#D & {#x:"hi"}` → kue `out.val: string`/`y: ⊥`, cue `out.val: "hi"`). This
+   is the layer behind the landed 2b and the last gate on `apps/argocd.cue`. Own slice;
+   the deep one. Pin with the `#D & {#x:…}` repro + the argocd fixture once green.
+2. **[HIGH — semantic correctness] Open-list collapse on Manifest (`[1,...]`).** Phase A
+   finding #4: `Manifest` returns `.incomplete` for an open-list tail where `cue` collapses
+   `[1,...]` to the concrete prefix `[1]` at manifest time. Smaller than 2c, real output
+   divergence on any open list reaching output. Confirm exact cue collapse rule
+   (prefix-only vs tail-default-fill) against oracle, then fix `Manifest`'s `listTail`/
+   `embeddedList`-with-tail arm. Own slice.
+3. **[MEDIUM — type-system leverage] Collapse `intGe/intGt/intLe/intLt` → `boundConstraint
+   (bound : Int) (kind : BoundKind)`.** Four parallel `Value` constructors over one domain
+   with a parallel `meetIntGe/Gt/Le/Lt` family in `Lattice` — textbook "parallel
+   structures, fold into an indexed type". `BoundKind = ge | gt | le | lt` makes the four
+   meet helpers one `kind`-dispatched helper and the four ctors one; real illegal-states
+   win (no bound without a kind, no kind mismatch). Touches `Value`/`Lattice`/`Format`/
+   parser/`valueTag`. Own slice — do as the lead item of the post-2c consolidation batch.
+4. **[MEDIUM — consolidation batch] base64-out-of-Json + test/`testdata` reorg + `Field`→
+   structure.** Run these together as the post-2c cleanup batch (they're independent,
+   mechanical, and share a verify cycle):
+   - **base64 out of `Json.lean`** → `Kue/Base64.lean`; re-point `Yaml`/`Builtin`/`Module`.
+   - **test + `testdata/cue/` reorg (chakrit-flagged, overdue)** — group the flat 114-fixture
+     dir into subsystem subdirs; split `BuiltinTests` (735) by family and assess
+     regenerating `FixtureTests` per-subdir; update `FixturePorts` roots + `check-fixtures.sh`
+     glob. `FixturePorts.lean` (2098) / `FixtureTests` (1033) / `BuiltinTests` (735) are the
+     three largest modules and all test infra — this is the periodic organization pass, now due.
+   - **`Field` tuple → `structure`** (`Value.lean:176`): named `label`/`fieldClass`/`value`
+     projections kill positional confusion and the internal `.snd.snd`. Broad mechanical
+     touch; ride it on the reorg's verify cycle.
+5. **[MEDIUM — promote candidate-gap] Linux `cacheRoot` default** (`Module.lean`): branch on
+   `System.Platform` so Linux defaults to `~/.cache/cue` not `~/Library/Caches/cue` when no
+   `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`. Small slice; portability gap for Linux CI/dev.
+6. **[LOW — type-system leverage] Refine `embeddedList.decls` element type.** The "decls =
+   non-output fields only" invariant is established by the `declFields` filter
+   (`!producesOutput`) but UNenforced by the type — `decls : List (String × FieldClass ×
+   Value)` admits a `.regular` field directly. A `NonOutputField` newtype (smart ctor over
+   the filter) or a refined subtype would make it unrepresentable, but it ripples through
+   the `Manifest`/`Format`/`Eval`/`Lattice` select sites and the `BEq`/`Repr` deriving — not
+   a clean small change. Fold as a slice, defer behind the goal-blockers; do alongside item 3
+   if `BoundKind` proves the newtype pattern out.
+7. **[LOW — cohesion, optional] Extract `Eval` arithmetic/comparison dispatch.** If the
+   `evalAdd…evalBinary` pure-op family keeps growing, lift it to `Kue/EvalOps.lean` (over
+   `Value`+`Decimal`), shrinking `Eval.lean` ~25%. Not urgent — no pain today; the memo
+   infra and presence piece stay put (see cohesion verdict above). Revisit on next growth.
+
+**Parser split (`Parse.lean`, 1442 lines) — still OPTIONAL, do NOT split now.** Three
+cohesive zones (lexer prelude / one `mutual` grammar / thin driver); single-responsibility
+and navigable. Ranks below every goal item. Revisit only if the grammar keeps growing.
+
+---
+
+## Architecture Fix-Slices (Phase B audit 2026-06-17) — prior pass, layering still valid (SUPERSEDED by #3)
 
 Whole-module-graph pass (broader than Phase A's diff lens). **Layering verdict: clean.**
 The internal import DAG is acyclic with the intended shape — `Value` at the base; pure
