@@ -498,6 +498,106 @@ for both kue and oracle) is a good harness touch.
   empties) — collapsed `subpathDir` to call `joinModulePath`, keeping the named wrapper for
   intent at its callsites. DRY.
 
+## Audit Fix-Slices (deep-eval family: memoization + list-embedding + presence-test, Phase A audit 2026-06-17)
+
+Phase A code-quality pass over `cded8ba` (memoize eval — `StateM EvalState` + frame-id
+memo `HashMap`), `2b63902` (`[...]` struct-embedding eval — `Value.embeddedList` +
+`FieldClass.producesOutput`), `05c7b6e` (`!= _|_`/`== _|_` presence test —
+`Definedness`/`classifyDefinedness`/`evalPresenceTest`). Type-system-first lens applied
+first. **No HIGH/Violation findings. Memo cache is SOUND, `embeddedList` exhaustive,
+presence-test interception robust. Items below are LOW-severity type-tightening +
+test-gap notes; none fixed inline (all touch refined types or new tests, not one-liners).**
+
+**HEADLINE — memo cache soundness: SOUND.** Probed adversarially (throwaway `/tmp` .cue,
+oracle-checked against `cue` v0.16.1):
+- **Key completeness — sound.** `EvalKey = ⟨fuel, envIds, visited, value⟩` with
+  `deriving BEq` compares the FULL `value` structurally, not just its tag. The shallow
+  `Hashable` (uses `valueTag`, `envIds.length`) is lossy only for bucket selection; a
+  tag/length collision falls through to structural `BEq`, which disambiguates → miss, no
+  false share. Adv case `base:{x:1,y:2}; a:base.x; b:base.y` (two `.selector` keys, same
+  tag/env/fuel/visited) returns `1`/`2` distinctly — matches cue.
+- **Frame-id identity — collision-free.** `pushFrame` allocates monotonically from
+  `nextFrameId` (starts 0 in `runEval`, only ever `+1`), so `(id, fields)` is a bijection
+  within a run; `Env.ids : List Nat` therefore uniquely determines the frame-content stack
+  → `envIds` equality is sound. Depth-0 self-ref reuses the SAME env (line 692); depth>0
+  rebase passes the EXISTING `frame :: outer` from `env.drop` (line 694), reusing original
+  ids — both share intentionally. Independently-built frames get distinct ids. Adv case
+  `outer:{n:1, inner:{n:2, v:n}}; r:outer.inner.v; s:outer.n` (shadowed `n` at two depths)
+  yields `r:2, s:1` — proves no false sharing across same-name scopes. Matches cue.
+- **Cycle interaction — safe.** `visited` is in the key and structurally compared. A
+  mid-cycle binding returns `.top` and IS cached, but under a key whose `visited` carries
+  the slot index; the fresh reach has a different `visited` → different key → the partial
+  cannot be replayed past the guard. Pinned by `eval_cycle_with_repeated_selection` +
+  `eval_shared_repeated_selection` (`native_decide`); adv `x:x&{p:1}; p1:x.p; p2:x.p` and
+  `a:b; b:{p:c.q,r:5}; c:{q:9}` both match cue.
+- **Determinism/totality — sound.** `StateM` threads only a memo (read-cached-or-compute,
+  insert-on-miss) — result is independent of hit timing (cache returns the same value it
+  would have computed). Explicit lexicographic `termination_by (fuel, phase, listLen)`; no
+  `partial def`.
+
+**`embeddedList` exhaustiveness (#2) — SOUND, no wildcard absorption.** Every
+Value-matching site has a correct explicit arm:
+- `Lattice.containsBottomWithFuel:135` — recurses into items + tail + decls (element
+  conflicts surface as bottom). `isBottom:95` `_=>false` correct (embeddedList isn't
+  bottom). `meetCore:419-420` `.embeddedList _ _ _,_ / _,.embeddedList _ _ _ => .bottom`
+  (the laziness fallback; real logic is in `meetWithFuel`). `asListPair:753` explicit.
+  `meetWithFuel:921-967` — `.embeddedList` arms PRECEDE the generic struct/list arms so a
+  left/right embeddedList keeps its own decls instead of being swallowed by
+  `listLike,.struct`; `meetListPairWith` is exhaustive over `Option×Option` (4 arms).
+- `Manifest.lean:96` — emits items, excludes tail + decls. Open-tail embeddedList
+  manifests as a concrete list (drops tail) — **oracle-confirmed correct** (`{#x:1,[1,...]}`
+  → `[1]` in cue v0.16.1).
+- `Eval.lean` — `selectEvaluatedField:126` (decls selectable via `findEvalField`),
+  `selectEvaluatedIndex:180-181` (items indexed, tail-aware), `classifyDefinedness:263`
+  (`.defined`), `valueTag:565` (31). `Format.lean:190` prints `{decls…, [items…]}`.
+- **Benign wildcard absorptions:** `Order.subsumesWithFuel` `_,_=>false` (conservative;
+  `subsumes` has no non-test callers), `Normalize`/`Resolve`/`join` pass it through as a
+  leaf. embeddedList is meet-produced only — never in pre-eval AST — so Normalize/Resolve
+  (AST-only) never encounter it. Safe by construction.
+
+**Presence-test interception (#3) — ROBUST, deferral real + documented.** The `.binary`
+interception (Eval.lean:704-717) fires ONLY on the syntactic `Value.bottom` constructor as
+a direct operand, never an evaluated-bottom. Oracle-confirmed against cue v0.16.1:
+`(1/0)==2` → error propagates (NOT `false`); `_|_==2` → `false`; `_|_==(1/0)` → `true`;
+`x.b==_|_` (absent) → `true`. `classifyDefinedness` is total (explicit defined/error arms,
+`_=>incomplete`); `Definedness` is the right 3-way sum type (illegal-states-unrepresentable
+✓). The incomplete→residual `.binary` deferral is real: `int != _|_` → incomplete in BOTH
+kue and `cue export` ("requires concrete value"); the missing-field-on-open-struct →
+incomplete (vs cue's bottom→`true` for a bare `x.b==_|_`) is the documented kue-side
+deferral (compat-assumptions §presence, lines 233-240), observably agrees in the guard
+idiom, NOT a masked bug.
+
+### Findings (LOW severity — fold as fix-slices)
+
+1. **[LOW — type-system-first] `FieldClass.producesOutput` uses `_ => false` wildcard.**
+   New this batch (`Value.lean`). `FieldClass` is a 6-variant enum; a future variant would
+   silently default to non-output, the exact "new constructor swallowed" risk the
+   philosophy flags. Replace with explicit arms for all 6 (regular/required → true; the
+   rest → false). Same pattern in the pre-existing `ignoresClosedness` — tighten both in
+   one slice. Mechanical, but touches a hot enum → not a blind inline fix.
+
+2. **[LOW — type-system-first] `embeddedList.decls` invariant ("non-output fields only")
+   is unenforced.** The field type `List (String × FieldClass × Value)` admits output
+   fields; the "decls are non-output" invariant holds only by every build site filtering
+   through `declFields`/merging already-filtered decls. A refined decls element type (a
+   `NonOutputField` newtype, or a smart constructor that rejects regular/required) would
+   make the illegal state unrepresentable. Blast radius: the `embeddedList` constructor +
+   its ~6 build/consume sites in `meetWithFuel`. Propose as a tightening slice.
+
+3. **[LOW — test gap] No theorem pins frame-id non-collision across shadowed scopes.** The
+   strongest cache-soundness case (same binding name at two env depths, `outer.inner.v` vs
+   `outer.n`) is covered only by manual oracle + the `shared_selection_fan` fixture, not a
+   `native_decide` theorem. Add an `eval_shadowed_binding_no_false_share` theorem mirroring
+   the adv3 probe (`outer:{n:1, inner:{n:2, v:n}}` → `v:2, s:1`).
+
+4. **[LOW — divergence-log gap] Open-list collapse-on-manifest not logged.** `cue`
+   manifests both `[1,...]` and `{#x:1,[1,...]}` as the concrete `[1]` (drops the open
+   tail at export). embeddedList-with-tail correctly does this (Manifest.lean:96), but the
+   behavior is surprising and undocumented in `cue-divergences.md` / not cross-checked for
+   the bare `.listTail` path (which returns `.incomplete` at Manifest.lean:95 — a possible
+   bare-listTail divergence to investigate separately). Log the embedded case; open an
+   investigation note for the bare `[1,...]` manifest path.
+
 ## Audit Fix-Slices (parser+alias+multiline family, audit 2026-06-17)
 
 Findings from the `/ace-audit` depth pass over `0795530` (`strings.SplitN`), `7ec51a4`
