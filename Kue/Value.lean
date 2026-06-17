@@ -80,7 +80,9 @@ def ignoresClosedness : FieldClass -> Bool
   | .hidden => true
   | .definition => true
   | .letBinding => true
-  | _ => false
+  | .regular => false
+  | .optional => false
+  | .required => false
 
 /-- A class that contributes a concrete value to manifest output. `optional` does not
     (no concrete value until satisfied); only `regular`/`required` do. Used to decide
@@ -89,7 +91,10 @@ def ignoresClosedness : FieldClass -> Bool
 def producesOutput : FieldClass -> Bool
   | .regular => true
   | .required => true
-  | _ => false
+  | .optional => false
+  | .hidden => false
+  | .definition => false
+  | .letBinding => false
 
 end FieldClass
 
