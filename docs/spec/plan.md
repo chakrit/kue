@@ -182,6 +182,87 @@ AST-identical to the brace form across all inner-label forms; B4 multiline is to
 correct; parser positions have no off-by-one; the three B2 deferred boundaries are real
 and correctly documented.
 
+## Audit Fix-Slices (bound-representation family, Phase A audit 2026-06-17)
+
+Phase A depth pass over `aa5987f` (test/fixture reorg — pure moves), `d87d6dd`
+(`boundConstraint` fold 4→1 + canonical conj sort + commutativity theorems), `073e1d9`
+(decimal-valued, domain-tagged bounds). Verify gate green at audit time (`lake build` 84
+jobs; `check-fixtures.sh` "fixture pairs ok"; shellcheck clean). **This batch closes the
+two open findings of the prior Phase A audit (non-commutative conj form #1; `float & >0`
+wrongly bottoms #2) — both confirmed fixed below.** No new HIGH/MEDIUM findings.
+
+**HEADLINE — commutativity preserved AND `int`-narrowing airtight (no float past `int`).**
+Probed adversarially against cue v0.16.1 across permuted arg orders:
+- *Commutativity holds on the canonical form.* `int & >0 & <=10` formats identically
+  (`int & >0 & <=10`) in all 5 tested permutations; `(int & >=0) & (>=0 & <=5)` dedupes the
+  doubled `>=0` to `int & >=0 & <=5` in both orders; bare-range `>=0 & <=10 & 5.5` → `5.5`
+  in all orders; `int & <2.50 & >0.5` → `int & >0.5 & <2.5` in all orders (trailing zero
+  trimmed). The `sortConjMembers`/`conjMemberLe` canonical sort is load-bearing and works.
+- *`int`-narrowing is airtight.* `int & >0 & 1.5` → ⊥ in EVERY permutation; `int & >0.5 & 0`
+  → ⊥; `float & >0 & 1` → ⊥; `float & >0 & 1.0` → `1.0`; bare `>0 & 1.5` → `1.5`. No path
+  found where a float sneaks past an `int` conjunct. Mechanism confirmed sound: the bound
+  keeps `number` domain and the kept `kind` conjunct (not bound-domain mutation) does the
+  narrowing, so range members need no per-member narrowing — all oracle-matched.
+- *Decimal compare is exact (no float rounding, no hand-rolled compare — reuses the
+  rational order via `decimalLeValues`/`decimalLtValues`).* Strict/non-strict at boundary:
+  `>0 & 0`→⊥, `>=0 & 0`→`0`; trailing-zero/scale: `>0.50 & 0.5`→⊥, `>=0.50 & 0.5`→`0.5`,
+  `>0.5 & 0.50`→⊥; negatives: `>-1.5 & -1.5`→⊥, `>=-1.5 & -1.5`→`-1.5`. All oracle-matched.
+- *`conjMemberKey` is a total order over DecimalValue limits* — `mergeSort conjMemberLe`
+  converges to one canonical order in every permutation tested (the empirical commutativity
+  evidence above). Decimal tie-break compares limits directly via `decimalLeValues` so
+  different scales (`>0.5` vs `>0.50`) order deterministically.
+- *Parse of `>0.5`/`>=-1`/`<3.14` is total and correct*; malformed bounds (`>`, `>=`,
+  `<x`, `>0.5.5`) error cleanly with position.
+- *Module move (`DecimalValue` → `Value.lean`) clean:* no import cycle (`Value` imports
+  only `Init`; `Decimal.lean` imports `Value`, correct direction); `Decimal.lean` still
+  compiles reusing it; `minInt`/`maxInt` fully removed, zero references remain.
+- *`NumberDomain` is a tight 3-way sum* (`number`/`int`/`float`), not a flag; `admitsKind`/
+  `narrow`/`kind`/`rank` all total exhaustive matches, no catch-all over the domain.
+- *No wildcard swallows a new constructor:* `Format`/`Manifest` handle `boundConstraint`
+  explicitly; the Manifest diff REPLACED a `FieldClass` catch-all with explicit
+  `.regular`/`.optional`/`.letBinding` arms (philosophy win). `meetCore` has the bound arms
+  enumerated. `DecidableEq`/`BEq` deriving intact on the richer `Value`.
+- *Test-reorg sanity:* reorg commit `aa5987f` was a clean 141→141 (no fixture
+  dropped/added/double-counted by the recursive glob); the bounds commit legitimately added
+  3 (→144), each with a `.cue`/`.expected` pair AND a `FixturePorts` entry. The "141
+  unchanged" claim in the audit scope referred to the reorg commit specifically — confirmed.
+
+### Findings (ranked — all LOW)
+
+1. **[LOW — stale name] `BottomReason.intBoundConflict` now covers decimal/float bound
+   conflicts too.** `meetBoundPrim`/`meetRangePrim`/`meetTwoBounds` all emit
+   `.intBoundConflict` for any out-of-bound or infeasible-range case, including
+   `>0.5 & 0.25` and `>5 & <3` — no longer int-specific. Rename to `boundConflict` (or
+   `numericBoundConflict`) for accuracy. Cosmetic (doesn't affect the `_|_` rendering); fold
+   into the float/math family rename pass.
+
+2. **[LOW — latent fragility, not a live bug] `meetRangePrim` conj arm discards the second
+   bound's domain (`_`).** The `.conj [boundConstraint .. lowerDomain, boundConstraint .. _]`
+   meet-with-prim arm uses `lowerDomain` and ignores the upper member's domain. Sound today
+   because `meetTwoBounds` always builds the 2-bound conj with both members sharing the
+   narrowed domain (invariant verified by construction), so the two are equal. But the type
+   doesn't enforce that invariant — a hand-built `.conj` of two differently-domained bounds
+   would silently use only the first. Either assert equality, or (cleaner) introduce a
+   `Range` representation that carries one domain for both sides, making the mismatch
+   unrepresentable. Track for Phase B (type-tightening).
+
+3. **[LOW — test strength, FIXED inline this audit] Trailing-zero precision tie now pinned
+   at the theorem level.** `>0.50 & 0.5`→⊥ (and the scale-mismatch family) was covered
+   behaviorally via CLI/oracle but had no `native_decide` theorem; the existing decimal
+   theorem used `0.5` vs `1.0`/`0.25` (different magnitudes, not a same-value-different-scale
+   tie). Added `meet_decimal_bound_trailing_zero_tie` to `BoundTests.lean` pinning
+   `meet (>0.50) (0.5)` → ⊥ and `meet (>=0.50) (0.5)` → `0.5`. Regression-locked.
+
+**Closed-by-this-batch (prior Phase A findings):** #1 (non-commutative canonical conj form)
+— FIXED by `d87d6dd`'s `sortConjMembers`; commutativity now holds + theorems pin it. #2
+(`float & >0` wrongly bottoms) — FIXED by `073e1d9`'s domain-tagged bounds; `float & >0` →
+`float & >0`, `float & >0 & 1.0` → `1.0`, oracle-matched.
+
+**CUE display divergence (cosmetic, not a Kue bug):** cue prints `uint` sugar for
+`int & >=0` (`int & >0 & <=10` → `uint & >0 & <=10`; `(int & >=0) & (>=0 & <=5)` →
+`uint & <=5`); Kue prints the desugared `int & >=0` form. Semantics identical. Candidate
+for `cue-divergences.md` only if Kue ever claims display-parity on `uint`; not a finding.
+
 ## Audit Fix-Slices (int-bound-retention + CLI + open-list family, Phase A audit 2026-06-17)
 
 Phase A depth pass over `e98fb65` (int-bound kind retention + `meetConjValueWith`

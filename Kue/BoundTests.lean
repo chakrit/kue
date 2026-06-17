@@ -231,4 +231,14 @@ theorem meet_negative_decimal_bound_admits :
     (meet (.boundConstraint { numerator := -15, scale := 1 } .gt .number) (.prim (.int 0)) == .prim (.int 0)) = true := by
   native_decide
 
+/-- Exact-scale comparison: a limit and a value that are numerically equal but written at
+    different scales (`>0.50` vs `0.5`) compare as equal, so the strict bound rejects and
+    the non-strict bound admits — no trailing-zero/precision artifact. -/
+theorem meet_decimal_bound_trailing_zero_tie :
+    (meet (.boundConstraint { numerator := 50, scale := 2 } .gt .number) (.prim (.float "0.5"))
+        == .bottomWith [.intBoundConflict]) = true
+      ∧ (meet (.boundConstraint { numerator := 50, scale := 2 } .ge .number) (.prim (.float "0.5"))
+          == .prim (.float "0.5")) = true := by
+  native_decide
+
 end Kue
