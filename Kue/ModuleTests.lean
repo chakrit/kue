@@ -65,4 +65,66 @@ example :
       == .struct [("defs", .hidden, .struct [] true), ("out", .regular, .top)] false) = true := by
   native_decide
 
+/-! ## Cross-module dependency resolution (B3c, disk-free) -/
+
+/-- A `deps` key carries an `@<major>` suffix that the module path drops. -/
+example : depKeyModulePath "prodigy9.co/defs@v0" = "prodigy9.co/defs" := by
+  native_decide
+
+/-- A key with no `@` is its own module path. -/
+example : depKeyModulePath "example.com" = "example.com" := by
+  native_decide
+
+private def depsValue : Value :=
+  .struct
+    [("module", .regular, .prim (.string "prodigy9.co")),
+     ("deps", .regular,
+       .struct
+         [("prodigy9.co/defs@v0", .regular, .struct [("v", .regular, .prim (.string "v0.3.19"))] true),
+          ("other.org/lib@v1", .regular, .struct [("v", .regular, .prim (.string "v1.2.0"))] true)]
+         true)]
+    true
+
+/-- `parseDeps` reads each `deps` entry into `(modPath, version)`, stripping the `@major`. -/
+example :
+    parseDeps depsValue
+      = [{ modPath := "prodigy9.co/defs", version := "v0.3.19" },
+         { modPath := "other.org/lib", version := "v1.2.0" }] := by
+  native_decide
+
+/-- A module value with no `deps` field yields an empty dependency table. -/
+example : parseDeps (.struct [("module", .regular, .prim (.string "x.com"))] true) = [] := by
+  native_decide
+
+private def deps : List Dep :=
+  [{ modPath := "prodigy9.co/defs", version := "v0.3.19" },
+   { modPath := "prodigy9.co/defs/sub", version := "v0.4.0" }]
+
+/-- A cross-module import resolves to its owning dep and the module root subpath (`""`). -/
+example :
+    resolveCrossModule deps "prodigy9.co/defs"
+      = some ({ modPath := "prodigy9.co/defs", version := "v0.3.19" }, "") := by
+  native_decide
+
+/-- A subpath import maps to the trailing path under the owning dep. -/
+example :
+    resolveCrossModule deps "prodigy9.co/defs/packs"
+      = some ({ modPath := "prodigy9.co/defs", version := "v0.3.19" }, "packs") := by
+  native_decide
+
+/-- Longest module-path prefix wins: the nested dep `prodigy9.co/defs/sub` is preferred
+    over `prodigy9.co/defs` when the import lies under it. -/
+example :
+    resolveCrossModule deps "prodigy9.co/defs/sub/leaf"
+      = some ({ modPath := "prodigy9.co/defs/sub", version := "v0.4.0" }, "leaf") := by
+  native_decide
+
+/-- An import matching no declared dependency is unresolved (`none`). -/
+example : resolveCrossModule deps "unknown.org/x" = none := by
+  native_decide
+
+/-- A textual-but-not-segment prefix does not match a dependency. -/
+example : resolveCrossModule deps "prodigy9.com/defs" = none := by
+  native_decide
+
 end Kue

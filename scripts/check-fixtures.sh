@@ -161,8 +161,13 @@ check_export_fixtures() {
 # testdata/modules/<name>/. A success fixture ships an `expected` file holding the
 # `cue export`-matching JSON for `kue export --out json <dir>/main.cue`; an error fixture
 # ships `expected.err` holding a substring the failing run's stderr must contain (loader
-# errors — cycles, missing dirs, cross-module deferral, package-name conflicts). Additive:
-# leaves the single-file and export stages untouched.
+# errors — cycles, missing dirs, unknown/absent dependency, package-name conflicts).
+#
+# A cross-module fixture may carry a self-contained `_cache/` directory holding the
+# extracted dependency modules in the cue cache layout (mod/extract/<modpath>@<ver>/). When
+# present it is pointed at via CUE_CACHE_DIR so resolution is deterministic and never reads
+# the user's real cache — for both kue and the oracle. Additive: leaves the single-file and
+# export stages untouched.
 check_module_fixtures() {
   local kue_exe="${repo_root}/.lake/build/bin/kue"
   local status=0
@@ -182,12 +187,24 @@ check_module_fixtures() {
       continue
     fi
 
+    # A fixture's committed `_cache/` overrides the cue cache so resolution stays
+    # self-contained; absent it, run unchanged with the ambient environment.
+    run_kue() {
+      local cache_dir
+      if [[ -d "${dir}_cache" ]]; then
+        cache_dir="$(cd "${dir}_cache" && pwd)"
+        CUE_CACHE_DIR="${cache_dir}" "${kue_exe}" "$@"
+      else
+        "${kue_exe}" "$@"
+      fi
+    }
+
     if [[ -f "${dir}expected" ]]; then
-      if ! diff -u "${dir}expected" <("${kue_exe}" export --out json "${main_file}"); then
+      if ! diff -u "${dir}expected" <(run_kue export --out json "${main_file}"); then
         status=1
       fi
     elif [[ -f "${dir}expected.err" ]]; then
-      if stderr_output="$("${kue_exe}" "${main_file}" 2>&1 >/dev/null)"; then
+      if stderr_output="$(run_kue "${main_file}" 2>&1 >/dev/null)"; then
         printf 'module fixture %s expected an error but succeeded\n' "${dir}" >&2
         status=1
       elif [[ "${stderr_output}" != *"$(cat "${dir}expected.err")"* ]]; then

@@ -1,0 +1,9 @@
+{
+    "out": {
+        "inner": {
+            "value": 7,
+            "unit": "px"
+        },
+        "tag": "outer"
+    }
+}

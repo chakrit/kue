@@ -4617,3 +4617,64 @@ new eval machinery; the package binding is a hidden field, so it never appears i
 
 Verify gate green: `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs
 ok`, `shellcheck` clean.
+
+## Completed Slice: B3c — Cross-Module / Vendored Import Resolution (the prod9 unlock)
+
+**Intended behavior:** resolve an import path that names a *separate* module (declared in
+the importing module's `deps`) to that module on disk — vendored or in the cue cache — and
+bind it exactly as B3a binds in-module packages, so `defs.#X` from a real prod9
+`infra/apps/*.cue` resolves. No new eval machinery; reuses B3a's `loadPackage`.
+
+What it added (`Kue/Module.lean`):
+
+- **Dep parsing (pure).** `structure Dep {modPath, version}`; `parseDeps` reads each
+  `deps."<modpath>@<major>": {v: "<ver>"}` entry off the parsed `cue.mod/module.cue` value;
+  `depKeyModulePath` strips the `@<major>` suffix. `readModulePath` became `readModuleInfo`,
+  returning `(modPath, deps)` from one parse.
+- **Cross-module mapping (pure).** `resolveCrossModule` picks the owning dep by **longest
+  module-path prefix** and returns `(dep, subpath)`. `importUnderModule` is the shared
+  path-segment prefix test.
+- **A declared dep wins over the in-module interpretation.** `resolveImportTarget` checks
+  `resolveCrossModule ctx.deps` **first**; only a path matching no dep falls to the
+  in-module subpath. This is the keystone — `prodigy9.co/defs` is a dep of the `prodigy9.co`
+  module, so it loads the separate `defs` module, not a nonexistent `infra/defs/` subdir.
+- **On-disk location (IO, read-only).** `cacheRoot` honors `$CUE_CACHE_DIR` →
+  `$XDG_CACHE_HOME/cue` → `~/Library/Caches/cue`. `locateModuleDir` tries vendored
+  `cue.mod/pkg/<modpath>@<ver>/`, then bare `cue.mod/pkg/<modpath>/`, then the extract cache
+  `<cacheRoot>/mod/extract/<modpath>@<ver>/`; first existing wins, else a clean deferred
+  error.
+- **`ModuleContext` threading.** `{root, modPath, deps}` flows through the loader; a
+  cross-module hop reads the *target* module's `cue.mod/module.cue` for its own context, so
+  its transitive in-module and cross-module imports resolve correctly. The visited-set
+  cycle guard spans module hops (dirs are absolute).
+- **Deferred-error messages.** `unknownModuleError` (path matches no dep) and
+  `moduleNotOnDiskError` (dep declared but absent from vendor + cache; registry fetch is
+  B3d).
+
+IO stays in `Module.lean`; `Eval`/`Resolve`/the merge core stay pure and total.
+
+**Tests:** 8 new `Kue/ModuleTests.lean` `native_decide` theorems (disk-free) pin
+`depKeyModulePath`, `parseDeps` (incl. empty), and `resolveCrossModule` (root, subpath,
+longest-prefix win, no-match, textual-not-segment prefix). Four new `testdata/modules/`
+fixtures: `crossmod_cache` (cache-extract layout via a committed `_cache/`, byte-for-byte
+vs `cue export` under `CUE_CACHE_DIR`), `crossmod_transitive` (app → mid → base, all
+cached, oracle-matched), `crossmod_vendor` (legacy `cue.mod/pkg/` layout — kue-only, since
+cue v0.16 ignores it), `crossmod_missing` (declared dep absent → `expected.err`). The
+existing `crossmod` error fixture's message was updated to the new unknown-dependency text.
+`check_module_fixtures` extended to point `CUE_CACHE_DIR` at a fixture's committed `_cache/`
+when present — self-contained, never reads the user's real cache. Tests do **not** depend on
+the real prod9 cache.
+
+**Real-file spot-check (READ-ONLY, prod9/infra):** `defs.#X` **resolves** — kue descends
+into `~/Library/Caches/cue/mod/extract/prodigy9.co/defs@v0.3.19/`. Import resolution is no
+longer the blocker. Next blockers (ranked over 15 `infra/apps/*.cue`): (1) `let`
+declarations, 10/15; (2) open-list `[...]`, pervasive incl. the `defs/parts` load, 3/15
+reach it; then closedness / hidden-field / `[string]:` semantic gaps.
+
+**Design boundary (not a divergence):** kue reads the intermediate module's `deps` per
+transitive hop; `cue` requires flat MVS pinning in the main module. Both resolve on-disk
+artifacts; the transitive fixture pins flat to stay oracle-clean. **Deferred (B3d):**
+registry fetch, MVS solving, `cue.sum`.
+
+Verify gate green: `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs
+ok`, `shellcheck` clean.

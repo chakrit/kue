@@ -68,12 +68,30 @@ those forms.
   hidden top-level field so `pkg.#Sym` resolves through the ordinary selector path.
   Transitive in-module imports load recursively with a visited-set cycle guard. Builtin
   stdlib import paths (`strings`/`list`/`math`/`encoding/{base64,json,yaml}`) are skipped by
-  the loader and continue to dispatch via the dotted builtin name. **Deferred:**
-  cross-module / registry / vendored resolution — any import path that does not match the
-  current module prefix fails with `unresolved import: …: cross-module/registry not yet
-  supported (B3c)`. Aliased-import edges, nested-path corners, and grouped-import comment/
-  trailing-comma robustness are B3b. The stdin and multi-file CLI paths still discard
-  imports (the pre-B3a behavior), so a stdin file with a non-builtin import is unaffected.
+  the loader and continue to dispatch via the dotted builtin name.
+- **Cross-module / vendored imports resolve (B3c).** An import path matching a `deps` entry
+  of the importing `cue.mod/module.cue` is the *dependency* module, not an in-module subdir
+  — **a declared dep wins over the in-module prefix interpretation** (so `prodigy9.co/defs`,
+  declared as `"prodigy9.co/defs@v0"` in deps, resolves to the separate `defs` module even
+  though it lies textually under the `prodigy9.co` module). The dep's pinned version comes
+  from `deps.<key>.v`; the owning dep is chosen by longest module-path prefix. The module is
+  located **read-only** in priority order: vendored `cue.mod/pkg/<modpath>[@ver]/`, then the
+  extract cache `<cacheRoot>/mod/extract/<modpath>@<ver>/`, where `cacheRoot` honors
+  `$CUE_CACHE_DIR`, else `$XDG_CACHE_HOME/cue`, else `~/Library/Caches/cue`. The subpath is
+  mapped within the located module root and loaded via the same `loadPackage` machinery; a
+  cross-module import *inside* a loaded module hops to that module's own context, so
+  transitive cross-module resolves recursively. A path matching neither the module prefix
+  nor any dep → `unresolved import …: not in-module and matches no dependency …`; a declared
+  dep absent from vendor and cache → `unresolved import …: module <modpath>@<ver> not found
+  in vendor or cue cache … registry fetch is B3d`. **kue is more lenient than `cue` on the
+  transitive graph:** it reads the *intermediate* module's `deps` per hop, whereas `cue`
+  requires every transitive dep pinned flat in the main module (MVS). Both resolve when the
+  artifact is on disk. **Deferred (B3d):** registry FETCH (OCI/`CUE_REGISTRY`), MVS version
+  *solving*, and `cue.sum` verification — B3c assumes the artifact is already on disk.
+- **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import comment/
+  trailing-comma robustness. Real prod9 grouped imports parse fine today, so this stays
+  parked. The stdin and multi-file CLI paths still discard imports (pre-B3a behavior), so a
+  stdin file with a non-builtin import is unaffected.
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.

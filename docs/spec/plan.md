@@ -112,12 +112,44 @@ first, the big import subsystem last because it gates the real workflow):
      `encoding/{base64,json,yaml}`) are skipped by the loader (`isBuiltinImport`), leaving
      the call-form dispatch untouched. File-mode + `export` file-mode route through the
      loader; stdin and multi-file CLI paths unchanged.
-   - **B3b — aliased imports + nested paths + grouped-import robustness (NEXT).** Alias is
+   - **B3b — aliased imports + nested paths + grouped-import robustness.** Alias is
      already retained/bound (basic case works); harden the import-clause parser (comments
      inside groups, trailing commas, blank-line separators) and nested-path corner cases.
-   - **B3c — cross-module / vendored (the real prod9 unlock).** Read `deps` in
-     `cue.mod/module.cue`; locate via vendored `cue.mod/pkg/…` or the extract cache.
-   - **B3d — registry fetch + version resolution (LAST, deferred per chakrit).**
+     Real prod9 files parsed their grouped imports fine in the B3c spot-check, so the
+     syntax-edge hardening stays **deferred** until a real file actually needs it.
+   - **B3c — cross-module / vendored (DONE, 2026-06-17, the real prod9 unlock).** `deps`
+     read from `cue.mod/module.cue` (`parseDeps`: each `"<modpath>@<major>": {v}` entry →
+     `Dep{modPath, version}`, `@major` stripped); an import path mapped to its owning dep
+     by **longest module-path prefix** (`resolveCrossModule`). A **declared dependency wins
+     over the in-module interpretation** (`prodigy9.co` owns `prodigy9.co/defs@v0` as a dep,
+     so `prodigy9.co/defs` is the dependency module, not an `infra/defs/` subdir) — this was
+     the keystone fix that made `defs.#X` resolve. Module located read-only in priority
+     order: vendored `cue.mod/pkg/<modpath>[@ver]/` then extract cache
+     `<cacheRoot>/mod/extract/<modpath>@<ver>/` (`cacheRoot` honors `$CUE_CACHE_DIR` →
+     `$XDG_CACHE_HOME/cue` → `~/Library/Caches/cue`). Subpath mapped within that root;
+     reuses B3a's `loadPackage` (multi-file merge, transitive loads, visited-set) — **no new
+     eval machinery**. A cross-module import inside a loaded module hops to *that* module's
+     own `ModuleContext` (its root + deps), so transitive cross-module resolves recursively.
+     Missing-on-disk → clean deferred error (registry fetch is B3d). IO stays in
+     `Module.lean`; `Eval`/`Resolve` pure.
+     - **Real-file spot-check (READ-ONLY, prod9/infra):** `defs.#X` now **resolves** — kue
+       descends into the real `~/Library/Caches/cue/mod/extract/prodigy9.co/defs@v0.3.19/`
+       and loads its files. Import resolution is no longer the blocker. The remaining
+       distance to "replace cue for infra" is **parser gaps**, ranked by how many of the 15
+       `infra/apps/*.cue` they block:
+       1. **`let` declarations (`let x = expr` in a struct) — 10/15 files.** Top blocker;
+          hits the app files directly (`let version = "0.20.0"`, `let nsp = …`).
+       2. **Open-list `[...]` expression — pervasive.** In nearly every app file and in the
+          cross-module `defs/parts/allow_listener_sets.cue` load (3/15 reach it).
+       3. Then the deeper semantic gaps (closedness enforcement under
+          import/unification, bare hidden-field references, `[string]:` patterns).
+     - **Design boundary (kue more lenient than cue, not a divergence):** kue reads the
+       *intermediate* module's `deps` for a transitive cross-module hop; `cue` requires every
+       transitive dep pinned **flat** in the *main* module's `deps` (MVS graph). Both resolve
+       when the artifact is on disk; the transitive fixture pins flat to stay oracle-clean.
+   - **B3d — registry fetch + version resolution (LAST, deferred per chakrit).** OCI fetch
+     from `CUE_REGISTRY`, MVS version solving, `cue.sum` verification. B3c assumes the
+     artifact is already on disk (vendor or cache); B3d removes that assumption.
 
 Note: `strings.*`/`list.*` work *without* an `import` because kue hardcodes those
 namespaces and ignores the `import` clause — this masks the absence of any general

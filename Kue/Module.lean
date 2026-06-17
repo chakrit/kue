@@ -18,10 +18,18 @@ loader entry points, keeping `Eval`/`Resolve` and the merge core pure.
 
 namespace Kue
 
-/-- The deferred-resolution message emitted for any import path that is not in-module —
-    cross-module, registry, or vendored. Resolving these is B3c/B3d work. -/
-def crossModuleDeferredError (path : String) : String :=
-  s!"unresolved import: {path}: cross-module/registry not yet supported (B3c)"
+/-- Emitted when an import path matches no `deps` entry of the importing module — neither
+    in-module nor any declared dependency. Fetching such a module would require the registry
+    (B3d); here it is a clean deferral. -/
+def unknownModuleError (path : String) : String :=
+  s!"unresolved import: {path}: not in-module and matches no dependency in cue.mod/module.cue (registry fetch is B3d)"
+
+/-- Emitted when a declared dependency's module is present in neither the importing
+    module's vendor tree nor the local cue cache. B3c resolves an already-on-disk artifact;
+    fetching it from the registry is B3d. -/
+def moduleNotOnDiskError (path modPath version : String) : String :=
+  s!"unresolved import {path}: module {modPath}@{version} not found in vendor or cue cache " ++
+    "(run `cue mod tidy`/`cue export` once, or vendor it); registry fetch is B3d"
 
 /-- The standard-library import paths whose symbols are dispatched by `evalBuiltinCall`
     (call-form `pkg.fn(...)`), not bound as package values. The loader skips these so a
@@ -49,6 +57,62 @@ def resolveImportSubpath (modPath importPath : String) : Option String :=
       some (importPath.drop modPrefix.length).toString
     else
       none
+
+/-- A resolved dependency: the module path (`prodigy9.co/defs`, the `@major` suffix
+    stripped from the `deps` key) paired with the pinned full version (`v0.3.19`). -/
+structure Dep where
+  modPath : String
+  version : String
+deriving Repr, BEq, DecidableEq
+
+/-- Drop the `@<major>` suffix CUE appends to a `deps` key, leaving the bare module path.
+    `prodigy9.co/defs@v0` → `prodigy9.co/defs`; a key with no `@` is returned verbatim. -/
+def depKeyModulePath (key : String) : String :=
+  match (key.splitOn "@") with
+  | first :: _ => first
+  | [] => key
+
+/-- Read the dependency table out of a parsed `cue.mod/module.cue` value: each `deps` entry
+    `"<modpath>@<major>": { v: "<version>" }` becomes a `Dep`. Entries lacking a string `v`
+    are skipped. Pure — operates on the already-parsed module-file value. -/
+def parseDeps : Value -> List Dep
+  | .struct fields _ =>
+      match (fields.find? (fun f => f.fst == "deps")).map (fun f => f.snd.snd) with
+      | some (Value.struct entries _) =>
+          entries.filterMap fun entry =>
+            match versionOf entry.snd.snd with
+            | some version => some { modPath := depKeyModulePath entry.fst, version }
+            | none => none
+      | _ => []
+  | _ => []
+where
+  versionOf : Value -> Option String
+    | .struct fields _ =>
+        (fields.find? (fun f => f.fst == "v")).bind fun f =>
+          match f.snd.snd with
+          | .prim (.string version) => some version
+          | _ => none
+    | _ => none
+
+/-- Whether `importPath` is `modPath` or lies under `modPath ++ "/"` — the same
+    path-segment prefix test `resolveImportSubpath` applies, reused for dep matching. -/
+def importUnderModule (modPath importPath : String) : Bool :=
+  importPath == modPath || importPath.startsWith (modPath ++ "/")
+
+/-- Find the dependency that owns `importPath`, by longest module-path prefix match (so a
+    nested dep like `a.com/x/y` wins over `a.com/x` when both are declared). Returns the
+    owning `Dep` paired with the module-relative subpath (`""` when the import names the
+    module root). `none` when no dependency matches — an unknown, registry-only import. -/
+def resolveCrossModule (deps : List Dep) (importPath : String) : Option (Dep × String) :=
+  let owning := deps.filter (fun dep => importUnderModule dep.modPath importPath)
+  match owning.foldl (fun best dep =>
+    match best with
+    | some b => if dep.modPath.length > b.modPath.length then some dep else best
+    | none => some dep) none with
+  | none => none
+  | some dep =>
+      let subpath := (resolveImportSubpath dep.modPath importPath).getD ""
+      some (dep, subpath)
 
 /-- Build a package struct from its already-parsed files: check package-name consistency,
     then meet-merge the file bodies via the shared multi-file merge primitive. Returns the
@@ -103,15 +167,25 @@ partial def findModuleRoot (start : System.FilePath) : IO (Option System.FilePat
         if parent == start then pure none else findModuleRoot parent
     | none => pure none
 
-/-- Read and parse `cue.mod/module.cue`, returning the `module:` field's string value. The
-    file is CUE, so reuse the parser and look the field up in the top-level struct. -/
-def readModulePath (root : System.FilePath) : IO (Except String String) := do
+/-- A module's identity for resolution: its on-disk root, declared module path, and the
+    dependency table read from its `cue.mod/module.cue`. Cross-module resolution hops from
+    one context to the target module's own context, so its transitive in-module and
+    cross-module imports resolve against the right root and deps. -/
+structure ModuleContext where
+  root : System.FilePath
+  modPath : String
+  deps : List Dep
+
+/-- Read and parse `cue.mod/module.cue`, returning the `module:` path and the dependency
+    table. The file is CUE, so reuse the parser and read the fields off the top-level
+    struct. -/
+def readModuleInfo (root : System.FilePath) : IO (Except String (String × List Dep)) := do
   let source ← IO.FS.readFile (root / "cue.mod" / "module.cue")
   match parseSource source with
   | .error error => pure (.error s!"cue.mod/module.cue: parse error: {error.message}")
   | .ok value =>
       match moduleFieldValue value with
-      | some path => pure (.ok path)
+      | some path => pure (.ok (path, parseDeps value))
       | none => pure (.error "cue.mod/module.cue: missing string `module:` field")
 where
   moduleFieldValue : Value -> Option String
@@ -121,6 +195,43 @@ where
           | .prim (.string path) => some path
           | _ => none
     | _ => none
+
+/-- The CUE module cache root, honoring `CUE_CACHE_DIR`, then `XDG_CACHE_HOME/cue`, falling
+    back to the macOS default `~/Library/Caches/cue`. The extract tree lives under
+    `<cacheRoot>/mod/extract/`. -/
+def cacheRoot : IO System.FilePath := do
+  match ← IO.getEnv "CUE_CACHE_DIR" with
+  | some dir => pure (System.FilePath.mk dir)
+  | none =>
+      match ← IO.getEnv "XDG_CACHE_HOME" with
+      | some dir => pure (System.FilePath.mk dir / "cue")
+      | none =>
+          let home := (← IO.getEnv "HOME").getD ""
+          pure (System.FilePath.mk home / "Library" / "Caches" / "cue")
+
+/-- Join a slash-separated module path onto a base directory, segment by segment. -/
+def joinModulePath (base : System.FilePath) (modPath : String) : System.FilePath :=
+  modPath.splitOn "/" |>.foldl (init := base) fun acc segment =>
+    if segment.isEmpty then acc else acc / segment
+
+/-- Locate a dependency module's root directory on disk, read-only, in priority order:
+    a vendored copy under the importing module's `cue.mod/pkg/` (with the `@<ver>` suffix
+    cue's newer layout uses, else the bare module-path layout), then the extract cache
+    `<cacheRoot>/mod/extract/<modpath>@<ver>/`. `none` when none exists — a deferred,
+    registry-only fetch (B3d). -/
+def locateModuleDir (importerRoot : System.FilePath) (dep : Dep) : IO (Option System.FilePath) := do
+  let pkgBase := importerRoot / "cue.mod" / "pkg"
+  let vendoredVersioned := joinModulePath pkgBase s!"{dep.modPath}@{dep.version}"
+  let vendoredBare := joinModulePath pkgBase dep.modPath
+  let extractBase := (← cacheRoot) / "mod" / "extract"
+  let cached := joinModulePath extractBase s!"{dep.modPath}@{dep.version}"
+  let candidates := [vendoredVersioned, vendoredBare, cached]
+  firstExisting candidates
+where
+  firstExisting : List System.FilePath -> IO (Option System.FilePath)
+    | [] => pure none
+    | dir :: rest => do
+        if ← dir.pathExists then pure (some dir) else firstExisting rest
 
 /-- List the `*.cue` files in a package directory, sorted for deterministic merge order. -/
 def listPackageFiles (dir : System.FilePath) : IO (List System.FilePath) := do
@@ -135,13 +246,43 @@ def subpathDir (root : System.FilePath) (subpath : String) : System.FilePath :=
   subpath.splitOn "/" |>.foldl (init := root) fun acc segment =>
     if segment.isEmpty then acc else acc / segment
 
+/-- Resolve a single non-builtin import path, within module `ctx`, to the context and
+    directory its package loads from.
+
+    A declared dependency wins over the in-module interpretation: in real modules the
+    module path is a prefix of its dependency paths (`prodigy9.co` owns `prodigy9.co/defs@v0`
+    as a dep), so a path matching a `deps` entry is the *dependency* module — loaded from
+    vendor or the cue cache under its own context — even though it also textually lies under
+    `ctx.modPath`. Only a path matching no dependency is treated as in-module, a subdir of
+    `ctx.root`. Anything matching neither is an unknown, registry-only import.
+
+    No package loading happens here — that stays in the recursive loader. -/
+def resolveImportTarget (ctx : ModuleContext) (importPath : String) :
+    IO (Except String (ModuleContext × System.FilePath)) := do
+  match resolveCrossModule ctx.deps importPath with
+  | some (dep, subpath) =>
+      match ← locateModuleDir ctx.root dep with
+      | none => return .error (moduleNotOnDiskError importPath dep.modPath dep.version)
+      | some moduleRoot =>
+          match ← readModuleInfo moduleRoot with
+          | .error message => return .error message
+          | .ok (depModPath, depDeps) =>
+              let depCtx := { root := moduleRoot, modPath := depModPath, deps := depDeps }
+              return .ok (depCtx, subpathDir moduleRoot subpath)
+  | none =>
+      match resolveImportSubpath ctx.modPath importPath with
+      | some subpath => return .ok (ctx, subpathDir ctx.root subpath)
+      | none => return .error (unknownModuleError importPath)
+
 mutual
   /-- Load a package directory into `(declaredName, mergedStruct)`, recursively resolving
-      the package's own in-module imports. `visited` holds the directories already on the
-      load stack (as strings) to detect cycles. All FS access is here; the merge is pure. -/
+      the package's own imports. `ctx` is the module the directory belongs to (so the
+      package's in-module and cross-module imports resolve against the right root/deps).
+      `visited` holds the directories already on the load stack (as strings) to detect
+      cycles — across module hops, since dirs are absolute. All FS access is here; the
+      merge is pure. -/
   partial def loadPackage
-      (root : System.FilePath) (modPath : String)
-      (visited : List String) (dir : System.FilePath) :
+      (ctx : ModuleContext) (visited : List String) (dir : System.FilePath) :
       IO (Except String (Option String × Value)) := do
     let dirKey := dir.toString
     if visited.contains dirKey then
@@ -151,7 +292,7 @@ mutual
     let files ← listPackageFiles dir
     if files.isEmpty then
       return .error s!"no .cue files in package directory: {dirKey}"
-    match ← parseAndBindFiles (dirKey :: visited) root modPath files [] with
+    match ← parseAndBindFiles (dirKey :: visited) ctx files [] with
     | .error message => return .error message
     | .ok boundFiles =>
         match loadPackageFromParsed boundFiles with
@@ -161,7 +302,7 @@ mutual
   /-- Parse each file, resolve and bind its own imports, accumulating `ParsedFile`s whose
       `value` is already import-bound (ready for the package merge). -/
   partial def parseAndBindFiles
-      (visited : List String) (root : System.FilePath) (modPath : String)
+      (visited : List String) (ctx : ModuleContext)
       (files : List System.FilePath) (acc : List ParsedFile) :
       IO (Except String (List ParsedFile)) := do
     match files with
@@ -171,17 +312,19 @@ mutual
         match parseSourceFile source with
         | .error error => return .error s!"{file}: parse error: {error.message}"
         | .ok parsed =>
-            match ← collectBindings visited root modPath parsed.imports [] with
+            match ← collectBindings visited ctx parsed.imports [] with
             | .error message => return .error message
             | .ok bindings =>
                 let bound := { parsed with value := bindImports bindings parsed.value }
-                parseAndBindFiles visited root modPath rest (bound :: acc)
+                parseAndBindFiles visited ctx rest (bound :: acc)
 
-  /-- Resolve every in-module import path to its package value, in order, surfacing the
-      deferred error for a cross-module path. Shared by package files and the top-level
-      entry; the top-level call seeds `visited := []`. -/
+  /-- Resolve every import path to its package value, in order. In-module paths load a
+      subdirectory of `ctx.root`; otherwise the path is matched against `ctx.deps` and the
+      owning module is loaded from vendor or the cue cache under its own context. A path
+      that is neither in-module nor a known dependency, or a known dep absent from disk,
+      surfaces a clean deferred error. -/
   partial def collectBindings
-      (visited : List String) (root : System.FilePath) (modPath : String)
+      (visited : List String) (ctx : ModuleContext)
       (imports : List Import) (acc : List (String × Value)) :
       IO (Except String (List (String × Value))) := do
     match imports with
@@ -189,16 +332,16 @@ mutual
     | imp :: rest =>
         if isBuiltinImport imp.path then
           -- A stdlib import binds no value; `evalBuiltinCall` dispatches its calls.
-          collectBindings visited root modPath rest acc
+          collectBindings visited ctx rest acc
         else
-          match resolveImportSubpath modPath imp.path with
-          | none => return .error (crossModuleDeferredError imp.path)
-          | some subpath =>
-              match ← loadPackage root modPath visited (subpathDir root subpath) with
+          match ← resolveImportTarget ctx imp.path with
+          | .error message => return .error message
+          | .ok (loadCtx, dir) =>
+              match ← loadPackage loadCtx visited dir with
               | .error message => return .error message
               | .ok (declaredName, value) =>
                   let bindName := importBindName imp declaredName
-                  collectBindings visited root modPath rest ((bindName, value) :: acc)
+                  collectBindings visited ctx rest ((bindName, value) :: acc)
 end
 
 /-- Load a top-level file, resolve and bind its in-module imports, and return the bound
@@ -217,10 +360,11 @@ def loadFileBound (path : String) : IO (Except String Value) := do
       match ← findModuleRoot dir with
       | none => return .error "no cue.mod/module.cue found in any parent directory"
       | some root =>
-          match ← readModulePath root with
+          match ← readModuleInfo root with
           | .error message => return .error message
-          | .ok modPath =>
-              match ← collectBindings [] root modPath parsed.imports [] with
+          | .ok (modPath, deps) =>
+              let ctx := { root, modPath, deps }
+              match ← collectBindings [] ctx parsed.imports [] with
               | .error message => return .error message
               | .ok bindings => return .ok (bindImports bindings parsed.value)
 

@@ -1,10 +1,13 @@
 # Session 2026-06-17 — B3a in-module imports landed
 
-Latest resume breadcrumb. Supersedes
+**SUPERSEDED by
+[`2026-06-17-b3c-cross-module-imports-landed.md`](2026-06-17-b3c-cross-module-imports-landed.md)**
+— B3c landed cross-module resolution and `defs.#X` now resolves against the real cue
+cache; the next blockers are parser gaps (`let`, `[...]`), not imports. This note is
+retained for the B3a detail.
+
+Supersedes
 [`2026-06-17-b5-manifest-output-landed.md`](2026-06-17-b5-manifest-output-landed.md).
-Resuming **implementation** next session at **B3b — aliased imports + nested paths +
-grouped-import robustness**, then **B3c — cross-module via cue cache/vendor (the real
-prod9 unlock)**.
 
 ## What was done
 
