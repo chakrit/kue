@@ -589,6 +589,42 @@ def fixturePorts : List FixturePort :=
             (.struct [("_secret", .hidden, .prim (.string "x")), ("value", .regular, .ref "_secret")] true))
     },
     {
+      fileName := "underscore_ident_reference.expected",
+      content :=
+        formatField "out"
+          (resolveAndEval
+            (.struct
+              [
+                ("_base", .hidden, .prim (.int 5)),
+                ("ref", .regular, .ref "_base"),
+                ("cmp", .regular, .binary .ne (.ref "_base") (.prim (.int 3))),
+                ("sum", .regular, .binary .add (.ref "_base") (.prim (.int 1))),
+                ("eq", .regular, .binary .eq (.ref "_base") (.prim (.int 5))),
+                ("nested", .regular, .binary .ne (.ref "_base") (.ref "_base"))
+              ]
+              true))
+    },
+    {
+      fileName := "underscore_top_bottom.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("bottom", .regular,
+                  .disj [(.regular, .bottom), (.regular, .prim (.int 2))]),
+                ("self", .regular,
+                  bindValueAlias "X"
+                    (.struct
+                      [
+                        ("n", .regular, .prim (.int 1)),
+                        ("m", .regular, .selector (.ref "X") "n")
+                      ]
+                      true))
+              ]
+              true))
+    },
+    {
       fileName := "int_bound_disjunction.expected",
       content := formatField "x" (join (.intGe 5) (.intGe 0))
     },

@@ -37,6 +37,9 @@ those forms.
   exclusions, regex constraints, field pattern constraints, list ellipses, byte literals,
   struct embeddings, untyped struct ellipses, static field aliases, value-position
   aliases (`label: X=value`, incl. `#Def: Self={…}` self-reference), `let` declarations,
+  `_`-prefixed identifiers (`_x`, `_foo`, `__bar`) in any expression/value position —
+  the lexer treats bare `_` as top only when not followed by an identifier char, so
+  `_x` is a hidden-field reference and `_|_` is bottom, never `_` + stray input,
   static field selectors, static index expressions, existing builtin call values,
   comprehensions (`for`/`if` field clauses), dynamic fields (`(expr): v`), string
   interpolation (`"\(expr)"`), list embeddings (a `[`-led struct member is parsed as an

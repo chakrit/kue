@@ -983,4 +983,51 @@ theorem fixture_manifest_hidden_field_reference :
         "x: {value: \"x\"}" = true := by
   native_decide
 
+/-- `_`-prefixed identifiers (`_base`) tokenize as identifiers, not as bare `_` (top).
+    Pins the parse fix: a reference, a comparison, an additive op, and equality over a
+    hidden underscore field all resolve against its value. -/
+theorem fixture_underscore_ident_reference :
+    formatField "out"
+      (resolveAndEval
+        (.struct
+          [
+            ("_base", .hidden, .prim (.int 5)),
+            ("ref", .regular, .ref "_base"),
+            ("cmp", .regular, .binary .ne (.ref "_base") (.prim (.int 3))),
+            ("sum", .regular, .binary .add (.ref "_base") (.prim (.int 1))),
+            ("eq", .regular, .binary .eq (.ref "_base") (.prim (.int 5))),
+            ("nested", .regular, .binary .ne (.ref "_base") (.ref "_base"))
+          ]
+          true))
+      = "out: {_base: 5, ref: 5, cmp: true, sum: 6, eq: true, nested: false}" := by
+  native_decide
+
+/-- Regression: a bare `_` still means top (not an identifier prefix) when not followed
+    by an identifier char, and `_|_` still parses as bottom. -/
+theorem fixture_underscore_top_unaffected :
+    formatField "a" (meet .top (.prim (.int 1))) = "a: 1" := by
+  native_decide
+
+/-- Regression: `_|_` parses as bottom (disjunction drops it) and the B2 value-position
+    struct alias (`X={…X.n…}`) still resolves the self-reference. -/
+theorem fixture_underscore_top_bottom :
+    formatTopLevel
+      (resolveAndEval
+        (.struct
+          [
+            ("bottom", .regular,
+              .disj [(.regular, .bottom), (.regular, .prim (.int 2))]),
+            ("self", .regular,
+              bindValueAlias "X"
+                (.struct
+                  [
+                    ("n", .regular, .prim (.int 1)),
+                    ("m", .regular, .selector (.ref "X") "n")
+                  ]
+                  true))
+          ]
+          true))
+      = "bottom: 2\nself: {n: 1, m: 1}" := by
+  native_decide
+
 end Kue

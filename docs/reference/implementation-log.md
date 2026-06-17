@@ -4837,3 +4837,54 @@ a *pattern* field in value position. So `f: [string]: T` fell through to `parseE
 error one dep deeper: `defs@v0.3.19/parts/pod_tolerations.cue: unexpected character '='` (an
 alias/`=` form). That, plus the still-open `[...]` embedding eval laziness, are the next
 real-file gates — neither is this slice.
+
+---
+
+## Completed Slice: `_`-prefixed identifier lexing (`_x`, not bare `_`)
+
+Goal: clear the `defs@v0.3.19/parts/pod_tolerations.cue: unexpected character '='` parse
+wall that blocked the `parts` package (imported by real apps) on `kue export
+apps/argocd.cue`.
+
+### Diagnosis
+
+The `=` was a misleading symptom, not the cause. Bisecting the dep file reduced the
+failure to `let X = { if _x != _|_ {…} }`, then to the standalone `a: _x != 1`
+("expected ':' after field label" at the `!=`). Root cause: in `parsePrimaryAtom`,
+`'_' :: rest => parseOk .top rest` matched a bare `_` greedily, consuming only the leading
+`_` of a `_`-prefixed identifier (`_x`, `_parts`, `_base`) and leaving the rest as stray
+input. Any expression starting with such an identifier broke (`_x != _|_`, `_x + 1`,
+`value: _secret`); inside a `let X = {…}` body the resulting token misalignment propagated
+out to the enclosing `let`'s `=`, surfacing as `unexpected character '='`. The `_|_`
+(bottom) case at the preceding match arm was unaffected, which is why bottom literals
+parsed but `_`-idents did not.
+
+### Steps
+
+1. Fix (`Kue/Parse.lean`, `parsePrimaryAtom`). Replaced the single `'_' :: rest => .top`
+   arm with `'_' :: next :: rest`: if `next` is an identifier-rest char, defer to
+   `parseIdentifierValue` (so `_x`/`_foo`/`__bar` parse as identifiers); otherwise bare `_`
+   → top. The `_|_ → bottom` arm above it is untouched, and a trailing lone `_` still
+   matches the final `'_' :: rest => .top`.
+
+2. Tests. 2 fixtures + `FixturePorts` entries: `underscore_ident_reference` (a hidden
+   `_base` referenced by `ref`, compared with `!=`/`==`, and used in `+`) and
+   `underscore_top_bottom` (regression: `_|_ | 2` → bottom dropped to `2`, plus the B2
+   value-position struct alias `X={n:1, m:X.n}` resolving its self-reference). 3
+   `native_decide` theorems mirror both fixtures plus `fixture_underscore_top_unaffected`
+   (bare `_` still means top).
+
+3. Oracle (cue v0.16.1). `_base` reference → `5`, `_base != 3` → `true`, `_base + 1` → `6`,
+   `_base == 5` → `true`, `_base != _base` → `false`; `_|_ | 2` → `2`; `X={n:1,m:X.n}` →
+   `{n:1,m:1}` — all matched (cue hides `_base` in output; kue retains it in internal
+   format, as designed).
+
+4. Verify. `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
+   `shellcheck` clean.
+
+### Real-file spot-check (READ-ONLY, prod9/infra)
+
+`defs@v0.3.19/parts/pod_tolerations.cue` now parses — `kue export` on it advances from a
+parse error to an eval error (`conflicting values (bottom)`), which is the known
+`meet(struct,list)=⊥` / `[...]` laziness eval blocker, not a parse gap. That eval blocker
+is the next real-file gate.

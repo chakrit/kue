@@ -609,8 +609,18 @@ Ranked (highest value first):
    embedding. Oracle-matched v0.16.1: typed field → typed; mismatch → ⊥; pattern-only →
    `{}`. Pinned by 4 fixtures + 2 `native_decide` EvalTests theorems. `defs/attr/
    metadata.cue` now parses. **Next real-file wall (NEW, not the `[...]` blocker):**
-   `defs@v0.3.19/parts/pod_tolerations.cue` → "unexpected character '='" (an alias/`=`
-   form), surfaced once `[string]:` cleared on `kue export apps/argocd.cue`.
+   `defs@v0.3.19/parts/pod_tolerations.cue` → "unexpected character '='". **DONE** — the
+   `=` was a red herring. Root cause: `_`-prefixed identifiers (`_x`, `_parts`, `_base`)
+   were mis-tokenized. `parsePrimaryAtom`'s `'_' :: rest => .top` matched bare `_`
+   greedily, consuming only the `_` of `_x` and leaving `x …` as stray input; any
+   expression starting with such an ident (`_x != _|_`, `value: _secret`, `_x + 1`) broke,
+   and inside a `let X = {…}` body the misalignment surfaced as the outer let's `=`. Fix:
+   `'_' :: next :: rest` defers to `parseIdentifierValue` when `next` is an identifier-rest
+   char (so `_x`/`_foo`/`__bar` are identifiers), keeping bare `_` → top and `_|_` →
+   bottom. Pinned by 2 fixtures (`underscore_ident_reference`, `underscore_top_bottom`) +
+   3 `native_decide` theorems (incl. a B2 value-alias/`_|_` regression). `parts` now
+   parses; `kue export apps/argocd.cue` advances to the eval-layer
+   `meet(struct,list)=⊥` / `[...]` laziness blocker (item 1 below).
 
 6. **[LOW — keep documented] B3c intermediate-deps leniency (per-hop deps vs MVS flat).**
    A deliberate, documented divergence from `cue` (compat-assumptions:109–113); both

@@ -925,6 +925,12 @@ mutual
         | .error error => .error error
         | .ok (value, rest) => parseOk (.prim (.bytes value)) rest
     | '_' :: '|' :: '_' :: rest => parseOk .bottom rest
+    | '_' :: next :: rest =>
+        -- `_` is top only when it does not begin a longer identifier (`_x`,
+        -- `_foo`, `__bar`). A following identifier-rest char means the whole
+        -- token is a `_`-prefixed identifier; defer to the identifier path.
+        if parseIdentifierRest next then parseIdentifierValue (skipTrivia chars)
+        else parseOk .top (next :: rest)
     | '_' :: rest => parseOk .top rest
     | '!' :: '=' :: rest =>
         match parsePrimary rest with
