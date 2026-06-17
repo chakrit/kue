@@ -264,16 +264,30 @@ this pass changed only `plan.md`.
    Small, low-risk, but a behavior change with no current test → schedule as a tiny slice
    (TDD with an `expected.err` module fixture), not an inline audit fix.
 
-### Re-ranked next-work list (folds into item 6/7 of the roadmap above)
+### Re-ranked next-work list — CORRECTED by B3d recon (2026-06-17)
 
-Authoritative recommendation for the next substantive item: **B3d (registry/module-cache
-fetch) FIRST, then the field-ordering provenance change.** Rationale: B3d unblocks *more
-apps reaching evaluation at all* (the dominant prod9 apps import `prodigy9.co/defs/packs`
-and currently dead-end at the deferred-import error before any output); field-ordering only
-improves *parity on apps that already fully resolve*, of which there are few until B3d
-lands. B3d is also self-contained (`defs/packs` cue.mod has no further deps). Sequence:
-B3d → field-ordering provenance spike → field-ordering implementation. Finding 2 (missing
--file diagnostic) is a cheap ride-along whenever Module.lean is next touched.
+**B3d is NOT needed for prod9 — it is already solved by B3c.** A read-only recon traced
+the full `prod9/infra` import closure: everything is in the local cue extract-cache and
+resolves OFFLINE (`CUE_OFFLINE=1 cue export ./apps -e …` exits 0; kue's current binary
+already loads `defs`/`packs`/`parts`/`attr` and gets *past* import resolution to eval
+errors). The deps-less `prodigy9.co/defs` module is harmless — it imports only its own
+in-module subpackages, so its empty `deps` table is correct. MVS is trivial here
+(single-version-per-module: one dep `defs@v0.3.19`). **No registry fetch, no ghcr auth, no
+env escalation to chakrit. Do NOT build a B3d loader/registry slice** — it would attempt
+nothing the prod9 goal needs. (The original B3d — populating a cold cache via OCI — stays
+genuinely deferred/out-of-scope; cue populates the cache, kue reads it.)
+
+**The actual remaining blocker for real apps to fully export is the EVAL layer**, surfaced
+as `conflicting values`/`incomplete value` on real `infra/apps/*.cue` AFTER imports
+resolve. Next substantive work: diagnose the CURRENT real-app eval error (data-driven —
+post the `[...]`/`[string]:`/presence/lazy-resolution/bound fixes already landed; the
+B3c-era ranked list of open-list/closedness/hidden-field/`[string]:` may be partly stale)
+and fix the actual current construct. Then the field-ordering provenance change (DEEP,
+Finding 1 — cue orders `x: ref & {own}` own-fields-first; needs a per-Field provenance key
+through meet/manifest; multi-slice + design spike). Cheap lock-in available: a
+`testdata/modules/crossmod_nodeps/` fixture pinning the deps-less-module-with-self-import
+guarantee (recon §5). Finding 2 (missing-file diagnostic) is a cheap ride-along when
+Module.lean is next touched.
 
 ## Audit Fix-Slices (cleanup batch — LIGHT Phase A + Phase B, audit 2026-06-17 #7)
 
