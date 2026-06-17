@@ -9,6 +9,7 @@ readonly repo_root
 
 readonly fixture_dir="${repo_root}/testdata/cue"
 readonly export_dir="${repo_root}/testdata/export"
+readonly module_dir="${repo_root}/testdata/modules"
 generated_dir=
 
 cleanup() {
@@ -44,6 +45,11 @@ check_cue_format() {
 
   if [[ -d "${export_dir}" ]] && ! cue fmt --check --files "${export_dir}"; then
     printf 'export fixtures are not parseable or formatted; run cue fmt --files testdata/export\n' >&2
+    return 1
+  fi
+
+  if [[ -d "${module_dir}" ]] && ! cue fmt --check --files "${module_dir}"; then
+    printf 'module fixtures are not parseable or formatted; run cue fmt --files testdata/modules\n' >&2
     return 1
   fi
 }
@@ -151,6 +157,52 @@ check_export_fixtures() {
   return "${status}"
 }
 
+# Drive the import-aware loader over each multi-file module fixture under
+# testdata/modules/<name>/. A success fixture ships an `expected` file holding the
+# `cue export`-matching JSON for `kue export --out json <dir>/main.cue`; an error fixture
+# ships `expected.err` holding a substring the failing run's stderr must contain (loader
+# errors — cycles, missing dirs, cross-module deferral, package-name conflicts). Additive:
+# leaves the single-file and export stages untouched.
+check_module_fixtures() {
+  local kue_exe="${repo_root}/.lake/build/bin/kue"
+  local status=0
+  local dir
+  local main_file
+  local stderr_output
+
+  if [[ ! -d "${module_dir}" ]]; then
+    return 0
+  fi
+
+  for dir in "${module_dir}"/*/; do
+    main_file="${dir}main.cue"
+    if [[ ! -f "${main_file}" ]]; then
+      printf 'module fixture %s has no main.cue\n' "${dir}" >&2
+      status=1
+      continue
+    fi
+
+    if [[ -f "${dir}expected" ]]; then
+      if ! diff -u "${dir}expected" <("${kue_exe}" export --out json "${main_file}"); then
+        status=1
+      fi
+    elif [[ -f "${dir}expected.err" ]]; then
+      if stderr_output="$("${kue_exe}" "${main_file}" 2>&1 >/dev/null)"; then
+        printf 'module fixture %s expected an error but succeeded\n' "${dir}" >&2
+        status=1
+      elif [[ "${stderr_output}" != *"$(cat "${dir}expected.err")"* ]]; then
+        printf 'module fixture %s error mismatch: got %q\n' "${dir}" "${stderr_output}" >&2
+        status=1
+      fi
+    else
+      printf 'module fixture %s has neither expected nor expected.err\n' "${dir}" >&2
+      status=1
+    fi
+  done
+
+  return "${status}"
+}
+
 main() {
   local status=0
   local cue_file
@@ -195,6 +247,10 @@ main() {
   fi
 
   if ! check_export_fixtures; then
+    status=1
+  fi
+
+  if ! check_module_fixtures; then
     status=1
   fi
 

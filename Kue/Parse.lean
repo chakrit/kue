@@ -202,6 +202,57 @@ def sourcePackageName (source : String) : Except ParseError (Option String) := d
       else
         parseError [] "conflicting package clauses"
 
+/-- Parse one import spec: an optional bare identifier alias followed by a quoted import
+    path. `import "example.com/defs"` yields `{path, alias := none}`;
+    `import foo "example.com/defs"` yields `{path, alias := some "foo"}`. -/
+def parseImportSpec (chars : List Char) : ParseResult Import :=
+  let trimmed := skipTrivia chars
+  match parseQuotedString trimmed with
+  | .ok (path, rest) => parseOk { path := path, alias := none } rest
+  | .error _ =>
+      match parseIdentifier trimmed with
+      | .error error => .error error
+      | .ok (alias, rest) =>
+          match parseQuotedString (skipTrivia rest) with
+          | .error error => .error error
+          | .ok (path, rest) => parseOk { path := path, alias := some alias } rest
+
+/-- Collect the specs inside a grouped `import ( … )` block up to the closing `)`,
+    skipping separators (newlines/commas/comments handled by `skipTrivia` plus an
+    explicit comma drop). Returns the gathered imports and the chars after `)`. -/
+partial def parseGroupedImports (acc : List Import) (chars : List Char) :
+    ParseResult (List Import) :=
+  match skipTrivia chars with
+  | ')' :: rest => parseOk acc.reverse rest
+  | ',' :: rest => parseGroupedImports acc rest
+  | [] => parseError [] "unterminated import group"
+  | trimmed =>
+      match parseImportSpec trimmed with
+      | .error error => .error error
+      | .ok (imp, rest) => parseGroupedImports (imp :: acc) rest
+
+/-- Collect every leading `import` clause (single-line or grouped) into a `List Import`,
+    returning the remaining chars at the start of the file body. The collecting twin of
+    `consumeImportClauses`, which discards instead. -/
+partial def parseImportClauses (acc : List Import) (chars : List Char) :
+    ParseResult (List Import) :=
+  let trimmed := skipTrivia chars
+  if startsWithWord "import" trimmed then
+    match dropPrefix? "import".toList trimmed with
+    | none => parseOk acc.reverse trimmed
+    | some rest =>
+        match skipTrivia rest with
+        | '(' :: grouped =>
+            match parseGroupedImports [] grouped with
+            | .error error => .error error
+            | .ok (imports, rest) => parseImportClauses (imports.reverse ++ acc) rest
+        | line =>
+            match parseImportSpec line with
+            | .error error => .error error
+            | .ok (imp, rest) => parseImportClauses (imp :: acc) rest
+  else
+    parseOk acc.reverse trimmed
+
 def parseLabel : List Char -> ParseResult String
   | '"' :: rest => parseQuotedLabel ('"' :: rest)
   | chars => parseIdentifier chars
@@ -1325,5 +1376,24 @@ def withPosition (source : List Char) : Except ParseError α -> Except ParseErro
 
 def parseSource (source : String) : Except ParseError Value :=
   withPosition source.toList (parseDocument source.toList)
+
+/-- Parse a `.cue` file into a `ParsedFile`: collect its imports (rather than discarding
+    them), record the declared package name, and parse the body exactly as `parseDocument`
+    does. The body parse is unchanged from the no-import path — imports are stripped up
+    front, leaving the same field stream `parseDocument` consumes. -/
+def parseDocumentFile (chars : List Char) : Except ParseError ParsedFile := do
+  let afterPackage := consumePackageClauses chars
+  let (imports, afterImports) ← parseImportClauses [] afterPackage
+  match parseFieldsUntil none afterImports [] with
+  | .error error => .error error
+  | .ok (fields, rest) =>
+      match skipTrivia rest with
+      | [] =>
+          let packageName ← sourcePackageName (String.ofList chars)
+          pure { value := parsedFieldsValue fields, packageName := packageName, imports := imports }
+      | rest => parseError rest "unexpected trailing input"
+
+def parseSourceFile (source : String) : Except ParseError ParsedFile :=
+  withPosition source.toList (parseDocumentFile source.toList)
 
 end Kue

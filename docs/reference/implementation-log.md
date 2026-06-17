@@ -4563,3 +4563,57 @@ end-to-end manifest.
 
 Verify gate green: `lake build` (74 jobs), `scripts/check-fixtures.sh` ⇒ `fixture pairs
 ok`, `shellcheck` clean.
+
+## Completed Slice: B3a — Minimal In-Module Import Resolution (end-to-end)
+
+Goal: the first increment of B3, the roadmap's last subsystem — make a file with an
+in-module import resolve `pkg.#Symbol` end-to-end by discovering its module, loading the
+imported package from disk, merging the package's files, and binding it into scope. Plan:
+`docs/notes/2026-06-17-b3-import-resolution-plan.md`.
+
+### Steps
+
+1. AST: `structure Import {path, alias?}` and `structure ParsedFile {value, packageName,
+   imports}` in `Kue/Value.lean`.
+2. Parser: `parseImportClauses`/`parseGroupedImports`/`parseImportSpec` collect imports
+   (the twin of the discard-only `consumeImportClauses`); `parseSourceFile`/
+   `parseDocumentFile` thread them into a `ParsedFile` with the declared package name.
+   Body parse unchanged — imports are stripped up front, leaving the same field stream
+   `parseDocument` consumes. `parseSource` is untouched (stdin/multi-file still discard).
+3. `Kue/Module.lean` (new): pure `resolveImportSubpath` (in-module hit / module-root `""` /
+   cross-module `none`), `loadPackageFromParsed` (package-name consistency check +
+   `mergeSourceValues`), `bindImports` (prepend each package as a **hidden** top-level
+   field), `importBindName` (alias › declared name › last path element), `isBuiltinImport`
+   (stdlib paths the loader skips). IO boundary: `findModuleRoot` (walk parents),
+   `readModulePath` (parse `cue.mod/module.cue`, read `module:`), `listPackageFiles`,
+   the recursive `loadPackage`/`collectBindings` (visited-set cycle guard), and the single
+   entry `loadFileBound`.
+4. CLI: `Kue.exportValue` factored out of `exportSourcesToString`; `Main` routes single
+   file-mode and `export` file-mode through `loadFileBound`. Stdin and multi-file CLI keep
+   the discard path. A file with no imports — or only builtin imports — needs no module
+   context and behaves exactly as before.
+5. Tests: `Kue/ModuleTests.lean` (11 `native_decide`/unit theorems pinning
+   `resolveImportSubpath`, `loadPackageFromParsed` merge order + conflict rejection,
+   `importBindName`, `bindImports`) — all disk-free. Seven `testdata/modules/<name>/`
+   fixtures driven by an additive `check_module_fixtures()` stage: `local_defs`
+   (in-module `#Def` + 2-file merge), `transitive`, `mixed_builtin` (grouped builtin +
+   in-module) → byte-for-byte vs `cue export`; `cycle`/`crossmod`/`missingpkg`/
+   `conflictpkg` → `expected.err` substring on the failing run's stderr.
+
+### Milestone proof
+
+`kue export --out json testdata/modules/local_defs/main.cue` and `…/transitive` and
+`…/mixed_builtin` are byte-identical to `cue export <dir>` (oracle: `cue` v0.16.1). The
+selector `defs.#Widget` resolves through the existing `.selector (.refId …)` path with no
+new eval machinery; the package binding is a hidden field, so it never appears in output.
+
+### Boundaries (compat-assumptions)
+
+- Cross-module / registry / vendored imports deferred (B3c/B3d): a non-matching prefix
+  fails with `unresolved import: …: cross-module/registry not yet supported (B3c)`.
+- Aliased-import edges, nested-path corners, grouped-import comment/trailing-comma
+  robustness deferred (B3b); the basic alias and basic grouped import already work.
+- Stdin and multi-file CLI still discard imports (pre-B3a behavior).
+
+Verify gate green: `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs
+ok`, `shellcheck` clean.

@@ -176,6 +176,24 @@ def regular (label : String) (value : Value) : Field :=
 
 end Field
 
+/-- A single `import "path"` or `alias "path"` clause retained from a parsed file. The
+    `path` is the verbatim import string (e.g. `"example.com/defs"`); `alias` carries the
+    optional local rename, `none` when the package binds under its own declared name. -/
+structure Import where
+  path : String
+  alias : Option String
+deriving Repr, BEq, DecidableEq
+
+/-- The full result of parsing one `.cue` file: its top-level value (struct body), the
+    declared `package` name (`none` when the file omits a package clause), and the imports
+    it pulls in. Carries everything the loader needs to resolve and bind imports without
+    re-parsing. -/
+structure ParsedFile where
+  value : Value
+  packageName : Option String
+  imports : List Import
+deriving Repr, BEq
+
 inductive RegexAtom where
   | literal (value : Char)
   | any

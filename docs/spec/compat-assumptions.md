@@ -59,8 +59,21 @@ those forms.
   yields a string, not bytes; non-interpolated `'''…'''` dedents to a bytes value
   normally. This is a Kue-does-less boundary, not a `cue` divergence.
 - The parser does not yet support typed struct ellipsis syntax (`...T`, which cue v0.15.4
-  also rejects) or imports with module resolution. Value-position aliases are now
-  supported (see References, bindings, and selectors below).
+  also rejects). Value-position aliases are now supported (see References, bindings, and
+  selectors below).
+- **In-module imports resolve (B3a).** A single file (or `export` file-mode) routes through
+  the import-aware loader: `cue.mod/module.cue` is discovered by walking parent dirs, an
+  import path `<module>` or `<module>/<subpath>` is resolved to the corresponding dir under
+  the module root, the package's `*.cue` are meet-merged, and the result is bound as a
+  hidden top-level field so `pkg.#Sym` resolves through the ordinary selector path.
+  Transitive in-module imports load recursively with a visited-set cycle guard. Builtin
+  stdlib import paths (`strings`/`list`/`math`/`encoding/{base64,json,yaml}`) are skipped by
+  the loader and continue to dispatch via the dotted builtin name. **Deferred:**
+  cross-module / registry / vendored resolution — any import path that does not match the
+  current module prefix fails with `unresolved import: …: cross-module/registry not yet
+  supported (B3c)`. Aliased-import edges, nested-path corners, and grouped-import comment/
+  trailing-comma robustness are B3b. The stdin and multi-file CLI paths still discard
+  imports (the pre-B3a behavior), so a stdin file with a non-builtin import is unaffected.
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.

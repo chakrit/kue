@@ -31,3 +31,5 @@ import Kue.FloatTests
 import Kue.NumberTests
 import Kue.Builtin
 import Kue.BuiltinTests
+import Kue.Module
+import Kue.ModuleTests

@@ -1,0 +1,11 @@
+{
+    "widget": {
+        "name": "alpha",
+        "size": 3,
+        "enabled": true
+    },
+    "gadget": {
+        "label": "beta",
+        "weight": 7
+    }
+}

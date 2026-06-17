@@ -20,6 +20,17 @@ def readFileSources : List String -> IO (List String)
       let sources ← readFileSources paths
       pure (source :: sources)
 
+/-- Print a loader/eval result that may carry an import-resolution error (already a
+    human-readable string) ahead of the pure evaluation. -/
+def printLoaderResult (result : Except String String) : IO UInt32 := do
+  match result with
+  | .ok output =>
+      IO.println output
+      pure 0
+  | .error message =>
+      IO.eprintln s!"kue: {message}"
+      pure 1
+
 /-- Parsed `export`-mode invocation: the chosen output format and the optional input
     file path (none = read stdin). `-e`/`--expression` sub-expression selection is
     deferred (documented in compat-assumptions). -/
@@ -55,19 +66,35 @@ def runExport (rawArgs : List String) : IO UInt32 := do
       IO.eprintln s!"kue: export: {message}"
       pure 2
   | .ok args =>
-      let source ← match args.file with
-        | some path => IO.FS.readFile (System.FilePath.mk path)
-        | none => do let stdin ← IO.getStdin; stdin.readToEnd
-      match Kue.exportSourcesToString args.format [source] with
-      | .error parseError =>
-          IO.eprintln s!"kue: parse error: {parseError.line}:{parseError.column}: {parseError.message}"
-          pure 1
-      | .ok (.error message) =>
-          IO.eprintln s!"kue: export error: {message}"
-          pure 1
-      | .ok (.ok output) =>
-          IO.print output
-          pure 0
+      match args.file with
+      | some path =>
+          -- File-mode export routes through the import-aware loader, then manifests the
+          -- bound value. Stdin export has no module context, so it keeps the source path.
+          match ← Kue.loadFileBound path with
+          | .error message =>
+              IO.eprintln s!"kue: {message}"
+              pure 1
+          | .ok value =>
+              match Kue.exportValue args.format value with
+              | .error message =>
+                  IO.eprintln s!"kue: export error: {message}"
+                  pure 1
+              | .ok output =>
+                  IO.print output
+                  pure 0
+      | none =>
+          let stdin ← IO.getStdin
+          let source ← stdin.readToEnd
+          match Kue.exportSourcesToString args.format [source] with
+          | .error parseError =>
+              IO.eprintln s!"kue: parse error: {parseError.line}:{parseError.column}: {parseError.message}"
+              pure 1
+          | .ok (.error message) =>
+              IO.eprintln s!"kue: export error: {message}"
+              pure 1
+          | .ok (.ok output) =>
+              IO.print output
+              pure 0
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -80,6 +107,14 @@ def main (args : List String) : IO UInt32 := do
         pure 0
       else
         printEvalResult (Kue.evalSourceToString source)
+  | [path] =>
+      -- A single file routes through the import-aware loader: discover the module, load
+      -- and bind in-module imports, then format the bound value with the pure pipeline.
+      match ← Kue.loadFileBound path with
+      | .error message =>
+          IO.eprintln s!"kue: {message}"
+          pure 1
+      | .ok value => printLoaderResult (.ok (Kue.formatResolvedTopLevel value))
   | _ =>
       let sources ← readFileSources args
       printEvalResult (Kue.evalSourcesToString sources)

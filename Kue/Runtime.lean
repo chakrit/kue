@@ -71,6 +71,17 @@ def formatManifestError : ManifestError -> String
   | .incomplete value => s!"incomplete value: {formatValue value}"
   | .ambiguous _ => "ambiguous value: multiple non-default disjuncts remain"
 
+/-- Manifest and serialize an already-bound value in the chosen format. Shared by the
+    source-list export path and the import-aware loader, which supplies a value whose
+    imports are already resolved and bound. -/
+def exportValue (format : ExportFormat) (value : Value) : Except String String :=
+  let resolved := resolveAndEval value
+  let serialized : Except ManifestError String :=
+    match format with
+    | .json => valueToJsonPretty resolved
+    | .yaml => valueToYaml resolved
+  serialized.mapError formatManifestError
+
 /-- Resolve, evaluate, manifest, and serialize the merged sources in the chosen format.
     Returns a positioned `ParseError` on parse failure (caught upstream by the CLI) or a
     `ManifestError` message when the value is not concrete — the CLI maps the latter to a
@@ -79,11 +90,6 @@ def exportSourcesToString (format : ExportFormat) (sources : List String) :
     Except ParseError (Except String String) := do
   let _ ← checkSourcePackageNames sources
   let values ← parseSources sources
-  let value := resolveAndEval (mergeSourceValues values)
-  let serialized : Except ManifestError String :=
-    match format with
-    | .json => valueToJsonPretty value
-    | .yaml => valueToYaml value
-  pure (serialized.mapError formatManifestError)
+  pure (exportValue format (mergeSourceValues values))
 
 end Kue

@@ -95,10 +95,29 @@ first, the big import subsystem last because it gates the real workflow):
    deferred). `-e`/`--expression` selection deferred (documented). 33 `YamlTests.lean`
    `native_decide` theorems + 4 oracle-matched `testdata/export/` CLI fixtures
    (`deployment` yaml+json, `scalars`, `shapes`).
-6. **B3 — module/import resolution** (the big one, LAST — **next active slice**): `cue.mod` deps, loading
+6. **B3 — module/import resolution** (the big one, LAST): `cue.mod` deps, loading
    `prodigy9.co/defs*` packages from disk, cross-package symbols, multi-file package
    merge. Gates every real `infra/apps/*.cue`. "Packages last" = packages are the final
-   and largest blocker, NOT optional.
+   and largest blocker, NOT optional. Sub-sliced B3a–B3d (plan:
+   `docs/notes/2026-06-17-b3-import-resolution-plan.md`).
+   - **B3a — minimal in-module import, end-to-end (DONE, 2026-06-17).** `cue.mod` discovery
+     (`findModuleRoot` walks parents; `module:` parsed via the reused parser), a collecting
+     import parser (`parseImportClauses` → `List Import`, threaded into a `ParsedFile`
+     record), `Kue/Module.lean` resolving in-module paths to dirs, multi-file meet-merge
+     (`mergeSourceValues`), transitive in-module loads with a visited-set cycle guard, and
+     binding each loaded package as a **hidden** synthetic top-level field under its
+     declared name (or alias) so `pkg.#Sym` resolves through the existing
+     `.selector (.refId …)` path — no new eval machinery. IO sits behind `loadFileBound`;
+     `Eval`/`Resolve` stay pure. Builtin stdlib imports (`strings`/`list`/`math`/
+     `encoding/{base64,json,yaml}`) are skipped by the loader (`isBuiltinImport`), leaving
+     the call-form dispatch untouched. File-mode + `export` file-mode route through the
+     loader; stdin and multi-file CLI paths unchanged.
+   - **B3b — aliased imports + nested paths + grouped-import robustness (NEXT).** Alias is
+     already retained/bound (basic case works); harden the import-clause parser (comments
+     inside groups, trailing commas, blank-line separators) and nested-path corner cases.
+   - **B3c — cross-module / vendored (the real prod9 unlock).** Read `deps` in
+     `cue.mod/module.cue`; locate via vendored `cue.mod/pkg/…` or the extract cache.
+   - **B3d — registry fetch + version resolution (LAST, deferred per chakrit).**
 
 Note: `strings.*`/`list.*` work *without* an `import` because kue hardcodes those
 namespaces and ignores the `import` clause — this masks the absence of any general
@@ -166,8 +185,15 @@ implementation log):
 - **Parser/CLI** — recursive-descent parser over the supported subset; numeric literal
   spellings (non-decimal, separators, exponents, suffix multipliers); stdin and explicit
   multi-file evaluation with package-name consistency. Package-qualified builtin calls
-  (`strings.X(...)`) parse via call-on-selector; `import` clauses (single and grouped)
-  parse and are ignored since the package is implicit in the dotted builtin name.
+  (`strings.X(...)`) parse via call-on-selector. `import` clauses (single and grouped) are
+  now *retained* by `parseSourceFile` into a `ParsedFile` (`{value, packageName, imports}`)
+  — the collecting twin of the discard-only `parseSource`/`consumeImportClauses` path the
+  stdin and multi-file CLI still use. **In-module imports resolve end-to-end (B3a):**
+  `Kue/Module.lean` discovers `cue.mod`, resolves `<module>/<subpath>` import paths to
+  dirs, meet-merges the package's `*.cue`, and binds each package as a hidden top-level
+  field so `pkg.#Sym` resolves through the existing selector path. Builtin stdlib import
+  paths are skipped by the loader, leaving the dotted-call dispatch intact. Single-file and
+  `export` file-mode route through `Kue.loadFileBound`; stdin keeps the discard path.
   Parse errors now carry a source position: `ParseError` records the remaining-suffix
   length at the failure site, which `parseSource` converts to 1-based `line`/`column`;
   the CLI prints `kue: parse error: <line>:<col>: <message>`. Colon-shorthand nested
