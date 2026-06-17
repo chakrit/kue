@@ -344,12 +344,20 @@ fork.**
    `#Deployment` (their bodies have depth>0 cross-package embeds) — fixes a toy fixture,
    manufactures false progress. (c) re-eval-after-meet collapses into (b). **Awaiting
    chakrit: `Value.closure` direction, or a different decomposition?**
-2. **Perf hang (separate, profile-first).** `defs.#Deployment`/`#ServiceAccount` alone burn
-   30–40s CPU. Root cause: memo `EvalKey` keys on `fuel` (`Eval.lean:781-790`), so a
-   sub-struct re-derives once per fuel level — large nested defs cascade. NOT the import
-   boundary (cache is uniform, fresh per `runEval`). Independent memo/perf slice: make
-   selection memo fuel-insensitive (memoize on `(frame-id, label)`). Gates *running* real
-   apps to completion even after #1. Profile to confirm before implementing.
+2. **Perf hang — RECONNED (profiled), hypothesis OVERTURNED, downstream of #1.** The
+   floated "fuel-insensitive selection memo" is **provably UNSOUND** — profiling found 263
+   cases where identical `(envIds, visited, value)` yields DIFFERENT results at different
+   fuel (fuel-truncation: `fuel=0 → pure value` / cycle `.top`), so `fuel` in `EvalKey`
+   (`Eval.lean:781-790`) is LOAD-BEARING; dropping it corrupts values. The named
+   `Self.#components.X` shape is ALREADY well-memoized (29 hits). The REAL blowup is
+   **exponential frame-id divergence**: `{a: prev, b: prev}` re-pushes the same struct
+   under two slots but `pushFrame` (`:799-803`) hands fresh ids → zero sharing → 2^depth
+   (synthetic depth-10 → 10,238 evals / 0 hits / 30s). Effective fix = **frame-id sharing
+   for structurally-identical re-pushes** (same fields + same parent id-stack → reuse id),
+   a separate audit-heavy design (must not violate "independently-built frames never
+   falsely share"). **AND the perf path is currently UNREACHABLE on real apps — they error
+   at #1 (~0.9s) before the blowup.** So: #1 (closure fork) FIRST; re-profile after; THEN
+   frame-id-sharing. Do NOT implement the unsound memo change.
 3. **Field-ordering parity (DEEP, Finding 1).** cue orders `ref & {own}` own-fields-first;
    kue left-struct-first (`mergeStructFieldsWith`). Per-`Field` provenance key threaded
    through meet/manifest; multi-slice + design spike. Affects byte-parity on apps that
