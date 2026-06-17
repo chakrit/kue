@@ -39,7 +39,10 @@ those forms.
   aliases (`label: X=value`, incl. `#Def: Self={…}` self-reference), `let` declarations,
   static field selectors, static index expressions, existing builtin call values,
   comprehensions (`for`/`if` field clauses), dynamic fields (`(expr): v`), string
-  interpolation (`"\(expr)"`), colon-shorthand nested fields (`a: b: c: 1`,
+  interpolation (`"\(expr)"`), list embeddings (a `[`-led struct member is parsed as an
+  embedded list — `[...]`, `[1,2,3]` — not a `[label]: value` pattern; the parser falls
+  back to embedding when the member is not a valid pattern), colon-shorthand nested fields
+  (`a: b: c: 1`,
   desugared to the brace form `a: {b: {c: 1}}` — same AST, so it unifies/closes/exports
   identically; inner labels may be identifiers, definitions, quoted strings, or `(expr)`
   dynamic, each with optional `?`/`!` markers), and multiline string/bytes literals
@@ -61,6 +64,26 @@ those forms.
 - The parser does not yet support typed struct ellipsis syntax (`...T`, which cue v0.15.4
   also rejects). Value-position aliases are now supported (see References, bindings, and
   selectors below).
+- **`let` declarations — all positions supported.** A `let X = expr` binds `X` in the
+  enclosing struct's lexical scope (file-scope/top-level *and* in-struct), visible to
+  sibling fields and other `let`s, never emitted as output. Confirmed against `cue`
+  v0.16.1: file-scope `let`, in-struct `let`, `let` referencing a sibling field, `let`
+  referencing a prior `let`, and inner-`let`-shadows-outer all match. (The 2026-06-17
+  real-file diagnosis disproved the earlier "`let` is the top blocker" read — the failing
+  files were tripping on the `[...]` list embedding inside the `let` RHS, not on `let`.)
+  Leniency (kue-does-less, not a kue-is-right divergence so not in `cue-divergences.md`):
+  `cue` *errors* on an unreferenced `let`/alias (`unreferenced alias or let clause` —
+  intentional dead-binding detection); kue silently drops it. Tightening kue to match is a
+  later slice if a real file needs the diagnostic.
+- **Open-list `[...]` embedding — parse supported, eval DEFERRED.** A list embedded as a
+  struct member parses (above). Evaluation is not yet faithful: `cue` permits a list
+  embedded in a struct with *no regular exported fields* (only `#hidden`/`_`/`let`) — the
+  result emits as the list while definitions stay selectable — and *conflicts* when any
+  regular field is present. It also tolerates the latent conflict lazily when the value is
+  only selected into, never emitted. kue is eager and yields `⊥` for `meet(struct, list)`.
+  Real prod9 files now parse + locally evaluate (15/15), but the `let`-bound
+  `#Basics & {…[...]}` values resolve to `⊥` under kue's eager strategy; the list-embedding
+  eval rule (and/or lazy selection) is the next slice.
 - **In-module imports resolve (B3a).** A single file (or `export` file-mode) routes through
   the import-aware loader: `cue.mod/module.cue` is discovered by walking parent dirs, an
   import path `<module>` or `<module>/<subpath>` is resolved to the corresponding dir under

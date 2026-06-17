@@ -137,10 +137,24 @@ first, the big import subsystem last because it gates the real workflow):
        and loads its files. Import resolution is no longer the blocker. The remaining
        distance to "replace cue for infra" is **parser gaps**, ranked by how many of the 15
        `infra/apps/*.cue` they block:
-       1. **`let` declarations (`let x = expr` in a struct) — 10/15 files.** Top blocker;
-          hits the app files directly (`let version = "0.20.0"`, `let nsp = …`).
-       2. **Open-list `[...]` expression — pervasive.** In nearly every app file and in the
-          cross-module `defs/parts/allow_listener_sets.cue` load (3/15 reach it).
+       1. ~~**`let` declarations**~~ — **NOT A GAP (diagnosed 2026-06-17).** `let` was already
+          fully implemented (parse + scope + non-output). The breadcrumb's "unexpected `='`
+          at `let nsp = …`" was a *mis-attributed* error: `parseField` committed a `[`-led
+          struct member to the `[label]: value` pattern form with no fallback, so the `[...]`
+          inside the `let` RHS struct failed and the parser backtracked to mis-report the
+          error at the `let`'s `=`. **The real blocker was the open-list `[...]` embedding.**
+       2. **Open-list `[...]` embedding.** ✅ **Parse landed 2026-06-17** — a `[`-led struct
+          member now falls back to `parseEmbedding` when it isn't a valid pattern, so `[...]`
+          and `[1,2,3]` parse as list embeddings. **All 15/15 `infra/apps/*.cue` now parse +
+          locally evaluate** (was ~3/15). **Eval semantics still DEFERRED (now the #1
+          blocker):** CUE allows a list embedded in a struct that has *no regular exported
+          fields* (only `#hidden`/`_`/`let`) — the value emits as the list while definitions
+          stay selectable; with any regular field present it conflicts. In prod9 the
+          `let`-bound `#Basics & {…[...]}` values are only ever *selected into* (`.#name`,
+          `.#out`), never emitted whole, so cue's **laziness** never forces the latent
+          struct/list conflict. kue is eager and currently `meet(struct, list) = ⊥`. Closing
+          this needs the embedding rule (hidden-only struct + list embed) and/or lazy
+          selection — tracked as the next slice.
        3. Then the deeper semantic gaps (closedness enforcement under
           import/unification, bare hidden-field references, `[string]:` patterns).
      - **Design boundary (kue more lenient than cue, not a divergence):** kue reads the

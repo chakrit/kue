@@ -664,6 +664,69 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "let_chain.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("a", .letBinding, .prim (.int 1)),
+                ("b", .letBinding, .binary .add (.ref "a") (.prim (.int 1))),
+                ("x", .regular, .ref "b")
+              ]
+              true))
+    },
+    {
+      fileName := "let_shadow.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("v", .letBinding, .prim (.int 1)),
+                ("outer", .regular, .ref "v"),
+                ("inner", .regular,
+                  .struct
+                    [
+                      ("v", .letBinding, .prim (.int 2)),
+                      ("val", .regular, .ref "v")
+                    ]
+                    true)
+              ]
+              true))
+    },
+    {
+      fileName := "let_sibling.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("top", .regular,
+                  .struct
+                    [
+                      ("base", .regular, .prim (.int 10)),
+                      ("doubled", .letBinding, .binary .mul (.ref "base") (.prim (.int 2))),
+                      ("out", .regular, .ref "doubled")
+                    ]
+                    true)
+              ]
+              true))
+    },
+    {
+      fileName := "let_not_in_output.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("secret", .letBinding, .prim (.string "abc")),
+                ("shown", .regular, .ref "secret"),
+                ("other", .regular, .prim (.int 1))
+              ]
+              true))
+    },
+    {
       fileName := "mutual_reference_cycle.expected",
       content :=
         formatTopLevel

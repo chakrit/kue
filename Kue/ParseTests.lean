@@ -13,6 +13,11 @@ def parseFails (source : String) : Bool :=
   | .ok _ => false
   | .error _ => true
 
+def parseSucceeds (source : String) : Bool :=
+  match parseSource source with
+  | .ok _ => true
+  | .error _ => false
+
 def parseFailsAt (source : String) (line col : Nat) : Bool :=
   match parseSource source with
   | .ok _ => false
@@ -152,6 +157,42 @@ theorem parse_nested_let_binding :
     parseOutputMatches
       "x: {let base = string, value: base & \"ok\"}\n"
       "x: {value: \"ok\"}" = true := by
+  native_decide
+
+theorem parse_let_chain_references_prior_let :
+    parseOutputMatches
+      "let a = 1\nlet b = a + 1\nx: b\n"
+      "x: 2" = true := by
+  native_decide
+
+theorem parse_let_inner_shadows_outer :
+    parseOutputMatches
+      "let v = 1\nouter: v\ninner: {let v = 2, val: v}\n"
+      "outer: 1\ninner: {val: 2}" = true := by
+  native_decide
+
+theorem parse_let_references_sibling_field :
+    parseOutputMatches
+      "top: {base: 10, let doubled = base * 2, out: doubled}\n"
+      "top: {base: 10, out: 20}" = true := by
+  native_decide
+
+theorem parse_let_not_emitted_in_output :
+    parseOutputMatches
+      "let secret = \"abc\"\nshown: secret\nother: 1\n"
+      "shown: \"abc\"\nother: 1" = true := by
+  native_decide
+
+-- A `[...]`-led struct member is a list embedding (CUE: open list `[...]`), not a pattern
+-- constraint. The parser must accept it as an embedding rather than committing to the
+-- `[label]: value` pattern form. (Eval-time struct&list-embedding semantics are tracked
+-- separately as the open-list slice; this pins the parse-level acceptance.)
+theorem parse_open_list_embedding_in_struct :
+    parseSucceeds "x: {#a: 1, [...]}\n" = true := by
+  native_decide
+
+theorem parse_list_literal_embedding_in_struct :
+    parseSucceeds "x: {[1, 2, 3]}\n" = true := by
   native_decide
 
 theorem parse_disjunction_defaults_and_bounds :

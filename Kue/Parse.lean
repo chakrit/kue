@@ -1312,7 +1312,10 @@ mutual
 
   partial def parseField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
-    | '[' :: _ => parsePatternField chars
+    | '[' :: _ =>
+        match parsePatternField chars with
+        | .ok parsed => .ok parsed
+        | .error _ => parseEmbedding chars
     | '.' :: '.' :: '.' :: _ => parseStructEllipsis chars
     | '"' :: _ =>
         match parseQuotedLabelField chars with

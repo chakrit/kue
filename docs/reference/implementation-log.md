@@ -4678,3 +4678,50 @@ registry fetch, MVS solving, `cue.sum`.
 
 Verify gate green: `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs
 ok`, `shellcheck` clean.
+
+## Completed Slice: Open-List `[...]` Embedding Parse (the real `let`-family unblock)
+
+Goal: unblock the prod9 `infra/apps/*.cue` files. Diagnosed first; the breadcrumb ranked
+`let` as the #1 blocker, but `let` was already fully implemented.
+
+### Diagnosis (the key finding)
+
+`let` parses + scopes + stays out of output in every position prod9 uses (file-scope,
+in-struct, sibling-ref, let-ref-let, shadowing) — all oracle-clean vs `cue` v0.16.1. The
+breadcrumb's "`unexpected character '='` at `let nsp = …`" was *mis-attributed*:
+`parseField` matched a `[`-led struct member straight to the `[label]: value` pattern form
+**with no fallback**, so the `[...]` open-list embedding inside the `let` RHS struct failed
+to parse and the parser backtracked, surfacing the error at the `let`'s `=`. **The actual
+blocker was the `[...]` list embedding, not `let`.**
+
+### Steps
+
+1. Red tests. `ParseTests.lean`: `parse_open_list_embedding_in_struct`,
+   `parse_list_literal_embedding_in_struct` (new `parseSucceeds` helper), plus four `let`
+   scoping theorems pinning the already-working behavior
+   (`parse_let_chain_references_prior_let`, `parse_let_inner_shadows_outer`,
+   `parse_let_references_sibling_field`, `parse_let_not_emitted_in_output`).
+
+2. Parser fix. `Parse.lean` `parseField`: the `'[' :: _` case now tries `parsePatternField`
+   and falls back to `parseEmbedding` on failure (mirrors the existing `'"'` and `'('`
+   fallbacks). A `[...]`/`[1,2,3]` struct member parses as a list embedding; `[label]: value`
+   patterns are unaffected (pattern parse still wins when valid).
+
+3. Fixtures. Four `testdata/cue/let_*.{cue,expected}` pairs (`let_chain`, `let_shadow`,
+   `let_sibling`, `let_not_in_output`) + matching `FixturePorts.lean` entries. `cue
+   fmt`-clean, oracle-matched vs `cue export`.
+
+4. Verify. `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
+   `shellcheck` clean.
+
+### Real-file spot-check (READ-ONLY, prod9/infra)
+
+All **15/15** `infra/apps/*.cue` now parse + locally evaluate (stdin `kue`), up from ~3/15.
+The parser no longer trips on `[...]`. **Eval semantics for `[...]` embedding remain
+DEFERRED** (now the #1 blocker): `cue` permits a list embedded in a struct with no regular
+exported fields (emits as the list, definitions stay selectable) and tolerates the latent
+struct/list conflict lazily when the value is only selected into; kue is eager and yields ⊥
+for `meet(struct, list)`. So the prod9 `let nsp = #Basics & {…[...]}` values parse but
+resolve to ⊥ under kue's eager strategy. See `docs/spec/compat-assumptions.md`. (Separately,
+`kue export <file>` module discovery did not find `infra/cue.mod/module.cue` from a sub-dir
+— a pre-existing export-mode path issue, out of this slice's scope.)
