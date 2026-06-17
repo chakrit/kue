@@ -77,11 +77,17 @@ The primary agent (you) is a thin orchestrator, not the implementer:
 4. **Cheaply verify, don't re-do.** On return, confirm the slice landed — tree clean,
    pushed, build/fixtures green, log+breadcrumb updated — with a light check (git state,
    one build/fixture run). No full skill-compliance sweep; the subagent owns depth.
-5. **Periodic `/ace-audit`.** Every ~3–4 landed slices, or at a family/milestone
-   boundary, spawn a subagent running `/ace-audit` over the recently landed work — the
-   per-slice cheap check is deliberately shallow; this is the depth pass for
-   skill-compliance and implementation quality. Fold its findings into the plan as
-   fix-slices. Cadence, not every iteration — don't let it stall forward motion.
+5. **Two-phase audit every 2–3 slices.** After every 2–3 landed slices, spawn audit
+   subagents that follow [`docs/guides/slice-loop.md`](docs/guides/slice-loop.md) — do NOT
+   invoke the `/ace-audit` skill; the procedure is written down there. Run them
+   sequentially: **(A) code-quality audit** (correctness, totality, illegal-states,
+   DRY, test strength, skill compliance over the recent batch), then **(B) architecture /
+   refactor / cleanup audit** (module boundaries, layering, dead code, simplification,
+   test/fixture organization over the whole module graph). Fold findings into the plan as
+   fix-slices. Mandatory at the 2–3-slice mark; don't let them stall forward motion. A
+   periodic test/fixture-organization slice is scheduled when Phase B flags it.
+   Releases: ~1 datestamped alpha/day via `scripts/release.sh` (local only — CI/GitHub
+   Actions is banned); see the guide.
 6. **Loop or stop.** If verification passes and planned slices remain, spawn the next.
    Stop only at a genuine blocker, a failed verify the subagent couldn't fix, or an empty
    plan — and leave the breadcrumb pointing at the next step.
