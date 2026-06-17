@@ -322,6 +322,22 @@ taken together, do 1's commutativity theorems against the post-fold representati
    so `>0.5` parses and float-domain comparison works. This is where `(int&>0)&1.5`→⊥ stays
    but bare `>0 & 1.5` starts matching cue. The 2a fold left the representation one field
    short of this on purpose. Touches the same `meetBound*`/`Format`/`Parse` arms.
+2c. **[MEDIUM — `Kue/` source-dir organization, chakrit-flagged 2026-06-17] Declutter the
+   flat `Kue/` (~28 files: ~16 source + ~12 test/port).** Schedule AFTER the bound refactors
+   (2b) settle — moving a module changes its Lean import path (`Kue.Foo`→`Kue.Sub.Foo`), so
+   it's import-line churn across the codebase (mechanical, fully gated by `lake build`);
+   doing it mid-bound-refactor is churn-on-churn. Two parts: **(i) tests-out (do this —
+   high value, low churn):** move the ~12 `*Tests.lean` + `FixturePorts.lean` into
+   `Kue/Tests/` (via a `Kue/Tests.lean` aggregator imported from `Kue.lean` so theorems
+   still run under `lake build`); this subsumes the deferred 3d module-splits — split the
+   oversized ones (`FixturePorts` 2293 / `FixtureTests` 1033 / `BuiltinTests` 735) by
+   subsystem/family as they move. **(ii) source-layering (OPTIONAL, pending chakrit's
+   taste call):** group source by role — `Core/` (`Value` `Decimal` `Lattice` `Order`
+   `Normalize`), `Syntax/` (`Parse`), `Eval/` (`Resolve` `Eval`), `Output/` (`Manifest`
+   `Format` `Json` `Yaml`), `Driver/` (`Module` `Runtime` `Cli`), `Builtin`. More
+   import-churn for moderate benefit; default is tests-out only unless chakrit asks for the
+   full source-layering. Use `git mv`; let `lake build` be the coverage ground-truth for
+   stale imports (not the flaky grep/wc filter).
 3. **[MEDIUM — consolidation + test-reorg batch, OVERDUE, chakrit-flagged] base64-out-of-
    Json + test/`testdata` reorg + `Field`→structure + Manifest-FieldClass tighten.** Four
    independent mechanical sub-tasks, one verify cycle. **Do this before items 1/2** to
