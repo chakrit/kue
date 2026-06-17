@@ -39,10 +39,25 @@ those forms.
   aliases (`label: X=value`, incl. `#Def: Self={…}` self-reference), `let` declarations,
   static field selectors, static index expressions, existing builtin call values,
   comprehensions (`for`/`if` field clauses), dynamic fields (`(expr): v`), string
-  interpolation (`"\(expr)"`), and colon-shorthand nested fields (`a: b: c: 1`,
+  interpolation (`"\(expr)"`), colon-shorthand nested fields (`a: b: c: 1`,
   desugared to the brace form `a: {b: {c: 1}}` — same AST, so it unifies/closes/exports
   identically; inner labels may be identifiers, definitions, quoted strings, or `(expr)`
-  dynamic, each with optional `?`/`!` markers).
+  dynamic, each with optional `?`/`!` markers), and multiline string/bytes literals
+  (`"""…"""`, `'''…'''`).
+- Multiline strings (`"""…"""`) and multiline bytes (`'''…'''`) are supported. Content
+  begins on the line after the opening delimiter; the closing delimiter sits on its own
+  line, and the leading horizontal whitespace (spaces/tabs) preceding it is the strip
+  prefix removed from every content line. The newline immediately after the opening
+  delimiter and the one before the closing line are excluded; remaining lines join with
+  `\n`. Each non-blank content line must begin with the full strip prefix (a line with
+  some-but-insufficient whitespace is rejected as CUE's "invalid whitespace"); a fully
+  empty line is allowed and contributes an empty line. Content on the opening-delimiter
+  line is rejected (the delimiter must be followed by a newline). Backslash escapes and
+  `\(expr)` interpolation work inside `"""…"""` exactly as in single-line strings.
+  **Deferral:** interpolation inside multiline *bytes* (`'''…\(x)…'''`) is rejected at
+  parse — Kue's bytes value is a plain string payload and the interpolation machinery
+  yields a string, not bytes; non-interpolated `'''…'''` dedents to a bytes value
+  normally. This is a Kue-does-less boundary, not a `cue` divergence.
 - The parser does not yet support typed struct ellipsis syntax (`...T`, which cue v0.15.4
   also rejects) or imports with module resolution. Value-position aliases are now
   supported (see References, bindings, and selectors below).

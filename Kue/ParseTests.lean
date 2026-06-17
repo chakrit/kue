@@ -451,4 +451,62 @@ theorem reference_value_not_treated_as_shorthand :
     parseOutputMatches "b: 2\na: b\n" "b: 2\na: 2" = true := by
   native_decide
 
+/-- A multiline `"""…"""` literal parses to the same `Value` AST as the single-line string
+    with the dedented content: the closing-line indentation is stripped from every content
+    line, the leading/trailing newlines are dropped, and the lines join with `\n`. -/
+theorem multiline_basic_equals_single_line :
+    parseSameValue "x: \"\"\"\n\thello\n\tworld\n\t\"\"\"\n" "x: \"hello\\nworld\"\n" = true := by
+  native_decide
+
+theorem multiline_dedent_keeps_inner_indent :
+    parseSameValue "x: \"\"\"\n\tline1\n\t  line2\n\t\"\"\"\n" "x: \"line1\\n  line2\"\n" = true := by
+  native_decide
+
+theorem multiline_empty_is_empty_string :
+    parseSameValue "x: \"\"\"\n\t\"\"\"\n" "x: \"\"\n" = true := by
+  native_decide
+
+theorem multiline_no_indent_closing :
+    parseSameValue "x: \"\"\"\nhello\nworld\n\"\"\"\n" "x: \"hello\\nworld\"\n" = true := by
+  native_decide
+
+theorem multiline_blank_content_line :
+    parseSameValue "x: \"\"\"\n\ta\n\n\tb\n\t\"\"\"\n" "x: \"a\\n\\nb\"\n" = true := by
+  native_decide
+
+theorem multiline_escape_applies :
+    parseSameValue "x: \"\"\"\n\ta\\tb\n\t\"\"\"\n" "x: \"a\\tb\"\n" = true := by
+  native_decide
+
+/-- Interpolation `\(expr)` works inside a multiline literal, building the same
+    `.interpolation` AST as the single-line form. -/
+theorem multiline_interpolation_equals_single_line :
+    parseSameValue
+      "n: \"bob\"\nx: \"\"\"\n\thi \\(n)\n\tbye\n\t\"\"\"\n"
+      "n: \"bob\"\nx: \"hi \\(n)\\nbye\"\n" = true := by
+  native_decide
+
+/-- A `'''…'''` literal is the multiline bytes form, parsing to the same dedented bytes
+    value as the single-line bytes literal. -/
+theorem multiline_bytes_equals_single_line :
+    parseSameValue "x: '''\n\tabc\n\tdef\n\t'''\n" "x: 'abc\\ndef'\n" = true := by
+  native_decide
+
+/-- A content line lacking the closing-line indentation prefix is rejected, matching CUE's
+    "invalid whitespace". The bad line `bad` is line 4 here. -/
+theorem multiline_under_indented_line_fails :
+    parseFails "x: \"\"\"\n\tok\nbad\n\t\"\"\"\n" = true := by
+  native_decide
+
+/-- Content on the opening-delimiter line is rejected: the delimiter must be followed by a
+    newline. -/
+theorem multiline_content_on_opening_line_fails :
+    parseFailsAt "x: \"\"\"hi\n\t\"\"\"\n" 1 7 = true := by
+  native_decide
+
+/-- Interpolation inside multiline bytes is a documented deferral, rejected at parse. -/
+theorem multiline_bytes_interpolation_deferred :
+    parseFails "n: 5\nx: '''\n\tv\\(n)\n\t'''\n" = true := by
+  native_decide
+
 end Kue

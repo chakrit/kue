@@ -1092,6 +1092,65 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "multiline_string.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct [("x", .regular, .prim (.string "hello\nworld"))] true))
+    },
+    {
+      fileName := "multiline_dedent.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct [("x", .regular, .prim (.string "line1\n  line2"))] true))
+    },
+    {
+      fileName := "multiline_interpolation.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("n", .regular, .prim (.string "bob")),
+                (
+                  "x",
+                  .regular,
+                  .interpolation [.prim (.string "hi "), .ref "n", .prim (.string "\nbye")]
+                )
+              ]
+              true))
+    },
+    {
+      fileName := "multiline_empty.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct [("x", .regular, .prim (.string ""))] true))
+    },
+    {
+      fileName := "multiline_cert.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                (
+                  "cert",
+                  .regular,
+                  .prim (.string "-----BEGIN CERTIFICATE-----\nMIIBIjANBg\n-----END CERTIFICATE-----")
+                )
+              ]
+              true))
+    },
+    {
+      fileName := "multiline_bytes.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct [("x", .regular, .prim (.bytes "abc\ndef"))] true))
+    },
+    {
       fileName := "dynamic_field.expected",
       content :=
         formatTopLevel

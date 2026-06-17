@@ -4350,3 +4350,67 @@ barrier on real infra: `infra-defs/role.cue` now parses+evaluates (exit 0); 28/3
 infra-defs files parse+evaluate (remaining 4 blocked on B4/B3). No CUE divergence logged —
 the unreferenced-alias case is a Kue-permissiveness boundary (Kue does less), recorded in
 compat-assumptions, not the divergence log.
+
+## Completed Slice: B4 — Multiline Strings
+
+Multiline string `"""…"""` and multiline bytes `'''…'''` literals — every form previously
+evaluated to `_|_`. The bug was in **parse, not eval**: `parsePrimaryAtom` had no
+triple-delimiter arm, so the lone `'"' :: rest` arm read the first two quotes as an empty
+string `""` and mis-parsed the remainder. Infra uses these heavily for TLS certs/keys, RSA
+app keys, dex config, and RBAC policy CSV (`apps/argocd.cue`, `apps/argo/stage9.cue`,
+`infra-defs/secret.cue`).
+
+### Dedent rule (oracle-confirmed, `cue` v0.16.1)
+
+Content begins on the line after the opening delimiter; the closing delimiter sits on its
+own line. The leading horizontal whitespace (spaces/tabs) preceding the closing delimiter
+is the **strip prefix** removed from every content line. The newline immediately after the
+opening delimiter and the one before the closing line are excluded; remaining lines join
+with `\n`. Each non-blank content line must begin with the full strip prefix — a line with
+some-but-insufficient leading whitespace is rejected (`cue`'s "invalid whitespace"); a
+fully empty line (immediate newline) is exempt and contributes an empty line. Content on
+the opening-delimiter line is rejected ("expected newline after multiline quote"). Tab
+prefixes and zero-indent closing delimiters both work. Backslash escapes and `\(expr)`
+interpolation apply inside `"""…"""` exactly as in single-line strings.
+
+### Parser
+
+Two total helpers below the mutual block: `multilineStripPrefixGo`/`multilineStripPrefix?`
+(a structural single-pass scan tracking line-start + accumulated leading whitespace; finds
+the closing line's indentation, total by structural recursion on the char list, no
+`partial` and no `decreasing_by`), `splitLeadingHorizontalWhitespace`, and
+`multilineDelimiter?`. New `parsePrimaryAtom` arms `'"' :: '"' :: '"' :: rest` and
+`'\'' :: '\'' :: '\'' :: rest` (placed before the single-quote arms) route to
+`parseMultilineOpen quote`, which finds the strip prefix, requires a newline after the
+opening delimiter, then runs `parseMultilineBody quote strip atLineStart chars acc parts`.
+The body parser: at a line start, drops the strip prefix and checks for the closing
+delimiter (finish — trimming the trailing pre-closing `\n`), else (no prefix match) a bare
+`\n` is an allowed blank line and anything else is "invalid whitespace"; mid-line it reuses
+the same `\(expr)` interpolation and `\`-escape handling as `parseInterpolatedString`,
+emitting `\n` at each line break. `parseMultilineString` wraps the result as-is;
+`parseMultilineBytes` rewraps a `.prim (.string …)` into `.prim (.bytes …)` and **rejects**
+an interpolated body (`'''…\(x)…'''`) — bytes interpolation is deferred (Kue's bytes value
+is a plain string payload; the interpolation machinery yields a string, not bytes).
+
+### Tests
+
+6 new fixture pairs (`multiline_string`, `multiline_dedent`, `multiline_interpolation`,
+`multiline_empty`, `multiline_cert`, `multiline_bytes`) with `FixturePorts.lean` entries —
+each port hand-builds the expected dedented value, so the port-derived `.expected` and the
+CLI's actual parse output are independent encodings diffed against the same file (a wrong
+dedent would diverge them). 11 new `ParseTests.lean` theorems via `parseSameValue`
+(multiline form parses to the same AST as the equivalent single-line literal) for
+basic/indented-dedent/empty/no-indent/blank-line/escape/interpolation/bytes, plus `parseFails`
+for the under-indented line and deferred bytes interpolation, and `parseFailsAt 1 7` for
+content-on-opening-line.
+
+### Verify
+
+`lake build` 68 jobs (all theorems pass), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`
+(no regressions), `shellcheck scripts/check-fixtures.sh` clean. No CUE divergence logged —
+all observed `cue` behavior was correct; the bytes-interpolation deferral is a Kue-does-less
+boundary in compat-assumptions, not a `cue` bug. Real-infra impact: the `"""` parser barrier
+cleared on all four multiline-using prod9 files; `infra/apps/argocd.cue` now
+parses+evaluates to exit 0 (the other three — `argo/bluepages.cue`, `argo/stage9.cue`,
+`infra-defs/secret.cue` — now fail at separate, later parser gaps: open-list `[...]`
+expressions and non-string label patterns `[string]: string`, not the multiline form).

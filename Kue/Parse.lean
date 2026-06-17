@@ -565,6 +565,45 @@ def bindValueAlias (name : String) : Value -> Value
       .structComp ((name, .letBinding, .thisStruct) :: fields) cs open_
   | value => value
 
+/-- Three identical delimiter chars (`"""` or `'''`) at the head, else `none`. -/
+def multilineDelimiter? (quote : Char) : List Char -> Option (List Char)
+  | a :: b :: c :: rest =>
+      if a == quote && b == quote && c == quote then some rest else none
+  | _ => none
+
+/-- Split the leading horizontal whitespace (spaces/tabs) of a line from its remainder. -/
+def splitLeadingHorizontalWhitespace : List Char -> List Char × List Char
+  | [] => ([], [])
+  | value :: rest =>
+      if value == ' ' || value == '\t' then
+        let (ws, body) := splitLeadingHorizontalWhitespace rest
+        (value :: ws, body)
+      else
+        ([], value :: rest)
+
+/-- Find the closing-delimiter line's indentation prefix in a multiline literal body.
+    `atLineStart` tracks whether the current position begins a line; `ws` accumulates the
+    current line's leading horizontal whitespace (reversed). A line whose leading
+    whitespace is immediately followed by the closing delimiter is the closing line, and
+    that whitespace is the strip prefix applied to every content line. `none` if no such
+    line exists (unterminated literal). Total: structural recursion on the char list. -/
+def multilineStripPrefixGo (quote : Char) (atLineStart : Bool) (ws : List Char) :
+    List Char -> Option (List Char)
+  | [] => none
+  | value :: rest =>
+      if atLineStart && (multilineDelimiter? quote (value :: rest)).isSome then
+        some ws.reverse
+      else if atLineStart && (value == ' ' || value == '\t') then
+        multilineStripPrefixGo quote true (value :: ws) rest
+      else if value == '\n' then
+        multilineStripPrefixGo quote true [] rest
+      else
+        multilineStripPrefixGo quote false ws rest
+
+/-- The closing-delimiter line's indentation prefix, or `none` if unterminated. -/
+def multilineStripPrefix? (quote : Char) (chars : List Char) : Option (List Char) :=
+  multilineStripPrefixGo quote true [] chars
+
 def parseMultiplicativeKeywordOp? (chars : List Char) : Option (BinaryOp × List Char) :=
   match dropWord? "div" chars with
   | some rest => some (.intDiv, rest)
@@ -793,6 +832,8 @@ mutual
             | rest => parseError rest "expected ')'"
     | '{' :: rest => parseStruct rest
     | '[' :: rest => parseList rest
+    | '"' :: '"' :: '"' :: rest => parseMultilineString rest
+    | '\'' :: '\'' :: '\'' :: rest => parseMultilineBytes rest
     | '"' :: rest => parseInterpolatedString rest [] []
     | '\'' :: rest =>
         match parseQuotedBytes ('\'' :: rest) with
@@ -855,6 +896,77 @@ mutual
     | '\\' :: escaped :: rest => parseInterpolatedString rest (parseStringEscape escaped :: acc) parts
     | ['\\'] => parseError [] "unterminated string escape"
     | value :: rest => parseInterpolatedString rest (value :: acc) parts
+
+  /-- Parse the content of a multiline string/bytes literal after the opening delimiter.
+      `prefix` is the closing line's indentation, stripped from every content line. At a
+      line start: a line that is exactly `prefix ++ delimiter` ends the literal; a blank
+      line (immediate newline) contributes an empty line; any other line must begin with
+      `prefix` (else CUE's "invalid whitespace"). Within a line, `\(expr)` interpolations
+      and backslash escapes work as in single-line strings. The leading newline after the
+      opening delimiter and the trailing newline before the closing line are excluded. -/
+  partial def parseMultilineBody
+      (quote : Char)
+      (strip : List Char)
+      (atLineStart : Bool)
+      (chars : List Char)
+      (acc : List Char)
+      (parts : List Value) : ParseResult Value :=
+    if atLineStart then
+      match dropPrefix? strip chars with
+      | some afterStrip =>
+          match multilineDelimiter? quote afterStrip with
+          | some rest =>
+              -- Drop the newline that separates the last content line from the closing
+              -- line; it is the delimiter terminator, not part of the value.
+              let trimmed := match acc with
+                | '\n' :: acc => acc
+                | acc => acc
+              interpolationResult (appendStringSegment trimmed parts) rest
+          | none => parseMultilineBody quote strip false afterStrip acc parts
+      | none =>
+          match chars with
+          | '\n' :: rest => parseMultilineBody quote strip true rest ('\n' :: acc) parts
+          | [] => parseError [] "unterminated multiline literal"
+          | _ => parseError chars "invalid whitespace in multiline literal"
+    else
+      match chars with
+      | [] => parseError [] "unterminated multiline literal"
+      | '\n' :: rest => parseMultilineBody quote strip true rest ('\n' :: acc) parts
+      | '\\' :: '(' :: rest =>
+          match parseExpression rest with
+          | .error error => .error error
+          | .ok (hole, rest) =>
+              match skipTrivia rest with
+              | ')' :: rest =>
+                  parseMultilineBody quote strip false rest [] (appendStringSegment acc parts ++ [hole])
+              | rest => parseError rest "expected ')' to close interpolation"
+      | '\\' :: escaped :: rest =>
+          parseMultilineBody quote strip false rest (parseStringEscape escaped :: acc) parts
+      | value :: rest => parseMultilineBody quote strip false rest (value :: acc) parts
+
+  /-- The shared opening-line handling for multiline literals: the opening delimiter must
+      be followed (after optional horizontal whitespace) by a newline — content on the
+      opening line is rejected, matching CUE. Returns the literal's parsed value via
+      `parseMultilineBody`, after locating the closing line's strip prefix. -/
+  partial def parseMultilineOpen (quote : Char) (chars : List Char) : ParseResult Value :=
+    match multilineStripPrefix? quote chars with
+    | none => parseError chars "unterminated multiline literal"
+    | some strip =>
+        let afterWs := (splitLeadingHorizontalWhitespace chars).snd
+        match afterWs with
+        | '\n' :: rest => parseMultilineBody quote strip true rest [] []
+        | _ => parseError chars "expected newline after multiline quote"
+
+  partial def parseMultilineString (chars : List Char) : ParseResult Value :=
+    parseMultilineOpen '"' chars
+
+  partial def parseMultilineBytes (chars : List Char) : ParseResult Value :=
+    match parseMultilineOpen '\'' chars with
+    | .error error => .error error
+    | .ok (value, rest) =>
+        match value with
+        | .prim (.string text) => parseOk (.prim (.bytes text)) rest
+        | _ => parseError chars "interpolation in multiline bytes is not supported yet"
 
   partial def parseIdentifierValue (chars : List Char) : ParseResult Value :=
     match parseIdentifier chars with

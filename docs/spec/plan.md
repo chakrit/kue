@@ -50,10 +50,24 @@ first, the big import subsystem last because it gates the real workflow):
    Self-reference within a def resolves; post-unification re-resolution and bare `Self`
    deferred (compat-assumptions). Cleared the `=` parse barrier across real infra-defs
    (28/32 files now parse+evaluate; the remaining 4 are B4/B3).
-3. **B4 — multiline strings** (`"""…"""` currently → `_|_`). Lexer/dedent fix; unblocks
-   secret/argo files. **(active — next)**
+3. **B4 — multiline strings** (`"""…"""`, bytes `'''…'''`; previously → `_|_`). **DONE** —
+   the bug was in *parse*, not eval: `parsePrimaryAtom` had no `"""`/`'''` arm, so the lone
+   `"` arm read `""` as an empty string and mis-parsed the rest. New `parsePrimaryAtom` arms
+   `'"' :: '"' :: '"'` / `'\'' :: '\'' :: '\''` route to `parseMultilineOpen`, which (a)
+   finds the closing line's indentation via the total `multilineStripPrefix?` pre-scan,
+   (b) requires a newline after the opening delimiter (content-on-opening-line rejected),
+   then (c) runs `parseMultilineBody` — an interpolation-aware pass that strips the prefix
+   at each line start (non-blank lines lacking it → "invalid whitespace"; fully-blank lines
+   exempt), joins lines with `\n`, drops the trailing pre-closing newline, and reuses the
+   existing `\(expr)`/escape machinery. `'''` produces `.prim (.bytes …)`; bytes
+   interpolation is deferred (rejected at parse — see compat-assumptions). Oracle-matched on
+   basic/indented-dedent/interpolation/empty/cert/no-indent/blank-line/escape and both error
+   cases. Unblocked the parser on all four multiline-using prod9 files; `infra/apps/argocd.cue`
+   now parses+evaluates to exit 0 (the other three hit separate later gaps — open-list
+   `[...]` and non-string label patterns — not the `"""` barrier).
 4. **B6 — encoding builtins** `base64.Encode`, `json.Marshal` (load-bearing inside
    `#Secret`/`#ConfigMap`). Small pure functions; kue already has the value AST.
+   **(active — next)**
 5. **B5 — manifest output**: a YAML/JSON serializer over `Kue/Manifest.lean` + a
    `cue export`-style CLI mode (select expr, `--out yaml/json`, multi-doc streams).
    First true end-to-end manifest on a self-contained leaf file. `yaml.Marshal` shares
@@ -142,7 +156,12 @@ implementation log):
   a struct alias prepends a non-output `.thisStruct` `let`-binding, so `Self.field`
   resolves as a same-struct sibling reference (a `selector (refId …) field` eval arm
   rewrites it to the `BindingId` of `field` in the alias frame, inheriting the cycle
-  guard). Remaining parser completeness work: strict CUE newline/semicolon separator
+  guard). Multiline string/bytes literals (`"""…"""`, `'''…'''`) parse via dedicated
+  `parsePrimaryAtom` arms into `parseMultilineOpen`: a total `multilineStripPrefix?`
+  pre-scan finds the closing line's indentation, then an interpolation-aware
+  `parseMultilineBody` strips that prefix from each content line, joins with `\n`, and
+  reuses the single-line `\(expr)`/escape machinery (`'''` → bytes; bytes interpolation
+  deferred). Remaining parser completeness work: strict CUE newline/semicolon separator
   insertion (separator handling is still permissive around whitespace).
 - **Expressions** — unary/additive/multiplicative/division/integer-keyword arithmetic,
   equality, ordering, numeric comparison across int/float, logical `&&`/`||`/`!`, and
