@@ -106,17 +106,15 @@ import/module mechanism (B3). Remaining stdlib builtins (`strings.Trim*`/`Runes`
 `list.Sort`/`SortStable`, unicode case folding) stay parked — infra doesn't need them.
 Full gap report: agent run 2026-06-16; reproduce by running kue against the prod9 modules.
 
-**PENDING AUDIT — parser+alias batch (`0795530`/`7ec51a4`/`f6c18b5`/`804f1ca`).** The
-`/ace-audit` depth pass over this batch failed three times on transient API 500s (twice
-instantly, once after 35 tool calls) and did NOT complete or commit. An orchestrator
-spot-check of the #1 risk (new `Value.thisStruct` constructor) confirmed it is EXPLICITLY
-handled — `Lattice.lean:380-382` (meet arms), `Format.lean:161` (`@self`),
-`Manifest.lean:72` (incomplete error), `Eval.lean` (Self.field→sibling rewrite); not
-silently absorbed by a wildcard, doesn't leak to output. `Normalize`/`Order` don't
-reference it (it only exists as a non-output letBinding value, so it never reaches them
-standalone). Residual: a FULL audit of this batch is still owed — re-run when the API is
-stable (B1 AST-identity across all label forms, parser-position off-by-ones, B2 deferred-
-position correctness). Do not let this block forward slices.
+**AUDIT COMPLETE — parser+alias+multiline batch
+(`0795530`/`7ec51a4`/`f6c18b5`/`804f1ca`/`d1a5e35`).** The `/ace-audit` depth pass landed
+2026-06-17 after three transient-500 false starts. Verdict: **no Violations, no inline
+fixes needed — the batch is clean.** Findings folded as fix-slices below ("Audit
+Fix-Slices (parser+alias+multiline family, audit 2026-06-17)"). Headline: `.thisStruct`
+exhaustiveness is sound at every Value-matching site; B1 colon-shorthand is provably
+AST-identical to the brace form across all inner-label forms; B4 multiline is total and
+correct; parser positions have no off-by-one; the three B2 deferred boundaries are real
+and correctly documented.
 
 ## Implementation Status
 
@@ -301,6 +299,84 @@ contradictory value to bottom / a non-zero exit, never partial garbage.
   correct — `cue`'s deferred display is a lazy-eval artifact. Worth a `cue-divergences.md`
   entry if treated as a surprising-`cue` case; otherwise leave as the documented intended
   behavior.
+
+## Audit Fix-Slices (parser+alias+multiline family, audit 2026-06-17)
+
+Findings from the `/ace-audit` depth pass over `0795530` (`strings.SplitN`), `7ec51a4`
+(parser source positions + structured `ParseError`), `f6c18b5` (B1 colon-shorthand),
+`804f1ca` (B2 value/field aliases + `Value.thisStruct`), `d1a5e35` (B4 multiline). Serialization
+(B5/B6) was excluded — already audited in the prior section. **No Violations found; nothing
+fixed inline. The items below are LOW/borderline hygiene and test-gap notes only.**
+
+**`.thisStruct` exhaustiveness (the #1 scrutiny) — SOUND.** Every Value-matching site
+accounts for the new constructor:
+- `Lattice.meetCore:380-382` — explicit `.thisStruct,.thisStruct => .thisStruct`
+  (idempotent, correct); `.thisStruct,_`/`_,.thisStruct => .bottom`. `.top`/`.bottom`
+  arms precede them, so `meet ⊤ thisStruct = thisStruct` (preserved). `meetWithFuel`
+  delegates the tail to `meetCore` (`value,other => meetCore`), inheriting the arms.
+- `Manifest.lean:72` — explicit `.error (.incomplete .thisStruct)`; the match is fully
+  enumerated (no wildcard), so a leaked marker becomes an incomplete error, never silent
+  output. Json/Yaml consume `ManifestValue`, never `Value`, so `thisStruct` cannot reach
+  serialization at all.
+- `Format.lean:161` — explicit `"@self"` (diagnostic only, like `@d.i` for refId).
+- `Eval.lean:502-505` — `Self.field` (`.selector (.refId id) label`) rewrites to the
+  sibling `BindingId` via `thisStructFieldIndex?` and recurses through the `.refId` arm
+  (480-490), inheriting `slotVisited` (the cycle guard) and bounding self-cycles to `⊤`.
+  `fieldLabelIndexFrom` matches on `Field.label` only, independent of `FieldClass`, so the
+  rewrite is correct for regular/optional/required/hidden/definition siblings alike
+  (`Self.#name` fixture confirms hidden).
+- **Wildcard-absorption sites (all benign):** `Order.subsumesWithFuel` has a trailing
+  `_,_ => false` that absorbs `thisStruct` → `false`; `subsumes` has no non-test callers,
+  and `thisStruct` is rewritten pre-unification, so this is inert (and `false` is the
+  conservative answer anyway). `Normalize` (`_,value => value`), `Resolve`
+  (`_,_,value => value`), `join` (`value,other => disjOfValues`), `isBottom`/`containsBottom`
+  (`_ => false`) all pass `thisStruct` through harmlessly as the leaf it is.
+
+**B1 AST-identity — HOLDS for all inner-label forms.** Both the brace path (`parseStruct`
+→ `parsedFieldsValue fields`) and the shorthand path (`parseFieldValue` →
+`parsedFieldsValue [inner]`) funnel through the same `parsedFieldsValue` builder and the
+same `parseField` label dispatch, so `a: b: V` ≡ `a: {b: V}` for quoted, dynamic `(expr)`,
+definition `#x`, and optional/required inner labels. Proven by `shorthand_*_equals_brace`
+theorems. **One genuine boundary (borderline, FOLDED):** `a: X=b: V` parses the `X=` as a
+*value* alias (`valueAliasHead?` runs before `valuePositionStartsField` in
+`parseFieldValue`), whereas `a: {X=b: V}` is a *field* alias. A field-alias inner label in
+bare colon-shorthand position diverges. No test pins this and no prod9 file uses it; decide
+whether to reject `X=label:` in shorthand position or document the divergence when next
+touching the aliases code. Not blocking.
+
+**B4 multiline — total + correct.** `multilineStripPrefixGo`/`multilineStripPrefix?` and
+`offsetToLineColumn` are total (structural recursion, fuel-decreasing). Dedent strips the
+closing line's indentation from every content line; under-indented lines hit
+`invalid whitespace`; blank lines are exempt; leading newline (after opening) and trailing
+newline (before close) are both excluded; interpolation/escapes reuse the single-line
+machinery. Bytes `'''` reuses `parseMultilineOpen` then re-tags `.string`→`.bytes`, erroring
+on interpolation (documented deferral). All covered by `parseSameValue` equivalence theorems
++ error-case theorems.
+
+**Parser positions — no off-by-one.** `withPosition` computes `offset = source.length -
+remaining` (chars consumed before the stuck point) and `offsetToLineColumn` reports 1-based
+line/col at that char; col resets to 1 after `\n`. Column-one, midline, later-line,
+multiline-struct, and unterminated-string positions are all theorem-pinned. The
+`remaining`-suffix mechanism (store unconsumed length at the error, reconstruct offset once
+at the top) is clean and total.
+
+**B2 deferred positions — all three are REAL boundaries, correctly documented** in
+`compat-assumptions.md:170-185`: (1) post-unification re-resolution is the same
+lexical-vs-merged boundary that affects every sibling ref, attributed to broader resolver
+work, not an alias gap; (2) bare `Self` emits residual `@self`→incomplete (cue rejects it
+as a structural cycle — both fail to yield a value); (3) unreferenced-alias permissiveness
+is a Kue-does-less stance, correctly NOT logged as a cue divergence.
+
+**SplitN (light pass) — clean.** Shared `stringSplitParts` core; `Split` now delegates to
+it (no regression); Go/CUE semantics correct (`n==0`→`[]`, `n<0`→unbounded, `n>0`→first
+`n-1` verbatim + rejoined remainder); `cap-1` Nat-safe since `n>0`⇒`cap≥1`.
+
+LOW/borderline items to fold (none blocking):
+- **[Borderline, FOLDED] field-alias inner label in colon-shorthand** — see B1 boundary
+  above.
+- **[Out of scope — preexisting] `Yaml.lean:186,192` use deprecated `String.dropRight`**
+  (now returns `String.Slice`, not `String`). Compiles with a warning; B6 serialization
+  code, already audited. Migrate to `String.dropEnd` opportunistically.
 
 ## Later Slices
 
