@@ -38,6 +38,59 @@ theorem yaml_string_all_spaces : manifestToYaml (.prim (.string "  ")) = "'  '" 
 theorem yaml_string_leading_dash_bare : manifestToYaml (.prim (.string "-x")) = "-x" := by native_decide
 theorem yaml_string_trailing_comma_bare : manifestToYaml (.prim (.string "comma,")) = "comma," := by native_decide
 
+/-! ### Scalar quoting battery — every case oracle-confirmed against `cue` v0.16.1
+    (`cue export --out yaml`). The fix: multi-dot/segment infra tokens (IPs, semvers,
+    CIDRs, `name:tag` images) are NOT valid YAML numbers and stay **bare**, while genuine
+    numbers / bools / nulls / dates / base60 stay **quoted** to preserve string-ness. -/
+
+-- Infra tokens that previously over-quoted, now bare (multi-segment ⇒ not a scalar number).
+theorem yaml_ip_bare : manifestToYaml (.prim (.string "34.142.159.249")) = "34.142.159.249" := by native_decide
+theorem yaml_semver_bare : manifestToYaml (.prim (.string "1.2.3")) = "1.2.3" := by native_decide
+theorem yaml_cidr_bare : manifestToYaml (.prim (.string "10.0.0.0/8")) = "10.0.0.0/8" := by native_decide
+theorem yaml_image_tag_bare : manifestToYaml (.prim (.string "nginx:1.25")) = "nginx:1.25" := by native_decide
+theorem yaml_multidot_bare : manifestToYaml (.prim (.string "1.2.3.4")) = "1.2.3.4" := by native_decide
+theorem yaml_dotted_octets_bare : manifestToYaml (.prim (.string "0.0.0")) = "0.0.0" := by native_decide
+-- non-numbers that share a numeric prefix but don't parse as a scalar number: bare.
+theorem yaml_inf_word_bare : manifestToYaml (.prim (.string "inf")) = "inf" := by native_decide
+theorem yaml_plus_inf_bare : manifestToYaml (.prim (.string "+inf")) = "+inf" := by native_decide
+theorem yaml_bad_exp_bare : manifestToYaml (.prim (.string "1e")) = "1e" := by native_decide
+theorem yaml_bad_hex_bare : manifestToYaml (.prim (.string "0xZZ")) = "0xZZ" := by native_decide
+theorem yaml_merge_token_bare : manifestToYaml (.prim (.string "<<")) = "<<" := by native_decide
+
+-- Genuine scalar numbers stay quoted (else they'd round-trip as int/float, not string).
+theorem yaml_int_str_quoted : manifestToYaml (.prim (.string "8080")) = "\"8080\"" := by native_decide
+theorem yaml_float_str_quoted : manifestToYaml (.prim (.string "3.14")) = "\"3.14\"" := by native_decide
+theorem yaml_onezero_quoted : manifestToYaml (.prim (.string "1.0")) = "\"1.0\"" := by native_decide
+theorem yaml_exp_quoted : manifestToYaml (.prim (.string "1e3")) = "\"1e3\"" := by native_decide
+theorem yaml_neg_int_quoted : manifestToYaml (.prim (.string "-42")) = "\"-42\"" := by native_decide
+theorem yaml_trailing_dot_quoted : manifestToYaml (.prim (.string "5.")) = "\"5.\"" := by native_decide
+theorem yaml_underscore_int_quoted : manifestToYaml (.prim (.string "1_000")) = "\"1_000\"" := by native_decide
+theorem yaml_leading_zeros_quoted : manifestToYaml (.prim (.string "007")) = "\"007\"" := by native_decide
+theorem yaml_hex_quoted : manifestToYaml (.prim (.string "0x1f")) = "\"0x1f\"" := by native_decide
+theorem yaml_hex_upper_quoted : manifestToYaml (.prim (.string "0XFF")) = "\"0XFF\"" := by native_decide
+theorem yaml_hex_lower_body_quoted : manifestToYaml (.prim (.string "0xff")) = "\"0xff\"" := by native_decide
+theorem yaml_octal_new_quoted : manifestToYaml (.prim (.string "0o7")) = "\"0o7\"" := by native_decide
+
+-- YAML 1.1 special floats / null tokens stay quoted.
+theorem yaml_dot_inf_quoted : manifestToYaml (.prim (.string ".inf")) = "\".inf\"" := by native_decide
+theorem yaml_neg_dot_inf_quoted : manifestToYaml (.prim (.string "-.inf")) = "\"-.inf\"" := by native_decide
+theorem yaml_dot_nan_quoted : manifestToYaml (.prim (.string ".nan")) = "\".nan\"" := by native_decide
+theorem yaml_tilde_null_quoted : manifestToYaml (.prim (.string "~")) = "\"~\"" := by native_decide
+theorem yaml_null_word_quoted : manifestToYaml (.prim (.string "null")) = "\"null\"" := by native_decide
+
+-- YAML 1.1 old bools stay quoted (`yes/no/on/off`, single `y/n`).
+theorem yaml_yes_quoted : manifestToYaml (.prim (.string "yes")) = "\"yes\"" := by native_decide
+theorem yaml_no_quoted : manifestToYaml (.prim (.string "no")) = "\"no\"" := by native_decide
+theorem yaml_on_quoted : manifestToYaml (.prim (.string "on")) = "\"on\"" := by native_decide
+theorem yaml_off_quoted : manifestToYaml (.prim (.string "off")) = "\"off\"" := by native_decide
+theorem yaml_single_n_quoted : manifestToYaml (.prim (.string "n")) = "\"n\"" := by native_decide
+
+-- Dates/times/base60 stay quoted (cue's conservative date regex; not range-checked).
+theorem yaml_date_quoted : manifestToYaml (.prim (.string "2024-01-01")) = "\"2024-01-01\"" := by native_decide
+theorem yaml_bad_date_quoted : manifestToYaml (.prim (.string "2024-13-40")) = "\"2024-13-40\"" := by native_decide
+theorem yaml_base60_quoted : manifestToYaml (.prim (.string "1:30")) = "\"1:30\"" := by native_decide
+theorem yaml_base60_long_quoted : manifestToYaml (.prim (.string "1:30:45")) = "\"1:30:45\"" := by native_decide
+
 -- Empty containers.
 theorem yaml_empty_struct : manifestToYaml (.struct []) = "{}" := by native_decide
 theorem yaml_empty_list : manifestToYaml (.list []) = "[]" := by native_decide

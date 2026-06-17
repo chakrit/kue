@@ -5567,3 +5567,60 @@ incomplete→exit1, stdin — all match. **Real prod9 (read-only):**
 `hatari/infra/apps/common.cue` `kue export -e common` and `-e common.domains` JSON-match
 `cue` exactly. Pre-existing (non-`-e`) YAML divergence noted: kue quotes dotted-numeric
 strings (`"34.142.159.249"`) where cue emits bare; JSON matches.
+
+## Completed Slice: YAML Scalar Over-Quoting Fix (cue bare/quoted parity)
+
+The `-e` slice's noted divergence: kue's YAML serializer quoted dotted-numeric strings
+(IP `34.142.159.249`, semver `1.2.3`, CIDR `10.0.0.0/8`, image tag `nginx:1.25`) where
+`cue export --out yaml` emits them **bare**. JSON matched; only YAML over-quoted. For k8s
+YAML (full of IPs/versions/CIDRs) byte-parity matters. Diagnosed oracle-first against
+`cue` v0.16.1 + the actual Go sources (read-only mod cache).
+
+### Root cause and the real rule
+
+cue's YAML quoting is the **union of two layers**, both reproduced exactly:
+
+1. **cue `internal/encoding/yaml.shouldQuote`** — force double-quote when the string is in
+   a fixed YAML-1.1 legacy-token set (`y/Y n/N t/T f/F yes no on off true false null ~`
+   + `.inf/.nan` case variants — the *enumerated* set, NOT general case-insensitivity) OR
+   matches a conservative date/time/base60/`0x`-hex regex
+   `^[-+0-9:. \t]+([-:]|[tT])[-+0-9:. \t]+[zZ]?$ | ^0x[a-fA-F0-9]+$`. This regex quotes
+   loosely-shaped tokens go-yaml's resolver would not (`2024-13-40` quotes despite being
+   an invalid date — the regex is not range-checked).
+2. **go-yaml v3 emitter `stringv`** — when cue leaves the style unset, the emitter still
+   quotes anything its resolver reads back as a non-string: a real int/float
+   (decimal/`0b`/`0o`/`0x`, `_`-separated), the bool/null token map, YAML-1.1 old bools
+   (`yes/no/on/off`), or base60 floats.
+
+A **multi-segment token** (`34.142.159.249`, `1.2.3`, `10.0.0.0/8`, `nginx:1.25`,
+`1.2.3.4`) is none of these — not a number (multiple dots/colons fail every parse), not a
+date (a `/` or letter breaks the all-`[-+0-9:. \t]` body), not a token — so it stays bare.
+The old `yamlLooksNumeric` accepted any digit/dot/underscore run and wrongly quoted them.
+
+### Changes (`Kue/Yaml.lean`, serializer-only)
+
+Replaced `yamlLooksNumeric` + the lowercase-reserved-word path with a total
+`wouldParseAsNonString : String → Bool` = the precise union: `yamlReservedWords` (token
+set, exact case variants) ∨ `yamlCueShouldQuote` (`yamlCueDateLike` hand-NFA for the date
+regex + `yamlCueHexLike`) ∨ `yamlStyleFloat` (hand-NFA for go-yaml's float regex, on the
+underscore-stripped form — subsumes decimal/legacy-octal ints since any `[0-9]+` parses as
+a float) ∨ `yamlRadixInt` (`0x`/`0o`/`0b`) ∨ `yamlBase60Float` (go-yaml `isBase60Float`).
+Removed now-dead `yamlAsciiLower`/`yamlLowerString`. Single/double-quote selection for
+genuinely-unsafe cases (`yamlNeedsSingleQuote`) unchanged. JSON (`Json.lean`), internal
+`formatValue`, and non-YAML paths untouched. No `partial`; every branch is structural.
+
+### Tests / fixtures
+
+38 new `YamlTests.lean` theorems (`native_decide`): infra tokens now bare (IP, semver,
+CIDR, image, multi-dot, `<<`, `inf`, `+inf`, `1e`, `0xZZ`); genuine numbers/bools/nulls/
+dates/base60 still quoted. New `testdata/export/infra.{cue,yaml,json}` (IP/semver/CIDR/
+image bare; `8080`/`true`/date quoted), oracle-matched. No existing `.expected`/theorem
+needed flipping — the over-quoting was simply uncovered. A standalone 42-case Lean battery
+checked `yamlScalarString` against the `cue` oracle: 0 failures.
+
+### Verify
+
+`lake build` (84 jobs) green; `scripts/check-fixtures.sh` → `fixture pairs ok` (net-new
+`infra` pair); `shellcheck scripts/check-fixtures.sh` clean. **Real prod9 (read-only):**
+whole-file `kue export --out yaml hatari/infra/apps/common.cue` is now **byte-identical**
+to `cue` v0.16.1 (IPs bare) — `diff` empty.

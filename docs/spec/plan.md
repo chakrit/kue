@@ -427,6 +427,15 @@ demonstrates real-file viability.
    `Runtime.selectExprPath` (reuses `findEvalField`, resolves between segments) before
    manifest. Field-path scope; indices / repeated-`-e` / arbitrary expressions deferred.
    Real-file proof: `hatari/infra/apps/common.cue` `-e common` exports cue-identically (JSON).
+1b. **[DONE 2026-06-17] YAML scalar over-quoting fixed.** The `-e` slice surfaced kue
+   quoting dotted-numeric strings (IP `34.142.159.249`, semver `1.2.3`, CIDR, image tag)
+   that `cue export --out yaml` emits bare. Replaced the over-broad `yamlLooksNumeric` with
+   a total `wouldParseAsNonString` = the exact **union** of cue's `shouldQuote`
+   (legacy-token set + date/base60/`0x` regex) and go-yaml v3's emitter (int/float/base60
+   resolve). Multi-segment tokens now bare; genuine numbers/bools/nulls/dates still quoted.
+   42-case oracle battery + 38 new `YamlTests.lean` theorems; `testdata/export/infra.*`
+   fixture. **Whole-file `--out yaml` of `hatari/infra/apps/common.cue` is now
+   byte-identical to `cue` v0.16.1.** JSON / internal `formatValue` untouched.
 2. **[MEDIUM — `Kue/` source-dir organization, chakrit-flagged] tests-out reorg (2c).**
    Move the ~14 `*Tests.lean` + `FixturePorts.lean` into `Kue/Tests/` via a `Kue/Tests.lean`
    aggregator; split the oversized ones (`FixturePorts` 2314 / `FixtureTests` 1033 /

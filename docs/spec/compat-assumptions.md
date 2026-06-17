@@ -186,9 +186,9 @@ those forms.
   arbitrary CUE expressions as the selector (`cue` evaluates `-e` in the root scope, so
   e.g. `-e 'a.b & {x:1}'` works there). A malformed path (empty segment from a
   leading/trailing/doubled dot) is a clean `invalid -e expression` error, not a crash.
-  **CUE divergence noted (pre-existing, not `-e`):** kue's YAML serializer quotes a string
-  that looks dotted-numeric (`"34.142.159.249"`) where `cue` emits it bare; JSON matches
-  exactly. Same on a whole-file `--out yaml` — independent of the selector.
+  **YAML over-quoting now fixed (see YAML scalar quoting below).** A whole-file `--out
+  yaml` of `hatari/infra/apps/common.cue` is byte-identical to `cue` v0.16.1 (IPs now
+  bare).
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.
@@ -504,11 +504,19 @@ in "Parser and CLI scope".
   sequences (a compound item's first line rides the `- ` introducer; nested lists →
   `- - 1`); `|-` block scalars for strings containing `\n` (chomped, indented under the
   key); empty `{}` / `[]` inline; bytes → base64 scalar. **Scalar quoting** reproduces
-  cue's decision exactly for these cases: **bare** when safe; **double-quoted** when the
-  plain form would be resolver-ambiguous — the YAML 1.1 bool/null tokens
-  (`y n t f yes no on off true false null ~`, case-insensitive) and numeric-looking
-  strings (decimal int/float with `_`/sign/exponent, `0b`/`0o`/`0x`, `.inf`/`.nan`);
-  **single-quoted** when structurally unsafe but not ambiguous — a leading indicator
+  cue's decision exactly, as the **union of the two layers cue actually composes**
+  (`wouldParseAsNonString`, oracle-verified against `cue` v0.16.1): **double-quoted** iff
+  the bare form would read back as something other than a string — (1) cue's
+  `internal/encoding/yaml.shouldQuote`: a fixed YAML-1.1 legacy-token set
+  (`y/Y n/N t/T f/F yes no on off true false null ~ .inf .nan` and case variants — note
+  this is the *enumerated* set, NOT general case-insensitivity: `tRuE` is a string) plus a
+  conservative date/time/base60/`0x`-hex regex (`2024-13-40` quotes by regex even though
+  it is not a valid date); **or** (2) go-yaml v3's emitter resolving it to a real
+  int/float (decimal/`0b`/`0o`/`0x`, `_`-separated) or base60 float. The key consequence:
+  a **multi-segment token is none of these** — `34.142.159.249`, `1.2.3`, `10.0.0.0/8`,
+  `nginx:1.25`, `1.2.3.4` are not numbers, dates, or tokens, so they stay **bare**,
+  matching cue (the old `yamlLooksNumeric` over-quoted them). **Single-quoted** when
+  structurally unsafe but not ambiguous — a leading indicator
   (`,[]{}#&*!|>'"%@`-backtick), a leading `-`/`?`/`:` followed by a space, a `: `
   (colon-space) or ` #` (space-hash) anywhere, a trailing `:`, or leading/trailing/all
   space. Keys follow the same string rule (so a `f`/`n` key is quoted). A top-level

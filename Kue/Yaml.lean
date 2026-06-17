@@ -14,51 +14,208 @@ scope — see `docs/spec/compat-assumptions.md`. -/
 /-- Whether `c` is an ASCII decimal digit. -/
 def yamlIsDigit (c : Char) : Bool := '0' ≤ c && c ≤ '9'
 
-/-- Lowercase a single ASCII letter; pass everything else through. Used only for
-    the case-insensitive YAML 1.1 null/bool token test. -/
-def yamlAsciiLower (c : Char) : Char :=
-  if 'A' ≤ c && c ≤ 'Z' then Char.ofNat (c.toNat + 32) else c
+/-! ## Would a bare scalar parse as a non-string?
 
-def yamlLowerString (s : String) : String :=
-  String.ofList (s.toList.map yamlAsciiLower)
+The decision "must this string be quoted to survive as a string" is the **union of two
+layers** `cue export --out yaml` actually composes, both verified against `cue` v0.16.1:
 
-/-- The case-insensitive YAML 1.1 plain scalars that resolve to a bool or null and so
-    must be quoted to stay a string. Matches the tokens go-yaml's resolver recognizes
-    (`y/n/yes/no/true/false/on/off` for bool, `null/~` for null). -/
+1. **cue's `shouldQuote`** (`internal/encoding/yaml/encode.go`): forces double-quote when
+   the string is in a fixed YAML-1.1 legacy-token set, or matches a conservative
+   date/time/base60/`0x`-hex regex. This catches loosely-shaped tokens go-yaml's resolver
+   would *not* — e.g. `2024-13-40` (an out-of-range "date") is quoted purely by the regex.
+2. **go-yaml v3's emitter** (`encode.go` `stringv`): when cue leaves the style unset, the
+   emitter still quotes anything its resolver reads back as a non-string — a real
+   int/float (decimal, `0b`/`0o`/`0x`), the bool/null token map, or YAML-1.1 old bools
+   (`yes/no/on/off`) and base60 floats.
+
+A multi-segment token (`34.142.159.249`, `1.2.3`, `10.0.0.0/8`, `nginx:1.25`) is none of
+these — not a number, not a date (no all-`[-+0-9:. \t]` body with a separator), not a
+token — so it stays **bare**, matching `cue`. This replaces the old over-broad
+"any digit-dot-underscore run is numeric" check, which wrongly quoted IPs/versions/CIDRs. -/
+
+/-- YAML-1.1 plain scalars that resolve to a bool or null (go-yaml's `resolveMap`) or that
+    cue's `legacyStrings` force-quotes for 1.1 backward-compat, **plus** go-yaml's
+    `isOldBool` set. Union of all three: any of these, bare, would read back as something
+    other than the string — so quote. `""` is here (resolves to null) and as the empty
+    structurally-unsafe case. -/
 def yamlReservedWords : List String :=
-  ["y", "n", "yes", "no", "true", "false", "on", "off", "t", "f", "null", "~", ""]
+  [ -- bool / null token map (with go-yaml's case variants)
+    "true", "True", "TRUE", "false", "False", "FALSE",
+    "", "~", "null", "Null", "NULL",
+    ".nan", ".NaN", ".NAN", ".Nan",
+    ".inf", ".Inf", ".INF", "+.inf", "+.Inf", "+.INF", "-.inf", "-.Inf", "-.INF",
+    -- YAML 1.1 old bools (go-yaml `isOldBool` + cue `legacyStrings`)
+    "y", "Y", "yes", "Yes", "YES", "n", "N", "no", "No", "NO",
+    "on", "On", "ON", "off", "Off", "OFF",
+    -- cue `legacyStrings` extras
+    "t", "T", "f", "F" ]
 
-/-- Whether the whole string parses as a YAML 1.1 number that go-yaml would resolve to
-    int/float — so the plain form would not round-trip as a string. Covers decimal
-    ints (with `_` separators and sign), binary/octal/hex literals, and floats
-    (`.`/`e` forms, `.inf`/`.nan`). Deliberately broad: a false positive only adds
-    quotes, never corrupts. -/
-def yamlLooksNumeric (s : String) : Bool := Id.run do
-  if s.isEmpty then return false
+/-- The cue-quote character class `[-+0-9:. \t]`: the only chars cue's date/time/base60
+    regex admits outside the `t/T` separator and trailing `z/Z`. -/
+def yamlCueDateChar (c : Char) : Bool :=
+  yamlIsDigit c || c == '-' || c == '+' || c == ':' || c == '.' || c == ' ' || c == '\t'
+
+/-- A separator atom for the cue date/time regex `([-:]|[tT])`. -/
+def yamlCueDateSep (c : Char) : Bool :=
+  c == '-' || c == ':' || c == 't' || c == 'T'
+
+/-- cue's `useQuote`, branch 1: `^[-+0-9:. \t]+([-:]|[tT])[-+0-9:. \t]+[zZ]?$`. After an
+    optional trailing `z`/`Z`, the body must split at some separator char into a nonempty
+    all-date-char prefix and a nonempty all-date-char suffix. Trying every index as the
+    separator mirrors the regex engine finding any valid split. -/
+def yamlCueDateLike (s : String) : Bool := Id.run do
+  let full := s.toList
+  let body := match full.reverse with
+    | 'z' :: rest => rest.reverse
+    | 'Z' :: rest => rest.reverse
+    | _ => full
+  -- need at least sep plus one char on each side
+  if body.length < 3 then return false
+  let n := body.length
+  for i in [1 : n - 1] do
+    match body[i]? with
+    | some c =>
+        if yamlCueDateSep c then
+          let pre := body.take i
+          let post := body.drop (i + 1)
+          if pre.all yamlCueDateChar && post.all yamlCueDateChar then
+            return true
+    | none => pure ()
+  return false
+
+/-- cue's `useQuote`, branch 2: `^0x[a-fA-F0-9]+$` (lowercase `0x` only). -/
+def yamlCueHexLike (s : String) : Bool :=
   let cs := s.toList
-  -- strip a leading sign
-  let body := match cs with
+  match cs with
+  | '0' :: 'x' :: rest =>
+      !rest.isEmpty && rest.all fun c =>
+        yamlIsDigit c || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F')
+  | _ => false
+
+/-- cue's `shouldQuote` regex layer (`useQuote`): conservative date/time/base60-or-`0x`. -/
+def yamlCueShouldQuote (s : String) : Bool :=
+  yamlCueDateLike s || yamlCueHexLike s
+
+/-- Drop `_` digit separators (go-yaml strips these before its int/float parse). -/
+def yamlStripUnderscore (s : String) : String :=
+  String.ofList (s.toList.filter (· != '_'))
+
+/-- go-yaml's `yamlStyleFloat`: `^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$`.
+    A hand NFA: optional sign, then a mantissa (`.` digits, or digits with optional `.`
+    and fraction), then an optional `e`/`E` exponent with optional sign and ≥1 digit. -/
+def yamlStyleFloat (s : String) : Bool := Id.run do
+  let cs0 := s.toList
+  let cs := match cs0 with
     | '+' :: rest => rest
     | '-' :: rest => rest
-    | _ => cs
-  if body.isEmpty then return false
-  let lower := yamlLowerString (String.ofList body)
-  -- special floats
-  if lower == ".inf" || lower == ".nan" then return true
-  -- binary/octal/hex literals
-  if String.ofList body |>.startsWith "0b" then return true
-  if String.ofList body |>.startsWith "0o" then return true
-  if String.ofList body |>.startsWith "0x" then return true
-  -- decimal int or float: digits, with optional single '.', '_' separators, and an
-  -- optional 'e'/'E' exponent. Require at least one digit, and only the allowed chars.
-  let mut sawDigit := false
-  for c in body do
-    if yamlIsDigit c then sawDigit := true
-    else if c == '.' || c == '_' || c == 'e' || c == 'E' || c == '+' || c == '-' then
-      pure ()
-    else
-      return false
-  return sawDigit
+    | _ => cs0
+  -- mantissa
+  let afterMantissa : Option (List Char) :=
+    match cs with
+    | '.' :: rest =>
+        let frac := rest.takeWhile yamlIsDigit
+        if frac.isEmpty then none else some (rest.drop frac.length)
+    | _ =>
+        let intPart := cs.takeWhile yamlIsDigit
+        if intPart.isEmpty then none
+        else
+          let afterInt := cs.drop intPart.length
+          match afterInt with
+          | '.' :: rest =>
+              let frac := rest.takeWhile yamlIsDigit
+              some (rest.drop frac.length)
+          | _ => some afterInt
+  match afterMantissa with
+  | none => return false
+  | some rest =>
+    -- optional exponent
+    match rest with
+    | [] => return true
+    | e :: erest =>
+      if e != 'e' && e != 'E' then return false
+      let esigned := match erest with
+        | '+' :: r => r
+        | '-' :: r => r
+        | _ => erest
+      let edigits := esigned.takeWhile yamlIsDigit
+      return !edigits.isEmpty && (esigned.drop edigits.length).isEmpty
+
+/-- go-yaml radix-literal ints: `^[-+]?0[xX][0-9a-fA-F]+$`, `…0[oO][0-7]+$`,
+    `…0[bB][01]+$`. (Decimal and legacy-octal-shaped digit runs are already covered by
+    `yamlStyleFloat`, since any `[0-9]+` parses as a float for go-yaml.) -/
+def yamlRadixInt (s : String) : Bool :=
+  let cs0 := s.toList
+  let cs := match cs0 with
+    | '+' :: rest => rest
+    | '-' :: rest => rest
+    | _ => cs0
+  match cs with
+  | '0' :: r :: rest =>
+      let hexDigit := fun c => yamlIsDigit c || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F')
+      let octDigit := fun c => '0' ≤ c && c ≤ '7'
+      let binDigit := fun c => c == '0' || c == '1'
+      if r == 'x' || r == 'X' then !rest.isEmpty && rest.all hexDigit
+      else if r == 'o' || r == 'O' then !rest.isEmpty && rest.all octDigit
+      else if r == 'b' || r == 'B' then !rest.isEmpty && rest.all binDigit
+      else false
+  | _ => false
+
+/-- go-yaml's `isBase60Float`: `^[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+(\.[0-9_]*)?$`, gated on a
+    leading sign/digit and a `:` present. Sexagesimal (`1:30`, `+1:30:45.5`). -/
+def yamlBase60Float (s : String) : Bool := Id.run do
+  let cs0 := s.toList
+  if !(s.toList.any (· == ':')) then return false
+  let cs := match cs0 with
+    | '+' :: rest => rest
+    | '-' :: rest => rest
+    | _ => cs0
+  -- leading [0-9][0-9_]*
+  match cs with
+  | d :: _ =>
+    if !yamlIsDigit d then return false
+  | [] => return false
+  let head := cs.takeWhile (fun c => yamlIsDigit c || c == '_')
+  let mut rest := cs.drop head.length
+  -- one-or-more (:[0-5]?[0-9])
+  let mut groups := 0
+  let isLowDigit := fun c => '0' ≤ c && c ≤ '5'
+  while (rest.head? == some ':') do
+    let afterColon := rest.drop 1
+    match afterColon with
+    | a :: b :: tl =>
+        if isLowDigit a && yamlIsDigit b then
+          groups := groups + 1; rest := tl
+        else if yamlIsDigit a then
+          groups := groups + 1; rest := b :: tl
+        else
+          return false
+    | [a] =>
+        if yamlIsDigit a then groups := groups + 1; rest := []
+        else return false
+    | [] => return false
+  if groups == 0 then return false
+  -- optional (.[0-9_]*)
+  match rest with
+  | '.' :: frac =>
+      if frac.all (fun c => yamlIsDigit c || c == '_') then return true else return false
+  | [] => return true
+  | _ => return false
+
+/-- Whether the bare form of `s` would parse as a YAML scalar **other than a plain
+    string** — i.e. a number, bool, null, timestamp, base60 float, or YAML-1.1 legacy
+    token — and so must be quoted to preserve its string-ness. The exact union of cue's
+    `shouldQuote` and go-yaml v3's emitter (see the doc-block above). Total: every branch
+    is a structural check, no parsing partiality. A multi-dot/segment token (IP, semver,
+    CIDR, `name:tag`) satisfies none and stays bare, matching `cue`. -/
+def wouldParseAsNonString (s : String) : Bool :=
+  if s.isEmpty then true  -- resolves to null (`""` → `!!null`)
+  else
+    let plain := yamlStripUnderscore s
+    yamlReservedWords.contains s          -- bool/null tokens + YAML-1.1 legacy bools
+      || yamlCueShouldQuote s             -- cue date/time/base60/0x regex
+      || yamlStyleFloat plain             -- decimal int / float (subsumes legacy octal)
+      || yamlRadixInt plain               -- 0x / 0o / 0b literals
+      || yamlBase60Float s                -- go-yaml isBase60Float (unstripped, has `:`)
 
 /-- A leading character that makes a plain scalar structurally ambiguous in YAML and
     so forces quoting (the YAML indicator set, minus `-`/`?`/`:` which are only
@@ -117,7 +274,7 @@ def yamlSingleQuoted (s : String) : String :=
 def yamlScalarString (s : String) : String :=
   if yamlHasControl s then
     yamlDoubleQuoted s
-  else if yamlReservedWords.contains (yamlLowerString s) || yamlLooksNumeric s then
+  else if wouldParseAsNonString s then
     yamlDoubleQuoted s
   else if yamlNeedsSingleQuote s then
     yamlSingleQuoted s

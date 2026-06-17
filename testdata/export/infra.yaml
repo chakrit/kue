@@ -1,0 +1,8 @@
+host: 34.142.159.249
+version: 1.2.3
+cidr: 10.0.0.0/8
+image: nginx:1.25
+replicas: 3
+port: "8080"
+enabled: "true"
+release: "2024-01-01"
