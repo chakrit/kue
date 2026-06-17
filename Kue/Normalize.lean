@@ -49,7 +49,7 @@ mutual
     | 0, field => field
     | fuel + 1, field =>
         if FieldClass.isDefinition (Field.fieldClass field) then
-          (Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field))
+          ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
         else
           field
 

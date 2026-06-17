@@ -4,27 +4,27 @@ import Kue.Lattice
 namespace Kue
 
 theorem close_value_marks_struct_closed :
-    closeValue (.struct [("a", .regular, .kind .int)] true)
-      = .struct [("a", .regular, .kind .int)] false := by
+    closeValue (.struct [⟨"a", .regular, .kind .int⟩] true)
+      = .struct [⟨"a", .regular, .kind .int⟩] false := by
   rfl
 
 theorem close_value_rejects_extra_field_after_meet :
     meet
-      (closeValue (.struct [("a", .regular, .kind .int)] true))
-      (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true)
+      (closeValue (.struct [⟨"a", .regular, .kind .int⟩] true))
+      (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] true)
       =
         .struct
           [
-            ("a", .regular, .prim (.int 1)),
-            ("b", .regular, .bottomWith [.fieldNotAllowed "b"])
+            ⟨"a", .regular, .prim (.int 1)⟩,
+            ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"]⟩
           ]
           false := by
   rfl
 
 theorem close_value_is_shallow_for_nested_regular_structs :
     closeValue
-      (.struct [("a", .regular, .struct [("b", .regular, .kind .int)] true)] true)
-      = .struct [("a", .regular, .struct [("b", .regular, .kind .int)] true)] false := by
+      (.struct [⟨"a", .regular, .struct [⟨"b", .regular, .kind .int⟩] true⟩] true)
+      = .struct [⟨"a", .regular, .struct [⟨"b", .regular, .kind .int⟩] true⟩] false := by
   rfl
 
 theorem len_value_counts_string_utf8_bytes :
@@ -40,10 +40,10 @@ theorem len_value_counts_regular_struct_fields_only :
     lenValue
       (.struct
         [
-          ("a", .regular, .prim (.int 1)),
-          ("b", .optional, .prim (.int 2)),
-          ("_c", .hidden, .prim (.int 3)),
-          ("#D", .definition, .prim (.int 4))
+          ⟨"a", .regular, .prim (.int 1)⟩,
+          ⟨"b", .optional, .prim (.int 2)⟩,
+          ⟨"_c", .hidden, .prim (.int 3)⟩,
+          ⟨"#D", .definition, .prim (.int 4)⟩
         ]
         true)
       = .prim (.int 1) := by
@@ -697,10 +697,10 @@ theorem json_marshal_nested_preserves_key_order :
     (evalBuiltinCall "json.Marshal"
       [.struct
         [
-          ("b", .regular, .prim (.int 2)),
-          ("a", .regular, .prim (.int 1)),
-          ("c", .regular,
-            .struct [("z", .regular, .prim (.int 1)), ("y", .regular, .prim (.int 2))] true)
+          ⟨"b", .regular, .prim (.int 2)⟩,
+          ⟨"a", .regular, .prim (.int 1)⟩,
+          ⟨"c", .regular,
+            .struct [⟨"z", .regular, .prim (.int 1)⟩, ⟨"y", .regular, .prim (.int 2)⟩] true⟩
         ]
         true]
       == .prim (.string "{\"b\":2,\"a\":1,\"c\":{\"z\":1,\"y\":2}}")) = true := by
@@ -718,12 +718,12 @@ theorem json_marshal_empty_struct_and_list :
 
 theorem json_marshal_escapes_quote_backslash_control_not_html :
     (evalBuiltinCall "json.Marshal"
-      [.struct [("html", .regular, .prim (.string "<a>&\"b\\c\n\t"))] true]
+      [.struct [⟨"html", .regular, .prim (.string "<a>&\"b\\c\n\t")⟩] true]
       == .prim (.string "{\"html\":\"<a>&\\\"b\\\\c\\n\\t\"}")) = true := by
   native_decide
 
 theorem json_marshal_incomplete_is_bottom :
-    (evalBuiltinCall "json.Marshal" [.struct [("a", .regular, .kind .int)] true]
+    (evalBuiltinCall "json.Marshal" [.struct [⟨"a", .regular, .kind .int⟩] true]
       == .bottom) = true := by
   native_decide
 

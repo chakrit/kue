@@ -5731,3 +5731,49 @@ Match Go's `os.UserCacheDir` (what `cue` uses): `$CUE_CACHE_DIR` wins; else
 `lake build` → 86 jobs, success. `scripts/check-fixtures.sh` → `fixture pairs ok` (module
 fixtures override `CUE_CACHE_DIR`, so unaffected). `shellcheck scripts/check-fixtures.sh`
 clean.
+
+---
+
+## Completed Slice: `Field` tuple → `structure` (consolidation 3e)
+
+Goal: replace the positional triple `abbrev Field := String × FieldClass × Value` with a
+named `structure` so projections are explicit and misindexing (`.2.1`) is impossible.
+Type-system-first tightening per the repo philosophy; purely representational, zero
+behavior change.
+
+### Intended behavior
+
+No behavior change. `Field` becomes `structure Field where label : String; fieldClass :
+FieldClass; value : Value`, defined **mutually** with `Value`. The mutual block is forced:
+`Value`'s struct-bearing constructors (`struct`/`structTail`/`structPattern`/
+`structPatterns`/`embeddedList`/`structComp`) carry `List Field`, and the codebase already
+typed dozens of signatures as `List Field`; once `Field` is a structure, `List Field` is no
+longer defeq to `List (String × FieldClass × Value)`, so `Field` must be visible to
+`Value`. Derived `Repr, BEq` (the only instances the tuple gave `Value`/`Field`) are
+preserved via `deriving instance Repr, BEq for Value, Field` after the mutual block, so
+`Value`'s `==`/`Repr` stay byte-identical — every `native_decide`/`rfl` theorem and every
+fixture passes UNCHANGED, with **no** `rfl`→`native_decide` switch required.
+
+### Changes
+
+- **`Value.lean`** — `Value` wrapped in a `mutual` block with a new `structure Field`; the
+  six struct-bearing constructors switched `List (String × FieldClass × Value)` → `List
+  Field`; `deriving instance Repr, BEq for Value, Field`. The hand-written accessors
+  `Field.label`/`fieldClass`/`value` are now the structure's auto-generated projections
+  (so `Field.label field` still resolves); `Field.ignoresClosedness` and `Field.regular`
+  rewritten against the projections / record syntax.
+- **Engine + serializers** (`Eval`/`Parse`/`Resolve`/`Normalize`/`Lattice`/`Module`) —
+  field tuple literals `(l, c, v)` → `⟨l, c, v⟩`; `Module`'s positional reads
+  (`f.fst`/`f.snd.snd`) → `f.label`/`f.value`; two local `List (String × FieldClass ×
+  Value)` signatures in `Lattice` → `List Field`. Non-Field tuples (`Mark × Value`
+  disjunction alternatives, `Nat × List Field` frames, `Value × Value` pattern pairs,
+  manifest `String × Value` output) left untouched.
+- **Tests + examples** (`Examples`, `Tests`, 14 `Tests/*`) — ~60 struct-field tuple
+  literals `("a", .regular, …)` → `⟨"a", .regular, …⟩` (a balanced-paren rewriter handled
+  the multi-line and `.field _ _ _`-classed forms). No `.expected` fixture changed.
+
+### Verify
+
+`lake build` → 86 jobs, success (all theorems elaborate + pass; derived `BEq`/`Repr`
+byte-identical confirmed by the suite). `scripts/check-fixtures.sh` → `fixture pairs ok`,
+unchanged. `shellcheck scripts/check-fixtures.sh` clean.

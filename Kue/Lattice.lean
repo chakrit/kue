@@ -509,7 +509,7 @@ def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
       some (.field (ld || rd) (lh || rh) (lo.meet ro))
 
 def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : Field :=
-  (label, fieldClass, value)
+  ⟨label, fieldClass, value⟩
 
 def mergeFieldValueWith (meetValue : Value -> Value -> Value) (left right : Field) : Option Field :=
   match mergeFieldClass (Field.fieldClass left) (Field.fieldClass right) with
@@ -793,12 +793,12 @@ def meetListWith (meetValue : Value -> Value -> Value) : List Value -> List Valu
 
 /-- Does the struct field list carry a member that produces manifest output
     (a `regular`/`required` field)? Such a field makes a list embedding conflict. -/
-def structHasOutputField (fields : List (String × FieldClass × Value)) : Bool :=
+def structHasOutputField (fields : List Field) : Bool :=
   fields.any (fun f => FieldClass.producesOutput (Field.fieldClass f))
 
 /-- The non-output (hidden/definition/optional/let) fields — those that survive as
     selectable declarations when a struct becomes its embedded list. -/
-def declFields (fields : List (String × FieldClass × Value)) : List (String × FieldClass × Value) :=
+def declFields (fields : List Field) : List Field :=
   fields.filter (fun f => !FieldClass.producesOutput (Field.fieldClass f))
 
 /-- Normalize a list-shaped value to `(items, optional-tail)`: `none` for the

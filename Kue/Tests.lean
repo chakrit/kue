@@ -77,15 +77,15 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
     meet
       (.disj
         [
-          (.regular, .struct [("kind", .regular, .prim (.string "web"))] true),
-          (.regular, .struct [("kind", .regular, .prim (.string "db"))] true)
+          (.regular, .struct [⟨"kind", .regular, .prim (.string "web")⟩] true),
+          (.regular, .struct [⟨"kind", .regular, .prim (.string "db")⟩] true)
         ])
       (.struct
-        [("kind", .regular, .prim (.string "web")), ("port", .regular, .prim (.int 80))]
+        [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
         true)
       =
         .struct
-          [("kind", .regular, .prim (.string "web")), ("port", .regular, .prim (.int 80))]
+          [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
           true := by
   rfl
 

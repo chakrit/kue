@@ -15,7 +15,7 @@ theorem classify_prim_defined :
     classifyDefinedness (.prim (.int 1)) = .defined := by native_decide
 
 theorem classify_struct_defined :
-    classifyDefinedness (.struct [("x", .regular, .prim (.int 1))] true) = .defined := by
+    classifyDefinedness (.struct [⟨"x", .regular, .prim (.int 1)⟩] true) = .defined := by
   native_decide
 
 theorem classify_bottom_error :
@@ -30,14 +30,14 @@ theorem classify_selector_incomplete :
 -- A concrete operand: `!= _|_` is true, `== _|_` is false.
 theorem concrete_ne_bottom_true :
     (evalStructRefs (resolveStructRefs
-      (.struct [("b", .regular, .binary .ne (.prim (.int 1)) .bottom)] true))
-      == .struct [("b", .regular, .prim (.bool true))] true) = true := by
+      (.struct [⟨"b", .regular, .binary .ne (.prim (.int 1)) .bottom⟩] true))
+      == .struct [⟨"b", .regular, .prim (.bool true)⟩] true) = true := by
   native_decide
 
 theorem concrete_eq_bottom_false :
     (evalStructRefs (resolveStructRefs
-      (.struct [("b", .regular, .binary .eq (.prim (.int 1)) .bottom)] true))
-      == .struct [("b", .regular, .prim (.bool false))] true) = true := by
+      (.struct [⟨"b", .regular, .binary .eq (.prim (.int 1)) .bottom⟩] true))
+      == .struct [⟨"b", .regular, .prim (.bool false)⟩] true) = true := by
   native_decide
 
 -- An incomplete operand keeps the comparison residual (never resolves to a bool).
@@ -49,13 +49,13 @@ theorem incomplete_ne_bottom_residual :
 theorem guard_fires_on_present :
     (evalStructRefs (resolveStructRefs
       (.structComp
-        [("f", .regular, .prim (.int 3))]
+        [⟨"f", .regular, .prim (.int 3)⟩]
         [.comprehension
           [.guard (.binary .ne (.ref "f") .bottom)]
-          (.struct [("seen", .regular, .ref "f")] true)]
+          (.struct [⟨"seen", .regular, .ref "f"⟩] true)]
         true))
       == .struct
-        [("f", .regular, .prim (.int 3)), ("seen", .regular, .prim (.int 3))] true)
+        [⟨"f", .regular, .prim (.int 3)⟩, ⟨"seen", .regular, .prim (.int 3)⟩] true)
       = true := by
   native_decide
 
@@ -63,13 +63,13 @@ theorem guard_fires_on_present :
 theorem guard_drops_on_absent :
     (evalStructRefs (resolveStructRefs
       (.structComp
-        [("base", .regular, .struct [("f", .regular, .prim (.int 3))] true)]
+        [⟨"base", .regular, .struct [⟨"f", .regular, .prim (.int 3)⟩] true⟩]
         [.comprehension
           [.guard (.binary .ne (.selector (.ref "base") "g") .bottom)]
-          (.struct [("seen", .regular, .prim (.bool true))] true)]
+          (.struct [⟨"seen", .regular, .prim (.bool true)⟩] true)]
         true))
       == .struct
-        [("base", .regular, .struct [("f", .regular, .prim (.int 3))] true)] true)
+        [⟨"base", .regular, .struct [⟨"f", .regular, .prim (.int 3)⟩] true⟩] true)
       = true := by
   native_decide
 

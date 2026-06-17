@@ -47,7 +47,7 @@ def clauseLoopFrame (key : Option String) (value : String) : List (String × Nat
 
 mutual
   def resolveFieldRefsWithFuel (fuel : Nat) (scopes : List (List (String × Nat))) (field : Field) : Field :=
-    (Field.label field, Field.fieldClass field, resolveValueWithFuel fuel scopes (Field.value field))
+    ⟨Field.label field, Field.fieldClass field, resolveValueWithFuel fuel scopes (Field.value field)⟩
 
   def resolveClausesWithFuel
       (fuel : Nat)

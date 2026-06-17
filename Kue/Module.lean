@@ -77,19 +77,19 @@ def depKeyModulePath (key : String) : String :=
     are skipped. Pure — operates on the already-parsed module-file value. -/
 def parseDeps : Value -> List Dep
   | .struct fields _ =>
-      match (fields.find? (fun f => f.fst == "deps")).map (fun f => f.snd.snd) with
+      match (fields.find? (fun f => f.label == "deps")).map (fun f => f.value) with
       | some (Value.struct entries _) =>
           entries.filterMap fun entry =>
-            match versionOf entry.snd.snd with
-            | some version => some { modPath := depKeyModulePath entry.fst, version }
+            match versionOf entry.value with
+            | some version => some { modPath := depKeyModulePath entry.label, version }
             | none => none
       | _ => []
   | _ => []
 where
   versionOf : Value -> Option String
     | .struct fields _ =>
-        (fields.find? (fun f => f.fst == "v")).bind fun f =>
-          match f.snd.snd with
+        (fields.find? (fun f => f.label == "v")).bind fun f =>
+          match f.value with
           | .prim (.string version) => some version
           | _ => none
     | _ => none
@@ -136,9 +136,9 @@ where
     wrapped so the bindings still land in scope. -/
 def bindImports (bindings : List (String × Value)) : Value -> Value
   | .struct fields open_ =>
-      .struct (bindings.map (fun b => (b.fst, FieldClass.hidden, b.snd)) ++ fields) open_
+      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ fields) open_
   | value =>
-      .struct (bindings.map (fun b => (b.fst, FieldClass.hidden, b.snd)) ++ [("", FieldClass.regular, value)]) false
+      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) false
 
 /-- The local name a package binds under: the import alias when present, else the
     package's declared name, else the last path element as a final fallback (a package
@@ -204,8 +204,8 @@ def readModuleInfo (root : System.FilePath) : IO (Except String (String × List 
 where
   moduleFieldValue : Value -> Option String
     | .struct fields _ =>
-        (fields.find? (fun f => f.fst == "module")).bind fun f =>
-          match f.snd.snd with
+        (fields.find? (fun f => f.label == "module")).bind fun f =>
+          match f.value with
           | .prim (.string path) => some path
           | _ => none
     | _ => none

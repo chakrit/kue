@@ -481,7 +481,7 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
       { split with fields := field :: split.fields }
   | .fieldAlias alias field :: rest =>
       let split := splitParsedFields rest
-      { split with fields := field :: (alias, .letBinding, .ref (Field.label field)) :: split.fields }
+      { split with fields := field :: ⟨alias, .letBinding, .ref (Field.label field)⟩ :: split.fields }
   | .pattern labelPattern constraint :: rest =>
       let split := splitParsedFields rest
       { split with patterns := (labelPattern, constraint) :: split.patterns }
@@ -490,7 +490,7 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
       { split with comprehensions := value :: split.comprehensions }
   | .letBinding name value :: rest =>
       let split := splitParsedFields rest
-      { split with fields := (name, .letBinding, value) :: split.fields }
+      { split with fields := ⟨name, .letBinding, value⟩ :: split.fields }
   | .ellipsis tail :: rest =>
       let split := splitParsedFields rest
       { split with tail := some tail }
@@ -638,14 +638,14 @@ def valueAliasHead? (chars : List Char) : Option (String × List Char) :=
     unification. For a non-struct value the alias is inert — a scalar cannot reference its
     own alias and siblings cannot see it, so the value passes through unchanged. -/
 def bindValueAlias (name : String) : Value -> Value
-  | .struct fields open_ => .struct ((name, .letBinding, .thisStruct) :: fields) open_
-  | .structTail fields tail => .structTail ((name, .letBinding, .thisStruct) :: fields) tail
+  | .struct fields open_ => .struct (⟨name, .letBinding, .thisStruct⟩ :: fields) open_
+  | .structTail fields tail => .structTail (⟨name, .letBinding, .thisStruct⟩ :: fields) tail
   | .structPattern fields lp c open_ =>
-      .structPattern ((name, .letBinding, .thisStruct) :: fields) lp c open_
+      .structPattern (⟨name, .letBinding, .thisStruct⟩ :: fields) lp c open_
   | .structPatterns fields ps open_ =>
-      .structPatterns ((name, .letBinding, .thisStruct) :: fields) ps open_
+      .structPatterns (⟨name, .letBinding, .thisStruct⟩ :: fields) ps open_
   | .structComp fields cs open_ =>
-      .structComp ((name, .letBinding, .thisStruct) :: fields) cs open_
+      .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs open_
   | value => value
 
 /-- Three identical delimiter chars (`"""` or `'''`) at the head, else `none`. -/
@@ -1279,7 +1279,7 @@ mutual
     | ':' :: rest =>
         match parseFieldValue rest with
         | .error error => .error error
-        | .ok (value, rest) => parseOk (.field (label, fieldClass, value)) rest
+        | .ok (value, rest) => parseOk (.field ⟨label, fieldClass, value⟩) rest
     | rest => parseError rest "expected ':' after field label"
 
   partial def parseAliasedField (chars : List Char) : ParseResult ParsedField :=
@@ -1296,7 +1296,7 @@ mutual
                 | ':' :: rest =>
                     match parseFieldValue rest with
                     | .error error => .error error
-                    | .ok (value, rest) => parseOk (.fieldAlias alias (label, fieldClass, value)) rest
+                    | .ok (value, rest) => parseOk (.fieldAlias alias ⟨label, fieldClass, value⟩) rest
                 | rest => parseError rest "expected ':' after aliased field label"
         | rest => parseError rest "expected '=' after field alias"
 
@@ -1343,7 +1343,7 @@ mutual
                 | .error error => .error error
                 | .ok (value, rest) =>
                     match labelValue with
-                    | .prim (.string label) => parseOk (.field (label, fieldClass, value)) rest
+                    | .prim (.string label) => parseOk (.field ⟨label, fieldClass, value⟩) rest
                     | _ => parseOk (.dynamicField labelValue fieldClass value) rest
             | rest => parseError rest "expected ':' after quoted field label"
     | rest => parseError rest "expected quoted field label"

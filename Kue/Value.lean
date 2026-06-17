@@ -460,6 +460,8 @@ inductive Clause (Value : Type) where
   | guard (condition : Value)
 deriving Repr, BEq
 
+mutual
+
 inductive Value where
   | top
   | bottom
@@ -484,14 +486,14 @@ inductive Value where
   | selector (base : Value) (label : String)
   | index (base key : Value)
   | disj (alternatives : List (Mark × Value))
-  | struct (fields : List (String × FieldClass × Value)) (open_ : Bool)
-  | structTail (fields : List (String × FieldClass × Value)) (tail : Value)
+  | struct (fields : List Field) (open_ : Bool)
+  | structTail (fields : List Field) (tail : Value)
   | structPattern
-      (fields : List (String × FieldClass × Value))
+      (fields : List Field)
       (labelPattern constraint : Value)
       (open_ : Bool)
   | structPatterns
-      (fields : List (String × FieldClass × Value))
+      (fields : List Field)
       (patterns : List (Value × Value))
       (open_ : Bool)
   | list (items : List Value)
@@ -504,31 +506,32 @@ inductive Value where
   conflicts (bottom) instead. `tail` carries an open-list tail (`[...]` → `some .top`);
   `none` is a closed list. `decls` are the surviving non-output fields.
   -/
-  | embeddedList (items : List Value) (tail : Option Value) (decls : List (String × FieldClass × Value))
+  | embeddedList (items : List Value) (tail : Option Value) (decls : List Field)
   | comprehension (clauses : List (Clause Value)) (body : Value)
-  | structComp (fields : List (String × FieldClass × Value)) (comprehensions : List Value) (open_ : Bool)
+  | structComp (fields : List Field) (comprehensions : List Value) (open_ : Bool)
   | interpolation (parts : List Value)
   | dynamicField (label : Value) (fieldClass : FieldClass) (value : Value)
-deriving Repr, BEq
 
-abbrev Field := String × FieldClass × Value
+/-- A single struct member: its `label`, its `fieldClass` (regular/optional/required/
+    hidden/definition/let), and its `value`. A named record replacing the former positional
+    triple so projections are explicit and misindexing is impossible. Defined mutually with
+    `Value` because `Value`'s struct-bearing constructors carry `List Field`. -/
+structure Field where
+  label : String
+  fieldClass : FieldClass
+  value : Value
+
+end
+
+deriving instance Repr, BEq for Value, Field
 
 namespace Field
 
-def label (field : Field) : String :=
-  field.fst
-
-def fieldClass (field : Field) : FieldClass :=
-  field.snd.fst
-
 def ignoresClosedness (field : Field) : Bool :=
-  FieldClass.ignoresClosedness (fieldClass field)
-
-def value (field : Field) : Value :=
-  field.snd.snd
+  FieldClass.ignoresClosedness field.fieldClass
 
 def regular (label : String) (value : Value) : Field :=
-  (label, .regular, value)
+  { label, fieldClass := .regular, value }
 
 end Field
 

@@ -210,11 +210,18 @@ ok". Oracle: `cue` v0.16.1.
 
 ### Re-rank
 
-No new fix-slices. Item 3 in the authoritative list (#6 below) is now PARTIAL: 3a (base64)
-landed, only **3e (`Field` tuple → `structure`)** remains. Recommended next item: **3e** —
-mechanical, ~122 destructure sites via existing accessors, behavior-preserving, build-gated,
-and the engine is quiet so it's the cheapest foundation-tidying win. Defer package-dir merge
-(item 5) / registry fetch (item 6) until full `cue export ./apps` parity is wanted.
+No new fix-slices. Item 3 in the authoritative list (#6 below) is now DONE: 3a (base64)
+and **3e (`Field` tuple → `structure`)** both landed. 3e: `abbrev Field = String ×
+FieldClass × Value` → `structure Field where label; fieldClass; value`, defined mutually
+with `Value` (the struct-bearing `Value` constructors carry `List Field`, which is no
+longer defeq to the tuple once `Field` is a structure, so the mutual block is forced).
+Derived `Repr, BEq` preserved byte-identically (all `native_decide`/`rfl` theorems +
+fixtures pass unchanged, NO `rfl`→`native_decide` switch needed). ~70 tuple-literal/positional
+sites migrated to `⟨…⟩`/`.label`/`.value` (build as ground truth). With 3e done, the
+consolidation/cleanup batch is essentially complete (only deferred module-splits + LOW
+items remain). Next SUBSTANTIVE item for real-file reach: **package-dir merge** (multi-file
+packages like argocd.cue — larger loader slice, needs a design pass). Defer package-dir
+merge (item 5) / registry fetch (item 6) until full `cue export ./apps` parity is wanted.
 
 ## Audit Fix-Slices (CLI/serializer family — Phase A + light Phase B, audit 2026-06-17)
 
@@ -561,12 +568,16 @@ demonstrates real-file viability.
    high-risk/low-reward, deferred per the slice's SAFE-FAILURE clause. `FixtureTests` (1033)
    / `BuiltinTests` (735) splits ride along when revisited. Source-layering
    (Core/Syntax/Eval/Output/Driver) stays OPTIONAL pending chakrit's taste call.
-3. **[PARTIAL — cleanup batch] ~~base64-out-of-Json (3a)~~ DONE + `Field`→structure (3e).**
+3. **[DONE — cleanup batch] ~~base64-out-of-Json (3a)~~ + ~~`Field`→structure (3e)~~.**
    3a landed (`7d0657d`): `base64Encode` → leaf `Kue/Base64.lean` (zero imports);
    `Json`/`Yaml`/`Builtin` import it; body byte-identical move, base64 fixtures unchanged.
-   **Remaining (3e):** `Field` tuple → `structure { label, fieldClass, value }`, ~122
-   destructure sites via the existing accessors. Behavior-preserving; build-gated. This is
-   now the recommended next item (mechanical, engine quiet, foundation-tidying).
+   3e landed: `abbrev Field = String × FieldClass × Value` → `structure Field where label;
+   fieldClass; value`, defined **mutually** with `Value` (the struct-bearing `Value`
+   constructors carry `List Field`; once `Field` is a structure `List Field` is no longer
+   defeq to `List (String × FieldClass × Value)`, forcing the mutual block). Derived
+   `Repr, BEq` preserved byte-identically — all theorems + fixtures pass unchanged, no
+   `rfl`→`native_decide` switch needed. ~70 tuple-literal/positional sites (`(l,c,v)` →
+   `⟨l,c,v⟩`, `.fst`/`.snd.snd` → `.label`/`.value`) migrated, build as ground truth.
 4. **[DONE — portability] Linux `cacheRoot` default** (`Module.lean`): pure `cacheDirFor`
    helper branches on `System.Platform.isOSX` so Linux defaults to `~/.cache/cue`, macOS to
    `~/Library/Caches/cue`, absent `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME` (mirrors Go

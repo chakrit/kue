@@ -50,23 +50,23 @@ theorem meet_open_list_tail_preserves_extra_bottom :
 
 theorem meet_struct_field_open_list_tail_with_longer_closed_list :
     meet
-      (.struct [("x", .regular, .listTail [.kind .int] (.kind .string))] true)
-      (.struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true)
-      = .struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true := by
+      (.struct [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] true)
+      (.struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] true)
+      = .struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] true := by
   rfl
 
 theorem meet_struct_field_open_list_tail_preserves_extra_bottom :
     meet
-      (.struct [("x", .regular, .listTail [.kind .int] (.kind .string))] true)
-      (.struct [("x", .regular, .list [.prim (.int 1), .prim (.int 2)])] true)
-      = .struct [("x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]])] true := by
+      (.struct [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] true)
+      (.struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩] true)
+      = .struct [⟨"x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]]⟩] true := by
   rfl
 
 theorem meet_struct_field_closed_list_uses_list_meet :
     meet
-      (.struct [("x", .regular, .list [.kind .int, .kind .string])] true)
-      (.struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true)
-      = .struct [("x", .regular, .list [.prim (.int 1), .prim (.string "x")])] true := by
+      (.struct [⟨"x", .regular, .list [.kind .int, .kind .string]⟩] true)
+      (.struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] true)
+      = .struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] true := by
   rfl
 
 theorem meet_list_item_disjunction_distributes :
@@ -119,28 +119,28 @@ field present makes it a genuine struct/list conflict (bottom). Oracle-matched. 
 
 /-- Only-non-output struct meet a list → the list, with the decl preserved. -/
 theorem meet_hidden_struct_list_is_embedded_list :
-    (meet (.struct [("#a", .definition, .prim (.int 1))] true)
+    (meet (.struct [⟨"#a", .definition, .prim (.int 1)⟩] true)
           (.list [.prim (.int 1), .prim (.int 2)])
-      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [("#a", .definition, .prim (.int 1))])
+      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩])
       = true := by native_decide
 
 /-- A regular (output) field present → genuine conflict. -/
 theorem meet_regular_struct_list_is_bottom :
-    isBottom (meet (.struct [("a", .regular, .prim (.int 1))] true)
+    isBottom (meet (.struct [⟨"a", .regular, .prim (.int 1)⟩] true)
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
 /-- A required field present → genuine conflict. -/
 theorem meet_required_struct_list_is_bottom :
-    isBottom (meet (.struct [("a", .required, .kind .int)] true)
+    isBottom (meet (.struct [⟨"a", .required, .kind .int⟩] true)
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
 /-- Optional fields are non-output → the list survives. -/
 theorem meet_optional_struct_list_is_embedded_list :
-    (meet (.struct [("a", .optional, .kind .int)] true)
+    (meet (.struct [⟨"a", .optional, .kind .int⟩] true)
           (.list [.prim (.int 1), .prim (.int 2)])
-      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [("a", .optional, .kind .int)])
+      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"a", .optional, .kind .int⟩])
       = true := by native_decide
 
 /-- Empty struct (no members at all) embedding a list → the bare list (no decls). -/
@@ -151,17 +151,17 @@ theorem meet_empty_struct_list_is_embedded_list :
 
 /-- Open list embed: `[...]` is `listTail [] top` → `embeddedList [] (some top)`. -/
 theorem meet_hidden_struct_open_list :
-    (meet (.struct [("#a", .definition, .prim (.int 1))] true)
+    (meet (.struct [⟨"#a", .definition, .prim (.int 1)⟩] true)
           (.listTail [] .top)
-      == .embeddedList [] (some .top) [("#a", .definition, .prim (.int 1))])
+      == .embeddedList [] (some .top) [⟨"#a", .definition, .prim (.int 1)⟩])
       = true := by native_decide
 
 /-- Meet of two embeddedLists merges decls and meets the lists (`[...int] & [1,2]`). -/
 theorem meet_two_embedded_lists :
-    (meet (.embeddedList [] (some (.kind .int)) [("#a", .definition, .prim (.int 1))])
-          (.embeddedList [.prim (.int 1), .prim (.int 2)] none [("#b", .definition, .prim (.int 2))])
+    (meet (.embeddedList [] (some (.kind .int)) [⟨"#a", .definition, .prim (.int 1)⟩])
+          (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#b", .definition, .prim (.int 2)⟩])
       == .embeddedList [.prim (.int 1), .prim (.int 2)] none
-           [("#a", .definition, .prim (.int 1)), ("#b", .definition, .prim (.int 2))])
+           [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
       = true := by native_decide
 
 /-- An embeddedList whose list conflicts a concrete element carries an element bottom
@@ -174,7 +174,7 @@ theorem meet_embedded_list_conflicting_elements :
 /-- An embeddedList still manifests as its list (decls and open tail dropped). -/
 theorem manifest_embedded_list_is_list :
     (manifest (.embeddedList [.prim (.int 1), .prim (.int 2)] (some .top)
-                 [("#a", .definition, .prim (.int 1))])).toOption
+                 [⟨"#a", .definition, .prim (.int 1)⟩])).toOption
       == some (.list [.prim (.int 1), .prim (.int 2)])
       := by native_decide
 

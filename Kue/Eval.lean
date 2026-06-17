@@ -224,8 +224,8 @@ mutual
       (mergedMap : List (String × Nat)) : List Field -> List Field
     | [] => []
     | field :: rest =>
-        (Field.label field, Field.fieldClass field,
-          remapConjRefs fuel frameDepth oldLabels mergedMap (Field.value field))
+        ⟨Field.label field, Field.fieldClass field,
+          remapConjRefs fuel frameDepth oldLabels mergedMap (Field.value field)⟩
           :: remapConjFields fuel frameDepth oldLabels mergedMap rest
   termination_by fields => (fuel, 1, fields.length)
 
@@ -626,8 +626,8 @@ evaluated, so referencing them re-evaluates a concrete value.
 -/
 def loopFrame (key : Option String) (keyValue : Value) (value : String) (element : Value) : List Field :=
   match key with
-  | some key => [(key, .regular, keyValue), (value, .regular, element)]
-  | none => [(value, .regular, element)]
+  | some key => [⟨key, .regular, keyValue⟩, ⟨value, .regular, element⟩]
+  | none => [⟨value, .regular, element⟩]
 
 /--
 CUE renders interpolation holes by their natural string form: a string contributes its
@@ -854,7 +854,7 @@ mutual
       (visited : List Nat)
       (field : Field) : EvalM Field := do
     let evaluated <- evalValueWithFuel fuel env visited (Field.value field)
-    pure (Field.label field, Field.fieldClass field, evaluated)
+    pure ⟨Field.label field, Field.fieldClass field, evaluated⟩
   termination_by (fuel, 2, 0)
 
   def evalFieldRefsListWithFuel
@@ -1040,7 +1040,7 @@ mutual
         match evaluatedLabel with
         | .prim (.string name) => do
             let evaluatedValue <- evalValueWithFuel fuel env visited value
-            pure (.struct [(name, .regular, evaluatedValue)] true)
+            pure (.struct [⟨name, .regular, evaluatedValue⟩] true)
         | _ => pure .bottom
     | _, value => pure value
   termination_by (fuel, 0, 0)
@@ -1080,7 +1080,7 @@ mutual
         match evaluatedLabel with
         | .prim (.string name) => do
             let evaluatedValue <- evalValueWithFuel fuel env [] value
-            pure [(name, fieldClass, evaluatedValue)]
+            pure [⟨name, fieldClass, evaluatedValue⟩]
         | _ => pure []
     | _, _ => pure []
   termination_by (fuel, 0, 0)
