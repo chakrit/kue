@@ -230,10 +230,25 @@ def yamlLeadingIndicator (c : Char) : Bool :=
 def yamlHasControl (s : String) : Bool :=
   s.toList.any fun c => c.toNat < 0x20
 
+/-- A scalar that opens with the YAML document-marker run `---` or `...` (go-yaml's
+    emitter treats a `---`/`...` prefix as a leading indicator and quotes). The pure
+    dash-runs `---`/`----` are already double-quoted upstream (`wouldParseAsNonString`
+    via the date-like split), so this only needs to catch a `...` prefix or a `---`
+    followed by a non-dash — exactly the forms `cue` single-quotes. -/
+def yamlDocMarkerPrefix (cs : List Char) : Bool :=
+  match cs with
+  | '.' :: '.' :: '.' :: _ => true
+  | '-' :: '-' :: '-' :: rest =>
+      match rest with
+      | '-' :: _ => false  -- pure dash-run; handled by the double-quote layer
+      | _ => true
+  | _ => false
+
 /-- Whether a plain (bare) scalar would be unsafe and so needs single-quoting, given it
     is neither resolver-ambiguous nor escape-requiring. Mirrors go-yaml: leading/trailing
     space, a leading indicator, a leading `-`/`?`/`:` followed by space (or alone), a
-    `: ` (colon-space) anywhere, a ` #` (space-hash) anywhere, or a trailing `:`. -/
+    `---`/`...` document-marker prefix, a `: ` (colon-space) anywhere, a ` #` (space-hash)
+    anywhere, or a trailing `:`. -/
 def yamlNeedsSingleQuote (s : String) : Bool := Id.run do
   let cs := s.toList
   match cs with
@@ -241,6 +256,7 @@ def yamlNeedsSingleQuote (s : String) : Bool := Id.run do
   | first :: _ =>
     if first == ' ' then return true
     if yamlLeadingIndicator first then return true
+    if yamlDocMarkerPrefix cs then return true
     -- leading '-'/'?'/':' is only special when at line start followed by space or alone
     if first == '-' || first == '?' || first == ':' then
       match cs with

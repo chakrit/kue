@@ -182,6 +182,83 @@ AST-identical to the brace form across all inner-label forms; B4 multiline is to
 correct; parser positions have no off-by-one; the three B2 deferred boundaries are real
 and correctly documented.
 
+## Audit Fix-Slices (CLI/serializer family — Phase A + light Phase B, audit 2026-06-17)
+
+Combined Phase A + light Phase B over the CLI/serializer batch since `b3aeb53`/`7cf387f`:
+`d1c1cd2` (`kue export -e <expr>` field-path selector) and `d8c44e7` (YAML scalar
+over-quoting rewrite: `wouldParseAsNonString`). Verify gate green at audit time
+(`lake build` 84 jobs, `check-fixtures.sh` "fixture pairs ok", `shellcheck` clean).
+Oracle: `cue` v0.16.1 (`/Users/chakrit/go/bin/cue`).
+
+### Headline verdicts
+
+- **YAML predicate — no false-bare (silent-corruption) case found; one false-bare
+  byte-divergence FIXED inline.** Two adversarial batteries (~127 strings: edge numbers,
+  specials, unicode, all-punctuation, doc markers, IP/semver/CIDR/`name:tag`) diffed
+  kue-binary vs `cue export --out yaml`. Number/bool/null/date/base60 classification agrees
+  exactly with cue on every case, including the tricky `-.NaN`→bare, `+`→bare/`-`→single,
+  `0x_1`→quoted, `99:99`/`60:00`→quoted. The NFAs (`yamlStyleFloat`, `yamlCueDateLike`,
+  `yamlRadixInt`, `yamlBase60Float`, `yamlReservedWords`) are **total** — all structural,
+  no `partial`, terminate on empty/long/unicode/all-punct. **One miss FIXED:** kue emitted
+  bare for scalars starting with `...` or `---`+non-dash (`...`, `....`, `...x`, `---x`,
+  `--- x`) where cue single-quotes (go-yaml document-marker prefix rule). Verified the bare
+  form still round-trips as a string through go-yaml's own resolver (so not confirmed
+  corruption — MEDIUM byte-divergence, not HIGH), but fixed regardless via a
+  `yamlDocMarkerPrefix` guard in `yamlNeedsSingleQuote`. Pure dash-runs `---`/`----`
+  stay double-quoted upstream (date-like split), matching cue.
+- **`-e` selector — correct, no regression.** Dotted paths, cross-segment ref binding
+  (`-e a.b` resolves `b`'s refs in `a`'s scope via `resolveAndEval` between steps),
+  chained refs, missing field → `reference "<seg>" not found` + exit 1 (matches cue text),
+  empty/leading/doubled-dot segment → clean error exit 1, missing `-e` value → exit 2.
+  `selectExprPath`/`parseExprPath`/`lookupField?` total. Plain export (no `-e`) byte-identical
+  to before (JSON+YAML). CUE divergence logged: `cue export -e` ignores stdin entirely
+  (resolves against empty scope → every selector fails); kue correctly selects from stdin
+  in both file and stdin mode (see `cue-divergences.md`).
+- **Phase B (light) — layering unchanged, acyclic preserved, ALPHA-READY.** No new module;
+  `Cli→Runtime→{Eval,Format,…}`, `Main→{Kue,Cli}`, `Yaml→Json`. `Runtime` already imported
+  `Eval`; `-e` reuses `findEvalField`/`resolveAndEval` — no new edge. `Builtin→Eval` still
+  absent. Build + full suite green, no half-landed work, no crash; known gaps (B3d registry
+  fetch, package-dir merge) documented. **HEAD `d8c44e7` is releasable — cut
+  `v0.1.0-alpha.20260617.3`** (note: the doc-marker fix below lands a new HEAD; cut from
+  that).
+
+### Findings (ranked)
+
+1. **[MEDIUM — silent byte-divergence, FIXED inline this audit] YAML doc-marker prefix.**
+   `wouldParseAsNonString`/`yamlNeedsSingleQuote` missed `...`-prefix and `---`+non-dash
+   scalars. Fixed via `yamlDocMarkerPrefix` + 7 new theorems in `YamlTests.lean`. Round-trip
+   verified safe; output now byte-matches cue. Gate re-run green; committed.
+2. **[LOW — cosmetic false-quote] Leading/edge underscore over-quoting.** kue's blanket
+   `yamlStripUnderscore` collapses `_`-runs before number classification, so `_1`, `_1_`,
+   `__1`, `1_2:3`, `1_:2` get double-quoted where cue leaves them bare (go-yaml admits `_`
+   only strictly between two digits). Direction is safe (over-quote never corrupts). Fix:
+   gate the underscore strip on "`_` flanked by digits on both sides" before feeding the
+   number NFAs; re-pin the existing `1_000`/`1_2`/`0x_1` quoted cases. Scoped, deferrable.
+3. **[LOW — test strength] `-e` Runtime edges unpinned.** Only `select_common.*` (happy
+   path) is a fixture; missing-field/empty-segment/scalar-descent are verified manually
+   here but not by any theorem or fixture. Add `native_decide` theorems for `parseExprPath`
+   (empty/leading/trailing/doubled dot → none; normal → segments) and `selectExprPath`
+   (missing segment → error; scalar-descent → error; happy multi-segment), plus error/edge
+   `.args` fixtures. The parse layer (CliTests) is well covered; the gap is the selection
+   layer.
+4. **[LOW — type leverage, Phase B] `ExportOpts.expr : Option String` re-parsed at use.**
+   The unparsed dotted path is re-split in `exportValueSelecting`; an empty segment is an
+   illegal state caught at use, not construction. Tighten by parsing to a validated
+   `List`-of-nonempty-segments at the CLI boundary (validate-at-boundary). Minor; fold low.
+5. **[LOW — DRY / error-precedence] Main stdin path re-implements `exportSourcesToString`.**
+   `runExport`'s stdin branch inlines `parseSources`/`checkSourcePackageNames`/
+   `mergeSourceValues` to thread `exportBoundValue`, and **reverses** the original error
+   order (`parseSources` before `checkSourcePackageNames`; the shared helper checks package
+   names first). Observable only as a differing error message on a malformed single stdin
+   source (both still exit `evalErrorCode`). Fix at source: add a
+   `exportSourcesSelecting`/`exportBoundSources` Runtime helper that mirrors
+   `exportSourcesToString`'s order and takes the `-e` expr, and call it from both Main
+   branches. Removes the duplication and the reorder.
+6. **[LOW — message divergence, not kue-right] `-e` descent into a scalar.** `-e top.x`
+   where `top` is an int: kue says `reference "x" not found`, cue says `invalid operand top
+   (found int, want list or struct)`. Both exit 1. cue's message is more precise. Optional:
+   distinguish "not a struct" from "field absent" in `lookupField?`/`selectExprPath`.
+
 ## Audit Fix-Slices (bound-representation family, Phase A audit 2026-06-17)
 
 Phase A depth pass over `aa5987f` (test/fixture reorg — pure moves), `d87d6dd`

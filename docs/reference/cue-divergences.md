@@ -27,7 +27,11 @@ When a slice finds `cue` doing the wrong thing:
 
 ## Confirmed divergences
 
-_None yet._ Every slice through `8af9e2f` (comprehensions, dynamic fields + string
-interpolation, struct-embedding scope, `strings`/`list` builtins, decimal-lift refactor)
-oracle-checked clean against `cue` v0.16.1 — Kue matches the reference on all implemented
-behavior so far.
+| Topic | `cue` ver | Claim / input | `cue` output | Kue output | Why Kue is right | Fixture |
+|-------|-----------|---------------|--------------|------------|------------------|---------|
+| `export -e` from stdin | v0.16.1 | `echo 'common: {name: "svc"}' \| <bin> export -e common` | `reference "common" not found` (exit 1) | `{"name": "svc"}` (exit 0) | The field `common` is present in the piped document, so selecting it must succeed. `cue` ignores stdin when `-e/--expression` is given — it resolves the expression against an empty scope, so every stdin selector fails; the same `-e common` works against identical content as a file. Kue binds the selector against the actually-loaded root in both file and stdin mode (parity). | CLI behavior; `Kue/CliTests.lean` stdin-`-e` cases |
+
+Every slice through `8af9e2f` (comprehensions, dynamic fields + string interpolation,
+struct-embedding scope, `strings`/`list` builtins, decimal-lift refactor) oracle-checked
+clean against `cue` v0.16.1; the entry above is the first deliberate disagreement,
+surfaced by the `kue export -e` slice.

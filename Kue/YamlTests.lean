@@ -34,6 +34,15 @@ theorem yaml_string_colon_space : manifestToYaml (.prim (.string "a: b")) = "'a:
 theorem yaml_string_space_hash : manifestToYaml (.prim (.string "a # b")) = "'a # b'" := by native_decide
 theorem yaml_string_trailing_colon : manifestToYaml (.prim (.string "x:")) = "'x:'" := by native_decide
 theorem yaml_string_all_spaces : manifestToYaml (.prim (.string "  ")) = "'  '" := by native_decide
+-- Document-marker prefixes (`...`, `---`+non-dash): go-yaml single-quotes. Oracle: cue v0.16.1.
+theorem yaml_string_dots_marker : manifestToYaml (.prim (.string "...")) = "'...'" := by native_decide
+theorem yaml_string_dots_run : manifestToYaml (.prim (.string "....")) = "'....'" := by native_decide
+theorem yaml_string_dots_prefix : manifestToYaml (.prim (.string "...x")) = "'...x'" := by native_decide
+theorem yaml_string_dashes_prefix : manifestToYaml (.prim (.string "---x")) = "'---x'" := by native_decide
+theorem yaml_string_dashes_space : manifestToYaml (.prim (.string "--- x")) = "'--- x'" := by native_decide
+-- Pure dash-runs `---`/`----` are double-quoted upstream (date-like split), matching cue.
+theorem yaml_string_dashes_pure3 : manifestToYaml (.prim (.string "---")) = "\"---\"" := by native_decide
+theorem yaml_string_dashes_pure4 : manifestToYaml (.prim (.string "----")) = "\"----\"" := by native_decide
 -- bare cases that look risky but are not: leading `-`/`?`/`:` without following space, comma.
 theorem yaml_string_leading_dash_bare : manifestToYaml (.prim (.string "-x")) = "-x" := by native_decide
 theorem yaml_string_trailing_comma_bare : manifestToYaml (.prim (.string "comma,")) = "comma," := by native_decide
