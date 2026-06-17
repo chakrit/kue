@@ -5,6 +5,7 @@ import Kue.Examples
 import Kue.Parse
 import Kue.Runtime
 import Kue.Manifest
+import Kue.Base64
 import Kue.Json
 import Kue.Yaml
 import Kue.Order

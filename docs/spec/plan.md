@@ -692,10 +692,14 @@ zones; ranks below every goal item.
 
 ### Item 3 — concrete one-slice move-plan (so a subagent executes it mechanically)
 
-**3a. base64 out of `Json.lean` → `Kue/Base64.lean`.** Move `base64Encode`/`base64Alphabet`
-(currently in `Json.lean`) into a new `Kue/Base64.lean` over no Kue deps. Re-point the
-three consumers' imports: `Yaml.lean` (bytes scalar), `Builtin.lean` (`encoding/base64`),
-`Module.lean` if it references it. Add `Kue/Base64.lean` to the `Kue` umbrella import.
+**3a. base64 out of `Json.lean` → `Kue/Base64.lean`. DONE (2026-06-17).**
+`base64Encode`/`base64Alphabet` moved to a new `Kue/Base64.lean` over no Kue deps (it
+imports nothing — sits at the bottom of the layer graph, below `Manifest`/`Json`/`Yaml`/
+`Builtin`). Consumers re-pointed with explicit `import Kue.Base64`: `Json.lean` (bytes JSON
+string), `Yaml.lean` (bytes scalar), `Builtin.lean` (`base64.Encode`). `Module.lean` only
+lists `encoding/base64` as a builtin-import *string* — no function ref, untouched. Added to
+the `Kue` umbrella import. Behavior-preserving: identical base64 output, no `.expected`
+change, no cycle.
 
 **3b. `testdata/cue/` flat → subsystem subdirs.** ~140 fixtures (283 files) currently flat.
 Group into subdirs by subsystem; suggested taxonomy (assign each existing `<name>.{cue,

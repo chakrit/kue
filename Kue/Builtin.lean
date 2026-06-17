@@ -1,5 +1,6 @@
 import Kue.Lattice
 import Kue.Decimal
+import Kue.Base64
 import Kue.Json
 import Kue.Yaml
 

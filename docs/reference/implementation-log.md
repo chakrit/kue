@@ -5665,3 +5665,36 @@ surgery risk the slice flags, against a cosmetic-only payoff. Subsumes-3d remain
 `Kue.Tests.*` module shown elaborated in the build log → no silent test loss).
 `scripts/check-fixtures.sh` → `fixture pairs ok` (145 fixture entries unchanged, no
 `.expected` touched). `shellcheck scripts/check-fixtures.sh` clean.
+
+---
+
+## Completed Slice: base64 out of `Json.lean` → `Kue/Base64.lean`
+
+Plan item 3a. Behavior-preserving consolidation: base64 is not JSON, so its defs no longer
+live in `Json.lean`.
+
+### Intended behavior
+
+Identical base64 output to before — pure code move, no logic touched. `base64Encode`
+(standard padded RFC 4648 / Go `base64.StdEncoding`) and its `base64Alphabet` table now live
+in `Kue/Base64.lean`, a leaf module that imports nothing (depends only on
+`List UInt8`/`Char`/`Array`/`String`). It sits at the bottom of the layer graph, below
+`Manifest`/`Json`/`Yaml`/`Builtin`, so no import cycle is possible.
+
+### Changes
+
+- **New `Kue/Base64.lean`** — `base64Alphabet` + `base64Encode`, verbatim from `Json.lean`.
+  No Kue imports.
+- **`Json.lean`** — defs removed; added `import Kue.Base64`. `manifestPrimToJson`'s
+  `.bytes` arm (bytes → base64 JSON string) unchanged.
+- **`Yaml.lean`** — added explicit `import Kue.Base64` (bytes scalar uses `base64Encode`).
+- **`Builtin.lean`** — added explicit `import Kue.Base64` (`base64.Encode` builtin).
+- **`Kue.lean`** — added `import Kue.Base64` to the umbrella.
+- **`Module.lean`** — untouched; its `encoding/base64` is a builtin-import *string* in the
+  recognized-import list, not a call into `base64Encode`.
+
+### Verify
+
+`lake build` → 86 jobs, success. `scripts/check-fixtures.sh` → `fixture pairs ok` (no
+`.expected` touched; base64/json/yaml fixtures — `base64_encode`, `encoding_infra_chain` —
+unchanged). `shellcheck scripts/check-fixtures.sh` clean.

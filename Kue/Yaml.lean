@@ -1,4 +1,5 @@
 import Kue.Json
+import Kue.Base64
 
 namespace Kue
 
