@@ -5,6 +5,28 @@ written here as procedures — **do NOT invoke the `/ace-audit` skill**; follow 
 The orchestrator is a thin re-spawner; every slice and every audit runs in a fresh
 subagent. The orchestrator only does cheap done-checks and re-spawns.
 
+## Design philosophy — type-system first (the audits enforce this)
+
+Kue is in Lean 4 to make the type system do the work. This is the FIRST thing every audit
+checks, not a nicety. In priority order:
+
+1. **Make illegal states unrepresentable.** Encode invariants in the types so bad values
+   cannot be constructed: precise `inductive`/`structure` over loose types guarded by
+   runtime checks; a sum type over boolean/`Option` flags that admit nonsense
+   combinations; newtype wrappers for distinct domains (ids, kinds, paths) so they can't
+   be swapped; smart constructors where a raw one would admit junk. If a comment or branch
+   says "this can't happen", the type is wrong — tighten it.
+2. **Prefer ML / functional idioms.** Total functions over partial; `Except`/`Option`
+   returns over hidden host-language failure; **exhaustive pattern matching with no
+   catch-all `_` that silently swallows future constructors**; immutability; structural or
+   fuel-bounded recursion over mutation. Push correctness into types + exhaustiveness, not
+   into after-the-fact tests.
+3. **Reach for dependent types / refinements where they buy real safety** (the standing
+   grant) — not for their own sake. (Note the deliberate perf carve-out: `Value` omits
+   `DecidableEq` because the kernel reduces it slowly; behavior is pinned by
+   `native_decide`. Tightening representations is free; forcing kernel proofs is not —
+   favor the former.)
+
 ## Cadence (repeat indefinitely)
 
 1. Run **2–3 implementation slices** (one subagent each, one commit each).
@@ -39,9 +61,13 @@ Scope: the slices landed since the previous audit. Check:
   happy path.
 - **Totality** — no unjustified `partial def` (the parser is the standing exception);
   fuel bounds provably sufficient.
-- **Illegal-states-unrepresentable** — every NEW `Value`/AST constructor handled at EVERY
-  match site (no silent wildcard `_` absorption); non-output markers (letBinding,
-  thisStruct) excluded from `Format`/`Manifest` output.
+- **Illegal-states-unrepresentable (the philosophy above — check it FIRST)** — does the
+  new code use the tightest type that fits? Flag loose `String`/`Nat`/`Bool`/`Option`
+  representations that should be sum types, newtypes, or refinements; flag any
+  constructor/record that admits a nonsense combination; flag "can't happen" branches that
+  a better type would erase. Every NEW `Value`/AST constructor handled at EVERY match site
+  with NO catch-all `_` silently swallowing it; non-output markers (letBinding, thisStruct)
+  excluded from `Format`/`Manifest` output. Partial functions that could be total → finding.
 - **DRY / reuse** — no duplicated logic that should share a helper.
 - **Test strength** — theorems/fixtures pin real behavior incl. edges, not smoke; every
   new fixture has BOTH a `testdata/.../.{cue,expected}` pair AND a `FixturePorts` entry.
@@ -54,6 +80,13 @@ you do, re-run the full verify gate and commit.
 ## Phase B — Architecture / refactor / cleanup audit (the whole module graph)
 
 Scope: cross-cutting design, broader than the recent diff. Check:
+- **Type-system leverage / ML idioms (the philosophy above — a top-level concern here).**
+  Across the module graph, where are loose types carrying invariants that the type system
+  could enforce? Candidates to propose as tightening fix-slices: stringly-typed data that
+  should be a sum type; separate fields that should be one indexed/refined type; raw ids
+  that should be newtypes; `Option`+invariant that a refined type subsumes; wildcard
+  matches that hide cases; partial functions reducible to total. Push illegal states out
+  of the representation — this is the repo's reason to be in Lean.
 - **Module boundaries & layering** — import edges sane (e.g. `Builtin → Decimal`, never
   `Builtin → Eval`); no cycles; one clear responsibility per module.
 - **Abstraction quality** — right representations; illegal states unrepresentable at the
