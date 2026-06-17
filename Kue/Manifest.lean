@@ -36,7 +36,9 @@ mutual
             | .error error, _ => .error error
             | _, .error error => .error error
         | .field _ _ .required => .error (.incomplete (Field.value field))
-        | _ => manifestFieldsWithFuel fuel fields
+        | .field _ _ .regular => manifestFieldsWithFuel fuel fields
+        | .field _ _ .optional => manifestFieldsWithFuel fuel fields
+        | .letBinding => manifestFieldsWithFuel fuel fields
 
   def manifestItemsWithFuel : Nat -> List Value -> Except ManifestError (List ManifestValue)
     | 0, _ => .error (.incomplete .top)

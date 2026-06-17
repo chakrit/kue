@@ -34,7 +34,9 @@ source as above. Releases are cut locally with [`scripts/release.sh`](scripts/re
 - `Kue/` — Lean modules: `Value`, `Lattice`, `Order`, `Normalize`, `Eval`, `Resolve`,
   `Manifest`, `Format`, `Builtin`, plus `*Tests.lean` modules and CUE fixture ports.
 - `testdata/cue/` — paired `.cue` source and `.expected` (or `.manifest.expected`)
-  fixtures used for compatibility checks against `cue`.
+  fixtures used for compatibility checks against `cue`, grouped into subsystem subdirs
+  (`numeric/ bounds/ disjunctions/ structs/ definitions/ lists/ refs/ comprehensions/
+  builtins/ multiline/ manifest/`); each pair's files sit together under one subdir.
 - `scripts/check-fixtures.sh` — validates fixture pairs, regenerates Lean fixture
   ports, compares stdin CLI output, and runs `cue fmt --check`.
 - `docs/` — durable docs (usage + design record). Start at [`docs/README.md`](docs/README.md).

@@ -320,6 +320,25 @@ taken together, do 1's commutativity theorems against the post-fold representati
    independent mechanical sub-tasks, one verify cycle. **Do this before items 1/2** to
    shrink the test surface the representation refactors must touch (fewer, smaller test
    modules to chase `intG*`/conj references through). Concrete move-plan below (4a–4d).
+   - **PARTIAL DONE (2026-06-17, breadcrumb `2026-06-17-test-reorg-landed.md`).** The
+     `testdata/cue/` flat→subsystem-subdir reorg (3b) + harness rewire (3c) + the
+     Manifest-FieldClass exhaustiveness tighten (3f) landed and verify green. **Done:** all
+     141 fixture pairs `git mv`'d into 11 subsystem subdirs (`numeric/ bounds/ disjunctions/
+     structs/ definitions/ lists/ refs/ comprehensions/ builtins/ multiline/ manifest/`),
+     `check-fixtures.sh` discovery made recursive (`find … -name '*.expected'`,
+     path-relative basenames round-tripping into the generated dir),
+     `FixturePort.fileName` rewritten to the `<subdir>/<stem>.expected` subpath +
+     `writeFixturePort` now `createDirAll`s the parent, `manifestFieldsWithFuel`'s `_ =>`
+     over `FieldClass` replaced by explicit `.field _ _ .regular`/`.optional`/`.required` +
+     `.letBinding` arms (a new `Optionality` rung now breaks the build). **Deferred to a
+     follow-up (still 3d/3e/3a):** the oversized-module splits (`FixturePorts` 2293 /
+     `FixtureTests` 1033 / `BuiltinTests` 735 by family — pure test-file moves, no behavior),
+     `Field`→`structure` (3e, ~95 sites), and base64-out-of-`Json` (3a). The splits were
+     deferred because they require re-emitting list/theorem block fragments with exact
+     comma/bracket boundaries, and the session's shell-output filter was non-deterministically
+     truncating/mangling listing output (the CLAUDE.md-documented flip-flop) — high risk for
+     mechanical text surgery, low risk via the Edit tool but unverifiable mid-stream. Core
+     reorg shrinks the navigation surface already; splits remain queued.
 4. **[MEDIUM — promote] Linux `cacheRoot` default** (`Module.lean`): branch on
    `System.Platform` so Linux defaults to `~/.cache/cue` not `~/Library/Caches/cue` absent
    `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`. Small portability slice; independent of the above.

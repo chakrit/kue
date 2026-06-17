@@ -280,10 +280,12 @@ is fine for scratch checks during development; durable tests are theorems in the
 A test fixture is verified along **two** paths that must agree, so a new fixture needs
 both entries:
 
-1. `testdata/cue/<name>.cue` + `testdata/cue/<name>.expected` — the source and KUE's
-   expected output. `.expected` is **Kue's** output format, not raw CUE's.
-2. A hand-built `<name>.expected` entry in `Kue/FixturePorts.lean` — the same value
-   constructed directly as a Lean `Value` and formatted.
+1. `testdata/cue/<subsystem>/<name>.cue` + `testdata/cue/<subsystem>/<name>.expected` —
+   the source and KUE's expected output, under a subsystem subdir (`numeric/ structs/
+   definitions/ …`). `.expected` is **Kue's** output format, not raw CUE's.
+2. A hand-built entry in `Kue/FixturePorts.lean` whose `fileName` is the
+   `<subsystem>/<name>.expected` relative subpath — the same value constructed directly as
+   a Lean `Value` and formatted.
 
 `scripts/check-fixtures.sh` diffs the CLI path (`kue < <name>.cue`) against the
 Lean-port path; a missing entry on either side fails the run. For `manifest` output, use
@@ -311,7 +313,8 @@ Mechanics that bite:
 - `cue` needs file arguments, and builtin-using fixtures need an `import` line
   (`import "list"`, `import "math"`, `import "strings"`).
 - `scripts/check-fixtures.sh` runs `cue fmt --check`, so format the fixture first:
-  `cue fmt --files testdata/cue/<name>.cue`.
+  `cue fmt --files testdata/cue/<subsystem>/<name>.cue` (or `--files testdata/cue` to
+  recurse the whole corpus).
 - `kue` reads stdin; `cue` reads files — keep that asymmetry in mind when comparing.
 - A useful kind probe: `(<expr> & int) != _|_` tells you whether `cue` collapsed a
   result to `int`-kind (e.g. the numeric-`list`-builtin integral-collapse rule).

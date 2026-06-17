@@ -60,8 +60,8 @@ check_lean_fixture_ports() {
   local expected_file
   local generated_file
 
-  for expected_file in "${fixture_dir}"/*.expected; do
-    generated_file="${generated_dir}/${expected_file##*/}"
+  while IFS= read -r expected_file; do
+    generated_file="${generated_dir}/${expected_file#"${fixture_dir}/"}"
 
     if [[ ! -f "${generated_file}" ]]; then
       printf 'missing Lean fixture port for %s\n' "${expected_file}" >&2
@@ -69,16 +69,16 @@ check_lean_fixture_ports() {
     elif ! diff -u "${expected_file}" "${generated_file}"; then
       status=1
     fi
-  done
+  done < <(find "${fixture_dir}" -name '*.expected' -type f | sort)
 
-  for generated_file in "${generated_dir}"/*.expected; do
-    expected_file="${fixture_dir}/${generated_file##*/}"
+  while IFS= read -r generated_file; do
+    expected_file="${fixture_dir}/${generated_file#"${generated_dir}/"}"
 
     if [[ ! -f "${expected_file}" ]]; then
       printf 'missing expected file for Lean fixture port %s\n' "${generated_file}" >&2
       status=1
     fi
-  done
+  done < <(find "${generated_dir}" -name '*.expected' -type f | sort)
 
   return "${status}"
 }
@@ -100,14 +100,15 @@ check_cli_fixture_outputs() {
     return 1
   fi
 
-  for expected_file in "${fixture_dir}"/*.expected; do
+  while IFS= read -r expected_file; do
     stem="${expected_file%.expected}"
     if [[ "${stem}" == *.manifest ]]; then
       continue
     fi
 
     cue_file="${stem}.cue"
-    output_file="${cli_dir}/${expected_file##*/}"
+    output_file="${cli_dir}/${expected_file#"${fixture_dir}/"}"
+    mkdir -p -- "$(dirname -- "${output_file}")"
 
     if ! "${kue_exe}" <"${cue_file}" >"${output_file}"; then
       printf 'failed to evaluate CLI fixture %s\n' "${cue_file}" >&2
@@ -115,7 +116,7 @@ check_cli_fixture_outputs() {
     elif ! diff -u "${expected_file}" "${output_file}"; then
       status=1
     fi
-  done
+  done < <(find "${fixture_dir}" -name '*.expected' -type f | sort)
 
   return "${status}"
 }
@@ -301,7 +302,7 @@ check_cli_behavior() {
   # The explicit `kue eval` subcommand must agree byte-for-byte with the bare path on a
   # representative fixture (the internal-format default).
   local sample_cue
-  sample_cue="${fixture_dir}/additive_expressions.cue"
+  sample_cue="${fixture_dir}/numeric/additive_expressions.cue"
   if [[ ! -f "${sample_cue}" ]]; then
     printf 'CLI behavior sample fixture %s is missing\n' "${sample_cue}" >&2
     status=1
@@ -343,15 +344,15 @@ main() {
   generated_dir="$(mktemp -d)"
   trap cleanup EXIT
 
-  for cue_file in "${fixture_dir}"/*.cue; do
+  while IFS= read -r cue_file; do
     stem="${cue_file%.cue}"
     if [[ ! -f "${stem}.expected" && ! -f "${stem}.manifest.expected" ]]; then
       printf 'missing expected file for %s\n' "${cue_file}" >&2
       status=1
     fi
-  done
+  done < <(find "${fixture_dir}" -name '*.cue' -type f | sort)
 
-  for expected_file in "${fixture_dir}"/*.expected; do
+  while IFS= read -r expected_file; do
     stem="${expected_file%.expected}"
     if [[ "${stem}" == *.manifest ]]; then
       stem="${stem%.manifest}"
@@ -362,7 +363,7 @@ main() {
       printf 'missing source fixture for %s\n' "${expected_file}" >&2
       status=1
     fi
-  done
+  done < <(find "${fixture_dir}" -name '*.expected' -type f | sort)
 
   if ! generate_lean_fixtures "${generated_dir}"; then
     status=1

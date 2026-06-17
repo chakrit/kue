@@ -5357,3 +5357,58 @@ incomplete`. (`cue eval` agrees: `[1,...]`→`[1]`.)
 `lake build` (84 jobs, theorems `rfl`-checked), `scripts/check-fixtures.sh` →
 `fixture pairs ok` (internal-format `list_embedding_open` fixture unchanged — no
 regression), `shellcheck scripts/check-fixtures.sh` clean.
+
+---
+
+## Completed Slice: Test/fixture reorganization (consolidation item 3, partial) (2026-06-17)
+
+Purely organizational — no `.cue`/`.expected` byte changes, no theorem content changes,
+no semantic behavior change. The verify gate (every fixture pair + theorem still passing
+from new locations) is the proof. Breadcrumb:
+[`../notes/2026-06-17-test-reorg-landed.md`](../notes/2026-06-17-test-reorg-landed.md).
+
+### Steps
+
+1. `testdata/cue/` flat→subsystem subdirs. All 141 fixture pairs `git mv`'d (history
+   preserved) into 11 subdirs by dominant subsystem: `numeric/` (23), `definitions/` (25),
+   `structs/` (24), `refs/` (15), `builtins/` (14), `lists/` (13), `disjunctions/` (7),
+   `multiline/` (6), `comprehensions/` (5), `manifest/` (5), `bounds/` (4). Each pair's
+   `.cue` + `.expected`(+`.manifest.expected`) sit together under one subdir.
+   `testdata/export/` and `testdata/modules/` left untouched.
+2. `scripts/check-fixtures.sh` discovery made recursive: the six flat `*.cue`/`*.expected`
+   globs (lean-port diff both directions, CLI-output, the two main pairing loops) replaced
+   by `find "${fixture_dir}" -name '*.{cue,expected}' -type f | sort` walks reading into a
+   `while`. Basenames changed from `${f##*/}` to the path-relative `${f#"${fixture_dir}/"}`
+   so subdir structure round-trips into the generated dir with no collisions; the CLI-output
+   stage `mkdir -p`s the per-subdir parent. The hardcoded `check_cli_behavior` sample moved
+   to `numeric/additive_expressions.cue`. `cue fmt --check --files "${fixture_dir}"` already
+   recurses — left as-is. shellcheck clean.
+3. `Kue/FixturePorts.lean`: every `FixturePort.fileName` rewritten from `<stem>.expected`
+   to the `<subdir>/<stem>.expected` relative subpath (142 entries); `writeFixturePort` now
+   `createDirAll`s the path's parent before writing so the subdir layout round-trips into
+   the generated dir.
+4. `Kue/Manifest.lean` (3f): `manifestFieldsWithFuel`'s `_ =>` catch-all over `FieldClass`
+   replaced by explicit arms — `.field _ _ .regular` / `.field _ _ .optional` (non-output,
+   skip) and `.letBinding` (skip), after the existing `.field false false .regular` (emit)
+   and `.field _ _ .required` (incomplete). A new `Optionality` rung or `FieldClass` ctor
+   now breaks the build at the emission site instead of silently being treated as
+   non-output. Behavior unchanged (build + fixtures green).
+
+### Deferred to a follow-up (still queued under item 3)
+
+- Oversized-module splits (3d): `FixturePorts.lean` (2293), `FixtureTests.lean` (1033),
+  `BuiltinTests.lean` (735) by family. Pure test-file moves, no behavior — deferred because
+  splitting the single `def fixturePorts` list literal / interleaved theorem blocks requires
+  re-emitting fragments with exact comma/bracket boundaries, and this session's shell-output
+  filter was non-deterministically truncating listing output (the CLAUDE.md flip-flop),
+  making mechanical text surgery unverifiable mid-stream. The subdir reorg already shrinks
+  the navigation surface.
+- `Field` tuple→`structure` (3e, ~95 sites) and base64-out-of-`Json` (3a) — independent
+  mechanical sub-tasks, left for their own slices.
+
+### Verify
+
+`lake build` (84 jobs, all relocated theorems re-checked), `scripts/check-fixtures.sh` →
+`fixture pairs ok` (141 pairs from new locations; export + module stages byte-identical;
+pure renames confirmed — `git diff -M` shows zero content lines changed),
+`shellcheck scripts/check-fixtures.sh` clean.

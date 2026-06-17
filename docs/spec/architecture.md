@@ -81,9 +81,11 @@ explicit `ManifestError`, kept separate from evaluation to preserve CUE's `eval`
 
 `Runtime.lean` centralizes the resolve → evaluate → format flow shared by the CLI and
 fixtures, including multi-source merging with package-name consistency. The compatibility
-corpus lives in `testdata/cue/` as paired `.cue` / `.expected` files; `FixturePorts.lean`
-records each expected output as a computed Kue value, and `scripts/check-fixtures.sh`
-generates ports, diffs them, compares `kue` CLI output, and runs `cue fmt --check`.
+corpus lives in `testdata/cue/` as paired `.cue` / `.expected` files, grouped into
+subsystem subdirs (`numeric/ structs/ definitions/ lists/ refs/ …`); `FixturePorts.lean`
+records each expected output as a computed Kue value keyed by its `<subdir>/<stem>`
+relative subpath, and `scripts/check-fixtures.sh` discovers pairs recursively, generates
+ports, diffs them, compares `kue` CLI output, and runs `cue fmt --check`.
 `*Tests.lean` modules carry theorem-style and executable checks.
 
 ## Where We Are / What's Next

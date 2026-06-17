@@ -32,7 +32,7 @@ def formatManifestFieldResult (name : String) (value : Value) : String :=
 def fixturePorts : List FixturePort :=
   [
     {
-      fileName := "additive_expressions.expected",
+      fileName := "numeric/additive_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -45,7 +45,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "bytes_additive_expressions.expected",
+      fileName := "numeric/bytes_additive_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -63,7 +63,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "float_additive_expressions.expected",
+      fileName := "numeric/float_additive_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -79,7 +79,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "multiplication_expressions.expected",
+      fileName := "numeric/multiplication_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -100,7 +100,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "division_expressions.expected",
+      fileName := "numeric/division_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -114,7 +114,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "float_muldiv_expressions.expected",
+      fileName := "numeric/float_muldiv_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -134,7 +134,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "integer_keyword_expressions.expected",
+      fileName := "numeric/integer_keyword_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -153,7 +153,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "equality_expressions.expected",
+      fileName := "numeric/equality_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -171,7 +171,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "ordering_expressions.expected",
+      fileName := "numeric/ordering_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -191,7 +191,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "numeric_comparison_expressions.expected",
+      fileName := "numeric/numeric_comparison_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -207,7 +207,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "logical_expressions.expected",
+      fileName := "numeric/logical_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -240,7 +240,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "logical_not_expressions.expected",
+      fileName := "numeric/logical_not_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -253,7 +253,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "unary_numeric_expressions.expected",
+      fileName := "numeric/unary_numeric_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -268,7 +268,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "regex_match_expressions.expected",
+      fileName := "numeric/regex_match_expressions.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -289,11 +289,11 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "bytes_kind.expected",
+      fileName := "numeric/bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },
     {
-      fileName := "builtin_reference_eval.expected",
+      fileName := "refs/builtin_reference_eval.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -308,7 +308,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "and_or_builtin.expected",
+      fileName := "builtins/and_or_builtin.expected",
       content :=
         formatTopLevel
           (.struct
@@ -319,7 +319,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "integer_builtin.expected",
+      fileName := "builtins/integer_builtin.expected",
       content :=
         formatTopLevel
           (.struct
@@ -334,7 +334,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "closed_extra_field.expected",
+      fileName := "definitions/closed_extra_field.expected",
       content :=
         formatField "x"
           (meet
@@ -342,7 +342,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
-      fileName := "closed_hidden_definition.expected",
+      fileName := "definitions/closed_hidden_definition.expected",
       content :=
         formatField "x"
           (meet
@@ -360,7 +360,7 @@ def fixturePorts : List FixturePort :=
       -- orthogonal, so the optional field merges with the provided value (`#x?` + `#x` →
       -- present definition), and selection sees the narrowed value. Driven through parse so
       -- the `#x?`/`_y?` lexing is exercised alongside the merge.
-      fileName := "optional_definition_field.expected",
+      fileName := "definitions/optional_definition_field.expected",
       content :=
         match parseSource
             "#D: {\n\t#x?: string\n\t_y?: int\n}\nprovided: #D & {\n\t#x: \"hi\"\n\t_y: 7\n}\nselected: provided.#x\nhidden:   provided._y\n" with
@@ -368,7 +368,7 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
-      fileName := "closed_regex_pattern.expected",
+      fileName := "definitions/closed_regex_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -376,19 +376,19 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
     },
     {
-      fileName := "default_disjunction.expected",
+      fileName := "disjunctions/default_disjunction.expected",
       content :=
         formatField "x"
           (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
     },
     {
-      fileName := "default_disjunction.manifest.expected",
+      fileName := "disjunctions/default_disjunction.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
     },
     {
-      fileName := "default_override.manifest.expected",
+      fileName := "disjunctions/default_override.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (meet
@@ -396,20 +396,20 @@ def fixturePorts : List FixturePort :=
             (.prim (.string "dev")))
     },
     {
-      fileName := "definition_closed.expected",
+      fileName := "definitions/definition_closed.expected",
       content :=
         formatField "x"
           (normalizeDefinitions
             (.struct [("#A", .definition, .struct [("a", .regular, .kind .int)] true)] true))
     },
     {
-      fileName := "definition_reference.expected",
+      fileName := "definitions/definition_reference.expected",
       content :=
         formatField "x"
           (resolveAndEval (.struct [("#A", .definition, .kind .int), ("x", .regular, .ref "#A")] true))
     },
     {
-      fileName := "direct_self_reference.expected",
+      fileName := "refs/direct_self_reference.expected",
       content := formatTopLevel (resolveAndEval (.struct [("x", .regular, .ref "x")] true))
     },
     {
@@ -418,7 +418,7 @@ def fixturePorts : List FixturePort :=
       -- memoization this re-evaluated `components` per selection, multiplying per fuel level;
       -- the frame-id cache computes it once and shares it. Behavior is unchanged — this pins
       -- both the correct shared value and (implicitly) that it completes under normal fuel.
-      fileName := "shared_selection_fan.expected",
+      fileName := "structs/shared_selection_fan.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -443,7 +443,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "constrained_reference_cycle.expected",
+      fileName := "refs/constrained_reference_cycle.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -456,11 +456,11 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "disjunction.expected",
+      fileName := "disjunctions/disjunction.expected",
       content := formatField "x" (join (.prim (.string "a")) (.prim (.string "b")))
     },
     {
-      fileName := "exact_label_pattern.expected",
+      fileName := "definitions/exact_label_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -468,7 +468,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
-      fileName := "string_kind_pattern.expected",
+      fileName := "definitions/string_kind_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -476,7 +476,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
     },
     {
-      fileName := "string_kind_pattern_mismatch.expected",
+      fileName := "definitions/string_kind_pattern_mismatch.expected",
       content :=
         formatField "x"
           (meet
@@ -484,11 +484,11 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
-      fileName := "string_kind_pattern_only.expected",
+      fileName := "definitions/string_kind_pattern_only.expected",
       content := formatField "x" (.structPattern [] (.kind .string) (.kind .int) true)
     },
     {
-      fileName := "type_label_colon_shorthand.expected",
+      fileName := "structs/type_label_colon_shorthand.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -497,7 +497,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "field_conflict.expected",
+      fileName := "structs/field_conflict.expected",
       content :=
         formatField "x"
           (meet
@@ -505,7 +505,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.string "b"))] true))
     },
     {
-      fileName := "field_alias.expected",
+      fileName := "structs/field_alias.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -518,7 +518,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "field_selector.expected",
+      fileName := "structs/field_selector.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -530,7 +530,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "list_index.expected",
+      fileName := "lists/list_index.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -542,7 +542,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "string_field_index.expected",
+      fileName := "structs/string_field_index.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -554,7 +554,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "duplicate_fields.expected",
+      fileName := "structs/duplicate_fields.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -568,11 +568,11 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "float_kind.expected",
+      fileName := "numeric/float_kind.expected",
       content := formatField "x" (meet (.kind .float) (.prim (.float "1.5")))
     },
     {
-      fileName := "number_literals.expected",
+      fileName := "numeric/number_literals.expected",
       content :=
         formatTopLevel
           (.struct
@@ -584,7 +584,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "non_decimal_numbers.expected",
+      fileName := "numeric/non_decimal_numbers.expected",
       content :=
         formatTopLevel
           (.struct
@@ -598,7 +598,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "unary_plus_numbers.expected",
+      fileName := "numeric/unary_plus_numbers.expected",
       content :=
         formatTopLevel
           (.struct
@@ -610,7 +610,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "numeric_suffixes.expected",
+      fileName := "numeric/numeric_suffixes.expected",
       content :=
         formatTopLevel
           (.struct
@@ -624,14 +624,14 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "hidden_field_reference.manifest.expected",
+      fileName := "refs/hidden_field_reference.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (resolveAndEval
             (.struct [("_secret", .hidden, .prim (.string "x")), ("value", .regular, .ref "_secret")] true))
     },
     {
-      fileName := "underscore_ident_reference.expected",
+      fileName := "refs/underscore_ident_reference.expected",
       content :=
         formatField "out"
           (resolveAndEval
@@ -647,7 +647,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "underscore_top_bottom.expected",
+      fileName := "refs/underscore_top_bottom.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -667,19 +667,19 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "int_bound_disjunction.expected",
+      fileName := "disjunctions/int_bound_disjunction.expected",
       content := formatField "x" (join (.intGe 5) (.intGe 0))
     },
     {
-      fileName := "int_bounds.expected",
+      fileName := "bounds/int_bounds.expected",
       content := formatField "x" (meet (meet (.intGe 0) (.intLe 10)) (.prim (.int 7)))
     },
     {
-      fileName := "kind_meet_int.expected",
+      fileName := "bounds/kind_meet_int.expected",
       content := formatField "x" (meet (.kind .int) (.prim (.int 1)))
     },
     {
-      fileName := "list_item_disjunction.expected",
+      fileName := "disjunctions/list_item_disjunction.expected",
       content :=
         formatField "x"
           (meet
@@ -687,7 +687,7 @@ def fixturePorts : List FixturePort :=
             (.list [.prim (.int 1)]))
     },
     {
-      fileName := "list_unification.expected",
+      fileName := "lists/list_unification.expected",
       content :=
         formatField "x"
           (meet
@@ -695,7 +695,7 @@ def fixturePorts : List FixturePort :=
             (.list [.prim (.int 1), .prim (.string "x")]))
     },
     {
-      fileName := "len_builtin.expected",
+      fileName := "builtins/len_builtin.expected",
       content :=
         formatTopLevel
           (.struct
@@ -716,7 +716,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "unresolved_builtin.expected",
+      fileName := "builtins/unresolved_builtin.expected",
       content :=
         formatTopLevel
           (.struct
@@ -727,7 +727,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "manifest_field_filtering.manifest.expected",
+      fileName := "manifest/manifest_field_filtering.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (.struct
@@ -741,7 +741,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "manifest_nested_default.manifest.expected",
+      fileName := "manifest/manifest_nested_default.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (.struct
@@ -752,7 +752,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "let_binding.expected",
+      fileName := "refs/let_binding.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -771,7 +771,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "let_chain.expected",
+      fileName := "refs/let_chain.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -784,7 +784,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "let_shadow.expected",
+      fileName := "refs/let_shadow.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -803,7 +803,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "let_sibling.expected",
+      fileName := "refs/let_sibling.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -821,7 +821,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "let_not_in_output.expected",
+      fileName := "refs/let_not_in_output.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -834,13 +834,13 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "mutual_reference_cycle.expected",
+      fileName := "refs/mutual_reference_cycle.expected",
       content :=
         formatTopLevel
           (resolveAndEval (.struct [("x", .regular, .ref "y"), ("y", .regular, .ref "x")] true))
     },
     {
-      fileName := "nested_list_field.expected",
+      fileName := "lists/nested_list_field.expected",
       content :=
         formatField "x"
           (meet
@@ -848,13 +848,13 @@ def fixturePorts : List FixturePort :=
             (.struct [("items", .regular, .list [.prim (.int 1), .prim (.string "x")])] true))
     },
     {
-      fileName := "nested_reference_list.expected",
+      fileName := "lists/nested_reference_list.expected",
       content :=
         formatTopLevel
           (resolveAndEval (.struct [("#A", .definition, .kind .int), ("x", .regular, .list [.ref "#A"])] true))
     },
     {
-      fileName := "nested_struct_field.expected",
+      fileName := "structs/nested_struct_field.expected",
       content :=
         formatField "x"
           (meet
@@ -862,19 +862,19 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1))] true))
     },
     {
-      fileName := "number_disjunction.expected",
+      fileName := "disjunctions/number_disjunction.expected",
       content := formatField "x" (join (.kind .number) (.prim (.int 1)))
     },
     {
-      fileName := "number_int_bound.expected",
+      fileName := "bounds/number_int_bound.expected",
       content := formatField "x" (meet (meet (.kind .number) (.intGe 0)) (.prim (.int 7)))
     },
     {
-      fileName := "number_kind.expected",
+      fileName := "numeric/number_kind.expected",
       content := formatField "x" (meet (.kind .number) (.prim (.float "1.5")))
     },
     {
-      fileName := "open_list_tail.expected",
+      fileName := "lists/open_list_tail.expected",
       content :=
         formatField "x"
           (meet
@@ -882,7 +882,7 @@ def fixturePorts : List FixturePort :=
             (.list [.prim (.int 1), .prim (.string "x"), .prim (.string "y")]))
     },
     {
-      fileName := "optional_default_absent.manifest.expected",
+      fileName := "manifest/optional_default_absent.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (.struct
@@ -891,7 +891,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "optional_default_materialized.manifest.expected",
+      fileName := "manifest/optional_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (meet
@@ -902,11 +902,11 @@ def fixturePorts : List FixturePort :=
             (.struct [("mode", .regular, .top)] true))
     },
     {
-      fileName := "primitive_exclusion.expected",
+      fileName := "numeric/primitive_exclusion.expected",
       content := formatField "x" (meet (.notPrim (.int 0)) (.prim (.int 1)))
     },
     {
-      fileName := "regular_struct_meet.expected",
+      fileName := "structs/regular_struct_meet.expected",
       content :=
         formatField "x"
           (meet
@@ -914,7 +914,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
-      fileName := "regex_label_pattern.expected",
+      fileName := "definitions/regex_label_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -922,7 +922,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "x"))] true))
     },
     {
-      fileName := "multiple_pattern_fields.expected",
+      fileName := "definitions/multiple_pattern_fields.expected",
       content :=
         formatField "x"
           (meet
@@ -939,7 +939,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "regex_wildcard_pattern.expected",
+      fileName := "definitions/regex_wildcard_pattern.expected",
       content :=
         formatTopLevel
           (.struct
@@ -960,7 +960,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "regex_class_pattern.expected",
+      fileName := "definitions/regex_class_pattern.expected",
       content :=
         formatTopLevel
           (.struct
@@ -985,7 +985,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "regex_escape_pattern.expected",
+      fileName := "definitions/regex_escape_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -995,7 +995,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "regex_question_pattern.expected",
+      fileName := "definitions/regex_question_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -1009,7 +1009,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "regex_shorthand_pattern.expected",
+      fileName := "definitions/regex_shorthand_pattern.expected",
       content :=
         formatTopLevel
           (.struct
@@ -1030,7 +1030,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "regex_alternation_pattern.expected",
+      fileName := "definitions/regex_alternation_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -1044,7 +1044,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "regex_group_alternation_pattern.expected",
+      fileName := "definitions/regex_group_alternation_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -1058,7 +1058,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "regex_word_shorthand_pattern.expected",
+      fileName := "definitions/regex_word_shorthand_pattern.expected",
       content :=
         formatTopLevel
           (.struct
@@ -1079,7 +1079,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "regex_space_shorthand_pattern.expected",
+      fileName := "definitions/regex_space_shorthand_pattern.expected",
       content :=
         formatTopLevel
           (.struct
@@ -1100,7 +1100,7 @@ def fixturePorts : List FixturePort :=
             true)
     },
     {
-      fileName := "regex_exact_repetition_pattern.expected",
+      fileName := "definitions/regex_exact_repetition_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -1110,7 +1110,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "regex_bounded_repetition_pattern.expected",
+      fileName := "definitions/regex_bounded_repetition_pattern.expected",
       content :=
         formatField "x"
           (meet
@@ -1124,7 +1124,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "required_default_materialized.manifest.expected",
+      fileName := "manifest/required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (meet
@@ -1135,11 +1135,11 @@ def fixturePorts : List FixturePort :=
             (.struct [("mode", .regular, .top)] true))
     },
     {
-      fileName := "strict_int_bounds.expected",
+      fileName := "bounds/strict_int_bounds.expected",
       content := formatField "x" (meet (meet (.intGt 0) (.intLt 10)) (.prim (.int 7)))
     },
     {
-      fileName := "string_pattern_conflict.expected",
+      fileName := "definitions/string_pattern_conflict.expected",
       content :=
         formatField "x"
           (meet
@@ -1147,7 +1147,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.string "x"))] true))
     },
     {
-      fileName := "string_pattern_constraint.expected",
+      fileName := "definitions/string_pattern_constraint.expected",
       content :=
         formatField "x"
           (meet
@@ -1155,7 +1155,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 2))] true))
     },
     {
-      fileName := "struct_ellipsis.expected",
+      fileName := "structs/struct_ellipsis.expected",
       content :=
         formatField "x"
           (meet
@@ -1163,7 +1163,7 @@ def fixturePorts : List FixturePort :=
             (.struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.string "ok"))] true))
     },
     {
-      fileName := "struct_disjunction_meet.expected",
+      fileName := "disjunctions/struct_disjunction_meet.expected",
       content :=
         formatField "x"
           (meet
@@ -1180,7 +1180,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "three_reference_cycle.expected",
+      fileName := "refs/three_reference_cycle.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1193,7 +1193,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "comprehension_for.expected",
+      fileName := "comprehensions/comprehension_for.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1219,7 +1219,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "comprehension_guard.expected",
+      fileName := "comprehensions/comprehension_guard.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1246,7 +1246,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "string_interpolation.expected",
+      fileName := "numeric/string_interpolation.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1262,21 +1262,21 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "multiline_string.expected",
+      fileName := "multiline/multiline_string.expected",
       content :=
         formatTopLevel
           (resolveAndEval
             (.struct [("x", .regular, .prim (.string "hello\nworld"))] true))
     },
     {
-      fileName := "multiline_dedent.expected",
+      fileName := "multiline/multiline_dedent.expected",
       content :=
         formatTopLevel
           (resolveAndEval
             (.struct [("x", .regular, .prim (.string "line1\n  line2"))] true))
     },
     {
-      fileName := "multiline_interpolation.expected",
+      fileName := "multiline/multiline_interpolation.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1292,14 +1292,14 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "multiline_empty.expected",
+      fileName := "multiline/multiline_empty.expected",
       content :=
         formatTopLevel
           (resolveAndEval
             (.struct [("x", .regular, .prim (.string ""))] true))
     },
     {
-      fileName := "multiline_cert.expected",
+      fileName := "multiline/multiline_cert.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1314,14 +1314,14 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "multiline_bytes.expected",
+      fileName := "multiline/multiline_bytes.expected",
       content :=
         formatTopLevel
           (resolveAndEval
             (.struct [("x", .regular, .prim (.bytes "abc\ndef"))] true))
     },
     {
-      fileName := "dynamic_field.expected",
+      fileName := "structs/dynamic_field.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1337,7 +1337,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "dynamic_field_comprehension.expected",
+      fileName := "comprehensions/dynamic_field_comprehension.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1367,7 +1367,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "comprehension_loopvar_shadow.expected",
+      fileName := "comprehensions/comprehension_loopvar_shadow.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1393,7 +1393,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "struct_embedding_scope.expected",
+      fileName := "structs/struct_embedding_scope.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1410,7 +1410,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "struct_embedding_nested.expected",
+      fileName := "structs/struct_embedding_nested.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1427,7 +1427,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "struct_embedding_siblings.expected",
+      fileName := "structs/struct_embedding_siblings.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1453,7 +1453,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- `{[1, 2, 3]}`: a list embedded in a struct with no other members IS the list.
-      fileName := "list_embedding_pure.expected",
+      fileName := "lists/list_embedding_pure.expected",
       content :=
         formatField "x"
           (resolveAndEval
@@ -1461,7 +1461,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- `{#a: 1, [1, 2]}`: only-non-output struct + list embed → embeddedList with decls.
-      fileName := "list_embedding_hidden.expected",
+      fileName := "lists/list_embedding_hidden.expected",
       content :=
         formatField "x"
           (resolveAndEval
@@ -1472,7 +1472,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- `{#a: 1, [...]}`: open list embed; manifests as `[]`, eval keeps `[...]`.
-      fileName := "list_embedding_open.expected",
+      fileName := "lists/list_embedding_open.expected",
       content :=
         formatField "x"
           (resolveAndEval
@@ -1483,7 +1483,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- `{a: 1, [1, 2]}`: a regular (output) field present → genuine struct/list conflict.
-      fileName := "list_embedding_regular_conflict.expected",
+      fileName := "lists/list_embedding_regular_conflict.expected",
       content :=
         formatField "x"
           (resolveAndEval
@@ -1494,7 +1494,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- `{a: 1} & [1, 2]`: explicit struct meet list, struct has an output field → bottom.
-      fileName := "list_struct_genuine_conflict.expected",
+      fileName := "lists/list_struct_genuine_conflict.expected",
       content :=
         formatField "x"
           (meet
@@ -1503,7 +1503,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- `{a?: int, [1, 2]}`: optional is non-output, so the list embed survives.
-      fileName := "list_embedding_optional.expected",
+      fileName := "lists/list_embedding_optional.expected",
       content :=
         formatField "x"
           (resolveAndEval
@@ -1515,7 +1515,7 @@ def fixturePorts : List FixturePort :=
     {
       -- `{#a: 1, [...int]} & {#b: 2, [1, 2]}`: meet of two embeddedLists — decls merge,
       -- lists meet (`[...int] & [1, 2] = [1, 2]`).
-      fileName := "list_embedding_meet_two.expected",
+      fileName := "lists/list_embedding_meet_two.expected",
       content :=
         formatField "x"
           (meet
@@ -1527,7 +1527,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- `{#a: 1, [10, 20]}.#a` selects a decl; `[0]` indexes the embedded list.
-      fileName := "list_embedding_select_index.expected",
+      fileName := "lists/list_embedding_select_index.expected",
       content :=
         let base : Value :=
           .structComp [("#a", .definition, .prim (.int 1))]
@@ -1542,7 +1542,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "strings_builtin.expected",
+      fileName := "builtins/strings_builtin.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1586,7 +1586,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "list_builtin.expected",
+      fileName := "builtins/list_builtin.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1670,7 +1670,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "list_sort_strings.expected",
+      fileName := "builtins/list_sort_strings.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1702,7 +1702,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "strings_case.expected",
+      fileName := "builtins/strings_case.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1740,7 +1740,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "strings_splitn.expected",
+      fileName := "builtins/strings_splitn.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1783,7 +1783,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "list_builtin_float.expected",
+      fileName := "builtins/list_builtin_float.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1836,7 +1836,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "math_builtin.expected",
+      fileName := "builtins/math_builtin.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1895,7 +1895,7 @@ def fixturePorts : List FixturePort :=
       -- Colon-shorthand (`a: b: c: 1`) desugars to the brace form. This port builds the
       -- explicit-brace AST; the CLI port independently evaluates the shorthand `.cue`.
       -- Both matching `.expected` pins that shorthand produces the brace-identical value.
-      fileName := "colon_shorthand.expected",
+      fileName := "structs/colon_shorthand.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1933,7 +1933,7 @@ def fixturePorts : List FixturePort :=
       -- value is `.thisStruct`, so `Self.field` resolves as a same-struct sibling
       -- reference. The CLI port independently parses/evaluates the alias `.cue`; both
       -- matching `.expected` pins that the alias binding resolves correctly.
-      fileName := "value_aliases.expected",
+      fileName := "refs/value_aliases.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1968,7 +1968,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "base64_encode.expected",
+      fileName := "builtins/base64_encode.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -1994,7 +1994,7 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
-      fileName := "json_marshal.expected",
+      fileName := "builtins/json_marshal.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2036,7 +2036,7 @@ def fixturePorts : List FixturePort :=
       -- The prod9/infra docker-config chain: a registry-auth struct is JSON-marshalled
       -- then base64-encoded. The CLI port independently evaluates the `.cue`; both
       -- matching `.expected` pins that `base64.Encode(null, json.Marshal({...}))` composes.
-      fileName := "encoding_infra_chain.expected",
+      fileName := "builtins/encoding_infra_chain.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2060,7 +2060,7 @@ def fixturePorts : List FixturePort :=
       -- operand is "defined" (`!= _|_` true); an absent-field selection is "incomplete" so
       -- the guard drops. Pins the comparison + the comprehension guard firing on present
       -- and dropping on absent.
-      fileName := "presence_test_guard.expected",
+      fileName := "comprehensions/presence_test_guard.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2102,7 +2102,7 @@ def fixturePorts : List FixturePort :=
       -- must see the fully-merged value of the duplicated label `a`, not the first
       -- conjunct. Canonicalization collapses the two `a` slots into one first-occurrence
       -- slot carrying `.conj [int, 1]`, so `b`'s ref lands on `1`.
-      fileName := "in_struct_sibling_merge.expected",
+      fileName := "structs/in_struct_sibling_merge.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2117,7 +2117,7 @@ def fixturePorts : List FixturePort :=
     {
       -- A duplicate-label conflict still bottoms both the conflicting label and any sibling
       -- referencing it (`a: 1; b: a; a: 2` -> `a` and `b` both bottom).
-      fileName := "in_struct_sibling_conflict.expected",
+      fileName := "structs/in_struct_sibling_conflict.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2132,7 +2132,7 @@ def fixturePorts : List FixturePort :=
     {
       -- Canonicalization is visible through nested sub-structs: `c.e` references the
       -- outer `a`, which sees the merged `int & 1 = 1`.
-      fileName := "nested_sibling_merge.expected",
+      fileName := "structs/nested_sibling_merge.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2148,7 +2148,7 @@ def fixturePorts : List FixturePort :=
       -- A self-referential merged slot must not loop: `a: a; a: 1` canonicalizes to
       -- `.conj [a, 1]` at slot 0; the self-ref hits the `slotVisited` -> `.top` guard, so
       -- the meet collapses to `1` rather than diverging.
-      fileName := "merged_self_ref_cycle.expected",
+      fileName := "refs/merged_self_ref_cycle.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2164,7 +2164,7 @@ def fixturePorts : List FixturePort :=
       -- frame before evaluating bodies, so a body referencing a sibling that another
       -- conjunct narrows sees the narrowed slot. Here `d.b` references `d.a` (int); the
       -- referenced-def conjunction `d & {a: 1}` narrows `a` to `1`, and `y.b` resolves to `1`.
-      fileName := "meet_lazy_sibling_ref.expected",
+      fileName := "structs/meet_lazy_sibling_ref.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2178,7 +2178,7 @@ def fixturePorts : List FixturePort :=
     {
       -- 2c.2: literal struct conjunction (no reference operand) — `{a: int, b: a} & {a: 1}`;
       -- `b` tracks the narrowed `a` through the merged frame.
-      fileName := "meet_lazy_literal.expected",
+      fileName := "structs/meet_lazy_literal.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2197,7 +2197,7 @@ def fixturePorts : List FixturePort :=
       -- 2c.2: a still-incomplete merged slot stays symbolic and the sibling tracks it —
       -- `d.b: a`, `d & {a: >0}` leaves `a` (and thus `b`) as `int & >0`: the `int` kind from
       -- `d.a` is retained alongside the `>0` bound (oracle cue v0.16.1: `{a: int & >0, b: int & >0}`).
-      fileName := "meet_lazy_incomplete.expected",
+      fileName := "structs/meet_lazy_incomplete.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2212,7 +2212,7 @@ def fixturePorts : List FixturePort :=
       -- 2c.2: nested sub-struct visibility through a *definition* meet. `out.val` references
       -- the hidden `#x`; meeting `#D & {#x: "hi"}` narrows `#x` and the nested `out.val`
       -- resolves to `"hi"`. Pins the hidden-sibling-through-nested-struct path.
-      fileName := "meet_lazy_hidden_def.expected",
+      fileName := "structs/meet_lazy_hidden_def.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2232,7 +2232,7 @@ def fixturePorts : List FixturePort :=
     {
       -- 2c.2: a chained sibling reference within one conjunct, narrowed across the meet —
       -- `{a: int, b: a, c: b} & {a: 1}` resolves `a`, `b`, `c` all to `1`.
-      fileName := "meet_lazy_chain.expected",
+      fileName := "structs/meet_lazy_chain.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2256,7 +2256,7 @@ def fixturePorts : List FixturePort :=
     {
       -- 2c.2: a disjunction operand keeps the eval-then-`meet` path (not the lazy merge):
       -- `({kind: "web"} | {kind: "db"}) & {kind: "web", port: 80}` selects the `web` arm.
-      fileName := "meet_lazy_disj_operand.expected",
+      fileName := "structs/meet_lazy_disj_operand.expected",
       content :=
         formatTopLevel
           (resolveAndEval
@@ -2283,7 +2283,10 @@ def fixturePorts : List FixturePort :=
   ]
 
 def writeFixturePort (targetDir : System.FilePath) (port : FixturePort) : IO Unit := do
-  IO.FS.writeFile (targetDir / port.fileName) (port.content ++ "\n")
+  let path := targetDir / port.fileName
+  if let some parent := path.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile path (port.content ++ "\n")
 
 def writeFixturePorts (targetDir : System.FilePath) : IO Unit := do
   IO.FS.createDirAll targetDir
