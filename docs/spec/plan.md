@@ -243,7 +243,22 @@ implementation log):
   `export` file-mode route through `Kue.loadFileBound`; stdin keeps the discard path.
   Parse errors now carry a source position: `ParseError` records the remaining-suffix
   length at the failure site, which `parseSource` converts to 1-based `line`/`column`;
-  the CLI prints `kue: parse error: <line>:<col>: <message>`. Colon-shorthand nested
+  the CLI prints `kue: parse error: <line>:<col>: <message>`. **The CLI is now a proper
+  subcommand dispatcher (`Kue/Cli.lean`):** a pure `parse : List String → Command` folds
+  argv into a `Command` sum type (`eval (files)`, `export (ExportOpts)`, `version`,
+  `help (Option HelpTopic)`, `error msg`); `Main.runCommand` dispatches exhaustively.
+  Subcommands: `kue eval [file…]` (explicit name for the default internal-format path),
+  `kue export [--out json|yaml] [file]`, `kue version`/`--version`/`-V` (prints
+  `Kue.version`, the single source of truth in `Kue/Runtime.lean`), `kue help [cmd]` /
+  `--help` / `-h` (top-level + per-command usage). Back-compat preserved by routing any
+  first token that is not a known subcommand/flag to the eval path, so `kue < file`,
+  `kue <file…>`, and `kue export …` are byte-identical to before. Usage errors (unknown
+  subcommand-flag, bad `--out`) exit `2`; eval/parse failures exit `1` (distinct codes).
+  Missing input files now report `kue: cannot read <path>: …` instead of an uncaught
+  exception. 25 `CliTests.lean` `native_decide` theorems pin the argv→`Command` parse;
+  `check-fixtures.sh` gained an additive `check_cli_behavior` stage (help lists
+  subcommands, `version` prints, `eval` agrees with the bare path, error cases exit
+  non-zero with stderr diagnostics). Colon-shorthand nested
   fields (`a: b: c: 1`) desugar to the brace form via `parseFieldValue` (lookahead
   `valuePositionStartsField` gates the recursion; the inner field routes through the same
   `parsedFieldsValue` builder, so the AST is brace-identical). Value-position aliases

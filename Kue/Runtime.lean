@@ -8,6 +8,10 @@ import Kue.Yaml
 
 namespace Kue
 
+/-- The Kue version string, reported by `kue version` / `kue --version`. Bumped by
+    `scripts/release.sh` at release time; this is the single source of truth. -/
+def version : String := "0.1.0-alpha"
+
 def formatTopLevel : Value -> String
   | .struct fields _ => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
   | value => formatValue value
@@ -62,7 +66,7 @@ def evalSourcesToString (sources : List String) : Except ParseError String := do
 inductive ExportFormat where
   | json
   | yaml
-deriving Repr, BEq
+deriving Repr, BEq, DecidableEq
 
 /-- A human-readable reason an `export` failed to produce concrete output, mirroring how
     `cue export` reports a non-concrete or contradictory value. -/

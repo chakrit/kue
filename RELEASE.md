@@ -9,6 +9,12 @@ right order and none are forgotten. Design rationale lives in
 
 - Roughly **one alpha per day**, datestamped: `0.1.0-alpha.YYYYMMDD`.
 - A second build the same day gets a `.N` suffix: `0.1.0-alpha.YYYYMMDD.2`, `.3`, …
+- **Version constant.** `kue version` / `kue --version` prints `Kue.version`, defined in
+  [`Kue/Runtime.lean`](Kue/Runtime.lean) (`def version : String := "0.1.0-alpha"`). It is
+  the single in-binary source of truth and is currently a static placeholder, not the
+  datestamped release tag. A future `release.sh` step should rewrite this constant to the
+  `<version>` being cut so the shipped binary self-reports its release; until then it
+  trails the tag. (Not wired in this slice — `release.sh` left untouched.)
 - Cut from an **audited, releasable** `main` HEAD (see step 1). Alpha quality may ship with
   documented known gaps, but never a crash, non-termination, or half-landed work.
 

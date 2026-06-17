@@ -31,5 +31,6 @@ class Kue < Formula
 
   test do
     assert_equal "x: 1", pipe_output("#{bin}/kue", "x: int & 1\n").strip
+    assert_match(/\d+\.\d+\.\d+/, shell_output("#{bin}/kue version"))
   end
 end

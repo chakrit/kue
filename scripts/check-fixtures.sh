@@ -266,6 +266,71 @@ check_module_fixtures() {
   return "${status}"
 }
 
+# Exercise the subcommand/help/version CLI surface added alongside the eval/export paths.
+# Purely additive: asserts exit codes and key output substrings without touching the
+# byte-exact fixture stages above. `version` must print the `Kue.version` constant; the
+# error cases (unknown flag, bad --out value) must exit with the usage code and write to
+# stderr.
+check_cli_behavior() {
+  local kue_exe="${repo_root}/.lake/build/bin/kue"
+  local status=0
+  local output
+
+  # `kue --help` and `kue help` exit 0 and list the subcommands.
+  if ! output="$("${kue_exe}" --help)"; then
+    printf 'kue --help exited non-zero\n' >&2
+    status=1
+  elif [[ "${output}" != *"eval"* || "${output}" != *"export"* || "${output}" != *"version"* ]]; then
+    printf 'kue --help is missing a subcommand in its listing\n' >&2
+    status=1
+  fi
+
+  # `kue version` and `kue --version` print the version constant on exit 0.
+  if ! output="$("${kue_exe}" version)"; then
+    printf 'kue version exited non-zero\n' >&2
+    status=1
+  elif [[ -z "${output}" ]]; then
+    printf 'kue version printed nothing\n' >&2
+    status=1
+  fi
+  if [[ "$("${kue_exe}" --version)" != "${output}" ]]; then
+    printf 'kue --version and kue version disagree\n' >&2
+    status=1
+  fi
+
+  # The explicit `kue eval` subcommand must agree byte-for-byte with the bare path on a
+  # representative fixture (the internal-format default).
+  local sample_cue
+  sample_cue="${fixture_dir}/additive_expressions.cue"
+  if [[ ! -f "${sample_cue}" ]]; then
+    printf 'CLI behavior sample fixture %s is missing\n' "${sample_cue}" >&2
+    status=1
+  elif ! diff -u <("${kue_exe}" <"${sample_cue}") <("${kue_exe}" eval <"${sample_cue}"); then
+    printf 'kue eval disagrees with the bare eval path on %s\n' "${sample_cue}" >&2
+    status=1
+  fi
+
+  # Unknown top-level flag → usage error (exit 2) with a stderr diagnostic.
+  if "${kue_exe}" --bogus >/dev/null 2>&1; then
+    printf 'kue --bogus unexpectedly succeeded\n' >&2
+    status=1
+  elif [[ "$("${kue_exe}" --bogus 2>&1 1>/dev/null)" != *"unknown flag"* ]]; then
+    printf 'kue --bogus did not report an unknown flag on stderr\n' >&2
+    status=1
+  fi
+
+  # Bad `--out` value → usage error with a stderr diagnostic.
+  if "${kue_exe}" export --out bogus >/dev/null 2>&1; then
+    printf 'kue export --out bogus unexpectedly succeeded\n' >&2
+    status=1
+  elif [[ "$("${kue_exe}" export --out bogus 2>&1 1>/dev/null)" != *"unsupported --out format"* ]]; then
+    printf 'kue export --out bogus did not report a format error on stderr\n' >&2
+    status=1
+  fi
+
+  return "${status}"
+}
+
 main() {
   local status=0
   local cue_file
@@ -314,6 +379,10 @@ main() {
   fi
 
   if ! check_module_fixtures; then
+    status=1
+  fi
+
+  if ! check_cli_behavior; then
     status=1
   fi
 

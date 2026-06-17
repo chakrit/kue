@@ -5279,3 +5279,48 @@ Verify gate green: `lake build` (80 jobs), `scripts/check-fixtures.sh` ⇒ `fixt
 `shellcheck` clean. CLI oracle-matched: `int & >0`, `>0 & int`, `(int&>0)&1.5`→`_|_`,
 `(int&>0)&5`→`5`, `int & >0 & <10`, `#Port: int & >=0 & <=65535`, `number & >0`→`>0`,
 `>0 & 5`→`5`.
+
+## Completed Slice: Proper CLI — subcommands, `--help`, `version` (2026-06-17)
+
+The CLI moved from ad-hoc argv branching in `Main.lean` to a type-system-first subcommand
+dispatcher. New `Kue/Cli.lean` defines a pure `parse : List String → Command`, where
+`Command` is a sum type: `eval (files : List String)`, `export (ExportOpts)`, `version`,
+`help (Option HelpTopic)`, `error (message : String)`. `Main.runCommand` dispatches it
+exhaustively — no stringly-typed flag soup past the single parse fold.
+
+**Surface.** `kue eval [file…]` (explicit name for the historical default internal-format
+path), `kue export [--out json|yaml] [file]` (unchanged behavior), `kue version` /
+`--version` / `-V` (prints the new `Kue.version` constant in `Kue/Runtime.lean`,
+`"0.1.0-alpha"`), `kue help [eval|export]` / `--help` / `-h` (top-level synopsis +
+subcommand list + per-command usage in `helpText`).
+
+**Back-compat by construction.** `parse` routes a first token that is not a recognized
+subcommand or top-level flag to the eval positional list, so `kue < file`, `kue <file…>`,
+and `kue export …` are byte-identical to pre-slice behavior. Confirmed: full
+`check-fixtures.sh` (internal-format CLI fixtures, export yaml/json fixtures, module
+fixtures, subpath fixtures) passes unchanged — `fixture pairs ok`.
+
+**Error model.** Distinct exit codes — `2` for usage errors (unknown subcommand-flag,
+bad/missing `--out`), `1` for eval/parse/manifest failures, `0` on success. Errors print
+`kue: <message>` + `run \`kue --help\` for usage` to stderr. A missing/unreadable input
+file now reports `kue: cannot read <path>: <io-error>` (via `(loadFileBound …).toBaseIO`)
+instead of leaking an uncaught exception.
+
+**Types.** `ExportFormat` gained `DecidableEq` (was `Repr, BEq`); `Command`/`ExportOpts`/
+`HelpTopic` derive `Repr, BEq, DecidableEq` so the parse theorems are decidable.
+
+**Tests.** 25 `CliTests.lean` `native_decide` theorems pin the argv→`Command` parse (bare
+files, eval/export/version/help subcommands, all flag spellings, every error case).
+`check-fixtures.sh` gained an additive `check_cli_behavior` stage: `--help` lists the
+subcommands, `version`/`--version` print and agree, `eval` agrees byte-for-byte with the
+bare path on a sample fixture, unknown-flag and bad-`--out` exit non-zero with the right
+stderr substring. The in-repo `packaging/homebrew/kue.rb` `test do` block now also asserts
+`kue version` matches a semver-shaped regex (in-repo copy only; tap repo + release.sh
+untouched).
+
+**Verify gate green:** `lake build` (84 jobs), `scripts/check-fixtures.sh` ⇒
+`fixture pairs ok`, `shellcheck scripts/check-fixtures.sh` clean. Manual: `echo 'x: 1+2' |
+kue` and `| kue eval` both `x: 3`; `kue version`/`-V`/`--version` ⇒ `0.1.0-alpha`;
+`kue --help`/`kue help eval`; `kue export --out yaml <f>` and default-json; `kue --bogus`
+⇒ exit 2; `kue export --out bogus` ⇒ exit 2; `kue nonexistent.cue` ⇒ clean read error,
+exit 1.

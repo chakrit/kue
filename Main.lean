@@ -1,4 +1,10 @@
 import Kue
+import Kue.Cli
+
+/-- Process exit codes. Usage errors (bad subcommand/flag) are distinct from
+    evaluation/parse failures so callers and scripts can tell them apart. -/
+def evalErrorCode : UInt32 := 1
+def usageErrorCode : UInt32 := 2
 
 def printSmoke : IO Unit :=
   for line in Kue.smokeLines do
@@ -11,7 +17,7 @@ def printEvalResult (result : Except Kue.ParseError String) : IO UInt32 := do
       pure 0
   | .error error =>
       IO.eprintln s!"kue: parse error: {error.line}:{error.column}: {error.message}"
-      pure 1
+      pure evalErrorCode
 
 def readFileSources : List String -> IO (List String)
   | [] => pure []
@@ -20,86 +26,32 @@ def readFileSources : List String -> IO (List String)
       let sources ← readFileSources paths
       pure (source :: sources)
 
-/-- Print a loader/eval result that may carry an import-resolution error (already a
-    human-readable string) ahead of the pure evaluation. -/
-def printLoaderResult (result : Except String String) : IO UInt32 := do
-  match result with
-  | .ok output =>
-      IO.println output
-      pure 0
+/-- Print a bound-load result: a loader error (already human-readable) or the formatted
+    value. -/
+def printLoaded (loaded : Except String Kue.Value) : IO UInt32 := do
+  match loaded with
   | .error message =>
       IO.eprintln s!"kue: {message}"
-      pure 1
+      pure evalErrorCode
+  | .ok value =>
+      IO.println (Kue.formatResolvedTopLevel value)
+      pure 0
 
-/-- Parsed `export`-mode invocation: the chosen output format and the optional input
-    file path (none = read stdin). `-e`/`--expression` sub-expression selection is
-    deferred (documented in compat-assumptions). -/
-structure ExportArgs where
-  format : Kue.ExportFormat
-  file : Option String
-deriving Repr
+/-- Evaluate a single file through the import-aware loader, then format the bound value.
+    A read failure (missing/unreadable file) is reported as a clean diagnostic rather than
+    an uncaught exception. -/
+def runEvalFile (path : String) : IO UInt32 := do
+  match ← (Kue.loadFileBound path).toBaseIO with
+  | .error ioError =>
+      IO.eprintln s!"kue: cannot read {path}: {ioError.toString}"
+      pure evalErrorCode
+  | .ok loaded => printLoaded loaded
 
-/-- Parse `export` flags. Default format is JSON, matching `cue export`'s default. A
-    bare positional argument is the input file; absence means stdin. -/
-def parseExportArgs : List String -> Except String ExportArgs
-  | [] => .ok { format := .json, file := none }
-  | "--out" :: "json" :: rest => (parseExportArgs rest).map ({ · with format := .json })
-  | "--out" :: "yaml" :: rest => (parseExportArgs rest).map ({ · with format := .yaml })
-  | "--out" :: other :: _ => .error s!"unsupported --out format: {other} (expected json or yaml)"
-  | "--out" :: [] => .error "missing value for --out"
-  | arg :: rest =>
-      if arg.startsWith "-" then
-        .error s!"unknown export flag: {arg}"
-      else
-        (parseExportArgs rest).map fun parsed =>
-          match parsed.file with
-          | none => { parsed with file := some arg }
-          | some _ => parsed
-
-/-- The `export` subcommand: read a single CUE input (file or stdin), evaluate it, and
-    print the manifested value as JSON (default) or YAML, matching `cue export`. Parse
-    errors print a positioned diagnostic; a non-concrete value prints an export error.
-    Both exit non-zero. -/
-def runExport (rawArgs : List String) : IO UInt32 := do
-  match parseExportArgs rawArgs with
-  | .error message =>
-      IO.eprintln s!"kue: export: {message}"
-      pure 2
-  | .ok args =>
-      match args.file with
-      | some path =>
-          -- File-mode export routes through the import-aware loader, then manifests the
-          -- bound value. Stdin export has no module context, so it keeps the source path.
-          match ← Kue.loadFileBound path with
-          | .error message =>
-              IO.eprintln s!"kue: {message}"
-              pure 1
-          | .ok value =>
-              match Kue.exportValue args.format value with
-              | .error message =>
-                  IO.eprintln s!"kue: export error: {message}"
-                  pure 1
-              | .ok output =>
-                  IO.print output
-                  pure 0
-      | none =>
-          let stdin ← IO.getStdin
-          let source ← stdin.readToEnd
-          match Kue.exportSourcesToString args.format [source] with
-          | .error parseError =>
-              IO.eprintln s!"kue: parse error: {parseError.line}:{parseError.column}: {parseError.message}"
-              pure 1
-          | .ok (.error message) =>
-              IO.eprintln s!"kue: export error: {message}"
-              pure 1
-          | .ok (.ok output) =>
-              IO.print output
-              pure 0
-
-def main (args : List String) : IO UInt32 := do
-  match args with
-  | "export" :: rest => runExport rest
-  | [] =>
+/-- The `eval` path. No files reads stdin (empty stdin prints the smoke summary); a single
+    file routes through the import-aware loader; multiple files merge through the pure
+    pipeline. Preserves the historical bare `kue < file` / `kue <file…>` behavior. -/
+def runEval : List String -> IO UInt32
+  | [] => do
       let stdin ← IO.getStdin
       let source ← stdin.readToEnd
       if source.trimAscii.toString.isEmpty then
@@ -107,14 +59,56 @@ def main (args : List String) : IO UInt32 := do
         pure 0
       else
         printEvalResult (Kue.evalSourceToString source)
-  | [path] =>
-      -- A single file routes through the import-aware loader: discover the module, load
-      -- and bind in-module imports, then format the bound value with the pure pipeline.
+  | [path] => runEvalFile path
+  | paths => do
+      let sources ← readFileSources paths
+      printEvalResult (Kue.evalSourcesToString sources)
+
+/-- The `export` subcommand: read a single CUE input (file or stdin), evaluate it, and
+    print the manifested value as JSON (default) or YAML, matching `cue export`. File mode
+    routes through the import-aware loader; stdin mode has no module context. -/
+def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
+  match opts.file with
+  | some path =>
       match ← Kue.loadFileBound path with
       | .error message =>
           IO.eprintln s!"kue: {message}"
-          pure 1
-      | .ok value => printLoaderResult (.ok (Kue.formatResolvedTopLevel value))
-  | _ =>
-      let sources ← readFileSources args
-      printEvalResult (Kue.evalSourcesToString sources)
+          pure evalErrorCode
+      | .ok value =>
+          match Kue.exportValue opts.format value with
+          | .error message =>
+              IO.eprintln s!"kue: export error: {message}"
+              pure evalErrorCode
+          | .ok output =>
+              IO.print output
+              pure 0
+  | none =>
+      let stdin ← IO.getStdin
+      let source ← stdin.readToEnd
+      match Kue.exportSourcesToString opts.format [source] with
+      | .error parseError =>
+          IO.eprintln s!"kue: parse error: {parseError.line}:{parseError.column}: {parseError.message}"
+          pure evalErrorCode
+      | .ok (.error message) =>
+          IO.eprintln s!"kue: export error: {message}"
+          pure evalErrorCode
+      | .ok (.ok output) =>
+          IO.print output
+          pure 0
+
+def runCommand : Kue.Cli.Command -> IO UInt32
+  | .eval files => runEval files
+  | .export opts => runExport opts
+  | .version => do
+      IO.println Kue.version
+      pure 0
+  | .help topic => do
+      IO.println (Kue.Cli.helpText topic)
+      pure 0
+  | .error message => do
+      IO.eprintln s!"kue: {message}"
+      IO.eprintln "run `kue --help` for usage"
+      pure usageErrorCode
+
+def main (args : List String) : IO UInt32 :=
+  runCommand (Kue.Cli.parse args)

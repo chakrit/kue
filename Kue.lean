@@ -34,3 +34,5 @@ import Kue.Builtin
 import Kue.BuiltinTests
 import Kue.Module
 import Kue.ModuleTests
+import Kue.Cli
+import Kue.CliTests

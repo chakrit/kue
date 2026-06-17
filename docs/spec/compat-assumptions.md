@@ -175,6 +175,21 @@ those forms.
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
   output for quick build checks.
+- **CLI surface (subcommand dispatcher, `Kue/Cli.lean`).** `parse : List String → Command`
+  is a pure fold into a `Command` sum type; `Main` dispatches exhaustively. Surface:
+  `kue eval [file…]` (explicit name for the default internal-format path — stdin, single
+  file via the loader, or multi-file merge), `kue export [--out json|yaml] [file]`,
+  `kue version` / `--version` / `-V` (prints `Kue.version`), `kue help [eval|export]` /
+  `--help` / `-h` (top-level synopsis + subcommand list + per-command usage). **Dispatch
+  is back-compat by construction:** a first token that is not a recognized subcommand or
+  top-level flag is treated as the eval positional list, so `kue < file`, `kue <file…>`,
+  and `kue export …` behave exactly as before this slice. Exit codes are distinct: `2`
+  for usage errors (unknown subcommand-flag, bad/missing `--out` value), `1` for
+  eval/parse/manifest failures, `0` on success. A missing or unreadable input file
+  reports `kue: cannot read <path>: <io-error>` rather than an uncaught exception. CUE
+  divergence: this is **not** `cue`'s command surface (`cue eval`/`cue export`/`cue vet`/…)
+  — Kue ships only the subset above; `eval` prints Kue's internal format, not `cue eval`'s.
+  `cue`-compat is at the `export` byte level (see the manifest section), not the CLI ergonomics.
 
 ## Structs, embeddings, and patterns
 
@@ -435,11 +450,13 @@ serializer lives in the reusable `Kue/Json.lean` (`manifestToJson`), shared with
 ## Manifest output: `export` CLI mode, YAML serializer, `yaml.Marshal`
 
 Supported (B5). `kue export [--out yaml|json] [file]` is a `cue export`-style mode that
-manifests then serializes; the existing no-flag CLI (`kue < file` / `kue file…` →
-internal `formatValue`) is unchanged. Default `--out` is **json** (matches `cue export`).
-Reads a file arg or stdin. A parse error exits 1 with the positioned diagnostic; a
-non-concrete/contradictory value exits 1 with `kue: export error: <reason>`; a bad flag
-exits 2.
+manifests then serializes; the bare eval path (`kue < file` / `kue file…` /
+`kue eval …` → internal `formatValue`) is unchanged. Default `--out` is **json** (matches
+`cue export`). Reads a file arg or stdin. A parse error exits 1 with the positioned
+diagnostic; a non-concrete/contradictory value exits 1 with `kue: export error: <reason>`;
+a bad/missing `--out` value exits 2 (usage error). `export` is one arm of the subcommand
+dispatcher (`Kue/Cli.lean`) alongside `eval`/`version`/`help` — see the CLI surface entry
+in "Parser and CLI scope".
 
 - **JSON (`--out json` / default)** is pretty-printed: 4-space indent, source-order keys,
   `": "` separators, trailing newline — `valueToJsonPretty` in `Kue/Json.lean`, distinct
