@@ -901,7 +901,113 @@ keeps growing or the prelude accretes more lexer state.
 
 ---
 
-## Architecture Fix-Slices (Phase B audit 2026-06-17 #3 — post deep-eval batch) — AUTHORITATIVE
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #4 — post 2c.5 / FieldClass-refactor) — AUTHORITATIVE
+
+Whole-graph pass after tonight's deep-eval growth (imports, memo, embeddedList,
+presence-test, 2c lazy-conjunction-eval, FieldClass orthogonal refactor). A real def-meet
+pattern (`def_meet_template`) now exports cue-identically, and the optional-definition
+blocker is cleared (2c.5). This supersedes #3 for ranking; #3 and below retained as record.
+
+### Verdicts (whole-graph)
+
+- **Inline fix applied (commit `faa8756`):** the `70e6ec0` FieldClass refactor (flat enum →
+  orthogonal `field (isDefinition isHidden : Bool) (optionality : Optionality)` + `letBinding`)
+  reintroduced a wildcard `_ => false` in `FieldClass.producesOutput` that now spans the
+  `Optionality` lattice — a new optionality rung (or FieldClass ctor) would silently become
+  non-output instead of breaking the build. Made exhaustive: `def`/`hidden` short-circuit on
+  the boolean axes, then explicit `.regular`/`.required`/`.optional` arms + `.letBinding`. The
+  other FieldClass projections (`isDefinition`/`isHidden`/`optionality`/`ignoresClosedness`)
+  destructure fully and do NOT swallow a case — left as-is. `Format.lean:211` matches
+  `Optionality` over all 3 rungs (no wildcard) — fine.
+- **`Eval.lean` cohesion — verdict UNCHANGED: keep as one module, do NOT split (yet).** The
+  conjunction-merge cluster (`lazyConjMergedFields`/`conjStructOperand?`/`remapConjRefs`/
+  `applyConjClosedness`/`rebaseConjunctFields`/`mergeConjFields`) added tonight is a *pre-pass
+  feeding the `mutual` block* — `conjStructOperand?`/`lazyConjMergedFields` sit between the two
+  `mutual`s, `remapConjRefs`/closedness helpers are called from inside the lower `mutual`. They
+  are intimately coupled to the eval recursion and the `Field`/`Env`/de-Bruijn refId machinery;
+  a `Kue/Conj.lean` extraction would have to import `Eval` for the recursion or be imported by
+  it while depending on its frame model — same Value-only-split bind as the memo infra. No real
+  complexity reduction, pure churn. **Defer.** The `evalAdd…evalBinary` pure-op family
+  (`Eval.lean` ~369–625, over `Value`+`Decimal` only, NO memo/env dependency) remains the one
+  clean future extraction (`Kue/EvalOps.lean`) — but at 1191 lines with no navigation pain
+  today, it stays LOW. Revisit either split only on next growth.
+- **Module layering — verdict: clean, acyclic, no new back-edge.** Import DAG after the
+  refactor: `Value` (base, no imports) ← `Decimal`/`Format`/`Normalize`/`Order`/`Parse`/
+  `Resolve`/`Lattice`; `Eval → Builtin,Decimal,Lattice,Normalize`; `Builtin → Lattice,Decimal,
+  Json,Yaml`; `Manifest → Format,Lattice`; `Json → Manifest`; `Yaml → Json`; `Runtime → Eval,
+  Format,Lattice,Parse,Resolve,Json,Yaml`; `Module → Parse,Runtime`. The canonical forbidden
+  edge `Builtin → Eval` is absent. FieldClass + conjunction-eval added NO new module — all
+  inside `Value.lean`/`Eval.lean`. No cycle, no new edge.
+- **Remaining loose reps (re-confirmed, all FOLDED below):** `intGe/Gt/Le/Lt` parallel ctors →
+  `boundConstraint bound kind` (the textbook fold, item 3); `Field` tuple → `structure` (item
+  5); `embeddedList.decls` non-output invariant unenforced by type (item 6). The `FieldClass`
+  flat-enum looseness flagged in prior passes is now RESOLVED (it became a structure in 70e6ec0).
+- **`Manifest.manifestFieldsWithFuel` (line 39) has a `_ =>` wildcard** swallowing FieldClass
+  cases — but it is emission *dispatch* (the `.required` arm errors, the rest skip), not a pure
+  projection, so it can't be tied to `producesOutput` directly and rewriting it is
+  behavior-adjacent. Folded as a small type-tightening item, not applied inline.
+
+### Ranked next-work list (goal = export real prod9/infra files matching cue)
+
+**Recommendation: `int & >0` (item 1) is now the highest-priority work — it is the live
+next-real-file blocker, ahead of the cleanup batch.** With 2c done and a real def-meet
+template exporting byte-identically, the codebase IS at a good consolidation point — but
+consolidation is pure debt-reduction with zero goal-unblock, and there is exactly one
+known wrong-output bug left on the supported subset (`int & >0`). Fix the bug first, then
+run the consolidation+test-reorg batch (items 3–4) as one verify cycle before the next
+feature family. Next 3–4 slices, in order: **1 → 2 → 3 → 4**.
+
+1. **[HIGH — live next-real-file blocker, WRONG OUTPUT] `int & >0` keeps both conjuncts.**
+   Oracle (`cue` v0.16.1): `x: int & >0` → `cue eval` prints `x: int & >0` (both conjuncts
+   retained); kue collapses to `x: >0`, **dropping the `int` kind**. This is a `meet`/format
+   bug, not just bound-collapse formatting: meeting `kind int` with `intGt 0` discards the
+   `int` rather than keeping the conjunction (cue keeps `int & >0` because `>0` alone admits
+   floats — `1.5 & >0` is fine — so `int &` is load-bearing). Smallest real divergence still
+   on the supported subset; gates clean real-file export. Fix the `meet(kind int, intGt/…)`
+   arm in `Lattice.lean` to retain a conjunction (or a kind-tagged bound) instead of
+   collapsing to the bound. Oracle-pin float-vs-int (`1.5 & >0` ok, `1.5 & (int & >0)` ⊥).
+   Own slice. **Pairs naturally with item 3** (a kind-tagged `boundConstraint` would make
+   "this bound is int-restricted" representable) — consider doing 3 first if the fix wants
+   the richer bound type, else fix the meet arm directly and let 3 follow.
+2. **[HIGH — semantic correctness] Open-list collapse on Manifest (`[1,...]`).** Phase A
+   finding #4: `Manifest` returns `.incomplete` for an open-list tail where `cue` collapses
+   `[1,...]` → concrete prefix `[1]` at manifest time. Real output divergence on any open
+   list reaching output. Confirm exact cue collapse rule (prefix-only vs tail-default-fill)
+   against oracle, then fix `Manifest`'s `listTail`/`embeddedList`-with-tail arm. Own slice.
+3. **[MEDIUM — type-system leverage, pairs with 1] Collapse `intGe/intGt/intLe/intLt` →
+   `boundConstraint (bound : Int) (kind : BoundKind)`.** Four parallel `Value` ctors over one
+   domain with a parallel `meetIntGe/Gt/Le/Lt` family in `Lattice` — textbook fold into an
+   indexed type. `BoundKind = ge | gt | le | lt` makes the four meet helpers one dispatched
+   helper and the four ctors one; no bound without a kind. Touches `Value`/`Lattice`/`Format`/
+   parser/`valueTag`. Lead item of the post-bug consolidation batch.
+4. **[MEDIUM — consolidation + test-reorg batch, NOW DUE] base64-out-of-Json + test/`testdata`
+   reorg + `Field`→structure + Manifest-dispatch tighten.** Run together (independent,
+   mechanical, one verify cycle):
+   - **base64 out of `Json.lean`** → `Kue/Base64.lean`; re-point `Yaml`/`Builtin`/`Module`.
+   - **test + `testdata/cue/` reorg (chakrit-flagged, overdue)** — group the flat fixture dir
+     into subsystem subdirs; split the three largest test modules (`FixturePorts` 2292,
+     `FixtureTests` 1033, `BuiltinTests` 735) by family; update `FixturePorts` roots +
+     `check-fixtures.sh` glob. This is the periodic organization pass — now due.
+   - **`Field` tuple → `structure`** (`Value.lean:231`): named `label`/`fieldClass`/`value`
+     projections (already exist as helpers) become real fields; kills positional `.snd.snd`.
+   - **`Manifest.manifestFieldsWithFuel` wildcard** → explicit FieldClass arms so a new
+     ctor/optionality rung breaks the build at the emission site too (small, rides this batch).
+5. **[MEDIUM — promote] Linux `cacheRoot` default** (`Module.lean`): branch on
+   `System.Platform` so Linux defaults to `~/.cache/cue` not `~/Library/Caches/cue` absent
+   `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME`. Small portability slice for Linux CI/dev.
+6. **[LOW — type-system leverage] Refine `embeddedList.decls` element type.** "decls =
+   non-output only" invariant enforced by the `declFields` filter but not the type. A
+   `NonOutputField` newtype (smart ctor) makes it unrepresentable but ripples through
+   `Manifest`/`Format`/`Eval`/`Lattice` + deriving. Defer behind goal-blockers; do alongside
+   item 3 if `BoundKind` proves the newtype pattern out.
+7. **[LOW — cohesion, optional] Extract `Eval` arithmetic/comparison dispatch → `Kue/EvalOps`.**
+   See cohesion verdict above — no pain today; revisit on next growth. The conjunction-merge
+   cluster is NOT a split candidate (too coupled to the `mutual`).
+
+**Parser split (`Parse.lean`, 1440) — still OPTIONAL, do NOT split now.** Three cohesive
+zones; ranks below every goal item.
+
+## Architecture Fix-Slices (Phase B audit 2026-06-17 #3 — post deep-eval batch) — SUPERSEDED by #4
 
 Whole-module-graph pass after the import/parser/memo/embeddedList/presence-test growth.
 This is the current authoritative ranking; the two sections below (#2 eval-blowup, and
