@@ -4723,5 +4723,60 @@ exported fields (emits as the list, definitions stay selectable) and tolerates t
 struct/list conflict lazily when the value is only selected into; kue is eager and yields ⊥
 for `meet(struct, list)`. So the prod9 `let nsp = #Basics & {…[...]}` values parse but
 resolve to ⊥ under kue's eager strategy. See `docs/spec/compat-assumptions.md`. (Separately,
-`kue export <file>` module discovery did not find `infra/cue.mod/module.cue` from a sub-dir
+`kue export <file>` module discovery — fixed in the next slice below — did not find
+`infra/cue.mod/module.cue` from a sub-dir
+
+---
+
+## Completed Slice: `kue export` cue.mod discovery from a subdir / relative path arg
+
+**Intended behavior.** `kue export <path/to/file.cue>` (and any file-mode run that resolves
+imports) must discover the module's `cue.mod/module.cue` by walking *up from the target
+file's own directory*, for relative AND absolute path args alike — including a file several
+levels below `cue.mod/`. A file with no `cue.mod` ancestor still exports plainly (no module,
+no import resolution), as before.
+
+### Diagnosis
+
+The parent-walk in `loadFileBound` started from the path's directory taken verbatim. For a
+relative arg (`sub/main.cue`, run from the module root), `.parent` is the relative segment
+`sub`, and `("sub" : System.FilePath).parent = none` — so `findModuleRoot` checked `sub/`
+(no cue.mod), then dead-ended instead of climbing into the cwd's real ancestors. Only
+absolute path args worked, because their parent chain reaches the filesystem root. Confirmed
+against the oracle: `cue export sub/main.cue` from the module root resolves the import; kue
+errored `no cue.mod/module.cue found in any parent directory`.
+
+### Steps
+
+1. Tests first. `ModuleTests.lean` +5 `native_decide` theorems pinning the pure
+   path→start-dir logic disk-free: `absolutePath` joins a relative path onto the cwd and
+   passes an absolute path through; `discoveryStartDir` yields the absolute parent directory
+   the cue.mod walk begins from (relative, nested-relative, and absolute cases).
+
+2. Fix. `Kue/Module.lean`: new pure helpers `absolutePath (cwd path)` and
+   `discoveryStartDir (cwd path)`. `loadFileBound` reads `IO.currentDir` at the IO boundary
+   and derives the walk's start dir via `discoveryStartDir`, so `findModuleRoot` climbs an
+   absolute ancestor chain. Pure core stays pure; FS/cwd stay at the loader boundary.
+
+3. Fixtures. `testdata/modules/export_subdir/` — module `example.com/subm` with an entry
+   package in `sub/` (and a deeper `sub/deeper/`) importing the in-module `defs` package. A
+   `subpaths` file lists relative entry paths; `check-fixtures.sh` gained
+   `check_module_subpaths`, which exports each subpath *from inside the fixture dir* (the
+   relative-walk path the bug lived in) and diffs against `expected.<sanitized-subpath>`
+   (oracle output, byte-for-byte). Covers path-arg-from-module-root and deeper-nested;
+   no-cue.mod-still-exports is covered ad hoc (a plain file exports unchanged).
+
+4. Verify. `lake build` (exit 0), `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`,
+   `shellcheck` clean.
+
+### Real-file spot-check (READ-ONLY, prod9/infra)
+
+With discovery fixed, `kue export apps/<app>.cue` run from `/Users/chakrit/Documents/prod9/
+infra` now climbs to `infra/cue.mod`, reads the dep table, and resolves the
+`prodigy9.co/defs@v0.3.19` dependency from the cue extract cache — uniformly across the apps
+(argocd, keel, fx). The next wall is no longer discovery: it is a **parse error in the
+dependency** — `defs@v0.3.19/attr/metadata.cue: unexpected character ':'` on
+`#labels?: [string]: string`, i.e. the `[string]:` non-string-label *pattern constraint*
+parse (tracked blocker). So real-file export is gated on (1) `[...]` embedding eval and (2)
+`[string]:` pattern-constraint parse, not on module discovery.
 — a pre-existing export-mode path issue, out of this slice's scope.)

@@ -157,11 +157,50 @@ check_export_fixtures() {
   return "${status}"
 }
 
+# Diff `kue export --out json <subpath>` (run from inside `dir`, so the path arg is
+# relative and the module-root walk must climb from the file's directory) against the
+# committed oracle output `expected.<sanitized-subpath>`, where the subpath's `/` become
+# `-` and the `.cue` suffix is dropped (`sub/main.cue` -> `expected.sub-main`). Pins the
+# cue.mod discovery from a sub-directory path arg. Prints any diff; returns non-zero on
+# mismatch.
+check_module_subpaths() {
+  local dir=$1
+  local status=0
+  local subpath
+  local sanitized
+  local expected_file
+
+  while IFS= read -r subpath; do
+    [[ -z "${subpath}" ]] && continue
+    sanitized="${subpath%.cue}"
+    sanitized="${sanitized//\//-}"
+    expected_file="${dir}expected.${sanitized}"
+
+    if [[ ! -f "${expected_file}" ]]; then
+      printf 'module subpath fixture %s missing %s\n' "${dir}" "${expected_file}" >&2
+      status=1
+      continue
+    fi
+
+    if ! diff -u "${expected_file}" \
+      <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}"); then
+      status=1
+    fi
+  done <"${dir}subpaths"
+
+  return "${status}"
+}
+
 # Drive the import-aware loader over each multi-file module fixture under
 # testdata/modules/<name>/. A success fixture ships an `expected` file holding the
 # `cue export`-matching JSON for `kue export --out json <dir>/main.cue`; an error fixture
 # ships `expected.err` holding a substring the failing run's stderr must contain (loader
 # errors — cycles, missing dirs, unknown/absent dependency, package-name conflicts).
+#
+# A fixture that ships a `subpaths` file (one relative path per line) is a sub-directory
+# path-arg fixture instead: each subpath is exported from inside the fixture dir and diffed
+# against its `expected.<sanitized>` oracle output (see `check_module_subpaths`). Such a
+# fixture has no root `main.cue`.
 #
 # A cross-module fixture may carry a self-contained `_cache/` directory holding the
 # extracted dependency modules in the cue cache layout (mod/extract/<modpath>@<ver>/). When
@@ -180,6 +219,13 @@ check_module_fixtures() {
   fi
 
   for dir in "${module_dir}"/*/; do
+    if [[ -f "${dir}subpaths" ]]; then
+      if ! check_module_subpaths "${dir}"; then
+        status=1
+      fi
+      continue
+    fi
+
     main_file="${dir}main.cue"
     if [[ ! -f "${main_file}" ]]; then
       printf 'module fixture %s has no main.cue\n' "${dir}" >&2

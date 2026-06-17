@@ -574,12 +574,18 @@ Ranked (highest value first):
    the prod9 workflow. Fix: branch on `System.Platform` (or probe `~/.cache` vs
    `~/Library/Caches`) for the OS-correct default. Small slice.
 
-4. **[MEDIUM — promote candidate-gap] `kue export` cue.mod-discovery-from-subdir.** When
-   `kue export` runs against a file in a module *subdirectory*, confirm `findModuleRoot`
-   walks up correctly and the dep table is read from the true module root (not the
-   subdir). Flagged as a known bug in the audit brief; reproduce against a real
-   `infra/apps/*.cue` invoked from the repo root vs the subdir, pin with a fixture, fix the
-   discovery path. Gates the real workflow ergonomics.
+4. **[DONE 2026-06-17] `kue export` cue.mod-discovery-from-subdir.** Diagnosed: the
+   parent-walk started from the *relative* file directory, whose `.parent` dead-ends
+   (`("sub" : FilePath).parent = none`), so the walk never climbed into the cwd's real
+   ancestors — only abs-path args found the module root. Fix: `loadFileBound` now resolves
+   the path against the working dir to an absolute path before taking `.parent`
+   (`absolutePath`/`discoveryStartDir`, pure; `IO.currentDir` at the boundary).
+   Relative-from-root, relative-nested, absolute, and relative-from-outside path args all
+   discover the module root; no-cue.mod files still export plainly. Pinned by the
+   `testdata/modules/export_subdir/` fixture (subpaths harness) + 5 `ModuleTests`
+   theorems. Spot-check: real prod9 `infra/apps/*.cue` now resolve `cue.mod` and the
+   `prodigy9.co/defs` cache dep; next wall is the dependency-side `[string]: string`
+   pattern-constraint parse (blocker, below), not discovery.
 
 5. **[LOW — candidate-gap, keep parked] Closedness gap / hidden-field refs / `[...]` eval
    laziness / `[string]:` non-string label patterns.** Already tracked under "Later Slices"

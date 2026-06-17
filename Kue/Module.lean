@@ -156,6 +156,19 @@ where
 
 /-! ## IO loader boundary -/
 
+/-- Resolve a (possibly relative) input path against the working directory to an absolute
+    path. A relative path is joined onto `cwd`; an already-absolute path is returned as-is.
+    Pure — the `cwd` lookup is the IO caller's job. Module discovery starts from this
+    absolute path's directory, so the parent-walk climbs the real ancestor chain rather
+    than dead-ending at a relative segment whose `.parent` is `none`. -/
+def absolutePath (cwd : System.FilePath) (path : System.FilePath) : System.FilePath :=
+  if path.isAbsolute then path else cwd / path
+
+/-- The directory to begin module discovery from, given `cwd` and the input path: the
+    absolute file's parent (the file's own directory). -/
+def discoveryStartDir (cwd : System.FilePath) (path : System.FilePath) : System.FilePath :=
+  (absolutePath cwd path).parent.getD cwd
+
 /-- Walk parent directories of `start` looking for `cue.mod/module.cue`; return the
     directory that contains `cue.mod` (the module root). `none` when no ancestor has one. -/
 partial def findModuleRoot (start : System.FilePath) : IO (Option System.FilePath) := do
@@ -356,7 +369,8 @@ def loadFileBound (path : String) : IO (Except String Value) := do
       -- needs no module context and behaves exactly as the pre-import pipeline.
       if parsed.imports.all (fun imp => isBuiltinImport imp.path) then
         return .ok parsed.value
-      let dir := (System.FilePath.mk path).parent.getD (System.FilePath.mk ".")
+      let cwd ← IO.currentDir
+      let dir := discoveryStartDir cwd (System.FilePath.mk path)
       match ← findModuleRoot dir with
       | none => return .error "no cue.mod/module.cue found in any parent directory"
       | some root =>

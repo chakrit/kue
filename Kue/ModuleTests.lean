@@ -127,4 +127,42 @@ example : resolveCrossModule deps "unknown.org/x" = none := by
 example : resolveCrossModule deps "prodigy9.com/defs" = none := by
   native_decide
 
+/-! ## Path resolution for module discovery
+
+    `absolutePath`/`discoveryStartDir` decide where the cue.mod parent-walk starts. The
+    bug they fix: a relative subpath's `.parent` dead-ends (`("sub" : FilePath).parent =
+    none`), so the walk never climbed into the cwd's real ancestors. Resolving against the
+    cwd first gives an absolute chain to walk. Compared on `.toString` for stable equality. -/
+
+/-- A relative path is joined onto the cwd to an absolute path. -/
+example :
+    (absolutePath "/home/me/proj" "sub/main.cue").toString
+      = "/home/me/proj/sub/main.cue" := by
+  native_decide
+
+/-- An already-absolute path is returned unchanged, ignoring the cwd. -/
+example :
+    (absolutePath "/home/me/proj" "/abs/sub/main.cue").toString
+      = "/abs/sub/main.cue" := by
+  native_decide
+
+/-- Discovery starts at the absolute *directory* of a relative file — the parent of the
+    cwd-joined path, where the upward cue.mod walk begins. -/
+example :
+    (discoveryStartDir "/home/me/proj" "sub/main.cue").toString
+      = "/home/me/proj/sub" := by
+  native_decide
+
+/-- A nested relative path resolves to its own deep directory. -/
+example :
+    (discoveryStartDir "/home/me/proj" "sub/deeper/main.cue").toString
+      = "/home/me/proj/sub/deeper" := by
+  native_decide
+
+/-- An absolute file's discovery dir is its own absolute parent, cwd untouched. -/
+example :
+    (discoveryStartDir "/home/me/proj" "/var/m/sub/main.cue").toString
+      = "/var/m/sub" := by
+  native_decide
+
 end Kue
