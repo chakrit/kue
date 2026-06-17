@@ -182,6 +182,40 @@ AST-identical to the brace form across all inner-label forms; B4 multiline is to
 correct; parser positions have no off-by-one; the three B2 deferred boundaries are real
 and correctly documented.
 
+## Audit Fix-Slices (cleanup batch — LIGHT Phase A + Phase B, audit 2026-06-17 #7)
+
+Light combined audit over the 3 small/mechanical cleanup slices since `3827fb7`:
+`9f9437e` (tests-out reorg), `7d0657d` (base64 leaf), `e9c3c03` (Linux `cacheRoot`).
+Verify gate green at audit time: `lake build` 86 jobs, `check-fixtures.sh` "fixture pairs
+ok". Oracle: `cue` v0.16.1.
+
+### Verdicts (all CLEAR — no findings, nothing to fix)
+
+- **No silent test loss (reorg).** `Kue/Tests.lean` imports all 21 `Kue.Tests.*` modules +
+  carries its own lattice theorems; `Kue.lean` imports `Kue.Tests`. Build elaborates all 21
+  (21 individual `.olean` artifacts present, names matching imports 1:1; 86 jobs). No
+  module compiles-but-unimported.
+- **base64 leaf, no cycle, behavior-identical.** `Kue/Base64.lean` has ZERO imports (true
+  leaf — nothing from Json/Yaml/Builtin). Three consumers (`Json`, `Yaml`, `Builtin`)
+  import it. Body is a byte-identical move from old `Json.lean` (same alphabet, same
+  bit-ops, same padding branches); base64 fixtures unchanged → behavior preserved.
+- **`cacheDirFor` correct + isOSX wiring honest.** Pure helper: precedence `CUE_CACHE_DIR`
+  → `XDG_CACHE_HOME/cue` → per-OS (`~/Library/Caches/cue` if `isOSX` else `~/.cache/cue`).
+  IO wrapper `cacheRoot` passes the REAL `System.Platform.isOSX` (not hardcoded). Missing
+  HOME → `home.getD ""` → `/.cache/cue`, no crash. 5 `native_decide` theorems are real pins
+  (both OS branches, both precedence levels, missing-HOME).
+- **Layering clean (Phase B).** No `Builtin → Eval` edge. New `Base64` leaf adds no
+  back-edge; `Kue/Tests/` subdir is referenced only by `Kue/Tests.lean` (no source module
+  imports a test module). Acyclic.
+
+### Re-rank
+
+No new fix-slices. Item 3 in the authoritative list (#6 below) is now PARTIAL: 3a (base64)
+landed, only **3e (`Field` tuple → `structure`)** remains. Recommended next item: **3e** —
+mechanical, ~122 destructure sites via existing accessors, behavior-preserving, build-gated,
+and the engine is quiet so it's the cheapest foundation-tidying win. Defer package-dir merge
+(item 5) / registry fetch (item 6) until full `cue export ./apps` parity is wanted.
+
 ## Audit Fix-Slices (CLI/serializer family — Phase A + light Phase B, audit 2026-06-17)
 
 Combined Phase A + light Phase B over the CLI/serializer batch since `b3aeb53`/`7cf387f`:
@@ -527,11 +561,12 @@ demonstrates real-file viability.
    high-risk/low-reward, deferred per the slice's SAFE-FAILURE clause. `FixtureTests` (1033)
    / `BuiltinTests` (735) splits ride along when revisited. Source-layering
    (Core/Syntax/Eval/Output/Driver) stays OPTIONAL pending chakrit's taste call.
-3. **[MEDIUM — cleanup batch] base64-out-of-Json (3a) + `Field`→structure (3e).** Two
-   independent mechanical sub-tasks, one verify cycle. `base64Encode`/`Decode` →
-   `Kue/Base64.lean` (decode/encode is not JSON's concern; `Json`/`Builtin` import it).
-   `Field` tuple → `structure { label, fieldClass, value }`, ~122 destructure sites via the
-   existing accessors. Behavior-preserving; build-gated.
+3. **[PARTIAL — cleanup batch] ~~base64-out-of-Json (3a)~~ DONE + `Field`→structure (3e).**
+   3a landed (`7d0657d`): `base64Encode` → leaf `Kue/Base64.lean` (zero imports);
+   `Json`/`Yaml`/`Builtin` import it; body byte-identical move, base64 fixtures unchanged.
+   **Remaining (3e):** `Field` tuple → `structure { label, fieldClass, value }`, ~122
+   destructure sites via the existing accessors. Behavior-preserving; build-gated. This is
+   now the recommended next item (mechanical, engine quiet, foundation-tidying).
 4. **[DONE — portability] Linux `cacheRoot` default** (`Module.lean`): pure `cacheDirFor`
    helper branches on `System.Platform.isOSX` so Linux defaults to `~/.cache/cue`, macOS to
    `~/Library/Caches/cue`, absent `$CUE_CACHE_DIR`/`$XDG_CACHE_HOME` (mirrors Go
