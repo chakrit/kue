@@ -5117,3 +5117,61 @@ wrap colliding bodies in `.conj` and re-evaluate). Verified: `{a:int,b:a}&{a:1}`
 (`{a:a,a:1}`→`a:1`, cycle guard). Four matching `native_decide` theorems in `EvalTests`
 asserting the full evaluated struct. Verify gate green: `lake build`,
 `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.
+
+---
+
+## Completed Slice: Lazy resolution through struct conjunction (2c.2)
+
+Goal (plan slice 2c.2, lazy field resolution increment 2): a struct conjunction `&` must
+merge its conjuncts' *declarations* into one scope BEFORE evaluating bodies, so a body
+referencing a sibling that another conjunct narrows sees the narrowed value. 2c.1 fixed
+in-struct dup labels; this extends the same mechanism across `&`. kue evaluated each `&`
+operand independently then `meet`-ed the results, so `d:{a:int,b:a}; y:d&{a:1}` gave
+`y.b:int` (cue `y.b:1`) — `b` captured `int` before the meet brought in `a:1`.
+
+**Eval locus (NOT pure meet).** `d & {a:1}` parses to `.conj [.ref d, <struct>]`; the defect
+is the `.conj` arm in `evalValueCoreWithFuel` (`Eval.lean`), which eval'd each constraint then
+folded `meet`. `meet` is pure `Value→Value→Value` over already-evaluated structs
+(`.refId _,_ => .bottom` makes refs opaque to it by design), so the fix lives in eval, before
+the operands are evaluated — never in meet.
+
+**Mechanism.** New `lazyConjMergedFields env constraints`: when *every* conjunct reduces to a
+same-scope struct it builds one merged frame and evaluates it once; otherwise returns `none`
+and the arm falls back to the original eval-then-`meet` fold.
+- `conjStructOperand?` reduces an operand to `(declFields, open_)`, following ONLY depth-0
+  sibling `refId`s to their struct bodies. `depth == 0` is the safety boundary: a sibling's
+  body frame shares the conjunction site's enclosing scope, so its declarations splice without
+  disturbing outer references. Non-structs / patterns / tails / disjunctions / outer refs →
+  `none` → meet path (so `(a|b)&c`, `{a:1}&[1,2]`, `int&>0` are all unchanged).
+- `remapConjRefs` (de-Bruijn-style total shift, structural fuel) rebases each conjunct's
+  depth-0 sibling refs onto the merged frame's first-occurrence layout; refs at depth>0 are
+  left untouched, since the merged frame sits exactly where each conjunct's own frame would.
+- `applyConjClosedness` folds each conjunct's closedness over the merged fields, identical to
+  binary meet's `applyStructClosedness` — so `#D & {extra}` still rejects the extra field and
+  the conjunction-of-a-closed-def result stays closed. Then `canonicalizeFields` + one
+  `pushFrame` + eval. Memo/cycle invariants preserved (canonicalize before fresh-id push;
+  self-ref slot still hits `slotVisited`→`.top`). Total: no `partial`, explicit `termination_by`.
+
+**What it fixes (oracle-confirmed, cue v0.16.1).** `d&{a:1}`→`b:1`; `{a:int,b:a}&{a:1}`→`b:1`;
+`d&{a:>0}`→`b` tracks `a`; `#D&{#x:"hi"}` with nested `out:{val:#x}`→`out.val:"hi"`;
+chained `{a:int,b:a,c:b}&{a:1}`→all `1`; closed `#D&{b:1}`→`b` bottoms. The reduced
+`packs.#Argo` def-meet templating shape (`#Argo & {name,namespace}` with nested
+`out.meta.{n,ns}` referencing the narrowed tops) exports **byte-identical to `cue export`** —
+first green on the real-file pattern (`testdata/export/def_meet_template`).
+
+**Known gap (NOT 2c.2): optional-definition class.** The `#x?` form of the hidden-def case
+stays wrong because `FieldClass` cannot represent "optional definition" — `mergeFieldClass`
+rejects `optional`+`definition`, so `#x?` and `#x` never merge and the nested `out.val` reads
+the un-narrowed `string`. Orthogonal modeling slice (optionality as a separate axis on
+`FieldClass`), not lazy resolution.
+
+**CUE scoping preserved.** A cross-conjunct reference that CUE rejects (`{a:int,b:a}&{c:b}` —
+`b` not in `{c:b}`'s lexical scope) still bottoms in kue: rebasing only touches refIds that
+already resolved within their conjunct at resolve-time, so unresolved refs stay unresolved.
+
+**Tests.** Seven fixtures (`.cue`/`.expected` + FixturePorts entries): `meet_lazy_sibling_ref`,
+`meet_lazy_literal`, `meet_lazy_incomplete`, `meet_lazy_hidden_def`, `meet_lazy_chain`,
+`meet_lazy_disj_operand`, plus export fixture `def_meet_template`. Four `native_decide`
+theorems in `EvalTests` pinning the full evaluated struct for the sibling-ref, literal, chain,
+and hidden-def cases. FULL existing suite + all existing theorems pass UNCHANGED. Verify gate
+green: `lake build`, `scripts/check-fixtures.sh` ⇒ `fixture pairs ok`, `shellcheck` clean.

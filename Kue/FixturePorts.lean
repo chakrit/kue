@@ -2146,6 +2146,126 @@ def fixturePorts : List FixturePort :=
                 ("a", .regular, .prim (.int 1))
               ]
               true))
+    },
+    {
+      -- 2c.2: a struct conjunction (`&`) merges its conjuncts' *declarations* into one
+      -- frame before evaluating bodies, so a body referencing a sibling that another
+      -- conjunct narrows sees the narrowed slot. Here `d.b` references `d.a` (int); the
+      -- referenced-def conjunction `d & {a: 1}` narrows `a` to `1`, and `y.b` resolves to `1`.
+      fileName := "meet_lazy_sibling_ref.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("d", .regular, .struct [("a", .regular, .kind .int), ("b", .regular, .ref "a")] true),
+                ("y", .regular, .conj [.ref "d", .struct [("a", .regular, .prim (.int 1))] true])
+              ]
+              true))
+    },
+    {
+      -- 2c.2: literal struct conjunction (no reference operand) — `{a: int, b: a} & {a: 1}`;
+      -- `b` tracks the narrowed `a` through the merged frame.
+      fileName := "meet_lazy_literal.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("x", .regular,
+                  .conj
+                    [
+                      .struct [("a", .regular, .kind .int), ("b", .regular, .ref "a")] true,
+                      .struct [("a", .regular, .prim (.int 1))] true
+                    ])
+              ]
+              true))
+    },
+    {
+      -- 2c.2: a still-incomplete merged slot stays symbolic and the sibling tracks it —
+      -- `d.b: a`, `d & {a: >0}` leaves `a` (and thus `b`) as the `>0` bound.
+      fileName := "meet_lazy_incomplete.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("d", .regular, .struct [("a", .regular, .kind .int), ("b", .regular, .ref "a")] true),
+                ("y", .regular, .conj [.ref "d", .struct [("a", .regular, .intGt 0)] true])
+              ]
+              true))
+    },
+    {
+      -- 2c.2: nested sub-struct visibility through a *definition* meet. `out.val` references
+      -- the hidden `#x`; meeting `#D & {#x: "hi"}` narrows `#x` and the nested `out.val`
+      -- resolves to `"hi"`. Pins the hidden-sibling-through-nested-struct path.
+      fileName := "meet_lazy_hidden_def.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("#D", .definition,
+                  .struct
+                    [
+                      ("#x", .definition, .kind .string),
+                      ("out", .regular, .struct [("val", .regular, .ref "#x")] true)
+                    ]
+                    true),
+                ("y", .regular, .conj [.ref "#D", .struct [("#x", .definition, .prim (.string "hi"))] true])
+              ]
+              true))
+    },
+    {
+      -- 2c.2: a chained sibling reference within one conjunct, narrowed across the meet —
+      -- `{a: int, b: a, c: b} & {a: 1}` resolves `a`, `b`, `c` all to `1`.
+      fileName := "meet_lazy_chain.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("x", .regular,
+                  .conj
+                    [
+                      .struct
+                        [
+                          ("a", .regular, .kind .int),
+                          ("b", .regular, .ref "a"),
+                          ("c", .regular, .ref "b")
+                        ]
+                        true,
+                      .struct [("a", .regular, .prim (.int 1))] true
+                    ])
+              ]
+              true))
+    },
+    {
+      -- 2c.2: a disjunction operand keeps the eval-then-`meet` path (not the lazy merge):
+      -- `({kind: "web"} | {kind: "db"}) & {kind: "web", port: 80}` selects the `web` arm.
+      fileName := "meet_lazy_disj_operand.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ("x", .regular,
+                  .conj
+                    [
+                      .disj
+                        [
+                          (.regular, .struct [("kind", .regular, .prim (.string "web"))] true),
+                          (.regular, .struct [("kind", .regular, .prim (.string "db"))] true)
+                        ],
+                      .struct
+                        [
+                          ("kind", .regular, .prim (.string "web")),
+                          ("port", .regular, .prim (.int 80))
+                        ]
+                        true
+                    ])
+              ]
+              true))
     }
   ]
 

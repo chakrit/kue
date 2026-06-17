@@ -1,0 +1,2 @@
+#D: {#x: string, out: {val: string}}
+y: {#x: "hi", out: {val: "hi"}}

@@ -1,0 +1,12 @@
+{
+    "app": {
+        "name": "web",
+        "namespace": "prod",
+        "out": {
+            "meta": {
+                "n": "web",
+                "ns": "prod"
+            }
+        }
+    }
+}

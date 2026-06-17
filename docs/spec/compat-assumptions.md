@@ -102,11 +102,27 @@ those forms.
     (`configs: packs.#Argo & {[...], #name:…}`, as the real prod9 files do) for the
     embeddedList path to engage. With `[...]` present, `cue` proceeds and the next gate is
     the **`if Self.#x != _|_` presence-test comprehension guard**. The `!= _|_` *comparison*
-    is now fixed (see Comparison section — definedness test landed 2026-06-17), but the real
-    argocd guard still does not fire: the remaining gate is **lazy field resolution through
-    definition-meet** (slice 2c), where a definition's comprehension body resolves against
-    its pre-meet scope rather than the meet result. Not a list-embedding gap — the embedding
-    semantics here are complete and oracle-clean.
+    is now fixed (see Comparison section — definedness test landed 2026-06-17). The **lazy
+    field resolution through definition-meet** gate (slice 2c) is now landed: 2c.1 fixed
+    in-struct duplicate labels, 2c.2 fixed conjunction (`&`). A definition's field bodies now
+    resolve against the *merged* conjunction scope, not their pre-meet scope — the reduced
+    `packs.#Argo` def-meet templating shape exports byte-identical to `cue` (see
+    `testdata/export/def_meet_template`). Not a list-embedding gap — the embedding semantics
+    here are complete and oracle-clean.
+- **Struct conjunction (`&`) merges declarations before evaluating bodies (slice 2c.2).** When
+  every operand of a `&` reduces to a same-scope struct, the conjuncts' *unevaluated*
+  declarations are merged into one frame (first-occurrence layout, deferred `.conj` on
+  collisions; sibling refs rebased onto the merged layout) and evaluated once — so a body
+  referencing a sibling that another conjunct narrows sees the narrowed value (`d:{a:int,b:a};
+  y:d&{a:1}` → `y.b:1`). This is an *eval-layer* rewrite of the `.conj` arm, not a change to
+  `meet`: `meet` stays a pure `Value→Value→Value` with `.refId` opaque to it. Operands that are
+  not same-scope structs (lists, primitives, patterns, tails, disjunctions, outer-scope refs)
+  keep the eval-then-`meet` path unchanged. **Closedness is preserved exactly:** each closed
+  conjunct (a definition normalizes to a closed struct) still rejects fields outside its
+  declared labels (`#D & {extra}` → `extra` bottoms), folded identically to binary meet's
+  `applyStructClosedness`; the result of conjoining a closed def stays closed. **Known modeling
+  gap:** `#x?` (optional definition) does not merge with `#x` — `FieldClass` has no
+  "optional definition" variant, so `mergeFieldClass` rejects the pair. Orthogonal slice.
 - **In-module imports resolve (B3a).** A single file (or `export` file-mode) routes through
   the import-aware loader: `cue.mod/module.cue` is discovered by walking parent dirs, an
   import path `<module>` or `<module>/<subpath>` is resolved to the corresponding dir under

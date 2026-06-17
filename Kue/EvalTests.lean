@@ -745,4 +745,116 @@ theorem eval_merged_self_ref_cycle :
       == .struct [("a", .regular, .prim (.int 1))] true) = true := by
   native_decide
 
+/-- 2c.2: struct conjunction through a referenced binding. `d & {a: 1}` merges the conjuncts'
+    declarations into one frame before evaluating bodies, so `d.b: a` sees the narrowed `a`
+    and `y.b` resolves to `1` (not `int`). -/
+theorem eval_meet_lazy_sibling_ref :
+    (resolveAndEval
+      (.struct
+        [
+          ("d", .regular, .struct [("a", .regular, .kind .int), ("b", .regular, .ref "a")] true),
+          ("y", .regular, .conj [.ref "d", .struct [("a", .regular, .prim (.int 1))] true])
+        ]
+        true)
+      == .struct
+        [
+          ("d", .regular, .struct [("a", .regular, .kind .int), ("b", .regular, .kind .int)] true),
+          ("y", .regular,
+            .struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 1))] true)
+        ]
+        true) = true := by
+  native_decide
+
+/-- 2c.2: literal struct conjunction (no reference operand). `{a: int, b: a} & {a: 1}` → `b: 1`
+    via the merged frame. -/
+theorem eval_meet_lazy_literal :
+    (resolveAndEval
+      (.struct
+        [
+          ("x", .regular,
+            .conj
+              [
+                .struct [("a", .regular, .kind .int), ("b", .regular, .ref "a")] true,
+                .struct [("a", .regular, .prim (.int 1))] true
+              ])
+        ]
+        true)
+      == .struct
+        [
+          ("x", .regular,
+            .struct [("a", .regular, .prim (.int 1)), ("b", .regular, .prim (.int 1))] true)
+        ]
+        true) = true := by
+  native_decide
+
+/-- 2c.2: a chained sibling reference within one conjunct, narrowed across the meet —
+    `{a: int, b: a, c: b} & {a: 1}` resolves `a`, `b`, `c` all to `1`. -/
+theorem eval_meet_lazy_chain :
+    (resolveAndEval
+      (.struct
+        [
+          ("x", .regular,
+            .conj
+              [
+                .struct
+                  [
+                    ("a", .regular, .kind .int),
+                    ("b", .regular, .ref "a"),
+                    ("c", .regular, .ref "b")
+                  ]
+                  true,
+                .struct [("a", .regular, .prim (.int 1))] true
+              ])
+        ]
+        true)
+      == .struct
+        [
+          ("x", .regular,
+            .struct
+              [
+                ("a", .regular, .prim (.int 1)),
+                ("b", .regular, .prim (.int 1)),
+                ("c", .regular, .prim (.int 1))
+              ]
+              true)
+        ]
+        true) = true := by
+  native_decide
+
+/-- 2c.2: nested sub-struct visibility through a *definition* meet. `out.val` references the
+    hidden `#x`; `#D & {#x: "hi"}` narrows `#x` and the nested `out.val` resolves to `"hi"`. -/
+theorem eval_meet_lazy_hidden_def :
+    (resolveAndEval
+      (.struct
+        [
+          ("#D", .definition,
+            .struct
+              [
+                ("#x", .definition, .kind .string),
+                ("out", .regular, .struct [("val", .regular, .ref "#x")] true)
+              ]
+              true),
+          ("y", .regular, .conj [.ref "#D", .struct [("#x", .definition, .prim (.string "hi"))] true])
+        ]
+        true)
+      == .struct
+        [
+          ("#D", .definition,
+            .struct
+              [
+                ("#x", .definition, .kind .string),
+                ("out", .regular, .struct [("val", .regular, .kind .string)] true)
+              ]
+              false),
+          ("y", .regular,
+            .struct
+              [
+                ("#x", .definition, .prim (.string "hi")),
+                ("out", .regular, .struct [("val", .regular, .prim (.string "hi"))] true)
+              ]
+              false)
+        ]
+        true) = true := by
+  native_decide
+
 end Kue

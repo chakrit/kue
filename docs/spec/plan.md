@@ -882,7 +882,7 @@ causing miscompiles. Push the deep semantics to first green on the target file, 
 a consolidation batch (items 3–4 below) before the next feature family. Do not let the
 MEDIUM cleanups jump the queue ahead of the one thing gating the goal.
 
-1. **[HIGH — NOW the argocd gate] 2c: Lazy field resolution through definition-meet.**
+1. **[DONE — argocd core path unblocked] 2c: Lazy field resolution through definition-meet.**
    Family. **2c.1 LANDED** (in-struct duplicate-label canonicalization): `canonicalizeFields`
    collapses duplicate-label slots in a struct frame into one first-occurrence slot carrying
    the unevaluated `.conj` of the conjuncts, applied before every `pushFrame` (the 5 struct
@@ -891,14 +891,27 @@ MEDIUM cleanups jump the queue ahead of the one thing gating the goal.
    2c plan: the inlined-def case `d:{a:int,b:a}; y:d&{a:1}` is NOT fixed by 2c.1 — it is a
    *meet* of two independently-evaluated structs (`b` captures `int` before the meet brings
    in `a:1`), structurally identical to the referenced-`#D` path. Both are 2c.2.
-   **2c.2 (NEXT, the deep one): meet-produced def bodies.** `#D & {…}` (referenced) and
-   `{a:int,b:a} & {a:1}` (literal meet) must re-evaluate colliding bodies after the meet —
-   meet is pure `Value→Value→Value` over already-evaluated structs, so it must wrap colliding
-   field bodies in `.conj` and defer eval to the meet site (or defer def-field eval to the
-   meet). kue `out.val: string`/`y: ⊥`, cue `out.val: "hi"`. Pin with `#D & {#x:…}` (hidden),
-   `{a:int,b:a}&{a:1}`, and the argocd fixture once green. **2c.3:** nested sub-struct
-   visibility — already proven free by 2c.1's `nested_sibling_merge`; fold remaining checks
-   in. **2c.4:** `apps/argocd.cue` end-to-end export fixture.
+   **2c.2 LANDED (the deep one): lazy resolution through struct conjunction (`&`).** The
+   eval locus is the `.conj` arm (`Eval.lean`), NOT pure `meet`. New pre-pass
+   `lazyConjMergedFields`: when *every* conjunct reduces to a same-scope struct
+   (`conjStructOperand?` follows only depth-0 sibling refIds — the safety boundary; `none` for
+   lists/prims/patterns/tails/disjunctions/outer refs → fall back to eval-then-`meet`), merge
+   the conjuncts' *unevaluated* declarations into ONE frame (first-occurrence layout, deferred
+   `.conj` on collisions), rebase each conjunct's depth-0 sibling refs onto the merged layout
+   (`remapConjRefs`, a de-Bruijn-style total shift — depth>0 untouched since the merged frame
+   sits exactly where each conjunct's frame would), apply per-conjunct closedness
+   (`applyConjClosedness`, same as binary meet's `applyStructClosedness`), `canonicalizeFields`,
+   push ONCE, eval. So `d & {a:1}` evaluates `{a: conj[int,1], b: a}` → `b: 1`. Fixtures:
+   `meet_lazy_{sibling_ref,literal,incomplete,hidden_def,chain,disj_operand}` + export
+   `def_meet_template` (reduced `packs.#Argo` shape — exports byte-identical to cue). 2c.1's
+   in-struct canonicalization handles dup labels; 2c.2 extends it across `&`. **Known gap (NOT
+   2c.2): optional-definition class.** `#x?` + `#x` won't merge — `FieldClass` can't represent
+   "optional definition", so `mergeFieldClass` rejects `optional`+`definition`; the `#x?` form
+   of the hidden-def case stays wrong. Own modeling slice (orthogonal optionality on
+   FieldClass). **2c.3:** nested sub-struct visibility — proven free (`meet_lazy_hidden_def`,
+   `def_meet_template` exercise 2–3 level nesting through def-meet). **2c.4:** `apps/argocd.cue`
+   end-to-end — file not present on this machine; the reduced `packs.#Argo` def-meet templating
+   shape is green, so the core path is unblocked. A fresh datestamped alpha is warranted.
 2. **[HIGH — semantic correctness] Open-list collapse on Manifest (`[1,...]`).** Phase A
    finding #4: `Manifest` returns `.incomplete` for an open-list tail where `cue` collapses
    `[1,...]` to the concrete prefix `[1]` at manifest time. Smaller than 2c, real output

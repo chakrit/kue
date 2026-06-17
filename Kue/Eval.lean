@@ -116,6 +116,172 @@ def joinUnevaluated (left right : Value) : Value :=
 def canonicalizeFields (fields : List Field) : List Field :=
   (mergeFieldListWith joinUnevaluated fields).getD fields
 
+def labelIndexMapFrom (index : Nat) : List Field -> List (String × Nat)
+  | [] => []
+  | field :: fields => (Field.label field, index) :: labelIndexMapFrom (index + 1) fields
+
+/-- A label→slot-index map over a (canonicalized) field list, used to rebase a conjunct's
+    own sibling references onto their position in the merged frame. -/
+def labelIndexMap (fields : List Field) : List (String × Nat) :=
+  labelIndexMapFrom 0 fields
+
+def lookupLabelIndex (label : String) : List (String × Nat) -> Option Nat
+  | [] => none
+  | entry :: rest => if entry.fst == label then some entry.snd else lookupLabelIndex label rest
+
+/--
+Rebase a single conjunct's body so its frame-local sibling references point at their new
+slot in the merged conjunction frame. `frameDepth` counts the struct frames descended from
+the conjunction site; a `refId ⟨d, i⟩` with `d == frameDepth` targets the merged frame, so
+its index `i` is remapped from the conjunct's own layout (`oldIndexLabel i`) to the merged
+layout (`mergedIndex label`). References to outer scopes (`d > frameDepth`, or `d <
+frameDepth` into a struct the body itself introduces) are left untouched — the merged frame
+sits exactly where the conjunct's frame would have sat, so only the merged-frame layer
+shifts. Total via structural fuel; descending a struct increments `frameDepth`.
+-/
+def remapFuel : Nat :=
+  100
+
+mutual
+  def remapConjRefs
+      (fuel : Nat)
+      (frameDepth : Nat)
+      (oldLabels : List Field)
+      (mergedMap : List (String × Nat))
+      (value : Value) : Value :=
+    match fuel, value with
+    | _, .refId id =>
+        if id.depth == frameDepth then
+          match (nthField id.index oldLabels).map Field.label with
+          | some label =>
+              match lookupLabelIndex label mergedMap with
+              | some mergedIndex => .refId ⟨id.depth, mergedIndex⟩
+              | none => .refId id
+          | none => .refId id
+        else
+          .refId id
+    | fuel + 1, .conj constraints =>
+        .conj (remapConjValues fuel frameDepth oldLabels mergedMap constraints)
+    | fuel + 1, .builtinCall name args =>
+        .builtinCall name (remapConjValues fuel frameDepth oldLabels mergedMap args)
+    | fuel + 1, .unary op operand =>
+        .unary op (remapConjRefs fuel frameDepth oldLabels mergedMap operand)
+    | fuel + 1, .binary op left right =>
+        .binary op
+          (remapConjRefs fuel frameDepth oldLabels mergedMap left)
+          (remapConjRefs fuel frameDepth oldLabels mergedMap right)
+    | fuel + 1, .selector base label =>
+        .selector (remapConjRefs fuel frameDepth oldLabels mergedMap base) label
+    | fuel + 1, .index base key =>
+        .index
+          (remapConjRefs fuel frameDepth oldLabels mergedMap base)
+          (remapConjRefs fuel frameDepth oldLabels mergedMap key)
+    | fuel + 1, .disj alternatives =>
+        .disj (remapConjAlternatives fuel frameDepth oldLabels mergedMap alternatives)
+    | fuel + 1, .struct fields open_ =>
+        .struct (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields) open_
+    | fuel + 1, .structTail fields tail =>
+        .structTail
+          (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields)
+          (remapConjRefs fuel (frameDepth + 1) oldLabels mergedMap tail)
+    | fuel + 1, .structPattern fields labelPattern constraint open_ =>
+        .structPattern
+          (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields)
+          (remapConjRefs fuel (frameDepth + 1) oldLabels mergedMap labelPattern)
+          (remapConjRefs fuel (frameDepth + 1) oldLabels mergedMap constraint)
+          open_
+    | fuel + 1, .structPatterns fields patterns open_ =>
+        .structPatterns
+          (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields)
+          (remapConjPatterns fuel (frameDepth + 1) oldLabels mergedMap patterns)
+          open_
+    | fuel + 1, .list items =>
+        .list (remapConjValues fuel frameDepth oldLabels mergedMap items)
+    | fuel + 1, .listTail items tail =>
+        .listTail
+          (remapConjValues fuel frameDepth oldLabels mergedMap items)
+          (remapConjRefs fuel frameDepth oldLabels mergedMap tail)
+    | fuel + 1, .interpolation parts =>
+        .interpolation (remapConjValues fuel frameDepth oldLabels mergedMap parts)
+    | _, value => value
+  termination_by (fuel, 0, 0)
+
+  def remapConjValues
+      (fuel : Nat)
+      (frameDepth : Nat)
+      (oldLabels : List Field)
+      (mergedMap : List (String × Nat)) : List Value -> List Value
+    | [] => []
+    | value :: rest =>
+        remapConjRefs fuel frameDepth oldLabels mergedMap value
+          :: remapConjValues fuel frameDepth oldLabels mergedMap rest
+  termination_by values => (fuel, 1, values.length)
+
+  def remapConjFields
+      (fuel : Nat)
+      (frameDepth : Nat)
+      (oldLabels : List Field)
+      (mergedMap : List (String × Nat)) : List Field -> List Field
+    | [] => []
+    | field :: rest =>
+        (Field.label field, Field.fieldClass field,
+          remapConjRefs fuel frameDepth oldLabels mergedMap (Field.value field))
+          :: remapConjFields fuel frameDepth oldLabels mergedMap rest
+  termination_by fields => (fuel, 1, fields.length)
+
+  def remapConjAlternatives
+      (fuel : Nat)
+      (frameDepth : Nat)
+      (oldLabels : List Field)
+      (mergedMap : List (String × Nat)) : List (Mark × Value) -> List (Mark × Value)
+    | [] => []
+    | alternative :: rest =>
+        (alternative.fst, remapConjRefs fuel frameDepth oldLabels mergedMap alternative.snd)
+          :: remapConjAlternatives fuel frameDepth oldLabels mergedMap rest
+  termination_by alternatives => (fuel, 1, alternatives.length)
+
+  def remapConjPatterns
+      (fuel : Nat)
+      (frameDepth : Nat)
+      (oldLabels : List Field)
+      (mergedMap : List (String × Nat)) : List (Value × Value) -> List (Value × Value)
+    | [] => []
+    | pattern :: rest =>
+        (
+          remapConjRefs fuel frameDepth oldLabels mergedMap pattern.fst,
+          remapConjRefs fuel frameDepth oldLabels mergedMap pattern.snd
+        ) :: remapConjPatterns fuel frameDepth oldLabels mergedMap rest
+  termination_by patterns => (fuel, 1, patterns.length)
+end
+
+/-- Rebase every field in a conjunct against the merged frame layout (see `remapConjRefs`).
+    `frameDepth` starts at 0: the conjunct's own fields sit directly in the merged frame. -/
+def rebaseConjunctFields (oldFields : List Field) (mergedMap : List (String × Nat)) : List Field :=
+  remapConjFields remapFuel 0 oldFields mergedMap oldFields
+
+/-- Merge a conjunct's declarations into the accumulated frame (deferred `.conj` on label
+    collisions), preserving first-occurrence order. Mirrors `canonicalizeFields`'s combiner
+    so the merged frame matches what duplicate-label canonicalization would produce. -/
+def mergeConjFields (accumulated : List Field) (fields : List Field) : List Field :=
+  fields.foldl
+    (fun current field =>
+      match mergeFieldIntoWith joinUnevaluated current field with
+      | some merged => merged
+      | none => current ++ [field])
+    accumulated
+
+/-- Apply each closed conjunct's closedness against the merged fields, folding outward just
+    as `applyStructClosedness` does for a binary meet — a field absent from a closed
+    conjunct's declared labels is marked not-allowed. -/
+def applyConjClosedness (conjuncts : List (List Field × Bool)) (mergedFields : List Field) : List Field :=
+  conjuncts.foldl
+    (fun fields conjunct => applyClosednessFrom conjunct.fst conjunct.snd fields)
+    mergedFields
+
+def allClosednessOpen : List (List Field × Bool) -> Bool
+  | [] => true
+  | conjunct :: rest => conjunct.snd && allClosednessOpen rest
+
 def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
   if allRegularAlternatives alternatives then
     joinValues (alternatives.map Prod.snd)
@@ -638,6 +804,51 @@ def pushFrame (fields : List Field) (env : Env) : EvalM Env := do
   set { state with nextFrameId := state.nextFrameId + 1 }
   pure ((state.nextFrameId, fields) :: env)
 
+/--
+Reduce a conjunction operand to the *unevaluated* struct declarations it contributes,
+following same-frame (`depth == 0`) sibling references to their struct bodies. Returns the
+declared fields and the struct's closedness, or `none` when the operand is not a plain
+struct (lists, primitives, patterns, tails, disjunctions, outer references) — those keep the
+ordinary eval-then-`meet` path. `depth == 0` is the safety boundary: a sibling's body frame
+shares the conjunction site's enclosing scope, so its declarations splice into the merged
+frame without disturbing any outer reference; an outer (`depth > 0`) reference does not, so
+it is refused.
+-/
+def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field × Bool)
+  | .struct fields open_ => some (fields, open_)
+  | .refId id =>
+      match fuel with
+      | 0 => none
+      | fuel + 1 =>
+          if id.depth != 0 then
+            none
+          else
+            match env with
+            | [] => none
+            | frame :: _ =>
+                match nthField id.index frame.snd with
+                | some field => conjStructOperand? env fuel (Field.value field)
+                | none => none
+  | _ => none
+
+/--
+Build the single merged-frame field list for a struct conjunction from its per-conjunct
+declarations. The layout (`label → slot`) is fixed by first-occurrence across conjuncts;
+each conjunct's bodies are rebased onto that layout, then merged into deferred `.conj`s on
+label collisions. The result feeds one `pushFrame` + eval, so a body referencing a sibling
+that a later conjunct narrows sees the narrowed slot. Returns `none` when any operand is not
+a plain same-scope struct, deferring to the eval-then-`meet` path.
+-/
+def lazyConjMergedFields (env : Env) (constraints : List Value) :
+    Option (List Field × Bool) := do
+  let operands <- constraints.mapM (conjStructOperand? env evalFuel)
+  let layoutFrame := operands.foldl (fun acc op => mergeConjFields acc op.fst) []
+  let mergedMap := labelIndexMap layoutFrame
+  let rebased := operands.map fun op => rebaseConjunctFields op.fst mergedMap
+  let mergedFields := rebased.foldl mergeConjFields []
+  let closed := applyConjClosedness operands mergedFields
+  pure (closed, allClosednessOpen operands)
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -710,8 +921,17 @@ mutual
                 else
                   evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
     | fuel + 1, .conj constraints => do
-        let evaluated <- evalValuesWithFuel fuel env visited constraints
-        pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
+        match lazyConjMergedFields env constraints with
+        | some (mergedFields, open_) =>
+            let canonical := canonicalizeFields mergedFields
+            let nested <- pushFrame canonical env
+            let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
+            match mergeEvaluatedFields evaluatedFields with
+            | some fields => pure (.struct fields open_)
+            | none => pure .bottom
+        | none => do
+            let evaluated <- evalValuesWithFuel fuel env visited constraints
+            pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
     | fuel + 1, .builtinCall name args => do
         let evaluated <- evalValuesWithFuel fuel env visited args
         pure (evalBuiltinCall name evaluated)
