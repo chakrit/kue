@@ -87,6 +87,22 @@ theorem parse_struct_reference_embedding :
       "#Base: {a: int}\nx: {a: 1}" = true := by
   native_decide
 
+/-- Field-name axes are orthogonal (CUE): `_#x` is a HIDDEN DEFINITION — both `isDefinition`
+    and `isHidden` true. The flat parser classified `_#x` as hidden-only (`isDefinition` false),
+    which dropped its definition-ness: a hidden-def embedding's sibling self-ref never deferred to
+    a closure and missed use-site narrowing (argocd `#OpaqueSecret` link 2). Pin each axis. -/
+theorem parse_field_class_definition :
+    (parseFieldClass "#x" "#x".toList).fst == FieldClass.field true false .regular := by
+  native_decide
+
+theorem parse_field_class_hidden :
+    (parseFieldClass "_x" "_x".toList).fst == FieldClass.field false true .regular := by
+  native_decide
+
+theorem parse_field_class_hidden_definition :
+    (parseFieldClass "_#x" "_#x".toList).fst == FieldClass.field true true .regular := by
+  native_decide
+
 theorem parse_static_field_alias :
     parseOutputMatches
       "A=\"not an identifier\": 4\nfoo: A\n"

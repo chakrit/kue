@@ -6934,3 +6934,59 @@ cleanly (a whole class of parse errors eliminated repo-wide), and the link-3 lis
 #a != _|_ {name: #a}]` with use-site narrowing) is byte-exact in isolation — the language-level
 capability link 3 needs is in place; it is just not independently reachable while argocd bottoms
 earlier on link 2.
+
+---
+
+## Completed Slice: argocd-secret-data sub-slice 1 (hidden-def field-class classification)
+
+Goal: clear the argocd link-2 plain-embedding facet — a HIDDEN DEFINITION (`_#OpaqueSecret`)
+embedded into a host whose use-site narrows a hidden field (`#data`). The embedded def's
+sibling self-ref (`data: #data`, or `for k,v in #data`) ran against the def's own ABSTRACT
+`#data` before the use-site narrowing reached it → empty output (`mapped: {}`) where cue
+populates the map.
+
+### Root cause (a PARSER misclassification, not an eval-timing bug)
+
+`Parse.lean parseFieldClass` classified field-name axes as MUTUALLY EXCLUSIVE:
+`isDefinition := label.startsWith "#"`; `isHidden := !isDefinition && label.startsWith "_"`.
+So `_#x` (a HIDDEN DEFINITION in CUE — both closed AND excluded from output) was tagged
+hidden-ONLY, dropping its definition-ness. The def-deferral path
+(`refDefClosureBody?`/`conjDefClosure?`) gates on `isDef := defField.fieldClass.isDefinition`,
+so for a `_#x` embedding it returned `none` → the arm evaluated STANDALONE (collapsing
+`copy: #x` to the abstract `string`) BEFORE `meetEmbeddingsWithFuel` could force-splice the
+host's narrowing. The `FieldClass` model already had orthogonal `isDefinition`/`isHidden` axes
+(designed for exactly `_#x`/`#x?`); only the parser failed to populate them.
+
+### Fix
+
+`isDefinition := label.startsWith "#" || label.startsWith "_#"`; `isHidden :=
+label.startsWith "_"`. `_#x` is now BOTH a definition and hidden; `#x` and `_x` unchanged. No
+eval-path change — the existing slice-A/E closure-deferral machinery handles the narrowing once
+the embedding is correctly recognized as a definition.
+
+This also corrected a SECOND latent gap with the same root: `_#C` is now CLOSED (rejects
+undeclared fields, `_#C & {a:1,b:2}` → `b: _|_`), matching cue's "field not allowed"; pre-fix
+it was wrongly OPEN (hidden-only).
+
+### Tests + behavior preservation
+
+Every existing fixture byte-identical (`fixture pairs ok`); no `_#` appeared in any prior
+fixture, so zero drift risk. 3 new parser-classification pins (`parse_field_class_definition`
+/`_hidden`/`_hidden_definition` — the per-axis truth table). 6 new eval pins in `EvalTests.lean`:
+the headline `for k,v in #data` comprehension narrows post-meet
+(`hidden_def_embed_comprehension_narrows`), scalar sibling-self-ref narrows
+(`hidden_def_embed_sibling_narrows`), empty-narrow → empty map (no over-population,
+`hidden_def_embed_comprehension_empty`), hidden-def closedness accept+reject (`hidden_def_is_closed`),
+no-over-defer regression on plain `#Base` (`plain_def_embed_sibling_narrows`), and a concrete-source
+comprehension still eager (`hidden_def_embed_concrete_source`). 4 new export fixtures
+(`embed_hidden_def_sibling`, `embed_hidden_def_comprehension`, `_comprehension_empty`,
+`hidden_def_closed`), each cue v0.16.1-exact in JSON.
+
+### Real-app re-probe
+
+cert-manager: content-identical to cue (`jq -S`), ~28s single-pass — NO regression (its defs
+are plain `#x`, untouched by the `_#x` widening). argocd: STILL bottoms (~91s) — the argocd
+`#OpaqueSecret` lives in an embedded DEFAULT DISJUNCTION arm `(*_#A|_#B)`, whose default-arm
+collapse evaluates the arm standalone BEFORE the use-site narrowing distributes in. That is a
+DISTINCT fix (the disjunction-arm deferral), tracked as sub-slice 2 below. Sub-slice 1 fixes
+the plain-embedding facet in isolation (verified by minimal repros `s1`/`emb`/`emb2`).

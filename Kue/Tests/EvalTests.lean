@@ -2214,4 +2214,71 @@ theorem embedded_self_pass_skips_when_no_self_select :
       ["metadata"] = false := by
   native_decide
 
+/-! ### argocd-secret-data sub-slice 1 — hidden-def embedding narrowing.
+
+The argocd link-2 blocker: a hidden definition `_#OpaqueSecret` embedded into a host whose
+use-site narrows a hidden field (`#data`). The embedded def's sibling self-ref (`data:
+#data`, or a `for k,v in #data` comprehension) ran against the def's own ABSTRACT `#data`
+before the use-site narrowing reached it → empty output instead of the populated map. Root
+cause was a PARSER misclassification: `_#x` was tagged hidden-only (not a definition), so the
+def-deferral path (`refDefClosureBody?`/`conjDefClosure?`) never fired for the embedding, and
+the arm evaluated standalone (collapsing the self-ref) before the narrowing spliced in. Fixed
+by classifying `_#x` as BOTH definition and hidden (see `parse_field_class_hidden_definition`).
+Each pin is cue v0.16.1-exact. -/
+
+-- HEADLINE: a `for k,v in #data` comprehension inside an embedded hidden-def populates AFTER
+-- the use-site narrows `#data` (the secret-data shape). Pre-fix: `mapped: {}` (empty).
+theorem hidden_def_embed_comprehension_narrows :
+    evalSourceMatches
+        "_#M: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n#S: {#data: [string]: string, _#M}\nout: #S & {#data: {a: \"x\"}}\n"
+        "_#M: {#data: {[string]: string}, mapped: {}}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {a: \"x\", [string]: string, [string]: string, [string]: string}, mapped: {a: \"x\"}}"
+          = true := by
+  native_decide
+
+-- A plain SIBLING self-ref (`copy: #x`) in an embedded hidden-def sees the use-site narrowing
+-- of `#x`. Pre-fix: `copy: string` (un-narrowed). The minimal scalar form of the headline.
+theorem hidden_def_embed_sibling_narrows :
+    evalSourceMatches
+        "_#Hidden: {#x: string, copy: #x}\n#S: {#x: string, _#Hidden}\nout: #S & {#x: \"hi\"}\n"
+        "_#Hidden: {#x: string, copy: string}\n#S: {#x: string, copy: string}\nout: {#x: \"hi\", copy: \"hi\"}"
+          = true := by
+  native_decide
+
+-- EMPTY-NARROW (no over-population): narrowing the comprehension source to an empty struct
+-- yields an empty `mapped`, matching cue — the comprehension iterates the NARROWED value, so
+-- an empty narrowing is a real empty result, not a stale default.
+theorem hidden_def_embed_comprehension_empty :
+    evalSourceMatches
+        "_#M: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n#S: {#data: [string]: string, _#M}\nout: #S & {#data: {}}\n"
+        "_#M: {#data: {[string]: string}, mapped: {}}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}"
+          = true := by
+  native_decide
+
+-- A hidden definition is CLOSED (the parser fix's other half): `_#C & {a:1}` accepts the
+-- declared `a`, `_#C & {a:1, b:2}` REJECTS the undeclared `b` (`b: _|_`). Pre-fix `_#C` was
+-- open (hidden-only), so it wrongly admitted `b`. cue: "field not allowed".
+theorem hidden_def_is_closed :
+    evalSourceMatches
+        "_#C: {a: int}\naccept: _#C & {a: 1}\nreject: _#C & {a: 1, b: 2}\n"
+        "_#C: {a: int}\naccept: {a: 1}\nreject: {a: 1, b: _|_}" = true := by
+  native_decide
+
+-- NO-OVER-DEFER (regression): a plain `#Base` (non-hidden definition) embedding still narrows
+-- correctly. The fix widened `_#x` classification without touching `#x`, so this stays green.
+theorem plain_def_embed_sibling_narrows :
+    evalSourceMatches
+        "#Hidden: {#x: string, copy: #x}\n#S: {#x: string, #Hidden}\nout: #S & {#x: \"hi\"}\n"
+        "#Hidden: {#x: string, copy: string}\n#S: {#x: string, copy: string}\nout: {#x: \"hi\", copy: \"hi\"}"
+          = true := by
+  native_decide
+
+-- A comprehension over a CONCRETE source still expands EAGERLY (no over-defer): no use-site
+-- narrowing involved, source is literal, so the map populates directly.
+theorem hidden_def_embed_concrete_source :
+    evalSourceMatches
+        "_#M: {data: {x: \"1\", y: \"2\"}, mapped: {for k, v in data {\"\\(k)\": v}}}\nout: {_#M}\n"
+        "_#M: {data: {x: \"1\", y: \"2\"}, mapped: {x: \"1\", y: \"2\"}}\nout: {data: {x: \"1\", y: \"2\"}, mapped: {x: \"1\", y: \"2\"}}"
+          = true := by
+  native_decide
+
 end Kue
