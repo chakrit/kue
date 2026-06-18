@@ -76,9 +76,9 @@ def depKeyModulePath (key : String) : String :=
     `"<modpath>@<major>": { v: "<version>" }` becomes a `Dep`. Entries lacking a string `v`
     are skipped. Pure — operates on the already-parsed module-file value. -/
 def parseDeps : Value -> List Dep
-  | .struct fields _ =>
+  | .struct fields _ | .structN fields _ _ _ =>
       match (fields.find? (fun f => f.label == "deps")).map (fun f => f.value) with
-      | some (Value.struct entries _) =>
+      | some (Value.struct entries _) | some (Value.structN entries _ _ _) =>
           entries.filterMap fun entry =>
             match versionOf entry.value with
             | some version => some { modPath := depKeyModulePath entry.label, version }
@@ -87,7 +87,7 @@ def parseDeps : Value -> List Dep
   | _ => []
 where
   versionOf : Value -> Option String
-    | .struct fields _ =>
+    | .struct fields _ | .structN fields _ _ _ =>
         (fields.find? (fun f => f.label == "v")).bind fun f =>
           match f.value with
           | .prim (.string version) => some version
@@ -160,8 +160,10 @@ def dedupeBindings (bindings : List (String × Value)) : List (String × Value) 
 def bindImports (bindings : List (String × Value)) : Value -> Value
   | .struct fields open_ =>
       .struct (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ fields) open_
+  | .structN fields openness tail patterns =>
+      .structN (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ fields) openness tail patterns
   | value =>
-      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) false
+      mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) .defClosed none []
 
 /-- The local name a package binds under: the import alias when present, else the
     package's declared name, else the last path element as a final fallback (a package
@@ -226,7 +228,7 @@ def readModuleInfo (root : System.FilePath) : IO (Except String (String × List 
       | none => pure (.error "cue.mod/module.cue: missing string `module:` field")
 where
   moduleFieldValue : Value -> Option String
-    | .struct fields _ =>
+    | .struct fields _ | .structN fields _ _ _ =>
         (fields.find? (fun f => f.label == "module")).bind fun f =>
           match f.value with
           | .prim (.string path) => some path

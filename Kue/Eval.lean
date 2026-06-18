@@ -1825,7 +1825,8 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
                   followAliasDefBody? fuel (frame :: outer) frame.snd (Field.value defField)
   | body =>
       let isStructLike := match body with
-        | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ _ => true | _ => false
+        | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ _ => true
+        | .structN _ _ _ [] => true | _ => false
       let bodyEnv : Env := (0, []) :: (0, capturedFrame) :: frameEnv.drop 1
       if isStructLike && bodyNeedsDefer bodyEnv evalFuel body then
         some (capturedFrame, body)
@@ -1855,7 +1856,7 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
       | none => none
       | some baseField =>
           match Field.value baseField with
-          | .struct pkgFields _ =>
+          | .struct pkgFields _ | .structN pkgFields _ _ _ =>
               match findEvalField label pkgFields with
               | some defField =>
                   -- The def body's embeddings reference the package frame (`pkgFields`, pushed when
@@ -1912,7 +1913,8 @@ def refDefClosureBody? (env : Env) (id : BindingId) : Option Value :=
           let body := Field.value defField
           let isStructComp := match body with | .structComp _ _ _ _ => true | _ => false
           let isStructLike := match body with
-            | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ _ => true | _ => false
+            | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ _ => true
+            | .structN _ _ _ [] => true | _ => false
           let isDef := defField.fieldClass.isDefinition
           -- Fire on the lazy-merge gaps `conjStructOperand?` cannot reduce: an embed-/guard-bearing
           -- `.structComp` (any depth — definition OR regular field; the regular case is F2 site 2:
@@ -2633,6 +2635,12 @@ mutual
                         -- (`meetEmbeddingsClosingOver`).
                         meetEmbeddingsWithFuel (nextFuel + 1) env
                           (meet current (openStructValue evaluated)) rest
+                  | .structN fields _ none [] =>
+                      if collapsesToScalarEmbed fields evaluated then
+                        meetEmbeddingsWithFuel (nextFuel + 1) env evaluated rest
+                      else
+                        meetEmbeddingsWithFuel (nextFuel + 1) env
+                          (meet current (openStructValue evaluated)) rest
                   | _ =>
                       meetEmbeddingsWithFuel (nextFuel + 1) env
                         (meet current (openStructValue evaluated)) rest
@@ -2775,6 +2783,30 @@ mutual
                 -- NOT contain `y` (it lives only in the comprehension), so fold `expanded` in too.
                 let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
                 pure (closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpen met)
+    -- Normalized struct def body (the B2 collapse of `.struct`/`.structTail`): the no-tail
+    -- no-pattern case mirrors the `.struct` arm; the `defOpenViaTail` case mirrors `.structTail`
+    -- (splice open, keep + rebase the tail). A pattern-bearing structN has no force-splice arm
+    -- (the old pattern forms fell to the `_` catch-all) and is handled there.
+    | .structN defFields .defOpenViaTail (some defTail) [] =>
+        let (mergedFields, _) := mergeConjOperands ((defFields, true) :: useOperands)
+        let canonical := canonicalizeFields mergedFields
+        let mergedMap := labelIndexMap canonical
+        let rebasedTail := remapConjRefs remapFuel 0 defFields mergedMap defTail
+        let nested <- pushFrame canonical capturedEnv
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
+        match mergeEvaluatedFields evaluatedFields with
+        | some fields =>
+            let evaluatedTail <- evalValueWithFuel fuel nested [] rebasedTail
+            pure (mkStruct fields .defOpenViaTail (some evaluatedTail) [])
+        | none => pure .bottom
+    | .structN defFields openness none [] =>
+        let (mergedFields, open_) := mergeConjOperands ((defFields, openness.isOpen) :: useOperands)
+        let canonical := canonicalizeFields mergedFields
+        let nested <- pushFrame canonical capturedEnv
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
+        match mergeEvaluatedFields evaluatedFields with
+        | some fields => pure (mkStruct fields (.ofBool open_) none [])
+        | none => pure .bottom
     | _ => do
         let forced <- evalValueWithFuel fuel capturedEnv [] body
         pure (useOperands.foldl (fun current op => meet current (.struct op.fst op.snd)) forced)
@@ -2832,6 +2864,7 @@ mutual
             let evaluatedBody <- evalValueWithFuel fuel env [] body
             match evaluatedBody with
             | .struct fields _ => pure fields
+            | .structN fields _ none [] => pure fields
             | _ => pure []
         | .guard condition :: rest => do
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
@@ -2978,6 +3011,20 @@ def evalStructRefsM (value : Value) : EvalM Value := do
             let evaluatedConstraint <- evalValueWithFuel evalFuel top [] pattern.snd
             pure (evaluatedLabel, evaluatedConstraint)
           pure (applyEvaluatedStructPatterns merged evaluatedPatterns open_)
+      | none => pure .bottom
+  | .structN fields openness tail patterns =>
+      let fields := canonicalizeFields fields
+      match (<- evalTopFieldsM fields) with
+      | some merged =>
+          let top <- pushFrame fields []
+          let evaluatedTail <- match tail with
+            | some t => do let t <- evalValueWithFuel evalFuel top [] t; pure (some t)
+            | none => pure none
+          let evaluatedPatterns <- patterns.mapM fun pattern => do
+            let evaluatedLabel <- evalValueWithFuel evalFuel top [] pattern.fst
+            let evaluatedConstraint <- evalValueWithFuel evalFuel top [] pattern.snd
+            pure (evaluatedLabel, evaluatedConstraint)
+          pure (applyEvaluatedStructN merged openness evaluatedTail evaluatedPatterns)
       | none => pure .bottom
   | normalized@(.structComp _ _ _ _) => evalValueWithFuel evalFuel [] [] normalized
   | value => pure value
