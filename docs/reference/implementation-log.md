@@ -7138,3 +7138,74 @@ strictness, the dead-OR-branch + selectEvaluatedField DRY cleanups, and the next
 resolveEmbeddedDisjDefault confirm). All dropped history is preserved here (this log) + git.
 Also added a periodic "plan-hygiene pass" bullet to `docs/guides/slice-loop.md`. This log is
 now the canonical completed-work record; the lean plan is the authority for what is next.
+
+---
+
+## Slice: argocd-tlsroute-list-guard → link 3 + link 4 (2026-06-18)
+
+The slice's named target (`#TLSRoute` list-element `if`-guards) was mis-diagnosed: the
+minimal list-guard repro already passed (landed `3e0c84f`). Bisecting the REAL `defs.#TLSRoute`
+bottom against `cue` (oracle `/Users/chakrit/go/bin/cue` v0.16.1) found TWO distinct root
+causes, neither in the list-element guard machinery. Both are narrowing-timing bugs in the
+embedding-`Self` two-pass gate and the open-struct parser representation.
+
+### Root cause 1 — two-pass gate missed DEEP + LIST-COMPREHENSION self-refs (`Kue/Eval.lean`)
+
+`refsSelfEmbeddedLabel` (the `needsEmbeddedSelfPass` gate) hard-matched `id.depth == 0` and
+recursed into nested structs WITHOUT incrementing the depth it looked for — so a
+`Self.<embedded-label>` read from a NESTED struct (`spec: { hostnames: Self.#hosts }`, depth 1)
+was invisible, Pass 2 never fired, and the nested ref resolved against the un-augmented frame
+→ `.bottom` (`#TLSRoute.spec.hostnames`, `#ListenerSet.spec.parentRef.name`). It ALSO had no
+`.listComprehension` arm at all, so a list-comp SOURCE (`listeners: [for h in Self.#hosts {…}]`)
+was unscanned → the comprehension iterated the un-narrowed (empty) embedded field and dropped
+every element. Fix: thread a `depth` parameter (incremented on struct descents, mirroring
+`hasSelfRefAtDepth`), match `id.depth == depth`, and add a `.listComprehension` arm to BOTH
+`refsSelfEmbeddedLabel` and `hasSelfRefAtDepth`. This fully fixed `#TLSRoute` (all three real
+test cases — basic, cross-ns gateway, listenerset — content-match cue).
+
+### Root cause 2 — open struct (`...`) WITH embeddings split into a harmful `.conj` (`Kue/Parse.lean`)
+
+`parsedFieldsValue` emitted `.conj [.structComp(embeds), .structTail(fields, tail)]` whenever a
+struct had BOTH comprehensions/embeddings AND a `...` open marker. The two arms carry OVERLAPPING
+fields; a `Self.<field>` self-ref landed in the `.structTail` arm, which never saw the
+embedding-contributed fields, so a use-site narrowing collapsed to `.bottom`. This is the real
+`defs.#ListenerSet` blocker (`parts.#Metadata` embedded + a def-level `...`). Fix: keep it ONE
+node — the comprehension form already carries `open_ = true`, which is exactly what the bare `...`
+(`.top` tail, the only supported tail) means; a definition-context one is closed by
+`normalizeDefinitionValueWithFuel` like any `.structComp`. Dropped the `.conj` split for the
+comprehension/pattern case (the plain-fields case keeps its `.structTail`).
+
+### Tests
+
+3 committed module fixtures (`testdata/modules/`): `open_embed_selfref_guard` (open def +
+embed + nested `Self` read, cross-package), `listcomp_embed_selfref` (list-comp over embedded
+field, narrowed), `listcomp_embed_selfref_empty` (guard-false → empty, no fabrication). All
+cue v0.16.1-exact (whole-module JSON). 8 `Kue/Tests/EvalTests.lean` pins: 4 `needsEmbeddedSelfPass`
+gate pins (deep self-select fires, listcomp source fires, nested listcomp source fires, nested
+UNRELATED label does NOT fire — no over-defer) + 3 source-level cue-exact behavior pins (listcomp
+narrows, guard-false stays empty, open-embed narrows) + the existing gate pins unchanged.
+
+### Verify
+
+`lake build` 86 jobs green, `fixture pairs ok` (zero drift, existing fixtures byte-unchanged),
+shellcheck untouched. Real-app re-probe (read-only, prod9 `/Users/chakrit/Documents/prod9`):
+- **cert-manager: STILL content-identical to cue** (`jq -S`). NO correctness regression.
+- **argocd `defs.#Secret` (link 2): still content-matches cue.** No regression.
+- **argocd `defs.#TLSRoute` (link 3): now content-correct vs cue** (all 3 cases, modulo
+  field-order #3 — `metadata` ordering).
+- **argocd `defs.#ListenerSet` (link 4): now content-correct vs cue** (`rt`/`ls` resources
+  both match).
+- **Full `kue export apps/argocd.cue` STILL bottoms — on a NEW link 5: `packs.#Argo`** (the
+  `argo_.{stage9,…}.configs` sub-package). `packs.#Argo & {…}` bottoms in isolation (~36s, also
+  perf-wall-adjacent). Distinct, deeper root cause (nested `defs.#ArgoRepo`/`#ArgoProject`/
+  `#ArgoApp` embeds + their own guards). argocd is NOT a drop-in yet.
+
+### Perf regression (recorded, SOUND — correctness-over-performance)
+
+Both fixes increased eval cost: cert-manager ~31s → ~92s; `defs.#TLSRoute` ~4s → ~9s;
+`defs.#Secret` ~3s → ~13s. Cause: the parser collapse routes `{embed; …; ...}` defs through the
+single-`.structComp` two-pass path (more embed re-evaluation than the old `.conj` split), and the
+two-pass gate now fires on more (deeper) refs. The change is SOUND (byte-identical fixtures +
+correctness gain), so it ships per `docs/decisions/2026-06-18-correctness-over-performance.md`,
+but it pushes more shapes toward the per-eval perf wall — folded into backlog item 7 (per-eval-cost
+perf) as a now-more-urgent frontier.

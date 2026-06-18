@@ -88,62 +88,81 @@ def thisStructBindingIndex? : List Field -> Option Nat
       go 0 fields
 
 /-- Does `value` reference `Self.<label>` for some `label ∈ labels`, where `Self` is the
-    depth-0 binding at `selfIndex`? A resolved `Self.a` is `.selector (.refId ⟨0, selfIndex⟩) a`.
-    Fuel-bounded structural scan; used to gate the embedding-`Self` two-pass so it fires ONLY
-    when a static field actually selects an embedding-supplied label through the host's `Self`. -/
-def refsSelfEmbeddedLabel (fuel : Nat) (selfIndex : Nat) (labels : List String) : Value -> Bool
+    binding at `selfIndex` in the def's OWN frame, reachable from `depth` frame-pushers deep? A
+    resolved `Self.a` read from the def's own frame is `.selector (.refId ⟨0, selfIndex⟩) a`; read
+    from a NESTED struct (`spec: { hostnames: Self.#hosts }`) it is `.selector (.refId ⟨d,
+    selfIndex⟩) a` with `d` = the number of intervening frames. Descending a frame-pusher
+    (`.struct`/`.structTail`/`.structComp`/pattern) increments `depth`, so a self-ref lands iff
+    `id.depth == depth`, exactly mirroring `hasSelfRefAtDepth`. Fuel-bounded structural scan; used
+    to gate the embedding-`Self` two-pass so it fires when ANY field (at any nesting depth) selects
+    an embedding-supplied label through the host's `Self`. -/
+def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List String) : Value -> Bool
   | .selector (.refId id) label =>
-      (id.depth == 0 && id.index == selfIndex && labels.contains label)
-        || (match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f selfIndex labels (.refId id))
+      id.depth == depth && id.index == selfIndex && labels.contains label
   | .selector base _ =>
-      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f selfIndex labels base
+      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels base
   | .index base key =>
       match fuel with
       | 0 => false
-      | f + 1 => refsSelfEmbeddedLabel f selfIndex labels base || refsSelfEmbeddedLabel f selfIndex labels key
+      | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels base || refsSelfEmbeddedLabel f depth selfIndex labels key
   | .unary _ v =>
-      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f selfIndex labels v
+      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels v
   | .binary _ l r =>
       match fuel with
       | 0 => false
-      | f + 1 => refsSelfEmbeddedLabel f selfIndex labels l || refsSelfEmbeddedLabel f selfIndex labels r
+      | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels l || refsSelfEmbeddedLabel f depth selfIndex labels r
   | .conj cs =>
-      match fuel with | 0 => false | f + 1 => cs.any (refsSelfEmbeddedLabel f selfIndex labels)
+      match fuel with | 0 => false | f + 1 => cs.any (refsSelfEmbeddedLabel f depth selfIndex labels)
   | .disj alts =>
-      match fuel with | 0 => false | f + 1 => alts.any (fun a => refsSelfEmbeddedLabel f selfIndex labels a.snd)
+      match fuel with | 0 => false | f + 1 => alts.any (fun a => refsSelfEmbeddedLabel f depth selfIndex labels a.snd)
   | .interpolation parts =>
-      match fuel with | 0 => false | f + 1 => parts.any (refsSelfEmbeddedLabel f selfIndex labels)
+      match fuel with | 0 => false | f + 1 => parts.any (refsSelfEmbeddedLabel f depth selfIndex labels)
   | .struct fields _ =>
-      match fuel with | 0 => false | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f selfIndex labels (Field.value fl))
+      match fuel with | 0 => false | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
   | .structTail fields tail =>
       match fuel with
       | 0 => false
-      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f selfIndex labels (Field.value fl))
-          || refsSelfEmbeddedLabel f selfIndex labels tail
+      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
+          || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels tail
   | .structComp fields cs _ =>
       match fuel with
       | 0 => false
-      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f selfIndex labels (Field.value fl))
-          || cs.any (refsSelfEmbeddedLabel f selfIndex labels)
+      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
+          || cs.any (refsSelfEmbeddedLabel f (depth + 1) selfIndex labels)
   | .list items =>
-      match fuel with | 0 => false | f + 1 => items.any (refsSelfEmbeddedLabel f selfIndex labels)
+      match fuel with | 0 => false | f + 1 => items.any (refsSelfEmbeddedLabel f depth selfIndex labels)
   | .listTail items tail =>
       match fuel with
       | 0 => false
-      | f + 1 => items.any (refsSelfEmbeddedLabel f selfIndex labels) || refsSelfEmbeddedLabel f selfIndex labels tail
+      | f + 1 => items.any (refsSelfEmbeddedLabel f depth selfIndex labels) || refsSelfEmbeddedLabel f depth selfIndex labels tail
   | .comprehension clauses body =>
+      -- Clause sources/guards resolve in the comprehension's enclosing frame (same `depth`); the
+      -- body resolves one frame deeper per `for`, scanned conservatively at `depth` — over-detects
+      -- (more two-pass firing), never miss-detects. Mirrors `hasSelfRefAtDepth`.
       match fuel with
       | 0 => false
       | f + 1 =>
           clauses.any (fun c =>
             match c with
-            | .forIn _ _ source => refsSelfEmbeddedLabel f selfIndex labels source
-            | .guard cond => refsSelfEmbeddedLabel f selfIndex labels cond)
-          || refsSelfEmbeddedLabel f selfIndex labels body
+            | .forIn _ _ source => refsSelfEmbeddedLabel f depth selfIndex labels source
+            | .guard cond => refsSelfEmbeddedLabel f depth selfIndex labels cond)
+          || refsSelfEmbeddedLabel f depth selfIndex labels body
+  | .listComprehension clauses body =>
+      -- List-context comprehension (`listeners: [for h in Self.#hosts {…}]` — the ListenerSet
+      -- shape): the `Self.<embedded-label>` source must trigger the two-pass exactly as a struct
+      -- comprehension's does, else the source iterates the un-narrowed (empty) embedded value.
+      match fuel with
+      | 0 => false
+      | f + 1 =>
+          clauses.any (fun c =>
+            match c with
+            | .forIn _ _ source => refsSelfEmbeddedLabel f depth selfIndex labels source
+            | .guard cond => refsSelfEmbeddedLabel f depth selfIndex labels cond)
+          || refsSelfEmbeddedLabel f depth selfIndex labels body
   | .dynamicField l _ v =>
       match fuel with
       | 0 => false
-      | f + 1 => refsSelfEmbeddedLabel f selfIndex labels l || refsSelfEmbeddedLabel f selfIndex labels v
+      | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels l || refsSelfEmbeddedLabel f depth selfIndex labels v
   | _ => false
 
 /-- Should the embedding-`Self` two-pass fire? Only when (a) embeddings contributed labels NOT
@@ -156,7 +175,7 @@ def needsEmbeddedSelfPass (canonical : List Field) (newEmbeddedLabels : List Str
     | none => false
     | some selfIndex =>
         canonical.any fun fl =>
-          refsSelfEmbeddedLabel evalFuel selfIndex newEmbeddedLabels (Field.value fl)
+          refsSelfEmbeddedLabel evalFuel 0 selfIndex newEmbeddedLabels (Field.value fl)
 
 def applyEvaluatedStructPattern
     (fields : List Field)
@@ -1285,6 +1304,17 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
           -- enclosing frame — the SAME depth — so a `Self.#staging` in `if Self.#staging` is a
           -- self-ref at `depth`. The body resolves one frame deeper per `for`; conservatively
           -- scanning it at `depth` only over-detects (more defers), never miss-detects.
+          clauses.any (fun c =>
+            match c with
+            | .forIn _ _ source => hasSelfRefAtDepth fuel depth source
+            | .guard condition => hasSelfRefAtDepth fuel depth condition)
+          || hasSelfRefAtDepth fuel depth body
+  | .listComprehension clauses body =>
+      -- List-context comprehension (`[for h in Self.#hosts {…}]`): same clause/body scoping as
+      -- `.comprehension`, scanned at `depth` (over-detect only, never miss).
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
           clauses.any (fun c =>
             match c with
             | .forIn _ _ source => hasSelfRefAtDepth fuel depth source

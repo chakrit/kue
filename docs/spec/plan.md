@@ -67,10 +67,12 @@ field-ordering byte-parity gap, #3 in the backlog):
   missing-file diagnostics + exit codes.
 
 **Real-app status** (prod9 infra, read-only oracle):
-- **cert-manager: content-identical drop-in, ~31s.** Exports correctly at production fuel.
-- **argocd: correct through link 2** (`defs.#Secret` populated base64 `data`,
-  content-identical to cue; cert-manager + link-2 no regression). **Blocked on link 3**
-  (`#TLSRoute` — see backlog item 1, the live blocker; capability is in place).
+- **cert-manager: content-identical drop-in, ~92s.** Exports correctly at production fuel.
+  (Was ~31s; the link-3/4 fixes route more shapes through the two-pass embed re-eval — SOUND,
+  byte-identical fixtures, but slower; see item 7.)
+- **argocd: correct through link 4** (`defs.#Secret` base64 `data`, `#TLSRoute`, `#ListenerSet`
+  all content-identical to cue modulo field-order #3; cert-manager + links 2/3/4 no regression).
+  **Blocked on link 5** (`packs.#Argo` — see backlog item 1, the live blocker).
 
 ## Live Backlog (open work, ranked)
 
@@ -78,15 +80,17 @@ Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence
 correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deeper parity/perf
 (2,6,7) → borderline/LOW (8) as opportunistic ride-alongs.
 
-1. **`argocd-tlsroute-list-guard` (HIGH — LIVE real-app blocker; argocd link 3).**
-   `#TLSRoute.spec.parentRefs` is a LIST whose elements are `if Self.#x != _|_ {…}` guards
-   over use-site-narrowed hidden fields → bottom. The list analog of the struct-comprehension
-   narrowing fix. List-comp parse+eval and def-deferral machinery are in place; what's
-   missing is the same narrowing-before-guard-eval discipline applied to LIST-element `if`
-   guards inside a force-spliced def. The minimal self-contained repro now PASSES in kue;
-   the real `defs.#TLSRoute` bottoms from ADDITIONAL structure — bisect the real def
-   (scratch-module method, breadcrumb) to find what the minimal shape misses. Fast-failing
-   (~3-4s), NOT the perf wall. This is the next correctness link to make argocd a drop-in.
+1. **`argocd-packs-argo` (HIGH — LIVE real-app blocker; argocd link 5).** Links 3
+   (`#TLSRoute`) and 4 (`#ListenerSet`) LANDED (2026-06-18 `argocd-tlsroute-list-guard` slice —
+   two-pass gate depth + `.listComprehension` self-ref detection; parser open-struct-with-embeds
+   collapse). Both now content-match cue. Full `kue export apps/argocd.cue` STILL bottoms on
+   `packs.#Argo` (the `argo_.{stage9,bluepages,…}.configs` sub-package): `packs.#Argo & {…}`
+   bottoms in isolation (~36s, perf-wall-adjacent). Root cause is deeper than links 3/4 — nested
+   `defs.#ArgoRepo`/`#ArgoProject`/`#ArgoApp` embeds each with their own `if Self.#x != _|_`
+   guards, a `[...]` open list, and many cross-`defs` embeds. Bisect via the scratch-module +
+   editable-cache-copy method (breadcrumb). This is the next correctness link to make argocd a
+   drop-in. NOTE: `packs.#Argo` is ALSO near the per-eval perf wall (item 7) — distinguish
+   "correct but slow" from "still bottoms" while bisecting.
 
 2. **`truncate-primitive` (HIGH — soundness hardening, Phase B step 1).** The
    truncation-bump invariant (a `fuel=0` helper that drops fields MUST bump `truncCount`)
@@ -127,14 +131,18 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
    `#Def & {…}` prod9 pattern's exported order. Multi-slice + a provenance-key design spike
    first. Do AFTER argocd unless it blocks a needed fixture.
 
-7. **Per-eval-cost perf (frontier #2, downstream of correctness).** The heavy `argo`
-   sub-package (`argo_.{stage9,bluepages,…}.configs`) times out >200s once past the early
-   bottom; cert-manager has a ~31s residual. Root is exponential frame-id divergence —
-   structurally-identical re-pushes get fresh ids, defeating the memo `envIds` key. Fix is
-   frame-id sharing / canonical frame identity (same fields + same parent id-stack → reuse
-   id), audit-heavy (must not violate "independently-built frames never falsely share").
-   Profile against a resolving target after the correctness links land. Frame-id sharing +
-   force-memo are partially landed; finish them here.
+7. **Per-eval-cost perf (frontier #2, NOW MORE URGENT — downstream of correctness).** The heavy
+   `argo` sub-package (`argo_.{stage9,bluepages,…}.configs`) times out >200s once past the early
+   bottom; cert-manager's residual GREW from ~31s to ~92s after the link-3/4 fixes (the parser
+   open-struct-with-embeds collapse routes `{embed;…;...}` defs through the single-`.structComp`
+   two-pass path — more embed re-evaluation than the old `.conj` split — and the two-pass gate now
+   fires on more/deeper refs). All SOUND (byte-identical fixtures), but it pushes more shapes toward
+   the wall: `defs.#TLSRoute` ~4s→~9s, `defs.#Secret` ~3s→~13s, `packs.#Argo` ~36s. Root is
+   exponential frame-id divergence — structurally-identical re-pushes get fresh ids, defeating the
+   memo `envIds` key. Fix is frame-id sharing / canonical frame identity (same fields + same parent
+   id-stack → reuse id), audit-heavy (must not violate "independently-built frames never falsely
+   share"). Frame-id sharing + force-memo are partially landed; finish them here. Profile against a
+   resolving target (cert-manager, or `packs.#Argo` once link 5 lands).
 
 8. **Borderline / LOW (opportunistic; none block adoption).**
    - **`scalar-embed-with-decls`** — `{#a:1, 5}`→`5` (cue manifests `5`, keeps `.#a`

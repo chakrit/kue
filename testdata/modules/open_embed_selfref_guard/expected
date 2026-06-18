@@ -1,0 +1,12 @@
+{
+    "out": {
+        "spec": {
+            "parentRef": {
+                "name": "nginx"
+            },
+            "hosts": [
+                "x.com"
+            ]
+        }
+    }
+}

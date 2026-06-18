@@ -79,7 +79,11 @@ fix is purely a speedup — byte-identical output.
 - **Absolute per-eval cost on deep apps.** With fuel multiplication eliminated, a deep
   real-app (e.g. a prod9 infra app with deep `Self=` def chains) now exports correctly at
   the production fuel ceiling, but the absolute eval count (hundreds of thousands of core
-  evals for cert-manager) × the per-eval constant still costs ~tens of seconds. This is no
+  evals for cert-manager) × the per-eval constant still costs ~tens of seconds (cert-manager
+  ~92s as of the 2026-06-18 link-3/4 correctness fixes — up from ~31s, because an open
+  definition that embeds a self-ref def (`{ embed; …; ... }`, the dominant prod9 `#Def` shape)
+  now routes through the single-`.structComp` two-pass embed-re-evaluation path; this is sound
+  and correctness-required, but more expensive than the prior representation). This is no
   longer a fuel-axis problem; the next perf lever is the per-eval constant, not the fuel
   ceiling. The practical advice above (flatten, shorten chains → lower convergence depth →
   fewer evals) remains the lever you control.

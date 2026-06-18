@@ -2246,6 +2246,98 @@ theorem embedded_self_pass_skips_when_no_self_select :
       ["metadata"] = false := by
   native_decide
 
+/-! ### argocd link 3/4 — DEEP and LIST-COMPREHENSION self-ref two-pass gate.
+
+`refsSelfEmbeddedLabel` (the two-pass gate) previously matched only a DEPTH-0 `Self.<label>`
+selector and had no `.listComprehension` arm. Two gaps:
+  1. A `Self.<embedded-label>` read from a NESTED struct (`spec: { hostnames: Self.#hosts }`)
+     is `.selector (.refId ⟨1, selfIndex⟩) #hosts` — depth 1 — so it was invisible; Pass 2
+     never fired and the nested ref resolved against the un-augmented frame → `.bottom`
+     (argocd `#TLSRoute.spec.hostnames`, `#ListenerSet.spec.parentRef.name`).
+  2. A list-comprehension SOURCE (`listeners: [for h in Self.#hosts {…}]`) lives in a
+     `.listComprehension`, which had no scan arm → the comprehension iterated the un-narrowed
+     (empty) embedded field and dropped every element (argocd `#ListenerSet.spec.listeners`).
+Both fixed by threading `depth` (incremented on struct descents, mirroring `hasSelfRefAtDepth`)
+and adding a `.listComprehension` arm. -/
+
+-- DEEP: `Self.a` read one frame deep (`b: { c: Self.a }`) fires the gate.
+theorem embedded_self_pass_fires_on_nested_self_select :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩,
+       ⟨"b", .regular, .struct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "a"⟩] true⟩]
+      ["a"] = true := by
+  native_decide
+
+-- LIST-COMPREHENSION SOURCE: `b: [for x in Self.a {…}]` fires the gate (source at depth 0).
+theorem embedded_self_pass_fires_on_listcomp_source :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩,
+       ⟨"b", .regular, .list [.listComprehension [.forIn none "x" (.selector (.refId ⟨0, 0⟩) "a")]
+                                (.struct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] true)]⟩]
+      ["a"] = true := by
+  native_decide
+
+-- LIST-COMPREHENSION SOURCE, NESTED: `spec: { listeners: [for x in Self.a {…}] }` (source at
+-- depth 1) — the real argocd shape — fires the gate.
+theorem embedded_self_pass_fires_on_nested_listcomp_source :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩,
+       ⟨"spec", .regular, .struct
+          [⟨"listeners", .regular, .list [.listComprehension
+              [.forIn none "x" (.selector (.refId ⟨1, 0⟩) "a")]
+              (.struct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] true)]⟩] true⟩]
+      ["a"] = true := by
+  native_decide
+
+-- NO OVER-FIRE: a NESTED reference to an UNRELATED label (`Self.other`, not in the embedded set)
+-- still does not fire — the depth-tracking widens detection only for genuinely-embedded labels.
+theorem embedded_self_pass_skips_nested_unselected :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩,
+       ⟨"b", .regular, .struct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "other"⟩] true⟩]
+      ["a"] = false := by
+  native_decide
+
+-- HEADLINE (source-level, cue-exact): a list comprehension over an embedded-def field narrowed
+-- via a use-site `#host` yields the element. Pre-fix: empty list (gate missed the listComp source).
+theorem listcomp_embed_selfref_narrows :
+    evalSourceMatches
+        "#H: {#host?: string, #hosts: [...string], if #host != _|_ {#hosts: [#host]}}\n#R: Self={#H, out: [for h in Self.#hosts {hostname: h}]}\nv: #R & {#host: \"x.com\"}\n"
+        "#H: {#host?: string, #hosts: [...string]}\n#R: {out: [], #host?: string, #hosts: [...string]}\nv: {out: [{hostname: \"x.com\"}], #host: \"x.com\", #hosts: [\"x.com\"]}"
+          = true := by
+  native_decide
+
+-- GUARD FALSE (no fabrication): `#host` absent ⇒ embedded `#hosts` stays empty ⇒ the comprehension
+-- yields zero elements, matching cue. Pins the two-pass does not invent elements.
+theorem listcomp_embed_selfref_empty_stays_empty :
+    evalSourceMatches
+        "#H: {#host?: string, #hosts: [...string], if #host != _|_ {#hosts: [#host]}}\n#R: Self={#H, out: [for h in Self.#hosts {hostname: h}]}\nv: #R & {}\n"
+        "#H: {#host?: string, #hosts: [...string]}\n#R: {out: [], #host?: string, #hosts: [...string]}\nv: {out: [], #host?: string, #hosts: [...string]}"
+          = true := by
+  native_decide
+
+/-! ### argocd link 4 — open struct (`...`) with embeddings no longer splits into a `.conj`.
+
+An open struct that ALSO carries comprehensions/embeddings (`{ embed; …; ... }`) was parsed as
+`.conj [.structComp(embeds), .structTail(fields, tail)]` — two OVERLAPPING-field arms. A
+`Self.<field>` self-ref landed in the `.structTail` arm, which never saw the embedding-contributed
+fields, so a use-site narrowing collapsed to `.bottom` (argocd `defs.#ListenerSet`: `parts.#Metadata`
+embedded + a def-level `...`). The parser now keeps it ONE node: the comprehension form already
+carries `open_ = true`, exactly what the bare `...` (`.top` tail) means; a definition-context one is
+closed by `normalizeDefinitionValueWithFuel` like any `.structComp`. The cross-package end-to-end
+shape is pinned by the committed module fixture `open_embed_selfref_guard`; these are the parser +
+same-file source pins. -/
+
+-- SAME-FILE source pin: an open struct (`...`) embedding a self-ref def, with a nested-scope
+-- `Self.#g` read, narrowed at the use site, resolves (no `.bottom`). Pre-fix the def-level `...`
+-- split the body into a `.conj` whose `Self.#g` arm bottomed.
+theorem open_embed_selfref_narrows :
+    evalSourceMatches
+        "#B: {#g: string, gw: #g}\n#R: Self={#B, who: Self.#g, ...}\nout: #R & {#g: \"x\"}\n"
+        "#B: {#g: string, gw: string}\n#R: {who: string, #g: string, gw: string}\nout: {who: \"x\", #g: \"x\", gw: \"x\"}"
+          = true := by
+  native_decide
+
 /-! ### argocd-secret-data sub-slice 1 — hidden-def embedding narrowing.
 
 The argocd link-2 blocker: a hidden definition `_#OpaqueSecret` embedded into a host whose

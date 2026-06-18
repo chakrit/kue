@@ -524,7 +524,18 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   | some tail =>
       match parts.patterns, parts.comprehensions with
       | [], [] => .structTail parts.fields tail
-      | _, _ => .conj [declared, .structTail parts.fields tail]
+      -- An open struct that ALSO has comprehensions/embeddings (`{ embed; if c {…}; … }`): the
+      -- old `.conj [declared, .structTail fields tail]` split the embeds/comprehensions and the
+      -- plain-field+tail into two OVERLAPPING-field arms. When such a body is force-spliced as an
+      -- imported def, the `.structTail` arm's `Self.<field>` self-refs resolve in isolation —
+      -- they never see the embedding-contributed fields (the embed lives in the OTHER arm), so a
+      -- use-site narrowing collapses to `.bottom` (the argocd `#ListenerSet` `spec.parentRef.name:
+      -- Self.#gateway_name` with `parts.#Metadata` embedded + a def-level `...`). Keep it ONE node:
+      -- the comprehension form already carries `open_ = true`, which is exactly what the bare `...`
+      -- (`.top` tail — the only supported tail) means. A standalone open struct with comprehensions
+      -- stays open; a DEFINITION-context one is closed by `normalizeDefinitionValueWithFuel` like
+      -- any `.structComp`, matching `{ embed; if c {…} }` without the redundant `...`.
+      | _, _ => declared
 
 def structEllipsisEndsHere : List Char -> Bool
   | [] => true

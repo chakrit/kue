@@ -1,0 +1,11 @@
+{
+    "out": {
+        "spec": {
+            "listeners": [
+                {
+                    "hostname": "x.com"
+                }
+            ]
+        }
+    }
+}
