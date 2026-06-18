@@ -572,15 +572,14 @@ SMALLEST real app) and `infra/apps/argocd.cue` (`defs.#Secret`/`#ConfigMap`/`#TL
 Two distinct, independent next slices fall out (do NOT conflate; slice 4's closure path is
 provably NOT the cause — the same `Self={}` shape resolves in 0.016s when it has no embed):
 
-**A. `closure-realapp-selfalias` (correctness — the real blocker).** Real defs use
-`#Def: Self={ parts.#Metadata; #x: string; spec: Self.#x }`. Two unhandled sub-shapes:
-(1) the `Self=` value-alias reference (`Self.#x` is a `.selector` on a labeled-alias binding,
-not a bare `refId ⟨0,_⟩`); a minimal `Self={…}` def WITHOUT an embed already resolves
-correctly (good), but (2) the **embedded cross-package def** (`parts.#Metadata` as a struct
-embedding inside the def body) does NOT — a minimal embed+Self repro returns `incomplete value:
-string` (fast, 0.018s). The producer/force must learn to defer + splice through an embedded
-imported def, not just a top-level selected one. This is the slice that makes real apps
-CORRECT. Design sub-spike required: how an embedding interacts with the closure capture.
+**A. `closure-realapp-selfalias` (correctness). DONE 2026-06-18.** Real defs use
+`#Def: Self={ parts.#Metadata; #x: string; spec: Self.#x }`. Slice A landed the multi-operand
+fold, `.structComp` embed splice (force + embedding-meet + closedness union), and — the largest
+unlock — DEEP/nested self-ref detection (`hasSelfRefAtDepth`) so `spec: acme: email: Self.#email`
+and comprehension guards defer correctly. All cue-exact on the targeted shapes (see the slice A
+design sub-spike above and the landed breadcrumb). Real apps STILL bottom: the chain needs three
+FURTHER correctness slices (C `closure-default-in-guard`, D `closure-presence-test-selfref`,
+E `closure-embed-chain`) plus perf — see "Real-app verdict after slice A" above.
 
 **B. `closure-perf` / frame-id-sharing (frontier #2 — now REACHABLE).** Independently, the
 real defs blow up super-linearly in time (11.7s small → 55s larger) even while erroring. This
@@ -701,6 +700,124 @@ containment is **airtight**. Findings ranked below.
 - Field-ordering parity (#3) will resurface in any multi-field real-app output (slice-4 EC1).
   Orthogonal byte-polish — do not let it block correctness; the regression fixture should stay
   def-only-output where possible to dodge it.
+
+### Slice A design sub-spike (root-caused 2026-06-18 — empirically traced, not guessed)
+
+**ROOT CAUSE of facet (b)/(c) — it is `.structComp`, not "package-sourced struct".** A def
+body that EMBEDS another value (`#Def: { parts.#Metadata; #x: string; spec: #x }`) parses to a
+`.structComp staticFields [embedding…] open` (the parser routes every embedding into
+`structComp.comprehensions` as `.embedding v`), NOT a `.struct`. The audit's "package-sourced
+struct" framing was a symptom: the real discriminator is the def body shape. Traced (read-only
+`/tmp/pf_embed`, cue v0.16.1 oracle): even a def embedding a LOCAL same-package plain struct
+(`#Def: { #Base; #x; spec: #x }`) yields `incomplete value: string` in kue (cue: `{kind,spec}`)
+— cross-package indirection is NOT the trigger; the embedding is. Three sites drop `.structComp`:
+
+1. **Gate (`defBodyHasSiblingSelfRef`, `Eval.lean:942`)** only matches `.struct`/`.structTail`
+   → a `.structComp` def body returns `false` → `importDefClosureBody?` returns `none` → NO
+   closure is produced → eager path evals `#Def` in its own frame, collapsing `spec:#x` to
+   `string` BEFORE the use-site `#x:"hello"` narrows (proof: `kue eval` shows
+   `t: {#x:"hello", spec:string, kind:"Service"}` — `#x` narrowed via the plain `.conj` merge,
+   `spec` already collapsed).
+2. **Force path (`forceClosureWithConjunct`, `Eval.lean:1249`)** has no `.structComp` arm → its
+   catch-all `| _ =>` evals the body unspliced then `meet`s — so even if a closure were produced,
+   the splice would not reach the static fields.
+3. **Embedding-meet path (`meetEmbeddingsWithFuel`, `Eval.lean:1222`)** plain-`meet`s an
+   embedding that evaluated to a `.closure` (a self-ref cross-pkg embed `parts.#Metadata`) →
+   `.bottom` (proof: `#Def: _|_` in `kue eval` for the self-ref-embed case). This is facet (c).
+
+**Facet (a) multi-operand fold (`Eval.lean:1071-1087`)** is independent of `.structComp`:
+`firstClosure?` splices only the FIRST closure; a second imported-def operand (`#M & #N &
+{narrow}`) stays a `.closure` in `leftover`, forced UNSPLICED (`evalValueWithFuel fuel e [] b`)
+→ its body never sees the use-site narrowing → `incomplete value: string`.
+
+**Decomposition: ONE slice (A), one commit.** Facets (b)/(c) share the single mechanism
+(`.structComp`/embedding handling) across three sites; splitting would leave artificially
+non-green intermediate states (the gate firing without the force arm = a closure that hits the
+catch-all). Facet (a) is small and the audit scoped it into A. All land together. The fix:
+
+- **A.1 Gate.** `defBodyHasSiblingSelfRef` gains a `.structComp fields cs _` arm: a sibling
+  self-ref if any static field OR any embedding/comprehension has a depth-0 ref.
+- **A.2 Force `.structComp`.** `forceClosureWithConjunct` gains a `.structComp defFields cs _`
+  arm mirroring the `.structComp` EVAL arm (`Eval.lean:1190`): splice use-operands into the
+  static `defFields` via `mergeConjOperands`, `pushFrame` onto `capturedEnv`, eval the static
+  fields, then `meetEmbeddingsWithFuel` the embeddings against the spliced frame. Embeddings
+  that evaluate to a `.closure` are force-spliced (see A.4) so an embedded self-ref cross-pkg
+  def resolves under the same use-site narrowing.
+- **A.3 Multi-operand fold.** Replace `firstClosure?`/`dropFirstClosure`/`leftover` with a fold
+  that force-splices EVERY closure operand against the SHARED use-operand set (all non-closure
+  struct operands), then `meet`s the forced results together. `#M & #N & {narrow}` resolves
+  like cue (associative; the shared use set narrows both defs' siblings).
+- **A.4 Embedding-meet closure splice.** `meetEmbeddingsWithFuel` (and the A.2 force) detect an
+  embedding that evaluated to a `.closure` and force it (with the current frame's use-context
+  spliced where applicable) instead of a plain `meet` → `.bottom`. Minimal form: force the
+  closure body under its captured env with the surrounding use-operands as the splice set.
+- **A.5 (secondary) `.structComp` closedness.** `normalizeDefinitionValueWithFuel`
+  (`Normalize.lean`) has no `.structComp` arm → a `.structComp` def body is returned UNCLOSED.
+  Add a `.structComp` arm closing the static portion (`open_ := false`) and normalizing nested
+  definition fields, matching the `.struct` arm — so a forced embed-def rejects undeclared
+  use-site fields exactly as cue does. Verify against cue's closedness on the embed shape.
+
+**Tests (mandatory pins):** multi-closure `#M & #N & {narrow}`; closure + package-sourced open
+struct; the real embed `#Def: { parts.#Metadata; #x; spec:#x } & {narrow}`; a GENUINE
+captured-frame-cycle termination pin (a closure whose captured frame refs itself, replacing the
+weak depth-0-slot `closure_meet_self_ref_terminates`). Committed module fixture under
+`testdata/modules/` mirroring `crosspkg_defmeet/` for the embed shape. Every existing fixture
+byte-unchanged.
+
+**Status: DONE 2026-06-18** — see implementation-log + the slice-A landed breadcrumb. All
+five sub-fixes (A.1–A.5) landed PLUS a sixth the real apps forced (A.6, below). Every targeted
+facet is cue-exact and every existing fixture byte-unchanged.
+
+- **A.6 DEEP / nested self-ref detection (discovered building A — the real-app shape).** The
+  slice-4 gate (`hasDepth0Ref`) only flagged TOP-LEVEL sibling self-refs. Real defs reference
+  hidden fields from DEEP nested positions — `#ClusterIssuer: Self={ spec: acme: email:
+  Self.#email }` refs the top `#email` from 3 frames in (`refId ⟨3,_⟩`), and comprehension
+  GUARDS (`if Self.#staging`) too. Without detection the producer never defers → eager collapse
+  of the nested ref before the use-site narrows. Replaced `hasDepth0Ref` with `hasSelfRefAtDepth
+  (depth)`: descends every frame-pusher (`.struct`/`.structComp`/pattern/comprehension)
+  incrementing `depth`, flags `refId ⟨depth,_⟩` (lands on the def's own frame). Also scans
+  comprehension clause guards/sources at their enclosing depth. The single largest correctness
+  unlock for the real-app `Self={…}` shape; the force/splice already propagates the narrowing
+  into nested frames once the closure fires.
+
+### Real-app verdict after slice A (probed 2026-06-18 — read-only prod9, cue v0.16.1 oracle)
+
+Slice A is cue-exact on EVERY shape it targets, verified by minimal repros: multi-closure
+`#M & #N & {narrow}`; single-level embed (local + cross-pkg self-ref); `Self={…}` value-alias;
+DEEP nested self-refs (`spec: acme: email: Self.#email`); comprehension guards over a concrete
+self-ref (`if Self.#staging` with `#staging: bool`). **But cert-manager / argocd still return
+`bottom` (cert-manager 9.6s, perf wall ALSO unresolved).** The real defs chain THREE further,
+independent correctness shapes slice A does NOT cover — each its own slice, sequence A→…→B:
+
+**C. `closure-default-in-guard` (correctness).** A comprehension guard over a DEFAULT
+disjunction does not resolve the default: `#staging: bool | *false; if !Self.#staging {…}` →
+cue uses default `false` → admits; kue leaves the condition a disjunction → drops. **Orthogonal
+to closures** — reproduces with NO def/closure (`x: bool | *false; if !x {…}` drops in kue,
+cue admits). The guard (`expandClausesWithFuel`, `Eval.lean`) tests `evaluatedCondition ==
+.prim (.bool true)`; it must first resolve the condition's disjunction DEFAULT (reuse
+`defaultAlternatives` from `Manifest`). Small, self-contained. Real `#ClusterIssuer` uses
+exactly `#staging: bool | *false` with `if Self.#staging`/`if !Self.#staging`.
+
+**D. `closure-presence-test-selfref` (correctness).** `parts.#Metadata` (the real one, an
+embed in the chain) guards on `if Self.#ns != _|_ {…}` — a presence-test (`!= _|_`) over a
+self-ref, plus `len(Self.#labels) > 0`. Behavior of presence-tests over a spliced/narrowed
+self-ref under the closure force is unverified; the real chain needs it.
+
+**E. `closure-embed-chain` (correctness).** A MULTI-LEVEL embed chain — a def embeds a def that
+embeds a def, each a `Self={…}` self-ref — collapses: `#Outer{ #Mid{ #Inner } }` → kue `bottom`,
+cue `{iname,mname,oname}` (repro `/tmp/pf_chain`). The 2-level case already fails: the inner
+embed's `Self.#name` resolves to `_|_` when the outer closure force re-forces the embedded
+closure. Single-level embed (slice A) works; the recursion through a nested embedded closure +
+`Self=` alias does not. The real `#ClusterIssuer → parts.#Metadata → attr.#Metadata` is a 3-level
+chain, so this gates cert-manager even after C and D.
+
+**B. `closure-perf` (frontier #2 — still a wall).** cert-manager remains ~9.6s even while
+erroring. Unchanged from the slice-4 probe; downstream of correctness. After C/D/E resolve
+correctness, profile B against a working target.
+
+Sequence: **C (smallest, orthogonal) → D → E → B**, or batch C+D+E as a "real-app correctness
+chain" mini-plan. None is slice A: slice A's audit-defined scope (the multi-operand + embed +
+nested-self-ref facets) is complete and green.
 
 ## Audit Fix-Slices (Value.closure slices 1-2 — Phase A code-quality, audit 2026-06-18)
 

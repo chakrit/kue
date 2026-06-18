@@ -859,6 +859,13 @@ def lazyConjMergedFields (env : Env) (constraints : List Value) :
   let operands <- constraints.mapM (conjStructOperand? env evalFuel)
   pure (mergeConjOperands operands)
 
+/-- Reopen an evaluated struct value (`open_ := true`) so it contributes its fields by `meet`
+    WITHOUT imposing its own closedness on the host — an embedding UNIONS labels into the
+    enclosing def's closed set rather than restricting it. Non-struct values pass through. -/
+def openStructValue : Value -> Value
+  | .struct fields _ => .struct fields true
+  | other => other
+
 /-- Extract an evaluated value's struct-conjunct operand `(fields, open)` for splicing into a
     forced closure body — `.struct`/`.structTail`/the pattern structs all carry an evaluated
     field list. Returns `none` for non-struct values (primitives, lists, …), which cannot be
@@ -884,65 +891,141 @@ def dropFirstClosure : List Value -> List Value
   | .closure _ _ :: rest => rest
   | other :: rest => other :: dropFirstClosure rest
 
-/-- Does `value` reference a sibling of the frame it sits directly in — a `refId ⟨0, _⟩`
-    reachable WITHOUT crossing a frame-pushing node? Recurses through expression nodes that
-    do NOT introduce a new scope (binary/unary/selector/index/conj/interpolation/builtin/
-    disj/list), and STOPS at every frame-pusher (`.struct`, `.structTail`, the pattern
-    structs, comprehensions, a nested `.closure`): a `refId ⟨0, _⟩` inside one of those is
-    depth-0 relative to ITS frame, not this one, so it is not a sibling self-ref here.
-    Fuel-bounded for totality; `evalFuel` depth is far beyond any real def body. -/
-def hasDepth0Ref (fuel : Nat) : Value -> Bool
-  | .refId id => id.depth == 0
+/-- Every `.closure (capturedEnv, body)` among evaluated conjunction operands (slice A:
+    multi-operand fold). `#M & #N & {narrow}` yields TWO closures; each is force-spliced with the
+    SHARED use-operand set so both defs' siblings see the use-site narrowing. -/
+def allClosures : List Value -> List (Env × Value)
+  | [] => []
+  | .closure capturedEnv body :: rest => (capturedEnv, body) :: allClosures rest
+  | _ :: rest => allClosures rest
+
+/-- The evaluated operands that are NEITHER a `.closure` NOR a splice-able struct operand
+    (primitives, lists, …). These `meet` against the folded forced result(s); the struct
+    operands are absorbed by the splice (`evaluatedStructOperand?`) and the closures are forced. -/
+def nonClosureNonStructOperands : List Value -> List Value
+  | [] => []
+  | .closure _ _ :: rest => nonClosureNonStructOperands rest
+  | other :: rest =>
+      match evaluatedStructOperand? other with
+      | some _ => nonClosureNonStructOperands rest
+      | none => other :: nonClosureNonStructOperands rest
+
+/-- Does `value` reference the def's OWN top frame from `depth` frame-pushers deep — a
+    `refId ⟨depth, _⟩` reachable by descending `depth` struct/comprehension frames? Generalizes
+    `hasDepth0Ref` (the `depth == 0` case) to the DEEP self-references real defs use: a hidden
+    field read from a nested struct (`spec: acme: email: Self.#email`, where `#email` is a
+    top-level def field referenced from 3 frames deep → `refId ⟨3, _⟩`). Descending a
+    frame-pusher increments `depth`; a `refId ⟨d, _⟩` is a self-ref iff `d == depth` (it lands
+    exactly on the def's frame). Refs to shallower (`d < depth`, an intervening struct's own
+    sibling) or outer (`d > depth`, a cross-package/enclosing scope) frames are NOT def
+    self-refs. Fuel-bounded for totality. -/
+def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
+  | .refId id => id.depth == depth
   | .conj constraints =>
       match fuel with
       | 0 => false
-      | fuel + 1 => constraints.any (hasDepth0Ref fuel)
+      | fuel + 1 => constraints.any (hasSelfRefAtDepth fuel depth)
   | .builtinCall _ args =>
       match fuel with
       | 0 => false
-      | fuel + 1 => args.any (hasDepth0Ref fuel)
+      | fuel + 1 => args.any (hasSelfRefAtDepth fuel depth)
   | .unary _ value =>
       match fuel with
       | 0 => false
-      | fuel + 1 => hasDepth0Ref fuel value
+      | fuel + 1 => hasSelfRefAtDepth fuel depth value
   | .binary _ left right =>
       match fuel with
       | 0 => false
-      | fuel + 1 => hasDepth0Ref fuel left || hasDepth0Ref fuel right
+      | fuel + 1 => hasSelfRefAtDepth fuel depth left || hasSelfRefAtDepth fuel depth right
   | .selector base _ =>
       match fuel with
       | 0 => false
-      | fuel + 1 => hasDepth0Ref fuel base
+      | fuel + 1 => hasSelfRefAtDepth fuel depth base
   | .index base key =>
       match fuel with
       | 0 => false
-      | fuel + 1 => hasDepth0Ref fuel base || hasDepth0Ref fuel key
+      | fuel + 1 => hasSelfRefAtDepth fuel depth base || hasSelfRefAtDepth fuel depth key
   | .disj alternatives =>
       match fuel with
       | 0 => false
-      | fuel + 1 => alternatives.any (fun alt => hasDepth0Ref fuel alt.snd)
+      | fuel + 1 => alternatives.any (fun alt => hasSelfRefAtDepth fuel depth alt.snd)
   | .list items =>
       match fuel with
       | 0 => false
-      | fuel + 1 => items.any (hasDepth0Ref fuel)
+      | fuel + 1 => items.any (hasSelfRefAtDepth fuel depth)
   | .listTail items tail =>
       match fuel with
       | 0 => false
-      | fuel + 1 => items.any (hasDepth0Ref fuel) || hasDepth0Ref fuel tail
+      | fuel + 1 =>
+          items.any (hasSelfRefAtDepth fuel depth) || hasSelfRefAtDepth fuel depth tail
   | .interpolation parts =>
       match fuel with
       | 0 => false
-      | fuel + 1 => parts.any (hasDepth0Ref fuel)
+      | fuel + 1 => parts.any (hasSelfRefAtDepth fuel depth)
+  | .struct fields _ =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => fields.any (fun f => hasSelfRefAtDepth fuel (depth + 1) (Field.value f))
+  | .structTail fields tail =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          fields.any (fun f => hasSelfRefAtDepth fuel (depth + 1) (Field.value f))
+            || hasSelfRefAtDepth fuel (depth + 1) tail
+  | .structComp fields comprehensions _ =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          fields.any (fun f => hasSelfRefAtDepth fuel (depth + 1) (Field.value f))
+            || comprehensions.any (hasSelfRefAtDepth fuel (depth + 1))
+  | .structPattern fields labelPattern constraint _ =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          fields.any (fun f => hasSelfRefAtDepth fuel (depth + 1) (Field.value f))
+            || hasSelfRefAtDepth fuel (depth + 1) labelPattern
+            || hasSelfRefAtDepth fuel (depth + 1) constraint
+  | .structPatterns fields patterns _ =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          fields.any (fun f => hasSelfRefAtDepth fuel (depth + 1) (Field.value f))
+            || patterns.any (fun p =>
+                 hasSelfRefAtDepth fuel (depth + 1) p.fst
+                   || hasSelfRefAtDepth fuel (depth + 1) p.snd)
+  | .comprehension clauses body =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          -- Clause sources/guards (`for x in src`, `if cond`) resolve in the comprehension's
+          -- enclosing frame — the SAME depth — so a `Self.#staging` in `if Self.#staging` is a
+          -- self-ref at `depth`. The body resolves one frame deeper per `for`; conservatively
+          -- scanning it at `depth` only over-detects (more defers), never miss-detects.
+          clauses.any (fun c =>
+            match c with
+            | .forIn _ _ source => hasSelfRefAtDepth fuel depth source
+            | .guard condition => hasSelfRefAtDepth fuel depth condition)
+          || hasSelfRefAtDepth fuel depth body
+  | .dynamicField _ _ value =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => hasSelfRefAtDepth fuel (depth + 1) value
   | _ => false
 
-/-- Does this unevaluated definition body contain a sibling self-reference — the exact shape
-    that collapses under the eager import-selector path (a field whose value refs another
-    field of the same def, e.g. `out: #name`)? Scans the def's own field values at depth 0;
-    `hasDepth0Ref` refuses to descend past frame-pushers, so only true siblings count. -/
+/-- Does this unevaluated definition body reference one of its OWN top-level fields — directly
+    (`out: #name`) OR from a nested position (`spec: acme: email: Self.#email`, the real-app
+    shape)? Scans each top-level field's body for a self-ref landing on the def frame, descending
+    nested frames via `hasSelfRefAtDepth` (depth 0 = the def's own frame). This is the exact set
+    that collapses under the eager import-selector path: the use-site narrows a top-level hidden
+    field, but an eager eval resolves the (possibly deep) reference to it BEFORE the narrowing. -/
 def defBodyHasSiblingSelfRef : Value -> Bool
-  | .struct fields _ => fields.any (fun f => hasDepth0Ref evalFuel (Field.value f))
+  | .struct fields _ => fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
   | .structTail fields tail =>
-      fields.any (fun f => hasDepth0Ref evalFuel (Field.value f)) || hasDepth0Ref evalFuel tail
+      fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
+        || hasSelfRefAtDepth evalFuel 0 tail
+  | .structComp fields comprehensions _ =>
+      fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
+        || comprehensions.any (hasSelfRefAtDepth evalFuel 0)
   | _ => false
 
 /-- The producer gate for slice-3 closures. Given the selector `base.label` where `base` is
@@ -1062,29 +1145,23 @@ mutual
             | none => pure .bottom
         | none => do
             let evaluated <- evalValuesWithFuel fuel env visited constraints
-            -- A `.closure` among the evaluated operands is a deferred imported def (slice 3).
-            -- Instead of the inert `meet` (→ `.bottom`, slice-3 behavior), force it with the
-            -- OTHER struct conjuncts spliced into its body (slice 4 — the unlock). Only the
-            -- first closure is spliced; remaining operands the splice cannot absorb (non-struct
-            -- values, further closures) fall back to `meet` against the forced result, matching
-            -- the old fold and preserving honesty (still `.bottom` on a genuine conflict).
-            match firstClosure? evaluated with
-            | none => pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
-            | some (capturedEnv, body) =>
-                -- Everything that is not THE spliced closure: struct conjuncts feed the splice;
-                -- any further closures are forced unspliced; the remainder `meet`s in.
-                let rest := dropFirstClosure evaluated
-                let useOperands := rest.filterMap evaluatedStructOperand?
-                let leftover := rest.filter (fun v => (evaluatedStructOperand? v).isNone)
-                let forced <- forceClosureWithConjunct fuel capturedEnv body useOperands
-                let foldStep := fun (acc : EvalM Value) (v : Value) => do
+            -- A `.closure` among the evaluated operands is a deferred imported def (slices 3-4).
+            -- Instead of the inert `meet` (→ `.bottom`), force EVERY closure with the SHARED
+            -- use-operand set spliced into its body (slice A — multi-operand fold). The use-site
+            -- struct conjuncts narrow all the deferred defs' siblings at once (`#M & #N &
+            -- {narrow}`); non-struct non-closure operands `meet` against the folded result,
+            -- preserving honesty (still `.bottom` on a genuine conflict).
+            match allClosures evaluated with
+            | [] => pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
+            | closures =>
+                let useOperands := evaluated.filterMap evaluatedStructOperand?
+                let others := nonClosureNonStructOperands evaluated
+                let foldClosure := fun (acc : EvalM Value) (cl : Env × Value) => do
                   let current <- acc
-                  match v with
-                  | .closure e b => do
-                      let other <- evalValueWithFuel fuel e [] b
-                      pure (meet current other)
-                  | _ => pure (meet current v)
-                leftover.foldl foldStep (pure forced)
+                  let forced <- forceClosureWithConjunct fuel cl.fst cl.snd useOperands
+                  pure (meet current forced)
+                let forced <- closures.foldl foldClosure (pure .top)
+                pure (others.foldl (fun current v => meet current v) forced)
     | fuel + 1, .builtinCall name args => do
         let evaluated <- evalValuesWithFuel fuel env visited args
         pure (evalBuiltinCall name evaluated)
@@ -1218,15 +1295,63 @@ mutual
     | _, value => pure value
   termination_by (fuel, 0, 0)
 
-  /-- Meet a struct against each embedding in turn, evaluating each in the nested frame. -/
+  /-- The fields each embedding contributes, for computing a closed embed-def's allowed-label
+      union (slice A): embedding `#Base = {kind}` into a closed `#Def` widens the allowed set by
+      `{kind}`. Evaluates each embedding (forcing a `.closure` embed via the `.conj` defer) and
+      concatenates the struct fields it yields; non-struct embeddings contribute nothing. -/
+  def evalEmbeddingFieldsWithFuel
+      (fuel : Nat)
+      (env : Env) : List Value -> EvalM (List Field)
+    | [] => pure []
+    | embedding :: rest => do
+        let evaluated <- evalValueWithFuel fuel env [] embedding
+        -- A `.closure` embed (self-ref imported def) is re-deferred through the `.conj` fold
+        -- (tier 1) to force its body for the labels only — the allowed-set needs labels, not
+        -- narrowed values, and labels are narrowing-stable.
+        let resolved <-
+          match evaluated with
+          | .closure capturedEnv body =>
+              evalValueWithFuel fuel env [] (.conj [.closure capturedEnv body])
+          | _ => pure evaluated
+        let head :=
+          match evaluatedStructOperand? resolved with
+          | some (fields, _) => fields
+          | none => []
+        let tail <- evalEmbeddingFieldsWithFuel fuel env rest
+        pure (head ++ tail)
+  termination_by embeddings => (fuel, 3, embeddings.length)
+
+  /-- Meet a struct against each embedding in turn, evaluating each in the nested frame. An
+      embedding that evaluates to a `.closure` (a self-referential imported def embedded in a
+      struct body, e.g. `parts.#Metadata`) is FORCED with the current struct's fields spliced in
+      as the use-operand (slice A, facet c), so its self-references resolve against the
+      surrounding narrowing instead of collapsing to a plain `meet → .bottom`. -/
   def meetEmbeddingsWithFuel
       (fuel : Nat)
       (env : Env)
       (current : Value) : List Value -> EvalM Value
     | [] => pure current
-    | embedding :: rest => do
-        let evaluated <- evalValueWithFuel fuel env [] embedding
-        meetEmbeddingsWithFuel fuel env (meet current evaluated) rest
+    | embedding :: rest =>
+        match fuel with
+        | 0 => pure current
+        | nextFuel + 1 => do
+            let evaluated <- evalValueWithFuel (nextFuel + 1) env [] embedding
+            match evaluated with
+            | .closure capturedEnv body => do
+                -- An embedded self-referential imported def (`parts.#Metadata`) evaluates to a
+                -- `.closure`. A plain `meet` collapses it to `.bottom`; instead FORCE it with the
+                -- host's current fields spliced in as the use-operand, so the embed's self-refs
+                -- (`kind: #kind`) resolve against the host's use-site narrowing (slice A, facet c).
+                -- The embed's body is OPENED so the splice does not reject the host's sibling
+                -- fields (`#Def`'s `#x`/`spec` are not declared by `parts.#Metadata`); the embed's
+                -- labels fold into the union closedness the structComp arm applies afterwards.
+                -- Forcing is a deferred sub-evaluation, so it drops fuel (force sits at a higher
+                -- measure tier and must consume fuel to re-enter here).
+                let useOperands := (evaluatedStructOperand? current).toList
+                let forced <-
+                  forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
+                meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest
+            | _ => meetEmbeddingsWithFuel (nextFuel + 1) env (meet current evaluated) rest
   termination_by embeddings => (fuel, 3, embeddings.length)
 
   /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct
@@ -1276,6 +1401,33 @@ mutual
             let evaluatedTail <- evalValueWithFuel fuel nested [] rebasedTail
             pure (.structTail fields evaluatedTail)
         | none => pure .bottom
+    | .structComp defFields comprehensions defOpen =>
+        -- Embed-bearing def body (`#Def: { parts.#Metadata; #x; spec: #x }` — slice A). Splice
+        -- the use operands into the static fields (so `spec: #x` sees the narrowed `#x`), eval
+        -- them under `capturedEnv`, then meet-fold the embeddings in the same nested frame —
+        -- mirroring the `.structComp` eval arm. An embedding that resolves to a `.closure` (a
+        -- self-ref cross-package embed) is force-spliced by `meetEmbeddingsWithFuel` against the
+        -- partial struct, so it resolves under the surrounding narrowing rather than collapsing.
+        --
+        -- Closedness UNIONS embed labels with the def's own (CUE: embedding `#Base` widens the
+        -- closed set by `#Base`'s labels). So merge/meet OPEN, then — if the def was closed —
+        -- close ONCE over `def static labels ∪ each embedding's evaluated labels`. Pre-closing
+        -- the static frame would wrongly reject both the embed's fields and the def's own.
+        let (mergedFields, _) := mergeConjOperands ((defFields, true) :: useOperands)
+        let canonical := canonicalizeFields mergedFields
+        let nested <- pushFrame canonical capturedEnv
+        let staticFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
+        match mergeEvaluatedFields staticFields with
+        | none => pure .bottom
+        | some merged =>
+            let embeddings := comprehensions.filter isEmbeddingValue
+            let embeddingFields <- evalEmbeddingFieldsWithFuel fuel nested embeddings
+            let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
+            match met with
+            | .struct fields _ =>
+                let allowed := defFields ++ embeddingFields
+                pure (.struct (applyClosednessFrom allowed defOpen fields) defOpen)
+            | other => pure other
     | _ => do
         let forced <- evalValueWithFuel fuel capturedEnv [] body
         pure (useOperands.foldl (fun current op => meet current (.struct op.fst op.snd)) forced)

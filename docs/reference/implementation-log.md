@@ -6176,3 +6176,78 @@ closure capture; a minimal embed+Self repro returns `incomplete` fast) and **B. 
 / frame-id-sharing** (frontier #2 — the super-linear blowup is NOW REACHABLE; provably NOT the
 closure path, which is 0.016s, but the eager embed/Self-alias graph re-allocating frame ids).
 Sequence A before B. Frontier #2 confirmed reachable.
+
+---
+
+## Completed Slice: Value.closure slice A (closure-realapp-selfalias)
+
+Goal: make the real-app value-alias-def-embedding-cross-package-def shape resolve cue-exact —
+the multi-operand / package-sourced-struct / nested-self-ref splice failures the Phase-A audit
+(`1f76347`) scoped into slice A.
+
+### Root cause (empirically traced, read-only `/tmp` repros, cue v0.16.1 oracle)
+
+Facet (b)/(c) was NOT "package-sourced struct" — it was `.structComp`. A def that EMBEDS another
+value (`#Def: { parts.#Metadata; #x; spec: #x }`) parses to a `.structComp` (embeddings live in
+`structComp.comprehensions`), which the slice-4 gate, force path, and embedding-meet all dropped.
+Worse, building the fix surfaced the ACTUAL real-app blocker: the slice-4 gate (`hasDepth0Ref`)
+only flagged TOP-LEVEL sibling self-refs, but real defs reference hidden fields from DEEP nested
+positions (`spec: acme: email: Self.#email` → `refId ⟨3,_⟩`) and from comprehension GUARDS
+(`if Self.#staging`). Without detection the producer never defers → eager collapse.
+
+### Behavior
+
+Six sub-fixes, one commit (all targeted shapes cue-exact, every existing fixture byte-unchanged):
+- **A.1 Gate** — `defBodyHasSiblingSelfRef` gains a `.structComp` arm.
+- **A.2 Force `.structComp`** — `forceClosureWithConjunct` splices use-operands into the static
+  fields, then meet-folds the embeddings (mirroring the `.structComp` eval arm); the final
+  closedness is the UNION of the def's own labels and each embedding's labels (embedding widens
+  the closed set, CUE semantics), applied once over the open meet result.
+- **A.3 Multi-operand fold** — the `.conj` fallback force-splices EVERY closure operand against
+  the SHARED use-operand set (`allClosures` + `nonClosureNonStructOperands`), replacing the
+  first-closure-only `firstClosure?`/`dropFirstClosure`/`leftover`. `#M & #N & {narrow}` resolves.
+- **A.4 Embedding-meet closure splice** — `meetEmbeddingsWithFuel` FORCES an embedding that
+  evaluated to a `.closure` (with the host's fields spliced + body OPENED so the embed's
+  closedness does not reject host siblings), instead of plain `meet → .bottom`. Fuel-decremented
+  so the force/meet-embeddings mutual recursion is well-founded.
+- **A.5 `.structComp` closedness** — `normalizeDefinitionValueWithFuel` closes the static portion
+  of a `.structComp` def body (`open_ := false`) but leaves embeddings untouched (they union, not
+  restrict).
+- **A.6 DEEP/nested self-ref detection** — replaced `hasDepth0Ref` with `hasSelfRefAtDepth
+  (depth)`: descends every frame-pusher incrementing `depth`, flags `refId ⟨depth,_⟩` (the def's
+  own frame), and scans comprehension guard/source conditions at their enclosing depth. The
+  single largest unlock for the real-app `Self={…}` shape.
+
+### Tests (7 new `native_decide` pins + 1 committed module fixture)
+
+`closure_producer_detects_structcomp_sibling`, `closure_producer_detects_structcomp_embedding_sibling`,
+`closure_meet_structcomp_embed_splices` (embed splice: `spec:#x`→narrowed, embed `kind` unioned),
+`closure_meet_multi_operand_fold` (`#M & #N & {narrow}`), `closure_meet_captured_frame_cycle_terminates`
+(GENUINE capture-level cycle: a captured-frame binding refs back into the def → terminates,
+replacing the weak depth-0-slot pin), `closure_producer_deep_nested_self_ref_detected`
+(`refId ⟨2,_⟩` 2 frames deep), `closure_producer_comprehension_guard_self_ref_detected`
+(self-ref in an `if` guard). Committed `testdata/modules/crosspkg_embed_selfalias/` — a cross-pkg
+self-ref-embed def, single regular output (`spec: "hello"`) so byte-order parity (#3) does not
+bite; oracle JSON+YAML byte-identical, closedness rejects undeclared use fields.
+
+### Verify
+
+`lake build` → 86 jobs. `scripts/check-fixtures.sh` → `fixture pairs ok` (every existing fixture
+byte-unchanged + the new module fixture). `shellcheck scripts/*.sh` → clean. Oracle: every new
+behavior byte-matches `cue` v0.16.1 in JSON and YAML on its target shape. No CUE divergence found
+(cue correct in every probed case). prod9 + cue cache read-only; no env/tree mutation.
+
+### Real-app verdict (read-only prod9 — the headline)
+
+Slice A is cue-exact on every shape it targets (multi-closure, single-level embed, `Self={…}`,
+deep nested self-refs, concrete-condition comprehension guards), verified by minimal repros. BUT
+cert-manager / argocd STILL return `bottom` (cert-manager ~9.6s — perf wall also unresolved). The
+real defs chain THREE FURTHER, independent correctness shapes slice A does not cover, each its own
+slice (recorded in `plan.md`): **C. `closure-default-in-guard`** (a guard over a `bool | *false`
+default disjunction doesn't resolve the default — orthogonal to closures, reproduces with no def;
+smallest), **D. `closure-presence-test-selfref`** (`if Self.#ns != _|_` presence-tests over a
+spliced self-ref, + `len()`), **E. `closure-embed-chain`** (a multi-level embed chain
+`#Outer{#Mid{#Inner}}` collapses — the inner embed's `Self.#name` → `_|_` when the outer force
+re-forces the nested embedded closure; the real `#ClusterIssuer → parts.#Metadata → attr.#Metadata`
+is 3-level). Then **B. `closure-perf`**. Honest: the remaining real-app gap is BOTH correctness
+(C/D/E) AND perf (B), not perf-only.

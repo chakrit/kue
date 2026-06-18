@@ -1034,10 +1034,11 @@ theorem closure_producer_captures_full_id_stack :
                     ⟨"x", .regular, .prim (.int 1)⟩] false)) = true := by
   native_decide
 
-/-- `hasDepth0Ref` STOPS at frame-pushers: a `refId ⟨0,0⟩` nested inside a `.struct` field
-    value is depth-0 relative to that NESTED frame, not the def body — so a def whose only
-    inner ref sits inside a nested struct is NOT a sibling self-ref and stays eager. Pins the
-    boundary that keeps the gate from over-firing on nested-but-not-sibling refs. -/
+/-- DEPTH-MATCHED self-ref detection (slice A): a `refId ⟨0,0⟩` nested inside a `.struct` field
+    is depth-0 relative to that NESTED frame, NOT the def body — `hasSelfRefAtDepth` descends to
+    depth 1 there, so `⟨0,0⟩` (`d == 0 ≠ 1`) is the nested frame's own sibling, not the def's. So
+    a def whose only inner ref sits in a nested struct and points at THAT frame is not a def
+    self-ref and stays eager. Pins the boundary that keeps the gate from over-firing. -/
 theorem closure_producer_nested_struct_ref_not_sibling :
     (defBodyHasSiblingSelfRef
         (.struct [⟨"a", .regular, .prim (.int 1)⟩,
@@ -1050,6 +1051,30 @@ theorem closure_producer_direct_sibling_ref_detected :
     (defBodyHasSiblingSelfRef
         (.struct [⟨"#name", .definition, .kind .string⟩,
                   ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true)) = true := by
+  native_decide
+
+/-- DEEP self-ref (slice A — the real-app shape): a hidden field read from a NESTED struct
+    (`spec: acme: email: #email`, where `#email` is a top-level def field referenced from 3
+    frames deep → `refId ⟨3, _⟩`) IS a def self-ref. `hasSelfRefAtDepth` descends `spec`(1),
+    `acme`(2), then matches `refId ⟨2, 0⟩` at depth 2 — `d == depth` lands on the def frame. This
+    is exactly the shape `#ClusterIssuer`/`#Secret` use that slice 4's depth-0-only gate missed. -/
+theorem closure_producer_deep_nested_self_ref_detected :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"#email", .definition, .kind .string⟩,
+                  ⟨"spec", .regular,
+                    .struct [⟨"acme", .regular,
+                      .struct [⟨"email", .regular, .refId ⟨2, 0⟩⟩] true⟩] true⟩] true)) = true := by
+  native_decide
+
+/-- DEEP self-ref in a comprehension GUARD (slice A): `if Self.#staging` inside a nested struct
+    references the def's `#staging` from the guard condition, which `hasSelfRefAtDepth` scans at
+    the comprehension's own depth. A `refId ⟨1, 0⟩` in a guard one struct deep matches depth 1. -/
+theorem closure_producer_comprehension_guard_self_ref_detected :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"#staging", .definition, .kind .bool⟩,
+                  ⟨"spec", .regular,
+                    .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)]
+                      (.struct [⟨"server", .regular, .prim (.string "x")⟩] true)] true⟩] true)) = true := by
   native_decide
 
 /-! ### slice 4 (closure-meet) — splice the use-site struct into the forced def body
@@ -1141,6 +1166,103 @@ theorem closure_producer_detects_structtail_sibling :
     (defBodyHasSiblingSelfRef
         (.structTail [⟨"#name", .definition, .kind .string⟩,
                       ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .top)) = true := by
+  native_decide
+
+/-! ### slice A (closure-realapp-selfalias) — multi-operand fold + `.structComp` embed defs
+
+Real prod9 apps use value-alias defs that EMBED cross-package defs
+(`#Def: { parts.#Metadata; #x: string; spec: #x }`). The embed makes the def body a
+`.structComp` (the parser routes embeddings into `structComp.comprehensions`), which slice 4's
+gate/force/embedding-meet paths all dropped. Slice A: (A.1) gate fires on `.structComp` siblings,
+(A.2) the force path splices use-operands into a `.structComp` body and meet-folds its
+embeddings, (A.3) the `.conj` fold splices the SHARED use set into EVERY closure operand, (A.4)
+an embedding/operand that evaluated to a `.closure` is force-spliced not plain-`meet`-ed. -/
+
+/-- A.1 GATE: a `.structComp` def body (an embedding-bearing def) with a sibling self-ref in its
+    static fields IS detected — slice 4's gate only matched `.struct`/`.structTail`, so an
+    embed-def returned `false` and never deferred. -/
+theorem closure_producer_detects_structcomp_sibling :
+    (defBodyHasSiblingSelfRef
+        (.structComp [⟨"#x", .definition, .kind .string⟩,
+                      ⟨"spec", .regular, .refId ⟨0, 1⟩⟩]
+                     [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] true] true)) = true := by
+  native_decide
+
+/-- A.1 GATE companion: a `.structComp` whose self-ref lives in the EMBEDDING (not the static
+    fields) is also detected — the gate scans comprehensions too. -/
+theorem closure_producer_detects_structcomp_embedding_sibling :
+    (defBodyHasSiblingSelfRef
+        (.structComp [⟨"#x", .definition, .kind .string⟩]
+                     [.refId ⟨0, 0⟩] true)) = true := by
+  native_decide
+
+/-- A.2 FORCE `.structComp`: `parts.#Def & {#x: "hello"}` where `#Def` embeds a literal struct
+    `{kind: "Service"}` and has a self-ref `spec: #x`. The force splices `{#x:"hello"}` into the
+    static fields BEFORE evaluating, so `spec` sees `"hello"`, AND meet-folds the embedding so
+    `kind` appears. Was `incomplete value: string` (eager collapse) pre-slice-A. -/
+private def embedDefBody : Value :=
+  .structComp [⟨"#x", .definition, .kind .string⟩,
+               ⟨"spec", .regular, .refId ⟨0, 0⟩⟩]
+              [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] true] true
+
+theorem closure_meet_structcomp_embed_splices :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .hidden, .struct [⟨"#Def", .definition, embedDefBody⟩] true⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#Def",
+                .struct [⟨"#x", .definition, .prim (.string "hello")⟩] true]))
+      == .struct [⟨"#x", .definition, .prim (.string "hello")⟩,
+                  ⟨"spec", .regular, .prim (.string "hello")⟩,
+                  ⟨"kind", .regular, .prim (.string "Service")⟩] false) = true := by
+  native_decide
+
+/-- A.3 MULTI-OPERAND FOLD: `#M & #N & {narrow}` — two self-ref imported defs met with one
+    use-site struct narrowing BOTH. Slice 4 spliced only the first closure (`#M`); the second
+    (`#N`) was forced UNSPLICED → `tag: #label` collapsed → `incomplete value: string`. The fold
+    splices the shared use set into BOTH. `#M = {#name, out:#name}`, `#N = {#label, tag:#label}`,
+    both open (`...`) so they admit each other's fields. -/
+private def twoDefEnv : Env :=
+  [(7, [⟨"defs", .hidden,
+    .struct
+      [⟨"#M", .definition,
+        .structTail [⟨"#name", .definition, .kind .string⟩,
+                     ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .top⟩,
+       ⟨"#N", .definition,
+        .structTail [⟨"#label", .definition, .kind .string⟩,
+                     ⟨"tag", .regular, .refId ⟨0, 0⟩⟩] .top⟩] true⟩])]
+
+theorem closure_meet_multi_operand_fold :
+    (runEval (evalValueWithFuel evalFuel twoDefEnv []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .selector (.refId ⟨0, 0⟩) "#N",
+                .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                         ⟨"#label", .definition, .prim (.string "x")⟩] true]))
+      == .structTail [⟨"#name", .definition, .prim (.string "keel")⟩,
+                      ⟨"out", .regular, .prim (.string "keel")⟩,
+                      ⟨"#label", .definition, .prim (.string "x")⟩,
+                      ⟨"tag", .regular, .prim (.string "x")⟩] .top) = true := by
+  native_decide
+
+/-- GENUINE CAPTURED-FRAME CYCLE termination (replaces the weak depth-0-slot
+    `closure_meet_self_ref_terminates`): the closure's CAPTURED package frame contains a binding
+    `#Self` that refs BACK into the def at depth 1 (`refId ⟨1, 0⟩` — out of the def's own frame,
+    into the package frame, at `#Self`'s own slot → a capture-level self-loop). Forcing must
+    terminate (→ `.top` for the cyclic slot) rather than diverge / exhaust fuel. -/
+private def capturedCycleEnv : Env :=
+  [(7, [⟨"pkg", .hidden,
+    .struct
+      [⟨"#Self", .definition, .refId ⟨0, 0⟩⟩,
+       ⟨"#M", .definition,
+        .struct [⟨"#name", .definition, .kind .string⟩,
+                 ⟨"back", .regular, .refId ⟨1, 0⟩⟩,
+                 ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩] true⟩])]
+
+theorem closure_meet_captured_frame_cycle_terminates :
+    (runEval (evalValueWithFuel evalFuel capturedCycleEnv []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] true]))
+      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                  ⟨"back", .regular, .top⟩,
+                  ⟨"out", .regular, .prim (.string "keel")⟩] false) = true := by
   native_decide
 
 end Kue

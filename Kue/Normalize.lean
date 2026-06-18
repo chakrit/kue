@@ -10,6 +10,13 @@ mutual
     | 0, value => value
     | fuel + 1, .struct fields _ =>
         .struct (fields.map (normalizeFieldWithFuel fuel)) false
+    | fuel + 1, .structComp fields comprehensions _ =>
+        -- Close the static portion (`open_ := false`) and normalize nested DEFINITION fields,
+        -- matching the `.struct` arm. Embeddings (`comprehensions`) are left untouched: an
+        -- embedding UNIONS its labels into the def's closed set (CUE), it is not the def's own
+        -- closed declaration — force-closing it here would make the embed reject the def's own
+        -- sibling fields when met.
+        .structComp (fields.map (normalizeFieldWithFuel fuel)) comprehensions false
     | fuel + 1, .structPattern fields labelPattern constraint open_ =>
         .structPattern
           (fields.map (normalizeFieldWithFuel fuel))
