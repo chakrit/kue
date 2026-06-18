@@ -59,6 +59,12 @@ mutual
             else manifestFieldsWithFuel fuel fields
         | .field _ _ .optional => manifestFieldsWithFuel fuel fields
         | .letBinding => manifestFieldsWithFuel fuel fields
+        -- A bound imported package: its unreferenced content stays cue-lazy, so a SHALLOW
+        -- `isBottom` only (commit-1 byte-identity: reads exactly as the old `.hidden` arm).
+        -- The deep-bottom split in commit 2 applies ONLY to real in-file hidden/def fields.
+        | .importBinding =>
+            if isBottom (Field.value field) then .error .contradiction
+            else manifestFieldsWithFuel fuel fields
 
   def manifestItemsWithFuel : Nat -> List Value -> Except ManifestError (List ManifestValue)
     | 0, _ => .error (.incomplete .top)

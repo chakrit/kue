@@ -105,6 +105,7 @@ mutual
         let value := formatValueWithFuel fuel (Field.value field)
         match Field.fieldClass field with
         | .letBinding => none
+        | .importBinding => none
         | .field _ _ optionality =>
             let suffix :=
               match optionality with

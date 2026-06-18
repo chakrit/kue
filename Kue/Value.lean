@@ -379,6 +379,13 @@ end Optionality
 inductive FieldClass where
   | field (isDefinition : Bool) (isHidden : Bool) (optionality : Optionality)
   | letBinding
+  /-- A whole imported package bound into a struct (`Module.bindImports`). A peer kind
+      of `letBinding`, NOT a point in the `(isDefinition, isHidden, optionality)` cube:
+      it reads identically to `.hidden` at every consumer (hidden, ignores closedness,
+      non-output) so it is behaviorally inert everywhere EXCEPT the two output-reachability
+      sites that must keep an unreferenced import binding lazy while a real in-file hidden
+      field gets cue's strict treatment (`Normalize`, `Manifest`). -/
+  | importBinding
 deriving Repr, BEq, DecidableEq
 
 namespace FieldClass
@@ -397,14 +404,17 @@ def definition : FieldClass := .field true false .regular
 def isDefinition : FieldClass -> Bool
   | .field d _ _ => d
   | .letBinding => false
+  | .importBinding => false
 
 def isHidden : FieldClass -> Bool
   | .field _ h _ => h
   | .letBinding => false
+  | .importBinding => true
 
 def optionality : FieldClass -> Optionality
   | .field _ _ o => o
   | .letBinding => .regular
+  | .importBinding => .regular
 
 /-- A definition, hidden, or `let` field does not participate in closedness — its
     presence neither requires an allowing pattern nor is rejected by a closed struct.
@@ -413,6 +423,7 @@ def optionality : FieldClass -> Optionality
 def ignoresClosedness : FieldClass -> Bool
   | .field d h _ => d || h
   | .letBinding => true
+  | .importBinding => true
 
 /-- A class that contributes a concrete value to manifest output. A non-definition,
     non-hidden field on the `regular` or `required` rung does (an `optional` field carries
@@ -426,6 +437,7 @@ def producesOutput : FieldClass -> Bool
   | .field false false .required => true
   | .field false false .optional => false
   | .letBinding => false
+  | .importBinding => false
 
 end FieldClass
 

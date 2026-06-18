@@ -152,16 +152,18 @@ def dedupeBindingsWith (seen : List String) :
 def dedupeBindings (bindings : List (String × Value)) : List (String × Value) :=
   dedupeBindingsWith [] bindings
 
-/-- Inject each `(localName, packageValue)` binding as a synthetic top-level hidden field
-    of the importing file's struct, prepended ahead of the body so a later same-named body
-    field would shadow it (none occur in practice). Hidden so the binding is in scope for
-    `pkg.#Symbol` references but excluded from output. Non-struct top-level values are
+/-- Inject each `(localName, packageValue)` binding as a synthetic top-level
+    `importBinding` field of the importing file's struct, prepended ahead of the body so a
+    later same-named body field would shadow it (none occur in practice). An import binding
+    reads as hidden everywhere (in scope for `pkg.#Symbol` references, excluded from output)
+    but is distinguished from a real in-file hidden field so the two output-reachability
+    sites can keep an unreferenced bound package lazy. Non-struct top-level values are
     wrapped so the bindings still land in scope. -/
 def bindImports (bindings : List (String × Value)) : Value -> Value
   | .struct fields openness tail patterns =>
-      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ fields) openness tail patterns
+      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ fields) openness tail patterns
   | value =>
-      mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.hidden, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) .defClosed none []
+      mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) .defClosed none []
 
 /-- The local name a package binds under: the import alias when present, else the
     package's declared name, else the last path element as a final fallback (a package

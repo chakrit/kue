@@ -58,11 +58,12 @@ example : importBindName { path := "example.com/defs", alias := none } (some "de
 example : importBindName { path := "example.com/defs", alias := some "d" } (some "defs") = "d" := by
   native_decide
 
-/-- `bindImports` prepends each binding as a hidden top-level field, in scope for
-    references but excluded from output. -/
+/-- `bindImports` prepends each binding as an `importBinding` top-level field, in scope for
+    references but excluded from output (distinguished from a real in-file hidden field so
+    the import binding stays output-reachability-lazy). -/
 example :
     (bindImports [("defs", .struct [] .regularOpen none [])] (.struct [⟨"out", .regular, .top⟩] .defClosed none [])
-      == .struct [⟨"defs", .hidden, .struct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none []) = true := by
+      == .struct [⟨"defs", .importBinding, .struct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none []) = true := by
   native_decide
 
 /-- `dedupeBindings` keeps the FIRST binding per name and drops later duplicates — the same
