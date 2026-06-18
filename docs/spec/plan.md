@@ -1238,6 +1238,58 @@ tail-drop guard + reverse-order fixture; ride along with any struct/typed-ellips
 next flags it overdue. Rationale summary: drain CORRECTNESS (B6) before CONSISTENCY (B2b) before
 the PERF wall (7); the audit cadence pre-empts all of them this cycle.
 
+### Phase-A code-quality audit (2026-06-19, batch `88d78f4..d8252f4` = B6 + B2b)
+
+**Verdict.** Both slices are sound and land as advertised. B6 closes exactly what cue closes on
+the paths it covers, with NO over-close found across an 8-probe hunt (depth-2 nesting, plain
+struct unaffected, def-meet, embedding-bearing field, comprehension-bearing field, instantiation
+re-open all agree with cue v0.16.1). B2b's two-bool→`StructOpenness` collapse is byte-identical and
+1:1; the only construction sites were Parse (`true hasTail`) and Normalize (`hasTail hasTail`), so
+`(open_=false, hasTail=true)` was never reachable and `closeDefBody` correctly has no preimage for
+it. Totality preserved (every `structComp` match site updated, no catch-all swallows the 3-arg
+form; build green). Deferred sub-gap honestly filed (R1b included, no wrong-asserting fixture).
+A2 decoupling sound — all module sentinels (`def_open_tail_addfield`, `crosspkg_defmeet`,
+`open_embed_selfref_guard`, `structcomp_*_guard`) pass; cert-manager/argocd do not re-bottom.
+
+Ranked findings (fold as fix-slices):
+
+1. **B6-A1 — in-file hidden-field nested-def under-closes (LOW-MEDIUM, correctness; subsumed by
+   A2-followup).** B6 skips ALL hidden fields to dodge the import-binding A2 trap. But cue still
+   closes a nested `#Def` reached under a *real in-file* hidden field. Oracle (cue v0.16.1):
+   `_pkg: {#Svc: {name: string}}`, `out: _pkg.#Svc & {name: "x", extra: 1}` → cue
+   `out.extra: field not allowed`; Kue admits `extra`. Kue wrong, cue right. This is the SAME
+   conflation A2-followup targets (import bindings vs in-file hidden fields share `FieldClass.hidden`,
+   so B6 cannot tell them apart). Resolution: do NOT special-case in B6 — fold into A2-followup
+   (the import-binding-marker spike), which lets B6's hidden-skip apply ONLY to bound packages and
+   recurse real in-file hidden fields. Action taken: noted in the B6 hidden-skip rationale below and
+   added to A2-followup's scope. No standalone slice; it rides A2-followup.
+
+2. **B6-T1 — fixture coverage thinner than the regression risk (MEDIUM, test-strength).** B6 is the
+   dangerous closedness-change class (prior changes regressed `#ListenerSet`/cert-manager), yet ships
+   only 2 fixtures (R1 closed-rejects, R3 open-admits) + 3 `native_decide` pins. The over-close hunt
+   exercised five more shapes that all behave correctly but are UNPINNED — a future change could
+   silently regress any of them. Fix-slice: add fixtures (each a `.cue`/`.expected` pair + a
+   `FixturePorts` entry) for (a) depth-2 nesting `a: {b: {#Inner: {x:int}}}`, `out: a.b.#Inner &
+   {extra}` → reject; (b) plain (non-def) struct under a regular field stays open `a: {b: {x:int}}`,
+   `out: a.b & {extra}` → admit; (c) embedding-bearing regular field admits a sibling; (d)
+   comprehension-bearing regular field admits extra; (e) instantiation re-open `(#D & {}).r &
+   {extra}` → admit (the explicit no-over-close-on-instantiation sentinel guarding the deferred-gap
+   boundary). Low risk (additive fixtures + oracle-checked), but a real coverage gap given B6's class.
+
+3. **B6-A2 — `let`-binding nested-def under-closes (MEDIUM, confirmed, CLEAN fix — do this first).**
+   B6 leaves `letBinding` field values unwalked alongside hidden (documented "conservative; not
+   output, avoids churn"). CONFIRMED under-close (oracle cue v0.16.1): `let x = {#I: {y: int}}`,
+   `out: x.#I & {y: 1, extra: 2}` → cue `out.extra: field not allowed`; Kue admits `extra`. Kue
+   wrong, cue right. Unlike B6-A1 this is NOT entangled with the A2 import trap: `letBinding` is its
+   own `FieldClass` constructor (`Value.lean:381`), distinct from the `hidden` fields Module.lean
+   binds packages as — so routing `let` values through `normalizeDefinitionsWithFuel` (the spine
+   walker, same as the regular-field arm) carries NO cert-manager re-bottom risk. Fix-slice (one
+   edit + fixtures): drop `|| Field.fieldClass field == .letBinding` from the skip guard in
+   `normalizeFieldWithFuel` (Normalize.lean:108) so `let` joins the regular/optional/required arm;
+   add the `let x = {#I:…}` reject fixture + a `let x = {#I:{…,...}}` open-admit sentinel; full
+   verify (cert-manager/argocd module sentinels must stay byte-identical). The "conservative" comment
+   was over-cautious — `let`s ARE eval-reachable and cue closes their nested defs.
+
 **A5-followup. Comprehension-body self-ref deferral gate — DONE (`e00c3de`).** The OBSERVABLE
 wrong value (a static field whose value is a comprehension reading `Self.<embedded>` inside a `for`
 body, narrowed at the use site, kept its stale Pass-1 value) is fixed.
@@ -1597,6 +1649,12 @@ import-binding marker — a distinct `FieldClass` axis (e.g. `packageBinding`) o
 synthetic hidden field — so manifest can treat bound packages as cue-lazy while still recursing real
 in-file hidden fields' output spines. Then `{#u: {x: _|_}}` → error becomes shippable (+ fixture).
 Until then `{#u: {x: _|_}}` exporting `{}` is a KNOWN gap (Kue wrong, tracked here, NOT a cue bug).
+**B6-A1 rides here (Phase-A 2026-06-19):** B6's hidden-field skip (the A2-trap guard) also
+under-closes a nested `#Def` reached under a *real in-file* hidden field — oracle: `_pkg: {#Svc:
+{name: string}}`, `out: _pkg.#Svc & {name:"x", extra:1}` → cue `out.extra: field not allowed`, Kue
+admits. Same root conflation (import bindings vs in-file hidden share `FieldClass.hidden`). The
+import-binding marker unblocks BOTH: mark bound packages so B6's hidden-skip applies only to them
+and recurses real in-file hidden fields through the spine walker.
 
 **A3. `classifyDefinedness .disj` untyped invariant (MEDIUM — illegal-states) — DONE (`96bef05`).**
 `classifyDefinedness` (Eval.lean) now classifies a `.disj` by its LIVE alternatives: no live arm ⇒
