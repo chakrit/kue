@@ -598,6 +598,97 @@ Field-ordering parity (#3) is orthogonal byte-parity polish — surfaced again i
 (open def + use-site extra field: values match cue, byte order differs — `extra` before vs
 after `out`). The committed `crosspkg_defmeet` fixture avoids it (def-only output).
 
+## Audit Fix-Slices (F2 + import-selector-alias — Phase A code-quality, audit 2026-06-18 #4)
+
+Phase A over `c227042` (F2 structcomp-force-comprehension-loss), `8f0c89e` (alias-to-import-
+selector deferral), `acc3d7f` (Module.lean dedupe import bindings). Type-system-first lens.
+Verify gate green at audit time: `lake build` 86 jobs, `check-fixtures.sh` "fixture pairs ok"
++ "module fixtures ok", `shellcheck` clean, `lake build Kue.Tests` 40 jobs (all pins pass).
+Oracle: `cue` v0.16.1.
+
+**HEADLINE: F2 + alias slice are SOUND — CLEAR to proceed to perf B. No blocking Violations
+from this batch.** The dedupe change is sound for its target and drops no by-NAME-distinct
+binding; `followAliasDefBody?` is cycle-safe (fuel-bounded) and captures the correct terminal
+frame; F2's closedness allow-set folding admits exactly the guard-produced label, no leak. The
+findings below are PRE-EXISTING gaps surfaced while adversarially probing the batch (file-
+scoped imports; eager-path import closedness) plus test-coverage gaps — none block perf B.
+
+### Findings (ranked)
+
+1. **[BORDERLINE — pre-existing arch gap, dedupe made ONE facet silently wrong] kue has no
+   file-scoped imports.** CUE scopes an import binding to the FILE that declares it; kue merges
+   every sibling file's bindings into one shared top-level frame (hidden fields), so any file
+   sees every sibling's imports and they share the body namespace. Adversarial oracle cases
+   (all built read-only, `cue` v0.16.1):
+   - *Cross-file leak (pre-existing, parent identical):* file b refs `p.#V` without importing
+     `p`; `cue` errors `reference "p" not found`, kue silently resolves to file a's `p`.
+   - *Same-alias / different package (dedupe REGRESSED loud→silent):* a.cue `import p "…/px"`,
+     b.cue `import p "…/py"`; `cue` keeps them file-scoped (`fromA:px, fromB:py`). Pre-dedupe
+     kue errored `conflicting values (bottom)` (loud-wrong); post-dedupe `dedupeBindings` drops
+     b's `p→py` (first-name-wins) so `fromB` silently resolves to px (SILENT-wrong). Same final
+     verdict (both ≠ cue) but the dedupe traded a loud error for a silent corruption.
+   - *Import-name vs body-field collision (pre-existing, parent identical):* b.cue `px:"x"`
+     beside a.cue `import px "…"`; `cue` coexists (import hidden, field regular), kue collides →
+     `conflicting values (bottom)`.
+   By-distinct-NAME bindings (same path under two aliases, two different packages under two
+   names) all survive dedupe correctly (oracle-confirmed) — the drop only bites the same-NAME
+   case, which is unresolvable WITHOUT file-scoping. Real prod9 packages do not hit this (each
+   sibling imports under a distinct or identical-target name), so it does NOT block perf B.
+   **Fix-slice `module-file-scoped-imports` (own slice, arch-sized):** bind each file's imports
+   into a PER-FILE scope frame, not a shared package frame — resolution must consult the
+   declaring file's import set, not the union. Until then, the dedupe `first-wins` should at
+   least be order-independent or warn on same-name-different-target. Tracked, not urgent.
+
+2. **[BORDERLINE — pre-existing, SILENT closedness leak across import boundary] a plain closed
+   `.struct` def imported and met with extra fields admits them.** `parts.#M: {x:int}` then
+   `parts.#M & {x:1, y:2}` → kue `{x:1,y:2}` (admits `y`); `cue` `out.y: field not allowed`.
+   Present at the pre-batch baseline `db5ee90` (NOT introduced here). Root: an imported package's
+   def bodies are not closed at load (`normalizeDefinitions` only closes the TOP value's own `#`
+   fields, never the hidden import binding's), and the EAGER selector path (no sibling self-ref →
+   no closure) never re-closes them. The closure-FORCE path DOES close (runs
+   `normalizeDefinitionValueWithFuel` at capture), so self-ref imported defs and forced structComp
+   defs reject extra fields correctly (oracle-confirmed: `parts.#M:{#x,x:#x}` and the F2
+   structComp both give `field not allowed`/non-empty-reject). So the leak is exactly: imported +
+   closed + NO sibling-self-ref + plain `.struct`. Same-package closed defs reject correctly.
+   **Fix-slice `import-eager-closedness` (MEDIUM):** close imported def bodies at load (normalize
+   the hidden import binding's `#` fields), or route the eager import-selector path through the
+   same `normalizeDefinitionValueWithFuel` close the force path uses. Pin both the silent-admit
+   (`{x:1,y:2}`) and the incomplete-mask (`& {y:2}` → kue `incomplete value` vs cue `field not
+   allowed`) facets. Does NOT block perf B (orthogonal correctness gap).
+
+3. **[BORDERLINE — test coverage gaps in the batch] three missing pins.** (a) No END-TO-END
+   module fixture for the dedupe DISTINCT-binding case (two sibling files importing DIFFERENT
+   packages) — only a `dedupeBindings` unit pin. The absence of this fixture is why finding 1's
+   same-name regression went unnoticed. (b) No pin for the closed structComp / closed import def
+   closedness-REJECT boundary (use-site adds an undeclared field) — F2 fixtures pin guard-FIRES
+   but not guard-CLOSEDNESS. (c) Mutual-alias cycle IS pinned (`alias_follow_cycle_terminates`,
+   `#A:#B / #B:#A` → terminates `none`) — no gap there. **Fix-slice `audit4-test-gaps` (LOW):**
+   add a `dup_distinct_import` module fixture (oracle the same-name case to DOCUMENT the known
+   divergence, or pin the distinct-name correct case) + a closed-structComp-reject pin. Fold (b)
+   into the `import-eager-closedness` slice's pins.
+
+4. **[CLEAR — verified sound, no action]** Type-system / totality / DRY over the batch:
+   `followAliasDefBody?`, `refAliasDefClosure?`, `refAliasSelectorDef?`, `dedupeBindings*` are
+   all total `def`s (no `partial`, no `sorry`), fuel-bounded where recursive (alias-follow
+   decrements `fuel`; base arm non-recursive), exhaustive struct-like dispatch with no catch-all
+   swallowing a `Value` constructor (the `| body =>` arm classifies via explicit `isStructLike`
+   and falls through to `none`, not a silent accept). `dedupeBindingsWith` is structural on the
+   list, order-preserving, `seen`-accumulating — correct first-wins. The `.refId`-index-integrity
+   claim holds structurally: resolution is by-NAME at eval time over the FINAL bound struct, so
+   indices always track the post-bind layout regardless of when binding ran. No DRY violation
+   (the alias producers mirror `importSelectorDef?`'s `(frame, body)` shape deliberately).
+
+### What perf B (frame-id-sharing) must account for
+
+- The dedupe change altered the loader for EVERY multi-file package: bodies now merge RAW and
+  bind ONCE at package level. Perf-B's frame-id canonicalization keys on env id-stacks — the
+  single deduped import frame means a package imported in N sibling files now contributes ONE
+  hidden binding (one frame slot), not N. Good for memo sharing (fewer distinct frames), but
+  verify the canonical frame-id derivation does not assume per-file binding layout.
+- The closure-force path closes imported def bodies at capture (`normalizeDefinitionValueWithFuel`);
+  if perf B memoizes forced closures, the cache key must include the closed-vs-open body state
+  so an eager (unclosed) and forced (closed) eval of the same import def never alias.
+
 ## Audit Fix-Slices (Value.closure slices 3-4 — Phase A code-quality, audit 2026-06-18 #2)
 
 Phase A over the two behavior-changing closure slices: `42db7fa` (closure-producer: the
