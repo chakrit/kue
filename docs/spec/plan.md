@@ -312,15 +312,51 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
-audit fix-slices A1-A4 + B1 (correctness frontier, do FIRST) → item 1 → B2 (headline struct
-refactor, design-spike then migrate) → parallel-safe cleanups (3,4,5 + B4/B5) interleaved →
+audit fix-slices A2-A4 (A1+B1 DONE) (correctness frontier, do FIRST) → item 1 → B2 (headline
+struct refactor, design-spike then migrate) → parallel-safe cleanups (3,4,5 + B4/B5) interleaved →
 deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) as opportunistic ride-alongs.
 
-**B1. `remapConjRefs` catch-all swallows struct/comprehension conjuncts (HIGH — soundness).**
-`Eval.lean:415` `| _, value => value` drops `.structComp`/`.comprehension`/`.listComprehension`/
-`.embeddedList`/`.dynamicField` from the conj-frame-remap → stale `.refId`s after a merge. Hits
-the dominant `{embed;…;...}` `#Def` conjunct shape. Add recursing arms; full verify (behavior
-change); pin a `structComp` conjunct self-ref surviving a field-reindexing merge. See Phase-B B1.
+**A1 + B1 — catch-all soundness sweep — DONE (`80df01e`, `a7b2724`).** Both HIGH soundness holes
+(a catch-all over `Value` silently swallowing compound constructors a recursive function must
+descend) fixed in one slice, plus a graph-wide sweep:
+- **A1 (`80df01e`).** `selfReferencedLabels`/`refsSelfEmbeddedLabel` (Eval.lean) gained
+  `builtinCall`/`embeddedList`/`structPattern`/`structPatterns` arms — a `Self.<embedded>` read
+  inside a builtin arg (`len(Self.#x)`) is now visible to the Pass-2 gate + selection, so the
+  builtin-wrapped field is no longer skipped (stale) after `2d87b8e`'s selective re-eval.
+  Oracle-confirmed end-to-end (`len(Self.#hosts)` over a use-site-narrowed embedded label refreshes
+  to the narrowed count, vs cue 0.16.1). Residual catch-all = scalar leaves + closure.
+- **B1 (`80df01e`).** `remapConjRefs` (Eval.lean) gained `.structComp`/`.comprehension`/
+  `.listComprehension`/`.embeddedList`/`.dynamicField` arms (+ new `remapConjClauses` helper) — a
+  swallowed conjunct no longer keeps stale `.refId` frame indices after a field-reindexing merge.
+  `closure` stays in the catch-all (its body's refs live in the captured-env space, not the
+  conjunction frame — remapping would be wrong).
+- **Sweep finding → NEW unsound catch-all FIXED (`a7b2724`).** `normalizeDefinitionValueWithFuel`
+  AND `normalizeDefinitionsWithFuel` (Normalize.lean) both ended in `| _, value => value`,
+  swallowing `.list`/`.listTail`/`.embeddedList`/`.comprehension`/`.listComprehension`/
+  `.interpolation`/`.dynamicField` (and `.structComp` for the spine walker). A definition field
+  whose value is directly a list/comprehension carrying a nested `#Def` never had that nested def
+  closed. Added recursing arms (closing normalizer for def-body struct literals — CUE closes nested
+  struct literals within a definition body, verified). Pins in NormalizeTests; zero fixture drift.
+  → spawned NEW backlog item **B6** for the SEPARATE downstream enforcement gap this surfaced.
+- **Sweep — defensible catch-alls (left, noted).** `resolveValueWithFuel:145` and
+  `evalValueCoreWithFuel:2181` (pre-cleared, confirmed). Additionally confirmed defensible:
+  `meetWithFuel` (delegates to exhaustive `meetCore`), `subsumesWithFuel` (false on non-matching
+  pairs is correct for a partial order), `selectEvaluatedField`/`lookupField?`/`closeValue`
+  (struct-specific by design, pass-through correct), `Format`/`Manifest` (no Value catch-all —
+  fully enumerated).
+
+**B6. Definition-body closedness ENFORCEMENT through regular fields + eager selector (MEDIUM —
+soundness, surfaced by the A1/B1 sweep).** The Normalize sweep fix (`a7b2724`) closes nested defs
+that normalize REACHES, but two gaps remain so a nested `#Def` still admits extra fields where CUE
+rejects: (1) `normalizeFieldWithFuel` (Normalize.lean) descends ONLY definition fields, so a nested
+`#Def` under a REGULAR field (`a: {#Inner: {…}}`, then `a.#Inner & {extra}`) is never normalized —
+inside a def body CUE closes regular-field struct values too (`#D: {l: [{a:1}]}` → `#D.l[0] & {b}`
+rejected); (2) even when normalize DOES close a nested def, the eager nested-selector path
+(`x.#Inner & {extra}`) does not enforce the closedness (admits `extra`) — the `import-eager-closedness`
+family (item 8). Both are reachable (oracle-confirmed vs cue 0.16.1). Fix needs a design-spike: the
+shared `normalizeFieldWithFuel` conflates two contexts (closing inside a def body vs spine-walking at
+top level) — split it, and route the eager selector path through closedness enforcement. NOT a
+catch-all fix (a behavior change with the def-open-tail regression class of risk).
 
 **B2. Unify the 5 struct constructors into one normalized struct (MEDIUM-HIGH — headline).**
 Collapse `struct`/`structTail`/`structPattern`/`structPatterns`/`structComp` into one
@@ -329,15 +365,6 @@ its missing cross-combinations (`structPattern×structTail` etc. silently bottom
 `Lattice.lean:458-478`), AND the `open_`/`hasTail` nonsense state. Subsumes item-8
 `StructOpenness`. Design-spike + multi-commit migration; byte-identical fixtures + a pin per
 previously-missing cross-combination. See Phase-B B2.
-
-**A1. Pass-2 closure builtin blind-spot (HIGH — soundness; perf-change-induced wrong value).**
-`selfReferencedLabels` (`Eval.lean:185`) and `refsSelfEmbeddedLabel` (`Eval.lean:99`) END in a
-catch-all that swallows `builtinCall`/`embeddedList`/`structPattern`/`structPatterns`, so a
-`Self.<embedded>` read inside a builtin arg (`len(Self.#x)`) is invisible. After `2d87b8e`'s
-selective re-eval, such a field is skipped in Pass-2 → stale value. Fix: add the missing arms to
-BOTH functions (recurse `builtinCall.args`, `embeddedList` items/tail/decls, pattern field values).
-Add a `native_decide` pin that `len(Self.#x)` is selected / trips the gate. NOT inline (behavior
-change → full verify). See Phase-A-audit `6ad6033..7898cff` A1.
 
 **A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue).** Sub-fix 3's shallow
 `isBottom` (`Manifest.lean:54`) misses `{#u: {x: _|_}}` (cue errors; Kue exports). Fix: recurse the

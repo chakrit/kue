@@ -7371,3 +7371,76 @@ byte-unchanged); shellcheck clean. cert-manager byte-identical to baseline (no r
 frame-id-canonicalization work, plan item 7). The L3 inline-`Self=`-disjunction-collapse shape I
 bisected en route is NOT on the `packs.#Argo` path (the real arms read host-supplied `Self.#url` via
 the proper embed-Self mechanism); logged as a separate latent shape, not a blocker.
+
+---
+
+## Completed Slice: catch-all soundness hardening sweep (A1 + B1 + Normalize)
+
+Goal: close two HIGH soundness holes of one class (a catch-all over `Value` silently
+swallowing compound constructors a recursive function MUST descend into), then grep the
+whole `Kue/` graph for siblings. Audit fix-slices A1 + B1, plus a graph-wide sweep.
+
+### A1 + B1 (`80df01e`) — `Eval.lean` self-ref scanners + conj remap
+`selfReferencedLabels` / `refsSelfEmbeddedLabel` ended in `| _ => []` / `| _ => false`,
+swallowing `builtinCall`/`embeddedList`/`structPattern`/`structPatterns` — so a
+`Self.<embedded-label>` read inside a builtin arg (`count: len(Self.#x)`) was invisible to
+the Pass-2 gate AND the selective-re-eval selection set, leaving the builtin-wrapped field
+on its stale Pass-1 value after `2d87b8e`. Added arms to BOTH: `builtinCall` args at the
+enclosing depth; `embeddedList` items/tail at depth, decls at depth+1; `structPattern`/
+`structPatterns` fields/labelPattern/constraint/patterns at depth+1. The residual catch-all
+now only catches scalar leaves + `closure` (captured-env body, not the host `Self` frame).
+
+`remapConjRefs` (the conj-frame-remap rebasing a conjunct's `.refId`s onto a merged frame)
+ended in `| _, value => value`, swallowing `.structComp` (the dominant `{embed;…;...}`
+`#Def` conjunct shape), `.comprehension`, `.listComprehension`, `.embeddedList`,
+`.dynamicField` — a swallowed conjunct kept STALE frame indices after a field-reindexing
+merge → wrong resolution or spurious bottom. Added recursing arms (structComp fields +
+comprehensions at frameDepth+1; comprehension/listComprehension clause sources/guards +
+body at frameDepth via a new `remapConjClauses` mutual helper; embeddedList items/tail at
+frameDepth, decls at frameDepth+1; dynamicField label+value). `closure` stays in the
+catch-all — its body's refs live in the captured-env coordinate space, not the conjunction
+frame, so remapping would corrupt them.
+
+Pins (native_decide, EvalTests): the gate fires / the selection set includes a
+`len(Self.x)`-wrapped read (direct + nested), with a no-over-fire negative on an unrelated
+label; `selfReferencedLabels` descends a builtin arg; structComp / structComp-comprehension
+/ bare-comprehension / dynamicField conjuncts reindex their inner `.refId`s across a
+field-reindexing merge. End-to-end (oracle-checked vs cue 0.16.1): `count: len(Self.#hosts)`
+over a use-site-narrowed embedded label refreshes to the narrowed count (`1`, not the
+un-narrowed `0`).
+
+### Sweep finding (`a7b2724`) — `Normalize.lean` def normalizers
+The graph-wide grep for the same class found two more unsound catch-alls.
+`normalizeDefinitionValueWithFuel` (closes def bodies) and `normalizeDefinitionsWithFuel`
+(spine-walks normalizing def fields) both ended in `| _, value => value`, swallowing
+`.list`/`.listTail`/`.embeddedList`/`.comprehension`/`.listComprehension`/`.interpolation`/
+`.dynamicField` (and `.structComp` for the spine walker). So a definition FIELD whose value
+is directly a list/comprehension carrying a nested `#Def` never had that nested def closed
+(admitted extra fields where CUE rejects). CUE closes nested struct literals within a
+definition body (verified: `#D: {l: [{a:1}]}` then `#D.l[0] & {b}` is rejected), so the new
+`normalizeDefinitionValueWithFuel` arms descend with the CLOSING normalizer; comprehension
+clause sources / dynamicField labels / interpolation parts are expressions where closing a
+non-struct is a no-op. The spine walker descends with itself (non-closing). Both catch-alls
+now catch only scalar leaves + `closure`. Pins (native_decide, NormalizeTests): a def field
+whose value is a `.list` / `.comprehension` body carrying a nested `#Def` now closes it
+(`open_` false). Oracle-confirmed a def-field list nested def now bottoms an extra field
+(`#D.#L[0].#Inner & {bad}` → bottom, matching cue).
+
+This sweep surfaced a SEPARATE, larger downstream gap, filed as plan item **B6** (not fixed
+here): `normalizeFieldWithFuel` descends ONLY definition fields, so a nested `#Def` under a
+REGULAR field is never normalized; and the eager nested-selector path does not enforce a
+closed nested def's closedness even once normalize closes it (`import-eager-closedness`
+family). Both reachable, both a behavior change with def-open-tail regression risk → own
+design-spike slice.
+
+### Defensible catch-alls (swept, left, noted)
+`resolveValueWithFuel:145` + `evalValueCoreWithFuel:2181` (pre-cleared, re-confirmed);
+`meetWithFuel` (delegates to exhaustive `meetCore`); `subsumesWithFuel` (false on
+non-matching pairs is correct for a partial order); `selectEvaluatedField`/`lookupField?`/
+`closeValue` (struct-specific by design); `Format`/`Manifest` (no Value catch-all — fully
+enumerated).
+
+### Verify
+`lake build` 86 jobs green (both commits); `fixture pairs ok` (zero byte-drift, every
+existing fixture unchanged); no shell scripts changed (shellcheck N/A). Pushed `gh:main`
+(`adf7caf..a7b2724`).
