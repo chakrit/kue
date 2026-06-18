@@ -2281,4 +2281,72 @@ theorem hidden_def_embed_concrete_source :
           = true := by
   native_decide
 
+/-! ### argocd-secret-data sub-slice 2 — embedded DEFAULT DISJUNCTION arm narrowing.
+
+The exact argocd `#Secret` shape: a hidden-def `_#OpaqueSecret` in an embedded DEFAULT
+DISJUNCTION arm `(*_#A | _#B)` whose body's `for k,v in #data` comprehension (or sibling
+self-ref) is narrowed by the use-site. Pre-fix the disjunction evaluated standalone — its
+default arm forced with NO use-operands collapsed the comprehension/self-ref BEFORE the
+narrowing reached it (`resolveEmbeddedDisjDefault` picked the already-collapsed value).
+
+Fix: DISTRIBUTE the narrowing into the disjunction arms at the UNEVALUATED level — both in
+the `.conj` fold (`splitDisjConjunct`/`conjDisjArms?` → `*(_#A & narrow) | (_#B & narrow)`) and
+in the embedded-disjunction merge (`meetEmbeddingsWithFuel` collapses to the default arm via
+`conjDisjArms?` BEFORE deferral, so the arm force-splices the host's narrowing). `bodyNeedsDefer`
+now recurses into a `.disj` embedding's default arm (`resolveEmbedDefBody?`), so the host defers.
+Gated on a deferral-needing arm — a plain scalar/struct disjunction is untouched (no over-defer).
+Each pin cue v0.16.1-exact. -/
+
+-- HEADLINE: a `for k,v in #data` comprehension inside an embedded DEFAULT DISJUNCTION arm
+-- populates AFTER the use-site narrows `#data` (the argocd `#Secret` shape). Pre-fix `mapped: {}`.
+theorem disj_default_embed_comprehension_narrows :
+    evalSourceMatches
+        "_#A: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n_#B: {other: \"b\"}\n#S: {#data: [string]: string, (*_#A | _#B)}\nout: #S & {#data: {a: \"x\"}}\n"
+        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {a: \"x\", [string]: string, [string]: string, [string]: string}, mapped: {a: \"x\"}}"
+          = true := by
+  native_decide
+
+-- A plain SIBLING self-ref in an embedded DEFAULT DISJUNCTION arm sees the use-site narrowing.
+-- Pre-fix `copy: string`. The minimal scalar form (matches `ds1`).
+theorem disj_default_embed_sibling_narrows :
+    evalSourceMatches
+        "_#A: {#x: string, copy: #x}\n_#B: {#x: string, other: \"b\"}\n#S: {#x: string, (*_#A | _#B)}\nout: #S & {#x: \"hi\"}\n"
+        "_#A: {#x: string, copy: string}\n_#B: {#x: string, other: \"b\"}\n#S: {#x: string, copy: string}\nout: {#x: \"hi\", copy: \"hi\"}"
+          = true := by
+  native_decide
+
+-- EMPTY-NARROW through the disjunction (no over-population): empty `#data` → empty `mapped`.
+theorem disj_default_embed_comprehension_empty :
+    evalSourceMatches
+        "_#A: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n_#B: {other: \"b\"}\n#S: {#data: [string]: string, (*_#A | _#B)}\nout: #S & {#data: {}}\n"
+        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}"
+          = true := by
+  native_decide
+
+-- NO-OVER-DEFER (scalar disjunction): a plain `*"prod" | "dev"` met with `string` keeps BOTH
+-- arms (default preserved) — `conjDisjArms?` yields `none` (no deferral-needing arm), so the
+-- standard distribute-at-meet path runs unchanged. A regression that over-deferred would alter it.
+theorem disj_scalar_no_over_defer :
+    evalSourceMatches "out: (*\"prod\" | \"dev\") & string\n" "out: *\"prod\" | \"dev\"" = true := by
+  native_decide
+
+-- NO-OVER-DEFER (struct disjunction, no sibling self-ref): `*{a:1,b:int} | {a:2}` met with
+-- `{b:5}` distributes into BOTH arms at the meet, NOT via deferral (arms have no self-ref to
+-- narrow). Confirms the deferral gate is tight on the embedded-disjunction-as-value path too.
+theorem disj_struct_no_over_defer :
+    evalSourceMatches
+        "out: (*{a: 1, b: int} | {a: 2}) & {b: 5}\n"
+        "out: *{a: 1, b: 5} | {a: 2, b: 5}" = true := by
+  native_decide
+
+/-- SATURATION GUARD (audit #6): `conjDisjArms?`'s `fuel = 0` arm returns `none` (declines to
+    distribute) rather than dropping fields — it is NOT a truncation source, so it need not bump
+    `truncCount`. Pin that the fuel-exhausted scan is a clean non-defer: at `fuel = 0` a
+    `.refId`-bodied disjunction conjunct yields `none` (falls to the standard fold, which keeps
+    its own bracketed truncation discipline). A regression that made it drop to a partial value
+    without bumping would reopen the audit-#6 hole. -/
+theorem conj_disj_arms_fuel_zero_declines :
+    conjDisjArms? [(0, [])] 0 (.refId ⟨0, 0⟩) = none := by
+  native_decide
+
 end Kue

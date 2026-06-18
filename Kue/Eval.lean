@@ -1338,6 +1338,20 @@ def resolveEmbedDefBody? (env : Env) : Value -> Option Value
                   | none => none
               | _ => none
           | none => none
+  -- An embedded DEFAULT DISJUNCTION (`(*_#A|_#B)`) contributes its default arm to the host
+  -- (argocd `#OpaqueSecret`). Resolve through to the default arm's def body, so `bodyNeedsDefer`
+  -- recurses into it — the host must defer if the default arm's sibling self-ref/comprehension
+  -- depends on a use-site-narrowed field. One level: the default arm is a single `.refId`.
+  | .disj alternatives =>
+      match resolveDisjDefault? alternatives with
+      | some (.refId id) =>
+          match env.drop id.depth with
+          | [] => none
+          | frame :: _ =>
+              match nthField id.index frame.snd with
+              | some f => some (Field.value f)
+              | none => none
+      | _ => none
   | _ => none
 
 /-- Does a body need deferral to a `.closure` — either a DIRECT sibling self-ref/guard
@@ -1579,6 +1593,64 @@ def refAliasSelectorDef? (env : Env) : Value -> Option (List Field × Value)
   | .refId id => refAliasDefClosure? env id
   | _ => none
 
+/-- The UNEVALUATED disjunction arms of a conjunct that is (or refs) a disjunction whose
+    default arm needs deferral — so the `.conj` fold can DISTRIBUTE the other (narrowing)
+    conjuncts into each arm BEFORE the arms collapse (`(*_#A|_#B) & {narrow}` →
+    `*(_#A & {narrow}) | (_#B & {narrow})`). Without distribution, the disjunction evaluates
+    standalone, forcing its def arms with NO use-operands, so a default arm's sibling self-ref
+    (`copy: #x`, the argocd `#OpaqueSecret` shape) collapses to its abstract value before the
+    narrowing reaches it.
+
+    Returns `none` UNLESS the disjunction has a deferral-needing arm (`bodyNeedsDefer` on the
+    arm's resolved def body) — a plain scalar/struct disjunction (`*1 | 2`, `*{a:1} | {a:2}`)
+    keeps the existing distribute-at-meet path (no regression, no over-defer). The arms are the
+    RAW (unevaluated) values, resolving in the SAME frame as the disjunction ref itself (a
+    `.disj`-bodied def's arm refs are depth-relative to the def's scope = the conjunct's scope). -/
+def conjDisjArms? (env : Env) (fuel : Nat) : Value -> Option (List (Mark × Value))
+  | .disj alternatives =>
+      if alternatives.any (fun a => bodyNeedsDefer ((0, []) :: env) fuel a.snd
+          || (match a.snd with
+              | .refId id =>
+                  match (env.drop id.depth) with
+                  | [] => false
+                  | frame :: _ =>
+                      match nthField id.index frame.snd with
+                      | some f => bodyNeedsDefer ((0, []) :: env.drop id.depth) fuel (Field.value f)
+                      | none => false
+              | _ => false)) then
+        some alternatives
+      else
+        none
+  | .refId id =>
+      match fuel with
+      | 0 => none
+      | fuel + 1 =>
+          match env.drop id.depth with
+          | [] => none
+          | frame :: _ =>
+              match nthField id.index frame.snd with
+              | some field => conjDisjArms? env fuel (Field.value field)
+              | none => none
+  | _ => none
+
+/-- Split a conjunction's constraints into (a distributable disjunction's unevaluated arms,
+    the remaining constraints) IF exactly the first distributable disjunction conjunct is found —
+    a depth-0 (or literal) disjunction with a deferral-needing arm (`conjDisjArms?`). Returns
+    `none` when no constraint distributes (the standard fold applies). The remaining constraints
+    are meet into EACH arm by the caller. -/
+def splitDisjConjunct (env : Env) :
+    List Value -> Option (List (Mark × Value) × List Value)
+  | [] => none
+  | c :: rest =>
+      let distributes :=
+        (match c with | .disj _ => true | .refId id => id.depth == 0 | _ => false)
+      match (if distributes then conjDisjArms? env evalFuel c else none) with
+      | some arms => some (arms, rest)
+      | none =>
+          match splitDisjConjunct env rest with
+          | some (arms, others) => some (arms, c :: others)
+          | none => none
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -1723,57 +1795,23 @@ mutual
                     else
                       evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
     | fuel + 1, .conj constraints => do
-        match lazyConjMergedFields env constraints with
-        | some (mergedFields, open_) =>
-            let canonical := canonicalizeFields mergedFields
-            let nested <- pushFrame canonical env
-            let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
-            match mergeEvaluatedFields evaluatedFields with
-            | some fields => pure (.struct fields open_)
-            | none => pure .bottom
-        | none => do
-            -- A bare ref to an embed-bearing self-ref def (`#Outer`, a `.structComp`) is DEFERRED
-            -- to its `.closure` here (`conjDefClosure?`) rather than evaluated — the `.refId` arm
-            -- would otherwise force it STANDALONE (no use-operands), collapsing its self-ref before
-            -- this fold can splice the narrowing. A `pkg.#Def` import-selector conjunct is likewise
-            -- deferred from the RAW constraint (`importSelectorDef?` + in-monad `pushFrame`), so the
-            -- selector arm's standalone force (which fires when `pkg.#Def` is selected OUTSIDE a
-            -- conjunction) does not collapse it here before the fold splices the use-site.
-            let evaluated <- constraints.mapM fun constraint => do
-              match conjDefClosure? env constraint with
-              | some closure => pure closure
-              | none =>
-                  -- `importSelectorDef?`: a `pkg.#Def` selector conjunct (incl. one aliased to
-                  -- another selector via the alias-follow inside `importDefClosureBody?`).
-                  -- `refAliasSelectorDef?`: a bare ref conjunct (`#B`) whose body chains through
-                  -- an alias to a deferring struct — captured over the TERMINAL package frame.
-                  match importSelectorDef? env constraint with
-                  | some (pkgFields, defBody) => do
-                      let capturedEnv <- pushFrame pkgFields env
-                      pure (.closure capturedEnv defBody)
-                  | none =>
-                    match refAliasSelectorDef? env constraint with
-                    | some (capturedFrame, defBody) => do
-                        let capturedEnv <- pushFrame capturedFrame env
-                        pure (.closure capturedEnv defBody)
-                    | none => evalValueWithFuel fuel env visited constraint
-            -- A `.closure` among the evaluated operands is a deferred imported def (slices 3-4).
-            -- Instead of the inert `meet` (→ `.bottom`), force EVERY closure with the SHARED
-            -- use-operand set spliced into its body (slice A — multi-operand fold). The use-site
-            -- struct conjuncts narrow all the deferred defs' siblings at once (`#M & #N &
-            -- {narrow}`); non-struct non-closure operands `meet` against the folded result,
-            -- preserving honesty (still `.bottom` on a genuine conflict).
-            match allClosures evaluated with
-            | [] => pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
-            | closures =>
-                let useOperands := (evaluated.filterMap evaluatedStructOperand?).map stripLetBindings
-                let others := nonClosureNonStructOperands evaluated
-                let foldClosure := fun (acc : EvalM Value) (cl : Env × Value) => do
-                  let current <- acc
-                  let forced <- forceClosureWithConjunct fuel cl.fst cl.snd useOperands
-                  pure (meet current forced)
-                let forced <- closures.foldl foldClosure (pure .top)
-                pure (others.foldl (fun current v => meet current v) forced)
+        -- DISJUNCTION DISTRIBUTION (argocd-secret-data sub-slice 2). A conjunct that is (or refs,
+        -- at depth 0) a disjunction with a deferral-needing default arm must DISTRIBUTE the other
+        -- conjuncts into each arm at the UNEVALUATED level — `(*_#A|_#B) & {narrow}` becomes
+        -- `*(_#A & {narrow}) | (_#B & {narrow})` — so each arm-meet re-enters this fold and the
+        -- post-ss1 def-deferral force-splices the narrowing BEFORE the arm's sibling self-ref
+        -- (`copy: #x`, the `#OpaqueSecret` shape) collapses. The arm refs are depth-0-relative to
+        -- the def's scope = THIS conj's `env`, so they thread in unchanged. A plain scalar/struct
+        -- disjunction yields `none` from `conjDisjArms?` and keeps the existing distribute-at-meet
+        -- path (no regression). Restricted to a depth-0 (or literal) disjunction conjunct so arm
+        -- depths need no rebasing; a deeper disjunction ref falls through to the standard path.
+        match splitDisjConjunct env constraints with
+        | some (arms, others) =>
+            let distributed <- arms.mapM fun arm => do
+              let armValue <- evalValueWithFuel fuel env visited (.conj (arm.snd :: others))
+              pure (arm.fst, armValue)
+            pure (normalizeEvaluatedDisj distributed)
+        | none => evalConjStandard fuel env visited constraints
     | fuel + 1, .builtinCall name args => do
         let evaluated <- evalValuesWithFuel fuel env visited args
         pure (evalBuiltinCall name evaluated)
@@ -1944,6 +1982,71 @@ mutual
     | _, value => pure value
   termination_by (fuel, 0, 0)
 
+  /-- The standard `.conj` fold (extracted so the `.conj` arm can first try disjunction
+      distribution and fall through here). Either the lazy same-scope struct merge
+      (`lazyConjMergedFields`), or the deferral fold: a bare self-ref def / import-selector
+      conjunct defers to its `.closure`, then every closure is force-spliced with the SHARED
+      use-operand set so deferred defs' siblings narrow against the use-site at once. `fuel` is
+      the predecessor of the `.conj` arm's `fuel + 1`, so calls to `evalValueWithFuel fuel`
+      `(fuel,1,0)` and `forceClosureWithConjunct fuel` `(fuel,5,0)` decrease from `(fuel,6,0)`. -/
+  def evalConjStandard
+      (fuel : Nat)
+      (env : Env)
+      (visited : List Nat)
+      (constraints : List Value) : EvalM Value := do
+    match lazyConjMergedFields env constraints with
+    | some (mergedFields, open_) =>
+        let canonical := canonicalizeFields mergedFields
+        let nested <- pushFrame canonical env
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
+        match mergeEvaluatedFields evaluatedFields with
+        | some fields => pure (.struct fields open_)
+        | none => pure .bottom
+    | none => do
+        -- A bare ref to an embed-bearing self-ref def (`#Outer`, a `.structComp`) is DEFERRED
+        -- to its `.closure` here (`conjDefClosure?`) rather than evaluated — the `.refId` arm
+        -- would otherwise force it STANDALONE (no use-operands), collapsing its self-ref before
+        -- this fold can splice the narrowing. A `pkg.#Def` import-selector conjunct is likewise
+        -- deferred from the RAW constraint (`importSelectorDef?` + in-monad `pushFrame`), so the
+        -- selector arm's standalone force (which fires when `pkg.#Def` is selected OUTSIDE a
+        -- conjunction) does not collapse it here before the fold splices the use-site.
+        let evaluated <- constraints.mapM fun constraint => do
+          match conjDefClosure? env constraint with
+          | some closure => pure closure
+          | none =>
+              -- `importSelectorDef?`: a `pkg.#Def` selector conjunct (incl. one aliased to
+              -- another selector via the alias-follow inside `importDefClosureBody?`).
+              -- `refAliasSelectorDef?`: a bare ref conjunct (`#B`) whose body chains through
+              -- an alias to a deferring struct — captured over the TERMINAL package frame.
+              match importSelectorDef? env constraint with
+              | some (pkgFields, defBody) => do
+                  let capturedEnv <- pushFrame pkgFields env
+                  pure (.closure capturedEnv defBody)
+              | none =>
+                match refAliasSelectorDef? env constraint with
+                | some (capturedFrame, defBody) => do
+                    let capturedEnv <- pushFrame capturedFrame env
+                    pure (.closure capturedEnv defBody)
+                | none => evalValueWithFuel fuel env visited constraint
+        -- A `.closure` among the evaluated operands is a deferred imported def (slices 3-4).
+        -- Instead of the inert `meet` (→ `.bottom`), force EVERY closure with the SHARED
+        -- use-operand set spliced into its body (slice A — multi-operand fold). The use-site
+        -- struct conjuncts narrow all the deferred defs' siblings at once (`#M & #N &
+        -- {narrow}`); non-struct non-closure operands `meet` against the folded result,
+        -- preserving honesty (still `.bottom` on a genuine conflict).
+        match allClosures evaluated with
+        | [] => pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
+        | closures =>
+            let useOperands := (evaluated.filterMap evaluatedStructOperand?).map stripLetBindings
+            let others := nonClosureNonStructOperands evaluated
+            let foldClosure := fun (acc : EvalM Value) (cl : Env × Value) => do
+              let current <- acc
+              let forced <- forceClosureWithConjunct fuel cl.fst cl.snd useOperands
+              pure (meet current forced)
+            let forced <- closures.foldl foldClosure (pure .top)
+            pure (others.foldl (fun current v => meet current v) forced)
+  termination_by (fuel, 6, 0)
+
   /-- The fields each embedding contributes, for computing a closed embed-def's allowed-label
       union (slice A): embedding `#Base = {kind}` into a closed `#Def` widens the allowed set by
       `{kind}`. Evaluates each embedding (forcing a `.closure` embed against `narrowing` — the
@@ -2010,6 +2113,18 @@ mutual
             modify (fun state => { state with truncCount := state.truncCount + 1 })
             pure current
         | nextFuel + 1 => do
+            -- An embedded DEFAULT DISJUNCTION whose default arm needs deferral (`(*_#A|_#B)` with
+            -- `_#A`'s body referencing a sibling the host narrows — the argocd `#OpaqueSecret`
+            -- shape) is collapsed to its default arm BEFORE deferral, so the arm defers to a
+            -- closure and force-splices the host's narrowing (`#data`) BEFORE its comprehension/
+            -- self-ref collapses. Without this the disjunction evaluates standalone (default arm
+            -- forced with NO use-operands) and `resolveEmbeddedDisjDefault` picks the already-
+            -- collapsed value. A plain scalar/struct disjunction yields `none` and keeps the
+            -- collapse-then-meet path. `resolveDisjDefault?` chooses the unique default arm.
+            let embedding :=
+              match conjDisjArms? env evalFuel embedding with
+              | some arms => (resolveDisjDefault? arms).getD embedding
+              | none => embedding
             -- A bare ref to a self-ref def the lazy-merge can't handle is DEFERRED to its
             -- `.closure` here (not evaluated through `.refId`, which would force it STANDALONE with
             -- no use-operands), so the `.closure` branch below force-splices the HOST's current

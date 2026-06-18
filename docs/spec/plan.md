@@ -299,17 +299,21 @@ Correctness gates adoption; cleanups are parallel-safe filler. Recommended order
    the disjunction-selection + embedding-`Self` family** (select-into-`.disj` collapses the
    default; embedded default disjunction merges its arm; gated two-pass so `Self.<embedded-
    label>` resolves on both the eager and closure-force paths). `#Secret` structure now
-   correct vs cue. **TWO further DEEP gaps REMAIN before argocd is a drop-in** — both
-   narrowing-into-embedded-arm, deeper than the disjunction family:
-   - **`argocd-secret-data` (DEEP, NEXT correctness link).** `for k,v in Self.#data` in the
-     embedded default arm `_#OpaqueSecret` expands against the arm's EMPTY `#data` before the
-     use-site `#data` narrowing reaches it → secret `data:{}` vs cue's populated payload.
-     Minimal repro (self-contained): `_#A: {#k:"a", #data:[string]:string, out:{for k,v in
-     Self.#data {"\(k)":v}}}` + `_#B: {#k:"b", out:{}}` + `#S: {#data:[string]:string;
-     (*_#A|_#B)}` + `out: #S & {#data: foo:"bar"}` → kue `out:{}`, cue `out:{foo:"bar"}`. The
-     use-site narrowing must flow into the embedded default arm BEFORE its comprehension runs
-     — the default-disjunction-arm analog of the slice-A/E closure-narrowing work.
-   - **`argocd-tlsroute-list-guard` (DEEP).** `#TLSRoute.spec.parentRefs` is a list whose
+   correct vs cue. **`argocd-secret-data` (LINK 2) DONE 2026-06-18 (`502550f` ss1 + ss2);
+   ONE further DEEP gap REMAINS (link 3) before argocd is a drop-in:**
+   - **`argocd-secret-data` (LINK 2) — DONE.** Root was a PARSER misclassification: `_#x` (a
+     hidden definition) was tagged hidden-ONLY (`isDefinition` false), so the def-deferral path
+     never fired for a hidden-def embedding and its sibling self-ref / `for k,v in #data`
+     comprehension collapsed before the use-site narrowing reached it. Sub-slice 1 (`502550f`)
+     fixed the classification (`_#x` is BOTH definition + hidden) — clears the PLAIN embedding +
+     makes `_#C` correctly closed. Sub-slice 2 distributes the narrowing into embedded DEFAULT
+     DISJUNCTION arms at the unevaluated level (`splitDisjConjunct`/`conjDisjArms?` in the `.conj`
+     fold + `meetEmbeddingsWithFuel` collapse-to-default-before-defer + `resolveEmbedDefBody?`
+     `.disj` case) — clears the actual `(*_#OpaqueSecret | …)` shape. **`defs.#Secret` with `#data`
+     now evals CORRECTLY** (populated base64 `data`, content-identical to cue, ~3s); `argo_secret`
+     in the live app matches cue. Gated tight: a plain scalar/struct disjunction is NOT deferred
+     (no over-defer). cert-manager unchanged (~29s, content-identical).
+   - **`argocd-tlsroute-list-guard` (LINK 3, DEEP, NEXT correctness link).** `#TLSRoute.spec.parentRefs` is a list whose
      elements are `if Self.#gateway_name != _|_ {…}` guards over use-site-narrowed hidden
      fields → bottom. Minimal repro: `#R: Self={ #g?:string; #l?:string; spec: refs: [if
      Self.#g != _|_ {{name:Self.#g}}, if Self.#l != _|_ {{kind:"LS",name:Self.#l}}] }` +
@@ -336,11 +340,13 @@ Correctness gates adoption; cleanups are parallel-safe filler. Recommended order
 6. **Test-org pass (R2)** — after the next correctness slice lands its pins, so the split
    doesn't immediately stale.
 
-**What gates argocd (UPDATED):** NOT `module-file-scoped-imports` / `import-eager-closedness`
-— the bisect ruled both out (the blocker reproduces offline single-file). Those findings stand
-as filed (real but argocd does not hit them). The remaining gates are the two
-narrowing-into-embedded-arm links above (`argocd-secret-data`, `argocd-tlsroute-list-guard`)
-plus the `argo` sub-package perf wall. `argocd-secret-data` is the next correctness link.
+**What gates argocd (UPDATED 2026-06-18):** Links 1 (`83a8ac4`) and 2 (`502550f`) DONE —
+`defs.#Secret` (structure + populated `data`) is now correct vs cue. The remaining gate is
+**link 3 `argocd-tlsroute-list-guard`** (`defs.#TLSRoute.spec.parentRefs` list-element
+`if Self.#x != _|_ {…}` guards over use-site-narrowed hidden fields → bottom; fast-failing ~3s,
+NOT the perf wall) plus the `argo` sub-package perf wall beyond it. `argocd-tlsroute-list-guard`
+is the next correctness link. `module-file-scoped-imports`/`import-eager-closedness` stand filed
+(real but argocd does not hit them).
 
 ## Audit Fix-Slices (fuel-saturation soundness — Phase A code-quality, audit 2026-06-18 #6)
 

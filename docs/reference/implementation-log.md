@@ -6990,3 +6990,67 @@ are plain `#x`, untouched by the `_#x` widening). argocd: STILL bottoms (~91s) �
 collapse evaluates the arm standalone BEFORE the use-site narrowing distributes in. That is a
 DISTINCT fix (the disjunction-arm deferral), tracked as sub-slice 2 below. Sub-slice 1 fixes
 the plain-embedding facet in isolation (verified by minimal repros `s1`/`emb`/`emb2`).
+
+---
+
+## Completed Slice: argocd-secret-data sub-slice 2 (embedded default disjunction arm narrowing)
+
+Goal: clear the argocd link-2 DISJUNCTION facet — the actual `defs.#Secret` shape. The hidden
+def `_#OpaqueSecret` lives in an embedded DEFAULT DISJUNCTION arm `(*_#OpaqueSecret |
+_#DockerConfigSecret | _#TLSSecret)`, and its `data: {for k,v in Self.#data {...}}` comprehension
+is narrowed by the use-site (`#Secret & {#data: …}`). Sub-slice 1 (hidden-def classification)
+fixed the PLAIN embedding; this fixes the DISJUNCTION-arm path.
+
+### Root cause
+
+A disjunction's arms are evaluated EAGERLY when the disjunction is evaluated — the default arm
+`_#OpaqueSecret`, now correctly a deferrable def (sub-slice 1), is forced STANDALONE with NO
+use-operands, collapsing its `for`/sibling-self-ref against the def's own abstract `#data`
+BEFORE the use-site narrowing distributes in. The collapse happens in two places: the `.conj`
+fold (which evaluated the disjunction ref standalone then met it) and the embedded-disjunction
+merge in `meetEmbeddingsWithFuel` (`resolveEmbeddedDisjDefault` picked the already-collapsed
+default arm). Additionally, a struct embedding a `(*_#A|_#B)` disjunction did not even DEFER —
+`bodyNeedsDefer`/`resolveEmbedDefBody?` had no `.disj` case, so the host evaluated eagerly.
+
+### Fix — distribute the narrowing into the arms at the UNEVALUATED level
+
+1. **`.conj` fold (`evalConjStandard` + `splitDisjConjunct`/`conjDisjArms?`).** Extracted the
+   standard conj fold into `evalConjStandard`; the `.conj` arm first tries disjunction
+   distribution: a depth-0 (or literal) disjunction conjunct with a deferral-needing arm becomes
+   `*(_#A & {narrow}) | (_#B & {narrow})`, each arm-meet re-entering the fold so the post-ss1
+   def-deferral force-splices the narrowing. `conjDisjArms?` returns `none` for a plain
+   scalar/struct disjunction → standard distribute-at-meet path (no over-defer).
+2. **Embedded-disjunction merge (`meetEmbeddingsWithFuel`).** When the embedding is a disjunction
+   with a deferral-needing default arm, collapse to the default arm (`conjDisjArms?` +
+   `resolveDisjDefault?`) BEFORE deferral, so the arm defers to a closure and force-splices the
+   host's `current` narrowing — instead of `resolveEmbeddedDisjDefault` picking the collapsed value.
+3. **Deferral detection (`resolveEmbedDefBody?` + `bodyNeedsDefer`).** Added a `.disj` case to
+   `resolveEmbedDefBody?` that resolves through to the default arm's def body, so `bodyNeedsDefer`
+   recurses into it and a struct embedding `(*_#A|_#B)` defers when the default arm needs it.
+
+### Tests + behavior preservation
+
+Every existing fixture byte-identical (`fixture pairs ok`) — the `evalConjStandard` extraction and
+distribution gate are behavior-preserving on all current fixtures. 3 new export fixtures
+(`embed_disj_default_sibling`, `_comprehension`, `_comprehension_empty`), cue v0.16.1-exact in
+JSON+YAML. 6 new eval pins: headline comprehension narrows through the disjunction
+(`disj_default_embed_comprehension_narrows`), scalar sibling narrows
+(`disj_default_embed_sibling_narrows`), empty-narrow (`disj_default_embed_comprehension_empty`),
+no-over-defer scalar (`disj_scalar_no_over_defer`) + struct (`disj_struct_no_over_defer`)
+disjunctions, and a fuel-zero saturation guard on `conjDisjArms?` (`conj_disj_arms_fuel_zero_declines`
+— the new scan declines to distribute at `fuel=0` rather than dropping fields, so it is not a
+truncation source and need not bump `truncCount`; audit-#6 invariant honored by construction).
+
+### Real-app re-probe (the headline)
+
+- **cert-manager: NO regression.** Content-identical to cue (`jq -S`), ~29s single-pass.
+- **`defs.#Secret` link-2 blocker CLEARED.** The exact argocd `#Secret` (with `#data`) now
+  evaluates CORRECTLY: `data` is the populated, base64-encoded map matching cue byte-for-byte
+  (modulo field-order #3), ~3s. `argo_secret` (the live argocd secret with `webhook.github.secret`)
+  is content-identical to cue. This is the argocd link-2 correctness gap, closed.
+- **Full argocd export still bottoms (~94s) — but on link 3, NOT link 2.** Bisected to
+  `defs.#TLSRoute` (`route.yaml`/`listener.yaml`): `spec.parentRefs` is a list whose elements are
+  `if Self.#gateway_name != _|_ {…}` guards over use-site-narrowed hidden fields → kue bottom,
+  cue resolves both. This is the tracked `argocd-tlsroute-list-guard` (link 3) — a DISTINCT slice,
+  fast-failing (~3s in isolation), not the perf wall. The argo sub-package perf wall remains beyond
+  it. argocd is NOT yet a drop-in; the NEXT correctness link is link 3.

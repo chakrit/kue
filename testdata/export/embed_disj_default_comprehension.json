@@ -1,0 +1,6 @@
+{
+    "mapped": {
+        "baz": "qux",
+        "foo": "bar"
+    }
+}
