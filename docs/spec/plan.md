@@ -24,6 +24,114 @@ reference implementation. See
 - Keep each commit small enough to review, revert, or extend safely. One slice per
   commit; the commit subject mirrors the slice title.
 
+## Audit Fix-Slices (argocd-1 + F1 default/disj/embedding — Phase A code-quality, audit #9, 2026-06-18)
+
+Scope: `83a8ac4` (argocd link 1 — `selectEvaluatedField .disj` / `resolveEmbeddedDisjDefault`
+/ gated two-pass `needsEmbeddedSelfPass`) and `a0aaf42` (F1 default-mark algebra —
+`combineMark` AND, `flattenAlternatives`/`withDefaultConvention`, `dedupAlternatives`,
+`distributeBinary`/`distributeUnary`/`resolveOperand`, `BEq (Except ε α)`, 12
+`rfl`→`native_decide`). Audited their COMPOSED behavior. Verify GREEN (build 86, `fixture
+pairs ok`, shellcheck clean); cert-manager still a drop-in at 28s (single-pass, no 2x).
+
+**Headline: argocd-1 + F1 are SOUND, including their composition. No blocking Violations.**
+Every probe-resolvable case byte-matches `cue` v0.16.1. All remaining DIFFs are either
+cosmetic error-text ("incomplete value" vs "unresolved disjunction" — both refuse) or
+pre-existing, already-tracked, orthogonal bugs (NOT introduced by either commit).
+
+### What was verified sound (no action)
+
+- **F1 operator-class split is EXHAUSTIVE + correct.** `&`/`|` are structural (`meetCore`
+  `.disj`/`normalizeDisj`), never `BinaryOp`; so `distributeBinary` handles EXACTLY the
+  scalar ops `+ - * / div mod quo rem == != < <= > >= =~ !~ && ||` and `distributeUnary`
+  `! +x -x`. Oracle-checked EVERY one over disjunctions: resolvable cases byte-match
+  (`(*1|2)<5→true`, `(*true|false)&&true→true`, `(*"abc"|"xyz")=~"^a"→true`,
+  `(*1|2)==(*1|3)→true`, `-(*1|2)→-1`); multi-default/no-default operands stay stuck
+  (`(1|2)+10`, `(true|false)&&true`) exactly as cue. Unification cross+AND verified
+  (`combineMark` truth-table, lone-survivor keeps mark `(1|*2)&(1|2|3)→2`).
+- **`dedupAlternatives` equality is SOUND** — structural `Value`-`==`. True dups merge
+  (`*1.0|*1.0|2→1.0`, `*"a"|*"a"→"a"`, `*{x:1}|*{x:1}→{x:1}`); near-dups stay distinct
+  (`*{x:1}|*{x:2}` ambiguous; `*1|*1.0` stays TWO disjuncts — cue keeps `1`/`1.0` distinct
+  even though `1==1.0` arithmetically, and kue matches). Never over/under-merges vs cue.
+- **`flattenAlternatives` composes to 3+ levels.** Built via per-level `normalizeDisj`, so
+  `withDefaultConvention` recurses through nested refs: `c:*0|1; b:*c|2; a:*b|3; *a|9 → 0`
+  byte-matches; deep-to-lone-regular (`c:5; *c|7; *a|8 → 5`) matches; inline `((*1|2)|3)|4 →
+  1` matches. Ambiguous-at-depth cases refuse identically.
+- **Two-pass gate (`needsEmbeddedSelfPass`) free of under/over-fire.** Structural + total
+  (fuel-bounded scan, `evalFuel=100`). The real target resolves: `Self.<embedded-disj-label>`
+  → `embed_self_disj`/`embed_self_disj_closed` fixtures (`Self.a→1`, `Self.#type→"Opaque"`)
+  byte-match. Over-fire guarded: cert-manager stays single-pass (28s, drop-in); a
+  plain-embed label never read via `Self` keeps single-pass. Both pass sites
+  (eager `.structComp` + `forceClosureWithConjunctCore`) structurally identical.
+- **`BEq (Except ε α)` instance is total + lawful** — exhaustive ok/ok·error/error·mismatch,
+  structural, reflexive/symmetric when components are. Canonical sum-type `BEq` stdlib omits.
+- **12 `rfl`→`native_decide` conversions are NECESSARY, not weakened.** `dedupAlternatives`
+  injects `Value`-`==` into the normalize/manifest path, which the kernel cannot reduce
+  through (`Value` derives `BEq` but NOT `DecidableEq` — the documented perf carve-out, see
+  slice-loop.md §3). So `rfl` genuinely no longer closes these; `(==)=true` + `native_decide`
+  is the sanctioned response. Same values compared — substance unchanged, only proof
+  strategy (kernel→native). None should revert to `rfl`. Test strength HONEST: F1 has
+  positive+negative pins per facet (cross-AND-resolves vs two-survivors-ambiguous, equal-dedup
+  vs distinct-ambiguous, nested-carries vs regular-outer-sheds, arith-resolves vs stuck);
+  argocd-1 has 7 pins (select fire/defer, embed resolve/passthrough, gate fire/skip×2) +
+  end-to-end fixtures.
+
+### Findings (ranked — all BORDERLINE or OUT-OF-SCOPE; none block)
+
+1. **[OUT-OF-SCOPE — pre-existing, NOT either commit] List comprehensions are UNPARSEABLE.**
+   `parseListItems` (`Parse.lean:1100`) has no `for`/`if` clause handling — every item is a
+   plain `parseExpression`. `[for x in [1,2] {x*2}]` → `parse error: expected ']' after
+   index`; `a:[1,2]; out:[for x in a {x*2}]` parses but yields `bottom` (cue `[2,4]`). Fails
+   in a plain top-level struct — no def/embed/Self/disjunction needed. `Parse.lean` untouched
+   by `83a8ac4`/`a0aaf42`. This is what surfaced as the `cx_emb_compr` composed-probe DIFF (a
+   RED HERRING re: the audited slices). **A basic, common-CUE correctness gap** — list
+   comprehensions are widely used. File as its own slice `list-comprehension-parse-eval`
+   (parser `for`/`if` clause support in `[…]` + list-element comprehension eval). Rank HIGH
+   as a standalone correctness item, but it is NOT a regression and NOT this audit's scope.
+   The struct-comprehension form (`for x in items {"k\(x)":x}`) already works.
+
+2. **[OUT-OF-SCOPE — already tracked] `for k,v in Self.<embedded-field>` narrowing
+   (argocd link 2 / `argocd-secret-data`).** The `w3` repro and `cx_emb_compr` confirm a
+   comprehension whose SOURCE is an embedded-arm field doesn't see use-site narrowing. Already
+   the documented NEXT correctness slice (breadcrumb + F-B5 item 1). Partly entangled with
+   finding 1 (list-comprehension form); the struct-comprehension form is the tracked link-2.
+   No new work here — confirms the existing plan item.
+
+3. **[BORDERLINE — error-precision, pre-existing] Selecting a missing field reports
+   "incomplete value", cue reports "undefined field"/"reference not found".** Holds for ALL
+   struct selection (`s.b` on `{a:1}`, plain or `close()`d), so the `.disj` arm's
+   `none → .selector base label` faithfully mirrors baseline. `out: kind` (bare ref to an
+   embedding-supplied label, not `Self.kind`) → kue `bottom`, cue "reference kind not found".
+   Both ERROR; divergence is error-CLASS/text only. Pre-existing diagnostics-precision item
+   for an eventual error-message pass — do NOT slice now.
+
+4. **[BORDERLINE — field ordering, already tracked as F-B #4] Embedding-contributed fields
+   emit AFTER static fields; cue interleaves in source order.** `{#Meta; spec:"y"}` with
+   `#Meta:{metadata:"x"}` → kue `spec,metadata`; cue `metadata,spec`. Embedding-general
+   (reproduces with no Self/disj/two-pass — `{#Meta; zzz:3}` reorders too), so NOT introduced
+   by the two-pass `staticFields ++ newEmbeddedFields` append. This is the tracked
+   field-ordering-parity DEEP slice. No new work.
+
+5. **[BORDERLINE — cleanup, trivial] Dead OR-branch in `refsSelfEmbeddedLabel`
+   (`Eval.lean:97`).** `… || refsSelfEmbeddedLabel f selfIndex labels (.refId id)` — there is
+   NO `.refId` arm in this function, so the recursion hits `_ => false` unconditionally; the
+   branch is always `false`. The preceding label test is the only truthy path. Remove the dead
+   OR (general-coding: no dead code). Fold into the next embedding-Self touch.
+
+6. **[BORDERLINE — DRY, low-risk] `selectEvaluatedField .disj` duplicates the 5-arm
+   struct-shape dispatch.** The resolved-default arm re-lists `.struct`/`.structTail`/
+   `.structPattern`/`.structPatterns`/`.embeddedList` verbatim from the top-level arms. Since
+   `resolveDisjDefault?` never returns `.bottom` (`liveAlternatives` filters bottoms), the arm
+   could be `match resolveDisjDefault? alternatives with | some v => selectEvaluatedField v
+   label | none => .selector base label` — also gaining free nested-disjunction recursion.
+   Behavior-identical refactor; fold into a cleanup slice.
+
+7. **[BORDERLINE — test strength, low] Unpinned-but-correct coverage.** No regression pin for
+   3-level flatten (only 2-level), for comparison/boolean/regex/unary ops over disjunctions
+   (only `+` and `&`), or for the composed select-into-F1-produced-default. All verified
+   correct by oracle this pass; add pins opportunistically when next touching Lattice/Eval
+   disj paths. The `*(1|2)` parser-laxity is CONFIRMED orthogonal/pre-existing (Parse.lean
+   untouched; cue rejects it at parse, so no correct kue behavior to match).
+
 ## Phase B audit (closure family + fuel-saturation churn — whole graph, 2026-06-18)
 
 Authoritative whole-graph pass after the entire closure chain (slices 1-2-3-4-A-C-E-F2 +
