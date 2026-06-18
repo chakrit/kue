@@ -744,6 +744,7 @@ def valueTag : Value -> UInt64
   | .interpolation _ => 26
   | .dynamicField _ _ _ => 27
   | .embeddedList _ _ _ => 28
+  | .closure _ _ => 29
 
 /--
 A scope frame paired with a process-unique identity. Each frame push allocates a fresh
@@ -1042,6 +1043,10 @@ mutual
             let evaluatedValue <- evalValueWithFuel fuel env visited value
             pure (.struct [⟨name, .regular, evaluatedValue⟩] true)
         | _ => pure .bottom
+    -- closure: no producer yet (slice 1 is the inert constructor). Forcing a closure
+    -- against its captured env is slice 2 (closure-eval); until then it passes through
+    -- unevaluated. Unreachable: nothing constructs `.closure`.
+    | _ + 1, .closure capturedEnv body => pure (.closure capturedEnv body)
     | _, value => pure value
   termination_by (fuel, 0, 0)
 

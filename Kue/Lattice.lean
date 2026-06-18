@@ -387,6 +387,11 @@ def meetCore (left right : Value) : Value :=
   | _, .struct .. => .bottom
   | .embeddedList _ _ _, _ => .bottom
   | _, .embeddedList _ _ _ => .bottom
+  -- closure: meet against a use-site struct is the unlock (slice 4); until a producer
+  -- exists, no closure reaches meet, so the inert behavior is `.bottom` like any other
+  -- opaque residual. The captured env makes this NOT pure-over-an-opaque-ref later.
+  | .closure _ _, _ => .bottom
+  | _, .closure _ _ => .bottom
 
 /-- Flatten a value into its top-level conjunction members, recursing into nested
     `.conj`. A non-conjunction is a singleton. Used so conjunction meets reduce over a

@@ -5924,3 +5924,43 @@ resolution.
 ok` (crossmod_nodeps export matches oracle). `shellcheck scripts/check-fixtures.sh` clean.
 Manually: `kue eval /no/such.cue` and `kue export /no/such.cue` both print `kue: cannot read
 …` + exit 1 (no stack), as does a missing-dir arg.
+
+---
+
+## Completed Slice: Value.closure constructor (frontier #1, slice 1 — closure-ctor)
+
+Goal: introduce the env-carrying `Value.closure` thunk and wire every exhaustive consumer
+inertly, so the type change lands with ZERO behavior change — the foundation for the
+cross-package def-meet fix (`parts.#M & {#name:"keel"}` → `out:"keel"`). chakrit-approved
+churn; full slice sequence is `plan.md` "Value.closure work plan".
+
+### Intended behavior
+
+- New constructor `Value.closure (capturedEnv : List (Nat × List Field)) (body : Value)`
+  in `Value.lean`. `capturedEnv` is *defeq* to `Eval.Env` (`abbrev Env := List (Nat ×
+  List Field)`), so the eval layer threads it with zero coercion while `Value.lean` stays
+  Kue-import-free (a closure could not carry an Eval `Frame` — that inverts the import
+  graph; inlining the env as base-layer data is the layering-safe shape). Derived
+  `Repr`/`BEq` extend automatically; the captured ids carry the "independently-built
+  frames never falsely share" invariant into `BEq`.
+- **Inert wiring** (the constructor has NO producer this slice — every new arm is dead
+  code that only satisfies exhaustiveness): `valueTag` tag 29 (`Eval.lean`);
+  `evalValueCoreWithFuel` passthrough (returns the closure unevaluated — forcing is slice
+  2); `manifestWithFuel` → `.incomplete` (non-concrete); `formatValueWithFuel` prints the
+  deferred body; `meetCore` → `.bottom` (unification is slice 4). The catch-all consumers
+  (`subsumesWithFuel`, `normalize*`, Resolve, and `meetWithFuel`'s `meetCore` delegation)
+  absorb it with no edit — the exhaustiveness checker confirmed the forced blast radius is
+  exactly those five functions.
+
+### Tests
+
+Seven pins in `Kue/Tests/EvalTests.lean`: `closure_beq_self`, `closure_beq_distinct_env`
+(distinct captured ids ⇒ unequal), `closure_beq_distinct_body`, `closure_valueTag` (= 29),
+`closure_eval_passthrough` (core eval returns it unchanged), `closure_manifest_incomplete`,
+`closure_meet_bottom`. Value-result equalities use `== … = true` (Value derives `BEq`, not
+`DecidableEq`, so bare `=` is undecidable for `native_decide`).
+
+### Verify
+
+`lake build` → 86 jobs, success. `scripts/check-fixtures.sh` → `fixture pairs ok` (all
+fixtures byte-unchanged — behavior preservation proven). No shell touched.

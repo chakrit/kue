@@ -323,6 +323,10 @@ slice.
 
 ## DECISION NEEDED — full real-app export gated on a Value-model fork (recon 2026-06-17)
 
+**RESOLVED 2026-06-18 — chakrit approved frontier #1 (the `Value.closure` churn). The
+work plan is the next section, `## Value.closure work plan`. This section stays as the
+design-record diagnosis; the "Awaiting chakrit" framing below is superseded.**
+
 Recon (commit after `4e5ccca`; breadcrumb `2026-06-17-realapp-eval-crosspkg-defmeet-diagnosis.md`)
 established that the full-real-app-export gap is THREE deep items, none a clean unattended
 slice. **Surfaced to chakrit — do NOT implement #1 unilaterally; it's a Value-model design
@@ -367,6 +371,96 @@ Cheap NON-fork work available meanwhile: `testdata/modules/crosspkg_defmeet/` +
 `crossmod_nodeps/` regression fixtures (can only land WITH their fix / as offline pins),
 Finding 2 (missing-file clean diagnostic in `loadFileBound`), the deferred test-module
 splits, and LOW items (embeddedList.decls newtype, EvalOps/Regex extraction).
+
+## Value.closure work plan (frontier #1 — chakrit-approved churn, 2026-06-18)
+
+AUTHORITATIVE. Supersedes the "DECISION NEEDED" framing above (kept as design-record).
+Goal: `parts.#M & {#name:"keel"}` where `#M` is an imported def → `out:"keel"` (matches
+`cue`), via an env-carrying `Value.closure` that defers a def body together with the frame
+it must resolve against. Each slice keeps `lake build` + `check-fixtures.sh` green.
+
+### The shape (layering-forced)
+
+`Value` (in `Value.lean`) imports nothing from Kue; `Frame := Nat × List Field` /
+`Env := List Frame` are `abbrev`s in `Eval.lean`, far ABOVE `Value`. So a closure CANNOT
+carry an Eval `Frame` — that inverts the import graph. Resolution (illegal-states route):
+inline the env as plain data the base layer already has —
+
+```
+| closure (capturedEnv : List (Nat × List Field)) (body : Value)
+```
+
+`List (Nat × List Field)` is *defeq* to Eval's `Env` (both are `abbrev`s over the same
+product), so Eval threads `capturedEnv` into `pushFrame`/`env.drop` with zero coercion,
+yet `Value.lean` stays Kue-import-free. `capturedEnv` carries the FULL id-stack (not one
+frame): a def body's depth>0 refs (`attr.#Metadata` cross-pkg embeds) walk the import
+chain, so the whole captured env must travel, not just the def's own frame. Derived
+`Repr`/`BEq` extend automatically (the `deriving instance` at `Value.lean:526`); the
+captured ids make two independently-captured closures compare unequal — the
+"independently-built frames never falsely share" invariant rides on the ids exactly as
+`Env.ids` does.
+
+### Ordered slices
+
+1. **closure-ctor — introduce `Value.closure` + inert consumer wiring (behavior-preserving,
+   MECHANICAL).** Add the constructor to `Value.lean`. The exhaustive (catch-all-free)
+   `Value` consumers fail to compile until each gets an arm; that forced set is the exact
+   blast radius — `valueTag` (`Eval.lean:717`, add tag 29), `manifestWithFuel`
+   (`Manifest.lean:52`, → `.incomplete`), `meetCore` (`Lattice.lean:216`) + `meetWithFuel`
+   (`Lattice.lean:847`, → `.bottom` for now), `formatValueWithFuel` (`Format.lean:136`),
+   `evalValueCoreWithFuel` (`Eval.lean:898`). Catch-all consumers (`subsumesWithFuel`
+   Order `:262`, `normalize*` Normalize, Resolve) absorb it inertly — NO edit. Nothing
+   CONSTRUCTS a closure yet, so every new arm is dead code: build + all fixtures unchanged,
+   zero behavior change. Pin with `native_decide` round-trip theorems (a `.closure` value
+   `Repr`/`BEq`-compares to itself, differs from a different capturedEnv). THIS IS SLICE 1
+   — landed this session if cleanly green.
+
+2. **closure-eval — force a closure through eval against its captured env (still no
+   producer).** `evalValueCoreWithFuel`'s `.closure capturedEnv body` arm: evaluate `body`
+   under `capturedEnv` (replace the ambient env with the captured one, rebased), returning
+   the evaluated body. With no producer this stays dead code, but it's the semantic anchor
+   the later slices target; pin it with a hand-built `.closure` fixture-theorem
+   (`evalValue (.closure env body) = evalValue-of-body-in-env`). MECHANICAL once #1 lands.
+
+3. **closure-producer — the import-selector arm emits a closure (BEHAVIOR CHANGE, gated &
+   pinned).** Give `evalValueCoreWithFuel`'s `.selector (.refId id) label` path (and/or the
+   `.conj`/`conjStructOperand?` fallback) a branch: when the base resolves to an imported
+   def struct reached through a depth>0 binding, instead of eagerly evaluating the body in
+   the package frame, yield `.closure capturedPkgEnv defBody`. This is the first slice that
+   changes output. Risk: must NOT regress same-package def-meet (which still wants the
+   lazy-conj merge) — gate strictly on the depth>0 / import-selector shape. NEEDS ITS OWN
+   DESIGN SUB-SPIKE: pin down exactly which resolved shape triggers closure emission vs.
+   the existing eager path. Pin with the `crosspkg_defmeet` module fixture (added in #5).
+
+4. **closure-meet — meet a closure with a use-site struct (the actual unlock, BEHAVIOR).**
+   This is where "meet stops being pure over opaque refs" (`Lattice.lean:387` invariant).
+   `meet (.closure env body) (.struct useSite _)` can no longer be `.bottom`: it must defer
+   to an eval that pushes `env`, splices `useSite` as an extra conjunct into the body's
+   merged frame (reusing `lazyConjMergedFields`/`mergeConjFields` machinery), and evaluates
+   — so the body's `out:#name` sees the narrowed `#name:"keel"` BEFORE it collapses, while
+   the body's own depth>0 refs still resolve against `env`. Because `meet` is pure (no
+   `EvalM`), the eval must happen at the closure's force point in `Eval`, not inside
+   `Lattice.meet` — i.e. the closure is forced in `evalValueCoreWithFuel`'s `.conj`/meet
+   arm when one operand is a closure, threading the use-site conjunct in. NEEDS ITS OWN
+   DESIGN SUB-SPIKE: the exact force-and-splice point, and the new cycle shape — a closure
+   capturing a self-referencing frame must enter `visited`/cycle handling keyed by the
+   captured ids (a closure forced twice with the same capturedEnv+body shares a memo
+   entry; `fuel` stays in `EvalKey` — LOAD-BEARING, 263 fuel-truncation conflicts; do NOT
+   drop it). `valueTag`'s closure tag participates in the memo hash unchanged.
+
+5. **closure-regression — pin `parts.#M & {#name:"keel"}` and the real shapes.** Add
+   `testdata/modules/crosspkg_defmeet/` (the breadcrumb repro: `parts/m.cue` + `top.cue` +
+   `cue.mod`, `expected` = `cue export` oracle JSON `{"out":"keel"}`). Add `native_decide`
+   theorems for the closure-meet result. Audit edge cases: `Self={…}` value-alias form,
+   two-declaration `t1: parts.#M` / `t1: #name:"keel"` form, nested import (`#M` body
+   embedding another imported def), and the closed-struct / pattern-constraint interplay.
+   MECHANICAL once #4 is correct; this is the slice that *proves* the unlock.
+
+### What this does NOT fix (sequence after)
+
+The perf hang (frontier #2) is downstream — real apps error at #1 (~0.9s) before the
+blowup, so it's currently unreachable; re-profile after slice 5, then frame-id sharing.
+Field-ordering parity (#3) is orthogonal byte-parity polish.
 
 ## Audit Fix-Slices (cleanup batch — LIGHT Phase A + Phase B, audit 2026-06-17 #7)
 

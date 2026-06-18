@@ -511,6 +511,17 @@ inductive Value where
   | structComp (fields : List Field) (comprehensions : List Value) (open_ : Bool)
   | interpolation (parts : List Value)
   | dynamicField (label : Value) (fieldClass : FieldClass) (value : Value)
+  /--
+  A deferred body paired with the env it must resolve against. Selecting an imported
+  definition (`pkg.#Def`) yields its *unevaluated* body tagged with the captured package
+  env, so a later `meet` with use-site fields can splice them in BEFORE the body's
+  self-references collapse, while the body's own (depth>0) cross-package refs still resolve
+  against the captured env. `capturedEnv` is the full id-stack (`List (Nat × List Field)`,
+  defeq to `Eval.Env`); the ids keep two independently-captured closures from falsely
+  sharing, exactly as frame ids do for the memo. The general lazy-cross-frame fix that
+  generalizes the same-package lazy-conjunction merge across the import boundary.
+  -/
+  | closure (capturedEnv : List (Nat × List Field)) (body : Value)
 
 /-- A single struct member: its `label`, its `fieldClass` (regular/optional/required/
     hidden/definition/let), and its `value`. A named record replacing the former positional

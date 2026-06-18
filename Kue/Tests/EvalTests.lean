@@ -857,4 +857,52 @@ theorem eval_meet_lazy_hidden_def :
         true) = true := by
   native_decide
 
+/-! ## `Value.closure` constructor — slice 1 (closure-ctor) round-trip pins
+
+The constructor is inert (no producer yet); these theorems lock its identity so the later
+producer/meet slices can't silently corrupt hashing or comparison. -/
+
+/-- A closure `BEq`-compares equal to itself (derived `BEq` extends to the new arm). -/
+theorem closure_beq_self :
+    ((Value.closure [(0, [⟨"#name", .definition, .kind .string⟩])] (.ref "#name"))
+      == (Value.closure [(0, [⟨"#name", .definition, .kind .string⟩])] (.ref "#name")))
+      = true := by
+  native_decide
+
+/-- A different captured env makes two closures compare unequal — the captured ids carry
+    the "independently-built frames never falsely share" invariant into `BEq`. -/
+theorem closure_beq_distinct_env :
+    ((Value.closure [(0, [⟨"#name", .definition, .kind .string⟩])] (.ref "#name"))
+      == (Value.closure [(1, [⟨"#name", .definition, .kind .string⟩])] (.ref "#name")))
+      = false := by
+  native_decide
+
+/-- A different body makes two closures compare unequal. -/
+theorem closure_beq_distinct_body :
+    ((Value.closure [(0, [])] (.ref "a")) == (Value.closure [(0, [])] (.ref "b")))
+      = false := by
+  native_decide
+
+/-- The closure tag is its own bucket in the memo hash (no collision with other arms). -/
+theorem closure_valueTag :
+    valueTag (.closure [(0, [])] .top) = 29 := by
+  native_decide
+
+/-- Inert eval: with no producer, the core eval arm passes a closure through unevaluated. -/
+theorem closure_eval_passthrough :
+    (runEval (evalValueWithFuel evalFuel [] [] (.closure [(0, [])] (.prim (.int 1))))
+      == .closure [(0, [])] (.prim (.int 1))) = true := by
+  native_decide
+
+/-- Inert manifest: an unforced closure is non-concrete (incomplete). -/
+theorem closure_manifest_incomplete :
+    manifest (.closure [(0, [])] (.prim (.int 1)))
+      = .error (.incomplete (.closure [(0, [])] (.prim (.int 1)))) := by
+  rfl
+
+/-- Inert meet: a closure does not unify with anything yet (slice 4 changes this). -/
+theorem closure_meet_bottom :
+    (meet (.closure [(0, [])] .top) (.struct [] true) == .bottom) = true := by
+  native_decide
+
 end Kue

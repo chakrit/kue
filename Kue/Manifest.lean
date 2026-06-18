@@ -107,6 +107,10 @@ mutual
     | _ + 1, .interpolation parts => .error (.incomplete (.interpolation parts))
     | _ + 1, .dynamicField label fieldClass value =>
         .error (.incomplete (.dynamicField label fieldClass value))
+    | _ + 1, .closure capturedEnv body =>
+        -- an unforced closure is non-concrete; forcing it is the eval layer's job (slice
+        -- 2+). Unreachable until a producer exists.
+        .error (.incomplete (.closure capturedEnv body))
     | fuel + 1, .disj alternatives =>
         let live := liveAlternatives alternatives
         let defaults := defaultAlternatives live

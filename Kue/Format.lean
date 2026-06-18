@@ -210,6 +210,10 @@ mutual
           | .required => "!"
           | .regular => ""
         "(" ++ formatValueWithFuel fuel label ++ ")" ++ suffix ++ ": " ++ formatValueWithFuel fuel value
+    | fuel + 1, .closure _ body =>
+        -- a closure prints as its deferred body; the captured env is internal machinery,
+        -- not surface syntax.
+        formatValueWithFuel fuel body
 
   def formatClauseWithFuel : Nat -> Clause Value -> String
     | 0, _ => "..."
