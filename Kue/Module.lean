@@ -117,7 +117,13 @@ def resolveCrossModule (deps : List Dep) (importPath : String) : Option (Dep × 
 /-- Build a package struct from its already-parsed files: check package-name consistency,
     then meet-merge the file bodies via the shared multi-file merge primitive. Returns the
     declared package name (`none` when every file omits a package clause) paired with the
-    merged value. Pure — the parsing and disk listing happened upstream. -/
+    merged value. Pure — the parsing and disk listing happened upstream.
+
+    The file `value`s here are RAW bodies (imports NOT yet bound): the SAME package imported in
+    two sibling files must bind ONCE, not once-per-file-then-meet. Binding per-file then
+    `meet`-folding duplicates the hidden import label and `meet`s two independently-loaded copies
+    of the same package struct, which corrupts the binding (→ bottom). So `loadPackage` binds the
+    DEDUPED package-level binding set onto the merged body via `bindMergedImports`. -/
 def loadPackageFromParsed (files : List ParsedFile) : Except ParseError (Option String × Value) := do
   let names := files.map (·.packageName)
   let declared ← foldPackageNames none names
@@ -128,6 +134,23 @@ where
     | name :: rest => do
         let merged ← mergePackageNames acc name
         foldPackageNames merged rest
+
+/-- Deduplicate `(name, packageValue)` import bindings by bind NAME, first occurrence winning.
+    The same package imported across sibling files resolves to the same package; keeping one
+    binding avoids the meet-collision a duplicate hidden label causes. Distinct names (e.g. the
+    same path under two aliases, or two different packages) all survive. Order-preserving.
+    `seen` accumulates names already emitted; recursion is structural on the binding list. -/
+def dedupeBindingsWith (seen : List String) :
+    List (String × Value) -> List (String × Value)
+  | [] => []
+  | b :: rest =>
+      if seen.contains b.fst then
+        dedupeBindingsWith seen rest
+      else
+        b :: dedupeBindingsWith (b.fst :: seen) rest
+
+def dedupeBindings (bindings : List (String × Value)) : List (String × Value) :=
+  dedupeBindingsWith [] bindings
 
 /-- Inject each `(localName, packageValue)` binding as a synthetic top-level hidden field
     of the importing file's struct, prepended ahead of the body so a later same-named body
@@ -316,21 +339,28 @@ mutual
     let files ← listPackageFiles dir
     if files.isEmpty then
       return .error s!"no .cue files in package directory: {dirKey}"
-    match ← parseAndBindFiles (dirKey :: visited) ctx files [] with
+    match ← parseAndBindFiles (dirKey :: visited) ctx files [] [] with
     | .error message => return .error message
-    | .ok boundFiles =>
-        match loadPackageFromParsed boundFiles with
+    | .ok (rawFiles, bindings) =>
+        match loadPackageFromParsed rawFiles with
         | .error error => return .error s!"package merge error: {error.message}"
-        | .ok result => return .ok result
+        | .ok (declared, merged) =>
+            -- Bind the DEDUPED package-level import set onto the MERGED body — once, after the
+            -- sibling meet — so a package imported in two files is a single binding, not a meet of
+            -- two copies. (Per-file binding then merge was the cert-manager `conflicting values`.)
+            return .ok (declared, bindImports (dedupeBindings bindings) merged)
 
-  /-- Parse each file, resolve and bind its own imports, accumulating `ParsedFile`s whose
-      `value` is already import-bound (ready for the package merge). -/
+  /-- Parse each file and resolve its imports, accumulating the RAW parsed files (bodies NOT
+      bound) alongside the combined import-binding set across all files. Binding is deferred to
+      `loadPackage`, which dedupes and binds ONCE onto the merged body — so a package imported in
+      multiple sibling files is a single binding, never a meet of per-file copies. -/
   partial def parseAndBindFiles
       (visited : List String) (ctx : ModuleContext)
-      (files : List System.FilePath) (acc : List ParsedFile) :
-      IO (Except String (List ParsedFile)) := do
+      (files : List System.FilePath)
+      (acc : List ParsedFile) (bindingAcc : List (String × Value)) :
+      IO (Except String (List ParsedFile × List (String × Value))) := do
     match files with
-    | [] => return .ok acc.reverse
+    | [] => return .ok (acc.reverse, bindingAcc)
     | file :: rest =>
         let source ← IO.FS.readFile file
         match parseSourceFile source with
@@ -339,8 +369,7 @@ mutual
             match ← collectBindings visited ctx parsed.imports [] with
             | .error message => return .error message
             | .ok bindings =>
-                let bound := { parsed with value := bindImports bindings parsed.value }
-                parseAndBindFiles visited ctx rest (bound :: acc)
+                parseAndBindFiles visited ctx rest (parsed :: acc) (bindingAcc ++ bindings)
 
   /-- Resolve every import path to its package value, in order. In-module paths load a
       subdirectory of `ctx.root`; otherwise the path is matched against `ctx.deps` and the

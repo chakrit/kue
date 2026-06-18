@@ -65,6 +65,23 @@ example :
       == .struct [⟨"defs", .hidden, .struct [] true⟩, ⟨"out", .regular, .top⟩] false) = true := by
   native_decide
 
+/-- `dedupeBindings` keeps the FIRST binding per name and drops later duplicates — the same
+    package imported in two sibling files must bind ONCE, not be `meet`-folded into a corrupt
+    duplicate (the cert-manager `conflicting values` bug). First occurrence wins. -/
+example :
+    (dedupeBindings [("attr", .struct [⟨"a", .regular, .top⟩] true),
+                     ("strings", .struct [] true),
+                     ("attr", .struct [⟨"b", .regular, .bottom⟩] true)]
+      == [("attr", .struct [⟨"a", .regular, .top⟩] true), ("strings", .struct [] true)]) = true := by
+  native_decide
+
+/-- Distinct bind names (same path under two aliases, or two different packages) all survive —
+    dedupe is by NAME, so no over-collapsing. -/
+example :
+    (dedupeBindings [("a", .struct [] true), ("b", .struct [] true)]
+      == [("a", .struct [] true), ("b", .struct [] true)]) = true := by
+  native_decide
+
 /-! ## Cross-module dependency resolution (B3c, disk-free) -/
 
 /-- A `deps` key carries an `@<major>` suffix that the module path drops. -/

@@ -6525,6 +6525,32 @@ a meet of two copies. Clean minimal repro: `parts` package with two files both `
 `parts.#Metadata & {#name}` → was `conflicting values (bottom)`, now `{name: "n"}` cue-exact; the
 control (one file imports `attr`) always worked.
 
-**Fix.** Dedupe import bindings at the package level — bind each distinct `(name, packageValue)`
-ONCE across all sibling files, not per-file-then-merge. [See the Module.lean edit below for the
-exact mechanism once landed.]
+**Fix (`Kue/Module.lean`).** Defer import binding to the package level. `parseAndBindFiles` now
+returns the RAW parsed files plus the combined binding set across all files (no per-file
+`bindImports`). `loadPackage` merges the raw bodies (`loadPackageFromParsed` / `mergeSourceValues`)
+and then applies `bindImports (dedupeBindings bindings)` ONCE onto the merged value. New
+`dedupeBindings` (structural `dedupeBindingsWith` over a seen-names accumulator) keeps the first
+binding per bind name — the same package across files is a single binding, distinct names (aliases /
+different packages) all survive. Resolution (`resolveStructRefs`) runs on the fully-assembled
+top-level value AFTER binding, so the `.refId` indices are computed against the final
+single-binding layout — no index skew.
+
+### Tests (2 new `native_decide` pins + 1 committed module fixture)
+
+- `dedupeBindings` keeps first-per-name / drops later dupes; distinct names all survive
+  (`Kue/Tests/ModuleTests.lean`).
+- `testdata/modules/dup_import_binding/`: a `parts` package with TWO files both `import attr`
+  (`metadata.cue` + `other.cue`), `parts.#Metadata & {#name}` → `{name: "n"}`, byte-identical to
+  `cue`. Was `conflicting values (bottom)` before the fix.
+
+### Real-app verdict after BOTH sub-fixes (read-only prod9 — HONEST)
+
+**Correctness for this blocker is COMPLETE; the frontier is now PERF (B `closure-perf`).** A
+faithful BOUNDED offline repro carrying the exact duplicate-import trigger (`parts/metadata.cue` +
+`parts/pod_controller.cue`, both `import attr`, feeding `#ClusterIssuer`) is now BYTE-EQUAL to `cue`
+— the bottom is gone. The FULL real `cert-manager.cue` no longer bottoms but now **exceeds 120s and
+even 300s** (was ~11s to reach the bottom): removing the short-circuiting bottom exposed the full
+evaluation cost, which hits the unchanged perf wall. So the error has moved from a correctness
+bottom to the perf wall. **Next slice: B `closure-perf` (frame-id sharing / memo — the ~minutes
+wall on the full `defs` package).** F1 default-mark remains orthogonal and can interleave; it is no
+longer gating cert-manager.
