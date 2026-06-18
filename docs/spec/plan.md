@@ -226,6 +226,29 @@ A1-A4.
   backed by `native_decide` EvalTests source pins, including no-over-prune / no-over-open negatives.
   Pass-2 has eval-count pins. Coverage gaps land as the A1-A3 pins above.
 
+## Phase-B audit (2026-06-19 #3 — B7 design finalized + light whole-graph sweep)
+
+Third Phase-B pass (post A5 + A5-followup, batch `c3d0089..3a58b53`). PRIMARY: finalized the
+B7 design spike — see "B7 design (implementable)" under the B7 backlog entry below. Verdict:
+**option (b)** — a single shared `descendClauses` fold in `Value.lean` owning the
+`+1-per-forIn`/`+0-per-guard`/body-at-end rule; the three scanners become one-line
+instantiations; `clauseFrameShift` is deleted and `remapConjRefs`'s body shift re-derives from
+the fold; `resolveClausesWithFuel` is tied to it by an agreement theorem rather than migrated
+(it threads scopes, not `Nat`). NOT a `Depth` newtype (the recurring bug is the per-walker
+*re-derivation*, not a raw `+1` — a newtype is ~24 sites of churn for no new guarantee, plus a
+kernel-reduction cost on the hot resolve path). ONE slice, four fixture-gated commits; behavior-
+preserving (existing A5/A5-followup pins are the full regression gate; the two new agreement
+theorems are the structural pin).
+
+SECONDARY (light sweep since `bb24953`): the A5/A5-followup changes touched ONLY `Eval.lean`
+(the five walkers + new `mutual` blocks), `EvalTests`, `FixturePorts`, and two fixtures — exactly
+B7's target surface, no new module, no eval-path change. **No NEW findings.** Confirmed: import
+graph unchanged/acyclic; no new dead code, stray `TODO`/`FIXME`/`sorry`; `kue-performance.md`
+CURRENT (A5-followup routed through the existing closure-FORCE path — no perf characteristic
+changed). One observation, NOT re-filed (already item 5): `EvalTests.lean` is now 2976 lines
+(+288 from A5/followup pins) — the test-org pass is increasingly overdue; if it lands before B7,
+B7's agreement theorems go in a new `ClauseDepthTests` module.
+
 ## Phase-B audit (2026-06-18 #2, whole module graph — post A5 / B1 regression)
 
 Second Phase-B pass, run after Phase A filed A5 (the B1 comprehension-body-remap depth
@@ -412,26 +435,139 @@ multi-`for`, guard-no-frame, struct clause helper). See implementation-log for t
 
 **B7. Frame coordinate is an untyped `Nat` — the comprehension-body depth-shift rule is
 re-derived by hand at 5 walkers (MEDIUM-HIGH — type-system leverage; root cause of A5 + its
-followup).** The de Bruijn "body lives `#forClauses` deeper" rule lives once in
-`resolveClausesWithFuel` but is open-coded at five sites: correctly in resolve, and (all now
-fixed by hand) `remapConjClauses` (A5), `selfReferencedLabelsClauses` (A5), `refsSelfEmbeddedLabelClauses`
-(A5), and `hasSelfRefAtDepthClauses` (A5-followup — the deferral gate, was a real loop-deep MISS, not
-the "over-detect only" the old comment claimed). Five `*Clauses` helpers all repeat +1-per-`for`. A
-typed `Depth` (only obtainable deeper via a `forIn`-descent the body-recursion must route through)
-makes the whole A5 family a compile error. A5 + followup point-fixes are landed; B7 now factors the
-shift into ONE shared authority the 5 walkers consume. Design-spike first. See Phase-B #2 B7.
+followup). DESIGN SPIKE FINALIZED 2026-06-19 (Phase-B #3) — see "B7 design (implementable)"
+below; this is the next implementation slice.** The de Bruijn "comprehension body lives
+`#forClauses` deeper" rule lives once in `resolveClausesWithFuel` but is open-coded at five
+sites: correctly in resolve, and (all now fixed by hand) `remapConjClauses`/`clauseFrameShift`
+(A5), `selfReferencedLabelsClauses` (A5), `refsSelfEmbeddedLabelClauses` (A5), and
+`hasSelfRefAtDepthClauses` (A5-followup). A5 + followup point-fixes are landed and green; B7 now
+factors the shift into ONE shared authority the walkers consume so a sixth walker cannot
+re-derive it wrong.
 
 Phase-A audit (2026-06-19) — walker-consistency VERDICT for B7's implementer: all four fixed
 walkers thread depth IDENTICALLY to the authority (`forIn` source at current depth, +1 for
 rest+body; `guard` at current depth, +0), no off-by-one, no guard-counted-as-frame, no latent 5th
-instance. One precision for B7: the rule is currently encoded in TWO inequivalent FORMS, not one
-shared helper. `clauseFrameShift` (total #for) is used by exactly ONE walker — `remapConjRefs`'s
-BODY recursion — while the other three (`refsSelfEmbeddedLabelClauses`, `selfReferencedLabelsClauses`,
-`hasSelfRefAtDepthClauses`) AND `remapConjClauses` (the source threading) re-derive it as recursive
-`+1-per-forIn`. So `remapConjRefs` alone carries BOTH encodings (`clauseFrameShift` for the body,
-`remapConjClauses` for the sources) that must agree by hand — the sharpest recurrence risk B7 must
-collapse. `clauseFrameShift` is the right seed, but it is NOT yet "shared by all four"; B7's job is
-to make it (or the typed `Depth`) the single source all five consume.
+instance. The rule is currently encoded in TWO inequivalent FORMS: `clauseFrameShift` (total #for)
+used by ONLY `remapConjRefs`'s BODY recursion, while the other three scanners AND
+`remapConjClauses` (the source threading) re-derive it as recursive `+1-per-forIn`. So
+`remapConjRefs` alone carries BOTH encodings that must agree by hand — the sharpest recurrence
+risk B7 collapses.
+
+### B7 design (implementable) — `descendClauses` fold over the clause chain (Phase-B #3, 2026-06-19)
+
+**Decision: option (b), a single shared depth-threading fold, NOT a `Depth` newtype.** Evaluated
+all three:
+
+- **(a) `Depth` newtype** whose only deeper-going op is a `forIn`-descent the body-recursion must
+  consume. Tempting — it makes a flat-depth body recursion a *compile* error. But it does NOT pay
+  off here: the four Eval walkers thread depth through a **single shared `match` arm body**
+  (`.struct` already does `depth + 1`, `.comprehension` already routes to the `*Clauses` helper).
+  A newtype would force `+1` to become `Depth.descendStruct` etc. at ~6 arms × 4 walkers (~24
+  sites) and the comparison `id.depth == depth` becomes `id.depth == d.toNat` — churn with no new
+  guarantee, because the recurring bug is NOT "someone wrote `depth` instead of `depth+1`", it is
+  "someone re-derived the clause-chain rule independently". Eliminate the *re-derivation*, not the
+  `Nat`. (And per the perf carve-out: a `Depth` newtype with `DecidableEq` against `BindingId.depth`
+  drags more kernel reduction onto the hot resolve path for zero behavioral win.)
+- **(b) one shared `descendClauses` combinator [CHOSEN].** A single total fold that OWNS the
+  `+1-per-forIn`/`+0-per-guard`/body-at-end shape, parameterized over the per-step accumulator. All
+  four `*Clauses` helpers become one-liners that instantiate it; `clauseFrameShift` is deleted
+  (its value is recovered as the fold's final depth). The rule then lives in exactly ONE function
+  body. A future walker that needs to descend a clause chain MUST call `descendClauses` to get the
+  body's depth — it physically cannot get a different number without re-implementing the fold,
+  which a reviewer sees immediately (vs today's invisible per-walker `+1`).
+- **(c) richer de Bruijn coordinate** (frame *identity*, not just depth) — out of scope; that is
+  item-7's frame-id problem, a different axis. B7 is depth only.
+
+**The shared function (lives in `Value.lean`, the leaf where `Clause` is defined).** Pure,
+total, no `Value`-recursion (it does NOT descend into sources/body — it only threads depth and
+hands each piece back to the caller's per-walker logic). Signature:
+
+```lean
+/-- The single authority for comprehension clause-chain frame-depth threading: a `forIn`
+    source is processed at the current depth and pushes one frame; a `guard` condition at the
+    current depth pushes none; the body is processed at the accumulated depth. Mirrors
+    `resolveClausesWithFuel`'s `clauseLoopFrame :: scopes` push. Generic over the accumulator
+    `α` with a monoid-like `(empty, append)` so it instantiates as Bool(‖,false),
+    List(++,[]), or a rewrite. -/
+def descendClauses {α : Type}
+    (empty : α) (append : α → α → α)
+    (onSource : Nat → Value → α)      -- forIn source at current depth
+    (onGuard  : Nat → Value → α)      -- guard condition at current depth
+    (onBody   : Nat → α)              -- body at the accumulated (post-chain) depth
+    (depth : Nat) : List (Clause Value) → α
+  | []                       => onBody depth
+  | .forIn _ _ src :: rest   => append (onSource depth src) (go (depth+1) rest)
+  | .guard cond     :: rest  => append (onGuard depth cond) (go depth rest)
+```
+
+(`go` = the recursive self-call; written as a top-level `def` with `depth` as the recursed
+argument, structural on the clause list — total, no fuel needed since the clause list shrinks.)
+
+The three scanners instantiate it directly:
+- `refsSelfEmbeddedLabelClauses f d sel labs cs body` = `descendClauses false (·||·) (fun d s => refsSelfEmbeddedLabel f d sel labs s) (fun d c => refsSelfEmbeddedLabel f d sel labs c) (fun d => refsSelfEmbeddedLabel f d sel labs body) d cs`
+- `selfReferencedLabelsClauses` = same with `[] (·++·)` and `selfReferencedLabels`.
+- `hasSelfRefAtDepthClauses` = same with `false (·||·)` and `hasSelfRefAtDepth` (no `labels`/`selfIndex` — its `onSource`/`onGuard`/`onBody` just close over `depth`).
+
+`remapConjClauses` (the rewriter) does NOT fit the monoid fold cleanly (it rebuilds the clause
+LIST, not an accumulator, and the body is remapped *separately* by `remapConjRefs`'s
+`.comprehension` arm). Handle it in two parts, both off the same authority:
+1. The **clause-list rebuild** stays a small dedicated recursion (it produces `List (Clause Value)`,
+   structurally different from the accumulator fold), BUT its `+1-per-forIn` is the same rule — so
+   it is the one site that genuinely needs the list shape. Keep it, and add a `native_decide`
+   theorem `descendClauses_agrees_remapConjClauses` pinning that the depth `remapConjClauses` reaches
+   for the body equals `descendClauses`'s `onBody` depth, so the two cannot drift.
+2. **Delete `clauseFrameShift`** — `remapConjRefs`'s `.comprehension`/`.listComprehension` body
+   recursion currently does `frameDepth + clauseFrameShift clauses`. Replace with a thin
+   `clauseChainDepth : Nat → List (Clause Value) → Nat := descendClauses 0 (·+·) (fun _ _ => 0) (fun _ _ => 0) id` (the fold with the *identity* body-handler returns the final depth) — i.e. recover the total #for as `descendClauses … startDepth clauses - startDepth`, OR more directly keep the body-depth = `descendClauses`'s final depth. So both `remapConjClauses`'s source threading AND the body shift derive from the SAME fold; the two-encodings-in-`remapConjRefs` hazard is gone.
+
+**Why `resolveClausesWithFuel` is NOT migrated to consume `descendClauses` directly.** The
+authority threads a *scopes list* (`clauseLoopFrame :: scopes`), not a `Nat` depth, and is `mutual`
+with `resolveValueWithFuel` (it resolves sources/body inline, not via a handed-back closure).
+Forcing it through the `Nat`-depth fold would either (i) drag the scopes-stack into the fold's `α`
+(then the four walkers carry an unused scopes param — leaky), or (ii) split resolve's mutual block.
+Both are churn for no safety: resolve is the REFERENCE the fold is modeled on, and it is structurally
+identical (`+1 frame per forIn`). Pin the agreement with a theorem instead:
+`descendClauses_frame_count_matches_resolve` — for any clause list, the number of frames
+`resolveClausesWithFuel` pushes (length of `clauseLoopFrame ::`-prepends) equals `descendClauses`'s
+final-depth minus start. This makes resolve and the fold provably agree without coupling their code.
+So B7's "single authority" is: `descendClauses` is the authority for the FOUR Eval walkers (the ones
+that recurred), and a theorem ties it to `resolveClausesWithFuel` (the fifth, the reference).
+
+**Module placement.** `descendClauses` + `clauseChainDepth` go in `Value.lean` (leaf, defines
+`Clause`; imported by both `Resolve` and `Eval`). They are pure and `Value`-non-recursive, so no
+import-graph disturbance. The agreement theorems live in `Kue/Tests/EvalTests.lean` (or a new
+`Kue/Tests/ClauseDepthTests.lean` if EvalTests is split first by the test-org pass — it is at 2976
+lines, overdue).
+
+**Migration plan (ONE slice, four byte-identical-fixture-gated commits).** Each commit
+re-verifies `lake build` + `scripts/check-fixtures.sh` (zero drift) + the per-walker `native_decide`
+pins that already exist (A5/A5-followup pins are the regression gate):
+1. **Introduce `descendClauses` + `clauseChainDepth` in `Value.lean`** + the two agreement theorems
+   (`descendClauses_frame_count_matches_resolve`, and a `descendClauses` self-consistency pin).
+   No walker changed yet → build + fixtures must be byte-identical (pure addition).
+2. **Migrate the three scanners** (`refsSelfEmbeddedLabelClauses`, `selfReferencedLabelsClauses`,
+   `hasSelfRefAtDepthClauses`) to one-line `descendClauses` instantiations. Their existing pins
+   (`hasSelfRefAtDepthClauses` body-detected / loopvar-boundary / multi-`for` / guard-no-frame;
+   the `selfReferencedLabelsClauses` and `refsSelfEmbeddedLabelClauses` pins) are the gate —
+   each must stay green, byte-identical.
+3. **Migrate `remapConjRefs`'s body shift + `remapConjClauses`** to derive from the fold
+   (`clauseChainDepth` for the body, `descendClauses_agrees_remapConjClauses` pin); **delete
+   `clauseFrameShift`**. Gate: `comprehension_conj_body_remap` fixture (`s.a.out: 99`) +
+   `remap_comprehension_conjunct_reindexes_source_and_body` + the multi-`for` remap pin.
+4. **Final verify + plan/log/breadcrumb.** End-to-end `comprehension_embed_self_narrow_body` +
+   `comprehension_conj_body_remap` byte-identical; cert-manager content-identical (no regression,
+   spot-check — this is a pure refactor, no eval-path change, so perf is unchanged → no
+   `kue-performance.md` edit). Confirm via oracle (`/Users/chakrit/go/bin/cue` v0.16.1) that the two
+   fixtures still match.
+
+**One slice, not split.** ~5 walker bodies + 1 new leaf function + 2 theorems; mechanical and
+fully fixture-gated. Splitting buys nothing — the four commits ARE the internal seams (checkpoint
+discipline). Soundness gate: B7 is a behavior-PRESERVING refactor (the rule is already correct
+post-A5/followup; B7 only de-duplicates its encoding), so the existing A5/A5-followup fixtures +
+per-walker `native_decide` pins are a complete regression gate. The NEW guarantee B7 adds is the
+two agreement theorems, which make a future drift a COMPILE/`native_decide` failure rather than a
+silent wrong value. Add NO new behavioral fixture (nothing behavioral changes); add the agreement
+theorems as the structural pin.
 
 **A5. `remapConjRefs` comprehension BODY remapped at the wrong frame depth — DONE (`c3d0089`).**
 Fixed in all 3 frame-depth walkers via a new `clauseFrameShift` (+1 per `for`, +0 per `guard`) and
