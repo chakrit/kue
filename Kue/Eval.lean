@@ -877,20 +877,6 @@ def evaluatedStructOperand? : Value -> Option (List Field × Bool)
   | .structPatterns fields _ open_ => some (fields, open_)
   | _ => none
 
-/-- The first `.closure (capturedEnv, body)` among evaluated conjunction operands, if any —
-    the deferred imported def the closure-meet splice forces. -/
-def firstClosure? : List Value -> Option (Env × Value)
-  | [] => none
-  | .closure capturedEnv body :: _ => some (capturedEnv, body)
-  | _ :: rest => firstClosure? rest
-
-/-- The evaluated operands with the FIRST `.closure` removed (the one `firstClosure?` returns),
-    leaving the conjuncts that splice into / `meet` against the forced body. -/
-def dropFirstClosure : List Value -> List Value
-  | [] => []
-  | .closure _ _ :: rest => rest
-  | other :: rest => other :: dropFirstClosure rest
-
 /-- Every `.closure (capturedEnv, body)` among evaluated conjunction operands (slice A:
     multi-operand fold). `#M & #N & {narrow}` yields TWO closures; each is force-spliced with the
     SHARED use-operand set so both defs' siblings see the use-site narrowing. -/

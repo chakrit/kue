@@ -819,6 +819,135 @@ Sequence: **C (smallest, orthogonal) → D → E → B**, or batch C+D+E as a "r
 chain" mini-plan. None is slice A: slice A's audit-defined scope (the multi-operand + embed +
 nested-self-ref facets) is complete and green.
 
+## Architecture Fix-Slices (Phase B audit 2026-06-18 #2 — post Value.closure slices 3-4-A, AUTHORITATIVE)
+
+Whole-module-graph pass after the three behavior-changing closure slices — `42db7fa`
+(producer), `fd06f70` (meet-force + 2 inline bug fixes), `1673d1e` (slice A: multi-operand
+fold + `.structComp` wiring + `hasSelfRefAtDepth` replacing `hasDepth0Ref`) — building on the
+prior Phase B verdict (`31b329c`, slices 1-2) and the slice-3-4 Phase A (`1f76347`).
+Type-system-first lens. Verify gate green at audit time: `lake build` 86 jobs,
+`check-fixtures.sh` "fixture pairs ok", `shellcheck` clean, tree clean at `e04ffcd`. Oracle:
+`cue` v0.16.1. **One inline fix this pass** (dead-helper deletion, item 1 below — re-verified
++ committed); everything else is plan-only.
+
+### Headline verdict — module graph HEALTHY, layering intact after the closure churn
+
+The `31b329c` acyclic-DAG verdict holds unchanged; re-confirmed, not re-derived. Slices
+3-4-A added ZERO import edges — every new function lives inside `Eval.lean`'s existing `mutual`
+block or as a pure pre-mutual helper. Re-verified directly:
+
+- **`Value.lean` is still a true leaf** — imports only `Init.Data.String.Search`, zero
+  `import Kue.*`. The closure ctor stayed `List (Nat × List Field)` raw product data; the
+  slice-3/4/A churn was entirely in `Eval.lean`, never touched `Value`'s import set.
+- **Import graph unchanged + acyclic:** `Eval ← {Builtin, Decimal, Lattice, Normalize}`; no
+  `Builtin → Eval` back-edge; no cycle. Every edge identical to the `31b329c` table.
+- **`meetCore`'s `.closure _ _ => .bottom` (both polarities, `Lattice.lean:393-394`) is STILL
+  the only meet-site closure handling** — no new meet site grew a closure arm. A stray closure
+  reaching any meet degrades to honest `.bottom`; Manifest emits `.incomplete`
+  (`Manifest.lean:110-113`), Format prints the body (`Format.lean:213-216`). The deliberate
+  splice sites are exactly three, all in `Eval.lean`: the `.conj` fold, `meetEmbeddingsWithFuel`,
+  and `forceClosureWithConjunct`. Containment is airtight, unchanged from the Phase-A finding.
+- **`closure-env-sync-guard` tripwire LANDED** (folded into the producer slice as planned):
+  `example : (List (Nat × List Field)) = Env := rfl` at `Eval.lean:770`. The one type-system
+  fix the closure rep owed is now a build-time tripwire; the defeq is no longer convention-only.
+
+### Closure machinery — coherent unit, NOT a tangle; do NOT extract `Kue/Closure.lean` now
+
+The closure family is ~370 added lines splitting into two tiers:
+
+- **Pure pre-mutual helpers** (`Eval.lean:847-1064`): `mergeConjOperands`, `openStructValue`,
+  `evaluatedStructOperand?`, `allClosures`, `nonClosureNonStructOperands`, `hasSelfRefAtDepth`,
+  `defBodyHasSiblingSelfRef`, `importDefClosureBody?`.
+- **In-`mutual` forcing tier**: `forceClosureWithConjunct`, `meetEmbeddingsWithFuel`,
+  `evalEmbeddingFieldsWithFuel` — fuel-threaded, mutually recursive WITH `evalValueWithFuel`.
+
+**Verdict: leave it in `Eval.lean`.** A `Kue/Closure.lean` extraction is not viable and not
+worth forcing:
+
+1. **The forcing tier is fused into the evaluator's `mutual` block** — `forceClosureWithConjunct`
+   calls and is called by `evalValueWithFuel`/`meetEmbeddingsWithFuel` at shared fuel measure.
+   Extracting it means moving the ENTIRE evaluator, not a closure submodule. No clean cut exists.
+2. **The pure tier shares the conjunction-merge primitives with the non-closure 2c path.**
+   `mergeConjOperands` is built from `mergeConjFields`/`labelIndexMap`/`rebaseConjunctFields`/
+   `applyConjClosedness`/`allClosednessOpen`, the SAME primitives `lazyConjMergedFields` (2c
+   same-scope conjunction) uses. Splitting closures out either fragments those primitives across
+   two files or duplicates them — a worse boundary than the status quo.
+3. **C/D/E will extend exactly these functions** — C edits `expandClausesWithFuel`'s guard
+   (in the `mutual` block), D/E extend the force/embedding-meet path. Churning the boundary now
+   and re-churning after the chain lands is pure waste. **Re-judge extraction only AFTER E**, and
+   only if the forcing tier has grown its own independent recursion (it has not — it's still
+   one fuel measure with the evaluator). Coherent-enough to leave; the comments and the slice-A
+   sub-spike make the unit traceable in place.
+
+### Dead code from the slice-3→4→A evolution
+
+1. **[CLEANUP — DONE INLINE this pass] `firstClosure?` + `dropFirstClosure` were dead.** Slice
+   A's A.3 multi-operand fold replaced the first-closure-only logic with `allClosures` +
+   `nonClosureNonStructOperands` (the actual `.conj` fold call sites, `Eval.lean:1154,1158`), but
+   left the two superseded helpers defined with ZERO call sites (`firstClosure?`,
+   `dropFirstClosure`). Confirmed dead by grep across `Kue/` (only self-recursive references;
+   no test/source consumer). The plan's own A.3 line said "Replace `firstClosure?`/
+   `dropFirstClosure`/`leftover` with a fold" — the replacement landed, the defs did not get
+   removed. **Deleted inline** (~12 lines); full verify gate re-run green (86 jobs, fixture pairs
+   ok, shellcheck clean). The historical doc references in plan.md/impl-log/breadcrumb describe
+   slice-4's design accurately at its time and stay as design record. `hasDepth0Ref` (slice A's
+   A.6 replacement target) is ALSO fully gone — only a doc reference at `Eval.lean:915` explains
+   the generalization to `hasSelfRefAtDepth`; no `def`, no call site remains.
+
+### Re-ranked parked cleanups (carry forward from `31b329c`, re-judged under the churn mandate)
+
+The `31b329c` rankings hold, re-confirmed against the now-larger `Eval.lean` (1565→1553 lines
+after the inline deletion):
+
+2. **[STILL-WAIT-FOR-CDE] `evalAdd…evalBinary` → `Kue/EvalOps.lean`.** ACTIONABLE on merit
+   (self-contained pure `{Value, Decimal}` dispatch, ~256 lines, real boundary win — carves the
+   scalar algebra out from under the recursive evaluator). BUT it OWNS `Eval.lean` line numbers,
+   and C/D/E all edit `Eval.lean` (C: `expandClausesWithFuel` guard; D/E: force/embedding-meet).
+   Moving ~256 lines out from line 369 shifts every line below it → guaranteed merge collision
+   with the in-flight chain. **Land AFTER E**, when the closure work is fully settled. Unchanged
+   from `31b329c` (which said "after slice 5"; the chain is now C→D→E→B, so the gate is "after E").
+3. **[STILL-ACTIONABLE-NOW, PARALLEL-SAFE] Regex engine → `Kue/Regex.lean`.** Re-confirmed: the
+   engine (`Value.lean`, `RegexAtom` + parse/match ending at `stringRegexMatches`) depends only
+   on `Char`/`String`, is consumed by `Eval`/`Builtin` only, and sits in `Value.lean` BELOW the
+   closure ctor — so it does NOT conflict with C/D/E's `Eval.lean` edits. It is the one cleanup
+   that can run concurrently with the correctness chain in its own subagent. Move-plan unchanged:
+   new leaf `Kue/Regex.lean` (imports nothing), delete the trailing block from `Value.lean`, add
+   `import Kue.Regex` to `Eval`/`Builtin`. Single best parallel-safe slice of the batch. (Did not
+   do it inline — it's a multi-file move above the inline-trivial bar.)
+4. **[STILL-WAIT-FOR-CDE] Test-org pass.** `Kue/Tests/` has grown further: `EvalTests` is now
+   1700+ lines (was 950 at `31b329c` — slices 3-4-A added ~750 lines of closure pins),
+   `FixtureTests` 1033, `BuiltinTests` 735, `StructTests` 765. The split is MORE warranted than at
+   `31b329c`, but C/D/E will each add closure/guard pins to `EvalTests` (and likely a module
+   fixture each under `testdata/modules/`), so splitting now goes immediately stale. **Wait until
+   AFTER E**, then split `EvalTests`/`FixtureTests`/`BuiltinTests`/`StructTests` by subsystem in
+   ONE pass; leave `FixturePorts` whole (generated data, item-5 verdict stands). `testdata/
+   modules/` now has 18 dirs incl. two closure-specific (`crosspkg_defmeet/`,
+   `crosspkg_embed_selfalias/`) — sensibly named, no reorg needed; the post-E test-org pass should
+   only group the theorem modules, not churn `testdata/`.
+5. **[DEFER indefinitely] `embeddedList.decls` newtype.** Single-site invariant, wrap/unwrap cost
+   outweighs the marginal illegal-states win. Unchanged from `31b329c` item 3/5.
+
+### Roadmap sanity-check — C→D→E→B order is SOUND
+
+Re-confirmed the slice-A breadcrumb's ranking:
+
+- **C first is correct.** C (`closure-default-in-guard`) is genuinely orthogonal to closures —
+  the breadcrumb's claim that it reproduces with no def at all (`x: bool | *false; if !x {…}`
+  drops in kue, cue admits) is credible: it's a default-resolution gap in `expandClausesWithFuel`'s
+  guard test (`== .prim (.bool true)` without resolving the disjunction default), entirely
+  separate from the closure force path. Smallest, lowest-risk, unblocks the real `#ClusterIssuer`
+  `#staging: bool | *false` guard. **Could even land BEFORE the rest as a pure guard fix** — it
+  does not depend on any closure machinery.
+- **D before E is right** — D (presence-test self-ref) is a narrower force-path verification; E
+  (multi-level embed chain) is the deepest (recursion through nested embedded closures) and gates
+  the 3-level `#ClusterIssuer → parts.#Metadata → attr.#Metadata`. E likely the hardest correctness
+  slice of the chain.
+- **B last is right** — perf is downstream of correctness; cert-manager errors before the blowup
+  fully matters, and B needs a working (resolving) target to profile. No reordering warranted.
+- **One refinement:** C is so orthogonal it need not wait behind the closure framing at all —
+  schedule it as the immediate next slice regardless of the closure-chain label. D/E stay the
+  closure-correctness spine.
+
 ## Audit Fix-Slices (Value.closure slices 1-2 — Phase A code-quality, audit 2026-06-18)
 
 Phase A over the first two closure slices: `26a2040` (closure-ctor: constructor + 5 inert
