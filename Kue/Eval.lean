@@ -1301,6 +1301,21 @@ def evaluatedStructOperand? : Value -> Option (List Field × Bool)
   | .structPatterns fields _ open_ => some (fields, open_)
   | _ => none
 
+/-- The narrowing fields a use operand splices into a forced def's frame. Extends
+    `evaluatedStructOperand?` with the `.embeddedList` case: a use operand that is a
+    struct-embedding-a-list (`packs.#Argo & { [...]; #name: "web" }`) evaluates to an
+    `.embeddedList` whose `decls` carry the hidden-field narrowing (`#name: "web"`). That
+    narrowing must still reach the def's frame so a `Self.#name` read inside the def's OWN
+    list embed (`[Self.#name]`) resolves against the use-site value, not the def default.
+    `evaluatedStructOperand?` returns `none` for an `.embeddedList`, so the deferral fold dropped
+    the narrowing and the def's list embed saw `string`/the def default (argocd `packs.#Argo`,
+    link 5). Surfacing the decls here splices them; the `.embeddedList`'s LIST portion still
+    unifies via the value-level `meet` (`nonClosureNonStructOperands` keeps it — it is not a
+    plain struct operand), so concrete use-site list items are not lost. -/
+def spliceNarrowingOperand? : Value -> Option (List Field × Bool)
+  | .embeddedList _ _ decls => some (decls, true)
+  | other => evaluatedStructOperand? other
+
 /-- Every `.closure (capturedEnv, body)` among evaluated conjunction operands (slice A:
     multi-operand fold). `#M & #N & {narrow}` yields TWO closures; each is force-spliced with the
     SHARED use-operand set so both defs' siblings see the use-site narrowing. -/
@@ -2189,7 +2204,7 @@ mutual
         match allClosures evaluated with
         | [] => pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
         | closures =>
-            let useOperands := (evaluated.filterMap evaluatedStructOperand?).map stripLetBindings
+            let useOperands := (evaluated.filterMap spliceNarrowingOperand?).map stripLetBindings
             let others := nonClosureNonStructOperands evaluated
             let foldClosure := fun (acc : EvalM Value) (cl : Env × Value) => do
               let current <- acc

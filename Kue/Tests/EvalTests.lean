@@ -482,6 +482,41 @@ theorem fix0_regular_comp_struct_stays_open :
           = true := by
   native_decide
 
+-- LINK-5 (argocd `packs.#Argo`) — list-embed Self-narrowing through the conjunction-deferral fold.
+-- A def whose only manifested content is a trailing LIST embed reading `Self.<hidden>` manifests AS
+-- that list. The use site `#D & {[...], #name: "web"}` is a struct-embedding-an-open-list operand;
+-- it evaluates to an `.embeddedList` whose decls carry `#name: "web"`. The fold dropped that
+-- narrowing (the operand collapsed to a list, `evaluatedStructOperand?` recovered no fields), so the
+-- def's list embed read the DEFAULT (`*"def-name"` → `"def-name"`). cue narrows to `"web"`. The fix
+-- (`spliceNarrowingOperand?`) surfaces the `.embeddedList` decls so the splice narrows the def frame.
+theorem link5_list_embed_self_narrows_to_use_default :
+    evalSourceMatches
+        "#D: Self={\n\t#name: *\"def-name\" | string\n\t[Self.#name]\n}\nout: #D & {[...], #name: \"web\"}\n"
+        "#D: {#name: *\"def-name\" | string, [*\"def-name\" | string]}\nout: {#name: \"web\", [\"web\"]}"
+          = true := by
+  native_decide
+
+-- LINK-5 nested-#components shape (faithful `packs.#Argo` skeleton): the list embed references
+-- `Self.#components.{repo,app}`, each a struct reading `Self.#name`. The use-site narrowing must
+-- reach `#name` two frames deep through the list embed's struct elements.
+theorem link5_list_embed_nested_components_narrows :
+    evalSourceMatches
+        "#D: Self={\n\t#name: string\n\t#c: {repo: {n: Self.#name}, app: {n: Self.#name}}\n\t[Self.#c.repo, Self.#c.app]\n}\nout: #D & {[...], #name: \"web\"}\n"
+        "#D: {#name: string, #c: {repo: {n: string}, app: {n: string}}, [{n: string}, {n: string}]}\nout: {#name: \"web\", #c: {repo: {n: \"web\"}, app: {n: \"web\"}}, [{n: \"web\"}, {n: \"web\"}]}"
+          = true := by
+  native_decide
+
+-- LINK-5 NO-OVER-FIRE: the list embed reads a def-CONCRETE hidden field (`#tag: "fixed"`), while the
+-- use site narrows a DIFFERENT field (`#name`). The embed result is unchanged (`["fixed"]`); the
+-- splice does not corrupt a field the list embed never reads. Pins that the narrowing-splice is
+-- additive — it only supplies the use-site values, never overrides a def-concrete read.
+theorem link5_list_embed_concrete_field_unaffected_by_other_narrow :
+    evalSourceMatches
+        "#D: Self={\n\t#name: string\n\t#tag: \"fixed\"\n\t[Self.#tag]\n}\nout: #D & {[...], #name: \"web\"}\n"
+        "#D: {#name: string, #tag: \"fixed\", [\"fixed\"]}\nout: {#name: \"web\", #tag: \"fixed\", [\"fixed\"]}"
+          = true := by
+  native_decide
+
 -- PERF-B PIN 4 (frame-id must NOT leak into value identity/output — audit finding #4). The whole
 -- memo soundness rests on `valueTag` being constant per constructor (frame ids never enter a memo
 -- HASH) and `Format` dropping the captured env (ids never reach output). Pin both: two closures
