@@ -75,6 +75,89 @@ def thisStructFieldIndex? (env : List (Nat × List Field)) (id : BindingId) (lab
 def evalFuel : Nat :=
   100
 
+/-- The slot index of the `Self=` value-alias binding (`.thisStruct`) in a frame's field list,
+    or `none` if the struct has no such alias. -/
+def thisStructBindingIndex? : List Field -> Option Nat
+  | fields =>
+      let rec go (index : Nat) : List Field -> Option Nat
+        | [] => none
+        | field :: rest =>
+            match Field.value field with
+            | .thisStruct => some index
+            | _ => go (index + 1) rest
+      go 0 fields
+
+/-- Does `value` reference `Self.<label>` for some `label ∈ labels`, where `Self` is the
+    depth-0 binding at `selfIndex`? A resolved `Self.a` is `.selector (.refId ⟨0, selfIndex⟩) a`.
+    Fuel-bounded structural scan; used to gate the embedding-`Self` two-pass so it fires ONLY
+    when a static field actually selects an embedding-supplied label through the host's `Self`. -/
+def refsSelfEmbeddedLabel (fuel : Nat) (selfIndex : Nat) (labels : List String) : Value -> Bool
+  | .selector (.refId id) label =>
+      (id.depth == 0 && id.index == selfIndex && labels.contains label)
+        || (match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f selfIndex labels (.refId id))
+  | .selector base _ =>
+      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f selfIndex labels base
+  | .index base key =>
+      match fuel with
+      | 0 => false
+      | f + 1 => refsSelfEmbeddedLabel f selfIndex labels base || refsSelfEmbeddedLabel f selfIndex labels key
+  | .unary _ v =>
+      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f selfIndex labels v
+  | .binary _ l r =>
+      match fuel with
+      | 0 => false
+      | f + 1 => refsSelfEmbeddedLabel f selfIndex labels l || refsSelfEmbeddedLabel f selfIndex labels r
+  | .conj cs =>
+      match fuel with | 0 => false | f + 1 => cs.any (refsSelfEmbeddedLabel f selfIndex labels)
+  | .disj alts =>
+      match fuel with | 0 => false | f + 1 => alts.any (fun a => refsSelfEmbeddedLabel f selfIndex labels a.snd)
+  | .interpolation parts =>
+      match fuel with | 0 => false | f + 1 => parts.any (refsSelfEmbeddedLabel f selfIndex labels)
+  | .struct fields _ =>
+      match fuel with | 0 => false | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f selfIndex labels (Field.value fl))
+  | .structTail fields tail =>
+      match fuel with
+      | 0 => false
+      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f selfIndex labels (Field.value fl))
+          || refsSelfEmbeddedLabel f selfIndex labels tail
+  | .structComp fields cs _ =>
+      match fuel with
+      | 0 => false
+      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f selfIndex labels (Field.value fl))
+          || cs.any (refsSelfEmbeddedLabel f selfIndex labels)
+  | .list items =>
+      match fuel with | 0 => false | f + 1 => items.any (refsSelfEmbeddedLabel f selfIndex labels)
+  | .listTail items tail =>
+      match fuel with
+      | 0 => false
+      | f + 1 => items.any (refsSelfEmbeddedLabel f selfIndex labels) || refsSelfEmbeddedLabel f selfIndex labels tail
+  | .comprehension clauses body =>
+      match fuel with
+      | 0 => false
+      | f + 1 =>
+          clauses.any (fun c =>
+            match c with
+            | .forIn _ _ source => refsSelfEmbeddedLabel f selfIndex labels source
+            | .guard cond => refsSelfEmbeddedLabel f selfIndex labels cond)
+          || refsSelfEmbeddedLabel f selfIndex labels body
+  | .dynamicField l _ v =>
+      match fuel with
+      | 0 => false
+      | f + 1 => refsSelfEmbeddedLabel f selfIndex labels l || refsSelfEmbeddedLabel f selfIndex labels v
+  | _ => false
+
+/-- Should the embedding-`Self` two-pass fire? Only when (a) embeddings contributed labels NOT
+    declared static, AND (b) some static field actually selects one through the host's `Self`
+    alias. Both conditions spare the common embedding case (a `parts.#Metadata` that supplies
+    `metadata` but is never read via `Self.metadata`) from the re-evaluation cost. -/
+def needsEmbeddedSelfPass (canonical : List Field) (newEmbeddedLabels : List String) : Bool :=
+  !newEmbeddedLabels.isEmpty &&
+    match thisStructBindingIndex? canonical with
+    | none => false
+    | some selfIndex =>
+        canonical.any fun fl =>
+          refsSelfEmbeddedLabel evalFuel selfIndex newEmbeddedLabels (Field.value fl)
+
 def applyEvaluatedStructPattern
     (fields : List Field)
     (labelPattern constraint : Value)
@@ -310,6 +393,34 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       match findEvalField label decls with
       | some field => Field.value field
       | none => .selector base label
+  | .disj alternatives =>
+      -- Selecting INTO a disjunction collapses it to its default arm first, then selects
+      -- the field from that arm — CUE's default rule (`d.a` where `d: *{a:1} | {a:2}` is
+      -- `1`). A unique marked default (or a lone regular alternative) resolves; otherwise
+      -- `none` leaves the disjunction unresolved and selection stays deferred, so manifest
+      -- reports the ambiguity rather than a spurious `bottom`.
+      match resolveDisjDefault? alternatives with
+      | some (.struct fields _) =>
+          match findEvalField label fields with
+          | some field => Field.value field
+          | none => .selector base label
+      | some (.structTail fields _) =>
+          match findEvalField label fields with
+          | some field => Field.value field
+          | none => .selector base label
+      | some (.structPattern fields _ _ _) =>
+          match findEvalField label fields with
+          | some field => Field.value field
+          | none => .selector base label
+      | some (.structPatterns fields _ _) =>
+          match findEvalField label fields with
+          | some field => Field.value field
+          | none => .selector base label
+      | some (.embeddedList _ _ decls) =>
+          match findEvalField label decls with
+          | some field => Field.value field
+          | none => .selector base label
+      | _ => .selector base label
   | .bottom => .bottom
   | .bottomWith reasons => .bottomWith reasons
   | _ => .bottom
@@ -1015,6 +1126,16 @@ def lazyConjMergedFields (env : Env) (constraints : List Value) :
     enclosing def's closed set rather than restricting it. Non-struct values pass through. -/
 def openStructValue : Value -> Value
   | .struct fields _ => .struct fields true
+  | other => other
+
+/-- Collapse an EMBEDDED disjunction to its default arm before it merges into the host.
+    An embedded default disjunction (`(*{a:1} | {a:2})`) contributes its DEFAULT arm's fields
+    to the host struct — both for the merge (so a sibling `Self.a` sees `a`) and for the
+    closedness union (so the host admits the embedded label). A non-default disjunction with
+    no unique winner stays a `.disj` (CUE distributes the host across it; left untouched here).
+    Non-disjunction values pass through. -/
+def resolveEmbeddedDisjDefault : Value -> Value
+  | .disj alternatives => (resolveDisjDefault? alternatives).getD (.disj alternatives)
   | other => other
 
 /-- Drop a struct operand's lexical alias bindings (`let`/`Self=` — `FieldClass.letBinding`)
@@ -1747,20 +1868,45 @@ mutual
         | none => pure .bottom
     | fuel + 1, .structComp fields comprehensions open_ => do
         let fields := canonicalizeFields fields
+        let embeddings := comprehensions.filter isEmbeddingValue
+        -- Pass 1: evaluate the static fields and comprehensions against the static-only frame,
+        -- then the embedding-contributed fields. A static field referencing `Self.<label>` where
+        -- `<label>` is supplied by an EMBEDDING (`type: Self.#type` with `#type` from an embedded
+        -- `(*_#Opaque | …)`) cannot resolve here — the frame holds only static labels.
         let nested <- pushFrame fields env
         let staticFields <- evalFieldRefsListWithFuel fuel nested (indexedFields fields)
         let expanded <- expandComprehensionsWithFuel fuel nested comprehensions
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | none => pure .bottom
         | some merged =>
-            -- Meet the embeddings OPEN (each opened by `meetEmbeddingsWithFuel`) against an OPEN
-            -- host, then re-close ONCE over `def ∪ embed` labels — an embedding widens the host's
-            -- allowed set without imposing its own closedness (CUE rule). Closing the host
-            -- BEFORE the meet would let a closed embed/host reject the other's regular fields.
-            let embeddings := comprehensions.filter isEmbeddingValue
             let embeddingFields <- evalEmbeddingFieldsWithFuel fuel nested merged embeddings
-            let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
-            pure (closeEmbeddedOver merged embeddingFields open_ met)
+            -- Pass 2 (only when embeddings exist AND they contribute a label no static field
+            -- declares): re-push a frame augmented with the embedded labels and re-evaluate the
+            -- static fields, so a `Self.<embedded-label>` selection resolves against the embedded
+            -- value. Gated tightly — no embeddings, or embeddings adding only already-static
+            -- labels, keeps the single-pass path byte-identical. The augment carries the embedded
+            -- fields as ALREADY-EVALUATED resolved values (so re-evaluation is idempotent on them).
+            let newEmbeddedFields := embeddingFields.filter fun ef =>
+              (findEvalField (Field.label ef) fields).isNone
+            let staticFields <-
+              if needsEmbeddedSelfPass fields (newEmbeddedFields.map Field.label) then do
+                let augmented := canonicalizeFields (fields ++ newEmbeddedFields)
+                let nested2 <- pushFrame augmented env
+                let reEvaluated <- evalFieldRefsListWithFuel fuel nested2 (indexedFields augmented)
+                -- Keep only the slots corresponding to the ORIGINAL static fields; the appended
+                -- embedded slots are re-merged below via `meetEmbeddingsWithFuel`, not here.
+                pure (reEvaluated.take fields.length)
+              else
+                pure staticFields
+            match mergeEvaluatedFields (staticFields ++ expanded) with
+            | none => pure .bottom
+            | some merged =>
+                -- Meet the embeddings OPEN (each opened by `meetEmbeddingsWithFuel`) against an OPEN
+                -- host, then re-close ONCE over `def ∪ embed` labels — an embedding widens the host's
+                -- allowed set without imposing its own closedness (CUE rule). Closing the host
+                -- BEFORE the meet would let a closed embed/host reject the other's regular fields.
+                let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
+                pure (closeEmbeddedOver merged embeddingFields open_ met)
     | fuel + 1, .interpolation parts => do
         let evaluated <- evalValuesWithFuel fuel env visited parts
         pure (evalInterpolation evaluated)
@@ -1825,7 +1971,7 @@ mutual
                     [hiddenFieldsOnly (narrowing, true)]
               | _ => pure evaluated
             let head :=
-              match evaluatedStructOperand? resolved with
+              match evaluatedStructOperand? (resolveEmbeddedDisjDefault resolved) with
               | some (fields, _) => fields
               | none => []
             let tail <- evalEmbeddingFieldsWithFuel (nextFuel + 1) env narrowing rest
@@ -1889,8 +2035,11 @@ mutual
                 -- `openStructValue`). Without this, embedding a closed struct `{pval}` into a
                 -- host carrying `x` makes the closed embed reject `x` → `.bottom`. The host's
                 -- closedness over `def ∪ embed` labels is re-applied by the caller
-                -- (`meetEmbeddingsClosingOver`).
-                meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue evaluated)) rest
+                -- (`meetEmbeddingsClosingOver`). An embedded DEFAULT disjunction collapses to
+                -- its default arm first (`resolveEmbeddedDisjDefault`), so its fields merge as
+                -- regular host fields (a sibling `Self.a` then resolves).
+                meetEmbeddingsWithFuel (nextFuel + 1) env
+                  (meet current (openStructValue (resolveEmbeddedDisjDefault evaluated))) rest
   termination_by embeddings => (fuel, 3, embeddings.length)
 
   /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct
@@ -1981,6 +2130,7 @@ mutual
         -- the static frame would wrongly reject both the embed's fields and the def's own.
         let (mergedFields, _) := mergeConjOperands ((defFields, true) :: useOperands)
         let canonical := canonicalizeFields mergedFields
+        let embeddings := comprehensions.filter isEmbeddingValue
         let nested <- pushFrame canonical capturedEnv
         let staticFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
         -- Expand the conditional/`for` comprehensions against the post-splice frame, so an
@@ -1993,14 +2143,32 @@ mutual
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | none => pure .bottom
         | some merged =>
-            let embeddings := comprehensions.filter isEmbeddingValue
             let embeddingFields <- evalEmbeddingFieldsWithFuel fuel nested merged embeddings
-            -- A comprehension-introduced field (`y` from `if #x>0 {y:#x}`) is part of the def's
-            -- own declared shape, so it must widen the closed allow-set alongside the static and
-            -- embedding labels — otherwise re-closing rejects it as undeclared. `defFields` does
-            -- NOT contain `y` (it lives only in the comprehension), so fold `expanded` in too.
-            let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
-            pure (closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpen met)
+            -- Pass 2 (mirrors the eager `.structComp` arm): a static field referencing
+            -- `Self.<label>` where `<label>` is supplied by an EMBEDDING (`type: Self.#type`,
+            -- `#type` from an embedded `(*_#Opaque | …)`) cannot resolve against the static-only
+            -- frame. Re-push a frame augmented with the embedded labels not already declared
+            -- static, and re-evaluate the static fields so the selection resolves. Gated to fire
+            -- only when an embedding adds a NEW label — byte-identical otherwise.
+            let newEmbeddedFields := embeddingFields.filter fun ef =>
+              (findEvalField (Field.label ef) canonical).isNone
+            let staticFields <-
+              if needsEmbeddedSelfPass canonical (newEmbeddedFields.map Field.label) then do
+                let augmented := canonicalizeFields (canonical ++ newEmbeddedFields)
+                let nested2 <- pushFrame augmented capturedEnv
+                let reEvaluated <- evalFieldRefsListWithFuel fuel nested2 (indexedFields augmented)
+                pure (reEvaluated.take canonical.length)
+              else
+                pure staticFields
+            match mergeEvaluatedFields (staticFields ++ expanded) with
+            | none => pure .bottom
+            | some merged =>
+                -- A comprehension-introduced field (`y` from `if #x>0 {y:#x}`) is part of the def's
+                -- own declared shape, so it must widen the closed allow-set alongside the static and
+                -- embedding labels — otherwise re-closing rejects it as undeclared. `defFields` does
+                -- NOT contain `y` (it lives only in the comprehension), so fold `expanded` in too.
+                let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
+                pure (closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpen met)
     | _ => do
         let forced <- evalValueWithFuel fuel capturedEnv [] body
         pure (useOperands.foldl (fun current op => meet current (.struct op.fst op.snd)) forced)

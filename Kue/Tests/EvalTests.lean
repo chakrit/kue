@@ -1898,4 +1898,70 @@ theorem alias_follow_cycle_terminates :
         (.refId ⟨0, 1⟩)) == none := by
   native_decide
 
+/-- DISJUNCTION SELECTION (argocd `#Secret` blocker, facet 1): selecting a field INTO a
+    default disjunction (`d.a` where `d: *{a:1,c:9} | {a:2}`) collapses to the default arm
+    first, then selects — CUE's default rule. Previously `selectEvaluatedField` had no `.disj`
+    case and fell through to `.bottom`. -/
+theorem select_into_default_disjunction :
+    (selectEvaluatedField
+      (.disj [(.default, .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"c", .regular, .prim (.int 9)⟩] true),
+              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
+      "a"
+      == .prim (.int 1)) = true := by
+  native_decide
+
+/-- NO OVER-FIRE: a NON-default disjunction with multiple live arms does NOT collapse on
+    selection — it stays a deferred `.selector` (manifest then reports the ambiguity), never a
+    spurious `bottom` and never a silent pick of one arm. -/
+theorem select_into_nondefault_disjunction_defers :
+    (selectEvaluatedField
+      (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
+              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
+      "a"
+      == .selector
+           (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
+                   (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
+           "a") = true := by
+  native_decide
+
+/-- EMBEDDED DEFAULT DISJUNCTION (argocd `#Secret` blocker, facet 2): an embedded default
+    disjunction collapses to its default arm before merging into the host
+    (`resolveEmbeddedDisjDefault`), so its fields land as regular host fields and a sibling
+    `Self.a` resolves. A non-default disjunction passes through untouched. -/
+theorem resolve_embedded_default_disjunction :
+    (resolveEmbeddedDisjDefault
+      (.disj [(.default, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
+              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩] true) = true := by
+  native_decide
+
+theorem resolve_embedded_nondefault_disjunction_unchanged :
+    (resolveEmbeddedDisjDefault
+      (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
+              (.regular, .struct [⟨"b", .regular, .prim (.int 2)⟩] true)])
+      == .disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
+                (.regular, .struct [⟨"b", .regular, .prim (.int 2)⟩] true)]) = true := by
+  native_decide
+
+/-- TWO-PASS GATE (perf): the embedding-`Self` re-evaluation fires ONLY when a static field
+    selects `Self.<embedded-label>`. This pins the no-over-fire boundary that keeps cert-manager
+    (a `parts.#Metadata` embed never read via `Self.metadata`) on the single-pass path. -/
+theorem embedded_self_pass_fires_on_self_select :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩, ⟨"b", .regular, .selector (.refId ⟨0, 0⟩) "a"⟩]
+      ["a"] = true := by
+  native_decide
+
+theorem embedded_self_pass_skips_unselected_embed_label :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩, ⟨"b", .regular, .selector (.refId ⟨0, 0⟩) "a"⟩]
+      ["metadata"] = false := by
+  native_decide
+
+theorem embedded_self_pass_skips_when_no_self_select :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩, ⟨"b", .regular, .prim (.int 1)⟩]
+      ["metadata"] = false := by
+  native_decide
+
 end Kue
