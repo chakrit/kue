@@ -1285,6 +1285,63 @@ struct/typed-ellipsis touch). **B3/B5/items 3,4** (LOW cleanups, parallel-safe f
 (`FixtureTests` 1093, `StructTests` 765, `BuiltinTests` 735, `EvalTests` still 1210 post-split) —
 schedule when Phase-B next flags it overdue.
 
+### Phase-A code-quality audit (2026-06-19, batch `24bb86f..b7fc0e3` = B6-A2 + B6-T1 + A2-followup)
+
+**Verdict — clean. All three slices land as advertised; no correctness regression, no
+illegal-states/totality finding. Full gate re-run green (lake build + check-fixtures + shellcheck).**
+
+- **`importBinding` inertness — VERIFIED inert except the 2 split sites.** Every consumer reads it
+  through the 4 `FieldClass` helpers (`isHidden=true`, `ignoresClosedness=true`,
+  `producesOutput=false`, `optionality=.regular`) — identical to `.hidden`. Audited all branch
+  sites: Eval `stripLetBindings` (keeps it — not a `let` alias, correct), `hiddenFieldsOnly` (keeps
+  it via `ignoresClosedness`, correct), the def-deferral paths (`isDefinition=false` → skipped,
+  correct: a bound package is not a definition); Order closedness/subsumption (`ignoresClosedness` +
+  `==.regular=false`, hidden-identical); Format (explicit `.importBinding => none` arm, omitted from
+  output); Lattice `mergeFieldClass` (merges only with itself, like `letBinding`). All `match
+  FieldClass` sites are exhaustive with NO catch-all (build enforces; Manifest/Normalize/Format each
+  spell out the arm). Totality of the new Normalize 4-way and Manifest 6-way matches confirmed.
+- **2-consumer-split — VERIFIED correct against cue v0.16.1 (6 fresh oracle probes beyond shipped
+  fixtures).** Manifest deep recurse: deep bottom in a reached in-file hidden field surfaces (1-level
+  P1, 2-level P2 both error, matching cue); deep INCOMPLETE tolerated (P4 clean); **deep bottom in an
+  OPTIONAL hidden field (`_u?: {x: _|_}`) tolerated** (P3 — cue exports clean, Kue too: the
+  `.optional` arm is reached before the `.regular` deep-recurse arm, correct); definition deep bottom
+  surfaces (P6). importBinding keeps shallow `isBottom` → bound packages never deep-recurse.
+- **Laziness trap — VERIFIED local to the marker.** `unreferenced_import_conflict` +
+  `dup_import_binding` module fixtures both match cue (unreferenced `dep.#Probe` interior conflict →
+  main exports clean; no re-bottom). Crucially probed the alias-leak concern: an in-file hidden field
+  that aliases a conflicting import (`_alias: dep.#Probe`) — cue ERRORS, **Kue errors too** (it is
+  `.hidden`, not `.importBinding`, so it gets the strict deep recurse). Laziness cannot leak to an
+  in-file hidden field; the marker is stamped only at `Module.bindImports`.
+- **Inverted pin — VERIFIED cue-correct, old genuinely wrong.** `infile_hidden_nested_conflict_surfaces`
+  (`out: {#pkg: {#Tmpl: {#c: string} & {#c: int}}, k: 1}`) → cue ERRORS (oracle v0.16.1); Kue errors.
+  The OLD `does_not_overfire` pin asserted clean export — genuinely Kue-wrong (it conflated an in-file
+  literal with an import binding to dodge the cert-manager trap). The inversion is a real fix, not a
+  regression masked.
+- **B6-A2 / B6-T1 — VERIFIED.** B6-A2's 1-line skip-guard edit affects only `let`-bound fields (moves
+  them to the spine arm); the `let_nested_def_closes`/`_open` pair confirms close-without-over-close.
+  All 10 new fixtures (B6-T1's 6 + the 2 b6a1 + 2 let) oracle-match cue and have FixturePorts entries;
+  each is a non-tautological shape (close-cases paired with open-cases pinning no over-fire). The
+  deferred DIRECT def-path gap (`#D.r & {extra}` — cue rejects, Kue wrongly admits) is real and
+  confirmed UNpinned (no wrong-asserting fixture; documented as an open gap). Under-close, not unsound.
+
+Ranked findings (fold as fix-slices) — only minor, none blocking:
+
+1. **A2-x (LOW, latent) — `importBinding` merge-asymmetry vs the old `.hidden`.** `mergeFieldClass`
+   returns `none` for `importBinding & <real field>` (merges only with itself), whereas the old
+   `.hidden` would have merged via the `.field` arm. Currently unobservable: the only collision
+   (a body field named the same as an imported package's local name) is one cue rejects at LOAD with
+   `redeclared as imported package name` — see finding 2. No fixture exercises it. Note in the merge
+   arm's docstring that the refusal is intentional and relies on the absent redeclaration check;
+   revisit if/when finding 2 lands. No code change needed now.
+2. **A2-y (LOW, pre-existing, NOT introduced this batch) — missing import-name redeclaration check.**
+   A top-level field colliding with an imported package's local name (`import ".../dep"` + `dep: {…}`)
+   is a LOAD error in cue (`dep redeclared as imported package name`); Kue silently keeps both (the
+   binding shadows for `pkg.#X` resolution, the body field for output). Separate from the marker —
+   a missing loader-level diagnostic. File as a small loader slice; behind item 7.
+
+(Both are corners prod9 real apps don't hit; consistent with the standing "pivot to item 7 after
+A2-followup" judgment — neither displaces the perf wall.)
+
 ### Phase-A code-quality audit (2026-06-19, batch `88d78f4..d8252f4` = B6 + B2b)
 
 **Verdict.** Both slices are sound and land as advertised. B6 closes exactly what cue closes on
