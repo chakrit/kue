@@ -54,7 +54,43 @@ mutual
         .index
           (normalizeDefinitionValueWithFuel fuel base)
           (normalizeDefinitionValueWithFuel fuel key)
+    | fuel + 1, .list items =>
+        -- A struct literal nested in a definition body is itself closed (CUE: closedness
+        -- propagates into nested struct literals within a definition), so descend list
+        -- elements with the closing normalizer.
+        .list (items.map (normalizeDefinitionValueWithFuel fuel))
+    | fuel + 1, .listTail items tail =>
+        .listTail
+          (items.map (normalizeDefinitionValueWithFuel fuel))
+          (normalizeDefinitionValueWithFuel fuel tail)
+    | fuel + 1, .embeddedList items tail decls =>
+        .embeddedList
+          (items.map (normalizeDefinitionValueWithFuel fuel))
+          (tail.map (normalizeDefinitionValueWithFuel fuel))
+          (decls.map (normalizeFieldWithFuel fuel))
+    | fuel + 1, .comprehension clauses body =>
+        .comprehension
+          (clauses.map (normalizeClauseWithFuel fuel))
+          (normalizeDefinitionValueWithFuel fuel body)
+    | fuel + 1, .listComprehension clauses body =>
+        .listComprehension
+          (clauses.map (normalizeClauseWithFuel fuel))
+          (normalizeDefinitionValueWithFuel fuel body)
+    | fuel + 1, .interpolation parts =>
+        .interpolation (parts.map (normalizeDefinitionValueWithFuel fuel))
+    | fuel + 1, .dynamicField label fieldClass value =>
+        .dynamicField
+          (normalizeDefinitionValueWithFuel fuel label)
+          fieldClass
+          (normalizeDefinitionValueWithFuel fuel value)
     | _, value => value
+
+  def normalizeClauseWithFuel : Nat -> Clause Value -> Clause Value
+    | 0, clause => clause
+    | fuel + 1, .forIn key value source =>
+        .forIn key value (normalizeDefinitionValueWithFuel fuel source)
+    | fuel + 1, .guard condition =>
+        .guard (normalizeDefinitionValueWithFuel fuel condition)
 
   def normalizeFieldWithFuel : Nat -> Field -> Field
     | 0, field => field
@@ -101,7 +137,47 @@ mutual
         .index
           (normalizeDefinitionsWithFuel fuel base)
           (normalizeDefinitionsWithFuel fuel key)
+    | fuel + 1, .structComp fields comprehensions open_ hasTail =>
+        -- The dominant `{embed;…;...}` shape: a nested `#Def` here (e.g. `a: {b, if c {}, #I:…}`)
+        -- must have its body normalized/closed exactly as in a plain `.struct`.
+        .structComp
+          (fields.map (normalizeFieldWithFuel fuel))
+          (comprehensions.map (normalizeDefinitionsWithFuel fuel))
+          open_ hasTail
+    | fuel + 1, .list items =>
+        .list (items.map (normalizeDefinitionsWithFuel fuel))
+    | fuel + 1, .listTail items tail =>
+        .listTail
+          (items.map (normalizeDefinitionsWithFuel fuel))
+          (normalizeDefinitionsWithFuel fuel tail)
+    | fuel + 1, .embeddedList items tail decls =>
+        .embeddedList
+          (items.map (normalizeDefinitionsWithFuel fuel))
+          (tail.map (normalizeDefinitionsWithFuel fuel))
+          (decls.map (normalizeFieldWithFuel fuel))
+    | fuel + 1, .comprehension clauses body =>
+        .comprehension
+          (clauses.map (normalizeDefinitionsClauseWithFuel fuel))
+          (normalizeDefinitionsWithFuel fuel body)
+    | fuel + 1, .listComprehension clauses body =>
+        .listComprehension
+          (clauses.map (normalizeDefinitionsClauseWithFuel fuel))
+          (normalizeDefinitionsWithFuel fuel body)
+    | fuel + 1, .interpolation parts =>
+        .interpolation (parts.map (normalizeDefinitionsWithFuel fuel))
+    | fuel + 1, .dynamicField label fieldClass value =>
+        .dynamicField
+          (normalizeDefinitionsWithFuel fuel label)
+          fieldClass
+          (normalizeDefinitionsWithFuel fuel value)
     | _, value => value
+
+  def normalizeDefinitionsClauseWithFuel : Nat -> Clause Value -> Clause Value
+    | 0, clause => clause
+    | fuel + 1, .forIn key value source =>
+        .forIn key value (normalizeDefinitionsWithFuel fuel source)
+    | fuel + 1, .guard condition =>
+        .guard (normalizeDefinitionsWithFuel fuel condition)
 end
 
 def normalizeDefinitions (value : Value) : Value :=
