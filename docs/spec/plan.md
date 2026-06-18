@@ -714,6 +714,28 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     OLD representation via `== .struct […] true` literals and construct legacy forms as
     inputs). `lake build` AND `scripts/check-fixtures.sh` both fail (the harness builds
     `Kue.Tests.FixturePorts`). So B2.2 is INSEPARABLE from the test-representation migration.
+  - **B2.2/CP3-pre — test-only pre-migration to `structN`. DONE (2026-06-19, commits
+    `b79af85`..`8923b51` on `main`).** The SAFE pre-migration: `Order.subsumes`'s eight
+    struct-family arms MERGED into one `.structN, .structN` arm (`structNSubsumesWithFuel`,
+    dispatch on expected then actual tail/pattern shape — reproduces every legacy arm
+    EXACTLY; `subsumes` has NO production caller, grep-confirmed, so the structN-only arm
+    changes no production behavior). Constructed-INPUT test literals migrated to `.structN`
+    (no producer flip, no ctor delete, no rename): **OrderTests** (58 subsumes inputs),
+    **StructTests** (all meet/format inputs+expecteds, ~148 sites incl. nested), **FixturePorts**
+    (90 pure-op meet/close/format/manifest inputs across the 43 producer-free ports — the 85
+    producer ports / 147 ctors LEFT for the flip), **ManifestTests**/**YamlTests**/**ListTests**/
+    **BuiltinTests** (83 inputs; `ManifestValue.struct` collision guarded — only `Value.struct`
+    migrated). ~360 constructed-input sites turned test-gated. `mergeStructN` pins added to
+    LatticeTests (must-fix item 2): field-order reversal (both orders), tail×tail both-sides
+    extras, arm-7 pattern dedup (oracle-checked vs cue v0.16.1) + distinct-concat, and the
+    `.bottom` cross-combos (pattern×tail both orders, single+multi-pattern) pinned for now
+    (B2.5 flips). NO migrated test went red ⟹ the structN meet/subsumes/close/format/manifest
+    consumer arms are validated byte-identical to legacy. Build + `check-fixtures.sh` green at
+    every commit; ZERO byte-drift. Produced-output sites (~95 `== .struct` LHS-of-resolver/eval
+    in ClosureTests/EvalTests/ResolveTests/FixtureTests/Normalize/TwoPass/Presence/Bound +
+    FixturePorts producer ports) correctly LEFT for the CP3-flip. Must-fix items 1+2 CONSUMED;
+    item 3 (`applyEvaluatedStructN`) is flip-only.
+
     ### B2.2/CP3 megaslice — DE-RISKED EXECUTION PLAN (Phase-B audit 2026-06-19 #5)
 
     Ground-truth measured at `9fa5593`: **266** old-ctor sites in impl (`Kue/*.lean`,

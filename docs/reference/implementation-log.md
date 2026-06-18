@@ -7902,3 +7902,57 @@ spelling) forbids a blind sed-rename. See `plan.md` B2.2 for the revised sequenc
 
 `lake build` green (no warnings); `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO
 byte-drift). No shell changed. Perf unchanged (no producer on any hot path).
+
+---
+
+## Completed Slice: B2.2/CP3-pre — test-only pre-migration to structN
+
+Commits `b79af85`..`8923b51` on `main` (2026-06-19). The SAFE half of the B2.2/CP3
+megaslice: migrate the CONSTRUCTED-INPUT test literals to `Value.structN` while production
+still emits the old `.struct` (no producer flip, no ctor delete, no rename). This turns
+~360 inspection-only consumer-arm sites into TEST-GATED ones before the risky flip, and
+exercises `mergeStructN` / `closeValue` / `formatValue` / `manifest` / `subsumes` on the
+`structN` representation for the first time.
+
+### What landed
+
+- **`Order.subsumes` merged structN arm (must-fix item 1).** The eight legacy struct-family
+  subsumption arms (`struct`/`structTail`/`structPattern`/`structPatterns` crosses) replaced
+  by one `.structN, .structN` arm delegating to a new `structNSubsumesWithFuel`. It dispatches
+  on the EXPECTED side's tail/pattern shape, then the ACTUAL side's, reproducing every legacy
+  arm EXACTLY: plain×plain → `structSubsumes` (openness via `StructOpenness.isOpen`); tail vs
+  plain|tail → `structTailSubsumes`; patterns vs plain → `structPatternsSubsumes`; patterns vs
+  patterns → `structPatternsSubsumes && patternsSubsume && (eo || !ao)`; every other cross-shape
+  → `false`. `subsumes` has NO production caller (only tests use it — grep-confirmed), so the
+  structN-only arm changes no production behavior.
+- **Constructed-input test migration.** OrderTests (58 subsumes inputs), StructTests (all
+  meet/format inputs and value-compared `rfl` expecteds — the first real exercise of the
+  `mergeStructN` meet path; nested struct field-values migrated recursively), FixturePorts
+  (90 ctors across the 43 producer-free ports — pure `meet`/`closeValue`/`formatField`/
+  `formatManifestFieldResult` inputs, string-compared and representation-invariant), and
+  ManifestTests/YamlTests/ListTests/BuiltinTests (83 inputs). The `ManifestValue.struct`
+  collision (1-arg, no openness bool, different type) is guarded: only `Value.struct` (carries
+  an openness bool) migrates; `ManifestValue.struct` heads left untouched.
+- **Dedicated `mergeStructN` pins (must-fix item 2)**, now that the arms are test-live:
+  `struct×structTail`/`structTail×struct` field-order reversal (tail-side fields first,
+  `[c,b,a]`), `structTail×structTail` `applyTailToExtrasWith`-on-both-sides, arm-7 pattern
+  dedup (`{[=~"a"]:int} & {[=~"a"]:int}` → ONE pattern, oracle-checked vs cue v0.16.1 which
+  collapses to `{}`) plus a distinct-pattern concat pin, and the still-`.bottom` cross-combos
+  (pattern×tail, both orders, single + multi-pattern) pinned AS `.bottom` for NOW — correct
+  per this slice (no legacy arm); B2.5's bottom→unify flip will diff against them.
+
+### Validation
+
+NO migrated test went red ⟹ the structN meet / subsumes / close / format / manifest consumer
+arms are byte-identical to the legacy forms on every reachable case (this was the de-risking
+the slice existed to obtain). Produced-output sites (~95 `== .struct` LHS-of-resolver/eval in
+ClosureTests/EvalTests/ResolveTests/FixtureTests/Normalize/TwoPass/Presence/Bound, plus the
+85 FixturePorts producer ports / 147 ctors) correctly LEFT for the CP3-flip — production still
+emits old `.struct`, so a structN expected there would mismatch. Must-fix item 3
+(`applyEvaluatedStructN` end-to-end pin) is flip-only.
+
+### Verify
+
+`lake build` green (no warnings) and `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO
+byte-drift) at EVERY commit (testdata untouched; the migrated inputs render identical strings).
+No shell changed.
