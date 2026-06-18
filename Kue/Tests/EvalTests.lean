@@ -574,6 +574,98 @@ theorem eval_comprehension_for_source_sees_sibling_field :
       = true := by
   native_decide
 
+/-- Slice C (`closure-default-in-guard`). A marked-default disjunction collapses to its
+    default in a concrete context; a non-default disjunction does not. These pin
+    `resolveDisjDefault?` directly. -/
+theorem resolve_default_disj_picks_marked_default :
+    (resolveDisjDefault? [(.default, .prim (.bool false)), (.regular, .kind .bool)]
+      == some (.prim (.bool false))) = true := by
+  native_decide
+
+theorem resolve_default_disj_non_default_stays_unresolved :
+    (resolveDisjDefault? [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]
+      == none) = true := by
+  native_decide
+
+theorem resolve_default_disj_multiple_defaults_stays_unresolved :
+    (resolveDisjDefault? [(.default, .prim (.int 1)), (.default, .prim (.int 2)), (.regular, .kind .int)]
+      == none) = true := by
+  native_decide
+
+/-- Slice C. Operations distribute over a disjunction preserving marks: `!(bool | *false)`
+    becomes `!bool | *!false` = `bool | *true`, whose default collapses to `true`. -/
+theorem distribute_not_over_default_disj :
+    (distributeUnary .boolNot (.disj [(.default, .prim (.bool false)), (.regular, .kind .bool)])
+      == .disj [(.default, .prim (.bool true)), (.regular, .unary .boolNot (.kind .bool))]) = true := by
+  native_decide
+
+/-- Slice C. `(int | *1) + 1` distributes to `int+1 | *(1+1)` = `int+1 | *2`; the regular
+    branch is a stuck addition over `int`, the default is the concrete `2`. -/
+theorem distribute_add_over_default_disj :
+    (distributeBinary .add (.disj [(.default, .prim (.int 1)), (.regular, .kind .int)]) (.prim (.int 1))
+      == .disj [(.default, .prim (.int 2)), (.regular, .binary .add (.kind .int) (.prim (.int 1)))]) = true := by
+  native_decide
+
+/-- Slice C. The negated real-app guard shape: `x: bool | *false; if !x { y: 1 }`. The `!`
+    distributes over the default disjunction and the guard collapses the default to `true`,
+    so the body admits. cue-exact (`{x: false, out: {y: 1}}`). -/
+theorem eval_comprehension_guard_negated_default_disj_admits :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
+           ⟨"out", .regular,
+             .structComp []
+               [.comprehension [.guard (.unary .boolNot (.ref "x"))]
+                 (.struct [⟨"y", .regular, .prim (.int 1)⟩] true)]
+               true⟩]
+          true))
+      == .struct
+        [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
+         ⟨"out", .regular, .struct [⟨"y", .regular, .prim (.int 1)⟩] true⟩]
+        true) = true := by
+  native_decide
+
+/-- Slice C. The direct guard shape `if x` with `x: bool | *true` admits (default `true`). -/
+theorem eval_comprehension_guard_direct_default_disj_admits :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
+           ⟨"out", .regular,
+             .structComp []
+               [.comprehension [.guard (.ref "x")]
+                 (.struct [⟨"y", .regular, .prim (.int 1)⟩] true)]
+               true⟩]
+          true))
+      == .struct
+        [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
+         ⟨"out", .regular, .struct [⟨"y", .regular, .prim (.int 1)⟩] true⟩]
+        true) = true := by
+  native_decide
+
+/-- Slice C (over-resolution guard). A NON-default disjunction in a guard must STAY
+    unsatisfied — only marked defaults collapse. `if x` with `x: bool` (no default) drops
+    the body, matching cue's `incomplete value bool`. -/
+theorem eval_comprehension_guard_non_default_disj_drops :
+    (evalStructRefs
+      (resolveStructRefs
+        (.struct
+          [⟨"x", .regular,
+             .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
+           ⟨"out", .regular,
+             .structComp []
+               [.comprehension [.guard (.ref "x")]
+                 (.struct [⟨"y", .regular, .prim (.int 1)⟩] true)]
+               true⟩]
+          true))
+      == .struct
+        [⟨"x", .regular,
+           .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
+         ⟨"out", .regular, .struct [] true⟩]
+        true) = true := by
+  native_decide
+
 /-- Was a deferred-bottom pin; float×float now evaluates exactly through the decimal
     layer. Scales add and CUE preserves the summed scale verbatim: `1.5 * 2.0 = 3.00`
     (oracle-confirmed, cue v0.16.1), no trailing-zero trim. -/

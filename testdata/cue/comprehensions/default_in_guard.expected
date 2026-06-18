@@ -1,0 +1,2 @@
+staging: bool | *false
+out: {prod: true}

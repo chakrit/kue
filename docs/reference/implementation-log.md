@@ -6251,3 +6251,74 @@ spliced self-ref, + `len()`), **E. `closure-embed-chain`** (a multi-level embed 
 re-forces the nested embedded closure; the real `#ClusterIssuer → parts.#Metadata → attr.#Metadata`
 is 3-level). Then **B. `closure-perf`**. Honest: the remaining real-app gap is BOTH correctness
 (C/D/E) AND perf (B), not perf-only.
+
+## Completed Slice: Value.closure slice C (closure-default-in-guard)
+
+Goal: a comprehension/field guard over a marked-default disjunction (`bool | *false`)
+must resolve the default and fire the guard, matching `cue`. Orthogonal to closures —
+reproduces with no def at all (`x: bool | *false; if !x {…}`).
+
+### Root cause (empirically traced, read-only `/tmp` repros, cue v0.16.1 oracle)
+
+TWO coupled gaps, both about disjunction defaults in a concrete context:
+
+1. **Operations did not distribute over disjunctions.** `evalBoolNot`/`evalAdd`/… hit their
+   `_ => .unary …`/`.binary …` fallback when an operand was a `.disj`, leaving `!x` as
+   `.unary .boolNot (.disj …)` and `x+1` as `.binary .add (.disj …) …`. CUE distributes:
+   `op(a | *b)` = `op(a) | *op(b)`, preserving marks. So `!(bool | *false)` should become
+   `bool | *true`, and `(int | *1) + 1` should become `int+1 | *2`. kue left them stuck →
+   `incomplete`, while cue resolved the default (`!x → true`, `x+1 → 2`). This is general (also
+   hit top-level `z: !x` and `y: x + 1`), not guard-specific.
+2. **The guard test did not collapse a defaulted-disjunction condition.** `expandClausesWithFuel`
+   compared `evaluatedCondition` against `.prim (.bool true)` directly; a `.disj` condition (the
+   direct `if x` with `x: bool | *true`) never matched, dropping the body.
+
+### Fix (reused existing default machinery; new code is distribution + one guard collapse)
+
+- **Consolidated default-resolution into `Lattice.lean`** (the leaf where `flattenAlternatives`/
+  `containsBottom` already live): moved `liveAlternatives`/`defaultAlternatives` out of `Manifest`
+  into `Lattice`, refactored `normalizeDisj` onto `liveAlternatives`, and added
+  `resolveDisjDefault? : List (Mark × Value) → Option Value` — the exact CUE collapse rule (unique
+  marked default wins; else unique regular; else `none`). `Manifest`'s `.disj` arm now calls it
+  (one shared definition of "what a disjunction collapses to in a concrete context").
+- **`distributeUnary`/`distributeBinary`** (`Eval.lean`, just after `evalUnary`/`evalBinary`): map
+  the op across `.disj` alternatives preserving marks (`combineMark` for binary cross-product),
+  re-normalizing via `normalizeEvaluatedDisj`. The `.unary`/general `.binary` eval arms now call
+  these. Non-default disjunctions stay multi-alternative → still `incomplete` (no over-resolution).
+- **Guard collapse** (`expandClausesWithFuel`): a `.disj` condition is run through
+  `resolveDisjDefault?` before the `.prim (.bool true)` test; non-`.disj` values pass through, a
+  non-default disjunction returns `none` and the guard stays unsatisfied.
+
+### Tests (8 new `native_decide` pins + 1 committed fixture)
+
+`resolve_default_disj_picks_marked_default`, `resolve_default_disj_non_default_stays_unresolved`,
+`resolve_default_disj_multiple_defaults_stays_unresolved` (pin `resolveDisjDefault?` directly);
+`distribute_not_over_default_disj` (`!(bool|*false) → bool | *true`),
+`distribute_add_over_default_disj` (`(int|*1)+1 → int+1 | *2`);
+`eval_comprehension_guard_negated_default_disj_admits` (the real `if !x` shape),
+`eval_comprehension_guard_direct_default_disj_admits` (`if x` with `*true`),
+`eval_comprehension_guard_non_default_disj_drops` (over-resolution guard: a NON-default disjunction
+in a guard STAYS unsatisfied). Committed `testdata/cue/comprehensions/default_in_guard.{cue,expected}`
+(+ `FixturePorts` entry) — `staging: bool | *false` with `if !staging`/`if staging` guards; JSON
+export byte-identical to cue.
+
+### Verify
+
+`lake build` → 86 jobs. `scripts/check-fixtures.sh` → `fixture pairs ok` (every existing fixture
+byte-unchanged). `shellcheck scripts/*.sh` → clean. Oracle: every new behavior byte-matches `cue`
+v0.16.1 (JSON). No CUE divergence (cue correct in every probed case, incl. non-default `(1|2)+10`
+staying `incomplete` and two-default `(int|*1|*2)+10` staying ambiguous — both reject, matching kue).
+prod9 + cue cache read-only; no env/tree mutation.
+
+### Real-app verdict (read-only prod9 — the headline)
+
+C is cue-exact against the ACTUAL `#ClusterIssuer` default-in-guard shape: `#staging: bool | *false`
+with `if Self.#staging`/`if !Self.#staging` inside a `Self={…}` closure now resolves byte-exact
+(was `bottom` pre-C). cert-manager export still returns `bottom`, but the error has MOVED PAST C.
+Probing the downstream blockers in isolation: **D (`closure-presence-test-selfref`) ALSO already
+passes** — both `if Self.#ns != _|_` (presence-test over a self-ref) and `len(Self.#labels) > 0`
+guards are cue-exact post-A/C, so D's scoped shapes need no dedicated slice. The live remaining
+blocker is **E (`closure-embed-chain`)**: a 2-level embed chain (`#Outer{ #Inner & {…} }`, each a
+`Self={…}` self-ref) still collapses to `bottom` in kue while cue yields `{iname, oname}`. Next
+slice is E; the real `#ClusterIssuer → parts.#Metadata → attr.#Metadata` 3-level chain is what
+still gates cert-manager. B (`closure-perf`, ~10s) remains downstream.

@@ -577,9 +577,10 @@ provably NOT the cause — the same `Self={}` shape resolves in 0.016s when it h
 fold, `.structComp` embed splice (force + embedding-meet + closedness union), and — the largest
 unlock — DEEP/nested self-ref detection (`hasSelfRefAtDepth`) so `spec: acme: email: Self.#email`
 and comprehension guards defer correctly. All cue-exact on the targeted shapes (see the slice A
-design sub-spike above and the landed breadcrumb). Real apps STILL bottom: the chain needs three
-FURTHER correctness slices (C `closure-default-in-guard`, D `closure-presence-test-selfref`,
-E `closure-embed-chain`) plus perf — see "Real-app verdict after slice A" above.
+design sub-spike above and the landed breadcrumb). Real apps STILL bottom: the chain needed
+FURTHER correctness slices — **C `closure-default-in-guard` ✅ DONE 2026-06-18**, **D
+`closure-presence-test-selfref` ✅ already passes (verified post-C)**, **E `closure-embed-chain`
+(LIVE NEXT)** — plus perf — see "Real-app verdict after slice A" and the C/D/E section below.
 
 **B. `closure-perf` / frame-id-sharing (frontier #2 — now REACHABLE).** Independently, the
 real defs blow up super-linearly in time (11.7s small → 55s larger) even while erroring. This
@@ -789,19 +790,26 @@ self-ref (`if Self.#staging` with `#staging: bool`). **But cert-manager / argocd
 `bottom` (cert-manager 9.6s, perf wall ALSO unresolved).** The real defs chain THREE further,
 independent correctness shapes slice A does NOT cover — each its own slice, sequence A→…→B:
 
-**C. `closure-default-in-guard` (correctness).** A comprehension guard over a DEFAULT
-disjunction does not resolve the default: `#staging: bool | *false; if !Self.#staging {…}` →
-cue uses default `false` → admits; kue leaves the condition a disjunction → drops. **Orthogonal
-to closures** — reproduces with NO def/closure (`x: bool | *false; if !x {…}` drops in kue,
-cue admits). The guard (`expandClausesWithFuel`, `Eval.lean`) tests `evaluatedCondition ==
-.prim (.bool true)`; it must first resolve the condition's disjunction DEFAULT (reuse
-`defaultAlternatives` from `Manifest`). Small, self-contained. Real `#ClusterIssuer` uses
-exactly `#staging: bool | *false` with `if Self.#staging`/`if !Self.#staging`.
+**C. `closure-default-in-guard` (correctness). DONE 2026-06-18.** A comprehension guard over
+a DEFAULT disjunction did not resolve the default. Root cause was TWO coupled gaps: (1)
+operations did not distribute over disjunctions (`!(bool|*false)`, `(int|*1)+1` stayed stuck
+instead of becoming `bool|*true` / `int+1|*2`), and (2) the guard test compared the condition
+to `.prim (.bool true)` without collapsing a defaulted-disjunction condition. Fix: consolidated
+`liveAlternatives`/`defaultAlternatives` into `Lattice.lean` + added `resolveDisjDefault?` (the
+shared concrete-context collapse rule, now also used by `Manifest`); added
+`distributeUnary`/`distributeBinary` in `Eval.lean` (map op over `.disj` alternatives, preserve
+marks); the `expandClausesWithFuel` guard now runs a `.disj` condition through
+`resolveDisjDefault?` before the bool test. Non-default disjunctions deliberately stay
+`incomplete` (no over-resolution). cue-exact on the real `#ClusterIssuer` `#staging: bool |
+*false` + `if Self.#staging`/`if !Self.#staging` shape. 8 `native_decide` pins + committed
+`testdata/cue/comprehensions/default_in_guard.{cue,expected}`. See impl-log slice C.
 
-**D. `closure-presence-test-selfref` (correctness).** `parts.#Metadata` (the real one, an
-embed in the chain) guards on `if Self.#ns != _|_ {…}` — a presence-test (`!= _|_`) over a
-self-ref, plus `len(Self.#labels) > 0`. Behavior of presence-tests over a spliced/narrowed
-self-ref under the closure force is unverified; the real chain needs it.
+**D. `closure-presence-test-selfref` (correctness). ALREADY PASSES — no dedicated slice
+needed (verified 2026-06-18 during the C re-probe).** Both `if Self.#ns != _|_ {…}`
+(presence-test over a self-ref) AND `len(Self.#labels) > 0` guards are cue-exact post-A/C, in
+isolation under a `Self={…}` closure. The slice-A + slice-C work cleared D's scoped shapes; the
+"unverified" concern is resolved. If the real chain surfaces a D-specific failure later it
+re-opens, but the probed shapes are green.
 
 **E. `closure-embed-chain` (correctness).** A MULTI-LEVEL embed chain — a def embeds a def that
 embeds a def, each a `Self={…}` self-ref — collapses: `#Outer{ #Mid{ #Inner } }` → kue `bottom`,
@@ -809,15 +817,19 @@ cue `{iname,mname,oname}` (repro `/tmp/pf_chain`). The 2-level case already fail
 embed's `Self.#name` resolves to `_|_` when the outer closure force re-forces the embedded
 closure. Single-level embed (slice A) works; the recursion through a nested embedded closure +
 `Self=` alias does not. The real `#ClusterIssuer → parts.#Metadata → attr.#Metadata` is a 3-level
-chain, so this gates cert-manager even after C and D.
+chain, so this gates cert-manager even after C and D. **This is now the LIVE next slice
+(2026-06-18): post-C, with C and D both green, the cert-manager `bottom` traces here.** The
+2-level repro `#Outer{ #Inner & {#name: Self.#oname} }` → kue `bottom`, cue `{iname, oname}`
+(rebuild in `/tmp/pf_chain`).
 
-**B. `closure-perf` (frontier #2 — still a wall).** cert-manager remains ~9.6s even while
-erroring. Unchanged from the slice-4 probe; downstream of correctness. After C/D/E resolve
+**B. `closure-perf` (frontier #2 — still a wall).** cert-manager remains ~10s even while
+erroring. Unchanged from the slice-4 probe; downstream of correctness. After E resolves
 correctness, profile B against a working target.
 
-Sequence: **C (smallest, orthogonal) → D → E → B**, or batch C+D+E as a "real-app correctness
-chain" mini-plan. None is slice A: slice A's audit-defined scope (the multi-operand + embed +
-nested-self-ref facets) is complete and green.
+Sequence (revised 2026-06-18 post-C): **C ✅ → D ✅ (already passed) → E (LIVE NEXT) → B.** Both
+C and D are green; E is the sole remaining correctness blocker for cert-manager. None is slice
+A: slice A's audit-defined scope (the multi-operand + embed + nested-self-ref facets) is complete
+and green.
 
 ## Architecture Fix-Slices (Phase B audit 2026-06-18 #2 — post Value.closure slices 3-4-A, AUTHORITATIVE)
 

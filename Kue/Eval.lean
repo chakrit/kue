@@ -618,6 +618,31 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .boolAnd => evalBoolBinary .boolAnd (fun left right => left && right) left right
   | .boolOr => evalBoolBinary .boolOr (fun left right => left || right) left right
 
+/-- Apply a unary op over a disjunction by mapping it onto every alternative, preserving
+    each alternative's mark. CUE distributes operations across disjunctions: `op(a | *b)` is
+    `op(a) | *op(b)`, so a default branch stays the default of the result. A non-disjunction
+    operand evaluates directly. -/
+def distributeUnary (op : UnaryOp) (value : Value) : Value :=
+  match value with
+  | .disj alternatives =>
+      normalizeEvaluatedDisj (alternatives.map fun a => (a.fst, evalUnary op a.snd))
+  | value => evalUnary op value
+
+/-- Apply a binary op over disjunction operands by mapping it across the cross product,
+    combining the operand marks (`default` is absorbing). `(a | *b) + c` becomes
+    `(a + c) | *(b + c)`; with both sides disjunctions the result is the full cartesian
+    product. Non-disjunction operands evaluate directly. -/
+def distributeBinary (op : BinaryOp) (left right : Value) : Value :=
+  match left, right with
+  | .disj leftAlts, .disj rightAlts =>
+      normalizeEvaluatedDisj (leftAlts.flatMap fun l =>
+        rightAlts.map fun r => (combineMark l.fst r.fst, evalBinary op l.snd r.snd))
+  | .disj leftAlts, right =>
+      normalizeEvaluatedDisj (leftAlts.map fun l => (l.fst, evalBinary op l.snd right))
+  | left, .disj rightAlts =>
+      normalizeEvaluatedDisj (rightAlts.map fun r => (r.fst, evalBinary op left r.snd))
+  | left, right => evalBinary op left right
+
 /--
 The synthetic env frame a `for` iteration introduces. Mirrors `clauseLoopFrame`
 in `Resolve`: keyed iterations bind the key at index 0 and the value at index 1,
@@ -1153,7 +1178,7 @@ mutual
         pure (evalBuiltinCall name evaluated)
     | fuel + 1, .unary op value => do
         let evaluated <- evalValueWithFuel fuel env visited value
-        pure (evalUnary op evaluated)
+        pure (distributeUnary op evaluated)
     | fuel + 1, .binary op (.bottom) right =>
         if isPresenceTestOp op then do
           let evaluated <- evalValueWithFuel fuel env visited right
@@ -1171,7 +1196,7 @@ mutual
     | fuel + 1, .binary op left right => do
         let leftEvaluated <- evalValueWithFuel fuel env visited left
         let rightEvaluated <- evalValueWithFuel fuel env visited right
-        pure (evalBinary op leftEvaluated rightEvaluated)
+        pure (distributeBinary op leftEvaluated rightEvaluated)
     | fuel + 1, .selector (.refId id) label =>
         match thisStructFieldIndex? env id label with
         | some labelId => evalValueWithFuel fuel env visited (.refId labelId)
@@ -1470,7 +1495,15 @@ mutual
             | _ => pure []
         | .guard condition :: rest => do
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
-            match evaluatedCondition with
+            -- A guard condition is a concrete-context use: a marked-default disjunction
+            -- (`bool | *false`) collapses to its default before the boolean test, matching
+            -- manifestation. A non-default disjunction does not collapse and the guard
+            -- stays unsatisfied. `resolveDisjDefault?` leaves non-`.disj` values untouched.
+            let testCondition :=
+              match evaluatedCondition with
+              | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
+              | _ => evaluatedCondition
+            match testCondition with
             | .prim (.bool true) => expandClausesWithFuel fuel env rest body
             | _ => pure []
         | .forIn key value source :: rest => do

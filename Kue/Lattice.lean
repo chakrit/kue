@@ -202,13 +202,32 @@ def flattenAlternatives (alternatives : List (Mark × Value)) : List (Mark × Va
       | alternative => alternative :: flattened)
     []
 
+def liveAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
+  (flattenAlternatives alternatives).filter fun alternative => !containsBottom alternative.snd
+
+def defaultAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
+  alternatives.filter fun alternative => alternative.fst == .default
+
 def normalizeDisj (alternatives : List (Mark × Value)) : Value :=
-  let flattened := flattenAlternatives alternatives
-  let live := flattened.filter fun alternative => !containsBottom alternative.snd
-  match live with
+  match liveAlternatives alternatives with
   | [] => .bottom
   | [(.regular, value)] => value
   | alternatives => .disj alternatives
+
+/-- Select the value a disjunction collapses to in a concrete context (manifestation, a
+    boolean guard, an operation that forces a default). Mirrors CUE's default rule: a unique
+    marked default wins; absent any default, a unique regular alternative wins; otherwise the
+    disjunction stays ambiguous and `none` keeps it unresolved. Non-default disjunctions with
+    more than one live alternative deliberately do NOT collapse. -/
+def resolveDisjDefault? (alternatives : List (Mark × Value)) : Option Value :=
+  let live := liveAlternatives alternatives
+  match defaultAlternatives live with
+  | [(_, value)] => some value
+  | [] =>
+      match live with
+      | [(.regular, value)] => some value
+      | _ => none
+  | _ => none
 
 def disjOfValues (left right : Value) : Value :=
   normalizeDisj [(.regular, left), (.regular, right)]

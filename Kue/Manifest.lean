@@ -15,12 +15,6 @@ inductive ManifestError where
   | ambiguous (alternatives : List (Mark × Value))
 deriving Repr, BEq
 
-def liveAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
-  (flattenAlternatives alternatives).filter fun alternative => !containsBottom alternative.snd
-
-def defaultAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
-  alternatives.filter fun alternative => alternative.fst == .default
-
 def manifestFuel : Nat :=
   100
 
@@ -112,15 +106,9 @@ mutual
         -- 2+). Unreachable until a producer exists.
         .error (.incomplete (.closure capturedEnv body))
     | fuel + 1, .disj alternatives =>
-        let live := liveAlternatives alternatives
-        let defaults := defaultAlternatives live
-        match defaults with
-        | [(_, value)] => manifestWithFuel fuel value
-        | [] =>
-            match live with
-            | [(.regular, value)] => manifestWithFuel fuel value
-            | alternatives => .error (.ambiguous alternatives)
-        | alternatives => .error (.ambiguous alternatives)
+        match resolveDisjDefault? alternatives with
+        | some value => manifestWithFuel fuel value
+        | none => .error (.ambiguous (liveAlternatives alternatives))
 end
 
 def manifest (value : Value) : Except ManifestError ManifestValue :=

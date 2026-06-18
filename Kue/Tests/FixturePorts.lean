@@ -1264,6 +1264,32 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "comprehensions/default_in_guard.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"staging", .regular,
+                  .disj [(.regular, .kind .bool), (.default, .prim (.bool false))]⟩,
+                ⟨
+                  "out",
+                  .regular,
+                  .structComp
+                    []
+                    [
+                      .comprehension
+                        [.guard (.unary .boolNot (.ref "staging"))]
+                        (.struct [⟨"prod", .regular, .prim (.bool true)⟩] true),
+                      .comprehension
+                        [.guard (.ref "staging")]
+                        (.struct [⟨"dev", .regular, .prim (.bool true)⟩] true)
+                    ]
+                    true⟩
+              ]
+              true))
+    },
+    {
       fileName := "numeric/string_interpolation.expected",
       content :=
         formatTopLevel
