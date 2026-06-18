@@ -1094,5 +1094,29 @@ theorem eval_meet_lazy_hidden_def :
         ] .regularOpen none []) = true := by
   native_decide
 
+/-! ### B2.2 must-fix item 3 — `applyEvaluatedStructN` pattern path (end-to-end, live).
+
+With production emitting the unified `.struct`, an evaluated pattern-struct now flows through
+`applyEvaluatedStructN`'s pattern arm (`meet (mkStruct [] op none patterns) (mkStruct fields
+…)`), which applies each `[pattern]: constraint` to the matching evaluated fields. These pin
+that arm against cue v0.16.1: a matching field is constrained (`xy` matches `=~"x"`, so
+`string & "hi" = "hi"`; a conflicting constraint bottoms it), a non-matching field is left
+untouched (`z`). cue elides the residual `[=~"x"]: c` pattern in `eval` output but APPLIES it;
+Kue keeps the pattern visible (a formatting divergence, recorded) — the field VALUES agree
+exactly with cue (`xy: "hi"`/`xy: _|_`, `z: 1`). -/
+theorem eval_pattern_struct_applies_to_matching_field :
+    evalSourceMatches
+        "out: {[=~\"x\"]: string, xy: \"hi\", z: 1}\n"
+        "out: {xy: \"hi\", z: 1, [=~\"x\"]: string}"
+      = true := by
+  native_decide
+
+theorem eval_pattern_struct_constraint_conflict_bottoms_field :
+    evalSourceMatches
+        "out: {[=~\"x\"]: int, xy: \"str\"}\n"
+        "out: {xy: _|_, [=~\"x\"]: int}"
+      = true := by
+  native_decide
+
 
 end Kue
