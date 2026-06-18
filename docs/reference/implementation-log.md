@@ -8065,3 +8065,57 @@ The ONLY fixture drift is the two NEW pairs — every existing `.expected` uncha
 existing fixture relied on the buggy `.bottom`. shellcheck clean. Oracle-checked every flipped/new
 pin and both fixtures against cue v0.16.1 (concrete exports identical; the internal-format residual
 `[pattern]`/`...` display is the pre-existing eval-output divergence already in cue-divergences.md).
+
+---
+
+## Completed Slice: B6 — def-body closedness through a regular field (gaps 1+2; partial)
+
+Commits `3b2beb6` (design-spike), `7da65d8` (implementation). One of the two B6 sub-gaps
+landed sound; the other (a separate mechanism) was deferred per correctness-over-performance.
+
+### Behavior added
+
+A closed `#Def` nested under a REGULAR field now reaches the use-site meet still closed, so an
+undeclared field is rejected — matching cue v0.16.1 (`a: {#Inner: {x:int}}; a.#Inner & {x:1,
+extra:2}` → `out.extra: field not allowed`). The eager nested-selector form (`x.#Inner & {extra}`)
+is fixed by the SAME change. An OPEN nested def (`#Inner: {x:int, ...}`) still admits the extra (no
+over-close).
+
+### Mechanism
+
+`normalizeDefinitions` (the top-value SPINE walker) runs at eval. Its field handler
+`normalizeFieldWithFuel` routed ONLY `isDefinition` fields into the closing normalizer and returned
+every other field UNCHANGED — so a `#Inner` under a regular field `a` was never visited and reached
+the meet as `.regularOpen`, where `applyStructClosedness` (Lattice) found `leftOpen=true` and marked
+nothing. The eager selector `selectEvaluatedField` returns `Field.value` verbatim, so gap 2 was
+downstream of gap 1, not a distinct defect.
+
+Fix (one edit, `Normalize.lean`): in `normalizeFieldWithFuel`, a non-hidden/non-let
+regular/optional/required field now recurses its value through the SPINE walker
+(`normalizeDefinitionsWithFuel`), which preserves the host struct's own openness (an instantiated
+regular struct stays open — cue keeps `(#D & {}).r` open) while closing any nested `#Def` reached
+inside it. HIDDEN fields are left untouched so import-package bindings (`Module.lean`) stay cue-lazy
+— recursing them would re-close unreferenced nested defs and re-bottom cert-manager/argocd (the A2
+trap). This decouples B6 from A2-followup.
+
+### Deferred sub-gap (filed, NOT forced)
+
+Selecting a nested REGULAR-field struct through a NON-instantiated def literal (`#D.l[0] & {b}`,
+`#D.r & {b}`) — cue closes those on the direct def-path but RE-OPENS them on any
+instantiation/binding (oracle-confirmed: `#D.r & {a:1,b:2}` rejects `b`; both `(#D & {}).r` and
+`(y: #D).r` admit `b`). Enforcing it requires the closing-vs-instantiation distinction in
+`mergeStructN`'s closedness composition (the meet must re-open nested regular structs on `&`), which
+is larger than one slice and risks over-close. Left for a dedicated design-slice (see plan B6).
+
+### Tests
+
+- 2 fixtures: `testdata/cue/definitions/nested_def_under_regular_field` (closed → `extra: _|_`),
+  `…/nested_def_open_under_regular_field` (open via `...` → admits `extra`); both with FixturePorts.
+- 3 `native_decide` pins (EvalTests): closed-def-under-regular rejects extra, eager-selector form
+  rejects extra, open form admits.
+
+### Verify
+
+`lake build` green (96 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok` (only the 2 new pairs
+as drift; def_open_tail_addfield over-close sentinel + all import/def-meet module fixtures
+byte-identical), pins oracle-checked vs cue v0.16.1.

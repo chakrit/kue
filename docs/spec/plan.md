@@ -1478,7 +1478,31 @@ shared `normalizeFieldWithFuel` conflates two contexts (closing inside a def bod
 top level) — split it, and route the eager selector path through closedness enforcement. NOT a
 catch-all fix (a behavior change with the def-open-tail regression class of risk).
 
-**B6 design (implementable) — DONE 2026-06-19 (design-spike `<spike-sha>`).**
+**B6 — PARTIAL (gaps 1+2 DONE `7da65d8`; one sub-gap DEFERRED). Design-spike `3b2beb6`.**
+
+*Landed (sound):* a closed `#Def` nested under a REGULAR field (`a.#Inner & {extra}`, the eager
+`x.#Inner` form too) now rejects undeclared fields, matching cue v0.16.1. One-edit fix in
+`normalizeFieldWithFuel`: recurse a non-hidden/non-let field's value through the SPINE walker
+(preserves the host's own openness — an instantiated regular struct stays open — while closing
+nested `#Def`s). Hidden fields skipped → import bindings stay cue-lazy, decoupling B6 from
+A2-followup (no cert-manager re-bottom). Gap 2 was the SAME root cause (the eager selector returns
+the body verbatim; once normalize closes the def, the existing meet enforces it). 2 fixtures + 3
+`native_decide` pins; zero fixture drift.
+
+*DEFERRED sub-gap (separate mechanism — NOT forced, correctness-over-performance):* selecting a
+nested REGULAR-field struct through a NON-instantiated def literal (`#D.l[0] & {b}`, `#D.r & {b}`).
+cue closes these on the direct def-path (`#D.r & {a:1,b:2}` → `b: field not allowed`) but RE-OPENS
+them on ANY instantiation/binding (`(#D & {}).r & {b}` and `(y: #D).r & {b}` both ADMIT `b` —
+oracle-confirmed v0.16.1). So closedness of nested regular structs is a property of the literal
+def-path selection, SHED by `&`-unification. Enforcing it needs the closing-vs-instantiation
+distinction wired into `mergeStructN`'s closedness composition (the instantiation must re-open
+nested regular structs — the `eval_def_with_self_ref_closes` EvalTests pin DEPENDS on instantiated
+`out` staying `.regularOpen`). That is larger than one slice and carries over-close risk; STOPPED
+and filed here rather than force an unsound close. Next: a dedicated design-slice for the
+def-path-selection closed-marker (likely a value-level "closed on this selection path" flag the meet
+clears on instantiation). Repros saved conceptually in the design section below.
+
+**B6 design (implementable) — DONE 2026-06-19 (design-spike `3b2beb6`).**
 
 *Repros (cue v0.16.1; all confirmed Kue ADMITS where cue REJECTS — Kue wrong, cue right):*
 - R1 closed `#Def` under regular field: `a: {#Inner: {x:int}}`, `out: a.#Inner & {x:1, extra:2}`
