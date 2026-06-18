@@ -64,6 +64,15 @@ masquerade as saturated to a parent. `satCache` insert is gated to the `saturate
   it. The NEW `satCache`/`SatKey` are fuel-FREE but ONLY hold SATURATED results (proven fuel-
   insensitive); a truncated result CANNOT enter them (gated by the bracket). `truncCount` is
   now LOAD-BEARING (drives saturation classification), not transient instrumentation.
+- **AUDIT #6 (2026-06-18) found + FIXED a VIOLATION in this slice:** the truncation arms are SIX,
+  not two. The four comprehension/embedding-expansion helpers (`expandClausesWithFuel`,
+  `expandComprehensionWithFuel`, `evalEmbeddingFieldsWithFuel`, `meetEmbeddingsWithFuel`) each have
+  a `fuel=0` arm that drops fields WITHOUT bumping `truncCount` — so a low-fuel comprehension
+  truncation was misclassified saturated and served fuel-free at higher fuel (concrete repro:
+  `.structComp [] [if true {x:1}] true` served `{}` at fuel 20 after a fuel-2 eval). Fixed by
+  bumping all four arms (strict tightening; fixtures byte-identical). 2 regression pins added. See
+  plan audit #6. If you add a NEW fuel-threaded helper with a `fuel=0` drop, it MUST bump
+  `truncCount` or it reopens this hole.
 - **Profiling:** the prof harness is removed; to re-profile, re-add a fuel-parameterized
   `evalFieldRefsListWithFuel fuel topEnv (indexedFields top)` driver over `loadEntry` +
   `resolveStructRefs` + `normalizeDefinitions` and read `EvalState.{evalCalls, satCache.size,

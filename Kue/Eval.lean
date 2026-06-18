@@ -823,13 +823,17 @@ instance : Hashable EvalKey where
     (mixHash (hash key.envIds.length) (valueTag key.value)))
 
 /-- Whether an eval result's ENTIRE (transitive) computation avoided every fuel-truncation
-    base case (`fuel = 0`) and every cycle-bound `.top`. A `saturated` result is fuel-
-    INSENSITIVE: re-evaluating at any fuel `≥` the one that produced it yields the identical
-    value, so it may be cached FUEL-FREE (see `SatKey`). A `truncated` result bottomed on fuel
-    somewhere in its subtree, so it is one of the 263 fuel-truncation cases and stays keyed by
-    `fuel` in `EvalKey` — never served across fuel levels. Classification is by BRACKETING the
-    monotonic `EvalState.truncCount` in the single cached wrapper (`evalValueWithFuel`), not by a
-    per-arm boolean join: no arm participates, so no arm can forget to propagate `truncated`. -/
+    base case (`fuel = 0`; cycle-bound `.top`; the comprehension/embedding-expansion helpers'
+    fuel-exhausted drops). A `saturated` result is fuel- INSENSITIVE: re-evaluating at any fuel
+    `≥` the one that produced it yields the identical value, so it may be cached FUEL-FREE (see
+    `SatKey`). A `truncated` result bottomed on fuel somewhere in its subtree, so it is one of the
+    263 fuel-truncation cases and stays keyed by `fuel` in `EvalKey` — never served across fuel
+    levels. Classification is by BRACKETING the monotonic `EvalState.truncCount` in the single
+    cached wrapper (`evalValueWithFuel`), not by a per-arm boolean join: every fuel-exhaustion arm
+    bumps the counter, so the bracket sees them all — no arm can drop fields and stay saturated.
+    The six bump sites are the `evalValueCoreWithFuel` `fuel=0` base, the cycle `.top`, and the
+    fuel=0 arms of `evalEmbeddingFieldsWithFuel`/`meetEmbeddingsWithFuel`/`expandComprehension-
+    WithFuel`/`expandClausesWithFuel` (which else drop comprehension/embedding fields silently). -/
 inductive Saturation where
   | saturated
   | truncated
@@ -937,7 +941,8 @@ structure EvalState where
   satCache : Std.HashMap SatKey Value := ∅
   evalCalls : Nat := 0
   cacheHits : Nat := 0
-  /-- Monotonic count of fuel-truncation base cases consulted (`fuel = 0`; cycle `.top`).
+  /-- Monotonic count of fuel-truncation base cases consulted (`fuel = 0`; cycle `.top`; the
+      fuel=0 arms of the comprehension/embedding-expansion helpers that else drop fields silently).
       Bracketed by `evalValueWithFuel`/`forceClosureWithConjunct` to classify each result's
       `Saturation`: a result is `saturated` iff this counter did not move across its core eval.
       A cached `truncated` hit re-bumps it so the bracketing parent stays honest. Load-bearing
@@ -1803,7 +1808,9 @@ mutual
     | [] => pure []
     | embedding :: rest =>
         match fuel with
-        | 0 => pure []
+        | 0 => do
+            modify (fun state => { state with truncCount := state.truncCount + 1 })
+            pure []
         | nextFuel + 1 => do
             let evaluated <-
               match conjDefClosure? env embedding with
@@ -1844,7 +1851,9 @@ mutual
     | [] => pure current
     | embedding :: rest =>
         match fuel with
-        | 0 => pure current
+        | 0 => do
+            modify (fun state => { state with truncCount := state.truncCount + 1 })
+            pure current
         | nextFuel + 1 => do
             -- A bare ref to a self-ref def the lazy-merge can't handle is DEFERRED to its
             -- `.closure` here (not evaluated through `.refId`, which would force it STANDALONE with
@@ -2021,7 +2030,9 @@ mutual
       (env : Env)
       (value : Value) : EvalM (List Field) := do
     match fuel, value with
-    | 0, _ => pure []
+    | 0, _ => do
+        modify (fun state => { state with truncCount := state.truncCount + 1 })
+        pure []
     | fuel + 1, .comprehension clauses body => expandClausesWithFuel fuel env clauses body
     | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env [] label
@@ -2045,7 +2056,9 @@ mutual
       (clauses : List (Clause Value))
       (body : Value) : EvalM (List Field) := do
     match fuel with
-    | 0 => pure []
+    | 0 => do
+        modify (fun state => { state with truncCount := state.truncCount + 1 })
+        pure []
     | fuel + 1 =>
         match clauses with
         | [] => do

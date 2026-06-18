@@ -6674,3 +6674,44 @@ cert-manager at 30 s is correct but not single-digit-seconds: the fuel axis is s
 is the absolute eval count (~290k) × the per-eval constant. Next perf lever is the per-eval cost,
 not fuel. argocd's `bottom` is a correctness frontier (likely `module-file-scoped-imports` /
 `import-eager-closedness` / field-ordering), independent of this slice.
+
+---
+
+## Completed Slice: Fuel-saturation soundness fix — comprehension/embedding helpers must bump `truncCount`
+
+Goal: close a VIOLATION found by Phase-A audit #6 (2026-06-18) in the fuel-saturation
+caching slice (`ed5f530`). The slice claimed `fuel=0` base + cycle `.top` were the ONLY
+truncation sources, so the bracket over `truncCount` could never misclassify a truncated
+result as saturated. That was false: four fuel-threaded helpers truncate independently.
+
+### The bug
+
+`expandClausesWithFuel`, `expandComprehensionWithFuel`, `evalEmbeddingFieldsWithFuel`, and
+`meetEmbeddingsWithFuel` each have a `fuel=0` base case that returns an INCOMPLETE result
+(drops comprehension/embedding fields) without bumping `truncCount`. A comprehension or
+embedding truncated at low fuel mid-expansion yielded a smaller struct than at high fuel,
+yet the bracketing `evalValueWithFuel` saw `truncCount` unmoved → classified it saturated →
+inserted the truncated value into the fuel-free `satCache`. A higher-fuel same-key request
+was then served the smaller (wrong) struct — a truncated value served fuel-free.
+
+Repro: `.structComp [] [if true {x:1}] true` evaluates to `.struct [] true` at fuel 2
+(dropping `x`, `truncCount` unmoved) but `.struct [{x:1}] true` at fuel 20; `evalTwiceAt 2 20`
+served the fuel-2 `{}` stump at fuel 20.
+
+### The fix
+
+Bump `truncCount` at all four helper `fuel=0` arms (mirrors the two `evalValueCoreWithFuel`
+arms). A strict tightening — classifications can only move saturated→truncated, never the
+reverse, so the fix can never newly corrupt; worst case is a perf miss for configs that
+exhaust fuel mid-comprehension. Every fixture stayed byte-identical (no current fixture hits
+these arms at fuel=100 — the hole was latent, but latent-unsound is still a Violation per the
+correctness-over-performance decision). Updated `Saturation`/`truncCount` doc comments: six
+bump sites, not two.
+
+### Tests (2 new `native_decide` pins, `Kue/Tests/EvalTests.lean`)
+
+`sat_comprehension_truncation_not_served_across_fuel` (the third-truncation-source pin: the
+`if true {x:1}` comprehension truncated at fuel 2 must NOT be served fuel-free at fuel 20 — the
+exact corruption, failing pre-fix); `sat_comprehension_low_fuel_truncates` (the hazard is
+genuine — fuel-2 drops `x`, fuel-20 keeps it). These close the gap the 5 original pins left:
+they only exercised the two known arms, never a helper truncation.

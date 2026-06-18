@@ -292,6 +292,38 @@ theorem sat_truncated_same_fuel_is_cached :
       = true := by
   native_decide
 
+/-- THE THIRD-TRUNCATION-SOURCE pin (audit 2026-06-18 #6). The two `evalValueCoreWithFuel`
+    arms (`fuel=0` base, cycle `.top`) are NOT the only fuel-truncation sources: the comprehension
+    /embedding-expansion helpers (`expandClausesWithFuel`, `expandComprehensionWithFuel`,
+    `evalEmbeddingFieldsWithFuel`, `meetEmbeddingsWithFuel`) each have a fuel=0 arm that DROPS
+    fields/meets when fuel runs out mid-expansion. The original saturation slice did not bump
+    `truncCount` there, so a comprehension truncated at low fuel was misclassified SATURATED and
+    cached fuel-free → a higher-fuel request was served the smaller (wrong) struct. The audit fix
+    bumps `truncCount` at all four helper arms. This `.structComp`-wrapped `if true {x:1}` expands
+    to `{x:1}` at high fuel but DROPS `x` at low fuel — the exact shape that corrupted. -/
+def satCompTruncValue : Value :=
+  .structComp []
+    [.comprehension [.guard (.prim (.bool true))]
+      (.struct [⟨"x", .regular, .prim (.int 1)⟩] true)]
+    true
+
+-- SOUNDNESS (third-truncation-source corruption): the comprehension truncates at fuel 2
+-- (`{}`) but expands at fuel 20 (`{x:1}`). Evaluating at fuel 2 first must NOT poison the fuel-20
+-- request via the fuel-free `satCache`: the fuel-20 reuse must equal the fresh fuel-20 eval (the
+-- expansion), not the fuel-2 stump. Pre-fix this FAILED (served the `{}` stump at fuel 20).
+theorem sat_comprehension_truncation_not_served_across_fuel :
+    (let r := evalTwiceAt 2 20 satCompTruncValue
+     (r.snd.fst == evalOnceAt 20 satCompTruncValue)
+       && (r.fst != r.snd.fst))
+      = true := by
+  native_decide
+
+-- SOUNDNESS: the fuel-2 comprehension eval really IS truncated (drops `x`) vs fuel 20 — pins
+-- that the hazard above is genuine, i.e. the helper fuel-exhaustion is fuel-sensitive.
+theorem sat_comprehension_low_fuel_truncates :
+    (evalOnceAt 2 satCompTruncValue != evalOnceAt 20 satCompTruncValue) = true := by
+  native_decide
+
 /-! ### perf-B memo false-share pins (audit 2026-06-18 #5, owed `perfb-soundness-pins`).
 
 The perf-B audit cleared the frame-share + force memos as SOUND but flagged that the 4 existing

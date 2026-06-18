@@ -24,6 +24,73 @@ reference implementation. See
 - Keep each commit small enough to review, revert, or extend safely. One slice per
   commit; the commit subject mirrors the slice title.
 
+## Audit Fix-Slices (fuel-saturation soundness — Phase A code-quality, audit 2026-06-18 #6)
+
+Scope: the fuel-saturation caching slice (`ed5f530`) — prove or break "no truncated value
+served fuel-free." **VIOLATION found AND FIXED inline this audit** (strict tightening, full
+verify gate green, committed). Headline: the soundness story had a **third (really fourth)
+truncation source** the slice missed. The corruption was real and reproducible.
+
+### V1 — comprehension/embedding helpers truncate WITHOUT bumping `truncCount` (VIOLATION, FIXED)
+
+The slice's central claim — "`fuel=0` base + cycle `.top` are the only truncation arms; every
+transitive truncation flows through `truncCount`, so no arm can drop fields and stay saturated"
+— was **false**. Four fuel-threaded helpers have their OWN `fuel=0` base case that returns an
+INCOMPLETE result (drops comprehension/embedding fields) and did NOT bump `truncCount`:
+
+- `expandClausesWithFuel` (`| 0 => pure []`) — drops the whole comprehension body.
+- `expandComprehensionWithFuel` (`| 0, _ => pure []`) — drops comprehension fields.
+- `evalEmbeddingFieldsWithFuel` (`| 0 => pure []`) — drops embedding-contributed fields.
+- `meetEmbeddingsWithFuel` (`| 0 => pure current`) — drops embedding meets.
+
+A comprehension/embedding truncated at low fuel mid-expansion yields a SMALLER struct than at
+high fuel, yet the bracketing `evalValueWithFuel` saw `truncCount` unmoved → classified it
+**saturated** → inserted the truncated value into the fuel-free `satCache`. A later same-key
+request at higher fuel was then **served the smaller (wrong) struct** — a truncated value served
+fuel-free, the exact cardinal sin the slice exists to prevent.
+
+**Concrete repro** (was failing, now pinned green): `.structComp [] [if true {x:1}] true`.
+`evalValueWithFuel 2` → `.struct [] true` (drops `x`), `truncCount` unmoved (saturated). Same
+value at `evalValueWithFuel 20` → `.struct [{x:1}] true`. In one run, `evalTwiceAt 2 20` served
+the fuel-2 `{}` stump at fuel 20 (corruption). Post-fix: fuel-2 bumps `truncCount` (truncated,
+fuel-keyed), fuel-20 re-derives the correct `{x:1}`.
+
+**Fix:** bump `truncCount` at all four helper `fuel=0` arms (mirrors the two existing arms). A
+strict tightening — only moves classifications saturated→truncated, never the reverse, so it can
+never NEWLY corrupt; worst case is a perf miss for configs that exhaust fuel mid-comprehension.
+Fixtures stayed byte-identical (no current fixture hits these arms at fuel=100, so the hole was
+latent — but latent unsound is still a Violation per the correctness-over-performance decision).
+Doc comments on `Saturation`/`truncCount` updated: six bump sites, not two. Regression pins added
+(`sat_comprehension_truncation_not_served_across_fuel`, `sat_comprehension_low_fuel_truncates`).
+
+### Cleared (no Violation, adversarial effort exhausted)
+
+- **Re-bump on cache/force HITS is complete.** `satCache` hit bumps nothing (saturated ⇒ 0);
+  fuel-keyed `cache` truncated hit re-bumps +1; `forceCache` truncated hit re-bumps +1. A parent
+  built from a truncated sub-result reached via ANY of the three memos correctly becomes
+  truncated. Verified by reading all four `truncCount`-touch sites (1527, 1550→bump arm, 1584,
+  1927) + the now-six real arms.
+- **Bracket scoping is sound.** `truncCount` is a monotonic global counter snapshotted
+  before/after each core eval; siblings can only ADD truncations (never reset/hide one). A sibling
+  subtree's truncation falsely truncating an unrelated saturated parent is a perf miss
+  (acceptable), never a false-saturated (the corrupting direction is impossible — the counter only
+  grows).
+- **Catch-all `| _, value => pure value` (`evalValueCoreWithFuel`) is NOT a truncation source.**
+  It catches only normal-form `Value` constructors (`.top`/`.bottom`/`.prim`/`.kind`/`.notPrim`/
+  `.stringRegex`/`.boundConstraint`/`.thisStruct`/`.bottomWith`/`.embeddedList`) — terminal values
+  that are identical at all fuel. Returning them unchanged is saturated-correct.
+- **Cross-fuel 263-class pin (`sat_truncated_not_served_across_fuel`) genuinely distinguishes** —
+  it uses a self-ref value truncating via the `.refId` arm (which always bumped), so it passed
+  even with V1 latent. That is exactly why V1 slipped the pins: the 5 existing pins only exercise
+  the TWO known arms, never a comprehension/embedding helper truncation. Pin gap now closed.
+
+### Pin-strength verdict
+
+The 5 original saturation pins were HONEST but INSUFFICIENT — they pinned the two arms the slice
+knew about and missed the four it didn't. The two new pins close the third-truncation-source gap.
+No further pins owed for this surface; the four force/embedding arms are now all under the same
+`truncCount` discipline as the core arms.
+
 ## Current Focus — data-driven roadmap to replace `cue` for prod9/infra (2026-06-16)
 
 **Real goal (chakrit):** make kue able to evaluate PRODIGY9's actual infra CUE so it can
