@@ -36,6 +36,11 @@ Oracle `cue` v0.16.1 at `/Users/chakrit/go/bin/cue`.
 VALUES on basic shapes. Plan-only (neither is a trivial inline fix — both need design).
 The list-comp eval core and the parser field-class fix (`502550f`) are SOUND.**
 
+**STATUS — BOTH CLEARED (2026-06-18). V1 `scalar-embed-collapse-provenance` landed `52b64dc`;
+V2 `embed-disj-arm-fallthrough` landed `b2b558f`. Both cue-exact, fixtures zero-drift,
+cert-manager + argocd link-2 no regression. See implementation-log for details. The LOW
+borderline `scalar-embed-with-decls` (item 3) stays OPEN and was NOT widened by V1.**
+
 ### `.listComprehension` exhaustiveness — VERDICT: handled at every REACHABLE site; no swallow
 
 Enumerated every `Value` match site. `.listComprehension` is handled explicitly at:
@@ -71,8 +76,9 @@ the catch-all predates the slice and is identity-for-residuals, not a new swallo
    `meetCore`/`meetWithFuel` rule. The meet arm must revert to bottom for empty/decl-free
    struct ∩ scalar. (No existing fixture catches this; `check-fixtures` stays green — add a
    `{} & 5`→conflict pin + `out:{} ; out:5`→conflict pin with the fix.)
-   - Fix-slice: **`scalar-embed-collapse-provenance`**. Move the collapse to embed-eval;
-     restore meet conflict for `{}`∩scalar. NOT trivial inline (changes WHERE collapse fires).
+   - Fix-slice: **`scalar-embed-collapse-provenance`** — DONE `52b64dc`. Moved the collapse to
+     `meetEmbeddingsWithFuel` (embed-eval); Lattice meet arms revert to `meetCore` so `{}`∩scalar
+     conflicts again. List-comp + `{5}`/`{5,5}`/`{5,6}` preserved. 5 conflict pins added.
 
 2. **[VIOLATION — HIGH, `2ef055d`] Embedded default-disjunction collapse picks the default arm
    BEFORE narrowing, with no fallback when narrowing KILLS the default arm.**
@@ -92,10 +98,12 @@ the catch-all predates the slice and is identity-for-residuals, not a new swallo
    `normalizeDisj`); a unified prune-on-distribute would fix both this and any future
    eval-distribution arm-death. Happy path (default arm SURVIVES narrowing) is correct, so no
    regression there; the slice's own fixtures don't exercise a dying default arm.
-   - Fix-slice: **`embed-disj-arm-fallthrough`**. Distribute the host narrowing into EVERY arm
-     of the embedded disjunction (not just the default) and prune bottoms, so a dead default
-     falls through. Reuse the `splitDisjConjunct` arm-distribution that already works in the
-     conj form. NOT trivial inline (changes the embed collapse strategy).
+   - Fix-slice: **`embed-disj-arm-fallthrough`** — DONE `b2b558f`. Distributed the host narrowing
+     into EVERY arm + pruned bottoms via `normalizeDisj`, in BOTH the `conjDisjArms?` (deferral)
+     path AND the plain-`.disj`-embedding path (the plan's repro actually hit the latter — arms
+     with no sibling self-ref, so `conjDisjArms?` declines). Dead default falls through, live
+     default kept, all-die conflicts. 4 pins added; 3 ss2 pins updated to the distributed residual
+     (manifest byte-unchanged, cue-exact).
 
 3. **[BORDERLINE — incompleteness, NOT unsound; pre-existing scope-out, sharpened by `3e0c84f`]
    Scalar embedding with non-output DECLS does not collapse.** cue collapses `{#a:1, 5}`→`5`

@@ -7054,3 +7054,69 @@ truncation source and need not bump `truncCount`; audit-#6 invariant honored by 
   cue resolves both. This is the tracked `argocd-tlsroute-list-guard` (link 3) — a DISTINCT slice,
   fast-failing (~3s in isolation), not the perf wall. The argo sub-package perf wall remains beyond
   it. argocd is NOT yet a drop-in; the NEXT correctness link is link 3.
+
+---
+
+## Completed Slices: audit-#10 HIGH Violations cleared — `scalar-embed-collapse-provenance` + `embed-disj-arm-fallthrough`
+
+Two HIGH correctness Violations from audit #10 (`87b597b`), both wrong VALUES on basic shapes,
+both cleared. Commits `52b64dc` (V1) and `b2b558f` (V2).
+
+### V1 — `scalar-embed-collapse-provenance` (`52b64dc`)
+
+The `{5}`→`5` scalar-embedding collapse lived in `meet` (`collapsesToScalarEmbed`, in the
+`.struct fields _, listLike` arms of `meetWithFuel`). At meet time an empty struct `{}` is
+indistinguishable from `{5}`'s residual `.struct []` — the embedded-scalar provenance is gone —
+so the rule wrongly absorbed any scalar an empty/decl-free struct met: `{} & 5` → `5`, `5 & {}`
+→ `5`, `{} & "s"` → `"s"`, `true & {}` → `true`, `out:{}` + `out:5` → `5`. cue gives a type
+conflict (mismatched types struct/scalar) in every case.
+
+Fix: move the collapse into `meetEmbeddingsWithFuel` (embed-eval), where the host struct is
+KNOWN to be embedding a scalar. The non-closure arm collapses to the resolved scalar when the
+host is output-free and decl-free (`collapsesToScalarEmbed`) and the embedding resolved to a
+terminal scalar; the fold continues with the scalar so `{5,5}` unifies and `{5,6}` conflicts.
+The Lattice meet arms revert to `meetCore`, restoring the cue conflict for a genuine `{}` ∩
+scalar (`.struct .., _ => .bottom`). List comprehensions rely on the collapse (a `[{x} for…]`
+body is a struct embedding a scalar) and stay green — they evaluate each body through the same
+`.structComp` → `meetEmbeddingsWithFuel` path. Preserved cue-exact: `{5}`→5, `[{5},{6}]`→[5,6],
+`{5,5}`→5, `{5,6}`→conflict. The LOW borderline `{#a:1, 5}` still bottoms (unchanged, NOT
+widened — that is the unsound direction).
+
+5 new pins (empty/decl-free struct ∩ int/string/bool conflicts, both meet orders, two-field-decl
+`out:{}` + `out:5` shape). Existing scalar-embed + list-comp pins unchanged.
+
+### V2 — `embed-disj-arm-fallthrough` (`b2b558f`)
+
+`meetEmbeddingsWithFuel` committed an embedded default disjunction to its default arm BEFORE the
+host narrowing spliced in, with no fall-through when the narrowing KILLED the default arm.
+`(*_#A{v:int} | _#B{v:string})` met with `{v:"s"}` bottomed the dead default and discarded the
+surviving `_#B`, so kue gave bottom where cue gives `{kind:"b",v:"s"}`.
+
+Two manifestations, both fixed by DISTRIBUTING the host narrowing into EVERY arm + pruning
+bottoms (`normalizeDisj` via `liveAlternatives`, NOT `normalizeEvaluatedDisj` which does not
+prune):
+1. `conjDisjArms?` path (arms needing deferral — argocd `#OpaqueSecret`): per-arm sub-fold
+   `meetEmbeddingsWithFuel current [arm]` at a dropped fuel tier so each arm re-enters the
+   deferral/force-splice machinery, then `normalizeDisj`.
+2. PLAIN embedded-disjunction path (the plan's repro — arms with no sibling self-ref, so
+   `conjDisjArms?` declines): when the evaluated embedding is a `.disj`, meet the OPENED host
+   into each arm, then `normalizeDisj`. This is the manifestation the plan's repro actually hits;
+   path 1 (the `conjDisjArms?` collapse the plan described) only fires for deferral-needing arms.
+
+A dead default falls through to a surviving arm; a live default still wins; all arms dying is a
+conflict; a single-arm disjunction narrows unchanged. The disjunction residual is now kept
+(`*{default} | {other}`) instead of collapsed to the default — the faithful CUE representation;
+manifest picks the default, cue-exact.
+
+4 new pins (dead-default fall-through, live-default kept, all-arms-die conflict, single-arm). 3
+existing ss2 pins updated to the (correct) distributed residual — their MANIFESTED JSON is
+byte-unchanged and cue-exact, only the internal disjunction residual string differs.
+
+### Verify (both)
+
+`lake build` 86 jobs green, `fixture pairs ok` (zero drift, existing export fixtures
+byte-unchanged), shellcheck untouched (no script changes). Real-app re-probe: cert-manager
+content-identical to cue (~31s), argocd link-2 `defs.#Secret` `data` populated base64
+content-identical (the 3-arm disjunction still resolves to the `_#OpaqueSecret` default). argocd
+full export still bottoms on link 3 (`defs.#TLSRoute` / `argocd-tlsroute-list-guard`) — pre-existing,
+NOT a regression from either fix. Next correctness link remains link 3.
