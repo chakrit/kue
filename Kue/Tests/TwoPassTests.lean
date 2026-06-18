@@ -13,8 +13,8 @@ namespace Kue
     case and fell through to `.bottom`. -/
 theorem select_into_default_disjunction :
     (selectEvaluatedField
-      (.disj [(.default, .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"c", .regular, .prim (.int 9)⟩] true),
-              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
+      (.disj [(.default, .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"c", .regular, .prim (.int 9)⟩] .regularOpen none []),
+              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
       "a"
       == .prim (.int 1)) = true := by
   native_decide
@@ -24,12 +24,12 @@ theorem select_into_default_disjunction :
     spurious `bottom` and never a silent pick of one arm. -/
 theorem select_into_nondefault_disjunction_defers :
     (selectEvaluatedField
-      (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
-              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
+      (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
       "a"
       == .selector
-           (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
-                   (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
+           (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+                   (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
            "a") = true := by
   native_decide
 
@@ -39,17 +39,17 @@ theorem select_into_nondefault_disjunction_defers :
     `Self.a` resolves. A non-default disjunction passes through untouched. -/
 theorem resolve_embedded_default_disjunction :
     (resolveEmbeddedDisjDefault
-      (.disj [(.default, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
-              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] true)])
-      == .struct [⟨"a", .regular, .prim (.int 1)⟩] true) = true := by
+      (.disj [(.default, .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+              (.regular, .struct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem resolve_embedded_nondefault_disjunction_unchanged :
     (resolveEmbeddedDisjDefault
-      (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
-              (.regular, .struct [⟨"b", .regular, .prim (.int 2)⟩] true)])
-      == .disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] true),
-                (.regular, .struct [⟨"b", .regular, .prim (.int 2)⟩] true)]) = true := by
+      (.disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+              (.regular, .struct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+      == .disj [(.regular, .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+                (.regular, .struct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])]) = true := by
   native_decide
 
 /-- TWO-PASS GATE (perf): the embedding-`Self` re-evaluation fires ONLY when a static field
@@ -91,7 +91,7 @@ and adding a `.listComprehension` arm. -/
 theorem embedded_self_pass_fires_on_nested_self_select :
     needsEmbeddedSelfPass
       [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"b", .regular, .struct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "a"⟩] true⟩]
+       ⟨"b", .regular, .struct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "a"⟩] .regularOpen none []⟩]
       ["a"] = true := by
   native_decide
 
@@ -100,7 +100,7 @@ theorem embedded_self_pass_fires_on_listcomp_source :
     needsEmbeddedSelfPass
       [⟨"Self", .letBinding, .thisStruct⟩,
        ⟨"b", .regular, .list [.listComprehension [.forIn none "x" (.selector (.refId ⟨0, 0⟩) "a")]
-                                (.struct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] true)]⟩]
+                                (.struct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])]⟩]
       ["a"] = true := by
   native_decide
 
@@ -109,10 +109,9 @@ theorem embedded_self_pass_fires_on_listcomp_source :
 theorem embedded_self_pass_fires_on_nested_listcomp_source :
     needsEmbeddedSelfPass
       [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"spec", .regular, .struct
-          [⟨"listeners", .regular, .list [.listComprehension
+       ⟨"spec", .regular, .struct [⟨"listeners", .regular, .list [.listComprehension
               [.forIn none "x" (.selector (.refId ⟨1, 0⟩) "a")]
-              (.struct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] true)]⟩] true⟩]
+              (.struct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none []⟩]
       ["a"] = true := by
   native_decide
 
@@ -121,7 +120,7 @@ theorem embedded_self_pass_fires_on_nested_listcomp_source :
 theorem embedded_self_pass_skips_nested_unselected :
     needsEmbeddedSelfPass
       [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"b", .regular, .struct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "other"⟩] true⟩]
+       ⟨"b", .regular, .struct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "other"⟩] .regularOpen none []⟩]
       ["a"] = false := by
   native_decide
 
@@ -147,8 +146,7 @@ theorem embedded_self_pass_fires_on_builtin_wrapped_select :
 theorem embedded_self_pass_fires_on_nested_builtin_wrapped_select :
     needsEmbeddedSelfPass
       [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"spec", .regular, .struct
-          [⟨"n", .regular, .builtinCall "len" [.selector (.refId ⟨1, 0⟩) "x"]⟩] true⟩]
+       ⟨"spec", .regular, .struct [⟨"n", .regular, .builtinCall "len" [.selector (.refId ⟨1, 0⟩) "x"]⟩] .regularOpen none []⟩]
       ["x"] = true := by
   native_decide
 
@@ -349,7 +347,7 @@ A5 fix above). These pins use REALISTICALLY-RESOLVED body refIds (depth reflecti
 theorem self_referenced_labels_collects_through_for_body :
     (selfReferencedLabels evalFuel 0 0
         (.comprehension [.forIn none "x" (.list [])]
-          (.struct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] true))
+          (.struct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] .regularOpen none []))
       == ["#t"]) = true := by
   native_decide
 
@@ -358,7 +356,7 @@ theorem self_referenced_labels_collects_through_for_body :
 theorem self_referenced_labels_guard_no_frame :
     (selfReferencedLabels evalFuel 0 0
         (.comprehension [.guard (.selector (.refId ⟨0, 0⟩) "#g")]
-          (.struct [⟨"v", .regular, .selector (.refId ⟨1, 0⟩) "#t"⟩] true))
+          (.struct [⟨"v", .regular, .selector (.refId ⟨1, 0⟩) "#t"⟩] .regularOpen none []))
       == ["#g", "#t"]) = true := by
   native_decide
 
@@ -370,7 +368,7 @@ theorem self_referenced_labels_guard_no_frame :
 theorem refs_self_embedded_label_detects_through_for_body :
     refsSelfEmbeddedLabel evalFuel 0 0 ["#t"]
         (.comprehension [.forIn none "x" (.list [])]
-          (.struct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] true)) = true := by
+          (.struct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] .regularOpen none [])) = true := by
   native_decide
 
 -- NOTE on end-to-end coverage: the observable wrong-value form of this miss (a static field
@@ -412,7 +410,7 @@ theorem listcomp_embed_selfref_empty_stays_empty :
 
 An open struct that ALSO carries comprehensions/embeddings (`{ embed; …; ... }`) was parsed as
 `.conj [.structComp(embeds), .structTail(fields, tail)]` — two OVERLAPPING-field arms. A
-`Self.<field>` self-ref landed in the `.structTail` arm, which never saw the embedding-contributed
+`Self.<field>` self-ref landed in the `.struct ` .defOpenViaTail (some arm) [], which never saw the embedding-contributed
 fields, so a use-site narrowing collapsed to `.bottom` (argocd `defs.#ListenerSet`: `parts.#Metadata`
 embedded + a def-level `...`). The parser now keeps it ONE node: the comprehension form already
 carries `open_ = true`, exactly what the bare `...` (`.top` tail) means; a definition-context one is
@@ -444,10 +442,12 @@ Each pin is cue v0.16.1-exact. -/
 
 -- HEADLINE: a `for k,v in #data` comprehension inside an embedded hidden-def populates AFTER
 -- the use-site narrows `#data` (the secret-data shape). Pre-fix: `mapped: {}` (empty).
+-- B2.2 dedup: the repeated `[string]: string` pattern (legacy `structPatterns` accumulated it
+-- per meet, no dedup) now collapses to ONE via `mkStruct`/`dedupPatterns`, matching cue v0.16.1.
 theorem hidden_def_embed_comprehension_narrows :
     evalSourceMatches
         "_#M: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n#S: {#data: [string]: string, _#M}\nout: #S & {#data: {a: \"x\"}}\n"
-        "_#M: {#data: {[string]: string}, mapped: {}}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {a: \"x\", [string]: string, [string]: string, [string]: string}, mapped: {a: \"x\"}}"
+        "_#M: {#data: {[string]: string}, mapped: {}}\n#S: {#data: {[string]: string}, mapped: {}}\nout: {#data: {a: \"x\", [string]: string}, mapped: {a: \"x\"}}"
           = true := by
   native_decide
 
@@ -466,7 +466,7 @@ theorem hidden_def_embed_sibling_narrows :
 theorem hidden_def_embed_comprehension_empty :
     evalSourceMatches
         "_#M: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n#S: {#data: [string]: string, _#M}\nout: #S & {#data: {}}\n"
-        "_#M: {#data: {[string]: string}, mapped: {}}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}"
+        "_#M: {#data: {[string]: string}, mapped: {}}\n#S: {#data: {[string]: string}, mapped: {}}\nout: {#data: {[string]: string}, mapped: {}}"
           = true := by
   native_decide
 
@@ -522,7 +522,7 @@ Each pin cue v0.16.1-exact. -/
 theorem disj_default_embed_comprehension_narrows :
     evalSourceMatches
         "_#A: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n_#B: {other: \"b\"}\n#S: {#data: [string]: string, (*_#A | _#B)}\nout: #S & {#data: {a: \"x\"}}\n"
-        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: *{#data: {[string]: string, [string]: string, [string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}\nout: *{#data: {a: \"x\", [string]: string, [string]: string, [string]: string}, mapped: {a: \"x\"}} | {#data: {a: \"x\", [string]: string}, other: \"b\"}"
+        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: *{#data: {[string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}\nout: *{#data: {a: \"x\", [string]: string}, mapped: {a: \"x\"}} | {#data: {a: \"x\", [string]: string}, other: \"b\"}"
           = true := by
   native_decide
 
@@ -541,7 +541,7 @@ theorem disj_default_embed_sibling_narrows :
 theorem disj_default_embed_comprehension_empty :
     evalSourceMatches
         "_#A: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n_#B: {other: \"b\"}\n#S: {#data: [string]: string, (*_#A | _#B)}\nout: #S & {#data: {}}\n"
-        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: *{#data: {[string]: string, [string]: string, [string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}\nout: *{#data: {[string]: string, [string]: string, [string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}"
+        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: *{#data: {[string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}\nout: *{#data: {[string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}"
           = true := by
   native_decide
 

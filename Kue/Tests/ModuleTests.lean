@@ -27,12 +27,12 @@ example : resolveImportSubpath "example.com" "example.computer/defs" = none := b
   native_decide
 
 private def fileA : ParsedFile :=
-  { value := .struct [⟨"a", .regular, .prim (.int 1)⟩] true
+  { value := .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
     packageName := some "defs"
     imports := [] }
 
 private def fileB : ParsedFile :=
-  { value := .struct [⟨"b", .regular, .prim (.int 2)⟩] true
+  { value := .struct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
     packageName := some "defs"
     imports := [] }
 
@@ -41,7 +41,7 @@ private def fileB : ParsedFile :=
 example :
     (match loadPackageFromParsed [fileA, fileB] with
      | .ok (some "defs", value) =>
-         value == .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] true
+         value == .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
      | _ => false) = true := by
   native_decide
 
@@ -61,25 +61,25 @@ example : importBindName { path := "example.com/defs", alias := some "d" } (some
 /-- `bindImports` prepends each binding as a hidden top-level field, in scope for
     references but excluded from output. -/
 example :
-    (bindImports [("defs", .struct [] true)] (.struct [⟨"out", .regular, .top⟩] false)
-      == .struct [⟨"defs", .hidden, .struct [] true⟩, ⟨"out", .regular, .top⟩] false) = true := by
+    (bindImports [("defs", .struct [] .regularOpen none [])] (.struct [⟨"out", .regular, .top⟩] .defClosed none [])
+      == .struct [⟨"defs", .hidden, .struct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none []) = true := by
   native_decide
 
 /-- `dedupeBindings` keeps the FIRST binding per name and drops later duplicates — the same
     package imported in two sibling files must bind ONCE, not be `meet`-folded into a corrupt
     duplicate (the cert-manager `conflicting values` bug). First occurrence wins. -/
 example :
-    (dedupeBindings [("attr", .struct [⟨"a", .regular, .top⟩] true),
-                     ("strings", .struct [] true),
-                     ("attr", .struct [⟨"b", .regular, .bottom⟩] true)]
-      == [("attr", .struct [⟨"a", .regular, .top⟩] true), ("strings", .struct [] true)]) = true := by
+    (dedupeBindings [("attr", .struct [⟨"a", .regular, .top⟩] .regularOpen none []),
+                     ("strings", .struct [] .regularOpen none []),
+                     ("attr", .struct [⟨"b", .regular, .bottom⟩] .regularOpen none [])]
+      == [("attr", .struct [⟨"a", .regular, .top⟩] .regularOpen none []), ("strings", .struct [] .regularOpen none [])]) = true := by
   native_decide
 
 /-- Distinct bind names (same path under two aliases, or two different packages) all survive —
     dedupe is by NAME, so no over-collapsing. -/
 example :
-    (dedupeBindings [("a", .struct [] true), ("b", .struct [] true)]
-      == [("a", .struct [] true), ("b", .struct [] true)]) = true := by
+    (dedupeBindings [("a", .struct [] .regularOpen none []), ("b", .struct [] .regularOpen none [])]
+      == [("a", .struct [] .regularOpen none []), ("b", .struct [] .regularOpen none [])]) = true := by
   native_decide
 
 /-! ## Cross-module dependency resolution (B3c, disk-free) -/
@@ -96,11 +96,9 @@ private def depsValue : Value :=
   .struct
     [⟨"module", .regular, .prim (.string "prodigy9.co")⟩,
      ⟨"deps", .regular,
-       .struct
-         [⟨"prodigy9.co/defs@v0", .regular, .struct [⟨"v", .regular, .prim (.string "v0.3.19")⟩] true⟩,
-          ⟨"other.org/lib@v1", .regular, .struct [⟨"v", .regular, .prim (.string "v1.2.0")⟩] true⟩]
-         true⟩]
-    true
+       .struct [⟨"prodigy9.co/defs@v0", .regular, .struct [⟨"v", .regular, .prim (.string "v0.3.19")⟩] .regularOpen none []⟩,
+          ⟨"other.org/lib@v1", .regular, .struct [⟨"v", .regular, .prim (.string "v1.2.0")⟩] .regularOpen none []⟩] .regularOpen none []⟩]
+    .regularOpen none []
 
 /-- `parseDeps` reads each `deps` entry into `(modPath, version)`, stripping the `@major`. -/
 example :
@@ -110,7 +108,7 @@ example :
   native_decide
 
 /-- A module value with no `deps` field yields an empty dependency table. -/
-example : parseDeps (.struct [⟨"module", .regular, .prim (.string "x.com")⟩] true) = [] := by
+example : parseDeps (.struct [⟨"module", .regular, .prim (.string "x.com")⟩] .regularOpen none []) = [] := by
   native_decide
 
 private def deps : List Dep :=

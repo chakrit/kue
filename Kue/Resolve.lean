@@ -92,11 +92,11 @@ mutual
         .disj (alternatives.map fun alternative =>
           (alternative.fst, resolveValueWithFuel fuel scopes alternative.snd)
         )
-    | fuel + 1, scopes, .structN fields openness tail patterns =>
-        -- 1:1 ref-resolution preserving the coherent structN shape (rebuild directly; the
+    | fuel + 1, scopes, .struct fields openness tail patterns =>
+        -- 1:1 ref-resolution preserving the coherent struct shape (rebuild directly; the
         -- openness/tail-presence/pattern-count are invariant under resolution).
         let nested := buildFrame fields :: scopes
-        .structN
+        .struct
           (fields.map (resolveFieldRefsWithFuel fuel nested))
           openness
           (tail.map (resolveValueWithFuel fuel nested))
@@ -134,9 +134,9 @@ mutual
 end
 
 def resolveStructRefs : Value -> Value
-  | .structN fields openness tail patterns =>
+  | .struct fields openness tail patterns =>
       let scopes := [buildFrame fields]
-      .structN
+      .struct
         (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
         openness
         (tail.map (resolveValueWithFuel resolveFuel scopes))

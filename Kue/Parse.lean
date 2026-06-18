@@ -531,7 +531,7 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
       match parts.patterns, parts.comprehensions with
       | [], [] => mkStruct parts.fields .defOpenViaTail (some tail) []
       -- An open struct that ALSO has comprehensions/embeddings (`{ embed; if c {…}; … }`): the
-      -- old `.conj [declared, .structTail fields tail]` split the embeds/comprehensions and the
+      -- old `.conj [declared, .struct fields .defOpenViaTail (some tail) []]` split the embeds/comprehensions and the
       -- plain-field+tail into two OVERLAPPING-field arms. When such a body is force-spliced as an
       -- imported def, the `.structTail` arm's `Self.<field>` self-refs resolve in isolation —
       -- they never see the embedding-contributed fields (the embed lives in the OTHER arm), so a
@@ -657,8 +657,8 @@ def valueAliasHead? (chars : List Char) : Option (String × List Char) :=
     unification. For a non-struct value the alias is inert — a scalar cannot reference its
     own alias and siblings cannot see it, so the value passes through unchanged. -/
 def bindValueAlias (name : String) : Value -> Value
-  | .structN fields openness tail ps =>
-      .structN (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps
+  | .struct fields openness tail ps =>
+      .struct (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps
   | .structComp fields cs open_ hasTail =>
       .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs open_ hasTail
   | value => value

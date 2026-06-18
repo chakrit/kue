@@ -216,16 +216,16 @@ theorem lattice_structPatterns_meet_structPatterns :
 
 /-! ## `mkStruct` smart-constructor invariants (B2.1)
 
-The B2 target representation `Value.structN` is built only through `mkStruct`, which
+The B2 target representation `Value.struct` is built only through `mkStruct`, which
 normalizes its arguments so the illegal states (incoherent tail/openness, duplicate
 patterns) are unconstructable. These pins are the regression gate for that guarantee — they
-exercise `mkStruct`/`coherentTail`/`dedupPatterns` directly (no producer feeds `structN`
+exercise `mkStruct`/`coherentTail`/`dedupPatterns` directly (no producer feeds `struct`
 through eval yet in B2.1), so they survive the later B2 migration unchanged. -/
 
-/-- Helper: does a built `structN` carry the coherent `tail = some _ ↔ defOpenViaTail`
-    shape? `true` for any other constructor (the property is vacuous off-`structN`). -/
+/-- Helper: does a built `struct` carry the coherent `tail = some _ ↔ defOpenViaTail`
+    shape? `true` for any other constructor (the property is vacuous off-`struct`). -/
 def structNTailCoherent : Value -> Bool
-  | .structN _ openness tail _ =>
+  | .struct _ openness tail _ =>
       match tail, openness with
       | some _, .defOpenViaTail => true
       | none, .defOpenViaTail => false
@@ -239,34 +239,34 @@ def structNTailCoherent : Value -> Bool
 -- struct-meet pins above.)
 theorem mkStruct_some_tail_forces_defOpenViaTail :
     (mkStruct [] .regularOpen (some (.prim (.int 1))) []
-      == .structN [] .defOpenViaTail (some (.prim (.int 1))) []) = true := by
+      == .struct [] .defOpenViaTail (some (.prim (.int 1))) []) = true := by
   native_decide
 
 -- A `some` tail with `defClosed` is likewise coerced to `defOpenViaTail` (a closed struct
 -- with a `...` is the nonsense state; it cannot be built).
 theorem mkStruct_some_tail_closed_coerced :
-    (mkStruct [] .defClosed (some .top) [] == .structN [] .defOpenViaTail (some .top) []) = true
+    (mkStruct [] .defClosed (some .top) [] == .struct [] .defOpenViaTail (some .top) []) = true
       := by
   native_decide
 
 -- `defOpenViaTail` with NO tail gets the bare-`...` default `some .top` — the other half
 -- of the never-constructable pair (defOpenViaTail without a tail).
 theorem mkStruct_defOpenViaTail_no_tail_defaults_top :
-    (mkStruct [] .defOpenViaTail none [] == .structN [] .defOpenViaTail (some .top) []) = true
+    (mkStruct [] .defOpenViaTail none [] == .struct [] .defOpenViaTail (some .top) []) = true
       := by
   native_decide
 
 -- A non-tail openness keeps `tail = none`: `regularOpen`/`defClosed` are tail-free.
 theorem mkStruct_regularOpen_stays_tailless :
-    (mkStruct [] .regularOpen none [] == .structN [] .regularOpen none []) = true := by
+    (mkStruct [] .regularOpen none [] == .struct [] .regularOpen none []) = true := by
   native_decide
 
 theorem mkStruct_defClosed_stays_tailless :
-    (mkStruct [] .defClosed none [] == .structN [] .defClosed none []) = true := by
+    (mkStruct [] .defClosed none [] == .struct [] .defClosed none []) = true := by
   native_decide
 
 -- Coherence holds for every openness/tail combination `mkStruct` is given — the four
--- nonsense inputs are all normalized to a coherent `structN`.
+-- nonsense inputs are all normalized to a coherent `struct`.
 theorem mkStruct_always_coherent :
     (structNTailCoherent (mkStruct [] .regularOpen (some .top) [])
       && structNTailCoherent (mkStruct [] .defClosed (some .top) [])
@@ -279,7 +279,7 @@ theorem mkStruct_always_coherent :
 -- Pattern dedup: a duplicate `(labelPattern, constraint)` pair is dropped, first kept.
 theorem mkStruct_dedups_patterns :
     (mkStruct [] .regularOpen none [(.kind .string, .kind .int), (.kind .string, .kind .int)]
-      == .structN [] .regularOpen none [(.kind .string, .kind .int)]) = true := by
+      == .struct [] .regularOpen none [(.kind .string, .kind .int)]) = true := by
   native_decide
 
 -- Pattern dedup is idempotent: deduping an already-deduped pattern list is a no-op.
@@ -294,14 +294,14 @@ theorem mkStruct_dedup_idempotent :
 -- Distinct patterns are preserved (dedup does not over-collapse), order stable.
 theorem mkStruct_keeps_distinct_patterns :
     (mkStruct [] .regularOpen none [(.kind .string, .kind .int), (.kind .bool, .kind .int)]
-      == .structN [] .regularOpen none [(.kind .string, .kind .int), (.kind .bool, .kind .int)])
+      == .struct [] .regularOpen none [(.kind .string, .kind .int), (.kind .bool, .kind .int)])
       = true := by
   native_decide
 
 /-! ## `mergeStructN` arm pins (B2.2/CP3-pre must-fix item 2)
 
 These exercise the `mergeStructN` arms through the LIVE `meet` path (production still emits
-old `.struct`, but `meet (.structN…) (.structN…)` already dispatches to `mergeStructN`).
+old `.struct`, but `meet (.struct…) (.struct…)` already dispatches to `mergeStructN`).
 Each pins a behavior the legacy arms carried that a subtly-wrong arm could silently drop:
 the cross-shape field-merge order, the tail-on-both-sides extra-field application, the
 arm-7 pattern dedup, and the still-`.bottom` cross-combinations that B2.5 will flip to
@@ -313,10 +313,10 @@ them, making its behavior change a visible diff. -/
 -- `{b, a} & {c, ...}` ⟹ fields `[c, b, a]`, NOT `[b, a, c]`.
 theorem mergeStructN_struct_tail_reverses_field_order :
     (meet
-        (.structN [⟨"b", .regular, .prim (.string "x")⟩, ⟨"a", .regular, .prim (.int 1)⟩]
+        (.struct [⟨"b", .regular, .prim (.string "x")⟩, ⟨"a", .regular, .prim (.int 1)⟩]
           .regularOpen none [])
-        (.structN [⟨"c", .regular, .prim (.bool true)⟩] .defOpenViaTail (some .top) [])
-      == .structN
+        (.struct [⟨"c", .regular, .prim (.bool true)⟩] .defOpenViaTail (some .top) [])
+      == .struct
           [
             ⟨"c", .regular, .prim (.bool true)⟩,
             ⟨"b", .regular, .prim (.string "x")⟩,
@@ -329,10 +329,10 @@ theorem mergeStructN_struct_tail_reverses_field_order :
 -- left is the tail-bearing side, `mergeStructFieldsWith leftFields rightFields` ⟹ `[c, b, a]`.
 theorem mergeStructN_tail_struct_keeps_tail_fields_first :
     (meet
-        (.structN [⟨"c", .regular, .prim (.bool true)⟩] .defOpenViaTail (some .top) [])
-        (.structN [⟨"b", .regular, .prim (.string "x")⟩, ⟨"a", .regular, .prim (.int 1)⟩]
+        (.struct [⟨"c", .regular, .prim (.bool true)⟩] .defOpenViaTail (some .top) [])
+        (.struct [⟨"b", .regular, .prim (.string "x")⟩, ⟨"a", .regular, .prim (.int 1)⟩]
           .regularOpen none [])
-      == .structN
+      == .struct
           [
             ⟨"c", .regular, .prim (.bool true)⟩,
             ⟨"b", .regular, .prim (.string "x")⟩,
@@ -345,9 +345,9 @@ theorem mergeStructN_tail_struct_keeps_tail_fields_first :
 -- tail (`int`) constrains the right's extra field `b`; the merged tail is `meet leftT rightT`.
 theorem mergeStructN_tail_tail_applies_both_tails_to_extras :
     (meet
-        (.structN [⟨"a", .regular, .top⟩] .defOpenViaTail (some (.kind .int)) [])
-        (.structN [⟨"b", .regular, .top⟩] .defOpenViaTail (some .top) [])
-      == .structN
+        (.struct [⟨"a", .regular, .top⟩] .defOpenViaTail (some (.kind .int)) [])
+        (.struct [⟨"b", .regular, .top⟩] .defOpenViaTail (some .top) [])
+      == .struct
           [⟨"a", .regular, .top⟩, ⟨"b", .regular, .kind .int⟩]
           .defOpenViaTail (some (.kind .int)) []) = true := by
   native_decide
@@ -357,17 +357,17 @@ theorem mergeStructN_tail_tail_applies_both_tails_to_extras :
 -- v0.16.1 collapses the duplicate too, `cue eval` ⟹ `{}`).
 theorem mergeStructN_pattern_pattern_dedups_equal_patterns :
     (meet
-        (.structN [] .regularOpen none [(.stringRegex "a", .kind .int)])
-        (.structN [] .regularOpen none [(.stringRegex "a", .kind .int)])
-      == .structN [] .regularOpen none [(.stringRegex "a", .kind .int)]) = true := by
+        (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
+        (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
+      == .struct [] .regularOpen none [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
 -- Distinct patterns from both sides are CONCATENATED (no over-dedup), order left-then-right.
 theorem mergeStructN_pattern_pattern_concats_distinct_patterns :
     (meet
-        (.structN [] .regularOpen none [(.stringRegex "a", .kind .int)])
-        (.structN [] .regularOpen none [(.stringRegex "b", .kind .string)])
-      == .structN [] .regularOpen none
+        (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
+        (.struct [] .regularOpen none [(.stringRegex "b", .kind .string)])
+      == .struct [] .regularOpen none
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)]) = true := by
   native_decide
 
@@ -376,15 +376,15 @@ theorem mergeStructN_pattern_pattern_concats_distinct_patterns :
 -- that flip a visible diff. (Both orders.)
 theorem mergeStructN_pattern_tail_is_bottom_for_now :
     (meet
-        (.structN [] .regularOpen none [(.stringRegex "a", .kind .int)])
-        (.structN [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
+        (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
+        (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
       == .bottom) = true := by
   native_decide
 
 theorem mergeStructN_tail_pattern_is_bottom_for_now :
     (meet
-        (.structN [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
-        (.structN [] .regularOpen none [(.stringRegex "a", .kind .int)])
+        (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
+        (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
       == .bottom) = true := by
   native_decide
 
@@ -392,16 +392,16 @@ theorem mergeStructN_tail_pattern_is_bottom_for_now :
 -- catch-all arm (dispatch is `(_ :: _)`-on-patterns, count-agnostic) ⟹ `.bottom` too.
 theorem mergeStructN_patterns_tail_is_bottom_for_now :
     (meet
-        (.structN [] .regularOpen none
+        (.struct [] .regularOpen none
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)])
-        (.structN [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
+        (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
       == .bottom) = true := by
   native_decide
 
 theorem mergeStructN_tail_patterns_is_bottom_for_now :
     (meet
-        (.structN [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
-        (.structN [] .regularOpen none
+        (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
+        (.struct [] .regularOpen none
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)])
       == .bottom) = true := by
   native_decide

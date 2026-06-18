@@ -182,9 +182,9 @@ mutual
   def disjSubsumesWithFuel (fuel : Nat) (alternatives : List (Mark × Value)) (actual : Value) : Bool :=
     alternatives.any fun alternative => subsumesWithFuel fuel alternative.snd actual
 
-  /-- Merged `structN` subsumption, reproducing the legacy eight struct-family arms
+  /-- Merged `struct` subsumption, reproducing the legacy eight struct-family arms
       EXACTLY. Dispatch is on the EXPECTED side's tail/pattern shape, then the ACTUAL
-      side's shape. Legacy ctor→`structN` mapping: `struct`/`structTail` carry no
+      side's shape. Legacy ctor→`struct` mapping: `struct`/`structTail` carry no
       patterns (`structTail` carries a `some` tail); `structPattern`/`structPatterns`
       carry patterns and no tail; openness bools recover via `StructOpenness.isOpen`. -/
   def structNSubsumesWithFuel
@@ -255,8 +255,8 @@ mutual
     | fuel + 1, .index expectedBase expectedKey, .index actualBase actualKey =>
         subsumesWithFuel fuel expectedBase actualBase && subsumesWithFuel fuel expectedKey actualKey
     | fuel + 1, .disj alternatives, value => disjSubsumesWithFuel fuel alternatives value
-    | fuel + 1, .structN expectedFields expectedOpenness expectedTail expectedPatterns,
-      .structN actualFields actualOpenness actualTail actualPatterns =>
+    | fuel + 1, .struct expectedFields expectedOpenness expectedTail expectedPatterns,
+      .struct actualFields actualOpenness actualTail actualPatterns =>
         structNSubsumesWithFuel fuel
           expectedFields expectedOpenness expectedTail expectedPatterns
           actualFields actualOpenness actualTail actualPatterns

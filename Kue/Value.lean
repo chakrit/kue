@@ -534,10 +534,10 @@ inductive Value where
   `...` tail value (present iff `openness = .defOpenViaTail`, enforced by `mkStruct`), and
   `patterns` are the `[pattern]: constraint` pairs (orthogonal to `tail`, which the old
   type could not carry together — the root of the missing `structPattern×structTail` meet
-  arm). Construction goes through the `mkStruct` smart constructor only. Named `structN`
+  arm). Construction goes through the `mkStruct` smart constructor only. Named `struct`
   during the B2 migration so it coexists with the old `struct`; B2.4 deletes the four old
   forms and renames this to `struct`. NOT produced by any eval/parse path in B2.1. -/
-  | structN
+  | struct
       (fields : List Field)
       (openness : StructOpenness)
       (tail : Option Value)
@@ -652,7 +652,7 @@ def dedupPatterns (patterns : List (Value × Value)) : List (Value × Value) :=
     (fun pattern kept => if kept.any (· == pattern) then kept else pattern :: kept)
     []
 
-/-- Coerce a `(tail, openness)` pair into the one coherent shape the `structN`
+/-- Coerce a `(tail, openness)` pair into the one coherent shape the `struct`
     representation admits, erasing the never-constructable combinations
     (`Phase-A` finding item-8 / the B2 `open_`×`hasTail` nonsense state):
 
@@ -667,7 +667,7 @@ def coherentTail : Option Value -> StructOpenness -> Option Value × StructOpenn
   | none, .defOpenViaTail => (some .top, .defOpenViaTail)
   | none, openness => (none, openness)
 
-/-- The B2 smart constructor for the normalized struct (`Value.structN`) — the ONLY
+/-- The B2 smart constructor for the normalized struct (`Value.struct`) — the ONLY
     sanctioned way to build the form. Enforces the representation invariants so illegal
     states are unconstructable:
 
@@ -689,7 +689,7 @@ def mkStruct
     (tail : Option Value)
     (patterns : List (Value × Value)) : Value :=
   let (coherentTailValue, coherentOpenness) := coherentTail tail openness
-  .structN fields coherentOpenness coherentTailValue (dedupPatterns patterns)
+  .struct fields coherentOpenness coherentTailValue (dedupPatterns patterns)
 
 /-- A single `import "path"` or `alias "path"` clause retained from a parsed file. The
     `path` is the verbatim import string (e.g. `"example.com/defs"`); `alias` carries the

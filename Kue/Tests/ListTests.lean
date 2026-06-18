@@ -50,23 +50,23 @@ theorem meet_open_list_tail_preserves_extra_bottom :
 
 theorem meet_struct_field_open_list_tail_with_longer_closed_list :
     meet
-      (.structN [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] .regularOpen none [])
-      (.structN [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [])
-      = .structN [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [] := by
+      (.struct [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] .regularOpen none [])
+      (.struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [])
+      = .struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [] := by
   rfl
 
 theorem meet_struct_field_open_list_tail_preserves_extra_bottom :
     meet
-      (.structN [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] .regularOpen none [])
-      (.structN [⟨"x", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩] .regularOpen none [])
-      = .structN [⟨"x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]]⟩] .regularOpen none [] := by
+      (.struct [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] .regularOpen none [])
+      (.struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩] .regularOpen none [])
+      = .struct [⟨"x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]]⟩] .regularOpen none [] := by
   rfl
 
 theorem meet_struct_field_closed_list_uses_list_meet :
     meet
-      (.structN [⟨"x", .regular, .list [.kind .int, .kind .string]⟩] .regularOpen none [])
-      (.structN [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [])
-      = .structN [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [] := by
+      (.struct [⟨"x", .regular, .list [.kind .int, .kind .string]⟩] .regularOpen none [])
+      (.struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [])
+      = .struct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [] := by
   rfl
 
 theorem meet_list_item_disjunction_distributes :
@@ -119,39 +119,39 @@ field present makes it a genuine struct/list conflict (bottom). Oracle-matched. 
 
 /-- Only-non-output struct meet a list → the list, with the decl preserved. -/
 theorem meet_hidden_struct_list_is_embedded_list :
-    (meet (.structN [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
+    (meet (.struct [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
           (.list [.prim (.int 1), .prim (.int 2)])
       == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩])
       = true := by native_decide
 
 /-- A regular (output) field present → genuine conflict. -/
 theorem meet_regular_struct_list_is_bottom :
-    isBottom (meet (.structN [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
+    isBottom (meet (.struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
 /-- A required field present → genuine conflict. -/
 theorem meet_required_struct_list_is_bottom :
-    isBottom (meet (.structN [⟨"a", .required, .kind .int⟩] .regularOpen none [])
+    isBottom (meet (.struct [⟨"a", .required, .kind .int⟩] .regularOpen none [])
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
 /-- Optional fields are non-output → the list survives. -/
 theorem meet_optional_struct_list_is_embedded_list :
-    (meet (.structN [⟨"a", .optional, .kind .int⟩] .regularOpen none [])
+    (meet (.struct [⟨"a", .optional, .kind .int⟩] .regularOpen none [])
           (.list [.prim (.int 1), .prim (.int 2)])
       == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"a", .optional, .kind .int⟩])
       = true := by native_decide
 
 /-- Empty struct (no members at all) embedding a list → the bare list (no decls). -/
 theorem meet_empty_struct_list_is_embedded_list :
-    (meet (.structN [] .regularOpen none []) (.list [.prim (.int 7)])
+    (meet (.struct [] .regularOpen none []) (.list [.prim (.int 7)])
       == .embeddedList [.prim (.int 7)] none [])
       = true := by native_decide
 
 /-- Open list embed: `[...]` is `listTail [] top` → `embeddedList [] (some top)`. -/
 theorem meet_hidden_struct_open_list :
-    (meet (.structN [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
+    (meet (.struct [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
           (.listTail [] .top)
       == .embeddedList [] (some .top) [⟨"#a", .definition, .prim (.int 1)⟩])
       = true := by native_decide

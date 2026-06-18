@@ -13,9 +13,9 @@ namespace Kue
 def version : String := "0.1.0-alpha"
 
 def formatTopLevel : Value -> String
-  -- A plain-struct-equivalent structN (no tail, no patterns) formats top-level fields directly;
+  -- A plain-struct-equivalent struct (no tail, no patterns) formats top-level fields directly;
   -- tail/pattern-bearing forms fall through to `formatValue` (legacy did the same).
-  | .structN fields _ none [] => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
+  | .struct fields _ none [] => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
   | value => formatValue value
 
 def resolveAndEval (value : Value) : Value :=
@@ -83,7 +83,7 @@ def formatManifestError : ManifestError -> String
     "field not found" rather than silently exporting bottom. -/
 def lookupField? (base : Value) (label : String) : Option Value :=
   match base with
-  | .structN fields _ _ _ => (findEvalField label fields).map Field.value
+  | .struct fields _ _ _ => (findEvalField label fields).map Field.value
   | .embeddedList _ _ decls => (findEvalField label decls).map Field.value
   | _ => none
 

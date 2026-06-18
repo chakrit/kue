@@ -89,7 +89,7 @@ mutual
     | _ + 1, .selector base label => .error (.incomplete (.selector base label))
     | _ + 1, .index base key => .error (.incomplete (.index base key))
     -- Manifest the named fields; tail/patterns/openness do not appear in output.
-    | fuel + 1, .structN fields _ _ _ =>
+    | fuel + 1, .struct fields _ _ _ =>
         match manifestFieldsWithFuel fuel fields with
         | .ok fields => .ok (.struct fields)
         | .error error => .error error

@@ -4,20 +4,20 @@ namespace Kue
 
 theorem definition_struct_normalizes_closed :
     (normalizeDefinitions
-      (.struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] true⟩] true)
-      == .struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] false⟩] true) = true := by
+      (.struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none [])
+      == .struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] .defClosed none []⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem regular_struct_field_stays_open :
     (normalizeDefinitions
-      (.struct [⟨"a", .regular, .struct [⟨"b", .regular, .kind .int⟩] true⟩] true)
-      == .struct [⟨"a", .regular, .struct [⟨"b", .regular, .kind .int⟩] true⟩] true) = true := by
+      (.struct [⟨"a", .regular, .struct [⟨"b", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none [])
+      == .struct [⟨"a", .regular, .struct [⟨"b", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem definition_typed_tail_stays_typed_tail :
     (normalizeDefinitions
-      (.struct [⟨"#A", .definition, .structTail [⟨"a", .regular, .kind .int⟩] (.kind .string)⟩] true)
-      == .struct [⟨"#A", .definition, .structTail [⟨"a", .regular, .kind .int⟩] (.kind .string)⟩] true) = true := by
+      (.struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] .defOpenViaTail (some (.kind .string)) []⟩] .regularOpen none [])
+      == .struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] .defOpenViaTail (some (.kind .string)) []⟩] .regularOpen none []) = true := by
   native_decide
 
 -- SWEEP fix (A1/B1 class): a definition field whose value is directly a `.list` (or comprehension/
@@ -27,9 +27,9 @@ theorem definition_typed_tail_stays_typed_tail :
 theorem definition_list_value_closes_nested_definition :
     (normalizeDefinitions
       (.struct [⟨"#L", .definition,
-        .list [.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] true⟩] true]⟩] true)
+        .list [.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []]⟩] .regularOpen none [])
       == .struct [⟨"#L", .definition,
-        .list [.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] false⟩] false]⟩] true)
+        .list [.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] .defClosed none []⟩] .defClosed none []]⟩] .regularOpen none [])
         = true := by
   native_decide
 
@@ -39,34 +39,30 @@ theorem definition_comprehension_body_closes_nested_definition :
     (normalizeDefinitions
       (.struct [⟨"#C", .definition,
         .comprehension [.guard .top]
-          (.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] true⟩] true)⟩] true)
+          (.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none [])⟩] .regularOpen none [])
       == .struct [⟨"#C", .definition,
         .comprehension [.guard .top]
-          (.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] false⟩] false)⟩] true)
+          (.struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] .defClosed none []⟩] .defClosed none [])⟩] .regularOpen none [])
         = true := by
   native_decide
 
 theorem nested_definition_struct_normalizes_closed :
     (normalizeDefinitions
-      (.struct
-        [
+      (.struct [
           ⟨
             "#A",
             .definition,
-            .struct [⟨"#B", .definition, .struct [⟨"b", .regular, .kind .string⟩] true⟩] true
+            .struct [⟨"#B", .definition, .struct [⟨"b", .regular, .kind .string⟩] .regularOpen none []⟩] .regularOpen none []
           ⟩
-        ]
-        true)
+        ] .regularOpen none [])
       ==
-        .struct
-          [
+        .struct [
             ⟨
               "#A",
               .definition,
-              .struct [⟨"#B", .definition, .struct [⟨"b", .regular, .kind .string⟩] false⟩] false
+              .struct [⟨"#B", .definition, .struct [⟨"b", .regular, .kind .string⟩] .defClosed none []⟩] .defClosed none []
             ⟩
-          ]
-          true) = true := by
+          ] .regularOpen none []) = true := by
   native_decide
 
 end Kue

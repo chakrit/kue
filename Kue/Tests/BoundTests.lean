@@ -54,16 +54,16 @@ theorem meet_strict_bound_conjunction_with_satisfying_int :
 
 theorem meet_struct_field_bound_conjunction_with_satisfying_int :
     (meet
-      (.struct [⟨"x", .regular, .conj [.boundConstraint (intDecimal 0) .ge .number, .boundConstraint (intDecimal 10) .le .number]⟩] true)
-      (.struct [⟨"x", .regular, .prim (.int 7)⟩] true)
-      == .struct [⟨"x", .regular, .prim (.int 7)⟩] true) = true := by
+      (.struct [⟨"x", .regular, .conj [.boundConstraint (intDecimal 0) .ge .number, .boundConstraint (intDecimal 10) .le .number]⟩] .regularOpen none [])
+      (.struct [⟨"x", .regular, .prim (.int 7)⟩] .regularOpen none [])
+      == .struct [⟨"x", .regular, .prim (.int 7)⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem meet_struct_field_strict_bound_conjunction_with_satisfying_int :
     (meet
-      (.struct [⟨"x", .regular, .conj [.boundConstraint (intDecimal 0) .gt .number, .boundConstraint (intDecimal 10) .lt .number]⟩] true)
-      (.struct [⟨"x", .regular, .prim (.int 7)⟩] true)
-      == .struct [⟨"x", .regular, .prim (.int 7)⟩] true) = true := by
+      (.struct [⟨"x", .regular, .conj [.boundConstraint (intDecimal 0) .gt .number, .boundConstraint (intDecimal 10) .lt .number]⟩] .regularOpen none [])
+      (.struct [⟨"x", .regular, .prim (.int 7)⟩] .regularOpen none [])
+      == .struct [⟨"x", .regular, .prim (.int 7)⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem lower_bound_subsumes_satisfying_int :

@@ -206,24 +206,24 @@ theorem yaml_k8s_deployment :
 
 -- `yaml.Marshal` framing: a trailing newline (oracle: `yaml.Marshal({a:1,...})`).
 theorem yaml_marshal_trailing_newline :
-    (valueToYaml (.structN [⟨"a", .regular, .prim (.int 1)⟩,
+    (valueToYaml (.struct [⟨"a", .regular, .prim (.int 1)⟩,
                            ⟨"b", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩] .regularOpen none [])).toOption
       == some "a: 1\nb:\n  - 1\n  - 2\n" := by native_decide
 
 theorem yaml_marshal_list :
-    (valueToYaml (.list [.structN [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [],
-                         .structN [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []])).toOption
+    (valueToYaml (.list [.struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [],
+                         .struct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []])).toOption
       == some "- a: 1\n- b: 2\n" := by native_decide
 
 -- Pretty JSON (the `cue export` default): 4-space indent, source-order keys, trailing nl.
 theorem json_pretty_nested :
-    (valueToJsonPretty (.structN [
+    (valueToJsonPretty (.struct [
       ⟨"a", .regular, .prim (.int 1)⟩,
-      ⟨"b", .regular, .structN [⟨"c", .regular, .prim (.string "x")⟩,
+      ⟨"b", .regular, .struct [⟨"c", .regular, .prim (.string "x")⟩,
                                ⟨"d", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩] .regularOpen none []⟩,
       ⟨"e", .regular, .prim (.float "1.50")⟩,
       ⟨"f", .regular, .list [] ⟩,
-      ⟨"g", .regular, .structN [] .regularOpen none []⟩] .regularOpen none [])).toOption
+      ⟨"g", .regular, .struct [] .regularOpen none []⟩] .regularOpen none [])).toOption
       ==
         some ("{\n" ++
           "    \"a\": 1,\n" ++

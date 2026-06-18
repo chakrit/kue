@@ -89,7 +89,7 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
         [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
         .regularOpen none [])
       =
-        .structN
+        .struct
           [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
           .regularOpen none [] := by
   rfl

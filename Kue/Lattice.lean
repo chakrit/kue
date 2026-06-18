@@ -173,7 +173,7 @@ def containsBottomWithFuel : Nat -> Value -> Bool
       containsBottomWithFuel fuel base || containsBottomWithFuel fuel key
   | fuel + 1, .disj alternatives =>
       alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
-  | fuel + 1, .structN fields _ tail patterns =>
+  | fuel + 1, .struct fields _ tail patterns =>
       -- Fields, optional tail, patterns.
       fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
         || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
@@ -449,8 +449,8 @@ def meetCore (left right : Value) : Value :=
   | _, .ref _ => .bottom
   -- `meetCore` is the bottoms-everything fallthrough; the real `struct×struct` merge is the
   -- single arm in `meetWithFuel`. A struct reaching here meets a non-struct → bottom.
-  | .structN .., _ => .bottom
-  | _, .structN .. => .bottom
+  | .struct .., _ => .bottom
+  | _, .struct .. => .bottom
   | .disj _, _ => .bottom
   | _, .disj _ => .bottom
   | .structComp _ _ _ _, _ => .bottom
@@ -783,7 +783,7 @@ def applyPatternsClosednessWith
   fields.map (applyPatternsClosednessToFieldWith meetValue declaredFields patterns open_)
 
 /-- The single normalized-struct meet (B2.4). Reproduces the legacy 12-arm matrix EXACTLY,
-    emitting `structN` via `mkStruct`, by dispatching on which side carries a tail/patterns and
+    emitting `struct` via `mkStruct`, by dispatching on which side carries a tail/patterns and
     preserving each legacy arm's field-merge ORDER and closedness application:
 
     * plain × plain (no tail, no patterns) → `mergeStructFieldsWith lf rf` + `applyStructClosedness`;
@@ -794,7 +794,7 @@ def applyPatternsClosednessWith
     * patterns on one side / both → the `mergeStructPattern(s)…` field+pattern fold, same orders.
 
     The cross-combination `tail-on-one-side × patterns-on-other` had NO legacy arm and stays
-    `.bottom` here (the documented B2.5 behavioral fix flips it to a real unify). A structN that
+    `.bottom` here (the documented B2.5 behavioral fix flips it to a real unify). A struct that
     carries BOTH a tail and patterns is never produced by any path and bottoms defensively. -/
 def mergeStructN
     (meetValue : Value -> Value -> Value)
@@ -957,7 +957,7 @@ def meetWithFuel : Nat -> Value -> Value -> Value
   | value, .top => value
   | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
   | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
-  | .structN lf lo lt lp, .structN rf ro rt rp =>
+  | .struct lf lo lt lp, .struct rf ro rt rp =>
       mergeStructN (meetWithFuel fuel) lf lo lt lp rf ro rt rp
   | .list leftItems, .list rightItems =>
       match meetListWith (meetWithFuel fuel) leftItems rightItems with
@@ -1024,7 +1024,7 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | none => .bottom
       | none =>
           match rightLike with
-          | .structN fields _ none [] =>
+          | .struct fields _ none [] =>
               if structHasOutputField fields then .bottom
               else
                 match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
@@ -1039,26 +1039,26 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | none => .bottom
       | none =>
           match leftLike with
-          | .structN fields _ none [] =>
+          | .struct fields _ none [] =>
               if structHasOutputField fields then .bottom
               else
                 match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
                 | some decls => .embeddedList rightItems rightTail decls
                 | none => .bottom
           | _ => meetCore leftLike (.embeddedList rightItems rightTail rightDecls)
-  -- A plain-struct-equivalent structN embeds a list; a tail/pattern-bearing structN has no
+  -- A plain-struct-equivalent struct embeds a list; a tail/pattern-bearing struct has no
   -- list-embedding arm and falls through to `meetCore` → `.bottom`. A genuine struct ∩ scalar
   -- is a type conflict (CUE: `{} & 5`); the `{5}`→`5` scalar-embedding collapse lives in
   -- `meetEmbeddingsWithFuel` where the provenance is known, not here (an empty `{}` and the
   -- residual `[]`-decls of `{5}` are indistinguishable at meet time).
-  | .structN fields _ none [], listLike =>
+  | .struct fields _ none [], listLike =>
       match asListPair listLike with
       | some (items, tail) =>
           if structHasOutputField fields then .bottom
           else .embeddedList items tail (declFields fields)
       | none =>
           meetCore (mkStruct fields .regularOpen none []) listLike
-  | listLike, .structN fields _ none [] =>
+  | listLike, .struct fields _ none [] =>
       match asListPair listLike with
       | some (items, tail) =>
           if structHasOutputField fields then .bottom
