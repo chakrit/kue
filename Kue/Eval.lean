@@ -891,6 +891,35 @@ def openStructValue : Value -> Value
   | .struct fields _ => .struct fields true
   | other => other
 
+/-- Drop a struct operand's lexical alias bindings (`let`/`Self=` — `FieldClass.letBinding`)
+    before splicing it into ANOTHER struct's frame. An alias is scoped to the struct that
+    declares it; an embedded def has its OWN `Self`, so carrying the host's `Self` (a
+    `.thisStruct`) into the embed's merged frame collides with the embed's `Self` and breaks the
+    embed's `Self.label` selections (→ `.bottom`). Field values (incl. ones the host narrowed)
+    are kept — only the alias bindings are removed. -/
+def stripLetBindings (operand : List Field × Bool) : List Field × Bool :=
+  (operand.fst.filter (fun f => f.fieldClass != .letBinding), operand.snd)
+
+/-- Keep ONLY the hidden/definition fields (`#x`, `_x` — `Field.ignoresClosedness`) of a host
+    struct operand when splicing it INTO an embedded def. An embed self-references the host's
+    SHARED hidden fields (`pname: Self.#name`, where `#name` flows from the use-site), so those
+    must reach the embed's frame. But the host's REGULAR output fields (`apiVersion`, `kind`) are
+    NOT the embed's — splicing them in makes the embed carry, re-evaluate, and conflict on them
+    (the host's `kind: Self.#name` re-evaluated in the embed frame → `.bottom`). Regular fields
+    unify with the embed's at the outer `meet`, not via the splice. -/
+def hiddenFieldsOnly (operand : List Field × Bool) : List Field × Bool :=
+  (operand.fst.filter (fun f => f.fieldClass != .letBinding && Field.ignoresClosedness f), operand.snd)
+
+/-- Apply the def's closedness over the embedding UNION to an already-meet-folded struct: the
+    single definition of CUE's embedding-closedness rule (shared by the eager `.structComp` eval
+    arm and the `.structComp` closure-force arm). The host was met OPEN against each (opened)
+    embedding, so its closedness must be re-applied ONCE over `def static labels ∪ each
+    embedding's evaluated labels` — an embedding widens the allowed set without imposing its own
+    closedness, and pre-closing the static frame would wrongly reject the embed's own fields. -/
+def closeEmbeddedOver (defFields embeddingFields : List Field) (defOpen : Bool) : Value -> Value
+  | .struct fields _ => .struct (applyClosednessFrom (defFields ++ embeddingFields) defOpen fields) defOpen
+  | other => other
+
 /-- Extract an evaluated value's struct-conjunct operand `(fields, open)` for splicing into a
     forced closure body — `.struct`/`.structTail`/the pattern structs all carry an evaluated
     field list. Returns `none` for non-struct values (primitives, lists, …), which cannot be
@@ -1074,6 +1103,59 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
               | none => none
           | _ => none
 
+/-- Bare-reference companion to `importDefClosureBody?` (slice E). A same-file def referenced
+    DIRECTLY (`#Outer`, a `.refId`, not a `base.label` selector) whose body has a sibling self-ref
+    must defer to a `.closure`, so a use-site conjunction (`#Outer & {#oname: "o"}`, or an
+    embedding `#Inner & {#name: …}`) splices the narrowing into the def frame BEFORE its self-ref
+    (`oname: Self.#oname`) collapses. Two gaps `conjStructOperand?`'s lazy-merge leaves:
+
+    1. A `.structComp` body (embed-bearing) — no `.structComp` arm in `conjStructOperand?` at ANY
+       depth, so it always took the eager collapse.
+    2. A `.struct`/`.structTail` body referenced from a NESTED frame (`id.depth > 0` — e.g. the
+       inner def of an embed chain, one frame deeper than the embedding's host) —
+       `conjStructOperand?` is depth-0-only (`id.depth != 0 ⇒ none`), so a nested self-ref def ref
+       lost the lazy-merge and collapsed.
+
+    A DEPTH-0 `.struct`/`.structTail` self-ref ref keeps the existing lazy-merge path (the common
+    same-file `#M & {narrow}` case) — deferring it too would churn every currently-green fixture.
+    The body is normalized as a definition (closed, recursively), mirroring the selector producer. -/
+def refDefClosureBody? (env : Env) (id : BindingId) : Option Value :=
+  match env.drop id.depth with
+  | [] => none
+  | frame :: _ =>
+      match nthField id.index frame.snd with
+      | none => none
+      | some defField =>
+          let body := Field.value defField
+          let isStructComp := match body with | .structComp _ _ _ => true | _ => false
+          let isStructLike := match body with
+            | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ => true | _ => false
+          -- Fire on the two lazy-merge gaps only: an embed-bearing `.structComp` (any depth), or a
+          -- nested (`depth > 0`) self-ref `.struct`/`.structTail`. Depth-0 `.struct`/`.structTail`
+          -- stays on the lazy-merge path.
+          if defField.fieldClass.isDefinition && isStructLike
+              && (isStructComp || id.depth > 0)
+              && defBodyHasSiblingSelfRef body then
+            some (normalizeDefinitionValueWithFuel normalizeFuel body)
+          else
+            none
+
+/-- Produce the captured `.closure` for a conjunct that is a bare ref to a self-ref def the
+    lazy-merge path cannot handle (`#Outer & {narrow}` or a nested embed `#Inner & {narrow}` —
+    slice E). The `.conj` fold uses this to defer such an operand BEFORE eval so the multi-operand
+    force-fold splices the use-site narrowing into the def frame (`oname: Self.#oname` /
+    `iname: Self.#name` see the narrowed siblings). Mirrors the selector producer's role in the
+    `.conj` path. `none` for any other operand (evaluated normally). -/
+def conjDefClosure? (env : Env) : Value -> Option Value
+  | .refId id =>
+      match env.drop id.depth with
+      | [] => none
+      | frame :: outer =>
+          match refDefClosureBody? env id with
+          | some defBody => some (.closure (frame :: outer) defBody)
+          | none => none
+  | _ => none
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -1138,13 +1220,25 @@ mutual
             match nthField id.index frame.snd with
             | none => pure (.bottomWith [.unresolvedBinding id])
             | some field =>
-                if id.depth == 0 then
-                  if slotVisited id.index visited then
-                    pure .top
+                -- Producer (slice E): a bare ref to a self-ref def the lazy-merge can't handle
+                -- (embed-bearing `.structComp`, or a nested `.struct`/`.structTail`) FORCES the def
+                -- body against its own captured scope — forced HERE with no use-operands (a bare
+                -- ref has no use-site to splice). When the ref sits inside a use-site conjunction
+                -- (`#Outer & {#oname: "o"}`, or a nested embed `#Inner & {#name: …}`), the `.conj`
+                -- fold re-produces the closure from the raw constraint (`conjDefClosure?`) and
+                -- force-splices the narrowing — so the standalone force here is only ever the
+                -- terminal value. The captured env is `frame :: outer` (the binding's scope): the
+                -- body's depth-0 refs land on `frame`, its cross-pkg refs walk `outer`.
+                match refDefClosureBody? env id with
+                | some defBody => forceClosureWithConjunct fuel (frame :: outer) defBody []
+                | none =>
+                  if id.depth == 0 then
+                    if slotVisited id.index visited then
+                      pure .top
+                    else
+                      evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
                   else
-                    evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
-                else
-                  evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
+                    evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
     | fuel + 1, .conj constraints => do
         match lazyConjMergedFields env constraints with
         | some (mergedFields, open_) =>
@@ -1155,7 +1249,15 @@ mutual
             | some fields => pure (.struct fields open_)
             | none => pure .bottom
         | none => do
-            let evaluated <- evalValuesWithFuel fuel env visited constraints
+            -- A bare ref to an embed-bearing self-ref def (`#Outer`, a `.structComp`) is DEFERRED
+            -- to its `.closure` here (`conjDefClosure?`) rather than evaluated — the `.refId` arm
+            -- would otherwise force it STANDALONE (no use-operands), collapsing its self-ref before
+            -- this fold can splice the narrowing. Every other constraint evaluates normally (the
+            -- selector producer's closures already arrive as `.closure`).
+            let evaluated <- constraints.mapM fun constraint =>
+              match conjDefClosure? env constraint with
+              | some closure => pure closure
+              | none => evalValueWithFuel fuel env visited constraint
             -- A `.closure` among the evaluated operands is a deferred imported def (slices 3-4).
             -- Instead of the inert `meet` (→ `.bottom`), force EVERY closure with the SHARED
             -- use-operand set spliced into its body (slice A — multi-operand fold). The use-site
@@ -1165,7 +1267,7 @@ mutual
             match allClosures evaluated with
             | [] => pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
             | closures =>
-                let useOperands := evaluated.filterMap evaluatedStructOperand?
+                let useOperands := (evaluated.filterMap evaluatedStructOperand?).map stripLetBindings
                 let others := nonClosureNonStructOperands evaluated
                 let foldClosure := fun (acc : EvalM Value) (cl : Env × Value) => do
                   let current <- acc
@@ -1283,8 +1385,14 @@ mutual
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | none => pure .bottom
         | some merged =>
+            -- Meet the embeddings OPEN (each opened by `meetEmbeddingsWithFuel`) against an OPEN
+            -- host, then re-close ONCE over `def ∪ embed` labels — an embedding widens the host's
+            -- allowed set without imposing its own closedness (CUE rule). Closing the host
+            -- BEFORE the meet would let a closed embed/host reject the other's regular fields.
             let embeddings := comprehensions.filter isEmbeddingValue
-            meetEmbeddingsWithFuel fuel nested (.struct merged open_) embeddings
+            let embeddingFields <- evalEmbeddingFieldsWithFuel fuel nested embeddings
+            let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
+            pure (closeEmbeddedOver merged embeddingFields open_ met)
     | fuel + 1, .interpolation parts => do
         let evaluated <- evalValuesWithFuel fuel env visited parts
         pure (evalInterpolation evaluated)
@@ -1346,7 +1454,14 @@ mutual
         match fuel with
         | 0 => pure current
         | nextFuel + 1 => do
-            let evaluated <- evalValueWithFuel (nextFuel + 1) env [] embedding
+            -- A bare ref to a self-ref def the lazy-merge can't handle is DEFERRED to its
+            -- `.closure` here (not evaluated through `.refId`, which would force it STANDALONE with
+            -- no use-operands), so the `.closure` branch below force-splices the HOST's current
+            -- fields — the embedding analogue of the `.conj` fold's `conjDefClosure?`.
+            let evaluated <-
+              match conjDefClosure? env embedding with
+              | some closure => pure closure
+              | none => evalValueWithFuel (nextFuel + 1) env [] embedding
             match evaluated with
             | .closure capturedEnv body => do
                 -- An embedded self-referential imported def (`parts.#Metadata`) evaluates to a
@@ -1358,11 +1473,25 @@ mutual
                 -- labels fold into the union closedness the structComp arm applies afterwards.
                 -- Forcing is a deferred sub-evaluation, so it drops fuel (force sits at a higher
                 -- measure tier and must consume fuel to re-enter here).
-                let useOperands := (evaluatedStructOperand? current).toList
+                -- Splice ONLY the host's hidden/definition fields (`#name`, …) into the embed:
+                -- those are the SHARED bindings the embed self-references (`pname: Self.#name`).
+                -- The host's regular output fields (`apiVersion`, `kind`) are NOT the embed's — they
+                -- unify at the outer `meet current forced`, not via the splice (splicing them makes
+                -- the embed re-evaluate and conflict on them). `hiddenFieldsOnly` also drops the
+                -- host's `Self=`/`let` aliases (the embed has its own).
+                let useOperands := (evaluatedStructOperand? current).toList.map hiddenFieldsOnly
                 let forced <-
                   forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
                 meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest
-            | _ => meetEmbeddingsWithFuel (nextFuel + 1) env (meet current evaluated) rest
+            | _ =>
+                -- A non-closure embedding (a plain struct, a same-package def ref) is OPENED
+                -- before the meet: an embedding UNIONS its labels into the host's allowed set
+                -- but never imposes its OWN closedness on the host (CUE rule, see
+                -- `openStructValue`). Without this, embedding a closed struct `{pval}` into a
+                -- host carrying `x` makes the closed embed reject `x` → `.bottom`. The host's
+                -- closedness over `def ∪ embed` labels is re-applied by the caller
+                -- (`meetEmbeddingsClosingOver`).
+                meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue evaluated)) rest
   termination_by embeddings => (fuel, 3, embeddings.length)
 
   /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct
@@ -1434,11 +1563,7 @@ mutual
             let embeddings := comprehensions.filter isEmbeddingValue
             let embeddingFields <- evalEmbeddingFieldsWithFuel fuel nested embeddings
             let met <- meetEmbeddingsWithFuel fuel nested (.struct merged true) embeddings
-            match met with
-            | .struct fields _ =>
-                let allowed := defFields ++ embeddingFields
-                pure (.struct (applyClosednessFrom allowed defOpen fields) defOpen)
-            | other => pure other
+            pure (closeEmbeddedOver defFields embeddingFields defOpen met)
     | _ => do
         let forced <- evalValueWithFuel fuel capturedEnv [] body
         pure (useOperands.foldl (fun current op => meet current (.struct op.fst op.snd)) forced)

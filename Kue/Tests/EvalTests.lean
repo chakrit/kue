@@ -1357,4 +1357,129 @@ theorem closure_meet_captured_frame_cycle_terminates :
                   ⟨"out", .regular, .prim (.string "keel")⟩] false) = true := by
   native_decide
 
+/-! ### slice E (closure-embed-chain) — multi-level embed chains + the closedness leak.
+
+The 3-level real shape `#ClusterIssuer → parts.#Metadata → attr.#Metadata` collapsed to `bottom`.
+TWO independent root causes (both fixed here): (E1) the eager `.structComp` eval arm and the
+non-closure branch of `meetEmbeddingsWithFuel` let an embedded CLOSED struct impose its closedness
+on the host's regular fields → `.bottom` (slice A's hidden-only embeds dodged it). (E2) a bare ref
+to a self-ref def the lazy-merge path can't splice — an embed-bearing `.structComp` (any depth) or a
+NESTED (`depth > 0`) `.struct`/`.structTail` (the inner def of an embed chain) — was evaluated
+eagerly, collapsing its self-ref before the use-site narrowing arrived. Fix: producers
+(`refDefClosureBody?`/`conjDefClosure?`) defer them to `.closure`s the force-fold splices. -/
+
+/-- E1 CLOSEDNESS LEAK (the closedness rule, isolated): `closeEmbeddedOver` re-closes a meet-folded
+    struct over `def ∪ embed` labels — a field declared by neither the def nor any embedding is
+    rejected, one declared by EITHER survives. This is what lets an embedding widen the host's
+    allowed set without imposing its own closedness. -/
+theorem close_embedded_over_unions_allowed_labels :
+    (closeEmbeddedOver [⟨"a", .regular, .top⟩] [⟨"b", .regular, .top⟩] false
+        (.struct [⟨"a", .regular, .prim (.int 1)⟩,
+                  ⟨"b", .regular, .prim (.int 2)⟩,
+                  ⟨"c", .regular, .prim (.int 3)⟩] true)
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩,
+                  ⟨"b", .regular, .prim (.int 2)⟩,
+                  ⟨"c", .regular, .bottomWith [.fieldNotAllowed "c"]⟩] false) = true := by
+  native_decide
+
+/-- E1 EAGER ARM: embedding a CLOSED struct `{pval}` (a `#`-def's value) into an OPEN host that
+    carries a regular `x` keeps BOTH — the closed embed must NOT reject the host's `x`. Was
+    `x: bottomWith [fieldNotAllowed "x"]` pre-E (the embed's closedness leaked onto the host). -/
+theorem eager_structcomp_embed_closed_keeps_host_field :
+    (runEval (evalValueWithFuel evalFuel [] []
+        (.structComp [⟨"x", .regular, .prim (.string "z")⟩]
+                     [.struct [⟨"pval", .regular, .prim (.string "p")⟩] false] true))
+      == .struct [⟨"x", .regular, .prim (.string "z")⟩,
+                  ⟨"pval", .regular, .prim (.string "p")⟩] true) = true := by
+  native_decide
+
+/-- E2 + the headline: the 2-LEVEL embed chain, cue-exact. `#Outer` (a `.structComp`) embeds
+    `#Inner & {#name: Self.#oname}`; the use-site `#Outer & {#oname: "z"}` narrows `#oname`, which
+    flows into the embed's `#name`, which the inner def's `iname: Self.#name` reads → all "z". Was
+    `bottom` (closedness leak), then `iname: string` (inner closure not force-spliced) pre-fix. -/
+private def chainInnerBody : Value :=
+  .struct [⟨"#name", .definition, .kind .string⟩,
+           ⟨"iname", .regular, .refId ⟨0, 0⟩⟩] true
+
+private def chainOuterBody : Value :=
+  .structComp
+    [⟨"#oname", .definition, .kind .string⟩,
+     ⟨"oname", .regular, .refId ⟨0, 0⟩⟩]
+    [.conj [.refId ⟨1, 0⟩,
+            .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] true]]
+    true
+
+private def chainEnv : Env :=
+  [(7, [⟨"#Inner", .definition, chainInnerBody⟩,
+        ⟨"#Outer", .definition, chainOuterBody⟩])]
+
+theorem embed_chain_two_level_narrows_through :
+    (runEval (evalValueWithFuel evalFuel chainEnv []
+        (.conj [.refId ⟨0, 1⟩,
+                .struct [⟨"#oname", .definition, .prim (.string "z")⟩] true]))
+      == .struct [⟨"#oname", .definition, .prim (.string "z")⟩,
+                  ⟨"oname", .regular, .prim (.string "z")⟩,
+                  ⟨"#name", .definition, .prim (.string "z")⟩,
+                  ⟨"iname", .regular, .prim (.string "z")⟩] false) = true := by
+  native_decide
+
+/-- E2 STANDALONE: the SAME `#Outer` selected WITHOUT a use-site narrowing forces to its own value
+    (the bare-ref producer forces standalone, no splice) — `#oname`/`oname`/`iname` stay `string`,
+    not `bottom` or a leaked `.closure`. Pins that the standalone force terminates and is concrete. -/
+theorem embed_chain_two_level_standalone_forces :
+    (runEval (evalValueWithFuel evalFuel chainEnv [] (.refId ⟨0, 1⟩))
+      == .struct [⟨"#oname", .definition, .kind .string⟩,
+                  ⟨"oname", .regular, .kind .string⟩,
+                  ⟨"#name", .definition, .kind .string⟩,
+                  ⟨"iname", .regular, .kind .string⟩] false) = true := by
+  native_decide
+
+/-- E2 CONFLICT → bottom: the outer fixes `iname: "fixed"` but the inner embed sets `iname` to the
+    chain-narrowed `#name = #oname = "z"` → a genuine conflict, matching cue's `bottom`. The
+    narrowing propagates correctly AND the conflict is honestly reported (the fix does not paper
+    over a real conflict by dropping the chain). -/
+private def chainConflictOuterBody : Value :=
+  .structComp
+    [⟨"#oname", .definition, .kind .string⟩,
+     ⟨"iname", .regular, .prim (.string "fixed")⟩]
+    [.conj [.refId ⟨1, 0⟩,
+            .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] true]]
+    true
+
+private def chainConflictEnv : Env :=
+  [(7, [⟨"#Inner", .definition, chainInnerBody⟩,
+        ⟨"#Outer", .definition, chainConflictOuterBody⟩])]
+
+theorem embed_chain_inner_conflict_is_bottom :
+    (runEval (evalValueWithFuel evalFuel chainConflictEnv []
+        (.conj [.refId ⟨0, 1⟩,
+                .struct [⟨"#oname", .definition, .prim (.string "z")⟩] true]))
+      == .struct [⟨"#oname", .definition, .prim (.string "z")⟩,
+                  ⟨"iname", .regular, .bottomWith [.fieldConflict "iname"]⟩,
+                  ⟨"#name", .definition, .prim (.string "z")⟩] false) = true := by
+  native_decide
+
+/-- E2 NON-REGRESSION (the bare-ref producer does NOT over-fire): a DEPTH-0 `.struct` self-ref def
+    ref keeps the lazy-merge path (`refDefClosureBody?` returns `none` for it), so `#M & {narrow}`
+    still resolves exactly as before — the producer only fires for `.structComp` (any depth) or a
+    NESTED `.struct`/`.structTail`. -/
+theorem ref_def_closure_skips_depth0_struct :
+    (refDefClosureBody?
+        [(7, [⟨"#M", .definition,
+          .struct [⟨"#name", .definition, .kind .string⟩,
+                   ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩])] ⟨0, 0⟩
+      == none) = true := by
+  native_decide
+
+/-- E2 producer FIRES for a NESTED (`depth > 0`) `.struct` self-ref def — the inner def of an embed
+    chain, one frame deeper than the embedding's host, which `conjStructOperand?` (depth-0-only)
+    cannot lazy-merge. `refDefClosureBody?` returns the normalized (closed) body. -/
+theorem ref_def_closure_fires_for_nested_struct :
+    (refDefClosureBody?
+        [(5, []),
+         (7, [⟨"#M", .definition,
+          .struct [⟨"#name", .definition, .kind .string⟩,
+                   ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩])] ⟨1, 0⟩).isSome = true := by
+  native_decide
+
 end Kue

@@ -6322,3 +6322,82 @@ blocker is **E (`closure-embed-chain`)**: a 2-level embed chain (`#Outer{ #Inner
 `Self={…}` self-ref) still collapses to `bottom` in kue while cue yields `{iname, oname}`. Next
 slice is E; the real `#ClusterIssuer → parts.#Metadata → attr.#Metadata` 3-level chain is what
 still gates cert-manager. B (`closure-perf`, ~10s) remains downstream.
+
+---
+
+## Completed Slice: Value.closure slice E (closure-embed-chain)
+
+Goal: a MULTI-LEVEL embedded-closure self-ref chain — a def that embeds a def that embeds a
+def, each a `Self={…}` self-ref — must propagate a use-site narrowing through every embed level
+instead of collapsing to `bottom`. The real shape is 3-level: `#ClusterIssuer → parts.#Metadata
+→ attr.#Metadata`. 2-level repro pre-E: `#Outer{ #Inner & {#name: Self.#oname} } & {#oname:"z"}`
+→ kue `bottom`, cue `{iname:"z", oname:"z"}`.
+
+### Root cause (traced, read-only `/tmp` repros, cue v0.16.1 oracle) — THREE coupled gaps
+
+The breadcrumb's "force doesn't recurse" framing was wrong. The real causes:
+
+1. **Closedness leak (E1).** The eager `.structComp` eval arm and the non-closure branch of
+   `meetEmbeddingsWithFuel` `meet`-ed an embedded struct WITHOUT opening its closedness. A closed
+   embed (`#Plain: {pval}`) embedded into a host carrying a regular field `x` rejected `x` via
+   `applyStructClosedness` (`x ∉ {pval}`) → `bottom`. Slice A dodged this because its only embed
+   (`parts.#Metadata`) was HIDDEN-ONLY (`ignoresClosedness`); any embed contributing a REGULAR
+   field — the real chain's `aname`/`mname` — trips it. Minimal: `out: { #Plain; x: "z" }` bottomed.
+2. **Bare-ref / nested-ref producer gap (E2a).** `conjStructOperand?`'s lazy-merge (which splices
+   a use-site narrowing into a def's frame) has no `.structComp` arm at ANY depth, and is
+   depth-0-only for `.struct`/`.structTail`. So an embed-bearing def OR a NESTED self-ref def
+   referenced from inside an embedding (one frame deeper) was evaluated EAGERLY, collapsing its
+   self-ref before the narrowing arrived. A new producer (`refDefClosureBody?` + `conjDefClosure?`)
+   defers these to `.closure`s the force-fold splices — fired in the `.refId` arm (forces
+   STANDALONE for a bare ref with no use-site), the `.conj` fold, and `meetEmbeddingsWithFuel`.
+3. **Cross-scope splice contamination (E2b).** Force-splicing the host's FULL `current` into an
+   embedded closure carried (a) the host's `Self=`/`let` aliases — colliding with the embed's own
+   `Self` and breaking its `Self.label` selections → `bottom`; and (b) the host's REGULAR output
+   fields (`apiVersion`, `kind`) — which the embed then re-evaluated and conflicted on. Fix:
+   `hiddenFieldsOnly` splices ONLY the host's hidden/definition fields (the shared `#name` the
+   embed self-references), never aliases or regular fields. Regular fields unify at the outer
+   `meet`, not via the splice.
+
+### Fix (`Kue/Eval.lean`)
+
+- **`closeEmbeddedOver`** (pure helper) + **`openStructValue`** in both embed-meet sites: meet
+  embeddings OPEN against an OPEN host, then re-close ONCE over `def ∪ embed` labels. The single
+  definition of CUE's embedding-closedness rule, shared by the eager `.structComp` eval arm and
+  the `.structComp` closure-force arm (DRY'd from inline duplication).
+- **`refDefClosureBody?` / `conjDefClosure?`** producers: defer a bare ref to an embed-bearing
+  (`.structComp`, any depth) or NESTED (`depth > 0`) `.struct`/`.structTail` self-ref def to a
+  `.closure`. Depth-0 `.struct`/`.structTail` stays on the lazy-merge path (no fixture drift).
+- **`hiddenFieldsOnly`** filter on the embed-splice use-operands; **`stripLetBindings`** on the
+  multi-operand `.conj` fold use-operands.
+
+### Tests (8 new `native_decide` pins + 1 committed module fixture)
+
+`close_embedded_over_unions_allowed_labels`, `eager_structcomp_embed_closed_keeps_host_field`
+(E1); `embed_chain_two_level_narrows_through`, `embed_chain_two_level_standalone_forces`,
+`embed_chain_inner_conflict_is_bottom` (chain narrows / standalone forces / inner conflict →
+bottom); `ref_def_closure_skips_depth0_struct`, `ref_def_closure_fires_for_nested_struct`
+(producer fires for the gap, not over-fires on depth-0). Committed
+`testdata/modules/embed_chain_selfalias/` — the real 3-level PLAIN-embed cross-package shape
+(`#ClusterIssuer → parts.#Metadata → attr.#Metadata`, implicit hidden-field flow), JSON export
+byte-identical to cue.
+
+### Verify
+
+`lake build` → 86 jobs. `scripts/check-fixtures.sh` → `fixture pairs ok` (every existing fixture
+byte-unchanged). `shellcheck` clean. Oracle: 2-level, 3-level, implicit plain-embed chains,
+closed-def-host union, narrowing-through-chain, and inner-conflict→bottom all byte-match cue
+v0.16.1. No CUE divergence found.
+
+### Real-app verdict (read-only prod9 — HONEST)
+
+A faithful hand-built replica of the FULL real `#ClusterIssuer` (3-level chain + `#staging: bool
+| *false` guards + `privateKeySecretRef` interpolation + `solvers` list + presence/`len` guards +
+the `_` embedding in `attr.#Metadata`) now exports byte-exact vs cue. BUT cert-manager (~11s) and
+argocd (~54s) STILL return `bottom`. Bisected: the collapse is NOT in `#ClusterIssuer` itself — it
+is triggered by a SIBLING def in the loaded `prodigy9.co/defs/parts` package, `#PodController`,
+which embeds `attr.#Ports` (a `.structComp` with a bare-`#port` self-ref guard `if #port != _|_`).
+The mere PRESENCE of `#PodController` in the package poisons the (unrelated) `#ClusterIssuer`
+eval — a CROSS-DEF cache collision, a NEW correctness shape beyond E's scope (E is complete and
+green on every chain shape in isolation). The long timings are a separate perf concern. Next
+correctness blocker: **`closure-crossdef-cache-collision`** (a sibling structComp-with-guard def
+poisoning an unrelated def's eval); perf B remains downstream.

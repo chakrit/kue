@@ -811,25 +811,62 @@ isolation under a `Self={…}` closure. The slice-A + slice-C work cleared D's s
 "unverified" concern is resolved. If the real chain surfaces a D-specific failure later it
 re-opens, but the probed shapes are green.
 
-**E. `closure-embed-chain` (correctness).** A MULTI-LEVEL embed chain — a def embeds a def that
-embeds a def, each a `Self={…}` self-ref — collapses: `#Outer{ #Mid{ #Inner } }` → kue `bottom`,
-cue `{iname,mname,oname}` (repro `/tmp/pf_chain`). The 2-level case already fails: the inner
-embed's `Self.#name` resolves to `_|_` when the outer closure force re-forces the embedded
-closure. Single-level embed (slice A) works; the recursion through a nested embedded closure +
-`Self=` alias does not. The real `#ClusterIssuer → parts.#Metadata → attr.#Metadata` is a 3-level
-chain, so this gates cert-manager even after C and D. **This is now the LIVE next slice
-(2026-06-18): post-C, with C and D both green, the cert-manager `bottom` traces here.** The
-2-level repro `#Outer{ #Inner & {#name: Self.#oname} }` → kue `bottom`, cue `{iname, oname}`
-(rebuild in `/tmp/pf_chain`).
+**E. `closure-embed-chain` (correctness). DONE 2026-06-18.** A MULTI-LEVEL embed chain — a def
+embeds a def that embeds a def, each a `Self={…}` self-ref — collapsed: `#Outer{ #Mid{ #Inner } }`
+→ kue `bottom`, cue `{aname,mname,oname}`.
 
-**B. `closure-perf` (frontier #2 — still a wall).** cert-manager remains ~10s even while
-erroring. Unchanged from the slice-4 probe; downstream of correctness. After E resolves
-correctness, profile B against a working target.
+**ROOT CAUSE (traced, not the breadcrumb's framing — it is closedness-leak, not force-recursion).**
+The collapse is NOT about chaining self-refs or re-forcing inner closures. Minimal repro that bottoms
+in kue while cue succeeds: `out: { #Plain; x: "z" }` with `#Plain: {pval: "p"}` — embedding ANY
+struct that carries a REGULAR field, alongside a host regular field, → `bottom`. Even `out: { #Plain }`
+(pure embed, no host field) bottoms. The discriminator: embedding a **definition** ref (`#Plain`,
+closed) fails; embedding a lowercase (open) ref (`plain`) works. Mechanism: an embedded closed struct
+`.struct [pval] open=false` meets the host `.struct [x] open` via `meet`; `applyStructClosedness`
+with the embed's `rightOpen=false` rejects host label `x ∉ {pval}` → `bottom`. CUE's rule (already in
+`openStructValue`'s docstring): an embedding UNIONS its labels into the host's allowed set WITHOUT
+imposing its own closedness on the host. Slice A's fixtures dodged this because the only cross-pkg
+embed (`parts.#Metadata`) had HIDDEN-ONLY fields (`#kind`,`#norm`) which `ignoresClosedness`; any
+embed contributing a regular field — exactly the real 3-level chain's `aname`/`mname`/`oname` — trips
+it. The force-`.structComp` arm handled this correctly (opens the embed via `openStructValue`, meets
+OPEN, re-closes over `def ∪ embed` labels at the end); the EAGER `.structComp` arm and the non-closure
+branch of `meetEmbeddingsWithFuel` did not. The chain "collapses at every level" because every level's
+embed contributes a regular field, so the leak fires at the first level and bottoms the whole struct.
 
-Sequence (revised 2026-06-18 post-C): **C ✅ → D ✅ (already passed) → E (LIVE NEXT) → B.** Both
-C and D are green; E is the sole remaining correctness blocker for cert-manager. None is slice
-A: slice A's audit-defined scope (the multi-operand + embed + nested-self-ref facets) is complete
-and green.
+**FIX (one slice, one mechanism — embeddings never impose closedness on their host).**
+1. **E1 closedness leak.** `closeEmbeddedOver` + `openStructValue` at BOTH embed-meet sites (eager
+   `.structComp` eval arm, `.structComp` closure-force arm): meet embeddings OPEN against an OPEN
+   host, re-close ONCE over `def ∪ embed` labels. DRY'd into one shared helper.
+2. **E2a producer gap.** `refDefClosureBody?`/`conjDefClosure?` defer a bare ref to an embed-bearing
+   `.structComp` (any depth) or a NESTED (`depth > 0`) `.struct`/`.structTail` self-ref def to a
+   `.closure` — wired into the `.refId` arm (standalone force), the `.conj` fold, AND
+   `meetEmbeddingsWithFuel`. Depth-0 `.struct`/`.structTail` keeps the lazy-merge path (no drift).
+3. **E2b splice contamination.** `hiddenFieldsOnly` splices ONLY the host's hidden/definition fields
+   into an embed (the shared `#name`), never the host's `Self=`/`let` aliases (collide with the
+   embed's own `Self`) or regular fields (`apiVersion`/`kind`, which the embed would re-eval and
+   conflict on). `stripLetBindings` on the multi-operand `.conj` fold use-operands.
+
+The breadcrumb's "force doesn't recurse" framing was wrong — forcing already recurses via the
+`.conj`/embed defers; the three real bugs were the closedness leak, the producer gap, and the
+cross-scope splice contamination. All chain shapes (2/3-level, explicit + implicit plain-embed,
+closed-host union, narrow-through, inner-conflict→bottom) resolve cue-exact.
+
+**B'. `closure-crossdef-cache-collision` (NEW correctness blocker, surfaced building E — LIVE
+NEXT).** E is cue-exact on every embed-chain shape in isolation, AND a faithful hand-built replica
+of the FULL real `#ClusterIssuer` exports byte-exact. BUT cert-manager/argocd still `bottom`.
+Bisected (read-only prod9): the collapse is NOT in `#ClusterIssuer` — it is triggered by a SIBLING
+def in the loaded `prodigy9.co/defs/parts` package, `#PodController`, which embeds `attr.#Ports` (a
+`.structComp` with a bare-`#port` self-ref guard `if #port != _|_`). The mere PRESENCE of
+`#PodController` in the package poisons the unrelated `#ClusterIssuer` eval — a CROSS-DEF cache
+collision (two defs sharing/forcing structComp closures whose cache keys collide). This is the next
+correctness slice. Minimal trigger: a def embedding `attr.#Ports` alongside `#ClusterIssuer` in one
+package; `out: #ClusterIssuer & {…}` → `bottom`.
+
+**B. `closure-perf` (frontier #2 — still a wall).** cert-manager ~11s, argocd ~54s even while
+erroring. Downstream of correctness; profile after B' resolves the cross-def collision.
+
+Sequence (revised 2026-06-18 post-E): **C ✅ → D ✅ → E ✅ → B' (`closure-crossdef-cache-collision`,
+LIVE NEXT) → B (perf).** E is complete and green on every embed-chain shape; the live cert-manager
+blocker is now B' (a sibling structComp-with-guard def poisoning an unrelated def's eval).
 
 ## Architecture Fix-Slices (Phase B audit 2026-06-18 #2 — post Value.closure slices 3-4-A, AUTHORITATIVE)
 
