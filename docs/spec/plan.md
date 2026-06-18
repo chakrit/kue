@@ -429,6 +429,133 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
   pattern×patterns, patterns×patterns — source-level JSON `export`, so B2-representation-stable)
   are the regression gate the migration must keep green.
 
+  ### B2 design (implementable) — audited 2026-06-19 (Phase-B #4)
+
+  Two FAMILIES of struct constructor exist and must be treated separately; the diagnostic
+  above conflates them. (1) The **evaluated** forms `struct`/`structTail`/`structPattern`/
+  `structPatterns` — these reach `meetWithFuel` and are the 12-arm matrix. (2) The
+  **pre-eval** form `structComp` (carries unexpanded comprehensions + the two-bool
+  `open_`/`hasTail` nonsense), which `evalValueCoreWithFuel` (`Eval.lean:2222`) expands and
+  re-emits as one of the family-(1) forms. `structComp` NEVER reaches the meet matrix
+  (`meetCore` bottoms it; lines 466-467 are dead-but-defensive). So B2 is two orthogonal
+  collapses, and they should be SEPARATE slices.
+
+  **Target representation (family 1 — the meet-bearing struct).** One constructor:
+  ```
+  | struct (fields : List Field) (openness : StructOpenness) (tail : Option Value)
+           (patterns : List (Value × Value))
+  ```
+  with
+  ```
+  inductive StructOpenness | regularOpen | defClosed | defOpenViaTail
+  ```
+  Map of the 4 old forms onto it (tail and patterns are ORTHOGONAL axes — the old type
+  could not carry both, which is exactly why `structPattern×structTail` had no arm):
+  - `struct fields open_`            → `struct fields (boolOpen open_) none []`
+  - `structTail fields tail`         → `struct fields .defOpenViaTail (some tail) []`
+  - `structPattern fields lp c o`    → `struct fields (boolOpen o) none [(lp,c)]`
+  - `structPatterns fields ps o`     → `struct fields (boolOpen o) none ps`
+
+  where `boolOpen : Bool → StructOpenness := fun b => if b then .regularOpen else .defClosed`.
+  This is exactly the `open_`/`hasTail` two-bool collapse item-8 proposed: today `structTail`
+  IS the "`...`-tailed" form (def-open-via-tail) and the old `open_ : Bool` on the other three
+  conflated regular-open with def-open. `StructOpenness` makes the three states
+  (`regularOpen` = no-`...` regular struct, open; `defClosed` = no-`...` definition, closed;
+  `defOpenViaTail` = explicit `...`, open-and-tail-bearing) mutually exclusive and total. The
+  illegal states erased: (a) a value that is BOTH a tail-struct AND a pattern-struct could not
+  be represented before (forcing the missing arm); now it is `tail = some _ ∧ patterns ≠ []`,
+  fully representable and meetable. (b) the `open_=true ∧ hasTail=true` vs `open_=false ∧
+  hasTail=true` ambiguity disappears — `defOpenViaTail` is one state.
+
+  **One constructor, NOT a tighter encoding.** Rejected: a `StructShape` payload struct
+  hoisted out of `Value`, or GADT-style indexing on presence of tail/patterns. Reason: the
+  perf carve-out — `Value` deliberately omits `DecidableEq` (kernel reduces it slowly; behavior
+  pinned by `native_decide`). A flat 4-field constructor adds NO kernel-proof burden and keeps
+  the recursor shape simple; an indexed family would force motive elaboration on the hot meet
+  path. Flat fields + a smart constructor is the illegal-states-unrepresentable win at zero
+  perf cost.
+
+  **Smart constructor + normalization invariant.** `mkStruct (fields) (openness) (tail)
+  (patterns) : Value`, the ONLY way construction sites build the form. Invariants it enforces:
+  - **`patterns` normalized**: this replaces `patternStructValue` (`Lattice.lean:727`), which
+    today already picks `struct`/`structPattern`/`structPatterns` by list length — that length
+    dispatch VANISHES (one constructor regardless of 0/1/n patterns). `mkStruct` keeps patterns
+    in a canonical order and drops duplicates so meet is confluent.
+  - **tail/openness coherence**: `tail = some _ ⟹ openness = .defOpenViaTail`, and
+    `openness = .defOpenViaTail ⟹ tail = some _` (default `some .top` for a bare `...`). The
+    smart constructor either derives openness from the tail or rejects the incoherent pair.
+    This is the one pair that must NEVER be constructable: a `defOpenViaTail` with `tail =
+    none`, or a `some tail` with `regularOpen`/`defClosed`.
+  - **field ordering**: unchanged — `canonicalizeFields` already owns this; `mkStruct` calls it.
+
+  **The single meet merge.** The 12 arms (`Lattice.lean:971-1044`) collapse to ONE arm
+  `| .struct lf lo lt lp, .struct rf ro rt rp =>`. Algorithm, composing the EXISTING helpers
+  (no new merge logic — the arms already factor through `mergeStructFieldsWith`,
+  `applyTailToExtrasWith`, `applyPatternsToFieldsWith`, `applyPatternsClosednessWith`):
+  1. `mergeStructFieldsWith` the two field lists → `none` ⇒ `.bottom`.
+  2. tail: `meetTail lt rt` (both `none`→`none`; one `some`→propagate and apply via
+     `applyTailToExtrasWith` to the other side's extras; both `some`→meet the tails, bottom if
+     bottom). 
+  3. patterns: `lp ++ rp` then `applyPatternsToFieldsWith` over the merged fields, then
+     `applyPatternsClosednessWith` for the closed case.
+  4. openness: `meetOpenness lo ro` (closed dominates; `defOpenViaTail` ⊓ `regularOpen` =
+     open-with-tail; two opens stay open).
+  5. `mkStruct mergedFields mergedOpenness mergedTail mergedPatterns`.
+  The previously-MISSING cross-combinations now unify BY CONSTRUCTION: `structPattern×structTail`
+  is just `lp = [(p)]` meeting `rt = some _` — step 2 applies the tail, step 3 applies the
+  pattern, no arm to forget. This is the correctness payoff: `{[string]: int} & {a:5, ...}` →
+  `{a:5}` (cue v0.16.1 confirmed), not `_|_`.
+
+  **BEHAVIORAL split (critical).** The constructor collapse is byte-identical for every arm
+  that EXISTS today; the cross-combination fix is a `bottom→unify` BEHAVIOR change. So B2 is
+  NOT purely byte-identical and the migration MUST separate them:
+  - The collapse slices keep all existing `LatticeTests` + struct fixtures green (byte-identical
+    gate).
+  - The FINAL slice adds the new arm's behavior and NEW oracle-checked fixtures for the four
+    now-fixed cross-combinations (`structPattern×structTail`, `structPatterns×structTail`, both
+    orders), flipping the documented-but-unpinned `LatticeTests` entries into passing pins.
+
+  **Migration plan — MULTI-SLICE (5 slices).** Site counts (grep, 2026-06-19) — family-1 forms
+  `struct`/`structTail`/`structPattern`/`structPatterns` and pre-eval `structComp`:
+  `Lattice` struct20/tail8/pat10/pats10/comp2; `Eval` 48/29/14/15/comp29; `Normalize`
+  6/0/2/4/comp4; `Resolve` 4/4/2/4/comp4; `Order` 4/5/9/9/comp0; `Manifest` 6/1/1/1/comp2;
+  `Format` 1/1/1/1/comp1; `Parse` 2/4/3/3/comp4; `Value` tail1/pats1/comp1; `Builtin`
+  2/1/3/2; `Runtime` 3/1/1/1. The `structComp` collapse (B2b) is INDEPENDENT and large enough
+  (~44 sites) to be its own slice sequence; sequence:
+  - **B2.1 — introduce `StructOpenness` + `mkStruct` + new `struct` ctor; keep old 4 ctors.**
+    No call sites move. `mkStruct` defined over the new shape; `boolOpen`/`meetOpenness`/
+    `meetTail` helpers + their `native_decide` agreement pins. Green, byte-identical, zero
+    behavior change. (Type compiles alongside the old forms.)
+  - **B2.2 — migrate CONSTRUCTION sites to `mkStruct`** (the `.structX …` build sites:
+    `patternStructValue`, the merge helpers' result-emit, `Eval` re-emit, `Parse`). One module
+    at a time, fixture-gated, byte-identical each.
+  - **B2.3 — migrate MATCH sites** (the `.structX …` patterns) per module: `Lattice` meet matrix
+    last, `Order`/`Manifest`/`Format`/`Normalize`/`Resolve` first. Each module independently
+    green + byte-identical.
+  - **B2.4 — rewrite the 12-arm meet matrix into ONE `.struct,.struct` arm** + delete the old 4
+    ctors. Byte-identical (existing arms only; the new arm reproduces them). LatticeTests stay
+    green — this is the gate.
+  - **B2.5 — land the cross-combination BEHAVIOR fix + new fixtures.** The single arm already
+    handles `tail ∧ patterns`; this slice just removes any residual `.bottom` guard and adds the
+    four new oracle-checked fixtures + flips the LatticeTests pins. NOT byte-identical (the
+    intended `bottom→unify` change) — the only behavioral slice.
+
+  **Risk/soundness + regression gate.** Highest-risk site: the `meetWithFuel` matrix rewrite
+  (B2.4) — it must reproduce the tail-extras application (`applyTailToExtrasWith` runs on BOTH
+  sides' extras, `Lattice.lean:990-994`) and the pattern-closedness marking exactly, or
+  byte-parity breaks subtly. Second-highest: `Parse.lean:526-527` + `Normalize.lean:140-145`,
+  where `structComp` is built with `hasTail` feeding the def-body openness — the B2b slice must
+  preserve the `normalizeDefinitionValueWithFuel` `open_ := hasTail` rule under `StructOpenness`
+  (the `hasTail` bool becomes "construct `defOpenViaTail` vs `defClosed`"). Gate: LatticeTests
+  (struct×struct open/closed, tail×tail, pattern×pattern, pattern×patterns, patterns×patterns —
+  source-level JSON `export`, B2-representation-stable) + all struct fixtures are the
+  byte-identical gate for B2.1–B2.4; the four new cross-combination fixtures are the gate for
+  B2.5. **B2b (structComp collapse) is a SEPARATE follow-on**, not in the family-1 critical path
+  — fold the `open_`/`hasTail` two-bool into a `StructOpenness`-carrying pre-eval form (or unify
+  it INTO the family-1 `struct` with a `comprehensions : List Value` field defaulting to `[]`),
+  decided after B2.1–B2.5 land. Keep B2b out of the headline so the meet-correctness payoff
+  ships first.
+
 - **B3 (LOW-MEDIUM — incompleteness, embeddedList family).** `comprehensionPairs`
   (`Eval.lean:988`) returns `none` for `.embeddedList`, so `for x in {#a:1, [1,2]}` (source
   evaluates to an `embeddedList`) iterates ZERO times where CUE iterates `[1,2]`. Add an
@@ -480,9 +607,12 @@ gone; NEW guarantee = two agreement theorems make future drift a build/`native_d
 LatticeTests pins the struct-meet arms B2 collapses; B2 now de-risked)** →
 **TWO-PHASE AUDIT DUE (2 slices since last audit: B7 + this test-org/LatticeTests slice — due
 NEXT, or after B2)** →
-B2 headline struct refactor (design-spike then migrate, NOW de-risked by LatticeTests) /
+B2 headline struct refactor (**design DONE 2026-06-19, Phase-B #4** — implementable spike in the
+B2 entry; 5 byte-identical slices B2.1–B2.4 + 1 behavioral B2.5, with `structComp` collapse split
+out as separate B2b; de-risked by LatticeTests — START with B2.1) /
 B6 design-spike / item 1 follow-up / A2-followup →
-parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructTests`/`BuiltinTests`;
+parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructTests`/`BuiltinTests`
+— and `EvalTests` is STILL 1210 lines after the item-5 split, re-split candidate;
 B4 ride-along `DecimalTests`/`FormatTests`) interleaved → deeper parity/perf (2,6,7) →
 borderline/LOW (8 + B3) ride-alongs.
 
@@ -747,8 +877,10 @@ Collapse `struct`/`structTail`/`structPattern`/`structPatterns`/`structComp` int
 `struct (fields, openness : StructOpenness, tail, patterns)`; erases the 12-arm meet matrix,
 its missing cross-combinations (`structPattern×structTail` etc. silently bottom today,
 `Lattice.lean:458-478`), AND the `open_`/`hasTail` nonsense state. Subsumes item-8
-`StructOpenness`. Design-spike + multi-commit migration; byte-identical fixtures + a pin per
-previously-missing cross-combination. See Phase-B B2.
+`StructOpenness`. Design DONE (Phase-B #4, 2026-06-19): see the "B2 design (implementable)" section under
+Phase-B B2 — 5 slices (B2.1 type+`mkStruct` → B2.2 construction sites → B2.3 match sites →
+B2.4 collapse the 12-arm meet → B2.5 behavioral cross-combination fix + new fixtures), with
+the `structComp` `open_`/`hasTail` collapse split out as a separate B2b follow-on.
 
 **A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue) — BLOCKED on a
 representation change; SOUND shallow check retained (`46bd161`).** The proposed reached-vs-unreferenced
