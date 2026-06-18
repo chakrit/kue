@@ -223,6 +223,36 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
    share"). Frame-id sharing + force-memo are partially landed; finish them here. Profile against a
    resolving target (cert-manager, or `packs.#Argo` once link 5 lands).
 
+   **PART-B audit verdict (2026-06-18) — the 31s→92s regression is REDUNDANT, not inherent;
+   a cheap fix reclaims most of it.** Measured eval-counts (`evalStructRefsCalls`/`runEvalStats`)
+   on a faithful `{embed; …; ...}` open-def repro, new (HEAD `15f871d`) vs old (`6667a7e`):
+   headline 34→86 (2.5×, mirrors the 3× wall). Isolated by probe:
+   - The dominant cost is the embedding-`Self` **Pass-2 re-eval** (the `.structComp` eval arm,
+     `Eval.lean:1976-1982`), NOT the parser-collapse routing. Gate-fires vs gate-not-needed on
+     the same open shape: 86 vs 43.
+   - Pass 2 calls `pushFrame (fields ++ newEmbeddedFields)` → a DIFFERENT `FrameKey` →
+     a FRESH frame-id, so every static field re-evaluated in Pass 2 MISSES the Pass-1
+     `cache`/`satCache` (both keyed on `env.ids`). It recomputes EVERY static field, including
+     ones that never read `Self.<embedded-label>`.
+   - Quantified: each unrelated heavy field costs +8 evals when gate fires (full duplicate of its
+     Pass-1 eval) vs +0 if it weren't re-run. N-unrelated-field scaling is exactly linear: gate
+     +16/field, no-gate +8/field, `cacheHits` FLAT at 8 (zero reuse). The +8/field is pure
+     redundant recompute. Headline N=3: 86 evals, of which 3×8=24 are redundant
+     (~28% on this small shape; larger on real `#Def`s with many fields + few `Self.<embed>`
+     reads).
+   - **Cheap fix (do as a perf sub-slice, gated by correctness-over-perf): in Pass 2, re-evaluate
+     ONLY the static fields that actually reference an embedded label, reuse Pass-1 results for
+     the rest.** `needsEmbeddedSelfPass` already proves the set is non-empty; extend it (or add a
+     per-field `refsSelfEmbeddedLabel` filter at the Pass-2 site) to return WHICH field indices
+     need re-eval, then `evalFieldRefsListWithFuel` only those against `nested2`, splicing Pass-1
+     values for the others. Byte-identical (the reused fields are frame-id-independent — they
+     don't read the augmented labels, by construction), so it clears the soundness gate. Est. win:
+     drops the per-non-dependent-field +8 to +0 — on a real `#Def` (dozens of fields, a handful of
+     `Self.<embed>` reads) that is most of the regression, reclaiming a large fraction of the
+     31s→92s back toward ~31-50s WITHOUT the audit-heavy global frame-id canonicalization. The
+     general frame-id-sharing item (this bullet) is the deeper lever for `packs.#Argo`; the Pass-2
+     narrowing is the cheap, local, immediately-shippable win for the link-3/4 regression.
+
 8. **Borderline / LOW (opportunistic; none block adoption).**
    - **`scalar-embed-with-decls`** — `{#a:1, 5}`→`5` (cue manifests `5`, keeps `.#a`
      selectable); kue bottoms. Incompleteness, not unsound. Needs a scalar-with-decls
@@ -246,9 +276,6 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
      ```cue
      x: *(1|2)  // cue rejects at parse: "preference mark not allowed at this position"
      ```
-   - **Dead OR-branch `refsSelfEmbeddedLabel` (`Eval.lean:97`)** — the `… || refsSelfEmbeddedLabel
-     … (.refId id)` recursion hits `_ => false` unconditionally (no `.refId` arm). Remove on
-     the next embedding-Self touch.
    - **DRY `selectEvaluatedField .disj`** — the resolved-default arm re-lists the 5-arm
      struct-shape dispatch; collapse to `match resolveDisjDefault? alternatives with | some
      v => selectEvaluatedField v label | none => …` (gains free nested-disjunction recursion).
