@@ -466,6 +466,96 @@ The perf hang (frontier #2) is downstream — real apps error at #1 (~0.9s) befo
 blowup, so it's currently unreachable; re-profile after slice 5, then frame-id sharing.
 Field-ordering parity (#3) is orthogonal byte-parity polish.
 
+## Audit Fix-Slices (Value.closure slices 1-2 — Phase A code-quality, audit 2026-06-18)
+
+Phase A over the first two closure slices: `26a2040` (closure-ctor: constructor + 5 inert
+consumer arms) and `15c92ec` (closure-eval: the `.closure` eval arm forces `body` under
+`capturedEnv`). Type-system-first lens. Verify gate green at audit time: `lake build` 86
+jobs, tree clean at `15c92ec`. Oracle: `cue` v0.16.1. No inline fix this pass — all
+findings are below-threshold for inline (one is a guarding tightening that wants TDD, the
+rest are doc/test-strength); this pass changed only `plan.md`.
+
+### Headline verdict — CLEAR to build slices 3-4 on
+
+The closure foundation is **sound**. No Violations. Constructor is the layering-correct
+representation; the five inert consumers are genuinely inert and route consistently
+(`meetWithFuel` catch-all → `meetCore` → `.bottom`; `manifest`/`thisStruct` both →
+`.incomplete`; `valueTag 29` is collision-free and the max tag). The eval arm's
+lexical-scope semantics (discard call-site env, `visited := []`, normal fuel decrement) is
+correct for a captured lexical closure and threads `capturedEnv` into the memo with zero
+coercion. Findings below are Borderline/cleanup — none blocks slice 3.
+
+### Findings (ranked)
+
+1. **[BORDERLINE — illegal-states gap, fix-slice `closure-env-sync-guard`] `capturedEnv`'s
+   `defeq`-to-`Env` is convention-only; nothing pins it.** `capturedEnv : List (Nat × List
+   Field)` (`Value.lean:524`) is *defeq* to `Eval.Env`, and the eval arm relies on that to
+   thread it into `evalValueWithFuel` with no coercion (`Eval.lean:1052-1053`). But the
+   equality is enforced only by the docstring — if `Frame`/`Env` (`Eval.lean:756,763`) ever
+   gains a field or changes shape, `Value.closure` silently desyncs and the no-coercion
+   thread breaks at a distance. This is the one type-system finding: the invariant the repo
+   exists to encode is currently carried by a comment. **Fix-slice:** add a zero-cost guard
+   that fails the build on desync — either `example : (List (Nat × List Field)) = Env := rfl`
+   in `Eval.lean` (cheapest; pins the abbrevs equal), or a one-line `abbrev` re-export so
+   the closure ctor and `Env` share a single source-of-truth name. Prefer the `rfl` example
+   — it adds the type-system tripwire without touching the layering. LOW risk but wants its
+   own slice (touches `Eval.lean`, must re-verify); not inline-trivial. **Slice 3 does NOT
+   depend on this** — flag it as a cheap hardening slice to land alongside or just after.
+
+2. **[CLEANUP — doc accuracy, fold into slice-4 sub-spike] "mirrors the depth>0 ref arm"
+   is imprecise and could mislead slice 4's cycle design.** The slice-2 breadcrumb and
+   commit say `visited := []` "mirrors the depth>0 ref arm that resets visited on crossing
+   into an outer frame." It does not mirror it exactly: the depth>0 ref arm
+   (`Eval.lean:921`) resets to `[id.index]` (seeding the slot just crossed) and rebases env
+   to `frame :: outer`; the closure arm resets to `[]` and swaps the *whole* env. The `[]`
+   is **correct** for a closure (wholesale env swap → no incoming slot to seed), but the
+   "mirrors" framing hides that the two cases differ in exactly the dimension slice 4 cares
+   about (self-referential captured frames + `visited` cycle keying). **Action:** the
+   slice-4 design sub-spike must derive its `visited`/cycle handling from first principles
+   (the closure is a fresh eval entry → `visited` starts empty → the normal `slotVisited`
+   machinery catches a self-ref reached via a depth-0 ref into `capturedEnv`), NOT by
+   analogy to the ref arm. No code change; correct the framing in the slice-4 spike notes.
+
+3. **[CLEANUP — test strength, fold into slices 3-5] eval pins miss the self-referential
+   captured frame — the exact shape slice 4 introduces.** The 5 slice-2 eval pins cover
+   captured-binding force, empty env, nested closure, lexical-vs-dynamic, and fuel
+   exhaustion. The lexical-vs-dynamic pin (`EvalTests.lean:924`) IS distinguishing (slot-0
+   collision: call-site `"callsite"` vs captured `"captured"`, asserts `"captured"` — would
+   fail under dynamic scope), so that one is honest. Gap: no pin forces a closure whose
+   `capturedEnv` contains a frame that refs *itself* (a depth-0 self-ref binding), which is
+   the precise cycle shape slices 3-4 produce. Until a producer exists this can only be a
+   hand-built `.closure` literal, but it would pin that `visited := []` + `slotVisited`
+   terminates (→ `.top`) rather than looping/exhausting fuel. **Action:** add this pin in
+   slice 4 (when the self-ref capture becomes real) or as a hand-built literal earlier; the
+   slice-5 edge-case audit already lists the cycle/closed/pattern interplay — extend it to
+   the self-ref captured frame explicitly.
+
+4. **[CLEANUP — output honesty, low priority] `formatValueWithFuel` prints a closure body
+   with no deferred-marker.** `Format.lean:213-216` prints `.closure _ body` as just
+   `formatValueWithFuel fuel body` — a stray unforced closure is indistinguishable from its
+   body in formatted output. Manifest correctly emits `.incomplete` (non-concrete); Format
+   is debug/surface syntax so this is far less load-bearing, and the captured env genuinely
+   is internal machinery. But once slices 3-4 make closures reachable, a formatted closure
+   silently lying about being deferred could mask a "closure leaked to output" bug. **Action
+   (deferrable):** consider a thin marker (e.g. wrap or a comment prefix) once closures are
+   producible; not worth a change while the constructor is dead code. Track as a slice-5
+   edge-case audit item ("does a leaked closure ever reach Format/Manifest output").
+
+### Non-findings (checked, no action)
+
+- **`valueTag = 29`**: collision-free (no duplicate tags; 29 is the max), participates in
+  the shallow memo hash via `valueTag key.value` (`Eval.lean:791`) — stable and correct.
+- **Memo sharing of forced closures**: the eval arm forces via the memoized
+  `evalValueWithFuel`, so two closures with the same `capturedEnv` ids + `body` share a
+  cache entry. Desirable (same lexical closure = same result); `fuel` stays in `EvalKey`.
+- **`fuel = 0` passthrough of an unforced closure**: degrades through `| 0, value => pure
+  value` (`Eval.lean:905`) — no crash/loop; downstream manifest/format see a raw `.closure`
+  and emit `.incomplete` / print the body. Safe; consistent with every other arm.
+- **DRY**: the `.closure` eval arm shares no duplicable logic with the depth>0 ref arm
+  (different rebase + visited handling, as finding 2 notes) — no helper extraction warranted.
+- **BEq/Repr**: derived, extends to the new arm; the 3 BEq pins (self/distinct-env/
+  distinct-body) cover the round-trip the producer/meet slices must not corrupt.
+
 ## Audit Fix-Slices (cleanup batch — LIGHT Phase A + Phase B, audit 2026-06-17 #7)
 
 Light combined audit over the 3 small/mechanical cleanup slices since `3827fb7`:
