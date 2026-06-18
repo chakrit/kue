@@ -1,0 +1,9 @@
+{
+    "out": {
+        "kind": "Secret",
+        "metadata": {
+            "name": "web-repo",
+            "namespace": "argocd"
+        }
+    }
+}

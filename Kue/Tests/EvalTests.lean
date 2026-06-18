@@ -540,6 +540,28 @@ theorem link5_disj_unset_optional_keeps_both_arms :
           = true := by
   native_decide
 
+-- LINK-5 presence test over a DISJUNCTION field (argocd `parts.#Metadata` shape, sub-fix 4). A
+-- DEFAULT disjunction `*"argocd" | string` is a PRESENT value, so `#ns != _|_` is `true` (cue). The
+-- presence test classified a `.disj` as `.incomplete`, leaving `#ns != _|_` unresolved — so the
+-- `if Self.#ns != _|_ {namespace: Self.#ns}` guard in `parts.#Metadata` dropped `namespace` that cue
+-- emits (`#ArgoRepo` was missing `metadata.namespace: "argocd"`). Fix: `classifyDefinedness` treats
+-- a `.disj` as `.defined` (an all-bottom disjunction never reaches here — `liveAlternatives` prunes).
+theorem link5_presence_test_default_disjunction_is_present :
+    evalSourceMatches
+        "out: {\n\t#ns: *\"argocd\" | string\n\tt: #ns != _|_\n}\n"
+        "out: {#ns: *\"argocd\" | string, t: true}"
+          = true := by
+  native_decide
+
+-- LINK-5 presence test over a PLAIN (no-default) disjunction is also PRESENT (cue: `("a"|"b") != _|_`
+-- is `true`). Pins that the fix is not default-specific.
+theorem link5_presence_test_plain_disjunction_is_present :
+    evalSourceMatches
+        "out: {\n\t#x: \"a\" | \"b\"\n\tt: #x != _|_\n}\n"
+        "out: {#x: \"a\" | \"b\", t: true}"
+          = true := by
+  native_decide
+
 -- PERF-B PIN 4 (frame-id must NOT leak into value identity/output — audit finding #4). The whole
 -- memo soundness rests on `valueTag` being constant per constructor (frame ids never enter a memo
 -- HASH) and `Format` dropping the captured env (ids never reach output). Pin both: two closures

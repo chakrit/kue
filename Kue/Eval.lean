@@ -681,6 +681,13 @@ def classifyDefinedness : Value -> Definedness
   | .list _ => .defined
   | .listTail _ _ => .defined
   | .embeddedList _ _ _ => .defined
+  -- A DISJUNCTION is a PRESENT value (CUE: `(*"argocd" | string) != _|_` is `true`, `("a"|"b")
+  -- != _|_` is `true`). An all-bottom disjunction never reaches here — `liveAlternatives` prunes
+  -- bottom arms, so a surviving `.disj` has ≥1 live arm and is non-`_|_`. Without this, a presence
+  -- guard over a default/plain-disjunction field (the argocd `#ArgoRepo`/`parts.#Metadata`
+  -- `#ns: *"argocd" | string` then `if Self.#ns != _|_ {namespace: Self.#ns}`) stayed incomplete,
+  -- dropping the guarded field (`namespace`) cue emits.
+  | .disj _ => .defined
   | _ => .incomplete
 
 def isPresenceTestOp : BinaryOp -> Bool
