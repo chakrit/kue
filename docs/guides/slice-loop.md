@@ -48,6 +48,8 @@ Periodic, not every cycle:
   rankings, resolved decisions, completed fix-slice diagnoses), distill it back to the
   live roadmap: North Star + Working Principles, standing capabilities, ranked open
   backlog, pointers. History lives in `implementation-log.md` + git, so the plan sheds it.
+  Also refresh `docs/www/index.html` (the human-scannable status page) to match the
+  distilled plan.
 - **Release** — see "Releases" below (~1 datestamped alpha/day, local script, no CI).
 
 ## Slice (per subagent)

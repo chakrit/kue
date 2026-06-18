@@ -30,6 +30,8 @@ do-a-task steps → `guides/`; a defended ruling → `decisions/`; everything el
 - [Compatibility Assumptions](spec/compat-assumptions.md) — assumptions and deliberately
   narrow choices made while matching CUE behavior.
 - [Plan](spec/plan.md) — live roadmap: standing capabilities and the next slices.
+- [Status Page](www/index.html) — single human-scannable page: where Kue stands, what
+  works, and what's next (a hand-rendered snapshot of the plan).
 - [Implementation Log](reference/implementation-log.md) — the full slice-by-slice record
   of completed work, retained for verification.
 - [Compatibility Target](decisions/2026-06-14-cue-compatibility-target.md) — why Kue
