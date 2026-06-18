@@ -2113,83 +2113,101 @@ mutual
             modify (fun state => { state with truncCount := state.truncCount + 1 })
             pure current
         | nextFuel + 1 => do
-            -- An embedded DEFAULT DISJUNCTION whose default arm needs deferral (`(*_#A|_#B)` with
-            -- `_#A`'s body referencing a sibling the host narrows — the argocd `#OpaqueSecret`
-            -- shape) is collapsed to its default arm BEFORE deferral, so the arm defers to a
-            -- closure and force-splices the host's narrowing (`#data`) BEFORE its comprehension/
-            -- self-ref collapses. Without this the disjunction evaluates standalone (default arm
-            -- forced with NO use-operands) and `resolveEmbeddedDisjDefault` picks the already-
-            -- collapsed value. A plain scalar/struct disjunction yields `none` and keeps the
-            -- collapse-then-meet path. `resolveDisjDefault?` chooses the unique default arm.
-            let embedding :=
-              match conjDisjArms? env evalFuel embedding with
-              | some arms => (resolveDisjDefault? arms).getD embedding
-              | none => embedding
-            -- A bare ref to a self-ref def the lazy-merge can't handle is DEFERRED to its
-            -- `.closure` here (not evaluated through `.refId`, which would force it STANDALONE with
-            -- no use-operands), so the `.closure` branch below force-splices the HOST's current
-            -- fields — the embedding analogue of the `.conj` fold's `conjDefClosure?`.
-            let evaluated <-
-              match conjDefClosure? env embedding with
-              | some closure => pure closure
-              | none =>
-                  match importSelectorDef? env embedding with
-                  | some (pkgFields, defBody) => do
-                      let capturedEnv <- pushFrame pkgFields env
-                      pure (.closure capturedEnv defBody)
-                  | none => evalValueWithFuel (nextFuel + 1) env [] embedding
-            match evaluated with
-            | .closure capturedEnv body => do
-                -- An embedded self-referential imported def (`parts.#Metadata`) evaluates to a
-                -- `.closure`. A plain `meet` collapses it to `.bottom`; instead FORCE it with the
-                -- host's current fields spliced in as the use-operand, so the embed's self-refs
-                -- (`kind: #kind`) resolve against the host's use-site narrowing (slice A, facet c).
-                -- The embed's body is OPENED so the splice does not reject the host's sibling
-                -- fields (`#Def`'s `#x`/`spec` are not declared by `parts.#Metadata`); the embed's
-                -- labels fold into the union closedness the structComp arm applies afterwards.
-                -- Forcing is a deferred sub-evaluation, so it drops fuel (force sits at a higher
-                -- measure tier and must consume fuel to re-enter here).
-                -- Splice ONLY the host's hidden/definition fields (`#name`, …) into the embed:
-                -- those are the SHARED bindings the embed self-references (`pname: Self.#name`).
-                -- The host's regular output fields (`apiVersion`, `kind`) are NOT the embed's — they
-                -- unify at the outer `meet current forced`, not via the splice (splicing them makes
-                -- the embed re-evaluate and conflict on them). `hiddenFieldsOnly` also drops the
-                -- host's `Self=`/`let` aliases (the embed has its own).
-                let useOperands := (evaluatedStructOperand? current).toList.map hiddenFieldsOnly
-                let forced <-
-                  forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
-                meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest
-            | _ =>
-                let resolved := resolveEmbeddedDisjDefault evaluated
-                -- Scalar-embedding collapse (`{5}`→`5`), done HERE where the host struct is KNOWN
-                -- to be EMBEDDING a scalar — not reconstructed at meet time, where an empty struct
-                -- `{}` is indistinguishable from `{5}`'s residual `.struct []` and would wrongly
-                -- absorb any scalar an empty/decl-free struct meets (`{} & 5` must be a conflict,
-                -- not `5`). Collapse only when LOSSLESS — the host has no output field and no
-                -- non-output decl to drop (`collapsesToScalarEmbed`) — and the embedding resolved
-                -- to a TERMINAL scalar. List comprehensions rely on this (`[{x} for…]`'s body is a
-                -- struct embedding a scalar that must collapse to the element). The fold continues
-                -- with the scalar as `current`, so a second equal embedding (`{5,5}`) unifies via
-                -- the plain `meet` below and a distinct one (`{5,6}`) conflicts.
-                match current with
-                | .struct fields _ =>
-                    if collapsesToScalarEmbed fields resolved then
-                      meetEmbeddingsWithFuel (nextFuel + 1) env resolved rest
-                    else
-                      -- A non-closure embedding (a plain struct, a same-package def ref) is OPENED
-                      -- before the meet: an embedding UNIONS its labels into the host's allowed set
-                      -- but never imposes its OWN closedness on the host (CUE rule, see
-                      -- `openStructValue`). Without this, embedding a closed struct `{pval}` into a
-                      -- host carrying `x` makes the closed embed reject `x` → `.bottom`. The host's
-                      -- closedness over `def ∪ embed` labels is re-applied by the caller
-                      -- (`meetEmbeddingsClosingOver`). An embedded DEFAULT disjunction collapses to
-                      -- its default arm first (`resolveEmbeddedDisjDefault`), so its fields merge as
-                      -- regular host fields (a sibling `Self.a` then resolves).
+            -- An embedded DEFAULT DISJUNCTION whose arms need deferral (`(*_#A|_#B)` with `_#A`'s
+            -- body referencing a sibling the host narrows — the argocd `#OpaqueSecret` shape) is
+            -- DISTRIBUTED: the host's narrowing is folded into EVERY arm (each re-entering this
+            -- fold so the post-ss1 def-deferral force-splices the narrowing before the arm's
+            -- self-ref collapses), bottoms are PRUNED (`normalizeDisj` via `liveAlternatives`), and
+            -- the survivor resolves. Committing to the default arm first (the old `resolveDisjDefault?`
+            -- collapse) bottomed when the narrowing KILLED the default arm with no fall-through to a
+            -- surviving arm (`#S & {v:"s"}` over `*_#A{v:int} | _#B{v:string}` → cue `{kind:"b",v:"s"}`,
+            -- kue bottom). This mirrors the `.conj` fold's `splitDisjConjunct` arm-distribution.
+            -- A plain scalar/struct disjunction yields `none` from `conjDisjArms?` and keeps the
+            -- collapse-then-meet path below (no over-distribute). The per-arm fold drops a fuel tier
+            -- (a single-embedding sub-fold of the host against the arm) to stay below this measure.
+            match conjDisjArms? env evalFuel embedding with
+            | some arms => do
+                let distributed <- arms.mapM fun arm => do
+                  let armResult <- meetEmbeddingsWithFuel nextFuel env current [arm.snd]
+                  pure (arm.fst, armResult)
+                meetEmbeddingsWithFuel (nextFuel + 1) env (normalizeDisj distributed) rest
+            | none => do
+              -- A bare ref to a self-ref def the lazy-merge can't handle is DEFERRED to its
+              -- `.closure` here (not evaluated through `.refId`, which would force it STANDALONE with
+              -- no use-operands), so the `.closure` branch below force-splices the HOST's current
+              -- fields — the embedding analogue of the `.conj` fold's `conjDefClosure?`.
+              let evaluated <-
+                match conjDefClosure? env embedding with
+                | some closure => pure closure
+                | none =>
+                    match importSelectorDef? env embedding with
+                    | some (pkgFields, defBody) => do
+                        let capturedEnv <- pushFrame pkgFields env
+                        pure (.closure capturedEnv defBody)
+                    | none => evalValueWithFuel (nextFuel + 1) env [] embedding
+              match evaluated with
+              | .closure capturedEnv body => do
+                  -- An embedded self-referential imported def (`parts.#Metadata`) evaluates to a
+                  -- `.closure`. A plain `meet` collapses it to `.bottom`; instead FORCE it with the
+                  -- host's current fields spliced in as the use-operand, so the embed's self-refs
+                  -- (`kind: #kind`) resolve against the host's use-site narrowing (slice A, facet c).
+                  -- The embed's body is OPENED so the splice does not reject the host's sibling
+                  -- fields (`#Def`'s `#x`/`spec` are not declared by `parts.#Metadata`); the embed's
+                  -- labels fold into the union closedness the structComp arm applies afterwards.
+                  -- Forcing is a deferred sub-evaluation, so it drops fuel (force sits at a higher
+                  -- measure tier and must consume fuel to re-enter here).
+                  -- Splice ONLY the host's hidden/definition fields (`#name`, …) into the embed:
+                  -- those are the SHARED bindings the embed self-references (`pname: Self.#name`).
+                  -- The host's regular output fields (`apiVersion`, `kind`) are NOT the embed's — they
+                  -- unify at the outer `meet current forced`, not via the splice (splicing them makes
+                  -- the embed re-evaluate and conflict on them). `hiddenFieldsOnly` also drops the
+                  -- host's `Self=`/`let` aliases (the embed has its own).
+                  let useOperands := (evaluatedStructOperand? current).toList.map hiddenFieldsOnly
+                  let forced <-
+                    forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
+                  meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest
+              | .disj alternatives =>
+                  -- An embedded DEFAULT DISJUNCTION whose arms are already EVALUATED (no deferral
+                  -- needed — `conjDisjArms?` returned `none`) must DISTRIBUTE the host's narrowing
+                  -- into EVERY arm and PRUNE bottoms, not collapse to the default arm first. Picking
+                  -- the default arm (the old `resolveEmbeddedDisjDefault`) bottomed when the narrowing
+                  -- KILLED the default arm with no fall-through: `(*_#A{v:int} | _#B{v:string})` met
+                  -- with `{v:"s"}` → cue `{kind:"b",v:"s"}`, kue bottom. Each arm meets the OPENED
+                  -- host (an embedding widens, never imposes its own closedness); `normalizeDisj`
+                  -- prunes the dead default (`liveAlternatives`) so the survivor wins. The plain
+                  -- scalar/struct disjunctions that have a unique default surviving still resolve to
+                  -- it (cue-exact). Closedness over the union is re-applied by the caller.
+                  let distributed := alternatives.map fun alternative =>
+                    (alternative.fst, meet current (openStructValue alternative.snd))
+                  meetEmbeddingsWithFuel (nextFuel + 1) env (normalizeDisj distributed) rest
+              | _ =>
+                  -- Scalar-embedding collapse (`{5}`→`5`), done HERE where the host struct is KNOWN
+                  -- to be EMBEDDING a scalar — not reconstructed at meet time, where an empty struct
+                  -- `{}` is indistinguishable from `{5}`'s residual `.struct []` and would wrongly
+                  -- absorb any scalar an empty/decl-free struct meets (`{} & 5` must be a conflict,
+                  -- not `5`). Collapse only when LOSSLESS — the host has no output field and no
+                  -- non-output decl to drop (`collapsesToScalarEmbed`) — and the embedding resolved
+                  -- to a TERMINAL scalar. List comprehensions rely on this (`[{x} for…]`'s body is a
+                  -- struct embedding a scalar that must collapse to the element). The fold continues
+                  -- with the scalar as `current`, so a second equal embedding (`{5,5}`) unifies via
+                  -- the plain `meet` below and a distinct one (`{5,6}`) conflicts.
+                  match current with
+                  | .struct fields _ =>
+                      if collapsesToScalarEmbed fields evaluated then
+                        meetEmbeddingsWithFuel (nextFuel + 1) env evaluated rest
+                      else
+                        -- A non-closure embedding (a plain struct, a same-package def ref) is OPENED
+                        -- before the meet: an embedding UNIONS its labels into the host's allowed set
+                        -- but never imposes its OWN closedness on the host (CUE rule, see
+                        -- `openStructValue`). Without this, embedding a closed struct `{pval}` into a
+                        -- host carrying `x` makes the closed embed reject `x` → `.bottom`. The host's
+                        -- closedness over `def ∪ embed` labels is re-applied by the caller
+                        -- (`meetEmbeddingsClosingOver`).
+                        meetEmbeddingsWithFuel (nextFuel + 1) env
+                          (meet current (openStructValue evaluated)) rest
+                  | _ =>
                       meetEmbeddingsWithFuel (nextFuel + 1) env
-                        (meet current (openStructValue resolved)) rest
-                | _ =>
-                    meetEmbeddingsWithFuel (nextFuel + 1) env
-                      (meet current (openStructValue resolved)) rest
+                        (meet current (openStructValue evaluated)) rest
   termination_by embeddings => (fuel, 3, embeddings.length)
 
   /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct

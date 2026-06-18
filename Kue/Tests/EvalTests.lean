@@ -2331,27 +2331,33 @@ Each pin cue v0.16.1-exact. -/
 
 -- HEADLINE: a `for k,v in #data` comprehension inside an embedded DEFAULT DISJUNCTION arm
 -- populates AFTER the use-site narrows `#data` (the argocd `#Secret` shape). Pre-fix `mapped: {}`.
+-- Post-V2 (`embed-disj-arm-fallthrough`): the disjunction is DISTRIBUTED, not collapsed to the
+-- default arm — both arms survive (`*{default} | {other}`), default carries the populated
+-- `mapped` and manifests cue-exact (`{mapped: {a: "x"}}`). The surviving second arm
+-- (`_#B & narrow`) is the cross-product, no longer discarded.
 theorem disj_default_embed_comprehension_narrows :
     evalSourceMatches
         "_#A: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n_#B: {other: \"b\"}\n#S: {#data: [string]: string, (*_#A | _#B)}\nout: #S & {#data: {a: \"x\"}}\n"
-        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {a: \"x\", [string]: string, [string]: string, [string]: string}, mapped: {a: \"x\"}}"
+        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: *{#data: {[string]: string, [string]: string, [string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}\nout: *{#data: {a: \"x\", [string]: string, [string]: string, [string]: string}, mapped: {a: \"x\"}} | {#data: {a: \"x\", [string]: string}, other: \"b\"}"
           = true := by
   native_decide
 
 -- A plain SIBLING self-ref in an embedded DEFAULT DISJUNCTION arm sees the use-site narrowing.
--- Pre-fix `copy: string`. The minimal scalar form (matches `ds1`).
+-- Pre-fix `copy: string`. The minimal scalar form (matches `ds1`). Post-V2: distributed; default
+-- arm carries `copy: "hi"` and wins at manifest, the second arm (`_#B & {#x:"hi"}`) survives.
 theorem disj_default_embed_sibling_narrows :
     evalSourceMatches
         "_#A: {#x: string, copy: #x}\n_#B: {#x: string, other: \"b\"}\n#S: {#x: string, (*_#A | _#B)}\nout: #S & {#x: \"hi\"}\n"
-        "_#A: {#x: string, copy: string}\n_#B: {#x: string, other: \"b\"}\n#S: {#x: string, copy: string}\nout: {#x: \"hi\", copy: \"hi\"}"
+        "_#A: {#x: string, copy: string}\n_#B: {#x: string, other: \"b\"}\n#S: *{#x: string, copy: string} | {#x: string, other: \"b\"}\nout: *{#x: \"hi\", copy: \"hi\"} | {#x: \"hi\", other: \"b\"}"
           = true := by
   native_decide
 
 -- EMPTY-NARROW through the disjunction (no over-population): empty `#data` → empty `mapped`.
+-- Post-V2: distributed; the default arm (empty `mapped`) wins, second arm survives.
 theorem disj_default_embed_comprehension_empty :
     evalSourceMatches
         "_#A: {#data: [string]: string, mapped: {for k, v in #data {\"\\(k)\": v}}}\n_#B: {other: \"b\"}\n#S: {#data: [string]: string, (*_#A | _#B)}\nout: #S & {#data: {}}\n"
-        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}\nout: {#data: {[string]: string, [string]: string, [string]: string}, mapped: {}}"
+        "_#A: {#data: {[string]: string}, mapped: {}}\n_#B: {other: \"b\"}\n#S: *{#data: {[string]: string, [string]: string, [string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}\nout: *{#data: {[string]: string, [string]: string, [string]: string}, mapped: {}} | {#data: {[string]: string}, other: \"b\"}"
           = true := by
   native_decide
 
@@ -2379,6 +2385,46 @@ theorem disj_struct_no_over_defer :
     without bumping would reopen the audit-#6 hole. -/
 theorem conj_disj_arms_fuel_zero_declines :
     conjDisjArms? [(0, [])] 0 (.refId ⟨0, 0⟩) = none := by
+  native_decide
+
+/-! ### embed-disj-arm-fallthrough (audit #10 V2): a dead default arm FALLS THROUGH.
+
+An embedded default disjunction (`(*_#A | _#B)`) used to collapse to its default arm BEFORE the
+host narrowing spliced in, with no fall-through when the narrowing KILLED the default arm — kue
+bottomed where cue picks the surviving arm. Fix: distribute the host narrowing into EVERY arm and
+prune bottoms (`normalizeDisj` via `liveAlternatives`), then resolve. cue v0.16.1-exact. -/
+
+-- HEADLINE: narrowing `v:"s"` kills the default arm `_#A` (`v:int`); kue must fall through to the
+-- surviving `_#B` (`v:string`) — not bottom. Was kue BOTTOM pre-fix; cue `{kind:"b",v:"s"}`.
+theorem embed_disj_dead_default_falls_through :
+    evalSourceMatches
+        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: {kind: string, (*_#A | _#B)}\nout: #S & {v: \"s\"}\n"
+        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: *{kind: \"a\", v: int} | {kind: \"b\", v: string}\nout: {kind: \"b\", v: \"s\"}"
+          = true := by
+  native_decide
+
+-- narrowing COMPATIBLE with the default arm (`v:1`): the default still wins (no spurious switch).
+theorem embed_disj_live_default_kept :
+    evalSourceMatches
+        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: {kind: string, (*_#A | _#B)}\nout: #S & {v: 1}\n"
+        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: *{kind: \"a\", v: int} | {kind: \"b\", v: string}\nout: *{kind: \"a\", v: 1}"
+          = true := by
+  native_decide
+
+-- narrowing kills ALL arms (`v:true` is neither int nor string): conflict, matching cue.
+theorem embed_disj_all_arms_die_conflict :
+    evalSourceMatches
+        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: {kind: string, (*_#A | _#B)}\nout: #S & {v: true}\n"
+        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: *{kind: \"a\", v: int} | {kind: \"b\", v: string}\nout: _|_"
+          = true := by
+  native_decide
+
+-- a single-arm embedded "disjunction" (`(_#A)`) still narrows correctly (no arms to fall to).
+theorem embed_disj_single_arm_narrows :
+    evalSourceMatches
+        "_#A: {kind: \"a\", v: int}\n#S: {kind: string, (_#A)}\nout: #S & {v: 1}\n"
+        "_#A: {kind: \"a\", v: int}\n#S: {kind: \"a\", v: int}\nout: {kind: \"a\", v: 1}"
+          = true := by
   native_decide
 
 end Kue
