@@ -111,6 +111,102 @@ theorem eval_cycle_with_repeated_selection :
       = "x: {p: 1}\np1: 1\np2: 1" := by
   native_decide
 
+/-! ### Frame-id sharing (perf B) — canonical frame identity + its soundness boundary.
+
+The perf win: structurally-identical re-pushes under the same parent id-stack reuse a frame
+id, so the downstream `EvalKey` (keyed on `env.ids`) hits the memo instead of re-deriving an
+identical subtree. The deep-inline shape `{a: <body>, b: <body>}` (each level inlines the same
+nested struct TWICE) is the worst case: pre-sharing each inline copy keys apart → 2^depth
+re-pushes; shared, the second copy reuses the first's id → linear. The soundness boundary is
+pinned right after: id reuse must happen ONLY for genuinely-identical evaluations. -/
+
+/-- A depth-`n` deep-inline value: `root: {a: B, b: B}` where `B` recurses to depth `n`. The
+    two slots `a`/`b` carry IDENTICAL inline bodies, so frame-id sharing collapses the second
+    push into the first. -/
+def deepInlineValue : Nat -> Value
+  | 0 => .struct [⟨"v", .regular, .prim (.string "x")⟩] true
+  | n + 1 =>
+      let inner := deepInlineValue n
+      .struct [⟨"a", .regular, inner⟩, ⟨"b", .regular, inner⟩] true
+
+def deepInlineRoot (n : Nat) : Value :=
+  .struct [⟨"root", .regular, deepInlineValue n⟩] true
+
+-- PERF: with frame-id sharing the deep-inline eval count is LINEAR in depth (`2·depth + 2`),
+-- not exponential. At depth 8 this is 18 core evals; WITHOUT sharing it is 767 (a 42× gap), so
+-- any regression that defeats sharing — or any unsound widening that stops the memo hitting —
+-- blows this pin far past 18. This is the deterministic exponential→linear witness.
+theorem eval_deep_inline_sharing_is_linear :
+    evalStructRefsCalls (deepInlineRoot 8) = 18 := by
+  native_decide
+
+theorem eval_deep_inline_count_depth4 :
+    evalStructRefsCalls (deepInlineRoot 4) = 10 := by
+  native_decide
+
+theorem eval_deep_inline_count_depth6 :
+    evalStructRefsCalls (deepInlineRoot 6) = 14 := by
+  native_decide
+
+-- PERF + VALUE: the shared eval still produces the correct deeply-nested value (sharing is a
+-- pure perf change — the value is byte-identical to what the unshared eval would give).
+theorem eval_deep_inline_value_correct :
+    formatTopLevel (resolveAndEval (deepInlineRoot 2))
+      = "root: {a: {a: {v: \"x\"}, b: {v: \"x\"}}, b: {a: {v: \"x\"}, b: {v: \"x\"}}}" := by
+  native_decide
+
+/-- Push two frames and report `(id1, id2)`. The soundness boundary lives in whether these
+    ids coincide: they MUST coincide only when the two pushes are the genuinely-same evaluation
+    (same fields AND same parent id-stack). -/
+def twoPushIds (fields1 : List Field) (env1 : Env) (fields2 : List Field) (env2 : Env) :
+    Nat × Nat :=
+  runEval do
+    let e1 <- pushFrame fields1 env1
+    let e2 <- pushFrame fields2 env2
+    pure (e1.head!.fst, e2.head!.fst)
+
+-- SOUNDNESS PIN 1: structurally-IDENTICAL re-pushes under the SAME parent SHARE an id (the
+-- whole point — this is what makes the memo hit).
+theorem frame_share_identical :
+    (let f := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
+     let ids := twoPushIds f [] f []
+     ids.fst == ids.snd)
+      = true := by
+  native_decide
+
+-- SOUNDNESS PIN 2: structurally-DIFFERENT re-pushes (different field value) do NOT share — a
+-- too-coarse key would corrupt by returning one struct's memo for the other.
+theorem frame_no_share_different_fields :
+    (let f1 := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
+     let f2 := [(⟨"x", .regular, .prim (.int 2)⟩ : Field)]
+     let ids := twoPushIds f1 [] f2 []
+     ids.fst == ids.snd)
+      = false := by
+  native_decide
+
+-- SOUNDNESS PIN 3: SAME fields but DIFFERENT parent id-stack do NOT share — depth>0 refs in
+-- the body walk different outer frames, so the two evaluations differ. The parent id-stack is
+-- load-bearing in the sharing key.
+theorem frame_no_share_different_parent :
+    (let f := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
+     let ids := twoPushIds f [(7, [])] f [(9, [])]
+     ids.fst == ids.snd)
+      = false := by
+  native_decide
+
+-- SOUNDNESS PIN 4 (constraint b): a closed/definition field and a regular field of the "same"
+-- label differ AS FIELDS at the push site (the force path closes a def body via normalization,
+-- changing the field class/values), so they get DISTINCT frame ids — an eager(open)/forced
+-- (closed) eval of the same import alias can never falsely collide. `.definition` vs `.regular`
+-- on the same label is the closed-vs-open stand-in; they must not share.
+theorem frame_no_share_closed_vs_open :
+    (let f1 := [(⟨"x", .definition, .prim (.int 1)⟩ : Field)]
+     let f2 := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
+     let ids := twoPushIds f1 [] f2 []
+     ids.fst == ids.snd)
+      = false := by
+  native_decide
+
 theorem eval_additive_expressions :
     formatTopLevel
       (resolveAndEval

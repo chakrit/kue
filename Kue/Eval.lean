@@ -822,18 +822,100 @@ instance : Hashable EvalKey where
   hash key := mixHash (hash key.fuel) (mixHash (hash key.visited)
     (mixHash (hash key.envIds.length) (valueTag key.value)))
 
-/-- Evaluation state: the memo cache plus the next frame id to hand out. -/
+/-- Push-site key for canonical frame-id sharing. Two `pushFrame` calls denote the SAME
+    evaluation iff they push the SAME fields under the SAME parent id-stack — then (and only
+    then) reusing the id makes the downstream `EvalKey` (which keys on `env.ids`) hit the memo
+    instead of re-deriving an identical subtree.
+
+    SOUNDNESS — why id reuse cannot change any value. `evalValueCoreWithFuel` is a pure
+    function of `(fuel, env, visited, value)`, and `env` enters the memo key ONLY through
+    `env.ids`. The id stack is a *proxy* for the frame contents: two frames carry the same id
+    only when this key matches, i.e. same `fields` (the frame's payload) AND same `parentIds`
+    (the proxy for the whole outer chain, inductively). So any two envs sharing an id stack are
+    proven contents-equal frame-by-frame — the memo never returns a value computed for a
+    *different* env. The id is therefore a sound canonical name for "this frame's contents in
+    this scope," not merely an allocation token. The PARENT id-stack is load-bearing in the key:
+    identical fields under DIFFERENT parents are different evaluations (their depth>0 refs walk
+    different outer frames) and must NOT share — hence `parentIds` is part of the key.
+
+    `fuel`, `visited`, and the closed-vs-open closure state are NOT in this key and need not be:
+    they ride in `EvalKey` already. Sharing only canonicalizes the *id* a frame gets; the memo
+    still separates two evals of the same frame at different `fuel`/`visited` (fuel is
+    load-bearing — 263 measured fuel-truncation cases — and stays in `EvalKey` untouched). A
+    forced-closure body and an eager body differ as `fields` (the force path closes the body via
+    `normalizeDefinitionValueWithFuel` at capture, changing the field `Value`s), so they key
+    apart here too — no closed/open collision. -/
+structure FrameKey where
+  parentIds : List Nat
+  fields : List Field
+deriving BEq
+
+/-- Shallow hash for the canonical-frame table — same discipline as `EvalKey`'s hash: mix the
+    parent id stack with the field count and each field's top value-tag, never traversing the
+    field subtrees. `BEq` (derived, structural) runs only on a hash-bucket match, so a coarse
+    hash costs collisions, never correctness. -/
+instance : Hashable FrameKey where
+  hash key :=
+    key.fields.foldl (fun acc f => mixHash acc (valueTag f.value))
+      (mixHash (hash key.parentIds) (hash key.fields.length))
+
+/-- Memo key for `forceClosureWithConjunct`. Forcing a deferred def body is a pure function of
+    `(fuel, capturedEnv, body, useOperands)`: it splices `useOperands` into `body`, pushes one
+    frame onto `capturedEnv`, and evaluates — no other input, no effect beyond the (id-allocating
+    but value-irrelevant) frame counter. So memoizing it on these four is behavior-preserving,
+    by the SAME argument as `EvalKey`. `capturedEnv` enters via `envIds` only (the id stack is a
+    sound proxy for env contents once `pushFrame` canonicalizes ids — see `FrameKey`). This is
+    the load-bearing perf memo for real apps: a `pkg.#Def` selected/referenced N times re-forces
+    the body N times pre-memo (the closure-force path bypasses the `EvalKey` cache entirely);
+    keyed, it forces once.
+
+    `fuel` stays in the key (load-bearing — fuel-truncation differs by level, same as `EvalKey`).
+    `body` already carries the closed-vs-open state (the producer closes imported def bodies via
+    `normalizeDefinitionValueWithFuel` at capture, so a closed and an open body differ AS VALUES
+    here) — constraint (b) is satisfied without an extra key field. `useOperands` distinguishes a
+    standalone force (`[]`) from a narrowed one (`pkg.#Def & {x:1}`). -/
+structure ForceKey where
+  fuel : Nat
+  envIds : List Nat
+  body : Value
+  useOperands : List (List Field × Bool)
+deriving BEq
+
+instance : Hashable ForceKey where
+  hash key := mixHash (hash key.fuel)
+    (mixHash (hash key.envIds) (mixHash (valueTag key.body) (hash key.useOperands.length)))
+
+/-- Evaluation state: the eval memo cache, the next frame id to hand out, the canonical
+    frame-id table that lets structurally-identical re-pushes share an id (and thus a memo
+    entry), and the closure-force memo (the load-bearing real-app cache — closure forces bypass
+    `cache`). `evalCalls`/`cacheHits` are transient instrumentation: bumped per core eval and per
+    memo hit so a deterministic `native_decide` pin can witness exponential→linear. -/
 structure EvalState where
   cache : Std.HashMap EvalKey Value
   nextFrameId : Nat
+  frames : Std.HashMap FrameKey Nat := ∅
+  forceCache : Std.HashMap ForceKey Value := ∅
+  evalCalls : Nat := 0
+  cacheHits : Nat := 0
 
 abbrev EvalM := StateM EvalState
 
-/-- Push a frame onto the env, allocating it a fresh identity. -/
+/-- Push a frame onto the env, reusing the id of a structurally-identical earlier push under
+    the same parent id-stack (canonical frame identity), else allocating a fresh id and
+    recording it. Sharing is keyed on `(parentIds, fields)` — see `FrameKey`; reuse is sound
+    because that key proves the two frames have identical contents in identical scope, so the
+    memo (which keys on the id stack) can only ever return the matching evaluation. -/
 def pushFrame (fields : List Field) (env : Env) : EvalM Env := do
   let state <- get
-  set { state with nextFrameId := state.nextFrameId + 1 }
-  pure ((state.nextFrameId, fields) :: env)
+  let key : FrameKey := ⟨env.ids, fields⟩
+  match state.frames.get? key with
+  | some id => pure ((id, fields) :: env)
+  | none =>
+      let id := state.nextFrameId
+      set { state with
+        nextFrameId := id + 1,
+        frames := state.frames.insert key id }
+      pure ((id, fields) :: env)
 
 /--
 Reduce a conjunction operand to the *unevaluated* struct declarations it contributes,
@@ -1376,8 +1458,11 @@ mutual
       (value : Value) : EvalM Value := do
     let key : EvalKey := ⟨fuel, env.ids, visited, value⟩
     match (<- get).cache.get? key with
-    | some cached => pure cached
+    | some cached => do
+        modify (fun state => { state with cacheHits := state.cacheHits + 1 })
+        pure cached
     | none =>
+        modify (fun state => { state with evalCalls := state.evalCalls + 1 })
         let result <- evalValueCoreWithFuel fuel env visited value
         modify (fun state => { state with cache := state.cache.insert key result })
         pure result
@@ -1753,6 +1838,26 @@ mutual
       (capturedEnv : Env)
       (body : Value)
       (useOperands : List (List Field × Bool)) : EvalM Value := do
+    -- Force-memo: a `pkg.#Def` selected/referenced N times re-forces the same body N times
+    -- (this path bypasses the `EvalKey` cache). Keyed on `(fuel, capturedEnv.ids, body,
+    -- useOperands)` — the full pure-function input — the force runs once. Sound by the same
+    -- proxy argument as `EvalKey` (see `ForceKey`); the id stack is canonical via frame sharing.
+    let forceKey : ForceKey := ⟨fuel, capturedEnv.ids, body, useOperands⟩
+    match (<- get).forceCache.get? forceKey with
+    | some cached => do
+        modify (fun state => { state with cacheHits := state.cacheHits + 1 })
+        pure cached
+    | none => do
+      let result <- forceClosureWithConjunctCore fuel capturedEnv body useOperands
+      modify (fun state => { state with forceCache := state.forceCache.insert forceKey result })
+      pure result
+  termination_by (fuel, 5, 0)
+
+  def forceClosureWithConjunctCore
+      (fuel : Nat)
+      (capturedEnv : Env)
+      (body : Value)
+      (useOperands : List (List Field × Bool)) : EvalM Value := do
     match body with
     | .struct defFields defOpen =>
         let (mergedFields, open_) := mergeConjOperands ((defFields, defOpen) :: useOperands)
@@ -1908,6 +2013,15 @@ end
 def runEval (action : EvalM α) : α :=
   (action.run { cache := ∅, nextFrameId := 0 }).fst
 
+/-- Run an evaluation action and return `(result, evalCalls, cacheHits)`. The counts are a
+    deterministic, build-checkable proxy for evaluation work: `evalCalls` is the number of
+    core (cache-miss) evaluations, `cacheHits` the number of memo hits. On the synthetic
+    `{a: prev, b: prev}` deep-sharing shape this witnesses exponential→linear without relying
+    on wall-clock — used by the perf pins, not by any production path. -/
+def runEvalStats (action : EvalM α) : α × Nat × Nat :=
+  let (result, state) := action.run { cache := ∅, nextFrameId := 0 }
+  (result, state.evalCalls, state.cacheHits)
+
 def evalTopFieldsM (fields : List Field) : EvalM (Option (List Field)) := do
   let top <- pushFrame fields []
   let evaluated <- evalFieldRefsListWithFuel evalFuel top (indexedFields fields)
@@ -1953,5 +2067,11 @@ def evalStructRefsM (value : Value) : EvalM Value := do
 
 def evalStructRefs (value : Value) : Value :=
   runEval (evalStructRefsM value)
+
+/-- `evalCalls` for `evalStructRefs value` — the core-eval count for the perf pins. A
+    deterministic proxy for evaluation work that witnesses exponential→linear on the
+    deep-sharing shape without wall-clock. -/
+def evalStructRefsCalls (value : Value) : Nat :=
+  (runEvalStats (evalStructRefsM value)).snd.fst
 
 end Kue
