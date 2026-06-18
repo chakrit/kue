@@ -118,18 +118,20 @@ fix is purely a speedup — byte-identical output.
   faster (>7.5min/killed → ~88s) but still hits the fuel ceiling (`conflicting values
   (bottom)`) — that is the separate fuel-exhaustion-at-scale limit below, NOT a hash
   problem.
-- **Fuel exhaustion can surface as a spurious `conflicting values (bottom)` at scale
-  (2026-06-18).** `evalFuel = 100` is load-bearing for soundness; when frame-id divergence makes a
-  large combined evaluation overrun it, a truncated value bottoms instead of resolving. Concrete:
-  `packs.#Argo` resolves correctly in isolation, and every component of `apps/argocd.cue`
-  is content-correct individually — but the FULL app (5× `packs.#Argo` + the deployment
-  config) bottoms where `cue` exports it in 0.03s. (After the item-7 hash fix this bottom
-  now surfaces in ~88s rather than >7.5min/killed — much faster, but the fuel ceiling is
-  unchanged: it is a fuel-exhaustion limit, not a hash one.) This is NOT a correctness gap
-  (cue confirms
-  the app is concrete; every piece matches cue): it is the frame-id frontier above hitting the fuel
-  wall. The canonical-frame-identity fix is what unblocks it; raising `evalFuel` is NOT a fix (it
-  trades soundness/termination for a higher-but-still-finite ceiling).
+- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, NOT a fuel limit (RE-DIAGNOSED
+  2026-06-19; supersedes the prior "fuel-exhaustion-at-scale" entry).** The earlier reading — that
+  `evalFuel = 100` truncation spuriously bottoms the combined app — was DISPROVEN by a fuel sweep:
+  at `evalFuel` 100/200/600 the app bottoms identically (cost scales ~linearly with fuel, the bottom
+  never clears), and `resolveFuel`/`remapFuel` at 100000 also still bottom. So it is a deterministic
+  value conflict, not truncation at any ceiling. Localized to `defaults.#ListenerSet` / `defs.#TLSRoute`
+  (each bottoms standalone on valid CUE that `cue` exports); co-occurs with `fieldConflict
+  #args/#from/#to` from UNREFERENCED `defs` workload siblings. Working hypothesis: an
+  import-laziness / eager-package-eval gap on the CROSS-MODULE hop (`prodigy9.co` consumer → the
+  `prodigy9.co/defs@v0.3.19` dep) — a single-module vendor of the same def evaluates cleanly. See
+  `plan.md` "Perf-spike → CORRECTNESS finding" for the full bisection, dead ends, and the follow-up
+  slice. Raising `evalFuel` is NOT a fix (it never clears the bottom and only slows everything).
+  The 88s wall (when the app DOES export, e.g. cert-manager ~30s) is a separate, downstream perf
+  concern, meaningful only once the correctness bug above is fixed.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).

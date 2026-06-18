@@ -98,6 +98,80 @@ field-ordering byte-parity gap, #3 in the backlog):
   ~71s (perf-wall-adjacent — item 7). Full `apps/argocd.cue` end-to-end status in the latest
   breadcrumb. cert-manager byte-identical to baseline (no regression).
 
+## Perf-spike → CORRECTNESS finding: argocd bottom is a REAL conflict, NOT fuel (2026-06-19)
+
+Investigation of the full `apps/argocd.cue` `conflicting values (bottom)` (the "fuel-exhaustion-at-
+scale" suspicion from the breadcrumbs). **Verdict: it is NOT a fuel-truncation bottom. It is a
+deterministic correctness divergence — a higher-priority bug than perf.** Per the slice instruction
+and `correctness-over-performance`, I STOPPED rather than papering over it; this entry is the
+durable record. No code change landed (a debug-only instrumentation was added and reverted).
+
+### The decisive fuel test (disproves the fuel hypothesis)
+Swept `evalFuel` (rebuild per value), full `apps/argocd.cue` against `cue` 0.16.1 (read-only prod9
+`/Users/chakrit/Documents/prod9/infra`; `cue` exports 777 lines in 0.04s):
+
+| `evalFuel` | result | wall |
+|-----------:|--------|-----:|
+| 100 (prod) | **bottom** | 88s |
+| 200 | **bottom** | 131s |
+| 600 | **bottom** | 301s |
+
+Cost scales ~linearly with fuel but the bottom **never clears**. Also swept the two STRUCTURAL
+fuels `resolveFuel`/`remapFuel` (the name-resolution and ref-remap depth bounds) to 100000 on a
+fast repro — still bottoms. So it is NOT truncation at any ceiling (eval, resolve, or remap). It is
+a genuine value conflict Kue computes that `cue` does not. (This retires the breadcrumb's
+"fuel-exhaustion-at-scale" framing — that hypothesis is now disproven, same as item 7 retired the
+frame-id one.)
+
+### Localization (bisected, all on valid CUE that `cue` exports)
+- The bottom is NOT in `packs.#Argo` (the 5 env components) and NOT in `configs.yaml` (secret/
+  configmap/rbac — those export fine). It is in **`route.yaml`/`listener.yaml`** = `defs.#TLSRoute`
+  / `defaults.#ListenerSet`. Both bottom **independently** (each alone, ~28-30s).
+- `defaults.#ListenerSet` minimal repro: a `package main` file in the scratch module copy
+  (`/tmp/infra-scratch/apps/v_lsonly`, NOT committed) doing `defaults.#ListenerSet & {…}`. `cue`
+  exports it (with the cert-manager annotation); **Kue bottoms.** This is a valid-CUE divergence.
+- The resolved tree shows `listener.yaml: [.bottom]` (a BARE `.bottom`, no reason) plus, elsewhere
+  in the evaluated package value, `bottomWith [fieldConflict "#args"/"#from"/"#to"]` — those three
+  labels live in the `defs` workload defs (`pod_controller.cue`/`daemonset.cue`), which the
+  `#ListenerSet` path does NOT reference. `cue` does not evaluate those unreferenced sibling defs;
+  Kue's bottom co-occurs with them.
+
+### Working hypothesis (NOT yet pinned — needs a follow-up slice)
+The trigger is the **multi-module loader path**, not the `#ListenerSet` shape itself: a single-module
+vendor of the exact same `defs.#ListenerSet` (correctly referenced by its declared package name)
+evaluates CLEANLY in Kue. The divergence appears only in the real `consumer-module (`prodigy9.co`) →
+dep-module (`prodigy9.co/defs@v0.3.19`)` cross-module layout, where `defaults` (local) imports
+`defs` (dep). Likely shape of the bug: evaluating/binding the imported `defs` package value pulls
+in conflicting unreferenced sibling defs (the `#args/#from/#to` workload conflicts) that should stay
+lazy — i.e. an **import-laziness / eager-package-eval gap**, plausibly adjacent to the
+`FieldClass.importBinding` laziness work (A2-followup). A clean cross-module repro outside prod9 was
+not nailed down this slice (vendoring kept collapsing the module boundary or mis-matching dep paths);
+that is the first task of the follow-up.
+
+### Caveats from the spike (so the next agent does not repeat the dead ends)
+- A hand-vendored single-module copy that renames import PATHS but references a package by its DIR
+  name instead of its DECLARED package name is INVALID CUE (`cue` errors "no files … with package
+  name X"; Kue correctly emits `unresolvedReference`). Both tools reject it — it is not the bug. Use
+  the package's declared name (or an explicit alias) when referencing.
+- `kue export -e <path>` selects AFTER a full eval, so it cannot reduce eval cost for bisection.
+- The whole `defs`/`defaults` package value is evaluated by the formatter walk; `#args/#from/#to`
+  conflicts in unreferenced siblings are the signal to chase.
+
+### Next step (a CORRECTNESS slice, ahead of the perf items)
+1. Build a minimal cross-module repro OUTSIDE prod9 (consumer module + a dep module with two defs,
+   one referenced one with an interior conflict) that reproduces `defaults.#ListenerSet`-style bottom.
+2. Diagnose whether an unreferenced conflicting sibling in an imported (dep) package is being
+   eagerly meet/evaluated into the consumer's selected value — compare against the A2-followup
+   import-laziness guard (`unreferenced_import_conflict` fixture pins the SAME-module case; the dep
+   cross-MODULE case may have a gap).
+3. Fix soundly (keep unreferenced bound-package interiors lazy across the module hop), gate with a
+   new module fixture + cert-manager/argocd content-identity, then RE-MEASURE the full-app wall (the
+   88s perf wall is downstream of this and only meaningful once the app exports at all).
+
+This supersedes the "argocd fuel-exhaustion-at-scale" backlog framing: full `apps/argocd.cue` is
+blocked by a CORRECTNESS bug (above), not the fuel ceiling. The perf wall (88s even when it does
+export, e.g. cert-manager ~30s) remains tracked separately.
+
 ## Phase-A audit (2026-06-19, batch `24da14d..463f8e1` — B2 CP3-pre/flip + B2.5) — CLEAN
 
 Audit of the B2 family-1 production flip (CP3-pre `b79af85..cf5b53c`, CP3-flip `ee7dfe5..4597dcd`,

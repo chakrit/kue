@@ -8343,3 +8343,27 @@ prod9/infra`):** cert-manager `kue export apps/cert-manager.cue --out yaml` **11
 content-identical to `cue export` (only field order differs — known #3). Full `apps/argocd.cue` is
 much faster (>7.5min/killed → ~88s) but STILL bottoms (`conflicting values (bottom)`) on the fuel
 ceiling — the separate fuel-exhaustion-at-scale limit, not a hash problem. No CUE divergence.
+
+---
+
+## Spike (no code landed): argocd bottom RE-DIAGNOSED — real conflict, not fuel
+
+**Intended outcome:** confirm whether full `apps/argocd.cue`'s `conflicting values (bottom)` is a
+spurious fuel-truncation bottom (→ a perf wall, fixable by reducing eval cost) or a real value
+conflict (→ a correctness bug). **Finding: real conflict.** No production code changed — this is a
+diagnostic spike whose output is the durable finding in `plan.md` ("Perf-spike → CORRECTNESS
+finding") and `kue-performance.md`. A debug-only env-gated value dump was added to `Main`/`Runtime`
+to read bottom reasons, then REVERTED; the working tree is back to baseline.
+
+**Evidence (against READ-ONLY prod9 `/Users/chakrit/Documents/prod9/infra`, oracle `cue` 0.16.1):**
+- `evalFuel` swept 100→200→600: app bottoms at every level (wall 88s→131s→301s, scales ~linearly,
+  bottom never clears). `resolveFuel`/`remapFuel`→100000 on a fast repro: still bottoms. NOT
+  truncation at any ceiling.
+- Bisected to `defaults.#ListenerSet` / `defs.#TLSRoute`; each bottoms standalone on valid CUE
+  `cue` exports. Resolved tree: `listener.yaml: [.bottom]` (bare) co-occurring with `fieldConflict
+  #args/#from/#to` from UNREFERENCED `defs` workload siblings.
+- A single-module vendor of the same `defs.#ListenerSet` (correctly referenced) evaluates CLEANLY →
+  the bug is in the cross-MODULE loader path (consumer `prodigy9.co` → dep `prodigy9.co/defs`),
+  hypothesis: an import-laziness gap letting an unreferenced conflicting dep sibling pollute the
+  selected value. Follow-up slice (a CORRECTNESS slice, ahead of the perf items) detailed in
+  `plan.md`. Build green (96 jobs) at baseline. No CUE divergence (the divergence is Kue-wrong).
