@@ -163,6 +163,31 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
       match fuel with
       | 0 => false
       | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels l || refsSelfEmbeddedLabel f depth selfIndex labels v
+  | .builtinCall _ args =>
+      -- Args resolve in the enclosing frame (same `depth`): `count: len(Self.#x)` reads the
+      -- embedded label through the host `Self` from inside the call.
+      match fuel with | 0 => false | f + 1 => args.any (refsSelfEmbeddedLabel f depth selfIndex labels)
+  | .embeddedList items tail decls =>
+      -- Items/tail are list elements (same frame); decls are the embedding struct's surviving
+      -- member fields (one frame deeper, like `.struct`).
+      match fuel with
+      | 0 => false
+      | f + 1 => items.any (refsSelfEmbeddedLabel f depth selfIndex labels)
+          || (match tail with | some t => refsSelfEmbeddedLabel f depth selfIndex labels t | none => false)
+          || decls.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
+  | .structPattern fields labelPattern constraint _ =>
+      match fuel with
+      | 0 => false
+      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
+          || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels labelPattern
+          || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels constraint
+  | .structPatterns fields patterns _ =>
+      match fuel with
+      | 0 => false
+      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
+          || patterns.any (fun p =>
+              refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.fst
+                || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.snd)
   | _ => false
 
 /-- Should the embedding-`Self` two-pass fire? Only when (a) embeddings contributed labels NOT
@@ -243,6 +268,27 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List St
       match fuel with
       | 0 => []
       | f + 1 => selfReferencedLabels f depth selfIndex l ++ selfReferencedLabels f depth selfIndex v
+  | .builtinCall _ args =>
+      match fuel with | 0 => [] | f + 1 => args.flatMap (selfReferencedLabels f depth selfIndex)
+  | .embeddedList items tail decls =>
+      match fuel with
+      | 0 => []
+      | f + 1 => items.flatMap (selfReferencedLabels f depth selfIndex)
+          ++ (match tail with | some t => selfReferencedLabels f depth selfIndex t | none => [])
+          ++ decls.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
+  | .structPattern fields labelPattern constraint _ =>
+      match fuel with
+      | 0 => []
+      | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
+          ++ selfReferencedLabels f (depth + 1) selfIndex labelPattern
+          ++ selfReferencedLabels f (depth + 1) selfIndex constraint
+  | .structPatterns fields patterns _ =>
+      match fuel with
+      | 0 => []
+      | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
+          ++ patterns.flatMap (fun p =>
+              selfReferencedLabels f (depth + 1) selfIndex p.fst
+                ++ selfReferencedLabels f (depth + 1) selfIndex p.snd)
   | _ => []
 
 /-- Pass-2 selective re-eval (perf, audit PART B): the static field INDICES (into `canonical`)
@@ -412,6 +458,29 @@ mutual
           (remapConjRefs fuel frameDepth oldLabels mergedMap tail)
     | fuel + 1, .interpolation parts =>
         .interpolation (remapConjValues fuel frameDepth oldLabels mergedMap parts)
+    | fuel + 1, .structComp fields comprehensions open_ hasTail =>
+        .structComp
+          (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields)
+          (remapConjValues fuel (frameDepth + 1) oldLabels mergedMap comprehensions)
+          open_ hasTail
+    | fuel + 1, .comprehension clauses body =>
+        .comprehension
+          (remapConjClauses fuel frameDepth oldLabels mergedMap clauses)
+          (remapConjRefs fuel frameDepth oldLabels mergedMap body)
+    | fuel + 1, .listComprehension clauses body =>
+        .listComprehension
+          (remapConjClauses fuel frameDepth oldLabels mergedMap clauses)
+          (remapConjRefs fuel frameDepth oldLabels mergedMap body)
+    | fuel + 1, .embeddedList items tail decls =>
+        .embeddedList
+          (remapConjValues fuel frameDepth oldLabels mergedMap items)
+          (tail.map (remapConjRefs fuel frameDepth oldLabels mergedMap))
+          (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap decls)
+    | fuel + 1, .dynamicField label fieldClass value =>
+        .dynamicField
+          (remapConjRefs fuel frameDepth oldLabels mergedMap label)
+          fieldClass
+          (remapConjRefs fuel frameDepth oldLabels mergedMap value)
     | _, value => value
   termination_by (fuel, 0, 0)
 
@@ -461,6 +530,21 @@ mutual
           remapConjRefs fuel frameDepth oldLabels mergedMap pattern.snd
         ) :: remapConjPatterns fuel frameDepth oldLabels mergedMap rest
   termination_by patterns => (fuel, 1, patterns.length)
+
+  def remapConjClauses
+      (fuel : Nat)
+      (frameDepth : Nat)
+      (oldLabels : List Field)
+      (mergedMap : List (String × Nat)) : List (Clause Value) -> List (Clause Value)
+    | [] => []
+    | clause :: rest =>
+        let remapped := match clause with
+          | .forIn key value source =>
+              Clause.forIn key value (remapConjRefs fuel frameDepth oldLabels mergedMap source)
+          | .guard condition =>
+              Clause.guard (remapConjRefs fuel frameDepth oldLabels mergedMap condition)
+        remapped :: remapConjClauses fuel frameDepth oldLabels mergedMap rest
+  termination_by clauses => (fuel, 1, clauses.length)
 end
 
 /-- Rebase every field in a conjunct against the merged frame layout (see `remapConjRefs`).

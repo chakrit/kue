@@ -2464,6 +2464,109 @@ theorem embedded_self_pass_skips_nested_unselected :
       ["a"] = false := by
   native_decide
 
+/-! ### A1 (soundness) — `Self.<embedded-label>` read WRAPPED IN A BUILTIN ARG.
+
+Both two-pass scanners (`refsSelfEmbeddedLabel` gate / `selfReferencedLabels` selection) ended
+in a catch-all that SILENTLY SWALLOWED `builtinCall`/`embeddedList`/`structPattern`/
+`structPatterns`. So `count: len(Self.#x)` — a `.builtinCall` whose arg reads an embedded label —
+was invisible: the gate stayed single-pass and (post-`2d87b8e` selective re-eval) the field was
+skipped → stale Pass-1 value. Adding the missing arms (args at same depth; embeddedList items/tail
+at depth, decls at depth+1; pattern fields/labelPattern/constraint at depth+1) makes the read
+visible to BOTH. -/
+
+-- GATE: `count: len(Self.x)` (an embedded-label read inside a builtin arg) fires the two-pass.
+theorem embedded_self_pass_fires_on_builtin_wrapped_select :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩,
+       ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "x"]⟩]
+      ["x"] = true := by
+  native_decide
+
+-- NESTED builtin arg (`spec: { n: len(Self.x) }`, read at depth 1) also fires.
+theorem embedded_self_pass_fires_on_nested_builtin_wrapped_select :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩,
+       ⟨"spec", .regular, .struct
+          [⟨"n", .regular, .builtinCall "len" [.selector (.refId ⟨1, 0⟩) "x"]⟩] true⟩]
+      ["x"] = true := by
+  native_decide
+
+-- SELECTION: `selfReferencedLabels` sees the embedded label THROUGH the builtin arg, so the
+-- builtin-wrapped field is in the Pass-2 re-eval set (not skipped → not stale).
+theorem selfreferenced_labels_descends_builtin_arg :
+    (selfReferencedLabels evalFuel 0 0
+        (.builtinCall "len" [.selector (.refId ⟨0, 0⟩) "x"]) == ["x"]) = true := by
+  native_decide
+
+-- The Pass-2 SELECTION set includes the builtin-wrapped field: `count: len(Self.et)` (canonical
+-- index 1 after the `#self` binding) is selected when `et` is an embedded label.
+theorem selpass_selects_builtin_wrapped_field :
+    (embeddedSelfPassFieldIndices
+        (canonicalizeFields
+          [⟨"#self", .definition, .thisStruct⟩,
+           ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "et"]⟩])
+        ["et"]
+      == [1]) = true := by
+  native_decide
+
+-- NO OVER-FIRE: a builtin arg reading an UNRELATED label does not fire the gate.
+theorem embedded_self_pass_skips_builtin_unrelated :
+    needsEmbeddedSelfPass
+      [⟨"Self", .letBinding, .thisStruct⟩,
+       ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "other"]⟩]
+      ["x"] = false := by
+  native_decide
+
+/-! ### B1 (soundness) — `remapConjRefs` SWALLOWED struct-comp / comprehension conjuncts.
+
+The conj-frame-remap (`remapConjRefs`, rebasing a conjunct's frame-local `.refId`s onto a merged
+conjunction frame) ended in `| _, value => value`, silently dropping `.structComp` (the dominant
+`{embed;…;...}` `#Def` conjunct shape), `.comprehension`/`.listComprehension`, `.embeddedList`,
+`.dynamicField`. A swallowed conjunct kept STALE merged-frame indices after a field-reindexing
+merge → wrong resolution or spurious bottom. The fix adds explicit recursing arms (structComp
+fields + comprehensions at frameDepth+1; comprehension clause-sources/guards + body at frameDepth;
+embeddedList items/tail at frameDepth, decls at frameDepth+1; dynamicField label+value). -/
+
+-- A `.structComp` conjunct whose inner field reads a frame sibling (`refId ⟨1, 1⟩` = old index 1
+-- = "b", measured one frame deep inside the pushed struct-comp frame) is REINDEXED onto the merged
+-- layout `[("b",0),("a",1)]` → `refId ⟨1, 0⟩`. Pre-fix: swallowed, stays the stale `⟨1, 1⟩`.
+theorem remap_structcomp_conjunct_reindexes_inner_refid :
+    (remapConjRefs remapFuel 0
+        [Field.regular "a" .top, Field.regular "b" .top]
+        [("b", 0), ("a", 1)]
+        (.structComp [⟨"x", .regular, .refId ⟨1, 1⟩⟩] [] true false)
+      == .structComp [⟨"x", .regular, .refId ⟨1, 0⟩⟩] [] true false) = true := by
+  native_decide
+
+-- A `.structComp` conjunct's COMPREHENSION list is also remapped (a comprehension body reading a
+-- merged-frame sibling at `refId ⟨1, 1⟩` → `⟨1, 0⟩`). Pre-fix: the whole structComp was swallowed.
+theorem remap_structcomp_conjunct_remaps_comprehension :
+    (remapConjRefs remapFuel 0
+        [Field.regular "a" .top, Field.regular "b" .top]
+        [("b", 0), ("a", 1)]
+        (.structComp [] [.comprehension [.guard (.refId ⟨1, 1⟩)] (.refId ⟨1, 1⟩)] true false)
+      == .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)] (.refId ⟨1, 0⟩)] true false) = true := by
+  native_decide
+
+-- A bare `.comprehension` conjunct: clause source AND body refs at the merged frame (`refId ⟨0,1⟩`)
+-- are reindexed to `⟨0,0⟩`. Pre-fix: swallowed, stale.
+theorem remap_comprehension_conjunct_reindexes_source_and_body :
+    (remapConjRefs remapFuel 0
+        [Field.regular "a" .top, Field.regular "b" .top]
+        [("b", 0), ("a", 1)]
+        (.comprehension [.forIn none "x" (.refId ⟨0, 1⟩)] (.refId ⟨0, 1⟩))
+      == .comprehension [.forIn none "x" (.refId ⟨0, 0⟩)] (.refId ⟨0, 0⟩)) = true := by
+  native_decide
+
+-- A `.dynamicField` conjunct: both label and value refs are reindexed.
+theorem remap_dynamicfield_conjunct_reindexes_label_and_value :
+    (remapConjRefs remapFuel 0
+        [Field.regular "a" .top, Field.regular "b" .top]
+        [("b", 0), ("a", 1)]
+        (.dynamicField (.refId ⟨0, 1⟩) .regular (.refId ⟨0, 1⟩))
+      == .dynamicField (.refId ⟨0, 0⟩) .regular (.refId ⟨0, 0⟩)) = true := by
+  native_decide
+
 -- HEADLINE (source-level, cue-exact): a list comprehension over an embedded-def field narrowed
 -- via a use-site `#host` yields the element. Pre-fix: empty list (gate missed the listComp source).
 theorem listcomp_embed_selfref_narrows :
