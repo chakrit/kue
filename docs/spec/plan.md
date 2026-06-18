@@ -434,6 +434,101 @@ field-order #3) but only reachable at lowered fuel; at production fuel 100 it is
 to be a `cue` drop-in. argocd (larger) not separately re-timed — same fuel-axis wall, worse.
 Kue is NOT yet a drop-in `cue` replacement for these apps; the fuel-saturation slice is the gate.
 
+## Audit Fix-Slices (perf-B closure-perf SOUNDNESS audit — Phase A, audit 2026-06-18 #5)
+
+Phase A FALSE-SHARE hunt over `4dbc62c` (code) + `ed63aa1` (docs) — the soundness-critical
+audit of perf B's two memos before the fuel-saturation slice stacks on them.
+
+**HEADLINE: perf B's two memos are SOUND. No false-share / corruption path found despite a
+hard adversarial hunt (11 differential repros vs `cue` v0.16.1, all byte-matching, + full
+structural argument). CLEAR to build fuel-saturation on these memos.** Findings below are all
+pin-strength / coverage gaps (owed pins), NONE a Violation. Build 86, tests 40 (8 perf-B pins
+pass), fixtures byte-identical, shellcheck clean, tree clean.
+
+### Why sound (the structural argument, recorded so it need not be re-derived)
+
+Both memos rest on ONE invariant, pre-existing and only TIGHTENED by perf B:
+> **PROXY INV:** for any two eval-reachable envs, `env.ids == env'.ids ⟹ env == env'`
+> (id-stack equality implies full structural contents-equality).
+
+`EvalKey`/`ForceKey` both key the env via `env.ids : List Nat` only; the invariant is what makes
+that sound. Perf B's frame sharing deliberately stops ids being unique allocation tokens, so the
+invariant had to be RE-EARNED — and it is, by construction:
+- `pushFrame` inserts each id exactly once, for exactly one `FrameKey = (parentIds, fields)`
+  (insert only in the `none` branch with a fresh `nextFrameId`; reuse in the `some` branch). So
+  the id→FrameKey map is **injective**: id-stack equality ⟹ FrameKey-stack equality.
+- `FrameKey.fields` is the FULL field list compared by structural `BEq` (the shallow `Hashable`
+  is a probe filter only; `BEq` runs on bucket match). `parentIds` carries the outer chain,
+  sound by induction with base case `pushFrame _ []` (all roots push onto `[]` — lines 2026/
+  2041/2049/2058). So FrameKey-stack equality ⟹ contents-equality frame-by-frame. ∎
+- No fabricated ids reach a real eval env: every eval-time push is `pushFrame`, and every manual
+  `frame :: outer` reuses a frame from `env.drop` (already-canonical id). The `(0, …)` envs
+  (1239/1258/1293/1305/1355) live ONLY inside pure non-`EvalM` probe helpers
+  (`followAliasDefBody?` / `importDefClosureBody?` / `refDefClosureBody?`) for `bodyNeedsDefer`
+  checks; they return `(List Field, Value)` and never enter any memo key.
+
+`fuel` + `visited` stay in `EvalKey` untouched, so a shared frame id NEVER collapses two evals at
+different fuel/visited — the sharing only canonicalizes the `env.ids` axis. The force-`Core`
+reads ONLY `(fuel, capturedEnv, body, useOperands)` (uses `visited := []`, never the caller's
+env), so `ForceKey` is the COMPLETE input modulo PROXY INV; closed-vs-open rides in `body` (the
+producer normalizes def bodies at capture → closed body differs AS A VALUE from open);
+`useOperands` is order/multiplicity-sensitive (`List` `BEq`).
+
+### Frame-id leak into value identity/output — checked, does NOT leak
+
+`valueTag` returns a constant per constructor (`.closure _ _ → 29`, ignoring `capturedEnv`), so
+frame ids never enter any memo HASH. `Format.lean:213` prints `.closure _ body` as `body`
+(captured env dropped) — ids never reach formatted output. `.closure`'s structural `BEq` compares
+`capturedEnv` in FULL (fields, not just ids), so it is STRICTER than the id-proxy — never a false
+hit. The one id-bearing surface is `Manifest.lean:104` `.error (.incomplete (.closure capturedEnv
+body))`, but that is an error-report path (unforced closure = incomplete), not a memoized "correct"
+value; perf B makes those ids MORE deterministic (canonical), not less. No corruption vector.
+
+### Adversarial repros (all byte-matched `cue` v0.16.1; scratch in `/tmp/kue_audit`, deleted)
+
+Strongest cases that WOULD expose a false-share if one existed:
+- `parentIds` load-bearing E2E: identical inner body under different parents resolves to
+  different values (`{outer:1,inner:{r:outer}}` vs `outer:2` → `r:1` / `r:2`; depth-2 variant
+  `100`/`200`). Frame sharing does NOT cross-resolve.
+- force-memo `useOperands` keying: `#D & {x:1} | {x:2} | {x:1} | {x:3}` (nested `z.inner:x`) — the
+  two `{x:1}` share correctly, the others stay distinct; all byte-match.
+- closed-vs-open twin (constraint b): `#C & {x:1}` → `{x:1}` (rejects extra) vs `R & {x:1,y:2}`
+  → `{x:1,y:2}` (admits) — byte-identical body, opposite closedness, both correct.
+- default-disjunction by context: `#D:{x:int|*0} ; p:#D&{x:5} ; q:#D` → `5` / `0`.
+- same def AST in two scopes forced standalone: `capturedEnv` differs by `base` → `10` / `20`.
+
+### Findings (ranked — all OWED PINS, no Violation, none blocks fuel-saturation)
+
+1. **[MEDIUM — pin gap] No force-memo (`ForceKey`) false-share pin exists.** All 4 soundness
+   pins test `pushFrame` id-coincidence (`twoPushIds`); ZERO pin exercises the force-memo's
+   `useOperands`/`capturedEnv` keying — the memo most load-bearing for real apps and the one a
+   future refactor is likeliest to weaken. Owe a `native_decide` pin on the `c2.cue` shape:
+   `#D&{x:1}` and `#D&{x:1}` give equal values (share) while `#D&{x:2}` differs — asserting the
+   exported value, so a key that wrongly dropped `useOperands` would FAIL it. Add a fixture pair
+   too (`testdata/cue/force-memo-narrow.{cue,expected}` + `FixturePorts`).
+2. **[MEDIUM — pin gap] Frame-sharing soundness pins are UNIT tests of `pushFrame`, not E2E
+   value pins.** Pins 1–4 assert id-coincidence, not that the resulting VALUE is correct. A
+   regression that shared an id it shouldn't would corrupt a value but might still satisfy a
+   coincidence pin (or vice versa). Owe an E2E pin on the `a6`/`a7` shape (identical inner body
+   under different parents → different values) asserting the exported struct, so a parentIds
+   regression corrupts the value and trips the pin. Fixture pair + `FixturePorts`.
+3. **[LOW — pin honesty] Pin 4 (`frame_no_share_closed_vs_open`) uses `.definition` vs `.regular`
+   as a STAND-IN** (its own comment admits) — it does NOT exercise the actual force path's
+   `normalizeDefinitionValueWithFuel` closing, which is what really makes a closed body differ as
+   a `Value`. The `b4.cue` differential (`#C&{x:1}` vs `R&{x:1,y:2}`) is the honest E2E version;
+   fold it in as a fixture so constraint (b) is pinned through the real normalization, not a proxy.
+4. **[LOW — no leak pin] No pin guards the "frame id must NOT leak into value identity/output"
+   invariant.** It holds today (`valueTag` constant per ctor; `Format` drops captured env), but
+   nothing pins it — a future `valueTag`/`Format` edit that started hashing/printing `capturedEnv`
+   would silently make shared ids observable. Cheap pin: two structurally-identical closures
+   captured at different sites `Format`-print equal; `valueTag (.closure e1 b) == valueTag (.closure
+   e2 b)`. Guards the leak surface the whole soundness argument depends on.
+
+These are owed as a small `perfb-soundness-pins` fix-slice (LOW risk, additive tests only). They
+do NOT gate the fuel-saturation slice — the memos are proven sound — but should land alongside it
+so the fuel-saturation work (which threads a new `saturated` bit through the SAME keys) inherits
+real false-share coverage rather than coincidence-only unit pins.
+
 ## Value.closure work plan (frontier #1 — chakrit-approved churn, 2026-06-18)
 
 AUTHORITATIVE. Supersedes the "DECISION NEEDED" framing above (kept as design-record).
