@@ -850,16 +850,20 @@ The breadcrumb's "force doesn't recurse" framing was wrong — forcing already r
 cross-scope splice contamination. All chain shapes (2/3-level, explicit + implicit plain-embed,
 closed-host union, narrow-through, inner-conflict→bottom) resolve cue-exact.
 
-**B'. `closure-crossdef-cache-collision` (NEW correctness blocker, surfaced building E — LIVE
-NEXT).** E is cue-exact on every embed-chain shape in isolation, AND a faithful hand-built replica
-of the FULL real `#ClusterIssuer` exports byte-exact. BUT cert-manager/argocd still `bottom`.
-Bisected (read-only prod9): the collapse is NOT in `#ClusterIssuer` — it is triggered by a SIBLING
-def in the loaded `prodigy9.co/defs/parts` package, `#PodController`, which embeds `attr.#Ports` (a
-`.structComp` with a bare-`#port` self-ref guard `if #port != _|_`). The mere PRESENCE of
-`#PodController` in the package poisons the unrelated `#ClusterIssuer` eval — a CROSS-DEF cache
-collision (two defs sharing/forcing structComp closures whose cache keys collide). This is the next
-correctness slice. Minimal trigger: a def embedding `attr.#Ports` alongside `#ClusterIssuer` in one
-package; `out: #ClusterIssuer & {…}` → `bottom`.
+**B'. `closure-structcomp-force-comprehensions` (NEW correctness blocker — LIVE NEXT).
+RE-DIAGNOSED 2026-06-18 by Phase-A audit #3 — was mislabeled `closure-crossdef-cache-collision`.**
+NOT a cache collision. The real bug: `forceClosureWithConjunct`'s `.structComp` arm
+(`Eval.lean:1544-1566`) only meets the embeddings (`comprehensions.filter isEmbeddingValue`) and
+NEVER calls `expandComprehensionsWithFuel` — so a conditional `if`/`for` guard inside a
+deferred-then-forced structComp def is silently dropped. The eager `.structComp` eval arm
+(`:1380-1395`) expands them correctly. Reproduces with ONE def, no sibling, no cache:
+`#M: {#x: int, if #x > 0 { y: #x }}` + `#M & {#x: 5}` → cue `{y:5}`, kue `{}`. The real
+`attr.#Ports` (`if #port != _|_ {…}`) hits this via the embed deferral; `#PodController` is a
+red herring (it just loads the guard-bearing structComp). The EvalKey/pushFrame memo is NOT
+implicated. **Fix:** thread the non-embedding comprehensions through `expandComprehensionsWithFuel`
+in the force arm and merge into `merged` before the embed-meet; audit the lazy-merge path too
+(`M & {#x:5}` for a non-def comprehension struct drops the guard the same way). See audit #3
+finding F2 at the end of this file for the full target + pins.
 
 **B. `closure-perf` (frontier #2 — still a wall).** cert-manager ~11s, argocd ~54s even while
 erroring. Downstream of correctness; profile after B' resolves the cross-def collision.
@@ -3055,3 +3059,128 @@ spotted.
   so a new family is an `evalXBuiltin` helper, a catch-all route in `evalBuiltinCall`, a
   fixture, and unit theorems.
 - Add imports and full module resolution after the syntax and resolver layers exist.
+
+## Audit Fix-Slices (Value.closure slices C + E — Phase A code-quality, audit 2026-06-18 #3)
+
+Phase A over `1902191` (slice C, closure-default-in-guard) and `6fc26a5` (slice E,
+closure-embed-chain). Type-system-first lens, read-only oracle probes (`cue` v0.16.1,
+`/Users/chakrit/go/bin/cue`; prod9 NOT needed — every finding reproduces in `/tmp`).
+Verify gate green at audit time: `lake build` 86 jobs, `check-fixtures.sh` "fixture pairs
+ok", tree clean before this plan edit. Plan-only this pass — both Violations are behavior
+changes needing their own fix-slice (one of them subsumes the planned B').
+
+### Headline verdict — slice E SOUND; slice C has a real default-mark Violation; B' MISDIAGNOSED
+
+- **E closedness-opening is SOUND** (the subtlest risk): no leak, no false conflict. A
+  closed embed into an open host correctly admits host siblings (`{#A, a:1, c:9}` ==
+  cue); a closed *host def* still rejects unknown use-site fields (`#B & {c}` → reject ==
+  cue). Only delta is error-message precision ("conflicting values (bottom)" vs cue's
+  "field not allowed") — cosmetic, not a correctness Violation.
+- **E `hiddenFieldsOnly` is COMPLETE**: an embedded def resolves references in its OWN
+  lexical scope, never the host's — cue says "reference not found" when an embed bare-refs
+  a host regular field (`#Inner:{copy: host}` in `{#Inner, host:"H"}`). So dropping the
+  host's regular fields from the embed splice drops nothing the embed could legitimately
+  read. Verdict: not a gap.
+- **C default-mark algebra is WRONG (Violation, F1 below)** — `combineMark` uses OR
+  semantics where CUE uses AND; `flattenAlternatives` loses CUE's two-level default
+  precedence. Produces spurious export errors where cue resolves.
+- **B' "cross-def cache collision" is MISDIAGNOSED (Violation, F2 below)** — the real bug
+  is a missing comprehension-expansion in the `.structComp` force arm; it reproduces with
+  ONE def, no sibling, no cache. The EvalKey/pushFrame memo is NOT implicated. B' must be
+  re-scoped to this exact target.
+
+### Findings (ranked)
+
+1. **[VIOLATION — `closure-default-mark-algebra`, slice C] `combineMark` is OR; CUE is
+   AND. `flattenAlternatives` drops CUE's two-level default precedence.** CUE's rule: the
+   default of `(A) op (B)` is `default(A) op default(B)` — an alternative is in the
+   result's default set iff it came from default×default. `combineMark .default _ =>
+   .default` / `_ .default => .default` (`Lattice.lean:189-192`) is logical OR; it must be
+   `.default` iff BOTH inputs are `.default`. Oracle (eval, `/tmp`):
+   - `(1|*2)+(10|*20)` → cue `22` (unique default = `*2+*20`); kue `11|*21|*12|*22` (3
+     spurious defaults) → **export errors "multiple non-default disjuncts" where cue
+     resolves to 22**. Wrong-error divergence, real.
+   - `(*1|2)*(3|*4)` → cue `4`; kue manufactures multiple defaults.
+   - `flattenAlternatives` (`Lattice.lean:194-203`) reuses `combineMark` for nested-disj
+     flattening AND loses the level structure: `g: *d | 5` with `d: 1|2` → cue `1|2`
+     (incomplete; the `5` arm is shed because a marked-default arm exists at that level,
+     and the inner no-default disjunction stays unresolved). kue → `*1 | 2 | 5` (promotes
+     inner `1` to default via OR, keeps `5`) → export errors where cue gives a clean
+     `incomplete value 1 | 2`. So CUE's two-level rule is: if any top-level alt is marked
+     default, ONLY default alts survive that level; the nested disjunction's own marks
+     apply within — kue's flatten-then-uniform-filter collapses both levels.
+   - `*1 | *1 | 2` → cue `1` (equal defaults dedup to one); kue errors "multiple
+     non-default disjuncts" (`resolveDisjDefault?` requires exactly `[(_,v)]`, never dedups
+     equal defaults).
+   **Fix-slice:** (a) `combineMark` → AND (`.default` iff both `.default`); (b)
+   `flattenAlternatives`/`normalizeDisj` must honor two-level default precedence (drop
+   non-default top-level alts when a default exists at that level, recurse marks into the
+   nested disjunction) — NOT a uniform flatten+`containsBottom` filter; (c)
+   `resolveDisjDefault?` must dedup structurally-equal defaults before the
+   unique-default test. Oracle-pin all three; add a both-operands-disjunction
+   cross-product pin and a nested-default-flatten pin (see F3). Behavior change — own
+   slice. **Does NOT block B'** (orthogonal: marks vs comprehension expansion), but is a
+   genuine wrong-result/wrong-error bug; rank ABOVE B' or alongside.
+
+2. **[VIOLATION — re-scopes B' `closure-crossdef-cache-collision`] The `.structComp`
+   force arm DROPS conditional comprehensions.** `forceClosureWithConjunct`'s `.structComp`
+   case (`Eval.lean:1544-1566`) does `comprehensions.filter isEmbeddingValue` for the
+   embed-meet but NEVER calls `expandComprehensionsWithFuel` — so an `if`/`for` guard
+   inside a deferred-then-forced structComp def is silently discarded. The eager
+   `.structComp` eval arm (`Eval.lean:1380-1395`) DOES expand them (`:1384`,
+   `staticFields ++ expanded`). Reproduces with ONE def, no sibling, no cache:
+   - `#M: {#x: int, if #x > 0 { y: #x }}` then `#M & {#x: 5}` → cue `{y: 5}`, kue `{}`.
+     (Same shape, eager/inline: `out: {#x: 5, if #x > 0 { y: #x }}` → kue `{y: 5}` ✓ —
+     proving the loss is in the FORCE path, not the comprehension logic.)
+   - The real-app `attr.#Ports` (`#port: int, if #port != _|_ { ports: [#port] }`)
+     reaches the force arm via the embed deferral, loses its guard → the cert-manager
+     `bottom`. The breadcrumb's "sibling `#PodController` poisons unrelated
+     `#ClusterIssuer` via cross-def cache collision" is a MISREAD — the sibling just makes
+     the package load the guard-bearing structComp; the failing eval is the structComp's
+     own, in isolation. The `EvalKey = ⟨fuel, env.ids, visited, value⟩` /
+     `pushFrame`/`valueTag` memo is NOT implicated (verified: single-def, single
+     eval-entry repro; no second def to collide with; `fuel` correctly load-bearing,
+     unrelated). **Fix-slice = re-scoped B' `closure-structcomp-force-comprehensions`:**
+     thread `expandComprehensionsWithFuel fuel nested (comprehensions.filter (not ∘
+     isEmbeddingValue))` into the `.structComp` force arm and merge its fields into
+     `merged` BEFORE the embed-meet (mirror the eager arm exactly). Also audit the
+     lazy-merge/conjunction path: `M & {#x:5}` for a non-def comprehension struct `M`
+     ALSO drops the guard (`out: {}` vs cue `{y:5}`) — same class, separate site; pin both.
+     Pin the real `attr.#Ports` shape as a module fixture.
+
+3. **[BORDERLINE — test strength, fold into F1/F2] C and E pins under-cover the exact
+   broken paths.** C's 8 pins all distribute over a SINGLE disjunction operand
+   (`distributeBinary .add (.disj …) (.prim …)`) — none exercise the both-operands
+   cross-product where `combineMark` lives, and none test nested-default flattening or
+   equal-default dedup; the bug went unnoticed because every distribution pin is
+   single-operand. E's 8 pins cover closedness + embed-chain narrowing but have NO pin for
+   a structComp `if`-guard surviving a use-site meet (the F2 shape) and none guarding
+   cross-def memo isolation (which turns out to be a non-issue, but a structComp-with-guard
+   isolation pin is still owed). **Action:** F1 adds cross-product + nested-default +
+   equal-default pins; F2 adds the structComp-guard-through-force pin (unit + module
+   fixture). Pin the FIX, not the current behavior.
+
+4. **[CLEANUP — confirmed sound, no action] Slice C `distributeUnary`/`distributeBinary`
+   single-operand distribution and the guard collapse are cue-exact.** `(string|*1)-1` →
+   `0` (regular branch errors, default survives — `liveAlternatives` filters the bottom,
+   `resolveDisjDefault?` picks the lone default); `(1|2)+10` stays incomplete (no
+   over-resolution); negated/direct/non-default guard collapse all match cue (n3/n4/n5
+   probes). The `normalizeEvaluatedDisj` embedded-`.regular .bottom` alternative is benign
+   — downstream `liveAlternatives`/`resolveDisjDefault?` filter it. No action.
+
+5. **[CLEANUP — confirmed sound, no action] Slice E closedness-opening + hiddenFieldsOnly
+   are sound and complete** (see headline). `closeEmbeddedOver` re-closes over `def ∪
+   embed` labels correctly; opening the embed never leaks (closed host still rejects
+   unknown use-site fields) and never false-conflicts (open host admits embed-opened
+   fields). `hiddenFieldsOnly`/`stripLetBindings` drop only what an embed cannot lexically
+   reach. The one cosmetic gap (kue's "conflicting values (bottom)" where cue emits the
+   sharper "field not allowed"/"reference not found") is a diagnostics-precision item, not
+   a correctness Violation — note for an eventual error-message pass, do NOT slice now.
+
+### Sequence impact
+
+B' as written (cross-def cache collision) does NOT exist — re-scope it to
+`closure-structcomp-force-comprehensions` (F2). Recommended order: **F2 (re-scoped B',
+the live cert-manager blocker) → F1 (default-mark algebra, independent correctness) →
+re-probe cert-manager → B (perf).** F1 and F2 are orthogonal and could run in either
+order; F2 is the real-app unblocker so it leads.
