@@ -565,10 +565,13 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
   Behavior change → full verify, NOT inline. Add a `native_decide` pin: a `structComp`
   conjunct with a `frameDepth` self-ref remaps correctly across a field-reindexing merge.
 
-- **B2 (MEDIUM-HIGH — headline refactor; subsumes item-8 `StructOpenness`). FAMILY-1 COMPLETE
-  (B2.1–B2.5 DONE 2026-06-19); only B2b (structComp collapse) remains.** The five struct
-  constructors collapsed to one `Value.struct (fields, openness, tail, patterns)` and the
-  pattern×tail cross-combination now unifies (B2.5). Historical diagnosis preserved below. `Value` HAD
+- **B2 (MEDIUM-HIGH — headline refactor; subsumes item-8 `StructOpenness`). COMPLETE
+  (B2.1–B2.5 + B2b DONE 2026-06-19).** The five struct constructors collapsed to one
+  `Value.struct (fields, openness, tail, patterns)` and the pattern×tail cross-combination now
+  unifies (B2.5); B2b then collapsed the last `(open_, hasTail)` two-bool — `structComp`'s — into
+  `StructOpenness`, so the whole struct family (1 unified meet-bearing `struct` + 1 pre-eval
+  `structComp`, both on `StructOpenness`) carries ZERO `open_`/`hasTail` two-bools. Historical
+  diagnosis preserved below. `Value` HAD
   FIVE struct-bearing constructors (`struct`, `structTail`, `structPattern`,
   `structPatterns`, `structComp`) plus `embeddedList`. `meetWithFuel` (`Lattice.lean`)
   carries a 12-arm pairwise matrix (lines 971-1044) over `{struct, structTail,
@@ -1007,6 +1010,21 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     relied on the buggy `.bottom`). The B2 family-1 collapse + correctness fix is now FULLY
     complete — only B2b (structComp collapse) remains of B2.
 
+  ### B2b — `structComp` two-bool → `StructOpenness` — DONE 2026-06-19 (Phase-B audit #6 design)
+
+  **LANDED (option (a)).** `Value.structComp` arity 4→3: `(fields) (comprehensions) (openness :
+  StructOpenness)`, kept as a DISTINCT pre-eval ctor. Parse maps `hasTail` → `defOpenViaTail`
+  else `regularOpen` (`open_` was always `true` at parse, now implied by `regularOpen`/
+  `defOpenViaTail` both being open). The one semantic site — `normalizeDefinitionValueWithFuel`'s
+  old `open_ := hasTail` — became `StructOpenness.closeDefBody` (`regularOpen ↦ defClosed`,
+  `defOpenViaTail` fixed, `defClosed ↦ defClosed`, total). Test literals migrated `true false →
+  .regularOpen`, `false false → .defClosed`, `true true → .defOpenViaTail` (62 literals across 7
+  test files; `.field`-bool pairs left untouched). `closeDefBody` + a `normalizeDefinitionValue`
+  end-to-end `native_decide` pin added to `LatticeTests`. ZERO byte-drift on all fixtures, green
+  build incl. tests, shellcheck clean. ALL `open_`/`hasTail` two-bools gone from the codebase
+  (residual `open_` names are `isOpen : Bool` locals in `Order`/`Lattice`/`Eval`, unrelated). The
+  design as written below was followed verbatim.
+
   ### B2b design (implementable) — `structComp` two-bool → `StructOpenness` (Phase-B audit 2026-06-19 #6)
 
   **Decision: option (a) — adopt `StructOpenness` on `structComp`, KEEP it a distinct pre-eval
@@ -1198,13 +1216,11 @@ finishing-touches. Recommended order:
    design-spike (split `normalizeFieldWithFuel`'s two conflated contexts + route the eager selector
    through closedness) — do the spike first, like B2/B7. Ranked above B2b because a wrong-acceptance
    is a correctness defect; B2b is hygiene.
-3. **B2b — structComp collapse (consistency, completes B2).** Now fully designed (above):
-   byte-identical, ONE slice / 3 commits, ~44 sites, LOW risk, no worktree. Finishes the struct-
-   family unification milestone and erases the last `open_`/`hasTail` nonsense state. Cheap and
-   self-contained — a natural ride-along or filler slice. Ranked below B6 (consistency < correctness)
-   but above the perf wall because it is small, certain, and closes a named milestone; landing it
-   keeps the struct representation coherent for any later struct-touching work (incl. item 7's
-   frame work, which threads through struct eval).
+3. **B2b — structComp collapse (consistency, completes B2). DONE 2026-06-19.** Landed
+   byte-identical (zero fixture drift), arity 4→3 on `Value.structComp`, the `open_ := hasTail`
+   normalize site replaced by total `StructOpenness.closeDefBody`, 62 test literals migrated,
+   `closeDefBody` + normalize end-to-end pins added. The struct-family unification milestone is
+   CLOSED: zero `open_`/`hasTail` two-bools remain. (B2 fully complete.)
 4. **item 7 — frame-id canonical identity (PERF wall, gates FULL argocd).** The deeper frontier:
    reclaims cert-manager (~92s) and unblocks the heavy `argo` sub-package (>200s timeout). This is
    what stands between "content-correct in a scratch module" and "full real-app adoption" — the
@@ -1562,10 +1578,10 @@ unsafe): B2.1 (type+`mkStruct`, DONE) → **B2.3 match sites + B2.4 single meet 
 flip — BLOCKED, inseparable from the ~940-site test-representation migration; combined with
 CP3 (ctor delete + `structN→struct` rename) as one next megaslice** → B2.5 behavioral
 cross-combination fix + new fixtures. `structComp` `open_`/`hasTail` collapse split out as a
-separate B2b follow-on — **design DONE (Phase-B #6, 2026-06-19): option (a), `StructOpenness`
-on the pre-eval `structComp` ctor (NOT folded into the meet-bearing `struct`), byte-identical,
-ONE slice / 3 commits / ~44 sites / no worktree. See "B2b design (implementable)" above.**
-Implementation pending.
+separate B2b follow-on — **DONE 2026-06-19: option (a), `StructOpenness` on the pre-eval
+`structComp` ctor (NOT folded into the meet-bearing `struct`), byte-identical, ONE slice,
+arity 4→3, `open_ := hasTail` → `StructOpenness.closeDefBody`, 62 test literals migrated. See
+"B2b — … — DONE" above.** B2 (entire struct-family unification) now COMPLETE.
 
 **A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue) — BLOCKED on a
 representation change; SOUND shallow check retained (`46bd161`).** The proposed reached-vs-unreferenced

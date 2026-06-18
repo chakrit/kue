@@ -8119,3 +8119,45 @@ is larger than one slice and risks over-close. Left for a dedicated design-slice
 `lake build` green (96 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok` (only the 2 new pairs
 as drift; def_open_tail_addfield over-close sentinel + all import/def-meet module fixtures
 byte-identical), pins oracle-checked vs cue v0.16.1.
+
+## Completed Slice: B2b — structComp two-bool → StructOpenness (2026-06-19)
+
+Collapsed the LAST `(open_, hasTail)` two-bool in `Value` — the pre-eval `structComp`'s — into a
+single `StructOpenness`, completing the B2 struct-family unification. `structComp` stays a DISTINCT
+pre-eval ctor (NOT folded into the meet-bearing `struct`; the audit's option (a)): it never reaches
+meet — the eager eval arm expands it into the unified `struct` first — so adding a `comprehensions`
+field to `struct` (option (b)) would re-introduce a `comprehensions=[]`-on-evaluated-struct nonsense
+state and destroy the pre-eval/evaluated boundary. `structComp` carries NO tail VALUE, so its
+`defOpenViaTail` means "open via a bare `...`, no stored tail" — coherent, no `tail` field to relate.
+
+### Steps
+
+1. **Arity 4→3 + the one semantic site.** `Value.structComp (fields) (comprehensions) (open_ : Bool)
+   (hasTail : Bool)` → `(fields) (comprehensions) (openness : StructOpenness)`. The arity change
+   turned every site into a compile error, fixed in dependency order (Value → Lattice → Normalize →
+   Resolve → Format → Manifest → Eval → Parse). The ONE semantic site:
+   `normalizeDefinitionValueWithFuel`'s `open_ := hasTail` (close a def body unless `...`) became
+   the total `StructOpenness.closeDefBody` (`regularOpen ↦ defClosed`, `defOpenViaTail` fixed,
+   `defClosed ↦ defClosed`). Parse maps `hasTail` → `if hasTail then .defOpenViaTail else
+   .regularOpen` (`open_` was always `true` at parse, now implied — both parse states are open). The
+   two eval consumers (eager arm `Eval.lean:2129`, force arm `:2483`) pass `openness.isOpen` where
+   they passed `open_`/`defOpen` to `closeEmbeddedOver` (kept its `Bool` param — shared with
+   non-structComp logic, minimal-touch). All match arms that `_`-ignored both bools collapsed to one.
+2. **Migrate test literals.** 62 `structComp` two-bool literals across 7 test files (FixturePorts 28,
+   ClosureTests 12, EvalTests 9, ResolveTests 4, TwoPassTests 4, EvalPerfTests 3, PresenceTests 2)
+   rewritten `true false → .regularOpen`, `false false → .defClosed`, `true true → .defOpenViaTail`.
+   Compiler-driven (arity change errors every stale literal). A balanced anchor on `.structComp`
+   guarded against the same-shape `.field (hidden definition)` two-bool collision (10 `.field` pairs
+   in Struct/ParseTests left untouched). Added `closeDefBody` (3 arms) + a `normalizeDefinitionValue`
+   end-to-end pin to `LatticeTests` — the one semantic site pinned at the type level.
+
+### Verify
+
+`lake build` green (96 jobs incl. all `native_decide` tests), `scripts/check-fixtures.sh` →
+`fixture pairs ok` ZERO byte-drift on all existing fixtures (byte-identical by construction — the
+reachable two-bool states map 1:1 onto the three `StructOpenness` states), `shellcheck` clean. Pure
+representation change, no eval-path change → perf unchanged (no `kue-performance.md` edit; cert-
+manager/`packs.#Argo` covered by the zero-drift fixture suite). ALL `open_`/`hasTail` two-bools now
+gone from the codebase (residual `open_` identifiers are `isOpen : Bool` locals in
+`Order`/`Lattice`/`Eval`, unrelated to the struct two-bool). B2 (entire struct-family unification:
+5 original ctors → 1 unified `struct` + 1 pre-eval `structComp`, both on `StructOpenness`) COMPLETE.
