@@ -6083,3 +6083,96 @@ Result equalities use `== … = true` (Value derives `BEq`, not `DecidableEq`).
 ⇒ all pins pass). `scripts/check-fixtures.sh` → `fixture pairs ok` (every committed fixture
 byte-unchanged — slice is behavior-preserving). No shell touched. No CUE divergence this
 slice (the `parts.#M` case is a kue limitation, not a cue bug — cue is correct).
+
+---
+
+## Completed Slice: Value.closure meet (frontier #1, slice 4 — closure-meet)
+
+Goal: THE behavior-changing unlock. A forced closure (a deferred imported definition, slice 3)
+met with a use-site struct must SPLICE the use-site in as an extra conjunct of the def body
+BEFORE evaluating, so `defs.#M & {#name:"keel"}` (where `#M = {#name:string, out:#name}` is an
+imported def) finally resolves to `out:"keel"` matching `cue`, instead of `incomplete value`
+(slice-3 inert-meet `.bottom`). See `plan.md` "Value.closure work plan" slice 4.
+
+### Force point + splice
+
+The `.conj` eval-then-`meet` fallback `none` branch (`Eval.lean`) is the ONLY site a closure
+currently meets a struct. There `evalValuesWithFuel` yields `[.closure capEnv defBody,
+.struct useSite]`; instead of the inert `foldl meet` (→ `.bottom`), `firstClosure?` extracts
+the closure and `forceClosureWithConjunct fuel capturedEnv body useOperands` forces it with the
+OTHER conjuncts' evaluated struct fields (`evaluatedStructOperand?`) spliced into the def body's
+frame. `meet` stays pure (no `EvalM`) — the eval lives in Eval, not `Lattice.meet`.
+
+The splice reuses the same-package conjunction merge machinery, factored to a new pure
+`mergeConjOperands (operands : List (List Field × Bool)) : List Field × Bool` shared by
+`lazyConjMergedFields` and the force. The def's own fields and the use-site's EVALUATED fields
+become two conjuncts of one merged frame (layout fixed by first-occurrence, sibling refs
+rebased, label collisions deferred to `.conj`, closedness folded), pushed onto `capturedEnv`
+and evaluated once — so `#name` becomes `string & "keel" → "keel"` and `out:⟨0,0⟩` resolves to
+`"keel"` while the def's own depth>0 cross-package refs still resolve against `capturedEnv`.
+Use-site operands are evaluated FIRST at the call site, so their refs are already resolved →
+splicing them never leaks use-site scope into the def frame and rebasing them is a no-op.
+
+Cycle handling derived from FIRST PRINCIPLES (not by analogy to the depth>0 ref arm): a forced
+closure is a fresh eval entry (`visited := []`), so the ordinary `slotVisited` machinery on the
+pushed merged frame catches a self-referential captured binding → `.top`, no loop. `fuel` stays
+in `EvalKey` (load-bearing). The non-struct-def-body and multi-closure cases fall back to
+`meet` (honest `.bottom` on genuine conflict), preserving slice-3 behavior where the splice
+doesn't apply.
+
+### Two correctness fixes folded in (latent bugs slice 4 exposes)
+
+- **Imported-def closedness.** `normalizeDefinitions` only normalizes the TOP value's own `#`
+  fields (line `Normalize.lean:51` gates on `isDefinition`), never the hidden IMPORT binding's,
+  so an imported def body kept `open_` and a forced cross-package def wrongly admitted use-site
+  fields it doesn't declare. Fix: `importDefClosureBody?` runs the captured body through
+  `normalizeDefinitionValueWithFuel normalizeFuel` to close it (`open_ := false`, recursive) at
+  capture. (The two slice-3 producer pins were updated for the now-closed body.)
+- **Open-def (`.structTail`) support.** The slice-3 gate (`defBodyHasSiblingSelfRef`) and the
+  force only handled `.struct`, so an OPEN self-ref imported def (`...` → `.structTail` body)
+  collapsed (`incomplete value`) even with no extra use field. Extended `defBodyHasSiblingSelfRef`
+  and added a `.structTail` arm to `forceClosureWithConjunct` (splice use fields, rebase + eval
+  the open tail).
+
+### Tests
+
+Seven new `native_decide` pins in `Kue/Tests/EvalTests.lean` (slice-4 section) + one committed
+module fixture:
+- `closure_meet_splices_use_site` — THE unlock: forcing `parts.#M & {#name:"keel"}` →
+  `{#name:"keel", out:"keel"}` (closed body), NOT slice-3 `.bottom`.
+- `closure_meet_conflict_is_bottom` — use-site narrows `#name` to a value the def's own `#name`
+  rejects → field-local `.bottomWith primitiveConflict` on `#name` AND `out` (export rejects).
+- `closure_meet_empty_use_site` — `parts.#M & {}` == `parts.#M` (zero spliced fields).
+- `closure_meet_self_ref_terminates` — a `loop: loop` field (`refId ⟨0,1⟩` at its own slot)
+  resolves to `.top` via `slotVisited`, no divergence/fuel-exhaustion; `out` still `"keel"`.
+- `closure_meet_open_def_admits_extra` — open (`.structTail`) def + use-site extra field: the
+  extra appears, `out` still narrowed, body stays open.
+- `closure_producer_detects_structtail_sibling` — gate now fires on `.structTail` bodies.
+- `testdata/modules/crosspkg_defmeet/` — committed regression module fixture
+  (`defs.#M & {#name:"keel"}` → `{"t":{"out":"keel"}}`, `expected` = cue-oracle JSON), runs
+  through the import-aware loader harness.
+Result equalities use `== … = true` (Value derives `BEq`).
+
+### Verify
+
+`lake build` → 86 jobs success. `scripts/check-fixtures.sh` → `fixture pairs ok` (every
+PRE-EXISTING fixture byte-unchanged + the new module fixture passes). `shellcheck scripts/*.sh`
+→ clean. Oracle: edge battery EC2-EC10 byte-match `cue` v0.16.1 (`/Users/chakrit/go/bin/cue`);
+EC1 (open def + use-site extra) matches in VALUE but differs in field ORDER (frontier #3, out
+of scope — the committed fixture avoids it). No CUE divergence (cue is correct in every probed
+case). No shell/env mutation; prod9 + cue cache read-only.
+
+### Real-app + perf probe (read-only prod9)
+
+Probed `infra/apps/cert-manager.cue` (`defs.#ClusterIssuer & {…}`, smallest) and
+`infra/apps/argocd.cue` (`defs.#Secret`/`#ConfigMap`/`#TLSRoute & {…}`). Slice 4's unlock works
+on its target shape (bare depth-0 sibling self-ref) — fast (0.016s) and cue-exact. But real
+prod9 defs use `#Def: Self={ parts.#Metadata; … Self.#x … }` value-alias defs embedding
+cross-package defs — a DIFFERENT shape slice 4 does not target. Real apps do NOT export
+end-to-end: cert-manager → `bottom` in 11.7s, argocd → `bottom` in 55s (cue: ~0.22s, correct).
+Two independent next slices fall out (recorded in `plan.md`): **A. `closure-realapp-selfalias`**
+(correctness — the embedded cross-package def `parts.#Metadata` doesn't resolve through the
+closure capture; a minimal embed+Self repro returns `incomplete` fast) and **B. `closure-perf`
+/ frame-id-sharing** (frontier #2 — the super-linear blowup is NOW REACHABLE; provably NOT the
+closure path, which is 0.016s, but the eager embed/Self-alias graph re-allocating frame ids).
+Sequence A before B. Frontier #2 confirmed reachable.

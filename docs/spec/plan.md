@@ -511,35 +511,92 @@ captured ids make two independently-captured closures compare unequal — the
    build instead of silently desyncing `Value.closure`'s `capturedEnv` from `Eval.Env`. The
    producer is the natural home — it is the first code to thread a real `Env` into a closure.
 
-4. **closure-meet — meet a closure with a use-site struct (the actual unlock, BEHAVIOR).**
-   This is where "meet stops being pure over opaque refs" (`Lattice.lean:387` invariant).
-   `meet (.closure env body) (.struct useSite _)` can no longer be `.bottom`: it must defer
-   to an eval that pushes `env`, splices `useSite` as an extra conjunct into the body's
-   merged frame (reusing `lazyConjMergedFields`/`mergeConjFields` machinery), and evaluates
-   — so the body's `out:#name` sees the narrowed `#name:"keel"` BEFORE it collapses, while
-   the body's own depth>0 refs still resolve against `env`. Because `meet` is pure (no
-   `EvalM`), the eval must happen at the closure's force point in `Eval`, not inside
-   `Lattice.meet` — i.e. the closure is forced in `evalValueCoreWithFuel`'s `.conj`/meet
-   arm when one operand is a closure, threading the use-site conjunct in. NEEDS ITS OWN
-   DESIGN SUB-SPIKE: the exact force-and-splice point, and the new cycle shape — a closure
-   capturing a self-referencing frame must enter `visited`/cycle handling keyed by the
-   captured ids (a closure forced twice with the same capturedEnv+body shares a memo
-   entry; `fuel` stays in `EvalKey` — LOAD-BEARING, 263 fuel-truncation conflicts; do NOT
-   drop it). `valueTag`'s closure tag participates in the memo hash unchanged.
+4. **closure-meet — meet a closure with a use-site struct (the actual unlock, BEHAVIOR).
+   DONE 2026-06-18.** Force point: the `.conj` eval-then-`meet` fallback `none` branch
+   (`Eval.lean`). When an evaluated operand is a `.closure` (slice-3 deferred imported def),
+   instead of the inert `meet` (→ `.bottom`), `firstClosure?` pulls it out and
+   `forceClosureWithConjunct fuel capturedEnv body useOperands` forces it with the OTHER
+   conjuncts' evaluated struct fields (`evaluatedStructOperand?`) spliced into the def body's
+   frame. The splice reuses the same-package merge machinery, factored to a pure
+   `mergeConjOperands (operands : List (List Field × Bool))` shared by `lazyConjMergedFields`
+   and the force: def fields + use fields become two conjuncts of one merged frame, pushed onto
+   `capturedEnv` and evaluated once, so `out:#name` sees the narrowed `#name:"keel"`. The
+   use-site operands are EVALUATED first (at the call site), so their refs are already resolved
+   — splicing them never leaks use-site scope into the def frame and rebasing them is a no-op
+   (resolved the EC where a use-site field referencing a def hidden sibling is rejected by cue
+   anyway). Cycle handling is first-principles: a forced closure is a fresh eval entry
+   (`visited := []`), so the ordinary `slotVisited` machinery on the pushed merged frame
+   catches a self-referential captured binding → `.top`, no loop (pinned:
+   `closure_meet_self_ref_terminates`). `fuel` stays in `EvalKey`.
+   - **Closedness fix (latent bug exposed):** an IMPORTED package's def bodies are never
+     normalized at load (`normalizeDefinitions` only normalizes the TOP value's own `#`
+     fields, not the hidden import binding's), so a forced cross-package def would lose its
+     closedness and wrongly admit use-site fields the def doesn't declare. The producer
+     (`importDefClosureBody?`) now runs the captured body through
+     `normalizeDefinitionValueWithFuel` to close it (`open_ := false`, recursive) at capture.
+   - **Open-def (`.structTail`) support added:** `defBodyHasSiblingSelfRef`,
+     `forceClosureWithConjunct`, and the gate now handle `.structTail` def bodies (open defs
+     with `...`), splicing use fields in and rebasing the tail. Without this, ANY open
+     self-ref imported def collapsed (`incomplete value`), even with no extra use field.
+   - **Pins (7 new `native_decide` in EvalTests + 1 committed module fixture):**
+     `closure_meet_splices_use_site` (THE unlock → `out:"keel"`), `closure_meet_conflict_is_bottom`
+     (use-site narrows to a value the def rejects → field-local `.bottomWith primitiveConflict`),
+     `closure_meet_empty_use_site` (`#M & {}` == `#M`), `closure_meet_self_ref_terminates`
+     (`loop:loop` → `.top`, no divergence), `closure_meet_open_def_admits_extra` (open def
+     admits a use-site field), `closure_producer_detects_structtail_sibling`, plus the
+     `testdata/modules/crosspkg_defmeet/` regression fixture (`defs.#M & {#name:"keel"}` →
+     `{"out":"keel"}`, cue-oracle expected). The two slice-3 producer pins were updated for the
+     normalized-closed body (`open_ := false`). Zero drift on every committed fixture.
 
-5. **closure-regression — pin `parts.#M & {#name:"keel"}` and the real shapes.** Add
-   `testdata/modules/crosspkg_defmeet/` (the breadcrumb repro: `parts/m.cue` + `top.cue` +
-   `cue.mod`, `expected` = `cue export` oracle JSON `{"out":"keel"}`). Add `native_decide`
-   theorems for the closure-meet result. Audit edge cases: `Self={…}` value-alias form,
-   two-declaration `t1: parts.#M` / `t1: #name:"keel"` form, nested import (`#M` body
-   embedding another imported def), and the closed-struct / pattern-constraint interplay.
-   MECHANICAL once #4 is correct; this is the slice that *proves* the unlock.
+5. **closure-regression — pin `parts.#M & {#name:"keel"}` and the real shapes.** The
+   `testdata/modules/crosspkg_defmeet/` fixture + `native_decide` theorems landed EARLY in
+   slice 4 (above). REMAINING for slice 5: the `Self={…}` value-alias real-app shape (see
+   `closure-realapp-selfalias` below — it is the actual blocker for real export, NOT the bare
+   sibling-self-ref shape slice 4 unlocked), and a periodic test/fixture-organization pass.
+   The bare-self-ref edge audit (conflict, empty, self-ref-termination, open-def, two-decl,
+   nested) is DONE in slice 4. Decide whether slice 5 folds into `closure-realapp-selfalias`.
+
+### Real-app blockers surfaced by slice 4 (probed 2026-06-18 — read-only prod9)
+
+Slice 4's unlock works perfectly on its target shape (`{#name: string, out: #name}` — a bare
+depth-0 sibling self-ref), fast (0.016s) and cue-exact. But **real prod9 apps do NOT use that
+shape** — they use `#Def: Self={ … Self.#x … }` value-alias defs that embed cross-package defs
+(`parts.#Metadata`). Probing `infra/apps/cert-manager.cue` (`defs.#ClusterIssuer & {…}`, the
+SMALLEST real app) and `infra/apps/argocd.cue` (`defs.#Secret`/`#ConfigMap`/`#TLSRoute & {…}`):
+
+- **cue:** both export correctly and instantly (~0.22s for argocd).
+- **kue:** both return `conflicting values (bottom)` — and SLOWLY: cert-manager **11.7s**,
+  argocd **55s**. So real apps do NOT export end-to-end; they hit BOTH a correctness gap AND
+  the perf wall.
+
+Two distinct, independent next slices fall out (do NOT conflate; slice 4's closure path is
+provably NOT the cause — the same `Self={}` shape resolves in 0.016s when it has no embed):
+
+**A. `closure-realapp-selfalias` (correctness — the real blocker).** Real defs use
+`#Def: Self={ parts.#Metadata; #x: string; spec: Self.#x }`. Two unhandled sub-shapes:
+(1) the `Self=` value-alias reference (`Self.#x` is a `.selector` on a labeled-alias binding,
+not a bare `refId ⟨0,_⟩`); a minimal `Self={…}` def WITHOUT an embed already resolves
+correctly (good), but (2) the **embedded cross-package def** (`parts.#Metadata` as a struct
+embedding inside the def body) does NOT — a minimal embed+Self repro returns `incomplete value:
+string` (fast, 0.018s). The producer/force must learn to defer + splice through an embedded
+imported def, not just a top-level selected one. This is the slice that makes real apps
+CORRECT. Design sub-spike required: how an embedding interacts with the closure capture.
+
+**B. `closure-perf` / frame-id-sharing (frontier #2 — now REACHABLE).** Independently, the
+real defs blow up super-linearly in time (11.7s small → 55s larger) even while erroring. This
+is the parked exponential frame-id divergence (each re-eval of an embedded/selected struct
+allocates fresh frame ids, defeating the memo `envIds` key). It was unreachable while real
+apps errored at ~0.9s; slice 4 + the eager embed path now reach it. Profiling observation: the
+blowup scales with the embed/Self-alias graph size, NOT with closures (closure path is 0.016s).
+Fix is audit-heavy (frame-id sharing / canonical frame identity) — its own slice. Sequence:
+**A before B** — correctness first; once real apps resolve, B's profiling has a working target.
+Likely A precedes the rest of slice 5.
 
 ### What this does NOT fix (sequence after)
 
-The perf hang (frontier #2) is downstream — real apps error at #1 (~0.9s) before the
-blowup, so it's currently unreachable; re-profile after slice 5, then frame-id sharing.
-Field-ordering parity (#3) is orthogonal byte-parity polish.
+Field-ordering parity (#3) is orthogonal byte-parity polish — surfaced again in slice 4's EC1
+(open def + use-site extra field: values match cue, byte order differs — `extra` before vs
+after `out`). The committed `crosspkg_defmeet` fixture avoids it (def-only output).
 
 ## Audit Fix-Slices (Value.closure slices 1-2 — Phase A code-quality, audit 2026-06-18)
 

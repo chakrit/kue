@@ -837,23 +837,52 @@ def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field ×
                 | none => none
   | _ => none
 
-/--
-Build the single merged-frame field list for a struct conjunction from its per-conjunct
-declarations. The layout (`label → slot`) is fixed by first-occurrence across conjuncts;
-each conjunct's bodies are rebased onto that layout, then merged into deferred `.conj`s on
-label collisions. The result feeds one `pushFrame` + eval, so a body referencing a sibling
-that a later conjunct narrows sees the narrowed slot. Returns `none` when any operand is not
-a plain same-scope struct, deferring to the eval-then-`meet` path.
--/
-def lazyConjMergedFields (env : Env) (constraints : List Value) :
-    Option (List Field × Bool) := do
-  let operands <- constraints.mapM (conjStructOperand? env evalFuel)
+/-- Merge a list of per-conjunct `(fields, open)` operands into the single merged-frame field
+    list. The layout (`label → slot`) is fixed by first-occurrence across conjuncts; each
+    conjunct's bodies are rebased onto that layout, then merged into deferred `.conj`s on label
+    collisions, and closedness is folded outward. The pure core shared by `lazyConjMergedFields`
+    (same-scope struct conjunction) and the closure-meet splice (`forceClosureWithConjunct`):
+    one `pushFrame` + eval over the result lets a body referencing a sibling a later conjunct
+    narrows see the narrowed slot. -/
+def mergeConjOperands (operands : List (List Field × Bool)) : List Field × Bool :=
   let layoutFrame := operands.foldl (fun acc op => mergeConjFields acc op.fst) []
   let mergedMap := labelIndexMap layoutFrame
   let rebased := operands.map fun op => rebaseConjunctFields op.fst mergedMap
   let mergedFields := rebased.foldl mergeConjFields []
   let closed := applyConjClosedness operands mergedFields
-  pure (closed, allClosednessOpen operands)
+  (closed, allClosednessOpen operands)
+
+/-- Reduce a struct conjunction to its merged-frame fields + closedness, or `none` when any
+    operand is not a plain same-scope struct (deferring to the eval-then-`meet` path). -/
+def lazyConjMergedFields (env : Env) (constraints : List Value) :
+    Option (List Field × Bool) := do
+  let operands <- constraints.mapM (conjStructOperand? env evalFuel)
+  pure (mergeConjOperands operands)
+
+/-- Extract an evaluated value's struct-conjunct operand `(fields, open)` for splicing into a
+    forced closure body — `.struct`/`.structTail`/the pattern structs all carry an evaluated
+    field list. Returns `none` for non-struct values (primitives, lists, …), which cannot be
+    spliced and fall back to a plain `meet` against the forced body. -/
+def evaluatedStructOperand? : Value -> Option (List Field × Bool)
+  | .struct fields open_ => some (fields, open_)
+  | .structTail fields _ => some (fields, false)
+  | .structPattern fields _ _ open_ => some (fields, open_)
+  | .structPatterns fields _ open_ => some (fields, open_)
+  | _ => none
+
+/-- The first `.closure (capturedEnv, body)` among evaluated conjunction operands, if any —
+    the deferred imported def the closure-meet splice forces. -/
+def firstClosure? : List Value -> Option (Env × Value)
+  | [] => none
+  | .closure capturedEnv body :: _ => some (capturedEnv, body)
+  | _ :: rest => firstClosure? rest
+
+/-- The evaluated operands with the FIRST `.closure` removed (the one `firstClosure?` returns),
+    leaving the conjuncts that splice into / `meet` against the forced body. -/
+def dropFirstClosure : List Value -> List Value
+  | [] => []
+  | .closure _ _ :: rest => rest
+  | other :: rest => other :: dropFirstClosure rest
 
 /-- Does `value` reference a sibling of the frame it sits directly in — a `refId ⟨0, _⟩`
     reachable WITHOUT crossing a frame-pushing node? Recurses through expression nodes that
@@ -912,6 +941,8 @@ def hasDepth0Ref (fuel : Nat) : Value -> Bool
     `hasDepth0Ref` refuses to descend past frame-pushers, so only true siblings count. -/
 def defBodyHasSiblingSelfRef : Value -> Bool
   | .struct fields _ => fields.any (fun f => hasDepth0Ref evalFuel (Field.value f))
+  | .structTail fields tail =>
+      fields.any (fun f => hasDepth0Ref evalFuel (Field.value f)) || hasDepth0Ref evalFuel tail
   | _ => false
 
 /-- The producer gate for slice-3 closures. Given the selector `base.label` where `base` is
@@ -921,7 +952,13 @@ def defBodyHasSiblingSelfRef : Value -> Bool
     has a field `label` that is a definition (`#`), (3) that def body has a sibling self-ref
     (`defBodyHasSiblingSelfRef`) — the only shape that collapses today, so deferring it
     regresses no currently-green fixture. `none` ⇒ take the existing eager path. The caller
-    pairs the returned body with `pushFrame pkgFields env` as the captured env. -/
+    pairs the returned body with `pushFrame pkgFields env` as the captured env.
+
+    The captured body is run through `normalizeDefinitionValueWithFuel` to close it as a
+    definition body (`open_ := false`, recursively): an IMPORTED package's def bodies were not
+    normalized at load time (`normalizeDefinitions` only normalizes the TOP value's own `#`
+    fields, never the hidden import binding's), so without this a forced cross-package def
+    would lose its closedness and wrongly admit use-site fields the def does not declare. -/
 def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
     Option (List Field × Value) :=
   match env.drop id.depth with
@@ -936,7 +973,8 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
               | some defField =>
                   if defField.fieldClass.isDefinition
                       && defBodyHasSiblingSelfRef (Field.value defField) then
-                    some (pkgFields, Field.value defField)
+                    some (pkgFields,
+                      normalizeDefinitionValueWithFuel normalizeFuel (Field.value defField))
                   else
                     none
               | none => none
@@ -1024,7 +1062,29 @@ mutual
             | none => pure .bottom
         | none => do
             let evaluated <- evalValuesWithFuel fuel env visited constraints
-            pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
+            -- A `.closure` among the evaluated operands is a deferred imported def (slice 3).
+            -- Instead of the inert `meet` (→ `.bottom`, slice-3 behavior), force it with the
+            -- OTHER struct conjuncts spliced into its body (slice 4 — the unlock). Only the
+            -- first closure is spliced; remaining operands the splice cannot absorb (non-struct
+            -- values, further closures) fall back to `meet` against the forced result, matching
+            -- the old fold and preserving honesty (still `.bottom` on a genuine conflict).
+            match firstClosure? evaluated with
+            | none => pure (evaluated.foldl (fun current constraint => meet current constraint) .top)
+            | some (capturedEnv, body) =>
+                -- Everything that is not THE spliced closure: struct conjuncts feed the splice;
+                -- any further closures are forced unspliced; the remainder `meet`s in.
+                let rest := dropFirstClosure evaluated
+                let useOperands := rest.filterMap evaluatedStructOperand?
+                let leftover := rest.filter (fun v => (evaluatedStructOperand? v).isNone)
+                let forced <- forceClosureWithConjunct fuel capturedEnv body useOperands
+                let foldStep := fun (acc : EvalM Value) (v : Value) => do
+                  let current <- acc
+                  match v with
+                  | .closure e b => do
+                      let other <- evalValueWithFuel fuel e [] b
+                      pure (meet current other)
+                  | _ => pure (meet current v)
+                leftover.foldl foldStep (pure forced)
     | fuel + 1, .builtinCall name args => do
         let evaluated <- evalValuesWithFuel fuel env visited args
         pure (evalBuiltinCall name evaluated)
@@ -1168,6 +1228,58 @@ mutual
         let evaluated <- evalValueWithFuel fuel env [] embedding
         meetEmbeddingsWithFuel fuel env (meet current evaluated) rest
   termination_by embeddings => (fuel, 3, embeddings.length)
+
+  /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct
+      conjuncts INTO the deferred def body before evaluating, so a body field referencing a
+      sibling the use-site narrows (`out: #name` with use-site `#name: "keel"`) sees the
+      narrowed value instead of collapsing against the def's own `#name: string`.
+
+      `capturedEnv` is the def's lexical scope (the package frame stack the producer captured);
+      `body` is the def's UNEVALUATED struct; `useOperands` are the OTHER conjuncts' EVALUATED
+      `(fields, open)` (struct-shaped). When `body` is a struct, def fields + use operands are
+      merged into one frame via the same `mergeConjOperands` machinery same-package conjunction
+      uses, pushed onto `capturedEnv`, and evaluated once — so the def's own depth>0 cross-pkg
+      refs still resolve against `capturedEnv` while its depth-0 siblings see the spliced
+      narrowing. Evaluated use operands carry no depth-0 frame refs (eval already resolved their
+      siblings), so rebasing them is a no-op and the splice cannot leak use-site scope into the
+      def frame. `visited := []` is sound: a forced closure is a fresh eval entry, so the
+      ordinary `slotVisited` machinery on the pushed frame catches a self-referential captured
+      binding and terminates (→ `.top`) rather than looping. A non-struct def body is forced
+      under its scope, then `meet`-ed against the use structs (no frame to splice into). -/
+  def forceClosureWithConjunct
+      (fuel : Nat)
+      (capturedEnv : Env)
+      (body : Value)
+      (useOperands : List (List Field × Bool)) : EvalM Value := do
+    match body with
+    | .struct defFields defOpen =>
+        let (mergedFields, open_) := mergeConjOperands ((defFields, defOpen) :: useOperands)
+        let canonical := canonicalizeFields mergedFields
+        let nested <- pushFrame canonical capturedEnv
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
+        match mergeEvaluatedFields evaluatedFields with
+        | some fields => pure (.struct fields open_)
+        | none => pure .bottom
+    | .structTail defFields defTail =>
+        -- Open def body (`...`): splice the use fields into the def's frame (as a struct
+        -- conjunct), keep the open tail. The tail's own depth-0 sibling refs are rebased onto
+        -- the merged layout — the same rebase the struct fields get — so it still resolves
+        -- against the widened frame.
+        let (mergedFields, _) := mergeConjOperands ((defFields, true) :: useOperands)
+        let canonical := canonicalizeFields mergedFields
+        let mergedMap := labelIndexMap canonical
+        let rebasedTail := remapConjRefs remapFuel 0 defFields mergedMap defTail
+        let nested <- pushFrame canonical capturedEnv
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)
+        match mergeEvaluatedFields evaluatedFields with
+        | some fields =>
+            let evaluatedTail <- evalValueWithFuel fuel nested [] rebasedTail
+            pure (.structTail fields evaluatedTail)
+        | none => pure .bottom
+    | _ => do
+        let forced <- evalValueWithFuel fuel capturedEnv [] body
+        pure (useOperands.foldl (fun current op => meet current (.struct op.fst op.snd)) forced)
+  termination_by (fuel, 4, 0)
 
   /-- Expand each embedded comprehension/dynamic field and concatenate the contributed fields. -/
   def expandComprehensionsWithFuel

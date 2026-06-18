@@ -958,7 +958,10 @@ captures frame id `0`. -/
 /-- The collapse shape: a package struct `parts` holding a definition `#M` whose body
     self-references a sibling (`out: #name`, `refId ⟨0,0⟩`). Selecting `parts.#M` defers to a
     `.closure` whose captured env is `pushFrame pkgFields env` (id 0 on the use-site frame 7)
-    and whose body is the UNEVALUATED `#M` struct — NOT the eager, collapsed selection. -/
+    and whose body is the UNEVALUATED `#M` struct — NOT the eager, collapsed selection. The
+    body is normalized-CLOSED (`open_ := false`) at capture: an imported def body is never
+    normalized at load time, so the producer closes it so a forced cross-package def enforces
+    its closedness against use-site fields (slice 4 EC5). -/
 theorem closure_producer_emits_on_selfref_def :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"parts", .hidden,
@@ -975,7 +978,7 @@ theorem closure_producer_emits_on_selfref_def :
               .struct [⟨"#name", .definition, .kind .string⟩,
                        ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩] true⟩])]
           (.struct [⟨"#name", .definition, .kind .string⟩,
-                    ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true)) = true := by
+                    ⟨"out", .regular, .refId ⟨0, 0⟩⟩] false)) = true := by
   native_decide
 
 /-- NON-REGRESSION: a definition WITHOUT a sibling self-reference (`#Widget` = flat
@@ -1028,7 +1031,7 @@ theorem closure_producer_captures_full_id_stack :
                        ⟨"x", .regular, .prim (.int 1)⟩] true⟩] true⟩]),
            (7, [⟨"outer", .regular, .prim (.int 9)⟩])]
           (.struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
-                    ⟨"x", .regular, .prim (.int 1)⟩] true)) = true := by
+                    ⟨"x", .regular, .prim (.int 1)⟩] false)) = true := by
   native_decide
 
 /-- `hasDepth0Ref` STOPS at frame-pushers: a `refId ⟨0,0⟩` nested inside a `.struct` field
@@ -1047,6 +1050,97 @@ theorem closure_producer_direct_sibling_ref_detected :
     (defBodyHasSiblingSelfRef
         (.struct [⟨"#name", .definition, .kind .string⟩,
                   ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true)) = true := by
+  native_decide
+
+/-! ### slice 4 (closure-meet) — splice the use-site struct into the forced def body
+
+THE unlock: `defs.#M & {#name: "keel"}` where `#M = {#name: string, out: #name}` is an
+imported self-referential definition. The `.conj` fallback evaluates `defs.#M` to a closure
+(slice 3) and `{#name: "keel"}` to a struct; instead of the inert `meet` (→ `.bottom`), the
+closure is forced with the use-site spliced in as an extra conjunct, so `out`'s `#name` ref
+sees the narrowed `"keel"` instead of collapsing to `string`. The env mirrors the producer
+tests (package binding at frame 7); `runEval` allocates the closure's pushed frame ids. -/
+
+private def pkgEnvWith (defBody : Value) : Env :=
+  [(7, [⟨"parts", .hidden, .struct [⟨"#M", .definition, defBody⟩] true⟩])]
+
+private def selfRefM : Value :=
+  .struct [⟨"#name", .definition, .kind .string⟩, ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true
+
+/-- THE unlock pinned: forcing `parts.#M & {#name: "keel"}` yields `out: "keel"` (the hidden
+    `#name` and the spliced narrowing resolve), NOT the slice-3 `.bottom`. Body is closed
+    (`open_ := false`) because `#M` is a definition. -/
+theorem closure_meet_splices_use_site :
+    (runEval (evalValueWithFuel evalFuel (pkgEnvWith selfRefM) []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] true]))
+      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                  ⟨"out", .regular, .prim (.string "keel")⟩] false) = true := by
+  native_decide
+
+/-- CONFLICT → bottom: the use-site narrows `#name` to a value the def's own `#name` rejects
+    (def `#name: "fixed"`, use-site `#name: "keel"`). The splice unifies the two `#name`
+    conjuncts → a primitive conflict, which propagates through `#name`'s spliced slot AND
+    `out`'s ref to it as a field-local `.bottomWith`; export then rejects the struct. -/
+theorem closure_meet_conflict_is_bottom :
+    (runEval (evalValueWithFuel evalFuel
+        (pkgEnvWith (.struct [⟨"#name", .definition, .prim (.string "fixed")⟩,
+                              ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true)) []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] true]))
+      == .struct
+          [⟨"#name", .definition,
+            .bottomWith [.primitiveConflict (.string "fixed") (.string "keel")]⟩,
+           ⟨"out", .regular,
+            .bottomWith [.primitiveConflict (.string "fixed") (.string "keel")]⟩] false) = true := by
+  native_decide
+
+/-- EMPTY use-site: `parts.#M & {}` == `parts.#M` — splicing zero use fields leaves the def
+    body unchanged (here `#name` stays `string`, so `out` is `string`). -/
+theorem closure_meet_empty_use_site :
+    (runEval (evalValueWithFuel evalFuel (pkgEnvWith selfRefM) []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M", .struct [] true]))
+      == .struct [⟨"#name", .definition, .kind .string⟩,
+                  ⟨"out", .regular, .kind .string⟩] false) = true := by
+  native_decide
+
+/-- SELF-REF captured frame TERMINATES (does not loop / exhaust fuel): a def field referencing
+    itself directly (`loop: loop`, `refId ⟨0,1⟩` at its own slot) is caught by the ordinary
+    `slotVisited` machinery on the pushed frame and resolves to `.top` rather than diverging.
+    `out` still resolves to the spliced `#name`. -/
+theorem closure_meet_self_ref_terminates :
+    (runEval (evalValueWithFuel evalFuel
+        (pkgEnvWith (.struct [⟨"#name", .definition, .kind .string⟩,
+                              ⟨"loop", .regular, .refId ⟨0, 1⟩⟩,
+                              ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true)) []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] true]))
+      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                  ⟨"loop", .regular, .top⟩,
+                  ⟨"out", .regular, .prim (.string "keel")⟩] false) = true := by
+  native_decide
+
+/-- OPEN def body (`...` → `.structTail`): the use-site may add a field absent from the def,
+    and it appears in the output; `out` still sees the narrowed `#name`. The forced body stays
+    a `.structTail` (open). -/
+theorem closure_meet_open_def_admits_extra :
+    (runEval (evalValueWithFuel evalFuel
+        (pkgEnvWith (.structTail [⟨"#name", .definition, .kind .string⟩,
+                                  ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .top)) []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                         ⟨"extra", .regular, .prim (.int 42)⟩] true]))
+      == .structTail [⟨"#name", .definition, .prim (.string "keel")⟩,
+                      ⟨"out", .regular, .prim (.string "keel")⟩,
+                      ⟨"extra", .regular, .prim (.int 42)⟩] .top) = true := by
+  native_decide
+
+/-- The producer NOW also fires on an OPEN (`.structTail`) self-ref def body (slice 4 extends
+    `defBodyHasSiblingSelfRef` to `.structTail`), so open imported defs defer too. -/
+theorem closure_producer_detects_structtail_sibling :
+    (defBodyHasSiblingSelfRef
+        (.structTail [⟨"#name", .definition, .kind .string⟩,
+                      ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .top)) = true := by
   native_decide
 
 end Kue
