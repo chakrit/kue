@@ -98,24 +98,35 @@ fix is purely a speedup — byte-identical output.
   helps defs shaped like `packs.#Argo` (dozens of fields, a handful of `Self.<embed>` reads); it did
   NOT measurably move cert-manager's wall-clock, whose cost is dominated instead by the broader
   frame-id divergence (see below), not the per-field Pass-2 recompute.
-- **Shallow cache-key hash → O(N²) memo lookups (the open primary perf frontier, RE-DIAGNOSED
-  2026-06-19).** Canonical frame identity (same fields + same parent id-stack → reuse id) already
-  landed and is sound + effective — structurally-identical re-pushes DO share, verified. The real
-  remaining wall is the deliberately-shallow `EvalKey`/`SatKey` HASH: it keys on `valueTag` (the top
+- **Cache-key hash deepened to a bounded-depth digest — O(N²) memo lookups FIXED (item 7,
+  landed 2026-06-19).** The `EvalKey`/`SatKey` hashes used to key on `valueTag` (the top
   constructor tag only) + `envIds.LENGTH`, so at a deep app's steady state every distinct
-  `.struct`/`.selector` value at the ceiling fuel collides into ONE hash bucket. Each cache lookup
-  then runs structural `BEq` over the full value tree against every colliding entry → O(N) per
-  lookup, O(N²) total (measured: per-call µs DOUBLES as the distinct population doubles; cert-manager
-  exports correctly in ~119s vs `cue` 0.03s). The fix is a bounded-depth structural digest in the
-  hash (`BEq` unchanged → provably cannot return a wrong value); it is what actually reclaims
-  cert-manager and unblocks full `apps/argocd.cue`. Until it lands, flattening and shortening def
-  chains (fewer distinct frames → smaller buckets) is the user-side lever.
+  `.struct`/`.selector` value at the ceiling fuel collided into ONE hash bucket; each
+  `cache.get?` then ran structural `BEq` over the full value tree against every colliding
+  entry → O(N) per lookup, O(N²) total (cert-manager exported correctly but in **~119s**
+  vs `cue` 0.03s). The fix swaps in `valueDigest DIGEST_DEPTH` (depth 3) — a TOTAL,
+  fuel-free, bounded-depth structural digest mixing each constructor's tag with its field
+  labels + child digests — and hashes the FULL `envIds` (not `.length`). It is provably
+  sound by construction: a hash only selects a bucket, `BEq` (UNCHANGED) is the sole
+  equality arbiter, so a lossy digest can only cause a recompute-miss or collide-scan
+  (slower), never a wrong value — proven by zero fixture byte-drift. **Measured:
+  cert-manager 119s → ~30.6s (~3.9×), byte-identical to `cue` modulo field order (#3).** A
+  bucket-distribution `native_decide` pin witnesses 1000 distinct k8s-shaped structs →
+  1000 distinct buckets at depth 3 (vs 1 under the old `valueTag` hash). `FrameKey`'s hash
+  was profiled with the same deepening and showed ZERO change (frame sharing + `parentIds`
+  already discriminate the table), so it was left shallow. Full `apps/argocd.cue` is much
+  faster (>7.5min/killed → ~88s) but still hits the fuel ceiling (`conflicting values
+  (bottom)`) — that is the separate fuel-exhaustion-at-scale limit below, NOT a hash
+  problem.
 - **Fuel exhaustion can surface as a spurious `conflicting values (bottom)` at scale
   (2026-06-18).** `evalFuel = 100` is load-bearing for soundness; when frame-id divergence makes a
   large combined evaluation overrun it, a truncated value bottoms instead of resolving. Concrete:
-  `packs.#Argo` resolves correctly in isolation at ~71s, and every component of `apps/argocd.cue`
-  is content-correct individually — but the FULL app (5× `packs.#Argo` + the deployment config)
-  bottoms after ~7.5min where `cue` exports it in 0.03s. This is NOT a correctness gap (cue confirms
+  `packs.#Argo` resolves correctly in isolation, and every component of `apps/argocd.cue`
+  is content-correct individually — but the FULL app (5× `packs.#Argo` + the deployment
+  config) bottoms where `cue` exports it in 0.03s. (After the item-7 hash fix this bottom
+  now surfaces in ~88s rather than >7.5min/killed — much faster, but the fuel ceiling is
+  unchanged: it is a fuel-exhaustion limit, not a hash one.) This is NOT a correctness gap
+  (cue confirms
   the app is concrete; every piece matches cue): it is the frame-id frontier above hitting the fuel
   wall. The canonical-frame-identity fix is what unblocks it; raising `evalFuel` is NOT a fix (it
   trades soundness/termination for a higher-but-still-finite ceiling).

@@ -1083,6 +1083,101 @@ def valueTag : Value -> UInt64
   | .struct _ _ _ _ => 31
 
 /--
+A TOTAL, fuel-free, BOUNDED-DEPTH structural digest of a `Value`, for use as a cache-key
+HASH (never as an equality test). Recurses `depth` levels into the value's children,
+mixing each constructor's tag with its scalar payload (label, prim, refId, selector
+label, etc.) and the digests of its child values; at `depth = 0` it stops and returns the
+tag alone.
+
+Why this exists: the cache hashes (`EvalKey`/`SatKey`) previously keyed on `valueTag`
+ALONE — the top constructor tag (0–31) with no subtree traversal. At a deep app's steady
+state the population is overwhelmingly `.struct`/`.selector` at the same ceiling fuel, so
+every distinct value collapsed into ONE hash bucket; each `cache.get?` then ran derived
+structural `BEq` over the full value tree against every colliding entry → O(N) per lookup,
+O(N²) total. A depth-bounded digest gives each distinct k8s-shaped struct a distinct
+bucket (depth 3 separates 1000 distinct resource-shaped structs into ~1000 buckets,
+measured by the spike), collapsing the lookup back to O(1) amortized.
+
+SOUNDNESS: this is a HASH, not equality. `Std.HashMap` uses `BEq` (derived-structural,
+UNCHANGED) as the sole arbiter of whether `get?` returns an entry; the hash only selects a
+bucket. A lossy/colliding digest can therefore only cause a recompute-miss or a
+collide-scan (SLOWER), never a wrong value. Two `BEq`-distinct keys can never compare equal
+through this.
+
+TOTALITY: structural recursion on `depth` (a plain `Nat`); every recursive call passes the
+predecessor `d`, so the measure strictly decreases and the function is total — no `partial`,
+no fuel. The list children fold `valueDigest d` over their elements (a lower-depth call),
+which terminates for the same reason. `digestPrim` is non-recursive.
+
+The `DIGEST_DEPTH` constant (3) is the starting point the spike justified: deep enough to
+separate the field-name + nested-value shape of k8s resources (each resource is a struct of
+a few fields whose values are themselves shallow structs/scalars), shallow enough that the
+per-key cost stays effectively O(1) (a struct of K fields costs K digest-mixes per level,
+3 levels). -/
+def DIGEST_DEPTH : Nat := 3
+
+private def digestPrim : Prim → UInt64
+  | .null => 101
+  | .bool b => mixHash 102 (hash b)
+  | .int n => mixHash 103 (hash n)
+  | .float s => mixHash 104 (hash s)
+  | .string s => mixHash 105 (hash s)
+  | .bytes s => mixHash 106 (hash s)
+
+def valueDigest : Nat → Value → UInt64
+  | 0, v => valueTag v
+  | _ + 1, .top => valueTag .top
+  | _ + 1, .bottom => valueTag .bottom
+  | _ + 1, v@(.bottomWith _) => valueTag v
+  | _ + 1, .prim p => mixHash (valueTag (.prim p)) (digestPrim p)
+  | _ + 1, v@(.kind _) => valueTag v
+  | _ + 1, .notPrim p => mixHash (valueTag (.notPrim p)) (digestPrim p)
+  | _ + 1, v@(.stringRegex pat) => mixHash (valueTag v) (hash pat)
+  | _ + 1, v@(.boundConstraint _ _ _) => valueTag v
+  | d + 1, .conj cs =>
+      cs.foldl (fun acc c => mixHash acc (valueDigest d c)) (valueTag (.conj cs))
+  | d + 1, .builtinCall name args =>
+      args.foldl (fun acc a => mixHash acc (valueDigest d a))
+        (mixHash (valueTag (.builtinCall name args)) (hash name))
+  | d + 1, .unary op v => mixHash (valueTag (.unary op v)) (valueDigest d v)
+  | d + 1, .binary op l r =>
+      mixHash (mixHash (valueTag (.binary op l r)) (valueDigest d l)) (valueDigest d r)
+  | _ + 1, v@(.ref label) => mixHash (valueTag v) (hash label)
+  | _ + 1, v@(.refId id) => mixHash (valueTag v) (mixHash (hash id.depth) (hash id.index))
+  | _ + 1, .thisStruct => valueTag .thisStruct
+  | d + 1, .selector base label =>
+      mixHash (mixHash (valueTag (.selector base label)) (hash label)) (valueDigest d base)
+  | d + 1, .index base key =>
+      mixHash (mixHash (valueTag (.index base key)) (valueDigest d base)) (valueDigest d key)
+  | d + 1, .disj alts =>
+      alts.foldl (fun acc (_, v) => mixHash acc (valueDigest d v)) (valueTag (.disj alts))
+  | d + 1, .struct fields openness tail patterns =>
+      let acc0 := mixHash (valueTag (.struct fields openness tail patterns)) (hash fields.length)
+      fields.foldl (fun acc f => mixHash (mixHash acc (hash f.label)) (valueDigest d f.value)) acc0
+  | d + 1, .list items =>
+      items.foldl (fun acc i => mixHash acc (valueDigest d i)) (valueTag (.list items))
+  | d + 1, .listTail items tail =>
+      mixHash (items.foldl (fun acc i => mixHash acc (valueDigest d i))
+        (valueTag (.listTail items tail))) (valueDigest d tail)
+  | d + 1, .embeddedList items _ decls =>
+      let acc0 := items.foldl (fun acc i => mixHash acc (valueDigest d i))
+        (valueTag (.embeddedList items none decls))
+      decls.foldl (fun acc f => mixHash (mixHash acc (hash f.label)) (valueDigest d f.value)) acc0
+  | d + 1, .comprehension _ body =>
+      mixHash (valueTag (.comprehension [] body)) (valueDigest d body)
+  | d + 1, .structComp fields _ openness =>
+      let acc0 := mixHash (valueTag (.structComp fields [] openness)) (hash fields.length)
+      fields.foldl (fun acc f => mixHash (mixHash acc (hash f.label)) (valueDigest d f.value)) acc0
+  | d + 1, .listComprehension _ body =>
+      mixHash (valueTag (.listComprehension [] body)) (valueDigest d body)
+  | d + 1, .interpolation parts =>
+      parts.foldl (fun acc p => mixHash acc (valueDigest d p)) (valueTag (.interpolation parts))
+  | d + 1, .dynamicField label fc v =>
+      mixHash (mixHash (valueTag (.dynamicField label fc v)) (valueDigest d label)) (valueDigest d v)
+  | d + 1, .closure _ body =>
+      mixHash (valueTag (.closure [] body)) (valueDigest d body)
+
+/--
 A scope frame paired with a process-unique identity. Each frame push allocates a fresh
 `id` from the evaluation state's counter; the id is the frame's identity for caching.
 Two evaluations that thread the *same* frame object (the depth-0 self-reference and the
@@ -1131,7 +1226,7 @@ deriving BEq
 
 instance : Hashable EvalKey where
   hash key := mixHash (hash key.fuel) (mixHash (hash key.visited)
-    (mixHash (hash key.envIds.length) (valueTag key.value)))
+    (mixHash (hash key.envIds) (valueDigest DIGEST_DEPTH key.value)))
 
 /-- Whether an eval result's ENTIRE (transitive) computation avoided every fuel-truncation
     base case (`fuel = 0`; cycle-bound `.top`; the comprehension/embedding-expansion helpers'
@@ -1164,7 +1259,7 @@ deriving BEq
 
 instance : Hashable SatKey where
   hash key := mixHash (hash key.visited)
-    (mixHash (hash key.envIds.length) (valueTag key.value))
+    (mixHash (hash key.envIds) (valueDigest DIGEST_DEPTH key.value))
 
 /-- Push-site key for canonical frame-id sharing. Two `pushFrame` calls denote the SAME
     evaluation iff they push the SAME fields under the SAME parent id-stack — then (and only
@@ -1194,10 +1289,17 @@ structure FrameKey where
   fields : List Field
 deriving BEq
 
-/-- Shallow hash for the canonical-frame table — same discipline as `EvalKey`'s hash: mix the
-    parent id stack with the field count and each field's top value-tag, never traversing the
-    field subtrees. `BEq` (derived, structural) runs only on a hash-bucket match, so a coarse
-    hash costs collisions, never correctness. -/
+/-- Shallow hash for the canonical-frame table — mix the parent id stack with the field count
+    and each field's top value-tag, never traversing the field subtrees. Unlike `EvalKey`/`SatKey`
+    (which item 7 deepened to a `valueDigest` because their populations collapsed to one bucket and
+    scanned O(N) at scale), profiling cert-manager with this hash deepened to `valueDigest` showed
+    ZERO wall-clock change (30.6s → 30.6s): the frame table does NOT accumulate same-shaped/
+    distinct-value frames into giant buckets, because canonical frame sharing already collapses
+    identical re-pushes and `parentIds` discriminates the rest. So the deepening buys nothing here
+    and is omitted (no unjustified `valueDigest` on the hot `pushFrame` path). `BEq` (derived,
+    structural) runs only on a hash-bucket match, so this coarse hash costs collisions, never
+    correctness — if a future workload makes the frame table the wall, swap in `valueDigest` (same
+    sound, hash-only change). -/
 instance : Hashable FrameKey where
   hash key :=
     key.fields.foldl (fun acc f => mixHash acc (valueTag f.value))

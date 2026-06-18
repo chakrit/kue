@@ -8286,3 +8286,60 @@ on existing fixtures (only NEW fixtures appear; cert-manager/argocd import-bindi
 script changed). No `kue-performance.md` edit (no eval-cost change — the Manifest deep-recurse runs
 only on reached in-file hidden/def fields, which are rare and shallow in practice; import bindings
 keep the shallow check). No CUE divergence (both gaps are Kue-wrong, not cue-buggy).
+
+---
+
+## Completed Slice: Cache-Key Hash Digest (item 7 — the O(N²) memo-lookup wall)
+
+**Intended behavior:** kill the O(N²) memo-lookup cost on deep real apps without changing any
+value. The `EvalKey`/`SatKey` `Hashable` instances hashed on `valueTag` (the top constructor tag,
+0–31, no subtree traversal) + `envIds.LENGTH`. At a deep app's steady state the cache population is
+overwhelmingly `.struct`/`.selector` at the same ceiling fuel and the same env depth → every
+distinct value collided into ONE hash bucket → each `cache.get?` ran derived structural `BEq` over
+the full value tree against every colliding entry → O(N) per lookup, O(N²) total (cert-manager
+exported correctly but in ~119s vs `cue` 0.03s).
+
+### The fix (`Eval.lean`)
+
+- **`valueDigest : Nat → Value → UInt64`** — a TOTAL, fuel-free, BOUNDED-DEPTH structural digest.
+  Structural recursion on `depth` (the measure strictly decreases; no `partial`, no fuel): at
+  `depth = 0` it returns `valueTag` alone; at `depth+1` it mixes the constructor tag with each
+  child's digest at `depth` and the constructor's scalar payload (field labels, `prim` value,
+  `refId` depth/index, selector label, struct field count, etc.). `DIGEST_DEPTH = 3` — deep enough
+  to separate the field-name + nested-value shape of k8s resources (a struct of a few fields whose
+  values are themselves shallow structs/scalars), shallow enough that per-key cost stays O(1).
+- Swapped `valueDigest DIGEST_DEPTH key.value` for `valueTag key.value` in BOTH the `Hashable
+  EvalKey` and `Hashable SatKey` instances, and widened `envIds.length` → `hash envIds` (matching
+  the existing `ForceKey` hash).
+- **`BEq` UNCHANGED** for all keys; `valueTag` semantics, fuel, and all eval logic untouched.
+- **`FrameKey` left shallow (profiled).** Deepening its hash to the same `valueDigest` showed ZERO
+  cert-manager wall-clock change (canonical frame sharing + `parentIds` already discriminate the
+  frame table), so it was reverted with a note — no unjustified `valueDigest` on the hot
+  `pushFrame` path. If a future workload makes the frame table the wall, the same sound swap applies.
+
+### Why sound (unconditional)
+
+The change is hash-only. In `Std.HashMap` the hash only selects a bucket; `BEq` (derived-structural,
+UNCHANGED) is the SOLE arbiter of whether `get?` returns an entry. A lossy/colliding digest can
+therefore only cause a recompute-miss (a hit was possible but the keys hashed apart — slower) or a
+collide-scan (more keys share a bucket — slower), never a value computed for a different key. The
+two same-key-different-value hazards that DO threaten Kue (fuel-truncation across levels;
+closed-vs-open) live entirely in `BEq` field membership and are untouched. The correctness witness
+is the byte-identical fixture gate (zero drift).
+
+### Tests (`EvalPerfTests.lean`)
+
+Bucket-distribution `native_decide` pins (the right witness — eval COUNT is unchanged, the win is
+per-lookup time): `digest_separates_k8s_population` (1000 distinct k8s-shaped structs → 1000 distinct
+buckets at depth 3), `valueTag_collapses_k8s_population` (the old hash → 1 bucket, pinning the
+contrast), `digest_depth0_collapses_like_tag` (depth 0 degenerates to `valueTag` — pins depth is
+load-bearing), `digest_total_on_deep_value` (totality/determinism on a deeply-nested value).
+
+### Verify + measure
+
+`lake build` green (96 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok` with ZERO byte-drift,
+`shellcheck` clean (no script changed). **Measured (READ-ONLY oracle: `/Users/chakrit/Documents/
+prod9/infra`):** cert-manager `kue export apps/cert-manager.cue --out yaml` **119s → ~30.6s (~3.9×)**,
+content-identical to `cue export` (only field order differs — known #3). Full `apps/argocd.cue` is
+much faster (>7.5min/killed → ~88s) but STILL bottoms (`conflicting values (bottom)`) on the fuel
+ceiling — the separate fuel-exhaustion-at-scale limit, not a hash problem. No CUE divergence.

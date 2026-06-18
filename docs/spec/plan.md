@@ -1967,7 +1967,25 @@ case was either unreachable post-eval or strictly more correct. (The
    out: #Def & {own: 1}  // cue: own-fields ordered first
    ```
 
-7. **Per-eval-cost perf (frontier #2, NOW MORE URGENT — downstream of correctness).** The heavy
+7. **Per-eval-cost perf (frontier #2) — DONE (2026-06-19): cache-key hash digest landed.** The
+   shallow `EvalKey`/`SatKey` hash (`valueTag` + `envIds.LENGTH`) collapsed the steady-state value
+   population into ONE bucket → O(N) `BEq` scan per `cache.get?` → O(N²) total. **FIX LANDED:**
+   `valueDigest (depth) : Value → UInt64` — a TOTAL, fuel-free, bounded-depth (`DIGEST_DEPTH = 3`)
+   structural digest mixing each constructor tag with its field labels + child digests — swapped
+   into both `Hashable` instances, plus hashing the FULL `envIds` (matching `ForceKey`). `BEq`
+   UNCHANGED → soundness unconditional (hash only selects a bucket; a lossy digest can miss/scan,
+   never return a wrong value). **MEASURED: cert-manager 119s → ~30.6s (~3.9×), byte-identical to
+   `cue` modulo field-order #3; zero fixture byte-drift.** Bucket-distribution `native_decide` pin:
+   1000 distinct k8s-shaped structs → 1000 buckets at depth 3 (vs 1 under `valueTag`).
+   **FrameKey follow-up: NOT NEEDED (profiled).** Deepening `FrameKey`'s hash to the same digest
+   showed ZERO cert-manager wall-clock change (frame sharing + `parentIds` already discriminate the
+   table), so it was left shallow with a note. **Full `apps/argocd.cue` is much faster (>7.5min →
+   ~88s) but STILL bottoms (`conflicting values (bottom)`) on the FUEL CEILING** — that is the
+   separate fuel-exhaustion-at-scale limit (item below / known-limitation in the perf guide), not a
+   hash problem. The next perf lever for argocd is the fuel/combined-eval frontier, not this hash.
+   --- Original diagnosis below (kept for history) ---
+
+   **Per-eval-cost perf (frontier #2, NOW MORE URGENT — downstream of correctness).** The heavy
    `argo` sub-package (`argo_.{stage9,bluepages,…}.configs`) times out >200s once past the early
    bottom; cert-manager's residual GREW from ~31s to ~92s after the link-3/4 fixes (the parser
    open-struct-with-embeds collapse routes `{embed;…;...}` defs through the single-`.structComp`

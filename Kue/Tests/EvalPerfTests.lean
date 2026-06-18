@@ -466,5 +466,69 @@ theorem perfb_frame_id_does_not_leak :
       = true := by
   native_decide
 
+/-! ### Cache-key HASH digest (item 7) — the O(N²) memo-lookup fix + its bucket-distribution pin.
+
+`EvalKey`/`SatKey` previously hashed on `valueTag` ALONE (top constructor tag, 0–31, no subtree
+traversal) + `envIds.LENGTH`. At a deep app's steady state the cache population is overwhelmingly
+`.struct`/`.selector` at the same ceiling fuel → every distinct value collapsed into ONE hash
+bucket → each `cache.get?` ran derived structural `BEq` over the full tree against every colliding
+entry → O(N) per lookup, O(N²) total (cert-manager exported correctly but in ~119s vs `cue` 0.03s).
+
+The fix: `valueDigest DIGEST_DEPTH` — a total, fuel-free, bounded-depth structural digest — replaces
+`valueTag` in both hashes, and the FULL `envIds` is hashed (not `.length`). SOUNDNESS is
+unconditional: the hash only selects a bucket; `BEq` (UNCHANGED) is the sole equality arbiter, so a
+lossy digest can only cause a recompute-miss or collide-scan (slower), never a wrong value. The
+correctness witness is the byte-identical fixture gate; the WIN witness is the bucket distribution
+below (eval COUNT is unchanged — the win is per-lookup time, so a count pin would not show it). -/
+
+/-- A k8s-resource-SHAPED struct parameterized by `i`: same shape (a `metadata` sub-struct with a
+    name + a replica count, plus a `kind`), distinct CONTENT per `i` — the cert-manager steady-state
+    population. The digest must separate these into distinct buckets; `valueTag` collapses them. -/
+def k8sShapedStruct (i : Nat) : Value :=
+  .struct
+    [⟨"kind", .regular, .prim (.string "Deployment")⟩,
+     ⟨"metadata", .regular,
+       .struct [⟨"name", .regular, .prim (.string s!"res-{i}")⟩] .regularOpen none []⟩,
+     ⟨"spec", .regular,
+       .struct [⟨"replicas", .regular, .prim (.int (Int.ofNat i))⟩] .regularOpen none []⟩]
+    .regularOpen none []
+
+/-- Count distinct values in a `List UInt64` (the bucket count for a digest population). -/
+def distinctCount (xs : List UInt64) : Nat := (xs.foldl (fun acc x =>
+  if acc.contains x then acc else x :: acc) []).length
+
+def k8sDigests (depth n : Nat) : List UInt64 :=
+  (List.range n).map (fun i => valueDigest depth (k8sShapedStruct i))
+
+def k8sTags (n : Nat) : List UInt64 :=
+  (List.range n).map (fun i => valueTag (k8sShapedStruct i))
+
+-- THE PERF PIN: 1000 distinct k8s-shaped structs hash to 1000 DISTINCT buckets at `DIGEST_DEPTH` —
+-- i.e. the per-lookup bucket scan is O(1), not O(N). This is the signal the spike specified (a
+-- count-based eval pin cannot show the win; the bucket distribution is the right witness).
+theorem digest_separates_k8s_population :
+    distinctCount (k8sDigests DIGEST_DEPTH 1000) = 1000 := by
+  native_decide
+
+-- THE BASELINE (what the fix replaced): the OLD shallow `valueTag` hash collapses ALL 1000 into ONE
+-- bucket → the O(N²) wall. Pins the contrast: the digest is what reclaims the lookup cost.
+theorem valueTag_collapses_k8s_population :
+    distinctCount (k8sTags 1000) = 1 := by
+  native_decide
+
+-- DEPTH-0 degenerates to `valueTag` (one bucket) — pins that `DIGEST_DEPTH` (3) is load-bearing: the
+-- discrimination comes from descending into the metadata/spec sub-structs, not the top struct alone.
+theorem digest_depth0_collapses_like_tag :
+    distinctCount (k8sDigests 0 1000) = 1 := by
+  native_decide
+
+-- TOTALITY witness: `valueDigest` is a total, fuel-free `def` (structural recursion on `depth`).
+-- Depth-bounded — a self-referential value digests in O(depth), not diverging, even though the value
+-- is cyclic-by-reference. Evaluating it on a deeply-nested literal terminates and is deterministic.
+theorem digest_total_on_deep_value :
+    (valueDigest DIGEST_DEPTH (deepInlineValue 20) == valueDigest DIGEST_DEPTH (deepInlineValue 20))
+      = true := by
+  native_decide
+
 
 end Kue
