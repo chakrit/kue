@@ -207,6 +207,149 @@ theorem frame_no_share_closed_vs_open :
       = false := by
   native_decide
 
+/-! ### Fuel-saturation caching — the fuel-multiplication fix + its soundness boundary.
+
+A result whose entire (transitive) eval never hit a `fuel = 0` base nor a cycle `.top` is
+SATURATED: fuel-insensitive, identical at every higher fuel. Such results are cached FUEL-FREE
+(`satCache`), so a converged value evaluated at fuel f and re-requested at any fuel ≥ f is served
+from one cache entry — collapsing the per-fuel-level re-derivation (cert-manager: ~84 levels → 1).
+TRUNCATED results (the 263 fuel-truncation cases) stay fuel-keyed and are NEVER served across fuel.
+
+Classification is by bracketing the monotonic `truncCount` in the single cached wrapper, so the
+hole the design flagged (an arm forgetting to propagate `truncated`) cannot occur: no arm
+classifies. The pins below witness both the PERF win (a re-eval at higher fuel adds ZERO core
+evals) and the SOUNDNESS boundary (a fuel-differing value is NOT served its low-fuel truncated
+form at high fuel). -/
+
+/-- Evaluate `value` at `f1` then at `f2` in the SAME `EvalM` run (shared `satCache`/`cache`),
+    reporting `(v1, v2, callsAfterFirst, callsTotal)`. The second eval's added core evals are
+    `callsTotal - callsAfterFirst`: ZERO iff `f2`'s request was served from the fuel-free
+    `satCache` (the value saturated at `f1`). The env is `[]` (no enclosing frame). -/
+def evalTwiceAt (f1 f2 : Nat) (value : Value) : Value × Value × Nat × Nat :=
+  let action : EvalM (Value × Value × Nat × Nat) := do
+    let v1 <- evalValueWithFuel f1 [] [] value
+    let callsAfterFirst := (<- get).evalCalls
+    let v2 <- evalValueWithFuel f2 [] [] value
+    let callsTotal := (<- get).evalCalls
+    pure (v1, v2, callsAfterFirst, callsTotal)
+  (action.run { cache := ∅, nextFrameId := 0 }).fst
+
+/-- `value` evaluated standalone at `fuel` (fresh state) — the GROUND TRUTH a cross-fuel reuse
+    must match. -/
+def evalOnceAt (fuel : Nat) (value : Value) : Value :=
+  (evalValueWithFuel fuel [] [] value |>.run { cache := ∅, nextFrameId := 0 }).fst
+
+/-- A SELF-REFERENTIAL value that GROWS with fuel — the synthetic 263-class. `{a: {b: <outer a>}}`:
+    field `b` references the enclosing `a` (depth 1), so each fuel level expands one more `{b: …}`
+    nesting before bottoming on the unresolved binding. `@fuel 3 → {a:{b:{b:@1.0}}}`, `@fuel 5 →
+    {a:{b:{b:{b:@1.0}}}}`, … — the SAME `(env,visited,value)` yields DIFFERENT values at different
+    fuel. This is exactly the case that MUST stay fuel-keyed (never served fuel-free). -/
+def satTruncValue : Value :=
+  .struct [⟨"a", .regular, .struct [⟨"b", .regular, .refId ⟨1, 0⟩⟩] true⟩] true
+
+-- PERF + SOUNDNESS: a CONVERGING value (`deepInlineValue 2`, literal nesting, no fuel-sensitive
+-- refs) SATURATES at fuel 6 (its fields never reach fuel 0). A re-request at fuel 20 in the same
+-- run hits the fuel-free `satCache` and adds ZERO core evals — the fuel-multiplication collapse.
+-- AND the served value equals the fresh fuel-20 eval (the reuse is correct, not just cheap). The
+-- cert-manager-shaped win: converge low, was re-derived across ~84 fuel levels → now one.
+theorem sat_converged_reused_across_fuel_is_free_and_correct :
+    (let r := evalTwiceAt 6 20 (deepInlineValue 2)
+     -- second eval added zero core evals (served from satCache)…
+     (r.snd.snd.snd - r.snd.snd.fst == 0)
+       -- …and the cross-fuel-reused value equals the ground-truth fuel-20 eval…
+       && (r.snd.fst == evalOnceAt 20 (deepInlineValue 2))
+       -- …and equals the fuel-6 value (it was already converged).
+       && (r.fst == r.snd.fst))
+      = true := by
+  native_decide
+
+-- SOUNDNESS (the 263-class — THE critical pin): `satTruncValue` TRUNCATES at fuel 3 (bottoms on
+-- the unresolved self-binding) but EXPANDS FURTHER at fuel 20. Evaluating at fuel 3 first must
+-- NOT poison the fuel-20 request: the fuel-20 value must equal the fresh fuel-20 eval (the deeper
+-- expansion), NOT the fuel-3 stump. A truncated result wrongly keyed fuel-free would FAIL this —
+-- it would serve the fuel-3 stump at fuel 20. This is the corruption the slice exists to prevent.
+theorem sat_truncated_not_served_across_fuel :
+    (let r := evalTwiceAt 3 20 satTruncValue
+     -- the fuel-20 reuse equals the GROUND-TRUTH fuel-20 eval (deeper), not the fuel-3 stump…
+     (r.snd.fst == evalOnceAt 20 satTruncValue)
+       -- …and the two fuels genuinely differ (so this is a real cross-fuel hazard, not a no-op).
+       && (r.fst != r.snd.fst))
+      = true := by
+  native_decide
+
+-- SOUNDNESS: the fuel-3 eval really IS truncated (differs from the fuel-20 expansion) — pins that
+-- the previous test's hazard is genuine, i.e. `satTruncValue` is fuel-sensitive at fuel 3.
+theorem sat_low_fuel_truncates :
+    (evalOnceAt 3 satTruncValue != evalOnceAt 20 satTruncValue) = true := by
+  native_decide
+
+-- SOUNDNESS: a truncated value re-evaluated at the SAME low fuel is served from the fuel-keyed
+-- `cache` (cheap, byte-identical), keeping the fuel axis honest for the 263-class. Second eval at
+-- the SAME fuel 3 adds zero core evals (fuel-keyed `cache` hit, not a fuel-free hit).
+theorem sat_truncated_same_fuel_is_cached :
+    (let r := evalTwiceAt 3 3 satTruncValue
+     (r.snd.snd.snd - r.snd.snd.fst == 0) && (r.fst == r.snd.fst))
+      = true := by
+  native_decide
+
+/-! ### perf-B memo false-share pins (audit 2026-06-18 #5, owed `perfb-soundness-pins`).
+
+The perf-B audit cleared the frame-share + force memos as SOUND but flagged that the 4 existing
+pins test `pushFrame` ID COINCIDENCE, not the resulting VALUE — a regression could corrupt a value
+while still satisfying a coincidence pin. These are the owed E2E *value* pins: a memo false-share
+would change the EXPORTED value and trip them. Folded into the fuel-saturation slice so its new
+`Saturation` threading through the SAME keys inherits real false-share coverage. -/
+
+def evalSourceMatches (source expected : String) : Bool :=
+  match evalSourceToString source with
+  | .ok output => output == expected
+  | .error _ => false
+
+-- PERF-B PIN 1 (force-memo `useOperands` keying, E2E value — audit finding #1). `#D & {x:1}`
+-- forced at two sites must SHARE (same value `1`) while `#D & {x:2}` stays distinct (`2`) — the
+-- force memo keys on `useOperands`, so a key that dropped it would serve `p`'s `1` for `q`'s `2`
+-- (or vice versa) and trip this. Exercises the load-bearing real-app memo through real values.
+theorem perfb_force_memo_narrows_by_useOperands :
+    evalSourceMatches
+        "#D: {x: int}\np: (#D & {x: 1}).x\nq: (#D & {x: 1}).x\nr: (#D & {x: 2}).x\n"
+        "#D: {x: int}\np: 1\nq: 1\nr: 2" = true := by
+  native_decide
+
+-- PERF-B PIN 2 (frame-sharing parentIds, E2E value — audit finding #2). Identical inner body
+-- `{r: outer}` under DIFFERENT parents (`outer: 1` vs `outer: 2`) must resolve to DIFFERENT
+-- values (`r: 1` vs `r: 2`). A parentIds regression that shared the inner frame across parents
+-- would cross-resolve and corrupt — this asserts the exported struct, so the corruption trips it.
+theorem perfb_frame_share_parent_disambiguates_value :
+    evalSourceMatches
+        "a: {outer: 1, inner: {r: outer}}\nb: {outer: 2, inner: {r: outer}}\n"
+        "a: {outer: 1, inner: {r: 1}}\nb: {outer: 2, inner: {r: 2}}" = true := by
+  native_decide
+
+-- PERF-B PIN 3 (closed-vs-open through REAL normalization, E2E value — audit finding #3, replacing
+-- the `.definition`-vs-`.regular` stand-in). `#C & {x:1}` (closed) admits only `x` — adding `y`
+-- REJECTS (`y: _|_`); `R & {x:1, y:2}` (open) admits both. The bodies differ AS VALUES via the
+-- real close path, so the force/frame memos can never falsely collide an open eval with a closed
+-- one (and the closed rejection is pinned through normalization, not a field-class proxy).
+theorem perfb_closed_vs_open_distinct_values :
+    evalSourceMatches
+        "#C: {x: int}\nR: {x: int, ...}\nclosed: (#C & {x: 1})\nrejects: (#C & {x: 1, y: 2})\nopen: (R & {x: 1, y: 2})\n"
+        "#C: {x: int}\nR: {x: int, ...}\nclosed: {x: 1}\nrejects: {x: 1, y: _|_}\nopen: {x: 1, y: 2, ...}"
+          = true := by
+  native_decide
+
+-- PERF-B PIN 4 (frame-id must NOT leak into value identity/output — audit finding #4). The whole
+-- memo soundness rests on `valueTag` being constant per constructor (frame ids never enter a memo
+-- HASH) and `Format` dropping the captured env (ids never reach output). Pin both: two closures
+-- with the SAME body but DIFFERENT captured-env ids have equal `valueTag` and Format-print equal.
+-- A future `valueTag`/`Format` edit that started hashing/printing `capturedEnv` would trip this.
+theorem perfb_frame_id_does_not_leak :
+    (let body : Value := .struct [⟨"k", .regular, .prim (.int 1)⟩] true
+     let c1 : Value := .closure [(7, [])] body
+     let c2 : Value := .closure [(9, [])] body
+     (valueTag c1 == valueTag c2) && (formatValue c1 == formatValue c2))
+      = true := by
+  native_decide
+
 theorem eval_additive_expressions :
     formatTopLevel
       (resolveAndEval

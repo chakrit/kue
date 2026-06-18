@@ -822,6 +822,42 @@ instance : Hashable EvalKey where
   hash key := mixHash (hash key.fuel) (mixHash (hash key.visited)
     (mixHash (hash key.envIds.length) (valueTag key.value)))
 
+/-- Whether an eval result's ENTIRE (transitive) computation avoided every fuel-truncation
+    base case (`fuel = 0`) and every cycle-bound `.top`. A `saturated` result is fuel-
+    INSENSITIVE: re-evaluating at any fuel `≥` the one that produced it yields the identical
+    value, so it may be cached FUEL-FREE (see `SatKey`). A `truncated` result bottomed on fuel
+    somewhere in its subtree, so it is one of the 263 fuel-truncation cases and stays keyed by
+    `fuel` in `EvalKey` — never served across fuel levels. Classification is by BRACKETING the
+    monotonic `EvalState.truncCount` in the single cached wrapper (`evalValueWithFuel`), not by a
+    per-arm boolean join: no arm participates, so no arm can forget to propagate `truncated`. -/
+inductive Saturation where
+  | saturated
+  | truncated
+deriving BEq, DecidableEq, Repr
+
+/-- Join two saturations: `truncated` is ABSORBING. Used only at the cache-hit honesty point
+    (a truncated hit re-bumps the counter); the bracket itself reads the counter delta. -/
+def Saturation.join : Saturation -> Saturation -> Saturation
+  | .truncated, _ => .truncated
+  | _, .truncated => .truncated
+  | .saturated, .saturated => .saturated
+
+/-- Fuel-FREE memo key for SATURATED results. A saturated result is identical at all fuel, so
+    `fuel` is deliberately ABSENT — a hit serves the result for ANY remaining fuel, collapsing
+    the ~84 wasted re-derivations of a converged value to one. Keyed on `(envIds, visited,
+    value)`: the same inputs minus the (now-irrelevant) fuel axis. Insertion is gated to the
+    `saturated` branch of `evalValueWithFuel`'s bracket — a truncated result can NEVER reach this
+    cache (the type forces classification; the single insertion site forces the gate). -/
+structure SatKey where
+  envIds : List Nat
+  visited : List Nat
+  value : Value
+deriving BEq
+
+instance : Hashable SatKey where
+  hash key := mixHash (hash key.visited)
+    (mixHash (hash key.envIds.length) (valueTag key.value))
+
 /-- Push-site key for canonical frame-id sharing. Two `pushFrame` calls denote the SAME
     evaluation iff they push the SAME fields under the SAME parent id-stack — then (and only
     then) reusing the id makes the downstream `EvalKey` (which keys on `env.ids`) hit the memo
@@ -891,12 +927,22 @@ instance : Hashable ForceKey where
     `cache`). `evalCalls`/`cacheHits` are transient instrumentation: bumped per core eval and per
     memo hit so a deterministic `native_decide` pin can witness exponential→linear. -/
 structure EvalState where
-  cache : Std.HashMap EvalKey Value
+  cache : Std.HashMap EvalKey (Value × Saturation)
   nextFrameId : Nat
   frames : Std.HashMap FrameKey Nat := ∅
-  forceCache : Std.HashMap ForceKey Value := ∅
+  forceCache : Std.HashMap ForceKey (Value × Saturation) := ∅
+  /-- Fuel-free cache for SATURATED results only (see `SatKey`). The soundness-critical second
+      store: a hit serves a converged value for any remaining fuel, collapsing fuel
+      multiplication. Insertion is gated to the `saturated` bracket arm. -/
+  satCache : Std.HashMap SatKey Value := ∅
   evalCalls : Nat := 0
   cacheHits : Nat := 0
+  /-- Monotonic count of fuel-truncation base cases consulted (`fuel = 0`; cycle `.top`).
+      Bracketed by `evalValueWithFuel`/`forceClosureWithConjunct` to classify each result's
+      `Saturation`: a result is `saturated` iff this counter did not move across its core eval.
+      A cached `truncated` hit re-bumps it so the bracketing parent stays honest. Load-bearing
+      for the fuel-saturation cache — not transient instrumentation. -/
+  truncCount : Nat := 0
 
 abbrev EvalM := StateM EvalState
 
@@ -1450,22 +1496,48 @@ mutual
         pure (evaluated :: restEvaluated)
   termination_by values => (fuel, 3, values.length)
 
-  /-- Cached entry into the evaluator: read the memo, computing and storing on a miss. -/
+  /-- Cached entry into the evaluator, with fuel-saturation caching.
+
+      Lookup order: (1) the fuel-FREE `satCache` — a SATURATED result is fuel-insensitive, so a
+      hit serves it at ANY remaining fuel and bumps NOTHING (a saturated value never touched the
+      truncation counter, so the bracketing parent stays saturated). (2) the fuel-keyed `cache` —
+      a hit of a `truncated` entry re-bumps `truncCount` so the bracketing parent still sees the
+      truncation (cache-hit honesty); a `saturated` entry bumps nothing.
+
+      On a miss, BRACKET the monotonic `truncCount`: snapshot before/after the core eval; the
+      result is `saturated` iff the counter did not move (no `fuel = 0` base and no cycle `.top`
+      anywhere in the transitive subtree). Store `(value, sat)` in the fuel-keyed `cache`; if
+      saturated, ALSO store in the fuel-free `satCache` — the SINGLE insertion site, gated to the
+      `saturated` arm, so a truncated value can never enter the fuel-free cache. -/
   def evalValueWithFuel
       (fuel : Nat)
       (env : Env)
       (visited : List Nat)
       (value : Value) : EvalM Value := do
-    let key : EvalKey := ⟨fuel, env.ids, visited, value⟩
-    match (<- get).cache.get? key with
+    let satKey : SatKey := ⟨env.ids, visited, value⟩
+    match (<- get).satCache.get? satKey with
     | some cached => do
         modify (fun state => { state with cacheHits := state.cacheHits + 1 })
         pure cached
     | none =>
-        modify (fun state => { state with evalCalls := state.evalCalls + 1 })
-        let result <- evalValueCoreWithFuel fuel env visited value
-        modify (fun state => { state with cache := state.cache.insert key result })
-        pure result
+      let key : EvalKey := ⟨fuel, env.ids, visited, value⟩
+      match (<- get).cache.get? key with
+      | some (cached, sat) => do
+          let bump := if sat == .truncated then 1 else 0
+          modify (fun state => { state with cacheHits := state.cacheHits + 1, truncCount := state.truncCount + bump })
+          pure cached
+      | none =>
+          let before := (<- get).truncCount
+          modify (fun state => { state with evalCalls := state.evalCalls + 1 })
+          let result <- evalValueCoreWithFuel fuel env visited value
+          let after := (<- get).truncCount
+          let sat : Saturation := if after == before then .saturated else .truncated
+          modify (fun state => { state with cache := state.cache.insert key (result, sat) })
+          match sat with
+          | .saturated =>
+              modify (fun state => { state with satCache := state.satCache.insert satKey result })
+          | .truncated => pure ()
+          pure result
   termination_by (fuel, 1, 0)
 
   def evalValueCoreWithFuel
@@ -1474,7 +1546,9 @@ mutual
       (visited : List Nat)
       (value : Value) : EvalM Value := do
     match fuel, value with
-    | 0, value => pure value
+    | 0, value => do
+        modify (fun state => { state with truncCount := state.truncCount + 1 })
+        pure value
     | _ + 1, .ref label =>
         pure (.bottomWith [.unresolvedReference label])
     | fuel + 1, .refId id =>
@@ -1506,7 +1580,8 @@ mutual
                       forceClosureWithConjunct fuel capturedEnv defBody []
                   | none =>
                     if id.depth == 0 then
-                      if slotVisited id.index visited then
+                      if slotVisited id.index visited then do
+                        modify (fun state => { state with truncCount := state.truncCount + 1 })
                         pure .top
                       else
                         evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
@@ -1844,12 +1919,19 @@ mutual
     -- proxy argument as `EvalKey` (see `ForceKey`); the id stack is canonical via frame sharing.
     let forceKey : ForceKey := ⟨fuel, capturedEnv.ids, body, useOperands⟩
     match (<- get).forceCache.get? forceKey with
-    | some cached => do
-        modify (fun state => { state with cacheHits := state.cacheHits + 1 })
+    | some (cached, sat) => do
+        -- Cache-hit honesty: a truncated force re-bumps `truncCount` so the bracketing
+        -- `evalValueWithFuel` parent (this force is always reached from a core arm) still
+        -- classifies itself truncated. A saturated force bumps nothing. Mirrors `cache`.
+        let bump := if sat == .truncated then 1 else 0
+        modify (fun state => { state with cacheHits := state.cacheHits + 1, truncCount := state.truncCount + bump })
         pure cached
     | none => do
+      let before := (<- get).truncCount
       let result <- forceClosureWithConjunctCore fuel capturedEnv body useOperands
-      modify (fun state => { state with forceCache := state.forceCache.insert forceKey result })
+      let after := (<- get).truncCount
+      let sat : Saturation := if after == before then .saturated else .truncated
+      modify (fun state => { state with forceCache := state.forceCache.insert forceKey (result, sat) })
       pure result
   termination_by (fuel, 5, 0)
 

@@ -374,6 +374,17 @@ splits, and LOW items (embeddedList.decls newtype, EvalOps/Regex extraction).
 
 ## Perf B — closure-perf (frame-id sharing + force-memo) — PARTIAL, commit `4dbc62c` (2026-06-18)
 
+> **DONE (2026-06-18): fuel-saturation caching LANDED.** The fuel-multiplication blocker below is
+> fixed — cert-manager now exports CORRECTLY at production fuel 100 (~30 s; was unbounded), JSON +
+> YAML byte-matching `cue` modulo field-ordering #3. Eval count is FLAT across fuel (~290k at any
+> fuel) instead of multiplicative. Hole closed by construction (bracketing a monotonic truncation
+> counter in the single cached wrapper — no per-arm bit to forget; `saturated` results cached
+> fuel-free via `satCache`, `truncated` stay fuel-keyed). 5 saturation pins + the owed
+> `perfb-soundness-pins` (4 E2E value pins + 2 export fixtures) folded in. argocd still blocked by
+> a SEPARATE correctness gap (`bottom` at every fuel — not fuel/perf, not a regression). See the
+> implementation-log entry "Fuel-saturation caching". The design sub-spike + result table are in
+> the "Fuel-saturation design sub-spike" subsection below.
+
 Two SOUND, behavior-preserving memos landed (every fixture byte-identical; `fuel` kept in
 every key). They are real wins but DO NOT unblock real apps — the dominant real-app cost is on
 a third axis (fuel) neither touches. Re-profiled with eval-count + cache-hit instrumentation
@@ -433,6 +444,66 @@ fold it into a sharing slice.
 field-order #3) but only reachable at lowered fuel; at production fuel 100 it is still too slow
 to be a `cue` drop-in. argocd (larger) not separately re-timed — same fuel-axis wall, worse.
 Kue is NOT yet a drop-in `cue` replacement for these apps; the fuel-saturation slice is the gate.
+
+### Fuel-saturation design sub-spike (2026-06-18) — HOLE CLOSED BY CONSTRUCTION
+
+Re-profiled cert-manager (native `kue prof <app> <fuel>` harness, removed before commit):
+
+| fuel | evalCalls | cacheHits | truncBottoms | manifest | mlen |
+|------|-----------|-----------|--------------|----------|------|
+| 12   | 235 418   |  23 394   |  62 117      | INCOMPLETE | —   |
+| 14   | 397 557   |  41 847   |  82 926      | INCOMPLETE | —   |
+| 16   | 583 020   |  66 010   |  94 330      | ok       | 451  |
+| 18   | 800 769   |  97 218   | 108 044      | ok       | 451  |
+| 20   | 1 053 422 | 139 267   | 123 290      | ok       | 451  |
+
+Value CONVERGES at fuel 16 (`manifest=ok`, byte-stable `mlen=451` thereafter) while evalCalls
+multiplies ~1.37×/2-levels → fuel 100 unbounded. truncBottoms is large AND grows with fuel: the
+263-class is real and pervasive (~94k truncations at fuel 16). So the converged top value is
+re-derived identically across ~84 wasted levels; the saturated subtrees are the wasted work.
+
+**Encoding (closes the HOLE by construction — bracketing, NOT a per-arm boolean).** Saturation
+is NOT threaded as a forgettable bit through every arm (12 functions = 12 forget-sites). Instead:
+
+1. **`Saturation` is part of the eval-result type.** `evalValueWithFuel` returns `Value` (the cache
+   stores `(Value × Saturation)`), and the two memo caches key/store saturation explicitly. The
+   classification is forced — a result cannot enter a cache without a `Saturation` attached.
+2. **Classification is by BRACKETING a monotonic global truncation counter, in ONE place.**
+   `EvalState.truncCount` is bumped ONLY at the two truncation arms (`fuel=0` base; cycle `.top`).
+   `evalValueWithFuel` snapshots `truncCount` before/after the core eval: `saturated := (after ==
+   before)`. Because the counter is monotonic and EVERY transitive truncation (through any arm,
+   any helper) flows through it, the bracket at the single cached wrapper sees all of them — there
+   is NO per-arm join to forget. This is strictly more robust than threading a bit: no arm
+   participates in the combination, so no arm can drop it.
+3. **Cache-hit honesty (the one subtlety).** A cache hit runs no core, bumps no counter — so a
+   cached *truncated* result served to a bracketing parent would wrongly leave the parent
+   saturated. Fix: the cache value is `(Value × Saturation)`; on a hit of a `truncated` entry,
+   re-bump `truncCount` so the parent's bracket still sees the truncation. A `saturated` hit bumps
+   nothing. Same discipline for the `forceCache` (force is the other bracketed wrapper).
+4. **The cache split.** `truncated` results go in the fuel-keyed cache (current `EvalKey`,
+   `fuel` retained — the 263 cases stay separated by fuel). `saturated` results ALSO go in a
+   SECOND, fuel-FREE cache keyed `(envIds, visited, value)`. `evalValueWithFuel` consults the
+   fuel-free cache FIRST (hit ⟹ return for ANY fuel, bump nothing). Insertion into the fuel-free
+   cache happens ONLY in the `saturated` branch of the bracket — impossible to insert a truncated
+   value fuel-free (enforced by the `match saturated` in the wrapper, the single insertion site).
+
+**Soundness argument.** A `saturated` result's bracket proved `truncCount` did not move across its
+entire (transitive) core eval ⟹ no `fuel=0` base and no cycle `.top` was consulted anywhere in
+its subtree ⟹ the result is identical at every fuel `≥` the one that produced it (more fuel
+changes nothing an eval that never ran out of fuel did). So caching it under a fuel-FREE key and
+returning it at any higher fuel cannot change any value. `truncated` results stay fuel-keyed, so
+the 263 fuel-truncation cases are never served across fuel. Cache-hit honesty (3) keeps the
+bracket sound under memoization: a truncated value can never masquerade as saturated to a parent.
+Composition with frame-id sharing + force-memo (audited sound, `7a5f9b5`): sharing only
+canonicalizes `env.ids` (the fuel-free key's env axis) — it never crosses fuel, so saturation
+composes; the force wrapper is bracketed identically and its `forceCache` carries `Saturation`.
+
+**Totality.** `Saturation` is a 2-constructor `inductive`; the join is total; `truncCount`
+bracketing adds only `Nat` arithmetic and `HashMap` ops — no `partial`, no new termination
+obligation (the wrappers keep their existing `termination_by`). HOLE CLOSED: the only place a
+result is classified saturated is the single bracket in `evalValueWithFuel`/force; the only place
+it is inserted fuel-free is that bracket's `saturated` arm. No arm can forget because no arm
+classifies.
 
 ## Audit Fix-Slices (perf-B closure-perf SOUNDNESS audit — Phase A, audit 2026-06-18 #5)
 
@@ -528,6 +599,14 @@ These are owed as a small `perfb-soundness-pins` fix-slice (LOW risk, additive t
 do NOT gate the fuel-saturation slice — the memos are proven sound — but should land alongside it
 so the fuel-saturation work (which threads a new `saturated` bit through the SAME keys) inherits
 real false-share coverage rather than coincidence-only unit pins.
+
+> **DONE (2026-06-18): `perfb-soundness-pins` LANDED** with the fuel-saturation slice. All 4
+> findings discharged as E2E *value* pins in `Kue/Tests/EvalTests.lean`: finding #1 → `perfb_force_
+> memo_narrows_by_useOperands` + export fixture `force_memo_narrow`; #2 → `perfb_frame_share_parent_
+> disambiguates_value` + export fixture `frame_share_parent`; #3 → `perfb_closed_vs_open_distinct_
+> values` (closed REJECTS extra through real normalization, not the `.definition` proxy); #4 →
+> `perfb_frame_id_does_not_leak` (`valueTag`/`Format` ignore `capturedEnv`). The fuel-saturation
+> threading thus inherits real false-share coverage as intended.
 
 ## Value.closure work plan (frontier #1 — chakrit-approved churn, 2026-06-18)
 

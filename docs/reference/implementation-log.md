@@ -6600,3 +6600,77 @@ ONE component, ~30%, not the whole).** Kue is NOT yet a drop-in `cue` for these 
 **fuel-saturation caching** slice (design + soundness hole in `plan.md`'s Perf B section) — cache
 fuel-INDEPENDENTLY any result whose subtree never hit `fuel = 0`. Own slice, own soundness spike;
 do NOT fold into a sharing slice.
+
+## Fuel-saturation caching — the fuel-multiplication fix (2026-06-18, this slice)
+
+**The real-app PERF gate is LANDED. cert-manager now exports CORRECTLY at production fuel 100.**
+
+### What it does
+
+A result whose ENTIRE (transitive) eval never hit a `fuel = 0` base nor a cycle `.top` is
+SATURATED — fuel-insensitive, identical at every higher fuel (more fuel cannot change an eval
+that never ran out). Such results are cached FUEL-FREE (`satCache`, keyed `(envIds, visited,
+value)`), so a converged value evaluated at fuel f and re-requested at any fuel ≥ f is served from
+ONE entry — collapsing the per-fuel-level re-derivation. TRUNCATED results (the 263 fuel-
+truncation cases) stay fuel-keyed in the existing `cache` (`EvalKey`, `fuel` retained) and are
+NEVER served across fuel.
+
+### The hole, closed BY CONSTRUCTION (bracketing, not a per-arm boolean)
+
+The design's hole was "the saturated bit must thread through the ENTIRE eval-core return type; one
+arm forgetting to propagate `unsaturated` silently caches a truncated value → corruption." Closed
+by NOT threading a per-arm bit (12 functions = 12 forget-sites). Instead:
+
+- `EvalState.truncCount` is a MONOTONIC counter bumped ONLY at the two truncation arms (`fuel = 0`
+  base; cycle `.top`). `evalValueWithFuel` (the single cached wrapper) BRACKETS it: snapshot
+  before/after the core eval; `saturated := (after == before)`. Every transitive truncation
+  through ANY arm/helper flows through the counter, so the bracket sees them all — there is NO
+  per-arm join to forget because no arm classifies.
+- Cache value is `(Value × Saturation)`. Cache-hit honesty: a `truncated` hit re-bumps
+  `truncCount` so the bracketing parent still classifies itself truncated; a `saturated` hit bumps
+  nothing. Same discipline for `forceCache` (the force wrapper is bracketed identically).
+- The fuel-free `satCache` is inserted ONLY in the `saturated` arm of the wrapper's bracket — the
+  single insertion site — so a truncated value can never enter it (enforced by the `match sat`,
+  not a check).
+
+### Result — fuel multiplication → BOUNDED
+
+cert-manager eval count is now FLAT across fuel instead of multiplicative:
+
+| fuel | before (evalCalls) | after (evalCalls) |
+|------|--------------------|--------------------|
+| 16   | 583 020            | 287 993            |
+| 18   | 800 769            | 298 167            |
+| 20   | 1 053 422          | 313 582            |
+| 100  | killed @ 8 min CPU | 290 427 (~30 s)    |
+
+**REAL-APP HEADLINE: cert-manager exports the CORRECT value at production fuel 100 in ~30 s** (was
+unbounded). JSON + YAML both byte-match `cue` modulo field-ordering #3 (`jq -S` IDENTICAL). Kue is
+now a content drop-in for cert-manager. **argocd: still blocked, but by a SEPARATE correctness gap
+— it produces `bottom` at EVERY fuel (8/12/16/20), `mlen=0` — a genuine eval gap, not fuel/perf,
+not a saturation regression** (cert-manager stays correct, all fixtures byte-identical).
+
+### Tests (9 new `native_decide` pins + 2 export fixtures, `Kue/Tests/EvalTests.lean`)
+
+Saturation (5): `sat_converged_reused_across_fuel_is_free_and_correct` (a converged value re-
+requested at higher fuel adds ZERO core evals AND equals the fresh high-fuel eval — the perf win +
+correct reuse); `sat_truncated_not_served_across_fuel` (THE critical pin: a fuel-sensitive self-
+ref value evaluated at fuel 3 then 20 must get the fuel-20 expansion, NOT the fuel-3 stump — the
+corruption the slice prevents); `sat_low_fuel_truncates` (the hazard is genuine); `sat_truncated_
+same_fuel_is_cached` (truncated stays fuel-keyed-cached, honest fuel axis).
+
+Owed `perfb-soundness-pins` (audit #5, FOLDED IN — 4 E2E value pins + 2 export fixtures): `perfb_
+force_memo_narrows_by_useOperands` (`#D&{x:1}` shares, `#D&{x:2}` distinct — force-memo `useOperands`
+keying, asserts exported VALUE not id-coincidence); `perfb_frame_share_parent_disambiguates_value`
+(identical inner body under different parents → different values — parentIds load-bearing E2E);
+`perfb_closed_vs_open_distinct_values` (closed `#C` REJECTS extra `y: _|_`, open admits — through
+REAL normalization, not the `.definition`/`.regular` proxy); `perfb_frame_id_does_not_leak`
+(`valueTag`/`Format` ignore `capturedEnv` ids). Export fixtures `testdata/export/force_memo_narrow`
++ `frame_share_parent` byte-match `cue export`.
+
+### Residual
+
+cert-manager at 30 s is correct but not single-digit-seconds: the fuel axis is solved, the residual
+is the absolute eval count (~290k) × the per-eval constant. Next perf lever is the per-eval cost,
+not fuel. argocd's `bottom` is a correctness frontier (likely `module-file-scoped-imports` /
+`import-eager-closedness` / field-ordering), independent of this slice.

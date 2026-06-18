@@ -16,29 +16,39 @@ Kue uses **fuel-bounded, total evaluation**: every value is reduced under a fuel
 is what tells a real value apart from a cycle-truncated one — so it cannot simply be
 lowered to go faster.
 
-The cost of evaluating a value is roughly:
+Since **fuel-saturation caching** landed (2026-06-18), the cost of evaluating a value is
+roughly:
 
 ```
 per-level work  ×  the fuel depth at which the value converges
 ```
 
+— and crucially **NO LONGER multiplied by the remaining fuel levels above convergence.**
 A value that settles at shallow depth is cheap. A value that only stabilizes after many
-fuel levels — deep self-reference, long indirection chains — pays its per-level cost over
-and over until it converges, and (today) re-derives the already-converged result across
-the remaining fuel levels up to the ceiling. That re-derivation, **fuel multiplication**,
-is the dominant real-world cost. (A measured example: a real `#ClusterIssuer`-style app
-converges to the correct value at fuel ~16, but the default ceiling re-derives it across
-~84 further levels at ~1.35× each — effectively unbounded. A sound *fuel-saturation
-caching* optimization to stop re-deriving converged subtrees is planned.)
+fuel levels — deep self-reference, long indirection chains — still pays its per-level cost
+up to the depth where it converges, but once a subtree converges it is cached
+*fuel-independently* and never re-derived at higher fuel.
+
+**Fuel multiplication is eliminated.** Previously the default ceiling re-derived an
+already-converged value across every remaining fuel level (a real `#ClusterIssuer`-style
+app converged at fuel ~16 but re-derived across ~84 further levels at ~1.35× each →
+effectively unbounded; a full-fuel run was killed at 8 min CPU). Now any result whose
+entire subtree never ran out of fuel (never hit the `fuel = 0` base nor a cycle cut) is
+*saturated* — proven fuel-insensitive — and cached under a fuel-free key, so it is computed
+ONCE regardless of the ceiling. The measured effect on that app: eval count went from 583k
+(fuel 16) → 1.05M (fuel 20) → unbounded, to a FLAT ~290k at any fuel; it now exports
+correctly at the production ceiling in ~30 s. Results that genuinely *do* depend on fuel
+(cycle-truncated values) stay fuel-keyed and are never served across fuel levels, so the
+fix is purely a speedup — byte-identical output.
 
 ## Expensive patterns (minimize these)
 
 | Pattern | Why it is slow | Faster shape |
 |----------------------------------|--------------------------------------|----------------------------------|
-| Deep self-referential defs — `#D: Self={ … Self.#x … }` chained many levels | Raises the convergence depth → fuel multiplication | Flatten; resolve shared values once at a shallow level and reference them |
-| Long alias / selector chains — `#A: parts.#M`, `#B: #A`, `#C: #B`, … | Each hop adds indirection that must re-resolve per fuel level | Reference the terminal value directly where practical |
+| Deep self-referential defs — `#D: Self={ … Self.#x … }` chained many levels | Raises the *convergence depth* (the per-level cost is paid up to the depth where it settles — no longer multiplied above it) | Flatten; resolve shared values once at a shallow level and reference them |
+| Long alias / selector chains — `#A: parts.#M`, `#B: #A`, `#C: #B`, … | Each hop adds convergence depth (still paid once per level up to convergence) | Reference the terminal value directly where practical |
 | Deep cross-package embed chains — `#Outer{ pkg.#Mid{ pkg.#Inner } }` | Correct, but each embedded level adds convergence depth | Keep embedding shallow; prefer a few wide defs over many nested ones |
-| Gratuitously duplicating a large sub-expression across fields | Historically caused exponential blow-up | Mostly mitigated now (see below), but still cheaper to bind once and reference |
+| Gratuitously duplicating a large sub-expression across fields | Historically caused exponential blow-up | Mitigated by frame-id sharing (see below); still cheaper to bind once and reference |
 
 ## Cheap patterns (prefer these)
 
@@ -57,13 +67,20 @@ caching* optimization to stop re-deriving converged subtrees is planned.)
   depth, so deep duplicated nesting is cheaper avoided, but flat duplication is fine.
 - **Forced cross-package def-meet is memoized**, so repeated use of the same imported def
   with the same use-site does not re-evaluate from scratch.
+- **Converged subtrees are cached fuel-independently** (fuel-saturation caching). Once a
+  value settles below the fuel ceiling it is never re-derived at higher fuel — the dominant
+  real-app cost (fuel multiplication) is gone. The only values that re-derive per fuel
+  level are genuinely fuel-sensitive ones (cycle-truncated), which is correct, not waste.
 
 ## Known limitations (current)
 
-- **Fuel multiplication is not yet eliminated.** Apps that converge correctly but at
-  moderate depth (e.g. real prod9 infra apps using deep `Self=` def chains) are correct but
-  currently slow. The sound fix (fuel-saturation caching) is designed and pending; until it
-  lands, the practical advice above (flatten, shorten chains) is the lever you control.
+- **Absolute per-eval cost on deep apps.** With fuel multiplication eliminated, a deep
+  real-app (e.g. a prod9 infra app with deep `Self=` def chains) now exports correctly at
+  the production fuel ceiling, but the absolute eval count (hundreds of thousands of core
+  evals for cert-manager) × the per-eval constant still costs ~tens of seconds. This is no
+  longer a fuel-axis problem; the next perf lever is the per-eval constant, not the fuel
+  ceiling. The practical advice above (flatten, shorten chains → lower convergence depth →
+  fewer evals) remains the lever you control.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).
