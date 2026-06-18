@@ -1532,4 +1532,99 @@ theorem f2_body_needs_defer_skips_plain_embed :
         (.structComp [] [.refId ⟨1, 0⟩] true)) = false := by
   native_decide
 
+/-! ### closure-import-selector-alias — a def aliased to (or embedding) an import-selector must
+    DEFER through the package indirection. `#A: parts.#M`, then `defs.#A & {#name: "n"}` collapsed
+    eagerly (kue `incomplete value: string`) because the producer only detected a DIRECT import
+    selector, not one reached through ANOTHER def alias. `followAliasDefBody?` follows the
+    selector/ref chain to the terminal `parts.#M` body AND its `parts` package frame, so the
+    use-site conjunct splices at force time exactly as a direct `parts.#M & {…}` does. -/
+
+/-- The `parts` package: `#M: {#name: string, name: #name}` (a self-ref def). -/
+private def aliasPartsPkg : Value :=
+  .struct [⟨"#M", .definition,
+    .struct [⟨"#name", .definition, .kind .string⟩,
+             ⟨"name", .regular, .refId ⟨0, 0⟩⟩] true⟩] true
+
+/-- The `defs` package: imports `parts` (binding at index 0) and aliases `#A: parts.#M`
+    (`parts` is `.refId ⟨0,0⟩` within the defs frame; index 1 is `#A`). -/
+private def aliasDefsPkg : Value :=
+  .struct [⟨"parts", .hidden, aliasPartsPkg⟩,
+           ⟨"#A", .definition, .selector (.refId ⟨0, 0⟩) "#M"⟩] true
+
+/-- THE HEADLINE: `defs.#A & {#name: "n"}` where `#A: parts.#M` forces THROUGH the alias to the
+    `parts.#M` body, splicing the use-site narrowing → `{name: "n"}`. Before this slice the
+    eager path resolved `parts.#M` in the defs frame first → `name: string` (incomplete). The
+    use-site env binds `defs` at frame index 0. -/
+theorem alias_import_selector_splices_use_site :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .hidden, aliasDefsPkg⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#A",
+                .struct [⟨"#name", .definition, .prim (.string "n")⟩] true]))
+      == .struct [⟨"#name", .definition, .prim (.string "n")⟩,
+                  ⟨"name", .regular, .prim (.string "n")⟩] false) = true := by
+  native_decide
+
+/-- `importDefClosureBody?` follows the alias to discover the deferring `parts.#M` body — it
+    returns `some` even though `#A`'s OWN body (`parts.#M`) is a selector, not a struct. Pins
+    that the alias-follow path is wired into the selector producer. -/
+theorem alias_import_selector_producer_fires :
+    (importDefClosureBody? [(7, [⟨"defs", .hidden, aliasDefsPkg⟩])] ⟨0, 0⟩ "#A").isSome = true := by
+  native_decide
+
+/-- `followAliasDefBody?` returns the terminal `parts.#M` body paired with the `parts` package
+    frame (NOT the `defs` frame) — the captured frame must be where `name: #name` resolves. The
+    frame env places the `defs` package fields (holding the `parts` binding at index 0) at depth 0. -/
+private def aliasDefsFields : List Field :=
+  [⟨"parts", .hidden, aliasPartsPkg⟩,
+   ⟨"#A", .definition, .selector (.refId ⟨0, 0⟩) "#M"⟩]
+
+theorem alias_follow_returns_terminal_parts_frame :
+    (followAliasDefBody? evalFuel
+        [(0, aliasDefsFields), (7, [])]
+        aliasDefsFields
+        (.selector (.refId ⟨0, 0⟩) "#M")).isSome = true := by
+  native_decide
+
+-- EMBED form (`#A: {parts.#M}`) is pinned cue-exact by the committed module fixture
+-- `alias_import_selector_embed` — the hand-built in-memory env diverges from the loader's
+-- `normalizeDefinitions` frame layout for the `.structComp` embed case, so it is covered
+-- end-to-end through the CLI fixture rather than a fragile unit AST.
+
+/-- TWO-LEVEL alias indirection: `#A: parts.#M`, `#B: #A` (a `.refId` to `#A`), then
+    `defs.#B & {#name: "n"}` follows the chain `#B → #A → parts.#M`. Pins that the follow
+    recurses through a same-package `.refId` alias, not just one selector hop. -/
+private def aliasDefsPkgTwoLevel : Value :=
+  .struct [⟨"parts", .hidden, aliasPartsPkg⟩,
+           ⟨"#A", .definition, .selector (.refId ⟨0, 0⟩) "#M"⟩,
+           ⟨"#B", .definition, .refId ⟨0, 1⟩⟩] true
+
+theorem alias_import_selector_two_level_splices :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .hidden, aliasDefsPkgTwoLevel⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#B",
+                .struct [⟨"#name", .definition, .prim (.string "n")⟩] true]))
+      == .struct [⟨"#name", .definition, .prim (.string "n")⟩,
+                  ⟨"name", .regular, .prim (.string "n")⟩] false) = true := by
+  native_decide
+
+/-- NO OVER-DEFERRAL: a def aliased to a NON-import-selector struct (`#A: {x: int}`, no self-ref)
+    does NOT defer — `followAliasDefBody?` returns `none` for it, so the eager/lazy-merge path
+    handles `defs.#A & {x: 5}` → `{x: 5}` exactly as before. Pins the gate stays narrow. -/
+theorem alias_non_selector_does_not_defer :
+    (importDefClosureBody?
+        [(7, [⟨"defs", .hidden,
+          .struct [⟨"#A", .definition, .struct [⟨"x", .regular, .kind .int⟩] true⟩] true⟩])]
+        ⟨0, 0⟩ "#A") == none := by
+  native_decide
+
+/-- CYCLE SAFETY: a self-referential alias chain (`#A: #B`, `#B: #A`) terminates — the
+    fuel-bounded follow does not diverge. `followAliasDefBody?` returns (terminating) for the
+    cyclic body rather than looping forever; the result is `none` (no struct terminal reached). -/
+theorem alias_follow_cycle_terminates :
+    (followAliasDefBody? evalFuel
+        [(0, [⟨"#A", .definition, .refId ⟨0, 1⟩⟩, ⟨"#B", .definition, .refId ⟨0, 0⟩⟩])]
+        [⟨"#A", .definition, .refId ⟨0, 1⟩⟩, ⟨"#B", .definition, .refId ⟨0, 0⟩⟩]
+        (.refId ⟨0, 1⟩)) == none := by
+  native_decide
+
 end Kue

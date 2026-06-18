@@ -6477,3 +6477,54 @@ references `parts` collapses it). This is the import-selector-deferral-through-p
 family — the NEXT correctness slice, gating cert-manager. The audit's "no cache collision" call was
 right (a cache-bypass build still bottoms — it is deterministic eval contamination, not a memo
 collision). Perf B remains downstream of it.
+
+## Completed Slice: `closure-import-selector-alias` (the live cert-manager blocker — two sub-fixes)
+
+Root-causing split this into TWO genuinely distinct bugs. Both landed; together they make the
+isolated `#ClusterIssuer` AND the multi-import `parts` package cue-exact.
+
+### Sub-fix 1 — alias-to-selector deferral (`Kue/Eval.lean`)
+
+The producers (`importDefClosureBody?`, `refDefClosureBody?`) deferred a def to a `.closure` only
+when its body was DIRECTLY a struct needing deferral. A def whose body is an import selector
+(`#A: parts.#M`) or embeds one (`#A: {parts.#M}`) fell to the eager path: `parts.#M` resolved in the
+`defs` frame BEFORE the use-site `& {#name}` narrowed → `name: #name` collapsed to `string`
+(`incomplete value: string`). cue: `{name: "n"}`.
+
+**Fix.** New `followAliasDefBody? (fuel) (frameEnv) (capturedFrame) : Value -> Option (List Field ×
+Value)` follows the alias/import-selector indirection to the terminal struct-like body AND the
+package frame that body's refs resolve against:
+- `.selector (.refId baseId) label` — resolve `baseId` in `frameEnv` to a package `.struct`, find
+  `label`, recurse with that package's fields as the new captured frame (so `parts.#M`'s body
+  captures the `parts` frame, not `defs`).
+- `.refId id` — resolve to a sibling/outer def and recurse (`#B: #A`, `#A: parts.#M` — two hops).
+- terminal struct-like — return `(capturedFrame, body)` iff `bodyNeedsDefer`.
+Fuel-bounded against cyclic alias chains (`#A: #B`, `#B: #A` terminates → `none`).
+
+Wired in: `importDefClosureBody?` gained an alias-follow fallthrough (when the direct
+`bodyNeedsDefer` check fails on a definition body, follow the chain and defer over the terminal
+frame). New conjunct producers `refAliasDefClosure?` / `refAliasSelectorDef?` (the bare-ref analogue
+of `importSelectorDef?`) thread the terminal frame into the `.conj` fold's closure splice and into
+the `.refId` standalone-force arm. The eager/lazy-merge path is untouched for non-selector aliases
+(`followAliasDefBody?` returns `none`), so no over-deferral.
+
+### Sub-fix 2 — duplicate import-binding meet-collision (the REAL cert-manager blocker)
+
+Bisecting the offline real-package repro (full `defs@v0.3.19` copied from the cue cache, import
+paths sed-rewritten to a local module) proved the isolated `#ClusterIssuer` is cue-exact — the
+bottom came from the FULL `defs` package and narrowed to **a SECOND file in the `parts` package
+importing `attr`** (`parts/pod_controller.cue` alongside `parts/metadata.cue`, both `import attr`).
+This is the breadcrumb's "second def referencing the shared import binding poisons" facet.
+
+**Mechanism.** `bindImports` (Module.lean) prepends each file's resolved imports to THAT file's
+struct value as hidden fields; `mergeSourceValues` (Runtime.lean) then `meet`-folds all sibling
+files. Two files both `import attr` ⇒ the merged `parts` package struct carries the `attr` hidden
+label TWICE, and `meet`-ing two INDEPENDENTLY-loaded copies of the same package struct corrupts the
+binding (→ bottom). CUE binds imports file-scoped; the same package across files is ONE instance, not
+a meet of two copies. Clean minimal repro: `parts` package with two files both `import attr`, then
+`parts.#Metadata & {#name}` → was `conflicting values (bottom)`, now `{name: "n"}` cue-exact; the
+control (one file imports `attr`) always worked.
+
+**Fix.** Dedupe import bindings at the package level — bind each distinct `(name, packageValue)`
+ONCE across all sibling files, not per-file-then-merge. [See the Module.lean edit below for the
+exact mechanism once landed.]

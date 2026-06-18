@@ -3216,3 +3216,40 @@ its body to a closure, so the use-site narrowing arrives after collapse. NOT a c
 (cache-bypass build still bottoms → deterministic eval contamination). Sequence: this correctness
 slice FIRST, then re-probe; perf B remains downstream (unreachable while apps error). F1 is
 orthogonal and can interleave.
+
+## `closure-import-selector-alias` — **DONE 2026-06-18** (two distinct sub-fixes)
+
+Root-causing the slice split into TWO genuinely distinct bugs (both landed):
+
+### Sub-fix 1 — alias-to-selector deferral (the minimal repro)
+
+A def whose body IS an import selector (`#A: parts.#M`) — or embeds one (`#A: {parts.#M}`) — did
+not defer through the package indirection: the producers (`importDefClosureBody?`/`refDefClosureBody?`)
+detected only a DIRECT struct body that needs deferral, so an alias whose body is a `.selector`
+(not a struct) fell to the eager path, resolving `parts.#M` in the `defs` frame BEFORE the use-site
+narrows → `incomplete value: string`. **Fix:** `followAliasDefBody?` (Eval.lean) follows the
+selector/ref indirection (fuel-bounded against cyclic chains) to the terminal struct body AND the
+package frame it captures (`parts`, not `defs`), and the selector/ref producers fall through to it
+when the direct check fails. New conjunct producers `refAliasSelectorDef?` (bare-ref form) thread the
+terminal frame into the `.conj` fold's closure splice; `importDefClosureBody?` gained an alias-follow
+fallthrough so `defs.#A & {…}` defers like a direct `defs.#M & {…}`. Pinned: 6 `native_decide`
+theorems (headline splice, producer-fires, follow-returns-terminal-parts-frame, two-level chain,
+no-over-deferral for a non-selector alias, cycle-terminates) + 3 committed module fixtures
+(`alias_import_selector`, `_embed`, `_chain`) byte-identical to `cue`.
+
+### Sub-fix 2 — duplicate import-binding meet-collision (the REAL cert-manager blocker)
+
+Bisecting the offline real-app repro proved the isolated `#ClusterIssuer` is cue-exact; the bottom
+came from the FULL `defs` package, narrowed to: **a second file in the `parts` package importing
+`attr`** (e.g. `parts/pod_controller.cue` alongside `parts/metadata.cue`, both `import attr`). This
+is the breadcrumb's "second def referencing the shared import binding poisons" facet. **Mechanism:**
+`bindImports` prepends each file's imports to THAT file's struct value, then `mergeSourceValues`
+`meet`-folds all files (Module.lean / Runtime.lean). Two files both importing `attr` ⇒ the package
+struct gets the `attr` label TWICE, and `meet`-ing two independently-loaded copies of the same
+package corrupts the binding → bottom. CUE binds imports file-scoped; the SAME package across files
+must be ONE binding, not a meet of two copies. **Fix:** dedupe import bindings at the package level
+(bind once across all sibling files), not per-file-then-merge. See implementation-log for the exact
+edit. Minimal repro: `parts` package with two files both `import attr`, `parts.#Metadata & {#name}`
+→ was bottom, now `{name: "n"}` cue-exact.
+
+### Real-app re-probe after both sub-fixes — see implementation-log + breadcrumb for the landing.

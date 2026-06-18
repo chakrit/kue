@@ -1113,6 +1113,72 @@ def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
     | _, _ => false
   termination_by fuel
 
+/-- Follow a def body that is itself an alias/import-selector indirection to the terminal
+    struct-like body it ultimately names, paired with the package frame that body's refs
+    resolve against. `frameEnv` is the env in which `body`'s refs resolve, with `body`'s own
+    enclosing package frame at depth 0; `capturedFrame` is the field list of that enclosing
+    frame (what the caller must `pushFrame` to force the returned body).
+
+    The headline shape (`#A: parts.#M`, then `defs.#A & {…}`): `#A`'s body is the selector
+    `parts.#M`, not a struct — so the direct producers (`importDefClosureBody?`/`refDefClosureBody?`)
+    see no struct body and take the eager path, resolving `parts.#M` in the `defs` frame BEFORE
+    the use-site narrows. Following the indirection here discovers the real `#M` body AND the
+    `parts` package frame it captures, so the caller defers to a `.closure` over the RIGHT frame
+    and the use-site conjunct splices at force time exactly as a direct `defs.#M & {…}` does.
+
+    Two indirection arms, both fuel-bounded against cyclic alias chains (`#A: #A`):
+    - `.selector (.refId baseId) label`: resolve `baseId` in `frameEnv` to a package `.struct`,
+      find `label`, and recurse with that package's fields as the new captured frame.
+    - `.refId id`: resolve `id` in `frameEnv` to a sibling/outer def and recurse (two-level
+      `#B: #A`, `#A: parts.#M`), keeping the captured frame at the resolved binding's scope.
+
+    Returns `(capturedFrame, terminalBody)` when the terminal is struct-like AND needs deferral
+    (`bodyNeedsDefer`); `none` for a non-indirection body (left to the direct producers), a
+    terminal that does not defer, or fuel exhaustion. The terminal is NOT re-normalized here —
+    the callers normalize a definition body once they own it. -/
+def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Field) :
+    Value -> Option (List Field × Value)
+  | .selector (.refId baseId) label =>
+      match fuel with
+      | 0 => none
+      | fuel + 1 =>
+          match frameEnv.drop baseId.depth with
+          | [] => none
+          | baseFrame :: _ =>
+              match nthField baseId.index baseFrame.snd with
+              | none => none
+              | some baseField =>
+                  match Field.value baseField with
+                  | .struct pkgFields _ =>
+                      match findEvalField label pkgFields with
+                      | some defField =>
+                          -- The found def lives in `pkgFields`; its body's refs resolve with
+                          -- `pkgFields` at depth 0 over the package binding's outer scope.
+                          let nextEnv : Env := (0, pkgFields) :: frameEnv.drop (baseId.depth + 1)
+                          followAliasDefBody? fuel nextEnv pkgFields (Field.value defField)
+                      | none => none
+                  | _ => none
+  | .refId id =>
+      match fuel with
+      | 0 => none
+      | fuel + 1 =>
+          match frameEnv.drop id.depth with
+          | [] => none
+          | frame :: outer =>
+              match nthField id.index frame.snd with
+              | none => none
+              | some defField =>
+                  -- The resolved def's body resolves with `frame` at depth 0 over `outer`.
+                  followAliasDefBody? fuel (frame :: outer) frame.snd (Field.value defField)
+  | body =>
+      let isStructLike := match body with
+        | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ => true | _ => false
+      let bodyEnv : Env := (0, []) :: (0, capturedFrame) :: frameEnv.drop 1
+      if isStructLike && bodyNeedsDefer bodyEnv evalFuel body then
+        some (capturedFrame, body)
+      else
+        none
+
 /-- The producer gate for slice-3 closures. Given the selector `base.label` where `base` is
     the UNEVALUATED binding `id` resolves to in `env`, decide whether to defer instead of
     eagerly evaluating `base` and plucking `label`. Returns the def's UNEVALUATED body when
@@ -1147,6 +1213,18 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
                       && bodyNeedsDefer bodyEnv evalFuel (Field.value defField) then
                     some (pkgFields,
                       normalizeDefinitionValueWithFuel normalizeFuel (Field.value defField))
+                  else if defField.fieldClass.isDefinition then
+                    -- The def body is NOT a directly-deferring struct — it may be an alias/import
+                    -- selector (`#A: parts.#M`) that resolves THROUGH the package indirection to a
+                    -- struct that does. Follow the chain to its terminal `(frame, body)` and defer
+                    -- over THAT frame (the `parts` package, not `defs`), so the use-site splices
+                    -- like a direct `parts.#M & {…}`. The body's refs resolve with `pkgFields` at
+                    -- depth 0 over the binding's outer scope.
+                    let frameEnv : Env := (0, pkgFields) :: env.drop (id.depth + 1)
+                    match followAliasDefBody? evalFuel frameEnv pkgFields (Field.value defField) with
+                    | some (capturedFrame, body) =>
+                        some (capturedFrame, normalizeDefinitionValueWithFuel normalizeFuel body)
+                    | none => none
                   else
                     none
               | none => none
@@ -1218,11 +1296,43 @@ def conjDefClosure? (env : Env) : Value -> Option Value
           | none => none
   | _ => none
 
+/-- Same-file alias companion to `importSelectorDef?`. A def referenced DIRECTLY (`#B`, a
+    `.refId`) whose body is an alias/import-selector indirection (`#B: #A` where `#A: parts.#M`,
+    OR `#B: parts.#M` directly) resolves THROUGH the chain to a struct that needs deferral, but
+    over a DIFFERENT captured frame than `#B`'s own scope — the terminal package frame. The
+    direct `refDefClosureBody?`/`conjDefClosure?` capture `#B`'s scope, which is wrong here.
+    Follows the chain and returns `(terminalFrame, terminalBody)` so the consumer `pushFrame`s
+    the right frame. `none` for a non-alias body (left to `refDefClosureBody?`). Mirrors
+    `importSelectorDef?`'s `(pkgFields, defBody)` shape so the `.conj` fold and the `.refId` arm
+    consume it identically. -/
+def refAliasDefClosure? (env : Env) (id : BindingId) : Option (List Field × Value) :=
+  match env.drop id.depth with
+  | [] => none
+  | frame :: outer =>
+      match nthField id.index frame.snd with
+      | none => none
+      | some defField =>
+          if defField.fieldClass.isDefinition then
+            -- The body's refs resolve with `frame` at depth 0 over `outer` (the binding's scope).
+            match followAliasDefBody? evalFuel (frame :: outer) frame.snd (Field.value defField) with
+            | some (capturedFrame, body) =>
+                some (capturedFrame, normalizeDefinitionValueWithFuel normalizeFuel body)
+            | none => none
+          else
+            none
+
 /-- Is this conjunct a raw `pkg.#Def` import-selector whose body defers to a closure? The `.conj`
     fold uses this to keep the RAW selector unevaluated (so the producer arm's eventual standalone
     force does not collapse it) and instead build the closure in-monad via `pushFrame`. -/
 def importSelectorDef? (env : Env) : Value -> Option (List Field × Value)
   | .selector (.refId id) label => importDefClosureBody? env id label
+  | _ => none
+
+/-- Conjunct-level alias producer: a bare ref (`#B`) whose body chains through an alias/import
+    selector to a deferring struct. Mirrors `importSelectorDef?` for the `.refId` conjunct form,
+    returning the terminal `(frame, body)` to `pushFrame`. `none` for non-ref conjuncts. -/
+def refAliasSelectorDef? (env : Env) : Value -> Option (List Field × Value)
+  | .refId id => refAliasDefClosure? env id
   | _ => none
 
 mutual
@@ -1301,13 +1411,22 @@ mutual
                 match refDefClosureBody? env id with
                 | some defBody => forceClosureWithConjunct fuel (frame :: outer) defBody []
                 | none =>
-                  if id.depth == 0 then
-                    if slotVisited id.index visited then
-                      pure .top
+                  -- Alias/import-selector indirection (`#B: parts.#M` / `#B: #A`, `#A: parts.#M`):
+                  -- the body is not a directly-deferring struct, but follows the chain to one. Force
+                  -- standalone over the TERMINAL package frame (the use-site splice, if any, comes
+                  -- via the `.conj` fold re-producing through `refAliasSelectorDef?`).
+                  match refAliasDefClosure? env id with
+                  | some (capturedFrame, defBody) => do
+                      let capturedEnv <- pushFrame capturedFrame env
+                      forceClosureWithConjunct fuel capturedEnv defBody []
+                  | none =>
+                    if id.depth == 0 then
+                      if slotVisited id.index visited then
+                        pure .top
+                      else
+                        evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
                     else
-                      evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
-                  else
-                    evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
+                      evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
     | fuel + 1, .conj constraints => do
         match lazyConjMergedFields env constraints with
         | some (mergedFields, open_) =>
@@ -1329,11 +1448,20 @@ mutual
               match conjDefClosure? env constraint with
               | some closure => pure closure
               | none =>
+                  -- `importSelectorDef?`: a `pkg.#Def` selector conjunct (incl. one aliased to
+                  -- another selector via the alias-follow inside `importDefClosureBody?`).
+                  -- `refAliasSelectorDef?`: a bare ref conjunct (`#B`) whose body chains through
+                  -- an alias to a deferring struct — captured over the TERMINAL package frame.
                   match importSelectorDef? env constraint with
                   | some (pkgFields, defBody) => do
                       let capturedEnv <- pushFrame pkgFields env
                       pure (.closure capturedEnv defBody)
-                  | none => evalValueWithFuel fuel env visited constraint
+                  | none =>
+                    match refAliasSelectorDef? env constraint with
+                    | some (capturedFrame, defBody) => do
+                        let capturedEnv <- pushFrame capturedFrame env
+                        pure (.closure capturedEnv defBody)
+                    | none => evalValueWithFuel fuel env visited constraint
             -- A `.closure` among the evaluated operands is a deferred imported def (slices 3-4).
             -- Instead of the inert `meet` (→ `.bottom`), force EVERY closure with the SHARED
             -- use-operand set spliced into its body (slice A — multi-operand fold). The use-site
