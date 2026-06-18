@@ -2693,6 +2693,41 @@ theorem clause_frame_shift_counts_only_for :
       && clauseFrameShift [.forIn none "x" .top, .guard .top, .forIn none "y" .top] == 2) = true := by
   native_decide
 
+/-! ### B7 — `descendClauses` agreement theorems (the new structural guarantee).
+
+`descendClauses` (`Value.lean`) is the single authority for the comprehension clause-chain
+frame-depth rule (`+1` per `forIn`, `+0` per `guard`, body at the accumulated depth). These pins
+make a future drift between the fold and either `resolveClausesWithFuel` (the reference walker,
+not migrated — it threads scopes, not `Nat`) or `remapConjClauses` a `native_decide` failure
+rather than a silent wrong value. -/
+
+-- `clauseChainDepth` self-consistency: the depth a clause chain accumulates is `start` plus one
+-- per `forIn`, none per `guard` — the same shape `clauseFrameShift` counts (and the depth
+-- `resolveClausesWithFuel` reaches for the body, pinned below).
+theorem descend_clauses_chain_depth_counts_only_for :
+    (clauseChainDepth 0 ([] : List (Clause Value)) == 0
+      && clauseChainDepth 0 [.forIn none "x" .top] == 1
+      && clauseChainDepth 0 [.guard .top] == 0
+      && clauseChainDepth 5 [.forIn none "x" .top, .guard .top, .forIn none "y" .top] == 7) = true := by
+  native_decide
+
+-- AGREEMENT with `resolveClausesWithFuel`: resolve threads `clauseLoopFrame :: scopes` (one frame
+-- per `forIn`, none per `guard`). With the body `.ref "x"` and `x` bound in the OUTERMOST scope,
+-- the resolved body is `.refId ⟨d, 0⟩` where `d` = the number of frames the chain pushed =
+-- `findInScopes`' walk past every loop frame. Pinning `d == clauseChainDepth 0 clauses` ties the
+-- fold to the reference walker WITHOUT coupling their code — drift becomes this test failing.
+theorem descend_clauses_frame_count_matches_resolve :
+    ([ ([] : List (Clause Value))
+     , [.forIn none "x" .top]
+     , [.guard .top]
+     , [.forIn none "x" .top, .forIn none "y" .top]
+     , [.forIn none "x" .top, .guard .top, .forIn none "y" .top]
+     ].all (fun clauses =>
+        match (resolveClausesWithFuel resolveFuel [[("outer", 0)]] clauses (.ref "outer")).snd with
+        | .refId id => id.depth == clauseChainDepth 0 clauses
+        | _ => false)) = true := by
+  native_decide
+
 /-! ### A5 sibling — `selfReferencedLabels` MISSED a `Self.<embedded>` read inside a `for` body.
 
 `selfReferencedLabels` (the Pass-2 selection seed: which static fields read an embedded label and
