@@ -164,24 +164,7 @@ mutual
         formatValueWithFuel fuel base ++ "[" ++ formatValueWithFuel fuel key ++ "]"
     | fuel + 1, .disj alternatives =>
         joinWith " | " (alternatives.map (formatAlternativeWithFuel fuel))
-    | fuel + 1, .struct fields _ =>
-        "{" ++ joinWith ", " (formatStructFieldsWithFuel fuel fields) ++ "}"
-    | fuel + 1, .structTail fields tail =>
-        let fieldText := formatStructFieldsWithFuel fuel fields
-        let tailText := formatTailWithFuel fuel tail
-        "{" ++ joinWith ", " (fieldText ++ [tailText]) ++ "}"
-    | fuel + 1, .structPattern fields labelPattern constraint _ =>
-        let fieldText := formatStructFieldsWithFuel fuel fields
-        let patternText :=
-          "[" ++ formatValueWithFuel fuel labelPattern ++ "]: " ++ formatValueWithFuel fuel constraint
-        "{" ++ joinWith ", " (fieldText ++ [patternText]) ++ "}"
-    | fuel + 1, .structPatterns fields patterns _ =>
-        let fieldText := formatStructFieldsWithFuel fuel fields
-        let patternText := patterns.map fun pattern =>
-          "[" ++ formatValueWithFuel fuel pattern.fst ++ "]: " ++ formatValueWithFuel fuel pattern.snd
-        "{" ++ joinWith ", " (fieldText ++ patternText) ++ "}"
-    -- B2.1 dead arm (no producer yet); filled in B2.3. Mirrors the four legacy struct
-    -- arms above: fields, then patterns, then the optional `...` tail, all inside `{…}`.
+    -- Fields, then patterns, then the optional `...` tail, all inside `{…}`.
     | fuel + 1, .structN fields _ tail patterns =>
         let fieldText := formatStructFieldsWithFuel fuel fields
         let patternText := patterns.map fun pattern =>

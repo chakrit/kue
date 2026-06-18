@@ -173,21 +173,8 @@ def containsBottomWithFuel : Nat -> Value -> Bool
       containsBottomWithFuel fuel base || containsBottomWithFuel fuel key
   | fuel + 1, .disj alternatives =>
       alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
-  | fuel + 1, .struct fields _ =>
-      fields.any fun field => fieldBottomCounts (containsBottomWithFuel fuel) field
-  | fuel + 1, .structTail fields tail =>
-      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
-        || containsBottomWithFuel fuel tail
-  | fuel + 1, .structPattern fields labelPattern constraint _ =>
-      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
-        || containsBottomWithFuel fuel labelPattern
-        || containsBottomWithFuel fuel constraint
-  | fuel + 1, .structPatterns fields patterns _ =>
-      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
-        || patterns.any fun pattern =>
-          containsBottomWithFuel fuel pattern.fst || containsBottomWithFuel fuel pattern.snd
   | fuel + 1, .structN fields _ tail patterns =>
-      -- Union of the four legacy struct arms: fields, optional tail, patterns.
+      -- Fields, optional tail, patterns.
       fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
         || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
         || patterns.any fun pattern =>
@@ -460,16 +447,8 @@ def meetCore (left right : Value) : Value :=
   | _, .list _ => .bottom
   | .ref _, _ => .bottom
   | _, .ref _ => .bottom
-  | .struct _ _, .struct _ _ => .bottom
-  | .structTail _ _, _ => .bottom
-  | _, .structTail _ _ => .bottom
-  | .structPattern _ _ _ _, _ => .bottom
-  | _, .structPattern _ _ _ _ => .bottom
-  | .structPatterns _ _ _, _ => .bottom
-  | _, .structPatterns _ _ _ => .bottom
-  -- B2.1 dead arm (no producer yet). `meetCore` is the bottoms-everything fallthrough;
-  -- the real `structN×structN` merge lands as ONE arm in `meetWithFuel` in B2.4, which
-  -- collapses the 12-arm matrix. Until B2.2/B2.3 produce `structN`, this never fires.
+  -- `meetCore` is the bottoms-everything fallthrough; the real `struct×struct` merge is the
+  -- single arm in `meetWithFuel`. A struct reaching here meets a non-struct → bottom.
   | .structN .., _ => .bottom
   | _, .structN .. => .bottom
   | .disj _, _ => .bottom
@@ -484,8 +463,6 @@ def meetCore (left right : Value) : Value :=
   | _, .interpolation _ => .bottom
   | .dynamicField _ _ _, _ => .bottom
   | _, .dynamicField _ _ _ => .bottom
-  | .struct .., _ => .bottom
-  | _, .struct .. => .bottom
   | .embeddedList _ _ _, _ => .bottom
   | _, .embeddedList _ _ _ => .bottom
   -- closure: meet against a use-site struct is the unlock (slice 4); until a producer
@@ -735,11 +712,6 @@ def applyPatternToFieldsWith
     (fields : List Field) : List Field :=
   fields.map (applyPatternToFieldWith meetValue labelPattern constraint)
 
-def patternStructValue (fields : List Field) : List (Value × Value) -> Bool -> Value
-  | [], open_ => .struct fields open_
-  | [pattern], open_ => .structPattern fields pattern.fst pattern.snd open_
-  | patterns, open_ => .structPatterns fields patterns open_
-
 def applyPatternsToFieldsWith
     (meetValue : Value -> Value -> Value)
     (patterns : List (Value × Value))
@@ -809,85 +781,6 @@ def applyPatternsClosednessWith
     (open_ : Bool)
     (fields : List Field) : List Field :=
   fields.map (applyPatternsClosednessToFieldWith meetValue declaredFields patterns open_)
-
-def mergeStructTailWithStructWith
-    (meetValue : Value -> Value -> Value)
-    (tailFields : List Field)
-    (tail : Value)
-    (fields : List Field) : Value :=
-  match mergeStructFieldsWith meetValue tailFields fields with
-  | some mergedFields => .structTail (applyTailToExtrasWith meetValue tailFields tail mergedFields) tail
-  | none => .bottom
-
-def mergeStructPatternWithStructWith
-    (meetValue : Value -> Value -> Value)
-    (patternFields : List Field)
-    (labelPattern constraint : Value)
-    (open_ : Bool)
-    (fields : List Field) : Value :=
-  match mergeStructFieldsWith meetValue patternFields fields with
-  | some mergedFields =>
-      .structPattern
-        (applyPatternsClosednessWith
-          meetValue
-          patternFields
-          [(labelPattern, constraint)]
-          open_
-          (applyPatternsToFieldsWith meetValue [(labelPattern, constraint)] mergedFields))
-        labelPattern
-        constraint
-        open_
-  | none => .bottom
-
-def mergeStructPatternsWithStructWith
-    (meetValue : Value -> Value -> Value)
-    (patternFields : List Field)
-    (patterns : List (Value × Value))
-    (open_ : Bool)
-    (fields : List Field) : Value :=
-  match mergeStructFieldsWith meetValue patternFields fields with
-  | some mergedFields =>
-      patternStructValue
-        (applyPatternsClosednessWith
-          meetValue
-          patternFields
-          patterns
-          open_
-          (applyPatternsToFieldsWith meetValue patterns mergedFields))
-        patterns
-        open_
-  | none => .bottom
-
-def mergeStructPatternsWithStructPatternsWith
-    (meetValue : Value -> Value -> Value)
-    (leftFields : List Field)
-    (leftPatterns : List (Value × Value))
-    (leftOpen : Bool)
-    (rightFields : List Field)
-    (rightPatterns : List (Value × Value))
-    (rightOpen : Bool) : Value :=
-  match mergeStructFieldsWith meetValue leftFields rightFields with
-  | some mergedFields =>
-      let patterns := leftPatterns ++ rightPatterns
-      let open_ := leftOpen && rightOpen
-      patternStructValue
-        (applyPatternsClosednessWith
-          meetValue
-          leftFields
-          leftPatterns
-          leftOpen
-          (applyPatternsClosednessWith
-            meetValue
-            rightFields
-            rightPatterns
-            rightOpen
-            (applyPatternsToFieldsWith
-              meetValue
-              rightPatterns
-              (applyPatternsToFieldsWith meetValue leftPatterns mergedFields))))
-        patterns
-        open_
-  | none => .bottom
 
 /-- The single normalized-struct meet (B2.4). Reproduces the legacy 12-arm matrix EXACTLY,
     emitting `structN` via `mkStruct`, by dispatching on which side carries a tail/patterns and
@@ -1064,80 +957,6 @@ def meetWithFuel : Nat -> Value -> Value -> Value
   | value, .top => value
   | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
   | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
-  | .struct leftFields leftOpen, .struct rightFields rightOpen =>
-      match mergeStructFieldsWith (meetWithFuel fuel) leftFields rightFields with
-      | some fields =>
-          .struct
-            (applyStructClosedness leftFields rightFields fields leftOpen rightOpen)
-            (leftOpen && rightOpen)
-      | none => .bottom
-  | .structTail tailFields tail, .struct fields _ =>
-      mergeStructTailWithStructWith (meetWithFuel fuel) tailFields tail fields
-  | .struct fields _, .structTail tailFields tail =>
-      mergeStructTailWithStructWith (meetWithFuel fuel) tailFields tail fields
-  | .structTail leftFields leftTail, .structTail rightFields rightTail =>
-      match mergeStructFieldsWith (meetWithFuel fuel) leftFields rightFields with
-      | some mergedFields =>
-          let tail := meetWithFuel fuel leftTail rightTail
-          if isBottom tail then
-            .bottom
-          else
-            .structTail
-              (applyTailToExtrasWith
-                (meetWithFuel fuel)
-                leftFields
-                leftTail
-                (applyTailToExtrasWith (meetWithFuel fuel) rightFields rightTail mergedFields))
-              tail
-      | none => .bottom
-  | .structPattern patternFields labelPattern constraint open_, .struct fields _ =>
-      mergeStructPatternWithStructWith (meetWithFuel fuel) patternFields labelPattern constraint open_ fields
-  | .struct fields _, .structPattern patternFields labelPattern constraint open_ =>
-      mergeStructPatternWithStructWith (meetWithFuel fuel) patternFields labelPattern constraint open_ fields
-  | .structPatterns patternFields patterns open_, .struct fields _ =>
-      mergeStructPatternsWithStructWith (meetWithFuel fuel) patternFields patterns open_ fields
-  | .struct fields _, .structPatterns patternFields patterns open_ =>
-      mergeStructPatternsWithStructWith (meetWithFuel fuel) patternFields patterns open_ fields
-  | .structPattern leftFields leftLabel leftConstraint leftOpen,
-    .structPattern rightFields rightLabel rightConstraint rightOpen =>
-      mergeStructPatternsWithStructPatternsWith
-        (meetWithFuel fuel)
-        leftFields
-        [(leftLabel, leftConstraint)]
-        leftOpen
-        rightFields
-        [(rightLabel, rightConstraint)]
-        rightOpen
-  | .structPattern leftFields leftLabel leftConstraint leftOpen,
-    .structPatterns rightFields rightPatterns rightOpen =>
-      mergeStructPatternsWithStructPatternsWith
-        (meetWithFuel fuel)
-        leftFields
-        [(leftLabel, leftConstraint)]
-        leftOpen
-        rightFields
-        rightPatterns
-        rightOpen
-  | .structPatterns leftFields leftPatterns leftOpen,
-    .structPattern rightFields rightLabel rightConstraint rightOpen =>
-      mergeStructPatternsWithStructPatternsWith
-        (meetWithFuel fuel)
-        leftFields
-        leftPatterns
-        leftOpen
-        rightFields
-        [(rightLabel, rightConstraint)]
-        rightOpen
-  | .structPatterns leftFields leftPatterns leftOpen,
-    .structPatterns rightFields rightPatterns rightOpen =>
-      mergeStructPatternsWithStructPatternsWith
-        (meetWithFuel fuel)
-        leftFields
-        leftPatterns
-        leftOpen
-        rightFields
-        rightPatterns
-        rightOpen
   | .structN lf lo lt lp, .structN rf ro rt rp =>
       mergeStructN (meetWithFuel fuel) lf lo lt lp rf ro rt rp
   | .list leftItems, .list rightItems =>
@@ -1205,12 +1024,6 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | none => .bottom
       | none =>
           match rightLike with
-          | .struct fields _ =>
-              if structHasOutputField fields then .bottom
-              else
-                match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
-                | some decls => .embeddedList leftItems leftTail decls
-                | none => .bottom
           | .structN fields _ none [] =>
               if structHasOutputField fields then .bottom
               else
@@ -1226,12 +1039,6 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | none => .bottom
       | none =>
           match leftLike with
-          | .struct fields _ =>
-              if structHasOutputField fields then .bottom
-              else
-                match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
-                | some decls => .embeddedList rightItems rightTail decls
-                | none => .bottom
           | .structN fields _ none [] =>
               if structHasOutputField fields then .bottom
               else
@@ -1239,28 +1046,11 @@ def meetWithFuel : Nat -> Value -> Value -> Value
                 | some decls => .embeddedList rightItems rightTail decls
                 | none => .bottom
           | _ => meetCore leftLike (.embeddedList rightItems rightTail rightDecls)
-  | .struct fields _, listLike =>
-      match asListPair listLike with
-      | some (items, tail) =>
-          if structHasOutputField fields then .bottom
-          else .embeddedList items tail (declFields fields)
-      | none =>
-          -- A genuine struct ∩ scalar is a type conflict (CUE: `{} & 5` → mismatched types).
-          -- The `{5}`→`5` scalar-embedding collapse does NOT live here: at meet time an empty
-          -- struct `{}` and the residual `.struct []` of `{5}` are indistinguishable, so a meet
-          -- rule cannot tell an embedded scalar from a plain struct∩scalar conflict. The collapse
-          -- is done where the provenance is known — `meetEmbeddingsWithFuel` (embed-eval).
-          meetCore (.struct fields true) listLike
-  | listLike, .struct fields _ =>
-      match asListPair listLike with
-      | some (items, tail) =>
-          if structHasOutputField fields then .bottom
-          else .embeddedList items tail (declFields fields)
-      | none =>
-          meetCore listLike (.struct fields true)
-  -- Plain-struct-equivalent structN embeds a list exactly like the legacy `.struct` arms; a
-  -- tail/pattern-bearing structN has no list-embedding arm (legacy structTail/pattern × list
-  -- bottomed), so it falls through to `meetCore` → `.bottom`.
+  -- A plain-struct-equivalent structN embeds a list; a tail/pattern-bearing structN has no
+  -- list-embedding arm and falls through to `meetCore` → `.bottom`. A genuine struct ∩ scalar
+  -- is a type conflict (CUE: `{} & 5`); the `{5}`→`5` scalar-embedding collapse lives in
+  -- `meetEmbeddingsWithFuel` where the provenance is known, not here (an empty `{}` and the
+  -- residual `[]`-decls of `{5}` are indistinguishable at meet time).
   | .structN fields _ none [], listLike =>
       match asListPair listLike with
       | some (items, tail) =>

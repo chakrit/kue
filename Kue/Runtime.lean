@@ -13,8 +13,7 @@ namespace Kue
 def version : String := "0.1.0-alpha"
 
 def formatTopLevel : Value -> String
-  | .struct fields _ => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
-  -- A plain-struct-equivalent structN (no tail, no patterns) formats top-level like `.struct`;
+  -- A plain-struct-equivalent structN (no tail, no patterns) formats top-level fields directly;
   -- tail/pattern-bearing forms fall through to `formatValue` (legacy did the same).
   | .structN fields _ none [] => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
   | value => formatValue value
@@ -57,7 +56,7 @@ def checkSourcePackageNames (sources : List String) : Except ParseError (Option 
   checkSourcePackageNamesWith none sources
 
 def mergeSourceValues : List Value -> Value
-  | [] => .struct [] true
+  | [] => mkStruct [] .regularOpen none []
   | value :: values => values.foldl meet value
 
 def evalSourcesToString (sources : List String) : Except ParseError String := do
@@ -84,10 +83,6 @@ def formatManifestError : ManifestError -> String
     "field not found" rather than silently exporting bottom. -/
 def lookupField? (base : Value) (label : String) : Option Value :=
   match base with
-  | .struct fields _ => (findEvalField label fields).map Field.value
-  | .structTail fields _ => (findEvalField label fields).map Field.value
-  | .structPattern fields _ _ _ => (findEvalField label fields).map Field.value
-  | .structPatterns fields _ _ => (findEvalField label fields).map Field.value
   | .structN fields _ _ _ => (findEvalField label fields).map Field.value
   | .embeddedList _ _ decls => (findEvalField label decls).map Field.value
   | _ => none

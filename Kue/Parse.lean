@@ -506,9 +506,9 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
       { split with comprehensions := .dynamicField label fieldClass value :: split.comprehensions }
 
 def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
-  | [] => .struct fields true
-  | [pattern] => .structPattern fields pattern.fst pattern.snd true
-  | patterns => .structPatterns fields patterns true
+  | [] => mkStruct fields .regularOpen none []
+  | [pattern] => mkStruct fields .regularOpen none [(pattern.fst, pattern.snd)]
+  | patterns => mkStruct fields .regularOpen none patterns
 
 def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   let parts := splitParsedFields parsedFields
@@ -529,7 +529,7 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   | none => declared
   | some tail =>
       match parts.patterns, parts.comprehensions with
-      | [], [] => .structTail parts.fields tail
+      | [], [] => mkStruct parts.fields .defOpenViaTail (some tail) []
       -- An open struct that ALSO has comprehensions/embeddings (`{ embed; if c {…}; … }`): the
       -- old `.conj [declared, .structTail fields tail]` split the embeds/comprehensions and the
       -- plain-field+tail into two OVERLAPPING-field arms. When such a body is force-spliced as an
@@ -657,12 +657,6 @@ def valueAliasHead? (chars : List Char) : Option (String × List Char) :=
     unification. For a non-struct value the alias is inert — a scalar cannot reference its
     own alias and siblings cannot see it, so the value passes through unchanged. -/
 def bindValueAlias (name : String) : Value -> Value
-  | .struct fields open_ => .struct (⟨name, .letBinding, .thisStruct⟩ :: fields) open_
-  | .structTail fields tail => .structTail (⟨name, .letBinding, .thisStruct⟩ :: fields) tail
-  | .structPattern fields lp c open_ =>
-      .structPattern (⟨name, .letBinding, .thisStruct⟩ :: fields) lp c open_
-  | .structPatterns fields ps open_ =>
-      .structPatterns (⟨name, .letBinding, .thisStruct⟩ :: fields) ps open_
   | .structN fields openness tail ps =>
       .structN (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps
   | .structComp fields cs open_ hasTail =>

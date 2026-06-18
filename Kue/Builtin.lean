@@ -7,13 +7,8 @@ import Kue.Yaml
 namespace Kue
 
 def closeValue : Value -> Value
-  | .struct fields _ => .struct fields false
-  | .structPattern fields labelPattern constraint _ =>
-      .structPattern fields labelPattern constraint false
-  | .structPatterns fields patterns _ => .structPatterns fields patterns false
-  -- A tail-bearing structN was not matched by the legacy `closeValue` (no `structTail` arm), so
-  -- it passes through unchanged; every other structN closes (openness → `defClosed`, tail is
-  -- `none` by coherence), mirroring the `struct`/`structPattern`/`structPatterns` arms.
+  -- A tail-bearing struct passes through unchanged (an explicit `...` keeps it open); every
+  -- other struct closes (openness → `defClosed`, tail is `none` by coherence).
   | .structN fields .defOpenViaTail tail patterns => .structN fields .defOpenViaTail tail patterns
   | .structN fields _ _ patterns => mkStruct fields .defClosed none patterns
   | value => value
@@ -34,10 +29,6 @@ def lenValue : Value -> Value
   | .kind .bytes => .builtinCall "len" [.kind .bytes]
   | .list items => .prim (.int (Int.ofNat items.length))
   | .listTail items _ => .prim (.int (Int.ofNat items.length))
-  | .struct fields _ => .prim (.int (Int.ofNat (countRegularFields fields)))
-  | .structTail fields _ => .prim (.int (Int.ofNat (countRegularFields fields)))
-  | .structPattern fields _ _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
-  | .structPatterns fields _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | .structN fields _ _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | value => .builtinCall "len" [value]
 

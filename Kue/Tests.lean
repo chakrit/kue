@@ -82,16 +82,16 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
     meet
       (.disj
         [
-          (.regular, .struct [⟨"kind", .regular, .prim (.string "web")⟩] true),
-          (.regular, .struct [⟨"kind", .regular, .prim (.string "db")⟩] true)
+          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web")⟩] .regularOpen none []),
+          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db")⟩] .regularOpen none [])
         ])
-      (.struct
+      (mkStruct
         [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
-        true)
+        .regularOpen none [])
       =
-        .struct
+        .structN
           [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
-          true := by
+          .regularOpen none [] := by
   rfl
 
 #guard meet (.kind .int) (.prim (.int 1)) == .prim (.int 1)

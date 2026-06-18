@@ -88,24 +88,7 @@ mutual
     | _ + 1, .thisStruct => .error (.incomplete .thisStruct)
     | _ + 1, .selector base label => .error (.incomplete (.selector base label))
     | _ + 1, .index base key => .error (.incomplete (.index base key))
-    | fuel + 1, .struct fields _ =>
-        match manifestFieldsWithFuel fuel fields with
-        | .ok fields => .ok (.struct fields)
-        | .error error => .error error
-    | fuel + 1, .structTail fields _ =>
-        match manifestFieldsWithFuel fuel fields with
-        | .ok fields => .ok (.struct fields)
-        | .error error => .error error
-    | fuel + 1, .structPattern fields _ _ _ =>
-        match manifestFieldsWithFuel fuel fields with
-        | .ok fields => .ok (.struct fields)
-        | .error error => .error error
-    | fuel + 1, .structPatterns fields _ _ =>
-        match manifestFieldsWithFuel fuel fields with
-        | .ok fields => .ok (.struct fields)
-        | .error error => .error error
-    -- B2.1 dead arm (no producer yet); filled in B2.3. Mirrors the four legacy struct
-    -- arms: manifest the named fields; tail/patterns/openness do not appear in output.
+    -- Manifest the named fields; tail/patterns/openness do not appear in output.
     | fuel + 1, .structN fields _ _ _ =>
         match manifestFieldsWithFuel fuel fields with
         | .ok fields => .ok (.struct fields)

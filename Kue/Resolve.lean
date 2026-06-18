@@ -92,31 +92,6 @@ mutual
         .disj (alternatives.map fun alternative =>
           (alternative.fst, resolveValueWithFuel fuel scopes alternative.snd)
         )
-    | fuel + 1, scopes, .struct fields open_ =>
-        let nested := buildFrame fields :: scopes
-        .struct (fields.map (resolveFieldRefsWithFuel fuel nested)) open_
-    | fuel + 1, scopes, .structTail fields tail =>
-        let nested := buildFrame fields :: scopes
-        .structTail
-          (fields.map (resolveFieldRefsWithFuel fuel nested))
-          (resolveValueWithFuel fuel nested tail)
-    | fuel + 1, scopes, .structPattern fields labelPattern constraint open_ =>
-        let nested := buildFrame fields :: scopes
-        .structPattern
-          (fields.map (resolveFieldRefsWithFuel fuel nested))
-          (resolveValueWithFuel fuel nested labelPattern)
-          (resolveValueWithFuel fuel nested constraint)
-          open_
-    | fuel + 1, scopes, .structPatterns fields patterns open_ =>
-        let nested := buildFrame fields :: scopes
-        .structPatterns
-          (fields.map (resolveFieldRefsWithFuel fuel nested))
-          (patterns.map fun pattern =>
-            (
-              resolveValueWithFuel fuel nested pattern.fst,
-              resolveValueWithFuel fuel nested pattern.snd
-            ))
-          open_
     | fuel + 1, scopes, .structN fields openness tail patterns =>
         -- 1:1 ref-resolution preserving the coherent structN shape (rebuild directly; the
         -- openness/tail-presence/pattern-count are invariant under resolution).
@@ -159,31 +134,6 @@ mutual
 end
 
 def resolveStructRefs : Value -> Value
-  | .struct fields open_ =>
-      let scopes := [buildFrame fields]
-      .struct (fields.map (resolveFieldRefsWithFuel resolveFuel scopes)) open_
-  | .structTail fields tail =>
-      let scopes := [buildFrame fields]
-      .structTail
-        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
-        (resolveValueWithFuel resolveFuel scopes tail)
-  | .structPattern fields labelPattern constraint open_ =>
-      let scopes := [buildFrame fields]
-      .structPattern
-        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
-        (resolveValueWithFuel resolveFuel scopes labelPattern)
-        (resolveValueWithFuel resolveFuel scopes constraint)
-        open_
-  | .structPatterns fields patterns open_ =>
-      let scopes := [buildFrame fields]
-      .structPatterns
-        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
-        (patterns.map fun pattern =>
-          (
-            resolveValueWithFuel resolveFuel scopes pattern.fst,
-            resolveValueWithFuel resolveFuel scopes pattern.snd
-          ))
-        open_
   | .structN fields openness tail patterns =>
       let scopes := [buildFrame fields]
       .structN

@@ -8,8 +8,6 @@ def normalizeFuel : Nat :=
 mutual
   def normalizeDefinitionValueWithFuel : Nat -> Value -> Value
     | 0, value => value
-    | fuel + 1, .struct fields _ =>
-        .struct (fields.map (normalizeFieldWithFuel fuel)) false
     | fuel + 1, .structComp fields comprehensions _ hasTail =>
         -- Normalize nested DEFINITION fields (matching the `.struct` arm) and set the def body's
         -- openness from `hasTail`: a definition is closed by default, an explicit `...` opens it.
@@ -21,26 +19,9 @@ mutual
         -- UNIONS its labels into the def's allowed set (CUE), it is not the def's own closed
         -- declaration — force-closing it would make the embed reject the def's own siblings.
         .structComp (fields.map (normalizeFieldWithFuel fuel)) comprehensions hasTail hasTail
-    | fuel + 1, .structPattern fields labelPattern constraint open_ =>
-        .structPattern
-          (fields.map (normalizeFieldWithFuel fuel))
-          (normalizeDefinitionValueWithFuel fuel labelPattern)
-          (normalizeDefinitionValueWithFuel fuel constraint)
-          open_
-    | fuel + 1, .structPatterns fields patterns open_ =>
-        .structPatterns
-          (fields.map (normalizeFieldWithFuel fuel))
-          (patterns.map fun pattern =>
-            (
-              normalizeDefinitionValueWithFuel fuel pattern.fst,
-              normalizeDefinitionValueWithFuel fuel pattern.snd
-            ))
-          open_
-    -- A `defOpenViaTail` structN reproduces the legacy `structTail` def body, which had NO arm
-    -- here (the explicit `...` keeps the def OPEN), so it is returned UNCHANGED. A no-pattern
-    -- struct-equivalent CLOSES (openness → `defClosed`), exactly as the `.struct` arm `false`d
-    -- its `open_`. A pattern-bearing structN normalizes fields + patterns and keeps its openness,
-    -- mirroring the `structPattern`/`structPatterns` arms.
+    -- A `defOpenViaTail` struct (the legacy `structTail` def body) keeps the def OPEN via its
+    -- explicit `...`, so it is returned UNCHANGED. A no-pattern struct CLOSES (openness →
+    -- `defClosed`). A pattern-bearing struct normalizes fields + patterns and keeps its openness.
     | _ + 1, .structN fields .defOpenViaTail tail patterns =>
         .structN fields .defOpenViaTail tail patterns
     | fuel + 1, .structN fields _ _ [] =>
@@ -121,26 +102,8 @@ mutual
 
   def normalizeDefinitionsWithFuel : Nat -> Value -> Value
     | 0, value => value
-    | fuel + 1, .struct fields open_ =>
-        .struct (fields.map (normalizeFieldWithFuel fuel)) open_
-    | fuel + 1, .structPattern fields labelPattern constraint open_ =>
-        .structPattern
-          (fields.map (normalizeFieldWithFuel fuel))
-          (normalizeDefinitionsWithFuel fuel labelPattern)
-          (normalizeDefinitionsWithFuel fuel constraint)
-          open_
-    | fuel + 1, .structPatterns fields patterns open_ =>
-        .structPatterns
-          (fields.map (normalizeFieldWithFuel fuel))
-          (patterns.map fun pattern =>
-            (
-              normalizeDefinitionsWithFuel fuel pattern.fst,
-              normalizeDefinitionsWithFuel fuel pattern.snd
-            ))
-          open_
-    -- Mirrors the `.struct` / pattern arms (normalize fields/patterns, keep openness). A
-    -- `defOpenViaTail` structN reproduces the legacy `structTail`, which had no arm here →
-    -- returned unchanged.
+    -- Normalize fields/patterns, keep openness. A `defOpenViaTail` struct (the legacy
+    -- `structTail`) is returned unchanged.
     | _ + 1, .structN fields .defOpenViaTail tail patterns =>
         .structN fields .defOpenViaTail tail patterns
     | fuel + 1, .structN fields openness tail patterns =>

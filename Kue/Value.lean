@@ -527,16 +527,6 @@ inductive Value where
   | selector (base : Value) (label : String)
   | index (base key : Value)
   | disj (alternatives : List (Mark × Value))
-  | struct (fields : List Field) (open_ : Bool)
-  | structTail (fields : List Field) (tail : Value)
-  | structPattern
-      (fields : List Field)
-      (labelPattern constraint : Value)
-      (open_ : Bool)
-  | structPatterns
-      (fields : List Field)
-      (patterns : List (Value × Value))
-      (open_ : Bool)
   /--
   The B2 normalized struct (target representation). Collapses the four legacy forms
   (`struct`/`structTail`/`structPattern`/`structPatterns`) into one: `fields` are the

@@ -8,26 +8,26 @@ namespace Kue
 def structSmokeResult : String :=
   formatValue
     (meet
-      (.struct [⟨"a", .regular, .kind .int⟩] true)
-      (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] true))
+      (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
+      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
 
 def fieldConflictSmokeResult : String :=
   formatValue
     (meet
-      (.struct [⟨"a", .regular, .prim (.string "a")⟩] true)
-      (.struct [⟨"a", .regular, .prim (.string "b")⟩] true))
+      (mkStruct [⟨"a", .regular, .prim (.string "a")⟩] .regularOpen none [])
+      (mkStruct [⟨"a", .regular, .prim (.string "b")⟩] .regularOpen none []))
 
 def typedTailSmokeResult : String :=
   formatValue
     (meet
-      (.structTail [⟨"a", .regular, .kind .int⟩] (.kind .string))
-      (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] true))
+      (mkStruct [⟨"a", .regular, .kind .int⟩] .defOpenViaTail (some (.kind .string)) [])
+      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
 
 def refSmokeResult : String :=
   formatValue
     (evalStructRefs
       (resolveStructRefs
-        (.struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] true)))
+        (mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none [])))
 
 def listSmokeResult : String :=
   formatValue
