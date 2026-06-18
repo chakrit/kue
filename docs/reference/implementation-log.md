@@ -6401,3 +6401,79 @@ eval — a CROSS-DEF cache collision, a NEW correctness shape beyond E's scope (
 green on every chain shape in isolation). The long timings are a separate perf concern. Next
 correctness blocker: **`closure-crossdef-cache-collision`** (a sibling structComp-with-guard def
 poisoning an unrelated def's eval); perf B remains downstream.
+
+---
+
+## Completed Slice: F2 `structcomp-force-comprehension-loss` (the corrected B')
+
+Goal (the LIVE cert-manager blocker, re-scoped by Phase-A audit `db5ee90` from the misdiagnosed
+"cross-def cache collision"): a deferred-then-forced `.structComp` def silently DROPPED its
+`if`/`for` comprehensions. `forceClosureWithConjunct`'s `.structComp` arm meet-folded only the
+embeddings (`comprehensions.filter isEmbeddingValue`) and never expanded the conditional/loop
+comprehensions, so a guard inside a forced def vanished. Repro (ONE def, no sibling, no cache):
+`#M: {#x: int, if #x > 0 {y: #x}}` + `#M & {#x: 5}` → cue `{y: 5}`, kue `{}`. The same shape
+inline/eager gave `{y: 5}` correctly, proving the loss was in the FORCE path.
+
+### Fix (`Kue/Eval.lean`)
+
+- **Site 1 (force arm `.structComp`).** Mirror the eager arm: `let expanded <-
+  expandComprehensionsWithFuel fuel nested comprehensions` (embeddings expand to `[]` there and
+  still flow to the embed-meet), `mergeEvaluatedFields (staticFields ++ expanded)`. The
+  comprehension fields are computed against the POST-splice frame, so an `if #x > 0` guard sees
+  the narrowed `#x`. Comprehension-introduced labels (`y`) join the closedness allow-set
+  (`closeEmbeddedOver (defFields ++ expanded) …`) — a guard field is part of the def's declared
+  shape, so re-closing must admit it.
+- **Site 2 (non-def lazy-merge).** `M & {x: 5}` for a REGULAR comprehension struct dropped the
+  guard the same way — `M` evaluated eagerly (guard dropped against `x: int`) then met. Fixed by
+  relaxing the `refDefClosureBody?` gate to defer a NON-definition `.structComp` self-ref body too
+  (left UNCLOSED — open closedness preserved so the use-site meet admits siblings as cue does).
+- **Embed-chain generalization (`bodyNeedsDefer`).** A struct that EMBEDS a guard/self-ref def
+  (`Outer: {#Inner}`, `#Inner` guard-bearing) is not a self-ref of `Outer`, so the direct
+  `defBodyHasSiblingSelfRef` missed it and `Outer` collapsed `#Inner` before the use-site narrowing
+  arrived. New env-aware `bodyNeedsDefer` resolves each embedding (`resolveEmbedDefBody?`) and
+  recurses: defer iff the body OR any embed's referenced def needs deferral. Wired into both
+  `refDefClosureBody?` and `importDefClosureBody?` (with the right placeholder-frame env so the
+  embed's depth-1 refs resolve).
+- **Conditional-embed-label closedness (`evalEmbeddingFieldsWithFuel` now takes `narrowing`).**
+  The closed-allow-set computation forced each embed-closure WITHOUT the host narrowing, so a
+  CONDITIONAL embed label (`ports` from `if #port > 0`) was absent from the allow-set and the host
+  then rejected the field the actual embed-meet produced → spurious bottom. Now forces the embed
+  with the host's hidden fields spliced, so conditional labels surface.
+- **Standalone-selector-force leak (`pkg.#Def` selected OUTSIDE a conjunction).** The selector
+  producer emitted a bare `.closure` that was never forced when `pkg.#Def` was selected standalone
+  (`out: attr.#Ports`, or `{attr.#Ports}` with no narrowing) → leaked as `incomplete`. Now the
+  selector arm FORCES standalone (empty use-operands, mirroring the `.refId` arm); the `.conj`
+  fold re-produces the closure from the RAW selector (`importSelectorDef?` + in-monad `pushFrame`)
+  for the met case, and both embed-meet sites defer selector embeddings the same way.
+
+### Tests (4 new `native_decide` pins + 2 committed module fixtures; 2 slice-3 pins updated)
+
+`f2_force_structcomp_guard_fires_post_meet` (THE headline → `{#x:5, y:5}`),
+`f2_force_structcomp_guard_does_not_fire` (`#x:-1` → no `y`), `f2_body_needs_defer_through_embed`
+(embed-chain defer detection), `f2_body_needs_defer_skips_plain_embed` (no over-fire). The two
+slice-3 producer pins (`closure_producer_emits_on_selfref_def`, `…_captures_full_id_stack`) were
+updated for the new standalone-force behavior (producer now forces, not emits a bare closure).
+Committed `testdata/modules/structcomp_force_guard/` (forced cross-package def with BOTH an `if`-
+guard and a `for`-comprehension → JSON+YAML byte-identical to cue) and
+`testdata/modules/structcomp_lazymerge_guard/` (site 2, the non-def regular-struct lazy-merge).
+
+### Verify
+
+`lake build` → 86 jobs. `scripts/check-fixtures.sh` → `fixture pairs ok` (every existing fixture
+byte-unchanged; embed_chain_selfalias regression caught mid-slice and fixed). `shellcheck` clean.
+Oracle (cue v0.16.1): 12-case matrix (force-def guard fire/not-fire, `for` in forced def, non-def
+lazy-merge, embed-in-def-met-at-use, standalone selector) all byte-match. No CUE divergence found.
+
+### Real-app verdict (read-only prod9 — HONEST)
+
+cert-manager / argocd STILL return `bottom` (~11s / ~54s — perf wall unchanged). The F2
+comprehension loss is FIXED and the cert-manager error has moved PAST it to a DISTINCT, PRE-EXISTING
+bug (verified on the HEAD `db5ee90` binary — NOT introduced by F2): **a def whose value is an
+import-selector poisons sibling/own resolution**. Clean minimal repro: `#A: parts.#M` (def aliased
+directly to `parts.#M`, no embed braces) + `defs.#A & {#name: "n"}` → kue `incomplete value:
+string`, cue `{name: "n"}`. A second def referencing the `parts` import binding likewise poisons an
+otherwise-resolving embed-form def (`#ClusterIssuer` resolves alone; adding any `#Foo` that
+references `parts` collapses it). This is the import-selector-deferral-through-package-indirection
+family — the NEXT correctness slice, gating cert-manager. The audit's "no cache collision" call was
+right (a cache-bypass build still bottoms — it is deterministic eval contamination, not a memo
+collision). Perf B remains downstream of it.

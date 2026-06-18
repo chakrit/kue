@@ -1048,12 +1048,13 @@ become closures. `runEval` starts `nextFrameId := 0`, so the producer's first `p
 captures frame id `0`. -/
 
 /-- The collapse shape: a package struct `parts` holding a definition `#M` whose body
-    self-references a sibling (`out: #name`, `refId ⟨0,0⟩`). Selecting `parts.#M` defers to a
-    `.closure` whose captured env is `pushFrame pkgFields env` (id 0 on the use-site frame 7)
-    and whose body is the UNEVALUATED `#M` struct — NOT the eager, collapsed selection. The
-    body is normalized-CLOSED (`open_ := false`) at capture: an imported def body is never
-    normalized at load time, so the producer closes it so a forced cross-package def enforces
-    its closedness against use-site fields (slice 4 EC5). -/
+    self-references a sibling (`out: #name`, `refId ⟨0,0⟩`). Selecting `parts.#M` OUTSIDE a
+    conjunction defers to a closure, then FORCES it standalone (no use-operands) — the terminal
+    value when there is no use-site to splice. With no narrowing, `out: #name` collapses against
+    the def's own `#name: string`, so the forced result is `{#name: string, out: string}`,
+    normalized-CLOSED (`open_ := false`). (A `pkg.#M & {narrow}` instead splices the narrowing via
+    the `.conj` fold, which re-produces the closure from the raw selector — see
+    `crosspkg_defmeet`.) -/
 theorem closure_producer_emits_on_selfref_def :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"parts", .hidden,
@@ -1061,16 +1062,8 @@ theorem closure_producer_emits_on_selfref_def :
             .struct [⟨"#name", .definition, .kind .string⟩,
                      ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩] true⟩])] []
         (.selector (.refId ⟨0, 0⟩) "#M"))
-      == .closure
-          [(0, [⟨"#M", .definition,
-            .struct [⟨"#name", .definition, .kind .string⟩,
-                     ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩]),
-           (7, [⟨"parts", .hidden,
-            .struct [⟨"#M", .definition,
-              .struct [⟨"#name", .definition, .kind .string⟩,
-                       ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩] true⟩])]
-          (.struct [⟨"#name", .definition, .kind .string⟩,
-                    ⟨"out", .regular, .refId ⟨0, 0⟩⟩] false)) = true := by
+      == .struct [⟨"#name", .definition, .kind .string⟩,
+                  ⟨"out", .regular, .kind .string⟩] false) = true := by
   native_decide
 
 /-- NON-REGRESSION: a definition WITHOUT a sibling self-reference (`#Widget` = flat
@@ -1101,29 +1094,22 @@ theorem closure_producer_skips_non_definition :
                   ⟨"b", .regular, .prim (.int 1)⟩] true) = true := by
   native_decide
 
-/-- FULL ID-STACK capture: the producer captures the ENTIRE env, not just the package frame.
-    A depth-2 use-site env (inner frame 5, outer frame 7) retains BOTH outer frames beneath
-    the freshly-pushed package frame (id 0) in `capturedEnv` — so a def body's depth>0
-    cross-package embeds still walk the import chain when the closure is forced. -/
+/-- FULL ID-STACK capture: the producer captures the ENTIRE env (not just the package frame)
+    when building the closure, so a def body's depth>0 cross-package embeds still walk the import
+    chain when forced. Selected standalone (no conjunction), the closure is forced with no
+    use-operands; `out: refId ⟨0,1⟩` reads the def's own sibling slot 1 (`x`), so the forced
+    result is `{out: 1, x: 1}`, normalized-CLOSED. The outer frame 7 is retained beneath the
+    pushed package frame — the capture is the full id-stack, not just the package frame. -/
 theorem closure_producer_captures_full_id_stack :
     (runEval (evalValueWithFuel evalFuel
         [(5, [⟨"parts", .hidden,
           .struct [⟨"#M", .definition,
-            .struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
+            .struct [⟨"out", .regular, .refId ⟨0, 1⟩⟩,
                      ⟨"x", .regular, .prim (.int 1)⟩] true⟩] true⟩]),
          (7, [⟨"outer", .regular, .prim (.int 9)⟩])] []
         (.selector (.refId ⟨0, 0⟩) "#M"))
-      == .closure
-          [(0, [⟨"#M", .definition,
-            .struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
-                     ⟨"x", .regular, .prim (.int 1)⟩] true⟩]),
-           (5, [⟨"parts", .hidden,
-            .struct [⟨"#M", .definition,
-              .struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
-                       ⟨"x", .regular, .prim (.int 1)⟩] true⟩] true⟩]),
-           (7, [⟨"outer", .regular, .prim (.int 9)⟩])]
-          (.struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
-                    ⟨"x", .regular, .prim (.int 1)⟩] false)) = true := by
+      == .struct [⟨"out", .regular, .prim (.int 1)⟩,
+                  ⟨"x", .regular, .prim (.int 1)⟩] false) = true := by
   native_decide
 
 /-- DEPTH-MATCHED self-ref detection (slice A): a `refId ⟨0,0⟩` nested inside a `.struct` field
@@ -1480,6 +1466,70 @@ theorem ref_def_closure_fires_for_nested_struct :
          (7, [⟨"#M", .definition,
           .struct [⟨"#name", .definition, .kind .string⟩,
                    ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩])] ⟨1, 0⟩).isSome = true := by
+  native_decide
+
+/-! ### F2 (structcomp-force-comprehension-loss) — a forced `.structComp` def's `if`/`for`
+    guard must FIRE post-narrowing, and a struct embedding a guard-bearing def must DEFER so the
+    use-site narrowing reaches the embedded guard before it collapses. -/
+
+/-- THE HEADLINE: a forced cross-package structComp def `#M: {#x: int, if #x > 0 {y: #x}}` met
+    with `{#x: 5}` expands its `if`-guard AFTER the splice, so `y: 5` appears — the force arm now
+    mirrors the eager arm's `staticFields ++ expanded`. The forced body is selected as a `.closure`
+    standalone, then the `.conj` fold splices `{#x: 5}` and forces it. Result: `{#x: 5, y: 5}`
+    (`#x` hidden → manifests to `{y: 5}`). Before F2 the force arm dropped the guard → `{#x: 5}`. -/
+theorem f2_force_structcomp_guard_fires_post_meet :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"pkg", .hidden,
+          .struct [⟨"#M", .definition,
+            .structComp [⟨"#x", .definition, .kind .int⟩]
+              [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
+                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] true)] true⟩] true⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .struct [⟨"#x", .definition, .prim (.int 5)⟩] true]))
+      == .struct [⟨"#x", .definition, .prim (.int 5)⟩,
+                  ⟨"y", .regular, .prim (.int 5)⟩] false) = true := by
+  native_decide
+
+/-- The guard does NOT fire when the narrowing fails it: `#M & {#x: -1}` → no `y`. Pins that the
+    expansion is GATED on the guard condition, not unconditional. -/
+theorem f2_force_structcomp_guard_does_not_fire :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"pkg", .hidden,
+          .struct [⟨"#M", .definition,
+            .structComp [⟨"#x", .definition, .kind .int⟩]
+              [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
+                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] true)] true⟩] true⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M",
+                .struct [⟨"#x", .definition, .prim (.int (-1))⟩] true]))
+      == .struct [⟨"#x", .definition, .prim (.int (-1))⟩] false) = true := by
+  native_decide
+
+/-- `bodyNeedsDefer` fires for a struct whose body EMBEDS a guard-bearing def — the embed-chain
+    case `Outer: {#Inner}` where `#Inner` carries an `if`-guard self-ref. The embed is NOT a
+    self-ref of `Outer`, so the direct `defBodyHasSiblingSelfRef` misses it; the recursive clause
+    resolves the embed `#Inner` against env and detects its guard → `Outer` must defer so the
+    use-site narrowing reaches `#Inner`. The env places `#Inner` at depth-1 (the binding scope). -/
+theorem f2_body_needs_defer_through_embed :
+    (bodyNeedsDefer
+        [(0, []),
+         (9, [⟨"#Inner", .definition,
+            .structComp [⟨"#port", .definition, .kind .int⟩]
+              [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
+                (.struct [⟨"ports", .regular, .refId ⟨1, 0⟩⟩] true)] true⟩])]
+        evalFuel
+        (.structComp [] [.refId ⟨1, 0⟩] true)) = true := by
+  native_decide
+
+/-- `bodyNeedsDefer` does NOT fire for a struct embedding a self-ref-FREE def — the recursion
+    bottoms out (`#Plain` = `{a: 1}` has no sibling self-ref), so `Outer` stays on the eager path.
+    Pins that the embed recursion does not over-fire (which would churn green fixtures). -/
+theorem f2_body_needs_defer_skips_plain_embed :
+    (bodyNeedsDefer
+        [(0, []),
+         (9, [⟨"#Plain", .definition,
+            .struct [⟨"a", .regular, .prim (.int 1)⟩] true⟩])]
+        evalFuel
+        (.structComp [] [.refId ⟨1, 0⟩] true)) = false := by
   native_decide
 
 end Kue

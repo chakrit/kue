@@ -1,0 +1,8 @@
+{
+    "out": {
+        "enabled": true,
+        "bound": 8080,
+        "name_a": "a",
+        "name_b": "b"
+    }
+}

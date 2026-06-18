@@ -3184,3 +3184,35 @@ B' as written (cross-def cache collision) does NOT exist — re-scope it to
 the live cert-manager blocker) → F1 (default-mark algebra, independent correctness) →
 re-probe cert-manager → B (perf).** F1 and F2 are orthogonal and could run in either
 order; F2 is the real-app unblocker so it leads.
+
+## F2 `structcomp-force-comprehension-loss` — **DONE 2026-06-18**
+
+Landed (see implementation-log entry "F2 `structcomp-force-comprehension-loss`"). Both target
+sites fixed (force-arm comprehension expansion + non-def lazy-merge), PLUS two
+same-class-but-deeper sites surfaced while wiring the real-app path: the embed-chain deferral
+(`bodyNeedsDefer`, an env-aware recursive gate so `Outer: {#Inner}` defers when `#Inner` carries a
+guard), the conditional-embed-label closedness (`evalEmbeddingFieldsWithFuel` now forces embeds
+WITH the host narrowing so conditional labels join the allow-set), and the standalone-selector
+leak (`pkg.#Def` selected outside a conjunction now forces; the `.conj` fold re-produces via
+`importSelectorDef?`). 4 new `native_decide` pins + 2 module fixtures
+(`structcomp_force_guard`, `structcomp_lazymerge_guard`); 2 slice-3 pins updated for the
+standalone-force; zero existing-fixture drift. Verify green (86 jobs, `fixture pairs ok`,
+shellcheck clean, oracle byte-match on a 12-case matrix).
+
+**F1 default-mark algebra still PENDING** (separate slice, untouched here — NOT marks-related).
+
+### Real-app re-probe (HEADLINE — HONEST): error moved PAST F2 to a DISTINCT pre-existing bug
+
+cert-manager / argocd STILL `bottom` (~11s / ~54s — perf wall unchanged). F2's comprehension loss
+is genuinely fixed; the cert-manager error now lands on a **DISTINCT, PRE-EXISTING** bug (verified
+on the HEAD `db5ee90` binary — NOT a regression from F2). **Next slice: `closure-import-selector-
+alias` (correctness, the new live cert-manager blocker).** Minimal repro: `#A: parts.#M` (a def
+whose value is DIRECTLY an import selector, no embed braces) + `defs.#A & {#name: "n"}` → kue
+`incomplete value: string`, cue `{name: "n"}`. A second def referencing the `parts` import binding
+also poisons an otherwise-resolving embed-form def (`#ClusterIssuer` resolves alone; adding ANY
+`#Foo` that references `parts` collapses it). Root family: import-selector deferral through package
+indirection — a def aliased to / embedding a selector into a multi-member package does not defer
+its body to a closure, so the use-site narrowing arrives after collapse. NOT a cache collision
+(cache-bypass build still bottoms → deterministic eval contamination). Sequence: this correctness
+slice FIRST, then re-probe; perf B remains downstream (unreachable while apps error). F1 is
+orthogonal and can interleave.
