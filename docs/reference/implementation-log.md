@@ -6007,3 +6007,79 @@ Value-result equalities use `== … = true` (Value derives `BEq`, not `Decidable
 `lake build` → 86 jobs, success (`EvalTests` built ⇒ all `native_decide` pins pass).
 `scripts/check-fixtures.sh` → `fixture pairs ok` (zero fixture drift — dead-code from the
 producer's view, no real-eval behavior change). No shell touched.
+
+## Completed Slice: Value.closure producer (frontier #1, slice 3 — closure-producer)
+
+Goal: the FIRST behavior-changing closure slice — emit `.closure capturedPkgEnv defBody` at
+the import-selector path instead of eagerly evaluating an imported definition whose body
+self-references, which collapses the self-ref before a use-site `meet` (slice 4) narrows it.
+Gated strictly to stay byte-identical on every committed fixture. Design sub-spike in
+`plan.md` "Value.closure work plan" → "Slice-3 design sub-spike". Folded in the Phase-A
+`closure-env-sync-guard` tripwire.
+
+### Trigger (empirically traced, not guessed)
+
+The collapse: `parts.#M` is `.selector (.refId ⟨0,parts⟩) "#M"` — a depth-0 ref to the
+hidden import binding, then a selector. `conjStructOperand?` has no `.selector` arm, so
+`parts.#M & {…}` falls to the `.conj` eval-then-`meet` fallback, which evaluates `parts.#M`
+*first* (the whole package struct, collapsing `out:#name`→`string`) before the `meet`. The
+base is fully evaluated → intercepting after base-eval is too late.
+
+Producer lives in `evalValueCoreWithFuel`'s `.selector (.refId id) label` arm, in the
+`thisStructFieldIndex? = none` else-branch, BEFORE the eager `base`-eval. `importDefClosureBody?
+env id label` looks up the UNEVALUATED binding for `id`; it returns the def's unevaluated
+body iff ALL hold: (1) the binding is a `.struct pkgFields _`; (2) `pkgFields` has a field
+`label` that is a definition (`fieldClass.isDefinition`); (3) that def body has a sibling
+self-ref (`defBodyHasSiblingSelfRef` → `hasDepth0Ref`, a `refId ⟨0,_⟩` reachable without
+crossing a frame-pushing node). On `some (pkgFields, defBody)` the arm emits
+`.closure (pushFrame pkgFields env) defBody` — full id-stack captured; otherwise it takes
+the eager path unchanged.
+
+### Why behavior-preserving (the gate is the exact collapse set)
+
+Condition 3 is the precise line: a self-ref-free def body (`#Widget`={name,size,enabled},
+`#Box`, `#Mid`, `#Atom`, `#Name` — *every* committed `pkg.#Def & {…}` fixture) evaluates to
+the same struct eager or deferred, so it MUST stay eager (slice 4 isn't done; a closure there
+would `meet`→`.bottom` and drift). A self-ref def body (`#M`={#name,out:#name}) is exactly
+what errors today (`incomplete value`), so deferring it regresses no GREEN fixture. NOT the
+(a)-narrowed trap: `capturedEnv` is always the full `pushFrame pkgFields env`, so a real
+`#ServiceAccount` (self-refs AND depth>0 `attr.#Metadata` embeds) gets the whole package env;
+condition 3 gates only *whether to defer*. Same-package `#M & {…}` is a `.refId`, not a
+selector → handled by `conjStructOperand?`/`lazyConjMergedFields`, never enters the selector
+arm → structurally untouched. Verified: cross-pkg repro changes from `incomplete value` to
+`bottom` (closure forced → slice-1 inert `meet`; not a committed fixture); same-pkg stays
+`{"out":"keel"}`; all committed fixtures byte-identical.
+
+### Env-defeq tripwire (Phase-A finding `closure-env-sync-guard`, folded in)
+
+`example : (List (Nat × List Field)) = Env := rfl` next to the `Env` abbrev — a build-time
+guard that `Value.closure`'s `capturedEnv` rep stays defeq to `Eval.Env`, so a future
+`Frame`/`Env` shape change fails the build instead of silently desyncing the no-coercion
+thread. The producer is the first code to build a `capturedEnv` from a real `Env` → natural
+home.
+
+### Tests
+
+Seven `native_decide` pins in `Kue/Tests/EvalTests.lean` (white-box — closures aren't
+user-visible until slice 4):
+- `closure_producer_emits_on_selfref_def` — the trigger fires: `parts.#M` (self-ref body)
+  → `.closure` with `capturedEnv = (0, pkgFields) :: useSiteEnv` and the UNEVALUATED `#M`
+  struct as body.
+- `closure_producer_skips_selfref_free_def` — `#Widget` (no self-ref) stays eager → the
+  evaluated struct, NOT a closure (the committed-fixture shape).
+- `closure_producer_skips_non_definition` — a regular (non-`#`) field with a sibling ref
+  stays eager (only definitions defer).
+- `closure_producer_captures_full_id_stack` — a depth-2 use-site env retains BOTH outer
+  frames beneath the pushed package frame in `capturedEnv` (the anti-(a)-trap pin).
+- `closure_producer_nested_struct_ref_not_sibling` — `hasDepth0Ref` stops at frame-pushers:
+  a `refId ⟨0,0⟩` inside a nested struct is NOT a sibling self-ref (gate doesn't over-fire).
+- `closure_producer_direct_sibling_ref_detected` — positive companion: a direct sibling ref
+  IS detected.
+Result equalities use `== … = true` (Value derives `BEq`, not `DecidableEq`).
+
+### Verify
+
+`lake build` → 86 jobs, success (the env-defeq `rfl` passes ⇒ defeq holds; `EvalTests` built
+⇒ all pins pass). `scripts/check-fixtures.sh` → `fixture pairs ok` (every committed fixture
+byte-unchanged — slice is behavior-preserving). No shell touched. No CUE divergence this
+slice (the `parts.#M` case is a kue limitation, not a cue bug — cue is correct).

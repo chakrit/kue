@@ -947,4 +947,106 @@ theorem closure_meet_bottom :
     (meet (.closure [(0, [])] .top) (.struct [] true) == .bottom) = true := by
   native_decide
 
+/-! ### slice 3 (closure-producer) — the import-selector arm emits a closure
+
+White-box pins: closures are not user-visible until slice 4, so these assert the producer
+CONSTRUCTS the right `.closure` (full id-stack captured, unevaluated def body) at the
+trigger site, and — critically — that the shapes which currently resolve correctly do NOT
+become closures. `runEval` starts `nextFrameId := 0`, so the producer's first `pushFrame`
+captures frame id `0`. -/
+
+/-- The collapse shape: a package struct `parts` holding a definition `#M` whose body
+    self-references a sibling (`out: #name`, `refId ⟨0,0⟩`). Selecting `parts.#M` defers to a
+    `.closure` whose captured env is `pushFrame pkgFields env` (id 0 on the use-site frame 7)
+    and whose body is the UNEVALUATED `#M` struct — NOT the eager, collapsed selection. -/
+theorem closure_producer_emits_on_selfref_def :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"parts", .hidden,
+          .struct [⟨"#M", .definition,
+            .struct [⟨"#name", .definition, .kind .string⟩,
+                     ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩] true⟩])] []
+        (.selector (.refId ⟨0, 0⟩) "#M"))
+      == .closure
+          [(0, [⟨"#M", .definition,
+            .struct [⟨"#name", .definition, .kind .string⟩,
+                     ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩]),
+           (7, [⟨"parts", .hidden,
+            .struct [⟨"#M", .definition,
+              .struct [⟨"#name", .definition, .kind .string⟩,
+                       ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true⟩] true⟩])]
+          (.struct [⟨"#name", .definition, .kind .string⟩,
+                    ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true)) = true := by
+  native_decide
+
+/-- NON-REGRESSION: a definition WITHOUT a sibling self-reference (`#Widget` = flat
+    `{name: string, size: int}`) stays on the eager path — selecting it yields the evaluated
+    field, NOT a closure. This is every committed `pkg.#Def & {…}` fixture's shape; the gate
+    must leave it untouched so slice 3 is byte-identical on all of them. -/
+theorem closure_producer_skips_selfref_free_def :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .hidden,
+          .struct [⟨"#Widget", .definition,
+            .struct [⟨"name", .regular, .kind .string⟩,
+                     ⟨"size", .regular, .kind .int⟩] true⟩] true⟩])] []
+        (.selector (.refId ⟨0, 0⟩) "#Widget"))
+      == .struct [⟨"name", .regular, .kind .string⟩,
+                  ⟨"size", .regular, .kind .int⟩] true) = true := by
+  native_decide
+
+/-- NON-REGRESSION: a NON-definition field (regular, not `#`) with a sibling self-ref is NOT
+    a definition selection, so it stays eager — only `#`-definitions defer. -/
+theorem closure_producer_skips_non_definition :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"pkg", .hidden,
+          .struct [⟨"r", .regular,
+            .struct [⟨"a", .regular, .prim (.int 1)⟩,
+                     ⟨"b", .regular, .refId ⟨0, 0⟩⟩] true⟩] true⟩])] []
+        (.selector (.refId ⟨0, 0⟩) "r"))
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩,
+                  ⟨"b", .regular, .prim (.int 1)⟩] true) = true := by
+  native_decide
+
+/-- FULL ID-STACK capture: the producer captures the ENTIRE env, not just the package frame.
+    A depth-2 use-site env (inner frame 5, outer frame 7) retains BOTH outer frames beneath
+    the freshly-pushed package frame (id 0) in `capturedEnv` — so a def body's depth>0
+    cross-package embeds still walk the import chain when the closure is forced. -/
+theorem closure_producer_captures_full_id_stack :
+    (runEval (evalValueWithFuel evalFuel
+        [(5, [⟨"parts", .hidden,
+          .struct [⟨"#M", .definition,
+            .struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
+                     ⟨"x", .regular, .prim (.int 1)⟩] true⟩] true⟩]),
+         (7, [⟨"outer", .regular, .prim (.int 9)⟩])] []
+        (.selector (.refId ⟨0, 0⟩) "#M"))
+      == .closure
+          [(0, [⟨"#M", .definition,
+            .struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
+                     ⟨"x", .regular, .prim (.int 1)⟩] true⟩]),
+           (5, [⟨"parts", .hidden,
+            .struct [⟨"#M", .definition,
+              .struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
+                       ⟨"x", .regular, .prim (.int 1)⟩] true⟩] true⟩]),
+           (7, [⟨"outer", .regular, .prim (.int 9)⟩])]
+          (.struct [⟨"out", .regular, .refId ⟨0, 0⟩⟩,
+                    ⟨"x", .regular, .prim (.int 1)⟩] true)) = true := by
+  native_decide
+
+/-- `hasDepth0Ref` STOPS at frame-pushers: a `refId ⟨0,0⟩` nested inside a `.struct` field
+    value is depth-0 relative to that NESTED frame, not the def body — so a def whose only
+    inner ref sits inside a nested struct is NOT a sibling self-ref and stays eager. Pins the
+    boundary that keeps the gate from over-firing on nested-but-not-sibling refs. -/
+theorem closure_producer_nested_struct_ref_not_sibling :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"a", .regular, .prim (.int 1)⟩,
+                  ⟨"nested", .regular,
+                    .struct [⟨"inner", .regular, .refId ⟨0, 0⟩⟩] true⟩] true)) = false := by
+  native_decide
+
+/-- And the positive companion: a direct sibling ref IS detected. -/
+theorem closure_producer_direct_sibling_ref_detected :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"#name", .definition, .kind .string⟩,
+                  ⟨"out", .regular, .refId ⟨0, 0⟩⟩] true)) = true := by
+  native_decide
+
 end Kue

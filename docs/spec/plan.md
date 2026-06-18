@@ -435,6 +435,81 @@ captured ids make two independently-captured closures compare unequal — the
    lazy-conj merge) — gate strictly on the depth>0 / import-selector shape. NEEDS ITS OWN
    DESIGN SUB-SPIKE: pin down exactly which resolved shape triggers closure emission vs.
    the existing eager path. Pin with the `crosspkg_defmeet` module fixture (added in #5).
+   **DONE 2026-06-18** — sub-spike below; producer lives in the `.selector (.refId id)
+   label` arm gated on a depth-0 *sibling self-reference* in the selected def body.
+
+   #### Slice-3 design sub-spike (pinned 2026-06-18 — empirically traced, not guessed)
+
+   **Why the eager path collapses (root, re-confirmed by tracing the `parts.#M` repro):**
+   `parts.#M` parses to `.selector (.refId ⟨0,parts⟩) "#M"` — a *depth-0* ref to the hidden
+   `parts` import binding, then a `"#M"` selector. (The breadcrumb's "depth>0 binding"
+   framing was imprecise: the *selector base* is depth-0; the depth>0 is inside the def body
+   — its cross-pkg embeds. The load-bearing fact is "import-selector to a definition," not
+   the base's depth.) `conjStructOperand?` has no `.selector` arm (`_ => none`,
+   `Eval.lean:831`), so `parts.#M & {…}` fails `lazyConjMergedFields` and falls to the
+   `.conj` eval-then-`meet` fallback (`Eval.lean:931-933`). There `parts.#M` evaluates
+   *first* via the selector arm's else-branch (`Eval.lean:961-963`): it evals `.refId
+   ⟨0,parts⟩` → the WHOLE package struct, which evals `#M`'s body, collapsing `out:#name`
+   (`refId ⟨0,0⟩`) to `string` BEFORE the `meet` with `{#name:"keel"}`. `selectEvaluatedField`
+   then plucks the already-collapsed `#M`. The base is fully evaluated → intercepting *after*
+   the base eval is too late; the producer must act *before* it, on the UNEVALUATED env.
+
+   **Exact trigger (where + predicate).** Producer lives in the `.selector (.refId id)
+   label` arm, in the `thisStructFieldIndex? = none` else-branch (`Eval.lean:961`), BEFORE
+   the `base <- evalValueWithFuel … (.refId id)` line. Look up the *unevaluated* binding for
+   `id` in `env` (`env.drop id.depth`, then `nthField id.index`); emit `.closure (pushFrame
+   pkgFields env) defBody` iff ALL hold:
+   1. the binding's value is a `.struct pkgFields _` (the import/package — or any — base
+      struct, taken UNEVALUATED), and
+   2. `pkgFields` has a field named `label` whose `fieldClass.isDefinition` is true (a `#`
+      definition), and
+   3. that def field's body, when it is a `.struct defFields _`, contains a depth-0 sibling
+      self-reference — a `refId ⟨0, _⟩` anywhere in a field body (helper `hasDepth0SelfRef`).
+   Otherwise fall through to the existing eager `base`-eval path UNCHANGED. `defBody` is the
+   def field's UNEVALUATED `.struct` value; `capturedEnv = pushFrame pkgFields env` (the env
+   the package members resolve against — full id-stack, so the def body's own depth>0
+   cross-pkg embeds still walk the import chain when forced; the `.struct` force arm pushes
+   the def's own fields as the depth-0 frame on top, so `out:⟨0,0⟩` finds `#name`).
+
+   **Why condition 3 is the exact behavior-preservation line (NOT the (a)-narrowed trap).**
+   The trap is restricting the *splice/capture* to depth-0-only bodies (dropping cross-pkg
+   context). We do NOT: `capturedEnv` is always the FULL `pushFrame pkgFields env`, so a real
+   `#ServiceAccount` (self-refs AND depth>0 `attr.#Metadata` embeds) gets the whole package
+   env. Condition 3 gates only *whether to defer*, and it is exactly the set that collapses
+   today: a def body with no sibling self-ref (`#Widget`={name,size,enabled}, `#Box`,
+   `#Mid`, `#Atom`, `#Name` — every committed `pkg.#Def & {…}` fixture) evaluates to the
+   same struct whether eager or deferred, because no field's value depends on a sibling the
+   use-site narrows — so those MUST stay on the eager path (slice 4 isn't done; a closure
+   there would `meet`→`.bottom` and drift). A def body WITH a sibling self-ref
+   (`#M`={#name,out:#name}) is precisely the shape that errors today (`incomplete value`) —
+   so deferring it regresses no GREEN fixture. Empirically (traced 2026-06-18): all 8
+   committed conj-def fixtures have self-ref-free bodies; the only self-ref shape is the
+   uncommitted `parts.#M` repro. ∴ slice 3 is byte-identical on every committed fixture.
+
+   **Same-package non-regression (hard line, structurally guaranteed).** Same-package `#M &
+   {#name:"keel"}` is `.refId ⟨0,M⟩ & {…}` — a *ref*, not a selector. `conjStructOperand?`
+   handles depth-0 `.refId` (`Eval.lean:818-830`) → `lazyConjMergedFields` merges it → it
+   NEVER enters the `.selector` arm. Gating the producer in the `.selector (.refId id) label`
+   arm cannot touch it. (Verified: same-pkg repro exports `{"out":"keel"}` today and stays.)
+
+   **Slice-3-alone observable behavior.** Slice 3 only CONSTRUCTS closures; the splice is
+   slice 4. On the `parts.#M` repro (non-fixture), output changes from `incomplete value:
+   string` (eager collapse) to whatever `meet (.closure …) (.struct …)` yields under the
+   slice-1 inert arm (`.bottom`) — still an error, still honest, still not a committed
+   fixture. The cross-pkg def-meet bug stays unfixed until slice 4; slice 5 pins it. No
+   committed fixture observes a closure (condition 3 excludes them all).
+
+   **Self-ref / cycle (carried to slice 4, per Phase-A finding 2).** The producer is the
+   first code to build a `capturedEnv` from a real `Env`; get it exact (full `pushFrame
+   pkgFields env`, no truncation). `visited:=[]` on force is sound because a forced closure
+   is a fresh eval entry — slice 4 derives its cycle handling from first principles (fresh
+   entry → empty `visited` → ordinary `slotVisited` catches a self-ref reached via a depth-0
+   ref into `capturedEnv`), NOT by analogy to the depth>0 ref arm.
+
+   **Env-defeq tripwire (Phase-A finding 1, folded in here).** Add `example : (List (Nat ×
+   List Field)) = Env := rfl` in `Eval.lean` so a future `Frame`/`Env` shape change fails the
+   build instead of silently desyncing `Value.closure`'s `capturedEnv` from `Eval.Env`. The
+   producer is the natural home — it is the first code to thread a real `Env` into a closure.
 
 4. **closure-meet — meet a closure with a use-site struct (the actual unlock, BEHAVIOR).**
    This is where "meet stops being pure over opaque refs" (`Lattice.lean:387` invariant).

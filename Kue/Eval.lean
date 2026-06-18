@@ -762,6 +762,13 @@ end Frame
 
 abbrev Env := List Frame
 
+/-- Build-time tripwire that `Value.closure`'s `capturedEnv : List (Nat × List Field)`
+    (`Value.lean`) stays *defeq* to `Env`, so the producer threads a real `Env` into a
+    closure and the force arm threads it back out with ZERO coercion. If `Frame`/`Env` ever
+    changes shape, this `rfl` fails the build instead of silently desyncing the closure rep
+    (Phase-A finding `closure-env-sync-guard`, folded into the producer slice). -/
+example : (List (Nat × List Field)) = Env := rfl
+
 /-- The id stack of an env — its cheap identity for cache-key equality. -/
 def Env.ids (env : Env) : List Nat := env.map Frame.id
 
@@ -847,6 +854,93 @@ def lazyConjMergedFields (env : Env) (constraints : List Value) :
   let mergedFields := rebased.foldl mergeConjFields []
   let closed := applyConjClosedness operands mergedFields
   pure (closed, allClosednessOpen operands)
+
+/-- Does `value` reference a sibling of the frame it sits directly in — a `refId ⟨0, _⟩`
+    reachable WITHOUT crossing a frame-pushing node? Recurses through expression nodes that
+    do NOT introduce a new scope (binary/unary/selector/index/conj/interpolation/builtin/
+    disj/list), and STOPS at every frame-pusher (`.struct`, `.structTail`, the pattern
+    structs, comprehensions, a nested `.closure`): a `refId ⟨0, _⟩` inside one of those is
+    depth-0 relative to ITS frame, not this one, so it is not a sibling self-ref here.
+    Fuel-bounded for totality; `evalFuel` depth is far beyond any real def body. -/
+def hasDepth0Ref (fuel : Nat) : Value -> Bool
+  | .refId id => id.depth == 0
+  | .conj constraints =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => constraints.any (hasDepth0Ref fuel)
+  | .builtinCall _ args =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => args.any (hasDepth0Ref fuel)
+  | .unary _ value =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => hasDepth0Ref fuel value
+  | .binary _ left right =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => hasDepth0Ref fuel left || hasDepth0Ref fuel right
+  | .selector base _ =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => hasDepth0Ref fuel base
+  | .index base key =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => hasDepth0Ref fuel base || hasDepth0Ref fuel key
+  | .disj alternatives =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => alternatives.any (fun alt => hasDepth0Ref fuel alt.snd)
+  | .list items =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => items.any (hasDepth0Ref fuel)
+  | .listTail items tail =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => items.any (hasDepth0Ref fuel) || hasDepth0Ref fuel tail
+  | .interpolation parts =>
+      match fuel with
+      | 0 => false
+      | fuel + 1 => parts.any (hasDepth0Ref fuel)
+  | _ => false
+
+/-- Does this unevaluated definition body contain a sibling self-reference — the exact shape
+    that collapses under the eager import-selector path (a field whose value refs another
+    field of the same def, e.g. `out: #name`)? Scans the def's own field values at depth 0;
+    `hasDepth0Ref` refuses to descend past frame-pushers, so only true siblings count. -/
+def defBodyHasSiblingSelfRef : Value -> Bool
+  | .struct fields _ => fields.any (fun f => hasDepth0Ref evalFuel (Field.value f))
+  | _ => false
+
+/-- The producer gate for slice-3 closures. Given the selector `base.label` where `base` is
+    the UNEVALUATED binding `id` resolves to in `env`, decide whether to defer instead of
+    eagerly evaluating `base` and plucking `label`. Returns the def's UNEVALUATED body when
+    ALL hold: (1) the binding is a `.struct` (an import/package or any struct base), (2) it
+    has a field `label` that is a definition (`#`), (3) that def body has a sibling self-ref
+    (`defBodyHasSiblingSelfRef`) — the only shape that collapses today, so deferring it
+    regresses no currently-green fixture. `none` ⇒ take the existing eager path. The caller
+    pairs the returned body with `pushFrame pkgFields env` as the captured env. -/
+def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
+    Option (List Field × Value) :=
+  match env.drop id.depth with
+  | [] => none
+  | frame :: _ =>
+      match nthField id.index frame.snd with
+      | none => none
+      | some baseField =>
+          match Field.value baseField with
+          | .struct pkgFields _ =>
+              match findEvalField label pkgFields with
+              | some defField =>
+                  if defField.fieldClass.isDefinition
+                      && defBodyHasSiblingSelfRef (Field.value defField) then
+                    some (pkgFields, Field.value defField)
+                  else
+                    none
+              | none => none
+          | _ => none
 
 mutual
   def evalFieldRefsWithFuel
@@ -958,9 +1052,19 @@ mutual
     | fuel + 1, .selector (.refId id) label =>
         match thisStructFieldIndex? env id label with
         | some labelId => evalValueWithFuel fuel env visited (.refId labelId)
-        | none => do
-            let base <- evalValueWithFuel fuel env visited (.refId id)
-            pure (selectEvaluatedField base label)
+        | none =>
+            -- Producer (slice 3): selecting an imported definition whose body has a sibling
+            -- self-reference defers to a `.closure` instead of eagerly evaluating the base —
+            -- which would collapse the self-ref against the def's own frame before a use-site
+            -- `meet` (slice 4) narrows it. Gated on `defBodyHasSiblingSelfRef`, the only shape
+            -- that collapses today, so every currently-green selection stays on the eager path.
+            match importDefClosureBody? env id label with
+            | some (pkgFields, defBody) => do
+                let capturedEnv <- pushFrame pkgFields env
+                pure (.closure capturedEnv defBody)
+            | none => do
+                let base <- evalValueWithFuel fuel env visited (.refId id)
+                pure (selectEvaluatedField base label)
     | fuel + 1, .selector base label => do
         let baseEvaluated <- evalValueWithFuel fuel env visited base
         pure (selectEvaluatedField baseEvaluated label)
