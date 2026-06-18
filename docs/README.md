@@ -20,6 +20,10 @@ When unsure: understand-the-system prose → `spec/`; look-it-up facts → `refe
 do-a-task steps → `guides/`; a defended ruling → `decisions/`; everything else →
 `notes/` (the default).
 
+Docs convention: when a doc references a CUE *language* feature, show a short CUE code
+block of the construct (oracle-verified against `cue`); engine-internal references — perf,
+memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-loop.md).
+
 ## Project Documents
 
 - [CUE Language Guide](spec/cue-language-guide.md) — implementation-oriented map of CUE

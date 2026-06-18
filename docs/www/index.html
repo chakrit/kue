@@ -76,6 +76,25 @@
     padding: 0.1em 0.38em;
     border-radius: 4px;
   }
+  /* short illustrative CUE snippet on a feature card */
+  pre.cue {
+    margin: 8px 0 0;
+    background: var(--gray-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 11px;
+    overflow-x: auto;
+  }
+  pre.cue code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text);
+    white-space: pre;
+  }
+  pre.cue code .cm { color: var(--muted); }
 
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
@@ -275,23 +294,29 @@
         <span class="cap-body">Total <code>meet</code>/<code>join</code> over the full
           <code>Value</code> domain: primitives, kinds, bounds, regex, struct/list shapes.
           Disjunctions with full default-mark algebra.</span>
+        <pre class="cue"><code>port: int &amp; &gt;0 &amp; &lt;=65535
+port: 8080  <span class="cm">// 8080</span></code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Closures / cross-package def-meet</span>
         <span class="cap-body"><code>Value.closure</code> carries the capture frame so an
           imported def unifies at the use site before cross-frame self/sibling refs resolve.
           Deep self-ref detection; multi-level embed chains.</span>
+        <pre class="cue"><code>import "ex.com/pkg"
+web: pkg.#Def &amp; {name: "web"}</code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Comprehensions</span>
         <span class="cap-body">Struct and list comprehensions, including <code>if</code>
           guards, nested / multi / zero-yield, plain+comp interleave, and scalar
           struct-embedding collapse.</span>
+        <pre class="cue"><code>out: [for x in [1, 2, 3] {x * 2}]  <span class="cm">// [2, 4, 6]</span></code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Disjunction defaults under embedding</span>
         <span class="cap-body">Use-site narrowing distributes into every arm of an embedded
           default disjunction, pruning dead arms.</span>
+        <pre class="cue"><code>x: (*"a" | "b") &amp; ("b" | "c")  <span class="cm">// "b"</span></code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Fuel-saturation perf</span>
@@ -303,12 +328,16 @@
         <span class="cap-body"><code>base64</code>, <code>json.Marshal</code>,
           <code>yaml.Marshal</code>, and <code>strings</code> / <code>list</code> /
           <code>math</code> namespaces. Multiline strings.</span>
+        <pre class="cue"><code>import "encoding/json"
+out: json.Marshal({a: 1})  <span class="cm">// "{\"a\":1}"</span></code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Imports / modules</span>
         <span class="cap-body"><code>cue.mod</code> discovery, in-module and cross-module
           resolution by longest module-path prefix, multi-file package merge, transitive
           loads, package-dir entry. IO confined to the loader; eval stays pure.</span>
+        <pre class="cue"><code>import "ex.com/pkg"
+out: pkg.#Def &amp; {name: "x"}</code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">CLI</span>
@@ -335,6 +364,8 @@
           same narrowing-before-guard-eval discipline to list-element <code>if</code> guards
           inside a force-spliced def. Minimal repro passes; bisect the real def to find the
           extra structure. The next correctness link to make argocd a drop-in.</p>
+        <pre class="cue"><code>#x: string
+parentRefs: [if #x != _|_ {ref: #x}]</code></pre>
       </div>
 
       <div class="item">
@@ -397,6 +428,8 @@
           introduction-provenance key threaded through every merge/manifest site. The
           byte-order tail between cert-manager content-match and byte-exact cue. Multi-slice;
           do after argocd unless it blocks a fixture.</p>
+        <pre class="cue"><code>#Def: {kind: "X", ...}
+out: #Def &amp; {own: 1}  <span class="cm">// cue: own-fields ordered first</span></code></pre>
       </div>
 
       <div class="item">

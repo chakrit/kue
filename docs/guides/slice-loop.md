@@ -62,6 +62,12 @@ first-class (pin edges, not just happy path); log CUE divergences in
 update [`kue-performance.md`](kue-performance.md). Oracle-check behavior against `cue`
 (`/Users/chakrit/go/bin/cue`).
 
+**Docs convention — show the CUE.** Any doc that references a CUE *language* feature
+includes a short (2–4 line) CUE code block showing the concrete construct, so a reader
+sees the syntax it maps to. Verify each block parses/evaluates in `cue` before shipping —
+never ship invalid or invented syntax. Engine-internal references (perf, memoization,
+fuel, module refactors, test-org) get NO block — a CUE snippet there is misleading.
+
 **Correctness over performance** (see
 [the decision](../decisions/2026-06-18-correctness-over-performance.md)): never ship a
 perf optimization that can return a wrong value. A perf slice needs byte-identical
