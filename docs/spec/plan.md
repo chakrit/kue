@@ -380,41 +380,46 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
-**A5 DONE (`c3d0089`)** → **A5-followup (HIGH — the OBSERVABLE wrong value; see below)** → audit
-fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED on a representation marker → A2-followup design-slice) →
-TWO-PHASE AUDIT DONE (Phase-A found A5; Phase-B #2 found B7) → **B7 (MEDIUM-HIGH — frame-coordinate
-type-tightening; subsumes A5's structural fix)** → B6 design-spike / B2 headline struct
-refactor (design-spike then migrate) / item 1 follow-up → parallel-safe cleanups (3,4,5 + B4/B5)
-interleaved → deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) ride-alongs.
+**A5 DONE (`c3d0089`)** → **A5-followup DONE (`e00c3de` — the OBSERVABLE wrong value flipped; see
+below)** → audit fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED on a representation marker →
+A2-followup design-slice) → TWO-PHASE AUDIT DONE (Phase-A found A5; Phase-B #2 found B7) →
+**TWO-PHASE AUDIT DUE (2 slices since last: A5 + A5-followup)** → **B7 (MEDIUM-HIGH —
+frame-coordinate type-tightening; subsumes A5's structural fix, now FIVE hand-coded walkers)** →
+B6 design-spike / B2 headline struct refactor (design-spike then migrate) / item 1 follow-up →
+parallel-safe cleanups (3,4,5 + B4/B5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW
+(8 + B3) ride-alongs.
 
-**A5-followup. Pass-2 re-eval does not refresh a comprehension-valued field's body (HIGH — the
-observable face of A5's sibling).** A5 landed the depth fix in all 3 frame-depth walkers
-(`remapConj*`, `selfReferencedLabels`, `refsSelfEmbeddedLabel`), but a static field whose VALUE
-contains a comprehension and reads `Self.<embedded>` inside the `for` body — narrowed at the use
-site — still keeps its STALE Pass-1 value. Confirmed minimal repro (cue v0.16.1 → `v.out.v: "y"`,
-kue → `string | *"def"`):
+**A5-followup. Comprehension-body self-ref deferral gate — DONE (`e00c3de`).** The OBSERVABLE
+wrong value (a static field whose value is a comprehension reading `Self.<embedded>` inside a `for`
+body, narrowed at the use site, kept its stale Pass-1 value) is fixed.
 ```
 #H: {#t: string | *"def"}
 #R: Self={#H, out: [for x in [1] {v: Self.#t}]}
-v: #R & {#t: "y"}
+v: #R & {#t: "y"}   # cue v0.16.1 → v.out[0].v: "y"; now kue too (was string | *"def")
 ```
-The field IS selected and the gate DOES fire (verified by unit pins on both walkers); the defect is
-that Pass-2 re-evaluation of the selected field does not re-expand/refresh the comprehension body
-against the augmented frame — the comprehension keeps its Pass-1 expansion. Distinct from A5's
-remap path (that was a frame-INDEX miss in the merge rewriter; this is a Pass-2 re-eval gap for
-comprehension-valued fields). The A5 depth fixes are the sound prerequisite. Likely sits near the
-eager/lazy two-pass arms (`Eval.lean` ~2238 / ~2631) — Pass-2 feeds selected `(index, field)`
-entries to `evalFieldRefsListWithFuel` against `nested2`, but a field whose value is itself a
-`.structComp`/`listComprehension` may short-circuit on a memoized Pass-1 expansion.
+The plan's "Pass-2 re-eval gap" diagnosis was the SYMPTOM, not the cause. Tracing showed `#R &
+{narrow}` never reached the Pass-2 arms: the DEFERRAL GATE `hasSelfRefAtDepth` scanned the
+comprehension BODY at the comprehension node's `depth`, missing the body self-ref that resolves
+`#forClauses` frames deeper, so `#R` was judged to have no sibling self-ref and took the
+eager-then-meet path (which cannot re-expand the comprehension) instead of the closure-FORCE path
+(which splices the narrowing into the frame before the body evaluates — the already-correct,
+already-perf-optimized arm). Fix: `hasSelfRefAtDepth` made `mutual` with `hasSelfRefAtDepthClauses`,
+threading loop-frame depth like `resolveClausesWithFuel` (+1 per `for`, +0 per `guard`). FOURTH
+A5-family walker (after `remapConj*`, `selfReferencedLabels`, `refsSelfEmbeddedLabel`); Pass-2
+selective re-eval untouched, no full-re-eval perf regression. End-to-end fixture
+`comprehension_embed_self_narrow_body` + native_decide gate pins (body-detected, loopvar boundary,
+multi-`for`, guard-no-frame, struct clause helper). See implementation-log for the full trace.
 
 **B7. Frame coordinate is an untyped `Nat` — the comprehension-body depth-shift rule is
-re-derived by hand at 5 walkers (MEDIUM-HIGH — type-system leverage; root cause of A5).** The
-de Bruijn "body lives `#forClauses` deeper" rule lives once in `resolveClausesWithFuel` but is
-open-coded (correctly in resolve, WRONG in `remapConj*` = A5, conservatively-loose in the
-`refsSelfEmbeddedLabel` gate, and as a latent MISS in `selfReferencedLabels`). A typed `Depth`
-(only obtainable deeper via a `forIn`-descent the body-recursion must route through) makes A5 a
-compile error. Land A5's point-fix first; then B7 factors the shift into ONE shared function the
-5 walkers consume. Design-spike first. See Phase-B #2 B7.
+re-derived by hand at 5 walkers (MEDIUM-HIGH — type-system leverage; root cause of A5 + its
+followup).** The de Bruijn "body lives `#forClauses` deeper" rule lives once in
+`resolveClausesWithFuel` but is open-coded at five sites: correctly in resolve, and (all now
+fixed by hand) `remapConjClauses` (A5), `selfReferencedLabelsClauses` (A5), `refsSelfEmbeddedLabelClauses`
+(A5), and `hasSelfRefAtDepthClauses` (A5-followup — the deferral gate, was a real loop-deep MISS, not
+the "over-detect only" the old comment claimed). Five `*Clauses` helpers all repeat +1-per-`for`. A
+typed `Depth` (only obtainable deeper via a `forIn`-descent the body-recursion must route through)
+makes the whole A5 family a compile error. A5 + followup point-fixes are landed; B7 now factors the
+shift into ONE shared authority the 5 walkers consume. Design-spike first. See Phase-B #2 B7.
 
 **A5. `remapConjRefs` comprehension BODY remapped at the wrong frame depth — DONE (`c3d0089`).**
 Fixed in all 3 frame-depth walkers via a new `clauseFrameShift` (+1 per `for`, +0 per `guard`) and
@@ -424,8 +429,9 @@ replaced with realistically-resolved native_decide pins + an end-to-end source f
 (`comprehension_conj_body_remap`, oracle-checked vs cue 0.16.1 → `s.a.out: 99`). Sibling #3
 (`refsSelfEmbeddedLabel`) was found UNSOUND (too-shallow under-fires the gate = a stale-value miss,
 not perf-only as the old comment claimed) and fixed too. The OBSERVABLE wrong value for the
-narrowing-in-`for`-body case remains → see **A5-followup** above (a separate Pass-2 re-eval gap).
-Original diagnosis below for the record.
+narrowing-in-`for`-body case was flipped by **A5-followup** above (`e00c3de`) — which turned out to
+be a FOURTH walker (`hasSelfRefAtDepth`, the deferral gate), not a Pass-2 re-eval gap as first
+diagnosed. Original diagnosis below for the record.
 
 **A5 (original diagnosis). `remapConjRefs` comprehension BODY remapped at the wrong frame depth (HIGH — correctness
 regression introduced by B1 `80df01e`).** The B1 `.comprehension`/`.listComprehension` arms recurse

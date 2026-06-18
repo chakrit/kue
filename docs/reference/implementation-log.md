@@ -7556,3 +7556,70 @@ correctness regression gate). No shell scripts changed (shellcheck N/A). Real-ap
 (cert-manager, fx, keel, n8n via `kue export -e <app> ./apps`, READ-ONLY) all hit the
 documented PERF WALL (timeout, exit 124) regardless of this change — not a correctness
 regression; module fixtures are the completing correctness signal.
+
+---
+
+## Completed Slice: A5-followup — comprehension-body self-ref deferral gate
+
+Goal: flip the OBSERVABLE wrong value left by A5 — a static field whose value is a
+comprehension reading `Self.<embedded>` inside a `for` body, narrowed at the use site,
+kept its stale Pass-1 value. Landed in `e00c3de`.
+
+```
+#H: {#t: string | *"def"}
+#R: Self={#H, out: [for x in [1] {v: Self.#t}]}
+v: #R & {#t: "y"}   # cue v0.16.1 → v.out[0].v: "y"; kue (pre-fix) → string | *"def"
+```
+
+### Mechanism (the A5-followup plan diagnosis was the symptom, not the cause)
+
+The plan filed this as a "Pass-2 re-eval gap" — Pass-2 selective re-eval not refreshing the
+comprehension-valued field's body. Tracing showed that was the *symptom*. The real defect is
+in the DEFERRAL GATE, one layer earlier: `#R & {#t: "y"}` never reached the Pass-2 arms at
+all. It took the eager-then-meet path.
+
+`hasSelfRefAtDepth` (the gate `defBodyHasSiblingSelfRef`/`bodyNeedsDefer`/the `.conj` fold use
+to decide whether a self-ref def DEFERS to a closure) scanned a comprehension BODY at the
+comprehension node's own `depth`, ignoring the loop frame each `for` pushes. A `Self.#t` read
+in the body resolves to `refId ⟨depth + #forClauses, _⟩`; scanned at `depth` it compared
+unequal and was MISSED. So `#R` was judged to have no sibling self-ref → the conj evaluated
+`#R` eagerly STANDALONE (producing the embedding default `string | *"def"`), then met with
+`{#t: "y"}`. The meet narrows the scalar `#t` field but cannot re-expand the comprehension —
+hence the stale `out`. The closure-FORCE path (taken when the gate fires) splices the
+use-site narrowing into the frame BEFORE the body is evaluated, so the comprehension resolves
+against the narrowed `#t`; it is the already-correct, already-perf-optimized arm. Routing the
+conj to it is the entire fix — Pass-2 selective re-eval is untouched, no full-re-eval
+regression.
+
+This is the FOURTH frame-depth walker in the A5 family. A5 fixed `remapConj*`,
+`selfReferencedLabels`, `refsSelfEmbeddedLabel`; this one (`hasSelfRefAtDepth`) was missed.
+The old arm comment claimed scanning the body at `depth` "over-detects only, never misses" —
+false: a too-shallow body scan UNDER-detects every loop-deep self-ref (the miss observed here).
+
+### Fix
+
+`hasSelfRefAtDepth` became a `mutual` block with `hasSelfRefAtDepthClauses`, which threads
+the frame depth through the clause chain exactly as `resolveClausesWithFuel` and the three
+A5 walkers do (+1 per `for`, +0 per `guard`). The `.comprehension`/`.listComprehension` arms
+route through it; the body self-ref at `depth + #forClauses` is now detected. B7 (typed
+frame coordinate) remains the structural fix that would have made this a compile error — five
+walkers now re-derive the shift by hand.
+
+### Pins
+
+End-to-end fixture `testdata/cue/comprehensions/comprehension_embed_self_narrow_body` (parse-
+driven FixturePort, oracle cue v0.16.1 → `v.out: [{v: "y"}]`, `v.#t: "y"`) — the pin A5
+deliberately did not ship because it would have failed. `native_decide` gate pins: list-comp
+body self-ref detected; loopvar-ref boundary (no over-detection); multi-`for` (depth+2);
+`guard` adds no body frame; struct-context clause helper. Edge cases (guard / multi-for /
+nested comprehension / a body reading a DIFFERENT embedded label than the narrowed one)
+oracle-confirmed during development — no over/under-refresh.
+
+### Verify
+
+`lake build` 86 jobs green (native_decide pins build-checked); `scripts/check-fixtures.sh` →
+`fixture pairs ok` (zero byte-drift — the A5 module fixtures `open_embed_selfref_guard`,
+`structcomp_lazymerge_guard`, `listcomp_embed_selfref`, `list_embed_self_narrowing` all
+byte-identical = the no-regression gate; spot-checked byte-equal to the live `cue` oracle).
+No shell scripts changed (shellcheck N/A). cert-manager/argocd hit the documented perf wall
+(timeout) as before — module fixtures are the completing correctness signal.
