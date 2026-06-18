@@ -28,28 +28,24 @@ Two layers, by what survives the B2 refactor:
 
 All struct cases below are oracle-checked against `cue` v0.16.1 (`/Users/chakrit/go/bin/cue`).
 
-## B2-TARGET known-incomplete meet arms (documented, NOT pinned)
+## B2.5 — the struct cross-combination fix (FIXED, pinned below)
 
-`meetWithFuel` (`Lattice.lean`) is MISSING two struct cross-combinations: a `.structPattern`
-or `.structPatterns` value meeting a `.structTail` value (in either order) has no explicit
-arm and falls through to the `meetCore` default → `.bottom`, where `cue` unifies. Confirmed
-against `cue` v0.16.1:
+`meetWithFuel` (`Lattice.lean`) once MISSED two struct cross-combinations: a pattern-bearing
+struct meeting a tail-bearing struct (in either order) had no explicit arm and fell through to
+`.bottom`, where `cue` unifies. The legacy five-constructor type could not co-represent a tail
+AND patterns, so the arm was unrepresentable. The B2 collapse to one `Value.struct (fields,
+openness, tail, patterns)` carries both axes, and B2.5 flips the residual `.bottom` to a real
+unify:
 
 ```
 #P: {[string]: int}
 #T: {a: 5, ...}
-out: #P & #T        // cue → {a: 5}   ;  kue → _|_  (WRONG)
+out: #P & #T        // cue v0.16.1 → {a: 5} (open) ; kue → {a: 5} (open) — FIXED
 ```
 
-Per the A2 rule (never pin wrong behavior with a passing test) and because the Lean test
-harness has no expected-fail / xfail marker (a `theorem` is an all-or-nothing build-time
-check — pinning the correct RHS would turn the build red, pinning the wrong `.bottom` would
-lock in the bug), these arms are documented HERE and in `plan.md`'s B2 entry rather than
-given a passing wrong-behavior test. **B2 must add both arms** (`structPattern×structTail`,
-`structPatterns×structTail`, both orders) and convert the correct cue value into a passing
-pin. This is a Kue bug (Kue wrong, cue correct), so it lives in the plan as a fix-target —
-NOT in `docs/reference/cue-divergences.md`, which is only for cases where cue is wrong and
-Kue is right. -/
+The pins below (`mergeStructN_*_unifies`, both orders, single + multi-pattern) lock in the
+cue-correct unified value: the pattern constrains every field, the tail keeps the struct open,
+and both axes are retained. -/
 
 namespace Kue
 
@@ -304,9 +300,8 @@ These exercise the `mergeStructN` arms through the LIVE `meet` path (production 
 old `.struct`, but `meet (.struct…) (.struct…)` already dispatches to `mergeStructN`).
 Each pins a behavior the legacy arms carried that a subtly-wrong arm could silently drop:
 the cross-shape field-merge order, the tail-on-both-sides extra-field application, the
-arm-7 pattern dedup, and the still-`.bottom` cross-combinations that B2.5 will flip to
-unify. The `.bottom` pins are CORRECT for THIS slice (no legacy arm exists); B2.5 updates
-them, making its behavior change a visible diff. -/
+arm-7 pattern dedup, and the pattern×tail cross-combinations B2.5 unifies (the `_unifies`
+pins below — formerly `.bottom`, now the cue-correct unified value). -/
 
 -- `struct × structTail` field-merge ORDER: the tail-bearing side's fields come FIRST
 -- (`mergeStructFieldsWith rightFields leftFields` reverses the natural left-first order).
@@ -371,39 +366,71 @@ theorem mergeStructN_pattern_pattern_concats_distinct_patterns :
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)]) = true := by
   native_decide
 
--- Cross-combination `structPattern × structTail` (patterns one side, tail the other): NO
--- legacy arm ⟹ `.bottom` for NOW. B2.5 flips these to unify; pinning `.bottom` here makes
--- that flip a visible diff. (Both orders.)
-theorem mergeStructN_pattern_tail_is_bottom_for_now :
+-- Cross-combination `structPattern × structTail` (patterns one side, tail the other): the
+-- B2.5 behavioral fix. The legacy type could not co-represent a tail AND patterns so this fell
+-- to `.bottom`; the unified `struct` carries both axes, so it now UNIFIES — the pattern
+-- constrains the field (`int & 1 = 1`), the tail keeps the struct open, and BOTH are retained
+-- in the result. Oracle: `{[=~"a"]: int} & {a: 1, ...}` → cue v0.16.1 `{a: 1}` (open). (Both
+-- orders — meet is commutative here.)
+theorem mergeStructN_pattern_tail_unifies :
     (meet
         (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
         (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
-      == .bottom) = true := by
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+          [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
-theorem mergeStructN_tail_pattern_is_bottom_for_now :
+theorem mergeStructN_tail_pattern_unifies :
     (meet
         (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
         (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
-      == .bottom) = true := by
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+          [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
--- The multi-pattern (`structPatterns`) cross-combo lands on the SAME `mergeStructN`
--- catch-all arm (dispatch is `(_ :: _)`-on-patterns, count-agnostic) ⟹ `.bottom` too.
-theorem mergeStructN_patterns_tail_is_bottom_for_now :
+-- The multi-pattern (`structPatterns`) cross-combo composes the same way: every pattern is
+-- retained and applied. `[=~"a"]: int` matches `a` (`int & 1 = 1`); `[=~"b"]: string` matches
+-- no field here. Oracle: `{[=~"a"]: int, [=~"b"]: string} & {a: 1, ...}` → cue `{a: 1}` (open).
+theorem mergeStructN_patterns_tail_unifies :
     (meet
         (.struct [] .regularOpen none
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)])
         (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
-      == .bottom) = true := by
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+          [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)]) = true := by
   native_decide
 
-theorem mergeStructN_tail_patterns_is_bottom_for_now :
+theorem mergeStructN_tail_patterns_unifies :
     (meet
         (.struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
         (.struct [] .regularOpen none
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)])
-      == .bottom) = true := by
+      == .struct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+          [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)]) = true := by
+  native_decide
+
+-- Pattern VIOLATION in a cross-combo: `{[=~"a"]: int} & {a: "x", ...}` — the pattern matches
+-- `a` but `int & "x"` bottoms, so the FIELD bottoms (struct survives, stays open). cue v0.16.1
+-- errors on field `a` only (`conflicting values "x" and int`), not the whole struct.
+theorem mergeStructN_pattern_tail_field_conflict :
+    (meet
+        (.struct [] .regularOpen none [(.stringRegex "a", .kind .int)])
+        (.struct [⟨"a", .regular, .prim (.string "x")⟩] .defOpenViaTail (some .top) [])
+      == .struct [⟨"a", .regular, .bottomWith [.fieldConstraint "a"]⟩] .defOpenViaTail (some .top)
+          [(.stringRegex "a", .kind .int)]) = true := by
+  native_decide
+
+-- Compositional re-meet: a value ALREADY carrying both a tail and patterns (the B2.5 unify
+-- output) met again with a tail-struct. Exercises the both-tails (`meet .top .top`) path AND
+-- the patterns-retained-across-remeet behavior. Oracle: `({[=~"a"]: int} & {a: 5, ...}) &
+-- {b: 9, ...}` → cue v0.16.1 `{a: 5, b: 9}` (open).
+theorem mergeStructN_tail_patterns_remeet_tail :
+    (meet
+        (.struct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top)
+          [(.stringRegex "a", .kind .int)])
+        (.struct [⟨"b", .regular, .prim (.int 9)⟩] .defOpenViaTail (some .top) [])
+      == .struct [⟨"a", .regular, .prim (.int 5)⟩, ⟨"b", .regular, .prim (.int 9)⟩]
+          .defOpenViaTail (some .top) [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
 /-! ## `StructOpenness.meet` (B2.1)

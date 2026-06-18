@@ -864,8 +864,44 @@ def mergeStructN
                   (applyPatternsToFieldsWith meetValue leftPatterns merged))))
             (StructOpenness.meet leftOpenness rightOpenness) none (leftPatterns ++ rightPatterns)
       | none => .bottom
-  -- tail-on-one-side × patterns-on-other, and any tail+patterns mix: no legacy arm (B2.5).
-  | _, _, _, _ => .bottom
+  -- tail-on-one-side × patterns-on-other, and any tail+patterns mix (B2.5). The legacy type
+  -- could not co-represent a tail AND patterns, so these fell to `.bottom`; the unified `struct`
+  -- carries both axes, so the merge composes them: the tail keeps the struct open and constrains
+  -- the other side's extras, while the patterns constrain every field (incl. tail-admitted
+  -- extras). The tail-bearing side is the merge base (its fields come first, matching cue); when
+  -- both carry a tail the left is the base, as in the tail×tail arm.
+  | _, _, _, _ =>
+      let leftHasTail := leftTail.isSome
+      let baseFields := if leftHasTail then leftFields else rightFields
+      let otherFields := if leftHasTail then rightFields else leftFields
+      match mergeStructFieldsWith meetValue baseFields otherFields with
+      | none => .bottom
+      | some merged =>
+          -- meet the tails (one or both present), bottoming if the meet bottoms
+          let mergedTail :=
+            match leftTail, rightTail with
+            | some lt, some rt => some (meetValue lt rt)
+            | some lt, none => some lt
+            | none, some rt => some rt
+            | none, none => none
+          match mergedTail with
+          | some tail =>
+              if isBottom tail then .bottom
+              else
+                let withLeftTail :=
+                  match leftTail with
+                  | some lt => applyTailToExtrasWith meetValue leftFields lt merged
+                  | none => merged
+                let withTails :=
+                  match rightTail with
+                  | some rt => applyTailToExtrasWith meetValue rightFields rt withLeftTail
+                  | none => withLeftTail
+                let allPatterns := leftPatterns ++ rightPatterns
+                let withPatterns := applyPatternsToFieldsWith meetValue allPatterns withTails
+                mkStruct withPatterns .defOpenViaTail (some tail) allPatterns
+          -- unreachable: this arm is only entered with ≥1 tail (the no-tail cases are arms
+          -- 1/5/6/7 above), so `mergedTail` is always `some`; `.bottom` is the total fallback.
+          | none => .bottom
 
 def meetListWith (meetValue : Value -> Value -> Value) : List Value -> List Value -> Option (List Value)
   | [], [] => some []

@@ -484,6 +484,28 @@ def fixturePorts : List FixturePort :=
             (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
     },
     {
+      -- B2.5: pattern-struct × tail-struct now UNIFIES (was `_|_`). The pattern constrains
+      -- the field, the tail keeps the struct open, both axes retained. cue v0.16.1 → {a: 5}.
+      fileName := "definitions/pattern_tail_unify.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.struct [] .regularOpen none [((.kind .string), (.kind .int))])
+            (.struct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top) []))
+    },
+    {
+      -- B2.5: multi-pattern × tail. Both patterns retained; each constrains its matching field.
+      -- cue v0.16.1 → {a: 5, b: "hi"}.
+      fileName := "definitions/multi_pattern_tail_unify.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.struct [] .regularOpen none
+              [((.stringRegex "^a"), (.kind .int)), ((.stringRegex "^b"), (.kind .string))])
+            (.struct [⟨"a", .regular, .prim (.int 5)⟩, ⟨"b", .regular, .prim (.string "hi")⟩]
+              .defOpenViaTail (some .top) []))
+    },
+    {
       fileName := "definitions/string_kind_pattern.expected",
       content :=
         formatField "x"

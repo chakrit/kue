@@ -497,7 +497,10 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
   Behavior change → full verify, NOT inline. Add a `native_decide` pin: a `structComp`
   conjunct with a `frameDepth` self-ref remaps correctly across a field-reindexing merge.
 
-- **B2 (MEDIUM-HIGH — headline refactor; subsumes item-8 `StructOpenness`).** `Value` has
+- **B2 (MEDIUM-HIGH — headline refactor; subsumes item-8 `StructOpenness`). FAMILY-1 COMPLETE
+  (B2.1–B2.5 DONE 2026-06-19); only B2b (structComp collapse) remains.** The five struct
+  constructors collapsed to one `Value.struct (fields, openness, tail, patterns)` and the
+  pattern×tail cross-combination now unifies (B2.5). Historical diagnosis preserved below. `Value` HAD
   FIVE struct-bearing constructors (`struct`, `structTail`, `structPattern`,
   `structPatterns`, `structComp`) plus `embeddedList`. `meetWithFuel` (`Lattice.lean`)
   carries a 12-arm pairwise matrix (lines 971-1044) over `{struct, structTail,
@@ -922,16 +925,19 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     independently-green commit on `main`). Recommended order: **CP3-pre (item 1 + class-1 tests,
     on `main`, multiple green commits) → B2.2/CP3-flip (worktree, one green landing) → B2.5
     behavioral.**
-  - **B2.5 — land the cross-combination BEHAVIOR fix + new fixtures.** The single arm already
-    handles `tail ∧ patterns`; this slice just removes the residual `.bottom` guards in
-    `mergeStructN` (the `| _, _, _, _ => .bottom` catch-all + the tail×pattern cases) and adds
-    the four new oracle-checked fixtures + flips the LatticeTests pins. NOT byte-identical (the
-    intended `bottom→unify` change) — the only behavioral slice. Comes AFTER B2.2/CP3 land.
-  - **B2.5 — land the cross-combination BEHAVIOR fix + new fixtures.** The single arm already
-    handles `tail ∧ patterns`; this slice just removes the residual `.bottom` guards in
-    `mergeStructN` (the `| _, _, _, _ => .bottom` catch-all + the tail×pattern cases) and adds
-    the four new oracle-checked fixtures + flips the LatticeTests pins. NOT byte-identical (the
-    intended `bottom→unify` change) — the only behavioral slice. Comes AFTER B2.2/CP3 land.
+  - **B2.5 — cross-combination BEHAVIOR fix + new fixtures. DONE (2026-06-19).** Replaced the
+    residual `| _, _, _, _ => .bottom` catch-all in `mergeStructN` with a general composition arm:
+    base = the tail-bearing side's fields (cue field order; left if both have tails), meet the
+    tails (apply each to the other's extras via `applyTailToExtrasWith`), concat + apply patterns
+    (`applyPatternsToFieldsWith`), retain BOTH axes → `mkStruct … .defOpenViaTail (some tail)
+    patterns`. The previously-`.bottom` `structPattern/structPatterns × structTail` (both orders)
+    now UNIFY: `{[string]: int} & {a: 5, ...}` → `{a: 5}` (open), cue v0.16.1 confirmed. No arm
+    1-7 touched. Flipped the 4 LatticeTests `*_is_bottom_for_now` pins to `*_unifies` + added 2
+    edge pins (pattern-violation bottoms the field only; compositional both-tails re-meet) + 2
+    end-to-end fixtures (`definitions/{pattern_tail,multi_pattern_tail}_unify`). The only
+    behavioral (non-byte-identical) slice of B2; ZERO drift on existing fixtures (confirming none
+    relied on the buggy `.bottom`). The B2 family-1 collapse + correctness fix is now FULLY
+    complete — only B2b (structComp collapse) remains of B2.
 
   **Risk/soundness + regression gate.** Highest-risk site: the `meetWithFuel` matrix rewrite
   (B2.4) — it must reproduce the tail-extras application (`applyTailToExtrasWith` runs on BOTH

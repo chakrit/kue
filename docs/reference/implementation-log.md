@@ -8013,3 +8013,55 @@ from `eval` output; Kue shows it — values + concrete export identical) is reco
 `lake build` green (no warnings/`sorry`), `scripts/check-fixtures.sh` → `fixture pairs ok` with
 ZERO byte-drift on all testdata `.expected` (the representation changed; the observable values
 did not — the whole correctness argument), shellcheck clean.
+
+## Completed Slice: B2.5 — pattern×tail cross-combination fix (bottom → unify) (2026-06-19)
+
+The payoff of the B2 family-1 collapse: the cross-combinations the collapse deliberately
+preserved as `.bottom` (a pattern-bearing struct meeting a tail-bearing struct, either order)
+now UNIFY, matching cue v0.16.1. The legacy five-constructor type could not co-represent a tail
+AND patterns, so `structPattern×structTail` had no meet arm and fell to `.bottom`; the unified
+`Value.struct (fields, openness, tail, patterns)` carries both axes, so the merge composes them.
+This is the only behavioral (non-byte-identical) slice of B2 — a surgical correctness win.
+
+### The `mergeStructN` change (`Lattice.lean`)
+
+Replaced the residual `| _, _, _, _ => .bottom` catch-all with a general composition arm. It is
+reached only when at least one side carries a tail AND the case wasn't a pure-tail arm (arms 2-4)
+— i.e. the tail×pattern cross-combos and any tail+patterns mix. Composition:
+- **base = the tail-bearing side's fields** (its fields come first, matching cue's output order;
+  when both carry a tail the left is base, as in the tail×tail arm). `mergeStructFieldsWith base other`.
+- **tail**: meet both if both `some` (`meet .top .top` for two bare `...`), else propagate the one
+  present; bottom if the tail-meet bottoms. Each present tail is applied to the OTHER side's extras
+  via `applyTailToExtrasWith` (declaredFields = that tail-side's own fields), exactly as the
+  tail×tail arm.
+- **patterns**: `leftPatterns ++ rightPatterns`, applied to the merged fields via
+  `applyPatternsToFieldsWith` (each pattern constrains only its matching fields, incl. tail-admitted
+  extras). Both axes RETAINED in the result.
+- result: `mkStruct withPatterns .defOpenViaTail (some tail) allPatterns` — open via tail, patterns
+  kept so future extras stay constrained.
+
+No existing arm (1-7) touched. The trailing `mergedTail = none` branch is defensively `.bottom`
+(unreachable: the arm is only entered with ≥1 tail).
+
+### Tests
+
+- **Flipped 4 LatticeTests pins** (`mergeStructN_*_is_bottom_for_now` → `*_unifies`): single +
+  multi-pattern, both orders. cue-correct unified value: `{[=~"a"]: int} & {a: 1, ...}` →
+  `.struct [a:1] .defOpenViaTail (some .top) [(=~"a", int)]` (cue v0.16.1 → `{a: 1}` open).
+- **2 new edge pins**: pattern VIOLATION bottoms the matched FIELD only (`{[=~"a"]: int} &
+  {a: "x", ...}` → `a: _|_`, struct survives — cue errors on field `a` only); compositional
+  re-meet of an already-unified (tail+patterns) value with a tail-struct (`({[=~"a"]: int} &
+  {a: 5, ...}) & {b: 9, ...}` → `{a: 5, b: 9}` open — exercises the both-tails `meet .top .top`
+  path + patterns-retained-across-remeet).
+- **2 new end-to-end fixtures** (`testdata/cue/definitions/{pattern_tail,multi_pattern_tail}_unify`
+  + FixturePorts entries): `{[string]: int} & {a: 5, ...}` and a two-pattern variant. Concrete
+  `kue export` byte-identical to `cue export` for both.
+- Updated the LatticeTests module header (the "B2-TARGET known-incomplete" section → "B2.5 FIXED").
+
+### Verify
+
+`lake build` green (96 jobs, no warnings/`sorry`), `scripts/check-fixtures.sh` → `fixture pairs ok`.
+The ONLY fixture drift is the two NEW pairs — every existing `.expected` unchanged, confirming no
+existing fixture relied on the buggy `.bottom`. shellcheck clean. Oracle-checked every flipped/new
+pin and both fixtures against cue v0.16.1 (concrete exports identical; the internal-format residual
+`[pattern]`/`...` display is the pre-existing eval-output divergence already in cue-divergences.md).
