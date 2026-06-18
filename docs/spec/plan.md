@@ -89,6 +89,34 @@ pre-existing, already-tracked, orthogonal bugs (NOT introduced by either commit)
    as a standalone correctness item, but it is NOT a regression and NOT this audit's scope.
    The struct-comprehension form (`for x in items {"k\(x)":x}`) already works.
 
+   ### Slice `list-comprehension-parse-eval` — DESIGN (LANDED, see impl-log)
+
+   Two coupled gaps, both basic-case correctness:
+
+   **(A) Scalar struct-embedding collapse (root prerequisite).** A list-comp body in CUE is
+   a `StructLit { ... }`; the yielded element is that struct literal's VALUE. `[for x in
+   [1,2] {x}]` → `{x}` is a struct embedding the scalar `x`, which CUE collapses to the
+   scalar (`{5}`→`5`, `[{5},{6}]`→`[5,6]`). kue produced `bottom` — the embedding rule
+   handled `struct ∩ list → embeddedList` but NOT `struct ∩ scalar → scalar`. Fix: extend
+   `meet` (Lattice.lean, the two `.struct fields _, …` arms) — when a struct has NO output
+   field AND no non-output decls (`declFields = []`, i.e. lossless), `struct ∩ non-list →`
+   the embedded value. Decl-bearing collapse (`{#a:1,5}` keeping `.#a` selectable) is OUT —
+   no scalar carrier; falls through to current behavior. Rule pinned vs cue v0.16.1:
+   `{a:1,5}`→conflict, `{5,5}`→`5`, `{5,6}`→conflict, `{5,"x"}`→conflict, `{"hi"}`→`"hi"`.
+
+   **(B) List comprehension parse + eval.** AST: reuse `Clause Value` (same struct-comp
+   parser — `parseClause`/`parseForClause`/`parseIfClause`) and add ONE Value node
+   `listComprehension (clauses) (body)` stored as a list ITEM (body is the brace-block
+   Value, NOT a struct of fields — list-comp yields one element = body-value per innermost
+   iteration). Parser: `parseListItems` recognizes a `for`/`if` clause head, parses the
+   clause chain + `{body}` via the shared machinery, emits `.listComprehension`. Eval: the
+   `.list`/`.listTail` arms flatten — each item that is a `.listComprehension` expands via a
+   new `expandListClausesWithFuel` (mirrors `expandClausesWithFuel` but collects the
+   evaluated BODY value per iteration into `List Value`, not fields); plain items map to a
+   singleton. Concat preserves order → mixed `[1, for x in xs {x}, 2]` and multi/zero yield
+   fall out. Fuel: new path bumps `truncCount` on its `fuel=0` base (audit #6 saturation
+   invariant — uncounted truncation corrupts via the fuel-saturation cache).
+
 2. **[OUT-OF-SCOPE — already tracked] `for k,v in Self.<embedded-field>` narrowing
    (argocd link 2 / `argocd-secret-data`).** The `w3` repro and `cx_emb_compr` confirm a
    comprehension whose SOURCE is an embedded-arm field doesn't see use-site narrowing. Already

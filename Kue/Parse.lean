@@ -1101,13 +1101,35 @@ mutual
     match skipTrivia chars with
     | ']' :: rest => parseOk (.list items) rest
     | '.' :: '.' :: '.' :: _ => parseListTail items chars
-    | value :: rest =>
-        let chars := value :: rest
-        match parseExpression chars with
+    | trimmed =>
+        match trimmed with
+        | [] => parseError [] "expected ']'"
+        | _ =>
+            -- A `for`/`if` clause head begins a list comprehension item (`[for x in xs {x}]`).
+            -- Parse it with the SAME clause machinery the struct-comprehension form uses; the
+            -- brace-block body value is yielded as list ELEMENTS at eval time. A bare `if`/`for`
+            -- identifier cannot start a plain list expression, so this dispatch is unambiguous.
+            if startsWithWord "for" trimmed || startsWithWord "if" trimmed then
+              match parseListComprehension trimmed with
+              | .error error => .error error
+              | .ok (item, rest) =>
+                  parseListItems (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
+            else
+              match parseExpression trimmed with
+              | .error error => .error error
+              | .ok (item, rest) =>
+                  parseListItems (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
+
+  /-- Parse a list-context comprehension `for…/if… {body}` into a `.listComprehension` item,
+      reusing the shared clause parser. `parseComprehensionClauses` returns the clause chain
+      plus the brace-block body value (the element yielded per innermost iteration). -/
+  partial def parseListComprehension (chars : List Char) : ParseResult Value :=
+    match parseClause chars with
+    | .error error => .error error
+    | .ok (clause, rest) =>
+        match parseComprehensionClauses rest [clause] with
         | .error error => .error error
-        | .ok (item, rest) =>
-            parseListItems (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
-    | [] => parseError [] "expected ']'"
+        | .ok ((clauses, body), rest) => parseOk (.listComprehension clauses body) rest
 
   partial def parseExpressionListUntil
       (terminator : Char)

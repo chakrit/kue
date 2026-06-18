@@ -1473,6 +1473,128 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      fileName := "comprehensions/list_comprehension_for.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x"
+                        (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])]
+                      (.structComp [] [.binary .mul (.ref "x") (.prim (.int 2))] true)]⟩
+              ]
+              true))
+    },
+    {
+      fileName := "comprehensions/list_comprehension_for_index.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn (some "i") "x"
+                        (.list [.prim (.int 10), .prim (.int 20), .prim (.int 30)])]
+                      (.structComp []
+                        [.binary .add
+                          (.binary .mul (.ref "i") (.prim (.int 100)))
+                          (.ref "x")]
+                        true)]⟩
+              ]
+              true))
+    },
+    {
+      fileName := "comprehensions/list_comprehension_for_kv.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn (some "k") "v"
+                        (.struct
+                          [
+                            ⟨"a", .regular, .prim (.int 1)⟩,
+                            ⟨"b", .regular, .prim (.int 2)⟩
+                          ]
+                          true)]
+                      (.structComp [] [.ref "v"] true)]⟩
+              ]
+              true))
+    },
+    {
+      fileName := "comprehensions/list_comprehension_guard_for.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"l", .regular,
+                  .list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)]⟩,
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x" (.ref "l"),
+                       .guard (.binary .gt (.ref "x") (.prim (.int 2)))]
+                      (.structComp [] [.ref "x"] true)]⟩
+              ]
+              true))
+    },
+    {
+      fileName := "comprehensions/list_comprehension_nested.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"xs", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩,
+                ⟨"ys", .regular, .list [.prim (.int 10), .prim (.int 20)]⟩,
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x" (.ref "xs"), .forIn none "y" (.ref "ys")]
+                      (.structComp [] [.binary .add (.ref "x") (.ref "y")] true)]⟩
+              ]
+              true))
+    },
+    {
+      fileName := "comprehensions/list_comprehension_mixed.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"xs", .regular, .list [.prim (.int 5), .prim (.int 6)]⟩,
+                ⟨"out", .regular,
+                  .list
+                    [.prim (.int 1),
+                     .listComprehension
+                       [.forIn none "x" (.ref "xs")]
+                       (.structComp [] [.ref "x"] true),
+                     .prim (.int 2)]⟩
+              ]
+              true))
+    },
+    {
+      fileName := "structs/scalar_embedding_collapse.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [
+                ⟨"a", .regular, .prim (.int 7)⟩,
+                ⟨"out", .regular, .structComp [] [.ref "a"] true⟩
+              ]
+              true))
+    },
+    {
       fileName := "comprehensions/comprehension_loopvar_shadow.expected",
       content :=
         formatTopLevel

@@ -126,6 +126,9 @@ mutual
     | fuel + 1, scopes, .comprehension clauses body =>
         let (resolvedClauses, resolvedBody) := resolveClausesWithFuel fuel scopes clauses body
         .comprehension resolvedClauses resolvedBody
+    | fuel + 1, scopes, .listComprehension clauses body =>
+        let (resolvedClauses, resolvedBody) := resolveClausesWithFuel fuel scopes clauses body
+        .listComprehension resolvedClauses resolvedBody
     | fuel + 1, scopes, .structComp fields comprehensions open_ =>
         let nested := buildFrame fields :: scopes
         .structComp

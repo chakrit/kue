@@ -877,6 +877,7 @@ def valueTag : Value -> UInt64
   | .dynamicField _ _ _ => 27
   | .embeddedList _ _ _ => 28
   | .closure _ _ => 29
+  | .listComprehension _ _ => 30
 
 /--
 A scope frame paired with a process-unique identity. Each frame push allocates a fresh
@@ -1611,6 +1612,25 @@ mutual
         pure (evaluated :: restEvaluated)
   termination_by values => (fuel, 3, values.length)
 
+  /-- Evaluate a list's items, FLATTENING comprehension items. A plain item contributes one
+      element; a `.listComprehension` contributes the zero-or-more elements its clause chain
+      yields. Concatenation preserves source order, so plain elements and comprehensions
+      interleave (`[1, for x in xs {x}, 2]`). -/
+  def evalListItemsWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (visited : List Nat) : List Value -> EvalM (List Value)
+    | [] => pure []
+    | .listComprehension clauses body :: rest => do
+        let head <- expandListClausesWithFuel fuel env clauses body
+        let restEvaluated <- evalListItemsWithFuel fuel env visited rest
+        pure (head ++ restEvaluated)
+    | value :: rest => do
+        let evaluated <- evalValueWithFuel fuel env visited value
+        let restEvaluated <- evalListItemsWithFuel fuel env visited rest
+        pure (evaluated :: restEvaluated)
+  termination_by values => (fuel, 3, values.length)
+
   /-- Cached entry into the evaluator, with fuel-saturation caching.
 
       Lookup order: (1) the fuel-FREE `satCache` — a SATURATED result is fuel-insensitive, so a
@@ -1851,10 +1871,10 @@ mutual
             pure (applyEvaluatedStructPatterns nestedFields evaluatedPatterns open_)
         | none => pure .bottom
     | fuel + 1, .list items => do
-        let evaluated <- evalValuesWithFuel fuel env visited items
+        let evaluated <- evalListItemsWithFuel fuel env visited items
         pure (.list evaluated)
     | fuel + 1, .listTail items tail => do
-        let evaluatedItems <- evalValuesWithFuel fuel env visited items
+        let evaluatedItems <- evalListItemsWithFuel fuel env visited items
         let evaluatedTail <- evalValueWithFuel fuel env visited tail
         pure (.listTail evaluatedItems evaluatedTail)
     | fuel + 1, .comprehension clauses body => do
@@ -2256,6 +2276,61 @@ mutual
         let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
         let head <- expandClausesWithFuel fuel nested rest body
         let tail <- expandForPairsWithFuel fuel env key value rest body pairs
+        pure (head ++ tail)
+  termination_by pairs => (fuel, 3, pairs.length)
+
+  /-- Walk a LIST comprehension's clause chain. Mirrors `expandClausesWithFuel`, but with the
+      clauses exhausted it evaluates the brace-block `body` to a single ELEMENT (`[evaluated]`)
+      rather than emitting the body struct's fields. Guards drop their remaining expansion to
+      `[]` (zero elements); `for` iterates. The `fuel=0` base BUMPS `truncCount` so a
+      fuel-exhausted truncation is COUNTED (audit #6 saturation invariant — an uncounted
+      truncation source corrupts results via the fuel-saturation cache). -/
+  def expandListClausesWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (clauses : List (Clause Value))
+      (body : Value) : EvalM (List Value) := do
+    match fuel with
+    | 0 => do
+        modify (fun state => { state with truncCount := state.truncCount + 1 })
+        pure []
+    | fuel + 1 =>
+        match clauses with
+        | [] => do
+            let evaluatedBody <- evalValueWithFuel fuel env [] body
+            pure [evaluatedBody]
+        | .guard condition :: rest => do
+            let evaluatedCondition <- evalValueWithFuel fuel env [] condition
+            -- Match `expandClausesWithFuel`: a marked-default disjunction collapses to its
+            -- default before the boolean test; a non-default disjunction stays unsatisfied.
+            let testCondition :=
+              match evaluatedCondition with
+              | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
+              | _ => evaluatedCondition
+            match testCondition with
+            | .prim (.bool true) => expandListClausesWithFuel fuel env rest body
+            | _ => pure []
+        | .forIn key value source :: rest => do
+            let evaluatedSource <- evalValueWithFuel fuel env [] source
+            match comprehensionPairs evaluatedSource with
+            | none => pure []
+            | some pairs => expandListForPairsWithFuel fuel env key value rest body pairs
+  termination_by (fuel, 0, 0)
+
+  /-- Per-iteration expansion for a list comprehension `for` clause; concatenates the elements
+      each iteration's remaining chain yields, preserving iteration order. -/
+  def expandListForPairsWithFuel
+      (fuel : Nat)
+      (env : Env)
+      (key : Option String)
+      (value : String)
+      (rest : List (Clause Value))
+      (body : Value) : List (Value × Value) -> EvalM (List Value)
+    | [] => pure []
+    | pair :: pairs => do
+        let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
+        let head <- expandListClausesWithFuel fuel nested rest body
+        let tail <- expandListForPairsWithFuel fuel env key value rest body pairs
         pure (head ++ tail)
   termination_by pairs => (fuel, 3, pairs.length)
 end

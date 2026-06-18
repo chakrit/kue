@@ -454,6 +454,8 @@ def meetCore (left right : Value) : Value :=
   | _, .structComp _ _ _ => .bottom
   | .comprehension _ _, _ => .bottom
   | _, .comprehension _ _ => .bottom
+  | .listComprehension _ _, _ => .bottom
+  | _, .listComprehension _ _ => .bottom
   | .interpolation _, _ => .bottom
   | _, .interpolation _ => .bottom
   | .dynamicField _ _ _, _ => .bottom
@@ -881,6 +883,23 @@ def structHasOutputField (fields : List Field) : Bool :=
 def declFields (fields : List Field) : List Field :=
   fields.filter (fun f => !FieldClass.producesOutput (Field.fieldClass f))
 
+/-- Whether a struct embedding a scalar-ish value collapses to that value (CUE: `{5}`→`5`).
+    Collapses only when the struct has no output member AND no non-output decls — i.e. the
+    collapse is LOSSLESS (there is no scalar carrier for selectable decls, unlike
+    `.embeddedList`; a `{#a:1, 5}` keeping `.#a` selectable is out of scope, falls through to
+    `meetCore` unchanged). `other` is a positive allow-list of fully-evaluated TERMINAL values:
+    a closure/conj/unevaluated form stays inert (`meet closure (struct[])` is bottom, not the
+    closure). Disjunctions are handled by the earlier `.disj` meet arms and never reach here. -/
+def collapsesToScalarEmbed (fields : List Field) (other : Value) : Bool :=
+  !structHasOutputField fields && declFields fields == [] &&
+    (match other with
+     | .prim _ => true
+     | .kind _ => true
+     | .notPrim _ => true
+     | .stringRegex _ => true
+     | .boundConstraint _ _ _ => true
+     | _ => false)
+
 /-- Normalize a list-shaped value to `(items, optional-tail)`: `none` for the
     non-list values, `some` otherwise. `[...]` is `([], some .top)`. -/
 def asListPair : Value -> Option (List Value × Option Value)
@@ -1102,13 +1121,22 @@ def meetWithFuel : Nat -> Value -> Value -> Value
       | some (items, tail) =>
           if structHasOutputField fields then .bottom
           else .embeddedList items tail (declFields fields)
-      | none => meetCore (.struct fields true) listLike
+      | none =>
+          -- A struct with no output member embedding a non-struct scalar IS that scalar
+          -- (CUE: `{5}`→`5`, `{#a:1,5}`→`5`). Collapse only when LOSSLESS — no non-output
+          -- decls to drop (there is no scalar carrier for selectable decls, unlike
+          -- `.embeddedList`); a decl-bearing struct falls through to `meetCore` (conflict),
+          -- unchanged. `value`/`other` cover scalar∩scalar (`{5,6}`→conflict) and struct∩struct.
+          if collapsesToScalarEmbed fields listLike then listLike
+          else meetCore (.struct fields true) listLike
   | listLike, .struct fields _ =>
       match asListPair listLike with
       | some (items, tail) =>
           if structHasOutputField fields then .bottom
           else .embeddedList items tail (declFields fields)
-      | none => meetCore listLike (.struct fields true)
+      | none =>
+          if collapsesToScalarEmbed fields listLike then listLike
+          else meetCore listLike (.struct fields true)
   | value, other => meetCore value other
 
 def meet (left right : Value) : Value :=

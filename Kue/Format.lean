@@ -197,6 +197,8 @@ mutual
         "{" ++ joinWith ", " (declText ++ [listText]) ++ "}"
     | fuel + 1, .comprehension clauses body =>
         joinWith " " (clauses.map (formatClauseWithFuel fuel)) ++ " " ++ formatValueWithFuel fuel body
+    | fuel + 1, .listComprehension clauses body =>
+        joinWith " " (clauses.map (formatClauseWithFuel fuel)) ++ " " ++ formatValueWithFuel fuel body
     | fuel + 1, .structComp fields comprehensions _ =>
         let fieldText := formatStructFieldsWithFuel fuel fields
         let compText := comprehensions.map (formatValueWithFuel fuel)

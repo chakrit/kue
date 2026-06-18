@@ -324,6 +324,33 @@ theorem sat_comprehension_low_fuel_truncates :
     (evalOnceAt 2 satCompTruncValue != evalOnceAt 20 satCompTruncValue) = true := by
   native_decide
 
+/-- THE LIST-COMPREHENSION fuel-truncation source (slice `list-comprehension-parse-eval`). The
+    new `expandListClausesWithFuel` has the SAME `fuel=0` arm as its struct sibling: it DROPS the
+    yielded elements when fuel runs out mid-expansion. It MUST bump `truncCount` there, or a
+    list-comp truncated at low fuel is misclassified SATURATED and cached fuel-free → a higher-fuel
+    request is served the smaller (wrong) list. This `[for x in [1,2,3] {9}]` yields `[]` at fuel 1
+    (truncated) but `[9,9,9]` at fuel 20 (full) — the exact hazard shape. -/
+def satListCompTruncValue : Value :=
+  .list [.listComprehension
+    [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])]
+    (.structComp [] [.prim (.int 9)] true)]
+
+-- SOUNDNESS (list-comp truncation-source corruption): truncates at fuel 1 (`[]`) but expands at
+-- fuel 20 (`[9,9,9]`). Evaluating at fuel 1 first must NOT poison the fuel-20 request via the
+-- fuel-free `satCache`: the fuel-20 reuse must equal the fresh fuel-20 eval, not the fuel-1 stump.
+theorem sat_list_comprehension_truncation_not_served_across_fuel :
+    (let r := evalTwiceAt 1 20 satListCompTruncValue
+     (r.snd.fst == evalOnceAt 20 satListCompTruncValue)
+       && (r.fst != r.snd.fst))
+      = true := by
+  native_decide
+
+-- SOUNDNESS: the fuel-1 list-comp eval really IS truncated (`[]`) vs fuel 20 (`[9,9,9]`) — pins
+-- that the hazard above is genuine, i.e. the new helper's fuel-exhaustion is fuel-sensitive.
+theorem sat_list_comprehension_low_fuel_truncates :
+    (evalOnceAt 1 satListCompTruncValue != evalOnceAt 20 satListCompTruncValue) = true := by
+  native_decide
+
 /-! ### perf-B memo false-share pins (audit 2026-06-18 #5, owed `perfb-soundness-pins`).
 
 The perf-B audit cleared the frame-share + force memos as SOUND but flagged that the 4 existing
@@ -380,6 +407,102 @@ theorem perfb_frame_id_does_not_leak :
      let c2 : Value := .closure [(9, [])] body
      (valueTag c1 == valueTag c2) && (formatValue c1 == formatValue c2))
       = true := by
+  native_decide
+
+/-! ### list-comprehension parse+eval pins (slice `list-comprehension-parse-eval`).
+
+End-to-end behavioral pins over the full list-comprehension surface, each cue v0.16.1-exact (the
+`.expected` strings are the oracle-checked outputs). Parsed-resolved-evaluated-formatted, so a
+regression anywhere in the parser/resolver/eval chain trips them. Paired with the
+fuel-truncation/saturation guards above (`sat_list_comprehension_*`). -/
+
+-- for over a literal list, body uses the loop var.
+theorem listcomp_for_basic :
+    evalSourceMatches "out: [for x in [1, 2, 3] {x * 2}]\n" "out: [2, 4, 6]" = true := by
+  native_decide
+
+-- for-index form: `for i, x in list` binds the 0-based index.
+theorem listcomp_for_index :
+    evalSourceMatches "out: [for i, x in [10, 20, 30] {i*100 + x}]\n" "out: [10, 120, 230]"
+      = true := by
+  native_decide
+
+-- for-k,v over a struct: iterates regular fields, binding key + value.
+theorem listcomp_for_kv_struct :
+    evalSourceMatches "out: [for k, v in {a: 1, b: 2} {v}]\n" "out: [1, 2]" = true := by
+  native_decide
+
+-- if guard mixed with a plain element: order preserved, false guard yields zero.
+theorem listcomp_if_mixed :
+    evalSourceMatches "out: [if true {1}, 2]\n" "out: [1, 2]" = true := by
+  native_decide
+
+theorem listcomp_if_false_zero :
+    evalSourceMatches "out: [if false {42}]\n" "out: []" = true := by
+  native_decide
+
+-- for + if clause chain: the guard filters the iteration.
+theorem listcomp_for_if_chain :
+    evalSourceMatches "l: [1, 2, 3]\nout: [for x in l if x > 1 {x}]\n"
+        "l: [1, 2, 3]\nout: [2, 3]" = true := by
+  native_decide
+
+-- nested for: the outer var is in scope for the inner; flattened in iteration order.
+theorem listcomp_nested_for :
+    evalSourceMatches "xs: [1, 2]\nys: [10, 20]\nout: [for x in xs for y in ys {x + y}]\n"
+        "xs: [1, 2]\nys: [10, 20]\nout: [11, 21, 12, 22]" = true := by
+  native_decide
+
+-- mixed plain elements + comprehension: source order is preserved through the flatten.
+theorem listcomp_mixed_order :
+    evalSourceMatches "xs: [5, 6]\nout: [1, for x in xs {x}, 2]\n"
+        "xs: [5, 6]\nout: [1, 5, 6, 2]" = true := by
+  native_decide
+
+-- empty source yields the empty list (not bottom).
+theorem listcomp_empty_source :
+    evalSourceMatches "out: [for x in [] {x}]\n" "out: []" = true := by
+  native_decide
+
+-- multiple elements yielded per outer iteration (inner for produces >1 each).
+theorem listcomp_multi_yield :
+    evalSourceMatches "out: [for x in [1, 2] for y in [x, x*10] {y}]\n" "out: [1, 10, 2, 20]"
+      = true := by
+  native_decide
+
+-- struct-valued body element (body has a field, so the element IS that struct).
+theorem listcomp_struct_body :
+    evalSourceMatches "out: [for x in [1, 2] {a: x}]\n" "out: [{a: 1}, {a: 2}]" = true := by
+  native_decide
+
+/-! ### scalar struct-embedding collapse pins (root prerequisite for list comprehensions).
+
+A struct with no output field embedding a non-struct value IS that value (CUE: `{5}`→`5`). cue
+v0.16.1-exact; collapse only when LOSSLESS (no output field). -/
+
+-- bare scalar literal collapses; a ref-embedding collapses to the resolved scalar.
+theorem scalar_embed_collapse_ref :
+    evalSourceMatches "a: 7\nout: {a}\n" "a: 7\nout: 7" = true := by
+  native_decide
+
+-- a struct-embedding of a list element collapses each element (the `[{5},{6}]` shape).
+theorem scalar_embed_collapse_in_list :
+    evalSourceMatches "out: [{5}, {6}]\n" "out: [5, 6]" = true := by
+  native_decide
+
+-- an output field PLUS a scalar embedding conflicts (mismatched struct/scalar) — NOT collapsed.
+theorem scalar_embed_with_output_field_conflicts :
+    evalSourceMatches "out: {a: 1, 5}\n" "out: _|_" = true := by
+  native_decide
+
+-- two equal scalar embeddings unify to the scalar; the collapse is idempotent.
+theorem scalar_embed_two_equal :
+    evalSourceMatches "out: {5, 5}\n" "out: 5" = true := by
+  native_decide
+
+-- two distinct scalar embeddings conflict (`5 & 6`).
+theorem scalar_embed_two_distinct_conflicts :
+    evalSourceMatches "out: {5, 6}\n" "out: _|_" = true := by
   native_decide
 
 theorem eval_additive_expressions :

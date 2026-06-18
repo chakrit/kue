@@ -105,6 +105,7 @@ mutual
         | .ok items => .ok (.list items)
         | .error error => .error error
     | _ + 1, .comprehension clauses body => .error (.incomplete (.comprehension clauses body))
+    | _ + 1, .listComprehension clauses body => .error (.incomplete (.listComprehension clauses body))
     | _ + 1, .structComp fields comprehensions open_ =>
         .error (.incomplete (.structComp fields comprehensions open_))
     | _ + 1, .interpolation parts => .error (.incomplete (.interpolation parts))

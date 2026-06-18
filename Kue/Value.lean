@@ -509,6 +509,15 @@ inductive Value where
   | embeddedList (items : List Value) (tail : Option Value) (decls : List Field)
   | comprehension (clauses : List (Clause Value)) (body : Value)
   | structComp (fields : List Field) (comprehensions : List Value) (open_ : Bool)
+  /--
+  A list-context comprehension, stored as a list ITEM (in `.list`/`.listTail`). It shares
+  the `Clause Value` chain with the struct-comprehension forms, but `body` is the
+  brace-block VALUE yielded as one list ELEMENT per innermost iteration (not a struct of
+  fields to merge). The enclosing list's eval arm flattens each `.listComprehension` item
+  into the zero-or-more elements it produces, preserving source order so plain items and
+  comprehensions interleave (`[1, for x in xs {x}, 2]`).
+  -/
+  | listComprehension (clauses : List (Clause Value)) (body : Value)
   | interpolation (parts : List Value)
   | dynamicField (label : Value) (fieldClass : FieldClass) (value : Value)
   /--

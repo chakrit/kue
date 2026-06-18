@@ -6863,3 +6863,74 @@ only in error-message text (kue "multiple non-default disjuncts" vs cue "incompl
 kue's parser ACCEPTS it and mis-desugars to `*1 | 2`. Pre-existing parser laxity, unrelated to
 the mark algebra (the legitimate ref form `*d` where `d:1|2` is correct). Logged for an
 eventual parser-strictness pass, not sliced here.
+
+---
+
+## Completed Slice: list-comprehension-parse-eval
+
+List comprehensions (`[for x in xs {…}]`, `[if cond {…}]`, `[for k, v in m {…}]`) were a HARD
+PARSE ERROR — `parseListItems` had no `for`/`if` clause handling. Filed HIGH basic-case gap
+(audit #9 finding 1, `9915d21`). This slice landed the full LIST comprehension surface, plus its
+root prerequisite (scalar struct-embedding collapse). cue v0.16.1-exact across the whole surface.
+
+### Root prerequisite: scalar struct-embedding collapse (`Lattice.lean`)
+
+A CUE list-comp body is a `StructLit { … }`; the yielded element is that literal's VALUE. `[for x
+in [1,2] {x}]` → `{x}` is a struct embedding the scalar `x`, which CUE collapses to the scalar
+(`{5}`→`5`, `[{5},{6}]`→`[5,6]`). kue produced `bottom` — the embedding rule handled `struct ∩ list
+→ embeddedList` but NOT `struct ∩ scalar → scalar`. Fix: extended the two `.struct fields _, …`
+`meet` arms — when a struct has NO output field AND no non-output decls (`collapsesToScalarEmbed`,
+i.e. the collapse is LOSSLESS — no scalar carrier for selectable decls), `struct ∩ <terminal>` IS
+the embedded value. `<terminal>` is a positive allow-list (`prim`/`kind`/`notPrim`/`stringRegex`/
+`boundConstraint`) so a closure/conj/unevaluated form stays inert (`meet closure (struct[])` stays
+bottom — pins `closure_meet_bottom`). Disjunction embeds are handled by the earlier `.disj` meet
+arms; `top`/`bottom` by identity/absorption. Rule pinned vs cue: `{a:1,5}`→conflict, `{5,5}`→`5`,
+`{5,6}`→conflict, `{5,"x"}`→conflict, `{"hi"}`→`"hi"`, `{int}`→incomplete.
+
+### List comprehension parse + eval
+
+- **AST (`Value.lean`):** added ONE node `listComprehension (clauses : List (Clause Value)) (body :
+  Value)`, stored as a list ITEM. Reuses the existing `Clause Value` chain (one comprehension-clause
+  representation, two body contexts — illegal-states-unrepresentable). `body` is the brace-block
+  VALUE yielded as one element per innermost iteration (NOT a struct of fields to merge).
+- **Parser (`Parse.lean`):** `parseListItems` dispatches on a `for`/`if` clause head to new
+  `parseListComprehension`, which reuses `parseClause` + `parseComprehensionClauses` (the SAME
+  machinery the struct form uses; the body is the `{…}` block value). A bare `for`/`if` cannot start
+  a plain list expression, so dispatch is unambiguous.
+- **Resolve (`Resolve.lean`):** added a `.listComprehension` arm to `resolveValueWithFuel` mirroring
+  `.comprehension` (via `resolveClausesWithFuel`). WITHOUT this the source/guard/body refs and the
+  loop-var scope were never resolved to `.refId` (the catch-all silently passed them through), so
+  refs failed at eval — this was the load-bearing wiring (a bare `[for x in [1,2,3] {x}]` bottomed
+  until added).
+- **Eval (`Eval.lean`):** `.list`/`.listTail` arms now flatten via new `evalListItemsWithFuel` —
+  each `.listComprehension` item expands via `expandListClausesWithFuel` (mirrors
+  `expandClausesWithFuel`, but collects the evaluated BODY value per iteration into `List Value`,
+  not fields); plain items map to a singleton; concat preserves order → mixed `[1, for x in xs {x},
+  2]` and multi/zero-yield fall out. The new `fuel=0` base BUMPS `truncCount` (audit #6 saturation
+  invariant — an uncounted truncation source corrupts via the fuel-free `satCache`).
+- **Totality fan-out:** `.listComprehension` arms added to `Format`, `Manifest` (→ incomplete),
+  `meetCore` (→ bottom; never reached in practice — list-comp lives only inside list items), and
+  `valueTag` (tag 30).
+
+### Behavior preservation + tests
+
+Every existing fixture byte-identical (`fixture pairs ok`). 7 new fixture pairs (6
+`comprehensions/list_comprehension_*`, 1 `structs/scalar_embedding_collapse`) + `FixturePorts`
+entries. 18 new `native_decide` pins in `EvalTests.lean`: 11 list-comp behavioral (for /
+for-index / for-k,v / if / if-false-zero / for+if / nested / mixed-order / empty / multi-yield /
+struct-body), 5 scalar-embedding (ref collapse, in-list collapse, output-field-conflict,
+two-equal-unify, two-distinct-conflict), and 2 fuel-truncation/saturation guards
+(`sat_list_comprehension_truncation_not_served_across_fuel` — fuel-1 `[]` must not poison fuel-20
+`[9,9,9]` via the fuel-free cache — and `sat_list_comprehension_low_fuel_truncates`). Oracle: the
+full surface byte-matches `cue` v0.16.1 in BOTH JSON and YAML (26/26 across 13 cases).
+
+### Real-app re-probe
+
+cert-manager: content-identical to cue (`jq -S`), modulo the tracked field-ordering #3 — NO
+regression (~28s, single-pass). argocd: still bottoms (~92s) on the SAME link-2 struct-comp
+narrowing (`for k,v in Self.#data` into an embedded default arm) — NOT moved by this slice (a LIST
+form). But: list comprehensions in argocd's transitive deps (stage9, rabbitmq, plane) now PARSE
+cleanly (a whole class of parse errors eliminated repo-wide), and the link-3 list-guard shape (`[if
+#a != _|_ {name: #a}]` with use-site narrowing) is byte-exact in isolation — the language-level
+capability link 3 needs is in place; it is just not independently reachable while argocd bottoms
+earlier on link 2.
