@@ -92,13 +92,23 @@ mutual
     | fuel + 1, .guard condition =>
         .guard (normalizeDefinitionValueWithFuel fuel condition)
 
+  /-- Field handler. A DEFINITION field's body is closed (recursively) — its own closedness
+      declaration. A regular/optional/required field's value recurses with the SPINE walker, which
+      PRESERVES the field's own openness (an instantiated regular struct stays open — cue keeps
+      `(#D & {}).r` open) while still closing any nested `#Def` reached inside it (gap-1: a `#Def`
+      under a regular field, `a.#Inner`, is now closed). Hidden fields are import-package bindings
+      (`Module.lean`) left UNTOUCHED so a bound package stays cue-lazy — recursing them re-closes
+      unreferenced nested defs and re-bottoms cert-manager/argocd (the A2 trap; this is what
+      decouples B6 from A2-followup). `let` bindings are non-output, left as-is. -/
   def normalizeFieldWithFuel : Nat -> Field -> Field
     | 0, field => field
     | fuel + 1, field =>
         if FieldClass.isDefinition (Field.fieldClass field) then
           ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
-        else
+        else if FieldClass.isHidden (Field.fieldClass field) || Field.fieldClass field == .letBinding then
           field
+        else
+          ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
 
   def normalizeDefinitionsWithFuel : Nat -> Value -> Value
     | 0, value => value

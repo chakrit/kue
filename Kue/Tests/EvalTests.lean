@@ -1118,5 +1118,34 @@ theorem eval_pattern_struct_constraint_conflict_bottoms_field :
       = true := by
   native_decide
 
+/-! ### B6 — definition-body closedness enforced through a regular field (gap 1).
+
+A closed `#Def` nested under a REGULAR field reaches the use-site meet still closed, so an
+undeclared field is rejected. Pre-B6 `normalizeFieldWithFuel` left a regular field's value
+unwalked, so the nested def stayed open and admitted the extra. Oracle: cue v0.16.1 reports
+`out.extra: field not allowed` for the closed form and admits `extra` when the def is opened via
+`...`. The eager-selector form (`x.#Inner`, gap 2) is the SAME root cause — once normalize closes
+the def, the eager selector returns the closed body and the existing meet enforces it. -/
+theorem eval_closed_def_under_regular_field_rejects_extra :
+    evalSourceMatches
+        "a: {\n\t#Inner: {x: int}\n}\nout: a.#Inner & {x: 1, extra: 2}\n"
+        "a: {#Inner: {x: int}}\nout: {x: 1, extra: _|_}"
+      = true := by
+  native_decide
+
+theorem eval_eager_selector_closed_def_rejects_extra :
+    evalSourceMatches
+        "x: {#Inner: {y: int}}\nout: x.#Inner & {y: 1, extra: 3}\n"
+        "x: {#Inner: {y: int}}\nout: {y: 1, extra: _|_}"
+      = true := by
+  native_decide
+
+theorem eval_open_def_under_regular_field_admits_extra :
+    evalSourceMatches
+        "a: {\n\t#Inner: {x: int, ...}\n}\nout: a.#Inner & {x: 1, extra: 2}\n"
+        "a: {#Inner: {x: int, ...}}\nout: {x: 1, extra: 2, ...}"
+      = true := by
+  native_decide
+
 
 end Kue

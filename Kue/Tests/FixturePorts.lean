@@ -431,6 +431,33 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval (.struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none []))
     },
     {
+      -- B6 gap-1: a closed `#Def` nested under a REGULAR field. Selecting it (`a.#Inner`) and
+      -- meeting an undeclared `extra` must REJECT `extra` (cue v0.16.1: `out.extra: field not
+      -- allowed`). Pre-B6 `normalizeFieldWithFuel` left a regular field's value unwalked, so
+      -- `#Inner` reached the meet still open and admitted `extra`.
+      fileName := "definitions/nested_def_under_regular_field.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct [
+                ⟨"a", .regular, .struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []⟩,
+                ⟨"out", .regular, .conj [.selector (.ref "a") "#Inner", .struct [⟨"x", .regular, .prim (.int 1)⟩, ⟨"extra", .regular, .prim (.int 2)⟩] .regularOpen none []]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- B6 no-over-close guard: the same shape but the nested def is OPEN via `...`
+      -- (`#Inner: {x:int, ...}`). cue admits `extra` (and Kue must too — the spine walker leaves
+      -- a `defOpenViaTail` body open). Ensures gap-1 closes only genuinely-closed defs.
+      fileName := "definitions/nested_def_open_under_regular_field.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct [
+                ⟨"a", .regular, .struct [⟨"#Inner", .definition, .struct [⟨"x", .regular, .kind .int⟩] (.defOpenViaTail) (some .top) []⟩] .regularOpen none []⟩,
+                ⟨"out", .regular, .conj [.selector (.ref "a") "#Inner", .struct [⟨"x", .regular, .prim (.int 1)⟩, ⟨"extra", .regular, .prim (.int 2)⟩] .regularOpen none []]⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "refs/direct_self_reference.expected",
       content := formatTopLevel (resolveAndEval (.struct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))
     },
