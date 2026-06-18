@@ -505,6 +505,38 @@ theorem scalar_embed_two_distinct_conflicts :
     evalSourceMatches "out: {5, 6}\n" "out: _|_" = true := by
   native_decide
 
+/-! ### empty/decl-free struct ∩ scalar is a CONFLICT, not a collapse (audit #10 V1).
+
+The `{5}`→`5` collapse lives in embed-eval (`meetEmbeddingsWithFuel`), where the host is KNOWN
+to embed a scalar — NOT in `meet`, which cannot tell an empty struct `{}` from `{5}`'s residual
+`.struct []`. A genuine struct ∩ scalar must conflict (cue v0.16.1: mismatched types). Before the
+fix these all wrongly collapsed to the scalar. -/
+
+-- empty struct meeting a scalar conflicts (was wrongly `5`). cue: mismatched types struct/int.
+theorem empty_struct_meet_scalar_conflicts :
+    evalSourceMatches "out: {} & 5\n" "out: _|_" = true := by
+  native_decide
+
+-- order-independent: scalar on the left conflicts too.
+theorem scalar_meet_empty_struct_conflicts :
+    evalSourceMatches "out: 5 & {}\n" "out: _|_" = true := by
+  native_decide
+
+-- empty struct ∩ string conflicts (the absorb bug was not int-specific).
+theorem empty_struct_meet_string_conflicts :
+    evalSourceMatches "out: {} & \"s\"\n" "out: _|_" = true := by
+  native_decide
+
+-- empty struct ∩ bool conflicts.
+theorem empty_struct_meet_bool_conflicts :
+    evalSourceMatches "out: true & {}\n" "out: _|_" = true := by
+  native_decide
+
+-- two field decls — `out:{}` then `out:5` — unify via meet and conflict (the broad basic shape).
+theorem field_struct_then_scalar_conflicts :
+    evalSourceMatches "out: {}\nout: 5\n" "out: _|_" = true := by
+  native_decide
+
 theorem eval_additive_expressions :
     formatTopLevel
       (resolveAndEval

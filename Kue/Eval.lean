@@ -2160,17 +2160,36 @@ mutual
                   forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
                 meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest
             | _ =>
-                -- A non-closure embedding (a plain struct, a same-package def ref) is OPENED
-                -- before the meet: an embedding UNIONS its labels into the host's allowed set
-                -- but never imposes its OWN closedness on the host (CUE rule, see
-                -- `openStructValue`). Without this, embedding a closed struct `{pval}` into a
-                -- host carrying `x` makes the closed embed reject `x` → `.bottom`. The host's
-                -- closedness over `def ∪ embed` labels is re-applied by the caller
-                -- (`meetEmbeddingsClosingOver`). An embedded DEFAULT disjunction collapses to
-                -- its default arm first (`resolveEmbeddedDisjDefault`), so its fields merge as
-                -- regular host fields (a sibling `Self.a` then resolves).
-                meetEmbeddingsWithFuel (nextFuel + 1) env
-                  (meet current (openStructValue (resolveEmbeddedDisjDefault evaluated))) rest
+                let resolved := resolveEmbeddedDisjDefault evaluated
+                -- Scalar-embedding collapse (`{5}`→`5`), done HERE where the host struct is KNOWN
+                -- to be EMBEDDING a scalar — not reconstructed at meet time, where an empty struct
+                -- `{}` is indistinguishable from `{5}`'s residual `.struct []` and would wrongly
+                -- absorb any scalar an empty/decl-free struct meets (`{} & 5` must be a conflict,
+                -- not `5`). Collapse only when LOSSLESS — the host has no output field and no
+                -- non-output decl to drop (`collapsesToScalarEmbed`) — and the embedding resolved
+                -- to a TERMINAL scalar. List comprehensions rely on this (`[{x} for…]`'s body is a
+                -- struct embedding a scalar that must collapse to the element). The fold continues
+                -- with the scalar as `current`, so a second equal embedding (`{5,5}`) unifies via
+                -- the plain `meet` below and a distinct one (`{5,6}`) conflicts.
+                match current with
+                | .struct fields _ =>
+                    if collapsesToScalarEmbed fields resolved then
+                      meetEmbeddingsWithFuel (nextFuel + 1) env resolved rest
+                    else
+                      -- A non-closure embedding (a plain struct, a same-package def ref) is OPENED
+                      -- before the meet: an embedding UNIONS its labels into the host's allowed set
+                      -- but never imposes its OWN closedness on the host (CUE rule, see
+                      -- `openStructValue`). Without this, embedding a closed struct `{pval}` into a
+                      -- host carrying `x` makes the closed embed reject `x` → `.bottom`. The host's
+                      -- closedness over `def ∪ embed` labels is re-applied by the caller
+                      -- (`meetEmbeddingsClosingOver`). An embedded DEFAULT disjunction collapses to
+                      -- its default arm first (`resolveEmbeddedDisjDefault`), so its fields merge as
+                      -- regular host fields (a sibling `Self.a` then resolves).
+                      meetEmbeddingsWithFuel (nextFuel + 1) env
+                        (meet current (openStructValue resolved)) rest
+                | _ =>
+                    meetEmbeddingsWithFuel (nextFuel + 1) env
+                      (meet current (openStructValue resolved)) rest
   termination_by embeddings => (fuel, 3, embeddings.length)
 
   /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct

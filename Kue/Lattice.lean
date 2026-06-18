@@ -1122,21 +1122,19 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           if structHasOutputField fields then .bottom
           else .embeddedList items tail (declFields fields)
       | none =>
-          -- A struct with no output member embedding a non-struct scalar IS that scalar
-          -- (CUE: `{5}`→`5`, `{#a:1,5}`→`5`). Collapse only when LOSSLESS — no non-output
-          -- decls to drop (there is no scalar carrier for selectable decls, unlike
-          -- `.embeddedList`); a decl-bearing struct falls through to `meetCore` (conflict),
-          -- unchanged. `value`/`other` cover scalar∩scalar (`{5,6}`→conflict) and struct∩struct.
-          if collapsesToScalarEmbed fields listLike then listLike
-          else meetCore (.struct fields true) listLike
+          -- A genuine struct ∩ scalar is a type conflict (CUE: `{} & 5` → mismatched types).
+          -- The `{5}`→`5` scalar-embedding collapse does NOT live here: at meet time an empty
+          -- struct `{}` and the residual `.struct []` of `{5}` are indistinguishable, so a meet
+          -- rule cannot tell an embedded scalar from a plain struct∩scalar conflict. The collapse
+          -- is done where the provenance is known — `meetEmbeddingsWithFuel` (embed-eval).
+          meetCore (.struct fields true) listLike
   | listLike, .struct fields _ =>
       match asListPair listLike with
       | some (items, tail) =>
           if structHasOutputField fields then .bottom
           else .embeddedList items tail (declFields fields)
       | none =>
-          if collapsesToScalarEmbed fields listLike then listLike
-          else meetCore listLike (.struct fields true)
+          meetCore listLike (.struct fields true)
   | value, other => meetCore value other
 
 def meet (left right : Value) : Value :=
