@@ -43,14 +43,18 @@ mutual
             -- A HIDDEN/definition present field (`#u: v`, `_u: v`) carrying an EXPLICIT, SHALLOW
             -- bottom bottoms the enclosing struct (cue: `{#u: _|_}` → explicit error). But the value
             -- is OMITTED from output, so we must NOT recurse into it: an imported-package binding is
-            -- bound as a hidden field whose package value contains `tests`/unreferenced definitions
-            -- with their own (unreached) conflicts — cue never manifests those, and a deep recurse
-            -- here spuriously bottomed the whole export (the cert-manager regression: `defs`/`parts`
+            -- bound (by `bindImports`) as a hidden field whose package value contains unreferenced
+            -- regular/definition fields with their own (unreached) conflicts — cue is LAZY on all
+            -- such unreferenced imported content and never manifests it. A deep/output-spine recurse
+            -- here spuriously bottoms the whole export (the cert-manager regression: `defs`/`parts`
             -- bindings carry an `attr.#ExecProbe` test whose `#command` conflicts in isolation).
-            -- cue only surfaces a bottom from a hidden field reached in the SELECTED value; an
-            -- unreferenced nested definition/package is not. A shallow `isBottom` check matches the
-            -- argocd arm-kill need at EVAL time (`liveAlternatives`/`fieldBottomCounts` prunes the
-            -- impossible-field arm); the standalone hidden-bottom export is the explicit-`_|_` case.
+            -- The reached-vs-unreferenced predicate cannot be reconstructed locally at manifest:
+            -- cue's laziness tracks output-reachability (referenced via `pkg.#X`), NOT field class —
+            -- an explicit `_|_` literal in an UNREFERENCED imported field is just as lazy as a
+            -- derived conflict (verified, cue v0.16.1). Distinguishing an import binding from a real
+            -- in-file `#u` needs a representation marker on the binding (filed as A2-followup). Until
+            -- then the SHALLOW `isBottom` is the SOUND check (never a false error → no regression);
+            -- it catches `{#u: _|_}` but knowingly misses `{#u: {x: _|_}}` (tracked divergence).
             if isBottom (Field.value field) then .error .contradiction
             else manifestFieldsWithFuel fuel fields
         | .field _ _ .optional => manifestFieldsWithFuel fuel fields
