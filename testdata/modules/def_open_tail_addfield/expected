@@ -1,0 +1,8 @@
+{
+    "out": {
+        "port": 8080,
+        "added": "extra",
+        "positive": true,
+        "kind": "Service"
+    }
+}

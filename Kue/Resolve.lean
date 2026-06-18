@@ -129,12 +129,12 @@ mutual
     | fuel + 1, scopes, .listComprehension clauses body =>
         let (resolvedClauses, resolvedBody) := resolveClausesWithFuel fuel scopes clauses body
         .listComprehension resolvedClauses resolvedBody
-    | fuel + 1, scopes, .structComp fields comprehensions open_ =>
+    | fuel + 1, scopes, .structComp fields comprehensions open_ hasTail =>
         let nested := buildFrame fields :: scopes
         .structComp
           (fields.map (resolveFieldRefsWithFuel fuel nested))
           (comprehensions.map (resolveValueWithFuel fuel nested))
-          open_
+          open_ hasTail
     | fuel + 1, scopes, .interpolation parts =>
         .interpolation (parts.map (resolveValueWithFuel fuel scopes))
     | fuel + 1, scopes, .dynamicField label fieldClass value =>
@@ -171,12 +171,12 @@ def resolveStructRefs : Value -> Value
             resolveValueWithFuel resolveFuel scopes pattern.snd
           ))
         open_
-  | .structComp fields comprehensions open_ =>
+  | .structComp fields comprehensions open_ hasTail =>
       let scopes := [buildFrame fields]
       .structComp
         (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
         (comprehensions.map (resolveValueWithFuel resolveFuel scopes))
-        open_
+        open_ hasTail
   | value => value
 
 end Kue

@@ -305,7 +305,7 @@ def satCompTruncValue : Value :=
   .structComp []
     [.comprehension [.guard (.prim (.bool true))]
       (.struct [⟨"x", .regular, .prim (.int 1)⟩] true)]
-    true
+    true false
 
 -- SOUNDNESS (third-truncation-source corruption): the comprehension truncates at fuel 2
 -- (`{}`) but expands at fuel 20 (`{x:1}`). Evaluating at fuel 2 first must NOT poison the fuel-20
@@ -333,7 +333,7 @@ theorem sat_comprehension_low_fuel_truncates :
 def satListCompTruncValue : Value :=
   .list [.listComprehension
     [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])]
-    (.structComp [] [.prim (.int 9)] true)]
+    (.structComp [] [.prim (.int 9)] true false)]
 
 -- SOUNDNESS (list-comp truncation-source corruption): truncates at fuel 1 (`[]`) but expands at
 -- fuel 20 (`[9,9,9]`). Evaluating at fuel 1 first must NOT poison the fuel-20 request via the
@@ -393,6 +393,38 @@ theorem perfb_closed_vs_open_distinct_values :
     evalSourceMatches
         "#C: {x: int}\nR: {x: int, ...}\nclosed: (#C & {x: 1})\nrejects: (#C & {x: 1, y: 2})\nopen: (R & {x: 1, y: 2})\n"
         "#C: {x: int}\nR: {x: int, ...}\nclosed: {x: 1}\nrejects: {x: 1, y: _|_}\nopen: {x: 1, y: 2, ...}"
+          = true := by
+  native_decide
+
+-- FIX-SLICE-0 (def-open-tail-closedness, audit `fc25a71`). The COMPREHENSION/EMBED `.structComp`
+-- path's openness, end-to-end. An OPEN def (`...`) carrying an embed + an `if`-guard admits a field
+-- the use site ADDS past `...` — pre-fix the parser collapse dropped the `...` and normalize
+-- hard-closed the `.structComp` arm, so `added` bottomed (cue accepts it). The fix records
+-- `...`-presence (`hasTail`) on `.structComp` and normalize sets the def body's openness from it.
+theorem fix0_open_def_embed_comp_admits_added_field :
+    evalSourceMatches
+        "#Base: {kind: \"S\"}\n#D: {#Base, port: int, if port > 0 {pos: true}, ...}\nout: #D & {port: 8080, added: \"x\"}\n"
+        "#Base: {kind: \"S\"}\n#D: {port: int, kind: \"S\"}\nout: {port: 8080, added: \"x\", pos: true, kind: \"S\"}"
+          = true := by
+  native_decide
+
+-- FIX-SLICE-0 NO-OVER-OPEN: the SAME embed+comprehension shape WITHOUT `...` is a CLOSED def — the
+-- added field REJECTS (`added: _|_`), matching cue's `field not allowed`. Pins that honoring
+-- `hasTail` does not open a genuinely-closed def (the over-open failure mode).
+theorem fix0_closed_def_embed_comp_rejects_added_field :
+    evalSourceMatches
+        "#Base: {kind: \"S\"}\n#D: {#Base, port: int, if port > 0 {pos: true}}\nout: #D & {port: 8080, added: \"x\"}\n"
+        "#Base: {kind: \"S\"}\n#D: {port: int, kind: \"S\"}\nout: {port: 8080, added: _|_, pos: true, kind: \"S\"}"
+          = true := by
+  native_decide
+
+-- FIX-SLICE-0 REGULAR NON-DEF: a plain comprehension struct (no def, no `...`) stays OPEN — adding a
+-- field is admitted (cue: regular structs are open by default). Pins that the parser's `hasTail`
+-- change does not close regular `.structComp` values, which never pass through normalize.
+theorem fix0_regular_comp_struct_stays_open :
+    evalSourceMatches
+        "x: {a: 1, if true {b: 9}}\nout: x & {c: 2}\n"
+        "x: {a: 1, b: 9}\nout: {a: 1, b: 9, c: 2}"
           = true := by
   native_decide
 
@@ -939,7 +971,7 @@ theorem eval_comprehension_for_keyed_over_struct :
               [.forIn (some "k") "v" (.struct [⟨"x", .regular, .prim (.int 1)⟩] true)]
               (.struct [⟨"key", .regular, .ref "k"⟩, ⟨"val", .regular, .ref "v"⟩] true)
           ]
-          true))
+          true false))
       == .struct [⟨"key", .regular, .prim (.string "x")⟩, ⟨"val", .regular, .prim (.int 1)⟩] true)
       = true := by
   native_decide
@@ -954,7 +986,7 @@ theorem eval_comprehension_for_over_list :
               [.forIn none "v" (.list [.prim (.int 42)])]
               (.struct [⟨"only", .regular, .ref "v"⟩] true)
           ]
-          true))
+          true false))
       == .struct [⟨"only", .regular, .prim (.int 42)⟩] true) = true := by
   native_decide
 
@@ -964,7 +996,7 @@ theorem eval_comprehension_if_true_admits :
         (.structComp
           []
           [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"flag", .regular, .prim (.bool true)⟩] true)]
-          true))
+          true false))
       == .struct [⟨"flag", .regular, .prim (.bool true)⟩] true) = true := by
   native_decide
 
@@ -974,7 +1006,7 @@ theorem eval_comprehension_if_false_drops :
         (.structComp
           []
           [.comprehension [.guard (.prim (.bool false))] (.struct [⟨"hidden", .regular, .prim (.int 1)⟩] true)]
-          true))
+          true false))
       == .struct [] true) = true := by
   native_decide
 
@@ -984,7 +1016,7 @@ theorem eval_comprehension_body_sees_sibling_field :
         (.structComp
           [⟨"base", .regular, .prim (.int 7)⟩]
           [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"copy", .regular, .ref "base"⟩] true)]
-          true))
+          true false))
       == .struct [⟨"base", .regular, .prim (.int 7)⟩, ⟨"copy", .regular, .prim (.int 7)⟩] true)
       = true := by
   native_decide
@@ -995,7 +1027,7 @@ theorem eval_comprehension_for_source_sees_sibling_field :
         (.structComp
           [⟨"k", .regular, .prim (.int 3)⟩]
           [.comprehension [.forIn none "v" (.list [.ref "k"])] (.struct [⟨"g", .regular, .ref "v"⟩] true)]
-          true))
+          true false))
       == .struct [⟨"k", .regular, .prim (.int 3)⟩, ⟨"g", .regular, .prim (.int 3)⟩] true)
       = true := by
   native_decide
@@ -1047,7 +1079,7 @@ theorem eval_comprehension_guard_negated_default_disj_admits :
              .structComp []
                [.comprehension [.guard (.unary .boolNot (.ref "x"))]
                  (.struct [⟨"y", .regular, .prim (.int 1)⟩] true)]
-               true⟩]
+               true false⟩]
           true))
       == .struct
         [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
@@ -1065,7 +1097,7 @@ theorem eval_comprehension_guard_direct_default_disj_admits :
              .structComp []
                [.comprehension [.guard (.ref "x")]
                  (.struct [⟨"y", .regular, .prim (.int 1)⟩] true)]
-               true⟩]
+               true false⟩]
           true))
       == .struct
         [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
@@ -1086,7 +1118,7 @@ theorem eval_comprehension_guard_non_default_disj_drops :
              .structComp []
                [.comprehension [.guard (.ref "x")]
                  (.struct [⟨"y", .regular, .prim (.int 1)⟩] true)]
-               true⟩]
+               true false⟩]
           true))
       == .struct
         [⟨"x", .regular,
@@ -1705,7 +1737,7 @@ theorem closure_producer_comprehension_guard_self_ref_detected :
         (.struct [⟨"#staging", .definition, .kind .bool⟩,
                   ⟨"spec", .regular,
                     .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)]
-                      (.struct [⟨"server", .regular, .prim (.string "x")⟩] true)] true⟩] true)) = true := by
+                      (.struct [⟨"server", .regular, .prim (.string "x")⟩] true)] true false⟩] true)) = true := by
   native_decide
 
 /-! ### slice 4 (closure-meet) — splice the use-site struct into the forced def body
@@ -1816,7 +1848,7 @@ theorem closure_producer_detects_structcomp_sibling :
     (defBodyHasSiblingSelfRef
         (.structComp [⟨"#x", .definition, .kind .string⟩,
                       ⟨"spec", .regular, .refId ⟨0, 1⟩⟩]
-                     [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] true] true)) = true := by
+                     [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] true] true false)) = true := by
   native_decide
 
 /-- A.1 GATE companion: a `.structComp` whose self-ref lives in the EMBEDDING (not the static
@@ -1824,7 +1856,7 @@ theorem closure_producer_detects_structcomp_sibling :
 theorem closure_producer_detects_structcomp_embedding_sibling :
     (defBodyHasSiblingSelfRef
         (.structComp [⟨"#x", .definition, .kind .string⟩]
-                     [.refId ⟨0, 0⟩] true)) = true := by
+                     [.refId ⟨0, 0⟩] true false)) = true := by
   native_decide
 
 /-- A.2 FORCE `.structComp`: `parts.#Def & {#x: "hello"}` where `#Def` embeds a literal struct
@@ -1834,7 +1866,7 @@ theorem closure_producer_detects_structcomp_embedding_sibling :
 private def embedDefBody : Value :=
   .structComp [⟨"#x", .definition, .kind .string⟩,
                ⟨"spec", .regular, .refId ⟨0, 0⟩⟩]
-              [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] true] true
+              [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] true] false false
 
 theorem closure_meet_structcomp_embed_splices :
     (runEval (evalValueWithFuel evalFuel
@@ -1927,7 +1959,7 @@ theorem close_embedded_over_unions_allowed_labels :
 theorem eager_structcomp_embed_closed_keeps_host_field :
     (runEval (evalValueWithFuel evalFuel [] []
         (.structComp [⟨"x", .regular, .prim (.string "z")⟩]
-                     [.struct [⟨"pval", .regular, .prim (.string "p")⟩] false] true))
+                     [.struct [⟨"pval", .regular, .prim (.string "p")⟩] false] true false))
       == .struct [⟨"x", .regular, .prim (.string "z")⟩,
                   ⟨"pval", .regular, .prim (.string "p")⟩] true) = true := by
   native_decide
@@ -1946,7 +1978,7 @@ private def chainOuterBody : Value :=
      ⟨"oname", .regular, .refId ⟨0, 0⟩⟩]
     [.conj [.refId ⟨1, 0⟩,
             .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] true]]
-    true
+    false false
 
 private def chainEnv : Env :=
   [(7, [⟨"#Inner", .definition, chainInnerBody⟩,
@@ -1983,7 +2015,7 @@ private def chainConflictOuterBody : Value :=
      ⟨"iname", .regular, .prim (.string "fixed")⟩]
     [.conj [.refId ⟨1, 0⟩,
             .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] true]]
-    true
+    false false
 
 private def chainConflictEnv : Env :=
   [(7, [⟨"#Inner", .definition, chainInnerBody⟩,
@@ -2036,7 +2068,7 @@ theorem f2_force_structcomp_guard_fires_post_meet :
           .struct [⟨"#M", .definition,
             .structComp [⟨"#x", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] true)] true⟩] true⟩])] []
+                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] true)] false false⟩] true⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
                 .struct [⟨"#x", .definition, .prim (.int 5)⟩] true]))
       == .struct [⟨"#x", .definition, .prim (.int 5)⟩,
@@ -2051,7 +2083,7 @@ theorem f2_force_structcomp_guard_does_not_fire :
           .struct [⟨"#M", .definition,
             .structComp [⟨"#x", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] true)] true⟩] true⟩])] []
+                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] true)] false false⟩] true⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
                 .struct [⟨"#x", .definition, .prim (.int (-1))⟩] true]))
       == .struct [⟨"#x", .definition, .prim (.int (-1))⟩] false) = true := by
@@ -2068,9 +2100,9 @@ theorem f2_body_needs_defer_through_embed :
          (9, [⟨"#Inner", .definition,
             .structComp [⟨"#port", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"ports", .regular, .refId ⟨1, 0⟩⟩] true)] true⟩])]
+                (.struct [⟨"ports", .regular, .refId ⟨1, 0⟩⟩] true)] true false⟩])]
         evalFuel
-        (.structComp [] [.refId ⟨1, 0⟩] true)) = true := by
+        (.structComp [] [.refId ⟨1, 0⟩] true false)) = true := by
   native_decide
 
 /-- `bodyNeedsDefer` does NOT fire for a struct embedding a self-ref-FREE def — the recursion
@@ -2082,7 +2114,7 @@ theorem f2_body_needs_defer_skips_plain_embed :
          (9, [⟨"#Plain", .definition,
             .struct [⟨"a", .regular, .prim (.int 1)⟩] true⟩])]
         evalFuel
-        (.structComp [] [.refId ⟨1, 0⟩] true)) = false := by
+        (.structComp [] [.refId ⟨1, 0⟩] true false)) = false := by
   native_decide
 
 /-! ### closure-import-selector-alias — a def aliased to (or embedding) an import-selector must

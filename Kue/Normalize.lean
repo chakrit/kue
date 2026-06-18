@@ -10,13 +10,17 @@ mutual
     | 0, value => value
     | fuel + 1, .struct fields _ =>
         .struct (fields.map (normalizeFieldWithFuel fuel)) false
-    | fuel + 1, .structComp fields comprehensions _ =>
-        -- Close the static portion (`open_ := false`) and normalize nested DEFINITION fields,
-        -- matching the `.struct` arm. Embeddings (`comprehensions`) are left untouched: an
-        -- embedding UNIONS its labels into the def's closed set (CUE), it is not the def's own
-        -- closed declaration — force-closing it here would make the embed reject the def's own
-        -- sibling fields when met.
-        .structComp (fields.map (normalizeFieldWithFuel fuel)) comprehensions false
+    | fuel + 1, .structComp fields comprehensions _ hasTail =>
+        -- Normalize nested DEFINITION fields (matching the `.struct` arm) and set the def body's
+        -- openness from `hasTail`: a definition is closed by default, an explicit `...` opens it.
+        -- So `#D: {e, ...}` (hasTail=true) stays OPEN — hard-`false`ing it here (the old bug)
+        -- silently closed the def, bottoming `#D & {extra}` — while `#D: {e}` (hasTail=false) is
+        -- closed and rejects an added field, exactly as CUE. The parser's `open_` is the
+        -- regular-struct default and is irrelevant once this is a def body, so it is dropped here
+        -- in favor of `hasTail`. Embeddings (`comprehensions`) are left untouched: an embedding
+        -- UNIONS its labels into the def's allowed set (CUE), it is not the def's own closed
+        -- declaration — force-closing it would make the embed reject the def's own siblings.
+        .structComp (fields.map (normalizeFieldWithFuel fuel)) comprehensions hasTail hasTail
     | fuel + 1, .structPattern fields labelPattern constraint open_ =>
         .structPattern
           (fields.map (normalizeFieldWithFuel fuel))

@@ -127,23 +127,20 @@ Audit of the link-3/4 slice (`Eval.lean` two-pass gate depth/`.listComprehension
   `hasSelfRefAtDepth`, `defBodyHasSiblingSelfRef`→`hasSelfRefAtDepth`, `bodyNeedsDefer`→
   former) now carry the `.listComprehension` arm transitively. No remaining gap.
 
-### Fix-slice 0 — `def-open-tail-closedness` (HIGH — correctness regression, do FIRST)
-Make an open def survive normalize. The collapse loses no info IF normalize honors the
-`open_` flag. Two candidate fixes, prefer the one that's clearly sound:
-- **(A) honor `open_` in normalize.** `Normalize.lean:13` `.structComp` arm: close only when
-  the incoming `open_` is false — `.structComp (…) comprehensions open_` (preserve flag)
-  instead of hard `false`. Mirror the `.struct` arm too (line 11 also hard-`false`s, but the
-  parser only routes `...`-bearing plain structs to `.structTail`, so `.struct` reaching
-  normalize is always closed-intent — verify before touching). This is the root fix and
-  matches CUE: `...` overrides a def's default closedness.
-- **(B) keep the tail node.** Revert Fix 2 toward carrying the openness explicitly — but the
-  old `.conj` split is what link 4 fixed, so a plain revert reintroduces the `#ListenerSet`
-  bottom. Would need a NEW representation (e.g. `.structComp` + a dedicated open marker the
-  parser sets and normalize reads) — heavier than (A).
-Pick (A). Pin: def-with-`...`-with-embed accepts extra field at use site (the regressed
-shape) AND the link-4 `open_embed_selfref_guard` fixture still passes (narrowing still
-works). Add fixtures for embed+`...`+extra and comp+`...`+extra (both currently bottom).
-Full verify gate; this unblocks a real correctness hole.
+### Fix-slice 0 — `def-open-tail-closedness` (HIGH — correctness regression) — DONE
+LANDED. Chose neither (A) nor (B) literally — (A) "honor `open_`" alone over-opens a no-`...`
+def because ONE bool cannot encode three states (regular-open, def-open-via-`...`, def-closed),
+and (B)'s `.conj` split reintroduces the `#ListenerSet` bottom. Took the principled
+illegal-states-unrepresentable route: added a SECOND flag `hasTail : Bool` to `.structComp`
+(`Value.lean`). `open_` stays the regular-host openness (eager arm honors it); `hasTail` records
+the explicit `...` and `normalizeDefinitionValueWithFuel` sets the def body's openness from it
+(`open_ := hasTail`). Regular structs never pass normalize, so they stay open. Threaded the field
+through all 42 `.structComp` sites + test literals. New module fixture
+`testdata/modules/def_open_tail_addfield` (open-def-add-field accepted) + 3 EvalTests source pins
+(open admits, closed-no-`...` REJECTS — no over-open, regular stays open). Verify: build 86 jobs,
+`fixture pairs ok` (zero drift), shellcheck clean; cert-manager content-identical to cue (~88s);
+argocd link 3 byte-identical pre-fix vs FIX-1 (worktree bisect) — no link-2/3/4 regression. See
+implementation-log "def-open-tail-closedness".
 
 ## Live Backlog (open work, ranked)
 

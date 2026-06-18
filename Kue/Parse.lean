@@ -512,13 +512,19 @@ def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
 
 def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   let parts := splitParsedFields parsedFields
+  -- `open_ = true` is the regular-struct open-by-default (the eager eval arm honors it; a
+  -- non-definition struct stays open). `hasTail = tail.isSome` records an explicit `...` for
+  -- `normalizeDefinitionValueWithFuel`, which closes a def body UNLESS `...` (`open_ := hasTail`).
+  -- The two are distinct: a regular no-`...` struct (open) and a def no-`...` body (closed) parse
+  -- to the same node and are told apart only at normalize, never at the shared eager arm.
+  let hasTail := parts.tail.isSome
   let declared :=
     match parts.comprehensions with
     | [] => parsedFieldsBaseValue parts.fields parts.patterns
     | comprehensions =>
         match parts.patterns with
-        | [] => .structComp parts.fields comprehensions true
-        | _ => .conj [parsedFieldsBaseValue parts.fields parts.patterns, .structComp parts.fields comprehensions true]
+        | [] => .structComp parts.fields comprehensions true hasTail
+        | _ => .conj [parsedFieldsBaseValue parts.fields parts.patterns, .structComp parts.fields comprehensions true hasTail]
   match parts.tail with
   | none => declared
   | some tail =>
@@ -531,10 +537,8 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
       -- they never see the embedding-contributed fields (the embed lives in the OTHER arm), so a
       -- use-site narrowing collapses to `.bottom` (the argocd `#ListenerSet` `spec.parentRef.name:
       -- Self.#gateway_name` with `parts.#Metadata` embedded + a def-level `...`). Keep it ONE node:
-      -- the comprehension form already carries `open_ = true`, which is exactly what the bare `...`
-      -- (`.top` tail — the only supported tail) means. A standalone open struct with comprehensions
-      -- stays open; a DEFINITION-context one is closed by `normalizeDefinitionValueWithFuel` like
-      -- any `.structComp`, matching `{ embed; if c {…} }` without the redundant `...`.
+      -- `declared` carries `hasTail = true` (this branch only fires with `some tail`), so normalize
+      -- leaves the def OPEN; the redundant bare `...` (`.top` tail) needs no separate node.
       | _, _ => declared
 
 def structEllipsisEndsHere : List Char -> Bool
@@ -659,8 +663,8 @@ def bindValueAlias (name : String) : Value -> Value
       .structPattern (⟨name, .letBinding, .thisStruct⟩ :: fields) lp c open_
   | .structPatterns fields ps open_ =>
       .structPatterns (⟨name, .letBinding, .thisStruct⟩ :: fields) ps open_
-  | .structComp fields cs open_ =>
-      .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs open_
+  | .structComp fields cs open_ hasTail =>
+      .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs open_ hasTail
   | value => value
 
 /-- Three identical delimiter chars (`"""` or `'''`) at the head, else `none`. -/

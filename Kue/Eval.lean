@@ -124,7 +124,7 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
       | 0 => false
       | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
           || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels tail
-  | .structComp fields cs _ =>
+  | .structComp fields cs _ _ =>
       match fuel with
       | 0 => false
       | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
@@ -891,7 +891,7 @@ def valueTag : Value -> UInt64
   | .list _ => 22
   | .listTail _ _ => 23
   | .comprehension _ _ => 24
-  | .structComp _ _ _ => 25
+  | .structComp _ _ _ _ => 25
   | .interpolation _ => 26
   | .dynamicField _ _ _ => 27
   | .embeddedList _ _ _ => 28
@@ -1275,7 +1275,7 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
       | fuel + 1 =>
           fields.any (fun f => hasSelfRefAtDepth fuel (depth + 1) (Field.value f))
             || hasSelfRefAtDepth fuel (depth + 1) tail
-  | .structComp fields comprehensions _ =>
+  | .structComp fields comprehensions _ _ =>
       match fuel with
       | 0 => false
       | fuel + 1 =>
@@ -1337,7 +1337,7 @@ def defBodyHasSiblingSelfRef : Value -> Bool
   | .structTail fields tail =>
       fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
         || hasSelfRefAtDepth evalFuel 0 tail
-  | .structComp fields comprehensions _ =>
+  | .structComp fields comprehensions _ _ =>
       fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
         || comprehensions.any (hasSelfRefAtDepth evalFuel 0)
   | _ => false
@@ -1393,7 +1393,7 @@ def resolveEmbedDefBody? (env : Env) : Value -> Option Value
 def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
   defBodyHasSiblingSelfRef body ||
     match fuel, body with
-    | nextFuel + 1, .structComp _ comprehensions _ =>
+    | nextFuel + 1, .structComp _ comprehensions _ _ =>
         (comprehensions.filter isEmbeddingValue).any fun embed =>
           match resolveEmbedDefBody? env embed with
           | some embedBody => bodyNeedsDefer env nextFuel embedBody
@@ -1460,7 +1460,7 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
                   followAliasDefBody? fuel (frame :: outer) frame.snd (Field.value defField)
   | body =>
       let isStructLike := match body with
-        | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ => true | _ => false
+        | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ _ => true | _ => false
       let bodyEnv : Env := (0, []) :: (0, capturedFrame) :: frameEnv.drop 1
       if isStructLike && bodyNeedsDefer bodyEnv evalFuel body then
         some (capturedFrame, body)
@@ -1545,9 +1545,9 @@ def refDefClosureBody? (env : Env) (id : BindingId) : Option Value :=
       | none => none
       | some defField =>
           let body := Field.value defField
-          let isStructComp := match body with | .structComp _ _ _ => true | _ => false
+          let isStructComp := match body with | .structComp _ _ _ _ => true | _ => false
           let isStructLike := match body with
-            | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ => true | _ => false
+            | .struct _ _ => true | .structTail _ _ => true | .structComp _ _ _ _ => true | _ => false
           let isDef := defField.fieldClass.isDefinition
           -- Fire on the lazy-merge gaps `conjStructOperand?` cannot reduce: an embed-/guard-bearing
           -- `.structComp` (any depth — definition OR regular field; the regular case is F2 site 2:
@@ -1950,7 +1950,7 @@ mutual
         match mergeEvaluatedFields expanded with
         | some fields => pure (.struct fields true)
         | none => pure .bottom
-    | fuel + 1, .structComp fields comprehensions open_ => do
+    | fuel + 1, .structComp fields comprehensions open_ _ => do
         let fields := canonicalizeFields fields
         let embeddings := comprehensions.filter isEmbeddingValue
         -- Pass 1: evaluate the static fields and comprehensions against the static-only frame,
@@ -2314,7 +2314,7 @@ mutual
             let evaluatedTail <- evalValueWithFuel fuel nested [] rebasedTail
             pure (.structTail fields evaluatedTail)
         | none => pure .bottom
-    | .structComp defFields comprehensions defOpen =>
+    | .structComp defFields comprehensions defOpen _ =>
         -- Embed-bearing def body (`#Def: { parts.#Metadata; #x; spec: #x }` — slice A). Splice
         -- the use operands into the static fields (so `spec: #x` sees the narrowed `#x`), eval
         -- them under `capturedEnv`, then meet-fold the embeddings in the same nested frame —
@@ -2571,7 +2571,7 @@ def evalStructRefsM (value : Value) : EvalM Value := do
             pure (evaluatedLabel, evaluatedConstraint)
           pure (applyEvaluatedStructPatterns merged evaluatedPatterns open_)
       | none => pure .bottom
-  | normalized@(.structComp _ _ _) => evalValueWithFuel evalFuel [] [] normalized
+  | normalized@(.structComp _ _ _ _) => evalValueWithFuel evalFuel [] [] normalized
   | value => pure value
 
 def evalStructRefs (value : Value) : Value :=

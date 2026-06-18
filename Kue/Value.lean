@@ -508,7 +508,17 @@ inductive Value where
   -/
   | embeddedList (items : List Value) (tail : Option Value) (decls : List Field)
   | comprehension (clauses : List (Clause Value)) (body : Value)
-  | structComp (fields : List Field) (comprehensions : List Value) (open_ : Bool)
+  /--
+  A struct carrying comprehensions/embeddings (`{a, if c {…}, #Base}`). `open_` is the host's
+  open-by-default openness (a REGULAR struct is open; the eager eval arm honors it). `hasTail`
+  records whether the source had an explicit `...` — the DEFINITION-context openness signal:
+  a definition is closed by default and `...` opens it, so `normalizeDefinitionValueWithFuel`
+  sets the def body's `open_ := hasTail`. Two flags because a regular no-`...` struct (open) and
+  a definition no-`...` body (closed) parse identically and must be told apart only at normalize,
+  not at the shared eager arm — overloading one bool conflated them (silently closing open defs
+  or opening closed ones, depending on which way it was set).
+  -/
+  | structComp (fields : List Field) (comprehensions : List Value) (open_ : Bool) (hasTail : Bool)
   /--
   A list-context comprehension, stored as a list ITEM (in `.list`/`.listTail`). It shares
   the `Clause Value` chain with the struct-comprehension forms, but `body` is the

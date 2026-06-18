@@ -7209,3 +7209,57 @@ two-pass gate now fires on more (deeper) refs. The change is SOUND (byte-identic
 correctness gain), so it ships per `docs/decisions/2026-06-18-correctness-over-performance.md`,
 but it pushes more shapes toward the per-eval perf wall — folded into backlog item 7 (per-eval-cost
 perf) as a now-more-urgent frontier.
+
+---
+
+## Completed Slice: def-open-tail-closedness (fix-slice 0 — HIGH correctness)
+
+Goal: fix the link-3/4 audit's HIGH-severity Violation (`fc25a71`/`faf38b7`) — the parser
+collapse silently CLOSED an OPEN definition that carries comprehensions/embeddings. `#D: {e, ...}`
+(or `#D: {if c {b}, ...}`) then `#D & {extra}` bottomed; cue accepts (`...` opens the def).
+
+### Root cause
+
+A `.structComp` (the comprehension/embed-bearing struct node) carried a single `open_ : Bool`
+that conflated TWO independent facts a definition vs a regular struct disagree on:
+- a REGULAR struct is OPEN by default (the eager eval arm honors `open_`), and
+- a DEFINITION is CLOSED by default, opened only by an explicit `...`.
+
+The parser set `open_ = true` for every comprehension struct (regular default), and
+`normalizeDefinitionValueWithFuel` (the def-context pass) hard-`false`d the `.structComp` arm to
+close defs — but that ALSO closed a `...`-bearing def, because the `...`-presence was lost in the
+collapse. One bool cannot encode three states (regular-open, def-open-via-`...`, def-closed); the
+plain path avoids it with distinct node types (`.struct` vs `.structTail`), but the comprehension
+path collapses both into `.structComp`.
+
+### Fix (illegal-states-unrepresentable)
+
+Added a second flag `hasTail : Bool` to `.structComp` (`Kue/Value.lean`). `open_` keeps its
+meaning (regular host openness; the parser sets `true`, the eager arm honors it). `hasTail` records
+whether the source had an explicit `...` (`parsedFieldsValue` sets `parts.tail.isSome`).
+`normalizeDefinitionValueWithFuel` now sets the def body's openness from `hasTail`
+(`open_ := hasTail`) instead of hard-`false` — so a def WITH `...` stays open and a def WITHOUT
+`...` closes, exactly as cue. A regular struct never passes through normalize, so its `open_=true`
+survives and it stays open regardless of `hasTail`. Threaded the new field through all 42
+`.structComp` match sites (`Eval`, `Resolve`, `Format`, `Manifest`, `Lattice`, `Normalize`,
+`Parse`) and the test literals (`EvalTests`, `FixturePorts`, `ResolveTests`, `PresenceTests`).
+
+### Tests
+
+New module fixture `testdata/modules/def_open_tail_addfield` (open def + embed + `if`-guard +
+`...`, use site ADDS `added` past `...` → admitted; cue v0.16.1-exact whole-module JSON). 3 new
+`Kue/Tests/EvalTests.lean` source-level pins (`evalSourceMatches`, full parse→normalize→eval):
+`fix0_open_def_embed_comp_admits_added_field` (the regressed shape now works), `fix0_closed_def_
+embed_comp_rejects_added_field` (NO over-open — same shape minus `...` rejects), `fix0_regular_
+comp_struct_stays_open` (a regular comprehension struct stays open). The 6 EvalTests def-body
+literals that modelled no-`...` defs were corrected from the old `open_=true` regular-default to
+`open_=false` (they are closed defs).
+
+### Verify
+
+`lake build` 86 jobs green; `fixture pairs ok` (zero byte-drift — all existing fixtures
+unchanged); shellcheck clean. Real-app re-probe (read-only, prod9): cert-manager STILL
+content-identical to cue (`python3 -m json sort_keys`), ~88s wall. argocd link 3 (`#TLSRoute`)
+resolves and is BYTE-IDENTICAL between the pre-fix HEAD binary and the FIX-1 binary (git-worktree
+bisect at `e902553`) — FIX 1 introduces no link-2/3/4 regression. Full argocd still blocks on
+link 5 `packs.#Argo` (unchanged).
