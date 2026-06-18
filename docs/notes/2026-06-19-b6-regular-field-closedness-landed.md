@@ -5,8 +5,8 @@ Lean-into-Lean-4 / commit-push freely / specs as restore point). Full record:
 `docs/reference/implementation-log.md` ("B6 — def-body closedness through a regular field" entry);
 plan: `docs/spec/plan.md` (B6 marked PARTIAL with the deferred sub-gap + design-spike).
 
-Commits `3b2beb6` (design-spike) + `7da65d8` (implementation) on `main`. **NOT yet pushed** — push
-`gh:main` is pending (see below).
+Commits `3b2beb6` (design-spike) + `7da65d8` (implementation) + this docs commit on `main`, pushed
+to `gh:main` (747920b).
 
 ## What landed — B6 gaps 1+2 (one commit + one design-spike commit)
 
@@ -48,8 +48,7 @@ divergence (Kue is wrong, cue right).
 
 ## Next step
 
-1. **PUSH** `3b2beb6`+`7da65d8` to `gh:main` (pending — green, ready).
-2. **TWO-PHASE AUDIT is now OVERDUE.** Cadence: B2.5 closed the prior audit's batch; CP3-pre/flip
+1. **TWO-PHASE AUDIT is now OVERDUE.** Cadence: B2.5 closed the prior audit's batch; CP3-pre/flip
    were audited (#6). B6 is 1 slice past audit #6 → still within the 2–3 window, but B2.5's
    breadcrumb already flagged the audit due NOW (it counts CP3-pre+flip+B2.5). Run the two-phase
    audit per `docs/guides/slice-loop.md` (NOT `/ace-audit`) over CP3-pre/flip/B2.5/B6 before more
