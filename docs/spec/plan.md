@@ -24,6 +24,123 @@ reference implementation. See
 - Keep each commit small enough to review, revert, or extend safely. One slice per
   commit; the commit subject mirrors the slice title.
 
+## Audit Fix-Slices (list-comp + argocd-link-2 — Phase A code-quality, audit #10, 2026-06-18)
+
+Scope: `3e0c84f` (list-comprehension parse+eval + scalar struct-embedding collapse),
+`502550f` (argocd link-2 ss1 — `_#x` classified as hidden DEFINITION), `2ef055d` (argocd
+link-2 ss2 — distribute use-site narrowing into embedded default-disjunction arms).
+Verify GREEN at audit start (build 86, `fixture pairs ok`, shellcheck clean, tree clean).
+Oracle `cue` v0.16.1 at `/Users/chakrit/go/bin/cue`.
+
+**Headline: TWO HIGH Violations found, both in `3e0c84f`/`2ef055d`, both produce WRONG
+VALUES on basic shapes. Plan-only (neither is a trivial inline fix — both need design).
+The list-comp eval core and the parser field-class fix (`502550f`) are SOUND.**
+
+### `.listComprehension` exhaustiveness — VERDICT: handled at every REACHABLE site; no swallow
+
+Enumerated every `Value` match site. `.listComprehension` is handled explicitly at:
+`valueTag` (Eval.lean:880, →30), `resolveValueWithFuel` (Resolve.lean:129 — the
+load-bearing arm that fixed the original catch-all swallow), `evalListItemsWithFuel`
+(Eval.lean:1696, the flatten interceptor), `Format` (200), `Manifest` (108, →`.incomplete`),
+`meetCore` (Lattice.lean:457-458, →`.bottom`). `Normalize` does not recurse into list items
+at all (lists carry no closable defs) — correct, not a swallow. The `evalValueCoreWithFuel`
+catch-all `| _, value => pure value` (Eval.lean:1982) WOULD self-return a bare
+`.listComprehension`, but the parser produces `.listComprehension` ONLY as a `.list`/
+`.listTail` ITEM (`parseListItems`→`parseListComprehension`), and no eval/meet/select path
+lifts it out of its list — so the bare case is unreachable, and a stray one degrades to
+`.incomplete` (graceful, not a wrong value). **No silent wrong-value swallow.** (Borderline:
+the catch-all predates the slice and is identity-for-residuals, not a new swallow — leave it.)
+
+### Findings (ranked)
+
+1. **[VIOLATION — HIGH, `3e0c84f`] Scalar-embedding collapse absorbs ANY scalar an empty/
+   decl-free struct meets — empty struct `{}` is indistinguishable from `{5}` at meet time.**
+   `collapsesToScalarEmbed` (Lattice.lean:893) fires in the `.struct fields _, listLike` meet
+   arms (1130/1138) whenever a struct with no output field + no decls meets a terminal scalar.
+   But by meet time, `{}` (empty struct) and the residual of `{5}` (embedded scalar) are BOTH
+   `.struct [] _` — the "this struct embedded a scalar" provenance is gone. So the rule
+   wrongly collapses a plain struct∩scalar conflict to the scalar:
+   - `{} & 5` → kue `5`, cue CONFLICT. `5 & {}` → kue `5`, cue conflict. `{} & "s"` → kue
+     `"s"`. `true & {}` → kue `true`. All WRONG (cue: type mismatch struct vs scalar).
+   - **Blast radius is broad and basic**: `out: {}` + `out: 5` (two field decls unifying) →
+     kue `5`, cue conflict. `#D: {}` then `#D & 5` → kue `5`, cue conflict. A field
+     constrained to a struct then given a scalar SILENTLY takes the scalar instead of failing.
+   Soundness break, not incompleteness: returns a wrong concrete value. Fix direction: collapse
+   `{5}`→`5` must happen at EVAL of the embedding (`meetEmbeddingsWithFuel` / `.structComp`
+   embed eval), where the embedded-scalar provenance is known — NOT via a generic struct∩scalar
+   `meetCore`/`meetWithFuel` rule. The meet arm must revert to bottom for empty/decl-free
+   struct ∩ scalar. (No existing fixture catches this; `check-fixtures` stays green — add a
+   `{} & 5`→conflict pin + `out:{} ; out:5`→conflict pin with the fix.)
+   - Fix-slice: **`scalar-embed-collapse-provenance`**. Move the collapse to embed-eval;
+     restore meet conflict for `{}`∩scalar. NOT trivial inline (changes WHERE collapse fires).
+
+2. **[VIOLATION — HIGH, `2ef055d`] Embedded default-disjunction collapse picks the default arm
+   BEFORE narrowing, with no fallback when narrowing KILLS the default arm.**
+   `meetEmbeddingsWithFuel` (Eval.lean:~2113) collapses `(*_#A|_#B)` to its default arm via
+   `(resolveDisjDefault? arms).getD embedding`, then force-splices the host narrowing into
+   that single arm. When the narrowing conflicts with the default arm (`_#A` requires `v:int`,
+   host narrows `v:"s"`), the arm → bottom and there is NO fall-through to `_#B`:
+   - `_#A:{kind:"a",v:int}; _#B:{kind:"b",v:string}; #S:{kind:string,(*_#A|_#B)}; #S & {v:"s"}`
+     → kue BOTTOM, cue `{kind:"b",v:"s"}` (default dies, surviving arm wins).
+   - Isolation confirms the bug is THIS path: the CONJ form `(*_#A|_#B) & {v:"s",kind:string}`
+     (via `splitDisjConjunct`) is CORRECT in kue, as is the PLAIN disj `(*{..}|{..}) & {..}`.
+     Only the EMBEDDED collapse-to-default-arm discards the other arms prematurely.
+   Root: the embedded path commits to one arm at collapse time instead of distributing the
+   narrowing into ALL arms and pruning bottoms (the `splitDisjConjunct`/meet-time `normalizeDisj`
+   discipline, which DOES prune via `liveAlternatives`). Note `normalizeEvaluatedDisj`
+   (Eval.lean:368) — used by the eval-time distribution — does NOT prune bottoms (unlike
+   `normalizeDisj`); a unified prune-on-distribute would fix both this and any future
+   eval-distribution arm-death. Happy path (default arm SURVIVES narrowing) is correct, so no
+   regression there; the slice's own fixtures don't exercise a dying default arm.
+   - Fix-slice: **`embed-disj-arm-fallthrough`**. Distribute the host narrowing into EVERY arm
+     of the embedded disjunction (not just the default) and prune bottoms, so a dead default
+     falls through. Reuse the `splitDisjConjunct` arm-distribution that already works in the
+     conj form. NOT trivial inline (changes the embed collapse strategy).
+
+3. **[BORDERLINE — incompleteness, NOT unsound; pre-existing scope-out, sharpened by `3e0c84f`]
+   Scalar embedding with non-output DECLS does not collapse.** cue collapses `{#a:1, 5}`→`5`
+   (manifests `5`, keeps `.#a` selectable →`1`), `{a?:1, 5}`→`5`, `{_a:1, 5}`→`5`; kue bottoms
+   (`collapsesToScalarEmbed` requires `declFields == []`). The Lattice comment explicitly scopes
+   this out ("no scalar carrier for selectable decls"). Sound (bottom where cue gives a value =
+   incompleteness, never a wrong value). Defer; needs a scalar-with-decls carrier (the
+   `.embeddedList` analog for scalars). File as **`scalar-embed-with-decls`** (LOW). NOTE: fix 1
+   above must NOT "fix" this by widening the collapse — that is the unsound direction.
+
+4. **[OUT-OF-SCOPE — pre-existing lexer rule] `__x` (double-underscore) accepted.** cue reserves
+   `__`-prefixed identifiers (error); kue treats `__x` as hidden and drops from output. Unrelated
+   to the `502550f` field-class change (which is about `#`/`_#`/`_` classification, all correct
+   — verified `_#C` closed, `_x` open, `#_x`/`_#_x`/quoted `"_#x"` all byte-match cue). Track
+   under existing parser-strictness backlog if at all; not introduced here.
+
+### What was verified SOUND (no action)
+
+- **List-comp eval core (`3e0c84f`) is correct + cue-exact.** Oracle byte-matches on: guard
+  zero-yield (`[]`), nested-for order (`[11,21,12,22]`), `for k,v in struct`, plain+comp
+  interleave (`[0,1,2,99]`), empty source, multi-comp concat. `expandListClausesWithFuel`
+  `fuel=0` base bumps `truncCount` (saturation invariant honored on the new path); the helpers
+  are total (structural + fuel-bounded, `termination_by (fuel,3,_)`/`(fuel,6,0)`).
+- **Parser `_#x`-as-hidden-definition (`502550f`) is correct across edge cases.** `_#C` now
+  CLOSED (rejects undeclared, accepts declared), `_x` stays open, `#C` baseline closed,
+  hidden-def value selectable (`x.#a`→1) yet excluded from output. `isDefinition`/`isHidden`
+  orthogonal axes match cue for `#x`/`_x`/`_#x`/`#_x`/`_#_x`/quoted. No misclassification, no
+  closedness regression. (Error MESSAGE differs — "conflicting values" vs cue "field not
+  allowed" — pre-existing diagnostic gap, both bottom; not behavioral.)
+- **Over-defer guard (`2ef055d`) holds.** Plain scalar/struct disjunctions (`(*1|2)&int`,
+  `(*{a:1}|{a:2})&{a:int}`, default-picks, narrow-to-non-default, both-eliminated) all
+  byte-match cue — `conjDisjArms?` returns `none` (no deferral-needing arm) so they keep the
+  standard path. `splitDisjConjunct`/`conjDisjArms?` are non-mutual structural defs using a
+  fixed `evalFuel` constant — termination unaffected (outside the eval `termination_by` group).
+- **Composition across the 3 commits is sound** where the default arm survives: list-comp body
+  referencing a hidden def (`[for i in [1,2] {#x & {n:i}}]`), disj arm containing a list comp
+  (`(*[for i in [1,2]{i}] | [9]) & [int,int]`), embedded def-disj whose default arm survives
+  narrowing (the slice's `embed_disj_default_comprehension` fixture) — all byte-match cue.
+
+### Verify state
+
+Build 86 green, `fixture pairs ok` (zero drift), shellcheck clean, tree clean at audit start.
+Both Violations are plan-only (design changes, not inline-trivial). No code committed by this
+audit beyond this plan entry. Next implementation round picks up fix-slices 1 and 2 (HIGH).
+
 ## Audit Fix-Slices (argocd-1 + F1 default/disj/embedding — Phase A code-quality, audit #9, 2026-06-18)
 
 Scope: `83a8ac4` (argocd link 1 — `selectEvaluatedField .disj` / `resolveEmbeddedDisjDefault`
