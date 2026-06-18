@@ -214,4 +214,108 @@ theorem lattice_structPatterns_meet_structPatterns :
         "{\n    \"out\": {\n        \"x1\": 3,\n        \"y1\": 4\n    }\n}\n" = true := by
   native_decide
 
+/-! ## `mkStruct` smart-constructor invariants (B2.1)
+
+The B2 target representation `Value.structN` is built only through `mkStruct`, which
+normalizes its arguments so the illegal states (incoherent tail/openness, duplicate
+patterns) are unconstructable. These pins are the regression gate for that guarantee — they
+exercise `mkStruct`/`coherentTail`/`dedupPatterns` directly (no producer feeds `structN`
+through eval yet in B2.1), so they survive the later B2 migration unchanged. -/
+
+/-- Helper: does a built `structN` carry the coherent `tail = some _ ↔ defOpenViaTail`
+    shape? `true` for any other constructor (the property is vacuous off-`structN`). -/
+def structNTailCoherent : Value -> Bool
+  | .structN _ openness tail _ =>
+      match tail, openness with
+      | some _, .defOpenViaTail => true
+      | none, .defOpenViaTail => false
+      | some _, _ => false
+      | none, _ => true
+  | _ => true
+
+-- A `some` tail forces `defOpenViaTail`, whatever openness the caller passed: the
+-- incoherent (tail + regularOpen) pair is normalized, never represented. (`Value` has no
+-- `DecidableEq` by design — the perf carve-out — so these pin via `BEq` `==`, like the
+-- struct-meet pins above.)
+theorem mkStruct_some_tail_forces_defOpenViaTail :
+    (mkStruct [] .regularOpen (some (.prim (.int 1))) []
+      == .structN [] .defOpenViaTail (some (.prim (.int 1))) []) = true := by
+  native_decide
+
+-- A `some` tail with `defClosed` is likewise coerced to `defOpenViaTail` (a closed struct
+-- with a `...` is the nonsense state; it cannot be built).
+theorem mkStruct_some_tail_closed_coerced :
+    (mkStruct [] .defClosed (some .top) [] == .structN [] .defOpenViaTail (some .top) []) = true
+      := by
+  native_decide
+
+-- `defOpenViaTail` with NO tail gets the bare-`...` default `some .top` — the other half
+-- of the never-constructable pair (defOpenViaTail without a tail).
+theorem mkStruct_defOpenViaTail_no_tail_defaults_top :
+    (mkStruct [] .defOpenViaTail none [] == .structN [] .defOpenViaTail (some .top) []) = true
+      := by
+  native_decide
+
+-- A non-tail openness keeps `tail = none`: `regularOpen`/`defClosed` are tail-free.
+theorem mkStruct_regularOpen_stays_tailless :
+    (mkStruct [] .regularOpen none [] == .structN [] .regularOpen none []) = true := by
+  native_decide
+
+theorem mkStruct_defClosed_stays_tailless :
+    (mkStruct [] .defClosed none [] == .structN [] .defClosed none []) = true := by
+  native_decide
+
+-- Coherence holds for every openness/tail combination `mkStruct` is given — the four
+-- nonsense inputs are all normalized to a coherent `structN`.
+theorem mkStruct_always_coherent :
+    (structNTailCoherent (mkStruct [] .regularOpen (some .top) [])
+      && structNTailCoherent (mkStruct [] .defClosed (some .top) [])
+      && structNTailCoherent (mkStruct [] .defOpenViaTail none [])
+      && structNTailCoherent (mkStruct [] .regularOpen none [])
+      && structNTailCoherent (mkStruct [] .defClosed none [])
+      && structNTailCoherent (mkStruct [] .defOpenViaTail (some .top) [])) = true := by
+  native_decide
+
+-- Pattern dedup: a duplicate `(labelPattern, constraint)` pair is dropped, first kept.
+theorem mkStruct_dedups_patterns :
+    (mkStruct [] .regularOpen none [(.kind .string, .kind .int), (.kind .string, .kind .int)]
+      == .structN [] .regularOpen none [(.kind .string, .kind .int)]) = true := by
+  native_decide
+
+-- Pattern dedup is idempotent: deduping an already-deduped pattern list is a no-op.
+theorem mkStruct_dedup_idempotent :
+    (dedupPatterns (dedupPatterns
+        [(.kind .string, .kind .int), (.kind .string, .kind .int), (.kind .bool, .kind .int)])
+      == dedupPatterns
+        [(.kind .string, .kind .int), (.kind .string, .kind .int), (.kind .bool, .kind .int)])
+      = true := by
+  native_decide
+
+-- Distinct patterns are preserved (dedup does not over-collapse), order stable.
+theorem mkStruct_keeps_distinct_patterns :
+    (mkStruct [] .regularOpen none [(.kind .string, .kind .int), (.kind .bool, .kind .int)]
+      == .structN [] .regularOpen none [(.kind .string, .kind .int), (.kind .bool, .kind .int)])
+      = true := by
+  native_decide
+
+/-! ## `StructOpenness.meet` (B2.1)
+
+The openness lattice the B2.4 single meet arm will consume: closed dominates,
+`defOpenViaTail` is preserved against any open, two regular opens stay open. -/
+
+theorem openness_meet_closed_dominates :
+    (StructOpenness.meet .defClosed .regularOpen == .defClosed
+      && StructOpenness.meet .regularOpen .defClosed == .defClosed
+      && StructOpenness.meet .defClosed .defOpenViaTail == .defClosed) = true := by
+  native_decide
+
+theorem openness_meet_tail_preserved :
+    (StructOpenness.meet .defOpenViaTail .regularOpen == .defOpenViaTail
+      && StructOpenness.meet .regularOpen .defOpenViaTail == .defOpenViaTail) = true := by
+  native_decide
+
+theorem openness_meet_open_idempotent :
+    StructOpenness.meet .regularOpen .regularOpen == .regularOpen := by
+  native_decide
+
 end Kue

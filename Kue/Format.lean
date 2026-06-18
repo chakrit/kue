@@ -180,6 +180,17 @@ mutual
         let patternText := patterns.map fun pattern =>
           "[" ++ formatValueWithFuel fuel pattern.fst ++ "]: " ++ formatValueWithFuel fuel pattern.snd
         "{" ++ joinWith ", " (fieldText ++ patternText) ++ "}"
+    -- B2.1 dead arm (no producer yet); filled in B2.3. Mirrors the four legacy struct
+    -- arms above: fields, then patterns, then the optional `...` tail, all inside `{…}`.
+    | fuel + 1, .structN fields _ tail patterns =>
+        let fieldText := formatStructFieldsWithFuel fuel fields
+        let patternText := patterns.map fun pattern =>
+          "[" ++ formatValueWithFuel fuel pattern.fst ++ "]: " ++ formatValueWithFuel fuel pattern.snd
+        let tailText :=
+          match tail with
+          | none => []
+          | some t => [formatTailWithFuel fuel t]
+        "{" ++ joinWith ", " (fieldText ++ patternText ++ tailText) ++ "}"
     | fuel + 1, .list items =>
         "[" ++ joinWith ", " (items.map (formatValueWithFuel fuel)) ++ "]"
     | fuel + 1, .listTail items tail =>

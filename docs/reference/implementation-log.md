@@ -7775,3 +7775,67 @@ also missing" claim was corrected: that cross-arm is implemented
 shell scripts changed (shellcheck N/A). The split is a pure test-reorg (no `Kue/` source
 change), so perf is unchanged (no `kue-performance.md` edit). Struct-arm expectations
 oracle-checked against `cue` v0.16.1.
+
+## Completed Slice: B2.1 — introduce `StructOpenness` + `Value.structN` + `mkStruct` (2026-06-19)
+
+First step of the B2 struct-unification refactor (5-slice plan in `plan.md` B2 entry).
+Introduces the target representation WITHOUT migrating any behavior — `structN` has no
+producer, so all fixtures stay byte-identical.
+
+### What landed
+
+- **`StructOpenness`** (`Value.lean`, before `BindingId`): `regularOpen | defClosed |
+  defOpenViaTail`, `deriving Repr, BEq, DecidableEq`. Three mutually-exclusive states erase
+  the conflated `open_`/`hasTail` nonsense pair. Helpers: `isOpen`, `ofBool` (= the
+  design's `boolOpen`), `meet` (= `meetOpenness`: closed dominates, `defOpenViaTail`
+  preserved against any open, two opens stay open).
+- **`Value.structN fields openness tail patterns`** added after `structPatterns`. Carries
+  `tail : Option Value` and `patterns : List (Value × Value)` TOGETHER — the orthogonality
+  the old four forms could not express (root of the missing `structPattern×structTail`
+  meet arm). `valueTag` = 31. Named `structN` to coexist with the old `struct`; B2.4 deletes
+  the four old forms and renames `structN → struct`.
+- **`mkStruct` in `Lattice.lean`** (beside `patternStructValue`), the only sanctioned
+  builder. Enforces two invariants locally: pattern dedup (`dedupPatterns`, first-occurrence
+  kept, `BEq`) + tail/openness coherence (`coherentTail`: `tail = some _ ↔ openness =
+  .defOpenViaTail`; a `some` tail forces `defOpenViaTail`; bare `defOpenViaTail` defaults
+  `some .top`; non-tail openness forces `none`).
+  - **Divergence from the design (resolved by philosophy):** the design had `mkStruct` call
+    `canonicalizeFields`, but that lives in `Eval` (downstream of `Value` AND `Lattice`) — a
+    layering violation. Kept field ordering as the CALLER's job (callers already canonicalize
+    before `patternStructValue` today); `mkStruct` owns only what it can enforce without an
+    upward dependency. B2.2 preserves the caller-canonicalize contract.
+  - The design's `meetTail` helper is a B2.4 merge concern — NOT added dead in B2.1.
+
+### Dead arms (5 sites — `structN` has no producer in B2.1)
+
+Every exhaustive `Value` match WITHOUT a catch-all forced an explicit `.structN` arm (no `_`
+per the type-first rule); each is dead-but-required and tagged `-- B2.1 dead arm … filled in
+B2.3`. B2.3 must revisit each:
+- `Lattice.meetCore` → `.bottom` (the bottoms-everything fallthrough; the real
+  `structN×structN` merge is ONE arm in `meetWithFuel` in B2.4).
+- `Format.formatValueWithFuel` → `{` fields ++ patterns ++ optional tail `}` (mirrors the
+  four legacy struct arms).
+- `Manifest.manifestWithFuel` → manifest fields only, tail/patterns/openness dropped
+  (mirrors legacy — those never appear in output).
+- `Eval.classifyDefinedness` → `.defined` (like `struct`/`structTail`). **B2.3 caveat:** old
+  `structPattern`/`structPatterns` classify `.incomplete`, so a PURE pattern-struct `structN`
+  (no fields) must be reconciled when producers land.
+- `Eval.valueTag` → 31 (total tag table, not behavioral).
+
+Every OTHER struct-family match site already uses a catch-all and needed NO change —
+confirming the B2.1/B2.3 boundary is clean (the new-arm work did NOT bleed into B2.3).
+
+### Theorems (`LatticeTests.lean`, `native_decide`)
+
+All pin via `BEq` `==` — `Value` has no `DecidableEq` (the perf carve-out), so propositional
+`=` is undecidable. `mkStruct_some_tail_forces_defOpenViaTail`, `_some_tail_closed_coerced`,
+`_defOpenViaTail_no_tail_defaults_top`, `_regularOpen_stays_tailless`, `_defClosed_stays_tailless`,
+`_always_coherent` (all six openness×tail inputs via `structNTailCoherent`), `_dedups_patterns`,
+`_dedup_idempotent`, `_keeps_distinct_patterns`; `openness_meet_closed_dominates`,
+`_tail_preserved`, `_open_idempotent`.
+
+### Verify
+
+`lake build` green (all new theorems build-checked); `scripts/check-fixtures.sh` → `fixture
+pairs ok` (ZERO byte-drift — nothing behavioral changed). No shell scripts changed
+(shellcheck N/A). Perf unchanged (no producer on any hot path; no `kue-performance.md` edit).

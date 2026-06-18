@@ -429,6 +429,47 @@ def producesOutput : FieldClass -> Bool
 
 end FieldClass
 
+/-- The openness of a struct, as three mutually exclusive states (the B2 target
+    representation, replacing the conflated `open_ : Bool` + `hasTail : Bool` pair).
+    `regularOpen` is a regular struct with no `...` tail — open by default. `defClosed`
+    is a no-`...` definition body — closed. `defOpenViaTail` is a struct with an explicit
+    `...` tail — open and tail-bearing. The three-way split makes the former illegal
+    states (a closed struct that nonetheless has a `...`, or the ambiguous open-with-tail
+    vs closed-with-tail pair) unrepresentable: tail presence is in lockstep with
+    `defOpenViaTail`. -/
+inductive StructOpenness where
+  | regularOpen
+  | defClosed
+  | defOpenViaTail
+deriving Repr, BEq, DecidableEq
+
+namespace StructOpenness
+
+/-- A struct is open (admits extra fields) unless it is a closed definition body. -/
+def isOpen : StructOpenness -> Bool
+  | .regularOpen => true
+  | .defClosed => false
+  | .defOpenViaTail => true
+
+/-- Map the legacy `open_ : Bool` of a no-`...` struct onto the three-state openness:
+    an open no-`...` struct is `regularOpen`, a closed one is `defClosed`. The `...`-tailed
+    form is `defOpenViaTail`, never produced by this map (it has no `open_`-only encoding). -/
+def ofBool : Bool -> StructOpenness
+  | true => .regularOpen
+  | false => .defClosed
+
+/-- Meet on the openness lattice: closed dominates (a closed conjunct closes the meet),
+    `defOpenViaTail` meeting any open stays tail-bearing-open, and two regular opens stay
+    open. Matches the `meetOpenness` rule the B2.4 single meet arm will use. -/
+def meet : StructOpenness -> StructOpenness -> StructOpenness
+  | .defClosed, _ => .defClosed
+  | _, .defClosed => .defClosed
+  | .defOpenViaTail, _ => .defOpenViaTail
+  | _, .defOpenViaTail => .defOpenViaTail
+  | .regularOpen, .regularOpen => .regularOpen
+
+end StructOpenness
+
 structure BindingId where
   depth : Nat
   index : Nat
@@ -496,6 +537,21 @@ inductive Value where
       (fields : List Field)
       (patterns : List (Value × Value))
       (open_ : Bool)
+  /--
+  The B2 normalized struct (target representation). Collapses the four legacy forms
+  (`struct`/`structTail`/`structPattern`/`structPatterns`) into one: `fields` are the
+  named members, `openness` is the three-state `StructOpenness`, `tail` is the optional
+  `...` tail value (present iff `openness = .defOpenViaTail`, enforced by `mkStruct`), and
+  `patterns` are the `[pattern]: constraint` pairs (orthogonal to `tail`, which the old
+  type could not carry together — the root of the missing `structPattern×structTail` meet
+  arm). Construction goes through the `mkStruct` smart constructor only. Named `structN`
+  during the B2 migration so it coexists with the old `struct`; B2.4 deletes the four old
+  forms and renames this to `struct`. NOT produced by any eval/parse path in B2.1. -/
+  | structN
+      (fields : List Field)
+      (openness : StructOpenness)
+      (tail : Option Value)
+      (patterns : List (Value × Value))
   | list (items : List Value)
   | listTail (items : List Value) (tail : Value)
   /--

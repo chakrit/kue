@@ -104,6 +104,12 @@ mutual
         match manifestFieldsWithFuel fuel fields with
         | .ok fields => .ok (.struct fields)
         | .error error => .error error
+    -- B2.1 dead arm (no producer yet); filled in B2.3. Mirrors the four legacy struct
+    -- arms: manifest the named fields; tail/patterns/openness do not appear in output.
+    | fuel + 1, .structN fields _ _ _ =>
+        match manifestFieldsWithFuel fuel fields with
+        | .ok fields => .ok (.struct fields)
+        | .error error => .error error
     | fuel + 1, .list items =>
         match manifestItemsWithFuel fuel items with
         | .ok items => .ok (.list items)

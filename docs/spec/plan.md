@@ -522,10 +522,45 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
   `Format` 1/1/1/1/comp1; `Parse` 2/4/3/3/comp4; `Value` tail1/pats1/comp1; `Builtin`
   2/1/3/2; `Runtime` 3/1/1/1. The `structComp` collapse (B2b) is INDEPENDENT and large enough
   (~44 sites) to be its own slice sequence; sequence:
-  - **B2.1 — introduce `StructOpenness` + `mkStruct` + new `struct` ctor; keep old 4 ctors.**
-    No call sites move. `mkStruct` defined over the new shape; `boolOpen`/`meetOpenness`/
-    `meetTail` helpers + their `native_decide` agreement pins. Green, byte-identical, zero
-    behavior change. (Type compiles alongside the old forms.)
+  - **B2.1 — introduce `StructOpenness` + `mkStruct` + new struct ctor; keep old 4 ctors. DONE
+    (2026-06-19).** Landed as specced, with these concrete choices:
+    - **Naming/coexistence:** the new ctor is `Value.structN` (NOT `struct` — the old `struct`
+      still exists). B2.4 deletes the four old forms and renames `structN → struct`. All match
+      sites that gained a dead arm reference `.structN`.
+    - **`StructOpenness`** (`Value.lean`, before `BindingId`): `regularOpen | defClosed |
+      defOpenViaTail`, `deriving Repr, BEq, DecidableEq`. Helpers `isOpen`, `ofBool` (the
+      design's `boolOpen` — named `ofBool` as it's a `StructOpenness` member), `meet` (the
+      design's `meetOpenness`: closed dominates, `defOpenViaTail` preserved vs any open).
+    - **`Value.structN fields openness tail patterns`** added after `structPatterns`. Tail is
+      `Option Value`; patterns `List (Value × Value)` — both axes carried together (the fix for
+      the missing `structPattern×structTail` arm). `valueTag` = 31.
+    - **`mkStruct` lives in `Lattice.lean`** (next to `patternStructValue`, NOT `Value.lean`):
+      the design said `mkStruct` calls `canonicalizeFields`, but that lives in `Eval` (downstream
+      of both `Value` and `Lattice`) — a layering violation. **Divergence from the design,
+      resolved by philosophy:** field ordering stays the CALLER's responsibility (callers already
+      run `canonicalizeFields` before `patternStructValue` today), so `mkStruct` owns only the two
+      invariants it CAN enforce locally: pattern dedup (`dedupPatterns`) + tail/openness coherence
+      (`coherentTail`: `tail = some _ ↔ openness = .defOpenViaTail`, the never-constructable pairs
+      normalized away). B2.2 keeps the caller-canonicalize contract.
+    - **Theorems** (`LatticeTests.lean`, `native_decide`, all via `BEq` `==` — `Value` has no
+      `DecidableEq` by the perf carve-out, so propositional `=` is undecidable): `mkStruct` forces
+      `defOpenViaTail` on any `some` tail, defaults bare `...` to `some .top`, keeps non-tail
+      openness tail-free, dedups + preserves distinct patterns (idempotent); `structNTailCoherent`
+      holds for all six openness×tail inputs; `StructOpenness.meet` closed-dominates / tail-preserved
+      / open-idempotent.
+    - **Dead arms (5 sites)** — `structN` has no producer in B2.1, so each is dead-but-required,
+      with a `-- B2.1 dead arm … filled in B2.3` comment. B2.3 MUST revisit each:
+      `Lattice.meetCore` (→ `.bottom`, the bottoms-everything fallthrough — real merge lands in
+      B2.4's `meetWithFuel`); `Format.formatValueWithFuel` (fields ++ patterns ++ optional tail in
+      `{…}` — mirrors the four legacy arms); `Manifest.manifestWithFuel` (manifest fields only,
+      tail/patterns/openness dropped — mirrors legacy); `Eval.classifyDefinedness` (→ `.defined`
+      like `struct`/`structTail` — **B2.3 caveat:** old `structPattern`/`structPatterns` are
+      `.incomplete`, so a PURE pattern-struct `structN` must be reconciled then);
+      `Eval.valueTag` (= 31, total tag table). Every OTHER struct-family match site uses a
+      catch-all and needed no change — confirming the B2.1/B2.3 boundary is clean.
+    - Verify: `lake build` green, `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO drift),
+      no shell changed. The design's `meetTail` helper is NOT yet needed (it's a B2.4 merge concern)
+      — deferred to B2.4 rather than added dead.
   - **B2.2 — migrate CONSTRUCTION sites to `mkStruct`** (the `.structX …` build sites:
     `patternStructValue`, the merge helpers' result-emit, `Eval` re-emit, `Parse`). One module
     at a time, fixture-gated, byte-identical each.

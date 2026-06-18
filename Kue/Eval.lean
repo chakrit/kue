@@ -784,6 +784,11 @@ def classifyDefinedness : Value -> Definedness
   | .listTail _ _ => .defined
   | .embeddedList _ _ _ => .defined
   | .structComp _ _ _ _ => .defined
+  -- B2.1 dead arm (no producer yet); revisit in B2.3. Mirrors `struct`/`structTail` (a
+  -- normalized struct with named fields is a present concrete value → `.defined`). Note
+  -- for B2.3: the old `structPattern`/`structPatterns` classify `.incomplete`, so a
+  -- `structN` that is a PURE pattern-struct (no fields) must be reconciled then.
+  | .structN _ _ _ _ => .defined
   -- A DISJUNCTION with ≥1 LIVE arm is a PRESENT value (CUE: `(*"argocd" | string) != _|_` is
   -- `true`, `("a"|"b") != _|_` is `true`); without it a presence guard over a default/plain
   -- disjunction (argocd `#ArgoRepo`/`parts.#Metadata` `#ns: *"argocd" | string` then
@@ -1144,6 +1149,7 @@ def valueTag : Value -> UInt64
   | .embeddedList _ _ _ => 28
   | .closure _ _ => 29
   | .listComprehension _ _ => 30
+  | .structN _ _ _ _ => 31
 
 /--
 A scope frame paired with a process-unique identity. Each frame push allocates a fresh
