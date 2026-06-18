@@ -226,6 +226,108 @@ A1-A4.
   backed by `native_decide` EvalTests source pins, including no-over-prune / no-over-open negatives.
   Pass-2 has eval-count pins. Coverage gaps land as the A1-A3 pins above.
 
+## Phase-A audit (2026-06-19 — B2 struct collapse in-progress, batch `4bdc602..6f73286`)
+
+Code-quality audit of the IN-PROGRESS B2 collapse: `67b9596` (B2.1 `StructOpenness` + `Value.structN`
++ `mkStruct`), `b3881c6`+`eff5627` (B2.3 consumer arms + B2.4 single `mergeStructN` meet arm),
+`6f73286` (docs). The `.structN` constructor has NO producer yet (B2.2 reverted), so every consumer
+arm + `mergeStructN` is DEAD — `lake build` green (96 jobs) + zero fixture drift prove nothing about
+their correctness. Validation was **by inspection against the legacy forms** (`4bdc602:Kue/Lattice.lean`
++ `4bdc602:Kue/Eval.lean`), the only check available pre-production. VERDICT: the collapse is CORRECT
+— every arm reproduces its legacy form, field-merge order preserved, cross-combinations correctly held
+as `.bottom`. NO inline fixes applied (a dead arm is trivially byte-identical; a "fix" risks baking
+wrong behavior into the B2.2 test migration — left for B2.2 to own). Findings below are forward-looking
+**must-fix-before-B2.2-flips-production** items (the live arms go LIVE in the very next slice).
+
+**`mergeStructN` (highest-risk site) — reproduces all 12 legacy meet arms, arm-by-arm CORRECT.**
+- Arm 1 plain×plain (`Lattice.lean:914`): `mergeStructFieldsWith left right` (left base), `applyStructClosedness`
+  left-then-right, openness `StructOpenness.meet` ≡ legacy `leftOpen && rightOpen` (both ∈ {regularOpen,
+  defClosed} so `meet` = `&&`). ✓
+- Arm 2 tail-LEFT (923) ≡ legacy `structTail × struct` (`4bdc602` Lattice:978): leftFields base, `applyTailToExtrasWith
+  leftFields tail merged`. ✓
+- Arm 3 tail-RIGHT (928) ≡ legacy `struct × structTail` (980): **the flagged `rf++lf` reversal IS preserved** —
+  merges `rightFields leftFields` (rightFields=structTail side as base), `applyTailToExtrasWith rightFields tail`,
+  exactly as legacy `mergeStructTailWithStructWith` passed `tailFields`(=rightFields) first regardless of operand order. ✓
+- Arm 4 tail×tail (933) ≡ legacy (982): tail = `meetValue leftT rightT`, isBottom-check, `applyTailToExtrasWith
+  leftFields leftT (applyTailToExtrasWith rightFields rightT merged)` — RIGHT inner, LEFT outer, **identical nesting**;
+  `applyTailToExtrasWith` runs on BOTH sides' extras. ✓
+- Arms 5/6 single-side patterns (946/955) ≡ legacy `structPattern(s) × struct` (997/1001): patternFields base,
+  `applyPatternsClosednessWith … (applyPatternsToFieldsWith leftPatterns merged)`, openness = the pattern side's own
+  (the plain struct's openness IGNORED, matching legacy). Unifies single + multi (legacy `[(lp,c)]` vs `patterns`). ✓
+- Arm 7 patterns×patterns (964) ≡ legacy `mergeStructPatternsWithStructPatternsWith` (850): left base, patterns
+  `leftPatterns ++ rightPatterns`, apply LEFT-inner RIGHT-outer, closedness RIGHT-inner LEFT-outer — **identical**;
+  openness `meet` = legacy `&&` (pattern structs never tail-bearing). ✓
+- **Cross-combinations PRESERVED as `.bottom`** (the `| _, _, _, _ => .bottom` catch-all, `Lattice.lean:975`):
+  `structPattern/structPatterns × structTail` (both orders) — `leftPatterns≠[] ∧ rightTail=some` (or mirror) — match
+  no arm 1-7, fall to the catch-all = `.bottom`, exactly as legacy fell to `meetCore`→bottom. NOT accidentally fixed.
+  B2.5 owns the flip. ✓
+- `meetCore .structN .. → .bottom` (473/474) + the `.structN _ _ none [] × listLike` embed arms (1214/1235/1264/1271,
+  restricted to plain-equivalent, tail/pattern → `meetCore`→bottom) reproduce the legacy `.struct × list` / `structTail
+  × list`-had-no-arm behavior. The `meetCore (mkStruct …)` scalar-conflict fallbacks (1270/1277) bottom via 473 ≡ legacy
+  `meetCore (.struct fields true) scalar` bottom. Same value either way. ✓
+
+**`mkStruct` re-coercion in `mergeStructN` — one DELIBERATE divergence (improvement), flag for B2.2 fixtures.**
+`mergeStructN` emits via `mkStruct`, which runs `dedupPatterns` on the result patterns. Legacy did NOT dedup. In arm 7,
+`leftPatterns ++ rightPatterns` with a shared identical `(labelPattern, constraint)` pair: legacy stored BOTH, new
+stores one. Value-equivalent for the MERGED FIELDS (applying a pattern twice is idempotent; `fieldAllowedBy*` uses
+`.any` = set membership), but the OUTPUT struct's `patterns` list differs (deduped). This is the design's deliberate
+confluence choice, NOT a legacy-reproduction bug — and cue dedups equal patterns. **B2.2 must add a pin:** `{[=~"a"]:int}
+& {[=~"a"]:int}` stores ONE pattern (oracle-check the manifest/re-meet is cue-exact).
+
+**Consumer arms (~30 sites across Eval/Lattice/Normalize/Builtin/Runtime/Resolve/Parse/Module/Format/Manifest) — ALL
+reproduce legacy, NO catch-all swallows a live `.structN` on a reachable path.** Representative + highest-risk verified:
+- `Normalize` both def-normalizers (`Normalize.lean:44-57, 144-155`, the flagged highest-risk site): `defOpenViaTail`
+  left UNCHANGED (≡ legacy `structTail` had no arm → returned verbatim, keeps def OPEN); no-pattern struct-equiv CLOSES
+  to `.defClosed` (≡ `.struct → false`); pattern-bearing keeps openness + normalizes patterns (≡ structPattern/s). ✓
+- `Eval.classifyDefinedness` (840-841): split `patterns.isEmpty` — `[] → .defined` (≡ struct/structTail),
+  `(_::_) → .incomplete` (≡ structPattern/s). ✓
+- `Eval.forceClosureWithConjunctCore` (2790/2802): `defOpenViaTail+some+[]` ≡ legacy `.structTail` splice (open `true`,
+  rebase tail); `openness+none+[]` ≡ legacy `.struct` splice (`openness.isOpen`); pattern-bearing → `_` catch-all ≡
+  legacy `_`. ✓
+- `Eval` eval-core (2308) + `evalStructRefsM` (3015): unify the four legacy eval arms (canonicalize → pushFrame →
+  evalFields → eval tail/patterns), re-emit via `applyEvaluatedStructN` (`Eval.lean:384`), which for `patterns=[]`
+  `mkStruct`s directly (≡ legacy `.struct`/`.structTail` re-emit) and for `patterns≠[]` `meet`s a pattern-only structN
+  against a field-only open structN — routing through `mergeStructN` arm 5, byte-equivalent to legacy
+  `applyEvaluatedStructPattern(s)`'s `meet (.structPattern [] …) (.struct fields true)`. ✓
+- `remapConjRefs` (503-510): fields + tail (`tail.map`) + patterns all remapped at `frameDepth+1` ≡ legacy struct/
+  structTail/pattern arms. ✓ `hasSelfRefAtDepth` (1633), `conjStructOperand?` (1410, plain-equiv only),
+  `openStructValue`/`closeEmbeddedOver`/`evaluatedStructOperand?` (1455/1496/1511), the two `isStructLike` classifiers
+  (1829/1917, `.structN _ _ _ []` covers struct+structTail, patterns→false ≡ legacy), `comprehensionPairs`/select/
+  structPairs (661/692/749/1151, fields projection), `containsBottomWithFuel` (189, fields∪tail∪patterns union),
+  `Builtin.closeValue`/`lenValue` (17/41), `Resolve` (120/187), `Parse.bindValueAlias` (666), `Module` (79/163),
+  `Runtime` (19/91), `Format` (185), `Manifest` (109) — all reproduce legacy. NO finding.
+
+**`StructOpenness.meet` / `mkStruct` / `coherentTail` — CORRECT, theorems REAL (not vacuous).**
+- `StructOpenness.meet` (`Value.lean:464`) models legacy open/closed/tail meet: closed dominates (either order),
+  `defOpenViaTail` preserved vs any open, two regularOpens → regularOpen. On the {regularOpen, defClosed} subset it
+  reproduces `&&` (the legacy plain/pattern openness). `defOpenViaTail` only reachable with a tail (coherence). ✓
+- `mkStruct` (`Value.lean:696`) in `Value.lean` (leaf) — clean layering, NO upward dep (`canonicalizeFields` left to
+  callers, as B2.1 designed). `coherentTail` enforces `tail = some _ ↔ openness = .defOpenViaTail` (erases the
+  `open_`/`hasTail` nonsense state); `dedupPatterns` canonicalizes for confluence.
+- The 12 LatticeTests `native_decide` theorems exercise actual coercion/dedup with non-trivial expected `structN`
+  literals (`mkStruct_some_tail_forces_defOpenViaTail`, `_some_tail_closed_coerced`, `_defOpenViaTail_no_tail_defaults_top`,
+  `_dedups_patterns`, `_keeps_distinct_patterns`, `_always_coherent` over all 6 inputs; `openness_meet_*` full table).
+  A regression flips `= true` to a build failure. ✓
+
+### MUST-FIX before B2.2 flips production (fold into the B2.2/CP3 megaslice — these arms go LIVE)
+1. **`Order.lean` `subsumes` (`Order.lean:223-262`) has NO `.structN` arm** — a live structN hits `_, _ => false`,
+   breaking the test-only subsumption oracle (LatticeTests subsumption pins) the moment B2.2 produces structN. The
+   `structN → struct` rename (arity 2→4) FORCES compile errors at Order's `.struct`/`.structTail`/`.structPattern(s)`
+   arms, so it CANNOT be silently missed — but B2.2 must MERGE the four subsumption arms into one structN arm
+   (dispatch on tail/pattern shape), not just mechanically fix the arity and drop structTail/pattern subsumption logic.
+2. **Dedicated `mergeStructN` pins** — `mergeStructN` + every dead consumer arm is currently INSPECTION-ONLY
+   (unreachable, so no fixture/theorem touches it). When B2.2 makes structN live, add `native_decide`/fixture pins for:
+   the `struct×structTail` `rf++lf` field-order reversal (a `{b:_, a:_, ...} & {c:_}` shape where reversal is
+   observable); the `applyTailToExtrasWith`-on-both-sides tail×tail merge; the arm-7 pattern dedup
+   (`{[=~"a"]:int} & {[=~"a"]:int}` → one pattern, cue-exact); and the still-`.bottom` cross-combinations
+   (`structPattern×structTail` etc.) BEFORE B2.5 flips them — so B2.5's behavior change is a visible diff, not a silent one.
+3. **`applyEvaluatedStructN` pattern path** depends on `mergeStructN` arm-5 being correct (it `meet`s through it).
+   Pin a pattern-struct eval (`{a: int, [=~"x"]: string}` value) end-to-end once live to confirm byte-parity with the
+   legacy `applyEvaluatedStructPattern(s)` output.
+
+These are NOT current bugs (the code is dead); they are the validation B2.2 must carry so a subtly-wrong arm cannot
+bake wrong behavior into the ~940-site test-representation migration.
+
 ## Phase-A audit (2026-06-19 — B7 implementation + test-org reorg + B4 LatticeTests)
 
 Code-quality audit of batch `7d73bb9..a03ff4a` (B7 impl `bbb00b2`/`c5cbb0e`/`aa5518c`/`969c187`;
@@ -593,7 +695,14 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     flips them). `.structN × listLike` embedding + the `embeddedList` inner matches gained
     plain-struct-equivalent (`structN _ _ none []`) arms. Old 12 arms + 4 ctors NOT yet
     deleted (that's CP3, gated on the test migration below).
-  - **B2.2 — flip CONSTRUCTION to produce `structN`. BLOCKED / NEXT.** The production flip
+  - **B2.2 — flip CONSTRUCTION to produce `structN`. BLOCKED / NEXT.** (Phase-A 2026-06-19
+    audited every dead `.structN` arm + `mergeStructN` by inspection vs the legacy forms —
+    ALL reproduce legacy, see that audit section for the arm-by-arm verdict. THREE
+    must-fix-before-flip items it raised: (1) `Order.subsumes` has no structN arm — MERGE the
+    4 subsumption arms, don't just fix the rename arity; (2) add dedicated `mergeStructN` pins
+    once live — the `rf++lf` reversal, tail×tail both-sides extras, arm-7 pattern dedup, and
+    the still-`.bottom` cross-combos before B2.5; (3) pin `applyEvaluatedStructN`'s pattern
+    path end-to-end.) The production flip
     (`Parse.parsedFieldsBaseValue`/`parsedFieldsValue`, `Runtime.mergeSourceValues`, the
     `Eval` eval/force/embedding/comprehension/dynamicField re-emit sites, `Module.bindImports`
     wrap) is WRITTEN AND SEMANTICALLY VALIDATED — with it applied, every `testdata/cue`
