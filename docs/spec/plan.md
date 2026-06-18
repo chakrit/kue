@@ -1478,6 +1478,54 @@ shared `normalizeFieldWithFuel` conflates two contexts (closing inside a def bod
 top level) — split it, and route the eager selector path through closedness enforcement. NOT a
 catch-all fix (a behavior change with the def-open-tail regression class of risk).
 
+**B6 design (implementable) — DONE 2026-06-19 (design-spike `<spike-sha>`).**
+
+*Repros (cue v0.16.1; all confirmed Kue ADMITS where cue REJECTS — Kue wrong, cue right):*
+- R1 closed `#Def` under regular field: `a: {#Inner: {x:int}}`, `out: a.#Inner & {x:1, extra:2}`
+  → cue `out.extra: field not allowed`; Kue exports `out:{x:1,extra:2}`.
+- R1b list-nested def: `#D: {l: [{a:1}]}`, `out: #D.l[0] & {b:2}` → cue `out.b: field not allowed`;
+  Kue exports `out:{a:1,b:2}`.
+- R2 eager nested-selector: `x: {#Inner: {y:int}}`, `out: x.#Inner & {y:1, extra:3}` → cue
+  `out.extra: field not allowed`; Kue exports `out:{y:1,extra:3}`.
+- Sanity (must NOT change): R3 open def `#Inner: {x:int, ...}` admits `extra` (cue + Kue agree);
+  R4 regular (non-def) struct stays open.
+
+*Mechanism map (post-B2 closedness surface).* Closedness lives in `openness : StructOpenness`
+(`.defClosed`/`.regularOpen`/`.defOpenViaTail`, `Value.lean`). Enforcement is in `mergeStructN`
+via `applyStructClosedness`/`applyClosednessFrom` (`Lattice.lean:651-665`): a side with
+`structIsOpen=false` (`.defClosed`) marks any merged field not in its allowed set
+`fieldNotAllowed`. So the meet ALREADY enforces — the bug is that the nested `#Inner` body reaches
+the meet still `.regularOpen` (never closed), so `leftOpen=true` and nothing is marked.
+WHY it's never closed: `normalizeDefinitions` = `normalizeDefinitionsWithFuel` (the top-value
+SPINE walker) runs at eval (`Eval.lean:2739`). Its `.struct` arm maps `normalizeFieldWithFuel` over
+fields; `normalizeFieldWithFuel` routes ONLY `isDefinition` fields into the CLOSING normalizer
+(`normalizeDefinitionValueWithFuel`) and returns every other field UNCHANGED. So a `#Inner` under a
+REGULAR field `a` is never visited (gap 1). The eager selector `selectEvaluatedField`
+(`Eval.lean:572`) returns `Field.value field` verbatim — so it carries WHATEVER openness normalize
+left; gap 2 is NOT a separate selector defect, it is downstream of gap 1: once the nested def is
+closed in normalize, the selector returns the `.defClosed` body and the existing meet enforces it.
+Confirmed by reading `selectEvaluatedField` (no openness rewrite) — single root cause.
+
+*The fix (one edit).* In `normalizeFieldWithFuel` (`Normalize.lean:95`), replace the regular-field
+ELSE branch (`else field`, returns unchanged) with: recurse the field value through the SPINE
+walker `normalizeDefinitionsWithFuel` — which closes nested `#Def`s (their `.struct _ _ _ []` arm →
+`.defClosed`) WITHOUT closing the regular field's own struct (the spine walker preserves the host's
+`openness`). Dispatch by class:
+- `isDefinition` → close (current closing-normalizer path), unchanged.
+- `isHidden` → leave UNCHANGED. **A2 trap guard:** import-package bindings are bound as `.hidden`
+  fields (`Module.lean:164`); recursing them re-closes unreferenced nested defs and re-bottoms
+  cert-manager/argocd (the exact A2 laziness trap). `hidden` must stay lazy. This also means B6 does
+  NOT need A2-followup first — the two are decoupled by skipping hidden here.
+- `letBinding` → leave UNCHANGED (conservative; not output, avoids churn).
+- regular/optional/required → recurse value via `normalizeDefinitionsWithFuel fuel` (spine walker,
+  preserves host openness, closes nested defs).
+
+NO over-close risk: the spine walker keeps the host struct's own `openness`, only the nested
+DEFINITION sub-bodies flip to `.defClosed` (which is correct — cue closes nested `#Def`s). R3 (open
+def via `...` = `.defOpenViaTail`) is returned unchanged by the spine walker's `.defOpenViaTail`
+arm, so it stays open. Regression gate: zero byte-drift on all existing fixtures (esp.
+cert-manager/argocd module fixtures + def-open-tail) is the soundness signal.
+
 **B2. Unify the 5 struct constructors into one normalized struct (MEDIUM-HIGH — headline).**
 Collapse `struct`/`structTail`/`structPattern`/`structPatterns`/`structComp` into one
 `struct (fields, openness : StructOpenness, tail, patterns)`; erases the 12-arm meet matrix,
