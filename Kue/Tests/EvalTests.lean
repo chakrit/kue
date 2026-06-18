@@ -2624,9 +2624,9 @@ pushes a frame, `guard` does not) — the rule encoded once in `resolveClausesWi
 `.comprehension`/`.listComprehension` arms recursed the body at flat `frameDepth`, so a body
 ref targeting the merged conjunction frame (at `frameDepth + #for`) was compared `== frameDepth`,
 missed, and kept its stale conjunct-local slot → wrong value. The fix threads an incrementing
-depth through the clause chain exactly as resolution does (`clauseFrameShift`: +1 per `for`,
-+0 per `guard`); the body is remapped at `frameDepth + clauseFrameShift clauses`, and clause
-source N at `frameDepth + (#for before N)`.
+depth through the clause chain exactly as resolution does (now the shared `descendClauses`
+fold via `clauseChainDepth`: +1 per `for`, +0 per `guard`); the body is remapped at
+`clauseChainDepth frameDepth clauses`, and clause source N at `frameDepth + (#for before N)`.
 
 These pins use REALISTICALLY-RESOLVED bodies (depth reflecting the loop frame), not the
 hand-built depth-0 value the prior `remap_comprehension_conjunct_reindexes_source_and_body`
@@ -2661,8 +2661,8 @@ theorem remap_comprehension_conjunct_multi_for_threads_depth :
   native_decide
 
 -- A `guard` does NOT push a frame: a `for` then `guard` leaves the body at `frameDepth+1`, and the
--- guard condition is read at `frameDepth+1` (under the `for`). Pins `clauseFrameShift` counts only
--- `for`, not `guard`.
+-- guard condition is read at `frameDepth+1` (under the `for`). Pins the clause-chain shift counts
+-- only `for`, not `guard`.
 theorem remap_comprehension_conjunct_guard_no_frame :
     (remapConjRefs remapFuel 0
         [Field.regular "a" .top, Field.regular "b" .top]
@@ -2685,12 +2685,23 @@ theorem a5_comprehension_body_remap_picks_merged_sibling :
           = true := by
   native_decide
 
--- clauseFrameShift authority: counts `for` clauses, ignores `guard`.
-theorem clause_frame_shift_counts_only_for :
-    (clauseFrameShift ([] : List (Clause Value)) == 0
-      && clauseFrameShift [.forIn none "x" .top] == 1
-      && clauseFrameShift [.guard .top] == 0
-      && clauseFrameShift [.forIn none "x" .top, .guard .top, .forIn none "y" .top] == 2) = true := by
+-- AGREEMENT with `remapConjClauses`: the rewriter rebuilds the clause LIST threading `frameDepth+1`
+-- per `forIn`, while `remapConjRefs`'s `.comprehension` arm shifts the BODY by `clauseChainDepth`.
+-- The two must reach the same post-chain depth — pin it: remap a comprehension whose body refId is
+-- at `clauseChainDepth 0 clauses` and confirm it is treated as a merged-frame ref (reindexed),
+-- which only happens when the body shift equals the depth the clause rebuild threaded to. Drift
+-- between the list rebuild and the body fold becomes this test failing.
+theorem descend_clauses_agrees_remapConjClauses :
+    ([ [.forIn none "x" (.top : Value)]
+     , [.forIn none "x" .top, .forIn none "y" .top]
+     , [.forIn none "x" .top, .guard .top, .forIn none "y" .top]
+     ].all (fun clauses =>
+        let bodyDepth := clauseChainDepth 0 clauses
+        match remapConjRefs remapFuel 0
+            [Field.regular "a" .top, Field.regular "b" .top] [("b", 0), ("a", 1)]
+            (.comprehension clauses (.refId ⟨bodyDepth, 1⟩)) with
+        | .comprehension _ (.refId id) => id.depth == bodyDepth && id.index == 0
+        | _ => false)) = true := by
   native_decide
 
 /-! ### B7 — `descendClauses` agreement theorems (the new structural guarantee).
@@ -2702,7 +2713,7 @@ not migrated — it threads scopes, not `Nat`) or `remapConjClauses` a `native_d
 rather than a silent wrong value. -/
 
 -- `clauseChainDepth` self-consistency: the depth a clause chain accumulates is `start` plus one
--- per `forIn`, none per `guard` — the same shape `clauseFrameShift` counts (and the depth
+-- per `forIn`, none per `guard` — the shape the former `clauseFrameShift` counted (and the depth
 -- `resolveClausesWithFuel` reaches for the body, pinned below).
 theorem descend_clauses_chain_depth_counts_only_for :
     (clauseChainDepth 0 ([] : List (Clause Value)) == 0

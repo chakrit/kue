@@ -408,19 +408,11 @@ layout (`mergedIndex label`). References to outer scopes (`d > frameDepth`, or `
 frameDepth` into a struct the body itself introduces) are left untouched — the merged frame
 sits exactly where the conjunct's frame would have sat, so only the merged-frame layer
 shifts. Total via structural fuel; descending a struct increments `frameDepth`, and
-descending a comprehension body increments it by `clauseFrameShift` (one per `for` clause).
+descending a comprehension body shifts it via `clauseChainDepth` (the shared
+`descendClauses` fold — one frame per `for` clause, none per `guard`).
 -/
 def remapFuel : Nat :=
   100
-
-/-- Frames pushed by descending an entire clause chain: one per `.forIn`, none per `.guard`.
-    The single authority for the comprehension-body depth shift is `resolveClausesWithFuel`
-    (`Resolve.lean`); every walker that descends a comprehension body must shift its frame
-    depth by this much to stay in agreement. -/
-def clauseFrameShift : List (Clause Value) -> Nat
-  | [] => 0
-  | .forIn _ _ _ :: rest => 1 + clauseFrameShift rest
-  | .guard _ :: rest => clauseFrameShift rest
 
 mutual
   def remapConjRefs
@@ -491,11 +483,11 @@ mutual
     | fuel + 1, .comprehension clauses body =>
         .comprehension
           (remapConjClauses fuel frameDepth oldLabels mergedMap clauses)
-          (remapConjRefs fuel (frameDepth + clauseFrameShift clauses) oldLabels mergedMap body)
+          (remapConjRefs fuel (clauseChainDepth frameDepth clauses) oldLabels mergedMap body)
     | fuel + 1, .listComprehension clauses body =>
         .listComprehension
           (remapConjClauses fuel frameDepth oldLabels mergedMap clauses)
-          (remapConjRefs fuel (frameDepth + clauseFrameShift clauses) oldLabels mergedMap body)
+          (remapConjRefs fuel (clauseChainDepth frameDepth clauses) oldLabels mergedMap body)
     | fuel + 1, .embeddedList items tail decls =>
         .embeddedList
           (remapConjValues fuel frameDepth oldLabels mergedMap items)
