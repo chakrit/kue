@@ -226,12 +226,109 @@ A1-A4.
   backed by `native_decide` EvalTests source pins, including no-over-prune / no-over-open negatives.
   Pass-2 has eval-count pins. Coverage gaps land as the A1-A3 pins above.
 
+## Phase-B audit (2026-06-18, whole module graph — post A1-A4)
+
+Architecture/refactor/cleanup pass over the full graph (broader than the recent diff),
+run after Phase A landed A1-A4. Import graph is acyclic and sane (`Value` leaf →
+`Lattice`/`Normalize`/`Resolve`/`Order`/`Format` → `Builtin`/`Decimal` → `Eval` →
+`Runtime` → `Cli`; `Module` over `Parse`+`Runtime`). `FieldClass`/`Optionality` are the
+model the rest of the code should match (orthogonal axes, smart constructors,
+illegal-states-unrepresentable done right). Findings ranked, folded as fix-slices B1-B5
+below. Perf guide (`kue-performance.md`) is CURRENT — reflects item 7 frame-id divergence,
+Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit needed.
+
+- **B1 (HIGH — latent soundness, sibling of A1).** `remapConjRefs` (`Eval.lean:415`,
+  the conj-frame-remap that rebases a conjunct's `.refId`s to a merged frame on the
+  lazy-conjunction-merge path) ends in `| _, value => value` that SILENTLY SWALLOWS
+  `.structComp`, `.comprehension`, `.listComprehension`, `.embeddedList`, `.dynamicField`.
+  `.structComp` is the DOMINANT prod9 `#Def` conjunct shape (`{embed; …; ...}`) and
+  `.comprehension`/`.listComprehension` carry inner `.refId`s at `frameDepth` that MUST be
+  remapped — a swallowed conjunct keeps STALE frame indices after the merge → wrong
+  resolution or spurious bottom. Reachable: `remapConjRefs` is invoked on `defTail` / each
+  conjunct value/field/alternative/pattern in the merge fold (`Eval.lean:2478` + the
+  in-block recursions). Same class as A1 (a catch-all swallowing live constructors on a
+  perf/merge path). Fix: add explicit recursing arms for `.structComp` (remap fields at
+  `frameDepth+1` + comprehensions), `.comprehension`/`.listComprehension` (remap clause
+  sources + body), `.dynamicField` (label+value), `.embeddedList` (items/tail/decls).
+  Behavior change → full verify, NOT inline. Add a `native_decide` pin: a `structComp`
+  conjunct with a `frameDepth` self-ref remaps correctly across a field-reindexing merge.
+
+- **B2 (MEDIUM-HIGH — headline refactor; subsumes item-8 `StructOpenness`).** `Value` has
+  FIVE struct-bearing constructors (`struct`, `structTail`, `structPattern`,
+  `structPatterns`, `structComp`) plus `embeddedList`. `meetWithFuel` (`Lattice.lean`)
+  carries a 12-arm pairwise matrix (lines 971-1044) over `{struct, structTail,
+  structPattern, structPatterns}` — and the matrix is INCOMPLETE: `structPattern×structTail`,
+  `structPatterns×structTail`, and `structPattern×structPatterns` have NO explicit arm and
+  fall through to the early `.bottom` defaults (`Lattice.lean:458-478`). Since
+  `structPattern`/`structPatterns` carry an `open_` and are valid CUE (`{[string]: T, ...}`),
+  meeting an open pattern-struct with a tail-struct silently bottoms where CUE unifies — a
+  latent correctness hole the representation makes EASY to leave incomplete. Fix (own slice,
+  large): collapse the struct constructors into ONE normalized `struct` carrying
+  `(fields, openness, tail : Option Value, patterns : List (Value × Value))`, where
+  `openness` is the 3-state `StructOpenness` sum (`regularOpen | defClosed | defOpenViaTail`)
+  that item-8 already proposed — so the `open_`/`hasTail` nonsense state AND the missing meet
+  cross-combinations are BOTH erased by construction, and the 12-arm matrix becomes one merge.
+  This is the single biggest type-system-leverage win in the graph. ~28 `.structComp` sites +
+  the 5-ctor match sites across `Lattice`/`Eval`/`Normalize`/`Resolve`/`Order`/`Manifest`/
+  `Format`/`Parse` — design-spike first (normalization invariant + smart constructor), then a
+  mechanical multi-commit migration. Supersedes the standalone item-8 `StructOpenness` entry
+  (fold it into this). Byte-identical fixtures required + a pin for each previously-missing
+  cross-combination (`structPattern×structTail` etc. unify, not bottom).
+
+- **B3 (LOW-MEDIUM — incompleteness, embeddedList family).** `comprehensionPairs`
+  (`Eval.lean:988`) returns `none` for `.embeddedList`, so `for x in {#a:1, [1,2]}` (source
+  evaluates to an `embeddedList`) iterates ZERO times where CUE iterates `[1,2]`. Add an
+  `.embeddedList items _ _ => some (listPairsFrom 0 items)` arm. Incompleteness, not unsound;
+  folds into the item-8 `scalar-embed-with-decls`/embeddedList edge family — do as a
+  ride-along when next touching that area. Add a fixture `for x in {#a:1,[1,2]} {x}` → `[1,2]`.
+  (Audit-cross-check: `resolveValueWithFuel:145` and `evalValueCoreWithFuel:2181` catch-alls
+  were flagged but are DEFENSIBLE — `embeddedList` is an eval-OUTPUT and cannot reach the
+  parse-time `resolveValueWithFuel`; the eval-core catch-all's residual forms (scalars,
+  unresolved constraints) correctly pass through. Not findings.)
+
+- **B4 (LOW — seam test coverage gap).** Foundational modules with NO dedicated unit-test
+  module, exercised only indirectly via fixtures/`EvalTests`: `Lattice` (the meet operator!),
+  `Format`, `Decimal`, `Json`, `Base64`. `Lattice` most deserves a direct `LatticeTests`
+  pinning `meet`/`join` algebra (incl. the struct-shape arms B2 touches — a `LatticeTests`
+  written first de-risks the B2 refactor). Add `LatticeTests` + small `DecimalTests`/
+  `FormatTests`; ride-along with the test-org pass (item 5) or before B2.
+
+- **B5 (LOW — extraction-item corrections, cleanup).** Two backlog cleanup items need their
+  stated shape corrected from this audit:
+  - Item 3 (Regex → `Kue/Regex.lean`): CONFIRMED clean — the ~240-line engine (`RegexAtom` +
+    matchers + group/alternation) touches only `Char`/`String`/`RegexAtom`, consumed by
+    `Eval`/`Lattice`/`Order` via `stringRegexMatches`. After extraction, drop
+    `Init.Data.String.Search` from `Value.lean` (still imported by `Parse.lean`, so it stays
+    in the build — the win is `Value.lean` becoming a true leaf).
+  - Item 4 (EvalOps → `Kue/EvalOps.lean`): the scalar-op block (`evalAdd…evalBinary`) is NOT
+    `{Value, Decimal}`-only as item 4 states — it also calls `divValue`/`modValue`/`quoValue`/
+    `remValue` from `Builtin.lean`. So `EvalOps` must import `Builtin` too, OR those four div/mod
+    helpers move into `EvalOps`/`Decimal` first. Resolve the import shape in the slice; the
+    carve-out is otherwise clean (no back-edge into the recursive evaluator).
+  - `Order.lean` (subsumption) is a DELIBERATE test-only oracle (imported only by `Tests/*`),
+    NOT dead code and NOT duplicated in the pipeline — `meet` (join) and `subsumes` (partial
+    order) are orthogonal. Recorded so a future audit does not re-flag it as an orphan.
+
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
-audit fix-slices A1-A4 (correctness frontier, do FIRST) → item 1 → parallel-safe cleanups
-(3,4,5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW (8) as opportunistic
-ride-alongs.
+audit fix-slices A1-A4 + B1 (correctness frontier, do FIRST) → item 1 → B2 (headline struct
+refactor, design-spike then migrate) → parallel-safe cleanups (3,4,5 + B4/B5) interleaved →
+deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) as opportunistic ride-alongs.
+
+**B1. `remapConjRefs` catch-all swallows struct/comprehension conjuncts (HIGH — soundness).**
+`Eval.lean:415` `| _, value => value` drops `.structComp`/`.comprehension`/`.listComprehension`/
+`.embeddedList`/`.dynamicField` from the conj-frame-remap → stale `.refId`s after a merge. Hits
+the dominant `{embed;…;...}` `#Def` conjunct shape. Add recursing arms; full verify (behavior
+change); pin a `structComp` conjunct self-ref surviving a field-reindexing merge. See Phase-B B1.
+
+**B2. Unify the 5 struct constructors into one normalized struct (MEDIUM-HIGH — headline).**
+Collapse `struct`/`structTail`/`structPattern`/`structPatterns`/`structComp` into one
+`struct (fields, openness : StructOpenness, tail, patterns)`; erases the 12-arm meet matrix,
+its missing cross-combinations (`structPattern×structTail` etc. silently bottom today,
+`Lattice.lean:458-478`), AND the `open_`/`hasTail` nonsense state. Subsumes item-8
+`StructOpenness`. Design-spike + multi-commit migration; byte-identical fixtures + a pin per
+previously-missing cross-combination. See Phase-B B2.
 
 **A1. Pass-2 closure builtin blind-spot (HIGH — soundness; perf-change-induced wrong value).**
 `selfReferencedLabels` (`Eval.lean:185`) and `refsSelfEmbeddedLabel` (`Eval.lean:99`) END in a
@@ -299,21 +396,30 @@ case was either unreachable post-eval or strictly more correct. (The
 3. **Regex extraction → `Kue/Regex.lean` (ACTIONABLE, PARALLEL-SAFE).** The ~240-line
    engine (`Value.lean`, `RegexAtom` + fuel-bounded matcher + alternation/group expansion)
    depends only on `Char`/`String`, is consumed by `Eval`/`Builtin` only, sits below the
-   closure ctor in `Value.lean`. Extracting makes `Value.lean` a TRUE leaf (drops the lone
-   `Init.Data.String.Search` import). New leaf module + `import Kue.Regex` in `Eval`/`Builtin`.
-   Zero conflict with any `Eval.lean` slice — runs in its own subagent concurrently.
+   closure ctor in `Value.lean`. Extracting makes `Value.lean` a TRUE leaf. New leaf module +
+   `import Kue.Regex` in the consumers (`Eval`/`Lattice`/`Order` use `stringRegexMatches`; NOT
+   `Builtin`). Phase-B B5 confirmed clean. NOTE: `Init.Data.String.Search` is ALSO imported by
+   `Parse.lean`, so it stays in the build — the win is `Value.lean` shedding it, not removing it
+   project-wide. Zero conflict with any `Eval.lean` slice — runs in its own subagent concurrently.
 
 4. **EvalOps extraction → `Kue/EvalOps.lean` (ACTIONABLE).** ~256 lines of self-contained
-   pure `{Value, Decimal}` scalar algebra (`evalAdd…evalBinary`, ~lines 369-635) carved out
-   from under the recursive evaluator. New module imports only `{Value, Decimal}`. No
-   line-number collision with `truncate-primitive` (mutual block, ~1471+) or argocd work
-   (closure/conj path, below 635) — interleaves freely. Mechanical.
+   pure scalar algebra (`evalAdd…evalBinary`) carved out from under the recursive evaluator,
+   no back-edge into `evalValueWithFuel`. CORRECTION (Phase-B B5): it is NOT `{Value, Decimal}`-
+   only — it also calls `divValue`/`modValue`/`quoValue`/`remValue` from `Builtin.lean`. So
+   `EvalOps` imports `{Value, Decimal, Builtin}`, OR move those four div/mod helpers into
+   `EvalOps`/`Decimal` first (cleaner — they are pure `Value→Value` decimal ops with no Builtin-
+   dispatch dependency). Resolve the import shape in the slice. Mechanical otherwise.
 
 5. **Test-org pass (ACTIONABLE, periodic).** Theorem modules in `Kue/Tests/` are oversized
-   (`EvalTests` 1700+, `FixtureTests` 1033, `BuiltinTests` 735, `StructTests` 765). Split
-   each by subsystem in ONE pass; leave `FixturePorts` whole (generated). Don't churn
-   `testdata/` (sensibly named). Run AFTER the next correctness slice lands its pins so the
-   split doesn't immediately stale.
+   (`EvalTests` 2688, `FixturePorts` 2524, `FixtureTests` 1093, `StructTests` 765,
+   `BuiltinTests` 735 — Phase-B confirmed sizes). Split each by subsystem in ONE pass; leave
+   `FixturePorts` whole (generated). `testdata/` is clean and well-organized (no orphans; 155
+   cue pairs + 22 export + 30 module dirs; both `FixturePorts` and `check-fixtures.sh` cover
+   it with zero silent gaps) — do NOT churn it. Run AFTER the next correctness slice lands its
+   pins. FOLD IN B4: while here, add the missing seam unit-tests (`LatticeTests` for the meet
+   operator above all, plus small `DecimalTests`/`FormatTests`) — `Lattice`/`Format`/`Decimal`/
+   `Json`/`Base64` currently have NO dedicated module, only indirect fixture coverage. Write
+   `LatticeTests` BEFORE B2 if B2 lands first (de-risks the struct-meet rewrite).
 
 6. **Field-ordering parity #3 (MEDIUM, DEEP — byte-parity vs cue).** cue orders
    `ref & {own}` own-fields-first; kue is left-struct-first (`mergeStructFieldsWith`,
@@ -404,12 +510,15 @@ case was either unreachable post-eval or strictly more correct. (The
    - **`resolveEmbeddedDisjDefault` (`Eval.lean:2093`, next-audit confirm)** — verify the
      pass-1 label-surfacing path does NOT also need the use-site-narrowing distribution that
      `embed-disj-arm-fallthrough` added, or that label-surfacing-only is correct there.
-   - **`.structComp` openness 3-state sum (Phase-B tightening, from `6ad6033` audit).** The two
-     bools (`open_`, `hasTail`) admit a nonsense state (`open_=false, hasTail=true` — a closed
-     struct with a `...` tail, never constructed) and `hasTail` is dead after normalize (consumed
-     at ONE site). Fold both into a 3-state `StructOpenness` sum (`regularOpen | defClosed |
-     defOpenViaTail`) so the illegal state is unrepresentable. ~28 sites — own slice, not a
-     ride-along. Current code is CORRECT; this is representation hygiene.
+   - **`.structComp` openness 3-state sum — SUPERSEDED by Phase-B B2.** The `open_`/`hasTail`
+     nonsense state is now folded into the larger struct-constructor unification (B2), which
+     introduces `StructOpenness` as part of collapsing all five struct constructors. Do it there,
+     not standalone. (B2 also closes the missing meet cross-combinations the two-bool design
+     never surfaced.)
+   - **`comprehensionPairs` `.embeddedList` (Phase-B B3, LOW).** `for x in {#a:1,[1,2]}` iterates
+     zero times (source evals to `embeddedList`, `comprehensionPairs` returns `none`). Add an
+     `.embeddedList` arm; ride-along with the `scalar-embed-with-decls` work above. Fixture
+     `for x in {#a:1,[1,2]} {x}` → `[1,2]`.
 
 ## Pointers (history + reference for anything dropped)
 
