@@ -82,3 +82,17 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   but the regression is logged in `kue-performance.md` and filed as a perf fix-slice;
   re-probe a flagship real-app's wall-clock after any eval-path change so regressions are
   caught, not discovered later.
+
+## An audit's perf root-cause prediction proves wrong
+
+- **Symptom:** an audit declares "the regression is REDUNDANT — a cheap fix reclaims most of
+  it," the cheap fix lands sound, and the real app is unchanged.
+- **Seen:** 2026-06-18 — the link-3/4 audit modeled Pass-2 per-field redundancy as the
+  dominant cost and predicted a cheap selective-re-eval reclaims the cert-manager 31s→92s.
+  The fix shipped (sound, byte-identical, helps many-unrelated-field defs) but cert-manager
+  was statistically unchanged — the dominant cost was broader **frame-id divergence**, not
+  the modeled redundancy.
+- **Guard:** treat an audit's perf root-cause as a HYPOTHESIS, not a fact. Before building a
+  "cheap fix" on it, confirm with a direct before/after wall-clock + eval-count measurement
+  on the REAL target (not only a synthetic repro that exhibits the modeled effect). A fix
+  validated against a synthetic repro may be correct yet not move the real app.
