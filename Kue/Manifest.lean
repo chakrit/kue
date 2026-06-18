@@ -40,28 +40,23 @@ mutual
             | _, .error error => .error error
         | .field _ _ .required => .error (.incomplete (Field.value field))
         | .field _ _ .regular =>
-            -- A HIDDEN/definition present field (`#u: v`, `_u: v`) carrying an EXPLICIT, SHALLOW
-            -- bottom bottoms the enclosing struct (cue: `{#u: _|_}` → explicit error). But the value
-            -- is OMITTED from output, so we must NOT recurse into it: an imported-package binding is
-            -- bound (by `bindImports`) as a hidden field whose package value contains unreferenced
-            -- regular/definition fields with their own (unreached) conflicts — cue is LAZY on all
-            -- such unreferenced imported content and never manifests it. A deep/output-spine recurse
-            -- here spuriously bottoms the whole export (the cert-manager regression: `defs`/`parts`
-            -- bindings carry an `attr.#ExecProbe` test whose `#command` conflicts in isolation).
-            -- The reached-vs-unreferenced predicate cannot be reconstructed locally at manifest:
-            -- cue's laziness tracks output-reachability (referenced via `pkg.#X`), NOT field class —
-            -- an explicit `_|_` literal in an UNREFERENCED imported field is just as lazy as a
-            -- derived conflict (verified, cue v0.16.1). Distinguishing an import binding from a real
-            -- in-file `#u` needs a representation marker on the binding (filed as A2-followup). Until
-            -- then the SHALLOW `isBottom` is the SOUND check (never a false error → no regression);
-            -- it catches `{#u: _|_}` but knowingly misses `{#u: {x: _|_}}` (tracked divergence).
-            if isBottom (Field.value field) then .error .contradiction
-            else manifestFieldsWithFuel fuel fields
+            -- A real in-file HIDDEN/definition present field (`#u: v`, `_u: v`) — REACHED, since
+            -- it is in the manifested struct (import-package bindings are `.importBinding`, handled
+            -- below and kept lazy). cue ENFORCES a bottom reached anywhere in such a field, even
+            -- DEEP (`{#u: {x: _|_}}` → explicit error, oracle-confirmed v0.16.1). So recurse the
+            -- value's manifest output spine and surface a DEEP `.contradiction`. A non-contradiction
+            -- error (incomplete — `{#u: {x: string}}`) stays skipped: hidden/def fields are
+            -- non-output, and an unreached incomplete is tolerated (cue exports clean).
+            match manifestWithFuel fuel (Field.value field) with
+            | .error .contradiction => .error .contradiction
+            | _ => manifestFieldsWithFuel fuel fields
         | .field _ _ .optional => manifestFieldsWithFuel fuel fields
         | .letBinding => manifestFieldsWithFuel fuel fields
-        -- A bound imported package: its unreferenced content stays cue-lazy, so a SHALLOW
-        -- `isBottom` only (commit-1 byte-identity: reads exactly as the old `.hidden` arm).
-        -- The deep-bottom split in commit 2 applies ONLY to real in-file hidden/def fields.
+        -- A bound imported package: its unreferenced content stays cue-LAZY (output-reachability
+        -- laziness — cue never manifests unreferenced imported content). SHALLOW `isBottom` only;
+        -- a deep recurse here would re-bottom cert-manager/argocd (the reverted-A2 trap). The
+        -- marker makes that laziness LOCAL: an `importBinding` IS the unreferenced-import case by
+        -- construction, so the deep recurse above NEVER runs on a bound package.
         | .importBinding =>
             if isBottom (Field.value field) then .error .contradiction
             else manifestFieldsWithFuel fuel fields

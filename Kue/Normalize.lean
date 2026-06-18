@@ -92,27 +92,31 @@ mutual
     | fuel + 1, .guard condition =>
         .guard (normalizeDefinitionValueWithFuel fuel condition)
 
-  /-- Field handler. A DEFINITION field's body is closed (recursively) — its own closedness
-      declaration. A regular/optional/required field's value recurses with the SPINE walker, which
-      PRESERVES the field's own openness (an instantiated regular struct stays open — cue keeps
-      `(#D & {}).r` open) while still closing any nested `#Def` reached inside it (gap-1: a `#Def`
-      under a regular field, `a.#Inner`, is now closed). A `let` binding (B6-A2) takes that SAME
-      spine arm: `letBinding` is its OWN `FieldClass` kind, NOT entangled with the import-binding
-      trap below, so a `let`-bound value can safely recurse the spine — closing its nested `#Def`s
-      (cue closes `let x = {#I:…}; x.#I & {extra}`) while a `let` over a regular/open struct stays
-      open. Hidden fields are import-package bindings (`Module.lean`) left UNTOUCHED so a bound
-      package stays cue-lazy — recursing them re-closes unreferenced nested defs and re-bottoms
-      cert-manager/argocd (the A2 trap; this is what decouples B6 from A2-followup). This `let` arm
-      is the `letBinding` arm of the future A2-followup 4-way `FieldClass` split. -/
+  /-- Field handler — a principled 4-way split on `FieldClass` (A2-followup, subsuming B6-A2):
+      - DEFINITION (`#x`): body closed recursively (its own closedness declaration).
+      - `importBinding`: a bound imported package (`Module.bindImports`) left UNTOUCHED so it
+        stays cue-lazy. Recursing it re-closes unreferenced nested defs and re-bottoms
+        cert-manager/argocd (the A2 trap). The marker scopes this skip PRECISELY to bound
+        packages — a real in-file `_x` no longer escapes through it (B6-A1).
+      - real in-file hidden (`_x`) OR `let` binding: value recurses the SPINE walker
+        `normalizeDefinitionsWithFuel`, closing nested `#Def`s while preserving the field's own
+        openness — same treatment regular fields get (cue closes `_pkg.#Svc & {extra}` and
+        `let x={#I:…}; x.#I & {extra}`, oracle-confirmed v0.16.1).
+      - regular/optional/required: same spine recurse, preserving openness. -/
   def normalizeFieldWithFuel : Nat -> Field -> Field
     | 0, field => field
     | fuel + 1, field =>
-        if FieldClass.isDefinition (Field.fieldClass field) then
-          ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
-        else if FieldClass.isHidden (Field.fieldClass field) then
-          field
-        else
-          ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+        match Field.fieldClass field with
+        | .field true _ _ =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
+        | .importBinding =>
+            field
+        | .field false true _ =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+        | .letBinding =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+        | .field false false _ =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
 
   def normalizeDefinitionsWithFuel : Nat -> Value -> Value
     | 0, value => value

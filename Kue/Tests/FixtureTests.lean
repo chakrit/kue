@@ -956,14 +956,37 @@ theorem link5_unset_optional_bottom_field_tolerated :
       = "{\n    \"out\": {\n        \"k\": 1\n    }\n}\n" := by
   native_decide
 
--- NO-OVER-FIRE (the cert-manager regression guard): the shallow check must NOT recurse into a
--- hidden field's subtree. A hidden field holding a struct with a NESTED, non-propagating conflict
--- (the imported-package-binding shape — `defs`/`parts` carrying `tests`/definitions cue never
--- evaluates) must still EXPORT, not bottom the whole document. A regression that re-introduced deep
--- recursion here would bottom this (and cert-manager).
-theorem link5_hidden_nested_conflict_does_not_overfire :
+-- A2-followup: a DEEP conflict in a real IN-FILE nested definition surfaces — cue ENFORCES a
+-- bottom reached anywhere in a reached hidden/def field (`out: {#pkg: {#Tmpl: {#c: string} &
+-- {#c: int}}, …}` → `conflicting values string and int`, oracle-confirmed v0.16.1). This INVERTS
+-- the prior `link5_..._does_not_overfire` pin, which asserted clean export — that was Kue-WRONG:
+-- it conflated an in-file literal with an import binding to dodge the cert-manager trap. The marker
+-- decouples the two: in-file hidden/def fields are REACHED and strict; only an `.importBinding`
+-- stays lazy. The genuine lazy-import guard is the `dup_import_binding` module fixture (an
+-- unreferenced `parts.#Other` conflict still exports `main` clean).
+theorem infile_hidden_nested_conflict_surfaces :
     exportResultString "out: {#pkg: {#Tmpl: {#c: string} & {#c: int}}, k: 1}\n"
-      = "{\n    \"out\": {\n        \"k\": 1\n    }\n}\n" := by
+      = "ERR:conflicting values (bottom)" := by
+  native_decide
+
+-- A2-followup: a DEEP explicit `_|_` in a REACHED in-file definition field surfaces at manifest
+-- (`{#u: {x: _|_}}` → cue: `explicit error (_|_ literal)`, oracle-confirmed v0.16.1). The Manifest
+-- split recurses the value's output spine for a real in-file hidden/def field (NOT an import
+-- binding) and lifts a deep `.contradiction`.
+theorem a2followup_deep_hidden_def_bottom_surfaces :
+    exportResultString "#u: {x: _|_}\nout: 1\n" = "ERR:conflicting values (bottom)" := by
+  native_decide
+
+-- A2-followup: the same shape with a real in-file HIDDEN field (`_u`, not a def) also surfaces.
+theorem a2followup_deep_infile_hidden_bottom_surfaces :
+    exportResultString "_u: {x: _|_}\nout: 1\n" = "ERR:conflicting values (bottom)" := by
+  native_decide
+
+-- A2-followup tolerance: a DEEP INCOMPLETE (not a contradiction) in a hidden/def field is NOT an
+-- error — hidden/def fields are non-output and an unreached incomplete is tolerated (`{#u: {x:
+-- string}}` exports clean, oracle-confirmed v0.16.1). Only `.contradiction` lifts; incomplete skips.
+theorem a2followup_deep_hidden_incomplete_tolerated :
+    exportResultString "#u: {x: string}\nout: 1\n" = "{\n    \"out\": 1\n}\n" := by
   native_decide
 
 end Kue

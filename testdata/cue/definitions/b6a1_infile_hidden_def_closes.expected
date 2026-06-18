@@ -1,0 +1,2 @@
+_pkg: {#Svc: {name: string}}
+out: {name: "x", extra: _|_}

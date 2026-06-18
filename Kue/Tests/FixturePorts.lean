@@ -480,6 +480,27 @@ def fixturePorts : List FixturePort :=
         | .ok value => formatResolvedTopLevel value
         | .error error => s!"parse error: {error.message}"
     },
+    {
+      -- B6-A1: a `#Def` reached under a REAL in-file hidden field (`_pkg.#Svc & {extra}`) CLOSES.
+      -- The Normalize 4-way split routes a real in-file `_x` (not an `.importBinding`) through the
+      -- spine walker, so its nested `#Svc` closes. cue: `out.extra: field not allowed` (v0.16.1).
+      -- The marker scopes the import-laziness skip to `.importBinding` ONLY, so the in-file hidden
+      -- field no longer escapes closedness. Parsed so the real `_`-prefixed `.hidden` field flows.
+      fileName := "definitions/b6a1_infile_hidden_def_closes.expected",
+      content :=
+        match parseSource "_pkg: {#Svc: {name: string}}\nout: _pkg.#Svc & {name: \"x\", extra: 1}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- B6-A1 no-over-close sentinel: the same in-file hidden def but OPEN via `...`. cue admits
+      -- `extra` (v0.16.1) and Kue must too — the spine walker leaves a `defOpenViaTail` body open.
+      fileName := "definitions/b6a1_infile_hidden_def_open.expected",
+      content :=
+        match parseSource "_pkg: {#Svc: {name: string, ...}}\nout: _pkg.#Svc & {name: \"x\", extra: 1}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
     -- B6-T1 closedness regression pins. B6 is the most regression-prone class (prior closedness
     -- changes bottomed `#ListenerSet`/cert-manager); these lock the shapes the Phase-A over-close
     -- hunt exercised so future closedness work cannot silently regress them. Each oracle-checked
