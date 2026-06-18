@@ -193,8 +193,8 @@ theorem remap_structcomp_conjunct_reindexes_inner_refid :
     (remapConjRefs remapFuel 0
         [Field.regular "a" .top, Field.regular "b" .top]
         [("b", 0), ("a", 1)]
-        (.structComp [⟨"x", .regular, .refId ⟨1, 1⟩⟩] [] true false)
-      == .structComp [⟨"x", .regular, .refId ⟨1, 0⟩⟩] [] true false) = true := by
+        (.structComp [⟨"x", .regular, .refId ⟨1, 1⟩⟩] [] .regularOpen)
+      == .structComp [⟨"x", .regular, .refId ⟨1, 0⟩⟩] [] .regularOpen) = true := by
   native_decide
 
 -- A `.structComp` conjunct's COMPREHENSION list is also remapped (a comprehension body reading a
@@ -203,8 +203,8 @@ theorem remap_structcomp_conjunct_remaps_comprehension :
     (remapConjRefs remapFuel 0
         [Field.regular "a" .top, Field.regular "b" .top]
         [("b", 0), ("a", 1)]
-        (.structComp [] [.comprehension [.guard (.refId ⟨1, 1⟩)] (.refId ⟨1, 1⟩)] true false)
-      == .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)] (.refId ⟨1, 0⟩)] true false) = true := by
+        (.structComp [] [.comprehension [.guard (.refId ⟨1, 1⟩)] (.refId ⟨1, 1⟩)] .regularOpen)
+      == .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)] (.refId ⟨1, 0⟩)] .regularOpen) = true := by
   native_decide
 
 /-! ### A5 (regression from B1) — comprehension BODY remapped at the wrong frame depth.

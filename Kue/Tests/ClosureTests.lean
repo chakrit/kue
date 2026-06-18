@@ -210,7 +210,7 @@ theorem closure_producer_comprehension_guard_self_ref_detected :
         (.struct [⟨"#staging", .definition, .kind .bool⟩,
                   ⟨"spec", .regular,
                     .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)]
-                      (.struct [⟨"server", .regular, .prim (.string "x")⟩] .regularOpen none [])] true false⟩] .regularOpen none [])) = true := by
+                      (.struct [⟨"server", .regular, .prim (.string "x")⟩] .regularOpen none [])] .regularOpen⟩] .regularOpen none [])) = true := by
   native_decide
 
 /-! ### A5-followup — comprehension-BODY self-ref deferral gate (`hasSelfRefAtDepthClauses`)
@@ -389,7 +389,7 @@ theorem closure_producer_detects_structcomp_sibling :
     (defBodyHasSiblingSelfRef
         (.structComp [⟨"#x", .definition, .kind .string⟩,
                       ⟨"spec", .regular, .refId ⟨0, 1⟩⟩]
-                     [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] true false)) = true := by
+                     [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] .regularOpen)) = true := by
   native_decide
 
 /-- A.1 GATE companion: a `.structComp` whose self-ref lives in the EMBEDDING (not the static
@@ -397,7 +397,7 @@ theorem closure_producer_detects_structcomp_sibling :
 theorem closure_producer_detects_structcomp_embedding_sibling :
     (defBodyHasSiblingSelfRef
         (.structComp [⟨"#x", .definition, .kind .string⟩]
-                     [.refId ⟨0, 0⟩] true false)) = true := by
+                     [.refId ⟨0, 0⟩] .regularOpen)) = true := by
   native_decide
 
 /-- A.2 FORCE `.structComp`: `parts.#Def & {#x: "hello"}` where `#Def` embeds a literal struct
@@ -407,7 +407,7 @@ theorem closure_producer_detects_structcomp_embedding_sibling :
 private def embedDefBody : Value :=
   .structComp [⟨"#x", .definition, .kind .string⟩,
                ⟨"spec", .regular, .refId ⟨0, 0⟩⟩]
-              [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] false false
+              [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] .defClosed
 
 theorem closure_meet_structcomp_embed_splices :
     (runEval (evalValueWithFuel evalFuel
@@ -498,7 +498,7 @@ theorem close_embedded_over_unions_allowed_labels :
 theorem eager_structcomp_embed_closed_keeps_host_field :
     (runEval (evalValueWithFuel evalFuel [] []
         (.structComp [⟨"x", .regular, .prim (.string "z")⟩]
-                     [.struct [⟨"pval", .regular, .prim (.string "p")⟩] .defClosed none []] true false))
+                     [.struct [⟨"pval", .regular, .prim (.string "p")⟩] .defClosed none []] .regularOpen))
       == .struct [⟨"x", .regular, .prim (.string "z")⟩,
                   ⟨"pval", .regular, .prim (.string "p")⟩] .regularOpen none []) = true := by
   native_decide
@@ -517,7 +517,7 @@ private def chainOuterBody : Value :=
      ⟨"oname", .regular, .refId ⟨0, 0⟩⟩]
     [.conj [.refId ⟨1, 0⟩,
             .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] .regularOpen none []]]
-    false false
+    .defClosed
 
 private def chainEnv : Env :=
   [(7, [⟨"#Inner", .definition, chainInnerBody⟩,
@@ -554,7 +554,7 @@ private def chainConflictOuterBody : Value :=
      ⟨"iname", .regular, .prim (.string "fixed")⟩]
     [.conj [.refId ⟨1, 0⟩,
             .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] .regularOpen none []]]
-    false false
+    .defClosed
 
 private def chainConflictEnv : Env :=
   [(7, [⟨"#Inner", .definition, chainInnerBody⟩,
@@ -607,7 +607,7 @@ theorem f2_force_structcomp_guard_fires_post_meet :
           .struct [⟨"#M", .definition,
             .structComp [⟨"#x", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] false false⟩] .regularOpen none []⟩])] []
+                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .defClosed⟩] .regularOpen none []⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
                 .struct [⟨"#x", .definition, .prim (.int 5)⟩] .regularOpen none []]))
       == .struct [⟨"#x", .definition, .prim (.int 5)⟩,
@@ -622,7 +622,7 @@ theorem f2_force_structcomp_guard_does_not_fire :
           .struct [⟨"#M", .definition,
             .structComp [⟨"#x", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] false false⟩] .regularOpen none []⟩])] []
+                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .defClosed⟩] .regularOpen none []⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
                 .struct [⟨"#x", .definition, .prim (.int (-1))⟩] .regularOpen none []]))
       == .struct [⟨"#x", .definition, .prim (.int (-1))⟩] .defClosed none []) = true := by
@@ -639,9 +639,9 @@ theorem f2_body_needs_defer_through_embed :
          (9, [⟨"#Inner", .definition,
             .structComp [⟨"#port", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"ports", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] true false⟩])]
+                (.struct [⟨"ports", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .regularOpen⟩])]
         evalFuel
-        (.structComp [] [.refId ⟨1, 0⟩] true false)) = true := by
+        (.structComp [] [.refId ⟨1, 0⟩] .regularOpen)) = true := by
   native_decide
 
 /-- `bodyNeedsDefer` does NOT fire for a struct embedding a self-ref-FREE def — the recursion
@@ -653,7 +653,7 @@ theorem f2_body_needs_defer_skips_plain_embed :
          (9, [⟨"#Plain", .definition,
             .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []⟩])]
         evalFuel
-        (.structComp [] [.refId ⟨1, 0⟩] true false)) = false := by
+        (.structComp [] [.refId ⟨1, 0⟩] .regularOpen)) = false := by
   native_decide
 
 /-! ### closure-import-selector-alias — a def aliased to (or embedding) an import-selector must

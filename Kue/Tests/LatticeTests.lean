@@ -453,4 +453,33 @@ theorem openness_meet_open_idempotent :
     StructOpenness.meet .regularOpen .regularOpen == .regularOpen := by
   native_decide
 
+/-! ## `StructOpenness.closeDefBody` (B2b)
+
+The def-body openness derivation `normalizeDefinitionValueWithFuel` applies to a `structComp`
+body: a no-`...` body (`regularOpen`) CLOSES, a `...` body (`defOpenViaTail`) stays open, and
+`defClosed` is a fixed point. Replaces the legacy `open_ := hasTail` rule, pinned at the type
+level. -/
+
+theorem close_def_body_regular_closes :
+    StructOpenness.closeDefBody .regularOpen == .defClosed := by
+  native_decide
+
+theorem close_def_body_tail_stays_open :
+    StructOpenness.closeDefBody .defOpenViaTail == .defOpenViaTail := by
+  native_decide
+
+theorem close_def_body_closed_fixed_point :
+    StructOpenness.closeDefBody .defClosed == .defClosed := by
+  native_decide
+
+/-- End-to-end pin on the ONE semantic site: `normalizeDefinitionValueWithFuel` closes a
+    no-`...` `structComp` def body (`regularOpen → defClosed`) and leaves a `...` body open
+    (`defOpenViaTail` fixed point). -/
+theorem normalize_def_structComp_openness :
+    (normalizeDefinitionValueWithFuel normalizeFuel (.structComp [] [] .regularOpen)
+        == .structComp [] [] .defClosed
+      && normalizeDefinitionValueWithFuel normalizeFuel (.structComp [] [] .defOpenViaTail)
+        == .structComp [] [] .defOpenViaTail) = true := by
+  native_decide
+
 end Kue

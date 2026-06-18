@@ -74,7 +74,7 @@ theorem guard_fires_on_present :
         [.comprehension
           [.guard (.binary .ne (.ref "f") .bottom)]
           (.struct [⟨"seen", .regular, .ref "f"⟩] .regularOpen none [])]
-        true false))
+        .regularOpen))
       == .struct [⟨"f", .regular, .prim (.int 3)⟩, ⟨"seen", .regular, .prim (.int 3)⟩] .regularOpen none [])
       = true := by
   native_decide
@@ -87,7 +87,7 @@ theorem guard_drops_on_absent :
         [.comprehension
           [.guard (.binary .ne (.selector (.ref "base") "g") .bottom)]
           (.struct [⟨"seen", .regular, .prim (.bool true)⟩] .regularOpen none [])]
-        true false))
+        .regularOpen))
       == .struct [⟨"base", .regular, .struct [⟨"f", .regular, .prim (.int 3)⟩] .regularOpen none []⟩] .regularOpen none [])
       = true := by
   native_decide

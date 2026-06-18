@@ -458,6 +458,16 @@ def ofBool : Bool -> StructOpenness
   | true => .regularOpen
   | false => .defClosed
 
+/-- The def-body openness derivation: a definition is closed by default, and an explicit
+    `...` (`defOpenViaTail`) keeps it open. A `regularOpen` no-`...` body CLOSES (the parser's
+    open-by-default is irrelevant once it is a def body); a `defOpenViaTail` body stays open.
+    Total over all three states (`defClosed` is a fixed point); replaces the legacy
+    `open_ := hasTail` rule in `normalizeDefinitionValueWithFuel`. -/
+def closeDefBody : StructOpenness -> StructOpenness
+  | .regularOpen => .defClosed
+  | .defClosed => .defClosed
+  | .defOpenViaTail => .defOpenViaTail
+
 /-- Meet on the openness lattice: closed dominates (a closed conjunct closes the meet),
     `defOpenViaTail` meeting any open stays tail-bearing-open, and two regular opens stay
     open. Matches the `meetOpenness` rule the B2.4 single meet arm will use. -/
@@ -555,16 +565,18 @@ inductive Value where
   | embeddedList (items : List Value) (tail : Option Value) (decls : List Field)
   | comprehension (clauses : List (Clause Value)) (body : Value)
   /--
-  A struct carrying comprehensions/embeddings (`{a, if c {…}, #Base}`). `open_` is the host's
-  open-by-default openness (a REGULAR struct is open; the eager eval arm honors it). `hasTail`
-  records whether the source had an explicit `...` — the DEFINITION-context openness signal:
-  a definition is closed by default and `...` opens it, so `normalizeDefinitionValueWithFuel`
-  sets the def body's `open_ := hasTail`. Two flags because a regular no-`...` struct (open) and
-  a definition no-`...` body (closed) parse identically and must be told apart only at normalize,
-  not at the shared eager arm — overloading one bool conflated them (silently closing open defs
-  or opening closed ones, depending on which way it was set).
+  A pre-eval struct carrying comprehensions/embeddings (`{a, if c {…}, #Base}`). `openness` is
+  the three-state `StructOpenness` (B2b: replaces the legacy `(open_, hasTail)` two-bool). Unlike
+  the unified `struct`, `structComp` carries NO tail VALUE — its `...` is a bare flag, so
+  `defOpenViaTail` here means "open via a bare `...`, no stored tail value" (coherent: there is no
+  `tail` field for the coherence invariant to relate it to). At parse a regular struct is open
+  (`regularOpen` with no `...`, `defOpenViaTail` with `...`); the eager eval arm honors
+  `openness.isOpen`. `normalizeDefinitionValueWithFuel` derives the def-body openness via
+  `StructOpenness.closeDefBody` (a no-`...` body closes, a `...` body stays open) — the def is
+  closed by default and `...` opens it. A distinct pre-eval ctor (NOT folded into the unified
+  meet-bearing `struct`): it NEVER reaches meet — the eager arm expands it into `struct` first.
   -/
-  | structComp (fields : List Field) (comprehensions : List Value) (open_ : Bool) (hasTail : Bool)
+  | structComp (fields : List Field) (comprehensions : List Value) (openness : StructOpenness)
   /--
   A list-context comprehension, stored as a list ITEM (in `.list`/`.listTail`). It shares
   the `Clause Value` chain with the struct-comprehension forms, but `body` is the

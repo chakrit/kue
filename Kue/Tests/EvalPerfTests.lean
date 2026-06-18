@@ -69,7 +69,7 @@ def selPassUnrelated (n : Nat) : List Field :=
     (⟨s!"u{i}", .regular, .binary .add (.selector (.refId ⟨0, 0⟩) "base") (.prim (.int (Int.ofNat i)))⟩ : Field)
 def selPassBody (n : Nat) : Value :=
   .structComp ([selPassSelfF, selPassBaseF, selPassDepF] ++ selPassUnrelated n)
-    [.struct [⟨"et", .regular, .prim (.string "z")⟩] .defClosed none []] true true
+    [.struct [⟨"et", .regular, .prim (.string "z")⟩] .defClosed none []] .defOpenViaTail
 
 -- SELECTION: the Pass-2 re-eval set is EXACTLY the dependent field (`dep` at canonical index 2),
 -- regardless of how many unrelated fields surround it — the redundant recompute is excluded.
@@ -255,7 +255,7 @@ def satCompTruncValue : Value :=
   .structComp []
     [.comprehension [.guard (.prim (.bool true))]
       (.struct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-    true false
+    .regularOpen
 
 -- SOUNDNESS (third-truncation-source corruption): the comprehension truncates at fuel 2
 -- (`{}`) but expands at fuel 20 (`{x:1}`). Evaluating at fuel 2 first must NOT poison the fuel-20
@@ -283,7 +283,7 @@ theorem sat_comprehension_low_fuel_truncates :
 def satListCompTruncValue : Value :=
   .list [.listComprehension
     [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])]
-    (.structComp [] [.prim (.int 9)] true false)]
+    (.structComp [] [.prim (.int 9)] .regularOpen)]
 
 -- SOUNDNESS (list-comp truncation-source corruption): truncates at fuel 1 (`[]`) but expands at
 -- fuel 20 (`[9,9,9]`). Evaluating at fuel 1 first must NOT poison the fuel-20 request via the

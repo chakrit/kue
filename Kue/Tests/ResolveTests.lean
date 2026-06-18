@@ -99,7 +99,7 @@ theorem resolve_comprehension_loop_vars_to_binding_ids :
             [.forIn (some "k") "v" (.struct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
             (.struct [⟨"key", .regular, .ref "k"⟩, ⟨"val", .regular, .ref "v"⟩] .regularOpen none [])
         ]
-        true false)
+        .regularOpen)
       == .structComp
           []
           [
@@ -107,7 +107,7 @@ theorem resolve_comprehension_loop_vars_to_binding_ids :
               [.forIn (some "k") "v" (.struct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
               (.struct [⟨"key", .regular, .refId ⟨1, 0⟩⟩, ⟨"val", .regular, .refId ⟨1, 1⟩⟩] .regularOpen none [])
           ]
-          true false) = true := by
+          .regularOpen) = true := by
   native_decide
 
 theorem resolve_comprehension_body_outer_field_depth :
@@ -115,11 +115,11 @@ theorem resolve_comprehension_body_outer_field_depth :
       (.structComp
         [⟨"base", .regular, .prim (.int 7)⟩]
         [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"copy", .regular, .ref "base"⟩] .regularOpen none [])]
-        true false)
+        .regularOpen)
       == .structComp
           [⟨"base", .regular, .prim (.int 7)⟩]
           [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"copy", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])]
-          true false) = true := by
+          .regularOpen) = true := by
   native_decide
 
 end Kue

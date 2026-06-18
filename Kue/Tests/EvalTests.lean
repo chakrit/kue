@@ -581,7 +581,7 @@ theorem eval_comprehension_for_keyed_over_struct :
               [.forIn (some "k") "v" (.struct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
               (.struct [⟨"key", .regular, .ref "k"⟩, ⟨"val", .regular, .ref "v"⟩] .regularOpen none [])
           ]
-          true false))
+          .regularOpen))
       == .struct [⟨"key", .regular, .prim (.string "x")⟩, ⟨"val", .regular, .prim (.int 1)⟩] .regularOpen none [])
       = true := by
   native_decide
@@ -596,7 +596,7 @@ theorem eval_comprehension_for_over_list :
               [.forIn none "v" (.list [.prim (.int 42)])]
               (.struct [⟨"only", .regular, .ref "v"⟩] .regularOpen none [])
           ]
-          true false))
+          .regularOpen))
       == .struct [⟨"only", .regular, .prim (.int 42)⟩] .regularOpen none []) = true := by
   native_decide
 
@@ -606,7 +606,7 @@ theorem eval_comprehension_if_true_admits :
         (.structComp
           []
           [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none [])]
-          true false))
+          .regularOpen))
       == .struct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none []) = true := by
   native_decide
 
@@ -616,7 +616,7 @@ theorem eval_comprehension_if_false_drops :
         (.structComp
           []
           [.comprehension [.guard (.prim (.bool false))] (.struct [⟨"hidden", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-          true false))
+          .regularOpen))
       == .struct [] .regularOpen none []) = true := by
   native_decide
 
@@ -626,7 +626,7 @@ theorem eval_comprehension_body_sees_sibling_field :
         (.structComp
           [⟨"base", .regular, .prim (.int 7)⟩]
           [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"copy", .regular, .ref "base"⟩] .regularOpen none [])]
-          true false))
+          .regularOpen))
       == .struct [⟨"base", .regular, .prim (.int 7)⟩, ⟨"copy", .regular, .prim (.int 7)⟩] .regularOpen none [])
       = true := by
   native_decide
@@ -637,7 +637,7 @@ theorem eval_comprehension_for_source_sees_sibling_field :
         (.structComp
           [⟨"k", .regular, .prim (.int 3)⟩]
           [.comprehension [.forIn none "v" (.list [.ref "k"])] (.struct [⟨"g", .regular, .ref "v"⟩] .regularOpen none [])]
-          true false))
+          .regularOpen))
       == .struct [⟨"k", .regular, .prim (.int 3)⟩, ⟨"g", .regular, .prim (.int 3)⟩] .regularOpen none [])
       = true := by
   native_decide
@@ -688,7 +688,7 @@ theorem eval_comprehension_guard_negated_default_disj_admits :
              .structComp []
                [.comprehension [.guard (.unary .boolNot (.ref "x"))]
                  (.struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-               true false⟩] .regularOpen none []))
+               .regularOpen⟩] .regularOpen none []))
       == .struct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
          ⟨"out", .regular, .struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
@@ -702,7 +702,7 @@ theorem eval_comprehension_guard_direct_default_disj_admits :
              .structComp []
                [.comprehension [.guard (.ref "x")]
                  (.struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-               true false⟩] .regularOpen none []))
+               .regularOpen⟩] .regularOpen none []))
       == .struct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
          ⟨"out", .regular, .struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
@@ -719,7 +719,7 @@ theorem eval_comprehension_guard_non_default_disj_drops :
              .structComp []
                [.comprehension [.guard (.ref "x")]
                  (.struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-               true false⟩] .regularOpen none []))
+               .regularOpen⟩] .regularOpen none []))
       == .struct [⟨"x", .regular,
            .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
          ⟨"out", .regular, .struct [] .regularOpen none []⟩] .regularOpen none []) = true := by

@@ -118,7 +118,7 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
       match fuel with | 0 => false | f + 1 => alts.any (fun a => refsSelfEmbeddedLabel f depth selfIndex labels a.snd)
   | .interpolation parts =>
       match fuel with | 0 => false | f + 1 => parts.any (refsSelfEmbeddedLabel f depth selfIndex labels)
-  | .structComp fields cs _ _ =>
+  | .structComp fields cs _ =>
       match fuel with
       | 0 => false
       | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
@@ -226,7 +226,7 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List St
       match fuel with | 0 => [] | f + 1 => alts.flatMap (fun a => selfReferencedLabels f depth selfIndex a.snd)
   | .interpolation parts =>
       match fuel with | 0 => [] | f + 1 => parts.flatMap (selfReferencedLabels f depth selfIndex)
-  | .structComp fields cs _ _ =>
+  | .structComp fields cs _ =>
       match fuel with
       | 0 => []
       | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
@@ -445,11 +445,11 @@ mutual
           (remapConjRefs fuel frameDepth oldLabels mergedMap tail)
     | fuel + 1, .interpolation parts =>
         .interpolation (remapConjValues fuel frameDepth oldLabels mergedMap parts)
-    | fuel + 1, .structComp fields comprehensions open_ hasTail =>
+    | fuel + 1, .structComp fields comprehensions openness =>
         .structComp
           (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields)
           (remapConjValues fuel (frameDepth + 1) oldLabels mergedMap comprehensions)
-          open_ hasTail
+          openness
     | fuel + 1, .comprehension clauses body =>
         .comprehension
           (remapConjClauses fuel frameDepth oldLabels mergedMap clauses)
@@ -724,7 +724,7 @@ def classifyDefinedness : Value -> Definedness
   | .list _ => .defined
   | .listTail _ _ => .defined
   | .embeddedList _ _ _ => .defined
-  | .structComp _ _ _ _ => .defined
+  | .structComp _ _ _ => .defined
   -- A no-patterns struct is a present concrete value → `.defined`; a pattern-bearing struct
   -- (a residual constraint) is `.incomplete`. The discriminator is `patterns.isEmpty`.
   | .struct _ _ _ [] => .defined
@@ -1074,7 +1074,7 @@ def valueTag : Value -> UInt64
   | .list _ => 22
   | .listTail _ _ => 23
   | .comprehension _ _ => 24
-  | .structComp _ _ _ _ => 25
+  | .structComp _ _ _ => 25
   | .interpolation _ => 26
   | .dynamicField _ _ _ => 27
   | .embeddedList _ _ _ => 28
@@ -1469,7 +1469,7 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
       match fuel with
       | 0 => false
       | fuel + 1 => parts.any (hasSelfRefAtDepth fuel depth)
-  | .structComp fields comprehensions _ _ =>
+  | .structComp fields comprehensions _ =>
       match fuel with
       | 0 => false
       | fuel + 1 =>
@@ -1528,7 +1528,7 @@ end
     that collapses under the eager import-selector path: the use-site narrows a top-level hidden
     field, but an eager eval resolves the (possibly deep) reference to it BEFORE the narrowing. -/
 def defBodyHasSiblingSelfRef : Value -> Bool
-  | .structComp fields comprehensions _ _ =>
+  | .structComp fields comprehensions _ =>
       fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
         || comprehensions.any (hasSelfRefAtDepth evalFuel 0)
   -- Scan fields + optional tail. A pattern-bearing struct falls through to `false`.
@@ -1588,7 +1588,7 @@ def resolveEmbedDefBody? (env : Env) : Value -> Option Value
 def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
   defBodyHasSiblingSelfRef body ||
     match fuel, body with
-    | nextFuel + 1, .structComp _ comprehensions _ _ =>
+    | nextFuel + 1, .structComp _ comprehensions _ =>
         (comprehensions.filter isEmbeddingValue).any fun embed =>
           match resolveEmbedDefBody? env embed with
           | some embedBody => bodyNeedsDefer env nextFuel embedBody
@@ -1655,7 +1655,7 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
                   followAliasDefBody? fuel (frame :: outer) frame.snd (Field.value defField)
   | body =>
       let isStructLike := match body with
-        | .structComp _ _ _ _ => true
+        | .structComp _ _ _ => true
         | .struct _ _ _ [] => true | _ => false
       let bodyEnv : Env := (0, []) :: (0, capturedFrame) :: frameEnv.drop 1
       if isStructLike && bodyNeedsDefer bodyEnv evalFuel body then
@@ -1741,9 +1741,9 @@ def refDefClosureBody? (env : Env) (id : BindingId) : Option Value :=
       | none => none
       | some defField =>
           let body := Field.value defField
-          let isStructComp := match body with | .structComp _ _ _ _ => true | _ => false
+          let isStructComp := match body with | .structComp _ _ _ => true | _ => false
           let isStructLike := match body with
-            | .structComp _ _ _ _ => true
+            | .structComp _ _ _ => true
             | .struct _ _ _ [] => true | _ => false
           let isDef := defField.fieldClass.isDefinition
           -- Fire on the lazy-merge gaps `conjStructOperand?` cannot reduce: an embed-/guard-bearing
@@ -2126,7 +2126,7 @@ mutual
         match mergeEvaluatedFields expanded with
         | some fields => pure (mkStruct fields .regularOpen none [])
         | none => pure .bottom
-    | fuel + 1, .structComp fields comprehensions open_ _ => do
+    | fuel + 1, .structComp fields comprehensions openness => do
         let fields := canonicalizeFields fields
         let embeddings := comprehensions.filter isEmbeddingValue
         -- Pass 1: evaluate the static fields and comprehensions against the static-only frame,
@@ -2181,7 +2181,7 @@ mutual
                 -- allowed set without imposing its own closedness (CUE rule). Closing the host
                 -- BEFORE the meet would let a closed embed/host reject the other's regular fields.
                 let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
-                pure (closeEmbeddedOver merged embeddingFields open_ met)
+                pure (closeEmbeddedOver merged embeddingFields openness.isOpen met)
     | fuel + 1, .interpolation parts => do
         let evaluated <- evalValuesWithFuel fuel env visited parts
         pure (evalInterpolation evaluated)
@@ -2480,7 +2480,7 @@ mutual
       (body : Value)
       (useOperands : List (List Field × Bool)) : EvalM Value := do
     match body with
-    | .structComp defFields comprehensions defOpen _ =>
+    | .structComp defFields comprehensions defOpenness =>
         -- Embed-bearing def body (`#Def: { parts.#Metadata; #x; spec: #x }` — slice A). Splice
         -- the use operands into the static fields (so `spec: #x` sees the narrowed `#x`), eval
         -- them under `capturedEnv`, then meet-fold the embeddings in the same nested frame —
@@ -2542,7 +2542,7 @@ mutual
                 -- embedding labels — otherwise re-closing rejects it as undeclared. `defFields` does
                 -- NOT contain `y` (it lives only in the comprehension), so fold `expanded` in too.
                 let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
-                pure (closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpen met)
+                pure (closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpenness.isOpen met)
     -- Normalized struct def body: the no-tail no-pattern case splices the use fields and merges;
     -- the `defOpenViaTail` case splices open and keeps + rebases the tail. A pattern-bearing
     -- struct has no force-splice arm and falls to the `_` catch-all.
@@ -2751,7 +2751,7 @@ def evalStructRefsM (value : Value) : EvalM Value := do
             pure (evaluatedLabel, evaluatedConstraint)
           pure (applyEvaluatedStructN merged openness evaluatedTail evaluatedPatterns)
       | none => pure .bottom
-  | normalized@(.structComp _ _ _ _) => evalValueWithFuel evalFuel [] [] normalized
+  | normalized@(.structComp _ _ _) => evalValueWithFuel evalFuel [] [] normalized
   | value => pure value
 
 def evalStructRefs (value : Value) : Value :=

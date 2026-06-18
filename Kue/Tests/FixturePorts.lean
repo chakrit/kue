@@ -1185,7 +1185,7 @@ def fixturePorts : List FixturePort :=
                             ⟨"val", .regular, .ref "v"⟩
                           ] .regularOpen none [])
                     ]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1224,7 +1224,7 @@ def fixturePorts : List FixturePort :=
                         [.guard (.prim (.bool false))]
                         (.struct [⟨"hidden", .regular, .prim (.int 1)⟩] .regularOpen none [])
                     ]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1248,7 +1248,7 @@ def fixturePorts : List FixturePort :=
                         [.guard (.ref "staging")]
                         (.struct [⟨"dev", .regular, .prim (.bool true)⟩] .regularOpen none [])
                     ]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1330,7 +1330,7 @@ def fixturePorts : List FixturePort :=
                 ⟨
                   "out",
                   .regular,
-                  .structComp [] [.dynamicField (.ref "k") .regular (.prim (.int 42))] true false
+                  .structComp [] [.dynamicField (.ref "k") .regular (.prim (.int 42))] .regularOpen
                 ⟩
               ] .regularOpen none []))
     },
@@ -1355,9 +1355,9 @@ def fixturePorts : List FixturePort :=
                         (.structComp
                           []
                           [.dynamicField (.interpolation [.ref "k"]) .regular (.ref "v")]
-                          true false)
+                          .regularOpen)
                     ]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1371,7 +1371,7 @@ def fixturePorts : List FixturePort :=
                     [.listComprehension
                       [.forIn none "x"
                         (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])]
-                      (.structComp [] [.binary .mul (.ref "x") (.prim (.int 2))] true false)]⟩
+                      (.structComp [] [.binary .mul (.ref "x") (.prim (.int 2))] .regularOpen)]⟩
               ] .regularOpen none []))
     },
     {
@@ -1389,7 +1389,7 @@ def fixturePorts : List FixturePort :=
                         [.binary .add
                           (.binary .mul (.ref "i") (.prim (.int 100)))
                           (.ref "x")]
-                        true false)]⟩
+                        .regularOpen)]⟩
               ] .regularOpen none []))
     },
     {
@@ -1406,7 +1406,7 @@ def fixturePorts : List FixturePort :=
                             ⟨"a", .regular, .prim (.int 1)⟩,
                             ⟨"b", .regular, .prim (.int 2)⟩
                           ] .regularOpen none [])]
-                      (.structComp [] [.ref "v"] true false)]⟩
+                      (.structComp [] [.ref "v"] .regularOpen)]⟩
               ] .regularOpen none []))
     },
     {
@@ -1422,7 +1422,7 @@ def fixturePorts : List FixturePort :=
                     [.listComprehension
                       [.forIn none "x" (.ref "l"),
                        .guard (.binary .gt (.ref "x") (.prim (.int 2)))]
-                      (.structComp [] [.ref "x"] true false)]⟩
+                      (.structComp [] [.ref "x"] .regularOpen)]⟩
               ] .regularOpen none []))
     },
     {
@@ -1437,7 +1437,7 @@ def fixturePorts : List FixturePort :=
                   .list
                     [.listComprehension
                       [.forIn none "x" (.ref "xs"), .forIn none "y" (.ref "ys")]
-                      (.structComp [] [.binary .add (.ref "x") (.ref "y")] true false)]⟩
+                      (.structComp [] [.binary .add (.ref "x") (.ref "y")] .regularOpen)]⟩
               ] .regularOpen none []))
     },
     {
@@ -1452,7 +1452,7 @@ def fixturePorts : List FixturePort :=
                     [.prim (.int 1),
                      .listComprehension
                        [.forIn none "x" (.ref "xs")]
-                       (.structComp [] [.ref "x"] true false),
+                       (.structComp [] [.ref "x"] .regularOpen),
                      .prim (.int 2)]⟩
               ] .regularOpen none []))
     },
@@ -1463,7 +1463,7 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (.struct [
                 ⟨"a", .regular, .prim (.int 7)⟩,
-                ⟨"out", .regular, .structComp [] [.ref "a"] true false⟩
+                ⟨"out", .regular, .structComp [] [.ref "a"] .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1485,9 +1485,9 @@ def fixturePorts : List FixturePort :=
                           []
                           [.dynamicField
                             (.interpolation [.prim (.string "k"), .ref "v"]) .regular (.ref "v")]
-                          true false)
+                          .regularOpen)
                     ]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1502,7 +1502,7 @@ def fixturePorts : List FixturePort :=
                   .structComp
                     [⟨"base", .regular, .prim (.int 7)⟩]
                     [.struct [⟨"copy", .regular, .ref "base"⟩] .regularOpen none []]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1517,7 +1517,7 @@ def fixturePorts : List FixturePort :=
                   .structComp
                     [⟨"base", .regular, .prim (.int 7)⟩]
                     [.struct [⟨"inner", .regular, .struct [⟨"deep", .regular, .ref "base"⟩] .regularOpen none []⟩] .regularOpen none []]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1538,7 +1538,7 @@ def fixturePorts : List FixturePort :=
                         ⟨"copy", .regular, .ref "base"⟩,
                         ⟨"copy2", .regular, .ref "sib"⟩
                       ] .regularOpen none []]
-                    true false⟩
+                    .regularOpen⟩
               ] .regularOpen none []))
     },
     {
@@ -1547,7 +1547,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (resolveAndEval
-            (.structComp [] [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]] true false))
+            (.structComp [] [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]] .regularOpen))
     },
     {
       -- `{#a: 1, [1, 2]}`: only-non-output struct + list embed → embeddedList with decls.
@@ -1558,7 +1558,7 @@ def fixturePorts : List FixturePort :=
             (.structComp
               [⟨"#a", .definition, .prim (.int 1)⟩]
               [.list [.prim (.int 1), .prim (.int 2)]]
-              true false))
+              .regularOpen))
     },
     {
       -- `{#a: 1, [...]}`: open list embed; manifests as `[]`, eval keeps `[...]`.
@@ -1569,7 +1569,7 @@ def fixturePorts : List FixturePort :=
             (.structComp
               [⟨"#a", .definition, .prim (.int 1)⟩]
               [.listTail [] .top]
-              true false))
+              .regularOpen))
     },
     {
       -- `{a: 1, [1, 2]}`: a regular (output) field present → genuine struct/list conflict.
@@ -1580,7 +1580,7 @@ def fixturePorts : List FixturePort :=
             (.structComp
               [⟨"a", .regular, .prim (.int 1)⟩]
               [.list [.prim (.int 1), .prim (.int 2)]]
-              true false))
+              .regularOpen))
     },
     {
       -- `{a: 1} & [1, 2]`: explicit struct meet list, struct has an output field → bottom.
@@ -1600,7 +1600,7 @@ def fixturePorts : List FixturePort :=
             (.structComp
               [⟨"a", .optional, .kind .int⟩]
               [.list [.prim (.int 1), .prim (.int 2)]]
-              true false))
+              .regularOpen))
     },
     {
       -- `{#a: 1, [...int]} & {#b: 2, [1, 2]}`: meet of two embeddedLists — decls merge,
@@ -1610,10 +1610,10 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (resolveAndEval
-              (.structComp [⟨"#a", .definition, .prim (.int 1)⟩] [.listTail [] (.kind .int)] true false))
+              (.structComp [⟨"#a", .definition, .prim (.int 1)⟩] [.listTail [] (.kind .int)] .regularOpen))
             (resolveAndEval
               (.structComp [⟨"#b", .definition, .prim (.int 2)⟩]
-                [.list [.prim (.int 1), .prim (.int 2)]] true false)))
+                [.list [.prim (.int 1), .prim (.int 2)]] .regularOpen)))
     },
     {
       -- `{#a: 1, [10, 20]}.#a` selects a decl; `[0]` indexes the embedded list.
@@ -1621,7 +1621,7 @@ def fixturePorts : List FixturePort :=
       content :=
         let base : Value :=
           .structComp [⟨"#a", .definition, .prim (.int 1)⟩]
-            [.list [.prim (.int 10), .prim (.int 20)]] true false
+            [.list [.prim (.int 10), .prim (.int 20)]] .regularOpen
         formatTopLevel
           (resolveAndEval
             (.struct [
@@ -2122,7 +2122,7 @@ def fixturePorts : List FixturePort :=
                         [.guard (.binary .ne (.ref "f") .bottom)]
                         (.struct [⟨"seen", .regular, .ref "f"⟩] .regularOpen none [])
                     ]
-                    true false
+                    .regularOpen
                 ⟩,
                 ⟨
                   "absent",
@@ -2134,7 +2134,7 @@ def fixturePorts : List FixturePort :=
                         [.guard (.binary .ne (.selector (.ref "base") "g") .bottom)]
                         (.struct [⟨"seen", .regular, .prim (.bool true)⟩] .regularOpen none [])
                     ]
-                    true false
+                    .regularOpen
                 ⟩,
                 ⟨"ordinary", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))⟩
               ] .regularOpen none []))

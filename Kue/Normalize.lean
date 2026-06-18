@@ -8,17 +8,17 @@ def normalizeFuel : Nat :=
 mutual
   def normalizeDefinitionValueWithFuel : Nat -> Value -> Value
     | 0, value => value
-    | fuel + 1, .structComp fields comprehensions _ hasTail =>
-        -- Normalize nested DEFINITION fields (matching the `.struct` arm) and set the def body's
-        -- openness from `hasTail`: a definition is closed by default, an explicit `...` opens it.
-        -- So `#D: {e, ...}` (hasTail=true) stays OPEN — hard-`false`ing it here (the old bug)
-        -- silently closed the def, bottoming `#D & {extra}` — while `#D: {e}` (hasTail=false) is
-        -- closed and rejects an added field, exactly as CUE. The parser's `open_` is the
-        -- regular-struct default and is irrelevant once this is a def body, so it is dropped here
-        -- in favor of `hasTail`. Embeddings (`comprehensions`) are left untouched: an embedding
-        -- UNIONS its labels into the def's allowed set (CUE), it is not the def's own closed
-        -- declaration — force-closing it would make the embed reject the def's own siblings.
-        .structComp (fields.map (normalizeFieldWithFuel fuel)) comprehensions hasTail hasTail
+    | fuel + 1, .structComp fields comprehensions openness =>
+        -- Normalize nested DEFINITION fields (matching the `.struct` arm) and derive the def
+        -- body's openness via `StructOpenness.closeDefBody`: a definition is closed by default,
+        -- an explicit `...` (`defOpenViaTail`) opens it. So `#D: {e, ...}` stays OPEN — closing it
+        -- here (the old bug) silently closed the def, bottoming `#D & {extra}` — while `#D: {e}`
+        -- (`regularOpen`) closes (`defClosed`) and rejects an added field, exactly as CUE. The
+        -- parser's open-by-default is irrelevant once this is a def body, so `closeDefBody` drops
+        -- it. Embeddings (`comprehensions`) are left untouched: an embedding UNIONS its labels into
+        -- the def's allowed set (CUE), it is not the def's own closed declaration — force-closing
+        -- it would make the embed reject the def's own siblings.
+        .structComp (fields.map (normalizeFieldWithFuel fuel)) comprehensions openness.closeDefBody
     -- A `defOpenViaTail` struct (the legacy `structTail` def body) keeps the def OPEN via its
     -- explicit `...`, so it is returned UNCHANGED. A no-pattern struct CLOSES (openness →
     -- `defClosed`). A pattern-bearing struct normalizes fields + patterns and keeps its openness.
@@ -144,13 +144,13 @@ mutual
         .index
           (normalizeDefinitionsWithFuel fuel base)
           (normalizeDefinitionsWithFuel fuel key)
-    | fuel + 1, .structComp fields comprehensions open_ hasTail =>
+    | fuel + 1, .structComp fields comprehensions openness =>
         -- The dominant `{embed;…;...}` shape: a nested `#Def` here (e.g. `a: {b, if c {}, #I:…}`)
         -- must have its body normalized/closed exactly as in a plain `.struct`.
         .structComp
           (fields.map (normalizeFieldWithFuel fuel))
           (comprehensions.map (normalizeDefinitionsWithFuel fuel))
-          open_ hasTail
+          openness
     | fuel + 1, .list items =>
         .list (items.map (normalizeDefinitionsWithFuel fuel))
     | fuel + 1, .listTail items tail =>

@@ -512,19 +512,21 @@ def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
 
 def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   let parts := splitParsedFields parsedFields
-  -- `open_ = true` is the regular-struct open-by-default (the eager eval arm honors it; a
-  -- non-definition struct stays open). `hasTail = tail.isSome` records an explicit `...` for
-  -- `normalizeDefinitionValueWithFuel`, which closes a def body UNLESS `...` (`open_ := hasTail`).
-  -- The two are distinct: a regular no-`...` struct (open) and a def no-`...` body (closed) parse
-  -- to the same node and are told apart only at normalize, never at the shared eager arm.
+  -- A parsed struct is open by default (the eager eval arm honors `openness.isOpen`; a
+  -- non-definition struct stays open). `structCompOpenness` records an explicit `...` as
+  -- `defOpenViaTail`, else `regularOpen`, for `normalizeDefinitionValueWithFuel`, which derives a
+  -- def body's openness via `closeDefBody` (a no-`...` body closes, a `...` body stays open). A
+  -- regular no-`...` struct (open) and a def no-`...` body (closed) parse to the same `regularOpen`
+  -- node and are told apart only at normalize, never at the shared eager arm.
   let hasTail := parts.tail.isSome
+  let structCompOpenness : StructOpenness := if hasTail then .defOpenViaTail else .regularOpen
   let declared :=
     match parts.comprehensions with
     | [] => parsedFieldsBaseValue parts.fields parts.patterns
     | comprehensions =>
         match parts.patterns with
-        | [] => .structComp parts.fields comprehensions true hasTail
-        | _ => .conj [parsedFieldsBaseValue parts.fields parts.patterns, .structComp parts.fields comprehensions true hasTail]
+        | [] => .structComp parts.fields comprehensions structCompOpenness
+        | _ => .conj [parsedFieldsBaseValue parts.fields parts.patterns, .structComp parts.fields comprehensions structCompOpenness]
   match parts.tail with
   | none => declared
   | some tail =>
@@ -537,8 +539,9 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
       -- they never see the embedding-contributed fields (the embed lives in the OTHER arm), so a
       -- use-site narrowing collapses to `.bottom` (the argocd `#ListenerSet` `spec.parentRef.name:
       -- Self.#gateway_name` with `parts.#Metadata` embedded + a def-level `...`). Keep it ONE node:
-      -- `declared` carries `hasTail = true` (this branch only fires with `some tail`), so normalize
-      -- leaves the def OPEN; the redundant bare `...` (`.top` tail) needs no separate node.
+      -- `declared` carries `structCompOpenness = .defOpenViaTail` (this branch only fires with
+      -- `some tail`), so normalize's `closeDefBody` leaves the def OPEN; the redundant bare `...`
+      -- (`.top` tail) needs no separate node.
       | _, _ => declared
 
 def structEllipsisEndsHere : List Char -> Bool
@@ -659,8 +662,8 @@ def valueAliasHead? (chars : List Char) : Option (String × List Char) :=
 def bindValueAlias (name : String) : Value -> Value
   | .struct fields openness tail ps =>
       .struct (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps
-  | .structComp fields cs open_ hasTail =>
-      .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs open_ hasTail
+  | .structComp fields cs openness =>
+      .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs openness
   | value => value
 
 /-- Three identical delimiter chars (`"""` or `'''`) at the head, else `none`. -/
