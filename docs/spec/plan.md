@@ -1007,6 +1007,103 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     relied on the buggy `.bottom`). The B2 family-1 collapse + correctness fix is now FULLY
     complete — only B2b (structComp collapse) remains of B2.
 
+  ### B2b design (implementable) — `structComp` two-bool → `StructOpenness` (Phase-B audit 2026-06-19 #6)
+
+  **Decision: option (a) — adopt `StructOpenness` on `structComp`, KEEP it a distinct pre-eval
+  ctor. NOT option (b) (fold into the unified `struct`).** The choice turns on the Phase-B #4
+  invariant "`structComp` is pre-eval and NEVER reaches meet" — `meetCore` bottoms it
+  (`Lattice.lean:456-457`, dead-but-defensive), `evalValueCoreWithFuel` (`Eval.lean:2129`) expands
+  it into the unified `struct` BEFORE any meet. That clean separation is worth more than the
+  one-ctor reduction option (b) would buy.
+
+  **Why NOT option (b) — folding into `struct (… comprehensions : List Value)`.** It would put a
+  `comprehensions` field on the meet-bearing struct, where `comprehensions ≠ []` can ONLY mean
+  "not yet evaluated." Every `mergeStructN` arm, every `Order.subsumes` arm, every
+  `Manifest`/`Format` output site would then have to either (i) handle a non-empty `comprehensions`
+  on a value that reached meet (re-introducing the exact "this can't happen" branch B2 just
+  erased), or (ii) carry an unenforced invariant `comprehensions = []` on every evaluated struct —
+  a nonsense state representable in the type, which is what B2 exists to kill. The pre-eval/
+  evaluated distinction Phase-B #4 identified is a REAL type boundary; option (b) deletes it to
+  save one constructor. Rejected on philosophy (illegal-states-unrepresentable WITHOUT muddying the
+  invariant).
+
+  **Why NOT option (c) — leaving the two bools.** The reachable `(open_, hasTail)` states are
+  exactly Parse's `(true, false)` / `(true, true)` and normalize-def's `(false, false)` /
+  `(true, true)`; `(false, true)` (closed-with-tail) is the never-constructed nonsense state — the
+  same illegal state B2 erased for family-1. Leaving it is inconsistent with the milestone.
+
+  **Target representation.** `structComp` keeps its shape but swaps the two bools for one
+  `StructOpenness`:
+  ```
+  | structComp (fields : List Field) (comprehensions : List Value) (openness : StructOpenness)
+  ```
+  Note: `structComp` has NO tail VALUE (unlike family-1's `struct`, whose `defOpenViaTail` couples
+  to `tail : Option Value`). The pre-eval `...` is a bare flag, not a stored tail — the tail value
+  is synthesized when the eager arm re-emits the unified `struct`. So the mapping is:
+  - Parse no-`...`  `(open_=true, hasTail=false)` → `structComp fields cs .regularOpen`
+  - Parse `...`     `(open_=true, hasTail=true)`  → `structComp fields cs .defOpenViaTail`
+  - normalize-def closes a no-`...` body → `.regularOpen` becomes `.defClosed`; a `...` body
+    (`.defOpenViaTail`) stays open. This IS the old `open_ := hasTail` rule, re-expressed as a
+    total `StructOpenness → StructOpenness` map: `regularOpen ↦ defClosed`, `defOpenViaTail ↦
+    defOpenViaTail`, `defClosed ↦ defClosed` (idempotent). The `defClosed` state is unreachable at
+    parse but the map is total over all three for free.
+
+  `defOpenViaTail` on `structComp` means "open via a bare `...`, no stored tail value" — coherent
+  because `structComp` carries no `tail` field for the coherence invariant to relate it to. The
+  eager eval arm (`Eval.lean:2129`) and the closure-force arm (`Eval.lean:2483`) currently pass
+  `open_ : Bool` to `closeEmbeddedOver`/use it as `defOpen`; under the new rep they pass
+  `openness.isOpen` (or thread `openness` and let `closeEmbeddedOver` take `StructOpenness` — a
+  ride-along tightening, since `closeEmbeddedOver` immediately does `.ofBool defOpen`). The
+  `hasTail` consumers vanish: only `normalizeDefinitionValueWithFuel` read it, and it becomes the
+  `StructOpenness` map above.
+
+  **No new meet/subsumes/manifest behavior.** `structComp` still bottoms in `meetCore`
+  (dead-defensive arms unchanged, just arity), still expands before meet, still manifests as
+  `.incomplete` (`Manifest.lean:115`) — option (a) touches the REPRESENTATION of the pre-eval node,
+  not its lifecycle. The eager arm's OUTPUT is the family-1 `struct`, already on `StructOpenness`.
+  So B2b is BYTE-IDENTICAL by construction (no behavior change anywhere — the reachable two-bool
+  states map 1:1 onto the three `StructOpenness` states).
+
+  **Migration plan — ONE slice, 3 fixture-gated commits (~44 sites, NO worktree).** Smaller and
+  strictly lower-risk than B2.2/CP3 (byte-identical throughout, no production-flip red window, no
+  ctor delete/rename). The B2 playbook (introduce → consume → produce) collapses because
+  `structComp` is changing arity in place, not coexisting with a new ctor — so the compiler
+  enumerates every site. Sequence:
+  1. **Flip the ctor + the one semantic site, compiler-driven.** Change `Value.structComp`'s last
+     two `Bool` params to one `openness : StructOpenness` (`Value.lean:567`). Every one of the ~44
+     sites becomes a compile error (arity 4→3). Fix per error in dependency order: `Value.lean` →
+     `Lattice.lean` (the two dead `meetCore` arms, `valueTag`) → `Normalize.lean` (the `open_ :=
+     hasTail` site `:11-21` becomes the `StructOpenness` map — the ONE semantic site; the spine
+     walker `:137-143` threads `openness` verbatim) → `Resolve.lean` (`:120`, `:148` thread
+     verbatim) → `Format.lean` (`:196` ignores openness, unchanged output) → `Manifest.lean`
+     (`:115` threads into the `.incomplete` re-wrap) → `Eval.lean` (the ~29 sites: the eager arm
+     `:2129` and force arm `:2483` use `openness.isOpen` where they used `open_`; `remapConjRefs`
+     `:448`, the classifiers `:121/229/1472/1531/1591/1658/1744`, `defBodyHasSiblingSelfRef`
+     `:1531`, `classifyDefinedness` `:727`, all thread/ignore verbatim) → `Parse.lean` (the
+     producers `:526-527` emit `.regularOpen`/`.defOpenViaTail` from `hasTail`; `bindValueAlias`
+     `:662-663` threads verbatim). All match arms that `_`-ignored both bools collapse to one `_`.
+     Build green + `check-fixtures.sh` zero drift = the gate (byte-identical: the rep change is
+     invisible to output).
+  2. **Migrate test literals.** ~44 test-side `structComp` sites across `EvalTests` (9),
+     `ClosureTests` (26), `FixturePorts` (28), `TwoPassTests` (11), `EvalPerfTests` (8),
+     `ResolveTests` (4), `PresenceTests` (2), `LatticeTests` (1) (counts from grep 2026-06-19).
+     Mechanical rewrite: `true false → .regularOpen`, `true true → .defOpenViaTail`, and the
+     normalize-output literals `hasTail hasTail → (if hasTail then .defOpenViaTail else .defClosed)`
+     concretely (`false false → .defClosed`, `true true → .defOpenViaTail`). Compiler-driven (the
+     arity change makes every stale literal an error), so nothing is silently mis-rewritten. Add a
+     `native_decide` pin that the `normalizeDefinitionValue` `StructOpenness` map closes a no-`...`
+     structComp def body (`.regularOpen → .defClosed`) and leaves a `...` body open
+     (`.defOpenViaTail` fixed point) — the one semantic site, pinned at the type level.
+  3. **Verify + plan/log/breadcrumb.** Full gate (`lake build` + `check-fixtures.sh` +
+     `shellcheck`); cert-manager + `packs.#Argo` content-identical spot-check (pure rep change, no
+     eval-path change → perf unchanged, no `kue-performance.md` edit). Mark B2b DONE; B2 fully
+     closed.
+
+  **Worktree: NO.** Byte-identical throughout, each commit independently green, no long red window
+  (unlike CP3-flip's production flip). On `main`, 3 green commits. Effort: ~44 impl+test sites,
+  mechanical, LOW risk (the only semantic site is one total `StructOpenness` map replacing one
+  `open_ := hasTail`; everything else threads or ignores).
+
   **Risk/soundness + regression gate.** Highest-risk site: the `meetWithFuel` matrix rewrite
   (B2.4) — it must reproduce the tail-extras application (`applyTailToExtrasWith` runs on BOTH
   sides' extras, `Lattice.lean:990-994`) and the pattern-closedness marking exactly, or
@@ -1083,6 +1180,47 @@ parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructT
 — and `EvalTests` is STILL 1210 lines after the item-5 split, re-split candidate;
 B4 ride-along `DecimalTests`/`FormatTests`) interleaved → deeper parity/perf (2,6,7) →
 borderline/LOW (8 + B3) ride-alongs.
+
+### Post-B2 re-ranking (Phase-B audit 2026-06-19 #6) — recommended next 3-4 slices
+
+B2 (the headline) is done. Re-assessed against the North Star (correct CUE v0.15 + real-app
+adoption). Correctness gaps gate adoption; the perf wall gates FULL-app adoption; consistency is
+finishing-touches. Recommended order:
+
+1. **TWO-PHASE AUDIT (overdue) — do FIRST.** 5 slices have landed since the last full A+B cadence
+   audit (CP3-pre, CP3-flip, B2.5, + this is the Phase-B half). The cadence is mandatory at the
+   2-3-slice mark; clear it before more forward motion. (This audit IS the Phase-B half of that
+   cycle — pair it with the matching Phase-A over the same batch if not already run.)
+2. **B6 — def-body closedness enforcement (CORRECTNESS, real-app).** The highest-value OPEN
+   correctness gap: a nested `#Def` under a regular field, or via the eager nested-selector path,
+   admits extra fields where cue REJECTS (oracle-confirmed). prod9 `#Def`s are exactly this shape
+   (`{embed; …}` consumed with extra fields), so this is adoption-relevant, not a corner. Needs a
+   design-spike (split `normalizeFieldWithFuel`'s two conflated contexts + route the eager selector
+   through closedness) — do the spike first, like B2/B7. Ranked above B2b because a wrong-acceptance
+   is a correctness defect; B2b is hygiene.
+3. **B2b — structComp collapse (consistency, completes B2).** Now fully designed (above):
+   byte-identical, ONE slice / 3 commits, ~44 sites, LOW risk, no worktree. Finishes the struct-
+   family unification milestone and erases the last `open_`/`hasTail` nonsense state. Cheap and
+   self-contained — a natural ride-along or filler slice. Ranked below B6 (consistency < correctness)
+   but above the perf wall because it is small, certain, and closes a named milestone; landing it
+   keeps the struct representation coherent for any later struct-touching work (incl. item 7's
+   frame work, which threads through struct eval).
+4. **item 7 — frame-id canonical identity (PERF wall, gates FULL argocd).** The deeper frontier:
+   reclaims cert-manager (~92s) and unblocks the heavy `argo` sub-package (>200s timeout). This is
+   what stands between "content-correct in a scratch module" and "full real-app adoption" — the
+   North Star's second half. Ranked 4th only because it is audit-HEAVY and risky (must not violate
+   "independently-built frames never falsely share" — a soundness trap), so it wants a clear runway
+   AFTER the cheap correctness/consistency wins land and the audit cadence is clean. It is the
+   single biggest adoption lever once the correctness backlog is drained.
+
+Below the top 4: **A2-followup** (CORRECTNESS but narrow — the `{#u:{x:_|_}}` shape, needs the
+import-binding-marker representation spike; pairs naturally with B6's normalize work) and **item 1**
+(argocd full-app follow-up — partly gated on item 7's perf). **B2-A1/B2-A2** (LOW — latent
+tail-drop guard + reverse-order fixture; ride along with any struct/typed-ellipsis touch).
+**B3/B5/items 3,4** (LOW cleanups, parallel-safe filler). **Test-org** (`FixtureTests` 1093,
+`StructTests` 765, `BuiltinTests` 735, `EvalTests` still 1210 post-split) — schedule when Phase-B
+next flags it overdue. Rationale summary: drain CORRECTNESS (B6) before CONSISTENCY (B2b) before
+the PERF wall (7); the audit cadence pre-empts all of them this cycle.
 
 **A5-followup. Comprehension-body self-ref deferral gate — DONE (`e00c3de`).** The OBSERVABLE
 wrong value (a static field whose value is a comprehension reading `Self.<embedded>` inside a `for`
@@ -1352,7 +1490,10 @@ unsafe): B2.1 (type+`mkStruct`, DONE) → **B2.3 match sites + B2.4 single meet 
 flip — BLOCKED, inseparable from the ~940-site test-representation migration; combined with
 CP3 (ctor delete + `structN→struct` rename) as one next megaslice** → B2.5 behavioral
 cross-combination fix + new fixtures. `structComp` `open_`/`hasTail` collapse split out as a
-separate B2b follow-on (UNTOUCHED so far).
+separate B2b follow-on — **design DONE (Phase-B #6, 2026-06-19): option (a), `StructOpenness`
+on the pre-eval `structComp` ctor (NOT folded into the meet-bearing `struct`), byte-identical,
+ONE slice / 3 commits / ~44 sites / no worktree. See "B2b design (implementable)" above.**
+Implementation pending.
 
 **A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue) — BLOCKED on a
 representation change; SOUND shallow check retained (`46bd161`).** The proposed reached-vs-unreferenced

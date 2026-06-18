@@ -793,9 +793,12 @@ def applyPatternsClosednessWith
     * tail on BOTH → `mergeStructFieldsWith lf rf`, meet the tails, apply BOTH to extras;
     * patterns on one side / both → the `mergeStructPattern(s)…` field+pattern fold, same orders.
 
-    The cross-combination `tail-on-one-side × patterns-on-other` had NO legacy arm and stays
-    `.bottom` here (the documented B2.5 behavioral fix flips it to a real unify). A struct that
-    carries BOTH a tail and patterns is never produced by any path and bottoms defensively. -/
+    The cross-combination `tail-on-one-side × patterns-on-other` (and any tail+patterns mix) had
+    NO legacy arm and wrongly bottomed; B2.5 flips it to a real unify via the final composition
+    arm: the tail-bearing side is the merge base, the tails meet and constrain the other side's
+    extras, and the patterns constrain every field (incl. tail-admitted extras). The unified
+    `struct` co-represents both axes, so `{[string]: int} & {a: 5, ...}` → `{a: 5}` (cue-exact),
+    not `.bottom`. -/
 def mergeStructN
     (meetValue : Value -> Value -> Value)
     (leftFields : List Field) (leftOpenness : StructOpenness)
