@@ -312,10 +312,40 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
-audit fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED on a representation marker → A2-followup design-slice)
-→ TWO-PHASE AUDIT NOW DUE (2 slices since the last: the A1+B1 sweep and this A2+A3) → B6 design-spike
-/ B2 headline struct refactor (design-spike then migrate) / item 1 follow-up → parallel-safe cleanups
-(3,4,5 + B4/B5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) ride-alongs.
+**A5 (HIGH — regression from B1, fix FIRST)** → audit fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED
+on a representation marker → A2-followup design-slice) → TWO-PHASE AUDIT (this Phase-A run found A5)
+→ B6 design-spike / B2 headline struct refactor (design-spike then migrate) / item 1 follow-up →
+parallel-safe cleanups (3,4,5 + B4/B5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW
+(8 + B3) ride-alongs.
+
+**A5. `remapConjRefs` comprehension BODY remapped at the wrong frame depth (HIGH — correctness
+regression introduced by B1 `80df01e`).** The B1 `.comprehension`/`.listComprehension` arms recurse
+the comprehension BODY at plain `frameDepth`, ignoring the loop frame each `for` clause pushes.
+`resolveClausesWithFuel` (Resolve.lean:59-62) resolves the body under `clauseLoopFrame :: scopes`, so
+a refId in the body that targets the merged conjunction frame is at depth `frameDepth + (#for-clauses)`,
+NOT `frameDepth`. `remapConjRefs` compares `id.depth == frameDepth`, so it MISSES that ref (leaves the
+stale conjunct-local index) and can spuriously rewrite an inner ref that coincidentally equals
+`frameDepth`. The `.structComp` comprehensions bucket inherits the same bug (each element is a
+`.comprehension` hit by the buggy arm). Clause SOURCES/guards at `frameDepth` are CORRECT (resolved in
+the enclosing scope before the loop frame is pushed). Pre-B1 the comprehension was swallowed entirely
+(also wrong); B1's partial fix did not thread the loop-frame depth.
+
+Repro (oracle-confirmed, cue v0.16.1 — Kue WRONG):
+```
+t: {s: {p: 10, q: 20}} & {s: {a: {for v in [1] {out: zz}}, zz: 99}}
+```
+cue → `s.a.out: 99`; Kue → `s.a.out: 20`. The body's `zz` (conjunct-local slot 1, under the `for`
+loop frame at depth+1) is not reindexed to the merged slot 3, so it resolves to merged slot 1 = `q`.
+
+The existing pin `remap_comprehension_conjunct_reindexes_source_and_body` does NOT catch this: it
+hand-writes a body refId at `⟨0,1⟩` (depth 0), but a real resolved body under a `for` is at depth ≥1,
+so the pin tests an unreachable shape. **Fix:** thread an incrementing frame depth through the clause
+chain exactly as `resolveClausesWithFuel` does — each `.forIn` clause adds 1 to the depth used for
+subsequent clause sources and the body; guards do not. Add a NEW `remapConjClauses`-like walker (or
+have it return the post-clause depth) so the body is remapped at `frameDepth + #forClauses`. Replace
+the misleading hand-written pin with the end-to-end repro fixture above (testdata + FixturePorts) AND
+a native_decide pin on a `.comprehension` with one `for` clause whose body ref is at depth+1.
+NOT a low-risk inline fix (frame-depth logic change with regression-class risk); left for a fix-slice.
 
 **A1 + B1 — catch-all soundness sweep — DONE (`80df01e`, `a7b2724`).** Both HIGH soundness holes
 (a catch-all over `Value` silently swallowing compound constructors a recursive function must
