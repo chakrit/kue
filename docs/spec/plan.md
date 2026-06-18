@@ -226,6 +226,74 @@ A1-A4.
   backed by `native_decide` EvalTests source pins, including no-over-prune / no-over-open negatives.
   Pass-2 has eval-count pins. Coverage gaps land as the A1-A3 pins above.
 
+## Phase-B audit (2026-06-18 #2, whole module graph — post A5 / B1 regression)
+
+Second Phase-B pass, run after Phase A filed A5 (the B1 comprehension-body-remap depth
+regression). Whole-graph re-scan with the type-system-first lens. Findings: ONE new
+type-tightening fix-slice (**B7**, below — the highest-leverage type win in the graph, and
+the root cause A5/B1 are symptoms of); everything else from the prior audits (B1-B6, A5,
+item-7 perf, A2-followup) confirmed still-accurate and NOT re-filed. Verified this round:
+
+- **Import graph** still acyclic and sane (`Value` leaf → `Lattice`/`Normalize`/`Resolve`/
+  `Order`/`Format` → `Builtin`/`Decimal` → `Eval` → `Runtime` → `Cli`; `Module` over
+  `Parse`+`Runtime`). No new module-boundary debt.
+- **`remapConjRefs` catch-all** (post-B1, `Eval.lean:484`) — NOW complete. Residual
+  `| _, value => value` swallows only scalars (`top`/`bottom`/`bottomWith`/`prim`/`kind`/
+  `notPrim`/`stringRegex`/`boundConstraint`), `ref`, `thisStruct`, `closure` — all inert
+  under conj-frame remap (no conjunction-frame `.refId` to rebase; `closure` deliberately
+  excluded, its refs live in captured-env space). Not a finding.
+- **Cleanup hygiene** — no `String.dropRight`/deprecated APIs; no stray `TODO`/`FIXME`/
+  `HACK` in `Kue/*.lean`. `compat-assumptions.md` (543 lines) is a structured reference
+  doc, not accumulated debt to promote. Nothing to clean inline.
+- **Perf guide (`kue-performance.md`) — CURRENT.** Reflects item-7 frame-id divergence as
+  THE perf wall, the 31s→92s cert-manager regression, Pass-2 selective re-eval, and the
+  fuel-exhaustion-at-scale finding. No edit needed (re-confirmed, second pass).
+
+- **B7 (MEDIUM-HIGH — type-system leverage; A5 + the item-7 frontier are both symptoms).**
+  Frame coordinates are an untyped `Nat` (`BindingId.depth`, and the threaded `frameDepth`/
+  `depth` parameters). The de Bruijn rule "a comprehension body lives `#forClauses` frames
+  deeper than its enclosing scope; `for` pushes one frame, `guard` pushes none" is the
+  SINGLE authority encoded in `resolveClausesWithFuel` (`Resolve.lean:52-67`,
+  `clauseLoopFrame :: scopes` per `.forIn`), but it is RE-DERIVED BY HAND, independently,
+  at every other walker that descends a comprehension body — with no type forcing agreement:
+  - `remapConjRefs`/`remapConjClauses` (`Eval.lean:466-473, 534-547`) — recurse the body at
+    flat `frameDepth`, ignoring the loop-frame push. This IS A5 (a value rewriter → WRONG
+    VALUE). Also subtly wrong for multi-`for`: clause N's source is at `frameDepth+(N-1)`,
+    but `remapConjClauses` remaps every clause source at flat `frameDepth` (folded into A5's
+    "thread depth through the clause chain" fix).
+  - `refsSelfEmbeddedLabel`/`hasSelfRefAtDepth` (`Eval.lean:138-161`) — recurse the body at
+    flat `depth` TOO, but here it is DELIBERATELY conservative (a boolean two-pass gate:
+    too-shallow over-fires the gate = perf only, never miss). The comment at `Eval.lean:139`
+    documents the choice. SOUND by accident-of-direction.
+  - `selfReferencedLabels` (`Eval.lean:249-266`) — recurse the body at flat `depth`, and
+    here too-shallow can MISS: a `Self.<embedded>` read inside a `for` body sits at
+    `depth+#for`, compared `== depth` (`:251`), so the label is not collected → the field is
+    not selected for Pass-2 re-eval → reuses its stale Pass-1 value. Same A1-class hole as
+    the original builtin-arg miss, reintroduced via comprehension-body depth. NARROW
+    (`Self.<embedded-label>` literally inside a `for` body of a static field), but real and
+    unsound. Add to A5's fix as a sibling pin, OR fix structurally via B7.
+  This is the textbook illegal-states-unrepresentable case: the SAME structural pattern
+  (comprehension body recursed at the parent's depth) is benign in one walker, a perf cost
+  in a second, and a wrong-value bug in a third — the type gives ZERO signal which. **A
+  type-level frame coordinate would have made A5 a compile error:** if the depth threaded to
+  a comprehension body were a distinct type from the enclosing depth (or if descending a
+  `for` clause were the ONLY way to obtain the deeper coordinate — a `descendForClause :
+  Depth → Depth` the body-recursion must consume), then recursing the body at the
+  un-descended `frameDepth` would not typecheck. **Fix (own slice, design-spike first):**
+  factor the "descend a clause chain, accumulating frame depth" rule into ONE total function
+  (`clauseDepthShift : List (Clause _) → Nat`, or a `Depth` newtype whose only `forIn`-
+  descent constructor the walkers must route through) and have `resolveClausesWithFuel`,
+  `remapConj*`, and the three scanners ALL consume it — so the rule lives once and a future
+  walker physically cannot re-derive it wrong. This SUBSUMES A5 (A5 becomes "apply B7's
+  shared shift in `remapConj*`") and closes the `selfReferencedLabels` miss above. Sequence:
+  land A5's point-fix first (unblocks the wrong value now — never make the user wait), then
+  B7 as the structural hardening so the third frame-depth bug cannot happen. NOT inline
+  (frame-depth logic + a new abstraction across 5 walkers). Pin: the A5 repro fixture +
+  a multi-`for` comprehension-conjunct remap + the `Self.<embed>`-inside-`for` Pass-2
+  selection case. Cross-ref: item-7 frame-id divergence is the OTHER untyped-`Nat`-frame
+  symptom (frame IDENTITY rather than frame DEPTH); B7 addresses depth, not identity, but
+  both trace to frame coordinates being raw `Nat`s the type system doesn't police.
+
 ## Phase-B audit (2026-06-18, whole module graph — post A1-A4)
 
 Architecture/refactor/cleanup pass over the full graph (broader than the recent diff),
@@ -313,10 +381,20 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
 **A5 (HIGH — regression from B1, fix FIRST)** → audit fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED
-on a representation marker → A2-followup design-slice) → TWO-PHASE AUDIT (this Phase-A run found A5)
-→ B6 design-spike / B2 headline struct refactor (design-spike then migrate) / item 1 follow-up →
-parallel-safe cleanups (3,4,5 + B4/B5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW
-(8 + B3) ride-alongs.
+on a representation marker → A2-followup design-slice) → TWO-PHASE AUDIT DONE (Phase-A found A5;
+Phase-B #2 found B7) → **B7 (MEDIUM-HIGH — frame-coordinate type-tightening; subsumes A5's
+structural fix, closes a `selfReferencedLabels` miss)** → B6 design-spike / B2 headline struct
+refactor (design-spike then migrate) / item 1 follow-up → parallel-safe cleanups (3,4,5 + B4/B5)
+interleaved → deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) ride-alongs.
+
+**B7. Frame coordinate is an untyped `Nat` — the comprehension-body depth-shift rule is
+re-derived by hand at 5 walkers (MEDIUM-HIGH — type-system leverage; root cause of A5).** The
+de Bruijn "body lives `#forClauses` deeper" rule lives once in `resolveClausesWithFuel` but is
+open-coded (correctly in resolve, WRONG in `remapConj*` = A5, conservatively-loose in the
+`refsSelfEmbeddedLabel` gate, and as a latent MISS in `selfReferencedLabels`). A typed `Depth`
+(only obtainable deeper via a `forIn`-descent the body-recursion must route through) makes A5 a
+compile error. Land A5's point-fix first; then B7 factors the shift into ONE shared function the
+5 walkers consume. Design-spike first. See Phase-B #2 B7.
 
 **A5. `remapConjRefs` comprehension BODY remapped at the wrong frame depth (HIGH — correctness
 regression introduced by B1 `80df01e`).** The B1 `.comprehension`/`.listComprehension` arms recurse
@@ -346,6 +424,16 @@ have it return the post-clause depth) so the body is remapped at `frameDepth + #
 the misleading hand-written pin with the end-to-end repro fixture above (testdata + FixturePorts) AND
 a native_decide pin on a `.comprehension` with one `for` clause whose body ref is at depth+1.
 NOT a low-risk inline fix (frame-depth logic change with regression-class risk); left for a fix-slice.
+
+**Phase-B #2 cross-ref → B7.** A5 is the value-rewriter face of a deeper type-system gap: the
+comprehension-body depth-shift rule (`for` pushes a frame, `guard` doesn't) is re-derived by hand
+at 5 walkers with no type enforcing agreement — `resolveClausesWithFuel` (the authority),
+`remapConj*` (A5: WRONG VALUE), the `refsSelfEmbeddedLabel` gate (conservative, sound by direction),
+and `selfReferencedLabels` (a latent MISS: a `Self.<embedded>` read inside a `for` body is at
+`depth+#for` but compared `== depth`, so the field is skipped in Pass-2 → stale value — same A1-class
+hole, narrow). Fix A5 pointwise first (unblock the wrong value now), then harden structurally via
+**B7** (a typed `Depth` / one shared `clauseDepthShift` the 5 walkers consume — makes a recurrence a
+compile error). Add the `Self.<embed>`-inside-`for` Pass-2-selection case as a sibling pin to A5's.
 
 **A1 + B1 — catch-all soundness sweep — DONE (`80df01e`, `a7b2724`).** Both HIGH soundness holes
 (a catch-all over `Value` silently swallowing compound constructors a recursive function must
