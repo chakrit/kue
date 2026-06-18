@@ -98,11 +98,18 @@ fix is purely a speedup — byte-identical output.
   helps defs shaped like `packs.#Argo` (dozens of fields, a handful of `Self.<embed>` reads); it did
   NOT measurably move cert-manager's wall-clock, whose cost is dominated instead by the broader
   frame-id divergence (see below), not the per-field Pass-2 recompute.
-- **Frame-id divergence (the open primary perf frontier).** Structurally-identical frame re-pushes
-  get fresh ids, so the memo `envIds` key misses across them — the dominant remaining cost on deep
-  apps (cert-manager, `packs.#Argo`). The fix is canonical frame identity (same fields + same parent
-  id-stack → reuse id), and it is what actually reclaims cert-manager's ~31s baseline. Until it
-  lands, flattening and shortening def chains is the user-side lever.
+- **Shallow cache-key hash → O(N²) memo lookups (the open primary perf frontier, RE-DIAGNOSED
+  2026-06-19).** Canonical frame identity (same fields + same parent id-stack → reuse id) already
+  landed and is sound + effective — structurally-identical re-pushes DO share, verified. The real
+  remaining wall is the deliberately-shallow `EvalKey`/`SatKey` HASH: it keys on `valueTag` (the top
+  constructor tag only) + `envIds.LENGTH`, so at a deep app's steady state every distinct
+  `.struct`/`.selector` value at the ceiling fuel collides into ONE hash bucket. Each cache lookup
+  then runs structural `BEq` over the full value tree against every colliding entry → O(N) per
+  lookup, O(N²) total (measured: per-call µs DOUBLES as the distinct population doubles; cert-manager
+  exports correctly in ~119s vs `cue` 0.03s). The fix is a bounded-depth structural digest in the
+  hash (`BEq` unchanged → provably cannot return a wrong value); it is what actually reclaims
+  cert-manager and unblocks full `apps/argocd.cue`. Until it lands, flattening and shortening def
+  chains (fewer distinct frames → smaller buckets) is the user-side lever.
 - **Fuel exhaustion can surface as a spurious `conflicting values (bottom)` at scale
   (2026-06-18).** `evalFuel = 100` is load-bearing for soundness; when frame-id divergence makes a
   large combined evaluation overrun it, a truncated value bottoms instead of resolving. Concrete:

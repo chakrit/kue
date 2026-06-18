@@ -1973,12 +1973,13 @@ case was either unreachable post-eval or strictly more correct. (The
    open-struct-with-embeds collapse routes `{embed;…;...}` defs through the single-`.structComp`
    two-pass path — more embed re-evaluation than the old `.conj` split — and the two-pass gate now
    fires on more/deeper refs). All SOUND (byte-identical fixtures), but it pushes more shapes toward
-   the wall: `defs.#TLSRoute` ~4s→~9s, `defs.#Secret` ~3s→~13s, `packs.#Argo` ~36s. Root is
-   exponential frame-id divergence — structurally-identical re-pushes get fresh ids, defeating the
-   memo `envIds` key. Fix is frame-id sharing / canonical frame identity (same fields + same parent
-   id-stack → reuse id), audit-heavy (must not violate "independently-built frames never falsely
-   share"). Frame-id sharing + force-memo are partially landed; finish them here. Profile against a
-   resolving target (cert-manager, or `packs.#Argo` once link 5 lands).
+   the wall: `defs.#TLSRoute` ~4s→~9s, `defs.#Secret` ~3s→~13s, `packs.#Argo` ~36s. All SOUND
+   (byte-identical fixtures). **RE-DIAGNOSED (2026-06-19): the root is NOT frame-id divergence
+   (that was fixed by `4dbc62c` and verified working) — it is the SHALLOW cache-key hash collapsing
+   the memo HashMaps to an O(N) bucket scan, making total cache cost O(N²). See the design spike at
+   the end of this item.** The fix is a provably-sound HASH deepening (`BEq` untouched → cannot
+   return a wrong value), not a frame-identity change. Profile against a resolving target
+   (cert-manager 119s at HEAD; `packs.#Argo`).
 
    **PART-B audit verdict (2026-06-18) — the 31s→92s regression is REDUNDANT, not inherent;
    a cheap fix reclaims most of it.** Measured eval-counts (`evalStructRefsCalls`/`runEvalStats`)
@@ -2007,12 +2008,102 @@ case was either unreachable post-eval or strictly more correct. (The
      audit's modeled redundancy is real but is NOT what dominates cert-manager. The cheap fix helps
      many-unrelated-field defs (`packs.#Argo`-class), so it ships; the cert-manager regression
      stands.
-   - **The deeper lever (STILL OPEN — now the primary perf frontier): canonical frame identity.**
-     Structurally-identical re-pushes get fresh ids, defeating the memo `envIds` key (exponential
-     divergence). Same fields + same parent id-stack → reuse id, audit-heavy (must not violate
-     "independently-built frames never falsely share"). This is what actually reclaims cert-manager
-     and unblocks `packs.#Argo`'s wall. Profile against cert-manager (resolving) + `packs.#Argo`
-     once link 5 lands.
+   - **The deeper lever — RE-DIAGNOSED (Phase-B audit 2026-06-19). The root cause is NOT frame-id
+     divergence; it is the SHALLOW CACHE-KEY HASH collapsing the memo HashMaps to a near-linear
+     scan at scale. Canonical frame identity already landed (`4dbc62c`) and is SOUND + EFFECTIVE.**
+     See the dedicated design spike below (item 7 → "Design spike: the real per-eval wall is a hash
+     collision, not frame-id divergence"). The frame-identity work the earlier diagnosis called for
+     is DONE; the remaining wall is a separate, provably-sound hashing fix.
+
+   ### Design spike (2026-06-19): the real per-eval wall is a HASH COLLISION, not frame-id divergence
+
+   **One-line verdict: GO. The fix is provably sound by construction — it changes only a hash
+   function, never an equality test, so it CANNOT return a wrong value. No soundness hole.**
+
+   #### Problem pin-down (where the cost actually is)
+   The earlier diagnosis ("structurally-identical frame re-pushes get fresh ids → memo misses →
+   exponential divergence") was fixed by `4dbc62c` (canonical frame identity in `pushFrame`,
+   keyed on `FrameKey = (parentIds, fields)`). Profiling at HEAD `1d6c722` confirms that fix is
+   sound AND working — identical re-uses fully collapse:
+   - `#D` referenced 16× with the SAME narrow: 35 core evals (flat); 16× with DISTINCT narrows:
+     215 (linear, ~13/use — each distinct narrow IS a genuinely different eval, correct).
+   - Deep def at depth 8, 4 identical uses: shares to one frame chain (`frames = 2·depth+3`).
+   - Same value reached via DISTINCT parent scopes (`{base:"x", d: #D & {n: base}}` ×N): `frames`
+     FLAT at 11 — sharing fires across parents because the narrowing operand carries the resolved
+     value. Frame sharing is doing its job.
+
+   The residual wall is elsewhere. `cache`/`satCache` (`EvalKey`/`SatKey`) hash on
+   `(fuel, hash visited, envIds.LENGTH, valueTag value)` — and `valueTag` is the TOP CONSTRUCTOR
+   TAG ONLY (0–31, `Eval.lean:1055`), never traversing the subtree. At cert-manager's steady state
+   the population is overwhelmingly `.struct`/`.selector`/`.refId` at the SAME ceiling `fuel`, SAME
+   `visited` (`[]`), SAME `envIds.length` → **every distinct value collides into ONE hash bucket.**
+   Measured (`/tmp/probe`, deleted): 1000 distinct k8s-resource-shaped structs → **1** shallow-hash
+   bucket (a deep digest gives 1000). Every `cache.get?` then runs derived structural `BEq` over the
+   FULL value tree against every colliding entry → each lookup is O(entries × tree-size).
+   - **Quantified blowup** (N distinct same-shaped resources, all through the cache): `calls` linear
+     in N (706→5606 for N 50→400) but **`µs/call` ALSO linear** (165→267→504→985 µs as N 50→400).
+     Per-call cost DOUBLES when N doubles — the signature of an O(N) bucket scan. Total time
+     116ms→5523ms (47×) for an 8× N increase: O(N²). cert-manager exports correctly in **119s** at
+     HEAD; `cue` does it in 0.03s. The fuel-exhaustion bottom on full `apps/argocd.cue` is the same
+     wall tipping a large combined eval past the time/fuel ceiling.
+   - This is exactly the "absolute per-eval constant" the perf guide names as the next lever — now
+     root-caused to the hash, not to frame ids.
+
+   #### The fix (the "canonical key" — but for the HASH, not the identity)
+   Deepen the cache-key HASH so it discriminates the value population, leaving `BEq` (the equality
+   arbiter) untouched:
+   1. Replace `valueTag value` in `EvalKey`/`SatKey` hashes with a **bounded-depth structural
+      digest** `valueDigest (d : Nat)` (a total, fuel-free fold to a small fixed depth ~3): mixes
+      the tag with each field's label + child digest, `refId` depth/index, `prim` payload, selector
+      label, conj/list element digests. Depth-bounded so it never traverses a deep tree (cost O(1)
+      per key, same discipline the shallow hash aimed for — just discriminating).
+   2. Hash the FULL `envIds` contents, not `envIds.LENGTH` (the `ForceKey` hash, `Eval.lean:1230`,
+      already does this — make `EvalKey`/`SatKey` consistent). Two envs of equal depth but different
+      id stacks currently collide needlessly.
+   3. Audit `FrameKey`'s hash (`Eval.lean:1201`) for the same shallow-`valueTag`-per-field problem;
+      it likely degrades identically once many same-shaped frames coexist — fold in the same digest.
+
+   #### THE SOUNDNESS ARGUMENT (the crux — and why this spike is GO, not the dangerous variant)
+   The originally-feared hazard was *frame-identity sharing causing a false memo hit → wrong value*.
+   **This fix never touches identity or equality.** In `Std.HashMap`, the hash only selects a
+   bucket; `BEq` (here derived-structural on every key) is the SOLE arbiter of whether a `get?`
+   returns an entry. Therefore:
+   - A different hash can change WHICH bucket a key lands in, and how many keys share a bucket —
+     i.e. only lookup SPEED. It can never make two `BEq`-distinct keys compare equal.
+   - Worst case of a "bad" digest is a hash MISS where a hit was possible (recompute — slower,
+     never wrong) or a collision (scan — slower, never wrong). Neither path can return a value
+     computed for a different key.
+   - The two same-key-different-value hazards that DO threaten Kue (fuel-truncation across levels;
+     closed-vs-open) live entirely in `BEq` field membership (`fuel` in `EvalKey`; `body`/`fields`
+     carrying closed state) and are UNCHANGED. The digest reads the same fields the `BEq` already
+     compares; it cannot widen or narrow equality.
+   - **Can two same-DIGEST keys ever evaluate differently? Yes — that is fine and expected** (a
+     digest is lossy; collisions are normal). `BEq` then separates them. The soundness question
+     "can two same-KEY frames evaluate differently" is answered by `BEq`/`EvalKey` membership, which
+     this fix does not alter. **There is no soundness hole.** Unlike the frame-id-sharing or
+     fuel-axis optimizations, the soundness here is unconditional, not "by a delicate key argument."
+
+   #### Implementation shape, measurement, slice count
+   - **Shape:** add `valueDigest (depth : Nat) : Value → UInt64` near `valueTag` (total, structural,
+     depth-bounded — no fuel needed, it is not an eval). Swap it into the `Hashable EvalKey` and
+     `Hashable SatKey` instances; widen `envIds.length`→`hash envIds`. One module (`Eval.lean`), no
+     type changes, no new `Value` constructors. ~1 slice; a worktree is NOT needed (localized, low
+     risk). Optionally a 2nd slice for `FrameKey` if profiling shows it degrading.
+   - **Correctness gate (BYTE-IDENTICAL, mandatory):** all existing fixtures byte-unchanged
+     (`scripts/check-fixtures.sh` → zero drift) + cert-manager export byte-identical to the 119s
+     baseline (captured: `/tmp/probe/certman-kue.out`, 1448 b — re-capture at fix time). Because the
+     change is hash-only, ANY output drift is a bug in the digest's totality, not a semantic change.
+   - **Perf-regression pin:** a `native_decide` `cacheHits`/`evalCalls` pin is NOT the right witness
+     (eval COUNT is unchanged — the win is per-lookup, not fewer evals). Pin instead via the
+     bucket-distribution probe (distinct-population → bucket count) as a build-checkable theorem, and
+     record the wall-clock delta (`µs/call` flattening; cert-manager 119s → target tens of seconds)
+     in `kue-performance.md` + the breadcrumb. Expected win: cert-manager from O(N²) lookup to O(N),
+     i.e. the ~119s collapses toward `cue`-competitive; full `apps/argocd.cue` unblocks because the
+     combined eval no longer scans giant buckets and stays under the fuel/time ceiling.
+   - **STOP condition:** none triggered. The decision-doc stop ("if soundness can't be guaranteed,
+     ship the design + the hole, not code") does not fire — soundness IS guaranteed by construction
+     (hash-only, `BEq` unchanged). This is shippable. The earlier, genuinely-dangerous variant
+     (sharing frame IDENTITY, or dropping `fuel` from the key) is NOT what this needs.
 
 8. **Borderline / LOW (opportunistic; none block adoption).**
    - **`scalar-embed-with-decls`** — `{#a:1, 5}`→`5` (cue manifests `5`, keeps `.#a`
