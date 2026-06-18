@@ -8161,3 +8161,58 @@ manager/`packs.#Argo` covered by the zero-drift fixture suite). ALL `open_`/`has
 gone from the codebase (residual `open_` identifiers are `isOpen : Bool` locals in
 `Order`/`Lattice`/`Eval`, unrelated to the struct two-bool). B2 (entire struct-family unification:
 5 original ctors → 1 unified `struct` + 1 pre-eval `structComp`, both on `StructOpenness`) COMPLETE.
+
+---
+
+## Completed Slice: B6-A2 (let-binding closedness) + B6-T1 (closedness regression pins)
+
+Commits: `27ddb96` (B6-A2), `aef25ac` (B6-T1). Two-part correctness + test-strength slice that
+also de-risks A2-followup (B6-A2's edit is that slice's `let` arm).
+
+### B6-A2 — close a nested `#Def` under a `let`-bound field
+
+The B6 spine recursion in `normalizeFieldWithFuel` (`Normalize.lean`) skipped BOTH hidden AND
+`let`-bound field values to protect import bindings (the A2 trap). `let` over-skipped: `letBinding`
+is its OWN `FieldClass` kind, distinct from the `hidden` fields `Module.bindImports` uses for
+package bindings, so a `let`-bound value can safely recurse the spine walker and close its nested
+`#Def`s. Fix: dropped `|| Field.fieldClass field == .letBinding` from the skip guard so `let` joins
+the regular/optional/required arm (`normalizeDefinitionsWithFuel`); the `isHidden` skip (the
+import-binding guard — A2-followup's concern) stays.
+
+- Oracle cue v0.16.1: `let x = {#I: {y: int}}; out: x.#I & {extra}` → `out.extra: field not
+  allowed` (closed def). Kue admitted `extra` before, now bottoms it.
+- No over-close (oracle-confirmed + pinned): an open def (`...`) under a `let` admits `extra`, and a
+  plain/regular struct under a `let` admits `extra` — both stay open, cue-exact.
+- This is the `let` arm of A2-followup's future 4-way `FieldClass` split
+  (importBinding/hidden/let/regular); A2-followup folds it in with no rework.
+
+Pins: 2 parse-driven fixtures (`let_nested_def_closes`, `let_nested_def_open`) + 3 `native_decide`
+EvalTests (closes, open-admits, plain-stays-open).
+
+### B6-T1 — pin the closedness regression class
+
+B6 closedness is the most regression-prone class (prior changes bottomed
+`#ListenerSet`/cert-manager). Pinned the shapes the Phase-A 8-probe over-close hunt exercised, each
+oracle-checked vs cue v0.16.1, as both a `.cue`/`.expected` fixture (+ FixturePorts entry,
+parse-driven) and a `native_decide` EvalTests pin:
+
+1. depth-2 nesting `a.b.#Inner & {extra}` CLOSES (`extra: _|_`).
+2. plain (non-def) struct under a regular field stays OPEN (admits `extra`).
+3. open `#Def` via `...` under a regular field admits `extra` (already pinned by the existing
+   `nested_def_open_under_regular_field` fixture).
+4. def-meet `#D & {c}` rejects the unallowed field (`c: _|_`); a comprehension-bearing AND an
+   embedding-bearing regular field each admit their legit siblings.
+5. instantiated def field `(#D & {}).r & {extra}` re-opens / ADMITS — matching cue on the
+   INSTANTIATION path. This pins CURRENT behavior at the boundary of the deferred sub-gap.
+
+Deliberately NOT pinned: the DIRECT def-path `#D.r & {extra}` (cue rejects, Kue wrongly admits) —
+the documented deferred open gap. No known-wrong behavior is pinned as correct.
+
+### Verify
+
+`lake build` green (96 jobs, incl. all new `native_decide`), `scripts/check-fixtures.sh` →
+`fixture pairs ok` with ZERO byte-drift on all existing fixtures (cert-manager/argocd import-binding
+sentinels + `def_open_tail_addfield` byte-identical — the B6-A2 fix only drifts the new Part-2
+fixtures), `shellcheck` clean (no script changed). No `kue-performance.md` edit (no eval-cost
+change — Normalize already walked regular-field spines; `let` just joins that existing arm). No
+CUE divergence (both gaps are Kue-wrong, not cue-buggy).

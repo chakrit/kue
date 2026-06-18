@@ -1234,14 +1234,11 @@ the A2-followup design above (which BUNDLES B6-A1 and SUBSUMES B6-A2's Normalize
 backlog is now CORRECTNESS-HEAVY: several NARROW closedness/hidden-field edge cases cluster around
 the same `FieldClass.hidden` conflation. Recommended order:
 
-1. **B6-A2 + B6-T1 as ONE cheap-ready slice (CORRECTNESS + test-strength) — do FIRST.** Both are
-   ready, low-risk, and bank correctness now. B6-A2 is the confirmed `let`-binding nested-def
-   under-close — a one-edit fix (drop `letBinding` from the Normalize skip guard) + 2 fixtures,
-   NO import-trap entanglement (its own `FieldClass` kind). B6-T1 adds the 5 unpinned closedness
-   shapes the B6 over-close hunt exercised (depth-2 nesting, plain-struct-stays-open,
-   embedding/comprehension-bearing admit, instantiation re-open). Bundling them is natural: both
-   touch the closedness surface, both are additive/oracle-checked. This drains the cheapest real
-   correctness + hardens the most regression-prone class (closedness) in one pass.
+1. **B6-A2 + B6-T1 — DONE (`27ddb96` + `aef25ac`, 2026-06-19).** B6-A2: dropped `letBinding` from
+   the Normalize skip guard so a `let`-bound value's nested `#Def`s close (cue-exact), no over-close,
+   no fixture drift. B6-T1: 6 fixtures + 6 `native_decide` pins locking the over-close-hunt shapes.
+   The cheapest real correctness banked + the most regression-prone class (closedness) hardened.
+   **Next: A2-followup** (slice 2 below).
 2. **A2-followup (CORRECTNESS, representation change; BUNDLES B6-A1, SUBSUMES B6-A2).** The
    `importBinding` marker (design above) — 1 slice / 3 commits, LOW-MEDIUM risk. Fixes the LAST two
    narrow correctness gaps in the cluster (deep reached-hidden bottom + in-file-hidden nested-def
@@ -1307,31 +1304,29 @@ Ranked findings (fold as fix-slices):
    recurse real in-file hidden fields. Action taken: noted in the B6 hidden-skip rationale below and
    added to A2-followup's scope. No standalone slice; it rides A2-followup.
 
-2. **B6-T1 — fixture coverage thinner than the regression risk (MEDIUM, test-strength).** B6 is the
-   dangerous closedness-change class (prior changes regressed `#ListenerSet`/cert-manager), yet ships
-   only 2 fixtures (R1 closed-rejects, R3 open-admits) + 3 `native_decide` pins. The over-close hunt
-   exercised five more shapes that all behave correctly but are UNPINNED — a future change could
-   silently regress any of them. Fix-slice: add fixtures (each a `.cue`/`.expected` pair + a
-   `FixturePorts` entry) for (a) depth-2 nesting `a: {b: {#Inner: {x:int}}}`, `out: a.b.#Inner &
-   {extra}` → reject; (b) plain (non-def) struct under a regular field stays open `a: {b: {x:int}}`,
-   `out: a.b & {extra}` → admit; (c) embedding-bearing regular field admits a sibling; (d)
-   comprehension-bearing regular field admits extra; (e) instantiation re-open `(#D & {}).r &
-   {extra}` → admit (the explicit no-over-close-on-instantiation sentinel guarding the deferred-gap
-   boundary). Low risk (additive fixtures + oracle-checked), but a real coverage gap given B6's class.
+2. **B6-T1 — closedness regression pins — DONE (`aef25ac`).** Added 6 `.cue`/`.expected` fixtures
+   (+ FixturePorts entries, parse-driven) and 6 `native_decide` EvalTests pins for the over-close
+   hunt's shapes, each oracle-checked vs cue v0.16.1: (1) depth-2 nesting `a.b.#Inner & {extra}`
+   CLOSES; (2) plain struct under a regular field stays OPEN; (4a) def-meet `#D & {c}` rejects the
+   unallowed field; (4b) comprehension-bearing regular field admits its sibling; (4c)
+   embedding-bearing regular field admits its siblings; (5) instantiated `(#D & {}).r & {extra}`
+   re-opens/ADMITS (matches cue on the instantiation path — the boundary of the deferred sub-gap).
+   Shape 3 (open `#Def` via `...`) was already pinned by `nested_def_open_under_regular_field`; the
+   let case is pinned by B6-A2 below. The deferred DIRECT def-path `#D.r & {extra}` (cue rejects,
+   Kue wrongly admits) is deliberately NOT pinned — it stays a documented open gap.
 
-3. **B6-A2 — `let`-binding nested-def under-closes (MEDIUM, confirmed, CLEAN fix — do this first).**
-   B6 leaves `letBinding` field values unwalked alongside hidden (documented "conservative; not
-   output, avoids churn"). CONFIRMED under-close (oracle cue v0.16.1): `let x = {#I: {y: int}}`,
-   `out: x.#I & {y: 1, extra: 2}` → cue `out.extra: field not allowed`; Kue admits `extra`. Kue
-   wrong, cue right. Unlike B6-A1 this is NOT entangled with the A2 import trap: `letBinding` is its
-   own `FieldClass` constructor (`Value.lean:381`), distinct from the `hidden` fields Module.lean
-   binds packages as — so routing `let` values through `normalizeDefinitionsWithFuel` (the spine
-   walker, same as the regular-field arm) carries NO cert-manager re-bottom risk. Fix-slice (one
-   edit + fixtures): drop `|| Field.fieldClass field == .letBinding` from the skip guard in
-   `normalizeFieldWithFuel` (Normalize.lean:108) so `let` joins the regular/optional/required arm;
-   add the `let x = {#I:…}` reject fixture + a `let x = {#I:{…,...}}` open-admit sentinel; full
-   verify (cert-manager/argocd module sentinels must stay byte-identical). The "conservative" comment
-   was over-cautious — `let`s ARE eval-reachable and cue closes their nested defs.
+3. **B6-A2 — `let`-binding nested-def under-closes — DONE (`27ddb96`).** CONFIRMED under-close
+   (oracle cue v0.16.1): `let x = {#I: {y: int}}; out: x.#I & {y: 1, extra: 2}` → cue
+   `out.extra: field not allowed`; Kue admitted `extra`. Fix: dropped
+   `|| Field.fieldClass field == .letBinding` from the skip guard in `normalizeFieldWithFuel`
+   (`Normalize.lean`) so a `let`-bound value joins the regular/optional/required SPINE arm and closes
+   its nested `#Def`s, while the `isHidden` skip (import-binding A2 trap, A2-followup's concern) stays.
+   `letBinding` is its own `FieldClass` kind — NOT entangled with the import trap — so no
+   cert-manager/argocd re-bottom (zero fixture drift confirmed). No over-close: an open def (`...`)
+   under a `let` and a plain struct under a `let` both stay open (cue-exact, pinned). **This is the
+   `let` arm of A2-followup's future 4-way `FieldClass` split** (importBinding/hidden/let/regular) —
+   A2-followup folds it in; its Normalize edit just confirms this arm, no rework. Pins: 2 fixtures
+   (closes / open-admits) + 3 `native_decide` (closes, open-admits, plain-stays-open).
 
 **A5-followup. Comprehension-body self-ref deferral gate — DONE (`e00c3de`).** The OBSERVABLE
 wrong value (a static field whose value is a comprehension reading `Self.<embedded>` inside a `for`
