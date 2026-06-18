@@ -7502,3 +7502,57 @@ recursing real in-file hidden fields. That unblocks the `{#u: {x: _|_}}` → err
 scripts changed (shellcheck N/A); cert-manager import laziness confirmed unchanged via the
 local repro (kue exports `{out:{ok:1}}` = cue). Two-phase audit now DUE (2 slices since the
 last: A1+B1 sweep, this A2+A3).
+
+## Completed Slice: A5 — comprehension-body frame-depth regression (3 walkers)
+
+**Commit:** `c3d0089`. A5 fix-slice (top of the live backlog; B1 `80df01e` regression).
+
+**Root cause.** A comprehension BODY lives `#forClauses` frames deeper than the
+comprehension node (`for` pushes a frame, `guard` does not) — the single authority is
+`resolveClausesWithFuel` (`Resolve.lean:52-67`). Three walkers re-derived this by hand and
+recursed the body at FLAT depth, so a body ref to the deeper frame (at `depth+#for`) was
+compared `== depth` and missed:
+
+1. **A5 proper (wrong VALUE).** `remapConjRefs`/`remapConjClauses` (`Eval.lean`) remapped a
+   comprehension-conjunct body at flat `frameDepth` on the lazy-conjunction-merge path,
+   leaving a body ref to a merged-conjunction sibling at its stale conjunct-local slot.
+   Repro `t: {s:{p:10,q:20}} & {s:{a:{for v in [1] {out: zz}}, zz:99}}`: cue 0.16.1 →
+   `s.a.out: 99`, kue → `20`.
+2. **Sibling — `selfReferencedLabels`** (Pass-2 selection seed): same flat scan → a
+   `Self.<embedded>` read inside a `for` body not collected → field skipped in Pass-2.
+3. **Gate — `refsSelfEmbeddedLabel`**: same flat scan. The old comment claimed too-shallow
+   only over-fires (perf); BACKWARDS — too-shallow compares a deep read against the wrong
+   depth, MISSES it, returns false, SKIPS the two-pass = stale-value miss. Fixed too.
+
+**Fix.** New `clauseFrameShift : List (Clause Value) → Nat` (+1 per `for`, +0 per `guard`)
+as the shared shift; `remapConjClauses` increments `frameDepth` per `for` clause (clause N's
+source at `frameDepth + #for-before-N`) and the comprehension arms remap the body at
+`frameDepth + clauseFrameShift clauses`. The two scanners gained depth-threading helpers
+(`selfReferencedLabelsClauses`, `refsSelfEmbeddedLabelClauses`) mirroring resolution; both
+parent defs became `mutual` blocks. B7 (typed frame coordinate) remains the structural fix
+that would make all 4 walkers consume one authority and a recurrence a compile error.
+
+**Pins.** Replaced the misleading `remap_comprehension_conjunct_reindexes_source_and_body`
+(hand-built a body ref at depth 0 — UNREACHABLE after real `for` resolution, so it passed
+while the behavior was broken) with realistically-resolved native_decide pins: body one/two
+frames deep, multi-`for` depth threading, guard-no-frame, and a `clauseFrameShift` authority
+pin. Added an end-to-end source fixture `testdata/cue/comprehensions/comprehension_conj_body_remap`
+(+ FixturePort, parse-driven) oracle-checked vs cue 0.16.1, plus unit pins for the two sibling
+walkers' deep-read detection.
+
+**KNOWN-FOLLOWUP (A5-followup, filed in plan).** The OBSERVABLE wrong value — a static field
+reading `Self.<embedded>` inside a `for` body, narrowed at the use site (`#R & {#t:"y"}`) —
+does NOT yet flip with these depth fixes alone: the field is selected and the gate fires, but
+Pass-2 re-eval does not refresh the comprehension-valued field's body against the augmented
+frame (it keeps the Pass-1 expansion). That is a distinct Pass-2 re-eval gap, filed as
+A5-followup; the depth fixes are its sound prerequisite. No fixture asserting the still-wrong
+value was added.
+
+### Verify
+`lake build` 86 jobs green; `scripts/check-fixtures.sh` → `fixture pairs ok` (zero
+byte-drift — the cert-manager/argocd-derived module fixtures `open_embed_selfref_guard`,
+`structcomp_lazymerge_guard`, `listcomp_embed_selfref`, etc. all byte-identical = the
+correctness regression gate). No shell scripts changed (shellcheck N/A). Real-app exports
+(cert-manager, fx, keel, n8n via `kue export -e <app> ./apps`, READ-ONLY) all hit the
+documented PERF WALL (timeout, exit 124) regardless of this change — not a correctness
+regression; module fixtures are the completing correctness signal.

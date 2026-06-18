@@ -380,12 +380,32 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
-**A5 (HIGH — regression from B1, fix FIRST)** → audit fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED
-on a representation marker → A2-followup design-slice) → TWO-PHASE AUDIT DONE (Phase-A found A5;
-Phase-B #2 found B7) → **B7 (MEDIUM-HIGH — frame-coordinate type-tightening; subsumes A5's
-structural fix, closes a `selfReferencedLabels` miss)** → B6 design-spike / B2 headline struct
+**A5 DONE (`c3d0089`)** → **A5-followup (HIGH — the OBSERVABLE wrong value; see below)** → audit
+fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED on a representation marker → A2-followup design-slice) →
+TWO-PHASE AUDIT DONE (Phase-A found A5; Phase-B #2 found B7) → **B7 (MEDIUM-HIGH — frame-coordinate
+type-tightening; subsumes A5's structural fix)** → B6 design-spike / B2 headline struct
 refactor (design-spike then migrate) / item 1 follow-up → parallel-safe cleanups (3,4,5 + B4/B5)
 interleaved → deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) ride-alongs.
+
+**A5-followup. Pass-2 re-eval does not refresh a comprehension-valued field's body (HIGH — the
+observable face of A5's sibling).** A5 landed the depth fix in all 3 frame-depth walkers
+(`remapConj*`, `selfReferencedLabels`, `refsSelfEmbeddedLabel`), but a static field whose VALUE
+contains a comprehension and reads `Self.<embedded>` inside the `for` body — narrowed at the use
+site — still keeps its STALE Pass-1 value. Confirmed minimal repro (cue v0.16.1 → `v.out.v: "y"`,
+kue → `string | *"def"`):
+```
+#H: {#t: string | *"def"}
+#R: Self={#H, out: [for x in [1] {v: Self.#t}]}
+v: #R & {#t: "y"}
+```
+The field IS selected and the gate DOES fire (verified by unit pins on both walkers); the defect is
+that Pass-2 re-evaluation of the selected field does not re-expand/refresh the comprehension body
+against the augmented frame — the comprehension keeps its Pass-1 expansion. Distinct from A5's
+remap path (that was a frame-INDEX miss in the merge rewriter; this is a Pass-2 re-eval gap for
+comprehension-valued fields). The A5 depth fixes are the sound prerequisite. Likely sits near the
+eager/lazy two-pass arms (`Eval.lean` ~2238 / ~2631) — Pass-2 feeds selected `(index, field)`
+entries to `evalFieldRefsListWithFuel` against `nested2`, but a field whose value is itself a
+`.structComp`/`listComprehension` may short-circuit on a memoized Pass-1 expansion.
 
 **B7. Frame coordinate is an untyped `Nat` — the comprehension-body depth-shift rule is
 re-derived by hand at 5 walkers (MEDIUM-HIGH — type-system leverage; root cause of A5).** The
@@ -396,7 +416,18 @@ open-coded (correctly in resolve, WRONG in `remapConj*` = A5, conservatively-loo
 compile error. Land A5's point-fix first; then B7 factors the shift into ONE shared function the
 5 walkers consume. Design-spike first. See Phase-B #2 B7.
 
-**A5. `remapConjRefs` comprehension BODY remapped at the wrong frame depth (HIGH — correctness
+**A5. `remapConjRefs` comprehension BODY remapped at the wrong frame depth — DONE (`c3d0089`).**
+Fixed in all 3 frame-depth walkers via a new `clauseFrameShift` (+1 per `for`, +0 per `guard`) and
+per-walker depth-threading helpers (`remapConjClauses` increments per `for`; `selfReferencedLabelsClauses`
+and `refsSelfEmbeddedLabelClauses` thread depth like resolution). The misleading depth-0 pin was
+replaced with realistically-resolved native_decide pins + an end-to-end source fixture
+(`comprehension_conj_body_remap`, oracle-checked vs cue 0.16.1 → `s.a.out: 99`). Sibling #3
+(`refsSelfEmbeddedLabel`) was found UNSOUND (too-shallow under-fires the gate = a stale-value miss,
+not perf-only as the old comment claimed) and fixed too. The OBSERVABLE wrong value for the
+narrowing-in-`for`-body case remains → see **A5-followup** above (a separate Pass-2 re-eval gap).
+Original diagnosis below for the record.
+
+**A5 (original diagnosis). `remapConjRefs` comprehension BODY remapped at the wrong frame depth (HIGH — correctness
 regression introduced by B1 `80df01e`).** The B1 `.comprehension`/`.listComprehension` arms recurse
 the comprehension BODY at plain `frameDepth`, ignoring the loop frame each `for` clause pushes.
 `resolveClausesWithFuel` (Resolve.lean:59-62) resolves the body under `clauseLoopFrame :: scopes`, so
