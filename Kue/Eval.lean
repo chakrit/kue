@@ -766,13 +766,19 @@ def classifyDefinedness : Value -> Definedness
   | .listTail _ _ => .defined
   | .embeddedList _ _ _ => .defined
   | .structComp _ _ _ _ => .defined
-  -- A DISJUNCTION is a PRESENT value (CUE: `(*"argocd" | string) != _|_` is `true`, `("a"|"b")
-  -- != _|_` is `true`). An all-bottom disjunction never reaches here — `liveAlternatives` prunes
-  -- bottom arms, so a surviving `.disj` has ≥1 live arm and is non-`_|_`. Without this, a presence
-  -- guard over a default/plain-disjunction field (the argocd `#ArgoRepo`/`parts.#Metadata`
-  -- `#ns: *"argocd" | string` then `if Self.#ns != _|_ {namespace: Self.#ns}`) stayed incomplete,
-  -- dropping the guarded field (`namespace`) cue emits.
-  | .disj _ => .defined
+  -- A DISJUNCTION with ≥1 LIVE arm is a PRESENT value (CUE: `(*"argocd" | string) != _|_` is
+  -- `true`, `("a"|"b") != _|_` is `true`); without it a presence guard over a default/plain
+  -- disjunction (argocd `#ArgoRepo`/`parts.#Metadata` `#ns: *"argocd" | string` then
+  -- `if Self.#ns != _|_ {namespace: Self.#ns}`) dropped the guarded field cue emits. The
+  -- "≥1 live arm" condition is the runtime invariant `liveAlternatives` is meant to preserve,
+  -- but it is NOT type-enforced: a `.disj []` / `.disj [all-bottom]` slipping past pruning into
+  -- this test would misclassify an absent value `.defined` (`X != _|_` wrongly `true`). Classify
+  -- by the LIVE arms so the invariant is checked HERE, where soundness depends on it: no live arm
+  -- ⇒ the disjunction IS bottom ⇒ `.error`.
+  | .disj alternatives =>
+      match liveAlternatives alternatives with
+      | [] => .error
+      | _ => .defined
   -- Residual / unresolved forms: the comparison itself stays incomplete and propagates. Enumerated
   -- (no catch-all) so a future CONCRETE present-value constructor cannot silently fall through to
   -- `.incomplete` — it forces a compile error here, where its definedness must be decided. (`top`

@@ -27,6 +27,27 @@ theorem classify_kind_incomplete :
 theorem classify_selector_incomplete :
     classifyDefinedness (.selector (.ref "x") "g") = .incomplete := by native_decide
 
+-- A disjunction with a live arm is a present value.
+theorem classify_live_disj_defined :
+    classifyDefinedness (.disj [(.regular, .prim (.int 1)), (.regular, .bottom)]) = .defined := by
+  native_decide
+
+-- A3 (untyped-invariant guard): an empty / all-bottom disjunction is bottom, NOT defined —
+-- classified by its LIVE arms so a `.disj []` or `.disj [all-bottom]` slipping past pruning
+-- cannot misclassify an absent value as present (`X != _|_` would wrongly be `true`).
+theorem classify_empty_disj_error :
+    classifyDefinedness (.disj []) = .error := by native_decide
+
+theorem classify_all_bottom_disj_error :
+    classifyDefinedness (.disj [(.regular, .bottom), (.regular, .bottomWith [.boundConflict])])
+      = .error := by native_decide
+
+-- The presence test over an all-bottom disjunction reports ABSENT: `!= _|_` is `false`.
+theorem all_bottom_disj_ne_bottom_false :
+    (evalPresenceTest false (.disj [(.regular, .bottom), (.regular, .bottom)])
+      == .prim (.bool false)) = true := by
+  native_decide
+
 -- A concrete operand: `!= _|_` is true, `== _|_` is false.
 theorem concrete_ne_bottom_true :
     (evalStructRefs (resolveStructRefs
