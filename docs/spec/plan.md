@@ -226,6 +226,57 @@ A1-A4.
   backed by `native_decide` EvalTests source pins, including no-over-prune / no-over-open negatives.
   Pass-2 has eval-count pins. Coverage gaps land as the A1-A3 pins above.
 
+## Phase-A audit (2026-06-19 — B7 implementation + test-org reorg + B4 LatticeTests)
+
+Code-quality audit of batch `7d73bb9..a03ff4a` (B7 impl `bbb00b2`/`c5cbb0e`/`aa5518c`/`969c187`;
+test-org `ed314b7`; B4 LatticeTests `a03ff4a`). All four audit fronts pass; one LOW finding fixed
+inline.
+
+**B7 implementation — CORRECT, TOTAL, semantics-preserved, theorems REAL.**
+- `descendClauses` matches `resolveClausesWithFuel` arm-by-arm: source/guard handled at current
+  depth, `+1` per `forIn` for the remainder, `+0` per `guard`, body at accumulated depth. Total —
+  structural on the clause list, no fuel, no `partial`. `Value`-non-recursive. Correct leaf
+  placement in `Value.lean` (where `Clause Value` is defined); imports unchanged (still only
+  `Init.Data.String.Search`), graph acyclic.
+- The three migrated scanners (`refsSelfEmbeddedLabelClauses`, `selfReferencedLabelsClauses`,
+  `hasSelfRefAtDepthClauses`) reproduce pre-B7 behavior EXACTLY — each instantiation maps the
+  `[]`/`forIn`/`guard` arms identically to the hand-coded versions (`Bool` `||`, `List` `++`); the
+  A5/A5-followup `native_decide` pins are the regression gate and stay green.
+- The three agreement theorems are REAL, not vacuous: `descend_clauses_frame_count_matches_resolve`
+  runs the ACTUAL `resolveClausesWithFuel` over 5 clause shapes (incl. mixed for/guard) and asserts
+  `resolved refId.depth == clauseChainDepth` via `findInScopes`' genuine outward frame-walk — the
+  `| _ => false` arm makes a wrong shape fail the `= true` build check;
+  `descend_clauses_agrees_remapConjClauses` runs the real `remapConjRefs` and confirms the body
+  refId is reindexed (`id.index == 0`) only when the body shift equals the rebuild's threaded depth;
+  `descend_clauses_chain_depth_counts_only_for` pins the fold arithmetic against hand-computed
+  literals (incl. `5 + for + guard + for == 7`). Drift becomes a build failure as designed.
+
+**Test-org reorg — coverage TRULY preserved, all modules wired in.** Independently re-counted:
+theorem 256→256 (exact NAME set-equality: zero dropped, zero added), `native_decide` 253→253. All
+five split modules (`EvalTests`, `ClosureTests`, `EvalPerfTests`, `TwoPassTests`, `EvalTestHelpers`)
+imported in `Kue/Tests.lean` — no compiles-but-unrun module. (`def` raw-grep 76→77 is a counting
+artifact of `grep "def "`, not a lost test; theorem-name equality is the authoritative check.)
+
+**B4 LatticeTests — all pins oracle-correct vs cue v0.16.1; A2 rule honored.** Re-ran all 6
+struct-shape pins through `cue export`/`eval` — every expected value matches. The known-incomplete
+arm (`#P:{[string]:int} & #T:{a:5,...}`) confirmed: cue → `{a:5}`, Kue → `_|_` (genuine Kue bug),
+documented in the module header + B2 entry and correctly NOT pinned with a passing wrong-`.bottom`
+test. The export-vs-constructor split is sound: B2-unstable struct RHS pinned via JSON `export`
+(invariant under B2's constructor collapse); B2-stable scalar/kind/bound/regex/list/disj RHS pinned
+at constructor level. `exportJsonMatches`/`evalSourceMatches` helpers fail closed.
+
+**Finding (LOW — FIXED INLINE).** `descendClauses` carried a dead `empty : α` parameter: the `[]`
+arm returns `onBody depth`, never `empty`, and `empty` is unreferenced in the body — the fold
+terminates in `onBody`, so it needs no monoid unit despite the doc's "monoid-like `(empty, append)`"
+claim. Removed the parameter, updated the 4 callsites (3 scanners + `clauseChainDepth`), and
+corrected the docstring. Build + fixtures green; tightens the signature (general-coding: no dead
+params) and removes a misleading doc.
+
+**No other findings.** No catch-all `_` swallowing (B7 adds no `Value` constructor); no totality
+gaps; no DRY violations (B7 is itself the de-dup); spec accurate (B7 / item-5 / B4 marked DONE, B2
+entry refreshed, two-phase audit marked due — this is it). No CUE divergence (the one mismatch is
+Kue-wrong, already tracked as a B2 fix-target, not a divergence).
+
 ## Phase-B audit (2026-06-19 #3 — B7 design finalized + light whole-graph sweep)
 
 Third Phase-B pass (post A5 + A5-followup, batch `c3d0089..3a58b53`). PRIMARY: finalized the

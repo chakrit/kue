@@ -191,7 +191,7 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
 def refsSelfEmbeddedLabelClauses
     (fuel : Nat) (depth selfIndex : Nat) (labels : List String)
     (clauses : List (Clause Value)) (body : Value) : Bool :=
-  descendClauses false (· || ·)
+  descendClauses (· || ·)
     (fun d source => refsSelfEmbeddedLabel fuel d selfIndex labels source)
     (fun d cond => refsSelfEmbeddedLabel fuel d selfIndex labels cond)
     (fun d => refsSelfEmbeddedLabel fuel d selfIndex labels body)
@@ -299,7 +299,7 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List St
 def selfReferencedLabelsClauses
     (fuel : Nat) (depth selfIndex : Nat)
     (clauses : List (Clause Value)) (body : Value) : List String :=
-  descendClauses [] (· ++ ·)
+  descendClauses (· ++ ·)
     (fun d source => selfReferencedLabels fuel d selfIndex source)
     (fun d cond => selfReferencedLabels fuel d selfIndex cond)
     (fun d => selfReferencedLabels fuel d selfIndex body)
@@ -1588,7 +1588,7 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
     none. So a body self-ref at `depth + #forClauses` is detected, not missed. -/
 def hasSelfRefAtDepthClauses
     (fuel : Nat) (depth : Nat) (clauses : List (Clause Value)) (body : Value) : Bool :=
-  descendClauses false (· || ·)
+  descendClauses (· || ·)
     (fun d source => hasSelfRefAtDepth fuel d source)
     (fun d cond => hasSelfRefAtDepth fuel d cond)
     (fun d => hasSelfRefAtDepth fuel d body)

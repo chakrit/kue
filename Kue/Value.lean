@@ -559,32 +559,33 @@ deriving instance Repr, BEq for Value, Field
     source is handed back at the current depth and pushes one frame for the rest of the chain
     and the body; a `guard` condition is handed back at the current depth and pushes none; the
     body is handed back at the accumulated post-chain depth. Mirrors `resolveClausesWithFuel`'s
-    `clauseLoopFrame :: scopes` push. Generic over the accumulator `α` with a monoid-like
-    `(empty, append)` so the clause walkers instantiate it as `Bool` (`‖`/`false`), `List`
-    (`++`/`[]`), or a depth fold. Pure, total (structural on the clause list), `Value`-non-
-    recursive: it threads depth only and defers each piece to the caller's `onSource`/`onGuard`/
-    `onBody`. A walker descending a clause chain MUST route through this to get the body depth, so
-    the `+1-per-forIn`/`+0-per-guard` rule lives in exactly one place and cannot be re-derived
+    `clauseLoopFrame :: scopes` push. Generic over the accumulator `α` with an `append` so the
+    clause walkers instantiate it as `Bool` (`‖`), `List` (`++`), or a depth fold. The chain
+    terminates in `onBody`, not an identity element — there is no empty case to fill, so the fold
+    needs no monoid unit. Pure, total (structural on the clause list), `Value`-non-recursive: it
+    threads depth only and defers each piece to the caller's `onSource`/`onGuard`/`onBody`. A
+    walker descending a clause chain MUST route through this to get the body depth, so the
+    `+1-per-forIn`/`+0-per-guard` rule lives in exactly one place and cannot be re-derived
     inconsistently. -/
 def descendClauses {α : Type}
-    (empty : α) (append : α → α → α)
+    (append : α → α → α)
     (onSource onGuard : Nat → Value → α)
     (onBody : Nat → α)
     (depth : Nat) : List (Clause Value) → α
   | [] => onBody depth
   | .forIn _ _ source :: rest =>
       append (onSource depth source)
-        (descendClauses empty append onSource onGuard onBody (depth + 1) rest)
+        (descendClauses append onSource onGuard onBody (depth + 1) rest)
   | .guard condition :: rest =>
       append (onGuard depth condition)
-        (descendClauses empty append onSource onGuard onBody depth rest)
+        (descendClauses append onSource onGuard onBody depth rest)
 
 /-- The frame depth a clause chain accumulates from `start`: `+1` per `forIn`, `+0` per `guard`.
     Recovered from `descendClauses` (identity body-handler returns the accumulated depth) so the
     body-depth shift and the per-clause threading derive from the SAME fold — replacing the former
     standalone `clauseFrameShift` and erasing the two-encodings-in-one-walker hazard. -/
 def clauseChainDepth (start : Nat) (clauses : List (Clause Value)) : Nat :=
-  descendClauses (α := Nat) start (fun _ later => later) (fun _ _ => start) (fun _ _ => start)
+  descendClauses (α := Nat) (fun _ later => later) (fun _ _ => start) (fun _ _ => start)
     (fun reached => reached) start clauses
 
 namespace Field
