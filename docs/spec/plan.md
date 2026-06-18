@@ -98,6 +98,74 @@ field-ordering byte-parity gap, #3 in the backlog):
   ~71s (perf-wall-adjacent — item 7). Full `apps/argocd.cue` end-to-end status in the latest
   breadcrumb. cert-manager byte-identical to baseline (no regression).
 
+## Phase-A audit (2026-06-19, batch `24da14d..463f8e1` — B2 CP3-pre/flip + B2.5) — CLEAN
+
+Audit of the B2 family-1 production flip (CP3-pre `b79af85..cf5b53c`, CP3-flip `ee7dfe5..4597dcd`,
+B2.5 `b91b4fb`). Build green (96 jobs), zero fixture byte-drift across the whole batch. Focus was
+the logic byte-identity cannot cover: the producer-flip openness mapping, the B2.5 unify arm, and
+test-migration integrity. **No correctness defect found.** Two fix-slices folded below (one latent
+guard, one end-to-end test-gap fill — both LOW).
+
+VERDICTS:
+- **Producer-flip mapping — all sites correct.** `parsedFieldsBaseValue`/`parsedFieldsValue`
+  (`Parse.lean:508,532`): no-`...` ⇒ `.regularOpen`, explicit `...` ⇒ `.defOpenViaTail (some tail)`.
+  `mergeSourceValues []` (`Runtime.lean:59`) and the comprehension/dynamicField re-emits
+  (`Eval.lean:2127,2193`) ⇒ `.regularOpen none []` (open, correct). `bindImports`
+  (`Module.lean:161`) preserves the existing coherent triple verbatim on the struct arm,
+  `.defClosed` on the non-struct wrap. `evalConjStandard`/`closeEmbeddedOver`/the
+  `forceClosureWithConjunct` arms thread `.ofBool open_`; `evaluatedStructOperand?`
+  (`Eval.lean:1381`) maps `.defOpenViaTail → false` (no reopen on splice), all else
+  `openness.isOpen`. All correct. `mkStruct`'s `coherentTail` is the safety net at every site:
+  `tail = some _ ↔ .defOpenViaTail` is enforced post-construction, so a caller cannot build an
+  incoherent openness/tail pair even if it passed the wrong openness.
+- **B2.5 `mergeStructN` composition arm — correct.** Field order: tail-bearing side is the base
+  (left when both have tails), matching cue (oracle-confirmed `{a:5,...}&{[string]:int}` and the
+  reverse both give `{a:5}`-open). `leftPatterns ++ rightPatterns` without cross-side dedup is
+  fine: `mkStruct` dedups the stored list via `dedupPatterns`, and `applyPatternsToFieldsWith`
+  applying a duplicate pattern is idempotent (meet of a constraint with itself). The
+  `mergedTail = none` trailing branch IS genuinely unreachable (the arm is entered only with ≥1
+  tail; the no-tail combinations are arms 1/5/6/7) and bottoms defensively — total, justified.
+  Pattern-violation edge (matched field bottoms, struct survives open) oracle-confirmed and pinned
+  (`mergeStructN_pattern_tail_field_conflict`). Both orders + multi-pattern + both-tails-remeet are
+  `native_decide`-pinned in LatticeTests.
+- **Test-migration integrity — clean, no adapted-to-pass.** Sampled StructTests/EvalTests
+  produced-output literals: every `true→.regularOpen none []`, `false→.defClosed none []`,
+  `structTail fields t→.defOpenViaTail (some t)` migration preserves the exact field list; only the
+  openness encoding changed. The one authorized divergence (pattern dedup, TwoPassTests) is
+  oracle-confirmed cue-correct and recorded, not smuggled to the buggy legacy output.
+- **`ManifestValue.struct` untouched.** The Manifest diff collapsed the 5 `Value.struct*` INPUT
+  arms into one `.struct fields _ _ _`; the OUTPUT `.ok (.struct fields)` (= `ManifestValue.struct`)
+  is byte-identical. Confirmed.
+- **Illegal-states / totality — strong.** `StructOpenness` is a 3-state sum (no bool×bool nonsense);
+  `mkStruct`+`coherentTail` make the incoherent `(tail, openness)` pairs unconstructable. The
+  `.struct × .struct` meet routes entirely through `mergeStructN` (8 exhaustive tail/pattern arms,
+  no catch-all `_` swallowing the struct). No `partial def`, no `sorry` introduced.
+
+### Fix-slice B2-A1 — `applyEvaluatedStructN` pattern+tail tail-drop (LOW — latent, currently lossless)
+
+`applyEvaluatedStructN` (`Eval.lean:330`) routes the patterns-present case through
+`meet (mkStruct [] openness none patterns) (mkStruct fields .regularOpen none [])`, which DROPS the
+`tail` argument. With B2.5, `mergeStructN` now PRODUCES structs carrying both patterns AND a tail,
+so a re-evaluated pattern+tail struct (via `evalValueCoreWithFuel:2115` / `evalStructRefsM:2752`)
+loses its real tail. **Currently lossless** because the only tail a parsed struct can carry is the
+bare `...` = `.top` (cue v0.16.1's grammar REJECTS typed ellipsis `...T` — oracle-confirmed parse
+error; kue's parser rejects it identically), and dropping a `.top` tail then re-supplying `some .top`
+via `coherentTail` is a no-op. This is a GUARDED ASSUMPTION, not an active bug: it breaks the day
+typed-ellipsis support lands. Fix: thread `tail` through the pattern arm —
+`meet (mkStruct [] openness tail patterns) (mkStruct fields .regularOpen none [])` (the `mkStruct`
+already coheres openness↔tail), and add a `native_decide` pin that a pattern+tail value round-trips
+its tail through `applyEvaluatedStructN`. Pairs naturally with any future typed-ellipsis slice.
+
+### Fix-slice B2-A2 — end-to-end fixture for the reverse-order B2.5 arm (LOW — test-gap fill)
+
+The two B2.5 fixtures (`pattern_tail_unify`, `multi_pattern_tail_unify`) both exercise the SAME
+orientation (patterns-on-LEFT × tail-on-RIGHT). The `leftHasTail` branch of the B2.5 arm
+(tail-on-LEFT × patterns-on-RIGHT, baseFields = leftFields) and the both-tails+patterns path are
+pinned only by `native_decide` LatticeTests, not end-to-end. Oracle-confirmed cue-correct:
+`{a: 5, ...} & {[string]: int}` → `{a: 5}` (open), `{[string]: int, ...} & {a: 5, ...}` → `{a: 5}`.
+Add two `testdata/cue/definitions/{tail_pattern_unify,both_tails_pattern_unify}` pairs +
+FixturePorts entries so the reverse base-ordering is locked at the observable layer too.
+
 ## Phase-A audit (2026-06-18, slice `114eba8` argocd link 3/4) — VIOLATION found
 
 Audit of the link-3/4 slice (`Eval.lean` two-pass gate depth/`.listComprehension`;
@@ -1006,9 +1074,10 @@ gone; NEW guarantee = two agreement theorems make future drift a build/`native_d
 LatticeTests pins the struct-meet arms B2 collapses; B2 now de-risked)** →
 **TWO-PHASE AUDIT DUE (2 slices since last audit: B7 + this test-org/LatticeTests slice — due
 NEXT, or after B2)** →
-B2 headline struct refactor (**design DONE 2026-06-19, Phase-B #4** — implementable spike in the
-B2 entry; 5 byte-identical slices B2.1–B2.4 + 1 behavioral B2.5, with `structComp` collapse split
-out as separate B2b; de-risked by LatticeTests — START with B2.1) /
+B2 family-1 collapse **DONE (B2.1–B2.5, 2026-06-19)**; **Phase-A audit of CP3-pre/flip/B2.5 DONE
+2026-06-19 — CLEAN**, two LOW fix-slices filed (**B2-A1** pattern+tail tail-drop guard,
+**B2-A2** reverse-order B2.5 fixture; both above) →
+B2b (structComp collapse — last of B2) /
 B6 design-spike / item 1 follow-up / A2-followup →
 parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructTests`/`BuiltinTests`
 — and `EvalTests` is STILL 1210 lines after the item-5 split, re-split candidate;
