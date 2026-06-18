@@ -714,19 +714,169 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     OLD representation via `== .struct […] true` literals and construct legacy forms as
     inputs). `lake build` AND `scripts/check-fixtures.sh` both fail (the harness builds
     `Kue.Tests.FixturePorts`). So B2.2 is INSEPARABLE from the test-representation migration.
-    Revised sequencing for the next slice:
-      1. **B2.2 + CP3 + test migration as ONE landing.** Flip construction → produce `structN`;
-         delete the 4 old ctors + old meet arms + dead legacy match/construct arms; **rename
-         `structN → struct`** (the new 4-arg `Value.struct fields openness tail patterns`).
-      2. The rename changes `Value.struct`'s ARITY (2→4), so every legacy `.struct f bool` /
-         `.structTail f t` / `.structPattern …` / `.structPatterns …` literal — in impl AND
-         tests — must be rewritten to the 4-arg form (`.struct f .regularOpen none []`,
-         `.struct f .defOpenViaTail (some t) []`, etc.). This is compile-error-DRIVEN (the old
-         2-arg ctor vanishes), so NOT a silent corruption risk — but it is large and tedious.
-         **Caveat:** `ManifestValue.struct` (a DIFFERENT type, 1-arg `List (String × ManifestValue)`)
-         shares the bare `.struct` spelling; a blind sed-rename would be wrong. Migrate
-         per-compile-error, not by global replace. Likely split into a per-module/per-test-file
-         sub-sequence to keep each commit reviewable.
+    ### B2.2/CP3 megaslice — DE-RISKED EXECUTION PLAN (Phase-B audit 2026-06-19 #5)
+
+    Ground-truth measured at `9fa5593`: **266** old-ctor sites in impl (`Kue/*.lean`,
+    `grep -E '\.struct |\.structTail|\.structPattern|\.structPatterns'`) + **758** in tests
+    (`Kue/Tests/*.lean`) = ~1024 raw matches (the "~940" estimate is the same order). Impl by
+    file: `Eval` 94, `Lattice` 42, `Resolve` 16, `Normalize`/`Parse` 12, `Manifest` 10,
+    `Builtin` 8, `Examples`/`Yaml` 7, `Module`/`Runtime` 6, `Format`/`Json` 4/3, `Order` 13,
+    `Tests` 2. Tests by file: `StructTests` 148, `FixturePorts` 99, `ClosureTests` 96,
+    `EvalTests` 85, `OrderTests` 58, `FixtureTests` 55, `ResolveTests` 38, `YamlTests` 29,
+    `TwoPassTests` 22, `Normalize`/`Manifest`/`List`/`Module` 16/15/15/14, `BuiltinTests` 10,
+    `Presence`/`Bound`/`EvalPerf` 9/6/7, `Lattice` 3.
+
+    **Sequencing verdict — a TEST-ONLY PRE-MIGRATION SLICE IS POSSIBLE and shrinks the
+    megaslice. Tests split into two classes by what the literal pins:**
+
+    1. **Constructed-input tests** (inputs AND expected are value literals; the test calls a
+       PURE operation — `meet`/`subsumes`/`closeValue`/`lenValue`/`formatValue`/`manifest` —
+       over them). These CAN pre-migrate to `structN`, because the `structN` meet/close/len/
+       format arms are ALREADY LIVE today (`mergeStructN` at `Lattice.lean:906/1141`,
+       `closeValue`/`lenValue` at `Builtin.lean:17/41`, `Format`/`Manifest` structN arms).
+       Migrating a test's inputs AND its expected to `structN` ATOMICALLY in one edit keeps it
+       green: `meet (structN…) (structN…)` dispatches to `mergeStructN` → `mkStruct` →
+       `structN`, compared to a `structN` expected. Verified: `mergeStructN` reproduces every
+       legacy arm by inspection (Phase-A), so the produced `structN` is byte/`BEq`-equal to the
+       hand-written `structN` expected. Two sub-cases:
+       - **String-compared** (`formatField`/`formatValue`/`manifest`/`exportJsonMatches` →
+         `String`): representation-INVARIANT — output renders identically whether the meet
+         produced old `.struct` or `structN`. These are the SAFEST to pre-migrate (inputs only;
+         no expected to touch). Covers most of `FixturePorts` (meet/close inputs, e.g.
+         `FixturePorts.lean:341/376`), the `LatticeTests` `exportJsonMatches` struct-arm pins
+         (`176-212`), `ManifestTests`, `YamlTests`, `FormatTests`-style.
+       - **Value-compared** (`== .struct … = true` via `BEq` over a pure-op result): inputs AND
+         expected migrate together. Covers `StructTests` meet pins (`StructTests.lean:35-106`),
+         `OrderTests` subsumes pins (`OrderTests.lean:34+`), `LatticeTests` mkStruct pins
+         (already `structN`).
+    2. **Produced-output tests** (LHS is the result of `resolveValue`/`resolveAndEval`/
+       `evalValue`/`parseSource`/closure FORCE — i.e. PRODUCTION output — compared via `BEq` to
+       a `.struct` value literal). These CANNOT pre-migrate: production still emits old `.struct`
+       until B2.2 flips it, so a `structN` expected would `BEq`-mismatch the old-`.struct` LHS →
+       RED. They MUST migrate in lockstep with the production flip. Identified by the `== .struct`
+       value-comparisons whose LHS is a resolver/evaluator call: `ResolveTests.lean:9/15/21/28/…`
+       (15 sites, all `resolveValue …  == .struct`), `ClosureTests` (21 `== .struct`),
+       `EvalTests` (42 `== .struct`), `NormalizeTests` (5), `TwoPassTests` (3), `ModuleTests`
+       (2), `PresenceTests` (4), `BoundTests`/`FixtureTests` (2/1). Total **~95** `== .struct`
+       produced-output sites + the `structComp`/`structTail`/`structPattern` output pins
+       (`ResolveTests.lean:59/65/103/119`).
+
+    **So the megaslice splits into a SAFE pre-migration slice + a smaller hard flip:**
+
+    - **CP3-pre (test-only, byte-identical, LOW risk) — do FIRST, lands green on its own.**
+      Migrate the **constructed-input** tests (class 1) to `structN` literals — `StructTests`,
+      `FixturePorts` (input literals), `LatticeTests` (already done), `OrderTests`,
+      `ManifestTests`, `YamlTests`, `ListTests`, `BuiltinTests`, the input-only literals in
+      `EvalPerfTests`. **GATE: this slice consumes must-fix item 1 (Order.subsumes structN
+      arm).** `OrderTests` pre-migration is IMPOSSIBLE until `Order.subsumes` has a `structN`
+      arm (today a `structN` input falls to `_, _ => false` → every migrated OrderTests pin goes
+      RED). So CP3-pre's first commit is the `Order.subsumes` merged-`structN` arm (item 1), then
+      the test literals. This slice turns ~660 of the ~1024 sites from inspection-only into
+      TEST-GATED while production is unchanged — exactly the de-risking we want before the flip.
+      Each test file is one reviewable commit; `lake build` + `check-fixtures.sh` green after
+      each (the `structN` op-arms are live and correct).
+    - **B2.2/CP3-flip (the hard landing — production flip + class-2 tests + ctor delete +
+      rename, ONE green commit).** Now ~95 produced-output `== .struct` pins + the impl sites
+      remain. This is still inseparable (the moment production emits `structN`, every class-2 pin
+      and every impl `.struct` match arm must already be `structN`), but it is MUCH smaller and
+      every remaining test site is a known, enumerated `== .struct`/`== .structTail`/etc.
+
+    **Rename mechanics + the `ManifestValue.struct` collision guard.** `ManifestValue.struct`
+    (`Manifest.lean:8`) is a 1-arg ctor `struct (fields : List (String × ManifestValue))` on a
+    DIFFERENT type. A blind `sed structN→struct` or `.struct`-rewrite is UNSAFE. Safe sequence,
+    COMPILER-DRIVEN:
+      1. In the flip commit, FIRST rename `Value.structN → Value.struct` (arity 4) AFTER deleting
+         the 4 old `Value.struct`/`structTail`/`structPattern`/`structPatterns` ctors. The old
+         2-arg `Value.struct` vanishing means every legacy `.struct f bool` / `.structTail …` /
+         `.structPattern …` / `.structPatterns …` site is now a COMPILE ERROR (wrong arity / no
+         such ctor) — the compiler enumerates every site to fix. Nothing is silently mis-rewritten.
+      2. Fix per compile error, module-by-module in dependency order: `Value.lean` (the ctor +
+         `mkStruct`, already `structN`-shaped — just the rename) → `Lattice.lean` (delete the 12
+         old meet arms `1067-1140`, the `meetCore` `.struct/.structTail/.structPattern(s)` bottoms
+         `463-468`; `mergeStructN`/`structN` arm at `1141` becomes the only struct arm) →
+         `Normalize`/`Resolve`/`Order`/`Format` → `Builtin`/`Eval` → `Runtime`/`Module`/`Manifest`
+         → `Parse` (the producers) → `Examples`/`Json`/`Yaml`. `ManifestValue.struct` sites stay
+         UNTOUCHED (they never error — different type, different arity). The `Manifest.lean`
+         `Value`-side arm migrates; the `ManifestValue.struct […]` CONSTRUCTION (the manifest
+         OUTPUT, `Manifest.lean:8` ctor used at the `.struct entries` build sites) does NOT — it
+         is the 1-arg form and the compiler keeps it well-typed.  **Disambiguation rule for the
+         executor: a `.struct` whose payload starts `List Field` / has an openness/tail/patterns
+         shape is `Value.struct`; a `.struct` whose payload is `List (String × ManifestValue)` is
+         `ManifestValue.struct`. When in doubt, the compile error's expected-type tells you.**
+      3. Then the producers (`Parse.parsedFieldsBaseValue`/`parsedFieldsValue` `:509-532`,
+         `Runtime.lean:60`, `Module.lean:60/162`, the `Eval` re-emit sites) flip to
+         `mkStruct`/4-arg `.struct`. (`.structComp` is NOT touched — it stays; that is B2b.)
+      4. Then the class-2 produced-output tests, also compile-error-driven (the `== .struct f
+         bool` literals become arity errors once `Value.struct` is 4-arg).
+
+    **The 3 Phase-A must-fix items — explicit megaslice sub-tasks:**
+      1. **`Order.subsumes` structN arm (`Order.lean:227-262`).** Today 8 separate struct
+         subsumption arms (`struct×struct`, `structTail×struct`, `structTail×structTail`,
+         `structPattern×struct`, `structPatterns×struct`, `structPattern×structPattern`,
+         `structPattern×structPatterns`, `structPatterns×structPattern`, `structPatterns×
+         structPatterns`) feeding `structSubsumesWithFuel`/`structTailSubsumesWithFuel`/
+         `structPatternSubsumesWithFuel`/`structPatternsSubsumesWithFuel`. MERGE into ONE
+         `.struct ef eo et ep, .struct af ao at ap =>` arm that dispatches on the expected side's
+         tail/pattern shape (NOT a mechanical arity fix that drops tail/pattern subsumption
+         logic): no expected tail+no patterns → `structSubsumes`; expected tail → `structTail
+         Subsumes`; expected patterns → `structPattern(s)Subsumes` + the pattern/openness checks
+         the cross-arms carry. This is the FIRST commit of CP3-pre (gates `OrderTests`
+         pre-migration). Keep all `OrderTests` subsumption pins green through it.
+      2. **Dedicated `mergeStructN` pins** (add in CP3-pre, where the arms go test-live): the
+         `struct×structTail` `rf++lf` field-order reversal (`{b:_, a:_, ...} & {c:_}` — reversal
+         observable in output field order); the `applyTailToExtrasWith`-on-BOTH-sides tail×tail
+         merge; the arm-7 pattern dedup (`{[=~"a"]:int} & {[=~"a"]:int}` → ONE pattern,
+         oracle-checked vs cue v0.16.1); and the still-`.bottom` cross-combinations
+         (`structPattern×structTail`, `structPatterns×structTail`, both orders) pinned AS
+         `.bottom` now, so B2.5's `bottom→unify` flip is a VISIBLE diff. `native_decide` over
+         `structN` literals (live path).
+      3. **`applyEvaluatedStructN` pattern path** (`Eval.lean:384`) — pin a pattern-struct eval
+         (`{a: int, [=~"x"]: string}` value) end-to-end once production emits `structN` (so in
+         the flip commit, not CP3-pre), confirming byte-parity with the legacy
+         `applyEvaluatedStructPattern(s)` output via a fixture + oracle check.
+
+    **Test-literal rewrite mapping table** (mechanical; old form → `structN`/4-arg `struct`):
+
+    | Old (2-arg / legacy ctor)              | New (`structN` in CP3-pre; `struct` post-rename) |
+    | -------------------------------------- | ------------------------------------------------ |
+    | `.struct fs true`                      | `.structN fs .regularOpen none []`               |
+    | `.struct fs false`                     | `.structN fs .defClosed none []`                 |
+    | `.structTail fs t`                     | `.structN fs .defOpenViaTail (some t) []`        |
+    | `.structPattern fs lp c true`          | `.structN fs .regularOpen none [(lp, c)]`        |
+    | `.structPattern fs lp c false`         | `.structN fs .defClosed none [(lp, c)]`          |
+    | `.structPatterns fs ps true`           | `.structN fs .regularOpen none ps`               |
+    | `.structPatterns fs ps false`          | `.structN fs .defClosed none ps`                 |
+
+    Post-rename (flip commit) the executor does a second pass `.structN → .struct` ONLY on
+    `Value`-side sites (compiler-driven; `ManifestValue.struct` untouched). In CP3-pre, write
+    `.structN` directly (the rename has not happened yet). A bare `...`-tail with no explicit tail
+    value parses to `some .top` via `mkStruct`'s coherence; hand-written tail literals already
+    carry `(some t)`.
+
+    **Effort & failure modes.** CP3-pre: ~660 sites across ~12 test files + the `Order.subsumes`
+    arm + ~3 new pin theorems — mechanical, each file a green commit, LOW risk (live arms,
+    inspection-confirmed). B2.2/CP3-flip: ~266 impl + ~95 class-2 test sites, ONE green landing,
+    MEDIUM-HIGH risk (representation flip; build + fixtures both red mid-flip until every site is
+    fixed). Failure modes: (a) the `ManifestValue.struct` collision — guarded by compiler-driven
+    per-error fixing, never global sed; (b) a missed produced-output pin that should have been
+    class-2 (mitigated: the flip commit's compile errors enumerate ALL remaining `.struct` arity
+    mismatches — nothing compiles green with a stale literal); (c) `mergeStructN` subtly wrong on a
+    path inspection missed (mitigated by CP3-pre's new pins landing the arms test-live BEFORE the
+    flip); (d) field-ordering drift from `mkStruct`'s `dedupPatterns` (already a known deliberate
+    divergence — pin per item 2).
+
+    **Worktree isolation: YES — spawn B2.2/CP3-flip with `isolation: worktree`.** It is a large,
+    self-contained representation flip touching ~360 sites that goes red mid-edit and only green at
+    the end; a worktree keeps the main tree clean during the long red window and lets the
+    orchestrator verify the landing atomically. CP3-pre does NOT need a worktree (each file is an
+    independently-green commit on `main`). Recommended order: **CP3-pre (item 1 + class-1 tests,
+    on `main`, multiple green commits) → B2.2/CP3-flip (worktree, one green landing) → B2.5
+    behavioral.**
+  - **B2.5 — land the cross-combination BEHAVIOR fix + new fixtures.** The single arm already
+    handles `tail ∧ patterns`; this slice just removes the residual `.bottom` guards in
+    `mergeStructN` (the `| _, _, _, _ => .bottom` catch-all + the tail×pattern cases) and adds
+    the four new oracle-checked fixtures + flips the LatticeTests pins. NOT byte-identical (the
+    intended `bottom→unify` change) — the only behavioral slice. Comes AFTER B2.2/CP3 land.
   - **B2.5 — land the cross-combination BEHAVIOR fix + new fixtures.** The single arm already
     handles `tail ∧ patterns`; this slice just removes the residual `.bottom` guards in
     `mergeStructN` (the `| _, _, _, _ => .bottom` catch-all + the tail×pattern cases) and adds
