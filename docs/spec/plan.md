@@ -312,9 +312,10 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
-audit fix-slices A2-A4 (A1+B1 DONE) (correctness frontier, do FIRST) → item 1 → B2 (headline
-struct refactor, design-spike then migrate) → parallel-safe cleanups (3,4,5 + B4/B5) interleaved →
-deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) as opportunistic ride-alongs.
+audit fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED on a representation marker → A2-followup design-slice)
+→ TWO-PHASE AUDIT NOW DUE (2 slices since the last: the A1+B1 sweep and this A2+A3) → B6 design-spike
+/ B2 headline struct refactor (design-spike then migrate) / item 1 follow-up → parallel-safe cleanups
+(3,4,5 + B4/B5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW (8 + B3) ride-alongs.
 
 **A1 + B1 — catch-all soundness sweep — DONE (`80df01e`, `a7b2724`).** Both HIGH soundness holes
 (a catch-all over `Value` silently swallowing compound constructors a recursive function must
@@ -366,18 +367,30 @@ its missing cross-combinations (`structPattern×structTail` etc. silently bottom
 `StructOpenness`. Design-spike + multi-commit migration; byte-identical fixtures + a pin per
 previously-missing cross-combination. See Phase-B B2.
 
-**A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue).** Sub-fix 3's shallow
-`isBottom` (`Manifest.lean:54`) misses `{#u: {x: _|_}}` (cue errors; Kue exports). Fix: recurse the
-SELECTED value of a reached hidden field only (not blanket shallow/deep), so an unreferenced nested
-def in an imported binding stays lazy (the cert-manager need) while a deep contradiction in a
-reached hidden field bottoms. Add a fixture `{#u: {x: _|_}}` → error. See A2.
+**A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue) — BLOCKED on a
+representation change; SOUND shallow check retained (`46bd161`).** The proposed reached-vs-unreferenced
+predicate (recurse the SELECTED value's output spine) is UNSOUND and was reverted. Verified vs cue
+v0.16.1 (3-file import repro: a `main` importing a `dep` whose unreferenced fields hold both a derived
+conflict AND an explicit `_|_` literal → cue exports `main` clean): cue's laziness tracks
+OUTPUT-REACHABILITY (referenced via `pkg.#X`), NOT field class, and is equally lazy on an explicit
+`_|_` literal as on a derived conflict. `bindImports` (Module.lean:160) binds each imported package as
+an ordinary `FieldClass.hidden` field, indistinguishable from a real in-file `#u`, so an output-spine
+recurse re-bottoms cert-manager. The predicate is NOT locally reconstructible at manifest with the
+current representation. **A2-followup (the real fix, becomes a design-slice):** add an
+import-binding marker — a distinct `FieldClass` axis (e.g. `packageBinding`) or a value wrapper on the
+synthetic hidden field — so manifest can treat bound packages as cue-lazy while still recursing real
+in-file hidden fields' output spines. Then `{#u: {x: _|_}}` → error becomes shippable (+ fixture).
+Until then `{#u: {x: _|_}}` exporting `{}` is a KNOWN gap (Kue wrong, tracked here, NOT a cue bug).
 
-**A3. `classifyDefinedness .disj` untyped invariant (MEDIUM — illegal-states).** `.disj _ =>
-.defined` (`Eval.lean:690`) is sound only under "evaluated disj has ≥1 live arm," not type-enforced.
-Fix (principled): a smart `mkDisj` returning `.bottom` when no live arm remains, so an
-all-bottom/empty `.disj` is unrepresentable post-eval; fallback: a defensive ≥1-non-bottom check in
-`classifyDefinedness`. Add a pin: all-bottom disj feeding a presence test classifies `.error`. See
-A3.
+**A3. `classifyDefinedness .disj` untyped invariant (MEDIUM — illegal-states) — DONE (`96bef05`).**
+`classifyDefinedness` (Eval.lean) now classifies a `.disj` by its LIVE alternatives: no live arm ⇒
+`.error` (the disjunction IS bottom), ≥1 live arm ⇒ `.defined`. Checks the "≥1 live arm" invariant at
+the one site soundness depends on it, instead of trusting `.disj _ => .defined`. Chose this defensive
+classification over a blanket smart `mkDisj` (option a): several sites build a `.disj` where pruning is
+WRONG (`remapConjAlternatives` alpha-renaming, the conj-distribution sites), so a universal
+`normalizeDisj` route is not semantics-preserving in one slice. Pins (PresenceTests): live disj
+`.defined`; empty + all-bottom disj `.error`; presence test over all-bottom disj reports absent. Live
+default/plain-disj guard regression-checked byte-identical to cue.
 
 **A4. Catch-all hygiene (LOW) — DONE (inline, `f72995d`+1).** Enumerated all residual forms
 explicitly in `classifyDefinedness` (replacing `_ => .incomplete`) so a future present-value

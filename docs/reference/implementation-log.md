@@ -7444,3 +7444,61 @@ enumerated).
 `lake build` 86 jobs green (both commits); `fixture pairs ok` (zero byte-drift, every
 existing fixture unchanged); no shell scripts changed (shellcheck N/A). Pushed `gh:main`
 (`adf7caf..a7b2724`).
+
+---
+
+## Completed Slice: A2 + A3 audit fix-slices (disj-definedness; hidden-bottom gap deferred)
+
+Goal: clear the two remaining MEDIUM Phase-A correctness findings. A3 landed; A2's
+proposed fix proved unsound and was reverted to the sound baseline with the proper
+design filed.
+
+### A3 — classify a disjunction's definedness by its LIVE arms (`96bef05`)
+
+`classifyDefinedness` (Eval.lean) classified `.disj _ => .defined`, sound only under the
+runtime invariant "an evaluated disj has ≥1 live arm" (`liveAlternatives` prunes bottom
+arms). The invariant is NOT type-enforced: a `.disj []` / `.disj [all-bottom]` slipping
+past pruning into a presence test (`X != _|_`) would misclassify an absent value as
+`.defined` (wrongly `true`). Fix: classify by the LIVE alternatives — no live arm ⇒
+`.error` (the disjunction IS bottom), ≥1 live arm ⇒ `.defined` — checking the invariant
+at the one site soundness depends on it.
+
+Chose this defensive classification over option (a), a blanket smart `mkDisj` routing all
+eval-time disj constructions through `normalizeDisj`: several sites build a `.disj` where
+pruning would be WRONG (`remapConjAlternatives` rebuilding a disjunction during
+alpha-renaming; the conj-distribution sites), so a universal prune is not
+semantics-preserving in one slice. The live-arm classification is total, representation-free,
+and sound regardless of how the disj was constructed.
+
+Pins (PresenceTests, native_decide): live disj `.defined`; empty disj `.error`; all-bottom
+disj `.error`; presence test over an all-bottom disj reports absent (`!= _|_` = false).
+Regression-checked the live default/plain disj guard (`#ns: *"argocd" | string` then
+`if #ns != _|_ {namespace}`) still fires, byte-identical to cue v0.16.1.
+
+### A2 — hidden-field deep bottom: UNSOUND fix reverted, design filed (`46bd161`)
+
+A2 asked to propagate a hidden-field bottom REACHED in the selected value
+(`{#u: {x: _|_}}` → error, matching cue) while keeping cue's laziness on unreferenced
+imported-package content (the cert-manager need). Implemented the diagnosed output-spine
+recurse, then disproved it: a 3-file local repro (a `main` importing a `dep` package whose
+unreferenced fields carry BOTH a derived conflict AND an explicit `_|_` literal) shows cue
+exports `main` cleanly — cue's laziness tracks OUTPUT-REACHABILITY (referenced via
+`pkg.#X`), NOT field class, and is equally lazy on an explicit `_|_` literal as on a derived
+conflict. `bindImports` (Module.lean:160) binds each imported package as an ordinary
+`FieldClass.hidden` field, indistinguishable from a real in-file `#u`; the output-spine
+recurse re-bottomed cert-manager and the repro. The reached-vs-unreferenced predicate is NOT
+locally reconstructible at manifest with the current representation.
+
+Per correctness-over-performance (no possibly-wrong value), reverted to the SOUND shallow
+`isBottom` check (never a false error; catches `{#u: _|_}`, knowingly misses
+`{#u: {x: _|_}}`) and rewrote the comment to record the hole. Filed **A2-followup** in
+plan.md: add an import-binding marker (a distinct `FieldClass` axis / value wrapper on the
+synthetic hidden field) so manifest can treat bound packages as cue-lazy while still
+recursing real in-file hidden fields. That unblocks the `{#u: {x: _|_}}` → error fix
+(+ fixture). No fixture asserting the wrong current behavior was added.
+
+### Verify
+`lake build` 86 jobs green (both commits); `fixture pairs ok` (zero byte-drift); no shell
+scripts changed (shellcheck N/A); cert-manager import laziness confirmed unchanged via the
+local repro (kue exports `{out:{ok:1}}` = cue). Two-phase audit now DUE (2 slices since the
+last: A1+B1 sweep, this A2+A3).
