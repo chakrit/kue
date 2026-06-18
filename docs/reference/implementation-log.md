@@ -7839,3 +7839,66 @@ All pin via `BEq` `==` — `Value` has no `DecidableEq` (the perf carve-out), so
 `lake build` green (all new theorems build-checked); `scripts/check-fixtures.sh` → `fixture
 pairs ok` (ZERO byte-drift — nothing behavioral changed). No shell scripts changed
 (shellcheck N/A). Perf unchanged (no producer on any hot path; no `kue-performance.md` edit).
+
+## Completed Slice: B2.3 + B2.4 — structN consumer arms + the single meet merge (2026-06-19)
+
+Commits `b3881c6` (consumers + meet merge + `mkStruct` move) and `eff5627` (eval/force/module
+consumer arms). Both byte-identical (`structN` still UNPRODUCED).
+
+### Design-ordering correction (consume-before-produce)
+
+The plan's listed B2.2→B2.3→B2.4 order is UNSAFE: producing `structN` before consumers handle
+it makes catch-all arms + the `meetCore` `.bottom` dead-arm mishandle live `structN` → fixture
+drift. Re-sequenced to **consume-before-produce** — land the match sites (B2.3) and the single
+meet arm (B2.4) FIRST, with `structN` unproduced so every arm is dead and byte-identity is
+trivial; production (B2.2) flips last.
+
+### What landed
+
+- **`mkStruct`/`dedupPatterns`/`coherentTail` moved `Lattice` → `Value`.** B2.1 put `mkStruct`
+  in `Lattice`, but `Parse`/`Normalize`/`Resolve` import only `Kue.Value` and need to construct
+  `structN` at B2.2 — they can't reach a Lattice def. The defs have no Lattice dependency (B2.1
+  made field ordering the caller's job), so they belong with the type. Layering-correct.
+- **Consumer `.structN` arms** at every struct-family match site (full list in `plan.md` B2.3).
+  Each reproduces EXACTLY the legacy form it maps from. Notable:
+  - `classifyDefinedness`: split `structN _ _ _ [] ⇒ .defined` (struct/structTail) vs
+    `structN _ _ _ (_::_) ⇒ .incomplete` (the old pattern forms).
+  - `Normalize.normalizeDefinitionValueWithFuel` (highest-risk): `defOpenViaTail` returned
+    VERBATIM (the legacy `structTail` had no arm → unchanged, the `...` keeps a def OPEN);
+    no-pattern struct-equiv CLOSES (`→ .defClosed`); pattern-equiv keeps openness.
+  - `evaluatedStructOperand?`: `defOpenViaTail ⇒ false` (matching `structTail`'s `false`),
+    else `openness.isOpen`.
+  - Plain-struct-only sites (`conjStructOperand?`, `openStructValue`, `closeEmbeddedOver`,
+    `meetEmbeddingsWithFuel`, the package-binding lookups, the `embeddedList` inner matches,
+    `formatTopLevel`): matched the plain-struct-equivalent `.structN _ _ none []` so the
+    post-flip plain struct still hits the right path; tail/pattern forms fall through (legacy
+    bottomed / passed through).
+- **`mergeStructN` (the single meet arm).** ONE `.structN, .structN` arm in `meetWithFuel`
+  delegates to `mergeStructN`, reproducing all 12 legacy arms by dispatching on tail/pattern
+  shape. Preserves each arm's field-merge ORDER — including `struct × structTail` merging
+  `rf ++ lf` REVERSED (the legacy arm passed the tail-side as the merge-left) and pattern-side
+  always merge-left — and the exact `applyTailToExtrasWith`-on-both-sides + closedness marking.
+  Emits `structN` via `mkStruct`. The legacy-missing `structPattern/structPatterns × structTail`
+  (and any tail+pattern mix) stays `.bottom` — preserved for B2.5 to flip. `.structN × listLike`
+  embedding arms added (plain-struct-equiv only; tail/pattern → meetCore → bottom, as legacy).
+- **`applyEvaluatedStructN`** + the `structN` eval arm + `evalStructRefsM` structN arm: re-emit
+  an evaluated normalized struct, routing patterns through `meet` exactly as the legacy
+  `applyEvaluatedStructPattern(s)` did.
+
+### Blocker (B2.2 production flip)
+
+The production flip is written + semantically validated (every `testdata/cue` fixture, incl.
+`struct_embedding_*` and all `modules/*`, produces correct output via direct `kue` runs — after
+adding `structN` arms to `Module`'s `module.cue` field-extractors). It CANNOT land green: the
+flip changes the internal `Value` representation, and ~17 test files / ~940 sites pin the OLD
+representation (`== .struct […] true`) — `lake build` and `check-fixtures.sh` (which builds
+`Kue.Tests.FixturePorts`) both fail. B2.2 is therefore inseparable from the test-representation
+migration; the next slice combines B2.2 + CP3 (ctor delete + `structN→struct` rename) + the
+test migration. The rename changes `Value.struct`'s arity (2→4), making the migration
+compile-error-driven (safe, not silent) but large; `ManifestValue.struct` (different type, same
+spelling) forbids a blind sed-rename. See `plan.md` B2.2 for the revised sequencing.
+
+### Verify
+
+`lake build` green (no warnings); `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO
+byte-drift). No shell changed. Perf unchanged (no producer on any hot path).

@@ -561,19 +561,68 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     - Verify: `lake build` green, `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO drift),
       no shell changed. The design's `meetTail` helper is NOT yet needed (it's a B2.4 merge concern)
       — deferred to B2.4 rather than added dead.
-  - **B2.2 — migrate CONSTRUCTION sites to `mkStruct`** (the `.structX …` build sites:
-    `patternStructValue`, the merge helpers' result-emit, `Eval` re-emit, `Parse`). One module
-    at a time, fixture-gated, byte-identical each.
-  - **B2.3 — migrate MATCH sites** (the `.structX …` patterns) per module: `Lattice` meet matrix
-    last, `Order`/`Manifest`/`Format`/`Normalize`/`Resolve` first. Each module independently
-    green + byte-identical.
-  - **B2.4 — rewrite the 12-arm meet matrix into ONE `.struct,.struct` arm** + delete the old 4
-    ctors. Byte-identical (existing arms only; the new arm reproduces them). LatticeTests stay
-    green — this is the gate.
+  - **B2.3 — migrate MATCH sites (CONSUMER arms). DONE (2026-06-19, commits `b3881c6` +
+    `eff5627`).** Ordering correction: the design's listed B2.2→B2.3→B2.4 order is UNSAFE
+    (producing `structN` before consumers handle it makes catch-alls + the `meetCore`
+    `.bottom` dead-arm mishandle live `structN` → drift). The slice was re-sequenced
+    **consume-before-produce**: B2.3 (match sites) + B2.4 (the single meet arm) FIRST, with
+    `structN` still unproduced so every arm is dead and byte-identity is trivial. Landed:
+    explicit `.structN` arms at every struct-family match site across `Lattice`
+    (`containsBottomWithFuel`), `Eval` (`refsSelfEmbeddedLabel`, `selfReferencedLabels`,
+    `remapConjFields`, `selectEvaluatedField`/`Index`, `classifyDefinedness` — split
+    `patterns⇒.incomplete` / no-patterns`⇒.defined`, `comprehensionPairs`,
+    `conjStructOperand?`, `openStructValue`, `closeEmbeddedOver`, `evaluatedStructOperand?`,
+    `hasSelfRefAtDepth`, `defBodyHasSiblingSelfRef`, the two `isStructLike` body
+    classifiers, the package-binding `pkgFields` lookups, `meetEmbeddingsWithFuel`,
+    `expandClausesWithFuel`, `forceClosureWithConjunctCore`, `evalStructRefsM`, the eval arm
+    via `applyEvaluatedStructN`), `Builtin` (`closeValue`, `lenValue`), `Runtime`
+    (`formatTopLevel`, `lookupField?`), `Normalize` (both def-normalizers — the highest-risk
+    site: `defOpenViaTail` left verbatim like the legacy missing `structTail` arm, no-pattern
+    closes, pattern keeps openness), `Resolve` (both ref-resolvers), `Parse` (`bindValueAlias`),
+    `Module` (`parseDeps`/`versionOf`/`moduleFieldValue`/`bindImports`). (`Manifest`/`Format`
+    already had theirs from B2.1.) **`mkStruct`/`dedupPatterns`/`coherentTail` MOVED from
+    `Lattice` to `Value`** so `Parse`/`Normalize`/`Resolve` (which import only `Kue.Value`)
+    can reach the sanctioned constructor — they have no Lattice dependency (B2.1 already made
+    field ordering the caller's job).
+  - **B2.4 — the single `.structN×.structN` meet arm. DONE (2026-06-19, `b3881c6`).**
+    `meetWithFuel` gained ONE `.structN, .structN` arm delegating to `mergeStructN`, which
+    reproduces ALL 12 legacy arms by dispatching on tail/pattern shape and preserving each
+    arm's field-merge ORDER (notably `struct×structTail` merges `rf ++ lf` REVERSED) +
+    closedness, emitting `structN` via `mkStruct`. The legacy-missing
+    `structPattern/structPatterns × structTail` cross-combinations stay `.bottom` (B2.5
+    flips them). `.structN × listLike` embedding + the `embeddedList` inner matches gained
+    plain-struct-equivalent (`structN _ _ none []`) arms. Old 12 arms + 4 ctors NOT yet
+    deleted (that's CP3, gated on the test migration below).
+  - **B2.2 — flip CONSTRUCTION to produce `structN`. BLOCKED / NEXT.** The production flip
+    (`Parse.parsedFieldsBaseValue`/`parsedFieldsValue`, `Runtime.mergeSourceValues`, the
+    `Eval` eval/force/embedding/comprehension/dynamicField re-emit sites, `Module.bindImports`
+    wrap) is WRITTEN AND SEMANTICALLY VALIDATED — with it applied, every `testdata/cue`
+    fixture produces the correct output via direct `kue`/`kue eval` runs (incl. the
+    `struct_embedding_*` + all `modules/*` fixtures, after adding `structN` arms to the
+    `Module` field-extractors). **It cannot land green**, because the flip changes the
+    INTERNAL `Value` representation (`struct`→`structN`) and the test suite (~17 files, ~940
+    sites: `EvalTests`/`ClosureTests`/`StructTests`/`FixturePorts`/`ResolveTests`/… pin the
+    OLD representation via `== .struct […] true` literals and construct legacy forms as
+    inputs). `lake build` AND `scripts/check-fixtures.sh` both fail (the harness builds
+    `Kue.Tests.FixturePorts`). So B2.2 is INSEPARABLE from the test-representation migration.
+    Revised sequencing for the next slice:
+      1. **B2.2 + CP3 + test migration as ONE landing.** Flip construction → produce `structN`;
+         delete the 4 old ctors + old meet arms + dead legacy match/construct arms; **rename
+         `structN → struct`** (the new 4-arg `Value.struct fields openness tail patterns`).
+      2. The rename changes `Value.struct`'s ARITY (2→4), so every legacy `.struct f bool` /
+         `.structTail f t` / `.structPattern …` / `.structPatterns …` literal — in impl AND
+         tests — must be rewritten to the 4-arg form (`.struct f .regularOpen none []`,
+         `.struct f .defOpenViaTail (some t) []`, etc.). This is compile-error-DRIVEN (the old
+         2-arg ctor vanishes), so NOT a silent corruption risk — but it is large and tedious.
+         **Caveat:** `ManifestValue.struct` (a DIFFERENT type, 1-arg `List (String × ManifestValue)`)
+         shares the bare `.struct` spelling; a blind sed-rename would be wrong. Migrate
+         per-compile-error, not by global replace. Likely split into a per-module/per-test-file
+         sub-sequence to keep each commit reviewable.
   - **B2.5 — land the cross-combination BEHAVIOR fix + new fixtures.** The single arm already
-    handles `tail ∧ patterns`; this slice just removes any residual `.bottom` guard and adds the
-    four new oracle-checked fixtures + flips the LatticeTests pins. NOT byte-identical (the
-    intended `bottom→unify` change) — the only behavioral slice.
+    handles `tail ∧ patterns`; this slice just removes the residual `.bottom` guards in
+    `mergeStructN` (the `| _, _, _, _ => .bottom` catch-all + the tail×pattern cases) and adds
+    the four new oracle-checked fixtures + flips the LatticeTests pins. NOT byte-identical (the
+    intended `bottom→unify` change) — the only behavioral slice. Comes AFTER B2.2/CP3 land.
 
   **Risk/soundness + regression gate.** Highest-risk site: the `meetWithFuel` matrix rewrite
   (B2.4) — it must reproduce the tail-extras application (`applyTailToExtrasWith` runs on BOTH
@@ -913,9 +962,13 @@ Collapse `struct`/`structTail`/`structPattern`/`structPatterns`/`structComp` int
 its missing cross-combinations (`structPattern×structTail` etc. silently bottom today,
 `Lattice.lean:458-478`), AND the `open_`/`hasTail` nonsense state. Subsumes item-8
 `StructOpenness`. Design DONE (Phase-B #4, 2026-06-19): see the "B2 design (implementable)" section under
-Phase-B B2 — 5 slices (B2.1 type+`mkStruct` → B2.2 construction sites → B2.3 match sites →
-B2.4 collapse the 12-arm meet → B2.5 behavioral cross-combination fix + new fixtures), with
-the `structComp` `open_`/`hasTail` collapse split out as a separate B2b follow-on.
+Phase-B B2. **Re-sequenced to consume-before-produce** (the design's B2.2→B2.3→B2.4 order is
+unsafe): B2.1 (type+`mkStruct`, DONE) → **B2.3 match sites + B2.4 single meet arm (DONE
+2026-06-19, `b3881c6`+`eff5627`, byte-identical, `structN` unproduced)** → **B2.2 production
+flip — BLOCKED, inseparable from the ~940-site test-representation migration; combined with
+CP3 (ctor delete + `structN→struct` rename) as one next megaslice** → B2.5 behavioral
+cross-combination fix + new fixtures. `structComp` `open_`/`hasTail` collapse split out as a
+separate B2b follow-on (UNTOUCHED so far).
 
 **A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue) — BLOCKED on a
 representation change; SOUND shallow check retained (`46bd161`).** The proposed reached-vs-unreferenced
