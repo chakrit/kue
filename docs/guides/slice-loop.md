@@ -50,9 +50,18 @@ Periodic, not every cycle:
 
 Full workflow in fresh context: plan → TDD → implement → verify (`lake build` +
 `scripts/check-fixtures.sh` + `shellcheck`) → commit/push to `gh:main` → update
-`plan.md`, `implementation-log.md`, and the breadcrumb. Two standing duties: tests are
+`plan.md`, `implementation-log.md`, and the breadcrumb. Three standing duties: tests are
 first-class (pin edges, not just happy path); log CUE divergences in
-`cue-divergences.md`. Oracle-check behavior against `cue` (`/Users/chakrit/go/bin/cue`).
+`cue-divergences.md`; when a slice changes eval cost or surfaces a slow/fast CUE pattern,
+update [`kue-performance.md`](kue-performance.md). Oracle-check behavior against `cue`
+(`/Users/chakrit/go/bin/cue`).
+
+**Correctness over performance** (see
+[the decision](../decisions/2026-06-18-correctness-over-performance.md)): never ship a
+perf optimization that can return a wrong value. A perf slice needs byte-identical
+fixtures + a soundness argument; if soundness cannot be guaranteed, **stop and report**
+(file the design + the hole), do not ship it. But basic cases must stay usable — slowness
+is a tracked bug, fixed only by sound optimization.
 
 ## Phase A — Code-quality audit (the diff/batch since the last audit)
 
@@ -98,6 +107,9 @@ Scope: cross-cutting design, broader than the recent diff. Check:
   `compat-assumptions` entries that have accumulated and should become real slices.
 - **Test/fixture health** — coverage gaps at the seams; oversized test modules or messy
   `testdata/` that warrant the organization pass; fixture-harness debt.
+- **Performance-guide currency** — does [`kue-performance.md`](kue-performance.md) reflect
+  current perf reality (new slow patterns surfaced, mitigations landed, stale
+  known-limitations)? Update it inline or file the gap.
 
 Output: fold findings into `plan.md` as architecture fix-slices (ranked); large refactors
 become their own planned slices. Apply only low-risk cleanups inline (re-verify + commit).

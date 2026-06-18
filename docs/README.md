@@ -34,8 +34,12 @@ do-a-task steps → `guides/`; a defended ruling → `decisions/`; everything el
   of completed work, retained for verification.
 - [Compatibility Target](decisions/2026-06-14-cue-compatibility-target.md) — why Kue
   targets *correct* CUE v0.15 semantics over bug-for-bug parity.
+- [Correctness Over Performance](decisions/2026-06-18-correctness-over-performance.md) —
+  why Kue never trades soundness for speed, while keeping basic cases usable.
 - [Lean 4 Guide](guides/lean4-guide.md) — repo-local Lean 4 quickstart: Lake setup,
   module layout, proof workflow, and how to model CUE semantics in Lean.
+- [Performance Guide](guides/kue-performance.md) — how to write CUE that Kue evaluates
+  fast: which patterns are expensive in Kue, why, and the faster shapes.
 
 ## Reading Order
 
