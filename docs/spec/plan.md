@@ -144,11 +144,120 @@ through all 42 `.structComp` sites + test literals. New module fixture
 argocd link 3 byte-identical pre-fix vs FIX-1 (worktree bisect) — no link-2/3/4 regression. See
 implementation-log "def-open-tail-closedness".
 
+## Phase-A audit (2026-06-18, batch `6ad6033..7898cff` — def-open-tail + Pass-2 + argocd link-5)
+
+Audit of the 6-commit batch since slice `114eba8`: `6ad6033` (def-open-tail `hasTail`),
+`2d87b8e` (Pass-2 selective re-eval), `8ce2462`/`6436d08`/`14994e6`/`7898cff` (argocd link-5
+sub-fixes 1-4). Build green (86 jobs). Findings ranked; folded into the backlog as fix-slices
+A1-A4.
+
+- **A1 (HIGH — latent soundness hole, perf-change-induced).** The Pass-2 selective re-eval
+  (`2d87b8e`) rests on a soundness claim — "the transitive closure is sound by construction" —
+  that has a hole: both `selfReferencedLabels` (`Eval.lean:185`) and its boolean twin
+  `refsSelfEmbeddedLabel` (`Eval.lean:99`) recurse through `selector/index/unary/binary/conj/
+  disj/interpolation/struct/structTail/structComp/list/listTail/comprehension/listComprehension/
+  dynamicField` but END in a catch-all (`_ => []` / `_ => false`) that SILENTLY SWALLOWS
+  `builtinCall` (and `embeddedList`, `structPattern`, `structPatterns`). A `Self.<embedded-label>`
+  read nested inside a builtin arg (`count: len(Self.#x)`, `[Self.#a] passed to a builtin`) is
+  therefore INVISIBLE to both. Consequence: a static field whose only embedded-label dependency is
+  builtin-wrapped is NOT in the closure → Pass-2 reuses its STALE Pass-1 value (wrong). The gate
+  twin shares the blind spot (pre-existing), but `2d87b8e` is what makes the SELECTOR omission
+  bite: pre-`2d87b8e`, once the gate fired (via any sibling) ALL static fields were re-evaluated,
+  so the builtin-wrapped field got refreshed; now it is selectively skipped. This is exactly the
+  "perf optimization that can return a wrong value" the correctness-over-perf decision forbids.
+  Fix (cheap, but a behavior change → full verify, NOT inline): add the missing arms to BOTH
+  functions — recurse into `builtinCall.args`, `embeddedList` (items/tail/decls), and
+  `structPattern`/`structPatterns` field values. Add a `native_decide` pin: an embedded label read
+  only via `len(Self.#x)` IS selected / DOES trip the gate. Confirmed reachable on the AST
+  (`selfReferencedLabels` descends unevaluated `Field.value`, so `len(Self.#x)` is a live
+  `.builtinCall` node at scan time).
+
+- **A2 (MEDIUM — known correctness gap, documented in code).** Sub-fix 3 (`14994e6`) traded a
+  cert-manager regression for a hidden-field-bottom gap: the hidden/definition regular-field arm in
+  `manifestFieldsWithFuel` (`Manifest.lean:42-55`) uses a SHALLOW `isBottom (Field.value field)`.
+  This catches `{#u: _|_}` but NOT `{#u: {x: _|_}}` — cue errors on BOTH (verified, cue v0.16.1).
+  So Kue exports `{#u: {x: _|_}}` (drops the hidden field) where cue errors: a real divergence,
+  Kue WRONG (not a cue bug → belongs here, not in cue-divergences.md). The shallow check was the
+  pragmatic fix because the deep recurse spuriously bottomed unreferenced nested defs in imported
+  package bindings. Proper fix: distinguish a hidden field REACHED in the selected value (bottom
+  surfaces) from an unreferenced nested definition/package binding (cue is lazy, bottom tolerated) —
+  i.e. recurse into the SELECTED value only, not blanket-shallow vs blanket-deep. Add a fixture
+  pinning `{#u: {x: _|_}}` → error once fixed.
+
+- **A3 (MEDIUM — soundness rests on an untyped runtime invariant).** Sub-fix 4 (`7898cff`)
+  classifies `.disj _ => .defined` in `classifyDefinedness` (`Eval.lean:690`), justified by the
+  invariant "an all-bottom disjunction never reaches here — `liveAlternatives` prunes bottom arms,
+  so a surviving `.disj` has ≥1 live arm." This is correct under that invariant, but the invariant
+  is NOT type-enforced: a `.disj []` or `.disj [all-bottom]` slipping past pruning into a presence
+  test would misclassify an absent value as `.defined` (`X != _|_` → wrongly `true`). The operand
+  is `evalValueWithFuel`'d before the test, so soundness depends on eval ALWAYS collapsing an
+  all-bottom disj to `.bottom`. Tighten: either (a) a smart `mkDisj` that returns `.bottom` when no
+  live arm remains (illegal-states-unrepresentable — no empty/all-bottom `.disj` representable
+  post-eval), or (b) at minimum a defensive `match` in `classifyDefinedness` that checks for ≥1
+  non-bottom arm rather than blanket `.defined`. Option (a) is the principled route. Add a pin: an
+  all-bottom disj feeding a presence test classifies `.error`.
+
+- **A4 (LOW — illegal-states / catch-all hygiene).** Two catch-alls flagged by the type-first
+  checklist, both currently semantically defensible but each will silently swallow a future
+  constructor:
+  - `classifyDefinedness` `_ => .incomplete` (`Eval.lean:691`) — a new CONCRETE present-value
+    constructor would wrongly classify incomplete. Enumerate the residual forms explicitly (kind,
+    bound, ref, refId, selector, index, notPrim, stringRegex, thisStruct, conj, builtinCall, …) so
+    a new present constructor forces a compile error here.
+  - The shared `selfReferencedLabels`/`refsSelfEmbeddedLabel` catch-all is folded into A1 (its
+    omission is a live bug there, not just hygiene).
+
+- **`.structComp hasTail` design (`6ad6033`) — ACCEPTED, with a noted tightening (Phase B).** The
+  two-bool encoding (`open_`, `hasTail`) was the right call to ship (it unblocked the HIGH
+  regression and all 28 non-test sites were updated with NO catch-all swallowing the new field —
+  exhaustiveness verified). But it admits a nonsense state: `open_=false, hasTail=true` (a CLOSED
+  struct that has a `...` tail) is representable and never constructed. `hasTail` is a PARSE-TIME
+  fact consumed at exactly ONE site (`normalizeDefinitionValueWithFuel`, which sets
+  `open_ := hasTail` and thereafter `hasTail` is dead — every other site `_`-ignores it). This is a
+  field that matters in only one phase. A tighter design (phase-indexed openness, or folding both
+  into a 3-state `StructOpenness` sum: `regularOpen | defClosed | defOpenViaTail`) would erase the
+  illegal state. NOT a Phase-A fix (large refactor across 28 sites, not low-risk) — filed as a
+  Phase-B tightening candidate. The current code is CORRECT; this is representation hygiene.
+
+- **Test strength — OK.** The four new module fixtures (`def_open_tail_addfield`,
+  `list_embed_self_narrowing`, `disj_arm_kill_impossible_field`, `disj_presence_guard`) each ship a
+  full multi-file dir + `expected` (auto-discovered by `check-fixtures.sh`; module fixtures need NO
+  `FixturePorts` entry — that is only for inline single-file `.cue`/`.expected` pairs). Each is
+  backed by `native_decide` EvalTests source pins, including no-over-prune / no-over-open negatives.
+  Pass-2 has eval-count pins. Coverage gaps land as the A1-A3 pins above.
+
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
-correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deeper parity/perf
-(2,6,7) → borderline/LOW (8) as opportunistic ride-alongs.
+audit fix-slices A1-A4 (correctness frontier, do FIRST) → item 1 → parallel-safe cleanups
+(3,4,5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW (8) as opportunistic
+ride-alongs.
+
+**A1. Pass-2 closure builtin blind-spot (HIGH — soundness; perf-change-induced wrong value).**
+`selfReferencedLabels` (`Eval.lean:185`) and `refsSelfEmbeddedLabel` (`Eval.lean:99`) END in a
+catch-all that swallows `builtinCall`/`embeddedList`/`structPattern`/`structPatterns`, so a
+`Self.<embedded>` read inside a builtin arg (`len(Self.#x)`) is invisible. After `2d87b8e`'s
+selective re-eval, such a field is skipped in Pass-2 → stale value. Fix: add the missing arms to
+BOTH functions (recurse `builtinCall.args`, `embeddedList` items/tail/decls, pattern field values).
+Add a `native_decide` pin that `len(Self.#x)` is selected / trips the gate. NOT inline (behavior
+change → full verify). See Phase-A-audit `6ad6033..7898cff` A1.
+
+**A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue).** Sub-fix 3's shallow
+`isBottom` (`Manifest.lean:54`) misses `{#u: {x: _|_}}` (cue errors; Kue exports). Fix: recurse the
+SELECTED value of a reached hidden field only (not blanket shallow/deep), so an unreferenced nested
+def in an imported binding stays lazy (the cert-manager need) while a deep contradiction in a
+reached hidden field bottoms. Add a fixture `{#u: {x: _|_}}` → error. See A2.
+
+**A3. `classifyDefinedness .disj` untyped invariant (MEDIUM — illegal-states).** `.disj _ =>
+.defined` (`Eval.lean:690`) is sound only under "evaluated disj has ≥1 live arm," not type-enforced.
+Fix (principled): a smart `mkDisj` returning `.bottom` when no live arm remains, so an
+all-bottom/empty `.disj` is unrepresentable post-eval; fallback: a defensive ≥1-non-bottom check in
+`classifyDefinedness`. Add a pin: all-bottom disj feeding a presence test classifies `.error`. See
+A3.
+
+**A4. Catch-all hygiene (LOW).** Enumerate residual forms explicitly in `classifyDefinedness`
+(`Eval.lean:691` `_ => .incomplete`) so a future present-value constructor forces a compile error.
+(The `selfReferencedLabels`/`refsSelfEmbeddedLabel` catch-all is fixed under A1.) See A4.
 
 1. **`argocd-packs-argo` (argocd link 5) — `packs.#Argo` UNBLOCKED (2026-06-18).** Landed as a
    4-link correctness chain (commits `8ce2462`, `6436d08`, `14994e6`, `7898cff`; see the
@@ -290,6 +399,12 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
    - **`resolveEmbeddedDisjDefault` (`Eval.lean:2093`, next-audit confirm)** — verify the
      pass-1 label-surfacing path does NOT also need the use-site-narrowing distribution that
      `embed-disj-arm-fallthrough` added, or that label-surfacing-only is correct there.
+   - **`.structComp` openness 3-state sum (Phase-B tightening, from `6ad6033` audit).** The two
+     bools (`open_`, `hasTail`) admit a nonsense state (`open_=false, hasTail=true` — a closed
+     struct with a `...` tail, never constructed) and `hasTail` is dead after normalize (consumed
+     at ONE site). Fold both into a 3-state `StructOpenness` sum (`regularOpen | defClosed |
+     defOpenViaTail`) so the illegal state is unrepresentable. ~28 sites — own slice, not a
+     ride-along. Current code is CORRECT; this is representation hygiene.
 
 ## Pointers (history + reference for anything dropped)
 
