@@ -87,28 +87,28 @@ theorem manifest_bottom_contradiction :
   rfl
 
 theorem manifest_ambiguous_disjunction :
-    manifest (.disj [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))])
-      = .error (.ambiguous [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))]) := by
-  rfl
+    (manifest (.disj [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))])
+      == .error (.ambiguous [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))])) = true := by
+  native_decide
 
 theorem manifest_selects_single_default :
-    manifest (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
-      = .ok (.prim (.string "prod")) := by
-  rfl
+    (manifest (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
+      == .ok (.prim (.string "prod"))) = true := by
+  native_decide
 
 theorem manifest_selects_struct_field_default :
-    manifest
+    (manifest
       (.struct
         [⟨"mode", .regular, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
         true)
-      = .ok (.struct [("mode", .prim (.string "prod"))]) := by
-  rfl
+      == .ok (.struct [("mode", .prim (.string "prod"))])) = true := by
+  native_decide
 
 theorem manifest_selects_list_item_default :
-    manifest
+    (manifest
       (.list [.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]])
-      = .ok (.list [.prim (.string "prod")]) := by
-  rfl
+      == .ok (.list [.prim (.string "prod")])) = true := by
+  native_decide
 
 theorem manifest_default_override_after_regular_unification :
     manifest
@@ -127,14 +127,14 @@ theorem manifest_ignores_absent_optional_default :
   rfl
 
 theorem manifest_selects_optional_default_when_regular_field_exists :
-    manifest
+    (manifest
       (meet
         (.struct
           [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
           true)
         (.struct [⟨"mode", .regular, .top⟩] true))
-      = .ok (.struct [("mode", .prim (.string "prod"))]) := by
-  rfl
+      == .ok (.struct [("mode", .prim (.string "prod"))])) = true := by
+  native_decide
 
 theorem manifest_unsatisfied_required_default_fails :
     manifest
@@ -145,13 +145,13 @@ theorem manifest_unsatisfied_required_default_fails :
   rfl
 
 theorem manifest_selects_required_default_when_regular_field_exists :
-    manifest
+    (manifest
       (meet
         (.struct
           [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
           true)
         (.struct [⟨"mode", .regular, .top⟩] true))
-      = .ok (.struct [("mode", .prim (.string "prod"))]) := by
-  rfl
+      == .ok (.struct [("mode", .prim (.string "prod"))])) = true := by
+  native_decide
 
 end Kue

@@ -395,6 +395,68 @@ def fixturePorts : List FixturePort :=
             (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
             (.prim (.string "dev")))
     },
+    -- F1 default-mark algebra. Arithmetic resolves each disjunction operand to its single
+    -- default FIRST, then operates: `(1|*2)+(10|*20) → 2+20 → 22` (NOT a cross-product).
+    {
+      fileName := "disjunctions/default_arithmetic_cross.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (.struct
+              [⟨"x", .regular,
+                .binary .add
+                  (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
+                  (.disj [(.regular, .prim (.int 10)), (.default, .prim (.int 20))])⟩]
+              true))
+    },
+    {
+      fileName := "disjunctions/default_arithmetic_cross.manifest.expected",
+      content :=
+        formatManifestFieldResult "x"
+          (selectEvaluatedField
+            (resolveAndEval
+              (.struct
+                [⟨"x", .regular,
+                  .binary .add
+                    (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
+                    (.disj [(.regular, .prim (.int 10)), (.default, .prim (.int 20))])⟩]
+                true))
+            "x")
+    },
+    -- F1. Equal defaults dedup: `*1 | *1 | 2 → 1` (two equal defaults collapse to one, the
+    -- unique default wins). The eval-form keeps the written disjunction; manifest resolves.
+    {
+      fileName := "disjunctions/default_dedup.expected",
+      content :=
+        formatField "x"
+          (.disj
+            [(.default, .prim (.int 1)), (.default, .prim (.int 1)), (.regular, .prim (.int 2))])
+    },
+    {
+      fileName := "disjunctions/default_dedup.manifest.expected",
+      content :=
+        formatManifestFieldResult "x"
+          (.disj
+            [(.default, .prim (.int 1)), (.default, .prim (.int 1)), (.regular, .prim (.int 2))])
+    },
+    -- F1. Unification crosses value sets and ANDs default sets (no-`*` operand contributes
+    -- its whole set): `(1|*2) & (1|2|3) → *2` survives as the unique default → `2`.
+    {
+      fileName := "disjunctions/default_unify_cross.expected",
+      content :=
+        formatField "x"
+          (meet
+            (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
+            (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2)), (.regular, .prim (.int 3))]))
+    },
+    {
+      fileName := "disjunctions/default_unify_cross.manifest.expected",
+      content :=
+        formatManifestFieldResult "x"
+          (meet
+            (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
+            (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2)), (.regular, .prim (.int 3))]))
+    },
     {
       fileName := "definitions/definition_closed.expected",
       content :=

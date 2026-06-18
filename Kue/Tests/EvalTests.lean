@@ -863,18 +863,21 @@ theorem resolve_default_disj_multiple_defaults_stays_unresolved :
       == none) = true := by
   native_decide
 
-/-- Slice C. Operations distribute over a disjunction preserving marks: `!(bool | *false)`
-    becomes `!bool | *!false` = `bool | *true`, whose default collapses to `true`. -/
+/-- Slice F1. A unary op RESOLVES its disjunction operand to the default first, then applies
+    the scalar op — it does NOT distribute. `!(bool | *false)` resolves to `false`, then
+    `!false = true`. (Old slice-C behavior `bool | *true` was wrong: CUE forces the operand
+    concrete; `!(bool | *false)` → `true`, oracle-verified.) -/
 theorem distribute_not_over_default_disj :
     (distributeUnary .boolNot (.disj [(.default, .prim (.bool false)), (.regular, .kind .bool)])
-      == .disj [(.default, .prim (.bool true)), (.regular, .unary .boolNot (.kind .bool))]) = true := by
+      == .prim (.bool true)) = true := by
   native_decide
 
-/-- Slice C. `(int | *1) + 1` distributes to `int+1 | *(1+1)` = `int+1 | *2`; the regular
-    branch is a stuck addition over `int`, the default is the concrete `2`. -/
+/-- Slice F1. `(int | *1) + 1` resolves the operand to `1`, then `1 + 1 = 2` — NOT
+    `int+1 | *2`. CUE forces arithmetic operands concrete (`(int | *1) + 1 → 2`,
+    oracle-verified), never a cross-product. -/
 theorem distribute_add_over_default_disj :
     (distributeBinary .add (.disj [(.default, .prim (.int 1)), (.regular, .kind .int)]) (.prim (.int 1))
-      == .disj [(.default, .prim (.int 2)), (.regular, .binary .add (.kind .int) (.prim (.int 1)))]) = true := by
+      == .prim (.int 2)) = true := by
   native_decide
 
 /-- Slice C. The negated real-app guard shape: `x: bool | *false; if !x { y: 1 }`. The `!`
@@ -935,6 +938,130 @@ theorem eval_comprehension_guard_non_default_disj_drops :
            .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
          ⟨"out", .regular, .struct [] true⟩]
         true) = true := by
+  native_decide
+
+/-! ### Slice F1 — default-mark algebra (audit #3 Violation)
+
+    Three coupled facets, oracle-verified against `cue` v0.16.1:
+    (1) unification ANDs default sets across the cross product (was OR);
+    (2) `flattenAlternatives` honors two-level default precedence (a default-marked outer
+        arm selects the inner disjunction's own default structure);
+    (3) equal defaults dedup before the unique-default test.
+    Arithmetic/comparison/unary ops resolve each operand to its default FIRST (no
+    distribution / cross-product). -/
+
+/-- F1 facet 1, the cross-product where `combineMark` lives. Unification ANDs the default
+    sets: `(1|*2) & (1|2|3)` → the no-`*` right operand contributes its whole set as
+    defaults, so only `*2 & 2` survives as a default → resolves to `2`. -/
+theorem f1_unify_cross_and_marks_resolves :
+    (resolveDisjDefault?
+      (match meet
+          (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
+          (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2)), (.regular, .prim (.int 3))]) with
+        | .disj alts => alts
+        | _ => [])
+      == some (.prim (.int 2))) = true := by
+  native_decide
+
+/-- F1 facet 1, NEGATIVE: two distinct defaults survive the cross → ambiguous (no resolve).
+    `(*1|2) & (1|*2)` crosses to live `1|2` with no surviving default (`*1&1` regular,
+    `2&*2` regular) → stays the disjunction `1 | 2`. -/
+theorem f1_unify_cross_two_survivors_ambiguous :
+    (meet
+      (.disj [(.default, .prim (.int 1)), (.regular, .prim (.int 2))])
+      (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
+      == .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]) = true := by
+  native_decide
+
+/-- F1. `combineMark` is AND: a result alternative is default iff BOTH inputs were. -/
+theorem f1_combine_mark_is_and :
+    (combineMark .default .default == .default
+      && combineMark .default .regular == .regular
+      && combineMark .regular .default == .regular
+      && combineMark .regular .regular == .regular) = true := by
+  native_decide
+
+/-- F1 facet 3, equal-default dedup. `*1 | *1 | 2` → the two equal defaults collapse to one,
+    so a unique default remains → resolves to `1`. The headline dedup case. -/
+theorem f1_equal_defaults_dedup_resolves :
+    (resolveDisjDefault?
+      [(.default, .prim (.int 1)), (.default, .prim (.int 1)), (.regular, .prim (.int 2))]
+      == some (.prim (.int 1))) = true := by
+  native_decide
+
+/-- F1 facet 3, NEGATIVE: DISTINCT defaults stay ambiguous (no spurious dedup). -/
+theorem f1_distinct_defaults_stay_ambiguous :
+    (resolveDisjDefault? [(.default, .prim (.int 1)), (.default, .prim (.int 2))]
+      == none) = true := by
+  native_decide
+
+/-- F1 facet 2, two-level default precedence. `*d | 5` with `d : 1 | 2` (no inner default):
+    the outer default selects `d`'s disjunction, promoting its own arms to defaults (no
+    inner `*` → both `1` and `2` become defaults), while the regular outer `5` stays
+    regular. The flatten thus carries the inner default structure rather than blanket- or
+    OR-marking — the OLD bug produced `*1 | 2 | 5`. -/
+theorem f1_nested_default_flatten_carries_inner :
+    (liveAlternatives
+      [(.default, .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]),
+       (.regular, .prim (.int 5))]
+      == [(.default, .prim (.int 1)), (.default, .prim (.int 2)), (.regular, .prim (.int 5))]) = true := by
+  native_decide
+
+/-- F1 facet 2, precedence at resolve. With the `*d | 5` flatten above, the two carried
+    defaults `1`, `2` are DISTINCT → `resolveDisjDefault?` shadows the regular `5` and stays
+    ambiguous (matches cue `incomplete value 1 | 2`), neither resolving to `1` nor keeping
+    `5`. -/
+theorem f1_nested_default_flatten_resolve_ambiguous :
+    (resolveDisjDefault?
+      [(.default, .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]),
+       (.regular, .prim (.int 5))]
+      == none) = true := by
+  native_decide
+
+/-- F1 facet 2. `*d | 5` with `d : *1 | 2` (inner default `*1`): only the inner default
+    carries → unique default `1` → resolves to `1` (matches cue). -/
+theorem f1_nested_inner_default_resolves :
+    (resolveDisjDefault?
+      [(.default, .disj [(.default, .prim (.int 1)), (.regular, .prim (.int 2))]),
+       (.regular, .prim (.int 5))]
+      == some (.prim (.int 1))) = true := by
+  native_decide
+
+/-- F1 facet 2, NEGATIVE: a REGULAR outer arm does NOT contribute its inner disjunction to
+    the default set. `d | *5` with `d : 1 | 2` → `d`'s arms stay regular (shed), the lone
+    default `5` wins → resolves to `5`. -/
+theorem f1_nested_regular_outer_sheds :
+    (resolveDisjDefault?
+      [(.regular, .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]),
+       (.default, .prim (.int 5))]
+      == some (.prim (.int 5))) = true := by
+  native_decide
+
+/-- F1, arithmetic resolve-first. `(1|*2) + (10|*20)` resolves each operand to its default
+    (`2`, `20`) then adds → `22`. The headline arithmetic case; NOT a mark cross-product. -/
+theorem f1_arithmetic_resolves_operands_first :
+    (distributeBinary .add
+      (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
+      (.disj [(.regular, .prim (.int 10)), (.default, .prim (.int 20))])
+      == .prim (.int 22)) = true := by
+  native_decide
+
+/-- F1, arithmetic NEGATIVE: a no-default operand does NOT resolve, so the op stays a stuck
+    node — `(1|2) + 10` keeps the unevaluated `(1|2) + 10`, matching cue's "unresolved
+    disjunction" (manifest reports incomplete), never an over-resolution. -/
+theorem f1_arithmetic_no_default_stays_stuck :
+    (distributeBinary .add
+      (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))])
+      (.prim (.int 10))
+      == .binary .add (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]) (.prim (.int 10)))
+      = true := by
+  native_decide
+
+/-- F1, a non-default disjunction stays a non-default disjunction through resolve — no arm
+    becomes a default and it does not collapse (`1 | 2` stays ambiguous). -/
+theorem f1_non_default_disj_stays_non_default :
+    (resolveDisjDefault? [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]
+      == none) = true := by
   native_decide
 
 /-- Was a deferred-bottom pin; float×float now evaluates exactly through the decimal

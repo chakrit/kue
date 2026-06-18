@@ -297,9 +297,9 @@ theorem fixture_default_disjunction :
   native_decide
 
 theorem fixture_default_disjunction_manifest :
-    formatManifestField "x" (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
-      = .ok "x: \"prod\"" := by
-  rfl
+    manifestFieldMatches "x" (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
+      "x: \"prod\"" = true := by
+  native_decide
 
 theorem fixture_default_override_manifest :
     formatManifestField "x"
@@ -875,15 +875,15 @@ theorem fixture_manifest_field_filtering_format :
   rfl
 
 theorem fixture_manifest_nested_default :
-    formatManifestField "x"
+    manifestFieldMatches "x"
       (.struct
         [
           ⟨"mode", .regular,
             .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩
         ]
         true)
-      = .ok "x: {mode: \"prod\"}" := by
-  rfl
+      "x: {mode: \"prod\"}" = true := by
+  native_decide
 
 theorem fixture_manifest_ignores_absent_optional_default :
     formatManifestField "x"
@@ -894,24 +894,24 @@ theorem fixture_manifest_ignores_absent_optional_default :
   rfl
 
 theorem fixture_manifest_selects_materialized_optional_default :
-    formatManifestField "x"
+    manifestFieldMatches "x"
       (meet
         (.struct
           [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
           true)
         (.struct [⟨"mode", .regular, .top⟩] true))
-      = .ok "x: {mode: \"prod\"}" := by
-  rfl
+      "x: {mode: \"prod\"}" = true := by
+  native_decide
 
 theorem fixture_manifest_selects_materialized_required_default :
-    formatManifestField "x"
+    manifestFieldMatches "x"
       (meet
         (.struct
           [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
           true)
         (.struct [⟨"mode", .regular, .top⟩] true))
-      = .ok "x: {mode: \"prod\"}" := by
-  rfl
+      "x: {mode: \"prod\"}" = true := by
+  native_decide
 
 theorem fixture_let_binding :
     formatTopLevel

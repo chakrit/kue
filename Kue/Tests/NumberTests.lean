@@ -65,9 +65,9 @@ theorem join_number_kind_with_int_primitive_normalizes :
   rfl
 
 theorem join_number_kind_with_string_kind_keeps_disjunction :
-    join (.kind .number) (.kind .string) =
-      .disj [(.regular, .kind .number), (.regular, .kind .string)] := by
-  rfl
+    (join (.kind .number) (.kind .string) ==
+      .disj [(.regular, .kind .number), (.regular, .kind .string)]) = true := by
+  native_decide
 
 theorem meet_number_kind_with_integer_lower_bound :
     meet (.kind .number) (.boundConstraint (intDecimal 0) .ge .number) = .boundConstraint (intDecimal 0) .ge .number := by

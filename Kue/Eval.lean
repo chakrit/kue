@@ -729,30 +729,26 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .boolAnd => evalBoolBinary .boolAnd (fun left right => left && right) left right
   | .boolOr => evalBoolBinary .boolOr (fun left right => left || right) left right
 
-/-- Apply a unary op over a disjunction by mapping it onto every alternative, preserving
-    each alternative's mark. CUE distributes operations across disjunctions: `op(a | *b)` is
-    `op(a) | *op(b)`, so a default branch stays the default of the result. A non-disjunction
-    operand evaluates directly. -/
-def distributeUnary (op : UnaryOp) (value : Value) : Value :=
+/-- Resolve a disjunction operand to the concrete value an arithmetic / comparison /
+    unary op demands. CUE forces such operands to a *single* default (or lone live regular)
+    BEFORE applying the scalar op — it does NOT distribute the op across the disjunction
+    (`(int | *1) + 1 → 2`, not `int+1 | *2`). A disjunction that does not resolve (multiple
+    distinct defaults, or multiple live regulars) is left untouched, so `evalBinary`/
+    `evalUnary` returns a stuck node (`(1|2)+10 → (1 | 2) + 10`) — CUE's "unresolved
+    disjunction" form, which manifest reports as incomplete. -/
+def resolveOperand (value : Value) : Value :=
   match value with
-  | .disj alternatives =>
-      normalizeEvaluatedDisj (alternatives.map fun a => (a.fst, evalUnary op a.snd))
-  | value => evalUnary op value
+  | .disj alternatives => (resolveDisjDefault? alternatives).getD value
+  | value => value
 
-/-- Apply a binary op over disjunction operands by mapping it across the cross product,
-    combining the operand marks (`default` is absorbing). `(a | *b) + c` becomes
-    `(a + c) | *(b + c)`; with both sides disjunctions the result is the full cartesian
-    product. Non-disjunction operands evaluate directly. -/
+/-- Apply a unary op, resolving a disjunction operand to its default first. -/
+def distributeUnary (op : UnaryOp) (value : Value) : Value :=
+  evalUnary op (resolveOperand value)
+
+/-- Apply a binary op, resolving each disjunction operand to its default first. No
+    cross-product: CUE arithmetic/comparison forces each operand concrete independently. -/
 def distributeBinary (op : BinaryOp) (left right : Value) : Value :=
-  match left, right with
-  | .disj leftAlts, .disj rightAlts =>
-      normalizeEvaluatedDisj (leftAlts.flatMap fun l =>
-        rightAlts.map fun r => (combineMark l.fst r.fst, evalBinary op l.snd r.snd))
-  | .disj leftAlts, right =>
-      normalizeEvaluatedDisj (leftAlts.map fun l => (l.fst, evalBinary op l.snd right))
-  | left, .disj rightAlts =>
-      normalizeEvaluatedDisj (rightAlts.map fun r => (r.fst, evalBinary op left r.snd))
-  | left, right => evalBinary op left right
+  evalBinary op (resolveOperand left) (resolveOperand right)
 
 /--
 The synthetic env frame a `for` iteration introduces. Mirrors `clauseLoopFrame`

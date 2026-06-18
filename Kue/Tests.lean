@@ -55,9 +55,9 @@ theorem meet_conflicting_kinds_has_provenance :
   rfl
 
 theorem join_distinct_primitives_keeps_disjunction :
-    join (.prim (.string "a")) (.prim (.string "b"))
-      = .disj [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))] := by
-  rfl
+    (join (.prim (.string "a")) (.prim (.string "b"))
+      == .disj [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))]) = true := by
+  native_decide
 
 theorem meet_disjunction_distributes_and_removes_bottom :
     meet

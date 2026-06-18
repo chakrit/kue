@@ -15,6 +15,15 @@ inductive ManifestError where
   | ambiguous (alternatives : List (Mark × Value))
 deriving Repr, BEq
 
+/-- `Except` carries no stdlib `BEq`, so `manifest`/`formatManifestField` results cannot be
+    compared with `==` for `native_decide` pins. This total structural instance closes that
+    gap (both component types derive `BEq`). -/
+instance [BEq ε] [BEq α] : BEq (Except ε α) where
+  beq
+    | .ok a, .ok b => a == b
+    | .error a, .error b => a == b
+    | _, _ => false
+
 def manifestFuel : Nat :=
   100
 

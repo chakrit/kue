@@ -186,24 +186,80 @@ def containsBottomWithFuel : Nat -> Value -> Bool
 def containsBottom (value : Value) : Bool :=
   containsBottomWithFuel containsBottomFuel value
 
+/-- Mark combination for the disjunction *cross product* (unification's `(a|b) & (c|d)`,
+    spec rule `(v1,d1) & (v2,d2) = (v1&v2, d1&d2)`): a result alternative is a default iff
+    it came from `default × default` — logical AND, not OR. ORing manufactures spurious
+    defaults (`(1|*2)&(1|2|3)` would lose its lone surviving default and the operand-wide
+    default set would over-collapse). The no-marked-default convention (a disjunction with
+    no `*` has *every* arm in its default set) is applied by `withDefaultConvention` at the
+    cross-product sites BEFORE this AND runs. -/
 def combineMark : Mark -> Mark -> Mark
-  | .default, _ => .default
-  | _, .default => .default
-  | .regular, .regular => .regular
+  | .default, .default => .default
+  | _, _ => .regular
 
+/-- True iff any alternative is explicitly marked default. -/
+def hasDefaultMark (alternatives : List (Mark × Value)) : Bool :=
+  alternatives.any fun alternative => alternative.fst == .default
+
+/-- CUE's default-set convention: a disjunction with NO `*`-marked alternative has its
+    *whole* value set as the default set. Used only where an operand's defaults are about to
+    cross (unification) or be selected by a default-marked parent (nested flatten) — never at
+    a top level, where a no-default disjunction must STAY ambiguous (`1|2` ≠ `*1|*2`). -/
+def withDefaultConvention (alternatives : List (Mark × Value)) : List (Mark × Value) :=
+  if hasDefaultMark alternatives then alternatives
+  else alternatives.map fun alternative => (.default, alternative.snd)
+
+/-- Within a single value, a default occurrence dominates a regular one (`*1` and `1` are
+    the same value `1`, which is a default). Logical OR — the *intra*-value rule, distinct
+    from the *inter*-value cross-product AND of `combineMark`. -/
+def combineMarkOr : Mark -> Mark -> Mark
+  | .regular, .regular => .regular
+  | _, _ => .default
+
+/-- Merge alternatives that share a value: a value is a default iff ANY of its occurrences
+    is default (`combineMarkOr`). Collapses `*1|*1|2 → *1|2`, `*1|1 → *1`, `1|1 → 1`, so
+    equal defaults dedup and resolve to one. First occurrence's position is preserved. -/
+def dedupAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
+  alternatives.foldr
+    (fun alternative merged =>
+      if merged.any (fun existing => existing.snd == alternative.snd) then
+        merged.map fun existing =>
+          if existing.snd == alternative.snd then
+            (combineMarkOr existing.fst alternative.fst, existing.snd)
+          else existing
+      else alternative :: merged)
+    []
+
+/-- Flatten one level of nested disjunction with CUE's two-level default precedence. An
+    alternative `(m, .disj inner)` is replaced by `inner`'s alternatives, re-marked by the
+    *parent* mark `m`:
+    - `m = .default`: the parent selects `inner`'s default set — an inner arm becomes a
+      result default iff it is in `inner`'s default set (its `*` arms, or ALL arms when
+      `inner` has no `*`). So `*d | 5` with `d:1|2` carries `1` and `2` as defaults (inner
+      has no `*` → both default), shedding the regular `5`; with `d:*1|2` only `1`.
+    - `m = .regular`: the parent does NOT contribute `inner` to the default set — every
+      inner arm is regular. So `d | *5` keeps `d`'s arms regular (shed unless no outer
+      default exists).
+    A non-disjunction alternative passes through unchanged. -/
 def flattenAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
   alternatives.foldr
     (fun alternative flattened =>
       match alternative with
-      | (mark, .disj nested) =>
-          nested.map (fun nestedAlternative =>
-            (combineMark mark nestedAlternative.fst, nestedAlternative.snd)
-          ) ++ flattened
+      | (.default, .disj nested) =>
+          let nestedDefaults := withDefaultConvention nested
+          nestedDefaults ++ flattened
+      | (.regular, .disj nested) =>
+          (nested.map fun n => (Mark.regular, n.snd)) ++ flattened
       | alternative => alternative :: flattened)
     []
 
+/-- Live alternatives: flatten nested disjunctions, drop bottoms, then merge equal values.
+    A default at any level survives the flatten; bottom arms (from a failed cross-product or
+    narrowing) are filtered before dedup so they never shadow a live equal value. -/
 def liveAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
-  (flattenAlternatives alternatives).filter fun alternative => !containsBottom alternative.snd
+  dedupAlternatives
+    ((flattenAlternatives alternatives).filter fun alternative =>
+      !containsBottom alternative.snd)
 
 def defaultAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
   alternatives.filter fun alternative => alternative.fst == .default
@@ -967,8 +1023,13 @@ def meetWithFuel : Nat -> Value -> Value -> Value
       | some items => .list items
       | none => .bottom
   | .disj leftAlternatives, .disj rightAlternatives =>
-      let flatLeft := flattenAlternatives leftAlternatives
-      let flatRight := flattenAlternatives rightAlternatives
+      -- Spec rule `(v1,d1) & (v2,d2) = (v1&v2, d1&d2)`: cross the value sets, AND the
+      -- default sets. `withDefaultConvention` makes a no-`*` operand contribute its whole
+      -- set as defaults; `combineMark` (AND) keeps a result default iff both inputs were.
+      -- The empty-intersection case (no surviving default) falls out automatically — every
+      -- cross alternative is then regular, so `resolveDisjDefault?` stays ambiguous.
+      let flatLeft := withDefaultConvention (flattenAlternatives leftAlternatives)
+      let flatRight := withDefaultConvention (flattenAlternatives rightAlternatives)
       let alternatives :=
         flatLeft.foldr
           (fun leftAlternative combined =>
@@ -982,6 +1043,9 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           []
       normalizeDisj alternatives
   | .disj alternatives, value =>
+      -- Unifying a disjunction with a non-disjunction value narrows each arm but leaves the
+      -- mark untouched: the scalar carries no default set of its own, so a marked arm that
+      -- survives stays the default (`(*"prod"|"dev") & string → *"prod"|"dev"`).
       let flatAlternatives := flattenAlternatives alternatives
       let distributed :=
         flatAlternatives.map fun alternative =>

@@ -184,8 +184,10 @@ Correctness gates adoption; cleanups are parallel-safe filler. Recommended order
      evals PAST the early bottom (the fixes unblock it) and times out >200s on the larger
      `argo_.{stage9,bluepages,…}.configs` sub-package (was 95s-to-bottom before). A perf
      frontier once the correctness links land.
-2. **F1 default-mark `Violation` (orthogonal correctness, audit #3).** Independent of argocd;
-   can run in parallel in a separate subagent. Medium.
+2. **F1 default-mark `Violation` (orthogonal correctness, audit #3).** — **DONE 2026-06-18.**
+   Cleared: unification ANDs default sets (cross-product), arithmetic/comparison/unary
+   resolve-operand-first (no distribution), nested-disj two-level precedence, equal-default
+   dedup. See implementation-log "F1 default-mark algebra". 32-case JSON+YAML oracle match.
 3. **Regex extraction (R3)** — parallel-safe, run anytime in its own subagent (zero
    conflict). Quick.
 4. **EvalOps extraction (R1)** + **`truncate-primitive` (F-B1)** — both `Eval.lean`,
@@ -3665,7 +3667,11 @@ changes needing their own fix-slice (one of them subsumes the planned B').
 
 ### Findings (ranked)
 
-1. **[VIOLATION — `closure-default-mark-algebra`, slice C] `combineMark` is OR; CUE is
+1. **[VIOLATION — `closure-default-mark-algebra`, slice C] — RESOLVED by F1 (2026-06-18).**
+   The fix diverged from this finding's "combineMark OR→AND" framing: oracle probing showed
+   `&` and arithmetic obey DIFFERENT rules — unification crosses+ANDs default sets, arithmetic
+   resolves-operand-first (no cross-product at all). See implementation-log "F1 default-mark
+   algebra". Original finding text retained below for history. **`combineMark` is OR; CUE is
    AND. `flattenAlternatives` drops CUE's two-level default precedence.** CUE's rule: the
    default of `(A) op (B)` is `default(A) op default(B)` — an alternative is in the
    result's default set iff it came from default×default. `combineMark .default _ =>
@@ -3773,7 +3779,8 @@ leak (`pkg.#Def` selected outside a conjunction now forces; the `.conj` fold re-
 standalone-force; zero existing-fixture drift. Verify green (86 jobs, `fixture pairs ok`,
 shellcheck clean, oracle byte-match on a 12-case matrix).
 
-**F1 default-mark algebra still PENDING** (separate slice, untouched here — NOT marks-related).
+**F1 default-mark algebra — DONE 2026-06-18** (separate slice; see implementation-log "F1
+default-mark algebra"). Cleared the audit-#3 Violation.
 
 ### Real-app re-probe (HEADLINE — HONEST): error moved PAST F2 to a DISTINCT pre-existing bug
 

@@ -6792,3 +6792,74 @@ argocd is NOT yet a drop-in — this clears the FIRST chain link. Two further DE
 `embed_self_disj`, `embed_self_plain`, `embed_self_disj_closed`. 8 `native_decide` pins in
 `Kue/Tests/EvalTests.lean`: select-into-default-disjunction (fires) + non-default (defers),
 embedded-default resolve + non-default passthrough, two-pass gate fire + skip×2.
+
+---
+
+## Completed Slice: F1 default-mark algebra (audit #3 Violation cleared)
+
+Goal: fix CUE default-disjunction mark algebra, wrong in three coupled ways (filed audit
+#3, baseline `db5ee90`). Root-cause split the fix along TWO operator classes that the audit
+had conflated under one "combineMark OR→AND" framing — oracle probing (`cue` v0.16.1)
+showed they are governed by different rules.
+
+### Two operator classes, distinct semantics (the load-bearing finding)
+
+- **Unification (`&`)** DOES cross-product with **mark-AND** over default *sets*, per the
+  CUE spec rule `(v1,d1) & (v2,d2) = (v1&v2, d1&d2)`. The subtlety naive "AND" misses: a
+  disjunction with NO `*` has its *whole* value set as its default set (`(1|*2) & (1|2|3) →
+  2` needs the right operand's arms to all count as defaults, else the lone `*2` survivor
+  loses its mark). Implemented as `withDefaultConvention` (promote a no-`*` operand's arms to
+  default) applied to each operand BEFORE `combineMark` (now strict AND) crosses them. Empty
+  default-intersection falls out automatically → ambiguous.
+- **Arithmetic / comparison / unary (`+ - * / < == !` …)** do NOT distribute or cross-product
+  at all. CUE forces each operand to a *single* default (or lone live regular) FIRST, then
+  applies the scalar op (`(int | *1) + 1 → 2`, NOT `int+1 | *2`; `(1|2)+10` stays the stuck
+  `(1|2)+10`, cue's "unresolved disjunction"). `distributeUnary`/`distributeBinary` rewritten
+  to `resolveOperand` (= `resolveDisjDefault?`, else the operand) each side, then one
+  `evalUnary`/`evalBinary` — the existing stuck-node convention (`evalAdd` returns `.binary`
+  on non-concrete operands) yields cue's incomplete form for free. This REPLACED the old
+  slice-C cross-product distribution (the actual source of spurious-default manufacture);
+  slice-C pins `distribute_*_over_default_disj` updated to the resolve-first result.
+
+### The three audit facets, all fixed
+
+1. **`combineMark` OR→AND** (`Lattice.lean`) — default iff BOTH inputs default. Now used only
+   by unification's cross product (arithmetic no longer crosses).
+2. **`flattenAlternatives` two-level precedence** — a `.default`-marked outer arm wrapping a
+   nested `.disj` carries the inner's *own* default set (`withDefaultConvention nested`); a
+   `.regular` outer arm makes every inner arm regular. So `*d | 5` with `d:1|2` → inner has no
+   `*` → both `1,2` become defaults, `5` stays regular → distinct defaults → ambiguous `1|2`
+   (cue-exact); `d:*1|2` → only `1` carries → `1`. The OLD OR-flatten produced `*1 | 2 | 5`.
+3. **Equal-default dedup** — new `dedupAlternatives` (in `liveAlternatives`) merges equal-
+   VALUED arms (`combineMarkOr`: a value is default iff any occurrence is), so `*1|*1|2 → *1|2`
+   → unique default `1`. Dedup is by value (`*1|1 → 1`, `1|1 → 1`); distinct defaults preserved.
+
+### Behavior preservation + proof-form churn
+
+Every existing fixture byte-identical (`fixture pairs ok`). `dedupAlternatives` introduced
+`Value`-`==` on the manifest/normalize reduction path, which `rfl` cannot reduce (derived
+`BEq`); 12 existing definitional-equality proofs (Manifest/Fixture/Number/Tests `rfl` on
+disjunction/default results) converted to the repo-standard `(lhs == rhs) = true` +
+`native_decide` (same propositions, proven by compiled evaluation). Added a total
+`instance [BEq ε] [BEq α] : BEq (Except ε α)` in `Manifest.lean` (stdlib has none) to let
+`manifest`/`formatManifestField` results compare with `==`.
+
+### Tests
+
+3 committed fixtures under `testdata/cue/disjunctions/` (`.cue` + `.expected` eval-form +
+`.manifest.expected`, all byte-match `cue` JSON): `default_arithmetic_cross` (`(1|*2)+(10|*20)
+→ 22`), `default_dedup` (`*1|*1|2 → 1`), `default_unify_cross` (`(1|*2)&(1|2|3) → 2`). 12
+`native_decide` pins in `EvalTests.lean`: AND-cross resolve + two-survivor-ambiguous,
+`combineMark` AND truth-table, equal-default dedup + distinct-stays-ambiguous, nested-flatten
+carries-inner + resolve-ambiguous + inner-default-resolves + regular-outer-sheds, arithmetic
+resolves-operands-first + no-default-stays-stuck, non-default-stays-non-default. Oracle: a
+32-case JSON+YAML matrix byte-matches `cue` on every resolvable case; ambiguous cases differ
+only in error-message text (kue "multiple non-default disjuncts" vs cue "incomplete value …")
+— cosmetic, both correctly refuse.
+
+### Note (out of scope)
+
+`cue` REJECTS `*(1|2)` as a syntax error ("preference mark not allowed at this position");
+kue's parser ACCEPTS it and mis-desugars to `*1 | 2`. Pre-existing parser laxity, unrelated to
+the mark algebra (the legitimate ref form `*d` where `d:1|2` is correct). Logged for an
+eventual parser-strictness pass, not sliced here.
