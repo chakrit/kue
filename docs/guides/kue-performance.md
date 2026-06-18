@@ -80,13 +80,29 @@ fix is purely a speedup — byte-identical output.
   real-app (e.g. a prod9 infra app with deep `Self=` def chains) now exports correctly at
   the production fuel ceiling, but the absolute eval count (hundreds of thousands of core
   evals for cert-manager) × the per-eval constant still costs ~tens of seconds (cert-manager
-  ~92s as of the 2026-06-18 link-3/4 correctness fixes — up from ~31s, because an open
+  ~90-100s as of the 2026-06-18 link-3/4 correctness fixes — up from ~31s, because an open
   definition that embeds a self-ref def (`{ embed; …; ... }`, the dominant prod9 `#Def` shape)
   now routes through the single-`.structComp` two-pass embed-re-evaluation path; this is sound
   and correctness-required, but more expensive than the prior representation). This is no
   longer a fuel-axis problem; the next perf lever is the per-eval constant, not the fuel
   ceiling. The practical advice above (flatten, shorten chains → lower convergence depth →
   fewer evals) remains the lever you control.
+- **The embedding-`Self` two-pass is now bounded (2026-06-18 Pass-2 selective re-eval).** When a
+  definition reads `Self.<label>` for a label supplied by an embedding, Kue runs a second pass over
+  an augmented frame. It used to re-evaluate EVERY static field (a fresh frame id → no Pass-1 cache
+  hit), so a def with many fields but few `Self.<embed>` reads paid a full duplicate eval per
+  unrelated field. Now Pass 2 re-evaluates ONLY the fields that depend (directly or transitively via
+  a sibling `Self.<L>` read) on an embedded label — the rest reuse their Pass-1 value, byte-identical
+  (a non-dependent field's value is frame-id-independent under the augment). Measured: the per-
+  unrelated-field Pass-2 cost dropped from +10 to +5 core evals (~46% on the audit repro shape). It
+  helps defs shaped like `packs.#Argo` (dozens of fields, a handful of `Self.<embed>` reads); it did
+  NOT measurably move cert-manager's wall-clock, whose cost is dominated instead by the broader
+  frame-id divergence (see below), not the per-field Pass-2 recompute.
+- **Frame-id divergence (the open primary perf frontier).** Structurally-identical frame re-pushes
+  get fresh ids, so the memo `envIds` key misses across them — the dominant remaining cost on deep
+  apps (cert-manager, `packs.#Argo`). The fix is canonical frame identity (same fields + same parent
+  id-stack → reuse id), and it is what actually reclaims cert-manager's ~31s baseline. Until it
+  lands, flattening and shortening def chains is the user-side lever.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).

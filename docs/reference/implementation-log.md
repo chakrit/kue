@@ -7263,3 +7263,55 @@ content-identical to cue (`python3 -m json sort_keys`), ~88s wall. argocd link 3
 resolves and is BYTE-IDENTICAL between the pre-fix HEAD binary and the FIX-1 binary (git-worktree
 bisect at `e902553`) — FIX 1 introduces no link-2/3/4 regression. Full argocd still blocks on
 link 5 `packs.#Argo` (unchanged).
+
+---
+
+## Completed Slice: Pass-2 selective re-eval (perf — embedding-`Self` two-pass)
+
+Goal: reclaim the audit PART-B "+8/field redundant recompute" — the embedding-`Self` two-pass
+(`.structComp` eager + force arms) re-evaluated EVERY static field against the Pass-2 augmented
+frame, so a field that never reads `Self.<embedded-label>` was recomputed for nothing (a fresh
+frame id → no Pass-1 `cache`/`satCache` hit).
+
+### Fix
+
+Added `embeddedSelfPassFieldIndices` (and a `selfReferencedLabels` collector) returning WHICH static
+field indices the Pass-2 frame change can alter — the TRANSITIVE closure: a field is included iff it
+reads `Self.<embedded>` directly, OR reads `Self.<L>` for a static label `L` whose own field is
+included (fixpoint, bounded by field count). Both Pass-2 sites now feed ONLY the selected `(index,
+field)` entries to `evalFieldRefsListWithFuel` (preserving each field's slot index so refs still
+resolve against the full augmented frame), and splice the re-evaluated values back at their indices
+over the reused Pass-1 list.
+
+### Soundness
+
+A field NOT in the closure does not depend, even transitively, on any embedded label, so its value
+is identical under the Pass-2 frame (only the frame id differs, and frame id never enters a value —
+only a memo key). The transitive closure is what makes this sound by construction: a field reading a
+sibling that reads the embed IS included. The byte-identical fixture gate (`fixture pairs ok`, zero
+drift) + byte-identical cert-manager output confirm it empirically. `fuel`/`truncCount` discipline
+untouched (no new `fuel=0` path).
+
+### Tests
+
+6 `Kue/Tests/EvalTests.lean` pins on the audit's shape (open `{embed; …; ...}` def, 1 `dep: Self.et`
++ N `u_i: Self.base + i`): `selpass_reevaluates_only_dependent_field` (selection == `[2]` regardless
+of N), `selpass_skips_static_sibling_reader` (a `Self.<static>` reader is NOT selected),
+`selpass_eval_count_n2`/`_n6` (eval count 21/41 — LINEAR at +5/unrelated-field; pre-fix +10/field,
+so a re-broadening regression trips them), `selpass_value_correct` (`Self.et` still resolves, the
+unrelated fields keep their Pass-1 values).
+
+### Verify + the honest perf finding
+
+`lake build` 86 jobs; `fixture pairs ok` (zero byte-drift — HARD gate for a perf change); shellcheck
+clean. Eval-count micro-benchmark: on the audit shape the per-unrelated-field Pass-2 cost dropped
++10 → +5 (n=8: 94 → 51 core evals, ~46%) — the modeled redundancy IS eliminated.
+
+BUT the cert-manager wall-clock did NOT drop: ~88-104s across samples (FIX-2) vs ~94-111s
+(FIX-1-only) — the ±15-20s run-to-run variance swamps any difference; cert-manager content stays
+byte-identical to cue. So the cheap fix is SOUND and removes the modeled redundancy, but it does NOT
+reclaim the 31s→92s regression — cert-manager's cost is dominated by something else (the broader
+frame-id divergence, backlog item 7's deeper lever — canonical frame identity), not the per-field
+Pass-2 recompute. The cheap, local win ships (it helps any def with many unrelated fields + few
+`Self.<embed>` reads, e.g. `packs.#Argo`-class shapes), but the headline cert-manager regression
+needs the frame-id-canonicalization lever, which remains item 7's open work.

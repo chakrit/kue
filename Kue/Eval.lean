@@ -177,6 +177,113 @@ def needsEmbeddedSelfPass (canonical : List Field) (newEmbeddedLabels : List Str
         canonical.any fun fl =>
           refsSelfEmbeddedLabel evalFuel 0 selfIndex newEmbeddedLabels (Field.value fl)
 
+/-- The set of `Self.<label>` reads in `value` whose `Self` is the alias at `selfIndex` `depth`
+    frame-pushers deep — the label-collecting twin of `refsSelfEmbeddedLabel` (same structural
+    descent, same depth discipline). Used to compute which static fields the Pass-2 re-eval must
+    touch: a field reads `Self.<L>` (this set) and depends on `L`'s value, which the Pass-2 frame
+    change alters iff `L` is an embedded label or itself transitively depends on one. -/
+def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List String
+  | .selector (.refId id) label =>
+      if id.depth == depth && id.index == selfIndex then [label] else []
+  | .selector base _ =>
+      match fuel with | 0 => [] | f + 1 => selfReferencedLabels f depth selfIndex base
+  | .index base key =>
+      match fuel with
+      | 0 => []
+      | f + 1 => selfReferencedLabels f depth selfIndex base ++ selfReferencedLabels f depth selfIndex key
+  | .unary _ v =>
+      match fuel with | 0 => [] | f + 1 => selfReferencedLabels f depth selfIndex v
+  | .binary _ l r =>
+      match fuel with
+      | 0 => []
+      | f + 1 => selfReferencedLabels f depth selfIndex l ++ selfReferencedLabels f depth selfIndex r
+  | .conj cs =>
+      match fuel with | 0 => [] | f + 1 => cs.flatMap (selfReferencedLabels f depth selfIndex)
+  | .disj alts =>
+      match fuel with | 0 => [] | f + 1 => alts.flatMap (fun a => selfReferencedLabels f depth selfIndex a.snd)
+  | .interpolation parts =>
+      match fuel with | 0 => [] | f + 1 => parts.flatMap (selfReferencedLabels f depth selfIndex)
+  | .struct fields _ =>
+      match fuel with | 0 => [] | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
+  | .structTail fields tail =>
+      match fuel with
+      | 0 => []
+      | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
+          ++ selfReferencedLabels f (depth + 1) selfIndex tail
+  | .structComp fields cs _ _ =>
+      match fuel with
+      | 0 => []
+      | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
+          ++ cs.flatMap (selfReferencedLabels f (depth + 1) selfIndex)
+  | .list items =>
+      match fuel with | 0 => [] | f + 1 => items.flatMap (selfReferencedLabels f depth selfIndex)
+  | .listTail items tail =>
+      match fuel with
+      | 0 => []
+      | f + 1 => items.flatMap (selfReferencedLabels f depth selfIndex) ++ selfReferencedLabels f depth selfIndex tail
+  | .comprehension clauses body =>
+      match fuel with
+      | 0 => []
+      | f + 1 =>
+          clauses.flatMap (fun c =>
+            match c with
+            | .forIn _ _ source => selfReferencedLabels f depth selfIndex source
+            | .guard cond => selfReferencedLabels f depth selfIndex cond)
+          ++ selfReferencedLabels f depth selfIndex body
+  | .listComprehension clauses body =>
+      match fuel with
+      | 0 => []
+      | f + 1 =>
+          clauses.flatMap (fun c =>
+            match c with
+            | .forIn _ _ source => selfReferencedLabels f depth selfIndex source
+            | .guard cond => selfReferencedLabels f depth selfIndex cond)
+          ++ selfReferencedLabels f depth selfIndex body
+  | .dynamicField l _ v =>
+      match fuel with
+      | 0 => []
+      | f + 1 => selfReferencedLabels f depth selfIndex l ++ selfReferencedLabels f depth selfIndex v
+  | _ => []
+
+/-- Pass-2 selective re-eval (perf, audit PART B): the static field INDICES (into `canonical`)
+    whose value the embedding-`Self` Pass-2 frame change can alter — to be re-evaluated against the
+    augmented frame; every OTHER index reuses its Pass-1 value, byte-identically (its value does not
+    depend, even transitively through a sibling `Self.<L>` read, on any embedded label, so the only
+    Pass-2 difference — the frame id — never reaches the value, only the memo key).
+
+    Returns `[]` when the two-pass need not fire at all (matching `needsEmbeddedSelfPass = false`).
+    Otherwise the TRANSITIVE-CLOSURE seed-set: a field is included iff it reads `Self.<embedded>`
+    directly, OR reads `Self.<L>` for a static label `L` whose own field is already included. The
+    closure is computed by iterating to a fixpoint, bounded by the field count. -/
+def embeddedSelfPassFieldIndices (canonical : List Field) (newEmbeddedLabels : List String) : List Nat :=
+  if newEmbeddedLabels.isEmpty then []
+  else match thisStructBindingIndex? canonical with
+    | none => []
+    | some selfIndex =>
+        let indexed := canonical.zipIdx
+        -- Per field: the self-frame labels it reads (`Self.<L>`), and the labels it CONTRIBUTES
+        -- (its own label) — a field's value lives under its own label in the self frame.
+        let refsOf := fun (fl : Field) => (selfReferencedLabels evalFuel 0 selfIndex (Field.value fl)).eraseDups
+        -- Seed: indices that read an embedded label directly.
+        let seed := indexed.filterMap fun (fl, i) =>
+          if (refsOf fl).any (newEmbeddedLabels.contains ·) then some i else none
+        -- Iterate: a field is "tainted" if it reads `Self.<L>` for a label `L` owned by a tainted
+        -- field. Fixpoint in ≤ |fields| rounds (each round adds ≥1 or stabilizes).
+        let step := fun (tainted : List Nat) =>
+          let taintedLabels := indexed.filterMap fun (fl, i) =>
+            if tainted.contains i then some (Field.label fl) else none
+          indexed.filterMap fun (fl, i) =>
+            if tainted.contains i then some i
+            else if (refsOf fl).any (taintedLabels.contains ·) then some i
+            else none
+        let rec fix (fuel : Nat) (tainted : List Nat) : List Nat :=
+          match fuel with
+          | 0 => tainted
+          | f + 1 =>
+              let next := (step tainted).eraseDups
+              if next.length == tainted.length then tainted else fix f next
+        if seed.isEmpty then [] else fix canonical.length seed.eraseDups
+
 def applyEvaluatedStructPattern
     (fields : List Field)
     (labelPattern constraint : Value)
@@ -1972,16 +2079,31 @@ mutual
             -- fields as ALREADY-EVALUATED resolved values (so re-evaluation is idempotent on them).
             let newEmbeddedFields := embeddingFields.filter fun ef =>
               (findEvalField (Field.label ef) fields).isNone
+            let reEvalIndices := embeddedSelfPassFieldIndices fields (newEmbeddedFields.map Field.label)
             let staticFields <-
-              if needsEmbeddedSelfPass fields (newEmbeddedFields.map Field.label) then do
+              if reEvalIndices.isEmpty then
+                pure staticFields
+              else do
+                -- Pass 2 (audit PART B selective re-eval): re-evaluate ONLY the static fields that
+                -- depend (directly or transitively via a sibling `Self.<L>` read) on an embedded
+                -- label, against a frame augmented with the embedded labels — so a
+                -- `Self.<embedded-label>` selection resolves. Every other field reuses its Pass-1
+                -- value (`reEvalIndices` excludes it precisely because its value cannot change under
+                -- the Pass-2 frame): byte-identical, AND its eval is SKIPPED (we only feed the
+                -- selected `(index, field)` entries to `evalFieldRefsListWithFuel`, preserving each
+                -- field's slot index so refs still resolve against the full augmented frame). The
+                -- augment carries embeds as ALREADY-EVALUATED resolved values.
                 let augmented := canonicalizeFields (fields ++ newEmbeddedFields)
                 let nested2 <- pushFrame augmented env
-                let reEvaluated <- evalFieldRefsListWithFuel fuel nested2 (indexedFields augmented)
-                -- Keep only the slots corresponding to the ORIGINAL static fields; the appended
-                -- embedded slots are re-merged below via `meetEmbeddingsWithFuel`, not here.
-                pure (reEvaluated.take fields.length)
-              else
-                pure staticFields
+                let selected := (indexedFields fields).filter (fun (i, _) => reEvalIndices.contains i)
+                let reEvaluated <- evalFieldRefsListWithFuel fuel nested2 selected
+                -- Splice each re-evaluated value back at its original index; reuse the Pass-1 value
+                -- for every unselected slot.
+                let bySlot := (selected.map Prod.fst).zip reEvaluated
+                pure ((staticFields.zipIdx).map fun (p1, i) =>
+                  match bySlot.find? (fun (j, _) => j == i) with
+                  | some (_, v) => v
+                  | none => p1)
             match mergeEvaluatedFields (staticFields ++ expanded) with
             | none => pure .bottom
             | some merged =>
@@ -2350,14 +2472,24 @@ mutual
             -- only when an embedding adds a NEW label — byte-identical otherwise.
             let newEmbeddedFields := embeddingFields.filter fun ef =>
               (findEvalField (Field.label ef) canonical).isNone
+            let reEvalIndices := embeddedSelfPassFieldIndices canonical (newEmbeddedFields.map Field.label)
             let staticFields <-
-              if needsEmbeddedSelfPass canonical (newEmbeddedFields.map Field.label) then do
+              if reEvalIndices.isEmpty then
+                pure staticFields
+              else do
+                -- Pass 2 (audit PART B selective re-eval, mirrors the eager arm): re-evaluate ONLY
+                -- the static fields that depend on an embedded label (feed just their `(index,
+                -- field)` entries, so unselected fields are not recomputed); reuse Pass-1 values for
+                -- the rest (byte-identical, no fresh-frame-id cache miss).
                 let augmented := canonicalizeFields (canonical ++ newEmbeddedFields)
                 let nested2 <- pushFrame augmented capturedEnv
-                let reEvaluated <- evalFieldRefsListWithFuel fuel nested2 (indexedFields augmented)
-                pure (reEvaluated.take canonical.length)
-              else
-                pure staticFields
+                let selected := (indexedFields canonical).filter (fun (i, _) => reEvalIndices.contains i)
+                let reEvaluated <- evalFieldRefsListWithFuel fuel nested2 selected
+                let bySlot := (selected.map Prod.fst).zip reEvaluated
+                pure ((staticFields.zipIdx).map fun (p1, i) =>
+                  match bySlot.find? (fun (j, _) => j == i) with
+                  | some (_, v) => v
+                  | none => p1)
             match mergeEvaluatedFields (staticFields ++ expanded) with
             | none => pure .bottom
             | some merged =>

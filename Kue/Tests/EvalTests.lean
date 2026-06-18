@@ -155,6 +155,60 @@ theorem eval_deep_inline_value_correct :
       = "root: {a: {a: {v: \"x\"}, b: {v: \"x\"}}, b: {a: {v: \"x\"}, b: {v: \"x\"}}}" := by
   native_decide
 
+/-! ### Pass-2 selective re-eval (perf, audit PART B). The embedding-`Self` two-pass re-evaluated
+    EVERY static field against the augmented frame, so a field that never reads `Self.<embedded-
+    label>` was redundantly recomputed (a fresh frame id → no Pass-1 cache hit). The fix re-evaluates
+    ONLY the fields that depend (directly or transitively via a sibling `Self.<L>` read) on an
+    embedded label, reusing Pass-1 values for the rest — byte-identical (correctness gate: zero
+    fixture drift), eval-count reduced. -/
+
+-- The audit's shape: an OPEN `{embed; …; ...}` def whose embed supplies `et`, with ONE field
+-- `dep: Self.et` (depends on the embedded label) and N unrelated fields `u_i: Self.base + i`
+-- (depend only on the static sibling `base`). The two-pass must re-eval ONLY `dep`.
+def selPassSelfF : Field := ⟨"#self", .definition, .thisStruct⟩
+def selPassBaseF : Field := ⟨"base", .regular, .prim (.int 100)⟩
+def selPassDepF : Field := ⟨"dep", .regular, .selector (.refId ⟨0, 0⟩) "et"⟩
+def selPassUnrelated (n : Nat) : List Field :=
+  (List.range n).map fun i =>
+    (⟨s!"u{i}", .regular, .binary .add (.selector (.refId ⟨0, 0⟩) "base") (.prim (.int (Int.ofNat i)))⟩ : Field)
+def selPassBody (n : Nat) : Value :=
+  .structComp ([selPassSelfF, selPassBaseF, selPassDepF] ++ selPassUnrelated n)
+    [.struct [⟨"et", .regular, .prim (.string "z")⟩] false] true true
+
+-- SELECTION: the Pass-2 re-eval set is EXACTLY the dependent field (`dep` at canonical index 2),
+-- regardless of how many unrelated fields surround it — the redundant recompute is excluded.
+theorem selpass_reevaluates_only_dependent_field :
+    (embeddedSelfPassFieldIndices
+        (canonicalizeFields ([selPassSelfF, selPassBaseF, selPassDepF] ++ selPassUnrelated 6)) ["et"]
+      == [2]) = true := by
+  native_decide
+
+-- A field reading `Self.<L>` for a STATIC sibling `L` (not an embedded label) is NOT selected —
+-- its value is frame-id-independent under the Pass-2 augment, so reusing Pass-1 is byte-identical.
+theorem selpass_skips_static_sibling_reader :
+    ((embeddedSelfPassFieldIndices
+        (canonicalizeFields ([selPassSelfF, selPassBaseF, selPassDepF] ++ selPassUnrelated 3)) ["et"]).contains 3
+      == false) = true := by
+  native_decide
+
+-- EVAL COUNT is LINEAR with the SMALL slope (+5/unrelated-field), witnessing the redundant Pass-2
+-- recompute is gone: pre-fix the slope was +10/field (every field re-evaluated in Pass 2). A
+-- regression that re-broadened the re-eval set blows these past the asserted counts.
+theorem selpass_eval_count_n2 :
+    evalStructRefsCalls (resolveStructRefs (selPassBody 2)) = 21 := by
+  native_decide
+
+theorem selpass_eval_count_n6 :
+    evalStructRefsCalls (resolveStructRefs (selPassBody 6)) = 41 := by
+  native_decide
+
+-- VALUE: the selective re-eval still resolves `Self.et` correctly (`dep: "z"`) AND the unrelated
+-- fields keep their Pass-1 values (`u0: 100`, `u1: 101`) — byte-identical to a full re-eval.
+theorem selpass_value_correct :
+    formatTopLevel (resolveAndEval (selPassBody 2))
+      = "#self: @self\nbase: 100\ndep: \"z\"\nu0: 100\nu1: 101\net: \"z\"" := by
+  native_decide
+
 /-- Push two frames and report `(id1, id2)`. The soundness boundary lives in whether these
     ids coincide: they MUST coincide only when the two pushes are the genuinely-same evaluation
     (same fields AND same parent id-stack). -/

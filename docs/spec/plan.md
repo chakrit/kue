@@ -237,18 +237,22 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
      redundant recompute. Headline N=3: 86 evals, of which 3×8=24 are redundant
      (~28% on this small shape; larger on real `#Def`s with many fields + few `Self.<embed>`
      reads).
-   - **Cheap fix (do as a perf sub-slice, gated by correctness-over-perf): in Pass 2, re-evaluate
-     ONLY the static fields that actually reference an embedded label, reuse Pass-1 results for
-     the rest.** `needsEmbeddedSelfPass` already proves the set is non-empty; extend it (or add a
-     per-field `refsSelfEmbeddedLabel` filter at the Pass-2 site) to return WHICH field indices
-     need re-eval, then `evalFieldRefsListWithFuel` only those against `nested2`, splicing Pass-1
-     values for the others. Byte-identical (the reused fields are frame-id-independent — they
-     don't read the augmented labels, by construction), so it clears the soundness gate. Est. win:
-     drops the per-non-dependent-field +8 to +0 — on a real `#Def` (dozens of fields, a handful of
-     `Self.<embed>` reads) that is most of the regression, reclaiming a large fraction of the
-     31s→92s back toward ~31-50s WITHOUT the audit-heavy global frame-id canonicalization. The
-     general frame-id-sharing item (this bullet) is the deeper lever for `packs.#Argo`; the Pass-2
-     narrowing is the cheap, local, immediately-shippable win for the link-3/4 regression.
+   - **Cheap fix — LANDED (Pass-2 selective re-eval).** `embeddedSelfPassFieldIndices` returns the
+     TRANSITIVE-closure set of field indices the Pass-2 frame change can alter; both `.structComp`
+     Pass-2 sites re-evaluate ONLY those (feeding their `(index, field)` entries to
+     `evalFieldRefsListWithFuel`), reusing Pass-1 values for the rest. SOUND + byte-identical
+     (fixtures + cert-manager output unchanged); eval-count pins prove +10 → +5 per unrelated field
+     (n=8: 94 → 51 core evals, ~46% on the modeled shape). **BUT it did NOT reclaim the
+     cert-manager 31s→92s regression** — wall-clock stayed ~88-104s (±15-20s noise swamps it). The
+     audit's modeled redundancy is real but is NOT what dominates cert-manager. The cheap fix helps
+     many-unrelated-field defs (`packs.#Argo`-class), so it ships; the cert-manager regression
+     stands.
+   - **The deeper lever (STILL OPEN — now the primary perf frontier): canonical frame identity.**
+     Structurally-identical re-pushes get fresh ids, defeating the memo `envIds` key (exponential
+     divergence). Same fields + same parent id-stack → reuse id, audit-heavy (must not violate
+     "independently-built frames never falsely share"). This is what actually reclaims cert-manager
+     and unblocks `packs.#Argo`'s wall. Profile against cert-manager (resolving) + `packs.#Argo`
+     once link 5 lands.
 
 8. **Borderline / LOW (opportunistic; none block adoption).**
    - **`scalar-embed-with-decls`** — `{#a:1, 5}`→`5` (cue manifests `5`, keeps `.#a`
