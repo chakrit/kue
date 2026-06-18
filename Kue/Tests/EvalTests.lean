@@ -1175,5 +1175,54 @@ theorem eval_let_plain_struct_stays_open :
       = true := by
   native_decide
 
+/-! ### B6-T1 — closedness regression pins.
+
+B6 is the most regression-prone class (prior closedness changes bottomed `#ListenerSet`/
+cert-manager). These pin the shapes the Phase-A over-close hunt exercised so future closedness
+work cannot silently regress them. Each oracle-checked vs cue v0.16.1. The DIRECT def-path
+`#D.r & {extra}` (cue rejects, Kue wrongly admits) is the documented deferred gap and is
+deliberately NOT pinned — only the safe instantiation path `(#D & {}).r` is. -/
+theorem eval_b6_depth2_nested_def_closes :
+    evalSourceMatches
+        "a: {b: {#Inner: {x: int}}}\nout: a.b.#Inner & {x: 1, extra: 2}\n"
+        "a: {b: {#Inner: {x: int}}}\nout: {x: 1, extra: _|_}"
+      = true := by
+  native_decide
+
+theorem eval_b6_plain_struct_under_regular_stays_open :
+    evalSourceMatches
+        "a: {b: {x: int}}\nout: a.b & {x: 1, extra: 2}\n"
+        "a: {b: {x: int}}\nout: {x: 1, extra: 2}"
+      = true := by
+  native_decide
+
+theorem eval_b6_def_meet_rejects_unallowed :
+    evalSourceMatches
+        "#D: {a: int, b: string}\nout: #D & {a: 1, c: 2}\n"
+        "#D: {a: int, b: string}\nout: {a: 1, b: string, c: _|_}"
+      = true := by
+  native_decide
+
+theorem eval_b6_comprehension_field_admits_sibling :
+    evalSourceMatches
+        "a: {x: int, if true {y: 1}}\nout: a & {x: 1, y: 1}\n"
+        "a: {x: int, y: 1}\nout: {x: 1, y: 1}"
+      = true := by
+  native_decide
+
+theorem eval_b6_embedding_field_admits_sibling :
+    evalSourceMatches
+        "base: {m: int}\na: {base, n: int}\nout: a & {m: 1, n: 2}\n"
+        "base: {m: int}\na: {n: int, m: int}\nout: {n: 2, m: 1}"
+      = true := by
+  native_decide
+
+theorem eval_b6_instantiated_def_field_reopens :
+    evalSourceMatches
+        "#D: {r: {x: int}}\nout: (#D & {}).r & {x: 1, extra: 2}\n"
+        "#D: {r: {x: int}}\nout: {x: 1, extra: 2}"
+      = true := by
+  native_decide
+
 
 end Kue

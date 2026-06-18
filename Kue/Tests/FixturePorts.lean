@@ -480,6 +480,67 @@ def fixturePorts : List FixturePort :=
         | .ok value => formatResolvedTopLevel value
         | .error error => s!"parse error: {error.message}"
     },
+    -- B6-T1 closedness regression pins. B6 is the most regression-prone class (prior closedness
+    -- changes bottomed `#ListenerSet`/cert-manager); these lock the shapes the Phase-A over-close
+    -- hunt exercised so future closedness work cannot silently regress them. Each oracle-checked
+    -- vs cue v0.16.1. Parse-driven so the real field-class/openness flows through.
+    {
+      -- (1) depth-2 nesting: `a.b.#Inner & {extra}` closes — the spine walker descends two regular
+      -- fields and still closes the leaf `#Def`. cue: `out.extra: field not allowed`.
+      fileName := "definitions/b6_depth2_nested_def_closes.expected",
+      content :=
+        match parseSource "a: {b: {#Inner: {x: int}}}\nout: a.b.#Inner & {x: 1, extra: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- (2) plain (non-def) struct under a regular field stays OPEN — admits `extra`. The spine
+      -- walker preserves a regular struct's openness; only nested `#Def`s close. cue admits.
+      fileName := "definitions/b6_plain_struct_under_regular_open.expected",
+      content :=
+        match parseSource "a: {b: {x: int}}\nout: a.b & {x: 1, extra: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- (4a) def-meet rejects an unallowed field: `#D & {c}` where `c ∉ #D`. cue: `out.c: field
+      -- not allowed`. The direct closed-def meet (the canonical closedness check).
+      fileName := "definitions/b6_def_meet_rejects_unallowed.expected",
+      content :=
+        match parseSource "#D: {a: int, b: string}\nout: #D & {a: 1, c: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- (4b) a comprehension-bearing REGULAR field admits its legit siblings — a regular struct
+      -- carrying a `if`/`for` is not a def and stays open. cue admits `y`. No over-close.
+      fileName := "definitions/b6_comprehension_field_admits_sibling.expected",
+      content :=
+        match parseSource "a: {x: int, if true {y: 1}}\nout: a & {x: 1, y: 1}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- (4c) an embedding-bearing REGULAR field admits its legit siblings — embedding unions
+      -- labels, it does not close the host. cue admits `m` (embedded) and `n` (sibling).
+      fileName := "definitions/b6_embedding_field_admits_sibling.expected",
+      content :=
+        match parseSource "base: {m: int}\na: {base, n: int}\nout: a & {m: 1, n: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- (5) instantiated def field re-opens: `(#D & {}).r & {extra}` ADMITS `extra` — matching cue
+      -- on the INSTANTIATION path (the def, once meet-instantiated, yields an open regular struct).
+      -- This pins CURRENT behavior at the boundary of the deferred sub-gap; the DIRECT def-path
+      -- `#D.r & {extra}` (cue rejects, Kue wrongly admits) is the documented open gap and is
+      -- deliberately NOT pinned here.
+      fileName := "definitions/b6_instantiated_def_field_reopens.expected",
+      content :=
+        match parseSource "#D: {r: {x: int}}\nout: (#D & {}).r & {x: 1, extra: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
     {
       fileName := "refs/direct_self_reference.expected",
       content := formatTopLevel (resolveAndEval (.struct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))

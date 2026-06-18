@@ -1,0 +1,2 @@
+a: {b: {#Inner: {x: int}}}
+out: {x: 1, extra: _|_}

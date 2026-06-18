@@ -1,0 +1,3 @@
+base: {m: int}
+a: {n: int, m: int}
+out: {n: 2, m: 1}
