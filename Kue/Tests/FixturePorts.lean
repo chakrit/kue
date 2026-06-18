@@ -1299,6 +1299,20 @@ def fixturePorts : List FixturePort :=
               true))
     },
     {
+      -- A5 regression (B1 comprehension-body remap depth): a comprehension body's ref to a
+      -- merged-conjunction sibling (`zz`) sits `#forClauses` frames deeper than the comprehension
+      -- node, so `remapConjRefs` must reindex it at `frameDepth + #for`. Pre-fix it was remapped at
+      -- flat `frameDepth`, missed, and resolved to the wrong merged slot (`q` = 20). Driven through
+      -- parse so the lazy-conjunction-merge + clause-frame-depth path is exercised end-to-end;
+      -- oracle cue v0.16.1 → `s.a.out: 99`.
+      fileName := "comprehensions/comprehension_conj_body_remap.expected",
+      content :=
+        match parseSource
+            "t: {s: {p: 10, q: 20}} & {s: {a: {for v in [1] {out: zz}}, zz: 99}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "comprehensions/comprehension_guard.expected",
       content :=
         formatTopLevel

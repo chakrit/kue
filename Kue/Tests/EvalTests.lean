@@ -2548,15 +2548,131 @@ theorem remap_structcomp_conjunct_remaps_comprehension :
       == .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)] (.refId ⟨1, 0⟩)] true false) = true := by
   native_decide
 
--- A bare `.comprehension` conjunct: clause source AND body refs at the merged frame (`refId ⟨0,1⟩`)
--- are reindexed to `⟨0,0⟩`. Pre-fix: swallowed, stale.
-theorem remap_comprehension_conjunct_reindexes_source_and_body :
+/-! ### A5 (regression from B1) — comprehension BODY remapped at the wrong frame depth.
+
+A comprehension body lives `#forClauses` frames deeper than the comprehension node (`for`
+pushes a frame, `guard` does not) — the rule encoded once in `resolveClausesWithFuel`. B1's
+`.comprehension`/`.listComprehension` arms recursed the body at flat `frameDepth`, so a body
+ref targeting the merged conjunction frame (at `frameDepth + #for`) was compared `== frameDepth`,
+missed, and kept its stale conjunct-local slot → wrong value. The fix threads an incrementing
+depth through the clause chain exactly as resolution does (`clauseFrameShift`: +1 per `for`,
++0 per `guard`); the body is remapped at `frameDepth + clauseFrameShift clauses`, and clause
+source N at `frameDepth + (#for before N)`.
+
+These pins use REALISTICALLY-RESOLVED bodies (depth reflecting the loop frame), not the
+hand-built depth-0 value the prior `remap_comprehension_conjunct_reindexes_source_and_body`
+pin tested — that value is unreachable after real `for`-clause resolution, so it passed while
+the behavior was broken. -/
+
+-- A bare `.comprehension` with one `for`: the SOURCE sits at `frameDepth` (resolved before the
+-- loop frame), but the BODY sits one frame deeper (`refId ⟨1, 1⟩`). The body ref targeting the
+-- merged frame is reindexed `⟨1, 1⟩ → ⟨1, 0⟩`; the source ref at `⟨0, 1⟩ → ⟨0, 0⟩`. Pre-fix the
+-- body was remapped at depth 0 (no match) and left stale.
+theorem remap_comprehension_conjunct_reindexes_body_one_frame_deep :
     (remapConjRefs remapFuel 0
         [Field.regular "a" .top, Field.regular "b" .top]
         [("b", 0), ("a", 1)]
-        (.comprehension [.forIn none "x" (.refId ⟨0, 1⟩)] (.refId ⟨0, 1⟩))
-      == .comprehension [.forIn none "x" (.refId ⟨0, 0⟩)] (.refId ⟨0, 0⟩)) = true := by
+        (.comprehension [.forIn none "x" (.refId ⟨0, 1⟩)] (.refId ⟨1, 1⟩))
+      == .comprehension [.forIn none "x" (.refId ⟨0, 0⟩)] (.refId ⟨1, 0⟩)) = true := by
   native_decide
+
+-- Multi-`for`: clause 2's source is resolved under clause 1's frame, so it sits at `frameDepth+1`;
+-- the body sits two frames deep (`frameDepth+2`). Pins that `remapConjClauses` threads the depth
+-- per `for` (source at ⟨0,_⟩ then ⟨1,_⟩) and the body at ⟨2,_⟩, all reindexed to slot 0.
+theorem remap_comprehension_conjunct_multi_for_threads_depth :
+    (remapConjRefs remapFuel 0
+        [Field.regular "a" .top, Field.regular "b" .top]
+        [("b", 0), ("a", 1)]
+        (.comprehension
+          [.forIn none "x" (.refId ⟨0, 1⟩), .forIn none "y" (.refId ⟨1, 1⟩)]
+          (.refId ⟨2, 1⟩))
+      == .comprehension
+          [.forIn none "x" (.refId ⟨0, 0⟩), .forIn none "y" (.refId ⟨1, 0⟩)]
+          (.refId ⟨2, 0⟩)) = true := by
+  native_decide
+
+-- A `guard` does NOT push a frame: a `for` then `guard` leaves the body at `frameDepth+1`, and the
+-- guard condition is read at `frameDepth+1` (under the `for`). Pins `clauseFrameShift` counts only
+-- `for`, not `guard`.
+theorem remap_comprehension_conjunct_guard_no_frame :
+    (remapConjRefs remapFuel 0
+        [Field.regular "a" .top, Field.regular "b" .top]
+        [("b", 0), ("a", 1)]
+        (.comprehension
+          [.forIn none "x" (.refId ⟨0, 1⟩), .guard (.refId ⟨1, 1⟩)]
+          (.refId ⟨1, 1⟩))
+      == .comprehension
+          [.forIn none "x" (.refId ⟨0, 0⟩), .guard (.refId ⟨1, 0⟩)]
+          (.refId ⟨1, 0⟩)) = true := by
+  native_decide
+
+-- END-TO-END (source-level, cue-exact, oracle cue v0.16.1 → `s.a.out: 99`): the A5 repro. The
+-- body's `zz` reads the merged-frame sibling (slot 3 after merge) from inside a `for`; pre-fix it
+-- was not reindexed and resolved to merged slot 1 = `q` = 20.
+theorem a5_comprehension_body_remap_picks_merged_sibling :
+    evalSourceMatches
+        "t: {s: {p: 10, q: 20}} & {s: {a: {for v in [1] {out: zz}}, zz: 99}}\n"
+        "t: {s: {p: 10, q: 20, a: {out: 99}, zz: 99}}"
+          = true := by
+  native_decide
+
+-- clauseFrameShift authority: counts `for` clauses, ignores `guard`.
+theorem clause_frame_shift_counts_only_for :
+    (clauseFrameShift ([] : List (Clause Value)) == 0
+      && clauseFrameShift [.forIn none "x" .top] == 1
+      && clauseFrameShift [.guard .top] == 0
+      && clauseFrameShift [.forIn none "x" .top, .guard .top, .forIn none "y" .top] == 2) = true := by
+  native_decide
+
+/-! ### A5 sibling — `selfReferencedLabels` MISSED a `Self.<embedded>` read inside a `for` body.
+
+`selfReferencedLabels` (the Pass-2 selection seed: which static fields read an embedded label and
+must be re-evaluated against the augmented frame) recursed a comprehension body at flat `depth`,
+ignoring the loop frame each `for` pushes. A `Self.<embedded>` read inside a `for` body sits at
+`depth + #forClauses` but was compared `== depth`, so the field was not collected → not selected
+for Pass-2 → it reused its stale Pass-1 value. The fix threads the depth through the clause chain
+via `selfReferencedLabelsClauses`, identically to `resolveClausesWithFuel` (and to the `remapConj*`
+A5 fix above). These pins use REALISTICALLY-RESOLVED body refIds (depth reflecting the loop frame).
+-/
+
+-- A plain `.comprehension` with one `for` whose body struct reads `Self.#t` (`refId ⟨2,0⟩` — one
+-- `for` frame + one struct-field frame above the `Self` slot at index 0): the label `#t` IS
+-- collected. Flat recursion checks the ref at depth 1, misses it, returns `[]` → field skipped in
+-- Pass-2 → stale value.
+theorem self_referenced_labels_collects_through_for_body :
+    (selfReferencedLabels evalFuel 0 0
+        (.comprehension [.forIn none "x" (.list [])]
+          (.struct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] true))
+      == ["#t"]) = true := by
+  native_decide
+
+-- A `guard` pushes no frame: a `Self.#t` read in a guard condition sits at the comprehension's own
+-- `depth` (`refId ⟨0,0⟩`), and the body struct after the guard is still only the `for`-frame deep.
+theorem self_referenced_labels_guard_no_frame :
+    (selfReferencedLabels evalFuel 0 0
+        (.comprehension [.guard (.selector (.refId ⟨0, 0⟩) "#g")]
+          (.struct [⟨"v", .regular, .selector (.refId ⟨1, 0⟩) "#t"⟩] true))
+      == ["#g", "#t"]) = true := by
+  native_decide
+
+-- The gate twin `refsSelfEmbeddedLabel` (decides whether the two-pass fires at ALL) had the same
+-- too-shallow comprehension-body scan, with a comment claiming it only over-fires (perf). That was
+-- backwards: a too-shallow scan compares a deep `Self.<embedded>` read against `depth`, MISSES it,
+-- returns `false`, and SKIPS the two-pass — a stale-value miss. Fixed via `refsSelfEmbeddedLabelClauses`
+-- (depth threaded like resolution). Pre-fix this returns `false` (deep ref at ⟨2,0⟩ scanned at depth 1).
+theorem refs_self_embedded_label_detects_through_for_body :
+    refsSelfEmbeddedLabel evalFuel 0 0 ["#t"]
+        (.comprehension [.forIn none "x" (.list [])]
+          (.struct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] true)) = true := by
+  native_decide
+
+-- NOTE on end-to-end coverage: the observable wrong-value form of this miss (a static field
+-- reading `Self.<embedded>` inside a `for` body, narrowed at the use site) does NOT yet flip to the
+-- correct value with these depth fixes alone — a SEPARATE Pass-2 re-eval defect for fields whose
+-- VALUE contains a comprehension (the field is selected and the gate fires, but the comprehension
+-- body is not refreshed against the augmented frame) gates it. That path is filed as its own
+-- backlog item (A5-followup). These unit pins lock the `selfReferencedLabels` / `refsSelfEmbeddedLabel`
+-- depth discipline, which is the piece A5 owns and a prerequisite for the followup fix.
 
 -- A `.dynamicField` conjunct: both label and value refs are reindexed.
 theorem remap_dynamicfield_conjunct_reindexes_label_and_value :

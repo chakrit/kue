@@ -87,6 +87,7 @@ def thisStructBindingIndex? : List Field -> Option Nat
             | _ => go (index + 1) rest
       go 0 fields
 
+mutual
 /-- Does `value` reference `Self.<label>` for some `label ∈ labels`, where `Self` is the
     binding at `selfIndex` in the def's OWN frame, reachable from `depth` frame-pushers deep? A
     resolved `Self.a` read from the def's own frame is `.selector (.refId ⟨0, selfIndex⟩) a`; read
@@ -136,29 +137,21 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
       | 0 => false
       | f + 1 => items.any (refsSelfEmbeddedLabel f depth selfIndex labels) || refsSelfEmbeddedLabel f depth selfIndex labels tail
   | .comprehension clauses body =>
-      -- Clause sources/guards resolve in the comprehension's enclosing frame (same `depth`); the
-      -- body resolves one frame deeper per `for`, scanned conservatively at `depth` — over-detects
-      -- (more two-pass firing), never miss-detects. Mirrors `hasSelfRefAtDepth`.
+      -- Clause sources/guards resolve in the comprehension's enclosing frame; the body resolves
+      -- `#forClauses` frames deeper (`for` pushes one, `guard` none). The depth is threaded by
+      -- `refsSelfEmbeddedLabelClauses`, matching `resolveClausesWithFuel`: a too-shallow body scan
+      -- would compare a deep `Self.<embedded>` read (at `depth+#for`) against `depth`, MISS it, and
+      -- fail to fire the two-pass — a stale-value miss, not a perf-only over-fire (the A5 sibling).
       match fuel with
       | 0 => false
-      | f + 1 =>
-          clauses.any (fun c =>
-            match c with
-            | .forIn _ _ source => refsSelfEmbeddedLabel f depth selfIndex labels source
-            | .guard cond => refsSelfEmbeddedLabel f depth selfIndex labels cond)
-          || refsSelfEmbeddedLabel f depth selfIndex labels body
+      | f + 1 => refsSelfEmbeddedLabelClauses f depth selfIndex labels clauses body
   | .listComprehension clauses body =>
       -- List-context comprehension (`listeners: [for h in Self.#hosts {…}]` — the ListenerSet
       -- shape): the `Self.<embedded-label>` source must trigger the two-pass exactly as a struct
       -- comprehension's does, else the source iterates the un-narrowed (empty) embedded value.
       match fuel with
       | 0 => false
-      | f + 1 =>
-          clauses.any (fun c =>
-            match c with
-            | .forIn _ _ source => refsSelfEmbeddedLabel f depth selfIndex labels source
-            | .guard cond => refsSelfEmbeddedLabel f depth selfIndex labels cond)
-          || refsSelfEmbeddedLabel f depth selfIndex labels body
+      | f + 1 => refsSelfEmbeddedLabelClauses f depth selfIndex labels clauses body
   | .dynamicField l _ v =>
       match fuel with
       | 0 => false
@@ -190,6 +183,22 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
                 || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.snd)
   | _ => false
 
+/-- Does any clause source/guard or the body reference `Self.<embedded>` (see
+    `refsSelfEmbeddedLabel`), threading frame depth through the clause chain exactly as
+    `resolveClausesWithFuel` does: each `forIn` source is scanned at the current `depth` and pushes
+    one frame for subsequent clauses and the body; a `guard` condition scans at `depth` and pushes
+    none. So a body read at `depth + #forClauses` is detected, not missed. -/
+def refsSelfEmbeddedLabelClauses
+    (fuel : Nat) (depth selfIndex : Nat) (labels : List String) : List (Clause Value) -> Value -> Bool
+  | [], body => refsSelfEmbeddedLabel fuel depth selfIndex labels body
+  | .forIn _ _ source :: rest, body =>
+      refsSelfEmbeddedLabel fuel depth selfIndex labels source
+        || refsSelfEmbeddedLabelClauses fuel (depth + 1) selfIndex labels rest body
+  | .guard cond :: rest, body =>
+      refsSelfEmbeddedLabel fuel depth selfIndex labels cond
+        || refsSelfEmbeddedLabelClauses fuel depth selfIndex labels rest body
+end
+
 /-- Should the embedding-`Self` two-pass fire? Only when (a) embeddings contributed labels NOT
     declared static, AND (b) some static field actually selects one through the host's `Self`
     alias. Both conditions spare the common embedding case (a `parts.#Metadata` that supplies
@@ -202,6 +211,7 @@ def needsEmbeddedSelfPass (canonical : List Field) (newEmbeddedLabels : List Str
         canonical.any fun fl =>
           refsSelfEmbeddedLabel evalFuel 0 selfIndex newEmbeddedLabels (Field.value fl)
 
+mutual
 /-- The set of `Self.<label>` reads in `value` whose `Self` is the alias at `selfIndex` `depth`
     frame-pushers deep — the label-collecting twin of `refsSelfEmbeddedLabel` (same structural
     descent, same depth discipline). Used to compute which static fields the Pass-2 re-eval must
@@ -249,21 +259,11 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List St
   | .comprehension clauses body =>
       match fuel with
       | 0 => []
-      | f + 1 =>
-          clauses.flatMap (fun c =>
-            match c with
-            | .forIn _ _ source => selfReferencedLabels f depth selfIndex source
-            | .guard cond => selfReferencedLabels f depth selfIndex cond)
-          ++ selfReferencedLabels f depth selfIndex body
+      | f + 1 => selfReferencedLabelsClauses f depth selfIndex clauses body
   | .listComprehension clauses body =>
       match fuel with
       | 0 => []
-      | f + 1 =>
-          clauses.flatMap (fun c =>
-            match c with
-            | .forIn _ _ source => selfReferencedLabels f depth selfIndex source
-            | .guard cond => selfReferencedLabels f depth selfIndex cond)
-          ++ selfReferencedLabels f depth selfIndex body
+      | f + 1 => selfReferencedLabelsClauses f depth selfIndex clauses body
   | .dynamicField l _ v =>
       match fuel with
       | 0 => []
@@ -290,6 +290,23 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List St
               selfReferencedLabels f (depth + 1) selfIndex p.fst
                 ++ selfReferencedLabels f (depth + 1) selfIndex p.snd)
   | _ => []
+
+/-- Collect `Self.<label>` reads across a comprehension's clause chain and body, threading the
+    frame depth the same way `resolveClausesWithFuel` does: each `forIn` source is read at the
+    current `depth`, then the loop frame is pushed (`depth + 1`) for subsequent clauses and the
+    body; `guard` conditions read at the current `depth` and push no frame. A `Self.<L>` inside a
+    `for` body thus sits at `depth + #forClauses` and is correctly collected — flat recursion would
+    compare it against `depth`, miss it, and leave the field out of Pass-2 (reusing a stale value). -/
+def selfReferencedLabelsClauses
+    (fuel : Nat) (depth selfIndex : Nat) : List (Clause Value) -> Value -> List String
+  | [], body => selfReferencedLabels fuel depth selfIndex body
+  | .forIn _ _ source :: rest, body =>
+      selfReferencedLabels fuel depth selfIndex source
+        ++ selfReferencedLabelsClauses fuel (depth + 1) selfIndex rest body
+  | .guard cond :: rest, body =>
+      selfReferencedLabels fuel depth selfIndex cond
+        ++ selfReferencedLabelsClauses fuel depth selfIndex rest body
+end
 
 /-- Pass-2 selective re-eval (perf, audit PART B): the static field INDICES (into `canonical`)
     whose value the embedding-`Self` Pass-2 frame change can alter — to be re-evaluated against the
@@ -392,10 +409,20 @@ its index `i` is remapped from the conjunct's own layout (`oldIndexLabel i`) to 
 layout (`mergedIndex label`). References to outer scopes (`d > frameDepth`, or `d <
 frameDepth` into a struct the body itself introduces) are left untouched — the merged frame
 sits exactly where the conjunct's frame would have sat, so only the merged-frame layer
-shifts. Total via structural fuel; descending a struct increments `frameDepth`.
+shifts. Total via structural fuel; descending a struct increments `frameDepth`, and
+descending a comprehension body increments it by `clauseFrameShift` (one per `for` clause).
 -/
 def remapFuel : Nat :=
   100
+
+/-- Frames pushed by descending an entire clause chain: one per `.forIn`, none per `.guard`.
+    The single authority for the comprehension-body depth shift is `resolveClausesWithFuel`
+    (`Resolve.lean`); every walker that descends a comprehension body must shift its frame
+    depth by this much to stay in agreement. -/
+def clauseFrameShift : List (Clause Value) -> Nat
+  | [] => 0
+  | .forIn _ _ _ :: rest => 1 + clauseFrameShift rest
+  | .guard _ :: rest => clauseFrameShift rest
 
 mutual
   def remapConjRefs
@@ -466,11 +493,11 @@ mutual
     | fuel + 1, .comprehension clauses body =>
         .comprehension
           (remapConjClauses fuel frameDepth oldLabels mergedMap clauses)
-          (remapConjRefs fuel frameDepth oldLabels mergedMap body)
+          (remapConjRefs fuel (frameDepth + clauseFrameShift clauses) oldLabels mergedMap body)
     | fuel + 1, .listComprehension clauses body =>
         .listComprehension
           (remapConjClauses fuel frameDepth oldLabels mergedMap clauses)
-          (remapConjRefs fuel frameDepth oldLabels mergedMap body)
+          (remapConjRefs fuel (frameDepth + clauseFrameShift clauses) oldLabels mergedMap body)
     | fuel + 1, .embeddedList items tail decls =>
         .embeddedList
           (remapConjValues fuel frameDepth oldLabels mergedMap items)
@@ -537,13 +564,14 @@ mutual
       (oldLabels : List Field)
       (mergedMap : List (String × Nat)) : List (Clause Value) -> List (Clause Value)
     | [] => []
-    | clause :: rest =>
-        let remapped := match clause with
-          | .forIn key value source =>
-              Clause.forIn key value (remapConjRefs fuel frameDepth oldLabels mergedMap source)
-          | .guard condition =>
-              Clause.guard (remapConjRefs fuel frameDepth oldLabels mergedMap condition)
-        remapped :: remapConjClauses fuel frameDepth oldLabels mergedMap rest
+    | .forIn key value source :: rest =>
+        -- The source is resolved in the scope BEFORE this `for`'s own frame is pushed, so it
+        -- sits at `frameDepth`; subsequent clauses and the body are one frame deeper.
+        Clause.forIn key value (remapConjRefs fuel frameDepth oldLabels mergedMap source)
+          :: remapConjClauses fuel (frameDepth + 1) oldLabels mergedMap rest
+    | .guard condition :: rest =>
+        Clause.guard (remapConjRefs fuel frameDepth oldLabels mergedMap condition)
+          :: remapConjClauses fuel frameDepth oldLabels mergedMap rest
   termination_by clauses => (fuel, 1, clauses.length)
 end
 
