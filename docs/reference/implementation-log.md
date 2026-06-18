@@ -7315,3 +7315,59 @@ frame-id divergence, backlog item 7's deeper lever — canonical frame identity)
 Pass-2 recompute. The cheap, local win ships (it helps any def with many unrelated fields + few
 `Self.<embed>` reads, e.g. `packs.#Argo`-class shapes), but the headline cert-manager regression
 needs the frame-id-canonicalization lever, which remains item 7's open work.
+
+## argocd-packs-argo — link 5 (`packs.#Argo`) unblocked: a 4-link correctness chain (2026-06-18)
+
+Commits `8ce2462`, `6436d08`, `14994e6`, `7898cff`. The live real-app blocker: full
+`kue export apps/argocd.cue` bottomed on `packs.#Argo` (the `argo_.{stage9,…}.configs`
+sub-package). Bisected with FAST offline repros (a `/tmp` scratch module pointing `deps` at
+`prodigy9.co/defs@v0.3.19` in the real cache — never the ~36s app). `packs.#Argo & {[...]; …}`
+bottomed in isolation; the bottom was a CHAIN of four independent root causes, each fixed and
+pinned as its own commit. Result: `packs.#Argo` and all three components (`#ArgoRepo`/`#ArgoApp`/
+`#ArgoProject`) now content-identical to cue (sorted-key, modulo field-order #3).
+
+### Sub-fix 1 (`8ce2462`) — list-embed use-site narrowing
+A def whose only manifested content is a trailing LIST embed reading `Self.<hidden>` (so it
+manifests AS that list). The use site `#Argo & {[...]; #name: "web"}` is a struct-embedding-an-open-
+list operand; it evaluates to an `.embeddedList` whose `decls` carry the narrowing (`#name:"web"`).
+The conjunction-deferral fold built `useOperands` via `evaluatedStructOperand?`, which returns
+`none` for an `.embeddedList` — so the narrowing was DROPPED and the def's list embed read the def
+default. Fix: `spliceNarrowingOperand?` (deferral-fold-only) surfaces `.embeddedList` decls for the
+splice; the list still unifies at the value `meet`. Pins: module `list_embed_self_narrowing` +
+3 EvalTests (`link5_list_embed_*`).
+
+### Sub-fix 2 (`6436d08`) — hidden-bottom propagation + optional-aware arm pruning
+The `defs.#ArgoRepo` disjunction-of-defs embed `(_#ArgoRepoGitHubApp | _#ArgoRepoPAT | error)`,
+each arm declaring the OTHER arm's selector impossible (`#username?: _|_`). Two coupled causes:
+(1) `containsBottom` counted an UNSET impossible OPTIONAL field (`#u?: _|_`) as bottoming its arm,
+pruning BOTH arms → `_|_` (cue keeps both). Fix: `fieldBottomCounts` skips OPTIONAL fields in the
+struct bottom-check — only a PRESENT field's bottom bottoms the struct. (2) Manifest dropped a
+hidden present field's bottom silently. Fix: propagate a hidden field's bottom at manifest. Pins:
+module `disj_arm_kill_impossible_field` + 4 FixtureTests + 2 EvalTests (`link5_disj_*`).
+
+### Sub-fix 3 (`14994e6`) — REGRESSION fix for sub-fix 2's manifest recurse
+Sub-fix 2's manifest check used `manifestWithFuel` to recurse the WHOLE hidden-field subtree, which
+over-fired and bottomed `kue export apps/cert-manager.cue` (regression vs `8ce2462`): an imported-
+PACKAGE binding (`defs`/`parts`) is a hidden field whose package struct carries `tests`/unreferenced
+definitions with isolated conflicts cue is LAZY on and never evaluates. Fix: the hidden-bottom check
+is SHALLOW (`isBottom` on the field value, no recursion) — SOUND (never a false error → no
+regression), catches explicit-bottom/conflict-that-propagates + the arm-kill (which prunes at EVAL
+anyway). A nested-non-propagating hidden bottom (`{#u: {#c: string & int}}`, which cue bottoms) is a
+KNOWN incompleteness (needs imported-package laziness, not eager deep checking — deferred).
+cert-manager byte-identical to the `8ce2462` baseline. Pin: `link5_hidden_nested_conflict_does_not_overfire`.
+
+### Sub-fix 4 (`7898cff`) — presence test over a disjunction is present
+`#ArgoRepo` then exported but was MISSING `metadata.namespace: "argocd"`: the `parts.#Metadata`
+guard `if Self.#ns != _|_ {namespace: Self.#ns}` over `#ns: *"argocd" | string` never fired.
+`classifyDefinedness` (the `!= _|_` presence test) classified a `.disj` as `.incomplete`. Fix:
+a `.disj` is `.defined` (present) — cue: `(*"argocd"|string) != _|_` is `true`; an all-bottom
+disjunction never reaches the classifier (`liveAlternatives` prunes). Pins: module
+`disj_presence_guard` + 2 EvalTests (`link5_presence_test_*`).
+
+### Verify
+`lake build` 86 jobs across all four; `fixture pairs ok` (zero drift, every existing fixture
+byte-unchanged); shellcheck clean. cert-manager byte-identical to baseline (no regression).
+`packs.#Argo` (scratch) content-identical to cue (6179 bytes, ~71s — perf-wall-adjacent, the queued
+frame-id-canonicalization work, plan item 7). The L3 inline-`Self=`-disjunction-collapse shape I
+bisected en route is NOT on the `packs.#Argo` path (the real arms read host-supplied `Self.#url` via
+the proper embed-Self mechanism); logged as a separate latent shape, not a blocker.

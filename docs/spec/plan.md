@@ -92,9 +92,11 @@ field-ordering byte-parity gap, #3 in the backlog):
 - **cert-manager: content-identical drop-in, ~92s.** Exports correctly at production fuel.
   (Was ~31s; the link-3/4 fixes route more shapes through the two-pass embed re-eval — SOUND,
   byte-identical fixtures, but slower; see item 7.)
-- **argocd: correct through link 4** (`defs.#Secret` base64 `data`, `#TLSRoute`, `#ListenerSet`
-  all content-identical to cue modulo field-order #3; cert-manager + links 2/3/4 no regression).
-  **Blocked on link 5** (`packs.#Argo` — see backlog item 1, the live blocker).
+- **argocd: `packs.#Argo` (link 5) UNBLOCKED — content-correct** (4-link chain, 2026-06-18; see
+  backlog item 1 + the implementation-log "argocd-packs-argo" entry). `packs.#Argo` and all three
+  components content-identical to cue (sorted-key, modulo field-order #3) in the scratch module,
+  ~71s (perf-wall-adjacent — item 7). Full `apps/argocd.cue` end-to-end status in the latest
+  breadcrumb. cert-manager byte-identical to baseline (no regression).
 
 ## Phase-A audit (2026-06-18, slice `114eba8` argocd link 3/4) — VIOLATION found
 
@@ -148,20 +150,25 @@ Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence
 correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deeper parity/perf
 (2,6,7) → borderline/LOW (8) as opportunistic ride-alongs.
 
-1. **`argocd-packs-argo` (HIGH — LIVE real-app blocker; argocd link 5).** Links 3
-   (`#TLSRoute`) and 4 (`#ListenerSet`) LANDED (2026-06-18 `argocd-tlsroute-list-guard` slice —
-   two-pass gate depth + `.listComprehension` self-ref detection; parser open-struct-with-embeds
-   collapse). Both now content-match cue. Full `kue export apps/argocd.cue` STILL bottoms on
-   `packs.#Argo` (the `argo_.{stage9,bluepages,…}.configs` sub-package): `packs.#Argo & {…}`
-   bottoms in isolation (~36s, perf-wall-adjacent). Root cause is deeper than links 3/4 — nested
-   `defs.#ArgoRepo`/`#ArgoProject`/`#ArgoApp` embeds each with their own `if Self.#x != _|_`
-   guards, a `[...]` open list, and many cross-`defs` embeds. Bisect via the scratch-module +
-   editable-cache-copy method (breadcrumb). This is the next correctness link to make argocd a
-   drop-in. NOTE: `packs.#Argo` is ALSO near the per-eval perf wall (item 7) — distinguish
-   "correct but slow" from "still bottoms" while bisecting.
+1. **`argocd-packs-argo` (argocd link 5) — `packs.#Argo` UNBLOCKED (2026-06-18).** Landed as a
+   4-link correctness chain (commits `8ce2462`, `6436d08`, `14994e6`, `7898cff`; see the
+   implementation-log "argocd-packs-argo" entry). `packs.#Argo & {[...]; …}` bottomed in isolation;
+   the four independent root causes were: (1) list-embed use-site narrowing dropped in the
+   conjunction-deferral fold (`spliceNarrowingOperand?`); (2) disjunction-arm pruning over-fired on
+   UNSET impossible optional fields (`fieldBottomCounts` skips optionals) + hidden-bottom propagation
+   at manifest; (3) a cert-manager REGRESSION from (2)'s deep manifest recurse — fixed by a SHALLOW
+   `isBottom` check (imported-package bindings carry unreferenced conflicts cue is lazy on); (4) the
+   presence test `X != _|_` over a `.disj` classified incomplete, dropping the `parts.#Metadata`
+   `if Self.#ns != _|_ {namespace}` guard — `classifyDefinedness` now treats `.disj` as `.defined`.
+   `packs.#Argo` + all three components (`#ArgoRepo`/`#ArgoApp`/`#ArgoProject`) now content-identical
+   to cue (sorted-key, modulo field-order #3) in the scratch module. ~71s — perf-wall-adjacent (item
+   7). Full `apps/argocd.cue` HEADLINE in the latest breadcrumb. KNOWN latent shape (not on the
+   `packs.#Argo` path, deferred): an inline `Self=`-struct embedding a no-default disjunction-of-defs
+   whose arms read host-`Self` is eagerly resolved before use-site narrowing (the `resolveEmbedDefBodies?`
+   deferral-detection half is correct but insufficient — also needs eager/deferred double-eval dedup).
    ```cue
    #App: {#name?: string, if #name != _|_ {name: #name}, ...}
-   out: packs.#Argo & {#name: "web"}
+   out: packs.#Argo & {#name: "web"}  // now content-correct vs cue
    ```
 
 2. **`truncate-primitive` (HIGH — soundness hardening, Phase B step 1).** The
