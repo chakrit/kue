@@ -1043,10 +1043,14 @@ mutual
             let evaluatedValue <- evalValueWithFuel fuel env visited value
             pure (.struct [⟨name, .regular, evaluatedValue⟩] true)
         | _ => pure .bottom
-    -- closure: no producer yet (slice 1 is the inert constructor). Forcing a closure
-    -- against its captured env is slice 2 (closure-eval); until then it passes through
-    -- unevaluated. Unreachable: nothing constructs `.closure`.
-    | _ + 1, .closure capturedEnv body => pure (.closure capturedEnv body)
+    -- closure: force the deferred body against the lexical scope it captured. The
+    -- call-site `env`/`visited` are discarded — a closure resolves against its definition
+    -- site, not its use site (lexical, not dynamic, scope). `capturedEnv` is defeq to `Env`
+    -- and carries the full id-stack, so it threads in with no coercion; `visited` resets to
+    -- `[]` because the call-site slot markers index call-site frames, not captured ones.
+    -- No producer yet (slice 3) ⇒ dead code, but this is the semantic anchor slices 3-4 hit.
+    | fuel + 1, .closure capturedEnv body =>
+        evalValueWithFuel fuel capturedEnv [] body
     | _, value => pure value
   termination_by (fuel, 0, 0)
 

@@ -412,8 +412,8 @@ captured ids make two independently-captured closures compare unequal — the
    Order `:262`, `normalize*` Normalize, Resolve) absorb it inertly — NO edit. Nothing
    CONSTRUCTS a closure yet, so every new arm is dead code: build + all fixtures unchanged,
    zero behavior change. Pin with `native_decide` round-trip theorems (a `.closure` value
-   `Repr`/`BEq`-compares to itself, differs from a different capturedEnv). THIS IS SLICE 1
-   — landed this session if cleanly green.
+   `Repr`/`BEq`-compares to itself, differs from a different capturedEnv). **DONE
+   2026-06-18** — commit `26a2040`. Constructor + five inert arms, 7 pins, zero fixture drift.
 
 2. **closure-eval — force a closure through eval against its captured env (still no
    producer).** `evalValueCoreWithFuel`'s `.closure capturedEnv body` arm: evaluate `body`
@@ -421,6 +421,10 @@ captured ids make two independently-captured closures compare unequal — the
    the evaluated body. With no producer this stays dead code, but it's the semantic anchor
    the later slices target; pin it with a hand-built `.closure` fixture-theorem
    (`evalValue (.closure env body) = evalValue-of-body-in-env`). MECHANICAL once #1 lands.
+   **DONE 2026-06-18** — the arm forces `body` under `capturedEnv` (full replacement of the
+   call-site env; lexical, not dynamic, scope) with `visited` reset to `[]` and `fuel`
+   threaded; `fuel = 0` degrades through the generic arm. 6 pins (captured-binding force,
+   empty env, nested closure, lexical-not-dynamic, fuel-exhaustion), zero fixture drift.
 
 3. **closure-producer — the import-selector arm emits a closure (BEHAVIOR CHANGE, gated &
    pinned).** Give `evalValueCoreWithFuel`'s `.selector (.refId id) label` path (and/or the

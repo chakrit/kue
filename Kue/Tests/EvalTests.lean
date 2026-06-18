@@ -888,10 +888,52 @@ theorem closure_valueTag :
     valueTag (.closure [(0, [])] .top) = 29 := by
   native_decide
 
-/-- Inert eval: with no producer, the core eval arm passes a closure through unevaluated. -/
-theorem closure_eval_passthrough :
-    (runEval (evalValueWithFuel evalFuel [] [] (.closure [(0, [])] (.prim (.int 1))))
-      == .closure [(0, [])] (.prim (.int 1))) = true := by
+/-! ### slice 2 (closure-eval) — forcing the deferred body under its captured env
+
+The eval arm forces `body` against `capturedEnv` (lexical scope), discarding the call-site
+env/visited. No producer yet ⇒ these run on hand-built `.closure` literals, but they pin the
+semantic anchor slices 3-4 target. -/
+
+/-- Forcing a closure evaluates its body under the captured env: a depth-0 ref into the
+    captured frame resolves to that frame's binding, proving the body sees `capturedEnv`. -/
+theorem closure_eval_forces_captured_binding :
+    (runEval (evalValueWithFuel evalFuel [] []
+        (.closure [(7, [⟨"x", .regular, .prim (.int 42)⟩])] (.refId ⟨0, 0⟩)))
+      == .prim (.int 42)) = true := by
+  native_decide
+
+/-- A closure with an empty captured env forces a body that needs no scope to a literal. -/
+theorem closure_eval_empty_captured_env :
+    (runEval (evalValueWithFuel evalFuel [] []
+        (.closure [] (.prim (.int 1))))
+      == .prim (.int 1)) = true := by
+  native_decide
+
+/-- A closure whose body is itself a closure forces through both layers (nested force):
+    the inner closure carries its own captured frame, resolved when the outer body forces. -/
+theorem closure_eval_nested_closure :
+    (runEval (evalValueWithFuel evalFuel [] []
+        (.closure []
+          (.closure [(9, [⟨"y", .regular, .prim (.string "inner")⟩])] (.refId ⟨0, 0⟩))))
+      == .prim (.string "inner")) = true := by
+  native_decide
+
+/-- Lexical, not dynamic, scope: the call-site env binds slot 0 to one value, the captured
+    env binds it to another. The closure resolves against the captured env — its definition
+    site — so the call-site binding (which would win under dynamic scope) is ignored. -/
+theorem closure_eval_lexical_not_dynamic :
+    (runEval (evalValueWithFuel evalFuel
+        [(3, [⟨"x", .regular, .prim (.string "callsite")⟩])] []
+        (.closure [(7, [⟨"x", .regular, .prim (.string "captured")⟩])] (.refId ⟨0, 0⟩)))
+      == .prim (.string "captured")) = true := by
+  native_decide
+
+/-- Fuel exhaustion degrades like every other arm — at `fuel = 0` the closure passes
+    through unevaluated rather than crashing or looping. -/
+theorem closure_eval_fuel_exhaustion :
+    (runEval (evalValueWithFuel 0 []
+        [] (.closure [(7, [⟨"x", .regular, .prim (.int 42)⟩])] (.refId ⟨0, 0⟩)))
+      == .closure [(7, [⟨"x", .regular, .prim (.int 42)⟩])] (.refId ⟨0, 0⟩)) = true := by
   native_decide
 
 /-- Inert manifest: an unforced closure is non-concrete (incomplete). -/

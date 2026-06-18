@@ -5964,3 +5964,46 @@ Seven pins in `Kue/Tests/EvalTests.lean`: `closure_beq_self`, `closure_beq_disti
 
 `lake build` → 86 jobs, success. `scripts/check-fixtures.sh` → `fixture pairs ok` (all
 fixtures byte-unchanged — behavior preservation proven). No shell touched.
+
+## Completed Slice: Value.closure eval arm (frontier #1, slice 2 — closure-eval)
+
+Goal: make `evalValueCoreWithFuel`'s `.closure` arm real — force the deferred body against
+the lexical scope it captured, instead of the slice-1 inert passthrough. Still no producer
+⇒ dead code, but this is the semantic anchor slices 3-4 target.
+
+### Intended behavior
+
+- `evalValueCoreWithFuel`'s `.closure capturedEnv body` arm now evaluates `body` under
+  `capturedEnv` via `evalValueWithFuel fuel capturedEnv [] body` — **lexical, not dynamic,
+  scope**: a closure resolves against its definition site, so the call-site `env`/`visited`
+  are discarded. `capturedEnv` is defeq to `Eval.Env`, so it threads into the recursive
+  eval with zero coercion. `visited` resets to `[]` because the call-site slot markers index
+  call-site frames, not the captured ones (mirrors the depth>0 ref arm, which resets visited
+  when crossing into an outer frame). `fuel` decrements `fuel+1 → fuel` exactly as every
+  other arm — never dropped (LOAD-BEARING in `EvalKey`). At `fuel = 0` the closure degrades
+  through the generic `| 0, value => pure value` arm: passes through unforced, no crash/loop.
+- Termination unchanged: the recursive call is `evalValueWithFuel fuel …` at strictly lower
+  fuel, fitting the existing `termination_by (fuel, 0, 0)`.
+
+### Tests
+
+Six pins in `Kue/Tests/EvalTests.lean` (replaced slice-1's now-stale `closure_eval_passthrough`,
+which asserted the inert behavior this slice overturns):
+- `closure_eval_forces_captured_binding` — body `.refId ⟨0,0⟩` under a captured frame whose
+  slot 0 is `int 42` forces to `int 42` (the body sees `capturedEnv`).
+- `closure_eval_empty_captured_env` — empty captured env, scope-free literal body → the
+  literal.
+- `closure_eval_nested_closure` — body is itself a `.closure` carrying its own frame; the
+  outer force drives the inner force (nested-force pin).
+- `closure_eval_lexical_not_dynamic` — call-site env binds slot 0 to `"callsite"`, captured
+  env to `"captured"`; result is `"captured"` (lexical-scope proof — dynamic scope would
+  pick the call-site binding).
+- `closure_eval_fuel_exhaustion` — `fuel = 0` passes the closure through unevaluated (graceful
+  degradation, no crash).
+Value-result equalities use `== … = true` (Value derives `BEq`, not `DecidableEq`).
+
+### Verify
+
+`lake build` → 86 jobs, success (`EvalTests` built ⇒ all `native_decide` pins pass).
+`scripts/check-fixtures.sh` → `fixture pairs ok` (zero fixture drift — dead-code from the
+producer's view, no real-eval behavior change). No shell touched.
