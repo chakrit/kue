@@ -421,6 +421,18 @@ typed `Depth` (only obtainable deeper via a `forIn`-descent the body-recursion m
 makes the whole A5 family a compile error. A5 + followup point-fixes are landed; B7 now factors the
 shift into ONE shared authority the 5 walkers consume. Design-spike first. See Phase-B #2 B7.
 
+Phase-A audit (2026-06-19) — walker-consistency VERDICT for B7's implementer: all four fixed
+walkers thread depth IDENTICALLY to the authority (`forIn` source at current depth, +1 for
+rest+body; `guard` at current depth, +0), no off-by-one, no guard-counted-as-frame, no latent 5th
+instance. One precision for B7: the rule is currently encoded in TWO inequivalent FORMS, not one
+shared helper. `clauseFrameShift` (total #for) is used by exactly ONE walker — `remapConjRefs`'s
+BODY recursion — while the other three (`refsSelfEmbeddedLabelClauses`, `selfReferencedLabelsClauses`,
+`hasSelfRefAtDepthClauses`) AND `remapConjClauses` (the source threading) re-derive it as recursive
+`+1-per-forIn`. So `remapConjRefs` alone carries BOTH encodings (`clauseFrameShift` for the body,
+`remapConjClauses` for the sources) that must agree by hand — the sharpest recurrence risk B7 must
+collapse. `clauseFrameShift` is the right seed, but it is NOT yet "shared by all four"; B7's job is
+to make it (or the typed `Depth`) the single source all five consume.
+
 **A5. `remapConjRefs` comprehension BODY remapped at the wrong frame depth — DONE (`c3d0089`).**
 Fixed in all 3 frame-depth walkers via a new `clauseFrameShift` (+1 per `for`, +0 per `guard`) and
 per-walker depth-threading helpers (`remapConjClauses` increments per `for`; `selfReferencedLabelsClauses`
