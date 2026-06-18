@@ -839,13 +839,6 @@ inductive Saturation where
   | truncated
 deriving BEq, DecidableEq, Repr
 
-/-- Join two saturations: `truncated` is ABSORBING. Used only at the cache-hit honesty point
-    (a truncated hit re-bumps the counter); the bracket itself reads the counter delta. -/
-def Saturation.join : Saturation -> Saturation -> Saturation
-  | .truncated, _ => .truncated
-  | _, .truncated => .truncated
-  | .saturated, .saturated => .saturated
-
 /-- Fuel-FREE memo key for SATURATED results. A saturated result is identical at all fuel, so
     `fuel` is deliberately ABSENT — a hit serves the result for ANY remaining fuel, collapsing
     the ~84 wasted re-derivations of a converged value to one. Keyed on `(envIds, visited,

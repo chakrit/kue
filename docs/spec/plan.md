@@ -24,6 +24,164 @@ reference implementation. See
 - Keep each commit small enough to review, revert, or extend safely. One slice per
   commit; the commit subject mirrors the slice title.
 
+## Phase B audit (closure family + fuel-saturation churn — whole graph, 2026-06-18)
+
+Authoritative whole-graph pass after the entire closure chain (slices 1-2-3-4-A-C-E-F2 +
+import-selector-alias) and the fuel-saturation eval-core refactor (`ed5f530`, `0c87ff8`)
+landed. Builds on the prior Phase B verdict (`ebe00c5`); supersedes its parked-cleanup
+re-rankings. Overdue (~6 slices since `ebe00c5`); runs at the cert-manager-is-a-`cue`-
+drop-in milestone.
+
+**Headline: graph HEALTHY. Layering intact after the churn — CLEAR.** Import graph
+acyclic, every edge identical to the `ebe00c5`/`31b329c` table (`Eval → {Builtin, Decimal,
+Lattice, Normalize}`, `Builtin → {Lattice, Decimal, Base64, Json, Yaml}`, no `Builtin →
+Eval` back-edge). `Value.lean` still a leaf (sole import `Init.Data.String.Search`, the
+regex dependency — see R3). `meetCore`'s `.closure _ _ => .bottom` still the only meet-site
+closure handling; the three deliberate splice sites (`.conj` fold, `meetEmbeddingsWithFuel`,
+`forceClosureWithConjunct`) unchanged — containment airtight. No new cross-module
+duplication. Build 86 jobs green throughout.
+
+### Dead code DELETED inline this pass
+
+- **`Saturation.join` (`Eval.lean:844`) was fully dead** — zero call sites tree-wide (only
+  its own def). The bracketing design (count delta via `truncCount`) replaced any per-arm
+  saturation join; the cache-hit honesty point uses a `Nat` bump, not `.join`. Its own
+  docstring admitted it was vestigial. **Deleted (~7 lines); full verify gate re-run green**
+  (build 86, fixtures byte-identical, shellcheck clean). `BEq`/`DecidableEq` (the `==` the
+  bracket actually uses) stay on `Saturation`. No other dead code in the closure pure-tier
+  (all 20 helpers have ≥2 references; `stripLetBindings` is single-use but live).
+
+### F-B1 [HIGH — file as fix-slice `truncate-primitive`] Structural enforcement of the truncation-bump invariant
+
+The audit-#6 corruption (a `fuel=0` helper arm dropping fields WITHOUT bumping
+`truncCount` → a truncated value misclassified saturated and served fuel-free) is currently
+prevented by DISCIPLINE across SIX sites, each the pair:
+`modify (truncCount + 1)` then `pure <incomplete>`. The six: `evalValueCoreWithFuel`
+fuel=0 base (`1555`), the cycle-`.top` arm (`1589`), and the four helper fuel=0 bases —
+`evalEmbeddingFieldsWithFuel` (`1812`), `meetEmbeddingsWithFuel` (`1855`),
+`expandComprehensionWithFuel` (`2034`), `expandClausesWithFuel` (`2060`). A SEVENTH
+fuel-threaded helper that truncates and forgets the bump reopens the exact hole.
+
+**Two-step move-plan (one slice; the first step is the realistic, recommended win):**
+
+1. **`truncate` combinator (DRY + single bump definition, do this now).** Add
+   `def EvalState.truncate (x : α) : EvalM α := do modify (·bump); pure x`; rewrite all six
+   sites to `EvalState.truncate value` / `…truncate .top` / `…truncate []` / `…truncate
+   current`. Fuses bump+return so they cannot drift apart WITHIN a converted site, and
+   localizes the bump to one definition. Strictly behavior-preserving (byte-identical
+   fixtures); pure refactor. This is the high-value, low-risk core of the slice.
+2. **By-construction unforgettability (assess in the slice; only if cheap).** Step 1 is
+   still a *convention* — a seventh helper can `pure []` at its `fuel=0` base without
+   calling `truncate`. True unrepresentability needs the `fuel=0` dispatch lifted into a
+   shared combinator every fuel-threaded helper MUST route through — e.g.
+   `withFuel (fuel) (onZero : α) (k : Nat → EvalM α) : EvalM α` that runs `truncate onZero`
+   on the zero arm and `k pred` otherwise, so a helper physically cannot reach its recursive
+   body without having gone through the truncating zero arm. VIABLE but NOT free: the six
+   bases have heterogeneous return types (`Value`, `List Field`×3, `Value`) and
+   heterogeneous incomplete values (`value`/`.top`/`[]`/`current`), and two sites are nested
+   mid-arm (the cycle `.top` is inside `.refId`, not a top-level `fuel` match) so they don't
+   fit a uniform `withFuel` wrapper without restructuring. Recommendation: **land step 1
+   unconditionally; attempt step 2's `withFuel` only for the four top-level-`fuel`-dispatch
+   helpers** (the cleanest fit), leaving the two core arms on `truncate`. If step 2's
+   restructuring is more than mechanical, STOP at step 1 + a one-line doc invariant ("every
+   `fuel=0` base returns via `truncate`") rather than over-engineering. Priority HIGH because
+   this is the repo's illegal-states-unrepresentable reason-to-be and it prevents recurrence
+   of a corruption that already shipped once.
+
+### F-B2 Cache architecture — COHERENT, do NOT unify
+
+Four memo structures in `EvalState`, each a distinct documented role:
+`cache : EvalKey(fuel, envIds, visited, value) → (Value × Sat)` (fuel-keyed primary);
+`forceCache : ForceKey(fuel, capturedEnvIds, body, useOperands) → (Value × Sat)` (the
+closure-force path genuinely bypasses `EvalKey`, so this is a real structural split, not
+duplication); `satCache : SatKey(envIds, visited, value) → Value` (the fuel-FREE
+saturated-only collapse); `frames : FrameKey(parentIds, fields) → Nat` (id
+canonicalization — orthogonal, feeds the *keys* of the other three, not a value memo).
+`cache` and `satCache` overlap in key shape but differ exactly by `fuel` — that IS the
+design (the 263 truncation cases stay fuel-keyed; saturated results go fuel-free). Unifying
+either direction re-introduces fuel-multiplication or cross-fuel false-share. **Verdict:
+coherent, leave all four.** No cache whose key is subtly wrong: the audit-#6 fix
+(comprehension/embedding bumps) restored the soundness the `satCache` gate depends on, and
+the fuel-saturation slice did not disturb the previously-audited-sound `cache`/`forceCache`
+keys (`fuel` retained, byte-identical fixtures). The `satCache` gate (insertion only on the
+`saturated` bracket arm) is the single soundness chokepoint and is correct.
+
+### F-B3 `Closure.lean` extraction — STILL FUSED, do NOT extract (E-gate satisfied, verdict holds)
+
+The prior verdict gated re-judgement on "after E"; E (`closure-embed-chain` `6fc26a5`) and
+the fuel-saturation refactor have both landed, so the gate is open — and the answer is
+unchanged. `forceClosureWithConjunctCore` calls `evalFieldRefsListWithFuel`,
+`evalValueWithFuel`, `expandComprehensionsWithFuel`, `evalEmbeddingFieldsWithFuel`,
+`meetEmbeddingsWithFuel` — all at the SHARED fuel measure, all inside the one `mutual`
+block (`1471-2104`). The forcing tier IS the evaluator; the fuel-saturation threading
+(`truncCount` bumps + the `evalValueWithFuel` bracket) runs through these same functions,
+binding them tighter, not looser. The pure tier still shares the conjunction-merge
+primitives with the non-closure 2c path. **Verdict: genuinely fused, not an artifact of
+incomplete work. Do NOT extract `Kue/Closure.lean`.** This is now a settled verdict, not a
+"defer" — re-open only if the forcing tier grows an independent recursion (it has not).
+
+### Re-ranked parked cleanups (the big `Eval.lean` churn has SETTLED — extraction gates lift)
+
+The closure chain is DONE and `Eval.lean` (2172 lines) is no longer in active churn, so the
+"WAIT-FOR-CDE" gates that blocked EvalOps/test-org are LIFTED. Re-ranked:
+
+- **R1 [ACTIONABLE-NOW] EvalOps extraction (`evalAdd…evalBinary` → `Kue/EvalOps.lean`).**
+  Gate lifted: the closure chain that owned `Eval.lean` line numbers is complete; no
+  in-flight slice contends for those lines. ~256 lines of self-contained pure
+  `{Value, Decimal}` scalar algebra (lines ~369-635) carved out from under the recursive
+  evaluator — real boundary win, new module imports only `{Value, Decimal}`. CONFLICT WATCH:
+  `truncate-primitive` (F-B1) edits the evaluator's `mutual` block (lines 1471+, far below
+  the op block at 369-635) — no line-number collision; the two can interleave. ARGOCD
+  correctness work (F-B4) touches the closure/conj path, also below 635 — no conflict.
+  Sequence EvalOps EITHER before or after the correctness frontier; it's mechanical.
+- **R2 [ACTIONABLE-NOW] Test-org pass.** Gate lifted (no more closure pins incoming on the
+  settled chain). `Kue/Tests/EvalTests` is now the largest theorem module (closure +
+  saturation pins); `FixtureTests`/`BuiltinTests`/`StructTests` all oversized. Split each by
+  subsystem in ONE pass (the loop's periodic test-org pass, now due); leave `FixturePorts`
+  whole (generated). `testdata/modules/` is sensibly named — group theorem modules only,
+  don't churn `testdata/`. CONFLICT WATCH: argocd correctness will add ~1 module fixture +
+  pins; run test-org AFTER the next correctness slice or it goes mildly stale. Lower urgency
+  than EvalOps/argocd.
+- **R3 [ACTIONABLE-NOW, PARALLEL-SAFE] Regex engine → `Kue/Regex.lean`.** Unchanged from
+  `ebe00c5`: the ~240-line engine (`Value.lean:567-807`, `RegexAtom` + fuel-bounded matcher
+  + alternation/group expansion) depends only on `Char`/`String`, is consumed by
+  `Eval`/`Builtin` only, sits BELOW the closure ctor in `Value.lean`. Extracting it makes
+  `Value.lean` a TRUE leaf (drops the lone `Init.Data.String.Search` import). New leaf
+  `Kue/Regex.lean`; add `import Kue.Regex` to `Eval`/`Builtin`. Fully orthogonal to every
+  `Eval.lean` slice — the one cleanup that runs in its own subagent with zero conflict.
+- **R4 [DEFER indefinitely] `embeddedList.decls` newtype.** Single-site, wrap/unwrap cost >
+  marginal win. Unchanged.
+
+### F-B5 SEQUENCING recommendation for the open backlog
+
+Correctness gates adoption; cleanups are parallel-safe filler. Recommended order:
+
+1. **argocd `bottom` correctness gap (DEEP, the adoption blocker).** argocd produces
+   `bottom` (`conflicting values`) at EVERY fuel — a genuine eval gap, NOT a saturation
+   regression (cert-manager stays correct, fixtures byte-identical). Likely covered by one
+   of the two filed borderline arch findings: **`module-file-scoped-imports`** (sibling-file
+   import merge → cross-file leak; arch-sized) is the prime suspect, with
+   **`import-eager-closedness`** (MEDIUM) second. FIRST STEP IS A BISECT, not a fix: reduce
+   argocd to a minimal repro, identify which conjunct bottoms, then the finding to promote is
+   determined. This GATES real-app drop-in status. Quick to diagnose, likely deep to fix.
+2. **F1 default-mark `Violation` (orthogonal correctness, audit #3).** Independent of argocd;
+   can run in parallel in a separate subagent. Medium.
+3. **Regex extraction (R3)** — parallel-safe, run anytime in its own subagent (zero
+   conflict). Quick.
+4. **EvalOps extraction (R1)** + **`truncate-primitive` (F-B1)** — both `Eval.lean`,
+   non-conflicting line ranges, schedule around the argocd work. F-B1 is the higher-value
+   (soundness hardening); both mechanical-to-medium.
+5. **Field-ordering parity #3 (DEEP)** — the byte-order tail between cert-manager content
+   match and byte-exact `cue`. Per-`Field` provenance through meet/manifest. Deepest of the
+   remaining; do AFTER argocd (a bigger correctness win) unless field-ordering blocks a
+   needed fixture.
+6. **Test-org pass (R2)** — after the next correctness slice lands its pins, so the split
+   doesn't immediately stale.
+
+**What gates argocd:** the `module-file-scoped-imports` finding (most likely) or
+`import-eager-closedness` — confirm by bisect before committing to either. This is the one
+correctness item standing between Kue and real-app drop-in parity for the second prod9 app.
+
 ## Audit Fix-Slices (fuel-saturation soundness — Phase A code-quality, audit 2026-06-18 #6)
 
 Scope: the fuel-saturation caching slice (`ed5f530`) — prove or break "no truncated value
