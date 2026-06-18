@@ -103,6 +103,15 @@ fix is purely a speedup — byte-identical output.
   apps (cert-manager, `packs.#Argo`). The fix is canonical frame identity (same fields + same parent
   id-stack → reuse id), and it is what actually reclaims cert-manager's ~31s baseline. Until it
   lands, flattening and shortening def chains is the user-side lever.
+- **Fuel exhaustion can surface as a spurious `conflicting values (bottom)` at scale
+  (2026-06-18).** `evalFuel = 100` is load-bearing for soundness; when frame-id divergence makes a
+  large combined evaluation overrun it, a truncated value bottoms instead of resolving. Concrete:
+  `packs.#Argo` resolves correctly in isolation at ~71s, and every component of `apps/argocd.cue`
+  is content-correct individually — but the FULL app (5× `packs.#Argo` + the deployment config)
+  bottoms after ~7.5min where `cue` exports it in 0.03s. This is NOT a correctness gap (cue confirms
+  the app is concrete; every piece matches cue): it is the frame-id frontier above hitting the fuel
+  wall. The canonical-frame-identity fix is what unblocks it; raising `evalFuel` is NOT a fix (it
+  trades soundness/termination for a higher-but-still-finite ceiling).
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).
