@@ -189,14 +189,13 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
     one frame for subsequent clauses and the body; a `guard` condition scans at `depth` and pushes
     none. So a body read at `depth + #forClauses` is detected, not missed. -/
 def refsSelfEmbeddedLabelClauses
-    (fuel : Nat) (depth selfIndex : Nat) (labels : List String) : List (Clause Value) -> Value -> Bool
-  | [], body => refsSelfEmbeddedLabel fuel depth selfIndex labels body
-  | .forIn _ _ source :: rest, body =>
-      refsSelfEmbeddedLabel fuel depth selfIndex labels source
-        || refsSelfEmbeddedLabelClauses fuel (depth + 1) selfIndex labels rest body
-  | .guard cond :: rest, body =>
-      refsSelfEmbeddedLabel fuel depth selfIndex labels cond
-        || refsSelfEmbeddedLabelClauses fuel depth selfIndex labels rest body
+    (fuel : Nat) (depth selfIndex : Nat) (labels : List String)
+    (clauses : List (Clause Value)) (body : Value) : Bool :=
+  descendClauses false (· || ·)
+    (fun d source => refsSelfEmbeddedLabel fuel d selfIndex labels source)
+    (fun d cond => refsSelfEmbeddedLabel fuel d selfIndex labels cond)
+    (fun d => refsSelfEmbeddedLabel fuel d selfIndex labels body)
+    depth clauses
 end
 
 /-- Should the embedding-`Self` two-pass fire? Only when (a) embeddings contributed labels NOT
@@ -298,14 +297,13 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List St
     `for` body thus sits at `depth + #forClauses` and is correctly collected — flat recursion would
     compare it against `depth`, miss it, and leave the field out of Pass-2 (reusing a stale value). -/
 def selfReferencedLabelsClauses
-    (fuel : Nat) (depth selfIndex : Nat) : List (Clause Value) -> Value -> List String
-  | [], body => selfReferencedLabels fuel depth selfIndex body
-  | .forIn _ _ source :: rest, body =>
-      selfReferencedLabels fuel depth selfIndex source
-        ++ selfReferencedLabelsClauses fuel (depth + 1) selfIndex rest body
-  | .guard cond :: rest, body =>
-      selfReferencedLabels fuel depth selfIndex cond
-        ++ selfReferencedLabelsClauses fuel depth selfIndex rest body
+    (fuel : Nat) (depth selfIndex : Nat)
+    (clauses : List (Clause Value)) (body : Value) : List String :=
+  descendClauses [] (· ++ ·)
+    (fun d source => selfReferencedLabels fuel d selfIndex source)
+    (fun d cond => selfReferencedLabels fuel d selfIndex cond)
+    (fun d => selfReferencedLabels fuel d selfIndex body)
+    depth clauses
 end
 
 /-- Pass-2 selective re-eval (perf, audit PART B): the static field INDICES (into `canonical`)
@@ -1597,14 +1595,12 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
     one frame for subsequent clauses and the body; a `guard` condition scans at `depth` and pushes
     none. So a body self-ref at `depth + #forClauses` is detected, not missed. -/
 def hasSelfRefAtDepthClauses
-    (fuel : Nat) (depth : Nat) : List (Clause Value) -> Value -> Bool
-  | [], body => hasSelfRefAtDepth fuel depth body
-  | .forIn _ _ source :: rest, body =>
-      hasSelfRefAtDepth fuel depth source
-        || hasSelfRefAtDepthClauses fuel (depth + 1) rest body
-  | .guard cond :: rest, body =>
-      hasSelfRefAtDepth fuel depth cond
-        || hasSelfRefAtDepthClauses fuel depth rest body
+    (fuel : Nat) (depth : Nat) (clauses : List (Clause Value)) (body : Value) : Bool :=
+  descendClauses false (· || ·)
+    (fun d source => hasSelfRefAtDepth fuel d source)
+    (fun d cond => hasSelfRefAtDepth fuel d cond)
+    (fun d => hasSelfRefAtDepth fuel d body)
+    depth clauses
 end
 
 /-- Does this unevaluated definition body reference one of its OWN top-level fields — directly
