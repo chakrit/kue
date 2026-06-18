@@ -311,49 +311,43 @@ def fixturePorts : List FixturePort :=
       fileName := "builtins/and_or_builtin.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)]⟩,
               ⟨"orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")]⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "builtins/integer_builtin.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"divValue", .regular, divValue (.prim (.int (-7))) (.prim (.int 3))⟩,
               ⟨"modValue", .regular, modValue (.prim (.int (-7))) (.prim (.int 3))⟩,
               ⟨"quoValue", .regular, quoValue (.prim (.int (-7))) (.prim (.int 3))⟩,
               ⟨"remValue", .regular, remValue (.prim (.int (-7))) (.prim (.int 3))⟩,
               ⟨"incompleteDiv", .regular, divValue (.kind .int) (.prim (.int 3))⟩,
               ⟨"zeroDivisor", .regular, divValue (.prim (.int 7)) (.prim (.int 0))⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "definitions/closed_extra_field.expected",
       content :=
         formatField "x"
           (meet
-            (closeValue (.struct [⟨"a", .regular, .kind .int⟩] true))
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] true))
+            (closeValue (.structN [⟨"a", .regular, .kind .int⟩] .regularOpen none []))
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/closed_hidden_definition.expected",
       content :=
         formatField "x"
           (meet
-            (closeValue (.struct [⟨"a", .regular, .kind .int⟩] true))
-            (.struct
-              [
+            (closeValue (.structN [⟨"a", .regular, .kind .int⟩] .regularOpen none []))
+            (.structN [
                 ⟨"a", .regular, .prim (.int 1)⟩,
                 ⟨"_h", .hidden, .prim (.string "secret")⟩,
                 ⟨"#D", .definition, .kind .string⟩
-              ]
-              true))
+              ] .regularOpen none []))
     },
     {
       -- Optional definition (`#x?`) and optional hidden (`_x?`) fields: both modifiers are
@@ -372,8 +366,8 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (closeValue (.structPattern [] (.stringRegex "^a$") (.kind .int) true))
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] true))
+            (closeValue (.structN [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))]))
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
     },
     {
       fileName := "disjunctions/default_disjunction.expected",
@@ -462,7 +456,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (normalizeDefinitions
-            (.struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] true⟩] true))
+            (.structN [⟨"#A", .definition, .structN [⟨"a", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/definition_reference.expected",
@@ -526,28 +520,28 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.prim (.string "a")) (.kind .int) true)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] true))
+            (.structN [] .regularOpen none [((.prim (.string "a")), (.kind .int))])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/string_kind_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.kind .string) (.kind .int) true)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] true))
+            (.structN [] .regularOpen none [((.kind .string), (.kind .int))])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/string_kind_pattern_mismatch.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.kind .string) (.kind .int) true)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] true))
+            (.structN [] .regularOpen none [((.kind .string), (.kind .int))])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/string_kind_pattern_only.expected",
-      content := formatField "x" (.structPattern [] (.kind .string) (.kind .int) true)
+      content := formatField "x" (.structN [] .regularOpen none [((.kind .string), (.kind .int))])
     },
     {
       fileName := "structs/type_label_colon_shorthand.expected",
@@ -563,8 +557,8 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.struct [⟨"a", .regular, .prim (.string "a")⟩] true)
-            (.struct [⟨"a", .regular, .prim (.string "b")⟩] true))
+            (.structN [⟨"a", .regular, .prim (.string "a")⟩] .regularOpen none [])
+            (.structN [⟨"a", .regular, .prim (.string "b")⟩] .regularOpen none []))
     },
     {
       fileName := "structs/field_alias.expected",
@@ -637,53 +631,45 @@ def fixturePorts : List FixturePort :=
       fileName := "numeric/number_literals.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"x", .regular, .prim (.int 1000)⟩,
               ⟨"y", .regular, .prim (.float "1.25e+3")⟩,
               ⟨"z", .regular, .prim (.float "-2e+3")⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "numeric/non_decimal_numbers.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"hex", .regular, .prim (.int 31)⟩,
               ⟨"oct", .regular, .prim (.int 15)⟩,
               ⟨"bin", .regular, .prim (.int 10)⟩,
               ⟨"negHex", .regular, .prim (.int (-16))⟩,
               ⟨"sep", .regular, .prim (.int 10)⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "numeric/unary_plus_numbers.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"x", .regular, .prim (.int 1)⟩,
               ⟨"y", .regular, .prim (.float "1.5")⟩,
               ⟨"z", .regular, .prim (.int 16)⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "numeric/numeric_suffixes.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"k", .regular, .prim (.int 1000)⟩,
               ⟨"ki", .regular, .prim (.int 1024)⟩,
               ⟨"fracK", .regular, .prim (.int 1500)⟩,
               ⟨"fracKi", .regular, .prim (.int 1536)⟩,
               ⟨"neg", .regular, .prim (.int (-1500))⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "refs/hidden_field_reference.manifest.expected",
@@ -760,58 +746,48 @@ def fixturePorts : List FixturePort :=
       fileName := "builtins/len_builtin.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"stringLen", .regular, lenValue (.prim (.string "abc"))⟩,
               ⟨"listLen", .regular, lenValue (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])⟩,
               ⟨"structLen", .regular,
                 lenValue
-                  (.struct
-                    [
+                  (.structN [
                       ⟨"a", .regular, .prim (.int 1)⟩,
                       ⟨"b", .optional, .prim (.int 2)⟩,
                       ⟨"_c", .hidden, .prim (.int 3)⟩,
                       ⟨"#D", .definition, .prim (.int 4)⟩
-                    ]
-                    true)⟩
-            ]
-            true)
+                    ] .regularOpen none [])⟩
+            ] .regularOpen none [])
     },
     {
       fileName := "builtins/unresolved_builtin.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"lenString", .regular, lenValue (.kind .string)⟩,
               ⟨"emptyOr", .regular, orValues []⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "manifest/manifest_field_filtering.manifest.expected",
       content :=
         formatManifestFieldResult "x"
-          (.struct
-            [
+          (.structN [
               ⟨"a", .regular, .prim (.int 1)⟩,
               ⟨"b", .regular, .list [.prim (.string "x")]⟩,
               ⟨"_hidden", .hidden, .prim (.bool true)⟩,
               ⟨"#Schema", .definition, .kind .int⟩,
               ⟨"optional", .optional, .prim (.string "skip")⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "manifest/manifest_nested_default.manifest.expected",
       content :=
         formatManifestFieldResult "x"
-          (.struct
-            [
+          (.structN [
               ⟨"mode", .regular,
                 .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩
-            ]
-            true)
+            ] .regularOpen none [])
     },
     {
       fileName := "refs/let_binding.expected",
@@ -906,8 +882,8 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.struct [⟨"items", .regular, .list [.kind .int, .kind .string]⟩] true)
-            (.struct [⟨"items", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] true))
+            (.structN [⟨"items", .regular, .list [.kind .int, .kind .string]⟩] .regularOpen none [])
+            (.structN [⟨"items", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none []))
     },
     {
       fileName := "lists/nested_reference_list.expected",
@@ -920,8 +896,8 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.struct [⟨"a", .regular, .kind .int⟩] true)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩] true))
+            (.structN [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []))
     },
     {
       fileName := "disjunctions/number_disjunction.expected",
@@ -947,21 +923,17 @@ def fixturePorts : List FixturePort :=
       fileName := "manifest/optional_default_absent.manifest.expected",
       content :=
         formatManifestFieldResult "x"
-          (.struct
-            [⟨"mode", .optional,
-              .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
-            true)
+          (.structN [⟨"mode", .optional,
+              .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
     },
     {
       fileName := "manifest/optional_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (meet
-            (.struct
-              [⟨"mode", .optional,
-                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
-              true)
-            (.struct [⟨"mode", .regular, .top⟩] true))
+            (.structN [⟨"mode", .optional,
+                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+            (.structN [⟨"mode", .regular, .top⟩] .regularOpen none []))
     },
     {
       fileName := "numeric/primitive_exclusion.expected",
@@ -972,229 +944,180 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.struct [⟨"a", .regular, .kind .int⟩] true)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] true))
+            (.structN [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_label_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^a$") (.kind .int) true)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] true))
+            (.structN [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/multiple_pattern_fields.expected",
       content :=
         formatField "x"
           (meet
-            (.structPatterns
-              []
-              [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]
-              true)
-            (.struct
-              [
+            (.structN [] .regularOpen none [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)])
+            (.structN [
                 ⟨"az", .regular, .prim (.int 1)⟩,
                 ⟨"ax", .regular, .prim (.int 2)⟩,
                 ⟨"bz", .regular, .prim (.string "ok")⟩
-              ]
-              true))
+              ] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_wildcard_pattern.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"x", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a.*z$") (.kind .int) true)
-                  (.struct
-                    [⟨"abcz", .regular, .prim (.int 1)⟩, ⟨"abcy", .regular, .prim (.string "skip")⟩]
-                    true)⟩,
+                  (.structN [] .regularOpen none [((.stringRegex "^a.*z$"), (.kind .int))])
+                  (.structN [⟨"abcz", .regular, .prim (.int 1)⟩, ⟨"abcy", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
               ⟨"y", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a.+z$") (.kind .int) true)
-                  (.struct
-                    [⟨"az", .regular, .prim (.string "skip")⟩, ⟨"abz", .regular, .prim (.int 2)⟩]
-                    true)⟩
-            ]
-            true)
+                  (.structN [] .regularOpen none [((.stringRegex "^a.+z$"), (.kind .int))])
+                  (.structN [⟨"az", .regular, .prim (.string "skip")⟩, ⟨"abz", .regular, .prim (.int 2)⟩] .regularOpen none [])⟩
+            ] .regularOpen none [])
     },
     {
       fileName := "definitions/regex_class_pattern.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"x", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^[ab]cz$") (.kind .int) true)
-                  (.struct
-                    [
+                  (.structN [] .regularOpen none [((.stringRegex "^[ab]cz$"), (.kind .int))])
+                  (.structN [
                       ⟨"acz", .regular, .prim (.int 1)⟩,
                       ⟨"bcz", .regular, .prim (.int 2)⟩,
                       ⟨"ccz", .regular, .prim (.string "skip")⟩
-                    ]
-                    true)⟩,
+                    ] .regularOpen none [])⟩,
               ⟨"y", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a[0-9]z$") (.kind .int) true)
-                  (.struct
-                    [⟨"a5z", .regular, .prim (.int 1)⟩, ⟨"axz", .regular, .prim (.string "skip")⟩]
-                    true)⟩
-            ]
-            true)
+                  (.structN [] .regularOpen none [((.stringRegex "^a[0-9]z$"), (.kind .int))])
+                  (.structN [⟨"a5z", .regular, .prim (.int 1)⟩, ⟨"axz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩
+            ] .regularOpen none [])
     },
     {
       fileName := "definitions/regex_escape_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^a\\.z$") (.kind .int) true)
-            (.struct
-              [⟨"a.z", .regular, .prim (.string "bad")⟩, ⟨"abz", .regular, .prim (.string "skip")⟩]
-              true))
+            (.structN [] .regularOpen none [((.stringRegex "^a\\.z$"), (.kind .int))])
+            (.structN [⟨"a.z", .regular, .prim (.string "bad")⟩, ⟨"abz", .regular, .prim (.string "skip")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_question_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^colou?r$") (.kind .int) true)
-            (.struct
-              [
+            (.structN [] .regularOpen none [((.stringRegex "^colou?r$"), (.kind .int))])
+            (.structN [
                 ⟨"color", .regular, .prim (.string "bad")⟩,
                 ⟨"colour", .regular, .prim (.int 2)⟩,
                 ⟨"colouur", .regular, .prim (.string "skip")⟩
-              ]
-              true))
+              ] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_shorthand_pattern.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"x", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a\\dz$") (.kind .int) true)
-                  (.struct
-                    [⟨"a5z", .regular, .prim (.string "bad")⟩, ⟨"adz", .regular, .prim (.string "skip")⟩]
-                    true)⟩,
+                  (.structN [] .regularOpen none [((.stringRegex "^a\\dz$"), (.kind .int))])
+                  (.structN [⟨"a5z", .regular, .prim (.string "bad")⟩, ⟨"adz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
               ⟨"y", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a\\Dz$") (.kind .int) true)
-                  (.struct
-                    [⟨"a5z", .regular, .prim (.string "skip")⟩, ⟨"adz", .regular, .prim (.int 1)⟩]
-                    true)⟩
-            ]
-            true)
+                  (.structN [] .regularOpen none [((.stringRegex "^a\\Dz$"), (.kind .int))])
+                  (.structN [⟨"a5z", .regular, .prim (.string "skip")⟩, ⟨"adz", .regular, .prim (.int 1)⟩] .regularOpen none [])⟩
+            ] .regularOpen none [])
     },
     {
       fileName := "definitions/regex_alternation_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^cat$|^dog$") (.kind .int) true)
-            (.struct
-              [
+            (.structN [] .regularOpen none [((.stringRegex "^cat$|^dog$"), (.kind .int))])
+            (.structN [
                 ⟨"cat", .regular, .prim (.string "bad")⟩,
                 ⟨"dog", .regular, .prim (.int 2)⟩,
                 ⟨"cow", .regular, .prim (.string "skip")⟩
-              ]
-              true))
+              ] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_group_alternation_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^(cat|dog)$") (.kind .int) true)
-            (.struct
-              [
+            (.structN [] .regularOpen none [((.stringRegex "^(cat|dog)$"), (.kind .int))])
+            (.structN [
                 ⟨"cat", .regular, .prim (.string "bad")⟩,
                 ⟨"dog", .regular, .prim (.int 2)⟩,
                 ⟨"cow", .regular, .prim (.string "skip")⟩
-              ]
-              true))
+              ] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_word_shorthand_pattern.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"x", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a\\wz$") (.kind .int) true)
-                  (.struct
-                    [⟨"a_z", .regular, .prim (.string "bad")⟩, ⟨"a-z", .regular, .prim (.string "skip")⟩]
-                    true)⟩,
+                  (.structN [] .regularOpen none [((.stringRegex "^a\\wz$"), (.kind .int))])
+                  (.structN [⟨"a_z", .regular, .prim (.string "bad")⟩, ⟨"a-z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
               ⟨"y", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a\\Wz$") (.kind .int) true)
-                  (.struct
-                    [⟨"a_z", .regular, .prim (.string "skip")⟩, ⟨"a-z", .regular, .prim (.string "bad")⟩]
-                    true)⟩
-            ]
-            true)
+                  (.structN [] .regularOpen none [((.stringRegex "^a\\Wz$"), (.kind .int))])
+                  (.structN [⟨"a_z", .regular, .prim (.string "skip")⟩, ⟨"a-z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
+            ] .regularOpen none [])
     },
     {
       fileName := "definitions/regex_space_shorthand_pattern.expected",
       content :=
         formatTopLevel
-          (.struct
-            [
+          (.structN [
               ⟨"x", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a\\sz$") (.kind .int) true)
-                  (.struct
-                    [⟨"a z", .regular, .prim (.string "bad")⟩, ⟨"a_z", .regular, .prim (.string "skip")⟩]
-                    true)⟩,
+                  (.structN [] .regularOpen none [((.stringRegex "^a\\sz$"), (.kind .int))])
+                  (.structN [⟨"a z", .regular, .prim (.string "bad")⟩, ⟨"a_z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
               ⟨"y", .regular,
                 meet
-                  (.structPattern [] (.stringRegex "^a\\Sz$") (.kind .int) true)
-                  (.struct
-                    [⟨"a z", .regular, .prim (.string "skip")⟩, ⟨"a_z", .regular, .prim (.string "bad")⟩]
-                    true)⟩
-            ]
-            true)
+                  (.structN [] .regularOpen none [((.stringRegex "^a\\Sz$"), (.kind .int))])
+                  (.structN [⟨"a z", .regular, .prim (.string "skip")⟩, ⟨"a_z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
+            ] .regularOpen none [])
     },
     {
       fileName := "definitions/regex_exact_repetition_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^a\\d{2}z$") (.kind .int) true)
-            (.struct
-              [⟨"a12z", .regular, .prim (.string "bad")⟩, ⟨"a1z", .regular, .prim (.string "skip")⟩]
-              true))
+            (.structN [] .regularOpen none [((.stringRegex "^a\\d{2}z$"), (.kind .int))])
+            (.structN [⟨"a12z", .regular, .prim (.string "bad")⟩, ⟨"a1z", .regular, .prim (.string "skip")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_bounded_repetition_pattern.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.stringRegex "^a\\d{2,3}z$") (.kind .int) true)
-            (.struct
-              [
+            (.structN [] .regularOpen none [((.stringRegex "^a\\d{2,3}z$"), (.kind .int))])
+            (.structN [
                 ⟨"a12z", .regular, .prim (.int 2)⟩,
                 ⟨"a123z", .regular, .prim (.string "bad")⟩,
                 ⟨"a1z", .regular, .prim (.string "skip")⟩
-              ]
-              true))
+              ] .regularOpen none []))
     },
     {
       fileName := "manifest/required_default_materialized.manifest.expected",
       content :=
         formatManifestFieldResult "x"
           (meet
-            (.struct
-              [⟨"mode", .required,
-                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩]
-              true)
-            (.struct [⟨"mode", .regular, .top⟩] true))
+            (.structN [⟨"mode", .required,
+                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+            (.structN [⟨"mode", .regular, .top⟩] .regularOpen none []))
     },
     {
       fileName := "bounds/strict_int_bounds.expected",
@@ -1223,24 +1146,24 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.kind .string) (.kind .int) true)
-            (.struct [⟨"a", .regular, .prim (.string "x")⟩] true))
+            (.structN [] .regularOpen none [((.kind .string), (.kind .int))])
+            (.structN [⟨"a", .regular, .prim (.string "x")⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/string_pattern_constraint.expected",
       content :=
         formatField "x"
           (meet
-            (.structPattern [] (.kind .string) (.kind .int) true)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] true))
+            (.structN [] .regularOpen none [((.kind .string), (.kind .int))])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
     },
     {
       fileName := "structs/struct_ellipsis.expected",
       content :=
         formatField "x"
           (meet
-            (.structTail [⟨"a", .regular, .kind .int⟩] .top)
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "ok")⟩] true))
+            (.structN [⟨"a", .regular, .kind .int⟩] .defOpenViaTail (some .top) [])
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "ok")⟩] .regularOpen none []))
     },
     {
       fileName := "disjunctions/struct_disjunction_meet.expected",
@@ -1249,15 +1172,13 @@ def fixturePorts : List FixturePort :=
           (meet
             (.disj
               [
-                (.regular, .struct [⟨"kind", .regular, .prim (.string "web")⟩] true),
-                (.regular, .struct [⟨"kind", .regular, .prim (.string "db")⟩] true)
+                (.regular, .structN [⟨"kind", .regular, .prim (.string "web")⟩] .regularOpen none []),
+                (.regular, .structN [⟨"kind", .regular, .prim (.string "db")⟩] .regularOpen none [])
               ])
-            (.struct
-              [
+            (.structN [
                 ⟨"kind", .regular, .prim (.string "web")⟩,
                 ⟨"port", .regular, .prim (.int 80)⟩
-              ]
-              true))
+              ] .regularOpen none []))
     },
     {
       fileName := "refs/three_reference_cycle.expected",
@@ -1740,7 +1661,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (.struct [⟨"a", .regular, .prim (.int 1)⟩] true)
+            (.structN [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
             (.list [.prim (.int 1), .prim (.int 2)]))
     },
     {
