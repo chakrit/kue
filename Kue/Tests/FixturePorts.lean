@@ -458,6 +458,29 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- B6-A2: a closed `#Def` nested under a `let`-bound value. Selecting it (`x.#I`) and meeting
+      -- an undeclared `extra` must REJECT it (cue v0.16.1: `out.extra: field not allowed`). Before
+      -- B6-A2, `normalizeFieldWithFuel` skipped `letBinding` field values alongside hidden, so the
+      -- nested def reached the meet still open and admitted `extra`. `letBinding` is its OWN
+      -- `FieldClass` kind (NOT the import-binding A2 trap), so the spine walker closes it safely.
+      -- Parsed (not AST-constructed) so the real `let` → `letBinding` field is exercised.
+      fileName := "definitions/let_nested_def_closes.expected",
+      content :=
+        match parseSource "let x = {#I: {y: int}}\nout: x.#I & {y: 1, extra: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- B6-A2 no-over-close sentinel: the same `let`-nested def but OPEN via `...`
+      -- (`#I: {y:int, ...}`). cue admits `extra` (and Kue must too — the spine walker leaves a
+      -- `defOpenViaTail` body open). Pins that the `let` arm closes only genuinely-closed defs.
+      fileName := "definitions/let_nested_def_open.expected",
+      content :=
+        match parseSource "let x = {#I: {y: int, ...}}\nout: x.#I & {y: 1, extra: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "refs/direct_self_reference.expected",
       content := formatTopLevel (resolveAndEval (.struct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))
     },

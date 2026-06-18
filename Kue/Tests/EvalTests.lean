@@ -1147,5 +1147,33 @@ theorem eval_open_def_under_regular_field_admits_extra :
       = true := by
   native_decide
 
+/-! ### B6-A2 — definition-body closedness enforced through a `let`-bound value.
+
+A closed `#Def` nested under a `let` binding closes exactly as under a regular field: `letBinding`
+is its OWN `FieldClass` kind, NOT the import-binding A2 trap (the hidden-field skip), so the spine
+walker can recurse it safely. Oracle cue v0.16.1: `let x = {#I: {y:int}}; x.#I & {extra}` →
+`out.extra: field not allowed`; an open def (`...`) under the same `let` admits `extra` (no
+over-close). This is the `letBinding` arm of the future A2-followup 4-way `FieldClass` split. -/
+theorem eval_let_nested_def_closes :
+    evalSourceMatches
+        "let x = {#I: {y: int}}\nout: x.#I & {y: 1, extra: 2}\n"
+        "out: {y: 1, extra: _|_}"
+      = true := by
+  native_decide
+
+theorem eval_let_nested_def_open_admits_extra :
+    evalSourceMatches
+        "let x = {#I: {y: int, ...}}\nout: x.#I & {y: 1, extra: 2}\n"
+        "out: {y: 1, extra: 2, ...}"
+      = true := by
+  native_decide
+
+theorem eval_let_plain_struct_stays_open :
+    evalSourceMatches
+        "let x = {p: {y: int}}\nout: x.p & {y: 1, extra: 2}\n"
+        "out: {y: 1, extra: 2}"
+      = true := by
+  native_decide
+
 
 end Kue
