@@ -96,6 +96,55 @@ field-ordering byte-parity gap, #3 in the backlog):
   all content-identical to cue modulo field-order #3; cert-manager + links 2/3/4 no regression).
   **Blocked on link 5** (`packs.#Argo` — see backlog item 1, the live blocker).
 
+## Phase-A audit (2026-06-18, slice `114eba8` argocd link 3/4) — VIOLATION found
+
+Audit of the link-3/4 slice (`Eval.lean` two-pass gate depth/`.listComprehension`;
+`Parse.lean` open-struct-with-embeds collapse). PART A correctness: ONE regression
+(VIOLATION). PART B perf: regression is REDUNDANT-dominated (cheap fix exists).
+
+- **VIOLATION (HIGH — fix-slice 0 below).** Fix 2's parser collapse silently CLOSES an
+  open definition. `parsedFieldsValue` now drops the `...` tail for any def with
+  comprehensions/embeds, returning the `.structComp open_=true`. But
+  `normalizeDefinitionValueWithFuel` (`Normalize.lean:13-19`) hard-sets the `.structComp`
+  arm to `open_ := false` — it IGNORES the incoming `open_` flag — so a def declared open
+  via `...` is closed, and an extra field at the use site now bottoms. Bisected old/new/cue
+  (`/tmp/kue-parent` @ `6667a7e`): `#D: {e, ...}` then `#D & {c}` → OLD `{a,c}` = cue;
+  NEW bottoms. NOT embed-specific: `#D: {if true {b}, ...}` (comprehension + `...`, no
+  embed) regresses identically. Non-def open structs unaffected (they stay open without
+  normalize). The committed fixtures missed it because every use site only NARROWS existing
+  fields, never ADDS an extra one past the `...`. This is real-app-relevant: prod9 `#Def`s
+  are routinely `{embed; …; ...}` and consumers add fields. Soundness claim "byte-identical
+  fixtures" held only because the fixtures didn't cover the open-accepts-extra shape.
+- **Gate over-fire:** value-safe. Pass-2 re-eval is idempotent on already-resolved embedded
+  fields; over-firing costs perf only, never a wrong value (probed deep/nested/multi-depth
+  embed-label reads — all cue-exact). The `no-over-fire on nested unrelated label` pin tests
+  the `labels.contains` guard, not the depth guard — sound but narrow; a depth-mismatch pin
+  would strengthen it (LOW).
+- **Dead-OR-branch: GONE.** Fix 1 removed the `… || refsSelfEmbeddedLabel … (.refId id)`
+  recursion outright (the `.selector (.refId id) label` arm is now a plain conjunction). The
+  backlog "Dead OR-branch `Eval.lean:97`" entry under item 8 is STALE — delete it.
+- **Self-ref scanner consistency: OK.** All three scanners (`refsSelfEmbeddedLabel`,
+  `hasSelfRefAtDepth`, `defBodyHasSiblingSelfRef`→`hasSelfRefAtDepth`, `bodyNeedsDefer`→
+  former) now carry the `.listComprehension` arm transitively. No remaining gap.
+
+### Fix-slice 0 — `def-open-tail-closedness` (HIGH — correctness regression, do FIRST)
+Make an open def survive normalize. The collapse loses no info IF normalize honors the
+`open_` flag. Two candidate fixes, prefer the one that's clearly sound:
+- **(A) honor `open_` in normalize.** `Normalize.lean:13` `.structComp` arm: close only when
+  the incoming `open_` is false — `.structComp (…) comprehensions open_` (preserve flag)
+  instead of hard `false`. Mirror the `.struct` arm too (line 11 also hard-`false`s, but the
+  parser only routes `...`-bearing plain structs to `.structTail`, so `.struct` reaching
+  normalize is always closed-intent — verify before touching). This is the root fix and
+  matches CUE: `...` overrides a def's default closedness.
+- **(B) keep the tail node.** Revert Fix 2 toward carrying the openness explicitly — but the
+  old `.conj` split is what link 4 fixed, so a plain revert reintroduces the `#ListenerSet`
+  bottom. Would need a NEW representation (e.g. `.structComp` + a dedicated open marker the
+  parser sets and normalize reads) — heavier than (A).
+Pick (A). Pin: def-with-`...`-with-embed accepts extra field at use site (the regressed
+shape) AND the link-4 `open_embed_selfref_guard` fixture still passes (narrowing still
+works). Add fixtures for embed+`...`+extra and comp+`...`+extra (both currently bottom).
+Full verify gate; this unblocks a real correctness hole.
+
 ## Live Backlog (open work, ranked)
 
 Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence:
