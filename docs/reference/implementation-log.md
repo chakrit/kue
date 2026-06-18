@@ -7956,3 +7956,60 @@ emits old `.struct`, so a structN expected there would mismatch. Must-fix item 3
 `lake build` green (no warnings) and `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO
 byte-drift) at EVERY commit (testdata untouched; the migrated inputs render identical strings).
 No shell changed.
+
+## Completed Slice: B2.2/CP3-flip — production flip + ctor delete + rename
+
+The irreversible landing of the family-1 struct collapse, done in an isolated worktree
+(`worktree-agent-a73190051b5458ad4`, commits `ee7dfe5`..`3f5bbbe`) because the codebase is RED
+mid-flip and only green at the end. After this, the four legacy struct ctors are gone — one
+`Value.struct fields openness tail patterns` remains (plus `structComp`, separate = B2b).
+
+### Steps
+
+1. **Producers → `mkStruct`.** Every construction site that built an old struct ctor now builds
+   the normalized form via `mkStruct`, mapping the parser's `open_`/`hasTail` onto
+   `StructOpenness`: a no-`...` struct ⇒ `.regularOpen`, an explicit `...` ⇒ `.defOpenViaTail
+   (some tail)`. Sites: `Parse.parsedFieldsBaseValue`/`parsedFieldsValue` (the headline parser
+   producer), `Runtime.mergeSourceValues` empty default, `Module.bindImports`, and all `Eval`
+   re-emit points — comprehension result, `dynamicField`, `evalConjStandard`, the `.structComp`
+   eval-arm host meet, and `forceClosureWithConjunct`'s use-operand fold. `applyEvaluatedStructN`
+   (dead since B2.1) is now the live evaluated-struct re-emit, including its pattern arm.
+2. **Delete 4 ctors + dead arms.** Removed `struct`/`structTail`/`structPattern`/`structPatterns`
+   from `Value`. The vanishing 2-arg `Value.struct` turned every stale site into a compile error
+   (the collision guard: `ManifestValue.struct` is a different 1-arg type, never errored). Fixed
+   per-error, module by module — Lattice's 12-arm meet matrix + the 5 legacy merge helpers
+   (`patternStructValue`, `mergeStruct{Tail,Pattern,Patterns}With*`) collapsed to the single
+   `mergeStructN` arm; every other module's legacy match arms (already shadowed by a live structN
+   arm during CP3-pre) deleted.
+3. **Rename `Value.structN → Value.struct`** (arity 2→4) by word-boundary token replace of
+   `structN` — collision-free since `ManifestValue.struct` is already `.struct` (not `.structN`)
+   and the helper names contain capital-`StructN` (`mergeStructN`, `applyEvaluatedStructN`,
+   `structNSubsumes`, `structNTailCoherent`), which the `\bstructN\b` match skips.
+4. **Migrate produced-output tests.** The ~95 `== .struct`/`.structTail`/`.structPattern(s)`
+   produced-output literals CP3-pre left (production then emitted old `.struct`) + the ~85
+   FixturePorts producer ports + nested literals across ClosureTests/EvalTests/FixtureTests/
+   ResolveTests/NormalizeTests/TwoPassTests/PresenceTests/BoundTests/EvalPerfTests/ModuleTests
+   rewritten to the 4-arg `.struct fields openness tail patterns` (mapping: `true`→`.regularOpen`,
+   `false`→`.defClosed`, `tail`→`.defOpenViaTail (some t)`, `[pattern]`→`[(lp,c)]`). Done with a
+   balanced-bracket parser (only old forms rewritten; already-4-arg `.struct` and `ManifestValue`
+   sites untouched).
+5. **Pin `applyEvaluatedStructN` pattern path (must-fix item 3).** Two end-to-end EvalTests pins
+   exercising an evaluated pattern-struct, oracle-checked vs cue v0.16.1: a field matching
+   `[=~"x"]` is constrained (`string & "hi" = "hi"`; `int & "str"` bottoms it), a non-matching
+   field is left untouched.
+
+### Divergence (this slice's authorized improvement)
+
+`mkStruct`/`dedupPatterns` deduplicates repeated equal `[pattern]: constraint` pairs. The legacy
+`structPatterns` accumulated them per meet (no dedup), so the four TwoPassTests embed-narrowing
+pins asserted `[string]: string` repeated 3×. cue v0.16.1 collapses to ONE — oracle-confirmed —
+so the expected strings were corrected to the deduped (cue-matching) form, NOT smuggled back to
+the buggy legacy output. A second, surface-only divergence (cue elides residual `[pattern]: c`
+from `eval` output; Kue shows it — values + concrete export identical) is recorded in
+`cue-divergences.md`.
+
+### Verify
+
+`lake build` green (no warnings/`sorry`), `scripts/check-fixtures.sh` → `fixture pairs ok` with
+ZERO byte-drift on all testdata `.expected` (the representation changed; the observable values
+did not — the whole correctness argument), shellcheck clean.

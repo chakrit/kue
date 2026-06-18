@@ -695,7 +695,9 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     flips them). `.structN × listLike` embedding + the `embeddedList` inner matches gained
     plain-struct-equivalent (`structN _ _ none []`) arms. Old 12 arms + 4 ctors NOT yet
     deleted (that's CP3, gated on the test migration below).
-  - **B2.2 — flip CONSTRUCTION to produce `structN`. BLOCKED / NEXT.** (Phase-A 2026-06-19
+  - **B2.2 — flip CONSTRUCTION to produce `structN`. DONE (2026-06-19, CP3-pre + CP3-flip;
+    the family-1 struct collapse is COMPLETE — 5 ctors → 1, except `structComp` = B2b).**
+    (Phase-A 2026-06-19
     audited every dead `.structN` arm + `mergeStructN` by inspection vs the legacy forms —
     ALL reproduce legacy, see that audit section for the arm-by-arm verdict. THREE
     must-fix-before-flip items it raised: (1) `Order.subsumes` has no structN arm — MERGE the
@@ -735,6 +737,32 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
     in ClosureTests/EvalTests/ResolveTests/FixtureTests/Normalize/TwoPass/Presence/Bound +
     FixturePorts producer ports) correctly LEFT for the CP3-flip. Must-fix items 1+2 CONSUMED;
     item 3 (`applyEvaluatedStructN`) is flip-only.
+  - **B2.2/CP3-flip — production flip + ctor delete + rename + class-2 tests. DONE (2026-06-19,
+    worktree `worktree-agent-a73190051b5458ad4`, commits `ee7dfe5`..`3f5bbbe`; orchestrator
+    fast-forwards `main`).** The irreversible landing, one green endpoint:
+    (1) **Producers flipped to `mkStruct`** — `Parse.parsedFieldsBaseValue`/`parsedFieldsValue`
+    (open_/hasTail → openness: no-tail ⇒ `.regularOpen`, explicit `...` ⇒ `.defOpenViaTail
+    (some tail)`), `Runtime.mergeSourceValues` empty default, `Module.bindImports`, and every
+    `Eval` re-emit (comprehension result, `dynamicField`, `evalConjStandard`, the `.structComp`
+    host meet, `forceClosureWithConjunct`'s use-operand fold). `applyEvaluatedStructN` is now
+    the LIVE struct re-emit. (2) **4 old ctors deleted** (`struct`/`structTail`/`structPattern`/
+    `structPatterns`); `structComp` KEPT (= B2b). Every dead legacy match arm removed across all
+    modules; Lattice's 12-arm meet matrix + 5 legacy merge helpers collapsed to the single
+    `mergeStructN` arm. (3) **`Value.structN → Value.struct` renamed** (arity 2→4) by
+    word-boundary token replace (~495 sites); `ManifestValue.struct` (1-arg, Manifest/Yaml/Json)
+    left untouched, helper names `mergeStructN`/`applyEvaluatedStructN`/`structNSubsumes`/
+    `structNTailCoherent` kept. (4) **~95 produced-output test literals + ~85 FixturePorts
+    producer ports** (+ nested literals across 10 test files) migrated to the 4-arg `.struct
+    fields openness tail patterns`. (5) **Must-fix item 3** pinned: two `applyEvaluatedStructN`
+    pattern-path pins in EvalTests, oracle-checked vs cue v0.16.1.
+    **Correctness gate met:** `lake build` green, `scripts/check-fixtures.sh` → `fixture pairs
+    ok` with ZERO byte-drift on all testdata `.expected`, shellcheck clean. ONE documented
+    representation divergence (this slice's authorized improvement): `mkStruct`/`dedupPatterns`
+    now collapses repeated equal `[pattern]: c` constraints to one (legacy `structPatterns`
+    accumulated them per meet), matching cue v0.16.1 — the 4 TwoPassTests embed-narrowing pins'
+    expected strings updated from the legacy triple-`[string]: string` to the cue-correct single
+    pattern. A separate eval-output pattern-elision divergence (cue elides residual patterns from
+    `eval`; Kue shows them — values + concrete export agree) recorded in cue-divergences.md.
 
     ### B2.2/CP3 megaslice — DE-RISKED EXECUTION PLAN (Phase-B audit 2026-06-19 #5)
 
