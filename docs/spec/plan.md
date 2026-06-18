@@ -598,6 +598,110 @@ Field-ordering parity (#3) is orthogonal byte-parity polish — surfaced again i
 (open def + use-site extra field: values match cue, byte order differs — `extra` before vs
 after `out`). The committed `crosspkg_defmeet` fixture avoids it (def-only output).
 
+## Audit Fix-Slices (Value.closure slices 3-4 — Phase A code-quality, audit 2026-06-18 #2)
+
+Phase A over the two behavior-changing closure slices: `42db7fa` (closure-producer: the
+import-selector arm emits a `.closure`) and `fd06f70` (closure-meet: `forceClosureWithConjunct`
+splices the use-site into the forced body; +2 inline bug fixes). Type-system-first lens.
+Verify gate green at audit time: `lake build` 86 jobs, `check-fixtures.sh` "fixture pairs ok",
+tree clean at `79844c2`. Oracle: `cue` v0.16.1. No inline fix this pass — the one Violation
+needs a design sub-spike (it IS slice A's scope), the rest are test-strength/cleanup; this pass
+changed only `plan.md`.
+
+### Headline verdict — CLEAR to build slice A, with ONE load-bearing caveat folded INTO it
+
+The single-closure single-use-site machinery is **sound** and cue-exact on its target shape.
+No Violation blocks STARTING slice A. BUT the one real correctness hole found
+(`closure-multiop-splice` below) is not a separate slice — it is *the same gap slice A must
+close*: splicing a SECOND struct/def operand (a package-sourced struct or a second imported def)
+into the closure frame currently yields `bottom`/`incomplete` where cue resolves, and real-app
+`Self={ parts.#Metadata; … }` defs embed exactly such a package-sourced struct. Slice A cannot
+be called done until the multi-operand splice is correct. The two inline bug fixes (closedness,
+`.structTail`) are **correct and complete** for what they target (verified below). Meet-purity
+containment is **airtight**. Findings ranked below.
+
+### Findings (ranked)
+
+1. **[VIOLATION (scoped INTO slice A, not a standalone blocker) — `closure-multiop-splice`]
+   The splice handles ONE closure + LOCAL-literal open structs; a SECOND package-sourced
+   struct/def operand collapses to `bottom`/`incomplete`.** Empirically (read-only `/tmp`
+   probes, cue v0.16.1 oracle):
+   - `#M & #N & {narrow}`, both open self-ref imported defs → cue `{label,out}`, kue
+     `incomplete value: string`. Root: `firstClosure?` splices only `#M`; `#N` stays a
+     `.closure` in `rest`, `evaluatedStructOperand?` returns `none` for it, so it lands in
+     `leftover` and is forced UNSPLICED (`evalValueWithFuel fuel e [] b`, `Eval.lean:1083-1084`)
+     — its body never sees the use-site narrowing → collapses.
+   - `#M & defs.P & {narrow}` where `P` is a regular/def OPEN struct (NOT a closure, no
+     self-ref) → cue `{out,plain}`, kue `conflicting values (bottom)`. Here `P`'s evaluated
+     struct DOES go through `useOperands`, yet splicing a *package-sourced* struct into the
+     pushed merged frame produces a spurious conflict. A LOCAL inline-literal struct in the
+     same position (`base:{plain:"p"}; #M & base & {narrow}`) splices CORRECTLY (kue==cue) —
+     so the trigger is "operand whose fields were evaluated against the import/package frame,"
+     not same-vs-cross-package at the use site (binding `localP: defs.P` first still fails).
+   This is THE shape real apps need: `#Def: Self={ parts.#Metadata; … }` embeds a
+   package-sourced struct into the def body. **Fix-slice = slice A itself** must (a) extend
+   `firstClosure?`/the fold so EVERY closure operand is force-spliced with the shared
+   use-site set (fold over all closures, not just the first), and (b) fix the
+   package-sourced-struct splice conflict (likely a closedness or rebase interaction in
+   `mergeConjOperands` when an operand's fields carry resolved package-frame values — needs the
+   sub-spike's root-cause trace). Until then, multi-operand def-meet is wrong, silently
+   (returns an error, so not a wrong *value*, but rejects valid programs).
+
+2. **[BORDERLINE — test strength, fold into slice A] `closure_meet_self_ref_terminates` does
+   not exercise a CAPTURED-frame cycle — only a depth-0 slot self-loop.** The pin
+   (`EvalTests.lean:1111`) uses `loop: refId ⟨0,1⟩` (a field referencing its own merged-frame
+   slot) → `slotVisited` → `.top`. That pins slot-local termination, but the plan/breadcrumb
+   claim the stronger "a closure whose `capturedEnv` frame refs ITSELF terminates." The capture
+   here is non-cyclic; the cycle is purely in the pushed merged frame. **Action:** slice A adds
+   a pin where the captured package frame contains a binding that refs back into the def
+   (capture-level cycle), confirming `visited:=[]` + `slotVisited` still terminates. Low risk;
+   no code change implied unless the pin fails.
+
+3. **[BORDERLINE — test strength, fold into slice A] No pin for the multi-operand path at all.**
+   The 7 slice-4 pins all use exactly ONE closure + ONE use-site struct (or empty). The
+   multi-closure and package-sourced-second-operand shapes (finding 1) are untested — the gap
+   went unnoticed because every pin is single-operand. Slice A must add: (a) two-closure
+   def-meet, (b) closure + package-sourced open struct, (c) closure + embedded package def
+   (the real-app shape), each oracle-checked. Pin the FIX, not just the current behavior.
+
+4. **[CLEANUP — confirmed sound, no action] The two inline bug fixes are correct AND complete.**
+   (a) **Closedness:** `importDefClosureBody?` runs the captured body through
+   `normalizeDefinitionValueWithFuel` (`Eval.lean:977`). Verified it does NOT over-close: only a
+   `.struct` body is forced `open_:=false` (`Normalize.lean:11-12`); a `.structTail` (open `...`
+   def) hits the catch-all `| _, value => value` (`Normalize.lean:46`) and stays open — so the
+   `closure_meet_open_def_admits_extra` behavior is real, not luck. It does NOT under-close:
+   `normalizeFieldWithFuel` recurses into nested DEFINITION fields only (`:51-54`), matching CUE
+   (a def closes its own labels + nested defs; a nested regular struct literal stays open).
+   (b) **`.structTail` gate:** the gate fires only on a genuine depth-0 sibling self-ref in the
+   tail-struct's fields/tail (`defBodyHasSiblingSelfRef`, `Eval.lean:944-945`); it cannot fire on
+   a non-self-ref open def. Sound. These are real fixes, not fixture-chasing.
+
+5. **[CLEANUP — confirmed sound, no action] Meet-purity reopening containment is airtight.**
+   `meetCore` handles `.closure _ _ => .bottom` for BOTH polarities with no catch-all swallowing
+   it (`Lattice.lean:393-394`), and `meetWithFuel`'s `value, other => meetCore value other`
+   routes there. So a stray closure reaching ANY meet site — `meetEmbeddingsWithFuel`
+   (`Eval.lean:1229`), `Builtin.lean:39`, `Runtime.lean:58`, the `firstClosure? = none` fold
+   (`Eval.lean:1072`) — degrades to `.bottom` (honest error), never a silent wrong value. The
+   `.conj none` force point is the ONLY site that splices; everywhere else is honest-`.bottom`.
+   `fuel` stays in `EvalKey` (`Eval.lean:790,797`); no `partial def` introduced; the whole
+   closure path is total (fuel-bounded `termination_by`). NOTE for slice A: the embedded-def
+   shape reaches `meetEmbeddingsWithFuel` (an embedding evaluates to a `.closure` → `meet` →
+   `.bottom`), so slice A's splice must also fire in the embedding-meet path, not just `.conj`.
+
+### What slice A (`closure-realapp-selfalias`) must account for (surfaced here)
+
+- The real blocker is finding 1's multi-operand/package-sourced-struct splice, NOT a new
+  "embedded def" deferral mechanism per se: the producer already fires on `parts.#Metadata`
+  (it is a selector), but the resulting closure either (a) hits `meetEmbeddingsWithFuel`'s plain
+  `meet` → `.bottom` (embedding position), or (b) reaches the `.conj` fold as a second operand
+  and is force-spliced wrong. Slice A's sub-spike must root-cause the package-sourced-struct
+  splice conflict BEFORE adding the `Self=` alias handling — the alias resolves already
+  (minimal `Self={…}` without an embed is cue-exact, per the slice-4 probe); the embed is the
+  gap.
+- Field-ordering parity (#3) will resurface in any multi-field real-app output (slice-4 EC1).
+  Orthogonal byte-polish — do not let it block correctness; the regression fixture should stay
+  def-only-output where possible to dodge it.
+
 ## Audit Fix-Slices (Value.closure slices 1-2 — Phase A code-quality, audit 2026-06-18)
 
 Phase A over the first two closure slices: `26a2040` (closure-ctor: constructor + 5 inert
