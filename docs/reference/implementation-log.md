@@ -7687,3 +7687,91 @@ refactor). The two B7-relevant fixtures (`comprehension_conj_body_remap` → `s.
 `comprehension_embed_self_narrow_body` → `v.out: [{v: "y"}]`) spot-checked content-identical
 to live `cue` v0.16.1. No shell scripts changed (shellcheck N/A). Pure refactor, no eval-path
 change → perf unchanged (no `kue-performance.md` edit).
+
+## Completed Slice: test-org pass (EvalTests split) + B4 LatticeTests (2026-06-19)
+
+Two-part slice landing the overdue test/fixture-organization pass (plan item 5, flagged by
+Phase-B #3) and a dedicated `LatticeTests` (B4) that de-risks the headline B2
+struct-constructor refactor by pinning the `meet`/`join` arms B2 will collapse.
+
+### Part 1 — `EvalTests.lean` split (behavior- and coverage-preserving)
+
+`EvalTests.lean` had grown to ~3022 lines. Split it into per-subsystem modules mirroring
+`Kue/`'s structure, cutting at the existing section seams (each block already clustered by
+topic with its own local helpers). The hard constraint was coverage preservation: every
+theorem/`native_decide` that ran before must still run.
+
+New modules (line counts approximate):
+
+- `Kue/Tests/EvalTestHelpers.lean` (~20) — the shared source-oracle helpers.
+  `evalSourceMatches` (used 54× across the original file, so it cannot live in any one
+  split module) plus the new `exportJsonMatches` (JSON `export` observable, added for
+  LatticeTests). Imported by all the split modules.
+- `Kue/Tests/EvalPerfTests.lean` (~470) — frame-id sharing, Pass-2 selective re-eval,
+  fuel-saturation caching, perf-B memo false-share pins (orig lines 114–577; owns the
+  `deepInline*`/`selPass*`/`sat*`/`twoPushIds`/`evalTwiceAt`/`evalOnceAt` helpers).
+- `Kue/Tests/ClosureTests.lean` (~762) — `Value.closure` ctor/eval/producer/meet,
+  multi-level embed chains, structcomp-force, import-selector aliases (orig lines
+  1671–2417; owns the `pkgEnvWith`/`selfRefM`/`chain*`/`alias*` helpers).
+- `Kue/Tests/TwoPassTests.lean` (~611) — two-pass self-ref gate, B1/A1/A5 `remapConjRefs`,
+  B7 `descendClauses` agreement theorems, hidden-def + embed-disj narrowing (orig
+  2418–3021).
+- `Kue/Tests/EvalTests.lean` (slimmed, ~1210) — ref/selector/cycle eval,
+  arithmetic/ordering/ unary, list-comprehension parse+eval, scalar-embed collapse, F1
+  default-mark algebra, refs/aliases, lazy-chain merge (orig lines 9–113 + 578–1670).
+
+All four new modules wired into `Kue/Tests.lean`. Coverage verified exactly pre/post by
+counting test constructs across the five files: theorem 256→256, native_decide 253→253,
+def 28→28. `testdata/` left untouched (clean, no churn risk). NOT split this pass (future
+test-org ride-along): `FixturePorts` (generated — leave whole), `FixtureTests`,
+`StructTests`, `BuiltinTests`.
+
+Helper locality was verified before cutting: all per-block helpers are referenced only
+within their block; `evalSourceMatches` was the sole cross-cutting helper, so it (and the
+def of `exportJsonMatches`) moved to `EvalTestHelpers`. The first cut attempt mis-placed a
+leading `/--` doc comment (the doc for the next block's first theorem) at a module
+boundary, which broke the build (dangling token before `end`); fixed by cutting at the
+theorem-end seam, not the doc-comment seam.
+
+### Part 2 — `Kue/Tests/LatticeTests.lean` (B4 + B2 regression gate)
+
+Dedicated `meet`/`join` algebra pins (27 theorems): lattice laws (top/bottom identity +
+absorption), scalars, kinds, bounds, regex, lists, disjunctions, and — the de-risking
+focus — the struct-shape arms B2 collapses.
+
+Two pinning layers, chosen by what survives the B2 refactor:
+
+- **Scalar/kind/bound/regex/list/disjunction** — pinned at the `meet`/`join` constructor
+  level (RHS values touch no struct constructor, so B2 cannot change them).
+- **Struct-shape arms** — pinned at the SOURCE level via the new `exportJsonMatches` (JSON
+  `export`), NOT via the internal `.structTail`/`.structPattern` constructor RHS. B2
+  collapses those five constructors, so a constructor-RHS pin would break by construction
+  (false regression). The JSON export shows only concrete fields — B2 must preserve those.
+  (The CUE-syntax `eval` output keeps `...`/`[string]: T` decoration that B2 re-renders,
+  so it was the wrong observable; the first draft used `evalSourceMatches` against eval
+  output and the struct pins failed — switched to `exportJsonMatches`.) Covered:
+  struct×struct (open merge + closed-def reject), structTail×structTail,
+  structPattern×structPattern, structPattern×structPatterns,
+  structPatterns×structPatterns. `StructTests` already covers tail×struct and
+  pattern×struct at the constructor level, so those are not duplicated.
+
+**B2-target missing arms (option b — documented, NOT pinned).** `meetWithFuel` is missing
+`structPattern×structTail` and `structPatterns×structTail` (both orders): they fall
+through the catch-all `| value, other => meetCore …` (`Lattice.lean:1151`) to `meetCore`,
+which bottoms all struct combos. Oracle-confirmed Kue bug vs cue v0.16.1: `{[string]: int}
+& {a: 5, ...}` → cue `{a: 5}`, kue `_|_`. Per the A2 rule (never pin wrong behavior with a
+passing test) and because the Lean harness has no expected-fail/xfail marker (a `theorem`
+is an all-or-nothing build check), these are documented in the `LatticeTests.lean` module
+header and in the plan's B2 entry rather than given a passing wrong-behavior test. NOT
+recorded in `cue-divergences.md` — that file is for cases where cue is wrong and Kue is
+right; this is the opposite (Kue wrong). The plan's stale "`structPattern×structPatterns`
+also missing" claim was corrected: that cross-arm is implemented
+(`Lattice.lean:1015-1034`) and is now pinned as a B2 regression gate.
+
+### Verify
+
+`lake build` 96 jobs green (all 256+27 theorems / 253+13 `native_decide` build-checked);
+`scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO byte-drift) after BOTH parts. No
+shell scripts changed (shellcheck N/A). The split is a pure test-reorg (no `Kue/` source
+change), so perf is unchanged (no `kue-performance.md` edit). Struct-arm expectations
+oracle-checked against `cue` v0.16.1.

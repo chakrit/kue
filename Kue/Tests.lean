@@ -12,6 +12,7 @@ import Kue.Tests.ExclusionTests
 import Kue.Tests.FixturePorts
 import Kue.Tests.FixtureTests
 import Kue.Tests.FloatTests
+import Kue.Tests.LatticeTests
 import Kue.Tests.ListTests
 import Kue.Tests.ManifestTests
 import Kue.Tests.ModuleTests

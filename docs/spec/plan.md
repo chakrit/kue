@@ -348,12 +348,20 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
   FIVE struct-bearing constructors (`struct`, `structTail`, `structPattern`,
   `structPatterns`, `structComp`) plus `embeddedList`. `meetWithFuel` (`Lattice.lean`)
   carries a 12-arm pairwise matrix (lines 971-1044) over `{struct, structTail,
-  structPattern, structPatterns}` — and the matrix is INCOMPLETE: `structPattern×structTail`,
-  `structPatterns×structTail`, and `structPattern×structPatterns` have NO explicit arm and
-  fall through to the early `.bottom` defaults (`Lattice.lean:458-478`). Since
-  `structPattern`/`structPatterns` carry an `open_` and are valid CUE (`{[string]: T, ...}`),
-  meeting an open pattern-struct with a tail-struct silently bottoms where CUE unifies — a
-  latent correctness hole the representation makes EASY to leave incomplete. Fix (own slice,
+  structPattern, structPatterns}` — and the matrix is INCOMPLETE: `structPattern×structTail`
+  and `structPatterns×structTail` (BOTH orders) have NO explicit arm and fall through to the
+  `meetWithFuel` catch-all (`| value, other => meetCore …`, `Lattice.lean:1151`) → `meetCore`
+  bottoms all struct combos → `.bottom`. (`structPattern×structPatterns` and its reverse ARE
+  now implemented, `Lattice.lean:1015-1034` — the 2026-06-19 LatticeTests slice corrected the
+  stale "also missing" claim and PINS that cross-arm as a B2 regression gate.) Confirmed
+  against cue v0.16.1 (`LatticeTests.lean` module header records the exact repro):
+  `{[string]: int} & {a: 5, ...}` → cue `{a: 5}`, kue `_|_` (WRONG, Kue bug — not a cue
+  divergence). These two missing arms are documented in `LatticeTests.lean` but deliberately
+  NOT given a passing test (no expected-fail marker exists; A2 rule forbids pinning the wrong
+  `.bottom`). Since `structPattern`/`structPatterns` carry an `open_` and are valid CUE
+  (`{[string]: T, ...}`), meeting an open pattern-struct with a tail-struct silently bottoms
+  where CUE unifies — a latent correctness hole the representation makes EASY to leave
+  incomplete. Fix (own slice,
   large): collapse the struct constructors into ONE normalized `struct` carrying
   `(fields, openness, tail : Option Value, patterns : List (Value × Value))`, where
   `openness` is the 3-state `StructOpenness` sum (`regularOpen | defClosed | defOpenViaTail`)
@@ -363,8 +371,12 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
   the 5-ctor match sites across `Lattice`/`Eval`/`Normalize`/`Resolve`/`Order`/`Manifest`/
   `Format`/`Parse` — design-spike first (normalization invariant + smart constructor), then a
   mechanical multi-commit migration. Supersedes the standalone item-8 `StructOpenness` entry
-  (fold it into this). Byte-identical fixtures required + a pin for each previously-missing
-  cross-combination (`structPattern×structTail` etc. unify, not bottom).
+  (fold it into this). Byte-identical fixtures required + flip the documented
+  `LatticeTests.lean` missing-arm entries into passing pins (`structPattern×structTail`,
+  `structPatterns×structTail`, both orders, unify not bottom); the already-correct struct-arm
+  pins in `LatticeTests.lean` (struct×struct open/closed, tail×tail, pattern×pattern,
+  pattern×patterns, patterns×patterns — source-level JSON `export`, so B2-representation-stable)
+  are the regression gate the migration must keep green.
 
 - **B3 (LOW-MEDIUM — incompleteness, embeddedList family).** `comprehensionPairs`
   (`Eval.lean:988`) returns `none` for `.embeddedList`, so `for x in {#a:1, [1,2]}` (source
@@ -377,12 +389,16 @@ Pass-2 selective re-eval, and the fuel-exhaustion-at-scale finding; no edit need
   parse-time `resolveValueWithFuel`; the eval-core catch-all's residual forms (scalars,
   unresolved constraints) correctly pass through. Not findings.)
 
-- **B4 (LOW — seam test coverage gap).** Foundational modules with NO dedicated unit-test
-  module, exercised only indirectly via fixtures/`EvalTests`: `Lattice` (the meet operator!),
-  `Format`, `Decimal`, `Json`, `Base64`. `Lattice` most deserves a direct `LatticeTests`
-  pinning `meet`/`join` algebra (incl. the struct-shape arms B2 touches — a `LatticeTests`
-  written first de-risks the B2 refactor). Add `LatticeTests` + small `DecimalTests`/
-  `FormatTests`; ride-along with the test-org pass (item 5) or before B2.
+- **B4 (LOW — seam test coverage gap) — DONE (`LatticeTests`); `DecimalTests`/`FormatTests`
+  deferred.** `Kue/Tests/LatticeTests.lean` added (2026-06-19, ride-along with the item-5
+  test-org pass): pins `meet`/`join` algebra — lattice laws, scalars, kinds, bounds, regex,
+  lists, disjunctions, and the struct-shape arms B2 collapses (struct×struct open/closed,
+  tail×tail, pattern×pattern, pattern×patterns, patterns×patterns), the latter via source-level
+  JSON `export` so they survive B2's constructor collapse as a regression gate. The two
+  genuinely-missing meet arms (`structPattern×structTail`, `structPatterns×structTail`, both
+  orders → wrongly `.bottom`) are documented in the module header but NOT pinned (no expected-fail
+  marker; A2 rule). DEFERRED: small `DecimalTests`/`FormatTests` (`Decimal`/`Format`/`Json`/`Base64`
+  still only indirectly covered) — pick up as a future ride-along.
 
 - **B5 (LOW — extraction-item corrections, cleanup).** Two backlog cleanup items need their
   stated shape corrected from this audit:
@@ -409,11 +425,15 @@ A2-followup design-slice) → TWO-PHASE AUDIT DONE (Phase-A found A5; Phase-B #2
 **B7 DONE (`bbb00b2`/`c5cbb0e`/`aa5518c` + this docs commit — five frame-depth walkers unified behind one
 `descendClauses` authority in `Value.lean`; `clauseFrameShift` + the per-walker re-derivations
 gone; NEW guarantee = two agreement theorems make future drift a build/`native_decide` failure)** →
-**TWO-PHASE AUDIT DUE (1 slice since last audit: B7)** →
-B2 headline struct refactor (design-spike then migrate) / B6 design-spike / item 1 follow-up /
-A2-followup / the overdue test-org pass (item 5; `EvalTests.lean` is ~3020 lines) →
-parallel-safe cleanups (3,4,5 + B4/B5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW
-(8 + B3) ride-alongs.
+**test-org pass (item 5) + B4 `LatticeTests` DONE (2026-06-19 — `EvalTests` split 4 ways +
+LatticeTests pins the struct-meet arms B2 collapses; B2 now de-risked)** →
+**TWO-PHASE AUDIT DUE (2 slices since last audit: B7 + this test-org/LatticeTests slice — due
+NEXT, or after B2)** →
+B2 headline struct refactor (design-spike then migrate, NOW de-risked by LatticeTests) /
+B6 design-spike / item 1 follow-up / A2-followup →
+parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructTests`/`BuiltinTests`;
+B4 ride-along `DecimalTests`/`FormatTests`) interleaved → deeper parity/perf (2,6,7) →
+borderline/LOW (8 + B3) ride-alongs.
 
 **A5-followup. Comprehension-body self-ref deferral gate — DONE (`e00c3de`).** The OBSERVABLE
 wrong value (a static field whose value is a comprehension reading `Self.<embedded>` inside a `for`
@@ -762,16 +782,21 @@ case was either unreachable post-eval or strictly more correct. (The
    `EvalOps`/`Decimal` first (cleaner — they are pure `Value→Value` decimal ops with no Builtin-
    dispatch dependency). Resolve the import shape in the slice. Mechanical otherwise.
 
-5. **Test-org pass (ACTIONABLE, periodic).** Theorem modules in `Kue/Tests/` are oversized
-   (`EvalTests` 2688, `FixturePorts` 2524, `FixtureTests` 1093, `StructTests` 765,
-   `BuiltinTests` 735 — Phase-B confirmed sizes). Split each by subsystem in ONE pass; leave
-   `FixturePorts` whole (generated). `testdata/` is clean and well-organized (no orphans; 155
-   cue pairs + 22 export + 30 module dirs; both `FixturePorts` and `check-fixtures.sh` cover
-   it with zero silent gaps) — do NOT churn it. Run AFTER the next correctness slice lands its
-   pins. FOLD IN B4: while here, add the missing seam unit-tests (`LatticeTests` for the meet
-   operator above all, plus small `DecimalTests`/`FormatTests`) — `Lattice`/`Format`/`Decimal`/
-   `Json`/`Base64` currently have NO dedicated module, only indirect fixture coverage. Write
-   `LatticeTests` BEFORE B2 if B2 lands first (de-risks the struct-meet rewrite).
+5. **Test-org pass (periodic) — DONE for `EvalTests` (2026-06-19).** `EvalTests.lean`
+   (~3022 lines, the worst offender) split by subsystem into per-`Kue/`-area modules,
+   behavior- and coverage-preserving (theorem 256→256, native_decide 253→253, def 28→28,
+   verified pre/post; zero fixture byte-drift):
+   - `EvalTestHelpers.lean` — shared `evalSourceMatches` + `exportJsonMatches` source oracles.
+   - `EvalPerfTests.lean` — frame-id sharing, Pass-2 selective re-eval, fuel-saturation, perf-B.
+   - `ClosureTests.lean` — closure ctor/eval/producer/meet, embed chains, import-selector aliases.
+   - `TwoPassTests.lean` — two-pass gate, B1/A1/A5 remap, B7 `descendClauses` agreement,
+     hidden-def + embed-disj narrowing.
+   - `EvalTests.lean` (slimmed ~1210 lines) — ref/selector/cycle eval, arithmetic/ordering/unary,
+     list-comprehensions, scalar-embed collapse, F1 default-mark algebra, refs/aliases, lazy-chain.
+   All wired into `Kue/Tests.lean`. `testdata/` left untouched (clean, no churn). REMAINING for a
+   future pass: `FixturePorts` (~2524, generated — leave whole), `FixtureTests` (~1093),
+   `StructTests` (~765), `BuiltinTests` (~735) — not yet split; schedule when next overdue.
+   B4 folded in (next item).
 
 6. **Field-ordering parity #3 (MEDIUM, DEEP — byte-parity vs cue).** cue orders
    `ref & {own}` own-fields-first; kue is left-struct-first (`mergeStructFieldsWith`,
