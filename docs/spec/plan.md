@@ -372,6 +372,68 @@ Cheap NON-fork work available meanwhile: `testdata/modules/crosspkg_defmeet/` +
 Finding 2 (missing-file clean diagnostic in `loadFileBound`), the deferred test-module
 splits, and LOW items (embeddedList.decls newtype, EvalOps/Regex extraction).
 
+## Perf B — closure-perf (frame-id sharing + force-memo) — PARTIAL, commit `4dbc62c` (2026-06-18)
+
+Two SOUND, behavior-preserving memos landed (every fixture byte-identical; `fuel` kept in
+every key). They are real wins but DO NOT unblock real apps — the dominant real-app cost is on
+a third axis (fuel) neither touches. Re-profiled with eval-count + cache-hit instrumentation
+(transient `evalCalls`/`cacheHits` in `EvalState`; `evalStructRefsCalls` for pins).
+
+**Landed #1 — canonical frame-id sharing.** `pushFrame` reuses the id of a structurally-
+identical earlier push under the same parent id-stack (`FrameKey = (parentIds, fields)`), so the
+`EvalKey` (keyed on `env.ids`) hits the memo. SOUND: the key proves the two frames are
+contents-equal in identical scope → the id is a canonical NAME, not an allocation token; reuse
+can only return the matching evaluation. Parent id-stack load-bearing (identical fields under
+different parents = different evals). On the synthetic deep-inline `{a: B, b: B}` (each level
+inlines the same body twice — the recon's `{a:prev,b:prev}` shape, but INLINE, which is what
+actually re-pushes; a sibling-REF shape was already memoized): **exponential → linear** —
+depth 8 `767 → 18` (42×), depth 10 `3071 → 22` (140×), depth 12 `12287 → 26` (472×). Pinned
+(`eval_deep_inline_*`).
+
+**Landed #2 — closure-force memo.** `forceClosureWithConjunct` bypassed `EvalKey` entirely, so a
+`pkg.#Def` selected/referenced N times re-forced its body N times. Split into a cached wrapper +
+`forceClosureWithConjunctCore`, keyed on `ForceKey = (fuel, capturedEnv.ids, body, useOperands)`
+— the full pure-function input. `body` carries closed-vs-open state already (producer closes
+imported def bodies at capture → constraint (b) satisfied without an extra key field).
+
+**4 soundness pins** (`frame_share_identical`, `frame_no_share_different_fields`,
+`frame_no_share_different_parent`, `frame_no_share_closed_vs_open`) + 4 perf/value pins.
+
+### THE REAL BLOCKER — fuel multiplication (re-diagnosed; the recon's frame-id story was
+### incomplete). NEXT SLICE, needs its own soundness spike.
+
+Profiled `infra/apps/cert-manager.cue` (read-only, prod9): the value CONVERGES at fuel ~16
+(fuel 16 → complete, CORRECT output byte-matching `cue` modulo field-ordering #3; fuel 8/12 →
+`incomplete value`). But `evalFuel = 100` re-derives the converged value across 84 wasted levels
+at ~1.35×/level → effectively infinite (the full-fuel run was killed at 8 min CPU, never
+finished). The two landed memos cut ~30% (fuel 8: `84.5k → 60.3k` evals) but CANNOT touch the
+fuel axis: `fuel` is in every memo key and is load-bearing (the 263 fuel-truncation cases —
+identical `(env,visited,value)` yields DIFFERENT results at different fuel when fuel RUNS OUT
+mid-eval). The tag histogram at fuel 8 confirms diffuse re-eval (`.prim` 13.7k, `.struct` 8.6k,
+`.kind` 6.8k, `.conj` 5.1k, `.structComp` 3.6k) — the same subtrees re-derived at many fuel
+levels, not one hot site.
+
+**The sound fix (DESIGN — do NOT implement until the spike closes the hole):** *fuel-saturation
+caching*. INVARIANT: if evaluating `value` at fuel `f` never hit a `fuel = 0` base case (nor a
+cycle-bound `.top`) anywhere in its subtree, the result is fuel-INSENSITIVE — identical at all
+fuel ≥ f (more fuel cannot change an eval that did not need it). So track a "saturated" bit per
+result (`minFuelReached > 0` in the subtree) and, when saturated, cache the result FUEL-
+INDEPENDENTLY (key on `(env.ids, visited, value)` only). On a saturated hit, return it for ANY
+higher fuel → the 84 wasted re-derivations collapse to one. This stays sound BECAUSE it keys
+apart exactly the 263 truncation cases (those are NOT saturated — they bottomed on fuel). THE
+HOLE TO CLOSE IN THE SPIKE: the "saturated" bit must thread through the ENTIRE eval core's
+return type (every arm + meet/manifest reached during eval) — high blast radius, and a single
+arm that forgets to propagate `unsaturated` upward silently caches a truncated value as
+saturated → corruption. This is precisely the "behavior-changing perf hack you cannot guarantee"
+the slice brief says to STOP on; it is its own slice with its own TDD (pin: a value that
+genuinely differs by fuel must NOT be saturation-cached; a converged value MUST be). Do NOT
+fold it into a sharing slice.
+
+**Real-app verdict (HEADLINE):** cert-manager exports the CORRECT value (matches `cue` except
+field-order #3) but only reachable at lowered fuel; at production fuel 100 it is still too slow
+to be a `cue` drop-in. argocd (larger) not separately re-timed — same fuel-axis wall, worse.
+Kue is NOT yet a drop-in `cue` replacement for these apps; the fuel-saturation slice is the gate.
+
 ## Value.closure work plan (frontier #1 — chakrit-approved churn, 2026-06-18)
 
 AUTHORITATIVE. Supersedes the "DECISION NEEDED" framing above (kept as design-record).

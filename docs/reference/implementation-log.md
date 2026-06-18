@@ -6554,3 +6554,49 @@ evaluation cost, which hits the unchanged perf wall. So the error has moved from
 bottom to the perf wall. **Next slice: B `closure-perf` (frame-id sharing / memo — the ~minutes
 wall on the full `defs` package).** F1 default-mark remains orthogonal and can interleave; it is no
 longer gating cert-manager.
+
+## Perf B `closure-perf` — frame-id sharing + force-memo (PARTIAL) — commit `4dbc62c` (2026-06-18)
+
+Two SOUND, behavior-preserving memos for the perf wall (every fixture byte-identical; `fuel`
+kept load-bearing in every key). Real wins, but the dominant real-app cost is a THIRD axis
+(fuel) neither touches — so this is partial, not the unblock.
+
+### What landed
+
+1. **Canonical frame-id sharing.** `pushFrame` reuses the id of a structurally-identical earlier
+   push under the same parent id-stack (`FrameKey = (parentIds, fields)`, shallow `Hashable`,
+   derived `BEq`). The downstream `EvalKey` (keyed on `env.ids`) then hits the memo instead of
+   re-deriving an identical subtree. SOUND: the key proves the two frames are contents-equal in
+   identical scope, so the id is a canonical NAME for "this frame's contents in this scope," not
+   an allocation token; reuse can only return the matching evaluation. Synthetic deep-INLINE
+   `{a: B, b: B}` (each level inlines the same body twice): exponential → linear — depth 8
+   `767 → 18` evals (42×), depth 10 `3071 → 22` (140×), depth 12 `12287 → 26` (472×).
+
+2. **Closure-force memo.** `forceClosureWithConjunct` bypassed the `EvalKey` cache (it is called
+   directly from the `.refId`/`.selector`/`.conj` arms), so a `pkg.#Def` referenced N times
+   re-forced its body N times. Split into a cached wrapper + `forceClosureWithConjunctCore`,
+   keyed on `ForceKey = (fuel, capturedEnv.ids, body, useOperands)` — the full pure-function
+   input. `body` already carries closed-vs-open state (the producer closes imported def bodies at
+   capture), satisfying audit constraint (b) without an extra key field.
+
+### Tests (8 new `native_decide` pins, `Kue/Tests/EvalTests.lean`)
+
+- Perf/value: `eval_deep_inline_sharing_is_linear` (depth 8 = 18 evals; 767 without sharing —
+  42× tripwire), `_count_depth4/6`, `_value_correct`.
+- Soundness: `frame_share_identical` (identical re-pushes SHARE), `frame_no_share_different_fields`
+  (different fields → distinct id), `frame_no_share_different_parent` (different parent id-stack →
+  distinct id), `frame_no_share_closed_vs_open` (`.definition` vs `.regular` → distinct id, the
+  constraint-(b) closed/open case).
+
+### Real-app verdict (HONEST — re-profiled cert-manager.cue, read-only prod9)
+
+The value CONVERGES at fuel ~16: at fuel 16 cert-manager produces the CORRECT output, byte-
+matching `cue` except field-ordering (#3, known orthogonal gap). But `evalFuel = 100` re-derives
+that converged value across 84 wasted levels at ~1.35×/level → effectively infinite (full-fuel
+run killed at 8 min CPU). The two memos cut ~30% (fuel 8: `84.5k → 60.3k` evals) but CANNOT
+touch the fuel axis — `fuel` is in every key, load-bearing (263 fuel-truncation cases). **The
+real blocker is fuel multiplication; the recon's frame-id-divergence story was incomplete (it is
+ONE component, ~30%, not the whole).** Kue is NOT yet a drop-in `cue` for these apps. Next: the
+**fuel-saturation caching** slice (design + soundness hole in `plan.md`'s Perf B section) — cache
+fuel-INDEPENDENTLY any result whose subtree never hit `fuel = 0`. Own slice, own soundness spike;
+do NOT fold into a sharing slice.
