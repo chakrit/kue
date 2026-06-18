@@ -156,14 +156,34 @@ The closure chain is DONE and `Eval.lean` (2172 lines) is no longer in active ch
 
 Correctness gates adoption; cleanups are parallel-safe filler. Recommended order:
 
-1. **argocd `bottom` correctness gap (DEEP, the adoption blocker).** argocd produces
-   `bottom` (`conflicting values`) at EVERY fuel — a genuine eval gap, NOT a saturation
-   regression (cert-manager stays correct, fixtures byte-identical). Likely covered by one
-   of the two filed borderline arch findings: **`module-file-scoped-imports`** (sibling-file
-   import merge → cross-file leak; arch-sized) is the prime suspect, with
-   **`import-eager-closedness`** (MEDIUM) second. FIRST STEP IS A BISECT, not a fix: reduce
-   argocd to a minimal repro, identify which conjunct bottoms, then the finding to promote is
-   determined. This GATES real-app drop-in status. Quick to diagnose, likely deep to fix.
+1. **argocd `bottom` correctness chain (DEEP, the adoption blocker). LINK 1 of N DONE
+   (`83a8ac4`).** Bisected: the first blocker is `defs.#Secret`, minimized to a fully OFFLINE
+   single-file repro — so it is NEITHER suspected borderline finding
+   (`module-file-scoped-imports` / `import-eager-closedness`); a THIRD distinct gap. **Fixed
+   the disjunction-selection + embedding-`Self` family** (select-into-`.disj` collapses the
+   default; embedded default disjunction merges its arm; gated two-pass so `Self.<embedded-
+   label>` resolves on both the eager and closure-force paths). `#Secret` structure now
+   correct vs cue. **TWO further DEEP gaps REMAIN before argocd is a drop-in** — both
+   narrowing-into-embedded-arm, deeper than the disjunction family:
+   - **`argocd-secret-data` (DEEP, NEXT correctness link).** `for k,v in Self.#data` in the
+     embedded default arm `_#OpaqueSecret` expands against the arm's EMPTY `#data` before the
+     use-site `#data` narrowing reaches it → secret `data:{}` vs cue's populated payload.
+     Minimal repro (self-contained): `_#A: {#k:"a", #data:[string]:string, out:{for k,v in
+     Self.#data {"\(k)":v}}}` + `_#B: {#k:"b", out:{}}` + `#S: {#data:[string]:string;
+     (*_#A|_#B)}` + `out: #S & {#data: foo:"bar"}` → kue `out:{}`, cue `out:{foo:"bar"}`. The
+     use-site narrowing must flow into the embedded default arm BEFORE its comprehension runs
+     — the default-disjunction-arm analog of the slice-A/E closure-narrowing work.
+   - **`argocd-tlsroute-list-guard` (DEEP).** `#TLSRoute.spec.parentRefs` is a list whose
+     elements are `if Self.#gateway_name != _|_ {…}` guards over use-site-narrowed hidden
+     fields → bottom. Minimal repro: `#R: Self={ #g?:string; #l?:string; spec: refs: [if
+     Self.#g != _|_ {{name:Self.#g}}, if Self.#l != _|_ {{kind:"LS",name:Self.#l}}] }` +
+     `out: #R & {#g:"nginx", #l:"argocd-ls"}` → kue bottom, cue resolves both elements.
+     List-element guards over Self-narrowed fields — the list analog of the same narrowing
+     problem.
+   - Plus the **heavy `argo` sub-package perf wall**: full `kue export apps/argocd.cue` now
+     evals PAST the early bottom (the fixes unblock it) and times out >200s on the larger
+     `argo_.{stage9,bluepages,…}.configs` sub-package (was 95s-to-bottom before). A perf
+     frontier once the correctness links land.
 2. **F1 default-mark `Violation` (orthogonal correctness, audit #3).** Independent of argocd;
    can run in parallel in a separate subagent. Medium.
 3. **Regex extraction (R3)** — parallel-safe, run anytime in its own subagent (zero
@@ -178,9 +198,11 @@ Correctness gates adoption; cleanups are parallel-safe filler. Recommended order
 6. **Test-org pass (R2)** — after the next correctness slice lands its pins, so the split
    doesn't immediately stale.
 
-**What gates argocd:** the `module-file-scoped-imports` finding (most likely) or
-`import-eager-closedness` — confirm by bisect before committing to either. This is the one
-correctness item standing between Kue and real-app drop-in parity for the second prod9 app.
+**What gates argocd (UPDATED):** NOT `module-file-scoped-imports` / `import-eager-closedness`
+— the bisect ruled both out (the blocker reproduces offline single-file). Those findings stand
+as filed (real but argocd does not hit them). The remaining gates are the two
+narrowing-into-embedded-arm links above (`argocd-secret-data`, `argocd-tlsroute-list-guard`)
+plus the `argo` sub-package perf wall. `argocd-secret-data` is the next correctness link.
 
 ## Audit Fix-Slices (fuel-saturation soundness — Phase A code-quality, audit 2026-06-18 #6)
 

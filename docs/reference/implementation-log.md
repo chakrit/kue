@@ -6715,3 +6715,80 @@ bump sites, not two.
 exact corruption, failing pre-fix); `sat_comprehension_low_fuel_truncates` (the hazard is
 genuine — fuel-2 drops `x`, fuel-20 keeps it). These close the gap the 5 original pins left:
 they only exercised the two known arms, never a helper truncation.
+
+---
+
+## Completed Slice: argocd bisect — disjunction-selection + embedding-Self chain (3 of N)
+
+Commit `83a8ac4`. Goal: bisect the argocd `bottom` (failing at every fuel — the last
+probed prod9 app still failing) to a minimal repro and fix the actual cause.
+
+### The bisect
+
+`kue export apps/argocd.cue` (under prod9, read-only) bottoms at every fuel. Bisected by
+isolating each top-level key offline (scratch module in `/tmp`, importing the pinned
+`prodigy9.co/defs@v0.3.19` from the cue cache, read-only): `#ConfigMap` exported correctly,
+`#Secret` bottomed. Minimized `#Secret` to a fully offline single-file repro (no
+cross-package import) — so it is NEITHER suspected borderline finding
+(`module-file-scoped-imports`: both bottom and ⊥ even single-file; `import-eager-closedness`:
+no import involved). A THIRD distinct gap, as Phase B's note anticipated argocd might surface
+a chain.
+
+Minimal repros (all `cue` succeeds, `kue` bottomed pre-fix):
+- `d: *{a:1,c:9} | {a:2}` then `out: {r: d.a}` → cue `{r:1}`.
+- `out: Self={ (*{a:1} | {a:2}); r: Self.a }` → cue `{a:1, r:1}`.
+- `_Base: {a:1}` then `out: Self={ _Base; r: Self.a }` → cue `{a:1, r:1}` (the broader
+  facet — Self-into-embedding is not disjunction-specific).
+- `#S: Self={ #name: string; (*{#type:"Opaque"} | {#type:"tls"}); type: Self.#type }`,
+  `out: #S & {#name:"s"}` → cue `type:"Opaque"` (the closure-force path).
+
+### Root cause + fix (one family, three facets)
+
+1. **`selectEvaluatedField` had no `.disj` case** — selecting a field INTO a disjunction
+   fell through to `.bottom`. CUE collapses the default arm first, then selects. Added a
+   `.disj` case routing through the existing `resolveDisjDefault?` (the manifest/guard
+   default-rule helper): a unique default (or lone regular) resolves and the field is
+   selected from it; a non-default multi-arm disjunction stays a deferred `.selector` (no
+   over-fire — manifest then reports the ambiguity, never a spurious `bottom` or silent pick).
+
+2. **Embedded default disjunction never contributed its default arm's fields to the host.**
+   Added `resolveEmbeddedDisjDefault` at the embedding-merge sites (`meetEmbeddingsWithFuel`
+   + `evalEmbeddingFieldsWithFuel`): a default disjunction collapses to its arm before the
+   merge, so its fields land as regular host fields and the closedness union admits them; a
+   non-default disjunction passes through unchanged.
+
+3. **`Self.<label>` where `<label>` is supplied by ANY embedding bottomed.** The host frame
+   held only static labels, so `thisStructFieldIndex?` missed the embedded slot and the
+   generic selector path hit `.thisStruct` → catch-all `.bottom`. Added a gated two-pass to
+   BOTH the eager `.structComp` arm and the closure-force arm (`forceClosureWithConjunctCore`,
+   which the `#Secret` def-ref path uses): re-evaluate the static fields against a frame
+   augmented with the embedded labels not already declared static, so `Self.<embedded-label>`
+   resolves. Gated by `needsEmbeddedSelfPass` (a fuel-bounded scan, `refsSelfEmbeddedLabel`)
+   — fires ONLY when a static field actually selects `Self.<new-embedded-label>` through the
+   host's `Self` alias. cert-manager embeds `parts.#Metadata` (supplies `metadata`) but never
+   reads `Self.metadata`, so it stays single-pass: the un-gated two-pass cost cert-manager
+   ~59s (2x), the gated version restored ~29s.
+
+### Behavior preservation + real-app status
+
+Every existing fixture byte-identical (`fixture pairs ok`). cert-manager re-probed: still a
+content drop-in, `jq -S` identical to `cue`, ~29s — no regression. `#Secret` now exports its
+structure correctly (apiVersion / kind / type:"Opaque" / metadata all match `cue`).
+
+argocd is NOT yet a drop-in — this clears the FIRST chain link. Two further DEEP gaps remain
+(both narrowing-into-embedded-arm, deeper than this slice):
+- **secret `data:{}`**: `for k,v in Self.#data` in the embedded default arm `_#OpaqueSecret`
+  runs against the arm's empty `#data` BEFORE the use-site `#data` narrowing reaches it —
+  cue produces the populated payload. Minimal repro `w3` recorded in the breadcrumb.
+- **`#TLSRoute` list guards**: `spec.parentRefs: [ if Self.#gateway_name != _|_ {…}, … ]` —
+  list elements that are `if`-guard comprehensions over use-site-narrowed hidden fields —
+  bottom. Minimal repro `lr` recorded in the breadcrumb.
+- Plus the heavy `argo` sub-package perf wall (full argocd now evals past the early bottom
+  and times out >200s on the larger sub-package; was 95s-to-bottom before).
+
+### Tests
+
+5 export fixtures (all byte-match `cue`): `disj_select_default`, `disj_select_default_only`,
+`embed_self_disj`, `embed_self_plain`, `embed_self_disj_closed`. 8 `native_decide` pins in
+`Kue/Tests/EvalTests.lean`: select-into-default-disjunction (fires) + non-default (defers),
+embedded-default resolve + non-default passthrough, two-pass gate fire + skip×2.
