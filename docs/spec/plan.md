@@ -406,9 +406,12 @@ Correctness gates real-app adoption; cleanups are parallel-safe filler. Sequence
 **A5 DONE (`c3d0089`)** → **A5-followup DONE (`e00c3de` — the OBSERVABLE wrong value flipped; see
 below)** → audit fix-slices DONE (A1+B1, A3, A4; A2 BLOCKED on a representation marker →
 A2-followup design-slice) → TWO-PHASE AUDIT DONE (Phase-A found A5; Phase-B #2 found B7) →
-**TWO-PHASE AUDIT DUE (2 slices since last: A5 + A5-followup)** → **B7 (MEDIUM-HIGH —
-frame-coordinate type-tightening; subsumes A5's structural fix, now FIVE hand-coded walkers)** →
-B6 design-spike / B2 headline struct refactor (design-spike then migrate) / item 1 follow-up →
+**B7 DONE (`bbb00b2`/`c5cbb0e`/`aa5518c` + this docs commit — five frame-depth walkers unified behind one
+`descendClauses` authority in `Value.lean`; `clauseFrameShift` + the per-walker re-derivations
+gone; NEW guarantee = two agreement theorems make future drift a build/`native_decide` failure)** →
+**TWO-PHASE AUDIT DUE (1 slice since last audit: B7)** →
+B2 headline struct refactor (design-spike then migrate) / B6 design-spike / item 1 follow-up /
+A2-followup / the overdue test-org pass (item 5; `EvalTests.lean` is ~3020 lines) →
 parallel-safe cleanups (3,4,5 + B4/B5) interleaved → deeper parity/perf (2,6,7) → borderline/LOW
 (8 + B3) ride-alongs.
 
@@ -433,16 +436,22 @@ selective re-eval untouched, no full-re-eval perf regression. End-to-end fixture
 `comprehension_embed_self_narrow_body` + native_decide gate pins (body-detected, loopvar boundary,
 multi-`for`, guard-no-frame, struct clause helper). See implementation-log for the full trace.
 
-**B7. Frame coordinate is an untyped `Nat` — the comprehension-body depth-shift rule is
-re-derived by hand at 5 walkers (MEDIUM-HIGH — type-system leverage; root cause of A5 + its
-followup). DESIGN SPIKE FINALIZED 2026-06-19 (Phase-B #3) — see "B7 design (implementable)"
-below; this is the next implementation slice.** The de Bruijn "comprehension body lives
-`#forClauses` deeper" rule lives once in `resolveClausesWithFuel` but is open-coded at five
-sites: correctly in resolve, and (all now fixed by hand) `remapConjClauses`/`clauseFrameShift`
-(A5), `selfReferencedLabelsClauses` (A5), `refsSelfEmbeddedLabelClauses` (A5), and
-`hasSelfRefAtDepthClauses` (A5-followup). A5 + followup point-fixes are landed and green; B7 now
-factors the shift into ONE shared authority the walkers consume so a sixth walker cannot
-re-derive it wrong.
+**B7. Frame-depth clause-walkers unified behind one `descendClauses` authority — DONE
+(`bbb00b2`/`c5cbb0e`/`aa5518c` + this docs commit).** The de Bruijn "comprehension body lives `#forClauses`
+deeper" rule (`+1` per `for`, `+0` per `guard`, body at end) was re-derived by hand at five
+walkers — a bug that recurred FOUR times. B7 factored it into a single total `descendClauses`
+fold in `Value.lean` (leaf where `Clause` is defined). The three scanners
+(`refsSelfEmbeddedLabelClauses`, `selfReferencedLabelsClauses`, `hasSelfRefAtDepthClauses`) are now
+one-line instantiations; `remapConjRefs`'s body shift derives from `clauseChainDepth` (same fold)
+and **`clauseFrameShift` is deleted**; `resolveClausesWithFuel` (the fifth, scopes-threading,
+`mutual` with eval) stays the reference, tied to the fold by `descend_clauses_frame_count_matches_resolve`.
+NEW guarantee: two `native_decide` agreement theorems make future drift between the fold and a
+walker / the resolver a build failure, not a silent wrong value. Behavior-preserving (zero fixture
+byte-drift across all four commits; existing A5/A5-followup pins were the regression gate). NOT a
+`Depth` newtype — that was ~24 sites of churn + kernel cost on the hot resolve path for zero new
+guarantee, since the recurring bug was the re-derivation, not a raw `+1`. Full design rationale +
+trace in the implementation-log "B7" entry. The design spike that preceded this implementation is
+retained below for the record.
 
 Phase-A audit (2026-06-19) — walker-consistency VERDICT for B7's implementer: all four fixed
 walkers thread depth IDENTICALLY to the authority (`forIn` source at current depth, +1 for

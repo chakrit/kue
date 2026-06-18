@@ -7623,3 +7623,67 @@ oracle-confirmed during development — no over/under-refresh.
 byte-identical = the no-regression gate; spot-checked byte-equal to the live `cue` oracle).
 No shell scripts changed (shellcheck N/A). cert-manager/argocd hit the documented perf wall
 (timeout) as before — module fixtures are the completing correctness signal.
+
+---
+
+## Completed Slice: B7 — unify the five frame-depth clause walkers behind one authority
+
+Commits `bbb00b2` (1/4), `c5cbb0e` (2/4), `aa5518c` (3/4), this commit (4/4). Behavior-
+PRESERVING refactor: the comprehension clause-chain frame-depth rule (`+1` per `forIn`,
+`+0` per `guard`, body at the accumulated depth) was hand-re-derived at five walkers. The
+bug had recurred FOUR times (A1's sibling, A5, A5-followup, the #3 backwards-reasoning
+walker) — each independent re-derivation a fresh chance to get the de Bruijn shift wrong.
+B7 collapses the rule to ONE authority so a sixth walker physically cannot re-derive it.
+
+### Design (option (b) — a shared fold, NOT a `Depth` newtype)
+
+`descendClauses {α} (empty append onSource onGuard onBody depth) : List (Clause Value) → α`
+in `Value.lean` (the leaf where `Clause` is defined, imported by both Resolve and Eval).
+Pure, total, structural on the clause list, `Value`-non-recursive: it threads depth only
+and hands each piece back to the caller's `onSource`/`onGuard`/`onBody`, generic over the
+accumulator with a monoid-like `(empty, append)`. A thin `clauseChainDepth start clauses`
+(the fold with an identity body-handler) recovers the post-chain depth, replacing the
+former standalone `clauseFrameShift`. The `Depth` newtype (option (a)) was rejected: ~24
+arm rewrites + `DecidableEq`/kernel cost on the hot resolve path for zero new guarantee —
+the recurring bug is the per-walker *re-derivation*, not a raw `+1`.
+
+### Migration (four fixture-gated commits)
+
+1. `bbb00b2` — introduce `descendClauses` + `clauseChainDepth` in `Value.lean`; add two
+   `native_decide` agreement theorems (`descend_clauses_chain_depth_counts_only_for`,
+   `descend_clauses_frame_count_matches_resolve` — the latter ties the fold to
+   `resolveClausesWithFuel`'s scope-push count without coupling their code). Pure addition.
+2. `c5cbb0e` — migrate the three scanners (`refsSelfEmbeddedLabelClauses`,
+   `selfReferencedLabelsClauses`, `hasSelfRefAtDepthClauses`) to one-line `descendClauses`
+   instantiations (Bool ‖/false, List ++/[]). They are no longer self-recursive; the mutual
+   blocks shrink. Existing A5/A5-followup pins are the regression gate.
+3. `aa5518c` — `remapConjRefs`'s `.comprehension`/`.listComprehension` body shift now uses
+   `clauseChainDepth frameDepth clauses`; **`clauseFrameShift` DELETED**. It was the second,
+   inequivalent encoding of the rule living only in `remapConjRefs` (the sharpest recurrence
+   hazard). New pin `descend_clauses_agrees_remapConjClauses` ties the body fold to the
+   clause-list rebuild.
+4. (this commit) — final verify + docs.
+
+### The fifth walker stays the reference
+
+`resolveClausesWithFuel` (`Resolve.lean`) threads a *scopes stack*, not a `Nat`, and is
+`mutual` with `resolveValueWithFuel`. Forcing it through the `Nat` fold is churn for no
+safety; instead `descend_clauses_frame_count_matches_resolve` proves the fold and the
+reference agree (the body depth resolve reaches == `clauseChainDepth`). So the "single
+authority" is `descendClauses` for the four migrated Eval walkers, with a theorem tying it
+to resolve.
+
+### New guarantee
+
+Future drift between the fold and any walker / the resolver is now a build /`native_decide`
+failure rather than a silent wrong value — the structural pin this slice buys. No new
+behavioral fixture (nothing behavioral changed).
+
+### Verify
+
+`lake build` 86 jobs green; `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO byte-
+drift across all four commits — the whole correctness gate for a behavior-preserving
+refactor). The two B7-relevant fixtures (`comprehension_conj_body_remap` → `s.a.out: 99`;
+`comprehension_embed_self_narrow_body` → `v.out: [{v: "y"}]`) spot-checked content-identical
+to live `cue` v0.16.1. No shell scripts changed (shellcheck N/A). Pure refactor, no eval-path
+change → perf unchanged (no `kue-performance.md` edit).
