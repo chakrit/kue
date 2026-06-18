@@ -39,30 +39,52 @@ field-ordering byte-parity gap, #3 in the backlog):
   kinds, bounds, regex, struct/list shapes. `Field` is a `structure`. Disjunctions with
   default-mark algebra (unification ANDs default sets; arithmetic/comparison/unary
   resolve-operand-first; nested two-level precedence; equal-default dedup).
+  ```cue
+  port: int & >0 & <=65535
+  port: 8080  // 8080
+  ```
 - **Closures / cross-package def-meet.** `Value.closure (frame) (body)` carries the
   capture frame so an imported def's body unifies with the use-site *before* its
   cross-frame self/sibling refs resolve. Deep/nested self-ref detection
   (`hasSelfRefAtDepth`) defers `spec: acme: email: Self.#email` and comprehension guards;
   multi-level embed chains (`#ClusterIssuer → parts.#Metadata → attr.#Metadata`) resolve.
   Forcing tier closes imported def bodies at capture.
+  ```cue
+  import "ex.com/pkg"
+  web: pkg.#Def & {name: "web"}
+  ```
 - **Comprehensions.** Struct (`for k,v in s {…}`) and list (`[for x in xs {x}]`, incl.
   `if` guards, nested/multi/zero-yield, plain+comp interleave). Scalar struct-embedding
   collapse (`{5}`→`5`) at embed-eval, so list-comp bodies and `{5}` shapes work; empty/
   decl-free struct ∩ scalar correctly conflicts.
+  ```cue
+  out: [for x in [1, 2, 3] {x * 2}]  // [2, 4, 6]
+  ```
 - **Disjunction defaults under embedding.** Use-site narrowing distributes into every arm
   of an embedded default disjunction, pruning dead arms (a dead default falls through to a
   surviving arm).
+  ```cue
+  x: (*"a" | "b") & ("b" | "c")  // "b"
+  ```
 - **Fuel-saturation perf.** Eval count is FLAT across fuel (bracketed monotonic
   truncation counter; truncated values stay fuel-keyed, saturated results go fuel-free).
   `evalFuel = 100`. Frame-id sharing + force-memo (partial).
 - **Builtins.** `base64.Encode`, `json.Marshal` (`Kue/Json.lean`), `yaml.Marshal`
   (`Kue/Yaml.lean`), `strings.*`/`list.*`/`math.*` hardcoded namespaces. Multiline
   strings (`"""`/`'''`).
+  ```cue
+  import "encoding/json"
+  out: json.Marshal({a: 1})  // "{\"a\":1}"
+  ```
 - **Imports / modules.** `cue.mod` discovery, in-module + cross-module (vendored or
   extract-cache) resolution by longest module-path prefix, multi-file package merge,
   transitive loads, package-dir entry (`kue export ./apps`). IO confined to
   `Kue/Module.lean`; `Eval`/`Resolve` stay pure. (Registry/OCI fetch — B3d — deferred; not
   needed for prod9, which is fully on-disk and resolves offline.)
+  ```cue
+  import "ex.com/pkg"
+  out: pkg.#Def & {name: "x"}
+  ```
 - **CLI.** `kue eval`, `kue export [--out yaml|json] [file|dir]` (stdin or arg), clean
   missing-file diagnostics + exit codes.
 
@@ -91,6 +113,10 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
    editable-cache-copy method (breadcrumb). This is the next correctness link to make argocd a
    drop-in. NOTE: `packs.#Argo` is ALSO near the per-eval perf wall (item 7) — distinguish
    "correct but slow" from "still bottoms" while bisecting.
+   ```cue
+   #App: {#name?: string, if #name != _|_ {name: #name}, ...}
+   out: packs.#Argo & {#name: "web"}
+   ```
 
 2. **`truncate-primitive` (HIGH — soundness hardening, Phase B step 1).** The
    truncation-bump invariant (a `fuel=0` helper that drops fields MUST bump `truncCount`)
@@ -130,6 +156,10 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
    tail between cert-manager content-match and byte-exact cue; affects the dominant
    `#Def & {…}` prod9 pattern's exported order. Multi-slice + a provenance-key design spike
    first. Do AFTER argocd unless it blocks a needed fixture.
+   ```cue
+   #Def: {kind: "X", ...}
+   out: #Def & {own: 1}  // cue: own-fields ordered first
+   ```
 
 7. **Per-eval-cost perf (frontier #2, NOW MORE URGENT — downstream of correctness).** The heavy
    `argo` sub-package (`argo_.{stage9,bluepages,…}.configs`) times out >200s once past the early
@@ -149,6 +179,9 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
      selectable); kue bottoms. Incompleteness, not unsound. Needs a scalar-with-decls
      carrier (the `.embeddedList` analog for scalars). Do NOT "fix" item-relate by widening
      the scalar collapse — that is the unsound direction.
+     ```cue
+     out: {#a: 1, 5}  // cue -e out: 5 (and .#a stays selectable); kue bottoms
+     ```
    - **`module-file-scoped-imports`** (arch-sized) — kue merges every sibling file's import
      bindings into one shared package frame; CUE scopes them per-file. Bites only the
      same-NAME-different-target case (which dedupe turned silent-wrong); real prod9 doesn't
@@ -161,6 +194,9 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
      ops beyond `+`/`&`, composed select-into-F1-default) when next touching Lattice/Eval.
    - **Parser strictness** — `*(1|2)` laxity (cue rejects at parse); `__x` double-underscore
      accepted (cue reserves `__`-prefixed idents). Track under a parser-strictness pass.
+     ```cue
+     x: *(1|2)  // cue rejects at parse: "preference mark not allowed at this position"
+     ```
    - **Dead OR-branch `refsSelfEmbeddedLabel` (`Eval.lean:97`)** — the `… || refsSelfEmbeddedLabel
      … (.refId id)` recursion hits `_ => false` unconditionally (no `.refId` arm). Remove on
      the next embedding-Self touch.
@@ -179,6 +215,8 @@ correctness frontier (1) → parallel-safe cleanups (3,4,5) interleaved → deep
 - **Decisions:** [`../decisions/`](../decisions/) (compatibility target, correctness-over-perf,
   Value-model fork resolution).
 - **Slice loop + audit cadence:** [`../guides/slice-loop.md`](../guides/slice-loop.md).
+- **Status page:** [`../www/index.html`](../www/index.html) — single human-scannable status
+  page (where Kue stands, what works, what's next); refreshed on plan-hygiene passes.
 - **CUE semantics reference:** [`cue-language-guide.md`](cue-language-guide.md);
   [`architecture.md`](architecture.md) + [`compat-assumptions.md`](compat-assumptions.md)
   in this `spec/` directory.

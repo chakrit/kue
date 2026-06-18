@@ -1,3 +1,7 @@
+> **SUPERSEDED (2026-06-18).** This early-session breadcrumb is stale (`Value.closure`
+> landed; closures and cross-package def-meet now work). Current START-HERE: the newest
+> `docs/notes/2026-06-18-*-landed.md` + the live roadmap `docs/spec/plan.md`.
+
 # RESUME HERE — session save 2026-06-18
 
 Latest resume breadcrumb; supersedes `2026-06-17-loader-robustness-landed.md` and the
