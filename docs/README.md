@@ -38,6 +38,9 @@ memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-l
   works, and what's next (a hand-rendered snapshot of the plan).
 - [Implementation Log](reference/implementation-log.md) — the full slice-by-slice record
   of completed work, retained for verification.
+- [Failure Modes & Guards](reference/failure-modes.md) — operational pitfalls hit running
+  the autonomous loop (crashes, contention, stale docs), each with its guard; appended on
+  the periodic resilience pass.
 - [Compatibility Target](decisions/2026-06-14-cue-compatibility-target.md) — why Kue
   targets *correct* CUE v0.15 semantics over bug-for-bug parity.
 - [Correctness Over Performance](decisions/2026-06-18-correctness-over-performance.md) —

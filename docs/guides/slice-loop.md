@@ -50,6 +50,13 @@ Periodic, not every cycle:
   backlog, pointers. History lives in `implementation-log.md` + git, so the plan sheds it.
   Also refresh `docs/www/index.html` (the human-scannable status page) to match the
   distilled plan.
+- **Resilience / retrospective pass** — every *larger* while (roughly every 3–4 audit
+  cycles, or once failures have accrued), review what broke *operationally* since the last
+  retro — crashed/overloaded subagents, lost work, transient API errors, working-tree
+  contention, late-caught misdiagnoses, flaky oracle/tooling — and record each with its
+  guard in [`../reference/failure-modes.md`](../reference/failure-modes.md). Fold durable
+  mitigations back into this guide and the subagent-prompt conventions so the same failure
+  cannot recur. This is process hardening — the operational analog of the code audits.
 - **Release** — see "Releases" below (~1 datestamped alpha/day, local script, no CI).
 
 ## Slice (per subagent)
@@ -61,6 +68,16 @@ first-class (pin edges, not just happy path); log CUE divergences in
 `cue-divergences.md`; when a slice changes eval cost or surfaces a slow/fast CUE pattern,
 update [`kue-performance.md`](kue-performance.md). Oracle-check behavior against `cue`
 (`/Users/chakrit/go/bin/cue`).
+
+**Commit at checkpoints, not only at the end.** A subagent that crashes or hits a transient
+API error loses ALL uncommitted work — this has happened (~89 tool-uses lost to an
+"Overloaded" error mid-audit, nothing committed → total re-run). So commit at natural
+internal seams: the design sub-spike into `plan.md`, each independently-green sub-fix, and
+audit findings BEFORE composing the final summary. "One slice per commit" stays the default
+for clean history, but a few checkpoint commits on a long or multi-step slice beat risking
+total loss. On a crash the orchestrator recovers from git state (was anything committed?)
+and re-runs only the lost remainder; treat transient API errors as retry-now, never
+wait-it-out. See [`../reference/failure-modes.md`](../reference/failure-modes.md).
 
 **Docs convention — show the CUE.** Any doc that references a CUE *language* feature
 includes a short (2–4 line) CUE code block showing the concrete construct, so a reader
