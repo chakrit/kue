@@ -40,20 +40,19 @@ mutual
             | _, .error error => .error error
         | .field _ _ .required => .error (.incomplete (Field.value field))
         | .field _ _ .regular =>
-            -- A HIDDEN/definition present field (`#u: v`, `_u: v`) is OMITTED from output, but a
-            -- BOTTOM anywhere in its value still bottoms the enclosing struct (cue: `{#u: _|_}` →
-            -- explicit error; `{#u: {x: _|_}}` → error). Incompleteness/ambiguity, by contrast, is
-            -- TOLERATED for a hidden field (cue: `{#u: int}`, `{#u: 1|2}` export fine, the field is
-            -- just dropped) — only an explicit contradiction surfaces. So manifest the value to
-            -- detect a deep contradiction, propagate ONLY that, and otherwise drop the field. This
-            -- reuses the manifest resolver (disjunction-default, nested structs) so the bottom check
-            -- can never diverge from real value resolution (a `*1 | _|_` resolves to `1`, no error).
-            -- Pre-fix this skipped the value unconditionally, silently dropping a hidden bottom — the
-            -- argocd `packs.#Argo` impossible-field arm-kill (`#username?: _|_` met with a supplied
-            -- `#username` must bottom that disjunction arm so the other arm wins).
-            match manifestWithFuel fuel (Field.value field) with
-            | .error .contradiction => .error .contradiction
-            | _ => manifestFieldsWithFuel fuel fields
+            -- A HIDDEN/definition present field (`#u: v`, `_u: v`) carrying an EXPLICIT, SHALLOW
+            -- bottom bottoms the enclosing struct (cue: `{#u: _|_}` → explicit error). But the value
+            -- is OMITTED from output, so we must NOT recurse into it: an imported-package binding is
+            -- bound as a hidden field whose package value contains `tests`/unreferenced definitions
+            -- with their own (unreached) conflicts — cue never manifests those, and a deep recurse
+            -- here spuriously bottomed the whole export (the cert-manager regression: `defs`/`parts`
+            -- bindings carry an `attr.#ExecProbe` test whose `#command` conflicts in isolation).
+            -- cue only surfaces a bottom from a hidden field reached in the SELECTED value; an
+            -- unreferenced nested definition/package is not. A shallow `isBottom` check matches the
+            -- argocd arm-kill need at EVAL time (`liveAlternatives`/`fieldBottomCounts` prunes the
+            -- impossible-field arm); the standalone hidden-bottom export is the explicit-`_|_` case.
+            if isBottom (Field.value field) then .error .contradiction
+            else manifestFieldsWithFuel fuel fields
         | .field _ _ .optional => manifestFieldsWithFuel fuel fields
         | .letBinding => manifestFieldsWithFuel fuel fields
 

@@ -1030,15 +1030,22 @@ theorem fixture_underscore_top_bottom :
       = "bottom: 2\nself: {n: 1, m: 1}" := by
   native_decide
 
-/-! ### link-5 hidden-bottom-field propagation (argocd `packs.#Argo`, sub-fix 2).
+/-! ### link-5 hidden-bottom-field propagation (argocd `packs.#Argo`, sub-fix 2 + regression fix).
 
-A HIDDEN/definition field is OMITTED from output, but a BOTTOM in its value still bottoms the
-struct (cue: `{#u: _|_}` → explicit error). Pre-fix `manifestFieldsWithFuel` skipped a hidden
-present field's value unconditionally, silently dropping the bottom. Exercised through the full
-manifest path (`exportSourcesToString`), which the eval-format `formatTopLevel` pins above do not
-reach. The companion behaviour — an UNSET impossible OPTIONAL field (`#u?: _|_`) does NOT bottom
-the struct, and arm-prunes correctly in a disjunction — lives in `containsBottom`
-(`fieldBottomCounts`) and is pinned by the `link5_disj_*` EvalTests + the module fixture. -/
+A HIDDEN/definition field is OMITTED from output, but a field whose value IS bottom (`{#u: _|_}`,
+or a conflict `{#u: string} & {#u: int}`) bottoms the enclosing struct (cue: explicit error).
+Pre-fix `manifestFieldsWithFuel` skipped a hidden present field's value unconditionally, silently
+dropping the bottom. The check is SHALLOW (`isBottom` on the field value, no recursion into its
+subtree): a deep recurse spuriously bottomed the export when a hidden field is an imported-PACKAGE
+binding (`defs`/`parts`) carrying `tests`/unreferenced definitions whose isolated conflicts cue
+never evaluates (the cert-manager regression — cue is lazy on unreferenced imported content). The
+shallow check stays SOUND (never a false error → no regression) while catching the explicit-bottom
+and arm-kill cases; a nested-non-propagating hidden bottom (`{#u: {#c: string & int}}`) is a known
+incompleteness vs cue (deferred — it needs imported-package laziness, not eager deep checking).
+Exercised through the full manifest path (`exportSourcesToString`), which the eval-format
+`formatTopLevel` pins above do not reach. The companion behaviour — an UNSET impossible OPTIONAL
+field (`#u?: _|_`) does NOT bottom the struct, and arm-prunes correctly in a disjunction — lives in
+`containsBottom` (`fieldBottomCounts`) and is pinned by the `link5_disj_*` EvalTests + the fixture. -/
 
 -- Flatten an export result to its inner string (the JSON or the manifest-error message), or a
 -- parse-error marker. `ParseError` has no `DecidableEq`, so `native_decide` cannot compare the raw
@@ -1070,6 +1077,16 @@ theorem link5_hidden_incomplete_field_tolerated :
 -- An UNSET impossible OPTIONAL field (`#u?: _|_`) does NOT bottom the struct (cue keeps it).
 theorem link5_unset_optional_bottom_field_tolerated :
     exportResultString "out: {#u?: _|_, k: 1}\n"
+      = "{\n    \"out\": {\n        \"k\": 1\n    }\n}\n" := by
+  native_decide
+
+-- NO-OVER-FIRE (the cert-manager regression guard): the shallow check must NOT recurse into a
+-- hidden field's subtree. A hidden field holding a struct with a NESTED, non-propagating conflict
+-- (the imported-package-binding shape — `defs`/`parts` carrying `tests`/definitions cue never
+-- evaluates) must still EXPORT, not bottom the whole document. A regression that re-introduced deep
+-- recursion here would bottom this (and cert-manager).
+theorem link5_hidden_nested_conflict_does_not_overfire :
+    exportResultString "out: {#pkg: {#Tmpl: {#c: string} & {#c: int}}, k: 1}\n"
       = "{\n    \"out\": {\n        \"k\": 1\n    }\n}\n" := by
   native_decide
 
