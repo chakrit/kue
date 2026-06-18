@@ -663,6 +663,8 @@ def bindValueAlias (name : String) : Value -> Value
       .structPattern (⟨name, .letBinding, .thisStruct⟩ :: fields) lp c open_
   | .structPatterns fields ps open_ =>
       .structPatterns (⟨name, .letBinding, .thisStruct⟩ :: fields) ps open_
+  | .structN fields openness tail ps =>
+      .structN (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps
   | .structComp fields cs open_ hasTail =>
       .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs open_ hasTail
   | value => value

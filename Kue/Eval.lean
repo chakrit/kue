@@ -181,6 +181,16 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
           || patterns.any (fun p =>
               refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.fst
                 || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.snd)
+  | .structN fields _ tail patterns =>
+      -- Union of the four legacy struct arms: scan fields, the optional tail, and the patterns,
+      -- all one frame deeper.
+      match fuel with
+      | 0 => false
+      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
+          || (match tail with | some t => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels t | none => false)
+          || patterns.any (fun p =>
+              refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.fst
+                || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.snd)
   | _ => false
 
 /-- Does any clause source/guard or the body reference `Self.<embedded>` (see
@@ -288,6 +298,15 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List St
           ++ patterns.flatMap (fun p =>
               selfReferencedLabels f (depth + 1) selfIndex p.fst
                 ++ selfReferencedLabels f (depth + 1) selfIndex p.snd)
+  | .structN fields _ tail patterns =>
+      -- Union of the four legacy struct arms: fields, optional tail, patterns, one frame deeper.
+      match fuel with
+      | 0 => []
+      | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
+          ++ (match tail with | some t => selfReferencedLabels f (depth + 1) selfIndex t | none => [])
+          ++ patterns.flatMap (fun p =>
+              selfReferencedLabels f (depth + 1) selfIndex p.fst
+                ++ selfReferencedLabels f (depth + 1) selfIndex p.snd)
   | _ => []
 
 /-- Collect `Self.<label>` reads across a comprehension's clause chain and body, threading the
@@ -356,6 +375,20 @@ def applyEvaluatedStructPatterns
     (patterns : List (Value × Value))
     (open_ : Bool) : Value :=
   meet (.structPatterns [] patterns open_) (.struct fields true)
+
+/-- Re-emit an evaluated normalized struct, applying its evaluated patterns to the
+    evaluated fields exactly as the legacy `applyEvaluatedStructPattern(s)` did — by meeting
+    a pattern-only struct against the field-only struct. A no-pattern struct (the old
+    `struct`/`structTail` shapes) skips the meet and is `mkStruct`-built directly; a
+    pattern struct routes through `meet`, which applies the patterns to the fields. -/
+def applyEvaluatedStructN
+    (fields : List Field)
+    (openness : StructOpenness)
+    (tail : Option Value)
+    (patterns : List (Value × Value)) : Value :=
+  match patterns with
+  | [] => mkStruct fields openness tail []
+  | _ => meet (mkStruct [] openness none patterns) (mkStruct fields .regularOpen none [])
 
 def allRegularAlternatives : List (Mark × Value) -> Bool
   | [] => true
@@ -467,6 +500,14 @@ mutual
           (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields)
           (remapConjPatterns fuel (frameDepth + 1) oldLabels mergedMap patterns)
           open_
+    | fuel + 1, .structN fields openness tail patterns =>
+        -- 1:1 ref-remap preserving the already-coherent structN shape (openness/tail/patterns
+        -- are invariant under remapping, so rebuild directly rather than through `mkStruct`).
+        .structN
+          (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap fields)
+          openness
+          (tail.map (remapConjRefs fuel (frameDepth + 1) oldLabels mergedMap))
+          (remapConjPatterns fuel (frameDepth + 1) oldLabels mergedMap patterns)
     | fuel + 1, .list items =>
         .list (remapConjValues fuel frameDepth oldLabels mergedMap items)
     | fuel + 1, .listTail items tail =>
@@ -617,6 +658,10 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       match findEvalField label fields with
       | some field => Field.value field
       | none => .selector base label
+  | .structN fields _ _ _ =>
+      match findEvalField label fields with
+      | some field => Field.value field
+      | none => .selector base label
   | .embeddedList _ _ decls =>
       match findEvalField label decls with
       | some field => Field.value field
@@ -641,6 +686,10 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
           | some field => Field.value field
           | none => .selector base label
       | some (.structPatterns fields _ _) =>
+          match findEvalField label fields with
+          | some field => Field.value field
+          | none => .selector base label
+      | some (.structN fields _ _ _) =>
           match findEvalField label fields with
           | some field => Field.value field
           | none => .selector base label
@@ -697,6 +746,7 @@ def selectEvaluatedIndex (base key : Value) : Value :=
   | .structTail fields _ => selectEvaluatedFieldIndex base key fields
   | .structPattern fields _ _ _ => selectEvaluatedFieldIndex base key fields
   | .structPatterns fields _ _ => selectEvaluatedFieldIndex base key fields
+  | .structN fields _ _ _ => selectEvaluatedFieldIndex base key fields
   | .list items => selectEvaluatedListIndex base key items
   | .listTail items _ => selectEvaluatedListTailIndex base key items
   | .embeddedList items none _ => selectEvaluatedListIndex base key items
@@ -784,11 +834,11 @@ def classifyDefinedness : Value -> Definedness
   | .listTail _ _ => .defined
   | .embeddedList _ _ _ => .defined
   | .structComp _ _ _ _ => .defined
-  -- B2.1 dead arm (no producer yet); revisit in B2.3. Mirrors `struct`/`structTail` (a
-  -- normalized struct with named fields is a present concrete value → `.defined`). Note
-  -- for B2.3: the old `structPattern`/`structPatterns` classify `.incomplete`, so a
-  -- `structN` that is a PURE pattern-struct (no fields) must be reconciled then.
-  | .structN _ _ _ _ => .defined
+  -- Reproduces the legacy split exactly: old `struct`/`structTail` (no patterns) are a
+  -- present concrete value → `.defined`; old `structPattern`/`structPatterns` (patterns
+  -- present) are `.incomplete`. The discriminator is `patterns.isEmpty`.
+  | .structN _ _ _ [] => .defined
+  | .structN _ _ _ (_ :: _) => .incomplete
   -- A DISJUNCTION with ≥1 LIVE arm is a PRESENT value (CUE: `(*"argocd" | string) != _|_` is
   -- `true`, `("a"|"b") != _|_` is `true`); without it a presence guard over a default/plain
   -- disjunction (argocd `#ArgoRepo`/`parts.#Metadata` `#ns: *"argocd" | string` then
@@ -1098,6 +1148,7 @@ def comprehensionPairs : Value -> Option (List (Value × Value))
   | .structTail fields _ => some (structPairs fields)
   | .structPattern fields _ _ _ => some (structPairs fields)
   | .structPatterns fields _ _ => some (structPairs fields)
+  | .structN fields _ _ _ => some (structPairs fields)
   | _ => none
 
 /--
@@ -1353,6 +1404,10 @@ it is refused.
 -/
 def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field × Bool)
   | .struct fields open_ => some (fields, open_)
+  -- Plain-struct-equivalent structN (no tail, no patterns) reproduces the `.struct` arm; a
+  -- tail/pattern-bearing structN is not a plain same-scope struct operand (→ `none`, as the
+  -- legacy tail/pattern forms fell through here).
+  | .structN fields openness none [] => some (fields, openness.isOpen)
   | .refId id =>
       match fuel with
       | 0 => none
@@ -1395,6 +1450,9 @@ def lazyConjMergedFields (env : Env) (constraints : List Value) :
     enclosing def's closed set rather than restricting it. Non-struct values pass through. -/
 def openStructValue : Value -> Value
   | .struct fields _ => .struct fields true
+  -- Plain-struct-equivalent structN reopens like `.struct`; tail/pattern-bearing forms pass
+  -- through (legacy `other => other`).
+  | .structN fields _ none [] => mkStruct fields .regularOpen none []
   | other => other
 
 /-- Collapse an EMBEDDED disjunction to its default arm before it merges into the host.
@@ -1434,6 +1492,9 @@ def hiddenFieldsOnly (operand : List Field × Bool) : List Field × Bool :=
     closedness, and pre-closing the static frame would wrongly reject the embed's own fields. -/
 def closeEmbeddedOver (defFields embeddingFields : List Field) (defOpen : Bool) : Value -> Value
   | .struct fields _ => .struct (applyClosednessFrom (defFields ++ embeddingFields) defOpen fields) defOpen
+  -- Plain-struct-equivalent structN reproduces the `.struct` arm; tail/pattern forms pass through.
+  | .structN fields _ none [] =>
+      mkStruct (applyClosednessFrom (defFields ++ embeddingFields) defOpen fields) (.ofBool defOpen) none []
   | other => other
 
 /-- Extract an evaluated value's struct-conjunct operand `(fields, open)` for splicing into a
@@ -1445,6 +1506,10 @@ def evaluatedStructOperand? : Value -> Option (List Field × Bool)
   | .structTail fields _ => some (fields, false)
   | .structPattern fields _ _ open_ => some (fields, open_)
   | .structPatterns fields _ open_ => some (fields, open_)
+  -- A tail-bearing structN reproduces `structTail`'s `false`; otherwise the openness bool
+  -- (`regularOpen → true`, `defClosed → false`), matching `struct`/the pattern forms.
+  | .structN fields .defOpenViaTail _ _ => some (fields, false)
+  | .structN fields openness _ _ => some (fields, openness.isOpen)
   | _ => none
 
 /-- The narrowing fields a use operand splices into a forced def's frame. Extends
@@ -1565,6 +1630,16 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
             || patterns.any (fun p =>
                  hasSelfRefAtDepth fuel (depth + 1) p.fst
                    || hasSelfRefAtDepth fuel (depth + 1) p.snd)
+  | .structN fields _ tail patterns =>
+      -- Union of the legacy struct/structTail/pattern arms: fields, optional tail, patterns.
+      match fuel with
+      | 0 => false
+      | fuel + 1 =>
+          fields.any (fun f => hasSelfRefAtDepth fuel (depth + 1) (Field.value f))
+            || (match tail with | some t => hasSelfRefAtDepth fuel (depth + 1) t | none => false)
+            || patterns.any (fun p =>
+                 hasSelfRefAtDepth fuel (depth + 1) p.fst
+                   || hasSelfRefAtDepth fuel (depth + 1) p.snd)
   | .comprehension clauses body =>
       -- Clause sources/guards resolve in the comprehension's enclosing frame; the body resolves
       -- `#forClauses` frames deeper (`for` pushes one, `guard` none). `hasSelfRefAtDepthClauses`
@@ -1615,6 +1690,11 @@ def defBodyHasSiblingSelfRef : Value -> Bool
   | .structComp fields comprehensions _ _ =>
       fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
         || comprehensions.any (hasSelfRefAtDepth evalFuel 0)
+  -- Reproduces `struct`/`structTail` (scan fields + optional tail). A pattern-bearing structN
+  -- maps from the old pattern forms, which fell through to `false` here.
+  | .structN fields _ tail [] =>
+      fields.any (fun f => hasSelfRefAtDepth evalFuel 0 (Field.value f))
+        || (match tail with | some t => hasSelfRefAtDepth evalFuel 0 t | none => false)
   | _ => false
 
 /-- Resolve an embedding expression (`.refId` to a sibling/outer def, or a `pkg.#Def` selector
@@ -1638,6 +1718,10 @@ def resolveEmbedDefBody? (env : Env) : Value -> Option Value
           | some baseField =>
               match Field.value baseField with
               | .struct pkgFields _ =>
+                  match findEvalField label pkgFields with
+                  | some defField => some (Field.value defField)
+                  | none => none
+              | .structN pkgFields _ _ _ =>
                   match findEvalField label pkgFields with
                   | some defField => some (Field.value defField)
                   | none => none
@@ -1717,6 +1801,12 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
                       | some defField =>
                           -- The found def lives in `pkgFields`; its body's refs resolve with
                           -- `pkgFields` at depth 0 over the package binding's outer scope.
+                          let nextEnv : Env := (0, pkgFields) :: frameEnv.drop (baseId.depth + 1)
+                          followAliasDefBody? fuel nextEnv pkgFields (Field.value defField)
+                      | none => none
+                  | .structN pkgFields _ _ _ =>
+                      match findEvalField label pkgFields with
+                      | some defField =>
                           let nextEnv : Env := (0, pkgFields) :: frameEnv.drop (baseId.depth + 1)
                           followAliasDefBody? fuel nextEnv pkgFields (Field.value defField)
                       | none => none
@@ -2212,6 +2302,24 @@ mutual
               let evaluatedConstraint <- evalValueWithFuel fuel nested [] pattern.snd
               pure (evaluatedLabel, evaluatedConstraint)
             pure (applyEvaluatedStructPatterns nestedFields evaluatedPatterns open_)
+        | none => pure .bottom
+    | fuel + 1, .structN nestedFields openness tail patterns => do
+        -- The normalized struct: evaluate fields, the optional tail, and patterns against the
+        -- nested frame, then re-emit via `applyEvaluatedStructN`. Reproduces the union of the
+        -- legacy `struct`/`structTail`/`structPattern`/`structPatterns` eval arms in one place.
+        let nestedFields := canonicalizeFields nestedFields
+        let nested <- pushFrame nestedFields env
+        let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
+        match mergeEvaluatedFields evaluatedFields with
+        | some nestedFields =>
+            let evaluatedTail <- match tail with
+              | some t => do let t <- evalValueWithFuel fuel nested [] t; pure (some t)
+              | none => pure none
+            let evaluatedPatterns <- patterns.mapM fun pattern => do
+              let evaluatedLabel <- evalValueWithFuel fuel nested [] pattern.fst
+              let evaluatedConstraint <- evalValueWithFuel fuel nested [] pattern.snd
+              pure (evaluatedLabel, evaluatedConstraint)
+            pure (applyEvaluatedStructN nestedFields openness evaluatedTail evaluatedPatterns)
         | none => pure .bottom
     | fuel + 1, .list items => do
         let evaluated <- evalListItemsWithFuel fuel env visited items

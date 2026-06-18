@@ -14,6 +14,9 @@ def version : String := "0.1.0-alpha"
 
 def formatTopLevel : Value -> String
   | .struct fields _ => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
+  -- A plain-struct-equivalent structN (no tail, no patterns) formats top-level like `.struct`;
+  -- tail/pattern-bearing forms fall through to `formatValue` (legacy did the same).
+  | .structN fields _ none [] => joinWith "\n" (formatStructFieldsWithFuel formatFuel fields)
   | value => formatValue value
 
 def resolveAndEval (value : Value) : Value :=
@@ -85,6 +88,7 @@ def lookupField? (base : Value) (label : String) : Option Value :=
   | .structTail fields _ => (findEvalField label fields).map Field.value
   | .structPattern fields _ _ _ => (findEvalField label fields).map Field.value
   | .structPatterns fields _ _ => (findEvalField label fields).map Field.value
+  | .structN fields _ _ _ => (findEvalField label fields).map Field.value
   | .embeddedList _ _ decls => (findEvalField label decls).map Field.value
   | _ => none
 

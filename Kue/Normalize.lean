@@ -36,6 +36,25 @@ mutual
               normalizeDefinitionValueWithFuel fuel pattern.snd
             ))
           open_
+    -- A `defOpenViaTail` structN reproduces the legacy `structTail` def body, which had NO arm
+    -- here (the explicit `...` keeps the def OPEN), so it is returned UNCHANGED. A no-pattern
+    -- struct-equivalent CLOSES (openness → `defClosed`), exactly as the `.struct` arm `false`d
+    -- its `open_`. A pattern-bearing structN normalizes fields + patterns and keeps its openness,
+    -- mirroring the `structPattern`/`structPatterns` arms.
+    | _ + 1, .structN fields .defOpenViaTail tail patterns =>
+        .structN fields .defOpenViaTail tail patterns
+    | fuel + 1, .structN fields _ _ [] =>
+        .structN (fields.map (normalizeFieldWithFuel fuel)) .defClosed none []
+    | fuel + 1, .structN fields openness _ patterns =>
+        .structN
+          (fields.map (normalizeFieldWithFuel fuel))
+          openness
+          none
+          (patterns.map fun pattern =>
+            (
+              normalizeDefinitionValueWithFuel fuel pattern.fst,
+              normalizeDefinitionValueWithFuel fuel pattern.snd
+            ))
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionValueWithFuel fuel alternative.snd)
@@ -119,6 +138,21 @@ mutual
               normalizeDefinitionsWithFuel fuel pattern.snd
             ))
           open_
+    -- Mirrors the `.struct` / pattern arms (normalize fields/patterns, keep openness). A
+    -- `defOpenViaTail` structN reproduces the legacy `structTail`, which had no arm here →
+    -- returned unchanged.
+    | _ + 1, .structN fields .defOpenViaTail tail patterns =>
+        .structN fields .defOpenViaTail tail patterns
+    | fuel + 1, .structN fields openness tail patterns =>
+        .structN
+          (fields.map (normalizeFieldWithFuel fuel))
+          openness
+          tail
+          (patterns.map fun pattern =>
+            (
+              normalizeDefinitionsWithFuel fuel pattern.fst,
+              normalizeDefinitionsWithFuel fuel pattern.snd
+            ))
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionsWithFuel fuel alternative.snd)

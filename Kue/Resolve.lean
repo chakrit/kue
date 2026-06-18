@@ -117,6 +117,19 @@ mutual
               resolveValueWithFuel fuel nested pattern.snd
             ))
           open_
+    | fuel + 1, scopes, .structN fields openness tail patterns =>
+        -- 1:1 ref-resolution preserving the coherent structN shape (rebuild directly; the
+        -- openness/tail-presence/pattern-count are invariant under resolution).
+        let nested := buildFrame fields :: scopes
+        .structN
+          (fields.map (resolveFieldRefsWithFuel fuel nested))
+          openness
+          (tail.map (resolveValueWithFuel fuel nested))
+          (patterns.map fun pattern =>
+            (
+              resolveValueWithFuel fuel nested pattern.fst,
+              resolveValueWithFuel fuel nested pattern.snd
+            ))
     | fuel + 1, scopes, .list items =>
         .list (items.map (resolveValueWithFuel fuel scopes))
     | fuel + 1, scopes, .listTail items tail =>
@@ -171,6 +184,17 @@ def resolveStructRefs : Value -> Value
             resolveValueWithFuel resolveFuel scopes pattern.snd
           ))
         open_
+  | .structN fields openness tail patterns =>
+      let scopes := [buildFrame fields]
+      .structN
+        (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
+        openness
+        (tail.map (resolveValueWithFuel resolveFuel scopes))
+        (patterns.map fun pattern =>
+          (
+            resolveValueWithFuel resolveFuel scopes pattern.fst,
+            resolveValueWithFuel resolveFuel scopes pattern.snd
+          ))
   | .structComp fields comprehensions open_ hasTail =>
       let scopes := [buildFrame fields]
       .structComp

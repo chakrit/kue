@@ -186,6 +186,12 @@ def containsBottomWithFuel : Nat -> Value -> Bool
       fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
         || patterns.any fun pattern =>
           containsBottomWithFuel fuel pattern.fst || containsBottomWithFuel fuel pattern.snd
+  | fuel + 1, .structN fields _ tail patterns =>
+      -- Union of the four legacy struct arms: fields, optional tail, patterns.
+      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
+        || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
+        || patterns.any fun pattern =>
+          containsBottomWithFuel fuel pattern.fst || containsBottomWithFuel fuel pattern.snd
   | fuel + 1, .list items =>
       items.any (containsBottomWithFuel fuel)
   | fuel + 1, .listTail items tail =>
@@ -734,51 +740,6 @@ def patternStructValue (fields : List Field) : List (Value × Value) -> Bool -> 
   | [pattern], open_ => .structPattern fields pattern.fst pattern.snd open_
   | patterns, open_ => .structPatterns fields patterns open_
 
-/-- Drop duplicate `(labelPattern, constraint)` pairs, keeping the first occurrence so
-    order is stable and meet over patterns is confluent. Equality is structural `BEq` on
-    the pair (the same equality `dedupAlternatives` uses for disjunction arms). -/
-def dedupPatterns (patterns : List (Value × Value)) : List (Value × Value) :=
-  patterns.foldr
-    (fun pattern kept => if kept.any (· == pattern) then kept else pattern :: kept)
-    []
-
-/-- Coerce a `(tail, openness)` pair into the one coherent shape the `structN`
-    representation admits, erasing the never-constructable combinations
-    (`Phase-A` finding item-8 / the B2 `open_`×`hasTail` nonsense state):
-
-    * a `some` tail ⟹ `defOpenViaTail` (a struct WITH a `...` is open-and-tail-bearing),
-      regardless of the openness the caller passed;
-    * `defOpenViaTail` with NO tail ⟹ supply the bare-`...` default `some .top`;
-    * any other openness (`regularOpen` / `defClosed`) forces `tail = none`.
-
-    Post-condition (pinned below): `tail = some _ ↔ openness = .defOpenViaTail`. -/
-def coherentTail : Option Value -> StructOpenness -> Option Value × StructOpenness
-  | some tail, _ => (some tail, .defOpenViaTail)
-  | none, .defOpenViaTail => (some .top, .defOpenViaTail)
-  | none, openness => (none, openness)
-
-/-- The B2 smart constructor for the normalized struct (`Value.structN`) — the ONLY
-    sanctioned way to build the form. Enforces the representation invariants so illegal
-    states are unconstructable:
-
-    * **patterns canonicalized**: deduplicated (`dedupPatterns`), so meet over patterns is
-      confluent (this subsumes `patternStructValue`'s length dispatch — one constructor for
-      0/1/n patterns);
-    * **tail/openness coherence** (`coherentTail`): `tail = some _ ↔ openness =
-      .defOpenViaTail`, so the incoherent pairs (a `defOpenViaTail` with no tail; a tail
-      with `regularOpen`/`defClosed`) are normalized away rather than represented.
-
-    Field ordering is the caller's responsibility (callers run `canonicalizeFields` before
-    constructing, exactly as they do today for `patternStructValue` — `canonicalizeFields`
-    lives in `Eval`, downstream of this module, so it cannot be called here). -/
-def mkStruct
-    (fields : List Field)
-    (openness : StructOpenness)
-    (tail : Option Value)
-    (patterns : List (Value × Value)) : Value :=
-  let (coherentTailValue, coherentOpenness) := coherentTail tail openness
-  .structN fields coherentOpenness coherentTailValue (dedupPatterns patterns)
-
 def applyPatternsToFieldsWith
     (meetValue : Value -> Value -> Value)
     (patterns : List (Value × Value))
@@ -927,6 +888,91 @@ def mergeStructPatternsWithStructPatternsWith
         patterns
         open_
   | none => .bottom
+
+/-- The single normalized-struct meet (B2.4). Reproduces the legacy 12-arm matrix EXACTLY,
+    emitting `structN` via `mkStruct`, by dispatching on which side carries a tail/patterns and
+    preserving each legacy arm's field-merge ORDER and closedness application:
+
+    * plain × plain (no tail, no patterns) → `mergeStructFieldsWith lf rf` + `applyStructClosedness`;
+    * tail on the LEFT, plain RIGHT → `mergeStructFieldsWith lf rf`, left tail applied to extras;
+    * tail on the RIGHT, plain LEFT → `mergeStructFieldsWith rf lf` (REVERSED, matching the legacy
+      `struct × structTail` arm), right tail applied to extras;
+    * tail on BOTH → `mergeStructFieldsWith lf rf`, meet the tails, apply BOTH to extras;
+    * patterns on one side / both → the `mergeStructPattern(s)…` field+pattern fold, same orders.
+
+    The cross-combination `tail-on-one-side × patterns-on-other` had NO legacy arm and stays
+    `.bottom` here (the documented B2.5 behavioral fix flips it to a real unify). A structN that
+    carries BOTH a tail and patterns is never produced by any path and bottoms defensively. -/
+def mergeStructN
+    (meetValue : Value -> Value -> Value)
+    (leftFields : List Field) (leftOpenness : StructOpenness)
+    (leftTail : Option Value) (leftPatterns : List (Value × Value))
+    (rightFields : List Field) (rightOpenness : StructOpenness)
+    (rightTail : Option Value) (rightPatterns : List (Value × Value)) : Value :=
+  match leftTail, leftPatterns, rightTail, rightPatterns with
+  -- plain × plain
+  | none, [], none, [] =>
+      match mergeStructFieldsWith meetValue leftFields rightFields with
+      | some merged =>
+          mkStruct
+            (applyStructClosedness leftFields rightFields merged leftOpenness.isOpen rightOpenness.isOpen)
+            (StructOpenness.meet leftOpenness rightOpenness)
+            none []
+      | none => .bottom
+  -- tail on the LEFT, plain right (legacy structTail × struct)
+  | some tail, [], none, [] =>
+      match mergeStructFieldsWith meetValue leftFields rightFields with
+      | some merged => mkStruct (applyTailToExtrasWith meetValue leftFields tail merged) .defOpenViaTail (some tail) []
+      | none => .bottom
+  -- tail on the RIGHT, plain left (legacy struct × structTail — REVERSED field-merge order)
+  | none, [], some tail, [] =>
+      match mergeStructFieldsWith meetValue rightFields leftFields with
+      | some merged => mkStruct (applyTailToExtrasWith meetValue rightFields tail merged) .defOpenViaTail (some tail) []
+      | none => .bottom
+  -- tail on BOTH (legacy structTail × structTail)
+  | some leftT, [], some rightT, [] =>
+      match mergeStructFieldsWith meetValue leftFields rightFields with
+      | some merged =>
+          let tail := meetValue leftT rightT
+          if isBottom tail then .bottom
+          else
+            mkStruct
+              (applyTailToExtrasWith meetValue leftFields leftT
+                (applyTailToExtrasWith meetValue rightFields rightT merged))
+              .defOpenViaTail (some tail) []
+      | none => .bottom
+  -- patterns on the LEFT, plain right (legacy structPattern(s) × struct): the pattern side is
+  -- the merge-left, exactly as the legacy arms passed `patternFields` first regardless of order.
+  | none, (_ :: _), none, [] =>
+      match mergeStructFieldsWith meetValue leftFields rightFields with
+      | some merged =>
+          mkStruct
+            (applyPatternsClosednessWith meetValue leftFields leftPatterns leftOpenness.isOpen
+              (applyPatternsToFieldsWith meetValue leftPatterns merged))
+            leftOpenness none leftPatterns
+      | none => .bottom
+  -- patterns on the RIGHT, plain left (legacy struct × structPattern(s))
+  | none, [], none, (_ :: _) =>
+      match mergeStructFieldsWith meetValue rightFields leftFields with
+      | some merged =>
+          mkStruct
+            (applyPatternsClosednessWith meetValue rightFields rightPatterns rightOpenness.isOpen
+              (applyPatternsToFieldsWith meetValue rightPatterns merged))
+            rightOpenness none rightPatterns
+      | none => .bottom
+  -- patterns on BOTH (legacy structPattern(s) × structPattern(s))
+  | none, (_ :: _), none, (_ :: _) =>
+      match mergeStructFieldsWith meetValue leftFields rightFields with
+      | some merged =>
+          mkStruct
+            (applyPatternsClosednessWith meetValue leftFields leftPatterns leftOpenness.isOpen
+              (applyPatternsClosednessWith meetValue rightFields rightPatterns rightOpenness.isOpen
+                (applyPatternsToFieldsWith meetValue rightPatterns
+                  (applyPatternsToFieldsWith meetValue leftPatterns merged))))
+            (StructOpenness.meet leftOpenness rightOpenness) none (leftPatterns ++ rightPatterns)
+      | none => .bottom
+  -- tail-on-one-side × patterns-on-other, and any tail+patterns mix: no legacy arm (B2.5).
+  | _, _, _, _ => .bottom
 
 def meetListWith (meetValue : Value -> Value -> Value) : List Value -> List Value -> Option (List Value)
   | [], [] => some []
@@ -1092,6 +1138,8 @@ def meetWithFuel : Nat -> Value -> Value -> Value
         rightFields
         rightPatterns
         rightOpen
+  | .structN lf lo lt lp, .structN rf ro rt rp =>
+      mergeStructN (meetWithFuel fuel) lf lo lt lp rf ro rt rp
   | .list leftItems, .list rightItems =>
       match meetListWith (meetWithFuel fuel) leftItems rightItems with
       | some items => .list items
@@ -1163,6 +1211,12 @@ def meetWithFuel : Nat -> Value -> Value -> Value
                 match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
                 | some decls => .embeddedList leftItems leftTail decls
                 | none => .bottom
+          | .structN fields _ none [] =>
+              if structHasOutputField fields then .bottom
+              else
+                match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
+                | some decls => .embeddedList leftItems leftTail decls
+                | none => .bottom
           | _ => meetCore (.embeddedList leftItems leftTail leftDecls) rightLike
   | leftLike, .embeddedList rightItems rightTail rightDecls =>
       match asListPair leftLike with
@@ -1173,6 +1227,12 @@ def meetWithFuel : Nat -> Value -> Value -> Value
       | none =>
           match leftLike with
           | .struct fields _ =>
+              if structHasOutputField fields then .bottom
+              else
+                match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
+                | some decls => .embeddedList rightItems rightTail decls
+                | none => .bottom
+          | .structN fields _ none [] =>
               if structHasOutputField fields then .bottom
               else
                 match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
@@ -1198,6 +1258,23 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           else .embeddedList items tail (declFields fields)
       | none =>
           meetCore listLike (.struct fields true)
+  -- Plain-struct-equivalent structN embeds a list exactly like the legacy `.struct` arms; a
+  -- tail/pattern-bearing structN has no list-embedding arm (legacy structTail/pattern × list
+  -- bottomed), so it falls through to `meetCore` → `.bottom`.
+  | .structN fields _ none [], listLike =>
+      match asListPair listLike with
+      | some (items, tail) =>
+          if structHasOutputField fields then .bottom
+          else .embeddedList items tail (declFields fields)
+      | none =>
+          meetCore (mkStruct fields .regularOpen none []) listLike
+  | listLike, .structN fields _ none [] =>
+      match asListPair listLike with
+      | some (items, tail) =>
+          if structHasOutputField fields then .bottom
+          else .embeddedList items tail (declFields fields)
+      | none =>
+          meetCore listLike (mkStruct fields .regularOpen none [])
   | value, other => meetCore value other
 
 def meet (left right : Value) : Value :=

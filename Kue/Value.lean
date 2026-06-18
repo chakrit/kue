@@ -654,6 +654,53 @@ def regular (label : String) (value : Value) : Field :=
 
 end Field
 
+/-- Drop duplicate `(labelPattern, constraint)` pairs, keeping the first occurrence so
+    order is stable and meet over patterns is confluent. Equality is structural `BEq` on
+    the pair (the same equality `dedupAlternatives` uses for disjunction arms). -/
+def dedupPatterns (patterns : List (Value × Value)) : List (Value × Value) :=
+  patterns.foldr
+    (fun pattern kept => if kept.any (· == pattern) then kept else pattern :: kept)
+    []
+
+/-- Coerce a `(tail, openness)` pair into the one coherent shape the `structN`
+    representation admits, erasing the never-constructable combinations
+    (`Phase-A` finding item-8 / the B2 `open_`×`hasTail` nonsense state):
+
+    * a `some` tail ⟹ `defOpenViaTail` (a struct WITH a `...` is open-and-tail-bearing),
+      regardless of the openness the caller passed;
+    * `defOpenViaTail` with NO tail ⟹ supply the bare-`...` default `some .top`;
+    * any other openness (`regularOpen` / `defClosed`) forces `tail = none`.
+
+    Post-condition (pinned in LatticeTests): `tail = some _ ↔ openness = .defOpenViaTail`. -/
+def coherentTail : Option Value -> StructOpenness -> Option Value × StructOpenness
+  | some tail, _ => (some tail, .defOpenViaTail)
+  | none, .defOpenViaTail => (some .top, .defOpenViaTail)
+  | none, openness => (none, openness)
+
+/-- The B2 smart constructor for the normalized struct (`Value.structN`) — the ONLY
+    sanctioned way to build the form. Enforces the representation invariants so illegal
+    states are unconstructable:
+
+    * **patterns canonicalized**: deduplicated (`dedupPatterns`), so meet over patterns is
+      confluent (this subsumes `patternStructValue`'s length dispatch — one constructor for
+      0/1/n patterns);
+    * **tail/openness coherence** (`coherentTail`): `tail = some _ ↔ openness =
+      .defOpenViaTail`, so the incoherent pairs (a `defOpenViaTail` with no tail; a tail
+      with `regularOpen`/`defClosed`) are normalized away rather than represented.
+
+    Field ordering is the caller's responsibility (callers run `canonicalizeFields` before
+    constructing, exactly as they do today for `patternStructValue` — `canonicalizeFields`
+    lives in `Eval`, downstream of this module, so it cannot be called here). Lives in
+    `Value` so every construction site (`Parse`/`Normalize`/`Resolve`/`Eval`/`Lattice`) can
+    reach the single sanctioned constructor without a Lattice dependency. -/
+def mkStruct
+    (fields : List Field)
+    (openness : StructOpenness)
+    (tail : Option Value)
+    (patterns : List (Value × Value)) : Value :=
+  let (coherentTailValue, coherentOpenness) := coherentTail tail openness
+  .structN fields coherentOpenness coherentTailValue (dedupPatterns patterns)
+
 /-- A single `import "path"` or `alias "path"` clause retained from a parsed file. The
     `path` is the verbatim import string (e.g. `"example.com/defs"`); `alias` carries the
     optional local rename, `none` when the package binds under its own declared name. -/
