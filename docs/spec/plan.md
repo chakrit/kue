@@ -255,9 +255,14 @@ all-bottom/empty `.disj` is unrepresentable post-eval; fallback: a defensive ≥
 `classifyDefinedness`. Add a pin: all-bottom disj feeding a presence test classifies `.error`. See
 A3.
 
-**A4. Catch-all hygiene (LOW).** Enumerate residual forms explicitly in `classifyDefinedness`
-(`Eval.lean:691` `_ => .incomplete`) so a future present-value constructor forces a compile error.
-(The `selfReferencedLabels`/`refsSelfEmbeddedLabel` catch-all is fixed under A1.) See A4.
+**A4. Catch-all hygiene (LOW) — DONE (inline, `f72995d`+1).** Enumerated all residual forms
+explicitly in `classifyDefinedness` (replacing `_ => .incomplete`) so a future present-value
+constructor forces a compile error. The exhaustive rewrite SURFACED a latent misclassification: a
+`.structComp` (struct-with-embeds) was falling into `_ => .incomplete` — it is a PRESENT struct
+value and now correctly classifies `.defined` (a presence test `X != _|_` over a structComp now
+returns `true`, not a residual incomplete comparison). Build + fixtures green (zero drift), so the
+case was either unreachable post-eval or strictly more correct. (The
+`selfReferencedLabels`/`refsSelfEmbeddedLabel` catch-all is fixed under A1, still open.) See A4.
 
 1. **`argocd-packs-argo` (argocd link 5) — `packs.#Argo` UNBLOCKED (2026-06-18).** Landed as a
    4-link correctness chain (commits `8ce2462`, `6436d08`, `14994e6`, `7898cff`; see the

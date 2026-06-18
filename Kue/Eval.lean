@@ -681,6 +681,7 @@ def classifyDefinedness : Value -> Definedness
   | .list _ => .defined
   | .listTail _ _ => .defined
   | .embeddedList _ _ _ => .defined
+  | .structComp _ _ _ _ => .defined
   -- A DISJUNCTION is a PRESENT value (CUE: `(*"argocd" | string) != _|_` is `true`, `("a"|"b")
   -- != _|_` is `true`). An all-bottom disjunction never reaches here — `liveAlternatives` prunes
   -- bottom arms, so a surviving `.disj` has ≥1 live arm and is non-`_|_`. Without this, a presence
@@ -688,7 +689,31 @@ def classifyDefinedness : Value -> Definedness
   -- `#ns: *"argocd" | string` then `if Self.#ns != _|_ {namespace: Self.#ns}`) stayed incomplete,
   -- dropping the guarded field (`namespace`) cue emits.
   | .disj _ => .defined
-  | _ => .incomplete
+  -- Residual / unresolved forms: the comparison itself stays incomplete and propagates. Enumerated
+  -- (no catch-all) so a future CONCRETE present-value constructor cannot silently fall through to
+  -- `.incomplete` — it forces a compile error here, where its definedness must be decided. (`top`
+  -- is incomplete: cue rejects `_ != _|_`, "requires concrete value".)
+  | .top => .incomplete
+  | .kind _ => .incomplete
+  | .notPrim _ => .incomplete
+  | .stringRegex _ => .incomplete
+  | .boundConstraint _ _ _ => .incomplete
+  | .conj _ => .incomplete
+  | .builtinCall _ _ => .incomplete
+  | .unary _ _ => .incomplete
+  | .binary _ _ _ => .incomplete
+  | .ref _ => .incomplete
+  | .refId _ => .incomplete
+  | .thisStruct => .incomplete
+  | .selector _ _ => .incomplete
+  | .index _ _ => .incomplete
+  | .structPattern _ _ _ _ => .incomplete
+  | .structPatterns _ _ _ => .incomplete
+  | .comprehension _ _ => .incomplete
+  | .listComprehension _ _ => .incomplete
+  | .interpolation _ => .incomplete
+  | .dynamicField _ _ _ => .incomplete
+  | .closure _ _ => .incomplete
 
 def isPresenceTestOp : BinaryOp -> Bool
   | .eq => true
