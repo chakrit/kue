@@ -1,0 +1,8 @@
+{
+    "out": {
+        "kind": "Secret",
+        "stringData": {
+            "type": "pat"
+        }
+    }
+}

@@ -39,7 +39,21 @@ mutual
             | .error error, _ => .error error
             | _, .error error => .error error
         | .field _ _ .required => .error (.incomplete (Field.value field))
-        | .field _ _ .regular => manifestFieldsWithFuel fuel fields
+        | .field _ _ .regular =>
+            -- A HIDDEN/definition present field (`#u: v`, `_u: v`) is OMITTED from output, but a
+            -- BOTTOM anywhere in its value still bottoms the enclosing struct (cue: `{#u: _|_}` →
+            -- explicit error; `{#u: {x: _|_}}` → error). Incompleteness/ambiguity, by contrast, is
+            -- TOLERATED for a hidden field (cue: `{#u: int}`, `{#u: 1|2}` export fine, the field is
+            -- just dropped) — only an explicit contradiction surfaces. So manifest the value to
+            -- detect a deep contradiction, propagate ONLY that, and otherwise drop the field. This
+            -- reuses the manifest resolver (disjunction-default, nested structs) so the bottom check
+            -- can never diverge from real value resolution (a `*1 | _|_` resolves to `1`, no error).
+            -- Pre-fix this skipped the value unconditionally, silently dropping a hidden bottom — the
+            -- argocd `packs.#Argo` impossible-field arm-kill (`#username?: _|_` met with a supplied
+            -- `#username` must bottom that disjunction arm so the other arm wins).
+            match manifestWithFuel fuel (Field.value field) with
+            | .error .contradiction => .error .contradiction
+            | _ => manifestFieldsWithFuel fuel fields
         | .field _ _ .optional => manifestFieldsWithFuel fuel fields
         | .letBinding => manifestFieldsWithFuel fuel fields
 

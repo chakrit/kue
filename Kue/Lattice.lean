@@ -142,6 +142,19 @@ def isBottom : Value -> Bool
 def containsBottomFuel : Nat :=
   100
 
+/-- Does a struct field's bottom value bottom its enclosing struct? Only a PRESENT field
+    (`regular`/`required`) does: an OPTIONAL field carries an unsatisfiable-IF-present
+    constraint (`#u?: _|_`), not a present bottom, so it leaves the struct LIVE — CUE keeps
+    `{#u?: _|_}` and bottoms only once `#u` is supplied (making it regular, checked at manifest).
+    Without this skip, an embedded disjunction's arm carrying an impossible optional field (the
+    argocd `#ArgoRepo` `(_#A{…,#u?:_|_} | _#B{…,#g?:_|_})` shape) was pruned as bottom even when
+    the field was unset, killing BOTH arms → `_|_` instead of the surviving arm. `checkValue` is
+    the (fuel-decremented) recursive bottom checker, passed in to avoid mutual recursion. -/
+def fieldBottomCounts (checkValue : Value -> Bool) (field : Field) : Bool :=
+  match FieldClass.optionality (Field.fieldClass field) with
+  | .optional => false
+  | _ => checkValue (Field.value field)
+
 def containsBottomWithFuel : Nat -> Value -> Bool
   | 0, _ => false
   | _ + 1, .bottom => true
@@ -161,16 +174,16 @@ def containsBottomWithFuel : Nat -> Value -> Bool
   | fuel + 1, .disj alternatives =>
       alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
   | fuel + 1, .struct fields _ =>
-      fields.any fun field => containsBottomWithFuel fuel (Field.value field)
+      fields.any fun field => fieldBottomCounts (containsBottomWithFuel fuel) field
   | fuel + 1, .structTail fields tail =>
-      fields.any (fun field => containsBottomWithFuel fuel (Field.value field))
+      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
         || containsBottomWithFuel fuel tail
   | fuel + 1, .structPattern fields labelPattern constraint _ =>
-      fields.any (fun field => containsBottomWithFuel fuel (Field.value field))
+      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
         || containsBottomWithFuel fuel labelPattern
         || containsBottomWithFuel fuel constraint
   | fuel + 1, .structPatterns fields patterns _ =>
-      fields.any (fun field => containsBottomWithFuel fuel (Field.value field))
+      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
         || patterns.any fun pattern =>
           containsBottomWithFuel fuel pattern.fst || containsBottomWithFuel fuel pattern.snd
   | fuel + 1, .list items =>
@@ -180,7 +193,7 @@ def containsBottomWithFuel : Nat -> Value -> Bool
   | fuel + 1, .embeddedList items tail decls =>
       items.any (containsBottomWithFuel fuel)
         || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
-        || decls.any (fun field => containsBottomWithFuel fuel (Field.value field))
+        || decls.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
   | _ + 1, _ => false
 
 def containsBottom (value : Value) : Bool :=

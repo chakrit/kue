@@ -1030,4 +1030,47 @@ theorem fixture_underscore_top_bottom :
       = "bottom: 2\nself: {n: 1, m: 1}" := by
   native_decide
 
+/-! ### link-5 hidden-bottom-field propagation (argocd `packs.#Argo`, sub-fix 2).
+
+A HIDDEN/definition field is OMITTED from output, but a BOTTOM in its value still bottoms the
+struct (cue: `{#u: _|_}` → explicit error). Pre-fix `manifestFieldsWithFuel` skipped a hidden
+present field's value unconditionally, silently dropping the bottom. Exercised through the full
+manifest path (`exportSourcesToString`), which the eval-format `formatTopLevel` pins above do not
+reach. The companion behaviour — an UNSET impossible OPTIONAL field (`#u?: _|_`) does NOT bottom
+the struct, and arm-prunes correctly in a disjunction — lives in `containsBottom`
+(`fieldBottomCounts`) and is pinned by the `link5_disj_*` EvalTests + the module fixture. -/
+
+-- Flatten an export result to its inner string (the JSON or the manifest-error message), or a
+-- parse-error marker. `ParseError` has no `DecidableEq`, so `native_decide` cannot compare the raw
+-- nested `Except`; this reduces to a plain `String` the pins compare exactly.
+def exportResultString (source : String) : String :=
+  match exportSourcesToString .json [source] with
+  | .ok (.ok json) => json
+  | .ok (.error err) => "ERR:" ++ err
+  | .error _ => "PARSE-ERR"
+
+-- A hidden field whose value is BOTTOM bottoms the enclosing struct (cue: explicit `_|_` error).
+theorem link5_hidden_bottom_field_contradicts :
+    exportResultString "out: {#u: _|_, k: 1}\n" = "ERR:conflicting values (bottom)" := by
+  native_decide
+
+-- A hidden field bottomed by a CONFLICT (`string & int`) likewise bottoms the struct.
+theorem link5_hidden_conflict_field_contradicts :
+    exportResultString "out: ({#u: string} & {#u: int}) & {k: 1}\n"
+      = "ERR:conflicting values (bottom)" := by
+  native_decide
+
+-- A hidden field left INCOMPLETE (a bare type) is TOLERATED — omitted, no error (cue exports it).
+-- Pins that the bottom-propagation does not over-fire on hidden incompleteness.
+theorem link5_hidden_incomplete_field_tolerated :
+    exportResultString "out: {#u: int, k: 1}\n"
+      = "{\n    \"out\": {\n        \"k\": 1\n    }\n}\n" := by
+  native_decide
+
+-- An UNSET impossible OPTIONAL field (`#u?: _|_`) does NOT bottom the struct (cue keeps it).
+theorem link5_unset_optional_bottom_field_tolerated :
+    exportResultString "out: {#u?: _|_, k: 1}\n"
+      = "{\n    \"out\": {\n        \"k\": 1\n    }\n}\n" := by
+  native_decide
+
 end Kue
