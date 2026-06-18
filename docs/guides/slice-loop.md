@@ -44,6 +44,10 @@ Periodic, not every cycle:
 - **Test/fixture organization pass** — when test files or `testdata/` have grown unwieldy,
   spend a slice reorganizing (group by subsystem, split oversized modules, dedupe
   fixtures, tidy `testdata/` layout). Phase B flags when it's due; schedule it as a slice.
+- **Plan-hygiene pass** — when audit sections have accumulated in `plan.md` (superseded
+  rankings, resolved decisions, completed fix-slice diagnoses), distill it back to the
+  live roadmap: North Star + Working Principles, standing capabilities, ranked open
+  backlog, pointers. History lives in `implementation-log.md` + git, so the plan sheds it.
 - **Release** — see "Releases" below (~1 datestamped alpha/day, local script, no CI).
 
 ## Slice (per subagent)

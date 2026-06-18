@@ -1,5 +1,12 @@
 # START HERE — audit-#10 BOTH HIGH Violations CLEARED; next correctness link is link 3 (TLSRoute)
 
+> **Plan distilled 2026-06-18.** `docs/spec/plan.md` is now a lean ~175-line live roadmap
+> (Standing Capabilities + ranked Live Backlog + Pointers) — it is the authority for what's
+> next; the accumulated audit history moved to `docs/reference/implementation-log.md` + git.
+> The ranked backlog there is the canonical open-work list (link 3 is backlog item 1); this
+> breadcrumb's "NEXT STEP" / "parked backlog" lines below still hold but the plan supersedes
+> any divergence.
+
 Supersedes `2026-06-18-argocd-secret-data-landed.md`. Commits `52b64dc` (V1) + `b2b558f` (V2),
 both pushed to `main`. Build 86 jobs green, `fixture pairs ok` (zero drift, existing fixtures
 byte-unchanged), shellcheck untouched (no script changes).

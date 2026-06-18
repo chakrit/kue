@@ -7120,3 +7120,21 @@ content-identical to cue (~31s), argocd link-2 `defs.#Secret` `data` populated b
 content-identical (the 3-arm disjunction still resolves to the `_#OpaqueSecret` default). argocd
 full export still bottoms on link 3 (`defs.#TLSRoute` / `argocd-tlsroute-list-guard`) — pre-existing,
 NOT a regression from either fix. Next correctness link remains link 3.
+
+---
+
+## Docs: plan.md distilled to live roadmap (2026-06-18)
+
+Not a code slice. `docs/spec/plan.md` had accumulated ~10+ audit sections (several
+`SUPERSEDED by #N`), the long-resolved `DECISION NEEDED` Value.closure fork (resolved +
+fully implemented this session), and many completed fix-slice diagnoses — ~4100 lines.
+Distilled back to the live roadmap (~175 lines): North Star + Working Principles, a
+consolidated **Standing Capabilities** section, a ranked **Live Backlog** of every open
+item, and **Pointers**. No open finding was dropped — the backlog is a superset of every
+open item across the old plan (argocd-tlsroute-list-guard, truncate-primitive, regex/EvalOps/
+test-org extractions, field-ordering #3, per-eval perf, and the borderline/LOW set incl.
+scalar-embed-with-decls, module-file-scoped-imports, import-eager-closedness, parser
+strictness, the dead-OR-branch + selectEvaluatedField DRY cleanups, and the next-audit
+resolveEmbeddedDisjDefault confirm). All dropped history is preserved here (this log) + git.
+Also added a periodic "plan-hygiene pass" bullet to `docs/guides/slice-loop.md`. This log is
+now the canonical completed-work record; the lean plan is the authority for what is next.
