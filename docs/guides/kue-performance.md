@@ -50,6 +50,7 @@ fix is purely a speedup — byte-identical output.
 | Deep cross-package embed chains — `#Outer{ pkg.#Mid{ pkg.#Inner } }` | Correct, but each embedded level adds convergence depth | Keep embedding shallow; prefer a few wide defs over many nested ones |
 | Gratuitously duplicating a large sub-expression across fields | Historically caused exponential blow-up | Mitigated by frame-id sharing (see below); still cheaper to bind once and reference |
 | A field reading `Self.<label>` where `<label>` comes from an EMBEDDING (`type: Self.#type` with `#type` from an embedded `(*_#A \| …)` or `parts.#X`) | Triggers a second pass over the struct's static fields (the embedded label is not in the frame on the first pass) — cost ~2x for that struct only, gated so it fires solely on a genuine such selection | Read the embedded field directly where the embed declares it, or lift the shared value to a sibling field of the host |
+| A use-site-narrowed field whose def lives in an embedded DEFAULT DISJUNCTION arm (`#S: {#data:…, (*_#A \| _#B)}` + `#S & {#data:…}`, the `defs.#Secret` shape) | The narrowing is DISTRIBUTED into each disjunction arm (`*(_#A & narrow) \| (_#B & narrow)`), so each deferral-needing arm is force-spliced separately — correct, bounded, gated (a plain scalar/struct disjunction is not deferred) | Fine as-is; the cost is one force per live arm. Keep the disjunction arm count small |
 
 ## Cheap patterns (prefer these)
 
