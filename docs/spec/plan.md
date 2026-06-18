@@ -447,6 +447,33 @@ gaps; no DRY violations (B7 is itself the de-dup); spec accurate (B7 / item-5 / 
 entry refreshed, two-phase audit marked due — this is it). No CUE divergence (the one mismatch is
 Kue-wrong, already tracked as a B2 fix-target, not a divergence).
 
+## Phase-B audit (2026-06-19 #7 — A2-followup design + post-B2-complete whole-graph sweep)
+
+PRIMARY: produced the **A2-followup design (implementable)** under the A2 backlog entry — the
+`importBinding` `FieldClass` marker that fixes A2-followup + B6-A1 (and subsumes B6-A2's Normalize
+edit) by erasing the import-binding-vs-in-file-hidden conflation. Re-ranked the now-correctness-heavy
+backlog (see "Post-B2 re-ranking #7"): bank B6-A2+T1, then A2-followup, then PIVOT to item 7.
+
+SECONDARY (whole-graph sweep, post-B2-family-complete): **no actionable cleanup, no inline fix
+applied.** B2/B2b already centralized closedness into `StructOpenness`/`applyStructClosedness` and
+collapsed 5 struct ctors → 2 (`struct` 4-arg meet-bearing + `structComp` 3-arg pre-eval); the
+simplification B2 enables is already banked. Verified this round:
+- **Import graph** acyclic and unchanged (`Value` leaf → `Lattice`/`Normalize`/`Resolve`/`Order`/
+  `Format` → `Builtin`/`Decimal` → `Eval` → `Runtime`/`Cli`; `Module` over `Parse`+`Runtime`).
+- **No live legacy struct ctors** — every `.structTail`/`.structPattern`/`.structPatterns`/`.structN`
+  token left in `Kue/*.lean` is in a DOCSTRING (historical form names), not a live constructor;
+  grep-confirmed zero live references.
+- **No dead code / deprecated APIs / stray debt** — no `String.dropRight`, no `sorry`, no stray
+  `TODO`/`FIXME`/`HACK` in the core; the four `partial def` are the IO-confined `Module` loaders
+  (justified). `FieldClass.hidden` has exactly TWO producers (`Module.bindImports`, `Parse.lean:272`)
+  and ONE non-trivial consumer split (`Normalize.lean:108`) — the precise surface A2-followup targets.
+- **Perf guide (`kue-performance.md`) CURRENT** — refreshed at `e4c9f3a` (argocd link 5); reflects
+  the frame-id wall as THE primary frontier, the 31s→92s cert-manager regression, and Pass-2
+  selective re-eval. No edit needed.
+- **ONE observation, NOT filed as a fix** (no churn-only commit): the `.struct`/`.structTail`
+  references in `Eval.lean` docstrings (`:96/1725/1730/1752/1996`) are now stale TERMINOLOGY (legacy
+  ctor names post-B2 rename). Harmless; fold into the next `Eval.lean` touch, not a standalone slice.
+
 ## Phase-B audit (2026-06-19 #3 — B7 design finalized + light whole-graph sweep)
 
 Third Phase-B pass (post A5 + A5-followup, batch `c3d0089..3a58b53`). PRIMARY: finalized the
@@ -1199,44 +1226,60 @@ parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructT
 B4 ride-along `DecimalTests`/`FormatTests`) interleaved → deeper parity/perf (2,6,7) →
 borderline/LOW (8 + B3) ride-alongs.
 
-### Post-B2 re-ranking (Phase-B audit 2026-06-19 #6) — recommended next 3-4 slices
+### Post-B2 re-ranking (Phase-B audit 2026-06-19 #7) — recommended next 3-4 slices
 
-B2 (the headline) is done. Re-assessed against the North Star (correct CUE v0.15 + real-app
-adoption). Correctness gaps gate adoption; the perf wall gates FULL-app adoption; consistency is
-finishing-touches. Recommended order:
+State: B2 (whole struct-family unification) + B2b + B6 (gaps 1+2) all DONE; Phase-A over the
+B6/B2b batch ran (`d1f537c`) and is CLEAN, filing B6-A2/B6-A1/B6-T1. This Phase-B (#7) produced
+the A2-followup design above (which BUNDLES B6-A1 and SUBSUMES B6-A2's Normalize edit). The
+backlog is now CORRECTNESS-HEAVY: several NARROW closedness/hidden-field edge cases cluster around
+the same `FieldClass.hidden` conflation. Recommended order:
 
-1. **TWO-PHASE AUDIT (overdue) — do FIRST.** 5 slices have landed since the last full A+B cadence
-   audit (CP3-pre, CP3-flip, B2.5, + this is the Phase-B half). The cadence is mandatory at the
-   2-3-slice mark; clear it before more forward motion. (This audit IS the Phase-B half of that
-   cycle — pair it with the matching Phase-A over the same batch if not already run.)
-2. **B6 — def-body closedness enforcement (CORRECTNESS, real-app).** The highest-value OPEN
-   correctness gap: a nested `#Def` under a regular field, or via the eager nested-selector path,
-   admits extra fields where cue REJECTS (oracle-confirmed). prod9 `#Def`s are exactly this shape
-   (`{embed; …}` consumed with extra fields), so this is adoption-relevant, not a corner. Needs a
-   design-spike (split `normalizeFieldWithFuel`'s two conflated contexts + route the eager selector
-   through closedness) — do the spike first, like B2/B7. Ranked above B2b because a wrong-acceptance
-   is a correctness defect; B2b is hygiene.
-3. **B2b — structComp collapse (consistency, completes B2). DONE 2026-06-19.** Landed
-   byte-identical (zero fixture drift), arity 4→3 on `Value.structComp`, the `open_ := hasTail`
-   normalize site replaced by total `StructOpenness.closeDefBody`, 62 test literals migrated,
-   `closeDefBody` + normalize end-to-end pins added. The struct-family unification milestone is
-   CLOSED: zero `open_`/`hasTail` two-bools remain. (B2 fully complete.)
-4. **item 7 — frame-id canonical identity (PERF wall, gates FULL argocd).** The deeper frontier:
-   reclaims cert-manager (~92s) and unblocks the heavy `argo` sub-package (>200s timeout). This is
-   what stands between "content-correct in a scratch module" and "full real-app adoption" — the
-   North Star's second half. Ranked 4th only because it is audit-HEAVY and risky (must not violate
-   "independently-built frames never falsely share" — a soundness trap), so it wants a clear runway
-   AFTER the cheap correctness/consistency wins land and the audit cadence is clean. It is the
-   single biggest adoption lever once the correctness backlog is drained.
+1. **B6-A2 + B6-T1 as ONE cheap-ready slice (CORRECTNESS + test-strength) — do FIRST.** Both are
+   ready, low-risk, and bank correctness now. B6-A2 is the confirmed `let`-binding nested-def
+   under-close — a one-edit fix (drop `letBinding` from the Normalize skip guard) + 2 fixtures,
+   NO import-trap entanglement (its own `FieldClass` kind). B6-T1 adds the 5 unpinned closedness
+   shapes the B6 over-close hunt exercised (depth-2 nesting, plain-struct-stays-open,
+   embedding/comprehension-bearing admit, instantiation re-open). Bundling them is natural: both
+   touch the closedness surface, both are additive/oracle-checked. This drains the cheapest real
+   correctness + hardens the most regression-prone class (closedness) in one pass.
+2. **A2-followup (CORRECTNESS, representation change; BUNDLES B6-A1, SUBSUMES B6-A2).** The
+   `importBinding` marker (design above) — 1 slice / 3 commits, LOW-MEDIUM risk. Fixes the LAST two
+   narrow correctness gaps in the cluster (deep reached-hidden bottom + in-file-hidden nested-def
+   closedness) AND erases the conflation that forced both B6's hidden-skip and the Manifest shallow
+   check to be under-approximations. After this, the import-binding-vs-in-file-hidden ambiguity is
+   gone from the type — a structural win, not just two bug fixes. (If B6-A2 lands in slice 1 first,
+   A2-followup's Normalize edit just confirms it; no rework.)
+3. **PIVOT to item 7 — frame-id canonical identity (PERF wall, gates FULL real-app adoption).** The
+   deeper frontier: reclaims cert-manager (~92s) and unblocks the heavy `argo` sub-package (>200s
+   timeout). Audit-HEAVY and soundness-critical (must not violate "independently-built frames never
+   falsely share"), so it wants a clear runway — which slices 1-2 provide by clearing the cheap
+   correctness debt and the audit cadence. After A2-followup, the remaining open correctness items
+   are the B6-deferred sub-gap (its own over-close-prone design) and field-order #3 (deep
+   byte-parity) — neither blocks adoption, both diminishing-return narrow. Item 7 is the single
+   biggest lever left.
 
-Below the top 4: **A2-followup** (CORRECTNESS but narrow — the `{#u:{x:_|_}}` shape, needs the
-import-binding-marker representation spike; pairs naturally with B6's normalize work) and **item 1**
-(argocd full-app follow-up — partly gated on item 7's perf). **B2-A1/B2-A2** (LOW — latent
-tail-drop guard + reverse-order fixture; ride along with any struct/typed-ellipsis touch).
-**B3/B5/items 3,4** (LOW cleanups, parallel-safe filler). **Test-org** (`FixtureTests` 1093,
-`StructTests` 765, `BuiltinTests` 735, `EvalTests` still 1210 post-split) — schedule when Phase-B
-next flags it overdue. Rationale summary: drain CORRECTNESS (B6) before CONSISTENCY (B2b) before
-the PERF wall (7); the audit cadence pre-empts all of them this cycle.
+**The key judgment — keep draining narrow correctness, or bank the cheap ones and pivot to item 7?**
+The correctness backlog has decomposed into several NARROW edge cases — let-binding nested defs,
+in-file-hidden closedness, deep-hidden bottom, closing-vs-instantiation re-open. Each is real
+(correctness-over-performance binds: a wrong ACCEPTANCE is a Violation), but each is also a corner
+that prod9's real apps rarely hit head-on (cert-manager/argocd are content-correct TODAY without
+them). Item 7, by contrast, is PERF — but it gates the North Star's *adoption* half: it is what
+stands between "content-correct in a scratch module" and "full `apps/argocd.cue` end-to-end." So
+the diminishing real-app return of more narrow-correctness draining argues for a PIVOT — but not
+before banking the two cheapest correctness wins that are READY and cluster around one
+representation fix. **Recommendation: bank slices 1-2 (B6-A2+T1, then A2-followup) — they are cheap,
+ready, and A2-followup additionally pays a structural illegal-states dividend (kills the
+`FieldClass.hidden` conflation) that no later work re-opens — THEN pivot hard to item 7** as the
+adoption frontier. Do NOT keep draining beyond A2-followup (the B6-deferred sub-gap and field-order
+#3 wait behind item 7); their real-app return no longer justifies displacing the perf wall. The
+orchestrator weighs this; the cheap-ready bundle (slice 1) is the right next step regardless.
+
+Below the top 3: **B6-deferred sub-gap** (closing-vs-instantiation re-open — needs its OWN design,
+over-close-prone, larger than one slice) and **item 1** (argocd full-app — gated on item 7's perf).
+**B2-A1/B2-A2** (LOW — latent tail-drop guard + reverse-order fixture; ride along with any
+struct/typed-ellipsis touch). **B3/B5/items 3,4** (LOW cleanups, parallel-safe filler). **Test-org**
+(`FixtureTests` 1093, `StructTests` 765, `BuiltinTests` 735, `EvalTests` still 1210 post-split) —
+schedule when Phase-B next flags it overdue.
 
 ### Phase-A code-quality audit (2026-06-19, batch `88d78f4..d8252f4` = B6 + B2b)
 
@@ -1655,6 +1698,111 @@ under-closes a nested `#Def` reached under a *real in-file* hidden field — ora
 admits. Same root conflation (import bindings vs in-file hidden share `FieldClass.hidden`). The
 import-binding marker unblocks BOTH: mark bound packages so B6's hidden-skip applies only to them
 and recurses real in-file hidden fields through the spine walker.
+
+### A2-followup design (implementable) — import-binding marker (Phase-B audit 2026-06-19 #7; BUNDLES B6-A1)
+
+**Root cause (one conflation, two bugs).** A whole imported package is bound as a `FieldClass.hidden`
+field (`Module.bindImports`, `Module.lean:162/164`), structurally indistinguishable from a real
+in-file hidden definition (`_x`/`_pkg`, parsed at `Parse.lean:271-272`). Two consumer sites must
+treat the two KINDS oppositely, but the type gives them no way to tell apart:
+- **`Manifest.manifestFieldsWithFuel` (`Manifest.lean:42-59`) — A2-followup.** A bottom REACHED in a
+  selected in-file hidden field must surface (`{#u: {x: _|_}}` → cue errors, oracle-confirmed
+  v0.16.1); but a conflict in an UNREFERENCED imported-package field must stay lazy (the cert-manager
+  trap — oracle-confirmed: a `dep` with `#Probe: {cmd:string}&{cmd:int}` exports `main` clean when
+  `#Probe` is unreferenced). The current SHALLOW `isBottom` is the sound under-approximation: it
+  cannot recurse because recursing re-bottoms the import binding.
+- **`Normalize.normalizeFieldWithFuel` (`Normalize.lean:108`) — B6-A1.** B6 skips ALL hidden fields
+  to dodge the same import trap, but cue CLOSES a nested `#Def` reached under a real in-file hidden
+  field (`_pkg: {#Svc:{name:string}}`, `out: _pkg.#Svc & {extra}` → cue rejects `extra`,
+  oracle-confirmed). The skip that protects import bindings also lets in-file hidden defs escape
+  closedness.
+
+**Marker choice — option (a): a new `FieldClass` constructor `importBinding`, NOT a `.field` bool axis,
+NOT a value wrapper.** Rationale (illegal-states-unrepresentable, minimal blast radius):
+- **Why not a fourth bool on `.field`** (`.field isDef isHidden isImport opt`): it widens the
+  product to admit nonsense (`isImport=true ∧ isDef=true`, an "imported definition field" — there is
+  no such thing) and forces every one of the ~25 `.field`-shape match sites (Value 14, Manifest 4,
+  Parse 4, Lattice 2, Format 1) to carry and ignore a new positional bool. That is exactly the
+  `open_`/`hasTail` two-bool mistake B2/B2b just spent five slices erasing. An import binding is not a
+  point in the `(isDefinition, isHidden, optionality)` cube — it is a SEPARATE KIND, like `letBinding`
+  already is. `FieldClass` is `field (…) | letBinding`; add `| importBinding`, a peer kind with no
+  sub-axes.
+- **Why not a value wrapper** (`Value.packageBinding body`): a new `Value` constructor is the
+  heavier illegal-states cost — every `meet`/`manifest`/`format`/`subsumes`/eval match site would
+  need an arm (or a catch-all that swallows it, the exact A1/B1 hazard). The fact is about the FIELD's
+  origin, not the value's shape; it belongs on `FieldClass`.
+- **`importBinding` is a peer of `letBinding`.** Both are non-field kinds with no presence/def/hidden
+  sub-structure. The three `FieldClass` helpers fold it in cheaply and TOTALLY: `isDefinition
+  importBinding = false`, `isHidden importBinding = true` (it MUST still read as hidden for scope/
+  output purposes — see below), `optionality importBinding = .regular`, `ignoresClosedness
+  importBinding = true` (a bound package never participates in closedness), `producesOutput
+  importBinding = false` (never manifested). So for EVERY existing consumer (`Eval` closedness
+  filtering, `Order` subsumption, `Lattice` closedness, the manifest output-skip) an `importBinding`
+  behaves IDENTICALLY to today's `.hidden` — the marker changes behavior ONLY at the two sites that
+  explicitly branch on "is this an import binding vs a real in-file hidden field."
+
+**Where it's created (exactly one site).** `Module.bindImports` (`Module.lean:162/164`) swaps
+`FieldClass.hidden` → `FieldClass.importBinding` on the two `bindings.map (fun b => ⟨b.fst, …, b.snd⟩)`
+lines. That is the ONLY producer of import bindings in the codebase (grep-confirmed: `FieldClass.hidden`
+is created only there and at `Parse.lean:272` for `_`-prefixed source labels — Parse stays `.hidden`,
+the in-file kind). No other producer, no threading from elsewhere.
+
+**Where it's consumed differently (exactly two sites — the two bugs).**
+- **`Normalize.normalizeFieldWithFuel` (`Normalize.lean:106-111`) — fixes B6-A1.** Split the current
+  3-way branch into 4: `isDefinition` → close (unchanged); `importBinding` → leave UNCHANGED (the
+  import trap guard, now PRECISELY scoped to bound packages); `isHidden` (real in-file `_x`) OR
+  `letBinding` → recurse value via the SPINE walker `normalizeDefinitionsWithFuel` (closes nested
+  `#Def`s while preserving the field's own openness — same treatment B6 gives regular fields). NOTE
+  this folds **B6-A2** in for free: `letBinding` moves to the recursing arm, which is exactly B6-A2's
+  one-edit fix. So A2-followup's Normalize edit SUBSUMES B6-A2 — keep B6-A2 as the cheap standalone
+  if it lands first, else this absorbs it.
+- **`Manifest.manifestFieldsWithFuel` (`Manifest.lean:42-59`) — fixes A2-followup.** The
+  `.field _ _ .regular` hidden/def arm splits: an `importBinding` field stays SHALLOW (`isBottom`
+  only — the bound package's unreferenced conflicts stay lazy, no cert-manager re-bottom); a real
+  in-file hidden/definition field recurses the SELECTED value's output spine so a DEEP reached bottom
+  surfaces (`{#u: {x: _|_}}` → `.error .contradiction`). The deep recurse is sound HERE because, with
+  the marker, it runs ONLY on in-file hidden/def fields that the manifest actually reached — never on
+  an import binding. Concretely: match on `Field.fieldClass field`: `.importBinding` → keep the
+  current `if isBottom … else skip`; `.field d h .regular` (with `d||h`, the real in-file hidden/def
+  case) → a deep-bottom check over the value's manifest spine (reuse `manifestWithFuel fuel
+  (Field.value field)` and treat any `.error .contradiction` as the struct bottoming, while a non-
+  contradiction error — incomplete — stays skipped, since hidden/def fields are non-output and an
+  unreached incomplete is tolerated).
+
+**Why this fixes BOTH without re-bottoming imports.** The import trap is *output-reachability*
+laziness (cue never manifests unreferenced imported content). The marker makes that reachability
+fact LOCAL: an `importBinding` field IS the unreferenced-import case by construction, so both sites
+keep it lazy/shallow; everything else (`.field _ true …` = a real in-file `_x`, reached because it's
+in the manifested struct) gets the strict treatment cue applies. cert-manager/argocd bindings are all
+`importBinding` → untouched (the reverted A2's trap cannot recur). The two new strict paths fire only
+on in-file hidden/def fields.
+
+**Migration plan.** ONE slice, 3 fixture-gated commits, NO worktree (additive marker, byte-identical
+on every existing fixture — the marker behaves as `.hidden` everywhere except the two new strict
+paths, which only ADD rejections cue already makes):
+1. **Add `FieldClass.importBinding` + fold into the 4 helpers + flip `bindImports`.** Compiler-driven:
+   adding the constructor makes the `isDefinition`/`isHidden`/`optionality`/`ignoresClosedness`/
+   `producesOutput` matches non-exhaustive → the compiler enumerates them; each gets the
+   `letBinding`-equivalent arm (with `isHidden importBinding = true`). Flip the two `bindImports`
+   lines `.hidden → .importBinding`. **Byte-identical gate:** `lake build` + `check-fixtures.sh` zero
+   drift + cert-manager/argocd module sentinels unchanged — the marker is behaviorally inert at every
+   consumer at this commit (it reads exactly as `.hidden` until step 2/3 add the branches).
+2. **B6-A1 + B6-A2: the Normalize 4-way split.** Recurse in-file hidden + `let` through the spine
+   walker; keep `importBinding` skipped. NEW fixtures (oracle-checked v0.16.1, each a `.cue`/`.expected`
+   pair + `FixturePorts` entry): `b6a1_infile_hidden_def_closes` (`_pkg.#Svc & {extra}` → reject),
+   `b6a2_let_nested_def_closes` (`let x={#I:…}; x.#I & {extra}` → reject), and an open-admit sentinel
+   (`_pkg: {#Svc:{…,...}}` admits extra — no over-close). Gate: cert-manager/argocd byte-identical
+   (the import-binding decoupling holds).
+3. **A2-followup: the Manifest deep-bottom split + verify.** NEW fixture `a2followup_deep_hidden_bottom`
+   (`{#u: {x: _|_}}` → error) + a negative sentinel (an unreferenced import binding with an interior
+   conflict still exports clean — guards the trap; reuse/extend the 3-file import module fixture).
+   Full verify; cert-manager + `packs.#Argo` content-identical spot-check (no eval-path change → perf
+   unchanged, no `kue-performance.md` edit). Mark A2, A2-followup, B6-A1 DONE; close B6-A2 (subsumed).
+
+**Slice count: 1 slice (3 commits). Risk: LOW-MEDIUM.** Lower than B6's original (no openness change);
+the only behavioral risk is the Manifest deep-recurse re-introducing the trap — eliminated BY
+CONSTRUCTION because the marker confines it to in-file fields, and pinned by the negative import
+sentinel in commit 3.
 
 **A3. `classifyDefinedness .disj` untyped invariant (MEDIUM — illegal-states) — DONE (`96bef05`).**
 `classifyDefinedness` (Eval.lean) now classifies a `.disj` by its LIVE alternatives: no live arm ⇒
