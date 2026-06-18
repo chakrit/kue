@@ -556,6 +556,169 @@ coercion. Findings below are Borderline/cleanup — none blocks slice 3.
 - **BEq/Repr**: derived, extends to the new arm; the 3 BEq pins (self/distinct-env/
   distinct-body) cover the round-trip the producer/meet slices must not corrupt.
 
+## Architecture Fix-Slices (Phase B audit 2026-06-18 — post Value.closure slices 1-2, churn-authorized, AUTHORITATIVE)
+
+Whole-module-graph pass after the two closure slices (`26a2040` ctor + inert wiring,
+`15c92ec` eval arm) and the Phase A clear (`a347386`). **New mandate this pass:** chakrit
+lifted the prior "too risky / defer" veto on parked cleanups — "do all the big churn
+slices, just keep tests green and honest." So the LOW/no-benefit items the #6 ranking
+parked (item 7: `EvalOps`/regex extraction, `embeddedList.decls` newtype; item 2:
+test-module splits) are RE-JUDGED here on architectural merit, with the churn-risk veto
+gone. Verify gate green at audit time: `lake build` 86 jobs, `check-fixtures.sh` "fixture
+pairs ok", tree clean at `a347386`. Oracle: `cue` v0.16.1. **Plan-only pass — no inline
+code change** (every actionable item is a multi-file move, above the inline-trivial bar).
+
+### Headline verdict — module graph HEALTHY, layering intact after the closure ctor
+
+The #6 acyclic-DAG verdict still holds; re-confirmed, not re-derived. Import edges
+unchanged by the closure work: `Value ← {everything}`; `Decimal/Lattice/Normalize/Order/
+Resolve/Format/Parse ← Value`; `Eval ← {Builtin, Decimal, Lattice, Normalize}`; `Builtin ←
+{Lattice, Decimal, Base64, Json, Yaml}`; `Manifest ← {Format, Lattice}`; `Runtime ←
+{Eval, Format, Lattice, Parse, Resolve, Json, Yaml}`; `Cli ← Runtime`; `Module ← {Parse,
+Runtime}`. `Builtin → Eval` forbidden edge absent. No cycle, no back-edge.
+
+**The closure ctor does NOT muddy the Value/Eval boundary — it's the layering-correct
+shape.** The concern: a closure carries an Eval-laziness concept (a captured env) yet lives
+in the leaf `Value.lean`. Resolution is exactly the one the plan predicted and it's the
+*right* one: the ctor carries `capturedEnv : List (Nat × List Field)` — raw product data,
+not an `Eval.Env` *name* — so `Value.lean` imports nothing from Kue and stays a true leaf
+(confirmed: zero `import Kue.*` in `Value.lean`). Eval threads its `Env` (an `abbrev` over
+the identical product) in with zero coercion *because the types are defeq*, not because of
+a shared name. This is illegal-states-friendly: the env-as-data lives at the layer that can
+hold it without inverting the graph. The only soft spot is that the defeq is convention-
+only (Phase-A finding 1, `closure-env-sync-guard`) — re-affirmed below as the one genuine
+type-system fix the closure family still owes.
+
+### Re-judged parked cleanups (churn veto lifted — verdict per item)
+
+1. **`evalAdd…evalBinary` pure-op family → `Kue/EvalOps.lean` (old item 7) — ACTIONABLE
+   NOW.** The op family (`Eval.lean:369–625`, ~256 lines: `evalAdd/Sub/Mul/Div`, `evalEq/
+   Ne`, `evalPrimitiveOrdering`, `evalRegex*`, `evalBoolBinary`, `evalNumPos/Neg`,
+   `evalUnary`, `evalBinary`, + `classifyDefinedness`/`evalPresenceTest`) is a self-contained
+   pure-`Value → Value` dispatch: it takes NO `EvalM`/fuel/env, and (verified) depends only
+   on `Value` (types + `stringRegexMatches`) and `Decimal` (`evalDecimalBinary?`,
+   `addDecimalValues`, `evalDecimalCompare?`, …) — NOT on `Builtin`/`Lattice`/`Normalize`,
+   Eval's other three imports. So `Kue/EvalOps.lean` importing `{Value, Decimal}` is clean,
+   sits strictly below `Eval`, and `Eval` imports it. **Merit (not just cohesion):** it
+   carves the one block of `Eval.lean` (1197 lines) that has nothing to do with the
+   fuel-threaded recursive evaluator — `Eval` becomes "the recursive `mutual` evaluator +
+   its frame/ref/comprehension machinery", and the scalar algebra moves to a leaf where the
+   closure/producer slices never have to scroll past it. **Size:** MEDIUM-mechanical — move
+   ~256 contiguous lines + their handful of small helpers (`charsLt`/`stringsLt`,
+   `negateFloatText`), add one import line, no behavior change (pure move). **Sequencing vs.
+   closure slices 3-4: MUST INTERLEAVE, do NOT parallelize.** Slices 3-4 edit `Eval.lean`'s
+   `.selector`/`.conj`/meet arms (`evalValueCoreWithFuel`, lines 899+) and the op family
+   moving OUT shifts every line number below 369 — a guaranteed merge collision. Land this
+   either BEFORE slice 3 (cleaner diffs for 3-4 afterward) or AFTER slice 5 (closure work
+   fully settled). Recommend AFTER slice 5: the closure producer/meet design is still in
+   flux and may add op-arm-adjacent code; moving the ops out from under an in-flight feature
+   risks a confusing rebase. Net: real readability/boundary win, mechanical, but it owns
+   `Eval.lean` so it serializes against the closure batch.
+
+2. **Regex engine → `Kue/Regex.lean` (old item 7) — ACTIONABLE NOW, independent.** The
+   engine (`Value.lean:567–809`, ~240 lines: `RegexAtom` + parse/match, ending at
+   `stringRegexMatches`) depends only on `Char`/`String` — zero `Value`-specific reference
+   (verified: it sits *after* the `Value` inductive and `Import`/`ParsedFile`, but none of
+   its defs mention `Value`). Only `Eval` (`evalRegex*`) and `Builtin` consume
+   `stringRegexMatches`. **Merit:** `Value.lean` (809 lines) carries the `Value` inductive +
+   `DecimalValue` + bound/domain/field types + the regex engine; everything EXCEPT regex is
+   in `Value`'s own ctor closure and MUST precede it in-module (#6's KEEP-WHOLE verdict,
+   still right). The regex block is the ONE genuinely separable ~240-line chunk — extracting
+   it makes `Value.lean` exactly "the value model + its forced-companion types" and gives the
+   regex engine its own testable home. `Kue/Regex.lean` is a new leaf (imports nothing);
+   `Value.lean` need not import it (regex isn't used by `Value`'s ctors); `Eval`/`Builtin`
+   add `import Kue.Regex`. **Size:** MEDIUM-mechanical, pure move. **Sequencing: FULLY
+   PARALLEL with closure slices 3-4** — it touches `Value.lean` (delete a trailing block)
+   and `Eval`/`Builtin` (add an import) but NOT the closure-relevant regions (`Value`
+   inductive at 465–524, `evalValueCoreWithFuel`). The only `Value.lean` overlap risk is
+   trivial (the closure ctor is at 524, far above the regex block at 567+; deleting 567+
+   doesn't move the ctor). Can run in its own subagent concurrently. **This is the single
+   best parallel-safe cleanup of the batch.**
+
+3. **`embeddedList.decls` → `NonOutputField` newtype (old items 5/6) — STILL-NOT-WORTH-IT
+   (merit, not risk).** The invariant "decls = non-output fields only" is enforced by the
+   `declFields` filter at the one construction site, not the type. A `NonOutputField`
+   newtype (a `Field` refined to `¬ producesOutput fieldClass`) WOULD make it
+   unrepresentable — but the cost isn't churn-fear, it's that the newtype ripples through
+   every `embeddedList` consumer (Manifest, Format, Eval-select, Lattice-meet) which all
+   currently treat `decls` as plain `List Field` and would need wrap/unwrap at each boundary,
+   re-introducing exactly the `.val` noise the newtype is meant to remove — and the
+   construction is a SINGLE site already funnelled through `declFields`, so the illegal state
+   is already unreachable in practice. Net illegal-states win is marginal (one guarded
+   constructor) against real readability cost at ~5 consumer sites. The merit bar, not the
+   churn bar, fails it. **Verdict unchanged from #6: defer indefinitely.** (Re-open only if a
+   second `embeddedList` constructor ever appears — then the single-site guarantee breaks and
+   the newtype earns its keep.)
+
+4. **Deferred test-module splits (`FixturePorts` 2314, `FixtureTests` 1033, `BuiltinTests`
+   735) — STILL-NOT-WORTH-IT for `FixturePorts`; the other two ride the test-org pass
+   (item 5).** `FixturePorts.lean` (2314 lines) is one generated `def fixturePorts : List
+   FixturePort` — 145 entries interleaved by subsystem. The #6 SAFE-FAILURE verdict
+   (brace-block surgery + reorder of a generated list, high-risk/low-reward) survives the
+   veto lift on MERIT: splitting a single generated `List` literal across modules buys
+   nothing architecturally (it's data, not logic; no boundary to clarify) and the
+   `write-fixture-ports.lean` generator would need to learn multi-file output — real
+   complexity for zero structural gain. **Leave whole.** `FixtureTests`/`BuiltinTests` are
+   genuine theorem modules and CAN split by subsystem — fold into the test-org pass below,
+   not a standalone churn slice.
+
+### Closure-family architectural impact (this pass's primary new lens)
+
+- **No illegal-states regression introduced.** The closure ctor admits no nonsense combo
+  (any `List (Nat × List Field)` + any `Value` body is a legal deferred closure). The five
+  inert consumer arms route consistently (#A finding non-findings confirm). No new
+  catch-all `_` over `Value` — verified the new ctor is handled at every exhaustive site.
+- **The ONE owed type-system fix is the env-defeq tripwire (Phase-A finding 1,
+  `closure-env-sync-guard`) — RE-AFFIRMED as ACTIONABLE NOW, highest priority of the batch.**
+  `capturedEnv`'s defeq to `Eval.Env` is the load-bearing invariant the no-coercion thread
+  rides on, and it's pinned by a docstring only. A one-line `example : (List (Nat × List
+  Field)) = Eval.Env := rfl` in `Eval.lean` converts the convention into a build-time
+  tripwire (fails the build if `Frame`/`Env` ever changes shape). **Size: trivial (one
+  line), touches `Eval.lean`.** Because it touches `Eval.lean` it serializes against the
+  closure slices like item 1 — fold it into slice 3 (it's a 1-line add in the same file the
+  producer edits) OR land it standalone immediately before slice 3. This is the cheapest,
+  highest-merit item in the whole pass: it's the type-system-first fix the closure
+  representation actually needs, not a cosmetic move.
+
+### Test / fixture organization — reorg slice WARRANTED, MEDIUM priority
+
+`Kue/Tests/` has grown to 21 modules / 8301 lines; two are oversized theorem modules:
+`EvalTests` (950), `FixtureTests` (1033), `BuiltinTests` (735), `StructTests` (765). The
+2c tests-out reorg (`9f9437e`) moved them into `Kue/Tests/` but deferred the size splits.
+**Recommend a single test-org slice** (the loop's periodic pass, now due): split
+`FixtureTests`/`BuiltinTests`/`StructTests`/`EvalTests` by subsystem (e.g. `BuiltinTests`
+→ strings/list/math/regex submodules), each re-imported from `Kue/Tests.lean`; leave
+`FixturePorts` whole (item 4 above). `testdata/` (203 `.cue` under `cue/`/`export/`/
+`modules/`) is sensibly grouped — no reorg needed there. **Priority: MEDIUM** — schedule it
+AFTER the closure batch (slices 3-5) lands, NOT interleaved: `EvalTests`/`StructTests` gain
+closure pins in slices 3-5, so splitting them now would immediately go stale. Park until
+the closure feature is pinned, then split once.
+
+### Ranked next-work list (Phase B 2026-06-18 — supersedes #6's item 7 ranking)
+
+Recommendation: the closure batch (slices 3-5) stays the spine. Slot the cleanups around
+it by `Eval.lean` contention: regex extraction runs PARALLEL (own file region); the
+env-defeq tripwire folds INTO slice 3 (1 line, same file); EvalOps extraction + test-org
+wait until AFTER slice 5 (both serialize against in-flight `Eval.lean`/test churn).
+
+1. **[TRIVIAL — type-system, fold into slice 3 or land just before] `closure-env-sync-guard`
+   tripwire** — `example : (List (Nat × List Field)) = Eval.Env := rfl` in `Eval.lean`.
+   Highest merit/cost ratio; the one fix the closure rep actually owes. Serializes vs.
+   closure slices (touches `Eval.lean`).
+2. **[MEDIUM-mechanical — PARALLEL-SAFE] Regex engine → `Kue/Regex.lean`.** New leaf;
+   `Value.lean` loses ~240 lines (567–809); `Eval`/`Builtin` add `import Kue.Regex`. Touches
+   no closure region → run concurrently in its own subagent.
+3. **[MEDIUM-mechanical — AFTER slice 5] `evalAdd…evalBinary` → `Kue/EvalOps.lean`.** New
+   module importing `{Value, Decimal}`, below `Eval`; move ~256 lines (369–625) + small
+   helpers. MUST interleave (not parallel) — owns `Eval.lean`; land after the closure batch
+   settles.
+4. **[MEDIUM — AFTER slice 5] Test-org pass.** Split `FixtureTests`/`BuiltinTests`/
+   `StructTests`/`EvalTests` by subsystem; leave `FixturePorts` whole. Wait until closure
+   pins land so the split doesn't go stale.
+5. **[DEFER indefinitely] `embeddedList.decls` newtype** — single-site invariant already
+   unreachable; newtype's wrap/unwrap cost outweighs the marginal win. Re-open only if a
+   second `embeddedList` constructor appears.
+
 ## Audit Fix-Slices (cleanup batch — LIGHT Phase A + Phase B, audit 2026-06-17 #7)
 
 Light combined audit over the 3 small/mechanical cleanup slices since `3827fb7`:
