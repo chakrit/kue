@@ -1874,6 +1874,75 @@ theorem closure_producer_comprehension_guard_self_ref_detected :
                       (.struct [⟨"server", .regular, .prim (.string "x")⟩] true)] true false⟩] true)) = true := by
   native_decide
 
+/-! ### A5-followup — comprehension-BODY self-ref deferral gate (`hasSelfRefAtDepthClauses`)
+
+`hasSelfRefAtDepth`'s comprehension arms previously scanned the BODY at the comprehension's own
+`depth`, ignoring the loop frame each `for` clause pushes. So a `Self.#t` read inside a `for`
+body — resolved at `depth + #forClauses` — was compared against `depth`, MISSED, and the def
+`#R = {#H, out: [for x in [1] {v: Self.#t}]}` was judged to have NO sibling self-ref. The `.conj`
+`#R & {#t: "y"}` then took the eager-then-meet path (which cannot re-evaluate the comprehension
+against the narrowed frame) instead of the closure-force path → stale `out: [{v: string|*"def"}]`.
+Threading the loop-frame depth (`hasSelfRefAtDepthClauses`, +1 per `for`, +0 per `guard`) detects
+the deep body ref and restores deferral. These pin the gate at the realistically-resolved depths. -/
+
+/-- A `.list [.listComprehension [for x …] {v: Self.#t}]` static-field value: the `Self` alias
+    read in the body resolves to `refId ⟨2, _⟩` (loop frame +1, body struct +1). Scanned from the
+    def frame (depth 0), the body sits at depth 2, so `⟨2,0⟩` IS the def self-ref — DETECTED only
+    once the loop frame is threaded. Pre-fix the body was scanned at depth 1 → `2 ≠ 1` → missed. -/
+theorem a5fu_listcomp_body_self_ref_detected :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"#t", .definition, .kind .string⟩,
+                  ⟨"out", .regular,
+                    .list [.listComprehension [.forIn none "x" (.list [.prim (.int 1)])]
+                      (.struct [⟨"v", .regular, .refId ⟨2, 0⟩⟩] true)]⟩] true)) = true := by
+  native_decide
+
+/-- BOUNDARY (no over-detection): the SAME shape but the body ref lands at depth 1 (`⟨1,0⟩`) —
+    the loop frame's own variable, NOT the def. With the loop-frame shift, the body is scanned at
+    depth 2, so `⟨1,0⟩` (`1 ≠ 2`) is correctly NOT a def self-ref and the def stays eager. -/
+theorem a5fu_listcomp_body_loopvar_ref_not_self :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"#t", .definition, .kind .string⟩,
+                  ⟨"out", .regular,
+                    .list [.listComprehension [.forIn none "x" (.list [.prim (.int 1)])]
+                      (.struct [⟨"v", .regular, .refId ⟨1, 0⟩⟩] true)]⟩] true)) = false := by
+  native_decide
+
+/-- MULTI-`for`: two `for` clauses push two loop frames, so the body's def self-ref resolves to
+    `refId ⟨3, _⟩` (loop +1, loop +1, body struct +1). `hasSelfRefAtDepthClauses` adds +1 per
+    `for`, so the body is scanned at depth 3 and `⟨3,0⟩` is detected. -/
+theorem a5fu_listcomp_body_multi_for_self_ref_detected :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"#t", .definition, .kind .string⟩,
+                  ⟨"out", .regular,
+                    .list [.listComprehension
+                      [.forIn none "x" (.list [.prim (.int 1)]),
+                       .forIn none "y" (.list [.prim (.int 2)])]
+                      (.struct [⟨"v", .regular, .refId ⟨3, 0⟩⟩] true)]⟩] true)) = true := by
+  native_decide
+
+/-- A `guard` pushes NO frame: with one `for` then an `if`, the body's def self-ref is still at
+    `refId ⟨2, _⟩` (only the single `for` loop frame + body struct), and the guard condition reading
+    the def (`if Self.#on`, `⟨1,0⟩` under the one loop frame) is detected at the clause level. Pins
+    that `guard` contributes +0 to the body depth while still being scanned itself. -/
+theorem a5fu_listcomp_body_guard_no_extra_frame :
+    (defBodyHasSiblingSelfRef
+        (.struct [⟨"#t", .definition, .kind .string⟩,
+                  ⟨"out", .regular,
+                    .list [.listComprehension
+                      [.forIn none "x" (.list [.prim (.int 1)]), .guard (.refId ⟨1, 0⟩)]
+                      (.struct [⟨"v", .regular, .refId ⟨2, 0⟩⟩] true)]⟩] true)) = true := by
+  native_decide
+
+/-- The clause helper threads depth directly: a STRUCT-context comprehension body whose self-ref
+    lands at `⟨1,_⟩` under one `for` is detected by `hasSelfRefAtDepthClauses` at base depth 0
+    (the loop frame puts the body at depth 1). Mirrors the `.comprehension` (struct) arm. -/
+theorem a5fu_structcomp_body_self_ref_detected :
+    (hasSelfRefAtDepthClauses evalFuel 0
+        [.forIn none "x" (.list [.prim (.int 1)])]
+        (.refId ⟨1, 0⟩)) = true := by
+  native_decide
+
 /-! ### slice 4 (closure-meet) — splice the use-site struct into the forced def body
 
 THE unlock: `defs.#M & {#name: "keel"}` where `#M = {#name: string, out: #name}` is an

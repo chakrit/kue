@@ -1485,6 +1485,7 @@ def nonClosureNonStructOperands : List Value -> List Value
       | some _ => nonClosureNonStructOperands rest
       | none => other :: nonClosureNonStructOperands rest
 
+mutual
 /-- Does `value` reference the def's OWN top frame from `depth` frame-pushers deep — a
     `refId ⟨depth, _⟩` reachable by descending `depth` struct/comprehension frames? Generalizes
     `hasDepth0Ref` (the `depth == 0` case) to the DEEP self-references real defs use: a hidden
@@ -1569,34 +1570,42 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
                  hasSelfRefAtDepth fuel (depth + 1) p.fst
                    || hasSelfRefAtDepth fuel (depth + 1) p.snd)
   | .comprehension clauses body =>
+      -- Clause sources/guards resolve in the comprehension's enclosing frame; the body resolves
+      -- `#forClauses` frames deeper (`for` pushes one, `guard` none). `hasSelfRefAtDepthClauses`
+      -- threads the depth exactly as `resolveClausesWithFuel` does: a too-shallow body scan would
+      -- compare a deep `Self.<own-field>` read (resolved at `depth + #for`) against `depth`, MISS
+      -- it, and skip the deferral the use-site narrowing needs — a stale-value miss (A5-followup).
       match fuel with
       | 0 => false
-      | fuel + 1 =>
-          -- Clause sources/guards (`for x in src`, `if cond`) resolve in the comprehension's
-          -- enclosing frame — the SAME depth — so a `Self.#staging` in `if Self.#staging` is a
-          -- self-ref at `depth`. The body resolves one frame deeper per `for`; conservatively
-          -- scanning it at `depth` only over-detects (more defers), never miss-detects.
-          clauses.any (fun c =>
-            match c with
-            | .forIn _ _ source => hasSelfRefAtDepth fuel depth source
-            | .guard condition => hasSelfRefAtDepth fuel depth condition)
-          || hasSelfRefAtDepth fuel depth body
+      | fuel + 1 => hasSelfRefAtDepthClauses fuel depth clauses body
   | .listComprehension clauses body =>
-      -- List-context comprehension (`[for h in Self.#hosts {…}]`): same clause/body scoping as
-      -- `.comprehension`, scanned at `depth` (over-detect only, never miss).
+      -- List-context comprehension (`out: [for x in xs {v: Self.#t}]`): same clause/body scoping
+      -- as `.comprehension`. The body read of `Self.#t` lands `#forClauses` frames deeper, so it
+      -- must be scanned there, not at `depth`.
       match fuel with
       | 0 => false
-      | fuel + 1 =>
-          clauses.any (fun c =>
-            match c with
-            | .forIn _ _ source => hasSelfRefAtDepth fuel depth source
-            | .guard condition => hasSelfRefAtDepth fuel depth condition)
-          || hasSelfRefAtDepth fuel depth body
+      | fuel + 1 => hasSelfRefAtDepthClauses fuel depth clauses body
   | .dynamicField _ _ value =>
       match fuel with
       | 0 => false
       | fuel + 1 => hasSelfRefAtDepth fuel (depth + 1) value
   | _ => false
+
+/-- Does any clause source/guard or the body reference the def's OWN frame at `depth` (see
+    `hasSelfRefAtDepth`), threading frame depth through the clause chain exactly as
+    `resolveClausesWithFuel` does: each `forIn` source is scanned at the current `depth` and pushes
+    one frame for subsequent clauses and the body; a `guard` condition scans at `depth` and pushes
+    none. So a body self-ref at `depth + #forClauses` is detected, not missed. -/
+def hasSelfRefAtDepthClauses
+    (fuel : Nat) (depth : Nat) : List (Clause Value) -> Value -> Bool
+  | [], body => hasSelfRefAtDepth fuel depth body
+  | .forIn _ _ source :: rest, body =>
+      hasSelfRefAtDepth fuel depth source
+        || hasSelfRefAtDepthClauses fuel (depth + 1) rest body
+  | .guard cond :: rest, body =>
+      hasSelfRefAtDepth fuel depth cond
+        || hasSelfRefAtDepthClauses fuel depth rest body
+end
 
 /-- Does this unevaluated definition body reference one of its OWN top-level fields — directly
     (`out: #name`) OR from a nested position (`spec: acme: email: Self.#email`, the real-app

@@ -2521,6 +2521,24 @@ def fixturePorts : List FixturePort :=
                     ]⟩
               ]
               true))
+    },
+    {
+      -- A5-followup (Pass-2 / deferral-gate for a comprehension-valued field). A static field
+      -- (`out`) whose value is a list comprehension reading `Self.#t` inside the `for` body, where
+      -- `#t` is supplied by an embedded def (`#H`) AND narrowed at the use site (`#R & {#t: "y"}`).
+      -- The `Self.#t` self-ref lands `#forClauses` frames deeper than the comprehension node; the
+      -- deferral gate `hasSelfRefAtDepth` scanned the comprehension body at the SHALLOW depth and
+      -- missed it, so `#R & {…}` took the eager-then-meet path (which cannot re-evaluate the
+      -- comprehension against the narrowed frame) instead of the closure-force path. Result: a stale
+      -- `out: [{v: string | *"def"}]`. Threading the loop-frame depth (`hasSelfRefAtDepthClauses`)
+      -- restores deferral, so the body resolves against the narrowed `#t`. Oracle cue v0.16.1 →
+      -- `v.out: [{v: "y"}]`, `v.#t: "y"`. `#R` standalone is correctly un-narrowed (`string | *"def"`).
+      fileName := "comprehensions/comprehension_embed_self_narrow_body.expected",
+      content :=
+        match parseSource
+            "#H: {#t: string | *\"def\"}\n#R: Self={#H, out: [for x in [1] {v: Self.#t}]}\nv: #R & {#t: \"y\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
     }
   ]
 
