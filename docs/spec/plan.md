@@ -1239,13 +1239,20 @@ the same `FieldClass.hidden` conflation. Recommended order:
    no fixture drift. B6-T1: 6 fixtures + 6 `native_decide` pins locking the over-close-hunt shapes.
    The cheapest real correctness banked + the most regression-prone class (closedness) hardened.
    **Next: A2-followup** (slice 2 below).
-2. **A2-followup (CORRECTNESS, representation change; BUNDLES B6-A1, SUBSUMES B6-A2).** The
-   `importBinding` marker (design above) — 1 slice / 3 commits, LOW-MEDIUM risk. Fixes the LAST two
-   narrow correctness gaps in the cluster (deep reached-hidden bottom + in-file-hidden nested-def
-   closedness) AND erases the conflation that forced both B6's hidden-skip and the Manifest shallow
-   check to be under-approximations. After this, the import-binding-vs-in-file-hidden ambiguity is
-   gone from the type — a structural win, not just two bug fixes. (If B6-A2 lands in slice 1 first,
-   A2-followup's Normalize edit just confirms it; no rework.)
+2. **A2-followup (CORRECTNESS, representation change; BUNDLES B6-A1, SUBSUMES B6-A2) — DONE
+   (`78ec47a` + `7a54ad6` + commit 3, 2026-06-19).** Added `FieldClass.importBinding` (a peer of
+   `letBinding`, NOT a `.field` bool, NOT a value wrapper), folded TOTALLY into the 4 helpers +
+   Lattice/Format/Manifest match sites (reads as `.hidden` everywhere — inert), produced at the ONE
+   site `Module.bindImports`. Two consumer splits: Normalize's 4-way `FieldClass` match (importBinding
+   stays skipped — import-laziness guard now PRECISELY scoped; in-file `_x`/`let`/regular recurse the
+   spine → B6-A1 closes nested defs, subsumes B6-A2); Manifest's in-file hidden/def arm recurses the
+   output spine and lifts a DEEP `.contradiction` (A2-followup: `{#u: {x: _|_}}` surfaces), while the
+   importBinding arm keeps the shallow `isBottom` (bound packages stay lazy). The
+   import-binding-vs-in-file-hidden conflation is GONE from the type. Negative sentinel
+   (`unreferenced_import_conflict` module fixture: unreferenced `dep.#Probe` interior conflict, main
+   exports clean) pins that an import binding stays lazy — no cert-manager re-bottom. Inverted the
+   obsolete `link5_..._does_not_overfire` pin (it asserted clean export for an IN-FILE literal deep
+   conflict, but cue errors — it conflated in-file with import). Existing fixtures byte-identical.
 3. **PIVOT to item 7 — frame-id canonical identity (PERF wall, gates FULL real-app adoption).** The
    deeper frontier: reclaims cert-manager (~92s) and unblocks the heavy `argo` sub-package (>200s
    timeout). Audit-HEAVY and soundness-critical (must not violate "independently-built frames never
@@ -1293,16 +1300,14 @@ A2 decoupling sound — all module sentinels (`def_open_tail_addfield`, `crosspk
 
 Ranked findings (fold as fix-slices):
 
-1. **B6-A1 — in-file hidden-field nested-def under-closes (LOW-MEDIUM, correctness; subsumed by
-   A2-followup).** B6 skips ALL hidden fields to dodge the import-binding A2 trap. But cue still
-   closes a nested `#Def` reached under a *real in-file* hidden field. Oracle (cue v0.16.1):
+1. **B6-A1 — in-file hidden-field nested-def under-closes — DONE (`7a54ad6`, rode A2-followup).**
+   B6 skipped ALL hidden fields to dodge the import-binding A2 trap, letting a nested `#Def` reached
+   under a *real in-file* hidden field escape closedness. Oracle (cue v0.16.1):
    `_pkg: {#Svc: {name: string}}`, `out: _pkg.#Svc & {name: "x", extra: 1}` → cue
-   `out.extra: field not allowed`; Kue admits `extra`. Kue wrong, cue right. This is the SAME
-   conflation A2-followup targets (import bindings vs in-file hidden fields share `FieldClass.hidden`,
-   so B6 cannot tell them apart). Resolution: do NOT special-case in B6 — fold into A2-followup
-   (the import-binding-marker spike), which lets B6's hidden-skip apply ONLY to bound packages and
-   recurse real in-file hidden fields. Action taken: noted in the B6 hidden-skip rationale below and
-   added to A2-followup's scope. No standalone slice; it rides A2-followup.
+   `out.extra: field not allowed`; Kue had admitted `extra`. Fixed by the A2-followup Normalize
+   4-way split: with `FieldClass.importBinding` distinct from `.hidden`, the skip now applies ONLY to
+   bound packages; a real in-file `_x` recurses the spine and closes its nested defs. Pinned by
+   `b6a1_infile_hidden_def_closes` (reject) + `b6a1_infile_hidden_def_open` (open-admit sentinel).
 
 2. **B6-T1 — closedness regression pins — DONE (`aef25ac`).** Added 6 `.cue`/`.expected` fixtures
    (+ FixturePorts entries, parse-driven) and 6 `native_decide` EvalTests pins for the over-close
@@ -1673,7 +1678,16 @@ separate B2b follow-on — **DONE 2026-06-19: option (a), `StructOpenness` on th
 arity 4→3, `open_ := hasTail` → `StructOpenness.closeDefBody`, 62 test literals migrated. See
 "B2b — … — DONE" above.** B2 (entire struct-family unification) now COMPLETE.
 
-**A2. Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue) — BLOCKED on a
+**A2. Hidden-field deep bottom not propagated — DONE (A2-followup, `7a54ad6`, 2026-06-19).** Fixed
+by the `FieldClass.importBinding` marker (design below): Manifest now recurses a REACHED in-file
+hidden/def field's output spine and surfaces a deep `.contradiction` (`{#u: {x: _|_}}` → error,
+oracle-confirmed v0.16.1), while a bound package (`.importBinding`) keeps the shallow `isBottom` and
+stays lazy. The reached-vs-unreferenced predicate that was unreconstructible at manifest is now
+LOCAL to the marker by construction (an `importBinding` IS the unreferenced-import case), so the
+cert-manager trap cannot recur — pinned by the `unreferenced_import_conflict` negative sentinel.
+Original blocked analysis retained below for history.
+
+**A2 (blocked attempt, superseded). Hidden-field deep bottom not propagated (MEDIUM — Kue wrong vs cue) — BLOCKED on a
 representation change; SOUND shallow check retained (`46bd161`).** The proposed reached-vs-unreferenced
 predicate (recurse the SELECTED value's output spine) is UNSOUND and was reverted. Verified vs cue
 v0.16.1 (3-file import repro: a `main` importing a `dep` whose unreferenced fields hold both a derived

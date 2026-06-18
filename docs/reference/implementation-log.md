@@ -8216,3 +8216,73 @@ sentinels + `def_open_tail_addfield` byte-identical — the B6-A2 fix only drift
 fixtures), `shellcheck` clean (no script changed). No `kue-performance.md` edit (no eval-cost
 change — Normalize already walked regular-field spines; `let` just joins that existing arm). No
 CUE divergence (both gaps are Kue-wrong, not cue-buggy).
+
+## Completed Slice: A2-followup — `FieldClass.importBinding` marker (2026-06-19)
+
+Commits: `78ec47a` (marker), `7a54ad6` (consumer splits + fixtures), commit 3 (negative sentinel +
+docs). One structural-correctness slice that fixes A2-followup (deep reached-hidden bottom) AND
+B6-A1 (in-file hidden nested-def closes), and eliminates the `FieldClass.hidden` conflation between
+import-bound packages and real in-file hidden fields.
+
+### The conflation
+
+`Module.bindImports` bound a whole imported package as a `FieldClass.hidden` field — structurally
+identical to a real in-file `_x` parsed at `Parse.lean`. Two consumer sites had to treat the two
+KINDS oppositely (an UNREFERENCED import's interior conflict stays cue-lazy; a REACHED in-file
+hidden field's bottom/closedness is enforced), but the type gave them no way to tell apart. Both
+sites were forced to under-approximate: Normalize skipped ALL hidden fields (B6-A1 escape), Manifest
+used a shallow `isBottom` only (A2 deep-bottom miss).
+
+### The marker (option a — a new `FieldClass` constructor)
+
+Added `| importBinding` as a peer of `letBinding` — NOT a fourth `.field` bool (would widen the
+product to nonsense + force ~25 match sites to carry a positional bool), NOT a `Value` wrapper
+(would add an arm at every meet/manifest/eval site). Folded TOTALLY into the 4 helpers
+(`isDefinition=false`, `isHidden=true`, `optionality=.regular`, `ignoresClosedness=true`,
+`producesOutput=false`) + the compiler-surfaced match sites in `Lattice.mergeFieldClass`
+(merges only with itself, like `letBinding`) and `Format` (omitted from output, like `letBinding`).
+So an `importBinding` reads IDENTICALLY to `.hidden` at every consumer — behaviorally inert except
+at the two sites that branch on import-vs-in-file. Produced at the ONE site `Module.bindImports`;
+the in-file hidden producer (`Parse.lean`) stays `.hidden`. (Commit 1 was byte-identical: zero
+fixture drift, the marker inert until the consumer splits land.)
+
+### The two consumer splits
+
+- **Normalize.normalizeFieldWithFuel** — replaced the 3-way if-chain with a 4-way `FieldClass`
+  match: definition → close; `importBinding` → skip (import-laziness guard, now PRECISELY scoped to
+  bound packages); in-file hidden (`_x`) / `let` / regular → recurse the spine walker. Fixes B6-A1
+  (in-file hidden nested-def now closes) and subsumes B6-A2 (the `let` arm).
+- **Manifest.manifestFieldsWithFuel** — the real in-file hidden/def `.field _ _ .regular` arm now
+  recurses the SELECTED value's manifest output spine and lifts a DEEP `.error .contradiction`
+  (`{#u: {x: _|_}}` surfaces); a non-contradiction error (incomplete) stays skipped (hidden/def
+  fields are non-output). The `.importBinding` arm keeps the shallow `isBottom` — the deep recurse
+  NEVER runs on a bound package, so the cert-manager trap cannot recur.
+
+### Why sound (the trap)
+
+The reverted A2 attempt did a blanket deep-recurse and re-bottomed cert-manager's unreferenced
+import bindings. The marker makes output-reachability laziness LOCAL: an `importBinding` field IS
+the unreferenced-import case by construction. Pinned by the `unreferenced_import_conflict` negative
+module sentinel (a `dep` package with `#Probe: {cmd:string}&{cmd:int}`, unreferenced by `main`;
+`main` exports clean — oracle-confirmed cue v0.16.1, Kue matches).
+
+### Tests
+
+New oracle-checked fixtures (vs cue v0.16.1): `b6a1_infile_hidden_def_closes` (reject extra),
+`b6a1_infile_hidden_def_open` (open via `...` admits extra — no over-close), the
+`unreferenced_import_conflict` module sentinel, and 4 `FixtureTests` manifest theorems
+(deep-def-bottom, deep-in-file-`_x`-bottom, deep-incomplete-tolerated, in-file-nested-conflict).
+Inverted the obsolete `link5_..._does_not_overfire` pin → `infile_hidden_nested_conflict_surfaces`:
+it asserted clean export for an IN-FILE literal deep conflict, but cue ERRORS there — the test
+conflated an in-file literal with an import binding (exactly the conflation the marker fixes); the
+genuine lazy-import guard is now the `dup_import_binding` + `unreferenced_import_conflict` module
+fixtures.
+
+### Verify
+
+`lake build` green (96 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok` with ZERO byte-drift
+on existing fixtures (only NEW fixtures appear; cert-manager/argocd import-binding sentinels +
+`dup_import_binding` + `def_open_tail_addfield` + B6-T1 pins byte-identical), `shellcheck` clean (no
+script changed). No `kue-performance.md` edit (no eval-cost change — the Manifest deep-recurse runs
+only on reached in-file hidden/def fields, which are rare and shallow in practice; import bindings
+keep the shallow check). No CUE divergence (both gaps are Kue-wrong, not cue-buggy).
