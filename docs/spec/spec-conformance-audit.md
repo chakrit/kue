@@ -196,6 +196,96 @@ Four findings folded into the backlog (none high enough to block; all NEW fix-sl
   twin-function (not a `closing : Bool` flag) keeps intent in WHICH function is called —
   illegal-states philosophy. No new partiality.
 
+### Phase-B whole-graph sweep (2026-06-19, post regex-trilogy, `4358a7e`)
+
+Whole-graph sweep after the regex family (RX-1a/b/c, RX-2b/2c) landed complete. **No new
+high finding; module graph healthy. Bug2-3 + D#2 designs RE-VERIFIED against current code
+(post-SC-2, post-regex) — both GO, no drift. No inline code fix (build green, 100 jobs);
+audit folds the re-rank + readiness verdicts + plan-hygiene rec into this doc.**
+
+**JOB 1 — whole-graph sweep.**
+- **`Kue/Regex.lean` (929 lines) — clean, well-encapsulated leaf.** Imports NOTHING from
+  Kue (line-5 "import" is a doc comment; confirmed `grep '^import'` is empty). Consumed by
+  exactly the 4 dispatch sites + `Value` (BottomReason via RX-2b) + `Order` + `RegexTests`.
+  Internal layering textbook: `RegexParseError`/`Regex` AST → `parseRegex` (recursive
+  descent) → `Inst`/`AssertKind`/`NFA` → `Compile` (Thompson + desugar) → `Vm` (Pike) →
+  `matchRegex`/`regexParseError?` entrypoints → engine layer (`findSubmatch`/`find`/
+  `findAll`/`replaceAll` + Go `Expand`). **Size: 929 lines is the second-largest leaf but
+  NOT split-warranting** — it is one cohesive responsibility (RE2 subset), the layers are a
+  clean pipeline (AST→VM→replace), and splitting (AST+parser vs NFA+VM vs replace/find)
+  would scatter shared types (`Regex`/`Inst`/`Captures`) across files for no boundary
+  benefit. Revisit only if RX-2a (set-complement folding) pushes it past ~1100. **Verdict:
+  exemplary leaf; no action.**
+- **Import graph acyclic (re-verified whole-graph).** `Value → Regex` (RX-2b's addition)
+  adds NO cycle — Regex is a true leaf (imports nothing from Kue), so `Value → Regex` is a
+  DAG edge to a sink. Full chain confirmed: `Regex` (sink) ← `Value`/`Order`/`Lattice`/
+  `Builtin`/`Eval`; `Value` ← `Decimal`/`Normalize`/`Resolve`/`Order`/`Format`/`Lattice`/
+  `Parse`; `Lattice` ← `Builtin`/`Manifest`/`Eval`; `Eval` ← `Runtime`/`Examples`; no
+  back-edge. One clear responsibility per module holds.
+- **`Eval.lean` (3159 lines, was ~3135) — comprehension-expansion sublayer stays a
+  preference-not-defect.** +24 lines since last sweep (RX-2b dispatch wiring at
+  `evalRegexMatch`/`evalRegexNotMatch`, not new structure). Still the one oversized module;
+  still no extractable seam that wouldn't fracture the mutual-recursion block (`evalValue`/
+  `force`/`meetEmbeddings`/`expandComprehensions` are one `mutual`). Not a fix-slice.
+- **`kue-performance.md` (at `docs/guides/`, NOT `docs/reference/`) — CURRENT.** The
+  linear-Pike-VM entry (L154-160, "Regex matching is linear (RX-1a/b LANDED)") already
+  replaced the stale backtracking known-limitation. No drift. The regex perf cliff +
+  fuel-out soundness hole are both recorded RESOLVED. No edit.
+
+**JOB 2 — Bug2-3 + D#2 implementation-readiness (RE-VERIFIED against current `Eval.lean`).**
+
+**Bug2-3 / Gap-2b — GO, no drift.** SC-2 was Normalize-only (`normalizeDefinitionFieldWithFuel`
+twin), touched NOTHING on the disjunction/embedding eval path Bug2-3 targets — confirmed by
+re-locating every cited anchor in the post-SC-2 tree:
+- The standalone raw `.disj` arm (design "~2406/2449") is now `Eval.lean:2445-2449`
+  (`.disj alternatives => … normalizeEvaluatedDisj evaluated`). Intact.
+- The `meetEmbeddingsWithFuel` `.disj`-distribution helper the fix proposes REUSING (design
+  "~2708") is now `Eval.lean:2705-2710` (`conjDisjArms? → arms.mapM … meetEmbeddingsWithFuel
+  … [arm.snd]`). Intact — the existing arm-distribution lever Bug2-3 builds on is unchanged.
+- The no-tail-no-pattern force arm (design "~2875") is within `forceClosureWithConjunctCore`
+  (`Eval.lean:2836`), using `mergeConjOperands` + `evalFieldRefsListWithFuel`. Intact.
+- **Repro RE-CONFIRMED LIVE (`/tmp/kprobe/struct_disc.cue`):** Kue → `conflicting values
+  (bottom)`, cue v0.16.1 → `{kind:"ListenerSet", meta:"yes"}`. cue is CORRECT (spec: `list &
+  {regular fields} = ⊥`); Kue under-prunes the list arm. Still the LAST real-app export
+  blocker. Line-refs in the design are stale by ±40 lines but the STRUCTURES and the reuse
+  target are all present and unchanged. **Still ≤1-2-slice; design accurate; GO.**
+
+**D#2 (structural cycles) — GO, no drift, still 2 slices.** The ancestor-force-stack design
+re-verified against the current force path:
+- `ForceKey = ⟨fuel, capturedEnv.ids, body, useOperands⟩` (`Eval.lean:2818`) — EXACTLY the
+  design's "ancestor identity is ForceKey minus fuel". Unchanged.
+- The `forceClosureWithConjunct` (entry, memo-gated, `Eval.lean:2809`) /
+  `forceClosureWithConjunctCore` (`Eval.lean:2836`) split the design places the cycle check
+  at is intact; `termination_by (fuel, 5, 0)` (L2834) matches obligation-3.
+- `refDefClosureBody? → forceClosureWithConjunct fuel (frame :: outer) defBody []`
+  (design "2331") is now `Eval.lean:2354-2355`. The depth-0 `visited`-slot check
+  (`Eval.lean:36-44`, threaded as the `visited : List Nat` parameter) is the disjoint
+  reference-cycle mechanism the design says NOT to touch — intact.
+- D#2b dependency confirmed: `liveAlternatives`/`resolveDisjDefault?` (`Lattice.lean:269/288`)
+  + the A#6 `containsBottomFuel = 100` cap (`Lattice.lean:146`) all present. The
+  `structuralCycle` arm-bottom sits at an arm's top level, well within the 100-cap, so the
+  design's ⚠ (cap hiding a deep cycle bottom) is low-risk and already folded into D#2b.
+- `BottomReason` (`Value.lean:500`) currently has `invalidRegex` (RX-2b) but NOT yet
+  `structuralCycle` — D#2a adds it (additive, no conflict; RX-2b already proved the pattern).
+- **2 slices (D#2a detection + D#2b terminating-disjunct); design accurate; GO.**
+
+**JOB 3 — re-ranked next 3-4** (see "Re-ranked next slices — Phase-B audit #4" in the
+consolidated backlog below). Top: Bug2-3 (last real-app export blocker, designed) → D#2a/b
+(designed) → RX-2a (regex feature, both touch the same module — sequence after the engine
+is quiet).
+
+**JOB 4 — plan-hygiene: DUE, schedule it (LOW urgency, not blocking).** `plan.md` (1756+
+lines) and this audit doc (1221 lines) have accumulated ~9 superseded re-rank sections, 4
+completed Phase-A audit write-ups, and resolved fix-slice diagnoses (SC-1/1c/1d, F-1/F-2,
+D#1a, RX-2b/RX-1c all DONE inline in the trackers). A hygiene pass would: (a) distill the
+backlog to the LIVE open set (Bug2-3, D#2, RX-2a, SC-4, the MED tail, 4 spec-gap
+ratifications, A#6) + North Star + standing capabilities; (b) move the DONE entries + the
+superseded re-ranks to `implementation-log.md` (history) / git; (c) mark RX-2c DONE (the
+backlog still lists it open — `maxRepeat=1000` landed with RX-1a, flagged in the prior
+Phase-A audit). `docs/www/index.html` is CURRENT (just refreshed) — leave it. Schedule as
+ONE non-code slice AFTER Bug2-3 lands (so the next argocd-unblock milestone is captured in
+the same distillation), not before (it would churn the trackers Bug2-3's slice must update).
+
 ### Phase-B whole-graph sweep (2026-06-19, D#2-spike audit, `659cf70`)
 
 Brief architectural state alongside the D#2 design spike. No NEW high finding; the module
@@ -373,6 +463,39 @@ Both slices verified spec-correct; nothing in either was reverted or refixed.
 
 Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
 front-loaded before the large rewrites.
+
+### Re-ranked next slices (2026-06-19 Phase-B audit #4 — regex trilogy COMPLETE; SC-2 landed)
+
+Re-rank after the full regex family (RX-1a/b/c, RX-2b/2c) + SC-2 landed and were
+Phase-A-verified clean (`4358a7e`). The two designed HIGH levers (Bug2-3, D#2) RE-VERIFIED
+GO against the post-SC-2 tree this audit (line-refs drifted ±40 but structures + reuse
+targets intact). Principle (slice-loop): contained-soundness before larger features;
+cue-AGREEING correctness before divergence; designed levers before undesigned;
+real-app-unblock weighted. **Recommended next 3-4:**
+
+1. **Bug2-3 / Gap-2b (HIGH — the LAST real-app export blocker, DESIGNED, ≤1-2 slices).**
+   Structural disjunction-arm pruning (list-arm-vs-struct-host). Repro re-confirmed live
+   (`struct_disc.cue`: Kue bottoms, cue exports `{kind,meta}`; cue correct). Design GO, no
+   drift. A whole app (argocd) unblocks. Top because it is the single highest real-app
+   impact AND the most contained of the designed HIGHs.
+2. **D#2a (HIGH — structural-cycle DETECTION, DESIGNED, slice 1 of 2).** Ancestor-force-stack
+   on the `forceClosureWithConjunct` path (reusing the `ForceKey` triple). Lands oracle
+   #1/#3/#4/#5 (error + finite-control + reference-control). Spec-mandated, currently MISSING.
+   Design GO, no drift. Cannot regress real apps (zero self-ref defs in prod9).
+3. **D#2b (HIGH — terminating-disjunct, DESIGNED, slice 2 of 2).** `#List | *null` takes the
+   default arm once the cyclic arm bottoms (existing `liveAlternatives`/`resolveDisjDefault?`
+   algebra). Folds in the A#6 `containsBottom` fuel-cap fix if it hides a deep cycle bottom.
+4. **RX-2a (MED — in-class `\D`/`\W`/`\S`, the lone regex-corpus divergence).** Needs
+   class-level set-complement folding in `parseClassEscape`. Sequence AFTER D#2 if D#2 runs
+   in a worktree — RX-2a and any future regex work both touch the Regex leaf, so serialize
+   regex-module edits to avoid worktree contention. Lower than Bug2-3/D#2 (feature, not a
+   real-app blocker; current behavior is an honest stub, not silent-wrong).
+
+Then the MED tail (D#1b/D#1c, D#3 `let`-clauses, SC-3 disj-display, BI-1 Unicode case-fold,
+BI-2 `math.Pow`/`list.Sort`, F-3 qualified import), SC-4 (LOW, spec-gap-first), the 4
+spec-gap ratifications in `cue-spec-gaps.md`, low/hardening (A#6 standalone if not folded
+into D#2b), and the **plan-hygiene slice (schedule AFTER Bug2-3)**. RX-2c is DONE (mark it
+in the hygiene pass — `maxRepeat=1000` landed with RX-1a).
 
 ### Re-ranked next slices (2026-06-19 Phase-B audit #3 — regex engine LIVE; D#2 now designed)
 
