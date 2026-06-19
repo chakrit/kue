@@ -54,7 +54,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | C. Structs/lists          | batch 1 | DONE | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS |
 | D. Comprehensions/scoping | batch 2 | DONE | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; no structural-cycle detection; `let` clauses unparseable); frame-model + read-splice CONFORM |
 | E. Scalars/bounds/builtins| batch 2 | DONE | 1 KUE-VIOLATES HIGH (regex not RE2); 2 MED builtin (ASCII case-fold; deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
-| F. Manifest/modules       | batch 2 | DONE | 3 KUE-VIOLATES (`regexp` import missing; self `@vN` not stripped; qualified `path:id` unparsed); export + module-resolution core CONFORM |
+| F. Manifest/modules       | batch 2 | DONE | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
 ## Findings (ranked; filled as auditors return)
 
@@ -190,8 +190,24 @@ front-loaded before the large rewrites.
    `list_guard_bottom_propagates`, `guard_bottom_from_sibling`). cert-manager re-probed: exports
    clean (~34s), no regression. `Eval.lean` expansion-helper cluster + call sites. (D#1b
    incomplete-deferral still OPEN — larger, couples with D#2 structural cycles.)
-3. **F-1** add `regexp` builtin import + wire `regexp.Match/…` to the existing engine. Contained;
-   real-app blocker.
+3. **F-1 — DONE (2026-06-19).** Added `"regexp"` to `builtinImportPaths` (`Module.lean`) so
+   `import "regexp"` resolves, and wired a `regexp.*` call-form dispatcher (`evalRegexpBuiltin`,
+   `Builtin.lean`). `regexp.Match(pattern, string) -> bool` dispatches to `stringRegexMatches`
+   — the SAME engine entrypoint `=~` uses, an UNANCHORED search (matches anywhere), confirmed
+   against the Go/CUE stdlib contract and cross-checked vs `cue` v0.16.1 (`^x`/`y`/`b`/`q`/`z$`/
+   `[0-9]` all byte-identical). **Deferred (engine cannot do submatch/replace yet — RX-1):**
+   `ReplaceAll`, `ReplaceAllLiteral`, `Find`/`FindSubmatch`/`FindAll*`, and any other capture- or
+   substitution-form. These surface a CLEAR signal — a new `BottomReason.unsupportedBuiltin name`
+   on concrete args (NOT a silent wrong answer); an abstract arg stays an unresolved `.builtinCall`
+   for a later pass. ⚠ prod9 (honda-obs/lemonsure/ssw `defs/filters/regexp.cue`) uses ONLY
+   `regexp.ReplaceAll` with `${n}` backrefs, so F-1 unblocks the *import* but NOT those apps'
+   exports — they need RX-1. Probe confirmed: the prod9 filters package no longer errors on
+   `import "regexp"`; it now advances to a *different* unimplemented builtin (`text/template`).
+   **F-1's dispatch inherits RX-1's pending engine limitations** (grouped quantifiers, `\b`, lazy
+   quantifiers, multi-group, invalid-pattern-as-literal); RX-1 fixes both `=~` and `regexp.*`
+   together. Pins: 7 `native_decide` theorems in `BuiltinTests` + fixture
+   `builtins/regexp_match` + module fixture `modules/regexp_import` (end-to-end loader). cert-manager
+   re-probed: exports clean (~34s), no regression.
 4. **F-2** strip self-module `@vN` in `readModuleInfo`. Contained. `Module.lean:221-236`.
 5. **RX-1** replace the regex engine with a real AST→NFA→Thompson (RE2-equivalent, total).
    LARGE; own planned slice. Highest real-app correctness impact.

@@ -1,0 +1,6 @@
+anchoredStart: true
+unanchored: true
+midMatch: true
+noMatch: false
+anchoredEnd: true
+charClass: true

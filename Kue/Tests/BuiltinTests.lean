@@ -726,4 +726,45 @@ theorem json_marshal_stays_unresolved_on_abstract_arg :
       == .builtinCall "json.Marshal" [.ref "x"]) = true := by
   native_decide
 
+-- F-1: `regexp.Match(pattern, string)` is an UNANCHORED search dispatched to the same
+-- engine entrypoint as `=~`. `^x` anchors the start; a bare `y`/`b` matches anywhere.
+theorem regexp_match_anchored_start :
+    (evalBuiltinCall "regexp.Match" [.prim (.string "^x"), .prim (.string "xyz")]
+      == .prim (.bool true)) = true := by
+  native_decide
+
+theorem regexp_match_is_unanchored :
+    (evalBuiltinCall "regexp.Match" [.prim (.string "y"), .prim (.string "xyz")]
+      == .prim (.bool true))
+      && (evalBuiltinCall "regexp.Match" [.prim (.string "b"), .prim (.string "abc")]
+        == .prim (.bool true)) = true := by
+  native_decide
+
+theorem regexp_match_no_match_is_false :
+    (evalBuiltinCall "regexp.Match" [.prim (.string "q"), .prim (.string "xyz")]
+      == .prim (.bool false)) = true := by
+  native_decide
+
+-- `regexp.Match(p, s)` dispatches to `stringRegexMatches p s` — the SAME engine entrypoint
+-- `=~` uses (`evalRegexMatch`). Pinning equality here ties the two to one engine.
+theorem regexp_match_dispatches_to_shared_engine :
+    (evalBuiltinCall "regexp.Match" [.prim (.string "^v[0-9]"), .prim (.string "v1")]
+      == .prim (.bool (stringRegexMatches "^v[0-9]" "v1"))) = true := by
+  native_decide
+
+-- A concrete deferred submatch/replace form (the engine cannot do these yet — RX-1)
+-- yields a CLEAR unsupported signal, never a silent wrong answer.
+theorem regexp_replaceall_is_unsupported_not_silent :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a"), .prim (.string "banana"), .prim (.string "X")]
+      == .bottomWith [.unsupportedBuiltin "regexp.ReplaceAll"]) = true := by
+  native_decide
+
+-- A deferred form over an abstract arg stays unresolved for a later pass, not bottom.
+theorem regexp_replaceall_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "regexp.ReplaceAll" [.ref "p", .prim (.string "s"), .prim (.string "r")]
+      == .builtinCall "regexp.ReplaceAll" [.ref "p", .prim (.string "s"), .prim (.string "r")])
+      = true := by
+  native_decide
+
 end Kue

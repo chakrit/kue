@@ -8634,3 +8634,46 @@ propagates; `false` still drops; `true` still yields) + 3 fixtures
 existing fixtures held — none carries a bottom guard); `shellcheck` clean. cert-manager re-probed
 READ-ONLY: exports clean (exit 0, ~34s), no regression (it has no bottom guards). D#1b
 (incomplete-guard deferral) still OPEN — larger, couples with D#2 structural cycles.
+
+## F-1 — `regexp` builtin import + `regexp.Match` call-form dispatch (2026-06-19)
+
+**Problem.** Real prod9 apps `import "regexp"` but Kue rejected the import outright
+(`unresolved import: regexp`) — `"regexp"` was absent from `builtinImportPaths`, even though a
+regex engine already backs `=~`. A real-app blocker (audit F-1, HIGH).
+
+**Fix.** Two contained changes plus a deferral-signal: (1) add `"regexp"` to `builtinImportPaths`
+(`Module.lean`) so the loader leaves it to the call-form dispatch like `strings`/`list`/`math`;
+the bare `regexp` ref then stays unresolved-as-package exactly as the other stdlib names. (2) add
+`evalRegexpBuiltin` (`Builtin.lean`) and wire it into `evalBuiltinCall`'s prefix dispatch.
+`regexp.Match(pattern, string) -> bool` calls `stringRegexMatches pattern s` — the SAME engine
+entrypoint `=~` (`evalRegexMatch`) uses, so the two agree by construction. (3) add
+`BottomReason.unsupportedBuiltin (name)` (`Value.lean`).
+
+**Match semantics — UNANCHORED, confirmed.** `regexp.Match` matches if the pattern occurs ANYWHERE
+in the string (`stringRegexMatches` runs `regexMatchAnywhereWithFuel` unless the pattern is
+`^`-anchored), identical to Go's `regexp.MatchString` and CUE's `=~`. Cross-checked vs `cue`
+v0.16.1: `^x`/`y`/`b`/`q`/`z$`/`[0-9]` all byte-identical (`y`/`b` match mid-string → unanchored
+confirmed).
+
+**Deferrals (RX-1).** The engine is a boolean matcher only — no submatch extraction, no
+substitution. So `ReplaceAll`, `ReplaceAllLiteral`, `Find`/`FindSubmatch`/`FindAll*`, and every
+other capture/substitution form are DEFERRED: a CONCRETE call yields
+`.bottomWith [.unsupportedBuiltin name]` (a clear unsupported signal, NOT a silent wrong answer); an
+ABSTRACT-arg call stays an unresolved `.builtinCall` for a later pass. The new bottom reason
+collapses to `.contradiction` in the manifest (line 77, `.bottomWith _` is reason-agnostic), so it
+exports as an error with no manifest behavior change. ⚠ prod9
+(honda-obs/lemonsure/ssw `defs/filters/regexp.cue`) uses ONLY `regexp.ReplaceAll` with `${n}`
+backrefs — F-1 unblocks the import but NOT those apps' exports; they need RX-1. **F-1's dispatch
+inherits RX-1's pending engine limits** (grouped quantifiers, `\b`, lazy quantifiers, multi-group,
+invalid-pattern-treated-as-literal — the engine has no validity check). RX-1 fixes both `=~` and
+`regexp.*`.
+
+**Tests.** 7 `native_decide` pins in `BuiltinTests` (anchored-start; unanchored mid-string;
+no-match; shared-engine dispatch; ReplaceAll-unsupported-not-silent; ReplaceAll-stays-unresolved-on-
+abstract-arg) + fixture `builtins/regexp_match` (six Match forms, `FixturePorts` port) + module
+fixture `modules/regexp_import` (end-to-end loader: `import "regexp"` resolves + dispatch runs).
+
+**Verify.** `lake build` green (96 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok`;
+`shellcheck` clean. cert-manager re-probed READ-ONLY: exports clean (~34s), no regression. prod9
+probe: the `defs/filters` package no longer errors on `import "regexp"` — it now advances to a
+*different* unimplemented builtin (`text/template`), proving the regexp import is unblocked.

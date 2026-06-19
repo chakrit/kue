@@ -654,6 +654,36 @@ def evalYamlBuiltin : String -> List Value -> Value
           else .bottom
   | name, args => unresolvedOrBottom name args
 
+/-- Dispatch a `regexp.*` builtin over already-evaluated arguments.
+
+    `Match(pattern, string)` is an UNANCHORED search — true when `pattern` matches anywhere
+    in `string`, identical to Go's `regexp.MatchString` and CUE's `=~` operator. It shares
+    the SAME engine entrypoint as `=~` (`stringRegexMatches`, which uses the anywhere-search
+    when the pattern is not `^`-anchored), so `regexp.Match` and `=~` agree by construction.
+
+    The engine is a boolean matcher only: it extracts no submatches and performs no
+    substitution. So every `regexp.*` form that needs capture groups or replacement
+    (`ReplaceAll`, `ReplaceAllLiteral`, `Find*`, `FindSubmatch`, `FindAll*`) is DEFERRED —
+    it surfaces `unsupportedBuiltin` rather than a silent wrong answer. These unblock once
+    RX-1 replaces the engine with a real submatch-capable RE2 matcher. The prod9 apps use
+    `ReplaceAll`, so the F-1 import unblock does NOT yet make those apps export.
+
+    The engine is also not RE2-conformant (RX-1): grouped quantifiers, `\b`, lazy
+    quantifiers, and multi-group patterns are mis-matched. `regexp.Match` inherits exactly
+    those limits — RX-1 fixes both `=~` and `regexp.Match` together. -/
+def evalRegexpBuiltin : String -> List Value -> Value
+  | "regexp.Match", [.prim (.string pattern), .prim (.string s)] =>
+      .prim (.bool (stringRegexMatches pattern s))
+  | name, args =>
+      if args.any containsBottom then
+        .bottom
+      else if args.all isConcreteArg then
+        -- A concrete call to a deferred submatch/replace form: a clear unsupported signal,
+        -- never a silent wrong answer. RX-1 implements these on a submatch-capable engine.
+        .bottomWith [.unsupportedBuiltin name]
+      else
+        .builtinCall name args
+
 def evalBuiltinCall : String -> List Value -> Value
   | "close", [value] => closeValue value
   | "len", [value] => lenValue value
@@ -670,6 +700,8 @@ def evalBuiltinCall : String -> List Value -> Value
         evalListBuiltin name args
       else if name.startsWith "math." then
         evalMathBuiltin name args
+      else if name.startsWith "regexp." then
+        evalRegexpBuiltin name args
       else if name.startsWith "base64." then
         evalBase64Builtin name args
       else if name.startsWith "json." then

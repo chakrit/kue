@@ -37,7 +37,7 @@ def moduleNotOnDiskError (path modPath version : String) : String :=
     them unchanged. The local bind names follow the last path element
     (`encoding/base64` → `base64`). -/
 def builtinImportPaths : List String :=
-  ["strings", "list", "math", "encoding/base64", "encoding/json", "encoding/yaml"]
+  ["strings", "list", "math", "regexp", "encoding/base64", "encoding/json", "encoding/yaml"]
 
 /-- Whether an import path names a built-in stdlib package the loader must leave to the
     call-form builtin dispatch rather than resolve from disk. -/

@@ -2278,6 +2278,30 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- `regexp.Match(pattern, string)` is an UNANCHORED search (matches anywhere), the
+      -- same engine entrypoint as `=~` — so `regexp.Match` and `=~` agree by construction.
+      -- Patterns here are simple anchored/literal/char-class forms the current engine
+      -- handles; grouped/`\b`/lazy patterns are RX-1's domain and deliberately excluded.
+      fileName := "builtins/regexp_match.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"anchoredStart", .regular,
+                  .builtinCall "regexp.Match" [.prim (.string "^x"), .prim (.string "xyz")]⟩,
+                ⟨"unanchored", .regular,
+                  .builtinCall "regexp.Match" [.prim (.string "y"), .prim (.string "xyz")]⟩,
+                ⟨"midMatch", .regular,
+                  .builtinCall "regexp.Match" [.prim (.string "b"), .prim (.string "abc")]⟩,
+                ⟨"noMatch", .regular,
+                  .builtinCall "regexp.Match" [.prim (.string "q"), .prim (.string "xyz")]⟩,
+                ⟨"anchoredEnd", .regular,
+                  .builtinCall "regexp.Match" [.prim (.string "z$"), .prim (.string "xyz")]⟩,
+                ⟨"charClass", .regular,
+                  .builtinCall "regexp.Match" [.prim (.string "[0-9]"), .prim (.string "a1b")]⟩
+              ] .regularOpen none []))
+    },
+    {
       -- `e == _|_` / `e != _|_` is CUE's definedness test, not value equality. A concrete
       -- operand is "defined" (`!= _|_` true); an absent-field selection is "incomplete" so
       -- the guard drops. Pins the comparison + the comprehension guard firing on present

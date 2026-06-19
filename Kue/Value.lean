@@ -510,6 +510,7 @@ inductive BottomReason where
   | boundConflict
   | divisionByZero
   | excludedValue (value : Prim)
+  | unsupportedBuiltin (name : String)
 deriving Repr, BEq, DecidableEq
 
 /--
