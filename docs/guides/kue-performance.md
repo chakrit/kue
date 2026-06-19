@@ -151,6 +151,13 @@ fix is purely a speedup — byte-identical output.
   minimization (`/tmp/kprobe/struct_disc.cue`) and the implementable design. The 88s wall (when the
   app DOES export, e.g. cert-manager ~30.5s) is a separate, downstream perf concern, meaningful only
   once Gap-2b is fixed.
+- **Regex matching is backtracking (RX-1 pending).** The current `=~`/`regexp.Match` engine
+  is a fuel-bounded BACKTRACKING matcher: pathological patterns (nested quantifiers over a
+  long string) can hit the input×pattern×4 fuel budget — where a fuel-out reads as a
+  non-match (a correctness hole, not just slowness). The planned RX-1 rewrite (Thompson/
+  Pike NFA, see `docs/spec/spec-conformance-audit.md` "RX-1 design") is LINEAR in
+  `input.length × NFA.size` with no backtracking blowup, so it fixes both the soundness hole
+  and the perf cliff at once. Until then, avoid deeply-nested quantifiers in `=~` patterns.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).

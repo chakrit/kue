@@ -148,6 +148,36 @@ resolution core all CONFORMS.
 Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
 front-loaded before the large rewrites.
 
+### Re-ranked next slices (2026-06-19 Phase-B — DONE: SC-1, SC-1c, D#1a, F-1)
+
+Contained-high-confidence before large rewrites (slice-loop principle). Recommended order:
+
+1. **SC-1d (HIGH, CONTAINED parser).** Tail dropped when patterns present
+   (`Parse.lean:510-545`). Now that pattern-defs CLOSE (SC-1c), this wrongly rejects extras
+   on `#A: {x, [=~"a"], ...} & {b}`. One-file fix, high confidence, unblocks correct
+   open-via-tail pattern defs — jumps AHEAD of RX-1. Do first.
+2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
+   demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
+   ready below ("RX-1 design (implementable)"). RX-1a (AST+parser) → RX-1b (NFA+VM+rewire) →
+   RX-1c (submatch+`ReplaceAll`).
+3. **Bug2-3 / Gap-2b (HIGH).** The LAST argocd export blocker — structural disjunction-arm
+   pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"). High payoff (a whole app
+   exports), contained primitive (list-meet-to-bottom keying), well-diagnosed.
+4. **F-2 (HIGH, CONTAINED).** Strip self-module `@vN` (`Module.lean:221-236`). One-file,
+   unblocks in-module imports. Cheap; can land alongside SC-1d.
+
+Then the large/structural tail: **D#2** (structural cycles, large), **SC-2** (closedness
+divergence — DIVERGE-from-cue, verify no regress), then the **MED tail** (D#1c non-bool
+guard; D#1b incomplete-deferral, couples with D#2; D#3 `let`-clauses; SC-3 disj display;
+BI-1 Unicode case-fold; BI-2 `math.Pow`/`Sqrt`/`list.Sort`; F-3 qualified import),
+spec-gap ratifications, then low/hardening. SC-1b (MED soundness, closed×closed-pattern
+intersection) sits with the MED tail — pre-existing, narrower than SC-1.
+
+Rationale: SC-1d + F-2 are contained one-file HIGH fixes that should land before the RX-1
+rewrite to keep `main` shippable and avoid stacking a large worktree on top of known
+contained bugs. Bug2-3 ranks with RX-1 (both HIGH, both designed) — sequence by whichever
+worktree is freer; RX-1 is the broader correctness lever, Bug2-3 the single-app unblock.
+
 **HIGH — soundness / real-app correctness:**
 1. **SC-1 — DONE (2026-06-19).** mergeStructN pattern-meet dropped the other-side closedness,
    re-opening a closed def met with a pattern struct. Fixed: arms 5/6 (and arm 1/7) now set
@@ -273,3 +303,178 @@ residual). All three current gaps already in `cue-spec-gaps.md`.
 
 **Spec-doc errors (cosmetic):** CUE spec's disjunction worked-example comments contradict its
 own U2 rule (cue + Kue follow the rule); the `2 & >=1.0 & <3.0` example is stale. No action.
+
+## RX-1 design (implementable) — replace the regex engine with an RE2-equivalent NFA
+
+**Status (2026-06-19, Phase-B spike):** designed, ready to slice. The current matcher
+(`Value.lean` `stringRegexMatches`/`parseRegexAtom`/`regexMatchHereWithFuel`/
+`expandFirstRegexGroup`, ~L771-1012) is a backtracking literal/class matcher that
+**silently mis-validates** real-app patterns. The CUE spec mandates RE2: *"the regular
+expression syntax is that accepted by RE2 … except for `\C`."* So the gate is RE2/Go
+`regexp` semantics, not the binary. Oracle-confirmed (cue v0.16.1) the 7 demonstrated
+constructs all `=~ true`; the current engine returns wrong/unsound results on all 7:
+
+| Construct                | Pattern (example)                         | Current engine fault |
+|--------------------------|-------------------------------------------|----------------------|
+| grouped quantifier       | `^(ab)+$`                                 | `+` re-binds to `b`, not the group (only group *alternatives* expanded) |
+| nested group             | `^((a\|b)c)+$`                            | only FIRST group expanded; outer `(` `)` fall through as literals |
+| multi-group semver       | `^(\d+)\.(\d+)\.(\d+)$`                    | 2nd/3rd `( )` become literal `(`/`)` → never matches |
+| word boundary `\b`       | `\bcat\b`                                  | `\b` parsed as literal `b` (no `\b`/`\B` atom) |
+| lazy quantifier          | `a.*?b`                                    | `?` after `*` parsed as a fresh optional atom; no laziness |
+| DNS-1123                 | `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.…)*$`    | nested optional groups + group-`*` mis-expanded |
+| anchoring fallback       | any unanchored pattern with a group       | UNSOUND substring fallback can admit non-matches |
+
+### Architecture — parse → compile → Pike-VM (total, linear)
+
+Three stages, a new module `Kue/Regex.lean` (regex is a pure `String → String → Bool`/
+submatch function with NO `Value` dependency — it imports nothing from the engine and is
+imported by `Eval`/`Lattice`/`Builtin`, a clean leaf in the import graph; the `Value`
+no-`DecidableEq` perf carve-out does NOT apply here).
+
+1. **AST** (`inductive Regex`). Total, illegal-states-unrepresentable:
+
+   ```
+   inductive Regex where
+     | empty                                        -- ε
+     | lit       (c : Char)
+     | class     (ranges : List (Char × Char)) (negated : Bool)
+     | any                                          -- . (no newline, RE2 default)
+     | anchorStart | anchorEnd                      -- ^ $
+     | wordBoundary (negated : Bool)                -- \b \B
+     | concat    (parts : List Regex)
+     | alt       (branches : List Regex)            -- a|b|c
+     | star      (greedy : Bool) (body : Regex)     -- *  *?
+     | plus      (greedy : Bool) (body : Regex)     -- +  +?
+     | opt       (greedy : Bool) (body : Regex)     -- ?  ??
+     | repeat    (greedy : Bool) (min : Nat) (max : Option Nat) (body : Regex)  -- {m},{m,},{m,n}
+     | group     (index : Option Nat) (body : Regex) -- capturing (some i) / non-capturing (none)
+   ```
+
+   Greediness is a `Bool` FIELD on each quantifier, not a separate lazy constructor — keeps
+   the match-priority logic in one place. `{m,n}` carries `max : Option Nat` so `{m,}` is
+   representable without a sentinel. `group`'s `index` is `none` for `(?:…)`, `some i` for a
+   capturing group (i assigned left-to-right at parse time). The repeat-with-bounded-max is
+   **desugared to concat of opt/exact copies at compile time** (RE2 does this; keeps the VM
+   free of counters), so the VM never sees `repeat`.
+
+2. **Parser** (`parseRegex : String → Except RegexParseError Regex`). Recursive-descent over
+   `List Char`, total via a structural-position fuel = input length (each step consumes ≥1
+   char or descends a balanced bracket). Grammar: alt → concat → quantified → atom, with
+   atom = group | class | escape | `.` | anchor | literal. This REPLACES the four ad-hoc
+   splitter functions (`splitRegexAlternatives*`, `parseRegexGroupBody*`, `findFirstRegexGroup*`,
+   `expandFirstRegexGroup`) with ONE real parser — the "expand only the first group" hack
+   disappears by construction. **Invalid pattern → `Except.error`**, NOT a silent
+   literal-fallback (the current `parseRegexAtom`'s `['\\'] => .literal '\\'` and
+   group-not-found → literal `(` are unsound). RE2/cue treat an invalid pattern in `=~` as a
+   build error (`.bottomWith [.invalidRegex …]`); pin that.
+
+3. **Compile to NFA** (`compile : Regex → NFA`). Thompson construction. NFA =
+   `Array Inst` (a flat program, RE2/Pike style) with instructions:
+
+   ```
+   inductive Inst where
+     | char  (ranges : List (Char × Char)) (negated : Bool) (next : Nat)  -- consume one matching char
+     | any   (next : Nat)
+     | split (a : Nat) (b : Nat)            -- ε-fork; ORDER encodes greediness (a before b = prefer a)
+     | jmp   (next : Nat)
+     | save  (slot : Nat) (next : Nat)      -- record input pos into capture slot (Pike submatch)
+     | assert (kind : AssertKind) (next : Nat) -- ^ $ \b \B (zero-width)
+     | accept
+   ```
+
+   Greedy `*` compiles to `split(body, exit)`; lazy `*?` to `split(exit, body)` — the split
+   ARM ORDER is the entire laziness mechanism, and the Pike-VM's "first thread to reach
+   accept wins" gives RE2 leftmost-greedy/lazy semantics for free. `save 2i`/`save 2i+1`
+   bracket each capturing group i → submatch spans (slot 0/1 = whole match).
+
+4. **Pike-VM** (`run : NFA → List Char → Option (Array (Option Nat)))`). Thompson/Pike
+   simulation: step the input one char at a time carrying a SET of threads (dedup by pc →
+   each instruction visited ≤ once per input position), each thread a pc + capture array.
+   `split`/`jmp`/`save`/`assert` are followed in the ε-closure within a position; `char`/`any`
+   advance to the next position. **No backtracking → linear in `input.length × NFA.size`**,
+   no catastrophic blowup. Returns the capture array of the first thread to `accept` (NONE on
+   no match). Boolean `=~`/`Match` = `(run …).isSome`; submatch = the array.
+
+### Totality argument (replaces the current fuel-bounded *partiality*)
+
+The current engine is `partial`-in-spirit: `regexMatchHereWithFuel` returns `false` on fuel
+exhaustion — a fuel-out is INDISTINGUISHABLE from a genuine non-match (a soundness hole on
+adversarial patterns). The Pike-VM is **structurally total**: the outer loop is structural
+recursion on the input `List Char` (decreasing); the inner ε-closure terminates because the
+thread set is deduped by pc over a FIXED-SIZE `Array Inst` (≤ `NFA.size` distinct pcs, so the
+closure worklist drains in ≤ `NFA.size` steps — a `Nat` fuel = `NFA.size` is provably
+sufficient AND never reached spuriously, unlike the input×pattern×4 backtracking budget).
+Total decidable function, no `partial def`, no fuel-as-truncation. Compile + desugar are
+structural recursion on the finite AST. The parser is the one fuel-bounded step (input-length
+fuel), consistent with the standing parser exception, but here the bound is exact (one char
+consumed per step). **This removes a real soundness hole, not just a perf concern.**
+
+### RE2 subset — implement now vs. defer (stub-not-silent-wrong)
+
+**MANDATORY (covers prod9 corpus + spec examples; unblocks all 7 repros + F-1):** concat,
+alternation `|`, capturing `( )` + non-capturing `(?:…)`, repetition `* + ? {m} {m,} {m,n}`
+GREEDY and LAZY, char classes `[…]`/`[^…]` with ranges, perl classes `\d \D \w \W \s \S`,
+`.`, anchors `^ $`, word boundaries `\b \B`, escapes. Submatch capture (slot array) — needed
+for F-1's `ReplaceAll`/`FindSubmatch`.
+
+**DEFERRED — explicit `.bottomWith [.unsupportedRegex feature]`, never silent-wrong:** named
+captures `(?P<name>…)`, flags `(?i)`/`(?m)`/`(?s)`, `\A \z \Q…\E`, POSIX classes
+`[[:alpha:]]`, Unicode property classes `\p{…}`/`\pL`. **RE2 has NO backreferences by
+design** — `\1` in the pattern is a parse error in RE2/cue, so Kue's parser rejects it too
+(this is the `${n}` in `ReplaceAll`'s *replacement template*, a different grammar — see
+below, that IS supported). Each deferred feature is detected in the parser and surfaced as a
+clear unsupported signal; the policy mirrors F-1's `unsupportedBuiltin`.
+
+### Submatch → unblocks F-1's `ReplaceAll`/`Find*`
+
+The Pike-VM's capture array is exactly what F-1's deferred forms need. With submatch:
+
+- `regexp.Match(p,s) → bool` = `(run …).isSome` (re-wire the existing `regexp.Match` arm).
+- `regexp.FindSubmatch`/`Find`/`FindAll*` = expose the capture spans as the documented
+  CUE/Go return shapes.
+- `regexp.ReplaceAll(p, s, template)` — the prod9 lever. Parse the REPLACEMENT template's
+  `${n}`/`$n` backrefs (Go `Regexp.Expand` grammar, NOT regex backrefs), substitute capture
+  group n's span. This is what honda-obs/lemonsure/ssw `defs/filters/regexp.cue` need to
+  export. Remove the `unsupportedBuiltin` deferral arms in `evalRegexpBuiltin` as each lands.
+
+### Migration + soundness gate
+
+This is a behavior **CHANGE, not byte-identical** — the old engine mis-validates, so the new
+one will return DIFFERENT (correct) results on the 7 repros. The gate is therefore NOT
+"byte-identical to old Kue"; it is **conformance to RE2/spec**, cross-checked against cue:
+
+1. All 7 RX-1 repros now match cue (add as fixtures with `=~`).
+2. **Existing regex fixtures stay correct** — `regex_match_expressions`,
+   `regex_group_alternation_pattern`, `regex_bounded_repetition_pattern`,
+   `regex_label_pattern`, `regex_wildcard_pattern`, `regexp_match`, `modules/regexp_import`
+   all use the simple anchored/class/single-group patterns the OLD engine got right, so they
+   must stay green (a regression here = a real bug).
+3. Cross-check a corpus of real patterns vs cue: semver, DNS-1123 (label + subdomain),
+   docker image-ref, k8s name, and the prod9 `regexp.ReplaceAll` filter patterns.
+4. `native_decide` theorems pinning: greedy-vs-lazy priority, group submatch spans, `\b` at
+   word edges, invalid-pattern → error, deferred-feature → unsupported.
+
+Record in `cue-divergences.md` any case where the new engine matches the spec but cue (rare
+for regex — cue delegates to Go's RE2, so it's usually correct here) differs.
+
+### Slice plan (3 slices; worktree recommended)
+
+RX-1 is large and touches a NEW module + three dispatch sites. Split at clean seams:
+
+- **RX-1a — AST + parser + invalid-pattern errors.** New `Kue/Regex.lean` with the `Regex`
+  inductive + `parseRegex : String → Except RegexParseError Regex` + deferred-feature
+  detection. Pin the parser with `native_decide` on the 7 repros' ASTs + invalid/deferred
+  cases. No engine wiring yet (parser is independently testable).
+- **RX-1b — Thompson compile + Pike-VM + re-wire boolean `=~`/`Match`.** `compile`, `Inst`,
+  `run`, then point `stringRegexMatches` (or its replacement) at the VM and re-wire the three
+  call sites (`Eval.evalRegexMatch`, `Lattice.meetStringRegexPrim`, `Builtin.regexp.Match`).
+  Delete the old `Value.lean` regex block (~L771-1012). Gate: 7 repros + all existing
+  fixtures green vs cue.
+- **RX-1c — submatch wiring: `ReplaceAll`/`Find*`.** Expose the capture array; implement
+  `regexp.ReplaceAll` (+ `Expand` template grammar) and `Find*`/`FindSubmatch`; remove the
+  matching `unsupportedBuiltin` deferral arms. Gate: prod9 filter patterns export, cue-exact.
+
+**Worktree: yes.** RX-1b deletes a large block from `Value.lean` (a hot, widely-imported
+module) and adds a leaf module — a worktree isolates the multi-file churn (new module +
+3 dispatch rewrites + Value deletion) from concurrent slices and keeps `main` shippable
+between the three sub-slices. Each sub-slice commits independently (checkpoint discipline).
