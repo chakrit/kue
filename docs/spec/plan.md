@@ -312,7 +312,15 @@ path, so it must ship behind the soundness gate below and AFTER Gap-1 (which is 
   narrow` (shapeD — selects struct arm + emits patch, content-identical modulo field-order #3); 8
   `native_decide` pins incl. the GATE pin, soundness (all-arms-killed → bottom), and direct-unchanged.
   `lake build`/`fixture pairs ok`/`shellcheck` green. **Clears shapeD + `probe_disj_inline`.**
-- **Slice Bug2-3 — Gap-2b design (implementable). OPEN — the REMAINING argocd blocker.** The real
+- **Slice Bug2-3 — Gap-2b. DONE 2026-06-19 (`d9f66ca`).** Landed via `embedBodyEmbedsDisj` gating
+  the all-regular-field splice in `spliceOperandForEmbed` (the design's lever, reusing the existing
+  `meet`-over-`.disj` prune; cert-manager byte-identical; 4 soundness obligations verified). **argocd
+  did NOT unblock** — a SEPARATE pre-existing bug surfaced (Bug2-4: two-level-embedded `let _patch`
+  comprehension guard misses the host narrowing because `embedComprehensionReadLabels` follows let
+  reads only one level; reproduces with no disjunction). See the Bug2-3 DONE writeup in
+  `docs/spec/spec-conformance-audit.md` + the implementation-log entry. The design below is the
+  as-built record. Bug2-4 is now the single argocd export blocker.
+- **Slice Bug2-3 — Gap-2b design (implementable). [DONE — see above].** The real
   `defs/parts.#Mixin` (cue cache `…/defs@v0.3.19/parts/mixin.cue`) discriminates its `listShape |
   structShape | error` disjunction STRUCTURALLY: `listShape = { #components: [string]: _patch; [...] }`
   is LIST-shaped (the `[...]` embed) keyed on the HIDDEN `#components`; `structShape = { _patch; ... }`

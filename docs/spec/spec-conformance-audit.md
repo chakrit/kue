@@ -49,7 +49,7 @@ the spec-first fix-slice backlog in `plan.md`.
 
 | Area | Auditor | Status | Findings (V/CUE-BUG/SUSPECT) |
 |------|---------|--------|------------------------------|
-| A. Disjunctions/narrowing | batch 1 | DONE | 1 KUE-VIOLATES (disj display); Gap-2b = real bug (cue correct); 2 spec gaps; rest CONFORMS |
+| A. Disjunctions/narrowing | batch 1 | DONE | 1 KUE-VIOLATES (disj display); **Gap-2b/Bug2-3 FIXED 2026-06-19** (cue correct; structural list-vs-struct arm prune); 2 spec gaps; rest CONFORMS |
 | B. Closedness/definitions | batch 1 | DONE | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS |
 | C. Structs/lists          | batch 1 | DONE | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS |
 | D. Comprehensions/scoping | batch 2 | DONE | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; no structural-cycle detection; `let` clauses unparseable); frame-model + read-splice CONFORM |
@@ -57,6 +57,56 @@ the spec-first fix-slice backlog in `plan.md`.
 | F. Manifest/modules       | batch 2 | DONE | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
 ## Findings (ranked; filled as auditors return)
+
+### Bug2-3 / Gap-2b — DONE (2026-06-19, `d9f66ca`)
+
+Structural list-arm-vs-struct-host disjunction pruning. **Landed; cue is correct (spec-grounded:
+unification distributes over disjunction + a list meets a struct with regular fields = ⊥); Kue was
+under-pruning.** A def embedding a STRUCTURAL disjunction (`listShape | structShape`, discriminated
+by list-vs-struct SHAPE, not a regular label), embedded one layer down (`#U: {#M}`) and
+force-narrowed by a sibling regular OUTPUT field the arms lack: the host's regular fields reached
+the arms only as a SIBLING of the embedded disjunction, never met INTO the list arm as a value, so
+the sound `list & {regular fields} = ⊥` prune never fired and BOTH arms survived (ambiguous bottom).
+
+- **Fix (the design's lever, gated):** `embedBodyEmbedsDisj` detects a disjunction-embedding body (a
+  `.disj` in `cs`, or a depth-0 `.refId` to a let slot holding a `.disj`). When it fires,
+  `spliceOperandForEmbed` routes ALL the host's regular OUTPUT fields into the embedded arms (not
+  just the narrow comprehension-read/discriminator labels). The EXISTING `meet`-over-`.disj`
+  distribution then prunes a list-shaped arm against the struct host via the SOUND type-conflict
+  primitive; a struct-compatible arm survives untouched (meet is idempotent on a field it already
+  carries). **The prune is the meet primitive, NOT a shape heuristic** — so two struct-compatible
+  arms stay ambiguous (cue-exact), no over-eager shape discrimination.
+- **GATE (cert-manager byte-identity):** the all-regular splice fires ONLY for a
+  disjunction-embedding body; every other body keeps the narrow splice byte-identical. cert-manager
+  re-probed vs cue v0.16.1: **content-identical** (jq -S, exit 0). All existing fixtures green (zero
+  byte-drift). 6 `native_decide` pins (incl. gate-off `embed_body_embeds_disj_gate_no_disj`).
+- **Soundness (all four obligations verified vs cue):** (1) struct-compatible arm survives; (2) real
+  conflict (host matches neither arm) bottoms; (3) directly-narrowed disjunction unchanged (both
+  compatible arms survive); (4) `struct | struct` ambiguous stays ambiguous, NOT falsely pruned.
+- **argocd: STILL bottoms — a SEPARATE pre-existing blocker surfaced (NOT a regression).** The
+  structural disjunction now prunes correctly (the guard-free repro
+  `testdata/modules/disj_embed_struct_disc` exports content-identical to cue), but
+  `kue export apps/argocd.cue` still bottoms (~104s) on a DISTINCT bug: a **two-level-embedded
+  `let _patch` comprehension guard does not see the host narrowing**. With `#U: {#M}` and `#M`
+  embedding `let _patch = { kind: string, for _, add in Self.#additions { if kind == add.#kind {
+  add.#patch } } }`, the host's narrowed `kind` reaches `#U` but `embedComprehensionReadLabels`
+  follows let-comprehension reads only ONE level, so `kind` is stripped before reaching `_patch`'s
+  frame and the guard sees `string` → never fires → the matched `#patch` (`meta:"yes"`) is dropped.
+  **Reproduces with NO disjunction at all** (`/tmp/kue-patch4.cue`: `#U: {#M}`, `#M` embeds `_patch`,
+  `#U & {kind, #additions}` → cue `{kind, meta}`, Kue `{kind}` only) — confirmed identical on clean
+  HEAD (`2ab5c84`). This is a comprehension-read-splice depth gap (Bug2-4 below), NOT Gap-2b. So
+  argocd is NOT yet unblocked; cert-manager remains the one fully-correct probed real app.
+- `Kue/Eval.lean` (`embedBodyEmbedsDisj`, `spliceOperandForEmbed`), `Kue/Tests/TwoPassTests.lean`,
+  `testdata/modules/disj_embed_struct_disc`.
+
+**NEW fix-slice — Bug2-4 (HIGH, the NEW last argocd blocker, undesigned):** transitive
+comprehension-read-splice. `embedComprehensionReadLabels` must follow an embedded let's
+comprehension reads TRANSITIVELY (when `#M` embeds `_patch` whose comprehension reads a
+host-providable label `kind`, `#M`'s read-labels should include `kind`), so the two-level
+`#U:{#M}`-with-buried-`_patch` shape splices the host narrowing down to the guard's frame. Pinned
+repro above. Gate the same way (a body NOT embedding a comprehension-reading let stays
+byte-identical). Sits at the TOP of the next-3-4 (displaces nothing else — it is now the single
+real-app export blocker for argocd).
 
 ### Phase-A audit of the RX-2b + RX-1c batch (`5d884af..e4922c9`, 2026-06-19)
 
@@ -473,11 +523,17 @@ targets intact). Principle (slice-loop): contained-soundness before larger featu
 cue-AGREEING correctness before divergence; designed levers before undesigned;
 real-app-unblock weighted. **Recommended next 3-4:**
 
-1. **Bug2-3 / Gap-2b (HIGH — the LAST real-app export blocker, DESIGNED, ≤1-2 slices).**
-   Structural disjunction-arm pruning (list-arm-vs-struct-host). Repro re-confirmed live
-   (`struct_disc.cue`: Kue bottoms, cue exports `{kind,meta}`; cue correct). Design GO, no
-   drift. A whole app (argocd) unblocks. Top because it is the single highest real-app
-   impact AND the most contained of the designed HIGHs.
+1. **Bug2-3 / Gap-2b — DONE (2026-06-19, `d9f66ca`).** Structural list-arm-vs-struct-host
+   disjunction pruning landed (gated, cert-manager byte-identical, 4 soundness obligations
+   verified). See the DONE writeup above. argocd did NOT unblock — a SEPARATE pre-existing
+   bug surfaced (Bug2-4 below).
+1b. **Bug2-4 (HIGH — the NEW last argocd export blocker, undesigned).** Transitive
+   comprehension-read-splice: `embedComprehensionReadLabels` follows an embedded let's
+   comprehension reads only ONE level, so the two-level `#U:{#M}` shape where `#M` embeds a
+   `let _patch` whose `if kind == add.#kind` guard reads a host-narrowed `kind` never sees the
+   narrowing → the guard drops the matched `#patch`. Reproduces with NO disjunction (pinned in
+   the Bug2-3 DONE writeup). Now the single real-app export blocker for argocd → TOP of the next
+   slices.
 2. **D#2a (HIGH — structural-cycle DETECTION, DESIGNED, slice 1 of 2).** Ancestor-force-stack
    on the `forceClosureWithConjunct` path (reusing the `ForceKey` triple). Lands oracle
    #1/#3/#4/#5 (error + finite-control + reference-control). Spec-mandated, currently MISSING.

@@ -9118,3 +9118,48 @@ recorded in `cue-divergences.md` (no miscategorization). Next-step → **two-pha
 
 Files: `Kue/Regex.lean`, `Kue/Builtin.lean`, `Kue/Tests/RegexTests.lean`,
 `Kue/Tests/BuiltinTests.lean`, `Kue/Tests/FixturePorts.lean`, `testdata/cue/builtins/regexp_submatch.{cue,expected}`.
+
+## Bug2-3 / Gap-2b — structural list-arm-vs-struct-host disjunction prune (2026-06-19, `d9f66ca`)
+
+**The bug (cue CORRECT, spec-grounded; Kue under-pruned).** A def embedding a STRUCTURAL
+disjunction (`listShape | structShape`, discriminated by list-vs-struct SHAPE not a regular
+label), embedded one layer down (`#U: {#M}`) and force-narrowed by a sibling regular OUTPUT field
+the arms lack: the host's regular fields reached the disjunction only as a SIBLING, never met INTO
+the list arm as a value, so the sound `list & {regular fields} = ⊥` prune never fired → both arms
+survived → ambiguous bottom (the argocd `.error (.ambiguous)`). Spec basis: unification distributes
+over disjunction; a list meets a struct carrying regular fields = bottom.
+
+**Diagnosis (instrumented).** The disjunction is distributed at `meetEmbeddingsWithFuel`'s
+`conjDisjArms?`-defer arm, where `current` (the host the arms meet against) was the def body WITHOUT
+the host's regular field (`kind`/`meta`): `spliceOperandForEmbed` strips regular fields when
+splicing the host narrowing into the embedded def, keeping only hidden + comprehension-read /
+discriminator labels. The reduced `meet ([elist|struct]) {kind}` PROVES the prune works when the
+host field is present (the elist arm bottoms via the existing `meet`-over-`.disj` primitive); the
+gap was purely that the host field never reached the arms.
+
+**Fix (the design's lever, GATED).** `embedBodyEmbedsDisj` detects a disjunction-embedding body (a
+`.disj` in `cs`, or a depth-0 `.refId` to a let slot holding a `.disj`). When it fires,
+`spliceOperandForEmbed` routes ALL the host's regular OUTPUT fields into the embedded arms. The
+existing distribution then prunes a list-shaped arm against the struct host via the SOUND
+type-conflict meet; a struct-compatible arm survives untouched (meet idempotent on a field it
+already carries). The prune is the meet primitive, NOT a shape heuristic.
+
+**Verify.** `lake build` 100 jobs; `check-fixtures.sh` → `fixture pairs ok` (zero drift); shellcheck
+clean. cert-manager (prod9, READ-ONLY) content-identical to cue v0.16.1 (`jq -S`, exit 0) — the gate
+holds. 6 `native_decide` pins + fixture `testdata/modules/disj_embed_struct_disc`. Soundness: all
+four obligations verified vs cue (struct-arm survives; real-conflict bottoms; directly-narrowed
+unchanged; struct|struct stays ambiguous, not falsely pruned).
+
+**argocd NOT unblocked — a SEPARATE pre-existing bug surfaced (Bug2-4).** The structural prune now
+works (guard-free repro exports content-identical to cue), but `kue export apps/argocd.cue` still
+bottoms (~104s). Cause: a two-level-embedded `let _patch` comprehension guard does not see the host
+narrowing. `#U: {#M}`, `#M` embeds `let _patch = { kind: string, for _, add in Self.#additions { if
+kind == add.#kind { add.#patch } } }`; the host's narrowed `kind` reaches `#U` but
+`embedComprehensionReadLabels` follows let-comprehension reads only ONE level, so `kind` is stripped
+before reaching `_patch`'s frame and the guard never fires → the matched `#patch` (`meta:"yes"`) is
+dropped. Reproduces with NO disjunction (`/tmp/kue-patch4.cue`); confirmed identical on clean HEAD
+`2ab5c84` (not a regression). → **Bug2-4** (transitive comprehension-read-splice) is the new
+single argocd blocker.
+
+Files: `Kue/Eval.lean` (`embedBodyEmbedsDisj`, `spliceOperandForEmbed`),
+`Kue/Tests/TwoPassTests.lean`, `testdata/modules/disj_embed_struct_disc/`.
