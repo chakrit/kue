@@ -606,14 +606,60 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
-      -- (5) instantiated def field re-opens: `(#D & {}).r & {extra}` ADMITS `extra` — matching cue
-      -- on the INSTANTIATION path (the def, once meet-instantiated, yields an open regular struct).
-      -- This pins CURRENT behavior at the boundary of the deferred sub-gap; the DIRECT def-path
-      -- `#D.r & {extra}` (cue rejects, Kue wrongly admits) is the documented open gap and is
-      -- deliberately NOT pinned here.
-      fileName := "definitions/b6_instantiated_def_field_reopens.expected",
+      -- (5) SC-2b — DIVERGES from cue. `(#D & {}).r & {extra}` REJECTS `extra`: nested closedness
+      -- is monotone through meet (the closed `r` stays closed). cue RE-OPENS on the no-op `& {}`
+      -- instantiation (admits `extra`) — an eval-strategy artifact, not lattice-derivable. cue is
+      -- internally inconsistent (the direct path `#D.r & {extra}` rejects). Kue follows the spec
+      -- on both paths. Recorded in cue-divergences.md.
+      fileName := "definitions/sc2b_instantiated_def_field_stays_closed.expected",
       content :=
         match parseSource "#D: {r: {x: int}}\nout: (#D & {}).r & {x: 1, extra: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    -- SC-2a closedness pins (cue+spec AGREE; oracle-checked v0.16.1). The closing field-walker
+    -- twin closes a referenced def's nested PLAIN-struct field VALUES recursively, so an added
+    -- field is rejected at any depth — UNLESS a nested `...` opens it. Plain (non-def) structs and
+    -- hidden fields stay open (their own controls live in b6_plain_struct_under_regular_open / etc).
+    {
+      -- nested def field closes: `#A:{a:{b:int}}` & `{a:{b:1,extra:5}}` → `out.a.extra: _|_`.
+      fileName := "definitions/sc2a_nested_def_field_closes.expected",
+      content :=
+        match parseSource "#A: {a: {b: int}}\nout: #A & {a: {b: 1, extra: 5}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- fully concrete repro (`b: int | *0`) — closes the same way, no abstract value involved.
+      fileName := "definitions/sc2a_nested_def_field_closes_concrete.expected",
+      content :=
+        match parseSource "#A: {a: {b: int | *0}}\nout: #A & {a: {b: 1, extra: 5}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- depth-2: the closing recurses to any depth (`out.a.b.deep: _|_`).
+      fileName := "definitions/sc2a_nested_def_field_depth2.expected",
+      content :=
+        match parseSource "#A: {a: {b: {c: int}}}\nout: #A & {a: {b: {c: 1, deep: 9}}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- a nested `...` keeps the nested struct OPEN (`defOpenViaTail` returned unchanged by the
+      -- closing walker) — `extra` admitted. Regression guard for control #4.
+      fileName := "definitions/sc2a_nested_def_field_tail_stays_open.expected",
+      content :=
+        match parseSource "#A: {a: {b: int, ...}}\nout: #A & {a: {b: 1, extra: 5}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- direct selector into a closed def's nested struct closes it: `#D.r & {b}` → `out.b: _|_`
+      -- (oracle #6 — the same root cause as the meet path, no instantiation).
+      fileName := "definitions/sc2a_direct_selector_closes.expected",
+      content :=
+        match parseSource "#D: {r: {a: int}}\nout: #D.r & {a: 1, b: 2}\n" with
         | .ok value => formatResolvedTopLevel value
         | .error error => s!"parse error: {error.message}"
     },

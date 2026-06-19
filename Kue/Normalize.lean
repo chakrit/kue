@@ -18,14 +18,14 @@ mutual
         -- it. Embeddings (`comprehensions`) are left untouched: an embedding UNIONS its labels into
         -- the def's allowed set (CUE), it is not the def's own closed declaration — force-closing
         -- it would make the embed reject the def's own siblings.
-        .structComp (fields.map (normalizeFieldWithFuel fuel)) comprehensions openness.closeDefBody
+        .structComp (fields.map (normalizeDefinitionFieldWithFuel fuel)) comprehensions openness.closeDefBody
     -- A `defOpenViaTail` struct (the legacy `structTail` def body) keeps the def OPEN via its
     -- explicit `...`, so it is returned UNCHANGED. A no-pattern struct CLOSES (openness →
     -- `defClosed`). A pattern-bearing struct normalizes fields + patterns and keeps its openness.
     | _ + 1, .struct fields .defOpenViaTail tail patterns closingPatterns =>
         .struct fields .defOpenViaTail tail patterns closingPatterns
     | fuel + 1, .struct fields _ _ [] _ =>
-        .struct (fields.map (normalizeFieldWithFuel fuel)) .defClosed none [] []
+        .struct (fields.map (normalizeDefinitionFieldWithFuel fuel)) .defClosed none [] []
     -- A closed def declaring its OWN patterns: a no-`...` pattern-bearing body CLOSES exactly
     -- like the no-pattern arm above (`closeDefBody` turns the parser's open-by-default
     -- `regularOpen` into `defClosed`; the `defOpenViaTail` case is already returned unchanged
@@ -38,7 +38,7 @@ mutual
             normalizeDefinitionValueWithFuel fuel pattern.fst,
             normalizeDefinitionValueWithFuel fuel pattern.snd
           )
-        mkStruct (fields.map (normalizeFieldWithFuel fuel)) openness.closeDefBody none normalizedPatterns
+        mkStruct (fields.map (normalizeDefinitionFieldWithFuel fuel)) openness.closeDefBody none normalizedPatterns
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionValueWithFuel fuel alternative.snd)
@@ -120,6 +120,35 @@ mutual
             ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
         | .field false false _ =>
             ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+
+  /-- CLOSING field-walker twin (SC-2). Identical to `normalizeFieldWithFuel` EXCEPT the
+      regular/optional/required arm recurses the CLOSING walker `normalizeDefinitionValueWithFuel`
+      (not the spine `normalizeDefinitionsWithFuel`), so a referenced def's nested PLAIN-struct
+      field values close recursively: `#A: {a: {b: int}}` closes `a`'s value `{b: int}` so an
+      added `extra` is rejected at any depth (oracle #1/#2/#3/#6). The other three arms are
+      UNCHANGED — and that is the trap defence:
+      - `importBinding` → SKIP: a bound package is never recursed, so cert-manager/argocd cannot
+        re-bottom (the A2 trap; the marker scopes the skip precisely to bound packages).
+      - `letBinding` / in-file hidden `_x` → SPINE: their nested struct VALUES do NOT close (a
+        def's hidden-field nested struct admits extras, oracle #8) — keep the spine, preserving
+        their own openness exactly as today.
+      A separate function (not a `closing : Bool` flag) keeps the call site's intent encoded in
+      WHICH function it calls — illegal-states philosophy. A plain (non-def) struct never reaches
+      this twin (it goes through the spine / no normalization-close), so control #5 stays open. -/
+  def normalizeDefinitionFieldWithFuel : Nat -> Field -> Field
+    | 0, field => field
+    | fuel + 1, field =>
+        match Field.fieldClass field with
+        | .field true _ _ =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
+        | .importBinding =>
+            field
+        | .field false true _ =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+        | .letBinding =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+        | .field false false _ =>
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
 
   def normalizeDefinitionsWithFuel : Nat -> Value -> Value
     | 0, value => value

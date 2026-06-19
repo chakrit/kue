@@ -1,2 +1,0 @@
-#D: {r: {x: int}}
-out: {x: 1, extra: 2}

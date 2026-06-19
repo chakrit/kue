@@ -1080,16 +1080,20 @@ theorem eval_meet_lazy_hidden_def :
               ] .regularOpen none []⟩,
           ⟨"y", .regular, .conj [.ref "#D", mkStruct [⟨"#x", .definition, .prim (.string "hi")⟩] .regularOpen none []]⟩
         ] .regularOpen none [])
+      -- SC-2: `#D`'s nested regular field `out` is a plain struct WITHIN the def body, so the
+      -- closing walker closes its value (`.defClosed`) — recursively, like every nested
+      -- def-body plain struct. The closure carries through the `#D & {…}` meet to `y.out`
+      -- (monotone). Formatted output is unchanged (closedness is invisible in `eval` display).
       == mkStruct [
           ⟨"#D", .definition,
             mkStruct [
                 ⟨"#x", .definition, .kind .string⟩,
-                ⟨"out", .regular, mkStruct [⟨"val", .regular, .kind .string⟩] .regularOpen none []⟩
+                ⟨"out", .regular, mkStruct [⟨"val", .regular, .kind .string⟩] .defClosed none []⟩
               ] .defClosed none []⟩,
           ⟨"y", .regular,
             mkStruct [
                 ⟨"#x", .definition, .prim (.string "hi")⟩,
-                ⟨"out", .regular, mkStruct [⟨"val", .regular, .prim (.string "hi")⟩] .regularOpen none []⟩
+                ⟨"out", .regular, mkStruct [⟨"val", .regular, .prim (.string "hi")⟩] .defClosed none []⟩
               ] .defClosed none []⟩
         ] .regularOpen none []) = true := by
   native_decide
@@ -1179,9 +1183,8 @@ theorem eval_let_plain_struct_stays_open :
 
 B6 is the most regression-prone class (prior closedness changes bottomed `#ListenerSet`/
 cert-manager). These pin the shapes the Phase-A over-close hunt exercised so future closedness
-work cannot silently regress them. Each oracle-checked vs cue v0.16.1. The DIRECT def-path
-`#D.r & {extra}` (cue rejects, Kue wrongly admits) is the documented deferred gap and is
-deliberately NOT pinned — only the safe instantiation path `(#D & {}).r` is. -/
+work cannot silently regress them. Each oracle-checked vs cue v0.16.1. (SC-2 closed the former
+direct-def-path gap — `#D.r & {extra}` now correctly rejects; pinned in the SC-2 cluster below.) -/
 theorem eval_b6_depth2_nested_def_closes :
     evalSourceMatches
         "a: {b: {#Inner: {x: int}}}\nout: a.b.#Inner & {x: 1, extra: 2}\n"
@@ -1217,10 +1220,55 @@ theorem eval_b6_embedding_field_admits_sibling :
       = true := by
   native_decide
 
-theorem eval_b6_instantiated_def_field_reopens :
+-- SC-2b — DIVERGES from cue (recorded in cue-divergences.md). cue RE-OPENS nested closedness on
+-- a `& {}` instantiation (`(#D & {}).r & {extra}` admits `extra`); the spec says closedness is
+-- monotone through meet, so the closed `r` STAYS closed and `extra` is REJECTED. Kue follows the
+-- spec. cue is internally inconsistent: the direct path `#D.r & {extra}` rejects (cue+Kue agree),
+-- only the no-op `& {}` re-opens — an eval-strategy artifact, not lattice-derivable.
+theorem eval_sc2b_instantiated_def_field_stays_closed :
     evalSourceMatches
         "#D: {r: {x: int}}\nout: (#D & {}).r & {x: 1, extra: 2}\n"
-        "#D: {r: {x: int}}\nout: {x: 1, extra: 2}"
+        "#D: {r: {x: int}}\nout: {x: 1, extra: _|_}"
+      = true := by
+  native_decide
+
+/-! ### SC-2 — nested def-body closedness (the closing field-walker twin).
+
+The four soundness obligations from the SC-2 design, pinned. The closing walker closes a
+referenced def's nested PLAIN-struct field VALUES (obligation 1), recursively, BUT only inside
+a referenced def — a plain non-def struct (obligation 2) and a hidden-field nested struct
+(obligation 4) stay open, and a nested `...` stays open (obligation 3). Each oracle-checked vs
+cue v0.16.1; obligations 1/3 agree with cue, 2/4 agree with cue (controls). -/
+
+-- Obligation 1: a referenced closed def's nested field rejects an extra (the SC-2a fix).
+theorem eval_sc2_nested_def_field_closes :
+    evalSourceMatches
+        "#A: {a: {b: int}}\nout: #A & {a: {b: 1, extra: 5}}\n"
+        "#A: {a: {b: int}}\nout: {a: {b: 1, extra: _|_}}"
+      = true := by
+  native_decide
+
+-- Obligation 2: a PLAIN (non-def) nested struct stays OPEN — the closing twin never runs here.
+theorem eval_sc2_plain_nested_struct_stays_open :
+    evalSourceMatches
+        "A: {a: {b: int}}\nout: A & {a: {b: 1, extra: 5}}\n"
+        "A: {a: {b: int}}\nout: {a: {b: 1, extra: 5}}"
+      = true := by
+  native_decide
+
+-- Obligation 3: a nested `...` keeps the nested struct OPEN (`defOpenViaTail` left unchanged).
+theorem eval_sc2_nested_tail_stays_open :
+    evalSourceMatches
+        "#A: {a: {b: int, ...}}\nout: #A & {a: {b: 1, extra: 5}}\n"
+        "#A: {a: {b: int, ...}}\nout: {a: {b: 1, extra: 5, ...}}"
+      = true := by
+  native_decide
+
+-- Obligation 4: a def's HIDDEN-field nested struct stays OPEN (the spine walker, untouched).
+theorem eval_sc2_hidden_field_nested_stays_open :
+    evalSourceMatches
+        "#A: {_h: {x: int}}\nx: #A\nout: x._h & {x: 1, extra: 2}\n"
+        "#A: {_h: {x: int}}\nx: {_h: {x: int}}\nout: {x: 1, extra: 2}"
       = true := by
   native_decide
 
