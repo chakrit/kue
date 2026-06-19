@@ -660,8 +660,8 @@ def valueAliasHead? (chars : List Char) : Option (String × List Char) :=
     unification. For a non-struct value the alias is inert — a scalar cannot reference its
     own alias and siblings cannot see it, so the value passes through unchanged. -/
 def bindValueAlias (name : String) : Value -> Value
-  | .struct fields openness tail ps =>
-      .struct (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps
+  | .struct fields openness tail ps cps =>
+      .struct (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps cps
   | .structComp fields cs openness =>
       .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs openness
   | value => value

@@ -166,7 +166,7 @@ mutual
     | fuel + 1, .disj alternatives =>
         joinWith " | " (alternatives.map (formatAlternativeWithFuel fuel))
     -- Fields, then patterns, then the optional `...` tail, all inside `{…}`.
-    | fuel + 1, .struct fields _ tail patterns =>
+    | fuel + 1, .struct fields _ tail patterns _ =>
         let fieldText := formatStructFieldsWithFuel fuel fields
         let patternText := patterns.map fun pattern =>
           "[" ++ formatValueWithFuel fuel pattern.fst ++ "]: " ++ formatValueWithFuel fuel pattern.snd

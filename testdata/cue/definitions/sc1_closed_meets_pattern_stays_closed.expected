@@ -1,0 +1,3 @@
+#C: {a: int}
+P: {[string]: int}
+out: {a: 1, z: _|_, [string]: int}

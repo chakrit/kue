@@ -553,17 +553,23 @@ inductive Value where
   The B2 normalized struct (target representation). Collapses the four legacy forms
   (`struct`/`structTail`/`structPattern`/`structPatterns`) into one: `fields` are the
   named members, `openness` is the three-state `StructOpenness`, `tail` is the optional
-  `...` tail value (present iff `openness = .defOpenViaTail`, enforced by `mkStruct`), and
+  `...` tail value (present iff `openness = .defOpenViaTail`, enforced by `mkStruct`),
   `patterns` are the `[pattern]: constraint` pairs (orthogonal to `tail`, which the old
   type could not carry together — the root of the missing `structPattern×structTail` meet
-  arm). Construction goes through the `mkStruct` smart constructor only. Named `struct`
-  during the B2 migration so it coexists with the old `struct`; B2.4 deletes the four old
-  forms and renames this to `struct`. NOT produced by any eval/parse path in B2.1. -/
+  arm), and `closingPatterns` are the label-predicates that participate in the CLOSED
+  allowed-set (SC-1). A pattern closes iff it was declared by a closed struct: `#D: {a:int,
+  [string]:int}` closes via `[string]` (so `#D & {z:9}` admits `z`), but meeting a closed
+  `#C` with an OPEN pattern struct `P` keeps `P`'s pattern as a value-constraint (in
+  `patterns`) WITHOUT adding it to the allowed-set (so `#C & P & {z:9}` still rejects `z`).
+  `closingPatterns` is a subset of `patterns`' label-predicates; the meet threads it so an
+  open conjunct's pattern never re-opens a closed result. Construction goes through the
+  `mkStruct` smart constructor only. NOT produced by any eval/parse path in B2.1. -/
   | struct
       (fields : List Field)
       (openness : StructOpenness)
       (tail : Option Value)
       (patterns : List (Value × Value))
+      (closingPatterns : List Value)
   | list (items : List Value)
   | listTail (items : List Value) (tail : Value)
   /--
@@ -682,6 +688,13 @@ def dedupPatterns (patterns : List (Value × Value)) : List (Value × Value) :=
     (fun pattern kept => if kept.any (· == pattern) then kept else pattern :: kept)
     []
 
+/-- Drop duplicate label-predicates, keeping the first occurrence. Structural `BEq`, the
+    same shape as `dedupPatterns`; used to canonicalize a struct's `closingPatterns`. -/
+def dedupValues (values : List Value) : List Value :=
+  values.foldr
+    (fun value kept => if kept.any (· == value) then kept else value :: kept)
+    []
+
 /-- Coerce a `(tail, openness)` pair into the one coherent shape the `struct`
     representation admits, erasing the never-constructable combinations
     (`Phase-A` finding item-8 / the B2 `open_`×`hasTail` nonsense state):
@@ -708,6 +721,13 @@ def coherentTail : Option Value -> StructOpenness -> Option Value × StructOpenn
       .defOpenViaTail`, so the incoherent pairs (a `defOpenViaTail` with no tail; a tail
       with `regularOpen`/`defClosed`) are normalized away rather than represented.
 
+    `closingPatterns` (SC-1) defaults to the struct's own pattern label-predicates WHEN the
+    struct is closed (a closed def `#D: {[string]:int}` closes via `[string]`), and to `[]`
+    when it is open — an open struct closes nothing, so it carries no closing patterns. The
+    meet arms pass an explicit set when a closed result absorbs an OPEN conjunct's pattern,
+    which must stay a value-constraint without re-opening the closed allowed-set.
+    Deduplicated to track `patterns`.
+
     Field ordering is the caller's responsibility (callers run `canonicalizeFields` before
     constructing, exactly as they do today for `patternStructValue` — `canonicalizeFields`
     lives in `Eval`, downstream of this module, so it cannot be called here). Lives in
@@ -717,9 +737,12 @@ def mkStruct
     (fields : List Field)
     (openness : StructOpenness)
     (tail : Option Value)
-    (patterns : List (Value × Value)) : Value :=
+    (patterns : List (Value × Value))
+    (closingPatterns : List Value := if openness.isOpen then [] else patterns.map Prod.fst) :
+    Value :=
   let (coherentTailValue, coherentOpenness) := coherentTail tail openness
   .struct fields coherentOpenness coherentTailValue (dedupPatterns patterns)
+    (dedupValues closingPatterns)
 
 /-- A single `import "path"` or `alias "path"` clause retained from a parsed file. The
     `path` is the verbatim import string (e.g. `"example.com/defs"`); `alias` carries the

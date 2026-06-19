@@ -22,20 +22,19 @@ mutual
     -- A `defOpenViaTail` struct (the legacy `structTail` def body) keeps the def OPEN via its
     -- explicit `...`, so it is returned UNCHANGED. A no-pattern struct CLOSES (openness →
     -- `defClosed`). A pattern-bearing struct normalizes fields + patterns and keeps its openness.
-    | _ + 1, .struct fields .defOpenViaTail tail patterns =>
-        .struct fields .defOpenViaTail tail patterns
-    | fuel + 1, .struct fields _ _ [] =>
-        .struct (fields.map (normalizeFieldWithFuel fuel)) .defClosed none []
-    | fuel + 1, .struct fields openness _ patterns =>
-        .struct
-          (fields.map (normalizeFieldWithFuel fuel))
-          openness
-          none
-          (patterns.map fun pattern =>
-            (
-              normalizeDefinitionValueWithFuel fuel pattern.fst,
-              normalizeDefinitionValueWithFuel fuel pattern.snd
-            ))
+    | _ + 1, .struct fields .defOpenViaTail tail patterns closingPatterns =>
+        .struct fields .defOpenViaTail tail patterns closingPatterns
+    | fuel + 1, .struct fields _ _ [] _ =>
+        .struct (fields.map (normalizeFieldWithFuel fuel)) .defClosed none [] []
+    -- A closed def declaring its OWN patterns: the patterns close (widen the allowed set), so
+    -- `mkStruct`'s default `closingPatterns = patterns.map Prod.fst` is exactly right.
+    | fuel + 1, .struct fields openness _ patterns _ =>
+        let normalizedPatterns := patterns.map fun pattern =>
+          (
+            normalizeDefinitionValueWithFuel fuel pattern.fst,
+            normalizeDefinitionValueWithFuel fuel pattern.snd
+          )
+        mkStruct (fields.map (normalizeFieldWithFuel fuel)) openness none normalizedPatterns
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionValueWithFuel fuel alternative.snd)
@@ -122,9 +121,9 @@ mutual
     | 0, value => value
     -- Normalize fields/patterns, keep openness. A `defOpenViaTail` struct (the legacy
     -- `structTail`) is returned unchanged.
-    | _ + 1, .struct fields .defOpenViaTail tail patterns =>
-        .struct fields .defOpenViaTail tail patterns
-    | fuel + 1, .struct fields openness tail patterns =>
+    | _ + 1, .struct fields .defOpenViaTail tail patterns closingPatterns =>
+        .struct fields .defOpenViaTail tail patterns closingPatterns
+    | fuel + 1, .struct fields openness tail patterns closingPatterns =>
         .struct
           (fields.map (normalizeFieldWithFuel fuel))
           openness
@@ -134,6 +133,7 @@ mutual
               normalizeDefinitionsWithFuel fuel pattern.fst,
               normalizeDefinitionsWithFuel fuel pattern.snd
             ))
+          (closingPatterns.map (normalizeDefinitionsWithFuel fuel))
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionsWithFuel fuel alternative.snd)

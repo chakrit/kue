@@ -173,8 +173,8 @@ def containsBottomWithFuel : Nat -> Value -> Bool
       containsBottomWithFuel fuel base || containsBottomWithFuel fuel key
   | fuel + 1, .disj alternatives =>
       alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
-  | fuel + 1, .struct fields _ tail patterns =>
-      -- Fields, optional tail, patterns.
+  | fuel + 1, .struct fields _ tail patterns _ =>
+      -- Fields, optional tail, patterns (closingPatterns ⊆ patterns' label-predicates).
       fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
         || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
         || patterns.any fun pattern =>
@@ -786,6 +786,37 @@ def applyPatternsClosednessWith
     (fields : List Field) : List Field :=
   fields.map (applyPatternsClosednessToFieldWith meetValue declaredFields patterns open_)
 
+/-- SC-1 closing check, keyed on a side's CLOSING label-predicates (not all its patterns).
+    A field is allowed by this side iff the side is open, OR the field is one of the side's
+    declared fields / ignores closedness, OR it matches one of the side's CLOSING patterns.
+    The distinction from `applyPatternsClosednessWith`: only patterns DECLARED by a closed
+    struct widen its allowed set. An OPEN conjunct's pattern (absorbed into a closed meet
+    result as a value-constraint) is NOT a closing pattern, so it does not re-open the
+    result — `#C & P & {z:9}` rejects `z` even though `P`'s `[string]` matches it. -/
+def fieldAllowedByClosingPatternsWith
+    (meetValue : Value -> Value -> Value)
+    (declaredFields : List Field)
+    (closingPatterns : List Value)
+    (field : Field) : Bool :=
+  hasFieldLabel (Field.label field) declaredFields
+    || Field.ignoresClosedness field
+    || closingPatterns.any fun labelPattern => fieldMatchesPatternWith meetValue labelPattern field
+
+def applyClosingPatternsWith
+    (meetValue : Value -> Value -> Value)
+    (declaredFields : List Field)
+    (closingPatterns : List Value)
+    (open_ : Bool)
+    (fields : List Field) : List Field :=
+  if open_ then
+    fields
+  else
+    fields.map fun field =>
+      if fieldAllowedByClosingPatternsWith meetValue declaredFields closingPatterns field then
+        field
+      else
+        markDisallowedField field
+
 /-- The single normalized-struct meet (B2.4). Reproduces the legacy 12-arm matrix EXACTLY,
     emitting `struct` via `mkStruct`, by dispatching on which side carries a tail/patterns and
     preserving each legacy arm's field-merge ORDER and closedness application:
@@ -807,17 +838,30 @@ def mergeStructN
     (meetValue : Value -> Value -> Value)
     (leftFields : List Field) (leftOpenness : StructOpenness)
     (leftTail : Option Value) (leftPatterns : List (Value × Value))
+    (leftClosingPatterns : List Value)
     (rightFields : List Field) (rightOpenness : StructOpenness)
-    (rightTail : Option Value) (rightPatterns : List (Value × Value)) : Value :=
+    (rightTail : Option Value) (rightPatterns : List (Value × Value))
+    (rightClosingPatterns : List Value) : Value :=
+  -- SC-1: the meet of two structs is closed iff either conjunct is closed
+  -- (`StructOpenness.meet`), and a field survives iff allowed by BOTH conjuncts. Each
+  -- conjunct's allowed set = its own fields + its own CLOSING patterns (an open conjunct
+  -- admits everything; a closed one admits its fields + the patterns it declared). We mark
+  -- via each side's closing check in turn, so the result is the intersection of the two
+  -- allowed sets. `closingPatterns` is carried forward as the union so a later meet still
+  -- closes correctly. NOTE (follow-up SC-1b): the union-store is lossy for two closed defs
+  -- with DISJOINT explicit fields but overlapping patterns — a later field added to such a
+  -- result is checked against the union, not the intersection; recorded in the audit.
+  let closedOpenness := StructOpenness.meet leftOpenness rightOpenness
+  let bothClosingPatterns := leftClosingPatterns ++ rightClosingPatterns
+  let applyBothClosedness (merged : List Field) : List Field :=
+    applyClosingPatternsWith meetValue leftFields leftClosingPatterns leftOpenness.isOpen
+      (applyClosingPatternsWith meetValue rightFields rightClosingPatterns rightOpenness.isOpen merged)
   match leftTail, leftPatterns, rightTail, rightPatterns with
   -- plain × plain
   | none, [], none, [] =>
       match mergeStructFieldsWith meetValue leftFields rightFields with
       | some merged =>
-          mkStruct
-            (applyStructClosedness leftFields rightFields merged leftOpenness.isOpen rightOpenness.isOpen)
-            (StructOpenness.meet leftOpenness rightOpenness)
-            none []
+          mkStruct (applyBothClosedness merged) closedOpenness none [] []
       | none => .bottom
   -- tail on the LEFT, plain right (legacy structTail × struct)
   | some tail, [], none, [] =>
@@ -843,33 +887,36 @@ def mergeStructN
       | none => .bottom
   -- patterns on the LEFT, plain right (legacy structPattern(s) × struct): the pattern side is
   -- the merge-left, exactly as the legacy arms passed `patternFields` first regardless of order.
+  -- SC-1: result openness = meet of BOTH sides (the plain side may be a closed `#Def`), and the
+  -- closedness applies BOTH sides — the plain side via its fields, the pattern side via its
+  -- CLOSING patterns. Left's patterns are applied as value-constraints; closing uses only the
+  -- closing subset, so a plain-side closed def is not re-opened by an open left's pattern.
   | none, (_ :: _), none, [] =>
       match mergeStructFieldsWith meetValue leftFields rightFields with
       | some merged =>
           mkStruct
-            (applyPatternsClosednessWith meetValue leftFields leftPatterns leftOpenness.isOpen
+            (applyBothClosedness
               (applyPatternsToFieldsWith meetValue leftPatterns merged))
-            leftOpenness none leftPatterns
+            closedOpenness none leftPatterns bothClosingPatterns
       | none => .bottom
   -- patterns on the RIGHT, plain left (legacy struct × structPattern(s))
   | none, [], none, (_ :: _) =>
       match mergeStructFieldsWith meetValue rightFields leftFields with
       | some merged =>
           mkStruct
-            (applyPatternsClosednessWith meetValue rightFields rightPatterns rightOpenness.isOpen
+            (applyBothClosedness
               (applyPatternsToFieldsWith meetValue rightPatterns merged))
-            rightOpenness none rightPatterns
+            closedOpenness none rightPatterns bothClosingPatterns
       | none => .bottom
   -- patterns on BOTH (legacy structPattern(s) × structPattern(s))
   | none, (_ :: _), none, (_ :: _) =>
       match mergeStructFieldsWith meetValue leftFields rightFields with
       | some merged =>
           mkStruct
-            (applyPatternsClosednessWith meetValue leftFields leftPatterns leftOpenness.isOpen
-              (applyPatternsClosednessWith meetValue rightFields rightPatterns rightOpenness.isOpen
-                (applyPatternsToFieldsWith meetValue rightPatterns
-                  (applyPatternsToFieldsWith meetValue leftPatterns merged))))
-            (StructOpenness.meet leftOpenness rightOpenness) none (leftPatterns ++ rightPatterns)
+            (applyBothClosedness
+              (applyPatternsToFieldsWith meetValue rightPatterns
+                (applyPatternsToFieldsWith meetValue leftPatterns merged)))
+            closedOpenness none (leftPatterns ++ rightPatterns) bothClosingPatterns
       | none => .bottom
   -- tail-on-one-side × patterns-on-other, and any tail+patterns mix (B2.5). The legacy type
   -- could not co-represent a tail AND patterns, so these fell to `.bottom`; the unified `struct`
@@ -905,7 +952,9 @@ def mergeStructN
                   | none => withLeftTail
                 let allPatterns := leftPatterns ++ rightPatterns
                 let withPatterns := applyPatternsToFieldsWith meetValue allPatterns withTails
-                mkStruct withPatterns .defOpenViaTail (some tail) allPatterns
+                -- The result is open (`defOpenViaTail` via the tail), so it closes nothing:
+                -- `closingPatterns = []`. Patterns are retained only as value-constraints.
+                mkStruct withPatterns .defOpenViaTail (some tail) allPatterns []
           -- unreachable: this arm is only entered with ≥1 tail (the no-tail cases are arms
           -- 1/5/6/7 above), so `mergedTail` is always `some`; `.bottom` is the total fallback.
           | none => .bottom
@@ -1000,8 +1049,8 @@ def meetWithFuel : Nat -> Value -> Value -> Value
   | value, .top => value
   | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
   | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
-  | .struct lf lo lt lp, .struct rf ro rt rp =>
-      mergeStructN (meetWithFuel fuel) lf lo lt lp rf ro rt rp
+  | .struct lf lo lt lp lcp, .struct rf ro rt rp rcp =>
+      mergeStructN (meetWithFuel fuel) lf lo lt lp lcp rf ro rt rp rcp
   | .list leftItems, .list rightItems =>
       match meetListWith (meetWithFuel fuel) leftItems rightItems with
       | some items => .list items
@@ -1067,7 +1116,7 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | none => .bottom
       | none =>
           match rightLike with
-          | .struct fields _ none [] =>
+          | .struct fields _ none [] _ =>
               if structHasOutputField fields then .bottom
               else
                 match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
@@ -1082,7 +1131,7 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | none => .bottom
       | none =>
           match leftLike with
-          | .struct fields _ none [] =>
+          | .struct fields _ none [] _ =>
               if structHasOutputField fields then .bottom
               else
                 match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
@@ -1094,14 +1143,14 @@ def meetWithFuel : Nat -> Value -> Value -> Value
   -- is a type conflict (CUE: `{} & 5`); the `{5}`→`5` scalar-embedding collapse lives in
   -- `meetEmbeddingsWithFuel` where the provenance is known, not here (an empty `{}` and the
   -- residual `[]`-decls of `{5}` are indistinguishable at meet time).
-  | .struct fields _ none [], listLike =>
+  | .struct fields _ none [] _, listLike =>
       match asListPair listLike with
       | some (items, tail) =>
           if structHasOutputField fields then .bottom
           else .embeddedList items tail (declFields fields)
       | none =>
           meetCore (mkStruct fields .regularOpen none []) listLike
-  | listLike, .struct fields _ none [] =>
+  | listLike, .struct fields _ none [] _ =>
       match asListPair listLike with
       | some (items, tail) =>
           if structHasOutputField fields then .bottom

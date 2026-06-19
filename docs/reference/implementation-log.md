@@ -8534,3 +8534,57 @@ presence-of-`#components`) disjunction-arm pruning behind force**, distinct from
 regular-discriminator class and beyond the spike's GO-WITH-GATE scope. Filed as the next argocd
 blocker in `plan.md`. No CUE divergence (both Gap-2 and Gap-2b are Kue-wrong-vs-cue; Gap-2 now fixed,
 Gap-2b open).
+
+---
+
+## SC-1 — closed struct re-opened by a pattern-struct meet (closedness soundness)
+
+First spec-first fix-slice from the consolidated backlog. `mergeStructN`'s pattern arms (5/6)
+set the result openness to ONLY the pattern side's openness and applied closedness over the
+pattern side alone, dropping the PLAIN side's `StructOpenness` and closedness. So a closed
+`#Def` met with an open pattern struct was silently re-opened: `#C & P & {z:9}` admitted `z`,
+where the CUE spec (closedness is conjunctive/monotone — "closing = adding `..._|_`") and cue
+v0.16.1 both reject (`out.z: field not allowed`).
+
+**The representation refinement (illegal-states-unrepresentable).** The naive "meet the
+openness + apply both sides' closedness" is INSUFFICIENT on its own, because the meet result
+retains the open side's pattern, and a single `patterns` list cannot say whether a stored
+pattern CLOSES (widens the allowed set) or only CONSTRAINS values. Three oracle-confirmed
+constraints force the split: (a) `#D:{a,[string]}` — a closed def's OWN pattern admits matching
+fields (`#D & {z:9}` admits `z`); (b) `#C & P` (P open) — P's pattern does NOT widen `#C`'s
+closed set (`& {z:9}` rejects `z`); (c) P's pattern STILL constrains values across later meets
+(`(#C & P) & {a:50}` with `P:[=~"^a"]:<10` rejects `a:50`). A pattern's closing role is intrinsic
+to whether its declaring struct is closed. So `Value.struct` gained `closingPatterns : List Value`
+(the label-predicates that participate in the closed allowed-set; a subset of `patterns`'
+predicates), built through `mkStruct` (default: the struct's own pattern predicates when closed,
+`[]` when open — an open struct closes nothing) and threaded through every struct
+rebuild/eval/resolve/normalize site. New `applyClosingPatternsWith` keys the closedness check on
+the closing subset, not all patterns.
+
+**Meet composition.** `mergeStructN` now: result openness = `StructOpenness.meet leftOpenness
+rightOpenness`; closedness applied from BOTH sides (`applyClosingPatternsWith` per side — each
+side's allowed set = its fields + its CLOSING patterns; an open side admits everything); result
+`closingPatterns` = union of both sides' (so a later meet still closes). Arm 1 (plain×plain) is
+behavior-preserving (both sides have no closing patterns ⟹ identical to the old
+`applyStructClosedness`). The B2.5 tail×pattern catch-all is unchanged (always `defOpenViaTail` —
+open, closes nothing). `closeValue` and the def-body normalize path keep all-patterns-closing
+(the patterns are the struct's own).
+
+**Tests.** 4 `native_decide` pins in `LatticeTests`: closed×open-pattern stays closed (empty
+closing set); `(#C & P) & {z:9}` rejects `z` (`fieldNotAllowed`); closed def's own pattern admits
+a matching field; open struct met with a pattern stays open (no over-close). Fixture +
+`FixturePorts` port: `definitions/sc1_closed_meets_pattern_stays_closed` (`#C & P & {a:1, z:9}` →
+`a:1` allowed, `z: _|_`).
+
+**Verify.** `lake build` green (96 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok` (all
+existing fixtures held — cue agrees with the stricter behavior, so nothing relied on the bug; no
+pin/fixture encoded the re-open); `shellcheck` clean. cert-manager re-probed READ-ONLY: exports
+clean (exit 0), no regression. argocd untouched (still the Gap-2b perf/pruning wall).
+
+**Follow-up filed (SC-1b, MED).** The `closingPatterns` union carry-forward is lossy for two
+CLOSED defs with disjoint explicit fields but overlapping patterns — the correct forward
+allowed-set is the INTERSECTION (`#A:{a,[=~"^x"]} & #B:{b,[=~"^x"]}` → `a`/`b` rejected on a later
+meet, `x1` admitted). The at-this-meet marking is correct (sequential closedness); only the stored
+forward set over-admits. Pre-existing (not introduced by SC-1) and broader; needs an
+intersection-aware closed allowed-set. Recorded in `spec-conformance-audit.md`. No CUE divergence
+(cue is correct here too).

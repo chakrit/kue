@@ -148,8 +148,28 @@ Feature work resumes here, spec-first. Ranked by severity; contained high-confid
 front-loaded before the large rewrites.
 
 **HIGH — soundness / real-app correctness:**
-1. **SC-1** mergeStructN pattern-meet drops other-side closedness (closed def re-opened).
-   Contained; Kue wrong vs spec AND cue. `Lattice.lean:846-862`.
+1. **SC-1 — DONE (2026-06-19).** mergeStructN pattern-meet dropped the other-side closedness,
+   re-opening a closed def met with a pattern struct. Fixed: arms 5/6 (and arm 1/7) now set
+   result openness = `StructOpenness.meet leftOpenness rightOpenness` and apply closedness from
+   BOTH sides. The KEY subtlety required a representation refinement: a pattern only CLOSES (widens
+   the allowed set) if it belongs to a CLOSED struct, so `.struct` gained a `closingPatterns :
+   List Value` field (subset of `patterns`' label-predicates) threaded through `mkStruct`/meet. An
+   OPEN conjunct's pattern (e.g. `P`'s `[string]`) is retained as a value-constraint but NOT as a
+   closing pattern, so `#C & P & {z:9}` rejects `z` (spec + cue agree), while `#C & P & {a:1}`
+   admits `a`, a closed def's OWN pattern (`#D:{a,[string]}`) still admits matching fields, and an
+   OPEN struct met with a pattern stays open (no over-close). Pins: 4 `native_decide` theorems in
+   `LatticeTests` + fixture `definitions/sc1_closed_meets_pattern_stays_closed`. cert-manager
+   re-probed: exports clean, no regression. `Lattice.lean` `mergeStructN`, `Value.lean`
+   `mkStruct`/`Value.struct`.
+   - **SC-1b (follow-up, MED — soundness, pre-existing & broader than SC-1).** The
+     `closingPatterns` carry-forward is a UNION across conjuncts; for two CLOSED defs with DISJOINT
+     explicit fields but overlapping patterns (`#A:{a,[=~"^x"]} & #B:{b,[=~"^x"]}`), the correct
+     forward allowed-set is the INTERSECTION of the two (`out.a`/`out.b` rejected, `x1` admitted).
+     The union-store admits `a`/`b` on a LATER meet against the result (the at-this-meet marking is
+     correct via sequential closedness application; only the stored forward set is lossy). cue
+     rejects `a`/`b`; current Kue (both before and after SC-1) admits them. Needs an
+     intersection-aware closed allowed-set representation. Not introduced by SC-1 — SC-1 made the
+     pattern-vs-plain case correct; this is the closed×closed-pattern case.
 2. **D#1a** comprehension guard: propagate a BOTTOM guard (don't swallow). Contained soundness
    half. `Eval.lean:2941-2953,2997-3007`. (D#1b incomplete-deferral = larger, separate.)
 3. **F-1** add `regexp` builtin import + wire `regexp.Match/…` to the existing engine. Contained;

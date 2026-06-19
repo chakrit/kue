@@ -27,12 +27,12 @@ example : resolveImportSubpath "example.com" "example.computer/defs" = none := b
   native_decide
 
 private def fileA : ParsedFile :=
-  { value := .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
+  { value := mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
     packageName := some "defs"
     imports := [] }
 
 private def fileB : ParsedFile :=
-  { value := .struct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
+  { value := mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
     packageName := some "defs"
     imports := [] }
 
@@ -41,7 +41,7 @@ private def fileB : ParsedFile :=
 example :
     (match loadPackageFromParsed [fileA, fileB] with
      | .ok (some "defs", value) =>
-         value == .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
+         value == mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
      | _ => false) = true := by
   native_decide
 
@@ -62,25 +62,25 @@ example : importBindName { path := "example.com/defs", alias := some "d" } (some
     references but excluded from output (distinguished from a real in-file hidden field so
     the import binding stays output-reachability-lazy). -/
 example :
-    (bindImports [("defs", .struct [] .regularOpen none [])] (.struct [⟨"out", .regular, .top⟩] .defClosed none [])
-      == .struct [⟨"defs", .importBinding, .struct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none []) = true := by
+    (bindImports [("defs", mkStruct [] .regularOpen none [])] (mkStruct [⟨"out", .regular, .top⟩] .defClosed none [])
+      == mkStruct [⟨"defs", .importBinding, mkStruct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none []) = true := by
   native_decide
 
 /-- `dedupeBindings` keeps the FIRST binding per name and drops later duplicates — the same
     package imported in two sibling files must bind ONCE, not be `meet`-folded into a corrupt
     duplicate (the cert-manager `conflicting values` bug). First occurrence wins. -/
 example :
-    (dedupeBindings [("attr", .struct [⟨"a", .regular, .top⟩] .regularOpen none []),
-                     ("strings", .struct [] .regularOpen none []),
-                     ("attr", .struct [⟨"b", .regular, .bottom⟩] .regularOpen none [])]
-      == [("attr", .struct [⟨"a", .regular, .top⟩] .regularOpen none []), ("strings", .struct [] .regularOpen none [])]) = true := by
+    (dedupeBindings [("attr", mkStruct [⟨"a", .regular, .top⟩] .regularOpen none []),
+                     ("strings", mkStruct [] .regularOpen none []),
+                     ("attr", mkStruct [⟨"b", .regular, .bottom⟩] .regularOpen none [])]
+      == [("attr", mkStruct [⟨"a", .regular, .top⟩] .regularOpen none []), ("strings", mkStruct [] .regularOpen none [])]) = true := by
   native_decide
 
 /-- Distinct bind names (same path under two aliases, or two different packages) all survive —
     dedupe is by NAME, so no over-collapsing. -/
 example :
-    (dedupeBindings [("a", .struct [] .regularOpen none []), ("b", .struct [] .regularOpen none [])]
-      == [("a", .struct [] .regularOpen none []), ("b", .struct [] .regularOpen none [])]) = true := by
+    (dedupeBindings [("a", mkStruct [] .regularOpen none []), ("b", mkStruct [] .regularOpen none [])]
+      == [("a", mkStruct [] .regularOpen none []), ("b", mkStruct [] .regularOpen none [])]) = true := by
   native_decide
 
 /-! ## Cross-module dependency resolution (B3c, disk-free) -/
@@ -94,11 +94,11 @@ example : depKeyModulePath "example.com" = "example.com" := by
   native_decide
 
 private def depsValue : Value :=
-  .struct
+  mkStruct
     [⟨"module", .regular, .prim (.string "prodigy9.co")⟩,
      ⟨"deps", .regular,
-       .struct [⟨"prodigy9.co/defs@v0", .regular, .struct [⟨"v", .regular, .prim (.string "v0.3.19")⟩] .regularOpen none []⟩,
-          ⟨"other.org/lib@v1", .regular, .struct [⟨"v", .regular, .prim (.string "v1.2.0")⟩] .regularOpen none []⟩] .regularOpen none []⟩]
+       mkStruct [⟨"prodigy9.co/defs@v0", .regular, mkStruct [⟨"v", .regular, .prim (.string "v0.3.19")⟩] .regularOpen none []⟩,
+          ⟨"other.org/lib@v1", .regular, mkStruct [⟨"v", .regular, .prim (.string "v1.2.0")⟩] .regularOpen none []⟩] .regularOpen none []⟩]
     .regularOpen none []
 
 /-- `parseDeps` reads each `deps` entry into `(modPath, version)`, stripping the `@major`. -/
@@ -109,7 +109,7 @@ example :
   native_decide
 
 /-- A module value with no `deps` field yields an empty dependency table. -/
-example : parseDeps (.struct [⟨"module", .regular, .prim (.string "x.com")⟩] .regularOpen none []) = [] := by
+example : parseDeps (mkStruct [⟨"module", .regular, .prim (.string "x.com")⟩] .regularOpen none []) = [] := by
   native_decide
 
 private def deps : List Dep :=

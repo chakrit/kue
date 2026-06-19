@@ -94,7 +94,7 @@ theorem closure_manifest_incomplete :
 
 /-- Inert meet: a closure does not unify with anything yet (slice 4 changes this). -/
 theorem closure_meet_bottom :
-    (meet (.closure [(0, [])] .top) (.struct [] .regularOpen none []) == .bottom) = true := by
+    (meet (.closure [(0, [])] .top) (mkStruct [] .regularOpen none []) == .bottom) = true := by
   native_decide
 
 /-! ### slice 3 (closure-producer) — the import-selector arm emits a closure
@@ -116,11 +116,11 @@ captures frame id `0`. -/
 theorem closure_producer_emits_on_selfref_def :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"parts", .hidden,
-          .struct [⟨"#M", .definition,
-            .struct [⟨"#name", .definition, .kind .string⟩,
+          mkStruct [⟨"#M", .definition,
+            mkStruct [⟨"#name", .definition, .kind .string⟩,
                      ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []⟩])] []
         (.selector (.refId ⟨0, 0⟩) "#M"))
-      == .struct [⟨"#name", .definition, .kind .string⟩,
+      == mkStruct [⟨"#name", .definition, .kind .string⟩,
                   ⟨"out", .regular, .kind .string⟩] .defClosed none []) = true := by
   native_decide
 
@@ -131,11 +131,11 @@ theorem closure_producer_emits_on_selfref_def :
 theorem closure_producer_skips_selfref_free_def :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"defs", .hidden,
-          .struct [⟨"#Widget", .definition,
-            .struct [⟨"name", .regular, .kind .string⟩,
+          mkStruct [⟨"#Widget", .definition,
+            mkStruct [⟨"name", .regular, .kind .string⟩,
                      ⟨"size", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []⟩])] []
         (.selector (.refId ⟨0, 0⟩) "#Widget"))
-      == .struct [⟨"name", .regular, .kind .string⟩,
+      == mkStruct [⟨"name", .regular, .kind .string⟩,
                   ⟨"size", .regular, .kind .int⟩] .regularOpen none []) = true := by
   native_decide
 
@@ -144,11 +144,11 @@ theorem closure_producer_skips_selfref_free_def :
 theorem closure_producer_skips_non_definition :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"pkg", .hidden,
-          .struct [⟨"r", .regular,
-            .struct [⟨"a", .regular, .prim (.int 1)⟩,
+          mkStruct [⟨"r", .regular,
+            mkStruct [⟨"a", .regular, .prim (.int 1)⟩,
                      ⟨"b", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []⟩])] []
         (.selector (.refId ⟨0, 0⟩) "r"))
-      == .struct [⟨"a", .regular, .prim (.int 1)⟩,
+      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩,
                   ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
@@ -161,12 +161,12 @@ theorem closure_producer_skips_non_definition :
 theorem closure_producer_captures_full_id_stack :
     (runEval (evalValueWithFuel evalFuel
         [(5, [⟨"parts", .hidden,
-          .struct [⟨"#M", .definition,
-            .struct [⟨"out", .regular, .refId ⟨0, 1⟩⟩,
+          mkStruct [⟨"#M", .definition,
+            mkStruct [⟨"out", .regular, .refId ⟨0, 1⟩⟩,
                      ⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []⟩]),
          (7, [⟨"outer", .regular, .prim (.int 9)⟩])] []
         (.selector (.refId ⟨0, 0⟩) "#M"))
-      == .struct [⟨"out", .regular, .prim (.int 1)⟩,
+      == mkStruct [⟨"out", .regular, .prim (.int 1)⟩,
                   ⟨"x", .regular, .prim (.int 1)⟩] .defClosed none []) = true := by
   native_decide
 
@@ -177,15 +177,15 @@ theorem closure_producer_captures_full_id_stack :
     self-ref and stays eager. Pins the boundary that keeps the gate from over-firing. -/
 theorem closure_producer_nested_struct_ref_not_sibling :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩,
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩,
                   ⟨"nested", .regular,
-                    .struct [⟨"inner", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩] .regularOpen none [])) = false := by
+                    mkStruct [⟨"inner", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩] .regularOpen none [])) = false := by
   native_decide
 
 /-- And the positive companion: a direct sibling ref IS detected. -/
 theorem closure_producer_direct_sibling_ref_detected :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#name", .definition, .kind .string⟩,
+        (mkStruct [⟨"#name", .definition, .kind .string⟩,
                   ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])) = true := by
   native_decide
 
@@ -196,10 +196,10 @@ theorem closure_producer_direct_sibling_ref_detected :
     is exactly the shape `#ClusterIssuer`/`#Secret` use that slice 4's depth-0-only gate missed. -/
 theorem closure_producer_deep_nested_self_ref_detected :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#email", .definition, .kind .string⟩,
+        (mkStruct [⟨"#email", .definition, .kind .string⟩,
                   ⟨"spec", .regular,
-                    .struct [⟨"acme", .regular,
-                      .struct [⟨"email", .regular, .refId ⟨2, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []⟩] .regularOpen none [])) = true := by
+                    mkStruct [⟨"acme", .regular,
+                      mkStruct [⟨"email", .regular, .refId ⟨2, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []⟩] .regularOpen none [])) = true := by
   native_decide
 
 /-- DEEP self-ref in a comprehension GUARD (slice A): `if Self.#staging` inside a nested struct
@@ -207,10 +207,10 @@ theorem closure_producer_deep_nested_self_ref_detected :
     the comprehension's own depth. A `refId ⟨1, 0⟩` in a guard one struct deep matches depth 1. -/
 theorem closure_producer_comprehension_guard_self_ref_detected :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#staging", .definition, .kind .bool⟩,
+        (mkStruct [⟨"#staging", .definition, .kind .bool⟩,
                   ⟨"spec", .regular,
                     .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)]
-                      (.struct [⟨"server", .regular, .prim (.string "x")⟩] .regularOpen none [])] .regularOpen⟩] .regularOpen none [])) = true := by
+                      (mkStruct [⟨"server", .regular, .prim (.string "x")⟩] .regularOpen none [])] .regularOpen⟩] .regularOpen none [])) = true := by
   native_decide
 
 /-! ### A5-followup — comprehension-BODY self-ref deferral gate (`hasSelfRefAtDepthClauses`)
@@ -230,10 +230,10 @@ the deep body ref and restores deferral. These pin the gate at the realistically
     once the loop frame is threaded. Pre-fix the body was scanned at depth 1 → `2 ≠ 1` → missed. -/
 theorem a5fu_listcomp_body_self_ref_detected :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#t", .definition, .kind .string⟩,
+        (mkStruct [⟨"#t", .definition, .kind .string⟩,
                   ⟨"out", .regular,
                     .list [.listComprehension [.forIn none "x" (.list [.prim (.int 1)])]
-                      (.struct [⟨"v", .regular, .refId ⟨2, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = true := by
+                      (mkStruct [⟨"v", .regular, .refId ⟨2, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = true := by
   native_decide
 
 /-- BOUNDARY (no over-detection): the SAME shape but the body ref lands at depth 1 (`⟨1,0⟩`) —
@@ -241,10 +241,10 @@ theorem a5fu_listcomp_body_self_ref_detected :
     depth 2, so `⟨1,0⟩` (`1 ≠ 2`) is correctly NOT a def self-ref and the def stays eager. -/
 theorem a5fu_listcomp_body_loopvar_ref_not_self :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#t", .definition, .kind .string⟩,
+        (mkStruct [⟨"#t", .definition, .kind .string⟩,
                   ⟨"out", .regular,
                     .list [.listComprehension [.forIn none "x" (.list [.prim (.int 1)])]
-                      (.struct [⟨"v", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = false := by
+                      (mkStruct [⟨"v", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = false := by
   native_decide
 
 /-- MULTI-`for`: two `for` clauses push two loop frames, so the body's def self-ref resolves to
@@ -252,12 +252,12 @@ theorem a5fu_listcomp_body_loopvar_ref_not_self :
     `for`, so the body is scanned at depth 3 and `⟨3,0⟩` is detected. -/
 theorem a5fu_listcomp_body_multi_for_self_ref_detected :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#t", .definition, .kind .string⟩,
+        (mkStruct [⟨"#t", .definition, .kind .string⟩,
                   ⟨"out", .regular,
                     .list [.listComprehension
                       [.forIn none "x" (.list [.prim (.int 1)]),
                        .forIn none "y" (.list [.prim (.int 2)])]
-                      (.struct [⟨"v", .regular, .refId ⟨3, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = true := by
+                      (mkStruct [⟨"v", .regular, .refId ⟨3, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = true := by
   native_decide
 
 /-- A `guard` pushes NO frame: with one `for` then an `if`, the body's def self-ref is still at
@@ -266,11 +266,11 @@ theorem a5fu_listcomp_body_multi_for_self_ref_detected :
     that `guard` contributes +0 to the body depth while still being scanned itself. -/
 theorem a5fu_listcomp_body_guard_no_extra_frame :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#t", .definition, .kind .string⟩,
+        (mkStruct [⟨"#t", .definition, .kind .string⟩,
                   ⟨"out", .regular,
                     .list [.listComprehension
                       [.forIn none "x" (.list [.prim (.int 1)]), .guard (.refId ⟨1, 0⟩)]
-                      (.struct [⟨"v", .regular, .refId ⟨2, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = true := by
+                      (mkStruct [⟨"v", .regular, .refId ⟨2, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none [])) = true := by
   native_decide
 
 /-- The clause helper threads depth directly: a STRUCT-context comprehension body whose self-ref
@@ -292,10 +292,10 @@ sees the narrowed `"keel"` instead of collapsing to `string`. The env mirrors th
 tests (package binding at frame 7); `runEval` allocates the closure's pushed frame ids. -/
 
 private def pkgEnvWith (defBody : Value) : Env :=
-  [(7, [⟨"parts", .hidden, .struct [⟨"#M", .definition, defBody⟩] .regularOpen none []⟩])]
+  [(7, [⟨"parts", .hidden, mkStruct [⟨"#M", .definition, defBody⟩] .regularOpen none []⟩])]
 
 private def selfRefM : Value :=
-  .struct [⟨"#name", .definition, .kind .string⟩, ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []
+  mkStruct [⟨"#name", .definition, .kind .string⟩, ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []
 
 /-- THE unlock pinned: forcing `parts.#M & {#name: "keel"}` yields `out: "keel"` (the hidden
     `#name` and the spliced narrowing resolve), NOT the slice-3 `.bottom`. Body is closed
@@ -303,8 +303,8 @@ private def selfRefM : Value :=
 theorem closure_meet_splices_use_site :
     (runEval (evalValueWithFuel evalFuel (pkgEnvWith selfRefM) []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
-                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩,
                   ⟨"out", .regular, .prim (.string "keel")⟩] .defClosed none []) = true := by
   native_decide
 
@@ -314,11 +314,11 @@ theorem closure_meet_splices_use_site :
     `out`'s ref to it as a field-local `.bottomWith`; export then rejects the struct. -/
 theorem closure_meet_conflict_is_bottom :
     (runEval (evalValueWithFuel evalFuel
-        (pkgEnvWith (.struct [⟨"#name", .definition, .prim (.string "fixed")⟩,
+        (pkgEnvWith (mkStruct [⟨"#name", .definition, .prim (.string "fixed")⟩,
                               ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])) []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
-                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition,
+                mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#name", .definition,
             .bottomWith [.primitiveConflict (.string "fixed") (.string "keel")]⟩,
            ⟨"out", .regular,
             .bottomWith [.primitiveConflict (.string "fixed") (.string "keel")]⟩] .defClosed none []) = true := by
@@ -328,8 +328,8 @@ theorem closure_meet_conflict_is_bottom :
     body unchanged (here `#name` stays `string`, so `out` is `string`). -/
 theorem closure_meet_empty_use_site :
     (runEval (evalValueWithFuel evalFuel (pkgEnvWith selfRefM) []
-        (.conj [.selector (.refId ⟨0, 0⟩) "#M", .struct [] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .kind .string⟩,
+        (.conj [.selector (.refId ⟨0, 0⟩) "#M", mkStruct [] .regularOpen none []]))
+      == mkStruct [⟨"#name", .definition, .kind .string⟩,
                   ⟨"out", .regular, .kind .string⟩] .defClosed none []) = true := by
   native_decide
 
@@ -339,12 +339,12 @@ theorem closure_meet_empty_use_site :
     `out` still resolves to the spliced `#name`. -/
 theorem closure_meet_self_ref_terminates :
     (runEval (evalValueWithFuel evalFuel
-        (pkgEnvWith (.struct [⟨"#name", .definition, .kind .string⟩,
+        (pkgEnvWith (mkStruct [⟨"#name", .definition, .kind .string⟩,
                               ⟨"loop", .regular, .refId ⟨0, 1⟩⟩,
                               ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])) []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
-                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩,
                   ⟨"loop", .regular, .top⟩,
                   ⟨"out", .regular, .prim (.string "keel")⟩] .defClosed none []) = true := by
   native_decide
@@ -354,12 +354,12 @@ theorem closure_meet_self_ref_terminates :
     a `.structTail` (open). -/
 theorem closure_meet_open_def_admits_extra :
     (runEval (evalValueWithFuel evalFuel
-        (pkgEnvWith (.struct [⟨"#name", .definition, .kind .string⟩,
+        (pkgEnvWith (mkStruct [⟨"#name", .definition, .kind .string⟩,
                                   ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .defOpenViaTail (some .top) [])) []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
-                .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩,
                          ⟨"extra", .regular, .prim (.int 42)⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+      == mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩,
                       ⟨"out", .regular, .prim (.string "keel")⟩,
                       ⟨"extra", .regular, .prim (.int 42)⟩] .defOpenViaTail (some .top) []) = true := by
   native_decide
@@ -368,7 +368,7 @@ theorem closure_meet_open_def_admits_extra :
     `defBodyHasSiblingSelfRef` to `.structTail`), so open imported defs defer too. -/
 theorem closure_producer_detects_structtail_sibling :
     (defBodyHasSiblingSelfRef
-        (.struct [⟨"#name", .definition, .kind .string⟩,
+        (mkStruct [⟨"#name", .definition, .kind .string⟩,
                       ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .defOpenViaTail (some .top) [])) = true := by
   native_decide
 
@@ -389,7 +389,7 @@ theorem closure_producer_detects_structcomp_sibling :
     (defBodyHasSiblingSelfRef
         (.structComp [⟨"#x", .definition, .kind .string⟩,
                       ⟨"spec", .regular, .refId ⟨0, 1⟩⟩]
-                     [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] .regularOpen)) = true := by
+                     [mkStruct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] .regularOpen)) = true := by
   native_decide
 
 /-- A.1 GATE companion: a `.structComp` whose self-ref lives in the EMBEDDING (not the static
@@ -407,14 +407,14 @@ theorem closure_producer_detects_structcomp_embedding_sibling :
 private def embedDefBody : Value :=
   .structComp [⟨"#x", .definition, .kind .string⟩,
                ⟨"spec", .regular, .refId ⟨0, 0⟩⟩]
-              [.struct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] .defClosed
+              [mkStruct [⟨"kind", .regular, .prim (.string "Service")⟩] .regularOpen none []] .defClosed
 
 theorem closure_meet_structcomp_embed_splices :
     (runEval (evalValueWithFuel evalFuel
-        [(7, [⟨"defs", .hidden, .struct [⟨"#Def", .definition, embedDefBody⟩] .regularOpen none []⟩])] []
+        [(7, [⟨"defs", .hidden, mkStruct [⟨"#Def", .definition, embedDefBody⟩] .regularOpen none []⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#Def",
-                .struct [⟨"#x", .definition, .prim (.string "hello")⟩] .regularOpen none []]))
-      == .struct [⟨"#x", .definition, .prim (.string "hello")⟩,
+                mkStruct [⟨"#x", .definition, .prim (.string "hello")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#x", .definition, .prim (.string "hello")⟩,
                   ⟨"spec", .regular, .prim (.string "hello")⟩,
                   ⟨"kind", .regular, .prim (.string "Service")⟩] .defClosed none []) = true := by
   native_decide
@@ -426,20 +426,20 @@ theorem closure_meet_structcomp_embed_splices :
     both open (`...`) so they admit each other's fields. -/
 private def twoDefEnv : Env :=
   [(7, [⟨"defs", .hidden,
-    .struct [⟨"#M", .definition,
-        .struct [⟨"#name", .definition, .kind .string⟩,
+    mkStruct [⟨"#M", .definition,
+        mkStruct [⟨"#name", .definition, .kind .string⟩,
                      ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .defOpenViaTail (some .top) []⟩,
        ⟨"#N", .definition,
-        .struct [⟨"#label", .definition, .kind .string⟩,
+        mkStruct [⟨"#label", .definition, .kind .string⟩,
                      ⟨"tag", .regular, .refId ⟨0, 0⟩⟩] .defOpenViaTail (some .top) []⟩] .regularOpen none []⟩])]
 
 theorem closure_meet_multi_operand_fold :
     (runEval (evalValueWithFuel evalFuel twoDefEnv []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
                 .selector (.refId ⟨0, 0⟩) "#N",
-                .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩,
                          ⟨"#label", .definition, .prim (.string "x")⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+      == mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩,
                       ⟨"out", .regular, .prim (.string "keel")⟩,
                       ⟨"#label", .definition, .prim (.string "x")⟩,
                       ⟨"tag", .regular, .prim (.string "x")⟩] .defOpenViaTail (some .top) []) = true := by
@@ -452,17 +452,17 @@ theorem closure_meet_multi_operand_fold :
     terminate (→ `.top` for the cyclic slot) rather than diverge / exhaust fuel. -/
 private def capturedCycleEnv : Env :=
   [(7, [⟨"pkg", .hidden,
-    .struct [⟨"#Self", .definition, .refId ⟨0, 0⟩⟩,
+    mkStruct [⟨"#Self", .definition, .refId ⟨0, 0⟩⟩,
        ⟨"#M", .definition,
-        .struct [⟨"#name", .definition, .kind .string⟩,
+        mkStruct [⟨"#name", .definition, .kind .string⟩,
                  ⟨"back", .regular, .refId ⟨1, 0⟩⟩,
                  ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []⟩])]
 
 theorem closure_meet_captured_frame_cycle_terminates :
     (runEval (evalValueWithFuel evalFuel capturedCycleEnv []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
-                .struct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .prim (.string "keel")⟩,
+                mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#name", .definition, .prim (.string "keel")⟩,
                   ⟨"back", .regular, .top⟩,
                   ⟨"out", .regular, .prim (.string "keel")⟩] .defClosed none []) = true := by
   native_decide
@@ -484,10 +484,10 @@ eagerly, collapsing its self-ref before the use-site narrowing arrived. Fix: pro
     allowed set without imposing its own closedness. -/
 theorem close_embedded_over_unions_allowed_labels :
     (closeEmbeddedOver [⟨"a", .regular, .top⟩] [⟨"b", .regular, .top⟩] false
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩,
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩,
                   ⟨"b", .regular, .prim (.int 2)⟩,
                   ⟨"c", .regular, .prim (.int 3)⟩] .regularOpen none [])
-      == .struct [⟨"a", .regular, .prim (.int 1)⟩,
+      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩,
                   ⟨"b", .regular, .prim (.int 2)⟩,
                   ⟨"c", .regular, .bottomWith [.fieldNotAllowed "c"]⟩] .defClosed none []) = true := by
   native_decide
@@ -498,8 +498,8 @@ theorem close_embedded_over_unions_allowed_labels :
 theorem eager_structcomp_embed_closed_keeps_host_field :
     (runEval (evalValueWithFuel evalFuel [] []
         (.structComp [⟨"x", .regular, .prim (.string "z")⟩]
-                     [.struct [⟨"pval", .regular, .prim (.string "p")⟩] .defClosed none []] .regularOpen))
-      == .struct [⟨"x", .regular, .prim (.string "z")⟩,
+                     [mkStruct [⟨"pval", .regular, .prim (.string "p")⟩] .defClosed none []] .regularOpen))
+      == mkStruct [⟨"x", .regular, .prim (.string "z")⟩,
                   ⟨"pval", .regular, .prim (.string "p")⟩] .regularOpen none []) = true := by
   native_decide
 
@@ -508,7 +508,7 @@ theorem eager_structcomp_embed_closed_keeps_host_field :
     flows into the embed's `#name`, which the inner def's `iname: Self.#name` reads → all "z". Was
     `bottom` (closedness leak), then `iname: string` (inner closure not force-spliced) pre-fix. -/
 private def chainInnerBody : Value :=
-  .struct [⟨"#name", .definition, .kind .string⟩,
+  mkStruct [⟨"#name", .definition, .kind .string⟩,
            ⟨"iname", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []
 
 private def chainOuterBody : Value :=
@@ -516,7 +516,7 @@ private def chainOuterBody : Value :=
     [⟨"#oname", .definition, .kind .string⟩,
      ⟨"oname", .regular, .refId ⟨0, 0⟩⟩]
     [.conj [.refId ⟨1, 0⟩,
-            .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] .regularOpen none []]]
+            mkStruct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] .regularOpen none []]]
     .defClosed
 
 private def chainEnv : Env :=
@@ -526,8 +526,8 @@ private def chainEnv : Env :=
 theorem embed_chain_two_level_narrows_through :
     (runEval (evalValueWithFuel evalFuel chainEnv []
         (.conj [.refId ⟨0, 1⟩,
-                .struct [⟨"#oname", .definition, .prim (.string "z")⟩] .regularOpen none []]))
-      == .struct [⟨"#oname", .definition, .prim (.string "z")⟩,
+                mkStruct [⟨"#oname", .definition, .prim (.string "z")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#oname", .definition, .prim (.string "z")⟩,
                   ⟨"oname", .regular, .prim (.string "z")⟩,
                   ⟨"#name", .definition, .prim (.string "z")⟩,
                   ⟨"iname", .regular, .prim (.string "z")⟩] .defClosed none []) = true := by
@@ -538,7 +538,7 @@ theorem embed_chain_two_level_narrows_through :
     not `bottom` or a leaked `.closure`. Pins that the standalone force terminates and is concrete. -/
 theorem embed_chain_two_level_standalone_forces :
     (runEval (evalValueWithFuel evalFuel chainEnv [] (.refId ⟨0, 1⟩))
-      == .struct [⟨"#oname", .definition, .kind .string⟩,
+      == mkStruct [⟨"#oname", .definition, .kind .string⟩,
                   ⟨"oname", .regular, .kind .string⟩,
                   ⟨"#name", .definition, .kind .string⟩,
                   ⟨"iname", .regular, .kind .string⟩] .defClosed none []) = true := by
@@ -553,7 +553,7 @@ private def chainConflictOuterBody : Value :=
     [⟨"#oname", .definition, .kind .string⟩,
      ⟨"iname", .regular, .prim (.string "fixed")⟩]
     [.conj [.refId ⟨1, 0⟩,
-            .struct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] .regularOpen none []]]
+            mkStruct [⟨"#name", .definition, .refId ⟨1, 0⟩⟩] .regularOpen none []]]
     .defClosed
 
 private def chainConflictEnv : Env :=
@@ -563,8 +563,8 @@ private def chainConflictEnv : Env :=
 theorem embed_chain_inner_conflict_is_bottom :
     (runEval (evalValueWithFuel evalFuel chainConflictEnv []
         (.conj [.refId ⟨0, 1⟩,
-                .struct [⟨"#oname", .definition, .prim (.string "z")⟩] .regularOpen none []]))
-      == .struct [⟨"#oname", .definition, .prim (.string "z")⟩,
+                mkStruct [⟨"#oname", .definition, .prim (.string "z")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#oname", .definition, .prim (.string "z")⟩,
                   ⟨"iname", .regular, .bottomWith [.fieldConflict "iname"]⟩,
                   ⟨"#name", .definition, .prim (.string "z")⟩] .defClosed none []) = true := by
   native_decide
@@ -576,7 +576,7 @@ theorem embed_chain_inner_conflict_is_bottom :
 theorem ref_def_closure_skips_depth0_struct :
     (refDefClosureBody?
         [(7, [⟨"#M", .definition,
-          .struct [⟨"#name", .definition, .kind .string⟩,
+          mkStruct [⟨"#name", .definition, .kind .string⟩,
                    ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩])] ⟨0, 0⟩
       == none) = true := by
   native_decide
@@ -588,7 +588,7 @@ theorem ref_def_closure_fires_for_nested_struct :
     (refDefClosureBody?
         [(5, []),
          (7, [⟨"#M", .definition,
-          .struct [⟨"#name", .definition, .kind .string⟩,
+          mkStruct [⟨"#name", .definition, .kind .string⟩,
                    ⟨"out", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩])] ⟨1, 0⟩).isSome = true := by
   native_decide
 
@@ -604,13 +604,13 @@ theorem ref_def_closure_fires_for_nested_struct :
 theorem f2_force_structcomp_guard_fires_post_meet :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"pkg", .hidden,
-          .struct [⟨"#M", .definition,
+          mkStruct [⟨"#M", .definition,
             .structComp [⟨"#x", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .defClosed⟩] .regularOpen none []⟩])] []
+                (mkStruct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .defClosed⟩] .regularOpen none []⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
-                .struct [⟨"#x", .definition, .prim (.int 5)⟩] .regularOpen none []]))
-      == .struct [⟨"#x", .definition, .prim (.int 5)⟩,
+                mkStruct [⟨"#x", .definition, .prim (.int 5)⟩] .regularOpen none []]))
+      == mkStruct [⟨"#x", .definition, .prim (.int 5)⟩,
                   ⟨"y", .regular, .prim (.int 5)⟩] .defClosed none []) = true := by
   native_decide
 
@@ -619,13 +619,13 @@ theorem f2_force_structcomp_guard_fires_post_meet :
 theorem f2_force_structcomp_guard_does_not_fire :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"pkg", .hidden,
-          .struct [⟨"#M", .definition,
+          mkStruct [⟨"#M", .definition,
             .structComp [⟨"#x", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .defClosed⟩] .regularOpen none []⟩])] []
+                (mkStruct [⟨"y", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .defClosed⟩] .regularOpen none []⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#M",
-                .struct [⟨"#x", .definition, .prim (.int (-1))⟩] .regularOpen none []]))
-      == .struct [⟨"#x", .definition, .prim (.int (-1))⟩] .defClosed none []) = true := by
+                mkStruct [⟨"#x", .definition, .prim (.int (-1))⟩] .regularOpen none []]))
+      == mkStruct [⟨"#x", .definition, .prim (.int (-1))⟩] .defClosed none []) = true := by
   native_decide
 
 /-- `bodyNeedsDefer` fires for a struct whose body EMBEDS a guard-bearing def — the embed-chain
@@ -639,7 +639,7 @@ theorem f2_body_needs_defer_through_embed :
          (9, [⟨"#Inner", .definition,
             .structComp [⟨"#port", .definition, .kind .int⟩]
               [.comprehension [.guard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 0)))]
-                (.struct [⟨"ports", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .regularOpen⟩])]
+                (mkStruct [⟨"ports", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none [])] .regularOpen⟩])]
         evalFuel
         (.structComp [] [.refId ⟨1, 0⟩] .regularOpen)) = true := by
   native_decide
@@ -651,7 +651,7 @@ theorem f2_body_needs_defer_skips_plain_embed :
     (bodyNeedsDefer
         [(0, []),
          (9, [⟨"#Plain", .definition,
-            .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []⟩])]
+            mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []⟩])]
         evalFuel
         (.structComp [] [.refId ⟨1, 0⟩] .regularOpen)) = false := by
   native_decide
@@ -665,14 +665,14 @@ theorem f2_body_needs_defer_skips_plain_embed :
 
 /-- The `parts` package: `#M: {#name: string, name: #name}` (a self-ref def). -/
 private def aliasPartsPkg : Value :=
-  .struct [⟨"#M", .definition,
-    .struct [⟨"#name", .definition, .kind .string⟩,
+  mkStruct [⟨"#M", .definition,
+    mkStruct [⟨"#name", .definition, .kind .string⟩,
              ⟨"name", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []
 
 /-- The `defs` package: imports `parts` (binding at index 0) and aliases `#A: parts.#M`
     (`parts` is `.refId ⟨0,0⟩` within the defs frame; index 1 is `#A`). -/
 private def aliasDefsPkg : Value :=
-  .struct [⟨"parts", .hidden, aliasPartsPkg⟩,
+  mkStruct [⟨"parts", .hidden, aliasPartsPkg⟩,
            ⟨"#A", .definition, .selector (.refId ⟨0, 0⟩) "#M"⟩] .regularOpen none []
 
 /-- THE HEADLINE: `defs.#A & {#name: "n"}` where `#A: parts.#M` forces THROUGH the alias to the
@@ -683,8 +683,8 @@ theorem alias_import_selector_splices_use_site :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"defs", .hidden, aliasDefsPkg⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#A",
-                .struct [⟨"#name", .definition, .prim (.string "n")⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .prim (.string "n")⟩,
+                mkStruct [⟨"#name", .definition, .prim (.string "n")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#name", .definition, .prim (.string "n")⟩,
                   ⟨"name", .regular, .prim (.string "n")⟩] .defClosed none []) = true := by
   native_decide
 
@@ -718,7 +718,7 @@ theorem alias_follow_returns_terminal_parts_frame :
     `defs.#B & {#name: "n"}` follows the chain `#B → #A → parts.#M`. Pins that the follow
     recurses through a same-package `.refId` alias, not just one selector hop. -/
 private def aliasDefsPkgTwoLevel : Value :=
-  .struct [⟨"parts", .hidden, aliasPartsPkg⟩,
+  mkStruct [⟨"parts", .hidden, aliasPartsPkg⟩,
            ⟨"#A", .definition, .selector (.refId ⟨0, 0⟩) "#M"⟩,
            ⟨"#B", .definition, .refId ⟨0, 1⟩⟩] .regularOpen none []
 
@@ -726,8 +726,8 @@ theorem alias_import_selector_two_level_splices :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"defs", .hidden, aliasDefsPkgTwoLevel⟩])] []
         (.conj [.selector (.refId ⟨0, 0⟩) "#B",
-                .struct [⟨"#name", .definition, .prim (.string "n")⟩] .regularOpen none []]))
-      == .struct [⟨"#name", .definition, .prim (.string "n")⟩,
+                mkStruct [⟨"#name", .definition, .prim (.string "n")⟩] .regularOpen none []]))
+      == mkStruct [⟨"#name", .definition, .prim (.string "n")⟩,
                   ⟨"name", .regular, .prim (.string "n")⟩] .defClosed none []) = true := by
   native_decide
 
@@ -737,7 +737,7 @@ theorem alias_import_selector_two_level_splices :
 theorem alias_non_selector_does_not_defer :
     (importDefClosureBody?
         [(7, [⟨"defs", .hidden,
-          .struct [⟨"#A", .definition, .struct [⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []⟩])]
+          mkStruct [⟨"#A", .definition, mkStruct [⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []⟩])]
         ⟨0, 0⟩ "#A") == none := by
   native_decide
 

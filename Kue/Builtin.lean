@@ -9,8 +9,11 @@ namespace Kue
 def closeValue : Value -> Value
   -- A tail-bearing struct passes through unchanged (an explicit `...` keeps it open); every
   -- other struct closes (openness → `defClosed`, tail is `none` by coherence).
-  | .struct fields .defOpenViaTail tail patterns => .struct fields .defOpenViaTail tail patterns
-  | .struct fields _ _ patterns => mkStruct fields .defClosed none patterns
+  | .struct fields .defOpenViaTail tail patterns closingPatterns =>
+      .struct fields .defOpenViaTail tail patterns closingPatterns
+  -- close() makes the struct's OWN patterns close (widen the allowed set), so `mkStruct`'s
+  -- default `closingPatterns = patterns.map Prod.fst` is exactly right.
+  | .struct fields _ _ patterns _ => mkStruct fields .defClosed none patterns
   | value => value
 
 def countRegularFields : List Field -> Nat
@@ -29,7 +32,7 @@ def lenValue : Value -> Value
   | .kind .bytes => .builtinCall "len" [.kind .bytes]
   | .list items => .prim (.int (Int.ofNat items.length))
   | .listTail items _ => .prim (.int (Int.ofNat items.length))
-  | .struct fields _ _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
+  | .struct fields _ _ _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
   | value => .builtinCall "len" [value]
 
 def andValues (values : List Value) : Value :=

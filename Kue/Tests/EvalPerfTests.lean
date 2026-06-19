@@ -20,13 +20,13 @@ pinned right after: id reuse must happen ONLY for genuinely-identical evaluation
     two slots `a`/`b` carry IDENTICAL inline bodies, so frame-id sharing collapses the second
     push into the first. -/
 def deepInlineValue : Nat -> Value
-  | 0 => .struct [⟨"v", .regular, .prim (.string "x")⟩] .regularOpen none []
+  | 0 => mkStruct [⟨"v", .regular, .prim (.string "x")⟩] .regularOpen none []
   | n + 1 =>
       let inner := deepInlineValue n
-      .struct [⟨"a", .regular, inner⟩, ⟨"b", .regular, inner⟩] .regularOpen none []
+      mkStruct [⟨"a", .regular, inner⟩, ⟨"b", .regular, inner⟩] .regularOpen none []
 
 def deepInlineRoot (n : Nat) : Value :=
-  .struct [⟨"root", .regular, deepInlineValue n⟩] .regularOpen none []
+  mkStruct [⟨"root", .regular, deepInlineValue n⟩] .regularOpen none []
 
 -- PERF: with frame-id sharing the deep-inline eval count is LINEAR in depth (`2·depth + 2`),
 -- not exponential. At depth 8 this is 18 core evals; WITHOUT sharing it is 767 (a 42× gap), so
@@ -69,7 +69,7 @@ def selPassUnrelated (n : Nat) : List Field :=
     (⟨s!"u{i}", .regular, .binary .add (.selector (.refId ⟨0, 0⟩) "base") (.prim (.int (Int.ofNat i)))⟩ : Field)
 def selPassBody (n : Nat) : Value :=
   .structComp ([selPassSelfF, selPassBaseF, selPassDepF] ++ selPassUnrelated n)
-    [.struct [⟨"et", .regular, .prim (.string "z")⟩] .defClosed none []] .defOpenViaTail
+    [mkStruct [⟨"et", .regular, .prim (.string "z")⟩] .defClosed none []] .defOpenViaTail
 
 -- SELECTION: the Pass-2 re-eval set is EXACTLY the dependent field (`dep` at canonical index 2),
 -- regardless of how many unrelated fields surround it — the redundant recompute is excluded.
@@ -195,7 +195,7 @@ def evalOnceAt (fuel : Nat) (value : Value) : Value :=
     {a:{b:{b:{b:@1.0}}}}`, … — the SAME `(env,visited,value)` yields DIFFERENT values at different
     fuel. This is exactly the case that MUST stay fuel-keyed (never served fuel-free). -/
 def satTruncValue : Value :=
-  .struct [⟨"a", .regular, .struct [⟨"b", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []
+  mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []
 
 -- PERF + SOUNDNESS: a CONVERGING value (`deepInlineValue 2`, literal nesting, no fuel-sensitive
 -- refs) SATURATES at fuel 6 (its fields never reach fuel 0). A re-request at fuel 20 in the same
@@ -254,7 +254,7 @@ theorem sat_truncated_same_fuel_is_cached :
 def satCompTruncValue : Value :=
   .structComp []
     [.comprehension [.guard (.prim (.bool true))]
-      (.struct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+      (mkStruct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
     .regularOpen
 
 -- SOUNDNESS (third-truncation-source corruption): the comprehension truncates at fuel 2
@@ -459,7 +459,7 @@ theorem link5_presence_test_plain_disjunction_is_present :
 -- with the SAME body but DIFFERENT captured-env ids have equal `valueTag` and Format-print equal.
 -- A future `valueTag`/`Format` edit that started hashing/printing `capturedEnv` would trip this.
 theorem perfb_frame_id_does_not_leak :
-    (let body : Value := .struct [⟨"k", .regular, .prim (.int 1)⟩] .regularOpen none []
+    (let body : Value := mkStruct [⟨"k", .regular, .prim (.int 1)⟩] .regularOpen none []
      let c1 : Value := .closure [(7, [])] body
      let c2 : Value := .closure [(9, [])] body
      (valueTag c1 == valueTag c2) && (formatValue c1 == formatValue c2))
@@ -485,12 +485,12 @@ below (eval COUNT is unchanged — the win is per-lookup time, so a count pin wo
     name + a replica count, plus a `kind`), distinct CONTENT per `i` — the cert-manager steady-state
     population. The digest must separate these into distinct buckets; `valueTag` collapses them. -/
 def k8sShapedStruct (i : Nat) : Value :=
-  .struct
+  mkStruct
     [⟨"kind", .regular, .prim (.string "Deployment")⟩,
      ⟨"metadata", .regular,
-       .struct [⟨"name", .regular, .prim (.string s!"res-{i}")⟩] .regularOpen none []⟩,
+       mkStruct [⟨"name", .regular, .prim (.string s!"res-{i}")⟩] .regularOpen none []⟩,
      ⟨"spec", .regular,
-       .struct [⟨"replicas", .regular, .prim (.int (Int.ofNat i))⟩] .regularOpen none []⟩]
+       mkStruct [⟨"replicas", .regular, .prim (.int (Int.ofNat i))⟩] .regularOpen none []⟩]
     .regularOpen none []
 
 /-- Count distinct values in a `List UInt64` (the bucket count for a digest population). -/

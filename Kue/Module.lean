@@ -76,9 +76,9 @@ def depKeyModulePath (key : String) : String :=
     `"<modpath>@<major>": { v: "<version>" }` becomes a `Dep`. Entries lacking a string `v`
     are skipped. Pure — operates on the already-parsed module-file value. -/
 def parseDeps : Value -> List Dep
-  | .struct fields _ _ _ =>
+  | .struct fields _ _ _ _ =>
       match (fields.find? (fun f => f.label == "deps")).map (fun f => f.value) with
-      | some (Value.struct entries _ _ _) =>
+      | some (Value.struct entries _ _ _ _) =>
           entries.filterMap fun entry =>
             match versionOf entry.value with
             | some version => some { modPath := depKeyModulePath entry.label, version }
@@ -87,7 +87,7 @@ def parseDeps : Value -> List Dep
   | _ => []
 where
   versionOf : Value -> Option String
-    | .struct fields _ _ _ =>
+    | .struct fields _ _ _ _ =>
         (fields.find? (fun f => f.label == "v")).bind fun f =>
           match f.value with
           | .prim (.string version) => some version
@@ -160,8 +160,8 @@ def dedupeBindings (bindings : List (String × Value)) : List (String × Value) 
     sites can keep an unreferenced bound package lazy. Non-struct top-level values are
     wrapped so the bindings still land in scope. -/
 def bindImports (bindings : List (String × Value)) : Value -> Value
-  | .struct fields openness tail patterns =>
-      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ fields) openness tail patterns
+  | .struct fields openness tail patterns closingPatterns =>
+      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ fields) openness tail patterns closingPatterns
   | value =>
       mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) .defClosed none []
 
@@ -228,7 +228,7 @@ def readModuleInfo (root : System.FilePath) : IO (Except String (String × List 
       | none => pure (.error "cue.mod/module.cue: missing string `module:` field")
 where
   moduleFieldValue : Value -> Option String
-    | .struct fields _ _ _ =>
+    | .struct fields _ _ _ _ =>
         (fields.find? (fun f => f.label == "module")).bind fun f =>
           match f.value with
           | .prim (.string path) => some path

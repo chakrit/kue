@@ -18,27 +18,27 @@ theorem manifest_unresolved_ref_incomplete :
 theorem eval_regular_field_reference_to_definition :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none []))
-      == .struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .kind .int⟩] .regularOpen none []) = true := by
+        (mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none []))
+      == mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .kind .int⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_missing_reference_bottom :
     (evalStructRefs
-      (.struct [⟨"x", .regular, .ref "#Missing"⟩] .regularOpen none [])
-      == .struct [⟨"x", .regular, .bottomWith [.unresolvedReference "#Missing"]⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"x", .regular, .ref "#Missing"⟩] .regularOpen none [])
+      == mkStruct [⟨"x", .regular, .bottomWith [.unresolvedReference "#Missing"]⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_resolved_reference_by_binding_id :
     (evalStructRefs
-      (.struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])
-      == .struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .kind .int⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])
+      == mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .kind .int⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_static_field_selector :
     formatTopLevel
       (resolveAndEval
-        (.struct [
-            ⟨"base", .regular, .struct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
+        (mkStruct [
+            ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
             ⟨"x", .regular, .selector (.ref "base") "inner"⟩
           ] .regularOpen none []))
       = "base: {inner: 4}\nx: 4" := by
@@ -47,7 +47,7 @@ theorem eval_static_field_selector :
 theorem eval_static_list_index :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"xs", .regular, .list [.prim (.int 10), .prim (.int 20)]⟩,
             ⟨"x", .regular, .index (.ref "xs") (.prim (.int 1))⟩
           ] .regularOpen none []))
@@ -57,8 +57,8 @@ theorem eval_static_list_index :
 theorem eval_static_string_field_index :
     formatTopLevel
       (resolveAndEval
-        (.struct [
-            ⟨"base", .regular, .struct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
+        (mkStruct [
+            ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
             ⟨"x", .regular, .index (.ref "base") (.prim (.string "inner"))⟩
           ] .regularOpen none []))
       = "base: {inner: 4}\nx: 4" := by
@@ -73,12 +73,12 @@ theorem eval_static_string_field_index :
 theorem eval_shared_repeated_selection :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"base", .regular, .prim (.string "v")⟩,
             ⟨"components", .regular,
-              .struct [
-                  ⟨"a", .regular, .struct [⟨"who", .regular, .ref "base"⟩] .regularOpen none []⟩,
-                  ⟨"b", .regular, .struct [⟨"who", .regular, .ref "base"⟩] .regularOpen none []⟩
+              mkStruct [
+                  ⟨"a", .regular, mkStruct [⟨"who", .regular, .ref "base"⟩] .regularOpen none []⟩,
+                  ⟨"b", .regular, mkStruct [⟨"who", .regular, .ref "base"⟩] .regularOpen none []⟩
                 ] .regularOpen none []⟩,
             ⟨"aWho", .regular, .selector (.selector (.ref "components") "a") "who"⟩,
             ⟨"bWho", .regular, .selector (.selector (.ref "components") "b") "who"⟩
@@ -92,8 +92,8 @@ theorem eval_shared_repeated_selection :
 theorem eval_cycle_with_repeated_selection :
     formatTopLevel
       (resolveAndEval
-        (.struct [
-            ⟨"x", .regular, .conj [.ref "x", .struct [⟨"p", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩,
+        (mkStruct [
+            ⟨"x", .regular, .conj [.ref "x", mkStruct [⟨"p", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩,
             ⟨"p1", .regular, .selector (.ref "x") "p"⟩,
             ⟨"p2", .regular, .selector (.ref "x") "p"⟩
           ] .regularOpen none []))
@@ -201,7 +201,7 @@ theorem scalar_embed_two_distinct_conflicts :
 
 The `{5}`→`5` collapse lives in embed-eval (`meetEmbeddingsWithFuel`), where the host is KNOWN
 to embed a scalar — NOT in `meet`, which cannot tell an empty struct `{}` from `{5}`'s residual
-`.struct []`. A genuine struct ∩ scalar must conflict (cue v0.16.1: mismatched types). Before the
+`mkStruct []`. A genuine struct ∩ scalar must conflict (cue v0.16.1: mismatched types). Before the
 fix these all wrongly collapsed to the scalar. -/
 
 -- empty struct meeting a scalar conflicts (was wrongly `5`). cue: mismatched types struct/int.
@@ -232,7 +232,7 @@ theorem field_struct_then_scalar_conflicts :
 theorem eval_additive_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2))⟩,
             ⟨"diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3))⟩,
             ⟨"cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b"))⟩,
@@ -244,7 +244,7 @@ theorem eval_additive_expressions :
 theorem eval_float_additive_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25"))⟩,
             ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5"))⟩,
             ⟨"floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2))⟩,
@@ -257,7 +257,7 @@ theorem eval_float_additive_expressions :
 theorem eval_multiplication_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"mul", .regular, .binary .mul (.prim (.int 3)) (.prim (.int 4))⟩,
             ⟨
               "precedence",
@@ -271,7 +271,7 @@ theorem eval_multiplication_expressions :
 theorem eval_division_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"div", .regular, .binary .div (.prim (.int 5)) (.prim (.int 2))⟩,
             ⟨"whole", .regular, .binary .div (.prim (.int 6)) (.prim (.int 3))⟩,
             ⟨"third", .regular, .binary .div (.prim (.int 1)) (.prim (.int 3))⟩,
@@ -287,7 +287,7 @@ theorem eval_division_by_zero_bottom :
 theorem eval_integer_keyword_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"divValue", .regular, .binary .intDiv (.prim (.int (-7))) (.prim (.int 3))⟩,
             ⟨"modValue", .regular, .binary .intMod (.prim (.int (-7))) (.prim (.int 3))⟩,
             ⟨"quoValue", .regular, .binary .intQuo (.prim (.int (-7))) (.prim (.int 3))⟩,
@@ -303,7 +303,7 @@ theorem eval_integer_keyword_incomplete_keeps_infix :
 theorem eval_equality_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"same", .regular, .binary .eq (.prim (.int 1)) (.prim (.int 1))⟩,
             ⟨"diff", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))⟩,
             ⟨"text", .regular, .binary .eq (.prim (.string "a")) (.prim (.string "b"))⟩
@@ -314,7 +314,7 @@ theorem eval_equality_expressions :
 theorem eval_ordering_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"lt", .regular, .binary .lt (.prim (.int 1)) (.prim (.int 2))⟩,
             ⟨"le", .regular, .binary .le (.prim (.int 2)) (.prim (.int 2))⟩,
             ⟨"gt", .regular, .binary .gt (.prim (.int 3)) (.prim (.int 2))⟩,
@@ -327,7 +327,7 @@ theorem eval_ordering_expressions :
 theorem eval_numeric_comparison_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2))⟩,
             ⟨"le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50"))⟩,
             ⟨"gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9"))⟩,
@@ -341,7 +341,7 @@ theorem eval_numeric_comparison_expressions :
 theorem eval_logical_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"andFalse", .regular, .binary .boolAnd (.prim (.bool true)) (.prim (.bool false))⟩,
             ⟨"orTrue", .regular, .binary .boolOr (.prim (.bool false)) (.prim (.bool true))⟩,
             ⟨
@@ -358,7 +358,7 @@ theorem eval_logical_expressions :
 theorem eval_logical_not_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"notFalse", .regular, .unary .boolNot (.prim (.bool false))⟩,
             ⟨"notCmp", .regular, .unary .boolNot (.binary .lt (.prim (.int 1)) (.prim (.int 2)))⟩,
             ⟨"double", .regular, .unary .boolNot (.unary .boolNot (.prim (.bool true)))⟩
@@ -369,7 +369,7 @@ theorem eval_logical_not_expressions :
 theorem eval_unary_numeric_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2)))⟩,
             ⟨"posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2)))⟩,
             ⟨"negFloat", .regular, .unary .numNeg (.prim (.float "1.5"))⟩
@@ -380,7 +380,7 @@ theorem eval_unary_numeric_expressions :
 theorem eval_regex_match_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"match", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩,
             ⟨"miss", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "z"))⟩,
             ⟨"notMatch", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "z"))⟩
@@ -391,11 +391,11 @@ theorem eval_regex_match_expressions :
 theorem eval_list_index_out_of_range_bottom :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [
+        (mkStruct [
             ⟨"xs", .regular, .list [.prim (.int 10)]⟩,
             ⟨"x", .regular, .index (.ref "xs") (.prim (.int 2))⟩
           ] .regularOpen none []))
-      == .struct [
+      == mkStruct [
           ⟨"xs", .regular, .list [.prim (.int 10)]⟩,
           ⟨"x", .regular, .bottomWith [.indexOutOfRange 2 1]⟩
         ] .regularOpen none []) = true := by
@@ -403,65 +403,65 @@ theorem eval_list_index_out_of_range_bottom :
 
 theorem eval_missing_binding_id_bottom :
     (evalStructRefs
-      (.struct [⟨"x", .regular, .refId ⟨0, 2⟩⟩] .regularOpen none [])
-      == .struct [⟨"x", .regular, .bottomWith [.unresolvedBinding ⟨0, 2⟩]⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"x", .regular, .refId ⟨0, 2⟩⟩] .regularOpen none [])
+      == mkStruct [⟨"x", .regular, .bottomWith [.unresolvedBinding ⟨0, 2⟩]⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_binding_id_not_label_lookup :
     (evalStructRefs
-      (.struct [⟨"#same", .definition, .kind .int⟩, ⟨"same", .regular, .kind .string⟩, ⟨"x", .regular, .refId ⟨0, 1⟩⟩] .regularOpen none [])
-      == .struct [⟨"#same", .definition, .kind .int⟩, ⟨"same", .regular, .kind .string⟩, ⟨"x", .regular, .kind .string⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"#same", .definition, .kind .int⟩, ⟨"same", .regular, .kind .string⟩, ⟨"x", .regular, .refId ⟨0, 1⟩⟩] .regularOpen none [])
+      == mkStruct [⟨"#same", .definition, .kind .int⟩, ⟨"same", .regular, .kind .string⟩, ⟨"x", .regular, .kind .string⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem resolve_direct_self_reference :
     (resolveStructRefs
-      (.struct [⟨"x", .regular, .ref "x"⟩] .regularOpen none [])
-      == .struct [⟨"x", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"x", .regular, .ref "x"⟩] .regularOpen none [])
+      == mkStruct [⟨"x", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_direct_self_reference_as_top :
     (evalStructRefs
-      (resolveStructRefs (.struct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .top⟩] .regularOpen none []) = true := by
+      (resolveStructRefs (mkStruct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .top⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_mutual_reference_cycle_as_top :
     (evalStructRefs
-      (resolveStructRefs (.struct [⟨"x", .regular, .ref "y"⟩, ⟨"y", .regular, .ref "x"⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .top⟩, ⟨"y", .regular, .top⟩] .regularOpen none []) = true := by
+      (resolveStructRefs (mkStruct [⟨"x", .regular, .ref "y"⟩, ⟨"y", .regular, .ref "x"⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .top⟩, ⟨"y", .regular, .top⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_three_reference_cycle_as_top :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [
+        (mkStruct [
             ⟨"x", .regular, .ref "y"⟩,
             ⟨"y", .regular, .ref "z"⟩,
             ⟨"z", .regular, .ref "x"⟩
           ] .regularOpen none []))
-      == .struct [⟨"x", .regular, .top⟩, ⟨"y", .regular, .top⟩, ⟨"z", .regular, .top⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"x", .regular, .top⟩, ⟨"y", .regular, .top⟩, ⟨"z", .regular, .top⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_direct_constrained_cycle_keeps_constraint :
     (evalStructRefs
-      (resolveStructRefs (.struct [⟨"x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number]⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .boundConstraint (intDecimal 0) .ge .number⟩] .regularOpen none []) = true := by
+      (resolveStructRefs (mkStruct [⟨"x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number]⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .boundConstraint (intDecimal 0) .ge .number⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_mutual_constrained_cycle_keeps_constraint :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [
+        (mkStruct [
             ⟨"a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number]⟩,
             ⟨"b", .regular, .ref "a"⟩
           ] .regularOpen none []))
-      == .struct [⟨"a", .regular, .boundConstraint (intDecimal 0) .ge .number⟩, ⟨"b", .regular, .boundConstraint (intDecimal 0) .ge .number⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"a", .regular, .boundConstraint (intDecimal 0) .ge .number⟩, ⟨"b", .regular, .boundConstraint (intDecimal 0) .ge .number⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_non_cycle_reference_still_uses_target_value :
     (evalStructRefs
-      (resolveStructRefs (.struct [⟨"x", .regular, .kind .int⟩, ⟨"y", .regular, .ref "x"⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .kind .int⟩, ⟨"y", .regular, .kind .int⟩] .regularOpen none []) = true := by
+      (resolveStructRefs (mkStruct [⟨"x", .regular, .kind .int⟩, ⟨"y", .regular, .ref "x"⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .kind .int⟩, ⟨"y", .regular, .kind .int⟩] .regularOpen none []) = true := by
   native_decide
 
 /-- A value alias (`Self={…}`) lowers to a `.thisStruct` let-binding; `Self.field`
@@ -470,12 +470,12 @@ theorem eval_non_cycle_reference_still_uses_target_value :
 theorem eval_value_alias_self_reference :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [
+        (mkStruct [
             ⟨"Self", .letBinding, .thisStruct⟩,
             ⟨"x", .regular, .prim (.int 5)⟩,
             ⟨"y", .regular, .selector (.ref "Self") "x"⟩
           ] .regularOpen none []))
-      == .struct [
+      == mkStruct [
           ⟨"Self", .letBinding, .thisStruct⟩,
           ⟨"x", .regular, .prim (.int 5)⟩,
           ⟨"y", .regular, .prim (.int 5)⟩
@@ -486,12 +486,12 @@ theorem eval_value_alias_self_reference :
 theorem eval_value_alias_cycle_bounds_to_top :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [
+        (mkStruct [
             ⟨"Self", .letBinding, .thisStruct⟩,
             ⟨"x", .regular, .selector (.ref "Self") "y"⟩,
             ⟨"y", .regular, .selector (.ref "Self") "x"⟩
           ] .regularOpen none []))
-      == .struct [
+      == mkStruct [
           ⟨"Self", .letBinding, .thisStruct⟩,
           ⟨"x", .regular, .top⟩,
           ⟨"y", .regular, .top⟩
@@ -500,75 +500,75 @@ theorem eval_value_alias_cycle_bounds_to_top :
 
 theorem eval_regular_disjunction_uses_join_normalization :
     (evalStructRefs
-      (.struct [⟨"x", .regular, .disj [(.regular, .boundConstraint (intDecimal 5) .ge .number), (.regular, .boundConstraint (intDecimal 0) .ge .number)]⟩] .regularOpen none [])
-      == .struct [⟨"x", .regular, .boundConstraint (intDecimal 0) .ge .number⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"x", .regular, .disj [(.regular, .boundConstraint (intDecimal 5) .ge .number), (.regular, .boundConstraint (intDecimal 0) .ge .number)]⟩] .regularOpen none [])
+      == mkStruct [⟨"x", .regular, .boundConstraint (intDecimal 0) .ge .number⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_regular_field_reference_to_hidden :
     (evalStructRefs
-      (resolveStructRefs (.struct [⟨"_secret", .hidden, .prim (.string "x")⟩, ⟨"value", .regular, .ref "_secret"⟩] .regularOpen none []))
-      == .struct [⟨"_secret", .hidden, .prim (.string "x")⟩, ⟨"value", .regular, .prim (.string "x")⟩] .regularOpen none []) = true := by
+      (resolveStructRefs (mkStruct [⟨"_secret", .hidden, .prim (.string "x")⟩, ⟨"value", .regular, .ref "_secret"⟩] .regularOpen none []))
+      == mkStruct [⟨"_secret", .hidden, .prim (.string "x")⟩, ⟨"value", .regular, .prim (.string "x")⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_reference_inside_struct_tail :
     (evalStructRefs
-      (resolveStructRefs (.struct [⟨"#A", .definition, .kind .int⟩] .defOpenViaTail (some (.ref "#A")) []))
-      == .struct [⟨"#A", .definition, .kind .int⟩] .defOpenViaTail (some (.kind .int)) []) = true := by
+      (resolveStructRefs (mkStruct [⟨"#A", .definition, .kind .int⟩] .defOpenViaTail (some (.ref "#A")) []))
+      == mkStruct [⟨"#A", .definition, .kind .int⟩] .defOpenViaTail (some (.kind .int)) []) = true := by
   native_decide
 
 theorem eval_reference_inside_nested_struct :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [⟨"x", .regular, .struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none []⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
+        (mkStruct [⟨"x", .regular, mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none []⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_reference_inside_struct_pattern :
     (evalStructRefs
-      (resolveStructRefs (.struct [⟨"#A", .definition, .kind .int⟩] .regularOpen none [((.kind .string), (.ref "#A"))]))
-      == .struct [⟨"#A", .definition, .kind .int⟩] .regularOpen none [((.kind .string), (.kind .int))]) = true := by
+      (resolveStructRefs (mkStruct [⟨"#A", .definition, .kind .int⟩] .regularOpen none [((.kind .string), (.ref "#A"))]))
+      == mkStruct [⟨"#A", .definition, .kind .int⟩] .regularOpen none [((.kind .string), (.kind .int))]) = true := by
   native_decide
 
 theorem eval_struct_pattern_constrains_own_regular_field :
     (evalStructRefs
-      (.struct [⟨"a", .regular, .prim (.string "bad")⟩] .regularOpen none [((.kind .string), (.kind .int))])
-      == .struct [⟨"a", .regular, .bottomWith [.fieldConstraint "a"]⟩] .regularOpen none [((.kind .string), (.kind .int))]) = true := by
+      (mkStruct [⟨"a", .regular, .prim (.string "bad")⟩] .regularOpen none [((.kind .string), (.kind .int))])
+      == mkStruct [⟨"a", .regular, .bottomWith [.fieldConstraint "a"]⟩] .regularOpen none [((.kind .string), (.kind .int))]) = true := by
   native_decide
 
 theorem string_kind_pattern_types_matching_field :
     (meet
-      (.struct [] .regularOpen none [((.kind .string), (.kind .int))])
-      (.struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
-      == .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [((.kind .string), (.kind .int))]) = true := by
+      (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
+      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
+      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [((.kind .string), (.kind .int))]) = true := by
   native_decide
 
 theorem string_kind_pattern_rejects_type_mismatch :
     containsBottom
       (meet
-        (.struct [] .regularOpen none [((.kind .string), (.kind .int))])
-        (.struct [⟨"a", .regular, .prim (.string "x")⟩] .regularOpen none [])) = true := by
+        (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
+        (mkStruct [⟨"a", .regular, .prim (.string "x")⟩] .regularOpen none [])) = true := by
   native_decide
 
 theorem eval_len_builtin_call_after_reference_resolution :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [⟨"x", .regular, .prim (.string "abc")⟩, ⟨"y", .regular, .builtinCall "len" [.ref "x"]⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .prim (.string "abc")⟩, ⟨"y", .regular, .prim (.int 3)⟩] .regularOpen none []) = true := by
+        (mkStruct [⟨"x", .regular, .prim (.string "abc")⟩, ⟨"y", .regular, .builtinCall "len" [.ref "x"]⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .prim (.string "abc")⟩, ⟨"y", .regular, .prim (.int 3)⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_integer_builtin_call_after_reference_resolution :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [
+        (mkStruct [
             ⟨"n", .regular, .prim (.int (-7))⟩,
             ⟨"q", .regular, .builtinCall "div" [.ref "n", .prim (.int 3)]⟩
           ] .regularOpen none []))
-      == .struct [⟨"n", .regular, .prim (.int (-7))⟩, ⟨"q", .regular, .prim (.int (-3))⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"n", .regular, .prim (.int (-7))⟩, ⟨"q", .regular, .prim (.int (-3))⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_incomplete_builtin_call_remains_call :
-    (evalStructRefs (.struct [⟨"x", .regular, .builtinCall "len" [.kind .string]⟩] .regularOpen none [])
-      == .struct [⟨"x", .regular, .builtinCall "len" [.kind .string]⟩] .regularOpen none []) = true := by
+    (evalStructRefs (mkStruct [⟨"x", .regular, .builtinCall "len" [.kind .string]⟩] .regularOpen none [])
+      == mkStruct [⟨"x", .regular, .builtinCall "len" [.kind .string]⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_comprehension_for_keyed_over_struct :
@@ -578,11 +578,11 @@ theorem eval_comprehension_for_keyed_over_struct :
           []
           [
             .comprehension
-              [.forIn (some "k") "v" (.struct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-              (.struct [⟨"key", .regular, .ref "k"⟩, ⟨"val", .regular, .ref "v"⟩] .regularOpen none [])
+              [.forIn (some "k") "v" (mkStruct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+              (mkStruct [⟨"key", .regular, .ref "k"⟩, ⟨"val", .regular, .ref "v"⟩] .regularOpen none [])
           ]
           .regularOpen))
-      == .struct [⟨"key", .regular, .prim (.string "x")⟩, ⟨"val", .regular, .prim (.int 1)⟩] .regularOpen none [])
+      == mkStruct [⟨"key", .regular, .prim (.string "x")⟩, ⟨"val", .regular, .prim (.int 1)⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -594,10 +594,10 @@ theorem eval_comprehension_for_over_list :
           [
             .comprehension
               [.forIn none "v" (.list [.prim (.int 42)])]
-              (.struct [⟨"only", .regular, .ref "v"⟩] .regularOpen none [])
+              (mkStruct [⟨"only", .regular, .ref "v"⟩] .regularOpen none [])
           ]
           .regularOpen))
-      == .struct [⟨"only", .regular, .prim (.int 42)⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"only", .regular, .prim (.int 42)⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_comprehension_if_true_admits :
@@ -605,9 +605,9 @@ theorem eval_comprehension_if_true_admits :
       (resolveStructRefs
         (.structComp
           []
-          [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none [])]
+          [.comprehension [.guard (.prim (.bool true))] (mkStruct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none [])]
           .regularOpen))
-      == .struct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_comprehension_if_false_drops :
@@ -615,9 +615,9 @@ theorem eval_comprehension_if_false_drops :
       (resolveStructRefs
         (.structComp
           []
-          [.comprehension [.guard (.prim (.bool false))] (.struct [⟨"hidden", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          [.comprehension [.guard (.prim (.bool false))] (mkStruct [⟨"hidden", .regular, .prim (.int 1)⟩] .regularOpen none [])]
           .regularOpen))
-      == .struct [] .regularOpen none []) = true := by
+      == mkStruct [] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_comprehension_body_sees_sibling_field :
@@ -625,9 +625,9 @@ theorem eval_comprehension_body_sees_sibling_field :
       (resolveStructRefs
         (.structComp
           [⟨"base", .regular, .prim (.int 7)⟩]
-          [.comprehension [.guard (.prim (.bool true))] (.struct [⟨"copy", .regular, .ref "base"⟩] .regularOpen none [])]
+          [.comprehension [.guard (.prim (.bool true))] (mkStruct [⟨"copy", .regular, .ref "base"⟩] .regularOpen none [])]
           .regularOpen))
-      == .struct [⟨"base", .regular, .prim (.int 7)⟩, ⟨"copy", .regular, .prim (.int 7)⟩] .regularOpen none [])
+      == mkStruct [⟨"base", .regular, .prim (.int 7)⟩, ⟨"copy", .regular, .prim (.int 7)⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -636,9 +636,9 @@ theorem eval_comprehension_for_source_sees_sibling_field :
       (resolveStructRefs
         (.structComp
           [⟨"k", .regular, .prim (.int 3)⟩]
-          [.comprehension [.forIn none "v" (.list [.ref "k"])] (.struct [⟨"g", .regular, .ref "v"⟩] .regularOpen none [])]
+          [.comprehension [.forIn none "v" (.list [.ref "k"])] (mkStruct [⟨"g", .regular, .ref "v"⟩] .regularOpen none [])]
           .regularOpen))
-      == .struct [⟨"k", .regular, .prim (.int 3)⟩, ⟨"g", .regular, .prim (.int 3)⟩] .regularOpen none [])
+      == mkStruct [⟨"k", .regular, .prim (.int 3)⟩, ⟨"g", .regular, .prim (.int 3)⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -683,28 +683,28 @@ theorem distribute_add_over_default_disj :
 theorem eval_comprehension_guard_negated_default_disj_admits :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
+        (mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
            ⟨"out", .regular,
              .structComp []
                [.comprehension [.guard (.unary .boolNot (.ref "x"))]
-                 (.struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+                 (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
                .regularOpen⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
-         ⟨"out", .regular, .struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
+         ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
 /-- Slice C. The direct guard shape `if x` with `x: bool | *true` admits (default `true`). -/
 theorem eval_comprehension_guard_direct_default_disj_admits :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
+        (mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
            ⟨"out", .regular,
              .structComp []
                [.comprehension [.guard (.ref "x")]
-                 (.struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+                 (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
                .regularOpen⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
-         ⟨"out", .regular, .struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
+         ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
 /-- Slice C (over-resolution guard). A NON-default disjunction in a guard must STAY
@@ -713,16 +713,16 @@ theorem eval_comprehension_guard_direct_default_disj_admits :
 theorem eval_comprehension_guard_non_default_disj_drops :
     (evalStructRefs
       (resolveStructRefs
-        (.struct [⟨"x", .regular,
+        (mkStruct [⟨"x", .regular,
              .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
            ⟨"out", .regular,
              .structComp []
                [.comprehension [.guard (.ref "x")]
-                 (.struct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+                 (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
                .regularOpen⟩] .regularOpen none []))
-      == .struct [⟨"x", .regular,
+      == mkStruct [⟨"x", .regular,
            .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
-         ⟨"out", .regular, .struct [] .regularOpen none []⟩] .regularOpen none []) = true := by
+         ⟨"out", .regular, mkStruct [] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
 /-! ### Slice F1 — default-mark algebra (audit #3 Violation)
@@ -969,16 +969,16 @@ theorem eval_div_repeating_leading_zeros :
     collapses to a single `a` field. -/
 theorem eval_in_struct_sibling_merge :
     (resolveAndEval
-      (.struct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
-      == .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
+      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
 /-- A duplicate-label conflict bottoms both the label and any sibling referencing it:
     `{a: 1, b: a, a: 2}` -> `a` and `b` both bottom. -/
 theorem eval_in_struct_sibling_conflict :
     (resolveAndEval
-      (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])
-      == .struct [
+      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])
+      == mkStruct [
           ⟨"a", .regular, .bottomWith [.primitiveConflict (.int 1) (.int 2)]⟩,
           ⟨"b", .regular, .bottomWith [.primitiveConflict (.int 1) (.int 2)]⟩
         ] .regularOpen none []) = true := by
@@ -988,14 +988,14 @@ theorem eval_in_struct_sibling_conflict :
     seeing the merged `int & 1 = 1`. -/
 theorem eval_nested_sibling_merge :
     (resolveAndEval
-      (.struct [
+      (mkStruct [
           ⟨"a", .regular, .kind .int⟩,
-          ⟨"c", .regular, .struct [⟨"e", .regular, .ref "a"⟩] .regularOpen none []⟩,
+          ⟨"c", .regular, mkStruct [⟨"e", .regular, .ref "a"⟩] .regularOpen none []⟩,
           ⟨"a", .regular, .prim (.int 1)⟩
         ] .regularOpen none [])
-      == .struct [
+      == mkStruct [
           ⟨"a", .regular, .prim (.int 1)⟩,
-          ⟨"c", .regular, .struct [⟨"e", .regular, .prim (.int 1)⟩] .regularOpen none []⟩
+          ⟨"c", .regular, mkStruct [⟨"e", .regular, .prim (.int 1)⟩] .regularOpen none []⟩
         ] .regularOpen none []) = true := by
   native_decide
 
@@ -1004,8 +1004,8 @@ theorem eval_nested_sibling_merge :
     meet collapses to `1` rather than diverging. -/
 theorem eval_merged_self_ref_cycle :
     (resolveAndEval
-      (.struct [⟨"a", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
-      == .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"a", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
+      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
 /-- 2c.2: struct conjunction through a referenced binding. `d & {a: 1}` merges the conjuncts'
@@ -1013,14 +1013,14 @@ theorem eval_merged_self_ref_cycle :
     and `y.b` resolves to `1` (not `int`). -/
 theorem eval_meet_lazy_sibling_ref :
     (resolveAndEval
-      (.struct [
-          ⟨"d", .regular, .struct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩] .regularOpen none []⟩,
-          ⟨"y", .regular, .conj [.ref "d", .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩
+      (mkStruct [
+          ⟨"d", .regular, mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩] .regularOpen none []⟩,
+          ⟨"y", .regular, .conj [.ref "d", mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩
         ] .regularOpen none [])
-      == .struct [
-          ⟨"d", .regular, .struct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .kind .int⟩] .regularOpen none []⟩,
+      == mkStruct [
+          ⟨"d", .regular, mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .kind .int⟩] .regularOpen none []⟩,
           ⟨"y", .regular,
-            .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []⟩
+            mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []⟩
         ] .regularOpen none []) = true := by
   native_decide
 
@@ -1028,17 +1028,17 @@ theorem eval_meet_lazy_sibling_ref :
     via the merged frame. -/
 theorem eval_meet_lazy_literal :
     (resolveAndEval
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular,
             .conj
               [
-                .struct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩] .regularOpen none [],
-                .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
+                mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩] .regularOpen none [],
+                mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
               ]⟩
         ] .regularOpen none [])
-      == .struct [
+      == mkStruct [
           ⟨"x", .regular,
-            .struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []⟩
+            mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []⟩
         ] .regularOpen none []) = true := by
   native_decide
 
@@ -1046,21 +1046,21 @@ theorem eval_meet_lazy_literal :
     `{a: int, b: a, c: b} & {a: 1}` resolves `a`, `b`, `c` all to `1`. -/
 theorem eval_meet_lazy_chain :
     (resolveAndEval
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular,
             .conj
               [
-                .struct [
+                mkStruct [
                     ⟨"a", .regular, .kind .int⟩,
                     ⟨"b", .regular, .ref "a"⟩,
                     ⟨"c", .regular, .ref "b"⟩
                   ] .regularOpen none [],
-                .struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
+                mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
               ]⟩
         ] .regularOpen none [])
-      == .struct [
+      == mkStruct [
           ⟨"x", .regular,
-            .struct [
+            mkStruct [
                 ⟨"a", .regular, .prim (.int 1)⟩,
                 ⟨"b", .regular, .prim (.int 1)⟩,
                 ⟨"c", .regular, .prim (.int 1)⟩
@@ -1072,24 +1072,24 @@ theorem eval_meet_lazy_chain :
     hidden `#x`; `#D & {#x: "hi"}` narrows `#x` and the nested `out.val` resolves to `"hi"`. -/
 theorem eval_meet_lazy_hidden_def :
     (resolveAndEval
-      (.struct [
+      (mkStruct [
           ⟨"#D", .definition,
-            .struct [
+            mkStruct [
                 ⟨"#x", .definition, .kind .string⟩,
-                ⟨"out", .regular, .struct [⟨"val", .regular, .ref "#x"⟩] .regularOpen none []⟩
+                ⟨"out", .regular, mkStruct [⟨"val", .regular, .ref "#x"⟩] .regularOpen none []⟩
               ] .regularOpen none []⟩,
-          ⟨"y", .regular, .conj [.ref "#D", .struct [⟨"#x", .definition, .prim (.string "hi")⟩] .regularOpen none []]⟩
+          ⟨"y", .regular, .conj [.ref "#D", mkStruct [⟨"#x", .definition, .prim (.string "hi")⟩] .regularOpen none []]⟩
         ] .regularOpen none [])
-      == .struct [
+      == mkStruct [
           ⟨"#D", .definition,
-            .struct [
+            mkStruct [
                 ⟨"#x", .definition, .kind .string⟩,
-                ⟨"out", .regular, .struct [⟨"val", .regular, .kind .string⟩] .regularOpen none []⟩
+                ⟨"out", .regular, mkStruct [⟨"val", .regular, .kind .string⟩] .regularOpen none []⟩
               ] .defClosed none []⟩,
           ⟨"y", .regular,
-            .struct [
+            mkStruct [
                 ⟨"#x", .definition, .prim (.string "hi")⟩,
-                ⟨"out", .regular, .struct [⟨"val", .regular, .prim (.string "hi")⟩] .regularOpen none []⟩
+                ⟨"out", .regular, mkStruct [⟨"val", .regular, .prim (.string "hi")⟩] .regularOpen none []⟩
               ] .defClosed none []⟩
         ] .regularOpen none []) = true := by
   native_decide

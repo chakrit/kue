@@ -5,7 +5,7 @@ namespace Kue
 theorem fixture_additive_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2))⟩,
             ⟨"diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3))⟩,
             ⟨"cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b"))⟩
@@ -16,7 +16,7 @@ theorem fixture_additive_expressions :
 theorem fixture_bytes_additive_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd"))⟩,
             ⟨
               "left",
@@ -32,7 +32,7 @@ theorem fixture_bytes_additive_expressions :
 theorem fixture_float_additive_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25"))⟩,
             ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5"))⟩,
             ⟨"floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2))⟩,
@@ -46,7 +46,7 @@ theorem fixture_float_additive_expressions :
 theorem fixture_multiplication_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"mul", .regular, .binary .mul (.prim (.int 3)) (.prim (.int 4))⟩,
             ⟨
               "precedence",
@@ -65,7 +65,7 @@ theorem fixture_multiplication_expressions :
 theorem fixture_division_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"div", .regular, .binary .div (.prim (.int 5)) (.prim (.int 2))⟩,
             ⟨"whole", .regular, .binary .div (.prim (.int 6)) (.prim (.int 3))⟩,
             ⟨"third", .regular, .binary .div (.prim (.int 1)) (.prim (.int 3))⟩,
@@ -77,7 +77,7 @@ theorem fixture_division_expressions :
 theorem fixture_integer_keyword_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"divValue", .regular, .binary .intDiv (.prim (.int (-7))) (.prim (.int 3))⟩,
             ⟨"modValue", .regular, .binary .intMod (.prim (.int (-7))) (.prim (.int 3))⟩,
             ⟨"quoValue", .regular, .binary .intQuo (.prim (.int (-7))) (.prim (.int 3))⟩,
@@ -94,7 +94,7 @@ theorem fixture_integer_keyword_expressions :
 theorem fixture_equality_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"same", .regular, .binary .eq (.prim (.int 1)) (.prim (.int 1))⟩,
             ⟨"diff", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))⟩,
             ⟨"text", .regular, .binary .eq (.prim (.string "a")) (.prim (.string "b"))⟩,
@@ -110,7 +110,7 @@ theorem fixture_equality_expressions :
 theorem fixture_ordering_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"lt", .regular, .binary .lt (.prim (.int 1)) (.prim (.int 2))⟩,
             ⟨"le", .regular, .binary .le (.prim (.int 2)) (.prim (.int 2))⟩,
             ⟨"gt", .regular, .binary .gt (.prim (.int 3)) (.prim (.int 2))⟩,
@@ -128,7 +128,7 @@ theorem fixture_ordering_expressions :
 theorem fixture_numeric_comparison_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2))⟩,
             ⟨"le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50"))⟩,
             ⟨"gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9"))⟩,
@@ -142,7 +142,7 @@ theorem fixture_numeric_comparison_expressions :
 theorem fixture_logical_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"andFalse", .regular, .binary .boolAnd (.prim (.bool true)) (.prim (.bool false))⟩,
             ⟨"orTrue", .regular, .binary .boolOr (.prim (.bool false)) (.prim (.bool true))⟩,
             ⟨
@@ -173,7 +173,7 @@ theorem fixture_logical_expressions :
 theorem fixture_logical_not_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"notFalse", .regular, .unary .boolNot (.prim (.bool false))⟩,
             ⟨"notCmp", .regular, .unary .boolNot (.binary .lt (.prim (.int 1)) (.prim (.int 2)))⟩,
             ⟨"double", .regular, .unary .boolNot (.unary .boolNot (.prim (.bool true)))⟩
@@ -184,7 +184,7 @@ theorem fixture_logical_not_expressions :
 theorem fixture_unary_numeric_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2)))⟩,
             ⟨"posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2)))⟩,
             ⟨"negRefBase", .regular, .prim (.int 3)⟩,
@@ -197,7 +197,7 @@ theorem fixture_unary_numeric_expressions :
 theorem fixture_regex_match_expressions :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"match", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩,
             ⟨"miss", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "z"))⟩,
             ⟨"notMatch", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "z"))⟩,
@@ -220,7 +220,7 @@ theorem fixture_kind_meet_int :
 theorem fixture_builtin_reference_eval :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"x", .regular, .prim (.string "abc")⟩,
             ⟨"n", .regular, .prim (.int (-7))⟩,
             ⟨"lenX", .regular, .builtinCall "len" [.ref "x"]⟩,
@@ -232,7 +232,7 @@ theorem fixture_builtin_reference_eval :
 
 theorem fixture_and_or_builtin :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)]⟩,
           ⟨"orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")]⟩
         ] .regularOpen none [])
@@ -241,7 +241,7 @@ theorem fixture_and_or_builtin :
 
 theorem fixture_integer_builtin :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"divValue", .regular, divValue (.prim (.int (-7))) (.prim (.int 3))⟩,
           ⟨"modValue", .regular, modValue (.prim (.int (-7))) (.prim (.int 3))⟩,
           ⟨"quoValue", .regular, quoValue (.prim (.int (-7))) (.prim (.int 3))⟩,
@@ -280,23 +280,23 @@ theorem fixture_default_override_manifest :
 theorem fixture_regular_struct_meet :
     formatField "x"
       (meet
-        (.struct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+        (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
       = "x: {a: 1, b: \"x\"}" := by
   native_decide
 
 theorem fixture_field_conflict :
     formatField "x"
       (meet
-        (.struct [⟨"a", .regular, .prim (.string "a")⟩] .regularOpen none [])
-        (.struct [⟨"a", .regular, .prim (.string "b")⟩] .regularOpen none []))
+        (mkStruct [⟨"a", .regular, .prim (.string "a")⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .prim (.string "b")⟩] .regularOpen none []))
       = "x: {a: _|_}" := by
   native_decide
 
 theorem fixture_field_alias :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"not an identifier", .regular, .prim (.int 4)⟩,
             ⟨"A", .letBinding, .ref "not an identifier"⟩,
             ⟨"foo", .regular, .ref "A"⟩
@@ -307,8 +307,8 @@ theorem fixture_field_alias :
 theorem fixture_field_selector :
     formatTopLevel
       (resolveAndEval
-        (.struct [
-            ⟨"base", .regular, .struct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
+        (mkStruct [
+            ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
             ⟨"x", .regular, .selector (.ref "base") "inner"⟩
           ] .regularOpen none []))
       = "base: {inner: 4}\nx: 4" := by
@@ -317,7 +317,7 @@ theorem fixture_field_selector :
 theorem fixture_list_index :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"xs", .regular, .list [.prim (.int 10), .prim (.int 20)]⟩,
             ⟨"x", .regular, .index (.ref "xs") (.prim (.int 1))⟩
           ] .regularOpen none []))
@@ -327,8 +327,8 @@ theorem fixture_list_index :
 theorem fixture_string_field_index :
     formatTopLevel
       (resolveAndEval
-        (.struct [
-            ⟨"base", .regular, .struct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
+        (mkStruct [
+            ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
             ⟨"x", .regular, .index (.ref "base") (.prim (.string "inner"))⟩
           ] .regularOpen none []))
       = "base: {inner: 4}\nx: 4" := by
@@ -336,7 +336,7 @@ theorem fixture_string_field_index :
 
 theorem fixture_number_literals :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular, .prim (.int 1000)⟩,
           ⟨"y", .regular, .prim (.float "1.25e+3")⟩,
           ⟨"z", .regular, .prim (.float "-2e+3")⟩
@@ -346,7 +346,7 @@ theorem fixture_number_literals :
 
 theorem fixture_non_decimal_numbers :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"hex", .regular, .prim (.int 31)⟩,
           ⟨"oct", .regular, .prim (.int 15)⟩,
           ⟨"bin", .regular, .prim (.int 10)⟩,
@@ -358,7 +358,7 @@ theorem fixture_non_decimal_numbers :
 
 theorem fixture_unary_plus_numbers :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular, .prim (.int 1)⟩,
           ⟨"y", .regular, .prim (.float "1.5")⟩,
           ⟨"z", .regular, .prim (.int 16)⟩
@@ -368,7 +368,7 @@ theorem fixture_unary_plus_numbers :
 
 theorem fixture_numeric_suffixes :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"k", .regular, .prim (.int 1000)⟩,
           ⟨"ki", .regular, .prim (.int 1024)⟩,
           ⟨"fracK", .regular, .prim (.int 1500)⟩,
@@ -381,7 +381,7 @@ theorem fixture_numeric_suffixes :
 theorem fixture_duplicate_fields :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"x", .regular, .kind .int⟩,
             ⟨"x", .regular, .prim (.int 1)⟩,
             ⟨"conflict", .regular, .prim (.string "a")⟩,
@@ -393,16 +393,16 @@ theorem fixture_duplicate_fields :
 theorem fixture_closed_extra_field :
     formatField "x"
       (meet
-        (.struct [⟨"a", .regular, .kind .int⟩] .defClosed none [])
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+        (mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [])
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
       = "x: {a: 1, b: _|_}" := by
   native_decide
 
 theorem fixture_closed_hidden_definition :
     formatField "x"
       (meet
-        (closeValue (.struct [⟨"a", .regular, .kind .int⟩] .regularOpen none []))
-        (.struct [
+        (closeValue (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []))
+        (mkStruct [
             ⟨"a", .regular, .prim (.int 1)⟩,
             ⟨"_h", .hidden, .prim (.string "secret")⟩,
             ⟨"#D", .definition, .kind .string⟩
@@ -413,20 +413,20 @@ theorem fixture_closed_hidden_definition :
 theorem fixture_closed_regex_pattern :
     formatField "x"
       (meet
-        (closeValue (.struct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))]))
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
+        (closeValue (mkStruct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))]))
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
       = "x: {a: 1, b: _|_, [=~\"^a$\"]: int}" := by
   native_decide
 
 theorem fixture_definition_struct_normalizes_closed :
     (normalizeDefinitions
-        (.struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none [])
-      == .struct [⟨"#A", .definition, .struct [⟨"a", .regular, .kind .int⟩] .defClosed none []⟩] .regularOpen none []) = true := by
+        (mkStruct [⟨"#A", .definition, mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none [])
+      == mkStruct [⟨"#A", .definition, mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none []⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem fixture_definition_reference :
     formatField "x"
-      (evalStructRefs (resolveStructRefs (.struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none [])))
+      (evalStructRefs (resolveStructRefs (mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none [])))
       = "x: {#A: int, x: int}" := by
   native_decide
 
@@ -440,12 +440,12 @@ theorem fixture_list_unification :
 
 theorem fixture_len_builtin :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"stringLen", .regular, lenValue (.prim (.string "abc"))⟩,
           ⟨"listLen", .regular, lenValue (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])⟩,
           ⟨"structLen", .regular,
             lenValue
-              (.struct [
+              (mkStruct [
                   ⟨"a", .regular, .prim (.int 1)⟩,
                   ⟨"b", .optional, .prim (.int 2)⟩,
                   ⟨"_c", .hidden, .prim (.int 3)⟩,
@@ -457,7 +457,7 @@ theorem fixture_len_builtin :
 
 theorem fixture_unresolved_builtin :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"lenString", .regular, lenValue (.kind .string)⟩,
           ⟨"emptyOr", .regular, orValues []⟩
         ] .regularOpen none [])
@@ -467,16 +467,16 @@ theorem fixture_unresolved_builtin :
 theorem fixture_nested_struct_field :
     formatField "x"
       (meet
-        (.struct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []))
+        (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []))
       = "x: {a: 1}" := by
   native_decide
 
 theorem fixture_nested_list_field :
     formatField "x"
       (meet
-        (.struct [⟨"items", .regular, .list [.kind .int, .kind .string]⟩] .regularOpen none [])
-        (.struct [⟨"items", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none []))
+        (mkStruct [⟨"items", .regular, .list [.kind .int, .kind .string]⟩] .regularOpen none [])
+        (mkStruct [⟨"items", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none []))
       = "x: {items: [1, \"x\"]}" := by
   native_decide
 
@@ -493,10 +493,10 @@ theorem fixture_struct_disjunction_meet :
       (meet
         (.disj
           [
-            (.regular, .struct [⟨"kind", .regular, .prim (.string "web")⟩] .regularOpen none []),
-            (.regular, .struct [⟨"kind", .regular, .prim (.string "db")⟩] .regularOpen none [])
+            (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web")⟩] .regularOpen none []),
+            (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db")⟩] .regularOpen none [])
           ])
-        (.struct [
+        (mkStruct [
             ⟨"kind", .regular, .prim (.string "web")⟩,
             ⟨"port", .regular, .prim (.int 80)⟩
           ] .regularOpen none []))
@@ -506,54 +506,54 @@ theorem fixture_struct_disjunction_meet :
 theorem fixture_struct_ellipsis :
     formatField "x"
       (meet
-        (.struct [⟨"a", .regular, .kind .int⟩] .defOpenViaTail (some .top) [])
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "ok")⟩] .regularOpen none []))
+        (mkStruct [⟨"a", .regular, .kind .int⟩] .defOpenViaTail (some .top) [])
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "ok")⟩] .regularOpen none []))
       = "x: {a: 1, b: \"ok\", ...}" := by
   native_decide
 
 theorem fixture_string_pattern_constraint :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.kind .string), (.kind .int))])
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
+        (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
       = "x: {a: 1, b: 2, [string]: int}" := by
   native_decide
 
 theorem fixture_string_pattern_conflict :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.kind .string), (.kind .int))])
-        (.struct [⟨"a", .regular, .prim (.string "x")⟩] .regularOpen none []))
+        (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
+        (mkStruct [⟨"a", .regular, .prim (.string "x")⟩] .regularOpen none []))
       = "x: {a: _|_, [string]: int}" := by
   native_decide
 
 theorem fixture_exact_label_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.prim (.string "a")), (.kind .int))])
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+        (mkStruct [] .regularOpen none [((.prim (.string "a")), (.kind .int))])
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
       = "x: {a: 1, b: \"x\", [\"a\"]: int}" := by
   native_decide
 
 theorem fixture_regex_label_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))])
-        (.struct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+        (mkStruct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))])
+        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
       = "x: {a: 1, b: \"x\", [=~\"^a$\"]: int}" := by
   native_decide
 
 theorem fixture_regex_wildcard_pattern :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a.*z$"), (.kind .int))])
-              (.struct [⟨"abcz", .regular, .prim (.int 1)⟩, ⟨"abcy", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+              (mkStruct [] .regularOpen none [((.stringRegex "^a.*z$"), (.kind .int))])
+              (mkStruct [⟨"abcz", .regular, .prim (.int 1)⟩, ⟨"abcy", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
           ⟨"y", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a.+z$"), (.kind .int))])
-              (.struct [⟨"az", .regular, .prim (.string "skip")⟩, ⟨"abz", .regular, .prim (.int 2)⟩] .regularOpen none [])⟩
+              (mkStruct [] .regularOpen none [((.stringRegex "^a.+z$"), (.kind .int))])
+              (mkStruct [⟨"az", .regular, .prim (.string "skip")⟩, ⟨"abz", .regular, .prim (.int 2)⟩] .regularOpen none [])⟩
         ] .regularOpen none [])
       =
         "x: {abcz: 1, abcy: \"skip\", [=~\"^a.*z$\"]: int}\n"
@@ -562,19 +562,19 @@ theorem fixture_regex_wildcard_pattern :
 
 theorem fixture_regex_class_pattern :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^[ab]cz$"), (.kind .int))])
-              (.struct [
+              (mkStruct [] .regularOpen none [((.stringRegex "^[ab]cz$"), (.kind .int))])
+              (mkStruct [
                   ⟨"acz", .regular, .prim (.int 1)⟩,
                   ⟨"bcz", .regular, .prim (.int 2)⟩,
                   ⟨"ccz", .regular, .prim (.string "skip")⟩
                 ] .regularOpen none [])⟩,
           ⟨"y", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a[0-9]z$"), (.kind .int))])
-              (.struct [⟨"a5z", .regular, .prim (.int 1)⟩, ⟨"axz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩
+              (mkStruct [] .regularOpen none [((.stringRegex "^a[0-9]z$"), (.kind .int))])
+              (mkStruct [⟨"a5z", .regular, .prim (.int 1)⟩, ⟨"axz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩
         ] .regularOpen none [])
       =
         "x: {acz: 1, bcz: 2, ccz: \"skip\", [=~\"^[ab]cz$\"]: int}\n"
@@ -584,16 +584,16 @@ theorem fixture_regex_class_pattern :
 theorem fixture_regex_escape_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.stringRegex "^a\\.z$"), (.kind .int))])
-        (.struct [⟨"a.z", .regular, .prim (.string "bad")⟩, ⟨"abz", .regular, .prim (.string "skip")⟩] .regularOpen none []))
+        (mkStruct [] .regularOpen none [((.stringRegex "^a\\.z$"), (.kind .int))])
+        (mkStruct [⟨"a.z", .regular, .prim (.string "bad")⟩, ⟨"abz", .regular, .prim (.string "skip")⟩] .regularOpen none []))
       = "x: {\"a.z\": _|_, abz: \"skip\", [=~\"^a\\\\.z$\"]: int}" := by
   native_decide
 
 theorem fixture_regex_question_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.stringRegex "^colou?r$"), (.kind .int))])
-        (.struct [
+        (mkStruct [] .regularOpen none [((.stringRegex "^colou?r$"), (.kind .int))])
+        (mkStruct [
             ⟨"color", .regular, .prim (.string "bad")⟩,
             ⟨"colour", .regular, .prim (.int 2)⟩,
             ⟨"colouur", .regular, .prim (.string "skip")⟩
@@ -603,15 +603,15 @@ theorem fixture_regex_question_pattern :
 
 theorem fixture_regex_shorthand_pattern :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a\\dz$"), (.kind .int))])
-              (.struct [⟨"a5z", .regular, .prim (.string "bad")⟩, ⟨"adz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+              (mkStruct [] .regularOpen none [((.stringRegex "^a\\dz$"), (.kind .int))])
+              (mkStruct [⟨"a5z", .regular, .prim (.string "bad")⟩, ⟨"adz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
           ⟨"y", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a\\Dz$"), (.kind .int))])
-              (.struct [⟨"a5z", .regular, .prim (.string "skip")⟩, ⟨"adz", .regular, .prim (.int 1)⟩] .regularOpen none [])⟩
+              (mkStruct [] .regularOpen none [((.stringRegex "^a\\Dz$"), (.kind .int))])
+              (mkStruct [⟨"a5z", .regular, .prim (.string "skip")⟩, ⟨"adz", .regular, .prim (.int 1)⟩] .regularOpen none [])⟩
         ] .regularOpen none [])
       =
         "x: {a5z: _|_, adz: \"skip\", [=~\"^a\\\\dz$\"]: int}\n"
@@ -621,8 +621,8 @@ theorem fixture_regex_shorthand_pattern :
 theorem fixture_regex_alternation_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.stringRegex "^cat$|^dog$"), (.kind .int))])
-        (.struct [
+        (mkStruct [] .regularOpen none [((.stringRegex "^cat$|^dog$"), (.kind .int))])
+        (mkStruct [
             ⟨"cat", .regular, .prim (.string "bad")⟩,
             ⟨"dog", .regular, .prim (.int 2)⟩,
             ⟨"cow", .regular, .prim (.string "skip")⟩
@@ -633,8 +633,8 @@ theorem fixture_regex_alternation_pattern :
 theorem fixture_regex_group_alternation_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.stringRegex "^(cat|dog)$"), (.kind .int))])
-        (.struct [
+        (mkStruct [] .regularOpen none [((.stringRegex "^(cat|dog)$"), (.kind .int))])
+        (mkStruct [
             ⟨"cat", .regular, .prim (.string "bad")⟩,
             ⟨"dog", .regular, .prim (.int 2)⟩,
             ⟨"cow", .regular, .prim (.string "skip")⟩
@@ -644,15 +644,15 @@ theorem fixture_regex_group_alternation_pattern :
 
 theorem fixture_regex_word_shorthand_pattern :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a\\wz$"), (.kind .int))])
-              (.struct [⟨"a_z", .regular, .prim (.string "bad")⟩, ⟨"a-z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+              (mkStruct [] .regularOpen none [((.stringRegex "^a\\wz$"), (.kind .int))])
+              (mkStruct [⟨"a_z", .regular, .prim (.string "bad")⟩, ⟨"a-z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
           ⟨"y", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a\\Wz$"), (.kind .int))])
-              (.struct [⟨"a_z", .regular, .prim (.string "skip")⟩, ⟨"a-z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
+              (mkStruct [] .regularOpen none [((.stringRegex "^a\\Wz$"), (.kind .int))])
+              (mkStruct [⟨"a_z", .regular, .prim (.string "skip")⟩, ⟨"a-z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
         ] .regularOpen none [])
       =
         "x: {a_z: _|_, \"a-z\": \"skip\", [=~\"^a\\\\wz$\"]: int}\n"
@@ -661,15 +661,15 @@ theorem fixture_regex_word_shorthand_pattern :
 
 theorem fixture_regex_space_shorthand_pattern :
     formatTopLevel
-      (.struct [
+      (mkStruct [
           ⟨"x", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a\\sz$"), (.kind .int))])
-              (.struct [⟨"a z", .regular, .prim (.string "bad")⟩, ⟨"a_z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+              (mkStruct [] .regularOpen none [((.stringRegex "^a\\sz$"), (.kind .int))])
+              (mkStruct [⟨"a z", .regular, .prim (.string "bad")⟩, ⟨"a_z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
           ⟨"y", .regular,
             meet
-              (.struct [] .regularOpen none [((.stringRegex "^a\\Sz$"), (.kind .int))])
-              (.struct [⟨"a z", .regular, .prim (.string "skip")⟩, ⟨"a_z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
+              (mkStruct [] .regularOpen none [((.stringRegex "^a\\Sz$"), (.kind .int))])
+              (mkStruct [⟨"a z", .regular, .prim (.string "skip")⟩, ⟨"a_z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
         ] .regularOpen none [])
       =
         "x: {\"a z\": _|_, a_z: \"skip\", [=~\"^a\\\\sz$\"]: int}\n"
@@ -679,16 +679,16 @@ theorem fixture_regex_space_shorthand_pattern :
 theorem fixture_regex_exact_repetition_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.stringRegex "^a\\d{2}z$"), (.kind .int))])
-        (.struct [⟨"a12z", .regular, .prim (.string "bad")⟩, ⟨"a1z", .regular, .prim (.string "skip")⟩] .regularOpen none []))
+        (mkStruct [] .regularOpen none [((.stringRegex "^a\\d{2}z$"), (.kind .int))])
+        (mkStruct [⟨"a12z", .regular, .prim (.string "bad")⟩, ⟨"a1z", .regular, .prim (.string "skip")⟩] .regularOpen none []))
       = "x: {a12z: _|_, a1z: \"skip\", [=~\"^a\\\\d{2}z$\"]: int}" := by
   native_decide
 
 theorem fixture_regex_bounded_repetition_pattern :
     formatField "x"
       (meet
-        (.struct [] .regularOpen none [((.stringRegex "^a\\d{2,3}z$"), (.kind .int))])
-        (.struct [
+        (mkStruct [] .regularOpen none [((.stringRegex "^a\\d{2,3}z$"), (.kind .int))])
+        (mkStruct [
             ⟨"a12z", .regular, .prim (.int 2)⟩,
             ⟨"a123z", .regular, .prim (.string "bad")⟩,
             ⟨"a1z", .regular, .prim (.string "skip")⟩
@@ -750,7 +750,7 @@ theorem fixture_open_list_tail :
 
 theorem fixture_manifest_field_filtering :
     manifest
-      (.struct [
+      (mkStruct [
           ⟨"a", .regular, .prim (.int 1)⟩,
           ⟨"b", .regular, .list [.prim (.string "x")]⟩,
           ⟨"_hidden", .hidden, .prim (.bool true)⟩,
@@ -762,7 +762,7 @@ theorem fixture_manifest_field_filtering :
 
 theorem fixture_manifest_field_filtering_format :
     formatManifestField "x"
-      (.struct [
+      (mkStruct [
           ⟨"a", .regular, .prim (.int 1)⟩,
           ⟨"b", .regular, .list [.prim (.string "x")]⟩,
           ⟨"_hidden", .hidden, .prim (.bool true)⟩,
@@ -774,7 +774,7 @@ theorem fixture_manifest_field_filtering_format :
 
 theorem fixture_manifest_nested_default :
     manifestFieldMatches "x"
-      (.struct [
+      (mkStruct [
           ⟨"mode", .regular,
             .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩
         ] .regularOpen none [])
@@ -783,34 +783,34 @@ theorem fixture_manifest_nested_default :
 
 theorem fixture_manifest_ignores_absent_optional_default :
     formatManifestField "x"
-      (.struct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+      (mkStruct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
       = .ok "x: {}" := by
   rfl
 
 theorem fixture_manifest_selects_materialized_optional_default :
     manifestFieldMatches "x"
       (meet
-        (.struct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
-        (.struct [⟨"mode", .regular, .top⟩] .regularOpen none []))
+        (mkStruct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+        (mkStruct [⟨"mode", .regular, .top⟩] .regularOpen none []))
       "x: {mode: \"prod\"}" = true := by
   native_decide
 
 theorem fixture_manifest_selects_materialized_required_default :
     manifestFieldMatches "x"
       (meet
-        (.struct [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
-        (.struct [⟨"mode", .regular, .top⟩] .regularOpen none []))
+        (mkStruct [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+        (mkStruct [⟨"mode", .regular, .top⟩] .regularOpen none []))
       "x: {mode: \"prod\"}" = true := by
   native_decide
 
 theorem fixture_let_binding :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"base", .letBinding, .prim (.int 2)⟩,
             ⟨"x", .regular, .conj [.ref "base", .kind .int]⟩,
             ⟨"nested", .regular,
-              .struct [
+              mkStruct [
                   ⟨"kind", .letBinding, .kind .string⟩,
                   ⟨"value", .regular, .conj [.ref "kind", .prim (.string "ok")]⟩
                 ] .regularOpen none []⟩
@@ -821,24 +821,24 @@ theorem fixture_let_binding :
 theorem fixture_nested_reference_list :
     formatTopLevel
       (resolveAndEval
-        (.struct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .list [.ref "#A"]⟩] .regularOpen none []))
+        (mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .list [.ref "#A"]⟩] .regularOpen none []))
       = "#A: int\nx: [int]" := by
   native_decide
 
 theorem fixture_direct_self_reference_cycle :
-    formatTopLevel (resolveAndEval (.struct [⟨"x", .regular, .ref "x"⟩] .regularOpen none [])) = "x: _" := by
+    formatTopLevel (resolveAndEval (mkStruct [⟨"x", .regular, .ref "x"⟩] .regularOpen none [])) = "x: _" := by
   native_decide
 
 theorem fixture_mutual_reference_cycle :
     formatTopLevel
-      (resolveAndEval (.struct [⟨"x", .regular, .ref "y"⟩, ⟨"y", .regular, .ref "x"⟩] .regularOpen none []))
+      (resolveAndEval (mkStruct [⟨"x", .regular, .ref "y"⟩, ⟨"y", .regular, .ref "x"⟩] .regularOpen none []))
       = "x: _\ny: _" := by
   native_decide
 
 theorem fixture_constrained_reference_cycle :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number]⟩,
             ⟨"a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number]⟩,
             ⟨"b", .regular, .ref "a"⟩
@@ -849,7 +849,7 @@ theorem fixture_constrained_reference_cycle :
 theorem fixture_three_reference_cycle :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"x", .regular, .ref "y"⟩,
             ⟨"y", .regular, .ref "z"⟩,
             ⟨"z", .regular, .ref "x"⟩
@@ -861,7 +861,7 @@ theorem fixture_manifest_hidden_field_reference :
     manifestFieldMatches "x"
         (evalStructRefs
           (resolveStructRefs
-            (.struct [⟨"_secret", .hidden, .prim (.string "x")⟩, ⟨"value", .regular, .ref "_secret"⟩] .regularOpen none [])))
+            (mkStruct [⟨"_secret", .hidden, .prim (.string "x")⟩, ⟨"value", .regular, .ref "_secret"⟩] .regularOpen none [])))
         "x: {value: \"x\"}" = true := by
   native_decide
 
@@ -871,7 +871,7 @@ theorem fixture_manifest_hidden_field_reference :
 theorem fixture_underscore_ident_reference :
     formatField "out"
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"_base", .hidden, .prim (.int 5)⟩,
             ⟨"ref", .regular, .ref "_base"⟩,
             ⟨"cmp", .regular, .binary .ne (.ref "_base") (.prim (.int 3))⟩,
@@ -893,12 +893,12 @@ theorem fixture_underscore_top_unaffected :
 theorem fixture_underscore_top_bottom :
     formatTopLevel
       (resolveAndEval
-        (.struct [
+        (mkStruct [
             ⟨"bottom", .regular,
               .disj [(.regular, .bottom), (.regular, .prim (.int 2))]⟩,
             ⟨"self", .regular,
               bindValueAlias "X"
-                (.struct [
+                (mkStruct [
                     ⟨"n", .regular, .prim (.int 1)⟩,
                     ⟨"m", .regular, .selector (.ref "X") "n"⟩
                   ] .regularOpen none [])⟩

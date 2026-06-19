@@ -255,8 +255,8 @@ mutual
     | fuel + 1, .index expectedBase expectedKey, .index actualBase actualKey =>
         subsumesWithFuel fuel expectedBase actualBase && subsumesWithFuel fuel expectedKey actualKey
     | fuel + 1, .disj alternatives, value => disjSubsumesWithFuel fuel alternatives value
-    | fuel + 1, .struct expectedFields expectedOpenness expectedTail expectedPatterns,
-      .struct actualFields actualOpenness actualTail actualPatterns =>
+    | fuel + 1, .struct expectedFields expectedOpenness expectedTail expectedPatterns _,
+      .struct actualFields actualOpenness actualTail actualPatterns _ =>
         structNSubsumesWithFuel fuel
           expectedFields expectedOpenness expectedTail expectedPatterns
           actualFields actualOpenness actualTail actualPatterns
