@@ -136,12 +136,21 @@ fix is purely a speedup — byte-identical output.
   (Gap-2, force-tier disjunction-arm narrowing for a REGULAR discriminator) FIXED** (2026-06-19).
   **Bug2-3 (Gap-2b, the REMAINING blocker) OPEN:** the real `#Mixin`'s `listShape | structShape |
   error` disjunction discriminates STRUCTURALLY (list-emit `[...]` + hidden `#components` vs plain
-  struct), not by a regular field — so the LIST-shaped arm is not pruned against the STRUCT host when
-  it carries the spliced `_patch` comprehension, leaving a `struct | list` disjunction that bottoms.
-  Full `apps/argocd.cue` re-measured **~88s, STILL bottoms** (2026-06-19, post Bug2-2). See `plan.md`
-  "Slice Bug2-3 — Gap-2b" for the minimization (`/tmp/kprobe/struct_disc.cue`) and design. The 88s
-  wall (when the app DOES export, e.g. cert-manager ~30.5s) is a separate, downstream perf concern,
-  meaningful only once Gap-2b is fixed.
+  struct), not by a regular field. Phase-B re-diagnosed the mechanism (2026-06-19, supersedes the
+  earlier "`_patch` residual" guess): the disjunction is evaluated arm-by-arm STANDALONE inside the
+  `#Mixin` closure (`Eval.lean` `.disj`/`normalizeEvaluatedDisj`), where the host `kind:"ListenerSet"`
+  reaches the arms only through the `_patch` comprehension. The `structShape` arm absorbs `kind` at
+  top level (`_patch` is a direct embedding); the `listShape` arm hides `_patch` inside its
+  `[string]: _patch` PATTERN, so its top-level stays a bare list-embed (`{#components, [...]}`)
+  WITHOUT `kind`. The whole host struct `{kind:"ListenerSet"}` is never met against the list arm as a
+  value, so the `struct & list` type conflict cue uses to prune `listShape` never fires — both arms
+  survive (`[elist | struct]`) and the disjunction bottoms as ambiguous at manifest. The primitive is
+  sound (`listShape & {kind:"ListenerSet"}` as a DIRECT meet bottoms in Kue, cue-exact); the gap is
+  that the structural disjunction never reaches that meet. Full `apps/argocd.cue` re-measured **~88s,
+  STILL bottoms** (2026-06-19, post Bug2-2). See `plan.md` "Slice Bug2-3 — Gap-2b" for the
+  minimization (`/tmp/kprobe/struct_disc.cue`) and the implementable design. The 88s wall (when the
+  app DOES export, e.g. cert-manager ~30.5s) is a separate, downstream perf concern, meaningful only
+  once Gap-2b is fixed.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).

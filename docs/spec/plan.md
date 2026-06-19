@@ -312,27 +312,77 @@ path, so it must ship behind the soundness gate below and AFTER Gap-1 (which is 
   narrow` (shapeD — selects struct arm + emits patch, content-identical modulo field-order #3); 8
   `native_decide` pins incl. the GATE pin, soundness (all-arms-killed → bottom), and direct-unchanged.
   `lake build`/`fixture pairs ok`/`shellcheck` green. **Clears shapeD + `probe_disj_inline`.**
-- **Slice Bug2-3 — Gap-2b (structural disjunction-arm pruning behind force). OPEN — the REMAINING
-  argocd blocker.** `kue export apps/argocd.cue` STILL bottoms (~88s) after Gap-2 — but for a
-  DIFFERENT, separate reason. The real `defs/parts.#Mixin` (cue cache `…/defs@v0.3.19/parts/
-  mixin.cue`) discriminates its `listShape | structShape | error` disjunction STRUCTURALLY, not by a
-  regular field: `listShape = { #components: [string]: _patch; [...] }` is LIST-shaped (the `[...]`
-  embed) keyed on the HIDDEN `#components`; `structShape = { _patch; ... }` is a plain struct
-  declaring no concrete discriminator. So Gap-2's `embedDisjArmDeclLabels` (regular discriminators)
-  doesn't apply. Pinned (minimized `/tmp/kprobe/struct_disc.cue`; cue selects `structShape`, emits
-  `meta:"yes"`; Kue bottoms): instrumenting `conjDisjArms?` distribution shows `nLive=2` — the
-  LIST-shaped arm is NOT pruned against the STRUCT host when it carries the spliced `_patch` patch,
-  so a `struct | list` disjunction survives and bottoms. Without `_patch` the structural pruning
-  works (`/tmp/kprobe/sd5.cue`), so the gap is the list-arm-vs-struct-host pruning INTERACTING with
-  the spliced comprehension patch behind the force tier. **Mechanism to investigate:** when
-  distributing the host into a LIST-shaped arm (`[...]`/`.embeddedList`), the meet against a STRUCT
-  host must bottom that arm (struct-vs-list type mismatch, cue-exact) so `liveAlternatives` prunes
-  it; today it survives. Likely the `_patch` splice into the list arm produces a struct-ish residual
-  that doesn't trip the type mismatch. SOUNDNESS-GATED like Gap-2 (cert-manager byte-identity
-  mandatory; cert-manager has no struct-vs-list disjunction arm, so a structural-arm-pruning fix
-  should be byte-identical — verify by construction). After Gap-2b: RE-MEASURE
-  `kue export apps/argocd.cue` (was 88s bottom; the residual is then the item-7 PERF wall, no longer
-  a correctness bottom).
+- **Slice Bug2-3 — Gap-2b design (implementable). OPEN — the REMAINING argocd blocker.** The real
+  `defs/parts.#Mixin` (cue cache `…/defs@v0.3.19/parts/mixin.cue`) discriminates its `listShape |
+  structShape | error` disjunction STRUCTURALLY: `listShape = { #components: [string]: _patch; [...] }`
+  is LIST-shaped (the `[...]` embed) keyed on the HIDDEN `#components`; `structShape = { _patch; ... }`
+  is a plain struct. No regular discriminator → Gap-2's `embedDisjArmDeclLabels` does not apply.
+  Repro `/tmp/kprobe/struct_disc.cue` (persists; cue → `{kind:"ListenerSet",meta:"yes"}`, Kue bottoms);
+  `kue export apps/argocd.cue` STILL bottoms (~88s).
+
+  **MECHANISM — pinned by Phase-B instrumentation (corrects the earlier "`_patch` residual" guess).**
+  The disjunction is evaluated ARM-BY-ARM STANDALONE inside the `#Mixin` closure — it reaches
+  `evalValueWithFuel`'s raw-`.disj` arm (`Eval.lean` ~line 2406) → `normalizeEvaluatedDisj`, NOT the
+  embed-fold (`meetEmbeddingsWithFuel` never fires for this shape; `#Mixin`'s body forces via the
+  no-tail-no-pattern arm of `forceClosureWithConjunct`, `Eval.lean` ~line 2875, which uses
+  `mergeConjOperands` + `evalFieldRefsListWithFuel`, not `meetEmbeddings`). At that arm-evaluation the
+  host `kind:"ListenerSet"` reaches the arms only through the `_patch` comprehension: `structShape`'s
+  `_patch` is a DIRECT embedding → the struct arm absorbs `kind` at top level (instrumented:
+  `struct[fields=[kind]]`); `listShape` hides `_patch` inside its `[string]: _patch` PATTERN → the
+  list arm's top level stays a bare list-embed (`elist[items=0,decls=[#components]]`) WITHOUT `kind`.
+  The whole host struct `{kind:"ListenerSet"}` is **never met against the list arm as a value**, so
+  the `struct & list` type conflict cue uses to prune `listShape` never fires. Both arms survive
+  (`normalizeEvaluatedDisj` → `allRegularAlternatives=true`, ctors `[elist, struct, oth]`, the `oth`
+  `error(…)` arm bottoms first), the disjunction stays `[elist | struct]`, and at manifest
+  `resolveDisjDefault?` finds two live regular arms (no default) → `.error (.ambiguous …)` = the
+  bottom. **The struct-vs-list primitive is SOUND** — `listShape & {kind:"ListenerSet"}` as a DIRECT
+  top-level meet bottoms in Kue, cue-exact (verified `/tmp/g2btest/t.cue`); and a list-embed gaining a
+  regular field bottoms (`{#components, [...], kind:"x"}` → bottom, cue-exact, `/tmp/g2btest/t2.cue`).
+  The gap is purely that the structural disjunction never routes its arms through that meet.
+
+  **FIX — recommended lever (ONE): distribute the closure's sibling output fields into each
+  structural disjunction arm at the standalone-`.disj` evaluation, gated to the shape.** When a raw
+  `.disj` is evaluated as a struct embedding (the `Eval.lean` ~2406 arm reached via the closure-force
+  field-merge) AND the enclosing frame carries a sibling REGULAR OUTPUT field that a structural arm
+  does not (the `kind` here), meet that sibling-struct into each arm BEFORE `normalizeEvaluatedDisj`,
+  so `meet {kind} listShape` bottoms the list arm via the existing (sound) `meetWithFuel`
+  struct-vs-list arms. This is the structural analogue of Bug2-2's `embedDisjArmDeclLabels`, but the
+  spliced operand is the WHOLE sibling output-field set (not a discriminator label), and the prune
+  comes from the type-conflict primitive, not label-matching. Concretely the lever lands where the
+  disjunction-valued embedding is combined with its sibling output fields — i.e. give the closure-force
+  /struct-eval a path that, when an embedded disjunction co-exists with sibling regular output fields,
+  routes the arms through `meet sibling arm` (the same distribution `meetEmbeddingsWithFuel`'s `.disj`
+  branch already performs at `Eval.lean` ~2708). Prefer reusing that existing `.disj`-distribution
+  helper over a new walker.
+
+  *Rejected alternatives:* (a) pruning inside `meetWithFuel`'s `.embeddedList`/`.struct` arms — wrong
+  layer, the host never reaches those arms for this shape (the issue is routing, not the meet). (b)
+  injecting the list-vs-struct check at `normalizeEvaluatedDisj` blind to the host — unsound, it would
+  need to invent the host. The host is exactly the sibling output fields; splice THOSE.
+
+  **SOUNDNESS — GATED, same discipline as Bug2-2 (no stop-territory).** (1) A genuinely
+  struct-compatible arm still survives: `structShape` meets `{kind}` fine (no conflict), so the struct
+  arm is untouched. (2) A real conflict still bottoms: when BOTH arms conflict with the host the
+  disjunction bottoms (the `error(…)` arm already bottoms; a host that matches neither shape kills all
+  arms → bottom, cue-exact). (3) The list arm is pruned ONLY by the existing sound `struct & list`
+  primitive — no new conflict logic. **GATE (MANDATORY): the splice must fire ONLY when an embedded
+  disjunction co-exists with a sibling regular output field the arm lacks** — exactly the structural
+  `#Mixin` shape. cert-manager has no struct-vs-list disjunction arm, so the gate must fire 0× there →
+  byte-identical. **VERIFY BY CONSTRUCTION** with the same 0-fire instrumentation Bug2-2 used: if the
+  gate fires on cert-manager, STOP-AND-REPORT (the lever is too broad). If the byte-identical gate
+  cannot be expressed narrowly enough that cert-manager fires 0×, STOP-AND-REPORT and file the hole —
+  do not ship.
+
+  **SCOPE / SLICES.** Estimate **1–2 slices** (1 if the gate + distribution reuse `meetEmbeddings`'s
+  `.disj` arm cleanly; a 2nd if the closure-force routing needs its own small helper). Gated exactly
+  like Bug2-2. Tests: a structural-discriminator fixture `testdata/modules/disj_embed_struct_disc`
+  (host picks `structShape`, emits `meta:"yes"`; + a `#components`-host variant if it can be made
+  cue-valid in-tree; + a real-conflict-bottoms case) with a `FixturePorts` entry; `native_decide`
+  pins for the GATE (no sibling output field / no disjunction → no splice → unchanged), both-arms (no
+  over-prune), and soundness (all-arms-conflict → bottom). **SUCCESS SIGNAL:** the byte-identical
+  cert-manager gate (0-fire) + the new structural fixture + RE-MEASURE `kue export apps/argocd.cue` —
+  does argocd finally export content-identical to cue? (Was 88s bottom; if it now exports, the residual
+  is the item-7 PERF wall, no longer a correctness bottom.)
 - A-EN3 (the walker consolidation) does NOT ride along — it should land AFTER Bug2-1, see its entry
   (consolidating the walker family first would couple a non-trivial generic-fold refactor to the
   adoption-critical fix; do the let-following in `defFrameRefIndices` first, then fold).
@@ -525,6 +575,16 @@ Bug2-1 first (let-following written directly in `defFrameRefIndices`), THEN A-EN
 walkers — including the now-let-following `defFrameRefIndices` — behind the one combinator.** That
 way the consolidation absorbs the new logic instead of racing it. Priority: LOW (it is DRY, not
 correctness); slots after the Bug #2 pair, ahead of the other LOW cleanups.
+
+**Phase-B reassessment (2026-06-19, `7e776ec`, post Bug2-1+Bug2-2): STAYS PARKED behind Bug2-3.** The
+trio is unchanged — Phase-A confirmed `embedDisjArmDeclLabels` is a shallow one-hop ref-follow (NOT a
+4th depth-threading walker) and `closeDefFrameReadIndices` REUSES `defFrameRefIndices` (no new walker).
+So A-EN3 is still exactly the three named walkers. Bug2-1 has landed (the let-following is now in
+`defFrameRefIndices`), so the "land Bug2-1 first" precondition is met — but Bug2-3/Gap-2b (the LAST
+argocd blocker) is now the top correctness priority, and interposing this generic-fold refactor (which
+must preserve totality + the B7-style agreement theorems) ahead of it re-introduces exactly the
+coupling/racing risk the sequencing above guards against. Land A-EN3 as the FIRST LOW cleanup AFTER
+Gap-2b unblocks argocd, when it races nothing.
 
 ## Phase-A audit (2026-06-19, batch `24da14d..463f8e1` — B2 CP3-pre/flip + B2.5) — CLEAN
 
@@ -1658,9 +1718,44 @@ parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructT
 B4 ride-along `DecimalTests`/`FormatTests`) interleaved → deeper parity/perf (2,6,7) →
 borderline/LOW (8 + B3) ride-alongs.
 
-### Re-rank (Phase-B design spike 2026-06-19, `0d4b1a0`) — recommended next 3-4 slices (CURRENT)
+### Re-rank (Phase-B Gap-2b spike 2026-06-19, `7e776ec`) — recommended next 3-4 slices (CURRENT)
 
-Supersedes the Post-B2 re-ranking below for the *next* slices. Bug #2 design is now implementable
+Supersedes the `0d4b1a0` re-rank below. State: Bug2-1 (Gap-1) + Bug2-2 (Gap-2) DONE; Phase-A over that
+batch CLEAN (`7e776ec`, one LOW DRY fix). The argocd `#Mixin` narrowing chain is down to its LAST gap,
+Bug2-3 / Gap-2b, now diagnosed precisely and designed implementable (above). Recommended next 3-4:
+
+1. **Bug2-3 — Gap-2b (structural disjunction-arm pruning). THE argocd unblock.** Distribute the
+   closure's sibling regular-output fields into each structural disjunction arm so `meet {kind}
+   listShape` bottoms the list arm via the existing sound `struct & list` primitive — gated to fire
+   ONLY when an embedded disjunction co-exists with a sibling output field the arm lacks (the
+   structural `#Mixin` shape). 1–2 slices, gated exactly like Bug2-2. MANDATORY gate: cert-manager
+   fires 0× → byte-identical (verify by construction); STOP-AND-REPORT if the gate cannot be made
+   narrow enough. SUCCESS SIGNAL: RE-MEASURE `kue export apps/argocd.cue` (was 88s bottom; if it
+   exports content-identical to cue, the argocd CORRECTNESS chain is closed and the residual is the
+   item-7 PERF wall).
+2. **item 7 — frame-id canonical identity (PERF wall, gates FULL real-app adoption).** After Gap-2b
+   clears the argocd correctness bottom, item 7 is the next lever: the 88s argocd wall (and the heavy
+   `argo` sub-package >200s) is downstream perf, meaningful once the app exports. Unchanged rationale
+   (below).
+3. **A-EN3 (LOW DRY — walker consolidation) — PARKED behind Gap-2b; reassessed 2026-06-19, stays
+   parked.** Phase-A confirmed the trio is unchanged (`embedDisjArmDeclLabels` is NOT a 4th walker —
+   shallow one-hop, no depth threading; `closeDefFrameReadIndices` REUSES `defFrameRefIndices`). So
+   A-EN3 = exactly `defFrameRefIndices` + `selfReferencedLabels` + `refsSelfEmbeddedLabel`, the three
+   depth-threading walkers, consolidatable behind one B7-style `descendClauses` combinator. **Verdict:
+   NOT now.** It is LOW/DRY with zero correctness payoff; interposing a non-trivial generic-fold
+   refactor (must preserve totality + B7-style agreement theorems) ahead of the LAST argocd blocker
+   re-couples exactly the two risks the original entry warned against. Land it AFTER Gap-2b unblocks
+   argocd, as the first of the LOW cleanups — when the refactor races nothing.
+4. **Then: B6-deferred / field-order #3 / B2-A1+A2 / A2-x+A2-y / LOW tail / deferred test-org**
+   (incl. the `EvalTests` 1210-line re-split + `FixtureTests`/`StructTests`/`BuiltinTests` org).
+   Diminishing-return narrow correctness + cleanups behind the perf wall; parallel-safe filler.
+
+Two-phase audit: this spike is the Phase-B of the Bug2-1+Bug2-2 cycle (Phase-A ran at `7e776ec`). Next
+audit cadence point is after Bug2-3 (+ ~1 more slice) lands.
+
+### Re-rank (Phase-B design spike 2026-06-19, `0d4b1a0`) — SUPERSEDED by the Gap-2b re-rank above
+
+Bug #2 design is now implementable
 (decomposed into Gap-1 + Gap-2, soundness GO/GO-WITH-GATE — see "Bug #2 design (implementable)"
 above). Bug #2 is the argocd unblock = TOP of the correctness/adoption priority (the full app still
 bottoms; it is the single gate between "content-correct in a scratch module" and "full
