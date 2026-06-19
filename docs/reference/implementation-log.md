@@ -8367,3 +8367,51 @@ to read bottom reasons, then REVERTED; the working tree is back to baseline.
   hypothesis: an import-laziness gap letting an unreferenced conflicting dep sibling pollute the
   selected value. Follow-up slice (a CORRECTNESS slice, ahead of the perf items) detailed in
   `plan.md`. Build green (96 jobs) at baseline. No CUE divergence (the divergence is Kue-wrong).
+
+---
+
+## argocd bottom PINNED — comprehension-guard / embed-narrowing (Bug #1 fixed, Bug #2 open)
+
+**Intended outcome:** pin and fix the `apps/argocd.cue` `conflicting values (bottom)`. The prior
+spike's cross-module / import-laziness hypothesis is **DISPROVEN** — the bug reproduces SAME-MODULE
+and the `#args/#from/#to` `fieldConflict` was a red herring. Minimizing `defaults.#ListenerSet`
+(`defs.#ListenerSet & parts.#UseCertManager & {…}`) down to `parts.#Mixin` pinned the real shape: a
+comprehension guard `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }` that
+reads the def's REGULAR sibling `kind`, narrowed at the use site. cue defers the comprehension until
+`kind` is concrete and emits the matched patch; Kue forced the embedded def with only HIDDEN fields
+spliced, so the guard fired against the un-narrowed `kind: string`, stayed incomplete, and the
+guarded body dropped (the outer `meet` cannot re-fire a collapsed comprehension).
+
+**Two bugs at different nesting depths:**
+
+- **Bug #1 — single-embed comprehension-guard splice (FIXED).** `#Outer` embeds `#Inner` whose guard
+  is a DIRECT top-level comprehension; the use site narrows the regular sibling. Added
+  `defFrameRefIndices` (collects the def-frame slot indices a value reads, threading frame depth
+  through every frame-pusher incl. a comprehension's `+1`-per-`for` clause chain) →
+  `embedComprehensionReadLabels` (the labels a body's comprehensions read at the def frame) →
+  `spliceOperandForEmbed` (the splice operand = `hiddenFieldsOnly` PLUS the host's REGULAR fields a
+  comprehension reads). Wired into the two `forceClosureWithConjunct` splice sites
+  (`evalEmbeddingFieldsWithFuel`, `meetEmbeddingsWithFuel`) replacing the bare `hiddenFieldsOnly`.
+  The extra regulars merge BY LABEL into the embed's own declarations (the same `meet` the outer fold
+  does, early enough for the guard) — no new label, no closedness change.
+
+- **Bug #2 — let-buried multi-embed narrowing (OPEN, the actual argocd blocker).** In the real
+  `parts.#Mixin` the comprehension is buried under `let _patch` → `let structShape` → embed, AND
+  wrapped in `listShape | structShape | error(…)`. The use-site narrowing must propagate down several
+  `let`/embed layers (and through the disjunction arm) to reach the guard; the single-level splice
+  does not thread that far (with the disjunction → bottom; without → drops the patch). A
+  narrowing-propagation architectural slice — diagnosed + repro'd, deferred per
+  `correctness-over-performance`. Detailed in `plan.md` ("PINNED" section).
+
+**Tests:** `crossmod_embed_guard` module fixture (oracle-checked: a cross-module dep `example.com/mix`
+with the `#Inner`/`#Outer` embed-guard shape; Kue export == cue export). `native_decide` pins in
+`TwoPassTests.lean`: `embed_comprehension_reads_guarded_regular_sibling` (the mechanism — `["Self",
+"kind"]`), `embed_comprehension_guard_emits_matched_patch` (positive), `embed_comprehension_guard_
+false_drops_body` (no over-fire), `embed_comprehension_guard_real_conflict_bottoms` (soundness — a
+real conflict still bottoms).
+
+**Verify + measure:** `lake build` green (96 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok`
+ZERO byte-drift (only the new fixture appears; cert-manager/argocd sentinels + A2-followup import
+sentinels byte-identical), `shellcheck` clean (no script changed). Full `apps/argocd.cue` re-measured
+**88.85s, STILL bottoms** (Bug #2 open). cert-manager unaffected. No CUE divergence (Bug #1 was
+Kue-wrong, now fixed).

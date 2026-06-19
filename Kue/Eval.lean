@@ -284,6 +284,88 @@ def selfReferencedLabelsClauses
     depth clauses
 end
 
+mutual
+/-- The slot indices read by a `.refId` that resolves to frame `depth` (the def's own frame),
+    scanning `value` in full and threading frame depth through every frame-pusher — struct/struct-
+    Comp/pattern (`+1`) and a comprehension's clause chain (`+1` per `for`, `+0` per guard). The bug
+    this serves: a comprehension guard `if kind == add.#kind { … }` inside an EMBEDDED def reads the
+    def's regular sibling `kind` by a bare reference; that sibling is narrowed at the host/use site,
+    but `hiddenFieldsOnly` drops regular fields from the splice, so the guard fires against the
+    un-narrowed `kind: string`, stays incomplete, and the guarded body is silently dropped — the
+    outer `meet` cannot re-fire a comprehension that already collapsed. Collecting the def-frame
+    indices a guard reads lets the splice carry exactly those regular siblings, so the guard sees
+    the narrowed value at expansion time (matching cue, which defers the comprehension until its
+    referenced fields are concrete). A static field's ordinary ref to a regular sibling may also be
+    collected — harmless: the sibling merges by label into the embed's own declaration, the same
+    `meet` the outer fold does, just early enough for a guard. Depth threading mirrors
+    `hasSelfRefAtDepth`. -/
+def defFrameRefIndices (fuel : Nat) (depth : Nat) : Value -> List Nat
+  | .refId id => if id.depth == depth then [id.index] else []
+  | .conj cs =>
+      match fuel with | 0 => [] | f + 1 => cs.flatMap (defFrameRefIndices f depth)
+  | .disj alts =>
+      match fuel with | 0 => [] | f + 1 => alts.flatMap (fun a => defFrameRefIndices f depth a.snd)
+  | .unary _ v =>
+      match fuel with | 0 => [] | f + 1 => defFrameRefIndices f depth v
+  | .binary _ l r =>
+      match fuel with
+      | 0 => []
+      | f + 1 => defFrameRefIndices f depth l ++ defFrameRefIndices f depth r
+  | .selector base _ =>
+      match fuel with | 0 => [] | f + 1 => defFrameRefIndices f depth base
+  | .index base key =>
+      match fuel with
+      | 0 => []
+      | f + 1 => defFrameRefIndices f depth base ++ defFrameRefIndices f depth key
+  | .interpolation parts =>
+      match fuel with | 0 => [] | f + 1 => parts.flatMap (defFrameRefIndices f depth)
+  | .list items =>
+      match fuel with | 0 => [] | f + 1 => items.flatMap (defFrameRefIndices f depth)
+  | .listTail items tail =>
+      match fuel with
+      | 0 => []
+      | f + 1 => items.flatMap (defFrameRefIndices f depth) ++ defFrameRefIndices f depth tail
+  | .builtinCall _ args =>
+      match fuel with | 0 => [] | f + 1 => args.flatMap (defFrameRefIndices f depth)
+  | .dynamicField l _ v =>
+      match fuel with
+      | 0 => []
+      | f + 1 => defFrameRefIndices f depth l ++ defFrameRefIndices f (depth + 1) v
+  | .structComp fields cs _ =>
+      match fuel with
+      | 0 => []
+      | f + 1 => fields.flatMap (fun fl => defFrameRefIndices f (depth + 1) (Field.value fl))
+          ++ cs.flatMap (defFrameRefIndices f (depth + 1))
+  | .struct fields _ tail patterns =>
+      match fuel with
+      | 0 => []
+      | f + 1 => fields.flatMap (fun fl => defFrameRefIndices f (depth + 1) (Field.value fl))
+          ++ (match tail with | some t => defFrameRefIndices f (depth + 1) t | none => [])
+          ++ patterns.flatMap (fun p =>
+              defFrameRefIndices f (depth + 1) p.fst ++ defFrameRefIndices f (depth + 1) p.snd)
+  | .embeddedList items tail decls =>
+      match fuel with
+      | 0 => []
+      | f + 1 => items.flatMap (defFrameRefIndices f depth)
+          ++ (match tail with | some t => defFrameRefIndices f depth t | none => [])
+          ++ decls.flatMap (fun fl => defFrameRefIndices f (depth + 1) (Field.value fl))
+  | .comprehension clauses body =>
+      match fuel with | 0 => [] | f + 1 => defFrameRefIndicesClauses f depth clauses body
+  | .listComprehension clauses body =>
+      match fuel with | 0 => [] | f + 1 => defFrameRefIndicesClauses f depth clauses body
+  | _ => []
+
+/-- Thread a comprehension's clause chain like `descendClauses` (`+1` per `for`, `+0` per guard),
+    collecting `defFrameRefIndices` from each clause source/guard and the body at its depth. -/
+def defFrameRefIndicesClauses
+    (fuel : Nat) (depth : Nat) (clauses : List (Clause Value)) (body : Value) : List Nat :=
+  descendClauses (· ++ ·)
+    (fun d source => defFrameRefIndices fuel d source)
+    (fun d cond => defFrameRefIndices fuel d cond)
+    (fun d => defFrameRefIndices fuel d body)
+    depth clauses
+end
+
 /-- Pass-2 selective re-eval (perf, audit PART B): the static field INDICES (into `canonical`)
     whose value the embedding-`Self` Pass-2 frame change can alter — to be re-evaluated against the
     augmented frame; every OTHER index reuses its Pass-1 value, byte-identically (its value does not
@@ -1462,6 +1544,47 @@ def stripLetBindings (operand : List Field × Bool) : List Field × Bool :=
 def hiddenFieldsOnly (operand : List Field × Bool) : List Field × Bool :=
   (operand.fst.filter (fun f => f.fieldClass != .letBinding && Field.ignoresClosedness f), operand.snd)
 
+/-- The labels of an embed body's OWN top-level fields that a comprehension inside it reads by a
+    bare reference (`comprehensionDefRefIndices` at the def frame, mapped index → label). These are
+    the regular siblings a guard/source depends on (`if kind == add.#kind` reads `kind`); the host
+    narrows them at the use site, so they must reach the embed's splice or the comprehension fires
+    against the un-narrowed value and drops. `none` for a non-struct-like body (no top-level frame
+    to index). -/
+def embedComprehensionReadLabels : Value -> List String
+  | .structComp fields cs _ =>
+      -- A comprehension guard reads a regular sibling by a BARE reference resolving to the def
+      -- frame (`if kind == add.#kind`: `kind` is `.refId ⟨d, idx⟩` with `d` = the frame-pushers
+      -- between the guard and the def — `for`-body struct + clause pushes). `comprehensionDefRef-
+      -- Indices` threads that depth and collects the def-frame indices read inside each
+      -- comprehension; map index → label and keep them. The `for` SOURCE `Self.#additions` also
+      -- resolves to the def frame (index of the `Self=` alias), so a hidden/alias label may appear —
+      -- harmless, since `spliceOperandForEmbed` only adds REGULAR operand fields with these labels.
+      (cs.flatMap (defFrameRefIndices evalFuel 0)
+        |>.filterMap (fun i => (nthField i fields).map Field.label)).eraseDups
+  | .struct fields _ tail _ =>
+      ((fields.flatMap (fun f => defFrameRefIndices evalFuel 0 (Field.value f))
+        ++ (match tail with | some t => defFrameRefIndices evalFuel 0 t | none => []))
+        |>.filterMap (fun i => (nthField i fields).map Field.label)).eraseDups
+  | _ => []
+
+/-- The splice operand a use/host struct contributes INTO an embedded def whose body is `embedBody`:
+    `hiddenFieldsOnly` (the shared hidden/def fields the embed self-references) PLUS the host's
+    REGULAR fields that a comprehension inside `embedBody` reads (`embedComprehensionReadLabels`).
+    The extra regulars merge BY LABEL into the embed's own declarations (the embed already declares
+    them — they are siblings the guard names), so the splice introduces no new label and no
+    closedness change; it only lets the guard see the narrowed value at expansion time. Without it,
+    `hiddenFieldsOnly` alone strips the guarded regular sibling and the comprehension drops (the
+    `defs.#Mixin` shape: `if kind == add.#kind`). -/
+def spliceOperandForEmbed (embedBody : Value) (operand : List Field × Bool) : List Field × Bool :=
+  let readLabels := embedComprehensionReadLabels embedBody
+  if readLabels.isEmpty then
+    hiddenFieldsOnly operand
+  else
+    let (hidden, open_) := hiddenFieldsOnly operand
+    let extraRegulars := operand.fst.filter fun f =>
+      f.fieldClass != .letBinding && !Field.ignoresClosedness f && readLabels.contains (Field.label f)
+    (hidden ++ extraRegulars, open_)
+
 /-- Apply the def's closedness over the embedding UNION to an already-meet-folded struct: the
     single definition of CUE's embedding-closedness rule (shared by the eager `.structComp` eval
     arm and the `.structComp` closure-force arm). The host was met OPEN against each (opened)
@@ -2410,7 +2533,7 @@ mutual
               match evaluated with
               | .closure capturedEnv body =>
                   forceClosureWithConjunct nextFuel capturedEnv (openStructValue body)
-                    [hiddenFieldsOnly (narrowing, true)]
+                    [spliceOperandForEmbed body (narrowing, true)]
               | _ => pure evaluated
             let head :=
               match evaluatedStructOperand? (resolveEmbeddedDisjDefault resolved) with
@@ -2479,13 +2602,16 @@ mutual
                   -- labels fold into the union closedness the structComp arm applies afterwards.
                   -- Forcing is a deferred sub-evaluation, so it drops fuel (force sits at a higher
                   -- measure tier and must consume fuel to re-enter here).
-                  -- Splice ONLY the host's hidden/definition fields (`#name`, …) into the embed:
-                  -- those are the SHARED bindings the embed self-references (`pname: Self.#name`).
-                  -- The host's regular output fields (`apiVersion`, `kind`) are NOT the embed's — they
-                  -- unify at the outer `meet current forced`, not via the splice (splicing them makes
-                  -- the embed re-evaluate and conflict on them). `hiddenFieldsOnly` also drops the
-                  -- host's `Self=`/`let` aliases (the embed has its own).
-                  let useOperands := (evaluatedStructOperand? current).toList.map hiddenFieldsOnly
+                  -- Splice the host's hidden/definition fields (`#name`, …) into the embed: those are
+                  -- the SHARED bindings the embed self-references (`pname: Self.#name`). PLUS any
+                  -- regular sibling a comprehension inside the embed reads (`spliceOperandForEmbed`
+                  -- via `embedComprehensionReadLabels` — the `if kind == add.#kind` guard reads the
+                  -- regular `kind`): those must reach the embed so the guard sees the narrowed value
+                  -- at expansion time, else the comprehension drops. The other regular output fields
+                  -- still unify at the outer `meet current forced`, not via the splice (splicing them
+                  -- makes the embed re-evaluate and conflict on them). `hiddenFieldsOnly` also drops
+                  -- the host's `Self=`/`let` aliases (the embed has its own).
+                  let useOperands := (evaluatedStructOperand? current).toList.map (spliceOperandForEmbed body)
                   let forced <-
                     forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
                   meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest

@@ -118,20 +118,22 @@ fix is purely a speedup — byte-identical output.
   faster (>7.5min/killed → ~88s) but still hits the fuel ceiling (`conflicting values
   (bottom)`) — that is the separate fuel-exhaustion-at-scale limit below, NOT a hash
   problem.
-- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, NOT a fuel limit (RE-DIAGNOSED
-  2026-06-19; supersedes the prior "fuel-exhaustion-at-scale" entry).** The earlier reading — that
-  `evalFuel = 100` truncation spuriously bottoms the combined app — was DISPROVEN by a fuel sweep:
-  at `evalFuel` 100/200/600 the app bottoms identically (cost scales ~linearly with fuel, the bottom
-  never clears), and `resolveFuel`/`remapFuel` at 100000 also still bottom. So it is a deterministic
-  value conflict, not truncation at any ceiling. Localized to `defaults.#ListenerSet` / `defs.#TLSRoute`
-  (each bottoms standalone on valid CUE that `cue` exports); co-occurs with `fieldConflict
-  #args/#from/#to` from UNREFERENCED `defs` workload siblings. Working hypothesis: an
-  import-laziness / eager-package-eval gap on the CROSS-MODULE hop (`prodigy9.co` consumer → the
-  `prodigy9.co/defs@v0.3.19` dep) — a single-module vendor of the same def evaluates cleanly. See
-  `plan.md` "Perf-spike → CORRECTNESS finding" for the full bisection, dead ends, and the follow-up
-  slice. Raising `evalFuel` is NOT a fix (it never clears the bottom and only slows everything).
-  The 88s wall (when the app DOES export, e.g. cert-manager ~30s) is a separate, downstream perf
-  concern, meaningful only once the correctness bug above is fixed.
+- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, now PINNED (2026-06-19; supersedes the
+  earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness" readings).** Both prior
+  hypotheses are DISPROVEN. It is not a fuel ceiling (fuel sweep 100/200/600 + `resolve`/`remapFuel`
+  100000 all still bottom) and not cross-module (it reproduces SAME-MODULE; the `#args/#from/#to`
+  `fieldConflict` was a red herring). Root cause: a `parts.#Mixin` comprehension guard
+  `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }` reads the def's REGULAR
+  sibling `kind`, narrowed at the use site; Kue forced the embedded def with only hidden fields
+  spliced, so the guard fired against the un-narrowed `kind: string` and the guarded body dropped.
+  **Bug #1 (single-embed) is FIXED** (`spliceOperandForEmbed` now carries the guarded regular
+  siblings into the embed splice). **Bug #2 (the actual blocker) is OPEN**: in the real `#Mixin` the
+  comprehension is buried under `let _patch`/`let structShape` + the `listShape | structShape |
+  error` disjunction, so the narrowing must propagate down several `let`/embed layers — a separate
+  narrowing-propagation slice. Full `apps/argocd.cue` re-measured **88.85s, STILL bottoms**
+  (2026-06-19, post Bug-#1 fix). See `plan.md` "PINNED (2026-06-19 follow-up)" for the full
+  minimization and the Bug #2 design. The 88s wall (when the app DOES export, e.g. cert-manager
+  ~30s) is a separate, downstream perf concern, meaningful only once Bug #2 is fixed.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).

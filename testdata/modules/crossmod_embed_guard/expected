@@ -1,0 +1,10 @@
+{
+    "out": {
+        "kind": "ListenerSet",
+        "meta": {
+            "annotations": {
+                "issuer": "main"
+            }
+        }
+    }
+}

@@ -611,5 +611,59 @@ theorem embed_disj_single_arm_narrows :
           = true := by
   native_decide
 
+/-! ### argocd `parts.#Mixin` — comprehension guard over a use-site-narrowed REGULAR sibling.
+
+`#Inner` carries `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }`: the guard
+reads the REGULAR sibling `kind`, which `#Outer` (embedding `#Inner`) and the use site narrow.
+`hiddenFieldsOnly` splices only hidden/def fields into a forced embed, so the guard fired against the
+un-narrowed `kind: string`, stayed incomplete, and the guarded body dropped — the outer `meet` cannot
+re-fire a collapsed comprehension. `embedComprehensionReadLabels` collects the def-frame indices a
+comprehension reads, and `spliceOperandForEmbed` carries exactly those REGULAR siblings so the guard
+sees the narrowed value at expansion time (matching cue's lazy comprehension). This was the first of
+two cross-module argocd bottoms (`defaults.#ListenerSet`); the `let`-buried multi-embed shape is the
+second, tracked separately. -/
+
+-- The mechanism pin: a comprehension guard reading the regular sibling `kind` (slot 2) over the
+-- `Self=` for-source (slot 0) reports BOTH def-frame labels read. `Self` is harmless (an alias,
+-- not a regular operand field); `kind` is the regular sibling the splice must carry.
+theorem embed_comprehension_reads_guarded_regular_sibling :
+    embedComprehensionReadLabels
+      (.structComp
+        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩, ⟨"kind", .regular, .kind .string⟩]
+        [.comprehension
+          [.forIn (some "_") "add" (.selector (.refId ⟨0, 0⟩) "#additions")]
+          (.structComp []
+            [.comprehension
+              [.guard (.binary .eq (.refId ⟨2, 2⟩) (.selector (.refId ⟨1, 1⟩) "#kind"))]
+              (.structComp [] [.selector (.refId ⟨2, 1⟩) "#patch"] .regularOpen)]
+            .regularOpen)]
+        .regularOpen)
+      = ["Self", "kind"] := by
+  native_decide
+
+-- End-to-end: the matched patch surfaces (the embedded guard fires AFTER the use-site `kind`).
+theorem embed_comprehension_guard_emits_matched_patch :
+    exportJsonMatches
+        "#Inner: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tfor _, add in Self.#additions {\n\t\tif kind == add.#kind {\n\t\t\tadd.#patch\n\t\t}\n\t}\n\t...\n}\n#Outer: {\n\t#Inner\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\nout: #Outer & {kind: \"ListenerSet\"}\n"
+        "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"meta\": \"yes\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- Guard FALSE (use-site `kind` mismatches `add.#kind`): the body must NOT fire — no over-fire.
+theorem embed_comprehension_guard_false_drops_body :
+    exportJsonMatches
+        "#Inner: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tfor _, add in Self.#additions {\n\t\tif kind == add.#kind {\n\t\t\tadd.#patch\n\t\t}\n\t}\n\t...\n}\n#Outer: {\n\t#Inner\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\nout: #Outer & {kind: \"Other\"}\n"
+        "{\n    \"out\": {\n        \"kind\": \"Other\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- SOUNDNESS: a guarded patch that REALLY conflicts with a sibling still bottoms (no over-lazy).
+theorem embed_comprehension_guard_real_conflict_bottoms :
+    exportJsonMatches
+        "#Inner: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tmeta: \"fixed\"\n\tfor _, add in Self.#additions {\n\t\tif kind == add.#kind {\n\t\t\tadd.#patch\n\t\t}\n\t}\n\t...\n}\n#Outer: {\n\t#Inner\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"clash\"}}\n}\nout: #Outer & {kind: \"ListenerSet\"}\n"
+        ""
+          = false := by
+  native_decide
+
 
 end Kue

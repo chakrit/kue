@@ -136,41 +136,65 @@ frame-id one.)
   `#ListenerSet` path does NOT reference. `cue` does not evaluate those unreferenced sibling defs;
   Kue's bottom co-occurs with them.
 
-### Working hypothesis (NOT yet pinned — needs a follow-up slice)
-The trigger is the **multi-module loader path**, not the `#ListenerSet` shape itself: a single-module
-vendor of the exact same `defs.#ListenerSet` (correctly referenced by its declared package name)
-evaluates CLEANLY in Kue. The divergence appears only in the real `consumer-module (`prodigy9.co`) →
-dep-module (`prodigy9.co/defs@v0.3.19`)` cross-module layout, where `defaults` (local) imports
-`defs` (dep). Likely shape of the bug: evaluating/binding the imported `defs` package value pulls
-in conflicting unreferenced sibling defs (the `#args/#from/#to` workload conflicts) that should stay
-lazy — i.e. an **import-laziness / eager-package-eval gap**, plausibly adjacent to the
-`FieldClass.importBinding` laziness work (A2-followup). A clean cross-module repro outside prod9 was
-not nailed down this slice (vendoring kept collapsing the module boundary or mis-matching dep paths);
-that is the first task of the follow-up.
+### PINNED (2026-06-19 follow-up): NOT import-laziness — a comprehension-guard / embed-narrowing bug
+The cross-module hypothesis is **DISPROVEN**. The bug reproduces SAME-MODULE and has nothing to do
+with import laziness or unreferenced siblings. Pinned by progressive minimization of
+`defaults.#ListenerSet` (= `defs.#ListenerSet & parts.#UseCertManager & {…}`), reducing to
+`parts.#UseCertManager` → `parts.#Mixin`. The `#args/#from/#to` co-occurrence was a red herring (an
+unrelated `tests:` aggregate). The real shape, distilled:
+
+```
+#Mixin: Self={
+  #additions: [string]: {#kind: string, #patch: _}
+  let _patch = { kind: string; for _, add in Self.#additions { if kind == add.#kind { add.#patch } } ... }
+  let structShape = { _patch; ... }
+  listShape | structShape | error("…")    // shape dispatch
+  ...
+}
+#UseCertManager: { #Mixin; #additions: cert_ls: {#kind: "ListenerSet", #patch: {metadata: …}} }
+```
+The guard `if kind == add.#kind` reads the def's REGULAR sibling `kind`, narrowed at the use site
+(`& {kind: "ListenerSet"}`). cue defers the comprehension until `kind` is concrete, then emits the
+matched `#patch`. Kue forces the embedded `#Mixin` with only HIDDEN fields spliced (`hiddenFieldsOnly`
+at the two `forceClosureWithConjunct` call sites in `meetEmbeddingsWithFuel`/`evalEmbeddingFields-
+WithFuel`), so the guard fires against the UN-narrowed `kind: string`, stays incomplete, and the
+guarded body drops — the outer `meet` cannot re-fire a collapsed comprehension. This is TWO bugs at
+different nesting depths:
+
+- **Bug #1 (FIXED this slice) — single-embed comprehension-guard splice.** `#Outer` embeds `#Inner`;
+  `#Inner` has the guard as a DIRECT top-level comprehension; the use site narrows the regular
+  sibling. Fix: `embedComprehensionReadLabels` (`defFrameRefIndices` collects the def-frame indices a
+  comprehension reads) + `spliceOperandForEmbed` (splices `hiddenFieldsOnly` PLUS the regular
+  siblings a comprehension reads). Sound: a REFERENCED guarded body that really conflicts STILL
+  bottoms; a guard-FALSE case does not over-fire (`native_decide` pins + `crossmod_embed_guard`
+  cross-module fixture, oracle-checked). Zero fixture drift; cert-manager unaffected.
+- **Bug #2 (OPEN — the actual argocd blocker) — let-buried multi-embed narrowing.** In the real
+  `#Mixin` the comprehension is buried under `let _patch` → `let structShape` → embed → `#Mixin`
+  embed, AND wrapped in the `listShape | structShape | error(…)` disjunction. The use-site `kind`
+  must propagate DOWN several `let`/embed layers (and through the disjunction-arm selection) to reach
+  the guard. The single-level splice (Bug #1) does not thread that far: with the disjunction it
+  BOTTOMS; without it, wrong-output (drops the patch). This is a use-site-narrowing-propagation
+  extension (`let` + nested embed + disjunction arm), not a one-line scan — a genuine architectural
+  slice. Stopped here per `correctness-over-performance` (commit the diagnosis + repro rather than
+  force a risky change). Repros: `/tmp/same-mod` (same-module, both with and without the disjunction).
+
+### argocd status after this slice
+Full `apps/argocd.cue` STILL bottoms (re-measured 88.85s, 2026-06-19) — Bug #2 unresolved. Bug #1's
+fix is sound forward progress (the single-embed case + a fixture) but does not clear the app.
 
 ### Caveats from the spike (so the next agent does not repeat the dead ends)
-- A hand-vendored single-module copy that renames import PATHS but references a package by its DIR
-  name instead of its DECLARED package name is INVALID CUE (`cue` errors "no files … with package
-  name X"; Kue correctly emits `unresolvedReference`). Both tools reject it — it is not the bug. Use
-  the package's declared name (or an explicit alias) when referencing.
+- The `#args/#from/#to` `fieldConflict` co-occurrence is a RED HERRING — it is not the cause. The
+  cause is the `parts.#Mixin` comprehension guard over a use-site-narrowed regular sibling.
+- A minimal cross-module repro of `defs.#ListenerSet & parts.#UseCertManager` DOES reproduce Bug #2;
+  but the SAME-module vendored `#Mixin` reproduces it identically — cross-module is incidental.
 - `kue export -e <path>` selects AFTER a full eval, so it cannot reduce eval cost for bisection.
-- The whole `defs`/`defaults` package value is evaluated by the formatter walk; `#args/#from/#to`
-  conflicts in unreferenced siblings are the signal to chase.
 
-### Next step (a CORRECTNESS slice, ahead of the perf items)
-1. Build a minimal cross-module repro OUTSIDE prod9 (consumer module + a dep module with two defs,
-   one referenced one with an interior conflict) that reproduces `defaults.#ListenerSet`-style bottom.
-2. Diagnose whether an unreferenced conflicting sibling in an imported (dep) package is being
-   eagerly meet/evaluated into the consumer's selected value — compare against the A2-followup
-   import-laziness guard (`unreferenced_import_conflict` fixture pins the SAME-module case; the dep
-   cross-MODULE case may have a gap).
-3. Fix soundly (keep unreferenced bound-package interiors lazy across the module hop), gate with a
-   new module fixture + cert-manager/argocd content-identity, then RE-MEASURE the full-app wall (the
-   88s perf wall is downstream of this and only meaningful once the app exports at all).
-
-This supersedes the "argocd fuel-exhaustion-at-scale" backlog framing: full `apps/argocd.cue` is
-blocked by a CORRECTNESS bug (above), not the fuel ceiling. The perf wall (88s even when it does
-export, e.g. cert-manager ~30s) remains tracked separately.
+### Next step for Bug #2 (the argocd unblock)
+Thread use-site narrowing of a REGULAR sibling through `let`-binding + nested-embed + disjunction-arm
+layers so a deeply-buried comprehension guard sees the concrete value (matching cue's lazy
+comprehension). Design-spike first (the disjunction-arm `error()` fallback + closedness interact).
+Gate with the same edges as Bug #1 (real-conflict still bottoms; guard-false no over-fire) + a fixture
+that mirrors the full `parts.#Mixin` shape; then RE-MEASURE the 88s wall.
 
 ## Phase-A audit (2026-06-19, batch `24da14d..463f8e1` — B2 CP3-pre/flip + B2.5) — CLEAN
 
