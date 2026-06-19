@@ -300,11 +300,39 @@ path, so it must ship behind the soundness gate below and AFTER Gap-1 (which is 
   (totality). Verify: 96-job build, `fixture pairs ok` zero drift (cert-manager content-identical ~30.5s),
   shellcheck clean. As expected, `kue export apps/argocd.cue` STILL bottoms (~88s) — **Gap-2 (Bug2-2)
   remains the argocd blocker.** Did NOT clear shapeD (needs Gap-2). See implementation-log "Bug2-1".
-- **Slice Bug2-2 — Gap-2 (force-tier disjunction-arm narrowing).** The riskier half; ships behind
-  the byte-identical cert-manager gate + `probe_disj_inline`/shapeD fixtures (now select the arm)
-  + a real-conflict-kills-all-arms bottom pin. Clears shapeD. After this, RE-MEASURE
-  `kue export apps/argocd.cue` — the success signal (was 88.85s bottom; expect a non-bottom export,
-  modulo field-order #3, then the residual is the item-7 PERF wall, no longer a correctness bottom).
+- **Slice Bug2-2 — Gap-2 (force-tier disjunction-arm narrowing). DONE (2026-06-19).** Added
+  `embedDisjArmDeclLabels` (`Eval.lean`): surfaces the regular discriminator labels an embed body's
+  embedded disjunction's ARMS DECLARE (following a `.refId ⟨0,i⟩` arm into the body's own `let` slot
+  for the shapeD `structShape | listShape` form), gated to fire ONLY when the body's `cs` holds a
+  `.disj` embedding. `spliceOperandForEmbed` adds them so the host's narrowed discriminator splices
+  into the embedded `#M` and its force-time `conjDisjArms?` distribution prunes the dead arms exactly
+  as a DIRECT `#M & {narrow}` does. **GATE PROVEN: cert-manager fires `embedDisjArmDeclLabels` 0 times
+  → byte-identical (30.52s = baseline);** shapeD fires it 6×. Fixtures `disj_embed_one_layer` (inline
+  arms + direct-unchanged + real-conflict-falls-back, byte-identical to cue) + `disj_embed_force_
+  narrow` (shapeD — selects struct arm + emits patch, content-identical modulo field-order #3); 8
+  `native_decide` pins incl. the GATE pin, soundness (all-arms-killed → bottom), and direct-unchanged.
+  `lake build`/`fixture pairs ok`/`shellcheck` green. **Clears shapeD + `probe_disj_inline`.**
+- **Slice Bug2-3 — Gap-2b (structural disjunction-arm pruning behind force). OPEN — the REMAINING
+  argocd blocker.** `kue export apps/argocd.cue` STILL bottoms (~88s) after Gap-2 — but for a
+  DIFFERENT, separate reason. The real `defs/parts.#Mixin` (cue cache `…/defs@v0.3.19/parts/
+  mixin.cue`) discriminates its `listShape | structShape | error` disjunction STRUCTURALLY, not by a
+  regular field: `listShape = { #components: [string]: _patch; [...] }` is LIST-shaped (the `[...]`
+  embed) keyed on the HIDDEN `#components`; `structShape = { _patch; ... }` is a plain struct
+  declaring no concrete discriminator. So Gap-2's `embedDisjArmDeclLabels` (regular discriminators)
+  doesn't apply. Pinned (minimized `/tmp/kprobe/struct_disc.cue`; cue selects `structShape`, emits
+  `meta:"yes"`; Kue bottoms): instrumenting `conjDisjArms?` distribution shows `nLive=2` — the
+  LIST-shaped arm is NOT pruned against the STRUCT host when it carries the spliced `_patch` patch,
+  so a `struct | list` disjunction survives and bottoms. Without `_patch` the structural pruning
+  works (`/tmp/kprobe/sd5.cue`), so the gap is the list-arm-vs-struct-host pruning INTERACTING with
+  the spliced comprehension patch behind the force tier. **Mechanism to investigate:** when
+  distributing the host into a LIST-shaped arm (`[...]`/`.embeddedList`), the meet against a STRUCT
+  host must bottom that arm (struct-vs-list type mismatch, cue-exact) so `liveAlternatives` prunes
+  it; today it survives. Likely the `_patch` splice into the list arm produces a struct-ish residual
+  that doesn't trip the type mismatch. SOUNDNESS-GATED like Gap-2 (cert-manager byte-identity
+  mandatory; cert-manager has no struct-vs-list disjunction arm, so a structural-arm-pruning fix
+  should be byte-identical — verify by construction). After Gap-2b: RE-MEASURE
+  `kue export apps/argocd.cue` (was 88s bottom; the residual is then the item-7 PERF wall, no longer
+  a correctness bottom).
 - A-EN3 (the walker consolidation) does NOT ride along — it should land AFTER Bug2-1, see its entry
   (consolidating the walker family first would couple a non-trivial generic-fold refactor to the
   adoption-critical fix; do the let-following in `defFrameRefIndices` first, then fold).

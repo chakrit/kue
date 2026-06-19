@@ -118,12 +118,12 @@ fix is purely a speedup — byte-identical output.
   faster (>7.5min/killed → ~88s) but still hits the fuel ceiling (`conflicting values
   (bottom)`) — that is the separate fuel-exhaustion-at-scale limit below, NOT a hash
   problem.
-  > **Currency note (2026-06-19, Phase-B spike `0d4b1a0`):** the cert-manager **~30.6s** figure
-  > here is the item-7-fix measurement. `plan.md` Standing Capabilities now records cert-manager at
-  > **~92s** — the link-3/4 fixes route more shapes through the two-pass embed re-eval (SOUND,
-  > byte-identical, slower). These two docs DISAGREE; the 92s is the newer reading. Reconcile with a
-  > fresh `time kue export` measurement on the next perf slice (item 7) and update BOTH to one
-  > number. argocd still bottoms on Bug #2 (a correctness gap, not perf) until the Bug #2 pair lands.
+  > **Currency note RECONCILED (2026-06-19, Bug2-2 slice):** fresh `time kue export apps/cert-manager.cue`
+  > on the current `main` (post Bug2-1 + Bug2-2) measures **30.52s, content-identical to cue** (modulo
+  > field-order #3) — the **~30.6s** reading is the live one, NOT the **~92s** that was in `plan.md`
+  > Standing Capabilities. The 92s figure was stale (it predates the item-7 hash fix landing, or was a
+  > cold/contended run); the steady measurement across the Bug2-1 and Bug2-2 slices is consistently
+  > ~30.5s. Treat **~30.5s** as the cert-manager number; the 92s is retired.
 - **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, now PINNED (2026-06-19; supersedes the
   earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness" readings).** Both prior
   hypotheses are DISPROVEN. It is not a fuel ceiling (fuel sweep 100/200/600 + `resolve`/`remapFuel`
@@ -132,14 +132,16 @@ fix is purely a speedup — byte-identical output.
   `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }` reads the def's REGULAR
   sibling `kind`, narrowed at the use site; Kue forced the embedded def with only hidden fields
   spliced, so the guard fired against the un-narrowed `kind: string` and the guarded body dropped.
-  **Bug #1 (single-embed) is FIXED** (`spliceOperandForEmbed` now carries the guarded regular
-  siblings into the embed splice). **Bug #2 (the actual blocker) is OPEN**: in the real `#Mixin` the
-  comprehension is buried under `let _patch`/`let structShape` + the `listShape | structShape |
-  error` disjunction, so the narrowing must propagate down several `let`/embed layers — a separate
-  narrowing-propagation slice. Full `apps/argocd.cue` re-measured **88.85s, STILL bottoms**
-  (2026-06-19, post Bug-#1 fix). See `plan.md` "PINNED (2026-06-19 follow-up)" for the full
-  minimization and the Bug #2 design. The 88s wall (when the app DOES export, e.g. cert-manager
-  ~30s) is a separate, downstream perf concern, meaningful only once Bug #2 is fixed.
+  **Bug #1 (single-embed) FIXED**, **Bug2-1 (Gap-1, let-buried read detection) FIXED**, **Bug2-2
+  (Gap-2, force-tier disjunction-arm narrowing for a REGULAR discriminator) FIXED** (2026-06-19).
+  **Bug2-3 (Gap-2b, the REMAINING blocker) OPEN:** the real `#Mixin`'s `listShape | structShape |
+  error` disjunction discriminates STRUCTURALLY (list-emit `[...]` + hidden `#components` vs plain
+  struct), not by a regular field — so the LIST-shaped arm is not pruned against the STRUCT host when
+  it carries the spliced `_patch` comprehension, leaving a `struct | list` disjunction that bottoms.
+  Full `apps/argocd.cue` re-measured **~88s, STILL bottoms** (2026-06-19, post Bug2-2). See `plan.md`
+  "Slice Bug2-3 — Gap-2b" for the minimization (`/tmp/kprobe/struct_disc.cue`) and design. The 88s
+  wall (when the app DOES export, e.g. cert-manager ~30.5s) is a separate, downstream perf concern,
+  meaningful only once Gap-2b is fixed.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).

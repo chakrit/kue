@@ -1,0 +1,17 @@
+{
+    "outStruct": {
+        "shape": "struct",
+        "val": "x"
+    },
+    "outList": {
+        "shape": "list",
+        "items": [
+            "y"
+        ]
+    },
+    "outDirect": {
+        "shape": "struct",
+        "val": "z"
+    },
+    "outBottom": "fellback"
+}

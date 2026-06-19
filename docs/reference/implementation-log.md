@@ -8460,3 +8460,77 @@ incl. `crossmod_embed_guard` + the link-5/A5 pins unchanged), `shellcheck` clean
 Gap-1-only half: `kue export apps/argocd.cue` STILL bottoms (~88s) — **Gap-2 (Bug2-2) remains the
 argocd blocker** (the force-tier disjunction-arm narrowing, GATED next slice). Did NOT clear shapeD
 (needs Gap-2). No CUE divergence (Bug2-1 was Kue-wrong, now fixed → not an entry).
+
+## Bug2-2 — force-tier disjunction-arm narrowing (Gap-2): clears shapeD + the probes; argocd has a residual DIFFERENT conflict (Gap-2b)
+
+Gap-2 of the argocd Bug #2 fix — the regression-prone disjunction-arm class. An embedded def `#M`
+carrying a discriminated disjunction (`{shape:"struct",…} | {shape:"list",…} | error`) selects the
+right arm when narrowed DIRECTLY (`#M & {shape:"struct"}`, the `meetEmbeddingsWithFuel`
+`conjDisjArms?` distribution one tier up), but when `#M` is itself embedded one layer down
+(`#U:{#M}`, then `#U & {shape:"struct"}`) it BOTTOMED. Root cause (pinned by instrumenting the
+`.closure` force-splice in `meetEmbeddingsWithFuel`): when `#M`'s closure is force-spliced, the
+splice operand was `hiddenFieldsOnly` + the regular siblings a comprehension READS
+(`embedComprehensionReadLabels`). The disjunction's DISCRIMINATOR `shape` is a regular sibling the
+arms MATCH (declare `shape:"struct"`/`"list"`), not one they READ — so it was dropped from the
+splice. `#M` was then forced with `shape` un-narrowed, every arm survived (`nLive=2`), and the outer
+meet conflicted → bottom. (Direct narrowing works because it never takes this embed-closure path —
+the `.conj` fold distributes into arms one tier up.)
+
+**The fix — `embedDisjArmDeclLabels` (`Eval.lean`), gated.** A new analysis returns the regular
+labels an embed body's embedded disjunction's ARMS DECLARE that are ALSO top-level regular fields of
+the body — the genuine discriminators the host narrows. It follows a `.refId ⟨0,i⟩` arm into the
+body's own `let` slot at index `i` (the shapeD `structShape | listShape | error` form, where arms are
+let-refs to `{shape:"struct",…}`/`{shape:"list",…}`). `spliceOperandForEmbed` now adds these labels
+alongside the comprehension-read labels, so the host's narrowed discriminator reaches `#M` and its
+force-time `conjDisjArms?` distribution prunes the dead arms exactly as a direct `#M & {narrow}` does
+— the SAME `liveAlternatives` pruning, re-driven behind the force tier. **MANDATORY GATE (the
+cert-manager byte-identity guard):** `embedDisjArmDeclLabels` returns `[]` unless the body's `cs`
+holds a `.disj` embedding — no disjunction embedding → no extra splice → byte-identical. Verified by
+construction: instrumenting the splice site, cert-manager fires the gate **0 times** (no embedded def
+body in cert-manager has a disjunction embedding); shapeD fires it 6 times.
+
+**Soundness.** The spliced value is the SAME use-site narrowing, merged BY LABEL — not a broadened
+one; no arm over-narrows into surviving. A real conflict on the discriminator that kills ALL
+structural arms still bottoms (the `error(…)` arm is itself a bottoming arm; if every structural arm
+dies the disjunction is bottom, cue-exact) — pinned by `disj_embed_one_layer_real_conflict_bottoms`
+(`shape:"other"` → no survivor → `exportJsonBottoms`). The direct-narrowing case is UNCHANGED
+(`disj_direct_narrow_unchanged`). The other arm is not over-pruned (`disj_embed_one_layer_selects_
+list_arm`).
+
+**Tests (oracle-checked vs cue 0.16.1).** Module fixtures: `disj_embed_one_layer` (inline arms —
+struct/list selection + the `outDirect` unchanged-direct case + `outBottom` real-conflict-falls-back,
+byte-identical to cue) and `disj_embed_force_narrow` (the shapeD repro — disjunction + buried let +
+comprehension, selects the struct arm AND emits the matched `#patch`, content-identical to cue modulo
+field-order #3). `native_decide` pins in `TwoPassTests.lean`: `embed_disj_arm_decl_labels_inline`
+(mechanism, inline arms → `["shape"]`), `embed_disj_arm_decl_labels_let_refs` (follows `.refId` arms
+into let slots), `embed_disj_arm_decl_labels_no_disj_gate` (GATE — no `.disj` embedding → `[]`),
+`disj_embed_one_layer_selects_struct_arm`/`_selects_list_arm` (both arms, no over-prune),
+`disj_direct_narrow_unchanged` (the direct case stays put), `disj_embed_one_layer_real_conflict_
+bottoms` (SOUNDNESS — all arms killed → bottom), `disj_embed_force_narrow_emits_patch` (shapeD
+end-to-end).
+
+**Verify + measure:** `lake build` green (96 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok`
+ZERO byte-drift on ALL fixtures (cert-manager content-identical at 30.52s = baseline — the GATE PASS;
+the two new fixtures + `crossmod_embed_guard` + link-5/A5 pins green), `shellcheck` clean.
+
+**argocd: NOT YET unblocked — a residual DIFFERENT conflict (Gap-2b).** `kue export apps/argocd.cue`
+still bottoms (~88s, exit 1), but the cause is now a SEPARATE gap, not shapeD's. The spike's
+shapeD/`probe_disj_inline` used a REGULAR discriminator field (`shape`), and Gap-2 clears that class.
+The REAL `defs/parts.#Mixin` (cue cache `prodigy9.co/defs@v0.3.19/parts/mixin.cue`) discriminates
+STRUCTURALLY, not by a regular field:
+- `listShape = { #components: [string]: _patch; [...] }` — a LIST-shaped arm (the `[...]` list-embed)
+  keyed on the HIDDEN `#components`.
+- `structShape = { _patch; ... }` — a plain struct arm, declaring NO concrete discriminator.
+
+There is no regular discriminator label for `embedDisjArmDeclLabels` to surface, so the gate doesn't
+fire on it. Minimized repro (`/tmp/kprobe/struct_disc.cue`, oracle: cue selects `structShape`, emits
+`meta:"yes"`): Kue bottoms. Instrumenting the `conjDisjArms?` distribution shows `nLive=2` — the
+LIST-shaped `listShape` arm is NOT pruned against the STRUCT host (`{kind:"ListenerSet", …}`) when the
+arm carries the spliced `_patch` comprehension, so a 2-arm `struct | list` disjunction survives and
+bottoms downstream. (Without `_patch` the structural pruning works — `/tmp/kprobe/sd5.cue` selects
+`structShape` correctly — so the gap is the list-arm-vs-struct-host pruning INTERACTING with the
+spliced comprehension patch behind the force tier.) **Gap-2b = structural (list-vs-struct,
+presence-of-`#components`) disjunction-arm pruning behind force**, distinct from Gap-2's
+regular-discriminator class and beyond the spike's GO-WITH-GATE scope. Filed as the next argocd
+blocker in `plan.md`. No CUE divergence (both Gap-2 and Gap-2b are Kue-wrong-vs-cue; Gap-2 now fixed,
+Gap-2b open).

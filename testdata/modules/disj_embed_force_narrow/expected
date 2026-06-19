@@ -1,0 +1,11 @@
+{
+    "outMatch": {
+        "kind": "ListenerSet",
+        "shape": "struct",
+        "meta": "yes"
+    },
+    "outNoMatch": {
+        "kind": "Other",
+        "shape": "struct"
+    }
+}

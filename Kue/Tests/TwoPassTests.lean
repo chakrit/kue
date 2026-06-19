@@ -786,5 +786,111 @@ theorem let_buried_for_source_expands :
           = true := by
   native_decide
 
+/-! ### Bug2-2 (Gap-2) — force-tier disjunction-arm narrowing.
+
+An embedded def `#M` carrying a discriminated disjunction (`{shape:"struct",…} |
+{shape:"list",…} | error`) selects the right arm when narrowed DIRECTLY (`#M &
+{shape:"struct"}`, the `meetEmbeddingsWithFuel` `conjDisjArms?` distribution one tier up). But
+when `#M` is itself embedded one layer down (`#U:{#M}`, then `#U & {shape:"struct"}`), the outer
+narrowing of the discriminator `shape` reaches the host frame but was NOT spliced INTO `#M` behind
+the force tier — the arms MATCH `shape`, they do not READ it, so `embedComprehensionReadLabels`
+missed it. Every arm survived and the meet bottomed. `embedDisjArmDeclLabels` surfaces the regular
+labels an embedded disjunction's arms DECLARE (following a `.refId` arm into its `let` slot for the
+shapeD `structShape | listShape` form), so the host's narrowed discriminator splices into `#M` and
+its force-time arm distribution prunes the dead arms exactly as the DIRECT case does. GATED: returns
+`[]` unless the body's `cs` holds a `.disj` embedding — no disjunction embedding → no extra splice →
+byte-identical (cert-manager fires this 0 times). -/
+
+-- Mechanism (inline arms): the discriminator `shape` (body slot 1, a regular sibling) is declared by
+-- the disjunction's struct arms (`shape:"struct"`, `shape:"list"`). It is surfaced so the host's
+-- narrowed `shape` splices into the embedded `#M`. `#k` (hidden, slot 0) is NOT a discriminator (the
+-- arms read it via `val:#k`, not declare-discriminate) — `embedComprehensionReadLabels` carries it.
+theorem embed_disj_arm_decl_labels_inline :
+    embedDisjArmDeclLabels
+      (.structComp
+        [⟨"#k", .hidden, .kind .string⟩, ⟨"shape", .regular, .kind .string⟩]
+        [.disj
+          [(.regular, .struct [⟨"shape", .regular, .prim (.string "struct")⟩,
+                               ⟨"val", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none []),
+           (.regular, .struct [⟨"shape", .regular, .prim (.string "list")⟩,
+                               ⟨"items", .regular, .list [.refId ⟨1, 0⟩]⟩] .regularOpen none []),
+           (.regular, .builtinCall "error" [.prim (.string "no shape")])]]
+        .regularOpen)
+      = ["shape"] := by
+  native_decide
+
+-- Mechanism (let-ref arms, the shapeD form): the arms are `.refId`s to `let` slots
+-- (`structShape`/`listShape`, slots 4/3) holding `{shape:"struct",…}`/`{shape:"list",…}`. Following
+-- the `.refId ⟨0,i⟩` arm into the body's own let value at index `i` discovers the declared `shape`.
+theorem embed_disj_arm_decl_labels_let_refs :
+    embedDisjArmDeclLabels
+      (.structComp
+        [⟨"#additions", .hidden, .top⟩, ⟨"kind", .regular, .kind .string⟩,
+         ⟨"shape", .regular, .kind .string⟩,
+         ⟨"listShape", .letBinding,
+            (.struct [⟨"shape", .regular, .prim (.string "list")⟩] .regularOpen none [])⟩,
+         ⟨"structShape", .letBinding,
+            (.structComp [⟨"shape", .regular, .prim (.string "struct")⟩] [] .regularOpen)⟩]
+        [.disj
+          [(.regular, .refId ⟨0, 4⟩), (.regular, .refId ⟨0, 3⟩),
+           (.regular, .builtinCall "error" [.prim (.string "no shape")])]]
+        .regularOpen)
+      = ["shape"] := by
+  native_decide
+
+-- GATE (cert-manager byte-identity guard): a body with NO `.disj` embedding in `cs` yields `[]`, so
+-- the splice path adds nothing — byte-identical. Here the embedding is a plain ref, not a `.disj`.
+theorem embed_disj_arm_decl_labels_no_disj_gate :
+    embedDisjArmDeclLabels
+      (.structComp
+        [⟨"shape", .regular, .kind .string⟩]
+        [.refId ⟨1, 0⟩]
+        .regularOpen)
+      = [] := by
+  native_decide
+
+-- End-to-end (POSITIVE, inline): the struct arm is selected behind the force tier.
+theorem disj_embed_one_layer_selects_struct_arm :
+    exportJsonMatches
+        "#M: {\n\t#k: string\n\tshape: string\n\t{shape: \"struct\", val: #k} | {shape: \"list\", items: [#k]} | error(\"no shape\")\n\t...\n}\n#U: {#M}\nout: #U & {#k: \"x\", shape: \"struct\"}\n"
+        "{\n    \"out\": {\n        \"shape\": \"struct\",\n        \"val\": \"x\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- End-to-end (the OTHER arm, no over-prune): narrowing `shape:"list"` selects the list arm.
+theorem disj_embed_one_layer_selects_list_arm :
+    exportJsonMatches
+        "#M: {\n\t#k: string\n\tshape: string\n\t{shape: \"struct\", val: #k} | {shape: \"list\", items: [#k]} | error(\"no shape\")\n\t...\n}\n#U: {#M}\nout: #U & {#k: \"y\", shape: \"list\"}\n"
+        "{\n    \"out\": {\n        \"shape\": \"list\",\n        \"items\": [\n            \"y\"\n        ]\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- UNCHANGED: the DIRECT-narrowing case (`#M & {narrow}`, one tier up) still selects the struct arm —
+-- the fix only adds the embedded-one-layer-down path, never perturbs the direct distribution.
+theorem disj_direct_narrow_unchanged :
+    exportJsonMatches
+        "#M: {\n\t#k: string\n\tshape: string\n\t{shape: \"struct\", val: #k} | {shape: \"list\", items: [#k]} | error(\"no shape\")\n\t...\n}\nout: #M & {#k: \"z\", shape: \"struct\"}\n"
+        "{\n    \"out\": {\n        \"shape\": \"struct\",\n        \"val\": \"z\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- SOUNDNESS (a real conflict kills ALL structural arms → still bottoms; no arm over-survives):
+-- `shape:"other"` matches neither struct nor list arm; the error arm bottoms → the disjunction is
+-- bottom. `exportJsonBottoms` positively witnesses it.
+theorem disj_embed_one_layer_real_conflict_bottoms :
+    exportJsonBottoms
+        "#M: {\n\t#k: string\n\tshape: string\n\t{shape: \"struct\", val: #k} | {shape: \"list\", items: [#k]} | error(\"no shape\")\n\t...\n}\n#U: {#M}\nout: #U & {#k: \"w\", shape: \"other\"}\n"
+          = true := by
+  native_decide
+
+-- shapeD end-to-end (Gap-2 + the buried let + comprehension): the struct arm is selected AND the
+-- matched `#patch` (`meta:"yes"`) surfaces through the let chain behind the force tier.
+theorem disj_embed_force_narrow_emits_patch :
+    exportJsonMatches
+        "#MixinD: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tshape: string\n\tlet _patch = {\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t}\n\tlet listShape = {shape: \"list\", items: [_patch]}\n\tlet structShape = {shape: \"struct\", _patch}\n\tstructShape | listShape | error(\"no shape\")\n\t...\n}\n#UseD: {\n\t#MixinD\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\nout: #UseD & {kind: \"ListenerSet\", shape: \"struct\"}\n"
+        "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"shape\": \"struct\",\n        \"meta\": \"yes\"\n    }\n}\n"
+          = true := by
+  native_decide
+
 
 end Kue

@@ -1602,22 +1602,73 @@ def embedComprehensionReadLabels : Value -> List String
         |>.filterMap (fun i => (nthField i fields).map Field.label)).eraseDups
   | _ => []
 
+/-- The DISCRIMINATOR labels of an embed body's embedded disjunction (Gap-2, Bug2-2): a regular
+    sibling the body declares (`shape: string`) that the disjunction's arms also DECLARE as a
+    field (`{shape:"struct",…} | {shape:"list",…}`). When such an embedded def is itself embedded
+    one layer down (`#U:{#M}`, then `#U & {shape:"struct"}`), the outer use-site narrowing of the
+    discriminator reaches the host frame but is NOT spliced into `#M` by `embedComprehensionReadLabels`
+    (the arms MATCH `shape`, they don't READ it) — so `#M`'s force-time disjunction sees no `shape`,
+    every arm survives, and the outer meet then conflicts (kue bottom; cue selects the struct arm).
+    Surfacing these labels lets the host's narrowed discriminator splice into `#M` so its force-time
+    arm distribution prunes the dead arms exactly as a DIRECT `#M & {shape:"struct"}` does — the same
+    `liveAlternatives` pruning, just re-driven behind the force tier.
+
+    GATE (mandatory, the cert-manager byte-identity guard): returns `[]` UNLESS the body's `cs` holds
+    a `.disj` embedding (no disjunction embedding → no extra splice → byte-identical). A label
+    qualifies only if it is BOTH a top-level regular field of the body AND declared by some arm — so
+    only the genuine def-frame discriminator the host narrows is added, never an unrelated host
+    field. The spliced value is the SAME use-site narrowing (merged by label), so a real conflict on
+    the discriminator still bottoms and no arm that should be pruned survives. -/
+def embedDisjArmDeclLabels : Value -> List String
+  | .structComp fields cs _ =>
+      -- The non-alias, non-hidden (regular output) labels a struct-like value declares.
+      let regularLabels := fun (fs : List Field) =>
+        fs.filterMap fun f =>
+          if f.fieldClass != .letBinding && !Field.ignoresClosedness f then some (Field.label f) else none
+      let bodyLabels := regularLabels fields
+      -- The regular labels an arm VALUE declares directly. A `.refId ⟨0, i⟩` arm names a `let` slot
+      -- in THIS body frame (`shapeD`: `structShape | listShape | error`, each a let holding
+      -- `{shape: "struct"/"list", …}`); follow it into the body's own let value at index `i`.
+      let armDeclLabels := fun (arm : Value) =>
+        let declOf := fun (v : Value) =>
+          match v with
+          | .struct armFields _ _ _ => regularLabels armFields
+          | .structComp armFields _ _ => regularLabels armFields
+          | _ => []
+        match arm with
+        | .refId id =>
+            if id.depth == 0 then
+              match nthField id.index fields with
+              | some fl => declOf (Field.value fl)
+              | none => []
+            else []
+        | _ => declOf arm
+      let armLabels := cs.flatMap fun c =>
+        match c with
+        | .disj alternatives => alternatives.flatMap fun alt => armDeclLabels alt.snd
+        | _ => []
+      (bodyLabels.filter armLabels.contains).eraseDups
+  | _ => []
+
 /-- The splice operand a use/host struct contributes INTO an embedded def whose body is `embedBody`:
     `hiddenFieldsOnly` (the shared hidden/def fields the embed self-references) PLUS the host's
-    REGULAR fields that a comprehension inside `embedBody` reads (`embedComprehensionReadLabels`).
-    The extra regulars merge BY LABEL into the embed's own declarations (the embed already declares
-    them — they are siblings the guard names), so the splice introduces no new label and no
-    closedness change; it only lets the guard see the narrowed value at expansion time. Without it,
-    `hiddenFieldsOnly` alone strips the guarded regular sibling and the comprehension drops (the
-    `defs.#Mixin` shape: `if kind == add.#kind`). -/
+    REGULAR fields that a comprehension inside `embedBody` reads (`embedComprehensionReadLabels`)
+    PLUS the regular DISCRIMINATOR fields an embedded disjunction's arms declare
+    (`embedDisjArmDeclLabels` — Gap-2). The extra regulars merge BY LABEL into the embed's own
+    declarations (the embed already declares them — siblings the guard names or the arms
+    discriminate), so the splice introduces no new label and no closedness change; it only lets the
+    guard see the narrowed value at expansion time, and an embedded disjunction prune its dead arms
+    against the narrowed discriminator. Without it, `hiddenFieldsOnly` alone strips the guarded/
+    discriminating regular sibling and the comprehension drops (`defs.#Mixin`: `if kind == add.#kind`)
+    or the disjunction over-survives and bottoms (`shapeD`'s `… | … | error`). -/
 def spliceOperandForEmbed (embedBody : Value) (operand : List Field × Bool) : List Field × Bool :=
-  let readLabels := embedComprehensionReadLabels embedBody
-  if readLabels.isEmpty then
+  let extraLabels := (embedComprehensionReadLabels embedBody ++ embedDisjArmDeclLabels embedBody).eraseDups
+  if extraLabels.isEmpty then
     hiddenFieldsOnly operand
   else
     let (hidden, open_) := hiddenFieldsOnly operand
     let extraRegulars := operand.fst.filter fun f =>
-      f.fieldClass != .letBinding && !Field.ignoresClosedness f && readLabels.contains (Field.label f)
+      f.fieldClass != .letBinding && !Field.ignoresClosedness f && extraLabels.contains (Field.label f)
     (hidden ++ extraRegulars, open_)
 
 /-- Apply the def's closedness over the embedding UNION to an already-meet-folded struct: the
