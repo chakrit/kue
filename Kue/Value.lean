@@ -742,8 +742,13 @@ def mkStruct
     (closingPatterns : List Value := if openness.isOpen then [] else patterns.map Prod.fst) :
     Value :=
   let (coherentTailValue, coherentOpenness) := coherentTail tail openness
+  -- ENFORCE the SC-1 invariant (not merely default it): an OPEN struct closes nothing, so its
+  -- `closingPatterns` is `[]` regardless of what the caller passed. Keying on the COHERENT
+  -- openness (a `some tail` forces `defOpenViaTail` = open) makes the nonsense triple
+  -- (closingPatterns non-empty + open) unconstructable through the only sanctioned constructor.
+  let coherentClosing := if coherentOpenness.isOpen then [] else closingPatterns
   .struct fields coherentOpenness coherentTailValue (dedupPatterns patterns)
-    (dedupValues closingPatterns)
+    (dedupValues coherentClosing)
 
 /-- A single `import "path"` or `alias "path"` clause retained from a parsed file. The
     `path` is the verbatim import string (e.g. `"example.com/defs"`); `alias` carries the

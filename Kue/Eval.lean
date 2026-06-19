@@ -420,7 +420,14 @@ def applyEvaluatedStructN
     (closingPatterns : List Value) : Value :=
   match patterns with
   | [] => mkStruct fields openness tail [] closingPatterns
-  | _ => meet (mkStruct [] openness none patterns closingPatterns) (mkStruct fields .regularOpen none [])
+  -- The fields AND the tail stay on the pattern-bearing struct so the closedness check sees
+  -- the fields as DECLARED (its own fields are always allowed) and keeps the `...` tail's
+  -- openness. Splitting fields onto a separate open struct lost them from `declaredFields` (a
+  -- closed pattern def `#A: {x, [=~"a"]}` wrongly bottomed its own declared `x`); dropping the
+  -- tail re-closed an open-via-tail pattern def (`#A: {[=~"a"], ...}` wrongly rejected extras).
+  -- Both are SC-1c. The empty open right side only routes the result through the
+  -- pattern-application meet arm.
+  | _ => meet (mkStruct fields openness tail patterns closingPatterns) (mkStruct [] .regularOpen none [])
 
 def allRegularAlternatives : List (Mark × Value) -> Bool
   | [] => true

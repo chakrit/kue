@@ -171,6 +171,31 @@ front-loaded before the large rewrites.
      rejects `a`/`b`; current Kue (both before and after SC-1) admits them. Needs an
      intersection-aware closed allowed-set representation. Not introduced by SC-1 — SC-1 made the
      pattern-vs-plain case correct; this is the closed×closed-pattern case.
+   - **SC-1c — DONE (2026-06-19, Phase-A audit of the SC-1 batch).** A closed pattern-def did
+     NOT close over its own SELECTIVE pattern: `#A: {x:int, [=~"^a"]:int} & {b:1}` admitted `b`
+     (cue rejects). SC-1's headline constraint C1 used `[string]` (matches everything) and so
+     MASKED this — the def was never actually closing; it stayed open with `closingPatterns=[]`.
+     Two root causes, both fixed: (1) `Normalize.normalizeDefinitionValueWithFuel`'s
+     pattern-bearing def arm passed the parser's open-by-default `openness` straight to
+     `mkStruct` (so the default `closingPatterns = if openness.isOpen then [] else …` resolved to
+     `[]` AND the openness stayed `regularOpen`) — now `openness.closeDefBody` closes a no-`...`
+     pattern def exactly like the no-pattern arm; (2) `Eval.applyEvaluatedStructN`'s pattern
+     branch split the fields onto a SEPARATE open struct for the pattern-application meet, so the
+     closedness check's `declaredFields` was `[]` and the def's OWN declared `x` bottomed; fields
+     (and the tail) now stay on the pattern-bearing struct. Verified: `#A & {b:1}` rejects `b`,
+     `#A & {a1:1}` admits `a1`, standalone `#A` keeps `x`, and all SC-1 C1/C2/C2b constraints
+     still hold (cue-cross-checked). `lake build` + `check-fixtures` (`fixture pairs ok`) +
+     `shellcheck` green. `Normalize.lean` def-pattern arm, `Eval.lean` `applyEvaluatedStructN`.
+   - **SC-1d (follow-up, HIGH — pre-existing PARSER bug, surfaced by SC-1c).** A struct with BOTH
+     patterns AND a `...` tail drops the tail at PARSE time: `Parse.parsedFieldsValue`'s
+     `some tail` branch returns `declared` (= `parsedFieldsBaseValue`, which forces `.regularOpen`
+     and a `none` tail) whenever patterns are present (the `| _, _ => declared` arm), losing the
+     `...`. Harmless while pattern-defs never closed (SC-1c); now that they close, an open-via-tail
+     pattern def `#A: {x, [=~"^a"], ...} & {b}` wrongly REJECTS `b` (cue admits — the `...` opens
+     it). Inline (non-def) `A: {x, [=~"^a"], ...}` over-admits AND drops the `...` from display.
+     Fix: co-represent tail+patterns at parse time (the `some tail` + non-empty-patterns case must
+     build `mkStruct fields .defOpenViaTail (some tail) patterns`, not drop the tail). Contained
+     parser change; its own slice. `Parse.lean:510-545`.
 2. **D#1a — DONE (2026-06-19).** Comprehension guard: a BOTTOM guard now PROPAGATES instead of
    being swallowed. Mechanism: the six expansion helpers
    (`expandClauses`/`expandForPairs`/`expandComprehension`/`expandComprehensions` + the two list
@@ -190,6 +215,15 @@ front-loaded before the large rewrites.
    `list_guard_bottom_propagates`, `guard_bottom_from_sibling`). cert-manager re-probed: exports
    clean (~34s), no regression. `Eval.lean` expansion-helper cluster + call sites. (D#1b
    incomplete-deferral still OPEN — larger, couples with D#2 structural cycles.)
+   - **D#1c (follow-up, MED — found in the SC-1-batch Phase-A audit).** The guard's residual
+     `_ => pure (.ok [])` arm still SWALLOWS a CONCRETE non-bool guard, which the spec treats as a
+     type error, not a drop: `if "x" {…}` / `if 3 {…}` yield `{}` in Kue but `cue` errors
+     (`cannot use "x" (type string) as type bool`). D#1a fixed the bottom case and D#1b owns the
+     INCOMPLETE (abstract) case (legitimately defers), but the residual arm conflates "incomplete
+     abstract → defer" with "concrete non-bool → error". The fix splits them: a concrete value
+     whose kind is not `bool` is a `.bottomWith` type error (propagate, like the bottom case);
+     only a genuinely incomplete/abstract guard defers (D#1b). Couples with D#1b's deferral
+     classification. `Eval.lean` `expandClausesWithFuel` guard match.
 3. **F-1 — DONE (2026-06-19).** Added `"regexp"` to `builtinImportPaths` (`Module.lean`) so
    `import "regexp"` resolves, and wired a `regexp.*` call-form dispatcher (`evalRegexpBuiltin`,
    `Builtin.lean`). `regexp.Match(pattern, string) -> bool` dispatches to `stringRegexMatches`

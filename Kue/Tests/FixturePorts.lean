@@ -350,6 +350,19 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- SC-1c: a closed pattern DEF closes over its OWN selective pattern. `#A: {x, [=~"^a"]}`
+      -- is a no-`...` def, so it is CLOSED; meeting `{a1, b}` admits `a1` (matches `[=~"^a"]`)
+      -- and `x` (declared) but rejects `b` (neither declared nor matching). The def-body path
+      -- (`normalizeDefinitionValueWithFuel` + `applyEvaluatedStructN`) is DISTINCT from the
+      -- `close({…})` builtin path (`closed_regex_pattern`); pre-SC-1c the def never closed at all
+      -- (openness stayed `regularOpen`, `closingPatterns = []`) and admitted `b`.
+      fileName := "definitions/sc1c_closed_pattern_def_rejects_nonmatch.expected",
+      content :=
+        match parseSource "#A: {x: int, [=~\"^a\"]: int}\nout: #A & {a1: 1, b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "disjunctions/default_disjunction.expected",
       content :=
         formatField "x"

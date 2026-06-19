@@ -26,15 +26,19 @@ mutual
         .struct fields .defOpenViaTail tail patterns closingPatterns
     | fuel + 1, .struct fields _ _ [] _ =>
         .struct (fields.map (normalizeFieldWithFuel fuel)) .defClosed none [] []
-    -- A closed def declaring its OWN patterns: the patterns close (widen the allowed set), so
-    -- `mkStruct`'s default `closingPatterns = patterns.map Prod.fst` is exactly right.
+    -- A closed def declaring its OWN patterns: a no-`...` pattern-bearing body CLOSES exactly
+    -- like the no-pattern arm above (`closeDefBody` turns the parser's open-by-default
+    -- `regularOpen` into `defClosed`; the `defOpenViaTail` case is already returned unchanged
+    -- earlier). Once closed, the patterns close (widen the allowed set), so `mkStruct`'s default
+    -- `closingPatterns = patterns.map Prod.fst` is exactly right; leaving `openness` open here
+    -- would default `closingPatterns` to `[]` and silently re-open the def (SC-1c).
     | fuel + 1, .struct fields openness _ patterns _ =>
         let normalizedPatterns := patterns.map fun pattern =>
           (
             normalizeDefinitionValueWithFuel fuel pattern.fst,
             normalizeDefinitionValueWithFuel fuel pattern.snd
           )
-        mkStruct (fields.map (normalizeFieldWithFuel fuel)) openness none normalizedPatterns
+        mkStruct (fields.map (normalizeFieldWithFuel fuel)) openness.closeDefBody none normalizedPatterns
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionValueWithFuel fuel alternative.snd)
