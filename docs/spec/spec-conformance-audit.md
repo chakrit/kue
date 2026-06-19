@@ -52,9 +52,9 @@ the spec-first fix-slice backlog in `plan.md`.
 | A. Disjunctions/narrowing | batch 1 | DONE | 1 KUE-VIOLATES (disj display); Gap-2b = real bug (cue correct); 2 spec gaps; rest CONFORMS |
 | B. Closedness/definitions | batch 1 | DONE | 2 SUSPECT-ARTIFACT (instantiation re-open; import laziness); rest CONFORMS |
 | C. Structs/lists          | batch 1 | DONE | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS |
-| D. Comprehensions/scoping | — | pending | — |
-| E. Scalars/bounds/builtins| — | pending | — |
-| F. Manifest/modules       | — | pending | — |
+| D. Comprehensions/scoping | batch 2 | DONE | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; no structural-cycle detection; `let` clauses unparseable); frame-model + read-splice CONFORM |
+| E. Scalars/bounds/builtins| batch 2 | DONE | 1 KUE-VIOLATES HIGH (regex not RE2); 2 MED builtin (ASCII case-fold; deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
+| F. Manifest/modules       | batch 2 | DONE | 3 KUE-VIOLATES (`regexp` import missing; self `@vN` not stripped; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
 ## Findings (ranked; filled as auditors return)
 
@@ -114,4 +114,74 @@ scalar-embed-with-definitions coverage gap.
 **Spec-doc errors (cosmetic, no code action):** the CUE spec's disjunction worked-example
 comments contradict its own U2 rule; cue + Kue both follow the rule.
 
-_Pending batch 2 (D, E, F)._
+### Batch 2 (areas D, E, F) — complete 2026-06-19
+
+**D — comprehensions/scoping:** D#1 guard `_ => []` catch-all conflates false/incomplete/error
+→ a bottom guard (`if 1/0 > 0`) silently vanishes (SOUNDNESS) and an incomplete guard drops
+the field instead of deferring. D#2 NO structural-cycle detection — `#L:{n:int,next:#L}`
+unrolls to garbage; spec mandates detection (wrong value, missing feature). D#3 `let` clauses
+in comprehensions unparseable (`Clause` has only for/if). D#4 the for=+1/if=+0 frame model is
+spec-CORRECT (B7 vindicated); `let` must wire as +1 when D#3 lands. D#5 the
+comprehension-read-splice (Bug2-1/2) is LATTICE-DERIVED/correct (meet idempotent → early
+splice recovers a result naive order drops) — KEEP; its gates are a perf-fence smell, not
+correctness. D#6/D#7 minor cycle-display / iteration divergences (doc).
+
+**E — scalars/bounds/builtins:** RX-1 (HIGH) the regex engine is NOT RE2 — expands only the
+first group, no `\b`, no lazy quantifiers, unsound anchoring-dependent substring fallback;
+silently mis-validates grouped/multi-group/semver/DNS patterns real apps use (invisible to
+fixtures). BI-1 (MED) `strings.ToUpper/ToLower` ASCII-only (cue full-Unicode → wrong answers).
+BI-2 (MED) deferred builtins (`math.Pow/Sqrt`, `list.Sort`) bottom on concrete input. E#4 (LOW)
+list `+`/`*` removed in cue v0.11 (Kue leaves residual). Numeric/int-float-lattice/bounds/
+division(Euclidean div-mod, truncated quo-rem)/decimal(34-digit) all CONFORMS (re-derived).
+
+**F — manifest/modules:** F-1 (HIGH) `regexp` not in the builtin import allowlist → real apps
+`import "regexp"` fail (engine exists, wiring missing). F-2 (HIGH) self-module `@vN` suffix not
+stripped (deps are; asymmetry) → in-module imports fail. F-3 (MED) qualified import `"path:id"`
+unparsed (latent). F-4/F-5 confirm spec gaps (export field order — keep Kue's principled
+source-order; import laziness reference-location-dependence — keep, record). Export
+concreteness, incomplete-vs-error, required/optional/definition/null emission, module
+resolution core all CONFORMS.
+
+## Consolidated fix backlog (re-audit COMPLETE — spec-first, ranked)
+
+Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
+front-loaded before the large rewrites.
+
+**HIGH — soundness / real-app correctness:**
+1. **SC-1** mergeStructN pattern-meet drops other-side closedness (closed def re-opened).
+   Contained; Kue wrong vs spec AND cue. `Lattice.lean:846-862`.
+2. **D#1a** comprehension guard: propagate a BOTTOM guard (don't swallow). Contained soundness
+   half. `Eval.lean:2941-2953,2997-3007`. (D#1b incomplete-deferral = larger, separate.)
+3. **F-1** add `regexp` builtin import + wire `regexp.Match/…` to the existing engine. Contained;
+   real-app blocker.
+4. **F-2** strip self-module `@vN` in `readModuleInfo`. Contained. `Module.lean:221-236`.
+5. **RX-1** replace the regex engine with a real AST→NFA→Thompson (RE2-equivalent, total).
+   LARGE; own planned slice. Highest real-app correctness impact.
+6. **D#2** structural-cycle detection (ancestor-chain; default-arm-terminates). LARGE; own slice.
+7. **Bug2-3 / Gap-2b** argocd disjunction under-pruning (REAL bug, cue correct) — key on
+   `.embeddedList`/list-meet-to-bottom, NOT a shape heuristic. The argocd unblock.
+
+**HIGH — DIVERGE from cue (spec says so):**
+8. **SC-2** closing-vs-instantiation: preserve nested closedness on instantiation; record
+   `cue-divergences.md`. RE-SCOPES B6-deferred (which wrongly proposed implementing the cue
+   artifact). Verify cert-manager/argocd no-regress.
+
+**MED:**
+9. **D#3** `let` clauses in comprehensions (parse + `Clause.letClause` + wire `let`=+1 in
+   `descendClauses`).
+10. **SC-3** disjunction eval display: flatten/dedup the non-all-regular branch
+    (`normalizeEvaluatedDisj`).
+11. **BI-1** Unicode case folding for `strings.ToUpper/ToLower`.
+12. **BI-2** implement `math.Pow/Sqrt`, `list.Sort/SortStable`.
+13. **F-3** parse qualified import path `"location:identifier"`.
+
+**Spec-gap decisions (record + ratify, mostly doc):** import-binding laziness (B#2/F-5 — keep,
+operational basis); incomplete `A|B` form (A — keep open); field order #3 (C/F-4 — keep Kue's
+principled source-order, stop gating on cue's order); list `+`/`*` (E#4 — decide hard-error vs
+residual). All three current gaps already in `cue-spec-gaps.md`.
+
+**Low / hardening:** `containsBottom` fuel cap 100 (A#6 — deep bottom escapes pruning);
+`{#a:1,5}` scalar-embed-with-defs coverage; D#1b incomplete-guard deferral (couples with D#2).
+
+**Spec-doc errors (cosmetic):** CUE spec's disjunction worked-example comments contradict its
+own U2 rule (cue + Kue follow the rule); the `2 & >=1.0 & <3.0` example is stale. No action.
