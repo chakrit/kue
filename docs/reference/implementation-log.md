@@ -8588,3 +8588,49 @@ meet, `x1` admitted). The at-this-meet marking is correct (sequential closedness
 forward set over-admits. Pre-existing (not introduced by SC-1) and broader; needs an
 intersection-aware closed allowed-set. Recorded in `spec-conformance-audit.md`. No CUE divergence
 (cue is correct here too).
+
+## D#1a — bottom comprehension guard propagates instead of vanishing (soundness)
+
+Second spec-first fix-slice from the backlog. `expandClausesWithFuel` / `expandListClausesWithFuel`
+matched the guard as `.prim (.bool true) => continue | _ => pure []`; the catch-all swallowed
+EVERYTHING non-`true`, so a guard evaluating to BOTTOM (`if (1/0 > 0) {…}`) silently produced an
+empty struct — the div-by-zero error vanished (a soundness hole). Spec: an `if` guard "terminates
+the current iteration if it evaluates to false"; *false* is the only drop. A bottom guard is an
+error, and bottom propagates recursively. cue errors on a bottom guard.
+
+**Mechanism.** The six expansion helpers in the mutual block —
+`expandClausesWithFuel`/`expandForPairsWithFuel`/`expandComprehensionWithFuel`/
+`expandComprehensionsWithFuel` and the two list twins — changed return type from
+`EvalM (List …)` to `EvalM (Except Value (List …))`. `Except.error b` carries the actual bottom
+value (preserving `.bottomWith reasons`, e.g. `divisionByZero`) and short-circuits every concat in
+the for-pairs / multi-comprehension recursion (explicit `.error → propagate` / `.ok → continue`
+matches, total, no monad-transformer). The guard match is now ENUMERATED, no catch-all swallow:
+`.bool true` → continue, `.bool false` → `[]` (the spec drop), `.bottom`/`.bottomWith` →
+`.error testCondition`, residual `_` → still `[]` (with a comment that D#1b makes the incomplete
+case DEFER). Three call sites re-surface the error as the result bottom: the `.comprehension` eval
+arm, the eager + forced `.structComp` arms (`match (<- expand…) with | .error bot => pure bot |
+.ok expanded => …`), and `evalListItemsWithFuel`.
+
+**Second swallow found + fixed.** The clauses-exhausted `[] =>` arm evaluates the body struct and
+had `| .struct fields _ none [] _ => pure fields | _ => pure []`. When a bottom guard sits one
+level deeper (inside a `for`-body struct, `for k in … { if (1/0>0) {…} }`), the body evaluates to
+`.bottom` and was dropped by that catch-all. Added `.bottom`/`.bottomWith` body → `.error`, so the
+nested-bottom case propagates too. (The list twin's `[evaluatedBody]` already preserves a bottom
+body as an element — no swallow there.)
+
+**Granularity.** Struct guard → whole comprehension/struct becomes the bottom (`out: _|_`) — the
+guard fails before any field exists, so the bottom can only attach at the comprehension-value
+level. List guard → the bottom lands in the element slot (`[_|_]`), matching Kue's pre-existing
+`[1/0]` → `[_|_]` and `{a: 1/0}` → `{a: _|_}` convention (bottoms are positioned, not collapsed at
+eval/render). cue addresses these as `out` vs `out.0` errors respectively; both are "error". The
+soundness fix is that the bottom is PRESERVED (caught by `containsBottom`), never swallowed.
+
+**Tests.** 4 `native_decide` pins in `PresenceTests` (bottom guard propagates; bottom-from-sibling
+propagates; `false` still drops; `true` still yields) + 3 fixtures
+(`comprehensions/guard_bottom_propagates` → `out: _|_`, `list_guard_bottom_propagates` →
+`out: [_|_]`, `guard_bottom_from_sibling` → both `_|_`) with `FixturePorts` ports.
+
+**Verify.** `lake build` green (96 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok` (all
+existing fixtures held — none carries a bottom guard); `shellcheck` clean. cert-manager re-probed
+READ-ONLY: exports clean (exit 0, ~34s), no regression (it has no bottom guards). D#1b
+(incomplete-guard deferral) still OPEN — larger, couples with D#2 structural cycles.

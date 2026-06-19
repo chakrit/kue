@@ -2237,9 +2237,11 @@ mutual
       (visited : List Nat) : List Value -> EvalM (List Value)
     | [] => pure []
     | .listComprehension clauses body :: rest => do
-        let head <- expandListClausesWithFuel fuel env clauses body
-        let restEvaluated <- evalListItemsWithFuel fuel env visited rest
-        pure (head ++ restEvaluated)
+        match (<- expandListClausesWithFuel fuel env clauses body) with
+        | .error bot => pure [bot]
+        | .ok head =>
+            let restEvaluated <- evalListItemsWithFuel fuel env visited rest
+            pure (head ++ restEvaluated)
     | value :: rest => do
         let evaluated <- evalValueWithFuel fuel env visited value
         let restEvaluated <- evalListItemsWithFuel fuel env visited rest
@@ -2440,10 +2442,12 @@ mutual
         let evaluatedTail <- evalValueWithFuel fuel env visited tail
         pure (.listTail evaluatedItems evaluatedTail)
     | fuel + 1, .comprehension clauses body => do
-        let expanded <- expandClausesWithFuel fuel env clauses body
-        match mergeEvaluatedFields expanded with
-        | some fields => pure (mkStruct fields .regularOpen none [])
-        | none => pure .bottom
+        match (<- expandClausesWithFuel fuel env clauses body) with
+        | .error bot => pure bot
+        | .ok expanded =>
+            match mergeEvaluatedFields expanded with
+            | some fields => pure (mkStruct fields .regularOpen none [])
+            | none => pure .bottom
     | fuel + 1, .structComp fields comprehensions openness => do
         let fields := canonicalizeFields fields
         let embeddings := comprehensions.filter isEmbeddingValue
@@ -2453,7 +2457,9 @@ mutual
         -- `(*_#Opaque | …)`) cannot resolve here — the frame holds only static labels.
         let nested <- pushFrame fields env
         let staticFields <- evalFieldRefsListWithFuel fuel nested (indexedFields fields)
-        let expanded <- expandComprehensionsWithFuel fuel nested comprehensions
+        match (<- expandComprehensionsWithFuel fuel nested comprehensions) with
+        | .error bot => pure bot
+        | .ok expanded =>
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | none => pure .bottom
         | some merged =>
@@ -2824,7 +2830,9 @@ mutual
         -- force arm silently dropped every `if`/`for` member (the F2 cert-manager `attr.#Ports`
         -- collapse). Embeddings (`isEmbeddingValue`) expand to `[]` here and flow to the
         -- embed-meet below unchanged.
-        let expanded <- expandComprehensionsWithFuel fuel nested comprehensions
+        match (<- expandComprehensionsWithFuel fuel nested comprehensions) with
+        | .error bot => pure bot
+        | .ok expanded =>
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | none => pure .bottom
         | some merged =>
@@ -2892,35 +2900,40 @@ mutual
         pure (useOperands.foldl (fun current op => meet current (mkStruct op.fst (.ofBool op.snd) none [])) forced)
   termination_by (fuel, 4, 0)
 
-  /-- Expand each embedded comprehension/dynamic field and concatenate the contributed fields. -/
+  /-- Expand each embedded comprehension/dynamic field and concatenate the contributed fields.
+      A guard evaluating to BOTTOM short-circuits: `Except.error b` carries the bottom out so
+      the enclosing struct becomes that bottom (D#1a — bottom propagates, never vanishes). -/
   def expandComprehensionsWithFuel
       (fuel : Nat)
-      (env : Env) : List Value -> EvalM (List Field)
-    | [] => pure []
+      (env : Env) : List Value -> EvalM (Except Value (List Field))
+    | [] => pure (.ok [])
     | comprehension :: rest => do
-        let head <- expandComprehensionWithFuel fuel env comprehension
-        let tail <- expandComprehensionsWithFuel fuel env rest
-        pure (head ++ tail)
+        match (<- expandComprehensionWithFuel fuel env comprehension) with
+        | .error bot => pure (.error bot)
+        | .ok head =>
+            match (<- expandComprehensionsWithFuel fuel env rest) with
+            | .error bot => pure (.error bot)
+            | .ok tail => pure (.ok (head ++ tail))
   termination_by comprehensions => (fuel, 3, comprehensions.length)
 
   /-- Expand one embedded comprehension/dynamic field into the fields it contributes. -/
   def expandComprehensionWithFuel
       (fuel : Nat)
       (env : Env)
-      (value : Value) : EvalM (List Field) := do
+      (value : Value) : EvalM (Except Value (List Field)) := do
     match fuel, value with
     | 0, _ => do
         modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure []
+        pure (.ok [])
     | fuel + 1, .comprehension clauses body => expandClausesWithFuel fuel env clauses body
     | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env [] label
         match evaluatedLabel with
         | .prim (.string name) => do
             let evaluatedValue <- evalValueWithFuel fuel env [] value
-            pure [⟨name, fieldClass, evaluatedValue⟩]
-        | _ => pure []
-    | _, _ => pure []
+            pure (.ok [⟨name, fieldClass, evaluatedValue⟩])
+        | _ => pure (.ok [])
+    | _, _ => pure (.ok [])
   termination_by (fuel, 0, 0)
 
   /--
@@ -2933,18 +2946,22 @@ mutual
       (fuel : Nat)
       (env : Env)
       (clauses : List (Clause Value))
-      (body : Value) : EvalM (List Field) := do
+      (body : Value) : EvalM (Except Value (List Field)) := do
     match fuel with
     | 0 => do
         modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure []
+        pure (.ok [])
     | fuel + 1 =>
         match clauses with
         | [] => do
             let evaluatedBody <- evalValueWithFuel fuel env [] body
             match evaluatedBody with
-            | .struct fields _ none [] _ => pure fields
-            | _ => pure []
+            | .struct fields _ none [] _ => pure (.ok fields)
+            -- A bottom body propagates (D#1a): a nested bottom guard surfaces here as a
+            -- `.bottom` body, and must not be dropped by the residual arm.
+            | .bottom => pure (.error evaluatedBody)
+            | .bottomWith _ => pure (.error evaluatedBody)
+            | _ => pure (.ok [])
         | .guard condition :: rest => do
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
             -- A guard condition is a concrete-context use: a marked-default disjunction
@@ -2955,30 +2972,41 @@ mutual
               match evaluatedCondition with
               | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
               | _ => evaluatedCondition
+            -- The guard is enumerated, no catch-all swallow (D#1a): only `false` is the spec
+            -- drop; a BOTTOM guard propagates the bottom out of the comprehension. The residual
+            -- arm (incomplete / non-bool concrete) still drops to `[]` — D#1b will make the
+            -- incomplete case DEFER instead (couples with structural-cycle work).
             match testCondition with
             | .prim (.bool true) => expandClausesWithFuel fuel env rest body
-            | _ => pure []
+            | .prim (.bool false) => pure (.ok [])
+            | .bottom => pure (.error testCondition)
+            | .bottomWith _ => pure (.error testCondition)
+            | _ => pure (.ok [])
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             match comprehensionPairs evaluatedSource with
-            | none => pure []
+            | none => pure (.ok [])
             | some pairs => expandForPairsWithFuel fuel env key value rest body pairs
   termination_by (fuel, 0, 0)
 
-  /-- Expand the remaining clause chain once per iteration pair, concatenating results. -/
+  /-- Expand the remaining clause chain once per iteration pair, concatenating results. A bottom
+      from any iteration short-circuits the whole `for` (D#1a). -/
   def expandForPairsWithFuel
       (fuel : Nat)
       (env : Env)
       (key : Option String)
       (value : String)
       (rest : List (Clause Value))
-      (body : Value) : List (Value × Value) -> EvalM (List Field)
-    | [] => pure []
+      (body : Value) : List (Value × Value) -> EvalM (Except Value (List Field))
+    | [] => pure (.ok [])
     | pair :: pairs => do
         let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
-        let head <- expandClausesWithFuel fuel nested rest body
-        let tail <- expandForPairsWithFuel fuel env key value rest body pairs
-        pure (head ++ tail)
+        match (<- expandClausesWithFuel fuel nested rest body) with
+        | .error bot => pure (.error bot)
+        | .ok head =>
+            match (<- expandForPairsWithFuel fuel env key value rest body pairs) with
+            | .error bot => pure (.error bot)
+            | .ok tail => pure (.ok (head ++ tail))
   termination_by pairs => (fuel, 3, pairs.length)
 
   /-- Walk a LIST comprehension's clause chain. Mirrors `expandClausesWithFuel`, but with the
@@ -2991,16 +3019,16 @@ mutual
       (fuel : Nat)
       (env : Env)
       (clauses : List (Clause Value))
-      (body : Value) : EvalM (List Value) := do
+      (body : Value) : EvalM (Except Value (List Value)) := do
     match fuel with
     | 0 => do
         modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure []
+        pure (.ok [])
     | fuel + 1 =>
         match clauses with
         | [] => do
             let evaluatedBody <- evalValueWithFuel fuel env [] body
-            pure [evaluatedBody]
+            pure (.ok [evaluatedBody])
         | .guard condition :: rest => do
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
             -- Match `expandClausesWithFuel`: a marked-default disjunction collapses to its
@@ -3009,31 +3037,41 @@ mutual
               match evaluatedCondition with
               | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
               | _ => evaluatedCondition
+            -- Enumerated, no catch-all swallow (D#1a, mirrors the struct twin): `false` drops,
+            -- a BOTTOM guard propagates the bottom; the residual arm (incomplete / non-bool)
+            -- still drops — D#1b makes the incomplete case DEFER.
             match testCondition with
             | .prim (.bool true) => expandListClausesWithFuel fuel env rest body
-            | _ => pure []
+            | .prim (.bool false) => pure (.ok [])
+            | .bottom => pure (.error testCondition)
+            | .bottomWith _ => pure (.error testCondition)
+            | _ => pure (.ok [])
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             match comprehensionPairs evaluatedSource with
-            | none => pure []
+            | none => pure (.ok [])
             | some pairs => expandListForPairsWithFuel fuel env key value rest body pairs
   termination_by (fuel, 0, 0)
 
   /-- Per-iteration expansion for a list comprehension `for` clause; concatenates the elements
-      each iteration's remaining chain yields, preserving iteration order. -/
+      each iteration's remaining chain yields, preserving iteration order. A bottom from any
+      iteration short-circuits the whole `for` (D#1a). -/
   def expandListForPairsWithFuel
       (fuel : Nat)
       (env : Env)
       (key : Option String)
       (value : String)
       (rest : List (Clause Value))
-      (body : Value) : List (Value × Value) -> EvalM (List Value)
-    | [] => pure []
+      (body : Value) : List (Value × Value) -> EvalM (Except Value (List Value))
+    | [] => pure (.ok [])
     | pair :: pairs => do
         let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
-        let head <- expandListClausesWithFuel fuel nested rest body
-        let tail <- expandListForPairsWithFuel fuel env key value rest body pairs
-        pure (head ++ tail)
+        match (<- expandListClausesWithFuel fuel nested rest body) with
+        | .error bot => pure (.error bot)
+        | .ok head =>
+            match (<- expandListForPairsWithFuel fuel env key value rest body pairs) with
+            | .error bot => pure (.error bot)
+            | .ok tail => pure (.ok (head ++ tail))
   termination_by pairs => (fuel, 3, pairs.length)
 end
 

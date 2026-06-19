@@ -101,4 +101,56 @@ theorem ordinary_eq_unchanged :
     (evalEq (.prim (.int 1)) (.prim (.int 1)) == .prim (.bool true)) = true := by
   native_decide
 
+/-! D#1a — a BOTTOM comprehension guard PROPAGATES (does not vanish). The guard `1/0 > 0`
+evaluates to bottom; the comprehension becomes that bottom. The `false`/`true` guards are
+unchanged. -/
+
+-- A bottom guard makes the comprehension struct bottom (not an empty struct).
+theorem guard_bottom_propagates :
+    isBottom (evalStructRefs (resolveStructRefs
+      (.structComp
+        []
+        [.comprehension
+          [.guard (.binary .gt (.binary .div (.prim (.int 1)) (.prim (.int 0))) (.prim (.int 0)))]
+          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        .regularOpen)))
+      = true := by
+  native_decide
+
+-- A bottom guard reading a bottom sibling propagates that sibling's bottom.
+theorem guard_bottom_from_sibling_propagates :
+    isBottom (evalStructRefs (resolveStructRefs
+      (.structComp
+        []
+        [.comprehension
+          [.guard (.binary .gt (.conj [.prim (.int 1), .prim (.int 2)]) (.prim (.int 0)))]
+          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        .regularOpen)))
+      = true := by
+  native_decide
+
+-- A `false` guard still DROPS its body (the spec drop), leaving an empty struct.
+theorem guard_false_still_drops :
+    (evalStructRefs (resolveStructRefs
+      (.structComp
+        []
+        [.comprehension
+          [.guard (.prim (.bool false))]
+          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        .regularOpen))
+      == mkStruct [] .regularOpen none []) = true := by
+  native_decide
+
+-- A `true` guard still YIELDS its body.
+theorem guard_true_still_yields :
+    (evalStructRefs (resolveStructRefs
+      (.structComp
+        []
+        [.comprehension
+          [.guard (.prim (.bool true))]
+          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        .regularOpen))
+      == mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
+  native_decide
+
 end Kue

@@ -1367,6 +1367,69 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- D#1a: a BOTTOM comprehension guard PROPAGATES (does not vanish). The guard `1/0 > 0`
+      -- evaluates to bottom; the comprehension becomes that bottom, so `out` is `_|_`.
+      fileName := "comprehensions/guard_bottom_propagates.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨
+                  "out",
+                  .regular,
+                  .structComp
+                    []
+                    [
+                      .comprehension
+                        [.guard (.binary .gt (.binary .div (.prim (.int 1)) (.prim (.int 0))) (.prim (.int 0)))]
+                        (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])
+                    ]
+                    .regularOpen⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#1a list twin: a bottom guard in a LIST comprehension propagates. Kue positions the
+      -- bottom in the element slot (`[_|_]`), the same convention as an explicit `[1/0]`; the
+      -- soundness fix is that the bottom is PRESERVED, not swallowed to `[]`.
+      fileName := "comprehensions/list_guard_bottom_propagates.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨
+                  "out",
+                  .regular,
+                  .list
+                    [
+                      .listComprehension
+                        [.guard (.binary .gt (.binary .div (.prim (.int 1)) (.prim (.int 0))) (.prim (.int 0)))]
+                        (.structComp [] [.prim (.int 1)] .regularOpen)
+                    ]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#1a edge: the guard reads a sibling that is itself bottom (`x: 1 & 2`). The bottom
+      -- flows through the guard and propagates out of the comprehension.
+      fileName := "comprehensions/guard_bottom_from_sibling.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"x", .regular, .conj [.prim (.int 1), .prim (.int 2)]⟩,
+                ⟨
+                  "out",
+                  .regular,
+                  .structComp
+                    []
+                    [
+                      .comprehension
+                        [.guard (.binary .gt (.ref "x") (.prim (.int 0)))]
+                        (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])
+                    ]
+                    .regularOpen⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "numeric/string_interpolation.expected",
       content :=
         formatTopLevel

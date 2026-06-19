@@ -116,9 +116,10 @@ comments contradict its own U2 rule; cue + Kue both follow the rule.
 
 ### Batch 2 (areas D, E, F) — complete 2026-06-19
 
-**D — comprehensions/scoping:** D#1 guard `_ => []` catch-all conflates false/incomplete/error
-→ a bottom guard (`if 1/0 > 0`) silently vanishes (SOUNDNESS) and an incomplete guard drops
-the field instead of deferring. D#2 NO structural-cycle detection — `#L:{n:int,next:#L}`
+**D — comprehensions/scoping:** D#1 guard `_ => []` catch-all conflated false/incomplete/error
+→ a bottom guard (`if 1/0 > 0`) silently vanished (SOUNDNESS) and an incomplete guard drops
+the field instead of deferring. **D#1a (bottom half) FIXED 2026-06-19** — bottom now propagates
+(see fix backlog). D#1b (incomplete-deferral half) still open. D#2 NO structural-cycle detection — `#L:{n:int,next:#L}`
 unrolls to garbage; spec mandates detection (wrong value, missing feature). D#3 `let` clauses
 in comprehensions unparseable (`Clause` has only for/if). D#4 the for=+1/if=+0 frame model is
 spec-CORRECT (B7 vindicated); `let` must wire as +1 when D#3 lands. D#5 the
@@ -170,8 +171,25 @@ front-loaded before the large rewrites.
      rejects `a`/`b`; current Kue (both before and after SC-1) admits them. Needs an
      intersection-aware closed allowed-set representation. Not introduced by SC-1 — SC-1 made the
      pattern-vs-plain case correct; this is the closed×closed-pattern case.
-2. **D#1a** comprehension guard: propagate a BOTTOM guard (don't swallow). Contained soundness
-   half. `Eval.lean:2941-2953,2997-3007`. (D#1b incomplete-deferral = larger, separate.)
+2. **D#1a — DONE (2026-06-19).** Comprehension guard: a BOTTOM guard now PROPAGATES instead of
+   being swallowed. Mechanism: the six expansion helpers
+   (`expandClauses`/`expandForPairs`/`expandComprehension`/`expandComprehensions` + the two list
+   twins) return `EvalM (Except Value (List …))` — `.error b` carries the bottom value (preserving
+   `.bottomWith reasons`) and short-circuits every concat in the for-pairs/clause recursion; the
+   three call sites (`.comprehension` eval arm, the eager + forced `.structComp` arms, and
+   `evalListItemsWithFuel`) re-surface it as the result bottom. The guard match is now ENUMERATED,
+   no catch-all swallow: `.bool true` → continue, `.bool false` → drop (`[]`, the spec drop),
+   `.bottom`/`.bottomWith` → propagate, residual `_` → still `[]` (D#1b makes the incomplete case
+   DEFER). A SECOND swallow was found and fixed: the clauses-exhausted `[] =>` arm's body-eval
+   catch-all (`| _ => pure []`) also dropped a `.bottom` body (the case where a bottom guard sits
+   one level deeper, inside a `for`-body struct) — now `.bottom`/`.bottomWith` body propagates.
+   `{if (1/0>0){b:1}}` → `_|_`; `false`/`true` guards unchanged; the list twin positions the bottom
+   in the element slot (`[if(1/0>0){1}]` → `[_|_]`, Kue's existing `[1/0]` → `[_|_]` convention —
+   the soundness fix is that it is PRESERVED, not swallowed). Pins: 4 `native_decide` theorems in
+   `PresenceTests` + 3 fixtures (`comprehensions/guard_bottom_propagates`,
+   `list_guard_bottom_propagates`, `guard_bottom_from_sibling`). cert-manager re-probed: exports
+   clean (~34s), no regression. `Eval.lean` expansion-helper cluster + call sites. (D#1b
+   incomplete-deferral still OPEN — larger, couples with D#2 structural cycles.)
 3. **F-1** add `regexp` builtin import + wire `regexp.Match/…` to the existing engine. Contained;
    real-app blocker.
 4. **F-2** strip self-module `@vN` in `readModuleInfo`. Contained. `Module.lean:221-236`.
