@@ -58,6 +58,76 @@ the spec-first fix-slice backlog in `plan.md`.
 
 ## Findings (ranked; filled as auditors return)
 
+### Phase-A audit of the SC-2 + RX-1a + RX-1b batch (`a5862df..04eb7de`, 2026-06-19)
+
+Pressure-tested the new RE2 regex engine (RX-1a/b) against `cue` v0.16.1 with a broad
+~96-case pattern×input corpus, plus a 12-case SC-2 over-close hunt. **Engine verdict:
+RE2-correct beyond the 7 repros — exactly ONE corpus divergence, and it is a known deferred
+feature surfaced as a parse error (not silent-wrong).** SC-2 verdict: **no over-close found.**
+Four findings folded into the backlog (none high enough to block; all NEW fix-slices):
+
+- **Regex corpus diff (Kue vs cue, ~96 cases): 1 divergence.** `[\D]` (negated perl class
+  INSIDE a `[…]`) → Kue `unsupportedRegex` parse-error, cue/RE2 matches. This is the
+  RX-1a-documented deferred construct (`\D \W \S` inside a class need set-complement folding),
+  correctly stubbed not silent-wrong. → **RX-2a** below. Everything else byte-agrees with cue,
+  including all the named hazards:
+  - Alternation precedence `a|ab` (leftmost, not longest); `(a|ab)(c|bcd)` on `abcd` picks
+    g1=`a` g2=`bcd` (RE2 leftmost, NOT POSIX-longest) — confirmed via capture spans.
+  - Empty/nested-loop quantifiers `(a*)*`, `(a?)*`, `(|a)*`, `(a*)*b` all **terminate AND
+    match correctly** — the `visited`-by-pc dedup in `addThread` cuts the ε-loop (not fuel).
+  - `{0,0}`, `a{0}`, `{2,}` shapes; mid-pattern anchors `a^b`/`a$b` (correctly never match);
+    `^$` on empty (match) + non-empty (no); `.` does NOT match `\n` (RE2 default); char-class
+    edges `[]`/`[^]`/`[a-]`/`[-a]`/`[z-a]`(error)/ranges; `\d`/`\D`/`[\d]`; `\b`/`\B` at all
+    boundaries; greedy-vs-lazy spans; UTF-8 (`α`, `日本`, `café`, `[α-γ]` — the VM iterates
+    `Char` (runes), matching cue's rune semantics on `=~`); the unsound old-engine
+    `(foo|bar)+` substring case.
+- **Totality: axiom-clean.** `#print axioms` for `compile`/`NFA.run`/`matchRegex`/`parseRegex`/
+  `Compile.desugar` = `{propext, Quot.sound, Classical.choice}` only — no `sorryAx`, no
+  `partial`. The Pike-VM ε-closure fuel (`insts.size`) is genuinely exact; the empty-loop case
+  terminates by `visited`, not fuel-exhaustion (verified by the corpus above).
+- **Capture slots correct for RX-1c.** Dumped `run`'s slots for the flagged shapes: `((a)(b))`
+  (nested), `(a)?b` (non-participating group → none/none, RE2-correct), `(a)|(b)` (untaken
+  branch unset), `(a+)(b+)`, `(a|ab)(c|bcd)` (leftmost). All correct — RX-1c can expose them
+  as-is.
+- **4 dispatch sites consistent.** `Eval.evalRegexMatch`, `Order.subsumesWithFuel`,
+  `Lattice.meetStringRegexPrim`, `Builtin.regexp.Match` ALL route through the single
+  `matchRegex` unanchored entrypoint → agree by construction. `!~` = `evalRegexNotMatch`
+  negates the bool, correct for VALID patterns.
+- **RX-bug — invalid pattern silently swallowed to `false` at ALL 4 sites (NEW finding,
+  pre-existing).** `matchRegex` returns `false` on `parseRegex` error, so `=~` with an invalid/
+  deferred pattern yields `false` (and `!~` yields `true`; the Lattice site bottoms a VALID
+  string). cue/RE2 raise `invalid regexp` (an error/bottom), confirmed on `(`, `a(`,
+  `regexp.Match("(", "x")`. The old engine had the same swallow (carried forward, NOT introduced
+  by RX-1b), BUT RX-1b added the unused `regexParseError?` helper, so the fix is now cheap. →
+  **RX-2b** below.
+- **RX-bug — no repeat-count cap (NEW finding).** Kue accepts `a{0,5000}` and would `desugar`
+  it to 5000 nested optionals (linear AST/program blowup; `a{0,100000000}` is a compile/memory
+  DoS). RE2/cue cap repeat counts at 1000 (`invalid repeat count` on `a{0,2000}`). Both a
+  conformance gap and a resource bound. → **RX-2c** below.
+- **SC-2 over-close hunt (12 cases): clean — NO over-close.** Plain nested (`c1`), deep nested
+  (`c3`), def-embed (`c6`), comprehension-in-def (`c7`), nested-optional (`c10`), disj-nested
+  (`c12`) all close in BOTH Kue and cue (Kue renders `extra: _|_`, cue errors — the known #3
+  field-order/error-render gap, not a closedness divergence). Nested `...` tail (`c2`) and plain
+  non-def struct (`c5`) correctly STAY OPEN in both. SC-2b (`c9`) is the recorded intentional
+  divergence (correct: closedness monotone through meet; cue re-opens on no-op `& {}` — an
+  eval-strategy artifact). Fixtures green (cert-manager/argocd no new closedness bottom).
+- **SC-2 under-close (NEW, LOW / suspect-artifact).** TWO direct-unification paths where Kue
+  stays OPEN but cue CLOSES: `#A:{_h:{b:int}}; #A & {_h:{b,extra}}` (hidden field, `c4`) and
+  `#A:{let z={b:int}, a:z}; #A & {a:{b,extra}}` (let-bound PLAIN struct as a def field value,
+  `c8`). The SC-2 design deliberately routes `letBinding`/hidden through the SPINE (not the
+  closing twin), correct for a let/hidden bound to a DEF (`c8b`/`c4b` selection paths, where
+  Kue==cue==OPEN). But cue itself is INCONSISTENT — `c4` (direct `&`) closes while `c4b`
+  (select-then-`&`) does not — so this is likely a cue eval-strategy artifact, not a spec
+  mandate. Needs a spec check before any fix; NOT confirmed a Kue bug. → **SC-4** below (LOW,
+  spec-gap-first).
+- **Illegal-states / DRY / skill:** RX-1a/b are exemplary — greediness as a `Bool` field (no
+  lazy-constructor duplication), `repeat.max : Option Nat` (no sentinel), group `index : Option
+  Nat` (none = non-capturing), typed `RegexParseError` (genuine vs deferred distinguished),
+  no catch-all `_` swallowing future `Inst`/`Regex` constructors, the `.«repeat»` arm in
+  `compileFrag` is provably dead (desugar runs first) and returns ε rather than crashing. SC-2's
+  twin-function (not a `closing : Bool` flag) keeps intent in WHICH function is called —
+  illegal-states philosophy. No new partiality.
+
 ### Batch 1 (areas A, B, C) — complete 2026-06-19
 
 **Fix-slices (KUE-VIOLATES — spec-first, ranked):**
@@ -224,6 +294,34 @@ contained-correctness before large rewrites (slice-loop principle). **Recommende
    garbage (wrong value + missing feature); spec mandates detection. Own slice; needs the
    design-spike treatment (ancestor-chain; default-arm-terminates) before launch. Couples with
    D#1b (incomplete-guard deferral).
+
+**NEW fix-slices from the SC-2/RX-1a/RX-1b Phase-A audit (`a5862df..04eb7de`, 2026-06-19),
+ranked into the MED/LOW tail:**
+
+- **RX-2b (MED, contained).** Invalid/deferred regex pattern must be a build ERROR (bottom),
+  not silent `false`. Wire the already-defined `regexParseError?` into all 4 dispatch sites
+  (`Eval.evalRegexMatch` + `evalRegexNotMatch`, `Order.subsumesWithFuel`,
+  `Lattice.meetStringRegexPrim`, `Builtin.regexp.Match`): on `some err` return
+  `.bottomWith [.invalidRegex …]` (new `BottomReason` arm) instead of letting `matchRegex`
+  collapse the error to a bool. Spec/RE2/cue all error here; the swallow makes `=~` silently
+  false and `!~` silently true. Pre-existing (old engine too), but `regexParseError?` makes it
+  cheap now. Fixtures: `=~`/`!~`/`regexp.Match`/bound-meet each with `(` → bottom.
+- **RX-2c (LOW-MED, tiny).** Cap repeat counts at 1000 (RE2 limit). In `parseRepeatSuffix`,
+  reject `m`/`n` > 1000 as `.invalid` (→ `.malformed "invalid repeat count"`), matching cue's
+  `invalid repeat count`. Closes both a conformance gap (Kue accepts `a{0,5000}`) and a
+  `desugar` blowup/DoS surface (`a{0,100000000}` → giant AST). Pin: `a{0,1001}` errors,
+  `a{0,1000}` parses.
+- **RX-2a (MED, needs set-complement).** Support `\D`/`\W`/`\S` INSIDE a `[…]` class (the lone
+  corpus divergence). Needs class-level set complement (fold the negated perl ranges into the
+  class, or carry per-class negation of a sub-set) — `parseClassEscape`'s current `.error`
+  arms become real folds. RE2 feature; currently a correct stub. Sequence after RX-1c (the
+  capture work) since both touch the regex module.
+- **SC-4 (LOW, spec-gap-first).** Hidden-field / let-bound-PLAIN-struct nested values do not
+  close on DIRECT def unification (`#A:{_h:{b:int}}; #A & {_h:{b,extra}}` and the let analog)
+  where cue closes. cue is INTERNALLY INCONSISTENT (direct-`&` closes, select-then-`&` does
+  not), so this is probably a cue eval-strategy artifact, not a spec mandate. **Spec-check
+  FIRST** (record in `cue-spec-gaps.md`); only then decide whether to route these through the
+  closing twin. Do NOT reflexively match cue. Lowest priority.
 
 Then the **MED tail** (D#1c non-bool guard → type error; D#1b incomplete-deferral, couples
 with D#2; D#3 `let`-clauses; SC-3 disj display; BI-1 Unicode case-fold; BI-2

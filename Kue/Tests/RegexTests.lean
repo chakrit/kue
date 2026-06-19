@@ -127,6 +127,13 @@ theorem rx_dangling_backslash : parseErrors "ab\\" = true := by native_decide
 theorem rx_bad_repeat_order : parseErrors "a{5,2}" = true := by native_decide
 theorem rx_nothing_to_repeat : parseErrors "*abc" = true := by native_decide
 
+/-- RE2 caps repeat counts at 1000: `{0,1000}` parses, `{0,1001}` and `{1001}` / `{1001,}`
+    error (matching cue's `invalid repeat count`); also bounds `desugar`'s expansion. -/
+theorem rx_repeat_at_cap : parseErrors "a{0,1000}" = false := by native_decide
+theorem rx_repeat_over_cap_range : parseErrors "a{0,1001}" = true := by native_decide
+theorem rx_repeat_over_cap_exact : parseErrors "a{1001}" = true := by native_decide
+theorem rx_repeat_over_cap_open : parseErrors "a{1001,}" = true := by native_decide
+
 /-- `\1` backreference is rejected (RE2 has none) — with the SPECIFIC reason, distinct from
     a generic malformed error. -/
 private def isBackref (p : String) (d : Char) : Bool :=

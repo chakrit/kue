@@ -196,14 +196,22 @@ private inductive RepeatParse where
       literal. -/
   | notQuant
 
+/-- RE2's repeat-count ceiling (`maxRepeat`): a bound `> 1000` is rejected, both for
+    conformance (cue/RE2 raise `invalid repeat count`) and to bound `desugar`'s expansion
+    (it unfolds `{m,n}` into `n` copies/optionals, so an uncapped `{0,1e8}` is a blowup). -/
+private def maxRepeat : Nat := 1000
+
 private def parseRepeatSuffix : List Char → RepeatParse
   | input =>
       match takeNat input 0 false with
-      | (m, true, '}' :: rest) => .quant m (some m) rest
+      | (m, true, '}' :: rest) =>
+          if m > maxRepeat then .invalid else .quant m (some m) rest
       | (m, true, ',' :: rest) =>
           match takeNat rest 0 false with
-          | (n, true, '}' :: rest') => if m ≤ n then .quant m (some n) rest' else .invalid
-          | (_, false, '}' :: rest') => .quant m none rest'  -- {m,}
+          | (n, true, '}' :: rest') =>
+              if m ≤ n && n ≤ maxRepeat then .quant m (some n) rest' else .invalid
+          | (_, false, '}' :: rest') =>
+              if m > maxRepeat then .invalid else .quant m none rest'  -- {m,}
           | _ => .notQuant
       | _ => .notQuant
 
