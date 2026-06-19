@@ -663,6 +663,12 @@ namespace Field
 def ignoresClosedness (field : Field) : Bool :=
   FieldClass.ignoresClosedness field.fieldClass
 
+/-- A regular OUTPUT field: not a `let` binding and not hidden/definitional. These are the only
+    fields that participate in a use-site narrowing splice (the embed already declares them; they
+    merge by label). The complement of `letBinding ∪ ignoresClosedness`. -/
+def isRegularOutput (field : Field) : Bool :=
+  field.fieldClass != .letBinding && !field.ignoresClosedness
+
 def regular (label : String) (value : Value) : Field :=
   { label, fieldClass := .regular, value }
 

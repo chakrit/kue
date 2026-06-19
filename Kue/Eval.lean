@@ -1624,7 +1624,7 @@ def embedDisjArmDeclLabels : Value -> List String
       -- The non-alias, non-hidden (regular output) labels a struct-like value declares.
       let regularLabels := fun (fs : List Field) =>
         fs.filterMap fun f =>
-          if f.fieldClass != .letBinding && !Field.ignoresClosedness f then some (Field.label f) else none
+          if Field.isRegularOutput f then some (Field.label f) else none
       let bodyLabels := regularLabels fields
       -- The regular labels an arm VALUE declares directly. A `.refId ⟨0, i⟩` arm names a `let` slot
       -- in THIS body frame (`shapeD`: `structShape | listShape | error`, each a let holding
@@ -1668,7 +1668,7 @@ def spliceOperandForEmbed (embedBody : Value) (operand : List Field × Bool) : L
   else
     let (hidden, open_) := hiddenFieldsOnly operand
     let extraRegulars := operand.fst.filter fun f =>
-      f.fieldClass != .letBinding && !Field.ignoresClosedness f && extraLabels.contains (Field.label f)
+      Field.isRegularOutput f && extraLabels.contains (Field.label f)
     (hidden ++ extraRegulars, open_)
 
 /-- Apply the def's closedness over the embedding UNION to an already-meet-folded struct: the

@@ -341,6 +341,81 @@ Gate for the whole pair: byte-identical existing fixtures (esp. cert-manager) + 
 fixtures (shapeA/B/D as `testdata/modules/*` fixtures, auto-discovered) + the re-measure of
 `kue export apps/argocd.cue` as the success signal.
 
+## Phase-A audit (2026-06-19, batch `c3ccae9..1819b98` — Bug2-1 + Bug2-2 argocd narrowing) — CLEAN, one LOW fix applied
+
+Audited `e124a5e` (Bug2-1 — `closeDefFrameReadIndices`, let-buried read detection) and `1819b98`
+(Bug2-2 — `embedDisjArmDeclLabels`, force-tier disjunction-arm narrowing). Build green (96 jobs),
+fixtures `pairs ok`, shellcheck clean. **No soundness, over-narrow, over-survive, or totality defect
+found. One LOW-RISK DRY fix applied inline (committed in this audit).**
+
+### Bug2-1 (`e124a5e`) — `closeDefFrameReadIndices` — SOUND, total, depth correct
+- **Totality: confirmed.** Plain `def` (no `partial`), accepted by Lean's structural checker —
+  recursion decrements `fuel` (`f + 1 => … closeDefFrameReadIndices f …`). TWO independent bounds:
+  (a) `fuel = fields.length` and (b) the `seen` visited-set (`!slotVisited i seen` filters already-
+  followed let slots, `seen' = newLets ++ seen` grows monotonically). Each round visits ≥1 new let or
+  yields `newLets = []` → `nextReads = []` → `[] => []`. After ≤ `fields.length` rounds every let slot
+  is visited, so the fuel bound is *sufficient*, not merely safe. A self/mutual `let` cycle terminates
+  (pinned `let_self_ref_cycle_terminates`; independently probed p7 3-deep chain, p8 mutual refs — both
+  match cue). The visited-set genuinely prevents re-following.
+- **Over-splice: cleared.** Probe p6 (a let whose comprehension reads an UNRELATED sibling `other`, not
+  the narrowed `kind`) matches cue for both match and no-match — the wrong sibling is not pulled. The
+  analysis only WIDENS the spliced REGULAR labels, which merge by label into the embed's own decls
+  (the same outer meet), so widening cannot change a value, only let a buried guard see the narrow.
+- **Depth arithmetic: correct.** Seed scan is `defFrameRefIndices evalFuel 0` (the let value is
+  lexically a sibling at the def frame, depth 0 — consistent with how top-level `cs`/fields are
+  scanned); inner struct/comprehension wrappers thread `+1` via the shared `descendClauses`/
+  `defFrameRefIndicesClauses`. B7/`descendClauses` consistency holds — no hand-rolled depth.
+- **Soundness pin real:** `let_buried_guard_real_conflict_bottoms` uses `exportJsonBottoms`, a genuine
+  positive witness (requires `.ok (.error _)` — parsed AND manifested-to-bottom; a spurious concrete
+  value or a parse error both return `false`). NOT vacuous.
+
+### Bug2-2 (`1819b98`) — `embedDisjArmDeclLabels` — SOUND, gate genuinely narrow
+- **Gate truly narrow: VERIFIED by code + probe.** `armLabels := cs.flatMap (fun c => match c with |
+  .disj … | _ => [])`; with no `.disj` in the TOP-LEVEL `cs`, `armLabels = []`, and the final
+  `(bodyLabels.filter armLabels.contains)` is `[]`. A field-LEVEL disjunction (`foo: a | b`, in
+  `fields` not `cs`) does NOT trip it (probe p9 unchanged). A cert-manager-shaped body (embedded
+  comprehension, NO embedded disjunction) returns `[]` (probe p10 byte-matches cue; structural analog
+  of the cert-manager 0-fire claim — the external app is not in-tree so re-run there is deferred to
+  the orchestrator, but the gate condition is provably the narrow one claimed). A benign embedded
+  disjunction CAN fire the gate (p5: arms share label `p`), but firing only splices a host regular
+  field the arms already declare, merged by label = the outer meet → behavior matches cue regardless.
+- **Over-survive / over-prune: cleared with adversarial probes beyond the fixtures.** p1 (3-arm, narrow
+  to arm 3 → 2 prune, single correct survivor); p2 (discriminator matches NO arm → bottoms → fallback);
+  p3 (arm declares discriminator with a DIFFERENT value than the narrowing → conflict bottoms →
+  fallback); p11 (DIRECT narrowing UNCHANGED). All match cue.
+- **Real-conflict pin real:** `disj_embed_one_layer_real_conflict_bottoms` + `…_force_narrow` both via
+  `exportJsonBottoms` (positive witness, not vacuous); p2/p3 independently confirm the bottom (fallback
+  taken). NOT vacuous.
+- **`embedDisjArmDeclLabels` precision + walker consistency:** the `.refId ⟨0,i⟩`→let-slot follow is
+  shallow (one hop, no depth threading), correctly collecting only top-level arm-declared regulars
+  (`embed_disj_arm_decl_labels_inline`/`…_let_refs` pin `= ["shape"]` exactly). It is NOT a 4th
+  full-descent walker (A-EN3's three are `refsSelfEmbeddedLabel`/`selfReferencedLabels`/
+  `defFrameRefIndices`, each a depth-threading Value descent + `*Clauses` twin) — it does not recurse
+  structurally, so it does NOT add to the A-EN3 consolidation surface. `closeDefFrameReadIndices`
+  correctly REUSES `defFrameRefIndices` rather than hand-rolling.
+
+### Gap-2b (Bug2-3) honestly-filed: CONFIRMED
+Documented OPEN as the remaining argocd blocker with a real minimized repro
+(`/tmp/kprobe/struct_disc.cue`), a precise mechanism diagnosis (list-arm-vs-struct-host pruning
+interacting with the spliced `_patch` behind the force tier; `nLive=2`), a soundness gate, and the
+re-measure success signal. NO committed fixture asserts the wrong (bottom) behavior — the two disj
+fixtures cover only the regular-discriminator Gap-2 case Bug2-2 actually fixes (both arms declare a
+regular `shape` field; neither is the struct-vs-list STRUCTURAL form). Honest.
+
+### Illegal-states / totality + DRY findings
+- **No illegal-states or totality defect.** Both new functions are total; no `partial`, no catch-all
+  `_` swallowing a new `Value` ctor (the `_ => []` arms are the documented "non-struct-like body / not
+  a def-frame ref" base cases, exhaustive by construction). No nonsense-admitting record.
+- **DRY (LOW, FIXED inline):** the "regular output field" predicate
+  `f.fieldClass != .letBinding && !Field.ignoresClosedness f` was inlined 2× in the new code
+  (`embedDisjArmDeclLabels`'s `regularLabels`, `spliceOperandForEmbed`'s `extraRegulars`). Extracted
+  `Field.isRegularOutput` (`Value.lean`) and adopted at both sites. Semantics-preserving (identical
+  predicate); build + fixtures + shellcheck re-verified green.
+
+### Spec accuracy: CONFIRMED
+plan.md marks Bug2-1/Gap-1/A-EN1 DONE, Bug2-2/Gap-2 DONE, Bug2-3/Gap-2b OPEN; cert-manager
+content-identical ~30.5s reconciled. Matches the code.
+
 ## Phase-A audit (2026-06-19, batch `ff30617..2820b58` — item 7 hash + Bug #1 embed-narrowing)
 
 Audited `78bef86` (item 7 cache-key hash digest) and `2820b58` (Bug #1 comprehension-guard
