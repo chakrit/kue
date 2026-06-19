@@ -683,16 +683,22 @@ def NFA.run (nfa : NFA) (input : List Char) : Option (Array (Option Nat)) :=
   let initCaps := Array.replicate nfa.slots none
   Vm.loop nfa.insts 0 none #[{ pc := nfa.start, caps := initCaps }] none input
 
+/-- The implicit prefix for an unanchored search: a LAZY star over a class matching EVERY
+    char — `cls [] true` (negated empty = always in). NOT `.any`, because RE2's `.` excludes
+    `\n`; the unanchored "skip to a start position" must cross newlines (cue's `=~`/`Match`
+    matches `"two"` against `"one\ntwo"`). Lazy so it prefers the earliest start (leftmost). -/
+private def unanchoredPrefix : Regex := .star false (.cls [] true)
+
 /-- Unanchored boolean match — RE2 `Match` / CUE `=~` semantics: true iff `pattern` matches
-    ANYWHERE in `s`. Achieved by prepending an implicit lazy `.*?` (`.star false .any`) so
-    the engine scans every start position in one linear pass. An invalid or deferred pattern
-    is NOT a match (the dispatch sites surface the parse error separately; the boolean here
-    is conservative-false). -/
+    ANYWHERE in `s`. Achieved by prepending the lazy `unanchoredPrefix` (an any-char-incl-`\n`
+    star) so the engine scans every start position in one linear pass. An invalid or deferred
+    pattern is NOT a match (the dispatch sites surface the parse error separately; the boolean
+    here is conservative-false). -/
 def matchRegex (pattern s : String) : Bool :=
   match parseRegex pattern with
   | .error _ => false
   | .ok re =>
-      let unanchored : Regex := .concat [.star false .any, re]
+      let unanchored : Regex := .concat [unanchoredPrefix, re]
       (compile unanchored).run s.toList |>.isSome
 
 /-- Parse outcome of a pattern, for dispatch sites that must distinguish an invalid pattern
@@ -740,7 +746,7 @@ private def bumpGroups : Regex → Regex
     the wrapper-group slots by `from`. The wrapper (group 1) reports the TRUE match start —
     the program's own slot 0/1 are pinned to 0 by the lazy prefix. `none` if no match. -/
 private def findFrom (re : Regex) (chars : List Char) (from_ : Nat) : Option Captures :=
-  let unanchored : Regex := .concat [.star false .any, .group (some 1) (bumpGroups re)]
+  let unanchored : Regex := .concat [unanchoredPrefix, .group (some 1) (bumpGroups re)]
   match (compile unanchored).run (chars.drop from_) with
   | none => none
   | some caps =>

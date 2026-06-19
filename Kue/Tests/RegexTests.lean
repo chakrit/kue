@@ -315,4 +315,16 @@ theorem rx_replaceall_prod9 :
     replaceAll "([hb][^\\s]+)lo" "hello jello bello" "${1}ly"
       = some "helly jello belly" := by native_decide
 
+-- The unanchored search must CROSS newlines: the implicit prefix is an any-char-incl-`\n`
+-- star, NOT RE2 `.` (which excludes `\n`). cue's `=~`/`Match`/Find* all match across `\n`.
+-- (A pre-existing RX-1b bug RX-1c surfaced via the prod9 multiline `([^\n]+)--two\n` filter.)
+theorem rx_match_crosses_newline : matchRegex "two" "one\ntwo" = true := by native_decide
+theorem rx_findall_crosses_newline :
+    findAll "[^\n]+" "\t--one\n\t--two\n\t--three"
+      = some ["\t--one", "\t--two", "\t--three"] := by native_decide
+-- The prod9 multiline insert filter (`${0}${1}--insert\n`) now matches across the newline.
+theorem rx_replaceall_prod9_multiline :
+    replaceAll "([^\n]+)--two\n" "\t--one\n\t--two\n\t--three" "${0}${1}--insert\n"
+      = some "\t--one\n\t--two\n\t--insert\n\t--three" := by native_decide
+
 end Kue
