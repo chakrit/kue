@@ -8728,3 +8728,52 @@ on the PRE-EXISTING Bug2-3/perf wall, NOT an SC-1d/SC-1c over-close. No prod9 fi
 SC-1d is the forward-looking fix for the regression SC-1c could cause, not a recovery of a live one.
 SC-1d is purely additive to openness (preserves `...`), so it can only make a struct MORE open,
 never more closed — it cannot regress the real apps.
+
+## F-2 — strip the self-module `@vN` major-version suffix in `readModuleInfo` (2026-06-19)
+
+**Problem.** `readModuleInfo` (`Module.lean`) read the `module:` field VERBATIM into
+`ModuleContext.modPath`, so a module declared `module: "ex.com/m@v0"` yielded
+`modPath = "ex.com/m@v0"`. An in-module import of the BARE path `"ex.com/m/sub"` then prefix-matched
+against `"ex.com/m@v0/"` in `resolveImportSubpath`/`importUnderModule` → NO match → "unresolved
+import". The `@major` suffix was ALREADY stripped for dependency KEYS (`depKeyModulePath`, applied in
+`parseDeps`) but NOT for the importing module's OWN path — that asymmetry was the bug. CUE modules
+contract: the `@vN` in `module:` is the major version, addressed separately; import paths name the
+BARE module path. So the self `modPath` used for in-module resolution must be bare.
+
+**Fix (DRY — reuse the existing strip).** Apply the existing `depKeyModulePath` to the `module:`
+field in `readModuleInfo`'s success arm: `pure (.ok (depKeyModulePath path, parseDeps value))`. One
+line, no duplicated logic. Both `readModuleInfo` callers route through it — `loadFileBound` /
+`loadPackageDir` (the importing module's own context) and `resolveImportTarget` (the cross-module
+hop into a dependency's own context) — so every `modPath` consumer (`resolveImportSubpath`,
+`importUnderModule`, `resolveCrossModule`) now sees the bare path. `depKeyModulePath` is the identity
+on a key with no `@` (`first :: _` returns the whole string), so the no-suffix case is unchanged. The
+dep-strip path is untouched (deps strip their own keys in `parseDeps`).
+
+**Behavior (cross-checked vs cue v0.16.1, they agree).**
+- `module: "ex.com/m@v0"` + `import "ex.com/m/defs"` → resolves the in-module subdir and exports the
+  merged value (was "unresolved import" before). **The fix.**
+- `module: "ex.com/m"` (no suffix) + `import "ex.com/m/sub"` → resolves exactly as before. **No
+  regression.**
+- A dependency (cross-module) import still resolves via the unchanged `parseDeps`/`depKeyModulePath`
+  dep-key strip. **Dep path untouched.**
+
+**Tests.** 4 `native_decide` pins in `ModuleTests` pinning the composition the bug lived in:
+verbatim `resolveImportSubpath "ex.com/m@v0" "ex.com/m/sub" = none` (the bug), stripped
+`resolveImportSubpath (depKeyModulePath "ex.com/m@v0") "ex.com/m/sub" = some "sub"` (the fix),
+stripped module-root `= some ""`, and the no-suffix regression guard
+`resolveImportSubpath (depKeyModulePath "ex.com/m") "ex.com/m/sub" = some "sub"`. Plus module fixture
+`modules/self_major_version_strip` (`module: "ex.com/m@v0"`, multi-file package, root `main.cue` does
+`import "ex.com/m/defs"` and meets `defs.#Widget`), exercised end-to-end by the loader and diffed
+byte-for-byte against `cue export --out json` (oracle output committed as `expected`). The existing
+`export_subdir` (no-suffix self-import) and `crossmod*` (dep import) fixtures are the no-regression
+guards on the unchanged paths.
+
+**Verify.** `lake build` green (96 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok`;
+`shellcheck` clean. **Real-app probe (READ-ONLY):** swept every `cue.mod/module.cue` under
+`prod9/` and `hatari/` — NO self-module declares an `@vN` suffix today (all bare: `prodigy9.co`,
+`sawaddee.com`, `honda.co.th`, `prodigy9.co/defs`, …). So F-2 changes NO current real-app
+resolution; it is the forward-looking fix for CUE's `@vN`-in-`module:` major-version form. It can
+ONLY help (a future `@vN` module's in-module imports resolve instead of erroring), never regress —
+the no-suffix case is the `depKeyModulePath` identity. No in-repo cert-manager/argocd module
+fixture, and neither real app uses `@vN`, so there was no `@vN` byte-identity surface to re-probe;
+the no-suffix self + dep fixtures stayed green, which is the relevant regression surface.

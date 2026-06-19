@@ -217,14 +217,17 @@ structure ModuleContext where
 
 /-- Read and parse `cue.mod/module.cue`, returning the `module:` path and the dependency
     table. The file is CUE, so reuse the parser and read the fields off the top-level
-    struct. -/
+    struct. The `@<major>` suffix CUE appends to the `module:` declaration (e.g.
+    `ex.com/m@v0`) is the major version, not part of the addressable module path, so it is
+    stripped here via the same `depKeyModulePath` the dependency keys use — the returned
+    `modPath` is the BARE path against which in-module imports (`ex.com/m/sub`) prefix-match. -/
 def readModuleInfo (root : System.FilePath) : IO (Except String (String × List Dep)) := do
   let source ← IO.FS.readFile (root / "cue.mod" / "module.cue")
   match parseSource source with
   | .error error => pure (.error s!"cue.mod/module.cue: parse error: {error.message}")
   | .ok value =>
       match moduleFieldValue value with
-      | some path => pure (.ok (path, parseDeps value))
+      | some path => pure (.ok (depKeyModulePath path, parseDeps value))
       | none => pure (.error "cue.mod/module.cue: missing string `module:` field")
 where
   moduleFieldValue : Value -> Option String

@@ -54,7 +54,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | C. Structs/lists          | batch 1 | DONE | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS |
 | D. Comprehensions/scoping | batch 2 | DONE | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; no structural-cycle detection; `let` clauses unparseable); frame-model + read-splice CONFORM |
 | E. Scalars/bounds/builtins| batch 2 | DONE | 1 KUE-VIOLATES HIGH (regex not RE2); 2 MED builtin (ASCII case-fold; deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
-| F. Manifest/modules       | batch 2 | DONE | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped; qualified `path:id` unparsed); export + module-resolution core CONFORM |
+| F. Manifest/modules       | batch 2 | DONE | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
 ## Findings (ranked; filled as auditors return)
 
@@ -148,14 +148,15 @@ resolution core all CONFORMS.
 Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
 front-loaded before the large rewrites.
 
-### Re-ranked next slices (2026-06-19 Phase-B — DONE: SC-1, SC-1c, SC-1d, D#1a, F-1)
+### Re-ranked next slices (2026-06-19 Phase-B — DONE: SC-1, SC-1c, SC-1d, D#1a, F-1, F-2)
 
 Contained-high-confidence before large rewrites (slice-loop principle). Recommended order:
 
 1. **SC-1d — DONE (2026-06-19).** Tail dropped when patterns present (`Parse.parsedFieldsValue`).
    Fixed via a tail-aware `baseValue` threaded through every `declared` arm; pattern+`...` now stays
    OPEN, pattern+no-`...` still CLOSES (SC-1c intact). See the SC-1d DONE entry under the HIGH
-   backlog. Next contained-HIGH: **F-2** (strip self-module `@vN`), then **RX-1** (regex → RE2).
+   backlog. **F-2 now DONE** (strip self-module `@vN`); next contained-HIGH: **RX-1** (regex → RE2)
+   or **Bug2-3** (argocd unblock).
 2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
    demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
    ready below ("RX-1 design (implementable)"). RX-1a (AST+parser) → RX-1b (NFA+VM+rewire) →
@@ -163,8 +164,8 @@ Contained-high-confidence before large rewrites (slice-loop principle). Recommen
 3. **Bug2-3 / Gap-2b (HIGH).** The LAST argocd export blocker — structural disjunction-arm
    pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"). High payoff (a whole app
    exports), contained primitive (list-meet-to-bottom keying), well-diagnosed.
-4. **F-2 (HIGH, CONTAINED).** Strip self-module `@vN` (`Module.lean:221-236`). One-file,
-   unblocks in-module imports. Cheap; can land alongside SC-1d.
+4. **F-2 — DONE (2026-06-19).** Stripped self-module `@vN` (`Module.lean` `readModuleInfo`).
+   One-file, unblocks in-module imports. See the F-2 DONE entry under the HIGH backlog.
 
 Then the large/structural tail: **D#2** (structural cycles, large), **SC-2** (closedness
 divergence — DIVERGE-from-cue, verify no regress), then the **MED tail** (D#1c non-bool
@@ -290,7 +291,27 @@ worktree is freer; RX-1 is the broader correctness lever, Bug2-3 the single-app 
    together. Pins: 7 `native_decide` theorems in `BuiltinTests` + fixture
    `builtins/regexp_match` + module fixture `modules/regexp_import` (end-to-end loader). cert-manager
    re-probed: exports clean (~34s), no regression.
-4. **F-2** strip self-module `@vN` in `readModuleInfo`. Contained. `Module.lean:221-236`.
+4. **F-2 — DONE (2026-06-19).** Self-module `@vN` suffix was read VERBATIM into
+   `ModuleContext.modPath` (`Module.lean` `readModuleInfo`), so a module declared
+   `module: "ex.com/m@v0"` got `modPath = "ex.com/m@v0"` and an in-module import `"ex.com/m/sub"`
+   prefix-matched against `"ex.com/m@v0/"` → NO match → "unresolved import". The `@major` strip
+   already applied to dependency KEYS (`depKeyModulePath`) but NOT to the importing module's own
+   path — that asymmetry was the bug. CUE modules contract: the `@vN` in `module:` is the major
+   version, not part of the addressable path; imports address the BARE module path. Fix (DRY):
+   reuse the existing `depKeyModulePath` on the `module:` field in `readModuleInfo` so the returned
+   `modPath` is bare. Both `readModuleInfo` callers (`loadFileBound`/`loadPackageDir` self-resolution
+   and `resolveImportTarget`'s cross-module dep-context hop) flow through this one function, so the
+   bare form propagates to every `modPath` consumer (`resolveImportSubpath`/`importUnderModule`).
+   The dep-strip path is untouched (deps already stripped their own keys). Pins: 4 `native_decide`
+   theorems in `ModuleTests` (verbatim `@v0` modPath → `none`; stripped → `some "sub"`; stripped
+   module-root → `some ""`; no-suffix regression guard → unchanged) + module fixture
+   `modules/self_major_version_strip` (`module: "ex.com/m@v0"`, in-module `import "ex.com/m/defs"`,
+   end-to-end loader, oracle-matched vs cue v0.16.1). **Real-app:** no prod9/hatari self-module
+   declares an `@vN` suffix today (swept all `cue.mod/module.cue` read-only — all bare paths), so
+   F-2 changes NO current real-app resolution; it is forward-looking and can only HELP (a future
+   `@vN` module's in-module imports resolve instead of erroring), never regress — the no-suffix
+   case is the `depKeyModulePath` identity, and the no-suffix self (`export_subdir`) + dep
+   (`crossmod*`) fixtures stayed green.
 5. **RX-1** replace the regex engine with a real AST→NFA→Thompson (RE2-equivalent, total).
    LARGE; own planned slice. Highest real-app correctness impact.
 6. **D#2** structural-cycle detection (ancestor-chain; default-arm-terminates). LARGE; own slice.

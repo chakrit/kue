@@ -93,6 +93,30 @@ example : depKeyModulePath "prodigy9.co/defs@v0" = "prodigy9.co/defs" := by
 example : depKeyModulePath "example.com" = "example.com" := by
   native_decide
 
+/-! ## Self-module `@major` strip feeding in-module resolution (F-2)
+
+The SAME `depKeyModulePath` strip applies to the importing module's OWN `module:` path, so
+a self-import addresses the BARE path. Pinned as the composition the bug lived in: a verbatim
+`ex.com/m@v0` modPath would make `resolveImportSubpath` reject `ex.com/m/sub`; the bare path
+resolves it. -/
+
+/-- The verbatim `@v0` modPath fails to resolve its own bare sub-import — the F-2 bug. -/
+example : resolveImportSubpath "ex.com/m@v0" "ex.com/m/sub" = none := by
+  native_decide
+
+/-- Stripping the self modPath first resolves the bare sub-import to its subpath. -/
+example : resolveImportSubpath (depKeyModulePath "ex.com/m@v0") "ex.com/m/sub" = some "sub" := by
+  native_decide
+
+/-- The module-root self-import (`ex.com/m`) resolves under the stripped path. -/
+example : resolveImportSubpath (depKeyModulePath "ex.com/m@v0") "ex.com/m" = some "" := by
+  native_decide
+
+/-- No-suffix regression guard: a bare `module:` path is unchanged by the strip and still
+    resolves its sub-imports exactly as before. -/
+example : resolveImportSubpath (depKeyModulePath "ex.com/m") "ex.com/m/sub" = some "sub" := by
+  native_decide
+
 private def depsValue : Value :=
   mkStruct
     [⟨"module", .regular, .prim (.string "prodigy9.co")⟩,
