@@ -1,0 +1,12 @@
+{
+    "outStruct": {
+        "meta": "yes",
+        "extra": "ok"
+    },
+    "outDirect": {
+        "meta": "direct"
+    },
+    "outBottom": {
+        "fallback": "ok"
+    }
+}

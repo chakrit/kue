@@ -892,5 +892,65 @@ theorem disj_embed_force_narrow_emits_patch :
           = true := by
   native_decide
 
+-- Gap-2b (Bug2-3): a STRUCTURAL disjunction (`listShape | structShape`, discriminated by
+-- list-vs-struct SHAPE not a regular label) embedded one layer down (`#U: {#M}`) and narrowed by
+-- a sibling regular OUTPUT field only the struct arm can carry (`meta`). The list arm CANNOT carry
+-- `meta` (a list & a struct-with-a-regular-field = ⊥), so the sound meet prunes it; the struct arm
+-- survives. The list arm is list-shaped (`#components` keyed map + `[...]` embedded list).
+theorem disj_embed_struct_disc_prunes_list_arm :
+    exportJsonMatches
+        "#M: {\n\tlet listShape = {#components: [string]: {x: int}, [...]}\n\tlet structShape = {meta: string, ...}\n\tlistShape | structShape\n\t...\n}\n#U: {#M}\nout: #U & {meta: \"yes\", extra: \"ok\"}\n"
+        "{\n    \"out\": {\n        \"meta\": \"yes\",\n        \"extra\": \"ok\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- Gap-2b UNCHANGED: DIRECT narrowing of the same structural disjunction (no embedding layer) also
+-- selects the struct arm — the prune is the meet primitive, identical with or without the layer.
+theorem disj_embed_struct_disc_direct_prunes :
+    exportJsonMatches
+        "#M: {\n\tlet listShape = {#components: [string]: {x: int}, [...]}\n\tlet structShape = {meta: string, ...}\n\tlistShape | structShape\n\t...\n}\nout: (#M) & {meta: \"direct\"}\n"
+        "{\n    \"out\": {\n        \"meta\": \"direct\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- Gap-2b SOUNDNESS (real conflict bottoms): a host that matches NEITHER structural arm (a list
+-- item type conflict AND a struct field conflict) kills both arms → bottom. `exportJsonBottoms`
+-- positively witnesses it (a fallback regular disjunct keeps the parse valid).
+theorem disj_embed_struct_disc_real_conflict_bottoms :
+    exportJsonBottoms
+        "#M: {\n\tlet listShape = {#components: [string]: {x: int}, [...]}\n\tlet structShape = {meta: string, ...}\n\tlistShape | structShape\n\t...\n}\n#U: {#M}\nout: #U & {#components: notallowed: {x: \"nope\"}, meta: 5}\n"
+          = true := by
+  native_decide
+
+-- Gap-2b SOUNDNESS (no over-prune of two STRUCT-compatible arms): a `struct | struct` disjunction
+-- narrowed by a field both arms admit stays AMBIGUOUS (neither arm is list-shaped, so no
+-- `list & struct = ⊥` prune fires) — the meet primitive, not a shape heuristic, decides. cue keeps
+-- it `incomplete`; Kue keeps it ambiguous (the SC-3/A display divergence). It does NOT collapse to
+-- one arm, witnessed by the export failing rather than producing a single concrete value.
+theorem disj_embed_struct_disc_struct_struct_stays_ambiguous :
+    exportJsonBottoms
+        "#M: {\n\tlet a = {x: int, ...}\n\tlet b = {y: int, ...}\n\ta | b\n}\n#U: {#M}\nout: #U & {z: 1}\n"
+          = true := by
+  native_decide
+
+-- Gap-2b GATE: `embedBodyEmbedsDisj` is the cert-manager byte-identity guard — it returns `false`
+-- for a body with NO disjunction embedding in `cs` (a plain embedding ref), so the all-regular
+-- splice never fires there and the narrow comprehension-read splice is preserved (byte-identical).
+theorem embed_body_embeds_disj_gate_no_disj :
+    embedBodyEmbedsDisj
+      (.structComp [⟨"shape", .regular, .kind .string⟩] [.refId ⟨1, 0⟩] .regularOpen)
+      = false := by
+  native_decide
+
+-- Gap-2b GATE (positive): a direct `.disj` embedding in `cs` trips the gate, so the host's regular
+-- output fields are routed into the arms for the sound meet-prune.
+theorem embed_body_embeds_disj_gate_direct_disj :
+    embedBodyEmbedsDisj
+      (.structComp []
+        [.disj [(.regular, .refId ⟨0, 0⟩), (.regular, .refId ⟨0, 1⟩)]]
+        .regularOpen)
+      = true := by
+  native_decide
+
 
 end Kue

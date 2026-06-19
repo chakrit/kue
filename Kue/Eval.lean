@@ -1687,25 +1687,48 @@ def embedDisjArmDeclLabels : Value -> List String
       (bodyLabels.filter armLabels.contains).eraseDups
   | _ => []
 
-/-- The splice operand a use/host struct contributes INTO an embedded def whose body is `embedBody`:
-    `hiddenFieldsOnly` (the shared hidden/def fields the embed self-references) PLUS the host's
-    REGULAR fields that a comprehension inside `embedBody` reads (`embedComprehensionReadLabels`)
-    PLUS the regular DISCRIMINATOR fields an embedded disjunction's arms declare
-    (`embedDisjArmDeclLabels` — Gap-2). The extra regulars merge BY LABEL into the embed's own
-    declarations (the embed already declares them — siblings the guard names or the arms
-    discriminate), so the splice introduces no new label and no closedness change; it only lets the
-    guard see the narrowed value at expansion time, and an embedded disjunction prune its dead arms
-    against the narrowed discriminator. Without it, `hiddenFieldsOnly` alone strips the guarded/
-    discriminating regular sibling and the comprehension drops (`defs.#Mixin`: `if kind == add.#kind`)
-    or the disjunction over-survives and bottoms (`shapeD`'s `… | … | error`). -/
+/-- Does an embed body embed a DISJUNCTION (a bare `(a | b | …)` in its comprehension/embedding
+    list `cs`)? Gap-2b: such a disjunction is discriminated STRUCTURALLY (`listShape |
+    structShape`), so the arms' shape (list vs struct) — not a regular discriminator label — picks
+    the surviving arm. A direct `.disj` embedding counts; so does a `.refId ⟨0,i⟩` embedding whose
+    THIS-frame let slot holds a `.disj` (the arms themselves may be further let-refs, followed by
+    the meet). Used to GATE the Gap-2b regular-field splice: only a disjunction-embedding body
+    needs the host's regular output fields routed into its arms; every other body keeps the
+    narrow hidden+comprehension-read splice (byte-identical). -/
+def embedBodyEmbedsDisj : Value -> Bool
+  | .structComp fields cs _ =>
+      cs.any fun c =>
+        match c with
+        | .disj _ => true
+        | .refId id =>
+            id.depth == 0 &&
+              (match (nthField id.index fields).map Field.value with
+               | some (.disj _) => true
+               | _ => false)
+        | _ => false
+  | _ => false
+
+/-- The splice operand a use/host struct contributes INTO an embedded def whose body is
+    `embedBody`. Normally `hiddenFieldsOnly` (the shared hidden/def bindings the embed
+    self-references) PLUS the regular fields a comprehension reads or a disjunction's arms declare
+    (`spliceOperandForEmbed`'s `extraLabels`). Gap-2b adds: when `embedBody` embeds a STRUCTURAL
+    disjunction (`embedBodyEmbedsDisj`), splice ALL the host's REGULAR OUTPUT fields too, so they
+    reach the embedded disjunction's arms as a value — letting the SOUND `meet`-distribution prune
+    a list-shaped arm against the struct host (`list & {regular fields} = ⊥`) while a
+    struct-compatible arm survives untouched (meet is idempotent on a field it already carries).
+    The prune is the existing type-conflict primitive, not a shape heuristic, so two
+    struct-compatible arms stay ambiguous (cue-exact). -/
 def spliceOperandForEmbed (embedBody : Value) (operand : List Field × Bool) : List Field × Bool :=
   let extraLabels := (embedComprehensionReadLabels embedBody ++ embedDisjArmDeclLabels embedBody).eraseDups
-  if extraLabels.isEmpty then
-    hiddenFieldsOnly operand
+  -- Gap-2b: a STRUCTURAL-disjunction-embedding body needs ALL the host's regular output fields
+  -- routed into its arms (so the sound `list & {regular fields} = ⊥` meet prunes a list arm);
+  -- otherwise keep the narrow comprehension-read/discriminator splice (byte-identical).
+  let keepLabel := fun (f : Field) =>
+    Field.isRegularOutput f && (embedBodyEmbedsDisj embedBody || extraLabels.contains (Field.label f))
+  if extraLabels.isEmpty && !embedBodyEmbedsDisj embedBody then hiddenFieldsOnly operand
   else
     let (hidden, open_) := hiddenFieldsOnly operand
-    let extraRegulars := operand.fst.filter fun f =>
-      Field.isRegularOutput f && extraLabels.contains (Field.label f)
+    let extraRegulars := operand.fst.filter keepLabel
     (hidden ++ extraRegulars, open_)
 
 /-- Apply the def's closedness over the embedding UNION to an already-meet-folded struct: the
