@@ -1,0 +1,14 @@
+{
+    "out": {
+        "items": [
+            "a",
+            "b"
+        ],
+        "a": {
+            "present": true
+        },
+        "b": {
+            "present": true
+        }
+    }
+}

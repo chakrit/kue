@@ -1544,26 +1544,61 @@ def stripLetBindings (operand : List Field × Bool) : List Field × Bool :=
 def hiddenFieldsOnly (operand : List Field × Bool) : List Field × Bool :=
   (operand.fst.filter (fun f => f.fieldClass != .letBinding && Field.ignoresClosedness f), operand.snd)
 
+/-- Transitively close a frontier of def-frame slot indices by FOLLOWING `letBinding` slots into
+    their bound value. `defFrameRefIndices` treats a `.refId` as a LEAF, so a comprehension reading
+    a regular sibling THROUGH a `let` (`let _patch = { … if kind == … }`; the top-level `cs` holds
+    only the `_patch` embed-ref, a `.refId` to the let slot) is invisible to a single scan. For each
+    index already discovered that names a `let` slot in `fields`, scan that let's VALUE at the def
+    frame (depth 0 — the let value is lexically a sibling, same as the top-level `cs`/fields are
+    scanned) for further def-frame reads, and recurse on the newly-found let slots. `seen` is the
+    visited-set of let slots already followed; it bounds the recursion so a self/mutually-referential
+    `let` (`let a = b; let b = a`) cannot loop — at most one follow per slot. `fuel` is a second
+    bound (= field count suffices) keeping the function structurally total. Returns the full closed
+    index set (the seeds plus everything reachable through lets). -/
+def closeDefFrameReadIndices
+    (fuel : Nat) (fields : List Field) (seen : List Nat) : List Nat -> List Nat
+  | [] => []
+  | frontier =>
+      match fuel with
+      | 0 => frontier
+      | f + 1 =>
+          -- Lets in the frontier not yet followed; their bound values may read more def siblings.
+          let newLets := frontier.filter fun i =>
+            !slotVisited i seen && (match nthField i fields with
+              | some fl => fl.fieldClass == .letBinding
+              | none => false)
+          let nextReads := newLets.flatMap fun i =>
+            match nthField i fields with
+            | some fl => defFrameRefIndices evalFuel 0 (Field.value fl)
+            | none => []
+          let seen' := newLets ++ seen
+          frontier ++ closeDefFrameReadIndices f fields seen' nextReads
+
 /-- The labels of an embed body's OWN top-level fields that a comprehension inside it reads by a
-    bare reference (`comprehensionDefRefIndices` at the def frame, mapped index → label). These are
-    the regular siblings a guard/source depends on (`if kind == add.#kind` reads `kind`); the host
-    narrows them at the use site, so they must reach the embed's splice or the comprehension fires
-    against the un-narrowed value and drops. `none` for a non-struct-like body (no top-level frame
-    to index). -/
+    bare reference (`defFrameRefIndices` at the def frame, mapped index → label), FOLLOWING `let`
+    bindings transitively (`closeDefFrameReadIndices`). These are the regular siblings a guard/source
+    depends on (`if kind == add.#kind` reads `kind`; `for … in items` reads `items`), possibly
+    THROUGH one or more `let`s (`let _patch = { … if kind == … }`, even nested
+    `let structShape = { _patch }`); the host narrows them at the use site, so they must reach the
+    embed's splice or the comprehension fires against the un-narrowed value and drops. `none` for a
+    non-struct-like body (no top-level frame to index). -/
 def embedComprehensionReadLabels : Value -> List String
   | .structComp fields cs _ =>
-      -- A comprehension guard reads a regular sibling by a BARE reference resolving to the def
-      -- frame (`if kind == add.#kind`: `kind` is `.refId ⟨d, idx⟩` with `d` = the frame-pushers
-      -- between the guard and the def — `for`-body struct + clause pushes). `comprehensionDefRef-
-      -- Indices` threads that depth and collects the def-frame indices read inside each
-      -- comprehension; map index → label and keep them. The `for` SOURCE `Self.#additions` also
-      -- resolves to the def frame (index of the `Self=` alias), so a hidden/alias label may appear —
-      -- harmless, since `spliceOperandForEmbed` only adds REGULAR operand fields with these labels.
-      (cs.flatMap (defFrameRefIndices evalFuel 0)
+      -- A comprehension guard/source reads a regular sibling by a BARE reference resolving to the
+      -- def frame (`if kind == add.#kind`: `kind` is `.refId ⟨d, idx⟩` with `d` = the frame-pushers
+      -- between the read and the def — `for`-body struct + clause pushes). `defFrameRefIndices`
+      -- threads that depth; `closeDefFrameReadIndices` then follows any `let` slot the seed reads
+      -- (the `_patch`/`structShape` embed-refs are `.refId`s to let slots) into the let's value to
+      -- find the buried `kind`/`items` read. Map index → label and keep them. A `Self=` alias slot
+      -- read by a `for` SOURCE (`Self.#additions`) may also appear — harmless, since
+      -- `spliceOperandForEmbed` only adds REGULAR operand fields with these labels.
+      let seeds := cs.flatMap (defFrameRefIndices evalFuel 0)
+      (closeDefFrameReadIndices fields.length fields [] seeds
         |>.filterMap (fun i => (nthField i fields).map Field.label)).eraseDups
   | .struct fields _ tail _ =>
-      ((fields.flatMap (fun f => defFrameRefIndices evalFuel 0 (Field.value f))
-        ++ (match tail with | some t => defFrameRefIndices evalFuel 0 t | none => []))
+      let seeds := fields.flatMap (fun f => defFrameRefIndices evalFuel 0 (Field.value f))
+        ++ (match tail with | some t => defFrameRefIndices evalFuel 0 t | none => [])
+      (closeDefFrameReadIndices fields.length fields [] seeds
         |>.filterMap (fun i => (nthField i fields).map Field.label)).eraseDups
   | _ => []
 

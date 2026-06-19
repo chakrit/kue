@@ -667,5 +667,124 @@ theorem embed_comprehension_guard_real_conflict_bottoms :
           = true := by
   native_decide
 
+/-! ### Bug2-1 (Gap-1) + A-EN1 — let-buried comprehension read-label detection.
+
+Bug #1 (above) detected only a comprehension at the embed body's TOP-LEVEL `cs`. When the
+comprehension is buried inside the VALUE of a `let _patch = { … if kind == … }`, the top-level `cs`
+holds only the `_patch` embed-ref — a `.refId` LEAF that `defFrameRefIndices` did not follow into
+the let's value. So the regular sibling `kind` the guard reads THROUGH the let was never detected,
+never spliced, and the guard fired against the un-narrowed `kind: string` → the body dropped.
+`closeDefFrameReadIndices` closes the detected index set over `letBinding` slots (transitively, with
+a visited-set cycle bound), so a read through one or more `let`s is found and spliced. Covers BOTH
+the `if`-guard read (Gap-1) and the `for`-SOURCE read (A-EN1). -/
+
+-- Mechanism (Gap-1, ONE let): the guard `if kind == add.#kind` lives inside `_patch`'s value (a
+-- `let`, slot 3); the top-level `cs` holds only the `_patch` embed-ref (`.refId ⟨0,3⟩`). Following
+-- the let into its value finds the regular `kind` (slot 2). Reports `kind` (the regular sibling the
+-- splice must carry); `Self`/`_patch` are aliases, harmless. Pre-fix this returned `["_patch"]` only.
+theorem let_buried_guard_reads_regular_sibling :
+    embedComprehensionReadLabels
+      (.structComp
+        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩,
+         ⟨"kind", .regular, .kind .string⟩,
+         ⟨"_patch", .letBinding,
+            (.structComp []
+              [.comprehension
+                [.forIn (some "_") "add" (.selector (.refId ⟨1, 0⟩) "#additions")]
+                (.structComp []
+                  [.comprehension
+                    [.guard (.binary .eq (.refId ⟨3, 2⟩) (.selector (.refId ⟨1, 1⟩) "#kind"))]
+                    (.structComp [] [.selector (.refId ⟨3, 1⟩) "#patch"] .regularOpen)]
+                  .regularOpen)]
+              .regularOpen)⟩]
+        [.refId ⟨0, 3⟩]
+        .regularOpen)
+      = ["_patch", "Self", "kind"] := by
+  native_decide
+
+-- Mechanism (Gap-1, TWO nested lets): `structShape` (slot 4) embeds `_patch` (slot 3), whose value
+-- holds the guard reading `kind` (slot 2). Following the let chain `structShape -> _patch -> kind`
+-- (the `closeDefFrameReadIndices` fixpoint) discovers `kind`.
+theorem two_lets_buried_guard_reads_regular_sibling :
+    ("kind" ∈ embedComprehensionReadLabels
+      (.structComp
+        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩,
+         ⟨"kind", .regular, .kind .string⟩,
+         ⟨"_patch", .letBinding,
+            (.structComp []
+              [.comprehension
+                [.forIn (some "_") "add" (.selector (.refId ⟨1, 0⟩) "#additions")]
+                (.structComp []
+                  [.comprehension
+                    [.guard (.binary .eq (.refId ⟨3, 2⟩) (.selector (.refId ⟨1, 1⟩) "#kind"))]
+                    (.structComp [] [.selector (.refId ⟨3, 1⟩) "#patch"] .regularOpen)]
+                  .regularOpen)]
+              .regularOpen)⟩,
+         ⟨"structShape", .letBinding, (.structComp [] [.refId ⟨1, 3⟩] .regularOpen)⟩]
+        [.refId ⟨0, 4⟩]
+        .regularOpen)) = true := by
+  native_decide
+
+-- No-over-splice: a let whose comprehension reads NO regular sibling (it iterates the hidden
+-- `#additions` and yields a static body) must NOT pull any regular label into the splice. The
+-- detected set contains only aliases (`_patch`/`Self`), never a regular output field.
+theorem let_buried_no_regular_read_no_over_splice :
+    (embedComprehensionReadLabels
+      (.structComp
+        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩,
+         ⟨"_patch", .letBinding,
+            (.structComp []
+              [.comprehension
+                [.forIn (some "_") "add" (.selector (.refId ⟨1, 0⟩) "#additions")]
+                (.structComp [] [.selector (.refId ⟨2, 1⟩) "#patch"] .regularOpen)]
+              .regularOpen)⟩]
+        [.refId ⟨0, 2⟩]
+        .regularOpen)).filter (fun l => l == "name" || l == "kind") = [] := by
+  native_decide
+
+-- Totality / cycle bound: a self-referential `let a = a` (its value reads its OWN slot 0) must
+-- terminate — `closeDefFrameReadIndices`'s visited-set follows each let slot at most once. The
+-- analysis returns rather than looping; the result is finite.
+theorem let_self_ref_cycle_terminates :
+    (embedComprehensionReadLabels
+      (.structComp
+        [⟨"a", .letBinding, (.refId ⟨0, 0⟩)⟩]
+        [.refId ⟨0, 0⟩]
+        .regularOpen)).length ≤ 1 := by
+  native_decide
+
+-- End-to-end (Gap-1, ONE let): the matched patch surfaces THROUGH the `let _patch`.
+theorem let_buried_guard_emits_matched_patch :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tlet _patch = {\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t}\n\t_patch\n\t...\n}\n#Use: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\nout: #Use & {kind: \"ListenerSet\"}\n"
+        "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"meta\": \"yes\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- End-to-end (Gap-1, ONE let): guard FALSE through the let drops the body — no over-fire.
+theorem let_buried_guard_false_drops_body :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tlet _patch = {\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t}\n\t_patch\n\t...\n}\n#Use: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\nout: #Use & {kind: \"Other\"}\n"
+        "{\n    \"out\": {\n        \"kind\": \"Other\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- SOUNDNESS (Gap-1): a let-buried matched patch that REALLY conflicts with the use-site narrowing
+-- still bottoms (the splice lets the guard fire, then the merge conflicts — not a silent drop).
+theorem let_buried_guard_real_conflict_bottoms :
+    exportJsonBottoms
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tlet _patch = {\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t}\n\t_patch\n\t...\n}\n#Use: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {tag: \"x\"}}\n}\nout: #Use & {kind: \"ListenerSet\", tag: \"y\"}\n"
+          = true := by
+  native_decide
+
+-- End-to-end (A-EN1, let-buried `for`-SOURCE): the comprehension iterates the REGULAR sibling
+-- `items` (narrowed at the use site) through the `let _expanded` — the keys must surface.
+theorem let_buried_for_source_expands :
+    exportJsonMatches
+        "#Mixin: {\n\titems: [...string]\n\tlet _expanded = {\n\t\tfor _, it in items {\n\t\t\t\"\\(it)\": {present: true}\n\t\t}\n\t}\n\t_expanded\n\t...\n}\n#Use: {\n\t#Mixin\n}\nout: #Use & {items: [\"a\", \"b\"]}\n"
+        "{\n    \"out\": {\n        \"items\": [\n            \"a\",\n            \"b\"\n        ],\n        \"a\": {\n            \"present\": true\n        },\n        \"b\": {\n            \"present\": true\n        }\n    }\n}\n"
+          = true := by
+  native_decide
+
 
 end Kue

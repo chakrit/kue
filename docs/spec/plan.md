@@ -280,13 +280,26 @@ path, so it must ship behind the soundness gate below and AFTER Gap-1 (which is 
   STOP-AND-REPORT territory (file the design + the hole; do not ship a cert-manager byte drift).
 
 **Scope / slices (estimate 2 slices, SPLIT; A-EN1 rides Gap-1).**
-- **Slice Bug2-1 — Gap-1 (let-buried read detection) + A-EN1.** A-EN1 (the `for`-SOURCE regular
-  sibling variant) is the SAME detection gap surfaced at single-embed depth — it also needs
-  `embedComprehensionReadLabels` to carry a regular label a comprehension reads (source, not just
-  guard). Both are additive detection in the same function; land together. Gate: shapeA/shapeB
-  fixtures (now emit the patch) + A-EN1's three baselines + Bug #1's edges still green
-  (real-conflict bottoms, guard-false no over-fire). Low risk (additive, proven mechanism).
-  Clears shapeA/B; does NOT clear shapeD (needs Gap-2).
+- **Slice Bug2-1 — Gap-1 (let-buried read detection) + A-EN1. DONE (2026-06-19).** Extended the
+  read-label analysis to FOLLOW `letBinding` slots transitively: `closeDefFrameReadIndices`
+  (`Eval.lean`) closes the def-frame index set discovered by `defFrameRefIndices` over `let` slots —
+  for each `let` slot in the frontier, it scans that let's bound value (at depth 0, same as the
+  top-level `cs`/fields are scanned — a let value is lexically a sibling) for further def-frame reads
+  and recurses on the newly-found lets. A `visited`-set follows each let slot AT MOST ONCE, so a
+  self/mutually-referential `let` (`let a = a`) cannot loop (TOTAL); a `fuel = fields.length` second
+  bound keeps it structurally total. `embedComprehensionReadLabels` now seeds from `defFrameRefIndices`
+  then closes — so a `kind`/`items` read buried under one or more lets is detected and spliced. Covers
+  BOTH the `if`-guard read (Gap-1) and the `for`-SOURCE read (A-EN1) — same additive detection.
+  Fixtures (auto-discovered `testdata/modules/*`, oracle-checked vs cue 0.16.1): `let_buried_guard_read`
+  (shapeA, one let), `let_buried_two_lets` (shapeB), `let_buried_for_source` (A-EN1) — all now emit the
+  patch/keys matching cue. `native_decide` pins in TwoPassTests: `let_buried_guard_reads_regular_sibling`
+  (one-let detection), `two_lets_buried_guard_reads_regular_sibling` (nested), `let_buried_for_source_expands`
+  (A-EN1), `let_buried_guard_emits_matched_patch`/`let_buried_guard_false_drops_body` (positive + no
+  over-fire), `let_buried_guard_real_conflict_bottoms` (SOUNDNESS — `exportJsonBottoms`),
+  `let_buried_no_regular_read_no_over_splice` (no over-splice), `let_self_ref_cycle_terminates`
+  (totality). Verify: 96-job build, `fixture pairs ok` zero drift (cert-manager content-identical ~30.5s),
+  shellcheck clean. As expected, `kue export apps/argocd.cue` STILL bottoms (~88s) — **Gap-2 (Bug2-2)
+  remains the argocd blocker.** Did NOT clear shapeD (needs Gap-2). See implementation-log "Bug2-1".
 - **Slice Bug2-2 — Gap-2 (force-tier disjunction-arm narrowing).** The riskier half; ships behind
   the byte-identical cert-manager gate + `probe_disj_inline`/shapeD fixtures (now select the arm)
   + a real-conflict-kills-all-arms bottom pin. Clears shapeD. After this, RE-MEASURE
@@ -352,7 +365,12 @@ real and strong: `digest_separates_k8s_population` (1000 distinct → 1000 bucke
 
 ### Fix-slices (ranked)
 
-#### A-EN1 — `for`-SOURCE over a use-site-narrowed REGULAR sibling, inside an embed (MEDIUM — correctness, same family as Bug #2)
+#### A-EN1 — `for`-SOURCE over a use-site-narrowed REGULAR sibling, inside an embed (MEDIUM — correctness) — DONE (2026-06-19, rode Bug2-1)
+The let-buried `for`-source variant is fixed by the SAME `closeDefFrameReadIndices` let-following as
+Gap-1: a bare `for … in items` source reading the regular sibling `items` through a `let` is now
+detected and spliced. Pinned by the `let_buried_for_source` module fixture + the
+`let_buried_for_source_expands` `native_decide` theorem (oracle-checked vs cue 0.16.1). The original
+single-embed `for`-source baselines below are subsumed by the same mechanism. ORIGINAL ENTRY:
 Bug #1 fixes the case where the `for` SOURCE is a HIDDEN field (`#additions`, spliced via
 `hiddenFieldsOnly`) and only the GUARD reads a regular sibling. When the `for` source ITSELF is
 a REGULAR sibling narrowed at the use site, the narrowing does not reach the embedded

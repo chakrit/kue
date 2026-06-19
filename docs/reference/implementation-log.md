@@ -8415,3 +8415,48 @@ ZERO byte-drift (only the new fixture appears; cert-manager/argocd sentinels + A
 sentinels byte-identical), `shellcheck` clean (no script changed). Full `apps/argocd.cue` re-measured
 **88.85s, STILL bottoms** (Bug #2 open). cert-manager unaffected. No CUE divergence (Bug #1 was
 Kue-wrong, now fixed).
+
+## Bug2-1 — let-buried comprehension read-label detection (Gap-1) + A-EN1 (for-source variant)
+
+The LOW-RISK first half of the argocd Bug #2 fix. Bug #1 made the embed splice carry the regular
+siblings a comprehension's guard reads, but `defFrameRefIndices`/`embedComprehensionReadLabels`
+(`Eval.lean`) treated a `.refId` as a LEAF — they did not follow a `letBinding` ref into its bound
+value. So when the comprehension is buried under a `let` (`let _patch = {… for … if kind == … }`),
+the regular sibling `kind` it reads THROUGH the let was never detected → never spliced → the guard
+saw the un-narrowed `kind: string` and the body dropped (shapeA/shapeB: wrong-output, dropping the
+patch). The spike's `probe_hidden` proved the let-indirection itself does NOT block propagation (a
+HIDDEN sibling, already spliced by `hiddenFieldsOnly`, works byte-exact) — so the gap is purely
+DETECTION (finding the read label through the let), not re-expansion.
+
+**The fix — follow `letBinding` refs transitively, cycle-bounded.** Added `closeDefFrameReadIndices`
+(`Eval.lean`): given the def-frame `fields` and a frontier of detected def-frame slot indices, for
+each frontier index naming a `let` slot it scans that let's bound value with `defFrameRefIndices …
+0` (the let value is lexically a sibling, scanned at depth 0 like the top-level `cs`/fields — the
+inner `.structComp`/comprehension wrappers thread `+1` so a ref to the def frame matches) for further
+def-frame reads, then recurses on the newly-found lets. A `visited`-set follows each `let` slot AT
+MOST ONCE → a self/mutually-referential `let` (`let a = a`, `let a = b; let b = a`) cannot loop
+(TOTAL); a `fuel = fields.length` second bound keeps the recursion structurally total.
+`embedComprehensionReadLabels` now seeds with `defFrameRefIndices` and closes via
+`closeDefFrameReadIndices` before mapping index → label. This only WIDENS the spliced-label set —
+soundness identical to Bug #1 (a real conflict still bottoms via merge-by-label; the over-splice
+hunt cleared 13 probes). Covers BOTH the `if`-guard read (Gap-1) and the `for`-SOURCE read (A-EN1,
+which rides along — same additive detection, no separate machinery).
+
+**Tests (oracle-checked vs cue 0.16.1).** Module fixtures (auto-discovered `testdata/modules/*`):
+`let_buried_guard_read` (shapeA, one let), `let_buried_two_lets` (shapeB, two nested lets),
+`let_buried_for_source` (A-EN1, bare `for … in items` source through a let) — all now emit the
+matched patch/expanded keys, matching cue (before the fix Kue dropped them). `native_decide` pins in
+`TwoPassTests.lean`: `let_buried_guard_reads_regular_sibling` (one-let mechanism — detects `kind`
+through `_patch`), `two_lets_buried_guard_reads_regular_sibling` (nested — `structShape → _patch →
+kind`), `let_buried_for_source_expands` (A-EN1 end-to-end), `let_buried_guard_emits_matched_patch`
+(positive) + `let_buried_guard_false_drops_body` (no over-fire) + `let_buried_guard_real_conflict_
+bottoms` (SOUNDNESS — `exportJsonBottoms` positively witnesses the bottom), `let_buried_no_regular_
+read_no_over_splice` (a let reading no regular sibling pulls no regular into the splice),
+`let_self_ref_cycle_terminates` (totality — a `let a = a` returns a finite set).
+
+**Verify + measure:** `lake build` green (96 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok`
+ZERO byte-drift (cert-manager content-identical ~30.5s, modulo field-order #3; all existing fixtures
+incl. `crossmod_embed_guard` + the link-5/A5 pins unchanged), `shellcheck` clean. As EXPECTED for the
+Gap-1-only half: `kue export apps/argocd.cue` STILL bottoms (~88s) — **Gap-2 (Bug2-2) remains the
+argocd blocker** (the force-tier disjunction-arm narrowing, GATED next slice). Did NOT clear shapeD
+(needs Gap-2). No CUE divergence (Bug2-1 was Kue-wrong, now fixed → not an entry).
