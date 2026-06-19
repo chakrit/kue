@@ -99,14 +99,51 @@ the sound `list & {regular fields} = ⊥` prune never fired and BOTH arms surviv
 - `Kue/Eval.lean` (`embedBodyEmbedsDisj`, `spliceOperandForEmbed`), `Kue/Tests/TwoPassTests.lean`,
   `testdata/modules/disj_embed_struct_disc`.
 
-**NEW fix-slice — Bug2-4 (HIGH, the NEW last argocd blocker, undesigned):** transitive
-comprehension-read-splice. `embedComprehensionReadLabels` must follow an embedded let's
-comprehension reads TRANSITIVELY (when `#M` embeds `_patch` whose comprehension reads a
-host-providable label `kind`, `#M`'s read-labels should include `kind`), so the two-level
-`#U:{#M}`-with-buried-`_patch` shape splices the host narrowing down to the guard's frame. Pinned
-repro above. Gate the same way (a body NOT embedding a comprehension-reading let stays
-byte-identical). Sits at the TOP of the next-3-4 (displaces nothing else — it is now the single
-real-app export blocker for argocd).
+**Bug2-4 (DONE, `3f7a761`) — let-LOCAL declare-and-read narrowing.** The blocker was NOT a
+transitive comprehension-read (Bug2-1 already followed lets transitively). It was the shape where
+the read sibling is DECLARED INSIDE the same let that buries the comprehension: `let _patch = {
+kind: string; for … { if kind == add.#kind {…} } }` (literally `defs/parts.#Mixin`'s `_patch`).
+The guard's `kind` resolves to `_patch`'s OWN frame, where `kind` is also declared, so NO embed-def
+index names it — `closeDefFrameReadIndices` (which collects def-frame reads) finds nothing, and a
+host narrowing spliced at the def frame lands as a SIBLING the guard never reads. Two helpers, both
+total (visited-set + structural fuel, cycle-safe) and sound (only meets the host narrowing into a
+field the host narrows anyway — never invents a value, never over-splices, same envelope as
+Bug2-1):
+- `letPromotedReadLabels` (fixpoint over followed lets): surfaces the regular labels a let's OWN
+  comprehension reads from its OWN frame — labels the let promotes to the embed on embedding, so the
+  host's narrowing splices toward the def.
+- `injectLetLocalNarrowings` (in `forceClosureWithConjunctCore`): meets the use-operand's regular
+  narrowings INTO any let-local that declares-and-reads the label, before the comprehension expands.
+
+Fixes the minimal Mixin repro (def-host `#Use & {kind:"ListenerSet"}`, with the structural
+`listShape | structShape | error` disjunction): matched patch `meta:"yes"` surfaces,
+content-identical to cue v0.16.1. Verify green (build · `fixture pairs ok` zero drift · shellcheck ·
+cert-manager content-identical). 7 `native_decide` pins + `testdata/modules/mixin_let_local_narrowing`.
+
+**argocd STILL bottoms — Bug2-5, a DISTINCT residual blocker (pre-existing, NOT a regression).**
+`kue export apps/argocd.cue` still bottoms (~153s). The remaining shape, faithfully reproduced
+(`/tmp/kue-ls-shape.cue`), is `defaults.#ListenerSet = defs.#ListenerSet & parts.#UseCertManager &
+{…}`: `defs.#ListenerSet` declares `kind: "ListenerSet"` at ITS def frame and CO-EMBEDS
+`#UseCertManager` (→ `#Mixin`). The Mixin's `_patch.kind` must be narrowed by the SIBLING def's
+`kind`, NOT by a use-operand. Because `#Mixin`'s body is the `listShape | structShape | error`
+DISJUNCTION, the embed resolves on the `.disj` arm of `meetEmbeddingsWithFuel` (each arm `meet`s the
+host AFTER the arm — and `_patch`'s comprehension — has evaluated), so the narrowing arrives too late
+and `injectLetLocalNarrowings` (which fires only on the `forceClosureWithConjunctCore` `.structComp`
+arm) never runs. Minimal repro: `#ListenerSet: { #UseCertManager; kind: "ListenerSet" }`, `out:
+#ListenerSet & {#name:"x"}` → cue emits `meta:"yes"`, Kue drops it. This is narrowing-injection into
+a DISJUNCTION-arm-referenced let-local on the eager/disj path — a deeper mechanism than read-label
+following, filed as Bug2-5 below. (Note: CLI `kue export` and the in-Lean `exportJsonMatches`
+harness take DIFFERENT embed paths for the same source — the def-host Mixin reaches the force
+`.structComp` arm in the harness but not in the CLI; both produce correct output, but the path
+divergence is a latent concern flagged for the architecture audit.)
+
+**NEW fix-slice — Bug2-5 (HIGH, the residual argocd blocker, undesigned):** narrowing-injection into
+a disjunction-arm-referenced let-local. When an embedded disjunction's surviving arm (`structShape`)
+references a sibling let (`_patch`) that declares-and-reads a label narrowed by a CO-EMBEDDING
+sibling def's static field (`kind`), the `.disj`-distribution path of `meetEmbeddingsWithFuel` must
+inject that narrowing into `_patch` BEFORE the arm's comprehension expands — the disjunction analogue
+of Bug2-4's `injectLetLocalNarrowings` on the force path. Pinned repro `/tmp/kue-ls-shape.cue`. This
+is now the single real-app export blocker for argocd.
 
 ### Phase-A audit of the RX-2b + RX-1c batch (`5d884af..e4922c9`, 2026-06-19)
 
