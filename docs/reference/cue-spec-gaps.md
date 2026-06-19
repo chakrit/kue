@@ -39,8 +39,7 @@ or just what the binary does?** If the latter:
 
 | Topic | `cue` ver | Spec status | `cue` binary behavior | Kue's choice + basis | Matches cue? | Fixture |
 |-------|-----------|-------------|-----------------------|----------------------|--------------|---------|
+| Unreferenced bottom def in an imported package | v0.16.1 | Silent. The recursive-bottom rule governs unification *results*; it does not say a package containing a standalone-bottom unreferenced definition is itself bottom. | Tolerates — `main` exports clean even when an unreferenced `dep.#Probe` is `_|_`. | Tolerate, as a **deliberate operational laziness gap** (real packages carry unused, not-fully-resolved defs; perf), NOT "because cue does". Lattice purist reading is the opposite (a bottom value is bottom whether selected or not). Decision pending — basis must be operational, recorded, not silent. Smell: behavior is reference-location-dependent (in-file conflict surfaces; imported does not). | yes (current) | `testdata/modules/unreferenced_import_conflict` |
+| Un-narrowed struct-arm disjunction with no unique default (`{…} \| {…}`) | v0.16.1 | Silent on open-vs-error for an unresolved struct-shaped disjunction. | Keeps it open / `incomplete`. | Keep open — lattice: a join with no unique default *is* the join; erroring would over-commit. | yes | existing disjunction fixtures |
+| Output field order of a struct meet | v0.16.1 | No mandated ordering (set-of-fields semantics). | Deterministic, declaration / first-seen-across-conjuncts (`{b}&{a}` → `a,b`). | Re-derive a principled order (declaration / first-seen — matches cue's *intra*-struct order and reading intuition); do NOT inherit cue's cross-conjunct order via byte-pins. Backlog #3. | partial — intra-struct yes; cross-conjunct Kue (`b,a`) ≠ cue (`a,b`) | backlog #3 |
 
-_None recorded yet. The argocd narrowing chain (Gap-1/2/2b — disjunction-arm pruning,
-structural discrimination, force-tier narrowing) is the first place to actively apply this
-lens: confirm whether each `cue` behavior Kue matches is spec-mandated or a binary artifact,
-and record the artifacts here._
