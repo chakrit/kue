@@ -196,6 +196,93 @@ comprehension). Design-spike first (the disjunction-arm `error()` fallback + clo
 Gate with the same edges as Bug #1 (real-conflict still bottoms; guard-false no over-fire) + a fixture
 that mirrors the full `parts.#Mixin` shape; then RE-MEASURE the 88s wall.
 
+## Phase-A audit (2026-06-19, batch `ff30617..2820b58` — item 7 hash + Bug #1 embed-narrowing)
+
+Audited `78bef86` (item 7 cache-key hash digest) and `2820b58` (Bug #1 comprehension-guard
+embed-narrowing). `a10311b` is docs-only (skipped). Build green (96 jobs), fixtures green,
+shellcheck clean. **One correctness gap found (the `for`-source regular-sibling case, A-EN1
+below); no over-splice, no regression, no totality/illegal-states defect.**
+
+### item 7 (`78bef86`) — RE-CONFIRMED SOUND, no findings
+`valueDigest` is total (structural recursion on `depth : Nat`, exhaustive over every `Value`
+ctor, no catch-all, no `partial`), feeds ONLY the `Hashable` instance of `EvalKey`/`SatKey`;
+both `deriving BEq` are untouched. A `HashMap` uses `hash` for bucketing and `BEq` for
+in-bucket equality, so a digest change can only redistribute buckets — never alter which keys
+compare equal. Pure perf, value-preserving by construction. The bucket-distribution pins are
+real and strong: `digest_separates_k8s_population` (1000 distinct → 1000 buckets),
+`valueTag_collapses_k8s_population` (old hash → 1 bucket, the contrast), and
+`digest_depth0_collapses_like_tag` (proves `DIGEST_DEPTH=3` is load-bearing).
+
+### Bug #1 (`2820b58`) — fix VERDICT: correct, sound, precise; one adjacent gap it does NOT cover
+- **Over-splice hunt: CLEAN.** 13 oracle probes (cue v0.16.1) covering: embed with no
+  comprehension (unchanged); guard reading a sibling the embed also declares (matched-patch +
+  real-conflict-bottoms); use-site narrowing conflicting with the embed's own sibling decl
+  (bottoms, cue-exact); two comprehensions reading different siblings (each fires
+  independently); sibling read by guard AND a static field (`echo: kind`, both resolve); an
+  independent non-read regular field conflicting (`name`, bottoms at the outer meet, NOT
+  spliced); two-`for`-deep nested guard (depth threading correct); type-constraint refinement
+  of the sibling. Every probe matches the oracle. Splicing a read regular sibling changes no
+  case it shouldn't.
+- **`embedComprehensionReadLabels` precision + DRY: GOOD.** It reuses `descendClauses` via
+  `defFrameRefIndicesClauses` (B7-consistent — NOT hand-rolled; the `+1`-per-`for`/`+0`-per-guard
+  depth discipline is the shared `Value.lean` authority). It collects exactly the def-frame slot
+  indices each comprehension reads, maps index → label. A static field's ordinary ref may also be
+  collected (the `.struct` arm) — verified harmless (probes p7/p8): the spliced regular merges by
+  label into the embed's own declaration, identical to the outer meet.
+- **Merged-by-label: CONFIRMED genuinely the same meet.** The spliced operand flows through
+  `mergeConjOperands ((defFields, true) :: useOperands)` → `canonicalizeFields`
+  (`mergeFieldListWith joinUnevaluated` — merge-into-existing-by-label, first-occurrence slot,
+  no duplicate append), the same path the static fields take. No divergent narrowing, no
+  double-apply.
+- **Soundness pins: 3 of 4 real; pin #4 is WEAK (test-strength finding A-EN2 below).** The
+  matched-patch and guard-false pins are exact-JSON equality (strong). The mechanism pin returns
+  exactly `["Self","kind"]` (strong). The real-conflict pin asserts `exportJsonMatches … "" =
+  false`, which is satisfied by BOTH a bottom (error → `false`) AND any non-empty successful
+  output — it does NOT positively confirm the bottom. It passes for the right reason today
+  (oracle + Kue CLI both bottom, verified), but would not catch a regression to a wrong non-empty
+  value. Weaken-resistant only by accident.
+- **Bug #2: honestly OPEN.** No fixture/theorem asserts any Bug #2 behavior — only a prose
+  mention in the `TwoPassTests` docstring. Bug #1's fixture (`crossmod_embed_guard`,
+  auto-discovered by the `testdata/modules/*` glob — no `FixturePorts` entry needed for module
+  fixtures) covers only the single-embed case it fixes.
+
+### Fix-slices (ranked)
+
+#### A-EN1 — `for`-SOURCE over a use-site-narrowed REGULAR sibling, inside an embed (MEDIUM — correctness, same family as Bug #2)
+Bug #1 fixes the case where the `for` SOURCE is a HIDDEN field (`#additions`, spliced via
+`hiddenFieldsOnly`) and only the GUARD reads a regular sibling. When the `for` source ITSELF is
+a REGULAR sibling narrowed at the use site, the narrowing does not reach the embedded
+comprehension and the body drops. Isolated (cue v0.16.1, all on valid CUE cue exports):
+- No-embed baseline: `out: #Inner & {items:["a","b"]}` with `out: [for x in Self.items {x}]` —
+  Kue MATCHES cue (`out: ["a","b"]`). So the regular-`for`-source path itself is fine.
+- WITH an embed (`#Outer: {#Inner}; out: #Outer & {items:["a","b"]}`): Kue drops the
+  comprehension (`out: []`; struct-comprehension variant drops `k_a`/`k_b`). cue emits them.
+- The Bug #1 guard shape with the `for` source as a regular list (`adds:[...]` instead of hidden
+  `#additions`): Kue drops the matched `hit:true`; cue emits it.
+This is the SAME use-site-narrowing-propagation family as Bug #2, surfaced at single-embed depth
+because the source is regular not hidden. Likely fix: ensure `embedComprehensionReadLabels` /
+`spliceOperandForEmbed` carry the regular `for`-SOURCE label (not only guard-read regulars), OR
+the splice merges but the comprehension re-expands against the post-splice frame. Gate with a
+fixture mirroring all three baselines + the existing Bug #1 edges (real-conflict bottoms,
+guard-false no over-fire). Likely bundles with Bug #2's narrowing-propagation work.
+
+#### A-EN2 — strengthen the real-conflict soundness pin (LOW — test-gap)
+`embed_comprehension_guard_real_conflict_bottoms` asserts `exportJsonMatches … "" = false`, which
+a wrong non-empty output also satisfies. Replace with a positive bottom assertion (e.g. assert
+`evalSourceToString`/export yields `.error`, or match the exact bottom output the CLI prints)
+so the pin actually witnesses the bottom, not merely "≠ empty string". Ride-along with A-EN1's
+fixture work.
+
+#### A-EN3 — DRY: three near-identical depth-threading Value-walkers (LOW — Phase-B refactor candidate)
+`defFrameRefIndices`, `selfReferencedLabels`, and `refsSelfEmbeddedLabel` are three structural
+`Value` recursions with the same per-ctor descent and the same `+1`-per-frame-pusher depth
+discipline, differing only in their leaf payload (`List Nat` / `List String` / `Bool`) and a
+small selector at `.refId`/`.selector`. Each carries its own `_ => []`/`_ => false` catch-all
+(verified sound — the swallowed ctors carry no def-frame `.refId` the analysis needs). Candidate
+for a single generic frame-aware fold parameterized by the leaf monoid + a per-`refId` collector,
+the same consolidation B7 did for the clause-depth walkers. Defer to Phase B (architectural, not
+low-risk inline).
+
 ## Phase-A audit (2026-06-19, batch `24da14d..463f8e1` — B2 CP3-pre/flip + B2.5) — CLEAN
 
 Audit of the B2 family-1 production flip (CP3-pre `b79af85..cf5b53c`, CP3-flip `ee7dfe5..4597dcd`,
@@ -1317,6 +1404,10 @@ NEXT, or after B2)** →
 B2 family-1 collapse **DONE (B2.1–B2.5, 2026-06-19)**; **Phase-A audit of CP3-pre/flip/B2.5 DONE
 2026-06-19 — CLEAN**, two LOW fix-slices filed (**B2-A1** pattern+tail tail-drop guard,
 **B2-A2** reverse-order B2.5 fixture; both above) →
+**Phase-A audit of item 7 + Bug #1 DONE 2026-06-19 — found A-EN1 (`for`-source regular-sibling
+narrowing inside an embed, MEDIUM correctness, same family as Bug #2), A-EN2 (DONE inline —
+strengthened the real-conflict pin to `exportJsonBottoms`), A-EN3 (LOW DRY — three depth-threading
+walkers, Phase-B candidate). A-EN1 bundles with Bug #2's narrowing-propagation slice.** →
 B2b (structComp collapse — last of B2) /
 B6 design-spike / item 1 follow-up / A2-followup →
 parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructTests`/`BuiltinTests`

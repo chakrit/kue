@@ -17,4 +17,14 @@ def exportJsonMatches (source expected : String) : Bool :=
   | .ok (.ok output) => output == expected
   | _ => false
 
+/-- Positively witness that a source's JSON export BOTTOMS — the value parsed but manifesting
+    it failed (the inner `.error` arm). Distinct from `exportJsonMatches … "" = false`, which a
+    wrong NON-empty output also satisfies; this asserts the bottom itself, so a regression to a
+    spurious concrete value fails the pin. A parse error (outer `.error`) is NOT a bottom and
+    returns `false`. -/
+def exportJsonBottoms (source : String) : Bool :=
+  match exportSourcesToString .json [source] with
+  | .ok (.error _) => true
+  | _ => false
+
 end Kue

@@ -658,11 +658,13 @@ theorem embed_comprehension_guard_false_drops_body :
   native_decide
 
 -- SOUNDNESS: a guarded patch that REALLY conflicts with a sibling still bottoms (no over-lazy).
+-- `exportJsonBottoms` positively witnesses the bottom (the inner `.error` manifest arm), so a
+-- regression to a spurious concrete output fails — unlike `exportJsonMatches … "" = false`, which
+-- any non-empty output also satisfies.
 theorem embed_comprehension_guard_real_conflict_bottoms :
-    exportJsonMatches
+    exportJsonBottoms
         "#Inner: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tkind: string\n\tmeta: \"fixed\"\n\tfor _, add in Self.#additions {\n\t\tif kind == add.#kind {\n\t\t\tadd.#patch\n\t\t}\n\t}\n\t...\n}\n#Outer: {\n\t#Inner\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"clash\"}}\n}\nout: #Outer & {kind: \"ListenerSet\"}\n"
-        ""
-          = false := by
+          = true := by
   native_decide
 
 
