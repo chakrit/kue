@@ -700,4 +700,224 @@ def matchRegex (pattern s : String) : Bool :=
 def regexParseError? (pattern : String) : Option RegexParseError :=
   match parseRegex pattern with | .error e => some e | .ok _ => none
 
+/-! ## RX-1c — submatch / Find* / ReplaceAll over the Pike-VM capture array
+
+    The Pike-VM already fills a capture array (`NFA.run`). RX-1c exposes it as the
+    CUE/Go `regexp` package's string-returning forms. Everything here is a pure
+    `String → … → Option …` over rune (`List Char`) offsets — the VM iterates `Char`
+    (runes), matching cue's `=~` rune semantics, so spans are rune-indexed and extracted
+    with `List.extract`/`String.ofList`. All functions are TOTAL (the search loop is
+    structural on a `fuel` bounded by the input length, and a zero-width match advances one
+    rune so it cannot stall). -/
+
+/-- A capture array: slot 2i/2i+1 are the half-open rune-offset start/end of group i
+    (group 0 = whole match), `none` for a non-participating group. -/
+abbrev Captures := Array (Option Nat)
+
+/-- Extract the rune span `[lo, hi)` of `chars` as a `String`. -/
+private def spanString (chars : List Char) (lo hi : Nat) : String :=
+  String.ofList ((chars.drop lo).take (hi - lo))
+
+/-- Shift every capturing-group index in `re` up by one. Used to reserve group 1 for an
+    explicit whole-match wrapper in the unanchored search (the program's slots 0/1 are pinned
+    to offset 0 by the lazy `.*?` prefix, so they cannot report the true match START — the
+    wrapper group does). Structural recursion on the finite AST → total. -/
+private def bumpGroups : Regex → Regex
+  | .group (some i) body => .group (some (i + 1)) (bumpGroups body)
+  | .group none body => .group none (bumpGroups body)
+  | .concat parts => .concat (parts.attach.map (fun ⟨p, _⟩ => bumpGroups p))
+  | .alt branches => .alt (branches.attach.map (fun ⟨b, _⟩ => bumpGroups b))
+  | .star g body => .star g (bumpGroups body)
+  | .plus g body => .plus g (bumpGroups body)
+  | .opt g body => .opt g (bumpGroups body)
+  | .«repeat» g lo hi body => .«repeat» g lo hi (bumpGroups body)
+  | atom => atom
+
+/-- Find the leftmost match of `re` (the ALREADY-parsed AST) in `chars` at-or-after rune
+    offset `from`, returning a capture array where slot 2i/2i+1 is group i's ABSOLUTE
+    half-open rune span (group 0 = whole match). Implemented by wrapping a group-bumped `re`
+    in an explicit whole-match group behind the unanchored lazy `.*?` prefix, then re-basing
+    the wrapper-group slots by `from`. The wrapper (group 1) reports the TRUE match start —
+    the program's own slot 0/1 are pinned to 0 by the lazy prefix. `none` if no match. -/
+private def findFrom (re : Regex) (chars : List Char) (from_ : Nat) : Option Captures :=
+  let unanchored : Regex := .concat [.star false .any, .group (some 1) (bumpGroups re)]
+  match (compile unanchored).run (chars.drop from_) with
+  | none => none
+  | some caps =>
+      -- Drop the program's whole-match slots 0/1 (prefix-pinned); the wrapper group's slots
+      -- 2/3 become the true whole match, and each real group i+1 maps back to group i.
+      some ((caps.extract 2 caps.size).map (·.map (· + from_)))
+
+/-- The whole-match span `[start, end)` of a capture array (slots 0/1), if present. -/
+private def matchSpan (caps : Captures) : Option (Nat × Nat) :=
+  match caps[0]?.join, caps[1]?.join with
+  | some s, some e => some (s, e)
+  | _, _ => none
+
+/-- Iterate all NON-overlapping leftmost matches of `re` in `chars`, left to right. A
+    zero-width match advances the scan one rune (Go semantics — otherwise it stalls). `fuel`
+    bounds the loop (one match consumes ≥1 rune of progress, so `chars.length + 1` is exact
+    and never spuriously hit). Returns the matches in order. -/
+private def allMatches (re : Regex) (chars : List Char) : List Captures :=
+  let rec go (fuel pos : Nat) (acc : List Captures) : List Captures :=
+    match fuel with
+    | 0 => acc.reverse
+    | fuel + 1 =>
+        if pos > chars.length then acc.reverse
+        else match findFrom re chars pos with
+          | none => acc.reverse
+          | some caps =>
+              match matchSpan caps with
+              | none => acc.reverse
+              | some (_, e) =>
+                  -- next scan starts after this match; a zero-width match (end == its own
+                  -- start, i.e. end == pos) advances one rune to guarantee progress.
+                  let next := if e ≤ pos then pos + 1 else e
+                  go fuel next (caps :: acc)
+  go (chars.length + 2) 0 []
+
+/-- `regexp.FindSubmatch`-style: the leftmost match's group strings (group 0 = whole match,
+    then group 1, 2, …). A non-participating group becomes the empty string (Go returns nil;
+    cue's only consumer is the array shape — empty string matches cue's element). `none` on
+    no match (cue raises `no match`, so the dispatch site bottoms). -/
+def findSubmatch (pattern s : String) : Option (List String) :=
+  match parseRegex pattern with
+  | .error _ => none
+  | .ok re =>
+      let chars := s.toList
+      match findFrom re chars 0 with
+      | none => none
+      | some caps =>
+          let groups := caps.size / 2
+          some <| (List.range groups).map fun i =>
+            match caps[2 * i]?.join, caps[2 * i + 1]?.join with
+            | some lo, some hi => spanString chars lo hi
+            | _, _ => ""
+
+/-- `regexp.Find`-style: the leftmost whole-match substring, or `none` on no match. -/
+def find (pattern s : String) : Option String :=
+  match parseRegex pattern with
+  | .error _ => none
+  | .ok re =>
+      let chars := s.toList
+      (findFrom re chars 0).bind matchSpan |>.map fun (lo, hi) => spanString chars lo hi
+
+/-- `regexp.FindAll`-style: every non-overlapping whole-match substring (left to right).
+    `none` (→ no-match bottom at the dispatch site) when there are zero matches. -/
+def findAll (pattern s : String) : Option (List String) :=
+  match parseRegex pattern with
+  | .error _ => none
+  | .ok re =>
+      let chars := s.toList
+      match allMatches re chars with
+      | [] => none
+      | ms => some <| ms.filterMap fun caps =>
+          (matchSpan caps).map fun (lo, hi) => spanString chars lo hi
+
+/-- `regexp.FindAllSubmatch`-style: for every non-overlapping match, its group strings (the
+    `findSubmatch` shape per match). `none` when there are zero matches. -/
+def findAllSubmatch (pattern s : String) : Option (List (List String)) :=
+  match parseRegex pattern with
+  | .error _ => none
+  | .ok re =>
+      let chars := s.toList
+      match allMatches re chars with
+      | [] => none
+      | ms => some <| ms.map fun caps =>
+          let groups := caps.size / 2
+          (List.range groups).map fun i =>
+            match caps[2 * i]?.join, caps[2 * i + 1]?.join with
+            | some lo, some hi => spanString chars lo hi
+            | _, _ => ""
+
+/-! ### Go `Expand` replacement-template grammar (NOT regex backreferences)
+
+    In `regexp.ReplaceAll(pattern, src, repl)`, `repl` is a Go `Expand` template:
+    `$name`/`${name}` interpolate a capture group, `$$` is a literal `$`. A bare `$name`
+    consumes the LONGEST run of `[0-9A-Za-z_]` as the name (so `$1suffix` names group
+    `1suffix`, which does not exist → empty; `${1}suffix` names group `1` then literal
+    `suffix`). A purely-numeric name selects the group by index; an unknown group → empty.
+    Named groups (`$g`) require `(?P<name>…)` which Kue's parser defers, so only numeric
+    references resolve here. -/
+
+private def isExpandNameChar (c : Char) : Bool :=
+  ('0' ≤ c && c ≤ '9') || ('A' ≤ c && c ≤ 'Z') || ('a' ≤ c && c ≤ 'z') || c == '_'
+
+/-- Parse an all-digits name to a group index. -/
+private def nameToIndex? (name : List Char) : Option Nat :=
+  if name.isEmpty || !name.all (fun c => '0' ≤ c && c ≤ '9') then none
+  else some (name.foldl (fun acc c => acc * 10 + (c.toNat - '0'.toNat)) 0)
+
+/-- The captured string for group `i` of `caps` in `chars`, or `none` if the group is out of
+    range or non-participating (Go interpolates empty for both). -/
+private def groupText? (chars : List Char) (caps : Captures) (i : Nat) : Option String :=
+  match caps[2 * i]?.join, caps[2 * i + 1]?.join with
+  | some lo, some hi => some (spanString chars lo hi)
+  | _, _ => none
+
+/-- Expand a Go `Expand` template against one match's captures, appending to `out` (reversed,
+    char list). `fuel` is the template length (structural bound; each branch consumes ≥1
+    char). -/
+private def expandTemplate (chars : List Char) (caps : Captures) :
+    Nat → List Char → List Char → List Char
+  | 0, _, out => out
+  | _ + 1, [], out => out
+  | fuel + 1, '$' :: '$' :: rest, out => expandTemplate chars caps fuel rest ('$' :: out)
+  | fuel + 1, '$' :: '{' :: rest, out =>
+      -- `${name}` — name is everything up to the closing `}`.
+      let name := rest.takeWhile (· != '}')
+      let after := (rest.dropWhile (· != '}')).drop 1  -- drop the `}`
+      let text := (nameToIndex? name).bind (groupText? chars caps) |>.getD ""
+      expandTemplate chars caps fuel after (text.toList.reverse ++ out)
+  | fuel + 1, '$' :: rest, out =>
+      -- `$name` — name is the LONGEST run of word chars; if empty, `$` is literal.
+      let name := rest.takeWhile isExpandNameChar
+      match name with
+      | [] => expandTemplate chars caps fuel rest ('$' :: out)
+      | _ =>
+          let after := rest.dropWhile isExpandNameChar
+          let text := (nameToIndex? name).bind (groupText? chars caps) |>.getD ""
+          expandTemplate chars caps fuel after (text.toList.reverse ++ out)
+  | fuel + 1, c :: rest, out => expandTemplate chars caps fuel rest (c :: out)
+
+/-- Build the replacement for one match: expand the `Expand` template (`repl`) when
+    `literal = false`, or use `repl` verbatim (`ReplaceAllLiteral`) when `true`. -/
+private def replacementFor (chars : List Char) (repl : List Char) (literal : Bool)
+    (caps : Captures) : List Char :=
+  if literal then repl
+  else (expandTemplate chars caps repl.length repl []).reverse
+
+/-- Replace all non-overlapping leftmost matches of `re` in `chars`, splicing each match's
+    expanded/literal replacement. Walks `chars` once over the (ordered) match list, copying
+    the gaps between matches. TOTAL (structural on the match list; spans are non-overlapping
+    and ordered). -/
+private def replaceAllChars (re : Regex) (chars repl : List Char) (literal : Bool) : List Char :=
+  let found := allMatches re chars
+  -- fold over matches, tracking the cursor; copy [cursor, matchStart), then the replacement,
+  -- then advance cursor to matchEnd. Finally copy the tail [cursor, end).
+  let (cursor, acc) := found.foldl (fun (st : Nat × List Char) caps =>
+    let (cursor, acc) := st
+    match matchSpan caps with
+    | none => st
+    | some (lo, hi) =>
+        let gap := (chars.drop cursor).take (lo - cursor)
+        let rep := replacementFor chars repl literal caps
+        (hi, acc ++ gap ++ rep)) (0, [])
+  acc ++ chars.drop cursor
+
+/-- `regexp.ReplaceAll(pattern, src, repl)` — replace every non-overlapping match in `src`,
+    expanding `repl` as a Go `Expand` template. `none` only on an invalid/deferred pattern
+    (the dispatch site bottoms); a valid pattern with no match returns `src` unchanged. -/
+def replaceAll (pattern src repl : String) : Option String :=
+  match parseRegex pattern with
+  | .error _ => none
+  | .ok re => some (String.ofList (replaceAllChars re src.toList repl.toList false))
+
+/-- `regexp.ReplaceAllLiteral(pattern, src, repl)` — like `replaceAll` but `repl` is spliced
+    VERBATIM (no `$` expansion). -/
+def replaceAllLiteral (pattern src repl : String) : Option String :=
+  match parseRegex pattern with
+  | .error _ => none
+  | .ok re => some (String.ofList (replaceAllChars re src.toList repl.toList true))
+
 end Kue
