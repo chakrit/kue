@@ -50,7 +50,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | Area | Auditor | Status | Findings (V/CUE-BUG/SUSPECT) |
 |------|---------|--------|------------------------------|
 | A. Disjunctions/narrowing | batch 1 | DONE | 1 KUE-VIOLATES (disj display); Gap-2b = real bug (cue correct); 2 spec gaps; rest CONFORMS |
-| B. Closedness/definitions | batch 1 | DONE | 2 SUSPECT-ARTIFACT (instantiation re-open; import laziness); rest CONFORMS |
+| B. Closedness/definitions | batch 1 | DONE | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS |
 | C. Structs/lists          | batch 1 | DONE | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS |
 | D. Comprehensions/scoping | batch 2 | DONE | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; no structural-cycle detection; `let` clauses unparseable); frame-model + read-splice CONFORM |
 | E. Scalars/bounds/builtins| batch 2 | DONE | 1 KUE-VIOLATES HIGH (regex not RE2); 2 MED builtin (ASCII case-fold; deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
@@ -197,21 +197,17 @@ Both slices verified spec-correct; nothing in either was reverted or refixed.
 Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
 front-loaded before the large rewrites.
 
-### Re-ranked next slices (2026-06-19 Phase-B audit #2 — DONE: SC-1, SC-1c, SC-1d, D#1a, F-1, F-2; SC-2 now DESIGNED)
+### Re-ranked next slices (2026-06-19 Phase-B audit #2 — DONE: SC-1, SC-1c, SC-1d, SC-2, D#1a, F-1, F-2)
 
 Contained-high-confidence before large rewrites; cue-AGREEING correctness before divergence;
 contained-correctness before large rewrites (slice-loop principle). **Recommended next 3-4:**
 
-1. **SC-2 (HIGH — nested def-body closedness; 1 slice, NO worktree).** NOW DESIGNED + ready
-   ("SC-2 design (implementable)" below). Promoted to the TOP of the queue: it is a contained
-   single-file Normalize change (a closing field-walker twin), it fixes a live correctness bug
-   (`#A:{a:{b:int}}` over-opens TODAY — oracle #1/#2/#6, Kue admits, cue+spec reject), and its
-   soundness/trap argument is fully worked out (import bindings + plain structs + hidden fields
-   all proven untouched). SC-2a (cue-agrees) and SC-2b (the spec-correct divergence) are ONE
-   change in Kue's monotone representation — not separable — so this single slice clears BOTH
-   the largest remaining closedness gap and the last `cue`-grounded closedness suspect. Gated:
-   byte-identical except the one flipped SC-2b fixture + cert-manager/argocd no-regress.
-2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
+1. **SC-2 — DONE (2026-06-19).** Nested def-body closedness via a closing field-walker twin
+   (`normalizeDefinitionFieldWithFuel` in `Normalize.lean`). SC-2a (cue+spec agree) and SC-2b
+   (the spec-correct divergence) landed as ONE change. Closedness cluster drained to zero.
+   See the "SC-2 design (implementable)" section below (now the as-built record) and the
+   HIGH-backlog item for the full fix description.
+2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** NOW THE TOP of the queue. Highest real-app-correctness lever; 7
    demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
    ready below ("RX-1 design (implementable)"). RX-1a (AST+parser) → RX-1b (NFA+VM+rewire) →
    RX-1c (submatch+`ReplaceAll`). After SC-2 because contained-correctness precedes the large
@@ -379,21 +375,28 @@ representation entangles them — there is no cue-agreeing-only slice to do firs
    `.embeddedList`/list-meet-to-bottom, NOT a shape heuristic. The argocd unblock.
 
 **HIGH — nested def-body closedness (SC-2a cue-AGREES + SC-2b DIVERGES; ONE slice):**
-8. **SC-2 — DESIGNED (2026-06-19 Phase-B #2; see "SC-2 design (implementable)" below).**
-   Close nested def-body field VALUES at the FIRST meet. **SC-2a (cue+spec AGREE, Kue wrong —
-   plain correctness, NOT a divergence):** `#A:{a:{b:int}}` over-opens TODAY (oracle #1/#2/#3
-   single-meet; #6 `#D.r & {b}` direct-selector). **SC-2b (DIVERGE — spec says close, cue
-   re-opens on `& {}` instantiation):** `(#D & {}).r & {b}`; record in `cue-divergences.md`.
-   **KEY spike finding — the two halves are ONE fix, not separable:** Kue stores closedness on
-   the value and meet is monotone (no shed-on-`&` code exists), so closing nested field values
-   (SC-2a) automatically preserves closedness through instantiation (SC-2b). Lever = a CLOSING
-   field-walker twin in `Normalize.lean` (regular/optional/required field values recurse the
-   CLOSING walker, not the spine) — `importBinding` skip + hidden/`let` spine arms UNCHANGED, so
-   the A2/cert-manager trap is structurally dodged (the `importBinding` marker makes it local).
-   Normalize-only; no `Lattice`/`Eval` edit. RE-SCOPES B6-deferred (which wrongly proposed
-   implementing the cue artifact via a shed-on-`&` flag — spec-WRONG, do NOT). Gate: byte-
-   identical except the one flipped SC-2b fixture + cert-manager/argocd no-regress (read-only).
-   1 slice, no worktree. See the SC-2 design section for the full lever/soundness/fixture plan.
+8. **SC-2 — DONE (2026-06-19).** Closed nested def-body field VALUES at the FIRST meet via a
+   CLOSING field-walker twin `normalizeDefinitionFieldWithFuel` (`Normalize.lean`): identical to
+   `normalizeFieldWithFuel` except the regular/optional/required arm recurses the CLOSING walker
+   `normalizeDefinitionValueWithFuel` (not the spine), so a referenced def's nested PLAIN-struct
+   field values close recursively. The CLOSING walker's `.struct`/`.structComp`/pattern-bearing
+   arms now map this twin over their fields. **SC-2a (cue+spec AGREE):** `#A:{a:{b:int}} &
+   {a:{b:1,extra:5}}` rejects `extra` (oracle #1/#2/#3 + #6 direct-selector); a nested `...`
+   keeps the nested struct OPEN (#4). **SC-2b (DIVERGES — recorded):** `(#D & {}).r & {b}` now
+   REJECTS `b` (closedness monotone through meet; cue re-opens on `& {}` — eval-strategy
+   artifact). Fell out for free: Kue stores closedness on the value, meet is monotone, no
+   shed-on-`&` code exists, so closing the nested value once preserves it through instantiation.
+   Trap defence (UNCHANGED arms): `importBinding` SKIP (bound packages stay lazy — no
+   cert-manager/argocd re-bottom), `letBinding`/hidden `_x` SPINE (a def's hidden-field nested
+   struct admits extras, #8); a plain non-def struct never reaches the twin (#5 stays open).
+   Normalize-only; no `Lattice`/`Eval` edit (`mergeStructN` enforces + preserves the closure).
+   Pins: 4 `native_decide` soundness theorems + flipped SC-2b theorem + 5 `sc2a_*` fixtures +
+   the renamed `sc2b_instantiated_def_field_stays_closed`; updated `eval_meet_lazy_hidden_def`
+   (nested def-body `out` now `.defClosed`). Gate: all existing fixtures byte-identical except
+   the one flipped SC-2b fixture; cert-manager content-identical (field-order gap #3 only, exit
+   0 ~32s), argocd still bottoms on the pre-existing Bug2-3 (`conflicting values`, NOT a
+   closedness `field not allowed` bottom, ~91s). The "SC-2 design (implementable)" section below
+   is now the as-built record.
 
 **MED:**
 9. **D#3** `let` clauses in comprehensions (parse + `Clause.letClause` + wire `let`=+1 in

@@ -8777,3 +8777,70 @@ ONLY help (a future `@vN` module's in-module imports resolve instead of erroring
 the no-suffix case is the `depKeyModulePath` identity. No in-repo cert-manager/argocd module
 fixture, and neither real app uses `@vN`, so there was no `@vN` byte-identity surface to re-probe;
 the no-suffix self + dep fixtures stayed green, which is the relevant regression surface.
+
+## SC-2 — nested def-body closedness via a closing field-walker twin (2026-06-19)
+
+The closedness cluster's last fix (after SC-1/1c/1d). A referenced closed def closed only its
+TOP struct; nested PLAIN-struct field values stayed `regularOpen`, so `#A: {a: {b: int}} & {a:
+{b: 1, extra: 5}}` ADMITTED `extra` while the spec + cue REJECT it ("referencing a def
+recursively closes it anywhere within the definition"). Two faces, one root: SC-2a (the
+single-meet over-open above, cue+spec AGREE — plain correctness) and SC-2b (`(#D & {}).r & {b}`,
+where cue RE-OPENS on the no-op `& {}` instantiation but the spec says closedness is monotone
+through meet — Kue DIVERGES). Spike-confirmed they are NOT separable: Kue stores closedness on the
+value and meet is monotone (no shed-on-`&` code), so closing the nested value once (SC-2a)
+preserves it through instantiation (SC-2b) for free.
+
+**Root cause.** The CLOSING walker `normalizeDefinitionValueWithFuel`'s `.struct` arms set the
+struct's OWN openness to `defClosed` but descended fields via the SHARED `normalizeFieldWithFuel`,
+whose regular arm recurses the SPINE walker `normalizeDefinitionsWithFuel` — which preserves
+openness and closes only nested `#Def`s, never nested plain-struct VALUES.
+
+**Fix (Normalize-only).** Added `normalizeDefinitionFieldWithFuel`, a CLOSING twin of
+`normalizeFieldWithFuel` whose regular/optional/required arm recurses the CLOSING walker
+(`normalizeDefinitionValueWithFuel`) instead of the spine; the DEFINITION arm keeps recursing the
+CLOSING walker (a nested `#Def` body still closes); `importBinding` SKIP and `letBinding`/hidden
+`_x` SPINE arms are UNCHANGED. The CLOSING walker's no-pattern `.struct`, `.structComp`, and
+pattern-bearing `.struct` arms now map this twin over their fields. A separate function (not a
+`closing : Bool` flag) keeps the call site's intent encoded in WHICH function it calls
+(illegal-states philosophy). No `Lattice`/`Eval` edit — `mergeStructN`/`applyStructClosedness`
+enforce the nested `defClosed` at every meet and preserve it through instantiation (monotone).
+
+**Trap defence (the soundness obligations, all oracle-checked vs cue v0.16.1).**
+1. A referenced closed def's nested field REJECTS an extra, recursively at any depth — oracle #1
+   (`#A:{a:{b:int}}`), #2 (fully concrete `b: int | *0`), #3 (depth-2 `a.b.c`), #6 (direct selector
+   `#D.r & {b}`). The twin sets `defClosed` on the nested value; `mergeStructN` rejects. ✓
+2. A PLAIN (non-def) nested struct STAYS OPEN — oracle #5 (`A:{a:{b}}` admits `extra`). A plain
+   struct never reaches the closing walker (it goes through the spine / no normalization-close), so
+   the twin cannot touch it. ✓
+3. A nested `...` STAYS OPEN — oracle #4. The CLOSING walker returns a `defOpenViaTail` struct
+   unchanged, so depth-recursion respects a nested `...` for free. ✓
+4. A def's HIDDEN-field nested struct STAYS OPEN — oracle #8 (`#A:{_h:{x:int}}` ; `x._h & {extra}`
+   admits). The hidden arm stays on the SPINE (untouched). ✓
+   An unreferenced IMPORT binding stays lazy — the `importBinding` arm is untouched (SKIP), so
+   cert-manager/argocd cannot re-bottom (the A2 trap; the `FieldClass.importBinding` marker scopes
+   the skip precisely to bound packages).
+
+**SC-2b divergence (recorded in cue-divergences.md).** `(#D & {}).r & {x:1, extra:2}` → cue admits
+`extra` (re-opened by the `& {}` instantiation), Kue rejects (`extra: _|_`). cue is internally
+inconsistent — the DIRECT path `#D.r & {extra}` rejects (cue+Kue agree). The `& {}` meets with the
+top struct (identity on closedness), so it cannot lattice-logically add openness → cue's re-open is
+an eval-strategy artifact. Kue preserves closedness on both paths.
+
+**Tests.** 4 `native_decide` soundness pins in `EvalTests` (`eval_sc2_nested_def_field_closes`,
+`…_plain_nested_struct_stays_open`, `…_nested_tail_stays_open`, `…_hidden_field_nested_stays_open`);
+the flipped `eval_sc2b_instantiated_def_field_stays_closed` (was `eval_b6_instantiated_def_field_reopens`,
+which asserted cue's re-open ADMIT — now asserts the spec-correct REJECT); 5 `sc2a_*` fixtures with
+`FixturePorts` entries (`sc2a_nested_def_field_closes`, `…_closes_concrete`, `…_depth2`,
+`…_tail_stays_open`, `sc2a_direct_selector_closes`); the renamed
+`sc2b_instantiated_def_field_stays_closed` fixture (the one intentional drift). Updated
+`eval_meet_lazy_hidden_def` — `#D`'s nested regular field `out` (a plain struct within the def body)
+now normalizes to `.defClosed` (spec-correct; formatted output unchanged, closedness is invisible in
+`eval` display).
+
+**Verify.** `lake build` green (96 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok` (all
+existing fixtures byte-identical except the one flipped SC-2b fixture); `shellcheck` clean.
+**Real-app probe (READ-ONLY, from `prod9/infra`):** cert-manager `kue export --out yaml` exit 0
+(~32s), diff vs `cue export` is the known field-ORDER gap #3 only (same keys/values, no `_|_`, no
+key added/removed) → content-identical. argocd `kue export` still exits 1 on the pre-existing
+Bug2-3 (`conflicting values (bottom)`, a `fieldConflict` — NOT a `field not allowed`/closedness
+bottom, ~91s) → no new closedness regression. Closedness cluster drained to zero; next-step → RX-1.
