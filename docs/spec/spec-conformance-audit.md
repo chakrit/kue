@@ -145,6 +145,89 @@ inject that narrowing into `_patch` BEFORE the arm's comprehension expands — t
 of Bug2-4's `injectLetLocalNarrowings` on the force path. Pinned repro `/tmp/kue-ls-shape.cue`. This
 is now the single real-app export blocker for argocd.
 
+### Phase-A audit of the Bug2-3 + Bug2-4 batch (`2ab5c84..3725444`, 2026-06-19)
+
+Pressure-tested the regression-prone narrowing/disjunction class (Gap-2b structural-disj prune +
+let-LOCAL declare-and-read narrowing) against `cue` v0.16.1, the CUE spec, and lattice first
+principles. **Verdict: both slices spec-correct and sound; nothing reverted. No code change
+applied — the batch is airtight. The flagged CLI-vs-harness divergence is BENIGN (reconciled,
+proven by source + empirics). ONE DRY finding folded to the backlog (Phase-B refactor candidate,
+not a smell that blocks).**
+
+- **Bug2-3 / Gap-2b verdict — GATE NARROW, no over-prune, struct|struct preserved.** `embedBodyEmbedsDisj`
+  fires ONLY when `cs` holds a `.disj` (or a depth-0 `.refId` to a let slot holding a `.disj`) —
+  pinned by `embed_body_embeds_disj_gate_no_disj` (false) / `_direct_disj` (true). With no disj
+  embedding, BOTH guards (`embedBodyEmbedsDisj=false` AND `extraLabels` unchanged) leave
+  `spliceOperandForEmbed` on the exact pre-Bug2-3 `hiddenFieldsOnly` path → byte-identical. The
+  cert-manager 0-fire claim is thus provable from the gate logic (prod9 tree not on this session
+  host, so re-probe deferred to the prod9-reachable machine; the implementing slice logged
+  content-identical). **No over-prune:** routing ALL host regular fields into the arms is sound
+  because the per-arm meet is exactly the unification the outer meet would do — verified empirically:
+  a struct-compatible arm with an extra narrowed field (`{meta:"yes", n:3}`) flows through
+  identical to cue; a benign scalar-discriminated `{a,common} | {b,common}` narrowed by a
+  both-arms-admitted field STAYS ambiguous (not collapsed), matching cue's `incomplete`. **struct|struct
+  preserved:** `disj_embed_struct_disc_struct_struct_stays_ambiguous` + live probe — two open struct
+  arms stay ambiguous (no `list & struct = ⊥` to fire), exit 1, never a false single-arm collapse.
+  Real conflict on the surviving arm bottoms (`/tmp` probe: arm `meta:"fixed"` vs host `meta:"different"`
+  → bottom, cue agrees both arms die).
+
+- **Bug2-4 verdict — helpers TOTAL + axiom-clean, no over-splice, cycle-safe.** `letPromotedReadLabels`
+  and `injectLetLocalNarrowings` are plain top-level `def`s (NOT `partial`, NOT in a mutual block) —
+  Lean proved structural termination on `fuel`; both carry a `seen`-set (structural `BEq` on `Value`)
+  as a second cycle bound. `#print axioms`: `letPromotedReadLabels` → `[propext, Quot.sound]`;
+  `injectLetLocalNarrowings` → `[propext, Classical.choice, Quot.sound]`; `embedBodyEmbedsDisj` /
+  `embedDisjArmDeclLabels` → `[propext]`; `spliceOperandForEmbed` → `[propext, Quot.sound]`. **No
+  `sorryAx` anywhere** — only the standard foundational axioms (`Classical.choice` is from
+  `meet`/well-founded-recursion compilation, not a logical hole). **No over-splice:** injection is
+  gated by `letPromotedReadLabels ⊇ the label` — a let-local NOT read by the let's own comprehension
+  is never touched (`let_local_unread_not_surfaced`), and the meet only narrows a field the host
+  narrows anyway (`mixin_let_local_real_conflict_bottoms` witnesses a real conflict bottoms, not a
+  silent drop). **Cycle-safe:** `inject_let_local_self_ref_terminates` pins a self-ref let value
+  terminating unchanged. End-to-end matched-patch + guard-false-drops pins present.
+
+- **CLI-vs-harness divergence — RECONCILED: BENIGN, not a dual-path bug.** Traced both entries:
+  CLI file mode → `loadEntry` → `loadFileBound` → for a no-import source `return .ok parsed.value`
+  (`parseSourceFile`/`parseDocumentFile`); CLI stdin AND the `exportJsonMatches` harness →
+  `parseSources`/`parseSource` (`parseDocument`) → `mergeSourceValues [v] = v`. For a no-import single
+  source the field streams `parseDocument`/`parseDocumentFile` consume are IDENTICAL (the latter only
+  strips a `package` clause + imports, of which a test source has none), so `parsed.value` ≡
+  `parseSource`'s value. BOTH then run the SAME `resolveAndEval` → `exportValue`. The breadcrumb's
+  "harness reaches the force `.structComp` arm, CLI does not" is therefore an artifact of describing
+  the same value's internal traversal under two equal entries — NOT two eval paths that can diverge
+  on one source. **Empirically confirmed:** the Bug2-4 Mixin source exports byte-identical across
+  `kue export <file>`, `kue export <stdin`, and `cue export` (all `{kind:"ListenerSet", meta:"yes"}`).
+  The residual Bug2-5 ls-shape and the struct|struct ambiguity also agree file-vs-stdin. No finding;
+  the latent concern is closed.
+
+- **DRY of the narrowing-helper family — consolidatable, FILED as a Phase-B refactor (not a blocker).**
+  Three hand-rolled fixpoint walkers over followed-let chains now share the SAME visited-set+fuel
+  cycle-guard idiom while differing only in collect/recurse: `closeDefFrameReadIndices` (collects
+  `List Nat` indices), `letPromotedReadLabels` (collects `List String` labels), `injectLetLocalNarrowings`
+  (rewrites → `Value`). The `seen.contains`/fuel-decrement/`.structComp`-vs-`.struct` destructure is
+  copied ~3×. A shared `walkFollowedLets` combinator parameterized by `(collect, recurse)` would erase
+  the boilerplate and pin the cycle-guard once. **The COMPOSERS are NOT duplicative** — `embedComprehensionReadLabels`
+  (comprehension-read), `embedDisjArmDeclLabels` (arm-declare), `embedBodyEmbedsDisj` (disj-detect),
+  `spliceOperandForEmbed` (the union) each encode a distinct CUE rule; they correctly compose the
+  primitives, not re-implement them. **Verdict: the duplication is real but contained to the 3
+  walkers, low-risk, and a clean Phase-B fix-slice — NOT an inline change (it touches 3 recursive defs
+  + their termination, above the low-risk bar).** Filed below.
+
+- **Illegal-states / totality — clean.** No new `partial`, no catch-all `_` swallowing a `Value`
+  constructor in the new defs (the `| _ => []`/`| _ => v` arms are exhaustive non-struct fall-throughs,
+  correct). `(String × Value)` narrowing pairs and `List String` label sets are the right
+  representations here (labels are genuinely strings). No nonsense-admitting record introduced.
+
+- **Spec accuracy — match.** The Bug2-3/Bug2-4 findings sections above, the implementation-log tail,
+  and the breadcrumb describe the code as built; the `struct|struct` ambiguous-vs-incomplete display
+  divergence is correctly logged in `cue-spec-gaps.md` (spec silent on the label for a non-concrete
+  unresolved disjunction; both exit 1, neither emits a wrong concrete value).
+
+**NEW Phase-B fix-slice — DRY-1 (LOW, refactor, no behavior change):** extract a shared
+`walkFollowedLets` (visited-set + fuel + `.structComp`/`.struct` destructure) combinator and refactor
+`closeDefFrameReadIndices`, `letPromotedReadLabels`, `injectLetLocalNarrowings` onto it. Pure cleanup;
+gate on byte-identical fixtures + axiom-clean. Schedule after Bug2-5 (which adds a 4th walker on the
+disj path — fold it into the same combinator in one pass rather than refactoring twice).
+
 ### Phase-A audit of the RX-2b + RX-1c batch (`5d884af..e4922c9`, 2026-06-19)
 
 Pressure-tested the regex trilogy's final two slices (invalid-pattern bottom contract +
