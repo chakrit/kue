@@ -189,12 +189,116 @@ fix is sound forward progress (the single-embed case + a fixture) but does not c
   but the SAME-module vendored `#Mixin` reproduces it identically — cross-module is incidental.
 - `kue export -e <path>` selects AFTER a full eval, so it cannot reduce eval cost for bisection.
 
-### Next step for Bug #2 (the argocd unblock)
-Thread use-site narrowing of a REGULAR sibling through `let`-binding + nested-embed + disjunction-arm
-layers so a deeply-buried comprehension guard sees the concrete value (matching cue's lazy
-comprehension). Design-spike first (the disjunction-arm `error()` fallback + closedness interact).
-Gate with the same edges as Bug #1 (real-conflict still bottoms; guard-false no over-fire) + a fixture
-that mirrors the full `parts.#Mixin` shape; then RE-MEASURE the 88s wall.
+### Bug #2 design (implementable) — Phase-B design spike (2026-06-19, `0d4b1a0`)
+
+Spike GROUNDED on minimal oracle-checked repros (`/tmp/bug2/shape{A,B,D}.cue` + two `probe_*`
+isolators; cue v0.16.1). The spike DECOMPOSED Bug #2 into **two independent gaps** — the prior
+single-blob "thread narrowing through let+embed+disjunction" framing was imprecise. Each gap was
+isolated to a minimal repro and its mechanism pinned by reading the machinery (not theorized):
+
+**The repros (oracle vs Kue, all on valid CUE cue exports):**
+- `shapeA` (comprehension under ONE `let`, embedded via `_patch`, NO disjunction): cue
+  `outMatch:{kind,meta:"yes"}`; **Kue DROPS `meta`** (wrong-output).
+- `shapeB` (TWO nested lets, `_patch` inside `structShape`, no disjunction): same drop.
+- `shapeD` (+ discriminated disjunction `structShape | listShape | error("…")`, use-site
+  `shape:"struct"` selects the struct arm): cue `{kind,meta:"yes",shape:"struct"}`; **Kue BOTTOMS**
+  (`conflicting values`). == the argocd symptom.
+- `probe_hidden` (shapeA with the guarded sibling HIDDEN `#k` — already spliced by
+  `hiddenFieldsOnly`): **Kue WORKS, byte-exact oracle.** DECISIVE: the let-indirection does NOT
+  block a comprehension from seeing a spliced narrowing — once the label's narrowed value is in the
+  merged frame, the buried comprehension resolves it. So Gap-1 is a DETECTION gap, not a
+  re-expansion gap.
+- `probe_disj_inline` / `probe_disj_direct` (embedded discriminated disjunction, INLINE arms, NO
+  let, NO comprehension): narrowing applied DIRECTLY (`#M & {narrow}`) WORKS; the SAME `#M` embedded
+  one layer down (`#U:{#M}` then `#U & {narrow}`) BOTTOMS. Isolates Gap-2 with zero comprehension/let
+  noise. `probe_hidden_disj` (hidden sibling + disjunction) ALSO bottoms — confirms Gap-2 is
+  orthogonal to and downstream of Gap-1.
+
+**Gap-1 — let-buried read-label detection (fixes shapeA/B; the wrong-output half).**
+`embedComprehensionReadLabels` (`Eval.lean:1553`) scans only the body's TOP-LEVEL `cs`
+(comprehensions list) via `defFrameRefIndices … 0`. In Bug #2 the comprehension reading `kind` lives
+inside the VALUE of a `let _patch` field (class `letBinding`); the top-level `cs` holds only the
+embed-ref/disjunction, which references the let by `.refId`. `defFrameRefIndices` treats `.refId` as
+a LEAF (`Eval.lean:303`) and never follows a let-binding ref into its value, so the regular sibling
+`kind` is never discovered → `spliceOperandForEmbed` filters it out → the comprehension fires against
+un-narrowed `kind:string` and drops. **Mechanism: extend the read-label analysis to follow a
+`.refId` that resolves to a `letBinding` field, scanning that field's value (at the right frame
+depth) for further def-frame regular-sibling reads — transitively, with a fuel bound and a
+visited-set so a self-referential let cannot loop.** This is purely additive detection; the
+existing force/splice/re-expand path already handles the rest (proven by `probe_hidden`). Lands in
+`defFrameRefIndices`/`embedComprehensionReadLabels`, the same walker A-EN3 covers.
+
+**Gap-2 — embedded-def disjunction-arm narrowing one layer down (fixes shapeD's bottom).**
+Independent of let/comprehension. An embedded def `#M` containing a discriminated disjunction
+selects the right arm when narrowed DIRECTLY (`#M & {narrow}`, the `meetEmbeddingsWithFuel`
+`.disj`/`conjDisjArms?` distribution at `Eval.lean:2574`/`2618` works), but when `#M` is itself
+embedded (`#U:{#M}`), the OUTER use-site narrowing applied to `#U` does not reach `#M`'s disjunction
+arms: `#M` is forced via `forceClosureWithConjunctCore`, but the disjunction lives in `#M`'s body
+`cs` as an embedding, and the narrowing folded into `defFields` is not re-distributed into the
+disjunction arms during the force (the force's `.structComp` arm meet-folds embeddings via
+`meetEmbeddingsWithFuel` AFTER merging static fields, but the per-arm distribution that the
+top-level eval does is not re-driven against the post-splice frame for a disjunction nested behind
+the force tier). **Mechanism: in the force path, when a forced embedded def body contains a default
+or discriminated disjunction embedding, distribute the spliced use operands into each arm and prune
+dead arms (`normalizeDisj`/`liveAlternatives`) — mirroring the `meetEmbeddingsWithFuel`
+arm-distribution that already works one tier up.** This is the riskier gap (disjunction-arm
+selection is the link-5/A5 regression family); it needs the over-narrowing guard below.
+
+**RECOMMENDED LEVER: extend the splice/force machinery (NOT deferred evaluation).** `probe_hidden`
+proves the splice mechanism already propagates correctly through let+disjunction once the label
+reaches the frame; the gaps are (1) which labels reach the splice and (2) re-distributing the splice
+into a force-tier disjunction. A deferred-evaluation rewrite (defer the comprehension until the read
+sibling is concrete, cue-style) would be a far larger, soundness-fragile change and is NOT needed —
+the existing eager-force path is correct once fed the right labels. Trade-off: the splice extension
+is incremental and reuses proven machinery, but Gap-2 touches the regression-prone disjunction-arm
+path, so it must ship behind the soundness gate below and AFTER Gap-1 (which is low-risk additive).
+
+**SOUNDNESS verdict: GO for Gap-1; GO-WITH-GATE for Gap-2 (no stop-territory).**
+- *Gap-1 (a referenced guarded body with a REAL conflict still bottoms):* Gap-1 only WIDENS the set
+  of regular-sibling labels spliced into the embed — the same operation Bug #1 already does and whose
+  soundness the Phase-A over-splice hunt (13 oracle probes) confirmed. A spliced regular merges
+  BY LABEL into the embed's own declaration (`mergeFieldListWith joinUnevaluated`), identical to the
+  outer meet, so a genuine conflict between the narrowed value and the embed's declared type STILL
+  bottoms (it bottoms at the merge, exactly as the un-let-buried case does). No over-narrowing: a
+  label is spliced only if a comprehension (now incl. let-buried ones) actually READS it; an
+  unrelated sibling is never pulled in. cert-manager has no let-buried-read shape that the current
+  detection misses inverted into a NEW splice, so re-detection cannot newly fire on it (the
+  byte-identical fixture gate witnesses this).
+- *Gap-2 (no over-narrowing pulls a value into an arm that shouldn't have it):* the risk is the
+  disjunction-arm family that link-5/A5/B6 repeatedly regressed. The gate: arm distribution must
+  PRUNE arms that bottom under the narrowing (`liveAlternatives`) and keep a surviving arm — never
+  COMMIT to the default arm first (the old `resolveDisjDefault?` collapse that bottomed shapeD's
+  ancestors). A real conflict that kills ALL arms must still bottom (the `error("…")` arm is itself
+  an arm that bottoms — if every structural arm dies, the disjunction is bottom, cue-exact). The
+  soundness CAN be argued because Gap-2 mirrors the EXACT distribution `meetEmbeddingsWithFuel`
+  already does soundly one tier up — it is not a new algorithm, it is the same one re-driven behind
+  the force tier. **cert-manager regression guard: byte-identical fixture gate is MANDATORY**; Gap-2
+  fires only when a forced embedded def body contains a disjunction embedding AND the outer narrowing
+  selects among its arms — gate it to fire only then (no disjunction embedding → byte-identical).
+- If, during implementation, Gap-2's arm distribution cannot be gated to fire ONLY on the
+  disjunction-embedding-behind-force shape without perturbing cert-manager's byte output, that is
+  STOP-AND-REPORT territory (file the design + the hole; do not ship a cert-manager byte drift).
+
+**Scope / slices (estimate 2 slices, SPLIT; A-EN1 rides Gap-1).**
+- **Slice Bug2-1 — Gap-1 (let-buried read detection) + A-EN1.** A-EN1 (the `for`-SOURCE regular
+  sibling variant) is the SAME detection gap surfaced at single-embed depth — it also needs
+  `embedComprehensionReadLabels` to carry a regular label a comprehension reads (source, not just
+  guard). Both are additive detection in the same function; land together. Gate: shapeA/shapeB
+  fixtures (now emit the patch) + A-EN1's three baselines + Bug #1's edges still green
+  (real-conflict bottoms, guard-false no over-fire). Low risk (additive, proven mechanism).
+  Clears shapeA/B; does NOT clear shapeD (needs Gap-2).
+- **Slice Bug2-2 — Gap-2 (force-tier disjunction-arm narrowing).** The riskier half; ships behind
+  the byte-identical cert-manager gate + `probe_disj_inline`/shapeD fixtures (now select the arm)
+  + a real-conflict-kills-all-arms bottom pin. Clears shapeD. After this, RE-MEASURE
+  `kue export apps/argocd.cue` — the success signal (was 88.85s bottom; expect a non-bottom export,
+  modulo field-order #3, then the residual is the item-7 PERF wall, no longer a correctness bottom).
+- A-EN3 (the walker consolidation) does NOT ride along — it should land AFTER Bug2-1, see its entry
+  (consolidating the walker family first would couple a non-trivial generic-fold refactor to the
+  adoption-critical fix; do the let-following in `defFrameRefIndices` first, then fold).
+
+Gate for the whole pair: byte-identical existing fixtures (esp. cert-manager) + the new buried-shape
+fixtures (shapeA/B/D as `testdata/modules/*` fixtures, auto-discovered) + the re-measure of
+`kue export apps/argocd.cue` as the success signal.
 
 ## Phase-A audit (2026-06-19, batch `ff30617..2820b58` — item 7 hash + Bug #1 embed-narrowing)
 
@@ -282,6 +386,24 @@ small selector at `.refId`/`.selector`. Each carries its own `_ => []`/`_ => fal
 for a single generic frame-aware fold parameterized by the leaf monoid + a per-`refId` collector,
 the same consolidation B7 did for the clause-depth walkers. Defer to Phase B (architectural, not
 low-risk inline).
+
+**Phase-B assessment (2026-06-19, `0d4b1a0`): WORTHWHILE, but land it AFTER Bug2-1, not before /
+ride-along.** Verdict: the three ARE consolidatable behind one generic frame-aware fold — the same
+pattern B7 used (they already DELEGATE clause-threading to `descendClauses`, so the generalization
+is the per-ctor struct/value descent, parameterized by `(monoid, refIdLeaf, selectorLeaf)`). All
+three carry the IDENTICAL `+1`-per-frame-pusher discipline and the SAME `_ =>`/`false`/`[]`
+catch-all (verified sound — the swallowed ctors carry no def-frame `.refId` the analyses need). A
+generic fold with a leaf collector erases the triplication and lets a future ctor be handled once.
+This is real DRY + a single authority (the same dividend B7 paid). BUT: **`defFrameRefIndices` is
+exactly the walker Bug2-1 extends** (Gap-1 = make it follow a `letBinding` `.refId` into its value).
+Sequencing: doing A-EN3 FIRST would couple a non-trivial generic-fold refactor (must preserve
+totality + the B7-style agreement `native_decide` theorems) to the adoption-critical Bug #2 fix,
+delaying the unblock and entangling two risks. Doing it RIDE-ALONG would mean writing the
+let-following logic against a brand-new abstraction in the same slice — too much at once. **Land
+Bug2-1 first (let-following written directly in `defFrameRefIndices`), THEN A-EN3 folds all three
+walkers — including the now-let-following `defFrameRefIndices` — behind the one combinator.** That
+way the consolidation absorbs the new logic instead of racing it. Priority: LOW (it is DRY, not
+correctness); slots after the Bug #2 pair, ahead of the other LOW cleanups.
 
 ## Phase-A audit (2026-06-19, batch `24da14d..463f8e1` — B2 CP3-pre/flip + B2.5) — CLEAN
 
@@ -1414,6 +1536,34 @@ parallel-safe cleanups (3,4 + B5; remaining test-org for `FixtureTests`/`StructT
 — and `EvalTests` is STILL 1210 lines after the item-5 split, re-split candidate;
 B4 ride-along `DecimalTests`/`FormatTests`) interleaved → deeper parity/perf (2,6,7) →
 borderline/LOW (8 + B3) ride-alongs.
+
+### Re-rank (Phase-B design spike 2026-06-19, `0d4b1a0`) — recommended next 3-4 slices (CURRENT)
+
+Supersedes the Post-B2 re-ranking below for the *next* slices. Bug #2 design is now implementable
+(decomposed into Gap-1 + Gap-2, soundness GO/GO-WITH-GATE — see "Bug #2 design (implementable)"
+above). Bug #2 is the argocd unblock = TOP of the correctness/adoption priority (the full app still
+bottoms; it is the single gate between "content-correct in a scratch module" and "full
+`apps/argocd.cue` exports"). Recommended next 3-4:
+
+1. **Bug2-1 — Gap-1 (let-buried read-label detection) + A-EN1 (`for`-source variant).** Low-risk
+   additive detection in `defFrameRefIndices`/`embedComprehensionReadLabels`; clears shapeA/B
+   (wrong-output → correct). Gate: shapeA/B + A-EN1's three baselines + Bug #1's edges green.
+2. **Bug2-2 — Gap-2 (force-tier disjunction-arm narrowing).** The riskier half (disjunction-arm
+   regression family); ships behind the byte-identical cert-manager gate + shapeD/`probe_disj_inline`
+   fixtures + a kills-all-arms-bottoms pin. Clears shapeD, then RE-MEASURE `kue export
+   apps/argocd.cue` (success signal: non-bottom export, residual becomes the item-7 PERF wall).
+   STOP-AND-REPORT if arm distribution cannot be gated off cert-manager's byte output.
+3. **item 7 — frame-id canonical identity (PERF wall, gates FULL real-app adoption).** Unchanged
+   rationale (below). After Bug #2 clears the argocd *correctness* bottom, item 7 is the next lever:
+   the 88s wall (and the heavy `argo` sub-package >200s) is downstream of Bug #2, meaningful once the
+   app exports.
+4. **A-EN3 (LOW DRY — walker consolidation), then B6-deferred / field-order #3 / B2-A1+A2 / A2-x+y /
+   LOW cleanups / deferred test-org.** A-EN3 lands AFTER Bug2-1 (folds the now-let-following
+   `defFrameRefIndices` into the one combinator — see its entry). The rest is diminishing-return
+   narrow correctness + cleanups behind the perf wall.
+
+Two-phase audit is DUE after Bug2-1+Bug2-2 land (this design spike is the Phase-B of the current
+cycle; Phase-A over the Bug #2 batch runs next cadence point).
 
 ### Post-B2 re-ranking (Phase-B audit 2026-06-19 #7) — recommended next 3-4 slices
 

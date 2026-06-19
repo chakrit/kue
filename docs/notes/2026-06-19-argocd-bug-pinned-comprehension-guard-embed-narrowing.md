@@ -75,11 +75,26 @@ ReadLabels`/`spliceOperandForEmbed` helpers (correctness, totality, illegal-stat
 skill compliance), then (B) architecture/refactor/cleanup over the whole module graph. Fold findings
 into the plan as fix-slices.
 
-**THEN: Bug #2 — the argocd unblock.** Thread use-site narrowing of a REGULAR sibling through
-`let`-binding + nested-embed + disjunction-arm layers so a deeply-buried comprehension guard sees the
-concrete value. Design-spike first (the disjunction `error()` fallback + closedness interact). Gate
-with the same edges as Bug #1 + a fixture mirroring the full `parts.#Mixin` shape; then RE-MEASURE
-the 88s wall. Details in `plan.md` "PINNED (2026-06-19 follow-up)".
+**THEN: Bug #2 — the argocd unblock. DESIGN NOW IMPLEMENTABLE** (Phase-B spike `0d4b1a0`, in
+`plan.md` "Bug #2 design (implementable)"). The spike DECOMPOSED Bug #2 into **two independent
+gaps** (the single-blob framing was imprecise), each grounded on a minimal oracle-checked repro
+(`/tmp/bug2/shape{A,B,D}.cue` + `probe_*`):
+- **Gap-1 — let-buried read detection** (fixes shapeA/B wrong-output): `embedComprehensionReadLabels`
+  / `defFrameRefIndices` must FOLLOW a `letBinding` `.refId` into its value to discover the regular
+  sibling (`kind`) a let-buried comprehension reads. Purely additive detection; `probe_hidden` proves
+  the splice already propagates correctly once the label is found. SOUNDNESS: GO (only widens the
+  spliced-label set, same op as Bug #1). **Slice Bug2-1; A-EN1 rides along** (same detection gap, the
+  `for`-source variant).
+- **Gap-2 — force-tier disjunction-arm narrowing** (fixes shapeD bottom): an embedded def's
+  disjunction arms don't get the outer narrowing when the def is itself embedded one layer down.
+  Distribute spliced operands into each arm + prune dead arms in the force path, mirroring the
+  `meetEmbeddingsWithFuel` distribution that works one tier up. SOUNDNESS: GO-WITH-GATE (the
+  regression-prone disjunction-arm family; byte-identical cert-manager gate MANDATORY; STOP-and-report
+  if it can't be gated off cert-manager's bytes). **Slice Bug2-2**, then RE-MEASURE `kue export
+  apps/argocd.cue` (88.85s bottom → expect non-bottom export; residual is the item-7 perf wall).
+
+RECOMMENDED LEVER: extend the splice/force machinery, NOT a deferred-evaluation rewrite (proven
+unnecessary by `probe_hidden`). 2 slices, SPLIT (Gap-1 low-risk first, Gap-2 gated second).
 
 Behind Bug #2: item 7 (frame-id canonical identity, the PERF wall), then B6-deferred sub-gap +
 field-order #3 + the LOW items.

@@ -118,6 +118,12 @@ fix is purely a speedup — byte-identical output.
   faster (>7.5min/killed → ~88s) but still hits the fuel ceiling (`conflicting values
   (bottom)`) — that is the separate fuel-exhaustion-at-scale limit below, NOT a hash
   problem.
+  > **Currency note (2026-06-19, Phase-B spike `0d4b1a0`):** the cert-manager **~30.6s** figure
+  > here is the item-7-fix measurement. `plan.md` Standing Capabilities now records cert-manager at
+  > **~92s** — the link-3/4 fixes route more shapes through the two-pass embed re-eval (SOUND,
+  > byte-identical, slower). These two docs DISAGREE; the 92s is the newer reading. Reconcile with a
+  > fresh `time kue export` measurement on the next perf slice (item 7) and update BOTH to one
+  > number. argocd still bottoms on Bug #2 (a correctness gap, not perf) until the Bug #2 pair lands.
 - **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, now PINNED (2026-06-19; supersedes the
   earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness" readings).** Both prior
   hypotheses are DISPROVEN. It is not a fuel ceiling (fuel sweep 100/200/600 + `resolve`/`remapFuel`
