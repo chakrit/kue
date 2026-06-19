@@ -128,6 +128,44 @@ Four findings folded into the backlog (none high enough to block; all NEW fix-sl
   twin-function (not a `closing : Bool` flag) keeps intent in WHICH function is called —
   illegal-states philosophy. No new partiality.
 
+### Phase-B whole-graph sweep (2026-06-19, D#2-spike audit, `659cf70`)
+
+Brief architectural state alongside the D#2 design spike. No NEW high finding; the module
+graph is healthy post-RX-1b.
+
+- **`Kue/Regex.lean` is a clean, well-encapsulated leaf.** Imports NOTHING from the engine
+  (the line-5 "import" is a doc comment; no `import Kue.*`) — it is a pure `String → String →
+  Bool`/submatch module. Imported by exactly Builtin/Eval/Lattice/Order (the 4 dispatch sites).
+  Internal layering is textbook: `RegexParseError`/`Regex` (AST) → `parseRegex` (recursive
+  descent) → `AssertKind`/`Inst`/`NFA` → `Compile` (Thompson + `desugar`) → `Vm` (Pike) →
+  `matchRegex`/`regexParseError?` (entrypoints). The no-`DecidableEq` `Value` perf carve-out
+  correctly does NOT apply here. **Verdict: exemplary leaf; no action.**
+- **RX-2b soundness hole — blast radius EXACTLY 4 sites, all one entrypoint (re-confirmed).**
+  `matchRegex` (`Regex.lean:691`) swallows `parseRegex .error → false`. The 4 callers
+  (`Eval.lean:934` `evalRegexMatch`, `Order.lean:232` `subsumesWithFuel`, `Lattice.lean:27`
+  `meetStringRegexPrim`, `Builtin.lean:675` `regexp.Match`) ALL route through this one bool, so
+  the fix is correct-by-construction: guard each with the already-defined-and-UNUSED
+  `regexParseError?` (`Regex.lean:700`) → `.bottomWith [.invalidRegex …]`. Contained; no new
+  call sites hidden. Confirmed `invalidRegex` is NOT yet a `BottomReason` arm (RX-2b adds it).
+- **SC-2 closing-walker twin vs the D#2 structural-cycle walker — NO shared abstraction
+  warranted (DRY check).** The SC-2 twin (`normalizeDefinitionFieldWithFuel`, `Normalize.lean`)
+  is a STATIC normalization pass that closes nested def-body field values at capture time; the
+  D#2 detection is a DYNAMIC runtime ancestor-check on the `Eval.lean` force path. They walk
+  different structures (normalized-body fields vs in-progress force frames) at different times
+  (capture vs eval) for different purposes (closedness vs cycle). Forcing them to share would
+  couple normalize and eval — a layering violation. Keep separate. The ONE real reuse D#2
+  exploits is the EXISTING `ForceKey` triple (frame identity) and the EXISTING
+  `liveAlternatives`/`resolveDisjDefault?` algebra (terminating arm) — D#2 adds almost no new
+  abstraction, which is the right amount.
+- **Perf-guide currency — FIXED INLINE this audit.** `kue-performance.md`'s "Regex matching is
+  backtracking (RX-1 pending)" known-limitation was STALE (RX-1a/b landed; the backtracking
+  engine is deleted, the Pike-VM is live and linear). Rewrote it to "Regex matching is linear
+  (RX-1a/b LANDED)" — the regex perf cliff + the fuel-out-soundness hole are both RESOLVED;
+  remaining regex work is feature coverage (RX-1c/RX-2a), not perf. Committed with this audit.
+- **No new architecture finding.** Module boundaries sane, no import cycles, no dead code
+  surfaced in the sweep. The `BottomReason` enum is the one place two designed slices (RX-2b
+  `invalidRegex`, D#2 `structuralCycle`) both add arms — additive, no conflict.
+
 ### Batch 1 (areas A, B, C) — complete 2026-06-19
 
 **Fix-slices (KUE-VIOLATES — spec-first, ranked):**
@@ -267,33 +305,43 @@ Both slices verified spec-correct; nothing in either was reverted or refixed.
 Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
 front-loaded before the large rewrites.
 
-### Re-ranked next slices (2026-06-19 Phase-B audit #2 — DONE: SC-1, SC-1c, SC-1d, SC-2, D#1a, F-1, F-2)
+### Re-ranked next slices (2026-06-19 Phase-B audit #3 — regex engine LIVE; D#2 now designed)
 
-Contained-high-confidence before large rewrites; cue-AGREEING correctness before divergence;
-contained-correctness before large rewrites (slice-loop principle). **Recommended next 3-4:**
+Re-rank with the RE2 regex engine landed (RX-1a/b) and D#2 designed (this audit). Principle
+(slice-loop): contained-soundness before larger features; cue-AGREEING correctness before
+divergence; designed levers before undesigned. **Recommended next 3-4:**
 
-1. **SC-2 — DONE (2026-06-19).** Nested def-body closedness via a closing field-walker twin
-   (`normalizeDefinitionFieldWithFuel` in `Normalize.lean`). SC-2a (cue+spec agree) and SC-2b
-   (the spec-correct divergence) landed as ONE change. Closedness cluster drained to zero.
-   See the "SC-2 design (implementable)" section below (now the as-built record) and the
-   HIGH-backlog item for the full fix description.
-2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
-   demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
-   ready below ("RX-1 design (implementable)"). **RX-1a (AST+parser) — DONE (2026-06-19).**
-   **RX-1b (Thompson NFA + Pike-VM + rewire dispatch + delete old engine) — DONE
-   (2026-06-19).** The new engine is LIVE: all 7 repros now match RE2/cue; the old
-   `Value.lean` backtracking engine (~240 lines) is deleted. → **RX-1c (submatch +
-   `regexp.ReplaceAll`/`Find*`) — NEXT** (the Pike-VM already fills the capture array; RX-1c
-   exposes it).
-3. **Bug2-3 / Gap-2b (HIGH).** The LAST argocd export blocker — structural disjunction-arm
-   pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"). High payoff (a whole app
-   exports), contained primitive (list-meet-to-bottom keying), well-diagnosed. Ranks with RX-1
-   (both HIGH, both designed) — sequence by whichever worktree is freer; RX-1 is the broader
-   correctness lever, Bug2-3 the single-app unblock.
-4. **D#2 (HIGH-MED, LARGE — structural-cycle detection).** `#L:{n:int,next:#L}` unrolls to
-   garbage (wrong value + missing feature); spec mandates detection. Own slice; needs the
-   design-spike treatment (ancestor-chain; default-arm-terminates) before launch. Couples with
-   D#1b (incomplete-guard deferral).
+1. **RX-2b (MED→HIGH soundness, CHEAP — first).** Invalid/deferred regex pattern must be a
+   build ERROR (bottom), not silent `false`. The auditor flagged this should precede RX-1c, and
+   the spike CONFIRMS the sequencing: RX-2b is mechanical (the `regexParseError?` helper is
+   already defined and UNUSED — `Regex.lean:700`; the fix is one guard at each of the 4
+   `matchRegex` sites: `Eval.lean:934`, `Order.lean:232`, `Lattice.lean:27`, `Builtin.lean:675`),
+   it is a genuine SOUNDNESS hole (`=~` silently `false` / `!~` silently `true` / a VALID string
+   bottomed at the Lattice site on an invalid pattern), and — the decisive reason — it makes
+   RX-1c's NEW dispatch CORRECT-BY-CONSTRUCTION: RX-1c adds `Find*`/`ReplaceAll` arms that parse
+   the same pattern, so landing the invalid-pattern→bottom contract FIRST means every RX-1c arm
+   inherits the correct error behavior instead of re-introducing the swallow per arm. Doing RX-1c
+   first would build new capture-dispatch on top of the unsound swallow, then retrofit the error
+   contract across more sites. Sequence: **RX-2b → RX-1c.** Needs `BottomReason.invalidRegex`.
+2. **RX-1c (HIGH — completes the regex trilogy, prod9 unblock).** Submatch + `regexp.ReplaceAll`
+   (`${n}` Expand grammar) + `Find*`/`FindSubmatch`; remove the `unsupportedBuiltin` deferral
+   arms. The Pike-VM already FILLS the capture array (Phase-A audit dumped the slots: nested,
+   non-participating, leftmost — all RE2-correct), so RX-1c exposes it. Unblocks honda-obs/
+   lemonsure/ssw `defs/filters/regexp.cue` (the `regexp.ReplaceAll` prod9 lever — F-1 unblocked
+   the import, RX-1c unblocks the EXPORT). Lands on top of RX-2b's error contract. Design ready
+   ("RX-1 design" + "Submatch" sections below).
+3. **Bug2-3 / Gap-2b (HIGH — the LAST argocd export blocker).** Structural disjunction-arm
+   pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"); contained primitive (list-meet-
+   to-bottom keying, NOT a shape heuristic), well-diagnosed. A whole app exports. Ranks with
+   RX-1c (both HIGH, both designed) — sequence by whichever worktree is freer; RX-1c is the
+   broad regex/prod9 lever, Bug2-3 the single-app unblock.
+4. **D#2 (HIGH, LARGE — structural-cycle detection — NOW DESIGNED, this audit).** `#L:{n,next:#L}`
+   errors `structural cycle`; `#List | *null` terminates on the default arm. Spec-mandated,
+   currently MISSING (unrolls fuel-deep to garbage). Detection = an ancestor force-stack
+   (reusing the `ForceKey` triple as frame identity); terminating-arm = the EXISTING
+   `liveAlternatives`/`resolveDisjDefault?` algebra once the cyclic arm bottoms. 2 slices (D#2a
+   detection + D#2b terminating-disjunct). Cannot regress real apps (prod9 has ZERO recursive
+   defs). See the "D#2 design (implementable)" section below.
 
 **NEW fix-slices from the SC-2/RX-1a/RX-1b Phase-A audit (`a5862df..04eb7de`, 2026-06-19),
 ranked into the MED/LOW tail:**
@@ -711,6 +759,209 @@ RX-1 is large and touches a NEW module + three dispatch sites. Split at clean se
 module) and adds a leaf module — a worktree isolates the multi-file churn (new module +
 3 dispatch rewrites + Value deletion) from concurrent slices and keeps `main` shippable
 between the three sub-slices. Each sub-slice commits independently (checkpoint discipline).
+
+## D#2 design (implementable) — structural-cycle detection
+
+**Status (2026-06-19, Phase-B spike):** designed, ready to slice. Oracle ground truth built;
+the detection lever, the terminating-disjunct handling, the soundness/totality argument, and
+the slice plan follow. This is the remaining large structural gap (D#2, HIGH, spec-mandated,
+currently MISSING).
+
+### Spec basis (the gate — RE2-style, quote the spec)
+
+The CUE spec mandates dynamic detection: *"Implementations should be able to detect such
+structural cycles dynamically."* The validity rule it sets up: *"a node is valid if any of
+its conjuncts is not cyclic"* — i.e. a structural cycle is an error UNLESS a conjunct/arm
+provides a non-cyclic (terminating) value. So `#L: {n:int, next:#L}` (the sole conjunct is
+cyclic) is a `structural cycle` error, while `#List: {head:_, tail: #List | *null}` is valid
+— the disjunction's `*null` arm is a non-cyclic conjunct, so the node terminates by taking it.
+This is NOT a perf concern routed through the fuel backstop; it is a spec-mandated *value*
+(error vs terminated-struct), and the fuel bound must NOT be the thing that fires.
+
+### Oracle ground truth (cue v0.16.1, all probes run; `/Users/chakrit/go/bin/cue`)
+
+| # | Input | `cue` | Kue (current) | Verdict |
+|---|-------|-------|---------------|---------|
+| 1 | `#L:{n:int, next:#L}` ; `x:#L` | `#L.next: structural cycle` (error) | unrolls fuel-deep to truncated tree | D#2 — Kue wrong (missing detection) |
+| 2 | `#List:{head:_, tail:#List \| *null}` ; `y:#List & {head:1}` | `tail` collapses to `null` (terminates) | unrolls fuel-deep, `tail` never collapses | D#2 — Kue wrong (default arm not taken) |
+| 3 | `#A:{b:#B}` `#B:{a:#A}` ; `z:#A` | `#B.a: structural cycle` (error) | unrolls fuel-deep (mutual) | D#2 — mutual recursion must also detect |
+| 4 | `#D:{a:{b:{c:{d:int}}}}` ; `w:#D` | finite struct (no error) | finite struct (correct) | control — finite-deep must NOT false-positive |
+| 5 | `x: x` | `x: _` (reference cycle → `_`) | `x: _` (correct, via `visited` set) | control — reference cycle already handled, do NOT touch |
+
+The differentiator between #1 (error) and #5 (`_`): #5 is a REFERENCE cycle (`x` resolves to
+itself with no struct between) handled by the depth-0 `visited`-slot check
+(`Eval.lean:2342-2347`, returns `.top`); #1 is a STRUCTURAL cycle (a def body whose field
+re-enters the same def through a struct layer) handled by the def-closure FORCE path
+(`refDefClosureBody?` → `forceClosureWithConjunct`), which currently has NO cycle tracking. The
+two are distinct mechanisms; D#2 adds the second without disturbing the first.
+
+### Root cause (single, in the def-body force path)
+
+A `#Def` whose body needs deferral (`refDefClosureBody?` fires for a nested `depth>0` self-ref
+`.struct`, oracle #1's `next: #L`) forces via `forceClosureWithConjunct fuel (frame::outer)
+defBody []` (`Eval.lean:2331`). Forcing evaluates the body's fields
+(`evalFieldRefsListWithFuel`, the `.struct` arm at `Eval.lean:2898-2905`); the field `next:#L`
+is a `.refId` back to `#L`, re-enters the `.refId` arm (`Eval.lean:2314`), hits
+`refDefClosureBody?` AGAIN, and re-forces the SAME `(capturedEnv.ids, body)` one fuel tier
+down — recursing until `fuel = 0` truncates to `{..., ...}`. The depth-0 `visited`-slot check
+(line 2342) is structurally BYPASSED: the closure-force fork at line 2330 returns before the
+`visited` branch is ever reached. So there is no ancestor memory on the force path at all.
+
+### The ancestor identity is ALREADY computed — `ForceKey` minus fuel
+
+The sound ancestor identity falls out of existing machinery. `forceClosureWithConjunct` already
+keys its memo on `ForceKey = ⟨fuel, capturedEnv.ids, body, useOperands⟩` (`Eval.lean:1418`).
+The fuel-free triple `(capturedEnv.ids, body, useOperands)` is EXACTLY "this def-frame being
+expanded": `capturedEnv.ids` is the canonical frame-id stack (frame-sharing canonicalizes it —
+`pushFrame`/`FrameKey`), `body` is the normalized def body (closed-vs-open already baked in),
+`useOperands` is the narrowing. Two forces with the same triple ARE the same def-frame
+expansion at different fuel — a structural cycle is precisely a re-entry of an in-progress
+triple. So "ancestor" is identified soundly as **the set of `(envIds, body, useOperands)`
+triples currently on the force stack** — no new identity scheme, reusing the proven `ForceKey`
+soundness argument (the id stack is a canonical proxy for frame contents).
+
+### Detection lever — an ancestor-frame stack threaded through the force path
+
+Add an ancestor stack to `EvalM` state (or thread it as a parameter — see "Representation"
+below): `forceStack : List ForceFrameId` where `ForceFrameId = (List Nat × Value × List (List
+Field × Bool))` is the fuel-free force triple. `forceClosureWithConjunct`:
+
+1. Compute `frameId := (capturedEnv.ids, body, useOperands)`.
+2. **If `frameId ∈ forceStack`** → this force re-enters an in-progress ancestor = a structural
+   cycle. Return `.bottomWith [.structuralCycle]` (new `BottomReason` arm) for THIS expansion
+   — do NOT recurse. (The "any conjunct not cyclic" rule is handled at the disjunction layer,
+   below; a bare cyclic conjunct with no terminating arm surfaces this bottom.)
+3. **Else** push `frameId`, recurse (`forceClosureWithConjunctCore`), pop on return.
+
+This fires BEFORE fuel exhaustion: the second re-entry of `#L` (depth-2) is already an ancestor
+hit, so detection happens at recursion depth ~2, not at `fuel = 0`. The fuel bound stays as the
+backstop for genuinely-unbounded NON-cyclic growth (which a finite spec program never has), but
+a true structural cycle NEVER reaches it. Place the check at the single `forceClosureWithConjunct`
+entry (not `…Core`) so the memo-hit fast-path and the cycle check share one gate; the memo and
+the cycle stack are orthogonal (a memo hit is a *completed* force, never an in-progress one — a
+completed force has been popped, so a memo hit can never be a false cycle positive).
+
+**Why the force triple and not the slot index** (contrast with `visited`): the `visited` set is
+slot indices within ONE frame — correct for same-frame reference cycles (#5), useless across
+def-body expansions (each force pushes a fresh frame). The force triple spans frames, which is
+what a structural cycle needs (#1's re-entry is a NEW frame with the same canonical id-stack +
+body). Mutual recursion (#3, `#A`→`#B`→`#A`) works for free: `#A`'s force triple re-enters the
+stack two hops down, same mechanism — no special mutual-cycle code.
+
+### The terminating-disjunct case (#2 — `#List | *null`)
+
+`tail: #List | *null` must take the `*null` arm rather than unroll the cyclic `#List` arm. The
+spec rule — *"a node is valid if any of its conjuncts is not cyclic"* — means: when forcing a
+disjunction arm that turns out structurally-cyclic, that arm becomes `.bottomWith
+[.structuralCycle]`, and the EXISTING disjunction algebra prunes it. The mechanism already
+exists and needs only the cyclic arm to bottom:
+
+- `liveAlternatives` (`Lattice.lean:266`) filters arms via `containsBottom` — a
+  `.structuralCycle` bottom arm is dropped exactly like any other bottom arm.
+- `resolveDisjDefault?` (`Lattice.lean:285`) then resolves: with the cyclic `#List` arm
+  pruned, the surviving `*null` default wins → `tail: null`. The default-mark algebra is
+  UNTOUCHED; the cyclic arm simply never survives to compete.
+
+The ORDER subtlety the spike flags: the arms must be evaluated such that the cyclic arm's
+re-entry bottoms it BEFORE `resolveDisjDefault?` runs — which is automatic, because forcing
+each arm is what triggers the ancestor-stack hit, and `liveAlternatives`/`resolveDisjDefault?`
+run on the already-forced arm values. The disjunction-distribution path (`splitDisjConjunct`,
+`Eval.lean:2361`) and the `.disj`-arm force already evaluate arms independently; the cyclic arm
+under the SAME force-stack ancestor bottoms, the default arm does not. **No new
+default-resolution code** — D#2's terminating-arm handling IS the existing default algebra,
+once the cyclic arm carries a `structuralCycle` bottom. This is the same shape as D#1a (a
+bottom that must PROPAGATE through the comprehension/disjunction algebra rather than vanish).
+
+⚠ One probe the slice MUST run: confirm `*null` is reached. The current code force-recurses the
+`#List` arm via `refDefClosureBody?` on `next`/`tail` — once that arm bottoms on the ancestor
+hit, verify `liveAlternatives` sees the bottom (it calls `containsBottom`, which must reach a
+nested `.structuralCycle` — check `containsBottom`'s fuel cap A#6, the 100-level limit, does not
+hide a deep structural-cycle bottom; if it can, raise it or special-case `.structuralCycle`).
+
+### Soundness + totality (gate)
+
+Three obligations, each discharged by the lever's structure:
+
+1. **No false-positive on finite-deep non-recursive nesting** (oracle #4, `#D:{a:{b:{c:{d}}}}`).
+   Each nested struct `a`/`b`/`c` has a DISTINCT force triple (different `body`, different
+   `envIds`) — none re-enters an ancestor, so no `structuralCycle` fires. The depth is bounded
+   by the program's finite AST; the force stack grows to AST depth and pops cleanly. ✓
+2. **No interference with reference cycles** (oracle #5, `x:x`). The `visited`-slot check
+   (line 2342) is on the NON-closure `.refId` path; `x:x` never reaches `refDefClosureBody?`
+   (a bare self-ref with no struct body to defer → `none` from `refDefClosureBody?`, falls to
+   the `visited` branch). The force stack is only pushed on the closure path. The two
+   mechanisms are disjoint by construction. ✓ (Pin a `native_decide`: `x:x` still → `.top`/`_`.)
+3. **Totality** — the force stack is a `List` that grows by one push per force-recursion and is
+   bounded: either a triple repeats (→ cycle bottom, no further recursion) or every triple is
+   distinct (→ bounded by the finite set of `(envIds, body, useOperands)` reachable from the
+   program, which is finite since the AST is finite and `envIds` are drawn from the finite
+   frame table). So the recursion terminates BY the cycle check, independent of fuel — fuel
+   becomes a pure backstop, never the deciding bound for a cyclic program. No new `partial`; the
+   `termination_by (fuel, 5, 0)` measure is unchanged (the check is a `List.contains` guard
+   before the recursive call, not a new recursion). ✓
+
+**Representation choice (illegal-states / repo philosophy):** thread the ancestor stack as an
+EXPLICIT parameter to `forceClosureWithConjunct`/`…Core` (and the few force call sites), NOT as
+mutable `EvalState`. A parameter is lexically scoped to the live recursion — it cannot leak a
+stale ancestor across sibling forces (a mutable field would need careful push/pop discipline
+that a future edit could break; the parameter makes the scope structural). This mirrors the
+`visited : List Nat` parameter already threaded through `evalValueWithFuel` — same pattern, same
+rationale (the slice loop's "encode intent in the type/scope, not a flag"). The force-memo
+(`ForceKey`) is independent and unchanged: a memo hit serves a COMPLETED (popped) force, never
+an in-progress ancestor, so the cycle stack and the memo never alias. ⚠ Memo interaction to
+verify in the slice: a `structuralCycle` bottom result must be keyed/cached correctly — it is a
+genuine saturated value (not a fuel truncation), so it caches in `satCache` like any bottom;
+confirm the bottom is not re-derived per fuel level (it should be `saturated`).
+
+### New `BottomReason` arm + gate
+
+Add `BottomReason.structuralCycle` (parameterize with the def label/path if cheap, for a
+spec-shaped message like `#L.next: structural cycle`; a bare arm is acceptable for v1). Wire
+its display in `Format`/`Manifest` (the standard bottom-reason rendering path). **Gate:**
+byte-identical on ALL existing fixtures EXCEPT the new D#2 repros (which now error/terminate
+correctly); cert-manager/argocd content-identical (re-probe READ-ONLY) — and they CANNOT
+regress: a read-only sweep of `prod9/infra` (27 `.cue` files) found ZERO self-referential
+definitions, so no real-app shape reaches the ancestor-hit path. Detection fires only on a true
+ancestor re-entry, which the apps never trigger.
+
+### Fixtures + pins
+
+- **NEW (error cases):** `comprehensions/structural_cycle_struct` (#1, `#L:{n,next:#L}` →
+  `next: _|_ structuralCycle`), `…/structural_cycle_mutual` (#3, `#A`/`#B` mutual). Each with a
+  `FixturePorts` entry. (Note: the `.expected` records Kue's spec-correct ERROR, matching cue's
+  `structural cycle` — record as CONFORMS, both error.)
+- **NEW (terminating case):** `comprehensions/structural_cycle_terminating_default` (#2,
+  `#List | *null` → `tail: null`), the spec's headline "valid if any conjunct not cyclic" case.
+- **Controls (keep green):** a finite-deep struct fixture (#4 — must NOT bottom; add
+  `…/deep_finite_struct_no_cycle` if not already covered), and `x:x` (#5 — reference cycle still
+  `_`, an existing fixture).
+- **`native_decide` pins:** `#L` self-ref → `structuralCycle` bottom at `next`; `#List | *null`
+  → `tail` resolves to `null`; finite-deep → no bottom; `x:x` → `.top` (reference path
+  untouched); mutual `#A`/`#B` → bottom.
+
+### Slice plan (2 slices; worktree optional)
+
+Splittable at a clean internal seam:
+
+- **D#2a — detection (the error case).** Add `BottomReason.structuralCycle`; thread the
+  ancestor force-stack parameter through `forceClosureWithConjunct`/`…Core` + its call sites;
+  fire the cycle bottom on an ancestor hit. Wire bottom-reason display. Lands oracle #1/#3/#4/#5
+  (error + finite-control + reference-control). Gate: the two error fixtures + the two controls.
+  Checkpoint-commit when green.
+- **D#2b — the terminating-disjunct case.** Verify `liveAlternatives`/`resolveDisjDefault?`
+  prune the cyclic arm and take `*null` (oracle #2); fix `containsBottom`'s fuel cap (A#6) if it
+  hides a deep `structuralCycle` bottom (this couples D#2 with the A#6 hardening item — fold it
+  in here if it blocks #2). Lands the `#List | *null` terminating fixture + pin.
+
+**Couples with D#1b** (incomplete-guard deferral) only loosely — both touch bottom-propagation
+through the disjunction/comprehension algebra, but D#2's bottom is a CONCRETE structural-cycle
+error (propagate), not an incomplete deferral. Do D#2 standalone; D#1b can follow.
+
+**Worktree: optional.** D#2a touches `Eval.lean` (the hot module) + `Value.lean`
+(`BottomReason`) + `Format`/`Manifest` (display) — a focused multi-file change but not the
+large churn RX-1b had. A worktree is reasonable if RX-1c/Bug2-3 are running concurrently;
+otherwise `main` is fine (the change is additive — a new bottom arm + a guard, no deletion of a
+hot block). Estimate: **2 slices**, contained.
 
 ## SC-2 design (implementable) — nested def-body closedness
 

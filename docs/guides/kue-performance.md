@@ -151,13 +151,14 @@ fix is purely a speedup — byte-identical output.
   minimization (`/tmp/kprobe/struct_disc.cue`) and the implementable design. The 88s wall (when the
   app DOES export, e.g. cert-manager ~30.5s) is a separate, downstream perf concern, meaningful only
   once Gap-2b is fixed.
-- **Regex matching is backtracking (RX-1 pending).** The current `=~`/`regexp.Match` engine
-  is a fuel-bounded BACKTRACKING matcher: pathological patterns (nested quantifiers over a
-  long string) can hit the input×pattern×4 fuel budget — where a fuel-out reads as a
-  non-match (a correctness hole, not just slowness). The planned RX-1 rewrite (Thompson/
-  Pike NFA, see `docs/spec/spec-conformance-audit.md` "RX-1 design") is LINEAR in
-  `input.length × NFA.size` with no backtracking blowup, so it fixes both the soundness hole
-  and the perf cliff at once. Until then, avoid deeply-nested quantifiers in `=~` patterns.
+- **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
+  is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
+  fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking
+  blowup, NO fuel-out-reads-as-non-match soundness hole — the ε-closure dedups by pc over a
+  fixed-size program (fuel = `insts.size`, exact, never spuriously reached). Deeply-nested
+  quantifiers (`(a*)*`) terminate and match correctly. The old known-limitation here is
+  RESOLVED; the engine no longer has a regex perf cliff. (Remaining regex work is feature
+  coverage — RX-1c submatch/`ReplaceAll`, RX-2a in-class perl negation — not perf.)
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).
