@@ -745,11 +745,12 @@ theorem regexp_match_no_match_is_false :
       == .prim (.bool false)) = true := by
   native_decide
 
--- `regexp.Match(p, s)` dispatches to `stringRegexMatches p s` — the SAME engine entrypoint
--- `=~` uses (`evalRegexMatch`). Pinning equality here ties the two to one engine.
+-- `regexp.Match(p, s)` dispatches to `matchRegex p s` — the SAME engine entrypoint `=~`
+-- uses (`evalRegexMatch`, via the RX-1 Pike-VM). Pinning equality here ties the two to one
+-- engine.
 theorem regexp_match_dispatches_to_shared_engine :
     (evalBuiltinCall "regexp.Match" [.prim (.string "^v[0-9]"), .prim (.string "v1")]
-      == .prim (.bool (stringRegexMatches "^v[0-9]" "v1"))) = true := by
+      == .prim (.bool (matchRegex "^v[0-9]" "v1"))) = true := by
   native_decide
 
 -- A concrete deferred submatch/replace form (the engine cannot do these yet — RX-1)

@@ -1,6 +1,7 @@
 import Kue.Builtin
 import Kue.Decimal
 import Kue.Lattice
+import Kue.Regex
 import Kue.Normalize
 import Std.Data.HashMap
 
@@ -930,7 +931,7 @@ def evalPrimitiveOrdering
 
 def evalRegexMatch (left right : Value) : Value :=
   match left, right with
-  | .prim (.string value), .prim (.string pattern) => .prim (.bool (stringRegexMatches pattern value))
+  | .prim (.string value), .prim (.string pattern) => .prim (.bool (matchRegex pattern value))
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons

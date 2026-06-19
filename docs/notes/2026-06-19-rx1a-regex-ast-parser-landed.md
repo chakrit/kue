@@ -1,7 +1,8 @@
 # RX-1a landed — regex AST + parser (additive, byte-identical)
 
-**START HERE.** Supersedes `2026-06-19-sc2-nested-def-body-closedness-landed.md` as the live
-pointer. RX-1a is the 1st of three RX-1 slices (the regex-engine replacement) and the 2nd
+**SUPERSEDED by `2026-06-19-rx1b-nfa-pikevm-engine-live.md` — start there.** (Was the live
+pointer; RX-1b made the engine live.) Supersedes
+`2026-06-19-sc2-nested-def-body-closedness-landed.md`. RX-1a is the 1st of three RX-1 slices (the regex-engine replacement) and the 2nd
 fix-slice since Phase-B audit #2. See `docs/spec/spec-conformance-audit.md` (RX-1a DONE;
 RX-1b/c open; "RX-1 design (implementable)" is the spec) and the RX-1a implementation-log
 entry.

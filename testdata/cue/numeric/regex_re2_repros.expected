@@ -1,0 +1,9 @@
+groupPlus: true
+groupPlusNo: false
+nestedGroup: true
+semver: true
+altGroups: true
+wordBoundary: true
+wordBoundNo: false
+lazyPlus: true
+altPlusSub: true

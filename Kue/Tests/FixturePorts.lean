@@ -261,6 +261,34 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "numeric/regex_re2_repros.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"groupPlus", .regular,
+                  .binary .regexMatch (.prim (.string "abab")) (.prim (.string "^(ab)+$"))⟩,
+                ⟨"groupPlusNo", .regular,
+                  .binary .regexMatch (.prim (.string "aba")) (.prim (.string "^(ab)+$"))⟩,
+                ⟨"nestedGroup", .regular,
+                  .binary .regexMatch (.prim (.string "foo-bar-baz"))
+                    (.prim (.string "^([a-z0-9]+(-[a-z0-9]+)*)$"))⟩,
+                ⟨"semver", .regular,
+                  .binary .regexMatch (.prim (.string "v1.2.3"))
+                    (.prim (.string "^(v[0-9]+)(\\.[0-9]+)*$"))⟩,
+                ⟨"altGroups", .regular,
+                  .binary .regexMatch (.prim (.string "axyd")) (.prim (.string "a(b|x)(c|y)d"))⟩,
+                ⟨"wordBoundary", .regular,
+                  .binary .regexMatch (.prim (.string "cat dog")) (.prim (.string "\\bdog\\b"))⟩,
+                ⟨"wordBoundNo", .regular,
+                  .binary .regexMatch (.prim (.string "dogcat")) (.prim (.string "\\bdog\\b"))⟩,
+                ⟨"lazyPlus", .regular,
+                  .binary .regexMatch (.prim (.string "aaa")) (.prim (.string "a+?"))⟩,
+                ⟨"altPlusSub", .regular,
+                  .binary .regexMatch (.prim (.string "xfoobarx")) (.prim (.string "(foo|bar)+"))⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "numeric/bytes_kind.expected",
       content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
     },

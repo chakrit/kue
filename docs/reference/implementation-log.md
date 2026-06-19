@@ -8906,3 +8906,78 @@ eval); `shellcheck` clean. Next-step → RX-1b (Thompson compile + Pike-VM + rew
 dispatch sites `Eval.evalRegexMatch` / `Lattice.meetStringRegexPrim` / `Builtin.regexp.Match`
 + delete the old `Value.lean` engine ~L771-1012; gated by the 7 repros matching correctly +
 existing simple-pattern fixtures staying green).
+
+## Completed Slice: RX-1b — Thompson NFA + Pike-VM, engine LIVE, old engine deleted (2026-06-19)
+
+Goal: make the RX-1a AST/parser the LIVE regex engine and remove the old backtracking
+matcher. This is the BEHAVIOR CHANGE — the old `Value.lean` engine silently mis-validated
+grouped quantifiers, nested/multi groups, `\b`, lazy quantifiers, and had an unsound
+anchoring-dependent substring fallback. The gate is conformance to RE2/spec (cross-checked
+against cue v0.16.1), NOT byte-identity to the old (buggy) engine.
+
+**Engine added to `Kue/Regex.lean` (the leaf module — still no `Value`/`Eval` import).**
+
+- `Inst` — a flat instruction program (RE2/Pike style): `char (ranges) (negated) (next)` /
+  `any (next)` / `split (a) (b)` / `jmp (next)` / `save (slot) (next)` / `assert (kind)
+  (next)` / `accept`. `split`-arm ORDER encodes greediness (arm `a` tried first). `AssertKind`
+  = `start`/`end`/`wordBoundary`/`notWordBoundary`. `NFA` = `{ insts, start, slots }`.
+- `compile : Regex → NFA` — Thompson construction in a continuation-passing style
+  (`compileFrag prog re cont` returns the extended program + this fragment's entry pc, so
+  forward/backward references are exact). Bounded `{m,n}` is **desugared before compile** by a
+  total `desugar : Regex → Regex` pass (each child desugared first, then `expandRepeat`
+  rewrites `{m}`→exact copies, `{m,}`→copies+`star`, `{m,n}`→copies+nested-opts), so the VM
+  never sees a counter. `compileFrag`/`compileSeq`/`compileAlt` are a mutual block, total by
+  `sizeOf` of the (finite, repeat-free) AST. `save 2i`/`save 2i+1` bracket capturing group i;
+  `save 0`/`save 1` bracket the whole match.
+- `NFA.run : NFA → List Char → Option (Array (Option Nat))` — a TOTAL Pike-VM. The outer
+  `loop` is structural recursion on the input `List Char`. At each position the ε-closure
+  (`addThread`) follows `split`/`jmp`/`save`/`assert` deduped by pc over the FIXED program
+  (`visited` array), parking threads on `char`/`any`; fuel = `insts.size` is exact (each pc
+  enters the closure at most once) and never spuriously hit — a `split`/`jmp` cycle is cut by
+  `visited`, not fuel. No backtracking → linear in `input.length × insts.size`. **Priority /
+  greediness:** the closure preserves arm order; the first `accept` in a closure CUTS all
+  lower-priority threads reached after it; a match found at a LATER position overrides the
+  earlier one (the surviving thread was higher priority). Leftmost-start comes from the
+  unanchored prefix `.*?` being lazy. This removes the old engine's soundness hole
+  (fuel-exhaustion-as-non-match).
+- `matchRegex : String → String → Bool` — the unanchored RE2 `Match`/CUE `=~` boolean.
+  Prepends an implicit lazy `.*?` (`star false any`) so one linear pass scans every start
+  position. Invalid/deferred pattern → `false` (conservative). `regexParseError?` exposes the
+  parse error for dispatch sites that want to distinguish an invalid pattern from a non-match.
+
+**Rewired FOUR dispatch sites** (the audit named 3; `Order.subsumesWithFuel`'s `.stringRegex`
+arm — the subsumption twin of `meetStringRegexPrim` — was the 4th, found by grep):
+`Eval.evalRegexMatch`, `Order.subsumesWithFuel`, `Lattice.meetStringRegexPrim`,
+`Builtin.regexp.Match` now call `matchRegex`. Each module gained `import Kue.Regex`.
+
+**Deleted the old engine** — `Value.lean` ~L771-1011 (`RegexAtom`, `stringRegexMatches`,
+`stringRegexAlternativeMatches`, `parseRegexAtom`, the `regexMatch*WithFuel` mutual block,
+`expandFirstRegexGroup`, `splitRegexAlternatives*`, `parseRegexGroupBody*`,
+`findFirstRegexGroup*`, et al.). Dropped the now-unused `import Init.Data.String.Search` from
+`Value.lean` (`Parse.lean` keeps its own copy; it was the only other user).
+
+**Gate met (behavior change toward the spec).** All 7 repros now match cue v0.16.1:
+`^(ab)+$ ~ "abab"`=true (and `~ "aba"`=false); `^([a-z0-9]+(-[a-z0-9]+)*)$ ~ "foo-bar-baz"`
+=true; `^(v[0-9]+)(\.[0-9]+)*$ ~ "v1.2.3"`=true; `a(b|x)(c|y)d ~ "axyd"`=true; `\bdog\b ~
+"cat dog"`=true (and `~ "dogcat"`=false); `a+? ~ "aaa"`=true; the unsound-fallback case
+`(foo|bar)+ ~ "xfoobarx"`=true (now a consistent anywhere-search). NO existing regex fixture
+flipped — the old engine got the simple anchored/class/`{m,n}` patterns right and the new
+engine reproduces every one (`scripts/check-fixtures.sh` → zero drift). Cross-checked
+edge cases vs cue (empty pattern, `^$`, nested star `^(a*)*$` — terminates, no ε-blowup).
+
+**Tests.** New `native_decide` pins in `RegexTests.lean`: the 7 repros as `matchRegex` bools
+(match + non-match each), all simple-pattern fixtures as bools, greedy-vs-lazy priority +
+group submatch spans read directly off `run`'s capture array (`(a+)(b+)` over "aabbb" →
+whole [0,5)/g1 [0,2)/g2 [2,5); `a.*c` greedy [0,6) vs `a.*?c` lazy [0,3)) — proving the
+capture slots are live and correct for RX-1c. New fixture `numeric/regex_re2_repros`
+(`.cue`/`.expected` + `FixturePorts` port), oracle-checked vs cue. Updated the BuiltinTests
+shared-engine pin to `matchRegex`.
+
+**Verify.** `lake build` green (100 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok`
+(only the new fixture added, everything else byte-identical); `shellcheck` clean. Totality:
+`#print axioms` on `matchRegex`/`compile`/`run` shows only `propext`/`Classical.choice`/
+`Quot.sound` (no `sorryAx`). prod9 probe (READ-ONLY): cert-manager exports content-identical
+to cue (field-order-insensitive, ~32s); argocd unchanged (still its pre-existing Bug2-3
+bottom). Next-step → RX-1c (expose the capture array; `regexp.ReplaceAll` + `Expand` template
+grammar + `Find*`/`FindSubmatch`; remove the `unsupportedBuiltin` deferral arms — unblocks
+prod9's `regexp.ReplaceAll` filter packages).

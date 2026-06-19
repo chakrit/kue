@@ -210,8 +210,11 @@ contained-correctness before large rewrites (slice-loop principle). **Recommende
 2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
    demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
    ready below ("RX-1 design (implementable)"). **RX-1a (AST+parser) — DONE (2026-06-19).**
-   → **RX-1b (NFA+Pike-VM+rewire the 3 dispatch sites + delete old engine) — NEXT** →
-   RX-1c (submatch+`ReplaceAll`).
+   **RX-1b (Thompson NFA + Pike-VM + rewire dispatch + delete old engine) — DONE
+   (2026-06-19).** The new engine is LIVE: all 7 repros now match RE2/cue; the old
+   `Value.lean` backtracking engine (~240 lines) is deleted. → **RX-1c (submatch +
+   `regexp.ReplaceAll`/`Find*`) — NEXT** (the Pike-VM already fills the capture array; RX-1c
+   exposes it).
 3. **Bug2-3 / Gap-2b (HIGH).** The LAST argocd export blocker — structural disjunction-arm
    pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"). High payoff (a whole app
    exports), contained primitive (list-meet-to-bottom keying), well-diagnosed. Ranks with RX-1
@@ -587,11 +590,21 @@ RX-1 is large and touches a NEW module + three dispatch sites. Split at clean se
   → error, matching RE2 vs a literal) + `\1` + 4 deferred, all `native_decide`. Additive /
   byte-identical: NOT wired to any dispatch site; `lake build` green (96+ jobs),
   `check-fixtures` zero drift, `shellcheck` clean.
-- **RX-1b — Thompson compile + Pike-VM + re-wire boolean `=~`/`Match`.** `compile`, `Inst`,
-  `run`, then point `stringRegexMatches` (or its replacement) at the VM and re-wire the three
-  call sites (`Eval.evalRegexMatch`, `Lattice.meetStringRegexPrim`, `Builtin.regexp.Match`).
-  Delete the old `Value.lean` regex block (~L771-1012). Gate: 7 repros + all existing
-  fixtures green vs cue.
+- **RX-1b — Thompson compile + Pike-VM + re-wire boolean `=~`/`Match`. DONE (2026-06-19).**
+  Added to `Kue/Regex.lean`: `Inst` (flat `char`/`any`/`split`/`jmp`/`save`/`assert`/`accept`
+  program), `AssertKind`, `NFA`, `compile` (Thompson; `{m,n}` desugared to concat-of-opt via a
+  `desugar` pass so the VM has no counters), `NFA.run` (total Pike-VM — ε-closure deduped by pc
+  over the fixed program, fuel = `insts.size` exact, no backtracking; carries capture slots for
+  RX-1c), `matchRegex` (unanchored RE2 `Match`/`=~` via an implicit lazy `.*?` prefix). Rewired
+  FOUR dispatch sites (the audit said 3; `Order.subsumesWithFuel`'s `.stringRegex` arm was the
+  4th): `Eval.evalRegexMatch`, `Order.subsumesWithFuel`, `Lattice.meetStringRegexPrim`,
+  `Builtin.regexp.Match`. Deleted the old `Value.lean` backtracking block (~L771-1011,
+  `stringRegexMatches`/`parseRegexAtom`/`regexMatchHereWithFuel`/`expandFirstRegexGroup` et al.)
+  and dropped the now-unused `Init.Data.String.Search` import from `Value.lean`. Gate met: 7
+  repros match cue v0.16.1; all existing regex fixtures byte-identical (zero drift); new fixture
+  `numeric/regex_re2_repros`; cert-manager content-identical, argocd unchanged (still its
+  pre-existing Bug2-3 bottom). Totality: `compile`/`run` total, axioms = only the standard
+  Lean foundational set (no `sorryAx`).
 - **RX-1c — submatch wiring: `ReplaceAll`/`Find*`.** Expose the capture array; implement
   `regexp.ReplaceAll` (+ `Expand` template grammar) and `Find*`/`FindSubmatch`; remove the
   matching `unsupportedBuiltin` deferral arms. Gate: prod9 filter patterns export, cue-exact.

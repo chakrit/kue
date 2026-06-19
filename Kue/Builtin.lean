@@ -1,4 +1,5 @@
 import Kue.Lattice
+import Kue.Regex
 import Kue.Decimal
 import Kue.Base64
 import Kue.Json
@@ -658,22 +659,20 @@ def evalYamlBuiltin : String -> List Value -> Value
 
     `Match(pattern, string)` is an UNANCHORED search — true when `pattern` matches anywhere
     in `string`, identical to Go's `regexp.MatchString` and CUE's `=~` operator. It shares
-    the SAME engine entrypoint as `=~` (`stringRegexMatches`, which uses the anywhere-search
-    when the pattern is not `^`-anchored), so `regexp.Match` and `=~` agree by construction.
+    the SAME engine entrypoint as `=~` (`matchRegex`, the RX-1 Pike-VM with an implicit
+    leading `.*?` for the anywhere search), so `regexp.Match` and `=~` agree by construction.
 
-    The engine is a boolean matcher only: it extracts no submatches and performs no
-    substitution. So every `regexp.*` form that needs capture groups or replacement
-    (`ReplaceAll`, `ReplaceAllLiteral`, `Find*`, `FindSubmatch`, `FindAll*`) is DEFERRED —
-    it surfaces `unsupportedBuiltin` rather than a silent wrong answer. These unblock once
-    RX-1 replaces the engine with a real submatch-capable RE2 matcher. The prod9 apps use
-    `ReplaceAll`, so the F-1 import unblock does NOT yet make those apps export.
-
-    The engine is also not RE2-conformant (RX-1): grouped quantifiers, `\b`, lazy
-    quantifiers, and multi-group patterns are mis-matched. `regexp.Match` inherits exactly
-    those limits — RX-1 fixes both `=~` and `regexp.Match` together. -/
+    The RX-1 engine is RE2-conformant (grouped quantifiers, `\b`, lazy quantifiers, and
+    multi-group patterns all match correctly) but `matchRegex` returns only a bool — the
+    capture array is computed but not yet exposed. So every `regexp.*` form that needs
+    capture groups or replacement (`ReplaceAll`, `ReplaceAllLiteral`, `Find*`,
+    `FindSubmatch`, `FindAll*`) is still DEFERRED, surfacing `unsupportedBuiltin` rather than
+    a silent wrong answer. RX-1c wires the capture array through and removes these deferral
+    arms; the prod9 apps use `ReplaceAll`, so the F-1 import unblock does NOT yet make those
+    apps export. -/
 def evalRegexpBuiltin : String -> List Value -> Value
   | "regexp.Match", [.prim (.string pattern), .prim (.string s)] =>
-      .prim (.bool (stringRegexMatches pattern s))
+      .prim (.bool (matchRegex pattern s))
   | name, args =>
       if args.any containsBottom then
         .bottom

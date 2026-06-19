@@ -1,4 +1,5 @@
 import Kue.Value
+import Kue.Regex
 
 namespace Kue
 
@@ -23,7 +24,7 @@ def meetNotPrimPrim (forbidden prim : Prim) : Value :=
 def meetStringRegexPrim (pattern : String) (prim : Prim) : Value :=
   match prim with
   | .string value =>
-      if stringRegexMatches pattern value then
+      if matchRegex pattern value then
         .prim prim
       else
         .bottom
