@@ -197,36 +197,47 @@ Both slices verified spec-correct; nothing in either was reverted or refixed.
 Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
 front-loaded before the large rewrites.
 
-### Re-ranked next slices (2026-06-19 Phase-B — DONE: SC-1, SC-1c, SC-1d, D#1a, F-1, F-2)
+### Re-ranked next slices (2026-06-19 Phase-B audit #2 — DONE: SC-1, SC-1c, SC-1d, D#1a, F-1, F-2; SC-2 now DESIGNED)
 
-Contained-high-confidence before large rewrites (slice-loop principle). Recommended order:
+Contained-high-confidence before large rewrites; cue-AGREEING correctness before divergence;
+contained-correctness before large rewrites (slice-loop principle). **Recommended next 3-4:**
 
-1. **SC-1d — DONE (2026-06-19).** Tail dropped when patterns present (`Parse.parsedFieldsValue`).
-   Fixed via a tail-aware `baseValue` threaded through every `declared` arm; pattern+`...` now stays
-   OPEN, pattern+no-`...` still CLOSES (SC-1c intact). See the SC-1d DONE entry under the HIGH
-   backlog. **F-2 now DONE** (strip self-module `@vN`); next contained-HIGH: **RX-1** (regex → RE2)
-   or **Bug2-3** (argocd unblock).
+1. **SC-2 (HIGH — nested def-body closedness; 1 slice, NO worktree).** NOW DESIGNED + ready
+   ("SC-2 design (implementable)" below). Promoted to the TOP of the queue: it is a contained
+   single-file Normalize change (a closing field-walker twin), it fixes a live correctness bug
+   (`#A:{a:{b:int}}` over-opens TODAY — oracle #1/#2/#6, Kue admits, cue+spec reject), and its
+   soundness/trap argument is fully worked out (import bindings + plain structs + hidden fields
+   all proven untouched). SC-2a (cue-agrees) and SC-2b (the spec-correct divergence) are ONE
+   change in Kue's monotone representation — not separable — so this single slice clears BOTH
+   the largest remaining closedness gap and the last `cue`-grounded closedness suspect. Gated:
+   byte-identical except the one flipped SC-2b fixture + cert-manager/argocd no-regress.
 2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
    demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
    ready below ("RX-1 design (implementable)"). RX-1a (AST+parser) → RX-1b (NFA+VM+rewire) →
-   RX-1c (submatch+`ReplaceAll`).
+   RX-1c (submatch+`ReplaceAll`). After SC-2 because contained-correctness precedes the large
+   rewrite (keeps `main` shippable; avoids stacking a worktree on a known contained bug).
 3. **Bug2-3 / Gap-2b (HIGH).** The LAST argocd export blocker — structural disjunction-arm
    pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"). High payoff (a whole app
-   exports), contained primitive (list-meet-to-bottom keying), well-diagnosed.
-4. **F-2 — DONE (2026-06-19).** Stripped self-module `@vN` (`Module.lean` `readModuleInfo`).
-   One-file, unblocks in-module imports. See the F-2 DONE entry under the HIGH backlog.
+   exports), contained primitive (list-meet-to-bottom keying), well-diagnosed. Ranks with RX-1
+   (both HIGH, both designed) — sequence by whichever worktree is freer; RX-1 is the broader
+   correctness lever, Bug2-3 the single-app unblock.
+4. **D#2 (HIGH-MED, LARGE — structural-cycle detection).** `#L:{n:int,next:#L}` unrolls to
+   garbage (wrong value + missing feature); spec mandates detection. Own slice; needs the
+   design-spike treatment (ancestor-chain; default-arm-terminates) before launch. Couples with
+   D#1b (incomplete-guard deferral).
 
-Then the large/structural tail: **D#2** (structural cycles, large), **SC-2** (closedness
-divergence — DIVERGE-from-cue, verify no regress), then the **MED tail** (D#1c non-bool
-guard; D#1b incomplete-deferral, couples with D#2; D#3 `let`-clauses; SC-3 disj display;
-BI-1 Unicode case-fold; BI-2 `math.Pow`/`Sqrt`/`list.Sort`; F-3 qualified import),
-spec-gap ratifications, then low/hardening. SC-1b (MED soundness, closed×closed-pattern
-intersection) sits with the MED tail — pre-existing, narrower than SC-1.
+Then the **MED tail** (D#1c non-bool guard → type error; D#1b incomplete-deferral, couples
+with D#2; D#3 `let`-clauses; SC-3 disj display; BI-1 Unicode case-fold; BI-2
+`math.Pow`/`Sqrt`/`list.Sort`; F-3 qualified import), spec-gap ratifications, then
+low/hardening (`containsBottom` fuel cap; `{#a:1,5}` coverage). SC-1b (MED soundness,
+closed×closed-pattern intersection) sits with the MED tail — pre-existing, narrower than SC-1.
 
-Rationale: SC-1d + F-2 are contained one-file HIGH fixes that should land before the RX-1
-rewrite to keep `main` shippable and avoid stacking a large worktree on top of known
-contained bugs. Bug2-3 ranks with RX-1 (both HIGH, both designed) — sequence by whichever
-worktree is freer; RX-1 is the broader correctness lever, Bug2-3 the single-app unblock.
+Rationale for SC-2 → RX-1/Bug2-3 → D#2: SC-2 is the only contained HIGH correctness fix left
+(one file, full soundness argument, fixes a live over-open) — it lands first to drain the
+closedness cluster to zero before opening the RX-1 worktree. RX-1 and Bug2-3 are the two large
+designed levers (broad regex correctness vs single-app unblock); D#2 is the remaining large
+structural gap and needs its own spike. Divergence (SC-2b) rides in with SC-2a because the
+representation entangles them — there is no cue-agreeing-only slice to do first.
 
 **HIGH — soundness / real-app correctness:**
 1. **SC-1 — DONE (2026-06-19).** mergeStructN pattern-meet dropped the other-side closedness,
@@ -367,15 +378,22 @@ worktree is freer; RX-1 is the broader correctness lever, Bug2-3 the single-app 
 7. **Bug2-3 / Gap-2b** argocd disjunction under-pruning (REAL bug, cue correct) — key on
    `.embeddedList`/list-meet-to-bottom, NOT a shape heuristic. The argocd unblock.
 
-**HIGH — DIVERGE from cue (spec says so):**
-8. **SC-2** closing-vs-instantiation: preserve nested closedness. **Broadened (Phase-A
-   2026-06-19):** the fix must close nested def-body field values at the FIRST meet, not only
-   defend a later re-open — `#A:{a:{b:int}}` already over-opens (`extra` admitted) on a single
-   meet, no instantiation. Here cue+spec AGREE (close) and Kue is wrong → this part is a plain
-   correctness fix, NOT a divergence; only the deeper `(#D & {}).r & {b}` re-open is the
-   cue-divergence half (record in `cue-divergences.md`). RE-SCOPES B6-deferred (which wrongly
-   proposed implementing the cue artifact). Verify cert-manager/argocd no-regress. See the SC-2
-   finding above for the probe set.
+**HIGH — nested def-body closedness (SC-2a cue-AGREES + SC-2b DIVERGES; ONE slice):**
+8. **SC-2 — DESIGNED (2026-06-19 Phase-B #2; see "SC-2 design (implementable)" below).**
+   Close nested def-body field VALUES at the FIRST meet. **SC-2a (cue+spec AGREE, Kue wrong —
+   plain correctness, NOT a divergence):** `#A:{a:{b:int}}` over-opens TODAY (oracle #1/#2/#3
+   single-meet; #6 `#D.r & {b}` direct-selector). **SC-2b (DIVERGE — spec says close, cue
+   re-opens on `& {}` instantiation):** `(#D & {}).r & {b}`; record in `cue-divergences.md`.
+   **KEY spike finding — the two halves are ONE fix, not separable:** Kue stores closedness on
+   the value and meet is monotone (no shed-on-`&` code exists), so closing nested field values
+   (SC-2a) automatically preserves closedness through instantiation (SC-2b). Lever = a CLOSING
+   field-walker twin in `Normalize.lean` (regular/optional/required field values recurse the
+   CLOSING walker, not the spine) — `importBinding` skip + hidden/`let` spine arms UNCHANGED, so
+   the A2/cert-manager trap is structurally dodged (the `importBinding` marker makes it local).
+   Normalize-only; no `Lattice`/`Eval` edit. RE-SCOPES B6-deferred (which wrongly proposed
+   implementing the cue artifact via a shed-on-`&` flag — spec-WRONG, do NOT). Gate: byte-
+   identical except the one flipped SC-2b fixture + cert-manager/argocd no-regress (read-only).
+   1 slice, no worktree. See the SC-2 design section for the full lever/soundness/fixture plan.
 
 **MED:**
 9. **D#3** `let` clauses in comprehensions (parse + `Clause.letClause` + wire `let`=+1 in
@@ -571,3 +589,151 @@ RX-1 is large and touches a NEW module + three dispatch sites. Split at clean se
 module) and adds a leaf module — a worktree isolates the multi-file churn (new module +
 3 dispatch rewrites + Value deletion) from concurrent slices and keeps `main` shippable
 between the three sub-slices. Each sub-slice commits independently (checkpoint discipline).
+
+## SC-2 design (implementable) — nested def-body closedness
+
+**Status (2026-06-19, Phase-B spike):** designed, ready to slice. The spike oracle-confirmed
+the two halves AND uncovered that they are NOT independently sliceable in Kue's
+representation — see "Entanglement" below. Lever, soundness, and the trap argument follow.
+
+### Oracle ground truth (cue v0.16.1, all probes run)
+
+| # | Input | `cue` | Kue (current) | Verdict |
+|---|-------|-------|---------------|---------|
+| 1 | `#A:{a:{b:int}}` `& {a:{b:1,extra:5}}` | REJECT `extra` | **ADMIT** | SC-2a — Kue wrong, cue+spec agree |
+| 2 | `#A:{a:{b:int\|*0}}` `& {a:{b:1,extra:5}}` (concrete) | REJECT `extra` | **ADMIT** | SC-2a — cleanest repro (fully concrete) |
+| 3 | `#A:{a:{b:{c:int}}}` `& {a:{b:{c:1,deep:9}}}` | REJECT `deep` | (ADMIT) | SC-2a — closes RECURSIVELY at any depth |
+| 4 | `#A:{a:{b:int,...}}` `& {a:{b:1,extra:5}}` | ADMIT `extra` | ADMIT | control — nested `...` keeps nested struct OPEN |
+| 5 | `A:{a:{b}}` (plain, no `#`) `& {a:{b:1,extra:5}}` | ADMIT `extra` | ADMIT | control — plain nested struct stays OPEN (the A2 trap) |
+| 6 | `#D:{r:{a:int}}` ; `#D.r & {b:2}` (direct selector) | REJECT `b` | **ADMIT** | SC-2a — same root cause; cue closes the direct path |
+| 7 | `#D:{r:{a:int}}` ; `(#D & {}).r & {b:2}` (instantiated) | ADMIT `b` | ADMIT | SC-2b — cue RE-OPENS on instantiation; spec says close |
+| 8 | `#A:{_h:{x:int}}` ; `out._h & {extra}` | ADMIT `extra` | ADMIT | control — hidden-field nested struct does NOT close |
+
+Note cue's **internal inconsistency** between #6 and #7: `#D.r` closes but `(#D & {}).r`
+re-opens. The differentiator is the `& {}` instantiation step, not anything lattice-derivable
+— strong evidence #7 is an eval-strategy artifact (closedness shed by `&`), not spec behavior.
+The spec says closedness is monotone through meet, so the closed `r` must STAY closed → #7's
+admit is the bug, #6's reject is correct.
+
+### Root cause (single, in the no-tail path)
+
+Closedness is stored on the struct VALUE (`StructOpenness`); meet preserves it (monotone — a
+single-side field carries through `mergeFieldIntoWith` verbatim). A `#Def` is closed lazily by
+`Normalize.normalizeDefinitionValueWithFuel` (the CLOSING walker) when referenced/captured.
+That walker's no-pattern `.struct` arm (`Normalize.lean:27-28`) DOES set the struct's own
+openness to `defClosed`, but it descends its fields via the SHARED `normalizeFieldWithFuel`,
+whose regular/optional/required arm (`Normalize.lean:121-122`) recurses the **SPINE** walker
+`normalizeDefinitionsWithFuel` — which preserves openness and only closes nested `#Def`s, NOT
+nested PLAIN struct VALUES. So `#A:{a:{b:int}}` closes the top struct but leaves `a`'s value
+`{b:int}` at `regularOpen`. B6 deliberately chose the spine here (its sub-gap note's "STOP")
+precisely because the closing walker risked the A2/cert-manager trap — but that risk is now
+GONE (see Soundness), so the choice can be revisited.
+
+### Lever — a CLOSING field-walker variant (Normalize, no-tail path only)
+
+Give `normalizeFieldWithFuel` a closing-context twin (`normalizeDefinitionFieldWithFuel`)
+whose ONLY difference is the regular/optional/required arm recurses
+`normalizeDefinitionValueWithFuel` (CLOSING) instead of `normalizeDefinitionsWithFuel`
+(spine). The CLOSING walker's `.struct` arms call this twin (not the shared walker). The
+other three arms are UNCHANGED — and that is the entire trap defence:
+
+- **`importBinding` → skip (untouched).** Bound packages are never recursed (closing OR
+  spine) → no cert-manager/argocd re-bottom (control #5/A2 trap structurally dodged; the
+  `FieldClass.importBinding` marker, post-ILL-1, makes this LOCAL by construction).
+- **`letBinding` / in-file hidden `_x` → spine (untouched).** Their nested struct VALUES do
+  NOT close (oracle #8: a def's hidden-field nested struct admits extras) — keep them on the
+  spine, preserving their own openness exactly as today.
+- **regular/optional/required → CLOSING.** Their nested struct VALUES close recursively
+  (oracle #1/#2/#3). The CLOSING walker already returns a `defOpenViaTail` struct UNCHANGED
+  (`Normalize.lean:25-26`), so a nested `...` struct stays OPEN (control #4) — depth-recursion
+  respects nested `...` for free.
+
+Prefer a separate function (a closing twin) over a `closing : Bool` param — the repo's
+illegal-states philosophy: the call site's intent (closing vs spine) is encoded in WHICH
+function it calls, not in a flag a future edit can mis-thread. The spine walker keeps the
+existing shared field walker; only the closing path forks.
+
+This is a **Normalize-only change** (no meet-time propagation needed): once the def's nested
+field values carry `defClosed`, the existing `mergeStructN`/`applyStructClosedness` enforces
+it at every meet, AND preserves it through instantiation (monotone). No `Lattice`/`Eval` edit.
+
+### Entanglement — SC-2a and SC-2b are ONE fix, not two slices
+
+Because Kue stores closedness on the value and meet is monotone (no re-open code exists —
+verified: there is NO instantiation-shed path in `Lattice`/`Eval`; `openStructValue` at
+`Eval.lean:1527` is the embedding-UNION path, orthogonal), closing the nested field value
+(SC-2a) AUTOMATICALLY makes `(#D & {}).r` retain `defClosed` → reject `b` (SC-2b). There is
+no separate code for SC-2b. Sequencing:
+
+- **Before the fix:** Kue under-closes everywhere → admits `b` on BOTH #6 and #7 (matches
+  cue on #7 by accident, DIVERGES from cue on #6).
+- **After the fix:** Kue closes nested values → rejects `b` on BOTH → matches cue on #6
+  (SC-2a, cue-agrees), DIVERGES from cue on #7 (SC-2b, the spec-correct divergence).
+
+So SC-2b is not separable work — it is the same code change. Achieving cue's #7 admit would
+require ADDING a shed-on-`&` artifact (the OLD B6-deferred plan: a "closed on this selection
+path" flag the meet clears) — which is spec-WRONG and re-introduces partiality. Do NOT do it.
+The fix's only SC-2b-specific deliverables are docs+fixture (below).
+
+### Soundness + the trap argument (gate)
+
+Closedness is the most regression-prone class (links 3/4/5, SC-1c). The three obligations:
+
+1. **A referenced closed def's nested field rejects extras** — oracle #1/#2/#3/#6; the lever
+   sets `defClosed` on the nested value; `mergeStructN` rejects. ✓
+2. **A plain (non-def) nested struct stays open** — oracle #5; the CLOSING walker runs ONLY
+   inside a referenced `#Def` body, never on a plain `A:{a:{b}}` (plain structs go through the
+   SPINE walker / no normalization-close at all). The lever cannot touch control #5. ✓
+3. **An unreferenced import binding stays lazy** — oracle/control: the `importBinding` arm is
+   UNCHANGED (skip). The closing twin only forks the regular arm. cert-manager/argocd cannot
+   re-bottom. ✓ (re-verify READ-ONLY on prod9 before landing — exit 0, no key/value drift.)
+
+**Gate:** byte-identical on ALL existing fixtures EXCEPT `b6_instantiated_def_field_reopens`
+(the one SC-2b fixture, intentionally flipped — see below) + cert-manager/argocd no-regress
+(read-only prod9) + new spec-correct SC-2a fixtures (cue+spec agree) + the flipped SC-2b
+fixture (Kue-diverges, recorded). If control #5 (`b6_plain_struct_under_regular_open`) or the
+import sentinels drift, the lever over-closed → STOP-and-report. The existing
+`b6_depth2_nested_def_closes` (closes a nested `#Inner`) must stay green — the spine already
+closes nested defs; the lever ADDS nested plain-struct closing on top, orthogonal.
+
+### Fixture impact (precise)
+
+- **Keep green (controls):** `b6_plain_struct_under_regular_open` (#5 — plain stays OPEN),
+  `b6_depth2_nested_def_closes` (#3-shape via `#Inner`), `b6a1_infile_hidden_def_*`,
+  `nested_def_*_under_regular_field`, all import/module fixtures, SC-1/1c/1d fixtures.
+- **NEW (SC-2a, cue+spec agree):** `definitions/sc2a_nested_def_field_closes`
+  (`#A:{a:{b:int}}` / `out: #A & {a:{b:1,extra:5}}` ⇒ `out.a.extra: _|_`),
+  `…/sc2a_nested_def_field_closes_concrete` (#2, fully concrete),
+  `…/sc2a_nested_def_field_depth2` (#3), `…/sc2a_nested_def_field_tail_stays_open` (#4
+  regression guard), `…/sc2a_direct_selector_closes` (#6, `#D.r & {b}` rejects). Each with a
+  `FixturePorts` entry. Add `native_decide` pins: nested closes, plain-control admits, `...`
+  nested admits, hidden-control admits.
+- **FLIP (SC-2b divergence):** `b6_instantiated_def_field_reopens.expected` currently records
+  cue's re-open (`out: {x:1, extra:2}`). After the fix Kue REJECTS — rewrite the `.expected`
+  to `out: {x:1, extra: _|_}` (the spec-correct value) and RENAME to
+  `sc2b_instantiated_def_field_stays_closed` so the name no longer asserts the artifact.
+  Record the cue-divergence entry (below). This is the ONE intentional drift in the gate.
+
+### `cue-divergences.md` entry (SC-2b)
+
+| Topic | `cue` ver | Claim / input | `cue` output | Kue output | Why Kue is right | Fixture |
+|-------|-----------|---------------|--------------|------------|------------------|---------|
+| nested closedness shed on instantiation | v0.16.1 | `#D:{r:{x:int}}` ; `(#D & {}).r & {x:1,extra:2}` | `{x:1, extra:2}` — `extra` ADMITTED (re-opened) | `{x:1, extra: _|_}` — `extra` REJECTED | Spec: referencing a def recursively closes it "anywhere within the definition"; closedness is MONOTONE through meet (`&` cannot remove a constraint). cue is internally inconsistent — the direct path `#D.r & {x,extra}` REJECTS `extra` (cue+Kue agree), but inserting a no-op `& {}` instantiation re-opens it. The `& {}` cannot lattice-logically add openness (meeting with the top struct is identity on closedness), so cue's re-open is an eval-strategy artifact. Kue preserves closedness on both paths. | `definitions/sc2b_instantiated_def_field_stays_closed` |
+
+### Slice plan (1 slice; NO worktree)
+
+**One slice, not two.** SC-2a and SC-2b are the same Normalize-only code change (entanglement
+above); splitting them is impossible without adding the spec-wrong shed-on-`&` artifact. The
+slice lands SC-2a's correctness AND SC-2b's divergence together, gated as one. No worktree —
+it is a single-file change (`Normalize.lean`: add the closing field-walker twin, point the
+CLOSING walker's `.struct` arms at it) plus fixtures/divergence-doc. Estimate: contained, ~1
+slice. Internal checkpoint commit after the code is green (before the fixture/doc churn) per
+checkpoint discipline. Real-app re-probe (cert-manager + argocd, read-only) is part of the
+gate, not a follow-up.
+
+**Caveat (pattern-bearing def arm):** the CLOSING walker's pattern-bearing `.struct` arm
+(`Normalize.lean:35-41`) also maps `normalizeFieldWithFuel` over its fields — point it at the
+closing twin too, so a closed pattern def's nested plain-struct field values close as well
+(`#A:{a:{b:int},[=~"^x"]:int}`). Probe this against cue in the slice; if cue treats the
+pattern-def's nested field differently, narrow the twin to the no-pattern arm only. The
+`defOpenViaTail` arm (line 25-26) is untouched (already returns unchanged → SC-1d intact).
