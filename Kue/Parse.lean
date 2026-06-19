@@ -520,29 +520,27 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   -- node and are told apart only at normalize, never at the shared eager arm.
   let hasTail := parts.tail.isSome
   let structCompOpenness : StructOpenness := if hasTail then .defOpenViaTail else .regularOpen
+  -- The plain-field+pattern base arm, openness/tail matched to whether a `...` is present (SC-1d).
+  -- With a `...`, build the OPEN-via-tail node carrying both the tail value and the patterns
+  -- (`mkStruct` forces `closingPatterns = []` since open); without, the parser-default base.
+  let baseValue :=
+    match parts.tail with
+    | some tail => mkStruct parts.fields .defOpenViaTail (some tail) parts.patterns
+    | none => parsedFieldsBaseValue parts.fields parts.patterns
   let declared :=
     match parts.comprehensions with
-    | [] => parsedFieldsBaseValue parts.fields parts.patterns
+    | [] => baseValue
     | comprehensions =>
         match parts.patterns with
         | [] => .structComp parts.fields comprehensions structCompOpenness
-        | _ => .conj [parsedFieldsBaseValue parts.fields parts.patterns, .structComp parts.fields comprehensions structCompOpenness]
-  match parts.tail with
-  | none => declared
-  | some tail =>
-      match parts.patterns, parts.comprehensions with
-      | [], [] => mkStruct parts.fields .defOpenViaTail (some tail) []
-      -- An open struct that ALSO has comprehensions/embeddings (`{ embed; if c {…}; … }`): the
-      -- old `.conj [declared, .struct fields .defOpenViaTail (some tail) []]` split the embeds/comprehensions and the
-      -- plain-field+tail into two OVERLAPPING-field arms. When such a body is force-spliced as an
-      -- imported def, the `.structTail` arm's `Self.<field>` self-refs resolve in isolation —
-      -- they never see the embedding-contributed fields (the embed lives in the OTHER arm), so a
-      -- use-site narrowing collapses to `.bottom` (the argocd `#ListenerSet` `spec.parentRef.name:
-      -- Self.#gateway_name` with `parts.#Metadata` embedded + a def-level `...`). Keep it ONE node:
-      -- `declared` carries `structCompOpenness = .defOpenViaTail` (this branch only fires with
-      -- `some tail`), so normalize's `closeDefBody` leaves the def OPEN; the redundant bare `...`
-      -- (`.top` tail) needs no separate node.
-      | _, _ => declared
+        | _ => .conj [baseValue, .structComp parts.fields comprehensions structCompOpenness]
+  -- `baseValue`/`structCompOpenness` already encode the `...` tail (SC-1d): the plain-field+pattern
+  -- arm via `mkStruct … .defOpenViaTail (some tail) patterns` (tail + patterns co-represented; open ⇒
+  -- `closingPatterns = []`), the comprehension/embedding arm via `structCompOpenness = .defOpenViaTail`
+  -- (kept ONE node so a force-spliced def's `Self.<field>` self-refs see the embed-contributed fields —
+  -- the argocd `#ListenerSet` regression). `...` and pattern constraints are orthogonal axes on the
+  -- unified `Value.struct`; `declared` carries the right openness/tail/patterns in every combination.
+  declared
 
 def structEllipsisEndsHere : List Char -> Bool
   | [] => true

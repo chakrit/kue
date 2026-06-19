@@ -576,4 +576,42 @@ theorem multiline_bytes_interpolation_deferred :
     parseFails "n: 5\nx: '''\n\tv\\(n)\n\t'''\n" = true := by
   native_decide
 
+/-- SC-1d: a pattern def with a `...` tail stays OPEN — the parser must PRESERVE the `...` when
+    patterns are present (it dropped it before, building a `.regularOpen`/`none`-tail node). With
+    the tail kept the def is open-via-tail, so meeting `{extra: 5}` admits `extra` despite it
+    matching no pattern. The output echoes the retained `...`. -/
+theorem parse_pattern_tail_stays_open :
+    parseOutputMatches
+      "#A: {x: int, [=~\"^a\"]: int, ...}\nout: #A & {x: 1, extra: 5}\n"
+      "#A: {x: int, [=~\"^a\"]: int, ...}\nout: {x: 1, extra: 5, [=~\"^a\"]: int, ...}" = true := by
+  native_decide
+
+/-- SC-1d regression guard: the SAME pattern def WITHOUT `...` still CLOSES (SC-1c). `z` neither
+    declared nor matching `[=~"^a"]` bottoms. The fix preserves the tail without re-opening the
+    no-`...` case. -/
+theorem parse_pattern_notail_closes :
+    parseOutputMatches
+      "#A: {x: int, [=~\"^a\"]: int}\nout: #A & {x: 1, z: 9}\n"
+      "#A: {x: int, [=~\"^a\"]: int}\nout: {x: 1, z: _|_, [=~\"^a\"]: int}" = true := by
+  native_decide
+
+/-- SC-1d: `...` opens the label-set but the pattern still value-constrains a MATCHING field —
+    `abc` matches `[=~"^a"]: int` so the string `"no"` bottoms. Orthogonal axes: `...` admits the
+    label, the pattern constrains the value. -/
+theorem parse_pattern_tail_value_constrains :
+    parseOutputMatches
+      "#A: {x: int, [=~\"^a\"]: int, ...}\nout: #A & {x: 1, abc: \"no\"}\n"
+      "#A: {x: int, [=~\"^a\"]: int, ...}\nout: {x: 1, abc: _|_, [=~\"^a\"]: int, ...}" = true := by
+  native_decide
+
+/-- SC-1d coherence (ILL-1): a parsed pattern+`...` struct is OPEN-via-tail with `closingPatterns
+    = []` (open ⇒ closes nothing). Inspect the parsed node directly: the tail is preserved AND the
+    openness is `defOpenViaTail` AND no closing patterns leak in. -/
+theorem parse_pattern_tail_node_is_open_via_tail :
+    (match parseSource "x: {a: int, [=~\"^a\"]: int, ...}\n" with
+     | .ok (.struct [⟨"x", .regular, .struct _ openness tail _ closing⟩] _ _ _ _) =>
+         openness == .defOpenViaTail && tail.isSome && closing == ([] : List Value)
+     | _ => false) = true := by
+  native_decide
+
 end Kue

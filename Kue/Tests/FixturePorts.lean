@@ -363,6 +363,38 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
+      -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
+      -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it
+      -- matches no pattern — the `...` admits it. Pre-SC-1d the parser dropped the `...` when patterns
+      -- were present, so after SC-1c's closing this def wrongly CLOSED and bottomed `extra`.
+      fileName := "definitions/sc1d_pattern_tail_stays_open.expected",
+      content :=
+        match parseSource "#A: {x: int, [=~\"^a\"]: int, ...}\nout: #A & {x: 1, extra: 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- SC-1d regression guard (SC-1c must still hold): the SAME def WITHOUT `...` CLOSES. `z`
+      -- (neither declared nor matching `[=~"^a"]`) bottoms. Pins that the SC-1d tail-preservation
+      -- did not re-open the no-`...` pattern def.
+      fileName := "definitions/sc1d_pattern_notail_closes.expected",
+      content :=
+        match parseSource "#A: {x: int, [=~\"^a\"]: int}\nout: #A & {x: 1, z: 9}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- SC-1d: the `...` opens the struct but the pattern still value-constrains a MATCHING field.
+      -- `abc` matches `[=~"^a"]: int`, so the string `"no"` conflicts with `int` and bottoms — the
+      -- `...` admits the LABEL, the pattern constrains the VALUE (orthogonal).
+      fileName := "definitions/sc1d_pattern_tail_value_constrains.expected",
+      content :=
+        match parseSource "#A: {x: int, [=~\"^a\"]: int, ...}\nout: #A & {x: 1, abc: \"no\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "disjunctions/default_disjunction.expected",
       content :=
         formatField "x"

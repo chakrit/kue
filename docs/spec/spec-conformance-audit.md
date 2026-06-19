@@ -148,14 +148,14 @@ resolution core all CONFORMS.
 Feature work resumes here, spec-first. Ranked by severity; contained high-confidence fixes
 front-loaded before the large rewrites.
 
-### Re-ranked next slices (2026-06-19 Phase-B — DONE: SC-1, SC-1c, D#1a, F-1)
+### Re-ranked next slices (2026-06-19 Phase-B — DONE: SC-1, SC-1c, SC-1d, D#1a, F-1)
 
 Contained-high-confidence before large rewrites (slice-loop principle). Recommended order:
 
-1. **SC-1d (HIGH, CONTAINED parser).** Tail dropped when patterns present
-   (`Parse.lean:510-545`). Now that pattern-defs CLOSE (SC-1c), this wrongly rejects extras
-   on `#A: {x, [=~"a"], ...} & {b}`. One-file fix, high confidence, unblocks correct
-   open-via-tail pattern defs — jumps AHEAD of RX-1. Do first.
+1. **SC-1d — DONE (2026-06-19).** Tail dropped when patterns present (`Parse.parsedFieldsValue`).
+   Fixed via a tail-aware `baseValue` threaded through every `declared` arm; pattern+`...` now stays
+   OPEN, pattern+no-`...` still CLOSES (SC-1c intact). See the SC-1d DONE entry under the HIGH
+   backlog. Next contained-HIGH: **F-2** (strip self-module `@vN`), then **RX-1** (regex → RE2).
 2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
    demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
    ready below ("RX-1 design (implementable)"). RX-1a (AST+parser) → RX-1b (NFA+VM+rewire) →
@@ -216,16 +216,34 @@ worktree is freer; RX-1 is the broader correctness lever, Bug2-3 the single-app 
      `#A & {a1:1}` admits `a1`, standalone `#A` keeps `x`, and all SC-1 C1/C2/C2b constraints
      still hold (cue-cross-checked). `lake build` + `check-fixtures` (`fixture pairs ok`) +
      `shellcheck` green. `Normalize.lean` def-pattern arm, `Eval.lean` `applyEvaluatedStructN`.
-   - **SC-1d (follow-up, HIGH — pre-existing PARSER bug, surfaced by SC-1c).** A struct with BOTH
-     patterns AND a `...` tail drops the tail at PARSE time: `Parse.parsedFieldsValue`'s
-     `some tail` branch returns `declared` (= `parsedFieldsBaseValue`, which forces `.regularOpen`
-     and a `none` tail) whenever patterns are present (the `| _, _ => declared` arm), losing the
-     `...`. Harmless while pattern-defs never closed (SC-1c); now that they close, an open-via-tail
-     pattern def `#A: {x, [=~"^a"], ...} & {b}` wrongly REJECTS `b` (cue admits — the `...` opens
-     it). Inline (non-def) `A: {x, [=~"^a"], ...}` over-admits AND drops the `...` from display.
-     Fix: co-represent tail+patterns at parse time (the `some tail` + non-empty-patterns case must
-     build `mkStruct fields .defOpenViaTail (some tail) patterns`, not drop the tail). Contained
-     parser change; its own slice. `Parse.lean:510-545`.
+   - **SC-1d — DONE (2026-06-19).** A struct with BOTH patterns AND a `...` tail dropped the tail
+     at PARSE time: `Parse.parsedFieldsValue`'s `some tail` branch returned `declared`
+     (= `parsedFieldsBaseValue`, `.regularOpen` + `none` tail) whenever patterns were present (the
+     `| _, _ => declared` arm), losing the `...`. Harmless while pattern-defs never closed; once
+     SC-1c made them close, an open-via-tail pattern def `#A: {x, [=~"^a"], ...} & {extra}` wrongly
+     REJECTED `extra` (cue admits — the `...` opens it). Fix: co-represent tail+patterns at parse
+     time. Introduced a single tail-aware `baseValue` (`match parts.tail | some tail => mkStruct
+     parts.fields .defOpenViaTail (some tail) parts.patterns | none => parsedFieldsBaseValue …`)
+     used by every `declared` arm (plain, comprehension-only, comprehension+pattern conj base), so
+     the `...` + patterns now CO-REPRESENT in all four combinations. `mkStruct` with
+     `.defOpenViaTail` enforces ILL-1: tail present, patterns retained as value-constraints,
+     `closingPatterns = []` (open ⇒ closes nothing). The whole trailing `match parts.tail` dispatch
+     collapsed to `declared` (now redundant — `baseValue` already encodes the tail). Verified vs
+     cue v0.16.1: pattern+`...` admits a non-matching `extra` (OPEN); pattern+no-`...` still rejects
+     a non-matching `z` (SC-1c CLOSING intact); pattern+`...` still value-constrains a matching
+     `abc` (`"no"` vs `int` → bottom). Pins: 4 `native_decide` theorems in `ParseTests`
+     (`parse_pattern_tail_stays_open`, `parse_pattern_notail_closes`,
+     `parse_pattern_tail_value_constrains`, `parse_pattern_tail_node_is_open_via_tail` — the last
+     inspects the parsed node: `openness = .defOpenViaTail` ∧ `tail.isSome` ∧ `closingPatterns = []`)
+     + 3 fixtures (`definitions/sc1d_pattern_tail_stays_open`, `…_notail_closes`,
+     `…_tail_value_constrains`) with `FixturePorts` ports. **Real-app:** cert-manager re-probed
+     READ-ONLY — exports clean (exit 0, ~32s), no regression (diff vs cue is the known field-ORDER
+     gap #3 only, same keys/values). argocd still bottoms on the PRE-EXISTING Bug2-3/perf wall, NOT
+     an SC-1d/SC-1c over-close — and **no prod9 file combines a `[pattern]:` with `...` in one
+     struct**, so SC-1c had NOT over-closed any real-app `{patterns, ...}` shape: SC-1d is the
+     forward-looking fix for the regression SC-1c could cause, not a recovery of a live regression.
+     SC-1d cannot regress the real apps — it is purely additive to openness (preserves `...`), so it
+     can only make a struct MORE open, never more closed. `Parse.lean` `parsedFieldsValue`.
 2. **D#1a — DONE (2026-06-19).** Comprehension guard: a BOTTOM guard now PROPAGATES instead of
    being swallowed. Mechanism: the six expansion helpers
    (`expandClauses`/`expandForPairs`/`expandComprehension`/`expandComprehensions` + the two list

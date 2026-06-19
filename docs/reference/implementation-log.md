@@ -8677,3 +8677,54 @@ fixture `modules/regexp_import` (end-to-end loader: `import "regexp"` resolves +
 `shellcheck` clean. cert-manager re-probed READ-ONLY: exports clean (~34s), no regression. prod9
 probe: the `defs/filters` package no longer errors on `import "regexp"` — it now advances to a
 *different* unimplemented builtin (`text/template`), proving the regexp import is unblocked.
+
+## SC-1d — parser preserves the `...` tail when a struct also has patterns (over-close regression fix, 2026-06-19)
+
+**Problem.** `Parse.parsedFieldsValue` dropped the `...` tail at PARSE time whenever the struct
+ALSO declared pattern constraints. The `some tail` branch's `| _, _ => declared` arm returned
+`declared` (built from `parsedFieldsBaseValue`, which forces `.regularOpen` + `none` tail) the
+moment patterns were present, discarding the `...`. Harmless while pattern-defs never closed; once
+SC-1c made a no-`...` pattern def CLOSE, a def written `#A: {x, [=~"^a"], ...}` parsed WITHOUT its
+`...`, so normalize closed it and it wrongly REJECTED extra fields the `...` should admit (an
+over-close — a wrong REJECTION). Spec: a `...` makes the struct OPEN for all regular fields
+regardless of pattern constraints (the two are orthogonal axes on the unified `Value.struct`,
+which carries both tail/openness AND patterns/closingPatterns — Area-C).
+
+**Fix.** Co-represent tail + patterns at parse time. Introduced one tail-aware `baseValue`:
+
+    let baseValue :=
+      match parts.tail with
+      | some tail => mkStruct parts.fields .defOpenViaTail (some tail) parts.patterns
+      | none => parsedFieldsBaseValue parts.fields parts.patterns
+
+and routed EVERY `declared` arm through it (plain base, comprehension-only via `structCompOpenness`,
+and the comprehension+pattern `.conj` whose base arm is now `baseValue`). `mkStruct` with
+`.defOpenViaTail` enforces the ILL-1 coherence: the tail is kept, the patterns are retained as
+value-constraints, and `closingPatterns = []` (open ⇒ closes nothing). The whole trailing
+`match parts.tail with | none => declared | some tail => …` dispatch then collapsed to a bare
+`declared` — fully redundant once `baseValue` encodes the tail in all four pattern×comprehension
+combinations.
+
+**Behavior (cross-checked vs cue v0.16.1, they agree — `...` opens).**
+- `#A: {x: int, [=~"^a"]: int, ...} & {x: 1, extra: 5}` → admits `extra` (OPEN via `...`), output
+  retains the `...`. This is the fixed case.
+- `#A: {x: int, [=~"^a"]: int} & {x: 1, z: 9}` (NO `...`) → REJECTS `z` (`z: _|_`). SC-1c closing
+  still holds — the fix did not re-open the no-`...` pattern def.
+- `#A: {x: int, [=~"^a"]: int, ...} & {x: 1, abc: "no"}` → `abc` matches the pattern, so the value
+  is constrained: `"no"` vs `int` → bottom. `...` admits the LABEL; the pattern constrains the VALUE.
+
+**Tests.** 4 `native_decide` pins in `ParseTests` (`parse_pattern_tail_stays_open`,
+`parse_pattern_notail_closes`, `parse_pattern_tail_value_constrains`, and
+`parse_pattern_tail_node_is_open_via_tail` — inspects the parsed node directly:
+`openness = .defOpenViaTail` ∧ `tail.isSome` ∧ `closingPatterns = []`) + 3 fixtures
+(`definitions/sc1d_pattern_tail_stays_open`, `…_notail_closes`, `…_tail_value_constrains`) with
+`FixturePorts` ports.
+
+**Verify.** `lake build` green (96 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok`;
+`shellcheck` clean. cert-manager re-probed READ-ONLY: exports clean (exit 0, ~32s), no regression
+(the remaining diff vs cue is the known field-ORDER gap #3 — same keys/values). argocd still bottoms
+on the PRE-EXISTING Bug2-3/perf wall, NOT an SC-1d/SC-1c over-close. No prod9 file combines a
+`[pattern]:` with `...` in one struct, so SC-1c had not over-closed a live `{patterns, ...}` shape —
+SC-1d is the forward-looking fix for the regression SC-1c could cause, not a recovery of a live one.
+SC-1d is purely additive to openness (preserves `...`), so it can only make a struct MORE open,
+never more closed — it cannot regress the real apps.
