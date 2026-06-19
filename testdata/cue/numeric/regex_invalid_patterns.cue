@@ -1,0 +1,5 @@
+invalid:    "x" =~ "a("
+notInvalid: "x" !~ "a("
+deferred:   "x" =~ "(?i)a"
+valid:      "abc" =~ "^a"
+validNot:   "abc" !~ "^a"

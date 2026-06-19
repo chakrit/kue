@@ -140,13 +140,14 @@ graph is healthy post-RX-1b.
   descent) → `AssertKind`/`Inst`/`NFA` → `Compile` (Thompson + `desugar`) → `Vm` (Pike) →
   `matchRegex`/`regexParseError?` (entrypoints). The no-`DecidableEq` `Value` perf carve-out
   correctly does NOT apply here. **Verdict: exemplary leaf; no action.**
-- **RX-2b soundness hole — blast radius EXACTLY 4 sites, all one entrypoint (re-confirmed).**
-  `matchRegex` (`Regex.lean:691`) swallows `parseRegex .error → false`. The 4 callers
-  (`Eval.lean:934` `evalRegexMatch`, `Order.lean:232` `subsumesWithFuel`, `Lattice.lean:27`
-  `meetStringRegexPrim`, `Builtin.lean:675` `regexp.Match`) ALL route through this one bool, so
-  the fix is correct-by-construction: guard each with the already-defined-and-UNUSED
-  `regexParseError?` (`Regex.lean:700`) → `.bottomWith [.invalidRegex …]`. Contained; no new
-  call sites hidden. Confirmed `invalidRegex` is NOT yet a `BottomReason` arm (RX-2b adds it).
+- **RX-2b soundness hole — blast radius was 4 sites + 1 (RESOLVED 2026-06-19).** `matchRegex`
+  (`Regex.lean`) swallowed `parseRegex .error → false`. The 4 named callers (`evalRegexMatch`,
+  `subsumesWithFuel`, `meetStringRegexPrim`, `regexp.Match`) routed through it, AND a FIFTH the
+  4-site sweep missed: the pattern-LABEL application (`labelMatchesPatternWith` wraps the meet in
+  `!containsBottom`, swallowing the parse bottom into a non-match). All five now guard on
+  `regexParseError?` (the 5th at the `applyEvaluatedStructN` chokepoint via `patternsRegexError?`).
+  `BottomReason.invalidRegex pattern err` added (carries the typed `RegexParseError`; `Value.lean`
+  imports the Regex leaf). DONE — see the consolidated-backlog entry.
 - **SC-2 closing-walker twin vs the D#2 structural-cycle walker — NO shared abstraction
   warranted (DRY check).** The SC-2 twin (`normalizeDefinitionFieldWithFuel`, `Normalize.lean`)
   is a STATIC normalization pass that closes nested def-body field values at capture time; the
@@ -311,18 +312,37 @@ Re-rank with the RE2 regex engine landed (RX-1a/b) and D#2 designed (this audit)
 (slice-loop): contained-soundness before larger features; cue-AGREEING correctness before
 divergence; designed levers before undesigned. **Recommended next 3-4:**
 
-1. **RX-2b (MED→HIGH soundness, CHEAP — first).** Invalid/deferred regex pattern must be a
-   build ERROR (bottom), not silent `false`. The auditor flagged this should precede RX-1c, and
-   the spike CONFIRMS the sequencing: RX-2b is mechanical (the `regexParseError?` helper is
-   already defined and UNUSED — `Regex.lean:700`; the fix is one guard at each of the 4
-   `matchRegex` sites: `Eval.lean:934`, `Order.lean:232`, `Lattice.lean:27`, `Builtin.lean:675`),
-   it is a genuine SOUNDNESS hole (`=~` silently `false` / `!~` silently `true` / a VALID string
-   bottomed at the Lattice site on an invalid pattern), and — the decisive reason — it makes
-   RX-1c's NEW dispatch CORRECT-BY-CONSTRUCTION: RX-1c adds `Find*`/`ReplaceAll` arms that parse
-   the same pattern, so landing the invalid-pattern→bottom contract FIRST means every RX-1c arm
-   inherits the correct error behavior instead of re-introducing the swallow per arm. Doing RX-1c
-   first would build new capture-dispatch on top of the unsound swallow, then retrofit the error
-   contract across more sites. Sequence: **RX-2b → RX-1c.** Needs `BottomReason.invalidRegex`.
+1. **RX-2b — DONE (2026-06-19).** Invalid/deferred regex pattern now bottoms with
+   `BottomReason.invalidRegex pattern err` (carries the offending pattern + the structured
+   `RegexParseError`), not a silent `false`/`true`/valid-string-bottom. The already-defined-and-
+   unused `regexParseError? : String → Option RegexParseError` (`Regex.lean`) became the shared
+   decision; each of the 4 `matchRegex` dispatch sites guards on it before matching:
+   `Eval.evalRegexMatch` (concrete-string arm → `.bottomWith [.invalidRegex …]`, abstract operand
+   still defers via the `.binary` residual arm — NOT bottom); `evalRegexNotMatch` delegates to
+   `evalRegexMatch` so its `.bottomWith` flows through the `value => value` arm — `!~` bottoms,
+   NOT silently `true`; `Lattice.meetStringRegexPrim` (invalid pattern bottoms BEFORE the prim
+   match — was: a VALID string bottomed); `Order.subsumesWithFuel` `.stringRegex`-vs-string arm
+   (`(regexParseError? pattern).isNone && matchRegex …` — an invalid constraint subsumes nothing);
+   `Builtin.regexp.Match`. A FIFTH consumer surfaced and was fixed: the pattern-LABEL application
+   path (`[=~"a("]:` predicate) — `Eval.applyEvaluatedStructN` now bottoms the struct via a new
+   `patternsRegexError?` scan of the label predicates (a `.stringRegex`/`.conj`-wrapped invalid
+   concrete pattern; an ABSTRACT predicate does not trip), because `Lattice.labelMatchesPatternWith`
+   wraps the meet in `!containsBottom` and so would have swallowed the parse bottom into a
+   non-match. `Value.lean` gained `import Kue.Regex` to carry the typed error in `BottomReason`
+   (Regex stays an import-less leaf; no cycle). **`BottomReason.invalidRegex` added.** Pins: 4
+   `regexParseError?` helper pins in RegexTests; 9 dispatch-site pins in LatticeTests (eval +
+   meet + label, valid-unchanged, abstract-stays-residual); 2 in OrderTests; 1 in BuiltinTests
+   (+ the F-1 valid pins stay green) + 2 fixtures (`numeric/regex_invalid_patterns`,
+   `definitions/regex_invalid_pattern_label`). Verified vs cue v0.16.1: `=~`/`!~`/`regexp.Match`/
+   `[=~…]` all error on `a(`; **two intentional divergences** recorded (`cue-divergences.md`): cue
+   tolerates an invalid pattern with NO field-to-match (`{[=~"a("]: int}` → `{}`); Kue bottoms
+   eagerly (RE2 says the literal is ill-formed regardless of application). Deferred constructs
+   (`(?i)`) bottom in Kue but cue/RE2 support them — this is the RX-2a not-yet-implemented feature
+   surfaced honestly, not a "Kue-correct" divergence. cert-manager content-identical to cue
+   (`jq -S`, exit 0, ~32s) — valid-pattern apps unaffected. Axiom-clean (`{propext, Quot.sound,
+   Classical.choice}`). **Sequenced before RX-1c so its `Find*`/`ReplaceAll` arms inherit the
+   invalid→bottom contract correct-by-construction.** `Value.lean`, `Eval.lean`, `Lattice.lean`,
+   `Order.lean`, `Builtin.lean`.
 2. **RX-1c (HIGH — completes the regex trilogy, prod9 unblock).** Submatch + `regexp.ReplaceAll`
    (`${n}` Expand grammar) + `Find*`/`FindSubmatch`; remove the `unsupportedBuiltin` deferral
    arms. The Pike-VM already FILLS the capture array (Phase-A audit dumped the slots: nested,
@@ -346,14 +366,11 @@ divergence; designed levers before undesigned. **Recommended next 3-4:**
 **NEW fix-slices from the SC-2/RX-1a/RX-1b Phase-A audit (`a5862df..04eb7de`, 2026-06-19),
 ranked into the MED/LOW tail:**
 
-- **RX-2b (MED, contained).** Invalid/deferred regex pattern must be a build ERROR (bottom),
-  not silent `false`. Wire the already-defined `regexParseError?` into all 4 dispatch sites
-  (`Eval.evalRegexMatch` + `evalRegexNotMatch`, `Order.subsumesWithFuel`,
-  `Lattice.meetStringRegexPrim`, `Builtin.regexp.Match`): on `some err` return
-  `.bottomWith [.invalidRegex …]` (new `BottomReason` arm) instead of letting `matchRegex`
-  collapse the error to a bool. Spec/RE2/cue all error here; the swallow makes `=~` silently
-  false and `!~` silently true. Pre-existing (old engine too), but `regexParseError?` makes it
-  cheap now. Fixtures: `=~`/`!~`/`regexp.Match`/bound-meet each with `(` → bottom.
+- **RX-2b — DONE (2026-06-19).** See the ranked-#1 entry above for the as-built record. Wired
+  `regexParseError?` into all 4 `matchRegex` dispatch sites + a 5th (the pattern-LABEL path via
+  `applyEvaluatedStructN`/`patternsRegexError?`); added `BottomReason.invalidRegex`; `!~` bottoms;
+  abstract operands/labels stay unresolved. Fixtures shipped; cert-manager content-identical;
+  two cue divergences recorded.
 - **RX-2c (LOW-MED, tiny).** Cap repeat counts at 1000 (RE2 limit). In `parseRepeatSuffix`,
   reject `m`/`n` > 1000 as `.invalid` (→ `.malformed "invalid repeat count"`), matching cue's
   `invalid repeat count`. Closes both a conformance gap (Kue accepts `a{0,5000}`) and a

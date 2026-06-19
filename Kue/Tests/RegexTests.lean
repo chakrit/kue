@@ -151,6 +151,21 @@ theorem rx_unicode_prop_unsupported : isUnsupported "\\p{L}" = true := by native
 theorem rx_named_capture_unsupported : isUnsupported "(?P<n>a)" = true := by native_decide
 theorem rx_posix_class_unsupported : isUnsupported "[[:alpha:]]" = true := by native_decide
 
+/-! ## RX-2b — `regexParseError?` is the shared invalid-pattern decision
+
+    The 4 `matchRegex` dispatch sites (`=~`/`!~`, `Order.subsumesWithFuel`,
+    `Lattice.meetStringRegexPrim`, `regexp.Match`) guard on this one helper, so a concrete
+    invalid/deferred pattern bottoms uniformly instead of swallowing to a non-match. A VALID
+    pattern returns `none` (no behavior change for the matching corpus above). -/
+
+theorem rx_parse_error_malformed : regexParseError? "a(" = some (.malformed "unbalanced ( — missing )") := by
+  native_decide
+theorem rx_parse_error_deferred : regexParseError? "(?i)a" = some (.unsupportedRegex "inline flags / group modifier (?…)") := by
+  native_decide
+theorem rx_parse_error_valid_is_none : regexParseError? "^a" = none := by native_decide
+theorem rx_parse_error_valid_group_is_none : regexParseError? "^([a-z0-9]+(-[a-z0-9]+)*)$" = none := by
+  native_decide
+
 /-! ## RX-1b — Pike-VM match pins (the behavior change)
 
     `matchRegex` is the unanchored RE2 `Match`/CUE `=~` boolean. Each repro below was

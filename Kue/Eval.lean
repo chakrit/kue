@@ -406,19 +406,40 @@ def embeddedSelfPassFieldIndices (canonical : List Field) (newEmbeddedLabels : L
               if next.length == tainted.length then tainted else fix f next
         if seed.isEmpty then [] else fix canonical.length seed.eraseDups
 
+/-- The invalid/deferred regex carried by a concrete pattern-label predicate, if any. A
+    `[=~"a("]:` label predicate is a `.stringRegex` (a `.conj` carries it after a meet combines
+    predicates); an invalid concrete pattern there bottoms the whole struct (cue errors),
+    mirroring the 4 `matchRegex` dispatch sites. An ABSTRACT predicate (a `.ref`, `.kind`, …)
+    is not a `.stringRegex` literal and so never trips — it stays unresolved. -/
+def stringRegexError? : Value -> Option (String × RegexParseError)
+  | .stringRegex pattern => (regexParseError? pattern).map (fun err => (pattern, err))
+  | _ => none
+
+def labelPatternRegexError? : Value -> Option (String × RegexParseError)
+  | .stringRegex pattern => (regexParseError? pattern).map (fun err => (pattern, err))
+  | .conj constraints => constraints.findSome? stringRegexError?
+  | _ => none
+
+def patternsRegexError? (patterns : List (Value × Value)) : Option (String × RegexParseError) :=
+  patterns.findSome? (fun pattern => labelPatternRegexError? pattern.fst)
+
 /-- Re-emit an evaluated normalized struct, applying its evaluated patterns to the
     evaluated fields by meeting a pattern-only struct against the field-only struct. A
     no-pattern struct skips the meet and is `mkStruct`-built directly; a pattern struct
     routes through `meet`, which applies the patterns to the fields. `closingPatterns`
     (SC-1) is preserved on the pattern-only struct so a meet-result's split between closing
     and value-only patterns survives re-evaluation (without it, every pattern would re-mark
-    as closing and re-open a closed absorbed-pattern result). -/
+    as closing and re-open a closed absorbed-pattern result). An invalid concrete
+    pattern-label predicate bottoms the struct before any application (RX-2b). -/
 def applyEvaluatedStructN
     (fields : List Field)
     (openness : StructOpenness)
     (tail : Option Value)
     (patterns : List (Value × Value))
     (closingPatterns : List Value) : Value :=
+  match patternsRegexError? patterns with
+  | some (pattern, err) => .bottomWith [.invalidRegex pattern err]
+  | none =>
   match patterns with
   | [] => mkStruct fields openness tail [] closingPatterns
   -- The fields AND the tail stay on the pattern-bearing struct so the closedness check sees
@@ -931,7 +952,10 @@ def evalPrimitiveOrdering
 
 def evalRegexMatch (left right : Value) : Value :=
   match left, right with
-  | .prim (.string value), .prim (.string pattern) => .prim (.bool (matchRegex pattern value))
+  | .prim (.string value), .prim (.string pattern) =>
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => .prim (.bool (matchRegex pattern value))
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons

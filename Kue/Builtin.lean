@@ -672,7 +672,9 @@ def evalYamlBuiltin : String -> List Value -> Value
     apps export. -/
 def evalRegexpBuiltin : String -> List Value -> Value
   | "regexp.Match", [.prim (.string pattern), .prim (.string s)] =>
-      .prim (.bool (matchRegex pattern s))
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => .prim (.bool (matchRegex pattern s))
   | name, args =>
       if args.any containsBottom then
         .bottom

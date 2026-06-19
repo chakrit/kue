@@ -8981,3 +8981,65 @@ to cue (field-order-insensitive, ~32s); argocd unchanged (still its pre-existing
 bottom). Next-step → RX-1c (expose the capture array; `regexp.ReplaceAll` + `Expand` template
 grammar + `Find*`/`FindSubmatch`; remove the `unsupportedBuiltin` deferral arms — unblocks
 prod9's `regexp.ReplaceAll` filter packages).
+
+## RX-2b — invalid/deferred regex pattern bottoms at every regex site (soundness, 2026-06-19)
+
+**Bug (pre-existing, carried from the old engine).** `matchRegex` (`Regex.lean`) collapses a
+`parseRegex` error to `false`, so an invalid (`a(`) or deferred (`(?i)a`) pattern silently
+became a NON-MATCH at every dispatch site: `=~` → `false`, `!~` → `true`, the lattice pattern
+meet bottomed a VALID string against the invalid pattern, and a `[=~"a("]:` label predicate
+silently failed to constrain. RE2/cue ERROR on an invalid pattern (`invalid regexp`). A
+soundness hole at every regex site.
+
+**Fix.** The already-defined-and-unused `regexParseError? : String → Option RegexParseError`
+became the shared decision. New `BottomReason.invalidRegex (pattern : String) (error :
+RegexParseError)` carries the offending pattern + the structured parse error (strongly-typed,
+not a stringly message — `Value.lean` gained `import Kue.Regex`; Regex stays an import-less
+leaf, no cycle). Each site guards on `some err → .bottomWith [.invalidRegex pattern err]`
+BEFORE matching:
+
+- `Eval.evalRegexMatch` — concrete-string arm bottoms; the abstract operand still hits the
+  `.binary .regexMatch` residual arm (deferred, NOT bottom — same discipline as F-1's
+  `regexp.Match` deferral).
+- `Eval.evalRegexNotMatch` — delegates to `evalRegexMatch`; its `.bottomWith` flows through the
+  `value => value` arm, so `!~` bottoms (NOT silently `true`). No separate guard needed.
+- `Lattice.meetStringRegexPrim` — invalid pattern bottoms before the prim match (was: a valid
+  string bottomed against the invalid pattern).
+- `Order.subsumesWithFuel` `.stringRegex`-vs-string arm — `(regexParseError? pattern).isNone &&
+  matchRegex …`: an invalid constraint is unsatisfiable, subsumes nothing.
+- `Builtin.regexp.Match`.
+
+**A FIFTH consumer the audit's "exactly 4 sites" sweep missed.** The pattern-LABEL application
+path: `Lattice.labelMatchesPatternWith` wraps the label×predicate meet in `!containsBottom`, so
+the new `.invalidRegex` bottom would be swallowed back into a non-match (the invalid pattern
+silently fails to constrain any field). Fixed at the `Eval.applyEvaluatedStructN` chokepoint:
+a new `patternsRegexError?` scans the struct's label predicates (`labelPatternRegexError?`
+handles a `.stringRegex` and a `.conj`-wrapped one; an ABSTRACT predicate — a `.ref`/`.kind` —
+does not trip), and the whole struct bottoms before any pattern application. Contained to the
+re-emit chokepoint; the closedness machinery (SC-1/SC-2) is untouched.
+
+**Divergences from cue (recorded, Kue is spec-correct).** (1) cue tolerates an invalid pattern
+with NO field-to-match (`{[=~"a("]: int}` → `{}`) — it only errors when a field is matched
+against the pattern (lazy eval-strategy artifact). Kue bottoms eagerly: an invalid regex literal
+is ill-formed per RE2 regardless of application (illegal-states-unrepresentable). (2) Deferred
+RE2 constructs (`(?i)`, `\p{…}`, etc.) bottom in Kue but cue/RE2 SUPPORT them — this is the
+RX-2a not-yet-implemented feature surfaced honestly (stub-not-silent-wrong), not a Kue-correct
+divergence; RX-2a will implement them. Both in `cue-divergences.md`.
+
+**Tests.** 4 `regexParseError?` helper pins (RegexTests); 9 dispatch-site pins (LatticeTests:
+`evalRegexMatch`/`evalRegexNotMatch` invalid+deferred bottom, valid unchanged, abstract residual;
+`meetStringRegexPrim` invalid bottom + valid unchanged; `applyEvaluatedStructN` label invalid
+bottom + abstract-does-not-trip); 2 (OrderTests: invalid subsumes nothing, valid subsumes match);
+1 (BuiltinTests: `regexp.Match` invalid bottom; the F-1 valid pins stay green). 2 fixtures:
+`numeric/regex_invalid_patterns` (`=~`/`!~`/deferred bottom + valid match/negate),
+`definitions/regex_invalid_pattern_label` (invalid label bottoms the struct) — both with
+`FixturePorts` ports, oracle-checked.
+
+**Verify.** `lake build` green (100 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok` (only
+the 2 new fixtures added, everything else byte-identical — no valid-pattern regression);
+`shellcheck` clean. Axiom-clean: `#print axioms` on `evalRegexMatch`/`meetStringRegexPrim`/
+`applyEvaluatedStructN`/`labelPatternRegexError?` = `{propext, Classical.choice, Quot.sound}`
+(no `sorryAx`, no `partial`). prod9 probe (READ-ONLY): cert-manager content-identical to cue
+(`jq -S`, exit 0, ~32s — valid-pattern apps unaffected). Next-step → RX-1c (submatch +
+`regexp.ReplaceAll`/`Find*` — now lands correct-by-construction; every new capture-dispatch arm
+inherits the invalid→bottom contract instead of re-introducing the swallow).

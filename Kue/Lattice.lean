@@ -22,13 +22,16 @@ def meetNotPrimPrim (forbidden prim : Prim) : Value :=
     .prim prim
 
 def meetStringRegexPrim (pattern : String) (prim : Prim) : Value :=
-  match prim with
-  | .string value =>
-      if matchRegex pattern value then
-        .prim prim
-      else
-        .bottom
-  | _ => .bottomWith [.kindConflict .string (Prim.kind prim)]
+  match regexParseError? pattern with
+  | some err => .bottomWith [.invalidRegex pattern err]
+  | none =>
+      match prim with
+      | .string value =>
+          if matchRegex pattern value then
+            .prim prim
+          else
+            .bottom
+      | _ => .bottomWith [.kindConflict .string (Prim.kind prim)]
 
 def minDecimal (left right : DecimalValue) : DecimalValue :=
   if decimalLeValues left right then left else right

@@ -768,4 +768,12 @@ theorem regexp_replaceall_stays_unresolved_on_abstract_arg :
       = true := by
   native_decide
 
+-- RX-2b: `regexp.Match` with a CONCRETE invalid pattern bottoms with `.invalidRegex` (was:
+-- silently `false`), the same contract as `=~`/the pattern meet. A valid pattern is
+-- unchanged (the F-1 pins above stay green).
+theorem regexp_match_invalid_pattern_bottoms :
+    (evalBuiltinCall "regexp.Match" [.prim (.string "a("), .prim (.string "x")]
+      == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")]) = true := by
+  native_decide
+
 end Kue

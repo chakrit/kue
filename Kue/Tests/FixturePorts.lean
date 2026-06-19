@@ -261,6 +261,27 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "numeric/regex_invalid_patterns.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                -- Concrete invalid (`a(` unbalanced) bottoms at `=~` and `!~` (NOT `false`/`true`).
+                ⟨"invalid", .regular,
+                  .binary .regexMatch (.prim (.string "x")) (.prim (.string "a("))⟩,
+                ⟨"notInvalid", .regular,
+                  .binary .regexNotMatch (.prim (.string "x")) (.prim (.string "a("))⟩,
+                -- Deferred RE2 construct (`(?i)`) bottoms too (surfaced, not silent-wrong).
+                ⟨"deferred", .regular,
+                  .binary .regexMatch (.prim (.string "x")) (.prim (.string "(?i)a"))⟩,
+                -- Valid patterns unchanged: still match / still negate.
+                ⟨"valid", .regular,
+                  .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩,
+                ⟨"validNot", .regular,
+                  .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "numeric/regex_re2_repros.expected",
       content :=
         formatTopLevel
@@ -366,6 +387,17 @@ def fixturePorts : List FixturePort :=
           (meet
             (closeValue (mkStruct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))]))
             (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
+    },
+    {
+      -- RX-2b: a struct carrying an invalid concrete pattern-LABEL predicate (`[=~"a("]`)
+      -- bottoms (cue errors `invalid regexp`). The label-application path is the 5th regex
+      -- consumer; pre-RX-2b `labelMatchesPatternWith` swallowed the parse bottom into a
+      -- non-match, so the invalid pattern silently failed to constrain `k`.
+      fileName := "definitions/regex_invalid_pattern_label.expected",
+      content :=
+        match parseSource "out: {[=~\"a(\"]: int, k: 1}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
     },
     {
       -- SC-1: a closed `#C` met with an OPEN pattern struct `P` stays closed — `z` matches

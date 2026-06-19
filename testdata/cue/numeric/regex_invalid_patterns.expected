@@ -1,0 +1,5 @@
+invalid: _|_
+notInvalid: _|_
+deferred: _|_
+valid: true
+validNot: false

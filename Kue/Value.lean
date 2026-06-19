@@ -1,3 +1,5 @@
+import Kue.Regex
+
 namespace Kue
 
 inductive Kind where
@@ -509,6 +511,11 @@ inductive BottomReason where
   | divisionByZero
   | excludedValue (value : Prim)
   | unsupportedBuiltin (name : String)
+  /-- A concrete regex pattern that RE2/cue reject as invalid (unbalanced groups, dangling
+      escapes) or that Kue defers (flags, named captures). Carries the offending pattern and
+      the structured parse error. Raised at every `=~`/`!~`/pattern-meet/`regexp.Match` site
+      so an invalid pattern bottoms instead of silently matching false. -/
+  | invalidRegex (pattern : String) (error : RegexParseError)
 deriving Repr, BEq, DecidableEq
 
 /--

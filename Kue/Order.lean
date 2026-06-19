@@ -229,7 +229,8 @@ mutual
     | _ + 1, .prim expectedPrim, .prim actualPrim => expectedPrim == actualPrim
     | _ + 1, .notPrim forbidden, .prim prim => forbidden != prim
     | _ + 1, .notPrim expectedForbidden, .notPrim actualForbidden => expectedForbidden == actualForbidden
-    | _ + 1, .stringRegex pattern, .prim (.string value) => matchRegex pattern value
+    | _ + 1, .stringRegex pattern, .prim (.string value) =>
+        (regexParseError? pattern).isNone && matchRegex pattern value
     | _ + 1, .stringRegex expectedPattern, .stringRegex actualPattern =>
         expectedPattern == actualPattern
     | _ + 1, .kind expectedKind, .boundConstraint _ _ domain => kindSubsumesKind expectedKind domain.kind

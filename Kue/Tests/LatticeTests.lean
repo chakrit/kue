@@ -541,4 +541,65 @@ theorem normalize_def_structComp_openness :
         == .structComp [] [] .defOpenViaTail) = true := by
   native_decide
 
+/-! ## RX-2b — invalid/deferred regex bottoms at the eval + lattice dispatch sites
+
+    A CONCRETE invalid pattern (`a(` unbalanced, `(?i)a` deferred) bottoms with the
+    `.invalidRegex` reason at `=~`, `!~`, the pattern×string meet, and the pattern-label
+    application. `!~` bottoms too (NOT silently `true`). A VALID pattern still matches/meets
+    exactly as before, and an ABSTRACT operand stays an unresolved residual (NOT bottom). -/
+
+theorem rx2b_match_invalid_bottoms :
+    evalRegexMatch (.prim (.string "x")) (.prim (.string "a("))
+      == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")] := by
+  native_decide
+
+theorem rx2b_match_deferred_bottoms :
+    evalRegexMatch (.prim (.string "x")) (.prim (.string "(?i)a"))
+      == .bottomWith [.invalidRegex "(?i)a" (.unsupportedRegex "inline flags / group modifier (?…)")] := by
+  native_decide
+
+-- `!~` bottoms on an invalid pattern too — it delegates to `evalRegexMatch`, whose
+-- `.bottomWith` flows through the `value => value` arm (NOT negated to `true`).
+theorem rx2b_notmatch_invalid_bottoms :
+    evalRegexNotMatch (.prim (.string "x")) (.prim (.string "a("))
+      == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")] := by
+  native_decide
+
+-- Valid pattern: `=~`/`!~` unchanged (no behavior change for the matching corpus).
+theorem rx2b_match_valid_unchanged :
+    (evalRegexMatch (.prim (.string "abc")) (.prim (.string "^a")) == .prim (.bool true)
+      && evalRegexNotMatch (.prim (.string "abc")) (.prim (.string "^a")) == .prim (.bool false))
+      = true := by
+  native_decide
+
+-- Abstract pattern operand stays an unresolved `.binary` residual (deferred), NOT bottom.
+theorem rx2b_match_abstract_stays_residual :
+    evalRegexMatch (.prim (.string "x")) (.kind .string)
+      == .binary .regexMatch (.prim (.string "x")) (.kind .string) := by
+  native_decide
+
+-- Lattice pattern×string meet: invalid pattern bottoms (was: VALID string bottomed silently).
+theorem rx2b_meet_invalid_bottoms :
+    meetStringRegexPrim "a(" (.string "x")
+      == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")] := by
+  native_decide
+
+theorem rx2b_meet_valid_unchanged :
+    (meetStringRegexPrim "^a" (.string "abc") == .prim (.string "abc")
+      && isBottom (meetStringRegexPrim "^a" (.string "zzz"))) = true := by
+  native_decide
+
+-- Pattern-LABEL application: a struct carrying an invalid `[=~"a("]:` predicate bottoms
+-- (the 5th consumer — `labelMatchesPatternWith` previously swallowed the parse bottom into
+-- a non-match). An ABSTRACT label predicate (`.kind .string`) does not trip.
+theorem rx2b_label_pattern_invalid_bottoms :
+    applyEvaluatedStructN [⟨"k", .regular, .prim (.int 1)⟩] .regularOpen none
+        [(.stringRegex "a(", .kind .int)] []
+      == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")] := by
+  native_decide
+
+theorem rx2b_label_pattern_abstract_does_not_trip :
+    (patternsRegexError? [(.kind .string, .kind .int)]).isNone = true := by
+  native_decide
+
 end Kue
