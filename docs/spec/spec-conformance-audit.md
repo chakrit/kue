@@ -58,6 +58,74 @@ the spec-first fix-slice backlog in `plan.md`.
 
 ## Findings (ranked; filled as auditors return)
 
+### Phase-A audit of the RX-2b + RX-1c batch (`5d884af..e4922c9`, 2026-06-19)
+
+Pressure-tested the regex trilogy's final two slices (invalid-pattern bottom contract +
+submatch/`Find*`/`ReplaceAll` engine surface) against `cue` v0.16.1 and the RE2 spec.
+**Verdict: both slices spec-correct; nothing reverted. ONE recategorization (low-risk doc)
++ ONE test-strength fix applied inline; no code/behavior change.**
+
+- **RX-1c newline-prefix fix (`ac354ab`) — CORRECT, both halves verified.** The unanchored
+  search prefix `.star false (.cls [] true)` (negated-empty = any-char-incl-`\n`) lets the
+  search CROSS newlines (`"two" =~ "one\ntwo"` → true; `"a\nb" =~ "b"` → true), WITHOUT
+  making a bare `.` match `\n`: `.any` still compiles to `Inst.any`, gated by `c != '\n'`
+  in `stepThreads`. Oracle-matched all four: `"a\nb" =~ "a.b"` → false, `"a\nb" =~ "a.*b"`
+  → false, `"a\nc" =~ "a.c"` → false, `"abc" =~ "a.c"` → true. No `(?s)`-style dotall
+  leakage. **The complement (`.` excludes `\n`) was UNTESTED** — added 3 regression-guard
+  pins (`rx_dot_excludes_newline`, `rx_dotstar_excludes_newline`, `rx_dot_matches_nonnewline`).
+- **Go `Expand` template — CORRECT across all edge cases.** Oracle-matched the longest-name
+  rule and the subtle cases: `$10` → group 10 (nonexistent) → empty (`"--"`); `${1}0` →
+  group 1 + `"0"`; `$0` → whole match; `$$1` → literal `$` then `"1"`; trailing `$` →
+  literal; `$$` → `$`. `expandTemplate` is fuel-bounded by template length, total.
+- **Totality / axioms — clean.** `#print axioms` for `matchRegex`/`findSubmatch`/`find`/
+  `findAll`/`findAllSubmatch`/`replaceAll`/`replaceAllLiteral` = `{propext, Quot.sound,
+  Classical.choice}` only. No `partial`, no `sorry`. The empty-match advance (`allMatches`
+  `next := if e ≤ pos then pos + 1 else e`) guarantees progress so the fuel
+  (`chars.length + 2`) is exact and never spuriously hit — `regexp.ReplaceAll("x*","abc","-")`
+  → `-a-b-c-` (one rune/step, no loop, oracle-matched).
+- **Submatch / leftmost — CORRECT (RE2, not POSIX-longest).** `find "a|ab" "ab"` → `"a"`
+  (first arm, leftmost — NOT longest `"ab"`); nested `(a(b)c)` spans, optional
+  non-participating `(x)?y` → `""`, alternation untaken arm `(a)|(b)` → `""` — all
+  oracle-matched. No-match → `none` → `.bottom` at the dispatch site; cue raises `no match`
+  (confirmed), so the bottom is the correct categorization (not Go's nil).
+- **Kept-unsupported — HONEST.** `FindString`/`Split` → `unsupportedBuiltin` bottom;
+  confirmed cue v0.16.1 genuinely lacks them (`cannot call non-function regexp.FindString`).
+  `FindAll(..., n)` truncation matches cue (`n<0` all, `n≥0` first n, `n=0` → no-match
+  bottom). Abstract args (`regexp.Match "a" string`) stay `.builtinCall` — incomplete, not
+  bottom.
+- **RX-2b 5-site contract — CONSISTENT.** All 5 sites verified: `=~`/`!~`
+  (`evalRegexMatch`/`evalRegexNotMatch`) bottom a concrete invalid pattern (`!~` bottoms,
+  NOT flips to true) and DEFER an abstract one (`.binary` residual); `regexp.Match`,
+  `meetStringRegexPrim`, `subsumesWithFuel` (boolean site — conservative-false, can't
+  bottom), and the pattern-label path (`patternsRegexError?` — `some` on a concrete invalid
+  `.stringRegex`/`.conj`, `none` on an abstract `.kind` predicate). Oracle-matched.
+- **Divergence-entry recategorization (APPLIED inline, low-risk doc).** The RX-2b field-less
+  invalid-label entry (`{[=~"a("]: int}` → cue `{}`, Kue `_|_`) was in `cue-divergences.md`
+  as CUE-BUG/KUE-CORRECT. It is actually a **SPEC-SILENT / operational-laziness spec gap** —
+  the same family as the import-laziness gap (B#2/F-5) and SC-2b: the spec mandates RE2
+  SYNTAX but is SILENT on WHEN an UNEXERCISED pattern constraint is validated (parse-time vs
+  lazy-on-match), and cue's tolerance is reference-location-dependent (field present ⇒ both
+  error and AGREE; field-less ⇒ cue tolerates, Kue bottoms eagerly). Moved to
+  `cue-spec-gaps.md`; Kue's eager-bottom basis (illegal-states: a struct carrying a malformed
+  constraint is ill-formed regardless of later meet) recorded. The `(?i)` deferred-construct
+  entry is correctly ABSENT from both divergence docs — cue/RE2 SUPPORT `(?i)` (`"ABC" =~
+  "(?i)abc"` → true), Kue defers it as `.unsupportedRegex`; that is Kue-incomplete (RX-2a
+  territory), NOT cue-wrong.
+- **Illegal-states / DRY / skill — clean.** No new `partial`, no catch-all `_` swallowing
+  future `Inst`/`Regex` constructors. `Captures` is a clean `abbrev`; the 6 `evalRegexpBuiltin`
+  arms each guard on `regexParseError?` first (DRY via the shared helper); the `| none =>
+  .bottom -- unreachable` arms after a checked parse are provably dead but total (ε-safe, not
+  a crash). `bumpGroups`/`findFrom`'s wrapper-group trick (reserve group 1 for the true
+  whole-match span behind the prefix-pinned slots 0/1) is the one piece of real subtlety —
+  verified correct via the leftmost/nested span probes.
+
+**No new fix-slices.** The batch is spec-correct as landed; the two inline fixes (doc
+recategorization + 3 regression-guard pins) carry no behavior change. Note: RX-2c
+(repeat-count cap at 1000) appears ALREADY DONE — `maxRepeat = 1000` is enforced in
+`parseRepeatSuffix` and pinned by `rx_repeat_over_cap_*` in RegexTests (landed with RX-1a);
+the backlog still lists it as open. Mark RX-2c DONE in the next plan-hygiene pass. Remaining
+genuine regex work: RX-2a (in-class `\D\W\S`, the lone corpus divergence).
+
 ### Phase-A audit of the SC-2 + RX-1a + RX-1b batch (`a5862df..04eb7de`, 2026-06-19)
 
 Pressure-tested the new RE2 regex engine (RX-1a/b) against `cue` v0.16.1 with a broad

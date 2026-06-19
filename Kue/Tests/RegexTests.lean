@@ -319,6 +319,13 @@ theorem rx_replaceall_prod9 :
 -- star, NOT RE2 `.` (which excludes `\n`). cue's `=~`/`Match`/Find* all match across `\n`.
 -- (A pre-existing RX-1b bug RX-1c surfaced via the prod9 multiline `([^\n]+)--two\n` filter.)
 theorem rx_match_crosses_newline : matchRegex "two" "one\ntwo" = true := by native_decide
+-- …but the fix must NOT make a bare `.` match `\n` (RE2: `.` excludes newline, no `(?s)`).
+-- The unanchored PREFIX crosses `\n`; an explicit `.` in the PATTERN does not. Both pinned
+-- against cue v0.16.1 (`"a\nb" =~ "a.b"` → false; `"a\nb" =~ "a.*b"` → false; `"abc" =~ "a.c"`
+-- → true). Regression guard for the `ac354ab` prefix fix.
+theorem rx_dot_excludes_newline : matchRegex "a.b" "a\nb" = false := by native_decide
+theorem rx_dotstar_excludes_newline : matchRegex "a.*b" "a\nxb" = false := by native_decide
+theorem rx_dot_matches_nonnewline : matchRegex "a.c" "abc" = true := by native_decide
 theorem rx_findall_crosses_newline :
     findAll "[^\n]+" "\t--one\n\t--two\n\t--three"
       = some ["\t--one", "\t--two", "\t--three"] := by native_decide
