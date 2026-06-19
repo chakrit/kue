@@ -1611,6 +1611,89 @@ def closeDefFrameReadIndices
           let seen' := newLets ++ seen
           frontier ++ closeDefFrameReadIndices f fields seen' nextReads
 
+/-- Bug2-4: the regular-output labels a FOLLOWED let's OWN comprehension reads from the let's OWN
+    frame — labels the let PROMOTES to the embed frame when it is embedded, and which the host
+    therefore narrows. Distinct from `closeDefFrameReadIndices`, which collects reads resolving to
+    the EMBED's def frame (depth 0). When a let buries BOTH the read and the declaration of the
+    narrowed sibling (`let _patch = { kind: string; for … { if kind == add.#kind {…} } }`), the
+    guard's `kind` resolves to `_patch`'s OWN frame (not `#M`'s), and `kind` is declared there too,
+    so no `#M`-def-frame index names it — the one-frame `closeDefFrameReadIndices` follow misses it.
+    But `_patch` embeds into `#M`, so its `kind` is promoted to `#M`'s frame and the use-site narrows
+    it; the guard must see the narrowed value. This walks a let's struct-like value, collects the
+    regular labels its OWN comprehensions read, and recurses into nested let slots (a let embedding a
+    let) to a FIXPOINT. `seen` (the visited let-VALUEs, by structural `BEq`) + `fuel` bound the
+    recursion total: a self/mutual let-cycle re-encounters a visited value and stops. Only WIDENS the
+    spliced label set (merges by label = the outer meet — recovers a dropped narrowing, never
+    over-splices a value), the same soundness as Bug2-1/Gap-1. -/
+def letPromotedReadLabels (fuel : Nat) (seen : List Value) : Value -> List String
+  | v =>
+      match fuel with
+      | 0 => []
+      | f + 1 =>
+          if seen.contains v then []
+          else
+            let seen' := v :: seen
+            -- A let value is a `.structComp` (unevaluated embed body) or `.struct` (evaluated). Its
+            -- OWN comprehension reads resolve to ITS frame (depth 0); keep the regular-output ones,
+            -- then recurse into the value's own let slots (a let-in-let) for further buried reads.
+            let go := fun (innerFields : List Field) (innerCs : List Value) =>
+              let ownReads := innerCs.flatMap (defFrameRefIndices evalFuel 0)
+                ++ innerFields.flatMap (fun fl => defFrameRefIndices evalFuel 0 (Field.value fl))
+              let ownLabels := ownReads.filterMap (fun i =>
+                match nthField i innerFields with
+                | some fl => if Field.isRegularOutput fl then some (Field.label fl) else none
+                | none => none)
+              let nestedLabels := innerFields.flatMap (fun fl =>
+                if fl.fieldClass == .letBinding then
+                  letPromotedReadLabels f seen' (Field.value fl)
+                else [])
+              (ownLabels ++ nestedLabels).eraseDups
+            match v with
+            | .structComp innerFields innerCs _ => go innerFields innerCs
+            | .struct innerFields _ tail _ _ =>
+                go innerFields (match tail with | some t => [t] | none => [])
+            | _ => []
+
+/-- Bug2-4 (argocd Mixin): meet a host narrowing INTO a let-local field that both DECLARES and (via
+    the let's own comprehension) READS the narrowed label. `letPromotedReadLabels` surfaces the
+    label so the host splices its narrowed value into the def frame, but when the let DECLARES its
+    own copy (`let _patch = { kind: string; for … { if kind == … } }`), that splice lands at the
+    def frame as a SIBLING — the let-local `kind: string` is a distinct binding the guard reads, so
+    the comprehension still fires against `string` and drops. cue promotes the let's `kind` to the
+    embed output and narrows it lazily; this rewrites the let's value so the local `kind` carries the
+    host's narrowing before the comprehension expands. `narrowings` is the use-operand's regular
+    `(label, value)` pairs; only a let-local that is read by the let's comprehension is touched
+    (gated by `letPromotedReadLabels` ⊇ its label), so a let that merely declares an unrelated field
+    is untouched (byte-identical). `seen`/`fuel` bound the recursion total over nested lets/cycles.
+    Sound: it only MEETS the host narrowing into a field the host narrows anyway — never invents a
+    value, never widens beyond the use-site meet. -/
+def injectLetLocalNarrowings (fuel : Nat) (narrowings : List (String × Value)) (seen : List Value) :
+    Value -> Value
+  | v =>
+      match fuel with
+      | 0 => v
+      | f + 1 =>
+          if seen.contains v then v
+          else
+            let seen' := v :: seen
+            -- The labels this let's OWN comprehension reads from its OWN frame (so only a
+            -- read-and-declared local is narrowed, not an incidental same-named field).
+            let readLabels := letPromotedReadLabels evalFuel [] v
+            let rewriteFields := fun (innerFields : List Field) =>
+              innerFields.map fun fl =>
+                if Field.isRegularOutput fl && readLabels.contains (Field.label fl) then
+                  match narrowings.find? (fun p => p.fst == Field.label fl) with
+                  | some (_, nv) => { fl with value := meet (Field.value fl) nv }
+                  | none => fl
+                else if fl.fieldClass == .letBinding then
+                  -- A nested let may itself declare-and-read a narrowed label.
+                  { fl with value := injectLetLocalNarrowings f narrowings seen' (Field.value fl) }
+                else fl
+            match v with
+            | .structComp innerFields innerCs o => .structComp (rewriteFields innerFields) innerCs o
+            | .struct innerFields o tail p e => .struct (rewriteFields innerFields) o tail p e
+            | _ => v
+
 /-- The labels of an embed body's OWN top-level fields that a comprehension inside it reads by a
     bare reference (`defFrameRefIndices` at the def frame, mapped index → label), FOLLOWING `let`
     bindings transitively (`closeDefFrameReadIndices`). These are the regular siblings a guard/source
@@ -1630,14 +1713,28 @@ def embedComprehensionReadLabels : Value -> List String
       -- read by a `for` SOURCE (`Self.#additions`) may also appear — harmless, since
       -- `spliceOperandForEmbed` only adds REGULAR operand fields with these labels.
       let seeds := cs.flatMap (defFrameRefIndices evalFuel 0)
-      (closeDefFrameReadIndices fields.length fields [] seeds
-        |>.filterMap (fun i => (nthField i fields).map Field.label)).eraseDups
+      embedReadLabelsClosing fields seeds
   | .struct fields _ tail _ _ =>
       let seeds := fields.flatMap (fun f => defFrameRefIndices evalFuel 0 (Field.value f))
         ++ (match tail with | some t => defFrameRefIndices evalFuel 0 t | none => [])
-      (closeDefFrameReadIndices fields.length fields [] seeds
-        |>.filterMap (fun i => (nthField i fields).map Field.label)).eraseDups
+      embedReadLabelsClosing fields seeds
   | _ => []
+where
+  /-- Close `seeds` over the def frame's let slots, then collect TWO label sets: the def-frame
+      labels the comprehension reads (`closeDefFrameReadIndices`, the Bug2-1 set), PLUS the
+      let-PROMOTED regular labels a followed let buries both the read AND declaration of
+      (`letPromotedReadLabels`, Bug2-4). The closed index set names every let slot that was
+      followed; feed each such let's value to `letPromotedReadLabels`. -/
+  embedReadLabelsClosing (fields : List Field) (seeds : List Nat) : List String :=
+    let closed := closeDefFrameReadIndices fields.length fields [] seeds
+    let defFrameLabels := closed.filterMap (fun i => (nthField i fields).map Field.label)
+    let promoted := closed.flatMap (fun i =>
+      match nthField i fields with
+      | some fl => if fl.fieldClass == .letBinding then
+          letPromotedReadLabels fields.length [] (Field.value fl)
+        else []
+      | none => [])
+    (defFrameLabels ++ promoted).eraseDups
 
 /-- The DISCRIMINATOR labels of an embed body's embedded disjunction (Gap-2, Bug2-2): a regular
     sibling the body declares (`shape: string`) that the disjunction's arms also DECLARE as a
@@ -2875,6 +2972,18 @@ mutual
         -- close ONCE over `def static labels ∪ each embedding's evaluated labels`. Pre-closing
         -- the static frame would wrongly reject both the embed's fields and the def's own.
         let (mergedFields, _) := mergeConjOperands ((defFields, true) :: useOperands)
+        -- Bug2-4: meet the host's regular narrowings INTO any let-local that DECLARES and READS the
+        -- narrowed label (`let _patch = { kind: string; for … { if kind == … } }`), so the buried
+        -- comprehension expands against the narrowed `kind`. A splice that lands at the def frame as
+        -- a SIBLING cannot reach the let-local (a distinct binding); cue narrows the promoted local
+        -- lazily. Gated to read-and-declared locals only (byte-identical otherwise).
+        let narrowings := useOperands.flatMap (fun op =>
+          op.fst.filterMap (fun f => if Field.isRegularOutput f then some (Field.label f, Field.value f) else none))
+        let mergedFields := if narrowings.isEmpty then mergedFields else
+          mergedFields.map (fun fl =>
+            if fl.fieldClass == .letBinding then
+              { fl with value := injectLetLocalNarrowings evalFuel narrowings [] (Field.value fl) }
+            else fl)
         let canonical := canonicalizeFields mergedFields
         let embeddings := comprehensions.filter isEmbeddingValue
         let nested <- pushFrame canonical capturedEnv

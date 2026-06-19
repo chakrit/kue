@@ -1,0 +1,9 @@
+{
+    "outMatched": {
+        "kind": "ListenerSet",
+        "meta": "yes"
+    },
+    "outDropped": {
+        "kind": "Other"
+    }
+}

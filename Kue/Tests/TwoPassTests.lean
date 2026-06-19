@@ -786,6 +786,80 @@ theorem let_buried_for_source_expands :
           = true := by
   native_decide
 
+/-! ### Bug2-4 — let-LOCAL declare-and-read narrowing (the argocd `#Mixin` blocker).
+
+Bug2-1 (above) handled a comprehension reading a regular sibling declared at the EMBED's def frame,
+through one or more lets. Bug2-4 is the harder shape `defs/parts.#Mixin` uses: the read sibling is
+DECLARED INSIDE the same let that buries the comprehension (`let _patch = { kind: string; for … {
+if kind == add.#kind {…} } }`). The guard's `kind` resolves to `_patch`'s OWN frame and `kind` is
+declared there too, so NO def-frame index names it — the splice would land at the def frame as a
+sibling, a distinct binding the guard never reads. `letPromotedReadLabels` SURFACES the label (so the
+host splices its narrowing toward the def), and `injectLetLocalNarrowings` MEETS that narrowing into
+the let-local `kind` before the comprehension expands — matching cue's lazy promote-then-narrow.
+Total via a `seen`/`fuel` bound (cycle-safe); sound because it only meets the host narrowing into a
+field the host narrows anyway (never invents a value, never over-splices). -/
+
+-- Mechanism: `_patch` declares-and-reads `kind` (slot 0 of its OWN frame) via a guard inside a
+-- `for` body (which pushes one frame: the guard's `kind` ref is `⟨1,0⟩`, resolving back to the let
+-- frame). `letPromotedReadLabels` surfaces `kind` even though it is NOT a def-frame label. Pre-fix
+-- this was the gap: the read resolved to the let's own frame, the declaration was there too, so no
+-- def-frame index named it and the narrowing never reached the guard.
+theorem let_local_declare_and_read_surfaces_label :
+    ("kind" ∈ letPromotedReadLabels evalFuel []
+      (.structComp
+        [⟨"kind", .regular, .kind .string⟩]
+        [.comprehension
+          [.forIn (some "_") "add" (.selector (.refId ⟨1, 0⟩) "#additions")]
+          (.structComp []
+            [.comprehension
+              [.guard (.binary .eq (.refId ⟨2, 0⟩) (.selector (.refId ⟨1, 0⟩) "#kind"))]
+              (.structComp [] [.selector (.refId ⟨1, 0⟩) "#patch"] .regularOpen)]
+            .regularOpen)]
+        .regularOpen)) = true := by
+  native_decide
+
+-- No-over-splice: a let-local that the comprehension does NOT read (here the let has no
+-- comprehension at all, just a static field `x`) is never surfaced — so its narrowing is never
+-- injected and an unrelated declaration stays byte-identical.
+theorem let_local_unread_not_surfaced :
+    ("x" ∈ letPromotedReadLabels evalFuel []
+      (.structComp [⟨"x", .regular, .kind .string⟩] [] .regularOpen)) = false := by
+  native_decide
+
+-- Totality / cycle bound: `injectLetLocalNarrowings` over a self-referential let value terminates
+-- (the `seen`-set stops re-following the same value) and returns a finite value (here unchanged —
+-- the cycle is broken without narrowing an unread slot).
+theorem inject_let_local_self_ref_terminates :
+    (injectLetLocalNarrowings evalFuel [("kind", .prim (.string "X"))] []
+      (.structComp [⟨"a", .letBinding, (.refId ⟨0, 0⟩)⟩] [.refId ⟨0, 0⟩] .regularOpen)
+      == (.structComp [⟨"a", .letBinding, (.refId ⟨0, 0⟩)⟩] [.refId ⟨0, 0⟩] .regularOpen)) = true := by
+  native_decide
+
+-- End-to-end (the argocd `#Mixin` minimal shape, WITH the structural disjunction): the matched
+-- patch surfaces THROUGH the let-buried declare-and-read `kind`, content-identical to cue.
+theorem mixin_let_local_disj_emits_matched_patch :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\tlet listShape = {\n\t\t#components: [string]: _patch\n\t\t[...]\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tlistShape | structShape | error(\"nope\")\n\t...\n}\n#Use: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\nout: #Use & {kind: \"ListenerSet\"}\n"
+        "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"meta\": \"yes\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- SOUNDNESS: the let-local injection meets a REAL conflict to bottom (the let declares `meta:
+-- \"fixed\"`, the matched patch yields `meta: \"clash\"`) — not a silent drop, not a spurious keep.
+theorem mixin_let_local_real_conflict_bottoms :
+    exportJsonBottoms
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tmeta: \"fixed\"\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\t_patch\n\t...\n}\n#Use: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"clash\"}}\n}\nout: #Use & {kind: \"ListenerSet\"}\n"
+          = true := by
+  native_decide
+
+-- Guard FALSE through the let-local: the matched-kind mismatches, so the body must NOT fire.
+theorem mixin_let_local_guard_false_drops_body :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\t_patch\n\t...\n}\n#Use: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\nout: #Use & {kind: \"Other\"}\n"
+        "{\n    \"out\": {\n        \"kind\": \"Other\"\n    }\n}\n"
+          = true := by
+  native_decide
+
 /-! ### Bug2-2 (Gap-2) — force-tier disjunction-arm narrowing.
 
 An embedded def `#M` carrying a discriminated disjunction (`{shape:"struct",…} |
