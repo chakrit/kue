@@ -66,14 +66,21 @@ The primary agent (you) is a thin orchestrator, not the implementer:
 3. **Spawn one subagent per slice.** It runs the full ace workflow (plan → TDD → verify:
    `lake build` + `scripts/check-fixtures.sh` + `shellcheck` → commit/push → update the
    plan, implementation-log, and breadcrumb). It works in fresh context, so the heavy
-   reads/edits never bloat the orchestrator. Two standing per-slice duties beyond the code:
+   reads/edits never bloat the orchestrator. Three standing per-slice duties beyond the code:
    - **Tests are first-class.** Don't settle for one happy-path fixture — audit the
      slice's edge/error cases and expand coverage (fixtures + `native_decide` theorems)
      until the behavior is pinned. Strengthen weak existing tests you touch.
-   - **Log CUE divergences.** While oracle-checking against `cue`, watch for cases where
-     `cue` is buggy or surprising and Kue does the correct thing. Record each in
-     `docs/reference/cue-divergences.md` (claim, `cue` output, Kue output, why Kue is
-     right, `cue` version).
+   - **Spec is the authority; `cue` is a fallible reference.** Kue exists because `cue` is
+     buggy — NEVER treat byte-identical-to-`cue` as the correctness gate (that gate is
+     structurally bug-replicating). Conform to the CUE language spec, and where the spec is
+     silent to lattice-theoretic first principles (precise, total,
+     illegal-states-unrepresentable). The `cue` binary is only a cross-check: when it
+     disagrees with the spec it is WRONG — Kue follows the spec and records it in
+     `docs/reference/cue-divergences.md` (claim, spec basis, `cue` output, Kue output,
+     `cue` version).
+   - **Flag CUE spec gaps.** When the spec is silent/ambiguous, the binary's behavior is an
+     artifact, not a mandate — record it in `docs/reference/cue-spec-gaps.md` with Kue's
+     principled choice and its basis, even when Kue matches `cue` (lower-confidence).
 4. **Cheaply verify, don't re-do.** On return, confirm the slice landed — tree clean,
    pushed, build/fixtures green, log+breadcrumb updated — with a light check (git state,
    one build/fixture run). No full skill-compliance sweep; the subagent owns depth.

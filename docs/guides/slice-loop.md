@@ -63,11 +63,24 @@ Periodic, not every cycle:
 
 Full workflow in fresh context: plan → TDD → implement → verify (`lake build` +
 `scripts/check-fixtures.sh` + `shellcheck`) → commit/push to `gh:main` → update
-`plan.md`, `implementation-log.md`, and the breadcrumb. Three standing duties: tests are
-first-class (pin edges, not just happy path); log CUE divergences in
-`cue-divergences.md`; when a slice changes eval cost or surfaces a slow/fast CUE pattern,
-update [`kue-performance.md`](kue-performance.md). Oracle-check behavior against `cue`
-(`/Users/chakrit/go/bin/cue`).
+`plan.md`, `implementation-log.md`, and the breadcrumb. Four standing duties: tests are
+first-class (pin edges, not just happy path); log CUE divergences in `cue-divergences.md`;
+flag CUE spec gaps in `cue-spec-gaps.md`; when a slice changes eval cost or surfaces a
+slow/fast CUE pattern, update [`kue-performance.md`](kue-performance.md).
+
+**The CUE spec is the authority, NOT the `cue` binary.** Kue exists because `cue` is
+frequently buggy; `cue` v0.16.1 is a *fallible reference implementation*, never the gold
+standard. NEVER treat byte-identical-to-`cue` as the correctness gate — that gate is
+structurally bug-replicating (it suppresses the very divergences Kue exists to fix). The
+gate is conformance to the **CUE language spec**, and where the spec is silent, to
+**lattice-theoretic first principles** (precise, total, illegal-states-unrepresentable —
+the repo's reason to be). Use the `cue` binary (`/Users/chakrit/go/bin/cue`) only as a
+cross-check, and on every behavior ask: *does the spec mandate this, or is it just what the
+binary does?* When `cue` disagrees with the spec, the binary is WRONG → Kue follows the
+spec, record in `cue-divergences.md`. When the spec is silent, `cue`'s behavior is an
+artifact → Kue makes a principled choice, record in `cue-spec-gaps.md` (even when Kue
+matches `cue` — matching an artifact is lower-confidence, not a mandate). Check the claim
+against the actual CUE spec before matching OR diverging.
 
 **Commit at checkpoints, not only at the end.** A subagent that crashes or hits a transient
 API error loses ALL uncommitted work — this has happened (~89 tool-uses lost to an
