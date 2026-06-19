@@ -343,13 +343,18 @@ divergence; designed levers before undesigned. **Recommended next 3-4:**
    Classical.choice}`). **Sequenced before RX-1c so its `Find*`/`ReplaceAll` arms inherit the
    invalid→bottom contract correct-by-construction.** `Value.lean`, `Eval.lean`, `Lattice.lean`,
    `Order.lean`, `Builtin.lean`.
-2. **RX-1c (HIGH — completes the regex trilogy, prod9 unblock).** Submatch + `regexp.ReplaceAll`
-   (`${n}` Expand grammar) + `Find*`/`FindSubmatch`; remove the `unsupportedBuiltin` deferral
-   arms. The Pike-VM already FILLS the capture array (Phase-A audit dumped the slots: nested,
-   non-participating, leftmost — all RE2-correct), so RX-1c exposes it. Unblocks honda-obs/
-   lemonsure/ssw `defs/filters/regexp.cue` (the `regexp.ReplaceAll` prod9 lever — F-1 unblocked
-   the import, RX-1c unblocks the EXPORT). Lands on top of RX-2b's error contract. Design ready
-   ("RX-1 design" + "Submatch" sections below).
+2. **RX-1c — DONE (2026-06-19).** Submatch + `regexp.ReplaceAll`/`ReplaceAllLiteral`/`Find`/
+   `FindSubmatch`/`FindAll`/`FindAllSubmatch` wired through the Pike-VM capture array; the
+   `unsupportedBuiltin` deferral arms for the implemented forms removed. The regex family is
+   now COMPLETE except RX-2a (in-class `\D\W\S`). See the as-built record in the consolidated
+   backlog (HIGH #2 below) — engine layer in the Regex leaf (`findSubmatch`/`find`/`findAll`/
+   `findAllSubmatch`/`replaceAll`/`replaceAllLiteral` + Go `Expand` template), dispatch in
+   `evalRegexpBuiltin`. Surfaced + FIXED a pre-existing RX-1b bug: the unanchored-search prefix
+   was `.any` (RE2 `.` excludes `\n`), so `=~`/`Match`/`Find*` could not cross a newline — now
+   a negated-empty class (`unanchoredPrefix`). prod9: the `#Regexp` filter (`regexp.ReplaceAll`)
+   exports cue-identical (simple + multiline `${0}${1}` cases); the `filters` PACKAGE still does
+   NOT export — its sibling `#Template` filter needs `text/template` (`template.Execute`), still
+   unimplemented (honest: NOT a full prod9 unblock). Lands on RX-2b's error contract.
 3. **Bug2-3 / Gap-2b (HIGH — the LAST argocd export blocker).** Structural disjunction-arm
    pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"); contained primitive (list-meet-
    to-bottom keying, NOT a shape heuristic), well-diagnosed. A whole app exports. Ranks with
@@ -768,9 +773,27 @@ RX-1 is large and touches a NEW module + three dispatch sites. Split at clean se
   `numeric/regex_re2_repros`; cert-manager content-identical, argocd unchanged (still its
   pre-existing Bug2-3 bottom). Totality: `compile`/`run` total, axioms = only the standard
   Lean foundational set (no `sorryAx`).
-- **RX-1c — submatch wiring: `ReplaceAll`/`Find*`.** Expose the capture array; implement
-  `regexp.ReplaceAll` (+ `Expand` template grammar) and `Find*`/`FindSubmatch`; remove the
-  matching `unsupportedBuiltin` deferral arms. Gate: prod9 filter patterns export, cue-exact.
+- **RX-1c — DONE (2026-06-19).** Exposed the Pike-VM capture array through a pure
+  `String → … → Option` engine layer in the Regex leaf — `findSubmatch`/`find`/`findAll`/
+  `findAllSubmatch` (leftmost RE2 group spans, rune-indexed) + `replaceAll`/`replaceAllLiteral`
+  (Go `Expand` template: `$n`/`${n}`/`$$`, longest-name rule for `$1suffix` vs `${1}suffix`,
+  unknown group → empty; zero-width match ADVANCES one rune per Go so it cannot stall). The
+  leftmost match START is read off an explicit whole-match wrapper group (the program's own
+  slots 0/1 are pinned to offset 0 by the lazy prefix). Wired into `evalRegexpBuiltin`
+  (Builtin.lean), removing the `unsupportedBuiltin` arms for the implemented forms; KEPT
+  `FindString*`/`FindAllString*`/`Split`/named-submatch as `unsupportedBuiltin` (cue v0.16.1
+  exposes NO such function — calling them is a non-function error there — and named captures
+  `(?P<…>)` are an RX-1a-deferred parse). The `Find*` family BOTTOMS on no-match (cue raises
+  `no match`, NOT Go's nil); invalid pattern → `.invalidRegex` (RX-2b); abstract arg stays a
+  `.builtinCall`. **Fixed a pre-existing RX-1b bug** surfaced by the prod9 multiline filter:
+  the unanchored-search prefix was `.star false .any`, but RE2 `.` excludes `\n` so the search
+  could not cross newlines — replaced with a shared `unanchoredPrefix = .star false (.cls []
+  true)` (any char incl `\n`) in both `matchRegex` and `findFrom`. Pins: 27 `native_decide`
+  RegexTests (engine layer + cross-newline regressions) + 19 BuiltinTests (dispatch) + fixture
+  `builtins/regexp_submatch` (.cue/.expected + FixturePorts) byte-identical to cue across all
+  14 fields incl. nested-list `FindAllSubmatch`. Axiom-clean. cert-manager content-identical
+  (jq -S, ~32s); argocd unchanged (pre-existing Bug2-3). prod9 HONEST: `#Regexp` filter exports
+  cue-exact, but the `filters` package still blocks on `#Template`/`text/template`.
 
 **Worktree: yes.** RX-1b deletes a large block from `Value.lean` (a hot, widely-imported
 module) and adds a leaf module — a worktree isolates the multi-file churn (new module +

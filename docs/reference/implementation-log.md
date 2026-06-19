@@ -9043,3 +9043,78 @@ the 2 new fixtures added, everything else byte-identical — no valid-pattern re
 (`jq -S`, exit 0, ~32s — valid-pattern apps unaffected). Next-step → RX-1c (submatch +
 `regexp.ReplaceAll`/`Find*` — now lands correct-by-construction; every new capture-dispatch arm
 inherits the invalid→bottom contract instead of re-introducing the swallow).
+
+## RX-1c — submatch / `regexp.ReplaceAll`/`Find*` over the Pike-VM capture array (2026-06-19)
+
+**Slice.** Completes the regex trilogy. RX-1a/b landed the RE2 Pike-VM which already FILLS a
+capture array (`NFA.run`); F-1 stubbed the capture/replace `regexp.*` forms as
+`unsupportedBuiltin`; RX-2b made an invalid pattern bottom at every regex site. RX-1c exposes
+the capture array and wires the substitution/find forms, inheriting RX-2b's `invalidRegex`
+contract by construction.
+
+**Engine layer (the Regex leaf, pure `String → … → Option`).** `findSubmatch`/`find`/`findAll`/
+`findAllSubmatch` return leftmost (RE2) match group spans, rune-indexed (the VM iterates `Char`,
+matching cue's `=~` rune semantics; spans extracted via `List.extract`/`String.ofList`).
+`replaceAll`/`replaceAllLiteral` substitute every non-overlapping match — the former expanding
+the Go `Expand` replacement template, the latter splicing verbatim. Two design points that bite:
+
+- **Leftmost match START.** The program's own whole-match slots 0/1 are PINNED to offset 0 by
+  the implicit lazy `.*?` unanchored prefix, so they cannot report the true match start. Fix:
+  wrap a group-bumped `re` in an explicit whole-match group (`bumpGroups` shifts every group
+  index +1), read the wrapper group's slots (2/3) as the true span, drop the prefix-pinned 0/1.
+- **Zero-width advance.** `allMatches` iterates non-overlapping leftmost matches; a zero-width
+  match (end ≤ its own start) ADVANCES one rune (Go behavior) — otherwise `x*` over `"abc"`
+  loops forever. Total: fuel = input length + 2 (one match consumes ≥1 rune of progress).
+
+**Go `Expand` template grammar (NOT regex backreferences).** `$name`/`${name}`/`$n`/`${n}`
+interpolate a capture group; `$$` → literal `$`. The LONGEST-NAME rule: a bare `$1suffix` names
+group `1suffix` (longest `[0-9A-Za-z_]` run) which does not exist → empty; `${1}suffix` is group
+1 then literal `suffix`. Numeric-only names resolve by index; unknown/non-participating → empty.
+Named-group references (`$g`) would need `(?P<…>)` which the parser defers, so only numeric
+references resolve.
+
+**Dispatch (`evalRegexpBuiltin`, Builtin.lean).** Removed the `unsupportedBuiltin` arms for the
+implemented forms. `Find*` family BOTTOMS on no-match (cue v0.16.1 raises `no match`, NOT Go's
+nil — oracle-confirmed); `ReplaceAll*` never bottoms on a valid pattern (no-match → `src`
+unchanged). `FindAll(p,s,n)`: `n<0` = all, `n≥0` = take n; empty result → bottom. Invalid pattern
+→ `.invalidRegex` (RX-2b); abstract arg → residual `.builtinCall`. KEPT `unsupportedBuiltin`:
+`FindString*`/`FindAllString*`/`Split` (cue v0.16.1 exposes NO such function — calling them is a
+non-function error there) and `FindNamedSubmatch`/`FindAllNamedSubmatch` (need deferred named
+captures). Honest signal, not silent-wrong.
+
+**Pre-existing RX-1b bug fixed (newline crossing).** The unanchored-search prefix was
+`.star false .any`, but RE2's `.` (`Inst.any`) EXCLUDES `\n` — so `=~`/`Match`/`Find*`/
+`ReplaceAll` could not match anywhere after a newline (`matchRegex "two" "one\ntwo"` was false;
+cue returns true). Surfaced by the prod9 multiline filter `([^\n]+)--two\n`. Fixed at the cause
+with a shared `unanchoredPrefix = .star false (.cls [] true)` (lazy star over a negated-EMPTY
+class = matches every char incl `\n`) in both `matchRegex` and `findFrom`; the body's own `.`
+is untouched (still RE2-correct, excludes `\n`).
+
+**Tests.** 27 `native_decide` RegexTests (engine layer — submatch spans incl. non-participating
+group, find/findAll, ReplaceAll Expand-template incl. `$$`/`${0}`/disambiguation/unknown-group/
+multi/no-match/zero-width/empty-pattern, ReplaceAllLiteral, invalid→none, prod9 simple +
+multiline, 3 cross-newline regressions) + 19 BuiltinTests (dispatch — every form, no-match
+bottoms, invalid→`.invalidRegex`, abstract→residual, `FindString` stays unsupported). New
+fixture `builtins/regexp_submatch` (.cue/.expected + FixturePorts port) — Kue output
+byte-identical to cue across all 14 fields incl. nested-list `FindAllSubmatch`. Every `expected`
+oracle-checked vs cue v0.16.1.
+
+**Verify.** `lake build` green (100 jobs); `check-fixtures.sh` → `fixture pairs ok` (only the new
+fixture pair added — zero drift); `shellcheck` clean. Axiom-clean (`replaceAll`/`findSubmatch` =
+`{propext, Classical.choice, Quot.sound}`, no `sorryAx`/`partial`). prod9 (READ-ONLY):
+cert-manager content-identical to cue (`jq -S`, exit 0, ~32s); argocd unchanged (still its
+pre-existing Bug2-3 `conflicting values` bottom, ~94s — NOT a regex error). **prod9 HONEST:** the
+`#Regexp` filter (`regexp.ReplaceAll`) now exports cue-exact for both the simple `${1}ly` case
+and the multiline `${0}${1}--insert\n` case, but the `filters` PACKAGE as a whole still does NOT
+export — its sibling `#Template` filter uses `text/template`'s `template.Execute`, which is
+unimplemented (not even in the import allowlist). So RX-1c unblocks the regexp filter, NOT the
+full prod9 filters package.
+
+**Regex family status: COMPLETE except RX-2a** (in-class `\D`/`\W`/`\S` set-complement). The
+`(?i)` deferred-construct categorization was re-checked: cue matches `"ABC" =~ "(?i)abc"` (true),
+Kue bottoms — this is **Kue-incomplete (RX-2a-adjacent), NOT a cue-bug**, and is correctly NOT
+recorded in `cue-divergences.md` (no miscategorization). Next-step → **two-phase audit DUE**
+(RX-2b + RX-1c since audit #12), then Bug2-3 / D#2.
+
+Files: `Kue/Regex.lean`, `Kue/Builtin.lean`, `Kue/Tests/RegexTests.lean`,
+`Kue/Tests/BuiltinTests.lean`, `Kue/Tests/FixturePorts.lean`, `testdata/cue/builtins/regexp_submatch.{cue,expected}`.
