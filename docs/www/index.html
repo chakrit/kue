@@ -21,6 +21,8 @@
     --blue-bg:   #e6f0fc;
     --gray:      #6b6b78;
     --gray-bg:   #f0f0f4;
+    --red:       #c0392b;
+    --red-bg:    #fbe9e7;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -39,6 +41,8 @@
       --blue-bg:   #15233a;
       --gray:      #9a9aa8;
       --gray-bg:   #25252e;
+      --red:       #ff8a7a;
+      --red-bg:    #361a16;
     }
   }
 
@@ -114,7 +118,7 @@
     font-size: 1.18rem;
     color: var(--muted);
     margin: 0 0 22px;
-    max-width: 620px;
+    max-width: 640px;
   }
   .hero .headline {
     display: inline-flex;
@@ -137,6 +141,11 @@
     color: var(--muted);
     margin: 0 0 18px;
     font-weight: 600;
+  }
+  section > .sub {
+    color: var(--muted);
+    margin: -10px 0 18px;
+    font-size: 0.96rem;
   }
 
   /* ---- status callout ---- */
@@ -177,6 +186,7 @@
   .pill.prog { color: var(--amber); background: var(--amber-bg); }
   .pill.next { color: var(--blue);  background: var(--blue-bg); }
   .pill.back { color: var(--gray);  background: var(--gray-bg); }
+  .pill.bug  { color: var(--red);   background: var(--red-bg); }
 
   /* ---- capabilities grid ---- */
   .caps {
@@ -221,6 +231,31 @@
   /* ---- philosophy ---- */
   .philo p { margin: 0 0 12px; }
   .philo .lead { font-size: 1.05rem; }
+  .tiers {
+    list-style: none; padding: 0; margin: 14px 0 0;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .tiers li {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 11px 15px; font-size: 0.95rem;
+  }
+  .tiers li b { color: var(--accent); }
+
+  /* ---- code legend / glossary ---- */
+  .legend { display: flex; flex-direction: column; gap: 22px; }
+  .lgroup {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 15px 18px;
+  }
+  .lgroup .grp-title { font-weight: 600; margin: 0 0 2px; }
+  .lgroup .grp-note { color: var(--muted); font-size: 0.9rem; margin: 0 0 12px; }
+  .lgroup .grp-note.warn { color: var(--amber); }
+  .lgroup dl {
+    margin: 0; display: grid;
+    grid-template-columns: max-content 1fr; gap: 8px 16px;
+  }
+  .lgroup dt { white-space: nowrap; }
+  .lgroup dd { margin: 0; color: var(--muted); font-size: 0.92rem; }
 
   /* ---- docs links ---- */
   .docs-list {
@@ -248,6 +283,8 @@
     .caps, .docs-list { grid-template-columns: 1fr; }
     .app-row { flex-direction: column; gap: 4px; }
     .app-row .app-name { min-width: 0; }
+    .lgroup dl { grid-template-columns: 1fr; gap: 2px 0; }
+    .lgroup dd { margin: 0 0 8px; }
   }
 </style>
 </head>
@@ -258,30 +295,91 @@
   <header class="hero">
     <h1>Kue</h1>
     <p class="tagline">A strongly-typed reimplementation of the CUE&nbsp;v0.15 language in
-      Lean&nbsp;4 — correctness-first.</p>
+      Lean&nbsp;4 — correctness-first, grounded on the <em>spec</em>, not on the
+      <code>cue</code> binary.</p>
     <div class="headline">
-      <span class="pill done">Milestone</span>
-      <span><strong>cert-manager</strong> exports as a content-identical drop-in for
-        <code>cue</code>; <strong>argocd</strong> is correct through link&nbsp;2.</span>
+      <span class="pill done">Now</span>
+      <span><strong>cert-manager</strong> exports as a fast, content-identical drop-in.
+        A full <strong>spec-conformance re-audit</strong> is underway — every behavior
+        regraded against the CUE&nbsp;spec, not byte-matched to a fallible binary.</span>
     </div>
   </header>
 
   <section>
-    <h2>Current status</h2>
+    <h2>The reframe (2026-06-19)</h2>
+    <p class="sub">The single most important thing to know about where Kue is right now.</p>
+    <div class="callout">
+      <div class="app-row">
+        <span class="app-desc">Kue exists because <code>cue</code> is buggy — yet the build had
+          quietly drifted into treating <em>byte-identical-to-<code>cue</code></em> as the
+          definition of "correct." That gate is <strong>structurally bug-replicating</strong>:
+          every time Kue differed, the reflex was to match <code>cue</code>, which <em>hides</em>
+          the very divergences Kue is meant to fix. We flipped it. The authority is now the
+          <strong>CUE language spec</strong>; where the spec is silent, <strong>lattice first
+          principles</strong>; the <code>cue</code> binary is a <em>fallible cross-check</em>,
+          never the gold standard. A full six-area re-audit followed — and immediately found
+          real, spec-grounded bugs the old gate had masked (a non-RE2 regex engine, missing
+          structural-cycle detection, a missing stdlib import, a guard that silently swallowed
+          errors, a closed struct that could be re-opened) while <em>vindicating</em> the bulk
+          of the engine as genuinely correct.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Real-app status</h2>
     <div class="callout">
       <div class="app-row">
         <span class="app-name">cert-manager <span class="pill done">Done</span></span>
-        <span class="app-desc"><span class="ok">Content-identical drop-in for <code>cue</code>.</span>
-          Exports correctly at production fuel in ~31s; JSON and YAML are byte-identical
-          modulo field ordering (the tracked parity gap, backlog&nbsp;#6).</span>
+        <span class="app-desc"><span class="ok">Fast, content-identical drop-in for
+          <code>cue</code>.</span> Exports correctly at production fuel in <strong>~30s</strong>
+          (down from 119s after the <code>item&nbsp;7</code> cache-hash fix — a ~3.9× win that
+          can't return a wrong value). JSON/YAML are byte-identical modulo field ordering, now
+          understood to be a deliberate <em>spec gap</em> (<code>#3</code>) where Kue's stable
+          source order is more principled than <code>cue</code>'s — not a bug to chase.</span>
       </div>
       <div class="app-row">
         <span class="app-name">argocd <span class="pill prog">In progress</span></span>
-        <span class="app-desc"><span class="ok">Correct through link&nbsp;2</span> —
-          <code>defs.#Secret</code> populated <code>base64</code> <code>data</code>,
-          content-identical to <code>cue</code> with no regression on cert-manager.
-          <strong>Blocked on link&nbsp;3</strong> (<code>#TLSRoute</code>), the live
-          correctness frontier — see backlog&nbsp;#1.</span>
+        <span class="app-desc"><span class="ok">Narrowed from a vague "perf wall" to one
+          specific, well-understood bug.</span> All components are content-correct; the full app
+          bottoms on <code>Gap-2b</code> — a real disjunction-arm under-pruning bug (a list-shaped
+          arm fails to prune against a struct host) that the re-audit confirmed is
+          <em>spec-grounded</em> (<code>cue</code> is right here), not an artifact. The narrowing
+          chain before it (<code>Gap-1</code>, <code>Gap-2</code>) is fixed.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The spec-conformance re-audit</h2>
+    <p class="sub">Six behavioral areas regraded against the spec + lattice. Each behavior gets
+      one verdict. Tracked in
+      <a href="../spec/spec-conformance-audit.md"><code>spec-conformance-audit.md</code></a>.</p>
+    <div class="caps">
+      <div class="cap">
+        <span class="cap-title">CONFORMS</span>
+        <span class="cap-body">Spec speaks, Kue matches it. The numeric/bounds/division/decimal
+          core, the lattice meet, default-mark algebra, the frame model — all verified correct,
+          not merely cue-matched.</span>
+      </div>
+      <div class="cap">
+        <span class="cap-title">KUE-VIOLATES</span>
+        <span class="cap-body">Spec speaks, Kue is wrong (often from matching a <code>cue</code>
+          bug). The fix backlog. ~9 found — including the regex engine, structural cycles, and a
+          closedness soundness hole.</span>
+      </div>
+      <div class="cap">
+        <span class="cap-title">CUE-BUG / KUE-CORRECT</span>
+        <span class="cap-body">Spec speaks, <code>cue</code> is wrong, Kue follows the spec.
+          Recorded in <a href="../reference/cue-divergences.md"><code>cue-divergences.md</code></a>
+          — deliberate, defensible disagreement with the binary.</span>
+      </div>
+      <div class="cap">
+        <span class="cap-title">SPEC-SILENT</span>
+        <span class="cap-body">The spec doesn't say. Kue derives the answer from lattice
+          principles and records the gap in
+          <a href="../reference/cue-spec-gaps.md"><code>cue-spec-gaps.md</code></a> — even when
+          it happens to match <code>cue</code> (matching an artifact is lower-confidence).</span>
       </div>
     </div>
   </section>
@@ -293,167 +391,242 @@
         <span class="cap-title">Evaluator + lattice</span>
         <span class="cap-body">Total <code>meet</code>/<code>join</code> over the full
           <code>Value</code> domain: primitives, kinds, bounds, regex, struct/list shapes.
-          Disjunctions with full default-mark algebra.</span>
+          Disjunctions with full default-mark algebra — all re-audited as spec-correct.</span>
         <pre class="cue"><code>port: int &amp; &gt;0 &amp; &lt;=65535
 port: 8080  <span class="cm">// 8080</span></code></pre>
       </div>
       <div class="cap">
-        <span class="cap-title">Closures / cross-package def-meet</span>
-        <span class="cap-body"><code>Value.closure</code> carries the capture frame so an
-          imported def unifies at the use site before cross-frame self/sibling refs resolve.
-          Deep self-ref detection; multi-level embed chains.</span>
-        <pre class="cue"><code>import "ex.com/pkg"
-web: pkg.#Def &amp; {name: "web"}</code></pre>
+        <span class="cap-title">One unified struct (<code>B2</code>)</span>
+        <span class="cap-body">Five struct constructors + a 12-arm meet matrix collapsed into one
+          normalized <code>struct</code> with orthogonal openness/tail/pattern axes — erasing a
+          whole class of missing-meet-arm bugs by construction.</span>
+        <pre class="cue"><code>{[string]: int} &amp; {a: 5, ...}  <span class="cm">// {a: 5}, open</span></code></pre>
+      </div>
+      <div class="cap">
+        <span class="cap-title">Closedness / definitions</span>
+        <span class="cap-body">Closed <code>#Def</code>s, <code>...</code> openness, recursive
+          closing, and import-binding laziness — hardened by the spec-first fixes
+          (<code>SC-1</code>, <code>SC-1c</code>, <code>SC-1d</code>): a closed struct now stays
+          closed through a pattern meet.</span>
+        <pre class="cue"><code>#C: {a: int}
+out: #C &amp; {z: 9}  <span class="cm">// z: field not allowed</span></code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Comprehensions</span>
-        <span class="cap-body">Struct and list comprehensions, including <code>if</code>
-          guards, nested / multi / zero-yield, plain+comp interleave, and scalar
-          struct-embedding collapse.</span>
+        <span class="cap-body">Struct and list comprehensions, <code>if</code> guards (a bottom
+          guard now propagates rather than vanishing — <code>D#1a</code>), nested / multi /
+          zero-yield, embedded narrowing.</span>
         <pre class="cue"><code>out: [for x in [1, 2, 3] {x * 2}]  <span class="cm">// [2, 4, 6]</span></code></pre>
       </div>
       <div class="cap">
-        <span class="cap-title">Disjunction defaults under embedding</span>
-        <span class="cap-body">Use-site narrowing distributes into every arm of an embedded
-          default disjunction, pruning dead arms.</span>
-        <pre class="cue"><code>x: (*"a" | "b") &amp; ("b" | "c")  <span class="cm">// "b"</span></code></pre>
+        <span class="cap-title">Unified frame coordinates (<code>B7</code>)</span>
+        <span class="cap-body">The de Bruijn clause-depth rule (<code>for</code> pushes a frame,
+          <code>if</code> doesn't) lives in one shared <code>descendClauses</code> fold with
+          agreement theorems — so a whole recurring class of frame-depth bugs is now a build
+          failure.</span>
       </div>
       <div class="cap">
-        <span class="cap-title">Fuel-saturation perf</span>
-        <span class="cap-body">Eval count is flat across fuel (bracketed monotonic truncation
-          counter; saturated results go fuel-free). Frame-id sharing + force-memo, partial.</span>
+        <span class="cap-title">Perf: O(N²) → O(N) memo (<code>item 7</code>)</span>
+        <span class="cap-body">The cache keyed on a shallow constructor tag, collapsing every
+          value into one hash bucket. A bounded-depth structural digest fixed it — provably
+          sound (hash-only; equality untouched). cert-manager 119s → ~30s.</span>
       </div>
       <div class="cap">
         <span class="cap-title">Builtins</span>
         <span class="cap-body"><code>base64</code>, <code>json.Marshal</code>,
-          <code>yaml.Marshal</code>, and <code>strings</code> / <code>list</code> /
-          <code>math</code> namespaces. Multiline strings.</span>
+          <code>yaml.Marshal</code>, <code>strings</code>/<code>list</code>/<code>math</code>,
+          and now <code>regexp.Match</code> (<code>F-1</code>). Numeric tower + decimal verified
+          spec-exact.</span>
         <pre class="cue"><code>import "encoding/json"
 out: json.Marshal({a: 1})  <span class="cm">// "{\"a\":1}"</span></code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Imports / modules</span>
-        <span class="cap-body"><code>cue.mod</code> discovery, in-module and cross-module
-          resolution by longest module-path prefix, multi-file package merge, transitive
-          loads, package-dir entry. IO confined to the loader; eval stays pure.</span>
+        <span class="cap-body"><code>cue.mod</code> discovery, in-module + cross-module resolution
+          by longest module-path prefix, multi-file merge, transitive loads, package-dir entry.
+          IO confined to the loader; eval stays pure.</span>
         <pre class="cue"><code>import "ex.com/pkg"
 out: pkg.#Def &amp; {name: "x"}</code></pre>
-      </div>
-      <div class="cap">
-        <span class="cap-title">CLI</span>
-        <span class="cap-body"><code>kue eval</code> and
-          <code>kue export [--out yaml|json] [file|dir]</code> over stdin or arg, with clean
-          missing-file diagnostics and exit codes.</span>
       </div>
     </div>
   </section>
 
   <section>
-    <h2>What's next</h2>
+    <h2>Spec-first fix backlog</h2>
+    <p class="sub">The re-audit's findings, ranked. Contained high-confidence fixes land before
+      the large rewrites to keep <code>main</code> shippable. See the
+      <a href="../spec/spec-conformance-audit.md">audit tracker</a> for the full list.</p>
     <div class="road">
+
+      <div class="item">
+        <div class="item-head">
+          <span class="item-title">Closedness + soundness fixes
+            (<code>SC-1</code>, <code>SC-1c</code>, <code>SC-1d</code>, <code>D#1a</code>,
+            <code>F-1</code>)</span>
+          <span class="pill done">Landed</span>
+          <span class="item-rank">HIGH · spec-grounded</span>
+        </div>
+        <p class="item-desc">A closed struct no longer re-opens when met with a pattern struct;
+          a closed selective-pattern def now closes; the parser keeps <code>...</code> when
+          patterns are present; a bottom comprehension guard propagates instead of silently
+          vanishing; <code>import "regexp"</code> resolves. Each justified by a spec citation,
+          cross-checked (not gated) against <code>cue</code>.</p>
+      </div>
 
       <div class="item live">
         <div class="item-head">
-          <span class="item-title"><code>argocd-tlsroute-list-guard</code></span>
-          <span class="pill next">Next</span>
-          <span class="item-rank">HIGH · live real-app blocker · argocd link 3</span>
+          <span class="item-title"><code>F-2</code> — self-module <code>@vN</code> strip</span>
+          <span class="pill next">In progress</span>
+          <span class="item-rank">HIGH · contained</span>
         </div>
-        <p class="item-desc"><code>#TLSRoute.spec.parentRefs</code> is a list whose elements
-          are <code>if Self.#x != _|_ {…}</code> guards over use-site-narrowed hidden fields,
-          bottoming out. The list analog of the struct-comprehension narrowing fix: apply the
-          same narrowing-before-guard-eval discipline to list-element <code>if</code> guards
-          inside a force-spliced def. Minimal repro passes; bisect the real def to find the
-          extra structure. The next correctness link to make argocd a drop-in.</p>
-        <pre class="cue"><code>#x: string
-parentRefs: [if #x != _|_ {ref: #x}]</code></pre>
+        <p class="item-desc">A module declared <code>module: "x@v0"</code> didn't get its major-version
+          suffix stripped for its <em>own</em> imports (dependencies were), so in-module imports
+          against the bare path failed. One-file loader fix.</p>
       </div>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title"><code>truncate-primitive</code></span>
+          <span class="item-title"><code>RX-1</code> — regex engine → RE2</span>
           <span class="pill back">Backlog</span>
-          <span class="item-rank">HIGH · soundness hardening</span>
+          <span class="item-rank">HIGH · large (3-slice) · highest real-app lever</span>
         </div>
-        <p class="item-desc">The truncation-bump invariant is held by discipline across six
-          sites. Add an <code>EvalState.truncate</code> combinator fusing bump+return and
-          rewrite all six — behavior-preserving, byte-identical, localizing the bump to one
-          definition. The illegal-states-unrepresentable reason-to-be for code that already
-          shipped corruption once latent.</p>
+        <p class="item-desc">The current matcher expands only the first group, lacks
+          <code>\b</code> and lazy quantifiers, and has an unsound anchoring-dependent fallback —
+          silently mis-validating the grouped/semver/DNS patterns real configs use. Replace with a
+          proper AST → NFA → Pike-VM engine (RE2-equivalent, total), whose submatch capture also
+          unblocks <code>regexp.ReplaceAll</code> and prod9's filter packages.</p>
       </div>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">Regex extraction → <code>Kue/Regex.lean</code></span>
+          <span class="item-title"><code>D#2</code> — structural-cycle detection</span>
           <span class="pill back">Backlog</span>
-          <span class="item-rank">ACTIONABLE · parallel-safe</span>
+          <span class="item-rank">HIGH · spec-mandated, currently missing</span>
         </div>
-        <p class="item-desc">Carve the ~240-line regex engine out of <code>Value.lean</code>
-          into a new leaf module so <code>Value.lean</code> becomes a true leaf. Depends only
-          on <code>Char</code>/<code>String</code>; consumed by eval/builtin only. Zero
-          conflict with any eval slice.</p>
+        <p class="item-desc">A recursive definition (<code>#L: {n: int, next: #L}</code>) unrolls
+          fuel-deep into garbage where the spec mandates a <code>structural cycle</code> error and
+          recursive-default termination. Detect via the ancestor-node chain.</p>
+        <pre class="cue"><code>#L: {n: int, next: #L}
+x: #L  <span class="cm">// spec: structural cycle</span></code></pre>
       </div>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">EvalOps extraction → <code>Kue/EvalOps.lean</code></span>
-          <span class="pill back">Backlog</span>
-          <span class="item-rank">ACTIONABLE</span>
+          <span class="item-title"><code>Gap-2b</code> / <code>Bug2-3</code> — argocd disjunction
+            pruning</span>
+          <span class="pill bug">Bug</span>
+          <span class="item-rank">HIGH · the last argocd blocker</span>
         </div>
-        <p class="item-desc">Carve ~256 lines of self-contained scalar algebra
-          (<code>evalAdd…evalBinary</code>) out from under the recursive evaluator into a
-          module that imports only <code>Value</code> and <code>Decimal</code>. Mechanical;
-          interleaves freely.</p>
+        <p class="item-desc">A list-shaped disjunction arm carrying a force-spliced patch fails to
+          prune against a struct host, so <code>struct | list</code> survives and bottoms.
+          Confirmed a real bug (<code>cue</code> correct). Fix keys on the actual list-meet-bottom,
+          not a shape heuristic.</p>
       </div>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">Test-org pass</span>
+          <span class="item-title"><code>SC-2</code> — closing-vs-instantiation
+            (diverge from <code>cue</code>)</span>
           <span class="pill back">Backlog</span>
-          <span class="item-rank">ACTIONABLE · periodic</span>
+          <span class="item-rank">HIGH · Kue will be correct, cue wrong</span>
         </div>
-        <p class="item-desc">Theorem modules in <code>Kue/Tests/</code> are oversized
-          (<code>EvalTests</code> 1700+, others 700–1000). Split each by subsystem in one
-          pass, after the next correctness slice lands its pins so the split doesn't
-          immediately stale.</p>
+        <p class="item-desc">The spec says closedness persists through meet; <code>cue</code>
+          re-opens a closed nested struct on instantiation (<code>(#D &amp; {}).r &amp; {b}</code>
+          admits <code>b</code>) — an eval-strategy artifact. Kue will <em>preserve</em> closedness
+          and record the divergence. (This reversed an earlier plan that was about to copy the
+          <code>cue</code> bug on purpose.)</p>
       </div>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">Field-ordering parity</span>
+          <span class="item-title">MED tail + spec-gap ratifications</span>
           <span class="pill back">Backlog</span>
-          <span class="item-rank">MEDIUM · deep · byte-parity vs cue</span>
+          <span class="item-rank">MEDIUM · opportunistic</span>
         </div>
-        <p class="item-desc">cue orders <code>ref &amp; {own}</code> own-fields-first; kue is
-          left-struct-first. Faithful replication needs a per-<code>Field</code>
-          introduction-provenance key threaded through every merge/manifest site. The
-          byte-order tail between cert-manager content-match and byte-exact cue. Multi-slice;
-          do after argocd unless it blocks a fixture.</p>
-        <pre class="cue"><code>#Def: {kind: "X", ...}
-out: #Def &amp; {own: 1}  <span class="cm">// cue: own-fields ordered first</span></code></pre>
+        <p class="item-desc"><code>D#1b/D#1c</code> (incomplete / non-bool guard handling),
+          <code>D#3</code> (<code>let</code> clauses in comprehensions), <code>SC-3</code>
+          (disjunction display normalization), <code>BI-1/BI-2</code> (Unicode case-folding;
+          <code>math.Pow</code>/<code>list.Sort</code>), <code>F-3</code> (qualified import paths),
+          plus ratifying the recorded spec gaps (import laziness, field order <code>#3</code>).</p>
       </div>
 
-      <div class="item">
-        <div class="item-head">
-          <span class="item-title">Per-eval-cost perf</span>
-          <span class="pill back">Backlog</span>
-          <span class="item-rank">downstream of correctness</span>
-        </div>
-        <p class="item-desc">The heavy <code>argo</code> sub-package times out past the early
-          bottom; cert-manager has a ~31s residual. Root is exponential frame-id divergence
-          defeating the memo key. Fix is canonical frame identity (frame-id sharing),
-          audit-heavy. Profile against a resolving target after the correctness links land.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Code legend</h2>
+    <p class="sub">The shorthand codes above accreted across the project's phases. Here's the
+      decoder — the prefix tells you which phase a code came from.</p>
+    <div class="legend">
+
+      <div class="lgroup">
+        <p class="grp-title">Spec-conformance re-audit — areas &amp; findings</p>
+        <p class="grp-note">The 2026-06-19 full re-audit. Six behavioral <em>areas</em> (A–F),
+          plus per-finding fix codes.</p>
+        <dl>
+          <dt><code>A</code>–<code>F</code></dt>
+          <dd>Audit areas: <b>A</b> disjunctions/narrowing, <b>B</b> closedness/definitions,
+            <b>C</b> structs/lists, <b>D</b> comprehensions/scoping, <b>E</b>
+            scalars/bounds/builtins, <b>F</b> manifest/modules.</dd>
+          <dt><code>SC-1</code>, <code>SC-1c</code>…</dt>
+          <dd>Spec-Conformance fix-slices — the closedness/struct soundness fixes (the
+            consolidated backlog's numbered items; letters mark follow-ups found while fixing).</dd>
+          <dt><code>D#1a</code>, <code>D#2</code>…</dt>
+          <dd>Area-D (comprehension) findings — guard handling, structural cycles,
+            <code>let</code> clauses.</dd>
+          <dt><code>F-1</code>, <code>F-2</code>, <code>F-3</code></dt>
+          <dd>Area-F (module/manifest) findings — <code>regexp</code> import, self-module
+            <code>@vN</code> strip, qualified import paths.</dd>
+          <dt><code>RX-1</code></dt>
+          <dd>The Area-E regex-engine rewrite (RE<b>2</b>-conformant).</dd>
+          <dt><code>BI-1</code>, <code>BI-2</code></dt>
+          <dd>Area-E builtin gaps — Unicode case-folding; <code>math.Pow</code>/<code>list.Sort</code>.</dd>
+        </dl>
       </div>
 
-      <div class="item">
-        <div class="item-head">
-          <span class="item-title">Borderline / LOW</span>
-          <span class="pill back">Backlog</span>
-          <span class="item-rank">opportunistic · none block adoption</span>
-        </div>
-        <p class="item-desc">Ride-alongs: <code>scalar-embed-with-decls</code>,
-          <code>module-file-scoped-imports</code>, <code>import-eager-closedness</code>,
-          scalar-embed provenance follow-ups, parser strictness, and a handful of small
-          DRY / dead-branch cleanups in <code>Eval.lean</code>.</p>
+      <div class="lgroup">
+        <p class="grp-title">Phase-A / Phase-B audit findings</p>
+        <p class="grp-note warn">⚠ Heads-up: these <code>A</code>/<code>B</code> numbers are
+          <em>findings from the chronological audit cycles</em> — NOT the re-audit's "areas A–F"
+          above. Same letters, different scheme (the codes accreted before the reframe).</p>
+        <dl>
+          <dt><code>A1</code>–<code>A5</code></dt>
+          <dd>Phase-<b>A</b> (code-quality) audit findings. Notable: <code>A5</code> = a
+            frame-depth regression an audit caught.</dd>
+          <dt><code>B1</code>–<code>B7</code></dt>
+          <dd>Phase-<b>B</b> (architecture) audit findings. Notable: <code>B2</code> = the
+            five-struct-constructor unification; <code>B6</code> = def-body closedness;
+            <code>B7</code> = the frame-coordinate (<code>descendClauses</code>) unification.</dd>
+        </dl>
+      </div>
+
+      <div class="lgroup">
+        <p class="grp-title">argocd narrowing chain</p>
+        <p class="grp-note">The sub-bugs in argocd's <code>#Mixin</code> disjunction/comprehension
+          narrowing, peeled one layer at a time.</p>
+        <dl>
+          <dt><code>Gap-1</code></dt>
+          <dd>A comprehension reading a use-site-narrowed sibling through a <code>let</code> —
+            fixed (the read-label splice).</dd>
+          <dt><code>Gap-2</code></dt>
+          <dd>Force-tier disjunction-arm narrowing for a regular discriminator — fixed (gated).</dd>
+          <dt><code>Gap-2b</code></dt>
+          <dd>Structural (list-vs-struct) arm pruning — the last open argocd blocker.</dd>
+          <dt><code>Bug2-1/2/3</code></dt>
+          <dd>The implementation slices for Gap-1 / Gap-2 / Gap-2b respectively.</dd>
+        </dl>
+      </div>
+
+      <div class="lgroup">
+        <p class="grp-title">Plan backlog items</p>
+        <p class="grp-note">The original numbered roadmap (pre-reframe).</p>
+        <dl>
+          <dt><code>item 7</code></dt>
+          <dd>The per-eval-cost / cache-hash performance work (now landed — the O(N²)→O(N) fix).</dd>
+          <dt><code>#3</code></dt>
+          <dd>Field-ordering parity vs <code>cue</code> — now reclassified as a deliberate
+            spec gap, not a bug.</dd>
+        </dl>
       </div>
 
     </div>
@@ -461,17 +634,25 @@ out: #Def &amp; {own: 1}  <span class="cm">// cue: own-fields ordered first</spa
 
   <section class="philo">
     <h2>Philosophy</h2>
-    <p class="lead">Kue targets <strong>CUE v0.15 semantics, done correctly</strong>. Where
-      the official <code>cue</code> binary is buggy, Kue implements the <em>correct</em>
-      behavior — the compatibility target is the language as specified, not bug-for-bug
-      parity.</p>
-    <p>Correctness comes before performance: a latent unsound result is a violation even with
-      no failing fixture, while a perf miss is acceptable. Lean&nbsp;4 is the chosen language
-      to push these invariants into the type system — total functions and precise types over
-      ad hoc runtime checks. See
-      <a href="../decisions/2026-06-14-cue-compatibility-target.md">the compatibility target</a>
-      and <a href="../decisions/2026-06-18-correctness-over-performance.md">correctness over
-      performance</a>.</p>
+    <p class="lead">Kue targets <strong>CUE v0.15 semantics, done correctly</strong> — the
+      compatibility target is the language <em>as specified</em>, not bug-for-bug parity with the
+      reference binary. <code>cue</code> is buggy; replicating it is the wrong default.</p>
+    <p>So every behavior is judged against an authority hierarchy:</p>
+    <ul class="tiers">
+      <li><b>1 · The CUE spec</b> — authoritative where it speaks; match it even against the
+        binary.</li>
+      <li><b>2 · Lattice first principles</b> — where the spec is silent (often). Derive the
+        mathematically-correct behavior. This is Kue's reason to exist.</li>
+      <li><b>3 · The <code>cue</code> binary</b> — a fallible cross-check. Never the gate.</li>
+    </ul>
+    <p style="margin-top:14px">Correctness comes before performance: a latent unsound result is a
+      violation even with no failing fixture, while a perf miss is acceptable. Lean&nbsp;4 pushes
+      these invariants into the type system — total functions and precise types over ad hoc runtime
+      checks. See
+      <a href="../decisions/2026-06-14-cue-compatibility-target.md">the compatibility target</a>,
+      <a href="../decisions/2026-06-18-correctness-over-performance.md">correctness over
+      performance</a>, and the
+      <a href="../spec/spec-conformance-audit.md">spec-conformance re-audit</a>.</p>
   </section>
 
   <section>
@@ -479,22 +660,26 @@ out: #Def &amp; {own: 1}  <span class="cm">// cue: own-fields ordered first</spa
     <ul class="docs-list">
       <li><a href="../spec/plan.md">Plan</a>
         <span class="dl-note">— the live roadmap</span></li>
+      <li><a href="../spec/spec-conformance-audit.md">Spec re-audit</a>
+        <span class="dl-note">— verdicts + fix backlog</span></li>
+      <li><a href="../reference/cue-divergences.md">CUE divergences</a>
+        <span class="dl-note">— where cue is wrong, Kue right</span></li>
+      <li><a href="../reference/cue-spec-gaps.md">CUE spec gaps</a>
+        <span class="dl-note">— where the spec is silent</span></li>
       <li><a href="../reference/implementation-log.md">Implementation log</a>
         <span class="dl-note">— slice-by-slice record</span></li>
       <li><a href="../guides/kue-performance.md">Performance guide</a>
         <span class="dl-note">— fast vs slow CUE shapes</span></li>
       <li><a href="../guides/slice-loop.md">Slice loop</a>
         <span class="dl-note">— workflow + audit cadence</span></li>
-      <li><a href="../decisions/">Decisions</a>
-        <span class="dl-note">— dated ADRs</span></li>
       <li><a href="../README.md">Docs index</a>
         <span class="dl-note">— full table of contents</span></li>
     </ul>
   </section>
 
   <footer>
-    Snapshot of <code>docs/spec/plan.md</code> — last updated 2026-06-18. A hand-generated,
-    human-scannable status view, refreshed on plan-hygiene passes.
+    Snapshot of <code>docs/spec/</code> — last updated 2026-06-19, during the spec-conformance
+    re-audit. A hand-generated, human-scannable status view, refreshed on plan-hygiene passes.
   </footer>
 
 </main>
