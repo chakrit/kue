@@ -8844,3 +8844,65 @@ existing fixtures byte-identical except the one flipped SC-2b fixture); `shellch
 key added/removed) → content-identical. argocd `kue export` still exits 1 on the pre-existing
 Bug2-3 (`conflicting values (bottom)`, a `fieldConflict` — NOT a `field not allowed`/closedness
 bottom, ~91s) → no new closedness regression. Closedness cluster drained to zero; next-step → RX-1.
+
+---
+
+## Completed Slice: RX-1a — regex AST + parser (additive, byte-identical)
+
+Goal: first of three RX-1 slices replacing the non-RE2 hand-rolled regex matcher in
+`Value.lean` (which expands only the first group, lacks `\b`/lazy quantifiers, and has an
+unsound anchoring-dependent substring fallback — silently mis-validating real grouped /
+semver / DNS patterns). RX-1a adds the AST + parser ONLY; NO engine wiring, so behavior is
+byte-identical (the new module is unused by any eval path). RX-1b adds the NFA + Pike-VM and
+rewires the 3 dispatch sites + deletes the old engine; RX-1c adds submatch + `ReplaceAll`.
+
+**New leaf module `Kue/Regex.lean`.** Depends only on `Char`/`String` — no `Value`/`Eval`
+import (a true leaf in the import graph; also lets `Value.lean` shed the old engine in
+RX-1b). Imported by `Kue.lean` and `Kue/Tests/RegexTests.lean` so it compiles + its
+theorems run, but by NO eval path.
+
+**`Regex` AST.** RE2-subset, illegal-states-unrepresentable: `empty` / `lit` / `cls`
+(ranges + `negated`) / `any` / `anchorStart` / `anchorEnd` / `wordBoundary (negated)` /
+`concat` / `alt` / `star` / `plus` / `opt` / `«repeat» (min) (max : Option Nat)` /
+`group (index : Option Nat)`. **Greediness is a `Bool` field on each quantifier**, not a
+separate lazy constructor (match-priority logic stays in one place for RX-1b). `repeat`'s
+`max : Option Nat` makes `{m,}` representable without a sentinel. `group.index` is `none`
+for non-capturing `(?:…)`, `some i` for a capturing group (numbered left-to-right from 1).
+Derives `Repr, BEq` only — Lean cannot auto-derive `DecidableEq` through the nested
+`List Regex` recursion, so pins compare with `==`/`Bool` (the suite's `… = true` shape).
+
+**`parseRegex : String → Except RegexParseError Regex`.** Recursive-descent
+(`alt → concat → quantified → atom`, mutually recursive through `group`), TOTAL via
+input-length fuel (the standing parser exception) — no `partial`, no `sorry`; each mutual
+edge strips exactly one fuel from a matched `fuel+1`, `termination_by fuel` per function.
+Char-class body + `{m,n}` digit-runs are separately fuel-bounded. **Invalid pattern →
+`.error`, NEVER a silent literal-fallback** (the old engine's unsound behavior). Errors are
+typed: `.malformed` (unbalanced `(`/`)`, dangling `\`, nothing-to-repeat, bad `{m,n}`),
+`.backreference c` (RE2 has no backrefs — `\1` rejected, distinct from `ReplaceAll`'s
+`${n}` template, an RX-1c concern), `.unsupportedRegex feature` for DEFERRED constructs
+(flags `(?i)`, named captures `(?P<…>)`, `\A`/`\z`/`\Q`, POSIX `[[:alpha:]]`, Unicode
+`\p{…}`, and `\D`/`\W`/`\S` inside a class which would need set-complement) —
+stub-not-silent-wrong.
+
+**CUE divergence found.** `a{5,2}` (m>n): cue/RE2 reject as `invalid repeat count`. Kue's
+`parseRepeatSuffix` distinguishes a well-formed-but-bad brace (`.invalid` → parse error)
+from a non-quantifier `{` (`.notQuant` → literal `{`), matching RE2 — not a silent literal
+fallback.
+
+**Tests (`Kue/Tests/RegexTests.lean`, all `native_decide`).** The 7 audit repros pin the
+EXACT AST: `^(ab)+$`/`^(ab)*$` (quantifier binds the GROUP, not trailing `b`),
+`^([a-z0-9]+(-[a-z0-9]+)*)$` (nested + multi group, indices 1/2),
+`^(v[0-9]+)(\.[0-9]+)*$` (multi-group, `\.` literal dot), `a(b|x)(c|y)d` (two alt groups,
+left-to-right indices), `\bdog\b` (`\b` as anchor both ends, not literal `b`), `a+?` (lazy
+plus, not opt-of-`a`). Plus: greedy-vs-lazy across `* ? `; `{3}`/`{2,}`/`{2,5}`/`{2,5}?`
+shapes; non-capturing group doesn't consume an index; negated class + perl-class atoms +
+`.`; invalid patterns error (unbalanced open/close, dangling `\`, `a{5,2}`, `*abc`);
+`\1` → `.backreference '1'` specifically; deferred constructs `(?i)`/`\p{L}`/`(?P<…>)`/
+`[[:alpha:]]` → `.unsupportedRegex`.
+
+**Verify.** `lake build` green (96+ jobs, new module + theorems check);
+`scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO byte-drift — new module unused by
+eval); `shellcheck` clean. Next-step → RX-1b (Thompson compile + Pike-VM + rewire the 3
+dispatch sites `Eval.evalRegexMatch` / `Lattice.meetStringRegexPrim` / `Builtin.regexp.Match`
++ delete the old `Value.lean` engine ~L771-1012; gated by the 7 repros matching correctly +
+existing simple-pattern fixtures staying green).

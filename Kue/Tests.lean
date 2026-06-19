@@ -21,6 +21,7 @@ import Kue.Tests.NumberTests
 import Kue.Tests.OrderTests
 import Kue.Tests.ParseTests
 import Kue.Tests.PresenceTests
+import Kue.Tests.RegexTests
 import Kue.Tests.ResolveTests
 import Kue.Tests.RuntimeTests
 import Kue.Tests.StructTests

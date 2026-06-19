@@ -207,11 +207,11 @@ contained-correctness before large rewrites (slice-loop principle). **Recommende
    (the spec-correct divergence) landed as ONE change. Closedness cluster drained to zero.
    See the "SC-2 design (implementable)" section below (now the as-built record) and the
    HIGH-backlog item for the full fix description.
-2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** NOW THE TOP of the queue. Highest real-app-correctness lever; 7
+2. **RX-1 (HIGH, LARGE — 3 slices, worktree).** Highest real-app-correctness lever; 7
    demonstrated silent mis-validations + unblocks F-1's `ReplaceAll` (prod9 exports). Design
-   ready below ("RX-1 design (implementable)"). RX-1a (AST+parser) → RX-1b (NFA+VM+rewire) →
-   RX-1c (submatch+`ReplaceAll`). After SC-2 because contained-correctness precedes the large
-   rewrite (keeps `main` shippable; avoids stacking a worktree on a known contained bug).
+   ready below ("RX-1 design (implementable)"). **RX-1a (AST+parser) — DONE (2026-06-19).**
+   → **RX-1b (NFA+Pike-VM+rewire the 3 dispatch sites + delete old engine) — NEXT** →
+   RX-1c (submatch+`ReplaceAll`).
 3. **Bug2-3 / Gap-2b (HIGH).** The LAST argocd export blocker — structural disjunction-arm
    pruning. Design landed (`plan.md` "Slice Bug2-3 — Gap-2b"). High payoff (a whole app
    exports), contained primitive (list-meet-to-bottom keying), well-diagnosed. Ranks with RX-1
@@ -575,10 +575,18 @@ for regex — cue delegates to Go's RE2, so it's usually correct here) differs.
 
 RX-1 is large and touches a NEW module + three dispatch sites. Split at clean seams:
 
-- **RX-1a — AST + parser + invalid-pattern errors.** New `Kue/Regex.lean` with the `Regex`
-  inductive + `parseRegex : String → Except RegexParseError Regex` + deferred-feature
-  detection. Pin the parser with `native_decide` on the 7 repros' ASTs + invalid/deferred
-  cases. No engine wiring yet (parser is independently testable).
+- **RX-1a — AST + parser + invalid-pattern errors. DONE (2026-06-19).** New leaf
+  `Kue/Regex.lean` (imports only `Char`/`String`): `Regex` inductive (greediness a `Bool`
+  field on each quantifier; `repeat.max : Option Nat`; `group.index : Option Nat`) +
+  `parseRegex : String → Except RegexParseError Regex` (recursive-descent, TOTAL via
+  input-length fuel, no `partial`/`sorry`). Invalid → `.error` (typed: `.malformed` /
+  `.backreference` / `.unsupportedRegex`), NEVER a silent literal-fallback. `\1` rejected
+  (RE2 has no backrefs); deferred constructs (`(?i)`, `(?P<…>)`, `\A`/`\z`/`\Q`, POSIX
+  `[[:…:]]`, `\p{…}`, in-class `\D`/`\W`/`\S`) → `.unsupportedRegex`. Pins: 7 repro ASTs +
+  greedy/lazy + `{m,n}` shapes + non-capturing-index + class/dot + invalid (incl. `a{5,2}`
+  → error, matching RE2 vs a literal) + `\1` + 4 deferred, all `native_decide`. Additive /
+  byte-identical: NOT wired to any dispatch site; `lake build` green (96+ jobs),
+  `check-fixtures` zero drift, `shellcheck` clean.
 - **RX-1b — Thompson compile + Pike-VM + re-wire boolean `=~`/`Match`.** `compile`, `Inst`,
   `run`, then point `stringRegexMatches` (or its replacement) at the VM and re-wire the three
   call sites (`Eval.evalRegexMatch`, `Lattice.meetStringRegexPrim`, `Builtin.regexp.Match`).

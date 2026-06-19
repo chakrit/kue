@@ -1,4 +1,5 @@
 import Kue.Value
+import Kue.Regex
 import Kue.Lattice
 import Kue.Format
 import Kue.Examples
