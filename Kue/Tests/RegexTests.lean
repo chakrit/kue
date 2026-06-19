@@ -264,4 +264,55 @@ theorem rx_cap_g2_end : slot "(a+)(b+)" "aabbb" 5 = some 5 := by native_decide
 theorem rx_greedy_extends : slot "a.*c" "abcabc" 1 = some 6 := by native_decide
 theorem rx_lazy_stops : slot "a.*?c" "abcabc" 1 = some 3 := by native_decide
 
+/-! ## RX-1c — submatch / Find* / ReplaceAll engine layer (pure String entrypoints)
+
+    Pins on the Regex-leaf functions directly (the builtin dispatch is pinned in
+    BuiltinTests). Every `expected` oracle-checked vs cue v0.16.1. -/
+
+-- `findSubmatch` returns group 0 (whole match) then each group's span, leftmost (RE2).
+theorem rx_findsubmatch_spans : findSubmatch "a(x*)b" "-axxb-" = some ["axxb", "xx"] := by
+  native_decide
+-- No match → `none` (the dispatch site bottoms; cue raises `no match`).
+theorem rx_findsubmatch_none : findSubmatch "zz" "ab" = none := by native_decide
+-- A non-participating group becomes "" (cue's array-shape consumer matches empty).
+theorem rx_findsubmatch_nonparticipating :
+    findSubmatch "a(b)?c" "ac" = some ["ac", ""] := by native_decide
+
+theorem rx_find_leftmost : find "a(x*)b" "-axxb-" = some "axxb" := by native_decide
+theorem rx_find_none : find "zz" "ab" = none := by native_decide
+
+theorem rx_findall_all : findAll "ab" "abab" = some ["ab", "ab"] := by native_decide
+theorem rx_findall_none : findAll "zz" "abab" = none := by native_decide
+theorem rx_findallsubmatch :
+    findAllSubmatch "a(x*)b" "-axb-axxb-" = some [["axb", "x"], ["axxb", "xx"]] := by
+  native_decide
+
+-- ReplaceAll Expand template (oracle-checked).
+theorem rx_replaceall_literal : replaceAll "a(x*)b" "-axxb-" "T" = some "-T-" := by native_decide
+theorem rx_replaceall_group : replaceAll "a(x*)b" "-axxb-" "$1" = some "-xx-" := by native_decide
+theorem rx_replaceall_brace :
+    replaceAll "a(x*)b" "-axxb-" "${1}suffix" = some "-xxsuffix-" := by native_decide
+theorem rx_replaceall_bare_name :
+    replaceAll "a(x*)b" "-axxb-" "$1suffix" = some "--" := by native_decide
+theorem rx_replaceall_dollar : replaceAll "a(x*)b" "-axxb-" "$$" = some "-$-" := by native_decide
+theorem rx_replaceall_group0 :
+    replaceAll "a(x*)b" "-axxb-" "${0}!" = some "-axxb!-" := by native_decide
+theorem rx_replaceall_unknown_group :
+    replaceAll "a(x*)b" "-axxb-" "$2" = some "--" := by native_decide
+theorem rx_replaceall_multi : replaceAll "a(x*)b" "-axxb-axxxb-" "T" = some "-T-T-" := by
+  native_decide
+theorem rx_replaceall_no_match : replaceAll "a(x*)b" "-aQb-" "T" = some "-aQb-" := by native_decide
+-- Zero-width match advances one rune (Go) — otherwise it loops.
+theorem rx_replaceall_zero_width : replaceAll "x*" "abc" "-" = some "-a-b-c-" := by native_decide
+theorem rx_replaceall_empty_pattern : replaceAll "" "abc" "-" = some "-a-b-c-" := by native_decide
+-- ReplaceAllLiteral splices verbatim.
+theorem rx_replaceall_literal_no_expand :
+    replaceAllLiteral "a(x*)b" "-axxb-" "$1" = some "-$1-" := by native_decide
+-- Invalid pattern → none at the engine layer (the dispatch site turns it into a bottom).
+theorem rx_replaceall_invalid : replaceAll "a(" "x" "y" = none := by native_decide
+-- The prod9 filter case.
+theorem rx_replaceall_prod9 :
+    replaceAll "([hb][^\\s]+)lo" "hello jello bello" "${1}ly"
+      = some "helly jello belly" := by native_decide
+
 end Kue

@@ -1,0 +1,14 @@
+replaceLiteral: "-T-"
+replaceGroup: "-xx-"
+replaceBrace: "-xxsuffix-"
+replaceBareName: "--"
+replaceDollar: "-$-"
+replaceMulti: "-T-T-"
+replaceNoMatch: "-aQb-"
+replaceZeroWidth: "-a-b-c-"
+replaceLiteralFn: "-$1-"
+prod9Filter: "helly jello belly"
+findOne: "axxb"
+findSub: ["axxb", "xx"]
+findAllSpans: ["ab", "ab"]
+findAllSub: [["axb", "x"], ["axxb", "xx"]]

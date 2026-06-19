@@ -753,19 +753,124 @@ theorem regexp_match_dispatches_to_shared_engine :
       == .prim (.bool (matchRegex "^v[0-9]" "v1"))) = true := by
   native_decide
 
--- A concrete deferred submatch/replace form (the engine cannot do these yet — RX-1)
--- yields a CLEAR unsupported signal, never a silent wrong answer.
-theorem regexp_replaceall_is_unsupported_not_silent :
+-- RX-1c: `regexp.ReplaceAll` now replaces every non-overlapping match, expanding the Go
+-- `Expand` template (`$n`/`${n}`/`$$`). Oracle-checked vs cue v0.16.1.
+theorem regexp_replaceall_literal_template :
     (evalBuiltinCall "regexp.ReplaceAll"
-        [.prim (.string "a"), .prim (.string "banana"), .prim (.string "X")]
-      == .bottomWith [.unsupportedBuiltin "regexp.ReplaceAll"]) = true := by
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "T")]
+      == .prim (.string "-T-")) = true := by
   native_decide
 
--- A deferred form over an abstract arg stays unresolved for a later pass, not bottom.
+theorem regexp_replaceall_group_ref :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")]
+      == .prim (.string "-xx-")) = true := by
+  native_decide
+
+-- `${1}suffix` extracts group 1 then literal `suffix`; bare `$1suffix` names the group
+-- `1suffix` (longest word-char run) which does not exist → empty. The Go disambiguation.
+theorem regexp_replaceall_brace_disambiguation :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "${1}suffix")]
+      == .prim (.string "-xxsuffix-")) = true := by
+  native_decide
+
+theorem regexp_replaceall_bare_name_disambiguation :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1suffix")]
+      == .prim (.string "--")) = true := by
+  native_decide
+
+-- `$$` is a literal `$`.
+theorem regexp_replaceall_dollar_escape :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$$")]
+      == .prim (.string "-$-")) = true := by
+  native_decide
+
+-- All non-overlapping matches are replaced; no match leaves `src` unchanged (NOT bottom).
+theorem regexp_replaceall_replaces_all :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-axxxb-"), .prim (.string "T")]
+      == .prim (.string "-T-T-")) = true := by
+  native_decide
+
+theorem regexp_replaceall_no_match_unchanged :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a(x*)b"), .prim (.string "-aQb-"), .prim (.string "T")]
+      == .prim (.string "-aQb-")) = true := by
+  native_decide
+
+-- A zero-width match advances one rune (Go behavior; a non-advancing match would loop).
+theorem regexp_replaceall_zero_width_advances :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "x*"), .prim (.string "abc"), .prim (.string "-")]
+      == .prim (.string "-a-b-c-")) = true := by
+  native_decide
+
+-- `ReplaceAllLiteral` splices the replacement verbatim — no `$` expansion.
+theorem regexp_replaceall_literal_no_expand :
+    (evalBuiltinCall "regexp.ReplaceAllLiteral"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")]
+      == .prim (.string "-$1-")) = true := by
+  native_decide
+
+-- Find / FindSubmatch / FindAll / FindAllSubmatch group spans (RE2 leftmost).
+theorem regexp_find_leftmost :
+    (evalBuiltinCall "regexp.Find"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-")]
+      == .prim (.string "axxb")) = true := by
+  native_decide
+
+theorem regexp_findsubmatch_groups :
+    (evalBuiltinCall "regexp.FindSubmatch"
+        [.prim (.string "a(x*)b"), .prim (.string "-axxb-")]
+      == .list [.prim (.string "axxb"), .prim (.string "xx")]) = true := by
+  native_decide
+
+theorem regexp_findall_all :
+    (evalBuiltinCall "regexp.FindAll"
+        [.prim (.string "ab"), .prim (.string "abab"), .prim (.int (-1))]
+      == .list [.prim (.string "ab"), .prim (.string "ab")]) = true := by
+  native_decide
+
+theorem regexp_findallsubmatch_all :
+    (evalBuiltinCall "regexp.FindAllSubmatch"
+        [.prim (.string "a(x*)b"), .prim (.string "-axb-axxb-"), .prim (.int (-1))]
+      == .list [.list [.prim (.string "axb"), .prim (.string "x")],
+                .list [.prim (.string "axxb"), .prim (.string "xx")]]) = true := by
+  native_decide
+
+-- The Find* family raises `no match` in cue (NOT null) → Kue bottoms.
+theorem regexp_find_no_match_bottoms :
+    (evalBuiltinCall "regexp.Find" [.prim (.string "zz"), .prim (.string "ab")]
+      == .bottom) = true := by
+  native_decide
+
+theorem regexp_findsubmatch_no_match_bottoms :
+    (evalBuiltinCall "regexp.FindSubmatch" [.prim (.string "zz"), .prim (.string "ab")]
+      == .bottom) = true := by
+  native_decide
+
+-- An invalid pattern bottoms with `.invalidRegex` (RX-2b contract inherited by RX-1c).
+theorem regexp_replaceall_invalid_pattern_bottoms :
+    (evalBuiltinCall "regexp.ReplaceAll"
+        [.prim (.string "a("), .prim (.string "x"), .prim (.string "y")]
+      == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")]) = true := by
+  native_decide
+
+-- An abstract arg keeps the call unresolved for a later pass, not bottom.
 theorem regexp_replaceall_stays_unresolved_on_abstract_arg :
     (evalBuiltinCall "regexp.ReplaceAll" [.ref "p", .prim (.string "s"), .prim (.string "r")]
       == .builtinCall "regexp.ReplaceAll" [.ref "p", .prim (.string "s"), .prim (.string "r")])
       = true := by
+  native_decide
+
+-- A still-deferred form (cue exposes no `FindString`/`Split` function) stays unsupported.
+theorem regexp_findstring_is_unsupported :
+    (evalBuiltinCall "regexp.FindString"
+        [.prim (.string "a"), .prim (.string "banana")]
+      == .bottomWith [.unsupportedBuiltin "regexp.FindString"]) = true := by
   native_decide
 
 -- RX-2b: `regexp.Match` with a CONCRETE invalid pattern bottoms with `.invalidRegex` (was:

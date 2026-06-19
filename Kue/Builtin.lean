@@ -655,32 +655,85 @@ def evalYamlBuiltin : String -> List Value -> Value
           else .bottom
   | name, args => unresolvedOrBottom name args
 
-/-- Dispatch a `regexp.*` builtin over already-evaluated arguments.
+/-- Wrap a list of strings as a `.list` of string prims (the `FindSubmatch`/`FindAll` shape). -/
+private def stringListValue (xs : List String) : Value :=
+  .list (xs.map (fun s => .prim (.string s)))
+
+/-- Dispatch a `regexp.*` builtin over already-evaluated arguments (RX-1c).
 
     `Match(pattern, string)` is an UNANCHORED search — true when `pattern` matches anywhere
     in `string`, identical to Go's `regexp.MatchString` and CUE's `=~` operator. It shares
     the SAME engine entrypoint as `=~` (`matchRegex`, the RX-1 Pike-VM with an implicit
     leading `.*?` for the anywhere search), so `regexp.Match` and `=~` agree by construction.
 
-    The RX-1 engine is RE2-conformant (grouped quantifiers, `\b`, lazy quantifiers, and
-    multi-group patterns all match correctly) but `matchRegex` returns only a bool — the
-    capture array is computed but not yet exposed. So every `regexp.*` form that needs
-    capture groups or replacement (`ReplaceAll`, `ReplaceAllLiteral`, `Find*`,
-    `FindSubmatch`, `FindAll*`) is still DEFERRED, surfacing `unsupportedBuiltin` rather than
-    a silent wrong answer. RX-1c wires the capture array through and removes these deferral
-    arms; the prod9 apps use `ReplaceAll`, so the F-1 import unblock does NOT yet make those
-    apps export. -/
+    `ReplaceAll`/`ReplaceAllLiteral` substitute every non-overlapping match (the former
+    expanding the Go `Expand` template `$n`/`${n}`/`$$` in the replacement; the latter
+    splicing it verbatim). `Find`/`FindSubmatch`/`FindAll`/`FindAllSubmatch` expose the
+    leftmost / all match spans. All route through the RX-1c capture-array entrypoints in the
+    Regex leaf, so they agree with `=~`/`Match` by construction.
+
+    **No-match is a BOTTOM, not null** for the `Find*` family — cue's builtins raise
+    `no match` (verified vs cue v0.16.1), unlike Go's nil return. An INVALID pattern bottoms
+    with `.invalidRegex` (inherited from RX-2b's contract). `ReplaceAll*` never bottoms on a
+    valid pattern (a no-match returns `src` unchanged).
+
+    **Kept DEFERRED** (`unsupportedBuiltin`, not silent-wrong): cue v0.16.1's `regexp`
+    package does NOT expose `FindString*`/`FindAllString*`/`Split` as functions (calling
+    them is itself a non-function error there), and `FindNamedSubmatch`/`FindAllNamedSubmatch`
+    require named captures `(?P<…>)` which Kue's parser defers (RX-1a). Those fall through to
+    the unsupported arm. -/
 def evalRegexpBuiltin : String -> List Value -> Value
   | "regexp.Match", [.prim (.string pattern), .prim (.string s)] =>
       match regexParseError? pattern with
       | some err => .bottomWith [.invalidRegex pattern err]
       | none => .prim (.bool (matchRegex pattern s))
+  | "regexp.ReplaceAll", [.prim (.string pattern), .prim (.string src), .prim (.string repl)] =>
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => match replaceAll pattern src repl with
+        | some out => .prim (.string out)
+        | none => .bottom  -- unreachable: parse already checked above
+  | "regexp.ReplaceAllLiteral",
+      [.prim (.string pattern), .prim (.string src), .prim (.string repl)] =>
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => match replaceAllLiteral pattern src repl with
+        | some out => .prim (.string out)
+        | none => .bottom
+  | "regexp.Find", [.prim (.string pattern), .prim (.string s)] =>
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => match find pattern s with
+        | some out => .prim (.string out)
+        | none => .bottom  -- cue raises `no match`
+  | "regexp.FindSubmatch", [.prim (.string pattern), .prim (.string s)] =>
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => match findSubmatch pattern s with
+        | some groups => stringListValue groups
+        | none => .bottom
+  | "regexp.FindAll", [.prim (.string pattern), .prim (.string s), .prim (.int n)] =>
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => match findAll pattern s with
+        | some all =>
+            let kept := if n < 0 then all else all.take n.toNat
+            if kept.isEmpty then .bottom else stringListValue kept
+        | none => .bottom
+  | "regexp.FindAllSubmatch", [.prim (.string pattern), .prim (.string s), .prim (.int n)] =>
+      match regexParseError? pattern with
+      | some err => .bottomWith [.invalidRegex pattern err]
+      | none => match findAllSubmatch pattern s with
+        | some all =>
+            let kept := if n < 0 then all else all.take n.toNat
+            if kept.isEmpty then .bottom else .list (kept.map stringListValue)
+        | none => .bottom
   | name, args =>
       if args.any containsBottom then
         .bottom
       else if args.all isConcreteArg then
-        -- A concrete call to a deferred submatch/replace form: a clear unsupported signal,
-        -- never a silent wrong answer. RX-1 implements these on a submatch-capable engine.
+        -- A concrete call to a still-deferred form (`FindString*`/`Split`/named-submatch):
+        -- a clear unsupported signal, never a silent wrong answer.
         .bottomWith [.unsupportedBuiltin name]
       else
         .builtinCall name args

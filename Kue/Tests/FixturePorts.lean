@@ -2453,6 +2453,66 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- RX-1c: submatch / Find* / ReplaceAll over the Pike-VM capture array. `ReplaceAll`
+      -- expands the Go `Expand` template (`$n`/`${n}`/`$$`); `${1}suffix` is group 1 then
+      -- literal `suffix` while bare `$1suffix` names the (nonexistent) group `1suffix`.
+      -- `ReplaceAllLiteral` splices verbatim. All oracle-checked vs cue v0.16.1; the
+      -- prod9-filter case (`([hb][^\s]+)lo` → `${1}ly`) is the lever F-1 + RX-1c unblock.
+      fileName := "builtins/regexp_submatch.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"replaceLiteral", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "T")]⟩,
+                ⟨"replaceGroup", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")]⟩,
+                ⟨"replaceBrace", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"),
+                      .prim (.string "${1}suffix")]⟩,
+                ⟨"replaceBareName", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"),
+                      .prim (.string "$1suffix")]⟩,
+                ⟨"replaceDollar", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$$")]⟩,
+                ⟨"replaceMulti", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-axxxb-"),
+                      .prim (.string "T")]⟩,
+                ⟨"replaceNoMatch", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "a(x*)b"), .prim (.string "-aQb-"), .prim (.string "T")]⟩,
+                ⟨"replaceZeroWidth", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "x*"), .prim (.string "abc"), .prim (.string "-")]⟩,
+                ⟨"replaceLiteralFn", .regular,
+                  .builtinCall "regexp.ReplaceAllLiteral"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")]⟩,
+                ⟨"prod9Filter", .regular,
+                  .builtinCall "regexp.ReplaceAll"
+                    [.prim (.string "([hb][^\\s]+)lo"), .prim (.string "hello jello bello"),
+                      .prim (.string "${1}ly")]⟩,
+                ⟨"findOne", .regular,
+                  .builtinCall "regexp.Find"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-")]⟩,
+                ⟨"findSub", .regular,
+                  .builtinCall "regexp.FindSubmatch"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-")]⟩,
+                ⟨"findAllSpans", .regular,
+                  .builtinCall "regexp.FindAll"
+                    [.prim (.string "ab"), .prim (.string "abab"), .prim (.int (-1))]⟩,
+                ⟨"findAllSub", .regular,
+                  .builtinCall "regexp.FindAllSubmatch"
+                    [.prim (.string "a(x*)b"), .prim (.string "-axb-axxb-"),
+                      .prim (.int (-1))]⟩
+              ] .regularOpen none []))
+    },
+    {
       -- `e == _|_` / `e != _|_` is CUE's definedness test, not value equality. A concrete
       -- operand is "defined" (`!= _|_` true); an absent-field selection is "incomplete" so
       -- the guard drops. Pins the comparison + the comprehension guard firing on present
