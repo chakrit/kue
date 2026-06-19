@@ -79,6 +79,21 @@ the spec-first fix-slice backlog in `plan.md`.
    sub-gap, which wrongly proposed *implementing* the artifact (a flag cleared on
    instantiation) — that direction is spec-wrong. ⚠ Real-app impact: verify cert-manager/argocd
    don't depend on the re-open before landing.
+   - **SC-2 is BROADER than the re-open-on-instantiation framing (Phase-A SC-1d/F-2 probe,
+     2026-06-19).** Nested closedness fails on a SINGLE meet, no instantiation needed: `#A: {a:
+     {b: int}}` meet `{a: {b: 1, extra: 5}}` — `cue` and the spec REJECT `extra` (the inner
+     `{b: int}` is "within the definition" ⇒ closed), but Kue ADMITS `extra: 5`. The TOP-level
+     def field closes correctly (`#A: {b: int} & {b: 1, extra: 5}` → `extra: _|_`, oracle-matched)
+     — only the NESTED struct-field value fails to close. Same root cause (closedness not
+     propagated into nested def-body field values) but the differentiator is DEPTH, not
+     instantiation; the SC-2 fix must close nested field values at the FIRST meet, not only
+     defend against a later re-open. Probes: `{a:{b:int}}` over-opens (Kue admits extra); the
+     pattern variant `{a:{b,[=~"^x"]}}` likewise over-opens nested while the top-level pattern
+     def closes (SC-1c). Cue agrees with the spec on all of these → NOT a divergence; Kue is
+     wrong. No fixture shipped (an `.expected` recording Kue's current wrong output would lie
+     about correctness); the SC-2 fix-slice owns adding the spec-correct fixture once it closes
+     nested. Repro for that slice: `#A:{a:{b:int}}` / `out: #A & {a:{b:1,extra:5}}` ⇒ expect
+     `out.a.extra` rejected.
 
 3. **SC-3 (LOW-MED — disjunction eval display/normalization).** `normalizeEvaluatedDisj`
    (`Eval.lean:648`) only flattens/dedups the all-regular case; a marked-default or nested
@@ -142,6 +157,40 @@ unparsed (latent). F-4/F-5 confirm spec gaps (export field order — keep Kue's 
 source-order; import laziness reference-location-dependence — keep, record). Export
 concreteness, incomplete-vs-error, required/optional/definition/null emission, module
 resolution core all CONFORMS.
+
+### Phase-A audit of the SC-1d + F-2 batch (`df10043..ae63b8a`, 2026-06-19)
+
+Both slices verified spec-correct; nothing in either was reverted or refixed.
+
+- **SC-1d (parser preserves `...` when patterns present).** All four `declared` arms route the
+  tail: plain+pattern via `baseValue = mkStruct … .defOpenViaTail (some tail) patterns`;
+  comprehension-only via `structCompOpenness = .defOpenViaTail` (`structComp` carries no tail
+  VALUE by design — bare `...` flag); comprehension+pattern via `.conj [baseValue, structComp]`
+  (typed tail + patterns live in `baseValue`, openness in `structComp`). ILL-1 coherence triple
+  (`openness=.defOpenViaTail ∧ tail.isSome ∧ closingPatterns=[]`) is enforced structurally by
+  `mkStruct`/`coherentTail` — incoherent triples are unconstructable through the only sanctioned
+  constructor. Oracle probes (all Kue==cue==spec): nested `{a:{b,[pat],...}}` admits extra
+  (open); multi-pattern+`...` admits non-matching, value-constrains matching; plain (non-def)
+  struct+pattern+`...` stays open; comprehension+pattern+`...` (arm 3) splices comprehension
+  field, admits extra, value-constrains matching. SC-1c regression guard holds at top level
+  (pattern+no-`...` def closes). The 4 native_decide pins are real (one directly inspects the
+  parsed node's coherence triple). **Verdict: CORRECT, complete, coherent.**
+- **SC-1d surfaced a SEPARATE pre-existing bug (NOT introduced by SC-1d):** nested closedness is
+  not propagated — see the SC-2 finding above (`#A:{a:{b:int}}` over-opens on a single meet). It
+  lives in the no-tail path SC-1d never touched; folded as a broadening of SC-2.
+- **F-2 (strip self-module `@vN` in `readModuleInfo`).** DRY: reuses `depKeyModulePath` (the
+  same strip deps already use) on the `module:` field — no duplicated strip logic. The bare
+  `modPath` reaches ALL consumers: it populates `ctx.modPath` at every `readModuleInfo` call
+  site (self-context `loadFileBound`/`loadPackageDir`, dep-context hop in `resolveImportTarget`),
+  feeding `resolveImportSubpath`/`importUnderModule`/`resolveCrossModule`. `depKeyModulePath` is
+  total (`splitOn "@"` always returns ≥1 element; the `[] => key` arm is dead but harmless) and
+  identity on a no-`@` path (no-suffix case unchanged). Edges: empty string → `""` (total);
+  multi-`@` malformed path (`a@v1/b@v2`) → strips at FIRST `@` (`a`), but CUE module paths cannot
+  legally embed `@` except the trailing major, so this is a non-case — acceptable, noted as a
+  latent assumption rather than a gap. Fixture is end-to-end and oracle-matched; 4 pins pin the
+  exact bug composition. **Verdict: CORRECT, DRY, all consumers covered.**
+- **Illegal-states/totality:** no new partiality, no new catch-all `_`, no incoherent
+  constructor reachable. SC-1d's coherence is type-enforced via `mkStruct`; F-2 adds no new state.
 
 ## Consolidated fix backlog (re-audit COMPLETE — spec-first, ranked)
 
@@ -319,9 +368,14 @@ worktree is freer; RX-1 is the broader correctness lever, Bug2-3 the single-app 
    `.embeddedList`/list-meet-to-bottom, NOT a shape heuristic. The argocd unblock.
 
 **HIGH — DIVERGE from cue (spec says so):**
-8. **SC-2** closing-vs-instantiation: preserve nested closedness on instantiation; record
-   `cue-divergences.md`. RE-SCOPES B6-deferred (which wrongly proposed implementing the cue
-   artifact). Verify cert-manager/argocd no-regress.
+8. **SC-2** closing-vs-instantiation: preserve nested closedness. **Broadened (Phase-A
+   2026-06-19):** the fix must close nested def-body field values at the FIRST meet, not only
+   defend a later re-open — `#A:{a:{b:int}}` already over-opens (`extra` admitted) on a single
+   meet, no instantiation. Here cue+spec AGREE (close) and Kue is wrong → this part is a plain
+   correctness fix, NOT a divergence; only the deeper `(#D & {}).r & {b}` re-open is the
+   cue-divergence half (record in `cue-divergences.md`). RE-SCOPES B6-deferred (which wrongly
+   proposed implementing the cue artifact). Verify cert-manager/argocd no-regress. See the SC-2
+   finding above for the probe set.
 
 **MED:**
 9. **D#3** `let` clauses in comprehensions (parse + `Clause.letClause` + wire `let`=+1 in
