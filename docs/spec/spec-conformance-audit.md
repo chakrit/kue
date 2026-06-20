@@ -58,7 +58,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
 | D. Comprehensions/scoping  | batch 2 | **CLOSED** | guard catch-all DRAINED (**D#1a/D#1b/D#1c all FIXED**: bottom→propagate, incomplete→defer, concrete-non-bool→type-error; 2026-06-20); structural cycles **D#2 COMPLETE 2026-06-20** (D#2a detection + D#2b terminating-disjunct); **`let`-clauses D#3 FIXED 2026-06-20** (parse + `Clause.letClause` + `let` = +1 frame; the LAST open D-item); frame-model + read-splice CONFORM — **D-area now fully closed** |
 | E. Scalars/bounds/builtins | batch 2 | DONE   | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); **BI-2 math.Pow exact + list.Sort/SortStable FIXED 2026-06-20** (residual: Sqrt + apd-Pow tail deferred = BI-2-residual); 1 MED builtin remains (BI-1 ASCII case-fold, reordered after F-3 — needs Unicode-table data decision); numeric/bounds/division/decimal core CONFORMS |
-| F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
+| F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed — **F-3 FIXED 2026-06-20**); export + module-resolution core CONFORM |
 
 ## Audit history (archived — full detail in implementation-log.md + git)
 
@@ -204,13 +204,16 @@ detail; it is not on the critical path.)
 
 **NOW LEADS — the MED tail** (no large designed levers remain; **D-area CLOSED**): **BI-2 DONE
 2026-06-20** (`math.Pow` exact domain + `list.Sort`/`SortStable` — comparator evaluated per pair at
-the eval layer; residual BI-2-residual filed = Sqrt + apd-Pow tail). Next leader: **F-3** (qualified
-import path parsing), then **BI-1** (Unicode case-fold — REORDERED after F-3; needs a Unicode-table
-DATA decision before code, an envelope risk), then **SC-3 display-residual** (LOW/spec-gap),
-**BI-2-residual** (Sqrt/apd-Pow). Then SC-4 (LOW, spec-gap-first), the 4 spec-gap ratifications, A#6
-(standalone), DRY-1 (LOW refactor). **Audit cadence: BI-2 = slice 1 of a NEW batch** (the two-phase
-audit closed at `7ee15d8`+`457a165`, counter reset to 0) — next two-phase audit DUE after 2-3 NEW
-slices (BI-2 is slice 1).
+the eval layer; residual BI-2-residual filed = Sqrt + apd-Pow tail). **F-3 DONE 2026-06-20**
+(qualified import path `"location:identifier"` — split at parse into `Import.packageName`, bind-name
+precedence wired; suffix-vs-declared-name mismatch gate is a recorded resolution residual). Next
+candidates: **BI-1** (Unicode case-fold — needs a Unicode-table DATA decision before code, an
+envelope risk; spike first), the periodic **plan-hygiene** + **test-org** passes (both DUE-but-
+non-blocking per the last Phase B — a periodic pass is the cleanest pre-audit slice), then **SC-3
+display-residual** (LOW/spec-gap), **BI-2-residual** (Sqrt/apd-Pow). Then SC-4 (LOW, spec-gap-first),
+the 4 spec-gap ratifications, A#6 (standalone), DRY-1 (LOW refactor). **Audit cadence: BI-2 = slice 1,
+F-3 = slice 2 of the NEW batch** (the two-phase audit closed at `7ee15d8`+`457a165`, counter reset to
+0) — next two-phase audit DUE after **~1 more slice**.
 
 Then the MED tail (D#1b/D#1c, D#3 `let` -clauses, SC-3 disj-display, BI-1 Unicode
 case-fold, BI-2 `math.Pow` /`list.Sort`, F-3 qualified import), SC-4 (LOW,
@@ -339,8 +342,21 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
     cue `"prod"`). That cosmetic display projection (a Format-layer change rewriting ~7 fixtures)
     is recorded as a spec-gap (`cue-spec-gaps.md` D#2b/SC-3 row), not a value bug — close it only
     if the eval-display convention is ever revisited.
-13. **F-3 (MED) — NOW LEADS.** parse qualified import path `"location:identifier"` (currently
-    unparsed; latent).
+13. **F-3 — DONE (2026-06-20).** Qualified import path `"location:identifier"` now parses.
+    The spec grammar `ImportPath = '"' ImportLocation [ ":" identifier ] '"'` puts the
+    qualifier INSIDE the string; `splitImportPath` splits it out at parse time into a new
+    `Import.packageName : Option String` (location-only `path` + explicit qualifier), so every
+    path consumer (`isBuiltinImport`/`resolveImportTarget`/`lastPathElement`) sees the bare
+    location — the previous bug fed the unstripped `:id` into directory resolution (`package
+    directory not found: …/math-utils:math`). `isPackageIdentifier` validates the qualifier
+    (identifier-start + parts, not `#`/`_#`) at PARSE, rejecting junk cue defers to a load error
+    (F-3 divergence). `importBindName` precedence is alias > qualifier > declared-name >
+    last-element. SCOPE = parse + bind-name; the stricter suffix-vs-loaded-declared-name MISMATCH
+    gate (cue's `package name "other"`) is a recorded resolution residual (needs the loaded name).
+    8 parse pins + 4 `importBindName`/`isPackageIdentifier` pins + 4 module fixtures
+    (`qualified_import{,_bare,_mixed,_invalid_id}`, all byte-identical to cue on the success
+    cases). 1 cue-divergence (junk-qualifier parse-reject) + 1 spec-gap (validity boundary +
+    parse-only scope). See implementation-log 2026-06-20.
 14. **BI-2 — DONE (2026-06-20), with residual.** `math.Pow` (EXACT non-negative-integer-exponent
     domain — repeated exact decimal multiply, byte-identical to cue; `Pow(0,0)` bottoms, CONFORMS)
     + `list.Sort`/`list.SortStable` (comparator `{x,y,less}` evaluated per pair at the EVAL layer via

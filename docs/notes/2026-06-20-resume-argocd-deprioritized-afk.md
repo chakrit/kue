@@ -1,59 +1,56 @@
-# RESUME HERE — BI-2 DONE (math.Pow exact + list.Sort/SortStable); F-3 next; audit NOT due (BI-2 = slice 1 of new batch) (2026-06-20)
+# RESUME HERE — F-3 DONE (qualified import path parses); BI-1 spike or a periodic pass next; audit DUE after ~1 more slice (BI-2=1, F-3=2) (2026-06-20)
 
 Live START-HERE pointer; supersedes all prior breadcrumbs. Authoritative live roadmap:
 [`../spec/spec-conformance-audit.md`](../spec/spec-conformance-audit.md)
 § Consolidated fix backlog (owns the ranked spec-conformance fixes) +
 [`../spec/plan.md`](../spec/plan.md) (capabilities + non-spec roadmap).
 
-**Latest (2026-06-20):** BI-2 landed (SPLIT) → **`math.Pow` (exact domain) + `list.Sort`/
-`list.SortStable` now return correct values; `math.Sqrt` + the apd-Pow tail are a filed residual
-(BI-2-residual).** Key finding: the slice premise "cue math = Go float64" is FALSE — cue's
-`math.Pow` uses an apd 34-sig-digit DECIMAL context (`Pow(2,0.5)=1.414…209698`), while `math.Sqrt`
-uses IEEE-754 FLOAT64 (`Sqrt(2)=1.4142135623730951`, sci-notation render `Sqrt(100)=1e+1`). Kue's
-numeric core is EXACT base-10 rationals — no `Float`, no `NaN`/`Infinity`, no sci-notation. So:
-**`math.Pow` is computed EXACTLY only for a non-negative integer exponent** (incl. whole-float
-`3.0`, since `Pow(3,2.0)=9`) via repeated exact decimal multiply (`mathPow?`/`decimalPowNat`),
-byte-identical to cue (`Pow(2,10)=1024`, `Pow(1.5,3)=3.375`, `Pow(0.1,2)=0.01` unpadded); `Pow(0,0)`
-bottoms (CONFORMS — cue errors). Outside that → bottom (honest, never a wrong value).
-**`list.Sort`/`SortStable`** are intercepted at the EVAL layer (`.builtinCall` arm of
-`evalValueCoreWithFuel`, NOT `evalBuiltinCall` — the comparator `{x,y,less}` must be MET with
-`{x:a,y:b}` and EVALUATED per pair, which the pure `Builtin` layer can't do). Comparator passed
-UNEVALUATED (so `less`'s `x`/`y` slot-refs survive the meet); per-pair compare =
-`.selector (.conj [cmp, {x:a,y:b}]) "less"` → bool; a non-bool `less` (incomplete/incomparable) →
-recorded in eval-scoped `EvalState.sortError` → sort bottoms. Sort = total stable monadic merge sort
-(`sortValuesM`, bottom-up, outside the mutual block, comparator threads the only recursive call back
-in). ONE stable sort serves both. `list.Ascending`/`Descending`/`Comparer` (no-call package VALUES)
-emitted by new `stdlibPackageValue?` as inline `{x,y,less}` AST, wired into `parseSelectorRest`. 13
-Pow pins (`BuiltinTests`) + 13 Sort pins (`EvalTests`, end-to-end via `evalSourceMatches`) + 2
-fixtures (`builtins/math_pow`, `builtins/list_sort`). 2 spec-gaps (Pow precision; Sort stability +
-comparator-value display); no cue-divergence (every Pow/Sort RESULT conforms). cert-manager/argocd
-unaffected (use neither builtin). See implementation-log + audit-history 2026-06-20.
+**Latest (2026-06-20):** F-3 landed → **qualified import path `"location:identifier"` now PARSES**
+(previously the unstripped `:id` broke directory resolution — `package directory not found:
+…/lib/math-utils:math`, the dash-dir case the qualifier exists for). Spec grammar
+`ImportPath = '"' ImportLocation [ ":" identifier ] '"'` puts the qualifier INSIDE the string.
+Modeling: split it out at parse → `Import.path` is the LOCATION only, new
+`Import.packageName : Option String` carries the explicit qualifier (`none` = default to last path
+element). Keeps `path` directly usable by all consumers; the explicit-vs-defaulted distinction is
+representable; the `Option` qualifier + existing `path` is the minimal precise shape (no redundant
+explicit/defaulted sum — the defaulted value IS the last element). `splitImportPath` splits on the
+sole `:` (ImportLocation can't contain `:` per the spec excluded-char set); `isPackageIdentifier`
+validates the qualifier at PARSE (identifier-start + parts, not `#`/`_#`), rejecting junk — cue
+accepts junk and defers to a load error, so Kue is MORE conformant (F-3 divergence).
+`importBindName` precedence: alias > qualifier > declared-name > last-element. **SCOPE = parse +
+bind-name**; the stricter suffix-vs-LOADED-declared-name MISMATCH gate (cue's `package name "other"`)
+is a recorded resolution residual (needs the loaded name). 8 parse pins + 4 `importBindName`/
+`isPackageIdentifier` pins + 4 module fixtures (`qualified_import{,_bare,_mixed,_invalid_id}`, the
+three success cases byte-identical to cue). 1 cue-divergence + 1 spec-gap. cert-manager/argocd use no
+qualifier — unaffected. See implementation-log + audit doc 2026-06-20.
 
-**Audit state — BI-2 is slice 1 of a NEW batch; NO audit due.** The two-phase audit closed at
-**Phase A `7ee15d8`** + **Phase B `457a165`** (counter reset to 0). BI-2 is the FIRST slice of the
-new batch ⇒ next two-phase audit DUE after **2-3 NEW slices** (BI-2 = 1; so after ~1-2 more). When
-it comes: run sequentially (A then B, both edit `plan.md`/this doc — parallel collides); follow
-[`../guides/slice-loop.md`](../guides/slice-loop.md), do NOT invoke `/ace-audit`. **Phase-B rulings
-to carry forward (do not re-litigate):** walker dedups are THREE distinct families (AD4-1 `EvalM`
-clause-drivers / A-EN3 pure `Value` folds / DRY-1 let-fixpoint walkers) + a separate normalizer pair
-(AD2-1) — four mechanisms, NOT one; sequence AD4-1 → A-EN3+DRY-1 → AD2-1, all post-argocd, gated.
-The bottom-payload newtype (AD3-4) is RULED OUT (over-engineering). Test-org + plan-hygiene passes
-are DUE-but-non-blocking (do not preempt the feature tail).
+**Audit state — BI-2 = slice 1, F-3 = slice 2 of the NEW batch; audit DUE after ~1 more slice.** The
+two-phase audit closed at **Phase A `7ee15d8`** + **Phase B `457a165`** (counter reset to 0). BI-2
+(slice 1) + F-3 (slice 2) have landed ⇒ next two-phase audit DUE after **~1 more slice** (or run it
+now if the next pick is itself a periodic pass). When it comes: run sequentially (A then B, both edit
+`plan.md`/this doc — parallel collides); follow [`../guides/slice-loop.md`](../guides/slice-loop.md),
+do NOT invoke `/ace-audit`. **Phase-B rulings to carry forward (do not re-litigate):** walker dedups
+are THREE distinct families (AD4-1 `EvalM` clause-drivers / A-EN3 pure `Value` folds / DRY-1
+let-fixpoint walkers) + a separate normalizer pair (AD2-1) — four mechanisms, NOT one; sequence
+AD4-1 → A-EN3+DRY-1 → AD2-1, all post-argocd, gated. The bottom-payload newtype (AD3-4) is RULED OUT
+(over-engineering). Test-org + plan-hygiene passes are DUE-but-non-blocking (do not preempt the
+feature tail).
 
 ## IMMEDIATE NEXT STEPS (the loop can just `Keep going`)
 
-1. **No audit due** (BI-2 = slice 1 of the new post-`457a165` batch; counter at 1). **Next leader =
-   F-3** (below). Run ~1-2 more slices, then the two-phase audit (Phase A → Phase B).
-2. **F-3 — NEXT.** Parse qualified import path `"location:identifier"` (currently unparsed; latent).
-   A parse-layer addition (the import-clause parser); check the CUE spec for the exact
-   `ImportSpec`/`location:identifier` grammar before coding.
-3. **BI-1 — AFTER F-3, picked up with a DATA-APPROACH SPIKE FIRST (do NOT slice blind).** Unicode
-   case-fold for `strings.ToUpper/ToLower` (currently ASCII-only → wrong on non-ASCII). ⚠ This is an
-   **envelope risk**: full Unicode case-mapping likely needs a generated case-folding TABLE = a data
-   dependency / possible network fetch (the grant forbids fetching external data into the repo
-   without explicit need — if a builtin would require vendoring, STOP and flag). BI-1's slice MUST
-   first decide: vendored generated table (checked-in, no fetch) vs scoped coverage (common ranges
-   only). Reordered AFTER F-3 (which is self-contained) for this reason.
+1. **Audit due after ~1 more slice** (BI-2 = slice 1, F-3 = slice 2 of the new post-`457a165` batch;
+   counter at 2). Pick slice 3 from the candidates below, then run the two-phase audit (Phase A →
+   Phase B). **A periodic plan-hygiene OR test-org pass is the CLEANEST slice-3** — both are
+   DUE-but-non-blocking, neither expands the feature surface (so it gives the audit a stable base),
+   and plan.md/this doc have accumulated superseded re-ranks worth distilling. Recommended.
+2. **BI-1 — the remaining MED feature, picked up with a DATA-APPROACH SPIKE FIRST (do NOT slice
+   blind).** Unicode case-fold for `strings.ToUpper/ToLower` (currently ASCII-only → wrong on
+   non-ASCII). ⚠ **Envelope risk**: full Unicode case-mapping likely needs a generated case-folding
+   TABLE = a data dependency / possible network fetch (the grant forbids fetching external data into
+   the repo without explicit need — if a builtin would require vendoring, STOP and flag). BI-1's
+   slice MUST first decide: vendored generated table (checked-in, no fetch) vs scoped coverage
+   (common ranges only). If picked as slice 3 it carries the envelope risk INTO the pre-audit base —
+   prefer a periodic pass first (item 1), then BI-1 as the first slice of the next batch.
 4. Then: **SC-3 display-residual** (LOW/spec-gap — cue collapses `*1|2`→`1`, `{…}|*null`→`null`; Kue
    does NOT, unsound; Format-layer projection rewriting ~7 fixtures, close only if the display
    convention is revisited) · **BI-2-residual** (Sqrt float64 + apd-Pow tail — needs Float/`NaN`/

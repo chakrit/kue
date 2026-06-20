@@ -429,6 +429,68 @@ theorem parse_grouped_import_clause_is_ignored :
       "x: 1" = true := by
   native_decide
 
+/-! ## Qualified import-path parsing (F-3)
+
+    `ImportPath = '"' ImportLocation [ ":" identifier ] '"'`: the `:identifier` qualifier is
+    split out of the location at parse time into `Import.packageName`, leaving `path` the
+    bare location. `isPackageIdentifier`/`splitImportPath` enforce the identifier rule. -/
+
+/-- A bare location parses with no qualifier; `path` is the whole location. -/
+theorem parse_import_bare_location :
+    (parseImportSpec "\"example.com/defs\"".toList
+      == .ok ({ path := "example.com/defs" }, [])) = true := by
+  native_decide
+
+/-- An explicit `:identifier` qualifier is split out: `path` is the location, `packageName`
+    the qualifier. -/
+theorem parse_import_qualified_location :
+    (parseImportSpec "\"example.com/defs:foo\"".toList
+      == .ok ({ path := "example.com/defs", packageName := some "foo" }, [])) = true := by
+  native_decide
+
+/-- The qualifier names the package even when the last path element is not itself a valid
+    identifier (the case the suffix exists for — `pkg-with-dash:pkg`). -/
+theorem parse_import_qualifier_for_dashed_last_element :
+    (parseImportSpec "\"domain.com/pkg-with-dash:pkg\"".toList
+      == .ok ({ path := "domain.com/pkg-with-dash", packageName := some "pkg" }, [])) = true := by
+  native_decide
+
+/-- A `PackageName` alias prefix coexists with a `:identifier` qualifier; both are recorded. -/
+theorem parse_import_alias_and_qualifier :
+    (parseImportSpec "bar \"example.com/defs:foo\"".toList
+      == .ok ({ path := "example.com/defs", packageName := some "foo", alias := some "bar" }, [])) = true := by
+  native_decide
+
+/-- An underscore-led qualifier is a legal (non-definition) identifier. -/
+theorem parse_import_underscore_qualifier :
+    (parseImportSpec "\"example.com/defs:_foo\"".toList
+      == .ok ({ path := "example.com/defs", packageName := some "_foo" }, [])) = true := by
+  native_decide
+
+/-- A qualifier with a leading digit is not an identifier → parse error. -/
+theorem parse_import_invalid_digit_qualifier_errors :
+    (parseImportSpec "\"example.com/defs:2bad\"".toList).isOk = false := by
+  native_decide
+
+/-- A definition-identifier qualifier (`#foo`) is rejected — a PackageName may not be a
+    definition identifier. -/
+theorem parse_import_definition_qualifier_errors :
+    (parseImportSpec "\"example.com/defs:#foo\"".toList).isOk = false := by
+  native_decide
+
+/-- An empty qualifier (`location:`) is rejected. -/
+theorem parse_import_empty_qualifier_errors :
+    (parseImportSpec "\"example.com/defs:\"".toList).isOk = false := by
+  native_decide
+
+/-- `isPackageIdentifier` accepts a plain identifier, accepts an underscore lead, and
+    rejects empty / digit-led / definition forms. -/
+theorem parse_is_package_identifier_cases :
+    (isPackageIdentifier "foo" && isPackageIdentifier "_foo" && isPackageIdentifier "a1"
+      && !isPackageIdentifier "" && !isPackageIdentifier "1a" && !isPackageIdentifier "#foo"
+      && !isPackageIdentifier "_#foo") = true := by
+  native_decide
+
 -- Parse errors carry 1-based source positions (line:column at the stuck offset).
 
 theorem parse_error_position_line_one_column_one :

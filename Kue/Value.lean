@@ -792,12 +792,18 @@ def mkStruct
   .struct fields coherentOpenness coherentTailValue (dedupPatterns patterns)
     (dedupValues coherentClosing)
 
-/-- A single `import "path"` or `alias "path"` clause retained from a parsed file. The
-    `path` is the verbatim import string (e.g. `"example.com/defs"`); `alias` carries the
-    optional local rename, `none` when the package binds under its own declared name. -/
+/-- A single `import "location[:id]"` or `alias "location[:id]"` clause retained from a
+    parsed file. `path` is the import *location* with any `:identifier` qualifier already
+    stripped (e.g. `import "example.com/defs:foo"` ⇒ `path := "example.com/defs"`), so every
+    path-resolution consumer sees the location directly. `packageName` is the EXPLICIT
+    `:identifier` qualifier (`some "foo"`), or `none` when the bare location defaults the
+    package name to its last path element. `alias` carries the optional `PackageName` prefix
+    (`import foo "…"`), the highest-precedence local rename. The three are distinct axes: the
+    qualifier names the package *within* the location, the alias renames it *locally*. -/
 structure Import where
   path : String
-  alias : Option String
+  packageName : Option String := none
+  alias : Option String := none
 deriving Repr, BEq, DecidableEq
 
 /-- The full result of parsing one `.cue` file: its top-level value (struct body), the

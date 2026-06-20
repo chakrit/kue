@@ -202,20 +202,59 @@ def sourcePackageName (source : String) : Except ParseError (Option String) := d
       else
         parseError [] "conflicting package clauses"
 
-/-- Parse one import spec: an optional bare identifier alias followed by a quoted import
-    path. `import "example.com/defs"` yields `{path, alias := none}`;
-    `import foo "example.com/defs"` yields `{path, alias := some "foo"}`. -/
+/-- Whether `name` is a well-formed CUE package qualifier: a non-empty identifier
+    (`identifier_start` then `identifier_part`s) that is NOT a definition identifier (no
+    leading `#`/`_#` — the spec forbids a definition identifier as a PackageName). The
+    `:identifier` suffix of an import path defaults the local package name, so it must obey
+    this rule. -/
+def isPackageIdentifier (name : String) : Bool :=
+  match name.toList with
+  | [] => false
+  | '#' :: _ => false
+  | '_' :: '#' :: _ => false
+  | first :: rest => parseIdentifierStart first && rest.all parseIdentifierRest
+
+/-- Split a parsed import-path string into its location and optional `:identifier`
+    qualifier per the spec `ImportPath = '"' ImportLocation [ ":" identifier ] '"'`. An
+    ImportLocation may not itself contain `:` (the spec's excluded-character set), so the
+    sole `:` — when present — is the qualifier separator. Returns `(location, some id)` with
+    `id` validated as a package identifier, `(location, none)` when there is no `:`, or an
+    error when the qualifier is empty or malformed. -/
+def splitImportPath (raw : String) (errChars : List Char) :
+    Except ParseError (String × Option String) :=
+  match raw.splitOn ":" with
+  | [location] => .ok (location, none)
+  | [location, qualifier] =>
+      if isPackageIdentifier qualifier then
+        .ok (location, some qualifier)
+      else
+        parseError errChars s!"invalid package identifier in import path: '{qualifier}'"
+  | _ => parseError errChars s!"malformed import path '{raw}': multiple ':' qualifiers"
+
+/-- Parse one import spec: an optional bare identifier alias (`PackageName`) followed by a
+    quoted import path whose optional `:identifier` qualifier is split into `packageName`.
+    `import "example.com/defs"` yields `{path := "example.com/defs"}`;
+    `import "example.com/defs:foo"` yields `{path := "example.com/defs", packageName := some "foo"}`;
+    `import bar "example.com/defs"` yields `{path := "example.com/defs", alias := some "bar"}`. -/
 def parseImportSpec (chars : List Char) : ParseResult Import :=
   let trimmed := skipTrivia chars
   match parseQuotedString trimmed with
-  | .ok (path, rest) => parseOk { path := path, alias := none } rest
+  | .ok (raw, rest) =>
+      match splitImportPath raw trimmed with
+      | .error error => .error error
+      | .ok (location, packageName) =>
+          parseOk { path := location, packageName := packageName } rest
   | .error _ =>
       match parseIdentifier trimmed with
       | .error error => .error error
       | .ok (alias, rest) =>
           match parseQuotedString (skipTrivia rest) with
           | .error error => .error error
-          | .ok (path, rest) => parseOk { path := path, alias := some alias } rest
+          | .ok (raw, rest) =>
+              match splitImportPath raw (skipTrivia rest) with
+              | .error error => .error error
+              | .ok (location, packageName) =>
+                  parseOk { path := location, packageName := packageName, alias := some alias } rest
 
 /-- Collect the specs inside a grouped `import ( … )` block up to the closing `)`,
     skipping separators (newlines/commas/comments handled by `skipTrivia` plus an

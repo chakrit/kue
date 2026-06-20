@@ -1,0 +1,3 @@
+package strs
+
+Greeting: "hi"

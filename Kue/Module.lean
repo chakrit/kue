@@ -165,16 +165,22 @@ def bindImports (bindings : List (String × Value)) : Value -> Value
   | value =>
       mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) .defClosed none []
 
-/-- The local name a package binds under: the import alias when present, else the
-    package's declared name, else the last path element as a final fallback (a package
-    whose files all omit a clause — rare; CUE infers the name from the path). -/
+/-- The local name a package binds under, in spec precedence: the `PackageName` alias
+    prefix (`import foo "…"`) when present; else the explicit `:identifier` qualifier
+    (`import "…:foo"`); else the package's declared name; else the last path element as a
+    final fallback (a package whose files all omit a clause — rare; CUE infers the name from
+    the path). The qualifier outranks the declared name because it is the importer's chosen
+    package name within the location. -/
 def importBindName (imp : Import) (declaredName : Option String) : String :=
   match imp.alias with
   | some alias => alias
   | none =>
-      match declaredName with
-      | some name => name
-      | none => lastPathElement imp.path
+      match imp.packageName with
+      | some qualifier => qualifier
+      | none =>
+          match declaredName with
+          | some name => name
+          | none => lastPathElement imp.path
 where
   lastPathElement (path : String) : String :=
     (path.splitOn "/").getLast!

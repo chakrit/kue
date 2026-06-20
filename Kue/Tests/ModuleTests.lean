@@ -58,6 +58,23 @@ example : importBindName { path := "example.com/defs", alias := none } (some "de
 example : importBindName { path := "example.com/defs", alias := some "d" } (some "defs") = "d" := by
   native_decide
 
+/-- An explicit `:identifier` qualifier (F-3) outranks the package's declared name. -/
+example :
+    importBindName { path := "example.com/defs", packageName := some "foo" } (some "defs") = "foo" := by
+  native_decide
+
+/-- The `PackageName` alias prefix still wins over an explicit qualifier. -/
+example :
+    importBindName { path := "example.com/defs", packageName := some "foo", alias := some "d" }
+      (some "defs") = "d" := by
+  native_decide
+
+/-- With no qualifier and no alias, a qualified-import path that was suffix-stripped at
+    parse time binds under the loaded declared name exactly as a bare import does. -/
+example :
+    importBindName { path := "example.com/pkg-with-dash", packageName := some "pkg" } none = "pkg" := by
+  native_decide
+
 /-- `bindImports` prepends each binding as an `importBinding` top-level field, in scope for
     references but excluded from output (distinguished from a real in-file hidden field so
     the import binding stays output-reachability-lazy). -/

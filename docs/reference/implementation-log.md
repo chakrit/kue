@@ -9734,3 +9734,79 @@ eval arm), `Kue/Parse.lean` (`stdlibPackageValue?` + `parseSelectorRest` no-call
 `Kue/Tests/BuiltinTests.lean` (13 Pow pins), `Kue/Tests/EvalTests.lean` (13 Sort pins),
 `Kue/Tests/FixturePorts.lean` (2 entries),
 `testdata/cue/builtins/{math_pow,list_sort}.{cue,expected}`, `docs/reference/cue-spec-gaps.md`.
+
+## Completed Slice: F-3 — parse qualified import path `"location:identifier"` (2026-06-20)
+
+Goal: make the CUE import-path package qualifier parse. Per the spec grammar
+`ImportPath = '"' ImportLocation [ ":" identifier ] '"'`, the `:identifier` qualifier lives
+INSIDE the quoted string and names the package within the location (defaulting the local
+binding name). Kue previously read the whole quoted string into `Import.path` verbatim, so the
+unstripped `:id` polluted every downstream path consumer — directory resolution failed with
+`package directory not found: …/lib/math-utils:math`, the dash-dir case the qualifier exists to
+serve. The bug was latent (no real-app import uses the qualifier), but it is a KUE-VIOLATES per
+the F-area audit.
+
+**Modeling (illegal-states-unrepresentable).** Split the qualifier out of the location at parse
+time. `Import.path` becomes the LOCATION only (suffix stripped), and a new field
+`packageName : Option String` carries the EXPLICIT qualifier (`none` = "default the package name
+to the last path element"). This keeps `path` directly usable by every existing consumer
+(`isBuiltinImport`, `resolveImportTarget`, `resolveImportSubpath`, `lastPathElement`) unchanged —
+they all want the location — while making the explicit-vs-defaulted distinction representable.
+The defaulting itself stays a single function over the location in `importBindName`. (The
+alternative — a dedicated explicit/defaulted sum — was rejected: the defaulted value IS the last
+path element, already derivable; an `Option` qualifier plus the existing `path` is the minimal
+precise shape with no redundant stored state.)
+
+**Parse (`Kue/Parse.lean`).** New `splitImportPath` splits the parsed string on `:` (an
+ImportLocation may not itself contain `:` — it is in the spec's excluded-character set — so the
+sole `:` is the qualifier separator) into `(location, Option qualifier)`. New
+`isPackageIdentifier` validates the qualifier as a well-formed CUE identifier (identifier-start
+then identifier-parts) that is NOT a definition identifier (`#`/`_#` rejected — the spec forbids a
+definition identifier as a PackageName), erroring on empty / digit-led / definition forms.
+`parseImportSpec` routes both the bare-path and the alias-prefix (`import foo "…"`) arms through
+the split, populating `path` + `packageName` (+ `alias`).
+
+**Bind-name wiring (`Kue/Module.lean`).** `importBindName` precedence is now alias > explicit
+qualifier > declared package name > last path element. The qualifier outranks the declared name
+because it is the importer's chosen package name within the location.
+
+**Scope: parse + bind-name; one resolution residual.** A `"location:identifier"` import now PARSES
+and resolves where it previously failed; the qualifier is recorded and honored as the binding name,
+never dropped. The STRICTER spec obligation — that the qualifier must MATCH the loaded package's
+declared `package` clause (cue errors `no files in package directory with package name "other"`) —
+is NOT yet enforced; it needs the loaded declared name and is a load-time gate beyond parsing. A
+qualifier that mis-names an existing package currently binds under the qualifier without verifying
+equality (recorded as a resolution residual in `cue-spec-gaps.md`).
+
+**Tests.** 8 `native_decide` parse pins (`Kue/Tests/ParseTests.lean`): bare location; explicit
+qualifier split; dash-last-element-needs-qualifier; alias + qualifier; underscore qualifier;
+digit-led / definition-id / empty qualifier → error; plus an `isPackageIdentifier` boundary pin.
+4 `native_decide` pins (`Kue/Tests/ModuleTests.lean`): qualifier outranks declared name; alias
+outranks qualifier; suffix-stripped path binds under the declared name as a bare import does. 4
+module fixtures (`testdata/modules/qualified_import{,_bare,_mixed,_invalid_id}`): the headline
+dash-dir explicit-`:math` case, the bare-path defaulting case, a grouped import mixing both forms,
+all three byte-identical to the `cue` oracle; plus the invalid-identifier `expected.err` error
+fixture.
+
+**Divergences / spec gaps recorded.** `cue-divergences.md` (F-3 row): Kue rejects a malformed
+`:identifier` at PARSE (`invalid package identifier`); cue accepts any suffix text and defers to a
+load-time failure — Kue is more spec-conformant (the grammar mandates `identifier`).
+`cue-spec-gaps.md` (F-3 row): the identifier-validity boundary (`_foo` admitted, `#foo`/empty
+rejected) and the parse-only resolution scope (suffix-vs-declared-name mismatch gate deferred).
+
+**Verify.** `lake build` green (100 jobs; all pins checked at build; no non-exhaustive-match
+warning). `check-fixtures.sh` → `fixture pairs ok` (zero drift on the full corpus; 4 new module
+fixtures auto-discovered, no `FixturePorts` entry needed — those are for `testdata/cue/*` only).
+`shellcheck` clean (no shell touched). The change is additive at the import layer; cert-manager/
+argocd use no path qualifier, so it cannot regress real-app output.
+
+**Next candidates:** BI-1 (Unicode case-fold — spike the data approach first) or a periodic
+plan-hygiene / test-org pass (both DUE-but-non-blocking per the last Phase B; a periodic pass is the
+cleanest pre-audit slice). Audit cadence: BI-2 = slice 1, F-3 = slice 2 of the new post-`457a165`
+batch — two-phase audit due after ~1 more slice.
+
+Files: `Kue/Value.lean` (`Import.packageName` field + doc), `Kue/Parse.lean` (`isPackageIdentifier`,
+`splitImportPath`, `parseImportSpec`), `Kue/Module.lean` (`importBindName` precedence),
+`Kue/Tests/ParseTests.lean` (8 pins), `Kue/Tests/ModuleTests.lean` (4 pins),
+`testdata/modules/qualified_import{,_bare,_mixed,_invalid_id}/*`, `docs/reference/cue-divergences.md`,
+`docs/reference/cue-spec-gaps.md`, `docs/spec/spec-conformance-audit.md`.
