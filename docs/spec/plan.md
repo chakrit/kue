@@ -478,7 +478,7 @@ constructible patterns; AD2-1 is value-sound (display-only) and never preempts t
   unification/eval expected-outputs from `cue`). Cross-linked from `slice-loop.md`'s
   spec-authority section. Both (a) and (b) are discharged.
 
-**Phase-B audit 2026-06-20 (`<this commit>`, whole-graph; scopes AD4-1 `524a402` + A-EN3 `5652717`;
+**Phase-B audit 2026-06-20 (`a788f5c`, whole-graph; scopes AD4-1 `524a402` + A-EN3 `5652717`;
 Phase A `6a5521a` found both dedups SOUND, re-classified A-EN3-DYN to a REACHABLE Violation + filed
 DYN-DEF-1) — verdict: HEALTHY; no code fix; rankings/rulings folded in. CLOSES the audit round.**
 

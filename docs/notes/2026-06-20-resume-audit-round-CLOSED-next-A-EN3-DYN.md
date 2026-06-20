@@ -9,7 +9,7 @@ audit verdicts) + [`../spec/spec-conformance-audit.md`](../spec/spec-conformance
 
 The two-phase audit over the **AD4-1 (`524a402`) + A-EN3 (`5652717`)** dedup batch is CLOSED:
 **Phase A `6a5521a`** (both dedups SOUND; re-classified A-EN3-DYN to a REACHABLE wrong-result
-Violation; filed DYN-DEF-1) + **Phase B `<this commit>`** (architecture HEALTHY; abstractions
+Violation; filed DYN-DEF-1) + **Phase B `a788f5c`** (architecture HEALTHY; abstractions
 confirmed right-level; rankings/rulings folded into the plan). Counter RESET to **0** — next
 two-phase audit after **2–3 new slices** (per [`../guides/slice-loop.md`](../guides/slice-loop.md);
 do NOT invoke `/ace-audit`).
@@ -70,7 +70,7 @@ helpers gone with zero dangling refs; perf-guide current. **`.any`→`foldl` rul
 `refsSelfEmbeddedLabel`'s lost within-field early-exit is a bounded constant inside the outer
 field-level `.any` short-circuit + fuel-bounded trees; restoring `.any` would re-introduce the
 per-shape duplication A-EN3 removed. Verify gate green (build 108 jobs / `fixture pairs ok` /
-shellcheck clean). Full verdict: plan.md § "Phase-B audit 2026-06-20 (`<this commit>`)".
+shellcheck clean). Full verdict: plan.md § "Phase-B audit 2026-06-20 (`a788f5c`)".
 
 ## CANONICAL PATHS (ground-truth — do NOT re-litigate)
 
