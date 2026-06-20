@@ -1,4 +1,4 @@
-# RESUME HERE — RX-2a DONE; regex corpus divergence-free; MED tail leads; AUDIT DUE (2026-06-20)
+# RESUME HERE — RX-2a DONE; regex corpus divergence-free; MED tail leads (2026-06-20)
 
 Live START-HERE pointer; supersedes all prior breadcrumbs. Authoritative live roadmap:
 [`../spec/spec-conformance-audit.md`](../spec/spec-conformance-audit.md)
@@ -15,18 +15,18 @@ composes through the ordinary union and is flipped by the whole-class `negated` 
 cue-agreeing — no divergence/spec-gap). 26 `native_decide` pins + 1 `=~`/`!~` fixture. Leaf module,
 no eval-cost change.
 
-⚠ **AUDIT DUE NOW.** D#2a + D#2b + RX-2a = **3 landed slices** since the last two-phase audit. Per
-`slice-loop.md` cadence, run a **Phase-A (code-quality) then Phase-B (architecture)** audit
-sequentially — both edit `plan.md`/the audit doc, so NOT in parallel — BEFORE or right after the
-next slice. Do NOT invoke `/ace-audit`; follow the procedure in `docs/guides/slice-loop.md`. The
-recent batch to scope: the D#2 structural-cycle work (`Eval.lean`/`Value.lean` detection +
-terminating-disjunct) and RX-2a (`Regex.lean` complement fold).
+**Audit state — NOT due.** The D#2 two-phase audit already ran this session: Phase A `b5883f1`
+(SOUND; +2 edge pins; AD2-1 filed) + Phase B `c03ebdb` (HEALTHY; AD2-1 ruled file-not-inline;
+perf-guide updated), scoping D#2a + D#2b. **RX-2a is slice 1 of the new batch** → the next
+Phase-A→Phase-B audit is due after ~2 more slices land. (Cadence/procedure: `slice-loop.md`; do
+NOT invoke `/ace-audit`. Audit subagents MUST reset this audit-state note + clear any "due" flag
+here when they finish, so the next slice doesn't double-count — that drift just happened once.)
 
 ## IMMEDIATE NEXT STEPS (design-first; the loop can just `Keep going`)
 
-1. **AUDIT (Phase A → Phase B)** — mandatory at this 3-slice mark; see the ⚠ above. Fold findings
-   into the audit doc / `plan.md` as ranked fix-slices.
-2. **The MED tail NOW LEADS** (no large designed levers remain after D#2 + the regex family):
+1. **The MED tail LEADS** — start with **D#1b / D#1c** (detailed just below). No audit now: the
+   D#2 audit already ran (`b5883f1` + `c03ebdb`); RX-2a is slice 1 of the new batch, next audit
+   after ~2 more slices. (No large designed levers remain after D#2 + the regex family.)
    - **D#1b / D#1c** — comprehension-guard classification. D#1a (bottom → propagate) is DONE;
      D#1b makes a genuinely INCOMPLETE/abstract guard DEFER, D#1c makes a CONCRETE non-bool guard
      (`if "x" {…}`, `if 3 {…}`) a TYPE ERROR (cue errors; Kue currently swallows to `{}`). Both
