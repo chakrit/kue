@@ -101,6 +101,69 @@ theorem eval_cycle_with_repeated_selection :
   native_decide
 
 
+/-! ### structural-cycle detection (D#2a).
+
+The CUE spec mandates dynamic detection of STRUCTURAL cycles — a definition (or regular field)
+whose body re-enters the SAME struct through a struct layer (`#L: {next: #L}`) — as an error,
+DISTINCT from a bare REFERENCE cycle (`x: x` → `_`). Detection is an in-progress struct-body
+stack on the `.refId` eval path (`structStack`): a struct body re-entered while still on the
+stack bottoms with `.structuralCycle` rather than unrolling fuel-deep to garbage. These pins
+cover the spec's oracle table (cue v0.16.1): error cases, the reference-cycle control, the
+finite-deep control, and the recursive-list idiom that must NOT false-positive. -/
+
+-- Oracle #1: a self-referential def is a structural cycle. The lever tags the re-entry
+-- `.structuralCycle` (asserted on the REASON, not merely "some bottom"), so a regression to the
+-- old fuel-deep unroll — or to an untagged bottom — fails. cue: `#L.next: structural cycle`.
+theorem structural_cycle_self_ref_detected :
+    evalSourceDetectsStructuralCycle "#L: {n: int, next: #L}\nx: #L\n" = true := by
+  native_decide
+
+-- The structural cycle makes the value non-manifestable: `export` bottoms (the value verdict
+-- cue agrees on). With every field concrete except the cyclic ref, the ONLY fault is the cycle.
+theorem structural_cycle_self_ref_export_bottoms :
+    exportJsonBottoms "#L: {n: 1, next: #L}\nx: #L\n" = true := by
+  native_decide
+
+-- Oracle #3: MUTUAL recursion (`#A` → `#B` → `#A`) is detected for free — `#A`'s body re-enters
+-- the stack two hops down, same mechanism, no special-casing. cue: `#B.a: structural cycle`.
+theorem structural_cycle_mutual_detected :
+    evalSourceDetectsStructuralCycle "#A: {b: #B}\n#B: {a: #A}\nz: #A\n" = true := by
+  native_decide
+
+-- A structural cycle through a REGULAR (non-definition) field is detected too — the lever keys
+-- on struct-body re-entrancy, not definition-ness (cue agrees: `a.next: structural cycle`).
+theorem structural_cycle_regular_field_detected :
+    evalSourceDetectsStructuralCycle "a: {n: int, next: a}\n" = true := by
+  native_decide
+
+-- Control (oracle #5): a bare REFERENCE cycle is NOT structural — no struct layer between
+-- re-entries — so it stays `_` (resolved via the depth-0 `visited` slot check, untouched by the
+-- struct-body lever). Pins that D#2a did not regress the reference-cycle path.
+theorem reference_cycle_unchanged :
+    evalSourceMatches "x: x\n" "x: _" = true := by
+  native_decide
+
+-- Control: a constrained reference cycle still resolves to its constraint (`x: x & >=0` → `>=0`),
+-- not a structural-cycle bottom — the conj's bare `.ref` arm is not a struct body.
+theorem constrained_reference_cycle_unchanged :
+    evalSourceMatches "x: x & >=0\n" "x: >=0" = true := by
+  native_decide
+
+-- Control (oracle #4): a FINITE-deep nesting must NOT false-positive — each layer is a DISTINCT
+-- struct body, so no body is ever on the stack twice. No `.structuralCycle` anywhere.
+theorem finite_deep_struct_no_false_cycle :
+    evalSourceDetectsStructuralCycle "#D: {a: {b: {c: {d: int}}}}\nw: #D\n" = false := by
+  native_decide
+
+-- Control (the recursive-tree idiom): recursion through an OPEN LIST tail (`[...#T]`) is finite
+-- in cue (the tail defers, yielding `[]`), NOT a structural cycle. A concrete finite use exports
+-- byte-identically to cue — the lever must not flag the deferred-tail recursion.
+theorem recursive_list_tail_finite_use_exports :
+    exportJsonMatches "#T: {v: int, kids: [...#T]}\nx: #T & {v: 1, kids: [{v: 2}]}\n"
+      "{\n    \"x\": {\n        \"v\": 1,\n        \"kids\": [\n            {\n                \"v\": 2,\n                \"kids\": []\n            }\n        ]\n    }\n}\n" = true := by
+  native_decide
+
+
 /-! ### list-comprehension parse+eval pins (slice `list-comprehension-parse-eval`).
 
 End-to-end behavioral pins over the full list-comprehension surface, each cue v0.16.1-exact (the

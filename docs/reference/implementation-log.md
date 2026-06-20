@@ -9208,3 +9208,92 @@ both correct, but the divergence is flagged for the architecture audit.)
 Files: `Kue/Eval.lean` (`letPromotedReadLabels`, `injectLetLocalNarrowings`,
 `embedComprehensionReadLabels`/`embedReadLabelsClosing`, `forceClosureWithConjunctCore`),
 `Kue/Tests/TwoPassTests.lean`, `testdata/modules/mixin_let_local_narrowing/`.
+
+## D#2a — structural-cycle DETECTION (2026-06-20)
+
+**Spec-mandated, was MISSING.** The CUE spec requires dynamic detection of STRUCTURAL cycles —
+a definition or field whose body re-enters the same struct through a struct layer
+(`#L: {next: #L}`, mutual `#A`/`#B`) — as an error, DISTINCT from a bare REFERENCE cycle
+(`x: x` → `_`). Before this slice Kue unrolled the cyclic body fuel-deep to a truncated
+`{..., ...}` garbage tree (oracle #1/#2/#3); now the re-entry bottoms with `.structuralCycle`.
+
+**The designed lever was WRONG as built — redesigned by first principles (recorded).** The
+audit's D#2a design put an ancestor force-stack on `forceClosureWithConjunct`, keyed on the
+fuel-free `ForceKey` triple `(envIds, body, useOperands)`, on the premise that `next: #L`
+re-enters that force one fuel tier down with a REPEATING triple (frame-sharing canonicalizes
+`envIds`). Instrumentation falsified both halves: (1) `#L` reaches `forceClosureWithConjunct`
+exactly ONCE — the recursion unrolls inside `evalValueCoreWithFuel`'s `.refId` arm
+(`refDefClosureBody?` returns `none` on every re-entry, so the force branch is never re-taken);
+(2) the `.refId` re-eval allocates FRESH frame ids each level (`[1,0]`→`[2,0]`→`[2,1,0]`→…), so
+`envIds` never repeats — no force-triple-based identity can ever fire. The force path is simply
+not where the cycle recurses.
+
+**Correct lever (struct-body re-entrancy on the `.refId` path).** A structural cycle is a struct
+VALUE whose evaluation requires its own evaluation to complete — i.e. the SAME struct body
+re-entered while still in progress. The stable identity is the body `Value` itself (frame ids are
+not stable; the body is). Added `structStack : List Value` to `EvalState`; the `.refId` eval arm's
+re-eval branches (depth-0-non-visited and depth>0), when the resolved `Field.value` is struct-like
+(`isStructLikeBody`: `.struct`/`.structComp`), push the body before re-evaluating and RESTORE the
+saved stack after (restore, not bare pop — a divergent inner return cannot leak a stale ancestor).
+A body already on the stack at re-entry is the cycle → `.bottomWith [.structuralCycle]` instead of
+unrolling. Identity is exact `Value` `BEq` (never a hash — a collision would be a false cycle).
+
+**Why this is sound + total.** (a) Reference cycle preserved (`x: x` → `_`): a bare self-ref's
+resolved body is a `.refId`, not struct-like → never pushed; the depth-0 `visited` slot check
+handles it unchanged. The struct layer between re-entries is exactly what makes a cycle STRUCTURAL,
+not referential. (b) No false-positive on finite-deep nesting (`#D: {a:{b:{c:{d}}}}`): each layer
+is a DISTINCT body, pushed-then-popped; only genuine re-entrancy puts a body on the stack twice.
+(c) List-tail recursion NOT flagged (`#L: {kids: [...#L]}`): an open list tail is a deferred
+constraint yielding `[]` (the recursive-tree idiom), confirmed against cue — `isStructLikeBody`
+excludes lists, and a concrete finite use (`x: #T & {v:1, kids:[{v:2}]}`) exports byte-identical to
+cue. (d) Totality: the check is a `List.contains` guard before the existing same-fuel
+`evalValueWithFuel` call (wrapped in a local closure), so the `termination_by` measure is unchanged;
+fuel becomes a pure backstop, never the deciding bound for a cyclic program.
+
+**Detection is class-AGNOSTIC (a correctness win beyond the audit's scope).** The lever keys on
+struct-body re-entrancy, so a structural cycle through a REGULAR (non-definition) field
+(`a: {n: int, next: a}`) is detected too — cue agrees (`a.next: structural cycle`). The audit's
+oracle table only probed def cycles; the principled lever covers both for free.
+
+**`BottomReason.structuralCycle`** (bare arm — `Value.lean`): a parameterless arm is the honest v1
+(no def-label/path is cheaply available at the `.refId` re-eval site, and a never-populated path
+field would be an illegal state). `isBottom`/`containsBottom`/`liveAlternatives` treat `.bottomWith`
+generically, so the cycle bottom propagates through manifest (export bottoms) and will prune
+correctly in D#2b. No exhaustive `BottomReason` consumer exists, so no new match site; Format and
+Manifest render all bottoms uniformly (`_|_` / `.contradiction`).
+
+**Value verdict CONFORMS to cue; eval-display differs (recorded in cue-spec-gaps).** Every oracle
+probe matches cue's error-vs-terminated VALUE verdict (def #1, mutual #3 error; finite #4, ref #5,
+list-tail terminate). The eval DISPLAY differs: cue prints `#L.next: structural cycle` with a source
+span; Kue shows nested `next: _|_` (its standard nested-bottom convention — same family as the
+"residual pattern in eval output" divergence). `export` bottoms on a clean cycle (`#L: {n: 1, next:
+#L}` → `conflicting values (bottom)`), the observable verdict.
+
+**Tests.** 8 `native_decide` pins in `EvalTests.lean` (`structural_cycle_self_ref_detected` via a new
+`evalSourceDetectsStructuralCycle` helper that asserts the `.structuralCycle` REASON, not merely
+"some bottom"; `_export_bottoms`; `_mutual_detected`; `_regular_field_detected`;
+`reference_cycle_unchanged`; `constrained_reference_cycle_unchanged`; `finite_deep_struct_no_false_cycle`;
+`recursive_list_tail_finite_use_exports` byte-identical to cue). New helpers in `EvalTestHelpers.lean`
+(`valueHasStructuralCycle` fuel-bounded spine-walker + `evalSourceDetectsStructuralCycle`). 2 eval
+fixtures `refs/structural_cycle_struct`, `refs/structural_cycle_mutual` (+ FixturePorts ports, the
+`parseSource`-pipeline form per the `sc2a` precedent — the nested-bottom value is impractical to
+hand-build).
+
+**Verify.** `lake build` green (100 jobs); `check-fixtures.sh` → `fixture pairs ok` (zero drift on
+the full corpus — the lever sits on the hot `.refId` path but changes nothing for non-cyclic
+programs); no shell touched. prod9 (READ-ONLY): cert-manager content-identical to cue (`jq -S`, exit
+0) — detection never false-fires on production infra (ZERO self-ref defs); argocd still its
+pre-existing Bug2-5 `conflicting values (bottom)`, NOT a new structuralCycle (unchanged).
+
+**Next — D#2b (terminating-disjunct).** `#List | *null` must take the `*null` arm once the cyclic
+`#List` arm bottoms. The cyclic arm ALREADY bottoms with `.structuralCycle` (verified: `#List | *null`
+eval shows `tail: {…} | *null` with the cyclic arm carrying `_|_`); D#2b must confirm
+`liveAlternatives`/`resolveDisjDefault?` PRUNE that bottom arm and collapse `tail` to `null` (oracle
+#2 — cue gives `tail: null`, Kue currently keeps `{…} | *null`). Check the A#6 `containsBottom` fuel
+cap (100) does not hide a deep `.structuralCycle` bottom from `liveAlternatives`; raise or
+special-case if it does.
+
+Files: `Kue/Value.lean` (`BottomReason.structuralCycle`), `Kue/Eval.lean` (`isStructLikeBody`,
+`EvalState.structStack`, the `.refId` re-eval cycle bracket), `Kue/Tests/EvalTestHelpers.lean`,
+`Kue/Tests/EvalTests.lean`, `Kue/Tests/FixturePorts.lean`,
+`testdata/cue/refs/structural_cycle_{struct,mutual}.{cue,expected}`.

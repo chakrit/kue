@@ -516,6 +516,13 @@ inductive BottomReason where
       the structured parse error. Raised at every `=~`/`!~`/pattern-meet/`regexp.Match` site
       so an invalid pattern bottoms instead of silently matching false. -/
   | invalidRegex (pattern : String) (error : RegexParseError)
+  /-- A structural cycle: a definition body whose field re-enters the SAME def frame through a
+      struct layer (`#L: {next: #L}`, or mutual `#A`/`#B`), detected dynamically when forcing the
+      def closure re-enters an in-progress force frame. The CUE spec mandates this be an error
+      ("a node is valid if any of its conjuncts is not cyclic") — distinct from a bare REFERENCE
+      cycle (`x: x`), which resolves to `_`. Raised on the def-body force path
+      (`forceClosureWithConjunct`) when an ancestor force frame repeats. -/
+  | structuralCycle
 deriving Repr, BEq, DecidableEq
 
 /--

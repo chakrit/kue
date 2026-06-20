@@ -728,6 +728,26 @@ def fixturePorts : List FixturePort :=
       content := formatTopLevel (resolveAndEval (mkStruct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))
     },
     {
+      -- D#2a: a self-referential def is a STRUCTURAL cycle — the body re-enters the same struct
+      -- through `next: #L`, so the re-entry bottoms (`.structuralCycle`) instead of unrolling
+      -- fuel-deep. The port runs the same parse→resolve→eval pipeline as the CLI (the nested-bottom
+      -- value is impractical to hand-build; mirrors `sc2a_direct_selector_closes`).
+      fileName := "refs/structural_cycle_struct.expected",
+      content :=
+        match parseSource "#L: {n: int, next: #L}\nx: #L\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- D#2a: MUTUAL recursion (`#A` → `#B` → `#A`) is detected for free — `#A`'s body re-enters
+      -- the struct-body stack two hops down, same mechanism.
+      fileName := "refs/structural_cycle_mutual.expected",
+      content :=
+        match parseSource "#A: {b: #B}\n#B: {a: #A}\nz: #A\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- Repeated selection into a shared sub-struct (`components.X.who`), the eval-blowup
       -- shape: each of the three `*Who` fields re-selects `components` and its child. Before
       -- memoization this re-evaluated `components` per selection, multiplying per fuel level;

@@ -31,11 +31,23 @@ Rank by design-correctness. No longer an open call awaiting the user.
 
 ## IMMEDIATE NEXT STEPS (design-first; the loop can just `Keep going`)
 
-1. **D#2a** — structural-cycle DETECTION (DESIGNED, slice 1 of 2). Spec-mandated, currently
-   MISSING; ancestor-force-stack on `forceClosureWithConjunct` (reuses the `ForceKey`
-   triple). The clean, principled lever — exactly the "evolve the design correctly" work.
-2. **D#2b** — terminating-disjunct (DESIGNED, slice 2 of 2); folds in the A#6
-   `containsBottom` fuel-cap if it hides a deep cycle bottom.
+1. **D#2a — DONE (2026-06-20).** Structural-cycle DETECTION landed. NOTE: the designed
+   force-stack lever was WRONG as built (instrumentation: `#L` hits `forceClosureWithConjunct`
+   once, the unroll is on the `.refId` re-eval path with FRESH frame ids each level, so no
+   force-triple identity can fire). Redesigned by first principles: a `structStack : List Value`
+   on the `.refId` path detects struct-body RE-ENTRANCY (the body `Value` is the stable
+   identity). Detects def + regular + mutual cycles, preserves `x: x` → `_`, no false-positive
+   on finite-deep or list-tail recursion; cert-manager content-identical. 8 pins + 2 `refs/`
+   fixtures. See implementation-log 2026-06-20.
+2. **D#2b — NOW LEADS** (terminating-disjunct, slice 2 of 2). `#List | *null` must take the
+   `*null` arm once the cyclic `#List` arm bottoms. The cyclic arm ALREADY carries
+   `.structuralCycle` (D#2a verified: `#List | *null` eval shows the cyclic arm `_|_`); D#2b =
+   confirm `liveAlternatives`/`resolveDisjDefault?` PRUNE that bottom arm and collapse `tail` to
+   `null` (oracle #2: cue `tail: null`, Kue currently keeps `{…} | *null`). ⚠ Check the A#6
+   `containsBottom` fuel cap (100, `Lattice.lean`) does not hide a deep `.structuralCycle` bottom
+   from `liveAlternatives`; raise/special-case if it does. ⚠ The D#2 design section's root-cause
+   in `spec-conformance-audit.md` is marked SUPERSEDED — the terminating-disjunct subsection
+   itself is still valid (it doesn't depend on the force-path premise).
 3. Then the ranked tail in `spec-conformance-audit.md § Consolidated fix backlog`: **RX-2a**
    (`\D\W\S` in char-class) · MED tail (D#1b/c, D#3, SC-3, BI-1/2, F-3) · **SC-4** (LOW,
    spec-check first) · the 4 spec-gap ratifications · **A#6** · **DRY-1** (let-walker

@@ -56,7 +56,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | A. Disjunctions/narrowing  | batch 1 | DONE   | 1 KUE-VIOLATES (disj display); **Gap-2b/Bug2-3 FIXED 2026-06-19** (cue correct; structural list-vs-struct arm prune); 2 spec gaps; rest CONFORMS                                               |
 | B. Closedness/definitions  | batch 1 | DONE   | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS                                  |
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
-| D. Comprehensions/scoping  | batch 2 | DONE   | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; no structural-cycle detection; `let` clauses unparseable); frame-model + read-splice CONFORM                                       |
+| D. Comprehensions/scoping  | batch 2 | DONE   | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; structural-cycle detection — **D#2a DETECTION FIXED 2026-06-20**, D#2b terminating-disjunct now leads; `let` clauses unparseable); frame-model + read-splice CONFORM                                       |
 | E. Scalars/bounds/builtins | batch 2 | DONE   | 1 KUE-VIOLATES HIGH (regex not RE2); 2 MED builtin (ASCII case-fold; deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS                                                  |
 | F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
@@ -66,6 +66,15 @@ Completed findings and shipped design specs, compressed to pointers. Each cites 
 landing commit; the as-built detail lives in `docs/reference/implementation-log.md` and
 git history.
 
+- 2026-06-20 — **D#2a** structural-cycle DETECTION (`Value.lean`
+  `BottomReason.structuralCycle`; `Eval.lean` `structStack`/`isStructLikeBody` + `.refId`
+  re-eval cycle bracket). The DESIGNED force-stack lever was wrong as built (the force triple
+  never repeats — fresh frame ids); redesigned to a struct-body re-entrancy stack on the
+  `.refId` path, keyed on the body `Value`. Detects def + regular + mutual struct cycles
+  (class-agnostic), preserves `x: x` → `_`, no false-positive on finite-deep or list-tail
+  recursion; cert-manager content-identical (zero false-fire). Value verdict CONFORMS to cue;
+  eval-display differs (spec-gap recorded). 8 `native_decide` pins + 2 `refs/` fixtures. D#2b
+  (terminating-disjunct) now leads.
 - 2026-06-19 — `d9f66ca` — **Bug2-3 / Gap-2b** structural list-arm-vs-struct-host
   disjunction pruning (gated `embedBodyEmbedsDisj` /`spliceOperandForEmbed`; cert-manager
   byte-identical; 4 soundness obligations verified; cue correct, Kue was under-pruning).
@@ -122,15 +131,21 @@ correctness before divergence; designed levers before undesigned. Real-app compi
 app-specific narrowing is parked (see Bug2-5), never promoted to the critical path — it
 resolves as the general semantics mature. **Recommended next 3-4:**
 
-1. **D#2a (HIGH — structural-cycle DETECTION, DESIGNED, slice 1 of 2).**
-   Ancestor-force-stack on the `forceClosureWithConjunct` path (reusing the `ForceKey`
-   triple). Lands oracle #1/#3/#4/#5 (error + finite-control + reference-control).
-   Spec-mandated, currently MISSING. Design GO, no drift. Cannot regress real apps (zero
-   self-ref defs in prod9).
-2. **D#2b (HIGH — terminating-disjunct, DESIGNED, slice 2 of 2).** `#List | *null` takes
-   the default arm once the cyclic arm bottoms (existing `liveAlternatives`
-   /`resolveDisjDefault?` algebra). Folds in the A#6 `containsBottom` fuel-cap fix if it
-   hides a deep cycle bottom.
+1. **D#2a — DONE (2026-06-20).** Structural-cycle DETECTION landed. The DESIGNED
+   force-stack lever was WRONG as built (instrumentation falsified its premise: `#L` reaches
+   `forceClosureWithConjunct` once, the unroll is on the `.refId` re-eval path with FRESH
+   frame ids each level, so no force-triple identity can fire). Redesigned by first
+   principles: a `structStack : List Value` on the `.refId` eval path detects struct-body
+   RE-ENTRANCY (the body `Value` is the stable identity; frame ids are not). Lands oracle
+   #1/#3/#4/#5 + the regular-field case (class-agnostic) + the list-tail control. cert-manager
+   content-identical (zero false-fire on prod9). See Audit history + implementation-log.
+2. **D#2b (HIGH — terminating-disjunct, NOW LEADS, slice 2 of 2).** `#List | *null` must
+   take the `*null` arm once the cyclic `#List` arm bottoms. ⚠ The D#2 design section below
+   has a CORRECTED root-cause note — the cyclic arm already carries `.structuralCycle` (D#2a),
+   so D#2b is purely: confirm `liveAlternatives`/`resolveDisjDefault?` PRUNE that bottom arm
+   and collapse `tail` to `null` (oracle #2: cue `tail: null`; Kue currently keeps
+   `{…} | *null`). Fold in the A#6 `containsBottom` fuel-cap (100) fix IF it hides a deep
+   `.structuralCycle` bottom from `liveAlternatives`.
 3. **RX-2a (MED — in-class `\D` /`\W`/`\S`, the lone regex-corpus divergence).** Needs
    class-level set-complement folding in `parseClassEscape`. Sequence AFTER D#2 if D#2
    runs in a worktree — RX-2a and any future regex work both touch the Regex leaf, so
@@ -180,13 +195,16 @@ Bug2-5 mechanism.)
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 
 - **Bug2-3 / Gap-2b — DONE (2026-06-19, `d9f66ca`).** See Audit history.
-- **D#2 (HIGH, LARGE — structural-cycle detection — DESIGNED).** `#L:{n,next:#L}` errors
-  `structural cycle`; `#List | *null` terminates on the default arm. Spec-mandated,
-  currently MISSING (unrolls fuel-deep to garbage). Detection = an ancestor force-stack
-  (reusing the `ForceKey` triple as frame identity); terminating-arm = the EXISTING
-  `liveAlternatives` /`resolveDisjDefault?` algebra once the cyclic arm bottoms. 2 slices
-  (D#2a detection + D#2b terminating-disjunct). Cannot regress real apps (prod9 has ZERO
-  recursive defs). See the "D#2 design (implementable)" section below.
+- **D#2 — D#2a DETECTION DONE (2026-06-20); D#2b terminating-disjunct LEADS.**
+  `#L:{n,next:#L}` now errors (the cyclic re-entry bottoms with `.structuralCycle` — was:
+  unrolled fuel-deep to garbage). Detection landed as a struct-body re-entrancy stack
+  (`structStack`) on the `.refId` re-eval path, NOT the designed force-stack (the force triple
+  never repeats — see the SUPERSEDED root-cause banner below). **D#2b remaining:** `#List |
+  *null` must terminate on the `*null` arm once the cyclic `#List` arm bottoms — the cyclic arm
+  ALREADY carries `.structuralCycle` (D#2a), so D#2b = confirm the EXISTING
+  `liveAlternatives`/`resolveDisjDefault?` algebra PRUNES it and collapses `tail` to `null`
+  (oracle #2). Fold in the A#6 `containsBottom` fuel-cap fix IF it hides a deep cycle bottom.
+  Cannot regress real apps (prod9 ZERO recursive defs; cert-manager verified content-identical).
 
 **SC-1b (MED — soundness, pre-existing & broader than SC-1).** The `closingPatterns`
 carry-forward is a UNION across conjuncts; for two CLOSED defs with DISJOINT explicit
@@ -324,6 +342,19 @@ tracking. The two are distinct mechanisms; D#2 adds the second without disturbin
 first.
 
 ### Root cause (single, in the def-body force path)
+
+> ⚠ **SUPERSEDED by the D#2a as-built (2026-06-20).** This root-cause analysis and the
+> `ForceKey`-triple ancestor scheme below were FALSIFIED by instrumentation during the D#2a
+> slice. Reality: (1) `#L` reaches `forceClosureWithConjunct` EXACTLY ONCE — `refDefClosureBody?`
+> returns `none` on every re-entry of `next: #L`, so the force branch is never re-taken; the
+> unroll happens in `evalValueCoreWithFuel`'s `.refId` re-eval branches (depth-0-non-visited and
+> depth>0), NOT the force path. (2) Those branches allocate FRESH frame ids each level
+> (`[1,0]`→`[2,0]`→`[2,1,0]`→…), so `capturedEnv.ids` (hence the force triple) NEVER repeats — no
+> force-triple identity can fire. The as-built lever is a `structStack : List Value` on the
+> `.refId` path keyed on the body `Value` (the stable identity); see implementation-log
+> 2026-06-20 + Audit history. Kept below as a record of the attempted design. **D#2b reads the
+> "terminating-disjunct" subsection below as still valid** (it does not depend on the force-path
+> premise — the cyclic arm bottoms via the as-built lever, and the pruning algebra is unchanged).
 
 A `#Def` whose body needs deferral (`refDefClosureBody?` fires for a nested `depth>0`
 self-ref `.struct`, oracle #1's `next: #L`) forces via

@@ -1,0 +1,2 @@
+#L: {n: int, next: {n: int, next: _|_}}
+x: {n: int, next: {n: int, next: _|_}}

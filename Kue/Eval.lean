@@ -1135,6 +1135,17 @@ def isEmbeddingValue : Value -> Bool
   | .dynamicField _ _ _ => false
   | _ => true
 
+/-- A struct-like body, for structural-cycle detection (D#2a): a `.struct`/`.structComp` whose
+    re-entrant evaluation through a reference is a structural cycle. EXCLUDES list bodies — a
+    recursion through an open list tail (`#L: {kids: [...#L]}`) is the standard recursive-tree
+    idiom and is NOT cyclic (the tail defers, so the list is finite), confirmed against `cue`. A
+    bare `.refId` is likewise excluded: a self-ref with no struct layer is a REFERENCE cycle
+    (`x: x` → `_`), not a structural one. -/
+def isStructLikeBody : Value -> Bool
+  | .struct _ _ _ _ _ => true
+  | .structComp _ _ _ => true
+  | _ => false
+
 def listPairsFrom (index : Nat) : List Value -> List (Value × Value)
   | [] => []
   | item :: items => (.prim (.int index), item) :: listPairsFrom (index + 1) items
@@ -1460,6 +1471,19 @@ structure EvalState where
   nextFrameId : Nat
   frames : Std.HashMap FrameKey Nat := ∅
   forceCache : Std.HashMap ForceKey (Value × Saturation) := ∅
+  /-- Ancestor stack of in-progress STRUCT-BODY evaluations re-entered through a reference
+      (structural-cycle detection, D#2a). A structural cycle is a struct value whose evaluation
+      requires its own evaluation to complete (`#L: {next: #L}`, `a: {next: a}`, mutual `#A`/`#B`)
+      — i.e. the SAME struct body re-entered while still on the stack. The `.refId` eval arm pushes
+      a resolved struct-like body before re-evaluating it and restores the saved stack afterward; a
+      body already present on re-entry is the cycle, yielding `.bottomWith [.structuralCycle]`
+      instead of unrolling fuel-deep. Identity is the `Value` itself (exact `BEq`, never a hash — a
+      collision would be a false cycle). DISTINCT from a bare REFERENCE cycle (`x: x`, whose resolved
+      body is a `.refId`, not a struct, so it is never pushed and stays `_` via the depth-0 `visited`
+      slot check): the struct layer between re-entries is what makes a cycle structural, not
+      referential. Finite-deep nesting never collides — each layer is a DISTINCT body, pushed then
+      popped; only genuine re-entrancy puts a body on the stack twice. -/
+  structStack : List Value := []
   /-- Fuel-free cache for SATURATED results only (see `SatKey`). The soundness-critical second
       store: a hit serves a converged value for any remaining fuel, collapsing fuel
       multiplication. Insertion is gated to the `saturated` bracket arm. -/
@@ -2483,14 +2507,37 @@ mutual
                       let capturedEnv <- pushFrame capturedFrame env
                       forceClosureWithConjunct fuel capturedEnv defBody []
                   | none =>
+                    -- Structural-cycle detection (D#2a). A ref whose resolved body is a STRUCT
+                    -- re-evaluates that body with a fresh `visited`/frame — the unroll path. If the
+                    -- SAME struct body is already in-progress on `structStack`, this re-entry is a
+                    -- structural cycle (`#L: {next: #L}`, mutual `#A`/`#B`, regular `a: {next: a}`):
+                    -- bottom it with `.structuralCycle` rather than unrolling fuel-deep. Otherwise
+                    -- push the body, re-evaluate, and RESTORE the saved stack (not a bare pop, so a
+                    -- divergent inner return cannot leak a stale ancestor). A non-struct body (a bare
+                    -- self-ref `x: x`) is never pushed — the depth-0 `visited` slot check above keeps
+                    -- it a reference cycle (`_`). Identity is exact `Value` equality: a finite-deep
+                    -- nesting has a DISTINCT body per layer, so only true re-entrancy ever collides.
+                    let bodyVal := Field.value field
+                    let recurseBody : Env -> List Nat -> EvalM Value := fun e vis =>
+                      if isStructLikeBody bodyVal then do
+                        if (<- get).structStack.contains bodyVal then
+                          pure (.bottomWith [.structuralCycle])
+                        else do
+                          let savedStack := (<- get).structStack
+                          modify (fun state => { state with structStack := bodyVal :: savedStack })
+                          let r <- evalValueWithFuel fuel e vis bodyVal
+                          modify (fun state => { state with structStack := savedStack })
+                          pure r
+                      else
+                        evalValueWithFuel fuel e vis bodyVal
                     if id.depth == 0 then
                       if slotVisited id.index visited then do
                         modify (fun state => { state with truncCount := state.truncCount + 1 })
                         pure .top
                       else
-                        evalValueWithFuel fuel env (id.index :: visited) (Field.value field)
+                        recurseBody env (id.index :: visited)
                     else
-                      evalValueWithFuel fuel (frame :: outer) [id.index] (Field.value field)
+                      recurseBody (frame :: outer) [id.index]
     | fuel + 1, .conj constraints => do
         -- DISJUNCTION DISTRIBUTION (argocd-secret-data sub-slice 2). A conjunct that is (or refs,
         -- at depth 0) a disjunction with a deferral-needing default arm must DISTRIBUTE the other

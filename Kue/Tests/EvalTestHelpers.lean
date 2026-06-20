@@ -27,4 +27,33 @@ def exportJsonBottoms (source : String) : Bool :=
   | .ok (.error _) => true
   | _ => false
 
+/-- Does a resolved value carry a `.structuralCycle` bottom anywhere in its struct/disj/list
+    spine? Pins the REASON of a structural-cycle detection (D#2a), not merely "some bottom" — a
+    plain `exportJsonBottoms` is satisfied by an unrelated conflict, so it cannot witness that the
+    cycle lever fired and tagged correctly. Fuel-bounded over the shapes a cycle hides in (struct
+    fields + tail, disjunction arms, list items + tail); `fuel` from the AST so it cannot
+    under-run on a finitely-deep value. -/
+def valueHasStructuralCycle : Nat -> Value -> Bool
+  | 0, _ => false
+  | _ + 1, .bottomWith reasons => reasons.contains .structuralCycle
+  | fuel + 1, .struct fields _ tail _ _ =>
+      fields.any (fun f => valueHasStructuralCycle fuel (Field.value f))
+        || (match tail with | some t => valueHasStructuralCycle fuel t | none => false)
+  | fuel + 1, .structComp fields comprehensions _ =>
+      fields.any (fun f => valueHasStructuralCycle fuel (Field.value f))
+        || comprehensions.any (valueHasStructuralCycle fuel)
+  | fuel + 1, .disj alternatives =>
+      alternatives.any (fun a => valueHasStructuralCycle fuel a.snd)
+  | fuel + 1, .list items => items.any (valueHasStructuralCycle fuel)
+  | fuel + 1, .listTail items tail =>
+      items.any (valueHasStructuralCycle fuel) || valueHasStructuralCycle fuel tail
+  | _ + 1, _ => false
+
+/-- Witness that evaluating `source` detects a structural cycle: the resolved value carries a
+    `.structuralCycle` bottom in its spine. The bound (200) comfortably exceeds any test AST. -/
+def evalSourceDetectsStructuralCycle (source : String) : Bool :=
+  match parseSource source with
+  | .ok value => valueHasStructuralCycle 200 (resolveAndEval value)
+  | .error _ => false
+
 end Kue
