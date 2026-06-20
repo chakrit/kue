@@ -124,15 +124,24 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
 
 **Numbered durable items (cross-reference IDs):**
 
-1. **`truncate-primitive` (HIGH — soundness hardening).** The truncation-bump invariant (a
-   `fuel=0` helper that drops fields MUST bump `truncCount`) is held by DISCIPLINE across six
-   sites. Step 1 (do now): add an `EvalState.truncate` combinator fusing bump+return; rewrite
-   all six sites — strictly behavior-preserving, byte-identical fixtures, localizes the bump.
-   Step 2 (only if cheap): a `withFuel` combinator routing the `fuel=0` dispatch so a seventh
-   helper physically cannot skip the bump — attempt only for the four top-level-`fuel`-dispatch
-   helpers; STOP at step 1 + a one-line doc invariant if step 2 exceeds mechanical. HIGH: this
-   is the illegal-states-unrepresentable reason-to-be; the audit-#6 corruption it prevents
-   already shipped once latent.
+1. **`truncate-primitive` (HIGH — soundness hardening). STEP 1 DONE; STEP 2 ATTEMPTED & RULED
+   OUT (commit on `main`).** The truncation-bump invariant (a `fuel=0` helper that drops fields
+   MUST bump `truncCount`) was held by DISCIPLINE across **seven** sites (the plan said six —
+   stale; the seventh, `expandListClausesWithFuel`, landed with the later list-comprehension
+   slice and bumped correctly by discipline — NOT a latent bug; no drop-without-bump existed).
+   **Step 1 (DONE):** added the `EvalState.truncate {α} (result : α) : EvalM α` primitive fusing
+   bump+return; rewrote all seven sites through it (two `evalValueCoreWithFuel` arms + five
+   expansion helpers). Strictly behavior-preserving — byte-identical fixtures, cert-manager
+   content-identical to `cue`. The bump now lives at ONE choke point; a drop site can no longer
+   split bump from return. **Step 2 (RULED OUT, not deferred):** a `withFuel` combinator routing
+   the `fuel=0` dispatch to make the bump physically unskippable was IMPLEMENTED and TESTED — it
+   breaks the mutual block's well-founded `termination_by`: routing the dispatch through a lambda
+   hides the `fuel = n+1` pattern, so Lean loses the structural-decrease equation (`fuel < fuel✝`
+   unprovable). Full type-level unrepresentability of "truncated-without-bump" would require
+   re-architecting the saturation mechanism away from the monotonic-counter+bracket (the design
+   the audit-#6 fix deliberately chose over per-arm bit-threading) — NOT worth it. Residual
+   routing-discipline is documented as an invariant note at the primitive + on the `truncCount`
+   field. **Item CLOSED.**
 
 **BI-EFF. Effectful-builtin seam (TRIGGERED — gated on the 2nd effectful builtin; Phase-B
 2026-06-20 ruling).** `list.Sort`/`SortStable` live as one shared inline `runSort` case in the

@@ -1604,15 +1604,40 @@ structure EvalState where
   satCache : Std.HashMap SatKey Value := ∅
   evalCalls : Nat := 0
   cacheHits : Nat := 0
-  /-- Monotonic count of fuel-truncation base cases consulted (`fuel = 0`; cycle `.top`; the
-      fuel=0 arms of the comprehension/embedding-expansion helpers that else drop fields silently).
-      Bracketed by `evalValueWithFuel`/`forceClosureWithConjunct` to classify each result's
-      `Saturation`: a result is `saturated` iff this counter did not move across its core eval.
-      A cached `truncated` hit re-bumps it so the bracketing parent stays honest. Load-bearing
-      for the fuel-saturation cache — not transient instrumentation. -/
+  /-- Monotonic count of fuel-truncation base cases consulted: the `fuel = 0` core base, the
+      cycle `.top`, and the fuel=0 arms of the comprehension/embedding-expansion helpers that
+      else drop fields silently. Every such site bumps through the single `EvalState.truncate`
+      primitive (fusing the bump with the drop — see its invariant note), so a dropped result
+      can never escape uncounted. Bracketed by `evalValueWithFuel`/`forceClosureWithConjunct`
+      to classify each result's `Saturation`: a result is `saturated` iff this counter did not
+      move across its core eval. A cached `truncated` hit re-bumps it so the bracketing parent
+      stays honest. Load-bearing for the fuel-saturation cache — not transient instrumentation. -/
   truncCount : Nat := 0
 
 abbrev EvalM := StateM EvalState
+
+/-- The fuel-truncation PRIMITIVE: the single operation that emits a fuel-truncated result.
+    Bumps the monotonic `truncCount` (so the bracketing `evalValueWithFuel`/
+    `forceClosureWithConjunct` classifies the enclosing result `truncated` and keeps it
+    fuel-keyed) and returns the supplied incomplete `result`. Bump and drop are FUSED into
+    one call: a `fuel=0` arm that drops fields cannot split them out of sync, so a truncated
+    value can never be emitted without its counter move (the audit-#6 corruption). Polymorphic
+    over the dropped result's type — each truncation arm returns a different incomplete shape
+    (`Value`, `List Field`, `Except …`, the clause-expansion sums). -/
+def EvalState.truncate {α : Type} (result : α) : EvalM α := do
+  modify (fun state => { state with truncCount := state.truncCount + 1 })
+  pure result
+
+/- INVARIANT (truncate-primitive). Every `fuel=0` arm that DROPS fields/elements/meets MUST
+   emit via `EvalState.truncate`, never a bare `pure`/`modify` — the seven sites below
+   (the two `evalValueCoreWithFuel` arms + the five expansion helpers) all do. This keeps
+   the truncation counted so the bracketing wrapper never serves a truncated value fuel-free
+   (the audit-#6 corruption). Full type-level enforcement — a `withFuel` dispatch that makes
+   the bump physically unskippable — was attempted and abandoned: routing the `fuel=0`
+   dispatch through a combinator hides the `fuel = n+1` pattern behind a lambda, so the
+   mutual block's well-founded `termination_by` measure loses the structural-decrease
+   equation (`fuel < fuel✝` becomes unprovable). The primitive localizes the bump to one
+   choke point; the routing stays disciplinary by necessity. -/
 
 /-- Push a frame onto the env, reusing the id of a structurally-identical earlier push under
     the same parent id-stack (canonical frame identity), else allocating a fresh id and
@@ -2666,9 +2691,7 @@ mutual
       (visited : List Nat)
       (value : Value) : EvalM Value := do
     match fuel, value with
-    | 0, value => do
-        modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure value
+    | 0, value => EvalState.truncate value
     | _ + 1, .ref label =>
         pure (.bottomWith [.unresolvedReference label])
     | fuel + 1, .refId id =>
@@ -2723,9 +2746,8 @@ mutual
                       else
                         evalValueWithFuel fuel e vis bodyVal
                     if id.depth == 0 then
-                      if slotVisited id.index visited then do
-                        modify (fun state => { state with truncCount := state.truncCount + 1 })
-                        pure .top
+                      if slotVisited id.index visited then
+                        EvalState.truncate .top
                       else
                         recurseBody env (id.index :: visited)
                     else
@@ -3081,9 +3103,7 @@ mutual
     | [] => pure []
     | embedding :: rest =>
         match fuel with
-        | 0 => do
-            modify (fun state => { state with truncCount := state.truncCount + 1 })
-            pure []
+        | 0 => EvalState.truncate []
         | nextFuel + 1 => do
             let evaluated <-
               match conjDefClosure? env embedding with
@@ -3124,9 +3144,7 @@ mutual
     | [] => pure current
     | embedding :: rest =>
         match fuel with
-        | 0 => do
-            modify (fun state => { state with truncCount := state.truncCount + 1 })
-            pure current
+        | 0 => EvalState.truncate current
         | nextFuel + 1 => do
             -- An embedded DEFAULT DISJUNCTION whose arms need deferral (`(*_#A|_#B)` with `_#A`'s
             -- body referencing a sibling the host narrows — the argocd `#OpaqueSecret` shape) is
@@ -3414,9 +3432,7 @@ mutual
       (env : Env)
       (value : Value) : EvalM (Except Value (List Field × List Value)) := do
     match fuel, value with
-    | 0, _ => do
-        modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure (.ok ([], []))
+    | 0, _ => EvalState.truncate (.ok ([], []))
     | fuel + 1, .comprehension clauses body =>
         match (<- expandClausesWithFuel fuel env clauses body) with
         | .fields fields => pure (.ok (fields, []))
@@ -3444,9 +3460,7 @@ mutual
       (clauses : List (Clause Value))
       (body : Value) : EvalM ClauseExpansion := do
     match fuel with
-    | 0 => do
-        modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure (.fields [])
+    | 0 => EvalState.truncate (.fields [])
     | fuel + 1 =>
         match clauses with
         | [] => do
@@ -3530,9 +3544,7 @@ mutual
       (clauses : List (Clause Value))
       (body : Value) : EvalM ListClauseExpansion := do
     match fuel with
-    | 0 => do
-        modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure (.items [])
+    | 0 => EvalState.truncate (.items [])
     | fuel + 1 =>
         match clauses with
         | [] => do

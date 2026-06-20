@@ -9949,3 +9949,78 @@ Files: `scripts/gen-case-table.py` (NEW), `Kue/CaseTable.lean` (NEW, generated),
 maps deleted, 2 dispatch arms), `Kue/Tests/BuiltinTests.lean` (case pins moved out),
 `Kue/Tests/FixturePorts.lean` (+1 fixture entry), `Kue/Tests.lean` (+1 import),
 `testdata/cue/builtins/strings_case_unicode.{cue,expected}` (NEW).
+
+---
+
+## Completed Slice: truncate-primitive Step 1 — fuse the fuel-truncation drop+bump into one primitive
+
+Soundness hardening (plan item 1, HIGH — the illegal-states-unrepresentable reason-to-be).
+NOT a CUE-semantics change: every value is byte-identical. Localizes a disciplinary invariant
+to one choke point.
+
+### The invariant being hardened
+
+A `fuel=0` helper that DROPS fields/elements/meets MUST bump `EvalState.truncCount`, so the
+bracketing `evalValueWithFuel`/`forceClosureWithConjunct` classifies the result `truncated`
+and never serves it from the fuel-free `satCache` as if complete. This is the exact corruption
+audit-#6 (2026-06-18) caught latent. Before this slice the bump was hand-written at every drop
+site (a future site that forgot would be a latent soundness Violation).
+
+### Count reconciliation — SEVEN sites, not six (and NO latent bug found)
+
+The plan/breadcrumb said "six sites." The actual current count is **seven**: the two
+`evalValueCoreWithFuel` arms (`fuel=0` base → passes the value through; depth-0 cycle → `.top`)
+plus five expansion helpers (`evalEmbeddingFieldsWithFuel`, `meetEmbeddingsWithFuel`,
+`expandComprehensionWithFuel`, `expandClausesWithFuel`, `expandListClausesWithFuel`). The "six"
+predates the list-comprehension slice, which added the seventh (`expandListClausesWithFuel`)
+with its own correct bump by discipline. **Audited all seven before rewriting: every one
+already bumped — NO drop-without-bump existed.** This was a refactor that LOCALIZES a sound
+invariant, not a bug fix. (The two `+ bump` cache-rebump sites — `cache`/`forceCache` truncated
+hits — are the bracketing-honesty logic, NOT drop sites; left untouched.)
+
+### Step 1 (DONE) — the `EvalState.truncate` primitive
+
+`def EvalState.truncate {α : Type} (result : α) : EvalM α` bumps `truncCount` then returns
+`result`, fusing the two so no drop site can split them out of sync. Polymorphic because each
+arm drops a different incomplete shape (`Value`, `List Field`, `Except Value (List Field × List
+Value)`, the clause-expansion sums). All seven sites rewritten from the hand-written
+`modify (…truncCount + 1) ; pure <dropped>` to `EvalState.truncate <dropped>`. After this,
+dropping without bumping is no longer expressible AT those sites — the invariant is structural
+at one choke point instead of replicated across seven.
+
+### Step 2 (ATTEMPTED, RULED OUT — not deferred)
+
+A `withFuel (fuel) (truncated) (onFuel : Nat → EvalM α)` dispatch routing the `fuel=0` arm
+through `truncate` — so a NEW helper physically cannot reach its zero arm without bumping — was
+implemented and built against `expandListClausesWithFuel`. It BREAKS the mutual block's
+well-founded `termination_by`: routing the dispatch through a lambda hides the `| fuel + 1 =>`
+pattern, so Lean loses the definitional `fuel = next + 1` equation and the recursive call's
+decrease (`fuel < fuel✝`) becomes unprovable (`failed to prove termination`). This is precisely
+the risk the plan flagged ("eval hot path + `termination_by` measure"). Full type-level
+unrepresentability would require re-architecting saturation off the monotonic-counter+bracket —
+the design the audit-#6 fix deliberately chose over per-arm bit-threading (12 forget-sites).
+Not worth it. Reverted to Step 1; recorded the residual routing-discipline as an invariant note
+at the primitive and on the `truncCount` field doc. **Item CLOSED.**
+
+### Tests (3 new structural pins, `Kue/Tests/EvalPerfTests.lean`)
+
+The behavior-preserving property is proven END-TO-END by the byte-identical full corpus + the
+existing cross-fuel hazard pins (`sat_*_truncation_not_served_across_fuel` for the comprehension
+/list-comp/self-ref shapes — they exercise the drop sites' truncate+bump behaviorally). NEW pins
+check the PRIMITIVE'S contract at build, so a future edit that breaks the fusion fails to compile:
+`truncate_bumps_truncCount_by_one` (advances `truncCount` by exactly 1 from an ARBITRARY start —
+pins the increment, not a `:= 0`/`:= 1` constant); `truncate_returns_its_argument` (polymorphic
+`rfl` — the dropped result passes through verbatim at every `α`); `truncate_bumps_for_every_
+dropped_shape` (the bump fires identically at `Value`/`List Field`/`ListClauseExpansion`, the
+concrete dropped shapes — a type-specialized regression trips it).
+
+### Verify
+
+`lake build` green (108 jobs; the 3 new pins check at build — `native_decide` + `rfl`).
+`check-fixtures.sh` → `fixture pairs ok` (byte-identical / zero drift on the full corpus — the
+behavior-preserving proof). cert-manager `export` content-identical to `cue` (`jq -S`, 984 bytes
+each) — the hot-path refactor did not perturb it. No shell touched → `shellcheck` N/A.
+
+Files: `Kue/Eval.lean` (the `EvalState.truncate` primitive + invariant note; seven drop sites
+rewritten; `truncCount` field doc refreshed), `Kue/Tests/EvalPerfTests.lean` (`runTruncate`
+helper + 3 structural pins).

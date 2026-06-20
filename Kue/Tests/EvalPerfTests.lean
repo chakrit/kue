@@ -301,6 +301,42 @@ theorem sat_list_comprehension_low_fuel_truncates :
     (evalOnceAt 1 satListCompTruncValue != evalOnceAt 20 satListCompTruncValue) = true := by
   native_decide
 
+/-! ### `EvalState.truncate` — the truncation primitive's structural contract (truncate-primitive
+slice). The seven `fuel=0` drop sites all emit through this one combinator; the cross-fuel hazard
+pins above prove they still truncate+bump END-TO-END (behavior preserved). These pins instead pin
+the COMBINATOR ITSELF: bump-and-return are FUSED, so the audit-#6 invariant ("a dropped result is
+always counted") is checked at build, not just held by the call sites. -/
+
+/-- Run `EvalState.truncate result` over a state whose `truncCount` is `start`, returning the
+    emitted value and the resulting count. The other fields are irrelevant to the bump. -/
+def runTruncate {α : Type} (start : Nat) (result : α) : α × Nat :=
+  let action : EvalM α := EvalState.truncate result
+  let (emitted, state) := action.run { cache := ∅, nextFrameId := 0, truncCount := start }
+  (emitted, state.truncCount)
+
+-- THE BUMP HALF: `truncate` advances `truncCount` by EXACTLY ONE, from an ARBITRARY start (pins
+-- the increment, not a constant — a fixed-`0` pin would miss a `:= 1`/`:= start` regression). This
+-- is the load-bearing soundness contract: every drop site moves the counter the bracketing wrapper
+-- reads, so no truncated value is ever classified saturated.
+theorem truncate_bumps_truncCount_by_one :
+    (List.range 5 |>.all fun start => (runTruncate start (0 : Nat)).snd == start + 1) = true := by
+  native_decide
+
+-- THE RETURN HALF: `truncate` emits its argument UNCHANGED — the drop site's incomplete result
+-- passes through verbatim. Proven for the polymorphic combinator (so it holds at every dropped
+-- type the seven sites use: `Value`, `List Field`, the `Except`/clause-expansion sums).
+theorem truncate_returns_its_argument {α : Type} (start : Nat) (result : α) :
+    (runTruncate start result).fst = result := rfl
+
+-- POLYMORPHIC-SHAPE coverage: the bump fires identically regardless of the dropped result's TYPE,
+-- exercised at the concrete shapes the seven sites emit — `Value` (.top base), `List Field`
+-- (embedding-fields), `ListClauseExpansion` (.items). A type-specialized bump regression trips this.
+theorem truncate_bumps_for_every_dropped_shape :
+    ((runTruncate 7 (Value.top)).snd == 8
+      && (runTruncate 7 ([] : List Field)).snd == 8
+      && (runTruncate 7 (ListClauseExpansion.items [])).snd == 8) = true := by
+  native_decide
+
 /-! ### perf-B memo false-share pins (audit 2026-06-18 #5, owed `perfb-soundness-pins`).
 
 The perf-B audit cleared the frame-share + force memos as SOUND but flagged that the 4 existing
