@@ -9297,3 +9297,84 @@ Files: `Kue/Value.lean` (`BottomReason.structuralCycle`), `Kue/Eval.lean` (`isSt
 `EvalState.structStack`, the `.refId` re-eval cycle bracket), `Kue/Tests/EvalTestHelpers.lean`,
 `Kue/Tests/EvalTests.lean`, `Kue/Tests/FixturePorts.lean`,
 `testdata/cue/refs/structural_cycle_{struct,mutual}.{cue,expected}`.
+
+## D#2b — terminating-disjunct (2026-06-20)
+
+**Spec-mandated, the second half of D#2.** The CUE spec's "a node is valid if any of its
+conjuncts is not cyclic" rule: a recursive def in a disjunction (`#List: {head, tail: #List |
+*null}`) must TERMINATE by taking the non-cyclic arm once the cyclic arm bottoms. D#2a already
+made the cyclic arm carry `.structuralCycle`; D#2b makes the disjunction algebra prune that
+bottom arm so the surviving (default or sole) arm wins.
+
+**Re-diagnosis vs the handoff — the gap was NARROWER than the audit framed it.** The audit/
+breadcrumb said "Kue keeps the unresolved `{…} | *null`" as a value bug needing
+`liveAlternatives`/`resolveDisjDefault?` to prune. Instrumentation (`kue export`/`eval` on the
+oracle cases) refined this:
+- **VALUE resolution was ALREADY correct after D#2a.** `kue export` gave `tail: null` for the
+  canonical case via the EXISTING `resolveDisjDefault?` → `liveAlternatives` (which already
+  filters `containsBottom` arms). The `.structuralCycle` arm was already pruned at manifest.
+- **The A#6 `containsBottom` fuel cap (100) was NEVER implicated.** D#2a detects at recursion
+  depth ~2 (the second struct-body re-entry), so the bottom sits ~2 struct-levels deep — far
+  below 100. A wide-body probe (5 concrete fields) confirms the cap needs NO change. (A#6
+  remains a standalone low/hardening item for genuinely-deep NON-cyclic bottoms; D#2b does not
+  fold it in — there was nothing to fold.)
+- **The residual gap was the EVAL value path** (`normalizeEvaluatedDisj`, the SC-3 root): on a
+  non-all-regular (has-`*`) disjunction it emitted `.disj alternatives` RAW, so the
+  `.structuralCycle` arm lingered in the eval value (`tail: _|_ | *null`) instead of being
+  pruned. `export` resolved correctly only because the manifest path runs `resolveDisjDefault?`.
+
+**The fix (one function, `Kue/Eval.lean` `normalizeEvaluatedDisj`).** The has-default branch now
+applies `liveAlternatives` (flatten + drop-`containsBottom` + dedup) instead of emitting raw:
+a `[]`→`.bottom`, a lone surviving arm→its value (mark-agnostic), multi-arm→`.disj live` with
+marks PRESERVED. This prunes the dead `.structuralCycle` arm from the eval value and folds in
+**SC-3** (`*1 | *1 | 2` eval now `*1 | 2`, deduped). The all-regular branch (`joinValues`, the
+lattice union which already sheds top-level `.bottom`) is unchanged.
+
+**Soundness — why this does NOT collapse the default into the value (the load-bearing decision).**
+cue's `eval` shows `a: 1` for `*1 | 2` but `b: 2` for `b: a & 2` — proving cue's default-collapse
+is a DISPLAY projection, not a value rewrite: the live `2` arm is still there for the meet.
+Collapsing `*1 | 2` to the value `1` in `normalizeEvaluatedDisj` would make `b: a & 2 = 1 & 2 =
+_|_`, diverging from cue's `2`. So `normalizeEvaluatedDisj` NEVER collapses a multi-live-arm
+defaulted disjunction — it only (a) prunes `containsBottom` arms (a dead arm is dead in every
+meet, so removing it is value-preserving) and (b) collapses a SOLE surviving arm (the only
+inhabited value). Default *selection* stays a manifest/force projection via `resolveDisjDefault?`.
+
+**Eval-display divergence (recorded, NOT a value bug).** Because Kue does not collapse the
+default into the value, its `eval` shows the full `{…} | *null` (and `*1 | 2`), where cue's `eval`
+display-collapses to `null` (and `1`). This is the SAME established Kue convention as
+`disjunctions/default_disjunction.expected` (Kue `*"prod" | "dev"` vs cue `"prod"`) — eval shows
+the marked disjunction, the VALUE verdict (`export`) matches cue. Recorded in `cue-spec-gaps.md`
+(new D#2b/SC-3 row). The full cue-style display-collapse (a Format-layer projection) would
+require rewriting ~7 existing `.expected` fixtures and is a settled-against convention — out of
+scope; the residual cosmetic piece stays under SC-3.
+
+**Tests.** 8 `native_decide` pins in `EvalTests.lean`: `terminating_disj_default_arm` (oracle #2,
+byte-identical export `tail: null`); `_nonnull_default_arm` (`#Tree | *{v:0}` → `child: {v:0}`);
+`_cyclic_arm_nondefault` (`*null | #List`, order-independent); `_no_survivor_bottoms` (all-cyclic
+`#A | #B` → export bottoms); `_wide_body_pruned` (A#6 fuel-cap probe, wide cyclic body still
+shallow-detected, cue-exact); `_default_arm_stays_meetable` (soundness — the live default struct
+survives `r.child & {v:9}` → `{v:9, child:{v:0}}`, NOT collapsed); `sc3_eval_dedups_equal_defaults`
+(`*1|*1|2` eval → `*1 | 2`); `sc3_default_not_collapsed_into_value` (`a: *1|2; b: a&2` → `b: 2`,
+the load-bearing soundness regression). 3 byte-identical-to-cue export fixtures
+`testdata/export/terminating_disj_{default,nonnull_default,cyclic_nondefault}.{cue,json}`. Updated
+`disjunctions/default_dedup.expected` + its `FixturePorts` eval port to the deduped `*1 | 2` form
+(the manifest port stays `x: 1`).
+
+**Verify.** `lake build` green (100 jobs); `check-fixtures.sh` → `fixture pairs ok` (zero drift on
+the full corpus — only the intended `default_dedup` eval form changed, port + expected updated in
+lockstep; 3 new export pairs added); no shell touched. Axiom-clean (`normalizeEvaluatedDisj` =
+`{propext, Classical.choice, Quot.sound}`, `liveAlternatives`/`resolveDisjDefault?` = `{propext}`;
+no `sorryAx`/`partial`). prod9 (READ-ONLY, run from the infra module root): cert-manager
+content-identical to cue (`jq -S`, both exit 0, 1448 bytes) — the disjunction hot-path change does
+NOT regress production infra; argocd still its pre-existing Bug2-5 (unchanged, parked).
+
+**D#2 (structural cycles) is now COMPLETE** — detection (D#2a) + terminating-disjunct (D#2b).
+
+**Next — RX-2a** (`\D`/`\W`/`\S` inside a `[…]` char class, the lone regex-corpus divergence;
+needs class-level set-complement in `parseClassEscape`), then the MED tail (D#1b/c, D#3, SC-3
+residual display, BI-1/2, F-3).
+
+Files: `Kue/Eval.lean` (`normalizeEvaluatedDisj`), `Kue/Tests/EvalTests.lean`,
+`Kue/Tests/FixturePorts.lean`, `docs/reference/cue-spec-gaps.md`,
+`testdata/cue/disjunctions/default_dedup.expected`,
+`testdata/export/terminating_disj_{default,nonnull_default,cyclic_nondefault}.{cue,json}`.

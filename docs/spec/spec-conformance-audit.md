@@ -56,7 +56,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | A. Disjunctions/narrowing  | batch 1 | DONE   | 1 KUE-VIOLATES (disj display); **Gap-2b/Bug2-3 FIXED 2026-06-19** (cue correct; structural list-vs-struct arm prune); 2 spec gaps; rest CONFORMS                                               |
 | B. Closedness/definitions  | batch 1 | DONE   | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS                                  |
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
-| D. Comprehensions/scoping  | batch 2 | DONE   | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; structural-cycle detection — **D#2a DETECTION FIXED 2026-06-20**, D#2b terminating-disjunct now leads; `let` clauses unparseable); frame-model + read-splice CONFORM                                       |
+| D. Comprehensions/scoping  | batch 2 | DONE   | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; structural cycles — **D#2 COMPLETE 2026-06-20**: D#2a detection + D#2b terminating-disjunct both FIXED; `let` clauses unparseable); frame-model + read-splice CONFORM                                       |
 | E. Scalars/bounds/builtins | batch 2 | DONE   | 1 KUE-VIOLATES HIGH (regex not RE2); 2 MED builtin (ASCII case-fold; deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS                                                  |
 | F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
@@ -66,6 +66,16 @@ Completed findings and shipped design specs, compressed to pointers. Each cites 
 landing commit; the as-built detail lives in `docs/reference/implementation-log.md` and
 git history.
 
+- 2026-06-20 — **D#2b** terminating-disjunct (`Eval.lean` `normalizeEvaluatedDisj` now applies
+  `liveAlternatives` on the has-default branch). Completes D#2: `#List | *null` terminates on
+  `*null` (`tail: null`, cue-byte-identical). Re-diagnosis: VALUE resolution was already correct
+  after D#2a (`export` via `resolveDisjDefault?`); the A#6 fuel cap was never implicated
+  (detection at depth ~2 ⇒ shallow bottom); the gap was the EVAL value path emitting defaulted
+  disjunctions raw (SC-3 root). The fix prunes the `.structuralCycle` arm WITHOUT collapsing the
+  default into the value (collapse is unsound — `b: a & 2` needs the live non-default arm; cue's
+  display-collapse is a projection). Folds in SC-3 dedup (`*1|*1|2` → `*1 | 2`). Eval-display
+  divergence recorded (Kue shows `{…} | *null`, cue collapses — same convention as
+  `default_disjunction`). 8 pins + 3 `export/` fixtures; cert-manager content-identical.
 - 2026-06-20 — **D#2a** structural-cycle DETECTION (`Value.lean`
   `BottomReason.structuralCycle`; `Eval.lean` `structStack`/`isStructLikeBody` + `.refId`
   re-eval cycle bracket). The DESIGNED force-stack lever was wrong as built (the force triple
@@ -73,8 +83,7 @@ git history.
   `.refId` path, keyed on the body `Value`. Detects def + regular + mutual struct cycles
   (class-agnostic), preserves `x: x` → `_`, no false-positive on finite-deep or list-tail
   recursion; cert-manager content-identical (zero false-fire). Value verdict CONFORMS to cue;
-  eval-display differs (spec-gap recorded). 8 `native_decide` pins + 2 `refs/` fixtures. D#2b
-  (terminating-disjunct) now leads.
+  eval-display differs (spec-gap recorded). 8 `native_decide` pins + 2 `refs/` fixtures.
 - 2026-06-19 — `d9f66ca` — **Bug2-3 / Gap-2b** structural list-arm-vs-struct-host
   disjunction pruning (gated `embedBodyEmbedsDisj` /`spliceOperandForEmbed`; cert-manager
   byte-identical; 4 soundness obligations verified; cue correct, Kue was under-pruning).
@@ -139,18 +148,21 @@ resolves as the general semantics mature. **Recommended next 3-4:**
    RE-ENTRANCY (the body `Value` is the stable identity; frame ids are not). Lands oracle
    #1/#3/#4/#5 + the regular-field case (class-agnostic) + the list-tail control. cert-manager
    content-identical (zero false-fire on prod9). See Audit history + implementation-log.
-2. **D#2b (HIGH — terminating-disjunct, NOW LEADS, slice 2 of 2).** `#List | *null` must
-   take the `*null` arm once the cyclic `#List` arm bottoms. ⚠ The D#2 design section below
-   has a CORRECTED root-cause note — the cyclic arm already carries `.structuralCycle` (D#2a),
-   so D#2b is purely: confirm `liveAlternatives`/`resolveDisjDefault?` PRUNE that bottom arm
-   and collapse `tail` to `null` (oracle #2: cue `tail: null`; Kue currently keeps
-   `{…} | *null`). Fold in the A#6 `containsBottom` fuel-cap (100) fix IF it hides a deep
-   `.structuralCycle` bottom from `liveAlternatives`.
-3. **RX-2a (MED — in-class `\D` /`\W`/`\S`, the lone regex-corpus divergence).** Needs
-   class-level set-complement folding in `parseClassEscape`. Sequence AFTER D#2 if D#2
-   runs in a worktree — RX-2a and any future regex work both touch the Regex leaf, so
-   serialize regex-module edits to avoid worktree contention. Lower than D#2 (feature, not
-   a real-app blocker; current behavior is an honest stub, not silent-wrong).
+2. **D#2b — DONE (2026-06-20).** Terminating-disjunct landed; **D#2 (structural cycles) is now
+   COMPLETE** (detection + terminating-disjunct). Re-diagnosis vs the plan: VALUE resolution was
+   ALREADY correct after D#2a (`export` gave `tail: null` via the existing `resolveDisjDefault?`
+   → `liveAlternatives`); the A#6 fuel cap was NEVER implicated (detection fires at depth ~2, the
+   bottom is shallow). The actual gap was the EVAL value path — `normalizeEvaluatedDisj` emitted
+   defaulted disjunctions RAW (the SC-3 root), leaving the `.structuralCycle` arm in the eval
+   value. Fix: apply `liveAlternatives` (prune-bottom/flatten/dedup) in its has-default branch,
+   WITHOUT collapsing the default into the value (collapse would be unsound — `b: a & 2` needs the
+   live non-default arm; cue's display-collapse is a projection, not a value rewrite). Folds in
+   **SC-3**'s dedup (`*1|*1|2` → `*1 | 2`). 8 pins + 3 export fixtures. See Audit history +
+   implementation-log 2026-06-20.
+3. **RX-2a (MED — in-class `\D` /`\W`/`\S`, the lone regex-corpus divergence, NOW LEADS).** Needs
+   class-level set-complement folding in `parseClassEscape`. Sequence AFTER D#2 (now complete) and
+   serialize with any future regex-module edits to avoid worktree contention. Feature, not a
+   real-app blocker; current behavior is an honest stub, not silent-wrong.
 
 (Recently landed, now in Audit history: Bug2-3/Gap-2b `d9f66ca`, Bug2-4 `3f7a761`. argocd
 did not unblock — residual Bug2-5 is PARKED as a stress-test finding, see Live-slice
@@ -195,16 +207,16 @@ Bug2-5 mechanism.)
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 
 - **Bug2-3 / Gap-2b — DONE (2026-06-19, `d9f66ca`).** See Audit history.
-- **D#2 — D#2a DETECTION DONE (2026-06-20); D#2b terminating-disjunct LEADS.**
-  `#L:{n,next:#L}` now errors (the cyclic re-entry bottoms with `.structuralCycle` — was:
-  unrolled fuel-deep to garbage). Detection landed as a struct-body re-entrancy stack
-  (`structStack`) on the `.refId` re-eval path, NOT the designed force-stack (the force triple
-  never repeats — see the SUPERSEDED root-cause banner below). **D#2b remaining:** `#List |
-  *null` must terminate on the `*null` arm once the cyclic `#List` arm bottoms — the cyclic arm
-  ALREADY carries `.structuralCycle` (D#2a), so D#2b = confirm the EXISTING
-  `liveAlternatives`/`resolveDisjDefault?` algebra PRUNES it and collapses `tail` to `null`
-  (oracle #2). Fold in the A#6 `containsBottom` fuel-cap fix IF it hides a deep cycle bottom.
-  Cannot regress real apps (prod9 ZERO recursive defs; cert-manager verified content-identical).
+- **D#2 — COMPLETE (2026-06-20).** Detection (D#2a) + terminating-disjunct (D#2b) both landed.
+  `#L:{n,next:#L}` errors (cyclic re-entry bottoms with `.structuralCycle`); `#List | *null`
+  terminates on `*null` (`tail: null`, byte-identical to cue). Detection = struct-body
+  re-entrancy stack (`structStack`) on the `.refId` re-eval path (NOT the designed force-stack —
+  see the SUPERSEDED banner below). Termination = `normalizeEvaluatedDisj` now applies
+  `liveAlternatives` (prune-bottom/dedup) on the has-default branch, pruning the
+  `.structuralCycle` arm WITHOUT collapsing the default into the value (unsound — see
+  implementation-log). A#6 fuel cap was NOT implicated (detection at depth ~2 ⇒ shallow bottom).
+  SC-3 dedup folded in. cert-manager content-identical (zero false-fire; prod9 has ZERO recursive
+  defs). See Audit history + implementation-log 2026-06-20.
 
 **SC-1b (MED — soundness, pre-existing & broader than SC-1).** The `closingPatterns`
 carry-forward is a UNION across conjuncts; for two CLOSED defs with DISJOINT explicit
@@ -253,12 +265,16 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
 11. **D#3** `let` clauses in comprehensions (parse + `Clause.letClause` + wire `let` =+1
     in `descendClauses`). The for=+1/if=+0 frame model is spec-CORRECT (B7 vindicated);
     `let` must wire as +1 when this lands.
-12. **SC-3 (LOW-MED — disjunction eval display/normalization).** `normalizeEvaluatedDisj`
-    (`Eval.lean:648`) only flattens/dedups the all-regular case; a marked-default or
-    nested `.disj` arm is emitted raw → `eval` display + structural `.disj` equality
-    diverge (`*1|*1|2` shows raw, cue → `1`). Values stay correct (`export`/arithmetic
-    force `resolveDisjDefault?`). Fix: apply `liveAlternatives`
-    (flatten/drop-bottom/dedup) in the non-all-regular branch.
+12. **SC-3 — flatten/dedup half DONE (2026-06-20, folded into D#2b); display-collapse
+    residual is LOW/spec-gap.** `normalizeEvaluatedDisj` now applies `liveAlternatives`
+    (flatten/drop-bottom/dedup) on the non-all-regular branch — `*1|*1|2` eval → `*1 | 2`
+    (deduped), `.structuralCycle` arms pruned. The prescribed fix is landed. What REMAINS is
+    purely cue's further DISPLAY-collapse to the default (`*1|2` → `1`, `{…} | *null` → `null`),
+    which Kue deliberately does NOT do — collapsing into the value is unsound (loses the live
+    non-default arm a later meet needs; cf. `default_disjunction.expected` Kue `*"prod"|"dev"` vs
+    cue `"prod"`). That cosmetic display projection (a Format-layer change rewriting ~7 fixtures)
+    is recorded as a spec-gap (`cue-spec-gaps.md` D#2b/SC-3 row), not a value bug — close it only
+    if the eval-display convention is ever revisited.
 13. **BI-1 (MED)** Unicode case folding for `strings.ToUpper/ToLower` (currently
     ASCII-only; cue full-Unicode → wrong answers).
 14. **BI-2 (MED)** implement `math.Pow/Sqrt`, `list.Sort/SortStable` (currently bottom on
@@ -276,11 +292,12 @@ cue v0.11 (E#4 — decide hard-error vs residual; Kue currently leaves a residua
 current gaps already in `cue-spec-gaps.md`.
 
 **Low / hardening:** `containsBottom` fuel cap 100 (**A#6** — `Lattice.lean:146`; a bottom
-> 100 levels deep escapes pruning → wrong value, not just slow; a partiality hole. Fold
-> into
-D#2b if it hides a deep `structuralCycle` bottom; otherwise standalone); `{#a:1,5}`
-scalar-embed-with-definitions coverage gap; D#1b incomplete-guard deferral (couples with
-D#2).
+>100 levels deep escapes pruning → wrong value, not just slow; a partiality hole.
+**STANDALONE — D#2b confirmed it is NOT implicated by structural cycles**: D#2a detection
+fires at recursion depth ~2, so a `.structuralCycle` bottom is always shallow, well within
+the cap. A#6 remains a real hardening item for genuinely-deep NON-cyclic nested bottoms, on
+its own); `{#a:1,5}` scalar-embed-with-definitions coverage gap; D#1b incomplete-guard
+deferral (couples with D#2).
 
 **DRY-1 (LOW Phase-B refactor, no behavior change).** Extract a shared `walkFollowedLets`
 (visited-set + fuel + `.structComp` /`.struct` destructure) combinator and refactor

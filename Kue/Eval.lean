@@ -679,11 +679,26 @@ def allClosednessOpen : List (List Field × Bool) -> Bool
   | [] => true
   | conjunct :: rest => conjunct.snd && allClosednessOpen rest
 
+/-- Normalize an evaluated disjunction for the value/display path. The all-regular case
+    folds through `join` (the lattice union, which already sheds top-level `.bottom` arms and
+    subsumes comparable values). The has-default case prunes via `liveAlternatives`
+    (flatten + drop-`containsBottom` + dedup) so a bottomed arm — including a deep
+    `.structuralCycle` arm from a terminating recursive def like `#List | *null` — never
+    lingers in the value: with the cyclic arm gone, a lone surviving arm collapses to its
+    value (`{…} | *null` ⇒ `null`, the spec's "valid if any conjunct is not cyclic" rule).
+    A multi-arm live disjunction KEEPS its marks unresolved — collapsing `*1 | 2` to its
+    default `1` here would be unsound: a later meet (`b: a & 2`) must still see the `2` arm
+    (default selection is a manifest/force-time projection via `resolveDisjDefault?`, not a
+    value rewrite). Mark-agnostic lone-arm collapse is sound because a single live arm is the
+    disjunction's only inhabited value. -/
 def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
   if allRegularAlternatives alternatives then
     joinValues (alternatives.map Prod.snd)
   else
-    .disj alternatives
+    match liveAlternatives alternatives with
+    | [] => .bottom
+    | [(_, value)] => value
+    | live => .disj live
 
 def selectEvaluatedField (base : Value) (label : String) : Value :=
   match base with

@@ -499,13 +499,14 @@ def fixturePorts : List FixturePort :=
             "x")
     },
     -- F1. Equal defaults dedup: `*1 | *1 | 2 → 1` (two equal defaults collapse to one, the
-    -- unique default wins). The eval-form keeps the written disjunction; manifest resolves.
+    -- unique default wins). The eval-form DEDUPS the written disjunction to `*1 | 2` via
+    -- `normalizeEvaluatedDisj`/`liveAlternatives` (SC-3); manifest resolves to `1`.
     {
       fileName := "disjunctions/default_dedup.expected",
       content :=
         formatField "x"
           (.disj
-            [(.default, .prim (.int 1)), (.default, .prim (.int 1)), (.regular, .prim (.int 2))])
+            [(.default, .prim (.int 1)), (.regular, .prim (.int 2))])
     },
     {
       fileName := "disjunctions/default_dedup.manifest.expected",

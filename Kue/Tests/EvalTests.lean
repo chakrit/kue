@@ -164,6 +164,82 @@ theorem recursive_list_tail_finite_use_exports :
   native_decide
 
 
+/-! ### terminating-disjunct (D#2b).
+
+The spec's "a node is valid if any of its conjuncts is not cyclic" rule: a recursive def in a
+disjunction (`#List | *null`) terminates by taking the non-cyclic arm once the cyclic arm bottoms
+with `.structuralCycle` (D#2a). The cyclic arm is pruned by `liveAlternatives`/`resolveDisjDefault?`
+(value resolution) — already the existing algebra; D#2b's code change is in `normalizeEvaluatedDisj`,
+which now applies `liveAlternatives` (flatten + drop-bottom + dedup, SC-3) so the bottomed arm never
+lingers in the EVAL value either. The pruning is value-SOUND: a `containsBottom` arm is dead in every
+meet, so removing it changes no value. The surviving default is NOT collapsed into the value (a later
+`a & 2` must still see a non-default arm) — default selection stays a manifest/force projection.
+
+These pin the VALUE verdict (export, byte-identical to cue where the verdict agrees); Kue's eval
+DISPLAY keeps the full `{…} | *null` per its established full-disjunction-with-default convention
+(see `disjunctions/default_disjunction.expected`), which intentionally diverges from cue's
+display-collapse — a recorded spec-gap, not a value bug. The export fixtures
+`testdata/export/terminating_disj_*` carry the same verdicts as committed pairs. -/
+
+-- Oracle #2 (the spec headline): `#List | *null` terminates on `*null` once the cyclic `#List` arm
+-- bottoms → `tail: null`. cue agrees (`tail: null`); Kue under-resolved before D#2a+D#2b.
+theorem terminating_disj_default_arm :
+    exportJsonMatches "#List: {head: int, tail: #List | *null}\ny: #List & {head: 1}\n"
+      "{\n    \"y\": {\n        \"head\": 1,\n        \"tail\": null\n    }\n}\n" = true := by
+  native_decide
+
+-- A self-referential struct def in a disjunction with a NON-null default (`#Tree | *{v: 0}`): the
+-- cyclic arm bottoms, the default struct survives → `child: {v: 0}`. cue agrees.
+theorem terminating_disj_nonnull_default_arm :
+    exportJsonMatches "#Tree: {v: int, child: #Tree | *{v: 0}}\nr: #Tree & {v: 5}\n"
+      "{\n    \"r\": {\n        \"v\": 5,\n        \"child\": {\n            \"v\": 0\n        }\n    }\n}\n" = true := by
+  native_decide
+
+-- The cyclic arm is NON-default (`*null | #List`): pruning still drops it and the OTHER arm (the
+-- `*null` default) wins — order-independent. cue agrees (`tail: null`).
+theorem terminating_disj_cyclic_arm_nondefault :
+    exportJsonMatches "#List: {head: int, tail: *null | #List}\ny: #List & {head: 1}\n"
+      "{\n    \"y\": {\n        \"head\": 1,\n        \"tail\": null\n    }\n}\n" = true := by
+  native_decide
+
+-- NO arm survives: a disjunction of two distinct all-cyclic defs (`#A | #B`, both structural cycles)
+-- has every arm bottomed → the whole value bottoms (export fails). cue agrees (empty disjunction).
+theorem terminating_disj_no_survivor_bottoms :
+    exportJsonBottoms "#A: {x: int, self: #A}\n#B: {y: int, other: #B}\nz: {a: #A | #B}\n" = true := by
+  native_decide
+
+-- A#6 fuel-cap probe: a WIDE cyclic body (5 concrete fields) does NOT push the `.structuralCycle`
+-- bottom past `containsBottom`'s 100-level cap — detection (D#2a) fires at recursion depth ~2 so the
+-- bottom is always shallow, and `liveAlternatives` sees it. The cap needed NO change. cue-exact.
+theorem terminating_disj_wide_body_pruned :
+    exportJsonMatches
+      "#L: {a: int, b: int, c: int, d: int, e: int, tail: #L | *null}\ny: #L & {a: 1, b: 2, c: 3, d: 4, e: 5}\n"
+      "{\n    \"y\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"c\": 3,\n        \"d\": 4,\n        \"e\": 5,\n        \"tail\": null\n    }\n}\n" = true := by
+  native_decide
+
+-- Soundness: the non-null default arm stays LIVE — it is not collapsed into the value, so a later
+-- meet (`r.child & {v: 9}`) reaches the struct arm and narrows it. cue agrees (`{v: 9, child:{v:0}}`).
+theorem terminating_disj_default_arm_stays_meetable :
+    exportJsonMatches
+      "#Tree: {v: int, child: #Tree | *{v: 0}}\nr: #Tree & {v: 5}\nforced: r.child & {v: 9}\n"
+      "{\n    \"r\": {\n        \"v\": 5,\n        \"child\": {\n            \"v\": 0\n        }\n    },\n    \"forced\": {\n        \"v\": 9,\n        \"child\": {\n            \"v\": 0\n        }\n    }\n}\n" = true := by
+  native_decide
+
+-- SC-3 (folded into D#2b's `normalizeEvaluatedDisj` change): equal defaults DEDUP in the eval form —
+-- `*1 | *1 | 2` now shows `*1 | 2` (was raw `*1 | *1 | 2`). Kue keeps the disjunction-with-default
+-- (its convention), deduped; it does NOT collapse to cue's display `1` (which would be value-unsound).
+theorem sc3_eval_dedups_equal_defaults :
+    evalSourceMatches "x: *1 | *1 | 2\n" "x: *1 | 2" = true := by
+  native_decide
+
+-- Soundness regression: the default is a manifest/force PROJECTION, never a value rewrite. `a: *1 | 2`
+-- keeps both arms in the value, so `b: a & 2` meets the LIVE `2` arm → `b: 2` (not `1 & 2 = ⊥`). The
+-- `normalizeEvaluatedDisj` change must not collapse a multi-live-arm defaulted disjunction. cue: `b: 2`.
+theorem sc3_default_not_collapsed_into_value :
+    evalSourceMatches "a: *1 | 2\nb: a & 2\n" "a: *1 | 2\nb: 2" = true := by
+  native_decide
+
+
 /-! ### list-comprehension parse+eval pins (slice `list-comprehension-parse-eval`).
 
 End-to-end behavioral pins over the full list-comprehension surface, each cue v0.16.1-exact (the

@@ -1,9 +1,16 @@
-# RESUME HERE — argocd deprioritized, design-first; AFK mode added (2026-06-20)
+# RESUME HERE — D#2 COMPLETE; RX-2a leads (2026-06-20)
 
 Newest START-HERE; supersedes all prior breadcrumbs as the live pointer. Authoritative live
 roadmap: [`../spec/spec-conformance-audit.md`](../spec/spec-conformance-audit.md)
 § Consolidated fix backlog (owns the ranked spec-conformance fixes) +
 [`../spec/plan.md`](../spec/plan.md) (capabilities + non-spec roadmap).
+
+**Latest (2026-06-20):** D#2b landed → **D#2 (structural cycles) COMPLETE** (detection +
+terminating-disjunct). `#List | *null` → `tail: null` (cue-byte-identical). The fix was a single
+`normalizeEvaluatedDisj` change (apply `liveAlternatives` on the has-default branch); the A#6 fuel
+cap was NOT implicated. SC-3's dedup half folded in. **RX-2a now leads** — see IMMEDIATE NEXT STEPS.
+⚠ **Audit-due check:** D#2a + D#2b are 2 landed slices since the last two-phase audit — a
+Phase-A/Phase-B audit is DUE before or right after the next slice (per `slice-loop.md` cadence).
 
 ## What this session did
 
@@ -31,27 +38,27 @@ Rank by design-correctness. No longer an open call awaiting the user.
 
 ## IMMEDIATE NEXT STEPS (design-first; the loop can just `Keep going`)
 
-1. **D#2a — DONE (2026-06-20).** Structural-cycle DETECTION landed. NOTE: the designed
-   force-stack lever was WRONG as built (instrumentation: `#L` hits `forceClosureWithConjunct`
-   once, the unroll is on the `.refId` re-eval path with FRESH frame ids each level, so no
-   force-triple identity can fire). Redesigned by first principles: a `structStack : List Value`
-   on the `.refId` path detects struct-body RE-ENTRANCY (the body `Value` is the stable
-   identity). Detects def + regular + mutual cycles, preserves `x: x` → `_`, no false-positive
-   on finite-deep or list-tail recursion; cert-manager content-identical. 8 pins + 2 `refs/`
-   fixtures. See implementation-log 2026-06-20.
-2. **D#2b — NOW LEADS** (terminating-disjunct, slice 2 of 2). `#List | *null` must take the
-   `*null` arm once the cyclic `#List` arm bottoms. The cyclic arm ALREADY carries
-   `.structuralCycle` (D#2a verified: `#List | *null` eval shows the cyclic arm `_|_`); D#2b =
-   confirm `liveAlternatives`/`resolveDisjDefault?` PRUNE that bottom arm and collapse `tail` to
-   `null` (oracle #2: cue `tail: null`, Kue currently keeps `{…} | *null`). ⚠ Check the A#6
-   `containsBottom` fuel cap (100, `Lattice.lean`) does not hide a deep `.structuralCycle` bottom
-   from `liveAlternatives`; raise/special-case if it does. ⚠ The D#2 design section's root-cause
-   in `spec-conformance-audit.md` is marked SUPERSEDED — the terminating-disjunct subsection
-   itself is still valid (it doesn't depend on the force-path premise).
-3. Then the ranked tail in `spec-conformance-audit.md § Consolidated fix backlog`: **RX-2a**
-   (`\D\W\S` in char-class) · MED tail (D#1b/c, D#3, SC-3, BI-1/2, F-3) · **SC-4** (LOW,
-   spec-check first) · the 4 spec-gap ratifications · **A#6** · **DRY-1** (let-walker
-   consolidation).
+1. **D#2 — COMPLETE (2026-06-20).** Both halves landed: D#2a (structural-cycle DETECTION,
+   struct-body re-entrancy `structStack` on the `.refId` path) + D#2b (terminating-disjunct).
+   D#2b re-diagnosis vs the plan: VALUE resolution was ALREADY correct after D#2a (`export` →
+   `tail: null` via the existing `resolveDisjDefault?`); the A#6 fuel cap was NEVER implicated
+   (detection at depth ~2 ⇒ shallow bottom — A#6 stays standalone). The gap was the EVAL value
+   path (`normalizeEvaluatedDisj` emitting defaulted disjunctions RAW, the SC-3 root). Fix:
+   apply `liveAlternatives` (prune-bottom/dedup) on its has-default branch, WITHOUT collapsing
+   the default into the value (collapse is unsound — `b: a & 2` needs the live non-default arm;
+   cue's display-collapse is a projection, not a value rewrite). Folds in **SC-3's dedup**
+   (`*1|*1|2` → `*1 | 2`); SC-3's residual is only cue's display-collapse, which Kue
+   deliberately rejects (recorded spec-gap). 8 pins + 3 `export/` fixtures; cert-manager
+   content-identical. See implementation-log 2026-06-20.
+2. **RX-2a — NOW LEADS** (MED — `\D`/`\W`/`\S` INSIDE a `[…]` char class, the lone regex-corpus
+   divergence). Needs class-level set-complement folding in `parseClassEscape` (`Kue/Regex.lean`)
+   — the current `.error` arms become real folds (fold the negated perl ranges into the class, or
+   carry per-class negation of a sub-set). RE2 feature; current behavior is an honest stub, not
+   silent-wrong. Serialize with any other regex-module edit to avoid worktree contention.
+3. Then the ranked tail in `spec-conformance-audit.md § Consolidated fix backlog`: MED tail
+   (D#1b/c, D#3, SC-3 display-residual, BI-1/2, F-3) · **SC-4** (LOW, spec-check first) · the 4
+   spec-gap ratifications · **A#6** (standalone, NOT folded into D#2 — confirmed) · **DRY-1**
+   (let-walker consolidation).
 4. Plan-only roadmap (plan.md Live Backlog, NOT in audit.md): `truncate-primitive` (HIGH —
    soundness hardening) · Regex/EvalOps module extractions · test/fixture-org pass ·
    field-order #3 · A2-x/A2-y loader corners · B3/B5 incompleteness. NOTE: plan-side
