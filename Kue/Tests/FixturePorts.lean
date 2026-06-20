@@ -2349,6 +2349,76 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "builtins/math_pow.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"powSquare", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int 10)]⟩,
+                ⟨"powZeroExp", .regular, .builtinCall "math.Pow" [.prim (.int 5), .prim (.int 0)]⟩,
+                ⟨"powBaseZero", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int 5)]⟩,
+                ⟨"powFloatBase", .regular, .builtinCall "math.Pow" [.prim (.float "1.5"), .prim (.int 3)]⟩,
+                ⟨"powNegBase", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.int 3)]⟩,
+                ⟨"powNegBaseEv", .regular, .builtinCall "math.Pow" [.prim (.int (-3)), .prim (.int 4)]⟩,
+                ⟨"powFloatPow", .regular, .builtinCall "math.Pow" [.prim (.float "2.5"), .prim (.int 4)]⟩,
+                ⟨"powWholeFlt", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.float "2.0")]⟩,
+                ⟨"powBig", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int 20)]⟩,
+                ⟨"powDecExact", .regular, .builtinCall "math.Pow" [.prim (.float "0.1"), .prim (.int 2)]⟩,
+                ⟨"powOne", .regular, .builtinCall "math.Pow" [.prim (.int 7), .prim (.int 1)]⟩
+              ] .regularOpen none []))
+    },
+    {
+      fileName := "builtins/list_sort.expected",
+      content :=
+        let ascending := (stdlibPackageValue? "list" "Ascending").getD .bottom
+        let descending := (stdlibPackageValue? "list" "Descending").getD .bottom
+        -- Inline comparators, built as the same AST the parser emits for `{x: _, y: _, less: …}`.
+        let lessXY (op : BinaryOp) : Value :=
+          mkStruct
+            [⟨"x", .regular, .top⟩, ⟨"y", .regular, .top⟩,
+             ⟨"less", .regular, .binary op (.ref "x") (.ref "y")⟩]
+            .regularOpen none []
+        let kStruct (k : Int) : Value := mkStruct [⟨"k", .regular, .prim (.int k)⟩] .regularOpen none []
+        let kvStruct (k : Int) (v : String) : Value :=
+          mkStruct [⟨"k", .regular, .prim (.int k)⟩, ⟨"v", .regular, .prim (.string v)⟩] .regularOpen none []
+        -- Comparator over a `.k` sub-field: `{x: {k: _}, y: {k: _}, less: x.k < y.k}`.
+        let lessByK : Value :=
+          mkStruct
+            [⟨"x", .regular, mkStruct [⟨"k", .regular, .top⟩] .regularOpen none []⟩,
+             ⟨"y", .regular, mkStruct [⟨"k", .regular, .top⟩] .regularOpen none []⟩,
+             ⟨"less", .regular, .binary .lt (.selector (.ref "x") "k") (.selector (.ref "y") "k")⟩]
+            .regularOpen none []
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"ascending", .regular,
+                  .builtinCall "list.Sort" [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], ascending]⟩,
+                ⟨"descending", .regular,
+                  .builtinCall "list.Sort" [.list [.prim (.int 1), .prim (.int 3), .prim (.int 2)], descending]⟩,
+                ⟨"alreadySort", .regular,
+                  .builtinCall "list.Sort" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], ascending]⟩,
+                ⟨"empty", .regular, .builtinCall "list.Sort" [.list [], ascending]⟩,
+                ⟨"single", .regular, .builtinCall "list.Sort" [.list [.prim (.int 5)], ascending]⟩,
+                ⟨"duplicates", .regular,
+                  .builtinCall "list.Sort"
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2), .prim (.int 1), .prim (.int 3)], ascending]⟩,
+                ⟨"strings", .regular,
+                  .builtinCall "list.Sort"
+                    [.list [.prim (.string "banana"), .prim (.string "apple"), .prim (.string "cherry")], ascending]⟩,
+                ⟨"negatives", .regular,
+                  .builtinCall "list.Sort"
+                    [.list [.prim (.int 3), .prim (.int (-1)), .prim (.int 2), .prim (.int (-5)), .prim (.int 0)], ascending]⟩,
+                ⟨"inlineCmp", .regular,
+                  .builtinCall "list.Sort" [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], lessXY .lt]⟩,
+                ⟨"byField", .regular,
+                  .builtinCall "list.Sort" [.list [kStruct 3, kStruct 1, kStruct 2], lessByK]⟩,
+                ⟨"stableTies", .regular,
+                  .builtinCall "list.SortStable"
+                    [.list [kvStruct 1 "a", kvStruct 1 "b", kvStruct 0 "c", kvStruct 1 "d"], lessByK]⟩,
+                ⟨"stableEmpty", .regular, .builtinCall "list.SortStable" [.list [], ascending]⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "builtins/strings_case.expected",
       content :=
         formatTopLevel

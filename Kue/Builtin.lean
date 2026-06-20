@@ -567,6 +567,40 @@ def mathMultipleOf (value divisor : Int) : Value :=
   else
     .prim (.bool (value % divisor == 0))
 
+/-- Exact decimal `base^exponent` for a NON-NEGATIVE integer `exponent`, by repeated
+    exact multiplication (`mulDecimalValues`: numerators multiply, scales add). Structural
+    on `exponent`, hence total. `base^0 = 1` (scale 0). This is the only sound power
+    domain Kue computes WITHOUT a decimal-pow/Float bridge — a non-negative integer
+    exponent keeps the result a finite base-10 rational, exactly representable. -/
+def decimalPowNat (base : DecimalValue) : Nat -> DecimalValue
+  | 0 => { numerator := 1, scale := 0 }
+  | exponent + 1 => mulDecimalValues base (decimalPowNat base exponent)
+
+/-- `math.Pow(base, exponent)` over the SOUND exact domain only: a non-negative integer
+    exponent (whether typed `int` like `3` or a whole-valued `float` like `3.0` — `cue`
+    treats `Pow(3, 2.0) = 9`). The result is exact repeated decimal multiplication,
+    collapsing an integral value back to `int` (`Pow(2,10) = 1024`, `Pow(1.5,3) = 3.375`,
+    `Pow(-2,3) = -8`). `Pow(0,0)` is a `cue` error (bottom). `none` signals "outside the
+    sound domain" (negative/fractional exponent → `cue`'s apd 34-digit decimal Pow or
+    `Infinity`, NOT yet implemented — see `evalMathBuiltin`'s deferral note and
+    `docs/reference/cue-spec-gaps.md`); the caller leaves such calls bottom rather than
+    emit a wrong value. -/
+def mathPow? (base exponent : Prim) : Option Value :=
+  match decimalFromPrim? base, decimalFromPrim? exponent with
+  | some base, some exponent =>
+      -- The exponent must be a whole number ≥ 0. `trimDecimalZerosWith` reduces `3.0` to
+      -- scale 0; a non-zero scale after trimming means a genuine fraction (`0.5`) — outside
+      -- the sound domain.
+      let exp := trimDecimalZerosWith exponent.numerator exponent.scale
+      if exp.scale != 0 || exp.numerator < 0 then
+        none
+      else if exp.numerator == 0 && base.numerator == 0 then
+        -- `Pow(0, 0)` — `cue` errors `invalid operation`.
+        some .bottom
+      else
+        some (collapseDecimalToValue (decimalPowNat base exp.numerator.toNat))
+  | _, _ => none
+
 /-- Rounding mode for the `math.Floor`/`Ceil`/`Round`/`Trunc` family: each maps a
     finite decimal to the integer part chosen by its mode. -/
 inductive RoundMode where
@@ -601,9 +635,15 @@ def mathRound (mode : RoundMode) : Prim -> Value
 
 /-- Dispatch a `math.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design.
-    Deferred (kept unresolved/not matched): `Sqrt`/`Pow` (irrational results need
-    apd sig-digit context; `Sqrt` of a negative yields `NaN`, a value Kue does not
-    yet model) and the trig/log family. -/
+
+    `math.Pow` is computed EXACTLY for a non-negative integer exponent (`mathPow?` — the
+    only domain that stays a finite base-10 rational without a decimal-pow/Float bridge);
+    outside it (`mathPow?` ⇒ `none`) the call falls through to bottom rather than emit a
+    wrong value. Still DEFERRED (residual fix-slice, see `cue-spec-gaps.md`): `Pow` with a
+    negative or fractional exponent (`cue` uses an apd 34-significant-digit decimal Pow, and
+    `Pow(0, neg) = Infinity` — neither modeled here); `math.Sqrt` (IEEE-754 float64 in `cue`,
+    needing Float + `NaN`/`Infinity` + Go-style scientific float formatting Kue lacks); and
+    the trig/log family. -/
 def evalMathBuiltin : String -> List Value -> Value
   | "math.Abs", [.prim p] => mathAbs p
   | "math.MultipleOf", [.prim (.int value), .prim (.int divisor)] =>
@@ -612,6 +652,10 @@ def evalMathBuiltin : String -> List Value -> Value
   | "math.Ceil", [.prim p] => mathRound .ceil p
   | "math.Round", [.prim p] => mathRound .round p
   | "math.Trunc", [.prim p] => mathRound .trunc p
+  | "math.Pow", [.prim base, .prim exponent] =>
+      match mathPow? base exponent with
+      | some value => value
+      | none => unresolvedOrBottom "math.Pow" [.prim base, .prim exponent]
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `base64.*` builtin over already-evaluated arguments. `Encode`'s first

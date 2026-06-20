@@ -9636,3 +9636,101 @@ Files: `Kue/Value.lean` (`Clause.letClause`, `descendClauses` `.letClause` arm),
 `Kue/Tests/EvalTests.lean` (9 pins), `Kue/Tests/FixturePorts.lean` (6 entries),
 `testdata/cue/comprehensions/{list_let_basic,list_let_in_guard,list_let_multiple,list_let_for_after,let_shadows_outer,struct_let_basic}.{cue,expected}`,
 `docs/reference/cue-divergences.md`, `docs/reference/cue-spec-gaps.md`.
+
+---
+
+## Completed Slice: BI-2 — math.Pow exact domain + list.Sort / list.SortStable
+
+Goal: implement four builtins that previously BOTTOMED on concrete input — `math.Pow`,
+`math.Sqrt`, `list.Sort`, `list.SortStable`. Landed as a SPLIT (`math.Pow` exact-domain +
+`list.Sort`/`SortStable` fully; `math.Sqrt` + the apd-Pow tail deferred as a residual fix-slice).
+
+**Precision investigation (the design fork).** The slice premise — "cue's math mirrors Go float64"
+— is FALSE for Pow. Oracle (cue v0.16.1): `math.Pow` uses an apd DECIMAL context (34 sig digits):
+`Pow(2, 0.5) = 1.414213562373095048801688724209698`, `Pow(3, -1) = 0.3333…3333` (padded);
+`math.Sqrt` uses IEEE-754 FLOAT64: `Sqrt(2) = 1.4142135623730951` (= Python `math.sqrt(2)`), and Go
+float formatting incl. scientific notation (`Sqrt(100) = 1e+1`, `Sqrt(1000000) = 1e+3`), with
+`Sqrt(-1) = NaN.0`, `Sqrt(0) = 0.0`. Kue's numeric core is EXACT base-10 rationals (`DecimalValue` =
+numerator/scale) — NO `Float`, no `NaN`/`Infinity`, no scientific-notation formatter. So the
+prompt's "decimal↔Float bridge" does not exist and building it for Sqrt would be a large numeric +
+formatting subproject that also produces values colliding with Kue's exact-decimal renderer.
+
+**`math.Pow` — the SOUND exact sub-domain (`Builtin.lean`).** A POSITIVE-INTEGER exponent (incl. a
+whole-valued float like `3.0`, since cue's `Pow(3, 2.0) = 9`) keeps the result a finite base-10
+rational — exactly representable. `mathPow?`/`decimalPowNat` compute it by repeated exact
+`mulDecimalValues` (numerators multiply, scales add), collapsing integral results to int via
+`collapseDecimalToValue`. Byte-identical to cue across the whole domain: `Pow(2,10)=1024`,
+`Pow(1.5,3)=3.375`, `Pow(-2,3)=-8`, `Pow(2.5,4)=39.0625`, `Pow(0.1,2)=0.01` (UNPADDED — the
+positive-int-exp path never routes through cue's apd division), `Pow(10,20)`=exact 21-digit int.
+`Pow(0,0)` bottoms — CONFORMS (cue errors `invalid operation`). The exponent's wholeness is decided
+by trimming trailing zeros (`trimDecimalZerosWith` reduces `3.0`→scale 0; a residual non-zero scale
+is a genuine fraction). Outside this domain (`mathPow? ⇒ none`) the call falls through to bottom — an
+honest "not computed", NEVER a wrong value (the grant: never ship a wrong value).
+
+**`list.Sort` / `list.SortStable` — comparator evaluation at the EVAL layer (`Eval.lean`,
+`Parse.lean`).** cue's comparator is a `{x, y, less}` struct (`list.Ascending` =
+`{T,x,y: number|string, less: bool & x < y}`); deciding `a < b` MEETS the comparator with `{x:a, y:b}`
+and EVALUATES its `less` field to a bool — an effectful comparison the pure `Builtin` layer CANNOT do
+(layering `Builtin → Lattice`, never `→ Eval`). So `list.Sort`/`SortStable` are intercepted in the
+`.builtinCall` arm of `evalValueCoreWithFuel`, NOT in `evalBuiltinCall`. The comparator is passed
+UNEVALUATED — `less`'s references to the `x`/`y` slots must survive into the per-pair meet (an
+evaluated comparator collapses `less` to a residual `_ < _` with the slot links lost). Per pair, the
+comparator evaluates `.selector (.conj [cmp, {x: a, y: b}]) "less"` and reads a `.prim (.bool _)`; a
+`less` that does not reduce to a concrete bool (incomplete/incomparable comparator — a cue error) is
+recorded in the eval-scoped `EvalState.sortError` and surfaced as the call's bottom. The sort itself
+is a total, stable, fuel-bounded monadic merge sort (`sortValuesM` + `mergeRunsM`/`mergePassM`/
+`mergeRunsLoopM`) — bottom-up, structurally total, parameterized by `Value → Value → EvalM Bool`, so
+it lives OUTSIDE the eval mutual block and the comparator closure supplies the only recursive call
+back into `evalValueWithFuel fuel` (a valid `(fuel,1,0) < (fuel,6,0)` decrease). ONE stable sort
+serves both `Sort` and `SortStable` (a stable result is a valid `Sort` result; stability is the
+strictly-stronger, illegal-states-fewer choice). The predefined comparator VALUES
+`list.Ascending`/`Descending`/`Comparer` (which appear WITHOUT a call, so the parser cannot route
+them through `parseCall`) are emitted by a new `stdlibPackageValue?` as the same inline `{x,y,less}`
+AST a user would write, wired into `parseSelectorRest`'s no-call selector branch — so resolution and
+the per-pair eval treat them identically to a hand-written comparator. The `bool &` is dropped from
+the emitted `less` (`x < y` already yields bool, and Kue's `meet(bool)(unresolved <)` eagerly
+bottoms — a pre-existing unrelated divergence that would corrupt the standalone display; the sort is
+unaffected since a concrete pair makes `x < y` a real bool).
+
+**RESIDUAL fix-slice filed (see `plan.md`/this audit's backlog — `BI-2-residual`):** `math.Sqrt`
+(needs Float + `NaN`/`Infinity` + Go scientific-notation float formatting) and `math.Pow` with a
+negative/fractional exponent or `Pow(0, neg)=Infinity` (needs an apd-equivalent 34-sig-digit decimal
+Pow + Infinity model). Both DEFERRED rather than shipped wrong; Kue bottoms on these inputs today.
+
+**Divergences / spec gaps recorded.** `cue-spec-gaps.md`: (BI-2 Pow row) the precision model — cue's
+apd-decimal Pow / float64 Sqrt are library artifacts the spec does not pin; Kue computes the exact
+positive-int-exp domain (byte-identical) and defers the rest. (BI-2 Sort row) Sort STABILITY — the
+spec leaves tie order unspecified (cue docs: `Sort` "not guaranteed stable"); Kue uses one stable
+sort for both, matching cue's observable order; plus the standalone comparator-value `less` display
+(Kue `number|string < number|string` vs cue `bool & x < y`, display-only — the sort RESULT is
+byte-identical). No `cue-divergences.md` entry — every Pow/Sort RESULT conforms to cue.
+
+**Tests.** Pow: 13 `native_decide` pins in `BuiltinTests` (`math_pow_*` — integer/zero/base-zero/
+float-base/neg-base odd+even/whole-float-exp/terminating-decimal exact cases; `Pow(0,0)` bottom;
+negative- + fractional-exponent residual bottoms; abstract-arg unresolved). Sort: 13 `native_decide`
+pins in `EvalTests` (`eval_list_sort_*` + `eval_list_ascending_*` — ascending/descending/already-
+sorted/empty/single/duplicates/strings/inline-comparator/by-field; `SortStable` tie-stability with a
+discriminating fixture; incomparable→bottom; standalone comparator-value display), each driven
+end-to-end (parse→resolve→eval) via `evalSourceMatches` and cue v0.16.1-cross-checked. 2 fixture
+pairs + `FixturePorts` entries: `builtins/math_pow` (11 cases) and `builtins/list_sort` (12 cases,
+incl. `list.Ascending`/`Descending`, inline + by-field comparators, SortStable stability) — the
+`list_sort` port reuses `stdlibPackageValue?` to build `list.Ascending`/`Descending` (DRY).
+
+**Verify.** `lake build` green (100 jobs; all pins checked at build; no non-exhaustive-match
+warning); `check-fixtures.sh` → `fixture pairs ok` (zero drift; 2 new pairs, both CLI + Lean-port
+paths); shellcheck clean (no shell touched). Eval-hot-path change is additive (Sort interception
+fires only on `list.Sort`/`SortStable`; cert-manager/argocd use neither) so it cannot regress
+real-app output.
+
+**Next leader — F-3** (parse qualified import path `"location:identifier"`). NOTE: **BI-1**
+(Unicode case-fold for `strings.ToUpper/ToLower`) is REORDERED to AFTER F-3 — it likely needs Unicode
+case-mapping tables (a data dependency / possible network fetch = an envelope risk), so BI-1's slice
+must FIRST decide the data approach (vendored generated table vs scoped coverage) before any code.
+
+Files: `Kue/Builtin.lean` (`decimalPowNat`, `mathPow?`, `evalMathBuiltin` `math.Pow` arm),
+`Kue/Eval.lean` (`EvalState.sortError`; `mergeRunsM`/`mergePassM`/`mergeRunsLoopM`/`sortValuesM`;
+`sortWithComparator` in the mutual block; `list.Sort`/`SortStable` interception in the `.builtinCall`
+eval arm), `Kue/Parse.lean` (`stdlibPackageValue?` + `parseSelectorRest` no-call selector branch),
+`Kue/Tests/BuiltinTests.lean` (13 Pow pins), `Kue/Tests/EvalTests.lean` (13 Sort pins),
+`Kue/Tests/FixturePorts.lean` (2 entries),
+`testdata/cue/builtins/{math_pow,list_sort}.{cue,expected}`, `docs/reference/cue-spec-gaps.md`.

@@ -625,6 +625,65 @@ theorem math_call_stays_unresolved_on_abstract_arg :
       == .builtinCall "math.Floor" [.kind .number]) = true := by
   native_decide
 
+-- math.Pow over the SOUND exact domain (non-negative integer exponent → exact decimal power,
+-- collapsing integral results). BI-2.
+theorem math_pow_integer_exponent_is_exact :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int 10)] == .prim (.int 1024)) = true := by
+  native_decide
+
+theorem math_pow_zero_exponent_is_one :
+    (evalBuiltinCall "math.Pow" [.prim (.int 5), .prim (.int 0)] == .prim (.int 1)) = true := by
+  native_decide
+
+theorem math_pow_zero_base_positive_exponent_is_zero :
+    (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (.int 5)] == .prim (.int 0)) = true := by
+  native_decide
+
+theorem math_pow_float_base_stays_exact_decimal :
+    (evalBuiltinCall "math.Pow" [.prim (.float "1.5"), .prim (.int 3)] == .prim (.float "3.375")) = true := by
+  native_decide
+
+theorem math_pow_negative_base_odd_exponent_is_negative :
+    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.int 3)] == .prim (.int (-8))) = true := by
+  native_decide
+
+theorem math_pow_negative_base_even_exponent_is_positive :
+    (evalBuiltinCall "math.Pow" [.prim (.int (-3)), .prim (.int 4)] == .prim (.int 81)) = true := by
+  native_decide
+
+-- A whole-VALUED float exponent (`3.0`) counts as the integer exponent `3` (cue: `Pow(3, 2.0) = 9`).
+theorem math_pow_whole_float_exponent_is_integer_exponent :
+    (evalBuiltinCall "math.Pow" [.prim (.int 3), .prim (.float "2.0")] == .prim (.int 9)) = true := by
+  native_decide
+
+-- A terminating decimal stays EXACT (not padded to 34 digits — the positive-int-exp path never
+-- routes through cue's apd division): `Pow(0.1, 2) = 0.01`.
+theorem math_pow_terminating_decimal_is_exact :
+    (evalBuiltinCall "math.Pow" [.prim (.float "0.1"), .prim (.int 2)] == .prim (.float "0.01")) = true := by
+  native_decide
+
+-- `Pow(0, 0)` is a cue error (bottom). CONFORMS (both error).
+theorem math_pow_zero_zero_is_bottom :
+    (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (.int 0)] == .bottom) = true := by
+  native_decide
+
+-- Residual domain (deferred — see cue-spec-gaps.md): a negative or fractional exponent needs
+-- cue's apd 34-digit decimal Pow, NOT yet implemented. Kue bottoms (an honest "not computed",
+-- never a wrong value) rather than guessing.
+theorem math_pow_negative_exponent_is_bottom_residual :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))] == .bottom) = true := by
+  native_decide
+
+theorem math_pow_fractional_exponent_is_bottom_residual :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")] == .bottom) = true := by
+  native_decide
+
+-- An abstract argument keeps the call unresolved (a later pass may concretize it).
+theorem math_pow_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "math.Pow" [.kind .number, .prim (.int 2)]
+      == .builtinCall "math.Pow" [.kind .number, .prim (.int 2)]) = true := by
+  native_decide
+
 -- base64.Encode (standard padded base64; null encoding only)
 
 theorem base64_encode_ascii_padding_zero :

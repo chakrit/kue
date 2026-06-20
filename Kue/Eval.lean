@@ -1590,6 +1590,14 @@ structure EvalState where
       referential. Finite-deep nesting never collides — each layer is a DISTINCT body, pushed then
       popped; only genuine re-entrancy puts a body on the stack twice. -/
   structStack : List Value := []
+  /-- Transient sticky error for an in-progress `list.Sort`/`list.SortStable`: a comparator
+      whose `less` field does not evaluate to a concrete `bool` for some pair (an incomplete or
+      incomparable comparator — a CUE error) records that bottom HERE, and `sortWithComparator`
+      surfaces it as the sort's result. Eval-scoped like `structStack`: saved before each sort and
+      restored after, so a nested sort cannot leak its failure to the outer one. `none` = no failure
+      seen on the current sort. (The merge sort's comparator must be total `EvalM Bool`; this carries
+      the out-of-band "this comparison was not a real bool" signal that a `Bool` cannot.) -/
+  sortError : Option Value := none
   /-- Fuel-free cache for SATURATED results only (see `SatKey`). The soundness-critical second
       store: a hit serves a converged value for any remaining fuel, collapsing fuel
       multiplication. Insertion is gated to the `saturated` bracket arm. -/
@@ -2497,6 +2505,58 @@ inductive ListClauseExpansion where
   | bottom (value : Value)
   | deferred
 
+/-- Stable monadic merge of two already-sorted runs under a monadic strict-less-than
+    `lt`. Fuel = `left.length + right.length` (each step consumes one element), so the
+    recursion is total. STABILITY: an element of `left` is emitted before an equal element
+    of `right` unless `right`'s head is STRICTLY less (`lt rHead lHead`) — i.e. ties favor
+    the left (earlier) run, which is what `list.SortStable` requires (and the unstable
+    `list.Sort` tolerates). -/
+def mergeRunsM (lt : Value -> Value -> EvalM Bool) :
+    Nat -> List Value -> List Value -> EvalM (List Value)
+  | 0, left, right => pure (left ++ right)
+  | _ + 1, [], right => pure right
+  | _ + 1, left, [] => pure left
+  | fuel + 1, lHead :: lTail, rHead :: rTail => do
+      if (<- lt rHead lHead) then
+        let rest <- mergeRunsM lt fuel (lHead :: lTail) rTail
+        pure (rHead :: rest)
+      else
+        let rest <- mergeRunsM lt fuel lTail (rHead :: rTail)
+        pure (lHead :: rest)
+
+/-- One bottom-up pass: merge adjacent runs pairwise (`[r0,r1,r2,r3,…]` ⇒
+    `[merge r0 r1, merge r2 r3, …]`), halving the run count. Structural on the run list
+    (two consumed per step), hence total. -/
+def mergePassM (lt : Value -> Value -> EvalM Bool) :
+    List (List Value) -> EvalM (List (List Value))
+  | [] => pure []
+  | [run] => pure [run]
+  | a :: b :: rest => do
+      let merged <- mergeRunsM lt (a.length + b.length) a b
+      let restMerged <- mergePassM lt rest
+      pure (merged :: restMerged)
+
+/-- Bottom-up driver: repeat `mergePassM` until a single run remains. `fuel` bounds the
+    number of passes (each pass at least halves the run count, so `runs.length` passes
+    always suffice); structural decrement keeps it total. -/
+def mergeRunsLoopM (lt : Value -> Value -> EvalM Bool) :
+    Nat -> List (List Value) -> EvalM (List Value)
+  | 0, runs => pure runs.flatten
+  | _ + 1, [] => pure []
+  | _ + 1, [run] => pure run
+  | fuel + 1, runs => do
+      let passed <- mergePassM lt runs
+      mergeRunsLoopM lt fuel passed
+
+/-- Total, stable monadic merge sort under a monadic strict-less-than `lt`. Seeds the
+    bottom-up merge with singleton runs (already individually sorted), then merges passes
+    to completion. Used by `list.Sort`/`list.SortStable`, whose comparator evaluates a CUE
+    `{x, y, less}` struct per pair — an effectful (`EvalM`) comparison, so Lean's pure
+    `List.mergeSort` does not apply. -/
+def sortValuesM (lt : Value -> Value -> EvalM Bool) (items : List Value) :
+    EvalM (List Value) :=
+  mergeRunsLoopM lt items.length (items.map ([·]))
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -2689,8 +2749,32 @@ mutual
             pure (normalizeEvaluatedDisj distributed)
         | none => evalConjStandard fuel env visited constraints
     | fuel + 1, .builtinCall name args => do
-        let evaluated <- evalValuesWithFuel fuel env visited args
-        pure (evalBuiltinCall name evaluated)
+        -- `list.Sort`/`list.SortStable` are handled HERE, not in `evalBuiltinCall` (the pure
+        -- `Builtin` layer, which has no access to evaluation): their comparator is a CUE
+        -- `{x, y, less}` struct, and deciding `a < b` means MEETING the comparator with
+        -- `{x: a, y: b}` and EVALUATING its `less` field to a bool — an effectful comparison.
+        -- The comparator is passed UNEVALUATED: `less`'s references to the `x`/`y` slots must
+        -- survive into the per-pair meet (an evaluated comparator collapses `less` to a residual
+        -- `_ < _` with the slot links lost, so the meet could never re-bind them). Only the LIST
+        -- is pre-evaluated. `list.Sort` and `list.SortStable` share one stable sort here: cue's
+        -- `Sort` is not guaranteed stable, but a stable result is a valid `Sort` result and matches
+        -- cue's observable order on the comparators it defines.
+        let runSort : Value -> Value -> EvalM Value := fun listArg cmp => do
+          let listValue <- evalValueWithFuel fuel env visited listArg
+          match listValue with
+          | .list items => sortWithComparator fuel env visited cmp items
+          | .bottom => pure .bottom
+          | .bottomWith reasons => pure (.bottomWith reasons)
+          -- A concrete first argument that is NOT a list is a CUE type error (`cannot use … as
+          -- list`); an abstract one (a ref/kind a later pass could concretize to a list) stays
+          -- unresolved.
+          | other => pure (if isConcreteArg other then .bottom else .builtinCall name [other, cmp])
+        match name, args with
+        | "list.Sort", [listArg, cmp] => runSort listArg cmp
+        | "list.SortStable", [listArg, cmp] => runSort listArg cmp
+        | _, _ => do
+            let evaluated <- evalValuesWithFuel fuel env visited args
+            pure (evalBuiltinCall name evaluated)
     | fuel + 1, .unary op value => do
         let evaluated <- evalValueWithFuel fuel env visited value
         pure (distributeUnary op evaluated)
@@ -2865,6 +2949,41 @@ mutual
         evalValueWithFuel fuel capturedEnv [] body
     | _, value => pure value
   termination_by (fuel, 0, 0)
+
+  /-- Sort `items` by a CUE comparator struct (`list.Sort`/`list.SortStable`). The comparator
+      `cmp` is a `{x, y, less}` struct (e.g. `list.Ascending`); `a < b` is decided by MEETING
+      `cmp` with `{x: a, y: b}` and EVALUATING the resulting `less` field to a `bool`. A `less`
+      that does not reduce to a concrete `bool` (an incomplete or incomparable comparator) is a
+      CUE error: it is recorded in the eval-scoped `sortError` and surfaced as the call's bottom,
+      rather than producing a bogus order. The merge itself is the total, stable `sortValuesM`.
+      Calls `evalValueWithFuel fuel` (per comparison) — `(fuel,1,0) < (fuel,6,0)`. -/
+  def sortWithComparator
+      (fuel : Nat)
+      (env : Env)
+      (visited : List Nat)
+      (cmp : Value)
+      (items : List Value) : EvalM Value := do
+    let savedError := (<- get).sortError
+    modify (fun state => { state with sortError := none })
+    let lt : Value -> Value -> EvalM Bool := fun a b => do
+      let probe := .conj [cmp, mkStruct [⟨"x", .regular, a⟩, ⟨"y", .regular, b⟩] .regularOpen none []]
+      let less <- evalValueWithFuel fuel env visited (.selector probe "less")
+      match less with
+      | .prim (.bool result) => pure result
+      | other => do
+          -- Not a concrete bool ⇒ the comparator is incomplete/incomparable (CUE error). Record
+          -- the bottom and treat this comparison as `false` (a total fallback; the recorded error
+          -- makes the whole sort bottom regardless of the order produced).
+          let bot := if containsBottom other then other else .bottom
+          modify (fun state => { state with sortError := some (state.sortError.getD bot) })
+          pure false
+    let sorted <- sortValuesM lt items
+    let failure := (<- get).sortError
+    modify (fun state => { state with sortError := savedError })
+    match failure with
+    | some bot => pure bot
+    | none => pure (.list sorted)
+  termination_by (fuel, 6, 0)
 
   /-- The standard `.conj` fold (extracted so the `.conj` arm can first try disjunction
       distribution and fall through here). Either the lazy same-scope struct merge

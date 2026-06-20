@@ -1,0 +1,11 @@
+powSquare: 1024
+powZeroExp: 1
+powBaseZero: 0
+powFloatBase: 3.375
+powNegBase: -8
+powNegBaseEv: 81
+powFloatPow: 39.0625
+powWholeFlt: 9
+powBig: 100000000000000000000
+powDecExact: 0.01
+powOne: 7

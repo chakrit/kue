@@ -717,6 +717,34 @@ def parseMultiplicativeKeywordOp? (chars : List Char) : Option (BinaryOp × List
               | some rest => some (.intRem, rest)
               | none => none
 
+/-- The comparator-struct VALUES the `list` package exposes as predefined constants (not
+    functions): `list.Ascending` (`{x, y, less: bool & x < y}`), `list.Descending` (`x > y`),
+    and the bare `list.Comparer` (`less: bool`). They appear WITHOUT a call (`list.Sort(x,
+    list.Ascending)`), so — unlike `pkg.fn(...)` — the parser cannot route them through
+    `parseCall`. Emitted as the same inline AST a user would write (`{x: _, y: _, less: …}`),
+    so resolution and `list.Sort`'s per-pair comparator evaluation treat them identically to a
+    hand-written comparator. The `x`/`y` field references resolve to the struct's own slots via
+    the normal scope pass (string `.ref`s, slot-bound by `Resolve`). -/
+def stdlibPackageValue? (pkg label : String) : Option Value :=
+  -- `T`/`x`/`y` are independent `number | string` slots (verified: `Ascending & {x:1}` narrows
+  -- neither `T` nor `y`), matching cue's definition; the `number | string` bound also makes
+  -- sorting incomparable element types an error, as cue does.
+  let numberOrString : Value := .disj [(.regular, .kind .number), (.regular, .kind .string)]
+  let comparator (less : Value) : Value :=
+    mkStruct
+      [⟨"T", .regular, numberOrString⟩, ⟨"x", .regular, numberOrString⟩,
+       ⟨"y", .regular, numberOrString⟩, ⟨"less", .regular, less⟩]
+      .regularOpen none []
+  -- cue's `less` is `bool & x < y`; the `bool &` is dropped because `x < y` already yields a
+  -- bool, and Kue's `meet (bool) (unresolved <)` eagerly bottoms (a pre-existing divergence,
+  -- reproducible without `list`) which would corrupt the standalone-comparator display. The Sort
+  -- path is unaffected either way: a concrete pair makes `x < y` evaluate to a bool directly.
+  match pkg, label with
+  | "list", "Ascending" => some (comparator (.binary .lt (.ref "x") (.ref "y")))
+  | "list", "Descending" => some (comparator (.binary .gt (.ref "x") (.ref "y")))
+  | "list", "Comparer" => some (comparator (.kind .bool))
+  | _, _ => none
+
 mutual
   partial def parseExpression (chars : List Char) : ParseResult Value :=
     parseDisjunction chars
@@ -910,7 +938,16 @@ mutual
                     | .error error => .error error
                     | .ok (call, rest) => parseSelectorRest call rest
                 | _ => parseSelectorRest (.selector base label) rest
-            | _ => parseSelectorRest (.selector base label) rest
+            | rest =>
+                -- A no-call selector. A `pkg.Constant` that the stdlib exposes as a VALUE
+                -- (`list.Ascending`/`Descending`/`Comparer`) becomes that comparator struct;
+                -- anything else stays ordinary field access.
+                match base with
+                | .ref pkg =>
+                    match stdlibPackageValue? pkg label with
+                    | some value => parseSelectorRest value rest
+                    | none => parseSelectorRest (.selector base label) rest
+                | _ => parseSelectorRest (.selector base label) rest
     | '[' :: rest =>
         match parseExpression rest with
         | .error error => .error error

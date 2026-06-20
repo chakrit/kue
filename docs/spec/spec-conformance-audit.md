@@ -57,7 +57,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | B. Closedness/definitions  | batch 1 | DONE   | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS                                  |
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
 | D. Comprehensions/scoping  | batch 2 | **CLOSED** | guard catch-all DRAINED (**D#1a/D#1b/D#1c all FIXED**: bottom→propagate, incomplete→defer, concrete-non-bool→type-error; 2026-06-20); structural cycles **D#2 COMPLETE 2026-06-20** (D#2a detection + D#2b terminating-disjunct); **`let`-clauses D#3 FIXED 2026-06-20** (parse + `Clause.letClause` + `let` = +1 frame; the LAST open D-item); frame-model + read-splice CONFORM — **D-area now fully closed** |
-| E. Scalars/bounds/builtins | batch 2 | DONE   | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); 2 MED builtin remain (BI-1 ASCII case-fold; BI-2 deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
+| E. Scalars/bounds/builtins | batch 2 | DONE   | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); **BI-2 math.Pow exact + list.Sort/SortStable FIXED 2026-06-20** (residual: Sqrt + apd-Pow tail deferred = BI-2-residual); 1 MED builtin remains (BI-1 ASCII case-fold, reordered after F-3 — needs Unicode-table data decision); numeric/bounds/division/decimal core CONFORMS |
 | F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
 ## Audit history (archived — full detail in implementation-log.md + git)
@@ -202,13 +202,15 @@ resolves as the general semantics mature. **Recommended next 3-4:**
 did not unblock — residual Bug2-5 is PARKED as a stress-test finding, see Live-slice
 detail; it is not on the critical path.)
 
-**NOW LEADS — the MED tail** (no large designed levers remain; **D-area CLOSED**): **D#3 DONE
-2026-06-20** (`let` clauses in comprehensions — parse + `Clause.letClause` + `let` = +1 frame; the
-last open D-item). Next leader: **BI-1** (Unicode case-fold), **BI-2** (`math.Pow`/`list.Sort`),
-**F-3** (qualified import), then **SC-3 display-residual** (LOW/spec-gap). Then SC-4 (LOW,
-spec-gap-first), the 4 spec-gap ratifications, A#6 (standalone), DRY-1 (LOW refactor). ⚠ **Audit
-cadence: RX-2a + D#1b/c + D#3 = 3 slices since the last two-phase audit (`c03ebdb`) — the two-phase
-audit (Phase A → Phase B) is now DUE.**
+**NOW LEADS — the MED tail** (no large designed levers remain; **D-area CLOSED**): **BI-2 DONE
+2026-06-20** (`math.Pow` exact domain + `list.Sort`/`SortStable` — comparator evaluated per pair at
+the eval layer; residual BI-2-residual filed = Sqrt + apd-Pow tail). Next leader: **F-3** (qualified
+import path parsing), then **BI-1** (Unicode case-fold — REORDERED after F-3; needs a Unicode-table
+DATA decision before code, an envelope risk), then **SC-3 display-residual** (LOW/spec-gap),
+**BI-2-residual** (Sqrt/apd-Pow). Then SC-4 (LOW, spec-gap-first), the 4 spec-gap ratifications, A#6
+(standalone), DRY-1 (LOW refactor). **Audit cadence: BI-2 = slice 1 of a NEW batch** (the two-phase
+audit closed at `7ee15d8`+`457a165`, counter reset to 0) — next two-phase audit DUE after 2-3 NEW
+slices (BI-2 is slice 1).
 
 Then the MED tail (D#1b/D#1c, D#3 `let` -clauses, SC-3 disj-display, BI-1 Unicode
 case-fold, BI-2 `math.Pow` /`list.Sort`, F-3 qualified import), SC-4 (LOW,
@@ -259,6 +261,23 @@ Bug2-5 mechanism.)
   implementation-log). A#6 fuel cap was NOT implicated (detection at depth ~2 ⇒ shallow bottom).
   SC-3 dedup folded in. cert-manager content-identical (zero false-fire; prod9 has ZERO recursive
   defs). See Audit history + implementation-log 2026-06-20.
+
+**BI-2-residual (MED — deferred builtins, undesigned numeric subproject).** The BI-2 slice
+(2026-06-20) landed `math.Pow`'s EXACT domain + `list.Sort`/`SortStable` but DEFERRED two pieces
+that need numeric/formatting machinery Kue does not have. Both BOTTOM today (honest "not computed",
+never a wrong value — the grant): **(a) `math.Sqrt`** — cue computes it in IEEE-754 float64
+(`Sqrt(2)=1.4142135623730951`) and renders with Go's float formatter incl. scientific notation
+(`Sqrt(100)=1e+1`, `Sqrt(1000000)=1e+3`), with `Sqrt(-1)=NaN.0`, `Sqrt(0)=0.0`. Kue's numeric core
+is EXACT base-10 rationals — no `Float`, no `NaN`/`Infinity`, no sci-notation formatter; even
+perfect-square Sqrt needs the float-render path (`Sqrt(100)` must be `1e+1`, which Kue's decimal
+formatter would render `10.0` — a wrong value), so NO sub-domain is cleanly carve-out-able. Needs:
+a `Float` (or a decimal Newton/series sqrt to cue's precision) + `NaN`/`Infinity` value modeling +
+a Go-style float formatter. **(b) `math.Pow` negative/fractional exponent + `Pow(0,neg)=Infinity`**
+— cue uses an apd 34-significant-digit decimal Pow (`Pow(2,0.5)=1.414…209698`, `Pow(3,-1)=0.333…333`)
+and emits `Infinity` for `Pow(0,neg)`. Needs an apd-equivalent decimal nth-root/exponentiation to
+34 digits + an Infinity model. Design fork when sliced: introduce a real `Float`/IEEE bridge (broad,
+risks colliding with the exact-decimal formatter) vs a decimal-precision numeric-methods module
+(apd-style, keeps exactness philosophy). Lower priority than the feature tail; no real app needs it.
 
 **SC-1b (MED — soundness, pre-existing & broader than SC-1).** The `closingPatterns`
 carry-forward is a UNION across conjuncts; for two CLOSED defs with DISJOINT explicit
@@ -320,12 +339,23 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
     cue `"prod"`). That cosmetic display projection (a Format-layer change rewriting ~7 fixtures)
     is recorded as a spec-gap (`cue-spec-gaps.md` D#2b/SC-3 row), not a value bug — close it only
     if the eval-display convention is ever revisited.
-13. **BI-1 (MED)** Unicode case folding for `strings.ToUpper/ToLower` (currently
-    ASCII-only; cue full-Unicode → wrong answers).
-14. **BI-2 (MED)** implement `math.Pow/Sqrt`, `list.Sort/SortStable` (currently bottom on
-    concrete input — deferred builtins).
-15. **F-3 (MED)** parse qualified import path `"location:identifier"` (currently unparsed;
-    latent).
+13. **F-3 (MED) — NOW LEADS.** parse qualified import path `"location:identifier"` (currently
+    unparsed; latent).
+14. **BI-2 — DONE (2026-06-20), with residual.** `math.Pow` (EXACT non-negative-integer-exponent
+    domain — repeated exact decimal multiply, byte-identical to cue; `Pow(0,0)` bottoms, CONFORMS)
+    + `list.Sort`/`list.SortStable` (comparator `{x,y,less}` evaluated per pair at the EVAL layer via
+    a total stable monadic merge sort; `list.Ascending`/`Descending` emitted by `stdlibPackageValue?`)
+    all FIXED. **BI-2-residual (MED, deferred fix-slice):** `math.Sqrt` (IEEE-754 float64 — needs
+    Float + `NaN`/`Infinity` + Go scientific-notation float formatting Kue lacks) and `math.Pow` with
+    a negative/fractional exponent or `Pow(0,neg)=Infinity` (needs an apd-equivalent 34-sig-digit
+    decimal Pow + Infinity model). Kue BOTTOMS on these inputs rather than shipping a wrong value
+    (the grant). See Audit history + implementation-log 2026-06-20; spec gaps in `cue-spec-gaps.md`
+    (BI-2 Pow + Sort rows).
+15. **BI-1 (MED) — REORDERED to AFTER F-3.** Unicode case folding for `strings.ToUpper/ToLower`
+    (currently ASCII-only; cue full-Unicode → wrong answers). ⚠ Picked up BLIND it is an envelope
+    risk: full Unicode case-mapping likely needs a generated case-folding TABLE (a data dependency /
+    possible network fetch). BI-1's slice must FIRST decide the data approach — vendored
+    generated table (checked-in, no fetch) vs scoped coverage (common ranges only) — BEFORE any code.
 
 **Spec-gap decisions (record + ratify in `cue-spec-gaps.md`, mostly doc) — the 4
 ratifications:** import-binding laziness (B#2/F-5 — keep, operational basis; smell:
