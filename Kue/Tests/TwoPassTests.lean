@@ -294,6 +294,45 @@ theorem descend_clauses_agrees_remapConjClauses :
         | _ => false)) = true := by
   native_decide
 
+/-! ### A-EN3 — `foldValueWithDepth` combinator pins (the shared structural fold).
+
+The three def-frame scanners (`refsSelfEmbeddedLabel`/`selfReferencedLabels`/`defFrameRefIndices`)
+are thin `foldValueWithDepth` instantiations. These pins lock the combinator's contract and the ONE
+structural divergence between the instantiations (the `.dynamicField` value depth), so a future
+edit that drifts the shared skeleton or "reconciles" the divergence is a `native_decide` failure,
+not a silent value change. -/
+
+-- Empty-monoid degeneracy: a fold whose `combine` always returns `empty` and whose `leaf` never
+-- fires collapses to `empty` regardless of the tree — the structural skeleton contributes nothing
+-- on its own; ALL signal comes from the leaf hook.
+theorem fold_value_with_depth_empty_monoid_is_empty :
+    (foldValueWithDepth (β := List Nat) (fun _ _ => []) [] (fun _ _ => none) 0 evalFuel 0
+        (mkStruct [⟨"a", .regular, .refId ⟨0, 3⟩⟩] .regularOpen none
+          [(.kind .string, .comprehension [.forIn none "x" (.list [])] (.refId ⟨1, 7⟩))])
+      == []) = true := by
+  native_decide
+
+-- Leaf short-circuit: a `leaf` returning `some` makes the node a LEAF — descent stops, so children
+-- are NOT visited. Here the leaf fires on every `.struct`, returning `[99]` and never recursing into
+-- the inner `.refId ⟨0,0⟩` (which a structural descent would have collected as `[0]`).
+theorem fold_value_with_depth_leaf_short_circuits :
+    (foldValueWithDepth (β := List Nat) (· ++ ·) []
+        (fun _ v => match v with | .struct .. => some [99] | _ => none) 0 evalFuel 0
+        (mkStruct [⟨"a", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])
+      == [99]) = true := by
+  native_decide
+
+-- The `.dynamicField` value-depth divergence (`dynValShift`): `defFrameRefIndices` (shift 1) scans a
+-- dynamic field's VALUE one frame deeper than the self scanners (shift 0). Witnessed by collecting
+-- the SAME bare-`.refId` leaf at TWO depths: from `depth 0`, `defFrameRefIndices` reaches a value-ref
+-- at `⟨1, _⟩` (scanned at `0+1`), while a hypothetical shift-0 scan reaches `⟨0, _⟩`. Pinning both
+-- arms locks the shift (⚠ shift 1 is the latent over-deep scan vs the resolver, which pushes no frame
+-- for a dynamic field; a future reconcile to shift 0 flips the first arm to read `⟨0, 5⟩`).
+theorem fold_value_dynfield_shift_divergence :
+    (defFrameRefIndices evalFuel 0 (.dynamicField (.prim (.string "k")) .regular (.refId ⟨1, 5⟩)) == [5]
+      && defFrameRefIndices evalFuel 0 (.dynamicField (.prim (.string "k")) .regular (.refId ⟨0, 5⟩)) == []) = true := by
+  native_decide
+
 /-! ### B7 — `descendClauses` agreement theorems (the new structural guarantee).
 
 `descendClauses` (`Value.lean`) is the single authority for the comprehension clause-chain
@@ -336,8 +375,9 @@ must be re-evaluated against the augmented frame) recursed a comprehension body 
 ignoring the loop frame each `for` pushes. A `Self.<embedded>` read inside a `for` body sits at
 `depth + #forClauses` but was compared `== depth`, so the field was not collected → not selected
 for Pass-2 → it reused its stale Pass-1 value. The fix threads the depth through the clause chain
-via `selfReferencedLabelsClauses`, identically to `resolveClausesWithFuel` (and to the `remapConj*`
-A5 fix above). These pins use REALISTICALLY-RESOLVED body refIds (depth reflecting the loop frame).
+via the shared `foldValueWithDepth`/`descendClauses` handler (A-EN3 unified the three scanners onto
+it), identically to `resolveClausesWithFuel` (and to the `remapConj*` A5 fix above). These pins use
+REALISTICALLY-RESOLVED body refIds (depth reflecting the loop frame).
 -/
 
 -- A plain `.comprehension` with one `for` whose body struct reads `Self.#t` (`refId ⟨2,0⟩` — one
@@ -363,8 +403,9 @@ theorem self_referenced_labels_guard_no_frame :
 -- The gate twin `refsSelfEmbeddedLabel` (decides whether the two-pass fires at ALL) had the same
 -- too-shallow comprehension-body scan, with a comment claiming it only over-fires (perf). That was
 -- backwards: a too-shallow scan compares a deep `Self.<embedded>` read against `depth`, MISSES it,
--- returns `false`, and SKIPS the two-pass — a stale-value miss. Fixed via `refsSelfEmbeddedLabelClauses`
--- (depth threaded like resolution). Pre-fix this returns `false` (deep ref at ⟨2,0⟩ scanned at depth 1).
+-- returns `false`, and SKIPS the two-pass — a stale-value miss. Fixed via the shared
+-- `foldValueWithDepth`/`descendClauses` clause handler (depth threaded like resolution). Pre-fix this
+-- returns `false` (deep ref at ⟨2,0⟩ scanned at depth 1).
 theorem refs_self_embedded_label_detects_through_for_body :
     refsSelfEmbeddedLabel evalFuel 0 0 ["#t"]
         (.comprehension [.forIn none "x" (.list [])]

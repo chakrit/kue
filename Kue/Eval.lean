@@ -89,6 +89,91 @@ def thisStructBindingIndex? : List Field -> Option Nat
       go 0 fields
 
 mutual
+/-- Generic depth-threading structural fold over the full `Value` constructor tree (A-EN3). The
+    three def-frame scanners — `refsSelfEmbeddedLabel` (monoid `Bool`/`||`), `selfReferencedLabels`
+    (`List String`/`++`), `defFrameRefIndices` (`List Nat`/`++`) — are the SAME recursion, differing
+    only in (a) the monoid `(combine, empty)`, (b) the `leaf` hook deciding which node contributes,
+    and (c) the depth threaded into a `.dynamicField`'s VALUE (see `dynValShift`). They become thin
+    instantiations of this fold.
+
+    `leaf depth node` is a PRE-ORDER hook: `some x` makes `node` a leaf contributing `x` (no further
+    descent); `none` recurses structurally into `node`'s children, each at its frame depth (`+1` per
+    frame-pusher — struct/structComp/pattern/embed-decls; `+0` otherwise) with the clause chain
+    threaded by `descendClauses` (`+1` per `for`/`let`, `+0` per guard). Frame-pusher discipline
+    mirrors `hasSelfRefAtDepth`/`resolveClausesWithFuel`.
+
+    `dynValShift` is the depth offset added to a `.dynamicField`'s value sub-position: `0` for the
+    self-frame scanners (the resolver does NOT push a frame for a dynamic field — `Resolve.lean`
+    resolves both key and value in the same scope), `1` for `defFrameRefIndices`. ⚠ The `1` is a
+    LATENT over-deep scan (inconsistent with the resolver, which uses `0`); it is unreachable in the
+    corpus and preserved byte-identically here. A follow-up should reconcile it to `0`. -/
+def foldValueWithDepth {β : Type}
+    (combine : β → β → β) (empty : β)
+    (leaf : Nat → Value → Option β)
+    (dynValShift : Nat)
+    (fuel : Nat) (depth : Nat) : Value → β
+  | v =>
+      match leaf depth v with
+      | some x => x
+      | none =>
+        let rec' := fun (d : Nat) (child : Value) => match fuel with
+          | 0 => empty
+          | f + 1 => foldValueWithDepth combine empty leaf dynValShift f d child
+        match v with
+        | .selector base _ => rec' depth base
+        | .index base key => combine (rec' depth base) (rec' depth key)
+        | .unary _ inner => rec' depth inner
+        | .binary _ l r => combine (rec' depth l) (rec' depth r)
+        | .conj cs => cs.foldl (fun acc c => combine acc (rec' depth c)) empty
+        | .disj alts => alts.foldl (fun acc a => combine acc (rec' depth a.snd)) empty
+        | .interpolation parts => parts.foldl (fun acc p => combine acc (rec' depth p)) empty
+        | .list items => items.foldl (fun acc i => combine acc (rec' depth i)) empty
+        | .listTail items tail =>
+            combine (items.foldl (fun acc i => combine acc (rec' depth i)) empty) (rec' depth tail)
+        | .builtinCall _ args => args.foldl (fun acc a => combine acc (rec' depth a)) empty
+        | .dynamicField l _ inner => combine (rec' depth l) (rec' (depth + dynValShift) inner)
+        | .structComp fields cs _ =>
+            combine
+              (fields.foldl (fun acc fl => combine acc (rec' (depth + 1) (Field.value fl))) empty)
+              (cs.foldl (fun acc c => combine acc (rec' (depth + 1) c)) empty)
+        | .struct fields _ tail patterns _ =>
+            combine
+              (combine
+                (fields.foldl (fun acc fl => combine acc (rec' (depth + 1) (Field.value fl))) empty)
+                (match tail with | some t => rec' (depth + 1) t | none => empty))
+              (patterns.foldl (fun acc p =>
+                combine acc (combine (rec' (depth + 1) p.fst) (rec' (depth + 1) p.snd))) empty)
+        | .embeddedList items tail decls =>
+            combine
+              (combine
+                (items.foldl (fun acc i => combine acc (rec' depth i)) empty)
+                (match tail with | some t => rec' depth t | none => empty))
+              (decls.foldl (fun acc fl => combine acc (rec' (depth + 1) (Field.value fl))) empty)
+        | .comprehension clauses body =>
+            match fuel with
+            | 0 => empty
+            | f + 1 => foldValueWithDepthClauses combine empty leaf dynValShift f depth clauses body
+        | .listComprehension clauses body =>
+            match fuel with
+            | 0 => empty
+            | f + 1 => foldValueWithDepthClauses combine empty leaf dynValShift f depth clauses body
+        | _ => empty
+
+/-- Thread a comprehension's clause chain via `descendClauses` (`+1` per `for`/`let`, `+0` per
+    guard), folding `foldValueWithDepth` over each clause source/guard and the body at its depth —
+    the single clause-depth authority shared by all three scanners. -/
+def foldValueWithDepthClauses {β : Type}
+    (combine : β → β → β) (empty : β)
+    (leaf : Nat → Value → Option β)
+    (dynValShift : Nat)
+    (fuel : Nat) (depth : Nat) (clauses : List (Clause Value)) (body : Value) : β :=
+  descendClauses combine
+    (fun d source => foldValueWithDepth combine empty leaf dynValShift fuel d source)
+    (fun d cond => foldValueWithDepth combine empty leaf dynValShift fuel d cond)
+    (fun d => foldValueWithDepth combine empty leaf dynValShift fuel d body)
+    depth clauses
+end
+
 /-- Does `value` reference `Self.<label>` for some `label ∈ labels`, where `Self` is the
     binding at `selfIndex` in the def's OWN frame, reachable from `depth` frame-pushers deep? A
     resolved `Self.a` read from the def's own frame is `.selector (.refId ⟨0, selfIndex⟩) a`; read
@@ -97,96 +182,18 @@ mutual
     (`.struct`/`.structTail`/`.structComp`/pattern) increments `depth`, so a self-ref lands iff
     `id.depth == depth`, exactly mirroring `hasSelfRefAtDepth`. Fuel-bounded structural scan; used
     to gate the embedding-`Self` two-pass so it fires when ANY field (at any nesting depth) selects
-    an embedding-supplied label through the host's `Self`. -/
-def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List String) : Value -> Bool
-  | .selector (.refId id) label =>
-      id.depth == depth && id.index == selfIndex && labels.contains label
-  | .selector base _ =>
-      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels base
-  | .index base key =>
-      match fuel with
-      | 0 => false
-      | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels base || refsSelfEmbeddedLabel f depth selfIndex labels key
-  | .unary _ v =>
-      match fuel with | 0 => false | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels v
-  | .binary _ l r =>
-      match fuel with
-      | 0 => false
-      | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels l || refsSelfEmbeddedLabel f depth selfIndex labels r
-  | .conj cs =>
-      match fuel with | 0 => false | f + 1 => cs.any (refsSelfEmbeddedLabel f depth selfIndex labels)
-  | .disj alts =>
-      match fuel with | 0 => false | f + 1 => alts.any (fun a => refsSelfEmbeddedLabel f depth selfIndex labels a.snd)
-  | .interpolation parts =>
-      match fuel with | 0 => false | f + 1 => parts.any (refsSelfEmbeddedLabel f depth selfIndex labels)
-  | .structComp fields cs _ =>
-      match fuel with
-      | 0 => false
-      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
-          || cs.any (refsSelfEmbeddedLabel f (depth + 1) selfIndex labels)
-  | .list items =>
-      match fuel with | 0 => false | f + 1 => items.any (refsSelfEmbeddedLabel f depth selfIndex labels)
-  | .listTail items tail =>
-      match fuel with
-      | 0 => false
-      | f + 1 => items.any (refsSelfEmbeddedLabel f depth selfIndex labels) || refsSelfEmbeddedLabel f depth selfIndex labels tail
-  | .comprehension clauses body =>
-      -- Clause sources/guards resolve in the comprehension's enclosing frame; the body resolves
-      -- `#forClauses` frames deeper (`for` pushes one, `guard` none). The depth is threaded by
-      -- `refsSelfEmbeddedLabelClauses`, matching `resolveClausesWithFuel`: a too-shallow body scan
-      -- would compare a deep `Self.<embedded>` read (at `depth+#for`) against `depth`, MISS it, and
-      -- fail to fire the two-pass — a stale-value miss, not a perf-only over-fire (the A5 sibling).
-      match fuel with
-      | 0 => false
-      | f + 1 => refsSelfEmbeddedLabelClauses f depth selfIndex labels clauses body
-  | .listComprehension clauses body =>
-      -- List-context comprehension (`listeners: [for h in Self.#hosts {…}]` — the ListenerSet
-      -- shape): the `Self.<embedded-label>` source must trigger the two-pass exactly as a struct
-      -- comprehension's does, else the source iterates the un-narrowed (empty) embedded value.
-      match fuel with
-      | 0 => false
-      | f + 1 => refsSelfEmbeddedLabelClauses f depth selfIndex labels clauses body
-  | .dynamicField l _ v =>
-      match fuel with
-      | 0 => false
-      | f + 1 => refsSelfEmbeddedLabel f depth selfIndex labels l || refsSelfEmbeddedLabel f depth selfIndex labels v
-  | .builtinCall _ args =>
-      -- Args resolve in the enclosing frame (same `depth`): `count: len(Self.#x)` reads the
-      -- embedded label through the host `Self` from inside the call.
-      match fuel with | 0 => false | f + 1 => args.any (refsSelfEmbeddedLabel f depth selfIndex labels)
-  | .embeddedList items tail decls =>
-      -- Items/tail are list elements (same frame); decls are the embedding struct's surviving
-      -- member fields (one frame deeper, like `.struct`).
-      match fuel with
-      | 0 => false
-      | f + 1 => items.any (refsSelfEmbeddedLabel f depth selfIndex labels)
-          || (match tail with | some t => refsSelfEmbeddedLabel f depth selfIndex labels t | none => false)
-          || decls.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
-  | .struct fields _ tail patterns _ =>
-      -- Scan fields, the optional tail, and the patterns, all one frame deeper.
-      match fuel with
-      | 0 => false
-      | f + 1 => fields.any (fun fl => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels (Field.value fl))
-          || (match tail with | some t => refsSelfEmbeddedLabel f (depth + 1) selfIndex labels t | none => false)
-          || patterns.any (fun p =>
-              refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.fst
-                || refsSelfEmbeddedLabel f (depth + 1) selfIndex labels p.snd)
-  | _ => false
+    an embedding-supplied label through the host's `Self`.
 
-/-- Does any clause source/guard or the body reference `Self.<embedded>` (see
-    `refsSelfEmbeddedLabel`), threading frame depth through the clause chain exactly as
-    `resolveClausesWithFuel` does: each `forIn` source is scanned at the current `depth` and pushes
-    one frame for subsequent clauses and the body; a `guard` condition scans at `depth` and pushes
-    none. So a body read at `depth + #forClauses` is detected, not missed. -/
-def refsSelfEmbeddedLabelClauses
-    (fuel : Nat) (depth selfIndex : Nat) (labels : List String)
-    (clauses : List (Clause Value)) (body : Value) : Bool :=
-  descendClauses (· || ·)
-    (fun d source => refsSelfEmbeddedLabel fuel d selfIndex labels source)
-    (fun d cond => refsSelfEmbeddedLabel fuel d selfIndex labels cond)
-    (fun d => refsSelfEmbeddedLabel fuel d selfIndex labels body)
-    depth clauses
-end
+    Thin `foldValueWithDepth` instantiation (monoid `Bool`/`||`): the `.selector (.refId id) label`
+    arm is the leaf; clause-chain depth (`for` source at `depth`, body `#for` deeper) is threaded by
+    the fold's shared `descendClauses` handler. -/
+def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List String) : Value → Bool :=
+  foldValueWithDepth (· || ·) false
+    (fun d v => match v with
+      | .selector (.refId id) label =>
+          some (id.depth == d && id.index == selfIndex && labels.contains label)
+      | _ => none)
+    0 fuel depth
 
 /-- Should the embedding-`Self` two-pass fire? Only when (a) embeddings contributed labels NOT
     declared static, AND (b) some static field actually selects one through the host's `Self`
@@ -200,92 +207,22 @@ def needsEmbeddedSelfPass (canonical : List Field) (newEmbeddedLabels : List Str
         canonical.any fun fl =>
           refsSelfEmbeddedLabel evalFuel 0 selfIndex newEmbeddedLabels (Field.value fl)
 
-mutual
 /-- The set of `Self.<label>` reads in `value` whose `Self` is the alias at `selfIndex` `depth`
     frame-pushers deep — the label-collecting twin of `refsSelfEmbeddedLabel` (same structural
     descent, same depth discipline). Used to compute which static fields the Pass-2 re-eval must
     touch: a field reads `Self.<L>` (this set) and depends on `L`'s value, which the Pass-2 frame
-    change alters iff `L` is an embedded label or itself transitively depends on one. -/
-def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value -> List String
-  | .selector (.refId id) label =>
-      if id.depth == depth && id.index == selfIndex then [label] else []
-  | .selector base _ =>
-      match fuel with | 0 => [] | f + 1 => selfReferencedLabels f depth selfIndex base
-  | .index base key =>
-      match fuel with
-      | 0 => []
-      | f + 1 => selfReferencedLabels f depth selfIndex base ++ selfReferencedLabels f depth selfIndex key
-  | .unary _ v =>
-      match fuel with | 0 => [] | f + 1 => selfReferencedLabels f depth selfIndex v
-  | .binary _ l r =>
-      match fuel with
-      | 0 => []
-      | f + 1 => selfReferencedLabels f depth selfIndex l ++ selfReferencedLabels f depth selfIndex r
-  | .conj cs =>
-      match fuel with | 0 => [] | f + 1 => cs.flatMap (selfReferencedLabels f depth selfIndex)
-  | .disj alts =>
-      match fuel with | 0 => [] | f + 1 => alts.flatMap (fun a => selfReferencedLabels f depth selfIndex a.snd)
-  | .interpolation parts =>
-      match fuel with | 0 => [] | f + 1 => parts.flatMap (selfReferencedLabels f depth selfIndex)
-  | .structComp fields cs _ =>
-      match fuel with
-      | 0 => []
-      | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
-          ++ cs.flatMap (selfReferencedLabels f (depth + 1) selfIndex)
-  | .list items =>
-      match fuel with | 0 => [] | f + 1 => items.flatMap (selfReferencedLabels f depth selfIndex)
-  | .listTail items tail =>
-      match fuel with
-      | 0 => []
-      | f + 1 => items.flatMap (selfReferencedLabels f depth selfIndex) ++ selfReferencedLabels f depth selfIndex tail
-  | .comprehension clauses body =>
-      match fuel with
-      | 0 => []
-      | f + 1 => selfReferencedLabelsClauses f depth selfIndex clauses body
-  | .listComprehension clauses body =>
-      match fuel with
-      | 0 => []
-      | f + 1 => selfReferencedLabelsClauses f depth selfIndex clauses body
-  | .dynamicField l _ v =>
-      match fuel with
-      | 0 => []
-      | f + 1 => selfReferencedLabels f depth selfIndex l ++ selfReferencedLabels f depth selfIndex v
-  | .builtinCall _ args =>
-      match fuel with | 0 => [] | f + 1 => args.flatMap (selfReferencedLabels f depth selfIndex)
-  | .embeddedList items tail decls =>
-      match fuel with
-      | 0 => []
-      | f + 1 => items.flatMap (selfReferencedLabels f depth selfIndex)
-          ++ (match tail with | some t => selfReferencedLabels f depth selfIndex t | none => [])
-          ++ decls.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
-  | .struct fields _ tail patterns _ =>
-      -- Fields, optional tail, patterns, one frame deeper.
-      match fuel with
-      | 0 => []
-      | f + 1 => fields.flatMap (fun fl => selfReferencedLabels f (depth + 1) selfIndex (Field.value fl))
-          ++ (match tail with | some t => selfReferencedLabels f (depth + 1) selfIndex t | none => [])
-          ++ patterns.flatMap (fun p =>
-              selfReferencedLabels f (depth + 1) selfIndex p.fst
-                ++ selfReferencedLabels f (depth + 1) selfIndex p.snd)
-  | _ => []
+    change alters iff `L` is an embedded label or itself transitively depends on one.
 
-/-- Collect `Self.<label>` reads across a comprehension's clause chain and body, threading the
-    frame depth the same way `resolveClausesWithFuel` does: each `forIn` source is read at the
-    current `depth`, then the loop frame is pushed (`depth + 1`) for subsequent clauses and the
-    body; `guard` conditions read at the current `depth` and push no frame. A `Self.<L>` inside a
-    `for` body thus sits at `depth + #forClauses` and is correctly collected — flat recursion would
-    compare it against `depth`, miss it, and leave the field out of Pass-2 (reusing a stale value). -/
-def selfReferencedLabelsClauses
-    (fuel : Nat) (depth selfIndex : Nat)
-    (clauses : List (Clause Value)) (body : Value) : List String :=
-  descendClauses (· ++ ·)
-    (fun d source => selfReferencedLabels fuel d selfIndex source)
-    (fun d cond => selfReferencedLabels fuel d selfIndex cond)
-    (fun d => selfReferencedLabels fuel d selfIndex body)
-    depth clauses
-end
+    Thin `foldValueWithDepth` instantiation (monoid `List String`/`++`): the `.selector (.refId id)
+    label` arm is the leaf (yields `[label]` on a self-frame hit, `[]` otherwise). -/
+def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value → List String :=
+  foldValueWithDepth (· ++ ·) []
+    (fun d v => match v with
+      | .selector (.refId id) label =>
+          some (if id.depth == d && id.index == selfIndex then [label] else [])
+      | _ => none)
+    0 fuel depth
 
-mutual
 /-- The slot indices read by a `.refId` that resolves to frame `depth` (the def's own frame),
     scanning `value` in full and threading frame depth through every frame-pusher — struct/struct-
     Comp/pattern (`+1`) and a comprehension's clause chain (`+1` per `for`, `+0` per guard). The bug
@@ -299,73 +236,18 @@ mutual
     referenced fields are concrete). A static field's ordinary ref to a regular sibling may also be
     collected — harmless: the sibling merges by label into the embed's own declaration, the same
     `meet` the outer fold does, just early enough for a guard. Depth threading mirrors
-    `hasSelfRefAtDepth`. -/
-def defFrameRefIndices (fuel : Nat) (depth : Nat) : Value -> List Nat
-  | .refId id => if id.depth == depth then [id.index] else []
-  | .conj cs =>
-      match fuel with | 0 => [] | f + 1 => cs.flatMap (defFrameRefIndices f depth)
-  | .disj alts =>
-      match fuel with | 0 => [] | f + 1 => alts.flatMap (fun a => defFrameRefIndices f depth a.snd)
-  | .unary _ v =>
-      match fuel with | 0 => [] | f + 1 => defFrameRefIndices f depth v
-  | .binary _ l r =>
-      match fuel with
-      | 0 => []
-      | f + 1 => defFrameRefIndices f depth l ++ defFrameRefIndices f depth r
-  | .selector base _ =>
-      match fuel with | 0 => [] | f + 1 => defFrameRefIndices f depth base
-  | .index base key =>
-      match fuel with
-      | 0 => []
-      | f + 1 => defFrameRefIndices f depth base ++ defFrameRefIndices f depth key
-  | .interpolation parts =>
-      match fuel with | 0 => [] | f + 1 => parts.flatMap (defFrameRefIndices f depth)
-  | .list items =>
-      match fuel with | 0 => [] | f + 1 => items.flatMap (defFrameRefIndices f depth)
-  | .listTail items tail =>
-      match fuel with
-      | 0 => []
-      | f + 1 => items.flatMap (defFrameRefIndices f depth) ++ defFrameRefIndices f depth tail
-  | .builtinCall _ args =>
-      match fuel with | 0 => [] | f + 1 => args.flatMap (defFrameRefIndices f depth)
-  | .dynamicField l _ v =>
-      match fuel with
-      | 0 => []
-      | f + 1 => defFrameRefIndices f depth l ++ defFrameRefIndices f (depth + 1) v
-  | .structComp fields cs _ =>
-      match fuel with
-      | 0 => []
-      | f + 1 => fields.flatMap (fun fl => defFrameRefIndices f (depth + 1) (Field.value fl))
-          ++ cs.flatMap (defFrameRefIndices f (depth + 1))
-  | .struct fields _ tail patterns _ =>
-      match fuel with
-      | 0 => []
-      | f + 1 => fields.flatMap (fun fl => defFrameRefIndices f (depth + 1) (Field.value fl))
-          ++ (match tail with | some t => defFrameRefIndices f (depth + 1) t | none => [])
-          ++ patterns.flatMap (fun p =>
-              defFrameRefIndices f (depth + 1) p.fst ++ defFrameRefIndices f (depth + 1) p.snd)
-  | .embeddedList items tail decls =>
-      match fuel with
-      | 0 => []
-      | f + 1 => items.flatMap (defFrameRefIndices f depth)
-          ++ (match tail with | some t => defFrameRefIndices f depth t | none => [])
-          ++ decls.flatMap (fun fl => defFrameRefIndices f (depth + 1) (Field.value fl))
-  | .comprehension clauses body =>
-      match fuel with | 0 => [] | f + 1 => defFrameRefIndicesClauses f depth clauses body
-  | .listComprehension clauses body =>
-      match fuel with | 0 => [] | f + 1 => defFrameRefIndicesClauses f depth clauses body
-  | _ => []
+    `hasSelfRefAtDepth`.
 
-/-- Thread a comprehension's clause chain like `descendClauses` (`+1` per `for`, `+0` per guard),
-    collecting `defFrameRefIndices` from each clause source/guard and the body at its depth. -/
-def defFrameRefIndicesClauses
-    (fuel : Nat) (depth : Nat) (clauses : List (Clause Value)) (body : Value) : List Nat :=
-  descendClauses (· ++ ·)
-    (fun d source => defFrameRefIndices fuel d source)
-    (fun d cond => defFrameRefIndices fuel d cond)
-    (fun d => defFrameRefIndices fuel d body)
-    depth clauses
-end
+    Thin `foldValueWithDepth` instantiation (monoid `List Nat`/`++`): the bare `.refId id` arm is
+    the leaf (yields `[id.index]` on a def-frame hit). `dynValShift := 1` — a `.dynamicField`'s value
+    is scanned one frame deeper here (⚠ over-deep vs the resolver, see `foldValueWithDepth`;
+    preserved byte-identically, unreachable in the corpus). -/
+def defFrameRefIndices (fuel : Nat) (depth : Nat) : Value → List Nat :=
+  foldValueWithDepth (· ++ ·) []
+    (fun d v => match v with
+      | .refId id => some (if id.depth == d then [id.index] else [])
+      | _ => none)
+    1 fuel depth
 
 /-- Pass-2 selective re-eval (perf, audit PART B): the static field INDICES (into `canonical`)
     whose value the embedding-`Self` Pass-2 frame change can alter — to be re-evaluated against the
