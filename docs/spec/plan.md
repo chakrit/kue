@@ -133,6 +133,22 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    is the illegal-states-unrepresentable reason-to-be; the audit-#6 corruption it prevents
    already shipped once latent.
 
+**BI-EFF. Effectful-builtin seam (TRIGGERED — gated on the 2nd effectful builtin; Phase-B
+2026-06-20 ruling).** `list.Sort`/`SortStable` live as one shared inline `runSort` case in the
+`.builtinCall` arm of `evalValueWithFuel` (`Eval.lean` ~2772) — the RIGHT layer (the `{x,y,less}`
+comparator needs `EvalM`, which the pure `Builtin` layer cannot reach), and one logical case is
+below the abstraction threshold today. **Do NOT abstract now.** Trigger: when the SECOND effectful
+builtin lands — `list.IsSorted` (reuses `sortWithComparator`'s `lt` verbatim) or a validator
+(`matchN`/`matchIf`/`list.MatchN`, element-vs-constraint unify) — extract the effectful cases, AS
+THAT SLICE'S FIRST STEP, into a named `evalEffectfulBuiltin? : String → List Value → … → EvalM
+(Option Value)` (in the mutual block, calls `evalValueWithFuel`), tried in `.builtinCall` BEFORE the
+pure-evaluate-then-`evalBuiltinCall` fallback; new effectful builtins add an arm to the SEAM, never
+to the evaluator top-level match. A full name→`EvalM`-closure registry is **rejected** (less
+traceable than an exhaustive `match`; population ~3-4, not dozens). Risk: eval hot path +
+`termination_by` measure → real slice, byte-identical gate, NOT inline. A forward-pointing seam
+comment is already at the site (Phase-B 2026-06-20). `struct.MaxFields`/`MinFields` are PURE → stay
+in `Builtin`, never effectful.
+
 2. **EvalOps extraction → `Kue/EvalOps.lean` (ACTIONABLE, PARALLEL-SAFE).** ~256 lines of
    self-contained pure scalar algebra (`evalAdd…evalBinary` + `distributeUnary`/
    `distributeBinary`, `Eval.lean:782/1042/1088/1093`) carved out from under the recursive
@@ -310,12 +326,66 @@ batch → AD2-1.**
   bottom, non-list→bottom, by-field, inline-comparator, empty/singleton/dup all pinned. Pow: domain
   boundary incl. `Pow(0,0)`/whole-float-exp/neg-base-parity + residual-bottom pins. F-3: all
   precedence combos + invalid-id/empty-qualifier + 4 module fixtures.
-- **FLAG for Phase B:** the eval-layer builtin interception (`list.Sort`/`SortStable` handled in the
-  `.builtinCall` arm of `evalValueWithFuel`, NOT `evalBuiltinCall`) is a NEW pattern — an effectful
-  builtin that the pure `Builtin` layer structurally cannot host. Today it is two hard-coded `name,
-  args` cases inline in the mutual block. Phase B should judge whether this wants a cleaner home (an
-  "effectful builtin" dispatch table / a documented seam) before more such builtins (e.g. a future
-  `list.SortStrings`-with-comparator family) accrete ad-hoc arms in the evaluator.
+- **FLAG for Phase B → RULED (BI-EFF below).** The eval-layer effectful-builtin interception flag
+  is RESOLVED: the layer is right, the placement gets a named seam at the second effectful builtin,
+  and a full registry is rejected. See **BI-EFF** in the backlog.
+
+**Phase-B audit 2026-06-20 (`<commit>`, whole-graph; scopes BI-2 `4c59989` + F-3 `a6dc012`) — verdict:**
+
+- **Architecture HEALTHY.** Module layering is clean and acyclic: `Builtin → {Lattice, Regex,
+  Decimal, Base64, Json, Yaml}` with NO `Builtin → Eval` edge; `Eval → Builtin` is the correct
+  direction, and the sort living in `Eval` is correct *because* of this (the comparator needs
+  `EvalM`, which the pure `Builtin` layer structurally cannot reach). BI-2's eval-layer sort
+  interception and F-3's `Import.packageName` import changes both respected layering — no leak.
+- **BI-EFF (the escalated PRIMARY question) — RULED: scoped seam at the 2nd effectful builtin;
+  full registry REJECTED; one inline case is below-threshold TODAY.** `list.Sort`/`SortStable` are
+  the only effectful builtins so far (a CUE `{x,y,less}` comparator evaluated per pair), handled as
+  ONE shared inline `runSort` case in the `.builtinCall` arm + helpers `sortWithComparator` /
+  `sortValuesM` / `mergeRunsM`/`mergePassM`/`mergeRunsLoopM`. Effectful-builtin population survey
+  (what would accrete inline arms): genuinely effectful + NOT-yet-done = **`list.IsSorted`** (the
+  SAME `{x,y,less}` comparator — reuses `sortWithComparator`'s `lt` wholesale) and the **validator
+  family** `matchN` / `matchIf` / `list.MatchN` (unify each element against a CUE constraint — meet
+  + eval per element, a different shape). `struct.MaxFields`/`MinFields` are PURE (field count, no
+  CUE function) → stay in `Builtin`. So the population is real and certain to grow, but small
+  (~3-4), not dozens. RULING: (a) a full name-keyed dispatch TABLE / registry of `EvalM` closures
+  is **rejected** — it is LESS traceable than an exhaustive `match` (the per-builtin semantics are
+  load-bearing and heavily commented; a `HashMap` of closures hides them) and the population never
+  justifies the indirection; this is the illegal-states/traceability philosophy, not YAGNI alone.
+  (b) ONE logical inline case (Sort+SortStable sharing `runSort`) is **below the abstraction
+  threshold today** — extracting a seam for a single case is speculative. (c) **TRIGGER: when the
+  SECOND effectful builtin lands** (`list.IsSorted`, or any validator), do the seam extraction *as
+  that slice's first step* — pull the effectful cases into a named `evalEffectfulBuiltin? : String →
+  List Value → … → EvalM (Option Value)` helper (in the mutual block, since it calls
+  `evalValueWithFuel`), tried in `.builtinCall` BEFORE the pure-evaluate-then-`evalBuiltinCall`
+  fallback; new effectful builtins then add an arm to the SEAM, never to the evaluator's top-level
+  match. Risk: touches the eval hot path + a `termination_by` measure → a real slice, byte-identical
+  gate, NOT an inline cleanup. APPLIED INLINE this round: a forward-pointing seam comment at the
+  `.builtinCall` site documenting this rule (comment-only; full gate re-run green).
+- **Eval.lean size (3633 lines) — extraction watch, not yet due.** The standing **EvalOps**
+  extraction (item 2, ~256 lines of pure scalar algebra, parallel-safe) remains the right first
+  carve and is unchanged/live. The mutual evaluator block itself (comprehension walkers + sort
+  interception) is large but COHESIVE — every member shares the `EvalM` + fuel + mutual-recursion
+  context; splitting it would force a mutual-block-spanning seam. No second extraction is justified
+  beyond EvalOps yet; revisit if the file crosses ~4500 or the seam-helper above lands (which would
+  itself be a natural small extraction point).
+- **Test-org pass (item 3) — DUE, recommended as the NEXT slice (ahead of BI-1).** `EvalTests.lean`
+  is now **1593 lines** (was ~1505 last Phase B; BI-2 added `eval_list_sort_*` / Pow pins, F-3 added
+  import-path pins). Approaching the ~1800 self-imposed re-split ceiling. `BuiltinTests` 943,
+  `FixtureTests` 992, `TwoPassTests` 1030, `FixturePorts` 3049 (generated — leave whole). Carve
+  `ComprehensionTests`/`GuardTests` (and optionally a small `SortTests`) out of `EvalTests`;
+  sub-group `testdata/cue/{definitions,comprehensions}`. It is docs/test-only (envelope-safe),
+  preempts nothing semantic, and BI-1 needs a data-approach spike first anyway — so test-org goes
+  FIRST. (See "next-batch leader" in the breadcrumb.)
+- **Perf-guide — UPDATED inline.** Added two `kue-performance.md` rows: `list.Sort`/`SortStable`
+  cost O(n log n) comparator evals (each a meet + nested `evalValueWithFuel` on `less`; mitigations:
+  smaller lists, shallow `less`, pre-concrete elements, prefer `SortStrings`); `math.Pow` exact
+  bignum multiply (large exponent → many big-int multiplies, exact result, avoid in hot loops).
+- **Walker-dedup family + AD3-4 — survived distillation INTACT, correctly ranked.** Confirmed
+  unchanged this batch: AD4-1 (comprehension clause-drivers, FIRST; preserves the VERIFIED-CORRECT
+  list/struct `[_|_]`≠`_|_` bottom-non-propagation asymmetry) → A-EN3 + DRY-1 (locality batch) →
+  AD2-1 (normalizer pair, file-not-inline). Four distinct mechanisms, all post-argocd, gated behind
+  correctness. AD3-4 (bottom-payload newtype) stays RULED OUT. Nothing this batch changed their
+  status.
 
 **Resolved / ruled-out (recorded so they are not re-raised):**
 

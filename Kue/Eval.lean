@@ -2769,6 +2769,18 @@ mutual
           -- list`); an abstract one (a ref/kind a later pass could concretize to a list) stays
           -- unresolved.
           | other => pure (if isConcreteArg other then .bottom else .builtinCall name [other, cmp])
+        -- SEAM (effectful builtins). These two cases are the EFFECTFUL-builtin dispatch: a
+        -- builtin whose semantics require `EvalM` (evaluating a CUE function/comparator argument
+        -- per element), which the pure `Builtin` layer (`Builtin → Lattice`, never `→ Eval`)
+        -- structurally cannot host — see `evalBuiltinCall`. Today the population is exactly Sort/
+        -- SortStable (sharing `runSort`), and ONE logical case is below the threshold for a
+        -- name-keyed dispatch table. EXTENSION RULE (Phase-B 2026-06-20 ruling): when the SECOND
+        -- effectful builtin lands (`list.IsSorted`, reusing `sortWithComparator`'s `lt`; or the
+        -- validator family `matchN`/`matchIf`/`list.MatchN`), do NOT add a third inline arm here —
+        -- first extract these into a named `evalEffectfulBuiltin?` seam tried before the pure
+        -- fallback, so the evaluator's top-level match stays free of per-builtin arms. A full
+        -- registry of name→`EvalM` closures stays REJECTED (less traceable than an exhaustive
+        -- `match`, and the population is ~3-4, not dozens). See `docs/spec/plan.md` (item BI-EFF).
         match name, args with
         | "list.Sort", [listArg, cmp] => runSort listArg cmp
         | "list.SortStable", [listArg, cmp] => runSort listArg cmp
