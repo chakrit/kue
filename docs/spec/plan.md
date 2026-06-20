@@ -185,23 +185,59 @@ implementation-log.
   is a LOAD error in cue; Kue silently keeps both. A missing loader-level diagnostic —
   file as a small loader slice; behind item 7. (Both A2-x/A2-y are corners prod9 real apps
   don't hit.)
-- **AD2-1 (LOW — DRY/consistency, two disjunction normalizers diverge).** After D#2b,
-  `normalizeEvaluatedDisj` (`Eval.lean:694`) and `normalizeDisj` (`Lattice.lean:277`) are
-  near-identical over the same domain (both `liveAlternatives` → `[]`→`.bottom`,
-  multi→`.disj`), but their LONE-arm rule differs: `normalizeDisj` collapses only
-  `[(.regular, v)]` (a lone DEFAULT arm stays `.disj [(.default, v)]`, surfacing as `*1` in
-  eval — see `a: (*1|2)&(>=1 & <2)`: Kue eval `*1`, cue `1`), while `normalizeEvaluatedDisj`
-  collapses `[(_, v)]` mark-agnostically (→ `1`). Both are VALUE-sound (export agrees with
-  cue in every probe — a lone live arm is the only inhabited value, mark or not), so this is
-  a consistency/display nit, NOT a bug. But two functions doing almost-the-same-thing-but-not
-  is a maintenance hazard and a divergent eval-display family. Fix options for a dedicated
-  slice: (a) make `normalizeDisj`'s lone-arm collapse mark-agnostic too (one-char change,
-  re-verify the full eval-display corpus — may shift `*1`→`1` in some `.expected` fixtures,
-  which is arguably MORE correct), then have `normalizeEvaluatedDisj`'s has-default branch
-  delegate to `normalizeDisj`; or (b) keep them distinct but add a docstring cross-ref
-  pinning the deliberate divergence. Prefer (a) — one normalizer, illegal-states-fewer.
-  Sequence with any disjunction-display slice (couples with the SC-3 display residual). NB:
-  the all-regular branch (`joinValues`) genuinely differs and must stay split.
+- **AD2-1 (LOW — DRY/consistency, two disjunction normalizers diverge). RE-RULED 2026-06-20
+  Phase-B: FILE as a slice, do NOT apply inline — option (a) is NOT byte-identical (it flips
+  two NAMED invariant pins + the SC-3 display contract), so it exceeds the inline LOW-risk
+  bar.** After D#2b, `normalizeEvaluatedDisj` (`Eval.lean:694`) and `normalizeDisj`
+  (`Lattice.lean:277`) are near-identical over the same domain (both `liveAlternatives` →
+  `[]`→`.bottom`, multi→`.disj`), differing ONLY on the LONE-arm rule: `normalizeDisj`
+  collapses only `[(.regular, v)]` (a lone DEFAULT arm stays `.disj [(.default, v)]`,
+  surfacing as `*1` in eval), `normalizeEvaluatedDisj` collapses `[(_, v)]` mark-agnostically
+  (→ `1`). Both are VALUE-sound (a lone live arm is the only inhabited value, mark or not).
+  **New audit evidence resolving the factoring:**
+  - **Paths are DISJOINT, not redundant.** `normalizeDisj` is the LATTICE/meet path
+    (`meetCore`, `disjOfValues`, `meetWithFuel`'s `.disj & value` distribution L1090-1104,
+    embedding distribution L2879-2944); `normalizeEvaluatedDisj` is the EVAL path
+    (`.disj`/`.conj`-disjunction-distribution arms, Eval L2572/L2631). They are not "two
+    functions doing the same thing called from the same place" — they sit on different layers
+    with different *post*-conditions (eval keeps the marked disjunction for display; the
+    has-default-branch `liveAlternatives` body is the only genuinely shared core). The
+    all-regular branch (`joinValues`) is eval-only and must stay split (the docstring already
+    says so). So full unification is NOT warranted; the shared core is just the
+    `liveAlternatives` lone-arm rule.
+  - **The lone-DEFAULT case `a: (*1|2)&(>=1 & <2)` flows through `normalizeDisj` (the lattice
+    `.disj & value` arm), NOT `normalizeEvaluatedDisj`** — confirmed by tracing the meet path.
+    cue's VALUE is `1` (oracle v0.16.1); Kue currently displays `*1`. This IS the eval-display
+    divergence the entry cited, and it lives squarely on the lattice path.
+  - **Option (a) flips TWO named theorem pins, not "maybe some fixtures".**
+    `meet_disjunction_preserves_default_marker` (`Tests.lean:75`) and
+    `lattice_meet_disjunction_preserves_default_marker` (`LatticeTests.lean:152`) both assert
+    `meet (.disj [(.default,1),(.regular,"a")]) (.kind .int) = .disj [(.default,1)]` — the
+    pin NAME declares lone-default-marker-preservation as a deliberate invariant. Option (a)
+    changes both to `= .prim (.int 1)`. It also shifts the SC-3 spec-gap family (row 6,
+    `cue-spec-gaps.md`: "Eval-display of a resolvable-default disjunction"), whose recorded
+    basis is "show the marked disjunction, more informative." NB: that row's recorded cases
+    are all MULTI-arm (`*1|2`, `{…}|*null`), which the lone-arm rule never touches — so the
+    `b: a & 2 = 2` multi-arm soundness invariant is INDEPENDENT of this change and is NOT at
+    risk either way (verified: multi-arm always → `.disj live` in both functions).
+  - **Zero `.expected` fixtures flip.** Swept all 7 `testdata/**.expected` carrying a `*`:
+    every one is a MULTI-arm display (`string | *"def"`, `bool | *false`, `1 | *2`,
+    `*"prod" | "dev"`, `*1 | 2`) or an unrelated pattern fixture — NONE is a lone-`*v`
+    display. So the *output corpus* is unaffected; only the two internal theorem pins + the
+    display contract move.
+  **RULING:** File as a one-shot slice (NOT inline). The slice: (a) make `normalizeDisj`'s
+  lone-arm collapse mark-agnostic (`[(_, v)] => v`), (b) update the two named pins to
+  `= .prim (.int 1)` and rename them (the marker is NOT preserved on a lone arm — the name
+  now lies), (c) have `normalizeEvaluatedDisj`'s has-default branch DELEGATE to `normalizeDisj`
+  for the `[]`/lone/multi shape (the shared core; the all-regular `joinValues` branch stays in
+  `normalizeEvaluatedDisj`), (d) amend the `cue-spec-gaps.md` row-6 entry to scope its "keep
+  marked" basis to MULTI-arm only (a LONE default arm collapses to its value, matching cue —
+  more correct, fewer states). Risk LOW-MEDIUM (no fixture drift, but two invariant pins + a
+  spec-gap entry move, so it needs a human-reviewed rename, not a blind inline edit). Couples
+  with the SC-3 display residual; sequence with any disjunction-display slice. **Deferred over
+  inline because the named-pin rename is a contract change a human should sign off, per the
+  "two equally-principled options, expensive-to-reverse display contract" bar — exactly what
+  the standing grant says to surface rather than unilaterally flip.**
 - **AD2-2 (DONE inline, 2026-06-20 audit) — D#2a edge pins.** Added two `native_decide`
   pins to `EvalTests.lean`: `structural_cycle_nested_under_noncyclic_detected` (a cyclic def
   reached through a non-cyclic outer — exercises the restore-saved-stack discipline; cue +
@@ -209,6 +245,34 @@ implementation-log.
   through REGULAR fields — the cross of the single-regular and def-mutual cases the batch
   already pinned). Both oracle-confirmed against cue v0.16.1. No behavior change; closed two
   design-named-but-unpinned edges found in the audit.
+
+- **AD3-1 (LOW — stale plan text, no code change). Items 3 (Regex extraction) and B5's
+  regex bullet are DONE — `Kue/Regex.lean` already exists as a true leaf** (imports nothing;
+  `Value.lean` imports `Kue.Regex`, so `Value.lean` is no longer the leaf and the engine is
+  out of it). The RX-1a/b NFA rebuild superseded the "extract the backtracking engine" framing
+  entirely (see `kue-performance.md` regex bullet). **Action when the plan-hygiene pass runs:**
+  delete item 3, retire the B5 regex sub-bullet, and re-point any "extract Regex" reference. (Not
+  done inline here — it is plan prose, owned by the scheduled hygiene pass, not an audit fix.)
+- **AD3-2 (NOTE — `EvalOps` extraction item 4 still valid).** `evalAdd…evalBinary` +
+  `distributeUnary`/`distributeBinary` are still inline in `Eval.lean` (L782/L1042/L1088/L1093),
+  ~256 lines of pure scalar algebra with no back-edge into the recursive evaluator. Item 4's
+  ACTIONABLE/PARALLEL-SAFE status holds; the B5 import-shape correction (it also calls
+  `divValue`/`modValue`/`quoValue`/`remValue` from `Builtin`) still applies. No change —
+  confirming it is live for whoever picks up an `Eval.lean`-shrink slice.
+- **AD3-3 (NOTE — A-EN3 and DRY-1 are SIBLING walker-consolidation items; do them in ONE pass).**
+  Phase-B confirms both are real and both edit `Eval.lean`'s frame/let walkers: A-EN3 folds
+  `defFrameRefIndices`/`selfReferencedLabels`/`refsSelfEmbeddedLabel` (L303/L209/L101 — three
+  structural `Value` recursions with identical per-ctor descent + `+1`-per-frame-pusher depth
+  discipline, differing only in leaf payload) behind one generic frame-aware fold; DRY-1
+  (`spec-conformance-audit.md`) folds `closeDefFrameReadIndices`/`letPromotedReadLabels`/
+  `injectLetLocalNarrowings` behind a `walkFollowedLets` combinator. Both are the SAME class of
+  duplication (a hand-copied visited/fuel/destructure recursion) on overlapping code. Both are
+  already correctly sequenced AFTER the argocd unblock (and DRY-1 after Bug2-5, which adds a 4th
+  walker). **Sequence them together in a single walker-consolidation slice** to avoid editing the
+  same recursions twice and re-proving the B7-style agreement theorems twice. This is the
+  highest-leverage type-system-tightening opportunity in the graph (push the de-Bruijn/let-follow
+  discipline into one fold instead of N hand-rolled copies), but it is LOW-risk-LOW-urgency and
+  gated — not promoted ahead of correctness.
 
 **Durable plan-only items (numbered for cross-reference):**
 
@@ -338,6 +402,22 @@ arm-by-arm verdicts, and as-built design records are preserved in
 [`../reference/implementation-log.md`](../reference/implementation-log.md) and `git log`;
 this list is only a date/commit/topic index for re-locating them.
 
+- 2026-06-20 — Phase-B audit (whole module graph, post-D#2 batch): **architecture HEALTHY.**
+  Import graph acyclic + correctly layered (`Builtin→Decimal/Json/Yaml`, `Eval→Builtin/Lattice/
+  Regex`, never the reverse; `Regex`/`Base64` true leaves; `Value→Regex` confirming the regex
+  engine is out of `Value`). No unjustified `partial def` (all in `Parse` [standing exception]
+  or `Module` [IO]); no `sorry`/`admit`; no stale TODO/FIXME in non-test code; no dead code
+  surfaced. **AD2-1 RE-RULED → FILE, not inline** (option (a) flips two NAMED invariant pins
+  `*_preserves_default_marker` + the SC-3 display contract — exceeds the inline byte-identical
+  bar; refined slice written with the disjoint-path + zero-fixture-flip + lone-vs-multi-arm
+  evidence). Applied INLINE: perf-guide D#2a `structStack`/`List.contains` cost row (the new
+  per-`.refId`-into-struct constant Phase-A flagged). Filed: AD3-1 (items 3/B5 regex-extraction
+  text is STALE — `Kue/Regex.lean` already a leaf; defer to plan-hygiene), AD3-2 (EvalOps item 4
+  still live), AD3-3 (A-EN3 + DRY-1 are sibling walker-dedups — do in ONE pass, the top
+  type-leverage win, gated post-argocd). `compat-assumptions.md` (553 lines) is reference-grade
+  capability boundaries, not convertible-to-slice debt — left as-is. Test/fixture-org +
+  plan-hygiene passes are DUE-SOON but NOT blocking (see the periodic-pass note). Verify green
+  (build + fixtures + shellcheck). Commit `<this>`.
 - 2026-06-20 — `dfb0fa5..6b8b009` — Phase-A audit (D#2a detection + D#2b
   terminating-disjunct): **SOUND** — detection is correct, totally terminating (no
   `partial def`; `termination_by` unchanged, the cycle short-circuit only cuts a branch),
