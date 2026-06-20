@@ -10199,3 +10199,75 @@ Files: `Kue/Eval.lean` (classifier + gate + repeat), `Kue/Value.lean` (2 `Bottom
 `testdata/cue/numeric/{list_arithmetic_type_error,string_repeat_multiplication,
 arithmetic_incomplete_operand_defers}.{cue,expected}`, `docs/reference/cue-spec-gaps.md`
 (E#4 row → RESOLVED), `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (E#4-fix DONE).
+
+## Completed Slice: AD4-1 — unify the comprehension clause-walker twins behind one generic driver
+
+Behavior-PRESERVING DRY refactor (byte-identical fixtures are the proof). The struct and list
+comprehension clause-walkers (`expandClausesWithFuel`/`expandForPairsWithFuel` →
+`ClauseExpansion`; `expandListClausesWithFuel`/`expandListForPairsWithFuel` → `ListClauseExpansion`)
+had byte-identical `.guard`/`.letClause`/`.forIn` arms and identical bottom/deferred short-circuit
+folds; the two result sums were structurally identical 3-ctor types. The duplication was a standing
+drift hazard — a fix to one twin's clause handling could silently skip the other.
+
+### What unified
+
+- **One generic outcome type.** The two sums collapse to `inductive ClauseOutcome (β : Type)` with
+  ctors `payload β | bottom Value | deferred`. `ClauseExpansion`/`ListClauseExpansion` are now
+  `abbrev`s (`ClauseOutcome (List Field)` / `ClauseOutcome (List Value)`), so existing return-type
+  annotations and prose stay valid; the per-twin `.fields`/`.items` ctors become the shared
+  `.payload`.
+- **One generic driver pair**, both inside the existing mutual block, generic in `β` with
+  `[EmptyCollection β] [Append β]` (a comprehension payload IS an appendable collection with an
+  empty — `∅` for the drop/truncate/empty-`for` cases, `++` for concatenating iterations):
+  `expandClauseChain` (the clause-chain walk) + `expandForPairs` (the per-`for`-iteration fold).
+  The four old defs reduce to **two thin β-instantiating wrappers** — `expandClausesWithFuel`
+  (struct) and `expandListClausesWithFuel` (list) — each supplying only the differing piece.
+- **The two `*ForPairsWithFuel` defs were DROPPED as dead code.** Once the `for` recursion goes
+  through the generic `expandForPairs`, nothing called the per-twin pairs walkers. Net: four
+  near-identical walkers → two generic combinators + two one-line wrappers.
+
+### The load-bearing `[_|_]`≠`_|_` asymmetry — preserved AND newly pinned
+
+The struct and list `[]`-arms (clause chain exhausted, body evaluated) are the ONE genuine
+difference, and it is VERIFIED-CORRECT CUE semantics, not an accident:
+- STRUCT short-circuits a bare-`.bottom`/`.bottomWith` body to `.bottom` (D#1a — the bottom
+  propagates, the enclosing struct becomes it).
+- LIST wraps ANY body — including a bottom — as the one-element payload `.payload [body]`. A bottom
+  list ELEMENT (`[_|_]`) is not the list being bottom; `cue eval` renders the same value and errors
+  on it only under concrete `export`.
+
+So the combinator takes the WHOLE `[]`-arm body→outcome map as its sole `onExhausted` parameter —
+NOT a naive "wrap the body in `β`" shim, which would wrongly make the list twin bottom-propagate.
+Four new `native_decide` pins in `ComprehensionTests` lock the asymmetry so the dedup can never
+silently merge the handlers: `out: {for x in ["s"] {x, a: 1}}` → `_|_` (struct short-circuits);
+`out: [for x in [1] {x & "s"}]` → `[_|_]` (list wraps); and both → `export` error
+(`exportJsonBottoms`). The existing D#1a/b/c guard/let pins (`PresenceTests`, `ComprehensionTests`)
+all pass unchanged.
+
+### Termination preserved (the truncate-primitive Step-2 trap avoided)
+
+The four walkers live in the big mutual block with a well-founded `(fuel, tag, sub)` measure.
+truncate-primitive's Step 2 broke termination by routing a `fuel`-matching arm through a lambda
+that hid the `| fuel+1 =>` pattern. Here the generic combinators keep their own
+`match fuel with | 0 => … | fuel+1 => …` skeleton and recursive self-calls (`expandClauseChain …
+fuel …`, `expandForPairs …`) LEXICALLY visible — `onExhausted` is pure and non-recursive, so it
+hides no fuel/recursion pattern. `expandClauseChain` keeps tag 0 and `expandForPairs` keeps
+`(fuel, 3, pairs.length)` (the old walkers' roles). The two thin wrappers, now non-self-recursive
+but still in the SCC (they call into it), carry measure tag **2** — strictly between the tag-0
+chain they call at equal fuel (`0 < 2`) and the tag-3 `evalListItemsWithFuel` that calls them at
+equal fuel (`2 < 3`); their other callers decrement fuel. No `partial def`, no `sorryAx`.
+
+### Verify
+
+`lake build` green (all theorems incl. the 4 new pins). `scripts/check-fixtures.sh` →
+`fixture pairs ok` (ZERO byte-drift — the behavior-preservation proof). `#print axioms` on all four
+generic/wrapper defs: only `propext`/`Classical.choice`/`Quot.sound` (the well-founded baseline) —
+axiom-clean. cert-manager `export` (run from the infra module dir) content-identical to `cue`
+v0.16.1 (1448 bytes, modulo field-order #3) — no real-app regression on the comprehension/eval hot
+path. No shell touched → `shellcheck` N/A. Pure refactor, no eval-path cost change → no
+`kue-performance.md` edit.
+
+Files: `Kue/Eval.lean` (`ClauseOutcome` + the two combinators + two wrappers; three call-site match
+arms `.fields`/`.items` → `.payload`), `Kue/Tests/ComprehensionTests.lean` (4 asymmetry pins),
+`Kue/Tests/EvalPerfTests.lean` (the polymorphic-truncate pin's `.items` → `.payload`),
+`docs/spec/plan.md` (AD4-1 DONE; A-EN3+DRY-1 now leads the dedup family).

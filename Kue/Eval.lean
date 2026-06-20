@@ -2593,26 +2593,32 @@ def splitDisjConjunct (env : Env) :
           | some (arms, others) => some (arms, c :: others)
           | none => none
 
-/-- The outcome of expanding a STRUCT comprehension's clause chain. Three spec-distinct cases,
-    replacing the old `Except Value (List Field)` (which had no way to express "defer"):
-    - `fields` — the comprehension resolved (concrete-true / `for`-expansion); emit these.
+/-- The outcome of expanding a comprehension's clause chain, generic over the produced payload
+    `β` (`List Field` for a STRUCT comprehension, `List Value` for a LIST comprehension). Three
+    spec-distinct cases, replacing the old `Except Value (List Field)` (which had no way to
+    express "defer"):
+    - `payload` — the comprehension resolved (concrete-true / `for`-expansion); emit these
+      fields/elements.
     - `bottom` — a bottom must propagate out (D#1a evaluated-bottom guard, D#1c concrete-non-bool
       type error); the enclosing struct becomes that bottom.
     - `deferred` — an INCOMPLETE guard (D#1b): the comprehension cannot be decided yet, so the
-      ORIGINAL `.comprehension` node is kept residual (cue holds it under eval, errors incomplete
-      under export). Nullary: the caller re-emits from the node it already holds. -/
-inductive ClauseExpansion where
-  | fields (fields : List Field)
+      ORIGINAL `.comprehension`/`.listComprehension` node is kept residual (cue holds it under
+      eval, errors incomplete under export). Nullary: the caller re-emits from the node it already
+      holds.
+    The struct/list twins differ ONLY in `β` and in the exhausted-chain (`[]`-clause) body
+    handler — see `expandClauseChain` — so they share one outcome type and one driver. -/
+inductive ClauseOutcome (β : Type) where
+  | payload (value : β)
   | bottom (value : Value)
   | deferred
 
-/-- The list-comprehension analogue of `ClauseExpansion`: `items` carries the produced list
-    elements; `bottom`/`deferred` mirror the struct twin (D#1a/c propagate, D#1b defers the whole
+/-- A STRUCT comprehension's clause-chain outcome (`payload` carries the produced fields). -/
+abbrev ClauseExpansion := ClauseOutcome (List Field)
+
+/-- A LIST comprehension's clause-chain outcome (`payload` carries the produced elements);
+    `bottom`/`deferred` mirror the struct twin (D#1a/c propagate, D#1b defers the whole
     `.listComprehension` residual). -/
-inductive ListClauseExpansion where
-  | items (items : List Value)
-  | bottom (value : Value)
-  | deferred
+abbrev ListClauseExpansion := ClauseOutcome (List Value)
 
 /-- Stable monadic merge of two already-sorted runs under a monadic strict-less-than
     `lt`. Fuel = `left.length + right.length` (each step consumes one element), so the
@@ -2716,7 +2722,7 @@ mutual
             -- holds it under eval, errors incomplete under export) rather than dropping it.
             let restEvaluated <- evalListItemsWithFuel fuel env visited rest
             pure (.listComprehension clauses body :: restEvaluated)
-        | .items head =>
+        | .payload head =>
             let restEvaluated <- evalListItemsWithFuel fuel env visited rest
             pure (head ++ restEvaluated)
     | value :: rest => do
@@ -2980,7 +2986,7 @@ mutual
         -- D#1b: an incomplete guard keeps the comprehension residual (cue holds it under eval),
         -- rather than collapsing to `{}` and losing the field a later meet could concretize.
         | .deferred => pure (.comprehension clauses body)
-        | .fields expanded =>
+        | .payload expanded =>
             match mergeEvaluatedFields expanded with
             | some fields => pure (mkStruct fields .regularOpen none [])
             | none => pure .bottom
@@ -3519,7 +3525,7 @@ mutual
     | 0, _ => EvalState.truncate (.ok ([], []))
     | fuel + 1, .comprehension clauses body =>
         match (<- expandClausesWithFuel fuel env clauses body) with
-        | .fields fields => pure (.ok (fields, []))
+        | .payload fields => pure (.ok (fields, []))
         | .bottom bot => pure (.error bot)
         | .deferred => pure (.ok ([], [value]))
     | fuel + 1, .dynamicField label fieldClass value => do
@@ -3533,29 +3539,40 @@ mutual
   termination_by (fuel, 0, 0)
 
   /--
-  Walk a comprehension's clause chain, evaluating each clause's source/condition in
-  the current env. Each `for` iteration pushes a fresh loop-variable frame; each `if`
-  guard either admits or drops its remaining expansion. With no clauses left, the body
-  struct is evaluated and its fields are emitted for merging.
-  -/
-  def expandClausesWithFuel
+  Walk a comprehension's clause chain, evaluating each clause's source/condition in the current
+  env. Each `for` iteration pushes a fresh loop-variable frame; each `if` guard either admits or
+  drops its remaining expansion. With no clauses left, the brace-block `body` is evaluated and
+  handed to `onExhausted` to produce the payload.
+
+  Generic over the payload `β` (struct → `List Field`, list → `List Value`): the struct/list
+  comprehension twins were byte-identical on every clause arm and differed ONLY in the
+  exhausted-chain `[]` handler, so that handler is the sole parameter. The asymmetry it carries is
+  LOAD-BEARING and must NOT be unified away (`onExhausted` is the whole `[]`-arm body→outcome map,
+  not a "wrap the body in `β`" shim):
+  - STRUCT short-circuits a bare-`.bottom`/`.bottomWith` body to `.bottom` (D#1a — the bottom
+    propagates and the enclosing struct becomes it); a non-`{...}` body yields no fields.
+  - LIST wraps ANY body — INCLUDING a bottom — as the one-element payload `.payload [body]`. A
+    bottom list ELEMENT (`[_|_]`) is NOT the list being bottom; `cue` renders the same value and
+    errors on it only under concrete `export`. So the list twin deliberately does NOT
+    bottom-propagate here.
+  `onExhausted` is pure and non-recursive, so the fuel/clause recursion stays lexically visible to
+  the well-founded `termination_by` measure (a combinator that hid the `fuel+1` pattern behind a
+  control-flow lambda would lose the decrease equation — the truncate-primitive lesson). -/
+  def expandClauseChain {β : Type} [EmptyCollection β] [Append β]
+      (onExhausted : Value -> ClauseOutcome β)
       (fuel : Nat)
       (env : Env)
       (clauses : List (Clause Value))
-      (body : Value) : EvalM ClauseExpansion := do
+      (body : Value) : EvalM (ClauseOutcome β) := do
     match fuel with
-    | 0 => EvalState.truncate (.fields [])
+    -- `fuel=0` truncates to the empty payload, BUMPING `truncCount` (audit #6 saturation
+    -- invariant — an uncounted truncation source corrupts results via the fuel-saturation cache).
+    | 0 => EvalState.truncate (.payload ∅)
     | fuel + 1 =>
         match clauses with
         | [] => do
             let evaluatedBody <- evalValueWithFuel fuel env [] body
-            match evaluatedBody with
-            | .struct fields _ none [] _ => pure (.fields fields)
-            -- A bottom body propagates (D#1a): a nested bottom guard surfaces here as a
-            -- `.bottom` body, and must not be dropped.
-            | .bottom => pure (.bottom evaluatedBody)
-            | .bottomWith _ => pure (.bottom evaluatedBody)
-            | _ => pure (.fields [])
+            pure (onExhausted evaluatedBody)
         | .guard condition :: rest => do
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
             -- A guard condition is a concrete-context use: a marked-default disjunction
@@ -3570,8 +3587,8 @@ mutual
             -- propagates (D#1a), a CONCRETE non-bool is a type error (D#1c), an INCOMPLETE guard
             -- DEFERS — the whole comprehension stays residual (D#1b), surfaced by the caller.
             match classifyGuard testCondition with
-            | .concreteTrue => expandClausesWithFuel fuel env rest body
-            | .concreteFalse => pure (.fields [])
+            | .concreteTrue => expandClauseChain onExhausted fuel env rest body
+            | .concreteFalse => pure (.payload ∅)
             | .bottom bot => pure (.bottom bot)
             | .nonBool ty => pure (.bottom (.bottomWith [.nonBoolGuard ty]))
             | .incomplete => pure .deferred
@@ -3585,108 +3602,73 @@ mutual
             -- carry never propagates unless the body actually selects it.
             let evaluatedValue <- evalValueWithFuel fuel env [] value
             let nested <- pushFrame [⟨name, .regular, evaluatedValue⟩] env
-            expandClausesWithFuel fuel nested rest body
+            expandClauseChain onExhausted fuel nested rest body
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             match comprehensionPairs evaluatedSource with
-            | none => pure (.fields [])
-            | some pairs => expandForPairsWithFuel fuel env key value rest body pairs
+            | none => pure (.payload ∅)
+            | some pairs => expandForPairs onExhausted fuel env key value rest body pairs
   termination_by (fuel, 0, 0)
 
-  /-- Expand the remaining clause chain once per iteration pair, concatenating results. A bottom
+  /-- Expand the remaining clause chain once per iteration pair, concatenating payloads. A bottom
       from any iteration short-circuits the whole `for` (D#1a); an incomplete guard defers the
-      whole comprehension (D#1b) — the residual is the original node, re-emitted by the caller. -/
-  def expandForPairsWithFuel
+      whole comprehension (D#1b) — the residual is the original node, re-emitted by the caller.
+      Generic over `β` with a `++`-appendable payload; `onExhausted` is threaded to the per-pair
+      `expandClauseChain`. -/
+  def expandForPairs {β : Type} [EmptyCollection β] [Append β]
+      (onExhausted : Value -> ClauseOutcome β)
       (fuel : Nat)
       (env : Env)
       (key : Option String)
       (value : String)
       (rest : List (Clause Value))
-      (body : Value) : List (Value × Value) -> EvalM ClauseExpansion
-    | [] => pure (.fields [])
+      (body : Value) : List (Value × Value) -> EvalM (ClauseOutcome β)
+    | [] => pure (.payload ∅)
     | pair :: pairs => do
         let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
-        match (<- expandClausesWithFuel fuel nested rest body) with
+        match (<- expandClauseChain onExhausted fuel nested rest body) with
         | .bottom bot => pure (.bottom bot)
         | .deferred => pure .deferred
-        | .fields head =>
-            match (<- expandForPairsWithFuel fuel env key value rest body pairs) with
+        | .payload head =>
+            match (<- expandForPairs onExhausted fuel env key value rest body pairs) with
             | .bottom bot => pure (.bottom bot)
             | .deferred => pure .deferred
-            | .fields tail => pure (.fields (head ++ tail))
+            | .payload tail => pure (.payload (head ++ tail))
   termination_by pairs => (fuel, 3, pairs.length)
 
-  /-- Walk a LIST comprehension's clause chain. Mirrors `expandClausesWithFuel`, but with the
-      clauses exhausted it evaluates the brace-block `body` to a single ELEMENT (`[evaluated]`)
-      rather than emitting the body struct's fields. Guards drop their remaining expansion to
-      `[]` (zero elements); `for` iterates. The `fuel=0` base BUMPS `truncCount` so a
-      fuel-exhausted truncation is COUNTED (audit #6 saturation invariant — an uncounted
-      truncation source corrupts results via the fuel-saturation cache). -/
+  /-- STRUCT comprehension clause-chain entry point: emit the body struct's fields,
+      short-circuiting a bare-bottom body (D#1a — the bottom propagates out). Thin `β = List Field`
+      wrapper that supplies `expandClauseChain` the struct exhausted-chain handler; the per-`for`
+      iteration goes through the generic `expandForPairs`, so there is no struct-specific pairs
+      walker. Measure tag 2 sits strictly between the tag-0 chain it calls at equal fuel
+      (`0 < 2` ✓) and the tag-3 `evalListItemsWithFuel` that calls it at equal fuel (`2 < 3` ✓);
+      its other callers decrement fuel. -/
+  def expandClausesWithFuel
+      (fuel : Nat) (env : Env) (clauses : List (Clause Value)) (body : Value) :
+      EvalM ClauseExpansion :=
+    expandClauseChain
+      (fun evaluatedBody =>
+        match evaluatedBody with
+        | .struct fields _ none [] _ => .payload fields
+        -- A bottom body propagates (D#1a): a nested bottom guard surfaces here as a `.bottom`
+        -- body, and must not be dropped.
+        | .bottom => .bottom evaluatedBody
+        | .bottomWith _ => .bottom evaluatedBody
+        | _ => .payload [])
+      fuel env clauses body
+  termination_by (fuel, 2, 0)
+
+  /-- LIST comprehension clause-chain entry point: with the clauses exhausted, evaluate the
+      brace-block `body` to a single ELEMENT (`[evaluated]`) — wrapping ANY body, including a
+      bottom, as a one-element list. This is the LOAD-BEARING asymmetry vs the struct twin: a
+      bottom ELEMENT (`[_|_]`) is not the list being bottom (`cue` renders the same value and
+      errors on it only under concrete `export`), so the list handler does NOT short-circuit.
+      Thin `β = List Value` wrapper. -/
   def expandListClausesWithFuel
-      (fuel : Nat)
-      (env : Env)
-      (clauses : List (Clause Value))
-      (body : Value) : EvalM ListClauseExpansion := do
-    match fuel with
-    | 0 => EvalState.truncate (.items [])
-    | fuel + 1 =>
-        match clauses with
-        | [] => do
-            let evaluatedBody <- evalValueWithFuel fuel env [] body
-            pure (.items [evaluatedBody])
-        | .guard condition :: rest => do
-            let evaluatedCondition <- evalValueWithFuel fuel env [] condition
-            -- Match `expandClausesWithFuel`: a marked-default disjunction collapses to its
-            -- default before the boolean test; a non-default disjunction stays unsatisfied.
-            let testCondition :=
-              match evaluatedCondition with
-              | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
-              | _ => evaluatedCondition
-            -- Fully classified (no catch-all), mirroring the struct twin: `true` admits, `false`
-            -- drops, a BOTTOM guard propagates (D#1a), a CONCRETE non-bool is a type error (D#1c),
-            -- an INCOMPLETE guard DEFERS the whole `.listComprehension` residual (D#1b).
-            match classifyGuard testCondition with
-            | .concreteTrue => expandListClausesWithFuel fuel env rest body
-            | .concreteFalse => pure (.items [])
-            | .bottom bot => pure (.bottom bot)
-            | .nonBool ty => pure (.bottom (.bottomWith [.nonBoolGuard ty]))
-            | .incomplete => pure .deferred
-        | .letClause name value :: rest => do
-            -- List-comprehension twin of the struct `let` arm: bind `name` in a +1 frame
-            -- (the evaluated value, in the pre-push `env`) visible to the rest of the chain
-            -- and the element body.
-            let evaluatedValue <- evalValueWithFuel fuel env [] value
-            let nested <- pushFrame [⟨name, .regular, evaluatedValue⟩] env
-            expandListClausesWithFuel fuel nested rest body
-        | .forIn key value source :: rest => do
-            let evaluatedSource <- evalValueWithFuel fuel env [] source
-            match comprehensionPairs evaluatedSource with
-            | none => pure (.items [])
-            | some pairs => expandListForPairsWithFuel fuel env key value rest body pairs
-  termination_by (fuel, 0, 0)
-
-  /-- Per-iteration expansion for a list comprehension `for` clause; concatenates the elements
-      each iteration's remaining chain yields, preserving iteration order. A bottom short-circuits
-      the whole `for` (D#1a); an incomplete guard defers the whole comprehension (D#1b). -/
-  def expandListForPairsWithFuel
-      (fuel : Nat)
-      (env : Env)
-      (key : Option String)
-      (value : String)
-      (rest : List (Clause Value))
-      (body : Value) : List (Value × Value) -> EvalM ListClauseExpansion
-    | [] => pure (.items [])
-    | pair :: pairs => do
-        let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
-        match (<- expandListClausesWithFuel fuel nested rest body) with
-        | .bottom bot => pure (.bottom bot)
-        | .deferred => pure .deferred
-        | .items head =>
-            match (<- expandListForPairsWithFuel fuel env key value rest body pairs) with
-            | .bottom bot => pure (.bottom bot)
-            | .deferred => pure .deferred
-            | .items tail => pure (.items (head ++ tail))
-  termination_by pairs => (fuel, 3, pairs.length)
+      (fuel : Nat) (env : Env) (clauses : List (Clause Value)) (body : Value) :
+      EvalM ListClauseExpansion :=
+    expandClauseChain (fun evaluatedBody => .payload [evaluatedBody]) fuel env clauses body
+  termination_by (fuel, 2, 0)
 end
 
 /-- Run an evaluation action with a fresh cache, discarding the cache. The cache shares

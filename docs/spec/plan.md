@@ -282,41 +282,37 @@ stress-test finding, explicitly off the critical path, may never un-park), so no
 is happening: the contention the gate guarded against no longer exists. "Gated post-argocd" had
 therefore silently become "deferred forever," which is wrong for real DRY cleanups. They are NOT
 correctness fixes, so they still never PREEMPT a spec-conformance fix in the ranking — but with
-the spec-conformance HIGH levers all DONE (only PARKED Bug2-5 remains), **AD4-1 is now a strong
-next-batch leader** (highest-value DRY cleanup, settled design, most self-contained). Schedule by
-the settled sequencing below; re-confirm line-refs at slice start (the eval region shifts ±tens
-of lines per slice).
+the spec-conformance HIGH levers all DONE (only PARKED Bug2-5 remains), the family is the
+schedulable DRY backlog. Schedule by the settled sequencing below; re-confirm line-refs at slice
+start (the eval region shifts ±tens of lines per slice).
 
 Decomposition ruling (Phase-B 2026-06-20, earlier — do not re-litigate): these are NOT one
 problem. There are THREE distinct walker families plus a separate normalizer pair — four
 different mechanisms, result types, recursion domains, and termination measures. Folding all
-under one abstraction would be a false "stuff they all do" extraction. **Sequencing: AD4-1
-first → A-EN3+DRY-1 locality batch → AD2-1.**
+under one abstraction would be a false "stuff they all do" extraction. **Sequencing: AD4-1 DONE
+(commit below) → A-EN3+DRY-1 locality batch (NEXT leader) → AD2-1.**
 
-- **AD4-1 (MEDIUM — comprehension-walker dedup; FIRST in the sequence).** The four `expand*`
-  comprehension clause-walkers (`expandClausesWithFuel`/`expandForPairsWithFuel` →
-  `ClauseExpansion`; `expandListClausesWithFuel`/`expandListForPairsWithFuel` →
-  `ListClauseExpansion`, `Eval.lean:3310–3462`) are `EvalM`-effectful clause-chain drivers
-  whose `.guard`/`.letClause`/`.forIn` arms are BYTE-IDENTICAL (verified line-by-line), as are
-  the bottom/deferred short-circuit folds. `ClauseExpansion`/`ListClauseExpansion` are
-  STRUCTURALLY IDENTICAL 3-ctor sums (`fields`/`items` ⊕ `bottom Value` ⊕ `deferred`) → one
-  generic `ClauseOutcome β` (β = `List Field` / `List Value`); the two named sums collapse to β
-  instantiations, the four public defs become thin β-instantiating wrappers. Combinator: one
-  `expandClauseChain` + one `expandForPairs`, both generic in β, parameterized by the whole
-  `[]`-arm body-handler.
-  **VERIFIED-CORRECT asymmetry the refactor MUST preserve+pin (orchestrator probe 2026-06-20):**
-  the struct `[]` arm short-circuits a `.bottom`/`.bottomWith` body (D#1a); the LIST `[]` arm
-  does NOT (`expandListClausesWithFuel:3408-3409` wraps ANY `evaluatedBody`, incl. a bottom, as a
-  one-element list). `out: [for x in [1] {x & "s"}]` → Kue `out: [_|_]` (1-element list, bottom
-  element); `cue eval` renders the SAME value as `out.0: conflicting values`. So `[_|_]` ≠ `_|_`
-  is CORRECT CUE list semantics — a bottom element does NOT collapse the list. The body→outcome
-  callback is where this divergence lives, so the combinator MUST take the whole `[]`-arm
-  body-handler as a parameter (a naive "wrap the body" callback would wrongly make the list twin
-  bottom-propagate). PIN both eval forms + the export-errors; do NOT reconcile the twins on this
-  point. (Whether the list-arm non-propagation is itself a latent bug is a SEPARATE correctness
-  question — file/verify independently of the dedup.) Gate: byte-identical fixtures +
-  `termination_by` preserved + axiom-clean. Most self-contained of the three (one mutual block,
-  no cross-module reach, no agreement-theorem surface).
+- **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
+  The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`
+  arms + identical bottom/deferred folds, differing only in payload type and the exhausted-chain
+  (`[]`) body handler. Unified behind ONE generic `ClauseOutcome β` (ctors `payload`/`bottom`/
+  `deferred`; `ClauseExpansion`/`ListClauseExpansion` are now `abbrev`s = `ClauseOutcome (List
+  Field)` / `(List Value)`) and ONE generic driver pair `expandClauseChain` + `expandForPairs`
+  (`[EmptyCollection β] [Append β]`), parameterized SOLELY by the `[]`-arm body→outcome handler.
+  The two public `*ClausesWithFuel` defs are now thin β-instantiating wrappers; the two
+  `*ForPairsWithFuel` defs were DEAD after the dedup (the `for` recursion goes straight through the
+  generic `expandForPairs`) and were DROPPED — net four walkers → two combinators + two wrappers.
+  **The VERIFIED-CORRECT `[_|_]`≠`_|_` asymmetry was preserved AND newly pinned** (it lives entirely
+  in the `onExhausted` parameter: struct short-circuits a bare-`.bottom`/`.bottomWith` body to
+  `.bottom` per D#1a; list wraps ANY body, incl. a bottom, as `.payload [body]` — a bottom ELEMENT
+  is not the list being bottom). Four new `native_decide` pins in `ComprehensionTests`:
+  struct-body-bottom → `_|_`, list-body-bottom → `[_|_]`, and both → `export` error
+  (`exportJsonBottoms`). **`termination_by` preserved** by keeping the `match fuel with | 0 | fuel+1`
+  skeleton + recursive self-calls LEXICALLY visible in the generic combinators (the `onExhausted`
+  callback is pure/non-recursive, so it hides no fuel pattern — the truncate-primitive Step-2 trap
+  avoided); the two thin wrappers carry measure tag 2 (between the tag-0 chain they call and the
+  tag-3 `evalListItemsWithFuel` caller, both at equal fuel). Gate met: byte-identical fixtures,
+  axiom-clean (no `sorryAx`/`partial`), cert-manager content-identical.
 - **A-EN3 (LOW — pure structural `Value` folds; bundle with DRY-1 by edit-LOCALITY).**
   `defFrameRefIndices`/`selfReferencedLabels`/`refsSelfEmbeddedLabel` (`Eval.lean:303/209/101`)
   are three structural folds over the FULL `Value` ctor tree, `+1`-at-each-frame-pusher depth,

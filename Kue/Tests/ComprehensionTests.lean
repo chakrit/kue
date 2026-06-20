@@ -277,4 +277,42 @@ theorem eval_comprehension_guard_non_default_disj_defers :
              .regularOpen⟩] .regularOpen none []) = true := by
   native_decide
 
+/-! ### `[]`-arm body-bottom asymmetry (AD4-1 — the `expandClauseChain` `onExhausted` parameter).
+
+When a comprehension's clause chain is EXHAUSTED and the brace-block body itself evaluates to a
+bare bottom, the struct and list comprehension drivers diverge — and this divergence is the entire
+reason `expandClauseChain` takes the whole `[]`-arm body handler as a parameter rather than a naive
+`body → β` wrap (a wrap would wrongly make the list twin bottom-propagate). It is VERIFIED-CORRECT
+CUE semantics, not an accident, so it is pinned here so the AD4-1 dedup can never silently collapse
+the two handlers into one.
+
+- STRUCT (`out: {for x in ["s"] {x, a: 1}}`): embedding the string scalar `"s"` into the body
+  struct bottoms the WHOLE body; the struct `[]` handler SHORT-CIRCUITS that bare bottom (D#1a), so
+  `out` becomes `_|_`. cue agrees (`cannot combine regular field "a" with "s"`).
+- LIST (`out: [for x in [1] {x & "s"}]`): the element `1 & "s"` bottoms, but the list `[]` handler
+  wraps ANY body — including a bottom — as a ONE-element list, so `out` becomes `[_|_]` (a list with
+  a bottom ELEMENT), NOT `_|_`. A bottom element is not the list being bottom; `cue eval` renders
+  the same value (`out.0: conflicting values "s" and 1`).
+Both forms then ERROR identically under concrete `export` (the bottom surfaces either way). -/
+
+-- STRUCT body-bottom SHORT-CIRCUITS: the comprehension collapses to the bare bottom.
+theorem comprehension_struct_body_bottom_short_circuits :
+    evalSourceMatches "out: {for x in [\"s\"] {x, a: 1}}\n" "out: _|_" = true := by
+  native_decide
+
+-- LIST body-bottom does NOT short-circuit: the bottom is an ELEMENT (`[_|_]`), not the list.
+theorem comprehension_list_body_bottom_wraps_element :
+    evalSourceMatches "out: [for x in [1] {x & \"s\"}]\n" "out: [_|_]" = true := by
+  native_decide
+
+-- Both forms error under concrete `export` — the asymmetry is in the SHAPE under eval (`_|_` vs
+-- `[_|_]`), but concretization rejects either (a bottom value OR a list with a bottom element).
+theorem comprehension_struct_body_bottom_export_errors :
+    exportJsonBottoms "out: {for x in [\"s\"] {x, a: 1}}\n" = true := by
+  native_decide
+
+theorem comprehension_list_body_bottom_export_errors :
+    exportJsonBottoms "out: [for x in [1] {x & \"s\"}]\n" = true := by
+  native_decide
+
 end Kue

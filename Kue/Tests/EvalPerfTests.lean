@@ -330,11 +330,11 @@ theorem truncate_returns_its_argument {α : Type} (start : Nat) (result : α) :
 
 -- POLYMORPHIC-SHAPE coverage: the bump fires identically regardless of the dropped result's TYPE,
 -- exercised at the concrete shapes the seven sites emit — `Value` (.top base), `List Field`
--- (embedding-fields), `ListClauseExpansion` (.items). A type-specialized bump regression trips this.
+-- (embedding-fields), `ListClauseExpansion` (`.payload`). A type-specialized bump regression trips this.
 theorem truncate_bumps_for_every_dropped_shape :
     ((runTruncate 7 (Value.top)).snd == 8
       && (runTruncate 7 ([] : List Field)).snd == 8
-      && (runTruncate 7 (ListClauseExpansion.items [])).snd == 8) = true := by
+      && (runTruncate 7 (.payload [] : ListClauseExpansion)).snd == 8) = true := by
   native_decide
 
 /-! ### perf-B memo false-share pins (audit 2026-06-18 #5, owed `perfb-soundness-pins`).
