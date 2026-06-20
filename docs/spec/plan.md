@@ -161,6 +161,25 @@ implementation-log.
   `.embeddedList items _ _ => some (listPairsFrom 0 items)` arm. Incompleteness, not
   unsound; folds into the `scalar-embed-with-decls`/embeddedList edge family (item 8) —
   ride-along when next touching that area. Fixture `for x in {#a:1,[1,2]} {x}` → `[1,2]`.
+- **AD4-1 (MEDIUM — DRY, Phase-B candidate; filed by the RX-2a/D#1b-c/D#3 Phase-A audit).**
+  The struct vs list comprehension clause-walkers are near-identical TWINS:
+  `expandClausesWithFuel`/`expandForPairsWithFuel` (→ `ClauseExpansion`) and
+  `expandListClausesWithFuel`/`expandListForPairsWithFuel` (→ `ListClauseExpansion`), all in
+  `Eval.lean`. Their `.guard` (same `classifyGuard` routing + `resolveDisjDefault?` collapse),
+  `.letClause` (same eager-into-frame `pushFrame`), and `.forIn` (same `loopFrame` + per-pair
+  defer/bottom short-circuit) arms are byte-for-byte the same clause-walking skeleton; the ONLY
+  real difference is the clauses-exhausted `[]` arm (struct emits the body's *fields*
+  `.fields fields`; list emits the body as one *element* `.items [evaluatedBody]`) and the
+  result-type wrapper. D#1b/c/D#3 each EXTENDED both twins symmetrically (sharing only
+  `classifyGuard`, not the skeleton), so the duplication grew this batch. Candidate: one
+  frame-aware `expandClauseChain` parameterized by a body→outcome callback (the same shape B7
+  used to unify the clause-depth walkers), with the two public walkers as thin wrappers. Risk
+  MEDIUM — eval hot path; gate on byte-identical fixtures + `termination_by` preserved + axiom
+  clean. Sibling of A-EN3/DRY-1 (all are walker-dedups) but a DISTINCT walker family (those
+  three are the narrowing-injection `walkFollowedLets` walkers, not the comprehension walkers)
+  — do AD4-1 in its own pass, NOT folded into AD3-3, since the result types and termination
+  measures differ. Sequence with the other DRY work, post-argocd, to avoid walker-edit
+  contention.
 - **B5 (LOW — extraction-item corrections, cleanup).**
   - Item 3 (Regex → `Kue/Regex.lean`): CONFIRMED clean — the engine touches only
     `Char`/`String`/`RegexAtom`, consumed by `Eval`/`Lattice`/`Order` via
@@ -402,6 +421,38 @@ arm-by-arm verdicts, and as-built design records are preserved in
 [`../reference/implementation-log.md`](../reference/implementation-log.md) and `git log`;
 this list is only a date/commit/topic index for re-locating them.
 
+- 2026-06-20 — `c03ebdb..a914906` — Phase-A audit (RX-2a + D#1b/D#1c + D#3, the most
+  moving-parts batch of the session): **SOUND — no correctness/soundness bug, no skill
+  violation.** Verified the protocol change AND the frame accounting against the code, not
+  just the log. (1) `classifyGuard` enumerates all 28 `Value` constructors with NO catch-all
+  (build's exhaustiveness check is the proof); every new ctor (`BottomReason.nonBoolGuard`,
+  `Clause.letClause`, the `GuardVerdict`/`ClauseExpansion`/`ListClauseExpansion` variants)
+  handled at every match site — all 8 `.letClause` clause-sites have explicit arms (grepped:
+  `descendClauses`/`resolveClauses`/`remapConjClauses`/`expandClauses`/`expandListClauses`/
+  `formatClause`/the two `normalize*Clause`), `nonBoolGuard` rides the generic `.bottomWith _`
+  in Format/Manifest (no exhaustive `BottomReason` consumer). (2) **Presence-test carve-out is
+  sound** — traced `evalEq` (`Eval.lean:1000`: `_, .bottom => .bottom`): a genuine `a == ⊥`
+  collapses to `.bottom` UPSTREAM, so the residual `.binary .eq _ .bottom` shape
+  `classifyGuard` routes to `.concreteFalse` can ONLY be `evalPresenceTest`'s incomplete-operand
+  output — never a real bottom. (3) **Reverted `selectEvaluatedField → bottom` left NO residue**
+  — `Eval.lean:713` returns `.selector base label` (deferred) for an absent struct field, the
+  pre-revert behavior. (4) **D#3 frame accounting sound** — `let` pushes a 1-slot frame on BOTH
+  the resolve side (`clauseLoopFrame none name = [(name,0)]`) and eval side (`pushFrame
+  [⟨name,.regular,evaluated⟩]`), structurally identical to a keyless `for`; de Bruijn indices
+  count frames uniformly, so a `for`-after-`let` aligns (`letcomp_for_after_let` pins it).
+  Eager-into-frame eval is side-effect-free (EvalM is state-only); an unreferenced bottom sits
+  unread. (5) `withDeferredComprehensions` correct — `isEmbeddingValue` excludes only
+  `.comprehension`/`.dynamicField`, so `deferredComps` holds purely `if`/`for` residuals (no
+  double-count); `[]` → resolved unchanged (byte-identical pre-D#1b); non-struct (bottom)
+  dominates. (6) `complementRanges` total (no `partial`; `mergeSort`+`foldl`), surrogate-hole
+  reasoning sound, `[^\D]` double-negation + `U+10FFFF` boundary pinned. Tests STRONG +
+  reason-asserting (12 `classify_guard_*` + 9 `letcomp_*` + 26 RX-2a pins; bug-replicating
+  EvalTests/EvalPerfTests pins correctly flipped to the held form); all 11 new fixtures have
+  `.{cue,expected}` + a `FixturePorts` entry. Divergences/spec-gaps correctly bucketed (D#1b/D#3
+  display + dead-`let` → divergences; defer-mechanism + let-eval-order → spec-gaps). Filed:
+  **AD4-1** (struct/list comprehension-walker twins still duplicate the clause-walking skeleton
+  — Phase-B, MEDIUM). No inline fix needed (no low-risk gap found). Verify green (build 100 jobs
+  + fixtures `fixture pairs ok` + shellcheck). Commit `fb39262`.
 - 2026-06-20 — Phase-B audit (whole module graph, post-D#2 batch): **architecture HEALTHY.**
   Import graph acyclic + correctly layered (`Builtin→Decimal/Json/Yaml`, `Eval→Builtin/Lattice/
   Regex`, never the reverse; `Regex`/`Base64` true leaves; `Value→Regex` confirming the regex
