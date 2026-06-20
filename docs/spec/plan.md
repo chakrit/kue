@@ -111,8 +111,9 @@ authoritative ranked list — do NOT duplicate it here); the **plan-only roadmap
 the non-spec-conformance work.
 
 **Spec-conformance fixes (authoritative ranking in `spec-conformance-audit.md`):** the
-argocd residual **Bug2-5** (PARKED), **BI-1** (Unicode case-fold — spike data approach
-first), **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4**
+argocd residual **Bug2-5** (PARKED), **BI-1** (Unicode case-fold — spike DONE: chose
+oracle-generated BMP simple-mapping table, no network; see audit doc), **BI-2-residual**
+(Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4**
 (spec-gap-first), **SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap,
 standalone), the 4 spec-gap ratifications, **DRY-1** (let-walker extraction).
 

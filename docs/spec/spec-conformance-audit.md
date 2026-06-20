@@ -367,11 +367,23 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
     decimal Pow + Infinity model). Kue BOTTOMS on these inputs rather than shipping a wrong value
     (the grant). See Audit history + implementation-log 2026-06-20; spec gaps in `cue-spec-gaps.md`
     (BI-2 Pow + Sort rows).
-15. **BI-1 (MED) — REORDERED to AFTER F-3.** Unicode case folding for `strings.ToUpper/ToLower`
-    (currently ASCII-only; cue full-Unicode → wrong answers). ⚠ Picked up BLIND it is an envelope
-    risk: full Unicode case-mapping likely needs a generated case-folding TABLE (a data dependency /
-    possible network fetch). BI-1's slice must FIRST decide the data approach — vendored
-    generated table (checked-in, no fetch) vs scoped coverage (common ranges only) — BEFORE any code.
+15. **BI-1 (MED) — IN PROGRESS (spike decided 2026-06-20).** Unicode case folding for
+    `strings.ToUpper/ToLower` (was ASCII-only; cue full-Unicode → wrong answers). **DATA-APPROACH
+    SPIKE COMPLETE — chose (c) oracle-generated table (no network).** Spike findings:
+    (a) UNAVAILABLE — `lake-manifest` has ZERO external deps (no Std/Batteries/Mathlib); Lean core
+    `Char.toUpper/toLower` are ASCII-only, no Unicode tables in core. (b) algorithmic ranges REJECTED
+    as a clean slice — local oracle (`cue export` over the whole BMP) shows the mapping is
+    overwhelmingly IRREGULAR: 1190 ToUpper / 1173 ToLower BMP code points collapse to only 674/658
+    offset-runs, of which **632/617 are SINGLETONS**; just ~13 contiguous regular runs (ASCII,
+    Latin-1 supplement, Greek, Cyrillic, Armenian, fullwidth…). A (b) covering only the regular runs
+    would leave all of Latin Extended-A/B (the even/odd ±1 letter pairs + hundreds of one-offs like
+    µ→Μ +743, ÿ→Ÿ +121) WRONG — a weak partial on very common European text; covering the full set
+    algorithmically = hand-transcribing ~650 rules as code (strictly worse than a table). (c) CHOSEN:
+    generate a BMP **simple 1:1** case-mapping table from the local `cue` oracle (READ-ONLY, no
+    network), embed as a Lean source file, commit the generator + table + provenance. cue's
+    `strings.ToUpper/ToLower` are confirmed pure rune-wise SIMPLE mapping (length-in-code-points
+    preserved across the BMP; NO ß→SS expansion — `ToUpper("ß")=="ß"`), so a 1:1 table is faithful;
+    full-case-folding special-casing (ß→SS, locale ı/İ, final sigma) stays a documented spec-gap.
 
 **Spec-gap decisions (record + ratify in `cue-spec-gaps.md`, mostly doc) — the 4
 ratifications:** import-binding laziness (B#2/F-5 — keep, operational basis; smell:
