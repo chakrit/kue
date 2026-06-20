@@ -199,7 +199,15 @@ implementation-log.
   just a `body → β` map) — a naive "wrap the body" callback would wrongly make the list twin
   bottom-propagate. Whether that list-arm non-propagation is itself a latent bug (a bottom element in
   a list comprehension) is a SEPARATE correctness question — file/verify it independently of the
-  dedup, do not let the refactor silently change it either way. With that, the headline win holds:
+  dedup, do not let the refactor silently change it either way.
+  **VERIFIED CORRECT — NOT a bug (orchestrator probe, 2026-06-20):** `out: [for x in [1] {x & "s"}]`
+  → Kue `out: [_|_]` (a 1-element list whose element is bottom); cue eval renders the SAME value as
+  `out.0: conflicting values` (error anchored at the element) — Kue's inline-`_|_` convention vs cue's
+  error-surfacing, same underlying value. The struct twin → `out: _|_` only because the body IS the
+  struct value. Under concrete demand BOTH error: `cue export` → `out.0:` error, `kue export` →
+  `export error: …(bottom)`. So `[_|_]` ≠ `_|_` is CORRECT CUE list semantics (a bottom element does
+  not collapse the list). The AD4-1 refactor MUST preserve this asymmetry and PIN it (both eval forms
+  + the export-errors); do NOT reconcile the twins on this point. With that, the headline win holds:
   one `expandClauseChain` + one `expandForPairs`, both generic in β, the four public defs become
   thin `β`-instantiating wrappers. **Sequencing (this round's ruling): AD4-1 goes FIRST among the
   walker-dedups** — it is the most self-contained (one mutual block, no cross-module reach, no B7
