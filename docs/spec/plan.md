@@ -180,6 +180,32 @@ implementation-log.
   — do AD4-1 in its own pass, NOT folded into AD3-3, since the result types and termination
   measures differ. Sequence with the other DRY work, post-argocd, to avoid walker-edit
   contention.
+  **Phase-B 2026-06-20 RE-CONFIRMED from the as-built code (`Eval.lean:3310–3462`), with the
+  shared abstraction now spelled out:** `ClauseExpansion` and `ListClauseExpansion` are
+  STRUCTURALLY IDENTICAL 3-ctor sums (`fields`/`items` ⊕ `bottom (Value)` ⊕ `deferred`) — so the
+  combinator returns ONE generic `ClauseOutcome β` (β = `List Field` for struct, `List Value` for
+  list) carrying `payload β | bottom Value | deferred`, and the two named sums collapse to `β`
+  instantiations. The `.guard`/`.letClause`/`.forIn` arms of both `expand*ClausesWithFuel` twins
+  are BYTE-IDENTICAL (verified line-by-line), as are the bottom/deferred short-circuit folds in
+  both `expand*ForPairsWithFuel` twins. The ONLY real divergences are three, all factor into the
+  callback: (1) the clauses-exhausted `[]` arm — struct destructures `evaluatedBody` to its
+  `.fields`/propagates a `.bottom` body, list wraps `.items [evaluatedBody]`; (2) the `concreteFalse`
+  empty (`.fields []` vs `.items []`) = `payload (mempty)`; (3) the `truncCount`-bump base (shared,
+  not divergent — move into the combinator). **NB — a real behavioral asymmetry surfaced and must be
+  PRESERVED, not "unified away":** the struct `[]` arm short-circuits a `.bottom`/`.bottomWith` body
+  (D#1a), but the LIST `[]` arm does NOT (`expandListClausesWithFuel` line 3408-3409 wraps ANY
+  `evaluatedBody`, including a bottom, as a one-element list). The body→outcome callback is where this
+  divergence lives, so the combinator MUST take the whole `[]`-arm body-handler as a parameter (not
+  just a `body → β` map) — a naive "wrap the body" callback would wrongly make the list twin
+  bottom-propagate. Whether that list-arm non-propagation is itself a latent bug (a bottom element in
+  a list comprehension) is a SEPARATE correctness question — file/verify it independently of the
+  dedup, do not let the refactor silently change it either way. With that, the headline win holds:
+  one `expandClauseChain` + one `expandForPairs`, both generic in β, the four public defs become
+  thin `β`-instantiating wrappers. **Sequencing (this round's ruling): AD4-1 goes FIRST among the
+  walker-dedups** — it is the most self-contained (one mutual block, no cross-module reach, no B7
+  agreement-theorem surface to re-prove), the most recently grown (D#1b/c + D#3 doubled every edit),
+  and lowest invariant-proof risk of the three. Then the A-EN3 + DRY-1 locality-batch (more proof
+  surface — see AD3-3).
 - **B5 (LOW — extraction-item corrections, cleanup).**
   - Item 3 (Regex → `Kue/Regex.lean`): CONFIRMED clean — the engine touches only
     `Char`/`String`/`RegexAtom`, consumed by `Eval`/`Lattice`/`Order` via
@@ -257,6 +283,13 @@ implementation-log.
   inline because the named-pin rename is a contract change a human should sign off, per the
   "two equally-principled options, expensive-to-reverse display contract" bar — exactly what
   the standing grant says to surface rather than unilaterally flip.**
+  **Phase-B 2026-06-20 RE-CONFIRMED: ruling UNCHANGED.** Neither normalizer was touched by the
+  RX-2a + D#1b/c + D#3 batch under audit (verified — the batch added `classifyGuard` + the `let`
+  clause arms, not disjunction normalization), so the disjoint-path / zero-fixture-flip /
+  lone-vs-multi-arm evidence stands. AD2-1 is NOT part of the walker-dedup family (it is a
+  lattice/eval layer-boundary dedup, not a frame/clause walker) — sequence it independently,
+  coupled with SC-3, AFTER the AD4-1 → A-EN3/DRY-1 walker passes (see AD3-3 strategy). Still
+  file-not-inline.
 - **AD2-2 (DONE inline, 2026-06-20 audit) — D#2a edge pins.** Added two `native_decide`
   pins to `EvalTests.lean`: `structural_cycle_nested_under_noncyclic_detected` (a cyclic def
   reached through a non-cyclic outer — exercises the restore-saved-stack discipline; cue +
@@ -272,6 +305,10 @@ implementation-log.
   entirely (see `kue-performance.md` regex bullet). **Action when the plan-hygiene pass runs:**
   delete item 3, retire the B5 regex sub-bullet, and re-point any "extract Regex" reference. (Not
   done inline here — it is plan prose, owned by the scheduled hygiene pass, not an audit fix.)
+  **Phase-B 2026-06-20 RE-CONFIRMED from the build artifacts:** `Kue/Regex.lean` (960 lines) has
+  NO top-level `import` (a verified TRUE LEAF), and `Value.lean` line 1 is `import Kue.Regex` (so
+  the engine is OUT of `Value.lean` and `Value` is no longer the leaf). Items 3 + the B5 regex
+  bullet are definitively stale. STILL owned by the plan-hygiene pass (below), which is now DUE.
 - **AD3-2 (NOTE — `EvalOps` extraction item 4 still valid).** `evalAdd…evalBinary` +
   `distributeUnary`/`distributeBinary` are still inline in `Eval.lean` (L782/L1042/L1088/L1093),
   ~256 lines of pure scalar algebra with no back-edge into the recursive evaluator. Item 4's
@@ -292,6 +329,54 @@ implementation-log.
   highest-leverage type-system-tightening opportunity in the graph (push the de-Bruijn/let-follow
   discipline into one fold instead of N hand-rolled copies), but it is LOW-risk-LOW-urgency and
   gated — not promoted ahead of correctness.
+  **Phase-B 2026-06-20 — consolidation STRATEGY across the WHOLE walker/normalizer picture (the
+  AD4-1 + AD3-3 + AD2-1 family, read from the as-built code).** There is NOT one "frame-walker
+  duplication" to solve once — there are THREE distinct walker families plus a separate normalizer
+  pair, each with a different mechanism, result type, recursion domain, and termination measure.
+  Folding them under one abstraction would be a false "stuff they all do" extraction (banned by
+  general-coding). The map:
+  - **Family 1 — A-EN3** (`defFrameRefIndices`/`selfReferencedLabels`/`refsSelfEmbeddedLabel`):
+    PURE structural folds over the FULL `Value` constructor tree (~28 ctors), `+1`-at-each-frame-
+    pusher depth, `descendClauses` for the comprehension arms; differ ONLY in leaf (`.refId`/
+    `.selector`) + monoid (`List Nat`/`List String`/`Bool`). Abstraction: `foldValueWithDepth`
+    parameterized on monoid + leaf. No `EvalM`, no fuel-truncation bump.
+  - **Family 2 — DRY-1** (`closeDefFrameReadIndices`/`letPromotedReadLabels`/`injectLetLocalNarrowings`):
+    let-slot FIXPOINT walkers with `seen`-cycle-break over `List Field`/struct-shapes (NOT the full
+    Value tree). `letPromotedReadLabels` + `injectLetLocalNarrowings` share the
+    `seen.contains v → []/v ; v::seen ; .structComp/.struct destructure → recurse into letBinding
+    slots` skeleton. Abstraction: a `walkFollowedLets` let-fixpoint combinator. DIFFERENT mechanism
+    from Family 1 (fixpoint-over-let-slots, not structural-descent-over-ctors).
+  - **Family 3 — AD4-1** (the four `expand*` comprehension walkers): `EvalM`-effectful clause-chain
+    drivers (see the AD4-1 entry). DIFFERENT again.
+  **RULING on "are AD4-1 and AD3-3 the same problem": NO — distinct families, distinct slices.**
+  A-EN3 and DRY-1 (Families 1+2) are themselves DIFFERENT mechanisms; bundling them "in one pass"
+  is justified SOLELY by edit-LOCALITY, not a shared combinator — `closeDefFrameReadIndices` and
+  `letPromotedReadLabels` both CALL `defFrameRefIndices`, so editing Families 1+2 together avoids
+  touching that callee and its agreement theorems twice. They produce TWO combinators
+  (`foldValueWithDepth` + `walkFollowedLets`), not one. **AD2-1 (the two disjunction normalizers)
+  does NOT join the walker family at all** — it is a lattice/eval-layer-boundary dedup with its own
+  ruling (file-not-inline, below), unrelated to frame/clause walking. **Overall sequencing (all
+  post-argocd, all LOW/MED-risk + LOW-urgency, gated behind correctness — never promoted ahead of a
+  spec-conformance fix): (1) AD4-1 first** (self-contained mutual block, no agreement-theorem
+  surface — see AD4-1); **(2) the A-EN3 + DRY-1 locality-batch** (more proof surface: B7-style
+  agreement theorems for Family 1 + the Bug2-1/Bug2-4 soundness arguments for Family 2; DRY-1 also
+  waits on Bug2-5's 4th walker if it un-parks); **(3) AD2-1** independently, coupled with any
+  disjunction-DISPLAY slice (SC-3), not with the walkers.
+- **AD3-4 (NOTE, 2026-06-20 Phase-B — bottom-payload newtype RULED OUT, recorded so it is not
+  re-raised).** `GuardVerdict.bottom (value : Value)`, `ClauseExpansion.bottom (value : Value)`, and
+  `ListClauseExpansion.bottom (value : Value)` (`Eval.lean:936/2489/2497`) each carry an
+  unconstrained `Value` where only a bottom (`.bottom`/`.bottomWith`) is ever valid — a candidate
+  for a `BottomValue` newtype/smart-constructor tightening. **Verdict: NOT a fix-slice (over-
+  engineering for the safety gained).** The invariant is already enforced BY CONSTRUCTION: every
+  construction site is one of exactly two arms that can physically only pass a bottom — `classifyGuard`
+  builds `.bottom .bottom` / `.bottom (.bottomWith reasons)` (the ONLY two callsites, `Eval.lean:959–960`),
+  and the `ClauseExpansion`/`ListClauseExpansion` `.bottom` are built only from a `GuardVerdict.bottom`
+  payload or `.bottomWith [.nonBoolGuard ty]` (L3346-3347/3424-3425). There is no smart-constructor gap
+  admitting junk. A `BottomValue` newtype would ripple through every `.bottom`/`.bottomWith` match site
+  in `Format`/`Manifest`/`Lattice` (the whole `Value` domain models bottom as two ordinary constructors,
+  deliberately — it is a pervasive existing pattern, not a local slip), a large mechanical change
+  re-encoding what the closed two-arm construction already guarantees. The slice-loop bar is "tighten
+  where it buys REAL safety"; here the safety is already bought. Leave as-is.
 
 **Durable plan-only items (numbered for cross-reference):**
 
@@ -342,16 +427,26 @@ implementation-log.
    `Value→Value` decimal ops with no Builtin- dispatch dependency). Resolve the import
    shape in the slice. Mechanical otherwise.
 
-5. **Test-org pass (periodic) — DONE for `EvalTests` (2026-06-19); REMAINING split open.**
+5. **Test-org pass (periodic) — DONE for `EvalTests` (2026-06-19); RE-FLAGGED DUE 2026-06-20.**
    `EvalTests.lean` (~3022 lines) split by subsystem into per-`Kue/`-area modules
    (`EvalTestHelpers`/`EvalPerfTests`/`ClosureTests`/`TwoPassTests` + slimmed `EvalTests`
    ~1210 lines), behavior- and coverage-preserving (theorem 256→256, native_decide
-   253→253, zero fixture byte-drift), all wired into `Kue/Tests.lean`. **REMAINING for a
-   future pass:** `FixturePorts` (~2524, generated — leave whole), `FixtureTests` (~1093),
-   `StructTests` (~765), `BuiltinTests` (~735), and `EvalTests` (still ~1210 post-split,
-   re-split candidate); B4 ride-along `DecimalTests`/`FormatTests`
-   (`Decimal`/`Format`/`Json`/`Base64` only indirectly covered). Schedule when Phase-B
-   next flags it overdue.
+   253→253, zero fixture byte-drift), all wired into `Kue/Tests.lean`. **Phase-B 2026-06-20 —
+   DUE again** (a scheduled periodic slice, not yet blocking, but the next test-org pass should
+   run before this list grows further): `EvalTests.lean` has RE-GROWN to **~1505 lines** (the
+   D#1b/c + D#3 batch added ~300 lines of `classify_guard_*` + `letcomp_*` pins on top of the
+   ~1210 post-split size) — the natural re-split is a `ComprehensionTests`/`GuardTests` module
+   carving out the comprehension-clause + guard-classification pins (they are a cohesive, now-
+   sizable subsystem). Other oversized modules unchanged: `FixturePorts` (~2979, generated — leave
+   whole), `TwoPassTests` (~1030), `FixtureTests` (~992), `BuiltinTests` (~884), `ClosureTests`
+   (~755), `StructTests`/`ParseTests`/`LatticeTests` (~605-618); B4 ride-along
+   `DecimalTests`/`FormatTests` (`Decimal`/`Format`/`Json`/`Base64` only indirectly covered).
+   `testdata/cue/` is also growing at the top end — `definitions/` (100 fixtures) and
+   `comprehensions/` (54, +several this batch) are the two large dirs; sub-grouping them
+   (`comprehensions/{list,struct,let,guard}/`) is a ride-along for the same pass. **Recommendation:
+   schedule this as a near-term slice — but it is LOWER priority than landing the MED-tail feature
+   slices (BI-1/BI-2/F-3) and does NOT need to preempt them; run it within the next 1-2 audit
+   cycles before `EvalTests` crosses ~1800.**
 
 6. **Field-ordering parity #3 (MEDIUM, DEEP — byte-parity vs cue).** cue orders `ref &
    {own}` own-fields-first; kue is left-struct-first (`mergeStructFieldsWith`,
@@ -421,6 +516,35 @@ arm-by-arm verdicts, and as-built design records are preserved in
 [`../reference/implementation-log.md`](../reference/implementation-log.md) and `git log`;
 this list is only a date/commit/topic index for re-locating them.
 
+- 2026-06-20 — Phase-B audit (whole module graph, post-RX-2a+D#1b/c+D#3 batch; CLOSES the
+  audit round opened by Phase-A `7ee15d8`): **architecture HEALTHY.** Import graph acyclic +
+  correctly layered (topo-checked: `Regex`/`Base64` true leaves; `Value→Regex`; `Builtin→Decimal/
+  Json/Yaml/Base64/Regex/Lattice`; `Eval→Builtin/Decimal/Lattice/Regex/Normalize`, `Eval→Normalize`
+  a sane def-body-closing edge; never the reverse, no cycle). No `partial def` outside Parse
+  [standing] / Module [IO]; no `sorry`/`admit`; no real TODO/FIXME; no dead code surfaced.
+  **Consolidation strategy for the walker/normalizer family RULED (the headline):** AD4-1, AD3-3
+  (A-EN3+DRY-1), and AD2-1 are NOT one problem — THREE distinct walker families + a separate
+  normalizer pair, four different mechanisms. AD4-1 = `EvalM` clause-chain drivers (one
+  `expandClauseChain` over a generic `ClauseOutcome β`); A-EN3 = pure structural `Value` folds
+  (`foldValueWithDepth`); DRY-1 = let-slot fixpoint walkers (`walkFollowedLets`); AD2-1 = the two
+  disjunction normalizers (lattice/eval boundary). A-EN3+DRY-1 bundle by edit-LOCALITY only (shared
+  `defFrameRefIndices` callee), NOT one combinator. **Sequencing: AD4-1 first** (self-contained
+  mutual block, no agreement-theorem surface), **then A-EN3+DRY-1**, **then AD2-1** (with SC-3) —
+  all post-argocd, LOW/MED-risk, gated behind correctness. Filed/refined: **AD4-1** (added the
+  as-built structural confirmation + the list-arm bottom-non-propagation asymmetry the callback must
+  preserve); **AD3-3** (the three-family decomposition + ordering); **AD3-4** (bottom-payload
+  newtype RULED OUT — over-engineering; invariant already enforced by closed two-arm construction);
+  **AD2-1** re-confirmed (untouched this batch, ruling unchanged); **AD3-1** re-confirmed (Regex is
+  a verified true leaf, plan text stale). Applied INLINE: `kue-performance.md` argocd entry was
+  STALE (presented Bug2-3 as the OPEN blocker with its now-LANDED diagnosis) — rewritten to current
+  state (Bug2-1..2-4 landed, Bug2-5 the residual PARKED blocker, the wall is downstream of
+  correctness not fuel). **Periodic passes flagged DUE (both, non-blocking):** test-org
+  (`EvalTests.lean` re-grew ~1210→~1505 via the D# pins → a `ComprehensionTests`/`GuardTests`
+  re-split; `definitions/`=100 + `comprehensions/`=54 fixture dirs sub-groupable) and plan-hygiene
+  (this file has accrued AD2-1/AD3-x/AD4-1 + two-Phase-A + this entry; distill → log/git, refresh
+  `www/index.html`). RECOMMENDATION: next leader is the MED tail (BI-1/BI-2/F-3) per the breadcrumb;
+  the two periodic passes ride within the next 1-2 cycles and need NOT preempt the feature tail.
+  Verify green (build 100 jobs + fixtures `fixture pairs ok` + shellcheck 0). Commit `4408681`.
 - 2026-06-20 — `c03ebdb..a914906` — Phase-A audit (RX-2a + D#1b/D#1c + D#3, the most
   moving-parts batch of the session): **SOUND — no correctness/soundness bug, no skill
   violation.** Verified the protocol change AND the frame accounting against the code, not

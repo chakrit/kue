@@ -1,4 +1,4 @@
-# RESUME HERE — D#3 DONE; D-area CLOSED; ⚠ TWO-PHASE AUDIT DUE (3 slices since `c03ebdb`) (2026-06-20)
+# RESUME HERE — D#3 DONE; D-area CLOSED; ✅ TWO-PHASE AUDIT COMPLETE (counter reset 0) (2026-06-20)
 
 Live START-HERE pointer; supersedes all prior breadcrumbs. Authoritative live roadmap:
 [`../spec/spec-conformance-audit.md`](../spec/spec-conformance-audit.md)
@@ -23,22 +23,26 @@ cue for value-level bottoms). All 8 clause-match sites updated explicitly (no ca
 (unreferenced unresolved-ref `let` — cue errors, Kue tolerates; dead-binding-is-lattice-nothing) +
 1 spec-gap (eager-into-frame eval order). See implementation-log + audit-history 2026-06-20.
 
-**⚠ Audit state — AUDIT DUE (accurate; 3 slices since the last audit `c03ebdb`).** The D#2
-two-phase audit ran earlier this session (Phase A `b5883f1` + Phase B `c03ebdb`, scoping
-D#2a/D#2b). The batch since then: **RX-2a (slice 1) + D#1b/D#1c (slice 2) + D#3 (slice 3)** = 3
-slices landed. **The two-phase audit (Phase A → Phase B) is now DUE — run it NEXT before any new
-feature slice.** Run sequentially (A then B, both edit `plan.md`/this doc — parallel would collide);
-follow [`../guides/slice-loop.md`](../guides/slice-loop.md), do NOT invoke `/ace-audit`. Scope: the
-3-slice batch (RX-2a regex-complement + D#1b/c guard-classification + D#3 let-clauses) for Phase A;
-whole module graph for Phase B. (Audit subagents MUST reset this note to NOT-due when they run.)
+**✅ Audit state — ROUND COMPLETE; counter reset to 0.** The two-phase audit over the RX-2a +
+D#1b/D#1c + D#3 batch is DONE: **Phase A `7ee15d8`** (code-quality — SOUND, no bug/violation;
+filed AD4-1) + **Phase B `4408681`** (whole module graph — architecture HEALTHY; folded the
+walker/normalizer consolidation strategy + periodic-pass DUE flags into `plan.md`; fixed a stale
+`kue-performance.md` argocd entry inline). **No audit is due now.** The next two-phase audit
+(Phase A → Phase B) is due after **2-3 NEW slices** land. When it comes: run sequentially (A then
+B, both edit `plan.md`/this doc — parallel collides); follow
+[`../guides/slice-loop.md`](../guides/slice-loop.md), do NOT invoke `/ace-audit`; reset this flag
+when done. **Phase-B rulings to carry forward (so they are not re-litigated):** the walker dedups
+are THREE distinct families (AD4-1 `EvalM` clause-drivers / A-EN3 pure `Value` folds / DRY-1
+let-fixpoint walkers) + a separate normalizer pair (AD2-1) — four mechanisms, NOT one; sequence
+AD4-1 → A-EN3+DRY-1 → AD2-1, all post-argocd, gated. The bottom-payload newtype (AD3-4) is RULED
+OUT (over-engineering). Test-org + plan-hygiene passes are DUE-but-non-blocking (do not preempt the
+feature tail).
 
 ## IMMEDIATE NEXT STEPS (the loop can just `Keep going`)
 
-1. **⚠ RUN THE TWO-PHASE AUDIT FIRST** (it is DUE — 3 slices landed since `c03ebdb`). Phase A
-   (code-quality over the RX-2a + D#1b/c + D#3 batch), THEN Phase B (architecture/refactor/cleanup
-   over the whole module graph). Sequential. Per `slice-loop.md`. Fold findings into the backlog as
-   fix-slices. Then resume the MED tail below.
-2. **The MED tail (no large designed levers remain; D-area CLOSED).** Lead with:
+1. **✅ TWO-PHASE AUDIT DONE** (Phase A `7ee15d8` + Phase B this commit; counter reset to 0 — see
+   Audit state above). No audit due until 2-3 NEW slices land. **Next leader = the MED tail below.**
+2. **The MED tail — NEXT (no large designed levers remain; D-area CLOSED).** Lead with:
    - **BI-1** Unicode case-fold for `strings.ToUpper/ToLower` (currently ASCII-only → wrong on
      non-ASCII); **BI-2** `math.Pow/Sqrt`, `list.Sort/SortStable` (currently bottom on concrete
      input); **F-3** parse qualified import path `"location:identifier"` (currently unparsed).

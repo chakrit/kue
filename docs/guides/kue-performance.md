@@ -125,33 +125,21 @@ fix is purely a speedup — byte-identical output.
   > Standing Capabilities. The 92s figure was stale (it predates the item-7 hash fix landing, or was a
   > cold/contended run); the steady measurement across the Bug2-1 and Bug2-2 slices is consistently
   > ~30.5s. Treat **~30.5s** as the cert-manager number; the 92s is retired.
-- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, now PINNED (2026-06-19; supersedes the
-  earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness" readings).** Both prior
-  hypotheses are DISPROVEN. It is not a fuel ceiling (fuel sweep 100/200/600 + `resolve`/`remapFuel`
-  100000 all still bottom) and not cross-module (it reproduces SAME-MODULE; the `#args/#from/#to`
-  `fieldConflict` was a red herring). Root cause: a `parts.#Mixin` comprehension guard
-  `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }` reads the def's REGULAR
-  sibling `kind`, narrowed at the use site; Kue forced the embedded def with only hidden fields
-  spliced, so the guard fired against the un-narrowed `kind: string` and the guarded body dropped.
-  **Bug #1 (single-embed) FIXED**, **Bug2-1 (Gap-1, let-buried read detection) FIXED**, **Bug2-2
-  (Gap-2, force-tier disjunction-arm narrowing for a REGULAR discriminator) FIXED** (2026-06-19).
-  **Bug2-3 (Gap-2b, the REMAINING blocker) OPEN:** the real `#Mixin`'s `listShape | structShape |
-  error` disjunction discriminates STRUCTURALLY (list-emit `[...]` + hidden `#components` vs plain
-  struct), not by a regular field. Phase-B re-diagnosed the mechanism (2026-06-19, supersedes the
-  earlier "`_patch` residual" guess): the disjunction is evaluated arm-by-arm STANDALONE inside the
-  `#Mixin` closure (`Eval.lean` `.disj`/`normalizeEvaluatedDisj`), where the host `kind:"ListenerSet"`
-  reaches the arms only through the `_patch` comprehension. The `structShape` arm absorbs `kind` at
-  top level (`_patch` is a direct embedding); the `listShape` arm hides `_patch` inside its
-  `[string]: _patch` PATTERN, so its top-level stays a bare list-embed (`{#components, [...]}`)
-  WITHOUT `kind`. The whole host struct `{kind:"ListenerSet"}` is never met against the list arm as a
-  value, so the `struct & list` type conflict cue uses to prune `listShape` never fires — both arms
-  survive (`[elist | struct]`) and the disjunction bottoms as ambiguous at manifest. The primitive is
-  sound (`listShape & {kind:"ListenerSet"}` as a DIRECT meet bottoms in Kue, cue-exact); the gap is
-  that the structural disjunction never reaches that meet. Full `apps/argocd.cue` re-measured **~88s,
-  STILL bottoms** (2026-06-19, post Bug2-2). See `plan.md` "Slice Bug2-3 — Gap-2b" for the
-  minimization (`/tmp/kprobe/struct_disc.cue`) and the implementable design. The 88s wall (when the
-  app DOES export, e.g. cert-manager ~30.5s) is a separate, downstream perf concern, meaningful only
-  once Gap-2b is fixed.
+- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, NOT a perf/fuel limit (2026-06-19;
+  supersedes the earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness" readings,
+  both DISPROVEN — fuel sweep 100/200/600 + `resolve`/`remapFuel` 100000 all still bottom; it
+  reproduces SAME-MODULE).** Root cause: a `parts.#Mixin` comprehension guard reads a use-site-
+  narrowed sibling through a buried embed, and the narrowing did not reach the guard. The chain of
+  narrowing fixes — Bug #1 (single-embed), **Bug2-1** (let-buried read detection), **Bug2-2**
+  (force-tier disjunction-arm narrowing for a regular discriminator), **Bug2-3 / Gap-2b**
+  (structural list-arm-vs-struct-host disjunction pruning), **Bug2-4** (let-LOCAL declare-and-read
+  narrowing) — all LANDED. The residual full-app blocker is now **Bug2-5** (the force-path analogue
+  of Bug2-4's `injectLetLocalNarrowings`, undesigned), PARKED as a stress-test finding — see
+  `spec-conformance-audit.md` § Consolidated fix backlog; do NOT chase it with app-specific
+  narrowing. **Perf takeaway:** this is a value-correctness divergence, not a fuel/perf cliff. The
+  ~88s wall (vs cert-manager ~30.5s) is a separate downstream per-eval concern on the heavy `argo`
+  sub-package, meaningful only once argocd actually exports — gated behind Bug2-5, not a fuel-axis
+  problem. The per-eval constant (not the fuel ceiling) is the live perf frontier (item 7 residual).
 - **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
   is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
   fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking
