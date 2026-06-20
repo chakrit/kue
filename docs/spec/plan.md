@@ -330,7 +330,7 @@ batch → AD2-1.**
   is RESOLVED: the layer is right, the placement gets a named seam at the second effectful builtin,
   and a full registry is rejected. See **BI-EFF** in the backlog.
 
-**Phase-B audit 2026-06-20 (`<commit>`, whole-graph; scopes BI-2 `4c59989` + F-3 `a6dc012`) — verdict:**
+**Phase-B audit 2026-06-20 (`28894ef`, whole-graph; scopes BI-2 `4c59989` + F-3 `a6dc012`) — verdict:**
 
 - **Architecture HEALTHY.** Module layering is clean and acyclic: `Builtin → {Lattice, Regex,
   Decimal, Base64, Json, Yaml}` with NO `Builtin → Eval` edge; `Eval → Builtin` is the correct
