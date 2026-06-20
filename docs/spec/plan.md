@@ -111,13 +111,14 @@ authoritative ranked list — do NOT duplicate it here); the **plan-only roadmap
 the non-spec-conformance work.
 
 **Spec-conformance fixes (authoritative ranking in `spec-conformance-audit.md`):** the
-argocd residual **Bug2-5** (PARKED), **BI-1** (Unicode case-fold — spike DONE: chose
-oracle-generated BMP simple-mapping table, no network; see audit doc), **E#4-fix** (✅ DONE
-2026-06-20 — arithmetic operator domain now type-errors concrete out-of-domain operands +
-string/bytes `*` repetition; see item #6), **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3**
-display-residual, **SC-4** (spec-gap-first), **SC-1b** (closed×closed-pattern), **A#6**
-(`containsBottom` fuel cap, standalone), **DRY-1** (let-walker extraction). **The 4
-spec-gap ratifications are DONE (2026-06-20):** gaps 1–3 RATIFIED + test-pinned; gap 4
+argocd residual **Bug2-5** (PARKED), **BI-1** (✅ DONE 2026-06-20 — Unicode case-fold for
+`ToUpper`/`ToLower` via oracle-generated BMP simple-mapping table, no network; ToTitle +
+full-folding tail deferred), **E#4-fix** (✅ DONE 2026-06-20 — arithmetic operator domain now
+type-errors concrete out-of-domain operands + string/bytes `*` repetition; see item #6),
+**BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
+**SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **DRY-1**
+(let-walker extraction — now UNBLOCKED, the A-EN3-locality sibling; see the walker-dedup section).
+**The 4 spec-gap ratifications are DONE (2026-06-20):** gaps 1–3 RATIFIED + test-pinned; gap 4
 (E#4) was MIS-FILED — the spec mandates the operator domain, so it became the E#4-fix slice
 above. See `cue-spec-gaps.md` (RATIFIED/ESCALATED rows) + `spec-conformance-audit.md`.
 
@@ -271,14 +272,26 @@ in `Builtin`, never effectful.
      path does NOT also need the use-site-narrowing distribution that `embed-disj-arm-fallthrough`
      added, or that label-surfacing-only is correct there.
 
-**Walker / normalizer dedup family (post-argocd, LOW/MED-risk + LOW-urgency, gated behind
-correctness — never promoted ahead of a spec-conformance fix):**
+**Walker / normalizer dedup family (UNBLOCKED — schedulable DRY cleanups, LOW/MED-risk):**
 
-Phase-B 2026-06-20 ruling (do not re-litigate): these are NOT one problem. There are THREE
-distinct walker families plus a separate normalizer pair — four different mechanisms, result
-types, recursion domains, and termination measures. Folding all under one abstraction would
-be a false "stuff they all do" extraction. **Sequencing: AD4-1 first → A-EN3+DRY-1 locality
-batch → AD2-1.**
+**Gating ruling (Phase-B 2026-06-20, the second one this date — supersedes the "post-argocd"
+gate):** these are now **UNBLOCKED and schedulable**. The original "gated post-argocd / after
+Bug2-5 un-parks" gate had ONE rationale — avoid walker-edit contention while argocd was being
+actively debugged on the same `Eval.lean` walker code. argocd/Bug2-5 is now **PARKED** (a
+stress-test finding, explicitly off the critical path, may never un-park), so no such debugging
+is happening: the contention the gate guarded against no longer exists. "Gated post-argocd" had
+therefore silently become "deferred forever," which is wrong for real DRY cleanups. They are NOT
+correctness fixes, so they still never PREEMPT a spec-conformance fix in the ranking — but with
+the spec-conformance HIGH levers all DONE (only PARKED Bug2-5 remains), **AD4-1 is now a strong
+next-batch leader** (highest-value DRY cleanup, settled design, most self-contained). Schedule by
+the settled sequencing below; re-confirm line-refs at slice start (the eval region shifts ±tens
+of lines per slice).
+
+Decomposition ruling (Phase-B 2026-06-20, earlier — do not re-litigate): these are NOT one
+problem. There are THREE distinct walker families plus a separate normalizer pair — four
+different mechanisms, result types, recursion domains, and termination measures. Folding all
+under one abstraction would be a false "stuff they all do" extraction. **Sequencing: AD4-1
+first → A-EN3+DRY-1 locality batch → AD2-1.**
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup; FIRST in the sequence).** The four `expand*`
   comprehension clause-walkers (`expandClausesWithFuel`/`expandForPairsWithFuel` →
@@ -613,6 +626,53 @@ batch → AD2-1.**
   section + BI-EFF item above). Type-system leverage across the graph: nothing new to tighten beyond
   the standing `truncate-primitive` (illegal-states hardening, plan item 1) — recommended next leader.
 
+**Phase-B audit 2026-06-20 (whole-graph; scopes truncate-primitive `7dfaadd` + ratifications
+`47ff318` + E#4-fix `02b8b9d`; Phase A `8be4457` found all SOUND, no code fix) — verdict:**
+
+- **★ Two rulings (the headline) — both CLOSED.** (1) **Three-parallel-classifiers DRY → LEAVE
+  SEPARATE** (option a; option b rejected). Recorded in Resolved/ruled-out below with the full
+  basis: the three classifiers disagree on the PARTITION (`.disj`/`.structComp`/`.bottom`/`.prim`/
+  `.binary` all land differently), so a shared concreteness helper would need per-classifier hooks
+  for exactly those ctors, factoring out only the inert abstract tail = "the stuff they all do" =
+  not a name (general-coding), while RAISING coupling + LOWERING the new-ctor-forces-a-decision
+  guarantee. (2) **Walker-dedup gating → UNBLOCKED.** The "post-argocd" gate's sole rationale was
+  walker-edit contention during active argocd debugging; argocd/Bug2-5 is now PARKED (off the
+  critical path, may never un-park), so the contention is gone and "gated post-argocd" had degraded
+  to "deferred forever" — wrong for real DRY cleanups. They are not correctness fixes (still never
+  preempt a spec-conformance fix), but with the spec-conformance HIGH levers all DONE, **AD4-1 is now
+  the strong next-batch leader.** Plan ranking/gating language updated (see the walker-dedup section).
+- **Architecture HEALTHY (whole module graph) — confirmed, not manufactured.** Layering acyclic
+  and correct: `Builtin → {Lattice, Regex, Decimal, Base64, Json, Yaml, CaseTable}`, `Eval →
+  {Builtin, Decimal, Lattice, Regex, Normalize}`, `Lattice → {Value, Regex}`, `Value → Regex`,
+  `Decimal/Resolve/Normalize → Value`. NO `Builtin → Eval` back-edge (still `Eval → Builtin`, the
+  correct direction — the sort lives in `Eval` BECAUSE its comparator needs `EvalM`). `Kue.Normalize`
+  (238 lines, `import Kue.Value` only) is a clean leaf, not previously called out in the layering
+  prose but no cycle. E#4 + truncate touched only `Eval.lean` interiors — no boundary impact.
+- **Eval.lean 3741 lines — extraction watch, NOT yet due.** Grew ~96 since the last Phase B (3645);
+  E#4-fix added the arithmetic classifier/gate (`classifyArithOperand`/`arithmeticDomainResult`/
+  `evalRepeat`, ~80 lines) to the `evalAdd…evalDiv` region. Still well under the ~4500 re-split
+  threshold. **EvalOps** (item 2, ~256 lines pure scalar algebra incl. the new arith defs — fold
+  them into the carve per the breadcrumb note) remains the right first carve, unchanged/live. No
+  second extraction justified yet. NOT more urgent than the DRY cleanups — both are schedulable.
+- **E#4 / truncate type-system leverage — already tight.** `classifyArithOperand` is a total
+  no-catch-all enumeration; the two new `BottomReason`s ride the generic `.bottomWith` (no match
+  site to update); `EvalState.truncate` is the single bump choke point. Nothing to tighten beyond
+  the standing items (truncate-primitive's residual routing-discipline is the documented, ruled-out
+  limit — full type-level unrepresentability breaks the mutual block's `termination_by`).
+- **Doc-staleness — FIXED INLINE (LOW risk, docs-only).** `spec-conformance-audit.md` carried two
+  obsolete ranking/cadence paragraphs (the old "NOW LEADS — the MED tail" + a duplicate MED-tail
+  block, ~old-lines 205-222) that listed the now-CLOSED 4 ratifications as open backlog (twice) and
+  announced a two-phase audit that already closed at `4593185` with a stale `7ee15d8`-era counter.
+  Replaced with a short current-state pointer that defers ranking to the authoritative Consolidated
+  fix backlog + `plan.md` (so it cannot drift again). E#4 confirmed correctly marked DONE/RESOLVED
+  everywhere else (audit doc lines 405-420, `cue-spec-gaps.md` row 55); `## Status` E-row needs no edit.
+- **Test/fixture health + perf-guide — unchanged, correct.** Test-MODULE split sound; `testdata/cue`
+  fixture-regroup STAYS DEFERRED (hand-maintained `FixturePorts` join key, high blast radius, low win
+  — judgment unchanged). Perf-guide current: E#4 added string-repeat (O(n) `String.join`, cheap) +
+  arith domain checks (O(1) ctor match, cheap); truncate is a behavior-preserving refactor. No perf
+  row warranted (a row in a "what is expensive" guide would be misleading noise) — judgment call, left
+  unchanged. No new code-shaped findings.
+
 **Resolved / ruled-out (recorded so they are not re-raised):**
 
 - **AD3-1 / item-3 Regex extraction / B5 regex bullet — DROPPED (stale).** `Kue/Regex.lean`
@@ -629,6 +689,26 @@ batch → AD2-1.**
 - **B5 extraction notes (kept).** `Order.lean` (subsumption) is a DELIBERATE test-only oracle
   (imported only by `Tests/*`), NOT dead code and NOT duplicated — `meet` (join) and `subsumes`
   (partial order) are orthogonal. Recorded so a future audit does not re-flag it as an orphan.
+- **Three-parallel-classifiers DRY (`classifyArithOperand` / `classifyGuard` /
+  `classifyDefinedness`) — RULED: LEAVE SEPARATE (option a), do NOT extract a shared
+  concreteness partition (option b rejected). Phase-B 2026-06-20.** All three enumerate every
+  `Value` ctor with no catch-all and bucket the long inert abstract tail (kind/bound/ref/conj/
+  builtin/unary/selector/index/comprehension/interpolation/dynamicField/closure/thisStruct/top/
+  notPrim/stringRegex) into "defer/incomplete". But that inert tail IS "the stuff they all do" —
+  not a name (general-coding). Option (b), a `classifyConcreteness` partition the three call,
+  does NOT factor cleanly: the three disagree on the PARTITION itself, not merely on verdict
+  names. `.disj` is abstract for arith+guard but concrete-decidable for definedness (`liveAlternatives`
+  → defined/error); `.structComp` is abstract for arith+guard but `.defined` for definedness;
+  `.bottom`/`.bottomWith` is (unreachable-)incomplete for arith, `.error` for definedness, a
+  bottom-PAYLOAD verdict for guard; `.prim` is one verdict for arith/definedness but a 3-way split
+  (`true`/`false`/non-bool) for guard; `.binary` is incomplete for arith/definedness but a
+  presence-test split (`.eq/.ne _ .bottom` → false) for guard. A shared partition would need
+  per-classifier hooks for exactly those five ctor groups, leaving only the inert tail genuinely
+  common — so (b) would RAISE coupling (three soundness-critical exhaustive matches depending on
+  one helper) while LOWERING the compile-time guarantee that a NEW `Value` ctor forces an
+  independent decision at all three sites (the whole point of the no-catch-all enumeration). Verdict
+  sums (`ArithOperandClass`/`GuardVerdict`/`Definedness`) are genuinely distinct. Analogous to the
+  AD3-4 ruling above. Leave as three independent total functions.
 
 ## Pointers (history + reference for anything dropped)
 

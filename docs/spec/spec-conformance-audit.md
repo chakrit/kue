@@ -202,24 +202,14 @@ resolves as the general semantics mature. **Recommended next 3-4:**
 did not unblock — residual Bug2-5 is PARKED as a stress-test finding, see Live-slice
 detail; it is not on the critical path.)
 
-**NOW LEADS — the MED tail** (no large designed levers remain; **D-area CLOSED**): **BI-1 DONE
-2026-06-20** (Unicode case mapping for `ToUpper`/`ToLower` via oracle-generated BMP table; CONFORMS
-across the BMP; ToTitle + full-folding tail deferred — see item 15). Next candidates: the periodic
-**plan-hygiene** + **test-org-fixture-regroup** passes (both DUE-but-non-blocking per the last Phase
-B — a periodic pass is a clean post-audit slice), **BI-2-residual** (Sqrt + neg/fractional Pow —
-needs Float/apd numeric machinery), **SC-3 display-residual** (LOW/spec-gap). Then SC-4 (LOW,
-spec-gap-first), SC-1b (closed×closed-pattern), the 4 spec-gap ratifications, A#6 (standalone), DRY-1
-(LOW refactor). **Audit cadence (NEW batch): test-org carve `4b25cef` = slice 1, BI-1 = slice 2 — the
-two-phase audit is now DUE** (2-slice mark; the prior batch's audit closed at `7ee15d8`+`457a165`,
-counter reset to 0). Run A then B sequentially per `docs/guides/slice-loop.md` before the next code
-slice.
-
-Then the MED tail (D#1b/D#1c, D#3 `let` -clauses, SC-3 disj-display, BI-1 Unicode
-case-fold, BI-2 `math.Pow` /`list.Sort`, F-3 qualified import), SC-4 (LOW,
-spec-gap-first), the 4 spec-gap ratifications in `cue-spec-gaps.md`, low/hardening (A#6
-standalone if not folded into D#2b), DRY-1 (LOW refactor), and the **plan-hygiene slice
-(schedule AFTER Bug2-3)**. RX-2c is DONE (mark it in the hygiene pass — `maxRepeat=1000`
-landed with RX-1a).
+**Current state (2026-06-20):** the large designed levers are all DONE (Bug2-3, D#2, the regex
+trilogy, BI-1, BI-2 Pow/Sort, F-3); **D-area CLOSED**. The **4 spec-gap ratifications are DONE**
+(`47ff318` — 3 RATIFIED + test-pinned, gap-4/E#4 escalated to the **E#4-fix** slice `02b8b9d`,
+also DONE). The only HIGH item left is **Bug2-5** (the argocd residual), **PARKED** as a
+stress-test finding off the critical path. For the live ranked open backlog and the next-slice
+leader, see `plan.md` § Live Backlog + the **Consolidated fix backlog** ranking above — this
+section no longer carries a separate ranking (it drifted; the table + `plan.md` are the single
+source). Audit cadence likewise lives in `plan.md` / the breadcrumb, not here.
 
 ### Live-slice detail (folded from prior re-ranks; DONE entries dropped to Audit history)
 
