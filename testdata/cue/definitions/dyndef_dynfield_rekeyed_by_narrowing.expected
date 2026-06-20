@@ -1,0 +1,2 @@
+#Add: {kind: string, (@0.0): "m"}
+out: {kind: "specific", specific: "m"}

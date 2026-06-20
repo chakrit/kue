@@ -723,6 +723,38 @@ def fixturePorts : List FixturePort :=
         | .ok value => formatResolvedTopLevel value
         | .error error => s!"parse error: {error.message}"
     },
+    -- DYN-DEF-1 regression pins: a definition's dynamic field, dropped pre-fix when its key was
+    -- narrowed at the use site, is now re-keyed (an abstract key DEFERS as a residual, never
+    -- drops). Parse-driven so the real dyn-field expand/defer path flows through. Oracle cue
+    -- v0.16.1-exact. (The `#Add`/`#M` def-display line shows the held residual key as `@d.i` —
+    -- the pre-existing reference rendering; the `out` re-key is the load-bearing observable.)
+    {
+      -- The named witness: `(kind)` keyed on a `string` field narrowed to `"specific"` re-keys
+      -- to `specific: "m"`. cue → `out: {kind: "specific", specific: "m"}`.
+      fileName := "definitions/dyndef_dynfield_rekeyed_by_narrowing.expected",
+      content :=
+        match parseSource "#Add: {kind: string, (kind): \"m\"}\nout: #Add & {kind: \"specific\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Regression: a key already concrete in the def keys eagerly (the path the fix must not
+      -- disturb). cue → `out: {kind: "fixed", fixed: "m"}`.
+      fileName := "definitions/dyndef_dynfield_concrete_key.expected",
+      content :=
+        match parseSource "#K: {kind: \"fixed\", (kind): \"m\"}\nout: #K\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Plain struct (no def): the same key, narrowed by a later conjunct in the SAME struct,
+      -- re-keys with a fully concrete display (no residual). cue → `out: {kind: "x", x: "m"}`.
+      fileName := "definitions/dyndef_dynfield_plain_struct_rekeyed.expected",
+      content :=
+        match parseSource "out: {kind: string, (kind): \"m\", kind: \"x\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
     {
       -- (4a) def-meet rejects an unallowed field: `#D & {c}` where `c ∉ #D`. cue: `out.c: field
       -- not allowed`. The direct closed-def meet (the canonical closedness check).
@@ -3145,9 +3177,9 @@ def fixturePorts : List FixturePort :=
       -- A-EN3-DYN multi-level: the dyn-field KEY reads a narrowed sibling (`(tag)`) AND the value
       -- reads another narrowed sibling one struct DEEPER (`{label: name}`). Exercises both halves of
       -- the `hasSelfRefAtDepth` dyn-field fix — the key scan (previously dropped entirely) and the
-      -- nested-value scan at the parent depth. Standalone `#Add.out` is `[{}]` (the key `tag` is
-      -- abstract `string`, so the dynamic field cannot materialize); the use site concretes both.
-      -- Oracle cue v0.16.1 → `patch.out: [{t: {label: "n"}}]`.
+      -- nested-value scan at the parent depth. Standalone `#Add.out` HOLDS the abstract-keyed field
+      -- residual (`[{(tag): {label: name}}]`; DYN-DEF-1 — an abstract key defers, not drops); the
+      -- use site concretes both. Oracle cue v0.16.1 → `patch.out: [{t: {label: "n"}}]`.
       fileName := "comprehensions/dynfield_comprehension_key_and_nested_value.expected",
       content :=
         match parseSource

@@ -1,2 +1,2 @@
-#Add: {tag: string, name: string, out: [{}]}
+#Add: {tag: string, name: string, out: [{(@2.0): {label: @3.1}}]}
 patch: {tag: "t", name: "n", out: [{t: {label: "n"}}]}

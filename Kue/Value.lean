@@ -497,12 +497,11 @@ structure BindingId where
   index : Nat
 deriving Repr, BEq, DecidableEq
 
-/-- The concrete-but-non-`bool` type a comprehension `if` guard resolved to. CUE requires a
-    guard to be of type `bool`; a concrete value of any other type is a type error
-    (`cannot use "x" (type string) as type bool`). Scalars carry their `Kind`; `struct`/`list`
-    have no scalar `Kind`, so they get their own arms. Spec basis: the `if` clause's expression
-    "must be of type bool". -/
-inductive NonBoolGuardType where
+/-- The type of a CONCRETE value, named for diagnostics where a value of the wrong type is a
+    type error: a non-`bool` `if` guard (`nonBoolGuard`), a non-numeric arithmetic operand
+    (`nonArithmeticOperand`), a non-`string` dynamic-field label (`nonStringLabel`). Scalars
+    carry their `Kind`; `struct`/`list` have no scalar `Kind`, so they get their own arms. -/
+inductive ConcreteTypeName where
   | scalar (kind : Kind)
   | struct
   | list
@@ -540,7 +539,7 @@ inductive BottomReason where
       silent drop. Distinct from an INCOMPLETE guard (a ref/kind/unresolved disjunction), which
       DEFERS (keeps the comprehension residual) rather than erroring. Carries the offending
       type for provenance. -/
-  | nonBoolGuard (type : NonBoolGuardType)
+  | nonBoolGuard (type : ConcreteTypeName)
   /-- An operand outside an arithmetic operator's domain. The CUE spec closes `+ - * /` over
       integer and decimal floating-point, and additionally `+`/`*` over strings and bytes; a
       CONCRETE operand of any other type (list, struct, and — for `- /` — string/bytes/bool/null)
@@ -548,7 +547,15 @@ inductive BottomReason where
       `cannot use … as type number`). Distinct from an INCOMPLETE operand (a ref/kind/unresolved
       disjunction that may still resolve to a number), which DEFERS the binary residual. Carries
       the operator and the offending operand's type for provenance. -/
-  | nonArithmeticOperand (op : BinaryOp) (operand : NonBoolGuardType)
+  | nonArithmeticOperand (op : BinaryOp) (operand : ConcreteTypeName)
+  /-- A dynamic-field label `(expr): v` whose `expr` resolved to a CONCRETE value of non-`string`
+      type (`(3): v`, `(true): v`, `({}): v`). The CUE spec requires a field label to be a
+      string, so a concrete non-string is a type error (cue: `invalid index … (invalid type …)`),
+      NOT a silent drop. Distinct from an INCOMPLETE label (a ref/kind/unresolved value that may
+      still resolve to a string), which DEFERS — the field stays a residual `.dynamicField`
+      (cue holds it under eval, errors `key value of dynamic field must be concrete` under
+      export). Carries the offending type for provenance. -/
+  | nonStringLabel (type : ConcreteTypeName)
   /-- A negative repetition count for string/bytes `*` (`"ab" * -1`). cue computes string/bytes
       `*` int as repetition (`"ab" * 2 = "abab"`) and errors a negative count (`cannot convert
       negative number to uint64`). -/

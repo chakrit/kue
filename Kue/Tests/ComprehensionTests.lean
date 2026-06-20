@@ -315,4 +315,68 @@ theorem comprehension_list_body_bottom_export_errors :
     exportJsonBottoms "out: [for x in [1] {x & \"s\"}]\n" = true := by
   native_decide
 
+/-! ### DYN-DEF-1 — dynamic-field label deferral (a dropped field becomes a held residual).
+
+A dynamic field `(expr): v` whose `expr` is NOT yet a concrete string must be HELD as a residual
+`.dynamicField`, not dropped — so a use-site narrowing that concretes `expr` can re-key it, and an
+abstract export errors instead of silently vanishing (cue v0.16.1: holds under `eval`, errors
+`key value of dynamic field must be concrete` under `export`). Pins are export-level (JSON,
+display-independent) so the held-form's pre-existing `@d.i` reference rendering doesn't make them
+brittle. The held-vs-dropped distinction is witnessed by `exportJsonBottoms`: a HELD residual
+fails export (incomplete); a DROPPED field would export `{}` successfully. -/
+
+-- The witness: a def's dynamic field, keyed on a field narrowed at the use site, is RE-KEYED
+-- (not dropped). cue → `{out: {kind: "specific", specific: "m"}}`.
+theorem dyndef_witness_rekeys_on_narrowing :
+    exportJsonMatches
+      "#Add: {kind: string, (kind): \"m\"}\nout: #Add & {kind: \"specific\"}\n"
+      "{\n    \"out\": {\n        \"kind\": \"specific\",\n        \"specific\": \"m\"\n    }\n}\n" = true := by
+  native_decide
+
+-- Multiple dynamic fields in one def, all re-keyed once the shared key field narrows.
+theorem dyndef_multi_dynamic_fields_rekey :
+    exportJsonMatches
+      "#M: {kind: string, (kind): \"a\", (\"x_\" + kind): \"b\"}\nout: #M & {kind: \"k\"}\n"
+      "{\n    \"out\": {\n        \"kind\": \"k\",\n        \"k\": \"a\",\n        \"x_k\": \"b\"\n    }\n}\n" = true := by
+  native_decide
+
+-- Transitive: the dynamic key reads a sibling (`key`) that itself reads the narrowed field, so
+-- the narrowing reaches the dynamic key through a chain. cue keys it `specific`.
+theorem dyndef_transitive_narrowing_rekeys :
+    exportJsonMatches
+      "#Add: {kind: string, key: kind, (key): \"m\"}\nout: #Add & {kind: \"specific\"}\n"
+      "{\n    \"out\": {\n        \"kind\": \"specific\",\n        \"key\": \"specific\",\n        \"specific\": \"m\"\n    }\n}\n"
+      = true := by native_decide
+
+-- Regression: a dynamic field whose key is ALREADY concrete in the def keys eagerly (the path
+-- the fix must not disturb). cue → `{out: {kind: "fixed", fixed: "m"}}`.
+theorem dyndef_concrete_key_in_def_rekeys :
+    exportJsonMatches
+      "#K: {kind: \"fixed\", (kind): \"m\"}\nout: #K\n"
+      "{\n    \"out\": {\n        \"kind\": \"fixed\",\n        \"fixed\": \"m\"\n    }\n}\n" = true := by
+  native_decide
+
+-- A def's dynamic field with a NEVER-concrete key is HELD, not dropped: export errors (incomplete)
+-- because the field survives. Pre-fix it dropped and `x` exported as `{}`. This is the core
+-- regression witness for DYN-DEF-1.
+theorem dyndef_abstract_key_held_export_errors :
+    exportJsonBottoms "#Add: {kind: string, (kind): \"m\"}\nx: #Add\n" = true := by
+  native_decide
+
+-- Same for a PLAIN struct (no definition): the bug and fix are not def-specific.
+theorem dyndef_abstract_key_plain_struct_held_export_errors :
+    exportJsonBottoms "s: string\nout: {(s): \"m\"}\n" = true := by
+  native_decide
+
+-- A CONCRETE non-string key is a type error (cue: `invalid index … (invalid type bool)`), not a
+-- silent drop — export bottoms.
+theorem dyndef_concrete_nonstring_key_errors :
+    exportJsonBottoms "out: {(true): \"m\"}\n" = true := by
+  native_decide
+
+-- A BOTTOM key propagates the bottom (the underlying conflict), not a silent drop.
+theorem dyndef_bottom_key_propagates :
+    exportJsonBottoms "out: {((1 & 2)): \"m\"}\n" = true := by
+  native_decide
+
 end Kue

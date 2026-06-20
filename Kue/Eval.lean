@@ -676,7 +676,7 @@ def selectEvaluatedIndex (base key : Value) : Value :=
       `classifyGuard`; enumerated with no catch-all so a new ctor forces a decision here. -/
 inductive ArithOperandClass where
   | prim
-  | concreteNonArith (type : NonBoolGuardType)
+  | concreteNonArith (type : ConcreteTypeName)
   | incomplete
 deriving BEq
 
@@ -895,7 +895,7 @@ inductive GuardVerdict where
   | concreteTrue
   | concreteFalse
   | bottom (value : Value)
-  | nonBool (type : NonBoolGuardType)
+  | nonBool (type : ConcreteTypeName)
   | incomplete
 deriving BEq
 
@@ -945,6 +945,63 @@ def classifyGuard : Value -> GuardVerdict
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
   | .disj _ => .incomplete
+  | .comprehension _ _ => .incomplete
+  | .listComprehension _ _ => .incomplete
+  | .interpolation _ => .incomplete
+  | .dynamicField _ _ _ => .incomplete
+  | .closure _ _ => .incomplete
+
+/-- The verdict for a dynamic field's evaluated label `(expr): v`. CUE requires a field label
+    to be a string; `classifyDynLabel` sorts the evaluated label into the three spec-distinguished
+    cases, replacing the old `_ => drop` that silently discarded the field:
+    - `concreteString` — re-key the field to this label.
+    - `bottom` — an evaluated error: propagate (a bottom key must not vanish; cue surfaces the
+      underlying conflict).
+    - `nonString` — a CONCRETE value of non-`string` type (`(3)`, `(true)`, `({})`, `([])`): a
+      type error (cue: `invalid index … (invalid type …)`).
+    - `incomplete` — an unresolved/abstract label (a kind, ref, bound, builtin, unresolved
+      disjunction, even the abstract `string` kind): the field cannot be keyed yet, so it DEFERS
+      — it stays a residual `.dynamicField` rather than dropping (cue holds it under eval, errors
+      under export). -/
+inductive DynLabelVerdict where
+  | concreteString (name : String)
+  | bottom (value : Value)
+  | nonString (type : ConcreteTypeName)
+  | incomplete
+deriving BEq
+
+/-- Classify a dynamic field's evaluated label, enumerating EVERY `Value` constructor (no
+    catch-all) so a new arm forces a decision here. Mirrors `classifyGuard`. -/
+def classifyDynLabel : Value -> DynLabelVerdict
+  | .prim (.string name) => .concreteString name
+  | .prim p => .nonString (.scalar p.kind)
+  | .bottom => .bottom .bottom
+  | .bottomWith reasons => .bottom (.bottomWith reasons)
+  -- A concrete value of non-string type can never be a label ⇒ type error (NOT defer):
+  | .struct _ _ _ [] _ => .nonString .struct
+  | .list _ => .nonString .list
+  | .listTail _ _ => .nonString .list
+  | .embeddedList _ _ _ => .nonString .list
+  -- Unresolved / abstract forms → DEFER (keep the field residual). The abstract `string` kind
+  -- lands here: it may still narrow to a concrete string at a use site.
+  | .top => .incomplete
+  | .kind _ => .incomplete
+  | .notPrim _ => .incomplete
+  | .stringRegex _ => .incomplete
+  | .boundConstraint _ _ _ => .incomplete
+  | .conj _ => .incomplete
+  | .builtinCall _ _ => .incomplete
+  | .unary _ _ => .incomplete
+  | .binary _ _ _ => .incomplete
+  | .ref _ => .incomplete
+  | .refId _ => .incomplete
+  | .thisStruct => .incomplete
+  | .selector _ _ => .incomplete
+  | .index _ _ => .incomplete
+  | .disj _ => .incomplete
+  -- A pattern-bearing struct is a residual constraint, not a concrete value ⇒ defer.
+  | .struct _ _ _ (_ :: _) _ => .incomplete
+  | .structComp _ _ _ => .incomplete
   | .comprehension _ _ => .incomplete
   | .listComprehension _ _ => .incomplete
   | .interpolation _ => .incomplete
@@ -2939,13 +2996,17 @@ mutual
     | fuel + 1, .interpolation parts => do
         let evaluated <- evalValuesWithFuel fuel env visited parts
         pure (evalInterpolation evaluated)
-    | fuel + 1, .dynamicField label _ value => do
+    | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env visited label
-        match evaluatedLabel with
-        | .prim (.string name) => do
+        match classifyDynLabel evaluatedLabel with
+        | .concreteString name => do
             let evaluatedValue <- evalValueWithFuel fuel env visited value
-            pure (mkStruct [⟨name, .regular, evaluatedValue⟩] .regularOpen none [])
-        | _ => pure .bottom
+            pure (mkStruct [⟨name, fieldClass, evaluatedValue⟩] .regularOpen none [])
+        | .bottom bot => pure bot
+        | .nonString ty => pure (.bottomWith [.nonStringLabel ty])
+        -- DEFER: an abstract label holds the field unevaluated, so an enclosing context can
+        -- re-key it once the label narrows (DYN-DEF-1) — never silently drop to `.bottom`.
+        | .incomplete => pure (.dynamicField label fieldClass value)
     -- closure: force the deferred body against the lexical scope it captured. The
     -- call-site `env`/`visited` are discarded — a closure resolves against its definition
     -- site, not its use site (lexical, not dynamic, scope). `capturedEnv` is defeq to `Env`
@@ -3413,11 +3474,16 @@ mutual
         | .deferred => pure (.ok ([], [value]))
     | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env [] label
-        match evaluatedLabel with
-        | .prim (.string name) => do
+        match classifyDynLabel evaluatedLabel with
+        | .concreteString name => do
             let evaluatedValue <- evalValueWithFuel fuel env [] value
             pure (.ok ([⟨name, fieldClass, evaluatedValue⟩], []))
-        | _ => pure (.ok ([], []))
+        | .bottom bot => pure (.error bot)
+        | .nonString ty => pure (.error (.bottomWith [.nonStringLabel ty]))
+        -- DEFER: an abstract label keeps the field as a residual `.dynamicField` (carrying the
+        -- UNEVALUATED key+value so a later struct re-eval against a narrowed frame can re-key it),
+        -- rather than dropping it (DYN-DEF-1). Mirrors the incomplete-comprehension arm above.
+        | .incomplete => pure (.ok ([], [.dynamicField label fieldClass value]))
     | _, _ => pure (.ok ([], []))
   termination_by (fuel, 0, 0)
 

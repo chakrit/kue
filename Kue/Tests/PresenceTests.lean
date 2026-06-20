@@ -198,6 +198,48 @@ theorem classify_guard_presence_eq_drops :
     (classifyGuard (.binary .eq (.selector (.refId ⟨0, 0⟩) "g") .bottom) == .concreteFalse) = true := by
   native_decide
 
+/-! DYN-DEF-1 — the dynamic-field label classifier. `classifyDynLabel` enumerates every label
+outcome with no catch-all: a concrete string re-keys, a bottom propagates, a CONCRETE non-string
+is a type error, and a genuinely-abstract label DEFERS (the field stays a residual `.dynamicField`
+rather than dropping). The abstract `string` kind DEFERS — it may still narrow to a concrete
+string at a use site, the property the bug fix restores. (`DynLabelVerdict` derives `BEq`, not
+`DecidableEq`, so assert via `==`, mirroring the `Value`/`GuardVerdict` convention.) -/
+
+-- Unit: a concrete string label re-keys to that name.
+theorem classify_dynlabel_string_concrete :
+    (classifyDynLabel (.prim (.string "k")) == .concreteString "k") = true := by native_decide
+
+-- Unit: an abstract label DEFERS — both the `string` kind (the witness shape) and other kinds,
+-- a reference, and an unresolved disjunction. The `string`-kind defer is the heart of DYN-DEF-1:
+-- the key is not concrete YET, so the field is held for a later narrowing, never dropped.
+theorem classify_dynlabel_string_kind_defers :
+    (classifyDynLabel (.kind .string) == .incomplete) = true := by native_decide
+theorem classify_dynlabel_int_kind_defers :
+    (classifyDynLabel (.kind .int) == .incomplete) = true := by native_decide
+theorem classify_dynlabel_ref_defers :
+    (classifyDynLabel (.refId ⟨0, 0⟩) == .incomplete) = true := by native_decide
+theorem classify_dynlabel_unresolved_disj_defers :
+    (classifyDynLabel (.disj [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))]) == .incomplete)
+      = true := by native_decide
+
+-- Unit: a CONCRETE non-string value can never be a label ⇒ type error, carrying the offending
+-- type (int / bool / null / struct / list).
+theorem classify_dynlabel_int_nonstring :
+    (classifyDynLabel (.prim (.int 3)) == .nonString (.scalar .int)) = true := by native_decide
+theorem classify_dynlabel_bool_nonstring :
+    (classifyDynLabel (.prim (.bool true)) == .nonString (.scalar .bool)) = true := by native_decide
+theorem classify_dynlabel_null_nonstring :
+    (classifyDynLabel (.prim .null) == .nonString (.scalar .null)) = true := by native_decide
+theorem classify_dynlabel_struct_nonstring :
+    (classifyDynLabel (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) == .nonString .struct)
+      = true := by native_decide
+theorem classify_dynlabel_list_nonstring :
+    (classifyDynLabel (.list [.prim (.int 1)]) == .nonString .list) = true := by native_decide
+
+-- Unit: a bottom label propagates the bottom (the conflict surfaces; never a silent drop).
+theorem classify_dynlabel_bottom_propagates :
+    (classifyDynLabel .bottom == .bottom .bottom) = true := by native_decide
+
 -- D#1c end-to-end: a concrete non-bool guard makes the comprehension struct BOTTOM (not `{}`).
 theorem guard_nonbool_string_bottoms :
     isBottom (evalStructRefs (resolveStructRefs
