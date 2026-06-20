@@ -185,6 +185,30 @@ implementation-log.
   is a LOAD error in cue; Kue silently keeps both. A missing loader-level diagnostic —
   file as a small loader slice; behind item 7. (Both A2-x/A2-y are corners prod9 real apps
   don't hit.)
+- **AD2-1 (LOW — DRY/consistency, two disjunction normalizers diverge).** After D#2b,
+  `normalizeEvaluatedDisj` (`Eval.lean:694`) and `normalizeDisj` (`Lattice.lean:277`) are
+  near-identical over the same domain (both `liveAlternatives` → `[]`→`.bottom`,
+  multi→`.disj`), but their LONE-arm rule differs: `normalizeDisj` collapses only
+  `[(.regular, v)]` (a lone DEFAULT arm stays `.disj [(.default, v)]`, surfacing as `*1` in
+  eval — see `a: (*1|2)&(>=1 & <2)`: Kue eval `*1`, cue `1`), while `normalizeEvaluatedDisj`
+  collapses `[(_, v)]` mark-agnostically (→ `1`). Both are VALUE-sound (export agrees with
+  cue in every probe — a lone live arm is the only inhabited value, mark or not), so this is
+  a consistency/display nit, NOT a bug. But two functions doing almost-the-same-thing-but-not
+  is a maintenance hazard and a divergent eval-display family. Fix options for a dedicated
+  slice: (a) make `normalizeDisj`'s lone-arm collapse mark-agnostic too (one-char change,
+  re-verify the full eval-display corpus — may shift `*1`→`1` in some `.expected` fixtures,
+  which is arguably MORE correct), then have `normalizeEvaluatedDisj`'s has-default branch
+  delegate to `normalizeDisj`; or (b) keep them distinct but add a docstring cross-ref
+  pinning the deliberate divergence. Prefer (a) — one normalizer, illegal-states-fewer.
+  Sequence with any disjunction-display slice (couples with the SC-3 display residual). NB:
+  the all-regular branch (`joinValues`) genuinely differs and must stay split.
+- **AD2-2 (DONE inline, 2026-06-20 audit) — D#2a edge pins.** Added two `native_decide`
+  pins to `EvalTests.lean`: `structural_cycle_nested_under_noncyclic_detected` (a cyclic def
+  reached through a non-cyclic outer — exercises the restore-saved-stack discipline; cue +
+  Kue both bottom) and `structural_cycle_mutual_regular_fields_detected` (mutual cycle
+  through REGULAR fields — the cross of the single-regular and def-mutual cases the batch
+  already pinned). Both oracle-confirmed against cue v0.16.1. No behavior change; closed two
+  design-named-but-unpinned edges found in the audit.
 
 **Durable plan-only items (numbered for cross-reference):**
 
@@ -314,6 +338,22 @@ arm-by-arm verdicts, and as-built design records are preserved in
 [`../reference/implementation-log.md`](../reference/implementation-log.md) and `git log`;
 this list is only a date/commit/topic index for re-locating them.
 
+- 2026-06-20 — `dfb0fa5..6b8b009` — Phase-A audit (D#2a detection + D#2b
+  terminating-disjunct): **SOUND** — detection is correct, totally terminating (no
+  `partial def`; `termination_by` unchanged, the cycle short-circuit only cuts a branch),
+  and every value verdict matches cue v0.16.1 across the 5-case oracle table PLUS adversarial
+  probes the audit ran (identical-bodied siblings, diamond reuse, nested-under-noncyclic,
+  cycle-under-closedness, all-arms-bottom, 20-deep finite chain — no false positive on any;
+  the push/restore-balanced `structStack` means two sibling refs to the same body never
+  coexist, so structural equality cannot false-fire). `BottomReason.structuralCycle` is
+  handled generically at every `.bottomWith` site (no catch-all `_` swallows it; no exhaustive
+  `BottomReason` consumer exists). Findings (both LOW, none a soundness bug): **AD2-1** (the
+  two disjunction normalizers `normalizeEvaluatedDisj`/`normalizeDisj` diverge on lone-arm
+  collapse — filed for a dedup slice) and **AD2-2** (two design-named edges unpinned — FIXED
+  inline: nested-under-noncyclic + mutual-through-regular pins). The eval-display difference
+  (Kue keeps `{…} | *null`; cue collapses to `null`) is correctly bucketed as a `cue-spec-gaps`
+  entry, not a divergence — the spec mandates *detection*, is silent on the error's *display
+  form*, and Kue's value verdict matches. Verify green (build + fixtures + shellcheck).
 - 2026-06-19 — `0d4b1a0` — argocd perf-spike → CORRECTNESS finding: the full-app bottom is
   a deterministic divergence (comprehension-guard / embed-narrowing), NOT fuel; fuel sweep
   (100/200/600) never clears it. Decomposed Bug #2 into Gap-1 (let-buried read detection)

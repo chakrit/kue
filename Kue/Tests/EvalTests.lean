@@ -163,6 +163,23 @@ theorem recursive_list_tail_finite_use_exports :
       "{\n    \"x\": {\n        \"v\": 1,\n        \"kids\": [\n            {\n                \"v\": 2,\n                \"kids\": []\n            }\n        ]\n    }\n}\n" = true := by
   native_decide
 
+-- NESTED cycle (a cyclic def reached THROUGH a non-cyclic outer def): `#Outer.inner = #Inner`,
+-- whose own `loop: #Inner` is the cycle. Exercises the restore-saved-stack discipline — `#Outer`
+-- pushes/restores cleanly while the inner `#Inner` re-entry is the one that bottoms. Detection
+-- still fires (not masked by the outer frame); value verdict bottoms, as cue (`#Inner.loop:
+-- structural cycle`). Pins that the lever sees a cycle that is not at the top of the spine.
+theorem structural_cycle_nested_under_noncyclic_detected :
+    evalSourceDetectsStructuralCycle "#Inner: {loop: #Inner}\n#Outer: {inner: #Inner}\nr: #Outer\n" = true := by
+  native_decide
+
+-- MUTUAL cycle through REGULAR (non-definition) fields (`a.bb → b`, `b.aa → a`): the class-agnostic
+-- lever (keys on struct-body re-entrancy, not definition-ness) detects the mutual-regular combination
+-- too — the single-field regular case and the def-mutual case are each pinned, this is their cross.
+-- cue agrees (`b.aa: structural cycle`).
+theorem structural_cycle_mutual_regular_fields_detected :
+    evalSourceDetectsStructuralCycle "a: {bb: b}\nb: {aa: a}\nz: a\n" = true := by
+  native_decide
+
 
 /-! ### terminating-disjunct (D#2b).
 
