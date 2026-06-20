@@ -297,16 +297,16 @@ theorem descend_clauses_agrees_remapConjClauses :
 /-! ### A-EN3 — `foldValueWithDepth` combinator pins (the shared structural fold).
 
 The three def-frame scanners (`refsSelfEmbeddedLabel`/`selfReferencedLabels`/`defFrameRefIndices`)
-are thin `foldValueWithDepth` instantiations. These pins lock the combinator's contract and the ONE
-structural divergence between the instantiations (the `.dynamicField` value depth), so a future
-edit that drifts the shared skeleton or "reconciles" the divergence is a `native_decide` failure,
-not a silent value change. -/
+are thin `foldValueWithDepth` instantiations. These pins lock the combinator's contract and the
+`.dynamicField` value-depth discipline (scanned at the PARENT depth, mirroring the resolver, which
+pushes no frame for a dynamic field — A-EN3-DYN), so a future edit that drifts the shared skeleton
+or re-introduces the over-deep `+1` scan is a `native_decide` failure, not a silent value change. -/
 
 -- Empty-monoid degeneracy: a fold whose `combine` always returns `empty` and whose `leaf` never
 -- fires collapses to `empty` regardless of the tree — the structural skeleton contributes nothing
 -- on its own; ALL signal comes from the leaf hook.
 theorem fold_value_with_depth_empty_monoid_is_empty :
-    (foldValueWithDepth (β := List Nat) (fun _ _ => []) [] (fun _ _ => none) 0 evalFuel 0
+    (foldValueWithDepth (β := List Nat) (fun _ _ => []) [] (fun _ _ => none) evalFuel 0
         (mkStruct [⟨"a", .regular, .refId ⟨0, 3⟩⟩] .regularOpen none
           [(.kind .string, .comprehension [.forIn none "x" (.list [])] (.refId ⟨1, 7⟩))])
       == []) = true := by
@@ -317,20 +317,20 @@ theorem fold_value_with_depth_empty_monoid_is_empty :
 -- the inner `.refId ⟨0,0⟩` (which a structural descent would have collected as `[0]`).
 theorem fold_value_with_depth_leaf_short_circuits :
     (foldValueWithDepth (β := List Nat) (· ++ ·) []
-        (fun _ v => match v with | .struct .. => some [99] | _ => none) 0 evalFuel 0
+        (fun _ v => match v with | .struct .. => some [99] | _ => none) evalFuel 0
         (mkStruct [⟨"a", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])
       == [99]) = true := by
   native_decide
 
--- The `.dynamicField` value-depth divergence (`dynValShift`): `defFrameRefIndices` (shift 1) scans a
--- dynamic field's VALUE one frame deeper than the self scanners (shift 0). Witnessed by collecting
--- the SAME bare-`.refId` leaf at TWO depths: from `depth 0`, `defFrameRefIndices` reaches a value-ref
--- at `⟨1, _⟩` (scanned at `0+1`), while a hypothetical shift-0 scan reaches `⟨0, _⟩`. Pinning both
--- arms locks the shift (⚠ shift 1 is the latent over-deep scan vs the resolver, which pushes no frame
--- for a dynamic field; a future reconcile to shift 0 flips the first arm to read `⟨0, 5⟩`).
-theorem fold_value_dynfield_shift_divergence :
-    (defFrameRefIndices evalFuel 0 (.dynamicField (.prim (.string "k")) .regular (.refId ⟨1, 5⟩)) == [5]
-      && defFrameRefIndices evalFuel 0 (.dynamicField (.prim (.string "k")) .regular (.refId ⟨0, 5⟩)) == []) = true := by
+-- The `.dynamicField` value-depth discipline (A-EN3-DYN): `defFrameRefIndices` scans a dynamic
+-- field's VALUE at the PARENT depth — no `+1` — because the resolver pushes no frame for a dynamic
+-- field (key and value both resolve in the parent scope, `Resolve.lean`). Witnessed from `depth 0`:
+-- a value-ref at `⟨0, 5⟩` (def-frame depth) IS collected, while `⟨1, 5⟩` (one frame deeper than the
+-- def actually is) is NOT. This is the FIXED behavior; the pre-fix over-deep `+1` scan had the arms
+-- swapped (`⟨1,5⟩ → [5]`), missing the real read and dropping the use-site narrowing.
+theorem fold_value_dynfield_value_scanned_at_parent_depth :
+    (defFrameRefIndices evalFuel 0 (.dynamicField (.prim (.string "k")) .regular (.refId ⟨0, 5⟩)) == [5]
+      && defFrameRefIndices evalFuel 0 (.dynamicField (.prim (.string "k")) .regular (.refId ⟨1, 5⟩)) == []) = true := by
   native_decide
 
 /-! ### B7 — `descendClauses` agreement theorems (the new structural guarantee).

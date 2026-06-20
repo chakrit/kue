@@ -92,9 +92,8 @@ mutual
 /-- Generic depth-threading structural fold over the full `Value` constructor tree (A-EN3). The
     three def-frame scanners — `refsSelfEmbeddedLabel` (monoid `Bool`/`||`), `selfReferencedLabels`
     (`List String`/`++`), `defFrameRefIndices` (`List Nat`/`++`) — are the SAME recursion, differing
-    only in (a) the monoid `(combine, empty)`, (b) the `leaf` hook deciding which node contributes,
-    and (c) the depth threaded into a `.dynamicField`'s VALUE (see `dynValShift`). They become thin
-    instantiations of this fold.
+    only in (a) the monoid `(combine, empty)` and (b) the `leaf` hook deciding which node
+    contributes. They become thin instantiations of this fold.
 
     `leaf depth node` is a PRE-ORDER hook: `some x` makes `node` a leaf contributing `x` (no further
     descent); `none` recurses structurally into `node`'s children, each at its frame depth (`+1` per
@@ -102,15 +101,12 @@ mutual
     threaded by `descendClauses` (`+1` per `for`/`let`, `+0` per guard). Frame-pusher discipline
     mirrors `hasSelfRefAtDepth`/`resolveClausesWithFuel`.
 
-    `dynValShift` is the depth offset added to a `.dynamicField`'s value sub-position: `0` for the
-    self-frame scanners (the resolver does NOT push a frame for a dynamic field — `Resolve.lean`
-    resolves both key and value in the same scope), `1` for `defFrameRefIndices`. ⚠ The `1` is a
-    LATENT over-deep scan (inconsistent with the resolver, which uses `0`); it is unreachable in the
-    corpus and preserved byte-identically here. A follow-up should reconcile it to `0`. -/
+    A `.dynamicField`'s VALUE is scanned at the SAME depth as its key (no `+1`): the resolver pushes
+    NO frame for a dynamic field — `Resolve.lean` resolves both key and value in the parent scope —
+    so a ref in the value resolves to the parent's frames, exactly as the fold's depth records. -/
 def foldValueWithDepth {β : Type}
     (combine : β → β → β) (empty : β)
     (leaf : Nat → Value → Option β)
-    (dynValShift : Nat)
     (fuel : Nat) (depth : Nat) : Value → β
   | v =>
       match leaf depth v with
@@ -118,7 +114,7 @@ def foldValueWithDepth {β : Type}
       | none =>
         let rec' := fun (d : Nat) (child : Value) => match fuel with
           | 0 => empty
-          | f + 1 => foldValueWithDepth combine empty leaf dynValShift f d child
+          | f + 1 => foldValueWithDepth combine empty leaf f d child
         match v with
         | .selector base _ => rec' depth base
         | .index base key => combine (rec' depth base) (rec' depth key)
@@ -131,7 +127,7 @@ def foldValueWithDepth {β : Type}
         | .listTail items tail =>
             combine (items.foldl (fun acc i => combine acc (rec' depth i)) empty) (rec' depth tail)
         | .builtinCall _ args => args.foldl (fun acc a => combine acc (rec' depth a)) empty
-        | .dynamicField l _ inner => combine (rec' depth l) (rec' (depth + dynValShift) inner)
+        | .dynamicField l _ inner => combine (rec' depth l) (rec' depth inner)
         | .structComp fields cs _ =>
             combine
               (fields.foldl (fun acc fl => combine acc (rec' (depth + 1) (Field.value fl))) empty)
@@ -152,11 +148,11 @@ def foldValueWithDepth {β : Type}
         | .comprehension clauses body =>
             match fuel with
             | 0 => empty
-            | f + 1 => foldValueWithDepthClauses combine empty leaf dynValShift f depth clauses body
+            | f + 1 => foldValueWithDepthClauses combine empty leaf f depth clauses body
         | .listComprehension clauses body =>
             match fuel with
             | 0 => empty
-            | f + 1 => foldValueWithDepthClauses combine empty leaf dynValShift f depth clauses body
+            | f + 1 => foldValueWithDepthClauses combine empty leaf f depth clauses body
         | _ => empty
 
 /-- Thread a comprehension's clause chain via `descendClauses` (`+1` per `for`/`let`, `+0` per
@@ -165,12 +161,11 @@ def foldValueWithDepth {β : Type}
 def foldValueWithDepthClauses {β : Type}
     (combine : β → β → β) (empty : β)
     (leaf : Nat → Value → Option β)
-    (dynValShift : Nat)
     (fuel : Nat) (depth : Nat) (clauses : List (Clause Value)) (body : Value) : β :=
   descendClauses combine
-    (fun d source => foldValueWithDepth combine empty leaf dynValShift fuel d source)
-    (fun d cond => foldValueWithDepth combine empty leaf dynValShift fuel d cond)
-    (fun d => foldValueWithDepth combine empty leaf dynValShift fuel d body)
+    (fun d source => foldValueWithDepth combine empty leaf fuel d source)
+    (fun d cond => foldValueWithDepth combine empty leaf fuel d cond)
+    (fun d => foldValueWithDepth combine empty leaf fuel d body)
     depth clauses
 end
 
@@ -193,7 +188,7 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
       | .selector (.refId id) label =>
           some (id.depth == d && id.index == selfIndex && labels.contains label)
       | _ => none)
-    0 fuel depth
+    fuel depth
 
 /-- Should the embedding-`Self` two-pass fire? Only when (a) embeddings contributed labels NOT
     declared static, AND (b) some static field actually selects one through the host's `Self`
@@ -221,7 +216,7 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value → List S
       | .selector (.refId id) label =>
           some (if id.depth == d && id.index == selfIndex then [label] else [])
       | _ => none)
-    0 fuel depth
+    fuel depth
 
 /-- The slot indices read by a `.refId` that resolves to frame `depth` (the def's own frame),
     scanning `value` in full and threading frame depth through every frame-pusher — struct/struct-
@@ -239,15 +234,15 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value → List S
     `hasSelfRefAtDepth`.
 
     Thin `foldValueWithDepth` instantiation (monoid `List Nat`/`++`): the bare `.refId id` arm is
-    the leaf (yields `[id.index]` on a def-frame hit). `dynValShift := 1` — a `.dynamicField`'s value
-    is scanned one frame deeper here (⚠ over-deep vs the resolver, see `foldValueWithDepth`;
-    preserved byte-identically, unreachable in the corpus). -/
+    the leaf (yields `[id.index]` on a def-frame hit). A `.dynamicField`'s value is scanned at the
+    parent's depth (the resolver pushes no frame for it) — so a def sibling read solely through a
+    dyn-field value (`[for x in [..] {("k"): kind}]`) is collected and spliced (A-EN3-DYN). -/
 def defFrameRefIndices (fuel : Nat) (depth : Nat) : Value → List Nat :=
   foldValueWithDepth (· ++ ·) []
     (fun d v => match v with
       | .refId id => some (if id.depth == d then [id.index] else [])
       | _ => none)
-    1 fuel depth
+    fuel depth
 
 /-- Pass-2 selective re-eval (perf, audit PART B): the static field INDICES (into `canonical`)
     whose value the embedding-`Self` Pass-2 frame change can alter — to be re-evaluated against the
@@ -2098,10 +2093,16 @@ def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
       match fuel with
       | 0 => false
       | fuel + 1 => hasSelfRefAtDepthClauses fuel depth clauses body
-  | .dynamicField _ _ value =>
+  | .dynamicField key _ value =>
+      -- A dynamic field pushes NO frame (the resolver resolves both key and value in the parent
+      -- scope, `Resolve.lean`), so a self-ref in either resolves to the parent's frames — scanned
+      -- at `depth`, not `depth + 1`. The over-deep `+1` made `defBodyHasSiblingSelfRef` MISS a def
+      -- sibling read solely through a dyn-field value (`[for x in xs {("k"): kind}]`), gating off
+      -- the deferral the use-site narrowing needs (A-EN3-DYN — the same depth-mirror invariant as
+      -- `foldValueWithDepth`'s dyn-field arm).
       match fuel with
       | 0 => false
-      | fuel + 1 => hasSelfRefAtDepth fuel (depth + 1) value
+      | fuel + 1 => hasSelfRefAtDepth fuel depth key || hasSelfRefAtDepth fuel depth value
   | _ => false
 
 /-- Does any clause source/guard or the body reference the def's OWN frame at `depth` (see

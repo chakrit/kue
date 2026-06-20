@@ -10370,3 +10370,67 @@ worth an indirection that worsens the code — mirrors the Phase-A ruling on the
 `classifyArith/Guard/Defined` trio. `injectLetLocalNarrowings` already reuses `letPromotedReadLabels`
 — the two are factored at the right seam. Do NOT re-file. Plan + spec-conformance backlog updated to
 RULED OUT.
+
+---
+
+## Completed Slice: A-EN3-DYN — dyn-field value depth reconciled to the resolver (Violation fix)
+
+Goal: fix a REACHABLE wrong result where a comprehension inside an embedded def reads a regular def
+sibling SOLELY through a DYNAMIC field's value, and the sibling is narrowed at the use site. Witness
+(cue v0.16.1 correct, kue wrong pre-fix):
+
+```
+#Add: {#kind: string, kind: string, out: [for x in ["a"] {("k"): kind}]}
+patch: {#kind: "specific", kind: "specific", #Add}
+# cue → patch.out == [{k: "specific"}]
+# kue (pre-fix) → export error "incomplete value: string"  (kind never narrowed)
+```
+
+A STATIC body field (`{k: kind}`) already evaluated correctly — clean static-vs-dynamic isolation.
+
+**Root cause — TWO parallel occurrences of the same depth-mirror bug.** A `.dynamicField` pushes NO
+resolver frame (`Resolve.lean` resolves both key and value in the parent scope), so a fold/scan must
+read the value at the SAME depth as the field, not `depth + 1`. Two functions violated this:
+
+1. **`foldValueWithDepth` / `defFrameRefIndices`** (the splice-seed scanner via
+   `embedComprehensionReadLabels`) carried a `dynValShift = 1` knob that scanned the dyn-field value
+   one frame too deep, so `kind` was MISSED as a seed → the use-site narrowing was never spliced into
+   the def frame. This was the documented A-EN3-DYN locus.
+
+2. **`hasSelfRefAtDepth`** (the deferral gate via `defBodyHasSiblingSelfRef`) had the IDENTICAL `+1`
+   on the dyn-field value, AND dropped the key entirely. So `defBodyHasSiblingSelfRef` returned
+   `false` for the witness → the def took the EAGER eval path (which resolves `out` against
+   `kind: string` and caches it) instead of the deferral/closure-force path that re-evaluates against
+   the narrowed frame. This second site was NOT in the original diagnosis — it was found by
+   instrumenting the eval after the first fix alone did not move the end-to-end result.
+
+Both fixes were necessary; neither alone fixed the witness. The seed fix decides WHICH labels to
+splice; the gate fix decides WHETHER the deferral path fires at all.
+
+**Changes.**
+- `foldValueWithDepth`/`foldValueWithDepthClauses`: dropped the now-dead `dynValShift` parameter
+  (all three instantiations passed `0` after the fix — `refsSelfEmbeddedLabel` and
+  `selfReferencedLabels` already did, `defFrameRefIndices` was the lone `1`). The `.dynamicField` arm
+  inlines `rec' depth inner` (was `rec' (depth + dynValShift) inner`). A one-value knob is noise
+  (illegal-states-unrepresentable).
+- `hasSelfRefAtDepth` `.dynamicField` arm: `hasSelfRefAtDepth fuel (depth + 1) value` →
+  `hasSelfRefAtDepth fuel depth key || hasSelfRefAtDepth fuel depth value`. Now scans the KEY too (a
+  dynamic key `(kind): …` reads `kind`, a sibling the deferral must catch) — strictly-more-correct,
+  matching the resolver which resolves the key in the parent scope.
+
+**Tests.** Four `testdata/cue/comprehensions/` fixtures + `FixturePorts` entries: the witness
+(`dynfield_comprehension_narrowed_sibling`), the static control (`static_comprehension_narrowed_sibling`,
+regression), a multi-level variant exercising both the key scan and a nested-value scan
+(`dynfield_comprehension_key_and_nested_value`), and an unaffected dyn-field reading only the loop var
+(`dynfield_comprehension_no_sibling_read`, guards against over-broadening). All four cross-checked
+against cue v0.16.1 (`export`). The A-EN3 combinator pin `fold_value_dynfield_shift_divergence` —
+which LOCKED the buggy over-scan — was REPLACED by `fold_value_dynfield_value_scanned_at_parent_depth`
+asserting the corrected resolver-aligned behavior (the two arms swapped: `⟨0,5⟩ → [5]`, `⟨1,5⟩ → []`).
+The two empty-monoid/leaf-short-circuit combinator pins updated for the dropped positional arg.
+
+**Conformance.** This CONFORMS kue to the CUE spec (lexical scoping — a dynamic field's key and value
+resolve in the field's own scope, no extra frame); cue was already correct, so NO `cue-divergences.md`
+entry. Verify gate green: `lake build` (108 jobs), `scripts/check-fixtures.sh` → `fixture pairs ok`
+(full corpus byte-identical except the now-correct buggy case), shellcheck clean, cert-manager
+byte-identical to the pre-fix HEAD baseline (confirmed via a throwaway worktree build) and
+semantically identical to cue.

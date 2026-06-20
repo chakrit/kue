@@ -3108,6 +3108,65 @@ def fixturePorts : List FixturePort :=
             "#H: {#t: string | *\"def\"}\n#R: Self={#H, out: [for x in [1] {v: Self.#t}]}\nv: #R & {#t: \"y\"}\n" with
         | .ok value => formatResolvedTopLevel value
         | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- A-EN3-DYN (REACHABLE wrong-result Violation): a comprehension inside an embedded def reads a
+      -- regular def sibling (`kind`) SOLELY through a DYNAMIC field's value (`("k"): kind`). The
+      -- sibling is narrowed at the use site (`patch: {kind: "specific", #Add}`), but two parallel
+      -- depth-mirror bugs over-scanned the dyn-field value by one frame: `defFrameRefIndices`
+      -- (`dynValShift=1`) missed `kind` as a splice seed, and `hasSelfRefAtDepth` (`+1` on the
+      -- dyn-field value) made `defBodyHasSiblingSelfRef` miss the self-ref, gating OFF the deferral
+      -- the narrowing needs. The def eagerly evaluated `out` against `kind: string`, so cue's
+      -- `[{k: "specific"}]` became kue's incomplete `string`. The resolver pushes NO frame for a
+      -- dynamic field (`Resolve.lean` resolves key+value in the parent scope), so both scans must
+      -- read the value at the PARENT depth (no `+1`). Oracle cue v0.16.1 → `patch.out: [{k: "specific"}]`.
+      fileName := "comprehensions/dynfield_comprehension_narrowed_sibling.expected",
+      content :=
+        match parseSource
+            "#Add: {#kind: string, kind: string, out: [for x in [\"a\"] {(\"k\"): kind}]}\npatch: {#kind: \"specific\", kind: \"specific\", #Add}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- A-EN3-DYN static control (regression): the SAME shape with a STATIC body field (`k: kind`)
+      -- instead of the dynamic `("k"): kind`. This already evaluated correctly before the fix (the
+      -- self-ref `kind` resolves at the for-body struct frame, which the deferral gate scans at the
+      -- right depth), and MUST stay correct — pinning that the dyn-field fix did not perturb the
+      -- static comprehension path. Oracle cue v0.16.1 → `patch.out: [{k: "specific"}]` (identical
+      -- to the dynamic case).
+      fileName := "comprehensions/static_comprehension_narrowed_sibling.expected",
+      content :=
+        match parseSource
+            "#Add: {#kind: string, kind: string, out: [for x in [\"a\"] {k: kind}]}\npatch: {#kind: \"specific\", kind: \"specific\", #Add}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- A-EN3-DYN multi-level: the dyn-field KEY reads a narrowed sibling (`(tag)`) AND the value
+      -- reads another narrowed sibling one struct DEEPER (`{label: name}`). Exercises both halves of
+      -- the `hasSelfRefAtDepth` dyn-field fix — the key scan (previously dropped entirely) and the
+      -- nested-value scan at the parent depth. Standalone `#Add.out` is `[{}]` (the key `tag` is
+      -- abstract `string`, so the dynamic field cannot materialize); the use site concretes both.
+      -- Oracle cue v0.16.1 → `patch.out: [{t: {label: "n"}}]`.
+      fileName := "comprehensions/dynfield_comprehension_key_and_nested_value.expected",
+      content :=
+        match parseSource
+            "#Add: {tag: string, name: string, out: [for x in [\"a\"] {(tag): {label: name}}]}\npatch: {tag: \"t\", name: \"n\", #Add}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- A-EN3-DYN unaffected control: a dyn-field value that reads ONLY the loop variable (`x`), no
+      -- def sibling. The fix widened the deferral gate to scan dyn-field key+value at the parent
+      -- depth; this pins that the widening does NOT spuriously defer/alter a dyn field with no
+      -- sibling self-ref (the value is concrete from the loop, narrowing-independent). Oracle cue
+      -- v0.16.1 → `patch.out: [{k: "a"}]` (same standalone and at the use site).
+      fileName := "comprehensions/dynfield_comprehension_no_sibling_read.expected",
+      content :=
+        match parseSource
+            "#Add: {kind: string, out: [for x in [\"a\"] {(\"k\"): x}]}\npatch: {kind: \"specific\", #Add}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
     }
   ]
 

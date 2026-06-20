@@ -116,14 +116,10 @@ argocd residual **Bug2-5** (PARKED), **BI-1** (✅ DONE 2026-06-20 — Unicode c
 full-folding tail deferred), **E#4-fix** (✅ DONE 2026-06-20 — arithmetic operator domain now
 type-errors concrete out-of-domain operands + string/bytes `*` repetition; see item #6),
 **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
-**SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **A-EN3-DYN**
-(reconcile `defFrameRefIndices`'s over-deep `.dynamicField` value scan to depth 0 — **RE-CLASSIFIED
-by the Phase-A audit from "LOW unreachable corner" to a REACHABLE WRONG-RESULT bug**: a comprehension
-reading a use-site-narrowed def sibling through a dyn-field value expands against the un-narrowed
-type; witness + clean static-vs-dynamic control in the walker-dedup section. Spec-conformance
-Violation, low corpus exposure), **DYN-DEF-1** (dynamic field inside a DEFINITION dropped when its
-keying field is narrowed at the use site — distinct pre-existing bug found while probing A-EN3-DYN;
-see the walker-dedup section). **DRY-1 is RULED OUT** (the let-walkers
+**SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **DYN-DEF-1**
+(dynamic field inside a DEFINITION dropped when its keying field is narrowed at the use site —
+distinct pre-existing bug found while probing A-EN3-DYN; see the walker-dedup section).
+**DRY-1 is RULED OUT** (the let-walkers
 don't share a combinator — collect-vs-rewrite + a `List Nat` worklist + a termination trap;
 attempted under A-EN3 and reverted, see the walker-dedup section — do not re-file).
 **The 4 spec-gap ratifications are DONE (2026-06-20):** gaps 1–3 RATIFIED + test-pinned; gap 4
@@ -304,12 +300,10 @@ see the A-EN3+DRY-1 entries below) → AD2-1 is now the SOLE remaining dedup-fam
 
 **Next-leader ranking (correctness-first; Phase-B 2026-06-20, the audit that closed the AD4-1 +
 A-EN3 round):** AD2-1 is the sole remaining *dedup-family* member, but it is NOT the next overall
-leader. The Phase-A re-classification of **A-EN3-DYN** from a "LOW unreachable corner" to a
-**REACHABLE wrong-result Violation** changes the ranking: by the repo's correctness-over-everything
-gate, a spec-conformance Violation outranks any DRY cleanup. So the next-batch order is
-**A-EN3-DYN (Violation, leads) → DYN-DEF-1 (MEDIUM Violation) → AD2-1 (LOW-MED dedup, file-not-inline)**,
-then the LOW cosmetic tail (item 6). A-EN3-DYN and DYN-DEF-1 are both real wrong-results on
-constructible patterns; AD2-1 is value-sound (display-only) and never preempts them.
+leader. **A-EN3-DYN is now ✅ DONE** (the leading Violation, landed this slice — see the entry below
+and the implementation-log). The remaining order is **DYN-DEF-1 (MEDIUM Violation, leads) → AD2-1
+(LOW-MED dedup, file-not-inline)**, then the LOW cosmetic tail (item 6). DYN-DEF-1 is a real
+wrong-result on a constructible pattern; AD2-1 is value-sound (display-only) and never preempts it.
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
   The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`
@@ -349,38 +343,33 @@ constructible patterns; AD2-1 is value-sound (display-only) and never preempts t
   refs buried in a dynamic-field value. The DRY refactor correctly preserved this byte-identically
   (the old `defFrameRefIndices` scanned the dyn-field value at `depth+1` too — verified against
   `f9c1e56`); the refactor introduced NOTHING. See A-EN3-DYN for the reachability verdict.
-- **A-EN3-DYN (was LOW "unreachable corner" — RE-CLASSIFIED to a REACHABLE WRONG-RESULT bug by the
-  Phase-A audit of this batch; bump above AD2-1).** The over-deep `.dynamicField`-value scan in
-  `defFrameRefIndices` (`dynValShift=1`, `Eval.lean:245`) is **NOT unreachable** — the prior "corner
-  the corpus never hits" claim was true only of the *committed fixtures*, not of constructible
-  input. Confirmed wrong-result witness (cue v0.16.1 is correct; kue is wrong — a divergence FROM
-  spec, kue's bug):
-  ```
-  #Add: { #kind: string, kind: string, out: [for x in ["a"] {("k"): kind}] }
-  patch: { #kind: "specific", kind: "specific", #Add }
-  # cue: patch.out == [{k: "specific"}]   (kind narrowed reaches the dyn-field value)
-  # kue: patch.out == [{k: string}]       (WRONG — kind stays un-narrowed)
-  ```
-  Clean isolation: the SAME source with a STATIC body field `{k: kind}` instead of the dynamic
-  `{("k"): kind}` evaluates CORRECTLY in kue (`[{k: "specific"}]`). The only difference is
-  static-vs-dynamic field → the bug is exactly the `dynValShift=1` over-scan: a comprehension reading
-  a def sibling SOLELY through a dyn-field value has that read scanned one frame too deep, so
-  `embedComprehensionReadLabels` never collects the sibling, the embed splice omits its narrowed
-  value, and the comprehension expands against the un-narrowed type. Spec basis: CUE evaluates a
-  dynamic field's value in the enclosing struct's scope, identical to a static field — so a sibling
-  ref must resolve to the same frame either way. The bug pre-dates A-EN3 (present at `f9c1e56`); the
-  DRY slice faithfully preserved it (correct for a DRY slice). **Fix-slice A-EN3-DYN:** reconcile
-  `dynValShift` to `0` (the resolver's discipline), add the witness above as a `testdata` fixture
-  pair + `FixturePorts` entry, FLIP `fold_value_dynfield_shift_divergence` to assert the corrected
-  `[5]→[]` arms, re-run the full gate. NOTE the fix INTENTIONALLY breaks byte-identical (it corrects
-  a wrong result) — so it is a real TDD bug-slice, NOT a low-risk inline change. Severity: a real
-  wrong-result on a constructible pattern (embedded def + comprehension + dynamic field reading a
-  use-site-narrowed sibling); low corpus exposure (prod9's argocd shape doesn't hit it today) but it
-  is a Violation by the spec-conformance gate, not a perf corner. Separately surfaced while probing:
+- **A-EN3-DYN — ✅ DONE (this slice; see implementation-log).** A comprehension inside an embedded
+  def reading a regular def sibling SOLELY through a DYNAMIC field's value, where the sibling is
+  narrowed at the use site, produced a wrong result (the narrowing was lost; the witness exported as
+  an incomplete `string`). The static-body control (`{k: kind}`) was always correct — clean
+  static-vs-dynamic isolation. **Root cause turned out to be TWO parallel sites of the same
+  depth-mirror bug, not one** (the original diagnosis named only the first):
+  1. `foldValueWithDepth`/`defFrameRefIndices` scanned the dyn-field value at `depth+1` (the
+     `dynValShift=1` knob) → `embedComprehensionReadLabels` missed the sibling as a splice seed.
+  2. `hasSelfRefAtDepth` had the IDENTICAL `+1` on the dyn-field value (and dropped the key entirely)
+     → `defBodyHasSiblingSelfRef` returned `false`, so the def took the EAGER path (resolves `out`
+     against `kind: string`, caches it) instead of the deferral/closure-force path. **This second
+     site was found by instrumenting the eval after fixing only the first did not move the result.**
+  Both were necessary. Spec basis: a `.dynamicField` pushes NO resolver frame (`Resolve.lean`
+  resolves key+value in the parent scope), so both scans must read the value at the PARENT depth.
+  **Fix:** dropped the now-dead `dynValShift` parameter (all three `foldValueWithDepth`
+  instantiations passed `0`) and inlined the `0` offset; changed `hasSelfRefAtDepth`'s dyn-field arm
+  to scan key+value at `depth`. **Tests:** four `testdata/cue/comprehensions/` fixtures (witness,
+  static control, multi-level key+nested-value, unaffected-no-sibling) + `FixturePorts` entries, each
+  cross-checked against cue v0.16.1; the A-EN3 pin `fold_value_dynfield_shift_divergence` (which
+  LOCKED the over-scan) REPLACED by `fold_value_dynfield_value_scanned_at_parent_depth` asserting the
+  corrected arms. CONFORMS to spec (cue was right → no `cue-divergences.md` entry). Gate green:
+  build/`fixture pairs ok` (full corpus byte-identical except the now-correct buggy case)/shellcheck;
+  cert-manager byte-identical to the pre-fix HEAD baseline. Separately surfaced while probing:
   **dynamic fields inside DEFINITIONS are dropped entirely when the keying field is narrowed at the
   use site** (`#Add: {kind: string, (kind): "m"}` then `#Add & {kind: "specific"}` → cue keeps
   `specific: "m"`, kue drops it) — a DISTINCT pre-existing bug (no comprehension, so
-  `defFrameRefIndices` is not on its path; out of this batch's scope), filed as **DYN-DEF-1** below.
+  `defFrameRefIndices` is not on its path), filed as **DYN-DEF-1** below.
 - **DYN-DEF-1 (NEW — found by the Phase-A audit while probing A-EN3-DYN; pre-existing, out of this
   batch's diff).** A dynamic field declared in a DEFINITION is dropped from the result when the
   field it is keyed by is narrowed at the use site (via `&` OR embedding). Witness (cue v0.16.1
@@ -392,13 +381,10 @@ constructible patterns; AD2-1 is value-sound (display-only) and never preempts t
   # kue: patch == { kind: "specific" }            (WRONG — dyn field dropped; def output drops it too)
   ```
   Both the def's own output (`#Add: {kind: string}` — the `(kind)` arm vanishes) and the narrowed
-  **Follow-up FOR the A-EN3-DYN fix-slice (`dynValShift` survival — Phase-B 2026-06-20):** once the
-  fix sets `defFrameRefIndices`'s `dynValShift` to `0`, BOTH `foldValueWithDepth` call sites pass
-  `0` (the two `Bool`/`List String` self-frame scanners already pass `0`). At that point the
-  `dynValShift` parameter is a constant across every caller → DEAD. The fix-slice should, as its last
-  step, drop the `dynValShift` parameter from `foldValueWithDepth`/`foldValueWithDepthClauses` and
-  inline the `0` offset at the `.dynamicField` value position (the over-deep scan and the knob that
-  expressed it vanish together). Recorded here so the cleanup rides the fix, not a separate slice.
+  use-site output drop the dynamic field. **`dynValShift` ride-along — ✅ DONE with A-EN3-DYN:** the
+  parameter was dropped from `foldValueWithDepth`/`foldValueWithDepthClauses` and the `0` offset
+  inlined (all three instantiations passed `0` after the fix; a one-value knob is noise). The
+  over-deep scan and the knob that expressed it are gone together.
 
   ---
 
@@ -491,8 +477,9 @@ DYN-DEF-1) — verdict: HEALTHY; no code fix; rankings/rulings folded in. CLOSES
     `defFrameRefIndices` `List Nat`/`++`) are thin instantiations differing only in the monoid, the
     pre-order `leaf` hook, and the `dynValShift` offset. Clause-depth threading is centralized in
     `foldValueWithDepthClauses`/`descendClauses` — a single authority, not duplicated per scanner.
-    The `dynValShift` knob HONESTLY documents the one structural divergence (and is the
-    A-EN3-DYN bug locus — see the contingent-death follow-up on that entry).
+    (The `dynValShift` knob that documented the one structural divergence was the A-EN3-DYN bug
+    locus; A-EN3-DYN is now DONE and the knob was dropped — all instantiations scan at the same
+    depth. See the A-EN3-DYN entry.)
   - **`ClauseOutcome β` + `expandClauseChain`/`expandForPairs` (AD4-1, `Eval.lean:2492`/`3443`)** —
     `[EmptyCollection β] + [Append β]` is exactly the right interface (empty payload for the
     `fuel=0`/`concreteFalse`/no-pairs cases, `++` to concatenate iteration payloads). The struct/list
@@ -506,9 +493,9 @@ DYN-DEF-1) — verdict: HEALTHY; no code fix; rankings/rulings folded in. CLOSES
   round to separate "sole dedup-family member" from "next overall leader").
 - **Bug ranking RE-ORDERED to correctness-first (folded into the walker-dedup section).** Phase A's
   re-classification of A-EN3-DYN (LOW corner → REACHABLE wrong-result Violation) outranks the DRY
-  cleanup AD2-1 under the correctness-over-everything gate. **Next-batch leader = A-EN3-DYN
-  (Violation) → DYN-DEF-1 (MEDIUM Violation) → AD2-1 (LOW-MED dedup, file-not-inline)** → LOW tail.
-  The walker-dedup section formerly read "AD2-1 is NEXT leader" (written pre-re-classification) — now
+  cleanup AD2-1 under the correctness-over-everything gate. **Leader now = DYN-DEF-1 (MEDIUM
+  Violation) → AD2-1 (LOW-MED dedup, file-not-inline)** → LOW tail (A-EN3-DYN, the former leader, is
+  ✅ DONE). The walker-dedup section formerly read "AD2-1 is NEXT leader" (written pre-re-classification) — now
   corrected: AD2-1 is the sole dedup-family member but a value-sound display-only cleanup, so it
   never preempts the two Violations.
 - **`.any`→`foldl` short-circuit (Phase A flag) — RULED: ACCEPT, no fix.** `refsSelfEmbeddedLabel`

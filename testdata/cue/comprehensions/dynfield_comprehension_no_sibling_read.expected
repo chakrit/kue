@@ -1,0 +1,2 @@
+#Add: {kind: string, out: [{k: "a"}]}
+patch: {kind: "specific", out: [{k: "a"}]}
