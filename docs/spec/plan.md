@@ -438,6 +438,84 @@ batch → AD2-1.**
   is RESOLVED: the layer is right, the placement gets a named seam at the second effectful builtin,
   and a full registry is rejected. See **BI-EFF** in the backlog.
 
+**Phase-A audit 2026-06-20 (truncate-primitive `7dfaadd` + ratifications `47ff318` + E#4-fix
+`02b8b9d`; batch since `4593185`) — verdict: CLEAN, no code fix:**
+
+- **★ E#4 per-operator domain correctness — SOUND (oracle-verified, v0.16.1).** Probed every
+  operator × operand-type against the oracle: `[1]+[2]`, `[1]-3`, `3*[1,2]`, `[1]/3`,
+  `{a:1}+{b:2}`, `true*false`, `null-null`, `null+1`, `"a"-"b"` all HARD-ERROR in cue — Kue now
+  matches (the four ops route their `_,_` catch-all through `arithmeticDomainResult`, which
+  bottoms a concrete-nonarith operand paired with a concrete partner via `.bottomWith
+  [.nonArithmeticOperand op ty]`). `"a"+"b"` concat and the `prim,prim` mismatches (`1+"x"`,
+  `"ab"*2.0`) left untouched and still correct. Per-op asymmetry (`+`/`*` admit string/bytes,
+  `-`/`/` do not) is faithful.
+- **★ String/bytes `*` repetition IS real cue/spec behavior — CONFIRMED, no quirk blessed.**
+  Independently oracle-verified: `"ab"*2="abab"` AND `2*"ab"="abab"` (both orders), `"ab"*0=""`,
+  `"ab"*-1` errors `cannot convert negative number to uint64` (exactly the cited message),
+  `'ab'*2='abab'`/`'ab'*0=''` (bytes). Kue's `evalRepeat` matches end-to-end through the binary.
+  The negative guard precedes `.toNat` (line 863), so no `Int→Nat` underflow. Spec basis: *"+ and
+  * also apply to strings and bytes"* — repetition is the documented `*` semantics. NOT a
+  non-spec quirk.
+- **★ Concrete-vs-incomplete (the regression risk) — SOUND, no wrong-bottom.** Oracle-verified:
+  `[1] + x` with `x: int` abstract HOLDS the residual (cue: `y: [1] + x`, NOT bottom), symmetric
+  `x + [1]` likewise, `{a:1} + x` likewise, `[1] + z` (unresolved ref) likewise — and once
+  resolved (`resolved: 5; resolved + 3`) it computes to `8`. `arithmeticDomainResult` checks
+  `.incomplete` FIRST (lines 853-854), so a concrete-nonarith × incomplete pair DEFERS. End-to-end
+  through `kue`: incomplete operands surface `incomplete value: int` (held residual), both-concrete
+  cross-type (`[1]+2`) bottoms — the exact fork. `classifyArithOperand`'s concreteNonArith set is
+  EXACTLY the four fully-evaluated non-arith shapes (`struct [] _`, `list`, `listTail`,
+  `embeddedList`); a pattern-bearing `struct (_::_)`, `structComp`, `disj`, bounds, kinds, refs all
+  → incomplete (defer). No incomplete value mis-classified as concrete. **No soundness regression.**
+- **Illegal-states / exhaustiveness — CLEAN.** `classifyArithOperand` enumerates every `Value`
+  ctor (29 arms = 28 ctors with `struct` split on `patterns.isEmpty`) with NO catch-all;
+  green build (108 jobs) is the compile-time exhaustiveness proof. The two new `BottomReason`s
+  (`nonArithmeticOperand`, `negativeRepeatCount`) ride the generic `.bottomWith` — grep confirms
+  ZERO code anywhere pattern-matches individual `BottomReason` ctors (carried opaquely in a list,
+  compared via derived `BEq`/`DecidableEq`, printed via derived `Repr`), so no match site needs
+  updating. `BottomReason`/`NonBoolGuardType` are tight sum types.
+- **Totality — CLEAN.** No `partial` in the arithmetic region; `classifyArithOperand`/
+  `arithmeticDomainResult`/`evalRepeat` total (non-recursive); truncate-primitive's mutual-block
+  `termination_by` intact (build green). The `_,_ => .binary` tail of `arithmeticDomainResult` is
+  a totality-completion arm (structurally `prim,prim`, unreachable since each op handles its prim
+  pair first) — a safe residual, not a "can't happen" hiding a real case.
+- **Test strength — STRONG.** 3 fixtures (each with a `FixturePorts` entry, all oracle-faithful):
+  `list_arithmetic_type_error` (4 ops × list + struct + bool + null), `string_repeat_multiplication`
+  (both orders + `*0` + `+`/`-` asymmetry), `arithmetic_incomplete_operand_defers` (the regression:
+  `int + [1]` / `int * 2` defer, `resolved + 3 = 8`). EvalTests pins cover each op × wrong-type,
+  both repetition orders + `*0` + negative, and the incomplete-defers regression in both operand
+  orders + bound + ref. No pre-existing fixture blessed the old wrong residual (clean — the only
+  list/struct/bool arithmetic fixtures are the three new ones).
+- **truncate-primitive light-check — SOUND.** Exactly 7 drop sites route through
+  `EvalState.truncate` (the single choke point); 0 hand-written bumps remain at drop sites. The 2
+  cache-rebump sites (`cache` 2756, `forceClosureWithConjunct` 3365) correctly use a CONDITIONAL
+  `+ bump` (fires only on a cached `.truncated` hit) and are correctly NOT routed through the
+  unconditional primitive. The 3 bump-invariant pins are real contract tests (arbitrary-start
+  increment-by-one, polymorphic return-unchanged, three-shape bump), not smoke.
+- **ratifications light-check — SOUND.** The 3 StructTests pins assert what they claim:
+  open-disjunction stays open + is meet-identity with `.top` (oracle confirms `{a:int}|{b:string}`
+  stays open), field-order is declaration order (oracle confirms cue SORTS `{b:1}&{a:2}`→`a,b`,
+  Kue keeps `b,a` — a principled spec divergence, correctly recorded). E#4 row in
+  `cue-spec-gaps.md` correctly flipped to RESOLVED→CONFORMING with full spec citation + matrix
+  verdict. implementation-log / spec-conformance-audit E#4 entries match the code.
+- **FLAG for Phase B (the "three parallel classifiers" DRY question — Phase-A read: likely leave
+  separate).** `classifyArithOperand` / `classifyGuard` / `classifyDefinedness` share the same
+  big `Value`-ctor enumeration with the same concrete-shape partition (the four concrete shapes
+  singled out, the long abstract tail bucketed). But they are GENUINELY DISTINCT verdict functions:
+  different target sums (`ArithOperandClass` / `GuardVerdict` / `Definedness`), different leaf
+  verdicts (`prim`→prim vs nonBool vs defined), and ctor-specific arms the others lack
+  (`classifyGuard`'s presence-test `.binary .eq/.ne _ .bottom`→concreteFalse; `classifyDefinedness`'s
+  `disj`-liveness→defined/error and `structComp`→defined where the others defer/incomplete). A naive
+  shared fold either loses these or needs so many per-classifier hooks it adds no leverage. The
+  shared *structure* is the concrete-vs-incomplete partition (a candidate `classifyConcreteness`
+  helper with a real name); the *verdicts* are not shared. Analogous to the A-EN3 fold family —
+  Phase B's judgment whether a shared concreteness-partition core is warranted (likely NO per
+  general-coding's "the stuff they all do is not a name", but worth a deliberate ruling).
+- **Minor doc-staleness (deferred to plan-hygiene, NOT a Phase-A fix).** `spec-conformance-audit.md`
+  lines ~211/219 still list "the 4 spec-gap ratifications" as OPEN backlog and ~212-215 describe a
+  stale audit-cadence state (`7ee15d8`-era counter, "test-org=slice 1, BI-1=slice 2"). Both closed
+  by this batch. Roadmap-section currency is owned by the due plan-hygiene pass / Phase B, not
+  Phase A — flagged here for that pass to sweep.
+
 **Phase-B audit 2026-06-20 (`28894ef`, whole-graph; scopes BI-2 `4c59989` + F-3 `a6dc012`) — verdict:**
 
 - **Architecture HEALTHY.** Module layering is clean and acyclic: `Builtin → {Lattice, Regex,
