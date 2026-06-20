@@ -45,6 +45,10 @@ memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-l
   targets *correct* CUE v0.15 semantics over bug-for-bug parity.
 - [Correctness Over Performance](decisions/2026-06-18-correctness-over-performance.md) —
   why Kue never trades soundness for speed, while keeping basic cases usable.
+- [Distribution: Prebuilt + Local Release](decisions/2026-06-16-distribution-prebuilt-local-release.md)
+  — why Kue ships prebuilt arm64 binaries cut by a local script, not CI.
+- [Implementation Language: Lean 4](decisions/2026-06-17-implementation-language-lean4.md)
+  — why Kue stays on Lean 4 over an OCaml/Haskell/Rust rewrite, and what would flip it.
 - [Lean 4 Guide](guides/lean4-guide.md) — repo-local Lean 4 quickstart: Lake setup,
   module layout, proof workflow, and how to model CUE semantics in Lean.
 - [Performance Guide](guides/kue-performance.md) — how to write CUE that Kue evaluates

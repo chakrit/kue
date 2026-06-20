@@ -322,25 +322,12 @@ those forms.
     missing-field-on-closed-struct to bottom is the principled fix (the loose
     incomplete/bottom conflation the type-system lens flags) but has broad blast radius
     across every selection path and does NOT unblock the argocd gate, so it is deferred.
-  - **Still-blocking layer (separate slice 2c):** the *real* `#D & {#x:"hi"}` def-meet
-    guard does not fire — but that is **lazy field resolution through definition-meet**, not
-    the comparison. kue eagerly evaluates a definition's comprehension body + field refs
-    against the definition's own pre-meet scope (`#x: string`) instead of deferring until the
-    meet supplies `#x: "hi"`. Confirmed orthogonal: `#D: {#x?: string, out: {if true {val:
-    #x}}}; y: #D & {#x:"hi"}` → `cue` `out.val: "hi"`, kue `out.val: string` / `y: ⊥`.
-  - **Cross-package variant (still-open, diagnosed 2026-06-17).** The same eager-def-meet
-    laziness applies — and is the actual current real-app eval blocker — when the definition
-    is reached through an **import**: `pkg.#Def & {use-site}` evaluates the def body's own
-    self-references in the imported def's frame before the use-site unifies in.
-    `parts.#M: {#name: string; out: #name}` + `t1: parts.#M & {#name: "keel"}` → cue
-    `{"out":"keel"}`, kue `incomplete value: string`. **Same-package is fine** (lazy-conj
-    fires); the import boundary is the differentiator because `pkg.#Def` is a depth>0
-    selector that `conjStructOperand?` refuses, so it falls to eval-then-`meet`. Deeper than
-    the same-struct case: a safe fix needs a frame-carrying deferral (the def's body must
-    unify with the use-site before its own depth>0 refs resolve) — out of 2c.2's flat-splice
-    scope. A *second, separate* blocker (perf): large imported defs (`defs.#Deployment`)
-    hang on eval fan-out. Full diagnosis + repros:
-    `docs/notes/2026-06-17-realapp-eval-crosspkg-defmeet-diagnosis.md`.
+  - **Lazy field resolution through definition-meet — RESOLVED.** A definition's comprehension
+    body + field refs now resolve against the *merged* meet scope, not the pre-meet scope, both
+    same-package (slice 2c.2 + the `#x?` optional-definition fix — `#D: {#x?: string}; y: #D &
+    {#x:"hi"}` → `out.val:"hi"`; see "Struct conjunction (`&`)" and "Field modifiers" above) and
+    cross-package via import (`Value.closure` capture frame — `parts.#M & {#name:"keel"}` →
+    `out:"keel"`; see plan.md Standing Capabilities and `testdata/modules/crosspkg_defmeet/`).
 - Ordering expressions `<`, `<=`, `>`, and `>=` are parsed at the same comparison
   precedence as equality. The evaluator currently handles concrete numeric and string
   operands. Mixed-kind ordering bottoms out; ordering over bytes, incomplete values, and

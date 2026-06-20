@@ -5365,7 +5365,7 @@ regression), `shellcheck scripts/check-fixtures.sh` clean.
 Purely organizational — no `.cue`/`.expected` byte changes, no theorem content changes,
 no semantic behavior change. The verify gate (every fixture pair + theorem still passing
 from new locations) is the proof. Breadcrumb:
-[`../notes/2026-06-17-test-reorg-landed.md`](../notes/2026-06-17-test-reorg-landed.md).
+`../notes/2026-06-17-test-reorg-landed.md` (note pruned 2026-06-19; in git history).
 
 ### Steps
 

@@ -31,8 +31,10 @@ Standing grant for this repo, given by chakrit 2026-06-14:
 - **Lean into Lean 4.** Use the language's facilities — dependent types, total
   functions, theorem checks, `structure`/`inductive` invariants — to make illegal states
   unrepresentable and push correctness into the type system wherever it buys real safety.
-- **Commit/push freely.** Standing permission to commit and push (on the current
-  branch, `main` included) without asking, as part of advancing the work.
+- **Commit/push freely (attended).** Standing permission to commit and push (on the
+  current branch, `main` included) without asking, as part of advancing the work. The
+  *push* half is attended-only: in **unattended / AFK mode** (see below), commit but do
+  NOT push.
 - **Go fast.** Use every tool that genuinely speeds the work: subagents for parallel
   fan-out, batched/parallel tool calls, concurrent independent edits. Parallelize only
   when it actually helps — never when coordination overhead would make the whole slower.
@@ -102,6 +104,30 @@ The primary agent (you) is a thin orchestrator, not the implementer:
 The subagent keeps specs current as it goes (grant above); the orchestrator's extra job
 is the cheap done-check and re-spawn. No manual `/ace-save` or `/clear` between slices —
 the subagent boundary gives fresh context, the breadcrumb gives continuity.
+
+### Unattended mode (AFK / nightshift)
+
+When the session is unattended — triggered by `/ace-afk`, "afk", "going afk", "run
+unattended", "overnight", "nightshift", or "keep going while I'm gone" — run the slice
+loop above, but replace every propose/confirm gate with a hard safety **envelope** (no
+human is watching to catch a mistake). Stay strictly inside it:
+
+- **No global-state mutation** — nothing outside the project tree (already standing).
+- **No outward-facing or irreversible actions** — no `push`, publish, release, deploy,
+  mail/messages, or destructive API calls. `push` is the canonical "needs a human" act.
+- **No working-tree destruction** — no `reset --hard`, `checkout`/`restore` over
+  uncommitted work, or force-overwriting files not created this run (already standing).
+- **Commit, don't push.** Land green slices on the current branch so progress survives;
+  pushing waits for a human. This overrides the attended "commit/push freely" grant.
+- **Don't block — log it.** When work needs a human (ambiguous spec, an unsafe judgment
+  call, or an envelope boundary), append a blocker to `.afk.log` at the repo root — *what*
+  (task + where it stopped), *why it needs a human*, *what you'd do* (so a one-word reply
+  unblocks it) — then pick up the next unblocked slice. Never stall the run on one item.
+- **Stop** when out of unblocked work or token budget; write a run summary to `.afk.log`
+  (what landed, what's queued — don't re-list the blockers above).
+
+A boundary you'd have to cross to make progress is itself a blocker: log it, don't cross
+it. Full skill: `ace-afk` in the school.
 
 ## Docs
 
