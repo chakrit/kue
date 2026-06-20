@@ -70,6 +70,35 @@ def wordRanges : List (Char × Char) := [('0', '9'), ('A', 'Z'), ('_', '_'), ('a
 def spaceRanges : List (Char × Char) :=
   [('\t', '\t'), ('\n', '\n'), ('\x0C', '\x0C'), ('\r', '\r'), (' ', ' ')]
 
+/-- The greatest Unicode scalar value (`U+10FFFF`); the upper bound of the `Char` domain a
+    class complement is taken over. The surrogate hole `[U+D800, U+DFFF]` is irrelevant to
+    matching (no input `Char` is a surrogate), so the complement may span it freely. -/
+def maxCodePoint : Nat := 0x10FFFF
+
+/-- Set-complement of a union of code-point ranges over the whole `Char` domain
+    `[0, maxCodePoint]`. This is how a NEGATED shorthand (`\D`/`\W`/`\S`) folds into a `[…]`
+    class: `\D` = `complementRanges digitRanges`, etc. — the complement is itself a union of
+    ranges, so it composes with other class members through the ordinary range union (no new
+    "signed member" state, and whole-class `[^…]` negation then flips the folded result).
+
+    Total: sort the input by lower bound (`mergeSort`), fold once emitting the gaps between
+    consecutive covered spans (an overlapping/nested range advances the cursor by `max`, so a
+    gap is never inverted), then the tail gap up to `maxCodePoint`. Endpoints are rebuilt with
+    `Char.ofNat`; for the ASCII perl sets every gap boundary is a valid scalar (`Char.ofNat`
+    clamps invalid inputs, but no boundary here lands on a surrogate). -/
+def complementRanges (ranges : List (Char × Char)) : List (Char × Char) :=
+  let sorted := (ranges.map (fun r => (r.1.toNat, r.2.toNat))).mergeSort (fun a b => a.1 ≤ b.1)
+  -- `cursor` is the lowest code point not yet covered; `acc` collects gap pairs (reversed).
+  let (cursor, acc) := sorted.foldl
+    (fun (st : Nat × List (Nat × Nat)) r =>
+      let (cursor, acc) := st
+      let (lo, hi) := r
+      let acc := if lo > cursor then (cursor, lo - 1) :: acc else acc
+      (Nat.max cursor (hi + 1), acc))
+    (0, [])
+  let acc := if cursor ≤ maxCodePoint then (cursor, maxCodePoint) :: acc else acc
+  acc.reverse.map (fun g => (Char.ofNat g.1, Char.ofNat g.2))
+
 end Regex
 
 /-- Parser state threaded through the recursive descent: the remaining input and the next
@@ -96,17 +125,19 @@ private def takeNat : List Char → Nat → Bool → (Nat × Bool × List Char)
       else (acc, seen, c :: rest)
   | [], acc, seen => (acc, seen, [])
 
-/-- A `\`-escape used INSIDE a `[…]` class: yields either a set of ranges to fold in (perl
-    class or a single literal char as a degenerate range) or an error. Negated perl classes
-    (`\D \W \S`) are illegal inside our class representation (would need set complement) —
-    deferred rather than silently mis-folded. -/
+/-- A `\`-escape used INSIDE a `[…]` class: yields a set of ranges to fold into the class
+    union (perl class, a negated perl class via set-complement, or a single literal char as a
+    degenerate range) or an error. A NEGATED shorthand (`\D`/`\W`/`\S`) folds its full
+    complement set into the union (`[\D5]` = non-digits ∪ {5}); whole-class `[^…]` negation is
+    applied AFTER the fold by `parseClass`'s `negated` flag, so `[^\D]` correctly yields the
+    digits. -/
 private def parseClassEscape : List Char → Except RegexParseError (List (Char × Char) × List Char)
   | 'd' :: rest => .ok (digitRanges, rest)
   | 'w' :: rest => .ok (wordRanges, rest)
   | 's' :: rest => .ok (spaceRanges, rest)
-  | 'D' :: _ => .error (.unsupportedRegex "\\D inside character class")
-  | 'W' :: _ => .error (.unsupportedRegex "\\W inside character class")
-  | 'S' :: _ => .error (.unsupportedRegex "\\S inside character class")
+  | 'D' :: rest => .ok (complementRanges digitRanges, rest)
+  | 'W' :: rest => .ok (complementRanges wordRanges, rest)
+  | 'S' :: rest => .ok (complementRanges spaceRanges, rest)
   | 'n' :: rest => .ok ([('\n', '\n')], rest)
   | 't' :: rest => .ok ([('\t', '\t')], rest)
   | 'r' :: rest => .ok ([('\r', '\r')], rest)

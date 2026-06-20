@@ -9378,3 +9378,70 @@ Files: `Kue/Eval.lean` (`normalizeEvaluatedDisj`), `Kue/Tests/EvalTests.lean`,
 `Kue/Tests/FixturePorts.lean`, `docs/reference/cue-spec-gaps.md`,
 `testdata/cue/disjunctions/default_dedup.expected`,
 `testdata/export/terminating_disj_{default,nonnull_default,cyclic_nondefault}.{cue,json}`.
+
+---
+
+## Completed Slice: RX-2a — negated shorthand classes inside `[…]` (set-complement fold) (2026-06-20)
+
+Goal: the lone remaining regex-corpus divergence — `\D`/`\W`/`\S` (negated perl shorthands)
+INSIDE a `[…]` character class. They were honest stubs (`parseClassEscape` returned
+`.unsupportedRegex "\\D inside character class"`); RE2 (the CUE-mandated regex syntax) folds
+each as its full COMPLEMENT set into the class union. `[\D]` = non-digits, `[\D5]` = non-digits
+∪ {5}, `[\d\D]` = every char, `[^\D]` = digits (whole-class negation applied AFTER the member
+folds). `\D\W\S` OUTSIDE a class already worked (`parseAtomEscape` — single positive range +
+the whole-atom `negated` flag); this slice closes only the in-class case.
+
+**The representation decision (first-principles).** Took the MINIMAL, most-precise route: NO new
+AST constructor and NO "signed member" type. `Regex.cls (ranges) (negated)` — a union of
+code-point ranges, optionally whole-negated — is ALREADY the precise, total,
+illegal-states-unrepresentable representation; the only defect was that `parseClassEscape` gave
+up instead of computing the complement. A negated shorthand folds to the **set-complement of its
+positive ranges over the whole `Char` domain `[0, U+10FFFF]`**, which is itself a union of ranges,
+so it composes with other class members through the ordinary range union and is then flipped by
+the existing whole-class `negated` flag for `[^…]`. This adds ZERO new states (the alternative
+signed-member representation would have ADDED an ambiguous "negated member inside a maybe-negated
+class" state — strictly worse on the illegal-states axis). Everything downstream
+(`Inst.char`/`classMatches`, `compileFrag`) is untouched.
+
+**New helper `Regex.complementRanges : List (Char × Char) → List (Char × Char)`** (+ `maxCodePoint
+:= 0x10FFFF`). Total: `mergeSort` the ranges by lower bound (in `Nat`), fold once emitting the gap
+before each covered span (a nested/overlapping range advances the cursor by `Nat.max`, so a gap is
+never inverted), then the tail gap up to `maxCodePoint`; rebuild endpoints with `Char.ofNat`. The
+ASCII perl sets put every gap boundary on a valid scalar — the only complement range crossing the
+surrogate hole `[U+D800, U+DFFF]` is the upper `[hi+1, U+10FFFF]` whose endpoints are valid, and
+no input `Char` is ever a surrogate, so spanning the hole is harmless (`Char.ofNat` clamps invalid
+inputs to `\x00`, but no boundary here lands on one). `parseClassEscape`'s three `.error` arms
+become `.ok (complementRanges digitRanges, rest)` etc.
+
+**Spec authority + oracle.** RE2 semantics are spec-mandated and UNAMBIGUOUS for this construct, so
+this is CONFORMS (spec speaks; Kue matches it AND `cue` v0.16.1 matches) — NO cue-divergence and NO
+spec-gap to record. Every behavior was first derived from RE2 (ASCII-only shorthands; `\D` covers
+below `'0'`, above `'9'`, and all non-ASCII incl. `\n`; `\S` excludes `\n`), then cross-checked
+read-only against `cue` (all 25 probes agreed: `[\D]` vs `a`=T/`5`=F/space=T/`\n`=T; `[\D5]` vs
+`7`=F; `[^\D]` vs `5`=T/`a`=F; `[\W]` vs `é`=T but `[\w]` vs `é`=F).
+
+**Tests.** 26 `native_decide` pins in `RegexTests.lean` (new RX-2a section): each of
+`[\D]`/`[\W]`/`[\S]` matching + non-matching a representative char, the below-`'0'`/`\n`/non-ASCII
+edges, union `[\D5]`/`[a\W]` (incl. the `7`-rejected and `b`-rejected discriminators), everything
+`[\d\D]`, whole-class-over-negated-member `[^\D]` (both polarities), positive-`[\d]` regression
+guards, an AST-shape pin (`[\D]` → the two complement ranges with `negated = false`), and a
+`regexParseError? "[\D5]" = none` (no longer deferred). Plus the end-to-end `=~`/`!~` fixture
+`testdata/cue/numeric/regex_in_class_negated.{cue,expected}` (11 fields incl. one `!~`) with its
+`FixturePorts` entry — byte-identical to `cue export`.
+
+**Verify.** `lake build` green (100 jobs; all pins checked at build time); `check-fixtures.sh` →
+`fixture pairs ok` (zero drift on the full corpus; one new fixture pair added); no shell touched
+(shellcheck clean on `check-fixtures.sh`). Leaf module, no `Value`/`Eval` import — no eval-cost
+change, perf guide untouched.
+
+**The regex corpus is now divergence-free.** Remaining regex work: none on the RX backlog (RX-1
+trilogy + RX-2a/b/c all DONE).
+
+**Next — the MED tail** (D#1b/c incomplete/non-bool guard, D#3 `let`-clauses, SC-3 residual
+display, BI-1 Unicode case-fold, BI-2 `math.Pow`/`list.Sort`, F-3 qualified import), then SC-4
+(LOW, spec-gap-first), the spec-gap ratifications, A#6, DRY-1. ⚠ A two-phase audit is DUE
+(D#2a + D#2b + RX-2a = 3 landed since the last audit).
+
+Files: `Kue/Regex.lean` (`complementRanges`, `maxCodePoint`, `parseClassEscape`),
+`Kue/Tests/RegexTests.lean`, `Kue/Tests/FixturePorts.lean`,
+`testdata/cue/numeric/regex_in_class_negated.{cue,expected}`.

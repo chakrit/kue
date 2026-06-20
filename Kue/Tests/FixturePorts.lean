@@ -261,6 +261,38 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "numeric/regex_in_class_negated.expected",
+      content :=
+        -- RX-2a: in-class `\D`/`\W`/`\S` fold their complement into the class union; whole-class
+        -- `[^…]` negation applies after the fold. End-to-end `=~`/`!~` over the Pike-VM.
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"classD", .regular,
+                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[\\D]$"))⟩,
+                ⟨"classDdigit", .regular,
+                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[\\D]$"))⟩,
+                ⟨"classW", .regular,
+                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\W]$"))⟩,
+                ⟨"classS", .regular,
+                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\S]$"))⟩,
+                ⟨"union", .regular,
+                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[\\D5]$"))⟩,
+                ⟨"unionDigit", .regular,
+                  .binary .regexMatch (.prim (.string "7")) (.prim (.string "^[\\D5]$"))⟩,
+                ⟨"unionMember", .regular,
+                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[a\\W]$"))⟩,
+                ⟨"everything", .regular,
+                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\d\\D]$"))⟩,
+                ⟨"negMember", .regular,
+                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[^\\D]$"))⟩,
+                ⟨"negMemberNo", .regular,
+                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[^\\D]$"))⟩,
+                ⟨"notClass", .regular,
+                  .binary .regexNotMatch (.prim (.string "5")) (.prim (.string "^[\\D]$"))⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "numeric/regex_invalid_patterns.expected",
       content :=
         formatTopLevel

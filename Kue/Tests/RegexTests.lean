@@ -116,6 +116,15 @@ theorem rx_perl_digit_negated_atom :
     parsesTo "\\D" (.cls [('0', '9')] true) = true := by native_decide
 theorem rx_dot : parsesTo "." .any = true := by native_decide
 
+-- RX-2a: in-class `\D` folds to the COMPLEMENT ranges of the digits over the `Char` domain
+-- (the two gaps `[\x00,'/']` and `[':',U+10FFFF]`), with whole-class `negated = false` — the
+-- representation choice that lets it union with other members. (Contrast the ATOM form above,
+-- which keeps a single positive range + the whole-atom `negated` flag.)
+theorem rx_class_negshort_folds_to_complement :
+    parsesTo "[\\D]"
+      (.cls [(Char.ofNat 0, Char.ofNat 0x2F), (Char.ofNat 0x3A, Char.ofNat 0x10FFFF)] false)
+      = true := by native_decide
+
 /-! ## Invalid patterns → error (NOT silent literal-fallback) -/
 
 private def parseErrors (p : String) : Bool :=
@@ -236,6 +245,55 @@ theorem rx_match_perl_space : m "^a\\sz$" "a z" = true := by native_decide
 theorem rx_match_perl_space_neg : m "^a\\Sz$" "a_z" = true := by native_decide
 theorem rx_match_perl_word : m "^a\\wz$" "a_z" = true := by native_decide
 theorem rx_match_perl_word_neg : m "^a\\Wz$" "a-z" = true := by native_decide
+
+/-! ## RX-2a — negated shorthand classes (`\D` `\W` `\S`) INSIDE a `[…]` char class
+
+    The lone remaining regex-corpus divergence: a negated shorthand inside a class folds its
+    full COMPLEMENT set into the class union (via `Regex.complementRanges` over the whole
+    `Char` domain), instead of erroring. Each pin below was cross-checked against `cue`
+    v0.16.1 (RE2 semantics; the spec authority). The interaction the prompt flags — member
+    `\D` complement vs whole-class `[^…]` negation — is pinned by `[^\D]` (the class negates
+    AFTER the member folds, recovering the digits) and `[\d\D]` (every char). -/
+
+-- `[\D]`/`[\W]`/`[\S]` = the complement set, matching/rejecting a representative char each.
+-- `\D` covers below '0' (space), above '9', and non-ASCII; `\S` excludes newline (whitespace).
+theorem rx_class_negshort_D_yes : m "^[\\D]$" "a" = true := by native_decide
+theorem rx_class_negshort_D_no : m "^[\\D]$" "5" = false := by native_decide
+theorem rx_class_negshort_D_space : m "^[\\D]$" " " = true := by native_decide
+theorem rx_class_negshort_D_newline : m "^[\\D]$" "\n" = true := by native_decide
+theorem rx_class_negshort_W_yes : m "^[\\W]$" " " = true := by native_decide
+theorem rx_class_negshort_W_no : m "^[\\W]$" "a" = false := by native_decide
+theorem rx_class_negshort_S_yes : m "^[\\S]$" "a" = true := by native_decide
+theorem rx_class_negshort_S_no : m "^[\\S]$" " " = false := by native_decide
+theorem rx_class_negshort_S_newline : m "^[\\S]$" "\n" = false := by native_decide
+
+-- `\D`/`\W`/`\S` are ASCII-only shorthands: a non-ASCII rune is `\W` (non-word), not `\w`.
+theorem rx_class_negshort_W_nonascii : m "^[\\W]$" "é" = true := by native_decide
+
+-- Union with another member: `[\D5]` = non-digits ∪ {5}; `[a\W]` = {a} ∪ non-word.
+theorem rx_class_union_D5_five : m "^[\\D5]$" "5" = true := by native_decide
+theorem rx_class_union_D5_letter : m "^[\\D5]$" "a" = true := by native_decide
+theorem rx_class_union_D5_other_digit : m "^[\\D5]$" "7" = false := by native_decide
+theorem rx_class_union_aW_a : m "^[a\\W]$" "a" = true := by native_decide
+theorem rx_class_union_aW_space : m "^[a\\W]$" " " = true := by native_decide
+theorem rx_class_union_aW_word : m "^[a\\W]$" "b" = false := by native_decide
+
+-- `[\d\D]` is the everything-class (a set and its complement) — matches any char.
+theorem rx_class_everything_digit : m "^[\\d\\D]$" "5" = true := by native_decide
+theorem rx_class_everything_letter : m "^[\\d\\D]$" "a" = true := by native_decide
+theorem rx_class_everything_space : m "^[\\d\\D]$" " " = true := by native_decide
+
+-- Whole-class `[^…]` negation over a negated member: `[^\D]` folds `\D` to non-digits, then
+-- the class negates → digits. The subtle member-vs-class negation interaction.
+theorem rx_class_neg_over_negmember_digit : m "^[^\\D]$" "5" = true := by native_decide
+theorem rx_class_neg_over_negmember_letter : m "^[^\\D]$" "a" = false := by native_decide
+
+-- Regression guard: positive shorthands inside a class keep their existing behavior.
+theorem rx_class_pos_d_yes : m "^[\\d]$" "5" = true := by native_decide
+theorem rx_class_pos_d_no : m "^[\\d]$" "a" = false := by native_decide
+
+-- `regexParseError?` no longer flags an in-class negated shorthand as deferred.
+theorem rx_class_negshort_now_parses : regexParseError? "[\\D5]" = none := by native_decide
 
 /-! ## Capture slots are computed (groundwork for RX-1c submatch / `ReplaceAll`)
 

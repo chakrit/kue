@@ -57,7 +57,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | B. Closedness/definitions  | batch 1 | DONE   | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS                                  |
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
 | D. Comprehensions/scoping  | batch 2 | DONE   | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; structural cycles — **D#2 COMPLETE 2026-06-20**: D#2a detection + D#2b terminating-disjunct both FIXED; `let` clauses unparseable); frame-model + read-splice CONFORM                                       |
-| E. Scalars/bounds/builtins | batch 2 | DONE   | 1 KUE-VIOLATES HIGH (regex not RE2); 2 MED builtin (ASCII case-fold; deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS                                                  |
+| E. Scalars/bounds/builtins | batch 2 | DONE   | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); 2 MED builtin remain (BI-1 ASCII case-fold; BI-2 deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
 | F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
 ## Audit history (archived — full detail in implementation-log.md + git)
@@ -66,6 +66,14 @@ Completed findings and shipped design specs, compressed to pointers. Each cites 
 landing commit; the as-built detail lives in `docs/reference/implementation-log.md` and
 git history.
 
+- 2026-06-20 — **RX-2a** in-class negated shorthand classes (`Regex.lean` `parseClassEscape`'s
+  `\D`/`\W`/`\S` `.error` arms → `complementRanges` folds; new total `Regex.complementRanges` +
+  `maxCodePoint` over the `[0, U+10FFFF]` `Char` domain). The lone regex-corpus divergence;
+  CONFORMS (RE2-mandated, cue-agreeing). Representation: NO new AST state — `cls ranges negated`
+  already precise, the complement is a range union that composes through the ordinary union and is
+  flipped by the whole-class `negated` flag for `[^…]`. 26 `native_decide` pins + the
+  `numeric/regex_in_class_negated` `=~`/`!~` fixture. The regex corpus is now divergence-free
+  (RX-1 trilogy + RX-2a/b/c all DONE).
 - 2026-06-20 — **D#2b** terminating-disjunct (`Eval.lean` `normalizeEvaluatedDisj` now applies
   `liveAlternatives` on the has-default branch). Completes D#2: `#List | *null` terminates on
   `*null` (`tail: null`, cue-byte-identical). Re-diagnosis: VALUE resolution was already correct
@@ -159,14 +167,24 @@ resolves as the general semantics mature. **Recommended next 3-4:**
    live non-default arm; cue's display-collapse is a projection, not a value rewrite). Folds in
    **SC-3**'s dedup (`*1|*1|2` → `*1 | 2`). 8 pins + 3 export fixtures. See Audit history +
    implementation-log 2026-06-20.
-3. **RX-2a (MED — in-class `\D` /`\W`/`\S`, the lone regex-corpus divergence, NOW LEADS).** Needs
-   class-level set-complement folding in `parseClassEscape`. Sequence AFTER D#2 (now complete) and
-   serialize with any future regex-module edits to avoid worktree contention. Feature, not a
-   real-app blocker; current behavior is an honest stub, not silent-wrong.
+3. **RX-2a — DONE (2026-06-20).** In-class `\D`/`\W`/`\S` set-complement folding landed; the
+   regex corpus is now divergence-free. `parseClassEscape`'s three `.error` arms became
+   `complementRanges` folds (a new total `Regex.complementRanges` over the `[0, U+10FFFF]` `Char`
+   domain) — NO new AST state (`cls ranges negated` already precise; the complement is itself a
+   range union that composes through the ordinary union, flipped by the whole-class `negated`
+   flag for `[^…]`). CONFORMS (RE2-mandated, cue-agreeing). 26 pins + 1 `=~`/`!~` fixture. See
+   Audit history + implementation-log 2026-06-20.
 
 (Recently landed, now in Audit history: Bug2-3/Gap-2b `d9f66ca`, Bug2-4 `3f7a761`. argocd
 did not unblock — residual Bug2-5 is PARKED as a stress-test finding, see Live-slice
 detail; it is not on the critical path.)
+
+**NOW LEADS — the MED tail** (no large designed levers remain): **D#1b/D#1c** (incomplete- /
+concrete-non-bool-guard classification), **D#3** (`let` clauses in comprehensions), **SC-3
+display-residual** (LOW/spec-gap), **BI-1** (Unicode case-fold), **BI-2** (`math.Pow`/`list.Sort`),
+**F-3** (qualified import). Then SC-4 (LOW, spec-gap-first), the 4 spec-gap ratifications, A#6
+(standalone), DRY-1 (LOW refactor). ⚠ A two-phase audit is DUE (D#2a + D#2b + RX-2a = 3 landed
+since the last).
 
 Then the MED tail (D#1b/D#1c, D#3 `let` -clauses, SC-3 disj-display, BI-1 Unicode
 case-fold, BI-2 `math.Pow` /`list.Sort`, F-3 qualified import), SC-4 (LOW,
@@ -229,11 +247,9 @@ intersection-aware closed allowed-set representation. Not introduced by SC-1 —
 the pattern-vs-plain case correct; this is the closed×closed-pattern case. (Sits with the
 MED tail — pre-existing, narrower than SC-1.)
 
-**RX-2a (MED, needs set-complement).** Support `\D` /`\W`/`\S` INSIDE a `[…]` class (the
-lone regex-corpus divergence). Needs class-level set complement (fold the negated perl
-ranges into the class, or carry per-class negation of a sub-set) — `parseClassEscape` 's
-current `.error` arms become real folds. RE2 feature; currently a correct stub. Sequence
-after the capture work since both touch the regex module.
+**RX-2a — DONE (2026-06-20).** In-class `\D`/`\W`/`\S` set-complement folding. See Audit
+history + implementation-log. The regex corpus is now divergence-free (RX-1 trilogy +
+RX-2a/b/c all DONE).
 
 **SC-4 (LOW, spec-gap-first).** Hidden-field / let-bound-PLAIN-struct nested values do not
 close on DIRECT def unification (`#A:{_h:{b:int}}; #A & {_h:{b,extra}}` and the let

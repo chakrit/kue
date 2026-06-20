@@ -1,0 +1,11 @@
+classD: true
+classDdigit: false
+classW: true
+classS: false
+union: true
+unionDigit: false
+unionMember: true
+everything: true
+negMember: true
+negMemberNo: false
+notClass: true
