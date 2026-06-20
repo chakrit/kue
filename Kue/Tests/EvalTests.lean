@@ -934,6 +934,108 @@ theorem eval_div_repeating_leading_zeros :
       == .prim (.float "0.001428571428571428571428571428571429")) = true := by
   native_decide
 
+/-! E#4 — arithmetic operator domain. The CUE spec closes `+ - * /` over int/decimal, and
+    additionally `+`/`*` over strings and bytes. A CONCRETE operand outside an op's domain is a
+    TYPE ERROR (`nonArithmeticOperand`), the same class as `1 + "x"`; an INCOMPLETE operand keeps
+    the binary DEFERRED (`.binary`) since it may still resolve to a number. These pin the unit
+    behavior of `evalAdd`/`evalSub`/`evalMul`/`evalDiv` directly, independent of display. -/
+
+/-- A concrete list operand bottoms `+` (was a held residual; cue: superseded-by-list.Concat). -/
+theorem eval_add_list_is_type_error :
+    (evalAdd (.list [.prim (.int 1)]) (.list [.prim (.int 2)])
+      == .bottomWith [.nonArithmeticOperand .add .list]) = true := by
+  native_decide
+
+/-- `-` over a list operand bottoms (cue: `cannot use [..] as type number`). -/
+theorem eval_sub_list_is_type_error :
+    (evalSub (.list [.prim (.int 1)]) (.prim (.int 3))
+      == .bottomWith [.nonArithmeticOperand .sub .list]) = true := by
+  native_decide
+
+/-- `*` over a list operand bottoms in either order (cue: superseded-by-list.Repeat). -/
+theorem eval_mul_list_is_type_error :
+    (evalMul (.prim (.int 3)) (.list [.prim (.int 1), .prim (.int 2)])
+      == .bottomWith [.nonArithmeticOperand .mul .list]) = true := by
+  native_decide
+
+/-- `/` over a list operand bottoms. -/
+theorem eval_div_list_is_type_error :
+    (evalDiv (.list [.prim (.int 1)]) (.prim (.int 3))
+      == .bottomWith [.nonArithmeticOperand .div .list]) = true := by
+  native_decide
+
+/-- A concrete (no-pattern) struct operand bottoms `+` with the `.struct` operand type. -/
+theorem eval_add_struct_is_type_error :
+    (evalAdd (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
+        (mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])
+      == .bottomWith [.nonArithmeticOperand .add .struct]) = true := by
+  native_decide
+
+/-- A `.listTail` (open list) is also a concrete non-arithmetic operand → type error. -/
+theorem eval_add_list_tail_is_type_error :
+    (evalAdd (.listTail [.prim (.int 1)] (.kind .int)) (.prim (.int 2))
+      == .bottomWith [.nonArithmeticOperand .add .list]) = true := by
+  native_decide
+
+/-- Per-op asymmetry: `+` over two strings is concat (NOT a type error). -/
+theorem eval_add_strings_concats :
+    evalAdd (.prim (.string "a")) (.prim (.string "b")) = .prim (.string "ab") := by
+  rfl
+
+/-- Per-op asymmetry: `-` over strings IS a type error (string ∉ `-` domain). The wrong-typed
+    prim pair routes through the existing decimal path to a plain `.bottom` (cue errors too). -/
+theorem eval_sub_strings_is_bottom :
+    evalSub (.prim (.string "a")) (.prim (.string "b")) = .bottom := by
+  rfl
+
+/-- `*` over (string, int) is REPETITION (cue, superseding strings.Repeat): `"ab" * 2 = "abab"`. -/
+theorem eval_mul_string_int_repeats :
+    evalMul (.prim (.string "ab")) (.prim (.int 2)) = .prim (.string "abab") := by
+  rfl
+
+/-- Repetition is order-agnostic: `2 * "ab" = "abab"`. -/
+theorem eval_mul_int_string_repeats :
+    evalMul (.prim (.int 2)) (.prim (.string "ab")) = .prim (.string "abab") := by
+  rfl
+
+/-- `*` over (bytes, int) repeats the bytes: `'ab' * 2 = 'abab'`. -/
+theorem eval_mul_bytes_int_repeats :
+    evalMul (.prim (.bytes "ab")) (.prim (.int 2)) = .prim (.bytes "abab") := by
+  rfl
+
+/-- A zero count yields the empty value (not an error). -/
+theorem eval_mul_string_zero_is_empty :
+    evalMul (.prim (.string "ab")) (.prim (.int 0)) = .prim (.string "") := by
+  rfl
+
+/-- A negative repetition count is a type error (cue: cannot convert negative number to uint64). -/
+theorem eval_mul_string_negative_count_is_error :
+    evalMul (.prim (.string "ab")) (.prim (.int (-1))) = .bottomWith [.negativeRepeatCount (-1)] := by
+  rfl
+
+/-- CRITICAL regression pin: a concrete list paired with an INCOMPLETE operand (abstract `int`
+    kind) DEFERS — it does NOT bottom, because the kind may still resolve to a number (cue holds
+    `[1] + x` while `x: int`). The concrete-nonarith side alone must not force a type error. -/
+theorem eval_add_list_incomplete_partner_defers :
+    evalAdd (.list [.prim (.int 1)]) (.kind .int) = .binary .add (.list [.prim (.int 1)]) (.kind .int) := by
+  rfl
+
+/-- Symmetric: incomplete LEFT × concrete list RIGHT also defers. -/
+theorem eval_mul_incomplete_partner_list_defers :
+    evalMul (.kind .int) (.list [.prim (.int 1)]) = .binary .mul (.kind .int) (.list [.prim (.int 1)]) := by
+  rfl
+
+/-- A bound-constraint operand is incomplete → arithmetic defers (it may concretize to a number). -/
+theorem eval_add_bound_operand_defers :
+    evalAdd (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 1))
+      = .binary .add (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 1)) := by
+  rfl
+
+/-- An unresolved ref operand is incomplete → defers (the pre-fix baseline, must stay). -/
+theorem eval_add_ref_operand_defers :
+    evalAdd (.refId ⟨0, 0⟩) (.prim (.int 1)) = .binary .add (.refId ⟨0, 0⟩) (.prim (.int 1)) := by
+  rfl
+
 /-- Slice 2c.1: an in-struct sibling reference (`b: a`) sees the FULLY-MERGED value of a
     duplicated label, not the first conjunct. `{a: int, b: a, a: 1}` canonicalizes the two
     `a` slots into `.conj [int, 1]` at slot 0, so `b` evaluates to `1`, and the duplicate

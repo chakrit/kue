@@ -112,9 +112,9 @@ the non-spec-conformance work.
 
 **Spec-conformance fixes (authoritative ranking in `spec-conformance-audit.md`):** the
 argocd residual **Bug2-5** (PARKED), **BI-1** (Unicode case-fold — spike DONE: chose
-oracle-generated BMP simple-mapping table, no network; see audit doc), **E#4-fix** (NEW,
-LOW-MED — list `+`/`*` must type-error-bottom, not leave a residual; surfaced by the
-ratification slice, see below), **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3**
+oracle-generated BMP simple-mapping table, no network; see audit doc), **E#4-fix** (✅ DONE
+2026-06-20 — arithmetic operator domain now type-errors concrete out-of-domain operands +
+string/bytes `*` repetition; see item #6), **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3**
 display-residual, **SC-4** (spec-gap-first), **SC-1b** (closed×closed-pattern), **A#6**
 (`containsBottom` fuel cap, standalone), **DRY-1** (let-walker extraction). **The 4
 spec-gap ratifications are DONE (2026-06-20):** gaps 1–3 RATIFIED + test-pinned; gap 4
@@ -208,25 +208,26 @@ in `Builtin`, never effectful.
    bottom is the Bug2-5 CORRECTNESS divergence, not fuel) — profile against a resolving target.
 
 6. **Borderline / LOW (opportunistic; none block adoption).**
-   - **E#4-fix (NEW 2026-06-20 — spec divergence, LOW-MED; surfaced by the spec-gap ratification
-     slice).** `[1,2] + [3,4]` and `3 * [1,2]` must be a TYPE-ERROR bottom, not a held residual.
-     The spec closes `+`/`*` over int/float/string/bytes only (*"The four standard arithmetic
-     operators … apply to integer and decimal floating-point types; + and * also apply to strings
-     and bytes"*) — a list operand is ill-typed, exactly like `1 + "x"` (which Kue already bottoms).
-     `cue` is spec-correct here (it hard-errors `… superseded by list.Concat/Repeat …`); **Kue is
-     WRONG** — `evalAdd`/`evalMul`/`evalSub`/`evalDiv` (`Eval.lean:787-839`) only reach the
-     `.bottom` arm when both operands are `.prim`; a `.list` (or other non-`prim`, non-`bottom`)
-     operand falls through `_,_ => .binary …`, leaving a held residual (`kue eval` shows it raw,
-     `kue export` says `incomplete value`). An incomplete claims "may resolve" but two concrete
-     lists with `+` never can. **Fix:** add an explicit ill-typed arm to the four ops — when an
-     operand is a fully-evaluated non-arithmetic shape (`.list`/`.listTail`/`.struct`/concrete
-     non-prim) and not bottom/incomplete, return a type-error `.bottomWith` (mirror the
-     `prim,prim → .bottom` path; a dedicated `BottomReason` for the operator/operand is cheap and
-     spec-shaped). Keep the residual ONLY for genuinely-incomplete operands (an unresolved ref that
-     could still become a prim). Pin: `[1,2]+[3,4]` → bottom, `3*[1,2]` → bottom, plus the existing
-     `1+"x"` control still bottoms, and a `let x=_; x+[1]` stays residual until `x` resolves. NOT a
-     `cue-divergence` (cue is correct). NB: this is the recorded ESCALATION of former spec-gap "E#4
-     list +/*" — see `cue-spec-gaps.md` (the ⚠ MIS-FILED row).
+   - **E#4-fix — ✅ DONE (2026-06-20; spec divergence, LOW-MED; surfaced by the spec-gap
+     ratification slice).** A concrete operand outside an arithmetic op's domain is now a TYPE-ERROR
+     bottom, not a held residual. The spec closes `+ - * /` over int/decimal, plus `+`/`*` over
+     string/bytes (*"The four standard arithmetic operators … apply to integer and decimal
+     floating-point types; + and * also apply to strings and bytes"*) — a list/struct/bool/null
+     operand is ill-typed, exactly like `1 + "x"`. `cue` is spec-correct (hard-errors). **Fix:**
+     `classifyArithOperand` (`Eval.lean`) splits each operand `prim` / `concreteNonArith`
+     (`.struct`/`.list`/`.listTail`/`.embeddedList`, no-catch-all enumeration) / `incomplete`;
+     `arithmeticDomainResult` type-errors (`.bottomWith [.nonArithmeticOperand op ty]`) a
+     concrete-nonarith operand ONLY when its partner is also concrete, and DEFERS (`.binary`) when
+     either side is incomplete — so `[1] + x` holds while `x: int` is abstract, erroring only after
+     `x` resolves (matches cue; same concrete-vs-incomplete discipline as `classifyGuard` D#1b/c).
+     The four ops swap their `_,_ => .binary` catch-all for `arithmeticDomainResult op`; the
+     `prim,prim` arms are untouched (`1+"x"` etc. still `.bottom`). **Sibling fix:** `evalMul`
+     gained the string/bytes `*` int **repetition** arms (`"ab"*2="abab"`, either order; `0`→empty;
+     negative→`negativeRepeatCount` error) — cue's behavior superseding strings/bytes.Repeat, a
+     previously silent wrong-bottom. New `BottomReason`s: `nonArithmeticOperand`,
+     `negativeRepeatCount`. Pins: `numeric/{list_arithmetic_type_error,string_repeat_multiplication,
+     arithmetic_incomplete_operand_defers}` + ~19 `EvalTests` `native_decide` theorems (incl. the
+     incomplete-still-defers regression pin). NOT a `cue-divergence` (cue is correct).
    - **`scalar-embed-with-decls`** — `{#a:1, 5}`→`5` (`cue` manifests `5`, keeps `.#a`
      selectable); Kue bottoms. Incompleteness, not unsound. Needs a scalar-with-decls carrier
      (the `.embeddedList` analog for scalars). Do NOT "fix" by widening the scalar collapse —

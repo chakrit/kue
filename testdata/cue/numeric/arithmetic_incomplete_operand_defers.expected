@@ -1,0 +1,5 @@
+abstract: int
+listDefer: int + [1]
+numDefer: int * 2
+resolved: 5
+sum: 8

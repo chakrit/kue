@@ -541,6 +541,18 @@ inductive BottomReason where
       DEFERS (keeps the comprehension residual) rather than erroring. Carries the offending
       type for provenance. -/
   | nonBoolGuard (type : NonBoolGuardType)
+  /-- An operand outside an arithmetic operator's domain. The CUE spec closes `+ - * /` over
+      integer and decimal floating-point, and additionally `+`/`*` over strings and bytes; a
+      CONCRETE operand of any other type (list, struct, and — for `- /` — string/bytes/bool/null)
+      is ill-typed, the same error class as `1 + "x"` (cue: `invalid operands … to '+'` /
+      `cannot use … as type number`). Distinct from an INCOMPLETE operand (a ref/kind/unresolved
+      disjunction that may still resolve to a number), which DEFERS the binary residual. Carries
+      the operator and the offending operand's type for provenance. -/
+  | nonArithmeticOperand (op : BinaryOp) (operand : NonBoolGuardType)
+  /-- A negative repetition count for string/bytes `*` (`"ab" * -1`). cue computes string/bytes
+      `*` int as repetition (`"ab" * 2 = "abab"`) and errors a negative count (`cannot convert
+      negative number to uint64`). -/
+  | negativeRepeatCount (count : Int)
 deriving Repr, BEq, DecidableEq
 
 /--

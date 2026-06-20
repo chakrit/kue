@@ -1,0 +1,5 @@
+concat: "ab"
+repeat: "abab"
+repeatL: "abab"
+zero: ""
+strSub: _|_

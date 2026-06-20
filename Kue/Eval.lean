@@ -784,6 +784,85 @@ def selectEvaluatedIndex (base key : Value) : Value :=
   | .bottomWith reasons => .bottomWith reasons
   | _ => .bottom
 
+/-- Classify a binary-arithmetic operand into its domain status, replacing the four ops'
+    `_, _ => .binary` catch-all with a spec-faithful three-way decision. The CUE spec closes
+    `+ - * /` over int/decimal (and `+`/`*` also over string/bytes); operand handling splits:
+    - `prim` — a primitive: the existing `prim,prim` arms decide (a number/string/bytes match,
+      or a same-arm mismatch like `1 + "x"` → `.bottom`). Returned so those arms run unchanged.
+    - `concreteNonArith` — a fully-evaluated NON-prim shape (`.struct`/`.list`/`.listTail`/
+      `.embeddedList`): outside EVERY arithmetic operator's domain ⇒ a TYPE ERROR (cue
+      hard-errors, e.g. `Addition of lists is superseded by list.Concat`). Carries the offending
+      type for the `nonArithmeticOperand` reason.
+    - `incomplete` — an unresolved/abstract form (ref, kind, bound, unresolved disjunction, …):
+      it may still resolve to a number, so the binary DEFERS (the `.binary` residual). This is
+      the D#1b/c discipline (concrete-wrong → bottom; incomplete → defer), mirroring
+      `classifyGuard`; enumerated with no catch-all so a new ctor forces a decision here. -/
+inductive ArithOperandClass where
+  | prim
+  | concreteNonArith (type : NonBoolGuardType)
+  | incomplete
+deriving BEq
+
+def classifyArithOperand : Value -> ArithOperandClass
+  | .prim _ => .prim
+  | .struct _ _ _ [] _ => .concreteNonArith .struct
+  | .list _ => .concreteNonArith .list
+  | .listTail _ _ => .concreteNonArith .list
+  | .embeddedList _ _ _ => .concreteNonArith .list
+  -- Unresolved / abstract forms → DEFER (keep the binary residual); a pattern-bearing struct is
+  -- a residual constraint, so it too defers (it could still meet down to a prim... it cannot, but
+  -- it is not yet concrete — the conservative choice is defer, matching `classifyGuard`).
+  | .struct _ _ _ (_ :: _) _ => .incomplete
+  | .structComp _ _ _ => .incomplete
+  | .top => .incomplete
+  | .kind _ => .incomplete
+  | .notPrim _ => .incomplete
+  | .stringRegex _ => .incomplete
+  | .boundConstraint _ _ _ => .incomplete
+  | .conj _ => .incomplete
+  | .builtinCall _ _ => .incomplete
+  | .unary _ _ => .incomplete
+  | .binary _ _ _ => .incomplete
+  | .ref _ => .incomplete
+  | .refId _ => .incomplete
+  | .thisStruct => .incomplete
+  | .selector _ _ => .incomplete
+  | .index _ _ => .incomplete
+  | .disj _ => .incomplete
+  | .comprehension _ _ => .incomplete
+  | .listComprehension _ _ => .incomplete
+  | .interpolation _ => .incomplete
+  | .dynamicField _ _ _ => .incomplete
+  | .closure _ _ => .incomplete
+  -- Bottoms never reach here: every op's `.bottom`/`.bottomWith` arms precede the split.
+  | .bottom => .incomplete
+  | .bottomWith _ => .incomplete
+
+/-- The shared spec gate for the four arithmetic ops, applied once both bottom arms have run.
+    A type error fires ONLY when the ill-typed shape is DECIDABLE now: a concrete non-arithmetic
+    operand whose partner is ALSO concrete (a `prim` or another concrete non-arith). If EITHER
+    operand is incomplete, the whole expression defers (the `.binary` residual) — it may resolve
+    to a valid operation once the incomplete side concretizes, exactly as cue holds `[1] + x`
+    while `x: int` is abstract and errors only after `x` resolves. This is the D#1b/c discipline:
+    concrete-wrong → bottom, anything-incomplete → defer. The `prim,prim` case is handled by each
+    op before calling this, so a `.prim` operand here is always paired with a non-prim.
+
+    `incomplete` is checked first so a concrete-nonarith × incomplete pair DEFERS, not errors. -/
+def arithmeticDomainResult (op : BinaryOp) (left right : Value) : Value :=
+  match classifyArithOperand left, classifyArithOperand right with
+  | .incomplete, _ => .binary op left right
+  | _, .incomplete => .binary op left right
+  | .concreteNonArith ty, _ => .bottomWith [.nonArithmeticOperand op ty]
+  | _, .concreteNonArith ty => .bottomWith [.nonArithmeticOperand op ty]
+  | _, _ => .binary op left right
+
+/-- String/bytes `*` int = repetition (`"ab" * 2 = "abab"`, `'ab' * 2 = 'abab'`), the cue
+    behavior superseding `strings.Repeat`/`bytes.Repeat`. A negative count is a type error
+    (cue: `cannot convert negative number to uint64`); a zero count yields the empty value. -/
+def evalRepeat (text : String) (count : Int) (wrap : String -> Prim) : Value :=
+  if count < 0 then .bottomWith [.negativeRepeatCount count]
+  else .prim (wrap (String.join (List.replicate count.toNat text)))
+
 def evalAdd (left right : Value) : Value :=
   match left, right with
   | .prim (.int left), .prim (.int right) => .prim (.int (left + right))
@@ -797,7 +876,7 @@ def evalAdd (left right : Value) : Value :=
       match evalDecimalBinary? addDecimalValues left right with
       | some value => .prim value
       | none => .bottom
-  | _, _ => .binary .add left right
+  | _, _ => arithmeticDomainResult .add left right
 
 def evalSub (left right : Value) : Value :=
   match left, right with
@@ -810,11 +889,16 @@ def evalSub (left right : Value) : Value :=
       match evalDecimalBinary? subDecimalValues left right with
       | some value => .prim value
       | none => .bottom
-  | _, _ => .binary .sub left right
+  | _, _ => arithmeticDomainResult .sub left right
 
 def evalMul (left right : Value) : Value :=
   match left, right with
   | .prim (.int left), .prim (.int right) => .prim (.int (left * right))
+  -- string/bytes `*` int = repetition (either operand order); cue supersedes strings/bytes.Repeat.
+  | .prim (.string text), .prim (.int count) => evalRepeat text count .string
+  | .prim (.int count), .prim (.string text) => evalRepeat text count .string
+  | .prim (.bytes text), .prim (.int count) => evalRepeat text count .bytes
+  | .prim (.int count), .prim (.bytes text) => evalRepeat text count .bytes
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
@@ -823,7 +907,7 @@ def evalMul (left right : Value) : Value :=
       match evalDecimalMultiply? left right with
       | some value => .prim value
       | none => .bottom
-  | _, _ => .binary .mul left right
+  | _, _ => arithmeticDomainResult .mul left right
 
 def evalDiv (left right : Value) : Value :=
   match left, right with
@@ -836,7 +920,7 @@ def evalDiv (left right : Value) : Value :=
       | .ok text => .prim (.float text)
       | .divByZero => .bottomWith [.divisionByZero]
       | .nonNumeric => .bottom
-  | _, _ => .binary .div left right
+  | _, _ => arithmeticDomainResult .div left right
 
 /--
 Definedness classes for the `e == _|_` / `e != _|_` presence test (CUE's "is this

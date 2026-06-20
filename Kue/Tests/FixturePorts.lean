@@ -92,6 +92,58 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- E#4: a concrete operand outside an arithmetic operator's domain (list/struct/bool/null)
+      -- is a TYPE ERROR for every op, not a held residual (cue hard-errors; Kue used to leave
+      -- `incomplete value`). Pins all four ops × the non-prim/wrong-prim concrete operands.
+      fileName := "numeric/list_arithmetic_type_error.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"listAdd", .regular, .binary .add (.list [.prim (.int 1), .prim (.int 2)]) (.list [.prim (.int 3), .prim (.int 4)])⟩,
+                ⟨"listMul", .regular, .binary .mul (.prim (.int 3)) (.list [.prim (.int 1), .prim (.int 2)])⟩,
+                ⟨"listMul2", .regular, .binary .mul (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3))⟩,
+                ⟨"listSub", .regular, .binary .sub (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3))⟩,
+                ⟨"listDiv", .regular, .binary .div (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3))⟩,
+                ⟨"structAdd", .regular, .binary .add (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []) (mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])⟩,
+                ⟨"boolMul", .regular, .binary .mul (.prim (.bool true)) (.prim (.bool false))⟩,
+                ⟨"nullSub", .regular, .binary .sub (.prim .null) (.prim .null)⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- E#4 sibling: `*` over (string|bytes, int) is REPETITION (cue, superseding
+      -- strings/bytes.Repeat), in either operand order; a zero count yields the empty value.
+      -- `+` over two strings is concat; `-` over strings is a type error (the per-op asymmetry).
+      fileName := "numeric/string_repeat_multiplication.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"concat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b"))⟩,
+                ⟨"repeat", .regular, .binary .mul (.prim (.string "ab")) (.prim (.int 2))⟩,
+                ⟨"repeatL", .regular, .binary .mul (.prim (.int 2)) (.prim (.string "ab"))⟩,
+                ⟨"zero", .regular, .binary .mul (.prim (.string "xyz")) (.prim (.int 0))⟩,
+                ⟨"strSub", .regular, .binary .sub (.prim (.string "a")) (.prim (.string "b"))⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- E#4 critical regression pin: an INCOMPLETE operand keeps arithmetic DEFERRED (residual),
+      -- never a premature type error — even paired with a concrete list (the concrete-nonarith ×
+      -- incomplete case). It resolves once the abstract side concretizes (`resolved + 3` → 8).
+      fileName := "numeric/arithmetic_incomplete_operand_defers.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"abstract", .regular, .kind .int⟩,
+                ⟨"listDefer", .regular, .binary .add (.ref "abstract") (.list [.prim (.int 1)])⟩,
+                ⟨"numDefer", .regular, .binary .mul (.ref "abstract") (.prim (.int 2))⟩,
+                ⟨"resolved", .regular, .kind .int⟩,
+                ⟨"resolved", .regular, .prim (.int 5)⟩,
+                ⟨"sum", .regular, .binary .add (.ref "resolved") (.prim (.int 3))⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "numeric/division_expressions.expected",
       content :=
         formatTopLevel

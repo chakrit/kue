@@ -412,19 +412,25 @@ Verdicts:
   description (cue's cross-conjunct order is an undocumented internal-graph artifact, not the
   "first-introduced" rule once claimed — often sorts, sometimes interleaves). Supersedes plan
   item #4: parity DECLINED. New pin `meet_struct_field_order_is_declaration_order`.
-- **list `+`/`*`** (E#4) — ⚠ **MIS-FILED → ESCALATED as a fix-slice (E#4-fix).** NOT a gap: the
-  spec MANDATES the operator domain (int/float/string/bytes), so a list operand is a type error.
-  cue is spec-correct (hard-errors); **Kue is WRONG** — it leaves a held residual instead of a
-  type-error bottom. Filed as the E#4-fix backlog item below + plan item #6. Recorded in
-  `cue-spec-gaps.md` as the MIS-FILED row (NOT a `cue-divergence` — cue is right).
+- **list `+`/`*`** (E#4) — ✅ **DONE (E#4-fix, 2026-06-20).** Was MIS-FILED as a gap; the spec
+  MANDATES the operator domain, so a concrete out-of-domain operand is a type error. cue is
+  spec-correct; Kue was WRONG (held residual). FIXED — Kue now conforms. See the DONE entry below
+  + `cue-spec-gaps.md` (RESOLVED row, NOT a `cue-divergence` — cue was right).
 
-**E#4-fix (NEW, LOW-MED — spec divergence, ranked in the MED tail).** `[1,2]+[3,4]` / `3*[1,2]`
-must type-error-bottom, not leave a residual (the spec closes `+`/`*` over int/float/string/bytes;
-a list operand is ill-typed exactly like `1+"x"`). `evalAdd`/`evalMul`/`evalSub`/`evalDiv`
-(`Eval.lean`) reach `.bottom` only when both operands are `.prim`; a `.list` operand falls through
-the `_,_ => .binary` catch-all. Add an explicit ill-typed arm returning a type-error `.bottomWith`
-for fully-evaluated non-arithmetic operands, keeping the residual only for genuinely-incomplete
-ones. Full diagnosis + pin plan in `plan.md` item #6.
+**E#4-fix — ✅ DONE (2026-06-20).** A concrete operand outside an arithmetic op's domain is now a
+type-error bottom, not a held residual (the spec closes `+ - * /` over int/decimal, plus `+`/`*`
+over string/bytes). `classifyArithOperand` (`Eval.lean`) classifies each operand `prim` /
+`concreteNonArith` (`.struct`/`.list`/`.listTail`/`.embeddedList`) / `incomplete`;
+`arithmeticDomainResult` type-errors (`.bottomWith [.nonArithmeticOperand op ty]`) ONLY a
+concrete-nonarith operand paired with a CONCRETE partner, and DEFERS (`.binary` residual) whenever
+either operand is incomplete — so `[1] + x` holds while `x: int` is abstract and errors only after
+`x` resolves (matches cue; the concrete-vs-incomplete discipline mirrors D#1b/c `classifyGuard`).
+The `prim,prim` mismatches (`1+"x"`, `"a"-"b"`) were already `.bottom` and unchanged. Sibling fix:
+`evalMul` gained the string/bytes `*` int **repetition** arms (`"ab"*2="abab"`, either order, zero→
+empty, negative→`negativeRepeatCount` error) — cue's documented behavior superseding
+strings/bytes.Repeat, previously a silent wrong-bottom. Pins: 3 `numeric/*` fixtures + ~19
+`native_decide` theorems (`EvalTests`). Verify: `lake build` green, `check-fixtures.sh` →
+`fixture pairs ok` (zero drift), cert-manager content-identical to cue (modulo field-order #3).
 
 **Low / hardening:** `containsBottom` fuel cap 100 (**A#6** — `Lattice.lean:146`; a bottom
 >100 levels deep escapes pruning → wrong value, not just slow; a partiality hole.

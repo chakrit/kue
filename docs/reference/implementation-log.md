@@ -10112,3 +10112,90 @@ Files: `Kue/Tests/StructTests.lean` (3 ratification pins), `docs/reference/cue-s
 `docs/spec/spec-conformance-audit.md` (4-ratifications item closed; E#4-fix added to the MED
 tail), `docs/spec/plan.md` (backlog line updated; item #4 RATIFIED-closed; E#4-fix added as
 item #6 bullet).
+
+---
+
+## Completed Slice: E#4-fix — arithmetic operator domain (type-error + string/bytes repeat)
+
+Goal: conform the four binary arithmetic ops to the CUE spec's operator domain. The spec
+closes `+ - * /` over integer and decimal, and additionally `+`/`*` over strings and bytes;
+a CONCRETE operand outside an op's domain is a type error (the same class as `1 + "x"`).
+**Kue was WRONG**: `evalAdd`/`evalSub`/`evalMul`/`evalDiv` reached the type-error `.bottom`
+arm only for `prim,prim`; a concrete `.list`/`.struct` operand fell through the
+`_,_ => .binary` catch-all and left a **held residual** (`kue eval` showed `[1,2] + [3,4]`
+raw; `kue export` said `incomplete value`). An incomplete value claims "may still resolve,"
+but two concrete lists with `+` never can. This was slice 3 of the batch (truncate-primitive
+= slice 1, ratifications = slice 2) → the two-phase audit is now DUE.
+
+### The operator domain (verified spec + oracle, cue v0.16.1)
+
+Probed every operator × wrong-type combination against the oracle:
+- **list/struct/bool/null** operand to ANY of `+ - * /` (and string/bytes to `- /`) → type
+  error. cue hard-errors (`Addition of lists is superseded by list.Concat`, `cannot use [..]
+  as type number`, `invalid operands … to '+'`). Kue left a residual — the core bug.
+- **`+`/`*` asymmetry:** `"a" + "b"` = concat (OK), `"a" - "b"` = type error.
+- **`*` over (string\|bytes, int) = REPETITION** (either operand order): `"ab" * 2 = "abab"`,
+  `'ab' * 2 = 'abab'`, `"x" * 0 = ""`, negative count → error (`cannot convert negative
+  number to uint64`). This is cue's documented behavior superseding strings/bytes.Repeat.
+  Kue silently wrong-bottomed it (the `prim,prim` arm's `evalDecimalMultiply?` returned
+  `none`). Fixed as a sibling, since leaving a wrong-bottom in the very operator being
+  conformed would be incoherent.
+
+### The fix (`Kue/Eval.lean`, `Kue/Value.lean`)
+
+- **`classifyArithOperand : Value → ArithOperandClass`** — splits an operand into `prim` /
+  `concreteNonArith ty` (a fully-evaluated `.struct`/`.list`/`.listTail`/`.embeddedList`, with
+  `ty : NonBoolGuardType` reused for provenance) / `incomplete` (ref/kind/bound/unresolved-disj
+  /comprehension/…). Enumerates EVERY `Value` ctor with no catch-all (mirrors `classifyGuard`),
+  so a new ctor forces a domain decision at compile time.
+- **`arithmeticDomainResult (op) (left) (right) : Value`** — the shared gate the four ops call
+  in place of `_,_ => .binary`. **Incomplete is checked FIRST**: if either operand is
+  incomplete the binary DEFERS (`.binary op left right`) — it may still resolve to a number, so
+  bottoming now would be unsound (cue holds `[1] + x` while `x: int` and errors only after `x`
+  resolves to `5`). Otherwise a concrete-nonarith operand (preferring the left) yields
+  `.bottomWith [.nonArithmeticOperand op ty]`. This is the D#1b/c concrete-vs-incomplete
+  discipline: concrete-wrong → bottom, anything-incomplete → defer.
+- **`evalMul` string/bytes repetition** — four new arms before the bottom/defer split:
+  `(string,int)`/`(int,string)` and `(bytes,int)`/`(int,bytes)` → `evalRepeat`, which errors a
+  negative count (`.bottomWith [.negativeRepeatCount n]`) else replicates.
+- **New `BottomReason`s:** `nonArithmeticOperand (op : BinaryOp) (operand : NonBoolGuardType)`
+  and `negativeRepeatCount (count : Int)`. Both manifest as `.error .contradiction` in export
+  (the generic "conflicting values (bottom)" — content-identical to how `1 + "x"` already
+  errors); the ctor payload is provenance for `Repr`/theorems. No `Manifest` change needed.
+
+The `prim,prim` arms are UNTOUCHED — `1 + "x"`, `"a" - "b"`, `"ab" * 2.0`, `null - null`,
+`true * false` all still bottom exactly as before (verified). The final `_,_ => .binary`
+fallback inside `arithmeticDomainResult` is now structurally `prim,prim` (each op handles its
+prim pair first), kept as the safe total residual that can never wrongly bottom.
+
+### Tests
+
+- **3 eval fixtures** (`testdata/cue/numeric/`, each + `FixturePort`):
+  `list_arithmetic_type_error` (list/struct/bool/null × all four ops → `_|_`),
+  `string_repeat_multiplication` (repeat both orders + zero + the `+`/`-` asymmetry),
+  `arithmetic_incomplete_operand_defers` (the critical regression: `int + [1]` defers, and
+  `resolved + 3 = 8` once the abstract `int` concretizes).
+- **~19 `EvalTests` `native_decide`/`rfl` theorems** pinning the unit behavior independent of
+  display: each op's concrete-nonarith → `nonArithmeticOperand` bottom; `.listTail` operand;
+  the string/bytes repeat (incl. zero + negative-count error); and the incomplete-defers cases
+  — concrete-list × incomplete kind (both orders), bound operand, ref operand → `.binary`.
+
+No pre-existing fixture relied on the old wrong residual (none broke). NOT a `cue-divergence`
+(cue was spec-correct); `cue-spec-gaps.md` E#4 row flipped MIS-FILED → ✅ RESOLVED/CONFORMING.
+The only residual display delta is the pre-existing D#1b-family one (a deferred residual shows
+the resolved ref by value, `int + [1]` vs cue's `x + [1]`) — value verdict identical.
+
+### Verify
+
+`lake build` green (108 jobs; the new theorems + FixturePorts check at build).
+`check-fixtures.sh` → `fixture pairs ok` (zero drift on the full corpus; the 3 new pairs pass
+on both the FixturePort-AST and `kue`-CLI paths, cue-fmt clean). cert-manager exports
+content-identical to cue from the module context (625 bytes, modulo the pre-existing
+field-order #3 — the bare-file "import failed" is a cue.mod-context artifact, not this fix).
+No shell touched → `shellcheck` N/A. Oracle: `/Users/chakrit/go/bin/cue` v0.16.1, READ-ONLY.
+
+Files: `Kue/Eval.lean` (classifier + gate + repeat), `Kue/Value.lean` (2 `BottomReason`s),
+`Kue/Tests/EvalTests.lean` (~19 pins), `Kue/Tests/FixturePorts.lean` (3 ports),
+`testdata/cue/numeric/{list_arithmetic_type_error,string_repeat_multiplication,
+arithmetic_incomplete_operand_defers}.{cue,expected}`, `docs/reference/cue-spec-gaps.md`
+(E#4 row → RESOLVED), `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (E#4-fix DONE).
