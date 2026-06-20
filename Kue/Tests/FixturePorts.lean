@@ -1592,6 +1592,25 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- D#1d: a comprehension body's `...` tail is BODY-LOCAL — emit the named fields, drop the
+      -- tail (it does not propagate out of the `for`). Pre-fix the `.struct _ _ none [] _` match
+      -- dropped the tail-bearing body wholesale (`a: 1` vanished). cue v0.16.1 → `out: {a: 1}`.
+      fileName := "comprehensions/comprehension_body_tail_local.expected",
+      content :=
+        match parseSource "out: {for x in [\"s\"] {a: 1, ...}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- D#1d: a comprehension body's `[pattern]:` constraint is BODY-LOCAL — same as the tail.
+      -- cue v0.16.1 → `out: {a: 1}` (the pattern bounds the body block, not the enclosing struct).
+      fileName := "comprehensions/comprehension_body_pattern_local.expected",
+      content :=
+        match parseSource "out: {for x in [\"s\"] {a: 1, [string]: int}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- A5 regression (B1 comprehension-body remap depth): a comprehension body's ref to a
       -- merged-conjunction sibling (`zz`) sits `#forClauses` frames deeper than the comprehension
       -- node, so `remapConjRefs` must reindex it at `frameDepth + #for`. Pre-fix it was remapped at

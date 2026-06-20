@@ -240,6 +240,21 @@ theorem classify_dynlabel_list_nonstring :
 theorem classify_dynlabel_bottom_propagates :
     (classifyDynLabel .bottom == .bottom .bottom) = true := by native_decide
 
+-- `resolveDynLabelDefault` collapses a DEFAULT disjunction to its default (so `classifyDynLabel`
+-- then sees the concrete string), but leaves a NON-default disjunction untouched (stays incomplete).
+theorem resolve_dynlabel_default_collapses_marked :
+    (resolveDynLabelDefault (.disj [(.default, .prim (.string "a")), (.regular, .prim (.string "b"))])
+      == .prim (.string "a")) = true := by native_decide
+theorem resolve_dynlabel_default_keeps_ambiguous :
+    (resolveDynLabelDefault (.disj [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))])
+      == .disj [(.regular, .prim (.string "a")), (.regular, .prim (.string "b"))]) = true := by
+  native_decide
+-- Composed with the classifier: a marked default keys concretely; an ambiguous disjunction defers.
+theorem classify_dynlabel_after_default_collapse_concrete :
+    (classifyDynLabel (resolveDynLabelDefault
+      (.disj [(.default, .prim (.string "a")), (.regular, .prim (.string "b"))]))
+      == .concreteString "a") = true := by native_decide
+
 -- D#1c end-to-end: a concrete non-bool guard makes the comprehension struct BOTTOM (not `{}`).
 theorem guard_nonbool_string_bottoms :
     isBottom (evalStructRefs (resolveStructRefs

@@ -315,6 +315,32 @@ theorem comprehension_list_body_bottom_export_errors :
     exportJsonBottoms "out: [for x in [1] {x & \"s\"}]\n" = true := by
   native_decide
 
+/-! ### D#1d — comprehension body tail / pattern are body-local (emit fields, don't drop).
+
+The struct-comprehension `[]`-arm handler (`expandClausesWithFuel`) emits the body struct's
+named fields. A body's `...` tail and `[pat]:` constraints are BODY-LOCAL: they bound the body
+block but do NOT propagate out of the `for`/`if` into the enclosing struct — only the named
+fields merge (cue: `for _ in [1] {a: 1, ...}` ⇒ `{a: 1}`, the tail discarded). The handler match
+formerly required `.struct _ _ none [] _` (no tail, no patterns), so a tail/pattern-bearing body
+fell through to the catch-all and was DROPPED WHOLESALE — `a: 1` vanished with it. Now it matches
+ANY `.struct`, taking the fields and leaving tail/patterns behind. -/
+
+-- A body with an open `...` tail: emit the field, drop the tail (body-local).
+theorem comprehension_body_tail_is_body_local :
+    evalSourceMatches "out: {for x in [\"s\"] {a: 1, ...}}\n" "out: {a: 1}" = true := by
+  native_decide
+
+-- A body with a `[pattern]:` constraint: emit the field, drop the pattern (body-local).
+theorem comprehension_body_pattern_is_body_local :
+    evalSourceMatches "out: {for x in [\"s\"] {a: 1, [string]: int}}\n" "out: {a: 1}" = true := by
+  native_decide
+
+-- Export-faithful: the field survives concretely (a regression to the old drop would export `{}`).
+theorem comprehension_body_tail_exports_field :
+    exportJsonMatches "out: {for x in [\"s\"] {a: 1, ...}}\n"
+      "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
 /-! ### DYN-DEF-1 — dynamic-field label deferral (a dropped field becomes a held residual).
 
 A dynamic field `(expr): v` whose `expr` is NOT yet a concrete string must be HELD as a residual
@@ -377,6 +403,41 @@ theorem dyndef_concrete_nonstring_key_errors :
 -- A BOTTOM key propagates the bottom (the underlying conflict), not a silent drop.
 theorem dyndef_bottom_key_propagates :
     exportJsonBottoms "out: {((1 & 2)): \"m\"}\n" = true := by
+  native_decide
+
+/-! ### Dynamic-field label DEFAULT-disjunction collapse (DYN-DEF-1 follow-up).
+
+A dynamic-field label that evaluates to a DEFAULT disjunction collapses to its default before
+classification (`resolveDynLabelDefault` at both `.dynamicField` sites), exactly as a default
+disjunction collapses as an `if` guard or under manifestation — so `(*"a" | "b"): v` keys on
+`"a"`. Pre-fix `classifyDynLabel`'s `.disj` arm sent EVERY disjunction (default or not) to DEFER,
+so a default-keyed field was wrongly held and exported `incomplete` instead of cue's concrete
+re-key. The AMBIGUOUS (non-default) disjunction still defers — `resolveDisjDefault?` returns none
+and the field stays a residual (its own pin below, `dyndef_nondefault_disj_key_still_defers`). -/
+
+-- A default disjunction label keys on its default. cue v0.16.1 → `{out: {a: 1}}`.
+theorem dyndef_default_disj_key_collapses :
+    exportJsonMatches "out: {(*\"a\" | \"b\"): 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- The default arrives through a field reference. cue → `{k: "a", out: {a: 1}}`.
+theorem dyndef_default_disj_key_via_ref :
+    exportJsonMatches "k: *\"a\" | \"b\"\nout: {(k): 1}\n"
+      "{\n    \"k\": \"a\",\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- A default whose chosen value is a CONCRETE non-string is a type error (the collapse exposes
+-- the int default `3`, which cannot label): export bottoms (cue: `integer fields not supported`).
+theorem dyndef_default_disj_key_nonstring_errors :
+    exportJsonBottoms "out: {(*3 | \"b\"): 1}\n" = true := by
+  native_decide
+
+-- The boundary: an AMBIGUOUS disjunction (no default, two live arms) does NOT collapse — it stays
+-- incomplete and the field DEFERS (held), so export errors. Pre- and post-fix identical; pins the
+-- guard so the collapse never over-fires on a non-default disjunction.
+theorem dyndef_nondefault_disj_key_still_defers :
+    exportJsonBottoms "out: {(\"a\" | \"b\"): 1}\n" = true := by
   native_decide
 
 end Kue

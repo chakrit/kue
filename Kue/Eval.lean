@@ -1008,6 +1008,17 @@ def classifyDynLabel : Value -> DynLabelVerdict
   | .dynamicField _ _ _ => .incomplete
   | .closure _ _ => .incomplete
 
+/-- Collapse an evaluated dynamic-field label that is a DEFAULT disjunction to its default before
+    classification, exactly as a default disjunction collapses as an `if` guard (`expandClauseChain`)
+    or under manifestation: `(*"a" | "b"): v` keys on `"a"`. `resolveDisjDefault?` picks a unique
+    marked default (or a sole live regular alternative) and leaves an AMBIGUOUS disjunction (no
+    default, ≥2 live arms) untouched, so `classifyDynLabel` still DEFERS it. A non-`.disj` label is
+    returned unchanged. -/
+def resolveDynLabelDefault (label : Value) : Value :=
+  match label with
+  | .disj alternatives => (resolveDisjDefault? alternatives).getD label
+  | _ => label
+
 def evalEq (left right : Value) : Value :=
   match left, right with
   | .prim left, .prim right =>
@@ -2998,7 +3009,7 @@ mutual
         pure (evalInterpolation evaluated)
     | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env visited label
-        match classifyDynLabel evaluatedLabel with
+        match classifyDynLabel (resolveDynLabelDefault evaluatedLabel) with
         | .concreteString name => do
             let evaluatedValue <- evalValueWithFuel fuel env visited value
             pure (mkStruct [⟨name, fieldClass, evaluatedValue⟩] .regularOpen none [])
@@ -3474,7 +3485,7 @@ mutual
         | .deferred => pure (.ok ([], [value]))
     | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env [] label
-        match classifyDynLabel evaluatedLabel with
+        match classifyDynLabel (resolveDynLabelDefault evaluatedLabel) with
         | .concreteString name => do
             let evaluatedValue <- evalValueWithFuel fuel env [] value
             pure (.ok ([⟨name, fieldClass, evaluatedValue⟩], []))
@@ -3598,11 +3609,16 @@ mutual
     expandClauseChain
       (fun evaluatedBody =>
         match evaluatedBody with
-        | .struct fields _ none [] _ => .payload fields
         -- A bottom body propagates (D#1a): a nested bottom guard surfaces here as a `.bottom`
         -- body, and must not be dropped.
         | .bottom => .bottom evaluatedBody
         | .bottomWith _ => .bottom evaluatedBody
+        -- Emit the body's regular fields. The match is deliberately on ANY `.struct` (any
+        -- openness/tail/patterns): a comprehension body's `...` tail and `[pat]:` constraints are
+        -- body-local — they do NOT propagate out of the `for`/`if` block, only its named fields
+        -- merge into the enclosing struct (cue: `for _ in [1] {a:1, ...}` ⇒ `{a:1}`). The old
+        -- `.struct _ _ none [] _` dropped a tail/pattern-bearing body wholesale.
+        | .struct fields _ _ _ _ => .payload fields
         | _ => .payload [])
       fuel env clauses body
   termination_by (fuel, 2, 0)

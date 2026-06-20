@@ -298,15 +298,19 @@ under one abstraction would be a false "stuff they all do" extraction. **Family 
 see the A-EN3+DRY-1 entries below) → AD2-1 is now the SOLE remaining dedup-family member
 (file-not-inline).**
 
-**Next-leader ranking (correctness-first; Phase-B 2026-06-20, the audit that closed the AD4-1 +
-A-EN3 round):** AD2-1 is the sole remaining *dedup-family* member and **is now the next overall
-leader**. **A-EN3-DYN and DYN-DEF-1 are both ✅ DONE** (the two dyn-field Violations, landed as the
-new batch — see the entries below and the implementation-log). The remaining order is **AD2-1
-(LOW-MED dedup, file-not-inline)**, then the LOW cosmetic tail (item 6). AD2-1 is value-sound
-(display-only). **⚠ TWO-PHASE AUDIT DUE** (A then B, per `docs/guides/slice-loop.md` — do NOT
-invoke `/ace-audit`): A-EN3-DYN (slice 1) + DYN-DEF-1 (slice 2) is a coherent dyn-field-correctness
-batch to audit together, at the 2-slice mark. Run the audit before (or batch AD2-1 in as slice 3 of
-the round, then audit — auditor's call).
+**Next-leader ranking (correctness-first; updated Phase-A 2026-06-20, the audit of the A-EN3-DYN +
+DYN-DEF-1 dyn-field batch):** **A-EN3-DYN and DYN-DEF-1 are both ✅ DONE and AUDITED SOUND** (Phase-A
+verified the depth-mirror, `classifyDynLabel` exhaustiveness, and the corrected fixture — see the
+Phase-A entry below). Phase-A found and **FIXED INLINE two NEW wrong-results** (D#1d comprehension-
+body tail/pattern drop; default-disjunction dyn-field label collapse) and **FILED one** as the new
+leader. **Live order: (1) D#1d-RESIDUAL** (MEDIUM Violation — a held residual inside a comprehension
+body is silently dropped; wrong-result, outranks everything below) → **(2) AD2-1** (LOW-MED
+disjunction-normalizer dedup, file-not-inline, value-sound display-only) → **(3)** the LOW cosmetic
+tail (item 6). **Phase-B is still DUE** for this batch (architecture/refactor over the module graph;
+the breadcrumb's AUDIT-DUE flag is Phase-B's to clear) — and should weigh the now-FOUR parallel
+classifiers (`classifyGuard`/`classifyDefinedness`/`classifyArithOperand`/`classifyDynLabel`):
+re-evaluate whether the prior "leave separate" ruling holds at four, or a shared concreteness
+partition is now warranted.
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
   The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`
@@ -387,6 +391,79 @@ the round, then audit — auditor's call).
   re-eval re-keys it. Renamed `NonBoolGuardType → ConcreteTypeName` (now shared by 4 reasons).
   CONFORMS to spec (cue correct); the held-residual `@d.i` key display folds into the existing D#1b
   display divergence row. Gate green; cert-manager byte-identical to pre-fix HEAD.
+
+- **── Phase-A audit (2026-06-20, A-EN3-DYN + DYN-DEF-1 batch) — adversarial dyn-field probe ──**
+  The two batch fixes were audited adversarially against `cue` v0.16.1 across the whole reshaped
+  dyn-field path (bytes/int/bool/null keys, field collisions, abstract/never-concrete keys,
+  dyn-key-refs-dynfield, nested comprehensions, disjunction/bounded/default keys). **Both batch
+  fixes are SOUND**: `classifyDynLabel` is exhaustive (28/28 `Value` ctors, no catch-all, green
+  build proves it); the four verdicts are spec-correct (a non-string concrete label — incl. bytes,
+  int, bool, null, struct, list — is a type error matching cue, not a coercion; abstract/incomplete
+  defers and export-errors matching cue's hold-then-error). The **A-EN3-DYN two-site depth-mirror is
+  EXACT**: `Resolve.lean` (`resolveValueWithFuel` `.dynamicField` arm) resolves key AND value against
+  the SAME `scopes` with NO `buildFrame` push (contrast `.structComp`, which DOES push), so both
+  scanners — `foldValueWithDepth` (`rec' depth l`/`rec' depth inner`) and `hasSelfRefAtDepth`
+  (`… depth key || … depth value`) — correctly scan both sub-positions at the parent depth.
+  `dynValShift` is fully removed from the implementation (the sole residual hit is a FixturePorts
+  CODE COMMENT recording the historical fix). The corrected fixture
+  `dynfield_comprehension_key_and_nested_value.expected` is oracle-faithful (`patch.out:
+  [{t: {label: "n"}}]` byte-matches cue; only the `#Add` def-body `@d.i` rendering is the documented
+  D#1b display limitation). **Two NEW wrong-results found and FIXED INLINE this audit** (below:
+  D#1d, default-label-collapse); **one filed** as a new leader (D#1d-RESIDUAL). Two display-only
+  observations (NOT bugs): (a) `{(a):"z", a:"k"}` exports the same keys/values as cue but in
+  declaration order vs cue's graph order — same field-ordering family as the RATIFIED spec-gap;
+  (b) a held dyn-field/comprehension residual renders its re-keyed label as `@d.i` (D#1b).
+
+- **D#1d (MEDIUM Violation — comprehension-body tail/pattern DROP) — ✅ DONE (fixed inline, this
+  audit).** A struct-comprehension whose body carried a `...` tail OR a `[pat]:` constraint dropped
+  the body WHOLESALE (`x: {for _ in [1] {a:1, ...}}` → kue `{}` vs cue `{a:1}`) — its regular fields
+  vanished with the tail/pattern. Root cause: the struct `[]`-arm handler in `expandClausesWithFuel`
+  matched only `.struct _ _ none [] _` (no tail, no patterns), so a tail/pattern-bearing body fell
+  to the catch-all `_ => .payload []`. A comprehension body's tail/patterns are BODY-LOCAL — they
+  bound the body block but do NOT propagate out of the `for`/`if`; only the named fields merge
+  (cue-confirmed). Fix: match ANY `.struct fields _ _ _ _` → `.payload fields`. CONFORMS to spec
+  (cue correct). Pins: `ComprehensionTests` `comprehension_body_tail_is_body_local` /
+  `_pattern_is_body_local` / `_tail_exports_field` + fixtures `comprehensions/
+  comprehension_body_{tail,pattern}_local`. The LIST twin needs no change (it correctly wraps any
+  body as a held element — the D#1a asymmetry). Gate green (build/`fixture pairs ok`/shellcheck);
+  TwoPassTests preserved (the broadened `.struct` match does not over-fire — verified).
+
+- **Default-disjunction dyn-field LABEL collapse — ✅ DONE (fixed inline, this audit).** A dynamic
+  field whose label evaluated to a DEFAULT disjunction (`(*"a" | "b"): 1`) was wrongly HELD/export-
+  errored instead of keying on its default (cue → `{x: {a: 1}}`). `classifyDynLabel`'s `.disj` arm
+  sent EVERY disjunction to DEFER, never consulting the default mark. Fix: a tiny pure helper
+  `resolveDynLabelDefault` (collapses a marked-default disjunction via `resolveDisjDefault?`, leaves
+  an ambiguous one untouched) applied at BOTH `.dynamicField` sites BEFORE `classifyDynLabel` —
+  mirroring the EXISTING precedent in the `if`-guard path (`expandClauseChain`, which collapses a
+  default-disjunction guard the same way before `classifyGuard`). A default label thus keys
+  concretely; an ambiguous (no-default, ≥2-arm) disjunction STILL defers (boundary preserved). A
+  default that selects a concrete non-string (`*3 | "b"`) correctly type-errors (the collapse
+  exposes `3`). CONFORMS to spec (a default disjunction concretizes in a concrete context — the
+  same selection D#2b notes; this is a VALUE re-key, distinct from D#2b's display question). Pins:
+  `ComprehensionTests` `dyndef_default_disj_key_collapses` / `_via_ref` / `_nonstring_errors` /
+  `dyndef_nondefault_disj_key_still_defers` + `PresenceTests` `resolve_dynlabel_default_*` /
+  `classify_dynlabel_after_default_collapse_concrete`. Gate green.
+
+- **D#1d-RESIDUAL (MEDIUM Violation — held residual inside a comprehension body DROPPED) — ⛔ FILED,
+  NEXT LEADER (ahead of AD2-1).** A comprehension body that itself evaluates to a HELD RESIDUAL — a
+  `.structComp` carrying a held dynamic field with a non-concrete key (`x: {for k in [string]
+  {(k):1}}`) OR a nested deferred `if`/`for` (`x: {for _ in [1] {if g {y:1}}}`) — is silently
+  DROPPED to `{}` (cue HOLDS the entire block under eval, errors incomplete under export). The
+  struct `[]`-arm handler (`expandClausesWithFuel`) emits only a fully-resolved `.struct`'s fields;
+  a `.structComp` body falls to `_ => .payload []`. This is the DYN-DEF-1 silent-drop bug class ONE
+  LAYER UP, at the comprehension-body boundary — adjacent to but distinct from the (now-fixed) D#1d
+  tail/pattern drop. **Attempted inline, REVERTED:** a `.structComp → .deferred` arm is NOT safe — a
+  `.structComp` body is ALSO the normal in-progress two-pass carrier that later RESOLVES (it broke 7
+  `TwoPassTests` where `add.#patch` is transiently `.structComp` then concretes). The correct fix
+  must distinguish a GENUINELY-undecidable body residual (defer the whole comprehension) from a
+  transient-but-resolvable one (let the two-pass machinery complete it) — `onExhausted` runs too
+  early to tell them apart, so this needs the deferral decision moved to where the body's final
+  resolvedness is known, or a residual-vs-transient discriminator on the body value. NOT a contained
+  one-arm fix; FILED rather than forced. The LIST twin is already CORRECT (a held-residual struct is
+  a valid held list ELEMENT — verified vs cue). Witnesses (eval): `for-abstract-key` and
+  `for-nested-deferred-if` both → kue `{}` vs cue holds. **This is a wrong-result Violation and
+  outranks AD2-1** (the LOW-MED display-only dedup) per correctness-first.
+
 - **DRY-1 (let-walker dedup) — ✗ RULED OUT (attempted under A-EN3's slice, reverted; no behavior
   change shipped).** The plan was ONE `walkFollowedLets` with `closeDefFrameReadIndices` /
   `letPromotedReadLabels` / `injectLetLocalNarrowings` as thin instantiations. It is the DRY trap,
