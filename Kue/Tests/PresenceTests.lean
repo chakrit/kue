@@ -153,4 +153,117 @@ theorem guard_true_still_yields :
       == mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
+/-! D#1b / D#1c — the guard classifier. `classifyGuard` enumerates every guard outcome with no
+catch-all: concrete bool true/false, a propagating bottom, a CONCRETE non-bool type error (D#1c),
+and a genuinely-incomplete DEFER (D#1b). The residual presence-test shape `X !=/== _|_` is NOT a
+defer — it drops (the field's presence is undetermined), preserving the pre-D#1b behavior. -/
+
+-- Unit: concrete bools classify true/false. (`GuardVerdict` derives `BEq`, not `DecidableEq` —
+-- its `.bottom` arm carries a `Value`, which the project keeps off `DecidableEq` — so assert via
+-- `==`, mirroring the `Value` convention.)
+theorem classify_guard_bool_true : (classifyGuard (.prim (.bool true)) == .concreteTrue) = true := by
+  native_decide
+theorem classify_guard_bool_false : (classifyGuard (.prim (.bool false)) == .concreteFalse) = true := by
+  native_decide
+
+-- D#1c unit: concrete non-bool values (string / int / struct / list / null) are type errors,
+-- carrying the offending type.
+theorem classify_guard_string_nonbool :
+    (classifyGuard (.prim (.string "x")) == .nonBool (.scalar .string)) = true := by native_decide
+theorem classify_guard_int_nonbool :
+    (classifyGuard (.prim (.int 3)) == .nonBool (.scalar .int)) = true := by native_decide
+theorem classify_guard_null_nonbool :
+    (classifyGuard (.prim .null) == .nonBool (.scalar .null)) = true := by native_decide
+theorem classify_guard_struct_nonbool :
+    (classifyGuard (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) == .nonBool .struct) = true := by
+  native_decide
+theorem classify_guard_list_nonbool :
+    (classifyGuard (.list [.prim (.int 1)]) == .nonBool .list) = true := by native_decide
+
+-- D#1b unit: genuinely-abstract guards DEFER — an abstract bool kind, an unresolved disjunction
+-- (even all-bool `true | false`), and a non-presence comparison (`x > 5`).
+theorem classify_guard_kind_incomplete :
+    (classifyGuard (.kind .bool) == .incomplete) = true := by native_decide
+theorem classify_guard_unresolved_disj_incomplete :
+    (classifyGuard (.disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]) == .incomplete) = true := by
+  native_decide
+theorem classify_guard_comparison_incomplete :
+    (classifyGuard (.binary .gt (.refId ⟨0, 0⟩) (.prim (.int 5))) == .incomplete) = true := by native_decide
+
+-- The residual presence test is NOT a defer — it drops (concrete-false), both polarities.
+theorem classify_guard_presence_ne_drops :
+    (classifyGuard (.binary .ne (.selector (.refId ⟨0, 0⟩) "g") .bottom) == .concreteFalse) = true := by
+  native_decide
+theorem classify_guard_presence_eq_drops :
+    (classifyGuard (.binary .eq (.selector (.refId ⟨0, 0⟩) "g") .bottom) == .concreteFalse) = true := by
+  native_decide
+
+-- D#1c end-to-end: a concrete non-bool guard makes the comprehension struct BOTTOM (not `{}`).
+theorem guard_nonbool_string_bottoms :
+    isBottom (evalStructRefs (resolveStructRefs
+      (.structComp []
+        [.comprehension [.guard (.prim (.string "x"))]
+          (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        .regularOpen)))
+      = true := by
+  native_decide
+
+theorem guard_nonbool_int_bottoms :
+    isBottom (evalStructRefs (resolveStructRefs
+      (.structComp []
+        [.comprehension [.guard (.prim (.int 3))]
+          (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        .regularOpen)))
+      = true := by
+  native_decide
+
+-- D#1c list twin: a concrete non-bool guard in a LIST comprehension puts a `.nonBoolGuard`
+-- bottom in the element slot (`[1, _|_]`), the same convention as the D#1a list twin — preserved,
+-- not swallowed to `[]`.
+theorem list_guard_nonbool_bottoms_element :
+    (evalStructRefs (resolveStructRefs
+      (mkStruct [⟨"out", .regular,
+          .list [.prim (.int 1),
+            .listComprehension [.guard (.prim (.string "z"))]
+              (.structComp [] [.prim (.int 2)] .regularOpen)]⟩]
+        .regularOpen none []))
+      == mkStruct [⟨"out", .regular,
+          .list [.prim (.int 1), .bottomWith [.nonBoolGuard (.scalar .string)]]⟩]
+        .regularOpen none []) = true := by
+  native_decide
+
+-- D#1b end-to-end: an incomplete guard (`if x`, x : bool) DEFERS — the result keeps the
+-- comprehension residual (a `.structComp`), it does NOT collapse to an empty/plain struct. The
+-- guard ref resolves to `@1.0` (`x`'s frame slot); the body is unchanged.
+theorem guard_incomplete_defers_residual :
+    (evalStructRefs (resolveStructRefs
+      (mkStruct [
+          ⟨"x", .regular, .kind .bool⟩,
+          ⟨"out", .regular,
+            .structComp []
+              [.comprehension [.guard (.ref "x")]
+                (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+              .regularOpen⟩]
+        .regularOpen none []))
+      == mkStruct [
+          ⟨"x", .regular, .kind .bool⟩,
+          ⟨"out", .regular,
+            .structComp []
+              [.comprehension [.guard (.refId ⟨1, 0⟩)]
+                (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+              .regularOpen⟩]
+        .regularOpen none []) = true := by
+  native_decide
+
+-- D#1b: the abstract guard does NOT silently drop — the residual struct is distinct from the
+-- collapsed empty form the old catch-all produced.
+theorem guard_incomplete_not_dropped :
+    (evalStructRefs (resolveStructRefs
+      (.structComp []
+        [.comprehension [.guard (.kind .bool)]
+          (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        .regularOpen))
+      == mkStruct [] .regularOpen none []) = false := by
+  native_decide
+
 end Kue

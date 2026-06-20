@@ -346,20 +346,25 @@ theorem perfb_closed_vs_open_distinct_values :
 -- the use site ADDS past `...` — pre-fix the parser collapse dropped the `...` and normalize
 -- hard-closed the `.structComp` arm, so `added` bottomed (cue accepts it). The fix records
 -- `...`-presence (`hasTail`) on `.structComp` and normalize sets the def body's openness from it.
+-- D#1b: in the def's STANDALONE form `port: int` is abstract, so the guard `port > 0` is
+-- incomplete and the comprehension DEFERS (held `if … > 0 {pos: true}`, matching cue eval — it
+-- shows `port: int, if port > 0 {pos: true}`; Kue renders the resolved ref as `@d.i`). The FORCE
+-- at the use site (`port: 8080`) resolves it, so `out` still gains `pos: true`.
 theorem fix0_open_def_embed_comp_admits_added_field :
     evalSourceMatches
         "#Base: {kind: \"S\"}\n#D: {#Base, port: int, if port > 0 {pos: true}, ...}\nout: #D & {port: 8080, added: \"x\"}\n"
-        "#Base: {kind: \"S\"}\n#D: {port: int, kind: \"S\"}\nout: {port: 8080, added: \"x\", pos: true, kind: \"S\"}"
+        "#Base: {kind: \"S\"}\n#D: {port: int, kind: \"S\", if @0.0 > 0 {pos: true}}\nout: {port: 8080, added: \"x\", pos: true, kind: \"S\"}"
           = true := by
   native_decide
 
 -- FIX-SLICE-0 NO-OVER-OPEN: the SAME embed+comprehension shape WITHOUT `...` is a CLOSED def — the
 -- added field REJECTS (`added: _|_`), matching cue's `field not allowed`. Pins that honoring
--- `hasTail` does not open a genuinely-closed def (the over-open failure mode).
+-- `hasTail` does not open a genuinely-closed def (the over-open failure mode). D#1b: the def-body
+-- comprehension likewise DEFERS standalone (`port` abstract); the use-site force resolves it.
 theorem fix0_closed_def_embed_comp_rejects_added_field :
     evalSourceMatches
         "#Base: {kind: \"S\"}\n#D: {#Base, port: int, if port > 0 {pos: true}}\nout: #D & {port: 8080, added: \"x\"}\n"
-        "#Base: {kind: \"S\"}\n#D: {port: int, kind: \"S\"}\nout: {port: 8080, added: _|_, pos: true, kind: \"S\"}"
+        "#Base: {kind: \"S\"}\n#D: {port: int, kind: \"S\", if @0.0 > 0 {pos: true}}\nout: {port: 8080, added: _|_, pos: true, kind: \"S\"}"
           = true := by
   native_decide
 

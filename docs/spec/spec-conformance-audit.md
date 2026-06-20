@@ -56,7 +56,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | A. Disjunctions/narrowing  | batch 1 | DONE   | 1 KUE-VIOLATES (disj display); **Gap-2b/Bug2-3 FIXED 2026-06-19** (cue correct; structural list-vs-struct arm prune); 2 spec gaps; rest CONFORMS                                               |
 | B. Closedness/definitions  | batch 1 | DONE   | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS                                  |
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
-| D. Comprehensions/scoping  | batch 2 | DONE   | 3 KUE-VIOLATES (guard catch-all swallows bottom/incomplete; structural cycles — **D#2 COMPLETE 2026-06-20**: D#2a detection + D#2b terminating-disjunct both FIXED; `let` clauses unparseable); frame-model + read-splice CONFORM                                       |
+| D. Comprehensions/scoping  | batch 2 | DONE   | guard catch-all DRAINED (**D#1a/D#1b/D#1c all FIXED**: bottom→propagate, incomplete→defer, concrete-non-bool→type-error; 2026-06-20); structural cycles **D#2 COMPLETE 2026-06-20** (D#2a detection + D#2b terminating-disjunct); only `let`-clauses (D#3) remain unparseable; frame-model + read-splice CONFORM |
 | E. Scalars/bounds/builtins | batch 2 | DONE   | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); 2 MED builtin remain (BI-1 ASCII case-fold; BI-2 deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
 | F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
@@ -66,6 +66,15 @@ Completed findings and shipped design specs, compressed to pointers. Each cites 
 landing commit; the as-built detail lives in `docs/reference/implementation-log.md` and
 git history.
 
+- 2026-06-20 — **D#1b + D#1c** comprehension-guard classification (`Eval.lean`: new total
+  `classifyGuard` over a `GuardVerdict` sum, enumerating every `Value` — no catch-all — read by
+  both clause-walkers; `Value.lean`: `NonBoolGuardType` + `BottomReason.nonBoolGuard`). D#1c
+  concrete-non-bool→type-error (CONFORMS); D#1b incomplete→defer (keeps the comprehension residual
+  via the new `ClauseExpansion`/`ListClauseExpansion` `deferred` outcome + `withDeferredComprehensions`
+  re-wrap; spec-gap + display divergence recorded). The residual presence-test shape `X !=/== _|_`
+  is carved out (stays a drop). Guard catch-all fully drained (D#1a/b/c all DONE). 17 `native_decide`
+  pins + 4 fixtures; 3 bug-replicating drop-pins corrected to the held form; cert-manager
+  content-identical. See implementation-log 2026-06-20.
 - 2026-06-20 — **RX-2a** in-class negated shorthand classes (`Regex.lean` `parseClassEscape`'s
   `\D`/`\W`/`\S` `.error` arms → `complementRanges` folds; new total `Regex.complementRanges` +
   `maxCodePoint` over the `[0, U+10FFFF]` `Char` domain). The lone regex-corpus divergence;
@@ -179,12 +188,13 @@ resolves as the general semantics mature. **Recommended next 3-4:**
 did not unblock — residual Bug2-5 is PARKED as a stress-test finding, see Live-slice
 detail; it is not on the critical path.)
 
-**NOW LEADS — the MED tail** (no large designed levers remain): **D#1b/D#1c** (incomplete- /
-concrete-non-bool-guard classification), **D#3** (`let` clauses in comprehensions), **SC-3
-display-residual** (LOW/spec-gap), **BI-1** (Unicode case-fold), **BI-2** (`math.Pow`/`list.Sort`),
-**F-3** (qualified import). Then SC-4 (LOW, spec-gap-first), the 4 spec-gap ratifications, A#6
-(standalone), DRY-1 (LOW refactor). ⚠ A two-phase audit is DUE (D#2a + D#2b + RX-2a = 3 landed
-since the last).
+**NOW LEADS — the MED tail** (no large designed levers remain): **D#3** (`let` clauses in
+comprehensions) — D#1b/D#1c DONE 2026-06-20 (comprehension-guard classification: incomplete→defer,
+concrete-non-bool→type-error; the guard catch-all is fully drained). Then **BI-1** (Unicode
+case-fold), **BI-2** (`math.Pow`/`list.Sort`), **F-3** (qualified import), **SC-3 display-residual**
+(LOW/spec-gap). Then SC-4 (LOW, spec-gap-first), the 4 spec-gap ratifications, A#6 (standalone),
+DRY-1 (LOW refactor). Audit cadence: RX-2a + D#1b/c = 2 slices since the last two-phase audit — ONE
+more slice, then Phase A→B is due (NOT due now).
 
 Then the MED tail (D#1b/D#1c, D#3 `let` -clauses, SC-3 disj-display, BI-1 Unicode
 case-fold, BI-2 `math.Pow` /`list.Sort`, F-3 qualified import), SC-4 (LOW,
@@ -263,21 +273,22 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
 
 **MED tail:**
 
-9. **D#1b** incomplete-guard deferral (incomplete-deferral half of the D#1 guard
-   catch-all; couples with D#2 structural cycles). The guard match currently has
-   `.bool true` → continue, `.bool false` → drop, `.bottom` /`.bottomWith` → propagate
-   (D#1a, DONE), residual `_` → `[]`; D#1b makes the genuinely incomplete/abstract guard
-   DEFER rather than drop.
-10. **D#1c (MED — found in the SC-1-batch Phase-A audit).** The guard's residual
-    `_ => pure (.ok [])` arm still SWALLOWS a CONCRETE non-bool guard, which the spec
-    treats as a type error, not a drop: `if "x" {…}` / `if 3 {…}` yield `{}` in Kue but
-    `cue` errors (`cannot use "x" (type string) as type bool`). D#1a fixed the bottom case
-    and D#1b owns the INCOMPLETE (abstract) case (legitimately defers), but the residual
-    arm conflates "incomplete abstract → defer" with "concrete non-bool → error". The fix
-    splits them: a concrete value whose kind is not `bool` is a `.bottomWith` type error
-    (propagate, like the bottom case); only a genuinely incomplete/abstract guard defers
-    (D#1b). Couples with D#1b's deferral classification. `Eval.lean`
-    `expandClausesWithFuel` guard match.
+9. **D#1b — DONE (2026-06-20).** Incomplete-guard deferral. A genuinely-abstract guard
+   (a `.kind`, bound, unresolved disjunction, or non-presence comparison) now DEFERS —
+   the comprehension stays a residual `.structComp`/`.comprehension`/`.listComprehension`
+   node (cue eval-holds; `kue export` errors `incomplete value`), instead of dropping to
+   `{}`/`[]`. Result protocol gained `ClauseExpansion`/`ListClauseExpansion`
+   (`fields`/`bottom`/`deferred`); `withDeferredComprehensions` re-wraps. The residual
+   PRESENCE test `X !=/== _|_` is CARVED OUT (stays a drop — cue eval drops it). Spec-gap
+   recorded (defer mechanism); display divergence recorded (Kue renders the held ref as
+   `@d.i`). See Audit history + implementation-log 2026-06-20.
+10. **D#1c — DONE (2026-06-20).** Concrete non-bool guard → TYPE ERROR. A fully-concrete
+    present value of non-`bool` type (`if "x"`/`if 3`/`if {…}`/`if [..]`/`if null`) is now a
+    `.bottomWith [.nonBoolGuard ty]` that propagates (cue: `cannot use … as type bool`),
+    NOT a `{}` drop. New `BottomReason.nonBoolGuard` + precise `NonBoolGuardType`
+    (`scalar Kind`/`struct`/`list`). CONFORMS (cue+Kue agree, both modes). Split from D#1b
+    in the SAME `classifyGuard` enumeration (no catch-all). See Audit history +
+    implementation-log 2026-06-20.
 11. **D#3** `let` clauses in comprehensions (parse + `Clause.letClause` + wire `let` =+1
     in `descendClauses`). The for=+1/if=+0 frame model is spec-CORRECT (B7 vindicated);
     `let` must wire as +1 when this lands.

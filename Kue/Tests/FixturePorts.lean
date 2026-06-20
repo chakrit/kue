@@ -1612,6 +1612,71 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- D#1c: a CONCRETE non-bool guard (`if "x"`) is a TYPE ERROR (cue: `cannot use "x" (type
+      -- string) as type bool`), NOT a silent drop. The comprehension carries a `.nonBoolGuard`
+      -- bottom, so `out` is `_|_`.
+      fileName := "comprehensions/guard_nonbool_string.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .structComp []
+                    [.comprehension [.guard (.prim (.string "x"))]
+                      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+                    .regularOpen⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#1c: a concrete non-bool INT guard (`if 3`) is likewise a type error.
+      fileName := "comprehensions/guard_nonbool_int.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .structComp []
+                    [.comprehension [.guard (.prim (.int 3))]
+                      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+                    .regularOpen⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#1c list twin: a concrete non-bool guard in a LIST comprehension is a type error; the
+      -- bottom occupies the element slot (`[1, _|_]`), the same convention as the D#1a list twin.
+      fileName := "comprehensions/list_guard_nonbool.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .list
+                    [
+                      .prim (.int 1),
+                      .listComprehension [.guard (.prim (.string "z"))]
+                        (.structComp [] [.prim (.int 2)] .regularOpen)
+                    ]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#1b: an INCOMPLETE guard (`if x` with `x: bool`) cannot be decided, so the comprehension
+      -- DEFERS — it stays a residual `.structComp` carrying the unresolved `.comprehension` (cue
+      -- eval holds `if x {…}`; `cue export` then errors `incomplete bool`). NOT a silent drop.
+      -- Kue renders the resolved guard ref as `@d.i` (a known display divergence; cue prints `x`).
+      fileName := "comprehensions/guard_incomplete_defers.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"x", .regular, .kind .bool⟩,
+                ⟨"out", .regular,
+                  .structComp []
+                    [.comprehension [.guard (.ref "x")]
+                      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+                    .regularOpen⟩
+              ] .regularOpen none []))
+    },
+    {
       -- D#1a edge: the guard reads a sibling that is itself bottom (`x: 1 & 2`). The bottom
       -- flows through the guard and propagates out of the comprehension.
       fileName := "comprehensions/guard_bottom_from_sibling.expected",

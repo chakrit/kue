@@ -863,10 +863,12 @@ theorem eval_comprehension_guard_direct_default_disj_admits :
          ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
-/-- Slice C (over-resolution guard). A NON-default disjunction in a guard must STAY
-    unsatisfied — only marked defaults collapse. `if x` with `x: bool` (no default) drops
-    the body, matching cue's `incomplete value bool`. -/
-theorem eval_comprehension_guard_non_default_disj_drops :
+/-- Slice C + D#1b. A NON-default disjunction guard is INCOMPLETE — only marked defaults
+    collapse to a concrete bool. `if x` with `x: true | false` (no default) cannot be decided,
+    so the comprehension DEFERS: it stays a residual `.structComp` carrying the unresolved
+    `.comprehension`, NOT a silent drop to `{}`. Matches cue eval (holds `if x {…}`; `cue export`
+    then errors `unresolved disjunction … (type bool)`). Pre-D#1b this WRONGLY dropped to `{}`. -/
+theorem eval_comprehension_guard_non_default_disj_defers :
     (evalStructRefs
       (resolveStructRefs
         (mkStruct [⟨"x", .regular,
@@ -878,7 +880,11 @@ theorem eval_comprehension_guard_non_default_disj_drops :
                .regularOpen⟩] .regularOpen none []))
       == mkStruct [⟨"x", .regular,
            .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
-         ⟨"out", .regular, mkStruct [] .regularOpen none []⟩] .regularOpen none []) = true := by
+         ⟨"out", .regular,
+           .structComp []
+             [.comprehension [.guard (.refId ⟨1, 0⟩)]
+               (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+             .regularOpen⟩] .regularOpen none []) = true := by
   native_decide
 
 /-! ### Slice F1 — default-mark algebra (audit #3 Violation)

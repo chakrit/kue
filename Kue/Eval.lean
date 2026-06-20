@@ -915,6 +915,76 @@ def evalPresenceTest (equality : Bool) (value : Value) : Value :=
   | .incomplete =>
       if equality then .binary .eq value .bottom else .binary .ne value .bottom
 
+/-- The verdict for a comprehension `if` guard's evaluated condition. CUE requires the guard
+    to be `bool`; `classifyGuard` sorts the (already default-resolved) condition into the five
+    spec-distinguished cases, replacing the old residual `_ => drop` catch-all:
+    - `concreteTrue`/`concreteFalse` — a concrete `bool`: admit / drop the body.
+    - `bottom` — an evaluated error: propagate (D#1a; a nested bottom guard must not vanish).
+    - `nonBool` — a concrete value of non-`bool` type (`if "x"`/`if 3`/`if {…}`/`if [..]`): a
+      type error (D#1c). CUE: `cannot use … as type bool`.
+    - `incomplete` — an unresolved/abstract guard (a ref, kind, bound, builtin, or unresolved
+      disjunction): the comprehension cannot be decided yet, so it DEFERS (D#1b) — it stays
+      residual rather than dropping to `{}`. -/
+inductive GuardVerdict where
+  | concreteTrue
+  | concreteFalse
+  | bottom (value : Value)
+  | nonBool (type : NonBoolGuardType)
+  | incomplete
+deriving BEq
+
+/-- Classify a guard condition, enumerating EVERY `Value` constructor (no catch-all) so a new
+    arm forces a decision here. Three non-`incomplete` outcomes:
+    - `concreteTrue`/`concreteFalse` — a concrete `bool`, OR a residual PRESENCE test `X == _|_`
+      / `X != _|_` (the shape `evalPresenceTest` emits for an incomplete operand). The presence
+      could not be confirmed, so the guard is not satisfied ⇒ drop — the pre-existing
+      cue-eval-correct behavior (`if base.g != _|_ {…}` with `g` absent, and `if y != _|_ {…}`
+      with abstract `y`, both yield `out: {}`).
+    - `nonBool` — a fully-concrete present value of non-`bool` type (non-bool prim / no-pattern
+      struct / any list): a type error (D#1c). CUE: `cannot use … as type bool`.
+    Everything else is genuinely ABSTRACT and DEFERS (D#1b): a kind, bound, unresolved disjunction
+    (cue: `unresolved disjunction … (type bool)`, even all-bool `true | false`), a NON-presence
+    comparison (`if x > 5`), a ref/selector/builtin, etc. — the comprehension stays residual
+    rather than silently dropping. A pattern-bearing struct is a residual constraint, so it
+    defers. -/
+def classifyGuard : Value -> GuardVerdict
+  | .prim (.bool true) => .concreteTrue
+  | .prim (.bool false) => .concreteFalse
+  | .prim p => .nonBool (.scalar p.kind)
+  | .bottom => .bottom .bottom
+  | .bottomWith reasons => .bottom (.bottomWith reasons)
+  | .struct _ _ _ [] _ => .nonBool .struct
+  | .list _ => .nonBool .list
+  | .listTail _ _ => .nonBool .list
+  | .embeddedList _ _ _ => .nonBool .list
+  -- A residual presence test (`eq`/`ne` against `.bottom`) is not satisfied ⇒ drop (NOT defer);
+  -- every OTHER `.binary` (e.g. `x > 5`) is an abstract guard that defers.
+  | .binary .eq _ .bottom => .concreteFalse
+  | .binary .ne _ .bottom => .concreteFalse
+  | .binary _ _ _ => .incomplete
+  -- Unresolved / abstract forms → DEFER (keep the comprehension residual):
+  | .struct _ _ _ (_ :: _) _ => .incomplete
+  | .structComp _ _ _ => .incomplete
+  | .top => .incomplete
+  | .kind _ => .incomplete
+  | .notPrim _ => .incomplete
+  | .stringRegex _ => .incomplete
+  | .boundConstraint _ _ _ => .incomplete
+  | .conj _ => .incomplete
+  | .builtinCall _ _ => .incomplete
+  | .unary _ _ => .incomplete
+  | .ref _ => .incomplete
+  | .refId _ => .incomplete
+  | .thisStruct => .incomplete
+  | .selector _ _ => .incomplete
+  | .index _ _ => .incomplete
+  | .disj _ => .incomplete
+  | .comprehension _ _ => .incomplete
+  | .listComprehension _ _ => .incomplete
+  | .interpolation _ => .incomplete
+  | .dynamicField _ _ _ => .incomplete
+  | .closure _ _ => .incomplete
+
 def evalEq (left right : Value) : Value :=
   match left, right with
   | .prim left, .prim right =>
@@ -1160,6 +1230,22 @@ def isStructLikeBody : Value -> Bool
   | .struct _ _ _ _ _ => true
   | .structComp _ _ _ => true
   | _ => false
+
+/-- Re-wrap a resolved struct that still has DEFERRED (incomplete-guard) comprehensions (D#1b) as
+    a residual `.structComp`, so the undecidable comprehension round-trips (cue holds it under eval,
+    errors incomplete under export) instead of being dropped. With no deferred comprehensions the
+    resolved value is returned UNCHANGED (byte-identical to the pre-D#1b path). A non-struct
+    `resolved` (e.g. a bottom from the embedding meet) dominates and is returned as-is — a bottom is
+    a stronger verdict than an unresolved comprehension. `fields` come from the resolved struct so
+    embeddings already meet in; the deferred `if`/`for` residuals re-expand on a later re-eval. -/
+def withDeferredComprehensions (resolved : Value) (deferred : List Value)
+    (openness : StructOpenness) : Value :=
+  match deferred with
+  | [] => resolved
+  | _ :: _ =>
+      match resolved with
+      | .struct fields _ _ _ _ => .structComp fields deferred openness
+      | _ => resolved
 
 def listPairsFrom (index : Nat) : List Value -> List (Value × Value)
   | [] => []
@@ -2385,6 +2471,27 @@ def splitDisjConjunct (env : Env) :
           | some (arms, others) => some (arms, c :: others)
           | none => none
 
+/-- The outcome of expanding a STRUCT comprehension's clause chain. Three spec-distinct cases,
+    replacing the old `Except Value (List Field)` (which had no way to express "defer"):
+    - `fields` — the comprehension resolved (concrete-true / `for`-expansion); emit these.
+    - `bottom` — a bottom must propagate out (D#1a evaluated-bottom guard, D#1c concrete-non-bool
+      type error); the enclosing struct becomes that bottom.
+    - `deferred` — an INCOMPLETE guard (D#1b): the comprehension cannot be decided yet, so the
+      ORIGINAL `.comprehension` node is kept residual (cue holds it under eval, errors incomplete
+      under export). Nullary: the caller re-emits from the node it already holds. -/
+inductive ClauseExpansion where
+  | fields (fields : List Field)
+  | bottom (value : Value)
+  | deferred
+
+/-- The list-comprehension analogue of `ClauseExpansion`: `items` carries the produced list
+    elements; `bottom`/`deferred` mirror the struct twin (D#1a/c propagate, D#1b defers the whole
+    `.listComprehension` residual). -/
+inductive ListClauseExpansion where
+  | items (items : List Value)
+  | bottom (value : Value)
+  | deferred
+
 mutual
   def evalFieldRefsWithFuel
       (fuel : Nat)
@@ -2429,8 +2536,13 @@ mutual
     | [] => pure []
     | .listComprehension clauses body :: rest => do
         match (<- expandListClausesWithFuel fuel env clauses body) with
-        | .error bot => pure [bot]
-        | .ok head =>
+        | .bottom bot => pure [bot]
+        | .deferred =>
+            -- D#1b: an incomplete guard keeps the comprehension as a residual list ELEMENT (cue
+            -- holds it under eval, errors incomplete under export) rather than dropping it.
+            let restEvaluated <- evalListItemsWithFuel fuel env visited rest
+            pure (.listComprehension clauses body :: restEvaluated)
+        | .items head =>
             let restEvaluated <- evalListItemsWithFuel fuel env visited rest
             pure (head ++ restEvaluated)
     | value :: rest => do
@@ -2657,8 +2769,11 @@ mutual
         pure (.listTail evaluatedItems evaluatedTail)
     | fuel + 1, .comprehension clauses body => do
         match (<- expandClausesWithFuel fuel env clauses body) with
-        | .error bot => pure bot
-        | .ok expanded =>
+        | .bottom bot => pure bot
+        -- D#1b: an incomplete guard keeps the comprehension residual (cue holds it under eval),
+        -- rather than collapsing to `{}` and losing the field a later meet could concretize.
+        | .deferred => pure (.comprehension clauses body)
+        | .fields expanded =>
             match mergeEvaluatedFields expanded with
             | some fields => pure (mkStruct fields .regularOpen none [])
             | none => pure .bottom
@@ -2673,7 +2788,7 @@ mutual
         let staticFields <- evalFieldRefsListWithFuel fuel nested (indexedFields fields)
         match (<- expandComprehensionsWithFuel fuel nested comprehensions) with
         | .error bot => pure bot
-        | .ok expanded =>
+        | .ok (expanded, deferredComps) =>
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | none => pure .bottom
         | some merged =>
@@ -2719,7 +2834,12 @@ mutual
                 -- allowed set without imposing its own closedness (CUE rule). Closing the host
                 -- BEFORE the meet would let a closed embed/host reject the other's regular fields.
                 let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
-                pure (closeEmbeddedOver merged embeddingFields openness.isOpen met)
+                let resolved := closeEmbeddedOver merged embeddingFields openness.isOpen met
+                -- D#1b: with deferred (incomplete-guard) comprehensions, the struct is NOT concrete
+                -- — keep it a `.structComp` carrying the resolved fields + the residual comprehensions
+                -- (cue holds it under eval, errors incomplete under export). `deferredComps` holds
+                -- only `if`/`for` residuals (embeddings never defer), already meet into `resolved`.
+                pure (withDeferredComprehensions resolved deferredComps openness)
     | fuel + 1, .interpolation parts => do
         let evaluated <- evalValuesWithFuel fuel env visited parts
         pure (evalInterpolation evaluated)
@@ -3058,7 +3178,7 @@ mutual
         -- embed-meet below unchanged.
         match (<- expandComprehensionsWithFuel fuel nested comprehensions) with
         | .error bot => pure bot
-        | .ok expanded =>
+        | .ok (expanded, deferredComps) =>
         match mergeEvaluatedFields (staticFields ++ expanded) with
         | none => pure .bottom
         | some merged =>
@@ -3097,7 +3217,11 @@ mutual
                 -- embedding labels — otherwise re-closing rejects it as undeclared. `defFields` does
                 -- NOT contain `y` (it lives only in the comprehension), so fold `expanded` in too.
                 let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
-                pure (closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpenness.isOpen met)
+                let resolved := closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpenness.isOpen met
+                -- D#1b: an incomplete-guard comprehension on the def-force path likewise keeps the
+                -- struct residual (mirrors the eager arm). `deferredComps` holds only `if`/`for`
+                -- residuals; embeddings are already meet into `resolved`.
+                pure (withDeferredComprehensions resolved deferredComps defOpenness)
     -- Normalized struct def body: the no-tail no-pattern case splices the use fields and merges;
     -- the `defOpenViaTail` case splices open and keeps + rebases the tail. A pattern-bearing
     -- struct has no force-splice arm and falls to the `_` catch-all.
@@ -3126,40 +3250,50 @@ mutual
         pure (useOperands.foldl (fun current op => meet current (mkStruct op.fst (.ofBool op.snd) none [])) forced)
   termination_by (fuel, 4, 0)
 
-  /-- Expand each embedded comprehension/dynamic field and concatenate the contributed fields.
-      A guard evaluating to BOTTOM short-circuits: `Except.error b` carries the bottom out so
-      the enclosing struct becomes that bottom (D#1a — bottom propagates, never vanishes). -/
+  /-- Expand each embedded comprehension/dynamic field, accumulating the contributed fields AND
+      the DEFERRED residual comprehensions (D#1b). The result is `(resolvedFields, deferredComps)`:
+      a guard evaluating to BOTTOM short-circuits with `.error b` so the enclosing struct becomes
+      that bottom (D#1a/c — bottom/type-error propagates, never vanishes); an INCOMPLETE guard
+      keeps the original comprehension node in `deferredComps`, so the `.structComp` caller can
+      re-emit it residual rather than dropping it. -/
   def expandComprehensionsWithFuel
       (fuel : Nat)
-      (env : Env) : List Value -> EvalM (Except Value (List Field))
-    | [] => pure (.ok [])
+      (env : Env) : List Value -> EvalM (Except Value (List Field × List Value))
+    | [] => pure (.ok ([], []))
     | comprehension :: rest => do
         match (<- expandComprehensionWithFuel fuel env comprehension) with
         | .error bot => pure (.error bot)
-        | .ok head =>
+        | .ok (headFields, headDeferred) =>
             match (<- expandComprehensionsWithFuel fuel env rest) with
             | .error bot => pure (.error bot)
-            | .ok tail => pure (.ok (head ++ tail))
+            | .ok (tailFields, tailDeferred) =>
+                pure (.ok (headFields ++ tailFields, headDeferred ++ tailDeferred))
   termination_by comprehensions => (fuel, 3, comprehensions.length)
 
-  /-- Expand one embedded comprehension/dynamic field into the fields it contributes. -/
+  /-- Expand one embedded comprehension/dynamic field into `(fields, deferredComps)`. An
+      incomplete-guard comprehension (D#1b) contributes no fields and keeps ITSELF as the deferred
+      residual; a resolved one contributes its fields and no residual. -/
   def expandComprehensionWithFuel
       (fuel : Nat)
       (env : Env)
-      (value : Value) : EvalM (Except Value (List Field)) := do
+      (value : Value) : EvalM (Except Value (List Field × List Value)) := do
     match fuel, value with
     | 0, _ => do
         modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure (.ok [])
-    | fuel + 1, .comprehension clauses body => expandClausesWithFuel fuel env clauses body
+        pure (.ok ([], []))
+    | fuel + 1, .comprehension clauses body =>
+        match (<- expandClausesWithFuel fuel env clauses body) with
+        | .fields fields => pure (.ok (fields, []))
+        | .bottom bot => pure (.error bot)
+        | .deferred => pure (.ok ([], [value]))
     | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env [] label
         match evaluatedLabel with
         | .prim (.string name) => do
             let evaluatedValue <- evalValueWithFuel fuel env [] value
-            pure (.ok [⟨name, fieldClass, evaluatedValue⟩])
-        | _ => pure (.ok [])
-    | _, _ => pure (.ok [])
+            pure (.ok ([⟨name, fieldClass, evaluatedValue⟩], []))
+        | _ => pure (.ok ([], []))
+    | _, _ => pure (.ok ([], []))
   termination_by (fuel, 0, 0)
 
   /--
@@ -3172,22 +3306,22 @@ mutual
       (fuel : Nat)
       (env : Env)
       (clauses : List (Clause Value))
-      (body : Value) : EvalM (Except Value (List Field)) := do
+      (body : Value) : EvalM ClauseExpansion := do
     match fuel with
     | 0 => do
         modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure (.ok [])
+        pure (.fields [])
     | fuel + 1 =>
         match clauses with
         | [] => do
             let evaluatedBody <- evalValueWithFuel fuel env [] body
             match evaluatedBody with
-            | .struct fields _ none [] _ => pure (.ok fields)
+            | .struct fields _ none [] _ => pure (.fields fields)
             -- A bottom body propagates (D#1a): a nested bottom guard surfaces here as a
-            -- `.bottom` body, and must not be dropped by the residual arm.
-            | .bottom => pure (.error evaluatedBody)
-            | .bottomWith _ => pure (.error evaluatedBody)
-            | _ => pure (.ok [])
+            -- `.bottom` body, and must not be dropped.
+            | .bottom => pure (.bottom evaluatedBody)
+            | .bottomWith _ => pure (.bottom evaluatedBody)
+            | _ => pure (.fields [])
         | .guard condition :: rest => do
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
             -- A guard condition is a concrete-context use: a marked-default disjunction
@@ -3198,41 +3332,43 @@ mutual
               match evaluatedCondition with
               | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
               | _ => evaluatedCondition
-            -- The guard is enumerated, no catch-all swallow (D#1a): only `false` is the spec
-            -- drop; a BOTTOM guard propagates the bottom out of the comprehension. The residual
-            -- arm (incomplete / non-bool concrete) still drops to `[]` — D#1b will make the
-            -- incomplete case DEFER instead (couples with structural-cycle work).
-            match testCondition with
-            | .prim (.bool true) => expandClausesWithFuel fuel env rest body
-            | .prim (.bool false) => pure (.ok [])
-            | .bottom => pure (.error testCondition)
-            | .bottomWith _ => pure (.error testCondition)
-            | _ => pure (.ok [])
+            -- Fully classified (no catch-all): `true` admits, `false` drops, a BOTTOM guard
+            -- propagates (D#1a), a CONCRETE non-bool is a type error (D#1c), an INCOMPLETE guard
+            -- DEFERS — the whole comprehension stays residual (D#1b), surfaced by the caller.
+            match classifyGuard testCondition with
+            | .concreteTrue => expandClausesWithFuel fuel env rest body
+            | .concreteFalse => pure (.fields [])
+            | .bottom bot => pure (.bottom bot)
+            | .nonBool ty => pure (.bottom (.bottomWith [.nonBoolGuard ty]))
+            | .incomplete => pure .deferred
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             match comprehensionPairs evaluatedSource with
-            | none => pure (.ok [])
+            | none => pure (.fields [])
             | some pairs => expandForPairsWithFuel fuel env key value rest body pairs
   termination_by (fuel, 0, 0)
 
   /-- Expand the remaining clause chain once per iteration pair, concatenating results. A bottom
-      from any iteration short-circuits the whole `for` (D#1a). -/
+      from any iteration short-circuits the whole `for` (D#1a); an incomplete guard defers the
+      whole comprehension (D#1b) — the residual is the original node, re-emitted by the caller. -/
   def expandForPairsWithFuel
       (fuel : Nat)
       (env : Env)
       (key : Option String)
       (value : String)
       (rest : List (Clause Value))
-      (body : Value) : List (Value × Value) -> EvalM (Except Value (List Field))
-    | [] => pure (.ok [])
+      (body : Value) : List (Value × Value) -> EvalM ClauseExpansion
+    | [] => pure (.fields [])
     | pair :: pairs => do
         let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
         match (<- expandClausesWithFuel fuel nested rest body) with
-        | .error bot => pure (.error bot)
-        | .ok head =>
+        | .bottom bot => pure (.bottom bot)
+        | .deferred => pure .deferred
+        | .fields head =>
             match (<- expandForPairsWithFuel fuel env key value rest body pairs) with
-            | .error bot => pure (.error bot)
-            | .ok tail => pure (.ok (head ++ tail))
+            | .bottom bot => pure (.bottom bot)
+            | .deferred => pure .deferred
+            | .fields tail => pure (.fields (head ++ tail))
   termination_by pairs => (fuel, 3, pairs.length)
 
   /-- Walk a LIST comprehension's clause chain. Mirrors `expandClausesWithFuel`, but with the
@@ -3245,16 +3381,16 @@ mutual
       (fuel : Nat)
       (env : Env)
       (clauses : List (Clause Value))
-      (body : Value) : EvalM (Except Value (List Value)) := do
+      (body : Value) : EvalM ListClauseExpansion := do
     match fuel with
     | 0 => do
         modify (fun state => { state with truncCount := state.truncCount + 1 })
-        pure (.ok [])
+        pure (.items [])
     | fuel + 1 =>
         match clauses with
         | [] => do
             let evaluatedBody <- evalValueWithFuel fuel env [] body
-            pure (.ok [evaluatedBody])
+            pure (.items [evaluatedBody])
         | .guard condition :: rest => do
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
             -- Match `expandClausesWithFuel`: a marked-default disjunction collapses to its
@@ -3263,41 +3399,43 @@ mutual
               match evaluatedCondition with
               | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
               | _ => evaluatedCondition
-            -- Enumerated, no catch-all swallow (D#1a, mirrors the struct twin): `false` drops,
-            -- a BOTTOM guard propagates the bottom; the residual arm (incomplete / non-bool)
-            -- still drops — D#1b makes the incomplete case DEFER.
-            match testCondition with
-            | .prim (.bool true) => expandListClausesWithFuel fuel env rest body
-            | .prim (.bool false) => pure (.ok [])
-            | .bottom => pure (.error testCondition)
-            | .bottomWith _ => pure (.error testCondition)
-            | _ => pure (.ok [])
+            -- Fully classified (no catch-all), mirroring the struct twin: `true` admits, `false`
+            -- drops, a BOTTOM guard propagates (D#1a), a CONCRETE non-bool is a type error (D#1c),
+            -- an INCOMPLETE guard DEFERS the whole `.listComprehension` residual (D#1b).
+            match classifyGuard testCondition with
+            | .concreteTrue => expandListClausesWithFuel fuel env rest body
+            | .concreteFalse => pure (.items [])
+            | .bottom bot => pure (.bottom bot)
+            | .nonBool ty => pure (.bottom (.bottomWith [.nonBoolGuard ty]))
+            | .incomplete => pure .deferred
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             match comprehensionPairs evaluatedSource with
-            | none => pure (.ok [])
+            | none => pure (.items [])
             | some pairs => expandListForPairsWithFuel fuel env key value rest body pairs
   termination_by (fuel, 0, 0)
 
   /-- Per-iteration expansion for a list comprehension `for` clause; concatenates the elements
-      each iteration's remaining chain yields, preserving iteration order. A bottom from any
-      iteration short-circuits the whole `for` (D#1a). -/
+      each iteration's remaining chain yields, preserving iteration order. A bottom short-circuits
+      the whole `for` (D#1a); an incomplete guard defers the whole comprehension (D#1b). -/
   def expandListForPairsWithFuel
       (fuel : Nat)
       (env : Env)
       (key : Option String)
       (value : String)
       (rest : List (Clause Value))
-      (body : Value) : List (Value × Value) -> EvalM (Except Value (List Value))
-    | [] => pure (.ok [])
+      (body : Value) : List (Value × Value) -> EvalM ListClauseExpansion
+    | [] => pure (.items [])
     | pair :: pairs => do
         let nested <- pushFrame (loopFrame key pair.fst value pair.snd) env
         match (<- expandListClausesWithFuel fuel nested rest body) with
-        | .error bot => pure (.error bot)
-        | .ok head =>
+        | .bottom bot => pure (.bottom bot)
+        | .deferred => pure .deferred
+        | .items head =>
             match (<- expandListForPairsWithFuel fuel env key value rest body pairs) with
-            | .error bot => pure (.error bot)
-            | .ok tail => pure (.ok (head ++ tail))
+            | .bottom bot => pure (.bottom bot)
+            | .deferred => pure .deferred
+            | .items tail => pure (.items (head ++ tail))
   termination_by pairs => (fuel, 3, pairs.length)
 end
 

@@ -9445,3 +9445,99 @@ display, BI-1 Unicode case-fold, BI-2 `math.Pow`/`list.Sort`, F-3 qualified impo
 Files: `Kue/Regex.lean` (`complementRanges`, `maxCodePoint`, `parseClassEscape`),
 `Kue/Tests/RegexTests.lean`, `Kue/Tests/FixturePorts.lean`,
 `testdata/cue/numeric/regex_in_class_negated.{cue,expected}`.
+
+---
+
+## Completed Slice: D#1b + D#1c — comprehension-guard classification (defer / type-error) (2026-06-20)
+
+Goal: the comprehension `if <guard> {…}` clause classified guards too coarsely. D#1a had split
+out `true`→expand / `false`→drop / bottom→propagate, but everything else fell into a residual
+`_ => pure (.ok [])` arm that WRONGLY swallowed two distinct cases to empty: a CONCRETE non-bool
+guard (a type error per spec) and an INCOMPLETE guard (which must defer). This slice splits that
+arm, exhaustively, with no catch-all.
+
+**The classifier — an explicit sum type (illegal-states).** Introduced `GuardVerdict`
+(`concreteTrue` / `concreteFalse` / `bottom Value` / `nonBool NonBoolGuardType` / `incomplete`)
+and a total `classifyGuard : Value → GuardVerdict` that **enumerates EVERY `Value` constructor**
+(no `_`), so a future arm forces a decision. The guard match (struct twin `expandClausesWithFuel`
++ list twin `expandListClausesWithFuel`) now reads `classifyGuard` and routes each verdict; the
+two twins share the one classifier (DRY — they previously duplicated the bool match).
+
+**D#1c — concrete non-bool → TYPE ERROR.** A fully-concrete present value of non-`bool` type
+(`if "x"`, `if 3`, `if {…}`, `if [..]`, `if null`) is a `.bottomWith [.nonBoolGuard ty]` that
+PROPAGATES (cue: `cannot use … as type bool`). New `BottomReason.nonBoolGuard (type :
+NonBoolGuardType)` + a precise `NonBoolGuardType` (`scalar (kind : Kind)` / `struct` / `list` —
+`Kind` has no struct/list arm, so they get their own; carries the offending type for provenance).
+CONFORMS — cue+Kue agree both modes.
+
+**D#1b — incomplete → DEFER.** A genuinely-abstract guard (a `.kind`, bound, unresolved
+disjunction — even all-bool `true | false` — or a NON-presence comparison `x > 5`) cannot be
+decided, so the comprehension is kept RESIDUAL rather than dropped. The result protocol gained a
+third outcome (the repo's "sum type over the two-channel `Except`"): `ClauseExpansion`
+(`fields`/`bottom`/`deferred`) + the list analogue `ListClauseExpansion`. `deferred` is nullary —
+the outermost caller (`.comprehension` arm, `.structComp` eager+force arms via the new
+`expandComprehensionsWithFuel : … → (List Field × List Value)` accumulator, list-item arm) re-emits
+the ORIGINAL node it still holds. New helper `withDeferredComprehensions` re-wraps a resolved
+`.struct` carrying deferred comprehensions back into a `.structComp` (embeddings already meet in;
+they never defer — `isEmbeddingValue` excludes `if`/`for`). Whole-comprehension deferral, not
+per-iteration (cue holds the entire `for … if y {…}`, confirmed): a `for`-pairs walk short-circuits
+on the first `.deferred` like it does on `.bottom`.
+
+**The presence-test carve-out (the subtle part).** A residual presence test `X != _|_` / `X == _|_`
+(the shape `evalPresenceTest` emits for an incomplete operand — `if base.g != _|_` with `g` absent,
+or `if y != _|_` with abstract `y`) is NOT a defer: cue eval DROPS it (`out: {}`), and the existing
+`classifyDefinedness` design already (correctly) treats it as not-satisfied. So `classifyGuard`
+routes the `eq`/`ne`-against-`.bottom` shape to `.concreteFalse` (drop), preserving pre-D#1b
+behavior; every OTHER `.binary` (e.g. `x > 5`) defers. This was found by regression: an early
+attempt deferred presence tests too, breaking `PresenceTests`/`TwoPassTests`. Confirmed against
+`cue` eval across 7 boundary probes (`if x` bool/disj/`x>5` HOLD; `if y!=_|_`/`if base.g!=_|_` DROP;
+`if y!=_|_` y=3 admit; `if y==_|_` y:int admit). An earlier exploration also tried fixing
+absent-field selection (`selectEvaluatedField` → bottom) upstream; REVERTED — it leaked unresolved
+`@d.i` refids and bottomed def bodies (`#R: _|_`), far too broad. The presence-test carve-out is the
+correctly-scoped fix.
+
+**Mode behavior (Kue is finalizing-eval-style).** `kue` (default, eval-style — it HOLDS incompletes
+like a held `x: int`) shows the held comprehension; `kue export` surfaces it as an incompleteness
+(`incomplete value: bool`, via `Manifest`'s pre-existing `.comprehension → incomplete` arm) — both
+matching cue's eval/export split. A non-bool guard bottoms in BOTH modes.
+
+**Spec authority.** D#1c CONFORMS (spec: the `if` guard must be `bool`; cue+Kue agree — no
+divergence/gap). D#1b: the spec is silent on the DEFER mechanism for an incomplete guard (a
+finalization-mode choice); recorded in `cue-spec-gaps.md` (Kue defers/holds in eval, errors in
+export — both match cue's value verdict). The held residual renders the guard ref as `@d.i` (Kue's
+`BindingId` resolution has no source name to print) where cue prints the name — a display-only
+divergence recorded in `cue-divergences.md`, same family as the residual-pattern and D#2a/b rows.
+
+**Bug-replicating tests corrected.** Three existing pins asserted the OLD wrong DROP and were
+updated to the spec-correct HELD form (cue agrees): `EvalTests.eval_comprehension_guard_non_default_disj_drops`
+→ `…_defers` (the `x: true|false` guard); `EvalPerfTests.fix0_{open,closed}_def_embed_comp_*` (the
+`if port > 0` def-body comprehension now held standalone, force-resolved at the use site — `out`
+unchanged). `PresenceTests.guard_drops_on_absent` and the two `TwoPassTests.listcomp_embed_*` now
+pass via the presence-test carve-out (no edit needed).
+
+**Tests.** New `PresenceTests` block: 12 `classify_guard_*` unit pins (concrete bool, the 5 D#1c
+non-bool types with their `NonBoolGuardType`, the 3 D#1b abstract defers, both presence-test
+polarities) + 5 end-to-end pins (D#1c struct/list bottoms, D#1b held-residual value, D#1b
+not-dropped). 4 fixture pairs + `FixturePorts` entries: `comprehensions/{guard_nonbool_string,
+guard_nonbool_int,list_guard_nonbool,guard_incomplete_defers}`. (`GuardVerdict` derives `BEq` not
+`DecidableEq` — its `.bottom` arm carries a `Value` — so unit pins assert via `==`, the `Value`
+convention.)
+
+**Verify.** `lake build` green (100 jobs; all pins checked at build); `check-fixtures.sh` →
+`fixture pairs ok` (zero drift; 4 new pairs); shellcheck clean (no shell touched). cert-manager
+export content-identical to `cue` (modulo the standing field-order divergence) — the eval-hot-path
+change (a new bottom arm + a residual-emit, no deletion) does not regress real-app output. prod9
+has no incomplete-guard def shape that reaches the new defer path.
+
+**Next — the MED tail continues:** D#3 (`let`-clauses in comprehensions), then BI-1 (Unicode
+case-fold) / BI-2 (`math.Pow`/`list.Sort`) / F-3 (qualified import); SC-3 display-residual
+(LOW/spec-gap), SC-4, the spec-gap ratifications, A#6, DRY-1. ⚠ Audit cadence: RX-2a + D#1b/c = 2
+slices since the last two-phase audit — ONE more slice, then Phase A→B is due.
+
+Files: `Kue/Value.lean` (`NonBoolGuardType`, `BottomReason.nonBoolGuard`), `Kue/Eval.lean`
+(`GuardVerdict`/`classifyGuard`, `ClauseExpansion`/`ListClauseExpansion`,
+`withDeferredComprehensions`, the two clause-walkers + `expandComprehensions/WithFuel` +
+4 caller arms), `Kue/Tests/PresenceTests.lean`, `Kue/Tests/EvalTests.lean`,
+`Kue/Tests/EvalPerfTests.lean`, `Kue/Tests/FixturePorts.lean`,
+`testdata/cue/comprehensions/{guard_nonbool_string,guard_nonbool_int,list_guard_nonbool,guard_incomplete_defers}.{cue,expected}`,
+`docs/reference/cue-divergences.md`, `docs/reference/cue-spec-gaps.md`.

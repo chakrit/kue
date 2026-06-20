@@ -497,6 +497,17 @@ structure BindingId where
   index : Nat
 deriving Repr, BEq, DecidableEq
 
+/-- The concrete-but-non-`bool` type a comprehension `if` guard resolved to. CUE requires a
+    guard to be of type `bool`; a concrete value of any other type is a type error
+    (`cannot use "x" (type string) as type bool`). Scalars carry their `Kind`; `struct`/`list`
+    have no scalar `Kind`, so they get their own arms. Spec basis: the `if` clause's expression
+    "must be of type bool". -/
+inductive NonBoolGuardType where
+  | scalar (kind : Kind)
+  | struct
+  | list
+deriving Repr, BEq, DecidableEq
+
 inductive BottomReason where
   | primitiveConflict (left right : Prim)
   | kindConflict (left right : Kind)
@@ -523,6 +534,13 @@ inductive BottomReason where
       cycle (`x: x`), which resolves to `_`. Raised on the def-body force path
       (`forceClosureWithConjunct`) when an ancestor force frame repeats. -/
   | structuralCycle
+  /-- A comprehension `if` guard whose condition resolved to a CONCRETE value of non-`bool`
+      type (`if "x" {…}`, `if 3 {…}`, `if {…} {…}`). The CUE spec requires the guard to be
+      `bool`, so a concrete non-bool is a type error (cue: `cannot use … as type bool`), NOT a
+      silent drop. Distinct from an INCOMPLETE guard (a ref/kind/unresolved disjunction), which
+      DEFERS (keeps the comprehension residual) rather than erroring. Carries the offending
+      type for provenance. -/
+  | nonBoolGuard (type : NonBoolGuardType)
 deriving Repr, BEq, DecidableEq
 
 /--
