@@ -158,16 +158,18 @@ in `Builtin`, never effectful.
    first (cleaner). Resolve the import shape in the slice. Mechanical otherwise. (Confirmed
    still inline + live by Phase-B 2026-06-20.)
 
-3. **Test/fixture-org pass (periodic — DUE 2026-06-20).** `EvalTests.lean` has re-grown to
-   ~1505 lines (the D#1b/c + D#3 batch added ~300 lines of `classify_guard_*` + `letcomp_*`
-   pins on top of the ~1210 post-split size); the natural re-split carves a
-   `ComprehensionTests`/`GuardTests` module for the comprehension-clause + guard-classification
-   pins. Other large modules unchanged: `FixturePorts` (~2979, generated — leave whole),
-   `TwoPassTests` (~1030), `FixtureTests` (~992), `BuiltinTests` (~884), `ClosureTests` (~755),
-   `StructTests`/`ParseTests`/`LatticeTests` (~605-618). Ride-along: sub-group the two large
-   fixture dirs `testdata/cue/{definitions (100), comprehensions (54)}` into
-   `comprehensions/{list,struct,let,guard}/`. LOWER priority than the MED-tail feature slices;
-   run within 1-2 audit cycles, before `EvalTests` crosses ~1800.
+3. **Test/fixture-org pass (periodic) — module carve DONE `4b25cef`; fixture regroup DEFERRED.**
+   `EvalTests.lean` (had re-grown to 1593) was carved into `ComprehensionTests.lean` (29 pins —
+   `listcomp_*`/`letcomp_*`/`eval_comprehension_*` incl. comprehension-guard shapes) +
+   `SortTests.lean` (13 pins — BI-2 `list.Sort`/`SortStable`); EvalTests → 1246. Org-only, zero
+   behavior change, pin-count conserved 179→137+29+13. **No `GuardTests`** — the `classify_guard_*`
+   classifier units already live in `PresenceTests`; only the comprehension-guard *shapes* were in
+   EvalTests and folded into ComprehensionTests. **Remaining sub-item (DEFERRED, optional):**
+   sub-grouping `testdata/cue/{definitions (50), comprehensions (27)}` into nested subdirs —
+   high-blast-radius because `FixturePorts.lean` (3049) is hand-maintained source whose
+   `fileName := "subdir/stem.expected"` strings are the join key (each move = multi-file `git mv` +
+   exact string edit, ~77 fixtures). Deferred per "DEFER rather than break discovery"; low marginal
+   win (layout already subsystem-grouped one level deep). Pick up as a dedicated careful slice or drop.
 
 4. **Field-ordering parity #3 (MEDIUM, DEEP — byte-parity vs `cue`).** `cue` orders `ref &
    {own}` own-fields-first; Kue is left-struct-first (`mergeStructFieldsWith`, `Lattice.lean`).
@@ -368,14 +370,14 @@ batch → AD2-1.**
   context; splitting it would force a mutual-block-spanning seam. No second extraction is justified
   beyond EvalOps yet; revisit if the file crosses ~4500 or the seam-helper above lands (which would
   itself be a natural small extraction point).
-- **Test-org pass (item 3) — DUE, recommended as the NEXT slice (ahead of BI-1).** `EvalTests.lean`
-  is now **1593 lines** (was ~1505 last Phase B; BI-2 added `eval_list_sort_*` / Pow pins, F-3 added
-  import-path pins). Approaching the ~1800 self-imposed re-split ceiling. `BuiltinTests` 943,
-  `FixtureTests` 992, `TwoPassTests` 1030, `FixturePorts` 3049 (generated — leave whole). Carve
-  `ComprehensionTests`/`GuardTests` (and optionally a small `SortTests`) out of `EvalTests`;
-  sub-group `testdata/cue/{definitions,comprehensions}`. It is docs/test-only (envelope-safe),
-  preempts nothing semantic, and BI-1 needs a data-approach spike first anyway — so test-org goes
-  FIRST. (See "next-batch leader" in the breadcrumb.)
+- **Test-org pass (item 3) — module carve LANDED `4b25cef`.** `EvalTests.lean` (1593) carved into
+  `ComprehensionTests` (29 pins) + `SortTests` (13 pins) → EvalTests 1246, well under the ~1800
+  re-split ceiling; pin-count conserved 179→137+29+13; `lake build` 104 jobs (both modules in the
+  build graph via the `Kue/Tests.lean` aggregator). Scope correction: no `GuardTests` (classifier
+  units already in `PresenceTests`; comprehension-guard shapes → ComprehensionTests). Other large
+  modules unchanged: `BuiltinTests` 943, `FixtureTests` 992, `TwoPassTests` 1030, `FixturePorts`
+  3049 (hand-maintained — leave whole). Only residual: the DEFERRED `testdata/cue` fixture regroup
+  (see item 3 above). NEXT slice is BI-1.
 - **Perf-guide — UPDATED inline.** Added two `kue-performance.md` rows: `list.Sort`/`SortStable`
   cost O(n log n) comparator evals (each a meet + nested `evalValueWithFuel` on `less`; mitigations:
   smaller lists, shallow `less`, pre-concrete elements, prefer `SortStrings`); `math.Pow` exact
