@@ -483,12 +483,20 @@ theorem parse_import_empty_qualifier_errors :
     (parseImportSpec "\"example.com/defs:\"".toList).isOk = false := by
   native_decide
 
-/-- `isPackageIdentifier` accepts a plain identifier, accepts an underscore lead, and
-    rejects empty / digit-led / definition forms. -/
+/-- An empty location (`":foo"`, no ImportLocation) is rejected — cue errors `invalid
+    import path: ":foo"`. -/
+theorem parse_import_empty_location_errors :
+    (parseImportSpec "\":foo\"".toList).isOk = false := by
+  native_decide
+
+/-- `isPackageIdentifier` accepts a plain identifier, accepts an underscore lead and a
+    double-underscore, and rejects empty / digit-led / definition forms / the lone blank
+    identifier `_` (cue: `_ is not a valid import path qualifier`). -/
 theorem parse_is_package_identifier_cases :
     (isPackageIdentifier "foo" && isPackageIdentifier "_foo" && isPackageIdentifier "a1"
+      && isPackageIdentifier "__"
       && !isPackageIdentifier "" && !isPackageIdentifier "1a" && !isPackageIdentifier "#foo"
-      && !isPackageIdentifier "_#foo") = true := by
+      && !isPackageIdentifier "_#foo" && !isPackageIdentifier "_") = true := by
   native_decide
 
 -- Parse errors carry 1-based source positions (line:column at the stuck offset).

@@ -204,12 +204,14 @@ def sourcePackageName (source : String) : Except ParseError (Option String) := d
 
 /-- Whether `name` is a well-formed CUE package qualifier: a non-empty identifier
     (`identifier_start` then `identifier_part`s) that is NOT a definition identifier (no
-    leading `#`/`_#` — the spec forbids a definition identifier as a PackageName). The
-    `:identifier` suffix of an import path defaults the local package name, so it must obey
-    this rule. -/
+    leading `#`/`_#` — the spec forbids a definition identifier as a PackageName) and is not
+    the lone blank identifier `_` (the top/hidden marker; cue rejects it as a qualifier —
+    `_ is not a valid import path qualifier`). The `:identifier` suffix of an import path
+    defaults the local package name, so it must obey this rule. -/
 def isPackageIdentifier (name : String) : Bool :=
   match name.toList with
   | [] => false
+  | ['_'] => false
   | '#' :: _ => false
   | '_' :: '#' :: _ => false
   | first :: rest => parseIdentifierStart first && rest.all parseIdentifierRest
@@ -217,15 +219,23 @@ def isPackageIdentifier (name : String) : Bool :=
 /-- Split a parsed import-path string into its location and optional `:identifier`
     qualifier per the spec `ImportPath = '"' ImportLocation [ ":" identifier ] '"'`. An
     ImportLocation may not itself contain `:` (the spec's excluded-character set), so the
-    sole `:` — when present — is the qualifier separator. Returns `(location, some id)` with
-    `id` validated as a package identifier, `(location, none)` when there is no `:`, or an
-    error when the qualifier is empty or malformed. -/
+    sole `:` — when present — is the qualifier separator. The location must be non-empty
+    (an empty location is not a valid ImportLocation; cue rejects `":foo"` / `""` as
+    `invalid import path`). Returns `(location, some id)` with `id` validated as a package
+    identifier, `(location, none)` when there is no `:`, or an error when the location is
+    empty or the qualifier is empty/malformed. -/
 def splitImportPath (raw : String) (errChars : List Char) :
     Except ParseError (String × Option String) :=
   match raw.splitOn ":" with
-  | [location] => .ok (location, none)
+  | [location] =>
+      if location.isEmpty then
+        parseError errChars s!"invalid import path: '{raw}'"
+      else
+        .ok (location, none)
   | [location, qualifier] =>
-      if isPackageIdentifier qualifier then
+      if location.isEmpty then
+        parseError errChars s!"invalid import path: '{raw}'"
+      else if isPackageIdentifier qualifier then
         .ok (location, some qualifier)
       else
         parseError errChars s!"invalid package identifier in import path: '{qualifier}'"

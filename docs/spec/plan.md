@@ -284,6 +284,39 @@ batch → AD2-1.**
   with SC-3; sequence with any disjunction-DISPLAY slice, NOT with the walkers (it is a
   lattice/eval layer-boundary dedup, not a frame/clause walker).
 
+**Phase-A audit 2026-06-20 (BI-2 `4c59989` + F-3 `a6dc012`) — verdict + inline fixes:**
+
+- **Load-bearing soundness CLEAN.** The eval-layer sort interception is sound: the non-bool
+  `lt` fallback returns `false` AND records a sticky `sortError`, but `mergeRunsM`/`mergePassM`/
+  `mergeRunsLoopM` fuel is fixed by list length (independent of `lt`'s answers), so a lying
+  comparator cannot break termination or fuel — the recorded error makes the whole call bottom
+  regardless of the garbage order produced. `sortValuesM` is total (bottom-up structural merge,
+  `termination_by (fuel,6,0)` for `sortWithComparator` dominates the `(fuel,1,0)` per-pair
+  `evalValueWithFuel` re-entry — measure intact). Passing the comparator UNEVALUATED is required
+  (the `x`/`y` slot refs must survive the per-pair meet). One stable sort for both Sort/SortStable
+  is correct (stable ⇒ valid Sort). `math.Pow` exact-domain is sound: `decimalPowNat` structural
+  on `Nat` (terminates, large exponents fine), domain gate (`exp.scale != 0 || exp.numerator < 0`)
+  correctly bottoms fractional/negative; `Pow(0,0)` bottoms (CONFORMS — cue errors); out-of-domain
+  bottoms honestly. Oracle-confirmed all probed boundaries.
+- **FIXED INLINE (2 LOW-risk F-3 conformance tightenings, behavior-preserving + more conformant).**
+  (1) `isPackageIdentifier "_"` accepted the lone blank `_`, but cue REJECTS it (`_ is not a valid
+  import path qualifier`) — added `['_'] => false`. (2) `splitImportPath` accepted an empty
+  ImportLocation (`":foo"` → `path:=""`), but cue rejects (`invalid import path`) — added a
+  non-empty-location guard on both arms. Both make Kue strictly more spec-conformant (the F-3 story
+  is "Kue parse-rejects junk cue load-rejects"); cue rejects these too, just later. Pins extended
+  (`parse_is_package_identifier_cases` + bare `_`/`__`; new `parse_import_empty_location_errors`);
+  `cue-spec-gaps.md` F-3 row + `cue-divergences.md` F-3 row amended. Full gate green; committed.
+- **Test strength GOOD, no gaps filed.** Sort: stability (discriminating fixture), incomparable→
+  bottom, non-list→bottom, by-field, inline-comparator, empty/singleton/dup all pinned. Pow: domain
+  boundary incl. `Pow(0,0)`/whole-float-exp/neg-base-parity + residual-bottom pins. F-3: all
+  precedence combos + invalid-id/empty-qualifier + 4 module fixtures.
+- **FLAG for Phase B:** the eval-layer builtin interception (`list.Sort`/`SortStable` handled in the
+  `.builtinCall` arm of `evalValueWithFuel`, NOT `evalBuiltinCall`) is a NEW pattern — an effectful
+  builtin that the pure `Builtin` layer structurally cannot host. Today it is two hard-coded `name,
+  args` cases inline in the mutual block. Phase B should judge whether this wants a cleaner home (an
+  "effectful builtin" dispatch table / a documented seam) before more such builtins (e.g. a future
+  `list.SortStrings`-with-comparator family) accrete ad-hoc arms in the evaluator.
+
 **Resolved / ruled-out (recorded so they are not re-raised):**
 
 - **AD3-1 / item-3 Regex extraction / B5 regex bullet — DROPPED (stale).** `Kue/Regex.lean`
