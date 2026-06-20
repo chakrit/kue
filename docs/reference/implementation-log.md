@@ -9859,3 +9859,93 @@ FixturePorts touched). `shellcheck` N/A (no shell touched).
 
 Files: `Kue/Tests/ComprehensionTests.lean` (NEW), `Kue/Tests/SortTests.lean` (NEW),
 `Kue/Tests/EvalTests.lean` (−347 lines), `Kue/Tests.lean` (aggregator: +2 imports).
+
+## Completed Slice: BI-1 — Unicode case mapping for `strings.ToUpper`/`ToLower` (2026-06-20)
+
+`strings.ToUpper`/`ToLower` were ASCII-only (`Char.toUpper`/`toLower`), wrong on every
+non-ASCII letter (`ToUpper("café")` → `"CAFé"` vs cue `"CAFÉ"`). Now they map the full BMP
+cased set via an oracle-derived table. **CONFORMS to cue across the BMP.**
+
+### Data-approach spike (done FIRST, committed `6065380` before any code)
+
+Envelope-safe: NO network. Weighed three approaches against the local `cue` oracle queried
+over the whole BMP:
+- **(a) existing Lean Unicode support — UNAVAILABLE.** `lake-manifest.json` has ZERO external
+  packages (no Std/Batteries/Mathlib); Lean core `Char.toUpper`/`toLower` are ASCII-only, no
+  Unicode case tables in core.
+- **(b) algorithmic range rules — REJECTED as a clean slice.** The oracle shows the mapping is
+  overwhelmingly IRREGULAR: 1190 ToUpper / 1173 ToLower differing BMP code points collapse to
+  only 674/658 fixed-offset runs, of which **632/617 are SINGLETONS**; just ~13 contiguous
+  regular runs (ASCII, Latin-1 supplement, Greek, Cyrillic, Armenian, fullwidth…). A (b)
+  covering only the regular runs leaves all of Latin Extended-A/B (the even/odd ±1 letter pairs
+  + hundreds of one-offs like `µ`→`Μ` +743, `ÿ`→`Ÿ` +121) WRONG — a weak partial on very common
+  European text; covering the full set algorithmically = hand-transcribing ~650 rules as code,
+  strictly worse than a table.
+- **(c) oracle-generated table — CHOSEN.** Generate a BMP **simple 1:1** case-mapping table
+  from the local oracle, embed as a Lean source file, commit generator + table + provenance.
+
+### Semantics — simple mapping (verified)
+
+cue's `strings.ToUpper`/`ToLower` are Go's `unicode.ToUpper`/`ToLower`: pure rune-wise
+**simple** mapping. Verified by round-tripping the entire BMP through the oracle — the result
+is 1:1 in code points (length-in-code-points preserved), i.e. NO length-changing
+special-casing: `ToUpper("ß") == "ß"` (German ß does NOT expand to `SS`; full folding would),
+`ToUpper("ﬁ") == "ﬁ"`. So a 1:1 table is faithful. Deferred long tail = full case folding
+(`ß`→`SS`, title-case digraphs), locale (Turkish `ı`/`İ`), Greek final sigma, astral-plane
+letters — recorded as a spec-gap.
+
+### Implementation
+
+- **`scripts/gen-case-table.py` (generator, committed).** Queries `/Users/chakrit/go/bin/cue`
+  (READ-ONLY, no network) over the BMP via one `cue export` round-trip per map, emits the
+  differing `(src, dst)` pairs sorted ascending into `Kue/CaseTable.lean`. Idempotent (re-run =
+  zero diff). Skips code points illegal in a CUE string literal (NUL, BOM) and C0/C1 controls —
+  none of which have case mappings. Python, not shell: the data transform is python-shaped; no
+  shell touched (so no shellcheck obligation).
+- **`Kue/CaseTable.lean` (GENERATED data, "DO NOT EDIT").** `upperEntries` (1190 pairs) +
+  `lowerEntries` (1173 pairs), each `Array (UInt32 × UInt32)` sorted by src. Emitted as
+  128-element CHUNK arrays `++`-joined — a single 1190-element `#[…]` literal overflows
+  elaboration recursion (`maxRecDepth`; the literal desugars to nested `List.cons`), but small
+  chunks elaborate fine and `Array.append` builds the whole iteratively. (Tried a `maxRecDepth`
+  bump first — even 8000 wasn't enough and it slows elaboration; chunking is the clean fix.)
+- **`Kue/Builtin.lean`.** `caseTableSearch` — TOTAL binary search (`termination_by hi - lo`, no
+  `partial`); `caseTableLookup` wraps it over `[0, size)`; `caseMapChar table c` returns the
+  mapped `Char` on a hit, identity on miss; `unicodeToUpper`/`unicodeToLower` map a string
+  rune-wise. The table is the single authority — ASCII (`a`→`A` at offset −32) is IN the table,
+  so the old `asciiToUpper`/`asciiToLower` are deleted (one mechanism, not two). The two
+  dispatch arms now call `unicodeToUpper`/`unicodeToLower`.
+
+### Scope: ToTitle stays ASCII (NOT folded in)
+
+BI-1 is scoped to ToUpper/ToLower. `ToTitle` keeps its ASCII title-casing this slice: its
+mapping is Unicode **title-case**, distinct from upper (`ǆ`→`ǅ`, not `Ǆ` — confirmed via
+oracle), and its word boundary is `unicode.IsSpace` (broader than ASCII whitespace); both need
+their own table + predicate — a separate slice. So `ToTitle("über alles")` → Kue `"über
+Alles"` vs cue `"Über Alles"` remains the ONE case-builtin divergence (Kue does less; in
+compat-assumptions + spec-gaps, not cue-divergences — not a cue bug).
+
+### Tests
+
+New `Kue/Tests/StringsTests.lean` (test tree was just reorganized; case-folding warrants its
+own module). Moved all `strings_to_{upper,lower,title}_*` pins out of `BuiltinTests.lean` and
+ADDED Unicode coverage: ASCII regression (8 unchanged pins); Latin/Greek/Cyrillic upper↔lower
+round-trips (`é`↔`É`, `αβγ`↔`ΑΒΓ`, `я`↔`Я`); irregular singletons (`µ`→`Μ`, `ÿ`→`Ÿ` — the
+table's justification over ranges); `ß`-unchanged (simple-mapping boundary, CONFORMS); CJK +
+symbol unchanged (deliberate identity boundary); mixed ASCII+multi-script strings (both
+directions); empty; the flipped ToTitle non-ASCII boundary; arg guards; and two
+`case_table_lookup_*` unit pins (hit + miss arms of the binary search). Every covered mapping
+cross-checked against the oracle. New fixture `testdata/cue/builtins/strings_case_unicode.{cue,
+expected}` (13 cases, `.expected` = Kue's output verbatim — byte-identical to cue except the
+documented `titleNonAscii`) + a `FixturePorts.lean` entry.
+
+### Verify
+
+`lake build` green (108 jobs; `Built Kue.CaseTable` + `Built Kue.Tests.StringsTests` + relink
+`kue:exe`). `check-fixtures.sh` → `fixture pairs ok` (zero drift on the full corpus). No shell
+touched (generator is python) → `shellcheck` N/A. Generator re-run is idempotent.
+
+Files: `scripts/gen-case-table.py` (NEW), `Kue/CaseTable.lean` (NEW, generated),
+`Kue/Tests/StringsTests.lean` (NEW), `Kue/Builtin.lean` (table lookup + Unicode maps, ASCII
+maps deleted, 2 dispatch arms), `Kue/Tests/BuiltinTests.lean` (case pins moved out),
+`Kue/Tests/FixturePorts.lean` (+1 fixture entry), `Kue/Tests.lean` (+1 import),
+`testdata/cue/builtins/strings_case_unicode.{cue,expected}` (NEW).

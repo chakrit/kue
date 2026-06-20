@@ -2455,6 +2455,30 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "builtins/strings_case_unicode.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"upLatin", .regular, .builtinCall "strings.ToUpper" [.prim (.string "café")]⟩,
+                ⟨"loLatin", .regular, .builtinCall "strings.ToLower" [.prim (.string "CAFÉ")]⟩,
+                ⟨"upGreek", .regular, .builtinCall "strings.ToUpper" [.prim (.string "αβγ")]⟩,
+                ⟨"loGreek", .regular, .builtinCall "strings.ToLower" [.prim (.string "ΑΒΓ")]⟩,
+                ⟨"upCyrillic", .regular, .builtinCall "strings.ToUpper" [.prim (.string "я")]⟩,
+                ⟨"loCyrillic", .regular, .builtinCall "strings.ToLower" [.prim (.string "Я")]⟩,
+                ⟨"upMicro", .regular, .builtinCall "strings.ToUpper" [.prim (.string "µ")]⟩,
+                ⟨"upYdiaer", .regular, .builtinCall "strings.ToUpper" [.prim (.string "ÿ")]⟩,
+                ⟨"upSharpS", .regular, .builtinCall "strings.ToUpper" [.prim (.string "ß")]⟩,
+                ⟨"upUncased", .regular, .builtinCall "strings.ToUpper" [.prim (.string "中→")]⟩,
+                ⟨"upMixed", .regular,
+                  .builtinCall "strings.ToUpper" [.prim (.string "café 123 αβγ я 中")]⟩,
+                ⟨"loMixed", .regular,
+                  .builtinCall "strings.ToLower" [.prim (.string "CAFÉ 123 ΑΒΓ Я 中")]⟩,
+                ⟨"titleNonAscii", .regular,
+                  .builtinCall "strings.ToTitle" [.prim (.string "über alles")]⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "builtins/strings_splitn.expected",
       content :=
         formatTopLevel

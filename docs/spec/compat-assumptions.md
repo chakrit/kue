@@ -425,37 +425,42 @@ those forms.
 
 ## String case folding (`ToUpper` / `ToLower` / `ToTitle`)
 
-- **ASCII-only case mapping; non-ASCII passes through unchanged.** `strings.ToUpper`,
-  `strings.ToLower`, and `strings.ToTitle` map only the ASCII letter range (`A`–`Z` ↔
-  `a`–`z`); every non-ASCII rune is emitted byte-for-byte unchanged. Lean's
-  `Char.toUpper`/`toLower` are themselves ASCII-only, so this is the natural total-function
-  boundary — no `partial`, no Unicode case-table dependency. The boundary is deliberate and
-  documented rather than silent: ASCII inputs are exactly oracle-faithful to `cue` v0.16.1;
-  non-ASCII inputs diverge in a single, predictable way (see below).
-- **Why passthrough, not bottom.** Passthrough keeps the ASCII domain 100% correct while
-  staying total over the full string space, consistent with the rest of the string builtins
-  (`Index`/`Count`/`Split` are byte-faithful, never bottoming on non-ASCII). Bottoming on
-  any non-ASCII rune would make a large class of otherwise-valid strings unusable for an
-  internal limitation. This is a deferred-capability boundary (Kue does *less* than `cue`
-  here), not a `cue` defect, so it is documented here and not in
-  `docs/reference/cue-divergences.md` (which records only cases where `cue` is wrong and
-  Kue is right).
-- **`ToTitle` is per-word capitalization, NOT "upper-case every letter".** Oracle-confirmed
-  (`cue` v0.16.1): `strings.ToTitle` upper-cases the first character of each
-  **whitespace-delimited** word (`unicode.IsSpace` separator) and leaves the rest of each
-  word untouched — it is NOT Go's `strings.ToTitle` (which upper-cases all letters), and the
-  word separator is whitespace ONLY. `-`, `.`, `_`, `/`, digits, and other punctuation do
-  NOT start a new word: `ToTitle("a-b a.b")` → `"A-b A.b"`. The ASCII whitespace set covered
-  is the six runes `\t \n \v \f \r` and space; non-ASCII whitespace (e.g. NBSP) is treated as
-  a non-separator (deferral boundary), so it does not trigger title-casing.
-- **Divergence summary (Kue vs `cue` v0.16.1), all non-ASCII only:**
-  - `ToUpper("café")` → Kue `"CAFé"`, cue `"CAFÉ"`.
-  - `ToLower("CAFÉ")` → Kue `"cafÉ"`, cue `"café"`.
-  - `ToTitle("über alles")` → Kue `"über Alles"`, cue `"Über Alles"`.
-- **Lifting the boundary later** means a Unicode case-mapping table (mirroring Go's
-  `unicode.ToUpper`/`ToLower`/`ToTitle` and `x/text/cases`), including locale-insensitive
-  full-case-folding edge cases (German ß, Turkish dotless ı, title-case digraphs). Until
-  then this is an alpha boundary alongside imports and `list.Sort`.
+- **`ToUpper`/`ToLower`: full BMP Unicode simple case mapping (BI-1, 2026-06-20).** Both map
+  the entire Basic Multilingual Plane cased-letter set — ASCII, Latin-1 supplement, Latin
+  Extended, Greek, Cyrillic, Armenian, fullwidth, and the long tail of irregular singletons
+  (`µ`→`Μ`, `ÿ`→`Ÿ`, …) — via the oracle-derived table in `Kue/CaseTable.lean` (lookup +
+  char map in `Kue/Builtin.lean`). `ToUpper("café") == "CAFÉ"`, `ToLower("ΑΒΓ") == "αβγ"`:
+  oracle-faithful to `cue` v0.16.1 across the BMP. A rune with no table entry (uncased, or a
+  length-changing special case — see next bullet) passes through unchanged.
+- **Simple mapping, not full folding — the coverage boundary.** `cue`'s `strings.ToUpper`/
+  `ToLower` are Go's `unicode.ToUpper`/`ToLower`: a pure rune-wise **simple 1:1** map with NO
+  length-changing special-casing. So `ToUpper("ß") == "ß"` (German ß does NOT expand to `SS`),
+  matching `cue` — Kue conforms. The deferred long tail (a separate slice if ever needed):
+  full case folding (`ß`→`SS`, title-case digraphs), locale rules (Turkish dotless `ı`/`İ`),
+  and context rules (Greek final sigma). All recorded as a spec-gap in
+  `docs/reference/cue-spec-gaps.md`. Code points outside the BMP (astral planes) are not in
+  the table → identity (no astral-plane cased letter is common; extend the generator's range
+  if a real case appears).
+- **`ToTitle` is STILL ASCII-bounded (the lone case holdout).** It upper-cases only the
+  ASCII first letter of each whitespace-delimited word; a non-ASCII word-initial letter is
+  left unchanged. `ToTitle("über alles")` → Kue `"über Alles"`, cue `"Über Alles"` (the one
+  remaining case-builtin divergence, all non-ASCII). ToTitle was NOT folded into BI-1 because
+  its mapping is Unicode **title-case** (distinct from upper — `ǆ`→`ǅ`, not `Ǆ`) and its word
+  boundary is `unicode.IsSpace` (broader than ASCII whitespace); both need their own table +
+  predicate. This is a deferred-capability boundary (Kue does *less* than `cue`), not a `cue`
+  defect, so it stays here and not in `cue-divergences.md`.
+- **`ToTitle` is per-word capitalization, NOT "upper-case every letter".** Oracle-confirmed:
+  it upper-cases the first character of each **whitespace-delimited** word and leaves the rest
+  untouched — NOT Go's `strings.ToTitle` (which upper-cases all letters). `-`, `.`, `_`, `/`,
+  digits, and other punctuation do NOT start a new word: `ToTitle("a-b a.b")` → `"A-b A.b"`.
+  The ASCII whitespace set covered is the six runes `\t \n \v \f \r` and space.
+- **Provenance of the table.** `scripts/gen-case-table.py` derives `Kue/CaseTable.lean` by
+  querying the LOCAL `cue` oracle over the BMP (READ-ONLY, no network) and emitting the
+  differing src→dst pairs as two sorted arrays. The data-approach spike (`spec-conformance-
+  audit.md` BI-1) rejected algorithmic ranges: the mapping is overwhelmingly irregular (632
+  of 674 ToUpper offset-runs are singletons), so a table is the only clean, fully-correct
+  path. Unicode case mapping is not a `cue`-buggy area, so the oracle is a sound data source;
+  the Unicode standard is the principled authority and the full-folding tail above the gap.
 
 ## Encoding builtins (`base64.Encode`, `json.Marshal`)
 

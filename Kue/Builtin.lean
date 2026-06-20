@@ -4,6 +4,7 @@ import Kue.Decimal
 import Kue.Base64
 import Kue.Json
 import Kue.Yaml
+import Kue.CaseTable
 
 namespace Kue
 
@@ -213,18 +214,48 @@ def stringFields (value : String) : List Value := Id.run do
     fields := fields.push (.prim (.string (String.ofList current.reverse)))
   return fields.toList
 
-/-- ASCII upper-case map: `Char.toUpper` casefolds only `a`–`z`; every other rune
-    (digits, punctuation, and all non-ASCII) passes through unchanged. The non-ASCII
-    passthrough is the deliberate deferral boundary — see `docs/spec/compat-assumptions.md`.
-    Mirrors CUE's `strings.ToUpper` on the ASCII subset. -/
-def asciiToUpper (value : String) : String :=
-  String.ofList (value.toList.map Char.toUpper)
+/-- Binary-search the `[lo, hi)` window of a `(src, dst)` table sorted ascending by `src`.
+    Total: each recursive call strictly shrinks `hi - lo` (the measure), so it terminates on
+    the window width regardless of the table contents — no `partial`. -/
+def caseTableSearch (table : Array (UInt32 × UInt32)) (key : UInt32) (lo hi : Nat) : Option UInt32 :=
+  if lo < hi then
+    let mid := lo + (hi - lo) / 2
+    let (src, dst) := table[mid]!
+    if key == src then some dst
+    else if key < src then caseTableSearch table key lo mid
+    else caseTableSearch table key (mid + 1) hi
+  else
+    none
+  termination_by hi - lo
+  decreasing_by
+    all_goals simp_wf
+    all_goals omega
 
-/-- ASCII lower-case map: `Char.toLower` casefolds only `A`–`Z`; every other rune
-    passes through unchanged (same non-ASCII deferral as `asciiToUpper`).
-    Mirrors CUE's `strings.ToLower` on the ASCII subset. -/
-def asciiToLower (value : String) : String :=
-  String.ofList (value.toList.map Char.toLower)
+/-- Look up `key`'s mapped code point in a `(src, dst)` table sorted ascending by `src`,
+    returning `dst` on a hit and `none` on a miss (the caller treats a miss as identity).
+    The table is the single source of truth for both ASCII and non-ASCII case mapping. -/
+def caseTableLookup (table : Array (UInt32 × UInt32)) (key : UInt32) : Option UInt32 :=
+  caseTableSearch table key 0 table.size
+
+/-- Unicode simple case mapping for a single rune via the oracle-derived BMP table; a rune
+    with no table entry (no case, or outside the covered set) maps to itself. -/
+def caseMapChar (table : Array (UInt32 × UInt32)) (c : Char) : Char :=
+  match caseTableLookup table c.val with
+  | some dst => Char.ofNat dst.toNat
+  | none => c
+
+/-- Unicode upper-case map over the oracle-derived BMP simple-mapping table
+    (`CaseTable.upperEntries`). Covers ASCII and the full BMP cased-letter set; a rune
+    absent from the table (no case, or a length-changing special case like German ß that
+    CUE's simple mapping also leaves unchanged) passes through. Mirrors CUE's
+    `strings.ToUpper` (Go `unicode.ToUpper` simple mapping). -/
+def unicodeToUpper (value : String) : String :=
+  String.ofList (value.toList.map (caseMapChar CaseTable.upperEntries))
+
+/-- Unicode lower-case map over `CaseTable.lowerEntries`; same coverage and passthrough
+    rule as `unicodeToUpper`. Mirrors CUE's `strings.ToLower`. -/
+def unicodeToLower (value : String) : String :=
+  String.ofList (value.toList.map (caseMapChar CaseTable.lowerEntries))
 
 /-- ASCII whitespace word-boundary predicate for `asciiToTitle`. CUE's `strings.ToTitle`
     capitalizes the first character of each whitespace-delimited word (separator =
@@ -540,9 +571,9 @@ def evalStringsBuiltin : String -> List Value -> Value
   | "strings.Fields", [.prim (.string s)] =>
       .list (stringFields s)
   | "strings.ToUpper", [.prim (.string s)] =>
-      .prim (.string (asciiToUpper s))
+      .prim (.string (unicodeToUpper s))
   | "strings.ToLower", [.prim (.string s)] =>
-      .prim (.string (asciiToLower s))
+      .prim (.string (unicodeToLower s))
   | "strings.ToTitle", [.prim (.string s)] =>
       .prim (.string (asciiToTitle s))
   | name, args => unresolvedOrBottom name args

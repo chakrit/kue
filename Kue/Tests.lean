@@ -26,6 +26,7 @@ import Kue.Tests.RegexTests
 import Kue.Tests.ResolveTests
 import Kue.Tests.RuntimeTests
 import Kue.Tests.SortTests
+import Kue.Tests.StringsTests
 import Kue.Tests.StructTests
 import Kue.Tests.TwoPassTests
 import Kue.Tests.YamlTests
