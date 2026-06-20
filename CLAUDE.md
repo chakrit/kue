@@ -4,146 +4,120 @@ The single canonical instruction file for this repo.
 
 ## Project
 
-This repository is for reimplementing the CUE language using more strongly typed,
-mathematically grounded implementation languages and techniques. Treat CUE's semantics
-as the primary subject matter: preserve behavioral compatibility where intentional,
-and make type-system, constraint-solving, and proof-related tradeoffs explicit.
+Reimplementing the CUE language in strongly-typed, mathematically-grounded languages and
+techniques. CUE's semantics are the subject: preserve intentional behavioral
+compatibility; make type-system, constraint-solving, and proof tradeoffs explicit. Prefer
+precise, testable, formally-reasonable designs over loosely-typed or ad hoc ones.
 
-Prefer designs that are precise, testable, and amenable to formal reasoning over
-loosely typed or ad hoc implementations.
+## Working Agreement (standing — state it's in effect at the start of every fresh session)
 
-## Working Agreement (standing — surface at the start of every fresh session)
+Standing grant for this repo (chakrit, 2026-06-14):
 
-Standing grant for this repo, given by chakrit 2026-06-14:
-
-- **Autonomy.** Decide and proceed without the propose-then-wait gate, so long as the
-  work inches Kue toward its goal (correct CUE v0.15 semantics). The ACE
-  propose-and-confirm steps are relaxed here: pick the next slice, plan it, and
-  implement it. Ask only when genuinely blocked; otherwise think and proceed.
-- **Resolve forks by philosophy, don't ask.** A design fork is not a reason to stop.
-  Default to the option that is most precise, testable, and amenable to formal reasoning
-  — strongly typed over ad hoc, illegal-states-unrepresentable over convention, lexical
-  over dynamic, total over partial. The repo's stated preferences (this file's Project
-  section; `Lean into Lean 4` below) already decide most forks; apply them and proceed,
-  noting the choice and its rationale in the spec/log rather than in a question. Surface a
-  fork to the user only when the philosophy is genuinely silent or two options are
-  equally principled *and* the choice is expensive to reverse.
-- **Lean into Lean 4.** Use the language's facilities — dependent types, total
-  functions, theorem checks, `structure`/`inductive` invariants — to make illegal states
-  unrepresentable and push correctness into the type system wherever it buys real safety.
-- **Commit/push freely (attended).** Standing permission to commit and push (on the
-  current branch, `main` included) without asking, as part of advancing the work. The
-  *push* half is attended-only: in **unattended / AFK mode** (see below), commit but do
-  NOT push.
-- **Go fast.** Use every tool that genuinely speeds the work: subagents for parallel
-  fan-out, batched/parallel tool calls, concurrent independent edits. Parallelize only
-  when it actually helps — never when coordination overhead would make the whole slower.
-- **Keep specs current as a restore point.** Treat `docs/spec/` (plan, architecture,
-  compat-assumptions), `docs/reference/implementation-log.md`, decisions, and notes as
-  the crash-safe source of truth. Update them as work lands — not in a batch at the end —
-  so a session crash, machine failure, or `/clear` leaves a clean restore point and a
-  fork point for subagents. A slice is not done until its spec/log entry is written.
-- Autonomy covers direction and execution, not destruction. Two rules still bind, no
-  exceptions: no working-tree-overwriting git (`checkout`/`restore`/`reset --hard`
-  without asking), and **no environment mutation outside the project tree** (global
-  installs, `~/.config`, shell rc, package managers, etc. — sandbox or ask).
-
-At the start of every fresh session, state that this grant is in effect before
-beginning work.
+- **Autonomy.** Decide and proceed without the propose-then-wait gate, as long as work
+  advances correct CUE v0.15 semantics. Pick the next slice, plan it, implement it. Ask
+  only when genuinely blocked.
+- **Resolve forks by philosophy, don't ask.** Default to the most precise, testable,
+  illegal-states-unrepresentable option — strongly-typed over ad hoc, lexical over
+  dynamic, total over partial. The Project section + "Lean into Lean 4" already decide
+  most forks; apply them and note the choice in the spec/log, not in a question. Surface a
+  fork only when philosophy is genuinely silent, or two options are equally principled
+  *and* the choice is expensive to reverse.
+- **Lean into Lean 4.** Use dependent types, total functions, theorem checks,
+  `structure`/`inductive` invariants to make illegal states unrepresentable and push
+  correctness into the type system.
+- **Commit/push freely (attended).** Commit and push on the current branch (`main`
+  included) without asking, as part of advancing work. Push is attended-only: in AFK mode
+  (below), commit but do NOT push.
+- **Go fast.** Use every tool that genuinely speeds the work — subagents, batched/parallel
+  calls, concurrent edits. Parallelize only when it actually helps.
+- **Keep specs current as a restore point.** `docs/spec/` (plan, architecture,
+  compat-assumptions), `docs/reference/implementation-log.md`, decisions, and notes are
+  the crash-safe source of truth. Update them as work lands, not in an end-batch — a slice
+  isn't done until its spec/log entry is written, so a crash or `/clear` leaves a clean
+  restore + fork point.
+- **Two bindings autonomy never overrides:** no working-tree-overwriting git
+  (`checkout`/`restore`/`reset --hard` without asking), and no environment mutation
+  outside the project tree (global installs, `~/.config`, shell rc, package managers —
+  sandbox or ask).
 
 ### Continuous slice loop ("Keep going")
 
-Goal: from any fresh session — new machine, new clone, after `/clear` — a single
-"Keep going" (or close variants: "keep it going", "keep going on Kue", "carry on")
-re-enters this autonomous loop with no further setup. Treat the longer phrase as the
-deliberate loop trigger; a bare "go"/"continue" stays an ordinary nudge.
+"Keep going" (or "keep it going", "keep going on Kue", "carry on") re-enters this loop
+from any fresh session — new machine, new clone, after `/clear` — with no setup. A bare
+"go"/"continue" is an ordinary nudge, not the trigger.
 
-The primary agent (you) is a thin orchestrator, not the implementer:
+You are a thin orchestrator, not the implementer:
 
-1. **Ensure auto-compact is on** so the loop survives long runs; the orchestrator only
-   accumulates slice summaries, never the heavy work.
+1. **Auto-compact on** so the loop survives long runs; you accumulate only slice
+   summaries.
 2. **Re-orient** from the durable record — breadcrumb (`docs/notes/…`), plan
    (`docs/spec/plan.md`), implementation-log (`docs/reference/implementation-log.md`).
    These are the only cross-session/cross-machine memory; trust them over conversation.
-3. **Spawn one subagent per slice.** It runs the full ace workflow (plan → TDD → verify:
-   `lake build` + `scripts/check-fixtures.sh` + `shellcheck` → commit/push → update the
-   plan, implementation-log, and breadcrumb). It works in fresh context, so the heavy
-   reads/edits never bloat the orchestrator. Three standing per-slice duties beyond the code:
-   - **Tests are first-class.** Don't settle for one happy-path fixture — audit the
-     slice's edge/error cases and expand coverage (fixtures + `native_decide` theorems)
-     until the behavior is pinned. Strengthen weak existing tests you touch.
-   - **Spec is the authority; `cue` is a fallible reference.** Kue exists because `cue` is
-     buggy — NEVER treat byte-identical-to-`cue` as the correctness gate (that gate is
-     structurally bug-replicating). Conform to the CUE language spec, and where the spec is
-     silent to lattice-theoretic first principles (precise, total,
-     illegal-states-unrepresentable). The `cue` binary is only a cross-check: when it
-     disagrees with the spec it is WRONG — Kue follows the spec and records it in
-     `docs/reference/cue-divergences.md` (claim, spec basis, `cue` output, Kue output,
-     `cue` version).
-   - **Flag CUE spec gaps.** When the spec is silent/ambiguous, the binary's behavior is an
-     artifact, not a mandate — record it in `docs/reference/cue-spec-gaps.md` with Kue's
-     principled choice and its basis, even when Kue matches `cue` (lower-confidence).
-4. **Cheaply verify, don't re-do.** On return, confirm the slice landed — tree clean,
-   pushed, build/fixtures green, log+breadcrumb updated — with a light check (git state,
-   one build/fixture run). No full skill-compliance sweep; the subagent owns depth.
-5. **Two-phase audit every 2–3 slices.** After every 2–3 landed slices, spawn audit
-   subagents that follow [`docs/guides/slice-loop.md`](docs/guides/slice-loop.md) — do NOT
-   invoke the `/ace-audit` skill; the procedure is written down there. Run them
-   sequentially: **(A) code-quality audit** (correctness, totality, illegal-states,
-   DRY, test strength, skill compliance over the recent batch), then **(B) architecture /
-   refactor / cleanup audit** (module boundaries, layering, dead code, simplification,
-   test/fixture organization over the whole module graph). Fold findings into the plan as
-   fix-slices. Mandatory at the 2–3-slice mark; don't let them stall forward motion. A
-   periodic test/fixture-organization slice is scheduled when Phase B flags it.
-   Releases: ~1 datestamped alpha/day via `scripts/release.sh` (local only — CI/GitHub
-   Actions is banned); see the guide.
-6. **Loop or stop.** If verification passes and planned slices remain, spawn the next.
-   Stop only at a genuine blocker, a failed verify the subagent couldn't fix, or an empty
-   plan — and leave the breadcrumb pointing at the next step.
+3. **Spawn one subagent per slice.** It runs the full ace workflow in fresh context (plan
+   → TDD → verify: `lake build` + `scripts/check-fixtures.sh` + `shellcheck` → commit/push
+   → update plan + implementation-log + breadcrumb). Three standing per-slice duties
+   beyond the code:
+   - **Tests are first-class.** Don't settle for one happy-path fixture — audit edge/error
+     cases and expand coverage (fixtures + `native_decide` theorems) until behavior is
+     pinned. Strengthen weak existing tests you touch.
+   - **Spec is authority; `cue` is a fallible reference.** Kue exists because `cue` is
+     buggy — byte-identical-to-`cue` is NEVER the gate (that gate replicates bugs).
+     Conform to the CUE spec; where it's silent, to lattice-theoretic first principles
+     (precise, total, illegal-states-unrepresentable). When `cue` disagrees with the spec
+     it is WRONG — follow the spec and record it in `docs/reference/cue-divergences.md`
+     (claim, spec basis, `cue` output, Kue output, `cue` version).
+   - **Flag spec gaps.** When the spec is silent/ambiguous, record Kue's principled choice
+     + basis in `docs/reference/cue-spec-gaps.md`, even when Kue matches `cue`.
+4. **Cheaply verify, don't re-do.** Confirm the slice landed — tree clean, pushed,
+   build/fixtures green, log+breadcrumb updated — with a light check (git state, one
+   build/fixture run). No full skill sweep; the subagent owns depth.
+5. **Two-phase audit every 2–3 slices.** Spawn audit subagents per
+   [`docs/guides/slice-loop.md`](docs/guides/slice-loop.md) — do NOT invoke `/ace-audit`;
+   the procedure is written there. Sequential: **(A) code-quality** (correctness,
+   totality, illegal-states, DRY, test strength, skill compliance over the batch), then
+   **(B) architecture/refactor/cleanup** (module boundaries, layering, dead code,
+   simplification, test/fixture org over the module graph). Fold findings into the plan as
+   fix-slices; don't let them stall forward motion. Releases: ~1 datestamped alpha/day via
+   `scripts/release.sh` (local only — CI/GitHub Actions banned); see the guide.
+6. **Loop or stop.** Verify passes + slices remain → spawn the next. Stop only at a
+   genuine blocker, a failed verify the subagent couldn't fix, or an empty plan — leaving
+   the breadcrumb pointing at the next step.
 
-The subagent keeps specs current as it goes (grant above); the orchestrator's extra job
-is the cheap done-check and re-spawn. No manual `/ace-save` or `/clear` between slices —
-the subagent boundary gives fresh context, the breadcrumb gives continuity.
+No manual `/ace-save` or `/clear` between slices — the subagent boundary gives fresh
+context, the breadcrumb gives continuity.
 
 ### Unattended mode (AFK / nightshift)
 
-When the session is unattended — triggered by `/ace-afk`, "afk", "going afk", "run
-unattended", "overnight", "nightshift", or "keep going while I'm gone" — run the slice
-loop above, but replace every propose/confirm gate with a hard safety **envelope** (no
-human is watching to catch a mistake). Stay strictly inside it:
+Triggered by `/ace-afk`, "afk", "going afk", "run unattended", "overnight", "nightshift",
+"keep going while I'm gone". Run the slice loop, but replace every propose/confirm gate
+with a hard safety **envelope** (no human watching) — stay strictly inside it:
 
-- **No global-state mutation** — nothing outside the project tree (already standing).
+- **No global-state mutation** (already standing).
 - **No outward-facing or irreversible actions** — no `push`, publish, release, deploy,
-  mail/messages, or destructive API calls. `push` is the canonical "needs a human" act.
-- **No working-tree destruction** — no `reset --hard`, `checkout`/`restore` over
-  uncommitted work, or force-overwriting files not created this run (already standing).
-- **Commit, don't push.** Land green slices on the current branch so progress survives;
-  pushing waits for a human. This overrides the attended "commit/push freely" grant.
-- **Don't block — log it.** When work needs a human (ambiguous spec, an unsafe judgment
-  call, or an envelope boundary), append a blocker to `.afk.log` at the repo root — *what*
-  (task + where it stopped), *why it needs a human*, *what you'd do* (so a one-word reply
-  unblocks it) — then pick up the next unblocked slice. Never stall the run on one item.
+  mail, or destructive API calls. `push` is the canonical "needs a human" act.
+- **No working-tree destruction** (already standing).
+- **Commit, don't push.** Land green slices on the current branch; pushing waits for a
+  human. Overrides the attended commit/push grant.
+- **Don't block — log it.** When work needs a human (ambiguous spec, unsafe judgment call,
+  envelope boundary), append a blocker to `.afk.log` at repo root — *what* (task + where
+  it stopped), *why it needs a human*, *what you'd do* (so a one-word reply unblocks it) —
+  then pick up the next unblocked slice. Never stall on one item. A boundary you'd have to
+  cross to progress is itself a blocker: log it, don't cross it.
 - **Stop** when out of unblocked work or token budget; write a run summary to `.afk.log`
-  (what landed, what's queued — don't re-list the blockers above).
+  (what landed, what's queued).
 
-A boundary you'd have to cross to make progress is itself a blocker: log it, don't cross
-it. Full skill: `ace-afk` in the school.
+Full skill: `ace-afk` in the school.
 
 ## Docs
 
-Start with [docs/README.md](docs/README.md), the index for repo-local docs. `docs/`
-holds usage docs (`guides/`, `reference/`; sorted by type) and a design record (`spec/`,
-`decisions/`, `notes/`; sorted by permanence). Default new artifacts to `notes/`; see
-`docs/README.md` and the per-directory READMEs for routing. The CUE language semantics,
-architecture, compatibility assumptions, and implementation plan live under `spec/`; the
-Lean 4 workflow guide under `guides/`.
+Start with [docs/README.md](docs/README.md). `docs/` holds usage docs (`guides/`,
+`reference/`; by type) and a design record (`spec/`, `decisions/`, `notes/`; by
+permanence). Default new artifacts to `notes/`. CUE semantics, architecture,
+compat-assumptions, and the plan live under `spec/`; the Lean 4 workflow under `guides/`.
 
 ## Agent Environment
 
-This project's AI coding environment is managed by [ACE](https://github.com/prod9/ace).
-Run `ace` to start a coding session. Run `ace setup` if not yet configured.
-
-Agent skills and conventions are provided by the **PRODIGY9 Coding School** school
-and are symlinked into the active agent environment. Skill edits go through symlinks
-into the school clone; propose changes back to the school repo when ready. Run
-`ace config` or `ace paths` to debug configuration issues.
+AI coding environment managed by [ACE](https://github.com/prod9/ace). `ace` starts a
+session; `ace setup` configures. Skills and conventions come from the **PRODIGY9 Coding
+School**, symlinked in. Skill edits go through symlinks to the school clone; propose
+changes back when ready. Debug config with `ace config` / `ace paths`.
