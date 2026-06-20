@@ -117,8 +117,8 @@ full-folding tail deferred), **E#4-fix** (✅ DONE 2026-06-20 — arithmetic ope
 type-errors concrete out-of-domain operands + string/bytes `*` repetition; see item #6),
 **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
 **SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **DYN-DEF-1**
-(dynamic field inside a DEFINITION dropped when its keying field is narrowed at the use site —
-distinct pre-existing bug found while probing A-EN3-DYN; see the walker-dedup section).
+(✅ DONE 2026-06-20 — a dynamic field with a non-concrete key now DEFERS as a residual instead of
+being dropped; see the walker-dedup section + implementation-log).
 **DRY-1 is RULED OUT** (the let-walkers
 don't share a combinator — collect-vs-rewrite + a `List Nat` worklist + a termination trap;
 attempted under A-EN3 and reverted, see the walker-dedup section — do not re-file).
@@ -299,11 +299,14 @@ see the A-EN3+DRY-1 entries below) → AD2-1 is now the SOLE remaining dedup-fam
 (file-not-inline).**
 
 **Next-leader ranking (correctness-first; Phase-B 2026-06-20, the audit that closed the AD4-1 +
-A-EN3 round):** AD2-1 is the sole remaining *dedup-family* member, but it is NOT the next overall
-leader. **A-EN3-DYN is now ✅ DONE** (the leading Violation, landed this slice — see the entry below
-and the implementation-log). The remaining order is **DYN-DEF-1 (MEDIUM Violation, leads) → AD2-1
-(LOW-MED dedup, file-not-inline)**, then the LOW cosmetic tail (item 6). DYN-DEF-1 is a real
-wrong-result on a constructible pattern; AD2-1 is value-sound (display-only) and never preempts it.
+A-EN3 round):** AD2-1 is the sole remaining *dedup-family* member and **is now the next overall
+leader**. **A-EN3-DYN and DYN-DEF-1 are both ✅ DONE** (the two dyn-field Violations, landed as the
+new batch — see the entries below and the implementation-log). The remaining order is **AD2-1
+(LOW-MED dedup, file-not-inline)**, then the LOW cosmetic tail (item 6). AD2-1 is value-sound
+(display-only). **⚠ TWO-PHASE AUDIT DUE** (A then B, per `docs/guides/slice-loop.md` — do NOT
+invoke `/ace-audit`): A-EN3-DYN (slice 1) + DYN-DEF-1 (slice 2) is a coherent dyn-field-correctness
+batch to audit together, at the 2-slice mark. Run the audit before (or batch AD2-1 in as slice 3 of
+the round, then audit — auditor's call).
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
   The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`
@@ -370,36 +373,20 @@ wrong-result on a constructible pattern; AD2-1 is value-sound (display-only) and
   use site** (`#Add: {kind: string, (kind): "m"}` then `#Add & {kind: "specific"}` → cue keeps
   `specific: "m"`, kue drops it) — a DISTINCT pre-existing bug (no comprehension, so
   `defFrameRefIndices` is not on its path), filed as **DYN-DEF-1** below.
-- **DYN-DEF-1 (NEW — found by the Phase-A audit while probing A-EN3-DYN; pre-existing, out of this
-  batch's diff).** A dynamic field declared in a DEFINITION is dropped from the result when the
-  field it is keyed by is narrowed at the use site (via `&` OR embedding). Witness (cue v0.16.1
-  correct; kue wrong):
-  ```
-  #Add: { kind: string, (kind): "marker" }
-  patch: #Add & { kind: "specific" }
-  # cue: patch == { kind: "specific", specific: "marker" }
-  # kue: patch == { kind: "specific" }            (WRONG — dyn field dropped; def output drops it too)
-  ```
-  Both the def's own output (`#Add: {kind: string}` — the `(kind)` arm vanishes) and the narrowed
-  use-site output drop the dynamic field. **`dynValShift` ride-along — ✅ DONE with A-EN3-DYN:** the
-  parameter was dropped from `foldValueWithDepth`/`foldValueWithDepthClauses` and the `0` offset
-  inlined (all three instantiations passed `0` after the fix; a one-value knob is noise). The
-  over-deep scan and the knob that expressed it are gone together.
-
-  ---
-
-- **DYN-DEF-1 (MEDIUM — distinct pre-existing Violation; ranks SECOND in the next batch).** A PLAIN
-  struct with the same shape (`kind: "specific", (kind):
-  "marker"` at top level, no def) evaluates CORRECTLY in kue — so the bug is specific to a dynamic
-  field surviving a definition's splice/narrowing path. DISTINCT from A-EN3-DYN: no comprehension is
-  involved, so `defFrameRefIndices`/`embedComprehensionReadLabels` is not the mechanism; the dyn
-  field is lost somewhere in the def-splice or dyn-key re-evaluation. Spec basis: a definition's
-  dynamic field is an ordinary field of the def; unifying/narrowing must preserve it and re-key it
-  against the narrowed key value. Severity: MEDIUM — dynamic fields in definitions are a common CUE
-  idiom (`(strings.ToUpper(name)): …` in a `#Schema`). NEXT STEP: locate where the def-splice path
-  drops `.dynamicField` (likely `hiddenFieldsOnly`/`spliceOperandForEmbed` or the dyn-key
-  re-evaluation when the key field narrows), write a TDD fixture from the witness, fix at the source.
-  Not started; diagnosis only.
+- **DYN-DEF-1 (MEDIUM Violation) — ✅ DONE (the 2nd dyn-field slice; see implementation-log).** A
+  dynamic field `(expr): v` whose label was NOT a concrete string was silently DROPPED instead of
+  held as a residual. The original "specific to definitions / def-splice" framing was WRONG: the
+  narrowed witness (`#Add & {kind: "specific"}`) already re-keyed on HEAD (the A-EN3-DYN
+  `hasSelfRefAtDepth` key-scan fix had repaired the deferral gate); the residual bug was a pair of
+  silent-drop arms keyed on a non-string label (`expandComprehensionWithFuel` `_ => .ok ([], [])`
+  and the standalone `.dynamicField` eval `_ => .bottom`) — NOT def-specific (a plain struct with an
+  abstract key dropped identically). Fix: one exhaustive `classifyDynLabel : Value ->
+  DynLabelVerdict` (mirrors `classifyGuard`) at BOTH sites — concrete string re-keys; bottom
+  propagates; concrete non-string is a type error (`BottomReason.nonStringLabel`); abstract/incomplete
+  (incl. the `string` kind) DEFERS, holding the unevaluated `.dynamicField` so a later narrowed
+  re-eval re-keys it. Renamed `NonBoolGuardType → ConcreteTypeName` (now shared by 4 reasons).
+  CONFORMS to spec (cue correct); the held-residual `@d.i` key display folds into the existing D#1b
+  display divergence row. Gate green; cert-manager byte-identical to pre-fix HEAD.
 - **DRY-1 (let-walker dedup) — ✗ RULED OUT (attempted under A-EN3's slice, reverted; no behavior
   change shipped).** The plan was ONE `walkFollowedLets` with `closeDefFrameReadIndices` /
   `letPromotedReadLabels` / `injectLetLocalNarrowings` as thin instantiations. It is the DRY trap,
@@ -493,11 +480,12 @@ DYN-DEF-1) — verdict: HEALTHY; no code fix; rankings/rulings folded in. CLOSES
   round to separate "sole dedup-family member" from "next overall leader").
 - **Bug ranking RE-ORDERED to correctness-first (folded into the walker-dedup section).** Phase A's
   re-classification of A-EN3-DYN (LOW corner → REACHABLE wrong-result Violation) outranks the DRY
-  cleanup AD2-1 under the correctness-over-everything gate. **Leader now = DYN-DEF-1 (MEDIUM
-  Violation) → AD2-1 (LOW-MED dedup, file-not-inline)** → LOW tail (A-EN3-DYN, the former leader, is
-  ✅ DONE). The walker-dedup section formerly read "AD2-1 is NEXT leader" (written pre-re-classification) — now
-  corrected: AD2-1 is the sole dedup-family member but a value-sound display-only cleanup, so it
-  never preempts the two Violations.
+  cleanup AD2-1 under the correctness-over-everything gate. At that round's close the order was
+  **DYN-DEF-1 (MEDIUM Violation) → AD2-1**; **both dyn-field Violations (A-EN3-DYN, DYN-DEF-1) have
+  since landed**, so the live leader is now **AD2-1** (the sole dedup-family member, a value-sound
+  display-only cleanup). The walker-dedup section formerly read "AD2-1 is NEXT leader" (written
+  pre-re-classification); after the two Violations DONE it is once again the leader, this time with
+  nothing ahead of it.
 - **`.any`→`foldl` short-circuit (Phase A flag) — RULED: ACCEPT, no fix.** `refsSelfEmbeddedLabel`
   was a lazy `Bool` `.any` (early-cut on the first hit); as a `foldValueWithDepth` it is a `foldl`
   over the whole tree (`(· || ·)`, fuel-bounded, value-identical, no early exit). NOT worth a fix:
