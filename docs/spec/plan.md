@@ -117,8 +117,13 @@ full-folding tail deferred), **E#4-fix** (✅ DONE 2026-06-20 — arithmetic ope
 type-errors concrete out-of-domain operands + string/bytes `*` repetition; see item #6),
 **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
 **SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **A-EN3-DYN**
-(reconcile `defFrameRefIndices`'s over-deep `.dynamicField` value scan to depth 0 — LOW latent
-corner surfaced by A-EN3; see the walker-dedup section). **DRY-1 is RULED OUT** (the let-walkers
+(reconcile `defFrameRefIndices`'s over-deep `.dynamicField` value scan to depth 0 — **RE-CLASSIFIED
+by the Phase-A audit from "LOW unreachable corner" to a REACHABLE WRONG-RESULT bug**: a comprehension
+reading a use-site-narrowed def sibling through a dyn-field value expands against the un-narrowed
+type; witness + clean static-vs-dynamic control in the walker-dedup section. Spec-conformance
+Violation, low corpus exposure), **DYN-DEF-1** (dynamic field inside a DEFINITION dropped when its
+keying field is narrowed at the use site — distinct pre-existing bug found while probing A-EN3-DYN;
+see the walker-dedup section). **DRY-1 is RULED OUT** (the let-walkers
 don't share a combinator — collect-vs-rewrite + a `List Nat` worklist + a termination trap;
 attempted under A-EN3 and reverted, see the walker-dedup section — do not re-file).
 **The 4 spec-gap ratifications are DONE (2026-06-20):** gaps 1–3 RATIFIED + test-pinned; gap 4
@@ -332,11 +337,63 @@ file-not-inline).**
   break byte-identical):** `defFrameRefIndices` scans a `.dynamicField`'s VALUE at `depth+1`
   (`dynValShift=1`), but the resolver pushes NO frame for a dynamic field (`Resolve.lean:139`
   resolves key+value in the same scope) — an over-deep scan that systematically misses def-frame
-  refs buried in a dynamic-field value. Unreachable in the corpus (no `.dynamicField`-buried
-  def-ref fixture), preserved byte-identically, flagged at the combinator docstring + pinned by
-  `fold_value_dynfield_shift_divergence`. **Schedulable fix-slice: A-EN3-DYN** — reconcile
-  `dynValShift` to `0`, add a `let _x = {(dyn): if defSibling == …}` fixture witnessing the
-  corrected collection, flip the divergence pin. LOW (corner prod9 doesn't hit).
+  refs buried in a dynamic-field value. The DRY refactor correctly preserved this byte-identically
+  (the old `defFrameRefIndices` scanned the dyn-field value at `depth+1` too — verified against
+  `f9c1e56`); the refactor introduced NOTHING. See A-EN3-DYN for the reachability verdict.
+- **A-EN3-DYN (was LOW "unreachable corner" — RE-CLASSIFIED to a REACHABLE WRONG-RESULT bug by the
+  Phase-A audit of this batch; bump above AD2-1).** The over-deep `.dynamicField`-value scan in
+  `defFrameRefIndices` (`dynValShift=1`, `Eval.lean:245`) is **NOT unreachable** — the prior "corner
+  the corpus never hits" claim was true only of the *committed fixtures*, not of constructible
+  input. Confirmed wrong-result witness (cue v0.16.1 is correct; kue is wrong — a divergence FROM
+  spec, kue's bug):
+  ```
+  #Add: { #kind: string, kind: string, out: [for x in ["a"] {("k"): kind}] }
+  patch: { #kind: "specific", kind: "specific", #Add }
+  # cue: patch.out == [{k: "specific"}]   (kind narrowed reaches the dyn-field value)
+  # kue: patch.out == [{k: string}]       (WRONG — kind stays un-narrowed)
+  ```
+  Clean isolation: the SAME source with a STATIC body field `{k: kind}` instead of the dynamic
+  `{("k"): kind}` evaluates CORRECTLY in kue (`[{k: "specific"}]`). The only difference is
+  static-vs-dynamic field → the bug is exactly the `dynValShift=1` over-scan: a comprehension reading
+  a def sibling SOLELY through a dyn-field value has that read scanned one frame too deep, so
+  `embedComprehensionReadLabels` never collects the sibling, the embed splice omits its narrowed
+  value, and the comprehension expands against the un-narrowed type. Spec basis: CUE evaluates a
+  dynamic field's value in the enclosing struct's scope, identical to a static field — so a sibling
+  ref must resolve to the same frame either way. The bug pre-dates A-EN3 (present at `f9c1e56`); the
+  DRY slice faithfully preserved it (correct for a DRY slice). **Fix-slice A-EN3-DYN:** reconcile
+  `dynValShift` to `0` (the resolver's discipline), add the witness above as a `testdata` fixture
+  pair + `FixturePorts` entry, FLIP `fold_value_dynfield_shift_divergence` to assert the corrected
+  `[5]→[]` arms, re-run the full gate. NOTE the fix INTENTIONALLY breaks byte-identical (it corrects
+  a wrong result) — so it is a real TDD bug-slice, NOT a low-risk inline change. Severity: a real
+  wrong-result on a constructible pattern (embedded def + comprehension + dynamic field reading a
+  use-site-narrowed sibling); low corpus exposure (prod9's argocd shape doesn't hit it today) but it
+  is a Violation by the spec-conformance gate, not a perf corner. Separately surfaced while probing:
+  **dynamic fields inside DEFINITIONS are dropped entirely when the keying field is narrowed at the
+  use site** (`#Add: {kind: string, (kind): "m"}` then `#Add & {kind: "specific"}` → cue keeps
+  `specific: "m"`, kue drops it) — a DISTINCT pre-existing bug (no comprehension, so
+  `defFrameRefIndices` is not on its path; out of this batch's scope), filed as **DYN-DEF-1** below.
+- **DYN-DEF-1 (NEW — found by the Phase-A audit while probing A-EN3-DYN; pre-existing, out of this
+  batch's diff).** A dynamic field declared in a DEFINITION is dropped from the result when the
+  field it is keyed by is narrowed at the use site (via `&` OR embedding). Witness (cue v0.16.1
+  correct; kue wrong):
+  ```
+  #Add: { kind: string, (kind): "marker" }
+  patch: #Add & { kind: "specific" }
+  # cue: patch == { kind: "specific", specific: "marker" }
+  # kue: patch == { kind: "specific" }            (WRONG — dyn field dropped; def output drops it too)
+  ```
+  Both the def's own output (`#Add: {kind: string}` — the `(kind)` arm vanishes) and the narrowed
+  use site drop the dynamic field. A PLAIN struct with the same shape (`kind: "specific", (kind):
+  "marker"` at top level, no def) evaluates CORRECTLY in kue — so the bug is specific to a dynamic
+  field surviving a definition's splice/narrowing path. DISTINCT from A-EN3-DYN: no comprehension is
+  involved, so `defFrameRefIndices`/`embedComprehensionReadLabels` is not the mechanism; the dyn
+  field is lost somewhere in the def-splice or dyn-key re-evaluation. Spec basis: a definition's
+  dynamic field is an ordinary field of the def; unifying/narrowing must preserve it and re-key it
+  against the narrowed key value. Severity: MEDIUM — dynamic fields in definitions are a common CUE
+  idiom (`(strings.ToUpper(name)): …` in a `#Schema`). NEXT STEP: locate where the def-splice path
+  drops `.dynamicField` (likely `hiddenFieldsOnly`/`spliceOperandForEmbed` or the dyn-key
+  re-evaluation when the key field narrows), write a TDD fixture from the witness, fix at the source.
+  Not started; diagnosis only.
 - **DRY-1 (let-walker dedup) — ✗ RULED OUT (attempted under A-EN3's slice, reverted; no behavior
   change shipped).** The plan was ONE `walkFollowedLets` with `closeDefFrameReadIndices` /
   `letPromotedReadLabels` / `injectLetLocalNarrowings` as thin instantiations. It is the DRY trap,

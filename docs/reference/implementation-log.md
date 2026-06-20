@@ -10322,6 +10322,17 @@ docstring + pinned by `fold_value_dynfield_shift_divergence`. Filed as schedulab
 **A-EN3-DYN** (reconcile to 0, add a witnessing fixture, flip the pin). LOW — a corner prod9 doesn't
 hit, and a behavior change does not belong in a no-behavior-change DRY slice.
 
+> **Phase-A audit correction (this batch's audit):** the "unreachable" claim above is true only of
+> the COMMITTED FIXTURES, not of constructible input. A-EN3-DYN is in fact a REACHABLE WRONG-RESULT:
+> `#Add: {#kind: string, kind: string, out: [for x in ["a"] {("k"): kind}]}` + `patch: {#kind:
+> "specific", kind: "specific", #Add}` gives kue `patch.out == [{k: string}]` where cue gives
+> `[{k: "specific"}]` — the narrowed `kind` never reaches the dyn-field value because the over-deep
+> scan misses it. A STATIC `{k: kind}` body field evaluates correctly (clean control), isolating the
+> bug to `dynValShift=1`. The DRY slice's preservation was still CORRECT (the bug pre-dates it at
+> `f9c1e56`); only the severity was understated. Re-classified in `plan.md` to a spec-conformance
+> Violation (bumped above AD2-1). A distinct dyn-field-in-definition drop (DYN-DEF-1) was also found
+> while probing.
+
 Gate: `lake build` (108 jobs, all theorems incl. the 3 new pins), `scripts/check-fixtures.sh` →
 `fixture pairs ok` (ZERO drift), cert-manager `export` (from the infra module dir) content-identical
 to `cue` v0.16.1 (key-order-insensitive, modulo field-order #3). No shell touched. Pure refactor, no
