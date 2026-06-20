@@ -396,14 +396,35 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
     preserved across the BMP; NO ß→SS expansion — `ToUpper("ß")=="ß"`), so a 1:1 table is faithful;
     full-case-folding special-casing (ß→SS, locale ı/İ, final sigma) stays a documented spec-gap.
 
-**Spec-gap decisions (record + ratify in `cue-spec-gaps.md`, mostly doc) — the 4
-ratifications:** import-binding laziness (B#2/F-5 — keep, operational basis; smell:
-reference-location-dependent, includes the RX-2b field-less-invalid-label entry
-recategorized here); incomplete `A|B` form for un-narrowed struct-arm disjunctions (A —
-keep open; lattice-defensible: a join with no unique default); field order #3 (C/F-4 —
-keep Kue's principled source-order, stop gating on cue's order); list `+` /`*` removed in
-cue v0.11 (E#4 — decide hard-error vs residual; Kue currently leaves a residual). All
-current gaps already in `cue-spec-gaps.md`.
+**Spec-gap decisions (the 4 ratifications) — DONE 2026-06-20.** All four were re-derived
+from the spec + first principles and closed; see `cue-spec-gaps.md` for the full bases.
+Verdicts:
+- **Import-binding laziness** (B#2/F-5) — **RATIFIED.** Spec genuinely silent; keep tolerating
+  on an operational-laziness basis (demand-driven value model; the `importBinding` marker keeps
+  the package shallow). Includes the recategorized RX-2b field-less-invalid-label entry. Pinned
+  by the `unreferenced_import_conflict` fixture + `rx2b_label_pattern_invalid_bottoms`.
+- **`A|B` un-narrowed struct disjunction** (A) — **RATIFIED.** Spec silent; keep open — a join
+  with no unique default IS the join (verified meet-identity vs `.top`). Corrected the prior
+  "`incomplete`" mischaracterization (it is the open disjunction value, not an error). New pins
+  `StructTests` `disj_struct_arms_no_default_*`.
+- **Field order #3** (C/F-4) — **RATIFIED.** Spec silent (structs unordered, order
+  implementation-defined); keep Kue's declaration/source order. Corrected the cue-behavior
+  description (cue's cross-conjunct order is an undocumented internal-graph artifact, not the
+  "first-introduced" rule once claimed — often sorts, sometimes interleaves). Supersedes plan
+  item #4: parity DECLINED. New pin `meet_struct_field_order_is_declaration_order`.
+- **list `+`/`*`** (E#4) — ⚠ **MIS-FILED → ESCALATED as a fix-slice (E#4-fix).** NOT a gap: the
+  spec MANDATES the operator domain (int/float/string/bytes), so a list operand is a type error.
+  cue is spec-correct (hard-errors); **Kue is WRONG** — it leaves a held residual instead of a
+  type-error bottom. Filed as the E#4-fix backlog item below + plan item #6. Recorded in
+  `cue-spec-gaps.md` as the MIS-FILED row (NOT a `cue-divergence` — cue is right).
+
+**E#4-fix (NEW, LOW-MED — spec divergence, ranked in the MED tail).** `[1,2]+[3,4]` / `3*[1,2]`
+must type-error-bottom, not leave a residual (the spec closes `+`/`*` over int/float/string/bytes;
+a list operand is ill-typed exactly like `1+"x"`). `evalAdd`/`evalMul`/`evalSub`/`evalDiv`
+(`Eval.lean`) reach `.bottom` only when both operands are `.prim`; a `.list` operand falls through
+the `_,_ => .binary` catch-all. Add an explicit ill-typed arm returning a type-error `.bottomWith`
+for fully-evaluated non-arithmetic operands, keeping the residual only for genuinely-incomplete
+ones. Full diagnosis + pin plan in `plan.md` item #6.
 
 **Low / hardening:** `containsBottom` fuel cap 100 (**A#6** — `Lattice.lean:146`; a bottom
 >100 levels deep escapes pruning → wrong value, not just slow; a partiality hole.

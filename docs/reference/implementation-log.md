@@ -10024,3 +10024,91 @@ each) — the hot-path refactor did not perturb it. No shell touched → `shellc
 Files: `Kue/Eval.lean` (the `EvalState.truncate` primitive + invariant note; seven drop sites
 rewritten; `truncCount` field doc refreshed), `Kue/Tests/EvalPerfTests.lean` (`runTruncate`
 helper + 3 structural pins).
+
+---
+
+## Completed Slice: Spec-gap ratifications (4 gaps) — 3 RATIFIED, 1 ESCALATED
+
+Goal: formally close the 4 pending spec-gap ratifications (the lower-confidence open
+questions where the CUE spec is silent and Kue made a principled choice). Ratification =
+re-derive each choice from the spec + first principles, verify current code still behaves
+as recorded, and elevate from lower-confidence to a settled, test-pinned decision — or, if
+review shows the choice is wrong, escalate rather than rubber-stamp. This was slice 2 of
+the new batch (truncate-primitive = slice 1).
+
+The 4 gaps (per the `spec-conformance-audit.md` backlog, distinct from the newer rows
+several session slices added): (1) import-binding laziness B#2/F-5; (2) `A|B` un-narrowed
+struct disjunction (area A); (3) field order #3 (C/F-4); (4) E#4 list `+`/`*`.
+
+### Verdicts
+
+1. **Import-binding laziness — RATIFIED.** Spec re-checked: genuinely silent (only a
+   *referenced* `_|_` must propagate, which Kue honors). Tolerating an unreferenced bottom
+   def in an imported package is ratified on an OPERATIONAL-LAZINESS basis (CUE's value
+   model is demand-driven; the `FieldClass.importBinding` marker keeps the package shallow
+   by construction so the deep-bottom recurse never fires). The lattice-purist
+   "bottom-is-bottom-whether-selected-or-not" reading is acknowledged and DECLINED as
+   contrary to the demand-driven model. Re-verified current behavior: the
+   `unreferenced_import_conflict` module exports `{"out":{"name":"ok"}}`. Pinned by that
+   fixture (runs via `check-fixtures.sh`) + `LatticeTests.rx2b_label_pattern_invalid_bottoms`
+   (the recategorized field-less RX-2b sub-case).
+
+2. **`A|B` un-narrowed struct disjunction — RATIFIED.** Spec silent (default rules govern
+   selection at concretization, not the open form). Keep open: a join with no unique
+   default IS the join — a settled lattice value, not an incompleteness or error.
+   **Verified meet-identity vs `.top`**, confirming it is a settled value. Corrected the
+   prior entry's "`incomplete`" mischaracterization. NEW pins
+   `StructTests.disj_struct_arms_no_default_stays_open` + `_is_meet_identity`.
+
+3. **Field order #3 — RATIFIED.** Spec silent (structs are unordered sets; output order is
+   implementation-defined). Keep Kue's declaration / first-seen-across-conjuncts order
+   (`{b}&{a}` → `b,a`): total, deterministic, one trivial rule, mirrors program text.
+   **Corrected the cue-behavior record:** re-probed v0.16.1 shows cue's cross-conjunct
+   order is an undocumented internal-graph artifact, NOT the "first-introduced" rule the
+   docs once claimed — separate one-field literals sort (`{z}&{a}&{m}` → `a,m,z`,
+   `{b,d}&{a,c}` → `a,b,c,d`) while a def-ref meet interleaves by introduction
+   (`#Def:{kind,zfield} & {own,afield}` → `kind,own,afield,zfield`). Chasing that is
+   reverse-engineering a presentation artifact the spec does not mandate; parity DECLINED
+   (supersedes plan item #4). NEW pin
+   `StructTests.meet_struct_field_order_is_declaration_order` (the existing
+   `meet_disjoint_regular_structs` + `LatticeTests.mergeStructN_struct_tail_reverses_field_order`
+   already lock the rule).
+
+4. **E#4 list `+`/`*` — ⚠ MIS-FILED → ESCALATED (not ratified).** The gap claimed the spec
+   was silent. It is NOT: the spec MANDATES the operator domain — *"The four standard
+   arithmetic operators (+, -, *, /) apply to integer and decimal floating-point types; +
+   and * also apply to strings and bytes."* Lists are excluded, so a list operand to
+   `+`/`*` is a **type error → `_|_`**, the same class as `1 + "x"` (which Kue already
+   bottoms). `cue` is spec-correct here (it hard-errors `… superseded by
+   list.Concat/Repeat …`). **Kue is WRONG:** `evalAdd`/`evalMul`/`evalSub`/`evalDiv`
+   (`Eval.lean:787-839`) reach the type-error `.bottom` arm only when both operands are
+   `.prim`; a `.list` operand falls through `_,_ => .binary …`, leaving a held residual
+   (`kue eval` shows `[1,2]+[3,4]` raw; `kue export` says `incomplete value`). An incomplete
+   value claims "may resolve" — two concrete lists with `+` never can. Per the ratification
+   protocol this is a STOP-and-flag, not a silent ratify: filed as **E#4-fix** (plan item #6
+   + `spec-conformance-audit.md` MED tail) with the fix sketch (add an explicit ill-typed
+   arm to the four ops) and a correct-behavior pin plan. Recorded in `cue-spec-gaps.md` as
+   the ⚠ MIS-FILED row — NOT a `cue-divergence` (cue is correct, not buggy). No pin added
+   for the current wrong residual (would bless the defect); the correct pin lands with the
+   fix-slice.
+
+### No new ADR
+
+None of the four rises to a cross-cutting project-level decision (unlike the
+oracle-as-data-source ADR): gaps 1–3 are narrow, self-contained, and well-served by the
+RATIFIED entries + pins; E#4 is a bug to fix, not a settled decision. The
+`cue-spec-gaps.md` rows are the durable record.
+
+### Verify
+
+`lake build` green (108 jobs; 3 new `native_decide`/`rfl` pins check at build).
+`check-fixtures.sh` → `fixture pairs ok` (zero drift — this slice changed only docs + added
+pins, no eval-path code). No shell touched → `shellcheck` N/A. All gap probes run against
+`kue` (`.lake/build/bin/kue`) + the `cue` oracle (`/Users/chakrit/go/bin/cue` v0.16.1,
+READ-ONLY).
+
+Files: `Kue/Tests/StructTests.lean` (3 ratification pins), `docs/reference/cue-spec-gaps.md`
+(rows 1–3 → RATIFIED with corrected bases; new ⚠ MIS-FILED E#4 row),
+`docs/spec/spec-conformance-audit.md` (4-ratifications item closed; E#4-fix added to the MED
+tail), `docs/spec/plan.md` (backlog line updated; item #4 RATIFIED-closed; E#4-fix added as
+item #6 bullet).

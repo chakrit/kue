@@ -112,10 +112,14 @@ the non-spec-conformance work.
 
 **Spec-conformance fixes (authoritative ranking in `spec-conformance-audit.md`):** the
 argocd residual **Bug2-5** (PARKED), **BI-1** (Unicode case-fold — spike DONE: chose
-oracle-generated BMP simple-mapping table, no network; see audit doc), **BI-2-residual**
-(Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4**
-(spec-gap-first), **SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap,
-standalone), the 4 spec-gap ratifications, **DRY-1** (let-walker extraction).
+oracle-generated BMP simple-mapping table, no network; see audit doc), **E#4-fix** (NEW,
+LOW-MED — list `+`/`*` must type-error-bottom, not leave a residual; surfaced by the
+ratification slice, see below), **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3**
+display-residual, **SC-4** (spec-gap-first), **SC-1b** (closed×closed-pattern), **A#6**
+(`containsBottom` fuel cap, standalone), **DRY-1** (let-walker extraction). **The 4
+spec-gap ratifications are DONE (2026-06-20):** gaps 1–3 RATIFIED + test-pinned; gap 4
+(E#4) was MIS-FILED — the spec mandates the operator domain, so it became the E#4-fix slice
+above. See `cue-spec-gaps.md` (RATIFIED/ESCALATED rows) + `spec-conformance-audit.md`.
 
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
@@ -181,18 +185,20 @@ in `Builtin`, never effectful.
    exact string edit, ~77 fixtures). Deferred per "DEFER rather than break discovery"; low marginal
    win (layout already subsystem-grouped one level deep). Pick up as a dedicated careful slice or drop.
 
-4. **Field-ordering parity #3 (MEDIUM, DEEP — byte-parity vs `cue`).** `cue` orders `ref &
-   {own}` own-fields-first; Kue is left-struct-first (`mergeStructFieldsWith`, `Lattice.lean`).
-   `cue`'s rule tracks where each label is *first introduced* across conjuncts in eval order —
-   faithful replication needs a per-`Field` introduction-provenance key threaded through every
-   merge/manifest site, not a one-line fold flip. The byte-order tail between cert-manager
-   content-match and byte-exact; affects the dominant `#Def & {…}` prod9 pattern's export order.
-   Multi-slice + a provenance-key design spike first. (Now reclassified as a deliberate spec gap
-   #3 — Kue's stable source order is the more principled choice; pursue only if it blocks a
-   needed fixture.)
+4. **Field-ordering parity #3 — RATIFIED CLOSED (2026-06-20): Kue keeps source order; parity
+   DECLINED.** The spec-gap ratification settled this: spec is silent (structs are unordered
+   sets; output order is implementation-defined), so Kue's declaration / first-seen-across-conjuncts
+   order is the principled choice and is now test-pinned (`StructTests`
+   `meet_struct_field_order_is_declaration_order`). `cue`'s cross-conjunct order is an undocumented
+   internal-graph artifact — re-probed v0.16.1, it is NOT the "first introduced" rule this item
+   once claimed: separate one-field literals come out *sorted* (`{z}&{a}&{m}` → `a,m,z`) while a
+   def-ref meet interleaves by introduction (`#Def:{kind,zfield} & {own,afield}` → `kind, own,
+   afield, zfield`). Chasing byte-parity would mean reverse-engineering that graph order through a
+   provenance key on every merge/manifest site — rejected as gating on a presentation artifact the
+   spec does not mandate. Reopen ONLY if a concrete needed fixture demands cue's exact bytes (none
+   does). See `cue-spec-gaps.md` (RATIFIED row) for the full re-derivation.
    ```cue
-   #Def: {kind: "X", ...}
-   out: #Def & {own: 1}  // cue: own-fields ordered first
+   out: {b: 1} & {a: 2}  // cue: a, b (graph order); Kue: b, a (source order) — both spec-valid
    ```
 
 5. **Per-eval-cost perf (frontier — hash digest DONE; residual open).** The cache-key hash
@@ -202,6 +208,25 @@ in `Builtin`, never effectful.
    bottom is the Bug2-5 CORRECTNESS divergence, not fuel) — profile against a resolving target.
 
 6. **Borderline / LOW (opportunistic; none block adoption).**
+   - **E#4-fix (NEW 2026-06-20 — spec divergence, LOW-MED; surfaced by the spec-gap ratification
+     slice).** `[1,2] + [3,4]` and `3 * [1,2]` must be a TYPE-ERROR bottom, not a held residual.
+     The spec closes `+`/`*` over int/float/string/bytes only (*"The four standard arithmetic
+     operators … apply to integer and decimal floating-point types; + and * also apply to strings
+     and bytes"*) — a list operand is ill-typed, exactly like `1 + "x"` (which Kue already bottoms).
+     `cue` is spec-correct here (it hard-errors `… superseded by list.Concat/Repeat …`); **Kue is
+     WRONG** — `evalAdd`/`evalMul`/`evalSub`/`evalDiv` (`Eval.lean:787-839`) only reach the
+     `.bottom` arm when both operands are `.prim`; a `.list` (or other non-`prim`, non-`bottom`)
+     operand falls through `_,_ => .binary …`, leaving a held residual (`kue eval` shows it raw,
+     `kue export` says `incomplete value`). An incomplete claims "may resolve" but two concrete
+     lists with `+` never can. **Fix:** add an explicit ill-typed arm to the four ops — when an
+     operand is a fully-evaluated non-arithmetic shape (`.list`/`.listTail`/`.struct`/concrete
+     non-prim) and not bottom/incomplete, return a type-error `.bottomWith` (mirror the
+     `prim,prim → .bottom` path; a dedicated `BottomReason` for the operator/operand is cheap and
+     spec-shaped). Keep the residual ONLY for genuinely-incomplete operands (an unresolved ref that
+     could still become a prim). Pin: `[1,2]+[3,4]` → bottom, `3*[1,2]` → bottom, plus the existing
+     `1+"x"` control still bottoms, and a `let x=_; x+[1]` stays residual until `x` resolves. NOT a
+     `cue-divergence` (cue is correct). NB: this is the recorded ESCALATION of former spec-gap "E#4
+     list +/*" — see `cue-spec-gaps.md` (the ⚠ MIS-FILED row).
    - **`scalar-embed-with-decls`** — `{#a:1, 5}`→`5` (`cue` manifests `5`, keeps `.#a`
      selectable); Kue bottoms. Incompleteness, not unsound. Needs a scalar-with-decls carrier
      (the `.embeddedList` analog for scalars). Do NOT "fix" by widening the scalar collapse —

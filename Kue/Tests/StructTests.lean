@@ -615,4 +615,42 @@ theorem closed_multiple_patterns_allow_any_matching_regular_field :
           ] .defClosed none [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]) = true := by
   native_decide
 
+-- RATIFIED spec-gap (`cue-spec-gaps.md`, area A): an un-narrowed struct-arm disjunction
+-- with no unique default stays OPEN — `{a:int} | {b:string}` is kept as the two-arm join,
+-- not collapsed or errored. Lattice basis: a join with no unique default IS the join;
+-- erroring would over-commit. Identity under meet with `.top` confirms it is a settled
+-- value, not an intermediate. (Spec is silent on open-vs-error here; `cue` agrees.)
+theorem disj_struct_arms_no_default_stays_open :
+    formatValue
+      (.disj [
+        (.regular, mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []),
+        (.regular, mkStruct [⟨"b", .regular, .kind .string⟩] .regularOpen none [])])
+      = "{a: int} | {b: string}" := by
+  native_decide
+
+theorem disj_struct_arms_no_default_is_meet_identity :
+    meet
+      (.disj [
+        (.regular, mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []),
+        (.regular, mkStruct [⟨"b", .regular, .kind .string⟩] .regularOpen none [])])
+      .top
+      = .disj [
+        (.regular, mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []),
+        (.regular, mkStruct [⟨"b", .regular, .kind .string⟩] .regularOpen none [])] := by
+  rfl
+
+-- RATIFIED spec-gap (`cue-spec-gaps.md`, area C/F-4 — field order #3): a struct meet
+-- emits fields in DECLARATION / first-seen-across-conjuncts order (`{b} & {a}` ⟹ `b, a`),
+-- NOT sorted. Spec is silent (structs are unordered sets; output order is
+-- implementation-defined). Kue picks the source/declaration order on principle.
+-- NB: `cue` v0.16.1 SORTS cross-conjunct (`{b}&{a}` ⟹ `a, b`); Kue deliberately does not
+-- inherit that — see the corrected `cue` behavior column in `cue-spec-gaps.md`.
+theorem meet_struct_field_order_is_declaration_order :
+    formatValue
+      (meet
+        (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none []))
+      = "{b: 1, a: 2}" := by
+  native_decide
+
 end Kue
