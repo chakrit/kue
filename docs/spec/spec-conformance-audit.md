@@ -56,7 +56,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | A. Disjunctions/narrowing  | batch 1 | DONE   | 1 KUE-VIOLATES (disj display); **Gap-2b/Bug2-3 FIXED 2026-06-19** (cue correct; structural list-vs-struct arm prune); 2 spec gaps; rest CONFORMS                                               |
 | B. Closedness/definitions  | batch 1 | DONE   | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS                                  |
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
-| D. Comprehensions/scoping  | batch 2 | DONE   | guard catch-all DRAINED (**D#1a/D#1b/D#1c all FIXED**: bottom→propagate, incomplete→defer, concrete-non-bool→type-error; 2026-06-20); structural cycles **D#2 COMPLETE 2026-06-20** (D#2a detection + D#2b terminating-disjunct); only `let`-clauses (D#3) remain unparseable; frame-model + read-splice CONFORM |
+| D. Comprehensions/scoping  | batch 2 | **CLOSED** | guard catch-all DRAINED (**D#1a/D#1b/D#1c all FIXED**: bottom→propagate, incomplete→defer, concrete-non-bool→type-error; 2026-06-20); structural cycles **D#2 COMPLETE 2026-06-20** (D#2a detection + D#2b terminating-disjunct); **`let`-clauses D#3 FIXED 2026-06-20** (parse + `Clause.letClause` + `let` = +1 frame; the LAST open D-item); frame-model + read-splice CONFORM — **D-area now fully closed** |
 | E. Scalars/bounds/builtins | batch 2 | DONE   | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); 2 MED builtin remain (BI-1 ASCII case-fold; BI-2 deferred builtins bottom); numeric/bounds/division/decimal core CONFORMS |
 | F. Manifest/modules        | batch 2 | DONE   | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed); export + module-resolution core CONFORM |
 
@@ -66,6 +66,20 @@ Completed findings and shipped design specs, compressed to pointers. Each cites 
 landing commit; the as-built detail lives in `docs/reference/implementation-log.md` and
 git history.
 
+- 2026-06-20 — **D#3** `let` clauses in comprehensions — the LAST open D-area item, now CLOSED.
+  `Clause.letClause (name, value)` added to the comprehension clause sum (`Value.lean`, total, no
+  catch-all); `descendClauses` `.letClause` arm routes the value through `onSource` + pushes +1, so
+  `clauseChainDepth` + all 4 walkers handle it for free. Frame model: `let` = +1 (spec:
+  *"`for` and `let` clauses each define a new scope"*; `if` = +0). Parse: `parseLetClause`
+  (`dropWord?`-bounded), wired into `parseClause` after `for`/`if`; reached only inside a clause
+  chain, so a struct-field-head `let` stays a struct-body binding (spec `StartClause` excludes
+  `let`). Eval: bind the EVALUATED value into a one-slot frame like a `for` element
+  (`loopFrame none .top name`), alignment-correct; an unreferenced binding's bottom sits unread
+  (matches cue for value-level bottoms). All 8 clause-match sites updated explicitly. 9
+  `native_decide` pins (incl. the `for`-after-`let` frame-accounting + shadowing cases) + 6 fixtures
+  (list + struct forms); cert-manager content-identical. 1 cue-divergence (unreferenced unresolved-ref
+  `let` — cue errors, Kue tolerates) + 1 spec-gap (eval-order/eager-into-frame). See implementation-log
+  2026-06-20.
 - 2026-06-20 — **D#1b + D#1c** comprehension-guard classification (`Eval.lean`: new total
   `classifyGuard` over a `GuardVerdict` sum, enumerating every `Value` — no catch-all — read by
   both clause-walkers; `Value.lean`: `NonBoolGuardType` + `BottomReason.nonBoolGuard`). D#1c
@@ -188,13 +202,13 @@ resolves as the general semantics mature. **Recommended next 3-4:**
 did not unblock — residual Bug2-5 is PARKED as a stress-test finding, see Live-slice
 detail; it is not on the critical path.)
 
-**NOW LEADS — the MED tail** (no large designed levers remain): **D#3** (`let` clauses in
-comprehensions) — D#1b/D#1c DONE 2026-06-20 (comprehension-guard classification: incomplete→defer,
-concrete-non-bool→type-error; the guard catch-all is fully drained). Then **BI-1** (Unicode
-case-fold), **BI-2** (`math.Pow`/`list.Sort`), **F-3** (qualified import), **SC-3 display-residual**
-(LOW/spec-gap). Then SC-4 (LOW, spec-gap-first), the 4 spec-gap ratifications, A#6 (standalone),
-DRY-1 (LOW refactor). Audit cadence: RX-2a + D#1b/c = 2 slices since the last two-phase audit — ONE
-more slice, then Phase A→B is due (NOT due now).
+**NOW LEADS — the MED tail** (no large designed levers remain; **D-area CLOSED**): **D#3 DONE
+2026-06-20** (`let` clauses in comprehensions — parse + `Clause.letClause` + `let` = +1 frame; the
+last open D-item). Next leader: **BI-1** (Unicode case-fold), **BI-2** (`math.Pow`/`list.Sort`),
+**F-3** (qualified import), then **SC-3 display-residual** (LOW/spec-gap). Then SC-4 (LOW,
+spec-gap-first), the 4 spec-gap ratifications, A#6 (standalone), DRY-1 (LOW refactor). ⚠ **Audit
+cadence: RX-2a + D#1b/c + D#3 = 3 slices since the last two-phase audit (`c03ebdb`) — the two-phase
+audit (Phase A → Phase B) is now DUE.**
 
 Then the MED tail (D#1b/D#1c, D#3 `let` -clauses, SC-3 disj-display, BI-1 Unicode
 case-fold, BI-2 `math.Pow` /`list.Sort`, F-3 qualified import), SC-4 (LOW,
@@ -289,9 +303,13 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
     (`scalar Kind`/`struct`/`list`). CONFORMS (cue+Kue agree, both modes). Split from D#1b
     in the SAME `classifyGuard` enumeration (no catch-all). See Audit history +
     implementation-log 2026-06-20.
-11. **D#3** `let` clauses in comprehensions (parse + `Clause.letClause` + wire `let` =+1
-    in `descendClauses`). The for=+1/if=+0 frame model is spec-CORRECT (B7 vindicated);
-    `let` must wire as +1 when this lands.
+11. **D#3 — DONE (2026-06-20).** `let` clauses in comprehensions. `Clause.letClause` added;
+    `descendClauses` `.letClause` arm wires `let` = +1 (via `onSource` + frame push), so all 5
+    frame-walkers + `clauseChainDepth` handle it. Parse (`parseLetClause`, clause-chain-only so a
+    field-head `let` stays a struct-body binding — spec `StartClause` excludes `let`); eval binds
+    the evaluated value into a `for`-element-style frame (alignment-correct). The for=+1/if=+0 model
+    is spec-CORRECT (B7-vindicated); `let` joined as +1. 9 pins + 6 fixtures; cert-manager
+    content-identical. The D-area is now CLOSED. See Audit history + implementation-log 2026-06-20.
 12. **SC-3 — flatten/dedup half DONE (2026-06-20, folded into D#2b); display-collapse
     residual is LOW/spec-gap.** `normalizeEvaluatedDisj` now applies `liveAlternatives`
     (flatten/drop-bottom/dedup) on the non-all-regular branch — `*1|*1|2` eval → `*1 | 2`

@@ -9541,3 +9541,98 @@ Files: `Kue/Value.lean` (`NonBoolGuardType`, `BottomReason.nonBoolGuard`), `Kue/
 `Kue/Tests/EvalPerfTests.lean`, `Kue/Tests/FixturePorts.lean`,
 `testdata/cue/comprehensions/{guard_nonbool_string,guard_nonbool_int,list_guard_nonbool,guard_incomplete_defers}.{cue,expected}`,
 `docs/reference/cue-divergences.md`, `docs/reference/cue-spec-gaps.md`.
+
+## Completed Slice: D#3 — `let` clauses in comprehensions (2026-06-20)
+
+Goal: make `let <ident> = <expr>` parseable and correctly scoped as a comprehension clause. It
+was the **last open D-area item** — previously UNPARSEABLE. CUE allows `let` clauses interleaved
+with `for`/`if` in a comprehension's clause chain, binding a name in the comprehension's scope for
+subsequent clauses and the body:
+
+```cue
+out: [for x in [1, 2, 3] let y = x*2 {a: y}]   // → [{a: 2}, {a: 4}, {a: 6}]
+```
+
+**Spec basis (authoritative — the gate).** The CUE spec grammar: `Clauses = StartClause { [ "," ]
+Clause }`, `StartClause = ForClause | GuardClause`, `Clause = StartClause | LetClause`,
+`LetClause = "let" identifier "=" Expression`. Two mandates fall out: (1) a `let` clause is a
+non-start `Clause` — a comprehension CANNOT start with `let` (so a struct-field-head `let` stays a
+struct-body `let`, never a comprehension); (2) scope: *"The `for` and `let` clauses each define a
+new scope in which new values are bound to be available for the next clause."* This is the spec
+basis for the frame model: **`let` = +1 frame** (joins `for`; `if`/`guard` = +0, B7-vindicated).
+
+**AST.** `Clause.letClause (name : String) (value : Value)` added to the comprehension clause sum
+type (now 3 arms, total, no catch-all). Each `let` clause binds exactly one name to one expr —
+illegal-states-unrepresentable.
+
+**Frame accounting (the subtle part) — routed through the single authority.** `descendClauses`
+(`Value.lean`, the sole place the per-clause frame-shift rule lives) gained a `.letClause` arm
+that hands the bound value to `onSource` and pushes +1 — a `for` source and a `let` value are the
+SAME shape to every walker (a `Value` read at the pre-push depth that then pushes one frame). This
+single addition makes `clauseChainDepth` and all four `descendClauses`-based walkers
+(`refsSelfEmbeddedLabelClauses`, `selfReferencedLabelsClauses`, `defFrameRefIndicesClauses`,
+`hasSelfRefAtDepthClauses`) handle `let` for free — the `+1`-per-frame rule cannot be re-derived
+inconsistently. `Resolve.resolveClausesWithFuel` resolves the let value in the pre-push `scopes`
+(symmetric with the `for` source), then pushes `clauseLoopFrame none name` = `[(name, 0)]`; a
+`.refId ⟨0,0⟩` from a later clause/body lands on it. The subtle case — a `for` AFTER a `let`
+(`letcomp_for_after_let`) — resolves earlier bindings correctly across the intervening let frame
+(verified `[{v:11},{v:12},{v:12},{v:13}]`, cue-exact).
+
+**Eval — bind into a frame like a `for` element (eager-into-frame).** `expandClausesWithFuel` /
+`expandListClausesWithFuel` gained a `.letClause` arm: evaluate the value in the pre-push `env`
+(its resolve-time scope), then `pushFrame [⟨name, .regular, evaluatedValue⟩]` (a one-slot frame,
+the eval analogue of `Resolve`'s `clauseLoopFrame none name`) and recurse the rest of the chain +
+body. Binding the EVALUATED value (not the raw expr) keeps the frame's refs
+aligned exactly as `loopFrame` does for a `for` element — an evaluated value carries no residual
+refIds to misalign. An UNREFERENCED binding's value sits unread in the frame, so a bottom it would
+carry never propagates unless the body selects it (the `.refId`-on-select path is the only force).
+This matches cue for a value-level bottom (`let bad = div(1,0)` unused → no error; referenced →
+division-by-zero error). All 8 clause-match sites updated with an explicit `.letClause` arm (no
+catch-all): `descendClauses`, `resolveClausesWithFuel`, `remapConjClauses`,
+`expandClausesWithFuel`, `expandListClausesWithFuel`, `formatClauseWithFuel`,
+`normalizeClauseWithFuel`, `normalizeDefinitionsClauseWithFuel`.
+
+**Parse.** New `parseLetClause` (`let <ident> = <expr>` → `.letClause`, `dropWord?`-bounded so it
+never misfires on `letterbox`), wired into `parseClause` AFTER `for`/`if`. Reached only from a
+clause chain (`parseComprehension`/list-comprehension head + `parseComprehensionClauses`
+continuation), so a struct-field-head `let` still parses as a struct-body binding (`parseLetBinding`)
+— honoring the spec's `StartClause` exclusion. The comprehension head dispatch (`startsWithWord
+"for"/"if"`) stays unchanged (a `let` cannot start a comprehension).
+
+**Divergences / spec gaps recorded.** `cue-divergences.md` (D#3 row): an UNREFERENCED `let` whose
+value is an unresolved REFERENCE (`let unused = someUndef`, never read) — cue ERRORS, Kue tolerates
+(a dead binding contributes nothing — lattice-correct; the referenced case errors in both); self-ref
+`let y = y` resolves as a reference cycle (`_`) under Kue, cue errors. `cue-spec-gaps.md` (D#3 row):
+the eval-order basis — the spec fixes `let`'s SCOPE but is silent on WHEN the value evaluates;
+eager-into-frame reuses the proven `for`-element machinery and matches cue for the value-level-bottom
+unreferenced case.
+
+**Tests.** 9 `native_decide` pins in `EvalTests` (`letcomp_basic`, `letcomp_in_guard`,
+`letcomp_multiple`, `letcomp_for_after_let` [frame accounting], `letcomp_shadows_outer`,
+`letcomp_struct_form`, `letcomp_referenced_bottom_propagates`, `letcomp_unreferenced_bottom_drops`,
+`letcomp_let_not_start_clause`), each cue v0.16.1-cross-checked, driven through the full
+parse→resolve→eval→format chain via `evalSourceMatches`. 6 fixture pairs + `FixturePorts` entries:
+`comprehensions/{list_let_basic, list_let_in_guard, list_let_multiple, list_let_for_after,
+let_shadows_outer, struct_let_basic}` (covering list + struct comprehension forms; the
+FixturePorts entries hand-build the `Value` with `.letClause` and must format-match the CLI parse).
+
+**Verify.** `lake build` green (100 jobs; all pins checked at build, no non-exhaustive-match
+warning ⇒ every clause site is exhaustive); `check-fixtures.sh` → `fixture pairs ok` (zero drift;
+6 new pairs); shellcheck clean (no shell touched). cert-manager `export` CONTENT-IDENTICAL to `cue`
+(sorted-key compare) — the eval-hot-path change is additive (`let` clauses fire only on actual `let`
+clauses, which cert-manager has none of) so it cannot regress real-app output.
+
+**The D-area is now CLOSED** (comprehensions/scoping: guards drained D#1a/b/c, structural cycles
+D#2a/b, `let`-clauses D#3). **Next leader — the MED tail:** BI-1 (Unicode case-fold for
+`strings.ToUpper/ToLower`), BI-2 (`math.Pow/Sqrt`, `list.Sort/SortStable`), F-3 (qualified import
+path `"location:identifier"`); then SC-3 display-residual (LOW/spec-gap), SC-4, the spec-gap
+ratifications, A#6, DRY-1. ⚠ **Audit cadence: RX-2a + D#1b/c + D#3 = 3 slices since the last
+two-phase audit (`c03ebdb`) — the two-phase audit (Phase A → Phase B) is now DUE.**
+
+Files: `Kue/Value.lean` (`Clause.letClause`, `descendClauses` `.letClause` arm), `Kue/Parse.lean`
+(`parseLetClause` + `parseClause` wiring), `Kue/Resolve.lean` (`resolveClausesWithFuel` arm),
+`Kue/Eval.lean` (`remapConjClauses` + `expandClausesWithFuel` + `expandListClausesWithFuel` arms),
+`Kue/Normalize.lean` (two clause arms), `Kue/Format.lean` (`formatClauseWithFuel` arm),
+`Kue/Tests/EvalTests.lean` (9 pins), `Kue/Tests/FixturePorts.lean` (6 entries),
+`testdata/cue/comprehensions/{list_let_basic,list_let_in_guard,list_let_multiple,list_let_for_after,let_shadows_outer,struct_let_basic}.{cue,expected}`,
+`docs/reference/cue-divergences.md`, `docs/reference/cue-spec-gaps.md`.

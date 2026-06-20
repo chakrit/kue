@@ -546,12 +546,18 @@ deriving Repr, BEq, DecidableEq
 /--
 A comprehension clause. `forIn` binds a value variable (and optionally a key
 variable) over an iterable source; `guard` admits its body only when the condition
-holds. Clauses chain left-to-right: each `forIn` pushes one lexical scope frame
-holding its loop variables, so later clauses and the body resolve against them.
+holds; `letClause` binds one name to one expression. Clauses chain left-to-right:
+each `forIn` and each `letClause` pushes ONE lexical scope frame (a `forIn` holds its
+loop variables, a `letClause` its single bound name), so later clauses and the body
+resolve against them; a `guard` pushes none. Spec basis: *"The `for` and `let` clauses
+each define a new scope in which new values are bound to be available for the next
+clause."* A `let` clause may appear only after a `for`/`if` start clause
+(`StartClause = ForClause | GuardClause`, `Clause = StartClause | LetClause`).
 -/
 inductive Clause (Value : Type) where
   | forIn (key : Option String) (value : String) (source : Value)
   | guard (condition : Value)
+  | letClause (name : String) (value : Value)
 deriving Repr, BEq
 
 mutual
@@ -672,8 +678,10 @@ deriving instance Repr, BEq for Value, Field
     needs no monoid unit. Pure, total (structural on the clause list), `Value`-non-recursive: it
     threads depth only and defers each piece to the caller's `onSource`/`onGuard`/`onBody`. A
     walker descending a clause chain MUST route through this to get the body depth, so the
-    `+1-per-forIn`/`+0-per-guard` rule lives in exactly one place and cannot be re-derived
-    inconsistently. -/
+    `+1-per-forIn`/`+1-per-letClause`/`+0-per-guard` rule lives in exactly one place and cannot
+    be re-derived inconsistently. A `letClause`'s bound value is handed to `onSource` (a
+    `forIn` source and a `let` value are the SAME shape to every walker: a `Value` read at the
+    pre-push depth that then pushes one frame), so no walker has to special-case it. -/
 def descendClauses {α : Type}
     (append : α → α → α)
     (onSource onGuard : Nat → Value → α)
@@ -686,8 +694,12 @@ def descendClauses {α : Type}
   | .guard condition :: rest =>
       append (onGuard depth condition)
         (descendClauses append onSource onGuard onBody depth rest)
+  | .letClause _ value :: rest =>
+      append (onSource depth value)
+        (descendClauses append onSource onGuard onBody (depth + 1) rest)
 
-/-- The frame depth a clause chain accumulates from `start`: `+1` per `forIn`, `+0` per `guard`.
+/-- The frame depth a clause chain accumulates from `start`: `+1` per `forIn`, `+1` per
+    `letClause`, `+0` per `guard`.
     Recovered from `descendClauses` (identity body-handler returns the accumulated depth) so the
     body-depth shift and the per-clause threading derive from the SAME fold — replacing the former
     standalone `clauseFrameShift` and erasing the two-encodings-in-one-walker hazard. -/

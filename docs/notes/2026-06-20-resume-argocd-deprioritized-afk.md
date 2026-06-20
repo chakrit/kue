@@ -1,40 +1,44 @@
-# RESUME HERE — D#1b/D#1c DONE; comprehension-guard catch-all DRAINED; D#3 leads (2026-06-20)
+# RESUME HERE — D#3 DONE; D-area CLOSED; ⚠ TWO-PHASE AUDIT DUE (3 slices since `c03ebdb`) (2026-06-20)
 
 Live START-HERE pointer; supersedes all prior breadcrumbs. Authoritative live roadmap:
 [`../spec/spec-conformance-audit.md`](../spec/spec-conformance-audit.md)
 § Consolidated fix backlog (owns the ranked spec-conformance fixes) +
 [`../spec/plan.md`](../spec/plan.md) (capabilities + non-spec roadmap).
 
-**Latest (2026-06-20):** D#1b + D#1c landed → **the comprehension `if`-guard catch-all is fully
-drained** (D#1a bottom→propagate, D#1b incomplete→DEFER, D#1c concrete-non-bool→TYPE-ERROR; no
-residual `_` arm). The guard match (struct + list twins) now reads a total `classifyGuard :
-Value → GuardVerdict` that ENUMERATES every `Value` constructor (no catch-all). D#1c: a concrete
-non-bool guard (`if "x"`/`if 3`/`if {…}`/`if [..]`/`if null`) is `.bottomWith [.nonBoolGuard ty]`
-(new `BottomReason.nonBoolGuard` + precise `NonBoolGuardType` = `scalar Kind`/`struct`/`list`);
-CONFORMS (cue agrees both modes). D#1b: an abstract guard (kind / unresolved disj / non-presence
-comparison `x>5`) DEFERS — the comprehension stays a residual node via the new third protocol
-outcome `ClauseExpansion`/`ListClauseExpansion` `.deferred` + `withDeferredComprehensions` re-wrap
-(cue eval-holds; `kue export` errors `incomplete value`). The residual PRESENCE test `X !=/== _|_`
-is CARVED OUT (stays a drop — cue eval drops it; this carve-out is load-bearing, found by
-regression). Spec-gap recorded (D#1b defer mechanism); display divergence recorded (Kue renders
-the held guard ref as `@d.i`, cue prints the name). 17 `native_decide` pins + 4 fixtures; 3
-bug-replicating DROP pins corrected to the spec-correct HELD form; cert-manager content-identical.
+**Latest (2026-06-20):** D#3 landed → **`let` clauses in comprehensions are now parseable +
+correctly scoped; the D-area (comprehensions/scoping) is fully CLOSED.** `Clause.letClause (name,
+value)` added to the comprehension clause sum (total, no catch-all). Frame model: **`let` = +1
+frame** (spec: *"the `for` and `let` clauses each define a new scope"*; `if`/guard = +0) — wired in
+the single authority `descendClauses` via a `.letClause` arm that routes the value through
+`onSource` + pushes +1, so `clauseChainDepth` + all 4 frame-walkers handle it for free. Parse:
+`parseLetClause` (`dropWord?`-bounded), reached only inside a clause chain, so a struct-field-head
+`let` stays a struct-body binding (spec `StartClause = ForClause | GuardClause` excludes `let` —
+a comprehension cannot START with `let`). Eval: bind the EVALUATED value into a one-slot frame
+(`[⟨name, .regular, evaluatedValue⟩]`, like a `for` element) — alignment-correct (no residual
+refIds), so a `for`
+AFTER a `let` still resolves earlier bindings; an unreferenced binding's bottom sits unread (matches
+cue for value-level bottoms). All 8 clause-match sites updated explicitly (no catch-all). 9
+`native_decide` pins (incl. the `for`-after-`let` frame-accounting + shadowing + struct-form cases)
++ 6 fixtures (list + struct); cert-manager `export` content-identical (sorted-key). 1 cue-divergence
+(unreferenced unresolved-ref `let` — cue errors, Kue tolerates; dead-binding-is-lattice-nothing) +
+1 spec-gap (eager-into-frame eval order). See implementation-log + audit-history 2026-06-20.
 
-**Audit state — NOT due (accurate).** The D#2 two-phase audit ran earlier this session (Phase A
-`b5883f1` + Phase B `c03ebdb`, scoping D#2a/D#2b). The NEW batch since then: **RX-2a (slice 1) +
-D#1b/D#1c (slice 2)** = 2 slices landed. The next Phase-A→Phase-B audit is due after **~1 more
-slice** (the 3rd). Do NOT re-introduce a spurious "AUDIT DUE" flag now; do NOT invoke
-`/ace-audit` — the procedure is in `slice-loop.md`. (Audit subagents MUST reset this note when they
-run.)
+**⚠ Audit state — AUDIT DUE (accurate; 3 slices since the last audit `c03ebdb`).** The D#2
+two-phase audit ran earlier this session (Phase A `b5883f1` + Phase B `c03ebdb`, scoping
+D#2a/D#2b). The batch since then: **RX-2a (slice 1) + D#1b/D#1c (slice 2) + D#3 (slice 3)** = 3
+slices landed. **The two-phase audit (Phase A → Phase B) is now DUE — run it NEXT before any new
+feature slice.** Run sequentially (A then B, both edit `plan.md`/this doc — parallel would collide);
+follow [`../guides/slice-loop.md`](../guides/slice-loop.md), do NOT invoke `/ace-audit`. Scope: the
+3-slice batch (RX-2a regex-complement + D#1b/c guard-classification + D#3 let-clauses) for Phase A;
+whole module graph for Phase B. (Audit subagents MUST reset this note to NOT-due when they run.)
 
-## IMMEDIATE NEXT STEPS (design-first; the loop can just `Keep going`)
+## IMMEDIATE NEXT STEPS (the loop can just `Keep going`)
 
-1. **The MED tail LEADS — start with D#3** (`let` clauses in comprehensions). No large designed
-   levers remain. One more slice after this, THEN the two-phase audit is due.
-   - **D#3** — `let` clauses in comprehensions: parse `let x = expr` as a comprehension clause,
-     add `Clause.letClause`, and wire `let` = +1 frame in `descendClauses` (the for=+1/if=+0
-     frame model is spec-CORRECT, B7-vindicated; `let` joins as +1). Currently `let`-in-
-     comprehension is UNPARSEABLE — the last open D-area item.
+1. **⚠ RUN THE TWO-PHASE AUDIT FIRST** (it is DUE — 3 slices landed since `c03ebdb`). Phase A
+   (code-quality over the RX-2a + D#1b/c + D#3 batch), THEN Phase B (architecture/refactor/cleanup
+   over the whole module graph). Sequential. Per `slice-loop.md`. Fold findings into the backlog as
+   fix-slices. Then resume the MED tail below.
+2. **The MED tail (no large designed levers remain; D-area CLOSED).** Lead with:
    - **BI-1** Unicode case-fold for `strings.ToUpper/ToLower` (currently ASCII-only → wrong on
      non-ASCII); **BI-2** `math.Pow/Sqrt`, `list.Sort/SortStable` (currently bottom on concrete
      input); **F-3** parse qualified import path `"location:identifier"` (currently unparsed).
@@ -43,14 +47,14 @@ run.)
      collapse (unsound — loses the live arm a later meet needs); recorded as a spec-gap. A
      Format-layer projection rewriting ~7 fixtures; close only if the eval-display convention is
      revisited.
-2. Then the ranked tail in `spec-conformance-audit.md § Consolidated fix backlog`: **SC-4** (LOW,
+3. Then the ranked tail in `spec-conformance-audit.md § Consolidated fix backlog`: **SC-4** (LOW,
    spec-check FIRST — cue is internally inconsistent here, don't reflexively match) · the 4
    spec-gap ratifications in `cue-spec-gaps.md` · **A#6** (`containsBottom` fuel cap 100,
    STANDALONE — D#2 confirmed it is NOT implicated by structural cycles; a real hardening item for
    deep NON-cyclic bottoms) · **DRY-1** (let-walker `walkFollowedLets` consolidation; schedule
    after Bug2-5 if that ever un-parks). **SC-1b** (closed×closed-pattern intersection) sits with
    this MED/hardening tail.
-3. Plan-only roadmap (plan.md Live Backlog, NOT in audit.md): `truncate-primitive` (HIGH —
+4. Plan-only roadmap (plan.md Live Backlog, NOT in audit.md): `truncate-primitive` (HIGH —
    soundness hardening) · Regex/EvalOps module extractions · test/fixture-org pass ·
    field-order #3 · A2-x/A2-y loader corners · B3/B5 incompleteness. NOTE: plan-side **A-EN3**
    and audit-side **DRY-1** look like the same let-walker consolidation — reconcile when picked.

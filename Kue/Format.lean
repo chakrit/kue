@@ -220,6 +220,8 @@ mutual
         s!"for {value} in " ++ formatValueWithFuel fuel source
     | fuel + 1, .guard condition =>
         "if " ++ formatValueWithFuel fuel condition
+    | fuel + 1, .letClause name value =>
+        s!"let {name} = " ++ formatValueWithFuel fuel value
 end
 
 def formatStructFieldWithFuel (fuel : Nat) (field : Field) : String :=

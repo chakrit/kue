@@ -648,6 +648,11 @@ mutual
     | .guard condition :: rest =>
         Clause.guard (remapConjRefs fuel frameDepth oldLabels mergedMap condition)
           :: remapConjClauses fuel frameDepth oldLabels mergedMap rest
+    | .letClause name value :: rest =>
+        -- Like `for`: the bound value is in the scope BEFORE the let's frame is pushed
+        -- (`frameDepth`); subsequent clauses + the body are one frame deeper.
+        Clause.letClause name (remapConjRefs fuel frameDepth oldLabels mergedMap value)
+          :: remapConjClauses fuel (frameDepth + 1) oldLabels mergedMap rest
   termination_by clauses => (fuel, 1, clauses.length)
 end
 
@@ -3341,6 +3346,17 @@ mutual
             | .bottom bot => pure (.bottom bot)
             | .nonBool ty => pure (.bottom (.bottomWith [.nonBoolGuard ty]))
             | .incomplete => pure .deferred
+        | .letClause name value :: rest => do
+            -- A `let` clause binds `name` in a NEW frame (+1, like `for`) visible to subsequent
+            -- clauses + the body. Evaluate the value in the pre-push `env` (matching its
+            -- resolve-time scope — symmetric with the `for` source), then bind the EVALUATED
+            -- result in a one-slot frame. Binding the evaluated value (not the raw expr)
+            -- keeps the frame's refs aligned exactly as `loopFrame` does for a `for` element.
+            -- An unreferenced binding's value sits unread in the frame, so a bottom it would
+            -- carry never propagates unless the body actually selects it.
+            let evaluatedValue <- evalValueWithFuel fuel env [] value
+            let nested <- pushFrame [⟨name, .regular, evaluatedValue⟩] env
+            expandClausesWithFuel fuel nested rest body
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             match comprehensionPairs evaluatedSource with
@@ -3408,6 +3424,13 @@ mutual
             | .bottom bot => pure (.bottom bot)
             | .nonBool ty => pure (.bottom (.bottomWith [.nonBoolGuard ty]))
             | .incomplete => pure .deferred
+        | .letClause name value :: rest => do
+            -- List-comprehension twin of the struct `let` arm: bind `name` in a +1 frame
+            -- (the evaluated value, in the pre-push `env`) visible to the rest of the chain
+            -- and the element body.
+            let evaluatedValue <- evalValueWithFuel fuel env [] value
+            let nested <- pushFrame [⟨name, .regular, evaluatedValue⟩] env
+            expandListClausesWithFuel fuel nested rest body
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             match comprehensionPairs evaluatedSource with

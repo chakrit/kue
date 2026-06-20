@@ -65,6 +65,16 @@ mutual
         let resolvedCondition := resolveValueWithFuel fuel scopes condition
         let (restClauses, resolvedBody) := resolveClausesWithFuel fuel scopes rest body
         (.guard resolvedCondition :: restClauses, resolvedBody)
+    | .letClause name value :: rest =>
+        -- The bound value resolves in the scope BEFORE the let's own frame is pushed (it sees
+        -- earlier `for`/`let` bindings + the enclosing scope, never itself), exactly like a
+        -- `for` source. The let then pushes ONE frame binding `name` at slot 0
+        -- (`clauseLoopFrame none name` = `[(name, 0)]`), so later clauses + the body resolve a
+        -- `.refId ⟨0, 0⟩` to it. Spec: a `let` clause defines a new scope (+1 frame).
+        let resolvedValue := resolveValueWithFuel fuel scopes value
+        let nested := clauseLoopFrame none name :: scopes
+        let (restClauses, resolvedBody) := resolveClausesWithFuel fuel nested rest body
+        (.letClause name resolvedValue :: restClauses, resolvedBody)
 
   def resolveValueWithFuel : Nat -> List (List (String × Nat)) -> Value -> Value
     | 0, _, value => value

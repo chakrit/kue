@@ -1938,6 +1938,124 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- D#3 basic `let` clause in a list comprehension: `for x in [1,2,3] let y = x*2 {a: y}`
+      -- → `[{a:2},{a:4},{a:6}]`. The let binds `y` in a +1 frame visible to the body.
+      fileName := "comprehensions/list_let_basic.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]),
+                       .letClause "y" (.binary .mul (.ref "x") (.prim (.int 2)))]
+                      (.structComp [] [.dynamicField (.prim (.string "a")) .regular (.ref "y")]
+                        .regularOpen)]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#3 a `let` binding read by a LATER `if` guard (frame accounting across the let frame):
+      -- `for x in [1..4] let half = div(x,2) if half*2 == x {even: x}` → keeps the evens
+      -- `[{even:2},{even:4}]`. Proves the guard resolves the let-bound `half` at its post-let depth.
+      fileName := "comprehensions/list_let_in_guard.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x"
+                        (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)]),
+                       .letClause "half" (.builtinCall "div" [.ref "x", .prim (.int 2)]),
+                       .guard (.binary .eq
+                         (.binary .mul (.ref "half") (.prim (.int 2))) (.ref "x"))]
+                      (.structComp [] [.dynamicField (.prim (.string "even")) .regular (.ref "x")]
+                        .regularOpen)]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#3 multiple chained `let`s, the second reading the first, then an `if` on the second:
+      -- `let y = x*2 let z = y+1 if z > 3 {a: z}` → `[{a:5},{a:7}]`. Each `let` is its own +1 frame.
+      fileName := "comprehensions/list_let_multiple.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]),
+                       .letClause "y" (.binary .mul (.ref "x") (.prim (.int 2))),
+                       .letClause "z" (.binary .add (.ref "y") (.prim (.int 1))),
+                       .guard (.binary .gt (.ref "z") (.prim (.int 3)))]
+                      (.structComp [] [.dynamicField (.prim (.string "a")) .regular (.ref "z")]
+                        .regularOpen)]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#3 the frame-accounting case: a `for` AFTER a `let`. `for x in [1,2] let y = x+10
+      -- for w in [y, y+1] {v: w}` → `[{v:11},{v:12},{v:12},{v:13}]`. The second `for`'s source +
+      -- body must still resolve `y` (and the first `x`) correctly across the intervening let frame.
+      fileName := "comprehensions/list_let_for_after.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2)]),
+                       .letClause "y" (.binary .add (.ref "x") (.prim (.int 10))),
+                       .forIn none "w"
+                         (.list [.ref "y", .binary .add (.ref "y") (.prim (.int 1))])]
+                      (.structComp [] [.dynamicField (.prim (.string "v")) .regular (.ref "w")]
+                        .regularOpen)]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#3 a `let` clause SHADOWING an outer field: outer `y:"outer"` is untouched; the
+      -- comprehension body sees the let `y`. `out: [for x in [1,2] let y = x*10 {v: y}]` →
+      -- `[{v:10},{v:20}]`, `y` stays `"outer"`. Lexical innermost-wins.
+      fileName := "comprehensions/let_shadows_outer.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"y", .regular, .prim (.string "outer")⟩,
+                ⟨"out", .regular,
+                  .list
+                    [.listComprehension
+                      [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2)]),
+                       .letClause "y" (.binary .mul (.ref "x") (.prim (.int 10)))]
+                      (.structComp [] [.dynamicField (.prim (.string "v")) .regular (.ref "y")]
+                        .regularOpen)]⟩
+              ] .regularOpen none []))
+    },
+    {
+      -- D#3 a `let` clause in a STRUCT comprehension (not just list): the let-bound value feeds a
+      -- dynamic field. `for x in [1,2] let y = x+100 {"k\(x)": y}` → `{k1:101, k2:102}`.
+      fileName := "comprehensions/struct_let_basic.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out", .regular,
+                  .structComp
+                    []
+                    [.comprehension
+                      [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2)]),
+                       .letClause "y" (.binary .add (.ref "x") (.prim (.int 100)))]
+                      (.structComp
+                        []
+                        [.dynamicField (.interpolation [.prim (.string "k"), .ref "x"])
+                          .regular (.ref "y")]
+                        .regularOpen)]
+                    .regularOpen⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "structs/struct_embedding_scope.expected",
       content :=
         formatTopLevel

@@ -94,6 +94,8 @@ mutual
         .forIn key value (normalizeDefinitionValueWithFuel fuel source)
     | fuel + 1, .guard condition =>
         .guard (normalizeDefinitionValueWithFuel fuel condition)
+    | fuel + 1, .letClause name value =>
+        .letClause name (normalizeDefinitionValueWithFuel fuel value)
 
   /-- Field handler — a principled 4-way split on `FieldClass` (A2-followup, subsuming B6-A2):
       - DEFINITION (`#x`): body closed recursively (its own closedness declaration).
@@ -226,6 +228,8 @@ mutual
         .forIn key value (normalizeDefinitionsWithFuel fuel source)
     | fuel + 1, .guard condition =>
         .guard (normalizeDefinitionsWithFuel fuel condition)
+    | fuel + 1, .letClause name value =>
+        .letClause name (normalizeDefinitionsWithFuel fuel value)
 end
 
 def normalizeDefinitions (value : Value) : Value :=

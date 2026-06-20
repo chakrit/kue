@@ -1262,10 +1262,32 @@ mutual
         | .error error => .error error
         | .ok (condition, rest) => parseOk (.guard condition) rest
 
+  /-- A `let <ident> = <expr>` comprehension clause (`LetClause = "let" identifier "="
+      Expression`). Same surface as a struct-body `let` (`parseLetBinding`), but yields a
+      `Clause.letClause` rather than a field. Reached only from `parseClause` inside a clause
+      chain — a `let` at struct-field head still parses as a struct-body let, since the spec's
+      `StartClause` excludes `let` (a comprehension cannot start with `let`). -/
+  partial def parseLetClause (chars : List Char) : ParseResult (Clause Value) :=
+    match dropWord? "let" (skipTrivia chars) with
+    | none => parseError (skipTrivia chars) "expected let clause"
+    | some rest =>
+        match parseIdentifier (skipTrivia rest) with
+        | .error error => .error error
+        | .ok (name, rest) =>
+            match skipTrivia rest with
+            | '=' :: rest =>
+                match parseExpression rest with
+                | .error error => .error error
+                | .ok (value, rest) => parseOk (.letClause name value) rest
+            | rest => parseError rest "expected '=' in let clause"
+
   partial def parseClause (chars : List Char) : ParseResult (Clause Value) :=
     match parseForClause chars with
     | .ok parsed => .ok parsed
-    | .error _ => parseIfClause chars
+    | .error _ =>
+        match parseIfClause chars with
+        | .ok parsed => .ok parsed
+        | .error _ => parseLetClause chars
 
   partial def parseComprehensionClauses
       (chars : List Char)
