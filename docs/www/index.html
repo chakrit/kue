@@ -299,14 +299,15 @@
       <code>cue</code> binary.</p>
     <div class="headline">
       <span class="pill done">Now</span>
-      <span><strong>cert-manager</strong> exports as a fast, content-identical drop-in.
-        A full <strong>spec-conformance re-audit</strong> is underway — every behavior
-        regraded against the CUE&nbsp;spec, not byte-matched to a fallible binary.</span>
+      <span><strong>cert-manager</strong> exports as a fast, content-identical drop-in. The
+        <strong>spec-conformance re-audit is complete</strong> — every behavior regraded
+        against the CUE&nbsp;spec, not byte-matched to a fallible binary — and its high-severity
+        fixes (RE2 regex, structural cycles, guard handling, closedness) have all landed.</span>
     </div>
   </header>
 
   <section>
-    <h2>The reframe (2026-06-19)</h2>
+    <h2>The reframe</h2>
     <p class="sub">The single most important thing to know about where Kue is right now.</p>
     <div class="callout">
       <div class="app-row">
@@ -317,11 +318,12 @@
           the very divergences Kue is meant to fix. We flipped it. The authority is now the
           <strong>CUE language spec</strong>; where the spec is silent, <strong>lattice first
           principles</strong>; the <code>cue</code> binary is a <em>fallible cross-check</em>,
-          never the gold standard. A full six-area re-audit followed — and immediately found
-          real, spec-grounded bugs the old gate had masked (a non-RE2 regex engine, missing
+          never the gold standard. A full six-area re-audit followed — and found real,
+          spec-grounded bugs the old gate had masked (a non-RE2 regex engine, missing
           structural-cycle detection, a missing stdlib import, a guard that silently swallowed
           errors, a closed struct that could be re-opened) while <em>vindicating</em> the bulk
-          of the engine as genuinely correct.</span>
+          of the engine as genuinely correct. Every one of those high-severity findings has
+          since been fixed.</span>
       </div>
     </div>
   </section>
@@ -339,13 +341,16 @@
           source order is more principled than <code>cue</code>'s — not a bug to chase.</span>
       </div>
       <div class="app-row">
-        <span class="app-name">argocd <span class="pill prog">In progress</span></span>
-        <span class="app-desc"><span class="ok">Narrowed from a vague "perf wall" to one
-          specific, well-understood bug.</span> All components are content-correct; the full app
-          bottoms on <code>Gap-2b</code> — a real disjunction-arm under-pruning bug (a list-shaped
-          arm fails to prune against a struct host) that the re-audit confirmed is
-          <em>spec-grounded</em> (<code>cue</code> is right here), not an artifact. The narrowing
-          chain before it (<code>Gap-1</code>, <code>Gap-2</code>) is fixed.</span>
+        <span class="app-name">argocd <span class="pill prog">Parked</span></span>
+        <span class="app-desc"><span class="ok">All components content-correct;
+          <code>packs.#Argo</code> (the 4-link chain) is content-identical to <code>cue</code>.</span>
+          The full app still bottoms on <code>Bug2-5</code> — one specific, well-understood
+          correctness divergence (a let-buried two-level embed comprehension-guard narrowing on a
+          disjunction arm), <em>not</em> a fuel ceiling. The narrowing chain before it
+          (<code>Gap-1</code>, <code>Gap-2</code>, <code>Gap-2b</code>/<code>Bug2-1..4</code>) is
+          all fixed. Bug2-5 needs app-specific narrowing, so it's <strong>parked as a stress-test
+          finding</strong> — real-app compilation validates the semantics, it isn't a ranking
+          driver — and resolves as the general engine matures.</span>
       </div>
     </div>
   </section>
@@ -365,8 +370,8 @@
       <div class="cap">
         <span class="cap-title">KUE-VIOLATES</span>
         <span class="cap-body">Spec speaks, Kue is wrong (often from matching a <code>cue</code>
-          bug). The fix backlog. ~9 found — including the regex engine, structural cycles, and a
-          closedness soundness hole.</span>
+          bug). ~9 found — the regex engine, structural cycles, a closedness soundness hole, the
+          comprehension guards — and every high-severity one has since been fixed.</span>
       </div>
       <div class="cap">
         <span class="cap-title">CUE-BUG / KUE-CORRECT</span>
@@ -460,94 +465,76 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">Closedness + soundness fixes
-            (<code>SC-1</code>, <code>SC-1c</code>, <code>SC-1d</code>, <code>D#1a</code>,
-            <code>F-1</code>)</span>
+          <span class="item-title">All HIGH-severity findings — <code>RX-1</code> (RE2 regex),
+            <code>D#2</code> (structural cycles), <code>Gap-2b</code>, <code>SC-1/2</code>
+            (closedness), <code>D#1a-c</code> (guards), <code>F-1/2/3</code></span>
           <span class="pill done">Landed</span>
           <span class="item-rank">HIGH · spec-grounded</span>
         </div>
-        <p class="item-desc">A closed struct no longer re-opens when met with a pattern struct;
-          a closed selective-pattern def now closes; the parser keeps <code>...</code> when
-          patterns are present; a bottom comprehension guard propagates instead of silently
-          vanishing; <code>import "regexp"</code> resolves. Each justified by a spec citation,
-          cross-checked (not gated) against <code>cue</code>.</p>
+        <p class="item-desc">The regex engine is now a total RE2-equivalent AST → NFA matcher
+          (<code>\b</code>, lazy quantifiers, in-class set-complement); recursive definitions get a
+          <code>structural cycle</code> error and recursive-default termination; a closed struct
+          stays closed through a pattern meet and through instantiation (diverging from a
+          <code>cue</code> bug, on purpose); comprehension guards defer / type-error / propagate
+          correctly; <code>import "regexp"</code>, self-module <code>@vN</code> strip, and qualified
+          import paths all resolve. Each justified by a spec citation, cross-checked (not gated)
+          against <code>cue</code>.</p>
+      </div>
+
+      <div class="item">
+        <div class="item-head">
+          <span class="item-title">MED tail — <code>D#3</code> (<code>let</code> clauses),
+            <code>BI-2</code> (<code>math.Pow</code> / <code>list.Sort</code>)</span>
+          <span class="pill done">Landed</span>
+          <span class="item-rank">MEDIUM</span>
+        </div>
+        <p class="item-desc"><code>let</code> clauses in comprehensions (the de Bruijn frame model
+          extended, B7-vindicated); <code>math.Pow</code>'s exact integer-exponent domain and
+          <code>list.Sort</code>/<code>SortStable</code> with a per-pair-evaluated comparator. The
+          numeric residual (<code>math.Sqrt</code>, fractional <code>Pow</code> — needs an
+          IEEE/Float model) is deferred: Kue bottoms rather than ship a wrong value.</p>
       </div>
 
       <div class="item live">
         <div class="item-head">
-          <span class="item-title"><code>F-2</code> — self-module <code>@vN</code> strip</span>
-          <span class="pill next">In progress</span>
-          <span class="item-rank">HIGH · contained</span>
+          <span class="item-title"><code>BI-1</code> — Unicode case folding (data-spike first)</span>
+          <span class="pill next">Next</span>
+          <span class="item-rank">MEDIUM · envelope risk</span>
         </div>
-        <p class="item-desc">A module declared <code>module: "x@v0"</code> didn't get its major-version
-          suffix stripped for its <em>own</em> imports (dependencies were), so in-module imports
-          against the bare path failed. One-file loader fix.</p>
+        <p class="item-desc"><code>strings.ToUpper</code>/<code>ToLower</code> are ASCII-only;
+          <code>cue</code> is full-Unicode, so non-ASCII gives wrong answers. The slice must FIRST
+          decide the data approach — a checked-in vendored case-folding table (no fetch) vs scoped
+          coverage — before any code, since fetching external data into the repo is an envelope
+          boundary.</p>
       </div>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title"><code>RX-1</code> — regex engine → RE2</span>
+          <span class="item-title">argocd <code>Bug2-5</code> — let-buried disjunction-arm narrowing</span>
+          <span class="pill bug">Parked</span>
+          <span class="item-rank">stress-test finding · not on the critical path</span>
+        </div>
+        <p class="item-desc">The one remaining argocd blocker: a sibling <code>let</code> narrowed by
+          a co-embedding def's static field, where the embed resolves on a disjunction arm so the
+          narrowing arrives too late. Real, well-understood, but needs app-specific narrowing — so
+          it is parked as a stress-test finding and resolves as the general semantics mature, rather
+          than being chased onto the critical path.</p>
+      </div>
+
+      <div class="item">
+        <div class="item-head">
+          <span class="item-title">Hardening + cleanups</span>
           <span class="pill back">Backlog</span>
-          <span class="item-rank">HIGH · large (3-slice) · highest real-app lever</span>
+          <span class="item-rank">LOW/MED · opportunistic, gated behind correctness</span>
         </div>
-        <p class="item-desc">The current matcher expands only the first group, lacks
-          <code>\b</code> and lazy quantifiers, and has an unsound anchoring-dependent fallback —
-          silently mis-validating the grouped/semver/DNS patterns real configs use. Replace with a
-          proper AST → NFA → Pike-VM engine (RE2-equivalent, total), whose submatch capture also
-          unblocks <code>regexp.ReplaceAll</code> and prod9's filter packages.</p>
-      </div>
-
-      <div class="item">
-        <div class="item-head">
-          <span class="item-title"><code>D#2</code> — structural-cycle detection</span>
-          <span class="pill back">Backlog</span>
-          <span class="item-rank">HIGH · spec-mandated, currently missing</span>
-        </div>
-        <p class="item-desc">A recursive definition (<code>#L: {n: int, next: #L}</code>) unrolls
-          fuel-deep into garbage where the spec mandates a <code>structural cycle</code> error and
-          recursive-default termination. Detect via the ancestor-node chain.</p>
-        <pre class="cue"><code>#L: {n: int, next: #L}
-x: #L  <span class="cm">// spec: structural cycle</span></code></pre>
-      </div>
-
-      <div class="item">
-        <div class="item-head">
-          <span class="item-title"><code>Gap-2b</code> / <code>Bug2-3</code> — argocd disjunction
-            pruning</span>
-          <span class="pill bug">Bug</span>
-          <span class="item-rank">HIGH · the last argocd blocker</span>
-        </div>
-        <p class="item-desc">A list-shaped disjunction arm carrying a force-spliced patch fails to
-          prune against a struct host, so <code>struct | list</code> survives and bottoms.
-          Confirmed a real bug (<code>cue</code> correct). Fix keys on the actual list-meet-bottom,
-          not a shape heuristic.</p>
-      </div>
-
-      <div class="item">
-        <div class="item-head">
-          <span class="item-title"><code>SC-2</code> — closing-vs-instantiation
-            (diverge from <code>cue</code>)</span>
-          <span class="pill back">Backlog</span>
-          <span class="item-rank">HIGH · Kue will be correct, cue wrong</span>
-        </div>
-        <p class="item-desc">The spec says closedness persists through meet; <code>cue</code>
-          re-opens a closed nested struct on instantiation (<code>(#D &amp; {}).r &amp; {b}</code>
-          admits <code>b</code>) — an eval-strategy artifact. Kue will <em>preserve</em> closedness
-          and record the divergence. (This reversed an earlier plan that was about to copy the
-          <code>cue</code> bug on purpose.)</p>
-      </div>
-
-      <div class="item">
-        <div class="item-head">
-          <span class="item-title">MED tail + spec-gap ratifications</span>
-          <span class="pill back">Backlog</span>
-          <span class="item-rank">MEDIUM · opportunistic</span>
-        </div>
-        <p class="item-desc"><code>D#1b/D#1c</code> (incomplete / non-bool guard handling),
-          <code>D#3</code> (<code>let</code> clauses in comprehensions), <code>SC-3</code>
-          (disjunction display normalization), <code>BI-1/BI-2</code> (Unicode case-folding;
-          <code>math.Pow</code>/<code>list.Sort</code>), <code>F-3</code> (qualified import paths),
-          plus ratifying the recorded spec gaps (import laziness, field order <code>#3</code>).</p>
+        <p class="item-desc"><code>truncate-primitive</code> (make the fuel-truncation bump
+          unskippable by construction — HIGH soundness hardening), the periodic test/fixture-org and
+          plan-hygiene passes, <code>SC-3</code> display-residual + the spec-gap ratifications, and
+          the walker/normalizer dedups (<code>AD4-1</code> comprehension walkers,
+          <code>A-EN3</code>/<code>DRY-1</code> frame/let walkers, <code>AD2-1</code> disjunction
+          normalizers) — three distinct mechanisms, sequenced after the argocd unblock to avoid
+          re-proving the same invariants twice. See the
+          <a href="../spec/plan.md">plan</a> for the full ranked list.</p>
       </div>
 
     </div>
@@ -611,9 +598,13 @@ x: #L  <span class="cm">// spec: structural cycle</span></code></pre>
           <dt><code>Gap-2</code></dt>
           <dd>Force-tier disjunction-arm narrowing for a regular discriminator — fixed (gated).</dd>
           <dt><code>Gap-2b</code></dt>
-          <dd>Structural (list-vs-struct) arm pruning — the last open argocd blocker.</dd>
-          <dt><code>Bug2-1/2/3</code></dt>
-          <dd>The implementation slices for Gap-1 / Gap-2 / Gap-2b respectively.</dd>
+          <dd>Structural (list-vs-struct) arm pruning — fixed.</dd>
+          <dt><code>Bug2-1…2-4</code></dt>
+          <dd>The implementation slices for the narrowing chain (Gap-1 / Gap-2 / Gap-2b + the
+            follow-on), all landed.</dd>
+          <dt><code>Bug2-5</code></dt>
+          <dd>The residual let-buried disjunction-arm narrowing — the last argocd blocker, parked
+            as a stress-test finding (not on the critical path).</dd>
         </dl>
       </div>
 
@@ -678,8 +669,9 @@ x: #L  <span class="cm">// spec: structural cycle</span></code></pre>
   </section>
 
   <footer>
-    Snapshot of <code>docs/spec/</code> — last updated 2026-06-19, during the spec-conformance
-    re-audit. A hand-generated, human-scannable status view, refreshed on plan-hygiene passes.
+    Snapshot of <code>docs/spec/</code> — last updated 2026-06-20, after the spec-conformance
+    re-audit's high-severity fixes landed. A hand-generated, human-scannable status view,
+    refreshed on plan-hygiene passes.
   </footer>
 
 </main>
