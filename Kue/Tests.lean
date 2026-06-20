@@ -5,6 +5,7 @@ import Kue.Tests.BuiltinTests
 import Kue.Tests.BytesTests
 import Kue.Tests.CliTests
 import Kue.Tests.ClosureTests
+import Kue.Tests.ComprehensionTests
 import Kue.Tests.EvalPerfTests
 import Kue.Tests.EvalTestHelpers
 import Kue.Tests.EvalTests
@@ -24,6 +25,7 @@ import Kue.Tests.PresenceTests
 import Kue.Tests.RegexTests
 import Kue.Tests.ResolveTests
 import Kue.Tests.RuntimeTests
+import Kue.Tests.SortTests
 import Kue.Tests.StructTests
 import Kue.Tests.TwoPassTests
 import Kue.Tests.YamlTests

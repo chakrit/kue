@@ -9810,3 +9810,52 @@ Files: `Kue/Value.lean` (`Import.packageName` field + doc), `Kue/Parse.lean` (`i
 `Kue/Tests/ParseTests.lean` (8 pins), `Kue/Tests/ModuleTests.lean` (4 pins),
 `testdata/modules/qualified_import{,_bare,_mixed,_invalid_id}/*`, `docs/reference/cue-divergences.md`,
 `docs/reference/cue-spec-gaps.md`, `docs/spec/spec-conformance-audit.md`.
+
+## Completed Slice: Test-org pass — carve EvalTests into Comprehension + Sort modules
+
+**Organizational only — ZERO behavior change.** `EvalTests.lean` had grown to 1593 lines, nearing
+the self-imposed ~1800 re-split ceiling (Phase B flagged the periodic test-org pass; this is slice 1
+of the post-audit batch). Carved two cohesive subsystems out into focused modules; no test body
+edited, no assertion/fixture/expected-output changed.
+
+**What moved.** `Kue/Tests/ComprehensionTests.lean` (NEW, 280 lines, 29 pins): the `listcomp_*`
+list-comprehension end-to-end pins (11), the `letcomp_*` D#3 let-clause pins (9), and the AST-level
+`eval_comprehension_*` pins (9 — six `.structComp` shape pins plus the three Slice-C/D#1b
+comprehension-guard end-to-end pins). `Kue/Tests/SortTests.lean` (NEW, 96 lines, 13 pins): the BI-2
+`eval_list_sort_*` / `eval_list_ascending_is_comparator_struct` `list.Sort`/`SortStable` pins.
+EvalTests retains the core eval pins (format/ref/cycle, structural-cycle D#2a, terminating-disjunct
+D#2b + SC-3, scalar-embedding collapse, arithmetic/comparison/logical, reference resolution,
+sibling-merge, F1 default-mark algebra, float mul/div, pattern-struct/B6/SC-2 closedness) and drops
+to 1246 lines (−347).
+
+**Deliberate scope correction vs the slice sketch.** The sketch named a `GuardTests` carve for the
+`classify_guard_*` + D#1b/c guard-classification pins — but those guard-*classifier* unit pins
+(`classifyGuard`, 14 of them) already live in `PresenceTests.lean`, not in EvalTests. EvalTests'
+only guard pins are the *comprehension-guard* end-to-end shapes (`eval_comprehension_guard_*`), which
+cohere with comprehension evaluation; a separate `GuardTests` would fragment one subsystem across
+two files and duplicate PresenceTests' home. Folded them into `ComprehensionTests` and skipped the
+spurious `GuardTests` module (resolve-by-philosophy: coherent subsystem grouping over the literal
+name list). The `resolve_default_disj_*` / `distribute_*` pins (disjunction-default algebra, tied to
+F1) stayed in EvalTests — they are not comprehension pins despite sitting between the moved blocks.
+
+**Fixture regroup DEFERRED (not done).** The sketch also proposed sub-grouping
+`testdata/cue/{definitions (50), comprehensions (27)}` into nested subdirs. Deferred as a remaining
+sub-item: `Kue/Tests/FixturePorts.lean` (3049 lines) is hand-maintained, not generated — it is the
+SOURCE whose hardcoded `fileName := "subdir/stem.expected"` strings + inline `content` are emitted by
+`scripts/write-fixture-ports.lean` and diffed against the committed `.expected` files. A fixture move
+therefore requires a multi-file `git mv` (`.cue`/`.expected`/`.manifest.expected`/`.args`) PLUS an
+exact `fileName`-string edit in FixturePorts, per fixture, across ~77 fixtures — high blast radius
+where one typo silently breaks the diff. Per the slice's hard constraint ("if the port wiring makes
+a fixture move risky, DEFER rather than break discovery"), deferred in favor of the clean EvalTests
+carve. The existing layout is already subsystem-grouped one level deep, and `definitions/` is
+internally name-prefixed (`sc1*`/`sc2*`/`b6*`/`regex_*`/`string_*`), so the win is marginal.
+
+**Verify.** `lake build` green (104 jobs — up from 100: +2 source +2 `.o` targets for the new
+modules; `Built Kue.Tests.ComprehensionTests`/`SortTests` confirm both compiled, `Built Kue.Tests`
+confirms the aggregator imports them so every moved `native_decide` pin is checked at build).
+Pin-count conserved EXACTLY: 179 theorems before → 137 (EvalTests) + 29 (Comprehension) + 13 (Sort)
+= 179 after, none lost. `check-fixtures.sh` → `fixture pairs ok` (zero drift; no `testdata/` or
+FixturePorts touched). `shellcheck` N/A (no shell touched).
+
+Files: `Kue/Tests/ComprehensionTests.lean` (NEW), `Kue/Tests/SortTests.lean` (NEW),
+`Kue/Tests/EvalTests.lean` (−347 lines), `Kue/Tests.lean` (aggregator: +2 imports).
