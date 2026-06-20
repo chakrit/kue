@@ -106,6 +106,22 @@ theorem strings_to_upper_sharp_s_unchanged :
       == .prim (.string "ß")) = true := by
   native_decide
 
+/-- Default (non-locale) simple mapping for the Turkish-I confusables IS applied — these are
+    NOT in the deferred tail. `İ` (U+0130 dotted capital I) lowers to plain `i` (U+0069) and
+    `ı` (U+0131 dotless small i) uppers to plain `I` (U+0049), the `und`-locale UnicodeData
+    simple mappings (Go `unicode.To{Upper,Lower}`, hence cue). Only Turkish/Azeri *locale
+    tailoring* (`İ`→dotless `ı`, `I`→`ı`) is deferred — the characters themselves round-trip.
+    Pins this so the spec-gap wording ("locale rules") is not misread as "İ/ı unhandled". -/
+theorem strings_to_lower_dotted_capital_i :
+    (evalBuiltinCall "strings.ToLower" [.prim (.string "İ")]
+      == .prim (.string "i")) = true := by
+  native_decide
+
+theorem strings_to_upper_dotless_small_i :
+    (evalBuiltinCall "strings.ToUpper" [.prim (.string "ı")]
+      == .prim (.string "I")) = true := by
+  native_decide
+
 /-- Coverage boundary (deliberate identity): runes with no case — CJK ideograph and an
     arrow symbol — pass through unchanged, documenting the table's no-mapping default. -/
 theorem strings_to_upper_uncased_unchanged :

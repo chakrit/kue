@@ -436,9 +436,12 @@ those forms.
   `ToLower` are Go's `unicode.ToUpper`/`ToLower`: a pure rune-wise **simple 1:1** map with NO
   length-changing special-casing. So `ToUpper("ß") == "ß"` (German ß does NOT expand to `SS`),
   matching `cue` — Kue conforms. The deferred long tail (a separate slice if ever needed):
-  full case folding (`ß`→`SS`, title-case digraphs), locale rules (Turkish dotless `ı`/`İ`),
-  and context rules (Greek final sigma). All recorded as a spec-gap in
-  `docs/reference/cue-spec-gaps.md`. Code points outside the BMP (astral planes) are not in
+  full case folding (`ß`→`SS`, title-case digraphs), **locale tailoring** (Turkish/Azeri
+  `tr`/`az` rules), and context rules (Greek final sigma). NB: the *default* (`und`-locale)
+  simple mappings for the Turkish-I confusables ARE implemented — `İ`(U+0130)→`i`, `ı`(U+0131)→
+  `I`, exactly as `cue` (pinned: `strings_to_{lower,upper}_dot{ted,less}_*_i`); only the
+  locale-specific retailoring of those (e.g. `İ`→dotless `ı` under `tr`) is deferred. All
+  recorded as a spec-gap in `docs/reference/cue-spec-gaps.md`. Code points outside the BMP (astral planes) are not in
   the table → identity (no astral-plane cased letter is common; extend the generator's range
   if a real case appears).
 - **`ToTitle` is STILL ASCII-bounded (the lone case holdout).** It upper-cases only the

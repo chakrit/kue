@@ -303,6 +303,80 @@ batch → AD2-1.**
   with SC-3; sequence with any disjunction-DISPLAY slice, NOT with the walkers (it is a
   lattice/eval layer-boundary dedup, not a frame/clause walker).
 
+- **F-CASE-ARCH (LOW — oracle-derived committed data: artifact + convention; FILE for Phase B
+  to rule).** BI-1 (`9bd6927`) committed a 49KB GENERATED `Kue/CaseTable.lean` (1190+1173
+  pairs) derived from the local `cue` oracle. Two rulings to make, neither blocking — the
+  Phase-A audit verified the table is sound and reproducible: (1) **artifact** — committed
+  generated table vs build-time generation. Committed wins on reproducibility (byte-identical
+  re-gen verified), reviewability, offline build, and no build-time `cue` dependency, which
+  for a frozen leaf data table is arguably correct; the cost is 49KB of "DO NOT EDIT"
+  generated source in-tree and a generator that only runs by hand. If kept (likely), make that
+  a recorded decision so a future audit doesn't re-flag it. (2) **convention** — BI-1
+  establishes a pattern Kue had no policy for: *deriving committed data from the `cue` oracle*.
+  This is distinct from the banned "byte-identical-to-`cue` correctness gate" — the oracle is
+  sound here as a DATA SOURCE because Unicode simple case mapping is a standardized,
+  non-`cue`-buggy domain (independently verified vs UnicodeData.txt), NOT as a correctness
+  oracle. That distinction (sound-data-source for standardized domains ⊥ correctness-gate) is
+  load-bearing and currently lives only in scattered prose (the spike, the generator docstring,
+  `cue-spec-gaps.md` row 53). Phase B: decide whether to write it as a short documented
+  convention (e.g. a `docs/decisions/` ADR) governing when oracle-derived committed data is
+  legitimate and what provenance/verification it must carry. Low urgency; do before the next
+  oracle-derived-data slice so the pattern is principled, not ad hoc.
+
+**Phase-A audit 2026-06-20 (BI-1 `9bd6927`/`6065380` + test-org `4b25cef`) — verdict + inline fix:**
+
+- **★ Oracle-derivation SOUND — the table is faithful to the Unicode STANDARD, not a `cue`
+  quirk.** Verified independently of re-running `cue`: cross-checked all 1190 upper + 1173
+  lower committed entries against Python 3.12 (UCD 15.0.0). 28 entries *appear* to diverge
+  from Python's `str.upper()`/`.lower()`, but ALL 28 are cases where Python applies FULL
+  (multi-char) mapping and `cue`/Go correctly applies the **simple** mapping the spec calls
+  for — i.e. Python is the outlier, the table is right. Two classes, both proven against
+  UnicodeData.txt semantics: (1) 27 Greek-Extended small letters U+1F80–U+1FFC whose simple-
+  upper is the single-char *titlecase* letter (cat Lt) because full-upper is 2 chars (e.g.
+  `ᾳ`U+1FB3→`ᾼ`U+1FBC; field-12 simple slot holds the Lt letter) — `cue` reads field 12,
+  correct; (2) `İ`U+0130 simple-lower = `i`U+0069 (full-lower is `i`+combining-dot, 2 chars) —
+  `cue` reads field 13, correct. Named spot-checks all clean: `é`↔`É`, `α`↔`Α`, `я`↔`Я`,
+  `µ`→`Μ`, `ÿ`→`Ÿ`, `ß` unchanged (simple), `İ`/`ı` default mappings, Latin-Ext-A `ā`↔`Ā`.
+  Zero coverage holes (every Python-simple-mapped BMP point is in the table). Table is SIMPLE
+  1:1 only — correct scope vs full folding (the deferred tail). **No cue-divergence to file.**
+- **Generator reproducible + hygienic.** Re-ran `gen-case-table.py` to a temp path → BYTE-
+  IDENTICAL to the committed `CaseTable.lean`, tree stayed clean. Deterministic (`sorted()`
+  on dict items; one `cue export` round-trip). No network — reads only the local READ-ONLY
+  oracle. BMP range `range(0x0000,0x10000)` correct, no off-by-one at U+FFFF; surrogates
+  U+D800–DFFF, C0/C1 controls + DEL, and string-illegal NUL/BOM excluded via `probeable()`
+  (none have case mappings). Chunked-array workaround sound — 128-element chunks `++`-joined,
+  no entry dropped/duplicated at seams (verified by the entry-count + spot-check equality).
+- **Totality + ASCII-regression CLEAN.** `caseTableSearch` total (`termination_by hi - lo`,
+  `decreasing_by omega`, no `partial`); `caseMapChar` identity-on-miss; sorted-key invariant
+  holds (generator emits `sorted()`, binary search assumes ascending — matched). ASCII fully
+  preserved post-`asciiToUpper`/`Lower` deletion: the missing-set check found 0 ASCII pairs
+  absent from the table, so all 26+26 are present; no dangling refs to the deleted helpers
+  anywhere in `Kue/`+`scripts/`.
+- **test-org pin conservation VERIFIED (light check).** At the carve commit `4b25cef`, parent
+  `EvalTests` = **179 theorems** → split to `EvalTests` 137 + `ComprehensionTests` 29 +
+  `SortTests` 13 = **179** (also `native_decide` 176→134+29+13=176). Zero loss, pure move.
+  All three of `ComprehensionTests`/`SortTests`/`StringsTests` imported by `Kue/Tests.lean`
+  (checked at build). New `strings_case_unicode` fixture has its `FixturePorts` entry; its
+  `.expected` correctly pins KUE's held `titleNonAscii: "über Alles"` (≠ live cue `"Über
+  Alles"` — the documented ToTitle divergence, fixtures pin Kue not cue).
+- **FIXED INLINE (1 LOW-risk doc-precision + test-coverage tightening).** compat-assumptions /
+  spec-gaps / log glossed the deferred tail as "locale rules (Turkish `ı`/`İ`)", which reads
+  as if `İ`/`ı` are unhandled — but their *default* (`und`) simple mappings ARE in the table
+  (`İ`→`i`, `ı`→`I`, oracle-confirmed). Tightened compat-assumptions to say only Turkish/Azeri
+  *locale tailoring* is deferred, and added two pins (`strings_to_lower_dotted_capital_i`,
+  `strings_to_upper_dotless_small_i`) locking the default behavior — the highest-value missing
+  pins (confusable cases a reader would doubt). Full gate green; committed.
+- **FLAG for Phase B (filed, not fixed): the committed-generated-table artifact + an oracle-
+  as-data-source CONVENTION.** Two architecture-shaped questions BI-1 raises, both LOW: (a) is
+  a 49KB committed generated `CaseTable.lean` the right artifact vs build-time generation? — a
+  committed table is reproducible/reviewable/offline-buildable and needs no build-time `cue`
+  dep (arguably correct for a leaf data table), but the size + "DO NOT EDIT" generated-code-in-
+  tree pattern is worth a deliberate ruling. (b) BI-1 establishes a NEW pattern — deriving
+  committed data from the `cue` oracle — that currently has no written policy distinguishing it
+  from the banned "byte-identical-to-cue" gate; the distinction (oracle sound *as a data source*
+  for non-buggy standardized domains like Unicode tables, vs oracle as a *correctness gate*) is
+  real and load-bearing and should be a documented convention. See **F-CASE-ARCH** below.
+
 **Phase-A audit 2026-06-20 (BI-2 `4c59989` + F-3 `a6dc012`) — verdict + inline fixes:**
 
 - **Load-bearing soundness CLEAN.** The eval-layer sort interception is sound: the non-bool
