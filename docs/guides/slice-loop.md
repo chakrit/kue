@@ -80,7 +80,11 @@ binary does?* When `cue` disagrees with the spec, the binary is WRONG → Kue fo
 spec, record in `cue-divergences.md`. When the spec is silent, `cue`'s behavior is an
 artifact → Kue makes a principled choice, record in `cue-spec-gaps.md` (even when Kue
 matches `cue` — matching an artifact is lower-confidence, not a mandate). Check the claim
-against the actual CUE spec before matching OR diverging.
+against the actual CUE spec before matching OR diverging. (One narrow legitimate use of the
+oracle as a *data source* — generating committed data for an externally-standardized,
+non-`cue`-buggy domain like the Unicode case table — is governed by
+[the oracle-as-data-source decision](../decisions/2026-06-20-oracle-as-data-source.md); it is
+NEVER a correctness gate for CUE semantics.)
 
 **Commit at checkpoints, not only at the end.** A subagent that crashes or hits a transient
 API error loses ALL uncommitted work — this has happened (~89 tool-uses lost to an
