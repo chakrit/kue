@@ -544,7 +544,7 @@ this list is only a date/commit/topic index for re-locating them.
   (this file has accrued AD2-1/AD3-x/AD4-1 + two-Phase-A + this entry; distill → log/git, refresh
   `www/index.html`). RECOMMENDATION: next leader is the MED tail (BI-1/BI-2/F-3) per the breadcrumb;
   the two periodic passes ride within the next 1-2 cycles and need NOT preempt the feature tail.
-  Verify green (build 100 jobs + fixtures `fixture pairs ok` + shellcheck 0). Commit `4408681`.
+  Verify green (build 100 jobs + fixtures `fixture pairs ok` + shellcheck 0). Commit `457a165`.
 - 2026-06-20 — `c03ebdb..a914906` — Phase-A audit (RX-2a + D#1b/D#1c + D#3, the most
   moving-parts batch of the session): **SOUND — no correctness/soundness bug, no skill
   violation.** Verified the protocol change AND the frame accounting against the code, not

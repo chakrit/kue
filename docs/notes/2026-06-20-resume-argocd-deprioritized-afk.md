@@ -25,7 +25,7 @@ cue for value-level bottoms). All 8 clause-match sites updated explicitly (no ca
 
 **✅ Audit state — ROUND COMPLETE; counter reset to 0.** The two-phase audit over the RX-2a +
 D#1b/D#1c + D#3 batch is DONE: **Phase A `7ee15d8`** (code-quality — SOUND, no bug/violation;
-filed AD4-1) + **Phase B `4408681`** (whole module graph — architecture HEALTHY; folded the
+filed AD4-1) + **Phase B `457a165`** (whole module graph — architecture HEALTHY; folded the
 walker/normalizer consolidation strategy + periodic-pass DUE flags into `plan.md`; fixed a stale
 `kue-performance.md` argocd entry inline). **No audit is due now.** The next two-phase audit
 (Phase A → Phase B) is due after **2-3 NEW slices** land. When it comes: run sequentially (A then
