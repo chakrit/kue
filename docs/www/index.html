@@ -530,10 +530,10 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
         <p class="item-desc"><code>truncate-primitive</code> (make the fuel-truncation bump
           unskippable by construction — HIGH soundness hardening), the periodic test/fixture-org and
           plan-hygiene passes, <code>SC-3</code> display-residual + the spec-gap ratifications, and
-          the walker/normalizer dedups (<code>AD4-1</code> comprehension walkers,
-          <code>A-EN3</code>/<code>DRY-1</code> frame/let walkers, <code>AD2-1</code> disjunction
-          normalizers) — three distinct mechanisms, sequenced after the argocd unblock to avoid
-          re-proving the same invariants twice. See the
+          the walker/normalizer dedups (<code>AD4-1</code> comprehension walkers and
+          <code>A-EN3</code> frame folds — both DONE; <code>DRY-1</code> let-walkers ruled out, no
+          shared combinator; <code>AD2-1</code> disjunction normalizers remaining) — distinct
+          mechanisms, only the ones that genuinely share structure unified. See the
           <a href="../spec/plan.md">plan</a> for the full ranked list.</p>
       </div>
 

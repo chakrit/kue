@@ -10271,3 +10271,91 @@ Files: `Kue/Eval.lean` (`ClauseOutcome` + the two combinators + two wrappers; th
 arms `.fields`/`.items` → `.payload`), `Kue/Tests/ComprehensionTests.lean` (4 asymmetry pins),
 `Kue/Tests/EvalPerfTests.lean` (the polymorphic-truncate pin's `.items` → `.payload`),
 `docs/spec/plan.md` (AD4-1 DONE; A-EN3+DRY-1 now leads the dedup family).
+
+## Completed Slice: A-EN3 — unify the three def-frame `Value`-folds; DRY-1 ruled out
+
+Behavior-PRESERVING DRY refactor (byte-identical fixtures + re-run `native_decide` pins are the
+proof). Slice 2 of the new batch (AD4-1 was slice 1). Bundled A-EN3 + DRY-1 by edit-locality (both
+families touch `defFrameRefIndices`); A-EN3 landed, DRY-1 ruled out empirically.
+
+### A-EN3 — one combinator, three thin instantiations (commit `5652717`)
+
+`refsSelfEmbeddedLabel` (monoid `Bool`/`||`), `selfReferencedLabels` (`List String`/`++`), and
+`defFrameRefIndices` (`List Nat`/`++`) were three hand-copied structural recursions over the full
+`Value` ctor tree threading frame depth (`+1` per frame-pusher; `descendClauses` for comprehension
+arms), differing ONLY in (a) the monoid, (b) which constructor is the leaf, and (c) the depth
+threaded into a `.dynamicField`'s value. They collapse to thin instantiations of one generic
+`foldValueWithDepth (combine) (empty) (leaf : Nat → Value → Option β) (dynValShift : Nat)`:
+
+- The `leaf` hook is PRE-ORDER: `some x` makes the node a leaf contributing `x` (no descent),
+  `none` recurses structurally. `refsSelfEmbeddedLabel`/`selfReferencedLabels` fire the leaf on
+  `.selector (.refId id) label`; `defFrameRefIndices` on a bare `.refId id`. The fold's default
+  `.selector base _ => recurse base` arm handles the non-leaf selectors uniformly.
+- The three `*Clauses` helpers (`refsSelfEmbeddedLabelClauses` etc.) were DROPPED — the fold's
+  single `descendClauses`-based clause handler (`foldValueWithDepthClauses`) subsumes all three, so
+  the `+1-per-for`/`+0-per-guard` clause-depth rule lives in exactly one place.
+- n-ary positions use `List.foldl combine empty` where the originals used `flatMap`/`any` — value-
+  identical for the `++`/`[]` and `||`/`false` monoids (List `++` associativity makes the
+  left-folded list equal the flatMap'd one; `foldl (·||·)` = `any`).
+
+**Termination preserved STRUCTURALLY** (no `termination_by`, matching the originals). The recursive
+self-call stays lexically visible inside the combinator's own `match fuel with | 0 => empty | f+1 =>
+foldValueWithDepth … f …` (wrapped in a `let rec'` local whose body keeps the `f+1` destructure +
+recursive call in the SAME definition — the structural checker sees through it). `#print axioms`:
+`propext` + `Quot.sound` only — axiom-clean, no `sorryAx`/`partial`.
+
+**Proof surface preserved by RE-RUN, not hand re-proof.** Every two-pass agreement theorem (the B7
+`descendClauses` pins, the A5 `selfReferencedLabels`/`refsSelfEmbeddedLabel` depth pins) and the
+Bug2-1..2-4 soundness pins (`embedComprehensionReadLabels`, `letPromotedReadLabels`,
+`injectLetLocalNarrowings`, in `TwoPassTests`/`EvalPerfTests`) are `native_decide` — they recompute
+the function outputs against the deduped instantiations and matched, i.e. the instantiations are
+definitionally/computationally equal to the originals on every pinned input. No proof script
+changed. +3 new combinator pins in `TwoPassTests` (empty-monoid degeneracy, leaf short-circuit, the
+`dynValShift` divergence witness).
+
+**Latent finding surfaced (NOT fixed — fixing breaks byte-identical):** `defFrameRefIndices` scans a
+`.dynamicField`'s VALUE at `depth+1` (`dynValShift=1`); the resolver pushes NO frame for a dynamic
+field (`Resolve.lean:139` resolves key + value in the same scope), so this is an over-deep scan that
+systematically misses def-frame refs buried in a dynamic-field value (`let _x = {(dyn): if defSib ==
+…}`). Unreachable in the corpus, preserved byte-identically here, flagged at the `foldValueWithDepth`
+docstring + pinned by `fold_value_dynfield_shift_divergence`. Filed as schedulable fix-slice
+**A-EN3-DYN** (reconcile to 0, add a witnessing fixture, flip the pin). LOW — a corner prod9 doesn't
+hit, and a behavior change does not belong in a no-behavior-change DRY slice.
+
+Gate: `lake build` (108 jobs, all theorems incl. the 3 new pins), `scripts/check-fixtures.sh` →
+`fixture pairs ok` (ZERO drift), cert-manager `export` (from the infra module dir) content-identical
+to `cue` v0.16.1 (key-order-insensitive, modulo field-order #3). No shell touched. Pure refactor, no
+eval-path cost change → no `kue-performance.md` edit.
+
+Files: `Kue/Eval.lean` (`foldValueWithDepth` + `foldValueWithDepthClauses`; three folds → thin
+instantiations; three `*Clauses` helpers dropped), `Kue/Tests/TwoPassTests.lean` (3 combinator pins +
+two historical-comment name updates).
+
+### DRY-1 — RULED OUT (attempted, reverted; no behavior change shipped)
+
+The filed plan was ONE `walkFollowedLets` combinator with `closeDefFrameReadIndices` /
+`letPromotedReadLabels` / `injectLetLocalNarrowings` as thin instantiations. It is the DRY trap, on
+three independent grounds:
+
+1. **`closeDefFrameReadIndices` shares nothing mechanically.** It recurses on a `List Nat` worklist
+   (visited-set `List Nat` via `slotVisited`, lets followed BY INDEX via `nthField`/`defFrameRefIndices`),
+   never destructuring a `Value`. Different carrier, visited-set, and follow mechanism from the two
+   `Value`-recursive walkers — it cannot share their combinator at all.
+2. **Collect vs rewrite.** `letPromotedReadLabels : Value → List String` is a catamorphism;
+   `injectLetLocalNarrowings : Value → Value` is an endo-REWRITE that must reconstruct the exact
+   `.structComp`/`.struct` preserving openness/tail/patterns. A combinator that does the struct-
+   dispatch DISCARDS that metadata, so the rewrite can only be expressed by handing the whole `v`
+   back to a callback that re-dispatches — zero leverage.
+3. **Termination (empirically confirmed).** A scratch `walkFollowedLets` routing the nested-let
+   recursion through a `step` callback failed Lean's structural-recursion inference (`failed to
+   eliminate recursive application … Could not find a decreasing measure`) — the same
+   lambda-hides-`fuel+1` trap that ruled out truncate-primitive Step 2.
+
+The contrast with the SUCCESSFUL AD4-1 dedup is the lesson recorded for the family: AD4-1's variation
+point (`onExhausted`) was a PURE non-recursive leaf, so the combinator could own the recursion;
+DRY-1's variation point (the per-walker nested-let step) IS itself the recursion, so it can't be a
+pure callback. The genuinely-shared skeleton is ~4 lines between only TWO of the three walkers, not
+worth an indirection that worsens the code — mirrors the Phase-A ruling on the analogous
+`classifyArith/Guard/Defined` trio. `injectLetLocalNarrowings` already reuses `letPromotedReadLabels`
+— the two are factored at the right seam. Do NOT re-file. Plan + spec-conformance backlog updated to
+RULED OUT.

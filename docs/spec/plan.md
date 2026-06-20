@@ -116,8 +116,11 @@ argocd residual **Bug2-5** (PARKED), **BI-1** (✅ DONE 2026-06-20 — Unicode c
 full-folding tail deferred), **E#4-fix** (✅ DONE 2026-06-20 — arithmetic operator domain now
 type-errors concrete out-of-domain operands + string/bytes `*` repetition; see item #6),
 **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
-**SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **DRY-1**
-(let-walker extraction — now UNBLOCKED, the A-EN3-locality sibling; see the walker-dedup section).
+**SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **A-EN3-DYN**
+(reconcile `defFrameRefIndices`'s over-deep `.dynamicField` value scan to depth 0 — LOW latent
+corner surfaced by A-EN3; see the walker-dedup section). **DRY-1 is RULED OUT** (the let-walkers
+don't share a combinator — collect-vs-rewrite + a `List Nat` worklist + a termination trap;
+attempted under A-EN3 and reverted, see the walker-dedup section — do not re-file).
 **The 4 spec-gap ratifications are DONE (2026-06-20):** gaps 1–3 RATIFIED + test-pinned; gap 4
 (E#4) was MIS-FILED — the spec mandates the operator domain, so it became the E#4-fix slice
 above. See `cue-spec-gaps.md` (RATIFIED/ESCALATED rows) + `spec-conformance-audit.md`.
@@ -290,7 +293,9 @@ Decomposition ruling (Phase-B 2026-06-20, earlier — do not re-litigate): these
 problem. There are THREE distinct walker families plus a separate normalizer pair — four
 different mechanisms, result types, recursion domains, and termination measures. Folding all
 under one abstraction would be a false "stuff they all do" extraction. **Sequencing: AD4-1 DONE
-(commit below) → A-EN3+DRY-1 locality batch (NEXT leader) → AD2-1.**
+→ A-EN3 DONE (`5652717`) / DRY-1 RULED OUT (the let-walkers genuinely don't share a combinator —
+see the A-EN3+DRY-1 entries below) → AD2-1 is now the sole remaining family member (NEXT leader,
+file-not-inline).**
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
   The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`
@@ -313,16 +318,49 @@ under one abstraction would be a false "stuff they all do" extraction. **Sequenc
   avoided); the two thin wrappers carry measure tag 2 (between the tag-0 chain they call and the
   tag-3 `evalListItemsWithFuel` caller, both at equal fuel). Gate met: byte-identical fixtures,
   axiom-clean (no `sorryAx`/`partial`), cert-manager content-identical.
-- **A-EN3 (LOW — pure structural `Value` folds; bundle with DRY-1 by edit-LOCALITY).**
-  `defFrameRefIndices`/`selfReferencedLabels`/`refsSelfEmbeddedLabel` (`Eval.lean:303/209/101`)
-  are three structural folds over the FULL `Value` ctor tree, `+1`-at-each-frame-pusher depth,
-  `descendClauses` for the comprehension arms; differ ONLY in leaf (`.refId`/`.selector`) +
-  monoid (`List Nat`/`List String`/`Bool`). Abstraction: `foldValueWithDepth` parameterized on
-  monoid + leaf (the shape B7 used). `closeDefFrameReadIndices` REUSES `defFrameRefIndices`,
-  `embedDisjArmDeclLabels` is a shallow one-hop ref-follow — so A-EN3 is exactly those three.
-  Gate: B7-style agreement theorems + totality preserved. (DRY-1 is the sibling — see audit doc;
-  both CALL `defFrameRefIndices`, so do them together to avoid touching that callee + its
-  theorems twice. They produce TWO combinators, not one.)
+- **A-EN3 (LOW — pure structural `Value` folds) — ✅ DONE (`5652717`).** The three structural
+  folds `refsSelfEmbeddedLabel`/`selfReferencedLabels`/`defFrameRefIndices` collapsed to thin
+  instantiations of ONE generic `foldValueWithDepth` (combine + empty + a pre-order `Option` leaf
+  hook + a `dynValShift` offset for the lone structural divergence at `.dynamicField`'s value
+  position). The three `*Clauses` helpers were dropped — the fold's single `descendClauses`-based
+  clause handler subsumes them. Termination preserved STRUCTURALLY (no `termination_by`, matching
+  the originals; recursive self-call lexically visible inside the combinator's own `match fuel`);
+  axiom-clean (`propext`/`Quot.sound` only). All two-pass agreement + Bug2-1..2-4 soundness pins
+  re-run green (`native_decide` recomputes = definitional equivalence — no hand re-proof needed);
+  +3 new combinator pins (empty-monoid, leaf short-circuit, `dynValShift` divergence). Byte-identical
+  fixtures + cert-manager content-identical to cue. **Latent finding surfaced (not fixed — would
+  break byte-identical):** `defFrameRefIndices` scans a `.dynamicField`'s VALUE at `depth+1`
+  (`dynValShift=1`), but the resolver pushes NO frame for a dynamic field (`Resolve.lean:139`
+  resolves key+value in the same scope) — an over-deep scan that systematically misses def-frame
+  refs buried in a dynamic-field value. Unreachable in the corpus (no `.dynamicField`-buried
+  def-ref fixture), preserved byte-identically, flagged at the combinator docstring + pinned by
+  `fold_value_dynfield_shift_divergence`. **Schedulable fix-slice: A-EN3-DYN** — reconcile
+  `dynValShift` to `0`, add a `let _x = {(dyn): if defSibling == …}` fixture witnessing the
+  corrected collection, flip the divergence pin. LOW (corner prod9 doesn't hit).
+- **DRY-1 (let-walker dedup) — ✗ RULED OUT (attempted under A-EN3's slice, reverted; no behavior
+  change shipped).** The plan was ONE `walkFollowedLets` with `closeDefFrameReadIndices` /
+  `letPromotedReadLabels` / `injectLetLocalNarrowings` as thin instantiations. It is the DRY trap,
+  on three independent grounds: (1) **`closeDefFrameReadIndices` shares nothing mechanically** — it
+  recurses on a `List Nat` worklist (visited-set `List Nat` via `slotVisited`, lets followed BY
+  INDEX via `nthField`), never destructuring a `Value`; a different carrier, visited-set, and
+  follow mechanism from the other two. (2) **collect vs rewrite** — `letPromotedReadLabels` is a
+  catamorphism (`Value → List String`), `injectLetLocalNarrowings` is an endo-REWRITE (`Value →
+  Value`) that must reconstruct the exact `.structComp`/`.struct` preserving openness/tail/patterns;
+  a combinator doing the struct-dispatch DISCARDS that metadata, so the rewrite can only be
+  expressed by handing the whole `v` back and re-dispatching — zero leverage. (3) **termination** —
+  EMPIRICALLY confirmed: routing the nested-let recursion through a combinator's `step` callback
+  breaks Lean's structural-recursion inference (`failed to eliminate recursive application … Could
+  not find a decreasing measure`), the same lambda-hides-`fuel+1` trap that killed truncate Step-2.
+  The contrast with the SUCCESSFUL AD4-1 dedup is the lesson: AD4-1's variation point (`onExhausted`)
+  was a PURE non-recursive leaf, so the combinator could own the recursion; DRY-1's variation point
+  (the per-walker nested-let step) IS itself the recursion, so it can't be factored into a pure
+  callback. The shared skeleton is only ~4 lines (`match fuel | 0 | f+1 => if seen.contains v then`
+  …) between TWO of the three walkers, not worth an indirection that worsens the code. Mirrors the
+  Phase-A ruling on the analogous `classifyArith/Guard/Defined` trio ("the stuff they all do is not
+  a name"). Note `injectLetLocalNarrowings` already reuses `letPromotedReadLabels` — they are
+  factored at the right seam. **Do not re-file.** (If Bug2-5's hypothetical 4th disj-path walker
+  ever lands and is itself catamorphic over the same carrier, re-evaluate THEN — but on current
+  evidence the family does not share a combinator.)
 - **AD2-1 (LOW-MEDIUM — disjunction-normalizer dedup; FILE as a slice, do NOT apply inline).**
   `normalizeEvaluatedDisj` (`Eval.lean:694`, EVAL path) and `normalizeDisj` (`Lattice.lean:277`,
   LATTICE/meet path) are near-identical over the same domain, differing ONLY on the LONE-arm
