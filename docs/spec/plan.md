@@ -297,10 +297,19 @@ start (the eval region shifts ±tens of lines per slice).
 Decomposition ruling (Phase-B 2026-06-20, earlier — do not re-litigate): these are NOT one
 problem. There are THREE distinct walker families plus a separate normalizer pair — four
 different mechanisms, result types, recursion domains, and termination measures. Folding all
-under one abstraction would be a false "stuff they all do" extraction. **Sequencing: AD4-1 DONE
+under one abstraction would be a false "stuff they all do" extraction. **Family status: AD4-1 DONE
 → A-EN3 DONE (`5652717`) / DRY-1 RULED OUT (the let-walkers genuinely don't share a combinator —
-see the A-EN3+DRY-1 entries below) → AD2-1 is now the sole remaining family member (NEXT leader,
-file-not-inline).**
+see the A-EN3+DRY-1 entries below) → AD2-1 is now the SOLE remaining dedup-family member
+(file-not-inline).**
+
+**Next-leader ranking (correctness-first; Phase-B 2026-06-20, the audit that closed the AD4-1 +
+A-EN3 round):** AD2-1 is the sole remaining *dedup-family* member, but it is NOT the next overall
+leader. The Phase-A re-classification of **A-EN3-DYN** from a "LOW unreachable corner" to a
+**REACHABLE wrong-result Violation** changes the ranking: by the repo's correctness-over-everything
+gate, a spec-conformance Violation outranks any DRY cleanup. So the next-batch order is
+**A-EN3-DYN (Violation, leads) → DYN-DEF-1 (MEDIUM Violation) → AD2-1 (LOW-MED dedup, file-not-inline)**,
+then the LOW cosmetic tail (item 6). A-EN3-DYN and DYN-DEF-1 are both real wrong-results on
+constructible patterns; AD2-1 is value-sound (display-only) and never preempts them.
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
   The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`
@@ -383,7 +392,18 @@ file-not-inline).**
   # kue: patch == { kind: "specific" }            (WRONG — dyn field dropped; def output drops it too)
   ```
   Both the def's own output (`#Add: {kind: string}` — the `(kind)` arm vanishes) and the narrowed
-  use site drop the dynamic field. A PLAIN struct with the same shape (`kind: "specific", (kind):
+  **Follow-up FOR the A-EN3-DYN fix-slice (`dynValShift` survival — Phase-B 2026-06-20):** once the
+  fix sets `defFrameRefIndices`'s `dynValShift` to `0`, BOTH `foldValueWithDepth` call sites pass
+  `0` (the two `Bool`/`List String` self-frame scanners already pass `0`). At that point the
+  `dynValShift` parameter is a constant across every caller → DEAD. The fix-slice should, as its last
+  step, drop the `dynValShift` parameter from `foldValueWithDepth`/`foldValueWithDepthClauses` and
+  inline the `0` offset at the `.dynamicField` value position (the over-deep scan and the knob that
+  expressed it vanish together). Recorded here so the cleanup rides the fix, not a separate slice.
+
+  ---
+
+- **DYN-DEF-1 (MEDIUM — distinct pre-existing Violation; ranks SECOND in the next batch).** A PLAIN
+  struct with the same shape (`kind: "specific", (kind):
   "marker"` at top level, no def) evaluates CORRECTLY in kue — so the bug is specific to a dynamic
   field surviving a definition's splice/narrowing path. DISTINCT from A-EN3-DYN: no comprehension is
   involved, so `defFrameRefIndices`/`embedComprehensionReadLabels` is not the mechanism; the dyn
@@ -457,6 +477,80 @@ file-not-inline).**
   semantics gate), and examples (OK: Unicode case table from Go; NOT OK: deriving CUE
   unification/eval expected-outputs from `cue`). Cross-linked from `slice-loop.md`'s
   spec-authority section. Both (a) and (b) are discharged.
+
+**Phase-B audit 2026-06-20 (`<this commit>`, whole-graph; scopes AD4-1 `524a402` + A-EN3 `5652717`;
+Phase A `6a5521a` found both dedups SOUND, re-classified A-EN3-DYN to a REACHABLE Violation + filed
+DYN-DEF-1) — verdict: HEALTHY; no code fix; rankings/rulings folded in. CLOSES the audit round.**
+
+- **★ Abstractions CONFIRMED right-level + sound (the headline; Phase A already verified soundness,
+  this is the architecture sign-off).** Both dedups land at the correct seam, with the variation
+  point isolated as a PURE non-recursive callback so the combinator owns the recursion (the
+  truncate-Step-2 / DRY-1 trap avoided):
+  - **`foldValueWithDepth` (A-EN3, `Eval.lean:110`)** — one depth-threading structural `Value` fold;
+    the three scanners (`refsSelfEmbeddedLabel` `Bool`/`||`, `selfReferencedLabels` `List String`/`++`,
+    `defFrameRefIndices` `List Nat`/`++`) are thin instantiations differing only in the monoid, the
+    pre-order `leaf` hook, and the `dynValShift` offset. Clause-depth threading is centralized in
+    `foldValueWithDepthClauses`/`descendClauses` — a single authority, not duplicated per scanner.
+    The `dynValShift` knob HONESTLY documents the one structural divergence (and is the
+    A-EN3-DYN bug locus — see the contingent-death follow-up on that entry).
+  - **`ClauseOutcome β` + `expandClauseChain`/`expandForPairs` (AD4-1, `Eval.lean:2492`/`3443`)** —
+    `[EmptyCollection β] + [Append β]` is exactly the right interface (empty payload for the
+    `fuel=0`/`concreteFalse`/no-pairs cases, `++` to concatenate iteration payloads). The struct/list
+    twins reduce to two thin β-wrappers parameterized SOLELY by the `onExhausted` `[]`-arm handler,
+    which is where the VERIFIED-CORRECT `[_|_]`≠`_|_` asymmetry lives (struct short-circuits a bottom
+    body per D#1a; list wraps any body as a one-element payload). Clean composition, pure variation
+    point. The dropped `*ForPairsWithFuel` twins are genuinely GONE (dead-code grep: zero defs, zero
+    refs); the surviving `expand{,List}ClausesWithFuel` are the intended β-instantiating wrappers.
+- **Walker-dedup family DRAINED — AD2-1 is the SOLE remaining member; plan reflects it.** DRY-1 ruled
+  out, AD4-1 + A-EN3 DONE. Confirmed in the walker-dedup section's family-status line (updated this
+  round to separate "sole dedup-family member" from "next overall leader").
+- **Bug ranking RE-ORDERED to correctness-first (folded into the walker-dedup section).** Phase A's
+  re-classification of A-EN3-DYN (LOW corner → REACHABLE wrong-result Violation) outranks the DRY
+  cleanup AD2-1 under the correctness-over-everything gate. **Next-batch leader = A-EN3-DYN
+  (Violation) → DYN-DEF-1 (MEDIUM Violation) → AD2-1 (LOW-MED dedup, file-not-inline)** → LOW tail.
+  The walker-dedup section formerly read "AD2-1 is NEXT leader" (written pre-re-classification) — now
+  corrected: AD2-1 is the sole dedup-family member but a value-sound display-only cleanup, so it
+  never preempts the two Violations.
+- **`.any`→`foldl` short-circuit (Phase A flag) — RULED: ACCEPT, no fix.** `refsSelfEmbeddedLabel`
+  was a lazy `Bool` `.any` (early-cut on the first hit); as a `foldValueWithDepth` it is a `foldl`
+  over the whole tree (`(· || ·)`, fuel-bounded, value-identical, no early exit). NOT worth a fix:
+  (1) the only caller, `needsEmbeddedSelfPass` (`Eval.lean:202`), runs it inside `canonical.any` —
+  that OUTER `.any` still short-circuits across fields, so a hit in field 1 never scans field 2; only
+  the WITHIN-a-single-field-value scan lost its early exit, the smaller cost. (2) The tree is fuel-
+  bounded (`evalFuel=100`) and the values are bounded canonical-field expressions, so the worst case
+  is a bounded constant, not unbounded work. (3) Restoring `.any` JUST for the `Bool` case would
+  require a separate short-circuiting fold variant (a `foldl`-with-early-stop or a `Bool`-specialized
+  combinator) — re-introducing exactly the per-shape duplication A-EN3 removed, for no measurable
+  gain on bounded trees. A short-circuiting monadic-fold variant is over-engineering here. NOT a perf
+  row in `kue-performance.md` (the cost is a bounded constant inside an already-gated two-pass; a row
+  would be misleading noise in a "what is expensive" guide). Re-evaluate ONLY if a profiler ever shows
+  `needsEmbeddedSelfPass` hot on a large real input (none does — cert-manager content-identical at
+  ~30.6s, the two-pass gate spares the common embedding case entirely).
+- **Architecture HEALTHY (whole module graph) — confirmed, not manufactured.** Both dedups are
+  intra-`Eval.lean` (zero new import edges — verified). Layering acyclic and correct, unchanged from
+  the last three Phase-B passes: `Builtin → {Lattice, Regex, Decimal, Base64, Json, Yaml, CaseTable}`
+  (true leaves — `CaseTable`/`Regex`/`Base64` import nothing), `Eval → {Builtin, Decimal, Lattice,
+  Regex, Normalize}`, `Lattice → {Value, Regex}`, `Value → Regex`, `Decimal/Resolve/Normalize →
+  Value`, `Runtime → Eval` (the one-directional app edge). NO `Builtin → Eval` back-edge (grep-
+  confirmed — `Eval → Builtin` is the correct direction; the sort lives in `Eval` BECAUSE its
+  comparator needs `EvalM`). No cycle anywhere.
+- **`Eval.lean` 3605 lines — extraction watch, NOT due; shrank ~136 since last Phase B (3741).** The
+  AD4-1 + A-EN3 dedups NET-removed lines (four walkers → two combinators + two wrappers; three folds +
+  three `*Clauses` helpers → one fold + one clause handler). Well under the ~4500 re-split threshold.
+  **EvalOps** (item 2, ~256 lines pure scalar algebra, parallel-safe) remains the right first carve,
+  unchanged/live; no second extraction justified. The `foldValueWithDepth` family is correctly placed
+  in `Eval.lean` (the scanners feed the embedding-`Self` two-pass and the def-frame splice — both
+  eval-internal; extracting them would force a back-reference into the evaluator), NOT a shared helper
+  module — re-confirms the breadcrumb's open question with "stays in Eval.lean."
+- **Dead code — CLEAN.** The dropped `*ForPairsWithFuel` (AD4-1) and `*Clauses` scanner helpers
+  (A-EN3) are gone with zero dangling refs (grep-verified). No deprecated APIs, no orphans introduced.
+- **Perf-guide CURRENT — no edit.** The two dedups are behavior-preserving refactors (byte-identical
+  fixtures); they change no eval cost. The `.any`→`foldl` change is a bounded-constant within an
+  already-gated path (see the ruling above) — no new slow pattern, no mitigation landed, nothing stale.
+  `kue-performance.md` reflects current reality.
+- **Verify gate GREEN.** `lake build` 108 jobs; `scripts/check-fixtures.sh` → `fixture pairs ok`
+  (zero drift); `shellcheck scripts/*.sh` clean. No inline code fix applied (the one flagged item,
+  `.any`→`foldl`, ruled accept); doc-only changes committed.
 
 **Phase-A audit 2026-06-20 (BI-1 `9bd6927`/`6065380` + test-org `4b25cef`) — verdict + inline fix:**
 
