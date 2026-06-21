@@ -114,7 +114,15 @@ mutual
     | _ + 1, .comprehension clauses body => .error (.incomplete (.comprehension clauses body))
     | _ + 1, .listComprehension clauses body => .error (.incomplete (.listComprehension clauses body))
     | _ + 1, .structComp fields comprehensions openness =>
-        .error (.incomplete (.structComp fields comprehensions openness))
+        -- A held `.structComp` residual is incomplete (the deferred comprehension cannot manifest),
+        -- BUT its resolved `fields` can carry a held `.bottomWith` field conflict (the inline-`_|_`
+        -- convention: `{x:1,for…} & {x:2}` ⇒ `.structComp [x:_|_] …`, NOT a top-level `.bottom`).
+        -- That conflict is TERMINAL — surface it as a `.contradiction`, mirroring the `.struct` arm
+        -- (cue: `conflicting values`, not `incomplete value`). Detection descends; the VALUE keeps
+        -- its inline bottom (RESID-MASK-1's consuming-layer convention). Same predicate that prunes
+        -- a dead disjunction arm (`containsBottomFields`, which skips unset-optional bottoms).
+        if containsBottomFields fields then .error .contradiction
+        else .error (.incomplete (.structComp fields comprehensions openness))
     | _ + 1, .interpolation parts => .error (.incomplete (.interpolation parts))
     | _ + 1, .dynamicField label fieldClass value =>
         .error (.incomplete (.dynamicField label fieldClass value))

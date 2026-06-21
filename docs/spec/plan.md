@@ -305,22 +305,136 @@ DYN-DEF-1 dyn-field batch):** **A-EN3-DYN and DYN-DEF-1 are both ✅ DONE and AU
 verified the depth-mirror, `classifyDynLabel` exhaustiveness, and the corrected fixture — see the
 Phase-A entry below). Phase-A found and **FIXED INLINE two NEW wrong-results** (D#1d comprehension-
 body tail/pattern drop; default-disjunction dyn-field label collapse) and **FILED one** as the new
-leader. **Live order (REVISED 2026-06-21 after MEET-RESID-1 + D#1d-RESIDUAL LANDED): (1) AD2-1**
-(LOW-MED disjunction-normalizer dedup, file-not-inline, value-sound display-only) — now the live
-leader. **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
+leader. **Live order (REVISED 2026-06-21 after the MASKING-SWEEP audit — Phase-B `<pending>`): (1)
+RESID-MASK-2** (MEDIUM correctness — the disjunction eager-prune-vs-hold policy; the residual-masking
+fix-slice, now the SOLE open masking site after the Manifest sibling was fixed inline this audit) →
+**(2) AD2-1** (LOW-MED disjunction-normalizer dedup, file-not-inline, value-sound display-only) →
+**(3)** the LOW cosmetic tail (item 6) / SC-1b / BI-2-residual / **EvalOps extraction** (mechanical
+carve). **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
 now survives a `meet` via the new `meetWithFuel` arm, and the comprehension-body lift holds it).
 **⚠ CORRECTION (Phase-A 2026-06-21):** the original "structural gate — a `.structComp` can never
 mask a conflict" claim was FALSE — a `.structComp` CAN hold an inner `.bottomWith` field conflict,
 which masked a dead disjunction arm (`containsBottom` did not descend it). FIXED INLINE as
-RESID-MASK-1 (see the Phase-A audit block below); residual non-default-disjunction re-prune gap
-filed as RESID-MASK-2. **A#6 ✅ DONE 2026-06-21** (`containsBottom` made TOTAL/structural, fuel cap
-removed; Phase-A VERIFIED SOUND — `Value` has no back-edges, axiom-clean). **Order: (1) AD2-1 (deferred/surface) → (2)** the LOW cosmetic tail (item 6) /
-SC-1b / BI-2-residual / **EvalOps extraction** (mechanical carve). **Phase-B DONE 2026-06-21** (architecture HEALTHY over the module graph; AUDIT-DUE
-cleared; counter reset to 0) — re-ran the FOUR-parallel-classifier ruling: kept the four verdict
-functions SEPARATE (option a; the partition disagreement is WORSE at four), extracted only the shared
-default-collapse pre-step `collapseDefaultDisjunction` inline (option b), rejected the shared
-concreteness partition (option c). See the Phase-B verdict block + the FOUR-parallel-classifiers entry
-in Resolved/ruled-out.
+RESID-MASK-1 (see the Phase-A audit block below). **A#6 ✅ DONE 2026-06-21** (`containsBottom` made
+TOTAL/structural, fuel cap removed; Phase-A VERIFIED SOUND — `Value` has no back-edges, axiom-clean).
+**Phase-B 2026-06-21 (the MASKING-SWEEP round) DONE** — RULED the consuming-layer approach correct
+(convention-consistent), swept ALL bottom-detection/concreteness consumers, found + FIXED INLINE a
+NEW masked bottom (the Manifest `.structComp` arm reported `incomplete` where the resolved fields hold
+a terminal conflict — now `contradiction`), and confirmed RESID-MASK-2 is the sole open masking site.
+See the Phase-B verdict block immediately below.
+
+**Phase-B audit 2026-06-21 (`<pending>`, whole-graph; the MASKING-SWEEP round; scopes MEET-RESID-1
+`3f085e1` + A#6 `f9c4a65` + RESID-MASK-1 `383c1c6`; Phase A `383c1c6` falsified MEET-RESID-1's
+structural invariant, fixed RESID-MASK-1, filed RESID-MASK-2) — verdict: HEALTHY beyond the known
+masking; ONE NEW masked bottom found + FIXED INLINE; the two ★ rulings settled. CLOSES the round.**
+
+- **★ RULING 1 — consuming-layer (RESID-MASK-1) vs smart-constructor: CONSUMING-LAYER IS CORRECT;
+  smart-constructor REJECTED. Settled, do not re-raise.** The architecture note suggested making the
+  residual's conflict-freeness *representable* via a smart constructor that bottoms a `.structComp`
+  on a conflicting field. **That VIOLATES Kue's established inline-`_|_` convention** (oracle-audit-
+  documented, applied UNIFORMLY): a struct with a conflicting field is `{x: _|_}` (a PRESENT struct
+  with an inline bottom field), NOT a top-level `.bottom`. Empirically confirmed this round: `kue
+  eval {a:1,a:2}` → `x: {a: _|_}` (NOT `x: _|_`); nested `{p:{q:1,q:2}}` → `x: {p: {q: _|_}}`; and
+  the convention HOLDS inside a `.structComp` residual (`{for k in [string]{(k):1}, a:1, a:2}` evals
+  to `{a: _|_, for…}`). A smart constructor collapsing `.structComp`-with-conflict to `.bottom`
+  would (a) change that eval display to a bare `_|_`, diverging from cue's per-field
+  `conflicting values` display AND from Kue's own uniform convention, and (b) be a
+  representation-level lie (the value IS a present struct with a dead field). The principled split is
+  exactly RESID-MASK-1's: **bottom-DETECTION descends to find inner bottoms; the VALUE keeps its
+  inline bottom.** Illegal-states-unrepresentable is the right tool for *unrepresentable* states; a
+  struct-with-a-bottom-field is a REPRESENTABLE, meaningful state (cue has it too), so forcing it out
+  of the representation would lose information, not gain safety. CONFIRMED.
+
+- **★ RULING 2 — the systematic masking sweep (the high-value check). ALL bottom-detection /
+  concreteness consumers enumerated; ONE new masking site found + fixed; RESID-MASK-2 is the only
+  other.** If detection-descends is the design, EVERY consumer that gates pruning/concreteness on a
+  `.structComp` (or deferred `.conj`) must descend it. Full inventory (grep + read + empirical
+  witness per site):
+  1. **`liveAlternatives` → `containsBottom`** (`Lattice.lean:310`, the disjunction-prune predicate)
+     — ✅ DESCENDS (RESID-MASK-1 made `containsBottom` descend `.structComp` resolved fields).
+     `resolveDisjDefault?` and `normalizeDisj`/`normalizeEvaluatedDisj`'s has-default/has-residual
+     paths all route THROUGH `liveAlternatives`, so they inherit the fix. Witnesses prune correctly
+     (default `*{y:9} | (a&{x:2})` → `{y:9}`; non-default `(a&{x:2}) | {ok:true}` → `{ok:true}`).
+  2. **Manifest `.structComp` arm** (`Manifest.lean:116`) — ❌ WAS MASKING → ✅ **FIXED INLINE THIS
+     AUDIT.** It reported `.error (.incomplete …)` for ANY `.structComp` without descending its
+     resolved `fields`, so a held residual carrying a terminal inline conflict
+     (`{a:_|_, for…}`) exported as `incomplete value` where cue reports `conflicting values` (a
+     CONTRADICTION). Clean witness: `x: {for k in [string]{(k):1}, a:1, a:2}` → kue export pre-fix
+     `incomplete value: {a:_|_, for…}` vs cue `x.a: conflicting values 2 and 1`. Fix: descend via
+     `containsBottomFields fields` (the SAME predicate RESID-MASK-1 uses; it skips unset-optional
+     bottoms, matching the argocd `#u?:_|_` tolerance) → `.contradiction` when a real conflict is
+     present, else the existing `.incomplete`. Mirrors the `.struct` manifest arm, which already
+     surfaces deep bottoms. Post-fix the witness exports `conflicting values (bottom)` (cue-faithful);
+     `containsBottomFields fields` ⇒ the convention's detection-descends rule applied at the export
+     consumer. Axiom-clean (`manifestWithFuel` deps = `propext` only). 4 `rfl` pins in
+     `ManifestTests.lean` (`manifest_structcomp_{inner,nested}_conflict_is_contradiction`,
+     `_clean_residual_stays_incomplete`, `_optional_bottom_stays_incomplete`). cert-manager
+     content-identical to the pre-fix baseline `383c1c6` AND to cue; full corpus byte-identical.
+  3. **`classifyArithOperand` / `classifyGuard` / `classifyDefinedness` / `classifyDynLabel`**
+     (`Eval.lean:683/919/817/980`) — these classify a value's CONCRETENESS STATUS (defer vs error vs
+     concrete-present), NOT "contains a bottom anywhere," so `.structComp → .incomplete`
+     (`.defined` for `classifyDefinedness`) is the CORRECT verdict, **not a masking site**. A
+     `.structComp` is a genuinely-unresolved residual: the arith/guard/dynlabel consumers must DEFER
+     it (it may still resolve), and the presence test `!= _|_` treats a present-but-invalid struct as
+     `.defined` (cue: `{x:_|_} != _|_` is true — the struct is present; the field is the error). The
+     inner conflict surfaces at the consumer that FORCES concreteness (manifest, item 2), not at
+     these status classifiers. No change needed; the enumerated-no-catch-all shape already forces a
+     decision per ctor.
+  4. **`join` / `joinValues`** (`Lattice.lean:1258` / `Eval.lean:336`, the all-regular disjunction
+     fold) — sheds only a TOP-LEVEL `.bottom` arm (`.bottom, value => value`), NOT a
+     `.structComp`-with-inner-bottom. But empirically it AGREES with cue: `{a:1,a:2} | {b:5}` →
+     `{b:5}` (both); `(a&{x:2}) | {b:5}` (residual-conflict arm) → `{b:5}` (both) — because when the
+     SURVIVING arm is concrete, cue prunes the dead arm too. NOT an independent masking site (the
+     divergence is the eager-prune-vs-hold policy of item 5, surfacing only when the survivor is ALSO
+     incomplete).
+  5. **RESID-MASK-2 (MEDIUM, the SOLE remaining open masking — next leader; FILED, not fixed).**
+     PRECISELY CHARACTERIZED this round: a non-default disjunction where the residual arm carries a
+     TERMINAL inline conflict (`a&{x:2}` with `a.x:1` ⇒ `x:1&2=_|_`, unaffected by the held
+     comprehension) — kue's `liveAlternatives` (post-RESID-MASK-1) EAGERLY PRUNES that arm and commits
+     to the survivor EVEN WHEN THE SURVIVOR IS ITSELF STILL INCOMPLETE; cue HOLDS the whole disjunction
+     unresolved until a survivor is concrete. Witness: `out: (a&{x:2}) | (a&{x:1,ok:true})` → kue
+     eval `out: {x:1,ok:true,for…}` (one arm) vs cue holds both arms; on EXPORT cue reports
+     `2 errors in empty disjunction` (arm 1 x-conflict + arm 2 incomplete-key) while kue exports arm
+     2's `incomplete value`. The divergence is the **eager-prune-vs-hold POLICY when the surviving arm
+     is non-concrete** — NOT a `containsBottom` blindness (that is now correct) and NOT the Manifest
+     arm (now fixed). The conflict pruned IS terminal (a `for k in [string]` dyn field can only add
+     string-keyed fields, never touch a static `x` — confirmed: `a&{x:2}` standalone is a hard cue
+     conflict), so it is genuinely ambiguous whether kue's eager prune (more precise lattice) or cue's
+     hold (conservative, errors-on-export) is spec-correct — **resolve under the spec lens in the
+     fix-slice**, not by matching cue. Likely a `cue-spec-gaps.md` candidate (the spec is silent on
+     when a disjunction with one terminal-bottom arm and one incomplete arm collapses). Empirically
+     narrow (needs BOTH arms residual). Rank MEDIUM; lead the next batch.
+
+- **Module boundaries / sizes / dead code — HEALTHY (quick confirm).** Import graph acyclic, unchanged:
+  `Eval → {Builtin, Decimal, Lattice, Regex, Normalize}`, `Builtin → {Lattice, Regex, Decimal, Base64,
+  Json, Yaml, CaseTable}` (no `Builtin → Eval` back-edge), `Lattice → {Value, Regex}`, `Manifest →
+  {Format, Lattice}` (the inline fix added NO import edge — `containsBottomFields` was already in
+  scope). `Eval.lean` 3698 / `Lattice.lean` 1328 — both well under the ~4500 re-split threshold;
+  **EvalOps** (item 2) stays the right first carve, no second extraction justified. Dead code CLEAN:
+  `dynValShift` / `*ForPairsWithFuel` / `fieldBottomCounts` all 0 impl refs (grep-verified). No
+  `partial def` outside Parse/Module; no `sorryAx`.
+- **Type-system leverage (beyond the smart-constructor ruling).** Considered a single canonical
+  `valueIsOrContainsBottom` that all bottom-detection consumers MUST call (to enforce descent
+  uniformly). **NOT warranted:** `containsBottom` ALREADY is that canonical predicate, and the sweep
+  shows the consumers split into two LEGITIMATELY DIFFERENT jobs — (a) "contains a bottom anywhere"
+  (the prune/manifest gate, items 1+2, which DO call `containsBottom`/`containsBottomFields`) vs (b)
+  "what is this value's concreteness status" (the four `classify*`, item 3, which correctly do NOT —
+  a `.structComp` is `.incomplete` regardless of an inner bottom, because its STATUS is unresolved).
+  Forcing (b) through a bottom-detector would be WRONG (it would reclassify a present-but-invalid
+  residual as an error, losing the defer). The right invariant is narrower and already holds: every
+  *force-concreteness / prune* consumer routes through `containsBottom`-family; the masking bugs were
+  individual consumers (the disjunction prune, the manifest arm) that PATTERN-MATCHED `.structComp`
+  directly instead of calling the family. Both are now fixed; no new abstraction buys safety here.
+- **Perf-guide currency.** The Manifest fix adds one `containsBottomFields fields` pass on the
+  `.structComp` export arm — O(resolved-field-tree), bounded, fires only on a held residual reaching
+  export (a rare error path). `containsBottom` descending `.structComp` fields (RESID-MASK-1) is
+  likewise bounded by the resolved-field tree. Neither is a hot-path cost on concrete data (cert-
+  manager content-identical at ~30.6s, zero observable change). No `kue-performance.md` row warranted
+  (a row in a "what is expensive" guide would be misleading noise).
+- **Verify gate GREEN.** `lake build` 108 jobs (all `rfl`/`native_decide` modules rebuilt — the 4 new
+  manifest pins + every existing pin); `scripts/check-fixtures.sh` → `fixture pairs ok` (zero drift);
+  `shellcheck scripts/*.sh` clean; cert-manager content-identical to baseline `383c1c6` AND to cue.
+  One inline fix applied (Manifest `.structComp` contradiction-descent); committed on `main`.
 
 **Phase-A audit 2026-06-21 (MEET-RESID-1 `3f085e1` + A#6 `f9c4a65`) — verdict + ★ CRITICAL inline fix:**
 
@@ -351,16 +465,20 @@ in Resolved/ruled-out.
   `containsBottom`/`containsBottomFields` axioms `propext`-only; `fixture pairs ok` (zero drift);
   shellcheck clean. Commit on `main`.
 
-- **RESID-MASK-2 (MEDIUM — filed, NOT fixed; residual leader candidate).** The RESID-MASK-1 fix
-  closes masking on the path where the disjunction arm is ALREADY a resolved `.structComp[_|_]` at
-  `normalizeDisj` time (default-disjunction collapse at selection/manifest — verified pruned). A
-  NON-default disjunction whose residual arm is still a DEFERRED `.conj` at normalize time (the
-  MEET-RESID-1 two-pass holds the meet) is NOT re-pruned after the second pass materializes the inner
-  `_|_`, so a dead arm can survive as a spurious disjunct. The gap is disjunction RE-normalization
-  after two-pass residual resolution (not `containsBottom`, now correct). Empirically narrow — the
-  simplest probes (`(a&{x:2}) | {x:2,ok:true}`) actually resolve post-fix; a precise reproducing
-  shape was not isolated this batch. Rank MEDIUM (a residual masking, but harder to trigger than
-  RESID-MASK-1 and behind the two-pass); revisit when a clean witness surfaces or after AD2-1.
+- **RESID-MASK-2 (MEDIUM — filed, NOT fixed; the NEXT-batch LEADER). ★ PRECISELY CHARACTERIZED by
+  Phase-B `<pending>` (the masking-sweep round) — see the Phase-B verdict block above for the witness
+  + the spec-lens framing.** The original Phase-A framing ("a deferred `.conj` arm not re-pruned after
+  the two-pass materializes `_|_`; no precise shape isolated") was IMPRECISE: the Phase-B sweep
+  isolated it as the disjunction **eager-prune-vs-hold POLICY when the surviving arm is itself still
+  incomplete**. Witness `out: (a&{x:2}) | (a&{x:1,ok:true})` (BOTH arms residual, arm 1 a terminal
+  `x:1&2=_|_`): kue eagerly prunes arm 1 (via the now-correct `containsBottom`) and commits to the
+  incomplete arm 2 → `out: {x:1,ok:true,for…}`; cue HOLDS the whole disjunction (export → `2 errors
+  in empty disjunction`). NOT a `containsBottom` blindness (fixed) and NOT the Manifest arm (fixed
+  this round) — it is whether an eager prune of a terminal-bottom arm is sound when no live arm is yet
+  concrete. The pruned conflict IS terminal, so kue's prune is the more precise lattice move; cue's
+  hold is conservative. **Resolve under the SPEC lens in the fix-slice** (likely a `cue-spec-gaps.md`
+  entry — the spec is silent on collapsing a disjunction with one terminal-bottom + one incomplete
+  arm), do NOT just match cue. Empirically narrow (needs BOTH arms residual). Lead the next batch.
 
 - **A#6 (`containsBottom` TOTAL/structural) — ✅ VERIFIED SOUND.** `Value` is a genuine finite
   well-founded inductive: every recursive position holds a structurally-smaller `Value`/`List
