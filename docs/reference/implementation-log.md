@@ -10581,3 +10581,83 @@ No code shipped; tree reverted to HEAD, `lake build` green (108 jobs), `git diff
 `cue-divergences.md`/`cue-spec-gaps.md` change (cue is correct on every witness; the held-`@d.i`
 display is the already-documented D#1b row). Next live leader: **AD2-1** (D#1d-RESIDUAL blocked behind
 MEET-RESID-1).
+
+## MEET-RESID-1 + D#1d-RESIDUAL: held `.structComp` residual survives a meet; comprehension-body lift
+
+Both landed in one commit (MEET-RESID-1 unblocks D#1d-RESIDUAL's one-liner). A held `.structComp`
+residual — a comprehension whose dynamic key / `if` / `for` is non-concrete — now (a) is HELD when it
+is a comprehension BODY (D#1d-RESIDUAL), and (b) SURVIVES a `meet`/`&` against a struct (MEET-RESID-1),
+where HEAD dropped it to `{}` then bottomed it. Witnesses oracle-confirmed vs cue v0.16.1.
+
+### The soundness gate (the crux — structural, not a runtime predicate)
+
+The defer must NEVER mask a real conflict. It rests on an INVARIANT, not a heuristic:
+
+> **A `.structComp` is, by construction, ALWAYS an unresolved residual whose `fields` are already
+> conflict-free.** A resolved conflict is `.bottom`, never a `.structComp` — that state is
+> unrepresentable.
+
+Exhaustive over the two production sites (`grep '.structComp ' Kue/*.lean`): (1) `withDeferred-
+Comprehensions` (`Eval.lean:1280`) emits a `.structComp` ONLY when `deferred ≠ []` AND the static
+merge SUCCEEDED (`mergeEvaluatedFields` returned `some` — a field conflict returns `pure .bottom`
+FIRST, `Eval.lean:2997`/`3415`); the `fields` are fully-evaluated, conflict-free, the `deferred` are
+genuinely pending. (2) `Parse.lean:584/585/713` + `Normalize.lean:21` — the UNEVALUATED pre-eval form,
+also unresolved-by-construction (the eager arm expands it to `.struct` before any meet). No third
+site, none storing a resolved conflict. So "unresolved held residual" and "is `.structComp`" are the
+SAME SET; the gate's predicate is just the constructor tag and can never fire on a resolved conflict.
+Illegal-states-unrepresentable does the gate's work.
+
+### The reduction (`meetWithFuel`, `Lattice.lean`)
+
+A new arm (symmetric in both operand orders), placed ABOVE the struct/embeddedList arms (so a
+`.structComp` is never first swallowed by a `listLike`/`leftLike` catch that would `meetCore`-bottom
+it), BELOW `.top`:
+
+- `other` reduces (`asResidualMergeOperand?`) to a plain struct operand (`.struct rf ro none [] _` or
+  another `.structComp rf rcomps ro` contributing `rf` + `rcomps`) → merge the RESOLVED fields via the
+  proven `mergeStructN (meetWithFuel fuel) lf … rf …`. A genuine field conflict (`a:{x:1,for…} &
+  {x:2}`) returns `.bottom` THERE (surfaced inline as `x: _|_`, the kue convention; export errors —
+  NOT masked). Else re-wrap `.structComp merged (lcomps ++ rcomps) mo`: the residual survives carrying
+  merged fields + ALL deferred comps.
+- `other` is NOT a plain struct (`a & 5`) → `asResidualMergeOperand?` is `none` → fall through to
+  `meetCore` → `.bottom` (a real struct-vs-nonstruct type error, unchanged). The `.structComp`
+  openness is a bare `...` flag (no tail value), collapsed via `StructOpenness.ofBool …isOpen`.
+
+`meetCore`'s `.structComp` arms stay `.bottom` (the fuel-0 floor + genuine-type-error fall-through).
+
+### Two-pass re-resolution (capability-3 — already satisfied, NO new machinery)
+
+The witness `b: a & {x:2}` parses to `.conj [ref a, {x:2}]` (`&` → `.conj`, `Parse.lean:844`).
+`evalConjStandard` (`Eval.lean:3078`): `conjStructOperand?` returns `none` for the `.structComp`
+(`Eval.lean:1703`, no `.structComp` arm) → the deferral fold re-evaluates `ref a` FROM SOURCE
+(`evalValueWithFuel`, `Eval.lean:3116`), retrying its comprehensions, then `evaluated.foldl meet .top`
+(`Eval.lean:3124`) calls the new `meet` arm. If the comp resolves on re-eval the result is a plain
+`.struct` (the new arm never fires); if it stays unresolved the arm re-wraps a `.structComp` and the
+next `.conj` re-eval retries — the FIXPOINT. The transient `add.#patch` case resolves via the
+embed-narrowing FORCE path (re-eval-from-source with `kind` spliced), independent of this arm.
+Double-meet (`c: b & {y:3}`) converges (accumulates `x:2, y:3`, holds the `for`).
+
+### D#1d-RESIDUAL one-liner (`Eval.lean:~3622`)
+
+`expandClausesWithFuel`'s `onExhausted` gained `| .structComp .. => .deferred` — a comprehension whose
+BODY evaluates to a held `.structComp` re-emits the original `.comprehension` (held) instead of
+`.payload []` (→ `{}`). Unblocked by MEET-RESID-1 (the held body now survives the meet/embed). A
+transient body resolves on the force pass before reaching here, so this arm fires only on a genuinely-
+undecidable residual.
+
+### Tests (adversarial on the gate) + verify
+
+8 `native_decide` theorems in `TwoPassTests.lean`, all source-level (full parse→eval→meet→format,
+oracle-cross-checked) — STRONGER than a CLI fixture (FixturePorts is hand-built AST only, no
+source-string port; the theorems test the in-process pipeline a fixture cannot): the witness
+(`residual_survives_meet_with_struct`); the held body (`residual_comprehension_body_held`); the
+SOUNDNESS TRIPWIRES — field conflict still bottoms (`residual_meet_field_conflict_bottoms` + its
+export-bottoms twin), scalar meet bottoms (`residual_meet_scalar_bottoms`); the no-over-fire controls
+(compatible field held; concrete-key still resolves). Gate: `lake build` green (108 jobs);
+axiom-clean (`propext`/`Classical.choice`/`Quot.sound` only — no `sorryAx`/`partial`);
+`scripts/check-fixtures.sh` → `fixture pairs ok` (all existing byte-identical; the 7 TwoPassTests stay
+green); **cert-manager export BYTE-IDENTICAL to the pre-fix HEAD baseline** (`90071b4`, via throwaway
+worktree) AND semantically identical to cue — meetWithFuel is THE hot path, no regression. No
+`cue-divergences.md` change (CONFORMS to cue on every witness). No `cue-spec-gaps.md` change (the
+held-`@d.i` display is the already-documented D#1b row; cue is correct and matched). Next leader:
+**AD2-1**.

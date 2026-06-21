@@ -3620,6 +3620,15 @@ mutual
         -- merge into the enclosing struct (cue: `for _ in [1] {a:1, ...}` ⇒ `{a:1}`). The old
         -- `.struct _ _ none [] _` dropped a tail/pattern-bearing body wholesale.
         | .struct fields _ _ _ _ => .payload fields
+        -- D#1d-RESIDUAL: a comprehension BODY that itself evaluates to a HELD `.structComp`
+        -- residual (an abstract-keyed dyn field `{(k):1}`, or a nested deferred `if`/`for`) is
+        -- NOT resolved — defer the WHOLE comprehension (re-emit the original `.comprehension`
+        -- node) so the residual is HELD, not dropped to `{}`. cue holds such a block under eval
+        -- (errors incomplete under export). Unblocked by MEET-RESID-1: the held residual now
+        -- survives the `meet`/embed that previously bottomed it (the 7-TwoPassTests unnarrowed
+        -- `#Outer` embed). A transient body resolves on the re-eval/force pass before reaching
+        -- here, so this arm fires ONLY on a genuinely-undecidable residual.
+        | .structComp .. => .deferred
         | _ => .payload [])
       fuel env clauses body
   termination_by (fuel, 2, 0)

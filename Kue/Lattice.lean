@@ -998,6 +998,20 @@ def collapsesToScalarEmbed (fields : List Field) (other : Value) : Bool :=
      | .boundConstraint _ _ _ => true
      | _ => false)
 
+/-- MEET-RESID-1: reduce the RIGHT operand of a `.structComp`-residual meet to the resolved
+    `(fields, openness, deferredComps)` it contributes, or `none` when it is not a struct-shaped
+    operand (a scalar/list/bound — a genuine struct-vs-nonstruct type error that must `.bottom`
+    via the `meetCore` fall-through, NOT hold). A plain `.struct` contributes its fields and an
+    empty deferred-comp list; another unresolved `.structComp` contributes its resolved fields AND
+    its own deferred comps (the union held in the result). Tail/pattern-bearing structs are refused
+    (`none`) — they are not the residual-merge shape and bottom honestly. The `.structComp`
+    openness is a BARE `...` flag (no tail value), so it collapses to open/closed via `ofBool`. -/
+def asResidualMergeOperand? : Value -> Option (List Field × StructOpenness × List Value)
+  | .struct fields openness none [] _ => some (fields, openness, [])
+  | .structComp fields comprehensions openness =>
+      some (fields, StructOpenness.ofBool openness.isOpen, comprehensions)
+  | _ => none
+
 /-- Normalize a list-shaped value to `(items, optional-tail)`: `none` for the
     non-list values, `some` otherwise. `[...]` is `([], some .top)`. -/
 def asListPair : Value -> Option (List Value × Option Value)
@@ -1051,6 +1065,37 @@ def meetWithFuel : Nat -> Value -> Value -> Value
   | _, .bottomWith reasons => .bottomWith reasons
   | .top, value => value
   | value, .top => value
+  -- MEET-RESID-1: an UNRESOLVED `.structComp` residual (a held comprehension whose dynamic
+  -- key/`if`/`for` is non-concrete) must SURVIVE a meet against a struct, not bottom. cue holds
+  -- `a & {x:2}` where `a` is a residual comprehension; `meetCore` bottomed it. The gate is
+  -- STRUCTURAL: a `.structComp` is ALWAYS an unresolved residual whose `fields` are already
+  -- conflict-free (a field conflict surfaces as `.bottom` at production, never a `.structComp` —
+  -- see the MEET-RESID-1 soundness argument in plan.md). So merge the RESOLVED fields via the
+  -- proven struct×struct path (`mergeStructN`): a genuine field conflict (`a:{x:1,for…} & {x:2}`)
+  -- BOTTOMS there (NOT masked); otherwise re-wrap the merged struct as a `.structComp` carrying
+  -- the still-deferred comprehensions, which the two-pass `.conj` re-eval retries to a fixpoint.
+  -- A NON-struct `other` (`a & 5`) yields `none` from `asResidualMergeOperand?` and falls through
+  -- to `meetCore` → `.bottom` (a real struct-vs-nonstruct type error, unchanged). These arms sit
+  -- ABOVE the struct/embeddedList arms so a `.structComp` is never first swallowed by a
+  -- `listLike`/`leftLike` catch (which would `meetCore`-bottom it). Symmetric in operand order.
+  | .structComp lf lcomps lo, other =>
+      match asResidualMergeOperand? other with
+      | none => meetCore (.structComp lf lcomps lo) other
+      | some (rf, ro, rcomps) =>
+          match mergeStructN (meetWithFuel fuel)
+                  lf (StructOpenness.ofBool lo.isOpen) none [] []
+                  rf ro none [] [] with
+          | .struct merged mo _ _ _ => .structComp merged (lcomps ++ rcomps) mo
+          | collapsed => collapsed
+  | value, .structComp rf rcomps ro =>
+      match asResidualMergeOperand? value with
+      | none => meetCore value (.structComp rf rcomps ro)
+      | some (lf, lo, lcomps) =>
+          match mergeStructN (meetWithFuel fuel)
+                  lf lo none [] []
+                  rf (StructOpenness.ofBool ro.isOpen) none [] [] with
+          | .struct merged mo _ _ _ => .structComp merged (lcomps ++ rcomps) mo
+          | collapsed => collapsed
   | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
   | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
   | .struct lf lo lt lp lcp, .struct rf ro rt rp rcp =>

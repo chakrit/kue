@@ -1067,5 +1067,69 @@ theorem embed_body_embeds_disj_gate_direct_disj :
       = true := by
   native_decide
 
+/-! MEET-RESID-1 + D#1d-RESIDUAL: a HELD `.structComp` residual (a comprehension whose dynamic
+    key/`if`/`for` is non-concrete) is HELD by the comprehension-body lift (D#1d-RESIDUAL) and
+    SURVIVES a `meet`/`&` against a struct (MEET-RESID-1), instead of being dropped to `{}` or
+    bottomed. The soundness tripwires (conflict-MUST-still-bottom) are pinned ADVERSARIALLY — the
+    gate's whole purpose is that over-holding (deferring a real conflict) never happens. All
+    source-level (full parse→eval→meet→format), oracle-cross-checked vs cue v0.16.1. -/
+
+-- D#1d-RESIDUAL: a comprehension BODY that is itself a held residual (abstract dynamic key) is
+-- HELD, not dropped to `{}`. cue holds the block under eval (the `@d.i` label is the D#1b display
+-- limit). HEAD dropped this to `a: {}`.
+theorem residual_comprehension_body_held :
+    evalSourceMatches
+      "a: {for k in [string] {(k): 1}}\n"
+      "a: {for k in [string] {(@1.0): 1}}" = true := by
+  native_decide
+
+-- MEET-RESID-1 WITNESS: the held residual SURVIVES `a & {x:2}` (re-resolved by the two-pass
+-- `.conj` fold), carrying the merged `x:2` plus the still-deferred `for`. HEAD bottomed `b`.
+theorem residual_survives_meet_with_struct :
+    evalSourceMatches
+      "a: {for k in [string] {(k): 1}}\nb: a & {x: 2}\n"
+      "a: {for k in [string] {(@1.0): 1}}\nb: {x: 2, for k in [string] {(@1.0): 1}}" = true := by
+  native_decide
+
+-- ★ SOUNDNESS TRIPWIRE 1 — a real FIELD CONFLICT inside the residual STILL bottoms (`x:1 & x:2`).
+-- The merged field surfaces `x: _|_` (the kue rendering convention, identical to a plain
+-- `{x:1} & {x:2}` control); the defer NEVER masks it. cue: `b.x: conflicting values 1 and 2`.
+theorem residual_meet_field_conflict_bottoms :
+    evalSourceMatches
+      "a: {x: 1, for k in [string] {(k): 1}}\nb: a & {x: 2}\n"
+      "a: {x: 1, for k in [string] {(@1.0): 1}}\nb: {x: _|_, for k in [string] {(@1.0): 1}}"
+        = true := by
+  native_decide
+
+-- ★ SOUNDNESS TRIPWIRE 2 — a residual met with a SCALAR is a struct-vs-nonstruct type error and
+-- MUST bottom wholesale (NOT hold). cue: `mismatched types int and struct`.
+theorem residual_meet_scalar_bottoms :
+    evalSourceMatches
+      "a: {for k in [string] {(k): 1}}\nb: a & 5\n"
+      "a: {for k in [string] {(@1.0): 1}}\nb: _|_" = true := by
+  native_decide
+
+-- ★ SOUNDNESS TRIPWIRE 3 — the field-conflict residual export ERRORS (no concrete value escapes);
+-- pins that the inline `x: _|_` is a genuine bottom, not a spurious survivable value.
+theorem residual_meet_field_conflict_export_bottoms :
+    exportJsonBottoms "a: {x: 1, for k in [string] {(k): 1}}\nb: a & {x: 2}\n" = true := by
+  native_decide
+
+-- A COMPATIBLE field merges and the comp is still held (no spurious conflict on equal values).
+theorem residual_meet_compatible_field_held :
+    evalSourceMatches
+      "a: {x: 1, for k in [string] {(k): 1}}\nb: a & {x: 1, y: 2}\n"
+      "a: {x: 1, for k in [string] {(@1.0): 1}}\nb: {x: 1, y: 2, for k in [string] {(@1.0): 1}}"
+        = true := by
+  native_decide
+
+-- A concrete-key comprehension still RESOLVES (no over-hold): the residual lift fires ONLY on a
+-- genuinely-undecidable body, never freezing a resolvable one.
+theorem concrete_key_comprehension_still_resolves :
+    evalSourceMatches
+      "a: {for k in [\"k\"] {(k): 1}}\nb: a & {x: 2}\n"
+      "a: {k: 1}\nb: {k: 1, x: 2}" = true := by
+  native_decide
+
 
 end Kue

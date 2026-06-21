@@ -303,14 +303,13 @@ DYN-DEF-1 dyn-field batch):** **A-EN3-DYN and DYN-DEF-1 are both ✅ DONE and AU
 verified the depth-mirror, `classifyDynLabel` exhaustiveness, and the corrected fixture — see the
 Phase-A entry below). Phase-A found and **FIXED INLINE two NEW wrong-results** (D#1d comprehension-
 body tail/pattern drop; default-disjunction dyn-field label collapse) and **FILED one** as the new
-leader. **Live order (REVISED 2026-06-21 after the D#1d-RESIDUAL slice attempt): (1) AD2-1** (LOW-MED
-disjunction-normalizer dedup, file-not-inline, value-sound display-only) — now the live leader because
-**D#1d-RESIDUAL is BLOCKED on a newly-found lattice prerequisite MEET-RESID-1** (a held `.structComp`
-residual cannot survive a `meet` — `meetCore` bottoms it; see the re-diagnosis in the D#1d-RESIDUAL
-entry). The comprehension-body lift is correct standalone but bottoms the instant it is embedded/met.
-**Order: (1) AD2-1 → (2) MEET-RESID-1 (the prerequisite; MEDIUM, design first) → (3) D#1d-RESIDUAL
-(collapses to a one-line `onExhausted` arm once MEET-RESID-1 lands) → (4)** the LOW cosmetic tail
-(item 6). **Phase-B DONE 2026-06-21** (architecture HEALTHY over the module graph; AUDIT-DUE
+leader. **Live order (REVISED 2026-06-21 after MEET-RESID-1 + D#1d-RESIDUAL LANDED): (1) AD2-1**
+(LOW-MED disjunction-normalizer dedup, file-not-inline, value-sound display-only) — now the live
+leader. **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
+now survives a `meet` via the new `meetWithFuel` arm, and the comprehension-body lift holds it; the
+soundness gate is structural — a `.structComp` is unconditionally an unresolved residual, so the
+defer can never mask a conflict). **Order: (1) AD2-1 → (2)** the LOW cosmetic tail (item 6) → **A#6**
+(`containsBottom` fuel cap) / **EvalOps extraction** (mechanical carve). **Phase-B DONE 2026-06-21** (architecture HEALTHY over the module graph; AUDIT-DUE
 cleared; counter reset to 0) — re-ran the FOUR-parallel-classifier ruling: kept the four verdict
 functions SEPARATE (option a; the partition disagreement is WORSE at four), extracted only the shared
 default-collapse pre-step `collapseDefaultDisjunction` inline (option b), rejected the shared
@@ -449,9 +448,17 @@ in Resolved/ruled-out.
   `dyndef_nondefault_disj_key_still_defers` + `PresenceTests` `resolve_dynlabel_default_*` /
   `classify_dynlabel_after_default_collapse_concrete`. Gate green.
 
-- **D#1d-RESIDUAL (MEDIUM Violation — held residual inside a comprehension body DROPPED) — ⛔ FILED,
-  RE-DIAGNOSED 2026-06-21 (BLOCKED on a prerequisite: meet-holds-residual). Phase-B's caller-lift
-  shape is NECESSARY but NOT SUFFICIENT; the true blocker is one layer DOWN in the lattice.** See the
+- **D#1d-RESIDUAL (MEDIUM Violation — held residual inside a comprehension body DROPPED) — ✅ DONE
+  2026-06-21 (folded WITH MEET-RESID-1, one commit).** Collapsed to the predicted ONE-LINE arm once
+  MEET-RESID-1 unblocked the meet: `expandClausesWithFuel`'s `onExhausted` (`Eval.lean:~3622`) gained
+  `| .structComp .. => .deferred`, so a comprehension whose BODY is a held `.structComp` residual is
+  HELD (re-emits the original `.comprehension`) instead of dropping to `.payload []` (→ `{}`).
+  Witnesses hold: `x: {for k in [string] {(k):1}}` → `{for k in [string] {(@1.0):1}}`; `x: {for _ in
+  [1] {if g {y:1}}}` → held (the `@d.i`/`g` display is the D#1b limit). See the historical
+  re-diagnosis below (kept for the lattice-prerequisite reasoning).
+  - **★★ Original FILED diagnosis (2026-06-21, pre-fix; retained for reasoning).** Phase-B's
+    caller-lift shape was NECESSARY but NOT SUFFICIENT; the true blocker was one layer DOWN in the
+    lattice. See the
   "★★ Re-diagnosis" sub-bullet below — the held `.structComp` residual is correct standalone (the
   witnesses hold byte-cue-faithfully under the simplest fix) but CANNOT survive a `meet`: `meetCore`
   (`Lattice.lean:460-461`) bottoms any `.structComp`, and every embed/`&` of the residual reaches
@@ -542,18 +549,63 @@ in Resolved/ruled-out.
        its fixtures/pins.
 
 - **MEET-RESID-1 (prerequisite for D#1d-RESIDUAL; MEDIUM — held-`.structComp`-residual survives a
-  meet) — ⛔ FILED 2026-06-21.** A `meet`/`&`/embed of an UNRESOLVED `.structComp` residual must HOLD
-  (defer to `.conj [left,right]`, re-resolved when the residual's blocker clears), not `.bottom`. cue
-  holds `a & {x:2}` where `a` is a residual comprehension; kue bottoms it (`meetCore`
-  `Lattice.lean:460-461`). This gates D#1d-RESIDUAL: the held comprehension-body residual is correct
-  standalone but bottoms the instant it is embedded/met (the unnarrowed `#Outer` embed in the 7
-  TwoPassTests, and the minimal `b: a & {x:2}`). Sites: `evalConjWithFuel` (`Eval.lean:3123` fold),
-  `meetEmbeddingsWithFuel`/`closeEmbeddedOver` (embed path), `meetCore` (`Lattice.lean:460-461`).
-  Soundness gate: defer ONLY an UNRESOLVED `.structComp` (never collapse a genuine struct-vs-nonstruct
-  type error to a hold). Capability-3: a `.conj` carrying a `.structComp` member must re-resolve that
-  member through `withDeferredComprehensions` on a later pass (resolving the transient, holding the
-  terminal — the fixpoint). Witnesses (eval, cue-held; kue bottoms today): `b: a & {x:2}` with `a:
-  {for k in [string] {(k):1}}`; the unnarrowed `#Outer: {#Inner, #additions:…}` embed.
+  meet) — ✅ DESIGNED + DONE 2026-06-21 (folded WITH D#1d-RESIDUAL).** A `meet`/`&` of an UNRESOLVED
+  `.structComp` residual against a struct must HOLD (re-wrap the merged result as a `.structComp`
+  carrying the still-deferred comprehensions), not `.bottom`. cue holds `a & {x:2}` where `a` is a
+  residual comprehension; kue bottomed it (`meetCore` `Lattice.lean:460-461`).
+
+  **★ THE SOUNDNESS GATE — why this can NEVER mask a real bottom (the crux).** The gate rests on a
+  structural invariant of `.structComp`, NOT on a runtime predicate:
+
+  > **A `.structComp` is, by construction, ALWAYS an unresolved residual whose `fields` are already
+  > fully-resolved (a conflict among them is unrepresentable — it is `.bottom`, never a `.structComp`).**
+
+  Proof (exhaustive over the two production sites; `grep '.structComp '` over `Kue/*.lean`):
+  1. **Eval-time residual — `withDeferredComprehensions` (`Eval.lean:1280-1287`).** Produces a
+     `.structComp fields deferred openness` ONLY when `deferred ≠ []` (non-empty unresolved
+     `if`/`for`) AND `resolved` is already a `.struct` — i.e. `mergeEvaluatedFields (staticFields ++
+     expanded)` SUCCEEDED (`Eval.lean:2997-3010`, `3415-3427`). A field conflict at that merge returns
+     `pure .bottom` BEFORE `withDeferredComprehensions` is reached. So the `fields` are conflict-free,
+     fully-evaluated values (`evalFieldRefsListWithFuel`), and the `deferred` are genuinely-pending.
+  2. **Parse-time pre-eval form — `Parse.lean:584/585/713`, `Normalize.lean:21`.** An UNEVALUATED
+     struct literal carrying comprehensions/embeds. Also unresolved-by-construction; the eager
+     `.structComp` eval arm expands it to a `.struct` before any meet (the `.structComp` doc
+     invariant). The residual case is precisely when that expansion can't complete.
+
+  There is NO third site, and no site that stores a *resolved conflict* as a `.structComp`. So "an
+  UNRESOLVED held residual" and "a `.structComp`" are the SAME SET — the gate's predicate is just
+  `is .structComp`, and it can never fire on a resolved-to-conflict value because that value does not
+  exist. **Illegal-states-unrepresentable does the gate's work.**
+
+  **★ The reduction (in `meetWithFuel`, NOT `meetCore` — needs fuel + `mergeStructN` recursion).** A
+  new arm `| .structComp lf lcomps lo, other` (+ symmetric) ABOVE the `value, other => meetCore`
+  catch-all:
+  - `other` reduces to a plain struct operand (`asPlainStructOperand?`: a `.struct rf ro none [] _`,
+    or another `.structComp rf rcomps ro` contributing `rf`+`rcomps`) → merge the RESOLVED fields via
+    `mergeStructN (meetWithFuel fuel) lf lo none [] [] rf ro none [] []`. **If that is `.bottom`,
+    return `.bottom`** (the field conflict surfaces — `a:{x:1,for…}; b:a&{x:2}` → cue `x:
+    conflicting`, kue bottoms HERE, NOT masked). Else it is a `.struct merged mo …` → re-wrap
+    `.structComp merged (lcomps ++ rcomps) mo` (the residual survives carrying merged fields + ALL
+    deferred comps).
+  - `other` is NOT a plain struct (a scalar/list/bound — a genuine struct-vs-nonstruct type error,
+    `a & 5` → cue `mismatched types int and struct`) → fall through to `meetCore` → `.bottom`
+    (unchanged). This is the second tripwire and it bottoms by NOT matching the new arm.
+
+  **★ Two-pass re-resolution (capability-3 — already satisfied, no new machinery).** The witness
+  `b: a & {x:2}` parses to `.conj [ref a, {x:2}]` (`&` → `.conj`, `Parse.lean:844`). `evalConjStandard`
+  (`Eval.lean:3078`): `conjStructOperand?` returns `none` for the `.structComp` (`Eval.lean:1703-1720`
+  has no `.structComp` arm) → the deferral fold re-evaluates `ref a` FROM SOURCE
+  (`evalValueWithFuel`, `Eval.lean:3116`), retrying its comprehensions, then `evaluated.foldl meet
+  .top` (`Eval.lean:3124`) calls `meet (.structComp …) {x:2}` = the new arm. If the comp resolves on
+  re-eval the result is a plain `.struct` (no new arm fires); if it stays unresolved the new arm
+  re-wraps a `.structComp` and the next `.conj` re-eval retries again — the FIXPOINT. The transient
+  `add.#patch` case resolves via the embed-narrowing FORCE path (re-eval-from-source with `kind`
+  spliced), independent of this arm (prior investigation point 2).
+
+  Sites touched: `meetWithFuel` (`Lattice.lean`, the new arm) only — the eval-conj fold and embed
+  paths route THROUGH `meetWithFuel`/`meet`, so one arm covers all. `meetCore`'s `.structComp` arms
+  stay `.bottom` (the fuel-0 floor + the genuine-type-error fall-through). Witnesses (eval, cue-held):
+  `b: a & {x:2}`; the unnarrowed `#Outer: {#Inner, #additions:…}` embed (7 TwoPassTests).
 
 - **DRY-1 (let-walker dedup) — ✗ RULED OUT (attempted under A-EN3's slice, reverted; no behavior
   change shipped).** The plan was ONE `walkFollowedLets` with `closeDefFrameReadIndices` /
