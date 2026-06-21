@@ -553,7 +553,7 @@ in Resolved/ruled-out.
   unification/eval expected-outputs from `cue`). Cross-linked from `slice-loop.md`'s
   spec-authority section. Both (a) and (b) are discharged.
 
-**Phase-B audit 2026-06-21 (`<this-commit>`, whole-graph; scopes A-EN3-DYN `4cd8fbe` + DYN-DEF-1
+**Phase-B audit 2026-06-21 (`90f43f5`, whole-graph; scopes A-EN3-DYN `4cd8fbe` + DYN-DEF-1
 `46e9871` + Phase-A inline fixes `503955b` — D#1d + default-label-collapse; Phase A `503955b` found
 both batch fixes SOUND, fixed 2 new wrong-results inline, filed D#1d-RESIDUAL) — verdict: HEALTHY;
 ONE low-risk inline cleanup; rulings/rankings folded in. CLOSES the audit round.**
