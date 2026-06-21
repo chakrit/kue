@@ -120,6 +120,11 @@ type-errors concrete out-of-domain operands + string/bytes `*` repetition; see i
 provenance; flat-union → per-conjunct-clause conjunction; see audit § SC-1b + implementation-log),
 **SC-1e** (closed×open-`...` — NEWLY DIAGNOSED during SC-1b, pre-existing, MED; closed conjunct
 re-opened by an open-tail partner; B2.5 tail-arm drops the clause — see audit § SC-1e),
+**EMBED-CLOSE-1** (pure-pattern closed def EMBEDDED `{#A, y}` drops closedness + the pattern
+constraint where the meet form `#A & {y}` rejects — DIAGNOSED Phase-A 2026-06-21, pre-existing,
+LOW-MED; cue self-contradicts, kue spec-correct; recorded in `cue-divergences.md` — fix is the
+embedding closedness-carry, adjacent to SC-1e's B2.5 root; kue ALREADY correct, so this slice is
+ADD-A-FIXTURE-AND-PIN to lock it, not a behavior change),
 **A#6** (✅ DONE 2026-06-21 — `containsBottom` made
 TOTAL/structural, fuel cap removed; deep non-cyclic bottoms no longer escape pruning; see the
 audit doc § Low/hardening + implementation-log), **DYN-DEF-1**
@@ -453,6 +458,83 @@ masking; ONE NEW masked bottom found + FIXED INLINE; the two ★ rulings settled
   manifest pins + every existing pin); `scripts/check-fixtures.sh` → `fixture pairs ok` (zero drift);
   `shellcheck scripts/*.sh` clean; cert-manager content-identical to baseline `383c1c6` AND to cue.
   One inline fix applied (Manifest `.structComp` contradiction-descent); committed on `main`.
+
+**Phase-A audit 2026-06-21 (SC-1b `406e719` + RESID-MASK-2 `f0613e5` batch) — verdict + 1 new
+divergence filed (no code fix; SC-1b CLEAN):**
+
+- **★ SC-1b intersection semantics — CORRECT.** The admit predicate `fieldAllowedByClausesWith`
+  (`Lattice.lean:851`) is `Field.ignoresClosedness field || clauses.all (fun c => …)` — a CONJUNCTION
+  (`.all`) over per-conjunct clauses, NOT the old flat union (`any`). `meet` CONCATENATES clauses
+  (`mergeStructN` `bothClauses := leftClauses ++ rightClauses`, `Lattice.lean:906`), carried to
+  `mkStruct` in every closed arm. The invariant **`closedClauses = [] ↔ open` holds at EVERY
+  construction site**: `mkStruct` (`Value.lean:861`) forces `[]` when the coherent openness is open,
+  and derives the single self-clause `{fields.map .label, patterns.map .fst}` when closed — and NO
+  caller passes an explicit `[]` for a closed openness (every closed `mkStruct` call either relies on
+  the default or threads a well-formed source struct's clauses). `dedupClauses` of a non-empty list is
+  never `[]` (it only drops duplicates), so the closed→`[]` direction is unconstructable.
+
+- **★ Adversarial probing — 37 cases beyond the slice's 20-case matrix, vs cue v0.16.1 (`kue export`
+  semantic JSON compare). All pure closed×closed cases CORRECT** (disjoint patterns both-sides,
+  overlapping-admit-double-match, broad-then-narrow, field-only-clause CRUX, pattern×explicit cross,
+  triple/4-way meet, associativity L=R, `close()` of pattern struct, nested + doubly-nested closed,
+  optional/required-field clauses, pattern-value `int`×`string` conflict, the `asResidualMergeOperand?`
+  `.structComp`-residual round-trip — multi-clause field-only closed met with a held comprehension
+  correctly rejects). **Two divergences surfaced, BOTH pre-existing + outside SC-1b's scope** (each
+  reproduced on the `f0613e5` baseline via worktree): (1) **SC-1e** — `(#A & #B) & {x1:5, ...}` re-opens
+  (already filed, see below); (2) **EMBED-CLOSE-1 (NEW, filed this audit — doc-only)**: `{#A, y1:5}` with
+  a PURE-pattern closed `#A:{[=~"^x"]:int}` ADMITS `y1` in cue (even `y1:"str"`, dropping the `int`
+  constraint), while cue's own spec-equivalent `#A & {y1:5}` REJECTS — cue self-contradicts. **kue
+  rejects on both spellings (spec-correct, monotone closedness)**; same internal-inconsistency class as
+  SC-2b. Recorded as a `cue-divergences.md` row (kue right). A field-bearing `#A:{a:int}` embed already
+  rejects in BOTH, so the bug is confined to pure-pattern embedded defs. NOT an SC-1b regression → not
+  fixed here; a clean autonomous fix slice if scheduled (the B2.5/embedding closedness-carry, adjacent
+  to SC-1e's root).
+
+- **★ Missed-consumer (the retype risk) — CLEAN.** Every closedness consumer outside `Lattice` is
+  PASS-THROUGH, never an admittance computation: `Eval.lean` (2912, 3672) `evalValueWithFuel` maps
+  `evalValueWithFuel` over each clause's `patterns` and re-emits via `applyEvaluatedStructN` (which
+  threads `closedClauses` into `mkStruct`); `Resolve.lean` (105, 148) and `Normalize.lean` (162) map
+  `ClosedClause.mapPatterns` for the recursive resolve/normalize walks; `Module.lean:166` carries
+  `closedClauses` UNCHANGED through import-binding injection; `Builtin.closeValue` returns an
+  already-`.defClosed` struct AS-IS (line 19 — explicitly does NOT collapse a meet-result's clauses).
+  No consumer pattern-matches the old `closingPatterns`/union semantics. `Format`/`Manifest` render
+  closedness via the struct's openness + the same `applyClausesWith` path; cert-manager export
+  semantically identical to cue (closed-def hot path). The flagged `asResidualMergeOperand?` clause-drop
+  (`Lattice.lean:1056`, discards clauses into a `.structComp`) is NOT exploitable: the `.structComp` is
+  later re-expanded via `mkStruct`, which re-derives the clause from the preserved `(fields, openness)`
+  — probed empirically, the multi-clause field-only residual still rejects correctly.
+
+- **Totality / tests — CLEAN.** `ClosedClause = {fieldLabels : List String, patterns : List Value}` is
+  the tightest faithful representation (illegal "closed-but-no-clause" / "open-with-clause" states made
+  unconstructable by `mkStruct`). No `partial`, no catch-all swallowing closedness. `closeValue`
+  idempotence is pinned end-to-end (`sc1b_close_preserves_conjunct_clauses`, `double-close` probe — a
+  double-close does NOT collapse clauses). The 17 pins assert real intersection behavior incl. the
+  DIFFERENT-pattern witnesses (`fieldAllowedByClausesWith` `[{^x},{^y}]` rejects `x1`; the field-only
+  CRUX; three-way associativity; nested; closed-empty). Migrated existing pins were TIGHTENED, not
+  weakened — each now carries the exact `closedClauses` value (`[⟨["a"],[]⟩]` etc.), and the SC-1d
+  ParseTests coherence pin actively re-asserts `closing == ([] : List ClosedClause)` (open ↔ no clause)
+  post-retype. The new fixture drives the witness through the FULL parse path, not just `meet`.
+
+- **RESID-MASK-2 (`f0613e5`) light-check — CLEAN.** The 8 `TwoPassTests` pins assert what they claim:
+  the witness pins kue's eager-prune of a terminal `x:1 & x:2` arm committing to an incomplete survivor;
+  `resid_mask2_sound_abstract_operand_arm_not_pruned` is the load-bearing don't-over-prune assertion
+  (abstract `x:int` arm is NOT a materialized bottom → survives). Correctly bucketed as a **cue-spec-gap,
+  NOT a divergence** (`cue-spec-gaps.md` row, `partial` conformance = kue MORE precise; spec mandates
+  "eliminate bottom alternatives" + `_|_`-as-`|`-identity but is silent on timing, so cue's hold is
+  permitted-lazy not a violation). The gap-vs-divergence call is applied correctly.
+
+- **SC-1e — confirmed genuinely pre-existing + correctly filed disjoint.** Reproduced on the `f0613e5`
+  baseline (`(#A & #B) & {x1:5, ...}`: kue admits `x1`, cue rejects — same on BASE and HEAD), so NOT an
+  SC-1b regression. Root confirmed at `Lattice.lean:1007` (the B2.5 tail-composition arm builds
+  `mkStruct … .defOpenViaTail (some tail) allPatterns []` — drops `bothClauses`); two closed structs
+  (no tail) never reach this arm, so SC-1e is strictly closed×open-tail, disjoint from SC-1b. Minor:
+  the line-1006 comment still says `closingPatterns = []` (stale terminology, pre-retype) — fold into
+  SC-1e's fix slice, not worth a standalone touch.
+
+- **Verify gate GREEN.** `lake build` 108 jobs; `scripts/check-fixtures.sh` → `fixture pairs ok` (zero
+  drift); `shellcheck scripts/*.sh` clean; cert-manager export SEMANTICALLY identical to cue (closed-def
+  hot path). No production code touched this audit — one new `cue-divergences.md` row (EMBED-CLOSE-1) +
+  this block; committed on `main`.
 
 **Phase-A audit 2026-06-21 (MEET-RESID-1 `3f085e1` + A#6 `f9c4a65`) — verdict + ★ CRITICAL inline fix:**
 
