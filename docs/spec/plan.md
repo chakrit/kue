@@ -118,13 +118,13 @@ type-errors concrete out-of-domain operands + string/bytes `*` repetition; see i
 **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
 **SC-1b** (✅ DONE 2026-06-21 — closed×closed-pattern intersection via `closedClauses`
 provenance; flat-union → per-conjunct-clause conjunction; see audit § SC-1b + implementation-log),
-**SC-1e** (closed×open-`...` — NEWLY DIAGNOSED during SC-1b, pre-existing, MED; closed conjunct
-re-opened by an open-tail partner; B2.5 tail-arm drops the clause — see audit § SC-1e),
-**EMBED-CLOSE-1** (pure-pattern closed def EMBEDDED `{#A, y}` drops closedness + the pattern
-constraint where the meet form `#A & {y}` rejects — DIAGNOSED Phase-A 2026-06-21, pre-existing,
-LOW-MED; cue self-contradicts, kue spec-correct; recorded in `cue-divergences.md` — fix is the
-embedding closedness-carry, adjacent to SC-1e's B2.5 root; kue ALREADY correct, so this slice is
-ADD-A-FIXTURE-AND-PIN to lock it, not a behavior change),
+**SC-1e** (✅ DONE 2026-06-21 — closed×open-`...` no longer re-opens; one `closeTailResult` helper
+threads `bothClauses`/`closedOpenness` through ALL FOUR tail arms, not just the catch-all the sketch
+named — a FIELD-closed def hit `struct × structTail` too; monotonicity under meet; see audit § SC-1e
++ implementation-log),
+**EMBED-CLOSE-1** (✅ PINNED 2026-06-21 — pure-pattern closed def EMBEDDED `{#A, y}`: cue
+self-contradicts vs its meet form `#A & {y}`, kue spec-correctly rejects BOTH; no code change, locked
+by `StructTests ### EMBED-CLOSE-1` + fixture `embed_close1_pin`; `cue-divergences.md` row → pinned),
 **A#6** (✅ DONE 2026-06-21 — `containsBottom` made
 TOTAL/structural, fuel cap removed; deep non-cyclic bottoms no longer escape pruning; see the
 audit doc § Low/hardening + implementation-log), **DYN-DEF-1**
@@ -356,37 +356,27 @@ family RESOLVED. ONE LOW-RISK inline (stale comment). Ranking + SC-1e/EMBED-CLOS
   provenance is the right abstraction (Phase-A `176bc42` independently signed off intersection semantics,
   37 adversarial cases, the invariant, and missed-consumer cleanliness).
 
-- **★ SC-1e + EMBED-CLOSE-1 — ONE thematic "closedness-carry" fix-slice, but NOT a shared code root
-  (settled this round; re-probed kue + cue v0.16.1).** Both concern monotone closedness under
-  composition; they collapse into ONE slice for landing, with three parts on the same `mergeStructN`
-  closedness-carry concern + adjacent lines:
-  1. **SC-1e — the actual behavior fix (MED).** Root is the `defOpenViaTail` tail-composition arm
-     (`Lattice.lean:1007`): it passes `closedClauses = []`, dropping `bothClauses`, so an open-`...`
-     partner WRONGLY re-opens a closed conjunct. Confirmed isolated to THIS arm: `(#A & #B) & {x1:5}`
-     (no tail) correctly REJECTS today (SC-1b path); adding `...` re-opens it (`x1` admitted, cue
-     rejects). Fix: when `bothClauses` is non-empty (either operand closed), produce a CLOSED no-tail
-     result carrying `bothClauses` — the open `...` is vacuous against closedness.
-  2. **Stale-comment collapse (DONE INLINE this audit).** The line-1005/6 comment said
-     `closingPatterns = []` (pre-retype terminology). Rewritten to name `closedClauses`, mark the line a
-     KNOWN BUG (SC-1e), and state the fix — so the next reader isn't misled into thinking `[]` is
-     correct rationale. Pure comment edit, zero behavior change; the inline code fix stays with the
-     SC-1e slice (it is the bug, not low-risk).
-  3. **EMBED-CLOSE-1 — pin-only, NO code change (LOW-MED).** kue ALREADY rejects `{#A, y1}` AND its
-     spec-equiv `#A & {y1}` (both `conflicting values (bottom)`); cue self-contradicts (admits embed,
-     rejects meet). Re-probed: the embed form has NO `...` tail, so it does NOT route through the
-     line-1007 arm — the SC-1e code change cannot regress it. EMBED-CLOSE-1 is purely
-     ADD-A-FIXTURE-AND-PIN to lock kue's existing-correct monotone rejection (`cue-divergences.md` row
-     already filed, kue right). Land it in the SC-1e slice as the closedness-carry test sweep.
+- **★ SC-1e + EMBED-CLOSE-1 — ✅ DONE 2026-06-21 (the "closedness-carry" slice). Closedness family
+  FULLY CLOSED.** Both concerned monotone closedness under composition; landed as one slice.
+  1. **SC-1e — the behavior fix (DONE).** The sketch named ONLY the `defOpenViaTail` catch-all arm
+     (`Lattice.lean:1009`); instrumenting found the bug WIDER — a FIELD-closed def (`#C:{a:int}`) routes
+     through `struct × structTail` (arm 3) and dropped the clause too. Fix: one `closeTailResult` helper
+     all four tail arms route through, branching on `closedOpenness.isOpen` (= `StructOpenness.meet`,
+     `defClosed` already dominates). Closed ⇒ no-tail result carrying `bothClauses`; open ⇒ keep the
+     tail. The open `...` is vacuous against closedness. See implementation-log + audit § SC-1e.
+  2. **Stale-comment collapse (DONE).** The line-1005/6 KNOWN-BUG comment is gone — the arm now carries
+     the `closeTailResult` rationale.
+  3. **EMBED-CLOSE-1 — PINNED (DONE, no code change).** kue rejects BOTH `{#A, y1}` and `#A & {y1}`;
+     cue self-contradicts. Locked by `StructTests ### EMBED-CLOSE-1` + fixture `embed_close1_pin`;
+     `cue-divergences.md` row → pinned. The embed form has no `...`, so the SC-1e fix left it untouched.
 
-- **Backlog ranking (the key output — autonomous head is short; the tail is USER-GATED). Recorded
-  order:**
-  1. **SC-1e (+ EMBED-CLOSE-1 pin + the stale-comment code fix) — the autonomous next leader.** The
-     next CLEAN closedness item; single-arm behavior fix + a pin lock-in + dead-comment collapse, all
-     one slice. kue is the principled side on both (monotone closedness); no human gate.
-  2. **EvalOps extraction (plan item 2) — autonomous filler, parallel-safe.** ~256 lines of
-     self-contained pure scalar algebra carved to `Kue/EvalOps.lean`; mechanical, no back-edge into the
-     evaluator. Resolve the `divValue`/`modValue`/… import shape in the slice. The standing first
-     extraction; good to run alongside or after SC-1e.
+- **Backlog ranking (autonomous head is now SHORT; the tail is USER-GATED). Recorded order:**
+  1. ~~SC-1e (+ EMBED-CLOSE-1 pin)~~ — ✅ DONE 2026-06-21.
+  2. **EvalOps extraction (plan item 2) — autonomous filler, parallel-safe. THE next autonomous slice,
+     but NOT urgent.** ~256 lines of self-contained pure scalar algebra carved to `Kue/EvalOps.lean`;
+     mechanical, no back-edge into the evaluator. Resolve the `divValue`/`modValue`/… import shape in
+     the slice. `Eval.lean` (~3702) is UNDER the ~4500 re-split threshold, so this is hygiene, not
+     pressure.
   3. **AD2-1 (disjunction-normalizer display dedup) — ⚠ USER-GATED. SURFACE, do not grind.** Display-only
      and value-sound, but it FLIPS two NAMED theorem pins + the SC-3 display contract — a display
      CONTRACT change a human signs off.
@@ -396,10 +386,11 @@ family RESOLVED. ONE LOW-RISK inline (stale comment). Ranking + SC-1e/EMBED-CLOS
      numeric-model subproject — a departure from Kue's exact-rational core; a scope/architecture
      decision for the user, not an autonomous slice.
 
-  **Orchestrator recommendation:** autonomous path = **SC-1e (+EMBED-CLOSE-1 pin) → EvalOps extraction**;
-  then **SURFACE AD2-1 / SC-3 / BI-2-residual to the user** (all gated — two are a display-contract
+  **Orchestrator recommendation (post-SC-1e):** the autonomous closedness work is DONE. Remaining
+  autonomous item = **EvalOps extraction** (mechanical carve, NOT urgent — `Eval.lean` under threshold).
+  Then **SURFACE AD2-1 / SC-3 / BI-2-residual to the user** (all gated — two are a display-contract
   rename needing sign-off, one is a numeric-model scope decision). Do not grind the gated three
-  autonomously.
+  autonomously. The genuinely valuable remaining work is the user-gated tail, not EvalOps.
 
 - **Whole-graph health — module boundaries, sizes, dead code: HEALTHY.** Import graph acyclic and
   unchanged: `Eval → {Builtin, Decimal, Lattice, Regex, Normalize}`, `Builtin → {Lattice, Regex,

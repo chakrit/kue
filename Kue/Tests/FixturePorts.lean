@@ -551,6 +551,54 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- SC-1e: a CLOSED struct (here the closed-pattern intersection `#A & #B`) met with an
+      -- open-`...` partner stays CLOSED — closedness is monotone under meet, so the `...` does
+      -- NOT re-open the closed conjunct. `x1` matches `#A`'s `^x` but not `#B`'s `^y`, so it
+      -- bottoms exactly as in the no-`...` control (`sc1b_closed_pattern_intersection`), and the
+      -- result carries NO `...`. Pre-SC-1e the tail-arm dropped `bothClauses` and re-opened: it
+      -- admitted `x1: 5` and emitted a trailing `...`.
+      fileName := "definitions/sc1e_closed_open_tail_rejects.expected",
+      content :=
+        match parseSource
+            "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^y\"]: int}\nout: (#A & #B) & {x1: 5, ...}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- SC-1e admit-side: the open-`...` partner does not re-open, but a field the closed
+      -- allowed-set PERMITS still unifies. `x1` matches `^x`, so `x1: 5` survives; the `...` is
+      -- dropped (the result is closed to `^x`). Guards that the fix rejects only the forbidden
+      -- extras, not every tail-side field.
+      fileName := "definitions/sc1e_closed_open_tail_admits.expected",
+      content :=
+        match parseSource "#A: {[=~\"^x\"]: int}\nout: (#A & {x1: 5}) & {x1: 5, ...}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- SC-1e field-closed arm: the closed operand `#C: {a: int}` is FIELD-closed (no patterns),
+      -- so it routes through the `struct × structTail` arm, NOT the tail×patterns catch-all. That
+      -- arm dropped the clause too — `b` (not in `#C`) bottoms and the `...` is dropped. Pins the
+      -- SC-1e fix across ALL tail-bearing arms, not just the pattern-closed catch-all.
+      fileName := "definitions/sc1e_field_closed_open_tail_rejects.expected",
+      content :=
+        match parseSource "#C: {a: int}\nout: #C & {a: 1, b: 2, ...}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- EMBED-CLOSE-1 pin: kue rejects `y1` (∉ `#A`'s `^x`) in BOTH the embed form `{#A, y1}` and
+      -- the meet form `#A & {y1}` — closedness is preserved through embedding, monotone like
+      -- SC-1e. cue SELF-CONTRADICTS (admits the embed form, rejects the meet form); kue follows the
+      -- spec and stays consistent (recorded in cue-divergences.md). Neither form carries a `...`, so
+      -- this is unaffected by the SC-1e tail-arm fix — the pin locks the existing-correct behavior.
+      fileName := "definitions/embed_close1_pin.expected",
+      content :=
+        match parseSource "#A: {[=~\"^x\"]: int}\nembed: {#A, y1: 5}\nmeet: #A & {y1: 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "disjunctions/default_disjunction.expected",
       content :=
         formatField "x"

@@ -906,6 +906,20 @@ def mergeStructN
   let bothClauses := leftClauses ++ rightClauses
   let applyBothClosedness (merged : List Field) : List Field :=
     applyClausesWith meetValue bothClauses merged
+  -- SC-1e: finalize a meet that carried a `...` on at least one side. Closedness is monotone
+  -- under meet, so a closed conjunct stays closed even against an open-`...` partner —
+  -- `closedOpenness` (= `StructOpenness.meet`) already encodes this (`defClosed` dominates
+  -- `defOpenViaTail`). When the meet is OPEN (every operand open), the `...` survives and no
+  -- clause closes anything. When the meet is CLOSED, the partner's bare `...` is vacuous against
+  -- the closed allowed-set: collapse to a no-tail closed struct carrying `bothClauses`; the extras
+  -- the clauses forbid become `_|_` via `applyBothClosedness`, exactly as the no-tail control does.
+  -- Shared by every tail-bearing arm so the carry rule lives in one place.
+  let closeTailResult (mergedFields : List Field) (tail : Value)
+      (patterns : List (Value × Value)) : Value :=
+    if closedOpenness.isOpen then
+      mkStruct mergedFields closedOpenness (some tail) patterns []
+    else
+      mkStruct (applyBothClosedness mergedFields) closedOpenness none patterns bothClauses
   match leftTail, leftPatterns, rightTail, rightPatterns with
   -- plain × plain
   | none, [], none, [] =>
@@ -913,27 +927,31 @@ def mergeStructN
       | some merged =>
           mkStruct (applyBothClosedness merged) closedOpenness none [] bothClauses
       | none => .bottom
-  -- tail on the LEFT, plain right (legacy structTail × struct)
+  -- tail on the LEFT, plain right (legacy structTail × struct). The plain right may be a closed
+  -- `#Def` (no tail), so the meet can be closed — `closeTailResult` carries its clause (SC-1e).
   | some tail, [], none, [] =>
       match mergeStructFieldsWith meetValue leftFields rightFields with
-      | some merged => mkStruct (applyTailToExtrasWith meetValue leftFields tail merged) .defOpenViaTail (some tail) []
+      | some merged => closeTailResult (applyTailToExtrasWith meetValue leftFields tail merged) tail []
       | none => .bottom
-  -- tail on the RIGHT, plain left (legacy struct × structTail — REVERSED field-merge order)
+  -- tail on the RIGHT, plain left (legacy struct × structTail — REVERSED field-merge order). The
+  -- plain left may be a closed `#Def`, so the meet can be closed — `closeTailResult` carries it.
   | none, [], some tail, [] =>
       match mergeStructFieldsWith meetValue rightFields leftFields with
-      | some merged => mkStruct (applyTailToExtrasWith meetValue rightFields tail merged) .defOpenViaTail (some tail) []
+      | some merged => closeTailResult (applyTailToExtrasWith meetValue rightFields tail merged) tail []
       | none => .bottom
-  -- tail on BOTH (legacy structTail × structTail)
+  -- tail on BOTH (legacy structTail × structTail). Both sides bear a tail ⇒ both open ⇒ the meet
+  -- is open and `bothClauses = []`; routed through `closeTailResult` for uniformity (its closed
+  -- branch is unreachable here, but the carry rule stays in one place).
   | some leftT, [], some rightT, [] =>
       match mergeStructFieldsWith meetValue leftFields rightFields with
       | some merged =>
           let tail := meetValue leftT rightT
           if isBottom tail then .bottom
           else
-            mkStruct
+            closeTailResult
               (applyTailToExtrasWith meetValue leftFields leftT
                 (applyTailToExtrasWith meetValue rightFields rightT merged))
-              .defOpenViaTail (some tail) []
+              tail []
       | none => .bottom
   -- patterns on the LEFT, plain right (legacy structPattern(s) × struct): the pattern side is
   -- the merge-left, exactly as the legacy arms passed `patternFields` first regardless of order.
@@ -1002,11 +1020,10 @@ def mergeStructN
                   | none => withLeftTail
                 let allPatterns := leftPatterns ++ rightPatterns
                 let withPatterns := applyPatternsToFieldsWith meetValue allPatterns withTails
-                -- SC-1e (KNOWN BUG, pending fix): this passes `closedClauses = []`, treating the
-                -- tail result as fully open. Wrong when either operand is CLOSED — an open `...`
-                -- partner does not re-open the closed conjunct (closedness is monotone). The fix
-                -- threads `bothClauses` here (a closed no-tail result) when it is non-empty.
-                mkStruct withPatterns .defOpenViaTail (some tail) allPatterns []
+                -- SC-1e: a closed operand (pattern- or field-closed) is not re-opened by the open
+                -- partner's `...`; `closeTailResult` collapses to a closed no-tail result carrying
+                -- `bothClauses` when the meet is closed, and keeps the open tail otherwise.
+                closeTailResult withPatterns tail allPatterns
           -- unreachable: this arm is only entered with ≥1 tail (the no-tail cases are arms
           -- 1/5/6/7 above), so `mergedTail` is always `some`; `.bottom` is the total fallback.
           | none => .bottom

@@ -10876,3 +10876,65 @@ from SC-1b. Filed in audit § SC-1e with a fix sketch (when either operand is cl
 closed no-tail result carrying `bothClauses`; the open `...` is vacuous against closedness).
 Its own slice. **Audit counter = 2 (RESID-MASK-2 = 1, SC-1b = 2); two-phase audit DUE after
 this.**
+
+## Completed Slice: SC-1e — closed × open-`...` keeps closedness (monotonicity) + EMBED-CLOSE-1 pin (2026-06-21)
+
+**The closedness family is now FULLY CLOSED** (SC-1/1b/1c/1d/1e + SC-2 all DONE; EMBED-CLOSE-1
+pinned). cue is CORRECT here; kue was wrong (re-opened a closed struct).
+
+### The bug — broader than the single-arm diagnosis
+
+A CLOSED struct met with an open-`...` partner wrongly re-opened: the result admitted fields the
+closed operand forbids and emitted a trailing `...`. Witness `(#A & #B) & {x1: 5, ...}` with
+`#A: {[=~"^x"]}`, `#B: {[=~"^y"]}` → kue admitted `x1` (cue rejects `field not allowed`); the
+no-`...` control already rejected. Root: every tail-bearing arm of `mergeStructN` hardcoded
+`mkStruct … .defOpenViaTail (some tail) []`, passing `closedClauses = []` and DROPPING
+`bothClauses`. The phase-B breadcrumb diagnosed only the tail×patterns CATCH-ALL arm (1009),
+because its pattern-closed witness routed there. **Instrumenting found the bug is wider:** a
+FIELD-closed def (`#C: {a: int}`, no patterns) routes through the `struct × structTail` arm
+(`none, [], some tail, []`) — `#C & {a:1, b:2, ...}` admitted `b` (cue rejects). Arms 2, 3, AND
+the catch-all all dropped the clause; arm 4 (tail×tail) is safe (both operands open ⇒
+`bothClauses = []`). Recorded as a refinement to the audit diagnosis (single-arm → all-tail-arms).
+
+### The fix — one `closeTailResult` helper, driven by `closedOpenness`
+
+`StructOpenness.meet` already computes the result openness correctly (`defClosed` dominates
+`defOpenViaTail`), so the fix needs no new openness logic — only to USE it. Added a local
+`closeTailResult (mergedFields) (tail) (patterns)` in `mergeStructN` that branches on
+`closedOpenness.isOpen`:
+- **open** (every operand open, `bothClauses = []`): keep the open tail —
+  `mkStruct mergedFields closedOpenness (some tail) patterns []`.
+- **closed**: collapse to a closed no-tail result —
+  `mkStruct (applyBothClosedness mergedFields) closedOpenness none patterns bothClauses`. The
+  partner's bare `...` is vacuous against a closed allowed-set; forbidden extras become `_|_` via
+  `applyBothClosedness` (= `applyClausesWith bothClauses`), exactly as the no-`...` control does.
+
+All four tail arms (2/3/4/catch-all) route through the single helper — the carry rule lives in
+one place (DRY at a meaningful name: "finalize a tail-bearing meet honoring closedness
+monotonicity"). The `closedClauses = [] ↔ open` invariant holds: the open branch passes `[]` with
+an open openness, the closed branch passes `bothClauses` (non-empty when a closed operand is
+present) with `defClosed`. `Lattice.lean:907-922` (helper) + the four arm callsites.
+
+### EMBED-CLOSE-1 — pin-only, no code change
+
+kue already rejects `y1 ∉ #A`'s `^x` in BOTH the embed form `{#A, y1}` and the meet form
+`#A & {y1}` (closedness preserved through embedding — monotone, same theme). cue self-contradicts
+(admits the embed form, rejects the meet form; `cue-divergences.md` row already filed by phase-A,
+now `pinned`). Neither form carries a `...`, so the SC-1e tail fix leaves them untouched; the pins
+LOCK the existing-correct rejection against a future closedness regression.
+
+### Tests (9 `native_decide` pins + 4 fixture pairs) + verify
+
+`StructTests` `### SC-1e` (7 end-to-end `exportJson{Bottoms,Matches}`): pattern-closed reject
+(witness) + admit-allowed, field-closed reject (arm 3, the wider bug) + admit-allowed,
+reversed-arm reject, open×open-`...` stays-open REGRESSION. `### EMBED-CLOSE-1` (2 pins): meet-form
++ embed-form reject. Fixture pairs `definitions/sc1e_closed_open_tail_rejects`,
+`sc1e_closed_open_tail_admits`, `sc1e_field_closed_open_tail_rejects`, `embed_close1_pin` (each
+with a FixturePorts Lean port). Every case oracle-confirmed vs cue v0.16.1.
+
+Gate: `lake build` green (108 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok` (zero drift +
+4 new pairs); `shellcheck` n/a (no shell touched); **cert-manager export semantically = cue AND
+byte-identical to the pre-fix HEAD baseline** (worktree-compared — the fix is a pure no-op on that
+workload, which has no closed×open-`...` meet, confirming the change is surgical). One
+`cue-divergences.md` row updated to `pinned` (EMBED-CLOSE-1); no new divergence/gap (kue MATCHES cue
+on SC-1e; cue is correct there).

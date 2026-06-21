@@ -751,4 +751,72 @@ theorem sc1b_closed_empty_rejects_extra :
     exportJsonBottoms "out: close({}) & {x: 1}\n" = true := by
   native_decide
 
+/-! ## SC-1e — closed × open-`...` keeps closedness (monotonicity under meet)
+
+A CLOSED struct met with an open-`...` partner stays CLOSED: closedness is monotone under
+meet, so the partner's bare `...` does NOT re-open the closed conjunct's allowed-set. The pre
+-fix tail-bearing arms dropped `bothClauses` (passed `closedClauses = []`) and emitted a
+`.defOpenViaTail` result, re-opening. The fix routes every tail arm through `closeTailResult`,
+which collapses to a closed no-tail result carrying `bothClauses` when the meet is closed. Each
+pin is oracle-confirmed against cue v0.16.1 (cue CORRECT here). Spec basis: closedness is a
+monotone/conjunctive constraint; `...` is a no-op against an already-closed allowed-set. -/
+
+-- WITNESS (pattern-closed, catch-all arm). `(#A & #B)` is closed to `^x ∩ ^y`; the open-`...`
+-- partner must NOT re-open it. `x1` matches `^x` but not `^y` → rejected, exactly as the no-`...`
+-- control `sc1b_disjoint_patterns_reject_one_sided_field`. Pre-SC-1e the `...` admitted `x1`.
+theorem sc1e_pattern_closed_open_tail_rejects :
+    exportJsonBottoms
+      "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^y\"]: int}\nout: (#A & #B) & {x1: 5, ...}\n" = true := by
+  native_decide
+
+-- Admit side: a field the closed allowed-set PERMITS still unifies; only the `...` is dropped.
+-- `x1` matches `^x` → `x1: 5` survives. Guards that the fix rejects only forbidden extras.
+theorem sc1e_pattern_closed_open_tail_admits_allowed :
+    exportJsonMatches
+      "#A: {[=~\"^x\"]: int}\nout: (#A & {x1: 5}) & {x1: 5, ...}\n"
+      "{\n    \"out\": {\n        \"x1\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- FIELD-closed (the `struct × structTail` arm, NOT the catch-all). `#C: {a: int}` is field-closed
+-- (no patterns); `b ∉ #C` → rejected, `...` dropped. Pins the fix across ALL tail arms, since the
+-- breadcrumb's witness (pattern-closed) exercised only the catch-all.
+theorem sc1e_field_closed_open_tail_rejects :
+    exportJsonBottoms "#C: {a: int}\nout: #C & {a: 1, b: 2, ...}\n" = true := by
+  native_decide
+
+theorem sc1e_field_closed_open_tail_admits_allowed :
+    exportJsonMatches "#C: {a: int}\nout: #C & {a: 1, ...}\n"
+      "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- REVERSED arm (`{...} & #C`, tail on the LEFT, closed on the right). Field-merge order is
+-- reversed, but the closing rule is the same: `z ∉ #C` → rejected.
+theorem sc1e_tail_left_closed_right_rejects :
+    exportJsonBottoms "#C: {a: int}\nout: {z: 9, ...} & #C\n" = true := by
+  native_decide
+
+-- REGRESSION (open × open-`...`): with NO closed operand, `bothClauses = []` and the `...`
+-- survives — the struct stays open and admits both fields. The fix must not over-close.
+theorem sc1e_open_open_tail_stays_open :
+    exportJsonMatches "out: {a: 1} & {b: 2, ...}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+/-! ## EMBED-CLOSE-1 — closedness preserved through embedding (kue spec-correct; cue self-contradicts)
+
+kue rejects `y1` (∉ `#A`'s `^x`) in BOTH the embed form `{#A, y1}` and the meet form `#A & {y1}`.
+cue SELF-CONTRADICTS: it admits the embed form but rejects the meet form (recorded in
+cue-divergences.md). kue follows the closedness-monotonicity spec — embedding a closed def does
+not drop its closedness — and stays consistent. Neither form carries a `...`, so the SC-1e
+tail-arm fix leaves these untouched; the pins LOCK the existing-correct rejection so a future
+closedness change cannot silently regress it. -/
+
+theorem embed_close1_meet_form_rejects :
+    exportJsonBottoms "#A: {[=~\"^x\"]: int}\nout: #A & {y1: 5}\n" = true := by
+  native_decide
+
+theorem embed_close1_embed_form_rejects :
+    exportJsonBottoms "#A: {[=~\"^x\"]: int}\nout: {#A, y1: 5}\n" = true := by
+  native_decide
+
 end Kue
