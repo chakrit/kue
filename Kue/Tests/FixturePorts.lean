@@ -453,6 +453,18 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- SC-1b: the meet of two closed pattern defs is closed to the INTERSECTION of their
+      -- allowed-sets. `x1` matches `#A`'s `^x` but not `#B`'s `^y`, so the later meet rejects
+      -- it (`x1: _|_`); both patterns survive as value-constraints. Driven through parse so the
+      -- full closed×closed-pattern path (not just the `meet` primitive) is exercised.
+      fileName := "definitions/sc1b_closed_pattern_intersection.expected",
+      content :=
+        match parseSource
+            "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^y\"]: int}\nout: (#A & #B) & {x1: 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- Optional definition (`#x?`) and optional hidden (`_x?`) fields: both modifiers are
       -- orthogonal, so the optional field merges with the provided value (`#x?` + `#x` →
       -- present definition), and selection sees the narrowed value. Driven through parse so

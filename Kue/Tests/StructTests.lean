@@ -1,6 +1,8 @@
 import Kue.Builtin
 import Kue.Format
 import Kue.Lattice
+import Kue.Runtime
+import Kue.Tests.EvalTestHelpers
 
 namespace Kue
 
@@ -169,7 +171,7 @@ theorem meet_closed_struct_allows_matching_field :
     meet
       (mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [])
       (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
-      = mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defClosed none [] := by
+      = mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defClosed none [] [⟨["a"], []⟩] := by
   rfl
 
 theorem meet_closed_left_rejects_extra_right_field :
@@ -180,7 +182,7 @@ theorem meet_closed_left_rejects_extra_right_field :
         mkStruct [
             ⟨"a", .regular, .prim (.int 1)⟩,
             ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"]⟩
-          ] .defClosed none [] := by
+          ] .defClosed none [] [⟨["a"], []⟩] := by
   rfl
 
 theorem meet_closed_struct_allows_hidden_and_definition_extra_fields :
@@ -196,7 +198,7 @@ theorem meet_closed_struct_allows_hidden_and_definition_extra_fields :
             ⟨"a", .regular, .prim (.int 1)⟩,
             ⟨"_h", .hidden, .prim (.string "secret")⟩,
             ⟨"#D", .definition, .kind .string⟩
-          ] .defClosed none [] := by
+          ] .defClosed none [] [⟨["a"], []⟩] := by
   rfl
 
 theorem meet_closed_right_rejects_extra_left_field :
@@ -207,7 +209,7 @@ theorem meet_closed_right_rejects_extra_left_field :
         mkStruct [
             ⟨"a", .regular, .prim (.int 1)⟩,
             ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"]⟩
-          ] .defClosed none [] := by
+          ] .defClosed none [] [⟨["a"], []⟩] := by
   rfl
 
 theorem meet_open_structs_accept_extra_field :
@@ -579,7 +581,7 @@ theorem closed_pattern_rejects_non_matching_extra_regular_field :
       (closeValue (mkStruct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))]))
       (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])
       ==
-        mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"]⟩] .defClosed none [((.stringRegex "^a$"), (.kind .int))]) = true := by
+        mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"]⟩] .defClosed none [((.stringRegex "^a$"), (.kind .int))] [⟨[], [.stringRegex "^a$"]⟩]) = true := by
   native_decide
 
 theorem closed_pattern_allows_hidden_and_definition_extra_fields :
@@ -595,7 +597,7 @@ theorem closed_pattern_allows_hidden_and_definition_extra_fields :
             ⟨"a", .regular, .prim (.int 1)⟩,
             ⟨"_h", .hidden, .prim (.string "secret")⟩,
             ⟨"#D", .definition, .kind .string⟩
-          ] .defClosed none [((.stringRegex "^a$"), (.kind .int))]) = true := by
+          ] .defClosed none [((.stringRegex "^a$"), (.kind .int))] [⟨[], [.stringRegex "^a$"]⟩]) = true := by
   native_decide
 
 theorem closed_multiple_patterns_allow_any_matching_regular_field :
@@ -612,7 +614,7 @@ theorem closed_multiple_patterns_allow_any_matching_regular_field :
             ⟨"ax", .regular, .prim (.int 2)⟩,
             ⟨"bz", .regular, .prim (.string "ok")⟩,
             ⟨"m", .regular, .bottomWith [.fieldNotAllowed "m"]⟩
-          ] .defClosed none [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)]) = true := by
+          ] .defClosed none [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)] [⟨[], [.stringRegex "^a", .stringRegex "z$"]⟩]) = true := by
   native_decide
 
 -- RATIFIED spec-gap (`cue-spec-gaps.md`, area A): an un-narrowed struct-arm disjunction
@@ -651,6 +653,102 @@ theorem meet_struct_field_order_is_declaration_order :
         (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])
         (mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none []))
       = "{b: 1, a: 2}" := by
+  native_decide
+
+/-! ## SC-1b — closed × closed-pattern intersection (per-conjunct allowed-set provenance)
+
+The meet of two CLOSED structs is closed to the INTERSECTION of their allowed-sets: a field
+survives iff EVERY closed conjunct admits it (`label ∈ its fields` OR matches one of its
+closing patterns). The pre-fix flat-union `closingPatterns` store admitted a field matching
+ANY conjunct's pattern; `closedClauses` carries each conjunct's allowed-set as one clause and
+AND-s them, so the lossy later-meet is gone. Each pin is oracle-confirmed against cue v0.16.1.
+Spec basis: closedness guide ("which conjuncts introduced which patterns and closedness
+constraints"); closing = adding `..._|_` (monotone/conjunctive). -/
+
+-- WITNESS. Disjoint patterns `^x` / `^y`: a field matching ONE operand's pattern but not the
+-- other's is rejected on a later meet — the bug the union-store missed. `x1` matches `^x`
+-- (`#A`) but not `^y` (`#B`); cue rejects, and so must Kue.
+theorem sc1b_disjoint_patterns_reject_one_sided_field :
+    exportJsonBottoms
+      "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^y\"]: int}\nout: (#A & #B) & {x1: 5}\n" = true := by
+  native_decide
+
+theorem sc1b_disjoint_patterns_reject_other_sided_field :
+    exportJsonBottoms
+      "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^y\"]: int}\nout: (#A & #B) & {y1: 5}\n" = true := by
+  native_decide
+
+-- A field matching BOTH patterns survives (the intersection is non-empty). `^x` ∩ `^xy`:
+-- `xyz` matches both → admitted and unified.
+theorem sc1b_overlapping_patterns_admit_doubly_matching_field :
+    exportJsonMatches
+      "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^xy\"]: int}\nout: (#A & #B) & {xyz: 5}\n"
+      "{\n    \"out\": {\n        \"xyz\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- A field matching the BROADER pattern but not the NARROWER is rejected (intersection is the
+-- narrower). `^x` ∩ `^xy`: `xa` matches `^x` only → rejected.
+theorem sc1b_narrower_pattern_rejects_broad_only_field :
+    exportJsonBottoms
+      "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^xy\"]: int}\nout: (#A & #B) & {xa: 5}\n" = true := by
+  native_decide
+
+-- FIELD-SIDE (CRUX). A closed conjunct with NO patterns (allows only its declared fields)
+-- rejects a later field that matches the OTHER conjunct's pattern. `#A` allows only `{a}`;
+-- `x1` matches `#B`'s `^x` but not `#A` → rejected. The merged result over-approximates each
+-- clause's field-set, so this needs the per-clause field-labels (not the merged `fields`).
+theorem sc1b_field_only_clause_rejects_pattern_matched_field :
+    exportJsonBottoms
+      "#A: {a?: int}\n#B: {[=~\"^x\"]: int}\nout: (#A & #B) & {x1: 5}\n" = true := by
+  native_decide
+
+-- The `[string]`-broad clause narrowed by a `^x` clause: only `^x` labels survive. `y1`
+-- rejected (fails `^x`), `x1` admitted (matches both).
+theorem sc1b_broad_then_narrow_rejects_non_matching :
+    exportJsonBottoms
+      "#A: {[string]: int}\n#B: {[=~\"^x\"]: int}\nout: (#A & #B) & {y1: 5}\n" = true := by
+  native_decide
+
+theorem sc1b_broad_then_narrow_admits_matching :
+    exportJsonMatches
+      "#A: {[string]: int}\n#B: {[=~\"^x\"]: int}\nout: (#A & #B) & {x1: 5}\n"
+      "{\n    \"out\": {\n        \"x1\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- THREE-way associativity: a field must match ALL THREE clauses. `a1` matches only `^a` → out.
+theorem sc1b_three_way_intersection_rejects_partial_match :
+    exportJsonBottoms
+      ("#A: {[=~\"^a\"]: int}\n#B: {[=~\"^b\"]: int}\n#C: {[=~\"^c\"]: int}\n"
+        ++ "out: (#A & #B & #C) & {a1: 5}\n") = true := by
+  native_decide
+
+-- NESTED closedness: the intersection rule applies at each depth. `sub.x1` matches `#A.sub`'s
+-- `^x` but not `#B.sub`'s `^y` → rejected.
+theorem sc1b_nested_closed_intersection :
+    exportJsonBottoms
+      ("#A: {sub: {[=~\"^x\"]: int}}\n#B: {sub: {[=~\"^y\"]: int}}\n"
+        ++ "out: (#A & #B) & {sub: {x1: 5}}\n") = true := by
+  native_decide
+
+-- The DIRECT meet of two same-pattern closed defs with disjoint REQUIRED fields bottoms
+-- (each required field is rejected by the other's closedness) — the at-this-meet marking,
+-- already correct before SC-1b, preserved.
+theorem sc1b_direct_meet_disjoint_required_bottoms :
+    exportJsonBottoms
+      "#A: {a: int, [=~\"^x\"]: int}\n#B: {b: int, [=~\"^x\"]: int}\nout: #A & #B\n" = true := by
+  native_decide
+
+-- close() is IDEMPOTENT on a meet-result: it must NOT collapse the per-conjunct clauses into
+-- a single self-clause. `close(#A & #B)` still rejects a one-sided-pattern field.
+theorem sc1b_close_preserves_conjunct_clauses :
+    exportJsonBottoms
+      "#A: {[=~\"^x\"]: int}\n#B: {[=~\"^y\"]: int}\nout: close(#A & #B) & {x1: 5}\n" = true := by
+  native_decide
+
+-- Closed-EMPTY meet: `close({}) & {x:1}` rejects (the closed-empty clause admits nothing — a
+-- closed struct always carries ≥1 clause, never the open `[]`).
+theorem sc1b_closed_empty_rejects_extra :
+    exportJsonBottoms "out: close({}) & {x: 1}\n" = true := by
   native_decide
 
 end Kue

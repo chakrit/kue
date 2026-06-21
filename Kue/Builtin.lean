@@ -11,11 +11,15 @@ namespace Kue
 def closeValue : Value -> Value
   -- A tail-bearing struct passes through unchanged (an explicit `...` keeps it open); every
   -- other struct closes (openness → `defClosed`, tail is `none` by coherence).
-  | .struct fields .defOpenViaTail tail patterns closingPatterns =>
-      .struct fields .defOpenViaTail tail patterns closingPatterns
-  -- close() makes the struct's OWN patterns close (widen the allowed set), so `mkStruct`'s
-  -- default `closingPatterns = patterns.map Prod.fst` is exactly right.
-  | .struct fields _ _ patterns _ => mkStruct fields .defClosed none patterns
+  | .struct fields .defOpenViaTail tail patterns closedClauses =>
+      .struct fields .defOpenViaTail tail patterns closedClauses
+  -- An ALREADY-closed struct is returned as-is: `close()` is idempotent and must not collapse
+  -- a meet-result's per-conjunct clauses into a single self-clause (that would re-admit fields
+  -- an individual conjunct rejects — SC-1b). `defClosed` always carries ≥1 clause.
+  | s@(.struct _ .defClosed _ _ _) => s
+  -- An OPEN (no-tail) struct closes: `mkStruct`'s default gives the single self-clause
+  -- `{fieldLabels := fields.map .label, patterns := patterns.map .fst}`.
+  | .struct fields .regularOpen _ patterns _ => mkStruct fields .defClosed none patterns
   | value => value
 
 def countRegularFields : List Field -> Nat

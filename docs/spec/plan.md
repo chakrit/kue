@@ -116,7 +116,11 @@ argocd residual **Bug2-5** (PARKED), **BI-1** (✅ DONE 2026-06-20 — Unicode c
 full-folding tail deferred), **E#4-fix** (✅ DONE 2026-06-20 — arithmetic operator domain now
 type-errors concrete out-of-domain operands + string/bytes `*` repetition; see item #6),
 **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
-**SC-1b** (closed×closed-pattern), **A#6** (✅ DONE 2026-06-21 — `containsBottom` made
+**SC-1b** (✅ DONE 2026-06-21 — closed×closed-pattern intersection via `closedClauses`
+provenance; flat-union → per-conjunct-clause conjunction; see audit § SC-1b + implementation-log),
+**SC-1e** (closed×open-`...` — NEWLY DIAGNOSED during SC-1b, pre-existing, MED; closed conjunct
+re-opened by an open-tail partner; B2.5 tail-arm drops the clause — see audit § SC-1e),
+**A#6** (✅ DONE 2026-06-21 — `containsBottom` made
 TOTAL/structural, fuel cap removed; deep non-cyclic bottoms no longer escape pruning; see the
 audit doc § Low/hardening + implementation-log), **DYN-DEF-1**
 (✅ DONE 2026-06-20 — a dynamic field with a non-concrete key now DEFERS as a residual instead of
@@ -313,8 +317,10 @@ a merely-incomplete arm is never pruned; adversarially verified) **and spec-cons
 recorded as a **`cue-spec-gap`** (not a divergence), kue's behavior PINNED. The **MEET-RESID-1 ripple
 family is now CLOSED.** → **(2) AD2-1** (LOW-MED disjunction-normalizer dedup, file-not-inline,
 value-sound display-only; orchestrator-DEFERRED — display-contract rename needs a human sign-off) →
-**(3) SC-1b** (closed×closed-pattern — the next CLEAN autonomous item) / the LOW cosmetic tail (item
-6) / BI-2-residual / **EvalOps extraction** (mechanical carve). **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
+**(3) SC-1b** (✅ DONE 2026-06-21 — closed×closed-pattern intersection; `closedClauses`
+provenance) → **(3b) SC-1e** (closed×open-`...`, NEWLY DIAGNOSED, pre-existing MED — the next
+CLEAN closedness item) / the LOW cosmetic tail (item 6) / BI-2-residual / **EvalOps extraction**
+(mechanical carve). **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
 now survives a `meet` via the new `meetWithFuel` arm, and the comprehension-body lift holds it).
 **⚠ CORRECTION (Phase-A 2026-06-21):** the original "structural gate — a `.structComp` can never
 mask a conflict" claim was FALSE — a `.structComp` CAN hold an inner `.bottomWith` field conflict,

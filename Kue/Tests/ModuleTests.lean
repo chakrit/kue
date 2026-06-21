@@ -80,7 +80,7 @@ example :
     the import binding stays output-reachability-lazy). -/
 example :
     (bindImports [("defs", mkStruct [] .regularOpen none [])] (mkStruct [⟨"out", .regular, .top⟩] .defClosed none [])
-      == mkStruct [⟨"defs", .importBinding, mkStruct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none []) = true := by
+      == mkStruct [⟨"defs", .importBinding, mkStruct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none [] [⟨["out"], []⟩]) = true := by
   native_decide
 
 /-- `dedupeBindings` keeps the FIRST binding per name and drops later duplicates — the same

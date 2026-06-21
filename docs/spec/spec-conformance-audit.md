@@ -54,7 +54,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | Area                       | Auditor | Status | Findings (V/CUE-BUG/SUSPECT)                                                                                                                                                                   |
 | -------------------------- | ------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A. Disjunctions/narrowing  | batch 1 | DONE   | 1 KUE-VIOLATES (disj display); **Gap-2b/Bug2-3 FIXED 2026-06-19** (cue correct; structural list-vs-struct arm prune); 2 spec gaps; rest CONFORMS                                               |
-| B. Closedness/definitions  | batch 1 | DONE   | SC-1/1c/1d + SC-2 (nested def-body closedness) all FIXED 2026-06-19 — closedness cluster drained; import-laziness recorded as a deliberate gap; rest CONFORMS                                  |
+| B. Closedness/definitions  | batch 1 | MOSTLY | SC-1/1c/1d + SC-2 FIXED 2026-06-19; **SC-1b (closed×closed-pattern intersection) FIXED 2026-06-21** via `closedClauses` provenance; **SC-1e (closed×open-tail) OPEN** (pre-existing, MED); import-laziness a deliberate gap |
 | C. Structs/lists           | batch 1 | DONE   | 1 KUE-VIOLATES (pattern-meet closedness); 1 spec gap (field order); rest CONFORMS                                                                                                              |
 | D. Comprehensions/scoping  | batch 2 | **CLOSED** | guard catch-all DRAINED (**D#1a/D#1b/D#1c all FIXED**: bottom→propagate, incomplete→defer, concrete-non-bool→type-error; 2026-06-20); structural cycles **D#2 COMPLETE 2026-06-20** (D#2a detection + D#2b terminating-disjunct); **`let`-clauses D#3 FIXED 2026-06-20** (parse + `Clause.letClause` + `let` = +1 frame; the LAST open D-item); frame-model + read-splice CONFORM — **D-area now fully closed** |
 | E. Scalars/bounds/builtins | batch 2 | DONE   | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); **BI-2 math.Pow exact + list.Sort/SortStable FIXED 2026-06-20** (residual: Sqrt + apd-Pow tail deferred = BI-2-residual); 1 MED builtin remains (BI-1 ASCII case-fold, reordered after F-3 — needs Unicode-table data decision); numeric/bounds/division/decimal core CONFORMS |
@@ -271,16 +271,47 @@ and emits `Infinity` for `Pow(0,neg)`. Needs an apd-equivalent decimal nth-root/
 risks colliding with the exact-decimal formatter) vs a decimal-precision numeric-methods module
 (apd-style, keeps exactness philosophy). Lower priority than the feature tail; no real app needs it.
 
-**SC-1b (MED — soundness, pre-existing & broader than SC-1).** The `closingPatterns`
-carry-forward is a UNION across conjuncts; for two CLOSED defs with DISJOINT explicit
-fields but overlapping patterns (`#A:{a,[=~"^x"]} & #B:{b,[=~"^x"]}`), the correct forward
-allowed-set is the INTERSECTION of the two (`out.a`/`out.b` rejected, `x1` admitted). The
-union-store admits `a` /`b` on a LATER meet against the result (the at-this-meet marking
-is correct via sequential closedness application; only the stored forward set is lossy).
-cue rejects `a` /`b`; current Kue (both before and after SC-1) admits them. Needs an
-intersection-aware closed allowed-set representation. Not introduced by SC-1 — SC-1 made
-the pattern-vs-plain case correct; this is the closed×closed-pattern case. (Sits with the
-MED tail — pre-existing, narrower than SC-1.)
+**SC-1b — DONE (2026-06-21).** Closed×closed-pattern intersection. The old `closingPatterns
+: List Value` was a FLAT UNION across conjuncts — it could only express "matches ANY stored
+predicate," so a meet of two closed structs admitted a field matching EITHER conjunct's
+pattern. The correct closed allowed-set is the INTERSECTION: a field survives iff EVERY
+closed conjunct admits it. A flat list of label-predicates cannot represent this (you cannot
+intersect "matches `^x`" and "matches `^y`" into one regex). **Fix: provenance-carrying
+representation** — replaced `closingPatterns` with `closedClauses : List ClosedClause`,
+where each clause `{fieldLabels, patterns}` is ONE closed conjunct's allowed-set; a field is
+admitted iff EVERY clause admits it (`ignoresClosedness` escapes; empty clause list = open).
+A self-closed struct carries one clause; a meet CONCATENATES clauses (conjunction). This is
+exactly the provenance the closedness guide mandates ("which conjuncts introduced which
+patterns and closedness constraints"). The original audit witness (same-pattern `^x`,
+disjoint *explicit* fields) was MASKED — the disjoint required fields materialize and
+poison, so the union-store's lossiness wasn't observable there. The REAL witnesses use
+DIFFERENT patterns: `#A:{[=~"^x"]} & #B:{[=~"^y"]}` then `& {x1}` — `x1` matches `^x` not
+`^y`, must be rejected (cue rejects; pre-fix Kue admitted). Field-side too (CRUX): a
+field-only closed clause `#A:{a?}` must reject a later `x1` that matches `#B`'s `^x` (the
+merged `fields` over-approximates each clause's field-set, so per-clause field-labels are
+needed). 17 pins: 12 source-level (`exportJson{Bottoms,Matches}` in `StructTests` `### SC-1b`
+— disjoint/overlapping/narrower patterns, field-only-clause, broad-then-narrow, 3-way assoc,
+nested, direct-meet, `close()`-idempotence, closed-empty) + 5 clause-logic units
+(`fieldAllowedByClausesWith` = `all`/conjunction, in `LatticeTests`) + a fixture pair
+(`definitions/sc1b_closed_pattern_intersection`). cert-manager export still semantically =
+cue (def-meet hot path clean). All oracle-confirmed vs cue v0.16.1.
+
+**SC-1e (MED — soundness, pre-existing, NEWLY DIAGNOSED during SC-1b; NOT yet fixed).**
+Closed × OPEN-via-`...` interaction. A CLOSED struct met with an open-tail struct must STAY
+closed — the `...` from the open operand does NOT re-open the closed conjunct (closedness is
+monotone). cue: `#A:{[=~"^x"]} & {b:1, ...}` rejects `b` (`out.b: field not allowed`); `(#A &
+{...}) & {y1}` rejects `y1`; `(#A:{a} & {...}) & {b}` rejects `b`. Kue ADMITS all (both before
+and after SC-1b — confirmed against the `f0613e5` baseline, so PRE-EXISTING, not an SC-1b
+regression). Root: the B2.5 tail×patterns composition arm in `mergeStructN` (the final
+catch-all) produces a `defOpenViaTail` result with EMPTY `closedClauses`, dropping the closed
+operand's clause. Two CLOSED structs never reach this arm (closed ⇒ no tail), so it is
+strictly the closed×open-tail case, disjoint from SC-1b. **Fix sketch:** when either operand
+is closed (`bothClauses` non-empty), the result is CLOSED — carry `bothClauses`, apply
+`applyBothClosedness` to the merged fields, and DROP the tail (a closed struct admits no
+extras, so the open operand's bare `...` is vacuous; cue confirms `...` acts as a no-op
+constraint here). This needs the `closedClauses = [] ↔ open` invariant to admit a
+closed-AND-tail-bearing intermediate, OR (cleaner) collapse to a no-tail `defClosed` result.
+Its own slice with its own test sweep — do not fold into SC-1b. (MED tail.)
 
 **RX-2a — DONE (2026-06-20).** In-class `\D`/`\W`/`\S` set-complement folding. See Audit
 history + implementation-log. The regex corpus is now divergence-free (RX-1 trilogy +

@@ -10790,3 +10790,89 @@ SEMANTICALLY identical to cue on the disjunction path. No `cue-divergences.md` c
 = 1 (this is slice 1 of the new batch; audit due after 2–3).** Next leader: **SC-1b** (closed×closed-
 pattern); the remaining tail is increasingly user-input-gated (AD2-1 display contract, SC-3 coupled
 with it, BI-2-residual = the Float/NaN/Infinity numeric-model undertaking).
+
+---
+
+## Completed Slice: SC-1b — closed × closed-pattern intersection (per-conjunct provenance)
+
+Goal: fix the closed allowed-set so the meet of two CLOSED structs is closed to the
+INTERSECTION of their allowed-sets (a field survives iff EVERY closed conjunct admits it),
+not the union.
+
+### The bug
+
+The struct's closed allowed-set was stored as `closingPatterns : List Value` — a FLAT list
+of label-predicates checked with `any` ("matches ANY stored predicate"). That is a UNION.
+The meet of two closed structs carried `leftClosingPatterns ++ rightClosingPatterns`, so a
+later meet against the result admitted a field matching EITHER operand's pattern. CUE's rule
+is the INTERSECTION: closedness is conjunctive/monotone ("closing = adding `..._|_`"), so a
+field must satisfy each closed conjunct independently. A flat predicate list cannot express
+this — "matches `^x`" ∩ "matches `^y`" is not a single regex.
+
+The original audit witness (same pattern `^x` on both, disjoint *explicit* fields `a`/`b`)
+was MASKED: the disjoint required fields materialize in the result and get poisoned
+(`fieldNotAllowed`), which independently rejects any later re-introduction — so the
+union-store's lossiness was unobservable there. The REAL witnesses use DIFFERENT patterns:
+`#A:{[=~"^x"]} & #B:{[=~"^y"]}` then `& {x1: 5}` — `x1` matches `^x` but not `^y`, must be
+rejected. Pre-fix Kue admitted it; cue rejects (oracle v0.16.1). Field-side too (CRUX): a
+field-only closed clause `#A:{a?}` met with `#B:{[=~"^x"]}` must reject a later `x1` (matches
+`#B`'s pattern but not `#A`'s `{a}` allowed-set) — the merged `fields` list over-approximates
+each clause's own field-set, so per-clause field-labels are required.
+
+### The fix — `closedClauses : List ClosedClause` (provenance, illegal-states-unrepresentable)
+
+Replaced `closingPatterns : List Value` on `Value.struct` with `closedClauses : List
+ClosedClause`, where `ClosedClause = {fieldLabels : List String, patterns : List Value}` is
+ONE closed conjunct's allowed-set. A field is admitted iff it `ignoresClosedness` OR EVERY
+clause admits it (`label ∈ clause.fieldLabels` OR matches one of `clause.patterns`). An empty
+clause list = open. Invariant (enforced in `mkStruct`): `closedClauses = [] ↔ open`; a closed
+struct ALWAYS carries ≥1 clause (even `close({})` → one all-empty clause, admitting nothing).
+A self-closed struct gets one clause `{fields.map .label, patterns.map .fst}`; a meet
+CONCATENATES the conjuncts' clauses (the conjunction). This is exactly the provenance the
+CUE closedness guide mandates ("you will likely need provenance: which conjuncts introduced
+which patterns and closedness constraints").
+
+- `Value.lean`: new mutual-block `structure ClosedClause`; `struct` ctor field renamed/retyped;
+  `mkStruct` default = single self-clause when closed, `[]` when open; `dedupClauses` /
+  `canonicalizeClause` / `dedupStrings` / `ClosedClause.mapPatterns` helpers.
+- `Lattice.lean`: `fieldAllowedByClauseWith` (one clause), `fieldAllowedByClausesWith`
+  (conjunction = `all`), `applyClausesWith` (single pass); `mergeStructN` now threads
+  `leftClauses`/`rightClauses`, carries `bothClauses = leftClauses ++ rightClauses` forward,
+  and applies the conjunction at the meet (replacing the two sequential per-side passes).
+- `Builtin.lean` `closeValue`: idempotent on an already-closed struct (returns it unchanged —
+  must NOT collapse a meet-result's clauses to a single self-clause); only OPEN structs get
+  the default self-clause.
+- `Eval`/`Resolve`/`Normalize`/`Module`: recursion sites map over each clause's `patterns`
+  (via `ClosedClause.mapPatterns`); the `Normalize` closed-no-pattern arm routed through
+  `mkStruct` (was a raw `.struct … []`, now clause-less-closed is unconstructable).
+
+### Tests (17 `native_decide` pins + 1 fixture pair) + verify
+
+`StructTests` `### SC-1b` (12 source-level `exportJson{Bottoms,Matches}`): disjoint-pattern
+one-sided reject (both directions), overlapping-pattern double-match admit, narrower-pattern
+broad-only reject, field-only-clause reject (CRUX), broad-then-narrow reject+admit, 3-way
+associativity, nested closedness, direct-meet-disjoint-required bottom, `close()`-idempotence,
+closed-empty reject. `LatticeTests` `### SC-1b` (5 clause-logic units): `fieldAllowedByClausesWith`
+is conjunction (`all` not `any`) — single-match reject, double-match admit, field-clause reject,
+empty=open, ignoresClosedness escape. Fixture pair `definitions/sc1b_closed_pattern_intersection`.
+All migrated existing closedness pins (`Struct`/`Lattice`/`Builtin`/`Module`/`Parse`Tests) updated
+for the clause representation. Every case oracle-confirmed vs cue v0.16.1.
+
+Gate: `lake build` green (108 jobs); `scripts/check-fixtures.sh` → `fixture pairs ok` (zero drift +
+the new SC-1b pair); `shellcheck` clean (no shell touched); **cert-manager export SEMANTICALLY
+identical to cue** (closedness is the def-meet hot path — prod9 uses closed defs heavily). No
+`cue-divergences.md`/`cue-spec-gaps.md` change (Kue now MATCHES cue; the spec mandates the
+provenance, so no gap).
+
+### Newly diagnosed during this slice: SC-1e (closed × open-`...`) — pre-existing, NOT fixed
+
+A CLOSED struct met with an OPEN-via-`...` struct must STAY closed (the `...` from the open
+operand does not re-open the closed conjunct — monotonicity). cue rejects `#A:{[=~"^x"]} &
+{b:1, ...}`'s `b`; Kue admits (verified against the `f0613e5` baseline → PRE-EXISTING, not an
+SC-1b regression). Root: the B2.5 tail×patterns arm in `mergeStructN` produces a
+`defOpenViaTail` result with empty clauses, dropping the closed operand's clause. Two closed
+structs never reach that arm (closed ⇒ no tail), so it is strictly closed×open-tail, disjoint
+from SC-1b. Filed in audit § SC-1e with a fix sketch (when either operand is closed, produce a
+closed no-tail result carrying `bothClauses`; the open `...` is vacuous against closedness).
+Its own slice. **Audit counter = 2 (RESID-MASK-2 = 1, SC-1b = 2); two-phase audit DUE after
+this.**

@@ -160,8 +160,10 @@ def dedupeBindings (bindings : List (String × Value)) : List (String × Value) 
     sites can keep an unreferenced bound package lazy. Non-struct top-level values are
     wrapped so the bindings still land in scope. -/
 def bindImports (bindings : List (String × Value)) : Value -> Value
-  | .struct fields openness tail patterns closingPatterns =>
-      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ fields) openness tail patterns closingPatterns
+  | .struct fields openness tail patterns closedClauses =>
+      -- Import bindings are `importBinding` (ignore closedness), so the clauses' field-label
+      -- sets need not list them; carry `closedClauses` through unchanged.
+      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ fields) openness tail patterns closedClauses
   | value =>
       mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) .defClosed none []
 

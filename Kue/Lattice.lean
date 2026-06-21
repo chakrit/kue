@@ -186,7 +186,8 @@ def containsBottom : Value -> Bool
   | .index base key => containsBottom base || containsBottom key
   | .disj alternatives => containsBottomAlts alternatives
   | .struct fields _ tail patterns _ =>
-      -- Fields, optional tail, patterns (closingPatterns ⊆ patterns' label-predicates).
+      -- Fields, optional tail, patterns (closed clauses' predicates ⊆ patterns', so they add
+      -- no new bottom sites).
       containsBottomFields fields
         || (match tail with | some t => containsBottom t | none => false)
         || containsBottomPatterns patterns
@@ -828,33 +829,41 @@ def applyPatternsClosednessWith
     (fields : List Field) : List Field :=
   fields.map (applyPatternsClosednessToFieldWith meetValue declaredFields patterns open_)
 
-/-- SC-1 closing check, keyed on a side's CLOSING label-predicates (not all its patterns).
-    A field is allowed by this side iff the side is open, OR the field is one of the side's
-    declared fields / ignores closedness, OR it matches one of the side's CLOSING patterns.
-    The distinction from `applyPatternsClosednessWith`: only patterns DECLARED by a closed
-    struct widen its allowed set. An OPEN conjunct's pattern (absorbed into a closed meet
-    result as a value-constraint) is NOT a closing pattern, so it does not re-open the
-    result — `#C & P & {z:9}` rejects `z` even though `P`'s `[string]` matches it. -/
-def fieldAllowedByClosingPatternsWith
+/-- SC-1b closing check for ONE closed clause (one closed conjunct's allowed-set). A field is
+    admitted by the clause iff its label is one of the clause's declared field-labels, OR it
+    matches one of the clause's CLOSING patterns. (The cross-cutting `ignoresClosedness`
+    escape is checked once by the caller, not per clause.) The distinction from
+    `applyPatternsClosednessWith`: only patterns a closed struct DECLARED close. An OPEN
+    conjunct's pattern (absorbed into a closed meet result as a value-constraint) contributes
+    NO clause, so it does not re-open the result — `#C & P & {z:9}` rejects `z` even though
+    `P`'s `[string]` matches it. -/
+def fieldAllowedByClauseWith
     (meetValue : Value -> Value -> Value)
-    (declaredFields : List Field)
-    (closingPatterns : List Value)
+    (clause : ClosedClause)
     (field : Field) : Bool :=
-  hasFieldLabel (Field.label field) declaredFields
-    || Field.ignoresClosedness field
-    || closingPatterns.any fun labelPattern => fieldMatchesPatternWith meetValue labelPattern field
+  clause.fieldLabels.contains (Field.label field)
+    || clause.patterns.any fun labelPattern => fieldMatchesPatternWith meetValue labelPattern field
 
-def applyClosingPatternsWith
+/-- A field is allowed by a CLAUSE CONJUNCTION (SC-1b) iff it ignores closedness, OR EVERY
+    clause admits it. An empty clause list is open (admits all). This is the intersection of
+    per-conjunct allowed-sets: a label must satisfy each closed conjunct independently, which
+    a flat union of label-predicates cannot express. -/
+def fieldAllowedByClausesWith
     (meetValue : Value -> Value -> Value)
-    (declaredFields : List Field)
-    (closingPatterns : List Value)
-    (open_ : Bool)
+    (clauses : List ClosedClause)
+    (field : Field) : Bool :=
+  Field.ignoresClosedness field
+    || clauses.all (fun clause => fieldAllowedByClauseWith meetValue clause field)
+
+def applyClausesWith
+    (meetValue : Value -> Value -> Value)
+    (clauses : List ClosedClause)
     (fields : List Field) : List Field :=
-  if open_ then
+  if clauses.isEmpty then
     fields
   else
     fields.map fun field =>
-      if fieldAllowedByClosingPatternsWith meetValue declaredFields closingPatterns field then
+      if fieldAllowedByClausesWith meetValue clauses field then
         field
       else
         markDisallowedField field
@@ -880,30 +889,29 @@ def mergeStructN
     (meetValue : Value -> Value -> Value)
     (leftFields : List Field) (leftOpenness : StructOpenness)
     (leftTail : Option Value) (leftPatterns : List (Value × Value))
-    (leftClosingPatterns : List Value)
+    (leftClauses : List ClosedClause)
     (rightFields : List Field) (rightOpenness : StructOpenness)
     (rightTail : Option Value) (rightPatterns : List (Value × Value))
-    (rightClosingPatterns : List Value) : Value :=
-  -- SC-1: the meet of two structs is closed iff either conjunct is closed
-  -- (`StructOpenness.meet`), and a field survives iff allowed by BOTH conjuncts. Each
-  -- conjunct's allowed set = its own fields + its own CLOSING patterns (an open conjunct
-  -- admits everything; a closed one admits its fields + the patterns it declared). We mark
-  -- via each side's closing check in turn, so the result is the intersection of the two
-  -- allowed sets. `closingPatterns` is carried forward as the union so a later meet still
-  -- closes correctly. NOTE (follow-up SC-1b): the union-store is lossy for two closed defs
-  -- with DISJOINT explicit fields but overlapping patterns — a later field added to such a
-  -- result is checked against the union, not the intersection; recorded in the audit.
+    (rightClauses : List ClosedClause) : Value :=
+  -- SC-1/SC-1b: the meet of two structs is closed iff either conjunct is closed
+  -- (`StructOpenness.meet`), and a field survives iff allowed by BOTH conjuncts. Each closed
+  -- conjunct's allowed set is ONE clause (its declared fields + the patterns it closed with);
+  -- an open conjunct contributes NO clause and admits everything. The result's allowed-set is
+  -- the CONJUNCTION of the two clause lists — a field survives iff EVERY clause admits it.
+  -- `bothClauses` (the concatenation) is carried forward verbatim, so a later meet against the
+  -- result still honours each original conjunct's closedness independently. This is what the
+  -- old flat-union `closingPatterns` store could not express: `#A:{[=~"^x"]} & #B:{[=~"^y"]}`
+  -- must admit a label only if it matches `^x` AND `^y` (SC-1b), not either.
   let closedOpenness := StructOpenness.meet leftOpenness rightOpenness
-  let bothClosingPatterns := leftClosingPatterns ++ rightClosingPatterns
+  let bothClauses := leftClauses ++ rightClauses
   let applyBothClosedness (merged : List Field) : List Field :=
-    applyClosingPatternsWith meetValue leftFields leftClosingPatterns leftOpenness.isOpen
-      (applyClosingPatternsWith meetValue rightFields rightClosingPatterns rightOpenness.isOpen merged)
+    applyClausesWith meetValue bothClauses merged
   match leftTail, leftPatterns, rightTail, rightPatterns with
   -- plain × plain
   | none, [], none, [] =>
       match mergeStructFieldsWith meetValue leftFields rightFields with
       | some merged =>
-          mkStruct (applyBothClosedness merged) closedOpenness none [] []
+          mkStruct (applyBothClosedness merged) closedOpenness none [] bothClauses
       | none => .bottom
   -- tail on the LEFT, plain right (legacy structTail × struct)
   | some tail, [], none, [] =>
@@ -930,16 +938,16 @@ def mergeStructN
   -- patterns on the LEFT, plain right (legacy structPattern(s) × struct): the pattern side is
   -- the merge-left, exactly as the legacy arms passed `patternFields` first regardless of order.
   -- SC-1: result openness = meet of BOTH sides (the plain side may be a closed `#Def`), and the
-  -- closedness applies BOTH sides — the plain side via its fields, the pattern side via its
-  -- CLOSING patterns. Left's patterns are applied as value-constraints; closing uses only the
-  -- closing subset, so a plain-side closed def is not re-opened by an open left's pattern.
+  -- closedness applies BOTH sides via the carried clauses. Left's patterns are applied as
+  -- value-constraints; the closed allowed-set is the clause conjunction, so a plain-side closed
+  -- def is not re-opened by an OPEN left's pattern (an open left contributes no clause).
   | none, (_ :: _), none, [] =>
       match mergeStructFieldsWith meetValue leftFields rightFields with
       | some merged =>
           mkStruct
             (applyBothClosedness
               (applyPatternsToFieldsWith meetValue leftPatterns merged))
-            closedOpenness none leftPatterns bothClosingPatterns
+            closedOpenness none leftPatterns bothClauses
       | none => .bottom
   -- patterns on the RIGHT, plain left (legacy struct × structPattern(s))
   | none, [], none, (_ :: _) =>
@@ -948,7 +956,7 @@ def mergeStructN
           mkStruct
             (applyBothClosedness
               (applyPatternsToFieldsWith meetValue rightPatterns merged))
-            closedOpenness none rightPatterns bothClosingPatterns
+            closedOpenness none rightPatterns bothClauses
       | none => .bottom
   -- patterns on BOTH (legacy structPattern(s) × structPattern(s))
   | none, (_ :: _), none, (_ :: _) =>
@@ -958,7 +966,7 @@ def mergeStructN
             (applyBothClosedness
               (applyPatternsToFieldsWith meetValue rightPatterns
                 (applyPatternsToFieldsWith meetValue leftPatterns merged)))
-            closedOpenness none (leftPatterns ++ rightPatterns) bothClosingPatterns
+            closedOpenness none (leftPatterns ++ rightPatterns) bothClauses
       | none => .bottom
   -- tail-on-one-side × patterns-on-other, and any tail+patterns mix (B2.5). The legacy type
   -- could not co-represent a tail AND patterns, so these fell to `.bottom`; the unified `struct`
@@ -1136,8 +1144,8 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | collapsed => collapsed
   | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
   | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
-  | .struct lf lo lt lp lcp, .struct rf ro rt rp rcp =>
-      mergeStructN (meetWithFuel fuel) lf lo lt lp lcp rf ro rt rp rcp
+  | .struct lf lo lt lp lClauses, .struct rf ro rt rp rClauses =>
+      mergeStructN (meetWithFuel fuel) lf lo lt lp lClauses rf ro rt rp rClauses
   | .list leftItems, .list rightItems =>
       match meetListWith (meetWithFuel fuel) leftItems rightItems with
       | some items => .list items

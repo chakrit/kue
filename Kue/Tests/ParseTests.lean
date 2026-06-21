@@ -674,13 +674,13 @@ theorem parse_pattern_tail_value_constrains :
       "#A: {x: int, [=~\"^a\"]: int, ...}\nout: {x: 1, abc: _|_, [=~\"^a\"]: int, ...}" = true := by
   native_decide
 
-/-- SC-1d coherence (ILL-1): a parsed pattern+`...` struct is OPEN-via-tail with `closingPatterns
+/-- SC-1d coherence (ILL-1): a parsed pattern+`...` struct is OPEN-via-tail with `closedClauses
     = []` (open ⇒ closes nothing). Inspect the parsed node directly: the tail is preserved AND the
-    openness is `defOpenViaTail` AND no closing patterns leak in. -/
+    openness is `defOpenViaTail` AND no closed clauses leak in. -/
 theorem parse_pattern_tail_node_is_open_via_tail :
     (match parseSource "x: {a: int, [=~\"^a\"]: int, ...}\n" with
      | .ok (.struct [⟨"x", .regular, .struct _ openness tail _ closing⟩] _ _ _ _) =>
-         openness == .defOpenViaTail && tail.isSome && closing == ([] : List Value)
+         openness == .defOpenViaTail && tail.isSome && closing == ([] : List ClosedClause)
      | _ => false) = true := by
   native_decide
 

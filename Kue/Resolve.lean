@@ -102,7 +102,7 @@ mutual
         .disj (alternatives.map fun alternative =>
           (alternative.fst, resolveValueWithFuel fuel scopes alternative.snd)
         )
-    | fuel + 1, scopes, .struct fields openness tail patterns closingPatterns =>
+    | fuel + 1, scopes, .struct fields openness tail patterns closedClauses =>
         -- 1:1 ref-resolution preserving the coherent struct shape (rebuild directly; the
         -- openness/tail-presence/pattern-count are invariant under resolution).
         let nested := buildFrame fields :: scopes
@@ -115,7 +115,7 @@ mutual
               resolveValueWithFuel fuel nested pattern.fst,
               resolveValueWithFuel fuel nested pattern.snd
             ))
-          (closingPatterns.map (resolveValueWithFuel fuel nested))
+          (closedClauses.map (ClosedClause.mapPatterns (resolveValueWithFuel fuel nested)))
     | fuel + 1, scopes, .list items =>
         .list (items.map (resolveValueWithFuel fuel scopes))
     | fuel + 1, scopes, .listTail items tail =>
@@ -145,7 +145,7 @@ mutual
 end
 
 def resolveStructRefs : Value -> Value
-  | .struct fields openness tail patterns closingPatterns =>
+  | .struct fields openness tail patterns closedClauses =>
       let scopes := [buildFrame fields]
       .struct
         (fields.map (resolveFieldRefsWithFuel resolveFuel scopes))
@@ -156,7 +156,7 @@ def resolveStructRefs : Value -> Value
             resolveValueWithFuel resolveFuel scopes pattern.fst,
             resolveValueWithFuel resolveFuel scopes pattern.snd
           ))
-        (closingPatterns.map (resolveValueWithFuel resolveFuel scopes))
+        (closedClauses.map (ClosedClause.mapPatterns (resolveValueWithFuel resolveFuel scopes)))
   | .structComp fields comprehensions openness =>
       let scopes := [buildFrame fields]
       .structComp

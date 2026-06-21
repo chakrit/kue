@@ -303,22 +303,22 @@ def patternsRegexError? (patterns : List (Value × Value)) : Option (String × R
 /-- Re-emit an evaluated normalized struct, applying its evaluated patterns to the
     evaluated fields by meeting a pattern-only struct against the field-only struct. A
     no-pattern struct skips the meet and is `mkStruct`-built directly; a pattern struct
-    routes through `meet`, which applies the patterns to the fields. `closingPatterns`
-    (SC-1) is preserved on the pattern-only struct so a meet-result's split between closing
-    and value-only patterns survives re-evaluation (without it, every pattern would re-mark
-    as closing and re-open a closed absorbed-pattern result). An invalid concrete
+    routes through `meet`, which applies the patterns to the fields. `closedClauses`
+    (SC-1/SC-1b) are preserved on the pattern-only struct so a meet-result's per-conjunct
+    closed allowed-set survives re-evaluation (without it, every pattern would re-mark as a
+    fresh self-clause and re-open a closed absorbed-pattern result). An invalid concrete
     pattern-label predicate bottoms the struct before any application (RX-2b). -/
 def applyEvaluatedStructN
     (fields : List Field)
     (openness : StructOpenness)
     (tail : Option Value)
     (patterns : List (Value × Value))
-    (closingPatterns : List Value) : Value :=
+    (closedClauses : List ClosedClause) : Value :=
   match patternsRegexError? patterns with
   | some (pattern, err) => .bottomWith [.invalidRegex pattern err]
   | none =>
   match patterns with
-  | [] => mkStruct fields openness tail [] closingPatterns
+  | [] => mkStruct fields openness tail [] closedClauses
   -- The fields AND the tail stay on the pattern-bearing struct so the closedness check sees
   -- the fields as DECLARED (its own fields are always allowed) and keeps the `...` tail's
   -- openness. Splitting fields onto a separate open struct lost them from `declaredFields` (a
@@ -326,7 +326,7 @@ def applyEvaluatedStructN
   -- tail re-closed an open-via-tail pattern def (`#A: {[=~"a"], ...}` wrongly rejected extras).
   -- Both are SC-1c. The empty open right side only routes the result through the
   -- pattern-application meet arm.
-  | _ => meet (mkStruct fields openness tail patterns closingPatterns) (mkStruct [] .regularOpen none [])
+  | _ => meet (mkStruct fields openness tail patterns closedClauses) (mkStruct [] .regularOpen none [])
 
 def allRegularAlternatives : List (Mark × Value) -> Bool
   | [] => true
@@ -421,7 +421,7 @@ mutual
           (remapConjRefs fuel frameDepth oldLabels mergedMap key)
     | fuel + 1, .disj alternatives =>
         .disj (remapConjAlternatives fuel frameDepth oldLabels mergedMap alternatives)
-    | fuel + 1, .struct fields openness tail patterns closingPatterns =>
+    | fuel + 1, .struct fields openness tail patterns closedClauses =>
         -- 1:1 ref-remap preserving the already-coherent struct shape (openness/tail/patterns
         -- are invariant under remapping, so rebuild directly rather than through `mkStruct`).
         .struct
@@ -429,7 +429,7 @@ mutual
           openness
           (tail.map (remapConjRefs fuel (frameDepth + 1) oldLabels mergedMap))
           (remapConjPatterns fuel (frameDepth + 1) oldLabels mergedMap patterns)
-          (closingPatterns.map (remapConjRefs fuel (frameDepth + 1) oldLabels mergedMap))
+          (closedClauses.map (ClosedClause.mapPatterns (remapConjRefs fuel (frameDepth + 1) oldLabels mergedMap)))
     | fuel + 1, .list items =>
         .list (remapConjValues fuel frameDepth oldLabels mergedMap items)
     | fuel + 1, .listTail items tail =>
@@ -1421,8 +1421,8 @@ def valueDigest : Nat → Value → UInt64
       mixHash (mixHash (valueTag (.index base key)) (valueDigest d base)) (valueDigest d key)
   | d + 1, .disj alts =>
       alts.foldl (fun acc (_, v) => mixHash acc (valueDigest d v)) (valueTag (.disj alts))
-  | d + 1, .struct fields openness tail patterns closingPatterns =>
-      let acc0 := mixHash (valueTag (.struct fields openness tail patterns closingPatterns)) (hash fields.length)
+  | d + 1, .struct fields openness tail patterns closedClauses =>
+      let acc0 := mixHash (valueTag (.struct fields openness tail patterns closedClauses)) (hash fields.length)
       fields.foldl (fun acc f => mixHash (mixHash acc (hash f.label)) (valueDigest d f.value)) acc0
   | d + 1, .list items =>
       items.foldl (fun acc i => mixHash acc (valueDigest d i)) (valueTag (.list items))
@@ -2909,9 +2909,9 @@ mutual
           let evaluatedValue <- evalValueWithFuel fuel env visited alternative.snd
           pure (alternative.fst, evaluatedValue)
         pure (normalizeEvaluatedDisj evaluated)
-    | fuel + 1, .struct nestedFields openness tail patterns closingPatterns => do
-        -- The normalized struct: evaluate fields, the optional tail, patterns, and closing
-        -- patterns against the nested frame, then re-emit via `applyEvaluatedStructN`.
+    | fuel + 1, .struct nestedFields openness tail patterns closedClauses => do
+        -- The normalized struct: evaluate fields, the optional tail, patterns, and the closed
+        -- clauses' patterns against the nested frame, then re-emit via `applyEvaluatedStructN`.
         let nestedFields := canonicalizeFields nestedFields
         let nested <- pushFrame nestedFields env
         let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields nestedFields)
@@ -2924,9 +2924,11 @@ mutual
               let evaluatedLabel <- evalValueWithFuel fuel nested [] pattern.fst
               let evaluatedConstraint <- evalValueWithFuel fuel nested [] pattern.snd
               pure (evaluatedLabel, evaluatedConstraint)
-            let evaluatedClosingPatterns <- closingPatterns.mapM (evalValueWithFuel fuel nested [])
+            let evaluatedClauses <- closedClauses.mapM fun clause => do
+              let evaluatedPats <- clause.patterns.mapM (evalValueWithFuel fuel nested [])
+              pure { clause with patterns := evaluatedPats }
             pure (applyEvaluatedStructN nestedFields openness evaluatedTail evaluatedPatterns
-              evaluatedClosingPatterns)
+              evaluatedClauses)
         | none => pure .bottom
     | fuel + 1, .list items => do
         let evaluated <- evalListItemsWithFuel fuel env visited items
@@ -3667,7 +3669,7 @@ def evalTopFieldsM (fields : List Field) : EvalM (Option (List Field)) := do
 
 def evalStructRefsM (value : Value) : EvalM Value := do
   match normalizeDefinitions value with
-  | .struct fields openness tail patterns closingPatterns =>
+  | .struct fields openness tail patterns closedClauses =>
       let fields := canonicalizeFields fields
       match (<- evalTopFieldsM fields) with
       | some merged =>
@@ -3679,9 +3681,11 @@ def evalStructRefsM (value : Value) : EvalM Value := do
             let evaluatedLabel <- evalValueWithFuel evalFuel top [] pattern.fst
             let evaluatedConstraint <- evalValueWithFuel evalFuel top [] pattern.snd
             pure (evaluatedLabel, evaluatedConstraint)
-          let evaluatedClosingPatterns <- closingPatterns.mapM (evalValueWithFuel evalFuel top [])
+          let evaluatedClauses <- closedClauses.mapM fun clause => do
+            let evaluatedPats <- clause.patterns.mapM (evalValueWithFuel evalFuel top [])
+            pure { clause with patterns := evaluatedPats }
           pure (applyEvaluatedStructN merged openness evaluatedTail evaluatedPatterns
-            evaluatedClosingPatterns)
+            evaluatedClauses)
       | none => pure .bottom
   | normalized@(.structComp _ _ _) => evalValueWithFuel evalFuel [] [] normalized
   | value => pure value

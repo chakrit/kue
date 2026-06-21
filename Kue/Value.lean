@@ -612,20 +612,26 @@ inductive Value where
   `...` tail value (present iff `openness = .defOpenViaTail`, enforced by `mkStruct`),
   `patterns` are the `[pattern]: constraint` pairs (orthogonal to `tail`, which the old
   type could not carry together — the root of the missing `structPattern×structTail` meet
-  arm), and `closingPatterns` are the label-predicates that participate in the CLOSED
-  allowed-set (SC-1). A pattern closes iff it was declared by a closed struct: `#D: {a:int,
-  [string]:int}` closes via `[string]` (so `#D & {z:9}` admits `z`), but meeting a closed
-  `#C` with an OPEN pattern struct `P` keeps `P`'s pattern as a value-constraint (in
-  `patterns`) WITHOUT adding it to the allowed-set (so `#C & P & {z:9}` still rejects `z`).
-  `closingPatterns` is a subset of `patterns`' label-predicates; the meet threads it so an
-  open conjunct's pattern never re-opens a closed result. Construction goes through the
-  `mkStruct` smart constructor only. NOT produced by any eval/parse path in B2.1. -/
+  arm), and `closedClauses` are the CLOSED-allowed-set provenance (SC-1/SC-1b). Each clause
+  is ONE closed conjunct's allowed-set (`fieldLabels` it declared + `patterns` it closed
+  with); a field is allowed iff EVERY clause admits it (`label ∈ c.fieldLabels` OR it
+  matches some `c.patterns`). A self-closed struct carries ONE clause; a meet of two closed
+  structs CONCATENATES their clauses (conjunction — the result must satisfy both), which is
+  what a flat union of label-predicates cannot represent (SC-1b: `#A:{[=~"^x"]} &
+  #B:{[=~"^y"]}` admits a label only if it matches `^x` AND `^y`, not either). A pattern
+  closes iff it was declared by a closed struct: `#D: {a:int, [string]:int}` closes via
+  `[string]` (so `#D & {z:9}` admits `z`), but meeting a closed `#C` with an OPEN pattern
+  struct `P` keeps `P`'s pattern as a value-constraint (in `patterns`) WITHOUT a clause (so
+  `#C & P & {z:9}` still rejects `z`). The spec mandates this provenance (closedness
+  guide: "which conjuncts introduced which patterns and closedness constraints").
+  Construction goes through the `mkStruct` smart constructor only. NOT produced by any
+  eval/parse path in B2.1. -/
   | struct
       (fields : List Field)
       (openness : StructOpenness)
       (tail : Option Value)
       (patterns : List (Value × Value))
-      (closingPatterns : List Value)
+      (closedClauses : List ClosedClause)
   | list (items : List Value)
   | listTail (items : List Value) (tail : Value)
   /--
@@ -683,9 +689,21 @@ structure Field where
   fieldClass : FieldClass
   value : Value
 
+/-- One closed conjunct's CONTRIBUTION to a struct's closed allowed-set (SC-1b provenance).
+    A field `f` is admitted by this clause iff `f.label ∈ fieldLabels` OR `f.label` matches
+    some predicate in `patterns`. A struct's full allowed-set is the CONJUNCTION over its
+    `closedClauses` — a field survives iff EVERY clause admits it. Self-closed structs have
+    one clause; a meet of closed structs concatenates clauses (so the result honours every
+    operand's closedness independently). `patterns` are label-predicate `Value`s (a subset
+    of the owning struct's `patterns`' first projection). Mutually defined with `Value`
+    because `patterns : List Value`. -/
+structure ClosedClause where
+  fieldLabels : List String
+  patterns : List Value
+
 end
 
-deriving instance Repr, BEq for Value, Field
+deriving instance Repr, BEq for Value, Field, ClosedClause
 
 /-- The single authority for comprehension clause-chain frame-depth threading. A `forIn`
     source is handed back at the current depth and pushes one frame for the rest of the chain
@@ -751,11 +769,39 @@ def dedupPatterns (patterns : List (Value × Value)) : List (Value × Value) :=
     []
 
 /-- Drop duplicate label-predicates, keeping the first occurrence. Structural `BEq`, the
-    same shape as `dedupPatterns`; used to canonicalize a struct's `closingPatterns`. -/
+    same shape as `dedupPatterns`; used to canonicalize a clause's closing patterns. -/
 def dedupValues (values : List Value) : List Value :=
   values.foldr
     (fun value kept => if kept.any (· == value) then kept else value :: kept)
     []
+
+/-- Drop duplicate field labels, keeping the first occurrence. -/
+def dedupStrings (labels : List String) : List String :=
+  labels.foldr
+    (fun label kept => if kept.contains label then kept else label :: kept)
+    []
+
+/-- Canonicalize a single closed clause: dedup its field labels and patterns. -/
+def canonicalizeClause (clause : ClosedClause) : ClosedClause :=
+  { fieldLabels := dedupStrings clause.fieldLabels, patterns := dedupValues clause.patterns }
+
+/-- Canonicalize a clause CONJUNCTION (SC-1b): dedup each clause internally, then drop
+    duplicate clauses (a struct meeting itself, or two structurally identical closed
+    conjuncts, must not double-count — clause equality is structural `BEq`). Order is stable
+    (first occurrence kept), so the meet over clauses is confluent. -/
+def dedupClauses (clauses : List ClosedClause) : List ClosedClause :=
+  (clauses.map canonicalizeClause).foldr
+    (fun clause kept => if kept.any (· == clause) then kept else clause :: kept)
+    []
+
+namespace ClosedClause
+
+/-- Apply `f` to every label-predicate in a clause (the only `Value`-bearing field), for the
+    recursive resolve/eval/remap walks that thread a transform through a struct. -/
+def mapPatterns (f : Value -> Value) (clause : ClosedClause) : ClosedClause :=
+  { clause with patterns := clause.patterns.map f }
+
+end ClosedClause
 
 /-- Coerce a `(tail, openness)` pair into the one coherent shape the `struct`
     representation admits, erasing the never-constructable combinations
@@ -783,12 +829,15 @@ def coherentTail : Option Value -> StructOpenness -> Option Value × StructOpenn
       .defOpenViaTail`, so the incoherent pairs (a `defOpenViaTail` with no tail; a tail
       with `regularOpen`/`defClosed`) are normalized away rather than represented.
 
-    `closingPatterns` (SC-1) defaults to the struct's own pattern label-predicates WHEN the
-    struct is closed (a closed def `#D: {[string]:int}` closes via `[string]`), and to `[]`
-    when it is open — an open struct closes nothing, so it carries no closing patterns. The
-    meet arms pass an explicit set when a closed result absorbs an OPEN conjunct's pattern,
-    which must stay a value-constraint without re-opening the closed allowed-set.
-    Deduplicated to track `patterns`.
+    `closedClauses` (SC-1/SC-1b) defaults to the struct's OWN single allowed-set clause WHEN
+    the struct is closed — `{fieldLabels := fields.map .label, patterns := patterns.map
+    .fst}` (a closed def `#D: {a, [string]:int}` admits its own `a` and matches `[string]`)
+    — and to `[]` when it is open (an open struct closes nothing). A CLOSED struct always
+    carries ≥1 clause, even a closed-empty `close({})` (one all-empty clause, admitting
+    nothing); `closedClauses = [] ↔ open` is the enforced invariant. The meet arms pass the
+    CONCATENATED clause list of the closed conjuncts (conjunction — SC-1b), and absorb an
+    OPEN conjunct's pattern as a value-constraint WITHOUT adding a clause (so it does not
+    re-open the closed allowed-set). Clauses deduplicated/canonicalized via `dedupClauses`.
 
     Field ordering is the caller's responsibility (callers run `canonicalizeFields` before
     constructing, exactly as they do today for `patternStructValue` — `canonicalizeFields`
@@ -800,16 +849,17 @@ def mkStruct
     (openness : StructOpenness)
     (tail : Option Value)
     (patterns : List (Value × Value))
-    (closingPatterns : List Value := if openness.isOpen then [] else patterns.map Prod.fst) :
+    (closedClauses : List ClosedClause :=
+      if openness.isOpen then []
+      else [{ fieldLabels := fields.map Field.label, patterns := patterns.map Prod.fst }]) :
     Value :=
   let (coherentTailValue, coherentOpenness) := coherentTail tail openness
-  -- ENFORCE the SC-1 invariant (not merely default it): an OPEN struct closes nothing, so its
-  -- `closingPatterns` is `[]` regardless of what the caller passed. Keying on the COHERENT
-  -- openness (a `some tail` forces `defOpenViaTail` = open) makes the nonsense triple
-  -- (closingPatterns non-empty + open) unconstructable through the only sanctioned constructor.
-  let coherentClosing := if coherentOpenness.isOpen then [] else closingPatterns
-  .struct fields coherentOpenness coherentTailValue (dedupPatterns patterns)
-    (dedupValues coherentClosing)
+  -- ENFORCE the invariant (not merely default it): an OPEN struct closes nothing, so its
+  -- `closedClauses` is `[]` regardless of what the caller passed. Keying on the COHERENT
+  -- openness (a `some tail` forces `defOpenViaTail` = open) makes the nonsense state
+  -- (closedClauses non-empty + open) unconstructable through the only sanctioned constructor.
+  let coherentClauses := if coherentOpenness.isOpen then [] else dedupClauses closedClauses
+  .struct fields coherentOpenness coherentTailValue (dedupPatterns patterns) coherentClauses
 
 /-- A single `import "location[:id]"` or `alias "location[:id]"` clause retained from a
     parsed file. `path` is the import *location* with any `:identifier` qualifier already

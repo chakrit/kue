@@ -16,7 +16,7 @@ theorem close_value_rejects_extra_field_after_meet :
         mkStruct [
             ⟨"a", .regular, .prim (.int 1)⟩,
             ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"]⟩
-          ] .defClosed none [] := by
+          ] .defClosed none [] [⟨["a"], []⟩] := by
   rfl
 
 theorem close_value_is_shallow_for_nested_regular_structs :

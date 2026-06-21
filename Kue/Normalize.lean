@@ -22,16 +22,19 @@ mutual
     -- A `defOpenViaTail` struct (the legacy `structTail` def body) keeps the def OPEN via its
     -- explicit `...`, so it is returned UNCHANGED. A no-pattern struct CLOSES (openness →
     -- `defClosed`). A pattern-bearing struct normalizes fields + patterns and keeps its openness.
-    | _ + 1, .struct fields .defOpenViaTail tail patterns closingPatterns =>
-        .struct fields .defOpenViaTail tail patterns closingPatterns
+    | _ + 1, .struct fields .defOpenViaTail tail patterns closedClauses =>
+        .struct fields .defOpenViaTail tail patterns closedClauses
     | fuel + 1, .struct fields _ _ [] _ =>
-        .struct (fields.map (normalizeDefinitionFieldWithFuel fuel)) .defClosed none [] []
+        -- Through `mkStruct` so the closed no-pattern body gets its single self-clause
+        -- (`{fieldLabels := fields.map .label, patterns := []}`); a raw `.struct … []` would
+        -- leave it clause-less, which the closing check reads as OPEN.
+        mkStruct (fields.map (normalizeDefinitionFieldWithFuel fuel)) .defClosed none []
     -- A closed def declaring its OWN patterns: a no-`...` pattern-bearing body CLOSES exactly
     -- like the no-pattern arm above (`closeDefBody` turns the parser's open-by-default
     -- `regularOpen` into `defClosed`; the `defOpenViaTail` case is already returned unchanged
     -- earlier). Once closed, the patterns close (widen the allowed set), so `mkStruct`'s default
-    -- `closingPatterns = patterns.map Prod.fst` is exactly right; leaving `openness` open here
-    -- would default `closingPatterns` to `[]` and silently re-open the def (SC-1c).
+    -- single self-clause is exactly right; leaving `openness` open here would default
+    -- `closedClauses` to `[]` and silently re-open the def (SC-1c).
     | fuel + 1, .struct fields openness _ patterns _ =>
         let normalizedPatterns := patterns.map fun pattern =>
           (
@@ -156,9 +159,9 @@ mutual
     | 0, value => value
     -- Normalize fields/patterns, keep openness. A `defOpenViaTail` struct (the legacy
     -- `structTail`) is returned unchanged.
-    | _ + 1, .struct fields .defOpenViaTail tail patterns closingPatterns =>
-        .struct fields .defOpenViaTail tail patterns closingPatterns
-    | fuel + 1, .struct fields openness tail patterns closingPatterns =>
+    | _ + 1, .struct fields .defOpenViaTail tail patterns closedClauses =>
+        .struct fields .defOpenViaTail tail patterns closedClauses
+    | fuel + 1, .struct fields openness tail patterns closedClauses =>
         .struct
           (fields.map (normalizeFieldWithFuel fuel))
           openness
@@ -168,7 +171,7 @@ mutual
               normalizeDefinitionsWithFuel fuel pattern.fst,
               normalizeDefinitionsWithFuel fuel pattern.snd
             ))
-          (closingPatterns.map (normalizeDefinitionsWithFuel fuel))
+          (closedClauses.map (ClosedClause.mapPatterns (normalizeDefinitionsWithFuel fuel)))
     | fuel + 1, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
           (alternative.fst, normalizeDefinitionsWithFuel fuel alternative.snd)

@@ -443,14 +443,14 @@ is conjunctive/monotone ("closing = adding `..._|_`"); cue agrees (`#C & P & {z:
 and dropped the plain side's closedness, re-opening `#C`. -/
 
 -- `#C & P` (closed plain × open pattern): result is `defClosed`, carries `P`'s pattern as a
--- value-constraint, and has EMPTY closing patterns (P is open → closes nothing). The closed
--- allowed set is `#C`'s fields only.
+-- value-constraint, and has #C's single clause only (P is open → contributes no clause). The
+-- closed allowed set is `#C`'s fields only.
 theorem mergeStructN_closed_meets_open_pattern_stays_closed :
     (meet
         (mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [])
         (mkStruct [] .regularOpen none [(.kind .string, .kind .int)])
       == mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none
-          [(.kind .string, .kind .int)] []) = true := by
+          [(.kind .string, .kind .int)] [⟨["a"], []⟩]) = true := by
   native_decide
 
 -- The soundness fix: `(#C & P) & {z:9}` REJECTS `z` — `z` matches `P`'s pattern but `P`'s
@@ -463,12 +463,12 @@ theorem mergeStructN_closed_pattern_rejects_extra_field :
         (mkStruct [⟨"z", .regular, .prim (.int 9)⟩] .regularOpen none [])
       == mkStruct
           [⟨"a", .regular, .kind .int⟩, ⟨"z", .regular, .bottomWith [.fieldNotAllowed "z"]⟩]
-          .defClosed none [(.kind .string, .kind .int)] []) = true := by
+          .defClosed none [(.kind .string, .kind .int)] [⟨["a"], []⟩]) = true := by
   native_decide
 
 -- A closed def declaring its OWN pattern (`#D: {a:int, [string]:int}`) DOES close via that
 -- pattern: `#D & {z:9}` ADMITS `z` (z matches the def's own closing pattern). The pattern is
--- the def's own, so `mkStruct`'s default makes it closing.
+-- the def's own, so `mkStruct`'s default makes it a closing clause (`{[a], [string]}`).
 theorem mergeStructN_closed_own_pattern_admits_matching_field :
     (meet
         (mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [(.kind .string, .kind .int)])
@@ -476,7 +476,7 @@ theorem mergeStructN_closed_own_pattern_admits_matching_field :
       == mkStruct
           [⟨"a", .regular, .kind .int⟩, ⟨"z", .regular, .prim (.int 9)⟩]
           .defClosed none [(.kind .string, .kind .int)]
-          [.kind .string]) = true := by
+          [⟨["a"], [.kind .string]⟩]) = true := by
   native_decide
 
 -- No over-close: an OPEN struct met with a pattern struct stays OPEN — `C & P & {z:9}` admits
@@ -490,6 +490,48 @@ theorem mergeStructN_open_meets_pattern_stays_open :
       == mkStruct
           [⟨"a", .regular, .kind .int⟩, ⟨"z", .regular, .prim (.int 9)⟩]
           .regularOpen none [(.kind .string, .kind .int)] []) = true := by
+  native_decide
+
+/-! ### SC-1b — clause-conjunction allowed-set (the representation invariant)
+
+`fieldAllowedByClausesWith` is the CONJUNCTION (`all`) over per-conjunct clauses, not the
+flat-union (`any`) the old `closingPatterns` store amounted to. A two-clause list `[{^x},
+{^y}]` admits a label iff it matches `^x` AND `^y`; a single-pattern label is rejected. This
+pins the semantic core directly, independent of the parse/eval pipeline. -/
+
+-- `x1` matches `^x` (clause 1) but NOT `^y` (clause 2) ⇒ the conjunction REJECTS it. Under a
+-- union (`any`) it would have been admitted — the SC-1b bug.
+theorem sc1b_clauses_conjunction_rejects_single_match :
+    fieldAllowedByClausesWith meet
+      [⟨[], [.stringRegex "^x"]⟩, ⟨[], [.stringRegex "^y"]⟩]
+      ⟨"x1", .regular, .prim (.int 5)⟩ = false := by
+  native_decide
+
+-- A label matching BOTH clauses' patterns is admitted.
+theorem sc1b_clauses_conjunction_admits_double_match :
+    fieldAllowedByClausesWith meet
+      [⟨[], [.stringRegex "^x"]⟩, ⟨[], [.stringRegex "x$"]⟩]
+      ⟨"xax", .regular, .prim (.int 5)⟩ = true := by
+  native_decide
+
+-- A field-only clause `{a}` rejects a pattern-matched label the other clause admits (CRUX):
+-- `x1` matches clause 2's `^x` but is not in clause 1's `{a}` ⇒ rejected.
+theorem sc1b_field_clause_in_conjunction_rejects :
+    fieldAllowedByClausesWith meet
+      [⟨["a"], []⟩, ⟨[], [.stringRegex "^x"]⟩]
+      ⟨"x1", .regular, .prim (.int 5)⟩ = false := by
+  native_decide
+
+-- The EMPTY clause list is open: admits everything (no closed conjunct restricts).
+theorem sc1b_empty_clauses_admit_all :
+    fieldAllowedByClausesWith meet [] ⟨"anything", .regular, .prim (.int 5)⟩ = true := by
+  native_decide
+
+-- A field that `ignoresClosedness` (hidden/definition) is admitted regardless of clauses.
+theorem sc1b_clauses_admit_closedness_ignoring_field :
+    fieldAllowedByClausesWith meet
+      [⟨[], [.stringRegex "^x"]⟩]
+      ⟨"#D", .definition, .kind .string⟩ = true := by
   native_decide
 
 /-! ## `StructOpenness.meet` (B2.1)
