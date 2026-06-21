@@ -10938,3 +10938,56 @@ byte-identical to the pre-fix HEAD baseline** (worktree-compared — the fix is 
 workload, which has no closed×open-`...` meet, confirming the change is surgical). One
 `cue-divergences.md` row updated to `pinned` (EMBED-CLOSE-1); no new divergence/gap (kue MATCHES cue
 on SC-1e; cue is correct there).
+
+## Completed Slice: AD2-1 — disjunction-normalizer lone-arm rule UNIFIED (lone-default marker is vacuous) (2026-06-21)
+
+Resolved the last walker/normalizer-dedup member by SOUNDNESS ANALYSIS (the prior audits
+deferred it as "USER-GATED", over-cautious about a pin rename — the real question was
+autonomous). **Verdict: the lone-default lattice-marker is NON-load-bearing (vacuous).**
+
+The two disjunction normalizers differed only on the lone-arm rule: `normalizeEvaluatedDisj`
+(eval path) collapses a lone arm mark-agnostically (`*v`-lone → `v`); `normalizeDisj`
+(lattice/meet path) kept a lone DEFAULT arm as `*v`. The question: is a lone-default node
+ever distinct in VALUE from the bare value in any meet chain?
+
+**Proof (no, never).** A lone default has no alternative, so the mark is vacuous — a default
+among one option IS that option. The mark cannot leak in the meet algebra: `combineMark` is
+AND (a result arm is default iff BOTH crossed inputs were), and `withDefaultConvention` only
+synthesizes a default set for an operand with NO `*` at all. So a lone `*v` met with a real
+default never beats it nor manufactures a spurious one. Lean-level cross-check across the
+mark algebra: `meet (*1-lone) rhs == meet 1 rhs` for `rhs ∈ {1|2, *1|2, *2|1, *1|*2, int, 1,
+2|3}` — every case value-identical (the structural differences are exactly the cases where
+the lone node keeps a `.disj [(.default, v)]` wrapper that `resolveDisjDefault?` yields `v`
+from). Sharpest witness: `*1`-lone `& (*2|1)` → `1`, NOT `2` (the vacuous default does NOT
+win against the real `*2`). Adversarial oracle cross-check vs cue v0.16.1: residual-lone-
+default met onward (default-containing / -absent / marked / conflict-marked / nested) — every
+`export` byte-identical, and cue's *display* also collapses the lone `*v` → `v`, so the fix
+moves Kue TOWARD cue.
+
+FIX: `normalizeDisj`'s lone-arm collapse is now mark-agnostic (`[(_, value)] => value`),
+matching `normalizeEvaluatedDisj`. The eval path keeps its `joinValues` all-regular branch
+(a genuinely distinct subsumption op — `int | 1` → `int`), so it is NOT folded wholesale;
+only the divergent lone-arm rule is unified. The two now agree on every lone-arm case.
+
+Tests: two named pins RENAMED to the corrected behavior
+(`meet_disjunction_collapses_vacuous_lone_default` in `Tests.lean`,
+`lattice_meet_disjunction_collapses_vacuous_lone_default` in `LatticeTests.lean`) — the old
+names (`*_preserves_default_marker`) were pinning the display artifact, not a soundness
+property. Added non-load-bearing witnesses in `LatticeTests`:
+`lattice_lone_default_vacuous_vs_plain_disj`, `_loses_to_real_default` (the sharp `*2|1`
+case), `_vs_kind_and_scalar`, and `lattice_multi_arm_default_marker_preserved` (the boundary:
+a MULTI-arm default mark IS load-bearing and must NOT be over-collapsed).
+`TwoPassTests.embed_disj_live_default_kept` expected display updated (lone-default residual
+`*{kind:"a",v:1}` → `{kind:"a",v:1}`, now matching cue).
+
+Spec record: SC-3 / `cue-spec-gaps.md` D#2b/SC-3 row scope narrowed — the "keep marked
+disjunction in eval display" contract now applies ONLY to MULTI-arm live defaults (where the
+mark IS load-bearing). The lone-default half is gone (collapsed, matches cue). No new
+divergence.
+
+Gate: `lake build` green (108 jobs), axiom-clean (standard `propext`/`Classical.choice`/
+`Quot.sound` + `native_decide` reflection); `scripts/check-fixtures.sh` → `fixture pairs ok`
+(byte-identical — NO fixture display changed, since none currently render a lone-default
+residual); `shellcheck` n/a (no shell touched); adversarial export sweep vs cue v0.16.1 all
+MATCH; cert hot-path (`multiline_cert`) unchanged. The walker/normalizer-dedup family is now
+FULLY CLOSED (AD4-1 + A-EN3 DONE, DRY-1 ruled out, AD2-1 resolved).

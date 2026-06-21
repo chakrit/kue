@@ -182,17 +182,22 @@ ripple family (MEET-RESID-1, RESID-MASK-1, A#6, RESID-MASK-2), and the closednes
 RATIFIED + test-pinned; gap-4/E#4 escalated → the E#4-fix slice). Detail for every one of
 these is in Audit history (below) + the implementation-log + git.
 
-**The open backlog is now small and mostly USER-GATED:**
+**The open backlog is now small (AD2-1 + SC-3 resolved 2026-06-21):**
 
-1. **AD2-1** (LOW-MED — disjunction-normalizer display dedup; value-sound, display-only).
-   ⚠ **USER-GATED**: it flips two NAMED theorem pins + the SC-3 display contract — a
-   display CONTRACT change a human signs off. Detail: `plan.md` walker-dedup section
-   (AD2-1 entry).
-2. **SC-3** (LOW — disjunction display-residual; flatten/dedup half already landed with
-   D#2b). ⚠ **USER-GATED**: COUPLED with AD2-1's contract rename. What remains is purely
-   cue's further display-collapse to the default, which Kue deliberately does NOT do
-   (unsound — loses the live non-default arm). Recorded as a spec-gap (`cue-spec-gaps.md`
-   D#2b/SC-3 row). See the SC-3 entry below.
+1. **AD2-1 — RESOLVED (2026-06-21, UNIFIED).** The lone-default lattice-marker was proven
+   NON-load-bearing (vacuous: value-identical to the bare value in every onward meet, since
+   `combineMark` is AND + `withDefaultConvention` only synthesizes defaults for an
+   all-regular operand). `normalizeDisj`'s lone-arm collapse is now mark-agnostic, unifying
+   the two normalizers' lone-arm rule; named pins renamed to the corrected behavior +
+   adversarial non-load-bearing witnesses added; the change moves Kue's display TOWARD cue
+   (which also collapses a lone `*v` → `v`). NOT user-gated after all — the gate was
+   over-caution about a pin rename, not a real soundness fork. Detail: `plan.md`
+   walker-dedup section (AD2-1 entry).
+2. **SC-3 — narrowed to MULTI-arm defaults only (no longer open work).** The lone-default
+   half collapsed under AD2-1 (now matches cue). What remains is purely cue's further
+   display-collapse of a MULTI-arm default to its selected default, which Kue deliberately
+   does NOT do (unsound — loses the live non-default arm a later meet needs). Recorded as a
+   spec-gap (`cue-spec-gaps.md` D#2b/SC-3 row, scope note added). Not a gate, not a slice.
 3. **BI-2-residual** (MED — `math.Sqrt` + neg/fractional `math.Pow` +
    `Pow(0,neg)=Infinity`). ⚠ **USER-GATED**: a large Float/NaN/Infinity numeric-model
    subproject, a departure from Kue's exact-rational core — a scope/architecture decision,

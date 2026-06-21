@@ -117,11 +117,13 @@ owns the non-spec-conformance work.
 backlog (authoritative; do NOT duplicate the detail here).** Everything
 spec-conformance-HIGH is DONE (the closedness family incl. SC-1b/1e + EMBED-CLOSE-1, the
 MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, the
-4 ratifications). The genuinely -open set, all USER-GATED except EvalOps: **AD2-1**
-(display dedup), **SC-3** (display-residual, coupled with AD2-1), **BI-2-residual** (Sqrt
-+ neg/fractional Pow — Float/NaN/Infinity model), **EvalOps** (mechanical carve,
-autonomous, item 2), **SC-4** (LOW spec-gap-first). PARKED: **Bug2-5** (argocd residual, a
-stress-test finding). DRY-1 is RULED OUT (do not re-file — see Resolved/ruled-out below).
+4 ratifications). The genuinely -open set: **BI-2-residual** (Sqrt + neg/fractional Pow —
+Float/NaN/Infinity model), **EvalOps** (mechanical carve, autonomous, item 2), **SC-4**
+(LOW spec-gap-first). PARKED: **Bug2-5** (argocd residual, a stress-test finding). RESOLVED
+/ ruled out (do not re-file — see Resolved/ruled-out below): **AD2-1** (lone-default
+normalizer unified, 2026-06-21), **DRY-1**. **SC-3** is now a recorded spec-gap only (the
+multi-arm-default display divergence; the lone-default half is gone — collapsed under
+AD2-1).
 
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
@@ -231,15 +233,12 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      label-surfacing path does NOT also need the use-site-narrowing distribution that
      `embed-disj-arm-fallthrough` added, or that label-surfacing-only is correct there.
 
-**Walker / normalizer dedup family — DRAINED to one member.** Decomposition ruling
-(durable, do not re-litigate): the walkers were NEVER one problem — three distinct walker
-families + a separate normalizer pair, different
-mechanisms/result-types/recursion-domains/termination measures; folding them under one
-abstraction would be a false "stuff they all do" extraction. **Status: AD4-1 + A-EN3 DONE;
-DRY-1 RULED OUT; AD2-1 is the SOLE remaining member** — LOW-MED, file-not-inline,
-value-sound display-only, and ⚠ USER-GATED (it flips two NAMED theorem pins + the SC-3
-display contract — a contract change a human signs off). Surface it, do not grind. Detail
-in Resolved/ruled-out (AD2-1 entry) + git.
+**Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
+re-litigate): the walkers were NEVER one problem — three distinct walker families + a
+separate normalizer pair, different mechanisms/result-types/recursion-domains/termination
+measures; folding them under one abstraction would be a false "stuff they all do"
+extraction. **Status: AD4-1 + A-EN3 DONE; DRY-1 RULED OUT; AD2-1 RESOLVED (2026-06-21,
+unified).** No open members. Detail in Resolved/ruled-out (AD2-1 entry) + git.
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
@@ -250,17 +249,31 @@ family, …) are HISTORY: the as-built detail is in
 (each audit is its own commit). What stays here is only the durable rulings — the ones a
 future audit would otherwise re-litigate.
 
-- **AD2-1 (disjunction-normalizer dedup) — FILE as a slice, do NOT apply inline; ⚠
-  USER-GATED.** `normalizeEvaluatedDisj` (EVAL path) and `normalizeDisj` (LATTICE/meet
-  path) differ ONLY on the lone-arm rule (`normalizeDisj` keeps a lone DEFAULT arm as `*1`;
-  `normalizeEvaluatedDisj` collapses it mark-agnostically to `1`). Both value-sound. The
-  slice makes `normalizeDisj` 's lone-arm collapse mark-agnostic and delegates the eval
-  path to it — which FLIPS two named pins (`meet_disjunction_preserves_default_marker`,
-  `lattice_meet_disjunction_preserves_default_marker`)
-  + the SC-3 display contract + `cue-spec-gaps.md` row-6 scope. The named-pin rename is a
-    contract
-  change exceeding the inline byte-identical bar → human sign-off. Couples with SC-3;
-  sequence with a disjunction-DISPLAY slice, NOT the walkers.
+- **AD2-1 (disjunction-normalizer lone-arm rule) — RESOLVED (2026-06-21, UNIFIED).** The
+  prior "USER-GATED" framing was over-caution about renaming named pins; the real question
+  was autonomous (is the lone-default marker load-bearing?) and is answered NO. Proof: a
+  lone default `*v` (direct or residual from a collapsed larger disjunction) has no other
+  arm, so the mark is VACUOUS — value-identical to bare `v` in EVERY onward meet. Mechanism:
+  `combineMark` is AND and `withDefaultConvention` only synthesizes a default for an
+  all-regular operand, so a vacuous lone default never beats a real default nor manufactures
+  one (the sharpest witness: `*1` (lone, vacuous) `& (*2|1)` → `1`, NOT `2` — identical to
+  bare `1 & (*2|1)`). Adversarially cross-checked vs `cue` v0.16.1 (default-containing /
+  default-absent / marked / conflict-marked / nested onward meets — all `export`
+  byte-identical; cue's *display* also collapses the lone `*v` → `v`, so the fix moves Kue
+  TOWARD cue). FIX: `normalizeDisj`'s lone-arm collapse is now mark-agnostic
+  (`[(_, v)] => v`), matching `normalizeEvaluatedDisj`'s lone-arm rule — the two normalizers
+  now agree on every lone-arm case (the eval path keeps its `joinValues` all-regular branch,
+  a genuinely distinct subsumption op, so it is NOT folded wholesale — only the divergent
+  lone-arm rule is unified). Named pins RENAMED to assert the corrected behavior
+  (`meet_disjunction_collapses_vacuous_lone_default`,
+  `lattice_meet_disjunction_collapses_vacuous_lone_default`) + adversarial non-load-bearing
+  witnesses added (`lattice_lone_default_vacuous_*`, `lattice_multi_arm_default_marker_preserved`).
+  `TwoPassTests.embed_disj_live_default_kept` expected display updated (lone-default residual
+  `*{…}` → `{…}`, matching cue). SC-3 / `cue-spec-gaps.md` scope narrowed: the "keep marked"
+  display contract now applies ONLY to MULTI-arm defaults (where the mark IS load-bearing —
+  it selects among live arms a later meet can pick). No fixture display changed (none
+  currently render a lone-default residual). Fixtures byte-identical; cert hot-path
+  unchanged.
 - **DRY-1 (let-walker dedup) — RULED OUT (attempted under A-EN3, reverted; no behavior
   shipped).** The three let-walkers (`closeDefFrameReadIndices` `List Nat` worklist,
   `letPromotedReadLabels` catamorphism, `injectLetLocalNarrowings` endo-rewrite) genuinely

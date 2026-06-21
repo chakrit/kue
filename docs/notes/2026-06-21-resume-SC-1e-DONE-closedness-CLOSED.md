@@ -1,6 +1,9 @@
-# RESUME HERE — SC-1e DONE (2026-06-21); closedness family FULLY CLOSED
+# SC-1e DONE (2026-06-21); closedness family FULLY CLOSED — SUPERSEDED
 
-Live START-HERE pointer; supersedes `2026-06-21-resume-AUDIT-COMPLETE-next-SC-1e.md`
+> **SUPERSEDED by `2026-06-21-resume-AD2-1-DONE-normalizer-dedup-CLOSED.md`** (AD2-1 landed;
+> two-phase audit now due). Kept for the SC-1e detail; read the newer breadcrumb to resume.
+
+Was the live START-HERE pointer; supersedes `2026-06-21-resume-AUDIT-COMPLETE-next-SC-1e.md`
 (renamed). Authoritative live roadmap: [`../spec/plan.md`](../spec/plan.md) (capabilities,
 ranked backlog) + [`../spec/spec-conformance-audit.md`](../spec/spec-conformance-audit.md)
 § Consolidated fix backlog (SC-1b/1e DONE; closedness family closed).

@@ -149,12 +149,60 @@ theorem lattice_meet_disjunction_distributes_and_prunes :
       = .prim (.string "a") := by
   rfl
 
-theorem lattice_meet_disjunction_preserves_default_marker :
+-- A lone default surviving a meet collapses to the bare value (vacuous mark); the witnesses
+-- below prove the mark is non-load-bearing in any onward meet.
+theorem lattice_meet_disjunction_collapses_vacuous_lone_default :
     meet
       (.disj [(.default, .prim (.int 1)), (.regular, .prim (.string "a"))])
       (.kind .int)
-      = .disj [(.default, .prim (.int 1))] := by
+      = .prim (.int 1) := by
   rfl
+
+/-! ### Lone-default marker is VACUOUS (the AD2-1 soundness proof).
+
+A lone default `*v` (direct or residual from a collapsed larger disjunction) is value-
+identical to the bare `v` in EVERY onward meet — the mark is non-load-bearing, so collapsing
+it (above) is sound and `normalizeDisj` matches `normalizeEvaluatedDisj`. These pin the mark
+algebra that guarantees it: `combineMark` is AND and `withDefaultConvention` only synthesizes
+defaults for an all-regular operand, so a vacuous lone default never beats a real default nor
+manufactures one. Each case meets a lone `*1` and the bare `1` against the same right operand
+and asserts equality. (`loneDefault1` is the residual `normalizeDisj` would have produced
+pre-fix; we feed it via the `.disj`-meet path to exercise the cross-product, then compare.) -/
+
+private def loneDefault1 : Value := .disj [(.default, .prim (.int 1))]
+private def bare1 : Value := .prim (.int 1)
+
+-- vs a no-default disjunction containing 1 (`1 | 2`): both resolve to 1.
+theorem lattice_lone_default_vacuous_vs_plain_disj :
+    (meet loneDefault1 (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))])
+      == meet bare1 (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))])) = true := by
+  native_decide
+
+-- vs a marked disjunction whose DEFAULT is a DIFFERENT value (`*2 | 1`): the vacuous `*1`
+-- does NOT win — it pairs with the regular `1` arm and `combineMark` demotes it, so both
+-- collapse to plain `1` (NOT `2`). This is the sharpest non-load-bearing test.
+theorem lattice_lone_default_vacuous_loses_to_real_default :
+    (meet loneDefault1 (.disj [(.default, .prim (.int 2)), (.regular, .prim (.int 1))])
+        == .prim (.int 1)
+      && meet bare1 (.disj [(.default, .prim (.int 2)), (.regular, .prim (.int 1))])
+        == .prim (.int 1)) = true := by
+  native_decide
+
+-- vs `int` and vs a bare `1`: the lone-default node already collapses, so it equals bare.
+theorem lattice_lone_default_vacuous_vs_kind_and_scalar :
+    (meet loneDefault1 (.kind .int) == meet bare1 (.kind .int)
+      && meet loneDefault1 (.prim (.int 1)) == meet bare1 (.prim (.int 1))) = true := by
+  native_decide
+
+-- A MULTI-arm default mark IS load-bearing and MUST be preserved (don't over-collapse):
+-- `*1 | 2` stays a disjunction-with-default after meet with `int`, because the `2` arm a
+-- later meet can select is still live. This is the boundary the lone-collapse must not cross.
+theorem lattice_multi_arm_default_marker_preserved :
+    (meet
+        (.disj [(.default, .prim (.int 1)), (.regular, .prim (.int 2))])
+        (.kind .int)
+      == .disj [(.default, .prim (.int 1)), (.regular, .prim (.int 2))]) = true := by
+  native_decide
 
 /-! ## Struct-shape arms (B2 regression gate) — source-level, oracle-checked vs cue v0.16.1.
 

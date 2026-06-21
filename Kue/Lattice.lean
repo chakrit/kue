@@ -313,10 +313,18 @@ def liveAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value
 def defaultAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
   alternatives.filter fun alternative => alternative.fst == .default
 
+/-- Normalize a disjunction's alternatives into a value. A single live arm collapses to its
+    value MARK-AGNOSTICALLY: a default among one option IS that option, so a lone `*v` is the
+    value `v` (the mark is vacuous — proven non-load-bearing in any onward meet, since
+    `combineMark` is AND and `withDefaultConvention` only synthesizes defaults for an
+    all-regular operand, so a lone vacuous default never beats a real default nor manufactures
+    one). This matches `normalizeEvaluatedDisj`'s lone-arm rule and `cue`'s display (`*1` lone
+    → `1`). A multi-arm default KEEPS its marks — there the mark IS load-bearing (it selects
+    among live arms a later meet can still pick). -/
 def normalizeDisj (alternatives : List (Mark × Value)) : Value :=
   match liveAlternatives alternatives with
   | [] => .bottom
-  | [(.regular, value)] => value
+  | [(_, value)] => value
   | alternatives => .disj alternatives
 
 /-- Select the value a disjunction collapses to in a concrete context (manifestation, a

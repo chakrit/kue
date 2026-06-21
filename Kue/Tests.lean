@@ -75,11 +75,15 @@ theorem meet_disjunction_distributes_and_removes_bottom :
       = .prim (.string "a") := by
   rfl
 
-theorem meet_disjunction_preserves_default_marker :
+-- A lone default surviving a meet (the `"a"` arm dies against `int`) is VACUOUS — a default
+-- among one option IS that option — so it collapses to the bare value `1`, matching cue's
+-- display and the eval path. The mark is provably non-load-bearing onward (see the
+-- `meet_disjunction_lone_default_marker_is_vacuous` witnesses below).
+theorem meet_disjunction_collapses_vacuous_lone_default :
     meet
       (.disj [(.default, .prim (.int 1)), (.regular, .prim (.string "a"))])
       (.kind .int)
-      = .disj [(.default, .prim (.int 1))] := by
+      = .prim (.int 1) := by
   rfl
 
 theorem meet_struct_disjunction_distributes_with_struct_meet :

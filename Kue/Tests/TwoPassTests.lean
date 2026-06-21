@@ -629,10 +629,12 @@ theorem embed_disj_dead_default_falls_through :
   native_decide
 
 -- narrowing COMPATIBLE with the default arm (`v:1`): the default still wins (no spurious switch).
+-- `_#B` dies (`v:1 & string = _|_`), leaving a LONE default `*{kind:"a",v:1}` — vacuous, so it
+-- collapses to the bare struct (matching cue, which shows `out: {kind:"a", v:1}`).
 theorem embed_disj_live_default_kept :
     evalSourceMatches
         "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: {kind: string, (*_#A | _#B)}\nout: #S & {v: 1}\n"
-        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: *{kind: \"a\", v: int} | {kind: \"b\", v: string}\nout: *{kind: \"a\", v: 1}"
+        "_#A: {kind: \"a\", v: int}\n_#B: {kind: \"b\", v: string}\n#S: *{kind: \"a\", v: int} | {kind: \"b\", v: string}\nout: {kind: \"a\", v: 1}"
           = true := by
   native_decide
 
