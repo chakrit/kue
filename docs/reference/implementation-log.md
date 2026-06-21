@@ -10519,3 +10519,65 @@ the pre-fix HEAD baseline (throwaway-worktree build) and semantically equal to c
 **Audit state.** A-EN3-DYN (slice 1) + DYN-DEF-1 (slice 2) → the two-phase audit (A then B, per
 `docs/guides/slice-loop.md`) is **DUE** — the two dyn-field-correctness fixes are a coherent batch to
 audit together. Next code leader after the audit: **AD2-1** (the sole remaining dedup-family member).
+
+---
+
+## Investigation (no code): D#1d-RESIDUAL re-diagnosed — BLOCKED on a lattice prerequisite (MEET-RESID-1)
+
+Goal: fix D#1d-RESIDUAL (a comprehension body that evaluates to a HELD RESIDUAL — a `.structComp`
+with an abstract-keyed dyn field or a nested deferred `if`/`for` — is silently dropped to `{}`; cue
+HOLDS it). Outcome: **the comprehension-body lift is a one-liner that works for the witnesses, but the
+held residual cannot survive a `meet` — a NEWLY-FOUND lattice gap that gates this fix.** Reverted clean
+(tree at HEAD, build green); filed the prerequisite **MEET-RESID-1** and demoted D#1d-RESIDUAL behind
+it. No commit beyond docs.
+
+### Oracle-confirmed witnesses (cue v0.16.1)
+
+- `x: {for k in [string] {(k):1}}` — cue eval HOLDS the block; export errors `key value of dynamic
+  field must be concrete`. kue (HEAD) drops to `x: {}`.
+- `x: {for _ in [1] {if g {y:1}}}`, `g: bool` — cue eval HOLDS; export errors `incomplete value bool`.
+  kue (HEAD) drops to `x: {}`.
+- Concrete-key control `x: {for k in ["a"] {(k):1}}` → both resolve to `{x:{a:1}}` (must stay).
+
+### What the instrumented slice attempt established
+
+1. **The simplest fix HOLDS the witnesses byte-cue-faithfully.** `expandClausesWithFuel`'s struct
+   `onExhausted` (`Eval.lean:~3611`) drops a `.structComp` body via its `_ => .payload []` catch-all.
+   Adding `| .structComp .. => .deferred` (re-emit the original `.comprehension` node — what every
+   caller already does for `.deferred`) makes both witnesses hold: `x: {for k in [string] {(@1.0):1}}`
+   / `x: {for _ in [1] {if @3.0 {y:1}}}` (the `@d.i` label is the documented D#1b display limit). So
+   the body lift is ONE LINE, NOT the multi-site `ClauseOutcome` payload-arm Phase B sketched — and a
+   payload arm carrying the EVALUATED residual would be WRONG (it freezes the transient case).
+2. **The transient `add.#patch` case resolves WITHOUT the lift.** Guard-trace instrumentation
+   (`kind == add.#kind`) shows the embed-narrowing FORCE path
+   (`meetEmbeddingsWithFuel`/`forceClosureWithConjunct`, `Eval.lean:3172-3174`) re-evaluates the
+   embed's UNEVALUATED body with `kind` spliced concrete → inner `if` concrete-true → the outer
+   for-body resolves to a plain `.struct`, so the new `.structComp` arm never fires on the narrowed
+   pass. Phase-B's "the caller can't tell transient from terminal" is MOOT: it needn't — the force
+   path handles transient via re-eval-from-source; the two-pass fixpoint converges.
+3. **THE REAL BLOCKER: a held `.structComp` residual cannot survive a `meet`.** The 7-TwoPassTests
+   break is NOT the narrowed `out` (resolves to `{kind,meta}`). It is the UNNARROWED embed `#Outer:
+   {#Inner, #additions:…}` (no use-site `kind`): `#Inner` now holds as a `.structComp` residual, and
+   embedding it BOTTOMS (`#Outer: _|_`) → `out: #Outer & {kind:…}` = `_|_`. cue HOLDS the unnarrowed
+   embed (eval) and errors `non-concrete value string in operand to ==` (export). Minimal proof, no
+   embed: `a: {for k in [string] {(k):1}}; b: a & {x:2}` → kue `b: _|_`, cue `b: a & {x:2}` (held).
+   Root: `meetCore` (`Lattice.lean:460-461`) `| .structComp _ _ _, _ => .bottom`; the eval-time
+   conjunction fold `evalConjWithFuel` (`Eval.lean:3123`) and the embed-close path both reach it.
+
+### Filed: MEET-RESID-1 (prerequisite)
+
+Make a `meet` whose operand is an UNRESOLVED `.structComp` residual HOLD (defer to `.conj
+[left,right]`, the established residual-meet seam — cf. `conjDefClosure?`/`.closure` deferral and the
+`.conj` lazy-merge at `Eval.lean:345-347`) instead of bottoming, and re-resolve that `.conj` once the
+residual's blocker clears (capability-3: a `.conj` carrying a `.structComp` member must re-drive it
+through `withDeferredComprehensions`). Multi-site, two-pass re-resolution, delicate soundness boundary
+(gate to UNRESOLVED `.structComp` only — never collapse a genuine struct-vs-nonstruct type error to a
+hold). NOT forced this slice (the "no workarounds / STOP at soundness boundaries" grant). Once it
+lands, D#1d-RESIDUAL collapses to the one-line `onExhausted` arm + fixtures/pins.
+
+### Conformance / gate
+
+No code shipped; tree reverted to HEAD, `lake build` green (108 jobs), `git diff` empty. No
+`cue-divergences.md`/`cue-spec-gaps.md` change (cue is correct on every witness; the held-`@d.i`
+display is the already-documented D#1b row). Next live leader: **AD2-1** (D#1d-RESIDUAL blocked behind
+MEET-RESID-1).

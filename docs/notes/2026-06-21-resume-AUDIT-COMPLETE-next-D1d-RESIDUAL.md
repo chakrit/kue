@@ -1,11 +1,38 @@
-# RESUME HERE — two-phase AUDIT COMPLETE (2026-06-21); next code leader = D#1d-RESIDUAL
+# RESUME HERE — D#1d-RESIDUAL re-diagnosed + BLOCKED (2026-06-21); next code leader = AD2-1
 
 Live START-HERE pointer; supersedes `2026-06-20-resume-DYN-DEF-1-done-AUDIT-DUE.md` (deleted).
 Authoritative live roadmap: [`../spec/plan.md`](../spec/plan.md) (capabilities, ranked backlog,
 audit verdicts) + [`../spec/spec-conformance-audit.md`](../spec/spec-conformance-audit.md)
 § Consolidated fix backlog.
 
-## Audit state — **COMPLETE. Counter = 0. Next audit after 2–3 NEW slices.**
+## SLICE 1 (2026-06-21): D#1d-RESIDUAL attempted → RE-DIAGNOSED + BLOCKED (investigation, no code)
+
+D#1d-RESIDUAL was attempted as the new-batch leader. Instrumented diagnosis (reverted clean, tree at
+HEAD, build green — `git diff` empty) found Phase-B's caller-lift shape is NECESSARY-but-INSUFFICIENT
+and the true blocker is one layer DOWN in the lattice:
+
+- **The body lift is a ONE-LINER, not the multi-site `ClauseOutcome` arm Phase B sketched.** Routing a
+  `.structComp` body to the existing `.deferred` outcome (`onExhausted` `_ =>` → `.structComp ..
+  => .deferred`) HOLDS both witnesses byte-cue-faithfully. A payload arm carrying the EVALUATED
+  residual would be WRONG (freezes the transient case).
+- **The transient `add.#patch` case resolves WITHOUT the lift** — the embed-narrowing FORCE path
+  (`meetEmbeddingsWithFuel`/`forceClosureWithConjunct`) re-evals the UNEVALUATED body with `kind`
+  spliced concrete; the new arm never fires on the narrowed pass. The fixpoint converges; Phase-B's
+  transient-vs-terminal worry is moot.
+- **REAL BLOCKER: a held `.structComp` residual cannot survive a `meet`.** `meetCore`
+  (`Lattice.lean:460-461`) bottoms any `.structComp`. The 7-TwoPassTests break is the UNNARROWED
+  embed (`#Outer: {#Inner,…}` with no use-site `kind`) bottoming, not the narrowed `out`. Minimal:
+  `a: {for k in [string] {(k):1}}; b: a & {x:2}` → kue `b: _|_`, cue `b: a & {x:2}` (held).
+- **Filed prerequisite MEET-RESID-1** (defer-meet of an unresolved `.structComp` to `.conj`, two-pass
+  re-resolution, gated to UNRESOLVED structComp only). D#1d-RESIDUAL DEMOTED behind it. Full detail:
+  plan.md D#1d-RESIDUAL entry (★★ Re-diagnosis) + MEET-RESID-1 entry + the implementation-log
+  investigation entry.
+
+**Revised leader order: (1) AD2-1 → (2) MEET-RESID-1 (design first) → (3) D#1d-RESIDUAL (one-line
+once MEET-RESID-1 lands) → (4) LOW tail.**
+
+## Audit state — **COMPLETE. Counter = 0** (slice 1 was a no-code investigation; counter unmoved).
+**Next audit after 2–3 NEW code slices** (AD2-1 will be slice 1 of code in the batch).
 
 The two-phase audit for the A-EN3-DYN + DYN-DEF-1 dyn-field batch is **DONE** — both phases
 landed, AUDIT-DUE is CLEARED:
@@ -23,27 +50,27 @@ landed, AUDIT-DUE is CLEARED:
 Scope audited: A-EN3-DYN (`4cd8fbe`) + DYN-DEF-1 (`46e9871`) + Phase-A inline fixes (`503955b`).
 **Both dyn-field Violations (A-EN3-DYN, DYN-DEF-1) are DONE + audited sound.**
 
-## NEXT — the next code leader (correctness-first)
+## NEXT — the next code leader (correctness-first; REVISED 2026-06-21 after the D#1d-RESIDUAL slice)
 
-1. **D#1d-RESIDUAL (MEDIUM wrong-result Violation) — NEXT LEADER.** A comprehension body that
-   evaluates to a HELD RESIDUAL (`.structComp` with a held dyn field on a non-concrete key, OR a
-   nested deferred `if`/`for`) is silently dropped to `{}`; cue holds it under eval, errors incomplete
-   under export. Witnesses (eval): `for-abstract-key`, `for-nested-deferred-if`. **Phase-B discriminator
-   insight (READ before the slice):** the residual-vs-transient distinction is the two-pass FIXPOINT,
-   NOT a flag on `.structComp` (a static phase tag would be an illegal-states hazard — the next pass
-   could contradict it). The blanket `.structComp → .deferred` arm broke 7 TwoPassTests because
-   `.structComp` is ALSO the transient two-pass carrier (`add.#patch` is transiently `.structComp` then
-   concretes). **Principled fix:** do NOT teach `onExhausted` to discriminate (it runs at pass-1, can't
-   see final resolvedness); LIFT the body residual into the ENCLOSING struct's
-   `withDeferredComprehensions` deferred list at the CALLER of `expandClausesWithFuel`
-   (`Eval.lean:~2935`/`~3482`, which see the enclosing frame + drive the two-pass) via a NEW
-   `ClauseOutcome` deferred-payload arm. Multi-site (`ClauseOutcome` + both `onExhausted` handlers +
-   both struct-eval call sites) → a real slice, FILED-not-inline. The LIST twin is already correct.
-   Full spec: plan.md § walker-dedup, D#1d-RESIDUAL entry.
-2. **AD2-1 (LOW-MED — disjunction-normalizer dedup; FILE as a slice, do NOT apply inline).** The
-   SOLE remaining walker/normalizer-dedup-family member. Value-sound (display-only). Flips two NAMED
-   theorem pins + the SC-3 display contract — a human signs off the contract rename. Couples with SC-3.
-   Full spec: plan.md § walker-dedup, AD2-1.
+1. **AD2-1 (LOW-MED — disjunction-normalizer dedup; FILE as a slice, do NOT apply inline) — NEW
+   LEADER.** Promoted because D#1d-RESIDUAL is blocked on MEET-RESID-1 (below). The SOLE remaining
+   walker/normalizer-dedup-family member. Value-sound (display-only). Flips two NAMED theorem pins +
+   the SC-3 display contract — a human signs off the contract rename. Couples with SC-3. Full spec:
+   plan.md § walker-dedup, AD2-1.
+2. **MEET-RESID-1 (MEDIUM — prerequisite for D#1d-RESIDUAL; DESIGN-FIRST).** A `meet`/`&`/embed of an
+   UNRESOLVED `.structComp` residual must HOLD (defer to `.conj [left,right]`, re-resolved when the
+   residual's blocker clears) instead of `.bottom`. cue holds `a & {x:2}` where `a` is a residual
+   comprehension; kue bottoms it (`meetCore` `Lattice.lean:460-461`). Multi-site (`evalConjWithFuel`
+   fold `Eval.lean:3123`, embed-meet, possibly `meetCore`), two-pass re-resolution, delicate soundness
+   boundary (gate to UNRESOLVED `.structComp` only — never collapse a real struct-vs-nonstruct type
+   error). Witnesses: `b: a & {x:2}` (a residual); the unnarrowed `#Outer: {#Inner,…}` embed. Full
+   spec: plan.md MEET-RESID-1 entry.
+3. **D#1d-RESIDUAL (MEDIUM wrong-result Violation) — BLOCKED behind MEET-RESID-1.** Once that lands,
+   this collapses to a ONE-LINE `onExhausted` arm: `expandClausesWithFuel`'s struct `onExhausted`
+   (`Eval.lean:~3611`) `| .structComp .. => .deferred` (re-emit the original `.comprehension` node) +
+   fixtures (`for-abstract-key`, `for-nested-deferred-if` → held, `@d.i` display per D#1b) + the two
+   resolve/hold pins. The Phase-B "lift via a new `ClauseOutcome` payload arm" sketch is SUPERSEDED —
+   see the ★★ Re-diagnosis in plan.md. The LIST twin is already correct.
 
 Then the LOW tail (plan item 6), **A#6** (`containsBottom` fuel cap, standalone), **EvalOps
 extraction** (plan item 2, parallel-safe mechanical carve).
