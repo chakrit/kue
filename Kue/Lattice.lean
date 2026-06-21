@@ -1002,8 +1002,10 @@ def mergeStructN
                   | none => withLeftTail
                 let allPatterns := leftPatterns ++ rightPatterns
                 let withPatterns := applyPatternsToFieldsWith meetValue allPatterns withTails
-                -- The result is open (`defOpenViaTail` via the tail), so it closes nothing:
-                -- `closingPatterns = []`. Patterns are retained only as value-constraints.
+                -- SC-1e (KNOWN BUG, pending fix): this passes `closedClauses = []`, treating the
+                -- tail result as fully open. Wrong when either operand is CLOSED — an open `...`
+                -- partner does not re-open the closed conjunct (closedness is monotone). The fix
+                -- threads `bothClauses` here (a closed no-tail result) when it is non-empty.
                 mkStruct withPatterns .defOpenViaTail (some tail) allPatterns []
           -- unreachable: this arm is only entered with ≥1 tail (the no-tail cases are arms
           -- 1/5/6/7 above), so `mergedTail` is always `some`; `.bottom` is the total fallback.

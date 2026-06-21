@@ -338,6 +338,83 @@ NEW masked bottom (the Manifest `.structComp` arm reported `incomplete` where th
 a terminal conflict — now `contradiction`), and confirmed RESID-MASK-2 is the sole open masking site.
 See the Phase-B verdict block immediately below.
 
+**Phase-B audit 2026-06-21 (whole-graph; scopes RESID-MASK-2 `f0613e5` + SC-1b `406e719`; pairs with
+Phase-A `176bc42`) — verdict: HEALTHY (~10th consecutive healthy round). SC-1 closedness-representation
+family RESOLVED. ONE LOW-RISK inline (stale comment). Ranking + SC-1e/EMBED-CLOSE-1 merge settled. Closes the round.**
+
+- **★ `ClosedClause` encapsulation — CLEAN across the whole module graph (SC-1 family RESOLVED).** The
+  closedness representation `closedClauses : List ClosedClause` (`{fieldLabels, patterns}` per closed
+  conjunct) is fully encapsulated: ALL admittance logic — `fieldAllowedByClause(s)With` and
+  `applyClausesWith` — lives ONLY in `Lattice.lean` (grep-confirmed; the `.all`-conjunction over
+  per-conjunct clauses is the intersection semantics). Every consumer OUTSIDE `Lattice` is pure
+  pass-through, never an admittance decision: `Eval`/`Resolve`/`Normalize` map `ClosedClause.mapPatterns`
+  (recurse into pattern VALUES only); `Module` threads `closedClauses` unchanged through import-binding
+  injection; `Builtin.closeValue` re-emits as-is; `Parse` only constructs (its two refs are `mkStruct`
+  comments). The `[] ↔ open` invariant is `mkStruct`-enforced at the single construction choke point. No
+  closedness logic has leaked outside `Lattice`. This resolves the SC-1 closedness-representation family:
+  the flat-union `closingPatterns` that could not express conjunction is gone; the per-conjunct-clause
+  provenance is the right abstraction (Phase-A `176bc42` independently signed off intersection semantics,
+  37 adversarial cases, the invariant, and missed-consumer cleanliness).
+
+- **★ SC-1e + EMBED-CLOSE-1 — ONE thematic "closedness-carry" fix-slice, but NOT a shared code root
+  (settled this round; re-probed kue + cue v0.16.1).** Both concern monotone closedness under
+  composition; they collapse into ONE slice for landing, with three parts on the same `mergeStructN`
+  closedness-carry concern + adjacent lines:
+  1. **SC-1e — the actual behavior fix (MED).** Root is the `defOpenViaTail` tail-composition arm
+     (`Lattice.lean:1007`): it passes `closedClauses = []`, dropping `bothClauses`, so an open-`...`
+     partner WRONGLY re-opens a closed conjunct. Confirmed isolated to THIS arm: `(#A & #B) & {x1:5}`
+     (no tail) correctly REJECTS today (SC-1b path); adding `...` re-opens it (`x1` admitted, cue
+     rejects). Fix: when `bothClauses` is non-empty (either operand closed), produce a CLOSED no-tail
+     result carrying `bothClauses` — the open `...` is vacuous against closedness.
+  2. **Stale-comment collapse (DONE INLINE this audit).** The line-1005/6 comment said
+     `closingPatterns = []` (pre-retype terminology). Rewritten to name `closedClauses`, mark the line a
+     KNOWN BUG (SC-1e), and state the fix — so the next reader isn't misled into thinking `[]` is
+     correct rationale. Pure comment edit, zero behavior change; the inline code fix stays with the
+     SC-1e slice (it is the bug, not low-risk).
+  3. **EMBED-CLOSE-1 — pin-only, NO code change (LOW-MED).** kue ALREADY rejects `{#A, y1}` AND its
+     spec-equiv `#A & {y1}` (both `conflicting values (bottom)`); cue self-contradicts (admits embed,
+     rejects meet). Re-probed: the embed form has NO `...` tail, so it does NOT route through the
+     line-1007 arm — the SC-1e code change cannot regress it. EMBED-CLOSE-1 is purely
+     ADD-A-FIXTURE-AND-PIN to lock kue's existing-correct monotone rejection (`cue-divergences.md` row
+     already filed, kue right). Land it in the SC-1e slice as the closedness-carry test sweep.
+
+- **Backlog ranking (the key output — autonomous head is short; the tail is USER-GATED). Recorded
+  order:**
+  1. **SC-1e (+ EMBED-CLOSE-1 pin + the stale-comment code fix) — the autonomous next leader.** The
+     next CLEAN closedness item; single-arm behavior fix + a pin lock-in + dead-comment collapse, all
+     one slice. kue is the principled side on both (monotone closedness); no human gate.
+  2. **EvalOps extraction (plan item 2) — autonomous filler, parallel-safe.** ~256 lines of
+     self-contained pure scalar algebra carved to `Kue/EvalOps.lean`; mechanical, no back-edge into the
+     evaluator. Resolve the `divValue`/`modValue`/… import shape in the slice. The standing first
+     extraction; good to run alongside or after SC-1e.
+  3. **AD2-1 (disjunction-normalizer display dedup) — ⚠ USER-GATED. SURFACE, do not grind.** Display-only
+     and value-sound, but it FLIPS two NAMED theorem pins + the SC-3 display contract — a display
+     CONTRACT change a human signs off.
+  4. **SC-3 (display-residual) — ⚠ USER-GATED. SURFACE.** COUPLED with AD2-1's contract rename; same
+     human gate. Rank with AD2-1.
+  5. **BI-2-residual (Sqrt + neg/fractional Pow) — ⚠ USER-GATED. SURFACE.** A LARGE Float/NaN/Infinity
+     numeric-model subproject — a departure from Kue's exact-rational core; a scope/architecture
+     decision for the user, not an autonomous slice.
+
+  **Orchestrator recommendation:** autonomous path = **SC-1e (+EMBED-CLOSE-1 pin) → EvalOps extraction**;
+  then **SURFACE AD2-1 / SC-3 / BI-2-residual to the user** (all gated — two are a display-contract
+  rename needing sign-off, one is a numeric-model scope decision). Do not grind the gated three
+  autonomously.
+
+- **Whole-graph health — module boundaries, sizes, dead code: HEALTHY.** Import graph acyclic and
+  unchanged: `Eval → {Builtin, Decimal, Lattice, Regex, Normalize}`, `Builtin → {Lattice, Regex,
+  Decimal, Base64, Json, Yaml, CaseTable}` (no `Builtin → Eval` back-edge), `Lattice → {Value, Regex}`,
+  `Manifest → {Format, Lattice}`. One owner per module; the SC-1b retype added NO import edge.
+  `Eval.lean` 3702 / `Lattice.lean` 1336 — both under the ~4500 re-split threshold; **EvalOps** (item 2)
+  stays the right first carve, no second extraction justified yet. No `partial def` outside Parse/Module;
+  no `sorryAx`/`sorry`. The SC-1e fix will retire the sole stale comment (now corrected inline).
+  Perf-guide (`kue-performance.md`) current — SC-1b/RESID-MASK-2 added no hot-path cost (cert-manager
+  content-identical at ~30.6s), no row warranted.
+
+- **Verify gate GREEN.** `lake build` 108 jobs (comment-only Lattice edit — no pin rebuild needed, all
+  green); `scripts/check-fixtures.sh` → `fixture pairs ok` (zero drift); `shellcheck scripts/*.sh` clean
+  (no shell touched). One LOW-RISK inline applied (stale comment); committed + pushed (attended).
+
 **Phase-B audit 2026-06-21 (`39e8af4`, whole-graph; the MASKING-SWEEP round; scopes MEET-RESID-1
 `3f085e1` + A#6 `f9c4a65` + RESID-MASK-1 `383c1c6`; Phase A `383c1c6` falsified MEET-RESID-1's
 structural invariant, fixed RESID-MASK-1, filed RESID-MASK-2) — verdict: HEALTHY beyond the known
