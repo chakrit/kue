@@ -1008,16 +1008,23 @@ def classifyDynLabel : Value -> DynLabelVerdict
   | .dynamicField _ _ _ => .incomplete
   | .closure _ _ => .incomplete
 
+/-- Collapse a value that is a DEFAULT disjunction to its default, identity on every other
+    value. `resolveDisjDefault?` picks a unique marked default (or a sole live regular
+    alternative) and leaves an AMBIGUOUS disjunction (no default, ≥2 live arms) untouched, so the
+    caller's classifier/op still defers it. This single projection is shared by every site that
+    forces a default in a concrete context — the dyn-label key, the `if` guard, the scalar/unary
+    operand, the embedded-disjunction arm — each of which wraps it with its own context rationale
+    below. -/
+def collapseDefaultDisjunction : Value -> Value
+  | .disj alternatives => (resolveDisjDefault? alternatives).getD (.disj alternatives)
+  | other => other
+
 /-- Collapse an evaluated dynamic-field label that is a DEFAULT disjunction to its default before
     classification, exactly as a default disjunction collapses as an `if` guard (`expandClauseChain`)
-    or under manifestation: `(*"a" | "b"): v` keys on `"a"`. `resolveDisjDefault?` picks a unique
-    marked default (or a sole live regular alternative) and leaves an AMBIGUOUS disjunction (no
-    default, ≥2 live arms) untouched, so `classifyDynLabel` still DEFERS it. A non-`.disj` label is
-    returned unchanged. -/
+    or under manifestation: `(*"a" | "b"): v` keys on `"a"`, so `classifyDynLabel` still DEFERS an
+    AMBIGUOUS one. A non-`.disj` label is returned unchanged. -/
 def resolveDynLabelDefault (label : Value) : Value :=
-  match label with
-  | .disj alternatives => (resolveDisjDefault? alternatives).getD label
-  | _ => label
+  collapseDefaultDisjunction label
 
 def evalEq (left right : Value) : Value :=
   match left, right with
@@ -1184,9 +1191,7 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
     `evalUnary` returns a stuck node (`(1|2)+10 → (1 | 2) + 10`) — CUE's "unresolved
     disjunction" form, which manifest reports as incomplete. -/
 def resolveOperand (value : Value) : Value :=
-  match value with
-  | .disj alternatives => (resolveDisjDefault? alternatives).getD value
-  | value => value
+  collapseDefaultDisjunction value
 
 /-- Apply a unary op, resolving a disjunction operand to its default first. -/
 def distributeUnary (op : UnaryOp) (value : Value) : Value :=
@@ -1751,8 +1756,7 @@ def openStructValue : Value -> Value
     no unique winner stays a `.disj` (CUE distributes the host across it; left untouched here).
     Non-disjunction values pass through. -/
 def resolveEmbeddedDisjDefault : Value -> Value
-  | .disj alternatives => (resolveDisjDefault? alternatives).getD (.disj alternatives)
-  | other => other
+  | value => collapseDefaultDisjunction value
 
 /-- Drop a struct operand's lexical alias bindings (`let`/`Self=` — `FieldClass.letBinding`)
     before splicing it into ANOTHER struct's frame. An alias is scoped to the struct that
@@ -3537,12 +3541,9 @@ mutual
             let evaluatedCondition <- evalValueWithFuel fuel env [] condition
             -- A guard condition is a concrete-context use: a marked-default disjunction
             -- (`bool | *false`) collapses to its default before the boolean test, matching
-            -- manifestation. A non-default disjunction does not collapse and the guard
-            -- stays unsatisfied. `resolveDisjDefault?` leaves non-`.disj` values untouched.
-            let testCondition :=
-              match evaluatedCondition with
-              | .disj alternatives => (resolveDisjDefault? alternatives).getD evaluatedCondition
-              | _ => evaluatedCondition
+            -- manifestation. A non-default disjunction does not collapse and the guard stays
+            -- unsatisfied (the shared `collapseDefaultDisjunction` is identity on non-`.disj`).
+            let testCondition := collapseDefaultDisjunction evaluatedCondition
             -- Fully classified (no catch-all): `true` admits, `false` drops, a BOTTOM guard
             -- propagates (D#1a), a CONCRETE non-bool is a type error (D#1c), an INCOMPLETE guard
             -- DEFERS — the whole comprehension stays residual (D#1b), surfaced by the caller.

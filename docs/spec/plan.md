@@ -306,11 +306,12 @@ body tail/pattern drop; default-disjunction dyn-field label collapse) and **FILE
 leader. **Live order: (1) D#1d-RESIDUAL** (MEDIUM Violation — a held residual inside a comprehension
 body is silently dropped; wrong-result, outranks everything below) → **(2) AD2-1** (LOW-MED
 disjunction-normalizer dedup, file-not-inline, value-sound display-only) → **(3)** the LOW cosmetic
-tail (item 6). **Phase-B is still DUE** for this batch (architecture/refactor over the module graph;
-the breadcrumb's AUDIT-DUE flag is Phase-B's to clear) — and should weigh the now-FOUR parallel
-classifiers (`classifyGuard`/`classifyDefinedness`/`classifyArithOperand`/`classifyDynLabel`):
-re-evaluate whether the prior "leave separate" ruling holds at four, or a shared concreteness
-partition is now warranted.
+tail (item 6). **Phase-B DONE 2026-06-21** (architecture HEALTHY over the module graph; AUDIT-DUE
+cleared; counter reset to 0) — re-ran the FOUR-parallel-classifier ruling: kept the four verdict
+functions SEPARATE (option a; the partition disagreement is WORSE at four), extracted only the shared
+default-collapse pre-step `collapseDefaultDisjunction` inline (option b), rejected the shared
+concreteness partition (option c). See the Phase-B verdict block + the FOUR-parallel-classifiers entry
+in Resolved/ruled-out.
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
   The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`
@@ -462,7 +463,31 @@ partition is now warranted.
   one-arm fix; FILED rather than forced. The LIST twin is already CORRECT (a held-residual struct is
   a valid held list ELEMENT — verified vs cue). Witnesses (eval): `for-abstract-key` and
   `for-nested-deferred-if` both → kue `{}` vs cue holds. **This is a wrong-result Violation and
-  outranks AD2-1** (the LOW-MED display-only dedup) per correctness-first.
+  outranks AD2-1** (the LOW-MED display-only dedup) per correctness-first. **Ranking CONFIRMED by
+  Phase-B 2026-06-21** (D#1d-RESIDUAL → AD2-1).
+  - **★ Discriminator insight for the fix-slice (Phase-B 2026-06-21).** Where does `.structComp`'s
+    transient-vs-held distinction live? **It does NOT live in the `.structComp` value.** A
+    `.structComp fields deferred openness` is structurally identical whether `deferred` is
+    genuinely terminal (an abstract-keyed dyn field that can never resolve without an external
+    use-site narrowing) or transient (a comprehension/dyn-field that the next two-pass re-eval
+    resolves) — `withDeferredComprehensions` (`Eval.lean:1275`) builds both shapes identically;
+    there is no phase flag, and `onExhausted` (the struct `[]`-arm handler) runs at pass-1 body
+    eval and CANNOT see whether a later pass resolves the body (that depends on the enclosing
+    frame's completion, outside the comprehension's local view — hence the 7-TwoPassTests break on
+    a blanket `.structComp → .deferred`: `add.#patch` is transiently `.structComp` then concretes).
+    **The discriminator is the two-pass FIXPOINT itself, not a flag** (a residual is "transient"
+    iff a later pass changes it — a DYNAMIC property; encoding it as a static `.structComp` phase
+    tag would invite illegal states, a tag the next pass contradicts — rejected by the
+    illegal-states philosophy). **Principled fix shape:** do NOT teach `onExhausted` to
+    discriminate (it can't, at pass-1 time). Instead LIFT a `.structComp`/deferred body out as a
+    DEFERRED ENTRY of the ENCLOSING comprehension's result — thread it into the enclosing struct's
+    `withDeferredComprehensions` deferred list at the **caller of `expandClausesWithFuel`** (the
+    struct-eval sites `Eval.lean:~2935`/`~3482`, which DO see the enclosing frame and drive the
+    two-pass), so the existing two-pass re-evaluation resolves-or-holds it exactly like any other
+    deferred comp. This needs a NEW `ClauseOutcome` arm (a deferred-payload carrying the residual)
+    that the caller folds into its own `deferred` list — NOT a change to `onExhausted`'s
+    body→outcome map. Multi-site (`ClauseOutcome` + both handlers + both struct-eval call sites),
+    confirming FILED-not-inline.
 
 - **DRY-1 (let-walker dedup) — ✗ RULED OUT (attempted under A-EN3's slice, reverted; no behavior
   change shipped).** The plan was ONE `walkFollowedLets` with `closeDefFrameReadIndices` /
@@ -527,6 +552,53 @@ partition is now warranted.
   semantics gate), and examples (OK: Unicode case table from Go; NOT OK: deriving CUE
   unification/eval expected-outputs from `cue`). Cross-linked from `slice-loop.md`'s
   spec-authority section. Both (a) and (b) are discharged.
+
+**Phase-B audit 2026-06-21 (`<this-commit>`, whole-graph; scopes A-EN3-DYN `4cd8fbe` + DYN-DEF-1
+`46e9871` + Phase-A inline fixes `503955b` — D#1d + default-label-collapse; Phase A `503955b` found
+both batch fixes SOUND, fixed 2 new wrong-results inline, filed D#1d-RESIDUAL) — verdict: HEALTHY;
+ONE low-risk inline cleanup; rulings/rankings folded in. CLOSES the audit round.**
+
+- **★ FOUR-classifier ruling (the headline) — option (a) holds + option (b) applied; (c) rejected.**
+  Re-ran the partition-disagreement test at FOUR (`classifyArithOperand`/`classifyGuard`/
+  `classifyDefinedness`/`classifyDynLabel`): `classifyDynLabel` DEEPENS the disagreement (`.prim` now
+  partitions four ways), so the shared concreteness partition (c) is even less warranted than at
+  three. Kept the four verdict functions SEPARATE. Phase A's new observation was right about the
+  shared DEFAULT-COLLAPSE pre-step — but it is a `Value → Value` normalization four DISTINCT consumers
+  apply before their own logic (not a classifier concern), duplicated four times (three named wrappers
+  + one un-named inline guard `match`). **APPLIED INLINE:** extracted `collapseDefaultDisjunction`;
+  the three wrappers delegate (docs preserved), the inline guard calls it. Byte-identical, full gate
+  green. Full ruling in Resolved/ruled-out below (supersedes the round-5 three-classifier entry).
+- **D#1d-RESIDUAL ranking CONFIRMED + discriminator insight recorded.** Next-batch leader stays
+  D#1d-RESIDUAL (MEDIUM wrong-result Violation) → AD2-1 (LOW-MED display-only) per correctness-first.
+  Added the architectural insight to its entry: the residual-vs-transient distinction is the two-pass
+  FIXPOINT, not a flag on `.structComp` (a static phase tag would be an illegal-states hazard); the
+  principled fix lifts the body residual into the enclosing struct's `withDeferredComprehensions`
+  deferred list at the CALLER of `expandClausesWithFuel`, not in `onExhausted` (which runs too early
+  to see final resolvedness) — confirming the multi-site FILED-not-inline call.
+- **Architecture HEALTHY (whole module graph) — confirmed, not manufactured.** All four fixes
+  (A-EN3-DYN, DYN-DEF-1, D#1d, default-label-collapse) + this round's `collapseDefaultDisjunction`
+  are intra-`Eval.lean` (zero new import edges — verified). Layering acyclic and unchanged from the
+  last several Phase-B passes: `Eval → {Builtin, Decimal, Lattice, Regex, Normalize}`, `Builtin →
+  {Lattice, Regex, Decimal, Base64, Json, Yaml, CaseTable}` (NO `Builtin → Eval` back-edge — the sort
+  lives in `Eval` BECAUSE its comparator needs `EvalM`), `Lattice → {Value, Regex}`, `Value → Regex`
+  (true leaf), `Runtime → Eval` (the one-directional app edge). No cycle anywhere.
+- **`Eval.lean` 3688 lines — extraction watch, NOT due** (was 3605 last Phase B; +83 from the
+  DYN-DEF-1 classifier/verdict + the D#1d/default-collapse arms; `collapseDefaultDisjunction` is
+  net ~neutral — one new def, three wrapper bodies + one inline `match` shrank). Well under the
+  ~4500 re-split threshold. **EvalOps** (item 2, ~256 lines pure scalar algebra, parallel-safe)
+  remains the right first carve, unchanged/live; no second extraction justified.
+- **Dead code CLEAN; perf-guide CURRENT.** `dynValShift` (A-EN3-DYN-dropped) gone from the impl
+  (only the historical FixturePorts code-comment remains, as documented); `*ForPairsWithFuel`
+  (AD4-1-dropped) gone — both grep-verified, zero dangling refs. `classifyDynLabel`/
+  `resolveDynLabelDefault`/`collapseDefaultDisjunction` all referenced. No `partial def` outside the
+  standing Parse/Module exceptions; no `sorryAx`. The four fixes + the refactor add only O(1)
+  ctor-match classification arms + a residual-hold (no new fuel/meet/eval-re-entry pattern), so
+  `kue-performance.md` reflects current reality — no row warranted (a row in a "what is expensive"
+  guide would be misleading noise).
+- **Verify gate GREEN.** `lake build` 108 jobs (all `native_decide` test modules rebuilt =
+  definitional-equivalence proof of the byte-identical refactor); `scripts/check-fixtures.sh` →
+  `fixture pairs ok` (zero drift); `shellcheck scripts/*.sh` clean. One inline cleanup applied
+  (`collapseDefaultDisjunction`); committed.
 
 **Phase-B audit 2026-06-20 (`a788f5c`, whole-graph; scopes AD4-1 `524a402` + A-EN3 `5652717`;
 Phase A `6a5521a` found both dedups SOUND, re-classified A-EN3-DYN to a REACHABLE Violation + filed
@@ -926,26 +998,41 @@ DYN-DEF-1) — verdict: HEALTHY; no code fix; rankings/rulings folded in. CLOSES
 - **B5 extraction notes (kept).** `Order.lean` (subsumption) is a DELIBERATE test-only oracle
   (imported only by `Tests/*`), NOT dead code and NOT duplicated — `meet` (join) and `subsumes`
   (partial order) are orthogonal. Recorded so a future audit does not re-flag it as an orphan.
-- **Three-parallel-classifiers DRY (`classifyArithOperand` / `classifyGuard` /
-  `classifyDefinedness`) — RULED: LEAVE SEPARATE (option a), do NOT extract a shared
-  concreteness partition (option b rejected). Phase-B 2026-06-20.** All three enumerate every
-  `Value` ctor with no catch-all and bucket the long inert abstract tail (kind/bound/ref/conj/
-  builtin/unary/selector/index/comprehension/interpolation/dynamicField/closure/thisStruct/top/
-  notPrim/stringRegex) into "defer/incomplete". But that inert tail IS "the stuff they all do" —
-  not a name (general-coding). Option (b), a `classifyConcreteness` partition the three call,
-  does NOT factor cleanly: the three disagree on the PARTITION itself, not merely on verdict
-  names. `.disj` is abstract for arith+guard but concrete-decidable for definedness (`liveAlternatives`
-  → defined/error); `.structComp` is abstract for arith+guard but `.defined` for definedness;
-  `.bottom`/`.bottomWith` is (unreachable-)incomplete for arith, `.error` for definedness, a
-  bottom-PAYLOAD verdict for guard; `.prim` is one verdict for arith/definedness but a 3-way split
-  (`true`/`false`/non-bool) for guard; `.binary` is incomplete for arith/definedness but a
-  presence-test split (`.eq/.ne _ .bottom` → false) for guard. A shared partition would need
-  per-classifier hooks for exactly those five ctor groups, leaving only the inert tail genuinely
-  common — so (b) would RAISE coupling (three soundness-critical exhaustive matches depending on
-  one helper) while LOWERING the compile-time guarantee that a NEW `Value` ctor forces an
-  independent decision at all three sites (the whole point of the no-catch-all enumeration). Verdict
-  sums (`ArithOperandClass`/`GuardVerdict`/`Definedness`) are genuinely distinct. Analogous to the
-  AD3-4 ruling above. Leave as three independent total functions.
+- **FOUR-parallel-classifiers DRY (`classifyArithOperand` / `classifyGuard` /
+  `classifyDefinedness` / `classifyDynLabel`) — RE-RULED at FOUR: LEAVE the four verdict functions
+  SEPARATE (option a); EXTRACT only the shared default-collapse PRE-STEP (option b — DONE inline);
+  shared concreteness partition (option c) REJECTED. Phase-B 2026-06-21 (re-ran the
+  partition-disagreement test at four; supersedes the round-5 three-classifier ruling below).** The
+  fourth classifier `classifyDynLabel` (added by DYN-DEF-1) DEEPENS the partition disagreement
+  rather than resolving it, so option (c) is even less warranted than at three:
+  - **The partition-disagreement test FAILS HARDER at four.** `.prim` is now partitioned FOUR
+    different ways — one verdict for arith (`.prim`), a 3-way bool/nonBool split for guard, one
+    `.defined` for definedness, a 2-way string/nonString split for dynlabel. `.struct [] _` gives
+    four different verdict labels (`concreteNonArith`/`nonBool`/`defined`/`nonString`). `.disj` is
+    abstract for arith+guard+dynlabel but concrete-decidable (`liveAlternatives` → defined/error)
+    for definedness; `.structComp` is abstract for three but `.defined` for definedness. A shared
+    `concreteness : Value → Concreteness` partition would have to special-case exactly the ctors
+    that DISAGREE (`.prim`/`.struct`/`.disj`/`.structComp`/`.bottom`), leaving only the inert
+    abstract tail (kind/bound/ref/conj/builtin/unary/selector/index/comprehension/interpolation/
+    closure/thisStruct/top/notPrim/stringRegex) genuinely common — and that inert tail IS "the
+    stuff they all do," not a name (general-coding). (c) would RAISE coupling (four
+    soundness-critical exhaustive matches depending on one helper) while LOWERING the compile-time
+    guarantee that a NEW `Value` ctor forces an independent decision at all four sites — the whole
+    point of the no-catch-all enumeration. Verdict sums (`ArithOperandClass`/`GuardVerdict`/
+    `Definedness`/`DynLabelVerdict`) are genuinely distinct. **Option (a) holds: four independent
+    total functions.**
+  - **Option (b) — the shared DEFAULT-COLLAPSE pre-step — APPLIED INLINE (`collapseDefaultDisjunction`).**
+    Phase A's new observation was right: the collapse-a-marked-default-disjunction-to-its-default
+    projection (`.disj alternatives => (resolveDisjDefault? alternatives).getD self | _ => self`) was
+    duplicated FOUR times — three already-named wrappers (`resolveDynLabelDefault`, `resolveOperand`,
+    `resolveEmbeddedDisjDefault`) plus one un-named inline `match` in `expandClauseChain`'s `.guard`
+    arm. This is NOT a classifier concern (it is a `Value → Value` normalization several distinct
+    consumers apply BEFORE their own logic), so extracting it does NOT touch the option-(a) verdict
+    separation. Extracted as one top-level `collapseDefaultDisjunction : Value → Value`; the three
+    wrappers now delegate (docs preserved — each carries its own context rationale), and the inline
+    guard `match` calls it directly. Byte-identical (the `.getD` fallback was always the original
+    disjunction in every site); full gate green. This is the genuinely-shared step the four
+    classifiers' CALLERS use — the partition itself stays unshared (above). DO NOT re-raise at five.
 
 ## Pointers (history + reference for anything dropped)
 
