@@ -268,4 +268,187 @@ def evalDecimalCompare?
   | some left, some right => some (op left right)
   | _, _ => none
 
+/-! ### Decimal transcendentals (`ln`/`exp`) for the general `math.Pow` domain.
+
+    `x^y = exp(y · ln x)` computed in EXACT-precision DECIMAL — no `Float`. Every
+    intermediate is a scaled integer `numerator / 10^lnExpScale` (the `…Scaled`
+    convention below), so all arithmetic is exact `Int` work truncated back to the
+    working scale after each multiply/divide. Both series run a FIXED term count
+    chosen to exceed the working precision on the reduced argument range, so the
+    functions are structurally recursive on the term budget — total, no `partial`,
+    no `termination_by`. The 16 guard digits beyond the 34-significant-digit render
+    context absorb the truncation error so the final round is correct. -/
+
+/-- Internal working precision for `ln`/`exp`: 34 rendered significant digits plus
+    16 guard digits. Every `…Scaled` integer below is `value · 10^lnExpScale`. -/
+def lnExpScale : Nat :=
+  50
+
+/-- The scaled representation of `1.0` (`10^lnExpScale`). -/
+def lnExpUnit : Int :=
+  Int.ofNat (evalPow10 lnExpScale)
+
+/-- `ln 2` at the working scale (`⌊ln 2 · 10^50⌋`), precomputed from the
+    `2·artanh(1/3)` series to 60+ places and truncated. Drives both range
+    reductions. The leading 34 significant digits agree with `cue`'s apd
+    `math.Log(2) = 0.6931471805599453094172321214581766`. -/
+def ln2Scaled : Int :=
+  69314718055994530941723212145817656807550013436025
+
+/-- Multiply two working-scale integers, truncating back to the working scale:
+    `(a/U)·(b/U) = (a·b)/U²`, rendered at scale `U` ⇒ `a·b / U`. -/
+def mulScaled (a b : Int) : Int :=
+  (a * b) / lnExpUnit
+
+/-- Divide two working-scale integers, preserving the working scale:
+    `(a/U)/(b/U) = a/b`, rendered at scale `U` ⇒ `a·U / b`. -/
+def divScaled (a b : Int) : Int :=
+  (a * lnExpUnit) / b
+
+/-- Fixed odd-term count for the `ln`-mantissa `artanh` series. On the reduced
+    range `m ∈ [⅔, 4/3)` the ratio `t = (m−1)/(m+1)` satisfies `|t| ≤ ⅕`, so the
+    `j`-th term `t^(2j+1)/(2j+1)` shrinks by `≥ 25×` per step; 40 terms drives the
+    tail below `10^-55`, comfortably past the 50-digit working scale. -/
+def lnSeriesTerms : Nat :=
+  40
+
+/-- Sum the `artanh` series `Σⱼ t^(2j+1)/(2j+1)` for `j < fuel`, scaled. `power`
+    carries `t^(2j+1)` at the working scale; `step` indexes the divisor `2j+1`.
+    Structural on `fuel`, hence total. -/
+def lnArtanhSeries (t2 : Int) : Nat -> Int -> Nat -> Int
+  | 0, _, _ => 0
+  | fuel + 1, power, step =>
+      power / Int.ofNat step + lnArtanhSeries t2 fuel (mulScaled power t2) (step + 2)
+
+/-- `ln m` for a working-scale mantissa `m ∈ [⅔, 4/3)` via
+    `ln m = 2·artanh(t)`, `t = (m−1)/(m+1)`. -/
+def lnMantissa (mScaled : Int) : Int :=
+  let t := divScaled (mScaled - lnExpUnit) (mScaled + lnExpUnit)
+  let t2 := mulScaled t t
+  2 * lnArtanhSeries t2 lnSeriesTerms t 1
+
+/-- Range-reduce a positive working-scale value `m` into `[⅔, 4/3)` by halving or
+    doubling, tracking the power-of-two exponent `k` so `original = m · 2^k`.
+    Two FIXED-fuel structural loops bound the shifts: a value built from a decimal
+    with `≤ lnExpScale` fractional digits and a bounded integer part needs far
+    fewer than `lnExpScale` binary shifts to land in `[⅔, 4/3)`. Returns
+    `(reduced m, k)`. -/
+def lnRangeReduceUp : Nat -> Int -> Int -> Int × Int
+  | 0, m, k => (m, k)
+  | fuel + 1, m, k =>
+      if 3 * m < 2 * lnExpUnit then
+        lnRangeReduceUp fuel (m * 2) (k - 1)
+      else
+        (m, k)
+
+def lnRangeReduceDown : Nat -> Int -> Int -> Int × Int
+  | 0, m, k => (m, k)
+  | fuel + 1, m, k =>
+      if 3 * m >= 4 * lnExpUnit then
+        lnRangeReduceDown fuel (m / 2) (k + 1)
+      else
+        (m, k)
+
+/-- Fuel ceiling for the binary range-reduction loops: each shift moves `m` by a
+    factor of two, and `lnExpScale` decimal digits span `< 4·lnExpScale` bits, so
+    this budget can never be exhausted before the loop's natural exit. -/
+def lnRangeReduceFuel : Nat :=
+  4 * lnExpScale
+
+/-- `ln x` for a positive decimal `x`, returned at the working scale. Range-reduces
+    `x = m · 2^k` with `m ∈ [⅔, 4/3)`, so `ln x = k·ln2 + ln m`. The caller
+    guarantees `x > 0` (`x ≤ 0` is a domain error handled upstream). -/
+def decimalLnScaled (value : DecimalValue) : Int :=
+  -- Lift the input to the working scale: `num / 10^s = (num · 10^(P−s)) / 10^P`.
+  let lifted :=
+    if value.scale <= lnExpScale then
+      value.numerator * Int.ofNat (evalPow10 (lnExpScale - value.scale))
+    else
+      value.numerator / Int.ofNat (evalPow10 (value.scale - lnExpScale))
+  let (m₀, k₀) := lnRangeReduceUp lnRangeReduceFuel lifted 0
+  let (m, k) := lnRangeReduceDown lnRangeReduceFuel m₀ k₀
+  k * ln2Scaled + lnMantissa m
+
+/-- Fixed term count for the `exp` Taylor series. On the reduced range
+    `|r| ≤ ln2/2 ≈ 0.347` the `k`-th term `r^k/k!` is bounded by `0.347^k/k!`;
+    60 terms drives the tail far below `10^-55`. -/
+def expSeriesTerms : Nat :=
+  60
+
+/-- Sum `Σ_{k≥idx} r^k/k!` for `fuel` terms, scaled. `term` carries the running
+    summand `r^(idx-1)/(idx-1)!` (the previous term); the next is
+    `term · r / idx`, so the factorial builds incrementally rather than recomputed.
+    Structural on `fuel`. -/
+def expTaylorSeries (r : Int) : Nat -> Int -> Nat -> Int
+  | 0, _, _ => 0
+  | fuel + 1, term, idx =>
+      let next := mulScaled term r / Int.ofNat idx
+      next + expTaylorSeries r fuel next (idx + 1)
+
+/-- Apply the integer power-of-two factor `2^k` to a working-scale value: multiply
+    when `k ≥ 0`, divide when `k < 0`. Total (structural via `Int.toNat`). -/
+def applyPow2Scaled (acc k : Int) : Int :=
+  if k >= 0 then
+    acc * Int.ofNat (2 ^ k.toNat)
+  else
+    acc / Int.ofNat (2 ^ (-k).toNat)
+
+/-- `exp z` for a working-scale `z`, returned at the working scale. Range-reduces
+    `z = n·ln2 + r` with `|r| ≤ ln2/2` (`n` = nearest integer to `z/ln2`), so
+    `exp z = 2^n · exp r`, and sums `exp r = Σ r^k/k!`. -/
+def decimalExpScaled (z : Int) : Int :=
+  -- `n = round(z / ln2)`: half-up away from zero on the scaled quotient.
+  let q := divScaled z ln2Scaled
+  let n :=
+    if q >= 0 then (q + lnExpUnit / 2) / lnExpUnit
+    else -((-q + lnExpUnit / 2) / lnExpUnit)
+  let r := z - n * ln2Scaled
+  let series := lnExpUnit + expTaylorSeries r expSeriesTerms lnExpUnit 1
+  applyPow2Scaled series n
+
+/-- Significant-digit count of a positive `Int` (`0 ⇒ 0`). An `Int` numerator
+    carries no leading zeros, so this equals the significant digits of
+    `numerator / 10^scale` (leading fractional zeros live in the scale). -/
+def intSigDigits (n : Int) : Nat :=
+  if n == 0 then 0 else (toString n.natAbs).length
+
+/-- Round a scaled value `numerator / 10^scale` to `divisionSigDigits` (34)
+    significant digits, half-up, returning a `DecimalValue`. When the value
+    already has ≤34 significant digits it is returned unchanged. Drops the excess
+    low digits with a half-up bump on the first dropped digit. `collapseDecimalToValue`
+    then renders it — integral results (`Pow(8,⅓) ⇒ 2`) collapse to `int`. -/
+def roundScaledToSigDigits (numerator : Int) (scale : Nat) : DecimalValue :=
+  let digits := intSigDigits numerator
+  if digits <= divisionSigDigits then
+    { numerator := numerator, scale := scale }
+  else
+    let drop := digits - divisionSigDigits
+    let divisor := Int.ofNat (evalPow10 drop)
+    let negative := numerator < 0
+    let n := Int.ofNat (decimalIntAbsNat numerator)
+    let q := n / divisor
+    let rem := n % divisor
+    let q := if 2 * rem >= divisor then q + 1 else q
+    let q := if negative then -q else q
+    if drop <= scale then
+      { numerator := q, scale := scale - drop }
+    else
+      -- More digits dropped than the fraction holds: the rounded value is an
+      -- integer (scale 0), scaled up by the leftover dropped places.
+      { numerator := q * Int.ofNat (evalPow10 (drop - scale)), scale := 0 }
+
+/-- `base^exponent` for a POSITIVE base and a general (negative or non-½ fractional)
+    exponent, in exact-precision decimal via `x^y = exp(y · ln x)`. The result is
+    rounded to 34 significant digits and collapsed to `int` when integral
+    (`Pow(8, ⅓) = 2`, `Pow(4, 1.5) = 8`). The caller guarantees `base > 0`. -/
+def decimalPowGeneral (base exponent : DecimalValue) : Value :=
+  let lnx := decimalLnScaled base
+  let yScaled :=
+    if exponent.scale <= lnExpScale then
+      exponent.numerator * Int.ofNat (evalPow10 (lnExpScale - exponent.scale))
+    else
+      exponent.numerator / Int.ofNat (evalPow10 (exponent.scale - lnExpScale))
+  let result := decimalExpScaled (mulScaled yScaled lnx)
+  collapseDecimalToValue (roundScaledToSigDigits result lnExpScale)
+
 end Kue

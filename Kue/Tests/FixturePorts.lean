@@ -2527,7 +2527,20 @@ def fixturePorts : List FixturePort :=
                 ⟨"powWholeFlt", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.float "2.0")]⟩,
                 ⟨"powBig", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int 20)]⟩,
                 ⟨"powDecExact", .regular, .builtinCall "math.Pow" [.prim (.float "0.1"), .prim (.int 2)]⟩,
-                ⟨"powOne", .regular, .builtinCall "math.Pow" [.prim (.int 7), .prim (.int 1)]⟩
+                ⟨"powOne", .regular, .builtinCall "math.Pow" [.prim (.int 7), .prim (.int 1)]⟩,
+                ⟨"powNegInt", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))]⟩,
+                ⟨"powNegInt10", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int (-2))]⟩,
+                ⟨"powNegOneBs", .regular, .builtinCall "math.Pow" [.prim (.int 1), .prim (.int (-5))]⟩,
+                ⟨"powNegRep", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.int (-1))]⟩,
+                ⟨"powZeroNeg", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int (-1))]⟩,
+                ⟨"powQuarter", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")]⟩,
+                ⟨"powTenth", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.1")]⟩,
+                ⟨"powThreeHalf", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "1.5")]⟩,
+                ⟨"powCubeRoot", .regular,
+                  .builtinCall "math.Pow"
+                    [.prim (.int 8), .prim (.float "0.3333333333333333333333333333333333")]⟩,
+                ⟨"powNegBaseFr", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.25")]⟩,
+                ⟨"powZeroFr", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.float "0.25")]⟩
               ] .regularOpen none []))
     },
     {

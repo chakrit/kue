@@ -9,3 +9,14 @@ powWholeFlt: 9
 powBig: 100000000000000000000
 powDecExact: 0.01
 powOne: 7
+powNegInt: 0.125
+powNegInt10: 0.01
+powNegOneBs: 1
+powNegRep: 0.3333333333333333333333333333333333
+powZeroNeg: _|_
+powQuarter: 1.189207115002721066717499970560476
+powTenth: 1.071773462536293164213006325023342
+powThreeHalf: 8
+powCubeRoot: 2
+powNegBaseFr: _|_
+powZeroFr: 0

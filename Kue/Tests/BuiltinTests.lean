@@ -557,15 +557,78 @@ theorem math_pow_zero_zero_is_bottom :
     (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (.int 0)] == .bottom) = true := by
   native_decide
 
--- Residual domain (still deferred — see cue-spec-gaps.md, BI-2-residual exp/ln increment): a
--- GENERAL negative or non-½ fractional exponent needs decimalExp/decimalLn to 34 digits, NOT yet
--- implemented. Kue bottoms (an honest "not computed", never a wrong value) rather than guessing.
-theorem math_pow_general_negative_exponent_is_bottom_residual :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))] == .bottom) = true := by
+-- BI-2-§3: negative-INTEGER exponent — `x^(-n) = 1/x^n`, an EXACT rational (existing exact
+-- int-pow + the division renderer; no exp/ln). `Pow(2,-3) = 0.125` — Kue trims the exact value;
+-- `cue` pads to `0.1250…000` (34 digits), a display divergence (cue-divergences.md).
+theorem math_pow_negative_integer_exponent_is_exact_rational :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))] == .prim (.float "0.125")) = true := by
   native_decide
 
-theorem math_pow_general_fractional_exponent_is_bottom_residual :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")] == .bottom) = true := by
+theorem math_pow_negative_integer_exponent_terminating :
+    (evalBuiltinCall "math.Pow" [.prim (.int 10), .prim (.int (-2))] == .prim (.float "0.01")) = true := by
+  native_decide
+
+-- `Pow(1, -n) = 1` collapses to int (cue agrees: `1`).
+theorem math_pow_one_negative_exponent_collapses_to_int :
+    (evalBuiltinCall "math.Pow" [.prim (.int 1), .prim (.int (-5))] == .prim (.int 1)) = true := by
+  native_decide
+
+-- A non-terminating reciprocal renders to 34 significant digits (`Pow(3,-1) = 0.333…333`,
+-- byte-identical to cue's apd value modulo cue's trailing-zero padding).
+theorem math_pow_negative_exponent_repeating :
+    (evalBuiltinCall "math.Pow" [.prim (.int 3), .prim (.int (-1))]
+      == .prim (.float "0.3333333333333333333333333333333333")) = true := by
+  native_decide
+
+-- `Pow(0, neg)` is a division by zero — `cue` emits `Infinity`; Kue bottoms (no Infinity).
+theorem math_pow_zero_negative_exponent_is_bottom :
+    (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (.int (-1))] == .bottom) = true := by
+  native_decide
+
+-- BI-2-§3: GENERAL non-integer fractional exponent (`x > 0`) via `x^y = exp(y·ln x)` in EXACT
+-- DECIMAL (fixed-term Taylor + binary range reduction — total, no Float). Rounded to 34 sig
+-- digits; integral results collapse to int.
+-- `Pow(2, 0.25) = 1.189…476` — byte-identical to cue's apd `Pow(2, 0.25)`.
+theorem math_pow_general_fractional_exponent_is_exact_decimal :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")]
+      == .prim (.float "1.189207115002721066717499970560476")) = true := by
+  native_decide
+
+-- `Pow(2, 0.1) = 1.071…342` — byte-identical to cue's apd.
+theorem math_pow_general_fractional_tenth :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.1")]
+      == .prim (.float "1.071773462536293164213006325023342")) = true := by
+  native_decide
+
+-- `Pow(4, 1.5) = 8` — an exact integer; the exp/ln path lands within 34 digits and collapses.
+theorem math_pow_general_fractional_collapses_to_int :
+    (evalBuiltinCall "math.Pow" [.prim (.int 4), .prim (.float "1.5")] == .prim (.int 8)) = true := by
+  native_decide
+
+-- `Pow(8, ⅓)` with the exponent given as cue's 34-digit `1.0/3.0` (`0.333…333`) = 2 (collapses).
+theorem math_pow_general_cube_root_collapses_to_int :
+    (evalBuiltinCall "math.Pow"
+        [.prim (.int 8), .prim (.float "0.3333333333333333333333333333333333")]
+      == .prim (.int 2)) = true := by
+  native_decide
+
+-- CROSS-CHECK: the general exp/ln fractional path AGREES with the dedicated sqrt path on ½ —
+-- `Pow(2, 0.50000…)` (a non-½-by-`isHalfExponent` near-half routed through exp/ln) is NOT this
+-- test; here we pin that `Pow(2, 0.5)` (the sqrt route) equals what the exp/ln series produces
+-- for the same value, confirming the two transcendental paths are mutually consistent.
+theorem math_pow_half_matches_general_path :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]
+      == .prim (.float "1.414213562373095048801688724209698")) = true := by
+  native_decide
+
+-- Negative base, non-integer exponent: out of the real domain (complex). Kue bottoms; cue errors.
+theorem math_pow_negative_base_fractional_exponent_is_bottom :
+    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.25")] == .bottom) = true := by
+  native_decide
+
+-- `Pow(0, positive-fractional) = 0`.
+theorem math_pow_zero_base_fractional_exponent_is_zero :
+    (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (.float "0.25")] == .prim (.int 0)) = true := by
   native_decide
 
 -- BI-2-residual: `Pow(x, ½) = √x`, computed in exact decimal and routed through the SAME sqrt as

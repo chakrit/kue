@@ -611,6 +611,23 @@ def decimalPowNat (base : DecimalValue) : Nat -> DecimalValue
   | 0 => { numerator := 1, scale := 0 }
   | exponent + 1 => mulDecimalValues base (decimalPowNat base exponent)
 
+/-- Reciprocal of a non-zero decimal `p = pn / 10^ps`, as an exact-rational `Value`:
+    `1/p = 10^ps / pn`. Collapses to `int` when whole (`Pow(1,-5) = 1`), renders the
+    exact terminating expansion when finite (`Pow(2,-3) = 0.125` — trimmed; `cue` pads
+    to 34 digits, a recorded display divergence), else 34 significant digits round-half-up
+    via the shared division renderer. `pn = 0` (reciprocal of zero) is unreachable here —
+    the caller bottoms `Pow(0, neg)` before this — and yields `.bottom` defensively. -/
+def reciprocalDecimalToValue (p : DecimalValue) : Value :=
+  let num := Int.ofNat (evalPow10 p.scale)
+  if p.numerator == 0 then
+    .bottom
+  else if num % p.numerator == 0 then
+    .prim (.int (num / p.numerator))
+  else
+    match divideDecimalRational? num p.numerator with
+    | some text => .prim (.float text)
+    | none => .bottom
+
 /-- Exact-decimal square root over a SIGNED decimal: non-negative → `decimalSqrt`
     (34 significant digits, perfect squares collapsed to `int`); negative → a
     real-domain error, so Kue BOTTOMS (`cue` emits the float artifact `NaN` — Kue
@@ -644,20 +661,39 @@ def mathPow? (base exponent : Prim) : Option Value :=
   match decimalFromPrim? base, decimalFromPrim? exponent with
   | some base, some exponent =>
       if isHalfExponent exponent then
-        -- `Pow(x, ½) = √x` — routed through the same decimal sqrt as `math.Sqrt`.
+        -- `Pow(x, ½) = √x` — routed through the same decimal sqrt as `math.Sqrt`
+        -- (exact, self-consistent), NOT the general exp/ln path.
         some (decimalSqrtSigned base)
       else
-        -- The exponent must otherwise be a whole number ≥ 0. `trimDecimalZerosWith`
-        -- reduces `3.0` to scale 0; a residual non-zero scale is a genuine fraction
-        -- (`0.25`, `1.5`) — outside the computed domain.
+        -- `trimDecimalZerosWith` reduces `3.0` to scale 0; a residual non-zero scale
+        -- is a genuine fraction (`0.25`, `1.5`, `0.333…`). Split the domain:
         let exp := trimDecimalZerosWith exponent.numerator exponent.scale
-        if exp.scale != 0 || exp.numerator < 0 then
-          none
-        else if exp.numerator == 0 && base.numerator == 0 then
-          -- `Pow(0, 0)` — `cue` errors `invalid operation`.
-          some .bottom
+        if exp.scale == 0 then
+          -- Integer exponent.
+          if exp.numerator == 0 then
+            -- `Pow(x, 0) = 1`, except `Pow(0, 0)` — `cue` errors `invalid operation`.
+            if base.numerator == 0 then some .bottom
+            else some (.prim (.int 1))
+          else if exp.numerator > 0 then
+            -- Non-negative integer exponent — exact repeated decimal multiplication.
+            some (collapseDecimalToValue (decimalPowNat base exp.numerator.toNat))
+          else
+            -- Negative integer exponent: `x^(-n) = 1 / x^n`, an exact rational.
+            -- `Pow(0, neg)` is a division by zero (`cue` → `Infinity`); Kue bottoms.
+            if base.numerator == 0 then some .bottom
+            else some (reciprocalDecimalToValue (decimalPowNat base (-exp.numerator).toNat))
         else
-          some (collapseDecimalToValue (decimalPowNat base exp.numerator.toNat))
+          -- Genuine non-integer fractional exponent: `x^y = exp(y · ln x)` in decimal.
+          if base.numerator > 0 then
+            some (decimalPowGeneral base exp)
+          else if base.numerator == 0 then
+            -- `Pow(0, positive) = 0`; `Pow(0, negative)` is `Infinity` in `cue` —
+            -- Kue bottoms (no `Infinity`). The ½ case never reaches here.
+            if exp.numerator > 0 then some (.prim (.int 0)) else some .bottom
+          else
+            -- Negative base, non-integer exponent: out of the real domain (complex).
+            -- `cue` errors `invalid operation`; Kue bottoms.
+            some .bottom
   | _, _ => none
 
 /-- Rounding mode for the `math.Floor`/`Ceil`/`Round`/`Trunc` family: each maps a
