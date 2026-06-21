@@ -308,16 +308,71 @@ body tail/pattern drop; default-disjunction dyn-field label collapse) and **FILE
 leader. **Live order (REVISED 2026-06-21 after MEET-RESID-1 + D#1d-RESIDUAL LANDED): (1) AD2-1**
 (LOW-MED disjunction-normalizer dedup, file-not-inline, value-sound display-only) — now the live
 leader. **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
-now survives a `meet` via the new `meetWithFuel` arm, and the comprehension-body lift holds it; the
-soundness gate is structural — a `.structComp` is unconditionally an unresolved residual, so the
-defer can never mask a conflict). **A#6 ✅ DONE 2026-06-21** (`containsBottom` made TOTAL/structural,
-fuel cap removed). **Order: (1) AD2-1 (deferred/surface) → (2)** the LOW cosmetic tail (item 6) /
+now survives a `meet` via the new `meetWithFuel` arm, and the comprehension-body lift holds it).
+**⚠ CORRECTION (Phase-A 2026-06-21):** the original "structural gate — a `.structComp` can never
+mask a conflict" claim was FALSE — a `.structComp` CAN hold an inner `.bottomWith` field conflict,
+which masked a dead disjunction arm (`containsBottom` did not descend it). FIXED INLINE as
+RESID-MASK-1 (see the Phase-A audit block below); residual non-default-disjunction re-prune gap
+filed as RESID-MASK-2. **A#6 ✅ DONE 2026-06-21** (`containsBottom` made TOTAL/structural, fuel cap
+removed; Phase-A VERIFIED SOUND — `Value` has no back-edges, axiom-clean). **Order: (1) AD2-1 (deferred/surface) → (2)** the LOW cosmetic tail (item 6) /
 SC-1b / BI-2-residual / **EvalOps extraction** (mechanical carve). **Phase-B DONE 2026-06-21** (architecture HEALTHY over the module graph; AUDIT-DUE
 cleared; counter reset to 0) — re-ran the FOUR-parallel-classifier ruling: kept the four verdict
 functions SEPARATE (option a; the partition disagreement is WORSE at four), extracted only the shared
 default-collapse pre-step `collapseDefaultDisjunction` inline (option b), rejected the shared
 concreteness partition (option c). See the Phase-B verdict block + the FOUR-parallel-classifiers entry
 in Resolved/ruled-out.
+
+**Phase-A audit 2026-06-21 (MEET-RESID-1 `3f085e1` + A#6 `f9c4a65`) — verdict + ★ CRITICAL inline fix:**
+
+- **★ RESID-MASK-1 (CRITICAL — masked bottom; MEET-RESID-1's soundness claim was FALSE; FIXED
+  INLINE this batch).** MEET-RESID-1 asserted "a `.structComp` never holds a conflict
+  (unrepresentable) — proven over both production sites." **That invariant is FALSE.**
+  `mergeFieldValueWith` (`Lattice.lean:629`) stores a field conflict NOT as a top-level `.bottom`
+  but as a PRESENT `.bottomWith [.fieldConflict]` field VALUE inside the merged struct; both the
+  MEET-RESID-1 arm AND the eager `withDeferredComprehensions` (`Eval.lean:1286`, the OTHER production
+  site) then re-wrap that struct as `.structComp [x:_|_] …`. The slice's own Tripwire 1
+  (`residual_meet_field_conflict_bottoms`) literally pins the held inner `x: _|_` — i.e. it asserts
+  the very state the soundness argument claimed unrepresentable. The real (weaker) invariant: a held
+  conflict is safe ONLY IF every bottom-consumer surfaces it. `containsBottom` (the
+  `liveAlternatives` disjunction-prune predicate) did NOT descend `.structComp` (A#6 left it in the
+  catch-all `false`), so a residual-with-inner-conflict surviving as a disjunction ARM was NOT
+  pruned → a DEAD arm survived → a WRONG value. Destroy-test witnesses (oracle cue v0.16.1 prunes
+  the dead arm; pre-fix kue held it): `*{y:9} | (a & {x:2})` where `a` is a residual → kue
+  `*{y:9} | {x:_|_, for…}` vs cue `{y:9}`; also reproduced via the EVAL site (no meet:
+  `{x:1,x:2,for…}`), residual×residual, and a NESTED `p:{q:_|_}` conflict. Plain-`.struct`-arm
+  controls (no residual) were ALWAYS pruned correctly — the bug was SOLELY the `.structComp` wrapper
+  hiding the inner bottom. **FIX (low-risk, surgical, this batch):** `containsBottom` now descends a
+  `.structComp`'s RESOLVED `fields` (`containsBottomFields fields`), leaving its still-deferred
+  `comprehensions` un-descended (those are unexpanded clause bodies, never resolved conflicts). This
+  closes the masking at the single consuming layer regardless of which construct-site produced the
+  residual; it STRENGTHENS A#6 (find a bottom at any depth, now also through the residual boundary).
+  7 adversarial `native_decide` pins added (`resid_mask_*` in `TwoPassTests.lean` — headline prune,
+  control, eval-site, residual×residual, nested, no-over-prune). Gate GREEN: `lake build` 108 jobs;
+  `containsBottom`/`containsBottomFields` axioms `propext`-only; `fixture pairs ok` (zero drift);
+  shellcheck clean. Commit on `main`.
+
+- **RESID-MASK-2 (MEDIUM — filed, NOT fixed; residual leader candidate).** The RESID-MASK-1 fix
+  closes masking on the path where the disjunction arm is ALREADY a resolved `.structComp[_|_]` at
+  `normalizeDisj` time (default-disjunction collapse at selection/manifest — verified pruned). A
+  NON-default disjunction whose residual arm is still a DEFERRED `.conj` at normalize time (the
+  MEET-RESID-1 two-pass holds the meet) is NOT re-pruned after the second pass materializes the inner
+  `_|_`, so a dead arm can survive as a spurious disjunct. The gap is disjunction RE-normalization
+  after two-pass residual resolution (not `containsBottom`, now correct). Empirically narrow — the
+  simplest probes (`(a&{x:2}) | {x:2,ok:true}`) actually resolve post-fix; a precise reproducing
+  shape was not isolated this batch. Rank MEDIUM (a residual masking, but harder to trigger than
+  RESID-MASK-1 and behind the two-pass); revisit when a clean witness surfaces or after AD2-1.
+
+- **A#6 (`containsBottom` TOTAL/structural) — ✅ VERIFIED SOUND.** `Value` is a genuine finite
+  well-founded inductive: every recursive position holds a structurally-smaller `Value`/`List
+  Value`/`Field`/… subterm; `refId` carries a leaf `BindingId` (two `Nat`s, no `Value`), and
+  `closure`'s `capturedEnv : List (Nat × List Field)` reaches `Value`s only through `List`/`Field`
+  (smaller components, NOT a back-edge — `inductive` cannot express a self-or-larger `Value` field).
+  So `termination_by structural` is sound, and Lean ACCEPTED it (a non-structural recursion is
+  rejected at elaboration; the build elaborated the mutual block). Axiom-clean (`propext` only —
+  constructive, no `sorryAx`/`partial`/`Classical.choice`). Deleted `fieldBottomCounts`'s optional-
+  skip rule folded byte-identically into `containsBottomFields`. The deep-bottom (depth-150/-500)
+  detection and `liveAlternatives` end-to-end prune are pinned (`a6_*`). The catch-all `.structComp`
+  gap A#6 left is now closed by RESID-MASK-1 (consistent with A#6's intent).
 
 - **AD4-1 (MEDIUM — comprehension-walker dedup) — ✅ DONE (this batch; see implementation-log).**
   The struct/list comprehension clause-walkers had BYTE-IDENTICAL `.guard`/`.letClause`/`.forIn`

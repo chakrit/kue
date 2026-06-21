@@ -159,11 +159,22 @@ mutual
     leaf data, never back-edges), so every constructor's children are structurally smaller and the
     walk terminates with NO depth bound: a `.bottom` at ANY depth is found, closing the prior
     fuel-cap (100) soundness hole where a deep non-cyclic bottom was missed → a dead arm survived →
-    a wrong value. The pre-eval/deferred constructors (`comprehension`, `structComp`,
+    a wrong value. The remaining pre-eval/deferred constructors (`comprehension`,
     `listComprehension`, `interpolation`, `dynamicField`, `closure`) are NOT descended (catch-all
-    `false`), unchanged from the fuel version: they never sit on the disjunction-pruning path as a
-    resolved value. The `List`-nested children (`.conj`, `.disj`, `.struct`, lists) recurse through
-    the named helpers below so the structural decrease stays visible to Lean. -/
+    `false`): they never sit on the disjunction-pruning path as a resolved value.
+
+    `.structComp` IS descended, but only into its RESOLVED `fields` (not its still-deferred
+    `comprehensions`). MEET-RESID-1 (and the eager `withDeferredComprehensions` site) re-wrap a
+    merged residual as a `.structComp` whose `fields` CAN carry a held `.bottomWith` field conflict
+    (`{x:1,for…} & {x:2}` ⇒ `.structComp [x:_|_] …`); without descending, such a residual surviving
+    as a disjunction ARM was NOT pruned by `liveAlternatives` (it tags `.structComp`, so the
+    catch-all returned `false`) → a dead arm survived → a wrong value (a spurious unresolved `.disj`
+    where cue resolves to the live arm). The `comprehensions` stay un-descended: they hold
+    unexpanded clause bodies that are legitimately incomplete, never resolved conflicts — a conflict
+    only materializes once a comprehension expands+merges, at which point it lands in `fields` (or
+    short-circuits to `.bottom`). The `List`-nested children (`.conj`, `.disj`, `.struct`,
+    `.structComp`, lists) recurse through the named helpers below so the structural decrease stays
+    visible to Lean. -/
 def containsBottom : Value -> Bool
   | .bottom => true
   | .bottomWith _ => true
@@ -179,6 +190,9 @@ def containsBottom : Value -> Bool
       containsBottomFields fields
         || (match tail with | some t => containsBottom t | none => false)
         || containsBottomPatterns patterns
+  -- A held residual: descend its RESOLVED fields only (a merged field conflict lives there as a
+  -- present `.bottomWith`); the deferred comprehensions are unexpanded, never a resolved conflict.
+  | .structComp fields _ _ => containsBottomFields fields
   | .list items => containsBottomList items
   | .listTail items tail => containsBottomList items || containsBottom tail
   | .embeddedList items tail decls =>

@@ -1131,5 +1131,81 @@ theorem concrete_key_comprehension_still_resolves :
       "a: {k: 1}\nb: {k: 1, x: 2}" = true := by
   native_decide
 
+/-! ### MEET-RESID-1 audit — MASKED-BOTTOM regression guard (Phase-A `RESID-MASK-1`).
+
+The MEET-RESID-1 soundness argument claimed "a `.structComp` never holds a conflict
+(unrepresentable)". That is FALSE: `mergeFieldValueWith` stores a field conflict as a PRESENT
+`.bottomWith` field VALUE (not a top-level `.bottom`), and MEET-RESID-1 / the eager
+`withDeferredComprehensions` re-wrap such a struct as `.structComp [x:_|_] …` (see Tripwire 1
+above, which pins exactly that inline `x: _|_`). The real invariant is weaker: a held conflict is
+fine PROVIDED every bottom-consumer surfaces it. `containsBottom` (the `liveAlternatives`
+disjunction-prune predicate) did NOT descend `.structComp` — so a residual-with-inner-conflict
+surviving as a disjunction ARM was not pruned, and a DEAD arm survived → a wrong value (a spurious
+unresolved `.disj`, or a stuck selector, where cue resolves to the live arm). Fixed by descending
+`.structComp`'s RESOLVED fields in `containsBottom`. These pins are the destroy-test witnesses;
+each is oracle-cross-checked vs cue v0.16.1 (cue prunes the dead arm). -/
+
+-- ★ HEADLINE (the masked bottom): a residual-meet conflict as the NON-default arm of a default
+-- disjunction. cue prunes the dead arm → `pick: {y:9}`. Pre-fix kue HELD the dead arm
+-- (`*{y:9} | {x:_|_, for…}`) — `containsBottom` was blind to the `.structComp`-wrapped `x:_|_`.
+theorem resid_mask_disj_default_prunes_dead_residual_arm :
+    evalSourceMatches
+      "a: {x: 1, for k in [string] {(k): 1}}\npick: *{y: 9} | (a & {x: 2})\n"
+      "a: {x: 1, for k in [string] {(@1.0): 1}}\npick: {y: 9}" = true := by
+  native_decide
+
+-- (NOTE — the residual-arm masking is only fully closed on the path where the arm is ALREADY a
+-- resolved `.structComp[_|_]` at `normalizeDisj` time, i.e. a DEFAULT disjunction collapsing at
+-- selection/manifest. A NON-default disjunction whose residual arm is still a deferred `.conj` at
+-- normalize time — `(a&{x:2}) | {x:2,ok:true}` with no `*` — is NOT re-pruned after the two-pass
+-- resolution materializes the inner `_|_`, so it survives as a spurious arm. That deeper
+-- re-normalization gap is filed as RESID-MASK-2; the plain-arm control below shows the prune
+-- primitive itself is correct.)
+
+-- CONTROL (no residual): the SAME disjunction shape with a plain `{x:1}&{x:2}` dead arm was ALWAYS
+-- pruned correctly (a plain `.struct` arm — `containsBottom` saw its `x:_|_`). Pins that the bug
+-- was SOLELY the `.structComp` wrapper hiding the inner bottom, and the fix matches this baseline.
+theorem resid_mask_control_plain_conflict_arm_pruned :
+    evalSourceMatches
+      "pick: *{y: 9} | ({x: 1} & {x: 2})\n"
+      "pick: {y: 9}" = true := by
+  native_decide
+
+-- EVAL CONSTRUCT-SITE (not via meet): `withDeferredComprehensions` itself builds a residual with an
+-- inner conflict (`x:1, x:2` static + a held `for`). As a disj arm it must ALSO be pruned — the
+-- hole was never meet-specific. cue prunes → `pick: {y:9}`.
+theorem resid_mask_eval_site_residual_arm_pruned :
+    evalSourceMatches
+      "a: {x: 1, x: 2, for k in [string] {(k): 1}}\npick: *{y: 9} | a\n"
+      "a: {x: _|_, for k in [string] {(@1.0): 1}}\npick: {y: 9}" = true := by
+  native_decide
+
+-- RESIDUAL & RESIDUAL: two held comprehensions whose static fields conflict, as a disj arm — the
+-- union-of-comps residual `{x:_|_, for…, for…}` is still pruned. cue → `pick: {y:9}`.
+theorem resid_mask_residual_meet_residual_arm_pruned :
+    evalSourceMatches
+      "a: {x: 1, for k in [string] {(k): 1}}\nb: {x: 2, for j in [string] {(j): 2}}\npick: *{y: 9} | (a & b)\n"
+      "a: {x: 1, for k in [string] {(@1.0): 1}}\nb: {x: 2, for j in [string] {(@1.0): 2}}\npick: {y: 9}"
+        = true := by
+  native_decide
+
+-- DEEP/NESTED conflict inside the residual (A#6 depth × residual boundary): the conflict is one
+-- level down (`p: {q: _|_}`). `containsBottom` descends the residual fields, then recurses the inner
+-- `.struct` to the nested bottom. cue prunes → `pick: {y:9}`.
+theorem resid_mask_nested_conflict_in_residual_arm_pruned :
+    evalSourceMatches
+      "a: {p: {q: 1}, for k in [string] {(k): 1}}\npick: *{y: 9} | (a & {p: {q: 2}})\n"
+      "a: {p: {q: 1}, for k in [string] {(@1.0): 1}}\npick: {y: 9}" = true := by
+  native_decide
+
+-- NO OVER-PRUNE (the converse guard): a CONFLICT-FREE residual as the non-default arm must SURVIVE
+-- (it is a genuinely-held value, not a dead arm). The fix descends only into the resolved fields, so
+-- a residual whose fields carry no bottom stays live and the disjunction remains a real 2-arm value.
+-- cue keeps both arms ambiguous here; `exportJsonBottoms` witnesses kue does NOT collapse to one.
+theorem resid_mask_no_over_prune_clean_residual_survives :
+    exportJsonBottoms
+      "a: {for k in [string] {(k): 1}}\npick: {y: 9} | a\n" = true := by
+  native_decide
+
 
 end Kue
