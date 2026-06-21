@@ -251,6 +251,31 @@ family, …) are HISTORY: the as-built detail is in
 (each audit is its own commit). What stays here is only the durable rulings — the ones a
 future audit would otherwise re-litigate.
 
+- **Phase-A audit (2026-06-21, batch `3d0124a`/`f3262a1`/`0091aba`) — three soundness claims
+  RE-VERIFIED CLEAN; no fix needed.** Adversarial destroy-tests, not byte-compare-to-`cue`.
+  (1) **AD2-1 lone-`*v` ≡ `v`** — meeting the OLD residual form `.disj [(.default,v)]` against a
+  battery of right operands equals meeting bare `v` in VALUE on every chain tried: `*1&(*2|1)→1`
+  (NOT 2), `*1&(*1|2)`, `*1&(*3|1)→1`, order-flip `(*2|1)&*1`, `*1&(1|2)`, `*1&*1→1`, `*1&*2→⊥`
+  (both ⊥; only the bottom-REASON payload differs — disj-cross strips it via `containsBottom`,
+  orthogonal to the collapse), nested `*(*1|2)` resolving to `*1`, and a lone-`*1` inside a struct
+  field unified with `*2|1`. Multi-arm marks STILL preserved (`*1|2 & int == *1|2`) — the
+  rename did not weaken the boundary. `normalizeDisj` axiom-clean (`propext` only).
+  (2) **`Decimal.sqrt` total + exact + precise** — `isqrtNewton` depends on NO axioms;
+  `isqrtNat`/`decimalSqrt`/`mathSqrt?`/`mathPow?` on the 3 standard axioms only (no `sorryAx`,
+  no `partial`). Floor-exactness (`r²≤N<(r+1)²`) holds on perfect squares at 10^40/10^60, N²±1 at
+  10^20/10^30, ugly non-squares ~10^60, and scaled radicands at scale 80–120; `√2` renders the
+  correctly-rounded 34-sig-digit floor; `Sqrt(neg)/Pow(neg,½)→⊥`, `Pow(0,neg)→none`,
+  `Pow(0,0)→⊥`; `Sqrt(x)≡Pow(x,½)` for x∈{2,4,0,-2}; tiny scaled `Sqrt(0.0001)=0.01`. Budget
+  `2·digits+8` confirmed sufficient. The cue-divergence rows (Sqrt float64-vs-decimal; NaN/Inf→⊥)
+  are accurate and frame Kue as more-correct.
+  (3) **SC-1e closedness monotone across all 4 tail arms** — every adversarial ordering matches
+  the oracle in VALUE: field-closed tail-LEFT rejects forbidden, field-closed×field-closed×tail
+  conjunction-rejects all, pattern-closed reversed tail-left admits, closed-embed+tail rejects
+  forbidden / admits allowed, mixed field+pattern closed conjunction-rejects, SC-1b closed×closed
+  NOT regressed. One benign find: kue's struct-merge field-ORDER (`x2,x1`) differs from cue's
+  (`x1,x2`) on the embed+tail-admit case — same value, a merge-order render artifact (already
+  ratified, SC-3-area row 44), not a closedness divergence. `StructOpenness.meet` correctly makes
+  `defClosed` dominate. Verdict: all three claims SOUND; no code change.
 - **AD2-1 (disjunction-normalizer lone-arm rule) — RESOLVED (2026-06-21, UNIFIED).** The
   prior "USER-GATED" framing was over-caution about renaming named pins; the real question
   was autonomous (is the lone-default marker load-bearing?) and is answered NO. Proof: a
