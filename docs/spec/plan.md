@@ -117,8 +117,10 @@ owns the non-spec-conformance work.
 backlog (authoritative; do NOT duplicate the detail here).** Everything
 spec-conformance-HIGH is DONE (the closedness family incl. SC-1b/1e + EMBED-CLOSE-1, the
 MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, the
-4 ratifications). The genuinely -open set: **BI-2-residual** (Sqrt + neg/fractional Pow —
-Float/NaN/Infinity model), **EvalOps** (mechanical carve, autonomous, item 2), **SC-4**
+4 ratifications). The genuinely -open set: **BI-2-residual** (math.Sqrt + Pow(·,½) DONE
+2026-06-21 in EXACT DECIMAL — Float correctly AVOIDED; open residual-of-residual: GENERAL
+neg/non-½ fractional Pow via decimalExp/decimalLn, still NO Float), **EvalOps** (mechanical
+carve, autonomous, item 2), **SC-4**
 (LOW spec-gap-first). PARKED: **Bug2-5** (argocd residual, a stress-test finding). RESOLVED
 / ruled out (do not re-file — see Resolved/ruled-out below): **AD2-1** (lone-default
 normalizer unified, 2026-06-21), **DRY-1**. **SC-3** is now a recorded spec-gap only (the

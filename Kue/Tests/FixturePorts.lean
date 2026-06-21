@@ -2531,6 +2531,29 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "builtins/math_sqrt.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"sqrtTwo", .regular, .builtinCall "math.Sqrt" [.prim (.int 2)]⟩,
+                ⟨"sqrtFive", .regular, .builtinCall "math.Sqrt" [.prim (.int 5)]⟩,
+                ⟨"sqrtPerfect", .regular, .builtinCall "math.Sqrt" [.prim (.int 144)]⟩,
+                ⟨"sqrtFour", .regular, .builtinCall "math.Sqrt" [.prim (.int 4)]⟩,
+                ⟨"sqrtHundred", .regular, .builtinCall "math.Sqrt" [.prim (.int 100)]⟩,
+                ⟨"sqrtBigSq", .regular, .builtinCall "math.Sqrt" [.prim (.int 1000000)]⟩,
+                ⟨"sqrtZero", .regular, .builtinCall "math.Sqrt" [.prim (.int 0)]⟩,
+                ⟨"sqrtOne", .regular, .builtinCall "math.Sqrt" [.prim (.int 1)]⟩,
+                ⟨"sqrtDecSq", .regular, .builtinCall "math.Sqrt" [.prim (.float "2.25")]⟩,
+                ⟨"sqrtDecQtr", .regular, .builtinCall "math.Sqrt" [.prim (.float "0.25")]⟩,
+                ⟨"sqrtThree", .regular, .builtinCall "math.Sqrt" [.prim (.int 3)]⟩,
+                ⟨"powHalf", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]⟩,
+                ⟨"powHalfSq", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "0.5")]⟩,
+                ⟨"powHalfDec", .regular,
+                  .builtinCall "math.Pow" [.prim (.float "2.25"), .prim (.float "0.5")]⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "builtins/list_sort.expected",
       content :=
         let ascending := (stdlibPackageValue? "list" "Ascending").getD .bottom

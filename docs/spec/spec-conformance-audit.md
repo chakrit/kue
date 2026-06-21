@@ -57,7 +57,7 @@ the spec-first fix-slice backlog in `plan.md`.
 | B. Closedness/definitions  | batch 1 | DONE       | SC-1/1c/1d + SC-2 FIXED 2026-06-19; **SC-1b FIXED 2026-06-21** via `closedClauses` provenance; **SC-1e (closed×open-`...`) FIXED 2026-06-21** (`closeTailResult`, monotonicity) + **EMBED-CLOSE-1 PINNED** → closedness family FULLY CLOSED; import-laziness a deliberate gap                                                                                                                                                      |
 | C. Structs/lists           | batch 1 | DONE       | pattern-meet closedness FIXED (SC-1b, 2026-06-21); field order RATIFIED as a spec gap (Kue keeps source order); rest CONFORMS                                                                                                                                                                                                                                                                                                      |
 | D. Comprehensions/scoping  | batch 2 | **CLOSED** | guard catch-all DRAINED (**D#1a/D#1b/D#1c all FIXED**: bottom→propagate, incomplete→defer, concrete-non-bool→type-error; 2026-06-20); structural cycles **D#2 COMPLETE 2026-06-20** (D#2a detection + D#2b terminating-disjunct); **`let`-clauses D#3 FIXED 2026-06-20** (parse + `Clause.letClause` + `let` = +1 frame; the LAST open D-item); frame-model + read-splice CONFORM — **D-area now fully closed**                    |
-| E. Scalars/bounds/builtins | batch 2 | DONE       | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); **BI-2 math.Pow exact + list.Sort/SortStable FIXED 2026-06-20**, **BI-1 Unicode case-fold FIXED 2026-06-20** (oracle-generated BMP table); E#4 arithmetic-operator domain FIXED 2026-06-20; numeric/bounds/division/decimal core CONFORMS. Residual: **BI-2-residual** (Sqrt + neg/fractional Pow — needs a Float/NaN/Infinity model) |
+| E. Scalars/bounds/builtins | batch 2 | DONE       | regex→RE2 COMPLETE (RX-1 trilogy + RX-2a/b/c all FIXED — corpus divergence-free 2026-06-20); **BI-2 math.Pow exact + list.Sort/SortStable FIXED 2026-06-20**, **BI-1 Unicode case-fold FIXED 2026-06-20** (oracle-generated BMP table); E#4 arithmetic-operator domain FIXED 2026-06-20; numeric/bounds/division/decimal core CONFORMS. **BI-2-residual: math.Sqrt + math.Pow(·,½) DONE 2026-06-21** (EXACT DECIMAL `decimalSqrt` — fixed-iteration integer-Newton, total; Float correctly AVOIDED; Kue self-consistent `Sqrt=Pow(·,½)` and more precise than cue's float64 Sqrt — divergence recorded). Residual-of-residual: GENERAL neg/non-½ fractional Pow + `Pow(0,neg)` — needs decimalExp/decimalLn (filed with design, still NO Float) |
 | F. Manifest/modules        | batch 2 | DONE       | 3 KUE-VIOLATES (`regexp` import missing — **F-1 FIXED 2026-06-19**; self `@vN` not stripped — **F-2 FIXED 2026-06-19**; qualified `path:id` unparsed — **F-3 FIXED 2026-06-20**); export + module-resolution core CONFORM                                                                                                                                                                                                          |
 
 ## Audit history (archived — full detail in implementation-log.md + git)
@@ -198,11 +198,18 @@ these is in Audit history (below) + the implementation-log + git.
    display-collapse of a MULTI-arm default to its selected default, which Kue deliberately
    does NOT do (unsound — loses the live non-default arm a later meet needs). Recorded as a
    spec-gap (`cue-spec-gaps.md` D#2b/SC-3 row, scope note added). Not a gate, not a slice.
-3. **BI-2-residual** (MED — `math.Sqrt` + neg/fractional `math.Pow` +
-   `Pow(0,neg)=Infinity`). ⚠ **USER-GATED**: a large Float/NaN/Infinity numeric-model
-   subproject, a departure from Kue's exact-rational core — a scope/architecture decision,
-   not an autonomous slice. Kue bottoms on these inputs today (never a wrong value — the
-   grant). See the BI-2-residual entry below.
+3. **BI-2-residual** (MED — `math.Sqrt` + neg/fractional `math.Pow`). **SPLIT, partly DONE
+   2026-06-21.** The "USER-GATED / needs a Float/NaN/Infinity model" framing was WRONG and is
+   dropped: Float was correctly AVOIDED. Kue is exact-rational, so `Sqrt`/`Pow(·,½)` are
+   computed in EXACT DECIMAL (`decimalSqrt` — fixed-iteration integer-Newton, structurally
+   total), matching cue's OWN apd `Pow(2,½)` and making `Sqrt(x) = Pow(x, ½)` self-consistent
+   (cue's float64 `Sqrt` ≠ its apd `Pow` — cue is internally inconsistent; Kue is more precise
+   and recorded as a kue-more-correct divergence). Domain errors (`Sqrt(neg)`, `Pow(-,½)`)
+   BOTTOM, never `NaN`. SHIPPED: `Decimal.sqrt` + `math.Sqrt` + `math.Pow(·,½)`. STILL OPEN
+   (the residual-of-the-residual): a GENERAL negative/non-½ fractional exponent + `Pow(0,neg)`
+   — needs `decimalExp`/`decimalLn` to 34 digits (both fixed-term Taylor + argument reduction,
+   total — NO Float). Filed-with-design below. Kue bottoms on the open inputs today (never a
+   wrong value — the grant).
 4. **EvalOps extraction** (mechanical, AUTONOMOUS but NOT urgent — `plan.md` item 2). ~256
    lines of pure scalar algebra carved to `Kue/EvalOps.lean`; `Eval.lean` is under the
    re-split threshold, so hygiene not pressure. The one remaining autonomous slice.
@@ -261,24 +268,42 @@ Bug2-5 mechanism.)
   content-identical (zero false-fire; prod9 has ZERO recursive defs). See Audit history +
   implementation-log 2026-06-20.
 
-**BI-2-residual (MED — deferred builtins, undesigned numeric subproject).** The BI-2 slice
-(2026-06-20) landed `math.Pow` 's EXACT domain + `list.Sort` /`SortStable` but DEFERRED
-two pieces that need numeric/formatting machinery Kue does not have. Both BOTTOM today
-(honest "not computed", never a wrong value — the grant): **(a) `math.Sqrt` ** — cue
-computes it in IEEE-754 float64 (`Sqrt(2)=1.4142135623730951`) and renders with Go's float
-formatter incl. scientific notation (`Sqrt(100)=1e+1`, `Sqrt(1000000)=1e+3`), with
-`Sqrt(-1)=NaN.0`, `Sqrt(0)=0.0`. Kue's numeric core is EXACT base-10 rationals — no
-`Float`, no `NaN` /`Infinity`, no sci-notation formatter; even perfect-square Sqrt needs
-the float-render path (`Sqrt(100)` must be `1e+1`, which Kue's decimal formatter would
-render `10.0` — a wrong value), so NO sub-domain is cleanly carve-out-able. Needs: a
-`Float` (or a decimal Newton/series sqrt to cue's precision) + `NaN` /`Infinity` value
-modeling + a Go-style float formatter. **(b) `math.Pow` negative/fractional exponent +
-`Pow(0,neg)=Infinity` ** — cue uses an apd 34-significant-digit decimal Pow
-(`Pow(2,0.5)=1.414…209698`, `Pow(3,-1)=0.333…333`) and emits `Infinity` for `Pow(0,neg)`.
-Needs an apd-equivalent decimal nth-root/exponentiation to 34 digits + an Infinity model.
-Design fork when sliced: introduce a real `Float` /IEEE bridge (broad, risks colliding
-with the exact-decimal formatter) vs a decimal-precision numeric-methods module
-(apd-style, keeps exactness philosophy). Lower priority than the feature tail; no real app
+**BI-2-residual (MED — SPLIT; sqrt + Pow-½ DONE 2026-06-21, exp/ln increment filed).** The
+prior framing ("needs a Float/NaN/Infinity model; no sub-domain carve-out-able") was WRONG
+and is corrected here: **Float was never needed and is correctly avoided.** Kue is
+exact-rational by design, so the sound move is to compute in EXACT DECIMAL and record the
+divergence from cue's fallible float artifacts — not to import IEEE.
+
+**SHIPPED (2026-06-21).** **(a) `math.Sqrt` + `Pow(·, ½)`** via `Decimal.sqrt`
+(`decimalSqrt`): a FIXED-iteration integer-Newton square root (`isqrtNewton`/`isqrtNat` —
+`x' = (x + N/x)/2` on `Nat`, budget `2·digits + 8`, min-tracked so it lands EXACTLY on
+`⌊√N⌋`; structurally recursive on the budget, hence total — `#print axioms` shows no
+`sorryAx`/`partial`). For `a = num/10^s`, `√a = ⌊√(num·10^(2P−s))⌋/10^P` with `P ≥ 40`;
+perfect squares collapse to int (`Sqrt(144)=12`, `Sqrt(100)=10` — NOT cue's `1e+1`), exact
+non-integer roots trim (`Sqrt(2.25)=1.5`), irrationals render to 34 sig digits via the
+shared division renderer (`Sqrt(2)=1.414…209698`, BYTE-IDENTICAL to cue's OWN apd
+`Pow(2,½)`). `math.Sqrt` and `math.Pow(·,½)` route through the SAME function, so
+`Sqrt(x)=Pow(x,½)` (cue's float64 `Sqrt` ≠ apd `Pow` — cue is internally inconsistent; Kue
+is more precise + self-consistent — recorded as a kue-more-correct divergence). Domain
+errors BOTTOM: `Sqrt(neg)`, `Pow(neg,½)` (real-domain / complex), NEVER `NaN`. Files:
+`Kue/Decimal.lean` (`isqrtNewton`/`isqrtNat`/`decimalSqrt`), `Kue/Builtin.lean`
+(`decimalSqrtSigned`/`mathSqrt?`/`isHalfExponent`, `mathPow?` ½-route, `math.Sqrt` arm),
+17 `BuiltinTests` pins, `builtins/math_sqrt` fixture (14 cases).
+
+**OPEN (residual-of-the-residual — exp/ln increment, filed with design).** A GENERAL
+negative or non-½ fractional exponent (`Pow(2,-3)`, `Pow(2,0.25)`, `Pow(8,⅓)`) and
+`Pow(0,neg)`. cue computes these in apd 34-digit decimal (`Pow(3,-1)=0.333…333`) and emits
+`Infinity` for `Pow(0,neg)`. Design (NO Float — same exactness discipline as sqrt): add
+`decimalExp` and `decimalLn` as fixed-term Taylor series with argument reduction, then
+`x^y = exp(y·ln x)` to 34 sig digits. `decimalExp(x)`: range-reduce `x = k·ln2 + r`
+(`|r| < ln2/2`), sum `e^r = Σ rⁿ/n!` to a fixed term count sufficient for 34 digits on the
+reduced range, scale by `2^k`. `decimalLn(x)`: write `x = m·2^e` with `m ∈ [1,2)`, use
+`ln x = e·ln2 + ln m` with the fast-converging `ln m = 2·artanh((m−1)/(m+1))` fixed-term
+series. Both fixed-term ⇒ structurally total, no Float. `Pow(neg, non-integer)` stays bottom
+(complex — cue errors too). `Pow(0,neg)` → bottom (division by zero — Kue does not
+manufacture `Infinity`; divergence already recorded). Negative integer exponents could land
+first as a cheaper sub-increment (`x^(-n) = 1/x^n` via the existing exact int-pow + the
+division renderer) before the full exp/ln. Lower priority than the feature tail; no real app
 needs it.
 
 **SC-1b — DONE (2026-06-21).** Closed×closed-pattern intersection. The old
@@ -405,13 +430,16 @@ route these through the closing twin. Do NOT reflexively match cue. Lowest prior
     + `list.Sort` /`list.SortStable` (comparator `{x,y,less}` evaluated per pair at the
       EVAL layer via
     a total stable monadic merge sort; `list.Ascending` /`Descending` emitted by
-    `stdlibPackageValue?`) all FIXED. **BI-2-residual (MED, deferred fix-slice):**
-    `math.Sqrt` (IEEE-754 float64 — needs Float + `NaN` /`Infinity` + Go
-    scientific-notation float formatting Kue lacks) and `math.Pow` with a
-    negative/fractional exponent or `Pow(0,neg)=Infinity` (needs an apd-equivalent
-    34-sig-digit decimal Pow + Infinity model). Kue BOTTOMS on these inputs rather than
-    shipping a wrong value (the grant). See Audit history + implementation-log 2026-06-20;
-    spec gaps in `cue-spec-gaps.md` (BI-2 Pow + Sort rows).
+    `stdlibPackageValue?`) all FIXED. **BI-2-residual — SPLIT, `math.Sqrt` + `Pow(·,½)` DONE
+    2026-06-21:** computed in EXACT DECIMAL (`decimalSqrt` — fixed-iteration integer-Newton,
+    structurally total; Float was correctly AVOIDED, NOT introduced). Perfect squares collapse
+    to int, irrationals render to 34 sig digits; `Sqrt(x) = Pow(x,½)` (cue's float64 `Sqrt` ≠
+    apd `Pow` — Kue more precise + self-consistent, recorded as a kue-more-correct divergence);
+    `Sqrt(neg)`/`Pow(neg,½)` BOTTOM (no `NaN`). STILL OPEN (residual-of-residual, filed with an
+    exp/ln design — still NO Float): a GENERAL negative/non-½ fractional exponent + `Pow(0,neg)`.
+    Kue BOTTOMS on those rather than shipping a wrong value (the grant). See the BI-2-residual
+    entry above + implementation-log 2026-06-21; spec gaps in `cue-spec-gaps.md` (BI-2 Pow/Sqrt
+    + Sort rows); divergences in `cue-divergences.md` (Sqrt-vs-float64, NaN/Inf→bottom rows).
 15. **BI-1 (MED) — DONE 2026-06-20 (CONFORMS across the BMP).** Unicode case mapping for
     `strings.ToUpper/ToLower` shipped via an oracle-generated BMP simple-mapping table
     (`Kue/CaseTable.lean`, generated by `scripts/gen-case-table.py` from the local oracle,

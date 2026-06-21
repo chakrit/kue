@@ -1,0 +1,16 @@
+import "math"
+
+sqrtTwo:     math.Sqrt(2)
+sqrtFive:    math.Sqrt(5)
+sqrtPerfect: math.Sqrt(144)
+sqrtFour:    math.Sqrt(4)
+sqrtHundred: math.Sqrt(100)
+sqrtBigSq:   math.Sqrt(1000000)
+sqrtZero:    math.Sqrt(0)
+sqrtOne:     math.Sqrt(1)
+sqrtDecSq:   math.Sqrt(2.25)
+sqrtDecQtr:  math.Sqrt(0.25)
+sqrtThree:   math.Sqrt(3)
+powHalf:     math.Pow(2, 0.5)
+powHalfSq:   math.Pow(4, 0.5)
+powHalfDec:  math.Pow(2.25, 0.5)

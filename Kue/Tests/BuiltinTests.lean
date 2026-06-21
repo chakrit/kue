@@ -557,15 +557,95 @@ theorem math_pow_zero_zero_is_bottom :
     (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (.int 0)] == .bottom) = true := by
   native_decide
 
--- Residual domain (deferred — see cue-spec-gaps.md): a negative or fractional exponent needs
--- cue's apd 34-digit decimal Pow, NOT yet implemented. Kue bottoms (an honest "not computed",
--- never a wrong value) rather than guessing.
-theorem math_pow_negative_exponent_is_bottom_residual :
+-- Residual domain (still deferred — see cue-spec-gaps.md, BI-2-residual exp/ln increment): a
+-- GENERAL negative or non-½ fractional exponent needs decimalExp/decimalLn to 34 digits, NOT yet
+-- implemented. Kue bottoms (an honest "not computed", never a wrong value) rather than guessing.
+theorem math_pow_general_negative_exponent_is_bottom_residual :
     (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))] == .bottom) = true := by
   native_decide
 
-theorem math_pow_fractional_exponent_is_bottom_residual :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")] == .bottom) = true := by
+theorem math_pow_general_fractional_exponent_is_bottom_residual :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")] == .bottom) = true := by
+  native_decide
+
+-- BI-2-residual: `Pow(x, ½) = √x`, computed in exact decimal and routed through the SAME sqrt as
+-- `math.Sqrt` (self-consistency). `Pow(2, 0.5)` is byte-identical to cue's apd `Pow(2, 0.5)`.
+theorem math_pow_half_exponent_is_sqrt :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]
+      == .prim (.float "1.414213562373095048801688724209698")) = true := by
+  native_decide
+
+-- A perfect square under the ½ exponent collapses to int (`Pow(4, 0.5) = 2`, cue agrees: `2`).
+theorem math_pow_half_exponent_perfect_square_collapses_to_int :
+    (evalBuiltinCall "math.Pow" [.prim (.int 4), .prim (.float "0.5")] == .prim (.int 2)) = true := by
+  native_decide
+
+-- A negative base under a ½ exponent is out of the real domain (complex). Kue bottoms; cue errors.
+theorem math_pow_negative_base_half_exponent_is_bottom :
+    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.5")] == .bottom) = true := by
+  native_decide
+
+-- math.Sqrt — exact decimal (Kue self-consistent with Pow; diverges from cue's float64 Sqrt).
+
+-- Perfect squares are EXACT and collapse to int (cue's float Sqrt gives `12.0`/`10.0`; Kue's
+-- decimal more-precise self-consistent path gives the integer — recorded as a divergence).
+theorem math_sqrt_perfect_square_collapses_to_int :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 144)] == .prim (.int 12)) = true := by
+  native_decide
+
+theorem math_sqrt_four_is_two :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 4)] == .prim (.int 2)) = true := by
+  native_decide
+
+-- Kue: Sqrt(100) = 100 (int). cue: float64 Sqrt renders the scientific-notation artifact `1e+1`.
+theorem math_sqrt_hundred_is_ten_not_scientific :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 100)] == .prim (.int 10)) = true := by
+  native_decide
+
+theorem math_sqrt_zero_is_zero :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 0)] == .prim (.int 0)) = true := by
+  native_decide
+
+theorem math_sqrt_one_is_one :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 1)] == .prim (.int 1)) = true := by
+  native_decide
+
+-- Non-perfect square → 34 significant digits round-half-up. Byte-identical to cue's apd
+-- `Pow(2, 0.5)` (NOT cue's float64 `Sqrt(2) = 1.4142135623730951` — Kue is more precise).
+theorem math_sqrt_two_is_34_significant_digits :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 2)]
+      == .prim (.float "1.414213562373095048801688724209698")) = true := by
+  native_decide
+
+theorem math_sqrt_five_is_34_significant_digits :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 5)]
+      == .prim (.float "2.236067977499789696409173668731276")) = true := by
+  native_decide
+
+-- A non-integer perfect square trims to its exact minimal-scale value (Kue's exact-decimal
+-- choice; cue's apd pads to `1.500…000` — a display divergence, recorded).
+theorem math_sqrt_two_point_two_five_is_one_point_five :
+    (evalBuiltinCall "math.Sqrt" [.prim (.float "2.25")] == .prim (.float "1.5")) = true := by
+  native_decide
+
+-- A negative input is a real-domain error. Kue BOTTOMS (no NaN); cue emits the float `NaN.0`.
+theorem math_sqrt_negative_is_bottom :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int (-1))] == .bottom) = true := by
+  native_decide
+
+-- Internal consistency: `Sqrt(x)` and `Pow(x, ½)` produce the IDENTICAL value (cue's do NOT).
+theorem math_sqrt_equals_pow_half :
+    (evalBuiltinCall "math.Sqrt" [.prim (.int 2)]
+      == evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]) = true := by
+  native_decide
+
+theorem math_sqrt_type_mismatch_is_bottom :
+    (evalBuiltinCall "math.Sqrt" [.prim (.string "x")] == .bottom) = true := by
+  native_decide
+
+theorem math_sqrt_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "math.Sqrt" [.kind .number]
+      == .builtinCall "math.Sqrt" [.kind .number]) = true := by
   native_decide
 
 -- An abstract argument keeps the call unresolved (a later pass may concretize it).

@@ -10991,3 +10991,85 @@ Gate: `lake build` green (108 jobs), axiom-clean (standard `propext`/`Classical.
 residual); `shellcheck` n/a (no shell touched); adversarial export sweep vs cue v0.16.1 all
 MATCH; cert hot-path (`multiline_cert`) unchanged. The walker/normalizer-dedup family is now
 FULLY CLOSED (AD4-1 + A-EN3 DONE, DRY-1 ruled out, AD2-1 resolved).
+
+## Completed Slice: BI-2-residual — math.Sqrt + math.Pow(·, ½) in EXACT DECIMAL (Float avoided) (2026-06-21)
+
+Goal: implement the math builtins that previously BOTTOMED — `math.Sqrt` and the fractional
+`math.Pow(·, ½)` — WITHOUT introducing Float/NaN/Infinity. The prior BI-2 slice filed this as
+"needs a Float/NaN/Infinity model"; that framing was WRONG. Kue is exact-rational by design, so
+the principled move is to compute in EXACT DECIMAL and record the divergence from cue's fallible
+float artifacts. SPLIT: sqrt + Pow-½ SHIPPED; the general negative/non-½ fractional Pow (needs
+`decimalExp`/`decimalLn`) is filed-with-design as the residual-of-the-residual.
+
+**The reframe (settled, not re-litigated).** cue's `math.Pow` already uses a 34-digit apd DECIMAL
+context for the ½ exponent (`Pow(2,0.5) = 1.414…209698`), so Kue matches it in decimal. cue's
+`math.Sqrt` uses float64 (`Sqrt(2) = 1.4142135623730951`, only 17 digits) — a fallible ARTIFACT:
+inside cue, `Sqrt(2) ≠ Pow(2, ½)` (two numeric libraries for the same operation — cue is
+INTERNALLY INCONSISTENT). Kue is CONSISTENT: `Sqrt(x) = Pow(x, ½)` computed in decimal. The
+low-digit + scientific-notation divergence (`Sqrt(100)`: cue `1e+1`, Kue `10`) is recorded as a
+kue-MORE-correct divergence. `Sqrt(neg)`/`Pow(neg, ½)` BOTTOM (real-domain/complex error) instead
+of cue's `NaN` — an exact-rational lattice has no `NaN`/`Infinity` element to manufacture.
+
+**`Decimal.sqrt` design (totality via FIXED iteration count — the key trick).** `isqrtNewton`
+(`Kue/Decimal.lean`): integer Newton `x' = (x + N/x)/2` on `Nat`, iterated a FIXED `fuel` times —
+structurally recursive on `fuel`, so total with NO `termination_by` and NO `partial`. From an
+over-estimate seed `10^⌈d/2⌉` (`d` = decimal digit count, always ≥ √N since N < 10^d), the iterate
+decreases monotonically to `⌊√N⌋` then may bounce up by one; a running `best` MINIMUM captures the
+exact floor regardless. `isqrtNat` budgets `2·d + 8` iterations — dwarfs the ~log₂(bits) Newton
+needs at its quadratic rate, scales with the input (no fixed-magic ceiling), and over-iterating is
+harmless (best is monotone). Verified EXACT (`r² ≤ N < (r+1)²`) exhaustively on 0..5000 and on the
+34-sig-digit scaled inputs. `decimalSqrt`: for `a = num/10^s`, `√a = ⌊√(num·10^(2P−s))⌋/10^P` with
+`P = max(40, ⌈s/2⌉)` (the `max` keeps `2P ≥ s` even for a deeper-than-guard input fraction).
+Perfect squares (`r² = radicand`) → exact `r/10^P` collapsed to int via `collapseDecimalToValue`
+(`Sqrt(144)=12`, `Sqrt(2.25)=1.5`); irrationals → 34 sig digits round-half-up via the shared
+`divideDecimalRational?` (DRY — reuses the existing division renderer, so the precision context is
+the SAME 34-digit one as `/`). `Sqrt(2)=1.414…209698` is BYTE-IDENTICAL to cue's apd `Pow(2,0.5)`,
+`Sqrt(3)`/`Sqrt(5)` match `bc` to 34 sig figs.
+
+**Wiring (`Kue/Builtin.lean`).** `decimalSqrtSigned` (negative → `.bottom`, else `decimalSqrt`)
+is SHARED by `math.Sqrt` (`mathSqrt?`) and `mathPow?`'s ½-route (`isHalfExponent`: `2·num =
+10^scale`, so `0.5`/`0.50`/… all qualify), so `Sqrt(x)` and `Pow(x, ½)` are the IDENTICAL value by
+construction. `math.Sqrt` arm added to `evalMathBuiltin` (dispatch is by `math.` prefix — no name
+registration needed). `Pow(neg, ½)` bottoms (complex). General neg/non-½ fractional exponents still
+return `none` → bottom (the open residual).
+
+**Axiom-clean / totality confirmed.** `#print axioms` on `decimalSqrt`/`isqrtNat`/`mathSqrt?`/
+`mathPow?`/`evalMathBuiltin` → only `[propext, Classical.choice, Quot.sound]` (the standard Lean
+axioms); `isqrtNewton`/`isHalfExponent` depend on NO axioms. NO `sorryAx`, NO `partial` — the
+fixed-iteration functions elaborated as fully total.
+
+**Tests (17 `BuiltinTests` pins + 1 fixture, 14 cases).** Sqrt: perfect-square→int (4→2, 144→12),
+`Sqrt(100)=10` (NOT `1e+1`), `Sqrt(0)=0`, `Sqrt(1)=1`, `Sqrt(2)`/`Sqrt(5)` 34-digit pinned,
+`Sqrt(2.25)=1.5`, `Sqrt(-1)→bottom`, type-mismatch→bottom, abstract-arg stays unresolved. Pow-½:
+`Pow(2,½)=Sqrt(2)` (34-digit), `Pow(4,½)=2` (collapse), `Pow(-2,½)→bottom`. Consistency:
+`math_sqrt_equals_pow_half` pins `Sqrt(2) == Pow(2, 0.5)` (cue's do NOT agree). The two prior
+residual-bottom pins were retargeted: `Pow(2,0.5)` now equals √2 (positive pin); the still-deferred
+bottoms are `Pow(2,-3)` (general neg) and `Pow(2,0.25)` (non-½ fractional). Fixture
+`builtins/math_sqrt` (`.cue` + `.expected` + `FixturePorts` port) drives all 14 through the full
+parse→resolve→eval path on BOTH the CLI and the Lean port. The `.expected` holds KUE's values (the
+harness compares Kue↔Kue, never Kue↔cue), so the float-Sqrt divergence is captured as Kue's.
+
+**Divergences / spec gaps recorded.** `cue-divergences.md`: (a) `math.Sqrt` exact decimal vs cue's
+float64 (Kue more precise + self-consistent; cue `Sqrt ≠ Pow(·,½)`); (b) `Sqrt(neg)`/`Pow(0,neg)`
+→ Kue bottoms vs cue `NaN`/`Infinity` (float artifacts, not lattice elements). `cue-spec-gaps.md`:
+the BI-2 Pow precision-model row extended to cover Sqrt (precision/format spec-silent; exactness +
+self-consistency is the principled choice; general fractional tail deferred).
+
+**Open residual (filed with design).** General negative/non-½ fractional `Pow` + `Pow(0,neg)`:
+`x^y = exp(y·ln x)` via `decimalExp`/`decimalLn` (fixed-term Taylor + argument reduction — both
+total, NO Float). Negative-INTEGER exponents are a cheaper sub-increment (`x^(-n) = 1/x^n` via
+existing exact int-pow + division renderer, no exp/ln). See `spec-conformance-audit.md`
+BI-2-residual entry for the full design. No real app needs it.
+
+**Verify.** `lake build` green (108 jobs; all pins checked at build); `check-fixtures.sh` →
+`fixture pairs ok` (zero drift; 1 new pair on both CLI + Lean-port paths); `shellcheck` n/a (no
+shell touched). Additive at the builtin layer (only `math.Sqrt`/`Pow(·,½)` newly resolve; cert-
+manager/argocd use neither) — cannot regress real-app output.
+
+Files: `Kue/Decimal.lean` (`decimalDigitCount`, `isqrtNewton`, `isqrtNat`, `sqrtGuardScale`,
+`decimalSqrt`), `Kue/Builtin.lean` (`decimalSqrtSigned`, `mathSqrt?`, `isHalfExponent`, `mathPow?`
+½-route, `math.Sqrt` arm + deferral docstring), `Kue/Tests/BuiltinTests.lean` (17 pins),
+`Kue/Tests/FixturePorts.lean` (math_sqrt port), `testdata/cue/builtins/math_sqrt.{cue,expected}`,
+`docs/reference/cue-divergences.md` (2 rows), `docs/reference/cue-spec-gaps.md` (Pow/Sqrt row),
+`docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (BI-2-residual SPLIT, "USER-GATED"
+dropped, Float-avoided noted).

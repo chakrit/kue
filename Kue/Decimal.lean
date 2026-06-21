@@ -143,6 +143,72 @@ def divideDecimalRational? (num den : Int) : Option String :=
     let body := if fracStr == "" then wholePart ++ ".0" else wholePart ++ "." ++ fracStr
     some (sign ++ body)
 
+/-- Decimal digit count of `n` (`0` has one digit). Drives both the initial
+    square-root guess and the iteration budget. -/
+def decimalDigitCount (n : Nat) : Nat :=
+  (toString n).length
+
+/-- Newton's iteration for the integer square root: `x' = (x + N / x) / 2` on
+    `Nat` (truncating division). Iterated a FIXED `fuel` times — structurally
+    recursive on `fuel`, hence total with no `termination_by`. From an
+    over-estimate seed the iterate decreases monotonically to `⌊√N⌋` and then may
+    bounce up by one, so `best` tracks the running minimum and captures the exact
+    floor regardless of where the bounce lands. Over-iterating past convergence is
+    harmless: `best` is monotone, so a generous fixed `fuel` (see `isqrtNat`) can
+    only help. -/
+def isqrtNewton (target : Nat) : Nat -> Nat -> Nat -> Nat
+  | 0, _, best => best
+  | fuel + 1, current, best =>
+      let next := (current + target / current) / 2
+      let best := if next < best then next else best
+      isqrtNewton target fuel next best
+
+/-- Exact `⌊√target⌋` by fixed-iteration Newton. The seed `10^⌈d/2⌉` (`d` = digit
+    count) is always `≥ √target` (since `target < 10^d`), so Newton converges from
+    above. The budget `2·d + 8` dwarfs the `~log₂(bits)` iterations Newton needs at
+    its quadratic rate — it scales with the input, so the function is exact on
+    arbitrarily large `target`, never a fixed-magic-number ceiling. Verified exact
+    against the naive floor predicate (`r² ≤ target < (r+1)²`) exhaustively on
+    `0..5000` and on the 34-significant-digit scaled inputs `math.Sqrt` feeds it. -/
+def isqrtNat (target : Nat) : Nat :=
+  if target == 0 then
+    0
+  else
+    let digits := decimalDigitCount target
+    let seed := 10 ^ ((digits + 1) / 2)
+    isqrtNewton target (2 * digits + 8) seed seed
+
+/-- Extra decimal places carried through the square-root computation: comfortably
+    beyond `divisionSigDigits` (34) so the final round to 34 significant digits is
+    correct and perfect squares are detected exactly. -/
+def sqrtGuardScale : Nat :=
+  40
+
+/-- Exact-decimal square root of a NON-NEGATIVE decimal, as CUE's apd `Pow(·, 0.5)`
+    renders it — and the value `math.Sqrt` returns (Kue computes `Sqrt` in decimal
+    for self-consistency with `Pow`, diverging from `cue`'s float64 `Sqrt`; see
+    `cue-divergences.md`). For `a = numerator / 10^scale`,
+    `√a = ⌊√(numerator · 10^(2P − scale))⌋ / 10^P` with `P = sqrtGuardScale`. When
+    the scaled radicand is a perfect square the result is the EXACT rational
+    `r / 10^P`, collapsed to an integer when whole (`√144 = 12`, `√2.25 = 1.5`);
+    otherwise it is irrational and rendered to 34 significant digits round-half-up
+    via the shared division renderer (`√2 = 1.414…209698`). A negative input is
+    NOT handled here — the caller raises a domain error (Kue bottoms rather than
+    manufacture `NaN`). -/
+def decimalSqrt (value : DecimalValue) : Value :=
+  -- Output places `P` must satisfy `2P ≥ scale` so the radicand exponent stays
+  -- non-negative even for a deeper-than-guard input fraction; bump it when needed.
+  let places := maxNat sqrtGuardScale ((value.scale + 1) / 2)
+  let radicand := decimalIntAbsNat value.numerator * 10 ^ (2 * places - value.scale)
+  let root := isqrtNat radicand
+
+  if root * root == radicand then
+    collapseDecimalToValue { numerator := Int.ofNat root, scale := places }
+  else
+    match divideDecimalRational? (Int.ofNat root) (Int.ofNat (10 ^ places)) with
+    | some text => .prim (.float text)
+    | none => .bottom
+
 /-- Multiplication of two decimal primitives, always yielding a float. The summed
     scale is preserved verbatim (no trailing-zero trim): `1.0 * 1.0 = 1.00`. -/
 def evalDecimalMultiply? (left right : Prim) : Option Prim :=

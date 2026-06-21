@@ -611,29 +611,53 @@ def decimalPowNat (base : DecimalValue) : Nat -> DecimalValue
   | 0 => { numerator := 1, scale := 0 }
   | exponent + 1 => mulDecimalValues base (decimalPowNat base exponent)
 
-/-- `math.Pow(base, exponent)` over the SOUND exact domain only: a non-negative integer
-    exponent (whether typed `int` like `3` or a whole-valued `float` like `3.0` — `cue`
-    treats `Pow(3, 2.0) = 9`). The result is exact repeated decimal multiplication,
-    collapsing an integral value back to `int` (`Pow(2,10) = 1024`, `Pow(1.5,3) = 3.375`,
-    `Pow(-2,3) = -8`). `Pow(0,0)` is a `cue` error (bottom). `none` signals "outside the
-    sound domain" (negative/fractional exponent → `cue`'s apd 34-digit decimal Pow or
-    `Infinity`, NOT yet implemented — see `evalMathBuiltin`'s deferral note and
-    `docs/reference/cue-spec-gaps.md`); the caller leaves such calls bottom rather than
-    emit a wrong value. -/
+/-- Exact-decimal square root over a SIGNED decimal: non-negative → `decimalSqrt`
+    (34 significant digits, perfect squares collapsed to `int`); negative → a
+    real-domain error, so Kue BOTTOMS (`cue` emits the float artifact `NaN` — Kue
+    does not manufacture `NaN`; see `cue-divergences.md`). Shared by `math.Sqrt`
+    and `Pow(·, ½)` so both stay self-consistent. -/
+def decimalSqrtSigned (value : DecimalValue) : Value :=
+  if value.numerator < 0 then .bottom
+  else decimalSqrt value
+
+/-- `math.Sqrt(value)` — `none` when the argument is non-numeric (caller defers). -/
+def mathSqrt? (value : Prim) : Option Value :=
+  (decimalFromPrim? value).map decimalSqrtSigned
+
+/-- Is the trimmed exponent exactly `½`? `num / 10^scale = 1/2 ⇔ 2·num = 10^scale`,
+    so `0.5`, `0.50`, … all qualify regardless of how the literal was written. -/
+def isHalfExponent (exponent : DecimalValue) : Bool :=
+  2 * exponent.numerator == Int.ofNat (evalPow10 exponent.scale)
+
+/-- `math.Pow(base, exponent)` over the domain Kue computes EXACTLY: a non-negative
+    integer exponent (whether typed `int` like `3` or a whole-valued `float` like
+    `3.0` — `cue` treats `Pow(3, 2.0) = 9`), by exact repeated decimal multiplication,
+    collapsing an integral value back to `int` (`Pow(2,10) = 1024`, `Pow(1.5,3) =
+    3.375`, `Pow(-2,3) = -8`); plus the `½` exponent, routed through `decimalSqrt`
+    for self-consistency with `math.Sqrt` (`Pow(2, 0.5) = 1.414…698`, `Pow(4, 0.5) =
+    2`). `Pow(0, 0)` is a `cue` error (bottom). `Pow(neg, ½)` is out of the real
+    domain (complex) — bottom (`cue` errors `invalid operation`). `none` signals
+    "outside the computed domain" (a general negative/fractional exponent — `cue`'s
+    apd 34-digit decimal `Pow`/`Infinity`, deferred to `BI-2-residual`'s exp/ln
+    increment); the caller leaves such calls bottom rather than emit a wrong value. -/
 def mathPow? (base exponent : Prim) : Option Value :=
   match decimalFromPrim? base, decimalFromPrim? exponent with
   | some base, some exponent =>
-      -- The exponent must be a whole number ≥ 0. `trimDecimalZerosWith` reduces `3.0` to
-      -- scale 0; a non-zero scale after trimming means a genuine fraction (`0.5`) — outside
-      -- the sound domain.
-      let exp := trimDecimalZerosWith exponent.numerator exponent.scale
-      if exp.scale != 0 || exp.numerator < 0 then
-        none
-      else if exp.numerator == 0 && base.numerator == 0 then
-        -- `Pow(0, 0)` — `cue` errors `invalid operation`.
-        some .bottom
+      if isHalfExponent exponent then
+        -- `Pow(x, ½) = √x` — routed through the same decimal sqrt as `math.Sqrt`.
+        some (decimalSqrtSigned base)
       else
-        some (collapseDecimalToValue (decimalPowNat base exp.numerator.toNat))
+        -- The exponent must otherwise be a whole number ≥ 0. `trimDecimalZerosWith`
+        -- reduces `3.0` to scale 0; a residual non-zero scale is a genuine fraction
+        -- (`0.25`, `1.5`) — outside the computed domain.
+        let exp := trimDecimalZerosWith exponent.numerator exponent.scale
+        if exp.scale != 0 || exp.numerator < 0 then
+          none
+        else if exp.numerator == 0 && base.numerator == 0 then
+          -- `Pow(0, 0)` — `cue` errors `invalid operation`.
+          some .bottom
+        else
+          some (collapseDecimalToValue (decimalPowNat base exp.numerator.toNat))
   | _, _ => none
 
 /-- Rounding mode for the `math.Floor`/`Ceil`/`Round`/`Trunc` family: each maps a
@@ -671,14 +695,17 @@ def mathRound (mode : RoundMode) : Prim -> Value
 /-- Dispatch a `math.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design.
 
-    `math.Pow` is computed EXACTLY for a non-negative integer exponent (`mathPow?` — the
-    only domain that stays a finite base-10 rational without a decimal-pow/Float bridge);
-    outside it (`mathPow?` ⇒ `none`) the call falls through to bottom rather than emit a
-    wrong value. Still DEFERRED (residual fix-slice, see `cue-spec-gaps.md`): `Pow` with a
-    negative or fractional exponent (`cue` uses an apd 34-significant-digit decimal Pow, and
-    `Pow(0, neg) = Infinity` — neither modeled here); `math.Sqrt` (IEEE-754 float64 in `cue`,
-    needing Float + `NaN`/`Infinity` + Go-style scientific float formatting Kue lacks); and
-    the trig/log family. -/
+    `math.Sqrt` and `math.Pow` are computed in EXACT DECIMAL (Kue is exact-rational by
+    design — no `Float`/`NaN`/`Infinity`). `math.Sqrt` returns `decimalSqrt` (34 significant
+    digits, perfect squares collapsed to `int`); a negative input BOTTOMS (real-domain error,
+    not `NaN`). `math.Pow` covers a non-negative integer exponent (exact repeated decimal
+    multiplication) and the `½` exponent (routed through `decimalSqrt`, so `Pow(x, ½)` and
+    `Sqrt(x)` agree); outside that (`mathPow?` ⇒ `none`) it falls through to bottom rather than
+    emit a wrong value. DEFERRED (`BI-2-residual` exp/ln increment, see `cue-spec-gaps.md`): a
+    GENERAL negative/fractional exponent (needs `decimalExp`/`decimalLn` to 34 digits; `cue`
+    uses apd, and `Pow(0, neg) = Infinity` — Kue would bottom). Kue's decimal `Sqrt` diverges
+    from `cue`'s float64 `Sqrt` (Kue is more precise and self-consistent with `Pow`; `cue`'s
+    `Sqrt ≠ Pow(·, ½)` — see `cue-divergences.md`). -/
 def evalMathBuiltin : String -> List Value -> Value
   | "math.Abs", [.prim p] => mathAbs p
   | "math.MultipleOf", [.prim (.int value), .prim (.int divisor)] =>
@@ -687,6 +714,10 @@ def evalMathBuiltin : String -> List Value -> Value
   | "math.Ceil", [.prim p] => mathRound .ceil p
   | "math.Round", [.prim p] => mathRound .round p
   | "math.Trunc", [.prim p] => mathRound .trunc p
+  | "math.Sqrt", [.prim value] =>
+      match mathSqrt? value with
+      | some result => result
+      | none => unresolvedOrBottom "math.Sqrt" [.prim value]
   | "math.Pow", [.prim base, .prim exponent] =>
       match mathPow? base exponent with
       | some value => value
