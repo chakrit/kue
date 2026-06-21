@@ -11073,3 +11073,52 @@ Files: `Kue/Decimal.lean` (`decimalDigitCount`, `isqrtNewton`, `isqrtNat`, `sqrt
 `docs/reference/cue-divergences.md` (2 rows), `docs/reference/cue-spec-gaps.md` (Pow/Sqrt row),
 `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (BI-2-residual SPLIT, "USER-GATED"
 dropped, Float-avoided noted).
+
+## Completed Slice: BI-2-§3 — general math.Pow (neg-int + non-½ fractional) in EXACT DECIMAL (2026-06-21)
+
+**What.** Closed the BI-2 family. `math.Pow` now covers its FULL real domain in exact-precision
+decimal, no `Float`. Two sub-increments:
+
+- **§1 negative-INTEGER exponent** — `x^(-n) = 1 / x^n`, an EXACT rational. `reciprocalDecimalToValue`
+  computes `1/p` over `decimalPowNat`'s result (`1/(pn/10^ps) = 10^ps / pn`): collapses to `int`
+  when whole (`Pow(1,-5)=1`), renders the exact terminating expansion (`Pow(2,-3)=0.125`,
+  `Pow(10,-2)=0.01`), else 34 sig digits (`Pow(3,-1)=0.333…333`). `Pow(0,neg)` → bottom.
+- **§2 general non-½ fractional exponent** (`x>0`) — `x^y = exp(y·ln x)`. New decimal transcendentals
+  in `Decimal.lean`, all scaled-`Int` at working scale 50 (16 guard digits past the 34-sig render
+  context): `decimalLnScaled` range-reduces `x = m·2^k`, `m ∈ [⅔,4/3)`, `ln x = k·ln2 + ln m`,
+  `ln m = 2·artanh((m−1)/(m+1))` as a FIXED 40-odd-term series; `decimalExpScaled` range-reduces
+  `z = n·ln2 + r`, `|r| ≤ ln2/2`, `exp z = 2ⁿ·exp r`, `exp r = Σ rᵏ/k!` as a FIXED 60-term series
+  (running factorial threaded). Result rounds to 34 sig digits and collapses to `int` when integral
+  (`Pow(4,1.5)=8`, `Pow(8,⅓)=2`). ½ still routes through `decimalSqrt`.
+
+**Totality / axioms.** Both series and both binary range-reduction loops run a FIXED budget ⇒
+structurally recursive, total, no `partial`/`sorry`. `#print axioms` confirms
+`decimalExpScaled`/`decimalLnScaled` depend on ZERO axioms; the full Pow path only on
+`propext`/`Quot.sound`/`Classical.choice` (standard String/Int lemmas — no `sorryAx`).
+
+**Precision / cross-check.** Mantissa byte-identical to cue's apd `Pow` across the corpus: 40 random
+fractional cases + extreme magnitudes (`Pow(0.000000001,0.25)`, `Pow(123456789,0.7)`,
+`Pow(1.0000001,0.5)`) all mantissa-exact. `Pow(2,0.5)` via the sqrt route equals `Sqrt(2)`
+(self-consistency cross-check holds). `Pow(2,0.25)=1.189…476`, `Pow(2,0.1)=1.071…342` — exact match.
+
+**Domain edges → bottom** (no `NaN`/`Infinity` — exact-rational lattice has no float specials):
+`Pow(neg, non-integer)` (complex; cue errors), `Pow(0,0)`, `Pow(0,neg)` (cue → `Infinity`).
+`Pow(0,positive)=0`.
+
+**Divergences.** `cue-divergences.md` new row: cue's apd PADS terminating expansions to fixed width
+and uses Go scientific notation for small/large magnitudes; Kue trims + renders plain (value-identical,
+same family as `Sqrt(100)=10` not `1e+1`). `cue-spec-gaps.md` BI-2 Pow row extended (clause (c)):
+the exp/ln 34-sig precision choice is spec-silent — match cue's apd context, render exact-rational.
+
+**Verify.** `lake build` green (108 jobs; all pins checked at build); `check-fixtures.sh` →
+`fixture pairs ok` (zero drift; 11 new `math_pow` cases on both CLI + Lean-port paths);
+`shellcheck` n/a (no shell touched). Additive at the builtin layer — cannot regress real-app output.
+
+Files: `Kue/Decimal.lean` (`lnExpScale`/`lnExpUnit`/`ln2Scaled`/`mulScaled`/`divScaled`/`lnSeriesTerms`
+/`lnArtanhSeries`/`lnMantissa`/`lnRangeReduce{Up,Down}`/`lnRangeReduceFuel`/`decimalLnScaled`
+/`expSeriesTerms`/`expTaylorSeries`/`applyPow2Scaled`/`decimalExpScaled`/`intSigDigits`
+/`roundScaledToSigDigits`/`decimalPowGeneral`), `Kue/Builtin.lean` (`reciprocalDecimalToValue`,
+rewired `mathPow?`), `Kue/Tests/BuiltinTests.lean` (13 pins), `Kue/Tests/FixturePorts.lean`
+(math_pow port +11), `testdata/cue/builtins/math_pow.{cue,expected}`,
+`docs/reference/cue-divergences.md` (1 row), `docs/reference/cue-spec-gaps.md` (Pow row clause c),
+`docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (BI-2 family COMPLETE). Commit `cd2f0a9`.

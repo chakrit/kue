@@ -78,7 +78,7 @@ field-ordering byte-parity gap (#3):
   Frame-id sharing + force-memo. Cache keyed on a bounded-depth structural digest
   (`valueDigest`, `DIGEST_DEPTH=3`; `BEq` untouched → soundness unconditional).
 - **Builtins.** `base64.Encode`, `json.Marshal` (`Kue/Json.lean`), `yaml.Marshal`
-  (`Kue/Yaml.lean`), `regexp.Match`, `math.Pow` (exact non-neg-int-exponent domain),
+  (`Kue/Yaml.lean`), `regexp.Match`, `math.Pow`/`math.Sqrt` (full real domain, exact decimal),
   `list.Sort` /`SortStable`, `strings.*` /`list.*`/`math.*` namespaces. Multiline strings.
   ```cue
   import "encoding/json"
@@ -117,9 +117,11 @@ owns the non-spec-conformance work.
 backlog (authoritative; do NOT duplicate the detail here).** Everything
 spec-conformance-HIGH is DONE (the closedness family incl. SC-1b/1e + EMBED-CLOSE-1, the
 MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, the
-4 ratifications). The genuinely -open set: **BI-2-residual** (math.Sqrt + Pow(·,½) DONE
-2026-06-21 in EXACT DECIMAL — Float correctly AVOIDED; open residual-of-residual: GENERAL
-neg/non-½ fractional Pow via decimalExp/decimalLn, still NO Float), **EvalOps** (mechanical
+4 ratifications). The BI-2 family is now **COMPLETE**: **BI-2** (math.Pow exact + Sort)
++ **BI-2-residual** (math.Sqrt + Pow(·,½), 2026-06-21) + **BI-2-§3** (general neg-int +
+non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
+DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
+real domain. The genuinely-open set: **EvalOps** (mechanical
 carve, autonomous, item 2), **SC-4**
 (LOW spec-gap-first). PARKED: **Bug2-5** (argocd residual, a stress-test finding). RESOLVED
 / ruled out (do not re-file — see Resolved/ruled-out below): **AD2-1** (lone-default
@@ -267,16 +269,18 @@ future audit would otherwise re-litigate.
   green):** `normalizeEvaluatedDisj`'s `else` tail was byte-identical to all of `normalizeDisj`
   — collapsed to a direct `normalizeDisj alternatives` call (the AD2-1-adjacent trivially-clean
   shared-helper reuse; `Eval` already imports `Lattice`). `native_decide` pins + fixtures
-  unchanged ⇒ behavior-preserving. **Ranking of remaining work (next leader = BI-2-§3):**
-  (1) **BI-2-§3** — general neg/non-½ fractional `math.Pow` via `decimalExp`/`decimalLn` (no
-  Float; fixed-term Taylor + arg-reduction, total): the higher-value correctness frontier, a
-  real decimal-transcendentals increment, Phase-A's recommended next. A cheaper FIRST
-  sub-increment (negative-INTEGER exponents `x^(-n)=1/x^n`, no exp/ln) can land before the
-  full Taylor work. (2) **EvalOps extraction** (item 2) — mechanical, parallel-safe,
-  lower-risk, not urgent (`Eval` under threshold). (3) the **item-6 LOW/opportunistic list**
-  — none block adoption. **Nothing here is user-gated**: the once-"user-gated" trio is fully
-  resolved (AD2-1 unified, SC-3 = documented spec-gap convention, BI-2-residual sqrt DONE +
-  §3 filed) — the backlog is fully autonomous.
+  unchanged ⇒ behavior-preserving. **Ranking of remaining work (next leader = EvalOps):**
+  (1) **BI-2-§3 — DONE (2026-06-21, `cd2f0a9`).** General neg-int + non-½ fractional
+  `math.Pow` landed in exact decimal: §1 `x^(-n)=1/x^n` (exact rational, no exp/ln); §2
+  `x^y = exp(y·ln x)` via `decimalExpScaled`/`decimalLnScaled` (fixed 40/60-term Taylor +
+  binary range reduction at working scale 50, structurally total, axiom-clean). Mantissa
+  byte-identical to cue's apd across 40 random + extreme cases; integral results collapse;
+  domain edges bottom. The **BI-2 family is now COMPLETE** — `math.Pow`/`math.Sqrt` cover
+  their full real domain, no Float. (2) **EvalOps extraction** (item 2) — mechanical,
+  parallel-safe, lower-risk, not urgent (`Eval` under threshold). (3) the **item-6
+  LOW/opportunistic list** — none block adoption. **Nothing here is user-gated**: the
+  once-"user-gated" trio is fully resolved (AD2-1 unified, SC-3 = documented spec-gap
+  convention, BI-2 family fully DONE) — the backlog is fully autonomous.
 - **Phase-A audit (2026-06-21, batch `3d0124a`/`f3262a1`/`0091aba`) — three soundness claims
   RE-VERIFIED CLEAN; no fix needed.** Adversarial destroy-tests, not byte-compare-to-`cue`.
   (1) **AD2-1 lone-`*v` ≡ `v`** — meeting the OLD residual form `.disj [(.default,v)]` against a
