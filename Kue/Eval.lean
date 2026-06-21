@@ -577,10 +577,9 @@ def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
   if allRegularAlternatives alternatives then
     joinValues (alternatives.map Prod.snd)
   else
-    match liveAlternatives alternatives with
-    | [] => .bottom
-    | [(_, value)] => value
-    | live => .disj live
+    -- The has-default tail (prune-then-collapse, mark-agnostic lone-arm rule) is exactly
+    -- `normalizeDisj` (Lattice) — AD2-1's shared lone-arm rule, reused rather than restated.
+    normalizeDisj alternatives
 
 def selectEvaluatedField (base : Value) (label : String) : Value :=
   match base with

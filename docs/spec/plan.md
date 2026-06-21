@@ -251,6 +251,32 @@ family, …) are HISTORY: the as-built detail is in
 (each audit is its own commit). What stays here is only the durable rulings — the ones a
 future audit would otherwise re-litigate.
 
+- **Phase-B audit (2026-06-21, batch `3d0124a`/`f3262a1`/`0091aba`) — architecture HEALTHY;
+  one trivially-clean DRY win applied inline.** Whole module graph: import edges acyclic
+  (`Builtin → Decimal`, `Eval → {Builtin, Decimal, Lattice, Regex, Normalize}`; no
+  `Builtin → Eval` back-edge); no dead code (the prior `Order.lean` ruling stands). All three
+  in-scope slices fit cleanly: **sqrt** (`isqrtNewton`/`isqrtNat`/`sqrtGuardScale`
+  /`decimalSqrt` in `Decimal.lean`, the signed-domain `decimalSqrtSigned`/`mathSqrt?`/`mathPow?`
+  in `Builtin.lean`) is in the right home, reuses `divideDecimalRational?` (DRY), adds no bad
+  import edge; **SC-1e** `closeTailResult` is correctly a local helper inside `mergeStructN`
+  (not leaked to module scope); **AD2-1** keeps the two normalizers' genuinely-distinct
+  branches. File sizes all under the ~4500 re-split watch (`Eval` 3702, `CaseTable` 2438,
+  `Parse` 1586, `Lattice` 1363, others ≤960; `Decimal` 271 after the sqrt add). Perf-guide:
+  no note warranted — `decimalSqrt`'s fixed Newton budget (~few dozen `Nat` steps, once per
+  call, no eval-fuel interaction) is trivially cheap. **APPLIED INLINE (low-risk, re-verified
+  green):** `normalizeEvaluatedDisj`'s `else` tail was byte-identical to all of `normalizeDisj`
+  — collapsed to a direct `normalizeDisj alternatives` call (the AD2-1-adjacent trivially-clean
+  shared-helper reuse; `Eval` already imports `Lattice`). `native_decide` pins + fixtures
+  unchanged ⇒ behavior-preserving. **Ranking of remaining work (next leader = BI-2-§3):**
+  (1) **BI-2-§3** — general neg/non-½ fractional `math.Pow` via `decimalExp`/`decimalLn` (no
+  Float; fixed-term Taylor + arg-reduction, total): the higher-value correctness frontier, a
+  real decimal-transcendentals increment, Phase-A's recommended next. A cheaper FIRST
+  sub-increment (negative-INTEGER exponents `x^(-n)=1/x^n`, no exp/ln) can land before the
+  full Taylor work. (2) **EvalOps extraction** (item 2) — mechanical, parallel-safe,
+  lower-risk, not urgent (`Eval` under threshold). (3) the **item-6 LOW/opportunistic list**
+  — none block adoption. **Nothing here is user-gated**: the once-"user-gated" trio is fully
+  resolved (AD2-1 unified, SC-3 = documented spec-gap convention, BI-2-residual sqrt DONE +
+  §3 filed) — the backlog is fully autonomous.
 - **Phase-A audit (2026-06-21, batch `3d0124a`/`f3262a1`/`0091aba`) — three soundness claims
   RE-VERIFIED CLEAN; no fix needed.** Adversarial destroy-tests, not byte-compare-to-`cue`.
   (1) **AD2-1 lone-`*v` ≡ `v`** — meeting the OLD residual form `.disj [(.default,v)]` against a
