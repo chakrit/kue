@@ -10728,3 +10728,65 @@ right). No `cue-divergences.md` change (removes a latent wrong-value, not a cue 
 no corpus value moved). **This is slice 2 since the audit counter reset (MEET-RESID-1 = slice 1) — the
 two-phase audit is now DUE.** Next leader after the audit: **AD2-1** (deferred/surface) or SC-1b /
 BI-2-residual.
+
+## Spec-review slice: RESID-MASK-2 — disjunction eager-prune-of-definitely-bottom is SOUND; recorded as a cue-spec-gap (2026-06-21)
+
+The sole open masking site from the Phase-B `39e8af4` sweep. A non-default disjunction prunes a
+definitely-bottom arm (a held `.structComp` residual whose RESOLVED fields carry a TERMINAL inline
+conflict, e.g. `a & {x:2}` with `a.x:1` ⇒ `x:1 & x:2 = _|_`) and commits to a surviving arm that is
+itself STILL INCOMPLETE; cue HOLDS the whole disjunction. No code change — this was a
+soundness-verification + spec-conformance slice. **MEET-RESID-1 ripple family CLOSED.**
+
+### SOUNDNESS VERDICT — CLEAN (the prune fires only on a definitely/terminal bottom)
+
+The prune gate is `liveAlternatives` → `containsBottom` (`Lattice.lean:307/178`): an arm is dropped
+iff `containsBottom arm.snd`, which returns `true` ONLY on a MATERIALIZED `.bottom`/`.bottomWith`
+node already present in the value tree. Such a node arises only from a conflict that has already
+REDUCED to bottom — concrete-vs-concrete (`x:1 & x:2`), concrete-vs-bound (`x:1 & x:>5`), or
+disjoint-bound (`x:>5 & x:<3`) — every one of which is TERMINAL (cannot un-bottom under any later
+refinement, since refinement only narrows). It does NOT fire on a merely-incomplete arm: an arm
+bottom-NOW only because an abstract operand has not resolved carries no bottom node, so it is NOT
+pruned. Adversarial confirmation (oracle cue v0.16.1):
+- `(a & {x:2}) | (a & {x:3,ok:true})` with `a.x:int` ABSTRACT → kue KEEPS BOTH arms (`{x:2,…} |
+  {x:3,…}`); the `x:2` arm is `{x:2}`, not bottom. The unsound move would be pruning it (it could
+  become viable); kue does not.
+- the same, then `& {x:2}` → arm 1 wins (`{x:2,…}`), arm 2 (`x:3 & x:2`) dies → kue commits to the
+  genuinely-correct survivor: the abstract arm was reachable, not prematurely killed.
+- both arms incomplete, NO conflict (`(a&{y:2}) | (a&{z:3})`) → BOTH survive (the held `for`
+  comprehension is never frozen into a bottom; incompleteness alone never prunes).
+- `({x:>5} | {x:<0,ok}) & {x:7}` → `{x:7}`, cue AGREES — kue did NOT prune `>5` while abstract; both
+  prune the dead `<0` arm only after the `x:7` meet makes it a terminal bottom.
+
+There is no construction where kue prunes an arm that could later become viable. **No unsoundness;
+no fix needed.**
+
+### SPEC-CONFORMANCE — eager prune is spec-consonant; cue's hold is permitted lazy eval
+
+The CUE spec (`docs/spec/cue-language-guide.md` Disjunction) mandates *"distribute the unification
+over the alternatives and **eliminate bottom alternatives**"* (`("a"|"b") & "c" == _|_`) and treats
+`_|_` as the identity for `|`. Eager elimination of a DEFINITELY-bottom arm is therefore spec-correct
+and the more precise lattice move. The spec does NOT pin the *timing* — it also says *"Evaluation can
+retain unresolved disjunctions"* — so cue's conservative hold (it doesn't evaluate the residual arm
+far enough to see the concrete conflict) is permitted laziness, NOT a spec violation. Hence a
+**`cue-spec-gap`**, not a `cue-divergence`: kue is MORE precise; cue is less precise but not wrong.
+Recorded in `cue-spec-gaps.md` (RESID-MASK-2 row) with kue's behavior PINNED so it cannot regress to
+cue's hold.
+
+### Tests (8 `native_decide` pins, `TwoPassTests.lean`) + verify
+
+New `### RESID-MASK-2` section: the witness (`resid_mask2_witness_eager_prune_commits_to_incomplete_survivor`);
+the four adversarial SOUNDNESS pins (`_sound_abstract_operand_arm_not_pruned`,
+`_sound_incomplete_arm_resolves_correctly_after_narrowing`, `_sound_both_incomplete_no_conflict_both_survive`,
+`_sound_bound_arm_survives_until_concrete_conflict`); the precision witness (kue exports `{plain:5}`
+where cue errors entirely — `_precision_terminal_residual_arm_pruned_for_concrete_survivor`); and two
+`_|_`-identity regressions (`_bottom_identity_collapses_to_concrete_arm`,
+`_terminal_conflict_arm_sheds_for_concrete_survivor`). Also CORRECTED the stale NOTE at the
+RESID-MASK-1 pins (it claimed a non-default residual-conflict arm "survives as a spurious arm" — that
+was FALSIFIED on current HEAD: kue eager-prunes it; RESID-MASK-1 already closed that path).
+
+Gate: `lake build` green (108 jobs, all pins `native_decide`); `scripts/check-fixtures.sh` →
+`fixture pairs ok` (ZERO drift — no code change); `shellcheck` n/a (no shell); cert-manager export
+SEMANTICALLY identical to cue on the disjunction path. No `cue-divergences.md` change. **Audit counter
+= 1 (this is slice 1 of the new batch; audit due after 2–3).** Next leader: **SC-1b** (closed×closed-
+pattern); the remaining tail is increasingly user-input-gated (AD2-1 display contract, SC-3 coupled
+with it, BI-2-residual = the Float/NaN/Infinity numeric-model undertaking).

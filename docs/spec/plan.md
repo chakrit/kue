@@ -305,12 +305,16 @@ DYN-DEF-1 dyn-field batch):** **A-EN3-DYN and DYN-DEF-1 are both ✅ DONE and AU
 verified the depth-mirror, `classifyDynLabel` exhaustiveness, and the corrected fixture — see the
 Phase-A entry below). Phase-A found and **FIXED INLINE two NEW wrong-results** (D#1d comprehension-
 body tail/pattern drop; default-disjunction dyn-field label collapse) and **FILED one** as the new
-leader. **Live order (REVISED 2026-06-21 after the MASKING-SWEEP audit — Phase-B `39e8af4`): (1)
-RESID-MASK-2** (MEDIUM correctness — the disjunction eager-prune-vs-hold policy; the residual-masking
-fix-slice, now the SOLE open masking site after the Manifest sibling was fixed inline this audit) →
-**(2) AD2-1** (LOW-MED disjunction-normalizer dedup, file-not-inline, value-sound display-only) →
-**(3)** the LOW cosmetic tail (item 6) / SC-1b / BI-2-residual / **EvalOps extraction** (mechanical
-carve). **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
+leader. **Live order (REVISED 2026-06-21 after the RESID-MASK-2 resolution): (1) RESID-MASK-2** —
+✅ **RESOLVED 2026-06-21 (spec-review slice; no code change). The disjunction eager-prune is SOUND**
+(prunes only definitely/terminal bottoms — `containsBottom` keys on a MATERIALIZED `.bottom` node, so
+a merely-incomplete arm is never pruned; adversarially verified) **and spec-consonant** (spec's
+"eliminate bottom alternatives" + `_|_`-identity); cue's hold is permitted lazy eval, not wrong →
+recorded as a **`cue-spec-gap`** (not a divergence), kue's behavior PINNED. The **MEET-RESID-1 ripple
+family is now CLOSED.** → **(2) AD2-1** (LOW-MED disjunction-normalizer dedup, file-not-inline,
+value-sound display-only; orchestrator-DEFERRED — display-contract rename needs a human sign-off) →
+**(3) SC-1b** (closed×closed-pattern — the next CLEAN autonomous item) / the LOW cosmetic tail (item
+6) / BI-2-residual / **EvalOps extraction** (mechanical carve). **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
 now survives a `meet` via the new `meetWithFuel` arm, and the comprehension-body lift holds it).
 **⚠ CORRECTION (Phase-A 2026-06-21):** the original "structural gate — a `.structComp` can never
 mask a conflict" claim was FALSE — a `.structComp` CAN hold an inner `.bottomWith` field conflict,
@@ -387,7 +391,15 @@ masking; ONE NEW masked bottom found + FIXED INLINE; the two ★ rulings settled
      SURVIVING arm is concrete, cue prunes the dead arm too. NOT an independent masking site (the
      divergence is the eager-prune-vs-hold policy of item 5, surfacing only when the survivor is ALSO
      incomplete).
-  5. **RESID-MASK-2 (MEDIUM, the SOLE remaining open masking — next leader; FILED, not fixed).**
+  5. **RESID-MASK-2 — ✅ RESOLVED 2026-06-21 (spec-review slice; no code change; the MEET-RESID-1
+     ripple family is CLOSED). VERDICT: the eager prune is SOUND** (it fires only on a materialized/
+     terminal `.bottom` node — `containsBottom`; a merely-incomplete arm carries no bottom node and is
+     NOT pruned, adversarially verified incl. abstract-operand, post-narrowing-resolution, and
+     both-incomplete-no-conflict cases) **AND spec-consonant** (the spec mandates "eliminate bottom
+     alternatives" + `_|_`-as-`|`-identity); cue's hold is permitted lazy eval, NOT a violation →
+     recorded as a **`cue-spec-gap`** (kue MORE precise, NOT a divergence), kue's behavior PINNED in
+     `TwoPassTests` `resid_mask2_*` (8 pins). The original FILED characterization (kept below for the
+     record):
      PRECISELY CHARACTERIZED this round: a non-default disjunction where the residual arm carries a
      TERMINAL inline conflict (`a&{x:2}` with `a.x:1` ⇒ `x:1&2=_|_`, unaffected by the held
      comprehension) — kue's `liveAlternatives` (post-RESID-MASK-1) EAGERLY PRUNES that arm and commits
