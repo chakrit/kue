@@ -26,8 +26,8 @@ The implementation optimizes for:
 ## Layers and Modules
 
 Modules live under `Kue/`; `Kue.lean` is the library root that imports them (and every
-`*Tests.lean`, so `lake build` exercises the suite at elaboration time). `Main.lean` is the
-`kue` executable.
+`*Tests.lean`, so `lake build` exercises the suite at elaboration time). `Main.lean` is
+the `kue` executable.
 
 ### 1. Surface syntax — `Parse.lean`
 
@@ -39,36 +39,49 @@ Boundaries are tracked in [`compat-assumptions.md`](compat-assumptions.md).
 
 ### 2. Binding and resolution — `Resolve.lean`
 
-Converts syntax-level label references into binding identities (`refId`) against a
-field environment, including nested-struct local scopes. The evaluator consumes resolved
+Converts syntax-level label references into binding identities (`refId`) against a field
+environment, including nested-struct local scopes. The evaluator consumes resolved
 references instead of repeatedly searching strings in nested maps.
 
 ### 3. Semantic values — `Value.lean`
 
-The core domain: top, bottom with structural provenance (`BottomReason`), primitives
-(int, float, number, string, bytes, bool, null), kinds, integer bounds, primitive
-exclusions, structs with field classes, lists and list tails, struct patterns,
-disjunctions with default markers, references, selectors/indices, builtin calls, and
-unary/binary expression nodes.
+The core domain: top, bottom with structural provenance (`BottomReason`), primitives (int,
+float, number, string, bytes, bool, null), kinds, integer bounds, primitive exclusions,
+structs with field classes, lists and list tails, struct patterns, disjunctions with
+default markers, references, selectors/indices, builtin calls, and unary/binary expression
+nodes. Closedness is carried as `closedClauses : List ClosedClause` (one
+`{fieldLabels, patterns}` per closed conjunct); the `closedClauses = [] ↔ open` invariant
+is enforced at the single `mkStruct` construction choke point, so the admittance check is
+the per-conjunct INTERSECTION (a field survives iff every clause admits it), not a flat
+union. `Value.lean` imports only `Kue.Regex` (a true leaf).
 
 ### 4. Order and lattice — `Order.lean`, `Lattice.lean`, `Normalize.lean`
 
-`Order.lean` defines subsumption (`subsumes`). `Lattice.lean` implements total `meet`/
-`join` with fuel-bounded recursion through compound values and the normalization the laws
-need (flatten disjunctions, drop bottom alternatives, numeric-kind hierarchy).
-`Normalize.lean` carries definition-implied closedness normalization. Target laws:
-commutativity, associativity, idempotence, top/bottom identities, and distribution of
-meet over finite disjunctions.
+`Order.lean` defines subsumption (`subsumes`, a deliberate test-only oracle).
+`Lattice.lean` implements total `meet` /`join` with fuel-bounded recursion through
+compound values and the normalization the laws need (flatten disjunctions, drop bottom
+alternatives, numeric-kind hierarchy); it owns the closedness admittance logic
+(`fieldAllowedByClausesWith` and the per-conjunct clause conjunction). `Normalize.lean`
+carries definition-implied closedness normalization (a leaf, `import Kue.Value` only).
+`containsBottom` (the disjunction-prune predicate) is TOTAL/structural — no fuel cap — so
+a bottom at any depth is found, including through a `.structComp` residual's resolved
+fields. Target laws: commutativity, associativity, idempotence, top/bottom identities, and
+distribution of meet over finite disjunctions.
 
 ### 5. Evaluation — `Eval.lean`, `Builtin.lean`
 
 `Eval.lean` resolves references, applies constraints, distributes meets, evaluates
 expressions, and handles reference cycles explicitly with a visited-binding path and
-bounded fuel (host-language recursion failure is not acceptable cycle semantics). It does
-not require export-level concreteness — `int`, `string | int`, `>0 & <10` are valid
-results. `Builtin.lean` holds the builtin helpers (`close`, `len`, `and`, `or`, `div`,
-`mod`, `quo`, `rem`); `Eval` dispatches resolved builtin calls and preserves incomplete
-ones as semantic values.
+bounded fuel (host-language recursion failure is not acceptable cycle semantics),
+including structural-cycle detection (a def/regular self-ref through a struct layer
+bottoms with `.structuralCycle`; a `#List | *null` recursion terminates on the default
+arm). It does not require export-level concreteness — `int`, `string | int`, `>0 & <10`
+are valid results. `Builtin.lean` holds the pure builtin helpers (`close`, `len`, `and`,
+`or`, `div`, `mod`, `quo`, `rem`, the `strings` /`list`/`math` namespaces, `math.Pow` 's
+exact domain, Unicode case mapping via `CaseTable.lean`); `Eval` dispatches resolved
+builtin calls and preserves incomplete ones as semantic values. Effectful builtins whose
+comparator needs `EvalM` (`list.Sort`/`SortStable`) are intercepted in `Eval` rather than
+`Builtin` (which must stay pure — there is no `Builtin → Eval` back-edge).
 
 ### 6. Manifestation and formatting — `Manifest.lean`, `Format.lean`
 
@@ -85,17 +98,24 @@ corpus lives in `testdata/cue/` as paired `.cue` / `.expected` files, grouped in
 subsystem subdirs (`numeric/ structs/ definitions/ lists/ refs/ …`); `FixturePorts.lean`
 records each expected output as a computed Kue value keyed by its `<subdir>/<stem>`
 relative subpath, and `scripts/check-fixtures.sh` discovers pairs recursively, generates
-ports, diffs them, compares `kue` CLI output, and runs `cue fmt --check`.
-`*Tests.lean` modules carry theorem-style and executable checks.
+ports, diffs them, compares `kue` CLI output, and runs `cue fmt --check`. `*Tests.lean`
+modules carry theorem-style and executable checks.
 
 ## Where We Are / What's Next
 
 The semantic core, evaluator, manifestation, CLI, and a broad expression layer are
-implemented. The live roadmap and the standing-capability summary are in
+implemented and oracle-checked against `cue` v0.16.1. Comprehensions (incl. `let` clauses,
+guard classification), dynamic fields, structural-cycle detection, the closedness family,
+imports/module resolution (in-module + cross-module, qualified import paths),
+cross-package def-meet via captured-frame closures, an RE2-equivalent regex engine
+(`Regex.lean`, a true leaf), and the `strings` /`list`/`math`/`encoding` builtin
+namespaces all landed — see `plan.md` § Standing Capabilities. The live roadmap is in
 [`plan.md`](plan.md); the full slice-by-slice history is in
-[`../reference/implementation-log.md`](../reference/implementation-log.md). Major
-not-yet-modeled areas: comprehensions, dynamic fields, imports/module resolution,
-full lexical binding scope, and a complete regex engine.
+[`../reference/implementation-log.md`](../reference/implementation-log.md). The remaining
+work is a small user-gated tail (disjunction-display dedup, a Float/NaN/Infinity numeric
+model for `math.Sqrt` + non-integer `math.Pow`) plus mechanical cleanups (the `EvalOps`
+carve); not-yet-modeled corners (per-file import scoping, OCI/registry fetch, the exotic
+go-yaml surface) are tracked in [`compat-assumptions.md`](compat-assumptions.md).
 
 ## Tooling
 
