@@ -116,7 +116,9 @@ argocd residual **Bug2-5** (PARKED), **BI-1** (✅ DONE 2026-06-20 — Unicode c
 full-folding tail deferred), **E#4-fix** (✅ DONE 2026-06-20 — arithmetic operator domain now
 type-errors concrete out-of-domain operands + string/bytes `*` repetition; see item #6),
 **BI-2-residual** (Sqrt + neg/fractional Pow), **SC-3** display-residual, **SC-4** (spec-gap-first),
-**SC-1b** (closed×closed-pattern), **A#6** (`containsBottom` fuel cap, standalone), **DYN-DEF-1**
+**SC-1b** (closed×closed-pattern), **A#6** (✅ DONE 2026-06-21 — `containsBottom` made
+TOTAL/structural, fuel cap removed; deep non-cyclic bottoms no longer escape pruning; see the
+audit doc § Low/hardening + implementation-log), **DYN-DEF-1**
 (✅ DONE 2026-06-20 — a dynamic field with a non-concrete key now DEFERS as a residual instead of
 being dropped; see the walker-dedup section + implementation-log).
 **DRY-1 is RULED OUT** (the let-walkers
@@ -308,8 +310,9 @@ leader. **Live order (REVISED 2026-06-21 after MEET-RESID-1 + D#1d-RESIDUAL LAND
 leader. **MEET-RESID-1 + D#1d-RESIDUAL are both ✅ DONE** (one commit; the held `.structComp` residual
 now survives a `meet` via the new `meetWithFuel` arm, and the comprehension-body lift holds it; the
 soundness gate is structural — a `.structComp` is unconditionally an unresolved residual, so the
-defer can never mask a conflict). **Order: (1) AD2-1 → (2)** the LOW cosmetic tail (item 6) → **A#6**
-(`containsBottom` fuel cap) / **EvalOps extraction** (mechanical carve). **Phase-B DONE 2026-06-21** (architecture HEALTHY over the module graph; AUDIT-DUE
+defer can never mask a conflict). **A#6 ✅ DONE 2026-06-21** (`containsBottom` made TOTAL/structural,
+fuel cap removed). **Order: (1) AD2-1 (deferred/surface) → (2)** the LOW cosmetic tail (item 6) /
+SC-1b / BI-2-residual / **EvalOps extraction** (mechanical carve). **Phase-B DONE 2026-06-21** (architecture HEALTHY over the module graph; AUDIT-DUE
 cleared; counter reset to 0) — re-ran the FOUR-parallel-classifier ruling: kept the four verdict
 functions SEPARATE (option a; the partition disagreement is WORSE at four), extracted only the shared
 default-collapse pre-step `collapseDefaultDisjunction` inline (option b), rejected the shared

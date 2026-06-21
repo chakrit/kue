@@ -453,8 +453,8 @@ theorem link5_list_embed_concrete_field_unaffected_by_other_narrow :
 -- `(_#A | _#B) & {#u: "me"}` where `_#A` has `#u?: _|_`: supplying `#u` makes `_#A`'s optional
 -- impossible field REGULAR-and-bottom, so `_#A` dies and `_#B` (`#u: string`) wins → `{#u:"me",
 -- kind:"b"}`. Pre-fix `containsBottom` counted the UNSET `#u?: _|_` as bottoming `_#A` even before
--- the narrowing — pruning BOTH arms → `_|_`. The fix (`fieldBottomCounts`) skips OPTIONAL fields
--- in the struct bottom-check; the supplied-`#u` bottom surfaces at manifest (sub-fix-2 FixtureTests).
+-- the narrowing — pruning BOTH arms → `_|_`. The fix (`containsBottomFields`' optional-skip) skips
+-- OPTIONAL fields in the struct bottom-check; the supplied-`#u` bottom surfaces at manifest (sub-fix-2).
 theorem link5_disj_arm_kill_via_impossible_optional :
     evalSourceMatches
         "_#A: {#u?: _|_, kind: \"a\"}\n_#B: {#u: string, kind: \"b\"}\nout: (_#A | _#B) & {#u: \"me\"}\n"
@@ -463,8 +463,8 @@ theorem link5_disj_arm_kill_via_impossible_optional :
   native_decide
 
 -- LINK-5 NO-OVER-PRUNE: with NO narrowing, an UNSET impossible OPTIONAL field leaves BOTH arms LIVE
--- (cue keeps `{kind:"a"} | {kind:"b"}`). Pins that `fieldBottomCounts` does not prune an arm for an
--- unsatisfiable-but-unset optional — only a SUPPLIED field's bottom kills it.
+-- (cue keeps `{kind:"a"} | {kind:"b"}`). Pins that `containsBottomFields` does not prune an arm for
+-- an unsatisfiable-but-unset optional — only a SUPPLIED field's bottom kills it.
 theorem link5_disj_unset_optional_keeps_both_arms :
     evalSourceMatches
         "_#A: {#u?: _|_, kind: \"a\"}\n_#B: {#g?: _|_, kind: \"b\"}\nout: (_#A | _#B)\n"

@@ -921,7 +921,7 @@ incompleteness vs cue (deferred — it needs imported-package laziness, not eage
 Exercised through the full manifest path (`exportSourcesToString`), which the eval-format
 `formatTopLevel` pins above do not reach. The companion behaviour — an UNSET impossible OPTIONAL
 field (`#u?: _|_`) does NOT bottom the struct, and arm-prunes correctly in a disjunction — lives in
-`containsBottom` (`fieldBottomCounts`) and is pinned by the `link5_disj_*` EvalTests + the fixture. -/
+`containsBottom` (`containsBottomFields`' optional-skip) and pinned by the `link5_disj_*` + fixture. -/
 
 -- Flatten an export result to its inner string (the JSON or the manifest-error message), or a
 -- parse-error marker. `ParseError` has no `DecidableEq`, so `native_decide` cannot compare the raw

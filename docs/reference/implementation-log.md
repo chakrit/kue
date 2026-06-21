@@ -10661,3 +10661,70 @@ worktree) AND semantically identical to cue — meetWithFuel is THE hot path, no
 `cue-divergences.md` change (CONFORMS to cue on every witness). No `cue-spec-gaps.md` change (the
 held-`@d.i` display is the already-documented D#1b row; cue is correct and matched). Next leader:
 **AD2-1**.
+
+---
+
+## Completed Slice: A#6 — `containsBottom` made TOTAL/structural (fuel-cap soundness hardening)
+
+Goal: close the `containsBottom` fuel cap (100). `containsBottom` checks whether a `Value` contains a
+present `.bottom`/`.bottomWith`; it is the predicate `liveAlternatives` uses to PRUNE dead disjunction
+arms (and `labelMatchesPatternWith` + the builtin boundary use it too). Capped at fuel=100, a
+`.bottom` nested deeper than 100 levels was MISSED → a dead arm survived the prune → a WRONG value (an
+unresolved `.disj` where the answer should have collapsed to the live arm). Standalone: D#2b confirmed
+structural cycles are NOT the cause — D#2a detection fires at recursion depth ~2, so a
+`.structuralCycle` bottom is always shallow. The hole was for genuinely-deep NON-cyclic bottoms.
+
+### The fix — remove the fuel; total structural recursion (`Lattice.lean:160`)
+
+`Value` is a FINITE well-founded inductive: its `refId`/`closure` ids are leaf data, never back-edges
+into a `Value`, so `containsBottom` recursing over the structure is naturally terminating with NO
+depth bound. The fuel was a defensive artifact that CREATED the hole. Rewrote as a `mutual` block —
+`containsBottom` plus four list-helpers (`containsBottomList`/`Alts`/`Fields`/`Patterns`, one per
+nested-`List` child type) — elaborated via **`termination_by structural`**.
+
+Two properties had to hold together, and `structural` is what delivers both:
+- **TOTAL, no depth bound** — a `.bottom` at ANY depth (150, 500, …) is found. This IS the soundness
+  win; illegal-states/totality replaces the bug-prone bound.
+- **`rfl`/`decide`-reducible** — a `sizeOf` WELL-FOUNDED measure (the first thing I tried) makes the
+  function irreducible in the kernel, which broke ~12 existing `meet`/manifest `rfl` proofs across 6
+  test modules (they unfold through `containsBottom` via `liveAlternatives`). `termination_by
+  structural` elaborates via the nested-inductive recursor, which DOES reduce by `rfl` — so those
+  proofs keep working. (Confirmed structural ⇒ `rfl`-reducible with a standalone probe before
+  committing to it.) The list-of-pair / list-of-field helpers DESTRUCTURE their element in the match
+  (`(_, value)`, `⟨_, fieldClass, value⟩`, `(labelPattern, constraint)`) so the recursed-on subterm is
+  a syntactic component the structural checker accepts (an opaque `.fst`/`.snd`/callback projection was
+  rejected).
+
+`fieldBottomCounts` (the old optional-skip helper, which took `containsBottom` as a callback only to
+dodge mutual recursion under the fuel design) is DELETED — its rule (an OPTIONAL field's bottom does
+NOT bottom the struct; `#u?: _|_` stays live until `#u` is supplied) is folded inline into
+`containsBottomFields`, where the destructured `value` keeps the recursion structural. One place, no
+callback indirection. The pre-eval/deferred constructors (`comprehension`, `structComp`,
+`listComprehension`, `interpolation`, `dynamicField`, `closure`) remain UN-descended (catch-all
+`false`), byte-for-byte the same behavior as the fuel version — they never sit on the
+disjunction-pruning path as a resolved value.
+
+### Tests (8 adversarial `native_decide` pins, `LatticeTests.lean`) + verify
+
+`nestList n` wraps a seed in `n` levels of `.list [·]` (exercising the `containsBottomList` helper at
+depth): a depth-150 bottom IS detected (`a6_deep_bottom_detected_past_old_cap` — the headline; this
+returned `false` under fuel=100, the latent wrong-value); depth-500 (`a6_very_deep_bottom_detected`);
+shallow regression (`a6_shallow_bottom_detected`); deep no-bottom → false (`a6_deep_no_bottom_false`);
+deep `.bottomWith` (`a6_deep_bottomWith_detected`); deep OPTIONAL-skip still composes
+(`a6_deep_optional_bottom_skipped` → false); and the END-TO-END disjunction-pruning path —
+`liveAlternatives` drops the deep-bottom arm (`a6_live_alternatives_prunes_deep_bottom_arm`) and
+`normalizeDisj` collapses to the survivor (`a6_normalize_disj_collapses_past_deep_bottom`). Pre-fix the
+last two would have kept the dead arm → a spurious 2-arm `.disj`.
+
+Gate: `lake build` green (108 jobs); axiom-clean — `containsBottom` + all four helpers depend on
+`propext` ONLY (no `sorryAx`/`partial`/`Classical.choice`; structural recursion is fully
+constructive); `scripts/check-fixtures.sh` → `fixture pairs ok` (ZERO drift — removing the cap only
+affects pathologically-deep cases absent from the corpus); `shellcheck` clean (no shell touched);
+**cert-manager export BYTE-IDENTICAL to the pre-fix HEAD baseline `3f085e1`** (throwaway worktree) AND
+semantically identical to cue — `containsBottom` is on the disjunction hot path, no regression. No
+observable behavior changed on any existing case (only latent deep-bottom cases flip from wrong to
+right). No `cue-divergences.md` change (removes a latent wrong-value, not a cue divergence); no
+`cue-spec-gaps.md` / `kue-performance.md` change (structural walk cost on deep values is negligible;
+no corpus value moved). **This is slice 2 since the audit counter reset (MEET-RESID-1 = slice 1) — the
+two-phase audit is now DUE.** Next leader after the audit: **AD2-1** (deferred/surface) or SC-1b /
+BI-2-residual.

@@ -143,58 +143,82 @@ def isBottom : Value -> Bool
   | .bottomWith _ => true
   | _ => false
 
-def containsBottomFuel : Nat :=
-  100
+/- `containsBottom` and its four list-helpers form one mutual block; the doc comment lives on
+   `containsBottom`. `termination_by structural` elaborates them via the nested-inductive recursor,
+   so they are total (no fuel, no depth bound) AND reduce by `rfl`/`decide` — the list-of-pair /
+   list-of-field helpers destructure their element so the recursed-on subterm is a syntactic
+   component the structural checker accepts. Keeping `rfl`-reducibility matters: existing `meet`/
+   manifest proofs unfold through `containsBottom` (`liveAlternatives`), and well-founded recursion
+   would make them irreducible. -/
+mutual
 
-/-- Does a struct field's bottom value bottom its enclosing struct? Only a PRESENT field
-    (`regular`/`required`) does: an OPTIONAL field carries an unsatisfiable-IF-present
-    constraint (`#u?: _|_`), not a present bottom, so it leaves the struct LIVE — CUE keeps
-    `{#u?: _|_}` and bottoms only once `#u` is supplied (making it regular, checked at manifest).
-    Without this skip, an embedded disjunction's arm carrying an impossible optional field (the
-    argocd `#ArgoRepo` `(_#A{…,#u?:_|_} | _#B{…,#g?:_|_})` shape) was pruned as bottom even when
-    the field was unset, killing BOTH arms → `_|_` instead of the surviving arm. `checkValue` is
-    the (fuel-decremented) recursive bottom checker, passed in to avoid mutual recursion. -/
-def fieldBottomCounts (checkValue : Value -> Bool) (field : Field) : Bool :=
-  match FieldClass.optionality (Field.fieldClass field) with
-  | .optional => false
-  | _ => checkValue (Field.value field)
-
-def containsBottomWithFuel : Nat -> Value -> Bool
-  | 0, _ => false
-  | _ + 1, .bottom => true
-  | _ + 1, .bottomWith _ => true
-  | fuel + 1, .conj constraints =>
-      constraints.any (containsBottomWithFuel fuel)
-  | fuel + 1, .builtinCall _ args =>
-      args.any (containsBottomWithFuel fuel)
-  | fuel + 1, .unary _ value =>
-      containsBottomWithFuel fuel value
-  | fuel + 1, .binary _ left right =>
-      containsBottomWithFuel fuel left || containsBottomWithFuel fuel right
-  | fuel + 1, .selector base _ =>
-      containsBottomWithFuel fuel base
-  | fuel + 1, .index base key =>
-      containsBottomWithFuel fuel base || containsBottomWithFuel fuel key
-  | fuel + 1, .disj alternatives =>
-      alternatives.any fun alternative => containsBottomWithFuel fuel alternative.snd
-  | fuel + 1, .struct fields _ tail patterns _ =>
+/-- Does `value` contain a present `.bottom`/`.bottomWith` anywhere in its tree? Used to prune
+    dead disjunction arms (`liveAlternatives`), to test pattern-label matches
+    (`labelMatchesPatternWith`), and at builtin boundaries. TOTAL structural recursion over the
+    finite `Value` inductive — no fuel. `Value` is well-founded (its `refId`/`closure` ids are
+    leaf data, never back-edges), so every constructor's children are structurally smaller and the
+    walk terminates with NO depth bound: a `.bottom` at ANY depth is found, closing the prior
+    fuel-cap (100) soundness hole where a deep non-cyclic bottom was missed → a dead arm survived →
+    a wrong value. The pre-eval/deferred constructors (`comprehension`, `structComp`,
+    `listComprehension`, `interpolation`, `dynamicField`, `closure`) are NOT descended (catch-all
+    `false`), unchanged from the fuel version: they never sit on the disjunction-pruning path as a
+    resolved value. The `List`-nested children (`.conj`, `.disj`, `.struct`, lists) recurse through
+    the named helpers below so the structural decrease stays visible to Lean. -/
+def containsBottom : Value -> Bool
+  | .bottom => true
+  | .bottomWith _ => true
+  | .conj constraints => containsBottomList constraints
+  | .builtinCall _ args => containsBottomList args
+  | .unary _ value => containsBottom value
+  | .binary _ left right => containsBottom left || containsBottom right
+  | .selector base _ => containsBottom base
+  | .index base key => containsBottom base || containsBottom key
+  | .disj alternatives => containsBottomAlts alternatives
+  | .struct fields _ tail patterns _ =>
       -- Fields, optional tail, patterns (closingPatterns ⊆ patterns' label-predicates).
-      fields.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
-        || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
-        || patterns.any fun pattern =>
-          containsBottomWithFuel fuel pattern.fst || containsBottomWithFuel fuel pattern.snd
-  | fuel + 1, .list items =>
-      items.any (containsBottomWithFuel fuel)
-  | fuel + 1, .listTail items tail =>
-      items.any (containsBottomWithFuel fuel) || containsBottomWithFuel fuel tail
-  | fuel + 1, .embeddedList items tail decls =>
-      items.any (containsBottomWithFuel fuel)
-        || (match tail with | some t => containsBottomWithFuel fuel t | none => false)
-        || decls.any (fun field => fieldBottomCounts (containsBottomWithFuel fuel) field)
-  | _ + 1, _ => false
+      containsBottomFields fields
+        || (match tail with | some t => containsBottom t | none => false)
+        || containsBottomPatterns patterns
+  | .list items => containsBottomList items
+  | .listTail items tail => containsBottomList items || containsBottom tail
+  | .embeddedList items tail decls =>
+      containsBottomList items
+        || (match tail with | some t => containsBottom t | none => false)
+        || containsBottomFields decls
+  | _ => false
+  termination_by structural value => value
 
-def containsBottom (value : Value) : Bool :=
-  containsBottomWithFuel containsBottomFuel value
+def containsBottomList : List Value -> Bool
+  | [] => false
+  | value :: rest => containsBottom value || containsBottomList rest
+  termination_by structural values => values
+
+def containsBottomAlts : List (Mark × Value) -> Bool
+  | [] => false
+  | (_, value) :: rest => containsBottom value || containsBottomAlts rest
+  termination_by structural alternatives => alternatives
+
+/-- Whether any PRESENT field carries a bottom. An OPTIONAL field is skipped: it carries an
+    unsatisfiable-IF-present constraint (`#u?: _|_`), not a present bottom, so it leaves the struct
+    LIVE — CUE keeps `{#u?: _|_}` and bottoms only once `#u` is supplied (regular, checked at
+    manifest). Without this skip, an embedded disjunction's arm carrying an impossible optional field
+    (the argocd `#ArgoRepo` `(_#A{…,#u?:_|_} | _#B{…,#g?:_|_})` shape) was pruned as bottom even when
+    the field was unset, killing BOTH arms → `_|_` instead of the surviving arm. -/
+def containsBottomFields : List Field -> Bool
+  | [] => false
+  | ⟨_, fieldClass, value⟩ :: rest =>
+      (match FieldClass.optionality fieldClass with
+        | .optional => false
+        | _ => containsBottom value)
+        || containsBottomFields rest
+  termination_by structural fields => fields
+
+def containsBottomPatterns : List (Value × Value) -> Bool
+  | [] => false
+  | (labelPattern, constraint) :: rest =>
+      containsBottom labelPattern || containsBottom constraint || containsBottomPatterns rest
+  termination_by structural patterns => patterns
+end
 
 /-- Mark combination for the disjunction *cross product* (unification's `(a|b) & (c|d)`,
     spec rule `(v1,d1) & (v2,d2) = (v1&v2, d1&d2)`): a result alternative is a default iff

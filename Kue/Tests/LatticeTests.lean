@@ -602,4 +602,64 @@ theorem rx2b_label_pattern_abstract_does_not_trip :
     (patternsRegexError? [(.kind .string, .kind .int)]).isNone = true := by
   native_decide
 
+/-! ## A#6 — `containsBottom` is TOTAL/structural (no fuel cap)
+
+`containsBottom` was fuel-capped at 100: a `.bottom` nested deeper than 100 levels was
+MISSED, so a dead disjunction arm survived `liveAlternatives` → a wrong value. The fix made
+it a total structural walk over the finite `Value` inductive — NO depth can hide a bottom.
+These pin that the cap is gone (deep bottoms detected at any depth) and that the end-to-end
+disjunction-pruning path is sound. `nestList n` wraps a seed in `n` levels of `.list [·]`,
+exercising the `containsBottomList` mutual helper at depth. -/
+
+private def nestList : Nat → Value → Value
+  | 0, seed => seed
+  | n + 1, seed => .list [nestList n seed]
+
+-- THE soundness fix: a bottom 150 levels deep (past the old cap of 100) is now detected.
+-- Under fuel=100 this returned `false` — the latent wrong-value bug.
+theorem a6_deep_bottom_detected_past_old_cap :
+    containsBottom (nestList 150 .bottom) = true := by
+  native_decide
+
+-- Far past any fixed cap — totality means depth is irrelevant.
+theorem a6_very_deep_bottom_detected :
+    containsBottom (nestList 500 .bottom) = true := by
+  native_decide
+
+-- Regression: shallow bottoms still detected.
+theorem a6_shallow_bottom_detected :
+    containsBottom (nestList 3 .bottom) = true := by
+  native_decide
+
+-- A deep value with NO bottom returns false (the walk doesn't over-report).
+theorem a6_deep_no_bottom_false :
+    containsBottom (nestList 150 (.prim (.int 7))) = false := by
+  native_decide
+
+-- `.bottomWith` (carrying a reason) is detected at depth too, not just bare `.bottom`.
+theorem a6_deep_bottomWith_detected :
+    containsBottom (nestList 150 (.bottomWith [.structuralCycle])) = true := by
+  native_decide
+
+-- End-to-end: a disjunction whose deep-bottom arm sits past the old cap is pruned by
+-- `liveAlternatives`, leaving the single live arm — so `normalizeDisj` collapses to it.
+-- Pre-fix the dead arm survived → a spurious 2-arm `.disj` (wrong value).
+theorem a6_live_alternatives_prunes_deep_bottom_arm :
+    (liveAlternatives [(.regular, nestList 150 .bottom), (.regular, .prim (.int 1))]
+      == [(.regular, .prim (.int 1))]) = true := by
+  native_decide
+
+theorem a6_normalize_disj_collapses_past_deep_bottom :
+    (normalizeDisj [(.regular, nestList 150 .bottom), (.regular, .prim (.int 1))]
+      == .prim (.int 1)) = true := by
+  native_decide
+
+-- Deep bottom inside an OPTIONAL field is still skipped at depth: the optional-skip rule
+-- (`containsBottomFields`) composes with the deep walk — a deep `.struct` whose only bottom
+-- is behind `#u?: _|_` does not bottom (mirrors `fixture_optional_bottom_arm_survives`).
+theorem a6_deep_optional_bottom_skipped :
+    containsBottom (nestList 150 (.struct [⟨"u", .optional, .bottom⟩] .regularOpen none [] []))
+      = false := by
+  native_decide
+
 end Kue

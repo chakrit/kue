@@ -225,9 +225,10 @@ theorem terminating_disj_no_survivor_bottoms :
     exportJsonBottoms "#A: {x: int, self: #A}\n#B: {y: int, other: #B}\nz: {a: #A | #B}\n" = true := by
   native_decide
 
--- A#6 fuel-cap probe: a WIDE cyclic body (5 concrete fields) does NOT push the `.structuralCycle`
--- bottom past `containsBottom`'s 100-level cap — detection (D#2a) fires at recursion depth ~2 so the
--- bottom is always shallow, and `liveAlternatives` sees it. The cap needed NO change. cue-exact.
+-- A#6 (was a fuel-cap probe): a WIDE cyclic body (5 concrete fields) prunes correctly. The
+-- `.structuralCycle` bottom surfaces shallowly (D#2a fires at recursion depth ~2) so this always
+-- worked, but `containsBottom` is now TOTAL/structural (the 100-level cap is gone, A#6) — depth no
+-- longer matters even for a deep non-cyclic bottom. cue-exact. Deep-bottom totality pins: LatticeTests.
 theorem terminating_disj_wide_body_pruned :
     exportJsonMatches
       "#L: {a: int, b: int, c: int, d: int, e: int, tail: #L | *null}\ny: #L & {a: 1, b: 2, c: 3, d: 4, e: 5}\n"

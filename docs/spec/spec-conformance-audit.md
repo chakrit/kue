@@ -422,13 +422,22 @@ strings/bytes.Repeat, previously a silent wrong-bottom. Pins: 3 `numeric/*` fixt
 `native_decide` theorems (`EvalTests`). Verify: `lake build` green, `check-fixtures.sh` →
 `fixture pairs ok` (zero drift), cert-manager content-identical to cue (modulo field-order #3).
 
-**Low / hardening:** `containsBottom` fuel cap 100 (**A#6** — `Lattice.lean:146`; a bottom
->100 levels deep escapes pruning → wrong value, not just slow; a partiality hole.
-**STANDALONE — D#2b confirmed it is NOT implicated by structural cycles**: D#2a detection
-fires at recursion depth ~2, so a `.structuralCycle` bottom is always shallow, well within
-the cap. A#6 remains a real hardening item for genuinely-deep NON-cyclic nested bottoms, on
-its own); `{#a:1,5}` scalar-embed-with-definitions coverage gap; D#1b incomplete-guard
-deferral (couples with D#2).
+**Low / hardening:** `containsBottom` fuel cap 100 (**A#6 — ✅ DONE 2026-06-21, made
+TOTAL/structural**; `Lattice.lean:160`). Was: a bottom >100 levels deep escaped pruning →
+wrong value (a dead disjunction arm survived `liveAlternatives`); a partiality hole.
+**STANDALONE — D#2b confirmed it was NOT implicated by structural cycles** (D#2a detection
+fires at recursion depth ~2, so a `.structuralCycle` bottom is always shallow); the hole was
+for genuinely-deep NON-cyclic nested bottoms. **Fix:** removed the fuel entirely — rewrote
+`containsBottom` as a mutual block (`containsBottom` + 4 list-helpers) elaborated via
+`termination_by structural`, so it is TOTAL (no depth bound: a `.bottom` at ANY depth is
+found) AND `rfl`/`decide`-reducible (structural recursion reduces in the kernel; a `sizeOf`
+WF measure would have broken the existing `meet`/manifest `rfl` proofs). `fieldBottomCounts`
+folded inline into `containsBottomFields` (optional-skip rule preserved). Axiom-clean
+(`propext` only). Cert-manager byte-identical to pre-fix HEAD; fixtures zero-drift; 8
+adversarial `native_decide` pins (deep-150/-500 bottom detected, deep no-bottom false, deep
+`.bottomWith`, deep optional-skip, `liveAlternatives`/`normalizeDisj` end-to-end) in
+`LatticeTests.lean`. Also: `{#a:1,5}` scalar-embed-with-definitions coverage gap; D#1b
+incomplete-guard deferral (couples with D#2).
 
 **DRY-1 (LOW Phase-B refactor, no behavior change).** Extract a shared `walkFollowedLets`
 (visited-set + fuel + `.structComp` /`.struct` destructure) combinator and refactor
