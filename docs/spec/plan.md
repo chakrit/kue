@@ -305,7 +305,7 @@ DYN-DEF-1 dyn-field batch):** **A-EN3-DYN and DYN-DEF-1 are both ✅ DONE and AU
 verified the depth-mirror, `classifyDynLabel` exhaustiveness, and the corrected fixture — see the
 Phase-A entry below). Phase-A found and **FIXED INLINE two NEW wrong-results** (D#1d comprehension-
 body tail/pattern drop; default-disjunction dyn-field label collapse) and **FILED one** as the new
-leader. **Live order (REVISED 2026-06-21 after the MASKING-SWEEP audit — Phase-B `<pending>`): (1)
+leader. **Live order (REVISED 2026-06-21 after the MASKING-SWEEP audit — Phase-B `39e8af4`): (1)
 RESID-MASK-2** (MEDIUM correctness — the disjunction eager-prune-vs-hold policy; the residual-masking
 fix-slice, now the SOLE open masking site after the Manifest sibling was fixed inline this audit) →
 **(2) AD2-1** (LOW-MED disjunction-normalizer dedup, file-not-inline, value-sound display-only) →
@@ -323,7 +323,7 @@ NEW masked bottom (the Manifest `.structComp` arm reported `incomplete` where th
 a terminal conflict — now `contradiction`), and confirmed RESID-MASK-2 is the sole open masking site.
 See the Phase-B verdict block immediately below.
 
-**Phase-B audit 2026-06-21 (`<pending>`, whole-graph; the MASKING-SWEEP round; scopes MEET-RESID-1
+**Phase-B audit 2026-06-21 (`39e8af4`, whole-graph; the MASKING-SWEEP round; scopes MEET-RESID-1
 `3f085e1` + A#6 `f9c4a65` + RESID-MASK-1 `383c1c6`; Phase A `383c1c6` falsified MEET-RESID-1's
 structural invariant, fixed RESID-MASK-1, filed RESID-MASK-2) — verdict: HEALTHY beyond the known
 masking; ONE NEW masked bottom found + FIXED INLINE; the two ★ rulings settled. CLOSES the round.**
@@ -466,7 +466,7 @@ masking; ONE NEW masked bottom found + FIXED INLINE; the two ★ rulings settled
   shellcheck clean. Commit on `main`.
 
 - **RESID-MASK-2 (MEDIUM — filed, NOT fixed; the NEXT-batch LEADER). ★ PRECISELY CHARACTERIZED by
-  Phase-B `<pending>` (the masking-sweep round) — see the Phase-B verdict block above for the witness
+  Phase-B `39e8af4` (the masking-sweep round) — see the Phase-B verdict block above for the witness
   + the spec-lens framing.** The original Phase-A framing ("a deferred `.conj` arm not re-pruned after
   the two-pass materializes `_|_`; no precise shape isolated") was IMPRECISE: the Phase-B sweep
   isolated it as the disjunction **eager-prune-vs-hold POLICY when the surviving arm is itself still
