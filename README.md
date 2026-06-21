@@ -84,8 +84,8 @@ and verifies CUE source formatting.
 
 Read in this order (see [`docs/README.md`](docs/README.md)):
 
-1. [`docs/spec/cue-language-guide.md`](docs/spec/cue-language-guide.md) — CUE semantics
-   Kue must preserve.
+1. [`docs/reference/cue-language-guide.md`](docs/reference/cue-language-guide.md) — CUE
+   semantics Kue must preserve.
 2. [`docs/guides/lean4-guide.md`](docs/guides/lean4-guide.md) — Lean 4 setup and proof
    workflow.
 3. [`docs/spec/architecture.md`](docs/spec/architecture.md) — module layering and

@@ -323,9 +323,10 @@ future audit would otherwise re-litigate.
   correctness-over-perf, Value-model fork resolution).
 - **Slice loop + audit cadence:** [`../guides/slice-loop.md`](../guides/slice-loop.md).
 - **Performance guide:** [`../guides/kue-performance.md`](../guides/kue-performance.md).
-- **Status page:** [`../www/index.html`](../www/index.html) — single human-scannable
-  status page; refreshed on plan-hygiene passes.
-- **CUE semantics reference:** [`cue-language-guide.md`](cue-language-guide.md);
+- **Status page (human-facing, served):** [`../../www/index.html`](../../www/index.html) —
+  single human-scannable status page, OUTSIDE the agent design-record; refreshed on
+  plan-hygiene passes.
+- **CUE semantics reference:** [`../reference/cue-language-guide.md`](../reference/cue-language-guide.md);
   [`architecture.md`](architecture.md) + [`compat-assumptions.md`](compat-assumptions.md).
 - **Latest session state / next step:** the most recent breadcrumb in
   [`../notes/`](../notes/).

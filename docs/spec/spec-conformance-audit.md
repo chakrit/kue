@@ -517,7 +517,7 @@ Star
 + standing capabilities and moves DONE detail to `implementation-log.md` /git. Last run
 2026-06-21 (distilled the ~9 accreted audit blocks + the shipped D#2 design out of both
 docs; RX-2c marked DONE — `maxRepeat=1000` landed with RX-1a). `docs/README.md` +
-`docs/www/index.html` routing/refresh is owned by the orchestrator — not touched here.
+`www/index.html` routing/refresh is owned by the orchestrator — not touched here.
 
 **Spec-doc errors (cosmetic, no code action):** the CUE spec's disjunction worked-example
 comments contradict its own U2 rule (cue + Kue both follow the rule); the

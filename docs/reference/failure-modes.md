@@ -70,7 +70,7 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
 - **Seen:** 2026-06-18 — `plan.md` reached 4103 lines (distilled to ~180); the status page
   lagged the backlog; an early breadcrumb still claimed a resolved decision was open.
 - **Guard:** the periodic plan-hygiene pass distills `plan.md` and refreshes
-  `docs/www/index.html`; each slice's breadcrumb supersedes the prior START-HERE; stale
+  `www/index.html`; each slice's breadcrumb supersedes the prior START-HERE; stale
   breadcrumbs get a one-line SUPERSEDED banner.
 
 ## A sound correctness fix regresses performance

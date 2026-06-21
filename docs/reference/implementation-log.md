@@ -10762,7 +10762,7 @@ no fix needed.**
 
 ### SPEC-CONFORMANCE — eager prune is spec-consonant; cue's hold is permitted lazy eval
 
-The CUE spec (`docs/spec/cue-language-guide.md` Disjunction) mandates *"distribute the unification
+The CUE spec (`docs/reference/cue-language-guide.md` Disjunction) mandates *"distribute the unification
 over the alternatives and **eliminate bottom alternatives**"* (`("a"|"b") & "c" == _|_`) and treats
 `_|_` as the identity for `|`. Eager elimination of a DEFINITELY-bottom arm is therefore spec-correct
 and the more precise lattice move. The spec does NOT pin the *timing* — it also says *"Evaluation can

@@ -301,8 +301,12 @@
       <span class="pill done">Now</span>
       <span><strong>cert-manager</strong> exports as a fast, content-identical drop-in. The
         <strong>spec-conformance re-audit is complete</strong> — every behavior regraded
-        against the CUE&nbsp;spec, not byte-matched to a fallible binary — and its high-severity
-        fixes (RE2 regex, structural cycles, guard handling, closedness) have all landed.</span>
+        against the CUE&nbsp;spec, not byte-matched to a fallible binary — and
+        <strong>every high-severity finding has landed</strong>: the RE2 regex engine
+        (corpus-divergence-free), structural cycles, the full closedness family
+        (<code>closedClauses</code> intersection), the dyn-field and residual-through-meet
+        families, Unicode case folding, and <code>math.Pow</code>/<code>list.Sort</code>.
+        Latest cut: <code>v0.1.0-alpha.20260621</code>.</span>
     </div>
   </header>
 
@@ -359,7 +363,7 @@
     <h2>The spec-conformance re-audit</h2>
     <p class="sub">Six behavioral areas regraded against the spec + lattice. Each behavior gets
       one verdict. Tracked in
-      <a href="../spec/spec-conformance-audit.md"><code>spec-conformance-audit.md</code></a>.</p>
+      <a href="../docs/spec/spec-conformance-audit.md"><code>spec-conformance-audit.md</code></a>.</p>
     <div class="caps">
       <div class="cap">
         <span class="cap-title">CONFORMS</span>
@@ -376,14 +380,14 @@
       <div class="cap">
         <span class="cap-title">CUE-BUG / KUE-CORRECT</span>
         <span class="cap-body">Spec speaks, <code>cue</code> is wrong, Kue follows the spec.
-          Recorded in <a href="../reference/cue-divergences.md"><code>cue-divergences.md</code></a>
+          Recorded in <a href="../docs/reference/cue-divergences.md"><code>cue-divergences.md</code></a>
           — deliberate, defensible disagreement with the binary.</span>
       </div>
       <div class="cap">
         <span class="cap-title">SPEC-SILENT</span>
         <span class="cap-body">The spec doesn't say. Kue derives the answer from lattice
           principles and records the gap in
-          <a href="../reference/cue-spec-gaps.md"><code>cue-spec-gaps.md</code></a> — even when
+          <a href="../docs/reference/cue-spec-gaps.md"><code>cue-spec-gaps.md</code></a> — even when
           it happens to match <code>cue</code> (matching an artifact is lower-confidence).</span>
       </div>
     </div>
@@ -396,7 +400,11 @@
         <span class="cap-title">Evaluator + lattice</span>
         <span class="cap-body">Total <code>meet</code>/<code>join</code> over the full
           <code>Value</code> domain: primitives, kinds, bounds, regex, struct/list shapes.
-          Disjunctions with full default-mark algebra — all re-audited as spec-correct.</span>
+          Disjunctions with full default-mark algebra — all re-audited as spec-correct.
+          Structural-cycle detection (a recursive <code>#L:{n,next:#L}</code> errors;
+          <code>#List | *null</code> terminates on the default). The disjunction-prune predicate
+          <code>containsBottom</code> is <em>total</em> — no fuel cap — so a bottom at any depth is
+          always found.</span>
         <pre class="cue"><code>port: int &amp; &gt;0 &amp; &lt;=65535
 port: 8080  <span class="cm">// 8080</span></code></pre>
       </div>
@@ -410,17 +418,23 @@ port: 8080  <span class="cm">// 8080</span></code></pre>
       <div class="cap">
         <span class="cap-title">Closedness / definitions</span>
         <span class="cap-body">Closed <code>#Def</code>s, <code>...</code> openness, recursive
-          closing, and import-binding laziness — hardened by the spec-first fixes
-          (<code>SC-1</code>, <code>SC-1c</code>, <code>SC-1d</code>): a closed struct now stays
-          closed through a pattern meet.</span>
+          closing. Closedness is carried as <code>closedClauses</code> — one
+          <code>{fieldLabels, patterns}</code> per closed conjunct — so admittance is a per-conjunct
+          <em>intersection</em> (a field survives iff <em>every</em> clause admits it), not a flat
+          union. The whole family is closed (<code>SC-1</code>…<code>SC-1e</code>, <code>SC-2</code>,
+          <code>EMBED-CLOSE-1</code>): a closed struct stays closed through a pattern meet, a
+          <code>closed×open-…</code> meet, and instantiation.</span>
         <pre class="cue"><code>#C: {a: int}
 out: #C &amp; {z: 9}  <span class="cm">// z: field not allowed</span></code></pre>
       </div>
       <div class="cap">
         <span class="cap-title">Comprehensions</span>
-        <span class="cap-body">Struct and list comprehensions, <code>if</code> guards (a bottom
-          guard now propagates rather than vanishing — <code>D#1a</code>), nested / multi /
-          zero-yield, embedded narrowing.</span>
+        <span class="cap-body">Struct and list comprehensions with <code>if</code> guards (a bottom
+          guard now propagates rather than vanishing — <code>D#1a</code>) and <code>let</code>
+          clauses (<code>D#3</code>), nested / multi / zero-yield, embedded narrowing. A non-concrete
+          comprehension residual is correctly HELD and <em>survives a meet</em> against a struct
+          rather than collapsing (the MEET-RESID-1 family), guarded by an
+          illegal-states-unrepresentable invariant.</span>
         <pre class="cue"><code>out: [for x in [1, 2, 3] {x * 2}]  <span class="cm">// [2, 4, 6]</span></code></pre>
       </div>
       <div class="cap">
@@ -439,8 +453,11 @@ out: #C &amp; {z: 9}  <span class="cm">// z: field not allowed</span></code></pr
       <div class="cap">
         <span class="cap-title">Builtins</span>
         <span class="cap-body"><code>base64</code>, <code>json.Marshal</code>,
-          <code>yaml.Marshal</code>, <code>strings</code>/<code>list</code>/<code>math</code>,
-          and now <code>regexp.Match</code> (<code>F-1</code>). Numeric tower + decimal verified
+          <code>yaml.Marshal</code>, <code>regexp.Match</code>, and the
+          <code>strings</code>/<code>list</code>/<code>math</code> namespaces. Now full-Unicode
+          <code>strings.ToUpper</code>/<code>ToLower</code> (BI-1, an oracle-generated case-fold
+          table) and <code>math.Pow</code> (exact non-neg-int exponent) +
+          <code>list.Sort</code>/<code>SortStable</code> (BI-2). Numeric tower + decimal verified
           spec-exact.</span>
         <pre class="cue"><code>import "encoding/json"
 out: json.Marshal({a: 1})  <span class="cm">// "{\"a\":1}"</span></code></pre>
@@ -448,8 +465,9 @@ out: json.Marshal({a: 1})  <span class="cm">// "{\"a\":1}"</span></code></pre>
       <div class="cap">
         <span class="cap-title">Imports / modules</span>
         <span class="cap-body"><code>cue.mod</code> discovery, in-module + cross-module resolution
-          by longest module-path prefix, multi-file merge, transitive loads, package-dir entry.
-          IO confined to the loader; eval stays pure.</span>
+          by longest module-path prefix, multi-file merge, transitive loads, package-dir entry, and
+          qualified import paths <code>"location:identifier"</code> (<code>F-3</code>). IO confined
+          to the loader; eval stays pure.</span>
         <pre class="cue"><code>import "ex.com/pkg"
 out: pkg.#Def &amp; {name: "x"}</code></pre>
       </div>
@@ -458,9 +476,9 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
 
   <section>
     <h2>Spec-first fix backlog</h2>
-    <p class="sub">The re-audit's findings, ranked. Contained high-confidence fixes land before
-      the large rewrites to keep <code>main</code> shippable. See the
-      <a href="../spec/spec-conformance-audit.md">audit tracker</a> for the full list.</p>
+    <p class="sub">The re-audit's findings, ranked. Every HIGH-severity fix has landed; the
+      open tail is small and mostly USER-GATED. See the
+      <a href="../docs/spec/spec-conformance-audit.md">audit tracker</a> for the full list.</p>
     <div class="road">
 
       <div class="item">
@@ -483,29 +501,43 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">MED tail — <code>D#3</code> (<code>let</code> clauses),
-            <code>BI-2</code> (<code>math.Pow</code> / <code>list.Sort</code>)</span>
+          <span class="item-title">The MED tail + the correctness families —
+            <code>D#3</code> (<code>let</code>), <code>BI-1</code> (Unicode case-fold),
+            <code>BI-2</code> (<code>math.Pow</code> / <code>list.Sort</code>),
+            closedness, dyn-field, residual-through-meet</span>
           <span class="pill done">Landed</span>
-          <span class="item-rank">MEDIUM</span>
+          <span class="item-rank">MEDIUM · spec-grounded</span>
         </div>
         <p class="item-desc"><code>let</code> clauses in comprehensions (the de Bruijn frame model
-          extended, B7-vindicated); <code>math.Pow</code>'s exact integer-exponent domain and
-          <code>list.Sort</code>/<code>SortStable</code> with a per-pair-evaluated comparator. The
-          numeric residual (<code>math.Sqrt</code>, fractional <code>Pow</code> — needs an
-          IEEE/Float model) is deferred: Kue bottoms rather than ship a wrong value.</p>
+          extended, B7-vindicated); full-Unicode <code>strings.ToUpper</code>/<code>ToLower</code>
+          from an oracle-generated BMP case-fold table; <code>math.Pow</code>'s exact
+          integer-exponent domain and <code>list.Sort</code>/<code>SortStable</code>. The whole
+          closedness family (<code>SC-1</code>…<code>SC-1e</code>, <code>SC-2</code>,
+          <code>EMBED-CLOSE-1</code>), the dyn-field correctness family, and the
+          residual-through-meet ripple (<code>MEET-RESID-1</code>, <code>RESID-MASK-1/2</code>,
+          <code>A#6</code>) all landed too. Numeric residual (<code>math.Sqrt</code>, fractional
+          <code>Pow</code> — needs a Float model) is deferred: Kue bottoms rather than ship a wrong
+          value.</p>
       </div>
 
       <div class="item live">
         <div class="item-head">
-          <span class="item-title"><code>BI-1</code> — Unicode case folding (data-spike first)</span>
-          <span class="pill next">Next</span>
-          <span class="item-rank">MEDIUM · envelope risk</span>
+          <span class="item-title">The genuinely-open backlog — <code>EvalOps</code>,
+            <code>AD2-1</code>, <code>SC-3</code>, <code>BI-2-residual</code>,
+            <code>SC-4</code></span>
+          <span class="pill next">Open</span>
+          <span class="item-rank">small · mostly USER-GATED</span>
         </div>
-        <p class="item-desc"><code>strings.ToUpper</code>/<code>ToLower</code> are ASCII-only;
-          <code>cue</code> is full-Unicode, so non-ASCII gives wrong answers. The slice must FIRST
-          decide the data approach — a checked-in vendored case-folding table (no fetch) vs scoped
-          coverage — before any code, since fetching external data into the repo is an envelope
-          boundary.</p>
+        <p class="item-desc">Everything spec-conformance-HIGH is done; what remains is small and
+          mostly needs a human's call. <strong><code>EvalOps</code></strong> (the one autonomous
+          slice — carve ~256 lines of pure scalar algebra to <code>Kue/EvalOps.lean</code>;
+          mechanical hygiene, not pressure). <strong>USER-GATED:</strong> <code>AD2-1</code>
+          (disjunction-normalizer display dedup — flips two named theorem pins + the display
+          contract); <code>SC-3</code> (disjunction display-residual — coupled with
+          <code>AD2-1</code>); <code>BI-2-residual</code> (<code>math.Sqrt</code> + neg/fractional
+          <code>Pow</code> — a Float/NaN/Infinity numeric-model subproject, a departure from Kue's
+          exact-rational core); <code>SC-4</code> (LOW spec-gap-first, nested closedness on direct
+          def-meet). Plus the LOW cosmetic/latent corners in <code>plan.md</code> item&nbsp;6.</p>
       </div>
 
       <div class="item">
@@ -523,18 +555,18 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">Hardening + cleanups</span>
-          <span class="pill back">Backlog</span>
-          <span class="item-rank">LOW/MED · opportunistic, gated behind correctness</span>
+          <span class="item-title">Soundness hardening + dedups (resolved)</span>
+          <span class="pill done">Settled</span>
+          <span class="item-rank">recorded so they're not re-raised</span>
         </div>
-        <p class="item-desc"><code>truncate-primitive</code> (make the fuel-truncation bump
-          unskippable by construction — HIGH soundness hardening), the periodic test/fixture-org and
-          plan-hygiene passes, <code>SC-3</code> display-residual + the spec-gap ratifications, and
-          the walker/normalizer dedups (<code>AD4-1</code> comprehension walkers and
-          <code>A-EN3</code> frame folds — both DONE; <code>DRY-1</code> let-walkers ruled out, no
-          shared combinator; <code>AD2-1</code> disjunction normalizers remaining) — distinct
-          mechanisms, only the ones that genuinely share structure unified. See the
-          <a href="../spec/plan.md">plan</a> for the full ranked list.</p>
+        <p class="item-desc"><code>truncate-primitive</code> is CLOSED (the truncation-bump invariant
+          fused into one choke point; the physically-unskippable variant ruled out — it breaks
+          Lean's termination inference). The walker/normalizer dedups resolved to one member:
+          <code>AD4-1</code> (comprehension walkers) and <code>A-EN3</code> (frame folds) DONE;
+          <code>DRY-1</code> (let-walkers) ruled out — no shared combinator, the recursion <em>is</em>
+          the variation point; only <code>AD2-1</code> remains (now in the open backlog above). The
+          principle: distinct mechanisms stay distinct; only genuinely shared structure is unified.
+          See the <a href="../docs/spec/plan.md">plan</a> for the full ranked list.</p>
       </div>
 
     </div>
@@ -640,38 +672,39 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
       violation even with no failing fixture, while a perf miss is acceptable. Lean&nbsp;4 pushes
       these invariants into the type system — total functions and precise types over ad hoc runtime
       checks. See
-      <a href="../decisions/2026-06-14-cue-compatibility-target.md">the compatibility target</a>,
-      <a href="../decisions/2026-06-18-correctness-over-performance.md">correctness over
+      <a href="../docs/decisions/2026-06-14-cue-compatibility-target.md">the compatibility target</a>,
+      <a href="../docs/decisions/2026-06-18-correctness-over-performance.md">correctness over
       performance</a>, and the
-      <a href="../spec/spec-conformance-audit.md">spec-conformance re-audit</a>.</p>
+      <a href="../docs/spec/spec-conformance-audit.md">spec-conformance re-audit</a>.</p>
   </section>
 
   <section>
     <h2>Deeper docs</h2>
     <ul class="docs-list">
-      <li><a href="../spec/plan.md">Plan</a>
+      <li><a href="../docs/spec/plan.md">Plan</a>
         <span class="dl-note">— the live roadmap</span></li>
-      <li><a href="../spec/spec-conformance-audit.md">Spec re-audit</a>
+      <li><a href="../docs/spec/spec-conformance-audit.md">Spec re-audit</a>
         <span class="dl-note">— verdicts + fix backlog</span></li>
-      <li><a href="../reference/cue-divergences.md">CUE divergences</a>
+      <li><a href="../docs/reference/cue-divergences.md">CUE divergences</a>
         <span class="dl-note">— where cue is wrong, Kue right</span></li>
-      <li><a href="../reference/cue-spec-gaps.md">CUE spec gaps</a>
+      <li><a href="../docs/reference/cue-spec-gaps.md">CUE spec gaps</a>
         <span class="dl-note">— where the spec is silent</span></li>
-      <li><a href="../reference/implementation-log.md">Implementation log</a>
+      <li><a href="../docs/reference/implementation-log.md">Implementation log</a>
         <span class="dl-note">— slice-by-slice record</span></li>
-      <li><a href="../guides/kue-performance.md">Performance guide</a>
+      <li><a href="../docs/guides/kue-performance.md">Performance guide</a>
         <span class="dl-note">— fast vs slow CUE shapes</span></li>
-      <li><a href="../guides/slice-loop.md">Slice loop</a>
+      <li><a href="../docs/guides/slice-loop.md">Slice loop</a>
         <span class="dl-note">— workflow + audit cadence</span></li>
-      <li><a href="../README.md">Docs index</a>
+      <li><a href="../docs/README.md">Docs index</a>
         <span class="dl-note">— full table of contents</span></li>
     </ul>
   </section>
 
   <footer>
-    Snapshot of <code>docs/spec/</code> — last updated 2026-06-20, after the spec-conformance
-    re-audit's high-severity fixes landed. A hand-generated, human-scannable status view,
-    refreshed on plan-hygiene passes.
+    Human-facing status view, served from <code>www/</code> — distinct from the agent design
+    record under <code>docs/</code>. Last updated 2026-06-21 against the distilled
+    <code>docs/spec/plan.md</code>; latest release <code>v0.1.0-alpha.20260621</code>. A
+    hand-rendered, human-scannable snapshot, refreshed on plan-hygiene passes.
   </footer>
 
 </main>

@@ -48,8 +48,8 @@ Periodic, not every cycle:
   rankings, resolved decisions, completed fix-slice diagnoses), distill it back to the
   live roadmap: North Star + Working Principles, standing capabilities, ranked open
   backlog, pointers. History lives in `implementation-log.md` + git, so the plan sheds it.
-  Also refresh `docs/www/index.html` (the human-scannable status page) to match the
-  distilled plan.
+  Also refresh `www/index.html` (the human-facing status page, served from repo root —
+  separate from the agent design-record) to match the distilled plan.
 - **Resilience / retrospective pass** — every *larger* while (roughly every 3–4 audit
   cycles, or once failures have accrued), review what broke *operationally* since the last
   retro — crashed/overloaded subagents, lost work, transient API errors, working-tree

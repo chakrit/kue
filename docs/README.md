@@ -26,16 +26,14 @@ memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-l
 
 ## Project Documents
 
-- [CUE Language Guide](spec/cue-language-guide.md) — implementation-oriented map of CUE
-  semantics: value lattice, unification, disjunction, defaults, bottom, closedness,
+- [CUE Language Guide](reference/cue-language-guide.md) — implementation-oriented map of
+  CUE semantics: value lattice, unification, disjunction, defaults, bottom, closedness,
   cycles, comprehensions, modules, and compatibility risks.
 - [Architecture](spec/architecture.md) — implementation architecture, layering, module
   boundaries, and near-term milestones.
 - [Compatibility Assumptions](spec/compat-assumptions.md) — assumptions and deliberately
   narrow choices made while matching CUE behavior.
 - [Plan](spec/plan.md) — live roadmap: standing capabilities and the next slices.
-- [Status Page](www/index.html) — single human-scannable page: where Kue stands, what
-  works, and what's next (a hand-rendered snapshot of the plan).
 - [Implementation Log](reference/implementation-log.md) — the full slice-by-slice record
   of completed work, retained for verification.
 - [Failure Modes & Guards](reference/failure-modes.md) — operational pitfalls hit running
@@ -54,10 +52,16 @@ memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-l
 - [Performance Guide](guides/kue-performance.md) — how to write CUE that Kue evaluates
   fast: which patterns are expensive in Kue, why, and the faster shapes.
 
+## Human-facing
+
+These design docs are the agent/developer record, read in-repo. The human-facing status
+*site* is separate — a served HTML page at [`../www/index.html`](../www/index.html), not
+part of this design record. Keep the two audiences apart.
+
 ## Reading Order
 
-1. Read the [CUE language guide](spec/cue-language-guide.md) to understand what Kue must
-   preserve.
+1. Read the [CUE language guide](reference/cue-language-guide.md) to understand what Kue
+   must preserve.
 2. Read the [Lean 4 guide](guides/lean4-guide.md) to understand how this repo should
    model and prove those semantics.
 3. Read the [architecture](spec/architecture.md) before adding implementation modules.
