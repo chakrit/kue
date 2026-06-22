@@ -1543,35 +1543,121 @@ theorem bug26_distinct_closed_defs_same_field_admits :
       "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
-/-! ### Bug2-7 — same-def multi-decl close-once LOST on the def-REFERENCE path (PARKED TRIPWIRE).
+/-! ### Bug2-7 — same-def multi-decl close-once on the def-REFERENCE / force-fold path (RESOLVED).
 
-The DEEPER argocd `export` blocker uncovered AFTER Bug2-6 landed (this fix). Bug2-6's close-once is
-correct on DIRECT selection (`out: #Foo` where `#Foo` has two decls) — `canonicalizeFields` unions
-the same-label def decls into ONE close-once body. But when the merged def is REFERENCED through a
-SIBLING (`vis: #additions`, the def-deferral/force-fold path via `mergeConjOperands`/`mergeConjFields`),
-the body is RECONSTRUCTED from the ORIGINAL decls and re-closed SEPARATELY (`.conj`, NOT the union),
-so each decl's clause rejects the OTHER decl's fields → `{cert_gw:_|_, cert_ing:_|_}` (the merged
-clause displays right, but the per-field bottoms are baked in by the separate close).
+Bug2-6's close-once is correct on DIRECT selection (`out: #Foo`) — the direct-eval `.struct` arm
+`canonicalizeFields`-es the body and unions the same-label def decls into ONE close-once body. But it
+was LOST when the merged def lives inside a DEFINITION wrapper that is selected/referenced through a
+sibling (`#Use: {#additions:…; #additions:…; vis: #additions}` then `#Use.vis`): the def wrapper
+defers to a `.closure` and the force-fold reconstruction (`forceClosureWithConjunctCore`) rebuilds
+the body via `mergeConjOperands`, which ran `mergeConjFields` (plain `joinUnevaluated`/`.conj`) over
+each operand's fields BEFORE the downstream `canonicalizeFields` could union them — so the two
+`#additions` decls were `.conj`-collapsed and re-closed SEPARATELY, each clause rejecting the other's
+fields → `{cert_gw:_|_, cert_ing:_|_}`.
 
-Minimal repro (`exportJsonBottoms` holds the WRONG bottom — FLIP when fixed): a def with two same-def
-decls, REFERENCED via a sibling `vis`. cue v0.16.1: `{cert_gw:{}, cert_ing:{}}`; kue bottoms.
+FIXED by canonicalizing each operand's OWN fields up-front in `mergeConjOperands` (Bug2-7): a repeated
+DEFINITION-class decl declared WITHIN one struct body (one operand) UNIONS via `mergeDefinitionDecls`
+(Bug2-6 close-once), while the CROSS-operand merge stays plain `.conj`. That within-operand vs
+cross-operand split IS the soundness boundary: a host's `#data` meeting an EMBED's `#data` (distinct
+operands) still `.conj`-MEETs — never unions — so the cert-manager closed pattern def is not re-opened
+and `#A & #B` (distinct closed defs, distinct operands) still rejects. -/
 
-Root: `mergeConjOperands`/`mergeConjFields` (the def-reference reconstruction) uses plain
-`joinUnevaluated` (`.conj`), with NO same-decl-vs-cross-conjunct distinction — so it cannot apply
-close-once for repeated decls of one def the way `canonicalizeFields` does. A naive union in
-`mergeConjFields` is UNSOUND: it conflates a host's field meeting an EMBED's same-label field (a
-genuine cross-conjunct meet that must `.conj`) with two repeated decls of one def (which must union)
-— it re-opened a closed pattern def (`#data: [string]: string` gained a stray `...`) in the
-cert-manager mixin path. The sound fix carries same-decl provenance THROUGH `mergeConjOperands`
-(distinguishing within-operand repeated decls from cross-operand conjuncts), a larger design change.
-PARKED for a dedicated slice; correctness-first per the guardrails — an unsound or embed-breaking
-fix is worse than the parked bottom. This is the residual argocd blocker (`apps/argocd.cue`'s
-`#ListenerSet = … & parts.#UseCertManager`, whose `#additions` triple-decl is referenced through
-`route.yaml`/`listener.yaml`). -/
-theorem bug27_WITNESS_multi_decl_def_ref_wrongly_bottoms :
-    exportJsonBottoms
+-- TARGET (was the WITNESS of the wrong bottom; FLIPPED): same-def multi-decl close-once survives a
+-- def-REFERENCE through a sibling. cue v0.16.1: `{cert_gw:{}, cert_ing:{}}` (the `#kind` hidden field
+-- does not export). Pre-fix kue bottomed (`{cert_gw:_|_, cert_ing:_|_}`).
+theorem bug27_multi_decl_def_ref_close_once :
+    exportJsonMatches
       "#Use: {\n\t#additions: cert_gw: {#kind: \"Gateway\"}\n\t#additions: cert_ing: {#kind: \"Ingress\"}\n\tvis: #additions\n}\nout: #Use.vis\n"
-      = true := by
+      "{\n    \"out\": {\n        \"cert_gw\": {},\n        \"cert_ing\": {}\n    }\n}\n" = true := by
+  native_decide
+
+-- 3-decl referenced through a sibling (the argocd `#additions` triple-decl shape).
+theorem bug27_three_decl_def_ref_close_once :
+    exportJsonMatches
+      "#Use: {\n\t#additions: a: {x: 1}\n\t#additions: b: {y: 2}\n\t#additions: c: {z: 3}\n\tvis: #additions\n}\nout: #Use.vis\n"
+      "{\n    \"out\": {\n        \"a\": {\n            \"x\": 1\n        },\n        \"b\": {\n            \"y\": 2\n        },\n        \"c\": {\n            \"z\": 3\n        }\n    }\n}\n" = true := by
+  native_decide
+
+-- REFERENCE and DIRECT-select are BOTH correct off the same def wrapper.
+theorem bug27_def_ref_and_direct_select_both_close_once :
+    exportJsonMatches
+      "#Use: {\n\t#additions: a: {x: 1}\n\t#additions: b: {y: 2}\n\tvis: #additions\n}\nviaRef: #Use.vis\nviaDirect: #Use.#additions\n"
+      "{\n    \"viaRef\": {\n        \"a\": {\n            \"x\": 1\n        },\n        \"b\": {\n            \"y\": 2\n        }\n    },\n    \"viaDirect\": {\n        \"a\": {\n            \"x\": 1\n        },\n        \"b\": {\n            \"y\": 2\n        }\n    }\n}\n" = true := by
+  native_decide
+
+-- NESTED reference: a multi-decl def referenced through a sibling INSIDE a def, the whole then
+-- selected one level further out. The force-fold path is exercised at two nesting levels.
+theorem bug27_nested_def_ref_close_once :
+    exportJsonMatches
+      "#Outer: {\n\t#Inner: {\n\t\t#m: {a: 1}\n\t\t#m: {c: 3}\n\t\tvis: #m\n\t}\n\tout: #Inner.vis\n}\nresult: #Outer.out\n"
+      "{\n    \"result\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- DEF-REF AFTER MEET: the close-once union still ADMITS a use-site field that IS in the union when
+-- the referenced def is further `meet`-ed (cue: `{a:1, c:3}`).
+theorem bug27_def_ref_after_meet_admits_union_field :
+    exportJsonMatches
+      "#Use: {\n\t#m: {a: 1}\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis & {a: 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): two DISTINCT closed defs `#A & #B` referenced through a sibling
+-- STILL reject — distinct operands, so the cross-operand `.conj` (NOT the within-operand union) fires.
+-- A fix that unioned indiscriminately would WRONGLY admit this. cue: `field not allowed`.
+theorem bug27_distinct_closed_defs_via_ref_still_reject :
+    exportJsonBottoms
+      "#A: {a: 1}\n#B: {c: 3}\n#Use: {\n\tval: #A & #B\n}\nout: #Use.val\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): same-def CONFLICT on a shared label referenced through a sibling
+-- STILL bottoms — close-once unions LABELS, the shared label's VALUES still `meet`
+-- (cue: `conflicting values 2 and 1`). Close-once does not paper over a real conflict.
+theorem bug27_same_def_conflict_via_ref_still_bottoms :
+    exportJsonBottoms
+      "#Use: {\n\t#m: {a: 1}\n\t#m: {a: 2}\n\tvis: #m\n}\nout: #Use.vis\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): the merged def is CLOSED ONCE over the union — a use-site extra
+-- (in NEITHER decl), introduced via the reference, is rejected (cue: `field not allowed`).
+theorem bug27_def_ref_close_once_rejects_use_site_extra :
+    exportJsonBottoms
+      "#Use: {\n\t#m: {a: 1}\n\t#m: {c: 3}\n\tvis: #m & {extra: 9}\n}\nout: #Use.vis\n" = true := by
+  native_decide
+
+/-! ### Bug2-8 — same-def multi-decl close-once ACROSS AN EMBED boundary (PARKED TRIPWIRE).
+
+The NEXT argocd `export` blocker, surfaced after Bug2-7 landed. Bug2-7 unions same-def decls declared
+WITHIN one struct body (one operand). But when a def declares `#m` once and EMBEDS another def that
+also declares `#m` (`#A: {#m:{a}}` then `#Use: {#A; #m:{c}; vis:#m}`), cue UNIONS the two decls of the
+ONE def path `#m` (close-once → `{a:1, c:3}`) — they are repeated declarations of one definition,
+merged across the embed. kue treats them as CROSS-operand conjuncts (host operand vs embed operand)
+and `.conj`-meets them → each clause re-closes separately → mutual reject → bottom.
+
+This is a DISTINCT mechanism from Bug2-7, with a HARDER soundness boundary: within-operand-vs-
+cross-operand (Bug2-7's lever) no longer separates the union case from the meet case — both `#m`
+decls are now cross-operand, yet must UNION. The discriminator cue uses is same-def-PATH-decl (union)
+vs cross-conjunct VALUE-meet (the cert-manager `#data: [string]: string` pattern, which must stay
+closed-MEET — verified: a naive cross-operand union re-opens it). Distinguishing those across an embed
+requires carrying def-path provenance THROUGH the embed merge — a larger change than Bug2-7's
+per-operand canonicalize. PARKED for a dedicated slice; correctness-first per the guardrails. This is
+the residual argocd blocker (`apps/argocd.cue`'s `#UseCertManager` EMBEDS `#Mixin` and adds its own
+`#additions: {cert_gw, cert_ing, cert_ls}` decls — host-decl + embed-pattern of ONE `#additions` path).
+
+Minimal repro (`exportJsonBottoms` holds the WRONG bottom — FLIP when fixed). cue v0.16.1:
+`{a:1, c:3}`; kue bottoms. -/
+theorem bug28_WITNESS_embed_cross_decl_close_once_wrongly_bottoms :
+    exportJsonBottoms
+      "#A: {#m: {a: 1}}\n#Use: {\n\t#A\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis\n" = true := by
+  native_decide
+
+-- Bug2-8 SOUNDNESS BOUNDARY (must STAY green): a host's CLOSED PATTERN field meeting an embed's same
+-- pattern field stays closed-MEET (NOT union) — the cert-manager `#data: [string]: string` shape. The
+-- pattern admits `extra`; cue and kue AGREE (`{extra:"x"}`). A Bug2-8 fix that unioned indiscriminately
+-- across the embed would re-OPEN this — pins the boundary the eventual fix must respect.
+theorem bug28_embed_closed_pattern_field_stays_meet :
+    exportJsonMatches
+      "#Data: {data: [string]: string}\n#Use: {\n\t#Data\n\tdata: {extra: \"x\"}\n\tvis: data\n}\nout: #Use.vis\n"
+      "{\n    \"out\": {\n        \"extra\": \"x\"\n    }\n}\n" = true := by
   native_decide
 
 

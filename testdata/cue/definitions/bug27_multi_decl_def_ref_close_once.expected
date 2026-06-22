@@ -1,0 +1,2 @@
+#Use: {#additions: {cert_gw: {#kind: "Gateway"}, cert_ing: {#kind: "Ingress"}}, vis: {cert_gw: {#kind: "Gateway"}, cert_ing: {#kind: "Ingress"}}}
+out: {cert_gw: {#kind: "Gateway"}, cert_ing: {#kind: "Ingress"}}

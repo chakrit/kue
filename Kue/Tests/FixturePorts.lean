@@ -551,6 +551,40 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-7: same-def multi-decl close-once survives a def-REFERENCE through a sibling. `#Use`
+      -- declares `#additions` twice and references it via `vis`; the def wrapper defers to a closure
+      -- and the force-fold reconstruction (`mergeConjOperands`) now canonicalizes each operand's OWN
+      -- fields FIRST, so the within-operand `#additions` decls UNION (close-once) instead of being
+      -- `.conj`-collapsed + re-closed separately. cue v0.16.1: `{cert_gw:{}, cert_ing:{}}`; pre-fix
+      -- kue bottomed (`{cert_gw:_|_, cert_ing:_|_}`).
+      fileName := "definitions/bug27_multi_decl_def_ref_close_once.expected",
+      content :=
+        match parseSource "#Use: {\n\t#additions: cert_gw: {#kind: \"Gateway\"}\n\t#additions: cert_ing: {#kind: \"Ingress\"}\n\tvis: #additions\n}\nout: #Use.vis\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-7 SOUNDNESS GUARD: same-def CONFLICT on a shared label, referenced through a sibling,
+      -- STILL bottoms — close-once unions LABELS, the shared label's VALUES still `meet`. The union
+      -- never papers over a real conflict (`a: _|_`).
+      fileName := "definitions/bug27_same_def_conflict_via_ref_bottoms.expected",
+      content :=
+        match parseSource "#Use: {\n\t#m: {a: 1}\n\t#m: {a: 2}\n\tvis: #m\n}\nout: #Use.vis\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-7 SOUNDNESS GUARD: two DISTINCT closed defs `#A & #B`, referenced through a sibling,
+      -- STILL reject (`{a:_|_, c:_|_}`) — they are CROSS-operand conjuncts, so the cross-operand
+      -- `.conj` (NOT the within-operand union) fires. The within-operand canonicalization never
+      -- touches a genuine cross-conjunct meet, so the Bug2-7 fix does not leak into `#A & #B`.
+      fileName := "definitions/bug27_distinct_closed_defs_via_ref_reject.expected",
+      content :=
+        match parseSource "#A: {a: 1}\n#B: {c: 3}\n#Use: {\n\tval: #A & #B\n}\nout: #Use.val\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

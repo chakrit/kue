@@ -1521,8 +1521,23 @@ def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field ×
     collisions, and closedness is folded outward. The pure core shared by `lazyConjMergedFields`
     (same-scope struct conjunction) and the closure-meet splice (`forceClosureWithConjunct`):
     one `pushFrame` + eval over the result lets a body referencing a sibling a later conjunct
-    narrows see the narrowed slot. -/
+    narrows see the narrowed slot.
+
+    Bug2-7 (def multi-decl close-once on the force-fold path): each operand's OWN fields are
+    `canonicalizeFields`-ed FIRST, so two repeated DEFINITION-class decls of one path declared
+    WITHIN a single struct body (`#Use: {#m:{a}; #m:{c}; …}`) UNION via `mergeDefinitionDecls`
+    (Bug2-6 close-once) instead of `.conj`-ing two separately-closed bodies. This is the
+    within-operand vs cross-operand soundness boundary: the close-once union fires ONLY for
+    repeated decls inside ONE operand; the cross-operand merge (`mergeConjFields`, plain `.conj`)
+    is unchanged, so a host's `#data` meeting an EMBED's `#data` (distinct operands) still
+    `.conj`-MEETs — never unions. Without it the force-fold reconstruction (`forceClosureWithConjunct`)
+    `.conj`-collapsed the within-operand decls before `canonicalizeFields` downstream could union,
+    re-closing each separately and mutually rejecting (`{cert_gw:_|_, cert_ing:_|_}`). Canonicalizing
+    here preserves first-occurrence layout for every slot at-or-before a collapsed duplicate, so the
+    `mergedMap` (built from the canonicalized operands) and the rebased refs stay coherent — exactly
+    the direct-eval `.struct` arm's treatment, now applied per-operand on the force path too. -/
 def mergeConjOperands (operands : List (List Field × Bool)) : List Field × Bool :=
+  let operands := operands.map fun op => (canonicalizeFields op.fst, op.snd)
   let layoutFrame := operands.foldl (fun acc op => mergeConjFields acc op.fst) []
   let mergedMap := labelIndexMap layoutFrame
   let rebased := operands.map fun op => rebaseConjunctFields op.fst mergedMap
