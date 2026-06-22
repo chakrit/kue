@@ -32,7 +32,7 @@ target is the language as specified, not bug-for-bug parity. See
   cert-manager) to `export` *validates* correct semantics; it is never an end in itself.
   Rank slices by spec-correctness and clean design evolution — never let one app's shape
   pull the loop into per-app special-casing. A real-app blocker needing app-specific
-  narrowing is parked as a stress-test finding (argocd/Bug2-5), not promoted to the
+  narrowing is parked as a stress-test finding (argocd/Bug2-6), not promoted to the
   critical path; it resolves as the general semantics mature.
 
 ## Standing Capabilities (what Kue does now)
@@ -104,9 +104,13 @@ field-ordering byte-parity gap (#3):
   collapsed the ~119s O(N²) wall to ~30.6s).
 - **argocd: `packs.#Argo` (link 5) content-correct** (4-link chain). All three components
   content-identical to `cue` (sorted-key, modulo field-order #3) in the scratch module.
-  **Full `apps/argocd.cue` STILL bottoms** — the residual is a deterministic CORRECTNESS
-  divergence (**Bug2-5**, let-buried two-level embed comprehension-guard narrowing), NOT a
-  fuel ceiling. PARKED as a stress-test finding; resolves as the general semantics mature.
+  **Full `apps/argocd.cue` STILL bottoms (~60s, down from 153s)** — the residual is a
+  deterministic CORRECTNESS divergence. **Bug2-5** (transitive-embed disj-path narrowing
+  injection) is FIXED (`5fca57e`, 2026-06-22) — it was NOT the final blocker. The deeper
+  blocker is **Bug2-6** (definition multi-declaration closedness: `#Foo: {a}; #Foo: {c}`
+  closes each decl separately → mutual rejection, instead of unify-then-close-once). PARKED
+  as a stress-test finding (a provenance-carrying def-merge fix; see
+  `spec-conformance-audit.md` Live-slice detail); resolves as the general semantics mature.
 
 ## Live Backlog (open work, ranked)
 
@@ -125,9 +129,11 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). PARKED: **Bug2-5** (argocd residual, a stress-test finding). RESOLVED
-/ ruled out (do not re-file — see Resolved/ruled-out below): **AD2-1** (lone-default
-normalizer unified, 2026-06-21), **DRY-1**. **SC-3** is now a recorded spec-gap only (the
+(LOW spec-gap-first). PARKED: **Bug2-6** (argocd residual — definition multi-decl
+closedness; the deeper blocker uncovered while fixing Bug2-5, a stress-test finding).
+RESOLVED / ruled out (do not re-file — see Resolved/ruled-out below): **Bug2-5**
+(transitive-embed disj-path narrowing injection, `5fca57e` 2026-06-22 — was NOT the final
+argocd blocker), **AD2-1** (lone-default normalizer unified, 2026-06-21), **DRY-1**. **SC-3** is now a recorded spec-gap only (the
 multi-arm-default display divergence; the lone-default half is gone — collapsed under
 AD2-1).
 
@@ -220,9 +226,10 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
 5. **Per-eval-cost perf (frontier — hash digest DONE; residual open).** The cache-key hash
    digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero drift;
    FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):** the
-   heavy `argo` sub-package times out >200s once past the early bottom. Gated on the
-   argocd unblock (its bottom is the Bug2-5 CORRECTNESS divergence, not fuel) — profile
-   against a resolving target.
+   heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
+   argocd unblock — Bug2-5 is fixed but argocd bottoms on Bug2-6 (def multi-decl closedness),
+   a CORRECTNESS divergence, not fuel. Un-gates once Bug2-6 lands; profile against a
+   resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

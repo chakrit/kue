@@ -217,41 +217,58 @@ these is in Audit history (below) + the implementation-log + git.
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
 
-**PARKED (off the critical path):** **Bug2-5** (the argocd residual, undesigned; a
-stress-test finding) — see Live-slice detail. Plus the LOW cosmetic/latent corners tracked
-in `plan.md` item 6.
+**PARKED (off the critical path):** **Bug2-6** (the argocd residual — definition
+multi-declaration closedness; the deeper blocker uncovered while fixing Bug2-5) — see
+Live-slice detail. **Bug2-5 RESOLVED** (`5fca57e`, 2026-06-22): the transitive-embed
+disj-path narrowing-injection mechanism is fixed; it was NOT the final argocd blocker.
+Plus the LOW cosmetic/latent corners tracked in `plan.md` item 6.
 
 Audit cadence + the non-spec-conformance plan roadmap live in `plan.md` / the breadcrumb,
 not here.
 
 ### Live-slice detail (folded from prior re-ranks; DONE entries dropped to Audit history)
 
-**Bug2-5 (HIGH — the single residual argocd export blocker, undesigned).**
-`kue export apps/argocd.cue` still bottoms (~153s). Narrowing-injection into a
-disjunction-arm-referenced let-local. The remaining shape, faithfully reproduced
-(`/tmp/kue-ls-shape.cue`), is
-`defaults.#ListenerSet = defs.#ListenerSet & parts.#UseCertManager & {…}`:
-`defs.#ListenerSet` declares `kind: "ListenerSet"` at ITS def frame and CO-EMBEDS
-`#UseCertManager` (→ `#Mixin`). The Mixin's `_patch.kind` must be narrowed by the SIBLING
-def's `kind`, NOT by a use-operand. Because `#Mixin` 's body is the
-`listShape | structShape | error` DISJUNCTION, the embed resolves on the `.disj` arm of
-`meetEmbeddingsWithFuel` (each arm `meet` s the host AFTER the arm — and `_patch` 's
-comprehension — has evaluated), so the narrowing arrives too late and
-`injectLetLocalNarrowings` (which fires only on the `forceClosureWithConjunctCore`
-`.structComp` arm) never runs. Minimal repro:
-`#ListenerSet: { #UseCertManager; kind: "ListenerSet" }`,
-`out: #ListenerSet & {#name:"x"}` → cue emits `meta:"yes"`, Kue drops it. **The fix:**
-when an embedded disjunction's surviving arm (`structShape`) references a sibling let
-(`_patch`) that declares-and-reads a label narrowed by a CO-EMBEDDING sibling def's static
-field (`kind`), the `.disj` -distribution path of `meetEmbeddingsWithFuel` must inject
-that narrowing into `_patch` BEFORE the arm's comprehension expands — the disjunction
-analogue of Bug2-4's `injectLetLocalNarrowings` on the force path. A deeper mechanism than
-read-label following. Pinned repro `/tmp/kue-ls-shape.cue`. (Note: CLI `kue export` and
-the in-Lean `exportJsonMatches` harness reach DIFFERENT embed arms for the def-host Mixin
-— both produce correct output, but the path divergence is a latent concern flagged for the
-architecture audit. The Phase-A audit RECONCILED this as BENIGN for no-import single
-sources — see Audit history `2ab5c84..3725444` — but the disj-arm path itself is the
-Bug2-5 mechanism.)
+**Bug2-5 — RESOLVED (`5fca57e`, 2026-06-22). The mechanism was real but NOT the final
+argocd blocker.** The diagnosed shape: `defaults.#ListenerSet = defs.#ListenerSet &
+parts.#UseCertManager & {…}` — `defs.#ListenerSet` declares `kind: "ListenerSet"` and
+CO-EMBEDS `#UseCertManager` (→ `#Mixin`, body `listShape | structShape | error`). The
+Mixin's `_patch.kind` must be narrowed by the sibling def's `kind`. **The actual break (one
+level deeper than the original sketch):** `kind` is declared on the OUTER def and `#Mixin`
+is embedded TRANSITIVELY (`#ListenerSet` → `#UseCertManager` → `#Mixin`). The host's
+`spliceOperandForEmbed` into the MIDDLE def (`#UseCertManager`) dropped `kind` because
+`embedBodyEmbedsDisj` is a ONE-level check and the middle def neither reads `kind` nor
+DIRECTLY embeds a disjunction (the disjunction is one more level down). So the Gap-2b
+"splice ALL regular fields" gate never fired and `kind` never reached the disjunction-arm
+path. **Fix:** `embedBodyEmbedsDisjDeep` follows the embed chain (via `resolveEmbedDefBody?`,
+mirroring `bodyNeedsDefer`'s transitive recursion) so a transitively-embedded disjunction
+triggers the same sound Gap-2b splice. NOT the `.disj`-distribution-injection the sketch
+predicted — the narrowing already flows correctly ONCE `kind` reaches the splice; the bug
+was purely the GATE missing the transitive disjunction. Self-contained repro
+`testdata/export/bug25_disj_arm_let_local_narrowing.{cue,json,args}` (cue emits `meta:"yes"`,
+pre-fix kue dropped it; now identical). 8 `native_decide` pins (`TwoPassTests` Bug2-5
+section). cert-manager content-identical.
+
+**Bug2-6 (HIGH — the REAL residual argocd export blocker; PARKED, distinct mechanism).**
+`kue export apps/argocd.cue` still bottoms (~60s, down from 153s). The blocker is a
+FUNDAMENTAL definition-merge bug, unrelated to disjunctions or mixins, uncovered while
+fixing Bug2-5. **Minimal repro:** `#Foo: {a: 1}` + `#Foo: {c: 3}` (two SEPARATE declarations
+of the same definition path) → cue unifies the bodies BEFORE closing → `{a:1, c:3}`; Kue
+closes each decl's body SEPARATELY (`defClosed` at load) and conjoins them
+(`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`), so the meet mutually rejects
+→ `{a: _|_, c: _|_}`. Confirmed at top level (`#Foo` def), nested (`out: {#m: x:1; #m: y:2}`),
+and inside the argocd `#UseCertManager` (`#additions: cert_gw:`, `#additions: cert_ing:`,
+`#additions: cert_ls:` — three separate hidden-field decls, each a closed body). **Spec basis:**
+repeated declarations of one definition unify their field SETS and close ONCE over the union
+(NOT per-decl) — the SAME union-not-intersect rule as embedding closedness. **Soundness
+constraint (why it's not a one-line fix):** the meet of two DISTINCT closed defs
+(`#A: {a}; #B: {c}`; `#A & #B`) must STILL reject (cue: `field not allowed`; kue correctly
+rejects today). By the time it is a `.conj`/meet of two closed structs, the "same def path,
+repeated decl" provenance is LOST — so a naive "union closed sets on meet" would wrongly
+admit `#A & #B`. The fix must distinguish same-label def-decl merge (in
+`canonicalizeFields`/`joinUnevaluated`, where the same-label provenance IS present) from
+use-site def-meet — a provenance-carrying change in the definition-merge core. Left PARKED
+for a dedicated slice; correctness-first per the guardrails (an unsound fix here is worse
+than the parked bottom).
 
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 

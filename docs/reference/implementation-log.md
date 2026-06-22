@@ -11596,3 +11596,80 @@ formula (`chakrit/homebrew-tap` `bca1e1c..e7a8eaa`). Bundles everything since
 scalar-embed-with-decls + B3, CARRIER-STRUCT-MEET, CARRIER-DECL-SELECT, and two full
 two-phase audit rounds. arm64-macOS-only asset (host build; Lean static-links its runtime,
 only `/usr/lib` system dynamic deps).
+
+## 2026-06-22 — Bug2-5: transitive-embed disj-path narrowing injection (`5fca57e`)
+
+**Goal.** Resolve the Bug2-5 argocd blocker: a co-embedding sibling def's static field
+(`kind: "ListenerSet"`) must narrow a mixin let-local (`_patch.kind`) buried inside a
+disjunction-bodied def (`#Mixin: listShape | structShape | error`), so the
+`if kind == add.#kind` guard fires and the matched `#patch` surfaces. cue emits the patch
+field; pre-fix kue DROPPED it.
+
+**The diagnosis was sharper than the sketch (and Bug2-5 was NOT the final argocd blocker).**
+Reconstructed the faithful argocd `#ListenerSet` shape self-contained from the prod9 oracle
+cache (`defs@v0.3.19` — `#ListenerSet` co-embeds `#UseCertManager` → `#Mixin`). Bisection
+isolated the actual break ONE level deeper than the original sketch predicted: `kind` is
+declared on the OUTER def (`#ListenerSet`) and `#Mixin` is embedded TRANSITIVELY
+(`#ListenerSet` → `#UseCertManager` → `#Mixin`). The host's `spliceOperandForEmbed` into the
+MIDDLE def (`#UseCertManager`) dropped `kind`, because `embedBodyEmbedsDisj` is a ONE-level
+check and the middle def neither reads `kind` nor DIRECTLY embeds a disjunction (the
+disjunction is one more level down, inside `#Mixin`). So the Gap-2b "splice ALL regular
+fields" gate never fired, `kind` never reached the disjunction-arm path, the guard fired
+against the un-narrowed `kind: string`, and the patch dropped. (Critically: once `kind`
+DOES reach the splice, the existing narrowing flows correctly — the bug was purely the GATE
+missing the transitive disjunction, NOT the `.disj`-distribution injection the sketch
+predicted.)
+
+**Fix (general, not app-specific).** `embedBodyEmbedsDisjDeep (env) (fuel) (body)` — follows
+the embed chain (resolving each embedding via `resolveEmbedDefBody?`, mirroring
+`bodyNeedsDefer`'s transitive recursion) so a TRANSITIVELY-embedded disjunction still
+triggers the regular-field splice. `spliceOperandForEmbed` takes the precomputed
+`embedsDisjDeep : Bool` (stays pure; the two callsites in `meetEmbeddingsWithFuel` have
+`env` and compute it). The splice it gates is the SAME sound Gap-2b mechanism — meet is
+idempotent on a field an arm already carries, a real conflict still bottoms — so widening
+the GATE through the embed chain never over-narrows. Fuel-bounded against embed cycles
+(`termination_by fuel`); structurally total, no `partial`/`sorry`/new axiom.
+
+**4th-walker question (walker-dedup ruling).** Did NOT add a `.disj`-path walker. The fix is
+a transitive extension of the EXISTING `embedBodyEmbedsDisj` gate (the deep variant calls it
+as the `||` base case), threaded to the EXISTING `spliceOperandForEmbed`. No new
+classifier-family member; the deep walker mirrors the proven `bodyNeedsDefer` template
+(transitive embed recursion via `resolveEmbedDefBody?`) — a shared structural shape, not a
+forced merge. Net: one new total function, two call-site changes.
+
+**Tests.** 4 `native_decide` mechanism/control pins (`embedBodyEmbedsDisjDeep`
+transitive-true / no-disj-false / direct-true) + 4 end-to-end source pins (transitive emit,
+real-conflict bottoms, guard-false drops, direct-embed no-regression) in `TwoPassTests`
+Bug2-5 section. Export fixture `testdata/export/bug25_disj_arm_let_local_narrowing.{cue,json,args}`
+(the self-contained two-level repro; cue emits `meta:"yes"`, pre-fix kue dropped it, now
+identical — oracle-confirmed vs cue v0.16.1).
+
+**Verify.** `lake build` clean (110 jobs, no `sorry`/axiom/new warning);
+`check-fixtures.sh` → `fixture pairs ok`, ZERO drift; cert-manager (prod9, READ-ONLY)
+content-identical to cue (`jq -S`, exit 0) — the canary holds, the deep gate never
+false-fires on production infra. `shellcheck` n/a (no shell touched).
+
+**argocd STILL bottoms — Bug2-6 (DISTINCT, pre-existing, the REAL final blocker).**
+`kue export apps/argocd.cue` now bottoms in ~60s (down from 153s) but is still wrong.
+Bisection past Bug2-5 uncovered a FUNDAMENTAL definition-merge bug, unrelated to
+disjunctions/mixins. **Minimal repro:** `#Foo: {a: 1}` + `#Foo: {c: 3}` (two SEPARATE
+declarations of one definition path) → cue unifies the bodies BEFORE closing → `{a:1, c:3}`;
+kue closes each decl's body SEPARATELY (`defClosed` at load), `canonicalizeFields` conjoins
+them (`.conj [defClosed{a}, defClosed{c}]`), the meet mutually rejects → `{a: _|_, c: _|_}`.
+Confirmed top-level, nested, and in the argocd `#UseCertManager` (three separate
+`#additions:` hidden-field decls). Spec basis: repeated decls of one definition unify field
+SETS and close ONCE over the union (same union-not-intersect rule as embedding closedness).
+Soundness constraint (why it is NOT a one-line fix): `#A: {a}; #B: {c}` then `#A & #B` must
+STILL reject (distinct defs; cue + kue both correctly reject) — but by the time it is a meet
+of two closed structs, the "same def path, repeated decl" provenance is LOST, so a naive
+"union closed sets on meet" would wrongly admit `#A & #B`. The fix must distinguish
+same-label def-decl merge (in `canonicalizeFields`/`joinUnevaluated`, where the provenance
+IS present) from use-site def-meet — a provenance-carrying change in the definition-merge
+core. PARKED for a dedicated slice per the guardrails (correctness-first; an unsound fix is
+worse than the parked bottom). Full detail in `spec-conformance-audit.md` Live-slice detail.
+
+**Files.** `Kue/Eval.lean` (`embedBodyEmbedsDisjDeep` + `spliceOperandForEmbed` signature +
+2 callsites), `Kue/Tests/TwoPassTests.lean` (Bug2-5 section, 8 pins),
+`testdata/export/bug25_disj_arm_let_local_narrowing.{cue,json,args}`,
+`docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/reference/cue-divergences.md`,
+`docs/notes/` (breadcrumb).
