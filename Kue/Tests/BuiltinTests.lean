@@ -621,6 +621,79 @@ theorem math_pow_half_matches_general_path :
       == .prim (.float "1.414213562373095048801688724209698")) = true := by
   native_decide
 
+-- AUDIT (BI-2-§3 totality witnesses): the exp/ln path's FIXED 40/60-term budgets + binary range
+-- reduction must hold across the WIDEST magnitude span. These oracle byte-identically against cue
+-- v0.16.1 (modulo cue's trailing-zero display padding, the recorded divergence) — a regression in
+-- `lnExpScale`/`lnSeriesTerms`/`expSeriesTerms` would break them. Span: base 0.001 … 1_000_000,
+-- exponent 0.0001 … 10.5.
+
+-- Large base, cube-root exponent — the result lands on cue's OWN 34-digit rounding artifact
+-- (`9.999…998`, not `10`), so this pins the exp/ln path to cue's apd mantissa bit-for-bit.
+theorem math_pow_large_base_cube_root_matches_cue_artifact :
+    (evalBuiltinCall "math.Pow"
+        [.prim (.int 1000), .prim (.float "0.3333333333333333333333333333333333")]
+      == .prim (.float "9.999999999999999999999999999999998")) = true := by
+  native_decide
+
+-- Mid base, cube-root exponent — a genuine 34-digit irrational (`10^⅓`).
+theorem math_pow_ten_cube_root_is_exact_decimal :
+    (evalBuiltinCall "math.Pow"
+        [.prim (.int 10), .prim (.float "0.3333333333333333333333333333333333")]
+      == .prim (.float "2.15443469003188372175929356651935")) = true := by
+  native_decide
+
+-- Fractional base < 1 under a fractional exponent (`0.5^0.5 = √½`) — exercises the `ln m` series
+-- on a sub-unit mantissa and a negative `ln x`.
+theorem math_pow_fractional_base_half_exponent_is_exact_decimal :
+    (evalBuiltinCall "math.Pow" [.prim (.float "0.5"), .prim (.float "0.5")]
+      == .prim (.float "0.7071067811865475244008443621048490")) = true := by
+  native_decide
+
+-- Exponent NEAR ZERO (`2^0.0001 ≈ 1`) — `y·ln x` is tiny, stressing the low-magnitude end of the
+-- exp series where the result clusters just above 1.
+theorem math_pow_tiny_exponent_is_exact_decimal :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.0001")]
+      == .prim (.float "1.000069317120376569192439912602643")) = true := by
+  native_decide
+
+-- Base NEAR ONE (`1.0001^2.5`) — `ln x` is tiny and positive; the `artanh` series runs near its
+-- zero, a distinct regime from a far-from-1 mantissa.
+theorem math_pow_base_near_one_is_exact_decimal :
+    (evalBuiltinCall "math.Pow" [.prim (.float "1.0001"), .prim (.float "2.5")]
+      == .prim (.float "1.000250018750312496093867182617432")) = true := by
+  native_decide
+
+-- Exponent > 1 with a non-collapsing irrational result (`2^2.5 = 4√2`) — the `2^n` range-reduction
+-- factor of `exp` fires (`n ≠ 0`).
+theorem math_pow_exponent_above_one_is_exact_decimal :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "2.5")]
+      == .prim (.float "5.656854249492380195206754896838792")) = true := by
+  native_decide
+
+-- Large exponent magnitude with a large integer collapse (`100^1.5 = 1000`) — the exp/ln path
+-- must round-and-collapse a big integral result, not drift off by an ULP.
+theorem math_pow_large_base_fractional_collapses_to_int :
+    (evalBuiltinCall "math.Pow" [.prim (.int 100), .prim (.float "1.5")] == .prim (.int 1000)) = true := by
+  native_decide
+
+-- Negative INTEGER exponent on a negative base (`(-2)^(-3) = -0.125`) — the §1 reciprocal path over
+-- a negative base; an exact terminating rational, sign preserved.
+theorem math_pow_negative_base_negative_integer_exponent_is_exact :
+    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.int (-3))]
+      == .prim (.float "-0.125")) = true := by
+  native_decide
+
+-- Negative base, EVEN integer exponent (`(-2)^4 = 16`) — exact repeated multiplication keeps the
+-- result positive; pins sign handling on the §1 non-negative-integer arm with a negative base.
+theorem math_pow_negative_base_even_integer_exponent_is_positive :
+    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.int 4)] == .prim (.int 16)) = true := by
+  native_decide
+
+-- Negative base, large exponent magnitude (`2^30 = 1073741824`) — large exact int-pow, no overflow.
+theorem math_pow_large_integer_exponent_is_exact :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int 30)] == .prim (.int 1073741824)) = true := by
+  native_decide
+
 -- Negative base, non-integer exponent: out of the real domain (complex). Kue bottoms; cue errors.
 theorem math_pow_negative_base_fractional_exponent_is_bottom :
     (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.25")] == .bottom) = true := by

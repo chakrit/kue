@@ -1097,6 +1097,37 @@ theorem eval_ne_int_distinct_true :
     (evalNe (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool true)) = true := by
   native_decide
 
+/-- AUDIT (EvalOps gap): `==` across DISTINCT KINDS (`1 == "1"`) is `false`, NOT bottom — cue
+    treats `==`/`!=` as total over concrete prims (it falls through `evalDecimalCompare?` to the
+    structural `left == right`, which differs across kinds). Oracle: cue `1 == "1"` ⇒ `false`. -/
+theorem eval_eq_cross_kind_int_string_false :
+    (evalEq (.prim (.int 1)) (.prim (.string "1")) == .prim (.bool false)) = true := by
+  native_decide
+
+/-- AUDIT (EvalOps gap): `!=` across distinct kinds is `true` (the `==` complement). -/
+theorem eval_ne_cross_kind_int_string_true :
+    (evalNe (.prim (.int 1)) (.prim (.string "1")) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- AUDIT (EvalOps gap): string `<=` is `!stringsLt right left` — pins the REVERSED-operand lambda
+    in the `.le` arm (`"b" <= "a"` ⇒ `false`). Oracle: cue `"b" <= "a"` ⇒ `false`. -/
+theorem eval_le_string_reverse_false :
+    (evalBinary .le (.prim (.string "b")) (.prim (.string "a")) == .prim (.bool false)) = true := by
+  native_decide
+
+/-- AUDIT (EvalOps gap): string `>=` is `!stringsLt left right` — pins the `.ge` string lambda
+    (`"b" >= "a"` ⇒ `true`). Oracle: cue `"b" >= "a"` ⇒ `true`. -/
+theorem eval_ge_string_reverse_true :
+    (evalBinary .ge (.prim (.string "b")) (.prim (.string "a")) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- AUDIT (EvalOps gap): string `<=` is reflexive at equality (`"a" <= "a"` ⇒ `true`) — the
+    `decimalEqValues || …` short-circuit has no string analog, so this exercises the
+    `!stringsLt right left` path at the boundary where both `stringsLt` directions are false. -/
+theorem eval_le_string_reflexive_true :
+    (evalBinary .le (.prim (.string "a")) (.prim (.string "a")) == .prim (.bool true)) = true := by
+  native_decide
+
 /-- `&&` over bools decides directly. -/
 theorem eval_bool_and :
     (evalBinary .boolAnd (.prim (.bool true)) (.prim (.bool false)) == .prim (.bool false)) = true := by
