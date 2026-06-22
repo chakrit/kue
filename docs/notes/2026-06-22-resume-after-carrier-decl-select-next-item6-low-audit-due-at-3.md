@@ -68,14 +68,14 @@ soundness-bearing, none block adoption:
 `Eval.lean` < ~4500 re-split watch (ruling stands). `EvalTests.lean` growing; test-org
 re-carve not yet due.
 
-## Release state — `v0.1.0-alpha.20260622` cadence-due (attended; NOT cut)
+## Release state — `v0.1.0-alpha.20260622` CUT (2026-06-22, attended greenlight)
 
-Last release `v0.1.0-alpha.20260621`. UNRELEASED since: SC-1e, AD2-1, BI-2-residual,
-BI-2-§3, EvalOps, import-eager-closedness, the two-phase audit, TL-1, TL-2,
-scalar-embed-with-decls + B3, CARRIER-STRUCT-MEET, **and now CARRIER-DECL-SELECT**. Cut
-`v0.1.0-alpha.20260622` via `scripts/release.sh 0.1.0-alpha.20260622` (attended —
-push/publish; CI/GitHub Actions banned; clean tree first). **Awaiting user greenlight — do
-NOT cut.**
+Cut from HEAD `b3f7cd9` via `scripts/release.sh 0.1.0-alpha.20260622`: tag pushed, GitHub
+release published, homebrew-tap formula bumped + pushed (`bca1e1c..e7a8eaa`). Bundled
+everything since `v0.1.0-alpha.20260621`: SC-1e, AD2-1, BI-2-residual, BI-2-§3, EvalOps,
+import-eager-closedness, the first two-phase audit, TL-1, TL-2, scalar-embed-with-decls +
+B3, the second two-phase audit, CARRIER-STRUCT-MEET, CARRIER-DECL-SELECT. Next alpha
+cadence-due ~next day of work. (CI/GitHub Actions banned; release is the local script.)
 
 ## STANDING CONTEXT (full detail in CLAUDE.md + guides/slice-loop.md)
 

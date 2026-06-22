@@ -11584,3 +11584,15 @@ pre-existing pin + fixture green, pin-count conserved (+2 new). NO cue-divergenc
 **Files.** `Kue/Eval.lean` (helper + 6 sites), `Kue/Runtime.lean` (within-module collapse +
 doc-comment), `Kue/Tests/TwoPassTests.lean` (+2 pins), `docs/spec/plan.md`,
 `docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb).
+
+## 2026-06-22 — release `v0.1.0-alpha.20260622` cut (attended)
+
+`scripts/release.sh 0.1.0-alpha.20260622` from clean HEAD `b3f7cd9` (Darwin/arm64): built
+`kue` (110 jobs), staged `kue-aarch64-apple-darwin`
+(sha256 `9858907c861d773c363fd89007c24291c8677e7c9260c67f514303e3bc5c4cc2`), pushed tag
+`v0.1.0-alpha.20260622`, published the GitHub release, bumped + pushed the homebrew-tap
+formula (`chakrit/homebrew-tap` `bca1e1c..e7a8eaa`). Bundles everything since
+`v0.1.0-alpha.20260621`: the BI-2 family tail, EvalOps, import-eager-closedness, TL-1/TL-2,
+scalar-embed-with-decls + B3, CARRIER-STRUCT-MEET, CARRIER-DECL-SELECT, and two full
+two-phase audit rounds. arm64-macOS-only asset (host build; Lean static-links its runtime,
+only `/usr/lib` system dynamic deps).
