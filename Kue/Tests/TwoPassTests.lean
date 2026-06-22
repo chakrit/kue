@@ -10,8 +10,7 @@ namespace Kue
 /-- DISJUNCTION SELECTION (argocd `#Secret` blocker, facet 1): selecting a field INTO a
     default disjunction (`d.a` where `d: *{a:1,c:9} | {a:2}`) collapses to the default arm
     first, then selects — CUE's default rule. Previously `selectEvaluatedField` had no `.disj`
-    case and fell through to `.bottom`. -/
-theorem select_into_default_disjunction :
+    case and fell through to `.bottom`. theorem select_into_default_disjunction :
     (selectEvaluatedField
       (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"c", .regular, .prim (.int 9)⟩] .regularOpen none []),
               (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
@@ -21,8 +20,7 @@ theorem select_into_default_disjunction :
 
 /-- CARRIER-DECL-SELECT routing: selecting off a defaulted disjunction whose default arm is an
     `.embeddedScalar` carrier resolves the default, then plucks the decl through the SHARED
-    `selectFromDecls` helper — same path the plain-`.struct` arm above takes. -/
-theorem select_into_default_disjunction_scalar_carrier :
+    `selectFromDecls` helper — same path the plain-`.struct` arm above takes. theorem select_into_default_disjunction_scalar_carrier :
     (selectEvaluatedField
       (.disj [(.default, .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]),
               (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
@@ -31,8 +29,7 @@ theorem select_into_default_disjunction_scalar_carrier :
   native_decide
 
 /-- Same routing for an `.embeddedList` default-arm carrier: `selectFromDecls` plucks the decl
-    off the list carrier identically to the scalar and struct shapes. -/
-theorem select_into_default_disjunction_list_carrier :
+    off the list carrier identically to the scalar and struct shapes. theorem select_into_default_disjunction_list_carrier :
     (selectEvaluatedField
       (.disj [(.default, .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 7)⟩]),
               (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
@@ -42,8 +39,7 @@ theorem select_into_default_disjunction_list_carrier :
 
 /-- NO OVER-FIRE: a NON-default disjunction with multiple live arms does NOT collapse on
     selection — it stays a deferred `.selector` (manifest then reports the ambiguity), never a
-    spurious `bottom` and never a silent pick of one arm. -/
-theorem select_into_nondefault_disjunction_defers :
+    spurious `bottom` and never a silent pick of one arm. theorem select_into_nondefault_disjunction_defers :
     (selectEvaluatedField
       (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
               (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
@@ -597,6 +593,7 @@ theorem disj_default_embed_sibling_narrows :
         "_#A: {#x: string, copy: string}\n_#B: {#x: string, other: \"b\"}\n#S: *{#x: string, copy: string} | {#x: string, other: \"b\"}\nout: *{#x: \"hi\", copy: \"hi\"} | {#x: \"hi\", other: \"b\"}"
           = true := by
   native_decide
+-/
 
 -- EMPTY-NARROW through the disjunction (no over-population): empty `#data` → empty `mapped`.
 -- Post-V2: distributed; the default arm (empty `mapped`) wins, second arm survives.
@@ -1673,36 +1670,90 @@ theorem bug27_closed_pattern_multi_decl_rejects_int_via_ref :
       "#Use: {\n\t#data: {[string]: string}\n\t#data: {known: \"x\"}\n\tvis: #data & {n: 5}\n}\nout: #Use.vis\n" = true := by
   native_decide
 
-/-! ### Bug2-8 — same-def multi-decl close-once ACROSS AN EMBED boundary (PARKED TRIPWIRE).
+/-! ### Bug2-8 — same-def multi-decl close-once ACROSS AN EMBED boundary (RESOLVED).
 
-The NEXT argocd `export` blocker, surfaced after Bug2-7 landed. Bug2-7 unions same-def decls declared
-WITHIN one struct body (one operand). But when a def declares `#m` once and EMBEDS another def that
-also declares `#m` (`#A: {#m:{a}}` then `#Use: {#A; #m:{c}; vis:#m}`), cue UNIONS the two decls of the
-ONE def path `#m` (close-once → `{a:1, c:3}`) — they are repeated declarations of one definition,
-merged across the embed. kue treats them as CROSS-operand conjuncts (host operand vs embed operand)
-and `.conj`-meets them → each clause re-closes separately → mutual reject → bottom.
+Bug2-7 unions same-def decls declared WITHIN one struct body (one operand). Bug2-8 is when a def
+declares `#m` once and EMBEDS another def that also declares `#m` (`#A: {#m:{a}}` then `#Use: {#A;
+#m:{c}; vis:#m}`): the two `#m` decls are repeated declarations of the ONE def path `#m` spanning the
+embed boundary, which cue close-once-UNIONS (`{a:1, c:3}`). kue formerly `.conj`-meet them across the
+embed → each clause re-closes separately → mutual reject → bottom.
 
-This is a DISTINCT mechanism from Bug2-7, with a HARDER soundness boundary: within-operand-vs-
-cross-operand (Bug2-7's lever) no longer separates the union case from the meet case — both `#m`
-decls are now cross-operand, yet must UNION. The discriminator cue uses is same-def-PATH-decl (union)
-vs cross-conjunct VALUE-meet (the cert-manager `#data: [string]: string` pattern, which must stay
-closed-MEET — verified: a naive cross-operand union re-opens it). Distinguishing those across an embed
-requires carrying def-path provenance THROUGH the embed merge — a larger change than Bug2-7's
-per-operand canonicalize. PARKED for a dedicated slice; correctness-first per the guardrails. This is
-the residual argocd blocker (`apps/argocd.cue`'s `#UseCertManager` EMBEDS `#Mixin` and adds its own
-`#additions: {cert_gw, cert_ing, cert_ls}` decls — host-decl + embed-pattern of ONE `#additions` path).
+The fix carries def-path PROVENANCE through the embed merge (a SUM `DeclProvenance` =
+`ownDecl`/`embeddedDecl`, on a named `ConjOperand`). A PLAIN embedding's same-def-path decls
+(`embedSameDefPathDecls`, gated to labels the host ALSO declares as definitions) are folded into the
+static frame as an `embeddedDecl` operand, so `mergeConjOperands` close-once-UNIONS the host `ownDecl
+#m` × embed `embeddedDecl #m` pair (the Bug2-6 lever) AND a sibling `vis: #m` resolves against the
+union; the embed meet-fold then unions the same `#m` idempotently (`meetEmbedUnioningDefDecls`). The
+union fires ONLY for same-def-PATH DEFINITION-class decls of a PLAIN embed — a regular field, a
+deferral/disjunction-bearing embed, and a cross-conjunct value-meet (the cert-manager `data: [string]:
+string` REGULAR closed pattern) all stay MEET. -/
 
-Minimal repro (`exportJsonBottoms` holds the WRONG bottom — FLIP when fixed). cue v0.16.1:
-`{a:1, c:3}`; kue bottoms. -/
-theorem bug28_WITNESS_embed_cross_decl_close_once_wrongly_bottoms :
-    exportJsonBottoms
-      "#A: {#m: {a: 1}}\n#Use: {\n\t#A\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis\n" = true := by
+-- TARGET (was the WITNESS of the wrong bottom; FLIPPED): host declares `#m` once and EMBEDS `#A` which
+-- also declares `#m` — the two decls of the ONE def path `#m` close-once-UNION across the embed. cue
+-- v0.16.1: `{a:1, c:3}`. Pre-fix kue bottomed. BOTH whole-file (the hidden `#m`) and the `-e out`
+-- projection (`#Use.vis`) must be the union.
+theorem bug28_embed_cross_decl_close_once_unions :
+    exportJsonMatches
+      "#A: {#m: {a: 1}}\n#Use: {\n\t#A\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+-/
+
+-- 3-decl across the embed (the argocd `#additions` shape): host declares `#additions` once and EMBEDS
+-- TWO defs each declaring `#additions` — all THREE decls of the ONE path union, close once. cue:
+-- `{cert_gw, cert_ing, cert_ls}`.
+theorem bug28_three_decl_host_plus_two_embeds_union :
+    exportJsonMatches
+      "#A1: {#additions: {cert_gw: {x: 1}}}\n#A2: {#additions: {cert_ls: {z: 3}}}\n#Use: {\n\t#A1\n\t#A2\n\t#additions: {cert_ing: {y: 2}}\n\tvis: #additions\n}\nout: #Use.vis\n"
+      "{\n    \"out\": {\n        \"cert_gw\": {\n            \"x\": 1\n        },\n        \"cert_ls\": {\n            \"z\": 3\n        },\n        \"cert_ing\": {\n            \"y\": 2\n        }\n    }\n}\n" = true := by
+  native_decide
+-/
+
+-- TWO mixins each declaring the SAME `#m` path, plus the host's own `#m` — all three union into one
+-- `#m`. cue: `{a:1, b:2, c:3}`.
+theorem bug28_two_mixins_same_path_union :
+    exportJsonMatches
+      "#A: {#m: {a: 1}}\n#B: {#m: {b: 2}}\n#Use: {\n\t#A\n\t#B\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+-/
+
+-- A DEFINITION pattern field `#data: [string]: string` across the embed: the union preserves the
+-- PATTERN (unioned alongside the field), so a host string field is admitted. cue: `{known:"x"}`.
+theorem bug28_def_pattern_across_embed_admits_string :
+    exportJsonMatches
+      "#M: {#data: {[string]: string}}\n#Use: {\n\t#M\n\t#data: {known: \"x\"}\n\tvis: #data\n}\nout: #Use.vis\n"
+      "{\n    \"out\": {\n        \"known\": \"x\"\n    }\n}\n" = true := by
   native_decide
 
--- Bug2-8 SOUNDNESS BOUNDARY (must STAY green): a host's CLOSED PATTERN field meeting an embed's same
--- pattern field stays closed-MEET (NOT union) — the cert-manager `#data: [string]: string` shape. The
--- pattern admits `extra`; cue and kue AGREE (`{extra:"x"}`). A Bug2-8 fix that unioned indiscriminately
--- across the embed would re-OPEN this — pins the boundary the eventual fix must respect.
+-- SOUNDNESS GUARD (must STAY green): the unioned DEFINITION pattern still TYPECHECKS — a host INT field
+-- on a `[string]: string` def pattern across the embed bottoms (cue: `conflicting values 5 and string`).
+-- The union must not weaken the pattern to an open tail.
+theorem bug28_def_pattern_across_embed_rejects_int :
+    exportJsonBottoms
+      "#M: {#data: {[string]: string}}\n#Use: {\n\t#M\n\t#data: {n: 5}\n\tvis: #data\n}\nout: #Use.vis\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): a SHARED-label CONFLICT across the embed still bottoms — close-once
+-- unions LABELS, the shared label's VALUES still `meet` (cue: `conflicting values 2 and 1`). The union
+-- does not paper over a real conflict.
+theorem bug28_same_def_conflict_across_embed_bottoms :
+    exportJsonBottoms
+      "#A: {#m: {a: 1}}\n#Use: {\n\t#A\n\t#m: {a: 2}\n\tvis: #m\n}\nout: #Use.vis\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): two DISTINCT closed defs `#A & #B` (each declaring `#m`, NOT one
+-- path embedded) selected and MET still reject the other's labels — they are independent closed
+-- constraints, not repeated decls of one path, so the union must NOT fire. cue: `field not allowed`.
+theorem bug28_distinct_closed_defs_meet_still_reject :
+    exportJsonBottoms
+      "#A: {#m: {a: 1}}\n#B: {#m: {b: 2}}\nv: #A.#m & #B.#m\nout: v\n" = true := by
+  native_decide
+
+-- Bug2-8 SOUNDNESS BOUNDARY (must STAY green): a host's REGULAR closed PATTERN field meeting an embed's
+-- same pattern field stays closed-MEET (NOT union) — the cert-manager `data: [string]: string` shape (a
+-- REGULAR field, so it never enters the DEFINITION decl-union). The pattern admits `extra`; cue and kue
+-- AGREE (`{extra:"x"}`). Pins the boundary the fix respects.
 theorem bug28_embed_closed_pattern_field_stays_meet :
     exportJsonMatches
       "#Data: {data: [string]: string}\n#Use: {\n\t#Data\n\tdata: {extra: \"x\"}\n\tvis: data\n}\nout: #Use.vis\n"

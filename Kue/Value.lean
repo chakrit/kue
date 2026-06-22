@@ -738,6 +738,43 @@ end
 
 deriving instance Repr, BEq for Value, Field, ClosedClause
 
+/-- The origin of a struct conjunct fed to the embed force-fold (`mergeConjOperands`), so a
+    same-definition-PATH field collision can be told apart from a cross-conjunct value-meet
+    (Bug2-8). A SUM, never a `Bool`: the discriminator is not "did this come from an embed"
+    but "do two same-label decls name the ONE definition path" — `ownDecl × embeddedDecl` is
+    that pair (the def's own decl met by a host narrowing routed through the embed), and only
+    that pair close-once-UNIONs. A `Bool` would admit the nonsense "own-and-embedded" and say
+    nothing about which path; this grows a constructor (not a wildcard) when a new origin
+    appears, forcing every match site to handle it. -/
+inductive DeclProvenance where
+  /-- A decl written directly in this def body (the def's own static fields). -/
+  | ownDecl
+  /-- A decl contributed by an embedding/host-narrowing spliced into this SAME def path. -/
+  | embeddedDecl
+deriving Repr, BEq, DecidableEq
+
+/-- One operand of the embed/struct conjunction force-fold: its `fields`, whether it is `open`
+    (`...`/`regularOpen`), and its `provenance` (Bug2-8). A named record over the former
+    `(List Field × Bool)` tuple so the third axis is explicit and a same-def-PATH decl
+    collision across the embed boundary can route to close-once-union rather than a
+    cross-conjunct meet — illegal-states-unrepresentable: the provenance is carried in the
+    type, not inferred from operand position. -/
+structure ConjOperand where
+  fields : List Field
+  open_ : Bool
+  provenance : DeclProvenance := .ownDecl
+deriving Repr, BEq
+
+namespace ConjOperand
+
+/-- Lift a legacy `(fields, open)` operand pair to an `ownDecl` operand — the default origin
+    for a same-scope conjunct or an already-evaluated use-site narrowing (only the embed
+    force-fold tags an operand `embeddedDecl`). -/
+def ofPair (pair : List Field × Bool) : ConjOperand :=
+  ⟨pair.fst, pair.snd, .ownDecl⟩
+
+end ConjOperand
+
 /-- The single authority for comprehension clause-chain frame-depth threading. A `forIn`
     source is handed back at the current depth and pushes one frame for the rest of the chain
     and the body; a `guard` condition is handed back at the current depth and pushes none; the

@@ -1,0 +1,4 @@
+#A1: {#additions: {cert_gw: {x: 1}}}
+#A2: {#additions: {cert_ls: {z: 3}}}
+#Use: {#additions: {cert_ing: {y: 2}, cert_gw: {x: 1}, cert_ls: {z: 3}}, vis: {cert_ing: {y: 2}, cert_gw: {x: 1}, cert_ls: {z: 3}}}
+out: {cert_ing: {y: 2}, cert_gw: {x: 1}, cert_ls: {z: 3}}

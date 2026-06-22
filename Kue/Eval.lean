@@ -636,6 +636,43 @@ def mergeConjFields (accumulated : List Field) (fields : List Field) : List Fiel
       | none => current ++ [field])
     accumulated
 
+/-- Merge one PROVENANCE-tagged operand's fields into the accumulated frame, choosing the
+    value-combiner per label collision by class + cross-provenance (Bug2-8). Two same-label
+    DEFINITION-class decls whose operands have DIFFERENT provenance (`ownDecl` × `embeddedDecl`
+    — the def's own `#m` decl met by a host narrowing routed through the embed) close ONCE over
+    their UNION (`mergeDefinitionDecls`, the Bug2-6 lever): they are repeated declarations of the
+    ONE definition path, merged across the embed boundary. Every other collision — a regular/
+    pattern/optional field, OR two same-provenance decls — keeps the plain `.conj`
+    (`mergeConjFields` semantics), so a host's `data: [string]:string` meeting an embed's same
+    regular pattern field stays a cross-conjunct value-MEET (the cert-manager canary), and a
+    genuine distinct-def `#A & #B` (each its own operand, both `ownDecl` at a use-site meet) never
+    unions. The cross-provenance test is what makes the union fire for exactly the same-def-PATH
+    decl pair and nothing else. -/
+def mergeConjOperandFields
+    (accumulated : List Field) (incomingProv : DeclProvenance)
+    (accProv : List (String × DeclProvenance)) (fields : List Field) :
+    List Field × List (String × DeclProvenance) :=
+  fields.foldl
+    (fun (state : List Field × List (String × DeclProvenance)) field =>
+      let (current, provMap) := state
+      let label := Field.label field
+      let existingProv := (provMap.find? (·.fst == label)).map Prod.snd
+      let crossProvenance := match existingProv with
+        | some prov => prov != incomingProv
+        | none => false
+      let unionsAsDef := (Field.fieldClass field).isDefinition && crossProvenance
+      if unionsAsDef then
+        match mergeFieldIntoWith mergeDefinitionDecls current field with
+        | some merged => (merged, provMap)
+        | none => (current ++ [field], (label, incomingProv) :: provMap)
+      else
+        match mergeFieldIntoWith joinUnevaluated current field with
+        | some merged =>
+            let provMap := if existingProv.isSome then provMap else (label, incomingProv) :: provMap
+            (merged, provMap)
+        | none => (current ++ [field], (label, incomingProv) :: provMap))
+    (accumulated, accProv)
+
 /-- Apply each closed conjunct's closedness against the merged fields, folding outward just
     as `applyStructClosedness` does for a binary meet — a field absent from a closed
     conjunct's declared labels is marked not-allowed. -/
@@ -1536,21 +1573,32 @@ def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field ×
     here preserves first-occurrence layout for every slot at-or-before a collapsed duplicate, so the
     `mergedMap` (built from the canonicalized operands) and the rebased refs stay coherent — exactly
     the direct-eval `.struct` arm's treatment, now applied per-operand on the force path too. -/
-def mergeConjOperands (operands : List (List Field × Bool)) : List Field × Bool :=
-  let operands := operands.map fun op => (canonicalizeFields op.fst, op.snd)
-  let layoutFrame := operands.foldl (fun acc op => mergeConjFields acc op.fst) []
+def mergeConjOperands (operands : List ConjOperand) : List Field × Bool :=
+  let operands := operands.map fun op => { op with fields := canonicalizeFields op.fields }
+  let layoutFrame := operands.foldl (fun acc op => mergeConjFields acc op.fields) []
   let mergedMap := labelIndexMap layoutFrame
-  let rebased := operands.map fun op => rebaseConjunctFields op.fst mergedMap
-  let mergedFields := rebased.foldl mergeConjFields []
-  let closed := applyConjClosedness operands mergedFields
-  (closed, allClosednessOpen operands)
+  let rebased := operands.map fun op => { op with fields := rebaseConjunctFields op.fields mergedMap }
+  -- Cross-operand fold: a same-def-PATH decl pair whose operands differ in provenance
+  -- (`ownDecl` × `embeddedDecl`) close-once-UNIONS (Bug2-8 — `mergeConjOperandFields`); every
+  -- other collision keeps the plain `.conj`, so the cert-manager closed pattern stays a meet.
+  let (mergedFields, _) := rebased.foldl
+    (fun (state : List Field × List (String × DeclProvenance)) op =>
+      mergeConjOperandFields state.fst op.provenance state.snd op.fields)
+    ([], [])
+  let closednessOperands := operands.map fun op => (op.fields, op.open_)
+  let closed := applyConjClosedness closednessOperands mergedFields
+  (closed, allClosednessOpen closednessOperands)
 
 /-- Reduce a struct conjunction to its merged-frame fields + closedness, or `none` when any
     operand is not a plain same-scope struct (deferring to the eval-then-`meet` path). -/
 def lazyConjMergedFields (env : Env) (constraints : List Value) :
     Option (List Field × Bool) := do
   let operands <- constraints.mapM (conjStructOperand? env evalFuel)
-  pure (mergeConjOperands operands)
+  -- Same-scope `{…} & {…}`: every conjunct is a sibling decl written at the use site, so all
+  -- are `ownDecl` — the cross-operand decl-union (Bug2-8) is for the EMBED force-fold, never a
+  -- plain use-site conjunction. A `#A & #B` distinct-def meet does not reach here (it routes
+  -- through the use-site `meet` that concatenates `closedClauses`).
+  pure (mergeConjOperands (operands.map ConjOperand.ofPair))
 
 /-- Reopen an evaluated struct value (`open_ := true`) so it contributes its fields by `meet`
     WITHOUT imposing its own closedness on the host — an embedding UNIONS labels into the
@@ -1559,6 +1607,51 @@ def openStructValue : Value -> Value
   -- A plain struct reopens; tail/pattern-bearing forms pass through.
   | .struct fields _ none [] _ => mkStruct fields .regularOpen none []
   | other => other
+
+/-- Does a value carry FIELD CONTENT that `mergeDefinitionDecls` genuinely close-once-UNIONS — a
+    field/pattern-bearing struct (the `#m: {a:1}` decl shape), not a scalar/kind def value
+    (`#x: string`, which `mergeDefinitionDecls` would only `.conj`-meet, doubling the display)? -/
+def isUnionableDefValue : Value -> Bool
+  | .struct _ _ _ _ _ => true
+  | .structComp _ _ _ => true
+  | _ => false
+
+/-- Is `label` a same-def-PATH collision between the two field lists — both declare it
+    DEFINITION-class AND both values are union-able struct bodies (`isUnionableDefValue`)? Such a
+    pair is two decls of the ONE def path that close-once-UNION; a scalar/kind def value
+    (`#x: string`) is left to the ordinary meet (a `.conj` there would double the display, e.g.
+    `string & string`). -/
+def isSameDefPathLabel (hostFields embedFields : List Field) (label : String) : Bool :=
+  match findEvalField label hostFields, findEvalField label embedFields with
+  | some hostField, some embedField =>
+      (Field.fieldClass hostField).isDefinition && (Field.fieldClass embedField).isDefinition
+        && isUnionableDefValue (Field.value hostField) && isUnionableDefValue (Field.value embedField)
+  | _, _ => false
+
+/-- Meet a host struct against an EMBEDDING, honouring the same-def-PATH `#m` decls already
+    close-once-UNIONED into the host's `#m` slot by the static `.structComp` fold (Bug2-8, eager +
+    force arms). The host's `#m` already carries the union BEFORE this meet, so the embed's matching
+    `#m` is simply STRIPPED — the generic `meet` must NOT re-meet the union against the embed's
+    narrower arm (which would re-close-REJECT the host's other labels, or double an equal shared
+    field to `1 & 1`). Every non-same-def-path field still meets normally; the embed is OPENED
+    (`openStructValue`) so it widens the host's allowed set without imposing its own closedness (a
+    REGULAR closed pattern stays a meet). A non-struct host or embed falls back to the plain meet. -/
+def meetEmbedUnioningDefDecls (host embed : Value) : Value :=
+  match host, embed with
+  | .struct hostFields _ _ _ _, .struct embedFields eo et ep ec =>
+      let sharedLabels := hostFields.filterMap fun f =>
+        if isSameDefPathLabel hostFields embedFields (Field.label f) then some (Field.label f) else none
+      -- No same-def-path collision: leave the embed untouched (preserve its patterns/tail/closedness)
+      -- and meet plainly — the cert-manager closed PATTERN path and every ordinary embed meet stay
+      -- byte-identical.
+      if sharedLabels.isEmpty then meet host (openStructValue embed)
+      else
+        -- Strip the embed's same-def-path `#m`s (the host already has their union via the static
+        -- fold); the embed's OTHER fields/patterns/tail still meet (kept on the opened embed-rest).
+        let embedRest := Value.struct (embedFields.filter (fun f => !sharedLabels.contains (Field.label f)))
+          eo et ep ec
+        meet host (openStructValue embedRest)
+  | _, _ => meet host (openStructValue embed)
 
 /-- Collapse an EMBEDDED disjunction to its default arm before it merges into the host.
     An embedded default disjunction (`(*{a:1} | {a:2})`) contributes its DEFAULT arm's fields
@@ -2108,6 +2201,32 @@ def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
     cycles. -/
 def embedBodyEmbedsDisjDeep (env : Env) (fuel : Nat) (body : Value) : Bool :=
   embedChainAny embedBodyEmbedsDisj env fuel body
+
+/-- The DEFINITION-class fields a body declares directly (its own static `#x` decls). A `.struct`
+    body exposes its fields; a `.structComp` exposes its static fields (the embed/comprehension
+    members are not field decls). Non-struct bodies expose none. -/
+def bodyDefinitionFields : Value -> List Field
+  | .struct fields _ _ _ _ => fields.filter (fun f => (Field.fieldClass f).isDefinition)
+  | .structComp fields _ _ => fields.filter (fun f => (Field.fieldClass f).isDefinition)
+  | _ => []
+
+/-- Bug2-8: the same-definition-PATH decls an EMBEDDING contributes that collide with the host
+    def's OWN definition-class decls. When a def declares `#m` once and EMBEDS another def that
+    also declares `#m` (`#A: {#m:{a}}` then `#Use: {#A; #m:{c}}`), the two `#m` decls are repeated
+    declarations of the ONE def path `#m` merged across the embed boundary — cue close-once-UNIONS
+    them. Resolving each embedding's body (`resolveEmbedDefBody?`) and keeping only the
+    definition-class fields whose label is among the host's own def labels (`hostDefLabels`)
+    surfaces exactly those decls, which the caller folds into the static frame as an
+    `embeddedDecl`-provenance operand so `mergeConjOperands` unions them (and a sibling `vis: #m`
+    resolves against the union). A non-definition embed field, or a label the host does not also
+    declare as a definition, is NOT surfaced — it flows through the ordinary embed meet-fold,
+    keeping the cert-manager closed-pattern meet and every cross-conjunct value-meet untouched. -/
+def embedSameDefPathDecls (env : Env) (hostDefLabels : List String) (embedding : Value) :
+    List Field :=
+  match resolveEmbedDefBody? env embedding with
+  | some body =>
+      (bodyDefinitionFields body).filter (fun f => hostDefLabels.contains (Field.label f))
+  | none => []
 
 /-- Follow a def body that is itself an alias/import-selector indirection to the terminal
     struct-like body it ultimately names, paired with the package frame that body's refs
@@ -2793,6 +2912,29 @@ mutual
     | fuel + 1, .structComp fields comprehensions openness => do
         let fields := canonicalizeFields fields
         let embeddings := comprehensions.filter isEmbeddingValue
+        -- Bug2-8 (eager mirror of the force arm): fold a PLAIN embedding's same-def-path decls into
+        -- the static frame as an `embeddedDecl` operand so the host `ownDecl #m` × embed `embeddedDecl
+        -- #m` pair close-once-UNIONS in `mergeConjOperands` AND a sibling `vis: #m` rendered EAGERLY
+        -- resolves against the union (not the stale static `#m`). A deferral/disjunction-bearing embed
+        -- keeps its existing narrowing path (gated by `plainEmbed`); a non-definition/non-shared label
+        -- is untouched (cert-manager regular pattern stays a meet).
+        let embedEnv : Env := (0, fields) :: env
+        let hostDefLabels := (fields.filter (fun f => (Field.fieldClass f).isDefinition)).map Field.label
+        let plainEmbed := fun embed =>
+          match resolveEmbedDefBody? embedEnv embed with
+          | some body => !bodyNeedsDefer embedEnv evalFuel body && !embedBodyEmbedsDisjDeep embedEnv evalFuel body
+          | none => false
+        let embedDeclOperands :=
+          ((comprehensions.filter isEmbeddingValue).filter plainEmbed).filterMap fun embed =>
+            match embedSameDefPathDecls embedEnv hostDefLabels embed with
+            | [] => none
+            | decls => some (ConjOperand.mk decls true .embeddedDecl)
+        -- Merge OPEN (the host's closedness is re-applied once by `closeEmbeddedOver` after the
+        -- embed meet-fold), so the static fold only UNIONS the same-def-path `#m` decls without
+        -- prematurely closing — exactly the force arm's `(defFields, true)` treatment.
+        let fields :=
+          if embedDeclOperands.isEmpty then fields
+          else canonicalizeFields (mergeConjOperands (⟨fields, true, .ownDecl⟩ :: embedDeclOperands)).fst
         -- Pass 1: evaluate the static fields and comprehensions against the static-only frame,
         -- then the embedding-contributed fields. A static field referencing `Self.<label>` where
         -- `<label>` is supplied by an EMBEDDING (`type: Self.#type` with `#type` from an embedded
@@ -3096,6 +3238,9 @@ mutual
                     (spliceOperandForEmbed (embedBodyEmbedsDisjDeep env evalFuel body) body)
                   let forced <-
                     forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
+                  -- A deferral-bearing closure-embed keeps the plain meet — its def-path decls flow
+                  -- through the force-splice narrowing machinery (Bug2-4/2-5), not the static
+                  -- decl-union (Bug2-8 fires only for PLAIN embeds, handled at the `_` struct arm).
                   meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest
               | .disj alternatives =>
                   -- An embedded DEFAULT DISJUNCTION whose arms are already EVALUATED (no deferral
@@ -3145,11 +3290,15 @@ mutual
                         meetEmbeddingsWithFuel (nextFuel + 1) env
                           (.embeddedScalar evaluated (declFields fields)) rest
                       else
+                        -- Bug2-8: union a same-def-path `#m` decl the host already carries (the
+                        -- static fold landed the close-once union there) with the embed's arm so
+                        -- the meet is idempotent on `#m` — not a re-close-reject of the host's
+                        -- own labels. Non-def / embed-absent labels meet as before.
                         meetEmbeddingsWithFuel (nextFuel + 1) env
-                          (meet current (openStructValue evaluated)) rest
+                          (meetEmbedUnioningDefDecls current evaluated) rest
                   | _ =>
                       meetEmbeddingsWithFuel (nextFuel + 1) env
-                        (meet current (openStructValue evaluated)) rest
+                        (meetEmbedUnioningDefDecls current evaluated) rest
   termination_by embeddings => (fuel, 3, embeddings.length)
 
   /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct
@@ -3214,7 +3363,36 @@ mutual
         -- closed set by `#Base`'s labels). So merge/meet OPEN, then — if the def was closed —
         -- close ONCE over `def static labels ∪ each embedding's evaluated labels`. Pre-closing
         -- the static frame would wrongly reject both the embed's fields and the def's own.
-        let (mergedFields, _) := mergeConjOperands ((defFields, true) :: useOperands)
+        -- Bug2-8: a def that declares `#m` once and EMBEDS another def also declaring `#m` (`#A:
+        -- {#m:{a}}` then `#Use: {#A; #m:{c}}`) has TWO decls of the ONE def path `#m` spanning the
+        -- embed boundary — cue close-once-UNIONS them. Surface each embedding's same-def-path decls
+        -- (`embedSameDefPathDecls`, gated to labels the host ALSO declares as definitions) and fold
+        -- them into the static frame as an `embeddedDecl`-provenance operand BEFORE static eval, so
+        -- `mergeConjOperands` unions them (the Bug2-6 close-once lever) AND a sibling `vis: #m`
+        -- resolves against the union. The embeddings resolve at depth 1 (the def's enclosing scope);
+        -- a placeholder depth-0 frame carrying the static labels matches `refDefClosureBody?`'s
+        -- `bodyEnv`. A non-definition embed field, or a label the host does not also declare as a
+        -- definition, is NOT surfaced — it flows through the ordinary embed meet-fold below
+        -- (cert-manager closed pattern stays a meet; distinct cross-conjunct values stay a meet).
+        let hostDefLabels := (defFields.filter (fun f => (Field.fieldClass f).isDefinition)).map Field.label
+        let embedEnv : Env := (0, defFields) :: capturedEnv
+        -- Surface an embedding's same-def-path decls into the static frame ONLY for a PLAIN embed
+        -- body (no deferral, no embedded disjunction). A deferral-bearing embed (`_#M` with a
+        -- `for k,v in #data` comprehension reading the def path, or an embedded disjunction) keeps
+        -- its existing narrowing machinery (Bug2-4/2-5 splice, disj distribution) — folding its
+        -- def-path decl into the static frame would disturb the comprehension's own view of the
+        -- narrowed field. Bug2-8's `#A: {#m:{a:1}}` is a plain struct, so the fold fires for it.
+        let plainEmbed := fun embed =>
+          match resolveEmbedDefBody? embedEnv embed with
+          | some body => !bodyNeedsDefer embedEnv evalFuel body && !embedBodyEmbedsDisjDeep embedEnv evalFuel body
+          | none => false
+        let embedDeclOperands :=
+          ((comprehensions.filter isEmbeddingValue).filter plainEmbed).filterMap fun embed =>
+            match embedSameDefPathDecls embedEnv hostDefLabels embed with
+            | [] => none
+            | decls => some (ConjOperand.mk decls true .embeddedDecl)
+        let (mergedFields, _) := mergeConjOperands
+          (⟨defFields, true, .ownDecl⟩ :: embedDeclOperands ++ useOperands.map ConjOperand.ofPair)
         -- Bug2-4: meet the host's regular narrowings INTO any let-local that DECLARES and READS the
         -- narrowed label (`let _patch = { kind: string; for … { if kind == … } }`), so the buried
         -- comprehension expands against the narrowed `kind`. A splice that lands at the def frame as
@@ -3287,7 +3465,8 @@ mutual
     -- the `defOpenViaTail` case splices open and keeps + rebases the tail. A pattern-bearing
     -- struct has no force-splice arm and falls to the `_` catch-all.
     | .struct defFields .defOpenViaTail (some defTail) [] _ =>
-        let (mergedFields, _) := mergeConjOperands ((defFields, true) :: useOperands)
+        let (mergedFields, _) := mergeConjOperands
+          (⟨defFields, true, .ownDecl⟩ :: useOperands.map ConjOperand.ofPair)
         let canonical := canonicalizeFields mergedFields
         let mergedMap := labelIndexMap canonical
         let rebasedTail := remapConjRefs remapFuel 0 defFields mergedMap defTail
@@ -3299,7 +3478,8 @@ mutual
             pure (mkStruct fields .defOpenViaTail (some evaluatedTail) [])
         | none => pure .bottom
     | .struct defFields openness none [] _ =>
-        let (mergedFields, open_) := mergeConjOperands ((defFields, openness.isOpen) :: useOperands)
+        let (mergedFields, open_) := mergeConjOperands
+          (⟨defFields, openness.isOpen, .ownDecl⟩ :: useOperands.map ConjOperand.ofPair)
         let canonical := canonicalizeFields mergedFields
         let nested <- pushFrame canonical capturedEnv
         let evaluatedFields <- evalFieldRefsListWithFuel fuel nested (indexedFields canonical)

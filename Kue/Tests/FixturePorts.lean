@@ -606,6 +606,36 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-8: same-def multi-decl close-once ACROSS AN EMBED boundary. `#Use` declares `#m` once
+      -- and EMBEDS `#A` which also declares `#m` — the two decls of the ONE def path `#m` close-once-
+      -- UNION across the embed (`{c:3, a:1}`), and the sibling `vis: #m` resolves against the union.
+      -- Pre-fix kue `.conj`-met them across the embed and bottomed.
+      fileName := "definitions/bug28_embed_cross_decl_close_once_unions.expected",
+      content :=
+        match parseSource "#A: {#m: {a: 1}}\n#Use: {\n\t#A\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-8: the argocd `#additions` shape — host declares `#additions` once and EMBEDS TWO defs
+      -- each declaring it; all THREE decls of the ONE path union, close once.
+      fileName := "definitions/bug28_three_decl_host_plus_two_embeds_union.expected",
+      content :=
+        match parseSource "#A1: {#additions: {cert_gw: {x: 1}}}\n#A2: {#additions: {cert_ls: {z: 3}}}\n#Use: {\n\t#A1\n\t#A2\n\t#additions: {cert_ing: {y: 2}}\n\tvis: #additions\n}\nout: #Use.vis\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-8 SOUNDNESS BOUNDARY: a host's REGULAR closed PATTERN field meeting an embed's same
+      -- pattern field stays closed-MEET (a regular field never enters the DEFINITION decl-union), so
+      -- the cert-manager `data: [string]: string` shape admits `extra` WITHOUT re-opening. Keeps green.
+      fileName := "definitions/bug28_embed_closed_pattern_field_stays_meet.expected",
+      content :=
+        match parseSource "#Data: {data: [string]: string}\n#Use: {\n\t#Data\n\tdata: {extra: \"x\"}\n\tvis: data\n}\nout: #Use.vis\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it
