@@ -1,0 +1,9 @@
+{
+    "t": {
+        "kind": "ListenerSet",
+        "source": "from-extra",
+        "metadata": {
+            "name": "argocd-ls"
+        }
+    }
+}

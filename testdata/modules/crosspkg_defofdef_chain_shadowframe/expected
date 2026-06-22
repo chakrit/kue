@@ -1,0 +1,11 @@
+{
+    "t": {
+        "zone": "US",
+        "kind": "ListenerSet",
+        "tier": "mid",
+        "region2": "JP",
+        "metadata": {
+            "name": "argocd-ls"
+        }
+    }
+}

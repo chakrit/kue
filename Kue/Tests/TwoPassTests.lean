@@ -1998,6 +1998,20 @@ theorem bug211_singlelevel_narrowed :
         = true := by
   native_decide
 
+-- TERMINATION (Phase-A 2026-06-23 audit, added coverage): a SELF-referential `.conj` def-of-def
+-- (`#LS: #LS & {#Meta, …}`) must TERMINATE — `conjBodyHasDeferringArm` recurses through `.conj`
+-- arms and the force `.conj` arm re-enters eval, both fuel-bounded. The structural cycle on `#LS`
+-- collapses to its non-recursive content WHILE the use-site `#name` still narrows the embedded
+-- self-ref (`metadata.name → "x"`). A loop would hang the build; a wrong-frame collapse would
+-- freeze `name` at `string`. cue: `{out: {metadata: {name: "x"}}}`. Cross-pkg analogue:
+-- `testdata/modules/crosspkg_defofdef_selfconj_terminates`.
+theorem bug211_selfconj_terminates_and_narrows :
+    exportJsonMatches
+      "#Meta: Self={#name: string, metadata: name: Self.#name}\n#LS: #LS & {#Meta, #gateway_name: \"nginx\"}\nout: #LS & {#name: \"x\"}\n"
+      "{\n    \"out\": {\n        \"metadata\": {\n            \"name\": \"x\"\n        }\n    }\n}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of
 -- every section. If a stray block comment (`/-` … runaway) or an editing slip ever swallows a
 -- section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -2029,6 +2043,6 @@ theorem bug211_singlelevel_narrowed :
 #check @bug29_alias_cycle_narrow_terminates                   -- Bug2-9
 #check @bug28_scalar_def_across_embed_stays_meet              -- Bug2-8 (file tail)
 #check @bug210_no_self_ref_unchanged                          -- Bug2-10
-#check @bug211_singlelevel_narrowed                           -- Bug2-11 (file tail)
+#check @bug211_selfconj_terminates_and_narrows               -- Bug2-11 (file tail)
 
 end Kue
