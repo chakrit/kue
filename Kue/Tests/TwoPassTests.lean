@@ -7,10 +7,10 @@ import Kue.Tests.EvalTestHelpers
 
 namespace Kue
 
-/-- DISJUNCTION SELECTION (argocd `#Secret` blocker, facet 1): selecting a field INTO a
-    default disjunction (`d.a` where `d: *{a:1,c:9} | {a:2}`) collapses to the default arm
-    first, then selects — CUE's default rule. Previously `selectEvaluatedField` had no `.disj`
-    case and fell through to `.bottom`. -/
+-- DISJUNCTION SELECTION (argocd `#Secret` blocker, facet 1): selecting a field INTO a
+    -- default disjunction (`d.a` where `d: *{a:1,c:9} | {a:2}`) collapses to the default arm
+    -- first, then selects — CUE's default rule. Previously `selectEvaluatedField` had no `.disj`
+    -- case and fell through to `.bottom`.
 theorem select_into_default_disjunction :
     (selectEvaluatedField
       (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"c", .regular, .prim (.int 9)⟩] .regularOpen none []),
@@ -19,9 +19,9 @@ theorem select_into_default_disjunction :
       == .prim (.int 1)) = true := by
   native_decide
 
-/-- CARRIER-DECL-SELECT routing: selecting off a defaulted disjunction whose default arm is an
-    `.embeddedScalar` carrier resolves the default, then plucks the decl through the SHARED
-    `selectFromDecls` helper — same path the plain-`.struct` arm above takes. -/
+-- CARRIER-DECL-SELECT routing: selecting off a defaulted disjunction whose default arm is an
+    -- `.embeddedScalar` carrier resolves the default, then plucks the decl through the SHARED
+    -- `selectFromDecls` helper — same path the plain-`.struct` arm above takes.
 theorem select_into_default_disjunction_scalar_carrier :
     (selectEvaluatedField
       (.disj [(.default, .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]),
@@ -30,8 +30,8 @@ theorem select_into_default_disjunction_scalar_carrier :
       == .prim (.int 1)) = true := by
   native_decide
 
-/-- Same routing for an `.embeddedList` default-arm carrier: `selectFromDecls` plucks the decl
-    off the list carrier identically to the scalar and struct shapes. -/
+-- Same routing for an `.embeddedList` default-arm carrier: `selectFromDecls` plucks the decl
+    -- off the list carrier identically to the scalar and struct shapes.
 theorem select_into_default_disjunction_list_carrier :
     (selectEvaluatedField
       (.disj [(.default, .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 7)⟩]),
@@ -40,9 +40,9 @@ theorem select_into_default_disjunction_list_carrier :
       == .prim (.int 7)) = true := by
   native_decide
 
-/-- NO OVER-FIRE: a NON-default disjunction with multiple live arms does NOT collapse on
-    selection — it stays a deferred `.selector` (manifest then reports the ambiguity), never a
-    spurious `bottom` and never a silent pick of one arm. -/
+-- NO OVER-FIRE: a NON-default disjunction with multiple live arms does NOT collapse on
+    -- selection — it stays a deferred `.selector` (manifest then reports the ambiguity), never a
+    -- spurious `bottom` and never a silent pick of one arm.
 theorem select_into_nondefault_disjunction_defers :
     (selectEvaluatedField
       (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
@@ -54,10 +54,10 @@ theorem select_into_nondefault_disjunction_defers :
            "a") = true := by
   native_decide
 
-/-- EMBEDDED DEFAULT DISJUNCTION (argocd `#Secret` blocker, facet 2): an embedded default
-    disjunction collapses to its default arm before merging into the host
-    (`resolveEmbeddedDisjDefault`), so its fields land as regular host fields and a sibling
-    `Self.a` resolves. A non-default disjunction passes through untouched. -/
+-- EMBEDDED DEFAULT DISJUNCTION (argocd `#Secret` blocker, facet 2): an embedded default
+    -- disjunction collapses to its default arm before merging into the host
+    -- (`resolveEmbeddedDisjDefault`), so its fields land as regular host fields and a sibling
+    -- `Self.a` resolves. A non-default disjunction passes through untouched.
 theorem resolve_embedded_default_disjunction :
     (resolveEmbeddedDisjDefault
       (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
@@ -73,9 +73,9 @@ theorem resolve_embedded_nondefault_disjunction_unchanged :
                 (.regular, mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])]) = true := by
   native_decide
 
-/-- TWO-PASS GATE (perf): the embedding-`Self` re-evaluation fires ONLY when a static field
-    selects `Self.<embedded-label>`. This pins the no-over-fire boundary that keeps cert-manager
-    (a `parts.#Metadata` embed never read via `Self.metadata`) on the single-pass path. -/
+-- TWO-PASS GATE (perf): the embedding-`Self` re-evaluation fires ONLY when a static field
+    -- selects `Self.<embedded-label>`. This pins the no-over-fire boundary that keeps cert-manager
+    -- (a `parts.#Metadata` embed never read via `Self.metadata`) on the single-pass path.
 theorem embedded_self_pass_fires_on_self_select :
     needsEmbeddedSelfPass
       [⟨"Self", .letBinding, .thisStruct⟩, ⟨"b", .regular, .selector (.refId ⟨0, 0⟩) "a"⟩]
@@ -94,19 +94,19 @@ theorem embedded_self_pass_skips_when_no_self_select :
       ["metadata"] = false := by
   native_decide
 
-/-! ### argocd link 3/4 — DEEP and LIST-COMPREHENSION self-ref two-pass gate.
-
-`refsSelfEmbeddedLabel` (the two-pass gate) previously matched only a DEPTH-0 `Self.<label>`
-selector and had no `.listComprehension` arm. Two gaps:
-  1. A `Self.<embedded-label>` read from a NESTED struct (`spec: { hostnames: Self.#hosts }`)
-     is `.selector (.refId ⟨1, selfIndex⟩) #hosts` — depth 1 — so it was invisible; Pass 2
-     never fired and the nested ref resolved against the un-augmented frame → `.bottom`
-     (argocd `#TLSRoute.spec.hostnames`, `#ListenerSet.spec.parentRef.name`).
-  2. A list-comprehension SOURCE (`listeners: [for h in Self.#hosts {…}]`) lives in a
-     `.listComprehension`, which had no scan arm → the comprehension iterated the un-narrowed
-     (empty) embedded field and dropped every element (argocd `#ListenerSet.spec.listeners`).
-Both fixed by threading `depth` (incremented on struct descents, mirroring `hasSelfRefAtDepth`)
-and adding a `.listComprehension` arm. -/
+-- ### argocd link 3/4 — DEEP and LIST-COMPREHENSION self-ref two-pass gate.
+--
+-- `refsSelfEmbeddedLabel` (the two-pass gate) previously matched only a DEPTH-0 `Self.<label>`
+-- selector and had no `.listComprehension` arm. Two gaps:
+  -- 1. A `Self.<embedded-label>` read from a NESTED struct (`spec: { hostnames: Self.#hosts }`)
+     -- is `.selector (.refId ⟨1, selfIndex⟩) #hosts` — depth 1 — so it was invisible; Pass 2
+     -- never fired and the nested ref resolved against the un-augmented frame → `.bottom`
+     -- (argocd `#TLSRoute.spec.hostnames`, `#ListenerSet.spec.parentRef.name`).
+  -- 2. A list-comprehension SOURCE (`listeners: [for h in Self.#hosts {…}]`) lives in a
+     -- `.listComprehension`, which had no scan arm → the comprehension iterated the un-narrowed
+     -- (empty) embedded field and dropped every element (argocd `#ListenerSet.spec.listeners`).
+-- Both fixed by threading `depth` (incremented on struct descents, mirroring `hasSelfRefAtDepth`)
+-- and adding a `.listComprehension` arm.
 
 -- DEEP: `Self.a` read one frame deep (`b: { c: Self.a }`) fires the gate.
 theorem embedded_self_pass_fires_on_nested_self_select :
@@ -145,15 +145,15 @@ theorem embedded_self_pass_skips_nested_unselected :
       ["a"] = false := by
   native_decide
 
-/-! ### A1 (soundness) — `Self.<embedded-label>` read WRAPPED IN A BUILTIN ARG.
-
-Both two-pass scanners (`refsSelfEmbeddedLabel` gate / `selfReferencedLabels` selection) ended
-in a catch-all that SILENTLY SWALLOWED `builtinCall`/`embeddedList`/`structPattern`/
-`structPatterns`. So `count: len(Self.#x)` — a `.builtinCall` whose arg reads an embedded label —
-was invisible: the gate stayed single-pass and (post-`2d87b8e` selective re-eval) the field was
-skipped → stale Pass-1 value. Adding the missing arms (args at same depth; embeddedList items/tail
-at depth, decls at depth+1; pattern fields/labelPattern/constraint at depth+1) makes the read
-visible to BOTH. -/
+-- ### A1 (soundness) — `Self.<embedded-label>` read WRAPPED IN A BUILTIN ARG.
+--
+-- Both two-pass scanners (`refsSelfEmbeddedLabel` gate / `selfReferencedLabels` selection) ended
+-- in a catch-all that SILENTLY SWALLOWED `builtinCall`/`embeddedList`/`structPattern`/
+-- `structPatterns`. So `count: len(Self.#x)` — a `.builtinCall` whose arg reads an embedded label —
+-- was invisible: the gate stayed single-pass and (post-`2d87b8e` selective re-eval) the field was
+-- skipped → stale Pass-1 value. Adding the missing arms (args at same depth; embeddedList items/tail
+-- at depth, decls at depth+1; pattern fields/labelPattern/constraint at depth+1) makes the read
+-- visible to BOTH.
 
 -- GATE: `count: len(Self.x)` (an embedded-label read inside a builtin arg) fires the two-pass.
 theorem embedded_self_pass_fires_on_builtin_wrapped_select :
@@ -197,15 +197,15 @@ theorem embedded_self_pass_skips_builtin_unrelated :
       ["x"] = false := by
   native_decide
 
-/-! ### B1 (soundness) — `remapConjRefs` SWALLOWED struct-comp / comprehension conjuncts.
-
-The conj-frame-remap (`remapConjRefs`, rebasing a conjunct's frame-local `.refId`s onto a merged
-conjunction frame) ended in `| _, value => value`, silently dropping `.structComp` (the dominant
-`{embed;…;...}` `#Def` conjunct shape), `.comprehension`/`.listComprehension`, `.embeddedList`,
-`.dynamicField`. A swallowed conjunct kept STALE merged-frame indices after a field-reindexing
-merge → wrong resolution or spurious bottom. The fix adds explicit recursing arms (structComp
-fields + comprehensions at frameDepth+1; comprehension clause-sources/guards + body at frameDepth;
-embeddedList items/tail at frameDepth, decls at frameDepth+1; dynamicField label+value). -/
+-- ### B1 (soundness) — `remapConjRefs` SWALLOWED struct-comp / comprehension conjuncts.
+--
+-- The conj-frame-remap (`remapConjRefs`, rebasing a conjunct's frame-local `.refId`s onto a merged
+-- conjunction frame) ended in `| _, value => value`, silently dropping `.structComp` (the dominant
+-- `{embed;…;...}` `#Def` conjunct shape), `.comprehension`/`.listComprehension`, `.embeddedList`,
+-- `.dynamicField`. A swallowed conjunct kept STALE merged-frame indices after a field-reindexing
+-- merge → wrong resolution or spurious bottom. The fix adds explicit recursing arms (structComp
+-- fields + comprehensions at frameDepth+1; comprehension clause-sources/guards + body at frameDepth;
+-- embeddedList items/tail at frameDepth, decls at frameDepth+1; dynamicField label+value).
 
 -- A `.structComp` conjunct whose inner field reads a frame sibling (`refId ⟨1, 1⟩` = old index 1
 -- = "b", measured one frame deep inside the pushed struct-comp frame) is REINDEXED onto the merged
@@ -228,21 +228,21 @@ theorem remap_structcomp_conjunct_remaps_comprehension :
       == .structComp [] [.comprehension [.guard (.refId ⟨1, 0⟩)] (.refId ⟨1, 0⟩)] .regularOpen) = true := by
   native_decide
 
-/-! ### A5 (regression from B1) — comprehension BODY remapped at the wrong frame depth.
-
-A comprehension body lives `#forClauses` frames deeper than the comprehension node (`for`
-pushes a frame, `guard` does not) — the rule encoded once in `resolveClausesWithFuel`. B1's
-`.comprehension`/`.listComprehension` arms recursed the body at flat `frameDepth`, so a body
-ref targeting the merged conjunction frame (at `frameDepth + #for`) was compared `== frameDepth`,
-missed, and kept its stale conjunct-local slot → wrong value. The fix threads an incrementing
-depth through the clause chain exactly as resolution does (now the shared `descendClauses`
-fold via `clauseChainDepth`: +1 per `for`, +0 per `guard`); the body is remapped at
-`clauseChainDepth frameDepth clauses`, and clause source N at `frameDepth + (#for before N)`.
-
-These pins use REALISTICALLY-RESOLVED bodies (depth reflecting the loop frame), not the
-hand-built depth-0 value the prior `remap_comprehension_conjunct_reindexes_source_and_body`
-pin tested — that value is unreachable after real `for`-clause resolution, so it passed while
-the behavior was broken. -/
+-- ### A5 (regression from B1) — comprehension BODY remapped at the wrong frame depth.
+--
+-- A comprehension body lives `#forClauses` frames deeper than the comprehension node (`for`
+-- pushes a frame, `guard` does not) — the rule encoded once in `resolveClausesWithFuel`. B1's
+-- `.comprehension`/`.listComprehension` arms recursed the body at flat `frameDepth`, so a body
+-- ref targeting the merged conjunction frame (at `frameDepth + #for`) was compared `== frameDepth`,
+-- missed, and kept its stale conjunct-local slot → wrong value. The fix threads an incrementing
+-- depth through the clause chain exactly as resolution does (now the shared `descendClauses`
+-- fold via `clauseChainDepth`: +1 per `for`, +0 per `guard`); the body is remapped at
+-- `clauseChainDepth frameDepth clauses`, and clause source N at `frameDepth + (#for before N)`.
+--
+-- These pins use REALISTICALLY-RESOLVED bodies (depth reflecting the loop frame), not the
+-- hand-built depth-0 value the prior `remap_comprehension_conjunct_reindexes_source_and_body`
+-- pin tested — that value is unreachable after real `for`-clause resolution, so it passed while
+-- the behavior was broken.
 
 -- A bare `.comprehension` with one `for`: the SOURCE sits at `frameDepth` (resolved before the
 -- loop frame), but the BODY sits one frame deeper (`refId ⟨1, 1⟩`). The body ref targeting the
@@ -315,13 +315,13 @@ theorem descend_clauses_agrees_remapConjClauses :
         | _ => false)) = true := by
   native_decide
 
-/-! ### A-EN3 — `foldValueWithDepth` combinator pins (the shared structural fold).
-
-The three def-frame scanners (`refsSelfEmbeddedLabel`/`selfReferencedLabels`/`defFrameRefIndices`)
-are thin `foldValueWithDepth` instantiations. These pins lock the combinator's contract and the
-`.dynamicField` value-depth discipline (scanned at the PARENT depth, mirroring the resolver, which
-pushes no frame for a dynamic field — A-EN3-DYN), so a future edit that drifts the shared skeleton
-or re-introduces the over-deep `+1` scan is a `native_decide` failure, not a silent value change. -/
+-- ### A-EN3 — `foldValueWithDepth` combinator pins (the shared structural fold).
+--
+-- The three def-frame scanners (`refsSelfEmbeddedLabel`/`selfReferencedLabels`/`defFrameRefIndices`)
+-- are thin `foldValueWithDepth` instantiations. These pins lock the combinator's contract and the
+-- `.dynamicField` value-depth discipline (scanned at the PARENT depth, mirroring the resolver, which
+-- pushes no frame for a dynamic field — A-EN3-DYN), so a future edit that drifts the shared skeleton
+-- or re-introduces the over-deep `+1` scan is a `native_decide` failure, not a silent value change.
 
 -- Empty-monoid degeneracy: a fold whose `combine` always returns `empty` and whose `leaf` never
 -- fires collapses to `empty` regardless of the tree — the structural skeleton contributes nothing
@@ -354,13 +354,13 @@ theorem fold_value_dynfield_value_scanned_at_parent_depth :
       && defFrameRefIndices evalFuel 0 (.dynamicField (.prim (.string "k")) .regular (.refId ⟨1, 5⟩)) == []) = true := by
   native_decide
 
-/-! ### B7 — `descendClauses` agreement theorems (the new structural guarantee).
-
-`descendClauses` (`Value.lean`) is the single authority for the comprehension clause-chain
-frame-depth rule (`+1` per `forIn`, `+0` per `guard`, body at the accumulated depth). These pins
-make a future drift between the fold and either `resolveClausesWithFuel` (the reference walker,
-not migrated — it threads scopes, not `Nat`) or `remapConjClauses` a `native_decide` failure
-rather than a silent wrong value. -/
+-- ### B7 — `descendClauses` agreement theorems (the new structural guarantee).
+--
+-- `descendClauses` (`Value.lean`) is the single authority for the comprehension clause-chain
+-- frame-depth rule (`+1` per `forIn`, `+0` per `guard`, body at the accumulated depth). These pins
+-- make a future drift between the fold and either `resolveClausesWithFuel` (the reference walker,
+-- not migrated — it threads scopes, not `Nat`) or `remapConjClauses` a `native_decide` failure
+-- rather than a silent wrong value.
 
 -- `clauseChainDepth` self-consistency: the depth a clause chain accumulates is `start` plus one
 -- per `forIn`, none per `guard` — the shape the former `clauseFrameShift` counted (and the depth
@@ -389,17 +389,17 @@ theorem descend_clauses_frame_count_matches_resolve :
         | _ => false)) = true := by
   native_decide
 
-/-! ### A5 sibling — `selfReferencedLabels` MISSED a `Self.<embedded>` read inside a `for` body.
-
-`selfReferencedLabels` (the Pass-2 selection seed: which static fields read an embedded label and
-must be re-evaluated against the augmented frame) recursed a comprehension body at flat `depth`,
-ignoring the loop frame each `for` pushes. A `Self.<embedded>` read inside a `for` body sits at
-`depth + #forClauses` but was compared `== depth`, so the field was not collected → not selected
-for Pass-2 → it reused its stale Pass-1 value. The fix threads the depth through the clause chain
-via the shared `foldValueWithDepth`/`descendClauses` handler (A-EN3 unified the three scanners onto
-it), identically to `resolveClausesWithFuel` (and to the `remapConj*` A5 fix above). These pins use
-REALISTICALLY-RESOLVED body refIds (depth reflecting the loop frame).
--/
+-- ### A5 sibling — `selfReferencedLabels` MISSED a `Self.<embedded>` read inside a `for` body.
+--
+-- `selfReferencedLabels` (the Pass-2 selection seed: which static fields read an embedded label and
+-- must be re-evaluated against the augmented frame) recursed a comprehension body at flat `depth`,
+-- ignoring the loop frame each `for` pushes. A `Self.<embedded>` read inside a `for` body sits at
+-- `depth + #forClauses` but was compared `== depth`, so the field was not collected → not selected
+-- for Pass-2 → it reused its stale Pass-1 value. The fix threads the depth through the clause chain
+-- via the shared `foldValueWithDepth`/`descendClauses` handler (A-EN3 unified the three scanners onto
+-- it), identically to `resolveClausesWithFuel` (and to the `remapConj*` A5 fix above). These pins use
+-- REALISTICALLY-RESOLVED body refIds (depth reflecting the loop frame).
+--
 
 -- A plain `.comprehension` with one `for` whose body struct reads `Self.#t` (`refId ⟨2,0⟩` — one
 -- `for` frame + one struct-field frame above the `Self` slot at index 0): the label `#t` IS
@@ -468,17 +468,17 @@ theorem listcomp_embed_selfref_empty_stays_empty :
           = true := by
   native_decide
 
-/-! ### argocd link 4 — open struct (`...`) with embeddings no longer splits into a `.conj`.
-
-An open struct that ALSO carries comprehensions/embeddings (`{ embed; …; ... }`) was parsed as
-`.conj [.structComp(embeds), .structTail(fields, tail)]` — two OVERLAPPING-field arms. A
-`Self.<field>` self-ref landed in the `mkStruct ` .defOpenViaTail (some arm) [], which never saw the embedding-contributed
-fields, so a use-site narrowing collapsed to `.bottom` (argocd `defs.#ListenerSet`: `parts.#Metadata`
-embedded + a def-level `...`). The parser now keeps it ONE node: the comprehension form already
-carries `open_ = true`, exactly what the bare `...` (`.top` tail) means; a definition-context one is
-closed by `normalizeDefinitionValueWithFuel` like any `.structComp`. The cross-package end-to-end
-shape is pinned by the committed module fixture `open_embed_selfref_guard`; these are the parser +
-same-file source pins. -/
+-- ### argocd link 4 — open struct (`...`) with embeddings no longer splits into a `.conj`.
+--
+-- An open struct that ALSO carries comprehensions/embeddings (`{ embed; …; ... }`) was parsed as
+-- `.conj [.structComp(embeds), .structTail(fields, tail)]` — two OVERLAPPING-field arms. A
+-- `Self.<field>` self-ref landed in the `mkStruct ` .defOpenViaTail (some arm) [], which never saw the embedding-contributed
+-- fields, so a use-site narrowing collapsed to `.bottom` (argocd `defs.#ListenerSet`: `parts.#Metadata`
+-- embedded + a def-level `...`). The parser now keeps it ONE node: the comprehension form already
+-- carries `open_ = true`, exactly what the bare `...` (`.top` tail) means; a definition-context one is
+-- closed by `normalizeDefinitionValueWithFuel` like any `.structComp`. The cross-package end-to-end
+-- shape is pinned by the committed module fixture `open_embed_selfref_guard`; these are the parser +
+-- same-file source pins.
 
 -- SAME-FILE source pin: an open struct (`...`) embedding a self-ref def, with a nested-scope
 -- `Self.#g` read, narrowed at the use site, resolves (no `.bottom`). Pre-fix the def-level `...`
@@ -490,17 +490,17 @@ theorem open_embed_selfref_narrows :
           = true := by
   native_decide
 
-/-! ### argocd-secret-data sub-slice 1 — hidden-def embedding narrowing.
-
-The argocd link-2 blocker: a hidden definition `_#OpaqueSecret` embedded into a host whose
-use-site narrows a hidden field (`#data`). The embedded def's sibling self-ref (`data:
-#data`, or a `for k,v in #data` comprehension) ran against the def's own ABSTRACT `#data`
-before the use-site narrowing reached it → empty output instead of the populated map. Root
-cause was a PARSER misclassification: `_#x` was tagged hidden-only (not a definition), so the
-def-deferral path (`refDefClosureBody?`/`conjDefClosure?`) never fired for the embedding, and
-the arm evaluated standalone (collapsing the self-ref) before the narrowing spliced in. Fixed
-by classifying `_#x` as BOTH definition and hidden (see `parse_field_class_hidden_definition`).
-Each pin is cue v0.16.1-exact. -/
+-- ### argocd-secret-data sub-slice 1 — hidden-def embedding narrowing.
+--
+-- The argocd link-2 blocker: a hidden definition `_#OpaqueSecret` embedded into a host whose
+-- use-site narrows a hidden field (`#data`). The embedded def's sibling self-ref (`data:
+-- #data`, or a `for k,v in #data` comprehension) ran against the def's own ABSTRACT `#data`
+-- before the use-site narrowing reached it → empty output instead of the populated map. Root
+-- cause was a PARSER misclassification: `_#x` was tagged hidden-only (not a definition), so the
+-- def-deferral path (`refDefClosureBody?`/`conjDefClosure?`) never fired for the embedding, and
+-- the arm evaluated standalone (collapsing the self-ref) before the narrowing spliced in. Fixed
+-- by classifying `_#x` as BOTH definition and hidden (see `parse_field_class_hidden_definition`).
+-- Each pin is cue v0.16.1-exact.
 
 -- HEADLINE: a `for k,v in #data` comprehension inside an embedded hidden-def populates AFTER
 -- the use-site narrows `#data` (the secret-data shape). Pre-fix: `mapped: {}` (empty).
@@ -559,21 +559,21 @@ theorem hidden_def_embed_concrete_source :
           = true := by
   native_decide
 
-/-! ### argocd-secret-data sub-slice 2 — embedded DEFAULT DISJUNCTION arm narrowing.
-
-The exact argocd `#Secret` shape: a hidden-def `_#OpaqueSecret` in an embedded DEFAULT
-DISJUNCTION arm `(*_#A | _#B)` whose body's `for k,v in #data` comprehension (or sibling
-self-ref) is narrowed by the use-site. Pre-fix the disjunction evaluated standalone — its
-default arm forced with NO use-operands collapsed the comprehension/self-ref BEFORE the
-narrowing reached it (`resolveEmbeddedDisjDefault` picked the already-collapsed value).
-
-Fix: DISTRIBUTE the narrowing into the disjunction arms at the UNEVALUATED level — both in
-the `.conj` fold (`splitDisjConjunct`/`conjDisjArms?` → `*(_#A & narrow) | (_#B & narrow)`) and
-in the embedded-disjunction merge (`meetEmbeddingsWithFuel` collapses to the default arm via
-`conjDisjArms?` BEFORE deferral, so the arm force-splices the host's narrowing). `bodyNeedsDefer`
-now recurses into a `.disj` embedding's default arm (`resolveEmbedDefBody?`), so the host defers.
-Gated on a deferral-needing arm — a plain scalar/struct disjunction is untouched (no over-defer).
-Each pin cue v0.16.1-exact. -/
+-- ### argocd-secret-data sub-slice 2 — embedded DEFAULT DISJUNCTION arm narrowing.
+--
+-- The exact argocd `#Secret` shape: a hidden-def `_#OpaqueSecret` in an embedded DEFAULT
+-- DISJUNCTION arm `(*_#A | _#B)` whose body's `for k,v in #data` comprehension (or sibling
+-- self-ref) is narrowed by the use-site. Pre-fix the disjunction evaluated standalone — its
+-- default arm forced with NO use-operands collapsed the comprehension/self-ref BEFORE the
+-- narrowing reached it (`resolveEmbeddedDisjDefault` picked the already-collapsed value).
+--
+-- Fix: DISTRIBUTE the narrowing into the disjunction arms at the UNEVALUATED level — both in
+-- the `.conj` fold (`splitDisjConjunct`/`conjDisjArms?` → `*(_#A & narrow) | (_#B & narrow)`) and
+-- in the embedded-disjunction merge (`meetEmbeddingsWithFuel` collapses to the default arm via
+-- `conjDisjArms?` BEFORE deferral, so the arm force-splices the host's narrowing). `bodyNeedsDefer`
+-- now recurses into a `.disj` embedding's default arm (`resolveEmbedDefBody?`), so the host defers.
+-- Gated on a deferral-needing arm — a plain scalar/struct disjunction is untouched (no over-defer).
+-- Each pin cue v0.16.1-exact.
 
 -- HEADLINE: a `for k,v in #data` comprehension inside an embedded DEFAULT DISJUNCTION arm
 -- populates AFTER the use-site narrows `#data` (the argocd `#Secret` shape). Pre-fix `mapped: {}`.
@@ -623,22 +623,22 @@ theorem disj_struct_no_over_defer :
         "out: *{a: 1, b: 5} | {a: 2, b: 5}" = true := by
   native_decide
 
-/-- SATURATION GUARD (audit #6): `conjDisjArms?`'s `fuel = 0` arm returns `none` (declines to
-    distribute) rather than dropping fields — it is NOT a truncation source, so it need not bump
-    `truncCount`. Pin that the fuel-exhausted scan is a clean non-defer: at `fuel = 0` a
-    `.refId`-bodied disjunction conjunct yields `none` (falls to the standard fold, which keeps
-    its own bracketed truncation discipline). A regression that made it drop to a partial value
-    without bumping would reopen the audit-#6 hole. -/
+-- SATURATION GUARD (audit #6): `conjDisjArms?`'s `fuel = 0` arm returns `none` (declines to
+    -- distribute) rather than dropping fields — it is NOT a truncation source, so it need not bump
+    -- `truncCount`. Pin that the fuel-exhausted scan is a clean non-defer: at `fuel = 0` a
+    -- `.refId`-bodied disjunction conjunct yields `none` (falls to the standard fold, which keeps
+    -- its own bracketed truncation discipline). A regression that made it drop to a partial value
+    -- without bumping would reopen the audit-#6 hole.
 theorem conj_disj_arms_fuel_zero_declines :
     conjDisjArms? [(0, [])] 0 (.refId ⟨0, 0⟩) = none := by
   native_decide
 
-/-! ### embed-disj-arm-fallthrough (audit #10 V2): a dead default arm FALLS THROUGH.
-
-An embedded default disjunction (`(*_#A | _#B)`) used to collapse to its default arm BEFORE the
-host narrowing spliced in, with no fall-through when the narrowing KILLED the default arm — kue
-bottomed where cue picks the surviving arm. Fix: distribute the host narrowing into EVERY arm and
-prune bottoms (`normalizeDisj` via `liveAlternatives`), then resolve. cue v0.16.1-exact. -/
+-- ### embed-disj-arm-fallthrough (audit #10 V2): a dead default arm FALLS THROUGH.
+--
+-- An embedded default disjunction (`(*_#A | _#B)`) used to collapse to its default arm BEFORE the
+-- host narrowing spliced in, with no fall-through when the narrowing KILLED the default arm — kue
+-- bottomed where cue picks the surviving arm. Fix: distribute the host narrowing into EVERY arm and
+-- prune bottoms (`normalizeDisj` via `liveAlternatives`), then resolve. cue v0.16.1-exact.
 
 -- HEADLINE: narrowing `v:"s"` kills the default arm `_#A` (`v:int`); kue must fall through to the
 -- surviving `_#B` (`v:string`) — not bottom. Was kue BOTTOM pre-fix; cue `{kind:"b",v:"s"}`.
@@ -675,17 +675,17 @@ theorem embed_disj_single_arm_narrows :
           = true := by
   native_decide
 
-/-! ### argocd `parts.#Mixin` — comprehension guard over a use-site-narrowed REGULAR sibling.
-
-`#Inner` carries `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }`: the guard
-reads the REGULAR sibling `kind`, which `#Outer` (embedding `#Inner`) and the use site narrow.
-`hiddenFieldsOnly` splices only hidden/def fields into a forced embed, so the guard fired against the
-un-narrowed `kind: string`, stayed incomplete, and the guarded body dropped — the outer `meet` cannot
-re-fire a collapsed comprehension. `embedComprehensionReadLabels` collects the def-frame indices a
-comprehension reads, and `spliceOperandForEmbed` carries exactly those REGULAR siblings so the guard
-sees the narrowed value at expansion time (matching cue's lazy comprehension). This was the first of
-two cross-module argocd bottoms (`defaults.#ListenerSet`); the `let`-buried multi-embed shape is the
-second, tracked separately. -/
+-- ### argocd `parts.#Mixin` — comprehension guard over a use-site-narrowed REGULAR sibling.
+--
+-- `#Inner` carries `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }`: the guard
+-- reads the REGULAR sibling `kind`, which `#Outer` (embedding `#Inner`) and the use site narrow.
+-- `hiddenFieldsOnly` splices only hidden/def fields into a forced embed, so the guard fired against the
+-- un-narrowed `kind: string`, stayed incomplete, and the guarded body dropped — the outer `meet` cannot
+-- re-fire a collapsed comprehension. `embedComprehensionReadLabels` collects the def-frame indices a
+-- comprehension reads, and `spliceOperandForEmbed` carries exactly those REGULAR siblings so the guard
+-- sees the narrowed value at expansion time (matching cue's lazy comprehension). This was the first of
+-- two cross-module argocd bottoms (`defaults.#ListenerSet`); the `let`-buried multi-embed shape is the
+-- second, tracked separately.
 
 -- The mechanism pin: a comprehension guard reading the regular sibling `kind` (slot 2) over the
 -- `Self=` for-source (slot 0) reports BOTH def-frame labels read. `Self` is harmless (an alias,
@@ -731,16 +731,16 @@ theorem embed_comprehension_guard_real_conflict_bottoms :
           = true := by
   native_decide
 
-/-! ### Bug2-1 (Gap-1) + A-EN1 — let-buried comprehension read-label detection.
-
-Bug #1 (above) detected only a comprehension at the embed body's TOP-LEVEL `cs`. When the
-comprehension is buried inside the VALUE of a `let _patch = { … if kind == … }`, the top-level `cs`
-holds only the `_patch` embed-ref — a `.refId` LEAF that `defFrameRefIndices` did not follow into
-the let's value. So the regular sibling `kind` the guard reads THROUGH the let was never detected,
-never spliced, and the guard fired against the un-narrowed `kind: string` → the body dropped.
-`closeDefFrameReadIndices` closes the detected index set over `letBinding` slots (transitively, with
-a visited-set cycle bound), so a read through one or more `let`s is found and spliced. Covers BOTH
-the `if`-guard read (Gap-1) and the `for`-SOURCE read (A-EN1). -/
+-- ### Bug2-1 (Gap-1) + A-EN1 — let-buried comprehension read-label detection.
+--
+-- Bug #1 (above) detected only a comprehension at the embed body's TOP-LEVEL `cs`. When the
+-- comprehension is buried inside the VALUE of a `let _patch = { … if kind == … }`, the top-level `cs`
+-- holds only the `_patch` embed-ref — a `.refId` LEAF that `defFrameRefIndices` did not follow into
+-- the let's value. So the regular sibling `kind` the guard reads THROUGH the let was never detected,
+-- never spliced, and the guard fired against the un-narrowed `kind: string` → the body dropped.
+-- `closeDefFrameReadIndices` closes the detected index set over `letBinding` slots (transitively, with
+-- a visited-set cycle bound), so a read through one or more `let`s is found and spliced. Covers BOTH
+-- the `if`-guard read (Gap-1) and the `for`-SOURCE read (A-EN1).
 
 -- Mechanism (Gap-1, ONE let): the guard `if kind == add.#kind` lives inside `_patch`'s value (a
 -- `let`, slot 3); the top-level `cs` holds only the `_patch` embed-ref (`.refId ⟨0,3⟩`). Following
@@ -850,18 +850,18 @@ theorem let_buried_for_source_expands :
           = true := by
   native_decide
 
-/-! ### Bug2-4 — let-LOCAL declare-and-read narrowing (the argocd `#Mixin` blocker).
-
-Bug2-1 (above) handled a comprehension reading a regular sibling declared at the EMBED's def frame,
-through one or more lets. Bug2-4 is the harder shape `defs/parts.#Mixin` uses: the read sibling is
-DECLARED INSIDE the same let that buries the comprehension (`let _patch = { kind: string; for … {
-if kind == add.#kind {…} } }`). The guard's `kind` resolves to `_patch`'s OWN frame and `kind` is
-declared there too, so NO def-frame index names it — the splice would land at the def frame as a
-sibling, a distinct binding the guard never reads. `letPromotedReadLabels` SURFACES the label (so the
-host splices its narrowing toward the def), and `injectLetLocalNarrowings` MEETS that narrowing into
-the let-local `kind` before the comprehension expands — matching cue's lazy promote-then-narrow.
-Total via a `seen`/`fuel` bound (cycle-safe); sound because it only meets the host narrowing into a
-field the host narrows anyway (never invents a value, never over-splices). -/
+-- ### Bug2-4 — let-LOCAL declare-and-read narrowing (the argocd `#Mixin` blocker).
+--
+-- Bug2-1 (above) handled a comprehension reading a regular sibling declared at the EMBED's def frame,
+-- through one or more lets. Bug2-4 is the harder shape `defs/parts.#Mixin` uses: the read sibling is
+-- DECLARED INSIDE the same let that buries the comprehension (`let _patch = { kind: string; for … {
+-- if kind == add.#kind {…} } }`). The guard's `kind` resolves to `_patch`'s OWN frame and `kind` is
+-- declared there too, so NO def-frame index names it — the splice would land at the def frame as a
+-- sibling, a distinct binding the guard never reads. `letPromotedReadLabels` SURFACES the label (so the
+-- host splices its narrowing toward the def), and `injectLetLocalNarrowings` MEETS that narrowing into
+-- the let-local `kind` before the comprehension expands — matching cue's lazy promote-then-narrow.
+-- Total via a `seen`/`fuel` bound (cycle-safe); sound because it only meets the host narrowing into a
+-- field the host narrows anyway (never invents a value, never over-splices).
 
 -- Mechanism: `_patch` declares-and-reads `kind` (slot 0 of its OWN frame) via a guard inside a
 -- `for` body (which pushes one frame: the guard's `kind` ref is `⟨1,0⟩`, resolving back to the let
@@ -924,25 +924,25 @@ theorem mixin_let_local_guard_false_drops_body :
           = true := by
   native_decide
 
-/-! ### Bug2-5 — disjunction-arm let-local narrowing across a TRANSITIVE embed.
-
-Bug2-4 (above) narrowed a let-local (`_patch.kind`) when the disjunction-bodied mixin is embedded
-DIRECTLY by the host that declares the narrowing sibling (`#Use: {#Mixin; #additions; ...}` with
-`out: #Use & {kind: …}`). The argocd `#ListenerSet` shape is one level deeper: a SIBLING def's static
-field narrows the mixin, and the mixin is embedded TRANSITIVELY (`#ListenerSet` co-embeds
-`#UseCertManager`, which embeds `#Mixin`). The host's `kind` narrowing must cross TWO embed levels to
-reach `_patch.kind` on the disjunction-arm path. Pre-fix, `spliceOperandForEmbed` into the MIDDLE def
-(`#UseCertManager`) dropped `kind` — that def neither reads `kind` nor DIRECTLY embeds a disjunction
-(the disjunction is one more level down, inside `#Mixin`), so `embedBodyEmbedsDisj` (a one-level
-check) returned false and the Gap-2b "splice ALL regular fields" gate never fired. `kind` never
-reached the disjunction, the `if kind == add.#kind` guard fired against the un-narrowed `kind: string`,
-and the patch dropped (argocd bottomed).
-
-Fix: `embedBodyEmbedsDisjDeep` follows the embed chain (resolving each embedding via
-`resolveEmbedDefBody?`, mirroring `bodyNeedsDefer`) so a TRANSITIVELY-embedded disjunction still
-triggers the regular-field splice. The splice it gates is the SAME sound Gap-2b mechanism (meet is
-idempotent on a field an arm already carries; a real conflict still bottoms), so widening the GATE
-through the chain never over-narrows. -/
+-- ### Bug2-5 — disjunction-arm let-local narrowing across a TRANSITIVE embed.
+--
+-- Bug2-4 (above) narrowed a let-local (`_patch.kind`) when the disjunction-bodied mixin is embedded
+-- DIRECTLY by the host that declares the narrowing sibling (`#Use: {#Mixin; #additions; ...}` with
+-- `out: #Use & {kind: …}`). The argocd `#ListenerSet` shape is one level deeper: a SIBLING def's static
+-- field narrows the mixin, and the mixin is embedded TRANSITIVELY (`#ListenerSet` co-embeds
+-- `#UseCertManager`, which embeds `#Mixin`). The host's `kind` narrowing must cross TWO embed levels to
+-- reach `_patch.kind` on the disjunction-arm path. Pre-fix, `spliceOperandForEmbed` into the MIDDLE def
+-- (`#UseCertManager`) dropped `kind` — that def neither reads `kind` nor DIRECTLY embeds a disjunction
+-- (the disjunction is one more level down, inside `#Mixin`), so `embedBodyEmbedsDisj` (a one-level
+-- check) returned false and the Gap-2b "splice ALL regular fields" gate never fired. `kind` never
+-- reached the disjunction, the `if kind == add.#kind` guard fired against the un-narrowed `kind: string`,
+-- and the patch dropped (argocd bottomed).
+--
+-- Fix: `embedBodyEmbedsDisjDeep` follows the embed chain (resolving each embedding via
+-- `resolveEmbedDefBody?`, mirroring `bodyNeedsDefer`) so a TRANSITIVELY-embedded disjunction still
+-- triggers the regular-field splice. The splice it gates is the SAME sound Gap-2b mechanism (meet is
+-- idempotent on a field an arm already carries; a real conflict still bottoms), so widening the GATE
+-- through the chain never over-narrows.
 
 -- Mechanism: a MIDDLE def body (`#UseCertManager`) embeds `#Mixin` (slot 0 of its env frame), whose
 -- body embeds a disjunction. `embedBodyEmbedsDisj` (one-level) is FALSE for the middle body (no `.disj`
@@ -1053,20 +1053,20 @@ theorem bug25_transitive_no_over_prune_two_struct_arms :
           = true := by
   native_decide
 
-/-! ### Bug2-2 (Gap-2) — force-tier disjunction-arm narrowing.
-
-An embedded def `#M` carrying a discriminated disjunction (`{shape:"struct",…} |
-{shape:"list",…} | error`) selects the right arm when narrowed DIRECTLY (`#M &
-{shape:"struct"}`, the `meetEmbeddingsWithFuel` `conjDisjArms?` distribution one tier up). But
-when `#M` is itself embedded one layer down (`#U:{#M}`, then `#U & {shape:"struct"}`), the outer
-narrowing of the discriminator `shape` reaches the host frame but was NOT spliced INTO `#M` behind
-the force tier — the arms MATCH `shape`, they do not READ it, so `embedComprehensionReadLabels`
-missed it. Every arm survived and the meet bottomed. `embedDisjArmDeclLabels` surfaces the regular
-labels an embedded disjunction's arms DECLARE (following a `.refId` arm into its `let` slot for the
-shapeD `structShape | listShape` form), so the host's narrowed discriminator splices into `#M` and
-its force-time arm distribution prunes the dead arms exactly as the DIRECT case does. GATED: returns
-`[]` unless the body's `cs` holds a `.disj` embedding — no disjunction embedding → no extra splice →
-byte-identical (cert-manager fires this 0 times). -/
+-- ### Bug2-2 (Gap-2) — force-tier disjunction-arm narrowing.
+--
+-- An embedded def `#M` carrying a discriminated disjunction (`{shape:"struct",…} |
+-- {shape:"list",…} | error`) selects the right arm when narrowed DIRECTLY (`#M &
+-- {shape:"struct"}`, the `meetEmbeddingsWithFuel` `conjDisjArms?` distribution one tier up). But
+-- when `#M` is itself embedded one layer down (`#U:{#M}`, then `#U & {shape:"struct"}`), the outer
+-- narrowing of the discriminator `shape` reaches the host frame but was NOT spliced INTO `#M` behind
+-- the force tier — the arms MATCH `shape`, they do not READ it, so `embedComprehensionReadLabels`
+-- missed it. Every arm survived and the meet bottomed. `embedDisjArmDeclLabels` surfaces the regular
+-- labels an embedded disjunction's arms DECLARE (following a `.refId` arm into its `let` slot for the
+-- shapeD `structShape | listShape` form), so the host's narrowed discriminator splices into `#M` and
+-- its force-time arm distribution prunes the dead arms exactly as the DIRECT case does. GATED: returns
+-- `[]` unless the body's `cs` holds a `.disj` embedding — no disjunction embedding → no extra splice →
+-- byte-identical (cert-manager fires this 0 times).
 
 -- Mechanism (inline arms): the discriminator `shape` (body slot 1, a regular sibling) is declared by
 -- the disjunction's struct arms (`shape:"struct"`, `shape:"list"`). It is surfaced so the host's
@@ -1219,12 +1219,12 @@ theorem embed_body_embeds_disj_gate_direct_disj :
       = true := by
   native_decide
 
-/-! MEET-RESID-1 + D#1d-RESIDUAL: a HELD `.structComp` residual (a comprehension whose dynamic
-    key/`if`/`for` is non-concrete) is HELD by the comprehension-body lift (D#1d-RESIDUAL) and
-    SURVIVES a `meet`/`&` against a struct (MEET-RESID-1), instead of being dropped to `{}` or
-    bottomed. The soundness tripwires (conflict-MUST-still-bottom) are pinned ADVERSARIALLY — the
-    gate's whole purpose is that over-holding (deferring a real conflict) never happens. All
-    source-level (full parse→eval→meet→format), oracle-cross-checked vs cue v0.16.1. -/
+-- MEET-RESID-1 + D#1d-RESIDUAL: a HELD `.structComp` residual (a comprehension whose dynamic
+    -- key/`if`/`for` is non-concrete) is HELD by the comprehension-body lift (D#1d-RESIDUAL) and
+    -- SURVIVES a `meet`/`&` against a struct (MEET-RESID-1), instead of being dropped to `{}` or
+    -- bottomed. The soundness tripwires (conflict-MUST-still-bottom) are pinned ADVERSARIALLY — the
+    -- gate's whole purpose is that over-holding (deferring a real conflict) never happens. All
+    -- source-level (full parse→eval→meet→format), oracle-cross-checked vs cue v0.16.1.
 
 -- D#1d-RESIDUAL: a comprehension BODY that is itself a held residual (abstract dynamic key) is
 -- HELD, not dropped to `{}`. cue holds the block under eval (the `@d.i` label is the D#1b display
@@ -1283,19 +1283,19 @@ theorem concrete_key_comprehension_still_resolves :
       "a: {k: 1}\nb: {k: 1, x: 2}" = true := by
   native_decide
 
-/-! ### MEET-RESID-1 audit — MASKED-BOTTOM regression guard (Phase-A `RESID-MASK-1`).
-
-The MEET-RESID-1 soundness argument claimed "a `.structComp` never holds a conflict
-(unrepresentable)". That is FALSE: `mergeFieldValueWith` stores a field conflict as a PRESENT
-`.bottomWith` field VALUE (not a top-level `.bottom`), and MEET-RESID-1 / the eager
-`withDeferredComprehensions` re-wrap such a struct as `.structComp [x:_|_] …` (see Tripwire 1
-above, which pins exactly that inline `x: _|_`). The real invariant is weaker: a held conflict is
-fine PROVIDED every bottom-consumer surfaces it. `containsBottom` (the `liveAlternatives`
-disjunction-prune predicate) did NOT descend `.structComp` — so a residual-with-inner-conflict
-surviving as a disjunction ARM was not pruned, and a DEAD arm survived → a wrong value (a spurious
-unresolved `.disj`, or a stuck selector, where cue resolves to the live arm). Fixed by descending
-`.structComp`'s RESOLVED fields in `containsBottom`. These pins are the destroy-test witnesses;
-each is oracle-cross-checked vs cue v0.16.1 (cue prunes the dead arm). -/
+-- ### MEET-RESID-1 audit — MASKED-BOTTOM regression guard (Phase-A `RESID-MASK-1`).
+--
+-- The MEET-RESID-1 soundness argument claimed "a `.structComp` never holds a conflict
+-- (unrepresentable)". That is FALSE: `mergeFieldValueWith` stores a field conflict as a PRESENT
+-- `.bottomWith` field VALUE (not a top-level `.bottom`), and MEET-RESID-1 / the eager
+-- `withDeferredComprehensions` re-wrap such a struct as `.structComp [x:_|_] …` (see Tripwire 1
+-- above, which pins exactly that inline `x: _|_`). The real invariant is weaker: a held conflict is
+-- fine PROVIDED every bottom-consumer surfaces it. `containsBottom` (the `liveAlternatives`
+-- disjunction-prune predicate) did NOT descend `.structComp` — so a residual-with-inner-conflict
+-- surviving as a disjunction ARM was not pruned, and a DEAD arm survived → a wrong value (a spurious
+-- unresolved `.disj`, or a stuck selector, where cue resolves to the live arm). Fixed by descending
+-- `.structComp`'s RESOLVED fields in `containsBottom`. These pins are the destroy-test witnesses;
+-- each is oracle-cross-checked vs cue v0.16.1 (cue prunes the dead arm).
 
 -- ★ HEADLINE (the masked bottom): a residual-meet conflict as the NON-default arm of a default
 -- disjunction. cue prunes the dead arm → `pick: {y:9}`. Pre-fix kue HELD the dead arm
@@ -1362,29 +1362,29 @@ theorem resid_mask_no_over_prune_clean_residual_survives :
   native_decide
 
 
-/-! ### RESID-MASK-2 — eager-prune-of-definitely-bottom-arm POLICY (resolved as a cue-spec-gap).
-
-The RESID-MASK-1 fix (`containsBottom` descends `.structComp` resolved fields) made
-`liveAlternatives` prune a disjunction arm whose held residual carries a TERMINAL inline conflict
-— EVEN WHEN the surviving arm is itself still incomplete. cue is conservative here: it HOLDS the
-whole disjunction unresolved until a survivor concretizes (`export` → `N errors in empty
-disjunction`). kue is strictly MORE precise.
-
-SOUNDNESS (verified adversarially, 2026-06-21): the prune fires ONLY on a *definitely/terminal*
-bottom — a `.bottom`/`.bottomWith` node that has already MATERIALIZED from a concrete conflict
-(`x:1 & x:2`, concrete-vs-bound `x:1 & x:>5`, disjoint-bound `x:>5 & x:<3`) and can never
-un-bottom under later refinement. It NEVER fires on a merely-incomplete arm (one bottom NOW only
-because an abstract operand has not resolved): such an arm carries no bottom node, so
-`containsBottom` is false and the arm survives. The two are not the same, and the don't-prune
-cases below pin the distinction — an unsoundness would be pruning an arm that a later resolution
-could make viable, and the adversarial pins demonstrate kue does NOT.
-
-SPEC BASIS: the CUE spec's disjunction rule mandates *"eliminate bottom alternatives"* and treats
-`_|_` as the identity for `|`; eager elimination of a definitely-bottom arm is therefore spec-
-consonant and the precise/total lattice move. The spec does NOT pin the *timing* (it also says
-"evaluation can retain unresolved disjunctions"), so cue's hold is not a violation — only less
-precise. Recorded in `docs/reference/cue-spec-gaps.md` (kue MORE precise; not a divergence).
-These pins LOCK kue's eager-prune so it cannot regress to cue's hold. -/
+-- ### RESID-MASK-2 — eager-prune-of-definitely-bottom-arm POLICY (resolved as a cue-spec-gap).
+--
+-- The RESID-MASK-1 fix (`containsBottom` descends `.structComp` resolved fields) made
+-- `liveAlternatives` prune a disjunction arm whose held residual carries a TERMINAL inline conflict
+-- — EVEN WHEN the surviving arm is itself still incomplete. cue is conservative here: it HOLDS the
+-- whole disjunction unresolved until a survivor concretizes (`export` → `N errors in empty
+-- disjunction`). kue is strictly MORE precise.
+--
+-- SOUNDNESS (verified adversarially, 2026-06-21): the prune fires ONLY on a *definitely/terminal*
+-- bottom — a `.bottom`/`.bottomWith` node that has already MATERIALIZED from a concrete conflict
+-- (`x:1 & x:2`, concrete-vs-bound `x:1 & x:>5`, disjoint-bound `x:>5 & x:<3`) and can never
+-- un-bottom under later refinement. It NEVER fires on a merely-incomplete arm (one bottom NOW only
+-- because an abstract operand has not resolved): such an arm carries no bottom node, so
+-- `containsBottom` is false and the arm survives. The two are not the same, and the don't-prune
+-- cases below pin the distinction — an unsoundness would be pruning an arm that a later resolution
+-- could make viable, and the adversarial pins demonstrate kue does NOT.
+--
+-- SPEC BASIS: the CUE spec's disjunction rule mandates *"eliminate bottom alternatives"* and treats
+-- `_|_` as the identity for `|`; eager elimination of a definitely-bottom arm is therefore spec-
+-- consonant and the precise/total lattice move. The spec does NOT pin the *timing* (it also says
+-- "evaluation can retain unresolved disjunctions"), so cue's hold is not a violation — only less
+-- precise. Recorded in `docs/reference/cue-spec-gaps.md` (kue MORE precise; not a divergence).
+-- These pins LOCK kue's eager-prune so it cannot regress to cue's hold.
 
 -- ★ WITNESS (the spec-gap behavior PINNED): BOTH arms residual; arm 1 is a TERMINAL `x:1 & x:2`
 -- conflict (the held `for` dyn-field can only add string-keyed fields, never touch static `x`, so
@@ -1463,18 +1463,18 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
       "{\n    \"out\": {\n        \"ok\": true\n    }\n}\n" = true := by
   native_decide
 
-/-! ### Bug2-6 — definition multi-declaration close-once (RESOLVED).
-
-Two SEPARATE declarations of one definition path (`#Foo: {a:1}` + `#Foo: {c:3}`) UNIFY their field
-SETS and close ONCE over the union (the same union-not-intersect rule as embedding closedness) →
-cue v0.16.1 gives `{a:1, c:3}`. Kue formerly closed each decl's body SEPARATELY (`defClosed` at
-load) and conjoined them (`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`), so the meet
-MUTUALLY REJECTED → `{a:_|_, c:_|_}` (export bottomed). FIXED by `mergeDefinitionDecls`: when
-`canonicalizeFields`/`mergeConjFields` merge two same-label DEFINITION-class decls, the bodies are
-UNIONED into ONE def body (close-once via the existing single-`closedClauses`-clause path), NOT a
-`.conj`. The `#A & #B` use-site-meet path is structurally untouched (a `meet` of two already-closed
-structs CONCATENATES clauses → conjunction → reject), so distinct closed defs STILL reject — the
-soundness guards below pin that. -/
+-- ### Bug2-6 — definition multi-declaration close-once (RESOLVED).
+--
+-- Two SEPARATE declarations of one definition path (`#Foo: {a:1}` + `#Foo: {c:3}`) UNIFY their field
+-- SETS and close ONCE over the union (the same union-not-intersect rule as embedding closedness) →
+-- cue v0.16.1 gives `{a:1, c:3}`. Kue formerly closed each decl's body SEPARATELY (`defClosed` at
+-- load) and conjoined them (`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`), so the meet
+-- MUTUALLY REJECTED → `{a:_|_, c:_|_}` (export bottomed). FIXED by `mergeDefinitionDecls`: when
+-- `canonicalizeFields`/`mergeConjFields` merge two same-label DEFINITION-class decls, the bodies are
+-- UNIONED into ONE def body (close-once via the existing single-`closedClauses`-clause path), NOT a
+-- `.conj`. The `#A & #B` use-site-meet path is structurally untouched (a `meet` of two already-closed
+-- structs CONCATENATES clauses → conjunction → reject), so distinct closed defs STILL reject — the
+-- soundness guards below pin that.
 
 -- TARGET (was the WITNESS of the wrong bottom; FLIPPED): same-def multi-decl close-once → {a:1,c:3}.
 theorem bug26_same_def_multi_decl_close_once :
@@ -1573,24 +1573,24 @@ theorem bug26_four_decl_conflict_bottoms :
     exportJsonBottoms "#Foo: {a: 1}\n#Foo: {b: 2}\n#Foo: {a: 99}\n#Foo: {d: 4}\nout: #Foo\n" = true := by
   native_decide
 
-/-! ### Bug2-7 — same-def multi-decl close-once on the def-REFERENCE / force-fold path (RESOLVED).
-
-Bug2-6's close-once is correct on DIRECT selection (`out: #Foo`) — the direct-eval `.struct` arm
-`canonicalizeFields`-es the body and unions the same-label def decls into ONE close-once body. But it
-was LOST when the merged def lives inside a DEFINITION wrapper that is selected/referenced through a
-sibling (`#Use: {#additions:…; #additions:…; vis: #additions}` then `#Use.vis`): the def wrapper
-defers to a `.closure` and the force-fold reconstruction (`forceClosureWithConjunctCore`) rebuilds
-the body via `mergeConjOperands`, which ran `mergeConjFields` (plain `joinUnevaluated`/`.conj`) over
-each operand's fields BEFORE the downstream `canonicalizeFields` could union them — so the two
-`#additions` decls were `.conj`-collapsed and re-closed SEPARATELY, each clause rejecting the other's
-fields → `{cert_gw:_|_, cert_ing:_|_}`.
-
-FIXED by canonicalizing each operand's OWN fields up-front in `mergeConjOperands` (Bug2-7): a repeated
-DEFINITION-class decl declared WITHIN one struct body (one operand) UNIONS via `mergeDefinitionDecls`
-(Bug2-6 close-once), while the CROSS-operand merge stays plain `.conj`. That within-operand vs
-cross-operand split IS the soundness boundary: a host's `#data` meeting an EMBED's `#data` (distinct
-operands) still `.conj`-MEETs — never unions — so the cert-manager closed pattern def is not re-opened
-and `#A & #B` (distinct closed defs, distinct operands) still rejects. -/
+-- ### Bug2-7 — same-def multi-decl close-once on the def-REFERENCE / force-fold path (RESOLVED).
+--
+-- Bug2-6's close-once is correct on DIRECT selection (`out: #Foo`) — the direct-eval `.struct` arm
+-- `canonicalizeFields`-es the body and unions the same-label def decls into ONE close-once body. But it
+-- was LOST when the merged def lives inside a DEFINITION wrapper that is selected/referenced through a
+-- sibling (`#Use: {#additions:…; #additions:…; vis: #additions}` then `#Use.vis`): the def wrapper
+-- defers to a `.closure` and the force-fold reconstruction (`forceClosureWithConjunctCore`) rebuilds
+-- the body via `mergeConjOperands`, which ran `mergeConjFields` (plain `joinUnevaluated`/`.conj`) over
+-- each operand's fields BEFORE the downstream `canonicalizeFields` could union them — so the two
+-- `#additions` decls were `.conj`-collapsed and re-closed SEPARATELY, each clause rejecting the other's
+-- fields → `{cert_gw:_|_, cert_ing:_|_}`.
+--
+-- FIXED by canonicalizing each operand's OWN fields up-front in `mergeConjOperands` (Bug2-7): a repeated
+-- DEFINITION-class decl declared WITHIN one struct body (one operand) UNIONS via `mergeDefinitionDecls`
+-- (Bug2-6 close-once), while the CROSS-operand merge stays plain `.conj`. That within-operand vs
+-- cross-operand split IS the soundness boundary: a host's `#data` meeting an EMBED's `#data` (distinct
+-- operands) still `.conj`-MEETs — never unions — so the cert-manager closed pattern def is not re-opened
+-- and `#A & #B` (distinct closed defs, distinct operands) still rejects.
 
 -- TARGET (was the WITNESS of the wrong bottom; FLIPPED): same-def multi-decl close-once survives a
 -- def-REFERENCE through a sibling. cue v0.16.1: `{cert_gw:{}, cert_ing:{}}` (the `#kind` hidden field
@@ -1673,23 +1673,23 @@ theorem bug27_closed_pattern_multi_decl_rejects_int_via_ref :
       "#Use: {\n\t#data: {[string]: string}\n\t#data: {known: \"x\"}\n\tvis: #data & {n: 5}\n}\nout: #Use.vis\n" = true := by
   native_decide
 
-/-! ### Bug2-8 — same-def multi-decl close-once ACROSS AN EMBED boundary (RESOLVED).
-
-Bug2-7 unions same-def decls declared WITHIN one struct body (one operand). Bug2-8 is when a def
-declares `#m` once and EMBEDS another def that also declares `#m` (`#A: {#m:{a}}` then `#Use: {#A;
-#m:{c}; vis:#m}`): the two `#m` decls are repeated declarations of the ONE def path `#m` spanning the
-embed boundary, which cue close-once-UNIONS (`{a:1, c:3}`). kue formerly `.conj`-meet them across the
-embed → each clause re-closes separately → mutual reject → bottom.
-
-The fix carries def-path PROVENANCE through the embed merge (a SUM `DeclProvenance` =
-`ownDecl`/`embeddedDecl`, on a named `ConjOperand`). A PLAIN embedding's same-def-path decls
-(`embedSameDefPathDecls`, gated to labels the host ALSO declares as definitions) are folded into the
-static frame as an `embeddedDecl` operand, so `mergeConjOperands` close-once-UNIONS the host `ownDecl
-#m` × embed `embeddedDecl #m` pair (the Bug2-6 lever) AND a sibling `vis: #m` resolves against the
-union; the embed meet-fold then unions the same `#m` idempotently (`meetEmbedUnioningDefDecls`). The
-union fires ONLY for same-def-PATH DEFINITION-class decls of a PLAIN embed — a regular field, a
-deferral/disjunction-bearing embed, and a cross-conjunct value-meet (the cert-manager `data: [string]:
-string` REGULAR closed pattern) all stay MEET. -/
+-- ### Bug2-8 — same-def multi-decl close-once ACROSS AN EMBED boundary (RESOLVED).
+--
+-- Bug2-7 unions same-def decls declared WITHIN one struct body (one operand). Bug2-8 is when a def
+-- declares `#m` once and EMBEDS another def that also declares `#m` (`#A: {#m:{a}}` then `#Use: {#A;
+-- #m:{c}; vis:#m}`): the two `#m` decls are repeated declarations of the ONE def path `#m` spanning the
+-- embed boundary, which cue close-once-UNIONS (`{a:1, c:3}`). kue formerly `.conj`-meet them across the
+-- embed → each clause re-closes separately → mutual reject → bottom.
+--
+-- The fix carries def-path PROVENANCE through the embed merge (a SUM `DeclProvenance` =
+-- `ownDecl`/`embeddedDecl`, on a named `ConjOperand`). A PLAIN embedding's same-def-path decls
+-- (`embedSameDefPathDecls`, gated to labels the host ALSO declares as definitions) are folded into the
+-- static frame as an `embeddedDecl` operand, so `mergeConjOperands` close-once-UNIONS the host `ownDecl
+-- #m` × embed `embeddedDecl #m` pair (the Bug2-6 lever) AND a sibling `vis: #m` resolves against the
+-- union; the embed meet-fold then unions the same `#m` idempotently (`meetEmbedUnioningDefDecls`). The
+-- union fires ONLY for same-def-PATH DEFINITION-class decls of a PLAIN embed — a regular field, a
+-- deferral/disjunction-bearing embed, and a cross-conjunct value-meet (the cert-manager `data: [string]:
+-- string` REGULAR closed pattern) all stay MEET.
 
 -- TARGET (was the WITNESS of the wrong bottom; FLIPPED): host declares `#m` once and EMBEDS `#A` which
 -- also declares `#m` — the two decls of the ONE def path `#m` close-once-UNION across the embed. cue
@@ -1761,17 +1761,17 @@ theorem bug28_embed_closed_pattern_field_stays_meet :
   native_decide
 
 
-/-! ### Bug2-9 — use-site narrowing of a REFERENCED NAMED multi-conjunct def (RESOLVED).
-
-`#LS: #Base & {…}` is a named def whose BODY is itself a `.conj`. Referencing it and narrowing at
-the use site (`#LS & {#name}`) must flow `#name` into a field declared inside `#Base` (`vis: #name`).
-Pre-fix kue forced `#LS`'s `.conj` body STANDALONE via the `.refId` eval arm — with NO use-operands —
-so the sibling self-ref collapsed to its abstract value (`vis: string`) BEFORE the narrowing arrived,
-then `& {#name}` met too late (`incomplete value: string`). The INLINED `#Base & {…} & {#name}`
-already worked (all conjuncts in one fold). Fixed by `flattenConjDefRef`: a depth-0 ref to a
-`.conj`-bodied def splices its constituents into the use-site `.conj` BEFORE the fold, making the
-named ref byte-identical to the inlined meet. Distinct from Bug2-8 (decl-union across an embed);
-this is narrowing-through-a-referenced-multi-conjunct-def. -/
+-- ### Bug2-9 — use-site narrowing of a REFERENCED NAMED multi-conjunct def (RESOLVED).
+--
+-- `#LS: #Base & {…}` is a named def whose BODY is itself a `.conj`. Referencing it and narrowing at
+-- the use site (`#LS & {#name}`) must flow `#name` into a field declared inside `#Base` (`vis: #name`).
+-- Pre-fix kue forced `#LS`'s `.conj` body STANDALONE via the `.refId` eval arm — with NO use-operands —
+-- so the sibling self-ref collapsed to its abstract value (`vis: string`) BEFORE the narrowing arrived,
+-- then `& {#name}` met too late (`incomplete value: string`). The INLINED `#Base & {…} & {#name}`
+-- already worked (all conjuncts in one fold). Fixed by `flattenConjDefRef`: a depth-0 ref to a
+-- `.conj`-bodied def splices its constituents into the use-site `.conj` BEFORE the fold, making the
+-- named ref byte-identical to the inlined meet. Distinct from Bug2-8 (decl-union across an embed);
+-- this is narrowing-through-a-referenced-multi-conjunct-def.
 
 -- TARGET (was the WITNESS of the wrong `incomplete value`; FLIPPED): a 2-conjunct named def narrowed
 -- at the use site. `#name: "argocd-ls"` flows through `#LS` into `#Base`'s `vis: #name`. cue: `vis:
@@ -1847,5 +1847,35 @@ theorem bug28_scalar_def_across_embed_stays_meet :
       "{\n    \"out\": \"hi\"\n}\n" = true := by
   native_decide
 
+-- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of
+-- every section. If a stray block comment (`/-` … runaway) or an editing slip ever swallows a
+-- section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
+-- error, not a silently-dead green build. This is the structural guard the dead-theorem
+-- incident (~140 silently dead, build green) lacked. Headers in THIS file are `--` line
+-- comments (cannot run away); the tripwire backstops any future regression. Keep one anchor
+-- per section; add a line when a section is added.
+#check @embedded_self_pass_skips_nested_unselected            -- argocd link 3/4
+#check @embedded_self_pass_skips_builtin_unrelated            -- A1 builtin-arg
+#check @remap_structcomp_conjunct_remaps_comprehension        -- B1 conj-remap
+#check @descend_clauses_agrees_remapConjClauses               -- A5 body-depth
+#check @fold_value_dynfield_value_scanned_at_parent_depth     -- A-EN3 fold
+#check @descend_clauses_frame_count_matches_resolve           -- B7 descendClauses
+#check @remap_dynamicfield_conjunct_reindexes_label_and_value -- A5-sibling
+#check @listcomp_embed_selfref_empty_stays_empty              -- argocd link 4
+#check @hidden_def_embed_concrete_source                      -- secret-data sub-1
+#check @disj_struct_no_over_defer                             -- secret-data sub-2
+#check @conj_disj_arms_fuel_zero_declines                     -- saturation guard
+#check @embed_disj_single_arm_narrows                         -- embed-disj-arm-fallthrough
+#check @embed_comprehension_guard_real_conflict_bottoms       -- parts.#Mixin
+#check @let_buried_for_source_expands                         -- Bug2-1 / A-EN1
+#check @mixin_let_local_guard_false_drops_body                -- Bug2-4
+#check @embed_body_embeds_disj_gate_direct_disj               -- Bug2-5 / Bug2-2
+#check @concrete_key_comprehension_still_resolves             -- MEET-RESID-1
+#check @resid_mask_no_over_prune_clean_residual_survives      -- RESID-MASK-1
+#check @resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor -- RESID-MASK-2
+#check @bug26_four_decl_conflict_bottoms                      -- Bug2-6
+#check @bug27_closed_pattern_multi_decl_rejects_int_via_ref   -- Bug2-7
+#check @bug29_alias_cycle_narrow_terminates                   -- Bug2-9
+#check @bug28_scalar_def_across_embed_stays_meet              -- Bug2-8 (file tail)
 
 end Kue
