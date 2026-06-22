@@ -1,0 +1,46 @@
+# Builds the self-contained `kue` Linux binary inside a container.
+#
+# There is no turnkey Lean cross-compile: `lake`/`leanc` emit C and link the
+# host toolchain's Lean runtime. So we build NATIVELY for the container's arch.
+# linux/arm64 builds native on an arm64 host (fast); linux/amd64 builds under
+# emulation (QEMU via buildx) on the same host (correct but slow).
+#
+# Base is debian:bullseye-slim (glibc 2.31) — old enough that the resulting
+# binary runs on essentially every currently-supported Linux distro, while
+# still carrying a working toolchain. The Lean runtime links statically; the
+# binary's only dynamic deps are the base system libs (libc, libgcc, libstdc++).
+#
+# The toolchain version is passed in (single-sourced from ./lean-toolchain) so
+# this file never drifts from the repo's pin.
+FROM debian:bullseye-slim
+
+ARG LEAN_TOOLCHAIN
+ENV ELAN_HOME=/root/.elan
+ENV PATH=/root/.elan/bin:$PATH
+
+# elan + a C/C++ toolchain (leanc shells out to cc/c++ for the final link) and
+# git (lake fetches deps over it). No recommends — keep the image lean.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install elan non-interactively and pin exactly the repo's toolchain. The
+# explicit version avoids a second network fetch when `lake build` runs.
+RUN test -n "$LEAN_TOOLCHAIN" || (echo "LEAN_TOOLCHAIN build arg is required" >&2; exit 1) \
+    && curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+        | sh -s -- -y --default-toolchain "$LEAN_TOOLCHAIN" \
+    && lean --version
+
+WORKDIR /src
+# Copy the repo in. .lake/ build artifacts from the macOS host are excluded via
+# .dockerignore so the Linux build starts clean.
+COPY . /src
+
+# Build the executable. The Lake package's default target is `kue`.
+RUN lake build kue \
+    && test -x /src/.lake/build/bin/kue
+
+# Smoke-test the freshly built binary at build time so a binary that builds but
+# does not run fails the image build. Matches the Homebrew formula's own test.
+RUN printf 'x: int & 1\n' | /src/.lake/build/bin/kue eval | grep -qx 'x: 1' \
+    && echo "smoke-test ok: kue eval"

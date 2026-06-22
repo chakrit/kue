@@ -1,0 +1,10 @@
+# Keep the Docker build context clean and arch-correct.
+#
+# .lake/ holds host (macOS) build artifacts — copying them into the Linux build
+# would mix architectures. .git and dist/ are build/release noise the container
+# build does not need.
+.lake/
+dist/
+.git/
+.github/
+*.log
