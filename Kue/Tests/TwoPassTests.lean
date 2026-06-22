@@ -1543,6 +1543,36 @@ theorem bug26_distinct_closed_defs_same_field_admits :
       "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
+-- CLOSED-PATTERN multi-decl (the cert-manager `#data: [string]: string` class — the canary the fix
+-- must not re-open): a `[string]: string` pattern decl unioned with a concrete decl keeps the PATTERN
+-- as a value-constraint, NOT a re-opened tail. A string-typed use-site field is admitted by the
+-- pattern (cue: `{extra:"ok", known:"x"}`); the union closes-once, the pattern stays a typecheck.
+theorem bug26_closed_pattern_multi_decl_admits_string :
+    exportJsonMatches "#data: {[string]: string}\n#data: {known: \"x\"}\nout: #data & {extra: \"ok\"}\n"
+      "{\n    \"out\": {\n        \"known\": \"x\",\n        \"extra\": \"ok\"\n    }\n}\n" = true := by
+  native_decide
+
+-- CLOSED-PATTERN multi-decl BOUNDARY: the unioned pattern still TYPECHECKS — an INT use-site field
+-- bottoms against `[string]: string` (cue: `conflicting values 5 and string`). The close-once union
+-- does not weaken the pattern to a bare-`...` open tail (a naive union re-open would admit `n: 5`).
+theorem bug26_closed_pattern_multi_decl_rejects_int :
+    exportJsonBottoms "#data: {[string]: string}\n#data: {a: \"x\"}\nout: #data & {n: 5}\n" = true := by
+  native_decide
+
+-- 4-DECL close-once: four same-def decls union `{a,b,c,d}` and close ONCE — a use-site `extra` (in no
+-- decl) is rejected (cue: `field not allowed`). Pins that the fold over decls scales past the 3-decl
+-- argocd shape without leaking openness.
+theorem bug26_four_decl_close_once_rejects_extra :
+    exportJsonBottoms "#Foo: {a: 1}\n#Foo: {b: 2}\n#Foo: {c: 3}\n#Foo: {d: 4}\nout: #Foo & {extra: 9}\n" = true := by
+  native_decide
+
+-- 4-DECL with a CONFLICT in one decl: the union still `meet`s shared labels, so a conflicting `a`
+-- (1 vs 99) bottoms while `b`/`d` survive (cue: `conflicting values 99 and 1`). Close-once over more
+-- decls does not paper over a real conflict.
+theorem bug26_four_decl_conflict_bottoms :
+    exportJsonBottoms "#Foo: {a: 1}\n#Foo: {b: 2}\n#Foo: {a: 99}\n#Foo: {d: 4}\nout: #Foo\n" = true := by
+  native_decide
+
 /-! ### Bug2-7 — same-def multi-decl close-once on the def-REFERENCE / force-fold path (RESOLVED).
 
 Bug2-6's close-once is correct on DIRECT selection (`out: #Foo`) — the direct-eval `.struct` arm
@@ -1622,6 +1652,25 @@ theorem bug27_same_def_conflict_via_ref_still_bottoms :
 theorem bug27_def_ref_close_once_rejects_use_site_extra :
     exportJsonBottoms
       "#Use: {\n\t#m: {a: 1}\n\t#m: {c: 3}\n\tvis: #m & {extra: 9}\n}\nout: #Use.vis\n" = true := by
+  native_decide
+
+-- OPEN-DOMINATES on the REFERENCE / force-fold path: if ANY within-operand decl is open via `...`, the
+-- close-once union is OPEN even when reached through a sibling reference — a use-site `extra` is
+-- admitted (cue: `{a:1, c:3, extra:9}`). The Bug2-6 `unionDefOpenness` (open dominates) carries
+-- through the per-operand `canonicalizeFields`, not just the direct-eval arm.
+theorem bug27_open_via_tail_admits_extra_via_ref :
+    exportJsonMatches
+      "#Use: {\n\t#m: {a: 1, ...}\n\t#m: {c: 3}\n\tvis: #m & {extra: 9}\n}\nout: #Use.vis\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"extra\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- CLOSED-PATTERN multi-decl on the REFERENCE path (cert-manager class through a sibling): the unioned
+-- `[string]: string` pattern still TYPECHECKS via the force-fold reconstruction — an INT use-site field
+-- bottoms (cue: `conflicting values 5 and string`). The per-operand canonicalize does not weaken the
+-- closed pattern to an open tail when reached through a reference.
+theorem bug27_closed_pattern_multi_decl_rejects_int_via_ref :
+    exportJsonBottoms
+      "#Use: {\n\t#data: {[string]: string}\n\t#data: {known: \"x\"}\n\tvis: #data & {n: 5}\n}\nout: #Use.vis\n" = true := by
   native_decide
 
 /-! ### Bug2-8 — same-def multi-decl close-once ACROSS AN EMBED boundary (PARKED TRIPWIRE).

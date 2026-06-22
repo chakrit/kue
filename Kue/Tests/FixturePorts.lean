@@ -551,6 +551,27 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-6 CLOSED-PATTERN multi-decl (the cert-manager `#data: [string]: string` class — the
+      -- over-union canary): a `[string]: string` pattern decl unioned with a concrete decl keeps the
+      -- PATTERN as a value-constraint, NOT a re-opened tail. A string-typed use-site `extra` is
+      -- admitted by the pattern; the union closes-once. A naive union would re-open this to a bare `...`.
+      fileName := "definitions/bug26_closed_pattern_multi_decl_admits_string.expected",
+      content :=
+        match parseSource "#data: {[string]: string}\n#data: {known: \"x\"}\nout: #data & {extra: \"ok\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-6 4-DECL close-once: four same-def decls union `{a,b,c,d}` and close ONCE — a use-site
+      -- `extra` (in no decl) is rejected (`extra: _|_`). Pins that the fold over decls scales past the
+      -- 3-decl argocd shape without leaking openness.
+      fileName := "definitions/bug26_four_decl_close_once_rejects_extra.expected",
+      content :=
+        match parseSource "#Foo: {a: 1}\n#Foo: {b: 2}\n#Foo: {c: 3}\n#Foo: {d: 4}\nout: #Foo & {extra: 9}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- Bug2-7: same-def multi-decl close-once survives a def-REFERENCE through a sibling. `#Use`
       -- declares `#additions` twice and references it via `vis`; the def wrapper defers to a closure
       -- and the force-fold reconstruction (`mergeConjOperands`) now canonicalizes each operand's OWN

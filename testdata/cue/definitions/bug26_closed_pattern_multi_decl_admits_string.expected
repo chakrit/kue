@@ -1,0 +1,2 @@
+#data: {known: "x", [string]: string}
+out: {known: "x", extra: "ok", [string]: string}
