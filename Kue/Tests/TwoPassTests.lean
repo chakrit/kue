@@ -1543,5 +1543,36 @@ theorem bug26_distinct_closed_defs_same_field_admits :
       "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
+/-! ### Bug2-7 — same-def multi-decl close-once LOST on the def-REFERENCE path (PARKED TRIPWIRE).
+
+The DEEPER argocd `export` blocker uncovered AFTER Bug2-6 landed (this fix). Bug2-6's close-once is
+correct on DIRECT selection (`out: #Foo` where `#Foo` has two decls) — `canonicalizeFields` unions
+the same-label def decls into ONE close-once body. But when the merged def is REFERENCED through a
+SIBLING (`vis: #additions`, the def-deferral/force-fold path via `mergeConjOperands`/`mergeConjFields`),
+the body is RECONSTRUCTED from the ORIGINAL decls and re-closed SEPARATELY (`.conj`, NOT the union),
+so each decl's clause rejects the OTHER decl's fields → `{cert_gw:_|_, cert_ing:_|_}` (the merged
+clause displays right, but the per-field bottoms are baked in by the separate close).
+
+Minimal repro (`exportJsonBottoms` holds the WRONG bottom — FLIP when fixed): a def with two same-def
+decls, REFERENCED via a sibling `vis`. cue v0.16.1: `{cert_gw:{}, cert_ing:{}}`; kue bottoms.
+
+Root: `mergeConjOperands`/`mergeConjFields` (the def-reference reconstruction) uses plain
+`joinUnevaluated` (`.conj`), with NO same-decl-vs-cross-conjunct distinction — so it cannot apply
+close-once for repeated decls of one def the way `canonicalizeFields` does. A naive union in
+`mergeConjFields` is UNSOUND: it conflates a host's field meeting an EMBED's same-label field (a
+genuine cross-conjunct meet that must `.conj`) with two repeated decls of one def (which must union)
+— it re-opened a closed pattern def (`#data: [string]: string` gained a stray `...`) in the
+cert-manager mixin path. The sound fix carries same-decl provenance THROUGH `mergeConjOperands`
+(distinguishing within-operand repeated decls from cross-operand conjuncts), a larger design change.
+PARKED for a dedicated slice; correctness-first per the guardrails — an unsound or embed-breaking
+fix is worse than the parked bottom. This is the residual argocd blocker (`apps/argocd.cue`'s
+`#ListenerSet = … & parts.#UseCertManager`, whose `#additions` triple-decl is referenced through
+`route.yaml`/`listener.yaml`). -/
+theorem bug27_WITNESS_multi_decl_def_ref_wrongly_bottoms :
+    exportJsonBottoms
+      "#Use: {\n\t#additions: cert_gw: {#kind: \"Gateway\"}\n\t#additions: cert_ing: {#kind: \"Ingress\"}\n\tvis: #additions\n}\nout: #Use.vis\n"
+      = true := by
+  native_decide
+
 
 end Kue

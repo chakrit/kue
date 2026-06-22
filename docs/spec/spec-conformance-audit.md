@@ -217,11 +217,13 @@ these is in Audit history (below) + the implementation-log + git.
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
 
-**PARKED (off the critical path):** **Bug2-6** (the argocd residual — definition
-multi-declaration closedness; the deeper blocker uncovered while fixing Bug2-5) — see
-Live-slice detail. **Bug2-5 RESOLVED** (`5fca57e`, 2026-06-22): the transitive-embed
-disj-path narrowing-injection mechanism is fixed; it was NOT the final argocd blocker.
-Plus the LOW cosmetic/latent corners tracked in `plan.md` item 6.
+**PARKED (off the critical path):** **Bug2-7** (the NEW argocd residual — same-def
+multi-decl close-once LOST on the def-REFERENCE path; uncovered after Bug2-6 landed) — see
+Live-slice detail. **Bug2-6 RESOLVED** (`ef824cb`, 2026-06-23): definition
+multi-declaration close-once via `mergeDefinitionDecls` — see Live-slice detail.
+**Bug2-5 RESOLVED** (`5fca57e`, 2026-06-22): the transitive-embed disj-path
+narrowing-injection mechanism is fixed; it was NOT the final argocd blocker. Plus the LOW
+cosmetic/latent corners tracked in `plan.md` item 6.
 
 Audit cadence + the non-spec-conformance plan roadmap live in `plan.md` / the breadcrumb,
 not here.
@@ -248,68 +250,61 @@ was purely the GATE missing the transitive disjunction. Self-contained repro
 pre-fix kue dropped it; now identical). 8 `native_decide` pins (`TwoPassTests` Bug2-5
 section). cert-manager content-identical.
 
-**Bug2-6 (HIGH — the REAL residual argocd export blocker; PARKED, distinct mechanism).**
-`kue export apps/argocd.cue` still bottoms (~60s, down from 153s). The blocker is a
-FUNDAMENTAL definition-merge bug, unrelated to disjunctions or mixins, uncovered while
-fixing Bug2-5. **Minimal repro:** `#Foo: {a: 1}` + `#Foo: {c: 3}` (two SEPARATE declarations
-of the same definition path) → cue unifies the bodies BEFORE closing → `{a:1, c:3}`; Kue
-closes each decl's body SEPARATELY (`defClosed` at load) and conjoins them
-(`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`), so the meet mutually rejects
-→ `{a: _|_, c: _|_}`. Confirmed at top level (`#Foo` def), nested (`out: {#m: x:1; #m: y:2}`),
-and inside the argocd `#UseCertManager` (`#additions: cert_gw:`, `#additions: cert_ing:`,
-`#additions: cert_ls:` — three separate hidden-field decls, each a closed body). **Spec basis:**
-repeated declarations of one definition unify their field SETS and close ONCE over the union
-(NOT per-decl) — the SAME union-not-intersect rule as embedding closedness. **Soundness
-constraint (why it's not a one-line fix):** the meet of two DISTINCT closed defs
-(`#A: {a}; #B: {c}`; `#A & #B`) must STILL reject (cue: `field not allowed`; kue correctly
-rejects today). By the time it is a `.conj`/meet of two closed structs, the "same def path,
-repeated decl" provenance is LOST — so a naive "union closed sets on meet" would wrongly
-admit `#A & #B`. The fix must distinguish same-label def-decl merge (in
-`canonicalizeFields`/`joinUnevaluated`, where the same-label provenance IS present) from
-use-site def-meet — a provenance-carrying change in the definition-merge core. Left PARKED
-for a dedicated slice; correctness-first per the guardrails (an unsound fix here is worse
-than the parked bottom).
+**Bug2-6 — RESOLVED (`ef824cb`, 2026-06-23). Definition multi-declaration close-once via
+`mergeDefinitionDecls`.** Two SEPARATE declarations of one definition path (`#Foo: {a:1}` +
+`#Foo: {c:3}`) now UNIFY their field-sets and close ONCE over the union (cue v0.16.1:
+`{a:1,c:3}`) — the standard union-not-intersect CUE definition-merge rule. Kue formerly
+`.conj`-ed two SEPARATELY-closed bodies, so the meet mutually rejected → `{a:_|_, c:_|_}`.
 
-> **Architecture design note (Phase-B audit, 2026-06-23 — DESIGN INPUT, no code; the
-> future slice starts from this).** The cleanest illegal-states-unrepresentable approach
-> exploits a representation that ALREADY exists: `Value.struct`'s **`closedClauses`** field
-> (`Value.lean:637`). Each clause is one closed conjunct's allowed-set; the type's CONTRACT
-> is "a field is allowed iff EVERY clause admits it" — a meet of two closed structs
-> CONCATENATES clauses (conjunction, the `#A & #B` rejection we must KEEP). Bug2-6 needs the
-> dual for same-def-decl merge: the two decls' label-sets must be UNIONED into ONE clause
-> (allowed iff SOME decl declared it), exactly the `unify-then-close-ONCE` spec rule. So the
-> fix is NOT a new flag on the meet; it is **choosing union-into-one-clause vs
-> concatenate-two-clauses at the point the provenance is known**, then letting the EXISTING
-> `closedClauses` conjunction machinery enforce `#A & #B` rejection unchanged downstream.
->
-> **Where provenance lives — the single seam.** `canonicalizeFields`/`joinUnevaluated`
-> (`Eval.lean:351–363`) is the ONLY place that knows "these two bodies are repeated
-> declarations of the SAME def-path label." It currently erases that into an opaque
-> `.conj [closed{a}, closed{c}]`, and by the time `meet` closes each side the same-def-path
-> fact is gone (the diagnosis above). The fix carries the fact across that seam. **Cleanest
-> type carrier (illegal-states-unrepresentable):** do NOT bolt a `Bool` "sameDecl" flag onto
-> `.conj` (admits the nonsense combination of a same-decl flag on a use-site conjunction). A
-> def's repeated decls should NOT become a `.conj` at all — they are ONE definition whose
-> body is the field-set UNION closed ONCE. So `joinUnevaluated`, when BOTH sides are
-> definition-class bodies for the SAME label (the `Field` carries `FieldClass.isDefinition`),
-> should produce a **merged unevaluated def body** (one struct whose fields are the
-> union of both decls' fields, sharing ONE eventual `closedClauses` clause) — NOT a `.conj`
-> of two separately-closeable bodies. The `.conj` path stays for non-definition duplicate
-> labels (which `meet` correctly, since regular-field duplicates DO intersect). This keeps
-> the same-decl-vs-use-site distinction STRUCTURAL (a merged-body vs a `.conj`), not a flag.
->
-> **Soundness boundary the design must preserve (the test that proves it):** `#A & #B`
-> (distinct closed defs, use-site meet) must STILL reject. It does, because the use-site meet
-> NEVER routes through `joinUnevaluated` — it is a `meet` of two already-closed `.struct`
-> values whose `closedClauses` CONCATENATE (two clauses → conjunction → reject). Only the
-> same-label decls under ONE def path hit `canonicalizeFields`. The two paths are already
-> disjoint in the code; the fix makes `joinUnevaluated` close-once on the same-decl path
-> WITHOUT touching the meet path — so the rejection is structurally preserved, not
-> re-checked. **Pins the slice must add:** `#Foo:{a:1}; #Foo:{c:3}` → `{a:1,c:3}` (open over
-> the union, both selectable); nested `out:{#m:{a:1}; #m:{c:3}}`; the three-decl
-> `#additions:` argocd shape; AND the must-still-reject witnesses `#A:{a} & #B:{c}` → field
-> not allowed, plus `#Foo:{a:1}; #Foo:{a:2}` → `{a: _|_}` (same label, conflicting VALUES,
-> still meets and bottoms — the union is over LABELS, the values still `meet`).
+**Mechanism (provenance carrier — illegal-states-unrepresentable):** the carrier is
+STRUCTURAL, not a flag. `canonicalizeFields` (the one seam that knows two bodies are
+repeated decls of the SAME def-path label — `Eval.lean`, via the new
+`mergeUnevaluatedFieldInto`) routes a merged DEFINITION-class slot through
+`mergeDefinitionDecls` — which UNIONS the two decl bodies into ONE def body (union fields via
+`mergeFieldListWith joinUnevaluated` so a shared label's values still `.conj`-meet; union
+patterns; `unionDefOpenness` with OPEN dominating) so the eval close closes it ONCE via the
+EXISTING single-`closedClauses`-clause path (`mkStruct` defaults the union clause). Non-def
+duplicate labels keep the deferred `.conj` (`joinUnevaluated`), which `meet`s lazily. The
+same-decl-vs-use-site distinction is a merged-body vs a `.conj`, never a `Bool` on `.conj`.
+
+**Soundness preserved (the guards stay green):** `#A & #B` (distinct closed defs) STILL
+rejects — the use-site `meet` CONCATENATES `closedClauses` (conjunction → reject extras) and
+NEVER routes through `mergeDefinitionDecls`; the two paths are disjoint in code.
+`mergeConjFields` (the conj-of-EMBEDS path) deliberately keeps plain `joinUnevaluated`: a
+host's `#data` meeting an embedded mixin's `#data` is a genuine cross-conjunct meet that must
+`.conj` (unioning there wrongly re-opened a closed pattern def, `#data: [string]: string`
+gaining a stray `...`). 13 pins (TwoPassTests Bug2-6): target close-once + 3-decl + nested;
+close-once rejects use-site extra, admits a union field; same-def CONFLICT still bottoms;
+one-decl open-via-`...` opens the union; 4 distinct-closed-def soundness guards. 3 fixture
+pairs + FixturePorts. All oracle-confirmed vs cue v0.16.1. Axiom-clean (propext only), total.
+cert-manager content-identical (jq-normalized diff empty; field-order #3 only).
+
+**argocd status: STILL bottoms (~61s) — Bug2-6 was NOT the final blocker.** `kue export
+apps/argocd.cue` localized to `route.yaml`/`listener.yaml` (the
+`defaults.#ListenerSet = defs.#ListenerSet & parts.#UseCertManager & {…}` composition, whose
+`#UseCertManager` declares `#additions` THREE times). It now hits **Bug2-7** (below).
+
+**Bug2-7 (HIGH — the NEW residual argocd export blocker; PARKED, distinct mechanism).**
+Same-def multi-decl close-once is correct on DIRECT selection (Bug2-6, fixed) but LOST when
+the merged def is REFERENCED through a sibling. **Minimal repro:**
+`#Use: {#additions: cert_gw: {…}; #additions: cert_ing: {…}; vis: #additions}` then
+`out: #Use.vis` → cue `{cert_gw:{}, cert_ing:{}}`; kue → `{cert_gw:_|_, cert_ing:_|_}`
+(the merged clause `[cert_gw,cert_ing]` displays correctly, but each field is `fieldNotAllowed`
+— the per-field bottoms are baked in by a SEPARATE close on the reference path). **Root:** the
+def-deferral/force-fold reconstruction (`mergeConjOperands`/`mergeConjFields`, `Eval.lean`)
+rebuilds the def body from the ORIGINAL decls via plain `joinUnevaluated` (`.conj`), with NO
+same-decl-vs-cross-conjunct distinction, so it re-closes each decl separately. `canonicalizeFields`
+(Bug2-6) covers the direct same-struct merge but NOT this reconstruction path. **Soundness
+constraint (why it's not a one-line extension):** a naive union in `mergeConjFields` is UNSOUND
+— it conflates a host's field meeting an EMBED's same-label field (a genuine cross-conjunct meet
+that must `.conj`) with two repeated decls of one def (which must union); it re-opened the
+cert-manager mixin's closed `#data` pattern (verified regression). The sound fix carries
+same-decl provenance THROUGH `mergeConjOperands` (distinguishing within-operand repeated decls
+from cross-operand conjuncts) — a larger design change. PARKED for a dedicated slice;
+correctness-first per the guardrails (an unsound or embed-breaking fix is worse than the parked
+bottom). Tripwire pin: `bug27_WITNESS_multi_decl_def_ref_wrongly_bottoms` (TwoPassTests; FLIP
+when fixed). This is the argocd blocker (`apps/argocd.cue`'s `#ListenerSet` referenced through
+`route.yaml`/`listener.yaml`).
 
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 

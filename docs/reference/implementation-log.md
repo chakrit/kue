@@ -11673,3 +11673,68 @@ worse than the parked bottom). Full detail in `spec-conformance-audit.md` Live-s
 `testdata/export/bug25_disj_arm_let_local_narrowing.{cue,json,args}`,
 `docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/reference/cue-divergences.md`,
 `docs/notes/` (breadcrumb).
+
+---
+
+## Completed Slice: Bug2-6 — definition multi-declaration close-once (`ef824cb`, 2026-06-23)
+
+Goal: two SEPARATE declarations of one definition path (`#Foo: {a:1}` + `#Foo: {c:3}`) must
+UNIFY their field-sets and close ONCE over the union (cue v0.16.1: `{a:1,c:3}`), the standard
+union-not-intersect CUE definition-merge rule. Kue formerly `.conj`-ed two SEPARATELY-closed
+bodies, so the meet mutually rejected → `{a:_|_, c:_|_}` (the parked Bug2-6, the residual argocd
+blocker uncovered while fixing Bug2-5).
+
+**Mechanism (provenance carrier — STRUCTURAL, per the Phase-B design note).** The carrier is a
+merged def body vs a `.conj`, NOT a flag on `.conj`. `canonicalizeFields` is the one seam that
+knows two bodies are repeated decls of the SAME def-path label; it now folds via a new
+`mergeUnevaluatedFieldInto` that selects the value-merge by the MERGED `FieldClass`:
+- merged class `isDefinition` ⇒ `mergeDefinitionDecls` (close-once UNION): union the decl bodies'
+  fields (`mergeFieldListWith joinUnevaluated (fa ++ fb)`, so a SHARED label's values still
+  `.conj`-meet — `#Foo:{a:1}`+`#Foo:{a:2}` keeps the conflict), union patterns, union openness
+  (`unionDefOpenness`, OPEN dominating — if ANY decl is open via `...` the union is open, the DUAL
+  of `StructOpenness.meet`), and let `mkStruct` re-derive the SINGLE union `closedClauses` clause
+  when the result is closed. Handles `.struct × .struct` (the primary closed-body shape post-
+  `normalizeDefinitions`) and `.structComp × .structComp` (embed/comprehension-bearing);
+  `.conj` fallback for shapes that cannot cleanly union (a def body that is a ref/disj/selector,
+  or a mixed pair).
+- every other class ⇒ plain `joinUnevaluated` (`.conj`), `meet`-ing lazily once the frame is in
+  scope. A class mismatch keeps the slots separate (matching the evaluated path).
+
+**Soundness preserved.** `#A & #B` (distinct closed defs) STILL rejects: the use-site `meet`
+CONCATENATES `closedClauses` (conjunction → reject extras) and NEVER routes through
+`mergeDefinitionDecls` — the two paths are disjoint in code. `mergeConjFields` (the conj-of-EMBEDS
+path) deliberately keeps plain `joinUnevaluated`: a host's `#data` meeting an embedded mixin's
+`#data` is a genuine cross-conjunct meet that must `.conj` (unioning there wrongly re-opened a
+closed pattern def — `#data: [string]: string` gained a stray `...`, a cert-manager mixin
+regression caught during the slice and reverted).
+
+**Tests.** 13 `native_decide` pins (`TwoPassTests` Bug2-6): target close-once (`{a:1,c:3}`) +
+3-decl argocd shape + nested (`out:{#m:{a:1};#m:{c:3}}`); close-once rejects a use-site extra,
+admits a union field; same-def CONFLICT (`#Foo:{a:1};#Foo:{a:2}`) still bottoms; one-decl
+open-via-`...` opens the union (admits extra); 4 distinct-closed-def soundness guards (reject
+extra, conflict bottoms, plain reject, same-field admit). 3 fixture pairs
+(`definitions/bug26_same_def_multi_decl_close_once`, `…_three_decl_close_once_rejects_extra`,
+`…_distinct_closed_defs_still_reject`) + FixturePorts entries. All oracle-confirmed vs cue v0.16.1.
+Axiom-clean (`propext` only — `#print axioms mergeDefinitionDecls`/`canonicalizeFields`), total
+(structural). `lake build` clean; `check-fixtures.sh` → fixture pairs ok (zero unintended drift);
+cert-manager content-identical (jq-normalized diff EMPTY; the 15-line raw diff is field-order #3,
+the ratified spec gap).
+
+**argocd milestone: STILL bottoms (~61s wall) — Bug2-6 was NOT the final blocker.** Localized via
+bisection to `route.yaml`/`listener.yaml` (the `defaults.#ListenerSet = defs.#ListenerSet &
+parts.#UseCertManager & {…}` composition; `#UseCertManager` declares `#additions` THREE times).
+It now hits **Bug2-7** (filed, parked): same-def multi-decl close-once is correct on DIRECT
+selection (this fix) but LOST when the merged def is REFERENCED through a sibling (`vis: #additions`)
+— the def-deferral/force-fold reconstruction (`mergeConjOperands`/`mergeConjFields`) rebuilds the
+body from the original decls via plain `.conj` and re-closes each SEPARATELY, so each clause rejects
+the other decl's fields (`{cert_gw:_|_, cert_ing:_|_}`). Minimal repro + tripwire pin
+`bug27_WITNESS_multi_decl_def_ref_wrongly_bottoms`. The sound fix carries same-decl provenance
+through `mergeConjOperands` (within-operand repeated decls vs cross-operand conjuncts) — a larger
+design change, PARKED; a naive `mergeConjFields` union is unsound (re-opens the cert-manager mixin
+pattern, verified). Perf frontier #7 stays GATED (argocd does not resolve).
+
+**Files.** `Kue/Eval.lean` (`unionDefOpenness`, `mergeDefinitionDecls`, `mergeUnevaluatedFieldInto`,
+`canonicalizeFields` rewritten onto it; `mergeConjFields` doc updated to note the deliberate
+plain-`.conj` divergence), `Kue/Tests/TwoPassTests.lean` (Bug2-6 section: 13 pins; Bug2-7 tripwire),
+`Kue/Tests/FixturePorts.lean` (3 entries), `testdata/cue/definitions/bug26_*.{cue,expected}`,
+`docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/notes/` (breadcrumb).
