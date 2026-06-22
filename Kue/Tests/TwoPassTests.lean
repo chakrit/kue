@@ -1818,5 +1818,34 @@ theorem bug29_named_multiconjunct_closed_rejects_extra :
         = true := by
   native_decide
 
+-- OVER-FIRE WITNESS (2026-06-23 Phase-A audit): a DEPTH>0 ref (nested-scope `#Inner` inside `#Outer`)
+-- is NOT a depth-0 `.refId`, so `flattenConjDefRef` leaves it unchanged — yet the narrowing still
+-- reaches the conjunct self-ref through the ordinary nested-frame path. cue and kue agree (`vis: "z"`).
+-- Pins that the depth-0 bound does not break deeper-scoped narrowing.
+theorem bug29_depth_gt0_nested_scope_narrows :
+    exportJsonMatches
+      "#Outer: {\n\t#Inner: {#n: string, vis: #n}\n\tuse: #Inner & {#n: \"z\"}\n}\nout: #Outer.use\n"
+      "{\n    \"out\": {\n        \"vis\": \"z\"\n    }\n}\n" = true := by
+  native_decide
+
+-- TERMINATION WITNESS (2026-06-23 Phase-A audit): an ALIAS cycle `#A: #A & #B` narrowed at the use
+-- site must TERMINATE (the flatten fuel strictly decreases), not loop. cue and kue agree (`{n: 5}`).
+-- Pins the fuel guard the depth-0 flatten relies on for cyclic defs.
+theorem bug29_alias_cycle_narrow_terminates :
+    exportJsonMatches
+      "#B: {n: int}\n#A: #A & #B\nout: #A & {n: 5}\n"
+      "{\n    \"out\": {\n        \"n\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- Bug2-8 BOUNDARY WITNESS (2026-06-23 Phase-A audit): a SCALAR def value (`#x: string`) across the
+-- embed stays a MEET, never the decl-UNION — `isUnionableDefValue` is false for a scalar, so the host
+-- `#x: "hi"` × embed `#x: string` pair `.conj`-meets to `"hi"` (a union would double the display). cue
+-- and kue agree (`"hi"`). Pins the field/pattern-bearing-vs-scalar union boundary.
+theorem bug28_scalar_def_across_embed_stays_meet :
+    exportJsonMatches
+      "#A: {#x: string}\n#Use: {\n\t#A\n\t#x: \"hi\"\n\tvis: #x\n}\nout: #Use.vis\n"
+      "{\n    \"out\": \"hi\"\n}\n" = true := by
+  native_decide
+
 
 end Kue

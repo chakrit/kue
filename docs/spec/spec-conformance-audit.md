@@ -220,7 +220,23 @@ these is in Audit history (below) + the implementation-log + git.
 **PARKED (off the critical path):** **Bug2-10** (the NEXT argocd residual — use-site narrowing of a
 host that EMBEDS a def with a sibling self-ref does not flow into the embedded self-ref; the
 Bug2-4/2-5 narrowing family, `meetEmbeddingsWithFuel` closure-force-splice; surfaced after Bug2-9
-landed) — see Live-slice detail. **Bug2-9 RESOLVED** (`5d9cf8f`, 2026-06-23): use-site narrowing of a
+landed) — see Live-slice detail. **Bug2-11** (MEDIUM — cross-package sibling of Bug2-9; PARKED, found
+in the 2026-06-23 Phase-A audit): use-site narrowing of a PACKAGE-QUALIFIED referenced multi-conjunct
+def (`defs.#LS & {#name}`, `#LS: #Base & {…}` imported) → kue `incomplete value: string`, cue narrows
+(`vis: "xp"`). `flattenConjDefRef` correctly DECLINES to flatten the package-selector conjunct (it is
+not a depth-0 `.refId` — flattening it into the wrong frame would be unsound), so it does not
+over-fire; the consequence is the cross-package case still hits the OLD standalone-force path with the
+original Bug2-9 symptom. The Bug2-9 record's "package-SELECTOR conjunct re-resolves its own import
+binding" line describes why the flatten is SOUND to skip it, NOT that cross-package narrowing is fixed
+— it is not. Same fix family (carry the narrowing through the force/selector path), distinct frame.
+**Bug2-12** (LOW/spec-check — recursive-def closedness leak, found same audit): a SELF-recursive
+closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined
+`(#X & {a:1}) & {b:2}`) → kue admits `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).
+NOT introduced by `flattenConjDefRef` — the INLINED form (which never reaches the flatten) leaks
+identically, and `flattenConjDefRef` correctly preserves named==inlined. Pre-existing closedness gap
+on the structural-cycle path (a closed def loses its allow-set when self-recursion is folded across a
+use-site narrowing). Spec-check before fixing — confirm cue's rejection is spec-mandated, not a
+structural-cycle artifact. **Bug2-9 RESOLVED** (`5d9cf8f`, 2026-06-23): use-site narrowing of a
 REFERENCED NAMED multi-conjunct def, via `flattenConjDefRef` (flatten a depth-0 ref-to-`.conj`-bodied
 def into its constituents before the `.conj` fold = byte-identical to the inlined meet) — see
 Live-slice detail. **Bug2-8 RESOLVED** (2026-06-23): same-def multi-decl close-once
