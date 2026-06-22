@@ -11981,3 +11981,66 @@ No shell touched. Phase B still DUE (architecture of the new types + Bug2-10 des
 
 **Files.** `Kue/Tests/TwoPassTests.lean` (comment-terminator fixes + 3 field-order reconciliations +
 3 new pins), `docs/spec/spec-conformance-audit.md` (Bug2-11/2-12 filed), this log.
+
+---
+
+## Completed Slice: Bug2-10 — deliver use-site narrowing into a structComp host's embedded self-ref (`aa4172b`, 2026-06-23)
+
+**Behavior added.** `{#Meta} & {#name:"x"}` — where the host `{#Meta}` is a `.structComp` embedding a
+self-ref def (`#Meta: Self={#name: string, metadata: name: Self.#name}`) — now narrows the embedded
+`Self.#name` to the use-site value (`{metadata: {name: "x"}}`), matching cue and the DIRECT
+`#Meta & {#name:"x"}` form. Pre-fix kue left `metadata.name: string` frozen → `incomplete value:
+string`.
+
+**Root cause (the conjunct-deferral gate).** `conjDefClosure?` defers ONLY a bare `.refId` conjunct
+into the shared-`useOperands` fold; a `.structComp` host bypasses it and evaluates STANDALONE through
+the `.structComp` eval arm with no use-operands, so its embed's self-ref collapses to abstract before
+the sibling narrowing arrives. The DIRECT form works because the bare `#Meta` ref IS deferred.
+
+**Fix (delivery, approach A — the splice was already correct).** `conjStructCompDefer?` (`Eval.lean`)
+defers a `.structComp` host whose embed body has a sibling self-ref (`bodyNeedsDefer`, evaluated over a
+placeholder body-frame `(0,[]) :: env` so the embed ref resolves exactly as the standalone arm's
+`pushFrame fields env`) to its `.closure (env, hostBody)`. It then joins the SAME closure fold the
+bare-ref path runs — `forceClosureWithConjunctCore`'s `.structComp` arm splices the use-operands and
+meet-folds the embed, delivering the narrowing before the self-ref collapses. Gated at the call site on
+a narrowing sibling existing (`conjNarrowingSibling?` — a struct/structComp/embeddedScalar/embeddedList
+carrying ≥1 field); a no-narrowing `{#Meta}` is never a `.conj` (never reaches `evalConjStandard`) and
+a no-self-ref host yields `bodyNeedsDefer = false`, so both stay byte-identical. Composes with the
+Bug2-5 transitive embed chain (`embedChainAny`) and `injectLetLocalNarrowings` (already in the spliced
+operand set). Did NOT touch `meetEmbeddingsWithFuel`'s internals.
+
+**Plus a pre-existing embed-meet closedness leak (fixed on the same path).** Embedding a CLOSED def
+into a no-`...` host must close the result over `host ∪ embed` labels (CUE rule), so a later MEET
+rejects an undeclared extra. `{#Meta} & {b}` (closed `#Meta`, NO self-ref) formerly ADMITTED `b` — the
+leak, reproducible with no deferral, so genuinely pre-existing. Fixed via `embeddingClosesHost` /
+`embeddingFieldIsDefinition`: a definition-class embed (closed even when its UNEVALUATED body is still
+`regularOpen` — definitions close at normalize/eval, not parse) overrides the host's `regularOpen` in
+`closeEmbeddedOver`'s openness arg — ONLY for `regularOpen` (an explicit `...`/`defOpenViaTail` host
+stays open, pinned by `EvalPerfTests` fix0). The embed-FORM `{#Meta, b}` still ADMITS the sibling `b`
+(same-literal declaration, not a meet). Wired into both the eager `.structComp` arm and the
+`.structComp` force arm.
+
+**Soundness (all oracle-confirmed v0.16.1).** embedded == direct == cue; transitive embed + deep
+nested self-ref narrow; a real conflict still bottoms (`val: 1 & 2`); closed-rejects-extra; embed-form
+sibling admitted; over-fire negatives (no-narrowing, no-self-ref) byte-identical. cert-manager FULL
+canary content-identical (jq -S diff = 0; raw = 15 = field-order #3). Full `lake build` green (all
+sentinels resolve); `check-fixtures.sh` zero drift; axiom-clean (`propext`/`Quot.sound`), total. 9
+`native_decide` pins (TwoPassTests `### Bug2-10` + the `#check @bug210_no_self_ref_unchanged` sentinel)
++ 7 fixture pairs (`bug210_*`) + FixturePorts.
+
+**argocd: advanced from `incomplete value: string` to `conflicting values` (~54s) — NOT exported.**
+Landing Bug2-10 revealed the REAL on-path blocker is **Bug2-11** (a TWO-LEVEL cross-package def-of-def
+selector — `defaults.#ListenerSet = defs.#ListenerSet & {…}`, a cross-pkg def whose body refs the
+cross-pkg `defs.#ListenerSet`, which embeds `parts.#Metadata`). The use-site narrowing never reaches
+the embedded self-ref → `metadata: {name: string}` un-narrowed; the standalone force also collapses a
+sibling disjunction (`#passthrough_hosts: [...string] | *[]` → `*[]`) → conflict with the use-site
+list. Self-contained 3-package repro confirms; a single-level cross-pkg selector narrows fine. **This
+CORRECTS the prior Phase-B claim that "argocd is same-frame, Bug2-11 off-path"** — empirically wrong;
+`defaults.#ListenerSet` IS a cross-package selector and Bug2-11 IS the argocd blocker. Perf frontier #7
+stays gated until argocd actually exports.
+
+**Files.** `Kue/Eval.lean` (`conjStructCompDefer?`, `conjNarrowingSibling?`, `embeddingClosesHost`,
+`embeddingFieldIsDefinition`, call-site gate in `evalConjStandard`'s `none` branch, `closeEmbeddedOver`
+openness in both the eager + force `.structComp` arms), `Kue/Tests/TwoPassTests.lean` (`### Bug2-10`
+section + sentinel), `Kue/Tests/FixturePorts.lean` (7 `bug210_*` entries), `testdata/cue/definitions/
+bug210_*.{cue,expected}` (7 pairs), `docs/spec/{spec-conformance-audit,plan}.md`, this log.

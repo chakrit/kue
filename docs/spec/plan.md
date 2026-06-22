@@ -119,12 +119,20 @@ field-ordering byte-parity gap (#3):
   defs.#ListenerSet & parts.#UseCertManager & {…}`) FIXED (`5d9cf8f`, 2026-06-23 —
   `flattenConjDefRef` flattens a depth-0 ref-to-`.conj`-bodied def into its constituents before the
   `.conj` fold, making the named ref byte-identical to the inlined meet) — also NOT the final
-  blocker. The deeper blocker is now **Bug2-10** (use-site narrowing of a host that EMBEDS a def
-  with a sibling self-ref does NOT flow into the embedded self-ref — the Bug2-4/2-5 narrowing family;
-  self-contained repro `{#Meta} & {#name:"x"}` where `#Meta: {#name: string, metadata: name:
-  #name}` → kue `incomplete value: string`, cue `{metadata:{name:"x"}}`, while the DIRECT
-  `#Meta & {#name}` works). PARKED as a stress-test finding. argocd localized to
-  `route.yaml`/`listener.yaml`.
+  blocker. **Bug2-10** (use-site narrowing into a `.structComp` HOST's embedded self-ref) FIXED
+  (`aa4172b`, 2026-06-23 — `conjStructCompDefer?` defers a structComp host with a sibling-self-ref
+  embed into the shared-`useOperands` fold; PLUS a pre-existing embed-meet closedness leak fixed via
+  `embeddingClosesHost`) — also NOT the final blocker. **The actual on-path argocd blocker is now
+  Bug2-11** (use-site narrowing of a TWO-LEVEL cross-package def-of-def selector whose terminal def
+  embeds a sibling self-ref). Landing Bug2-10 advanced argocd from `incomplete value: string` to
+  `conflicting values`; probing the real `defaults.#ListenerSet & {#name, #passthrough_hosts}` (a
+  cross-pkg def whose body refs the cross-pkg `defs.#ListenerSet`, which embeds `parts.#Metadata`)
+  shows `metadata: {name: string}` (un-narrowed) + `#passthrough_hosts: _|_` — the cross-package
+  selector forces STANDALONE with no use-operands. Self-contained 3-package repro confirms (see
+  `spec-conformance-audit.md` Bug2-11 + ARGOCD-DEPTH REFRAME CORRECTED). **This CORRECTS the prior
+  "argocd is same-frame, Bug2-11 off-path" claim, which was empirically WRONG.** Full `apps/argocd.cue`
+  STILL bottoms (~54s, `conflicting values`); argocd localized to `listener.yaml`. NOT a stress-test
+  parking — Bug2-11 is the spec-correctness leader.
 
 ## Live Backlog (open work, ranked)
 
@@ -143,10 +151,15 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). PARKED: **Bug2-10** (NEW argocd residual — use-site narrowing of a host that
-EMBEDS a def with a sibling self-ref does NOT flow into the embedded self-ref; the Bug2-4/2-5
-narrowing family; uncovered after Bug2-9 landed, a stress-test finding). RESOLVED / ruled out (do not
-re-file — see Resolved/ruled-out below): **Bug2-9** (use-site narrowing of a REFERENCED NAMED
+(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-11** (use-site narrowing of a TWO-LEVEL
+cross-package def-of-def selector whose terminal def embeds a sibling self-ref — `defaults.#ListenerSet
+& {#name, #passthrough_hosts}` → kue `metadata.name: string` un-narrowed + `#passthrough_hosts: _|_`,
+cue narrows; the cross-package selector forces standalone with no use-operands. Same fix family as
+Bug2-10, distinct frame — needs the terminal package frame capture). RESOLVED / ruled out (do not
+re-file — see Resolved/ruled-out below): **Bug2-10** (use-site narrowing into a `.structComp` host's
+embedded self-ref, `aa4172b` 2026-06-23 — `conjStructCompDefer?` + an embed-meet closedness-leak fix
+via `embeddingClosesHost`; was NOT the final argocd blocker; CORRECTED the prior "argocd is Bug2-10
+alone" claim — the blocker is Bug2-11), **Bug2-9** (use-site narrowing of a REFERENCED NAMED
 multi-conjunct def, `5d9cf8f` 2026-06-23 — `flattenConjDefRef`; was NOT the final argocd blocker;
 surfaced Bug2-10), **Bug2-8** (same-def multi-decl close-once ACROSS AN
 EMBED boundary, `2332aff` 2026-06-23 — `DeclProvenance`/`ConjOperand`; was NOT the final argocd
@@ -263,14 +276,16 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    out: {b: 1} & {a: 2}  // cue: a, b (graph order); Kue: b, a (source order) — both spec-valid
    ```
 
-5. **Per-eval-cost perf (frontier — hash digest DONE; residual open).** The cache-key hash
-   digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero drift;
-   FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):** the
-   heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5..Bug2-9 are fixed but argocd bottoms on **Bug2-10** (use-site
-   narrowing into an EMBEDDED def's sibling self-ref — `{#Meta} & {#name}` leaves
-   `metadata.name: string`), a CORRECTNESS divergence, not fuel. Un-gates once Bug2-10 lands;
-   profile against a resolving target then.
+5. **Per-eval-cost perf (frontier — hash digest DONE; residual open, STILL GATED).** The
+   cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
+   drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):**
+   the heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
+   argocd unblock — Bug2-5..Bug2-10 are fixed but argocd STILL bottoms on **Bug2-11** (use-site
+   narrowing of a two-level cross-package def-of-def selector — `defaults.#ListenerSet & {#name,
+   #passthrough_hosts}` leaves `metadata.name: string` un-narrowed + `#passthrough_hosts: _|_`),
+   a CORRECTNESS divergence, not fuel. (Bug2-10's landing CORRECTED the prior "un-gates once
+   Bug2-10 lands" claim — it advanced argocd `incomplete`→`conflict` but did NOT export it.)
+   Un-gates once Bug2-11 lands and argocd actually exports; profile against a resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

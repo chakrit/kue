@@ -217,18 +217,41 @@ these is in Audit history (below) + the implementation-log + git.
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
 
-**PARKED (off the critical path):** **Bug2-10** (the NEXT argocd residual — use-site narrowing of a
-host that EMBEDS a def with a sibling self-ref does not flow into the embedded self-ref; the
-Bug2-4/2-5 narrowing family, `meetEmbeddingsWithFuel` closure-force-splice; surfaced after Bug2-9
-landed) — see Live-slice detail. **Bug2-11** (MEDIUM — cross-package sibling of Bug2-9; PARKED, found
-in the 2026-06-23 Phase-A audit): use-site narrowing of a PACKAGE-QUALIFIED referenced multi-conjunct
-def (`defs.#LS & {#name}`, `#LS: #Base & {…}` imported) → kue `incomplete value: string`, cue narrows
-(`vis: "xp"`). `flattenConjDefRef` correctly DECLINES to flatten the package-selector conjunct (it is
-not a depth-0 `.refId` — flattening it into the wrong frame would be unsound), so it does not
-over-fire; the consequence is the cross-package case still hits the OLD standalone-force path with the
-original Bug2-9 symptom. The Bug2-9 record's "package-SELECTOR conjunct re-resolves its own import
-binding" line describes why the flatten is SOUND to skip it, NOT that cross-package narrowing is fixed
-— it is not. Same fix family (carry the narrowing through the force/selector path), distinct frame.
+**Bug2-10 RESOLVED** (`aa4172b`, 2026-06-23): use-site narrowing into a `.structComp` HOST's
+embedded self-ref, via `conjStructCompDefer?` (defer a structComp host whose embed body has a
+sibling self-ref into the shared-`useOperands` fold the bare-ref path runs). PLUS a pre-existing
+embed-meet closedness leak fixed on the same path (`embeddingClosesHost`). Was NOT the final argocd
+blocker — see Live-slice detail + the corrected ARGOCD-DEPTH REFRAME below.
+
+**Bug2-11 (HIGH — the ACTUAL final argocd export blocker; on-path, REFRAMED 2026-06-23 from Bug2-10
+landing).** Use-site narrowing of a TWO-LEVEL cross-package def-of-def selector whose terminal def
+embeds a sibling self-ref. `defaults.#ListenerSet & {#name, #passthrough_hosts}` where
+`defaults.#ListenerSet = defs.#ListenerSet & {…}` (a cross-pkg def whose BODY refs ANOTHER cross-pkg
+selector `defs.#ListenerSet`, which embeds `parts.#Metadata`'s `metadata.name: Self.#name`). The
+narrowing never reaches the embedded self-ref → `metadata: {name: string}` (un-narrowed) AND, because
+the standalone force ALSO collapses a sibling disjunction to its default, `#passthrough_hosts:
+[...string] | *[]` collapses to `*[]` and CONFLICTS with the use-site `["argo…"]` → `_|_` (kue export
+`conflicting values`). `flattenConjDefRef` correctly DECLINES the cross-package selector (depth-0-only,
+sound), so the cross-package def-of-def hits the standalone selector force with NO use-operands. **Both
+symptoms share ONE root: the cross-package selector force is missing the narrowing-delivery the
+same-frame path now has.** SELF-CONTAINED 3-package repro (no cache, `/tmp/b211mod` during the slice):
+```cue
+// package defsx
+#Meta: Self={ #name: string, metadata: name: Self.#name }
+#ListenerSet: { #Meta, #gateway_name: string, #passthrough_hosts: [...string] | *[], kind: "ListenerSet" }
+// package defaultsx (imports defsx)
+#ListenerSet: defsx.#ListenerSet & { #gateway_name: "nginx" }
+// package main (imports defaultsx)
+out: defaultsx.#ListenerSet & { #name: "argocd-ls", #passthrough_hosts: ["argo.prodigy9.co"] }
+// cue: metadata.name "argocd-ls", passthrough ["argo…"]; kue: metadata.name string, passthrough _|_
+```
+A single-LEVEL cross-package selector (`defsx.#ListenerSet & {narrow}`) narrows FINE — the failure
+needs the two-level def-OF-def indirection (`defaultsx.#ListenerSet` → `defsx.#ListenerSet`), which is
+the EXACT argocd shape. Fix family: carry the narrowing through the cross-package selector force (the
+`importSelectorDef?`/`refAliasSelectorDef?`/terminal-package-frame path), distinct frame from Bug2-10's
+same-frame structComp host. THE corrected ARGOCD-DEPTH finding (see REFRAME below): the design note's
+"argocd is same-frame, Bug2-11 off-path" claim was EMPIRICALLY WRONG — `defaults.#ListenerSet` is a
+cross-package selector, so Bug2-11 IS the on-path argocd blocker.
 **Bug2-12** (LOW/spec-check — recursive-def closedness leak, found same audit): a SELF-recursive
 closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined
 `(#X & {a:1}) & {b:2}`) → kue admits `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).
@@ -424,30 +447,41 @@ rejected). cert-manager canary content-identical (jq -S diff = 0; raw diff = 15 
 field-order #3). 5 fixture pairs (`bug29_*`) + FixturePorts + 5 `native_decide` pins (TwoPassTests
 Bug2-9): 2/3-conjunct + nested-chain narrowing, conflict-bottoms + closed-rejects-extra guards.
 
-**Bug2-10 (HIGH — the NEXT residual argocd export blocker; PARKED, distinct mechanism).** Use-site
-narrowing of a host that EMBEDS a def whose body has a sibling self-ref does NOT flow the narrowing
-into the embedded def's self-ref. **Fully self-contained minimal repro (no cache):**
-```cue
-#Meta: Self={ #name: string, metadata: name: Self.#name }
-direct:   #Meta & {#name: "x"}   // cue & kue BOTH: {metadata: {name: "x"}}
-embedded: {#Meta} & {#name: "x"} // cue: {metadata: {name: "x"}}; kue: incomplete value: string
-```
-The DIRECT meet narrows correctly; the EMBEDDED-then-narrowed form leaves `metadata.name: string`
-(un-narrowed) → incomplete. **Discovered while fixing Bug2-9:** with the named-ref flatten landed,
-the faithful argocd `ls` (`defaults.#ListenerSet & {#name, #ns, #passthrough_hosts}`) now produces a
-manifest BUT drops `metadata.annotations` / `metadata.name` because `defs.#ListenerSet` embeds
-`parts.#Metadata` (`metadata.name: Self.#name`) and the use-site `#name` never reaches the embedded
-self-ref. The mixin's `_patch` annotation injection itself WORKS (the residual shows
-`annotations: {"cert-manager.io/cluster-issuer": "i"}` correctly); only the `parts.#Metadata` embed's
-`Self.#name` stays abstract. This is the Bug2-4/2-5 NARROWING family (use-site narrowing into an
-embedded def's self-ref) — `meetEmbeddingsWithFuel`'s closure-force-splice should carry the narrowing
-into the embed but doesn't for this shape. NOTE the breadcrumb's prior "the INLINED 3-way meet WORKS
-in kue" discriminator meant "does not BOTTOM" — it ALSO drops the annotation (content-incorrect); the
-Bug2-9 flatten made named == inlined, exposing this shared Layer-B content defect. PARKED for a
-dedicated slice; correctness-first.
+**Bug2-10 — RESOLVED (`aa4172b`, 2026-06-23). Use-site narrowing into a `.structComp` HOST's embedded
+self-ref, delivered via `conjStructCompDefer?`.** `{#Meta} & {#name:"x"}` (host is a `.structComp`
+embedding a self-ref def) left the embed's `Self.#name` frozen at `string` → `incomplete value:
+string`, while DIRECT `#Meta & {#name:"x"}` narrowed correctly. **Fix (delivery, not splice — exactly
+approach A from the design note below):** `conjStructCompDefer?` defers a structComp host whose embed
+body has a sibling self-ref (`bodyNeedsDefer`, evaluated over a placeholder body-frame `(0,[]) :: env`
+so the embed ref resolves like the standalone arm's `pushFrame`) to its `.closure (env, hostBody)`, so
+it joins the SAME shared-`useOperands` fold the bare-ref path runs (`forceClosureWithConjunctCore`'s
+`.structComp` arm splices + meet-folds the embed). Gated on a narrowing sibling existing
+(`conjNarrowingSibling?` — a struct/structComp/embeddedScalar/embeddedList carrying ≥1 field); a
+no-narrowing `{#Meta}` (never a `.conj`, so never reaches `evalConjStandard`) and a no-self-ref host
+(`bodyNeedsDefer` false) stay byte-identical. Composes with the Bug2-5 transitive embed chain
+(`embedChainAny`) and `injectLetLocalNarrowings`.
 
-**Bug2-10 — DESIGN NOTE (Phase-B 2026-06-23; root cause traced, no code).** Root cause is the
-CONJUNCT-DEFERRAL GATE, not the splice itself. Trace of `{#Meta} & {#name:"x"}`:
+**Plus a PRE-EXISTING embed-meet closedness leak fixed on the same path.** Embedding a CLOSED def into
+a no-`...` host must close the result over `host ∪ embed` labels (CUE rule), so a later MEET rejects an
+undeclared extra: `{#Meta} & {b}` → reject `b` (kue formerly ADMITTED it — the leak, reproducible with
+NO self-ref, so genuinely pre-existing, NOT introduced by the delivery fix). Fixed via
+`embeddingClosesHost`/`embeddingFieldIsDefinition`: a def-class embed (closed even when its UNEVALUATED
+body is still `regularOpen`) overrides the host's `regularOpen` openness in `closeEmbeddedOver`'s
+arg — ONLY for `regularOpen` (an explicit `...`/`defOpenViaTail` host stays open). The embed-FORM
+`{#Meta, b}` still ADMITS the sibling `b` (same-literal declaration, not a meet) — cue-faithful both
+ways (cue self-consistent here). Wired into BOTH the eager `.structComp` arm and the `.structComp`
+force arm.
+
+**Soundness (all oracle-confirmed v0.16.1):** embedded == direct == cue (`{metadata:{name:"x"}}`);
+transitive embed + deep nested self-ref narrow; a real conflict still bottoms; closed-rejects-extra;
+embed-form sibling admitted; over-fire negatives (no-narrowing, no-self-ref) byte-identical. cert-manager
+content-identical (jq -S diff = 0; raw diff = 15 = field-order #3). Full suite green; axiom-clean
+(propext/Quot.sound). 9 `native_decide` pins (TwoPassTests Bug2-10) + 7 fixture pairs (`bug210_*`) +
+FixturePorts. **Was NOT the final argocd blocker** — the argocd residual is Bug2-11 (above + REFRAME below).
+
+**Bug2-10 — DESIGN NOTE (Phase-B 2026-06-23; root cause traced — the fix shipped follows approach A
+exactly).** Root cause is the CONJUNCT-DEFERRAL GATE, not the splice itself. Trace of `{#Meta} &
+{#name:"x"}`:
 - The host `{#Meta}` is a `.structComp` (a struct whose `comprehensions` bucket holds the `#Meta`
   embed); `{#name:"x"}` is a SEPARATE top-level conjunct. The two reach `evalConjStandard`.
 - `lazyConjMergedFields` declines (`conjStructOperand?` returns `none` for a `.structComp` — it is
@@ -511,12 +545,24 @@ distinct junctures — they do NOT share one root, and one fix does NOT subsume 
   use-site narrowing), NOT a narrowing-delivery failure — the narrowing arrives; the allow-set is
   what's lost. Shares only the "surfaced by Bug2-9" provenance. Fix it on the closedness/cycle
   path, independently; spec-check cue's rejection first.
-- **ARGOCD-DEPTH REFRAME (prominent):** the live argocd blocker is Bug2-10 ALONE. argocd's
-  `defaults.#ListenerSet & {#name,…}` embeds `parts.#Metadata` in the SAME package frame after the
-  defs cache resolves, so the relevant narrowing is same-frame (the 2-10 shape), NOT cross-package
-  (2-11) — Bug2-11 is OFF the argocd path. Bug2-12 is a pre-existing latent closedness gap, also
-  NOT argocd-blocking. **So the remaining argocd chain is ONE deep fix (Bug2-10), not three.**
-  2-11/2-12 are independent backlog that happened to be co-discovered, not a 3-deep argocd stack.
+- **ARGOCD-DEPTH REFRAME — CORRECTED 2026-06-23 (the prior claim was EMPIRICALLY WRONG).** The prior
+  reframe asserted "the live argocd blocker is Bug2-10 ALONE; argocd's `defaults.#ListenerSet` is
+  same-frame, Bug2-11 OFF the argocd path." **That is false.** Landing Bug2-10 (`aa4172b`) advanced
+  argocd from `incomplete value: string` to `conflicting values` — and probing the real
+  `defaults.#ListenerSet & {#name, #passthrough_hosts}` (via a throwaway infra probe + a
+  self-contained 3-package repro, `/tmp/b211mod`) shows `metadata: {name: string}` (un-narrowed) AND
+  `#passthrough_hosts: _|_`. The narrowing does NOT reach the embedded `parts.#Metadata` because
+  `defaults.#ListenerSet` is a TWO-LEVEL cross-package def-OF-def selector (`defaults.#ListenerSet =
+  defs.#ListenerSet & {…}`, body refs the cross-pkg `defs.#ListenerSet`), which `flattenConjDefRef`
+  correctly declines (depth-0-only) → standalone selector force, no use-operands. That is the **Bug2-11
+  cross-package selector mechanism, and it IS the on-path argocd blocker.** A single-LEVEL cross-pkg
+  selector narrows FINE; the failure needs the def-of-def indirection — the exact argocd shape. The
+  `#passthrough_hosts: _|_` is a SECONDARY symptom of the SAME root: the standalone force collapses the
+  sibling disjunction `[...string] | *[]` to `*[]`, which conflicts with the use-site list. Bug2-12 is
+  still a pre-existing latent closedness gap, NOT argocd-blocking. **So the remaining argocd chain is
+  ONE deep fix — but it is Bug2-11 (cross-package selector delivery), NOT Bug2-10.** Bug2-10 was a real
+  same-frame defect (now fixed) co-discovered on the path, not the terminal blocker. Bug2-11 is now the
+  leader; un-gating perf #7 still WAITS on argocd actually exporting.
 
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 
