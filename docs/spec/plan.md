@@ -326,6 +326,25 @@ measures; folding them under one abstraction would be a false "stuff they all do
 extraction. **Status: AD4-1 + A-EN3 DONE; DRY-1 RULED OUT; AD2-1 RESOLVED (2026-06-21,
 unified).** No open members. Detail in Resolved/ruled-out (AD2-1 entry) + git.
 
+**CARRIER-DECL-SELECT (DRY, LOW — filed Phase-B 2026-06-22; ranked BELOW
+CARRIER-STRUCT-MEET).** The two carriers' decl-SELECTION seam is byte-identical and SHOULD
+share a helper. `selectEvaluatedField`'s `.embeddedList _ _ decls` and `.embeddedScalar _
+decls` arms (`Eval.lean:618-621` / `:622-625`) are character-for-character identical —
+`match findEvalField label decls with | some field => selectedFieldValue field | none =>
+.selector base label` — AND identical to the plain `.struct` arm just above (`:615-617`).
+The same triple repeats inside the disj-resolved sub-case (`:637-640` / `:641-644`), and
+`Runtime.lookupField?` repeats the carrier pair again (`Runtime.lean:87-88`,
+`(findEvalField label decls).map Field.value`). Fix: a tiny `selectFromDecls base label
+decls` helper (returns the field's `selectedFieldValue` or the deferred `.selector`) shared
+by the struct + both carrier arms at each of the two `Eval.lean` sites; collapse the
+`Runtime` pair to one decl-bearing pattern. LOW-risk, behavior-preserving, but NOT inline
+this round — it touches the same `selectEvaluatedField` arms CARRIER-STRUCT-MEET's test-flip
+neighbours and should land AFTER it to avoid churn collision. Composes cleanly: independent
+seam (selection, not meet), no shared code with the meet fix. Distinct from the FOUR-classifiers
+ruling — that rejected sharing because the classifiers DISAGREE on the partition; here the
+three arms AGREE exactly (the decls are selected identically regardless of carrier), so this
+is real duplication, not false-sharing.
+
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
 The per-round Phase-A/B audit verdicts (~13 rounds, 2026-06-20/21) and the FILED diagnoses
@@ -335,6 +354,73 @@ family, …) are HISTORY: the as-built detail is in
 (each audit is its own commit). What stays here is only the durable rulings — the ones a
 future audit would otherwise re-litigate.
 
+- **CARRIER share/no-share (`.embeddedScalar` vs `.embeddedList`) — RULED: keep DISTINCT
+  constructors; do NOT merge into an `embeddedCarrier`; share ONLY the decl-selection seam
+  (CARRIER-DECL-SELECT, filed). Do NOT share the meet seam (Phase-B 2026-06-22, the
+  headline adjudication).** The scalar-embed slice's parallel-ctor design is the RIGHT call.
+  Basis, decomposed into the three separable seams the prompt names:
+  - **Constructors — keep distinct (no merge).** A scalar is not a list: it never indexes
+    and never iterates (the `Value.lean` doc-comment already states this). The divergence is
+    structural and load-bearing at the OUTPUT/ITERATION sites, where a merge would
+    re-introduce illegal states: `Manifest` (`embeddedScalar` → `manifestWithFuel scalar`,
+    NO list-wrap / NO item recursion; `embeddedList` → `.ok (.list items)` + recurse items),
+    `Format` (scalar renders the bare value in `{…}`; list renders a `[…]` sub-list with
+    tail handling), `comprehensionPairs` (`embeddedList` → `listPairsFrom`; scalar →
+    non-iterable via catch-all), `selectEvaluatedListIndex` (list-only), `classifyGuard`
+    /`classifyDynLabel`/`classifyArithOperand` (scalar RECURSES onto its inner scalar; list
+    → `.nonBool .list`/`.nonString .list`/`.concreteNonArith .list`). A merged
+    `embeddedCarrier (payload : Value) (decls)` would force every one of these sites to
+    re-discriminate scalar-vs-list on `payload` at RUNTIME — exactly the illegal-state
+    (`index a scalar`, `iterate a scalar`) that the two-ctor split makes UNREPRESENTABLE by
+    construction. This is the four-classifiers / walker-dedup precedent applied: the shared
+    part (carry `decls`) is too thin to name; the divergence IS the point. **Do not
+    re-litigate the merge.**
+  - **Meet seam — do NOT share, despite the shared bug.** Phase-A's evidence (both carriers
+    have the SAME CARRIER-STRUCT-MEET bug + SAME fix) is real but does NOT imply a shared
+    meet helper. The two meet arm-BLOCKS (`Lattice.lean:1244-1278` list, `:1285-1316`
+    scalar) are structurally isomorphic at the SKELETON (partner-check → payload-meet+decl-
+    merge → re-wrap; else struct-sub-case; else `meetCore`) but the PAYLOAD-MEET step is
+    irreducibly different — list uses `asListPair`+`meetListPairWith` (prefix/tail
+    alignment), scalar uses `scalarCarrierPartner?`+a bare `meetWithFuel` on the scalar. A
+    shared higher-order seam parameterized over (partner-extractor, payload-meet, re-wrap)
+    would be a 3-callback combinator wrapping ~12 lines of skeleton — the lambda-hides-`fuel
+    +1` trap that broke DRY-1 (the payload-meet callback recurses through `meetWithFuel
+    fuel`, which Lean's structural-recursion inference cannot see through a passed lambda).
+    The skeleton is cheap to keep parallel; the seam is expensive to abstract. **CARRIER-
+    STRUCT-MEET writes the fix TWICE (4 sites: the `.struct fields _ none [] _` sub-case at
+    `:1257`/`:1272`/`:1295`/`:1310`), by hand, identically — that is the correct cost.** The
+    fix is a deletion (drop the `else <merge decls>`, route to `meetCore`→bottom), not new
+    logic, so writing it 4× is mechanical, not a maintenance hazard. CARRIER-STRUCT-MEET's
+    diagnosis already says "apply uniformly to both carriers" — it composes with this ruling
+    as-written; it does NOT need a shared meet seam to land.
+  - **Decl-selection seam — DO share (CARRIER-DECL-SELECT, filed above).** This is the ONE
+    seam where the carriers genuinely AGREE (both select decls identically, and identically
+    to plain `.struct`), so a `selectFromDecls` helper is real dedup, not false-sharing.
+    Ranked BELOW CARRIER-STRUCT-MEET (lands after, to avoid touching the same arms twice).
+- **Phase-B audit (2026-06-22, batch `1ab6f19`(Phase-B prev)..`fa0a414`(scalar-embed) +
+  Phase-A `fc2bb6a`; TL-1 `384380e` / TL-2 `69239a2` / scalar-embed+B3 `fa0a414`) —
+  architecture HEALTHY.** Whole module graph re-checked after the carrier landed. ACYCLIC,
+  strictly layered, NO new edge from the carrier: the two ctors live in `Value` (L1, correct
+  — they ARE `Value` variants), meet in `Lattice` (imports only `Value`/`Regex`), produced
+  once at embed-eval in `Eval` (`meetEmbeddingsWithFuel:3021-3030`). `EvalOps` carve from the
+  prior round still clean (`EvalOps → {Builtin, Decimal, Regex}`, no back-edge). New-ctor
+  discipline VERIFIED graph-wide: `.embeddedScalar` has an explicit arm at every match site
+  (Lattice meet + `containsBottom`; Eval select/definedness/guard/dynlabel/digest/tag/
+  walkers; EvalOps `classifyArithOperand`+`resolveOperand` unwrap; Format/Manifest/Normalize
+  ×2/Runtime) — NO catch-all swallow. `valueTag .embeddedScalar => 32` correctly assigned (a
+  termination measure, not a finding — same deliberate `Value→Nat` pattern the prior ruling
+  noted). File sizes: `Eval.lean` 3442 (was 3396; +46 from the carrier arms — well under the
+  ~4500 re-split watch, ruling stands), `Lattice` 1417, `Value` 921, all others ≤2438
+  (`CaseTable`, generated). Cleanliness sweep clean: NO `sorry`/`panic!`/`unreachable!`
+  /`get!`-in-total-code, NO `String.dropRight`/`dropLeft`, NO dead code, NO stale
+  TODO/FIXME/HACK (the `\uXXXX` hits in `Json.lean` are escape-doc, not markers).
+  Perf-guide: NO note warranted — the carrier meet/normalize/format path is O(1) over the
+  inner scalar + O(decls), the same trivial profile as the pre-existing `.embeddedList`
+  carrier (which the guide also doesn't single out); no new slow pattern. **Filed as
+  fix-slices:** CARRIER-DECL-SELECT (DRY, LOW — the one genuine cross-carrier duplication,
+  the decl-selection seam; ranked below CARRIER-STRUCT-MEET). **Headline ruling:** carrier
+  share/no-share RESOLVED (above) — keep distinct ctors, share decl-selection only, NOT the
+  meet seam. **Verdict: HEALTHY; one DRY fix-slice filed; carrier design VINDICATED.**
 - **Phase-B audit (2026-06-22, batch `cd2f0a9`(BI-2-§3)/`3cc09ab`(EvalOps)/`b5d670c`
   (import-eager) + Phase-A inline `31c76c8`/`8eaa180`) — architecture HEALTHY.** Whole
   module graph re-checked: ACYCLIC, strictly layered (`Regex`/`Base64`/`CaseTable` L0 →
