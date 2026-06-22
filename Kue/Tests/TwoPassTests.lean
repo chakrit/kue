@@ -1015,6 +1015,44 @@ theorem bug25_direct_embed_still_emits :
           = true := by
   native_decide
 
+-- DEPTH (3-level chain): `#Outer` → `#Mid` → `#Mid2` → `#Mixin`. The narrowing `kind` crosses
+-- THREE embed levels to reach `_patch.kind`. Confirms the deep walk is not accidentally
+-- depth-bounded at 2 — `embedBodyEmbedsDisjDeep` follows `resolveEmbedDefBody?` through every
+-- intermediary def. Oracle-confirmed identical to cue v0.16.1 (`{kind, meta:"deep3"}`).
+theorem bug25_three_level_chain_emits :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tstructShape | error(\"nope\")\n\t...\n}\n#Mid2: {#Mixin}\n#Mid: {#Mid2}\n#Outer: {\n\t#Mid\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"deep3\"}}\n\tkind: \"ListenerSet\"\n}\nout: #Outer\n"
+        "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"meta\": \"deep3\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- TERMINATION (cyclic embed on the disj-gate path): `#A` embeds `#B`, `#B` embeds `#A`, and `#A`
+-- carries a disjunction — so `embedBodyEmbedsDisjDeep` would loop forever if it weren't
+-- fuel-bounded. The `native_decide` reducing AT ALL is the witness that evaluation TERMINATES (a
+-- non-terminating walk would never produce a kernel value / the proof would never compile). The
+-- deep walk's `termination_by fuel` bottoms the recursion at fuel exhaustion rather than diverging
+-- on the cycle; the surrounding eval bottoms the self-embedding `#A`/`#B` cycle (Kue's standing
+-- structural-cycle policy — `#L:{n,next:#L}` bottoms, plan item D#2). The contract here is purely
+-- "returns, does not hang"; a regression to non-termination fails to BUILD, not just the pin.
+theorem bug25_cyclic_embed_terminates :
+    exportJsonBottoms
+        "#A: {\n\t#B\n\tlet s = {tag: \"x\"}\n\ts | error(\"nope\")\n\t...\n}\n#B: {#A}\n#Outer: {\n\t#A\n\ttag: \"x\"\n}\nout: #Outer\n"
+          = true := by
+  native_decide
+
+-- OVER-GATE CONTROL (narrowing must NOT spuriously resolve): two STRUCT-compatible arms behind a
+-- transitive embed, host narrows fields BOTH arms admit (open `...`). The deep gate fires (regular
+-- fields spliced in) but NEITHER arm structurally conflicts, so the disjunction must stay ambiguous
+-- — the splice is a type-conflict PRUNE, not a shape heuristic, so it cannot pick a winner here.
+-- cue v0.16.1 keeps it incomplete (`{…}|{…}`); kue keeps it ambiguous → both refuse to resolve.
+-- Witnesses that the widened gate does NOT over-prune (a regression that picked an arm would make
+-- this export succeed). See `disj_embed_struct_disc_struct_struct_stays_ambiguous` (one-level).
+theorem bug25_transitive_no_over_prune_two_struct_arms :
+    exportJsonBottoms
+        "#Mixin: {\n\tlet listShape = {items: [...int]}\n\tlet structShape = {name: string}\n\tlistShape | structShape | error(\"nope\")\n\t...\n}\n#Mid: {#Mixin}\n#Outer: {\n\t#Mid\n\textra: \"hello\"\n\tname: \"x\"\n}\nout: #Outer\n"
+          = true := by
+  native_decide
+
 /-! ### Bug2-2 (Gap-2) — force-tier disjunction-arm narrowing.
 
 An embedded def `#M` carrying a discriminated disjunction (`{shape:"struct",…} |
@@ -1423,6 +1461,35 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
     exportJsonMatches
       "out: ({x: 1} & {x: 2}) | {ok: true}\n"
       "{\n    \"out\": {\n        \"ok\": true\n    }\n}\n" = true := by
+  native_decide
+
+/-! ### Bug2-6 — definition multi-declaration closedness (PARKED bug-WITNESS, FLIP WHEN FIXED).
+
+The REAL residual argocd `export` blocker (filed `cb6d555`, distinct from the now-fixed Bug2-5).
+Two SEPARATE declarations of one definition path (`#Foo: {a:1}` + `#Foo: {c:3}`) must unify their
+field SETS and close ONCE over the union (the same union-not-intersect rule as embedding
+closedness) → cue v0.16.1 gives `{a:1, c:3}`. Kue instead closes each decl's body SEPARATELY
+(`defClosed` at load) and conjoins them (`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`),
+so the meet MUTUALLY REJECTS → `{a:_|_, c:_|_}` (export bottoms).
+
+The pin below holds the CURRENT WRONG behavior (export bottoms). It is a TRIPWIRE, not a contract:
+when Bug2-6 lands (same-def-decl provenance in `canonicalizeFields`/`joinUnevaluated`), this
+`exportJsonBottoms` flips false — replace it with the positive `exportJsonMatches … {a:1,c:3}`. The
+companion `bug26_distinct_closed_defs_still_reject` is the SOUNDNESS GUARD the fix must NOT break:
+`#A & #B` (two DISTINCT closed defs) must STILL reject (`field not allowed` in cue) — a naive
+"union closed sets on meet" would wrongly admit it, because by meet time the same-def provenance is
+already lost. Keep that pin GREEN through the Bug2-6 fix. -/
+
+-- WITNESS (current WRONG behavior — FLIP when Bug2-6 lands): same-def multi-decl bottoms where cue
+-- gives `{a:1, c:3}`. Oracle: cue v0.16.1 `export -e out` → `{"a":1,"c":3}`; kue → bottom.
+theorem bug26_WITNESS_same_def_multi_decl_wrongly_bottoms :
+    exportJsonBottoms "#Foo: {a: 1}\n#Foo: {c: 3}\nout: #Foo\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green through the Bug2-6 fix): two DISTINCT closed defs reject. A
+-- "union closed sets on meet" fix that admitted this would be UNSOUND. cue: `field not allowed`.
+theorem bug26_distinct_closed_defs_still_reject :
+    exportJsonBottoms "#A: {a: 1}\n#B: {c: 3}\nout: #A & #B\n" = true := by
   native_decide
 
 
