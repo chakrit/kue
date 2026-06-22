@@ -2372,6 +2372,63 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
       else
         none
 
+/-- Resolve a cross-package selector / bare ref to the UNEVALUATED def body it names, paired with
+    the package frame that body's refs resolve against (`(capturedFrame, body)`). Unlike
+    `followAliasDefBody?` this does NOT require the terminal to be a deferring struct — it returns
+    the body whatever its shape (`.conj` def-of-def included), so a recursive deferral check can
+    descend a def-OF-def-OF-def chain. `frameEnv` carries the selector's enclosing frame at depth 0.
+    `none` for a non-ref/selector or an unresolvable binding. -/
+def resolveSelectorDefBody? (frameEnv : Env) : Value -> Option (List Field × Value)
+  | .selector (.refId baseId) label =>
+      match frameEnv.drop baseId.depth.val with
+      | [] => none
+      | baseFrame :: _ =>
+          match nthField baseId.index.val baseFrame.snd with
+          | none => none
+          | some baseField =>
+              match Field.value baseField with
+              | .struct pkgFields _ _ _ _ =>
+                  match findEvalField label pkgFields with
+                  | some defField =>
+                      if defField.fieldClass.isDefinition then
+                        some (pkgFields, Field.value defField)
+                      else none
+                  | none => none
+              | _ => none
+  | .refId id =>
+      match frameEnv.drop id.depth.val with
+      | [] => none
+      | frame :: _ =>
+          match nthField id.index.val frame.snd with
+          | some defField =>
+              if defField.fieldClass.isDefinition then some (frame.snd, Field.value defField)
+              else none
+          | none => none
+  | _ => none
+
+/-- Bug2-11: does a cross-package def body that is itself a `.conj` (`#LS: defs.#LS & {…}` — a
+    def-OF-def indirection) have an ARM that resolves THROUGH a cross-package selector/alias to a
+    deferral-needing struct, possibly via FURTHER `.conj` def-of-def levels? If so the WHOLE `.conj`
+    must defer, so the use-site narrowing is re-folded into its arms
+    (`forceClosureWithConjunctCore`'s `.conj` arm) — each arm resolving in ITS OWN package frame —
+    rather than forced standalone (which collapses the embedded self-ref before the narrowing
+    arrives). `frameEnv` carries the def's enclosing package frame at depth 0, so an arm `defs.#LS`'s
+    `defs` import binding resolves there. An arm is deferring when `followAliasDefBody?` resolves it
+    to a deferring struct, OR it resolves to a FURTHER `.conj` def-of-def with a deferring arm
+    (`defaults2.#LS = defaults.#LS & {…}` — the 3-level chain). Fuel-bounded against alias cycles. -/
+def conjBodyHasDeferringArm (fuel : Nat) (frameEnv : Env) (capturedFrame : List Field) :
+    Value -> Bool
+  | .conj arms => arms.any (fun arm =>
+      (followAliasDefBody? evalFuel frameEnv capturedFrame arm).isSome ||
+      (match fuel with
+       | 0 => false
+       | fuel + 1 =>
+           match resolveSelectorDefBody? frameEnv arm with
+           | some (argFrame, argBody) =>
+               conjBodyHasDeferringArm fuel ((0, argFrame) :: frameEnv) argFrame argBody
+           | none => false))
+  | _ => false
+
 /-- The producer gate for slice-3 closures. Given the selector `base.label` where `base` is
     the UNEVALUATED binding `id` resolves to in `env`, decide whether to defer instead of
     eagerly evaluating `base` and plucking `label`. Returns the def's UNEVALUATED body when
@@ -2417,7 +2474,19 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
                     match followAliasDefBody? evalFuel frameEnv pkgFields (Field.value defField) with
                     | some (capturedFrame, body) =>
                         some (capturedFrame, normalizeDefinitionValueWithFuel normalizeFuel body)
-                    | none => none
+                    | none =>
+                      -- Bug2-11: the def body is a `.conj` def-OF-def (`#LS: defs.#LS & {…}`) whose
+                      -- ARM is a cross-package selector reaching a deferral-needing struct. Capture
+                      -- the RAW `.conj` over `pkgFields` (the def's OWN package frame) so the force
+                      -- re-folds the use-site narrowing into its arms with each arm resolving in its
+                      -- own package frame (`forceClosureWithConjunctCore`'s `.conj` arm) — NOT a
+                      -- standalone force that collapses the embedded self-ref. Unnormalized: each
+                      -- arm carries its own closedness through the re-fold (the `.conj` is not a flat
+                      -- struct to close).
+                      if conjBodyHasDeferringArm evalFuel frameEnv pkgFields (Field.value defField) then
+                        some (pkgFields, Field.value defField)
+                      else
+                        none
                   else
                     none
               | none => none
@@ -3634,6 +3703,16 @@ mutual
         match mergeEvaluatedFields evaluatedFields with
         | some fields => pure (mkStruct fields (.ofBool open_) none [])
         | none => pure .bottom
+    | .conj arms =>
+        -- Bug2-11: a deferred def-OF-def body (`#LS: defs.#LS & {…}`). Re-fold its arms WITH the
+        -- use-site narrowing appended as synthetic struct conjuncts, under `capturedEnv` (the def's
+        -- OWN package frame). This re-enters the `.conj` fold so a cross-package arm (`defs.#LS`)
+        -- resolves its OWN import binding and defers correctly — exactly the inlined
+        -- `defs.#LS & {…} & {narrow}` meet — instead of forcing the `.conj` standalone (which
+        -- collapses the embedded self-ref before the narrowing arrives). Each arm keeps its own
+        -- package frame because `capturedEnv` is the def's frame, NOT the use-site's.
+        let narrowing := useOperands.map (fun op => mkStruct op.fst (.ofBool op.snd) none [])
+        evalValueWithFuel fuel capturedEnv [] (.conj (arms ++ narrowing))
     | _ => do
         let forced <- evalValueWithFuel fuel capturedEnv [] body
         pure (useOperands.foldl (fun current op => meet current (mkStruct op.fst (.ofBool op.snd) none [])) forced)

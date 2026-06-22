@@ -1,0 +1,4 @@
+#Meta: {#name: string, metadata: {name: string}}
+#Defs: {#gateway_name: string, #passthrough_hosts: [], kind: "ListenerSet", #name: string, metadata: {name: string}}
+#Defaults: {#gateway_name: "nginx", #passthrough_hosts: [], kind: "ListenerSet", #name: string, metadata: {name: string}}
+out: {#gateway_name: "nginx", #passthrough_hosts: ["a.example.com"], kind: "ListenerSet", #name: "x", metadata: {name: "x"}}

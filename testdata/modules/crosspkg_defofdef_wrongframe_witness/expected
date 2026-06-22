@@ -1,0 +1,9 @@
+{
+    "t": {
+        "zone": "US",
+        "kind": "ListenerSet",
+        "metadata": {
+            "name": "argocd-ls"
+        }
+    }
+}

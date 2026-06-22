@@ -1943,6 +1943,61 @@ theorem bug210_no_self_ref_unchanged :
       "{\n    \"out\": {\n        \"metadata\": {\n            \"name\": \"fixed\"\n        }\n    }\n}\n" = true := by
   native_decide
 
+-- ### Bug2-11 — use-site narrowing of a cross-package def-OF-def selector (RESOLVED).
+--
+-- `defaults.#ListenerSet & {#name, #passthrough}` where `defaults.#ListenerSet = defs.#ListenerSet
+-- & {…}` and `defs.#ListenerSet` embeds the self-ref `parts.#Meta` — a TWO-LEVEL cross-package
+-- def-of-def selector. The def-of-def body is a `.conj`; none of the deferral machinery
+-- (`bodyNeedsDefer`/`followAliasDefBody?`) recursed into a `.conj`, so `importDefClosureBody?`
+-- returned `none` and the conjunct forced STANDALONE with NO use-operands — the embedded `Self.#name`
+-- froze at `string` AND a sibling default disjunction (`[...string] | *[]`) collapsed to `*[]`,
+-- conflicting with the use-site list → `_|_`. A SINGLE-level cross-pkg selector narrows fine; the
+-- failure needs the def-of-def indirection. Fixed by `conjBodyHasDeferringArm` (recognize a `.conj`
+-- def-of-def whose arm reaches a deferral-needing struct, recursing through further `.conj` levels)
+-- + capture the RAW `.conj` over its OWN package frame in `importDefClosureBody?` +
+-- `forceClosureWithConjunctCore`'s `.conj` arm (re-fold arms ++ narrowing under `capturedEnv`, so
+-- each arm resolves in ITS OWN package frame — the wrong-frame hazard). These `native_decide` pins
+-- use the same-file INLINED def-of-def (`#Defs`/`#Defaults`); the cross-PACKAGE shape is pinned by
+-- the `testdata/modules/crosspkg_defofdef_*` fixtures (the inlined and cross-pkg forms must agree).
+
+-- TARGET (was the WITNESS of the bottom; FLIPPED): the def-of-def's embedded `Self.#name` narrows to
+-- "x" AND the sibling default disjunction narrows to the use-site list (no spurious `*[]` collapse).
+-- cue: `{kind: "ListenerSet", metadata: {name: "x"}}`.
+theorem bug211_defofdef_disj_narrowed :
+    evalSourceMatches
+      "#Meta: Self={#name: string, metadata: name: Self.#name}\n#Defs: {#Meta, #gateway_name: string, #passthrough_hosts: [...string] | *[], kind: \"ListenerSet\"}\n#Defaults: #Defs & {#gateway_name: \"nginx\"}\nout: #Defaults & {#name: \"x\", #passthrough_hosts: [\"a.example.com\"]}\n"
+      "#Meta: {#name: string, metadata: {name: string}}\n#Defs: {#gateway_name: string, #passthrough_hosts: [], kind: \"ListenerSet\", #name: string, metadata: {name: string}}\n#Defaults: {#gateway_name: \"nginx\", #passthrough_hosts: [], kind: \"ListenerSet\", #name: string, metadata: {name: string}}\nout: {#gateway_name: \"nginx\", #passthrough_hosts: [\"a.example.com\"], kind: \"ListenerSet\", #name: \"x\", metadata: {name: \"x\"}}"
+        = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): closedness survives the def-of-def re-fold. A use-site field the
+-- closed def-of-def does not declare (`notInDef`) is REJECTED — delivery is not laxity. cue: `field
+-- not allowed`.
+theorem bug211_defofdef_rejects_extra :
+    exportJsonBottoms
+      "#Meta: Self={#name: string, metadata: name: Self.#name}\n#Defs: {#Meta, #gateway_name: string, kind: \"ListenerSet\"}\n#Defaults: #Defs & {#gateway_name: \"nginx\"}\nout: #Defaults & {#name: \"x\", notInDef: true}\n"
+        = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): a real conflict still bottoms. The use-site `kind: "Other"` meets
+-- the def's fixed `"ListenerSet"` → `_|_`. Delivery never masks a genuine conflict. cue: `conflicting
+-- values`.
+theorem bug211_defofdef_conflict_bottoms :
+    exportJsonBottoms
+      "#Meta: Self={#name: string, metadata: name: Self.#name}\n#Defs: {#Meta, #gateway_name: string, kind: \"ListenerSet\"}\n#Defaults: #Defs & {#gateway_name: \"nginx\"}\nout: #Defaults & {#name: \"x\", kind: \"Other\"}\n"
+        = true := by
+  native_decide
+
+-- SINGLE-LEVEL CONTROL (must STAY green): a single-level cross-pkg-shaped selector (`#Defs & {…}`, no
+-- `#Defaults` indirection) narrows fine BOTH before and after the fix — isolates the def-of-def
+-- indirection as the cause. cue: `{kind: "ListenerSet", metadata: {name: "x"}}`.
+theorem bug211_singlelevel_narrowed :
+    evalSourceMatches
+      "#Meta: Self={#name: string, metadata: name: Self.#name}\n#Defs: {#Meta, #gateway_name: string, kind: \"ListenerSet\"}\nout: #Defs & {#name: \"x\", #gateway_name: \"nginx\"}\n"
+      "#Meta: {#name: string, metadata: {name: string}}\n#Defs: {#gateway_name: string, kind: \"ListenerSet\", #name: string, metadata: {name: string}}\nout: {#gateway_name: \"nginx\", kind: \"ListenerSet\", #name: \"x\", metadata: {name: \"x\"}}"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of
 -- every section. If a stray block comment (`/-` … runaway) or an editing slip ever swallows a
 -- section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -1973,6 +2028,7 @@ theorem bug210_no_self_ref_unchanged :
 #check @bug27_closed_pattern_multi_decl_rejects_int_via_ref   -- Bug2-7
 #check @bug29_alias_cycle_narrow_terminates                   -- Bug2-9
 #check @bug28_scalar_def_across_embed_stays_meet              -- Bug2-8 (file tail)
-#check @bug210_no_self_ref_unchanged                          -- Bug2-10 (file tail)
+#check @bug210_no_self_ref_unchanged                          -- Bug2-10
+#check @bug211_singlelevel_narrowed                           -- Bug2-11 (file tail)
 
 end Kue

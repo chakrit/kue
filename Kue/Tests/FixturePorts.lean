@@ -761,6 +761,36 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-11: use-site narrowing of an INLINED def-OF-def (`#Defaults: #Defs & {…}` where `#Defs`
+      -- embeds the self-ref `#Meta`) reaches the embedded `metadata.name`. The same-file analogue of
+      -- the cross-package fixture (`testdata/modules/crosspkg_defofdef_narrowed`): `metadata.name`
+      -- narrows to "x", not frozen `string`. Pre-fix kue bottomed.
+      fileName := "definitions/bug211_defofdef_disj_narrowed.expected",
+      content :=
+        match parseSource "#Meta: Self={\n\t#name: string\n\tmetadata: name: Self.#name\n}\n#Defs: {\n\t#Meta\n\t#gateway_name: string\n\t#passthrough_hosts: [...string] | *[]\n\tkind: \"ListenerSet\"\n}\n#Defaults: #Defs & {#gateway_name: \"nginx\"}\nout: #Defaults & {#name: \"x\", #passthrough_hosts: [\"a.example.com\"]}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-11 SOUNDNESS: a use-site EXTRA the closed def-of-def does not declare (`notInDef`) is
+      -- still REJECTED (`notInDef: _|_`) — narrowing-delivery is not laxity; closedness survives the
+      -- def-of-def re-fold.
+      fileName := "definitions/bug211_defofdef_rejects_extra.expected",
+      content :=
+        match parseSource "#Meta: Self={\n\t#name: string\n\tmetadata: name: Self.#name\n}\n#Defs: {\n\t#Meta\n\t#gateway_name: string\n\tkind: \"ListenerSet\"\n}\n#Defaults: #Defs & {#gateway_name: \"nginx\"}\nout: #Defaults & {#name: \"x\", notInDef: true}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-11 SOUNDNESS: a real CONFLICT (use-site `kind` vs the def's fixed `"ListenerSet"`) still
+      -- bottoms the field (`kind: _|_`) AFTER the def-of-def narrowing-delivery fix.
+      fileName := "definitions/bug211_defofdef_conflict.expected",
+      content :=
+        match parseSource "#Meta: Self={\n\t#name: string\n\tmetadata: name: Self.#name\n}\n#Defs: {\n\t#Meta\n\t#gateway_name: string\n\tkind: \"ListenerSet\"\n}\n#Defaults: #Defs & {#gateway_name: \"nginx\"}\nout: #Defaults & {#name: \"x\", kind: \"Other\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

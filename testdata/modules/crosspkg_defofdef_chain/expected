@@ -1,0 +1,8 @@
+{
+    "t": {
+        "kind": "ListenerSet",
+        "metadata": {
+            "name": "argocd-ls"
+        }
+    }
+}

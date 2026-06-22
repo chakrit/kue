@@ -1,0 +1,4 @@
+#Meta: {#name: string, metadata: {name: string}}
+#Defs: {#gateway_name: string, kind: "ListenerSet", #name: string, metadata: {name: string}}
+#Defaults: {#gateway_name: "nginx", kind: "ListenerSet", #name: string, metadata: {name: string}}
+out: {#gateway_name: "nginx", kind: "ListenerSet", #name: "x", notInDef: _|_, metadata: {name: "x"}}
