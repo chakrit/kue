@@ -2012,6 +2012,87 @@ theorem bug211_selfconj_terminates_and_narrows :
         = true := by
   native_decide
 
+-- ### Bug2-13 — an UNSET OPTIONAL selection reads as ABSENT (`_|_`), not its declared type.
+--
+-- A presence-test on an unset optional field returned the WRONG polarity: kue resolved an
+-- optional field reference to its declared TYPE (a present `.struct`/`.prim`), so `classifyDefinedness`
+-- read `.defined` → `== _|_` wrongly false / `!= _|_` wrongly true. cue's model: an optional
+-- declaration is a CONSTRAINT, not a value; until unification SUPPLIES the field it is ABSENT, and a
+-- reference/presence-test against it is `_|_`. Fixed at the selection/resolution boundary —
+-- `selectedFieldValue` (the eager `.selector` pluck) and the `.refId` eval arm (sibling reference)
+-- both resolve an `.optional`-rung field to `.bottom`. The discriminator is the `.optional` presence
+-- rung itself: supplying a regular conjunct downgrades optionality to `.regular` via `mergeFieldClass`
+-- (`optional.meet regular = regular`), so a SET optional is no longer `.optional` and keeps resolving
+-- to its value — the over-fire guard is structural, not a heuristic. Presence, not concreteness, so a
+-- concrete-typed unset optional (`#opt?: 5`) is still absent. The selection-time analog of
+-- `containsBottomFields`'s existing optional-skip (`Lattice.lean`). JSON-export witnesses also at
+-- `testdata/export/bug213_*`.
+
+-- TARGET (the bug, FLIPPED): unset optional `#opt?: {a:int}` reads ABSENT — `#opt == _|_` TRUE,
+-- `#opt != _|_` FALSE. cue: `eq_bottom true, neq_bottom false`.
+theorem bug213_unset_optional_reads_absent :
+    evalSourceMatches
+      "x: {#opt?: {a: int}, eq_bottom: #opt == _|_, neq_bottom: #opt != _|_}\n"
+      "x: {#opt?: {a: int}, eq_bottom: true, neq_bottom: false}"
+        = true := by
+  native_decide
+
+-- OVER-FIRE GUARD (must STAY green): a SET optional stays PRESENT. `#opt: {a:1}` downgrades the
+-- rung to `.regular`, so selection reads `.defined` — `== _|_` FALSE, `!= _|_` TRUE. The absent rule
+-- must not touch a supplied optional. cue: `set_eq false, set_neq true`.
+theorem bug213_set_optional_stays_present :
+    evalSourceMatches
+      "y: {#opt?: {a: int}, #opt: {a: 1}, set_eq: #opt == _|_, set_neq: #opt != _|_}\n"
+      "y: {#opt: {a: 1}, set_eq: false, set_neq: true}"
+        = true := by
+  native_decide
+
+-- GENERALITY: a plain (non-definition) unset optional `opt?` reads the SAME as `#opt?` — the rule is
+-- general to all optionals, orthogonal to definition-ness. cue: `eq_bottom true, neq_bottom false`.
+theorem bug213_nondef_unset_optional_reads_absent :
+    evalSourceMatches
+      "z: {opt?: {a: int}, eq_bottom: opt == _|_, neq_bottom: opt != _|_}\n"
+      "z: {opt?: {a: int}, eq_bottom: true, neq_bottom: false}"
+        = true := by
+  native_decide
+
+-- PRESENCE-NOT-CONCRETENESS: a concrete-typed unset optional (`#opt?: 5`) is STILL absent — the
+-- discriminator is the `.optional` rung, never whether the declared type is concrete. cue:
+-- `eq_bottom true, neq_bottom false`.
+theorem bug213_concrete_typed_unset_optional_absent :
+    evalSourceMatches
+      "w: {#opt?: 5, eq_bottom: #opt == _|_, neq_bottom: #opt != _|_}\n"
+      "w: {#opt?: 5, eq_bottom: true, neq_bottom: false}"
+        = true := by
+  native_decide
+
+-- ARGOCD PATH: a comprehension guard over an unset optional fires the CORRECT arm — the `if #opt ==
+-- _|_` arm (absent), NOT the `if #opt != _|_` arm. The `attr.#ServiceRef` `#service?` shape that
+-- gated `route.yaml`. cue: `{x: {out: {absent: true}}}`.
+theorem bug213_comprehension_guard_fires_absent_arm :
+    exportJsonMatches
+      "x: {#opt?: {a: int}, out: {if #opt == _|_ {absent: true}, if #opt != _|_ {present: true}}}\n"
+      "{\n    \"x\": {\n        \"out\": {\n            \"absent\": true\n        }\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- DEF-MEET narrowing through the absent/present fork: the SAME def, once with the optional UNSET
+-- (`#D & {}` → `present: false`) and once SET (`#D & {#opt: {a:9}}` → `present: true`). Pins that the
+-- fix fires AND its over-fire guard both hold across a definition meet, not just a literal struct.
+theorem bug213_def_meet_unset_optional_absent :
+    exportJsonMatches
+      "#D: {#opt?: {a: int}, present: #opt != _|_}\nv: #D & {}\n"
+      "{\n    \"v\": {\n        \"present\": false\n    }\n}\n"
+        = true := by
+  native_decide
+
+theorem bug213_def_meet_set_optional_present :
+    exportJsonMatches
+      "#D: {#opt?: {a: int}, present: #opt != _|_}\nv: #D & {#opt: {a: 9}}\n"
+      "{\n    \"v\": {\n        \"present\": true\n    }\n}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of
 -- every section. If a stray block comment (`/-` … runaway) or an editing slip ever swallows a
 -- section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -2043,6 +2124,7 @@ theorem bug211_selfconj_terminates_and_narrows :
 #check @bug29_alias_cycle_narrow_terminates                   -- Bug2-9
 #check @bug28_scalar_def_across_embed_stays_meet              -- Bug2-8 (file tail)
 #check @bug210_no_self_ref_unchanged                          -- Bug2-10
-#check @bug211_selfconj_terminates_and_narrows               -- Bug2-11 (file tail)
+#check @bug211_selfconj_terminates_and_narrows               -- Bug2-11
+#check @bug213_def_meet_set_optional_present                 -- Bug2-13 (file tail)
 
 end Kue

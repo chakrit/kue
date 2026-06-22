@@ -717,12 +717,25 @@ def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
     idempotent for a same-file def (already closed at load), load-bearing for an imported one, and
     preserves a `...`/`defOpenViaTail` body OPEN (`normalizeDefinitionValueWithFuel` returns it
     unchanged), so an open def keeps admitting use-site fields. A non-definition field is yielded
-    raw — a regular field's struct value stays open, as CUE keeps it. -/
+    raw — a regular field's struct value stays open, as CUE keeps it.
+
+    An UNSET OPTIONAL field (`fieldClass.optionality == .optional`) selects to ABSENT (`.bottom`),
+    not its declared type — the selection-time analog of `containsBottomFields`'s optional-skip
+    (`Lattice.lean`): an optional declaration is a CONSTRAINT, not a value, so until unification
+    SUPPLIES the field it is absent, and a reference/presence-test against it is `_|_` (Bug2-13).
+    The discriminator is the `.optional` rung itself: supplying a regular conjunct (`#opt: v`)
+    downgrades optionality to `.regular` via `mergeFieldClass` (`lo.meet ro`, and
+    `optional.meet regular = regular`), so a SET optional is no longer `.optional` and keeps
+    resolving to its value. Presence, not concreteness — `#opt?: 5` unset is still `.optional`,
+    hence still absent, matching cue. -/
 def selectedFieldValue (field : Field) : Value :=
-  if field.fieldClass.isDefinition then
-    normalizeDefinitionValueWithFuel normalizeFuel (Field.value field)
-  else
-    Field.value field
+  match field.fieldClass.optionality with
+  | .optional => .bottom
+  | _ =>
+    if field.fieldClass.isDefinition then
+      normalizeDefinitionValueWithFuel normalizeFuel (Field.value field)
+    else
+      Field.value field
 
 /-- Select `label` from a carrier's decl/field list: the found field's `selectedFieldValue`
     (the single closing decision) or a deferred `.selector base label` on a miss. Shared by
@@ -2893,6 +2906,17 @@ mutual
             match nthField id.index.val frame.snd with
             | none => pure (.bottomWith [.unresolvedBinding id])
             | some field =>
+              -- An UNSET OPTIONAL field reference resolves to ABSENT (`.bottom`), not its declared
+              -- type — the resolution-time analog of `selectedFieldValue`'s optional-skip (Bug2-13).
+              -- An optional declaration is a CONSTRAINT, not a value: until unification SUPPLIES the
+              -- field (downgrading optionality to `.regular` via `mergeFieldClass`'s `lo.meet ro`), a
+              -- reference/presence-test against it is `_|_`. The `.optional` rung itself is the
+              -- discriminator, so a SET optional (now `.regular`) keeps resolving to its value, and a
+              -- concrete-typed unset optional (`#opt?: 5`, still `.optional`) is still absent —
+              -- presence, not concreteness, matching cue.
+              match field.fieldClass.optionality with
+              | .optional => pure .bottom
+              | _ =>
                 -- Producer (slice E): a bare ref to a self-ref def the lazy-merge can't handle
                 -- (embed-bearing `.structComp`, or a nested `.struct`/`.structTail`) FORCES the def
                 -- body against its own captured scope — forced HERE with no use-operands (a bare
