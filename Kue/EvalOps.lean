@@ -43,9 +43,9 @@ def classifyArithOperand : Value -> ArithOperandClass
   | .list _ => .concreteNonArith .list
   | .listTail _ _ => .concreteNonArith .list
   | .embeddedList _ _ _ => .concreteNonArith .list
-  -- Unresolved / abstract forms → DEFER (keep the binary residual); a pattern-bearing struct is
-  -- a residual constraint, so it too defers (it could still meet down to a prim... it cannot, but
-  -- it is not yet concrete — the conservative choice is defer, matching `classifyGuard`).
+  -- Unresolved / abstract forms → DEFER (keep the binary residual); a pattern-bearing struct is a
+  -- residual constraint, not yet concrete, so it too defers — the conservative choice, matching
+  -- `classifyGuard`.
   | .struct _ _ _ (_ :: _) _ => .incomplete
   | .structComp _ _ _ => .incomplete
   | .top => .incomplete
