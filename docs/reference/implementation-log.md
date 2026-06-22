@@ -11122,3 +11122,59 @@ rewired `mathPow?`), `Kue/Tests/BuiltinTests.lean` (13 pins), `Kue/Tests/Fixture
 (math_pow port +11), `testdata/cue/builtins/math_pow.{cue,expected}`,
 `docs/reference/cue-divergences.md` (1 row), `docs/reference/cue-spec-gaps.md` (Pow row clause c),
 `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (BI-2 family COMPLETE). Commit `cd2f0a9`.
+
+---
+
+## Completed Slice: EvalOps extraction — carve pure scalar algebra out of Eval.lean (2026-06-22)
+
+Goal: a behavior-preserving module split (plan item 2). Carve the self-contained pure scalar
+algebra out from under the recursive evaluator into a new `Kue/EvalOps.lean`, shrinking
+`Eval.lean` and giving the scalar ops a clear home below `Eval`.
+
+**What moved (verbatim, no logic change).** `ArithOperandClass` + `classifyArithOperand`
++ `arithmeticDomainResult` + `evalRepeat` + `evalAdd`/`evalSub`/`evalMul`/`evalDiv`; and
+`collapseDefaultDisjunction` + `evalEq`/`evalNe` + `charsLt`/`stringsLt`
++ `evalPrimitiveOrdering` + `evalRegexMatch`/`evalRegexNotMatch` + `evalIntKeywordBinary`
++ `evalBoolBinary`/`evalBoolNot` + `negateFloatText` + `evalNumPos`/`evalNumNeg`
++ `evalUnary`/`evalBinary` + `resolveOperand` + `distributeUnary`/`distributeBinary`.
+
+**Extraction premise verified.** The carve set sits entirely ABOVE the evaluator's `mutual`
+block — none of these functions back-edge into `evalValueWithFuel`. They take already-evaluated
+`Value` operands and decide scalar results. Confirmed independent of the
+`classifyDefinedness`/`classifyGuard`/`classifyDynLabel`/`evalPresenceTest` classifier block
+(801–1016 in the old file), which is NOT scalar algebra and STAYS in `Eval.lean`.
+`resolveDynLabelDefault` stays in `Eval.lean` and now reaches `collapseDefaultDisjunction`
+through the import.
+
+**Import-shape decision — option (a): `EvalOps` imports `{Builtin, Decimal, Regex}`.** The
+ops call `divValue`/`modValue`/`quoValue`/`remValue`, which live in `Builtin.lean`. Option (b)
+(move those four into EvalOps so it imports only `{Value, Decimal}`) was REJECTED: the four
+ALSO back the `div`/`mod`/`quo`/`rem` builtins at `Builtin.lean:892`, so relocating them would
+force a NEW `Builtin → EvalOps` edge — strictly worse than `EvalOps → Builtin` (they are
+genuinely Builtin-owned, not Eval-private; option (b)'s premise was wrong). Graph stays acyclic:
+`EvalOps → {Builtin, Decimal, Regex}`, and nothing those import reaches back to EvalOps (build
+ordering confirms: Builtin → EvalOps → Eval).
+
+**Tests — 18 `native_decide` pins ADDED** (`EvalTests.lean`), closing a real coverage gap: the
+comparison ops (`evalPrimitiveOrdering` via `evalBinary .lt/.le/.gt/.ge`), `evalEq`/`evalNe`,
+the boolean ops, and unary negation/not previously had ONLY end-to-end fixture coverage (no
+direct function-level pin except two `evalEq` in `PresenceTests`). New pins cover the edge cases
+the slice flagged: comparison on incomparable kinds (`int < "a"` → bottom; cue: `invalid
+operands`), bool unordered (`true < false` → bottom), `&&` over a non-bool prim → bottom, unary
+`!` on a non-bool → bottom, unary `-` on a non-numeric → bottom, plus the incomplete-operand
+defer for both binary and unary. Cross-checked the bottom cases against `cue` v0.16.1 (all error,
+Kue agrees). The div/mod/quo/rem direct pins already in `BuiltinTests.lean` (neg-operand,
+incomplete-defer, kind-conflict, div-by-zero) stay valid (ops unmoved).
+
+**Behavior-preserving.** No logic edited — only relocated. All pre-existing `native_decide`
+pins + every fixture stay green; pin-count conserved (an org move, +18 new edge pins on top).
+No divergence introduced (`cue-divergences.md` unchanged); no spec gap hit
+(`cue-spec-gaps.md` unchanged).
+
+**Verify.** `lake build` green (110 jobs, no new warnings/errors, no `sorry`/axiom);
+`check-fixtures.sh` → `fixture pairs ok` (zero drift); `shellcheck` n/a (no shell touched).
+
+`Eval.lean` 3701 → 3377 (−324). Files: `Kue/EvalOps.lean` (new, 346),
+`Kue/Eval.lean` (carve removed + `import Kue.EvalOps`), `Kue.lean` (register `Kue.EvalOps`),
+`Kue/Tests/EvalTests.lean` (18 pins), `docs/spec/plan.md` (item 2 DONE),
+`docs/notes/` (breadcrumb rotated).

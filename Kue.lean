@@ -11,6 +11,7 @@ import Kue.Json
 import Kue.Yaml
 import Kue.Order
 import Kue.Normalize
+import Kue.EvalOps
 import Kue.Eval
 import Kue.Resolve
 import Kue.Builtin

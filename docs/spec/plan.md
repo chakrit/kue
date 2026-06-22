@@ -121,8 +121,7 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 + **BI-2-residual** (math.Sqrt + Pow(·,½), 2026-06-21) + **BI-2-§3** (general neg-int +
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
-real domain. The genuinely-open set: **EvalOps** (mechanical
-carve, autonomous, item 2), **SC-4**
+real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
 (LOW spec-gap-first). PARKED: **Bug2-5** (argocd residual, a stress-test finding). RESOLVED
 / ruled out (do not re-file — see Resolved/ruled-out below): **AD2-1** (lone-default
 normalizer unified, 2026-06-21), **DRY-1**. **SC-3** is now a recorded spec-gap only (the
@@ -145,14 +144,25 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    (BI-EFF — the effectful-builtin seam, triggered at the 2nd effectful builtin — is in
    Resolved/ruled-out.)
 
-2. **EvalOps extraction → `Kue/EvalOps.lean` (ACTIONABLE, PARALLEL-SAFE).** ~256 lines of
-   self-contained pure scalar algebra (`evalAdd…evalBinary` + `distributeUnary` /
-   `distributeBinary`, `Eval.lean:782/1042/1088/1093`) carved out from under the recursive
-   evaluator, no back-edge into `evalValueWithFuel`. CORRECTION: it also calls `divValue`
-   /`modValue`/`quoValue`/`remValue` from `Builtin.lean` — so `EvalOps` imports
-   `{Value, Decimal, Builtin}`, OR move those four pure decimal ops into `EvalOps`
-   /`Decimal` first (cleaner). Resolve the import shape in the slice. Mechanical
-   otherwise. (Confirmed still inline + live by Phase-B 2026-06-20.)
+2. **EvalOps extraction → `Kue/EvalOps.lean` — DONE (2026-06-22).** Carved the
+   self-contained pure scalar algebra (`ArithOperandClass`/`classifyArithOperand`
+   /`arithmeticDomainResult`/`evalRepeat`/`evalAdd…evalDiv`, plus
+   `collapseDefaultDisjunction`/`evalEq…evalBinary`/`resolveOperand`/`distributeUnary`
+   /`distributeBinary`) out from under the recursive evaluator into `Kue/EvalOps.lean`
+   (346 lines). No back-edge into `evalValueWithFuel` (the carve set sits entirely above the
+   `mutual` block; verified independent of the `classifyGuard`/`classifyDynLabel` classifier
+   block, which STAYS in `Eval.lean`). **Import shape: option (a)** — `EvalOps` imports
+   `{Builtin, Decimal, Regex}`. Rejected (b) (moving `div`/`mod`/`quo`/`remValue` into
+   EvalOps): those four ALSO back the `div`/`mod`/`quo`/`rem` builtins at `Builtin.lean:892`,
+   so relocating them would force a NEW `Builtin → EvalOps` edge — strictly worse than
+   `EvalOps → Builtin`. Graph stays acyclic (`EvalOps → {Builtin, Decimal, Regex}`; nothing
+   imports EvalOps back). `Eval.lean` 3701 → 3377 (−324); `Eval` now imports `EvalOps`;
+   registered in `Kue.lean`. Behavior-preserving: all existing pins + fixtures green,
+   pin-count conserved. **Pins ADDED (18, in `EvalTests.lean`):** the comparison ops
+   (`lt`/`le`/`gt`/`ge` true cases, incomparable-kind `int`×`string` → bottom, bool-unordered
+   → bottom, incomplete-operand defer), `evalEq`/`evalNe`, boolean ops (`&&`/`||`, non-bool →
+   bottom), unary (`!` on bool + non-bool → bottom, `-` on int + non-numeric → bottom +
+   incomplete defer) — the carve-set ops that previously had only end-to-end fixture coverage.
 
 3. **Test/fixture-org pass (periodic) — module carve DONE `4b25cef`; fixture regroup
    DEFERRED.** `EvalTests.lean` (had re-grown to 1593) was carved into

@@ -1037,6 +1037,106 @@ theorem eval_add_ref_operand_defers :
     evalAdd (.refId ⟨0, 0⟩) (.prim (.int 1)) = .binary .add (.refId ⟨0, 0⟩) (.prim (.int 1)) := by
   rfl
 
+/-! ### Comparison / boolean / unary scalar-op pins (EvalOps)
+
+    Direct unit pins for `evalEq`/`evalNe`, the ordering ops (`evalPrimitiveOrdering` via
+    `evalBinary .lt/.le/.gt/.ge`), the boolean ops, and unary negation/not — the carve-set
+    functions that previously had only end-to-end fixture coverage. They fix the edge
+    behavior (incomparable-kind comparison, bool ordering, unary on non-numeric) at the
+    function level, independent of display. -/
+
+/-- `<` over two ints decides numerically. -/
+theorem eval_lt_int_true :
+    (evalBinary .lt (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- `<` is lexicographic over strings. -/
+theorem eval_lt_string_true :
+    (evalBinary .lt (.prim (.string "a")) (.prim (.string "b")) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- `<=` is reflexive at equality. -/
+theorem eval_le_int_equal_true :
+    (evalBinary .le (.prim (.int 2)) (.prim (.int 2)) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- `>` over ints decides numerically. -/
+theorem eval_gt_int_true :
+    (evalBinary .gt (.prim (.int 5)) (.prim (.int 2)) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- `>=` over ints decides numerically. -/
+theorem eval_ge_int_true :
+    (evalBinary .ge (.prim (.int 5)) (.prim (.int 5)) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- Comparison over INCOMPARABLE kinds (int vs string) bottoms — cue: `invalid operands …
+    to '<'`. The `prim,prim` arm finds no decimal compare and no same-string match ⇒ `.bottom`. -/
+theorem eval_lt_incomparable_kinds_is_bottom :
+    (evalBinary .lt (.prim (.int 1)) (.prim (.string "a")) == .bottom) = true := by
+  native_decide
+
+/-- `bool` is NOT ordered: `true < false` bottoms (cue: `invalid operands … (type bool and bool)`). -/
+theorem eval_lt_bool_unordered_is_bottom :
+    (evalBinary .lt (.prim (.bool true)) (.prim (.bool false)) == .bottom) = true := by
+  native_decide
+
+/-- An incomplete operand keeps an ordering comparison DEFERRED (residual `.binary`). -/
+theorem eval_lt_incomplete_defers :
+    (evalBinary .lt (.kind .int) (.prim (.int 2))
+      == .binary .lt (.kind .int) (.prim (.int 2))) = true := by
+  native_decide
+
+/-- `==` over distinct ints is `false`. -/
+theorem eval_eq_int_distinct_false :
+    (evalEq (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool false)) = true := by
+  native_decide
+
+/-- `!=` is the negation of `==`. -/
+theorem eval_ne_int_distinct_true :
+    (evalNe (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- `&&` over bools decides directly. -/
+theorem eval_bool_and :
+    (evalBinary .boolAnd (.prim (.bool true)) (.prim (.bool false)) == .prim (.bool false)) = true := by
+  native_decide
+
+/-- `||` over bools decides directly. -/
+theorem eval_bool_or :
+    (evalBinary .boolOr (.prim (.bool false)) (.prim (.bool true)) == .prim (.bool true)) = true := by
+  native_decide
+
+/-- `&&` over a NON-bool prim bottoms (cue: `cannot use … as bool`). -/
+theorem eval_bool_and_non_bool_is_bottom :
+    (evalBinary .boolAnd (.prim (.int 1)) (.prim (.bool true)) == .bottom) = true := by
+  native_decide
+
+/-- Unary `!` negates a bool. -/
+theorem eval_unary_not_bool :
+    (evalUnary .boolNot (.prim (.bool true)) == .prim (.bool false)) = true := by
+  native_decide
+
+/-- Unary `!` on a non-bool bottoms (cue: `invalid operation !3`). -/
+theorem eval_unary_not_non_bool_is_bottom :
+    (evalUnary .boolNot (.prim (.int 3)) == .bottom) = true := by
+  native_decide
+
+/-- Unary `-` negates an int. -/
+theorem eval_unary_neg_int :
+    (evalUnary .numNeg (.prim (.int 5)) == .prim (.int (-5))) = true := by
+  native_decide
+
+/-- Unary `-` on a non-numeric operand bottoms (cue: `invalid operation -"a"`). -/
+theorem eval_unary_neg_non_numeric_is_bottom :
+    (evalUnary .numNeg (.prim (.string "x")) == .bottom) = true := by
+  native_decide
+
+/-- Unary `-` on an incomplete operand keeps the unary DEFERRED (residual `.unary`). -/
+theorem eval_unary_neg_incomplete_defers :
+    (evalUnary .numNeg (.kind .int) == .unary .numNeg (.kind .int)) = true := by
+  native_decide
+
 /-- Slice 2c.1: an in-struct sibling reference (`b: a`) sees the FULLY-MERGED value of a
     duplicated label, not the first conjunct. `{a: int, b: a, a: 1}` canonicalizes the two
     `a` slots into `.conj [int, 1]` at slot 0, so `b` evaluates to `1`, and the duplicate
