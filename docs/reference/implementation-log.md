@@ -12044,3 +12044,77 @@ stays gated until argocd actually exports.
 openness in both the eager + force `.structComp` arms), `Kue/Tests/TwoPassTests.lean` (`### Bug2-10`
 section + sentinel), `Kue/Tests/FixturePorts.lean` (7 `bug210_*` entries), `testdata/cue/definitions/
 bug210_*.{cue,expected}` (7 pairs), `docs/spec/{spec-conformance-audit,plan}.md`, this log.
+
+## 2026-06-23 — Bug2-11: deliver use-site narrowing into a cross-package def-of-def selector (`bdced40`)
+
+**Slice.** Use-site narrowing of a TWO-LEVEL cross-package def-of-def selector. `defaults.#ListenerSet
+& {#name, #passthrough_hosts}` where `defaults.#ListenerSet = defs.#ListenerSet & {…}` (a cross-pkg
+def whose BODY refs the cross-pkg `defs.#ListenerSet`, which embeds the self-ref `parts.#Meta`). The
+narrowing never reached the embedded `metadata.name` (froze at `string`) AND a sibling default
+disjunction (`[...string] | *[]`) collapsed to `*[]`, conflicting with the use-site list → kue
+bottomed (`conflicting values`). cue v0.16.1 narrows. A SINGLE-level cross-pkg selector narrows fine;
+the failure needs the def-OF-def indirection — the exact argocd `ls` shape.
+
+**Root cause.** `defaults.#ListenerSet`'s body is a `.conj`. No deferral machinery
+(`bodyNeedsDefer` via `embedChainAny`, `followAliasDefBody?`) recursed into a `.conj` body, so
+`importDefClosureBody?` returned `none` and the use-site conjunct forced STANDALONE (no use-operands)
+through the `.selector` eager arm — collapsing the embedded `Self.#name` before the narrowing arrived.
+`flattenConjDefRef` correctly DECLINES the cross-package selector (depth-0-only, sound — a naive
+flatten into the use-site frame would mis-resolve the inner `defs.#LS` import); Bug2-9 deliberately
+left this declined case as Bug2-11.
+
+**Fix (delivery, right-frame — three seams, `Kue/Eval.lean`).**
+- `resolveSelectorDefBody?` — resolve a selector/ref arm to its def body (ANY shape, incl. a further
+  `.conj`) paired with the package frame its refs resolve against; the building block for the
+  recursive deferral check.
+- `conjBodyHasDeferringArm fuel frameEnv capturedFrame` — a `.conj` def-of-def body DEFERS iff an arm
+  `followAliasDefBody?`-resolves to a deferral-needing struct, OR resolves to a FURTHER `.conj`
+  def-of-def with a deferring arm (the 3-level `defaults2 → defaults → defs` chain). Fuel-bounded
+  against alias cycles.
+- `importDefClosureBody?` — when the def body is a `.conj` with a deferring arm, capture the RAW
+  `.conj` over `pkgFields` (the def's OWN package frame), UNNORMALIZED (each arm carries its own
+  closedness through the re-fold; the `.conj` is not a flat struct to close).
+- `forceClosureWithConjunctCore` — new `.conj arms` arm: re-fold `arms ++ (useOperands as structs)`
+  via `evalValueWithFuel fuel capturedEnv [] (.conj …)`. This re-enters the `.conj` fold so a
+  cross-pkg arm (`defs.#LS`) resolves its OWN import binding and defers correctly — exactly the
+  inlined `defs.#LS & {…} & {narrow}` meet — instead of forcing the `.conj` standalone. Each arm
+  keeps its OWN package frame because `capturedEnv` is the def's frame, NOT the use-site's.
+
+**Wrong-frame hazard PINNED.** `crosspkg_defofdef_wrongframe_witness`: defs-local `_region:"US"` vs
+defaults-local `_region:"EU"`; the inner selector's `zone: _region` MUST resolve in defs' frame. kue
+now yields `zone:"US"` — a use-site-frame splice would mis-resolve to "EU"/bottom. Confirms each
+conjunct resolves in its own package frame.
+
+**Soundness.** narrowed == inlined == cue (oracle-confirmed on the `example.com` 3-package module +
+the inlined same-file form); a real conflict still bottoms (`kind:"Other"` vs the def's fixed
+`"ListenerSet"` → `_|_`); closedness survives the re-fold (a use-site extra the closed def-of-def does
+not declare is rejected). cert-manager canary content-identical (jq -S diff = 0; the WHOLE
+Bug2-4..2-11 delivery/closedness machinery is live, high blast radius — green). Axiom-clean
+(`propext`/`Classical.choice`/`Quot.sound`), total (no `partial`/`sorry`/new axioms).
+
+**Tests.** 4 module fixtures (`testdata/modules/crosspkg_defofdef_{narrowed,chain,wrongframe_witness}`
++ `crosspkg_singlelevel_narrowed` control) + 3 inlined `testdata/cue/definitions/bug211_defofdef_*`
+(narrowed / rejects-extra / conflict) + FixturePorts entries + 4 `native_decide` pins (TwoPassTests
+`### Bug2-11`: def-of-def + sibling-disj narrows, rejects-extra, conflict-bottoms, single-level
+control) + the `#check @bug211_singlelevel_narrowed` sentinel.
+
+**argocd — THE MILESTONE: still bottoms (~54s, `conflicting values`); NOT exported.** But the fix is
+confirmed effective on the REAL app: the `defaults.#ListenerSet` `listener.yaml` subtree now FULLY
+narrows (`metadata.name "argocd-ls"`, `#passthrough_hosts ["argo.prodigy9.co"]`, all `#additions`
+resolved). The SOLE remaining `_|_` is in `route.yaml` (`rt = defs.#TLSRoute & {…}`): `#service_port:
+_|_` (+ `#listenerset_name: _|_` downstream). Root, minimally diagnosed + FILED as **Bug2-13**: a
+presence-test (`#opt == _|_` / `!= _|_`) on an UNSET OPTIONAL field returns the WRONG polarity — kue
+fires the `if #service != _|_` arm in `attr.#ServiceRef` (instead of `if #service == _|_`), evaluating
+`#service.#ports[0]` = `[...int][0]` (out-of-bounds on the empty list TYPE), which bottoms when met
+with the use-site `443`. Self-contained 2-line repro: `x: {#opt?: {a:int}, eq: #opt == _|_, neq: #opt
+!= _|_}` — cue `eq true, neq false`; kue the opposite. **HONEST depth read: ONE empirically-confirmed
+remaining on-path layer (Bug2-13); whether a further bug hides behind it is unknown until it's fixed
+and argocd re-run** (no "one fix away" over-claim — Bug2-13 is the only layer I have empirically
+verified). Perf frontier #7 stays GATED.
+
+**Files.** `Kue/Eval.lean` (`resolveSelectorDefBody?`, `conjBodyHasDeferringArm`, `.conj`-body capture
+in `importDefClosureBody?`, `.conj` force-fold arm in `forceClosureWithConjunctCore`),
+`Kue/Tests/TwoPassTests.lean` (`### Bug2-11` section + sentinel), `Kue/Tests/FixturePorts.lean` (3
+`bug211_defofdef_*` entries), `testdata/cue/definitions/bug211_defofdef_*.{cue,expected}` (3 pairs),
+`testdata/modules/crosspkg_{defofdef_narrowed,defofdef_chain,defofdef_wrongframe_witness,singlelevel_narrowed}/`,
+`docs/spec/{spec-conformance-audit,plan}.md` (Bug2-11 RESOLVED + Bug2-13 filed), this log.

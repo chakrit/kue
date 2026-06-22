@@ -122,17 +122,19 @@ field-ordering byte-parity gap (#3):
   blocker. **Bug2-10** (use-site narrowing into a `.structComp` HOST's embedded self-ref) FIXED
   (`aa4172b`, 2026-06-23 — `conjStructCompDefer?` defers a structComp host with a sibling-self-ref
   embed into the shared-`useOperands` fold; PLUS a pre-existing embed-meet closedness leak fixed via
-  `embeddingClosesHost`) — also NOT the final blocker. **The actual on-path argocd blocker is now
-  Bug2-11** (use-site narrowing of a TWO-LEVEL cross-package def-of-def selector whose terminal def
-  embeds a sibling self-ref). Landing Bug2-10 advanced argocd from `incomplete value: string` to
-  `conflicting values`; probing the real `defaults.#ListenerSet & {#name, #passthrough_hosts}` (a
-  cross-pkg def whose body refs the cross-pkg `defs.#ListenerSet`, which embeds `parts.#Metadata`)
-  shows `metadata: {name: string}` (un-narrowed) + `#passthrough_hosts: _|_` — the cross-package
-  selector forces STANDALONE with no use-operands. Self-contained 3-package repro confirms (see
-  `spec-conformance-audit.md` Bug2-11 + ARGOCD-DEPTH REFRAME CORRECTED). **This CORRECTS the prior
-  "argocd is same-frame, Bug2-11 off-path" claim, which was empirically WRONG.** Full `apps/argocd.cue`
-  STILL bottoms (~54s, `conflicting values`); argocd localized to `listener.yaml`. NOT a stress-test
-  parking — Bug2-11 is the spec-correctness leader.
+  `embeddingClosesHost`) — also NOT the final blocker. **Bug2-11** (use-site narrowing of a
+  TWO-LEVEL cross-package def-of-def selector) FIXED (`bdced40`, 2026-06-23 —
+  `conjBodyHasDeferringArm` + `.conj`-body capture in `importDefClosureBody?` + a `.conj`
+  re-fold arm in `forceClosureWithConjunctCore`, each arm keeping its OWN package frame) — the
+  real argocd `listener.yaml` subtree now FULLY narrows (metadata.name "argocd-ls",
+  #passthrough_hosts, all #additions). **NOT the final blocker either.** **The actual remaining
+  on-path argocd blocker is now Bug2-13** (presence-test `#opt == _|_` / `!= _|_` on an UNSET
+  OPTIONAL returns the WRONG polarity → kue fires the wrong comprehension arm in `attr.#ServiceRef`,
+  bottoming `#service_port` in `route.yaml`). Full `apps/argocd.cue` STILL bottoms (~54s,
+  `conflicting values`) — localized to `route.yaml` (`#service_port: _|_`, `#listenerset_name: _|_`
+  downstream). See `spec-conformance-audit.md` Bug2-13 (self-contained 2-line repro). ONE
+  empirically-confirmed remaining layer; whether a further bug hides behind it is unknown until
+  Bug2-13 is fixed and argocd re-run (honest — no "one fix away" over-claim).
 
 ## Live Backlog (open work, ranked)
 
@@ -151,12 +153,15 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-11** (use-site narrowing of a TWO-LEVEL
-cross-package def-of-def selector whose terminal def embeds a sibling self-ref — `defaults.#ListenerSet
-& {#name, #passthrough_hosts}` → kue `metadata.name: string` un-narrowed + `#passthrough_hosts: _|_`,
-cue narrows; the cross-package selector forces standalone with no use-operands. Same fix family as
-Bug2-10, distinct frame — needs the terminal package frame capture). RESOLVED / ruled out (do not
-re-file — see Resolved/ruled-out below): **Bug2-10** (use-site narrowing into a `.structComp` host's
+(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-13** (presence-test `#opt == _|_` / `!= _|_` on
+an UNSET OPTIONAL field returns the WRONG polarity → kue fires the wrong comprehension arm in
+`attr.#ServiceRef`, bottoming `#service_port` in argocd's `route.yaml`; self-contained 2-line repro
+in `spec-conformance-audit.md`). General presence-test / optional-field-presence fix, NOT a
+comprehension or def-of-def mechanism. RESOLVED / ruled out (do not re-file — see Resolved/ruled-out
+below): **Bug2-11** (use-site narrowing of a TWO-LEVEL cross-package def-of-def selector, `bdced40`
+2026-06-23 — `conjBodyHasDeferringArm` + `.conj`-body capture + a `.conj` force-fold arm, right-frame;
+real argocd `listener.yaml` now fully narrows; was NOT the final blocker — Bug2-13 is), **Bug2-10**
+(use-site narrowing into a `.structComp` host's
 embedded self-ref, `aa4172b` 2026-06-23 — `conjStructCompDefer?` + an embed-meet closedness-leak fix
 via `embeddingClosesHost`; was NOT the final argocd blocker; CORRECTED the prior "argocd is Bug2-10
 alone" claim — the blocker is Bug2-11), **Bug2-9** (use-site narrowing of a REFERENCED NAMED
@@ -280,12 +285,11 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
    drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):**
    the heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5..Bug2-10 are fixed but argocd STILL bottoms on **Bug2-11** (use-site
-   narrowing of a two-level cross-package def-of-def selector — `defaults.#ListenerSet & {#name,
-   #passthrough_hosts}` leaves `metadata.name: string` un-narrowed + `#passthrough_hosts: _|_`),
-   a CORRECTNESS divergence, not fuel. (Bug2-10's landing CORRECTED the prior "un-gates once
-   Bug2-10 lands" claim — it advanced argocd `incomplete`→`conflict` but did NOT export it.)
-   Un-gates once Bug2-11 lands and argocd actually exports; profile against a resolving target then.
+   argocd unblock — Bug2-5..Bug2-11 are fixed but argocd STILL bottoms on **Bug2-13** (presence-test
+   on an unset optional returns the wrong polarity → `attr.#ServiceRef` bottoms `#service_port` in
+   `route.yaml`), a CORRECTNESS divergence, not fuel. (Bug2-11's landing fixed the def-of-def
+   `listener.yaml` narrowing but did NOT export argocd — Bug2-13 is the next layer.) Un-gates once
+   argocd ACTUALLY exports; profile against a resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

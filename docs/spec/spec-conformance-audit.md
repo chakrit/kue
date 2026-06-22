@@ -223,8 +223,23 @@ sibling self-ref into the shared-`useOperands` fold the bare-ref path runs). PLU
 embed-meet closedness leak fixed on the same path (`embeddingClosesHost`). Was NOT the final argocd
 blocker — see Live-slice detail + the corrected ARGOCD-DEPTH REFRAME below.
 
-**Bug2-11 (HIGH — the ACTUAL final argocd export blocker; on-path, REFRAMED 2026-06-23 from Bug2-10
-landing).** Use-site narrowing of a TWO-LEVEL cross-package def-of-def selector whose terminal def
+**Bug2-11 RESOLVED** (`bdced40`, 2026-06-23): use-site narrowing of a TWO-LEVEL cross-package
+def-of-def selector now reaches the embedded self-ref AND the sibling default disjunction.
+Mechanism: `conjBodyHasDeferringArm` recognizes a `.conj` def-of-def whose arm resolves (through
+cross-pkg selectors, recursing further `.conj` levels for the 3-level chain) to a deferral-needing
+struct; `importDefClosureBody?` captures the RAW `.conj` over its OWN package frame; and
+`forceClosureWithConjunctCore`'s new `.conj` arm re-folds `arms ++ narrowing` under `capturedEnv`,
+so each arm resolves its OWN import binding (e.g. `defs.#LS` against defs' frame) — the inlined
+`defs.#LS & {…} & {narrow}` meet, NOT a use-site-frame splice. WRONG-FRAME hazard pinned by
+`crosspkg_defofdef_wrongframe_witness` (defs-local `_region:"US"` vs defaults-local `"EU"` → kue
+yields `zone:"US"`). Soundness: narrowed==inlined==cue; real conflict bottoms; closedness survives
+the re-fold (use-site extra rejected). cert-manager content-identical (jq -S = 0). 4 module
+fixtures + 3 inlined `bug211_defofdef_*` + FixturePorts + 4 native_decide pins. **NOT the terminal
+argocd blocker** — landing it advanced the real argocd `listener.yaml` subtree to FULLY narrow
+(metadata.name "argocd-ls", #passthrough, all #additions), but `route.yaml` still bottoms on
+**Bug2-13** (below). See the ARGOCD-DEPTH note: one confirmed remaining on-path layer.
+
+**Bug2-11 ORIGINAL FILING (for history; RESOLVED above).** Use-site narrowing of a TWO-LEVEL cross-package def-of-def selector whose terminal def
 embeds a sibling self-ref. `defaults.#ListenerSet & {#name, #passthrough_hosts}` where
 `defaults.#ListenerSet = defs.#ListenerSet & {…}` (a cross-pkg def whose BODY refs ANOTHER cross-pkg
 selector `defs.#ListenerSet`, which embeds `parts.#Metadata`'s `metadata.name: Self.#name`). The
@@ -252,6 +267,29 @@ the EXACT argocd shape. Fix family: carry the narrowing through the cross-packag
 same-frame structComp host. THE corrected ARGOCD-DEPTH finding (see REFRAME below): the design note's
 "argocd is same-frame, Bug2-11 off-path" claim was EMPIRICALLY WRONG — `defaults.#ListenerSet` is a
 cross-package selector, so Bug2-11 IS the on-path argocd blocker.
+**Bug2-13 (HIGH — the NEXT on-path argocd blocker; filed 2026-06-23 by the Bug2-11 slice).**
+A presence-test on an UNSET OPTIONAL field returns the WRONG POLARITY. For `#opt?: {a: int}`
+unset: cue gives `#opt == _|_` ⇒ TRUE and `#opt != _|_` ⇒ FALSE (an absent optional is `_|_`);
+kue gives the OPPOSITE (`== _|_` ⇒ false, `!= _|_` ⇒ true) — it treats the optional's declared
+TYPE as "present". So a `if #opt != _|_ {…}` comprehension arm fires when it must NOT (and the
+`if #opt == _|_ {…}` arm is skipped). **Self-contained 2-line repro:**
+```cue
+x: { #opt?: {a: int}, eq_bottom: #opt == _|_, neq_bottom: #opt != _|_ }
+// cue: eq_bottom true, neq_bottom false.  kue: eq_bottom false, neq_bottom true (WRONG).
+```
+**On-path argocd impact (the route.yaml blocker):** `defs.#TLSRoute & {…}` embeds
+`attr.#ServiceRef`, which declares `#service_port` ONLY inside `if #service == _|_ {…}` (with
+`#service?` unset). kue fires the `if #service != _|_` arm instead → `#service_port: #service.#ports[0]`
+= `[...int][0]` (out-of-bounds on the empty list TYPE) → meeting the use-site `#service_port: 443`
+bottoms (`route.yaml` `#service_port: _|_`, `#listenerset_name: _|_` downstream). After fixing
+Bug2-11 the listener.yaml subtree FULLY narrows; route.yaml is the SOLE remaining `_|_`. **Fix on
+the presence-test / optional-field-presence path** (`== _|_` / `!= _|_` against an unset optional must
+be true/false respectively), general — NOT a comprehension or def-of-def mechanism. General coding +
+spec-faithful: CUE spec — an optional field not present is absent; a reference/presence-test against
+an absent field is `_|_`. Distinct from Bug2-11 (def-of-def narrowing, now fixed). HONEST depth read:
+this is the ONE empirically-confirmed remaining on-path layer; whether a further bug hides behind it
+is unknown until it's fixed and argocd re-run.
+
 **Bug2-12** (LOW/spec-check — recursive-def closedness leak, found same audit): a SELF-recursive
 closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined
 `(#X & {a:1}) & {b:2}`) → kue admits `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).
