@@ -132,15 +132,20 @@ field-ordering byte-parity gap (#3):
   `.refId` eval arm resolve an `.optional`-rung field to `.bottom`; the over-fire guard is the
   `.optional` rung itself, a set optional downgrades to `.regular`) — cleared `route.yaml`'s
   `#service_port: _|_`, but **also NOT the final blocker.** **The actual remaining on-path argocd
-  blocker is now Bug2-14** (field selection from a `.structComp` bottoms — `selectEvaluatedField`
-  has no `.structComp` arm; `ls = defaults.#ListenerSet & {…}` resolves to a `.structComp` with the
-  `#UseCertManager`/`#Mixin` `for`-comprehension left UNDRAINED, so `#listenerset_name: ls.#name` in
-  `route.yaml` selects `#name` from it → `_|_`). Full `apps/argocd.cue` STILL bottoms (~54s,
-  `conflicting values`) — now localized to `route.yaml`'s `#listenerset_name: _|_` ALONE
-  (`#service_port` resolved). See `spec-conformance-audit.md` Bug2-14 (5-package repro; the inline
-  collapse does NOT reproduce — needs the cross-pkg def-of-def + mixin disjunction). ONE
-  empirically-confirmed remaining layer; whether a further bug hides behind it is unknown until
-  Bug2-14 is fixed and argocd re-run (honest — no "one fix away" over-claim).
+  blocker is now Bug2-14** — but its root-cause was RE-DIAGNOSED 2026-06-23 (the original "missing
+  `selectEvaluatedField` `.structComp` arm" framing was WRONG; a drain-on-select was tried + proved
+  UNSOUND + reverted). TRUE root: an embed that declares a field ABSTRACTLY which the host declares
+  CONCRETELY leaves the embed's comprehension reading the EMBED-LOCAL abstract value (frame binding
+  not re-based to the merged host frame), so the `#Mixin` `_patch` comprehension never drains. Direct
+  inline embeds still drain under export; the CROSS-PACKAGE DEF-OF-DEF FORCE path (`forceClosureWithConjunct`)
+  leaves a residual that can't drain even on export → `ls` exports SILENTLY-INCOMPLETE (bare) or
+  `conflicting values` (`[ls]`, the `listener.yaml` shape). Full `apps/argocd.cue` STILL bottoms
+  (~54s, `conflicting values`). Fix is on the embed-merge tier (`forceClosureWithConjunct` /
+  `meetEmbeddingsWithFuel` / `.structComp` fold + the `remapConj*` ref-rebase facility), NOT a select
+  arm — PARKED for a dedicated slice. See `spec-conformance-audit.md` Bug2-14 RE-DIAGNOSED block
+  (6-line minimal "case D" repro + the 5-package faithful repro). ONE empirically-confirmed remaining
+  layer; whether a further bug hides behind a sound drain is unknown until the embed-merge fix lands
+  and argocd re-runs (honest — no "one fix away" over-claim).
 
 ## Live Backlog (open work, ranked)
 
@@ -159,12 +164,16 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-14** (field selection from a `.structComp`
-bottoms — `selectEvaluatedField` has no `.structComp` arm; `ls = defaults.#ListenerSet & {…}`
-resolves to a `.structComp` with the `#UseCertManager`/`#Mixin` `for`-comprehension UNDRAINED, so
-`#listenerset_name: ls.#name` selects `#name` from it → `_|_`; 5-package repro in
-`spec-conformance-audit.md`). Root-cause fix = drain the mixin comprehension through the def-of-def
-force path; (b)-fallback = a `.structComp` selection arm. RESOLVED / ruled out (do not re-file — see
+(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-14 (RE-DIAGNOSED 2026-06-23, PARKED — embed-merge
+frame-binding bug, NOT a select arm).** An embed declaring a field ABSTRACTLY which the host declares
+CONCRETELY leaves the embed's `#Mixin` `_patch` comprehension reading the embed-LOCAL abstract value
+(ref not re-based to the merged host frame) → never drains; the cross-package def-of-def force path
+makes it un-drainable even under export → `ls` exports silently-incomplete / `[ls]` → `conflicting
+values`. Fix is on the `forceClosureWithConjunct`/`meetEmbeddingsWithFuel`/`.structComp`-fold tier via
+`remapConj*` ref-rebase — a dedicated embed-merge slice. The original "missing `selectEvaluatedField`
+`.structComp` arm" framing was WRONG; a drain-on-select was implemented, proved UNSOUND (drops
+comprehension content / `ls.metadata` loses `annotations`), and REVERTED. 6-line minimal "case D" repro
++ 5-package faithful repro in `spec-conformance-audit.md`. RESOLVED / ruled out (do not re-file — see
 Resolved/ruled-out below): **Bug2-13** (unset optional selection reads as ABSENT, `7e69e43`
 2026-06-23 — `selectedFieldValue` + the `.refId` eval arm resolve an `.optional`-rung field to
 `.bottom`; cleared `route.yaml`'s `#service_port: _|_`; was NOT the final blocker — Bug2-14 is),
@@ -295,11 +304,13 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
    drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):**
    the heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5..Bug2-13 are fixed but argocd STILL bottoms on **Bug2-14** (field
-   selection from a `.structComp` bottoms → `#listenerset_name: ls.#name` is `_|_` in `route.yaml`),
-   a CORRECTNESS divergence, not fuel. (Bug2-13's landing cleared `#service_port: _|_` but did NOT
-   export argocd — Bug2-14 is the next layer.) Un-gates once argocd ACTUALLY exports; profile against
-   a resolving target then.
+   argocd unblock — Bug2-5..Bug2-13 are fixed but argocd STILL bottoms on **Bug2-14** (RE-DIAGNOSED:
+   an embed-merge frame-binding bug — the `#Mixin` `_patch` comprehension reads the embed-local
+   abstract `kind` instead of the merged host-concrete one, so it never drains; the cross-pkg
+   def-of-def force path makes `ls` un-drainable even on export → `conflicting values`), a CORRECTNESS
+   divergence, not fuel. (Bug2-13's landing cleared `#service_port: _|_`; Bug2-14 cleared the SELECT
+   symptom `#listenerset_name` in a tried-then-reverted UNSOUND patch but the underlying `ls` drain is
+   the real blocker.) Un-gates once argocd ACTUALLY exports; profile against a resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

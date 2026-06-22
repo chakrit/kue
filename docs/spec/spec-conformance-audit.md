@@ -286,26 +286,73 @@ def-meet unset/set fork. 7 `native_decide` pins (TwoPassTests Bug2-13) + 4 expor
 to record — kue now matches cue exactly, no residual). **Cleared `route.yaml`'s `#service_port: _|_`;
 argocd advances one layer to Bug2-14 (below) — NOT the terminal blocker.** Original filing follows.
 
-**Bug2-14 (HIGH — the NEXT on-path argocd blocker; filed 2026-06-23 by the Bug2-13 slice).** Field
-selection from a `.structComp` (a struct still carrying an undrained comprehension bucket) bottoms.
-`selectEvaluatedField` (`Eval.lean`) has arms for `.struct`/`.embeddedList`/`.embeddedScalar`/`.disj`
-but NONE for `.structComp` → ANY field select on one falls to `| _ => .bottom`. **On-path argocd
-impact:** `let ls = defaults.#ListenerSet & {…}` where `defaults.#ListenerSet = defs.#ListenerSet &
-parts.#UseCertManager & {…}` co-embeds `#UseCertManager` (→ `#Mixin`, a `listShape | structShape |
-error` disjunction with a `for _, add in #additions {…}` `_patch` comprehension). kue resolves `ls` to
-a `.structComp` whose `_patch` `for`-comprehension is left UNDRAINED even though `#additions` is
-concrete (cue drains it to a plain struct). So `#listenerset_name: ls.#name` in `route.yaml` selects
-`#name` from a `.structComp` → `_|_` (every field select on `ls` bottoms — `ls.#name`, `ls.kind`,
-`ls.metadata` all `_|_`; `ls` ITSELF exports fine in `listener.yaml`). **Two candidate fixes:** (a)
-ROOT CAUSE — drain the `#Mixin` comprehension through the def-of-def force path so `ls` becomes a plain
-`.struct` (why the cross-pkg+disjunction force leaves it undrained where the inline form drains is the
-diagnostic question); (b) add a `.structComp` arm to `selectEvaluatedField` that selects from the
-static `fields` bucket while preserving the residual. (a) is the proper fix; (b) may be needed
-regardless as a selection-time safety. Self-contained 5-package repro reproduces (`/tmp/b213x` during
-the slice: `defs/`+`defs/attr/`+`defs/parts/`+`defaults/`+`main`, the faithful argocd composition; the
-INLINE single-file collapse does NOT reproduce — it needs the cross-pkg def-of-def + mixin
-disjunction). HONEST depth read: Bug2-14 is the ONE empirically-confirmed remaining on-path layer after
-Bug2-13; whether a further bug hides behind it is unknown until it's fixed and argocd re-run. RELATED
+**Bug2-14 (HIGH — on-path argocd blocker; RE-DIAGNOSED 2026-06-23 by the Bug2-14 slice; the original
+filing's root-cause was WRONG — see below). PARKED: needs a deep embed-merge-tier fix, not a select arm.**
+
+**The original filing (Bug2-13 slice) named the wrong root.** It blamed `selectEvaluatedField`'s
+missing `.structComp` arm (`| _ => .bottom`). That arm IS missing, but it is a SHALLOW symptom: adding
+a drain-on-select (re-eval the `.structComp` base before selecting) was IMPLEMENTED and tested in this
+slice and proved UNSOUND — it converts a residual `.structComp` (honestly incomplete) into a
+silently-incomplete plain `.struct`, DROPPING comprehension-contributed content. Concretely
+`ls.metadata` then yields `{name:"argocd-ls"}` MISSING the `_patch`-contributed
+`metadata.annotations.issuer` (cue: `{annotations:{issuer:…}, name:…}`). `ls.#name` worked only because
+`#name` is comprehension-INDEPENDENT (a static hidden field). Trading `_|_` for a wrong-complete value
+violates correctness-first, so the select-drain was REVERTED (tree clean, no code shipped).
+
+**The TRUE root (empirically pinned to a 6-line minimal repro — "case D"):** when a struct EMBEDS a block
+that declares a field ABSTRACTLY which the HOST declares CONCRETELY, AND the embed carries a comprehension
+reading that field, the comprehension's sibling-field ref binds to the EMBED-LOCAL abstract value, not the
+merged host-concrete value — so the guard goes incomplete and the comprehension never drains. Minimal:
+```cue
+host: {
+	bk: "X"          // host: concrete
+	{
+		bk: string   // embed: same label, ABSTRACT
+		for k, v in {p: 1} { if bk == "X" { hit: true } }
+	}
+}
+// cue: {bk:"X", hit:true}   kue eval: {bk:"X", for k,v in {p:1} {if @2.0=="X" {hit:true}}} (UNDRAINED)
+```
+The decisive isolation (all minimal, oracle-confirmed): embed-comprehension reading an embed-OWN concrete
+field DRAINS; reading a HOST-only field (not declared in the embed) DRAINS; reading a field declared in
+BOTH (embed abstract + host concrete) does NOT drain. So the discriminator is the SAME-LABEL embed-abstract
+× host-concrete overlap — the comprehension's ref was bound at the embed's own eval to the embed-local
+(un-merged) frame, and after merge it still reads the stale embed-local `string` rather than the merged
+`"X"`. This is exactly the argocd `#Mixin` shape: `let _patch` declares `kind: string` while the host
+`defs.#ListenerSet` declares `kind: "ListenerSet"`; the `for _, add in Self.#additions { if kind ==
+add.#kind {…} }` guard reads the embed-local abstract `kind` → defers → `_patch` never merges its
+`metadata.annotations`.
+
+**Why the original "5-package needed, inline doesn't reproduce" was half-right.** For a DIRECT inline embed,
+EXPORT still drains case D (export forces a re-eval that re-expands the bucket). But when `ls` is built
+through the CROSS-PACKAGE DEF-OF-DEF FORCE path (`defaults.#ListenerSet → defs.#ListenerSet →
+parts.#UseCertManager → #Mixin`, assembled by `forceClosureWithConjunct`), the residual comprehension
+cannot drain even under export — `kue export` of the bare `ls` yields a SILENTLY-INCOMPLETE struct
+(missing `metadata.annotations`), and `[ls]` (list-wrapped, the `listener.yaml: [ls]` shape) surfaces a
+`conflicting values` CONTRADICTION via `Manifest`'s `.structComp` `containsBottomFields` arm. So the bug
+has TWO compounding layers: (1) the embed-merge frame-binding (case D, general) + (2) the def-of-def
+force-path residual that can't drain even on export (the argocd-specific severity). A self-contained
+5-package faithful repro is reconstructable (during this slice at `/tmp/b214`:
+`defs/`+`defs/parts/`+`defaults/`+`main` with cue.mod `ex.com/b214`) — `kue export . -e bare` drops the
+annotations; `-e wrapped` (`[ls]`) gives `conflicting values`; cue exports both with annotations.
+
+**Fix seam (NOT a select arm; the deep embed-merge tier).** The embed-contributed comprehension must be
+RE-BOUND / RE-EXPANDED against the POST-MERGE host frame so its sibling-field refs see the merged
+(host-narrowed) values — i.e. the comprehension that joins the host's `comprehensions` bucket via the
+embed meet must be re-evaluated where the same-label field is now the host's concrete value, not the
+embed-local abstract one. This is on the `forceClosureWithConjunct` / `meetEmbeddingsWithFuel` /
+`.structComp` static-fold tier (the live Bug2-x machinery), and `remapConjValues`/`remapConjRefs` (the
+existing ref-rebase facility used in conj merging) is the likely lever. NOT a `selectEvaluatedField`
+change — selection is downstream of the real bug, and any select-time materialization is unsound (drops
+or conflicts on comprehension content). PARKED until a dedicated embed-merge slice can do it soundly
+(cert-manager — which uses the SAME `#UseCertManager`/`#Mixin` via a more direct struct-shape — stays
+content-identical and DOES materialize the `_patch` annotations, so the meet machinery is right in the
+direct case; only the def-of-def force path leaks).
+
+HONEST depth read: this is the ONE empirically-confirmed remaining on-path argocd layer (the route.yaml
+`#listenerset_name` select is downstream of it); whether a further bug hides behind a sound drain is
+unknown until the embed-merge fix lands and argocd re-runs. NO code shipped this slice (the only sound
+change found was a non-fix). RELATED
 (separate, lower-pri) observation surfaced while pinning Bug2-13: `x.a.missing != _|_` on a genuinely-
 MISSING (never-declared) field of a regular struct → kue `incomplete value` vs cue `false`; the missing
 select stays a deferred `.selector` rather than reading absent. Distinct from the unset-OPTIONAL case

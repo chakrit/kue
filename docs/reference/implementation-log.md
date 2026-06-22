@@ -12193,3 +12193,61 @@ noted for a future missing-field-selection slice).
 `Kue/Tests/TwoPassTests.lean` (`### Bug2-13` section + sentinel),
 `testdata/export/bug213_{unset_optional_absent,set_optional_present,nondef_optional_absent,comprehension_guard_absent}.{cue,json}`
 (4 pairs), `docs/spec/{spec-conformance-audit,plan}.md` (Bug2-13 RESOLVED + Bug2-14 filed), this log.
+
+---
+
+## Completed Slice: Bug2-14 RE-DIAGNOSIS (no code shipped — sound fix is on the embed-merge tier, PARKED)
+
+Goal: fix the on-path argocd blocker filed as Bug2-14 (field select from a `.structComp` bottoms).
+Outcome: the FILED root-cause was wrong; the tried fix was unsound and REVERTED; the TRUE root is
+re-diagnosed + filed; tree clean, NO code shipped. A negative result with a precise diagnosis.
+
+### What was tried (and reverted)
+
+The filing blamed `selectEvaluatedField`'s missing `.structComp` arm (`| _ => .bottom`). Implemented
+a `drainStructCompForSelect` (re-eval the `.structComp` base before selecting, reusing the
+`.structComp` eval arm as the single drain path) + a defer arm for a surviving residual. It fixed the
+static selects (`ls.#name` → `"argocd-ls"`, the `route.yaml` `#listenerset_name` symptom; faithful
+5-package repro export-identical to cue for the static fields). BUT it proved UNSOUND: re-evaluating
+`ls` forces the residual `.structComp` to a plain `.struct` that DROPS comprehension-contributed
+content — `ls.metadata` then yields `{name:…}` MISSING `metadata.annotations.issuer` (cue:
+`{annotations:{issuer:…}, name:…}`). Trading `_|_` for a silently-wrong-complete value violates
+correctness-first → fully REVERTED (tree back to `3e0f396`, `git diff` empty).
+
+### The TRUE root (empirically pinned)
+
+When a struct EMBEDS a block declaring a field ABSTRACTLY which the HOST declares CONCRETELY, and the
+embed carries a comprehension reading that field, the comprehension's sibling-field ref binds to the
+EMBED-LOCAL abstract value, not the merged host-concrete value → guard incomplete → never drains.
+Minimal 6-line "case D": `host: { bk:"X", { bk:string, for k,v in {p:1} { if bk=="X" {hit:true} } } }`
+— cue `{bk:"X", hit:true}`; kue eval leaves the `for` residual. Isolation (all oracle-confirmed):
+embed-comprehension reading an embed-OWN concrete field DRAINS; reading a HOST-only field DRAINS;
+reading a field in BOTH (embed-abstract × host-concrete) does NOT. This is exactly the argocd `#Mixin`
+shape (`let _patch` declares `kind: string`; the host `defs.#ListenerSet` declares `kind:
+"ListenerSet"`; the `for _, add in Self.#additions { if kind == add.#kind {…} }` guard reads the
+embed-local abstract `kind`). TWO compounding layers: (1) the embed-merge frame-binding (case D,
+general — but a DIRECT inline embed still drains under export's re-eval); (2) the CROSS-PACKAGE
+DEF-OF-DEF FORCE path (`forceClosureWithConjunct`) produces a residual that can't drain even on export
+→ bare `ls` exports silently-incomplete, `[ls]` (the `listener.yaml` shape) → `conflicting values`
+via `Manifest`'s `.structComp` `containsBottomFields` arm. cert-manager (same `#UseCertManager`/`#Mixin`,
+direct struct-shape) stays content-identical and DOES materialize `_patch` annotations — so the meet
+machinery is right in the direct case; only the def-of-def force path leaks.
+
+### Fix seam (PARKED for a dedicated slice)
+
+Re-bind / re-expand the embed-contributed comprehension against the POST-MERGE host frame so its
+sibling-field refs see the host-narrowed values — on the `forceClosureWithConjunct` /
+`meetEmbeddingsWithFuel` / `.structComp`-fold tier, likely via the existing `remapConjValues` /
+`remapConjRefs` ref-rebase facility. NOT a `selectEvaluatedField` change (selection is downstream;
+select-time materialization is unsound). Full re-diagnosis + repros in `spec-conformance-audit.md`
+Bug2-14 RE-DIAGNOSED block.
+
+### argocd milestone
+
+`kue export apps/argocd.cue` STILL bottoms (~54s, `conflicting values`) — NOT exported. Perf frontier
+#7 STAYS GATED. cert-manager remains the only real-app drop-in.
+
+### Files
+
+`docs/spec/{spec-conformance-audit,plan}.md` (Bug2-14 RE-DIAGNOSED), `docs/notes/` (breadcrumb
+rotated), this log. NO `Kue/*.lean` or `testdata/` changes (the only sound change found was a non-fix).
