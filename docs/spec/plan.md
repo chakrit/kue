@@ -235,10 +235,10 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    bottom), unary (`!` on bool + non-bool → bottom, `-` on int + non-numeric → bottom +
    incomplete defer) — the carve-set ops that previously had only end-to-end fixture coverage.
 
-3. **Test/fixture-org pass (periodic) — `TwoPassTests` SPLIT SCHEDULED (ranked next-after-Bug2-10);
-   module carve DONE `4b25cef`; fixture regroup DEFERRED.**
-   **🚨 `TwoPassTests.lean` SPLIT — SCHEDULED as a near-term slice (Phase-B 2026-06-23 ruling).**
-   At 1879 lines it is the demonstrated silent-failure surface (the Phase-A dead-theorem incident:
+3. **Test/fixture-org pass (periodic) — `TwoPassTests` SPLIT DUE (ranked BELOW Bug2-13, the
+   on-path argocd blocker); module carve DONE `4b25cef`; fixture regroup DEFERRED.**
+   **🚨 `TwoPassTests.lean` SPLIT — DUE as a near-term slice (Phase-B 2026-06-23 ruling: now 2048
+   lines, past 2000).** It is the demonstrated silent-failure surface (the Phase-A dead-theorem incident:
    ~140 theorems silently dead under unterminated `/-- -/`). The file IS too large to eyeball. Seam =
    **by bug-family**: carve the `bug2x_*` sections (Bug2-1/2-2/2-4/2-5/2-6/2-7/2-8/2-9 + the
    let-local/Mixin narrowing family — the ~bug26_*/bug27_*/bug28_*/bug29_*/mixin_*/let_* pins, lines
@@ -428,6 +428,90 @@ none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
+- **Phase-B audit (2026-06-23, batch `b913ae6`..`a4c33cf`: Bug2-10 + Bug2-11; Phase A HEALTHY
+  `a4c33cf`) — architecture HEALTHY.** Module graph re-checked WHOLE: ACYCLIC, strictly layered
+  (`Builtin → {Lattice, Regex, Decimal, Base64, Json, Yaml, CaseTable}` — NO `Eval`/`EvalOps`
+  edge; `EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Eval → {Builtin, Decimal, EvalOps,
+  Lattice, Regex, Normalize}`; `Lattice → {Value, Regex}`; `Runtime → Eval`; `Module → {Parse,
+  Runtime}`; `Cli → Runtime`). The Bug2-10/2-11 additions sit correctly in the Eval def-deferral
+  tier (`conjStructCompDefer?`, `conjBodyHasDeferringArm`, `resolveSelectorDefBody?` at
+  `Eval.lean:2381–2585`): one-directional call graph (→ `followAliasDefBody?`/force, no
+  back-edge), `.refId`/`.selector`/`.conj` heads exhaustive (no catch-all swallow — every
+  non-matching shape returns `none`/`false`). Cleanliness sweep CLEAN: NO
+  `sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, NO `String.dropRight`/`dropLeft`, NO dead
+  code, NO stale TODO/FIXME/HACK; `partial def`s are the standing carve-outs only (`Parse.lean`
+  62 lexer/parser, `Module.lean` 4 IO-loader; `Eval`/`Lattice` FULLY total). **File sizes:
+  `Eval.lean` 3965** (+185 over the prior Phase-B 3780 — Bug2-10/2-11 growth), still under the
+  ~4500 re-split watch but APPROACHING — the `Eval.DefDeferral`-first-carve ruling STANDS and is
+  now the named next action if the next 1–2 narrowing slices push past ~4500 (the def-deferral
+  tier `Eval.lean:2160–2670` is ~510 lines and is exactly the cohesive carve candidate; Bug2-13
+  is a SELECTION-time fix and will NOT grow that tier, so the threshold is not imminent). Other
+  modules: `CaseTable` 2438 (generated), `Parse` 1586, `Lattice` 1389, all others ≤960.
+  `TwoPassTests.lean` **2048** (+169 over the prior 1879; 60+ Bug2-x pin refs) — now PAST 2000,
+  the demonstrated silent-failure surface; the SPLIT (plan item 3) is **DUE** but is RANKED BELOW
+  Bug2-13 (the on-path argocd blocker stays the leader; the split is org-only, zero behavior
+  change, and the coverage tripwire + line-comment headers already guard it — no urgency forces
+  it ahead of the correctness blocker). **Type-leverage / ML idioms:** NO high-value next
+  tightening — the `DeclProvenance`/`ConjOperand` carriers (Bug2-8, `Value.lean`) remain
+  exemplary; the def-deferral family's `Option (List Field × Value)` return (`(capturedFrame,
+  body)`) is the RIGHT shape (the frame is data the consumer needs, carried in the type, not
+  inferred). The one structural observation — the Bug2-13 root — is that `findEvalField`
+  /`selectFromDecls` carry NO optionality distinction, so an unset optional selects to its
+  declared type (a loose-selection gap, filed as Bug2-13, design note in
+  `spec-conformance-audit.md`; the FIX tightens selection, not a representation). **APPLIED
+  INLINE (re-verified green, cert-canary jq -S = 0):** `kue-performance.md` argocd-bottoms entry
+  de-staled — said "residual blocker is now **Bug2-10**" (STALE: Bug2-10 `aa4172b` + Bug2-11
+  `bdced40` both LANDED); corrected the narrowing-fix chain to include Bug2-10/2-11 LANDED + the
+  gating to **Bug2-13**, wall ~54s. **Bug2-13 DESIGN NOTE** written into
+  `spec-conformance-audit.md` (the polarity bug lives in field SELECTION, not the
+  `classifyDefinedness` classifier — an unset optional selects to its declared type; fix = treat
+  an unset optional selection as absent, the selection-time analog of `containsBottomFields`'s
+  existing optional-skip; must-pin witnesses enumerated). **Verdict: HEALTHY; `resolveDefField?`
+  RULED-OUT — keep separate (below); one perf-doc de-stale inline; Bug2-13 design note in place;
+  TwoPassTests split DUE but ranked below Bug2-13; no new code fix-slice.**
+- **`resolveDefField?` (def-field resolution-skeleton share across the narrowing-delivery family)
+  — RULED OUT: keep the ~6 functions SEPARATE. The full-family extraction is the `mergeFieldsWith`
+  trap (variation = frame + recursion + return-type, not a pure leaf); the only frame-SAFE share
+  (a narrow selector-head helper) is too thin to name and FRAGMENTS each function (Phase-B
+  2026-06-23, headline adjudication).** The candidate skeleton — `env.drop id.depth.val → nthField
+  id.index.val frame.snd → (.struct pkgFields → findEvalField label) → isDefinition` — recurs
+  across `resolveEmbedDefBody?` (`Eval.lean:2160`), `embeddingFieldIsDefinition` (`:2201`),
+  `followAliasDefBody?` (`:2331`), `resolveSelectorDefBody?` (`:2381`), `importDefClosureBody?`
+  (`:2446`), and `refAliasDefClosure?` (`:2610`, via `followAliasDefBody?`). Decomposed against
+  the `embedChainAny`-SHARE vs `mergeFieldsWith`-RULE-OUT precedents:
+  - **The five sites return structurally DIFFERENT things from the same lookup, gated
+    differently.** `resolveEmbedDefBody?` → `Option Value` (body alone, NO frame, NO isDefinition
+    gate, PLUS a `.refId` arm AND a `.disj` default-arm arm the selector skeleton does not cover);
+    `embeddingFieldIsDefinition` → `Bool` (the def-CLASS, not the body); `resolveSelectorDefBody?`
+    → `(pkgFields, body)` gated on `isDefinition`; `followAliasDefBody?` → `(terminalFrame, body)`
+    but RECURSES, building a fresh `nextEnv` per hop; `importDefClosureBody?` → one of THREE
+    results (pkg+normalized / followed-terminal / raw-`.conj`) gated on BOTH `isDefinition` AND
+    `bodyNeedsDefer`. A single shared resolver cannot express this fan-out without a
+    parameter-per-difference signature — strictly looser and more error-prone than the functions
+    it would merge (the `canonicalizeFields`-cannot-join precedent).
+  - **🚨 Soundness: the FRAME each captures is load-bearing and IRREDUCIBLY different.**
+    `resolveSelectorDefBody?` returns `pkgFields` (the selector's OWN package frame — for the
+    def-of-def `.conj` descent); `followAliasDefBody?` returns the TERMINAL package frame AFTER
+    following the alias chain (a deeper, different frame); `importDefClosureBody?` returns
+    `pkgFields` in the direct arm but the FOLLOWED frame in the alias arm. A shared helper that
+    picked one canonical frame would resolve in the WRONG frame at some site — exactly the
+    `crosspkg_defofdef_wrongframe_witness` hazard (defs-local `_region:"US"` vs defaults-local
+    `"EU"`; a use-site-frame splice mis-resolves to "EU"/bottom). Per the `mergeFieldsWith`
+    ruling: when the soundness boundary is WHICH function (here: which frame each resolves in) the
+    caller invokes, consolidation is FORBIDDEN regardless of skeleton-share. The variation point
+    is the FRAME + the RECURSION (`followAliasDefBody?`/`conjBodyHasDeferringArm` recurse building
+    fresh frame-envs) — the DRY-1 / `mergeFieldsWith` trap, NOT the `embedChainAny` shape (where
+    the variation was a PURE non-recursive `Value → Bool` leaf the combinator owned).
+  - **The only frame-SAFE share is a narrow selector-head helper — and it is too thin + it
+    FRAGMENTS.** A `resolveSelectorField? : Env → BindingId → String → Option (List Field × Field)`
+    returning the raw `(pkgFields, defField)` lookup IS frame-neutral (it returns the lookup, the
+    consumer still picks the frame), so it would not endanger the boundary. But it deduplicates
+    ONLY the `.selector (.refId id) label` arm prefix (~7 lines) at 4 sites, while leaving each
+    function's sibling `.refId` arm (and `resolveEmbedDefBody?`'s `.disj` arm) hand-written — so
+    each function becomes "call helper for the selector arm, hand-write the refId arm," which is
+    LESS readable, not more. This is the FOUR-classifiers verdict exactly: the shared prefix is
+    too thin to name, and the per-site variation (return type, frame use, gating, recursion, the
+    sibling arms) IS the point. KEEP SEPARATE. Do not re-file as a DRY win.
 - **Phase-B audit (2026-06-23, batch `9b78c3d`..`2e337b1`: Bug2-8 + Bug2-9; Phase A HEALTHY
   `2e337b1` + the dead-tests recovery `0109bb4`) — architecture HEALTHY.** Module graph
   re-checked WHOLE: ACYCLIC, strictly layered (`Builtin → {Lattice, Regex, Decimal, Base64,

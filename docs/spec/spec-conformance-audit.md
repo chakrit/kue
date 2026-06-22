@@ -290,6 +290,57 @@ an absent field is `_|_`. Distinct from Bug2-11 (def-of-def narrowing, now fixed
 this is the ONE empirically-confirmed remaining on-path layer; whether a further bug hides behind it
 is unknown until it's fixed and argocd re-run.
 
+**Bug2-13 DESIGN NOTE (Phase-B 2026-06-23 — design only, no code; a LOCALIZED bug, not a
+narrowing-chain class).** Empirically re-confirmed against `cue` v0.16.1 + the kue binary
+(`/tmp/b213b.cue`): unset optional `x` — cue `eq_bottom true, neq_bottom false`, kue the
+OPPOSITE (the bug); SET optional `y` (`#opt?: {a:int}` + `#opt: {a:1}`) — cue AND kue AGREE
+(`set_eq false, set_neq true`); non-definition `opt?` — SAME bug as `#opt?` (so it is GENERAL to
+all optional fields, NOT definition-specific). Direct select `x.#opt` of an unset optional: cue
+leaves it unresolved/incomplete (`sel: x.#opt`), kue wrongly yields `{a: int}`.
+
+- **Where the polarity bug lives — NOT in the classifier; in field SELECTION.** `classifyDefinedness`
+  (`Eval.lean:820`) is CORRECT: it maps `.bottom`/`.bottomWith → .error` (`== _|_` true), a present
+  `.struct …[]…`/`.prim`/… → `.defined` (`== _|_` false). The bug is UPSTREAM, at how an unset
+  optional field REFERENCE resolves to a value before the classifier sees it. `selectFromDecls`
+  /`selectEvaluatedField` (`Eval.lean:731`/`736`) → `findEvalField label decls` (`Eval.lean:19`)
+  finds the optional field `#opt?` in the decls list (it IS present there, carrying its declared
+  TYPE `{a:int}` as `Field.value` and `Optionality.optional` in its `fieldClass`) → `selectedFieldValue`
+  returns that type body verbatim. So the reference resolves to a `.struct`, which classifies
+  `.defined` → `!= _|_` true. cue's model: an optional field declaration is a CONSTRAINT, not a
+  value; until unification SUPPLIES the field, the field is ABSENT, so a reference to it is `_|_`.
+  `findEvalField`/`selectFromDecls` make NO optionality distinction — that is the gap.
+- **The fix (sketch).** At the selection boundary, a found field that is OPTIONAL AND UNSET must
+  resolve to ABSENT, not to its declared type. The discriminator is `Field.fieldClass.optionality
+  == .optional` together with "no concrete value supplied" — i.e. the field's value is still just
+  its declared type/constraint, never narrowed by a regular conjunct. The precedent already in the
+  codebase is `containsBottomFields` (`Lattice.lean:224`), which ALREADY skips optional fields on
+  exactly this principle ("an OPTIONAL field carries an unsatisfiable-IF-present constraint, not a
+  present bottom … CUE keeps `{#u?: _|_}` and bottoms only once `#u` is supplied"). Bug2-13 is the
+  SELECTION-time analog of that same rule: an unset optional, when SELECTED, is absent. Candidate
+  fix point: `selectFromDecls`'s `findEvalField` hit — when the found field is an unset optional,
+  return `.bottom` (absent) rather than `selectedFieldValue field`, so the `.refId`/`.selector`
+  resolution that feeds the presence test sees `.error`. Soundness boundary to PIN: a SET optional
+  (value supplied → no longer the bare declared type; structurally a regular-or-still-optional field
+  with a concrete value) must KEEP resolving to that value (cert-manager `y` parity above). The
+  "set" detector must not over-fire on a declared type that HAPPENS to be concrete (`#opt?: 5`) —
+  CUE treats `#opt?: 5` unset as still absent (verify the exact cue behavior on a concrete-typed
+  unset optional during the slice; the spec basis is presence, not concreteness).
+- **Must-pin witnesses (the slice's fixtures + native_decide pins):** (1) UNSET optional `#opt?:
+  {a:int}` — `== _|_` TRUE, `!= _|_` FALSE (the bug, both polarities); (2) SET optional `#opt?:
+  {a:int}` + `#opt: {a:1}` — `== _|_` FALSE, `!= _|_` TRUE (over-fire guard, unchanged); (3) UNSET
+  NON-definition `opt?: {a:int}` — same as (1) (generality); (4) REQUIRED `#req!` — cue ERRORS
+  (`field is required but not present`) on a bare unset required, so test required-WHEN-supplied
+  presence, not bare; (5) direct select `x.#opt` of an unset optional resolves incomplete/absent
+  (not the type body); (6) the argocd `attr.#ServiceRef` shape — `#service?` unset → the `if
+  #service == _|_` arm fires (`#service_port: int`), the `if #service != _|_` arm does NOT, so
+  `#service_port: 443` at use-site MEETS rather than bottoms. cert-manager MUST stay
+  content-identical (no SET-optional or regular-field presence regression).
+- **Why this is MORE LOCALIZED than Bug2-5..Bug2-11.** Those were a narrowing-DELIVERY chain (carry
+  a use-site conjunct through deferral/closure/frame-capture machinery — the `Eval.lean:2160–2670`
+  def-deferral tier). Bug2-13 is a single SELECTION-time predicate: "is this found optional field
+  present?" It touches `findEvalField`'s consumer (`selectFromDecls`) and nothing in the deferral
+  tier — a one-seam fix, not a chain. NEXT-LEADER (design in place, code is the next slice).
+
 **Bug2-12** (LOW/spec-check — recursive-def closedness leak, found same audit): a SELF-recursive
 closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined
 `(#X & {a:1}) & {b:2}`) → kue admits `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).

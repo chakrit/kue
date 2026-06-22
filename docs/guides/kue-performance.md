@@ -143,19 +143,24 @@ fix is purely a speedup — byte-identical output.
   on the def-REFERENCE / force-fold path, `3361699` 2026-06-23), **Bug2-8** (same-def
   multi-decl close-once ACROSS AN EMBED boundary via a `DeclProvenance` sum, `2332aff`
   2026-06-23), **Bug2-9** (use-site narrowing of a REFERENCED NAMED multi-conjunct def via
-  `flattenConjDefRef`, `5d9cf8f` 2026-06-23) — all LANDED. Bug2-5 cut the argocd wall
-  **153s → ~58s** but was NOT the final blocker; neither were Bug2-6/2-7/2-8/2-9. The
-  residual full-app blocker is now **Bug2-10** (use-site narrowing of a host that EMBEDS a
-  def with a sibling self-ref does NOT flow into the embedded self-ref: `{#Meta} & {#name}`
-  leaves `metadata.name: string` — root cause is the conjunct-deferral gate, `conjDefClosure?`
-  defers only a bare `.refId`, not a `.structComp` host, so the embed force-splices an empty
-  narrowing; see the Bug2-10 DESIGN NOTE in `spec-conformance-audit.md`), PARKED as a
-  stress-test finding — do NOT chase it with app-specific narrowing. **Perf takeaway:** this
-  is a value-correctness divergence, not a fuel/perf cliff. The ~53s wall (vs cert-manager
-  ~30.5s) is a separate downstream per-eval concern on the heavy `argo` sub-package,
-  meaningful only once argocd actually exports — gated behind **Bug2-10**, not a fuel-axis
-  problem. The per-eval constant (not the fuel ceiling) is the live perf frontier (item 7
-  residual).
+  `flattenConjDefRef`, `5d9cf8f` 2026-06-23), **Bug2-10** (use-site narrowing into a
+  `.structComp` host's embedded self-ref via `conjStructCompDefer?` + an embed-meet
+  closedness-leak fix, `aa4172b` 2026-06-23), **Bug2-11** (use-site narrowing of a
+  TWO-LEVEL cross-package def-of-def selector via `conjBodyHasDeferringArm` + `.conj`-body
+  capture + a `.conj` force-fold arm, `bdced40` 2026-06-23) — all LANDED. Bug2-5 cut the
+  argocd wall **153s → ~58s** but was NOT the final blocker; neither were Bug2-6/2-7/2-8/2-9
+  /2-10/2-11. Bug2-11 advanced the real argocd `listener.yaml` subtree to FULLY narrow, but
+  the full app STILL bottoms. The residual full-app blocker is now **Bug2-13** (a
+  presence-test `#opt == _|_` / `!= _|_` on an UNSET OPTIONAL field returns the WRONG
+  polarity — kue resolves the unset optional's reference to its declared TYPE, classifying it
+  `.defined`, so `if #service != _|_ {…}` in `attr.#ServiceRef` fires when it must not,
+  bottoming `#service_port` in `route.yaml`; see the Bug2-13 filing + DESIGN NOTE in
+  `spec-conformance-audit.md`), PARKED as a stress-test finding — do NOT chase it with
+  app-specific narrowing. **Perf takeaway:** this is a value-correctness divergence, not a
+  fuel/perf cliff. The ~54s wall (vs cert-manager ~30.5s) is a separate downstream per-eval
+  concern on the heavy `argo` sub-package, meaningful only once argocd actually exports —
+  gated behind **Bug2-13**, not a fuel-axis problem. The per-eval constant (not the fuel
+  ceiling) is the live perf frontier (item 7 residual).
 - **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
   is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
   fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking
