@@ -11802,3 +11802,73 @@ the embed merge — a larger change, PARKED. Perf frontier #7 stays GATED (argoc
 `Kue/Tests/TwoPassTests.lean` (Bug2-7 section: 8 pins, witness flipped; Bug2-8 tripwire + boundary
 pin), `Kue/Tests/FixturePorts.lean` (3 entries), `testdata/cue/definitions/bug27_*.{cue,expected}`,
 `docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/notes/` (breadcrumb).
+
+---
+
+## Completed Slice: Bug2-8 — same-def multi-decl close-once across an embed boundary (`2332aff`, 2026-06-23)
+
+**Goal.** When a def declares `#m` once and EMBEDS another def that also declares `#m`
+(`#A: {#m:{a}}` then `#Use: {#A; #m:{c}; vis:#m}`), the two `#m` decls are repeated declarations
+of the ONE def path `#m` spanning the embed boundary — cue close-once-UNIONS them (`{a:1, c:3}`).
+kue formerly `.conj`-met them across the embed → each clause re-closed separately → mutual reject →
+bottom; the `-e out` projection (`#Use.vis`) dropped `a`. The hardest layer of the argocd blocker
+chain — within-operand-vs-cross-operand (Bug2-7's lever) no longer separates union from meet, since
+both `#m` decls are cross-operand yet must UNION.
+
+**Mechanism (provenance carried in the TYPE — illegal-states-unrepresentable).** New
+`inductive DeclProvenance := ownDecl | embeddedDecl` (`Value.lean`) on a named `structure
+ConjOperand (fields, open_, provenance)` replacing the `(List Field × Bool)` operand tuple that
+`mergeConjOperands` threads (`ConjOperand.ofPair` lifts a legacy pair to `ownDecl`). A SUM, not a
+Bool: the discriminator is "do two same-label decls name the ONE def path" — `ownDecl ×
+embeddedDecl` is exactly that pair, and only it close-once-UNIONs. Two threading points:
+
+- **Static fold (eager `.structComp` eval arm + force `forceClosureWithConjunctCore` `.structComp`
+  arm).** A PLAIN embedding's same-def-path decls — `embedSameDefPathDecls` resolves each embed
+  body via `resolveEmbedDefBody?`, takes its `bodyDefinitionFields`, keeps those whose label is in
+  the host's own DEFINITION labels — are folded into the static frame as an `embeddedDecl`-provenance
+  operand BEFORE static eval. `mergeConjOperands`'s provenance-aware cross-operand merge
+  (`mergeConjOperandFields`) close-once-UNIONS the host `ownDecl #m` × embed `embeddedDecl #m` pair
+  via `mergeDefinitionDecls` (the Bug2-6 lever). The `#m` SLOT holds the union AND a sibling
+  `vis: #m` (evaluated on the static frame) resolves against it — fixing both the whole-file bottom
+  and the `-e out` drop. The fold is GATED to plain embeds (`!bodyNeedsDefer && !embedBodyEmbedsDisjDeep`)
+  so a comprehension/disjunction-bearing embed keeps its existing narrowing machinery (Bug2-4/2-5).
+- **Embed meet-fold (`meetEmbeddingsWithFuel`'s struct `_` arm).** Since the static fold already
+  unioned `#m` into the host, `meetEmbedUnioningDefDecls` STRIPS the embed's matching same-def-path
+  `#m` so the generic `meet` does not re-meet the union against the embed's narrower arm (which would
+  re-close-REJECT the host's other labels, or double an equal shared field to `1 & 1`). The embed's
+  OTHER fields/patterns/tail still meet (kept on the opened embed-rest). The deferral-bearing closure
+  arm keeps the plain meet (its decls flow through the splice narrowing, not the static union).
+
+**Soundness boundary (the discriminator that keeps the canary a MEET).** `isSameDefPathLabel`
+requires BOTH sides to declare the label DEFINITION-class AND both values to be field/pattern-bearing
+structs (`isUnionableDefValue` — a scalar/kind def value `#x: string` is left to the ordinary meet,
+else its `.conj` doubles the display `string & string`; this fixed the 599
+`disj_default_embed_sibling_narrows` near-regression). The cert-manager `data: [string]: string` is a
+REGULAR field — never enters the DEFINITION union, stays a closed-pattern MEET. A DEFINITION pattern
+field (`#data: [string]:string`) DOES union, but `mergeDefinitionDecls` unions patterns alongside
+fields, so a host int field still bottoms against `string` (pattern preserved).
+
+**Guards (8 `native_decide` pins TwoPassTests Bug2-8, all oracle-confirmed vs cue v0.16.1).** Witness
+close-once-unions (whole-file AND `-e out` both `{a:1,c:3}`, the witness FLIPPED); 3-decl
+host+two-embeds (argocd `#additions` shape); two-mixin same path; DEFINITION pattern across embed
+admits string + rejects int; same-def CONFLICT across embed bottoms; two DISTINCT closed defs
+`#A.#m & #B.#m` reject; cert-manager REGULAR closed-pattern canary stays MEET. 3 fixture pairs
+(`bug28_*`) + FixturePorts. cert-manager FULL export content-identical (jq -S diff = 0; raw diff = 15
+= ratified field-order #3). Axiom-clean (`propext`/`Quot.sound`/`Classical.choice`), total.
+
+**argocd milestone: STILL bottoms (~55s) — Bug2-8 was NOT the final blocker.** The Bug2-8 union
+itself handles the cert-manager `#additions` shape (a comprehension over the pattern+field-unioned
+`#additions` across the embed matches cue). The residual is **Bug2-9** (PARKED): use-site narrowing
+of a REFERENCED multi-conjunct def whose conjuncts include the cert-manager mixin — `ls =
+defaults.#ListenerSet & {#name,#ns,#passthrough_hosts}` where `defaults.#ListenerSet =
+defs.#ListenerSet & parts.#UseCertManager & {…}`. kue bottoms; cue produces the full manifest. The
+INLINED 3-way meet with all use fields supplied directly WORKS, so the bug is specific to narrowing a
+referenced NAMED multi-conjunct def. ~11s to repro in isolation. Perf frontier #7 stays GATED.
+
+**Files.** `Kue/Value.lean` (`DeclProvenance`, `ConjOperand` + `ofPair`), `Kue/Eval.lean`
+(`mergeConjOperandFields`, `mergeConjOperands` over `ConjOperand`, `isUnionableDefValue`/
+`isSameDefPathLabel`/`meetEmbedUnioningDefDecls`, `bodyDefinitionFields`/`embedSameDefPathDecls`,
+the static fold in both `.structComp` arms, `lazyConjMergedFields`), `Kue/Tests/TwoPassTests.lean`
+(Bug2-8 section: 8 pins, witness flipped + renamed), `Kue/Tests/FixturePorts.lean` (3 entries),
+`testdata/cue/definitions/bug28_*.{cue,expected}`, `docs/spec/spec-conformance-audit.md`,
+`docs/spec/plan.md`, `docs/notes/` (breadcrumb).
