@@ -175,3 +175,10 @@ become their own planned slices. Apply only low-risk cleanups inline (re-verify 
   build/fixture run), never the deep work.
 - No manual `/ace-save` or `/clear` between slices — the subagent boundary gives fresh
   context; the breadcrumb gives continuity.
+- **"User-gated" is a high bar — don't inherit it from audit caution.** Audit verdicts of
+  "user-gated / human-signs-off" are usually over-caution; re-examine by philosophy before
+  deferring — most resolve autonomously. (A "human-signs-off" normalizer dedup turned out to
+  be a vacuous-marker soundness *analysis* (AD2-1); a "needs-a-Float-model" builtin was
+  decimal-not-Float, no fork at all (BI-2-residual).) Surface a fork to the user ONLY when
+  the philosophy is genuinely silent AND the choice is expensive to reverse. Default:
+  resolve-and-proceed.
