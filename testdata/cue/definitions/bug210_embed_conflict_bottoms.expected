@@ -1,0 +1,2 @@
+#Meta: {#name: string, val: 1, copy: string}
+out: {#name: "n", val: _|_, copy: "n"}

@@ -689,6 +689,78 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-10: use-site narrowing of a `.structComp` HOST that EMBEDS a def with a sibling
+      -- self-ref. `{#Meta} & {#name:"x"}` — the host `{#Meta}` is a structComp (embed in
+      -- `comprehensions`); `conjStructCompDefer?` defers it to a `.closure` so the conj fold splices
+      -- `#name` into the embedded `Self.#name` BEFORE it collapses. Pre-fix kue forced the host
+      -- STANDALONE (no use-operands) → `metadata.name: string` frozen → `incomplete value: string`.
+      fileName := "definitions/bug210_embed_self_ref_narrowed.expected",
+      content :=
+        match parseSource "#Meta: Self={#name: string, metadata: {name: Self.#name}}\nout: {#Meta} & {#name: \"x\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-10 TRANSITIVE (composes with Bug2-5): the host embeds `#Mid` which embeds `#Meta` —
+      -- `bodyNeedsDefer` walks the embed chain (`embedChainAny`), so a transitively-embedded
+      -- sibling self-ref still triggers the deferral and the narrowing reaches the deepest self-ref.
+      fileName := "definitions/bug210_transitive_embed_narrowed.expected",
+      content :=
+        match parseSource "#Meta: Self={#name: string, metadata: {name: Self.#name}}\n#Mid: {#Meta}\nout: {#Mid} & {#name: \"x\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-10 SOUNDNESS (closedness): the embedded def `#Meta` is closed, so a use-site field it
+      -- does not declare (`notallowed`) is REJECTED — the structComp-host force re-closes over the
+      -- embed's labels (`embeddingClosesHost` overrides the open host). cue: `field not allowed`.
+      fileName := "definitions/bug210_embed_closed_rejects_extra.expected",
+      content :=
+        match parseSource "#Meta: Self={#name: string, copy: Self.#name}\nout: {#Meta} & {#name: \"n\", notallowed: 9}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-10 SOUNDNESS (conflict): a real conflict still bottoms. `val: 1` (in `#Meta`) meets
+      -- `val: 2` (use site) → `_|_`, exactly as cue. Delivery never masks a genuine conflict.
+      fileName := "definitions/bug210_embed_conflict_bottoms.expected",
+      content :=
+        match parseSource "#Meta: Self={#name: string, val: 1, copy: Self.#name}\nout: {#Meta} & {#name: \"n\", val: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-10 closedness (pre-existing leak FIXED): embedding a CLOSED def closes the host, so a
+      -- later MEET against it rejects an undeclared extra. `{#Meta} & {b}` REJECTS `b` (cue: `field
+      -- not allowed`); pre-fix kue admitted `b` (the open-host embed-meet leak, no self-ref needed).
+      fileName := "definitions/bug210_embed_meet_extra_rejected.expected",
+      content :=
+        match parseSource "#Meta: {a: 1}\nout: {#Meta} & {b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-10 EDGE (deep nested self-ref): the embed's self-ref is read 2 frames deep
+      -- (`spec: acme: val: Self.#name`). `hasSelfRefAtDepth` (in `defBodyHasSiblingSelfRef`)
+      -- descends nested frames, so the deferral fires and the narrowing reaches the deep read.
+      fileName := "definitions/bug210_deep_nested_self_ref_narrowed.expected",
+      content :=
+        match parseSource "#Meta: Self={#name: string, spec: {acme: {val: Self.#name}}}\nout: {#Meta} & {#name: \"deep\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-10 over-fire NEGATIVE / closedness boundary: the EMBED-FORM `{#Meta, b}` (sibling `b`
+      -- declared in the SAME struct literal as the embed) ADMITS `b` — a sibling field is part of
+      -- the embedding struct's own declaration, NOT a later meet. Distinguishes embed-form (admit)
+      -- from meet-form (reject); both cue-faithful. Pins `embeddingClosesHost` does not over-close.
+      fileName := "definitions/bug210_embed_form_sibling_admitted.expected",
+      content :=
+        match parseSource "#Meta: {a: 1}\nout: {#Meta, b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

@@ -1,0 +1,2 @@
+#Meta: {#name: string, spec: {acme: {val: string}}}
+out: {#name: "deep", spec: {acme: {val: "deep"}}}

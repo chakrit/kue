@@ -1,0 +1,3 @@
+#Meta: {#name: string, metadata: {name: string}}
+#Mid: {#name: string, metadata: {name: string}}
+out: {#name: "x", metadata: {name: "x"}}

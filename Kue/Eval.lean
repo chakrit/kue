@@ -2194,6 +2194,47 @@ def resolveEmbedDefBody? (env : Env) : Value -> Option Value
       | _ => none
   | _ => none
 
+/-- Does the resolved field a reference/selector names denote a DEFINITION (`#`-prefixed)? A
+    definition reference is closed (even when its UNEVALUATED body is still `regularOpen` — the
+    parser marks struct literals open by default; def-closedness is applied at normalize/eval), so
+    embedding it closes the host. -/
+def embeddingFieldIsDefinition (env : Env) : Value -> Bool
+  | .refId id =>
+      match env.drop id.depth.val with
+      | [] => false
+      | frame :: _ =>
+          match nthField id.index.val frame.snd with
+          | some f => (Field.fieldClass f).isDefinition
+          | none => false
+  | .selector (.refId id) label =>
+      match env.drop id.depth.val with
+      | [] => false
+      | frame :: _ =>
+          match nthField id.index.val frame.snd with
+          | some baseField =>
+              match Field.value baseField with
+              | .struct pkgFields _ _ _ _ =>
+                  match findEvalField label pkgFields with
+                  | some defField => (Field.fieldClass defField).isDefinition
+                  | none => false
+              | _ => false
+          | none => false
+  | _ => false
+
+/-- Does embedding `embedding` CLOSE its host? CUE: embedding a closed def into a no-`...` struct
+    closes the result over the union `host labels ∪ embed labels` (a SIBLING field declared in the
+    same struct literal is still admitted, but a later MEET against the now-closed struct rejects
+    an undeclared extra). Two ways to be closed: the embed is a DEFINITION reference
+    (`embeddingFieldIsDefinition` — closed by def-class), OR a non-def struct embed whose resolved
+    body is explicitly `defClosed`. An embed with an explicit `...` (`defOpenViaTail`) or a plain
+    `regularOpen` non-def struct does NOT close. `none`/non-struct bodies do not close. -/
+def embeddingClosesHost (env : Env) (embedding : Value) : Bool :=
+  embeddingFieldIsDefinition env embedding ||
+    match resolveEmbedDefBody? env embedding with
+    | some (.struct _ openness _ _ _) => !openness.isOpen
+    | some (.structComp _ _ openness) => !openness.isOpen
+    | _ => false
+
 /-- Does `body`, or any def it transitively EMBEDS, satisfy the non-recursive `leaf` predicate?
     Walks the embed chain (`resolveEmbedDefBody?` per embedding, resolved against `env`),
     fuel-bounded against embed cycles. The variation point is the pure, non-recursive `leaf :
@@ -2448,6 +2489,45 @@ def conjDefClosure? (env : Env) : Value -> Option Value
           | some defBody => some (.closure (frame :: outer) defBody)
           | none => none
   | _ => none
+
+/-- Defer a `.structComp` HOST conjunct (`{#Meta}` — a struct whose only content is an embedded
+    self-ref def) into a `.closure` so the `.conj` fold force-splices the sibling use-site
+    narrowing into it BEFORE its embedded self-ref collapses (Bug2-10). Without this the host
+    evaluates STANDALONE through the `.structComp` eval arm with no use-operands, freezing the
+    embed's `Self.#name` at its abstract `string`; the outer `{narrow}` then meets too late.
+    `conjDefClosure?` defers a BARE `.refId` only — a `.structComp` wrapper bypasses it, which is
+    exactly the gap this closes. Captures `env` (the host conjunct's own scope): the standalone
+    arm pushes the host fields onto `env`, and `forceClosureWithConjunct`'s `.structComp` arm
+    pushes the spliced fields onto `capturedEnv = env`, so the two paths agree modulo the splice.
+
+    Fires ONLY when the host genuinely needs the narrowing — `bodyNeedsDefer` (host body OR a
+    transitively-embedded def body carries a sibling self-ref). A plain narrowing struct
+    (`{#name:"x"}`) has no embed, so `bodyNeedsDefer` is false and it is never deferred; a
+    no-self-ref embed host likewise stays standalone. The has-a-narrowing-SIBLING half of the
+    over-fire guard is enforced at the call site (only the `.conj` fold reaches here, so a bare
+    `{#Meta}` with no sibling never enters this path). `none` for any non-structComp operand. -/
+def conjStructCompDefer? (env : Env) : Value -> Option Value
+  | body@(.structComp _ _ _) =>
+      -- The host's embed refs resolve against the frame the standalone `.structComp` arm pushes
+      -- (`pushFrame fields env` adds one frame), so resolve the deferral check over a placeholder
+      -- host-frame `(0, []) :: env` — exactly the body-frame `forceClosureWithConjunct` will use.
+      let bodyEnv : Env := (0, []) :: env
+      if bodyNeedsDefer bodyEnv evalFuel body then some (.closure env body) else none
+  | _ => none
+
+/-- Is `constraint` a struct-shaped conjunct that can SPLICE a use-site narrowing into a deferred
+    sibling (the has-a-narrowing-sibling half of the Bug2-10 over-fire guard)? A plain struct or a
+    `.structComp` carrying at least one field qualifies; an embed-only host (`{#Meta}` — fields
+    empty, content in `comprehensions`) does NOT (it is the deferral TARGET, not a narrowing
+    source). Conservative: a `.refId`/selector that resolves to a struct is not counted (the
+    structComp-defer path targets the embed-host shape, where the sibling is a literal narrowing
+    struct), so the gate stays tight and never fires for a no-narrowing `.conj`. -/
+def conjNarrowingSibling? : Value -> Bool
+  | .struct fields _ _ _ _ => !fields.isEmpty
+  | .structComp fields _ _ => !fields.isEmpty
+  | .embeddedScalar _ decls => !decls.isEmpty
+  | .embeddedList _ _ decls => !decls.isEmpty
+  | _ => false
 
 /-- Same-file alias companion to `importSelectorDef?`. A def referenced DIRECTLY (`#B`, a
     `.refId`) whose body is an alias/import-selector indirection (`#B: #A` where `#A: parts.#M`,
@@ -3031,7 +3111,13 @@ mutual
                 -- allowed set without imposing its own closedness (CUE rule). Closing the host
                 -- BEFORE the meet would let a closed embed/host reject the other's regular fields.
                 let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
-                let resolved := closeEmbeddedOver merged embeddingFields openness.isOpen met
+                -- Embedding a CLOSED def closes the host over `host ∪ embed` labels (CUE rule): a
+                -- subsequent MEET against this struct (`{#Closed} & {extra}`) must reject `extra`.
+                -- ONLY for a `regularOpen` host (open-by-default, no explicit `...`); an explicit
+                -- `...` tail (`defOpenViaTail`) keeps the host open regardless of a closed embed.
+                let hostOpen := openness.isOpen
+                  && (openness != .regularOpen || !(embeddings.any (embeddingClosesHost embedEnv)))
+                let resolved := closeEmbeddedOver merged embeddingFields hostOpen met
                 -- D#1b: with deferred (incomplete-guard) comprehensions, the struct is NOT concrete
                 -- — keep it a `.structComp` carrying the resolved fields + the residual comprehensions
                 -- (cue holds it under eval, errors incomplete under export). `deferredComps` holds
@@ -3125,10 +3211,22 @@ mutual
         -- deferred from the RAW constraint (`importSelectorDef?` + in-monad `pushFrame`), so the
         -- selector arm's standalone force (which fires when `pkg.#Def` is selected OUTSIDE a
         -- conjunction) does not collapse it here before the fold splices the use-site.
+        -- Bug2-10 over-fire guard (has-a-narrowing-sibling half): only defer a `.structComp`
+        -- HOST (`{#Meta}`) into the closure fold when a SIBLING conjunct carries a use-site
+        -- narrowing to deliver (`& {#name:"x"}`). With no narrowing sibling the host evaluates
+        -- standalone exactly as before — byte-identical for a no-narrowing `.conj`.
+        let hasNarrowingSibling := constraints.any conjNarrowingSibling?
         let evaluated <- constraints.mapM fun constraint => do
           match conjDefClosure? env constraint with
           | some closure => pure closure
           | none =>
+              -- Bug2-10: a `.structComp` host whose embed body has a sibling self-ref is deferred
+              -- to its `.closure` (like the bare-ref case above) so the force-fold splices the
+              -- sibling narrowing in before the embedded `Self.#name` collapses. Gated on a
+              -- narrowing sibling existing — else it would perturb a no-narrowing host.
+              match (if hasNarrowingSibling then conjStructCompDefer? env constraint else none) with
+              | some closure => pure closure
+              | none =>
               -- `importSelectorDef?`: a `pkg.#Def` selector conjunct (incl. one aliased to
               -- another selector via the alias-follow inside `importDefClosureBody?`).
               -- `refAliasSelectorDef?`: a bare ref conjunct (`#B`) whose body chains through
@@ -3498,7 +3596,15 @@ mutual
                 -- embedding labels — otherwise re-closing rejects it as undeclared. `defFields` does
                 -- NOT contain `y` (it lives only in the comprehension), so fold `expanded` in too.
                 let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
-                let resolved := closeEmbeddedOver (defFields ++ expanded) embeddingFields defOpenness.isOpen met
+                -- Embedding a CLOSED def closes the host over `host ∪ embed` labels (CUE rule —
+                -- mirrors the eager arm): a use-site narrowing reaches the embed's self-ref, but a
+                -- use-site EXTRA the def does not declare is rejected. `defOpenness` is the deferred
+                -- HOST body's openness (a `{#Closed}` wrapper is `regularOpen`); the closed embed
+                -- overrides it ONLY for `regularOpen` (no explicit `...`), so `{#Meta} & {notallowed}`
+                -- rejects `notallowed` (Bug2-10 closedness) while a `...`-tailed host stays open.
+                let hostOpen := defOpenness.isOpen
+                  && (defOpenness != .regularOpen || !(embeddings.any (embeddingClosesHost embedEnv)))
+                let resolved := closeEmbeddedOver (defFields ++ expanded) embeddingFields hostOpen met
                 -- D#1b: an incomplete-guard comprehension on the def-force path likewise keeps the
                 -- struct residual (mirrors the eager arm). `deferredComps` holds only `if`/`for`
                 -- residuals; embeddings are already meet into `resolved`.

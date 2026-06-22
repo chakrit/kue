@@ -1,0 +1,2 @@
+#Meta: {#name: string, metadata: {name: string}}
+out: {#name: "x", metadata: {name: "x"}}

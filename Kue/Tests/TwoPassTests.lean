@@ -1847,6 +1847,102 @@ theorem bug28_scalar_def_across_embed_stays_meet :
       "{\n    \"out\": \"hi\"\n}\n" = true := by
   native_decide
 
+-- ### Bug2-10 — use-site narrowing into a structComp HOST's embedded self-ref (RESOLVED).
+--
+-- `{#Meta} & {#name:"x"}` — the host `{#Meta}` is a `.structComp` (the `#Meta` embed lives in its
+-- `comprehensions` bucket), NOT a bare `.refId`. `conjDefClosure?` defers a `.refId` only, so the
+-- structComp host evaluated STANDALONE through the `.structComp` arm with NO use-operands, freezing
+-- the embed's `Self.#name` at abstract `string` BEFORE the sibling `{#name:"x"}` arrived → `incomplete
+-- value: string`. The DIRECT `#Meta & {#name:"x"}` worked (bare ref IS deferred). Fixed by
+-- `conjStructCompDefer?`: a structComp host whose embed body has a sibling self-ref (`bodyNeedsDefer`)
+-- is deferred to its `.closure` and joins the SAME shared-`useOperands` fold the bare-ref path runs, so
+-- the narrowing reaches the self-ref before it collapses. Gated on a narrowing sibling existing
+-- (`conjNarrowingSibling?`) — a no-narrowing `{#Meta}` stays standalone. Distinct from Bug2-9
+-- (referenced multi-conjunct def flatten): this is the structComp-WRAPPER deferral.
+
+-- TARGET (was the WITNESS of the wrong `incomplete value`; FLIPPED): the structComp host's embedded
+-- `Self.#name` now narrows to the use-site `"x"`. cue: `{metadata: {name: "x"}}`.
+theorem bug210_embed_self_ref_narrowed :
+    evalSourceMatches
+      "#Meta: Self={#name: string, metadata: {name: Self.#name}}\nout: {#Meta} & {#name: \"x\"}\n"
+      "#Meta: {#name: string, metadata: {name: string}}\nout: {#name: \"x\", metadata: {name: \"x\"}}"
+        = true := by
+  native_decide
+
+-- TRANSITIVE (composes with Bug2-5): the host embeds `#Mid` which embeds `#Meta`. `bodyNeedsDefer`
+-- walks the embed chain (`embedChainAny`), so a transitively-embedded self-ref still triggers the
+-- deferral and the narrowing reaches the deepest self-ref. cue: `{metadata: {name: "x"}}`.
+theorem bug210_transitive_embed_narrowed :
+    evalSourceMatches
+      "#Meta: Self={#name: string, metadata: {name: Self.#name}}\n#Mid: {#Meta}\nout: {#Mid} & {#name: \"x\"}\n"
+      "#Meta: {#name: string, metadata: {name: string}}\n#Mid: {#name: string, metadata: {name: string}}\nout: {#name: \"x\", metadata: {name: \"x\"}}"
+        = true := by
+  native_decide
+
+-- DEEP nested self-ref read (`spec: acme: val: Self.#name`, 2 frames deep — the real-app shape).
+-- `hasSelfRefAtDepth` descends nested frames, so the deferral fires and the deep read narrows. cue:
+-- `{spec: {acme: {val: "deep"}}}`.
+theorem bug210_deep_nested_self_ref_narrowed :
+    evalSourceMatches
+      "#Meta: Self={#name: string, spec: {acme: {val: Self.#name}}}\nout: {#Meta} & {#name: \"deep\"}\n"
+      "#Meta: {#name: string, spec: {acme: {val: string}}}\nout: {#name: \"deep\", spec: {acme: {val: \"deep\"}}}"
+        = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): closedness preserved. `#Meta` is closed (no `...`), so a use-site
+-- field it does not declare (`notallowed`) is REJECTED — the structComp-host force re-closes over the
+-- embed's labels (`embeddingClosesHost`). cue: `field not allowed`.
+theorem bug210_embed_closed_rejects_extra :
+    exportJsonBottoms
+      "#Meta: Self={#name: string, copy: Self.#name}\nout: {#Meta} & {#name: \"n\", notallowed: 9}\n"
+        = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): a real conflict still bottoms. `val: 1` (in `#Meta`) meets `val:
+-- 2` (use site) → `_|_`, exactly as cue. Delivery never masks a genuine conflict.
+theorem bug210_embed_conflict_bottoms :
+    exportJsonBottoms
+      "#Meta: Self={#name: string, val: 1, copy: Self.#name}\nout: {#Meta} & {#name: \"n\", val: 2}\n"
+        = true := by
+  native_decide
+
+-- CLOSEDNESS LEAK FIX (pre-existing, no self-ref needed): embedding a CLOSED def closes the host, so a
+-- later MEET against it rejects an undeclared extra. `{#Meta} & {b}` REJECTS `b`; pre-fix kue admitted
+-- it (the open-host embed-meet leak). cue: `field not allowed`.
+theorem bug210_embed_meet_extra_rejected :
+    exportJsonBottoms
+      "#Meta: {a: 1}\nout: {#Meta} & {b: 2}\n"
+        = true := by
+  native_decide
+
+-- CLOSEDNESS BOUNDARY (must STAY green): the EMBED-FORM `{#Meta, b}` (sibling `b` declared in the SAME
+-- struct literal as the embed) ADMITS `b` — a sibling is part of the embedding struct's own declaration,
+-- NOT a later meet. Distinguishes embed-form (admit) from meet-form (reject); pins `embeddingClosesHost`
+-- does not over-close. cue: `{a: 1, b: 2}`.
+theorem bug210_embed_form_sibling_admitted :
+    exportJsonMatches
+      "#Meta: {a: 1}\nout: {#Meta, b: 2}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- OVER-FIRE NEGATIVE (must STAY green): a structComp host with a self-ref embed but NO narrowing sibling
+-- (`{#Meta}` alone) stays STANDALONE and incomplete — `conjStructCompDefer?` never fires (a single value
+-- is not a `.conj`, and the call-site gate requires a narrowing sibling). cue: `incomplete value`.
+theorem bug210_no_narrowing_stays_incomplete :
+    exportJsonBottoms
+      "#Meta: Self={#name: string, metadata: {name: Self.#name}}\nout: {#Meta}\n"
+        = true := by
+  native_decide
+
+-- OVER-FIRE NEGATIVE (must STAY green): a structComp host with a narrowing sibling but NO self-ref embed
+-- (`#Meta` has a fixed `metadata.name`) does NOT defer (`bodyNeedsDefer` false) — byte-identical to the
+-- pre-fix standalone path. cue and kue agree (`{metadata: {name: "fixed"}}`).
+theorem bug210_no_self_ref_unchanged :
+    exportJsonMatches
+      "#Meta: {#name: string, metadata: {name: \"fixed\"}}\nout: {#Meta} & {#name: \"x\"}\n"
+      "{\n    \"out\": {\n        \"metadata\": {\n            \"name\": \"fixed\"\n        }\n    }\n}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of
 -- every section. If a stray block comment (`/-` … runaway) or an editing slip ever swallows a
 -- section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -1877,5 +1973,6 @@ theorem bug28_scalar_def_across_embed_stays_meet :
 #check @bug27_closed_pattern_multi_decl_rejects_int_via_ref   -- Bug2-7
 #check @bug29_alias_cycle_narrow_terminates                   -- Bug2-9
 #check @bug28_scalar_def_across_embed_stays_meet              -- Bug2-8 (file tail)
+#check @bug210_no_self_ref_unchanged                          -- Bug2-10 (file tail)
 
 end Kue

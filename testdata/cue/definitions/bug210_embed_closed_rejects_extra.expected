@@ -1,0 +1,2 @@
+#Meta: {#name: string, copy: string}
+out: {#name: "n", notallowed: _|_, copy: "n"}
