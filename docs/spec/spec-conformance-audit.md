@@ -446,6 +446,78 @@ in kue" discriminator meant "does not BOTTOM" — it ALSO drops the annotation (
 Bug2-9 flatten made named == inlined, exposing this shared Layer-B content defect. PARKED for a
 dedicated slice; correctness-first.
 
+**Bug2-10 — DESIGN NOTE (Phase-B 2026-06-23; root cause traced, no code).** Root cause is the
+CONJUNCT-DEFERRAL GATE, not the splice itself. Trace of `{#Meta} & {#name:"x"}`:
+- The host `{#Meta}` is a `.structComp` (a struct whose `comprehensions` bucket holds the `#Meta`
+  embed); `{#name:"x"}` is a SEPARATE top-level conjunct. The two reach `evalConjStandard`.
+- `lazyConjMergedFields` declines (`conjStructOperand?` returns `none` for a `.structComp` — it is
+  not a plain same-scope struct operand), so the fold takes the `none` branch and evaluates each
+  conjunct via `conjDefClosure?`-or-eval. **`conjDefClosure?` defers ONLY a `.refId`** (`Eval.lean`
+  :2443; `| _ => none`), so a `.structComp` host is NOT deferred — it evaluates STANDALONE through
+  the `.structComp` arm (:2954).
+- Standalone, the `.structComp` arm force-splices its `#Meta` embed via `meetEmbeddingsWithFuel`
+  with `current = mkStruct merged …` (:3033) = the host's OWN fields only — which for `{#Meta}` is
+  EMPTY. So `forceClosureWithConjunct … useOperands` (:3279–3282) splices an empty narrowing; the
+  embed's `Self.#name` collapses to `string`, `metadata.name` freezes at `string`.
+- The outer `meet {metadata:{name:string}} {#name:"x"}` then arrives TOO LATE — `metadata.name` is
+  already a frozen `string`. Hence `incomplete value: string`.
+- Why DIRECT `#Meta & {#name:"x"}` works: `#Meta` is a bare `.refId` conjunct, so `conjDefClosure?`
+  DEFERS it to a `.closure`, and `evalConjStandard`'s closure-fold (:3152) force-splices the SHARED
+  `useOperands` (`{#name:"x"}`, gathered via `spliceNarrowingOperand?` across ALL operands) into it
+  BEFORE the self-ref collapses. The structComp wrapper is exactly what breaks that path.
+
+**Cleanest sound approach (the seam — splice the sibling BEFORE the embed collapses):** make a
+structComp-host conjunct participate in the SAME shared-use-operand fold the bare-ref path already
+runs. Two candidate shapes, ranked:
+- **(A) preferred — defer the structComp host's embeds into the conj-level closure fold.** In
+  `evalConjStandard`'s `none` branch, when a conjunct is a `.structComp` whose embeds need the
+  use-site narrowing (an embed body with a sibling self-ref — `defBodyHasSiblingSelfRef`, the
+  existing `bodyNeedsDefer` leaf), DON'T evaluate it standalone; route its embeds through the same
+  `closures`/`useOperands` machinery (gather the sibling conjuncts' narrowing via
+  `spliceNarrowingOperand?` exactly as the bare-ref fold does, then force each embed closure with
+  it). This puts the structComp host on the bare-ref path it currently bypasses. Composes with
+  `injectLetLocalNarrowings` (the let-local narrowings are already in the spliced operand set) and
+  the Bug2-5 `embedChainAny`/`embedBodyEmbedsDisjDeep` gate (a transitively-embedded disjunction
+  still triggers the deep splice once the narrowing reaches `spliceOperandForEmbed`). It does NOT
+  touch `meetEmbeddingsWithFuel`'s internals — the splice machinery is already correct; the fix is
+  delivering the sibling narrowing to it.
+- **(B) rejected — splice at `meetEmbeddingsWithFuel` from an ambient narrowing.** Threading the
+  sibling conjunct's fields into the standalone `.structComp` eval as ambient context would mean
+  `meetEmbeddingsWithFuel` reaching OUTSIDE its host for narrowing — re-introducing the
+  cross-operand coupling the explicit-operand fold deliberately localizes (the Bug2-8
+  union-vs-meet boundary lives in WHICH operands a call sees; an ambient channel blurs it).
+  Soundness-boundary-adjacent; avoid.
+- **Guard against over-firing:** the new deferral must fire ONLY for a structComp host whose embed
+  body genuinely has a sibling self-ref AND there IS a sibling narrowing conjunct — else the
+  cert-manager plain-embed path (Bug2-8 static-decl union) and a no-narrowing `{#Meta}` standalone
+  must stay byte-identical. The `plainEmbed`/`bodyNeedsDefer` gates from the `.structComp` arm
+  (:2965–2968) are the right predicate to reuse.
+
+**SHARED-ROOT ANALYSIS — Bug2-10 / Bug2-11 / Bug2-12 (Phase-B 2026-06-23; the argocd-depth
+reframe).** All three were surfaced by the Bug2-9 flatten, but they fail at THREE structurally
+distinct junctures — they do NOT share one root, and one fix does NOT subsume all three:
+- **Bug2-10 ↔ Bug2-11 — PARTIAL shared root (narrowing-delivery to a deferred def interior).**
+  Both fail because the use-site narrowing never reaches a def's interior before its self-ref
+  collapses. They differ in WHICH conjunct-deferral path is missing: 2-10 = a `.structComp`-host
+  conjunct (same frame) is never deferred (`conjDefClosure?` is `.refId`-only); 2-11 = a
+  cross-PACKAGE selector conjunct (`defs.#LS`) is correctly NOT flattened by `flattenConjDefRef`
+  (depth-0-only, sound) so it hits the standalone selector force with no use-operands. A
+  generalized "defer ANY embed/def-bearing conjunct (structComp host OR cross-package selector)
+  into the shared-use-operand fold" addresses the COMMON root, but 2-11 additionally needs the
+  TERMINAL package frame (the `refAliasSelectorDef?`/`importSelectorDef?` capture), so approach
+  (A) lands 2-10 cleanly and EXTENDS toward 2-11 but does not close 2-11 for free.
+- **Bug2-12 — NOT subsumed (orthogonal mechanism).** It is a CLOSEDNESS-SET leak on the
+  structural-cycle fold (`#X: #X & {a:1}` loses its allow-set when self-recursion folds across a
+  use-site narrowing), NOT a narrowing-delivery failure — the narrowing arrives; the allow-set is
+  what's lost. Shares only the "surfaced by Bug2-9" provenance. Fix it on the closedness/cycle
+  path, independently; spec-check cue's rejection first.
+- **ARGOCD-DEPTH REFRAME (prominent):** the live argocd blocker is Bug2-10 ALONE. argocd's
+  `defaults.#ListenerSet & {#name,…}` embeds `parts.#Metadata` in the SAME package frame after the
+  defs cache resolves, so the relevant narrowing is same-frame (the 2-10 shape), NOT cross-package
+  (2-11) — Bug2-11 is OFF the argocd path. Bug2-12 is a pre-existing latent closedness gap, also
+  NOT argocd-blocking. **So the remaining argocd chain is ONE deep fix (Bug2-10), not three.**
+  2-11/2-12 are independent backlog that happened to be co-discovered, not a 3-deep argocd stack.
+
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 
 - **Bug2-3 / Gap-2b — DONE (2026-06-19, `d9f66ca`).** See Audit history.

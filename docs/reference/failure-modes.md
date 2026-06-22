@@ -96,3 +96,24 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   "cheap fix" on it, confirm with a direct before/after wall-clock + eval-count measurement
   on the REAL target (not only a synthetic repro that exhibits the modeled effect). A fix
   validated against a synthetic repro may be correct yet not move the real app.
+
+## Theorems silently dead — build stays green, kernel never checks them
+
+- **Symptom:** a block of `native_decide` theorems is never kernel-checked, yet `lake build`
+  is GREEN. Coverage silently evaporates; a regression in the pinned mechanism would not be
+  caught. Behavior may still be correct (independent fixtures pin it), masking the gap.
+- **Seen:** 2026-06-23 (Phase A) — `TwoPassTests.lean` (1851 lines) had FOUR `/-- … -/` block
+  doc-comments left UNTERMINATED (missing the closing `-/`). Lean's nested block comment runs
+  to the next stray `-/`, so each unterminated header SWALLOWED every theorem until the next
+  one — ~140 of ~150 theorems became comment text. Build stayed green (commented-out theorems
+  aren't checked; dead theorems aren't errors). The `.cue/.expected` fixtures independently
+  pinned the behavior, so the export was still correct — which is exactly why it went unnoticed.
+- **Guard:** THREE layers, defense-in-depth (Phase B `0150095`): (1) **`--` LINE comments for
+  test-file section headers**, never `/-- -/`/`/-! -/` block comments — a line comment
+  self-terminates at EOL and structurally CANNOT swallow the next declaration. (2) An
+  end-of-file **coverage tripwire**: `#check @<last-theorem-per-section>` for each section — a
+  swallowed section makes its anchor an unknown identifier, so `#check` fails to ELABORATE = a
+  hard build error, not a silent green. (3) A **size limit** on test modules — a file too large
+  to eyeball hides this; split when it grows (the `slice-loop.md` test-org pass, scheduled for
+  `TwoPassTests` in `plan.md` item 3). Convention applies to ALL `Kue/Tests/*.lean`; flagged
+  for `ace-school` as a test-file `general-coding` rule.

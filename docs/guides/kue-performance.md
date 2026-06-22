@@ -140,19 +140,22 @@ fix is purely a speedup — byte-identical output.
   narrowing), **Bug2-5** (transitive-embed disj-path narrowing injection, `5fca57e`
   2026-06-22), **Bug2-6** (definition multi-declaration close-once: `#Foo: {a}; #Foo: {c}`
   unify-then-close-once, `ef824cb` 2026-06-23), **Bug2-7** (same-def multi-decl close-once
-  on the def-REFERENCE / force-fold path, `3361699` 2026-06-23) — all LANDED. Bug2-5 cut
-  the argocd wall **153s → ~58s** but was NOT the final blocker; neither were Bug2-6 nor
-  Bug2-7. The residual full-app blocker is now **Bug2-8** (same-def multi-decl close-once
-  ACROSS AN EMBED boundary: `#UseCertManager` embeds `#Mixin` and adds its own `#additions`
-  decls, so the decls span the embed — cross-operand — yet must still close-once-union; the
-  within-vs-cross-operand split that made Bug2-6/2-7 tractable no longer separates union
-  from meet), PARKED as a stress-test finding — see `spec-conformance-audit.md` §
-  Consolidated fix backlog; do NOT chase it with app-specific narrowing. **Perf takeaway:**
-  this is a value-correctness divergence, not a fuel/perf cliff. The ~58s wall (vs
-  cert-manager ~30.5s) is a
-  separate downstream per-eval concern on the heavy `argo` sub-package, meaningful only once argocd
-  actually exports — gated behind **Bug2-8**, not a fuel-axis problem. The per-eval constant (not the
-  fuel ceiling) is the live perf frontier (item 7 residual).
+  on the def-REFERENCE / force-fold path, `3361699` 2026-06-23), **Bug2-8** (same-def
+  multi-decl close-once ACROSS AN EMBED boundary via a `DeclProvenance` sum, `2332aff`
+  2026-06-23), **Bug2-9** (use-site narrowing of a REFERENCED NAMED multi-conjunct def via
+  `flattenConjDefRef`, `5d9cf8f` 2026-06-23) — all LANDED. Bug2-5 cut the argocd wall
+  **153s → ~58s** but was NOT the final blocker; neither were Bug2-6/2-7/2-8/2-9. The
+  residual full-app blocker is now **Bug2-10** (use-site narrowing of a host that EMBEDS a
+  def with a sibling self-ref does NOT flow into the embedded self-ref: `{#Meta} & {#name}`
+  leaves `metadata.name: string` — root cause is the conjunct-deferral gate, `conjDefClosure?`
+  defers only a bare `.refId`, not a `.structComp` host, so the embed force-splices an empty
+  narrowing; see the Bug2-10 DESIGN NOTE in `spec-conformance-audit.md`), PARKED as a
+  stress-test finding — do NOT chase it with app-specific narrowing. **Perf takeaway:** this
+  is a value-correctness divergence, not a fuel/perf cliff. The ~53s wall (vs cert-manager
+  ~30.5s) is a separate downstream per-eval concern on the heavy `argo` sub-package,
+  meaningful only once argocd actually exports — gated behind **Bug2-10**, not a fuel-axis
+  problem. The per-eval constant (not the fuel ceiling) is the live perf frontier (item 7
+  residual).
 - **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
   is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
   fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking

@@ -217,8 +217,27 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    bottom), unary (`!` on bool + non-bool → bottom, `-` on int + non-numeric → bottom +
    incomplete defer) — the carve-set ops that previously had only end-to-end fixture coverage.
 
-3. **Test/fixture-org pass (periodic) — module carve DONE `4b25cef`; fixture regroup
-   DEFERRED.** `EvalTests.lean` (had re-grown to 1593) was carved into
+3. **Test/fixture-org pass (periodic) — `TwoPassTests` SPLIT SCHEDULED (ranked next-after-Bug2-10);
+   module carve DONE `4b25cef`; fixture regroup DEFERRED.**
+   **🚨 `TwoPassTests.lean` SPLIT — SCHEDULED as a near-term slice (Phase-B 2026-06-23 ruling).**
+   At 1879 lines it is the demonstrated silent-failure surface (the Phase-A dead-theorem incident:
+   ~140 theorems silently dead under unterminated `/-- -/`). The file IS too large to eyeball. Seam =
+   **by bug-family**: carve the `bug2x_*` sections (Bug2-1/2-2/2-4/2-5/2-6/2-7/2-8/2-9 + the
+   let-local/Mixin narrowing family — the ~bug26_*/bug27_*/bug28_*/bug29_*/mixin_*/let_* pins, lines
+   ~734–1879) into `Bug2xTests.lean`, leaving the foundational two-pass/argocd-link/disjunction-
+   selection/RESID-MASK pins in `TwoPassTests.lean`. Each resulting file gets the same end-of-file
+   COVERAGE TRIPWIRE (per-section `#check @<last-theorem>` anchors; see the `0150095` hardening). The
+   SPLIT-SLICE's first step: convert the carved file's headers to `--` line comments (TwoPassTests
+   already converted, `0150095`). Pin-count conserved; org-only, zero behavior change. **TEST-HEALTH
+   CONVENTION (durable, applies to ALL new/touched `Kue/Tests/*.lean`):** section headers are `--`
+   LINE comments, never `/-- -/`/`/-! -/` block comments (a line comment cannot swallow the next
+   theorem); every test module carries an end-of-file `#check @<last-theorem-per-section>` tripwire.
+   Recorded in `docs/reference/failure-modes.md`; flagged for `ace-school` (a `general-coding`/test
+   convention) — NOT edited into a skill from here. The suite-wide block→line conversion of the OTHER
+   ~19 test files (≈440 comments) is LOW-priority defense-in-depth (the build already proves none are
+   currently swallowed, and the tripwire is the real guard) — fold it into this org slice opportunistically,
+   do not churn 440 sites as a standalone.
+   `EvalTests.lean` (had re-grown to 1593) was carved into
    `ComprehensionTests.lean` (29 pins — `listcomp_*` /`letcomp_*`/`eval_comprehension_*`
    incl. comprehension-guard shapes) + `SortTests.lean` (13 pins — BI-2 `list.Sort`
    /`SortStable`); EvalTests → 1246. Org-only, zero behavior change, pin-count conserved
@@ -389,6 +408,46 @@ parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault`
 none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
+
+- **Phase-B audit (2026-06-23, batch `9b78c3d`..`2e337b1`: Bug2-8 + Bug2-9; Phase A HEALTHY
+  `2e337b1` + the dead-tests recovery `0109bb4`) — architecture HEALTHY.** Module graph
+  re-checked WHOLE: ACYCLIC, strictly layered (`Builtin → {Lattice, Regex, Decimal, Base64,
+  Json, Yaml, CaseTable}` — NO `Eval`/`EvalOps` edge; `EvalOps → {Builtin, Decimal, Regex}` no
+  back-edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`; `Lattice →
+  {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`; `Cli → Runtime`). The Bug2-8
+  types (`DeclProvenance` 2-ctor sum + `ConjOperand` record) live in **`Value.lean`** (L1,
+  correct — they ARE struct-conjunction data, not eval logic) and are EXEMPLARY type-leverage:
+  `DeclProvenance` admits no nonsense "own-and-embedded" (a `Bool` would) and FORCES a match arm
+  on a new origin (no wildcard); `ConjOperand` carries provenance in the TYPE, not inferred from
+  operand position — the union-vs-meet boundary (`incomingProv != existingProv` in
+  `mergeConjOperandFields`) is type-driven, not positional. The Bug2-9 `flattenConjDefRef` sits
+  in the pre-`mutual` helper tier near `conjStructOperand?` (`Eval.lean:1575`) — RIGHT home (a
+  pure unevaluated-constraint transform, fuel-structural total, ONE call site at the `.conj`
+  fold's raw-constraint flatMap, NO catch-all swallow — every non-flattenable case returns
+  `[constraint]` identity). Cleanliness sweep CLEAN: NO `sorry`/`panic!`/`unreachable!`
+  /`.get!`-in-pure-code, NO `String.dropRight`/`dropLeft`, NO dead code, NO stale TODO/FIXME/HACK;
+  the `partial def`s are the standing carve-outs only (`Parse.lean` 62 lexer/parser, `Module.lean`
+  4 IO-loader; `Eval.lean`/`Lattice.lean` FULLY total). File sizes: `Eval.lean` **3780** (+222
+  over the prior Phase-B 3558 — Bug2-8/2-9 growth), still WELL under the ~4500 re-split watch — the
+  `Eval.DefDeferral`-first-carve ruling STANDS. **Type-leverage next-candidate: NONE high-value** —
+  `FieldClass.field (isDefinition, isHidden, optionality)`'s two `Bool`s are DELIBERATELY orthogonal
+  CUE axes (every combination legal, per-axis merge; a sum would be the 2×2×3 cube = worse); the
+  representation is mature post-TL-1/TL-2. **Test/fixture redundancy: NONE to prune** — the
+  `.cue/.expected` fixtures (full parse→eval→export) and the `native_decide` pins (internal eval
+  primitives) pin DIFFERENT layers; the dead-theorem incident itself proves both are load-bearing
+  (fixtures kept behavior correct while the pin layer was dead). **APPLIED INLINE (re-verified green,
+  cert-canary jq-S=0):** (1) **test-health hardening** (`0150095`) — TwoPassTests block→line comments
+  + coverage tripwire (the dead-theorem fallout, headline #1); (2) **perf-doc de-stale** —
+  `kue-performance.md` argocd-bottoms said "blocker is now **Bug2-8**" (STALE — Bug2-8 `2332aff` +
+  Bug2-9 `5d9cf8f` LANDED); corrected the chain to Bug2-8/2-9 LANDED + gating to **Bug2-10**, wall
+  ~58s→~53s. **Bug2-10 DESIGN NOTE + Bug2-10/2-11/2-12 SHARED-ROOT ANALYSIS** written into
+  `spec-conformance-audit.md` (root = conjunct-deferral gate, `conjDefClosure?` is `.refId`-only;
+  fix = defer a structComp host's embeds into the shared-use-operand fold; 2-10↔2-11 PARTIAL shared
+  root, 2-12 orthogonal closedness-leak; argocd chain is ONE deep fix Bug2-10, not three). **Filed:**
+  `TwoPassTests` SPLIT scheduled (item 3, by bug-family) + the durable test-health convention
+  (failure-modes.md row). **Verdict: HEALTHY; test-health hardened inline (`0150095`); one perf-doc
+  de-stale; Bug2-10 design note + shared-root analysis in place; SPLIT scheduled; no new code
+  fix-slice.**
 
 The per-round Phase-A/B audit verdicts (~13 rounds, 2026-06-20/21) and the FILED diagnoses
 for now-DONE items (MEET-RESID-1, D#1d-RESIDUAL, RESID-MASK-1/2, A#6, the dyn-field
