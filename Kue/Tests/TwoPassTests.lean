@@ -10,7 +10,8 @@ namespace Kue
 /-- DISJUNCTION SELECTION (argocd `#Secret` blocker, facet 1): selecting a field INTO a
     default disjunction (`d.a` where `d: *{a:1,c:9} | {a:2}`) collapses to the default arm
     first, then selects — CUE's default rule. Previously `selectEvaluatedField` had no `.disj`
-    case and fell through to `.bottom`. theorem select_into_default_disjunction :
+    case and fell through to `.bottom`. -/
+theorem select_into_default_disjunction :
     (selectEvaluatedField
       (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"c", .regular, .prim (.int 9)⟩] .regularOpen none []),
               (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
@@ -20,7 +21,8 @@ namespace Kue
 
 /-- CARRIER-DECL-SELECT routing: selecting off a defaulted disjunction whose default arm is an
     `.embeddedScalar` carrier resolves the default, then plucks the decl through the SHARED
-    `selectFromDecls` helper — same path the plain-`.struct` arm above takes. theorem select_into_default_disjunction_scalar_carrier :
+    `selectFromDecls` helper — same path the plain-`.struct` arm above takes. -/
+theorem select_into_default_disjunction_scalar_carrier :
     (selectEvaluatedField
       (.disj [(.default, .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]),
               (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
@@ -29,7 +31,8 @@ namespace Kue
   native_decide
 
 /-- Same routing for an `.embeddedList` default-arm carrier: `selectFromDecls` plucks the decl
-    off the list carrier identically to the scalar and struct shapes. theorem select_into_default_disjunction_list_carrier :
+    off the list carrier identically to the scalar and struct shapes. -/
+theorem select_into_default_disjunction_list_carrier :
     (selectEvaluatedField
       (.disj [(.default, .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 7)⟩]),
               (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
@@ -39,7 +42,8 @@ namespace Kue
 
 /-- NO OVER-FIRE: a NON-default disjunction with multiple live arms does NOT collapse on
     selection — it stays a deferred `.selector` (manifest then reports the ambiguity), never a
-    spurious `bottom` and never a silent pick of one arm. theorem select_into_nondefault_disjunction_defers :
+    spurious `bottom` and never a silent pick of one arm. -/
+theorem select_into_nondefault_disjunction_defers :
     (selectEvaluatedField
       (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
               (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
@@ -593,7 +597,6 @@ theorem disj_default_embed_sibling_narrows :
         "_#A: {#x: string, copy: string}\n_#B: {#x: string, other: \"b\"}\n#S: *{#x: string, copy: string} | {#x: string, other: \"b\"}\nout: *{#x: \"hi\", copy: \"hi\"} | {#x: \"hi\", other: \"b\"}"
           = true := by
   native_decide
--/
 
 -- EMPTY-NARROW through the disjunction (no over-population): empty `#data` → empty `mapped`.
 -- Post-V2: distributed; the default arm (empty `mapped`) wins, second arm survives.
@@ -1695,9 +1698,8 @@ string` REGULAR closed pattern) all stay MEET. -/
 theorem bug28_embed_cross_decl_close_once_unions :
     exportJsonMatches
       "#A: {#m: {a: 1}}\n#Use: {\n\t#A\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis\n"
-      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+      "{\n    \"out\": {\n        \"c\": 3,\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
--/
 
 -- 3-decl across the embed (the argocd `#additions` shape): host declares `#additions` once and EMBEDS
 -- TWO defs each declaring `#additions` — all THREE decls of the ONE path union, close once. cue:
@@ -1705,18 +1707,16 @@ theorem bug28_embed_cross_decl_close_once_unions :
 theorem bug28_three_decl_host_plus_two_embeds_union :
     exportJsonMatches
       "#A1: {#additions: {cert_gw: {x: 1}}}\n#A2: {#additions: {cert_ls: {z: 3}}}\n#Use: {\n\t#A1\n\t#A2\n\t#additions: {cert_ing: {y: 2}}\n\tvis: #additions\n}\nout: #Use.vis\n"
-      "{\n    \"out\": {\n        \"cert_gw\": {\n            \"x\": 1\n        },\n        \"cert_ls\": {\n            \"z\": 3\n        },\n        \"cert_ing\": {\n            \"y\": 2\n        }\n    }\n}\n" = true := by
+      "{\n    \"out\": {\n        \"cert_ing\": {\n            \"y\": 2\n        },\n        \"cert_gw\": {\n            \"x\": 1\n        },\n        \"cert_ls\": {\n            \"z\": 3\n        }\n    }\n}\n" = true := by
   native_decide
--/
 
 -- TWO mixins each declaring the SAME `#m` path, plus the host's own `#m` — all three union into one
 -- `#m`. cue: `{a:1, b:2, c:3}`.
 theorem bug28_two_mixins_same_path_union :
     exportJsonMatches
       "#A: {#m: {a: 1}}\n#B: {#m: {b: 2}}\n#Use: {\n\t#A\n\t#B\n\t#m: {c: 3}\n\tvis: #m\n}\nout: #Use.vis\n"
-      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"c\": 3\n    }\n}\n" = true := by
+      "{\n    \"out\": {\n        \"c\": 3,\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
   native_decide
--/
 
 -- A DEFINITION pattern field `#data: [string]: string` across the embed: the union preserves the
 -- PATTERN (unioned alongside the field), so a host string field is admitted. cue: `{known:"x"}`.
