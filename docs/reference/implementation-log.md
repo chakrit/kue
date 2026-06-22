@@ -11926,3 +11926,58 @@ frontier #7 stays GATED.
 `Kue/Tests/TwoPassTests.lean` (Bug2-9 section: 5 pins), `Kue/Tests/FixturePorts.lean` (5 entries),
 `testdata/cue/definitions/bug29_*.{cue,expected}`, `docs/spec/spec-conformance-audit.md`,
 `docs/spec/plan.md`, `docs/notes/` (breadcrumb).
+
+---
+
+## Audit Slice: Phase-A code-quality audit (Bug2-8 + Bug2-9 batch, `9b78c3d`..`0f5af8e`)
+
+Two-phase audit counter = 2 (Bug2-8 = slice 1, Bug2-9 = slice 2). Phase A only (Phase B
+follows). Commits `0109bb4` (test-suite revival) + `5b6943f` (over-fire pins + filed findings).
+
+**Batch soundness verdict: HEALTHY.** Both introduced mechanisms are sound.
+
+- **Bug2-8 (`DeclProvenance`/`ConjOperand`) — new-type discipline CLEAN.** Grepped every
+  match/construction site: NO catch-all `_` over either new type (the only `DeclProvenance`
+  comparison is `prov != incomingProv` via derived `DecidableEq`). Every construction tags the
+  right provenance — `.ownDecl` for host/use operands (directly or via `ConjOperand.ofPair`),
+  `.embeddedDecl` only at the two static-fold `embedSameDefPathDecls` sites. Union-vs-meet sound on
+  all four attacks (oracle v0.16.1): cert-manager `[string]:string` regular pattern stays MEET
+  (canary jq -S=0); `#A.#m & #B.#m` distinct closed defs reject; same-def conflict across embed
+  bottoms; scalar def `#x:string` across embed stays MEET (`isUnionableDefValue`=false).
+
+- **Bug2-9 (`flattenConjDefRef`) — never over-fires, terminating, closedness+conflict preserved.**
+  Over-fire witnesses (oracle v0.16.1): alias cycle `#A: #A & #B` narrowed TERMINATES (fuel
+  strictly decreases, not partial) == cue; depth>0 nested-scope ref NOT flattened but still narrows
+  == cue; package-qualified `defs.#LS & {#name}` correctly DECLINED by the depth-0 guard (no
+  over-fire — see Bug2-11). named==inlined==cue on the passing edges; conflict bottoms; closed
+  rejects use-site extra. Axiom-clean — `#print axioms` confirms only the standard 3
+  (propext/Quot.sound/Classical.choice), `flattenConjDefRef` = propext only.
+
+**🚨 Major finding (FIXED inline, `0109bb4`): ~140 of 150 TwoPassTests theorems were DEAD.**
+Four top-of-file `/-- … -/` doc comments (lines 10/21/31/40) were missing their closing `-/` and
+ran prose straight into `theorem <name> :`. Lean nests `/-`, so the unclosed opens swallowed every
+declaration from line 13 down to three stray `-/` at the end of the Bug2-8 section — including the
+PRIMARY Bug2-8 witness `bug28_embed_cross_decl_close_once_unions`. Only the final 10 theorems were
+elaborated. Proven via `#check` → unknown identifier + corrupting a dead theorem's expected value to
+a false statement kept the build green. Fix: add the 4 missing `-/`, remove the 5 now-orphaned stray
+`-/`. With all theorems live, 3 revived Bug2-8 pins failed `native_decide` on field ORDER only (kue
+union insertion order vs cue's order) — reconciled to kue's actual output (semantics oracle-equal,
+jq -S=0; ratified field-order #3). The behavior was always correct (independently pinned by the
+`.cue/.expected` fixtures); this is pure test-coverage recovery. The log's prior "Bug2-8 section: 8
+pins" / "Bug2-9 section: 5 pins" claims are now ACCURATE (were silently 5/0 before).
+
+**Findings FILED (PARKED, not batch regressions):** Bug2-11 (MEDIUM — cross-package narrowing of a
+package-qualified multi-conjunct def, same family as Bug2-9, distinct frame), Bug2-12 (LOW/spec-check
+— self-recursive closed def admits an undeclared extra; pre-existing, the inlined form leaks
+identically so it is NOT flattenConjDefRef's fault). See `spec-conformance-audit.md` PARKED list.
+
+**Coverage added (`5b6943f`):** 3 new oracle-confirmed `native_decide` pins —
+`bug29_depth_gt0_nested_scope_narrows`, `bug29_alias_cycle_narrow_terminates`,
+`bug28_scalar_def_across_embed_stays_meet`.
+
+**Gate:** `lake build` clean (all ~143 TwoPassTests theorems now native_decide-green),
+`check-fixtures.sh` green, cert-manager FULL canary held (jq -S diff = 0; raw = 15 = field-order #3).
+No shell touched. Phase B still DUE (architecture of the new types + Bug2-10 design note).
+
+**Files.** `Kue/Tests/TwoPassTests.lean` (comment-terminator fixes + 3 field-order reconciliations +
+3 new pins), `docs/spec/spec-conformance-audit.md` (Bug2-11/2-12 filed), this log.
