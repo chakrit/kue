@@ -204,10 +204,20 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`
    row 55.)
-   - **`scalar-embed-with-decls`** — `{#a:1, 5}` →`5` (`cue` manifests `5`, keeps `.#a`
-     selectable); Kue bottoms. Incompleteness, not unsound. Needs a scalar-with-decls
-     carrier (the `.embeddedList` analog for scalars). Do NOT "fix" by widening the scalar
-     collapse — that is the unsound direction.
+   - ~~**`scalar-embed-with-decls`**~~ — **DONE 2026-06-22.** `{#a:1, 5}` → `5` keeping
+     `.#a` selectable, via a dedicated **`.embeddedScalar (scalar) (decls)`** carrier in
+     `Value.lean` — the direct scalar analog of `.embeddedList`. Built at embed-eval
+     (`meetEmbeddingsWithFuel`, the producer) when the host has no output field, HAS decls,
+     and the embedding is a terminal scalar (`isTerminalScalar`); manifests as the scalar,
+     decls stay selectable (`selectEvaluatedField`/`Runtime.lookupField?`), conflict
+     surfaces inline (RESID-MASK → `containsBottom` → export rejects). **The pure-collapse
+     path was left UNTOUCHED** (the soundness boundary): `collapsesToScalarEmbed` (no decls)
+     still drops `{5}`→`5`; widening it to admit decls would DROP them — the unsound
+     direction, avoided. New ctor handled at EVERY match site with NO catch-all swallow
+     (Lattice meet + `containsBottom`; Eval select/definedness/guard/dynlabel/digest/tag/
+     walkers; EvalOps arith-operand + `resolveOperand` unwrap; Format/Manifest/Normalize×2/
+     Runtime). 1 cue-divergence (non-iterable `for` zero-iter, pre-existing) + 1 spec-gap
+     (carrier semantics) recorded.
    - **`module-file-scoped-imports`** (arch-sized) — Kue merges every sibling file's
      import bindings into one shared package frame; CUE scopes them per-file. Bites only
      the same-NAME-different-target case; real prod9 doesn't hit it. Bind each file's
@@ -257,10 +267,12 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    - **DRY `selectEvaluatedField .disj` ** — the resolved-default arm re-lists the 5-arm
      struct-shape dispatch; collapse to `match resolveDisjDefault? alternatives` (gains
      free nested-disjunction recursion).
-   - **B3 (`comprehensionPairs` `.embeddedList`)** — `for x in {#a:1,[1,2]}` iterates ZERO
-     times where CUE iterates `[1,2]`; add an
-     `.embeddedList items _ _ => some (listPairsFrom 0 items)` arm. Incompleteness, not
-     unsound; ride-along with `scalar-embed-with-decls`.
+   - ~~**B3 (`comprehensionPairs` `.embeddedList`)**~~ — **DONE 2026-06-22** (rode along
+     with `scalar-embed-with-decls`). Added the
+     `.embeddedList items _ _ => some (listPairsFrom 0 items)` arm, so `for x in
+     {#a:1,[1,2]}` now iterates `[1,2]` (was zero). A scalar carrier (`{#a:1,5}`) is
+     non-iterable → zero-iter via the `_ => none` catch-all (Kue's standing non-iterable
+     handling; cue type-errors — a tracked divergence).
    - **B2-A1 (latent, currently lossless)** — `applyEvaluatedStructN` (`Eval.lean:330`)
      routes the patterns-present case through a meet that DROPS `tail`. Lossless today
      (the only tail a parsed struct carries is bare `...` = `.top`, a no-op to

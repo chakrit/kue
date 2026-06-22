@@ -190,6 +190,10 @@ mutual
           | some t => itemText ++ [formatTailWithFuel fuel t]
         let listText := "[" ++ joinWith ", " listInner ++ "]"
         "{" ++ joinWith ", " (declText ++ [listText]) ++ "}"
+    | fuel + 1, .embeddedScalar scalar decls =>
+        let declText := formatStructFieldsWithFuel fuel decls
+        let scalarText := formatValueWithFuel fuel scalar
+        "{" ++ joinWith ", " (declText ++ [scalarText]) ++ "}"
     | fuel + 1, .comprehension clauses body =>
         joinWith " " (clauses.map (formatClauseWithFuel fuel)) ++ " " ++ formatValueWithFuel fuel body
     | fuel + 1, .listComprehension clauses body =>

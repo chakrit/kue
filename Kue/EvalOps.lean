@@ -43,6 +43,9 @@ def classifyArithOperand : Value -> ArithOperandClass
   | .list _ => .concreteNonArith .list
   | .listTail _ _ => .concreteNonArith .list
   | .embeddedList _ _ _ => .concreteNonArith .list
+  -- A scalar carrier classifies as its inner (terminal) scalar — `resolveOperand` unwraps it
+  -- before arith, so this is the total fallback (recurses once onto a non-carrier scalar).
+  | .embeddedScalar scalar _ => classifyArithOperand scalar
   -- Unresolved / abstract forms → DEFER (keep the binary residual); a pattern-bearing struct is a
   -- residual constraint, not yet concrete, so it too defers — the conservative choice, matching
   -- `classifyGuard`.
@@ -332,7 +335,11 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
     `evalUnary` returns a stuck node (`(1|2)+10 → (1 | 2) + 10`) — CUE's "unresolved
     disjunction" form, which manifest reports as incomplete. -/
 def resolveOperand (value : Value) : Value :=
-  collapseDefaultDisjunction value
+  match collapseDefaultDisjunction value with
+  -- A scalar carrier (`{#a:1, 5}`) IS its scalar in any operator position — cue: `{#a:1,5} + 1`
+  -- sees `5`. Unwrap to the inner terminal scalar before the op; the decls are not an operand.
+  | .embeddedScalar scalar _ => scalar
+  | resolved => resolved
 
 /-- Apply a unary op, resolving a disjunction operand to its default first. -/
 def distributeUnary (op : UnaryOp) (value : Value) : Value :=

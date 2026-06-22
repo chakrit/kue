@@ -178,4 +178,45 @@ theorem manifest_embedded_list_is_list :
       == some (.list [.prim (.int 1), .prim (.int 2)])
       := by native_decide
 
+/-! ### Scalar-with-decls carrier (`.embeddedScalar`) lattice pins — CUE v0.16.1
+
+The scalar analog of `.embeddedList`: a struct with only non-output members embedding a
+SCALAR carries that scalar plus selectable decls. The pure `{5}` collapse (no decls) is a
+SEPARATE path and never produces this ctor — the soundness boundary. Oracle-matched. -/
+
+/-- A carrier meet a bare scalar narrows the scalar, keeping the decls (`{#a:1,int} & 5`). -/
+theorem meet_scalar_carrier_with_scalar :
+    (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1)⟩]) (.prim (.int 5))
+      == .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
+      = true := by native_decide
+
+/-- Two carriers meet: scalars unify, decls merge (`{#a:1,int} & {#b:2,5}`). -/
+theorem meet_two_scalar_carriers :
+    (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1)⟩])
+          (.embeddedScalar (.prim (.int 5)) [⟨"#b", .definition, .prim (.int 2)⟩])
+      == .embeddedScalar (.prim (.int 5))
+           [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
+      = true := by native_decide
+
+/-- A carrier whose scalar conflicts carries an inline bottom (the RESID-MASK convention,
+    mirroring `meet_embedded_list_conflicting_elements`). -/
+theorem meet_scalar_carrier_conflicting :
+    containsBottom (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
+                         (.prim (.int 6)))
+      = true := by native_decide
+
+/-- A carrier meet an only-decls struct merges the decls, keeping the scalar (`{#a:1,5} & {#b:2}`). -/
+theorem meet_scalar_carrier_with_decls_struct :
+    (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
+          (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
+      == .embeddedScalar (.prim (.int 5))
+           [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
+      = true := by native_decide
+
+/-- A carrier manifests as its scalar (decls dropped from output). -/
+theorem manifest_scalar_carrier_is_scalar :
+    (manifest (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])).toOption
+      == some (.prim (.int 5))
+      := by native_decide
+
 end Kue

@@ -74,6 +74,10 @@ mutual
           (items.map (normalizeDefinitionValueWithFuel fuel))
           (tail.map (normalizeDefinitionValueWithFuel fuel))
           (decls.map (normalizeFieldWithFuel fuel))
+    | fuel + 1, .embeddedScalar scalar decls =>
+        .embeddedScalar
+          (normalizeDefinitionValueWithFuel fuel scalar)
+          (decls.map (normalizeFieldWithFuel fuel))
     | fuel + 1, .comprehension clauses body =>
         .comprehension
           (clauses.map (normalizeClauseWithFuel fuel))
@@ -207,6 +211,10 @@ mutual
         .embeddedList
           (items.map (normalizeDefinitionsWithFuel fuel))
           (tail.map (normalizeDefinitionsWithFuel fuel))
+          (decls.map (normalizeFieldWithFuel fuel))
+    | fuel + 1, .embeddedScalar scalar decls =>
+        .embeddedScalar
+          (normalizeDefinitionsWithFuel fuel scalar)
           (decls.map (normalizeFieldWithFuel fuel))
     | fuel + 1, .comprehension clauses body =>
         .comprehension

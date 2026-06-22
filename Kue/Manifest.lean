@@ -111,6 +111,10 @@ mutual
         match manifestItemsWithFuel fuel items with
         | .ok items => .ok (.list items)
         | .error error => .error error
+    | fuel + 1, .embeddedScalar scalar _ =>
+        -- a struct-embedded scalar manifests as that scalar; the non-output decls do not
+        -- appear in output (the scalar analog of the `.embeddedList` arm above).
+        manifestWithFuel fuel scalar
     | _ + 1, .comprehension clauses body => .error (.incomplete (.comprehension clauses body))
     | _ + 1, .listComprehension clauses body => .error (.incomplete (.listComprehension clauses body))
     | _ + 1, .structComp fields comprehensions openness =>

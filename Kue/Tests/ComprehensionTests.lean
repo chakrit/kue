@@ -36,6 +36,20 @@ theorem listcomp_for_kv_struct :
     evalSourceMatches "out: [for k, v in {a: 1, b: 2} {v}]\n" "out: [1, 2]" = true := by
   native_decide
 
+-- B3: a `for` over an `.embeddedList` (a struct embedding a list with decls) iterates the
+-- EMBEDDED LIST, not zero times. cue v0.16.1: `for x in {#a:1,[1,2]}` → `[1, 2]`. The decls
+-- (`#a`) are non-iterable members that the list iteration skips.
+theorem listcomp_for_embedded_list :
+    evalSourceMatches "out: [for x in {#a: 1, [1, 2]} {x}]\n" "out: [1, 2]" = true := by
+  native_decide
+
+-- B3 boundary: a scalar carrier (`{#a:1, 5}`) is NOT iterable — its manifested value is an int,
+-- so `for x in {#a:1,5}` yields zero iterations (Kue's standing non-iterable handling; cue
+-- hard-errors "cannot range over … found int" — a tracked divergence, see cue-divergences.md).
+theorem listcomp_for_scalar_carrier_zero :
+    evalSourceMatches "out: [for x in {#a: 1, 5} {x}]\n" "out: []" = true := by
+  native_decide
+
 -- if guard mixed with a plain element: order preserved, false guard yields zero.
 theorem listcomp_if_mixed :
     evalSourceMatches "out: [if true {1}, 2]\n" "out: [1, 2]" = true := by

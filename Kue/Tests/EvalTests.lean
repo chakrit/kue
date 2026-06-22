@@ -320,6 +320,74 @@ theorem field_struct_then_scalar_conflicts :
     evalSourceMatches "out: {}\nout: 5\n" "out: _|_" = true := by
   native_decide
 
+/-! ### scalar-with-decls carrier (`{#a: 1, 5}` → `5`, `.#a` selectable) — CUE v0.16.1.
+
+The scalar analog of the `.embeddedList` carrier: a struct with only non-output members
+embedding a SCALAR manifests as that scalar while keeping its decls selectable. The pure
+`{5}` collapse (no decls) is UNTOUCHED — it still drops to the bare scalar (the soundness
+net below). Oracle: `cue export {#a:1,5}` → `5`; `.#a` selects `1`. -/
+
+-- SOUNDNESS NET (must stay green through the whole slice): pure `{5}` (no decls) collapses.
+theorem soundness_pure_scalar_collapse_unchanged :
+    evalSourceMatches "out: {5}\n" "out: 5" = true := by
+  native_decide
+
+-- SOUNDNESS NET: genuine conflict — two distinct scalar embeds WITH a decl reject. The carrier
+-- holds the conflict INLINE (`{#a:1, _|_}`, the RESID-MASK convention `.embeddedList` uses for
+-- conflicting elements), so `containsBottom` flags it and the export errors — cue rejects the
+-- whole value too (`conflicting values 6 and 5`).
+theorem soundness_scalar_with_decls_distinct_conflicts :
+    exportJsonBottoms "out: {#a: 1, 5, 6}\n" = true := by
+  native_decide
+
+-- SOUNDNESS NET: selecting a decl off a conflicting carrier still rejects (the inline bottom
+-- propagates; cue rejects `({#a:1,5,6}).#a` too) — the carrier never masks a genuine conflict.
+theorem soundness_scalar_with_decls_conflict_select_rejects :
+    exportJsonBottoms "x: {#a: 1, 5, 6}\nout: x.#a\n" = true := by
+  native_decide
+
+-- Two EQUAL scalar embeds with a decl unify (`5 & 5 = 5`); the carrier survives.
+theorem scalar_embed_with_decls_equal_unify :
+    exportJsonMatches "out: {#a: 1, 5, 5}\n" "{\n    \"out\": 5\n}\n" = true := by
+  native_decide
+
+-- TARGET: `{#a: 1, 5}` manifests as the scalar `5` (JSON export), decls dropped from output.
+theorem scalar_embed_with_decls_exports_scalar :
+    exportJsonMatches "out: {#a: 1, 5}\n" "{\n    \"out\": 5\n}\n" = true := by
+  native_decide
+
+-- TARGET: `.#a` is selectable through the carrier, yielding the decl value `1`.
+theorem scalar_embed_with_decls_decl_selectable :
+    exportJsonMatches "x: {#a: 1, 5}\nout: x.#a\n" "{\n    \"x\": 5,\n    \"out\": 1\n}\n" = true := by
+  native_decide
+
+-- EDGE: multiple decls + scalar — both decls stay selectable (`x.#a + x.#b = 3`).
+theorem scalar_embed_with_decls_multiple :
+    exportJsonMatches "x: {#a: 1, #b: 2, 5}\nout: x.#a + x.#b\n"
+      "{\n    \"x\": 5,\n    \"out\": 3\n}\n" = true := by
+  native_decide
+
+-- EDGE: optional decl + scalar — optional is non-output, the scalar survives.
+theorem scalar_embed_with_optional_decl :
+    exportJsonMatches "out: {a?: int, 5}\n" "{\n    \"out\": 5\n}\n" = true := by
+  native_decide
+
+-- EDGE: regular (output) field + scalar — genuine struct/scalar conflict (NOT a carrier).
+theorem scalar_embed_with_output_field_still_conflicts :
+    evalSourceMatches "out: {a: 1, 5}\n" "out: _|_" = true := by
+  native_decide
+
+-- EDGE: the carrier inside a larger unification — `{#a:1,5} & {#b:2,int}` → `5`, both decls kept.
+theorem scalar_embed_with_decls_in_unification :
+    exportJsonMatches "x: {#a: 1, 5} & {#b: 2, int}\nra: x.#a\nrb: x.#b\n"
+      "{\n    \"x\": 5,\n    \"ra\": 1,\n    \"rb\": 2\n}\n" = true := by
+  native_decide
+
+-- EDGE: unifying two carriers with conflicting scalars bottoms (`5 & 6`).
+theorem scalar_embed_with_decls_conflicting_unify :
+    exportJsonBottoms "out: {#a: 1, 5} & {#b: 2, 6}\n" = true := by
+  native_decide
+
 theorem eval_additive_expressions :
     formatTopLevel
       (resolveAndEval

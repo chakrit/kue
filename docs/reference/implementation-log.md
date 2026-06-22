@@ -11387,3 +11387,79 @@ touched). Files: `Kue/Value.lean` (newtypes + `OfNat` + `BindingId`), `Kue/Resol
 (render), `Kue/Tests/ResolveTests.lean` (5 pins) + `Kue/Tests/TwoPassTests.lean`
 (4 fixups),
 `docs/spec/plan.md` + `docs/notes/` (DONE + breadcrumb).
+
+---
+
+## Completed Slice: scalar-embed-with-decls — `.embeddedScalar` carrier + B3 embedded-list iteration (2026-06-22)
+
+**Goal.** Close two ride-along incompleteness gaps in the struct-embedding area, with a
+hard soundness boundary: (1) `scalar-embed-with-decls` — a struct embedding a scalar PLUS
+non-output decls (`{#a:1, 5}`) should manifest as the scalar `5` while keeping `.#a`
+selectable (cue does this); Kue bottomed. (2) **B3** — `for x in {#a:1,[1,2]}` should
+iterate the embedded list `[1,2]`; `comprehensionPairs` iterated zero times.
+
+**The carrier (new ctor).** Added `Value.embeddedScalar (scalar : Value) (decls : List
+Field)` — the direct scalar analog of the existing `.embeddedList (items) (tail) (decls)`.
+The scalar is the manifested terminal value; the decls ride alongside and stay selectable.
+Built at embed-eval in `meetEmbeddingsWithFuel` (the producer — same site the pure `{5}`
+collapse lives), gated on: host has NO output field, host HAS decls (else the pure collapse
+fires), and the embedding resolved to a terminal scalar (`isTerminalScalar`, factored out of
+`collapsesToScalarEmbed`).
+
+**Soundness boundary — pure collapse UNTOUCHED.** `collapsesToScalarEmbed` (no output, NO
+decls) still drops `{5}`→`5` unchanged. The carrier is a SEPARATE branch for the
+decls-present case; widening the collapse to admit decls is the unsound direction (it would
+DROP the decls). A genuine scalar conflict with decls (`{#a:1,5,6}`) produces an INLINE
+bottom in the carrier (`{#a:1, _|_}`, the RESID-MASK convention `.embeddedList` uses for
+conflicting elements), which `containsBottom` flags → export rejects, matching cue's
+whole-value reject (selecting `.#a` off it also rejects — no masking).
+
+**New-constructor discipline — every match site, no catch-all swallow.** `.embeddedScalar`
+handled explicitly at: Lattice (`meetWithFuel` carrier-meet arms via `scalarCarrierPartner?`;
+`meetCore` `.bottom` arms; `containsBottom`), Eval (`selectEvaluatedField` + its `.disj`
+arm; `classifyDefinedness`; `classifyGuard`/`classifyDynLabel` — recurse onto the inner
+terminal scalar, matching cue treating the carrier AS its scalar for guards/labels;
+`valueTag` 32; `valueDigest`; `comprehensionPairs` — non-iterable → `none`;
+`spliceNarrowingOperand?`; the `foldValueWithDepth` + `remapConjRefs` walkers),
+EvalOps (`classifyArithOperand` recurse; `resolveOperand` UNWRAPS the carrier to its scalar
+before any arith/comparison op, so `{#a:1,5}+1` sees `5` — cue-exact), Format (renders
+`{#a: 1, 5}`), Manifest (manifests the scalar, drops decls), Normalize×2 (recurse scalar +
+decls so def-body closedness propagates — NOT left to the passthrough catch-all), Runtime
+(`lookupField?` for `-e` selection). `hasSelfRefAtDepth` correctly leaves it to the
+catch-all (post-eval carrier never appears in a raw def body — same as `.embeddedList`).
+
+**B3.** Added `.embeddedList items _ _ => some (listPairsFrom 0 items)` to
+`comprehensionPairs` — `for x in {#a:1,[1,2]}` now iterates `[1,2]`. A scalar carrier
+(`{#a:1,5}`) is non-iterable (its value is an int) → zero-iter via the `_ => none`
+catch-all, Kue's standing non-iterable handling (cue type-errors there — a tracked
+divergence, NOT widened in this slice).
+
+**The `.#a` contract pinned.** Hidden/definition fields ARE selectable in-scope (`x.#a → 1`
+where `x: {#a:1,5}`) — confirmed against cue v0.16.1, both eval and JSON export. Multiple
+decls (`{#a:1,#b:2,5}`), optional decls (`{a?:int,5}`), the carrier inside a larger
+unification (`{#a:1,5} & {#b:2,int}` → `5`, both decls kept), and conflicting-scalar
+unification (`{#a:1,5} & {#b:2,6}` → bottom) all pinned.
+
+**Tests (first-class).** `EvalTests` (11): the soundness net (`soundness_pure_scalar_collapse_unchanged`,
+`soundness_scalar_with_decls_distinct_conflicts`, `soundness_scalar_with_decls_conflict_select_rejects`,
+`scalar_embed_with_output_field_still_conflicts`) + the targets/edges
+(`scalar_embed_with_decls_exports_scalar`/`_decl_selectable`/`_multiple`/`_in_unification`/
+`_conflicting_unify`/`_equal_unify`, `scalar_embed_with_optional_decl`). `ComprehensionTests`
+(2): `listcomp_for_embedded_list` (B3) + `listcomp_for_scalar_carrier_zero`. `ListTests` (5):
+lattice-level `meet_scalar_carrier_*` + `manifest_scalar_carrier_is_scalar`. 4 fixtures
+(`.cue`/`.expected` + `FixturePorts` entries via `parseSource`/`formatResolvedTopLevel`):
+`structs/scalar_embedding_{with_decls,decl_select,multiple_decls}`,
+`comprehensions/for_over_embedded_list`.
+
+**Verify.** `lake build` green (110 jobs, no new warning/`sorry`/axiom; axiom-clean — the
+standard 3 only); `check-fixtures.sh` → `fixture pairs ok`, zero drift (4 expected
+additions); `shellcheck` n/a (no shell touched). 1 cue-divergence (non-iterable `for`
+zero-iter, PRE-EXISTING) + 1 spec-gap (`{#a:1,5}` carrier semantics) recorded.
+
+**Files.** `Kue/Value.lean` (ctor), `Kue/Lattice.lean` (carrier meet arms +
+`isTerminalScalar`/`scalarCarrierPartner?` + `containsBottom`/`meetCore` arms),
+`Kue/Eval.lean` (producer + ~10 match sites), `Kue/EvalOps.lean` (`resolveOperand` unwrap +
+`classifyArithOperand`), `Kue/Format.lean`, `Kue/Manifest.lean`, `Kue/Normalize.lean`,
+`Kue/Runtime.lean`, `Kue/Tests/{EvalTests,ComprehensionTests,ListTests,FixturePorts}.lean`,
+4 `testdata/cue/` fixture pairs, `docs/reference/{cue-divergences,cue-spec-gaps,implementation-log}.md`,
+`docs/spec/plan.md`, `docs/notes/` (breadcrumb).

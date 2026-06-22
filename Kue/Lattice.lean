@@ -200,6 +200,8 @@ def containsBottom : Value -> Bool
       containsBottomList items
         || (match tail with | some t => containsBottom t | none => false)
         || containsBottomFields decls
+  | .embeddedScalar scalar decls =>
+      containsBottom scalar || containsBottomFields decls
   | _ => false
   termination_by structural value => value
 
@@ -516,6 +518,8 @@ def meetCore (left right : Value) : Value :=
   | _, .dynamicField _ _ _ => .bottom
   | .embeddedList _ _ _, _ => .bottom
   | _, .embeddedList _ _ _ => .bottom
+  | .embeddedScalar _ _, _ => .bottom
+  | _, .embeddedScalar _ _ => .bottom
   -- closure: meet against a use-site struct is the unlock (slice 4); until a producer
   -- exists, no closure reaches meet, so the inert behavior is `.bottom` like any other
   -- opaque residual. The captured env makes this NOT pure-over-an-opaque-ref later.
@@ -1054,22 +1058,34 @@ def structHasOutputField (fields : List Field) : Bool :=
 def declFields (fields : List Field) : List Field :=
   fields.filter (fun f => !FieldClass.producesOutput (Field.fieldClass f))
 
+/-- A positive allow-list of fully-evaluated TERMINAL scalar-ish values: those a struct can
+    embed and become (the `{5}`→`5` collapse and the `{#a:1, 5}` scalar carrier). A
+    closure/conj/unevaluated form is NOT terminal — it stays inert (`meet closure (struct[])`
+    is bottom, not the closure). Disjunctions are handled by the earlier `.disj` meet arms and
+    never reach the embed-scalar gate. -/
+def isTerminalScalar : Value -> Bool
+  | .prim _ => true
+  | .kind _ => true
+  | .notPrim _ => true
+  | .stringRegex _ => true
+  | .boundConstraint _ _ _ => true
+  | _ => false
+
+/-- The scalar a value contributes when met against an `.embeddedScalar` carrier: a carrier
+    contributes its own inner scalar (decls merge separately at the call site); a bare terminal
+    scalar contributes itself. Any other shape is `none` — not a scalar-carrier meet (it falls to
+    the decls-struct or `meetCore`-bottom arms). -/
+def scalarCarrierPartner? : Value -> Option Value
+  | .embeddedScalar scalar _ => some scalar
+  | other => if isTerminalScalar other then some other else none
+
 /-- Whether a struct embedding a scalar-ish value collapses to that value (CUE: `{5}`→`5`).
     Collapses only when the struct has no output member AND no non-output decls — i.e. the
-    collapse is LOSSLESS (there is no scalar carrier for selectable decls, unlike
-    `.embeddedList`; a `{#a:1, 5}` keeping `.#a` selectable is out of scope, falls through to
-    `meetCore` unchanged). `other` is a positive allow-list of fully-evaluated TERMINAL values:
-    a closure/conj/unevaluated form stays inert (`meet closure (struct[])` is bottom, not the
-    closure). Disjunctions are handled by the earlier `.disj` meet arms and never reach here. -/
+    collapse is LOSSLESS (the decl-bearing `{#a:1, 5}` case becomes the `.embeddedScalar`
+    carrier instead, NOT this collapse — the soundness boundary: widening this to admit decls
+    would DROP them). -/
 def collapsesToScalarEmbed (fields : List Field) (other : Value) : Bool :=
-  !structHasOutputField fields && declFields fields == [] &&
-    (match other with
-     | .prim _ => true
-     | .kind _ => true
-     | .notPrim _ => true
-     | .stringRegex _ => true
-     | .boundConstraint _ _ _ => true
-     | _ => false)
+  !structHasOutputField fields && declFields fields == [] && isTerminalScalar other
 
 /-- MEET-RESID-1: reduce the RIGHT operand of a `.structComp`-residual meet to the resolved
     `(fields, openness, deferredComps)` it contributes, or `none` when it is not a struct-shaped
@@ -1260,6 +1276,44 @@ def meetWithFuel : Nat -> Value -> Value -> Value
                 | some decls => .embeddedList rightItems rightTail decls
                 | none => .bottom
           | _ => meetCore leftLike (.embeddedList rightItems rightTail rightDecls)
+  -- A scalar carrier (`{#a:1, 5}`) meets like its scalar, carrying decls alongside — the
+  -- `.embeddedScalar` analog of the `.embeddedList` arms above. Against another carrier the
+  -- scalars meet and the decls merge; against a bare terminal scalar the scalar meets and the
+  -- left decls survive; against an only-decls struct (`{#b:2}`) the decls merge and the scalar
+  -- is kept. A non-scalar/non-decls-struct right operand bottoms via `meetCore`. The carrier is
+  -- NEVER widened from the pure `{5}` collapse — that path (no decls) does not produce this ctor.
+  | .embeddedScalar leftScalar leftDecls, rightLike =>
+      let rightDecls := match rightLike with | .embeddedScalar _ d => d | _ => []
+      match scalarCarrierPartner? rightLike with
+      | some partnerScalar =>
+          match meetWithFuel fuel leftScalar partnerScalar, mergeStructFieldsWith (meetWithFuel fuel) leftDecls rightDecls with
+          | .bottom, _ => .bottom
+          | _, none => .bottom
+          | scalar, some decls => .embeddedScalar scalar decls
+      | none =>
+          match rightLike with
+          | .struct fields _ none [] _ =>
+              if structHasOutputField fields then .bottom
+              else
+                match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
+                | some decls => .embeddedScalar leftScalar decls
+                | none => .bottom
+          | _ => meetCore (.embeddedScalar leftScalar leftDecls) rightLike
+  | leftLike, .embeddedScalar rightScalar rightDecls =>
+      match scalarCarrierPartner? leftLike with
+      | some partnerScalar =>
+          match meetWithFuel fuel partnerScalar rightScalar with
+          | .bottom => .bottom
+          | scalar => .embeddedScalar scalar rightDecls
+      | none =>
+          match leftLike with
+          | .struct fields _ none [] _ =>
+              if structHasOutputField fields then .bottom
+              else
+                match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
+                | some decls => .embeddedScalar rightScalar decls
+                | none => .bottom
+          | _ => meetCore leftLike (.embeddedScalar rightScalar rightDecls)
   -- A plain-struct-equivalent struct embeds a list; a tail/pattern-bearing struct has no
   -- list-embedding arm and falls through to `meetCore` → `.bottom`. A genuine struct ∩ scalar
   -- is a type conflict (CUE: `{} & 5`); the `{5}`→`5` scalar-embedding collapse lives in

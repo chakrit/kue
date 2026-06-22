@@ -2077,6 +2077,39 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- `x: {#a: 1, 5}`: only-non-output struct + scalar embed → embeddedScalar carrier with decls.
+      -- Manifests as `5`, keeps `.#a` selectable. The scalar analog of `list_embedding_hidden`.
+      fileName := "structs/scalar_embedding_with_decls.expected",
+      content :=
+        match parseSource "x: {#a: 1, 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- `x: {#a: 1, 5}` + `y: x.#a`: the carrier's hidden decl is selectable (`y → 1`).
+      fileName := "structs/scalar_embedding_decl_select.expected",
+      content :=
+        match parseSource "x: {#a: 1, 5}\ny: x.#a\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- `x: {#a: 1, #b: 2, 5}`: multiple decls ride alongside the scalar carrier, all selectable.
+      fileName := "structs/scalar_embedding_multiple_decls.expected",
+      content :=
+        match parseSource "x: {#a: 1, #b: 2, 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- B3: `for x in {#a:1,[1,2]}` iterates the EMBEDDED LIST (not zero times) → `[1, 2]`.
+      fileName := "comprehensions/for_over_embedded_list.expected",
+      content :=
+        match parseSource "out: [for x in {#a: 1, [1, 2]} {x}]\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "comprehensions/comprehension_loopvar_shadow.expected",
       content :=
         formatTopLevel

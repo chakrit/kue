@@ -146,6 +146,10 @@ def foldValueWithDepth {β : Type}
                 (items.foldl (fun acc i => combine acc (rec' depth i)) empty)
                 (match tail with | some t => rec' depth t | none => empty))
               (decls.foldl (fun acc fl => combine acc (rec' (depth + 1) (Field.value fl))) empty)
+        | .embeddedScalar scalar decls =>
+            combine
+              (rec' depth scalar)
+              (decls.foldl (fun acc fl => combine acc (rec' (depth + 1) (Field.value fl))) empty)
         | .comprehension clauses body =>
             match fuel with
             | 0 => empty
@@ -457,6 +461,10 @@ mutual
           (remapConjValues fuel frameDepth oldLabels mergedMap items)
           (tail.map (remapConjRefs fuel frameDepth oldLabels mergedMap))
           (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap decls)
+    | fuel + 1, .embeddedScalar scalar decls =>
+        .embeddedScalar
+          (remapConjRefs fuel frameDepth oldLabels mergedMap scalar)
+          (remapConjFields fuel (frameDepth + 1) oldLabels mergedMap decls)
     | fuel + 1, .dynamicField label fieldClass value =>
         .dynamicField
           (remapConjRefs fuel frameDepth oldLabels mergedMap label)
@@ -611,6 +619,10 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       match findEvalField label decls with
       | some field => selectedFieldValue field
       | none => .selector base label
+  | .embeddedScalar _ decls =>
+      match findEvalField label decls with
+      | some field => selectedFieldValue field
+      | none => .selector base label
   | .disj alternatives =>
       -- Selecting INTO a disjunction collapses it to its default arm first, then selects
       -- the field from that arm — CUE's default rule (`d.a` where `d: *{a:1} | {a:2}` is
@@ -623,6 +635,10 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
           | some field => selectedFieldValue field
           | none => .selector base label
       | some (.embeddedList _ _ decls) =>
+          match findEvalField label decls with
+          | some field => selectedFieldValue field
+          | none => .selector base label
+      | some (.embeddedScalar _ decls) =>
           match findEvalField label decls with
           | some field => selectedFieldValue field
           | none => .selector base label
@@ -702,6 +718,7 @@ def classifyDefinedness : Value -> Definedness
   | .list _ => .defined
   | .listTail _ _ => .defined
   | .embeddedList _ _ _ => .defined
+  | .embeddedScalar _ _ => .defined
   | .structComp _ _ _ => .defined
   -- A no-patterns struct is a present concrete value → `.defined`; a pattern-bearing struct
   -- (a residual constraint) is `.incomplete`. The discriminator is `patterns.isEmpty`.
@@ -804,6 +821,10 @@ def classifyGuard : Value -> GuardVerdict
   | .list _ => .nonBool .list
   | .listTail _ _ => .nonBool .list
   | .embeddedList _ _ _ => .nonBool .list
+  -- A scalar carrier (`{#a:1, true}`) guards as its inner scalar — cue: `if {#a:1,true}` sees
+  -- the bool. The inner scalar is terminal (`isTerminalScalar` at construction), so this recurses
+  -- exactly once onto a non-carrier value.
+  | .embeddedScalar scalar _ => classifyGuard scalar
   -- A residual presence test (`eq`/`ne` against `.bottom`) is not satisfied ⇒ drop (NOT defer);
   -- every OTHER `.binary` (e.g. `x > 5`) is an abstract guard that defers.
   | .binary .eq _ .bottom => .concreteFalse
@@ -863,6 +884,9 @@ def classifyDynLabel : Value -> DynLabelVerdict
   | .list _ => .nonString .list
   | .listTail _ _ => .nonString .list
   | .embeddedList _ _ _ => .nonString .list
+  -- A scalar carrier (`{#a:1, "k"}`) labels as its inner scalar — cue: `({#a:1,"k"}): v` keys on
+  -- `"k"`. The inner scalar is terminal, so this recurses exactly once onto a non-carrier value.
+  | .embeddedScalar scalar _ => classifyDynLabel scalar
   -- Unresolved / abstract forms → DEFER (keep the field residual). The abstract `string` kind
   -- lands here: it may still narrow to a concrete string at a use site.
   | .top => .incomplete
@@ -992,10 +1016,15 @@ def structPairs : List Field -> List (Value × Value)
       else
         structPairs fields
 
-/-- The (key, value) iteration pairs a source produces, or `none` if it is not iterable. -/
+/-- The (key, value) iteration pairs a source produces, or `none` if it is not iterable.
+    An `.embeddedList` (a struct embedding a list with decls, `{#a:1,[1,2]}`) iterates the
+    EMBEDDED LIST (B3) — cue: `for x in {#a:1,[1,2]}` → `[1,2]`. An `.embeddedScalar` carrier is
+    NOT iterable (its value is a scalar) → `none` via the catch-all, matching Kue's standing
+    non-iterable handling (cue hard-errors there; see cue-divergences.md). -/
 def comprehensionPairs : Value -> Option (List (Value × Value))
   | .list items => some (listPairsFrom 0 items)
   | .listTail items _ => some (listPairsFrom 0 items)
+  | .embeddedList items _ _ => some (listPairsFrom 0 items)
   | .struct fields _ _ _ _ => some (structPairs fields)
   | _ => none
 
@@ -1045,6 +1074,7 @@ def valueTag : Value -> UInt64
   | .closure _ _ => 29
   | .listComprehension _ _ => 30
   | .struct _ _ _ _ _ => 31
+  | .embeddedScalar _ _ => 32
 
 /--
 A TOTAL, fuel-free, BOUNDED-DEPTH structural digest of a `Value`, for use as a cache-key
@@ -1126,6 +1156,9 @@ def valueDigest : Nat → Value → UInt64
   | d + 1, .embeddedList items _ decls =>
       let acc0 := items.foldl (fun acc i => mixHash acc (valueDigest d i))
         (valueTag (.embeddedList items none decls))
+      decls.foldl (fun acc f => mixHash (mixHash acc (hash f.label)) (valueDigest d f.value)) acc0
+  | d + 1, .embeddedScalar scalar decls =>
+      let acc0 := mixHash (valueTag (.embeddedScalar scalar decls)) (valueDigest d scalar)
       decls.foldl (fun acc f => mixHash (mixHash acc (hash f.label)) (valueDigest d f.value)) acc0
   | d + 1, .comprehension _ body =>
       mixHash (valueTag (.comprehension [] body)) (valueDigest d body)
@@ -1753,6 +1786,7 @@ def evaluatedStructOperand? : Value -> Option (List Field × Bool)
     plain struct operand), so concrete use-site list items are not lost. -/
 def spliceNarrowingOperand? : Value -> Option (List Field × Bool)
   | .embeddedList _ _ decls => some (decls, true)
+  | .embeddedScalar _ decls => some (decls, true)
   | other => evaluatedStructOperand? other
 
 /-- Every `.closure (capturedEnv, body)` among evaluated conjunction operands (slice A:
@@ -2981,7 +3015,19 @@ mutual
                   -- re-applied by the caller (`meetEmbeddingsClosingOver`).
                   | .struct fields _ none [] _ =>
                       if collapsesToScalarEmbed fields evaluated then
+                        -- Pure `{5}`→`5`: no output field AND no decls. LEFT UNTOUCHED (the
+                        -- soundness boundary — never widened to admit decls).
                         meetEmbeddingsWithFuel (nextFuel + 1) env evaluated rest
+                      else if !structHasOutputField fields && isTerminalScalar evaluated then
+                        -- Scalar-WITH-decls carrier (`{#a:1, 5}`→`5`, `.#a` selectable): the host
+                        -- has decls (else the collapse above fired) but no output field, and the
+                        -- embedding is a terminal scalar. Build the `.embeddedScalar` carrier — the
+                        -- direct analog of the `.embeddedList` list-with-decls carrier — so the
+                        -- scalar manifests while the decls stay selectable. A second scalar embed
+                        -- (`{#a:1,5,6}`) meets this carrier and bottoms on `5 & 6` via the
+                        -- `.embeddedScalar` meet arm; an equal one (`{#a:1,5,5}`) unifies.
+                        meetEmbeddingsWithFuel (nextFuel + 1) env
+                          (.embeddedScalar evaluated (declFields fields)) rest
                       else
                         meetEmbeddingsWithFuel (nextFuel + 1) env
                           (meet current (openStructValue evaluated)) rest

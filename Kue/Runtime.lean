@@ -85,6 +85,7 @@ def lookupField? (base : Value) (label : String) : Option Value :=
   match base with
   | .struct fields _ _ _ _ => (findEvalField label fields).map Field.value
   | .embeddedList _ _ decls => (findEvalField label decls).map Field.value
+  | .embeddedScalar _ decls => (findEvalField label decls).map Field.value
   | _ => none
 
 /-- Evaluate `-e` field-path selection against an already-bound root value. Splits the

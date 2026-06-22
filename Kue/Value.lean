@@ -665,6 +665,17 @@ inductive Value where
   `none` is a closed list. `decls` are the surviving non-output fields.
   -/
   | embeddedList (items : List Value) (tail : Option Value) (decls : List Field)
+  /--
+  A scalar value carrying selectable non-output declarations — the scalar analog of
+  `embeddedList`. CUE: a struct whose only members are non-regular (hidden/definition/
+  optional/let) plus an embedded SCALAR *is* that scalar — it manifests as the scalar,
+  yet its declarations stay selectable (`v.#x`). With any regular/required field present
+  the struct/scalar embed conflicts (bottom) instead; with NO decls the struct collapses
+  to the bare scalar (the pure `{5}`→`5` collapse, NOT this carrier). `scalar` is the
+  manifested terminal value; `decls` are the surviving non-output fields. Distinct from
+  `embeddedList` because a scalar is not a list — it never indexes and never iterates.
+  -/
+  | embeddedScalar (scalar : Value) (decls : List Field)
   | comprehension (clauses : List (Clause Value)) (body : Value)
   /--
   A pre-eval struct carrying comprehensions/embeddings (`{a, if c {…}, #Base}`). `openness` is
