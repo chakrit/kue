@@ -884,7 +884,46 @@ def evalRegexpBuiltin : String -> List Value -> Value
       else
         .builtinCall name args
 
-def evalBuiltinCall : String -> List Value -> Value
+/-- The closed set of builtin families on the FAMILY axis. `core` holds the eight exact
+    unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`); the rest are the
+    seven qualified stdlib packages. The within-family LEAF (e.g. `math.Pow`) stays a
+    `String` — genuinely many-valued and string-dispatched inside each `eval*Builtin`. This
+    is the closed, versionable axis: a new family forces a new constructor, and the
+    exhaustive match in `evalBuiltinCall` then forces a dispatch decision (no silent
+    fall-through). -/
+inductive BuiltinFamily where
+  | core
+  | strings
+  | list
+  | math
+  | regexp
+  | base64
+  | json
+  | yaml
+deriving Repr, BEq, DecidableEq
+
+/-- Classify a builtin name into its family at the one point the name is interpreted as a
+    builtin. `none` is a genuinely non-builtin name (an unknown package `foobar.Baz`, an
+    unqualified non-builtin `nosuchfn`, a bare prefix `strings.` with no leaf) — past this
+    boundary an unknown family is unrepresentable. A KNOWN package with an unknown LEAF
+    (`math.NoSuch`) classifies to its family; the leaf is rejected inside the family
+    dispatcher, not here. -/
+def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
+  if [ "close", "len", "and", "or", "div", "mod", "quo", "rem" ].contains name then
+    some .core
+  else if name.startsWith "strings." then some .strings
+  else if name.startsWith "list." then some .list
+  else if name.startsWith "math." then some .math
+  else if name.startsWith "regexp." then some .regexp
+  else if name.startsWith "base64." then some .base64
+  else if name.startsWith "json." then some .json
+  else if name.startsWith "yaml." then some .yaml
+  else none
+
+/-- Dispatch the eight `core` exact-name builtins. Reached only for a name `ofName?`
+    classified as `.core`, so every real call matches one of the eight arms; the final arm
+    is unreachable by that contract and routes through `unresolvedOrBottom` to stay total. -/
+def evalCoreBuiltin : String -> List Value -> Value
   | "close", [value] => closeValue value
   | "len", [value] => lenValue value
   | "and", [.list values] => andValues values
@@ -893,22 +932,24 @@ def evalBuiltinCall : String -> List Value -> Value
   | "mod", [left, right] => modValue left right
   | "quo", [left, right] => quoValue left right
   | "rem", [left, right] => remValue left right
-  | name, args =>
-      if name.startsWith "strings." then
-        evalStringsBuiltin name args
-      else if name.startsWith "list." then
-        evalListBuiltin name args
-      else if name.startsWith "math." then
-        evalMathBuiltin name args
-      else if name.startsWith "regexp." then
-        evalRegexpBuiltin name args
-      else if name.startsWith "base64." then
-        evalBase64Builtin name args
-      else if name.startsWith "json." then
-        evalJsonBuiltin name args
-      else if name.startsWith "yaml." then
-        evalYamlBuiltin name args
-      else
-        .builtinCall name args
+  | name, args => unresolvedOrBottom name args
+
+/-- Dispatch a builtin call over already-evaluated arguments. The family is classified once
+    (`BuiltinFamily.ofName?`) and matched EXHAUSTIVELY — every family has an arm, with no
+    catch-all over `BuiltinFamily` that could swallow a future family. A non-builtin name
+    (`none`) routes through `unresolvedOrBottom`: concrete args ⇒ bottom (a CUE resolution
+    error, no longer a silent residual), abstract args ⇒ a deferred residual for a later
+    pass. -/
+def evalBuiltinCall (name : String) (args : List Value) : Value :=
+  match BuiltinFamily.ofName? name with
+  | some .core => evalCoreBuiltin name args
+  | some .strings => evalStringsBuiltin name args
+  | some .list => evalListBuiltin name args
+  | some .math => evalMathBuiltin name args
+  | some .regexp => evalRegexpBuiltin name args
+  | some .base64 => evalBase64Builtin name args
+  | some .json => evalJsonBuiltin name args
+  | some .yaml => evalYamlBuiltin name args
+  | none => unresolvedOrBottom name args
 
 end Kue

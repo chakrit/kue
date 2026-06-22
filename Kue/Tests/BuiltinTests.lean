@@ -1046,4 +1046,94 @@ theorem regexp_match_invalid_pattern_bottoms :
       == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")]) = true := by
   native_decide
 
+-- yaml.Marshal (the seventh package family — the dispatch-table entry was previously
+-- exercised only end-to-end through `FixtureTests`; pin it directly so every family that
+-- `BuiltinFamily.ofName?` classifies has a representative `evalBuiltinCall` pin).
+theorem yaml_marshal_scalar_int :
+    (evalBuiltinCall "yaml.Marshal" [.prim (.int 1)] == .prim (.string "1\n")) = true := by
+  native_decide
+
+theorem yaml_marshal_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "yaml.Marshal" [.ref "x"]
+      == .builtinCall "yaml.Marshal" [.ref "x"]) = true := by
+  native_decide
+
+-- TL-1 — `BuiltinFamily` classifier + exhaustive dispatch.
+--
+-- The family axis of a builtin name is a CLOSED, versionable set. `BuiltinFamily.ofName?`
+-- is the single total classifier (`some family` for a recognised name, `none` for a
+-- non-builtin), and `evalBuiltinCall` dispatches by an exhaustive match on it — a new
+-- family forces a new arm (compile error), never a silent fall-through.
+
+-- Every recognised name classifies to its family. `core` covers the eight exact unqualified
+-- builtins; the seven package prefixes cover the qualified families.
+theorem builtin_family_classifies_core_names :
+    ([ "close", "len", "and", "or", "div", "mod", "quo", "rem" ].all
+      (fun name => BuiltinFamily.ofName? name == some .core)) = true := by
+  native_decide
+
+theorem builtin_family_classifies_package_prefixes :
+    (BuiltinFamily.ofName? "strings.ToUpper" == some .strings)
+      && (BuiltinFamily.ofName? "list.Sum" == some .list)
+      && (BuiltinFamily.ofName? "math.Pow" == some .math)
+      && (BuiltinFamily.ofName? "regexp.Match" == some .regexp)
+      && (BuiltinFamily.ofName? "base64.Encode" == some .base64)
+      && (BuiltinFamily.ofName? "json.Marshal" == some .json)
+      && (BuiltinFamily.ofName? "yaml.Marshal" == some .yaml) = true := by
+  native_decide
+
+-- A name with no recognised family classifies to `none` — an unknown package
+-- (`foobar.Baz`), an unqualified non-builtin (`nosuchfn`), and the empty name.
+theorem builtin_family_rejects_non_builtin_names :
+    (BuiltinFamily.ofName? "foobar.Baz" == none)
+      && (BuiltinFamily.ofName? "nosuchfn" == none)
+      && (BuiltinFamily.ofName? "" == none) = true := by
+  native_decide
+
+-- Classification is by family-PREFIX, so an unknown LEAF still classifies to its family —
+-- a bare prefix `strings.` (empty leaf) and an unknown member `math.NoSuch` both classify
+-- to the package; the leaf is then rejected inside the family dispatcher (`unresolvedOrBottom`),
+-- never here. This is exactly the prefix-chain's original family boundary, now total.
+theorem builtin_family_classifies_by_prefix_not_leaf :
+    (BuiltinFamily.ofName? "math.NoSuch" == some .math)
+      && (BuiltinFamily.ofName? "strings." == some .strings) = true := by
+  native_decide
+
+-- THE FIX. An unknown-FAMILY name with CONCRETE args is a CUE resolution error (`cue`:
+-- `reference "foobar" not found`) — Kue now BOTTOMS it, where the old stringly-typed
+-- `startsWith` chain fell through to a SILENT `.builtinCall` residual (manifested as an
+-- inert "incomplete value", masking the error). Concrete-args ⇒ bottom is exactly the
+-- decision the in-family path already makes for an unknown LEAF (`unresolvedOrBottom`); the
+-- `none` arm now shares it, so the silent-admit class is gone.
+theorem unknown_family_concrete_args_is_bottom :
+    (evalBuiltinCall "foobar.Baz" [.prim (.string "a")] == .bottom) = true := by
+  native_decide
+
+theorem unknown_unqualified_name_concrete_args_is_bottom :
+    (evalBuiltinCall "nosuchfn" [.prim (.string "a")] == .bottom) = true := by
+  native_decide
+
+-- `error("msg")` is a real CUE builtin Kue does not yet implement, so it is an unknown name
+-- here; with a concrete arg it now bottoms (cue's `error` itself produces bottom), no longer
+-- a silent residual. (Kue does not carry the custom message — bottom-vs-incomplete is the
+-- soundness correction; the `error` builtin proper is out of scope.)
+theorem unknown_error_builtin_concrete_arg_is_bottom :
+    (evalBuiltinCall "error" [.prim (.string "boom")] == .bottom) = true := by
+  native_decide
+
+-- An unknown-family name with an ABSTRACT (still-resolving) arg stays a deferred residual —
+-- a later pass may concretise it (and then bottom, or resolve if the name becomes known via
+-- a future family). The fix narrows ONLY the concrete-args case to bottom; the pending case
+-- is preserved, matching every in-family `*_stays_unresolved_on_abstract_arg` pin above.
+theorem unknown_family_abstract_arg_stays_unresolved :
+    (evalBuiltinCall "foobar.Baz" [.ref "x"]
+      == .builtinCall "foobar.Baz" [.ref "x"]) = true := by
+  native_decide
+
+-- A bottom argument propagates to bottom for an unknown name too (no residual masking a
+-- contradiction).
+theorem unknown_family_bottom_arg_is_bottom :
+    (evalBuiltinCall "foobar.Baz" [.bottom] == .bottom) = true := by
+  native_decide
+
 end Kue

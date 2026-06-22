@@ -11252,3 +11252,69 @@ bottom). No spec gap (closed-def-rejects-extra is core CUE closedness; spec is c
 `Kue/Tests/ClosureTests.lean` (7 pins + 1 corrected), `testdata/modules/import_open_def_addfield/`
 + `import_closed_def_pattern/` (new), `docs/reference/cue-divergences.md` (1 row),
 `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (resolved), `docs/notes/` (breadcrumb).
+
+---
+
+## Completed Slice: TL-1 — closed `BuiltinFamily` enum replaces stringly-typed builtin dispatch (2026-06-22)
+
+**The smell (illegal-state-made-representable + a masked error).** `evalBuiltinCall`
+dispatched the builtin FAMILY axis off a bare `String`: an 8-way exact-name match
+(`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`) then a 7-way `name.startsWith "strings."/…`
+prefix chain, **falling through to a silent `.builtinCall name args` residual** when nothing
+matched. A name with no recognised family (`foobar.Baz`, `nosuchfn`, the real-but-unimplemented
+`error("…")`) — even with fully CONCRETE args — produced an inert residual (manifested as
+`incomplete value: …`) instead of an error. That fall-through is an unknown/misclassified family
+made representable, and it masked a CUE resolution error as incompleteness.
+
+**The enum (FAMILY axis closed; LEAF stays `String`).** New `BuiltinFamily` in `Builtin.lean`
+(the only consumer — no new import edge): `core` (the 8 exact unqualified builtins) +
+`strings`/`list`/`math`/`regexp`/`base64`/`json`/`yaml` (the 7 qualified stdlib packages). The
+within-family leaf (`math.Pow`, `strings.ToUpper`) stays a `String` — genuinely many-valued,
+still string-dispatched inside each `eval*Builtin`. The family axis IS a closed, versionable set,
+so it earns a sum type; the leaf is not, so it does not.
+
+**Classification point + exhaustive dispatch.** A single total classifier
+`BuiltinFamily.ofName? : String → Option BuiltinFamily` interprets the name at the one place it
+is interpreted as a builtin (the parser CANNOT classify earlier — it cannot distinguish
+`strings.X` from a user `pkg.X`; both parse to `.builtinCall`, and the family is only knowable
+once the name is read as a builtin, i.e. in `evalBuiltinCall`). `evalBuiltinCall` now matches
+`ofName? name` EXHAUSTIVELY — every `some family` has an arm, NO catch-all over `BuiltinFamily`
+(a new family forces a new constructor → a missing-arm compile error at the dispatch site). The
+8 `core` arms moved to a small `evalCoreBuiltin` (reached only for a `.core` classification; its
+final arm is unreachable-by-contract and routes through `unresolvedOrBottom` to stay total).
+
+**The unknown-builtin correction (soundness-adjacent — verified vs spec + `cue` v0.16.1).** The
+`none` arm (genuinely non-builtin name) routes through `unresolvedOrBottom name args` — the SAME
+concrete⇒bottom / pending⇒residual decision the in-family path already uses for an unknown LEAF
+(`math.NoSuch`). So an unknown name with **concrete args now BOTTOMS** (was: silent residual),
+and with ABSTRACT args still defers (a later pass may concretise it). This conforms to CUE: an
+unknown member of a known package is `cannot call non-function … (type _\|_)` (bottom); an
+unknown package / unqualified name is `reference … not found` (a resolution error). The
+silent-admit was masking that error as incompleteness; making it bottom is strictly more correct.
+Recorded as a **cue-divergence** (Kue bottoms with the generic `(bottom)` reason where `cue`
+gives a NAME-SPECIFIC resolution message — value agrees, both reject) and a **spec-gap** (the
+CUE spec does not prescribe the diagnostic for an unimplemented builtin name; lattice first
+principles — an unresolved builtin is bottom, never a silent pass-through — decide it, and `cue`
+agrees on the bottom verdict).
+
+**Behavior-preserving for KNOWN builtins (how confirmed).** The pre-existing `BuiltinTests.lean`
+net (≥1 representative `evalBuiltinCall` pin per family + the core ops, ~140 pins) is the
+characterization net; it stays byte-identical green. Added a yaml-family representative
+(`yaml.Marshal`, previously exercised only end-to-end through `FixtureTests`) so every family
+`ofName?` classifies has a direct pin. End-to-end binary spot-checks: `strings.ToUpper`/`math.Pow`/
+`len` unchanged; `foobar.Baz("a")` and `error("boom")` now bottom.
+
+**Tests (TDD — corrected behavior asserted first, failed red on the old code).** 11 new
+`native_decide` pins in `BuiltinTests.lean`: classifier contract (`core` names → `.core`; the 7
+prefixes → their family; non-builtin / empty → `none`; prefix-not-leaf so `math.NoSuch`/`strings.`
+classify to their package); THE FIX (`unknown_family_concrete_args_is_bottom`,
+`unknown_unqualified_name_concrete_args_is_bottom`, `unknown_error_builtin_concrete_arg_is_bottom`);
+edge preservation (`unknown_family_abstract_arg_stays_unresolved`, `unknown_family_bottom_arg_is_bottom`);
++ 2 yaml family pins.
+
+**Verify.** `lake build` green (110 jobs, no new warning/`sorry`/axiom; `evalBuiltinCall` depends
+only on `propext`/`Classical.choice`/`Quot.sound`); `check-fixtures.sh` → `fixture pairs ok`
+(zero drift); `shellcheck` n/a (no shell touched). Files: `Kue/Builtin.lean` (`BuiltinFamily` +
+`ofName?` + `evalCoreBuiltin` + rewritten `evalBuiltinCall`), `Kue/Tests/BuiltinTests.lean`
+(13 pins), `docs/reference/cue-divergences.md` + `docs/reference/cue-spec-gaps.md` (1 row each),
+`docs/spec/plan.md` + `docs/notes/` (resolved + breadcrumb).

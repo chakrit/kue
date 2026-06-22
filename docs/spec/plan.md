@@ -80,6 +80,9 @@ field-ordering byte-parity gap (#3):
 - **Builtins.** `base64.Encode`, `json.Marshal` (`Kue/Json.lean`), `yaml.Marshal`
   (`Kue/Yaml.lean`), `regexp.Match`, `math.Pow`/`math.Sqrt` (full real domain, exact decimal),
   `list.Sort` /`SortStable`, `strings.*` /`list.*`/`math.*` namespaces. Multiline strings.
+  Dispatch is via a closed `BuiltinFamily` enum (`core` + the 7 qualified packages) classified
+  by `BuiltinFamily.ofName?` and matched EXHAUSTIVELY — a non-builtin name bottoms on concrete
+  args (no silent residual); a new family forces a dispatch arm (TL-1).
   ```cue
   import "encoding/json"
   out: json.Marshal({a: 1})  // "{\"a\":1}"
@@ -209,20 +212,23 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      import bindings into one shared package frame; CUE scopes them per-file. Bites only
      the same-NAME-different-target case; real prod9 doesn't hit it. Bind each file's
      imports into a per-file scope frame.
-   - **TL-1 (type-leverage, MEDIUM) — builtin-family dispatch is stringly-typed.**
-     `Value.builtinCall (name : String) …` + `evalBuiltinCall` (`Builtin.lean:887`)
-     dispatches by 8 exact names (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`) then a
-     7-way `name.startsWith "strings."/"list."/"math."/…` prefix chain falling through to an
-     inert `.builtinCall name args` residual — a mistyped FAMILY prefix silently produces the
-     residual instead of an error. Tighten the *family* axis to a closed
-     `BuiltinFamily` enum (the 8 families ARE a closed, versionable set), keeping the leaf
-     name a `String` (the within-family member set, e.g. `math.Pow`, is genuinely
-     many-valued and stays string-dispatched inside each `eval*Builtin`). Win: the family
-     `startsWith` chain becomes an exhaustive match (new family forces a decision), and the
-     silent-fallthrough class is gone. Blast radius bounded: ~12 `builtinCall` sites in
-     each of Builtin/Eval, but most (Format/Normalize/Manifest/Resolve) carry the name
-     opaquely and only re-pack it. Not inline — too broad for an audit-inline; file as a
-     slice.
+   - ~~**TL-1 (type-leverage, MEDIUM) — builtin-family dispatch is stringly-typed**~~ —
+     **DONE 2026-06-22.** Closed `BuiltinFamily` enum (`core` + the 7 qualified packages
+     `strings`/`list`/`math`/`regexp`/`base64`/`json`/`yaml`) in `Builtin.lean` (the only
+     consumer — no new import edge); the LEAF stays `String`. A single total classifier
+     `BuiltinFamily.ofName?` interprets the name at the one point it is read as a builtin
+     (the parser cannot — it can't tell `strings.X` from a user `pkg.X`), and
+     `evalBuiltinCall` matches it EXHAUSTIVELY (no catch-all → a new family forces a
+     dispatch arm). The previously-silent fall-through (`foobar.Baz`/`nosuchfn`/`error(…)`
+     with CONCRETE args produced an inert `.builtinCall` residual = `incomplete value`,
+     masking a resolution error) now routes through `unresolvedOrBottom`: concrete ⇒
+     BOTTOM (conforms to `cue`'s `reference … not found` / `cannot call non-function`),
+     abstract ⇒ deferred residual (preserved). The 8 `core` exact-name arms moved to
+     `evalCoreBuiltin`.
+     Behavior-preserving for known builtins (the `BuiltinTests` net stays byte-identical
+     green; +13 pins incl. the corrected unknown-name cases + a yaml family pin). 1
+     cue-divergence (generic vs name-specific bottom message) + 1 spec-gap (unimplemented
+     builtin diagnostic) recorded. See implementation-log.
    - **TL-2 (type-leverage, LOW-MED) — `BindingId` packs two swappable bare `Nat`s.**
      `BindingId { depth : Nat, index : Nat }` (`Value.lean:495`): `depth` (lexical
      frame-offset) and `index` (field slot) are orthogonal domains that compile if
@@ -302,9 +308,10 @@ future audit would otherwise re-litigate.
   fractional/negative-exponent row (BI-2-residual + BI-2-§3 LANDED; `math.Pow`/`math.Sqrt`
   now cover their full real domain in exact decimal — the old "currently bottom — see
   BI-2-residual" text was stale). **Filed as fix-slices:** TL-1 (stringly-typed
-  builtin-family dispatch → `BuiltinFamily` enum, MEDIUM) + TL-2 (`BindingId` two-bare-`Nat`
-  → newtypes, LOW-MED) — both type-leverage tightenings, in the item-6 LOW list, neither
-  inline (blast radius too broad). **Verdict: HEALTHY, two ranked tightenings filed.**
+  builtin-family dispatch → `BuiltinFamily` enum, MEDIUM — **DONE 2026-06-22**) + TL-2
+  (`BindingId` two-bare-`Nat` → newtypes, LOW-MED) — both type-leverage tightenings, in the
+  item-6 LOW list, neither inline (blast radius too broad). **Verdict: HEALTHY, two ranked
+  tightenings filed.**
 - **`Eval.lean` split — NOT WARRANTED at 3396 lines (Phase-B 2026-06-22 ruling; do not
   re-litigate below ~4500).** Structural map: 4 `mutual` blocks (`foldValueWithDepth` ~80
   lines; `remapConjRefs` ~147; `hasSelfRefAtDepth` ~110; **the core evaluator
