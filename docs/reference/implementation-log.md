@@ -11738,3 +11738,67 @@ pattern, verified). Perf frontier #7 stays GATED (argocd does not resolve).
 plain-`.conj` divergence), `Kue/Tests/TwoPassTests.lean` (Bug2-6 section: 13 pins; Bug2-7 tripwire),
 `Kue/Tests/FixturePorts.lean` (3 entries), `testdata/cue/definitions/bug26_*.{cue,expected}`,
 `docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/notes/` (breadcrumb).
+
+---
+
+## Completed Slice: Bug2-7 — def multi-decl close-once on the reference / force-fold path (`3361699`, 2026-06-23)
+
+Goal: same-def multi-declaration close-once (Bug2-6) is correct on DIRECT selection
+(`out: #Foo`) but was LOST when the merged def lives inside a DEFINITION wrapper
+selected/referenced through a sibling — `#Use: {#additions:…; #additions:…; vis: #additions}`
+then `#Use.vis` → kue `{cert_gw:_|_, cert_ing:_|_}` (cue v0.16.1: `{cert_gw:{}, cert_ing:{}}`).
+The deeper argocd blocker uncovered after Bug2-6 landed.
+
+**Root.** A def wrapper with a sibling self-ref (`vis: #additions`) defers to a `.closure`; the
+force-fold reconstruction `forceClosureWithConjunctCore` (its three struct arms — `.structComp`,
+`.struct .defOpenViaTail`, `.struct openness none []`) rebuilds the body via `mergeConjOperands`.
+That function ran `mergeConjFields` (plain `joinUnevaluated`/`.conj`) over each operand's fields
+to build the layout + merged frame BEFORE the downstream `canonicalizeFields mergedFields` could
+run — so the two within-operand `#additions` decls were `.conj`-collapsed into one slot and the
+later `canonicalizeFields` had a single already-`.conj`'d slot to act on, never reaching
+`mergeDefinitionDecls`. The `.conj` of two separately-closed bodies mutually rejected. (Discriminator
+confirmed empirically: the SAME multi-decl-plus-sibling-ref shape works when the outer wrapper is a
+REGULAR struct — direct-eval `.struct` arm canonicalizes correctly — and bottoms only when it is a
+`#`-definition routed through the force-fold path.)
+
+**Mechanism (within-operand vs cross-operand — the soundness boundary).** `mergeConjOperands` now
+`canonicalizeFields`-es each operand's OWN fields up-front
+(`let operands := operands.map fun op => (canonicalizeFields op.fst, op.snd)`), so two repeated
+DEFINITION-class decls of one path declared WITHIN a single struct body (one operand) UNION via
+`mergeDefinitionDecls` — the Bug2-6 close-once lever, reused unchanged. The CROSS-operand merge
+(`mergeConjFields`, plain `.conj`) is UNTOUCHED, so a host's `#data` meeting an EMBED's `#data`
+(DISTINCT operands) still `.conj`-MEETs — never unions. The within-operand-vs-cross-operand split
+IS the disjointness: the close-once union fires only for decls inside one operand; a genuine
+cross-conjunct meet is never reached by the canonicalize. Per-operand canonicalization preserves
+first-occurrence layout for every slot at-or-before a collapsed duplicate (the `vis` ref
+`refId ⟨0,0⟩` still lands on the merged `#additions` slot 0), so the `mergedMap` rebuilt from the
+canonicalized operands + the label-driven `rebaseConjunctFields` remap stay coherent — exactly the
+direct-eval `.struct` arm's treatment, now applied per-operand on the force path. Axiom-clean
+(`propext`/`Quot.sound` — `#print axioms mergeConjOperands`), total.
+
+**Tests.** 8 `native_decide` pins (`TwoPassTests` Bug2-7): target close-once via ref (FLIPPED the
+Bug2-7 witness) + 3-decl argocd shape + ref-and-direct-select-both + nested ref + def-ref-after-meet;
+soundness guards via a reference — `#A & #B` distinct closed defs reject, same-def conflict bottoms,
+close-once rejects a use-site extra. 3 fixture pairs (`definitions/bug27_multi_decl_def_ref_close_once`,
+`…_same_def_conflict_via_ref_bottoms`, `…_distinct_closed_defs_via_ref_reject`) + FixturePorts. All
+oracle-confirmed vs cue v0.16.1. `lake build` clean; `check-fixtures.sh` → fixture pairs ok (zero
+unintended drift); cert-manager content-identical (jq-normalized diff EMPTY; 15-line raw diff =
+field-order #3, the ratified gap — the closed `#data: [string]: string` pattern is NOT re-opened).
+
+**argocd milestone: STILL bottoms (~58s wall) — Bug2-7 was NOT the final blocker.** It now hits
+**Bug2-8** (filed, parked): same-def multi-decl close-once ACROSS AN EMBED boundary.
+`apps/argocd.cue`'s `#UseCertManager` EMBEDS `#Mixin` and adds its OWN `#additions:
+{cert_gw, cert_ing, cert_ls}` decls, so the `#additions` decls of the ONE def path span the embed
+boundary (host operand + embed operand) — cross-operand, so Bug2-7's within-operand canonicalize
+does not reach them, yet cue close-once-UNIONS them. Minimal repro: `#A: {#m: {a:1}}` then
+`#Use: {#A; #m: {c:3}; vis: #m}` → cue `{a:1,c:3}`, kue bottoms. Tripwire pin
+`bug28_WITNESS_embed_cross_decl_close_once_wrongly_bottoms` + the boundary pin
+`bug28_embed_closed_pattern_field_stays_meet` (the cert-manager `#data` pattern must stay
+closed-MEET — a naive cross-operand union re-opens it, verified). Distinguishing same-def-PATH-decl
+(union) from cross-conjunct VALUE-meet across an embed needs def-path provenance threaded THROUGH
+the embed merge — a larger change, PARKED. Perf frontier #7 stays GATED (argocd does not resolve).
+
+**Files.** `Kue/Eval.lean` (`mergeConjOperands` — per-operand `canonicalizeFields` + doc),
+`Kue/Tests/TwoPassTests.lean` (Bug2-7 section: 8 pins, witness flipped; Bug2-8 tripwire + boundary
+pin), `Kue/Tests/FixturePorts.lean` (3 entries), `testdata/cue/definitions/bug27_*.{cue,expected}`,
+`docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/notes/` (breadcrumb).

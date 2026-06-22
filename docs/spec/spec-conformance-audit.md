@@ -217,9 +217,11 @@ these is in Audit history (below) + the implementation-log + git.
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
 
-**PARKED (off the critical path):** **Bug2-7** (the NEW argocd residual — same-def
-multi-decl close-once LOST on the def-REFERENCE path; uncovered after Bug2-6 landed) — see
-Live-slice detail. **Bug2-6 RESOLVED** (`ef824cb`, 2026-06-23): definition
+**PARKED (off the critical path):** **Bug2-8** (the NEW argocd residual — same-def
+multi-decl close-once ACROSS AN EMBED boundary; uncovered after Bug2-7 landed) — see
+Live-slice detail. **Bug2-7 RESOLVED** (`3361699`, 2026-06-23): def multi-decl close-once on
+the reference / force-fold path via per-operand `canonicalizeFields` in `mergeConjOperands` —
+see Live-slice detail. **Bug2-6 RESOLVED** (`ef824cb`, 2026-06-23): definition
 multi-declaration close-once via `mergeDefinitionDecls` — see Live-slice detail.
 **Bug2-5 RESOLVED** (`5fca57e`, 2026-06-22): the transitive-embed disj-path
 narrowing-injection mechanism is fixed; it was NOT the final argocd blocker. Plus the LOW
@@ -284,27 +286,59 @@ apps/argocd.cue` localized to `route.yaml`/`listener.yaml` (the
 `defaults.#ListenerSet = defs.#ListenerSet & parts.#UseCertManager & {…}` composition, whose
 `#UseCertManager` declares `#additions` THREE times). It now hits **Bug2-7** (below).
 
-**Bug2-7 (HIGH — the NEW residual argocd export blocker; PARKED, distinct mechanism).**
-Same-def multi-decl close-once is correct on DIRECT selection (Bug2-6, fixed) but LOST when
-the merged def is REFERENCED through a sibling. **Minimal repro:**
-`#Use: {#additions: cert_gw: {…}; #additions: cert_ing: {…}; vis: #additions}` then
-`out: #Use.vis` → cue `{cert_gw:{}, cert_ing:{}}`; kue → `{cert_gw:_|_, cert_ing:_|_}`
-(the merged clause `[cert_gw,cert_ing]` displays correctly, but each field is `fieldNotAllowed`
-— the per-field bottoms are baked in by a SEPARATE close on the reference path). **Root:** the
-def-deferral/force-fold reconstruction (`mergeConjOperands`/`mergeConjFields`, `Eval.lean`)
-rebuilds the def body from the ORIGINAL decls via plain `joinUnevaluated` (`.conj`), with NO
-same-decl-vs-cross-conjunct distinction, so it re-closes each decl separately. `canonicalizeFields`
-(Bug2-6) covers the direct same-struct merge but NOT this reconstruction path. **Soundness
-constraint (why it's not a one-line extension):** a naive union in `mergeConjFields` is UNSOUND
-— it conflates a host's field meeting an EMBED's same-label field (a genuine cross-conjunct meet
-that must `.conj`) with two repeated decls of one def (which must union); it re-opened the
-cert-manager mixin's closed `#data` pattern (verified regression). The sound fix carries
-same-decl provenance THROUGH `mergeConjOperands` (distinguishing within-operand repeated decls
-from cross-operand conjuncts) — a larger design change. PARKED for a dedicated slice;
-correctness-first per the guardrails (an unsound or embed-breaking fix is worse than the parked
-bottom). Tripwire pin: `bug27_WITNESS_multi_decl_def_ref_wrongly_bottoms` (TwoPassTests; FLIP
-when fixed). This is the argocd blocker (`apps/argocd.cue`'s `#ListenerSet` referenced through
-`route.yaml`/`listener.yaml`).
+**Bug2-7 — RESOLVED (`3361699`, 2026-06-23). Def multi-decl close-once on the reference /
+force-fold path via per-operand `canonicalizeFields`.** Bug2-6's close-once was correct on
+DIRECT selection but LOST when the merged def lives inside a DEFINITION wrapper
+selected/referenced through a sibling (`#Use: {#additions:…; #additions:…; vis: #additions}`
+then `#Use.vis`): the wrapper defers to a `.closure`, and the force-fold reconstruction
+(`forceClosureWithConjunctCore`'s three struct arms) rebuilds the body via `mergeConjOperands`,
+which ran `mergeConjFields` (plain `.conj`) over each operand's fields BEFORE the downstream
+`canonicalizeFields` could union them — so the two `#additions` decls were `.conj`-collapsed and
+re-closed SEPARATELY → `{cert_gw:_|_, cert_ing:_|_}` (cue: `{cert_gw:{}, cert_ing:{}}`).
+
+**Mechanism (within-operand vs cross-operand — the soundness boundary):** `mergeConjOperands`
+now `canonicalizeFields`-es each operand's OWN fields up-front (`operands.map (canonicalizeFields
+op.fst, op.snd)`), so two repeated DEFINITION-class decls of one path declared WITHIN a single
+struct body (one operand) UNION via `mergeDefinitionDecls` (the Bug2-6 close-once lever, reused
+unchanged). The CROSS-operand merge (`mergeConjFields`, plain `.conj`) is UNTOUCHED, so a host's
+`#data` meeting an EMBED's `#data` (DISTINCT operands) still `.conj`-MEETs — never unions. The
+within-operand-vs-cross-operand split IS the disjointness: the union fires only for decls inside
+one operand; a genuine cross-conjunct meet is never reached by the canonicalize. Per-operand
+canonicalization preserves first-occurrence layout for every slot at-or-before a collapsed
+duplicate (the `vis` ref `refId ⟨0,0⟩` still lands on the merged `#additions` slot 0), so the
+`mergedMap` (rebuilt from the canonicalized operands) + rebased refs stay coherent — exactly the
+direct-eval `.struct` arm's treatment, now applied per-operand on the force path too.
+Axiom-clean (propext/Quot.sound), total.
+
+**Soundness guards stay green (pinned via a reference):** `#A & #B` (distinct closed defs,
+distinct operands) still rejects; same-def CONFLICT on a shared label still bottoms; close-once
+still rejects a use-site extra. cert-manager content-identical (jq -S diff = 0; raw diff = 15 =
+ratified field-order #3 only — the closed `#data` pattern is NOT re-opened). 8 pins (TwoPassTests
+Bug2-7): target close-once via ref (FLIPPED witness) + 3-decl argocd shape + ref-and-direct-both
++ nested ref + def-ref-after-meet; 3 soundness guards. 3 fixture pairs (`bug27_*`) + FixturePorts.
+
+**argocd status: STILL bottoms (~58s) — Bug2-7 was NOT the final blocker.** It now hits
+**Bug2-8** (below): `#UseCertManager` EMBEDS `#Mixin` and adds its OWN `#additions` decls, so the
+`#additions` decls span the embed boundary (cross-operand) yet must still union.
+
+**Bug2-8 (HIGH — the NEW residual argocd export blocker; PARKED, distinct mechanism).**
+Same-def multi-decl close-once ACROSS AN EMBED boundary. Bug2-7 unions same-def decls WITHIN one
+operand; Bug2-8 is when a def declares `#m` once and EMBEDS another def that also declares `#m`.
+**Minimal repro:** `#A: {#m: {a:1}}` then `#Use: {#A; #m: {c:3}; vis: #m}` → `out: #Use.vis` →
+cue `{a:1, c:3}`; kue bottoms. The two `#m` decls are repeated declarations of ONE def path
+merged across the embed (cue close-once-unions them), but kue treats them as CROSS-operand
+conjuncts (host operand vs embed operand) and `.conj`-meets → separate re-close → mutual reject.
+**Why it's distinct + harder than Bug2-7:** within-operand-vs-cross-operand no longer separates
+the union case from the meet case — both `#m` decls are now cross-operand, yet must UNION. The
+discriminator cue uses is same-def-PATH-decl (union) vs cross-conjunct VALUE-meet (the
+cert-manager `#data: [string]: string` closed pattern, which must stay closed-MEET — verified: a
+naive cross-operand union re-opens it, `bug28_embed_closed_pattern_field_stays_meet` pins the
+boundary). Distinguishing those across an embed requires carrying def-PATH provenance THROUGH the
+embed merge — a larger change than Bug2-7's per-operand canonicalize. PARKED for a dedicated
+slice; correctness-first per the guardrails. Tripwire pin:
+`bug28_WITNESS_embed_cross_decl_close_once_wrongly_bottoms` (TwoPassTests; FLIP when fixed). This
+is the residual argocd blocker (`apps/argocd.cue`'s `#UseCertManager` embeds `#Mixin` + adds
+`#additions: {cert_gw, cert_ing, cert_ls}`).
 
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 

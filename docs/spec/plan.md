@@ -104,17 +104,19 @@ field-ordering byte-parity gap (#3):
   collapsed the ~119s O(N²) wall to ~30.6s).
 - **argocd: `packs.#Argo` (link 5) content-correct** (4-link chain). All three components
   content-identical to `cue` (sorted-key, modulo field-order #3) in the scratch module.
-  **Full `apps/argocd.cue` STILL bottoms (~61s)** — the residual is a deterministic
+  **Full `apps/argocd.cue` STILL bottoms (~58s)** — the residual is a deterministic
   CORRECTNESS divergence. **Bug2-5** (transitive-embed disj-path narrowing injection) FIXED
   (`5fca57e`, 2026-06-22) — NOT the final blocker. **Bug2-6** (definition multi-declaration
-  close-once) FIXED (`ef824cb`, 2026-06-23) — also NOT the final blocker. The deeper blocker
-  is now **Bug2-7** (same-def multi-decl close-once LOST on the def-REFERENCE path:
-  `mergeConjOperands`/`mergeConjFields` rebuilds the def body from the original decls and
-  re-closes each separately, instead of close-once). PARKED as a stress-test finding (a
-  provenance-carrying def-reference-merge fix; see `spec-conformance-audit.md` Live-slice
-  detail); resolves as the general semantics mature. argocd localized to
-  `route.yaml`/`listener.yaml` (the `#ListenerSet & parts.#UseCertManager` `#additions`
-  triple-decl referenced through a sibling).
+  close-once) FIXED (`ef824cb`, 2026-06-23) — also NOT the final blocker. **Bug2-7** (same-def
+  multi-decl close-once on the def-REFERENCE / force-fold path) FIXED (`3361699`, 2026-06-23 —
+  per-operand `canonicalizeFields` in `mergeConjOperands`) — also NOT the final blocker. The
+  deeper blocker is now **Bug2-8** (same-def multi-decl close-once ACROSS AN EMBED boundary:
+  `#UseCertManager` embeds `#Mixin` and adds its OWN `#additions` decls, so the `#additions`
+  decls span the embed (cross-operand) yet must still close-once-union — a harder
+  def-path-provenance-through-embed change than Bug2-7's within-operand lever). PARKED as a
+  stress-test finding (see `spec-conformance-audit.md` Live-slice detail); resolves as the
+  general semantics mature. argocd localized to `route.yaml`/`listener.yaml` (the `#ListenerSet
+  & parts.#UseCertManager` `#additions` triple-decl, host-decl + embed-pattern of one path).
 
 ## Live Backlog (open work, ranked)
 
@@ -133,15 +135,16 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). PARKED: **Bug2-7** (NEW argocd residual — same-def multi-decl
-close-once LOST on the def-REFERENCE path; the deeper blocker uncovered after Bug2-6 landed,
+(LOW spec-gap-first). PARKED: **Bug2-8** (NEW argocd residual — same-def multi-decl
+close-once ACROSS AN EMBED boundary; the deeper blocker uncovered after Bug2-7 landed,
 a stress-test finding). RESOLVED / ruled out (do not re-file — see Resolved/ruled-out
-below): **Bug2-6** (definition multi-declaration close-once, `ef824cb` 2026-06-23 — was NOT
-the final argocd blocker; surfaced Bug2-7), **Bug2-5** (transitive-embed disj-path narrowing
-injection, `5fca57e` 2026-06-22 — was NOT the final argocd blocker), **AD2-1** (lone-default
-normalizer unified, 2026-06-21), **DRY-1**. **SC-3** is now a recorded spec-gap only (the
-multi-arm-default display divergence; the lone-default half is gone — collapsed under
-AD2-1).
+below): **Bug2-7** (def multi-decl close-once on the reference / force-fold path, `3361699`
+2026-06-23 — was NOT the final argocd blocker; surfaced Bug2-8), **Bug2-6** (definition
+multi-declaration close-once, `ef824cb` 2026-06-23 — surfaced Bug2-7), **Bug2-5**
+(transitive-embed disj-path narrowing injection, `5fca57e` 2026-06-22 — was NOT the final
+argocd blocker), **AD2-1** (lone-default normalizer unified, 2026-06-21), **DRY-1**. **SC-3**
+is now a recorded spec-gap only (the multi-arm-default display divergence; the lone-default
+half is gone — collapsed under AD2-1).
 
 **🚨 TOP-RANKED SOUNDNESS FIX-SLICE — CARRIER-STRUCT-MEET — DONE (2026-06-22).** A scalar/list
 embedding carrier (`.embeddedScalar`/`.embeddedList` — the carrier IS its scalar/list) met with a
@@ -233,9 +236,9 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero drift;
    FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):** the
    heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5 + Bug2-6 are fixed but argocd bottoms on **Bug2-7** (same-def
-   multi-decl close-once lost on the def-REFERENCE path), a CORRECTNESS divergence, not fuel.
-   Un-gates once Bug2-7 lands; profile against a resolving target then.
+   argocd unblock — Bug2-5 + Bug2-6 + Bug2-7 are fixed but argocd bottoms on **Bug2-8**
+   (same-def multi-decl close-once across an EMBED boundary), a CORRECTNESS divergence, not
+   fuel. Un-gates once Bug2-8 lands; profile against a resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`
