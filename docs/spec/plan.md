@@ -229,12 +229,21 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      green; +13 pins incl. the corrected unknown-name cases + a yaml family pin). 1
      cue-divergence (generic vs name-specific bottom message) + 1 spec-gap (unimplemented
      builtin diagnostic) recorded. See implementation-log.
-   - **TL-2 (type-leverage, LOW-MED) — `BindingId` packs two swappable bare `Nat`s.**
-     `BindingId { depth : Nat, index : Nat }` (`Value.lean:495`): `depth` (lexical
-     frame-offset) and `index` (field slot) are orthogonal domains that compile if
-     swapped. Newtype-wrap both (`Depth`/`FieldIndex`, zero-cost erasure) to make the
-     coordinate-swap class unrepresentable. Mechanical, zero behavioral risk; ~50
-     construction/match sites — file as a slice, not inline.
+   - ~~**TL-2 (type-leverage, LOW-MED) — `BindingId` packs two swappable bare `Nat`s.**~~
+     — **DONE 2026-06-22.** `BindingId { depth : Depth, index : FieldIndex }` — two
+     single-field `structure` newtypes (zero-cost over `Nat`) in `Value.lean`, with
+     `OfNat` instances so the ~300 `.refId ⟨d, i⟩` test literals stay byte-identical (Lean
+     does NOT auto-flatten numerals into nested single-field structures — `OfNat` is
+     load-bearing). The two axes are now DISTINCT nominal types (a `Depth` cannot be
+     passed where a `FieldIndex` is wanted — the transposition class is unrepresentable,
+     compile-checked). Consumers unwrap with `.val` at the frame/slot-arithmetic boundary
+     (`env.drop id.depth.val`, `nthField id.index.val`); no `Coe` (implicit widening would
+     reopen the swap); `Hashable` not derived (the one digest site hashes through `.val`).
+     ~57 mechanical ripple sites: 1 construction (`findInScopes`), ~50 in `Eval.lean`, the
+     `Format` render, 4 test fixups. Behavior-preserving: 110-job build clean, full
+     suite + fixtures byte-identical green, pin-count conserved; +5 `native_decide` pins
+     (`ResolveTests`) locking the surviving runtime contract (the swap-guard itself is
+     compile-time). See implementation-log.
    - ~~**`import-eager-closedness`** (MEDIUM)~~ — **DONE 2026-06-22.** Resolved via option
      (b), structurally unified: a new single `selectedFieldValue` closes a SELECTED definition
      field's body (`normalizeDefinitionValueWithFuel`), shared by all four eager pluck sites, so
@@ -309,9 +318,10 @@ future audit would otherwise re-litigate.
   now cover their full real domain in exact decimal — the old "currently bottom — see
   BI-2-residual" text was stale). **Filed as fix-slices:** TL-1 (stringly-typed
   builtin-family dispatch → `BuiltinFamily` enum, MEDIUM — **DONE 2026-06-22**) + TL-2
-  (`BindingId` two-bare-`Nat` → newtypes, LOW-MED) — both type-leverage tightenings, in the
-  item-6 LOW list, neither inline (blast radius too broad). **Verdict: HEALTHY, two ranked
-  tightenings filed.**
+  (`BindingId` two-bare-`Nat` → `Depth`/`FieldIndex` newtypes, LOW-MED —
+  **DONE 2026-06-22**) — both type-leverage tightenings, were in the item-6 LOW list,
+  neither inline (blast radius too broad). **Verdict: HEALTHY, two ranked tightenings
+  filed — both now landed.**
 - **`Eval.lean` split — NOT WARRANTED at 3396 lines (Phase-B 2026-06-22 ruling; do not
   re-litigate below ~4500).** Structural map: 4 `mutual` blocks (`foldValueWithDepth` ~80
   lines; `remapConjRefs` ~147; `hasSelfRefAtDepth` ~110; **the core evaluator

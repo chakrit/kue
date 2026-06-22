@@ -289,8 +289,8 @@ theorem descend_clauses_agrees_remapConjClauses :
         let bodyDepth := clauseChainDepth 0 clauses
         match remapConjRefs remapFuel 0
             [Field.regular "a" .top, Field.regular "b" .top] [("b", 0), ("a", 1)]
-            (.comprehension clauses (.refId ⟨bodyDepth, 1⟩)) with
-        | .comprehension _ (.refId id) => id.depth == bodyDepth && id.index == 0
+            (.comprehension clauses (.refId ⟨⟨bodyDepth⟩, 1⟩)) with
+        | .comprehension _ (.refId id) => id.depth.val == bodyDepth && id.index == 0
         | _ => false)) = true := by
   native_decide
 
@@ -364,7 +364,7 @@ theorem descend_clauses_frame_count_matches_resolve :
      , [.forIn none "x" .top, .guard .top, .forIn none "y" .top]
      ].all (fun clauses =>
         match (resolveClausesWithFuel resolveFuel [[("outer", 0)]] clauses (.ref "outer")).snd with
-        | .refId id => id.depth == clauseChainDepth 0 clauses
+        | .refId id => id.depth.val == clauseChainDepth 0 clauses
         | _ => false)) = true := by
   native_decide
 

@@ -492,9 +492,31 @@ def meet : StructOpenness -> StructOpenness -> StructOpenness
 
 end StructOpenness
 
+/-- A lexical frame offset: how many scope frames to count outward from the reference
+    site to reach the binding's frame. Distinct nominal type from `FieldIndex` so the two
+    `BindingId` coordinates cannot be transposed; zero-cost (`structure` over a single
+    `Nat`). Unwrap with `.val` at the frame-arithmetic boundary (`env.drop`). -/
+structure Depth where
+  val : Nat
+deriving Repr, BEq, DecidableEq
+
+/-- A field slot within a frame: the positional index of the bound field in its struct.
+    Distinct nominal type from `Depth` (see there); zero-cost. Unwrap with `.val` at the
+    slot-arithmetic boundary (`nthField`). -/
+structure FieldIndex where
+  val : Nat
+deriving Repr, BEq, DecidableEq
+
+instance : OfNat Depth n := ⟨⟨n⟩⟩
+instance : OfNat FieldIndex n := ⟨⟨n⟩⟩
+
+/-- A resolved lexical reference: `depth` frames outward, then field slot `index`. The two
+    axes are distinct nominal types so a coordinate swap is a type error, not a silent bug
+    (TL-2). The `⟨d, i⟩` anonymous-constructor literal still elaborates via the `OfNat`
+    instances above (`⟨0, 0⟩` ≡ `⟨(0 : Depth), (0 : FieldIndex)⟩`). -/
 structure BindingId where
-  depth : Nat
-  index : Nat
+  depth : Depth
+  index : FieldIndex
 deriving Repr, BEq, DecidableEq
 
 /-- The type of a CONCRETE value, named for diagnostics where a value of the wrong type is a

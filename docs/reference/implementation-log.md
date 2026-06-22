@@ -11318,3 +11318,72 @@ only on `propext`/`Classical.choice`/`Quot.sound`); `check-fixtures.sh` → `fix
 `ofName?` + `evalCoreBuiltin` + rewritten `evalBuiltinCall`), `Kue/Tests/BuiltinTests.lean`
 (13 pins), `docs/reference/cue-divergences.md` + `docs/reference/cue-spec-gaps.md` (1 row each),
 `docs/spec/plan.md` + `docs/notes/` (resolved + breadcrumb).
+
+---
+
+## Completed Slice: TL-2 — `Depth`/`FieldIndex` newtypes replace bare `Nat` in `BindingId`
+
+Type-leverage tightening (illegal-states-unrepresentable), behavior-preserving.
+`BindingId` carried two bare `Nat` fields — `depth` (lexical frame offset) and `index`
+(field slot) — orthogonal domains that compiled if transposed. A `⟨index, depth⟩` swap was
+a type-correct bug the compiler could not catch.
+
+**The fix.** Two single-field `structure`s in `Value.lean` (zero-cost erasure over `Nat`):
+
+```
+structure Depth where val : Nat   deriving Repr, BEq, DecidableEq
+structure FieldIndex where val : Nat   deriving Repr, BEq, DecidableEq
+instance : OfNat Depth n := ⟨⟨n⟩⟩
+instance : OfNat FieldIndex n := ⟨⟨n⟩⟩
+structure BindingId where depth : Depth; index : FieldIndex   deriving Repr, BEq, DecidableEq
+```
+
+`Depth` and `FieldIndex` are now DISTINCT nominal types — a `Depth` cannot be passed where
+a `FieldIndex` is expected (verified: `BindingId.mk i d` with the args reversed is a
+compile error). The transposition class is unrepresentable.
+
+**Why `OfNat` (load-bearing).** The ~300 test sites construct `BindingId` via the
+anonymous constructor `.refId ⟨0, 0⟩`. Lean does NOT auto-flatten numeric literals into
+nested single-field structures (`⟨0, 0⟩` tries `0 : Depth` directly), so without
+`OfNat Depth`/`OfNat FieldIndex` every literal would need rewriting to `⟨⟨0⟩, ⟨0⟩⟩`. With
+the instances, `⟨0, 0⟩` elaborates as `⟨(0 : Depth), (0 : FieldIndex)⟩` and ALL existing
+literals stay byte-identical — zero test churn for the literal sites. (`BEq Depth` +
+`OfNat` also keep the literal comparisons `id.depth == 0` / `id.depth != 0` working
+unchanged.)
+
+**Boundary discipline (`.val`).** Consumers that need the raw `Nat` for frame arithmetic
+(`env.drop id.depth.val`) or slot arithmetic (`nthField id.index.val`) unwrap with `.val`
+at the call — the controlled, explicit boundary. No `Coe Depth Nat` (an implicit widening
+would reopen the swap). `Hashable` was NOT derived: the one hash site (`valueDigest`)
+hashes through `.val`, so a derived instance would be dead code.
+
+**Sites touched (~57, all mechanical).** ONE construction site (`findInScopes` in
+`Resolve.lean`, `⟨⟨depth⟩, ⟨index⟩⟩` — the sole producer of `BindingId` values). In
+`Eval.lean`: 48 `.val` projection-unwraps across the resolver/def-deferral tier + core
+`.refId` eval arm, and 2 reconstruction-wraps (`⟨id.depth, ⟨mergedIndex⟩⟩` in
+`thisStructFieldIndex?`/the merge-remap).
+`Format.lean`: the residual-`refId` render `s!"@{id.depth.val}.{id.index.val}"` (kept
+byte-identical — without `.val` it would print `@{ val := 0 }.…`). Tests: 4 sites where a
+COMPUTED `Nat` (`bodyDepth`/`clauseChainDepth`) feeds a `BindingId` literal or a `.depth`
+comparison.
+
+**Behavior-preserving (how confirmed).** `lake build` green (110 jobs, no new
+warning/`sorry`/axiom); full suite (every `native_decide` pin compiles) green;
+`check-fixtures.sh` → `fixture pairs ok`, zero drift; pin-count conserved (a pure type
+tightening — no semantic change). No CUE divergence or spec gap surfaced (a mechanical
+refactor shouldn't, and didn't).
+
+**Pins added (5, `ResolveTests.lean`).** The transposition guard itself is COMPILE-time
+(not a runtime `native_decide`), so the pins lock the surviving runtime contract:
+`tl2_bindingId_literal_matches_explicit_mk` (the `OfNat` literal ≡ explicit
+`.mk ⟨2⟩ ⟨5⟩`), `tl2_bindingId_val_roundtrips` (`.depth.val`/`.index.val` round-trip), and
+the bug-class
+witnesses `tl2_bindingId_swapped_coordinates_distinct` (`⟨2,5⟩ ≠ ⟨5,2⟩`) +
+`tl2_depth_distinguishes_underlying_nat` / `tl2_fieldIndex_distinguishes_underlying_nat`.
+
+**Verify.** `lake build` green; `check-fixtures.sh` zero drift; `shellcheck` n/a (no shell
+touched). Files: `Kue/Value.lean` (newtypes + `OfNat` + `BindingId`), `Kue/Resolve.lean`
+(construction), `Kue/Eval.lean` (~50 projection/reconstruction sites), `Kue/Format.lean`
+(render), `Kue/Tests/ResolveTests.lean` (5 pins) + `Kue/Tests/TwoPassTests.lean`
+(4 fixups),
+`docs/spec/plan.md` + `docs/notes/` (DONE + breadcrumb).

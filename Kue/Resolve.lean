@@ -28,7 +28,7 @@ def findInScopes (label : String) (depth : Nat) : List (List (String × Nat)) ->
   | [] => none
   | frame :: outer =>
       match findInFrame label frame with
-      | some index => some ⟨depth, index⟩
+      | some index => some ⟨⟨depth⟩, ⟨index⟩⟩
       | none => findInScopes label (depth + 1) outer
 
 def resolveFuel : Nat :=

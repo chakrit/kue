@@ -122,4 +122,30 @@ theorem resolve_comprehension_body_outer_field_depth :
           .regularOpen) = true := by
   native_decide
 
+/-! ### TL-2 — `Depth`/`FieldIndex` newtype invariants.
+
+The two `BindingId` coordinates are distinct nominal types so a coordinate swap is a type
+error, not a silent bug. The transposition guard itself is enforced at COMPILE time (a
+`Depth` cannot be passed where a `FieldIndex` is expected — see `Value.lean`), so it is not
+expressible as a runtime `native_decide`. These pin the runtime contract that survives the
+wrapping: the `⟨d, i⟩` literal elaborates through `OfNat`, `.val` round-trips, and swapping
+the two coordinates yields a DISTINCT `BindingId` (the bug class the newtypes make
+unrepresentable, witnessed at the value level). -/
+
+theorem tl2_bindingId_literal_matches_explicit_mk :
+    (BindingId.mk ⟨2⟩ ⟨5⟩ == (⟨2, 5⟩ : BindingId)) = true := by native_decide
+
+theorem tl2_bindingId_val_roundtrips :
+    (let id : BindingId := ⟨3, 7⟩; id.depth.val == 3 && id.index.val == 7) = true := by
+  native_decide
+
+theorem tl2_bindingId_swapped_coordinates_distinct :
+    ((⟨2, 5⟩ : BindingId) == (⟨5, 2⟩ : BindingId)) = false := by native_decide
+
+theorem tl2_depth_distinguishes_underlying_nat :
+    ((⟨3⟩ : Depth) == (⟨4⟩ : Depth)) = false := by native_decide
+
+theorem tl2_fieldIndex_distinguishes_underlying_nat :
+    ((⟨3⟩ : FieldIndex) == (⟨4⟩ : FieldIndex)) = false := by native_decide
+
 end Kue

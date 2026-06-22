@@ -157,7 +157,7 @@ mutual
           ++ " "
           ++ formatValueWithFuel fuel right
     | _, .ref label => label
-    | _, .refId id => s!"@{id.depth}.{id.index}"
+    | _, .refId id => s!"@{id.depth.val}.{id.index.val}"
     | _, .thisStruct => "@self"
     | fuel + 1, .selector base label =>
         formatValueWithFuel fuel base ++ "." ++ formatFieldLabel label

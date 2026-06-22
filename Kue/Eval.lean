@@ -61,15 +61,15 @@ def fieldLabelIndexFrom (label : String) (index : Nat) : List Field -> Option Na
     resolution machinery. `none` when `id` is not a `thisStruct` binding or `label` is
     absent, leaving the generic selector path to handle it. -/
 def thisStructFieldIndex? (env : List (Nat × List Field)) (id : BindingId) (label : String) : Option BindingId :=
-  match env.drop id.depth with
+  match env.drop id.depth.val with
   | [] => none
   | frame :: _ =>
-      match nthField id.index frame.snd with
+      match nthField id.index.val frame.snd with
       | some field =>
           match Field.value field with
           | .thisStruct =>
               match fieldLabelIndexFrom label 0 frame.snd with
-              | some labelIndex => some ⟨id.depth, labelIndex⟩
+              | some labelIndex => some ⟨id.depth, ⟨labelIndex⟩⟩
               | none => none
           | _ => none
       | none => none
@@ -187,7 +187,7 @@ def refsSelfEmbeddedLabel (fuel : Nat) (depth selfIndex : Nat) (labels : List St
   foldValueWithDepth (· || ·) false
     (fun d v => match v with
       | .selector (.refId id) label =>
-          some (id.depth == d && id.index == selfIndex && labels.contains label)
+          some (id.depth.val == d && id.index.val == selfIndex && labels.contains label)
       | _ => none)
     fuel depth
 
@@ -215,7 +215,7 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value → List S
   foldValueWithDepth (· ++ ·) []
     (fun d v => match v with
       | .selector (.refId id) label =>
-          some (if id.depth == d && id.index == selfIndex then [label] else [])
+          some (if id.depth.val == d && id.index.val == selfIndex then [label] else [])
       | _ => none)
     fuel depth
 
@@ -241,7 +241,7 @@ def selfReferencedLabels (fuel : Nat) (depth selfIndex : Nat) : Value → List S
 def defFrameRefIndices (fuel : Nat) (depth : Nat) : Value → List Nat :=
   foldValueWithDepth (· ++ ·) []
     (fun d v => match v with
-      | .refId id => some (if id.depth == d then [id.index] else [])
+      | .refId id => some (if id.depth.val == d then [id.index.val] else [])
       | _ => none)
     fuel depth
 
@@ -395,11 +395,11 @@ mutual
       (value : Value) : Value :=
     match fuel, value with
     | _, .refId id =>
-        if id.depth == frameDepth then
-          match (nthField id.index oldLabels).map Field.label with
+        if id.depth.val == frameDepth then
+          match (nthField id.index.val oldLabels).map Field.label with
           | some label =>
               match lookupLabelIndex label mergedMap with
-              | some mergedIndex => .refId ⟨id.depth, mergedIndex⟩
+              | some mergedIndex => .refId ⟨id.depth, ⟨mergedIndex⟩⟩
               | none => .refId id
           | none => .refId id
         else
@@ -1107,7 +1107,7 @@ def valueDigest : Nat → Value → UInt64
   | d + 1, .binary op l r =>
       mixHash (mixHash (valueTag (.binary op l r)) (valueDigest d l)) (valueDigest d r)
   | _ + 1, v@(.ref label) => mixHash (valueTag v) (hash label)
-  | _ + 1, v@(.refId id) => mixHash (valueTag v) (mixHash (hash id.depth) (hash id.index))
+  | _ + 1, v@(.refId id) => mixHash (valueTag v) (mixHash (hash id.depth.val) (hash id.index.val))
   | _ + 1, .thisStruct => valueTag .thisStruct
   | d + 1, .selector base label =>
       mixHash (mixHash (valueTag (.selector base label)) (hash label)) (valueDigest d base)
@@ -1408,7 +1408,7 @@ def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field ×
             match env with
             | [] => none
             | frame :: _ =>
-                match nthField id.index frame.snd with
+                match nthField id.index.val frame.snd with
                 | some field => conjStructOperand? env fuel (Field.value field)
                 | none => none
   | _ => none
@@ -1662,7 +1662,7 @@ def embedDisjArmDeclLabels : Value -> List String
         match arm with
         | .refId id =>
             if id.depth == 0 then
-              match nthField id.index fields with
+              match nthField id.index.val fields with
               | some fl => declOf (Field.value fl)
               | none => []
             else []
@@ -1689,7 +1689,7 @@ def embedBodyEmbedsDisj : Value -> Bool
         | .disj _ => true
         | .refId id =>
             id.depth == 0 &&
-              (match (nthField id.index fields).map Field.value with
+              (match (nthField id.index.val fields).map Field.value with
                | some (.disj _) => true
                | _ => false)
         | _ => false
@@ -1785,7 +1785,7 @@ mutual
     sibling) or outer (`d > depth`, a cross-package/enclosing scope) frames are NOT def
     self-refs. Fuel-bounded for totality. -/
 def hasSelfRefAtDepth (fuel : Nat) (depth : Nat) : Value -> Bool
-  | .refId id => id.depth == depth
+  | .refId id => id.depth.val == depth
   | .conj constraints =>
       match fuel with
       | 0 => false
@@ -1908,17 +1908,17 @@ def defBodyHasSiblingSelfRef : Value -> Bool
     use-site narrowing reaches the embed before it collapses. -/
 def resolveEmbedDefBody? (env : Env) : Value -> Option Value
   | .refId id =>
-      match env.drop id.depth with
+      match env.drop id.depth.val with
       | [] => none
       | frame :: _ =>
-          match nthField id.index frame.snd with
+          match nthField id.index.val frame.snd with
           | some f => some (Field.value f)
           | none => none
   | .selector (.refId id) label =>
-      match env.drop id.depth with
+      match env.drop id.depth.val with
       | [] => none
       | frame :: _ =>
-          match nthField id.index frame.snd with
+          match nthField id.index.val frame.snd with
           | some baseField =>
               match Field.value baseField with
               | .struct pkgFields _ _ _ _ =>
@@ -1934,10 +1934,10 @@ def resolveEmbedDefBody? (env : Env) : Value -> Option Value
   | .disj alternatives =>
       match resolveDisjDefault? alternatives with
       | some (.refId id) =>
-          match env.drop id.depth with
+          match env.drop id.depth.val with
           | [] => none
           | frame :: _ =>
-              match nthField id.index frame.snd with
+              match nthField id.index.val frame.snd with
               | some f => some (Field.value f)
               | none => none
       | _ => none
@@ -1989,10 +1989,10 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
       match fuel with
       | 0 => none
       | fuel + 1 =>
-          match frameEnv.drop baseId.depth with
+          match frameEnv.drop baseId.depth.val with
           | [] => none
           | baseFrame :: _ =>
-              match nthField baseId.index baseFrame.snd with
+              match nthField baseId.index.val baseFrame.snd with
               | none => none
               | some baseField =>
                   match Field.value baseField with
@@ -2001,7 +2001,7 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
                       | some defField =>
                           -- The found def lives in `pkgFields`; its body's refs resolve with
                           -- `pkgFields` at depth 0 over the package binding's outer scope.
-                          let nextEnv : Env := (0, pkgFields) :: frameEnv.drop (baseId.depth + 1)
+                          let nextEnv : Env := (0, pkgFields) :: frameEnv.drop (baseId.depth.val + 1)
                           followAliasDefBody? fuel nextEnv pkgFields (Field.value defField)
                       | none => none
                   | _ => none
@@ -2009,10 +2009,10 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
       match fuel with
       | 0 => none
       | fuel + 1 =>
-          match frameEnv.drop id.depth with
+          match frameEnv.drop id.depth.val with
           | [] => none
           | frame :: outer =>
-              match nthField id.index frame.snd with
+              match nthField id.index.val frame.snd with
               | none => none
               | some defField =>
                   -- The resolved def's body resolves with `frame` at depth 0 over `outer`.
@@ -2043,10 +2043,10 @@ def followAliasDefBody? (fuel : Nat) (frameEnv : Env) (capturedFrame : List Fiel
     would lose its closedness and wrongly admit use-site fields the def does not declare. -/
 def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
     Option (List Field × Value) :=
-  match env.drop id.depth with
+  match env.drop id.depth.val with
   | [] => none
   | frame :: _ =>
-      match nthField id.index frame.snd with
+      match nthField id.index.val frame.snd with
       | none => none
       | some baseField =>
           match Field.value baseField with
@@ -2056,7 +2056,7 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
                   -- The def body's embeddings reference the package frame (`pkgFields`, pushed when
                   -- the body is forced) at depth-1, the body itself at depth-0. So resolve them
                   -- against a placeholder body-frame over the package frame over the binding scope.
-                  let bodyEnv : Env := (0, []) :: (0, pkgFields) :: env.drop (id.depth + 1)
+                  let bodyEnv : Env := (0, []) :: (0, pkgFields) :: env.drop (id.depth.val + 1)
                   if defField.fieldClass.isDefinition
                       && bodyNeedsDefer bodyEnv evalFuel (Field.value defField) then
                     some (pkgFields,
@@ -2068,7 +2068,7 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
                     -- over THAT frame (the `parts` package, not `defs`), so the use-site splices
                     -- like a direct `parts.#M & {…}`. The body's refs resolve with `pkgFields` at
                     -- depth 0 over the binding's outer scope.
-                    let frameEnv : Env := (0, pkgFields) :: env.drop (id.depth + 1)
+                    let frameEnv : Env := (0, pkgFields) :: env.drop (id.depth.val + 1)
                     match followAliasDefBody? evalFuel frameEnv pkgFields (Field.value defField) with
                     | some (capturedFrame, body) =>
                         some (capturedFrame, normalizeDefinitionValueWithFuel normalizeFuel body)
@@ -2098,10 +2098,10 @@ def importDefClosureBody? (env : Env) (id : BindingId) (label : String) :
     defers too but is left UNCLOSED — its open closedness is preserved so the use-site `meet`
     admits siblings as CUE does. -/
 def refDefClosureBody? (env : Env) (id : BindingId) : Option Value :=
-  match env.drop id.depth with
+  match env.drop id.depth.val with
   | [] => none
   | frame :: _ =>
-      match nthField id.index frame.snd with
+      match nthField id.index.val frame.snd with
       | none => none
       | some defField =>
           let body := Field.value defField
@@ -2119,9 +2119,9 @@ def refDefClosureBody? (env : Env) (id : BindingId) : Option Value :=
           -- frame, so depth-0 is `body` itself and depth-1 reaches the binding's scope. Prepend a
           -- placeholder body-frame onto the binding's resolution env so `resolveEmbedDefBody?`
           -- resolves an embed's depth-1 ref to the right enclosing frame.
-          let bodyEnv : Env := (0, []) :: env.drop id.depth
+          let bodyEnv : Env := (0, []) :: env.drop id.depth.val
           if isStructLike && bodyNeedsDefer bodyEnv evalFuel body
-              && (isStructComp || (isDef && id.depth > 0)) then
+              && (isStructComp || (isDef && id.depth.val > 0)) then
             if isDef then
               some (normalizeDefinitionValueWithFuel normalizeFuel body)
             else
@@ -2137,7 +2137,7 @@ def refDefClosureBody? (env : Env) (id : BindingId) : Option Value :=
     `.conj` path. `none` for any other operand (evaluated normally). -/
 def conjDefClosure? (env : Env) : Value -> Option Value
   | .refId id =>
-      match env.drop id.depth with
+      match env.drop id.depth.val with
       | [] => none
       | frame :: outer =>
           match refDefClosureBody? env id with
@@ -2155,10 +2155,10 @@ def conjDefClosure? (env : Env) : Value -> Option Value
     `importSelectorDef?`'s `(pkgFields, defBody)` shape so the `.conj` fold and the `.refId` arm
     consume it identically. -/
 def refAliasDefClosure? (env : Env) (id : BindingId) : Option (List Field × Value) :=
-  match env.drop id.depth with
+  match env.drop id.depth.val with
   | [] => none
   | frame :: outer =>
-      match nthField id.index frame.snd with
+      match nthField id.index.val frame.snd with
       | none => none
       | some defField =>
           if defField.fieldClass.isDefinition then
@@ -2202,11 +2202,11 @@ def conjDisjArms? (env : Env) (fuel : Nat) : Value -> Option (List (Mark × Valu
       if alternatives.any (fun a => bodyNeedsDefer ((0, []) :: env) fuel a.snd
           || (match a.snd with
               | .refId id =>
-                  match (env.drop id.depth) with
+                  match (env.drop id.depth.val) with
                   | [] => false
                   | frame :: _ =>
-                      match nthField id.index frame.snd with
-                      | some f => bodyNeedsDefer ((0, []) :: env.drop id.depth) fuel (Field.value f)
+                      match nthField id.index.val frame.snd with
+                      | some f => bodyNeedsDefer ((0, []) :: env.drop id.depth.val) fuel (Field.value f)
                       | none => false
               | _ => false)) then
         some alternatives
@@ -2216,10 +2216,10 @@ def conjDisjArms? (env : Env) (fuel : Nat) : Value -> Option (List (Mark × Valu
       match fuel with
       | 0 => none
       | fuel + 1 =>
-          match env.drop id.depth with
+          match env.drop id.depth.val with
           | [] => none
           | frame :: _ =>
-              match nthField id.index frame.snd with
+              match nthField id.index.val frame.snd with
               | some field => conjDisjArms? env fuel (Field.value field)
               | none => none
   | _ => none
@@ -2434,10 +2434,10 @@ mutual
     | _ + 1, .ref label =>
         pure (.bottomWith [.unresolvedReference label])
     | fuel + 1, .refId id =>
-        match env.drop id.depth with
+        match env.drop id.depth.val with
         | [] => pure (.bottomWith [.unresolvedBinding id])
         | frame :: outer =>
-            match nthField id.index frame.snd with
+            match nthField id.index.val frame.snd with
             | none => pure (.bottomWith [.unresolvedBinding id])
             | some field =>
                 -- Producer (slice E): a bare ref to a self-ref def the lazy-merge can't handle
@@ -2485,12 +2485,12 @@ mutual
                       else
                         evalValueWithFuel fuel e vis bodyVal
                     if id.depth == 0 then
-                      if slotVisited id.index visited then
+                      if slotVisited id.index.val visited then
                         EvalState.truncate .top
                       else
-                        recurseBody env (id.index :: visited)
+                        recurseBody env (id.index.val :: visited)
                     else
-                      recurseBody (frame :: outer) [id.index]
+                      recurseBody (frame :: outer) [id.index.val]
     | fuel + 1, .conj constraints => do
         -- DISJUNCTION DISTRIBUTION (argocd-secret-data sub-slice 2). A conjunct that is (or refs,
         -- at depth 0) a disjunction with a deferral-needing default arm must DISTRIBUTE the other
