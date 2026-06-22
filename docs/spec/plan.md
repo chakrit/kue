@@ -131,6 +131,28 @@ normalizer unified, 2026-06-21), **DRY-1**. **SC-3** is now a recorded spec-gap 
 multi-arm-default display divergence; the lone-default half is gone — collapsed under
 AD2-1).
 
+**🚨 TOP-RANKED OPEN FIX-SLICE — CARRIER-STRUCT-MEET (soundness, filed Phase-A 2026-06-22).**
+A scalar/list embedding carrier (`.embeddedScalar`/`.embeddedList` — the carrier IS its
+scalar/list) met with a PURE decls-only struct that has NO embed of its own WRONGLY MERGES the
+decls instead of conflicting. cue (spec-conformant here) rejects: `{#a:1,5} & {#b:2}` is
+`5 & {#b:2}` = int-vs-struct bottom (spec: unifying different types is `_|_`); Kue admits it as
+`{#a:1,#b:2,5}`. Kue is MORE PERMISSIVE than the spec — it accepts a meet the spec says is
+bottom, a genuine soundness gap. **Locus:** `Lattice.lean` the `.embeddedScalar leftScalar
+leftDecls, rightLike` arm's `none`-branch `.struct fields _ none [] _` sub-case (lines ~1293–
+1316, both symmetric directions) and the IDENTICAL `.embeddedList` arms (~1255–1278). **Boundary
+(oracle-confirmed v0.16.1):** carrier & carrier MERGES (both reduce to scalars/lists — correct,
+keep); carrier & output-field-struct BOTTOMS (already correct via `structHasOutputField`);
+carrier & decls-only-struct-WITHOUT-embed must BOTTOM (currently merges — THE BUG). **Fix:** the
+`none`-branch struct sub-case should delegate to `meetCore` (→ bottom) instead of merging decls;
+merge happens ONLY via the `scalarCarrierPartner? = some` branch (carrier & carrier). Apply
+UNIFORMLY to both carriers. **Test debt to flip:** `ListTests.meet_scalar_carrier_with_decls_
+struct` and the `embeddedList` twin pin the WRONG merge — re-pin to bottom; the EvalTests
+`WITNESS_scalar_carrier_meet_{plain_decls_struct,lone_hidden_struct}_wrongly_merges` pins (added
+this audit) flip to `exportJsonBottoms`. **Why not inline:** touches both carriers' deliberate
+design, flips multiple oracle-pinned tests, needs a spec-gap-doc correction — too broad for a
+low-risk inline. Record the corrected behavior in `cue-spec-gaps.md` (the carrier-vs-plain-struct
+meet was the spec-silent COMBINATION the slice under-specified).
+
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
 Sequence after the spec-conformance correctness work: bank cheap-ready cleanups, then the

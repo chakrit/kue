@@ -1136,4 +1136,29 @@ theorem unknown_family_bottom_arg_is_bottom :
     (evalBuiltinCall "foobar.Baz" [.bottom] == .bottom) = true := by
   native_decide
 
+-- KNOWN-FAMILY, UNKNOWN-LEAF (`math.NoSuch`) with CONCRETE args must bottom THROUGH the family
+-- dispatcher, not silently residual inside it. The classifier routes the prefix to its family
+-- (`*_classifies_by_prefix_not_leaf` above); these pin that the per-family `eval*Builtin` then
+-- rejects the unknown leaf (concrete ⇒ bottom) for EVERY family — the in-family arm of the same
+-- soundness fix the unknown-FAMILY pins cover for the `none` arm. Asserted via `containsBottom`,
+-- not `== .bottom`: most families return a bare `.bottom`, but `regexp` returns a richer
+-- `.bottomWith [.unsupportedBuiltin …]` — both are a bottom VERDICT, which is the soundness
+-- property. Oracle-confirmed: `cue` rejects each (bottom verdict; message differs — divergence).
+theorem unknown_leaf_each_family_concrete_args_is_bottom :
+    containsBottom (evalBuiltinCall "math.NoSuch" [.prim (.int 1)])
+      && containsBottom (evalBuiltinCall "strings.NoSuch" [.prim (.string "a")])
+      && containsBottom (evalBuiltinCall "list.NoSuch" [.list [.prim (.int 1)]])
+      && containsBottom (evalBuiltinCall "regexp.NoSuch" [.prim (.string "a")])
+      && containsBottom (evalBuiltinCall "base64.NoSuch" [.prim (.string "a")])
+      && containsBottom (evalBuiltinCall "json.NoSuch" [.prim (.string "a")])
+      && containsBottom (evalBuiltinCall "yaml.NoSuch" [.prim (.string "a")]) = true := by
+  native_decide
+
+-- The same known-family unknown leaf with an ABSTRACT arg DEFERS (a later pass may concretise),
+-- mirroring the unknown-FAMILY abstract pin — concrete-only is what bottoms.
+theorem unknown_leaf_family_abstract_arg_stays_unresolved :
+    (evalBuiltinCall "math.NoSuch" [.ref "x"]
+      == .builtinCall "math.NoSuch" [.ref "x"]) = true := by
+  native_decide
+
 end Kue

@@ -388,6 +388,66 @@ theorem scalar_embed_with_decls_conflicting_unify :
     exportJsonBottoms "out: {#a: 1, 5} & {#b: 2, 6}\n" = true := by
   native_decide
 
+-- OPERAND POSITION (oracle-confirmed against cue v0.16.1). `resolveOperand` unwraps a carrier
+-- to its inner scalar in EVERY arith/compare/unary slot, not just `+`. A conflicting carrier
+-- (`{#a:1,5,6}`) holds an inner `5 & 6` bottom that must surface BEFORE the op, not silently
+-- unwrap to one scalar.
+theorem scalar_carrier_compare_lt_sees_scalar :
+    exportJsonMatches "out: {#a: 1, 5} < 6\n" "{\n    \"out\": true\n}\n" = true := by
+  native_decide
+
+theorem scalar_carrier_compare_eq_sees_scalar :
+    exportJsonMatches "out: {#a: 1, 5} == 5\n" "{\n    \"out\": true\n}\n" = true := by
+  native_decide
+
+theorem scalar_carrier_unary_neg_sees_scalar :
+    exportJsonMatches "out: -{#a: 1, 5}\n" "{\n    \"out\": -5\n}\n" = true := by
+  native_decide
+
+theorem scalar_carrier_conflicting_in_operand_bottoms :
+    exportJsonBottoms "out: {#a: 1, 5, 6} + 1\n" = true := by
+  native_decide
+
+theorem scalar_carrier_conflicting_in_compare_bottoms :
+    exportJsonBottoms "out: {#a: 1, 5, 6} < 10\n" = true := by
+  native_decide
+
+-- HIDDEN-DECL OUTPUT RULE (oracle-confirmed). A `_b` hidden decl rides the carrier the same as
+-- a `#a` definition decl: excluded from export, still selectable.
+theorem scalar_carrier_hidden_decl_selectable_not_output :
+    exportJsonMatches "x: {#a: 1, _b: 2, 5}\nout: x\nsa: x.#a\nsb: x._b\n"
+      "{\n    \"x\": 5,\n    \"out\": 5,\n    \"sa\": 1,\n    \"sb\": 2\n}\n" = true := by
+  native_decide
+
+-- CARRIER IN A LARGER MEET (oracle-confirmed). Three carriers chained: scalars unify (`5`),
+-- all three decls survive and stay selectable.
+theorem scalar_carrier_three_way_meet_keeps_all_decls :
+    exportJsonMatches "x: {#a: 1, 5} & {#b: 2, int} & {#c: 3, >0}\nout: [x.#a, x.#b, x.#c]\n"
+      "{\n    \"x\": 5,\n    \"out\": [\n        1,\n        2,\n        3\n    ]\n}\n" = true := by
+  native_decide
+
+-- CARRIER & OUTPUT-FIELD STRUCT (oracle-confirmed). A right struct carrying a REGULAR (output)
+-- field conflicts with the carrier-scalar — `5 & {b:2}` is int-vs-struct bottom.
+theorem scalar_carrier_meet_output_field_struct_bottoms :
+    evalSourceMatches "out: {#a: 1, 5} & {b: 2}\n" "out: _|_" = true := by
+  native_decide
+
+-- ┌─ DIVERGENCE WITNESS (CARRIER-VS-PLAIN-STRUCT) — see plan.md fix-slice CARRIER-STRUCT-MEET ─┐
+-- A scalar carrier (`{#a:1,5}` IS the scalar `5`) met with a PURE decls-only struct that has NO
+-- embed of its own (`{#b:2}` is a struct, not a carrier) MUST bottom: cue rejects `5 & {#b:2}`
+-- as int-vs-struct (spec: unifying different types is `_|_`). Kue WRONGLY merges the decls. These
+-- pin the CURRENT (incorrect) behavior so the fix-slice flips them to `exportJsonBottoms`; they
+-- are NOT a claim that the merge is right. The identical bug exists for `.embeddedList`.
+theorem WITNESS_scalar_carrier_meet_plain_decls_struct_wrongly_merges :
+    exportJsonMatches "x: {#a: 1, 5} & {#b: 2}\nrb: x.#b\n"
+      "{\n    \"x\": 5,\n    \"rb\": 2\n}\n" = true := by
+  native_decide
+
+theorem WITNESS_scalar_carrier_meet_lone_hidden_struct_wrongly_merges :
+    exportJsonMatches "out: {#x: 1, 5} & {#y: 2}\n" "{\n    \"out\": 5\n}\n" = true := by
+  native_decide
+-- └────────────────────────────────────────────────────────────────────────────────────────────┘
+
 theorem eval_additive_expressions :
     formatTopLevel
       (resolveAndEval

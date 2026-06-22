@@ -2102,6 +2102,15 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- A carrier IS its scalar in every operator slot (`resolveOperand` unwrap): compare, arith,
+      -- and unary all see `5`, not the struct. Oracle-matched against cue v0.16.1.
+      fileName := "structs/scalar_embedding_operand_position.expected",
+      content :=
+        match parseSource "lt: {#a: 1, 5} < 6\nsum: {#a: 1, 5} + 10\nneg: -{#a: 1, 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- B3: `for x in {#a:1,[1,2]}` iterates the EMBEDDED LIST (not zero times) → `[1, 2]`.
       fileName := "comprehensions/for_over_embedded_list.expected",
       content :=
