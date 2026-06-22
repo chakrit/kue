@@ -1729,14 +1729,18 @@ def embedBodyEmbedsDisj : Value -> Bool
     struct-compatible arm survives untouched (meet is idempotent on a field it already carries).
     The prune is the existing type-conflict primitive, not a shape heuristic, so two
     struct-compatible arms stay ambiguous (cue-exact). -/
-def spliceOperandForEmbed (embedBody : Value) (operand : List Field × Bool) : List Field × Bool :=
+def spliceOperandForEmbed (embedsDisjDeep : Bool) (embedBody : Value) (operand : List Field × Bool) :
+    List Field × Bool :=
   let extraLabels := (embedComprehensionReadLabels embedBody ++ embedDisjArmDeclLabels embedBody).eraseDups
   -- Gap-2b: a STRUCTURAL-disjunction-embedding body needs ALL the host's regular output fields
   -- routed into its arms (so the sound `list & {regular fields} = ⊥` meet prunes a list arm);
-  -- otherwise keep the narrow comprehension-read/discriminator splice (byte-identical).
+  -- otherwise keep the narrow comprehension-read/discriminator splice (byte-identical). Bug2-5: the
+  -- disjunction may be embedded TRANSITIVELY (a re-embed of a disjunction-bodied def), surfaced by
+  -- the caller's `embedBodyEmbedsDisjDeep` — so the regular-field splice (here, the sibling `kind`
+  -- that narrows a buried `_patch.kind`) reaches a disjunction two embed levels down.
   let keepLabel := fun (f : Field) =>
-    Field.isRegularOutput f && (embedBodyEmbedsDisj embedBody || extraLabels.contains (Field.label f))
-  if extraLabels.isEmpty && !embedBodyEmbedsDisj embedBody then hiddenFieldsOnly operand
+    Field.isRegularOutput f && (embedsDisjDeep || extraLabels.contains (Field.label f))
+  if extraLabels.isEmpty && !embedsDisjDeep then hiddenFieldsOnly operand
   else
     let (hidden, open_) := hiddenFieldsOnly operand
     let extraRegulars := operand.fst.filter keepLabel
@@ -1981,6 +1985,30 @@ def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
         (comprehensions.filter isEmbeddingValue).any fun embed =>
           match resolveEmbedDefBody? env embed with
           | some embedBody => bodyNeedsDefer env nextFuel embedBody
+          | none => false
+    | _, _ => false
+  termination_by fuel
+
+/-- Bug2-5: does an embed body embed a STRUCTURAL disjunction either DIRECTLY (`embedBodyEmbedsDisj`)
+    or TRANSITIVELY through one of its OWN embeddings? The direct check (`embedBodyEmbedsDisj`) only
+    inspects the body's own `cs`, so a body that merely RE-EMBEDS a disjunction-bodied def
+    (`#Mid: {#Mixin; …}` where `#Mixin`'s body is `listShape | structShape | error`) is missed — and
+    then the host's `spliceOperandForEmbed` into `#Mid` drops the regular fields (`kind`) the buried
+    disjunction's let-local (`_patch.kind`) needs, so the narrowing never reaches the disjunction-arm
+    path two embed levels down. This is the embed-chain analogue of `bodyNeedsDefer`: it recurses
+    through embeddings (resolved against `env`) so a host narrowing reaches a transitively-embedded
+    disjunction. Returns `true` when the body, or any def it transitively embeds, embeds a disjunction.
+    The splice it gates (Gap-2b: route ALL regular output fields into the embed) is sound regardless
+    of depth — meet is idempotent on a field an arm already carries, a real conflict still bottoms —
+    so widening the GATE through the embed chain never over-narrows. Fuel-bounded against embed
+    cycles. -/
+def embedBodyEmbedsDisjDeep (env : Env) (fuel : Nat) (body : Value) : Bool :=
+  embedBodyEmbedsDisj body ||
+    match fuel, body with
+    | nextFuel + 1, .structComp _ comprehensions _ =>
+        (comprehensions.filter isEmbeddingValue).any fun embed =>
+          match resolveEmbedDefBody? env embed with
+          | some embedBody => embedBodyEmbedsDisjDeep env nextFuel embedBody
           | none => false
     | _, _ => false
   termination_by fuel
@@ -2892,7 +2920,7 @@ mutual
               match evaluated with
               | .closure capturedEnv body =>
                   forceClosureWithConjunct nextFuel capturedEnv (openStructValue body)
-                    [spliceOperandForEmbed body (narrowing, true)]
+                    [spliceOperandForEmbed (embedBodyEmbedsDisjDeep env evalFuel body) body (narrowing, true)]
               | _ => pure evaluated
             let head :=
               match evaluatedStructOperand? (resolveEmbeddedDisjDefault resolved) with
@@ -2968,7 +2996,8 @@ mutual
                   -- still unify at the outer `meet current forced`, not via the splice (splicing them
                   -- makes the embed re-evaluate and conflict on them). `hiddenFieldsOnly` also drops
                   -- the host's `Self=`/`let` aliases (the embed has its own).
-                  let useOperands := (evaluatedStructOperand? current).toList.map (spliceOperandForEmbed body)
+                  let useOperands := (evaluatedStructOperand? current).toList.map
+                    (spliceOperandForEmbed (embedBodyEmbedsDisjDeep env evalFuel body) body)
                   let forced <-
                     forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
                   meetEmbeddingsWithFuel (nextFuel + 1) env (meet current (openStructValue forced)) rest

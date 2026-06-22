@@ -924,6 +924,97 @@ theorem mixin_let_local_guard_false_drops_body :
           = true := by
   native_decide
 
+/-! ### Bug2-5 — disjunction-arm let-local narrowing across a TRANSITIVE embed.
+
+Bug2-4 (above) narrowed a let-local (`_patch.kind`) when the disjunction-bodied mixin is embedded
+DIRECTLY by the host that declares the narrowing sibling (`#Use: {#Mixin; #additions; ...}` with
+`out: #Use & {kind: …}`). The argocd `#ListenerSet` shape is one level deeper: a SIBLING def's static
+field narrows the mixin, and the mixin is embedded TRANSITIVELY (`#ListenerSet` co-embeds
+`#UseCertManager`, which embeds `#Mixin`). The host's `kind` narrowing must cross TWO embed levels to
+reach `_patch.kind` on the disjunction-arm path. Pre-fix, `spliceOperandForEmbed` into the MIDDLE def
+(`#UseCertManager`) dropped `kind` — that def neither reads `kind` nor DIRECTLY embeds a disjunction
+(the disjunction is one more level down, inside `#Mixin`), so `embedBodyEmbedsDisj` (a one-level
+check) returned false and the Gap-2b "splice ALL regular fields" gate never fired. `kind` never
+reached the disjunction, the `if kind == add.#kind` guard fired against the un-narrowed `kind: string`,
+and the patch dropped (argocd bottomed).
+
+Fix: `embedBodyEmbedsDisjDeep` follows the embed chain (resolving each embedding via
+`resolveEmbedDefBody?`, mirroring `bodyNeedsDefer`) so a TRANSITIVELY-embedded disjunction still
+triggers the regular-field splice. The splice it gates is the SAME sound Gap-2b mechanism (meet is
+idempotent on a field an arm already carries; a real conflict still bottoms), so widening the GATE
+through the chain never over-narrows. -/
+
+-- Mechanism: a MIDDLE def body (`#UseCertManager`) embeds `#Mixin` (slot 0 of its env frame), whose
+-- body embeds a disjunction. `embedBodyEmbedsDisj` (one-level) is FALSE for the middle body (no `.disj`
+-- in its own `cs`); `embedBodyEmbedsDisjDeep` follows the `#Mixin` embed-ref into the disjunction-bodied
+-- def and returns TRUE — so the host's regular `kind` is spliced through the middle def.
+theorem embed_body_embeds_disj_deep_transitive :
+    -- env frame holds `#Mixin` at slot 0 (a struct-comp body whose `cs` is the structural disjunction).
+    (embedBodyEmbedsDisjDeep
+      [(0, [⟨"#Mixin", .definition,
+              (.structComp [] [.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+                                      (.regular, .builtinCall "error" [.prim (.string "no")])]] .regularOpen)⟩])]
+      evalFuel
+      -- the middle body re-embeds `#Mixin` (a depth-0 ref to slot 0) — no `.disj` of its OWN.
+      (.structComp [] [.refId ⟨0, 0⟩] .regularOpen)) = true := by
+  native_decide
+
+-- GATE control (byte-identity guard): a middle body that re-embeds a NON-disjunction def is FALSE —
+-- so the deep gate adds no splice, byte-identical to pre-fix for every non-mixin embed chain.
+theorem embed_body_embeds_disj_deep_no_disj :
+    (embedBodyEmbedsDisjDeep
+      [(0, [⟨"#Plain", .definition, (.structComp [⟨"a", .regular, .prim (.int 1)⟩] [] .regularOpen)⟩])]
+      evalFuel
+      (.structComp [] [.refId ⟨0, 0⟩] .regularOpen)) = false := by
+  native_decide
+
+-- Direct (one-level) disjunction embedding is still detected by the deep check (it subsumes the
+-- one-level `embedBodyEmbedsDisj` via the leading disjunct of the `||`).
+theorem embed_body_embeds_disj_deep_direct :
+    (embedBodyEmbedsDisjDeep []
+      evalFuel
+      (.structComp [] [.disj [(.regular, mkStruct [] .regularOpen none []),
+                              (.regular, .builtinCall "error" [.prim (.string "no")])]] .regularOpen)) = true := by
+  native_decide
+
+-- End-to-end (the argocd `#ListenerSet` minimal shape): a co-embedding SIBLING def's static `kind`
+-- narrows `_patch.kind` buried inside a TRANSITIVELY-embedded `#Mixin` disjunction. The matched patch
+-- (`meta: "yes"`) surfaces across BOTH embed levels — content-identical to cue (cue emits it; pre-fix
+-- kue DROPPED it).
+theorem bug25_transitive_embed_disj_emits_matched_patch :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\tlet listShape = {\n\t\t#components: [string]: _patch\n\t\t[...]\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tlistShape | structShape | error(\"nope\")\n\t...\n}\n#Mid: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\n#Outer: {\n\t#Mid\n\tkind: \"ListenerSet\"\n}\nout: #Outer\n"
+        "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"meta\": \"yes\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- SOUNDNESS (transitive): the deep-spliced narrowing meets a REAL conflict to bottom — the buried
+-- `_patch` declares `meta: \"fixed\"` and the matched patch yields `meta: \"clash\"` two levels down.
+-- The widened gate must NOT silently drop or spuriously keep — it must conflict.
+theorem bug25_transitive_real_conflict_bottoms :
+    exportJsonBottoms
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tmeta: \"fixed\"\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tstructShape | error(\"nope\")\n\t...\n}\n#Mid: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"clash\"}}\n}\n#Outer: {\n\t#Mid\n\tkind: \"ListenerSet\"\n}\nout: #Outer\n"
+          = true := by
+  native_decide
+
+-- Guard FALSE across the transitive embed: the sibling `kind` mismatches the addition's `#kind`, so
+-- the buried body must NOT fire — the patch drops, NOT a spurious emit.
+theorem bug25_transitive_guard_false_drops_body :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tstructShape | error(\"nope\")\n\t...\n}\n#Mid: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n}\n#Outer: {\n\t#Mid\n\tkind: \"Other\"\n}\nout: #Outer\n"
+        "{\n    \"out\": {\n        \"kind\": \"Other\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- No-regression: the DIRECT one-level embed (the Bug2-4 shape, `kind` a sibling of `#Mixin`) still
+-- emits the patch — the deep gate subsumes the one-level case without changing it.
+theorem bug25_direct_embed_still_emits :
+    exportJsonMatches
+        "#Mixin: Self={\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in Self.#additions {\n\t\t\tif kind == add.#kind {add.#patch}\n\t\t}\n\t\t...\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tstructShape | error(\"nope\")\n\t...\n}\n#Host: {\n\t#Mixin\n\t#additions: cert_ls: {#kind: \"ListenerSet\", #patch: {meta: \"yes\"}}\n\tkind: \"ListenerSet\"\n}\nout: #Host\n"
+        "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"meta\": \"yes\"\n    }\n}\n"
+          = true := by
+  native_decide
+
 /-! ### Bug2-2 (Gap-2) — force-tier disjunction-arm narrowing.
 
 An embedded def `#M` carrying a discriminated disjunction (`{shape:"struct",…} |
