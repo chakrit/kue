@@ -294,6 +294,13 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    - **Parser strictness** — `*(1|2)` laxity (`cue` rejects at parse); `__x`
      double-underscore accepted (`cue` reserves `__` -prefixed idents). Track under a
      parser-strictness pass.
+   - **`release-linux.sh` no dirty-tree guard (LOW, Phase-B 2026-06-23).** `release.sh`
+     requires a clean working tree before building (`git status --porcelain`);
+     `release-linux.sh` does not (it builds from `COPY . /src`, `.dockerignore` excludes
+     `.git`). A dirty tree could ship a Linux asset built from uncommitted changes that diverges
+     from the committed macOS asset on the SAME release. Add the same clean-tree precondition.
+     (Whether `release.sh` should auto-chain `release-linux.sh` — currently a deliberate two-step
+     split, Linux backfilled per-release — is a UX call left to the user, not filed.)
    - **DRY `selectEvaluatedField .disj` ** — the resolved-default arm re-lists the
      struct-shape dispatch; collapse to `match resolveDisjDefault? alternatives` (gains
      free nested-disjunction recursion). PARTIALLY addressed by CARRIER-DECL-SELECT (the
@@ -335,7 +342,11 @@ re-litigate): the walkers were NEVER one problem — three distinct walker famil
 separate normalizer pair, different mechanisms/result-types/recursion-domains/termination
 measures; folding them under one abstraction would be a false "stuff they all do"
 extraction. **Status: AD4-1 + A-EN3 DONE; DRY-1 RULED OUT; AD2-1 RESOLVED (2026-06-21,
-unified).** No open members. Detail in Resolved/ruled-out (AD2-1 entry) + git.
+unified); embedChainAny SHARED (2026-06-23, `0619097`).** No open members. The embed-chain
+share (`bodyNeedsDefer` + `embedBodyEmbedsDisjDeep` → one `embedChainAny (leaf)` combinator)
+is the AD4-1-safe case — pure non-recursive leaf, recursion owned by the combinator — NOT a
+re-litigation of DRY-1 (whose variation point WAS the recursion). Detail in Resolved/ruled-out
+(`embedChainAny` entry) + git.
 
 **CARRIER-DECL-SELECT (DRY, LOW) — DONE 2026-06-22.** Extracted `selectFromDecls (base) (label)
 (decls) : Value` (`findEvalField` → `selectedFieldValue` / deferred `.selector base label`) and
@@ -364,6 +375,50 @@ family, …) are HISTORY: the as-built detail is in
 (each audit is its own commit). What stays here is only the durable rulings — the ones a
 future audit would otherwise re-litigate.
 
+- **Phase-B audit (2026-06-23, batch `fcede10`..`71d4cf0`: CARRIER-STRUCT-MEET /
+  CARRIER-DECL-SELECT / Bug2-5 + Linux release infra; Phase A HEALTHY `71d4cf0`) —
+  architecture HEALTHY.** Module graph re-checked whole: ACYCLIC, strictly layered
+  (`EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Builtin → Lattice/…` NO
+  `Builtin → Eval`; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`;
+  `Runtime → Eval`). The Bug2-5 gate (`embedBodyEmbedsDisjDeep`) sits correctly in Eval's
+  def-deferral tier (follows `resolveEmbedDefBody?`, needs the eval-layer env) — right module.
+  Linux release infra (`scripts/release-linux.sh`, `Dockerfile.linux-build`, `.dockerignore`,
+  `df40b62`) does NOT touch the Lean graph; it is sound + robust (strict `set -euo pipefail`,
+  preconditions gated, toolchain single-sourced from `lean-toolchain`, idempotent `--clobber`,
+  trap-cleaned container extract, double smoke-test; debian-bullseye glibc-2.31 base,
+  container-local elan, no host mutation). **GitHub Actions ban CLEAN** (no `.github/`, no
+  workflow files; `.dockerignore` excludes `.github/` defensively). Cleanliness sweep clean:
+  NO `sorry`/`panic!`/`unreachable!`/`.get!`-in-total-code, NO `String.dropRight`/`dropLeft`,
+  NO dead code, NO stale TODO/FIXME/HACK (the `\uXXXX` hits in `Json.lean` are escape-doc); the
+  4 `Module.lean` `partial def`s are the justified IO-loader carve-out, not the pure core.
+  File sizes: `Eval.lean` 3465 (the `embedChainAny` dedup net-shaved a few off the Bug2-5
+  growth) — well under the ~4500 re-split watch, ruling STANDS (`embedChainAny` joins the
+  def-deferral tier, reinforcing it as the named first carve). `TwoPassTests.lean` 1496 (Bug2-5/
+  2-6 pins accreting) — the file to watch for the next test-org pass, not yet unwieldy.
+  **APPLIED INLINE (re-verified green):** (1) **`embedChainAny` share** (`0619097`) — the headline
+  ruling, below; (2) **perf-doc gating correction** — `kue-performance.md` argocd-bottoms entry
+  said "residual blocker is now **Bug2-5**" (STALE — Bug2-5 LANDED `5fca57e`); corrected to
+  Bug2-6, timing 153s→~54s. (`plan.md` item-5 + Standing Capabilities were already correct — no
+  un-gate had been wrongly applied.) **Bug2-6 design note** written into
+  `spec-conformance-audit.md` (provenance via `closedClauses` union-into-one-clause at the
+  `joinUnevaluated` seam; meet path untouched so `#A & #B` rejection structurally preserved).
+  **Filed:** one LOW Linux-script consistency item (item-6, `release-linux.sh` no dirty-tree
+  guard). **Verdict: HEALTHY; `embedChainAny` shared inline; one LOW item filed; no fix-slice.**
+- **`embedChainAny` (embed-chain walker share) — RULED: SHARE, applied inline `0619097`
+  (2026-06-23). The AD4-1-safe case, NOT the DRY-1 trap.** `bodyNeedsDefer` and
+  `embedBodyEmbedsDisjDeep` were byte-isomorphic except the leaf predicate
+  (`defBodyHasSiblingSelfRef` vs `embedBodyEmbedsDisj`). Factored the shared fuel-bounded
+  chain-walk into `embedChainAny (leaf : Value → Bool) (env) (fuel) (body)`; both became
+  one-line instantiations. **Why this is NOT DRY-1:** DRY-1 failed because its variation point
+  WAS the recursion (routing the nested-let recursion through a callback hid the `fuel+1`
+  pattern, breaking structural-recursion inference). Here the variation point is a PURE
+  NON-RECURSIVE `Value → Bool` leaf the combinator owns, and the recursion (the fixed
+  chain-walk) stays lexically in the combinator — exactly AD4-1 / `expandClauseChain`'s shape
+  (`onExhausted` is "pure and non-recursive, so the fuel/clause recursion stays lexically
+  visible to `termination_by`" — that comment IS the precedent). Neither leaf recurses into the
+  walk, so `termination_by fuel` infers unchanged. Build clean (native_decide pins green),
+  fixtures zero-drift, shellcheck clean. Do NOT re-litigate as a DRY-1-style false share — the
+  distinction (leaf-varies vs recursion-varies) is the whole ruling.
 - **CARRIER share/no-share (`.embeddedScalar` vs `.embeddedList`) — RULED: keep DISTINCT
   constructors; do NOT merge into an `embeddedCarrier`; share ONLY the decl-selection seam
   (CARRIER-DECL-SELECT, filed). Do NOT share the meet seam (Phase-B 2026-06-22, the

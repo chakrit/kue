@@ -136,13 +136,17 @@ fix is purely a speedup — byte-identical output.
   narrowing fixes — Bug #1 (single-embed), **Bug2-1** (let-buried read detection), **Bug2-2**
   (force-tier disjunction-arm narrowing for a regular discriminator), **Bug2-3 / Gap-2b**
   (structural list-arm-vs-struct-host disjunction pruning), **Bug2-4** (let-LOCAL declare-and-read
-  narrowing) — all LANDED. The residual full-app blocker is now **Bug2-5** (the force-path analogue
-  of Bug2-4's `injectLetLocalNarrowings`, undesigned), PARKED as a stress-test finding — see
-  `spec-conformance-audit.md` § Consolidated fix backlog; do NOT chase it with app-specific
-  narrowing. **Perf takeaway:** this is a value-correctness divergence, not a fuel/perf cliff. The
-  ~88s wall (vs cert-manager ~30.5s) is a separate downstream per-eval concern on the heavy `argo`
-  sub-package, meaningful only once argocd actually exports — gated behind Bug2-5, not a fuel-axis
-  problem. The per-eval constant (not the fuel ceiling) is the live perf frontier (item 7 residual).
+  narrowing), **Bug2-5** (transitive-embed disj-path narrowing injection, `5fca57e` 2026-06-22) —
+  all LANDED. Bug2-5 cut the argocd wall **153s → ~54s** but was NOT the final blocker. The
+  residual full-app blocker is now **Bug2-6** (definition multi-declaration closedness: `#Foo:
+  {a}; #Foo: {c}` closes each decl SEPARATELY → mutual rejection, instead of
+  unify-then-close-once — hits argocd's `#UseCertManager` three `#additions:` decls), PARKED as a
+  stress-test finding — see `spec-conformance-audit.md` § Consolidated fix backlog; do NOT chase
+  it with app-specific narrowing. **Perf takeaway:** this is a value-correctness divergence, not a
+  fuel/perf cliff. The ~54s wall (vs cert-manager ~30.5s) is a separate downstream per-eval
+  concern on the heavy `argo` sub-package, meaningful only once argocd actually exports — gated
+  behind **Bug2-6**, not a fuel-axis problem. The per-eval constant (not the fuel ceiling) is the
+  live perf frontier (item 7 residual).
 - **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
   is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
   fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking

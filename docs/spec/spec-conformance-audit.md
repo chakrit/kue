@@ -270,6 +270,47 @@ use-site def-meet — a provenance-carrying change in the definition-merge core.
 for a dedicated slice; correctness-first per the guardrails (an unsound fix here is worse
 than the parked bottom).
 
+> **Architecture design note (Phase-B audit, 2026-06-23 — DESIGN INPUT, no code; the
+> future slice starts from this).** The cleanest illegal-states-unrepresentable approach
+> exploits a representation that ALREADY exists: `Value.struct`'s **`closedClauses`** field
+> (`Value.lean:637`). Each clause is one closed conjunct's allowed-set; the type's CONTRACT
+> is "a field is allowed iff EVERY clause admits it" — a meet of two closed structs
+> CONCATENATES clauses (conjunction, the `#A & #B` rejection we must KEEP). Bug2-6 needs the
+> dual for same-def-decl merge: the two decls' label-sets must be UNIONED into ONE clause
+> (allowed iff SOME decl declared it), exactly the `unify-then-close-ONCE` spec rule. So the
+> fix is NOT a new flag on the meet; it is **choosing union-into-one-clause vs
+> concatenate-two-clauses at the point the provenance is known**, then letting the EXISTING
+> `closedClauses` conjunction machinery enforce `#A & #B` rejection unchanged downstream.
+>
+> **Where provenance lives — the single seam.** `canonicalizeFields`/`joinUnevaluated`
+> (`Eval.lean:351–363`) is the ONLY place that knows "these two bodies are repeated
+> declarations of the SAME def-path label." It currently erases that into an opaque
+> `.conj [closed{a}, closed{c}]`, and by the time `meet` closes each side the same-def-path
+> fact is gone (the diagnosis above). The fix carries the fact across that seam. **Cleanest
+> type carrier (illegal-states-unrepresentable):** do NOT bolt a `Bool` "sameDecl" flag onto
+> `.conj` (admits the nonsense combination of a same-decl flag on a use-site conjunction). A
+> def's repeated decls should NOT become a `.conj` at all — they are ONE definition whose
+> body is the field-set UNION closed ONCE. So `joinUnevaluated`, when BOTH sides are
+> definition-class bodies for the SAME label (the `Field` carries `FieldClass.isDefinition`),
+> should produce a **merged unevaluated def body** (one struct whose fields are the
+> union of both decls' fields, sharing ONE eventual `closedClauses` clause) — NOT a `.conj`
+> of two separately-closeable bodies. The `.conj` path stays for non-definition duplicate
+> labels (which `meet` correctly, since regular-field duplicates DO intersect). This keeps
+> the same-decl-vs-use-site distinction STRUCTURAL (a merged-body vs a `.conj`), not a flag.
+>
+> **Soundness boundary the design must preserve (the test that proves it):** `#A & #B`
+> (distinct closed defs, use-site meet) must STILL reject. It does, because the use-site meet
+> NEVER routes through `joinUnevaluated` — it is a `meet` of two already-closed `.struct`
+> values whose `closedClauses` CONCATENATE (two clauses → conjunction → reject). Only the
+> same-label decls under ONE def path hit `canonicalizeFields`. The two paths are already
+> disjoint in the code; the fix makes `joinUnevaluated` close-once on the same-decl path
+> WITHOUT touching the meet path — so the rejection is structurally preserved, not
+> re-checked. **Pins the slice must add:** `#Foo:{a:1}; #Foo:{c:3}` → `{a:1,c:3}` (open over
+> the union, both selectable); nested `out:{#m:{a:1}; #m:{c:3}}`; the three-decl
+> `#additions:` argocd shape; AND the must-still-reject witnesses `#A:{a} & #B:{c}` → field
+> not allowed, plus `#Foo:{a:1}; #Foo:{a:2}` → `{a: _|_}` (same label, conflicting VALUES,
+> still meets and bottoms — the union is over LABELS, the values still `meet`).
+
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 
 - **Bug2-3 / Gap-2b — DONE (2026-06-19, `d9f66ca`).** See Audit history.
