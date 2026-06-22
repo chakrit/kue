@@ -113,10 +113,15 @@ field-ordering byte-parity gap (#3):
   deeper blocker is now **Bug2-8** (same-def multi-decl close-once ACROSS AN EMBED boundary:
   `#UseCertManager` embeds `#Mixin` and adds its OWN `#additions` decls, so the `#additions`
   decls span the embed (cross-operand) yet must still close-once-union — a harder
-  def-path-provenance-through-embed change than Bug2-7's within-operand lever). PARKED as a
-  stress-test finding (see `spec-conformance-audit.md` Live-slice detail); resolves as the
-  general semantics mature. argocd localized to `route.yaml`/`listener.yaml` (the `#ListenerSet
-  & parts.#UseCertManager` `#additions` triple-decl, host-decl + embed-pattern of one path).
+  def-path-provenance-through-embed change than Bug2-7's within-operand lever). **DESIGN NOTE
+  WRITTEN** (Phase-B 2026-06-23 — `spec-conformance-audit.md` § Bug2-8 design note: a
+  `DeclProvenance` sum tag (`ownDecl`/`embeddedDecl`, NOT a Bool) on the per-operand tuple,
+  routing a host `ownDecl #m` × embed `embeddedDecl #m` DEFINITION-class pair through
+  `mergeDefinitionDecls` close-once-union in `meetEmbeddingsWithFuel`/the `.structComp`
+  force-fold, leaving pattern/regular/distinct-def meets untouched; +`-e out` projection fix).
+  PARKED as a stress-test finding; resolves as the general semantics mature. argocd localized
+  to `route.yaml`/`listener.yaml` (the `#ListenerSet & parts.#UseCertManager` `#additions`
+  triple-decl, host-decl + embed-pattern of one path).
 
 ## Live Backlog (open work, ranked)
 
@@ -383,6 +388,73 @@ family, …) are HISTORY: the as-built detail is in
 [`../reference/implementation-log.md`](../reference/implementation-log.md) and `git log`
 (each audit is its own commit). What stays here is only the durable rulings — the ones a
 future audit would otherwise re-litigate.
+
+- **Phase-B audit (2026-06-23, batch `d949666`..`10e8837`: Bug2-6 + Bug2-7 close-once;
+  Phase A HEALTHY `10e8837`) — architecture HEALTHY.** Module graph re-checked whole:
+  ACYCLIC, strictly layered (`EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Builtin`
+  carries NO `Eval`/`EvalOps` edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex,
+  Normalize}`; `Lattice → {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`).
+  The Bug2-6/2-7 changes (`mergeDefinitionDecls`, `unionDefOpenness`,
+  `canonicalizeFields`/`mergeUnevaluatedFieldInto`, per-operand canonicalize in
+  `mergeConjOperands`) sit correctly in `Eval`'s unevaluated-merge tier — they need
+  `mergeFieldClass`/`isDefinition` (the eval layer's field-class machinery), so they belong
+  in `Eval`, not `Lattice` (`Lattice` owns the EVALUATED `meet` merge; the UNEVALUATED
+  `.conj`/close-once merge is an eval concern). Cleanliness sweep CLEAN: NO
+  `sorry`/`panic!`/`unreachable!`/`.get!`-in-total-code, NO `String.dropRight`/`dropLeft`,
+  NO dead code, NO stale TODO/FIXME/HACK; the 10 `Parse.lean` `partial def`s are the
+  standing IO/lexer carve-out, pure core total. File sizes: `Eval.lean` 3558 (+93 over the
+  prior Phase-B's 3465 — Bug2-6/2-7 growth), still WELL under the ~4500 re-split watch — the
+  `Eval.DefDeferral`-first-carve ruling STANDS (below). `TwoPassTests.lean` 1713 (+217 over
+  the prior 1496; 56 Bug2-x pin refs) — the file to watch; the test-org pass is
+  APPROACHING-due, not yet due (filed as a tracked note, not scheduled — Bug2-8 is next
+  leader). **APPLIED INLINE (re-verified green, cert-canary jq-S=0):** `kue-performance.md`
+  argocd-bottoms entry de-staled — said "the residual full-app blocker is now **Bug2-6**"
+  (STALE: Bug2-6 `ef824cb` + Bug2-7 `3361699` both LANDED); corrected the narrowing-fix
+  chain to include Bug2-6/2-7 + gating to **Bug2-8**, wall `153s → ~58s`. **Bug2-8 design
+  note** written into `spec-conformance-audit.md` (def-path provenance carrier
+  `DeclProvenance` through the embed force-fold). **Verdict: HEALTHY; `mergeFieldsWith`
+  RULED-OUT (below); one inline perf-doc de-stale; Bug2-8 design note in place; no new
+  fix-slice.**
+- **`mergeFieldsWith` consolidation (`mergeFieldListWith` / `canonicalizeFields` /
+  `mergeConjFields` skeleton-share) — RULED OUT: keep SEPARATE. The skeleton-share is real
+  but the seam where it matters (`mergeFieldListWith` ↔ `mergeConjFields`) is ALREADY shared
+  via `mergeFieldIntoWith`; `canonicalizeFields` cannot join under a `Value→Value→Value`
+  combiner AND must not, on soundness-boundary grounds (Phase-B 2026-06-23, the headline
+  adjudication).** Decomposed:
+  - **Two of the three already share their match-helper.** `mergeFieldListWith meetValue`
+    (Lattice:689) and `mergeConjFields` (Eval:631) both `foldl` over the SAME per-label
+    helper `mergeFieldIntoWith` (Lattice:666), differing only in the `meetValue` arg
+    (`meet` vs `joinUnevaluated`) and the seed (`[]` vs `accumulated`). The Phase-A-proposed
+    "parameterize the skeleton" is, for this pair, already DONE — `mergeFieldIntoWith` IS
+    the parameterized skeleton. `mergeConjFields` is a 5-line `foldl` wrapper that picks the
+    seed + fixes the combiner; collapsing it into a direct `mergeFieldListWith
+    joinUnevaluated` call buys nothing (the seed differs, and the named wrapper carries the
+    load-bearing conj-of-EMBEDS doc-comment) and is not worth touching.
+  - **`canonicalizeFields` cannot join under the proposed signature.** Its per-label helper
+    `mergeUnevaluatedFieldInto` (Eval:401) is NOT a `Value→Value→Value` combiner: it
+    dispatches on the MERGED field-class (`fieldClass.isDefinition` →
+    `mergeDefinitionDecls` close-once-union, else `joinUnevaluated`), a decision the plain
+    combiner signature cannot express. It also DELIBERATELY omits the bottom-rewrite that
+    `mergeFieldValueWith` does (`isBottom` → `.fieldConflict`) — an unevaluated decl is not
+    yet a meet, so it carries no conflict marker. Forcing it under a shared `mergeFieldsWith`
+    would mean threading the field-class into the combiner type — a strictly looser, more
+    error-prone signature than the two it would merge. This is the four-classifiers / DRY-1
+    precedent: the shared part (the `foldl … else-append` shell) is too thin to name; the
+    per-label DECISION is the point, and it differs irreducibly.
+  - **🚨 Soundness-boundary: consolidation is FORBIDDEN regardless of skeleton, because the
+    within-operand-vs-cross-operand (union-vs-meet) distinction lives in WHICH FUNCTION the
+    caller invokes, and that is the whole safety.** `canonicalizeFields` (within ONE operand
+    → close-once-UNION via `mergeDefinitionDecls`) and `mergeConjFields` (CROSS-operand →
+    `.conj`-MEET) are deliberately DIFFERENT named functions so a call site picks the
+    semantics by name — `mergeConjOperands` canonicalizes each operand's OWN fields, then
+    `mergeConjFields`-merges ACROSS operands; the soundness boundary IS that ordering of two
+    differently-named calls. A merged `mergeFieldsWith combiner` would put union-vs-meet
+    into a COMBINER ARGUMENT — making it one wrong argument to pass the union combiner on a
+    cross-operand path, which re-opens closed patterns (the cert-manager trap, the exact
+    Bug2-8 hazard). The distinct names make the union combiner UNREACHABLE on the
+    cross-operand path by construction. Per the prompt's own constraint: "if consolidation
+    would blur or endanger that boundary, that's a reason to KEEP SEPARATE even if the
+    skeleton is shared." It would, so they stay separate. **Do not re-file as a DRY win.**
 
 - **Phase-B audit (2026-06-23, batch `fcede10`..`71d4cf0`: CARRIER-STRUCT-MEET /
   CARRIER-DECL-SELECT / Bug2-5 + Linux release infra; Phase A HEALTHY `71d4cf0`) —

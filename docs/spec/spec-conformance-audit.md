@@ -340,6 +340,89 @@ slice; correctness-first per the guardrails. Tripwire pin:
 is the residual argocd blocker (`apps/argocd.cue`'s `#UseCertManager` embeds `#Mixin` + adds
 `#additions: {cert_gw, cert_ing, cert_ls}`).
 
+**Bug2-8 DESIGN NOTE (Phase-B 2026-06-23 — the design for the NEXT slice; NO code yet).**
+
+*The crux.* The merge needs to distinguish two cross-operand shapes that look identical at
+the field level:
+- **UNION (close-once):** the host operand's `#m` decl and an EMBEDDED operand's `#m` decl
+  are two declarations of the ONE def path `#m` (`#A: {#m:{a}}` embedded into `#Use: {#A;
+  #m:{c}}`) — cue merges them, closes once → `{a:1,c:3}`.
+- **MEET (stay closed):** the host's `#data: [string]:string` closed-pattern field met
+  against the SAME closed pattern contributed by an embed is a genuine cross-conjunct
+  VALUE-meet — must stay closed-MEET, never union (the cert-manager trap;
+  `bug28_embed_closed_pattern_field_stays_meet`).
+
+Bug2-7's within-vs-cross-operand lever can no longer tell these apart: both are
+cross-operand. The ONLY discriminator is **whether the two decls are repeated declarations
+of the SAME definition PATH** (union) vs **two distinct conjuncts' values meeting** (meet).
+So the fix must carry **def-path provenance** through the embed force-fold.
+
+*Where provenance lives (illegal-states-unrepresentable — a SUM TYPE, not a Bool).* Add a
+provenance tag to the per-operand `(fields, open)` operand that
+`mergeConjOperands`/`forceClosureWithConjunctCore` thread. Sketch:
+```
+inductive DeclProvenance where
+  | ownDecl        -- a decl written directly in this def body (host operand)
+  | embeddedDecl   -- a decl contributed by an embedding of this SAME def path
+```
+The operand tuple becomes `(List Field × Bool × DeclProvenance)` (or a small `structure
+ConjOperand` once it grows a third field — prefer the named `structure` to a 3-tuple,
+illegal-states + readability). Why a sum, not a Bool: a Bool (`isEmbedded`) admits the
+nonsense "an own-decl that is also embedded" and, more importantly, says nothing about WHICH
+def path the embed belongs to — the discriminator is not "did this come from an embed" but
+"do these two decls name the same definition path". The sum is the seam to grow: when the
+merge needs more than two origins (e.g. a transitively-embedded decl), it gains a
+constructor and EVERY match site is forced to handle it (no catch-all swallow).
+
+*How it threads (the embed force-fold).* The embed merge happens in
+`forceClosureWithConjunctCore`'s `.structComp` arm (`Eval.lean:3205`): `mergeConjOperands
+((defFields, true) :: useOperands)` builds the static frame, then `meetEmbeddingsWithFuel`
+folds the embeddings in, then `closeEmbeddedOver` (`Eval.lean:1848`) re-applies the def's
+closedness over `def labels ∪ each embedding's labels`. The provenance must reach the point
+where an EMBEDDING's fields land next to the host's same-label decl:
+- In `meetEmbeddingsWithFuel`, when an embedded operand contributes a `#m` whose label ALSO
+  appears in the host's own decls AND both are DEFINITION-class, route THAT pair through
+  `mergeDefinitionDecls` (close-once-UNION, the Bug2-6 lever) instead of the `meet`/`.conj`
+  that fires today. Tag the embed's contributed fields `embeddedDecl` at the point they are
+  spliced (the `.closure`/force arm at `Eval.lean:3095` builds `useOperands` from
+  `evaluatedStructOperand?` — extend it to carry the tag), so the same-def-path test is
+  `host ownDecl #m` × `embed embeddedDecl #m`, both DEFINITION-class → union. A
+  non-definition label, or a label only one side declares, is UNCHANGED (still `.conj`/meet).
+- The cert-manager MEET case is preserved BY THE CLASS+PROVENANCE TEST, not by the operand
+  split: a closed-PATTERN field (`#data: [string]:string`) is NOT a same-label
+  definition-class field-decl collision — it is a pattern constraint, routed through the
+  pattern-meet arm, never through `mergeDefinitionDecls`. The union fires ONLY for two
+  same-label DEFINITION-class FIELD decls of one path; a pattern/regular/output field never
+  enters it. (Confirm during implementation that the argocd `#additions: {cert_gw,…}` decls
+  are definition-class field decls, not pattern decls — they are: `#additions` is a
+  hidden/definition field whose VALUE is a struct, the union target.)
+
+*Manifestation quirk the slice must fix (Phase-A pin).* On the Bug2-8 witness, `kue export
+-e out` yields `{c:3}` (drops `a` on the visible projection) while the WHOLE FILE bottoms
+via the hidden `#m`. The slice must make BOTH correct: whole-file exports `{a:1,c:3}` AND
+the `-e out` projection exports `{a:1,c:3}` (not `{c:3}`). The `-e` projection drop is the
+symptom that the host's own `#m` decl never unioned with the embed's — fixing the union
+fixes both, but PIN both paths.
+
+*Witnesses the slice will pin (must-merge + must-still-meet):*
+- **must-MERGE (close-once-union across embed):** the minimal repro `#A:{#m:{a:1}}` /
+  `#Use:{#A; #m:{c:3}; vis:#m}` → `{a:1,c:3}` (whole-file AND `-e out` both); the 3-decl
+  argocd shape (`#additions:{cert_gw}` host + `{cert_ing}` embed + `{cert_ls}` second embed
+  → all three union, close once); a SHARED-label CONFLICT across the embed (`#A:{#m:{a:1}}` /
+  `#Use:{#A; #m:{a:2}}` → `#m.a` bottoms — union still `.conj`-meets a shared label, must
+  NOT silently pick one).
+- **must-still-MEET (cert-manager canary — the boundary):**
+  `bug28_embed_closed_pattern_field_stays_meet` stays green (closed `#data` pattern across
+  the embed admits `extra`, stays closed-MEET, NOT re-opened); `#A & #B` (two DISTINCT
+  closed defs each declaring `#m`, NOT one path embedded) still MEETs + conjoins
+  closedClauses → rejects extras (the union must NOT fire for genuinely-distinct defs); a
+  regular (non-definition) same-label field across an embed still `.conj`-meets, not unions.
+- Re-verify the FULL cert-manager export stays jq-S=0 after the change (the embed force-fold
+  is on cert-manager's hot path).
+
+This design lands in `plan.md` Bug2-8 entry pointer + the breadcrumb; the slice owns
+code+tests.
+
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 
 - **Bug2-3 / Gap-2b — DONE (2026-06-19, `d9f66ca`).** See Audit history.

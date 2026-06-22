@@ -128,25 +128,31 @@ fix is purely a speedup — byte-identical output.
   > Standing Capabilities. The 92s figure was stale (it predates the item-7 hash fix landing, or was a
   > cold/contended run); the steady measurement across the Bug2-1 and Bug2-2 slices is consistently
   > ~30.5s. Treat **~30.5s** as the cert-manager number; the 92s is retired.
-- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, NOT a perf/fuel limit (2026-06-19;
-  supersedes the earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness" readings,
-  both DISPROVEN — fuel sweep 100/200/600 + `resolve`/`remapFuel` 100000 all still bottom; it
-  reproduces SAME-MODULE).** Root cause: a `parts.#Mixin` comprehension guard reads a use-site-
-  narrowed sibling through a buried embed, and the narrowing did not reach the guard. The chain of
-  narrowing fixes — Bug #1 (single-embed), **Bug2-1** (let-buried read detection), **Bug2-2**
-  (force-tier disjunction-arm narrowing for a regular discriminator), **Bug2-3 / Gap-2b**
-  (structural list-arm-vs-struct-host disjunction pruning), **Bug2-4** (let-LOCAL declare-and-read
-  narrowing), **Bug2-5** (transitive-embed disj-path narrowing injection, `5fca57e` 2026-06-22) —
-  all LANDED. Bug2-5 cut the argocd wall **153s → ~54s** but was NOT the final blocker. The
-  residual full-app blocker is now **Bug2-6** (definition multi-declaration closedness: `#Foo:
-  {a}; #Foo: {c}` closes each decl SEPARATELY → mutual rejection, instead of
-  unify-then-close-once — hits argocd's `#UseCertManager` three `#additions:` decls), PARKED as a
-  stress-test finding — see `spec-conformance-audit.md` § Consolidated fix backlog; do NOT chase
-  it with app-specific narrowing. **Perf takeaway:** this is a value-correctness divergence, not a
-  fuel/perf cliff. The ~54s wall (vs cert-manager ~30.5s) is a separate downstream per-eval
-  concern on the heavy `argo` sub-package, meaningful only once argocd actually exports — gated
-  behind **Bug2-6**, not a fuel-axis problem. The per-eval constant (not the fuel ceiling) is the
-  live perf frontier (item 7 residual).
+- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, NOT a perf/fuel limit
+  (2026-06-19; supersedes the earlier "fuel-exhaustion-at-scale" and "cross-module
+  import-laziness" readings, both DISPROVEN — fuel sweep 100/200/600 +
+  `resolve`/`remapFuel` 100000 all still bottom; it reproduces SAME-MODULE).** Root cause:
+  a `parts.#Mixin` comprehension guard reads a use-site-narrowed sibling through a buried
+  embed, and the narrowing did not reach the guard. The chain of narrowing fixes — Bug #1
+  (single-embed), **Bug2-1** (let-buried read detection), **Bug2-2** (force-tier
+  disjunction-arm narrowing for a regular discriminator), **Bug2-3 / Gap-2b** (structural
+  list-arm-vs-struct-host disjunction pruning), **Bug2-4** (let-LOCAL declare-and-read
+  narrowing), **Bug2-5** (transitive-embed disj-path narrowing injection, `5fca57e`
+  2026-06-22), **Bug2-6** (definition multi-declaration close-once: `#Foo: {a}; #Foo: {c}`
+  unify-then-close-once, `ef824cb` 2026-06-23), **Bug2-7** (same-def multi-decl close-once
+  on the def-REFERENCE / force-fold path, `3361699` 2026-06-23) — all LANDED. Bug2-5 cut
+  the argocd wall **153s → ~58s** but was NOT the final blocker; neither were Bug2-6 nor
+  Bug2-7. The residual full-app blocker is now **Bug2-8** (same-def multi-decl close-once
+  ACROSS AN EMBED boundary: `#UseCertManager` embeds `#Mixin` and adds its own `#additions`
+  decls, so the decls span the embed — cross-operand — yet must still close-once-union; the
+  within-vs-cross-operand split that made Bug2-6/2-7 tractable no longer separates union
+  from meet), PARKED as a stress-test finding — see `spec-conformance-audit.md` §
+  Consolidated fix backlog; do NOT chase it with app-specific narrowing. **Perf takeaway:**
+  this is a value-correctness divergence, not a fuel/perf cliff. The ~58s wall (vs
+  cert-manager ~30.5s) is a
+  separate downstream per-eval concern on the heavy `argo` sub-package, meaningful only once argocd
+  actually exports — gated behind **Bug2-8**, not a fuel-axis problem. The per-eval constant (not the
+  fuel ceiling) is the live perf frontier (item 7 residual).
 - **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
   is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
   fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking
