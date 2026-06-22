@@ -519,6 +519,38 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-6: two SEPARATE declarations of one definition path UNIFY their field-sets and close
+      -- ONCE over the union (`#Foo: {a:1}` + `#Foo: {c:3}` → `{a,c}` closed). cue v0.16.1 gives
+      -- `{a:1,c:3}`. Pre-fix Kue `.conj`-ed two SEPARATELY-closed bodies, so the meet mutually
+      -- rejected (`{a:_|_, c:_|_}`). Fixed by `mergeDefinitionDecls`: `canonicalizeFields` unions
+      -- same-label def decls into ONE close-once body.
+      fileName := "definitions/bug26_same_def_multi_decl_close_once.expected",
+      content :=
+        match parseSource "#Foo: {a: 1}\n#Foo: {c: 3}\nout: #Foo\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-6 close-once is still CLOSED: three same-def decls union `{a,b,c}` and close ONCE, so a
+      -- use-site `extra` (in NO decl) is rejected (`extra: _|_`). The 3-decl argocd `#additions:`
+      -- shape; the union admits exactly `a∪b∪c`, never re-opening.
+      fileName := "definitions/bug26_three_decl_close_once_rejects_extra.expected",
+      content :=
+        match parseSource "#Foo: {a: 1}\n#Foo: {b: 2}\n#Foo: {c: 3}\nout: #Foo & {extra: 9}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-6 SOUNDNESS GUARD: two DISTINCT closed defs (`#A`, `#B`) met at the USE site STILL
+      -- reject (`{a:_|_, c:_|_}`). The use-site `meet` CONCATENATES `closedClauses` (conjunction),
+      -- never routing through the same-decl union — so close-once does NOT leak into `#A & #B`.
+      fileName := "definitions/bug26_distinct_closed_defs_still_reject.expected",
+      content :=
+        match parseSource "#A: {a: 1}\n#B: {c: 3}\nout: #A & #B\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

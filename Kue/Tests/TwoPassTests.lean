@@ -1463,33 +1463,84 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
       "{\n    \"out\": {\n        \"ok\": true\n    }\n}\n" = true := by
   native_decide
 
-/-! ### Bug2-6 — definition multi-declaration closedness (PARKED bug-WITNESS, FLIP WHEN FIXED).
+/-! ### Bug2-6 — definition multi-declaration close-once (RESOLVED).
 
-The REAL residual argocd `export` blocker (filed `cb6d555`, distinct from the now-fixed Bug2-5).
-Two SEPARATE declarations of one definition path (`#Foo: {a:1}` + `#Foo: {c:3}`) must unify their
-field SETS and close ONCE over the union (the same union-not-intersect rule as embedding
-closedness) → cue v0.16.1 gives `{a:1, c:3}`. Kue instead closes each decl's body SEPARATELY
-(`defClosed` at load) and conjoins them (`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`),
-so the meet MUTUALLY REJECTS → `{a:_|_, c:_|_}` (export bottoms).
+Two SEPARATE declarations of one definition path (`#Foo: {a:1}` + `#Foo: {c:3}`) UNIFY their field
+SETS and close ONCE over the union (the same union-not-intersect rule as embedding closedness) →
+cue v0.16.1 gives `{a:1, c:3}`. Kue formerly closed each decl's body SEPARATELY (`defClosed` at
+load) and conjoined them (`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`), so the meet
+MUTUALLY REJECTED → `{a:_|_, c:_|_}` (export bottomed). FIXED by `mergeDefinitionDecls`: when
+`canonicalizeFields`/`mergeConjFields` merge two same-label DEFINITION-class decls, the bodies are
+UNIONED into ONE def body (close-once via the existing single-`closedClauses`-clause path), NOT a
+`.conj`. The `#A & #B` use-site-meet path is structurally untouched (a `meet` of two already-closed
+structs CONCATENATES clauses → conjunction → reject), so distinct closed defs STILL reject — the
+soundness guards below pin that. -/
 
-The pin below holds the CURRENT WRONG behavior (export bottoms). It is a TRIPWIRE, not a contract:
-when Bug2-6 lands (same-def-decl provenance in `canonicalizeFields`/`joinUnevaluated`), this
-`exportJsonBottoms` flips false — replace it with the positive `exportJsonMatches … {a:1,c:3}`. The
-companion `bug26_distinct_closed_defs_still_reject` is the SOUNDNESS GUARD the fix must NOT break:
-`#A & #B` (two DISTINCT closed defs) must STILL reject (`field not allowed` in cue) — a naive
-"union closed sets on meet" would wrongly admit it, because by meet time the same-def provenance is
-already lost. Keep that pin GREEN through the Bug2-6 fix. -/
-
--- WITNESS (current WRONG behavior — FLIP when Bug2-6 lands): same-def multi-decl bottoms where cue
--- gives `{a:1, c:3}`. Oracle: cue v0.16.1 `export -e out` → `{"a":1,"c":3}`; kue → bottom.
-theorem bug26_WITNESS_same_def_multi_decl_wrongly_bottoms :
-    exportJsonBottoms "#Foo: {a: 1}\n#Foo: {c: 3}\nout: #Foo\n" = true := by
+-- TARGET (was the WITNESS of the wrong bottom; FLIPPED): same-def multi-decl close-once → {a:1,c:3}.
+theorem bug26_same_def_multi_decl_close_once :
+    exportJsonMatches "#Foo: {a: 1}\n#Foo: {c: 3}\nout: #Foo\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
   native_decide
 
--- SOUNDNESS GUARD (must STAY green through the Bug2-6 fix): two DISTINCT closed defs reject. A
--- "union closed sets on meet" fix that admitted this would be UNSOUND. cue: `field not allowed`.
+-- 3-decl argocd shape: three same-def hidden/def decls unify their label-sets, close once.
+theorem bug26_three_decl_close_once :
+    exportJsonMatches "#Foo: {a: 1}\n#Foo: {b: 2}\n#Foo: {c: 3}\nout: #Foo\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- Nested same-def multi-decl close-once (def inside a regular field).
+theorem bug26_nested_same_def_close_once :
+    exportJsonMatches "out: {#m: {a: 1}, #m: {c: 3}, x: #m}\n"
+      "{\n    \"out\": {\n        \"x\": {\n            \"a\": 1,\n            \"c\": 3\n        }\n    }\n}\n" = true := by
+  native_decide
+
+-- The merged def is CLOSED ONCE over the union: a use-site extra (in NEITHER decl) is rejected.
+theorem bug26_merged_def_closes_once_rejects_extra :
+    exportJsonBottoms "#Foo: {a: 1}\n#Foo: {c: 3}\nout: #Foo & {extra: 9}\n" = true := by
+  native_decide
+
+-- The merged def admits a use-site field that IS in the union (close-once, not over-closed).
+theorem bug26_merged_def_admits_union_field :
+    exportJsonMatches "#Foo: {a: 1}\n#Foo: {c: 3}\nout: #Foo & {a: 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- CONFLICT EDGE: same-def decls with conflicting VALUES on a SHARED label still bottom — close-once
+-- unions LABELS, the values still `meet` (cue: `conflicting values 2 and 1`). Must NOT be papered over.
+theorem bug26_same_def_conflict_still_bottoms :
+    exportJsonBottoms "#Foo: {a: 1}\n#Foo: {a: 2}\nout: #Foo\n" = true := by
+  native_decide
+
+-- OPEN-VIA-`...` EDGE: if ANY decl is open via `...`, the union is OPEN (admits a use-site extra) —
+-- openness UNIONS for same-def decls (open dominates), opposite to use-site meet (closed dominates).
+theorem bug26_same_def_one_open_via_tail_admits_extra :
+    exportJsonMatches "#Foo: {a: 1, ...}\n#Foo: {c: 3}\nout: #Foo & {extra: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"extra\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): two DISTINCT closed defs reject. A "union closed sets on meet"
+-- fix that admitted this would be UNSOUND. cue: `field not allowed`. The fix keeps this REJECTING
+-- because the use-site `meet` CONCATENATES clauses (conjunction) — never routes through the decl union.
 theorem bug26_distinct_closed_defs_still_reject :
     exportJsonBottoms "#A: {a: 1}\n#B: {c: 3}\nout: #A & #B\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD variant: distinct defs where A declares an EXTRA field B does not — the meet must
+-- reject the extra (cue: `field not allowed`), NOT union it in.
+theorem bug26_distinct_closed_defs_reject_extra :
+    exportJsonBottoms "#A: {a: 1, b: 2}\n#B: {a: 1}\nout: #A & #B\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD variant: distinct defs with a CONFLICTING shared field still bottom on the conflict
+-- (cue: `conflicting values 2 and 1`) — the meet is a genuine conjunction, not a close-once union.
+theorem bug26_distinct_closed_defs_conflict_bottoms :
+    exportJsonBottoms "#A: {a: 1}\n#B: {a: 2}\nout: #A & #B\n" = true := by
+  native_decide
+
+-- SOUNDNESS GUARD positive: distinct defs with the SAME single field admit (both closed sets agree).
+theorem bug26_distinct_closed_defs_same_field_admits :
+    exportJsonMatches "#A: {a: 1}\n#B: {a: 1}\nout: #A & #B\n"
+      "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
 

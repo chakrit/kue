@@ -351,16 +351,88 @@ def mergeEvaluatedFields (fields : List Field) : Option (List Field) :=
 def joinUnevaluated (left right : Value) : Value :=
   .conj [left, right]
 
+/-- The openness of the UNION of two same-def declarations (Bug2-6). Repeated declarations of
+    ONE definition path unify their field-sets and close ONCE over the union — so openness
+    UNIONS, with OPEN dominating (if EITHER decl is open via `...`, the merged body is open).
+    This is the DUAL of `StructOpenness.meet` (use-site `#A & #B`, where CLOSED dominates):
+    same-def decls are one definition's parts, not two independent closed constraints. -/
+def unionDefOpenness (left right : StructOpenness) : StructOpenness :=
+  if left.isOpen || right.isOpen then .defOpenViaTail else .defClosed
+
+/-- Merge two *unevaluated* bodies that are repeated declarations of the SAME definition path
+    (Bug2-6 close-once). cue unifies a definition's multiple declarations BEFORE closing, then
+    closes ONCE over the UNION of their field-sets (`#Foo: {a:1}` + `#Foo: {c:3}` → `{a:1,c:3}`,
+    closed to `{a,c}`). Kue formerly `.conj`-ed the two SEPARATELY-closed bodies, so the meet
+    mutually rejected each side's fields. This unions the two decls into ONE def body that the
+    eval close then closes ONCE (the single-clause `closedClauses` path), so the union admits
+    exactly `a ∪ c` and rejects anything else.
+
+    Distinct from a use-site `#A & #B` meet, which CONCATENATES `closedClauses` (conjunction →
+    reject extras): that path never reaches here. This is reached ONLY from
+    `canonicalizeFields`/`mergeConjFields` when the merged field-class `isDefinition` — same-decl
+    provenance is present exactly there and nowhere else, so the same-decl-vs-use-site
+    distinction is STRUCTURAL (a merged body here vs a `.conj` at the meet), not a flag.
+
+    Shapes (post-`normalizeDefinitions` a plain def body is a closed `.struct`; an
+    embed/comprehension-bearing one is a `.structComp`):
+    - `.struct × .struct`: union fields (`mergeFieldListWith joinUnevaluated`, so a SHARED label's
+      values still `.conj`-meet — `#Foo:{a:1}`+`#Foo:{a:2}` keeps the conflict), union patterns,
+      union openness; `mkStruct` re-derives the SINGLE union clause when the result is closed.
+    - `.structComp × .structComp`: union fields, append comprehensions/embeddings, union openness.
+    A shape this cannot cleanly union (a def body that is a ref/disj/selector, or a mixed
+    struct/structComp pair) falls back to `.conj` — preserving the prior behavior for cases the
+    close-once union does not cover. -/
+def mergeDefinitionDecls (left right : Value) : Value :=
+  match left, right with
+  | .struct fa oa _ pa _, .struct fb ob _ pb _ =>
+      let mergedFields := (mergeFieldListWith joinUnevaluated (fa ++ fb)).getD (fa ++ fb)
+      mkStruct mergedFields (unionDefOpenness oa ob) none (pa ++ pb)
+  | .structComp fa ca oa, .structComp fb cb ob =>
+      let mergedFields := (mergeFieldListWith joinUnevaluated (fa ++ fb)).getD (fa ++ fb)
+      .structComp mergedFields (ca ++ cb) (unionDefOpenness oa ob)
+  | _, _ => joinUnevaluated left right
+
+/-- Combine two *unevaluated* field declarations for the same label, selecting the value-merge
+    by the MERGED field-class: two DEFINITION-class decls close ONCE over their union
+    (`mergeDefinitionDecls`, Bug2-6); every other class (regular/hidden/optional/required/let)
+    keeps the deferred `.conj` (`joinUnevaluated`), which `meet`s lazily once the frame is in
+    scope. A class mismatch (e.g. a `let` vs a regular slot) keeps the slots separate (`none`),
+    exactly as `mergeFieldValueWith` does for the evaluated path. -/
+def mergeUnevaluatedFieldInto (fields : List Field) (field : Field) : Option (List Field) :=
+  match fields with
+  | [] => some [field]
+  | current :: rest =>
+      if Field.label current = Field.label field then
+        match mergeFieldClass (Field.fieldClass current) (Field.fieldClass field) with
+        | some fieldClass =>
+            let value :=
+              if fieldClass.isDefinition then
+                mergeDefinitionDecls (Field.value current) (Field.value field)
+              else
+                joinUnevaluated (Field.value current) (Field.value field)
+            some (⟨Field.label current, fieldClass, value⟩ :: rest)
+        | none => none
+      else
+        match mergeUnevaluatedFieldInto rest field with
+        | some mergedRest => some (current :: mergedRest)
+        | none => none
+
 /-- Canonicalize a syntactic field list by collapsing duplicate-label slots into a single
-    first-occurrence slot whose body is the unevaluated `.conj` of the conjuncts, so the
-    frame the evaluator indexes is deduplicated. `mergeFieldListWith` folds
-    merge-into-existing-else-append, which preserves first-occurrence order and shifts no
-    earlier index — `b`'s `refId ⟨0,0⟩` still lands on slot 0, now carrying the merged body.
-    Field class is combined via `mergeFieldClass` (same logic as `mergeEvaluatedFields`); a
-    class mismatch keeps the slots separate, matching merge semantics. Total: foldl over a
-    finite list. -/
+    first-occurrence slot. A duplicate slot's body is the unevaluated `.conj` of the conjuncts
+    (so the frame the evaluator indexes is deduplicated), EXCEPT two DEFINITION-class decls of
+    the same path, which close ONCE over their UNION (`mergeDefinitionDecls`, Bug2-6) instead of
+    `.conj`-ing two separately-closed bodies. `mergeUnevaluatedFieldInto` folds
+    merge-into-existing-else-append, preserving first-occurrence order and shifting no earlier
+    index — `b`'s `refId ⟨0,0⟩` still lands on slot 0, now carrying the merged body. Field class
+    is combined via `mergeFieldClass`; a class mismatch keeps the slots separate, matching merge
+    semantics. Total: foldl over a finite list. -/
 def canonicalizeFields (fields : List Field) : List Field :=
-  (mergeFieldListWith joinUnevaluated fields).getD fields
+  fields.foldl
+    (fun merged field =>
+      match mergeUnevaluatedFieldInto merged field with
+      | some fields => fields
+      | none => merged ++ [field])
+    []
 
 def labelIndexMapFrom (index : Nat) : List Field -> List (String × Nat)
   | [] => []
@@ -548,8 +620,14 @@ def rebaseConjunctFields (oldFields : List Field) (mergedMap : List (String × N
   remapConjFields remapFuel 0 oldFields mergedMap oldFields
 
 /-- Merge a conjunct's declarations into the accumulated frame (deferred `.conj` on label
-    collisions), preserving first-occurrence order. Mirrors `canonicalizeFields`'s combiner
-    so the merged frame matches what duplicate-label canonicalization would produce. -/
+    collisions), preserving first-occurrence order. Uses plain `joinUnevaluated` (NOT
+    `canonicalizeFields`'s definition-aware combiner): this is the conj-of-EMBEDS path, where two
+    same-label def decls coming from DISTINCT conjuncts (a host's `#data` + an embedded mixin's
+    `#data`) must `.conj`-MEET, not close-once-union — close-once is for repeated decls of ONE def
+    path within ONE struct body (`canonicalizeFields`), not for a host's field meeting an embed's.
+    Unioning here wrongly re-opened a closed pattern def (`#data: [string]: string` gained a stray
+    `...`). The merged frame still matches duplicate-label canonicalization for non-definition
+    labels (which `.conj`-meet identically either way). -/
 def mergeConjFields (accumulated : List Field) (fields : List Field) : List Field :=
   fields.foldl
     (fun current field =>
