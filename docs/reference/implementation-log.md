@@ -11463,3 +11463,68 @@ zero-iter, PRE-EXISTING) + 1 spec-gap (`{#a:1,5}` carrier semantics) recorded.
 `Kue/Runtime.lean`, `Kue/Tests/{EvalTests,ComprehensionTests,ListTests,FixturePorts}.lean`,
 4 `testdata/cue/` fixture pairs, `docs/reference/{cue-divergences,cue-spec-gaps,implementation-log}.md`,
 `docs/spec/plan.md`, `docs/notes/` (breadcrumb).
+
+---
+
+## Completed Slice: CARRIER-STRUCT-MEET — carrier & decls-only struct bottoms, not merges (soundness) (2026-06-22)
+
+Goal: close the soundness gap the prior slice's carrier introduced — a scalar/list embedding
+carrier (`.embeddedScalar`/`.embeddedList`, the carrier IS its scalar/list) met with a PURE
+decls-only struct that has NO embed of its own WRONGLY MERGED the decls instead of conflicting.
+`{#a:1,5} & {#b:2}` is `5 & {#b:2}` = int-vs-struct bottom by the spec (unifying different types
+is `_|_`); Kue admitted `{#a:1,#b:2,5}` — MORE PERMISSIVE than the spec, a genuine unsoundness.
+cue v0.16.1 is spec-conformant here and rejects, so the fix moves Kue toward BOTH spec and cue.
+
+**The fix (mechanical DELETION at 4 sites in `Lattice.lean`).** Each carrier's `none`-branch
+(reached when the right/left operand is not a list-/scalar-shaped meet partner) carried a
+`.struct fields _ none [] _` sub-case that, when `!structHasOutputField fields`, MERGED the
+decls and kept the payload. Dropped that sub-case entirely — the `none`-branch now routes
+straight to `meetCore`, which bottoms `carrier` vs `.struct` (`_, .struct .. => .bottom` /
+`.struct .., _ => .bottom`). Applied UNIFORMLY to all four arms (`.embeddedList` left + right,
+`.embeddedScalar` left + right), by hand, per the Phase-B ruling that the carriers do NOT share a
+meet seam (the skeletons are isomorphic but the payload-meet step is irreducible; a 3-callback
+combinator would hit the lambda-hides-`fuel+1` trap). The fix is a deletion routing to an existing
+bottom path, not new logic — so 4× by hand is the correct cost.
+
+**Boundary (oracle-confirmed v0.16.1, all three cases pinned before AND after).** (1) carrier &
+carrier (`{#a:1,5} & {#b:2,5}`, `{#a:1,[1,2]} & {#b:2,[1,2]}`) — still MERGES, untouched (routes
+via the `scalarCarrierPartner?` / `asListPair` partner branch, never the deleted sub-case);
+(2) carrier & output-field struct (`{#a:1,5} & {b:2}`) — still BOTTOMS via `structHasOutputField`
+(the `b` output field), unchanged; (3) carrier & decls-only struct without embed (`{#a:1,5} &
+{#b:2}`) — now BOTTOMS (the fix). The precise discriminator the deleted sub-case matched:
+`.struct fields _ none [] _` = a struct with `embed=none`, `patterns=[]`, any openness/tail-coherent
+form — i.e. a plain decls-or-output struct with no embed of its OWN. A struct that should merge
+(has its own embed) is an `.embeddedScalar`/`.embeddedList`, NOT a `.struct`, so it never fell into
+this arm; the only thing the sub-case ever matched was the bug.
+
+**Source-level path verified.** `{#a:1,5} & {#b:2}` parses as `.conj [structComp[#a:1][5],
+struct[#b:2]]` — a `{…,5}` embedding is a `.structComp`, NOT a `conjStructOperand?`-eligible plain
+struct, so `lazyConjMergedFields` returns `none` and `evalConjStandard` falls to the deferral fold,
+which builds the carrier (`.embeddedScalar 5 [#a:1]`) then `meet`s it against the plain `{#b:2}` —
+hitting the fixed arm → bottom. Confirmed in the binary (`kue export`, exit 1) for both carriers,
+both operand orders, and a multi-decl carrier; carrier&carrier and carrier&output-field unchanged.
+
+**Tests.** Flipped the bug-enshrining pins to positive bottom assertions:
+`ListTests.meet_scalar_carrier_with_decls_struct` → `…_bottoms` (+ symmetric
+`meet_decls_struct_with_scalar_carrier_bottoms` + `.embeddedList` analogs
+`meet_embedded_list_with_decls_struct_bottoms` + symmetric);
+`EvalTests.WITNESS_scalar_carrier_meet_{plain_decls_struct,lone_hidden_struct}_wrongly_merges`
+→ `meet_scalar_carrier_with_{declsonly_struct,lone_hidden_struct}_bottoms` (+ symmetric `B&A`,
+multi-decl carrier, list-carrier analogs both orders). Kept the CORRECT pins green and unchanged:
+`meet_two_scalar_carriers` / `meet_two_embedded_lists` (carrier&carrier merge),
+`scalar_carrier_meet_output_field_struct_bottoms` / `scalar_carrier_three_way_meet_keeps_all_decls`;
+added source-level `{scalar,list}_carrier_meet_carrier_keeps_all_decls` +
+`{scalar,list}_carrier_meet_output_field_struct_bottoms` to lock the boundary at the source level
+for the under-covered list cases.
+
+**Verify.** `lake build` clean (110 jobs, no `sorry`/axiom/new warning); `check-fixtures.sh`
+→ `fixture pairs ok`, ZERO drift (no `testdata` fixture asserted the old merge — it lived only in
+`native_decide` pins); `shellcheck` n/a (no shell touched). NO new cue-divergence (the fix makes
+Kue CONFORM — spec + cue agree on bottom). `cue-spec-gaps.md` row 58 (scalar-embed-with-decls)
+updated PARTLY → CONFORMING: the over-merge divergence is resolved; the carrier itself stays a
+recorded spec-silent combination.
+
+**Files.** `Kue/Lattice.lean` (4 meet-arm deletions + 2 doc-comment corrections),
+`Kue/Tests/{EvalTests,ListTests}.lean` (pins flipped + boundary pins added),
+`docs/reference/{cue-spec-gaps,implementation-log}.md`, `docs/spec/plan.md`, `docs/notes/`
+(breadcrumb).

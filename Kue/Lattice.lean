@@ -1241,6 +1241,9 @@ def meetWithFuel : Nat -> Value -> Value -> Value
   -- conflicts (falls through to bottom). CUE v0.16.1: `{ #a:1, [1,2] }` → `[1,2]`;
   -- `{ a:1, [1,2] }` → conflict. The `.embeddedList` arms precede the struct arms so a
   -- left embeddedList keeps its own decls instead of being swallowed by `listLike, .struct`.
+  -- A carrier met with a pure decls-only struct with no embed of its own (`{#a:1,[1,2]} &
+  -- {#b:2}`) is a list-vs-struct kind conflict → `meetCore` bottoms it; only a list-shaped
+  -- partner (another carrier or a bare list) merges.
   | .embeddedList leftItems leftTail leftDecls, rightLike =>
       match asListPair rightLike with
       | some rightPair =>
@@ -1252,36 +1255,21 @@ def meetWithFuel : Nat -> Value -> Value -> Value
               | some decls => .embeddedList items tail decls
               | none => .bottom
           | none => .bottom
-      | none =>
-          match rightLike with
-          | .struct fields _ none [] _ =>
-              if structHasOutputField fields then .bottom
-              else
-                match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
-                | some decls => .embeddedList leftItems leftTail decls
-                | none => .bottom
-          | _ => meetCore (.embeddedList leftItems leftTail leftDecls) rightLike
+      | none => meetCore (.embeddedList leftItems leftTail leftDecls) rightLike
   | leftLike, .embeddedList rightItems rightTail rightDecls =>
       match asListPair leftLike with
       | some leftPair =>
           match meetListPairWith (meetWithFuel fuel) leftPair (rightItems, rightTail) with
           | some (items, tail) => .embeddedList items tail rightDecls
           | none => .bottom
-      | none =>
-          match leftLike with
-          | .struct fields _ none [] _ =>
-              if structHasOutputField fields then .bottom
-              else
-                match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
-                | some decls => .embeddedList rightItems rightTail decls
-                | none => .bottom
-          | _ => meetCore leftLike (.embeddedList rightItems rightTail rightDecls)
+      | none => meetCore leftLike (.embeddedList rightItems rightTail rightDecls)
   -- A scalar carrier (`{#a:1, 5}`) meets like its scalar, carrying decls alongside — the
   -- `.embeddedScalar` analog of the `.embeddedList` arms above. Against another carrier the
   -- scalars meet and the decls merge; against a bare terminal scalar the scalar meets and the
-  -- left decls survive; against an only-decls struct (`{#b:2}`) the decls merge and the scalar
-  -- is kept. A non-scalar/non-decls-struct right operand bottoms via `meetCore`. The carrier is
-  -- NEVER widened from the pure `{5}` collapse — that path (no decls) does not produce this ctor.
+  -- left decls survive. Anything else — including a pure decls-only struct (`{#b:2}`) with no
+  -- embed of its own — bottoms via `meetCore`: the carrier IS its scalar, so `5 & {#b:2}` is an
+  -- int-vs-struct kind conflict (CUE v0.16.1 agrees). The carrier is NEVER widened from the pure
+  -- `{5}` collapse — that path (no decls) does not produce this ctor.
   | .embeddedScalar leftScalar leftDecls, rightLike =>
       let rightDecls := match rightLike with | .embeddedScalar _ d => d | _ => []
       match scalarCarrierPartner? rightLike with
@@ -1290,30 +1278,14 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | .bottom, _ => .bottom
           | _, none => .bottom
           | scalar, some decls => .embeddedScalar scalar decls
-      | none =>
-          match rightLike with
-          | .struct fields _ none [] _ =>
-              if structHasOutputField fields then .bottom
-              else
-                match mergeStructFieldsWith (meetWithFuel fuel) leftDecls (declFields fields) with
-                | some decls => .embeddedScalar leftScalar decls
-                | none => .bottom
-          | _ => meetCore (.embeddedScalar leftScalar leftDecls) rightLike
+      | none => meetCore (.embeddedScalar leftScalar leftDecls) rightLike
   | leftLike, .embeddedScalar rightScalar rightDecls =>
       match scalarCarrierPartner? leftLike with
       | some partnerScalar =>
           match meetWithFuel fuel partnerScalar rightScalar with
           | .bottom => .bottom
           | scalar => .embeddedScalar scalar rightDecls
-      | none =>
-          match leftLike with
-          | .struct fields _ none [] _ =>
-              if structHasOutputField fields then .bottom
-              else
-                match mergeStructFieldsWith (meetWithFuel fuel) (declFields fields) rightDecls with
-                | some decls => .embeddedScalar rightScalar decls
-                | none => .bottom
-          | _ => meetCore leftLike (.embeddedScalar rightScalar rightDecls)
+      | none => meetCore leftLike (.embeddedScalar rightScalar rightDecls)
   -- A plain-struct-equivalent struct embeds a list; a tail/pattern-bearing struct has no
   -- list-embedding arm and falls through to `meetCore` → `.bottom`. A genuine struct ∩ scalar
   -- is a type conflict (CUE: `{} & 5`); the `{5}`→`5` scalar-embedding collapse lives in

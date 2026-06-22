@@ -432,19 +432,52 @@ theorem scalar_carrier_meet_output_field_struct_bottoms :
     evalSourceMatches "out: {#a: 1, 5} & {b: 2}\n" "out: _|_" = true := by
   native_decide
 
--- ┌─ DIVERGENCE WITNESS (CARRIER-VS-PLAIN-STRUCT) — see plan.md fix-slice CARRIER-STRUCT-MEET ─┐
--- A scalar carrier (`{#a:1,5}` IS the scalar `5`) met with a PURE decls-only struct that has NO
--- embed of its own (`{#b:2}` is a struct, not a carrier) MUST bottom: cue rejects `5 & {#b:2}`
--- as int-vs-struct (spec: unifying different types is `_|_`). Kue WRONGLY merges the decls. These
--- pin the CURRENT (incorrect) behavior so the fix-slice flips them to `exportJsonBottoms`; they
--- are NOT a claim that the merge is right. The identical bug exists for `.embeddedList`.
-theorem WITNESS_scalar_carrier_meet_plain_decls_struct_wrongly_merges :
-    exportJsonMatches "x: {#a: 1, 5} & {#b: 2}\nrb: x.#b\n"
-      "{\n    \"x\": 5,\n    \"rb\": 2\n}\n" = true := by
+-- LIST-CARRIER & CARRIER (oracle-confirmed). Two list carriers MERGE: lists unify, both decls
+-- survive selectable — the list analog of the three-way scalar merge above (case 1, must MERGE).
+theorem list_carrier_meet_carrier_keeps_all_decls :
+    exportJsonMatches "x: {#a: 1, [1, 2]} & {#b: 2, [1, 2]}\nout: [x.#a, x.#b]\n"
+      "{\n    \"x\": [\n        1,\n        2\n    ],\n    \"out\": [\n        1,\n        2\n    ]\n}\n"
+      = true := by
   native_decide
 
-theorem WITNESS_scalar_carrier_meet_lone_hidden_struct_wrongly_merges :
-    exportJsonMatches "out: {#x: 1, 5} & {#y: 2}\n" "{\n    \"out\": 5\n}\n" = true := by
+-- LIST-CARRIER & OUTPUT-FIELD STRUCT (oracle-confirmed). `[1,2] & {b:2}` is list-vs-struct
+-- bottom — the list analog of the scalar output-field case (case 2, must BOTTOM).
+theorem list_carrier_meet_output_field_struct_bottoms :
+    evalSourceMatches "out: {#a: 1, [1, 2]} & {b: 2}\n" "out: _|_" = true := by
+  native_decide
+
+-- ┌─ CARRIER-VS-DECLS-ONLY-STRUCT MEET (CARRIER-STRUCT-MEET, oracle-confirmed v0.16.1) ────────┐
+-- A scalar carrier (`{#a:1,5}` IS the scalar `5`) met with a PURE decls-only struct that has NO
+-- embed of its own (`{#b:2}` is a struct, not a carrier) BOTTOMS: cue rejects `5 & {#b:2}` as
+-- int-vs-struct (spec: unifying different types is `_|_`). The carrier is its payload; payload-kind
+-- vs struct = bottom. Distinct from carrier & carrier (`{#a:1,5} & {#b:2,5}`), which MERGES — that
+-- stays green below. The identical rule holds for the `.embeddedList` carrier (list analogs follow).
+theorem meet_scalar_carrier_with_declsonly_struct_bottoms :
+    exportJsonBottoms "x: {#a: 1, 5} & {#b: 2}\nrb: x.#b\n" = true := by
+  native_decide
+
+-- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically.
+theorem meet_declsonly_struct_with_scalar_carrier_bottoms :
+    exportJsonBottoms "x: {#b: 2} & {#a: 1, 5}\nrb: x.#b\n" = true := by
+  native_decide
+
+theorem meet_scalar_carrier_with_lone_hidden_struct_bottoms :
+    exportJsonBottoms "out: {#x: 1, 5} & {#y: 2}\n" = true := by
+  native_decide
+
+-- A carrier carrying MULTIPLE decls met with a decls-only struct still bottoms (the payload is
+-- still a scalar regardless of how many decls ride it).
+theorem meet_multi_decl_scalar_carrier_with_declsonly_struct_bottoms :
+    exportJsonBottoms "out: {#a: 1, #b: 2, 5} & {#c: 3}\n" = true := by
+  native_decide
+
+-- LIST-carrier analogs — the same rule, `[1,2] & {#b:2}` is list-vs-struct bottom.
+theorem meet_list_carrier_with_declsonly_struct_bottoms :
+    exportJsonBottoms "x: {#a: 1, [1, 2]} & {#b: 2}\nrb: x.#b\n" = true := by
+  native_decide
+
+theorem meet_declsonly_struct_with_list_carrier_bottoms :
+    exportJsonBottoms "x: {#b: 2} & {#a: 1, [1, 2]}\nrb: x.#b\n" = true := by
   native_decide
 -- └────────────────────────────────────────────────────────────────────────────────────────────┘
 

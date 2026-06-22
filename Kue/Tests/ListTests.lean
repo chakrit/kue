@@ -164,6 +164,23 @@ theorem meet_two_embedded_lists :
            [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
       = true := by native_decide
 
+/-- An embeddedList carrier meet a pure decls-only struct (no embed of its own) BOTTOMS: the
+    carrier IS its list, so `[1,2] & {#b:2}` is a list-vs-struct kind conflict
+    (`{#a:1,[1,2]} & {#b:2}`; CUE v0.16.1 agrees). The decls do NOT merge — merge happens ONLY
+    against another list-shaped carrier (`meet_two_embedded_lists`, above). -/
+theorem meet_embedded_list_with_decls_struct_bottoms :
+    (meet (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩])
+          (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none []))
+      == .bottom
+      := by native_decide
+
+/-- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically. -/
+theorem meet_decls_struct_with_embedded_list_bottoms :
+    (meet (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
+          (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩]))
+      == .bottom
+      := by native_decide
+
 /-- An embeddedList whose list conflicts a concrete element carries an element bottom
     (matching `cue`'s `x.0: conflicting values` and the export error). -/
 theorem meet_embedded_list_conflicting_elements :
@@ -205,13 +222,21 @@ theorem meet_scalar_carrier_conflicting :
                          (.prim (.int 6)))
       = true := by native_decide
 
-/-- A carrier meet an only-decls struct merges the decls, keeping the scalar (`{#a:1,5} & {#b:2}`). -/
-theorem meet_scalar_carrier_with_decls_struct :
+/-- A carrier meet a pure decls-only struct (no embed of its own) BOTTOMS: the carrier IS its
+    scalar, so `5 & {#b:2}` is an int-vs-struct kind conflict (`{#a:1,5} & {#b:2}`; CUE v0.16.1
+    agrees). The decls do NOT merge — merge happens ONLY against another carrier (above). -/
+theorem meet_scalar_carrier_with_decls_struct_bottoms :
     (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
-          (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
-      == .embeddedScalar (.prim (.int 5))
-           [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
-      = true := by native_decide
+          (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none []))
+      == .bottom
+      := by native_decide
+
+/-- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically. -/
+theorem meet_decls_struct_with_scalar_carrier_bottoms :
+    (meet (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
+          (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]))
+      == .bottom
+      := by native_decide
 
 /-- A carrier manifests as its scalar (decls dropped from output). -/
 theorem manifest_scalar_carrier_is_scalar :
