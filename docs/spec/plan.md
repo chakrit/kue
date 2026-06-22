@@ -209,6 +209,26 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      import bindings into one shared package frame; CUE scopes them per-file. Bites only
      the same-NAME-different-target case; real prod9 doesn't hit it. Bind each file's
      imports into a per-file scope frame.
+   - **TL-1 (type-leverage, MEDIUM) — builtin-family dispatch is stringly-typed.**
+     `Value.builtinCall (name : String) …` + `evalBuiltinCall` (`Builtin.lean:887`)
+     dispatches by 8 exact names (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`) then a
+     7-way `name.startsWith "strings."/"list."/"math."/…` prefix chain falling through to an
+     inert `.builtinCall name args` residual — a mistyped FAMILY prefix silently produces the
+     residual instead of an error. Tighten the *family* axis to a closed
+     `BuiltinFamily` enum (the 8 families ARE a closed, versionable set), keeping the leaf
+     name a `String` (the within-family member set, e.g. `math.Pow`, is genuinely
+     many-valued and stays string-dispatched inside each `eval*Builtin`). Win: the family
+     `startsWith` chain becomes an exhaustive match (new family forces a decision), and the
+     silent-fallthrough class is gone. Blast radius bounded: ~12 `builtinCall` sites in
+     each of Builtin/Eval, but most (Format/Normalize/Manifest/Resolve) carry the name
+     opaquely and only re-pack it. Not inline — too broad for an audit-inline; file as a
+     slice.
+   - **TL-2 (type-leverage, LOW-MED) — `BindingId` packs two swappable bare `Nat`s.**
+     `BindingId { depth : Nat, index : Nat }` (`Value.lean:495`): `depth` (lexical
+     frame-offset) and `index` (field slot) are orthogonal domains that compile if
+     swapped. Newtype-wrap both (`Depth`/`FieldIndex`, zero-cost erasure) to make the
+     coordinate-swap class unrepresentable. Mechanical, zero behavioral risk; ~50
+     construction/match sites — file as a slice, not inline.
    - ~~**`import-eager-closedness`** (MEDIUM)~~ — **DONE 2026-06-22.** Resolved via option
      (b), structurally unified: a new single `selectedFieldValue` closes a SELECTED definition
      field's body (`normalizeDefinitionValueWithFuel`), shared by all four eager pluck sites, so
@@ -266,6 +286,49 @@ family, …) are HISTORY: the as-built detail is in
 (each audit is its own commit). What stays here is only the durable rulings — the ones a
 future audit would otherwise re-litigate.
 
+- **Phase-B audit (2026-06-22, batch `cd2f0a9`(BI-2-§3)/`3cc09ab`(EvalOps)/`b5d670c`
+  (import-eager) + Phase-A inline `31c76c8`/`8eaa180`) — architecture HEALTHY.** Whole
+  module graph re-checked: ACYCLIC, strictly layered (`Regex`/`Base64`/`CaseTable` L0 →
+  `Value` L1 → `Decimal`/`Lattice`/`Parse`/… L2 → `Manifest`/`Json`/`Yaml` → `Builtin` L6 →
+  **`EvalOps` L7** → **`Eval` L8** → `Runtime`/`Module` L10). The new EvalOps carve confirmed
+  clean: `EvalOps → {Builtin, Decimal, Regex}`, NO back-edge, NO `Builtin → Eval` (Builtin
+  L6, Eval L8); `classifyArithOperand` is FULLY exhaustive (every `Value` ctor → a decision,
+  no catch-all) — exemplary type-leverage. `selectedFieldValue` (the import-eager unification)
+  and `normalizeEvaluatedDisj`'s `normalizeDisj` reuse both clean. Cleanliness sweep: NO
+  `sorry`/`panic!`/`unreachable!`/`get!`-in-total-code, NO `String.dropRight`/`dropLeft`, NO
+  dead code (the `Order.lean` test-oracle ruling stands; all private helpers referenced), NO
+  stale TODO/FIXME/HACK markers. **APPLIED INLINE (low-risk, re-verified green):** the
+  `kue-performance.md` Pow row de-staled — split the integer-exponent row and added a
+  fractional/negative-exponent row (BI-2-residual + BI-2-§3 LANDED; `math.Pow`/`math.Sqrt`
+  now cover their full real domain in exact decimal — the old "currently bottom — see
+  BI-2-residual" text was stale). **Filed as fix-slices:** TL-1 (stringly-typed
+  builtin-family dispatch → `BuiltinFamily` enum, MEDIUM) + TL-2 (`BindingId` two-bare-`Nat`
+  → newtypes, LOW-MED) — both type-leverage tightenings, in the item-6 LOW list, neither
+  inline (blast radius too broad). **Verdict: HEALTHY, two ranked tightenings filed.**
+- **`Eval.lean` split — NOT WARRANTED at 3396 lines (Phase-B 2026-06-22 ruling; do not
+  re-litigate below ~4500).** Structural map: 4 `mutual` blocks (`foldValueWithDepth` ~80
+  lines; `remapConjRefs` ~147; `hasSelfRefAtDepth` ~110; **the core evaluator
+  `evalValueWithFuel`…`expandListClausesWithFuel`, ~1140 lines / 15 mutually-recursive
+  defs**) — the core block is UNSPLITTABLE: its `termination_by (fuel, tag, length)` tuple
+  ordering (tags 0–6) would have to be proven across a module boundary, fragile and
+  unmaintainable. The only semantically-coherent carve candidate is the **def-deferral tier**
+  (`resolveEmbedDefBody?`/`bodyNeedsDefer`/`followAliasDefBody?`/`importDefClosureBody?`
+  /`refDefClosureBody?`/… ~228 lines, `Eval.lean:1904–2131`): one-directional call graph
+  (→ force/eval, no back-edge), but too tightly coupled to its `.refId`/`.selector`/`.conj`
+  call sites to gain from isolation now. RULING: leave Eval.lean cohesive; IF it crosses
+  ~4500, the def-deferral tier is the named first carve (`Eval.DefDeferral`, importing
+  `hasSelfRefAtDepth`/`defBodyHasSiblingSelfRef`/core types). The classifier cluster
+  (`classifyGuard`/`classifyDynLabel` ~124) and embedding-splice complex (~191) are also
+  carveable but lower-value (too small / too coupled). Never split the evaluator mutual block
+  at any size.
+- **Escape-helper cross-module "duplication" (`escapeJsonChar` Json.lean vs
+  `escapeCueStringChar` Format.lean) — RULED NOT A FINDING (Phase-B 2026-06-22).** The two
+  share only 5 trivial literal arms (`"`/`\`/`\n`/`\r`/`\t`); they DIVERGE in the
+  substance — JSON does control-char escaping (`\b`/`\f`/`\uXXXX`), CUE passes through
+  verbatim. Collapsing the 5 shared arms behind a callback for the divergent tail is the
+  "stuff they all do" false-sharing the four-classifiers + DRY-1 rulings already reject:
+  the shared part is too thin to name, the divergence IS the point. Keep separate; do not
+  re-file.
 - **Phase-B audit (2026-06-21, batch `3d0124a`/`f3262a1`/`0091aba`) — architecture HEALTHY;
   one trivially-clean DRY win applied inline.** Whole module graph: import edges acyclic
   (`Builtin → Decimal`, `Eval → {Builtin, Decimal, Lattice, Regex, Normalize}`; no
