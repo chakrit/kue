@@ -124,10 +124,14 @@ theorem closure_producer_emits_on_selfref_def :
                   ⟨"out", .regular, .kind .string⟩] .defClosed none []) = true := by
   native_decide
 
-/-- NON-REGRESSION: a definition WITHOUT a sibling self-reference (`#Widget` = flat
-    `{name: string, size: int}`) stays on the eager path — selecting it yields the evaluated
-    field, NOT a closure. This is every committed `pkg.#Def & {…}` fixture's shape; the gate
-    must leave it untouched so slice 3 is byte-identical on all of them. -/
+/-- NON-REGRESSION + import-eager-closedness: a definition WITHOUT a sibling self-reference
+    (`#Widget` = flat `{name: string, size: int}`) stays on the eager path — selecting it yields
+    the evaluated field, NOT a closure. But the eager pluck now runs the body through the SINGLE
+    closing decision (`selectedFieldValue` → `normalizeDefinitionValueWithFuel`), so a selected
+    `#Def`'s body is `defClosed` — matching the force path. The body had `regularOpen` as STORED
+    (an imported package's def bodies are not closed at load), so pre-fix this stayed open and
+    `pkg.#Widget & {extra}` silently admitted `extra`; the closed result rejects it, exactly as
+    CUE. -/
 theorem closure_producer_skips_selfref_free_def :
     (runEval (evalValueWithFuel evalFuel
         [(7, [⟨"defs", .hidden,
@@ -136,7 +140,7 @@ theorem closure_producer_skips_selfref_free_def :
                      ⟨"size", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []⟩])] []
         (.selector (.refId ⟨0, 0⟩) "#Widget"))
       == mkStruct [⟨"name", .regular, .kind .string⟩,
-                  ⟨"size", .regular, .kind .int⟩] .regularOpen none []) = true := by
+                  ⟨"size", .regular, .kind .int⟩] .defClosed none []) = true := by
   native_decide
 
 /-- NON-REGRESSION: a NON-definition field (regular, not `#`) with a sibling self-ref is NOT
@@ -751,5 +755,120 @@ theorem alias_follow_cycle_terminates :
         (.refId ⟨0, 1⟩)) == none := by
   native_decide
 
+/-! ### import-eager-closedness — the eager selector path closes a selected def body
+
+A `pkg.#Def` selected via the EAGER path (`importDefClosureBody?` returns `none`, the common
+self-ref-free case) plucks the def body and must CLOSE it, because an imported package's def
+bodies are NOT closed at load (the `importBinding` arm of `normalizeFieldWithFuel` skips a bound
+package to stay cue-lazy). Pre-fix the pluck returned the body OPEN, so a use-site `& {extra}`
+silently admitted the undeclared field — an unsoundness (a closed def must reject it). The fix
+routes every pluck through `selectedFieldValue`, the SINGLE closing decision the force path's
+producers already use (`normalizeDefinitionValueWithFuel`), so the eager and force paths cannot
+disagree about closedness. -/
+
+/-- UNIT — the single closing decision: `selectedFieldValue` closes a DEFINITION field's body
+    (`regularOpen` as stored → `defClosed` with a self-clause), so the eager pluck matches the
+    force path. Idempotent for an already-closed body; load-bearing for an imported one. -/
+theorem selected_field_value_closes_definition :
+    (selectedFieldValue ⟨"#C", .definition,
+        mkStruct [⟨"port", .regular, .kind .int⟩] .regularOpen none []⟩
+      == mkStruct [⟨"port", .regular, .kind .int⟩] .defClosed none []) = true := by
+  native_decide
+
+/-- UNIT — a NON-definition field is yielded RAW: a regular field's struct value stays
+    `regularOpen`, so `pkg.r & {extra}` keeps admitting extras, as CUE keeps a regular field
+    open. The fix closes ONLY `#`-definition selections, never widening the closed direction. -/
+theorem selected_field_value_leaves_regular_open :
+    (selectedFieldValue ⟨"r", .regular,
+        mkStruct [⟨"port", .regular, .kind .int⟩] .regularOpen none []⟩
+      == mkStruct [⟨"port", .regular, .kind .int⟩] .regularOpen none []) = true := by
+  native_decide
+
+/-- FACET 1 — silent-admit, end to end: selecting a closed imported def (`defs.#C`) then meeting
+    `{extra}` REJECTS `extra` as `.fieldNotAllowed` and the result is `defClosed`. Pre-fix the
+    plucked body was `regularOpen`, so `extra` was admitted as a plain field. The package frame is
+    `importBinding` (the real cross-package shape — its def bodies are unclosed at load). -/
+theorem eager_closed_import_def_rejects_extra :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .importBinding,
+          mkStruct [⟨"#C", .definition,
+            mkStruct [⟨"port", .regular, .prim (.int 8080)⟩,
+                     ⟨"host", .regular, .prim (.string "h")⟩] .regularOpen none []⟩] .regularOpen none []⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#C",
+                mkStruct [⟨"extra", .regular, .prim (.string "x")⟩] .regularOpen none []]))
+      == .struct [⟨"port", .regular, .prim (.int 8080)⟩,
+                  ⟨"host", .regular, .prim (.string "h")⟩,
+                  ⟨"extra", .regular, .bottomWith [.fieldNotAllowed "extra"]⟩]
+                 .defClosed none [] [⟨["port", "host"], []⟩]) = true := by
+  native_decide
+
+/-- FACET 2 — incomplete-mask: the closedness check fires even when the def's own fields are
+    ABSTRACT (`port: int`). Pre-fix the eager body was open, so an export saw only the
+    incompleteness and the closedness violation was masked — `extra` was silently admitted (an
+    abstract value does not stop an open struct from accepting the field). With the body closed,
+    `extra` is `.fieldNotAllowed` regardless of the abstract `int`/`string` — closedness is
+    structural, not gated on concreteness, exactly as CUE. -/
+theorem eager_closed_import_def_rejects_extra_when_abstract :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .importBinding,
+          mkStruct [⟨"#C", .definition,
+            mkStruct [⟨"port", .regular, .kind .int⟩,
+                     ⟨"host", .regular, .kind .string⟩] .regularOpen none []⟩] .regularOpen none []⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#C",
+                mkStruct [⟨"extra", .regular, .prim (.string "x")⟩] .regularOpen none []]))
+      == .struct [⟨"port", .regular, .kind .int⟩,
+                  ⟨"host", .regular, .kind .string⟩,
+                  ⟨"extra", .regular, .bottomWith [.fieldNotAllowed "extra"]⟩]
+                 .defClosed none [] [⟨["port", "host"], []⟩]) = true := by
+  native_decide
+
+/-- OVER-CLOSE GUARD — an OPEN def (`...`, `defOpenViaTail`) stays open: the eager close returns a
+    `defOpenViaTail` body UNCHANGED, so `pkg.#Open & {extra}` still ADMITS `extra`. The fix closes
+    MORE only where a closed def demands it; it must not over-close an explicitly-open def. -/
+theorem eager_open_import_def_admits_extra :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .importBinding,
+          mkStruct [⟨"#Open", .definition,
+            .struct [⟨"port", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [] []⟩] .regularOpen none []⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#Open",
+                mkStruct [⟨"extra", .regular, .prim (.string "ok")⟩] .regularOpen none []]))
+      == .struct [⟨"port", .regular, .prim (.int 1)⟩,
+                  ⟨"extra", .regular, .prim (.string "ok")⟩] .defOpenViaTail (some .top) [] []) = true := by
+  native_decide
+
+/-- PATTERN EDGE — admit: a closed PATTERN-bearing def admits a field matching its OWN pattern
+    (`[=~"^x"]: string` admits `xfoo`). The eager close preserves the def's patterns into its
+    `closedClauses`, so the closedness check consults them — pre-fix the body was open and admitted
+    `xfoo` for the WRONG reason (no check at all). -/
+theorem eager_closed_pattern_import_def_admits_match :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .importBinding,
+          mkStruct [⟨"#Pat", .definition,
+            .struct [⟨"port", .regular, .kind .int⟩] .regularOpen none
+              [(.stringRegex "^x", .kind .string)] []⟩] .regularOpen none []⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#Pat",
+                mkStruct [⟨"xfoo", .regular, .prim (.string "ok")⟩] .regularOpen none []]))
+      == .struct [⟨"port", .regular, .kind .int⟩,
+                  ⟨"xfoo", .regular, .prim (.string "ok")⟩] .defClosed none
+                 [(.stringRegex "^x", .kind .string)]
+                 [⟨["port"], [.stringRegex "^x"]⟩]) = true := by
+  native_decide
+
+/-- PATTERN EDGE — reject: the SAME pattern-bearing def REJECTS a field that does NOT match
+    (`yfoo` fails `^x`), as `.fieldNotAllowed`. This is the witness a fixture cannot carry (it
+    exports one outcome): the eager close makes the def's pattern actually gate the allowed set. -/
+theorem eager_closed_pattern_import_def_rejects_nonmatch :
+    (runEval (evalValueWithFuel evalFuel
+        [(7, [⟨"defs", .importBinding,
+          mkStruct [⟨"#Pat", .definition,
+            .struct [⟨"port", .regular, .kind .int⟩] .regularOpen none
+              [(.stringRegex "^x", .kind .string)] []⟩] .regularOpen none []⟩])] []
+        (.conj [.selector (.refId ⟨0, 0⟩) "#Pat",
+                mkStruct [⟨"yfoo", .regular, .prim (.string "no")⟩] .regularOpen none []]))
+      == .struct [⟨"port", .regular, .kind .int⟩,
+                  ⟨"yfoo", .regular, .bottomWith [.fieldNotAllowed "yfoo"]⟩] .defClosed none
+                 [(.stringRegex "^x", .kind .string)]
+                 [⟨["port"], [.stringRegex "^x"]⟩]) = true := by
+  native_decide
 
 end Kue

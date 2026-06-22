@@ -582,15 +582,34 @@ def normalizeEvaluatedDisj (alternatives : List (Mark × Value)) : Value :=
     -- `normalizeDisj` (Lattice) — AD2-1's shared lone-arm rule, reused rather than restated.
     normalizeDisj alternatives
 
+/-- The value a selected field yields — the SINGLE closing decision shared by every eager
+    selection (`selectEvaluatedField`'s four pluck sites) AND, by intent, the force path's
+    `importDefClosureBody?`/`refDefClosureBody?` producers, which run the same
+    `normalizeDefinitionValueWithFuel` when they pluck a def body. Selecting a DEFINITION
+    (`#Def`) yields its body CLOSED as a definition body, so the eager and force paths cannot
+    disagree about closedness: an imported package's def bodies are NOT closed at load (the
+    `importBinding` arm of `normalizeFieldWithFuel` skips a bound package to stay cue-lazy — it
+    must not re-close unreferenced nested defs, the A2 trap), so without closing HERE an eager
+    `pkg.#Def & {extra}` silently admits the extra (and skips the def's own patterns). Closing is
+    idempotent for a same-file def (already closed at load), load-bearing for an imported one, and
+    preserves a `...`/`defOpenViaTail` body OPEN (`normalizeDefinitionValueWithFuel` returns it
+    unchanged), so an open def keeps admitting use-site fields. A non-definition field is yielded
+    raw — a regular field's struct value stays open, as CUE keeps it. -/
+def selectedFieldValue (field : Field) : Value :=
+  if field.fieldClass.isDefinition then
+    normalizeDefinitionValueWithFuel normalizeFuel (Field.value field)
+  else
+    Field.value field
+
 def selectEvaluatedField (base : Value) (label : String) : Value :=
   match base with
   | .struct fields _ _ _ _ =>
       match findEvalField label fields with
-      | some field => Field.value field
+      | some field => selectedFieldValue field
       | none => .selector base label
   | .embeddedList _ _ decls =>
       match findEvalField label decls with
-      | some field => Field.value field
+      | some field => selectedFieldValue field
       | none => .selector base label
   | .disj alternatives =>
       -- Selecting INTO a disjunction collapses it to its default arm first, then selects
@@ -601,11 +620,11 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       match resolveDisjDefault? alternatives with
       | some (.struct fields _ _ _ _) =>
           match findEvalField label fields with
-          | some field => Field.value field
+          | some field => selectedFieldValue field
           | none => .selector base label
       | some (.embeddedList _ _ decls) =>
           match findEvalField label decls with
-          | some field => Field.value field
+          | some field => selectedFieldValue field
           | none => .selector base label
       | _ => .selector base label
   | .bottom => .bottom

@@ -209,10 +209,13 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      import bindings into one shared package frame; CUE scopes them per-file. Bites only
      the same-NAME-different-target case; real prod9 doesn't hit it. Bind each file's
      imports into a per-file scope frame.
-   - **`import-eager-closedness`** (MEDIUM) — an imported plain closed `.struct` def met
-     with extra fields admits them on the EAGER selector path (the force path closes
-     correctly). Close imported def bodies at load, or route the eager path through
-     `normalizeDefinitionValueWithFuel`. Pin both silent-admit and incomplete-mask facets.
+   - ~~**`import-eager-closedness`** (MEDIUM)~~ — **DONE 2026-06-22.** Resolved via option
+     (b), structurally unified: a new single `selectedFieldValue` closes a SELECTED definition
+     field's body (`normalizeDefinitionValueWithFuel`), shared by all four eager pluck sites, so
+     the eager and force paths share ONE closing decision and cannot disagree. Option (a)
+     (close at load) rejected — the A2 trap (closing a whole bound package re-closes unreferenced
+     nested defs). Both facets pinned (silent-admit + incomplete-mask) + over-close guard + pattern
+     edges; 1 cue-divergence (incomplete-mask error message). See implementation-log + audit doc.
    - **Parser strictness** — `*(1|2)` laxity (`cue` rejects at parse); `__x`
      double-underscore accepted (`cue` reserves `__` -prefixed idents). Track under a
      parser-strictness pass.

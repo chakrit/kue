@@ -11178,3 +11178,77 @@ No divergence introduced (`cue-divergences.md` unchanged); no spec gap hit
 `Kue/Eval.lean` (carve removed + `import Kue.EvalOps`), `Kue.lean` (register `Kue.EvalOps`),
 `Kue/Tests/EvalTests.lean` (18 pins), `docs/spec/plan.md` (item 2 DONE),
 `docs/notes/` (breadcrumb rotated).
+
+---
+
+## Completed Slice: import-eager-closedness — eager selector closes a selected def body (single source of truth) (2026-06-22)
+
+**The soundness bug (SILENT-ADMIT).** An imported plain closed def (`#Closed`), selected via
+the EAGER selector path and met with an undeclared field, SILENTLY ADMITTED the extra. The force
+path closed correctly, so the two paths DISAGREED about closedness — the eager path was unsound.
+Reproduced on a clean pre-fix binary (`out: lib.#Closed & {extra}` exported all fields incl.
+`extra`; cue v0.16.1 rejects `extra: field not allowed`).
+
+**Root cause.** An imported package's def bodies are NOT closed at load: `bindImports`
+(`Module.lean`) tags the package `.importBinding`, and `normalizeFieldWithFuel`'s `.importBinding`
+arm SKIPS a bound package wholesale (deliberately — recursing it would re-close UNREFERENCED
+nested defs and re-bottom cert-manager/argocd; the A2 trap). So a bound package's def bodies sit
+UNCLOSED (`regularOpen` as stored). The force path compensated: `importDefClosureBody?` /
+`refDefClosureBody?` run the plucked body through `normalizeDefinitionValueWithFuel` — but ONLY
+when the def has a sibling self-ref (`bodyNeedsDefer`), the deferral trigger. A plain self-ref-free
+closed def took the EAGER fallback (`selectEvaluatedField base label`), which plucked
+`Field.value field` RAW — open. The meet then admitted extras (and never consulted the def's own
+patterns).
+
+**INCOMPLETE-MASK facet.** With an ABSTRACT def (`port: int`), the pre-fix open body also masked
+the violation behind incompleteness: an open struct accepts the extra outright, and an export saw
+only the `incomplete value: int`. Closedness is structural (not gated on concreteness), so the
+violation must fire regardless — and post-fix it does (the field is `.fieldNotAllowed`); only the
+error *message* still leads with the incompleteness it reaches first (a recorded display-only
+cue-divergence — value agrees).
+
+**Fix chosen — option (b), structurally unified (NOT two paths patched to agree).** Routed every
+eager pluck through a NEW single function `selectedFieldValue (field : Field) : Value` (`Eval.lean`):
+a DEFINITION field's body is closed with `normalizeDefinitionValueWithFuel normalizeFuel`; any
+other field is yielded raw. All four pluck sites in `selectEvaluatedField` (struct, embeddedList,
+and both disjunction-default arms) call it. This makes the SINGLE closing decision the force path's
+producers ALREADY use the one the eager path uses too — the two paths CANNOT disagree about
+closedness because they share the rule, not because they were tuned to coincide. Option (a) (close
+imported def bodies at load) was REJECTED: it is the A2 trap — closing the whole bound package
+re-closes unreferenced nested defs (the precise reason `normalizeFieldWithFuel`'s `.importBinding`
+arm skips it). Option (b) closes ONLY the def that is actually selected and used, never the
+package, so the trap cannot fire (cert-manager/argocd cross-package fixtures byte-identical:
+`crosspkg_defmeet`/`alias_import_selector`/`dup_import_binding` all MATCH).
+
+**Soundness properties.** Closing is IDEMPOTENT for a same-file def (already closed at load —
+`normalizeDefinitions` closes a top `#` field) and LOAD-BEARING for an imported one. It does NOT
+over-close: a `...` / `defOpenViaTail` body is returned UNCHANGED by
+`normalizeDefinitionValueWithFuel`, so an open def keeps admitting use-site fields; a closed
+PATTERN-bearing def keeps its patterns into `closedClauses` so the check consults them (match
+admitted, non-match rejected). A NON-definition field stays raw (a regular field's struct value
+stays open, as cue keeps it). `selectedFieldValue` depends only on `propext` — no `sorry`, no new
+axiom.
+
+**Tests (TDD — bug demonstrated FIRST on a clean pre-fix binary).** 7 `native_decide` pins in
+`ClosureTests.lean` `### import-eager-closedness`: 2 UNIT (`selected_field_value_closes_definition`,
+`…_leaves_regular_open`); FACET 1 silent-admit (`eager_closed_import_def_rejects_extra` — concrete,
+`extra` → `.fieldNotAllowed`, `defClosed`); FACET 2 incomplete-mask
+(`…_rejects_extra_when_abstract` — closedness fires despite abstract fields); OVER-CLOSE GUARD
+(`eager_open_import_def_admits_extra` — `...` def stays open); PATTERN EDGE admit + reject
+(`eager_closed_pattern_import_def_admits_match` / `…_rejects_nonmatch`). Updated 1 pre-existing pin
+(`closure_producer_skips_selfref_free_def`) whose expected `regularOpen` ENCODED the old bug → now
+`defClosed`. 2 module fixtures (`testdata/modules/import_open_def_addfield`,
+`import_closed_def_pattern`) pin the over-close guard + pattern-admit end-to-end through the real
+import loader (both byte-identical to cue; the rejection facets live in the pins, mirroring
+`def_open_tail_addfield`'s convention — eval mode emits `extra: _\|_` and exits 0, so an error
+fixture cannot witness a field-level closedness bottom). All oracle-confirmed vs cue v0.16.1.
+
+**1 cue-divergence recorded** (incomplete-mask error-message selection — value agrees, both
+bottom). No spec gap (closed-def-rejects-extra is core CUE closedness; spec is clear).
+
+**Verify.** `lake build` green (110 jobs, no new warning/`sorry`/axiom); `check-fixtures.sh` →
+`fixture pairs ok` (zero drift; 2 new module fixtures are expected additions); `shellcheck` n/a
+(no shell touched). Files: `Kue/Eval.lean` (`selectedFieldValue` + 4 pluck sites),
+`Kue/Tests/ClosureTests.lean` (7 pins + 1 corrected), `testdata/modules/import_open_def_addfield/`
++ `import_closed_def_pattern/` (new), `docs/reference/cue-divergences.md` (1 row),
+`docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (resolved), `docs/notes/` (breadcrumb).
