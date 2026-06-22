@@ -1,0 +1,4 @@
+#A: {#name: string, vis: string}
+#B: {#name: string, vis: string, #p: "b"}
+#C: {#name: string, vis: string, #p: "b", #q: "c"}
+out: {#name: "deep", vis: "deep", #p: "b", #q: "c"}

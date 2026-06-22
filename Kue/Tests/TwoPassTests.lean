@@ -1761,4 +1761,62 @@ theorem bug28_embed_closed_pattern_field_stays_meet :
   native_decide
 
 
+/-! ### Bug2-9 — use-site narrowing of a REFERENCED NAMED multi-conjunct def (RESOLVED).
+
+`#LS: #Base & {…}` is a named def whose BODY is itself a `.conj`. Referencing it and narrowing at
+the use site (`#LS & {#name}`) must flow `#name` into a field declared inside `#Base` (`vis: #name`).
+Pre-fix kue forced `#LS`'s `.conj` body STANDALONE via the `.refId` eval arm — with NO use-operands —
+so the sibling self-ref collapsed to its abstract value (`vis: string`) BEFORE the narrowing arrived,
+then `& {#name}` met too late (`incomplete value: string`). The INLINED `#Base & {…} & {#name}`
+already worked (all conjuncts in one fold). Fixed by `flattenConjDefRef`: a depth-0 ref to a
+`.conj`-bodied def splices its constituents into the use-site `.conj` BEFORE the fold, making the
+named ref byte-identical to the inlined meet. Distinct from Bug2-8 (decl-union across an embed);
+this is narrowing-through-a-referenced-multi-conjunct-def. -/
+
+-- TARGET (was the WITNESS of the wrong `incomplete value`; FLIPPED): a 2-conjunct named def narrowed
+-- at the use site. `#name: "argocd-ls"` flows through `#LS` into `#Base`'s `vis: #name`. cue: `vis:
+-- "argocd-ls"`. Pre-fix kue: `incomplete value: string`.
+theorem bug29_named_multiconjunct_def_narrowed :
+    evalSourceMatches
+      "#Base: {#name: string, vis: #name}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"argocd-ls\"}\n"
+      "#Base: {#name: string, vis: string}\n#LS: {#name: string, vis: string, #extra: \"x\"}\nout: {#name: \"argocd-ls\", vis: \"argocd-ls\", #extra: \"x\"}"
+        = true := by
+  native_decide
+
+-- The real-def shape: a conjunct carries a bare `...` tail (every prod9 def is `...`-open). The
+-- flatten admits a bare-`...` conjunct losslessly (open via `open_`); the narrowing still reaches `vis`.
+theorem bug29_named_multiconjunct_tail_narrowed :
+    evalSourceMatches
+      "#Base: {#name: string, vis: #name, ...}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"argocd-ls\"}\n"
+      "#Base: {#name: string, vis: string, ...}\n#LS: {#name: string, vis: string, #extra: \"x\", ...}\nout: {#name: \"argocd-ls\", vis: \"argocd-ls\", #extra: \"x\", ...}"
+        = true := by
+  native_decide
+
+-- A CHAIN of named multi-conjunct defs (`#C: #B & …`, `#B: #A & …`) flattens fully — `flattenConjDefRef`
+-- recurses through each `.conj` body, so the outermost narrowing reaches the deepest conjunct's self-ref.
+theorem bug29_nested_named_multiconjunct_narrowed :
+    evalSourceMatches
+      "#A: {#name: string, vis: #name}\n#B: #A & {#p: \"b\"}\n#C: #B & {#q: \"c\"}\nout: #C & {#name: \"deep\"}\n"
+      "#A: {#name: string, vis: string}\n#B: {#name: string, vis: string, #p: \"b\"}\n#C: {#name: string, vis: string, #p: \"b\", #q: \"c\"}\nout: {#name: \"deep\", vis: \"deep\", #p: \"b\", #q: \"c\"}"
+        = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): flattening does NOT mask a real conflict. `val: 1` (in `#Base`,
+-- via the named def) meets `val: 2` (use site) and BOTTOMS, exactly as cue.
+theorem bug29_named_multiconjunct_conflict_bottoms :
+    exportJsonBottoms
+      "#Base: {#name: string, val: 1}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"n\", val: 2}\n"
+        = true := by
+  native_decide
+
+-- SOUNDNESS GUARD (must STAY green): closedness is preserved through the flatten. The named def is
+-- closed (no `...`), so a use-site field declared by NO conjunct (`notallowed`) is rejected. cue:
+-- `field not allowed`.
+theorem bug29_named_multiconjunct_closed_rejects_extra :
+    exportJsonBottoms
+      "#Base: {#name: string, vis: #name}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"n\", notallowed: 9}\n"
+        = true := by
+  native_decide
+
+
 end Kue

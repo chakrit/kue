@@ -636,6 +636,59 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-9: use-site narrowing of a REFERENCED NAMED multi-conjunct def. `#LS: #Base & {#extra}`
+      -- is itself a `.conj`; referencing it and narrowing (`#LS & {#name}`) must flow `#name` into
+      -- `#Base`'s sibling self-ref `vis: #name`. cue: `vis: "argocd-ls"`. Pre-fix kue forced `#LS`'s
+      -- `.conj` body STANDALONE (no use-operands), collapsing `vis` to `string` before the narrowing
+      -- arrived → `incomplete value: string`. Fixed by `flattenConjDefRef`: the `.conj` body's
+      -- conjuncts splice into the use-site fold, identical to the inlined `#Base & {#extra} & {#name}`.
+      fileName := "definitions/bug29_named_multiconjunct_def_narrowed.expected",
+      content :=
+        match parseSource "#Base: {#name: string, vis: #name}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"argocd-ls\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-9: the real-def shape — a conjunct carries a bare `...` tail (`defs.#ListenerSet` and
+      -- every prod9 def are `...`-open). The flatten admits a bare-`...` conjunct (lossless: the
+      -- merged result is open via `open_`); the narrowing still reaches `vis`.
+      fileName := "definitions/bug29_named_multiconjunct_tail_narrowed.expected",
+      content :=
+        match parseSource "#Base: {#name: string, vis: #name, ...}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"argocd-ls\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-9: a CHAIN of named multi-conjunct defs (`#C: #B & …`, `#B: #A & …`) flattens fully —
+      -- `flattenConjDefRef` recurses through each `.conj` body, so the narrowing at the outermost use
+      -- site reaches the deepest conjunct's self-ref.
+      fileName := "definitions/bug29_nested_named_multiconjunct_narrowed.expected",
+      content :=
+        match parseSource "#A: {#name: string, vis: #name}\n#B: #A & {#p: \"b\"}\n#C: #B & {#q: \"c\"}\nout: #C & {#name: \"deep\"}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-9 SOUNDNESS: flattening does NOT mask a real conflict. `val: 1` (in `#Base`, via the named
+      -- def) meets `val: 2` (use site) and BOTTOMS, exactly as cue. The flatten folds operands; it never
+      -- drops a conjunct.
+      fileName := "definitions/bug29_named_multiconjunct_conflict_bottoms.expected",
+      content :=
+        match parseSource "#Base: {#name: string, val: 1}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"n\", val: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-9 SOUNDNESS: closedness is preserved through the flatten. The named def is closed (no
+      -- `...`), so a use-site field declared by NO conjunct (`notallowed`) is rejected — the per-operand
+      -- `applyConjClosedness` re-derives each conjunct's allowed-set, same as the inlined meet.
+      fileName := "definitions/bug29_named_multiconjunct_closed_rejects_extra.expected",
+      content :=
+        match parseSource "#Base: {#name: string, vis: #name}\n#LS: #Base & {#extra: \"x\"}\nout: #LS & {#name: \"n\", notallowed: 9}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

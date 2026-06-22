@@ -1,0 +1,3 @@
+#Base: {#name: string, vis: string, ...}
+#LS: {#name: string, vis: string, #extra: "x", ...}
+out: {#name: "argocd-ls", vis: "argocd-ls", #extra: "x", ...}

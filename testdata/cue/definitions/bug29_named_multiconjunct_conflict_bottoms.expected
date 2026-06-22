@@ -1,0 +1,3 @@
+#Base: {#name: string, val: 1}
+#LS: {#name: string, val: 1, #extra: "x"}
+out: {#name: "n", val: _|_, #extra: "x"}

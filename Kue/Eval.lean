@@ -1552,6 +1552,42 @@ def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field ×
                 | none => none
   | _ => none
 
+/-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
+    UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
+    `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
+    `.conj` fold (lazy-merge + closure-deferral) already evaluates correctly.
+
+    Without this the ref `#LS` resolves STANDALONE through the `.refId` eval arm: its `.conj`
+    body forces with NO use-operands, so a conjunct's sibling self-ref / comprehension guard
+    (`vis: #name`, `if kind == add.#kind`) collapses against the un-narrowed abstract value
+    BEFORE the use-site `& {narrow}` arrives, then meets too late (`incomplete value` / a
+    spuriously-bottomed `_patch`). Flattening puts the def's conjuncts and the use-site decls in
+    ONE fold so every conjunct sees the narrowing — exactly the inlined behavior.
+
+    Only a bare same-frame (`id.depth == 0`) ref to a `.conj`-bodied field is expanded: the def's
+    body refs are written in its enclosing scope, which is the SAME scope as the use site (a
+    top-level def and its use site share the package frame), so the spliced conjuncts' depth-0
+    refs (and package-selector conjuncts like `defs.#ListenerSet`, which re-resolve their own
+    import binding) stay valid in place. Anything else (an outer ref, a non-`.conj` body, a
+    literal non-ref conjunct) is returned UNCHANGED, so non-multi-conjunct-def conjuncts keep
+    their existing path. Recurses so a chain of named multi-conjunct defs (`#C: #B & …`,
+    `#B: #A & …`) flattens fully; fuel-bounded against alias cycles (`#A: #A & {…}`). -/
+def flattenConjDefRef (env : Env) (fuel : Nat) (constraint : Value) : List Value :=
+  match fuel, constraint with
+  | fuel + 1, .refId id =>
+      if id.depth.val != 0 then [constraint]
+      else
+        match env with
+        | [] => [constraint]
+        | frame :: _ =>
+            match nthField id.index.val frame.snd with
+            | some field =>
+                match Field.value field with
+                | .conj cs => cs.flatMap (flattenConjDefRef env fuel)
+                | _ => [constraint]
+            | none => [constraint]
+  | _, _ => [constraint]
+
 /-- Merge a list of per-conjunct `(fields, open)` operands into the single merged-frame field
     list. The layout (`label → slot`) is fixed by first-occurrence across conjuncts; each
     conjunct's bodies are rebased onto that layout, then merged into deferred `.conj`s on label
@@ -2759,7 +2795,13 @@ mutual
                         recurseBody env (id.index.val :: visited)
                     else
                       recurseBody (frame :: outer) [id.index.val]
-    | fuel + 1, .conj constraints => do
+    | fuel + 1, .conj rawConstraints => do
+        -- Bug2-9: FLATTEN a referenced multi-conjunct named def into its constituent conjuncts
+        -- (`#LS & {narrow}` where `#LS: #A & #B & {…}` → `#A & #B & {…} & {narrow}`) BEFORE the
+        -- fold, so the def's conjuncts and the use-site narrowing evaluate in ONE pass — identical
+        -- to the inlined meet. A constraint that is not a depth-0 ref to a `.conj`-bodied def is
+        -- returned unchanged, so non-multi-conjunct-def conjuncts keep their path.
+        let constraints := rawConstraints.flatMap (flattenConjDefRef env evalFuel)
         -- DISJUNCTION DISTRIBUTION (argocd-secret-data sub-slice 2). A conjunct that is (or refs,
         -- at depth 0) a disjunction with a deferral-needing default arm must DISTRIBUTE the other
         -- conjuncts into each arm at the UNEVALUATED level — `(*_#A|_#B) & {narrow}` becomes
