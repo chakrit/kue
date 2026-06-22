@@ -114,13 +114,17 @@ field-ordering byte-parity gap (#3):
   sum on a named `ConjOperand`; a plain embed's same-def-path decls fold into the static frame as
   an `embeddedDecl` operand, close-once-UNIONing via `mergeConjOperandFields`/`mergeDefinitionDecls`,
   and the meet-fold strips the embed's matching decl; the cert-manager REGULAR closed pattern stays
-  a MEET) — also NOT the final blocker. The deeper blocker is now **Bug2-9** (use-site narrowing of
-  a REFERENCED multi-conjunct def whose conjuncts include the cert-manager mixin: `ls =
-  defaults.#ListenerSet & {#name,#ns,#passthrough_hosts}` where `defaults.#ListenerSet =
-  defs.#ListenerSet & parts.#UseCertManager & {…}` — kue bottoms, cue produces the full manifest;
-  the INLINED 3-way meet with all use fields supplied directly WORKS, so the bug is specific to
-  narrowing a referenced NAMED multi-conjunct def). PARKED as a stress-test finding; ~11s to repro
-  in isolation. argocd localized to `route.yaml`/`listener.yaml`.
+  a MEET) — also NOT the final blocker. **Bug2-9** (use-site narrowing of a REFERENCED NAMED
+  multi-conjunct def, `ls = defaults.#ListenerSet & {#name,…}` where `defaults.#ListenerSet =
+  defs.#ListenerSet & parts.#UseCertManager & {…}`) FIXED (`5d9cf8f`, 2026-06-23 —
+  `flattenConjDefRef` flattens a depth-0 ref-to-`.conj`-bodied def into its constituents before the
+  `.conj` fold, making the named ref byte-identical to the inlined meet) — also NOT the final
+  blocker. The deeper blocker is now **Bug2-10** (use-site narrowing of a host that EMBEDS a def
+  with a sibling self-ref does NOT flow into the embedded self-ref — the Bug2-4/2-5 narrowing family;
+  self-contained repro `{#Meta} & {#name:"x"}` where `#Meta: {#name: string, metadata: name:
+  #name}` → kue `incomplete value: string`, cue `{metadata:{name:"x"}}`, while the DIRECT
+  `#Meta & {#name}` works). PARKED as a stress-test finding. argocd localized to
+  `route.yaml`/`listener.yaml`.
 
 ## Live Backlog (open work, ranked)
 
@@ -139,10 +143,12 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). PARKED: **Bug2-9** (NEW argocd residual — use-site narrowing of a
-REFERENCED multi-conjunct def whose conjuncts include the cert-manager mixin; the deeper
-blocker uncovered after Bug2-8 landed, a stress-test finding). RESOLVED / ruled out (do not
-re-file — see Resolved/ruled-out below): **Bug2-8** (same-def multi-decl close-once ACROSS AN
+(LOW spec-gap-first). PARKED: **Bug2-10** (NEW argocd residual — use-site narrowing of a host that
+EMBEDS a def with a sibling self-ref does NOT flow into the embedded self-ref; the Bug2-4/2-5
+narrowing family; uncovered after Bug2-9 landed, a stress-test finding). RESOLVED / ruled out (do not
+re-file — see Resolved/ruled-out below): **Bug2-9** (use-site narrowing of a REFERENCED NAMED
+multi-conjunct def, `5d9cf8f` 2026-06-23 — `flattenConjDefRef`; was NOT the final argocd blocker;
+surfaced Bug2-10), **Bug2-8** (same-def multi-decl close-once ACROSS AN
 EMBED boundary, `2332aff` 2026-06-23 — `DeclProvenance`/`ConjOperand`; was NOT the final argocd
 blocker; surfaced Bug2-9), **Bug2-7** (def multi-decl close-once on the reference / force-fold
 path, `3361699` 2026-06-23 — surfaced Bug2-8), **Bug2-6** (definition
@@ -242,10 +248,10 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero drift;
    FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):** the
    heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5 + Bug2-6 + Bug2-7 + Bug2-8 are fixed but argocd bottoms on
-   **Bug2-9** (use-site narrowing of a referenced multi-conjunct cert-manager-mixin def), a
-   CORRECTNESS divergence, not fuel. Un-gates once Bug2-9 lands; profile against a resolving
-   target then.
+   argocd unblock — Bug2-5..Bug2-9 are fixed but argocd bottoms on **Bug2-10** (use-site
+   narrowing into an EMBEDDED def's sibling self-ref — `{#Meta} & {#name}` leaves
+   `metadata.name: string`), a CORRECTNESS divergence, not fuel. Un-gates once Bug2-10 lands;
+   profile against a resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

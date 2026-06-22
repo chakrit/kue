@@ -217,9 +217,13 @@ these is in Audit history (below) + the implementation-log + git.
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
 
-**PARKED (off the critical path):** **Bug2-9** (the NEXT argocd residual — use-site narrowing of a
-REFERENCED multi-conjunct def whose conjuncts include the cert-manager mixin; surfaced after Bug2-8
-landed) — see Live-slice detail. **Bug2-8 RESOLVED** (2026-06-23): same-def multi-decl close-once
+**PARKED (off the critical path):** **Bug2-10** (the NEXT argocd residual — use-site narrowing of a
+host that EMBEDS a def with a sibling self-ref does not flow into the embedded self-ref; the
+Bug2-4/2-5 narrowing family, `meetEmbeddingsWithFuel` closure-force-splice; surfaced after Bug2-9
+landed) — see Live-slice detail. **Bug2-9 RESOLVED** (`5d9cf8f`, 2026-06-23): use-site narrowing of a
+REFERENCED NAMED multi-conjunct def, via `flattenConjDefRef` (flatten a depth-0 ref-to-`.conj`-bodied
+def into its constituents before the `.conj` fold = byte-identical to the inlined meet) — see
+Live-slice detail. **Bug2-8 RESOLVED** (2026-06-23): same-def multi-decl close-once
 ACROSS AN EMBED boundary via a `DeclProvenance` sum threaded on a named `ConjOperand` — see Live-slice
 detail. **Bug2-7 RESOLVED** (`3361699`, 2026-06-23): def multi-decl close-once on
 the reference / force-fold path via per-operand `canonicalizeFields` in `mergeConjOperands` —
@@ -370,23 +374,61 @@ field-order #3 only — the closed pattern is NOT re-opened). Axiom-clean (`prop
 `#x: string` def value double-displaying as `string & string`) was fixed by the `isUnionableDefValue`
 struct-value gate.
 
-**argocd status: STILL bottoms (~55s) — Bug2-8 was NOT the final blocker.** It now hits **Bug2-9**
-(below). The Bug2-8 union mechanism itself handles the cert-manager `#additions` shape correctly
-(a comprehension over the pattern+field-unioned `#additions` across the embed matches cue).
+**argocd status: STILL bottoms (~53s) — Bug2-8 was NOT the final blocker.** It hit **Bug2-9**
+(below, now RESOLVED), which uncovered **Bug2-10** (below) one layer deeper. The Bug2-8 union
+mechanism itself handles the cert-manager `#additions` shape correctly (a comprehension over the
+pattern+field-unioned `#additions` across the embed matches cue).
 
-**Bug2-9 (HIGH — the NEXT residual argocd export blocker; PARKED, distinct mechanism).** Use-site
-narrowing of a REFERENCED multi-conjunct def whose conjuncts include the cert-manager mixin. The
-argocd `ls = defaults.#ListenerSet & {#name, #ns, #passthrough_hosts}` where `defaults.#ListenerSet`
-is itself a def equal to `defs.#ListenerSet & parts.#UseCertManager & {#gateway_name, …}` (a 3-way
-def-meet, the second conjunct being the `#UseCertManager` → `#Mixin` mixin). **Minimal repro (in the
-prod9 module):** `defaults.#ListenerSet & {#name:"argocd-ls", #ns:"argocd", #passthrough_hosts:[…]}`
-→ cue: full ListenerSet manifest with the cert-manager annotation; kue: bottoms. **Localized:** the
-INLINED 3-way meet with all use fields supplied directly (`defs.#ListenerSet & parts.#UseCertManager
-& {all #fields}`) WORKS in kue — the bottom is specific to REFERENCING `defaults.#ListenerSet` (a
-NAMED multi-conjunct def) and narrowing it at the use site, where `#name`/`#ns` must flow through the
-multi-conjunct def to the mixin's `_patch`/`#additions` machinery. Distinct from Bug2-8 (decl-union):
-this is narrowing-through-a-referenced-multi-conjunct-def. ~11s to repro in isolation (`defaults.
-#ListenerSet & {…}` via a probe in the apps package). PARKED for a dedicated slice; correctness-first.
+**Bug2-9 — RESOLVED (`5d9cf8f`, 2026-06-23). Use-site narrowing of a REFERENCED NAMED multi-conjunct
+def, flattened at the unevaluated constraint level.** `ls = defaults.#ListenerSet & {#name, #ns,
+#passthrough_hosts}` where `defaults.#ListenerSet = defs.#ListenerSet & parts.#UseCertManager & {…}`
+— a use-site narrowing of a REFERENCED named def whose BODY is itself a `.conj`. kue bottomed/
+incomplete'd; the INLINED 3-way meet worked.
+
+**Root cause:** `#ListenerSet`'s body is a `.conj`. Referencing it (`#LS & {narrow}`) gave the outer
+`.conj [refId(#LS), {narrow}]`. `conjStructOperand?` (the lazy-merge reducer) follows a `.refId` only
+to a plain `.struct` body — a `.conj` body hit its `_` catch-all → the lazy-merge aborted → the
+`.refId` eval arm forced `#LS`'s `.conj` body STANDALONE (no use-operands), so a conjunct's sibling
+self-ref (`vis: #name`) collapsed to its abstract `string` BEFORE the use-site narrowing arrived,
+then `& {narrow}` met too late (`incomplete value: string`). The INLINED form worked because all
+conjuncts sit in ONE `.conj` and fold together.
+
+**Fix (`flattenConjDefRef`, total, axiom-clean — propext only):** in the `.conj` eval arm, FLATTEN a
+depth-0 ref to a `.conj`-bodied def into its constituent conjuncts BEFORE the fold —
+`#LS & {narrow}` → `#A & #B & {…} & {narrow}` operand-wise, byte-identical to the inlined meet, which
+the existing lazy-merge + closure-deferral path already evaluates correctly. Depth-0-bounded (a
+top-level def and its use site share the package frame, so spliced refs stay valid in place; a
+package-SELECTOR conjunct like `defs.#ListenerSet` re-resolves its own import binding, frame-
+independent of the splice location) and fuel-bounded (alias cycles `#A: #A & {…}`). Recurses through
+a chain of named multi-conjunct defs.
+
+**Soundness (oracle-confirmed v0.16.1 on the FAITHFUL prod9 `defs.#ListenerSet` shape):** named-ref-
+narrowed == inlined == cue; a real conflict still bottoms; closedness preserved (use-site extra
+rejected). cert-manager canary content-identical (jq -S diff = 0; raw diff = 15 = ratified
+field-order #3). 5 fixture pairs (`bug29_*`) + FixturePorts + 5 `native_decide` pins (TwoPassTests
+Bug2-9): 2/3-conjunct + nested-chain narrowing, conflict-bottoms + closed-rejects-extra guards.
+
+**Bug2-10 (HIGH — the NEXT residual argocd export blocker; PARKED, distinct mechanism).** Use-site
+narrowing of a host that EMBEDS a def whose body has a sibling self-ref does NOT flow the narrowing
+into the embedded def's self-ref. **Fully self-contained minimal repro (no cache):**
+```cue
+#Meta: Self={ #name: string, metadata: name: Self.#name }
+direct:   #Meta & {#name: "x"}   // cue & kue BOTH: {metadata: {name: "x"}}
+embedded: {#Meta} & {#name: "x"} // cue: {metadata: {name: "x"}}; kue: incomplete value: string
+```
+The DIRECT meet narrows correctly; the EMBEDDED-then-narrowed form leaves `metadata.name: string`
+(un-narrowed) → incomplete. **Discovered while fixing Bug2-9:** with the named-ref flatten landed,
+the faithful argocd `ls` (`defaults.#ListenerSet & {#name, #ns, #passthrough_hosts}`) now produces a
+manifest BUT drops `metadata.annotations` / `metadata.name` because `defs.#ListenerSet` embeds
+`parts.#Metadata` (`metadata.name: Self.#name`) and the use-site `#name` never reaches the embedded
+self-ref. The mixin's `_patch` annotation injection itself WORKS (the residual shows
+`annotations: {"cert-manager.io/cluster-issuer": "i"}` correctly); only the `parts.#Metadata` embed's
+`Self.#name` stays abstract. This is the Bug2-4/2-5 NARROWING family (use-site narrowing into an
+embedded def's self-ref) — `meetEmbeddingsWithFuel`'s closure-force-splice should carry the narrowing
+into the embed but doesn't for this shape. NOTE the breadcrumb's prior "the INLINED 3-way meet WORKS
+in kue" discriminator meant "does not BOTTOM" — it ALSO drops the annotation (content-incorrect); the
+Bug2-9 flatten made named == inlined, exposing this shared Layer-B content defect. PARKED for a
+dedicated slice; correctness-first.
 
 **HIGH — soundness / real-app correctness (the LARGE designed levers):**
 

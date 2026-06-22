@@ -11872,3 +11872,57 @@ the static fold in both `.structComp` arms, `lazyConjMergedFields`), `Kue/Tests/
 (Bug2-8 section: 8 pins, witness flipped + renamed), `Kue/Tests/FixturePorts.lean` (3 entries),
 `testdata/cue/definitions/bug28_*.{cue,expected}`, `docs/spec/spec-conformance-audit.md`,
 `docs/spec/plan.md`, `docs/notes/` (breadcrumb).
+
+---
+
+## Completed Slice: Bug2-9 — use-site narrowing of a referenced named multi-conjunct def (`5d9cf8f`, 2026-06-23)
+
+**Goal.** Fix the argocd residual where a use-site narrowing of a REFERENCED NAMED multi-conjunct
+def bottoms/incompletes while the INLINED 3-way meet works. `ls = defaults.#ListenerSet & {#name,
+#ns, #passthrough_hosts}` where `defaults.#ListenerSet = defs.#ListenerSet & parts.#UseCertManager &
+{…}` — the referenced def's BODY is itself a `.conj`.
+
+**Root cause.** `#ListenerSet`'s body is a `.conj`. The use-site `#LS & {narrow}` gives the outer
+`.conj [refId(#LS), {narrow}]`. The lazy-merge reducer `conjStructOperand?` follows a `.refId` only
+to a plain `.struct` body — a `.conj` body hits its `_` catch-all → the lazy-merge aborts → the
+`.refId` eval arm forces `#LS`'s `.conj` body STANDALONE (no use-operands). A conjunct's sibling
+self-ref (`vis: #name`) collapses to its abstract `string` BEFORE the use-site narrowing arrives;
+`& {narrow}` then meets too late (`incomplete value: string`). The INLINED form works because all
+conjuncts sit in ONE `.conj` and fold together.
+
+**Mechanism (`flattenConjDefRef`, total, axiom-clean — propext only).** In the `.conj` eval arm,
+FLATTEN a depth-0 ref to a `.conj`-bodied def into its constituent conjuncts BEFORE the fold:
+`#LS & {narrow}` → `#A & #B & {…} & {narrow}` operand-wise, byte-identical to the inlined meet, which
+the existing lazy-merge + closure-deferral path already evaluates correctly. The flatten is applied
+once at the top of the arm (`rawConstraints.flatMap (flattenConjDefRef env evalFuel)`), so it feeds
+both `splitDisjConjunct` and `evalConjStandard`. A non-`.refId`-to-`.conj` constraint is returned
+unchanged, so non-multi-conjunct-def conjuncts keep their path.
+
+**Frame safety + termination.** Depth-0-bounded: a top-level def and its use site share the package
+frame, so the spliced conjuncts' depth-0 refs (and package-SELECTOR conjuncts like
+`defs.#ListenerSet`, which re-resolve their own import binding) stay valid in place; an outer
+(`depth > 0`) ref is left unflattened. Fuel-bounded against alias cycles (`#A: #A & {…}`). Recurses
+through a chain of named multi-conjunct defs (`#C: #B & …`, `#B: #A & …`).
+
+**Soundness (oracle-confirmed v0.16.1 on the FAITHFUL prod9 `defs.#ListenerSet` shape via the
+vendored `defs@v0.3.19` cache).** named-ref-narrowed == inlined == cue; a real conflict still bottoms
+(`val:1` vs `val:2`); closedness preserved (use-site `notallowed` rejected). cert-manager canary
+content-identical (jq -S diff = 0; raw diff = 15 = ratified field-order #3). 5 fixture pairs
+(`bug29_*`) + FixturePorts + 5 `native_decide` pins (TwoPassTests Bug2-9): 2/3-conjunct +
+nested-chain narrowing, conflict-bottoms + closed-rejects-extra guards.
+
+**argocd status: STILL bottoms (~53s) — Bug2-9 was NOT the final blocker.** With the named-ref
+flatten landed, the faithful `ls` now produces a manifest but DROPS `metadata.name`/
+`metadata.annotations` — the deeper residual **Bug2-10** (PARKED): use-site narrowing of a host that
+EMBEDS a def with a sibling self-ref does NOT flow into the embedded self-ref. Self-contained repro
+`{#Meta} & {#name:"x"}` (`#Meta: {#name: string, metadata: name: #name}`) → kue `incomplete value:
+string`, cue `{metadata:{name:"x"}}`; the DIRECT `#Meta & {#name}` works. The Bug2-4/2-5 narrowing
+family (`meetEmbeddingsWithFuel` closure-force-splice). The breadcrumb's prior "INLINED 3-way meet
+WORKS in kue" discriminator meant "does not BOTTOM" — the inlined form ALSO dropped the annotation
+(content-incorrect); Bug2-9 made named == inlined, exposing this shared Layer-B defect. Perf
+frontier #7 stays GATED.
+
+**Files.** `Kue/Eval.lean` (`flattenConjDefRef`, wired into the `.conj` eval arm),
+`Kue/Tests/TwoPassTests.lean` (Bug2-9 section: 5 pins), `Kue/Tests/FixturePorts.lean` (5 entries),
+`testdata/cue/definitions/bug29_*.{cue,expected}`, `docs/spec/spec-conformance-audit.md`,
+`docs/spec/plan.md`, `docs/notes/` (breadcrumb).
