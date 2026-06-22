@@ -1972,22 +1972,33 @@ def resolveEmbedDefBody? (env : Env) : Value -> Option Value
       | _ => none
   | _ => none
 
+/-- Does `body`, or any def it transitively EMBEDS, satisfy the non-recursive `leaf` predicate?
+    Walks the embed chain (`resolveEmbedDefBody?` per embedding, resolved against `env`),
+    fuel-bounded against embed cycles. The variation point is the pure, non-recursive `leaf :
+    Value → Bool`; the recursion (the fixed chain-walk) is owned here, so the `fuel+1` decrease
+    stays lexically visible to `termination_by` (the AD4-1 / `expandClauseChain` shape — a leaf
+    that itself recursed would be the DRY-1 trap, but neither `leaf` does). Two instantiations:
+    `bodyNeedsDefer` (leaf = `defBodyHasSiblingSelfRef`) and `embedBodyEmbedsDisjDeep`
+    (leaf = `embedBodyEmbedsDisj`). -/
+def embedChainAny (leaf : Value -> Bool) (env : Env) (fuel : Nat) (body : Value) : Bool :=
+  leaf body ||
+    match fuel, body with
+    | nextFuel + 1, .structComp _ comprehensions _ =>
+        (comprehensions.filter isEmbeddingValue).any fun embed =>
+          match resolveEmbedDefBody? env embed with
+          | some embedBody => embedChainAny leaf env nextFuel embedBody
+          | none => false
+    | _, _ => false
+  termination_by fuel
+
 /-- Does a body need deferral to a `.closure` — either a DIRECT sibling self-ref/guard
     (`defBodyHasSiblingSelfRef`), OR an EMBEDDING whose own referenced def needs deferral? The
     second clause is the embed-chain case (`Outer: {#Inner}` where `#Inner` has a guard whose
     output depends on a use-site-narrowed field): the embed is NOT a self-ref of `Outer`, so the
     direct check misses it, yet `Outer` must defer so the narrowing reaches `#Inner` before its
-    guard is evaluated. Fuel-bounded; recurses through embeddings (each resolved against `env`). -/
+    guard is evaluated. Fuel-bounded; recurses through embeddings via `embedChainAny`. -/
 def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
-  defBodyHasSiblingSelfRef body ||
-    match fuel, body with
-    | nextFuel + 1, .structComp _ comprehensions _ =>
-        (comprehensions.filter isEmbeddingValue).any fun embed =>
-          match resolveEmbedDefBody? env embed with
-          | some embedBody => bodyNeedsDefer env nextFuel embedBody
-          | none => false
-    | _, _ => false
-  termination_by fuel
+  embedChainAny defBodyHasSiblingSelfRef env fuel body
 
 /-- Bug2-5: does an embed body embed a STRUCTURAL disjunction either DIRECTLY (`embedBodyEmbedsDisj`)
     or TRANSITIVELY through one of its OWN embeddings? The direct check (`embedBodyEmbedsDisj`) only
@@ -1996,22 +2007,14 @@ def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
     then the host's `spliceOperandForEmbed` into `#Mid` drops the regular fields (`kind`) the buried
     disjunction's let-local (`_patch.kind`) needs, so the narrowing never reaches the disjunction-arm
     path two embed levels down. This is the embed-chain analogue of `bodyNeedsDefer`: it recurses
-    through embeddings (resolved against `env`) so a host narrowing reaches a transitively-embedded
+    through embeddings (`embedChainAny`) so a host narrowing reaches a transitively-embedded
     disjunction. Returns `true` when the body, or any def it transitively embeds, embeds a disjunction.
     The splice it gates (Gap-2b: route ALL regular output fields into the embed) is sound regardless
     of depth — meet is idempotent on a field an arm already carries, a real conflict still bottoms —
     so widening the GATE through the embed chain never over-narrows. Fuel-bounded against embed
     cycles. -/
 def embedBodyEmbedsDisjDeep (env : Env) (fuel : Nat) (body : Value) : Bool :=
-  embedBodyEmbedsDisj body ||
-    match fuel, body with
-    | nextFuel + 1, .structComp _ comprehensions _ =>
-        (comprehensions.filter isEmbeddingValue).any fun embed =>
-          match resolveEmbedDefBody? env embed with
-          | some embedBody => embedBodyEmbedsDisjDeep env nextFuel embedBody
-          | none => false
-    | _, _ => false
-  termination_by fuel
+  embedChainAny embedBodyEmbedsDisj env fuel body
 
 /-- Follow a def body that is itself an alias/import-selector indirection to the terminal
     struct-like body it ultimately names, paired with the package frame that body's refs
