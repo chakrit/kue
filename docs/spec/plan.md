@@ -127,14 +127,20 @@ field-ordering byte-parity gap (#3):
   `conjBodyHasDeferringArm` + `.conj`-body capture in `importDefClosureBody?` + a `.conj`
   re-fold arm in `forceClosureWithConjunctCore`, each arm keeping its OWN package frame) — the
   real argocd `listener.yaml` subtree now FULLY narrows (metadata.name "argocd-ls",
-  #passthrough_hosts, all #additions). **NOT the final blocker either.** **The actual remaining
-  on-path argocd blocker is now Bug2-13** (presence-test `#opt == _|_` / `!= _|_` on an UNSET
-  OPTIONAL returns the WRONG polarity → kue fires the wrong comprehension arm in `attr.#ServiceRef`,
-  bottoming `#service_port` in `route.yaml`). Full `apps/argocd.cue` STILL bottoms (~54s,
-  `conflicting values`) — localized to `route.yaml` (`#service_port: _|_`, `#listenerset_name: _|_`
-  downstream). See `spec-conformance-audit.md` Bug2-13 (self-contained 2-line repro). ONE
+  #passthrough_hosts, all #additions). **NOT the final blocker either.** **Bug2-13** (unset
+  optional selection reads as ABSENT) FIXED (`7e69e43`, 2026-06-23 — `selectedFieldValue` + the
+  `.refId` eval arm resolve an `.optional`-rung field to `.bottom`; the over-fire guard is the
+  `.optional` rung itself, a set optional downgrades to `.regular`) — cleared `route.yaml`'s
+  `#service_port: _|_`, but **also NOT the final blocker.** **The actual remaining on-path argocd
+  blocker is now Bug2-14** (field selection from a `.structComp` bottoms — `selectEvaluatedField`
+  has no `.structComp` arm; `ls = defaults.#ListenerSet & {…}` resolves to a `.structComp` with the
+  `#UseCertManager`/`#Mixin` `for`-comprehension left UNDRAINED, so `#listenerset_name: ls.#name` in
+  `route.yaml` selects `#name` from it → `_|_`). Full `apps/argocd.cue` STILL bottoms (~54s,
+  `conflicting values`) — now localized to `route.yaml`'s `#listenerset_name: _|_` ALONE
+  (`#service_port` resolved). See `spec-conformance-audit.md` Bug2-14 (5-package repro; the inline
+  collapse does NOT reproduce — needs the cross-pkg def-of-def + mixin disjunction). ONE
   empirically-confirmed remaining layer; whether a further bug hides behind it is unknown until
-  Bug2-13 is fixed and argocd re-run (honest — no "one fix away" over-claim).
+  Bug2-14 is fixed and argocd re-run (honest — no "one fix away" over-claim).
 
 ## Live Backlog (open work, ranked)
 
@@ -153,14 +159,18 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-13** (presence-test `#opt == _|_` / `!= _|_` on
-an UNSET OPTIONAL field returns the WRONG polarity → kue fires the wrong comprehension arm in
-`attr.#ServiceRef`, bottoming `#service_port` in argocd's `route.yaml`; self-contained 2-line repro
-in `spec-conformance-audit.md`). General presence-test / optional-field-presence fix, NOT a
-comprehension or def-of-def mechanism. RESOLVED / ruled out (do not re-file — see Resolved/ruled-out
-below): **Bug2-11** (use-site narrowing of a TWO-LEVEL cross-package def-of-def selector, `bdced40`
+(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-14** (field selection from a `.structComp`
+bottoms — `selectEvaluatedField` has no `.structComp` arm; `ls = defaults.#ListenerSet & {…}`
+resolves to a `.structComp` with the `#UseCertManager`/`#Mixin` `for`-comprehension UNDRAINED, so
+`#listenerset_name: ls.#name` selects `#name` from it → `_|_`; 5-package repro in
+`spec-conformance-audit.md`). Root-cause fix = drain the mixin comprehension through the def-of-def
+force path; (b)-fallback = a `.structComp` selection arm. RESOLVED / ruled out (do not re-file — see
+Resolved/ruled-out below): **Bug2-13** (unset optional selection reads as ABSENT, `7e69e43`
+2026-06-23 — `selectedFieldValue` + the `.refId` eval arm resolve an `.optional`-rung field to
+`.bottom`; cleared `route.yaml`'s `#service_port: _|_`; was NOT the final blocker — Bug2-14 is),
+**Bug2-11** (use-site narrowing of a TWO-LEVEL cross-package def-of-def selector, `bdced40`
 2026-06-23 — `conjBodyHasDeferringArm` + `.conj`-body capture + a `.conj` force-fold arm, right-frame;
-real argocd `listener.yaml` now fully narrows; was NOT the final blocker — Bug2-13 is), **Bug2-10**
+real argocd `listener.yaml` now fully narrows; was NOT the final blocker), **Bug2-10**
 (use-site narrowing into a `.structComp` host's
 embedded self-ref, `aa4172b` 2026-06-23 — `conjStructCompDefer?` + an embed-meet closedness-leak fix
 via `embeddingClosesHost`; was NOT the final argocd blocker; CORRECTED the prior "argocd is Bug2-10
@@ -235,10 +245,10 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    bottom), unary (`!` on bool + non-bool → bottom, `-` on int + non-numeric → bottom +
    incomplete defer) — the carve-set ops that previously had only end-to-end fixture coverage.
 
-3. **Test/fixture-org pass (periodic) — `TwoPassTests` SPLIT DUE (ranked BELOW Bug2-13, the
+3. **Test/fixture-org pass (periodic) — `TwoPassTests` SPLIT DUE (ranked BELOW Bug2-14, the
    on-path argocd blocker); module carve DONE `4b25cef`; fixture regroup DEFERRED.**
-   **🚨 `TwoPassTests.lean` SPLIT — DUE as a near-term slice (Phase-B 2026-06-23 ruling: now 2048
-   lines, past 2000).** It is the demonstrated silent-failure surface (the Phase-A dead-theorem incident:
+   **🚨 `TwoPassTests.lean` SPLIT — DUE as a near-term slice (Phase-B 2026-06-23 ruling: now ~2135
+   lines, past 2000 — grew with the Bug2-13 section).** It is the demonstrated silent-failure surface (the Phase-A dead-theorem incident:
    ~140 theorems silently dead under unterminated `/-- -/`). The file IS too large to eyeball. Seam =
    **by bug-family**: carve the `bug2x_*` sections (Bug2-1/2-2/2-4/2-5/2-6/2-7/2-8/2-9 + the
    let-local/Mixin narrowing family — the ~bug26_*/bug27_*/bug28_*/bug29_*/mixin_*/let_* pins, lines
@@ -285,11 +295,11 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
    drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):**
    the heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5..Bug2-11 are fixed but argocd STILL bottoms on **Bug2-13** (presence-test
-   on an unset optional returns the wrong polarity → `attr.#ServiceRef` bottoms `#service_port` in
-   `route.yaml`), a CORRECTNESS divergence, not fuel. (Bug2-11's landing fixed the def-of-def
-   `listener.yaml` narrowing but did NOT export argocd — Bug2-13 is the next layer.) Un-gates once
-   argocd ACTUALLY exports; profile against a resolving target then.
+   argocd unblock — Bug2-5..Bug2-13 are fixed but argocd STILL bottoms on **Bug2-14** (field
+   selection from a `.structComp` bottoms → `#listenerset_name: ls.#name` is `_|_` in `route.yaml`),
+   a CORRECTNESS divergence, not fuel. (Bug2-13's landing cleared `#service_port: _|_` but did NOT
+   export argocd — Bug2-14 is the next layer.) Un-gates once argocd ACTUALLY exports; profile against
+   a resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

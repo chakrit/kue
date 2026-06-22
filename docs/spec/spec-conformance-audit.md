@@ -267,7 +267,52 @@ the EXACT argocd shape. Fix family: carry the narrowing through the cross-packag
 same-frame structComp host. THE corrected ARGOCD-DEPTH finding (see REFRAME below): the design note's
 "argocd is same-frame, Bug2-11 off-path" claim was EMPIRICALLY WRONG — `defaults.#ListenerSet` is a
 cross-package selector, so Bug2-11 IS the on-path argocd blocker.
-**Bug2-13 (HIGH — the NEXT on-path argocd blocker; filed 2026-06-23 by the Bug2-11 slice).**
+**Bug2-13 — RESOLVED (`7e69e43`, 2026-06-23). Unset optional selection reads as ABSENT.** The
+polarity bug lived in field SELECTION/RESOLUTION, not the classifier (as the design note predicted):
+an unset optional field reference resolved to its declared TYPE. Fixed at TWO selection-boundary
+sites that both produce the value the presence-test classifies — `selectedFieldValue` (the eager
+`.selector` pluck) AND the `.refId` eval arm (the sibling-reference path the `== _|_` operand actually
+takes; the design note named only the first, but the presence test routes through the second). Both
+resolve an `.optional`-rung field to `.bottom` (absent). The discriminator is the `.optional` presence
+rung itself: supplying a regular conjunct downgrades optionality to `.regular` via `mergeFieldClass`
+(`optional.meet regular = regular`), so a SET optional is no longer `.optional` and keeps resolving to
+its value — the over-fire guard is STRUCTURAL, not a heuristic. Presence not concreteness: `#opt?: 5`
+unset is still absent (still `.optional`). The selection-time analog of `containsBottomFields`'s
+optional-skip. **Witnesses (all oracle-confirmed v0.16.1):** unset optional FLIPPED to `eq true/neq
+false`; SET optional UNCHANGED `eq false/neq true`; non-def optional (generality); concrete-typed
+unset; comprehension-guard fires the ABSENT arm (the argocd `attr.#ServiceRef` `#service?` shape);
+def-meet unset/set fork. 7 `native_decide` pins (TwoPassTests Bug2-13) + 4 export fixture pairs
+(`bug213_*`). cert-manager content-identical (jq -S diff = 0). Spec-grounded (no `cue-divergence`/gap
+to record — kue now matches cue exactly, no residual). **Cleared `route.yaml`'s `#service_port: _|_`;
+argocd advances one layer to Bug2-14 (below) — NOT the terminal blocker.** Original filing follows.
+
+**Bug2-14 (HIGH — the NEXT on-path argocd blocker; filed 2026-06-23 by the Bug2-13 slice).** Field
+selection from a `.structComp` (a struct still carrying an undrained comprehension bucket) bottoms.
+`selectEvaluatedField` (`Eval.lean`) has arms for `.struct`/`.embeddedList`/`.embeddedScalar`/`.disj`
+but NONE for `.structComp` → ANY field select on one falls to `| _ => .bottom`. **On-path argocd
+impact:** `let ls = defaults.#ListenerSet & {…}` where `defaults.#ListenerSet = defs.#ListenerSet &
+parts.#UseCertManager & {…}` co-embeds `#UseCertManager` (→ `#Mixin`, a `listShape | structShape |
+error` disjunction with a `for _, add in #additions {…}` `_patch` comprehension). kue resolves `ls` to
+a `.structComp` whose `_patch` `for`-comprehension is left UNDRAINED even though `#additions` is
+concrete (cue drains it to a plain struct). So `#listenerset_name: ls.#name` in `route.yaml` selects
+`#name` from a `.structComp` → `_|_` (every field select on `ls` bottoms — `ls.#name`, `ls.kind`,
+`ls.metadata` all `_|_`; `ls` ITSELF exports fine in `listener.yaml`). **Two candidate fixes:** (a)
+ROOT CAUSE — drain the `#Mixin` comprehension through the def-of-def force path so `ls` becomes a plain
+`.struct` (why the cross-pkg+disjunction force leaves it undrained where the inline form drains is the
+diagnostic question); (b) add a `.structComp` arm to `selectEvaluatedField` that selects from the
+static `fields` bucket while preserving the residual. (a) is the proper fix; (b) may be needed
+regardless as a selection-time safety. Self-contained 5-package repro reproduces (`/tmp/b213x` during
+the slice: `defs/`+`defs/attr/`+`defs/parts/`+`defaults/`+`main`, the faithful argocd composition; the
+INLINE single-file collapse does NOT reproduce — it needs the cross-pkg def-of-def + mixin
+disjunction). HONEST depth read: Bug2-14 is the ONE empirically-confirmed remaining on-path layer after
+Bug2-13; whether a further bug hides behind it is unknown until it's fixed and argocd re-run. RELATED
+(separate, lower-pri) observation surfaced while pinning Bug2-13: `x.a.missing != _|_` on a genuinely-
+MISSING (never-declared) field of a regular struct → kue `incomplete value` vs cue `false`; the missing
+select stays a deferred `.selector` rather than reading absent. Distinct from the unset-OPTIONAL case
+(a missing field is not in decls at all); not on the argocd path; noted for a future missing-field-
+selection slice.
+
+**Bug2-13 ORIGINAL FILING (for history; RESOLVED above).**
 A presence-test on an UNSET OPTIONAL field returns the WRONG POLARITY. For `#opt?: {a: int}`
 unset: cue gives `#opt == _|_` ⇒ TRUE and `#opt != _|_` ⇒ FALSE (an absent optional is `_|_`);
 kue gives the OPPOSITE (`== _|_` ⇒ false, `!= _|_` ⇒ true) — it treats the optional's declared

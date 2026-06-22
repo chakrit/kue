@@ -12118,3 +12118,78 @@ in `importDefClosureBody?`, `.conj` force-fold arm in `forceClosureWithConjunctC
 `bug211_defofdef_*` entries), `testdata/cue/definitions/bug211_defofdef_*.{cue,expected}` (3 pairs),
 `testdata/modules/crosspkg_{defofdef_narrowed,defofdef_chain,defofdef_wrongframe_witness,singlelevel_narrowed}/`,
 `docs/spec/{spec-conformance-audit,plan}.md` (Bug2-11 RESOLVED + Bug2-13 filed), this log.
+
+---
+
+## Completed Slice: Bug2-13 — unset optional selection reads as ABSENT (`7e69e43`)
+
+Goal: a presence-test (`#opt == _|_` / `#opt != _|_`) on an UNSET OPTIONAL field must read the
+field as ABSENT (`_|_`), matching cue. kue returned the WRONG polarity — it resolved an unset
+optional field reference to its declared TYPE (a present `.struct`/`.prim`), so
+`classifyDefinedness` read `.defined` → `== _|_` wrongly false / `!= _|_` wrongly true, and a
+`if #opt != _|_ {…}` comprehension arm fired when it must not. CUE's model: an optional
+declaration is a CONSTRAINT, not a value; until unification SUPPLIES the field it is absent, and a
+reference/presence-test against it is `_|_`. The 4th remaining argocd `route.yaml` blocker
+(`#service_port` in `attr.#ServiceRef`).
+
+### The fix
+
+The design note predicted the polarity bug lives in field SELECTION (not the classifier) and named
+`selectedFieldValue` as the candidate seam. That was HALF right: the eager `.selector` pluck
+(`selectedFieldValue`, fixed) handles a DIRECT select `x.#opt`, but the presence-test operand
+`#opt` is a SIBLING reference that resolves through the `.refId` eval arm
+(`evalValueCoreWithFuel`) — which reads `Field.value field` (and the `refDefClosureBody?` /
+`refAliasDefClosure?` producers) with NO optionality check. So the fix is TWO sites, both producing
+the value the classifier sees:
+
+- `selectedFieldValue` — `match field.fieldClass.optionality with | .optional => .bottom | _ => …`
+  (the existing def-close / raw-yield logic). Covers the direct-select path.
+- the `.refId` eval arm — right after `nthField` finds the field, `match
+  field.fieldClass.optionality with | .optional => pure .bottom | _ => …` (the existing producer
+  chain). Covers the sibling-reference / presence-test path.
+
+The discriminator is the `.optional` presence rung ITSELF — structural, not a heuristic. Supplying a
+regular conjunct (`#opt: v`) downgrades optionality to `.regular` through `mergeFieldClass`'s
+`lo.meet ro` (`optional.meet regular = regular`), so a SET optional is no longer `.optional` and
+keeps resolving to its value; the over-fire guard needs no separate "is it set" test. Presence, not
+concreteness: a concrete-typed unset optional (`#opt?: 5`) is still `.optional`, hence still absent,
+matching cue. This is the selection-time analog of `containsBottomFields`'s optional-skip
+(`Lattice.lean`) — an unset optional, when read, is absent.
+
+### Tests
+
+7 `native_decide` pins (`TwoPassTests.lean` `### Bug2-13` section + sentinel
+`bug213_def_meet_set_optional_present`): unset optional FLIPPED to `eq true/neq false`; SET optional
+UNCHANGED `eq false/neq true` (over-fire guard); non-def optional (generality); concrete-typed unset
+(presence-not-concreteness); comprehension-guard fires the ABSENT arm (the argocd `attr.#ServiceRef`
+shape); def-meet unset/set fork (both halves through a `#D & {…}` meet). 4 export fixture pairs
+(`testdata/export/bug213_*.{cue,json}`, self-validating via `check_export_fixtures`, no FixturePorts
+entry needed). All oracle-confirmed vs cue v0.16.1. Spec-grounded — no `cue-divergence` or spec-gap
+to record (kue now matches cue exactly; no residual). Axiom-clean, total. cert-manager
+content-identical (jq -S diff = 0).
+
+### Soundness + argocd milestone
+
+Unset optional == cue on all 6 design-note witnesses; SET optional + required byte-identical;
+cert-manager content-identical. Bug2-13 CLEARED `route.yaml`'s `#service_port: _|_` (the
+`attr.#ServiceRef` arm now fires correctly). **argocd — THE MILESTONE: STILL bottoms (~54s,
+`conflicting values`); NOT exported.** The SOLE remaining `_|_` is now `route.yaml`'s
+`#listenerset_name: _|_` (= `ls.#name`). Root, minimally diagnosed + FILED as **Bug2-14**: field
+selection from a `.structComp` bottoms — `selectEvaluatedField` has no `.structComp` arm, and `ls =
+defaults.#ListenerSet & {…}` resolves to a `.structComp` whose `#UseCertManager`/`#Mixin`
+`for`-comprehension is left UNDRAINED (cue drains it to a plain struct), so `ls.#name` → `_|_` (every
+field select on `ls` bottoms; `ls` itself exports fine in `listener.yaml`). 5-package repro; the
+inline single-file collapse does NOT reproduce (needs the cross-pkg def-of-def + mixin disjunction).
+**HONEST depth read: ONE empirically-confirmed remaining on-path layer (Bug2-14); whether a further
+bug hides behind it is unknown until it's fixed and argocd re-run** — no "one fix away" over-claim.
+Perf frontier #7 stays GATED (argocd does not yet export). A separate, lower-pri observation surfaced
+while pinning: `x.a.missing != _|_` on a genuinely-MISSING field of a regular struct → kue
+`incomplete value` vs cue `false` (distinct from the unset-optional case; not on the argocd path;
+noted for a future missing-field-selection slice).
+
+### Files
+
+`Kue/Eval.lean` (`selectedFieldValue` optional arm + the `.refId` eval-arm optional guard),
+`Kue/Tests/TwoPassTests.lean` (`### Bug2-13` section + sentinel),
+`testdata/export/bug213_{unset_optional_absent,set_optional_present,nondef_optional_absent,comprehension_guard_absent}.{cue,json}`
+(4 pairs), `docs/spec/{spec-conformance-audit,plan}.md` (Bug2-13 RESOLVED + Bug2-14 filed), this log.
