@@ -151,8 +151,8 @@ struct, hitting the fixed arm — NOT `lazyConjMergedFields` (a `{…,5}` is a `
 analogs); `EvalTests.WITNESS_scalar_carrier_meet_{plain_decls_struct,lone_hidden_struct}_wrongly_
 merges` → positive `meet_*_with_declsonly_struct_bottoms` (+ symmetric, multi-decl, list analogs,
 carrier&carrier-merge + carrier&output-field-bottom source-level pins). `cue-spec-gaps.md` row 58
-updated to CONFORMING. Zero fixture drift (no `testdata` asserted the old merge). Next leader:
-**CARRIER-DECL-SELECT** (DRY, LOW — below).
+updated to CONFORMING. Zero fixture drift (no `testdata` asserted the old merge). Next leader
+(after CARRIER-DECL-SELECT, now DONE — below): the **item-6 LOW list**.
 
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
@@ -287,9 +287,12 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    - **Parser strictness** — `*(1|2)` laxity (`cue` rejects at parse); `__x`
      double-underscore accepted (`cue` reserves `__` -prefixed idents). Track under a
      parser-strictness pass.
-   - **DRY `selectEvaluatedField .disj` ** — the resolved-default arm re-lists the 5-arm
+   - **DRY `selectEvaluatedField .disj` ** — the resolved-default arm re-lists the
      struct-shape dispatch; collapse to `match resolveDisjDefault? alternatives` (gains
-     free nested-disjunction recursion).
+     free nested-disjunction recursion). PARTIALLY addressed by CARRIER-DECL-SELECT (the
+     three carrier arms inside the sub-case now share `selectFromDecls`); the remaining win
+     is folding the disj match itself into a recursive `selectEvaluatedField` call on the
+     resolved default — still open, LOW.
    - ~~**B3 (`comprehensionPairs` `.embeddedList`)**~~ — **DONE 2026-06-22** (rode along
      with `scalar-embed-with-decls`). Added the
      `.embeddedList items _ _ => some (listPairsFrom 0 items)` arm, so `for x in
@@ -327,24 +330,23 @@ measures; folding them under one abstraction would be a false "stuff they all do
 extraction. **Status: AD4-1 + A-EN3 DONE; DRY-1 RULED OUT; AD2-1 RESOLVED (2026-06-21,
 unified).** No open members. Detail in Resolved/ruled-out (AD2-1 entry) + git.
 
-**CARRIER-DECL-SELECT (DRY, LOW — filed Phase-B 2026-06-22; ranked BELOW
-CARRIER-STRUCT-MEET).** The two carriers' decl-SELECTION seam is byte-identical and SHOULD
-share a helper. `selectEvaluatedField`'s `.embeddedList _ _ decls` and `.embeddedScalar _
-decls` arms (`Eval.lean:618-621` / `:622-625`) are character-for-character identical —
-`match findEvalField label decls with | some field => selectedFieldValue field | none =>
-.selector base label` — AND identical to the plain `.struct` arm just above (`:615-617`).
-The same triple repeats inside the disj-resolved sub-case (`:637-640` / `:641-644`), and
-`Runtime.lookupField?` repeats the carrier pair again (`Runtime.lean:87-88`,
-`(findEvalField label decls).map Field.value`). Fix: a tiny `selectFromDecls base label
-decls` helper (returns the field's `selectedFieldValue` or the deferred `.selector`) shared
-by the struct + both carrier arms at each of the two `Eval.lean` sites; collapse the
-`Runtime` pair to one decl-bearing pattern. LOW-risk, behavior-preserving, but NOT inline
-this round — it touches the same `selectEvaluatedField` arms CARRIER-STRUCT-MEET's test-flip
-neighbours and should land AFTER it to avoid churn collision. Composes cleanly: independent
-seam (selection, not meet), no shared code with the meet fix. Distinct from the FOUR-classifiers
-ruling — that rejected sharing because the classifiers DISAGREE on the partition; here the
-three arms AGREE exactly (the decls are selected identically regardless of carrier), so this
-is real duplication, not false-sharing.
+**CARRIER-DECL-SELECT (DRY, LOW) — DONE 2026-06-22.** Extracted `selectFromDecls (base) (label)
+(decls) : Value` (`findEvalField` → `selectedFieldValue` / deferred `.selector base label`) and
+routed all SIX byte-identical Eval sites through it: top-level `.struct`/`.embeddedList`/
+`.embeddedScalar` + the three `resolveDisjDefault?` sub-case arms. **Home = `Eval.lean`, no new
+edge** — `Runtime` already imports `Eval`, so `Eval` is the lowest module both reach (graph
+unchanged). **`Runtime.lookupField?` is a DIFFERENT operation, NOT shared across the seam** — it
+yields the RAW `Field.value` (no close) and returns `Option` (genuine-absence `none` for the `-e`
+"field not found" diagnostic, never a deferred `.selector`); routing it through `selectFromDecls`
+would silently change behavior + DRY across a module boundary. Only the WITHIN-Runtime triplication
+collapsed (a 1-line local `fieldValue?`). +2 `native_decide` pins
+(`TwoPassTests.select_into_default_disjunction_{scalar,list}_carrier` — the thin disj-resolved
+carrier-select path). Behavior-preserving: 110-job build clean, fixtures zero-drift, pin-count
+conserved +2. NO cue-divergence, NO spec-gap. Detail in the implementation-log. **Distinct from
+FOUR-classifiers** (those DISAGREE on the partition; here the three shapes AGREE exactly — real
+dedup, not false-sharing). Next leader: the **item-6 LOW list** (`module-file-scoped-imports`,
+parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault` check — all LOW,
+none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 

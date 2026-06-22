@@ -78,14 +78,17 @@ def formatManifestError : ManifestError -> String
   | .ambiguous _ => "ambiguous value: multiple non-default disjuncts remain"
 
 /-- Look up a field by label on a resolved struct-like value, returning its value when
-    present. Mirrors the struct cases of `selectEvaluatedField` but distinguishes a genuine
-    absence (`none`) from a present field, so the `-e` selector can report a clean
-    "field not found" rather than silently exporting bottom. -/
+    present. Mirrors the decl-bearing cases of `selectEvaluatedField` but distinguishes a
+    genuine absence (`none`) from a present field, so the `-e` selector can report a clean
+    "field not found" rather than silently exporting bottom. Deliberately yields the RAW
+    `Field.value` (no `selectedFieldValue` close) and an `Option` (no deferred `.selector`):
+    a different operation from Eval's `selectFromDecls`, NOT shared across the module seam. -/
 def lookupField? (base : Value) (label : String) : Option Value :=
+  let fieldValue? (decls : List Field) := (findEvalField label decls).map Field.value
   match base with
-  | .struct fields _ _ _ _ => (findEvalField label fields).map Field.value
-  | .embeddedList _ _ decls => (findEvalField label decls).map Field.value
-  | .embeddedScalar _ decls => (findEvalField label decls).map Field.value
+  | .struct fields _ _ _ _ => fieldValue? fields
+  | .embeddedList _ _ decls => fieldValue? decls
+  | .embeddedScalar _ decls => fieldValue? decls
   | _ => none
 
 /-- Evaluate `-e` field-path selection against an already-bound root value. Splits the

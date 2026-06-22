@@ -19,6 +19,27 @@ theorem select_into_default_disjunction :
       == .prim (.int 1)) = true := by
   native_decide
 
+/-- CARRIER-DECL-SELECT routing: selecting off a defaulted disjunction whose default arm is an
+    `.embeddedScalar` carrier resolves the default, then plucks the decl through the SHARED
+    `selectFromDecls` helper — same path the plain-`.struct` arm above takes. -/
+theorem select_into_default_disjunction_scalar_carrier :
+    (selectEvaluatedField
+      (.disj [(.default, .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]),
+              (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
+      "#a"
+      == .prim (.int 1)) = true := by
+  native_decide
+
+/-- Same routing for an `.embeddedList` default-arm carrier: `selectFromDecls` plucks the decl
+    off the list carrier identically to the scalar and struct shapes. -/
+theorem select_into_default_disjunction_list_carrier :
+    (selectEvaluatedField
+      (.disj [(.default, .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 7)⟩]),
+              (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
+      "#a"
+      == .prim (.int 7)) = true := by
+  native_decide
+
 /-- NO OVER-FIRE: a NON-default disjunction with multiple live arms does NOT collapse on
     selection — it stays a deferred `.selector` (manifest then reports the ambiguity), never a
     spurious `bottom` and never a silent pick of one arm. -/

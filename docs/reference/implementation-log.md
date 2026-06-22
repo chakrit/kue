@@ -11528,3 +11528,59 @@ recorded spec-silent combination.
 `Kue/Tests/{EvalTests,ListTests}.lean` (pins flipped + boundary pins added),
 `docs/reference/{cue-spec-gaps,implementation-log}.md`, `docs/spec/plan.md`, `docs/notes/`
 (breadcrumb).
+
+---
+
+## Completed Slice: CARRIER-DECL-SELECT (share `selectFromDecls` across carrier arms)
+
+Goal (DRY, behavior-preserving — filed by the Phase-B 2026-06-22 audit): collapse the
+byte-identical decl-SELECTION logic that `selectEvaluatedField`'s three decl-bearing carrier
+shapes (`.struct` / `.embeddedList` / `.embeddedScalar`) repeated. The triple
+(`match findEvalField label <list> with | some f => selectedFieldValue f | none =>
+.selector base label`) appeared SIX times in `Eval.lean` — once per shape at the top level AND
+again inside the `.disj`-resolved sub-case — and a related carrier pair in `Runtime.lookupField?`.
+
+**Arms confirmed truly identical (Eval side).** Read all six character-by-character: the only
+difference across them is the binder NAME (`fields` for `.struct`, `decls` for the two carriers)
+— the body is identical. All route a found field through `selectedFieldValue` (the single closing
+decision) and a miss to the deferred `.selector base label`. Genuine dedup, the three shapes AGREE
+exactly (distinct from the four-classifiers ruling, where they DISAGREE). The disj sub-case's three
+arms are the same triple again.
+
+**Fix (Eval).** Extracted `selectFromDecls (base) (label) (decls) : Value` — `findEvalField` →
+`selectedFieldValue` / `.selector base label`. Routed all SIX sites through it: top-level
+`.struct`/`.embeddedList`/`.embeddedScalar` (`Eval.lean:618-620`) + the three `resolveDisjDefault?`
+sub-case arms (`:625-627`). `Eval.lean` 3442 → ~3424.
+
+**Home — `Eval.lean`, NO new edge.** The helper is wanted in both `Eval` and `Runtime`. `Runtime`
+already `import`s `Eval` (line 1), so `Eval` is the lowest module both see — the helper lives there,
+reachable from `Runtime` with zero new import edges and no cycle. (The graph stays
+`Eval → {Builtin, EvalOps, Decimal, Lattice, Regex, Normalize}`; `Runtime` sits ABOVE `Eval`.)
+
+**Runtime — a DIFFERENT operation, NOT shared across the seam.** `Runtime.lookupField?`'s carrier
+arms looked like the same triple but are NOT: they yield the RAW `Field.value` (no
+`selectedFieldValue` close) and return `Option Value` (a miss is `none`, the genuine-absence
+distinction the `-e` "field not found" diagnostic needs — never a deferred `.selector`). Routing
+`Runtime` through Eval's `selectFromDecls` would change its behavior (close definition bodies it
+keeps raw, lose the `none`-vs-present distinction) — exactly the silent behavior-change a DRY
+collapse must avoid, and a banned cross-module DRY besides. Collapsed only the WITHIN-Runtime
+triplication: a 1-line local `fieldValue? decls := (findEvalField label decls).map Field.value`
+shared by all three arms; doc-comment updated to record why it stays distinct from `selectFromDecls`.
+
+**Tests (+2 `native_decide`, pin-count conserved + 2).** The thin path was selection off a DEFAULTED
+disjunction whose default arm is a CARRIER (the `.disj` sub-case's carrier arms had no direct pin —
+the `.struct`-via-disj arm was already covered by `select_into_default_disjunction`). Added
+`TwoPassTests.select_into_default_disjunction_{scalar,list}_carrier`, locking `selectFromDecls`'s
+routing for both carrier shapes through the disj sub-case. Top-level carrier selection already
+covered: `.embeddedScalar` (`EvalTests.scalar_embed_with_decls_decl_selectable` + `_multiple` +
+`_in_unification`), `.embeddedList` (fixture `lists/list_embedding_select_index.cue`), `.struct`
+(ubiquitous).
+
+**Verify.** `lake build` clean (110 jobs, no `sorry`/axiom/new warning); `check-fixtures.sh`
+→ `fixture pairs ok`, ZERO drift; `shellcheck` n/a (no shell touched). Behavior-preserving — every
+pre-existing pin + fixture green, pin-count conserved (+2 new). NO cue-divergence, NO spec-gap
+(pure refactor).
+
+**Files.** `Kue/Eval.lean` (helper + 6 sites), `Kue/Runtime.lean` (within-module collapse +
+doc-comment), `Kue/Tests/TwoPassTests.lean` (+2 pins), `docs/spec/plan.md`,
+`docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb).

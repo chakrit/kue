@@ -609,20 +609,20 @@ def selectedFieldValue (field : Field) : Value :=
   else
     Field.value field
 
+/-- Select `label` from a carrier's decl/field list: the found field's `selectedFieldValue`
+    (the single closing decision) or a deferred `.selector base label` on a miss. Shared by
+    every decl-bearing carrier shape (`.struct`/`.embeddedList`/`.embeddedScalar`) — they all
+    reach their decls identically, so selection is identical regardless of carrier. -/
+def selectFromDecls (base : Value) (label : String) (decls : List Field) : Value :=
+  match findEvalField label decls with
+  | some field => selectedFieldValue field
+  | none => .selector base label
+
 def selectEvaluatedField (base : Value) (label : String) : Value :=
   match base with
-  | .struct fields _ _ _ _ =>
-      match findEvalField label fields with
-      | some field => selectedFieldValue field
-      | none => .selector base label
-  | .embeddedList _ _ decls =>
-      match findEvalField label decls with
-      | some field => selectedFieldValue field
-      | none => .selector base label
-  | .embeddedScalar _ decls =>
-      match findEvalField label decls with
-      | some field => selectedFieldValue field
-      | none => .selector base label
+  | .struct fields _ _ _ _ => selectFromDecls base label fields
+  | .embeddedList _ _ decls => selectFromDecls base label decls
+  | .embeddedScalar _ decls => selectFromDecls base label decls
   | .disj alternatives =>
       -- Selecting INTO a disjunction collapses it to its default arm first, then selects
       -- the field from that arm — CUE's default rule (`d.a` where `d: *{a:1} | {a:2}` is
@@ -630,18 +630,9 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       -- `none` leaves the disjunction unresolved and selection stays deferred, so manifest
       -- reports the ambiguity rather than a spurious `bottom`.
       match resolveDisjDefault? alternatives with
-      | some (.struct fields _ _ _ _) =>
-          match findEvalField label fields with
-          | some field => selectedFieldValue field
-          | none => .selector base label
-      | some (.embeddedList _ _ decls) =>
-          match findEvalField label decls with
-          | some field => selectedFieldValue field
-          | none => .selector base label
-      | some (.embeddedScalar _ decls) =>
-          match findEvalField label decls with
-          | some field => selectedFieldValue field
-          | none => .selector base label
+      | some (.struct fields _ _ _ _) => selectFromDecls base label fields
+      | some (.embeddedList _ _ decls) => selectFromDecls base label decls
+      | some (.embeddedScalar _ decls) => selectFromDecls base label decls
       | _ => .selector base label
   | .bottom => .bottom
   | .bottomWith reasons => .bottomWith reasons
