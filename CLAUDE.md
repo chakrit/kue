@@ -25,9 +25,13 @@ Standing grant for this repo (chakrit, 2026-06-14):
 - **Lean into Lean 4.** Use dependent types, total functions, theorem checks,
   `structure`/`inductive` invariants to make illegal states unrepresentable and push
   correctness into the type system.
-- **Commit/push freely (attended).** Commit and push on the current branch (`main`
-  included) without asking, as part of advancing work. Push is attended-only: in AFK mode
-  (below), commit but do NOT push.
+- **Commit/push/release freely (attended).** Commit, push, AND cut releases on the current
+  branch (`main` included) without asking, as part of advancing work. A due daily-alpha or a
+  notable-milestone release is **auto-cut** via `scripts/release.sh` (+ `scripts/release-linux.sh`
+  for the Linux assets) — never gated on a per-release greenlight. **Don't pause at milestones.**
+  A completed goal, a clean checkpoint, or a discretionary next-leader fork is NOT a reason to
+  stop and ask "what next" or "should I release" — resolve by philosophy and keep the loop
+  driving. Push/release are attended-only: in AFK mode (below), commit but do NOT push or release.
 - **Go fast.** Use every tool that genuinely speeds the work — subagents, batched/parallel
   calls, concurrent edits. Parallelize only when it actually helps.
 - **Keep specs current as a restore point.** `docs/spec/` (plan, architecture,
