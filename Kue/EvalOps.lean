@@ -168,7 +168,37 @@ def evalDiv (left right : Value) : Value :=
     below. -/
 def collapseDefaultDisjunction : Value -> Value
   | .disj alternatives => (resolveDisjDefault? alternatives).getD (.disj alternatives)
-  | other => other
+  -- A shallow projection: only a default disjunction collapses; every other value is the
+  -- identity. Enumerated (not `other => other`) so a NEW `Value` constructor forces a
+  -- decision here — collapse-like or pass-through — rather than being silently identity.
+  | value@(.top) => value
+  | value@(.bottom) => value
+  | value@(.bottomWith _) => value
+  | value@(.prim _) => value
+  | value@(.kind _) => value
+  | value@(.notPrim _) => value
+  | value@(.stringRegex _) => value
+  | value@(.boundConstraint _ _ _) => value
+  | value@(.conj _) => value
+  | value@(.builtinCall _ _) => value
+  | value@(.unary _ _) => value
+  | value@(.binary _ _ _) => value
+  | value@(.ref _) => value
+  | value@(.refId _) => value
+  | value@(.thisStruct) => value
+  | value@(.selector _ _) => value
+  | value@(.index _ _) => value
+  | value@(.struct _ _ _ _ _) => value
+  | value@(.list _) => value
+  | value@(.listTail _ _) => value
+  | value@(.embeddedList _ _ _) => value
+  | value@(.embeddedScalar _ _) => value
+  | value@(.comprehension _ _) => value
+  | value@(.structComp _ _ _) => value
+  | value@(.listComprehension _ _) => value
+  | value@(.interpolation _) => value
+  | value@(.dynamicField _ _ _) => value
+  | value@(.closure _ _) => value
 
 def evalEq (left right : Value) : Value :=
   match left, right with

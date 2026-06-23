@@ -1685,7 +1685,20 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value
       | .dynamicField label fieldClass value =>
           .dynamicField (rec' label) fieldClass (rec' value)
       | .closure capturedEnv body => .closure capturedEnv (rec' body)
-      | other => other
+      -- Leaves carry no nested `Value`, so the rewrite is the identity on them. Enumerated
+      -- (not `_ => value`) so a NEW recursive `Value` constructor fails to compile here until
+      -- its child-recursion arm is written, rather than being silently passed through.
+      | .top => value
+      | .bottom => value
+      | .bottomWith _ => value
+      | .prim _ => value
+      | .kind _ => value
+      | .notPrim _ => value
+      | .stringRegex _ => value
+      | .boundConstraint _ _ _ => value
+      | .ref _ => value
+      | .refId _ => value
+      | .thisStruct => value
   where
     canonicalizeBuiltinClause (aliasMap : List (String × String)) (fuel : Nat) :
         Clause Value -> Clause Value

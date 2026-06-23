@@ -397,13 +397,18 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      three carrier arms inside the sub-case now share `selectFromDecls`); the remaining win
      is folding the disj match itself into a recursive `selectEvaluatedField` call on the
      resolved default — still open, LOW.
-   - **Value-rewrite `other => other` catch-alls (Phase-B, LOW, filed 2026-06-23 audit).**
-     Four total Value-rewrite passes (`Parse.lean:1688` `canonicalizeBuiltinCalls`,
-     `EvalOps.lean:171`, `Eval.lean:1821`/`2201`) end in `| other => other`. Sound today —
-     every swallowed constructor is a true leaf — but a FUTURE recursive `Value` constructor
-     would be silently NOT recursed into (an under-rewrite the type system cannot catch).
-     Fix: replace each catch-all with explicit leaf arms so a new constructor is a compile
-     error. Deferred (not inline): touch all four together to keep the idiom consistent.
+   - ~~**Value-rewrite `other => other` catch-alls (Phase-B, LOW, filed 2026-06-23 audit).**~~
+     **DONE 2026-06-23.** All four Value-rewrite catch-alls (`Parse.lean` `canonicalizeBuiltinCalls`,
+     `EvalOps.lean` `collapseDefaultDisjunction`, `Eval.lean` `openStructValue`/`closeEmbeddedOver`)
+     replaced with explicit constructor enumerations — `canonicalizeBuiltinCalls` lists the 11 leaves
+     (it recurses every recursive ctor already); the three shallow projections list ALL pass-through
+     ctors (leaf + recursive, plus a `.struct _ _ _ _ _` arm for the non-plain-struct shapes the
+     narrow first arm misses). Byte-identical (suite 1697 pins conserved, cert-manager + argocd
+     jq-S=0). Exhaustiveness now BITES: a scratch dummy recursive `Value` ctor errors at all four
+     sites (verified, reverted). The two eval-dispatch fuel terminals (`evalValueCoreWithFuel`,
+     `evalStructRefsM`) are deliberately OUT of scope — they are the eval fixpoint's no-rule-needed
+     fallback, not structural rewrites, and already have a synced leaf-enumeration helper
+     (`valueReducesToSelf`) guarding their identity arm.
    - ~~**B3 (`comprehensionPairs` `.embeddedList`)**~~ — **DONE 2026-06-22** (rode along
      with `scalar-embed-with-decls`). Added the
      `.embeddedList items _ _ => some (listPairsFrom 0 items)` arm, so `for x in

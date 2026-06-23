@@ -13620,3 +13620,33 @@ The four `| other => other` Value-rewrite catch-alls (`Parse.lean:1688`, `EvalOp
 `Eval.lean:1821`/`2201`) are sound today but silently bypass any FUTURE recursive `Value` constructor — an
 under-rewrite the type system would not catch. Folded into `plan.md` as a Phase-B (architecture) item, not an
 inline change (diverging one of four siblings in isolation would inconsistency-tax the idiom).
+
+### Value-rewrite catch-alls made exhaustive (2026-06-23, type-safety hardening)
+
+Resolved the finding above. Replaced all four `| other => other` catch-alls with explicit constructor
+enumerations, so a future recursive `Value` constructor is a COMPILE error at each site (forcing a
+recurse-or-leaf decision) rather than a silent pass-through:
+
+- `canonicalizeBuiltinCalls` (`Parse.lean`) — a true STRUCTURAL rewrite (recurses every recursive ctor
+  already), so the catch-all swallowed only leaves: enumerated the 11 leaves (`top`, `bottom`, `bottomWith`,
+  `prim`, `kind`, `notPrim`, `stringRegex`, `boundConstraint`, `ref`, `refId`, `thisStruct`), each returning
+  `value` unchanged.
+- `collapseDefaultDisjunction` (`EvalOps.lean`), `openStructValue` + `closeEmbeddedOver` (`Eval.lean`) —
+  SHALLOW projections (handle one ctor/shape, identity on the rest, NO recursion into children). Enumerated
+  ALL pass-through ctors (leaf + recursive). The two `Eval` sites additionally carry an explicit
+  `.struct _ _ _ _ _ => value` arm for the non-plain-struct shapes their narrow first arm
+  (`.struct fields _ none [] _`) misses — which the catch-all had been absorbing.
+
+Byte-identical (leaves/pass-throughs return the SAME values; suite 1697 `native_decide` pins conserved,
+cert-manager + argocd `jq -S` = 0). Exhaustiveness VERIFIED to bite: a scratch dummy recursive ctor
+(`scratchDummyRecursive (inner : Value)`) errored `Missing cases: (Value.scratchDummyRecursive _)` at all
+four sites — `Parse.lean:1638`, `EvalOps.lean:170`, `Eval.lean:1820`, `Eval.lean:2230` — then reverted
+(not committed). The scratch run also confirmed the codebase enforces exhaustiveness broadly (the same dummy
+tripped pre-existing matches in `Format`, `Lattice`, `Manifest`, and several other `Eval` sites).
+
+OUT of scope (deliberate, recorded): the two eval-dispatch fuel terminals `evalValueCoreWithFuel`
+(`| _, value => pure value`) and `evalStructRefsM` (`| value => pure value`) are the eval fixpoint's
+no-rule-needed fallback keyed on `(fuel, value)`, NOT structural `Value→Value` rewrites. Their identity arm is
+already guarded by a synced leaf-enumeration helper (`valueReducesToSelf`, with a "MUST stay in sync"
+maintenance note). Making them "exhaustive" would force re-listing every recursive ctor's full eval rule —
+a different, semantically-loaded change, not this hardening.

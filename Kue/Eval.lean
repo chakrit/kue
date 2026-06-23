@@ -1818,7 +1818,38 @@ def lazyConjMergedFields (env : Env) (constraints : List Value) :
 def openStructValue : Value -> Value
   -- A plain struct reopens; tail/pattern-bearing forms pass through.
   | .struct fields _ none [] _ => mkStruct fields .regularOpen none []
-  | other => other
+  -- Every other value (incl. a tail/pattern/clause-bearing struct) is the identity.
+  -- Enumerated (not `other => other`) so a NEW `Value` constructor forces a decision here
+  -- — reopen-like or pass-through — rather than being silently identity.
+  | value@(.struct _ _ _ _ _) => value
+  | value@(.top) => value
+  | value@(.bottom) => value
+  | value@(.bottomWith _) => value
+  | value@(.prim _) => value
+  | value@(.kind _) => value
+  | value@(.notPrim _) => value
+  | value@(.stringRegex _) => value
+  | value@(.boundConstraint _ _ _) => value
+  | value@(.conj _) => value
+  | value@(.builtinCall _ _) => value
+  | value@(.unary _ _) => value
+  | value@(.binary _ _ _) => value
+  | value@(.ref _) => value
+  | value@(.refId _) => value
+  | value@(.thisStruct) => value
+  | value@(.selector _ _) => value
+  | value@(.index _ _) => value
+  | value@(.disj _) => value
+  | value@(.list _) => value
+  | value@(.listTail _ _) => value
+  | value@(.embeddedList _ _ _) => value
+  | value@(.embeddedScalar _ _) => value
+  | value@(.comprehension _ _) => value
+  | value@(.structComp _ _ _) => value
+  | value@(.listComprehension _ _) => value
+  | value@(.interpolation _) => value
+  | value@(.dynamicField _ _ _) => value
+  | value@(.closure _ _) => value
 
 /-- Is `label` a same-def-PATH collision between the two field lists — both declare it
     DEFINITION-class AND both values are union-able struct bodies (`isUnionableDefValue`)? Such a
@@ -2198,7 +2229,38 @@ def closeEmbeddedOver (defFields embeddingFields : List Field) (defOpen : Bool) 
   -- A plain struct gets the def's closedness re-applied; tail/pattern forms pass through.
   | .struct fields _ none [] _ =>
       mkStruct (applyClosednessFrom (defFields ++ embeddingFields) defOpen fields) (.ofBool defOpen) none []
-  | other => other
+  -- Every other value (incl. a tail/pattern/clause-bearing struct) is the identity.
+  -- Enumerated (not `other => other`) so a NEW `Value` constructor forces a decision here
+  -- — reclose-like or pass-through — rather than being silently identity.
+  | value@(.struct _ _ _ _ _) => value
+  | value@(.top) => value
+  | value@(.bottom) => value
+  | value@(.bottomWith _) => value
+  | value@(.prim _) => value
+  | value@(.kind _) => value
+  | value@(.notPrim _) => value
+  | value@(.stringRegex _) => value
+  | value@(.boundConstraint _ _ _) => value
+  | value@(.conj _) => value
+  | value@(.builtinCall _ _) => value
+  | value@(.unary _ _) => value
+  | value@(.binary _ _ _) => value
+  | value@(.ref _) => value
+  | value@(.refId _) => value
+  | value@(.thisStruct) => value
+  | value@(.selector _ _) => value
+  | value@(.index _ _) => value
+  | value@(.disj _) => value
+  | value@(.list _) => value
+  | value@(.listTail _ _) => value
+  | value@(.embeddedList _ _ _) => value
+  | value@(.embeddedScalar _ _) => value
+  | value@(.comprehension _ _) => value
+  | value@(.structComp _ _ _) => value
+  | value@(.listComprehension _ _) => value
+  | value@(.interpolation _) => value
+  | value@(.dynamicField _ _ _) => value
+  | value@(.closure _ _) => value
 
 /-- Extract an evaluated value's struct-conjunct operand `(fields, open)` for splicing into a
     forced closure body. Returns `none` for non-struct values (primitives, lists, …), which
