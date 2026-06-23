@@ -299,14 +299,17 @@
       <code>cue</code> binary.</p>
     <div class="headline">
       <span class="pill done">Now</span>
-      <span><strong>cert-manager</strong> exports as a fast, content-identical drop-in. The
-        <strong>spec-conformance re-audit is complete</strong> — every behavior regraded
-        against the CUE&nbsp;spec, not byte-matched to a fallible binary — and
-        <strong>every high-severity finding has landed</strong>: the RE2 regex engine
-        (corpus-divergence-free), structural cycles, the full closedness family
+      <span><strong>Two</strong> real prod9 apps export as fast, content-identical drop-ins
+        for <code>cue</code>: <strong>cert-manager</strong> (~11.7s) and now
+        <strong>argocd</strong> (~50.3s) — the latter unblocked by a ten-fix narrowing /
+        close-once chain (<code>Bug2-5</code>…<code>Bug2-14c</code>), every fix general and
+        spec-grounded, none keyed to argocd. The <strong>spec-conformance re-audit is
+        complete</strong> and <strong>every high-severity finding has landed</strong>: the
+        RE2 regex engine, structural cycles, the full closedness family
         (<code>closedClauses</code> intersection), the dyn-field and residual-through-meet
-        families, Unicode case folding, and <code>math.Pow</code>/<code>list.Sort</code>.
-        Latest cut: <code>v0.1.0-alpha.20260621</code>.</span>
+        families, Unicode case folding, and full-domain <code>math.Pow</code>/<code>Sqrt</code>.
+        The live frontier is now <strong>pure performance</strong>. Latest cut:
+        <code>v0.1.0-alpha.20260622</code>.</span>
     </div>
   </header>
 
@@ -334,27 +337,32 @@
 
   <section>
     <h2>Real-app status</h2>
+    <p class="sub">Two real prod9 apps now export content-identical to <code>cue</code>. Real-app
+      compilation is a stress test that <em>validates</em> the semantics — never the ranking
+      driver, and never resolved by per-app special-casing.</p>
     <div class="callout">
       <div class="app-row">
         <span class="app-name">cert-manager <span class="pill done">Done</span></span>
         <span class="app-desc"><span class="ok">Fast, content-identical drop-in for
-          <code>cue</code>.</span> Exports correctly at production fuel in <strong>~30s</strong>
-          (down from 119s after the <code>item&nbsp;7</code> cache-hash fix — a ~3.9× win that
-          can't return a wrong value). JSON/YAML are byte-identical modulo field ordering, now
-          understood to be a deliberate <em>spec gap</em> (<code>#3</code>) where Kue's stable
-          source order is more principled than <code>cue</code>'s — not a bug to chase.</span>
+          <code>cue</code>.</span> Exports correctly at production fuel in <strong>~11.7s</strong>
+          (down from 119s — the <code>item&nbsp;7</code> cache-hash fix collapsed the O(N²) wall,
+          then the close-once / frame-id chain + perf #7 brought it the rest of the way). JSON/YAML
+          are byte-identical modulo field ordering, a deliberate <em>spec gap</em> (<code>#3</code>)
+          where Kue's stable source order is more principled than <code>cue</code>'s — not a bug to
+          chase.</span>
       </div>
       <div class="app-row">
-        <span class="app-name">argocd <span class="pill prog">Parked</span></span>
-        <span class="app-desc"><span class="ok">All components content-correct;
-          <code>packs.#Argo</code> (the 4-link chain) is content-identical to <code>cue</code>.</span>
-          The full app still bottoms on <code>Bug2-5</code> — one specific, well-understood
-          correctness divergence (a let-buried two-level embed comprehension-guard narrowing on a
-          disjunction arm), <em>not</em> a fuel ceiling. The narrowing chain before it
-          (<code>Gap-1</code>, <code>Gap-2</code>, <code>Gap-2b</code>/<code>Bug2-1..4</code>) is
-          all fixed. Bug2-5 needs app-specific narrowing, so it's <strong>parked as a stress-test
-          finding</strong> — real-app compilation validates the semantics, it isn't a ranking
-          driver — and resolves as the general engine matures.</span>
+        <span class="app-name">argocd <span class="pill done">Done</span></span>
+        <span class="app-desc"><span class="ok">Content-identical drop-in #2.</span> The full
+          <code>apps/argocd.cue</code> exports byte-for-byte equal to <code>cue</code> under sorted
+          keys (jq&nbsp;<code>-S</code> diff&nbsp;=&nbsp;0) in <strong>~50.3s</strong>. It took a
+          ten-fix narrowing / close-once chain (<code>Bug2-5</code>…<code>Bug2-14c</code>):
+          definition multi-declaration close-once across reference / embed / cross-package
+          boundaries, use-site narrowing delivery to deferred def interiors, unset-optional
+          selection, and finally the <code>#Mixin</code> structural-disjunction let-local receiving
+          the host's <code>kind</code> narrowing on the force path. Every fix is general and
+          spec-grounded — none keyed to argocd. No on-path layer hides behind a sound drain. The
+          ~50.3s wall is now a <em>pure perf concern</em>, the live frontier.</span>
       </div>
     </div>
   </section>
@@ -445,10 +453,11 @@ out: #C &amp; {z: 9}  <span class="cm">// z: field not allowed</span></code></pr
           failure.</span>
       </div>
       <div class="cap">
-        <span class="cap-title">Perf: O(N²) → O(N) memo (<code>item 7</code>)</span>
+        <span class="cap-title">Perf: O(N²) → O(N) memo (<code>item 7</code> + perf #7)</span>
         <span class="cap-body">The cache keyed on a shallow constructor tag, collapsing every
           value into one hash bucket. A bounded-depth structural digest fixed it — provably
-          sound (hash-only; equality untouched). cert-manager 119s → ~30s.</span>
+          sound (hash-only; equality untouched). Perf #7 then added an env-independent-leaf fast
+          path. cert-manager 119s → ~11.7s; argocd ~50.3s.</span>
       </div>
       <div class="cap">
         <span class="cap-title">Builtins</span>
@@ -456,9 +465,9 @@ out: #C &amp; {z: 9}  <span class="cm">// z: field not allowed</span></code></pr
           <code>yaml.Marshal</code>, <code>regexp.Match</code>, and the
           <code>strings</code>/<code>list</code>/<code>math</code> namespaces. Now full-Unicode
           <code>strings.ToUpper</code>/<code>ToLower</code> (BI-1, an oracle-generated case-fold
-          table) and <code>math.Pow</code> (exact non-neg-int exponent) +
-          <code>list.Sort</code>/<code>SortStable</code> (BI-2). Numeric tower + decimal verified
-          spec-exact.</span>
+          table) and full-real-domain <code>math.Pow</code>/<code>Sqrt</code> in exact decimal
+          (BI-2 — Float correctly avoided) + <code>list.Sort</code>/<code>SortStable</code>.
+          Numeric tower + decimal verified spec-exact.</span>
         <pre class="cue"><code>import "encoding/json"
 out: json.Marshal({a: 1})  <span class="cm">// "{\"a\":1}"</span></code></pre>
       </div>
@@ -476,8 +485,9 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
 
   <section>
     <h2>Spec-first fix backlog</h2>
-    <p class="sub">The re-audit's findings, ranked. Every HIGH-severity fix has landed; the
-      open tail is small and mostly USER-GATED. See the
+    <p class="sub">The re-audit's findings, ranked. Every HIGH-severity fix has landed and the
+      argocd narrowing chain is closed; the live frontier is now <strong>pure performance</strong>,
+      and the open tail below it is small and LOW. See the
       <a href="../docs/spec/spec-conformance-audit.md">audit tracker</a> for the full list.</p>
     <div class="road">
 
@@ -510,47 +520,53 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
         </div>
         <p class="item-desc"><code>let</code> clauses in comprehensions (the de Bruijn frame model
           extended, B7-vindicated); full-Unicode <code>strings.ToUpper</code>/<code>ToLower</code>
-          from an oracle-generated BMP case-fold table; <code>math.Pow</code>'s exact
-          integer-exponent domain and <code>list.Sort</code>/<code>SortStable</code>. The whole
-          closedness family (<code>SC-1</code>…<code>SC-1e</code>, <code>SC-2</code>,
-          <code>EMBED-CLOSE-1</code>), the dyn-field correctness family, and the
-          residual-through-meet ripple (<code>MEET-RESID-1</code>, <code>RESID-MASK-1/2</code>,
-          <code>A#6</code>) all landed too. Numeric residual (<code>math.Sqrt</code>, fractional
-          <code>Pow</code> — needs a Float model) is deferred: Kue bottoms rather than ship a wrong
-          value.</p>
+          from an oracle-generated BMP case-fold table; <code>list.Sort</code>/<code>SortStable</code>;
+          and <code>math.Pow</code>/<code>math.Sqrt</code> over their <strong>full real domain</strong>
+          — computed in <em>exact decimal</em> (negative-integer and fractional exponents via
+          range-reduced Taylor series), with Float deliberately avoided and domain edges bottoming
+          rather than returning <code>NaN</code>. The whole closedness family
+          (<code>SC-1</code>…<code>SC-1e</code>, <code>SC-2</code>, <code>EMBED-CLOSE-1</code>), the
+          dyn-field correctness family, and the residual-through-meet ripple
+          (<code>MEET-RESID-1</code>, <code>RESID-MASK-1/2</code>, <code>A#6</code>) all landed
+          too.</p>
       </div>
 
       <div class="item live">
         <div class="item-head">
-          <span class="item-title">The genuinely-open backlog — <code>EvalOps</code>,
-            <code>AD2-1</code>, <code>SC-3</code>, <code>BI-2-residual</code>,
-            <code>SC-4</code></span>
-          <span class="pill next">Open</span>
-          <span class="item-rank">small · mostly USER-GATED</span>
+          <span class="item-title">perf #7 — share evaluations across frame scopes</span>
+          <span class="pill next">Frontier</span>
+          <span class="item-rank">proof-first · gated on a no-false-share proof</span>
         </div>
-        <p class="item-desc">Everything spec-conformance-HIGH is done; what remains is small and
-          mostly needs a human's call. <strong><code>EvalOps</code></strong> (the one autonomous
-          slice — carve ~256 lines of pure scalar algebra to <code>Kue/EvalOps.lean</code>;
-          mechanical hygiene, not pressure). <strong>USER-GATED:</strong> <code>AD2-1</code>
-          (disjunction-normalizer display dedup — flips two named theorem pins + the display
-          contract); <code>SC-3</code> (disjunction display-residual — coupled with
-          <code>AD2-1</code>); <code>BI-2-residual</code> (<code>math.Sqrt</code> + neg/fractional
-          <code>Pow</code> — a Float/NaN/Infinity numeric-model subproject, a departure from Kue's
-          exact-rational core); <code>SC-4</code> (LOW spec-gap-first, nested closedness on direct
-          def-meet). Plus the LOW cosmetic/latent corners in <code>plan.md</code> item&nbsp;6.</p>
+        <p class="item-desc">The live leader, and a <em>pure</em> perf concern — no correctness
+          divergence. argocd exports content-identical in ~50.3s vs <code>cue</code>'s 0.03s; the
+          profile names the cause precisely: a <strong>~175× re-evaluation factor</strong> —
+          832,338 core evals over only 4,763 distinct value subtrees, because the same subtree is
+          re-evaluated under ~175 distinct frame scopes and the cache keys on frame identity. Two
+          safe wins shipped (an env-independent-leaf fast path + a dead-cache removal, both
+          value-identical by construction). The designed next step — collapsing structurally
+          identical evaluations across frame scopes — touches the <strong>soundness core of frame
+          identity</strong>, so it is a dedicated, gated slice: it needs a proof that no two
+          genuinely-distinct values can be aliased. <em>Correctness comes before performance</em> —
+          a frame-sharing widening that could return a wrong value is a violation, so the rule is
+          profile, design, and <strong>stop</strong> rather than ship something unproven.</p>
       </div>
 
       <div class="item">
         <div class="item-head">
-          <span class="item-title">argocd <code>Bug2-5</code> — let-buried disjunction-arm narrowing</span>
-          <span class="pill bug">Parked</span>
-          <span class="item-rank">stress-test finding · not on the critical path</span>
+          <span class="item-title">argocd <code>Bug2-5</code>…<code>Bug2-14c</code> — the narrowing /
+            close-once chain</span>
+          <span class="pill done">Resolved</span>
+          <span class="item-rank">2nd content-identical drop-in · 2026-06-23</span>
         </div>
-        <p class="item-desc">The one remaining argocd blocker: a sibling <code>let</code> narrowed by
-          a co-embedding def's static field, where the embed resolves on a disjunction arm so the
-          narrowing arrives too late. Real, well-understood, but needs app-specific narrowing — so
-          it is parked as a stress-test finding and resolves as the general semantics mature, rather
-          than being chased onto the critical path.</p>
+        <p class="item-desc">Ten distinct narrowing-delivery and definition-close-once defects,
+          each surfaced by the previous fix and landed in turn: close-once across reference / embed /
+          cross-package boundaries (carried by a <code>DeclProvenance</code> sum so the union-vs-meet
+          boundary is type-driven, not a flag), use-site narrowing delivery to deferred def
+          interiors, unset-optional selection reading as absent, and finally the <code>#Mixin</code>
+          structural-disjunction let-local receiving the host's <code>kind</code> narrowing on the
+          force path across a multi-closure conjunction. Every fix is general and oracle-pinned at
+          single-package granularity — none keyed to argocd. The full app now byte-matches
+          <code>cue</code> under sorted keys; the residual is purely the ~50.3s wall (perf #7).</p>
       </div>
 
       <div class="item">
@@ -563,10 +579,11 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
           fused into one choke point; the physically-unskippable variant ruled out — it breaks
           Lean's termination inference). The walker/normalizer dedups resolved to one member:
           <code>AD4-1</code> (comprehension walkers) and <code>A-EN3</code> (frame folds) DONE;
-          <code>DRY-1</code> (let-walkers) ruled out — no shared combinator, the recursion <em>is</em>
-          the variation point; only <code>AD2-1</code> remains (now in the open backlog above). The
-          principle: distinct mechanisms stay distinct; only genuinely shared structure is unified.
-          See the <a href="../docs/spec/plan.md">plan</a> for the full ranked list.</p>
+          <code>AD2-1</code> (disjunction normalizers) unified once the lone-default marker was
+          proven non-load-bearing; <code>DRY-1</code> (let-walkers) ruled out — no shared
+          combinator, the recursion <em>is</em> the variation point. The principle: distinct
+          mechanisms stay distinct; only genuinely shared structure is unified. See the
+          <a href="../docs/spec/plan.md">plan</a> for the full ranked list.</p>
       </div>
 
     </div>
@@ -634,9 +651,12 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
           <dt><code>Bug2-1…2-4</code></dt>
           <dd>The implementation slices for the narrowing chain (Gap-1 / Gap-2 / Gap-2b + the
             follow-on), all landed.</dd>
-          <dt><code>Bug2-5</code></dt>
-          <dd>The residual let-buried disjunction-arm narrowing — the last argocd blocker, parked
-            as a stress-test finding (not on the critical path).</dd>
+          <dt><code>Bug2-5…2-14c</code></dt>
+          <dd>The ten-fix chain that landed the argocd content-identical drop-in — definition
+            close-once across reference / embed / cross-package boundaries, narrowing delivery to
+            deferred def interiors, unset-optional selection, and the <code>#Mixin</code>
+            structural-disjunction let-local on the force path. All resolved; each fix general,
+            none keyed to argocd.</dd>
         </dl>
       </div>
 
@@ -702,8 +722,8 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
 
   <footer>
     Human-facing status view, served from <code>www/</code> — distinct from the agent design
-    record under <code>docs/</code>. Last updated 2026-06-21 against the distilled
-    <code>docs/spec/plan.md</code>; latest release <code>v0.1.0-alpha.20260621</code>. A
+    record under <code>docs/</code>. Last updated 2026-06-23 against the distilled
+    <code>docs/spec/plan.md</code>; latest release <code>v0.1.0-alpha.20260622</code>. A
     hand-rendered, human-scannable snapshot, refreshed on plan-hygiene passes.
   </footer>
 
