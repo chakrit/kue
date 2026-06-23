@@ -738,19 +738,32 @@ def selectedFieldValue (field : Field) : Value :=
       Field.value field
 
 /-- Select `label` from a carrier's decl/field list: the found field's `selectedFieldValue`
-    (the single closing decision) or a deferred `.selector base label` on a miss. Shared by
-    every decl-bearing carrier shape (`.struct`/`.embeddedList`/`.embeddedScalar`) — they all
-    reach their decls identically, so selection is identical regardless of carrier. -/
-def selectFromDecls (base : Value) (label : String) (decls : List Field) : Value :=
+    (the single closing decision) or ABSENT (`.bottom`) on a miss. Shared by every decl-bearing
+    carrier shape (`.struct`/`.embeddedList`/`.embeddedScalar`) — they all reach their decls
+    identically, so selection is identical regardless of carrier.
+
+    A miss is FINAL-ABSENT, not a deferral (missing-field-selection): every caller reaches here
+    with `base` an ALREADY-EVALUATED concrete struct carrier (`selectEvaluatedField`'s struct/
+    embed arms, or a resolved disjunction DEFAULT arm) — all conjuncts are merged before the
+    struct value exists (`x: base & extra` supplies `b` at unification, BEFORE selection), so a
+    field absent from the merged decls can never arrive later. Selecting it is absence, not an
+    incomplete deferral: `.bottom` ⇒ `classifyDefinedness` `.error` ⇒ `x.b == _|_` true / `!= _|_`
+    false, matching cue (a missing field on a concrete struct is ABSENT even with an open `...`
+    tail). The PROVISIONAL case — an UNRESOLVED disjunction with no unique default, where a later
+    arm could supply the field — never reaches here: `selectEvaluatedField`'s `.disj` arm only
+    routes to `selectFromDecls` once `resolveDisjDefault?` picks a concrete arm, and otherwise
+    keeps the deferred `.selector base label` itself. Same family as Bug2-13: a deferral was
+    masking final absence. -/
+def selectFromDecls (label : String) (decls : List Field) : Value :=
   match findEvalField label decls with
   | some field => selectedFieldValue field
-  | none => .selector base label
+  | none => .bottom
 
 def selectEvaluatedField (base : Value) (label : String) : Value :=
   match base with
-  | .struct fields _ _ _ _ => selectFromDecls base label fields
-  | .embeddedList _ _ decls => selectFromDecls base label decls
-  | .embeddedScalar _ decls => selectFromDecls base label decls
+  | .struct fields _ _ _ _ => selectFromDecls label fields
+  | .embeddedList _ _ decls => selectFromDecls label decls
+  | .embeddedScalar _ decls => selectFromDecls label decls
   | .disj alternatives =>
       -- Selecting INTO a disjunction collapses it to its default arm first, then selects
       -- the field from that arm — CUE's default rule (`d.a` where `d: *{a:1} | {a:2}` is
@@ -758,9 +771,9 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       -- `none` leaves the disjunction unresolved and selection stays deferred, so manifest
       -- reports the ambiguity rather than a spurious `bottom`.
       match resolveDisjDefault? alternatives with
-      | some (.struct fields _ _ _ _) => selectFromDecls base label fields
-      | some (.embeddedList _ _ decls) => selectFromDecls base label decls
-      | some (.embeddedScalar _ decls) => selectFromDecls base label decls
+      | some (.struct fields _ _ _ _) => selectFromDecls label fields
+      | some (.embeddedList _ _ decls) => selectFromDecls label decls
+      | some (.embeddedScalar _ decls) => selectFromDecls label decls
       | _ => .selector base label
   | .bottom => .bottom
   | .bottomWith reasons => .bottomWith reasons

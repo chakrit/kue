@@ -917,6 +917,112 @@ theorem bug212_list_disj_still_terminates :
       "{\n    \"y\": {\n        \"head\": 1,\n        \"tail\": null\n    }\n}\n" = true := by
   native_decide
 
+-- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
+--
+-- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)
+-- returned the WRONG state: `selectFromDecls`'s miss arm DEFERRED to `.selector base label`, which
+-- `classifyDefinedness` reads `.incomplete`, so the comparison stayed unresolved → `export` errored
+-- `incomplete value` where cue yields ABSENT (`x.b == _|_` true / `x.b != _|_` false). cue's model:
+-- selecting a field absent from a CONCRETE struct is absence, not a deferral — every conjunct is
+-- merged into the struct value BEFORE selection runs (`x: base & extra` supplies `b` at unification),
+-- so a field absent from the merged decls can never arrive later. Fixed at the same selection
+-- boundary as Bug2-13: `selectFromDecls`'s `none` arm yields `.bottom` (`classifyDefinedness`
+-- `.error`), not the deferred `.selector`. The over-fire guard is structural — only carrier shapes
+-- that reach `selectFromDecls` are ALREADY-EVALUATED struct/embed carriers (and resolved disjunction
+-- DEFAULT arms); the PROVISIONAL case (an unresolved disjunction with no unique default, where a
+-- later arm could supply the field) never reaches here, staying the deferred `.selector base label`
+-- in `selectEvaluatedField`'s `.disj` `_ =>` arm. JSON-export witnesses at `testdata/export/mfs_*`.
+
+-- TARGET (the bug, FLIPPED): a missing field of a concrete struct reads ABSENT —
+-- `sub.b == _|_` TRUE, `sub.b != _|_` FALSE. cue: `eq true, neq false`.
+theorem mfs_concrete_missing_reads_absent :
+    evalSourceMatches
+      "x: {sub: {a: 1}, eq: sub.b == _|_, neq: sub.b != _|_}\n"
+      "x: {sub: {a: 1}, eq: true, neq: false}"
+        = true := by
+  native_decide
+
+-- DEEP missing (`a.c`): a missing field NESTED inside a concrete struct is ALSO absent. Pins the
+-- deep form noted in the audit (the intermediate `a` is itself a struct `{b:1}`, so the miss routes
+-- through `selectFromDecls`, not the non-struct-carrier `.bottom` catch-all). cue: `eq true,
+-- neq false`.
+theorem mfs_deep_missing_reads_absent :
+    evalSourceMatches
+      "x: {a: {b: 1}, eq: a.c == _|_, neq: a.c != _|_}\n"
+      "x: {a: {b: 1}, eq: true, neq: false}"
+        = true := by
+  native_decide
+
+-- OVER-FIRE GUARD (must STAY green): a PRESENT field still reads `.defined` — `a != _|_` TRUE.
+-- The absent rule fires only on a genuine miss; a found field is unchanged. cue: `pa true`.
+theorem mfs_present_field_stays_present :
+    evalSourceMatches
+      "x: {a: 1, pa: a != _|_}\n"
+      "x: {a: 1, pa: true}"
+        = true := by
+  native_decide
+
+-- OPEN-TAIL: a missing field of an OPEN (`...`) struct is STILL absent — the `...` does NOT make a
+-- not-yet-declared field provisional at selection time (cue treats it absent too). cue: `eq true,
+-- neq false`.
+theorem mfs_opentail_missing_reads_absent :
+    evalSourceMatches
+      "x: {sub: {a: 1, ...}, eq: sub.b == _|_, neq: sub.b != _|_}\n"
+      "x: {sub: {a: 1, ...}, eq: true, neq: false}"
+        = true := by
+  native_decide
+
+-- SOUNDNESS (the CRUX): a field supplied by a LATER conjunct must have been PROVISIONAL, never
+-- pre-bottomed. `sub: {a:1}` then `sub: {b:2}` MERGES before selection, so `sub.b` is PRESENT —
+-- `== _|_` false, `!= _|_` true. Pins that the absent rule fires on FINAL absence, not on a field
+-- the struct's own conjuncts supply. cue: `eq false, neq true`.
+theorem mfs_later_conjunct_supplies_field :
+    evalSourceMatches
+      "x: {sub: {a: 1}, sub: {b: 2}, eq: sub.b == _|_, neq: sub.b != _|_}\n"
+      "x: {sub: {a: 1, b: 2}, eq: false, neq: true}"
+        = true := by
+  native_decide
+
+-- SOUNDNESS (narrow-elsewhere): narrowing a COPY of `base` (`z: base & {b:2}`) does NOT supply `b`
+-- on `base` itself — `base.b` stays absent while `z.b` is present. Pins that absence is
+-- per-struct-value, not leaked across a sibling meet. cue: `xeq true, zneq true`.
+theorem mfs_narrow_elsewhere_leaves_original_absent :
+    evalSourceMatches
+      "x: {base: {a: 1}, z: base & {b: 2}, xeq: base.b == _|_, zneq: z.b != _|_}\n"
+      "x: {base: {a: 1}, z: {a: 1, b: 2}, xeq: true, zneq: true}"
+        = true := by
+  native_decide
+
+-- COMPREHENSION GUARD over a missing field: the guard now RESOLVES (the absent field reads `.error`,
+-- not `.incomplete`), firing the `== _|_` arm. Pre-fix the deferred `.selector` made the guard
+-- incomplete and BOTH arms dropped (`{}`). cue: `{out: {absent: true}}`.
+theorem mfs_comprehension_guard_fires_absent_arm :
+    exportJsonMatches
+      "x: {a: 1}\nout: {if x.b != _|_ {present: true}, if x.b == _|_ {absent: true}}\n"
+      "{\n    \"x\": {\n        \"a\": 1\n    },\n    \"out\": {\n        \"absent\": true\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- DISJUNCTION DEFAULT: selecting a missing field through a resolved DEFAULT arm is absent too — the
+-- default `{a:1}` is a concrete struct, `b` absent. cue: `eq true, neq false`.
+theorem mfs_disj_default_missing_reads_absent :
+    evalSourceMatches
+      "x: {d: *{a: 1} | {a: 1, b: 2}, eq: d.b == _|_, neq: d.b != _|_}\n"
+      "x: {d: *{a: 1} | {a: 1, b: 2}, eq: true, neq: false}"
+        = true := by
+  native_decide
+
+-- PROVISIONAL (over-fire guard, must NOT bottom): an UNRESOLVED disjunction with no unique default
+-- where one arm HAS `b` and the other does not is PROVISIONAL — selection must stay DEFERRED, never
+-- pre-bottomed to absent. The whole value is incomplete/ambiguous (cue `incomplete value`; kue
+-- `ambiguous value`) — both NON-export, neither resolves the presence-test. Pins the discriminator
+-- boundary: a resolved struct ⇒ absent; an unresolved disjunction ⇒ defer.
+theorem mfs_unresolved_disj_stays_provisional :
+    exportJsonBottoms
+      "x: {a: 1} | {a: 1, b: 2}\nout: x.b != _|_\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -935,5 +1041,6 @@ theorem bug212_list_disj_still_terminates :
 #check @bug214b_disj_arm_conflict_bottoms                     -- Bug2-14b/c
 #check @bug214_multi_level_comprehension_combined             -- Bug2-14 audit (multi-level + comprehension)
 #check @bug212_list_disj_still_terminates                     -- Bug2-12
+#check @mfs_unresolved_disj_stays_provisional                 -- missing-field-selection
 
 end Kue

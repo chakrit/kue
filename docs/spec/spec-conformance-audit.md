@@ -208,11 +208,27 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
    pattern/open-tail/nested boundaries all conform; D#2 detection + canaries unchanged. The MUTUAL
    case (`#A: #B & {a}`, `#B: #A & {b}`) is a distinct leak deferred as a spec-gap (cue's "reject the
    def's own field" reading is lattice-questionable) — see `cue-spec-gaps.md` Bug2-12 MUTUAL row.
-4. **missing-field-selection** (LOW, surfaced while pinning Bug2-13). `x.a.missing != _|_` on a
-   genuinely-MISSING (never-declared) field of a regular struct → kue `incomplete value` vs cue
-   `false`; the missing select stays a deferred `.selector` rather than reading absent. Distinct
-   from the unset-OPTIONAL case (Bug2-13, resolved — a missing field is not in decls at all); not
-   on the argocd path. Noted for a future missing-field-selection slice.
+4. **missing-field-selection — RESOLVED 2026-06-23.** A presence-test on a genuinely-MISSING
+   (never-declared) field of a concrete struct (`x: {a:1}` then `x.b != _|_`) → kue `incomplete
+   value` vs cue `false` (absent). Root cause: `selectFromDecls`'s miss arm DEFERRED to `.selector
+   base label`, classified `.incomplete` by `classifyDefinedness`, so the comparison stayed
+   unresolved. **The discriminator** (spec-verified vs cue v0.16.1): when selection reaches
+   `selectFromDecls` the carrier is ALREADY an evaluated CONCRETE struct/embed carrier (or a
+   resolved disjunction DEFAULT arm) — every conjunct merges into the struct value BEFORE selection
+   (`x: base & extra` supplies `b` at unification, not at select), so a field absent from the merged
+   decls is FINAL-absent and can never arrive later: it selects to `.bottom` (absent), matching cue
+   even with an open `...` tail. The PROVISIONAL case — an UNRESOLVED disjunction with no unique
+   default, where a later arm could supply the field — never reaches `selectFromDecls` (it stays the
+   deferred `.selector base label` in `selectEvaluatedField`'s `.disj` `_ =>` arm). **Fix**: one
+   line — `selectFromDecls`'s `none` arm yields `.bottom` (and the now-dead `base` param dropped).
+   Same family as Bug2-13 (a deferral was masking final absence). The audit's noted deep form
+   `x.a.missing` was ALREADY correct (the intermediate was a non-struct prim → catch-all bottom);
+   the shallow `x.b` and deep-into-a-struct `x.a.c` were the broken cases, both now absent. Also
+   fixed (free): a comprehension guard over a missing field now fires the correct arm, and a
+   resolved-default-disjunction select reads absent. Canaries jq -S = 0 (not on the argocd path,
+   zero drift). 10 `Bug2xTests` `mfs_*` pins + 5 `export/mfs_*` fixtures; one message-only
+   divergence recorded (value-USE `y: x.b` — cue `undefined field`, kue generic bottom; both reject,
+   presence-test now byte-matches).
 
 Plus the **item-6 LOW tail** in `plan.md` (cosmetic/latent corners — `module-file-scoped-imports`,
 parser strictness, `release-linux.sh` dirty-tree guard, A2-x/y, B2-A1/A2 — none soundness-bearing).

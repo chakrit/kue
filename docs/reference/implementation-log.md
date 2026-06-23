@@ -12675,3 +12675,68 @@ sentinel added. `lake build` clean (no new warning/`sorry`/axiom — `flattenCon
 `propext`); `scripts/check-fixtures.sh` → fixture pairs ok (only the 4 intended new fixtures);
 cert-manager + argocd jq -S = 0 (prod9 has zero recursive defs, so the self-ref guard never fires).
 LatticeTests/EvalTests D#2 pins green.
+
+---
+
+## Completed Slice: missing-field-selection — a missing field of a concrete struct reads as ABSENT
+
+A presence-test on a genuinely-MISSING (never-declared) field of a concrete struct gave the WRONG
+state. `x: {a: 1}` then `x.b == _|_` / `x.b != _|_` errored `incomplete value` under `export`; cue
+v0.16.1 treats the missing field as ABSENT (`x.b == _|_` true, `x.b != _|_` false). The selection-time
+analog and same family as Bug2-13 (`7e69e43`): a deferral was masking a final absence.
+
+### Root cause
+
+`selectFromDecls` (`Eval.lean`) plucks a label from an evaluated carrier's decls; on a MISS it returned
+`.selector base label` — a deferred selection node. `classifyDefinedness` maps `.selector _ _ →
+.incomplete`, so the presence-test comparison stayed unresolved and `export` reported `incomplete
+value`. Only the SHALLOW case was observably broken: the audit's noted deep form `x.a.missing` was
+ALREADY correct because the intermediate (`x.a = 1`) is a NON-struct prim, so the select hit
+`selectEvaluatedField`'s `_ => .bottom` catch-all (not `selectFromDecls`). A field missing from a deep
+STRUCT (`x.a.c` where `x.a = {b:1}`) was equally broken.
+
+### The discriminator (spec-verified vs cue v0.16.1 — the crux)
+
+The fix must bottom ONLY the final-absent case and never a provisional one. Established by oracle:
+
+- **Concrete struct, field absent** → ABSENT (`x.b == _|_` true). Holds even for an OPEN `...` struct
+  (`x: {a:1, ...}`): cue does NOT make a not-yet-declared field provisional at selection time.
+- **Later conjunct supplies the field** (`x: {a:1}` ; `x: {b:2}`) → PRESENT. The conjuncts MERGE into
+  one struct value BEFORE selection runs (kue's two-pass unifies at the struct level; `x: base & extra`
+  likewise supplies `b` at unification), so `findEvalField` finds `b` — the field was never a miss.
+- **Narrow-elsewhere** (`z: x & {b:2}`) → `x.b` stays absent, `z.b` present. Absence is per-struct-value,
+  not leaked across a sibling meet.
+- **Unresolved disjunction, no unique default** (`x: {a:1} | {a:1, b:2}`) → PROVISIONAL: a later arm
+  could supply the field, so it must NOT be bottomed. cue reports the whole value `incomplete`.
+
+The discriminator is therefore STRUCTURAL, not a heuristic: **whatever reaches `selectFromDecls` is an
+already-evaluated concrete struct/embed carrier (or a resolved disjunction DEFAULT arm), so a miss is
+FINAL.** The PROVISIONAL case never reaches `selectFromDecls` — `selectEvaluatedField`'s `.disj` arm only
+routes there once `resolveDisjDefault?` picks a concrete arm, and otherwise keeps the deferred
+`.selector base label` in its `_ =>` arm (untouched).
+
+### Fix
+
+One line in `selectFromDecls`: the `none` (miss) arm yields `.bottom` instead of `.selector base label`.
+`classifyDefinedness .bottom = .error`, so `x.b == _|_` is true and `x.b != _|_` is false. With `base`
+no longer used in the miss arm it became a dead parameter and was dropped from `selectFromDecls`'s
+signature (4 call sites updated). No other path touched; the `.disj` provisional deferral and the
+non-struct-carrier `_ => .bottom` catch-all in `selectEvaluatedField` are unchanged.
+
+Free wins from the same fix: a comprehension guard over a missing field now RESOLVES (the absent field
+reads `.error`, firing the `== _|_` arm; pre-fix both arms dropped to `{}`), and a select through a
+resolved-default disjunction reads absent.
+
+### Tests + verify
+
+10 `native_decide` pins in `Bug2xTests.lean` (new `### missing-field-selection` section): the target
+(concrete missing absent), deep-into-a-struct missing, present-field over-fire guard, open-`...`-tail
+missing, the two SOUNDNESS cases (later-conjunct-supplies / narrow-elsewhere — must NOT pre-bottom),
+the comprehension-guard arm, the disjunction-default select, and the PROVISIONAL unresolved-disjunction
+boundary (stays deferred/non-export). 5 export fixtures (`testdata/export/mfs_*.{cue,json}`, each
+oracle-generated from `cue export` and confirmed byte-identical to kue). Coverage tripwire sentinel
+added (`#check @mfs_unresolved_disj_stays_provisional`). `lake build` clean (no new warning/`sorry`/
+axiom). `scripts/check-fixtures.sh` → fixture pairs ok (only the 5 intended new fixtures). cert-manager
++ argocd jq -S = 0 (not on the argocd path — zero drift). One message-only divergence recorded
+(`cue-divergences.md`): a missing field used as a VALUE (`y: x.b`) — cue `undefined field: b`, kue
+generic bottom; both reject, and the presence-test observable now byte-matches cue.
