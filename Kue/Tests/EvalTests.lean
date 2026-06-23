@@ -1697,4 +1697,47 @@ theorem eval_sc4_let_read_plain_stays_open :
       = true := by
   native_decide
 
+-- SC-4 NON-STRUCT control: a hidden field carrying a SCALAR is unaffected by the closing walker —
+-- the closing value walker's catch-all returns a scalar unchanged, so a use-site meet that adds
+-- nothing illegal resolves cleanly (the hidden scalar drops from output, `k` survives). cue agrees.
+theorem eval_sc4_hidden_scalar_unaffected :
+    exportJsonMatches
+        "#A: {_h: 5, k: int}\nout: #A & {k: 7}\n"
+        "{\n    \"out\": {\n        \"k\": 7\n    }\n}\n"
+      = true := by
+  native_decide
+
+-- SC-4 NON-STRUCT + extra: the def is still CLOSED, so an extra REGULAR field at the use site
+-- bottoms even though the hidden carrier is a scalar (closedness is the def's, not the field's). cue agrees.
+theorem eval_sc4_hidden_scalar_extra_bottoms :
+    exportJsonBottoms "#A: {_h: 5, k: int}\nout: #A & {k: 7, extra: 9}\n" = true := by
+  native_decide
+
+-- SC-4 LIST element: a struct nested in a LIST under a hidden field CLOSES — the closing value
+-- walker recurses `.list` elements with itself, so a use-site extra in the element bottoms. cue agrees
+-- (`out._h.0.extra: field not allowed`).
+theorem eval_sc4_hidden_list_elem_closes :
+    exportJsonBottoms "#A: {_h: [{x: int}]}\nout: #A & {_h: [{x: 1, extra: 2}]}\n" = true := by
+  native_decide
+
+-- SC-4 LET DISJUNCTION: a let bound to a DISJUNCTION read into a regular field — the closing walker
+-- recurses `.disj` alternatives, so each arm closes; meeting the use-site struct picks the matching
+-- arm and resolves cleanly. cue agrees (`{out:{v:{x:1}}}`).
+theorem eval_sc4_let_disjunction_arm_resolves :
+    exportJsonMatches
+        "#A: {let _t = {x: int} | {y: int}, v: _t}\nout: #A & {v: {x: 1}}\n"
+        "{\n    \"out\": {\n        \"v\": {\n            \"x\": 1\n        }\n    }\n}\n"
+      = true := by
+  native_decide
+
+-- SC-4 LET DISJUNCTION + extra: an extra field added to the picked arm bottoms BOTH arms (each is a
+-- closed struct under the def), so the disjunction is empty → bottom. cue agrees (2 errors in empty disjunction).
+theorem eval_sc4_let_disjunction_arm_extra_bottoms :
+    exportJsonBottoms "#A: {let _t = {x: int} | {y: int}, v: _t}\nout: #A & {v: {x: 1, extra: 2}}\n" = true := by
+  native_decide
+
+#check @eval_sc4_hidden_scalar_unaffected                     -- SC-4 hidden non-struct unaffected
+#check @eval_sc4_hidden_list_elem_closes                      -- SC-4 closing recurses list elements
+#check @eval_sc4_let_disjunction_arm_extra_bottoms            -- SC-4 closing recurses disjunction arms
+
 end Kue
