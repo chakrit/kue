@@ -2093,6 +2093,34 @@ theorem bug213_def_meet_set_optional_present :
         = true := by
   native_decide
 
+-- DISCRIMINATOR — OPTIONAL-MEET-OPTIONAL stays ABSENT (the over-fire guard's exact boundary). A
+-- second OPTIONAL conjunct (`#opt?: 5` over `#opt?: int`) NARROWS the constraint but does NOT
+-- SUPPLY the field: `optional.meet optional = optional`, so the rung stays `.optional` and the
+-- field reads ABSENT. This is the case a naive "declared value is concrete ⇒ present" heuristic
+-- would wrongly fire on — pins that the discriminator is the PRESENCE RUNG, never concreteness or
+-- the presence of a second conjunct. cue: `eq_bottom true, neq_bottom false` (the field never
+-- materializes from two optional constraints). The over-fire guard fires ONLY on a `.regular`
+-- downgrade (a real supplying conjunct), not on any narrowing.
+theorem bug213_optional_meet_optional_stays_absent :
+    evalSourceMatches
+      "n: {#opt?: int, #opt?: 5, eq_bottom: #opt == _|_, neq_bottom: #opt != _|_}\n"
+      "n: {#opt?: 5, eq_bottom: true, neq_bottom: false}"
+        = true := by
+  native_decide
+
+-- RUNG-PRECISION — a REQUIRED unset field (`#req!`) is NOT swallowed by the `.optional` arm. The
+-- match over `field.fieldClass.optionality` is exhaustive across the three rungs with no catch-all;
+-- `required` falls into the `_ =>` non-optional branch and resolves to its declared TYPE (`int`),
+-- which is INCOMPLETE — a presence-test bottoms the export, distinct from the optional `.bottom`
+-- absent rule. Pins that the absent-for-unset rule is scoped to `.optional` exactly (a required
+-- field is present-but-incomplete, never silently absent). cue: `field is required but not
+-- present` (export error); kue: incomplete value — both bottom, neither swallows to absent.
+theorem bug213_required_unset_not_swallowed_as_absent :
+    exportJsonBottoms
+      "x: {#req!: int, present: #req != _|_}\nout: x.present\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of
 -- every section. If a stray block comment (`/-` … runaway) or an editing slip ever swallows a
 -- section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -2125,6 +2153,6 @@ theorem bug213_def_meet_set_optional_present :
 #check @bug28_scalar_def_across_embed_stays_meet              -- Bug2-8 (file tail)
 #check @bug210_no_self_ref_unchanged                          -- Bug2-10
 #check @bug211_selfconj_terminates_and_narrows               -- Bug2-11
-#check @bug213_def_meet_set_optional_present                 -- Bug2-13 (file tail)
+#check @bug213_required_unset_not_swallowed_as_absent        -- Bug2-13 (file tail)
 
 end Kue

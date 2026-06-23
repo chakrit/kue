@@ -323,6 +323,21 @@ BOTH (embed abstract + host concrete) does NOT drain. So the discriminator is th
 add.#kind {…} }` guard reads the embed-local abstract `kind` → defers → `_patch` never merges its
 `metadata.annotations`.
 
+**SCOPE (Phase-A audit 2026-06-23, verifying the re-diagnosis): the defect is BROADER than "comprehension".**
+The frame-binding bug is NOT comprehension-specific — it bites ANY embed-local sibling-ref to a host-narrowed
+field. Oracle-confirmed with NO comprehension: `host: {bk: "X", {bk: string, echo: bk}}` → cue `{bk:"X",
+echo:"X"}`, kue `_|_` (the plain ref `echo: bk` reads the embed-local abstract `string`). A NON-comprehension
+embed sibling `probe: bk` exports `string` not `"X"`. The comprehension is merely the most VISIBLE symptom (an
+undrained `for` becomes an export error). Consequence for the fix: re-basing must cover ALL embed-body
+sibling-refs to host-narrowed fields, not only those inside comprehension guards — a comprehension-scoped fix
+would leave the plain-sibling-ref case (`echo: bk`) still broken. argocd's on-path shape IS the comprehension
+form, so the narrow framing unblocks argocd; but the test surface for the fix slice must pin the plain
+sibling-ref case (`host: {bk:"X", {bk: string, echo: bk}}` → `echo:"X"`) so a comprehension-only fix is caught.
+The drain-on-select unsoundness is confirmed genuine (not a fixable variant): selection runs BEFORE the stale
+guard can decide, so any select-time materialization either drops deferred content or forces it wrongly — the
+frame-binding must be repaired UPSTREAM of selection. Re-binding the embed frame is NECESSARY; there is no
+simpler sound drain at the select boundary.
+
 **Why the original "5-package needed, inline doesn't reproduce" was half-right.** For a DIRECT inline embed,
 EXPORT still drains case D (export forces a re-eval that re-expands the bucket). But when `ls` is built
 through the CROSS-PACKAGE DEF-OF-DEF FORCE path (`defaults.#ListenerSet → defs.#ListenerSet →
