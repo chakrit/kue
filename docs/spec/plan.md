@@ -260,13 +260,21 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    content, so collapsing them is a false share, not recoverable waste (see the perf #7 block
    above + `kue-performance.md`). The live frontier is now the per-eval CONSTANT / eval COUNT over
    a genuinely-large distinct population, not cross-env sharing — a future per-eval-cost slice, or
-   the user-controllable flatten/shorten lever. No active leader remains here. **Small fast repro
-   for the next slice (2026-06-23, Phase-B):** a closed mutual cycle conjoining ≥2 back-referencing
-   defs (`#A: #B & #C & {a}`, `#B: #A & {b}`, `#C: #A & {c}`) reproduces the per-eval-cost /
-   flatten-fan-out wall in 3 lines — `kue export` >40s vs a single-ref cycle ~0.12s (both correct
-   when finished; `cue` cheaply rejects via the Bug2-12-mutual over-rejection, so the oracle is no
-   profiling aid). PREDATES the cycle detector (verified on `32643f5`). Profile this instead of the
-   50s argocd; see `kue-performance.md` § Known limitations (Multi-ref CYCLIC defs).
+   the user-controllable flatten/shorten lever. No active leader remains here. **Multi-ref-cyclic
+   flatten fan-out FIXED (2026-06-23).** The closed-cycle repro (`#A: #B & #C & {a}`, `#B: #A & {b}`,
+   `#C: #A & {c}`) that ran **>40s** (killed) now exports in **~0.01s warm / ~0.55s cold** — a
+   `flattenConjDefRef` `expanding` visited-path bound returns a depth-0 ref to a slot already on the
+   expansion path UNEXPANDED, collecting each cycle member's literals ONCE instead of along the
+   cross-product of reference paths. SOUND by construction (the bare `.refId` is the leaf the
+   unbounded recursion bottoms to at fuel exhaustion; `mergeDefinitionDecls`/D#2 meets are idempotent
+   over duplicates), so the allowed-set and value are byte-identical — only the multi-hop-chain field
+   ORDER canonicalizes (unordered map, not correctness). cert-manager (~12.4s) + argocd (~54s) jq-S=0
+   unchanged (the bound fires only on closed multi-ref cycle re-entry, untouched by the real apps).
+   The 2/3/4-way + reject + open-tail + split-literal + dup-back-ref cases are now fast `native_decide`
+   pins (previously un-pinnable — they timed out). See `kue-performance.md` § What the engine already
+   handles for you (Multi-ref CYCLIC def flatten is bounded). This was the small fast repro of the
+   per-eval-cost frontier; the residual per-eval-CONSTANT lever (a genuinely-large distinct population
+   on the real apps) remains the next frontier — NOT this fan-out.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

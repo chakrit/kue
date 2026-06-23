@@ -77,6 +77,27 @@ fix is purely a speedup — byte-identical output.
   value settles below the fuel ceiling it is never re-derived at higher fuel — the dominant
   real-app cost (fuel multiplication) is gone. The only values that re-derive per fuel
   level are genuinely fuel-sensitive ones (cycle-truncated), which is correct, not waste.
+- **Multi-ref CYCLIC def flatten is bounded** (flatten-fan-out bound, 2026-06-23). A closed
+  cycle whose head conjoins ≥2 back-referencing defs (`#A: #B & #C & {a}`, `#B: #A & {b}`,
+  `#C: #A & {c}`) is now flattened in LINEAR time instead of blowing up on the cross-product
+  of expansion paths. `flattenConjDefRef` threads an `expanding` visited-path set: a depth-0
+  ref to a cycle member already on the current expansion path is returned UNEXPANDED — its
+  literals are already collected by the ancestor that put it on the path, and the bare
+  `.refId` it returns is EXACTLY the leaf the unbounded recursion bottoms to at fuel
+  exhaustion (the structural-cycle path D#2a bottoms a re-entrant ref). So each cycle
+  member's literals are collected ONCE, not once per reference path. **Sound by
+  construction:** `mergeDefinitionDecls` unions literals idempotently (a re-collected `{b}`
+  merges to itself) and the re-entrant `.refId`s in `rest` `.conj`-meet idempotently under
+  D#2, so the literal UNION and the `rest` ref set are the SAME finite sets regardless of how
+  many times each member is reached — the allowed-set and value are byte-identical, only the
+  expansion COST changes. (Field ORDER for a multi-hop chain canonicalizes to
+  reverse-declaration, an unordered-map detail, not correctness.) **Measured:** the 3-line
+  repro above went from **>40s (killed)** to **~0.01s warm / ~0.55s cold**; the single-ref
+  cycle is byte-identical before→after; cert-manager (~12.4s) and argocd (~54s) jq-S=0
+  unchanged (the bound fires only on closed multi-ref cycle re-entry, which the real apps do
+  not hit). The previously
+  un-pinnable multi-ref cases (2/3/4-way, genuine-extra-reject, open-tail, split-literal,
+  duplicated back-ref) are now fast `native_decide` pins.
 - **Env-independent leaves skip the cache entirely** (perf-#7 leaf fast path). A scalar/closed
   constant (`.prim`/`.kind`/`.top`/`.bottom`/`.notPrim`/`.stringRegex`/`.boundConstraint`/
   `.thisStruct`) is the identity of evaluation, so `evalValueWithFuel` returns it directly
@@ -98,31 +119,6 @@ fix is purely a speedup — byte-identical output.
   longer a fuel-axis problem; the next perf lever is the per-eval constant, not the fuel
   ceiling. The practical advice above (flatten, shorten chains → lower convergence depth →
   fewer evals) remains the lever you control.
-- **Multi-ref CYCLIC defs blow up the flatten fan-out — a SMALL minimal repro of the
-  per-eval-cost frontier (2026-06-23, Phase-B audit).** A closed mutual cycle whose head
-  conjoins TWO OR MORE def references that both loop back is the same per-eval-cost wall as
-  cert-manager/argocd, in three lines:
-  ```cue
-  #A: #B & #C & {a: 1}
-  #B: #A & {b: 2}
-  #C: #A & {c: 3}
-  out: #A   // principled: {a:1, b:2, c:3}; Kue tries to ADMIT it but is >40s slow
-  ```
-  Measured: `kue export` runs **>40s** (killed; bounded re-run still alive at 25s), while a
-  SINGLE-ref cycle of any depth (`#A: #B & {a}`, `#B: #A & {b}`) exports in **~0.12s**. Both
-  are correct-when-they-finish; the multi-ref one only differs in COST. The blow-up is the
-  multi-ref flatten fan-out — `flattenConjDefRef` re-expands each cycle member's body once per
-  reference path, and with k back-refs in the cycle the work multiplies along the cross-product
-  of expansion paths (same family as the prod9 per-eval churn, NOT introduced by the
-  `defSlotInClosedCycle` cycle detector — verified to PREDATE the Bug2-12-mutual batch on a
-  `32643f5` worktree). NOTE the oracle is no help here: `cue` v0.16.1 cheaply REJECTS this
-  (`#B.b: field not allowed` — the Bug2-12-mutual over-rejection divergence, it closes
-  mid-cycle), so it never pays the admit cost. This is **NOT a soundness or termination
-  defect** (it terminates under fuel; the value is principled) — it is a concrete, fast-to-run
-  reproducer for the **per-eval-cost / flatten-fan-out** lever (the live perf frontier, since
-  perf-#7 frame-sharing is WON'T-FIX). Use it instead of the 50s argocd when profiling the
-  next per-eval-cost slice. The user-controllable mitigation is the same: avoid conjoining
-  multiple back-referencing defs in one closed cycle; flatten to a single reference chain.
 - **The embedding-`Self` two-pass is now bounded (2026-06-18 Pass-2 selective re-eval).** When a
   definition reads `Self.<label>` for a label supplied by an embedding, Kue runs a second pass over
   an augmented frame. It used to re-evaluate EVERY static field (a fresh frame id → no Pass-1 cache

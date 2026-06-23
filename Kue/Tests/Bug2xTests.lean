@@ -1021,9 +1021,12 @@ theorem bug212_mutual_base_admits_declared :
   native_decide
 
 -- 3-WAY cycle ADMIT: `#A→#B→#C→#A` closes over `{a,b,c}`; all three transitively-declared fields admit.
+-- Field ORDER is `c,b,a` (reverse-declaration, consistent with the 4-way `d,c,b,a` below) since the
+-- flatten-fan-out BOUND collects each cycle member exactly once on the way down: value-identical to
+-- the pre-bound `a,c,b` interleaving — an unordered map, order is not correctness (kue-performance.md).
 theorem bug212_mutual_threeway_admits :
     exportJsonMatches "#A: #B & {a: 1}\n#B: #C & {b: 2}\n#C: #A & {c: 3}\nout: #A & {a: 1, b: 2, c: 3}\n"
-      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"b\": 2\n    }\n}\n" = true := by
+      "{\n    \"out\": {\n        \"c\": 3,\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
 -- 3-WAY cycle REJECT: a field in NO cycle member (`d`) is rejected by the closed union.
@@ -1081,6 +1084,60 @@ theorem bug212_mutual_entry_from_member_rejects :
 theorem bug212_mutual_open_member_admits_extra :
     exportJsonMatches "#A: #B & {a: 1}\n#B: #A & {b: 2, ...}\nout: #A & {z: 9}\n"
       "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- ### Multi-ref cyclic flatten-fan-out BOUND (perf — RESOLVED 2026-06-23).
+--
+-- A closed cycle whose HEAD conjoins ≥2 back-referencing defs (`#A: #B & #C & {a}`, `#B: #A & {b}`,
+-- `#C: #A & {c}`) was CORRECT but TIMED OUT (>40s): `flattenConjDefRef` re-expanded each cycle member
+-- once per reference path, so with k back-refs the work multiplied along the cross-product of expansion
+-- paths. These cases could NOT be pinned (the `native_decide` never finished). The `expanding`
+-- visited-path bound — a depth-0 ref to a slot already on the current expansion path is returned
+-- UNEXPANDED (its literals are already collected; the bare `.refId` is the leaf the unbounded recursion
+-- bottoms to at fuel exhaustion) — collects each cycle member EXACTLY ONCE, making them fast pins.
+-- VALUE-identical to the (correct-but-slow) pre-bound result; only the field ORDER is canonicalized
+-- (unordered map, not correctness — kue-performance.md).
+
+-- MULTI-REF 3-WAY ADMIT: head conjoins #B & #C, both loop back. Closes over `{a,b,c}`; all admit.
+theorem bug212_multiref_threeway_admits :
+    exportJsonMatches "#A: #B & #C & {a: 1}\n#B: #A & {b: 2}\n#C: #A & {c: 3}\nout: #A\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"c\": 3,\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- MULTI-REF 3-WAY REJECT: a genuine extra `z` ∉ {a,b,c} is rejected by the closed union.
+theorem bug212_multiref_threeway_rejects_extra :
+    exportJsonBottoms "#A: #B & #C & {a: 1}\n#B: #A & {b: 2}\n#C: #A & {c: 3}\nout: #A & {z: 9}\n" = true := by
+  native_decide
+
+-- MULTI-REF 4-WAY ADMIT: head conjoins #B & #C & #D, all loop back. Closes over `{a,b,c,d}`.
+theorem bug212_multiref_fourway_admits :
+    exportJsonMatches
+      "#A: #B & #C & #D & {a: 1}\n#B: #A & {b: 2}\n#C: #A & {c: 3}\n#D: #A & {d: 4}\nout: #A\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"c\": 3,\n        \"d\": 4,\n        \"a\": 1\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- MULTI-REF OPEN-TAIL: a `...` on one back-referencing member (`#C`) opens the merged union, so a
+-- use-site extra `z` is ADMITTED — the bound preserves the tail-opened body across the cycle.
+theorem bug212_multiref_opentail_admits_extra :
+    exportJsonMatches "#A: #B & #C & {a: 1}\n#B: #A & {b: 2}\n#C: #A & {c: 3, ...}\nout: #A & {z: 9}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"c\": 3,\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- MULTI-REF SPLIT LITERAL: the head's own literal split across `&` (`{a:1} & {a2:11}`) unions into the
+-- closed body (the Bug2-12b split-literal close-once), so both `a` and `a2` admit alongside `b`,`c`.
+theorem bug212_multiref_split_literal_admits :
+    exportJsonMatches "#A: #B & #C & {a: 1} & {a2: 11}\n#B: #A & {b: 2}\n#C: #A & {c: 3}\nout: #A\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"c\": 3,\n        \"a\": 1,\n        \"a2\": 11\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- DUPLICATED BACK-REF in ONE member (`#B: #A & #A & {b}`): the visited-path bound stops the re-entry,
+-- so the duplicate `#A` ref does not re-expand — value-identical to the single-ref 2-way cycle `{a,b}`.
+theorem bug212_multiref_dup_backref_admits :
+    exportJsonMatches "#A: #B & {a: 1}\n#B: #A & #A & {b: 2}\nout: #A\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
@@ -1230,6 +1287,8 @@ theorem mfs_chained_selection_missing_absent :
 #check @bug214_multi_level_comprehension_combined             -- Bug2-14 audit (multi-level + comprehension)
 #check @bug212_list_disj_still_terminates                     -- Bug2-12
 #check @bug212_mutual_oneway_nonrec_rejects                   -- Bug2-12 MUTUAL
+#check @bug212_multiref_threeway_admits                       -- multi-ref flatten-fan-out BOUND
+#check @bug212_multiref_dup_backref_admits                    -- multi-ref dup back-ref bound
 #check @mfs_chained_selection_missing_absent                  -- missing-field-selection
 
 end Kue

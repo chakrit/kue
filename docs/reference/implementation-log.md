@@ -12954,3 +12954,62 @@ v0.16.1: cue over-rejects, recorded as a divergence).
 ok. Canaries: cert-manager + argocd jq -S = 0 (run from `prod9/infra`) — prod9 has zero recursive defs, so
 the mutual-cycle change is provably neutral (the cycle gate never fires on the corpus). The under-close was
 kue-was-wrong → fixed; cue's over-reject is a NEW recorded cue-divergence.
+
+---
+
+## Completed Slice: PERF — bound the multi-ref-cyclic flatten fan-out (`flattenConjDefRef` visited-path)
+
+Goal: the Bug2-12-mutual fix made a closed cycle whose head conjoins ≥2 back-referencing defs CORRECT
+but it TIMED OUT (>40s). Bound the re-expansion so each cycle member is collected ONCE, byte-identical
+to the (correct-but-slow) result. The correctness-over-perf gate is ABSOLUTE: same value, just fast.
+
+### The blow-up
+
+`flattenConjDefRef` flattens a depth-0 ref to a `.conj`-bodied def into its constituent conjuncts
+(Bug2-9), recursing through each member's body. For a closed cycle with k back-refs in the head
+(`#A: #B & #C & {a}`, `#B: #A & {b}`, `#C: #A & {c}`), flattening `#A` expands `#B` AND `#C`, each of
+which re-references `#A`, re-expanding `#B` and `#C` again — the work multiplies along the
+cross-product of expansion paths, bounded only by `evalFuel = 100` levels of recursion. A SINGLE-ref
+cycle of any depth is LINEAR (one path) and was already fast (~0.12s); the k≥2 fan-out is the
+exponential. Measured: the 3-line repro ran **>40s (killed)** while `single` ran ~0.12s.
+
+### Fix
+
+Thread an `expanding : List Nat` (the def slots already on the current expansion PATH) through
+`flattenConjDefRef`. New signature `flattenConjDefRef (env) (fuel) (expanding) (constraint)`; the entry
+call site (`.conj` arm, `Eval.lean:3216`) passes `[]`, and the recursive `cs.flatMap` adds
+`id.index.val` to `expanding`. A depth-0 ref to a slot ALREADY in `expanding` returns `[constraint]`
+(the bare `.refId`) WITHOUT re-expanding — its literals are already being collected by the ancestor
+that put it on the path. The `close`-branch Bug2-12b union machinery is UNCHANGED.
+
+### Soundness argument (byte-identity)
+
+The cycle's literal set is FINITE. Whether a member is reached once or many times, `mergeDefinitionDecls`
+UNIONS its literal idempotently (re-collecting `{b}` unions to itself), so the merged allowed-set is the
+same regardless of repetition. The bare `.refId` returned for an already-visited slot is EXACTLY the leaf
+the unbounded recursion bottoms to at fuel exhaustion (`flattenConjDefRef 0 _ = [constraint]`), and those
+back-refs land in `rest`, where D#2a structural-cycle detection bottoms them idempotently (`.conj`-meet of
+a ref with itself is the ref) — so the `rest` set's contribution is identical. Therefore the literal
+UNION and the `rest` ref set are the SAME finite sets, the allowed-set and value are byte-identical, and
+the self-ref `.refId` bottoming + D#2 path are untouched. The bound only drops REDUNDANT re-expansions
+that stabilize to the same fixpoint. The one observable byte change is field ORDER on a multi-HOP chain
+(the 3-way chain canonicalizes from the pre-bound interleaving `a,c,b` to reverse-declaration `c,b,a`,
+now consistent with the 4-way `d,c,b,a`) — an unordered-map detail, not correctness (per
+`kue-performance.md` field-ordering; `cue` over-rejects the case so it is no oracle here).
+
+### Coverage added + verify
+
+6 new fast `native_decide` pins in `Bug2xTests.lean` (`### Multi-ref cyclic flatten-fan-out BOUND`
+section + 2 sentinels): `bug212_multiref_threeway_admits`, `bug212_multiref_threeway_rejects_extra`,
+`bug212_multiref_fourway_admits`, `bug212_multiref_opentail_admits_extra`,
+`bug212_multiref_split_literal_admits`, `bug212_multiref_dup_backref_admits` — the multi-ref cases that
+PREVIOUSLY could not be pinned (the `native_decide` never finished). `bug212_mutual_threeway_admits`
+updated for the canonicalized `c,b,a` field order (value unchanged). All other Bug2-12 family
+(self-rec + 2-12b + mutual single-ref) + D#2 guardrails STAY GREEN.
+
+`flattenConjDefRef` stays total (no `partial`/`sorry`/new axiom; `expanding.contains` + the existing
+fuel bound). Full gate green: `lake build` clean (no new warning/axiom), `check-fixtures.sh` ZERO drift.
+Canaries from `prod9/infra`: cert-manager jq -S = 0 (~12.4s), argocd jq -S = 0 (~54s) — UNCHANGED (the
+bound fires only on closed multi-ref cycle re-entry, which the real apps do not hit). **Measured
+before→after: the 3-line repro >40s (killed) → ~0.01s warm / ~0.55s cold; single-ref cycle
+byte-identical before→after.** No value change → no `cue-divergences`/`cue-spec-gaps` entry.

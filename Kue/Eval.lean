@@ -1667,10 +1667,22 @@ def defSlotInClosedCycle (fuel : Nat) (frame : List Field) (start : Nat)
     literal non-ref conjunct) is returned UNCHANGED, so non-multi-conjunct-def conjuncts keep
     their existing path. Recurses so a chain of named multi-conjunct defs (`#C: #B & …`,
     `#B: #A & …`) flattens fully; fuel-bounded against alias cycles (`#A: #A & {…}`). -/
-def flattenConjDefRef (env : Env) (fuel : Nat) (constraint : Value) : List Value :=
+def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
+    (constraint : Value) : List Value :=
   match fuel, constraint with
   | fuel + 1, .refId id =>
       if id.depth.val != 0 then [constraint]
+      -- BOUND the cyclic fan-out: a depth-0 ref to a slot already on the current expansion
+      -- PATH (`#A: #B & #C`, `#B: #A`, `#C: #A` — flattening `#A` expands `#B`, which
+      -- re-references `#A`) is returned UNEXPANDED. Its literals are already being collected
+      -- by the ancestor that put it on the path, and the bare `.refId` returned here is
+      -- EXACTLY the leaf the unbounded recursion bottoms to at fuel exhaustion (the
+      -- structural-cycle path D#2a bottoms a re-entrant ref). `mergeDefinitionDecls` is
+      -- idempotent over a member's literal and the re-entrant `.refId`s `.conj`-meet
+      -- idempotently under D#2, so collecting each cycle member ONCE — instead of along the
+      -- exponential cross-product of expansion paths — yields the SAME finite literal union
+      -- and `rest` ref set: byte-identical, just bounded.
+      else if expanding.contains id.index.val then [constraint]
       else
         match env with
         | [] => [constraint]
@@ -1728,7 +1740,8 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (constraint : Value) : List Value
                     let inCycle := defSlotInClosedCycle (frame.snd).length frame.snd
                       id.index.val [] [id.index.val]
                     let close := field.fieldClass.isDefinition && (isSelfRef || inCycle)
-                    let expanded := cs.flatMap (flattenConjDefRef env fuel)
+                    let expanded := cs.flatMap
+                      (flattenConjDefRef env fuel (id.index.val :: expanding))
                     if close then
                       let literals := expanded.filter isUnionableDefValue
                       let rest := expanded.filter (fun c => !isUnionableDefValue c)
@@ -3213,7 +3226,7 @@ mutual
         -- fold, so the def's conjuncts and the use-site narrowing evaluate in ONE pass — identical
         -- to the inlined meet. A constraint that is not a depth-0 ref to a `.conj`-bodied def is
         -- returned unchanged, so non-multi-conjunct-def conjuncts keep their path.
-        let constraints := rawConstraints.flatMap (flattenConjDefRef env evalFuel)
+        let constraints := rawConstraints.flatMap (flattenConjDefRef env evalFuel [])
         -- DISJUNCTION DISTRIBUTION (argocd-secret-data sub-slice 2). A conjunct that is (or refs,
         -- at depth 0) a disjunction with a deferral-needing default arm must DISTRIBUTE the other
         -- conjuncts into each arm at the UNEVALUATED level — `(*_#A|_#B) & {narrow}` becomes
