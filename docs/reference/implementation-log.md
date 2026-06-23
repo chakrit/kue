@@ -13558,3 +13558,65 @@ matching `.expected` proves the canonicalization) and module fixture `testdata/m
 No `cue`-divergence (kue conforms once fixed) and no spec-gap (an alias is an unambiguous local rebinding —
 spec-clear; the same basis as the calls fix). `plan.md` item-6 aliased-stdlib-constant entry struck
 (RESOLVED); `spec-conformance-audit.md` item-6 tail updated.
+
+---
+
+## Phase-A Audit: aliased-builtin calls + constants (batch `f4feb93..406556e`) — HEALTHY
+
+Code-quality pass over the two aliased-resolution slices (`ebaafc4` calls, `406556e` constants), per
+`docs/guides/slice-loop.md` § Phase A. Highest-risk axis was over/under-canonicalization (a wrong dispatch
+returns a wrong value), attacked exhaustively with every witness oracle'd against cue v0.16.1.
+
+### Over/under-canonicalization — clean
+
+OVER cases (must NOT rewrite a user import or a non-import name):
+- A user package whose import path's last element is literally a builtin name (`example.com/json`,
+  `example.com/list`), ALIASED (`import f "example.com/json"; f.Marshal`), resolves to the USER package's
+  fields (`"USER_MARSHAL"`, `42`, `"USER_ASCENDING"`), NOT the builtin. `isBuiltinImport` keys on the full
+  import PATH (`example.com/json` ∉ `builtinImportPaths`), not the local name — the dispatch boundary holds.
+  Byte-identical to cue; pinned as module fixture `testdata/modules/alias_user_pkg_builtin_name/`.
+- A local field shadowing an alias name with NO import (`l: {Ascending: 7}; out: l.Ascending`) → `7` (field
+  access). `builtinImportLocalNames []` is `[]`, so `applyBuiltinAliases` short-circuits to a no-op.
+- An import + a top-level field of the same name (`import l "list"; l: {…}`) → both kue and cue reject
+  ("redeclared as imported package name"); no silent wrong value.
+
+UNDER cases (must rewrite EVERY aliased builtin head, by binding not spelling):
+- All builtin families aliased, calls AND constants in one file, byte-identical to cue.
+- Binding-not-spelling (the highest wrong-dispatch risk): `import json "strings"; json.ToUpper("hi")` →
+  `"HI"` (strings.ToUpper, NOT json), and the inverse `import strings "encoding/json"; strings.Marshal` →
+  JSON marshal. The map keys on the import PATH's last element (canonical) paired with the as-written
+  binding, so the spelling collision with another family's name is irrelevant. Both byte-identical to cue.
+
+### Totality / DRY / spec
+
+No new `partial`/`sorry`/axiom. `canonicalizeBuiltinCalls` is a fuel-bounded total `def` (the parser's
+`partial`s are untouched). The `| other => other` catch-all is sound: every constructor it swallows
+(`top`/`bottom`/`bottomWith`/`prim`/`kind`/`notPrim`/`stringRegex`/`boundConstraint`/`ref`/`refId`/
+`thisStruct`) is a true `Value` leaf carrying no nested `Value`, so no aliased builtin can hide inside one;
+and it matches the established sibling Value-rewrite idiom (`EvalOps.lean:171`, `Eval.lean:1821`/`2201`).
+DRY: the calls + constants fixes share one pass; `canonicalizeBuiltinConst?` reuses the `builtinImportLocalNames`
+alias map and `stdlibPackageValue?`; the `Value.lean` move de-dups `builtinImportPaths`/`isBuiltinImport`/
+`lastPathElement` across the Parse/Module boundary (each defined exactly once). No `cue`-divergence (kue
+conforms across every witness); no spec-gap.
+
+### Both canaries re-confirmed DIRECTLY
+
+cert-manager + argocd re-run from `/Users/chakrit/Documents/prod9/infra` as FULL whole-file exports (not the
+`-e <field>` isolation that had a CLI quirk) — `kue export apps/<app>.cue | jq -S` vs `cue export … | jq -S`,
+diff = 0 for both. Whole-file cert-manager export works (the `-e` field-isolation was the only quirk).
+
+### Coverage added
+
+`parse_aliased_builtin_call_resolves_like_unaliased` extended with the `regexp` family (was 6 families,
+omitting the 7th builtin). New `parse_aliased_builtin_call_dispatches_by_binding_not_spelling` theorem
+(the `import json "strings"` / `import strings "encoding/json"` cross-name cases). `builtin_import_local_names_*`
+extended with the two cross-name unit assertions. Module fixture `testdata/modules/alias_user_pkg_builtin_name/`
+(a user package whose path last-elem collides with a builtin, aliased — the strongest OVER witness, oracle'd
+against cue).
+
+### Phase-B latent finding (codebase-wide, deferred)
+
+The four `| other => other` Value-rewrite catch-alls (`Parse.lean:1688`, `EvalOps.lean:171`,
+`Eval.lean:1821`/`2201`) are sound today but silently bypass any FUTURE recursive `Value` constructor — an
+under-rewrite the type system would not catch. Folded into `plan.md` as a Phase-B (architecture) item, not an
+inline change (diverging one of four siblings in isolation would inconsistency-tax the idiom).

@@ -1,0 +1,7 @@
+{
+    "out": {
+        "bar": 42,
+        "marshal": "USER_MARSHAL",
+        "asc": "USER_ASCENDING"
+    }
+}

@@ -814,7 +814,12 @@ theorem builtin_import_local_names_maps_only_aliased_builtins :
         == [("j", "json")])
       && (builtinImportLocalNames [⟨"encoding/json", none, none⟩] == [])
       && (builtinImportLocalNames [⟨"strings", none, some "s"⟩] == [("s", "strings")])
-      && (builtinImportLocalNames [⟨"ex.com/foo", none, some "f"⟩] == []) = true := by
+      && (builtinImportLocalNames [⟨"ex.com/foo", none, some "f"⟩] == [])
+      -- BINDING, not spelling: an alias whose text equals ANOTHER builtin's canonical name
+      -- still maps to the family its PATH names (`import json "strings"` ⇒ `json` → `strings`).
+      && (builtinImportLocalNames [⟨"strings", none, some "json"⟩] == [("json", "strings")])
+      && (builtinImportLocalNames [⟨"encoding/json", none, some "strings"⟩]
+          == [("strings", "json")]) = true := by
   native_decide
 
 /-- The head rewrite swaps the alias for its canonical package, keeps the leaf, and leaves an
@@ -837,7 +842,20 @@ theorem parse_aliased_builtin_call_resolves_like_unaliased :
       && parseOutputMatches "import b \"encoding/base64\"\nout: b.Encode(null, \"hi\")\n"
         "out: \"aGk=\""
       && parseOutputMatches "import y \"encoding/yaml\"\nout: y.Marshal({a: 1})\n"
-        "out: \"a: 1\\n\"" = true := by
+        "out: \"a: 1\\n\""
+      && parseOutputMatches "import r \"regexp\"\nout: r.Match(\"^a\", \"abc\")\n" "out: true"
+        = true := by
+  native_decide
+
+/-- BINDING, not spelling: when an alias's text collides with ANOTHER builtin's canonical name,
+    the call dispatches by the import's PATH, not the spelling. `import json "strings"` binds
+    `json` to the `strings` package, so `json.ToUpper` is `strings.ToUpper`, NOT a json call; and
+    the inverse `import strings "encoding/json"` makes `strings.Marshal` a json marshal. The single
+    highest wrong-dispatch risk — pinned end-to-end. -/
+theorem parse_aliased_builtin_call_dispatches_by_binding_not_spelling :
+    (parseOutputMatches "import json \"strings\"\nout: json.ToUpper(\"hi\")\n" "out: \"HI\"")
+      && parseOutputMatches "import strings \"encoding/json\"\nout: strings.Marshal({a: 1})\n"
+        "out: \"{\\\"a\\\":1}\"" = true := by
   native_decide
 
 /-- BOUNDARY: the unaliased builtin is unchanged, and an aliased USER import is NOT rewritten to a

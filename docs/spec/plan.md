@@ -397,6 +397,13 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      three carrier arms inside the sub-case now share `selectFromDecls`); the remaining win
      is folding the disj match itself into a recursive `selectEvaluatedField` call on the
      resolved default — still open, LOW.
+   - **Value-rewrite `other => other` catch-alls (Phase-B, LOW, filed 2026-06-23 audit).**
+     Four total Value-rewrite passes (`Parse.lean:1688` `canonicalizeBuiltinCalls`,
+     `EvalOps.lean:171`, `Eval.lean:1821`/`2201`) end in `| other => other`. Sound today —
+     every swallowed constructor is a true leaf — but a FUTURE recursive `Value` constructor
+     would be silently NOT recursed into (an under-rewrite the type system cannot catch).
+     Fix: replace each catch-all with explicit leaf arms so a new constructor is a compile
+     error. Deferred (not inline): touch all four together to keep the idiom consistent.
    - ~~**B3 (`comprehensionPairs` `.embeddedList`)**~~ — **DONE 2026-06-22** (rode along
      with `scalar-embed-with-decls`). Added the
      `.embeddedList items _ _ => some (listPairsFrom 0 items)` arm, so `for x in
@@ -469,6 +476,23 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      per-constant e2e + the unaliased/user-member boundary), 1 Bug2xTests export pin, fixtures
      `testdata/cue/builtins/aliased_list_const.{cue,expected}` (dual CUE-port + CLI witness) and
      module fixture `testdata/modules/alias_list_const/`. No `cue`-divergence (kue conforms).
+     **Phase-A audit (2026-06-23, batch `f4feb93..406556e`) — HEALTHY.** Over/under-
+     canonicalization attacked exhaustively, every witness oracle'd vs cue v0.16.1:
+     OVER (user import whose path last-elem == `json`/`list`, aliased → resolves to the USER
+     package; local field shadowing an alias with no import → field access; redeclare-as-import
+     → both error identically) and UNDER (all builtin families aliased, calls + consts;
+     binding-not-spelling: `import json "strings"; json.ToUpper` → `strings.ToUpper`) all
+     byte-identical to cue. `isBuiltinImport` keys on the import PATH, not the local name —
+     the dispatch boundary, confirmed. Both canaries re-run DIRECTLY (full whole-file export,
+     not `-e`): cert-manager + argocd jq-S diff = 0. Totality clean (no new
+     `partial`/`sorry`/axiom; the `other => other` catch-all is sound — every swallowed
+     constructor is a true `Value` leaf — and matches the established sibling-pass idiom).
+     DRY confirmed (one shared pass for calls + consts; `Value.lean` move de-dups the
+     builtin-path list). Coverage ADDED: `regexp` to the per-family theorem, a
+     binding-not-spelling dispatch theorem, the `builtinImportLocalNames` cross-name unit
+     cases, module fixture `testdata/modules/alias_user_pkg_builtin_name/` (the strongest
+     OVER witness, pinned). Latent follow-up (Phase-B, codebase-wide): the four
+     `other => other` Value-rewrite catch-alls silently bypass a future recursive constructor.
    - **`scalar-embed` provenance follow-ups** — opportunistic pins (3-level flatten, disj
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.
