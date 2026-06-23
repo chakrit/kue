@@ -756,6 +756,65 @@ theorem embed_disj_arm_closedness_host_extra_survives_and_disjoint_rejected :
           = true := by
   native_decide
 
+-- ### NESTED-DISJ-MARK — outer-default-mark inheritance when the inner default dies (DESIGNED-DEFERRAL).
+--
+-- A `*`-marked GROUP that is itself a disjunction-with-inner-`*` (`*_O | …` where `_O: *_I | _B`)
+-- puts the WHOLE group in the OUTER default-set, inner `*` a PREFERENCE WITHIN it. Spec-verified
+-- cue v0.16.1 two-tier rule (the source `*( … )` form is a PARSE ERROR — the shape only arises via
+-- a def/ref): (tier 1) inner-preferred arm survives ⇒ it wins; (tier 2) inner default DIES under a
+-- narrowing ⇒ the surviving inner arm INHERITS the outer `*` and beats an outer-REGULAR survivor.
+-- An UNMARKED group does NOT inherit. Kue currently DIVERGES on tier 2: it eagerly flattens
+-- `(.default, .disj nested)` at eval time (`Eval.lean:3410-3414`), so the inner non-default sub-arm
+-- becomes `.regular`, losing the outer `*`; when the inner default dies the survivor is regular and
+-- export goes AMBIGUOUS where cue picks the marked survivor. Root: a flat 2-state `Mark` cannot
+-- encode the two-tier "outer-default-set membership WITH inner preference". DESIGNED, deferred (the
+-- fix needs a 3rd `Mark` state or a non-flattening nested-disj invariant — both LARGE + delicate;
+-- STOP per slice guidance). Full diagnosis + designed fix: `cue-spec-gaps.md` NESTED-DISJ-MARK row.
+
+-- TIER-1 (MATCHES cue): inner-preferred arm `1` survives a non-disjunction narrow that also admits
+-- the inner-regular `5`, so the inner `*` wins → `1`. Pins the preference tier holds.
+theorem nested_disj_mark_tier1_inner_pref_wins :
+    exportJsonMatches
+        "_I: *1 | 5\nout: (*_I | 9) & (>=1 & <=5)\n"
+        "{\n    \"out\": 1\n}\n"
+          = true := by
+  native_decide
+
+-- NO-NARROW VALUE VERDICT (MATCHES cue): `*_I | 9` with `_I:*1|5` resolves to the inner default `1`
+-- (the eval-DISPLAY of the residual diverges — SC-3 family — but the export VALUE is cue-exact).
+theorem nested_disj_mark_no_narrow_resolves_to_inner_default :
+    exportJsonMatches
+        "_I: *1 | 5\nout: *_I | 9\n"
+        "{\n    \"out\": 1\n}\n"
+          = true := by
+  native_decide
+
+-- REGRESSION GUARD (MATCHES cue): an UNMARKED group `((*_#I | _#B) | {…})` does NOT inherit the
+-- (absent) outer default — the inner survivor stays regular and export is AMBIGUOUS, exactly cue's
+-- `incomplete {b:"x"} | {b:"x",c?:int}`. The future fix must NOT over-mark this (no spurious default).
+theorem nested_disj_mark_unmarked_group_stays_ambiguous :
+    exportJsonBottoms
+        "_#I: {a: 5}\n_#B: {s: string}\nout: {((*_#I | _#B) | {c?: int, s: string})} & {s: \"x\"}\n"
+          = true := by
+  native_decide
+
+-- ⚠ DEFERRAL WITNESS (scalar) — Kue DIVERGES (KNOWN): `(*_I | 9) & >=5` with `_I:*1|5` kills the
+-- inner default `1`; cue picks the marked survivor `5`, Kue goes AMBIGUOUS (tier-2 mark not inherited).
+-- Pinned via `exportJsonBottoms` = TRUE (the current wrong-ambiguous). This pin FLIPS to false when the
+-- designed fix lands — a tripwire that the deferral is still open. cue-exact target: `{"out":5}`.
+theorem nested_disj_mark_tier2_scalar_DEFERRAL_witness :
+    exportJsonBottoms "_I: *1 | 5\nout: (*_I | 9) & >=5\n" = true := by
+  native_decide
+
+-- ⚠ DEFERRAL WITNESS (struct, the FILED repro shape) — Kue DIVERGES (KNOWN): the inner default `_#I`
+-- dies by CLOSEDNESS under `& {b:"x"}`; cue picks the marked survivor `{b:"x"}`, Kue goes AMBIGUOUS.
+-- `exportJsonBottoms` = TRUE pins the current divergence; flips when fixed. cue target: `{"out":{"b":"x"}}`.
+theorem nested_disj_mark_tier2_struct_DEFERRAL_witness :
+    exportJsonBottoms
+        "_#I: {a: 5}\n_#B: {b: string}\n_#O: *_#I | _#B\nout: {(*_#O | {c: int})} & {b: \"x\"}\n"
+          = true := by
+  native_decide
+
 -- ### argocd `parts.#Mixin` — comprehension guard over a use-site-narrowed REGULAR sibling.
 --
 -- `#Inner` carries `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }`: the guard
@@ -1565,6 +1624,7 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
 #check @embed_disj_single_arm_narrows                         -- embed-disj-arm-fallthrough
 #check @embed_disj_arm_closedness_host_extra_field_survives   -- embed-disj-arm-closedness
 #check @embed_disj_arm_closedness_open_tail_arm_admits_disjoint -- no over-close (open tail)
+#check @nested_disj_mark_tier2_struct_DEFERRAL_witness        -- NESTED-DISJ-MARK (designed-deferral)
 #check @embed_comprehension_guard_real_conflict_bottoms       -- parts.#Mixin
 #check @let_buried_for_source_expands                         -- Bug2-1 / A-EN1
 #check @mixin_let_local_guard_false_drops_body                -- Bug2-4

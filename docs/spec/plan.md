@@ -145,7 +145,12 @@ domain in EXACT DECIMAL, Float correctly AVOIDED, axiom-clean). **EvalOps** (ite
 HIDDEN/LET plain-struct closedness on direct def-meet: case (b), kue under-closed → fixed; the
 closing field-walker twin's hidden+let arms now recurse the closing walker; conforms to cue on the
 direct paths, one SC-2b-family bound-select divergence recorded). SC-3 is a recorded
-spec-gap only (multi-arm-default display divergence). The full Bug2-5..2-14c chain, AD2-1,
+spec-gap only (multi-arm-default display divergence). **NESTED-DISJ-MARK** (nested-disjunction
+outer-default inheritance when the inner default dies, tier-2) is a **DESIGNED-DEFERRAL 2026-06-23** —
+the lone open VALUE divergence — adjudicated to a spec-verified two-tier rule but deferred (the fix
+needs a 3rd `Mark` state or a non-flattening nested-disj invariant; both LARGE + delicate, STOP rather
+than risk default-selection). Full record: `spec-conformance-audit.md` § Genuinely-open #2 +
+`cue-spec-gaps.md` NESTED-DISJ-MARK row. The full Bug2-5..2-14c chain, AD2-1,
 DRY-1, and CARRIER-STRUCT-MEET are RESOLVED — durable rulings in Resolved/ruled-out below; the
 blow-by-blow in `implementation-log.md` + `spec-conformance-audit.md` + git. **Bug2-12 MUTUAL
 RESOLVED 2026-06-23** (mutual-recursion closed-def closedness): adjudicated to the

@@ -13765,3 +13765,74 @@ sentinel. **Totality:** no new `partial`/`sorry`/axiom; the per-arm re-close is 
 Verify: `lake build` 112 jobs green (full `native_decide` + 3 new pins). `check-fixtures.sh`
 `fixture pairs ok`. Both canaries `jq -S` = 0 from infra with the FRESHLY-BUILT binary (cert-manager
 ~11.5s, argocd ~51s). shellcheck clean (no shell touched). Audit counter RESET to 0.
+
+---
+
+## Designed-Deferral: Nested-Disjunction Outer-Default-Mark Inheritance (NESTED-DISJ-MARK)
+
+Adjudicated the filed nested-disj-of-disj default-mark divergence (the embed-disj-arm-closedness
+audit's latent follow-up). Outcome: **DESIGNED-AND-DEFERRED** — a correct, spec-verified diagnosis +
+designed fix, deferred rather than shipping a mark change that would broadly risk the
+default-selection precedence (the slice's explicit STOP condition). NO eval/lattice behavior changed;
+this slice lands the spec-verified rule, the deferral record, and regression-guarding pins.
+
+**STEP 0 — the spec-verified two-tier nested default-mark RULE (probed cue v0.16.1).** First finding:
+the source form `*( … )` (a `*` directly on a parenthesized group) is a **parse error** — `preference
+mark not allowed at this position`. The nesting only arises via a definition/ref whose body is a
+disjunction (`_O: *_I | _B`, embedded as `*_O | …`). cue's rule for a `*`-marked GROUP that is itself a
+disjunction-with-inner-`*`: the outer `*` puts the WHOLE group's arms in the OUTER default-set; the
+inner `*` is a PREFERENCE WITHIN that set. After a narrowing prunes dead arms:
+- **tier 1** — an inner-`*`-preferred arm survives ⇒ it is the default. `(*_I | 9) & (1|2)` with
+  `_I:*1|5` → `1`; `(*_I | 9) & (>=1 & <=5)` → `1`.
+- **tier 2** — the inner-preferred arm DIES but another inner arm survives ⇒ the surviving inner arm
+  INHERITS the outer `*` and beats an outer-REGULAR survivor. `(*_#O | {c}) & {b:"x"}` (`#O:*#I|#B`,
+  `#I` killed by closedness) → cue `{b:"x"}` (the marked survivor); scalar analog `(*_I | 9) & >=5`
+  with `_I:*1|5` → `5`.
+- An UNMARKED group does NOT inherit: `((*#I | #B) | {…}) & {b:"x"}` → cue ambiguous (`incomplete
+  {b:"x"} | {b:"x",c?:int}`) — the inner survivor stays regular. The group `*`-vs-not is the
+  discriminator cue exports on.
+
+Reconciled an apparent contradiction: `(*_I | 9) & (2|9)` is ambiguous in cue, but `(*_I | 9) & >=5`
+resolves to `5` — the difference is the narrowing being a DISJUNCTION (`.disj & .disj` cross-product
+path, `withDefaultConvention` on both sides) vs a non-disjunction (`.disj & value`). The rule is
+uniform; the `2|9` case just routes through a different, already-correct meet path.
+
+**The divergence (tier-2 only).** Kue eagerly flattens a `(.default, .disj nested)` arm at EVAL time —
+`Eval.lean:3410-3414` `.disj` case → `normalizeEvaluatedDisj` → `normalizeDisj` → `liveAlternatives`
+→ `flattenAlternatives`. `*_I | 9` (`_I:*1|5`) becomes the FLAT residual `*1 | 5 | 9` — the inner
+non-default `5` is now `.regular`, with no link to the outer `*`. A later narrowing that kills the
+inner default `1` leaves `5` regular ⇒ export goes AMBIGUOUS where cue picks the marked survivor.
+Confirmed in a PURE `.disj & value` form (`(*_I | 9) & >=5` → kue `5 | 9` ambiguous, cue `5`) and the
+filed struct repro.
+
+**Root cause (why deferred).** A flat 2-state `Mark` (`.regular`/`.default`) cannot encode the
+two-tier "in the outer default-set WITH an inner preference": one bit holds either tier-1
+(`[(.default,1),(.regular,5)]` — tier-2 lost) or all-default (`[(.default,1),(.default,5)]` — tier-1
+lost, no-narrow `*_I|9` would wrongly go ambiguous instead of `1`), never both. The designed fix needs
+one of:
+- **(A)** a THIRD `Mark` state (`.groupDefault`) threaded through `flattenAlternatives` /
+  `withDefaultConvention` / `resolveDisjDefault?` — ripples across 8 files (`Format`/`Manifest`/`Yaml`/
+  `Order`/`Parse` all pattern-match `Mark`, which derives `BEq`/`DecidableEq`); or
+- **(B)** do NOT structurally flatten a `(.default, .disj nested)` arm — keep it nested through
+  `normalizeDisj` so the two-tier survives to meet time, where a narrowing-aware
+  `distributeMeetIntoAlternatives` (drafted this slice in `Lattice.lean`'s `.disj & value` case,
+  then REVERTED — it is dead code today because all disjunction construction routes through the
+  eval-time flatten, so a nested `.disj` arm never reaches meet) resolves it — ripples the flatness
+  invariant that `liveAlternatives` / `resolveDisjDefault?` / `Manifest`'s ambiguity-report / dedup all
+  assume.
+
+Both are LARGE, delicate changes to the exact default-mark algebra the slice flags as fragile, with a
+broad default-selection regression surface. A correct adjudication + design is the valid outcome here;
+a wrong mark change is not. DEFERRED, fully recorded.
+
+**Landed this slice (no behavior change).** `cue-spec-gaps.md` NESTED-DISJ-MARK row (the two-tier rule
++ designed fix). `spec-conformance-audit.md` Genuinely-open #2 + `plan.md` open backlog. 5
+`TwoPassTests` `nested_disj_mark_*` pins, all oracle'd vs cue: tier-1 (matches), no-narrow value
+(matches), unmarked-group ambiguous (regression guard, matches), and TWO `⚠ DEFERRAL WITNESS` pins
+(scalar + struct) asserting the current wrong-ambiguous via `exportJsonBottoms = true` — tripwires
+that FLIP to false when the fix lands. + a `#check` section sentinel.
+
+Verify: `lake build` 112 jobs green (full `native_decide` + 5 new pins). `check-fixtures.sh` `fixture
+pairs ok` (zero drift). No eval/lattice behavior delta ⇒ canaries unchanged from the last green run
+(the shape is absent from cert-manager + argocd; jq-S=0 holds). No shell touched. No
+`partial`/`sorry`/axiom added.
