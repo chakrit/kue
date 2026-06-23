@@ -207,7 +207,9 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
    is ever revisited. Detail in the MED-tail item below.
 
 Plus the **item-6 LOW tail** in `plan.md` (cosmetic/latent corners — `module-file-scoped-imports`,
-parser strictness, `release-linux.sh` dirty-tree guard, A2-x/y, B2-A1/A2 — none soundness-bearing).
+`release-linux.sh` dirty-tree guard, A2-x/y, B2-A1/A2 — none soundness-bearing). (Parser strictness
+— `__x` double-underscore + `*(1|2)` sole-marked default — RESOLVED 2026-06-23; both spec-mandated
+rejections, see `plan.md` item-6 + implementation-log.)
 
 **Bug2-5 → Bug2-14c — the argocd narrowing/close-once chain — ALL RESOLVED (2026-06-22..23).**
 A 10-fix chain that landed the argocd content-identical drop-in (jq -S diff = 0, ~50.3s). Each was

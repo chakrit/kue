@@ -165,11 +165,24 @@ def takeWhileChars (predicate : Char -> Bool) : List Char -> List Char -> List C
       else
         (acc.reverse, value :: rest)
 
+/-- The CUE spec reserves every identifier whose spelling begins with `__` (two
+    underscores) as a language keyword, so a user identifier `__x` (field label, reference,
+    package name, alias) is invalid in EVERY identifier position. The check is on the raw
+    spelling: `#__x` begins with `#` and `_#__x` with `_#` (definition / hidden-definition
+    prefixes), so neither is `__`-reserved; a single leading `_` (`_x`) is the valid
+    hidden-field form. Quoted string labels never reach here, so `"__x": 1` stays valid. -/
+def reservedDoubleUnderscore (name : String) : Bool :=
+  name.startsWith "__"
+
 def parseIdentifier : List Char -> ParseResult String
   | value :: rest =>
       if parseIdentifierStart value then
         let taken := takeWhileChars parseIdentifierRest rest [value]
-        parseOk (String.ofList taken.fst) taken.snd
+        let name := String.ofList taken.fst
+        if reservedDoubleUnderscore name then
+          parseError (value :: rest) s!"identifiers starting with '__' are reserved: '{name}'"
+        else
+          parseOk name taken.snd
       else
         parseError (value :: rest) "expected identifier"
   | [] => parseError [] "expected identifier"
@@ -801,19 +814,26 @@ mutual
   partial def parseDisjunction (chars : List Char) : ParseResult Value :=
     match parseMarkedConjunction chars with
     | .error error => .error error
-    | .ok (first, rest) => parseDisjunctionRest [first] rest
+    | .ok (first, rest) => parseDisjunctionRest (skipTrivia chars) [first] rest
 
   partial def parseDisjunctionRest
+      (start : List Char)
       (alternatives : List (Mark × Value))
       (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | '|' :: rest =>
         match parseMarkedConjunction rest with
         | .error error => .error error
-        | .ok (alternative, rest) => parseDisjunctionRest (alternatives ++ [alternative]) rest
+        | .ok (alternative, rest) => parseDisjunctionRest start (alternatives ++ [alternative]) rest
     | rest =>
         match alternatives with
         | [(.regular, value)] => parseOk value rest
+        -- The `*` default mark is valid ONLY on a disjunct that has siblings (`*1 | 2`):
+        -- the spec marks an ELEMENT OF a disjunction, so a sole marked operand (`*(1|2)`,
+        -- `*1`) has no alternatives to prefer and `cue` rejects it at parse. A marked
+        -- disjunct with ≥2 elements stays valid (caught by the `_` arm below). `start`
+        -- anchors the diagnostic at the leading `*`.
+        | [(.default, _)] => parseError start "preference mark not allowed at this position"
         | _ => parseOk (.disj alternatives) rest
 
   partial def parseMarkedConjunction (chars : List Char) : ParseResult (Mark × Value) :=

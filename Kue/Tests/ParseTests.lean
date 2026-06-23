@@ -684,4 +684,126 @@ theorem parse_pattern_tail_node_is_open_via_tail :
      | _ => false) = true := by
   native_decide
 
+-- Parser strictness: `__`-prefixed identifiers are spec-reserved keywords.
+-- The CUE spec reserves every identifier whose raw spelling begins with `__` (two
+-- underscores) as a language keyword, so a user identifier `__x` is invalid in EVERY
+-- identifier position — field label, reference, alias. A single leading `_` (`_x`) is the
+-- VALID hidden-field form; `#__x`/`_#__x` begin with `#`/`_#` (definition prefixes), not
+-- `__`, so they stay valid; a quoted `"__x"` is a string label, not an identifier.
+
+/-- A `__`-prefixed reference is rejected (spec: identifiers starting with `__` are reserved).
+    `cue` likewise rejects `b: __x` as `identifiers starting with '__' are reserved`. -/
+theorem parse_double_underscore_reference_reserved :
+    parseFails "__x: 1\nb: __x\n" = true := by
+  native_decide
+
+/-- A `__`-prefixed FIELD LABEL is rejected at parse — the reservation is on the identifier
+    spelling, regardless of position. (`cue` accepts the inline `a: __x: 1` shorthand but
+    rejects the brace form `a: { __x: 1 }`; Kue rejects both, conforming to the spec — see
+    cue-divergences.) -/
+theorem parse_double_underscore_field_label_reserved :
+    parseFails "__x: 1\n" = true := by
+  native_decide
+
+/-- The inline nested form `a: __x: 1` is ALSO rejected — `cue` accepts it (a parser
+    inconsistency); the spec reserves `__x` everywhere. -/
+theorem parse_double_underscore_inline_nested_reserved :
+    parseFails "a: __x: 1\n" = true := by
+  native_decide
+
+/-- The bare two-underscore `__` and the triple `___x` both begin with `__` → reserved. -/
+theorem parse_bare_and_triple_underscore_reserved :
+    (parseFails "__: 1\n" && parseFails "___x: 1\nb: ___x\n") = true := by
+  native_decide
+
+/-- The reservation diagnostic anchors at the identifier (`b: __x` → the `__x` at col 4). -/
+theorem parse_double_underscore_position :
+    parseFailsAt "a: 1\nb: __x\n" 2 4 = true := by
+  native_decide
+
+/-- BOUNDARY: a SINGLE leading underscore `_x` is the valid hidden-field identifier — it
+    must still parse and resolve. -/
+theorem parse_single_underscore_hidden_still_parses :
+    parseSucceeds "_x: 1\nb: _x\n" = true := by
+  native_decide
+
+/-- BOUNDARY: the blank identifier `_` (top) still parses. -/
+theorem parse_blank_underscore_still_parses :
+    parseSucceeds "a: _\n" = true := by
+  native_decide
+
+/-- BOUNDARY: `#__x` (definition prefix `#`) and `_#__x` (hidden-definition prefix `_#`)
+    begin with `#`/`_#`, NOT `__`, so they are NOT reserved — both still parse. -/
+theorem parse_definition_prefixed_double_underscore_still_parses :
+    (parseSucceeds "#__x: 5\nb: #__x\n" && parseSucceeds "_#__x: 5\nb: _#__x\n") = true := by
+  native_decide
+
+/-- BOUNDARY: a QUOTED label `"__x"` is a string, not an identifier — not reserved. -/
+theorem parse_quoted_double_underscore_label_still_parses :
+    parseSucceeds "\"__x\": 1\n" = true := by
+  native_decide
+
+-- Parser strictness: the `*` default mark is valid only on a disjunct that has siblings.
+-- The spec marks an ELEMENT OF a multi-term disjunction (`*1 | 2`), so a sole marked
+-- operand — `*(1|2)` (mark on a parenthesized group), `*1` (single disjunct) — has no
+-- alternatives to prefer and `cue` rejects it at parse with `preference mark not allowed at
+-- this position`. A marked disjunct WITH siblings stays valid.
+
+/-- `*(1|2)` is rejected: the mark is on a parenthesized group that is the SOLE disjunct, not
+    an element of a disjunction. `cue`: `preference mark not allowed at this position`. -/
+theorem parse_default_mark_on_sole_paren_group_rejected :
+    parseFails "x: *(1|2)\n" = true := by
+  native_decide
+
+/-- `*("a"|"b")` (string variant) and `*({a:1}|{b:2})` (struct variant) are rejected the same
+    way — the mark sits on a sole parenthesized-group disjunct. -/
+theorem parse_default_mark_on_paren_group_variants_rejected :
+    (parseFails "x: *(\"a\"|\"b\")\n" && parseFails "x: *({a:1}|{b:2})\n") = true := by
+  native_decide
+
+/-- `*1` (a single disjunct marked, no `|` sibling) is rejected — there is nothing to prefer
+    it over. -/
+theorem parse_default_mark_on_single_disjunct_rejected :
+    (parseFails "x: *1\n" && parseFails "x: *(1)\n") = true := by
+  native_decide
+
+/-- The rejection anchors at the leading `*` (`x: *(1|2)` → col 4). -/
+theorem parse_default_mark_rejected_position :
+    parseFailsAt "x: *(1|2)\n" 1 4 = true := by
+  native_decide
+
+/-- BOUNDARY: `*1 | 2` (mark on a disjunct WITH a sibling) parses to the marked disjunction
+    AST intact — the canonical valid default. (Eval-collapse to `1` is pinned in the
+    disjunction-default suites; here the parse-level round-trip preserves the mark.) -/
+theorem parse_default_mark_valid_two_disjuncts :
+    parseOutputMatches "x: *1 | 2\n" "x: *1 | 2" = true := by
+  native_decide
+
+/-- BOUNDARY: a valid string default `*"a" | "b"` and a list default `*[1] | [2]` both parse,
+    preserving the mark. -/
+theorem parse_default_mark_valid_string_and_list :
+    (parseOutputMatches "x: *\"a\" | \"b\"\n" "x: *\"a\" | \"b\""
+      && parseOutputMatches "x: *[1] | [2]\n" "x: *[1] | [2]") = true := by
+  native_decide
+
+/-- BOUNDARY: a parenthesized whole disjunction `(*1 | 2)` is valid — the `*` marks the inner
+    disjunct `1`, which has the sibling `2`. The parens dissolve, leaving the marked
+    disjunction. -/
+theorem parse_default_mark_valid_inside_parens :
+    parseOutputMatches "x: (*1 | 2)\n" "x: *1 | 2" = true := by
+  native_decide
+
+/-- BOUNDARY: `*(1|2) | 3` PARSES (the mark is on a disjunct that has the sibling `3`); the
+    `*(1|2)` default being itself an unresolved disjunction is an EVAL concern, not a parse
+    error — matching `cue`, which parse-accepts and reports an incomplete value downstream. -/
+theorem parse_default_mark_group_with_sibling_parses :
+    parseSucceeds "x: *(1|2) | 3\n" = true := by
+  native_decide
+
+-- Coverage tripwire: a swallowed section (e.g. an unterminated `/-- -/`) would drop these
+-- from elaboration. Each `#check` forces the last theorem of every section above to compile.
+#check @parse_pattern_tail_node_is_open_via_tail
+#check @parse_quoted_double_underscore_label_still_parses
+#check @parse_default_mark_group_with_sibling_parses
+
 end Kue

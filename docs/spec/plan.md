@@ -345,9 +345,19 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      (close at load) rejected — the A2 trap (closing a whole bound package re-closes unreferenced
      nested defs). Both facets pinned (silent-admit + incomplete-mask) + over-close guard + pattern
      edges; 1 cue-divergence (incomplete-mask error message). See implementation-log + audit doc.
-   - **Parser strictness** — `*(1|2)` laxity (`cue` rejects at parse); `__x`
-     double-underscore accepted (`cue` reserves `__` -prefixed idents). Track under a
-     parser-strictness pass.
+   - ~~**Parser strictness** — `*(1|2)` laxity; `__x` double-underscore accepted~~ —
+     **DONE 2026-06-23.** Both forms were SPEC-MANDATED rejections (spec-verified, not
+     cue-quirks): the spec reserves all `__`-prefixed identifiers as keywords, and the `*`
+     default mark is valid only on a disjunct WITH siblings (`*1 | 2`), never a sole marked
+     operand (`*(1|2)`, `*1`). Fixed with two minimal parser rules —
+     `reservedDoubleUnderscore` at the `parseIdentifier` chokepoint (rejects `__x` on every
+     spelling; `#__x`/`_#__x` defs + quoted `"__x"` stay valid), and a
+     sole-`.default`-marked-disjunct guard in `parseDisjunctionRest` (diagnostic anchored at
+     the `*`). 18 `ParseTests` parse pins (reject + valid boundary). 1 cue-divergence (cue
+     accepts the inline `a: __x: 1` shorthand — a cue parser inconsistency; Kue conforms to
+     the spec) + 1 spec-gap (the murky package-name / import-qualifier `__` corner,
+     deliberately out-of-scope). Canaries jq-S=0 (no real config uses the rejected forms).
+     See implementation-log.
    - **`release-linux.sh` no dirty-tree guard (LOW, Phase-B 2026-06-23).** `release.sh`
      requires a clean working tree before building (`git status --porcelain`);
      `release-linux.sh` does not (it builds from `COPY . /src`, `.dockerignore` excludes

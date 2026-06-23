@@ -13090,3 +13090,60 @@ fixtures with `FixturePorts` entries (`sc4_hidden_nested_closes`, `…_tail_stay
 axiom). Full gate: `lake build` clean (112 jobs, no warning/axiom), `check-fixtures.sh` ZERO drift.
 Canaries from `prod9/infra`: cert-manager jq -S = 0 (~11.7s), argocd jq -S = 0 (~50s) — UNCHANGED (the
 nested-hidden/let-under-closed-def shape is off the real-app path).
+
+---
+
+## Completed Slice: parser-strictness — reject `__`-reserved identifiers + sole-marked `*` default
+
+Goal (plan item-6 LOW): the parser ACCEPTED two spec-INVALID forms `cue` rejects at parse. Spec-verify
+FIRST (the risk is OVER-strictness — rejecting VALID syntax), then add the two rejection rules.
+
+### Spec basis (both SPEC-MANDATED, verified against the CUE spec, not the binary)
+
+1. **`__`-prefix reserved.** Spec: "CUE reserves all identifiers starting with `__` (double underscores)
+   as keywords." A reserved keyword is not a valid identifier in ANY position, so a user `__x` (field
+   label, reference, alias) is spec-invalid. The reservation is on the RAW SPELLING beginning with `__`:
+   `#__x` begins with `#` and `_#__x` with `_#` (definition / hidden-def prefixes), so neither is reserved
+   (`cue` accepts + resolves both); a single leading `_` (`_x`) is the valid hidden-field form; a quoted
+   `"__x"` is a string label, not an identifier.
+2. **`*` default mark valid ONLY on a disjunct with siblings.** Spec: the `*` marks "any element of a
+   disjunction" — `a | (b | *c | d)` is "an unmarked disjunction of two terms" (the `*c` is valid because
+   it is an element of the INNER disjunction). So `*X` is legal only as one of `… | *X | …` with ≥2
+   disjuncts. A SOLE marked operand — `*(1|2)` (mark on a parenthesized group), `*1` (single disjunct) — has
+   no alternatives to prefer; `cue` rejects it `preference mark not allowed at this position`.
+
+### Fix (parser-only, two minimal rejection rules)
+
+- **`reservedDoubleUnderscore (name) := name.startsWith "__"`** checked at `parseIdentifier`
+  (`Kue/Parse.lean`) — the ONE identifier-lexing chokepoint every identifier position routes through
+  (labels, refs, aliases, package names). `#`/`_#`-prefixed names and quoted labels never trip it (their
+  spelling does not begin with `__`; quoted labels skip `parseIdentifier` entirely). No internal
+  `__`-identifier exists in the codebase, so the chokepoint is safe.
+- **Sole-marked-disjunct guard** in `parseDisjunctionRest`: when the finalized `alternatives` list is a
+  single `.default`-marked element → `parseError … "preference mark not allowed at this position"`. A
+  `start` param (the disjunction's pre-parse position) anchors the diagnostic at the leading `*` (col
+  matches `cue`). The `[(.regular, value)]` single-regular and `≥2`-element marked cases are untouched, so
+  `*1 | 2`, `(*1 | 2)`, `*(1|2) | 3` (a marked group WITH a sibling — `cue` parse-accepts; its
+  incompleteness is a downstream EVAL concern) all still parse.
+
+### cue cross-check + divergence
+
+`cue` is INTERNALLY INCONSISTENT on `__`: it rejects `__x` everywhere EXCEPT the inline shorthand
+`a: __x: 1` (a parser inconsistency — accepts `{"a": {}}`). Kue rejects on every spelling, conforming to
+the spec; recorded as a cue-divergence (`cue-divergences.md`: "`__`-prefixed field label via the inline
+shorthand"). The out-of-scope package-name / import-qualifier `__` corner (cue accepts `package __pkg`,
+rejects `import __bar`) is murky in both spec and binary — recorded as a spec-gap, deliberately NOT
+tightened (`isPackageIdentifier` unchanged; prod9 never hits it).
+
+### Coverage + verify
+
+18 `native_decide` parse pins in `ParseTests.lean` (two new `--` line-comment sections + 3 `#check`
+tripwires): rejects (`__x` ref / field / inline-nested / bare `__` / triple `___x` / position;
+`*(1|2)` / string+struct group variants / `*1` single / `*(1)` / position) + the VALID boundary (`_x`
+hidden, `_` blank, `#__x`/`_#__x` defs, `"__x"` quoted; `*1 | 2`, `*"a"|"b"`, `*[1]|[2]`, `(*1 | 2)`,
+`*(1|2) | 3` parse-accept). A parse-REJECT has no `.expected` output, so the `native_decide` parse pins
+are the appropriate test form (no `testdata` pair). Parser stays within the standing `partial def`
+exception (rejection rules only, no new recursion); no `sorry`/axiom. Full gate: `lake build` clean (112
+jobs, no warning), `check-fixtures.sh` ZERO drift (no corpus fixture uses the now-rejected forms; valid
+`*` defaults in the corpus still parse). Canaries from `prod9/infra`: cert-manager jq -S = 0 (~11.4s),
+argocd jq -S = 0 (~54s) — UNAFFECTED (real configs use no `__`/`*(…)` invalid syntax).
