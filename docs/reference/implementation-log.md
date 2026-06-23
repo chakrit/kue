@@ -12491,3 +12491,40 @@ witnessing value-preservation. `deepInlineRoot` slope `2·depth+2 → 2·depth+1
 saturated-only `satCache` insert), `Kue/Tests/EvalPerfTests.lean` (5 perf-pin counts + 2 comments),
 `docs/guides/kue-performance.md`, `docs/spec/plan.md`, `docs/reference/implementation-log.md`,
 `docs/notes/` (breadcrumb rotated).
+
+## 2026-06-23 — Plan-hygiene pass (docs-only; distill the design record to the live roadmap)
+
+Periodic plan-hygiene pass (slice-loop guide), DUE after the Bug2-5..2-14c chain (10 fixes)
++ ~7 two-phase audit rounds + perf #7 landed the argocd content-identical drop-in (2nd prod9
+real app). DOCS-ONLY — no `Kue/`/`testdata/`/`scripts/` touched; `lake build` +
+`check-fixtures.sh` re-confirmed green.
+
+**`docs/spec/plan.md` 1121 → 710 lines (shed ~411).** Shed (now in this log + git): the
+Bug2-5..2-14c blow-by-blow in Standing Capabilities + Live Backlog; the ~7 closed Phase-A/B
+audit-round HEALTHY verdicts (collapsed to ONE per-round-history summary that preserves the
+recurring whole-graph invariants — acyclic strict layering, the cleanliness sweep, test-health
+— plus the `Eval.DefDeferral` carve-trigger); the superseded perf-#7 dump. Kept (live): North
+Star, Working Principles, Standing Capabilities (argocd = drop-in #2 ~50.3s, cert-manager
+~11.7s, Bug2-x CLOSED), the ranked OPEN backlog with perf #7 frame-sharing as the proof-first
+GATED leader, ALL durable rulings (inject-family / resolveDefField? / mergeFieldsWith /
+embedChainAny / CARRIER share-no-share / escape-helper / AD2-1 / DRY-1 / BI-EFF / F-CASE-ARCH /
+FOUR-classifiers / AD3-x / Order.lean), Pointers. All links resolve.
+
+**`docs/spec/spec-conformance-audit.md` 1236 → 607 lines (shed ~629).** Marked the whole
+Bug2-5..2-14c family RESOLVED — compressed to a per-fix one-liner summary + a log/git pointer;
+dropped the Live-slice mechanism blocks (Bug2-5..2-10 full diagnoses) and the Bug2-x DESIGN
+NOTES. Re-ranked the genuinely-open backlog: perf #7 (leader) · SC-4 · Bug2-12
+(cycle-closedness leak, still open) · missing-field-selection · item-6 LOW tail. Kept the
+HIGH/MED SHIPPED spec-conformance records (BI-2, SC-1b/1e, D#2, …) and the SC-4 open entry.
+Fixed a dangling "SUPERSEDED banner" reference.
+
+**`www/index.html` refreshed** (served human-facing status, OUTSIDE the design-record): argocd
+flipped Parked → Done (2nd content-identical drop-in, jq -S = 0, ~50.3s); cert-manager ~11.7s;
+math.Pow/Sqrt full-real-domain in exact decimal; the live frontier is perf #7 frame-sharing
+(proof-first, gated); footer date 2026-06-23, release 20260622. All 6 illustrative CUE blocks
+unchanged; the self-contained ones re-vet clean in `cue`.
+
+No live backlog item or durable ruling dropped; all internal doc links verified resolving.
+Breadcrumb rotated → `docs/notes/2026-06-23-resume-plan-hygiene-argocd-milestone.md`. Files:
+`docs/spec/plan.md`, `docs/spec/spec-conformance-audit.md`, `www/index.html`,
+`docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
