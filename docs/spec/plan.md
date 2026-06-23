@@ -396,12 +396,20 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      backoff, then `die`. `flock` deliberately AVOIDED (absent on the macOS release host).
      Verified by a truly-concurrent dry-run (12-round stress + gh-remote round): zero lost
      updates, the race loser re-fetches + re-patches + pushes. See implementation-log.
-   - **DRY `selectEvaluatedField .disj` ** — the resolved-default arm re-lists the
-     struct-shape dispatch; collapse to `match resolveDisjDefault? alternatives` (gains
-     free nested-disjunction recursion). PARTIALLY addressed by CARRIER-DECL-SELECT (the
-     three carrier arms inside the sub-case now share `selectFromDecls`); the remaining win
-     is folding the disj match itself into a recursive `selectEvaluatedField` call on the
-     resolved default — still open, LOW.
+   - ~~**DRY `selectEvaluatedField .disj` **~~ — **DONE 2026-06-23.** The resolved-default
+     carrier dispatch (re-listing `.struct`/`.embeddedList`/`.embeddedScalar` → `selectFromDecls`)
+     is extracted to a shared `selectFromConcrete (base label)`, called both at top-level and once
+     `resolveDisjDefault?` picks a default. BYTE-IDENTICAL on every carrier default + the
+     doubly-nested-`.disj`-default deferral (explicit `some (.disj _) => .selector`). NOT a pure
+     refactor: the `_` arm previously deferred a SCALAR default to `.selector` ("incomplete"),
+     where cue type-errors (`invalid operand … want list or struct`); routing it through
+     `selectFromConcrete` now `.bottom`s the arm — `y: x.a | "fb"` (x scalar-default) resolves to
+     `"fb"` == cue (kue WAS AMBIGUOUS — a kue bug now FIXED to match cue, not a divergence).
+     The "free nested-disjunction recursion" gain (a `.disj`-valued default recursing to cue's `1`)
+     was DESIGNED-DEFERRED: it needs a well-founded `termination_by` proving `resolveDisjDefault?`'s
+     output is `sizeOf`-smaller through `liveAlternatives`/`flatten`/`dedup` — LARGE machinery for a
+     shape eval-time flatten makes unreachable from source. Pinned both ways (deep-nested defers ==
+     current; scalar-fix == cue). 1701 pins, canaries jq-S=0.
    - ~~**Value-rewrite `other => other` catch-alls (Phase-B, LOW, filed 2026-06-23 audit).**~~
      **DONE 2026-06-23.** All four Value-rewrite catch-alls (`Parse.lean` `canonicalizeBuiltinCalls`,
      `EvalOps.lean` `collapseDefaultDisjunction`, `Eval.lean` `openStructValue`/`closeEmbeddedOver`)

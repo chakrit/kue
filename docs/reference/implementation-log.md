@@ -13836,3 +13836,59 @@ Verify: `lake build` 112 jobs green (full `native_decide` + 5 new pins). `check-
 pairs ok` (zero drift). No eval/lattice behavior delta ⇒ canaries unchanged from the last green run
 (the shape is absent from cert-manager + argocd; jq-S=0 holds). No shell touched. No
 `partial`/`sorry`/axiom added.
+
+---
+
+## Completed Slice: DRY collapse `selectEvaluatedField .disj` → `selectFromConcrete` (item-6) (2026-06-23)
+
+The item-6 DRY: `selectEvaluatedField`'s resolved-default `.disj` arm re-listed the carrier dispatch
+(`.struct`/`.embeddedList`/`.embeddedScalar` → `selectFromDecls`) the top-level `match` already had.
+Collapsed by EXTRACTING the non-disjunction carrier dispatch to a shared `selectFromConcrete (base
+label)` — called both at the top level and once `resolveDisjDefault?` picks a default. The DRY win is
+real (the carrier dispatch lives in one place); `selectFromConcrete` reads cleaner than the duplicated
+5-arm sub-dispatch.
+
+**Behavior determination (the crux — this is NOT a pure refactor).** The plan flagged the collapse
+"gains free nested-disjunction recursion." Investigated precisely before shipping:
+
+- **Carrier defaults (the source-reachable main case): BYTE-IDENTICAL.** `resolveDisjDefault?` returns
+  a `.struct`/`.embeddedList`/`.embeddedScalar`; `selectFromConcrete` runs the same `selectFromDecls`.
+  Pinned (`select_into_default_disjunction{,_scalar_carrier,_list_carrier,_nested_carrier}`).
+- **Doubly-nested `.disj`-valued default: BYTE-IDENTICAL DEFERRAL (recursion gain DEFERRED).**
+  `liveAlternatives` flattens ONE level, so a TRIPLE-nested disjunction leaves an inner `.disj` as the
+  resolved default. The old `_` arm deferred this to `.selector`; the collapse keeps it with an
+  explicit `some (.disj _) => .selector base label`. The "free recursion" (recursing → cue's `1`) was
+  NOT shipped: a self-recursive `selectEvaluatedField` on `resolveDisjDefault?`'s output needs a
+  well-founded `termination_by` proving the output is `sizeOf`-smaller through
+  `liveAlternatives`/`flattenAlternatives` (a `foldr` that `++`s nested arms) /`dedupAlternatives` —
+  LARGE + delicate machinery (same class as the deferred NESTED-DISJ-MARK fix) for a shape that
+  eval-time flatten makes UNREACHABLE from source (verified: `x: *_O | {a:9}` with deep `_O` nesting
+  evals to a FLAT `*{a:1}|{a:2}|…` before selection; cue + kue both → `1`). Not worth importing a WF
+  recursion for an unreachable edge. Pinned the deferral (`..._deep_nested_defers`).
+- **Field-select off a SCALAR default: kue bug FIXED to match cue (a gained correctness, not a
+  divergence).** `resolveDisjDefault?` can return a scalar (`*5 | {a:1}`). The old `_` arm deferred
+  `x.a` to a `.selector` ("incomplete value"); `selectFromConcrete` routes a `.prim` through its `_ =>
+  .bottom`, so `x.a` is `.bottom` — a TYPE ERROR, matching cue (`invalid operand x … want list or
+  struct`). Load-bearing downstream: `x: *5 | {a:1}; y: x.a | "fb"` was kue-AMBIGUOUS (the incomplete
+  arm couldn't shed), cue → `"fb"`; post-fix kue → `"fb"` (the dead arm sheds). Pinned
+  (`select_field_off_scalar_default_drops_arm`, via `exportJsonMatches`). NOT a cue-divergence (kue was
+  wrong, now conforms), so no `cue-divergences.md` entry.
+- **Ambiguous default (`none`): unchanged.** `none => .selector base label` preserved
+  (`select_into_ambiguous_disjunction_still_defers`).
+
+**Mark deferral tripwires unchanged (orthogonal).** The 2 `nested_disj_mark_*_DEFERRAL_witness` pins
+(+ the 3 other `nested_disj_mark_*`) are a MEET/eval-time Mark-flattening problem
+(`Eval.lean:3410-3414`) about which arm wins after a narrowing — nothing to do with the selection
+dispatch. They still assert the deferred behavior (`exportJsonBottoms = true`), unflipped.
+
+**Landed.** `Eval.lean`: new `def selectFromConcrete`; `selectEvaluatedField` reduced to a `.disj` arm
++ `_ => selectFromConcrete base label`. Two stale doc references (`selectedFieldValue`,
+`selectFromDecls` headers: "four pluck sites"/"struct/embed arms") repointed at `selectFromConcrete`.
+`TwoPassTests`: 4 new pins + a `#check` sentinel (the deep-nested DRY collapse). `plan.md` DRY item
+struck.
+
+Verify: `lake build` 112 jobs green (full `native_decide` + new pins). `check-fixtures.sh` `fixture
+pairs ok` (zero drift). Canaries from `prod9/infra` root: cert-manager + argocd `jq -S` diff = 0
+(byte-identical drop-in preserved — the scalar-default fix is absent from both corpora). No shell
+touched. Total — no `partial`/`sorry`/axiom; `selectFromConcrete` is non-recursive (trivially
+terminating).

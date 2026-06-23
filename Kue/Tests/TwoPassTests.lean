@@ -54,6 +54,72 @@ theorem select_into_nondefault_disjunction_defers :
            "a") = true := by
   native_decide
 
+-- DRY COLLAPSE of `selectEvaluatedField`'s `.disj` arm: the resolved-default carrier dispatch
+    -- (re-listing `.struct`/`.embeddedList`/`.embeddedScalar` → `selectFromDecls`) is extracted to
+    -- the shared `selectFromConcrete`, called both at top-level and once the default resolves. The
+    -- collapse is BYTE-IDENTICAL on the carrier defaults (the cases below + the three above) and on
+    -- the doubly-nested-default deferral, and gains a correct field-off-scalar-default error (the
+    -- `.prim` default now `.bottom`s the arm == cue, where the old `_` arm deferred to `.selector`).
+
+-- BYTE-IDENTICAL (carrier default, deep nest): a default arm that is a `.disj` whose own
+    -- unique default is a carrier — one `liveAlternatives` flatten resolves the inner default to a
+    -- `.struct`, so `resolveDisjDefault?` returns the carrier and selection plucks `a → 1`. Same
+    -- result pre- and post-collapse.
+theorem select_into_default_disjunction_nested_carrier :
+    (selectEvaluatedField
+      (.disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+                                (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])]),
+              (.regular, mkStruct [⟨"a", .regular, .prim (.int 9)⟩] .regularOpen none [])])
+      "a"
+      == .prim (.int 1)) = true := by
+  native_decide
+
+-- BYTE-IDENTICAL (doubly-nested `.disj`-valued default DEFERS, unchanged): a TRIPLE-nested
+    -- disjunction leaves an INNER `.disj` as the resolved default after one flatten. The old `_`
+    -- arm deferred to `.selector`; the collapse's explicit `some (.disj _) => .selector` keeps that
+    -- exact deferral (recursing would gain cue's `1` but needs a well-founded termination proof —
+    -- not worth it for a shape eval-time flatten makes unreachable from source). Pin guards the
+    -- deferral stays byte-identical, NOT a spurious `.bottom`.
+theorem select_into_default_disjunction_deep_nested_defers :
+    (selectEvaluatedField
+      (.disj [(.default, .disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+                                                  (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])]),
+                                (.regular, mkStruct [⟨"a", .regular, .prim (.int 7)⟩] .regularOpen none [])])])
+      "a"
+      == .selector
+           (.disj [(.default, .disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+                                                        (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])]),
+                                      (.regular, mkStruct [⟨"a", .regular, .prim (.int 7)⟩] .regularOpen none [])])])
+           "a") = true := by
+  native_decide
+
+-- GAINED ERROR (== cue, via export): selecting a field off a SCALAR default is a type error in
+    -- cue (`invalid operand x (found int, want list or struct)`). Pre-collapse, kue deferred to a
+    -- `.selector` ("incomplete value"), which is wrong downstream — `y: x.a | "fb"` went AMBIGUOUS
+    -- where cue picks `"fb"` (the dead arm sheds). The collapse recurses into `selectEvaluatedField
+    -- (.prim 5)` which is `.bottom`, killing the arm — `y` resolves to `"fb"`, matching cue.
+theorem select_field_off_scalar_default_drops_arm :
+    exportJsonMatches
+        "x: *5 | {a: 1}\ny: x.a | \"fb\"\n"
+        "{\n    \"x\": 5,\n    \"y\": \"fb\"\n}\n"
+          = true := by
+  native_decide
+
+-- NO OVER-FIRE (the `none` arm survives the collapse): a genuinely ambiguous disjunction (no
+    -- unique default) still has `resolveDisjDefault?` return `none`, so selection stays a deferred
+    -- `.selector` — the collapse maps `none => .selector base label` unchanged, never a spurious
+    -- pick or bottom.
+theorem select_into_ambiguous_disjunction_still_defers :
+    (selectEvaluatedField
+      (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+              (.regular, mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+      "a"
+      == .selector
+           (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
+                   (.regular, mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+           "a") = true := by
+  native_decide
+
 -- EMBEDDED DEFAULT DISJUNCTION (argocd `#Secret` blocker, facet 2): an embedded default
     -- disjunction collapses to its default arm before merging into the host
     -- (`resolveEmbeddedDisjDefault`), so its fields land as regular host fields and a sibling
@@ -1620,6 +1686,7 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
 #check @listcomp_embed_selfref_empty_stays_empty              -- argocd link 4
 #check @hidden_def_embed_concrete_source                      -- secret-data sub-1
 #check @disj_struct_no_over_defer                             -- secret-data sub-2
+#check @select_into_default_disjunction_deep_nested_defers    -- disj-select DRY collapse
 #check @conj_disj_arms_fuel_zero_declines                     -- saturation guard
 #check @embed_disj_single_arm_narrows                         -- embed-disj-arm-fallthrough
 #check @embed_disj_arm_closedness_host_extra_field_survives   -- embed-disj-arm-closedness
