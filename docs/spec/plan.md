@@ -403,6 +403,46 @@ none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
+**Audit 2026-06-23 (Phase B, architecture/refactor over the module graph; batch `fccab69..6f77bfe`
+= Bug2-12 + missing-field-selection) — HEALTHY.** Thin batch (two small selection/closedness changes,
+whole-graph reassessed last round) → scaled pass. **Module graph: ACYCLIC + layered** (the two changes
+sit correctly — `selectFromDecls`'s `none`→`.bottom` line is in `Eval`, the Bug2-12 `flattenConjDefRef`
+closer is in `Eval`, neither adds a cross-module edge). **`Eval.lean` = 4198 lines** (below the ~4500
+watch; the `Eval.DefDeferral` carve ruling stands as the next carve if it grows — NOT due yet). **Dead
+code: the dropped `base` param is FULLY removed** (`selectFromDecls` now takes `(label)` only; all 4 call
+sites updated — confirmed no stray `base`-arg references). **Tech-debt sweep clean** (no new
+`partial`/`sorry`/axiom, no stale TODOs introduced). **Test/fixture health:** `Bug2xTests` 1087 lines,
+`TwoPassTests` 1493 lines (post-`0deef2f` split) — both under the silent-failure watch; no further org
+due. **Perf-guide currency CONFIRMED:** argocd ~50s (jq-S=0, re-measured this audit), cert-manager ~11.5s
+(jq-S=0); perf #7 frame-sharing WON'T-FIX, per-eval-cost the live lever — `kue-performance.md` accurate.
+**One finding filed:** Bug2-12b fix-seam design (in `spec-conformance-audit.md` item 0 — the next-leader
+slice; design only, NOT fixed here). **No inline cleanups needed** (the batch left no debt). The
+close-each/close-once DRY ruling is recorded below.
+
+**close-each vs close-once (Bug2-12 flatten path vs Bug2-7 conj-fold path) — RULED: SHARED PRIMITIVE,
+DISTINCT SEAMS; the Bug2-12b fix REUSES `mergeDefinitionDecls`, it does NOT unify the two functions
+(Phase-B 2026-06-23, Headline #2 adjudication).** Phase A noted Bug2-12's `close-each`
+(`expanded.map close` in `flattenConjDefRef`) duplicates Bug2-7's `close-each` defect, and the
+Bug2-12b fix (union-then-close-once) shares Bug2-7's root. Decomposed:
+- **Same PRINCIPLE, same PRIMITIVE.** Both defects are "closed each repeated def-path decl separately,
+  then meet rejects each other's fields." Both are fixed by the ONE close-once primitive
+  `mergeDefinitionDecls` (`:385`) — union the same-def-path decls' field/pattern/openness sets into ONE
+  body, close ONCE over the union. The Bug2-12b fix-slice REUSES this primitive (it does NOT invent a
+  new union path), so the principle is unified at the primitive level — exactly as intended.
+- **DISTINCT SEAMS — do NOT merge the two functions.** Bug2-7 unions WITHIN a force-fold operand
+  (`mergeConjOperands` → `canonicalizeFields`'s `mergeUnevaluatedFieldInto`, dispatching on merged
+  field-class). Bug2-12b unions the literal conjuncts on the DEPTH-0 SELF-REF FLATTEN path
+  (`flattenConjDefRef`, gated by `isDefinition && isSelfRef`). These are different call contexts with
+  different gating and different "what is a same-def-path decl here" (a force-fold operand's fields vs a
+  self-rec def-body's split literals). Merging them into one function is FORBIDDEN by the standing
+  `mergeFieldsWith` ruling (below): the within-operand-vs-cross-operand / which-seam-fires distinction is
+  the soundness boundary, and it lives in WHICH function the caller invokes. The shared part is the
+  primitive `mergeDefinitionDecls`, which is ALREADY a named, reused function — there is nothing further
+  to factor. **Verdict: the two paths are genuinely DISTINCT (cycle-flatten vs conj-fold); they unify at
+  the `mergeDefinitionDecls` primitive, not at the seam. The Bug2-12b slice is a FIX (reuse the
+  primitive on the flatten path), not a unification refactor. Do not re-file as a DRY merge of the
+  flatten and fold paths.**
+
 **Audit 2026-06-23 (single-pass code-quality, batch `50a0db3..14fb23e`) — HEALTHY.** Scoped
 single pass (thin batch: ONE Lean change `014faaf` + docs/infra; whole-graph reassessed last
 round). Adversarial soundness of the perf #7 safe-wins **CONFIRMED SOUND**: (1) `selfEvaluatingLeaf?`

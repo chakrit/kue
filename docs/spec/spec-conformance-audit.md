@@ -226,6 +226,59 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
    slice (oracle: `#X: #X & {a:1} & {c:3}` ; `out: #X & {c:3}` → `{a:1,c:3}`, and `& {b:2}` → bottom).
    Witness battery in the audit; canaries unaffected (rare shape, both jq-S=0). RANKED ABOVE perf #7 —
    a contained-soundness over-close gates correctness before a perf lever.
+
+   **FIX-SEAM DESIGN (Phase-B 2026-06-23 — design only, NO code; this is the next-leader slice).**
+   - **WHERE.** `flattenConjDefRef` (`Eval.lean:1624`), the `close == true` branch at `:1655-1657`:
+     ```
+     let expanded := cs.flatMap (flattenConjDefRef env fuel)
+     if close then expanded.map (normalizeDefinitionValueWithFuel normalizeFuel)
+     else expanded
+     ```
+     `expanded.map close` is the close-EACH defect. For `#X: #X & {a:1} & {c:3}`, `expanded =
+     [#X-refId, {a:1}, {c:3}]`; mapping the closer over it yields the self-ref `.refId` unchanged
+     (closer leaves refs untouched) PLUS two structs each `mkStruct … .defClosed` with its OWN
+     single self-clause (`{a}`, `{c}`). Their downstream `.conj`-meet CONCATENATES the two
+     `closedClauses` → a field must be in BOTH allowed-sets → `c` rejected against `{a}`, `a` against
+     `{c}` (and a use-site `& {c:3}` re-declares a field absent from the `{a}` clause → bottom).
+   - **THE FIX — union the literals, close ONCE (the Bug2-6/2-7 close-once lever).** Partition
+     `expanded` into (i) the union-able def-body literals (`isUnionableDefValue` — the `.struct`/
+     `.structComp` field-bearing bodies, exactly the Bug2-6 union shape) and (ii) the rest (the
+     self-ref `.refId` conjuncts — left UNTOUCHED so the cycle path still bottoms them — plus any
+     deferred/scalar/disj conjunct). `foldl mergeDefinitionDecls` the literals into ONE body, then
+     `normalizeDefinitionValueWithFuel normalizeFuel` that SINGLE merged body once. Re-emit
+     `<untouched conjuncts> ++ [<single closed-union body>]`. `mergeDefinitionDecls` (`:385`) already
+     unions fields (`mergeFieldListWith joinUnevaluated`, so a shared label still `.conj`-meets — the
+     conflict edge is preserved), unions patterns, and unions openness via `unionDefOpenness` (OPEN
+     dominates — so a `...` in any literal keeps the merged body open). `mkStruct` inside the closer
+     then derives the SINGLE self-clause over `{a,c}` → admits `a`, `c`, and a re-declared `c`;
+     rejects `b`. This is the exact Bug2-6 close-once result, now applied on the self-rec flatten path.
+   - **CONFIRM the lever.** `mergeDefinitionDecls` IS the right primitive (it is reachable — defined at
+     `:385`, well before `:1624`). Do NOT reach for `closedClauses` concatenation or `mergeConjOperands`
+     here: the literals are repeated decls of ONE def path (the def's own body split across `&`), the
+     WITHIN-operand union case — `mergeDefinitionDecls`, not the cross-operand `mergeConjFields` meet.
+   - **HOW IT AVOIDS THE FIRST-ATTEMPT TRAP (broke 6 Bug2-6..9 pins).** The first Bug2-12 attempt was a
+     BLANKET `.conj` close arm — it closed conjuncts that were NOT the def's own literals (nested/
+     unreferenced/cross-operand bodies), re-closing them and breaking the multi-decl/embed pins. This
+     fix is GATED identically to the current code (`close := field.fieldClass.isDefinition && isSelfRef`)
+     — it fires ONLY for a genuinely self-referential closed def, and within that it touches ONLY the
+     `isUnionableDefValue` literal conjuncts. The self-ref `.refId` is in the "rest" partition,
+     UNCHANGED, so cycle DETECTION/termination (D#2a) and the `.refId` self-ref bottoming are untouched.
+     A non-self-rec multi-conjunct def (`#LS: #Base & {#extra}`, `#Base` a DIFFERENT slot) is not
+     `isSelfRef`, so `close == false` and the whole close-once-via-`closedClauses` fold (Bug2-6..9) is
+     bypassed entirely — those pins never reach this arm. A nested/embedded def body inside a literal is
+     normalized by the closer's own structural recursion (as today), not re-closed at the wrong level.
+   - **MUST-PIN WITNESSES (the TDD slice's gate):**
+     - FLIP (the OPEN target): `#X: #X & {a:1} & {c:3}` ; `out: #X & {c:3}` → ADMITS `{a:1,c:3}` (today
+       bottoms — `bug212_multiconjunct_redeclare_OVERCLOSE` is the pin to flip to `exportJsonMatches`).
+     - GENUINE-EXTRA still REJECTS: `#X: #X & {a:1} & {c:3}` ; `out: #X & {b:2}` → bottom (`b` in no
+       literal).
+     - SINGLE-LITERAL UNCHANGED: `#X: #X & {a:1, c:3}` ; `& {c:3}` admits (`bug212_singleliteral_redeclare_admits`).
+     - OPEN-TAIL across split: `#X: #X & {a:1} & {c:3, ...}` ; `& {b:2}` → admits (openness UNIONs — new pin).
+     - CONFLICT across split: `#X: #X & {a:1} & {a:2}` → bottom (shared label still `.conj`-meets — new pin).
+     - The 6 Bug2-6..9 pins STAY GREEN: `bug26_*` (multi-decl close-once, distinct-closed-defs reject,
+       closed-pattern admit/reject), `bug29_*` (named-multiconjunct narrow/tail/nested/conflict/closed).
+     - D#2 guardrails green: `bug212_struct_cycle_still_bottoms`, `bug212_list_disj_still_terminates`.
+     - Canaries jq-S = 0 (argocd ~50s, cert-manager ~11.5s — both unaffected, rare shape off-path).
 4. **missing-field-selection — RESOLVED 2026-06-23.** A presence-test on a genuinely-MISSING
    (never-declared) field of a concrete struct (`x: {a:1}` then `x.b != _|_`) → kue `incomplete
    value` vs cue `false` (absent). Root cause: `selectFromDecls`'s miss arm DEFERRED to `.selector
