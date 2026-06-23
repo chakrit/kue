@@ -12883,3 +12883,74 @@ provable no-op on cert-manager/argocd — the arm fires only for self-recursive 
 prod9 has zero recursive defs, so the corpus (off this machine, read-only prod9 cache) is byte-unchanged;
 jq -S = 0 carried from the `6f77bfe` checkpoint. Bug2-12b is kue-was-wrong → conforms once fixed; no new
 divergence, no residual spec-gap (the open-tail field-order is the pre-existing ratified #3 gap).
+
+---
+
+## Completed Slice: Bug2-12 MUTUAL — mutual-recursion closed-def closedness (adjudicate + conform)
+
+Goal: adjudicate and conform the mutual-recursion closed-def closedness gap (`#A: #B & {a:1}`,
+`#B: #A & {b:2}`) to the lattice-principled answer, NOT to a buggy `cue`.
+
+### The adjudication (the principled answer + basis)
+
+A definition's closed allowed-set is the TRANSITIVE union of every mutually-reachable cycle member's
+declared labels. Transitive expansion fixes it: `#A = #B & {a} = (#A & {b}) & {a} = #A & {a,b}` ⟹
+`allowed(#A) = {a,b}` (symmetrically `#B`; 3-way → `{a,b,c}`). Closedness BOUNDS the additions a use-site
+may meet in — it NEVER rejects a label the definition itself declares (a def rejecting its own field
+contradicts the closedness invariant). So the principled behavior: `#A & {a:1,b:2}` → ADMIT; `#A & {c:3}`
+(`c` ∉ {a,b}) → REJECT; bare `#A` → `{a:1,b:2}`.
+
+`cue` v0.16.1 OVER-REJECTS even the def's OWN declared field (`#A.a: field not allowed`) — it closes `#B`
+PREMATURELY mid-cycle, mis-reading `#A`'s `{a}` as a use-site add to a finished `#B`. This is a cue BUG,
+internally inconsistent with its correct ACYCLIC behavior (a def's declared field is never rejected). It is
+recorded as a cue-divergence ("Mutual-recursion closed def rejects its OWN declared field"), NOT matched.
+
+### Kue's pre-fix behavior + root cause (case (b): under-close)
+
+Pre-fix probes: `#A & {a:1,b:2}` ADMIT (correct); bare `#A` → `{a:1,b:2}` (correct); but `#A & {c:3}`
+ADMITTED `c` (UNDER-CLOSE bug). Root cause: the cross-def back-ref bottoms `#B` via the D#2 structural-cycle
+path, dropping `#B`'s closedness, so `#B & {a}` resolves to an OPEN body — and an open struct admits anything.
+The Bug2-12 self-rec fix gates its `close` on a DIRECT self-ref (`isSelfRef`: a depth-0 conjunct refs the
+SAME slot); a mutual `#A`'s body refs `#B` (a different slot), so `isSelfRef` is false and the close never
+fired.
+
+### Fix
+
+New total helper `defSlotInClosedCycle (fuel) (frame) (start) (seen) : List Nat → Bool` (above
+`flattenConjDefRef`, `Eval.lean`): walks the same-frame def→def reference graph from `start`, following each
+slot's depth-0 def-ref conjuncts (`defConjRefSlots`, a small companion helper), and reports `true` once the
+walk returns to `start` after ≥1 hop. `seen` (visited slots) + `fuel` (= field count) bound it total. The
+`flattenConjDefRef` `close` gate becomes `field.fieldClass.isDefinition && (isSelfRef || inCycle)` where
+`inCycle := defSlotInClosedCycle (frame.snd).length frame.snd id.index.val [] [id.index.val]`.
+
+The transitive flatten (`cs.flatMap (flattenConjDefRef env fuel)`, fuel-bounded) already pulls every cycle
+member's literals into `expanded` (with duplicates). Once `close` fires, the EXISTING Bug2-12b machinery —
+partition `expanded` into `isUnionableDefValue` literals vs `rest` (the back-ref `.refId`s, untouched),
+close each literal first, `foldl mergeDefinitionDecls` into ONE union body, close once, re-emit
+`rest ++ [closed]` — fixes the allowed-set to the transitive union `{a,b}`. No new closure mechanism; the
+fix is purely the gate widening + the cycle detector. The back-ref `.refId`s stay in `rest`, so D#2 cycle
+detection/bottoming is unchanged. A NON-cyclic def chain (`#A: #B & {a}`, `#B: {b}`) is not a cycle —
+`defSlotInClosedCycle` returns false (the walk reaches `#B`, which has no def-ref conjunct, and never
+returns to `start`) — so it stays on its existing distinct-meet path.
+
+### Coverage added + verify
+
+8 new `native_decide` pins in `Bug2xTests.lean` (`### Bug2-12 MUTUAL` section + sentinel
+`bug212_mutual_oneway_nonrec_rejects`): `bug212_mutual_admits_transitive_declared`,
+`bug212_mutual_rejects_genuine_extra`, `bug212_mutual_base_admits_declared`,
+`bug212_mutual_threeway_admits`, `bug212_mutual_threeway_rejects_extra`,
+`bug212_mutual_opentail_admits_extra`, `bug212_mutual_oneway_nonrec_rejects`. 3 internal-format fixture
+pairs (`testdata/cue/definitions/bug212_mutual_{admits_transitive,genuine_extra_rejects,opentail_admits}`)
++ matching `FixturePorts.lean` entries.
+
+All self-rec Bug2-12 pins, the Bug2-12b split pins, the 5 Bug2-6 + 7 Bug2-9 close-once pins, and D#2
+guardrails (`bug212_struct_cycle_still_bottoms`, `bug212_list_disj_still_terminates`) STAY GREEN. D#2 probe
+`#L:{n,next:#L}` still bottoms; a no-literal mutual cycle (`#A:#B`, `#B:#A`) still yields `_` (no `.conj`
+literals → close does not fire). All conform to the lattice-principled answer (oracle-cross-checked vs cue
+v0.16.1: cue over-rejects, recorded as a divergence).
+
+`defSlotInClosedCycle`/`defConjRefSlots` are total (structural recursion bounded by `fuel`), no
+`partial`/`sorry`/new axiom. Full gate green: `lake build` clean (no new warning/axiom), `check-fixtures.sh`
+ok. Canaries: cert-manager + argocd jq -S = 0 (run from `prod9/infra`) — prod9 has zero recursive defs, so
+the mutual-cycle change is provably neutral (the cycle gate never fires on the corpus). The under-close was
+kue-was-wrong → fixed; cue's over-reject is a NEW recorded cue-divergence.

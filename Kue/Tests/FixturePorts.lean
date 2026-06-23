@@ -869,6 +869,36 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-12 MUTUAL: a CLOSED mutual cycle (`#A: #B & {a}`, `#B: #A & {b}`) closes over the
+      -- TRANSITIVE union of every cycle member's declared labels (`{a,b}`), so the transitively-declared
+      -- fields ADMIT. cue OVER-REJECTS even the def's own field (lattice-questionable — see
+      -- `cue-divergences.md`); Kue conforms to the lattice-principled answer, not to cue.
+      fileName := "definitions/bug212_mutual_admits_transitive.expected",
+      content :=
+        match parseSource "#A: #B & {a: 1}\n#B: #A & {b: 2}\nout: #A & {a: 1, b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12 MUTUAL GENUINE-EXTRA: a field in NO cycle member (`c` ∉ {a,b}) is rejected by the
+      -- closed union — pins the under-close fix (pre-fix Kue admitted `c` because the cross-def back-ref
+      -- bottomed `#B` and dropped its closedness, leaving `#B & {a}` OPEN).
+      fileName := "definitions/bug212_mutual_genuine_extra_rejects.expected",
+      content :=
+        match parseSource "#A: #B & {a: 1}\n#B: #A & {b: 2}\nout: #A & {c: 3}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12 MUTUAL OPEN-TAIL: a `...` in ONE cycle member opens the merged union, so a use-site
+      -- extra is ADMITTED — the cycle close preserves a tail-opened body (`defOpenViaTail` dominates).
+      fileName := "definitions/bug212_mutual_opentail_admits.expected",
+      content :=
+        match parseSource "#A: #B & {a: 1, ...}\n#B: #A & {b: 2}\nout: #A & {c: 3}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

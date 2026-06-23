@@ -1609,6 +1609,44 @@ def isUnionableDefValue : Value -> Bool
   | .structComp _ _ _ => true
   | _ => false
 
+/-- The depth-0 def-ref conjuncts of a slot's `.conj` body — the other same-frame def slots its
+    body references. Used by `defSlotInClosedCycle` to walk the mutual-reference graph. Empty for a
+    non-`.conj` body. -/
+def defConjRefSlots (frame : List Field) (index : Nat) : List Nat :=
+  match nthField index frame with
+  | some field =>
+      match Field.value field with
+      | .conj cs => cs.filterMap fun c =>
+          match c with
+          | .refId rid => if rid.depth.val == 0 then some rid.index.val else none
+          | _ => none
+      | _ => []
+  | none => []
+
+/-- Bug2-12 MUTUAL: is the DEFINITION slot `start` part of a closed mutual-reference cycle whose
+    every hop is a depth-0 def→def ref (`#A: #B & {a}`, `#B: #A & {b}`)? Walks the same-frame
+    reference graph from `start`, following each slot's depth-0 def-ref conjuncts; reports `true`
+    once the walk returns to `start` after at least one hop. `seen` (visited slots) + `fuel` (= the
+    field count suffices) bound the walk total. A direct self-ref (`#X: #X & {a}`, handled by the
+    Bug2-12 `isSelfRef` gate) is NOT reported here — its sole hop is to `start` itself, so the
+    one-hop frontier hits the `start` membership immediately, which is exactly the cycle. The
+    cross-def chain (`#A: #B & {a}`, `#B: {b}` non-recursive) returns `false`: the walk reaches `#B`,
+    whose body has no def-ref conjunct, so it never returns to `start`. -/
+def defSlotInClosedCycle (fuel : Nat) (frame : List Field) (start : Nat)
+    (seen : List Nat) : List Nat -> Bool
+  | [] => false
+  | frontier =>
+      match fuel with
+      | 0 => false
+      | f + 1 =>
+          let nextHops := frontier.flatMap (defConjRefSlots frame)
+          if nextHops.contains start then true
+          else
+            let fresh := nextHops.filter (fun i => !slotVisited i seen)
+            match fresh with
+            | [] => false
+            | _ => defSlotInClosedCycle f frame start (frontier ++ seen) fresh
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -1676,7 +1714,20 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (constraint : Value) : List Value
                       match c with
                       | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
                       | _ => false
-                    let close := field.fieldClass.isDefinition && isSelfRef
+                    -- Bug2-12 MUTUAL: the body's closedness must come from its OWN literals not just
+                    -- for a DIRECT self-ref but for any depth-0 def→def cycle reaching this slot
+                    -- (`#A: #B & {a}`, `#B: #A & {b}`). The cross-def back-ref bottoms via D#2, so
+                    -- the def would otherwise resolve to an OPEN body (under-close, admitting a
+                    -- genuine extra). The transitive flatten below already pulls every cycle member's
+                    -- literals into `expanded`; closing them once over their UNION fixes the
+                    -- allowed-set to the transitive declared labels (`{a,b}`) — admitting transitively
+                    -- declared fields, rejecting genuine extras — the lattice-principled answer (cue
+                    -- over-rejects the def's own field; see `cue-divergences.md`). A non-recursive
+                    -- cross-def chain (`#A: #B & {a}`, `#B: {b}`) is NOT a cycle so it stays on its
+                    -- existing (distinct-meet) path.
+                    let inCycle := defSlotInClosedCycle (frame.snd).length frame.snd
+                      id.index.val [] [id.index.val]
+                    let close := field.fieldClass.isDefinition && (isSelfRef || inCycle)
                     let expanded := cs.flatMap (flattenConjDefRef env fuel)
                     if close then
                       let literals := expanded.filter isUnionableDefValue

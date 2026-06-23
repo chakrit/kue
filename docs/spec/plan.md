@@ -138,7 +138,11 @@ domain in EXACT DECIMAL, Float correctly AVOIDED, axiom-clean). **EvalOps** (ite
 2026-06-22. Remaining spec-conformance: **SC-4** (LOW, spec-gap-first). SC-3 is a recorded
 spec-gap only (multi-arm-default display divergence). The full Bug2-5..2-14c chain, AD2-1,
 DRY-1, and CARRIER-STRUCT-MEET are RESOLVED — durable rulings in Resolved/ruled-out below; the
-blow-by-blow in `implementation-log.md` + `spec-conformance-audit.md` + git.
+blow-by-blow in `implementation-log.md` + `spec-conformance-audit.md` + git. **Bug2-12 MUTUAL
+RESOLVED 2026-06-23** (mutual-recursion closed-def closedness): adjudicated to the
+lattice-principled transitive-union allowed-set — Kue ADMITS transitively-declared fields, REJECTS
+genuine extras; `cue` over-rejects the def's own field (a cue bug, recorded as a cue-divergence).
+FIXED via `defSlotInClosedCycle`; canaries jq-S=0 (prod9 has zero recursive defs — neutral).
 
 **perf #7 — frame-sharing across env-DEPENDENT evals: DESIGNED-AND-DEFERRED → WON'T-FIX
 (2026-06-23, measurement-driven REJECTION).** The proof-first gated slice MEASURED the share

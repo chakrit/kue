@@ -201,16 +201,21 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
 2. **SC-4** (LOW, spec-gap-first — nested hidden/let-bound closedness on direct def-meet).
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
-3. **Bug2-12** (SELF-recursive case — **RESOLVED 2026-06-23**; MUTUAL tail OPEN; **multi-struct-conjunct
-   OVER-CLOSE (Bug2-12b) — RESOLVED 2026-06-23, see item 0 below**). A SELF-recursive closed def narrowed with an
-   undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined form) admitted the extra; cue
-   rejects (spec-correct — closedness is a property of the definition, self-recursion does NOT re-open
-   it). FIXED in `flattenConjDefRef`: a self-referential closed def's `.conj` body now closes its
-   struct-literal conjuncts (the self-ref conjunct bottoms via the cycle path, contributing no fields, so
-   the def's closedness must come from its own literals). Single-conjunct admit/pattern/open-tail/nested
-   boundaries all conform; D#2 detection + canaries unchanged. The MUTUAL case (`#A: #B & {a}`, `#B: #A &
-   {b}`) is a distinct leak deferred as a spec-gap (cue's "reject the def's own field" reading is
-   lattice-questionable) — see `cue-spec-gaps.md` Bug2-12 MUTUAL row.
+3. **Bug2-12** (SELF-recursive case — **RESOLVED 2026-06-23**; MUTUAL tail **RESOLVED 2026-06-23 →
+   cue-divergence**; **multi-struct-conjunct OVER-CLOSE (Bug2-12b) — RESOLVED 2026-06-23, see item 0 below**).
+   A SELF-recursive closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the
+   inlined form) admitted the extra; cue rejects (spec-correct — closedness is a property of the definition,
+   self-recursion does NOT re-open it). FIXED in `flattenConjDefRef`: a self-referential closed def's `.conj`
+   body now closes its struct-literal conjuncts (the self-ref conjunct bottoms via the cycle path,
+   contributing no fields, so the def's closedness must come from its own literals). Single-conjunct
+   admit/pattern/open-tail/nested boundaries all conform; D#2 detection + canaries unchanged. The MUTUAL case
+   (`#A: #B & {a}`, `#B: #A & {b}`) is now RESOLVED to the lattice-principled answer: the closed allowed-set
+   is the TRANSITIVE union of cycle members' declared labels (`{a,b}`), so Kue ADMITS the declared/transitive
+   fields and REJECTS a genuine extra (`c`). cue OVER-REJECTS even the def's own field (a cue bug) — recorded
+   as a cue-divergence, NOT matched. FIXED via `defSlotInClosedCycle` (the `close` gate now fires for any
+   depth-0 def→def cycle reaching the slot, reusing the Bug2-12b union-then-close-once machinery). See
+   `cue-divergences.md` "Mutual-recursion closed def rejects its OWN declared field" + `cue-spec-gaps.md`
+   Bug2-12 MUTUAL row.
 
 0. **Bug2-12b — MULTI-STRUCT-CONJUNCT self-rec OVER-CLOSE — RESOLVED 2026-06-23.**
    The Bug2-12 fix `expanded.map (normalizeDefinitionValueWithFuel …)` closed EACH struct-literal conjunct
@@ -357,9 +362,9 @@ boundary, commit) is HISTORY — in `implementation-log.md` (one entry per fix) 
   the `error` arm, both correctly NON-drain). **HONEST: the whole 37230-byte manifest byte-matches
   cue under sorted keys — no on-path layer hides behind a sound drain.**
 
-**Bug2-12** (SELF-recursive — **RESOLVED 2026-06-23**; MUTUAL tail recorded OPEN): a SELF-recursive
-closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined
-`(#X & {a:1}) & {b:2}`) admitted `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).
+**Bug2-12** (SELF-recursive — **RESOLVED 2026-06-23**; MUTUAL tail **RESOLVED 2026-06-23 → cue-divergence**):
+a SELF-recursive closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the
+inlined `(#X & {a:1}) & {b:2}`) admitted `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).
 **Spec-verified cue is CORRECT here** — closedness is a property of the definition, independent of
 how its body self-references; self-recursion does NOT open the def. Root cause: the def body `#X & {a:1}`
 parses to a `.conj [#X, {a:1}]`, and the structural-cycle path terminated the self-`#X` to a shallow
@@ -372,10 +377,17 @@ struct literals close (`{a:1}` → `defClosed`), while the self-ref `.refId` con
 closer so the cycle path bottoms it identically. cert-manager + argocd jq -S = 0 (zero recursive defs, no
 firing); a non-self-recursive multi-conjunct def (`#LS: #Base & {#extra}`, Bug2-6..9) is NOT self-referential
 so its narrowing conjuncts stay OPEN and the close-once-via-`closedClauses` fold is untouched. The MUTUAL
-case (`#A: #B & {a}`, `#B: #A & {b}`) is a SEPARATE leak — kue under-closes (admits), cue rejects even the
-def's OWN field; cue's mutual reading is lattice-questionable, so it is recorded as an OPEN spec-gap rather
-than blindly matched (`cue-spec-gaps.md` Bug2-12 MUTUAL row), deferred as a future fix-slice. (The
-Bug2-5..2-14c chain that surfaced it is RESOLVED — see the compressed summary above.)
+case (`#A: #B & {a}`, `#B: #A & {b}`) is now **RESOLVED** to the lattice-principled answer: the closed
+allowed-set is the TRANSITIVE union of all cycle members' declared labels (`#A = #B & {a} = #A & {a,b}` ⟹
+`allowed(#A) = {a,b}`), so Kue ADMITS the declared/transitive fields (`{a:1,b:2}`) and REJECTS a genuine
+extra (`c` ∉ {a,b}). **cue OVER-REJECTS even the def's OWN declared field** — a cue BUG (it closes `#B`
+prematurely mid-cycle, contradicting its own correct acyclic behavior); recorded as a cue-divergence
+(`cue-divergences.md`), NOT matched. **FIX** (`defSlotInClosedCycle`, `Eval.lean`): the `flattenConjDefRef`
+`close` gate fires for any depth-0 def→def cycle reaching this slot (not only a DIRECT self-ref), and the
+transitive flatten + Bug2-12b union-then-close-once machinery fixes the allowed-set. The one-way distinct-meet
+(`#A: #B & {a}`, `#B: {b}` non-recursive) stays on its existing path (`defSlotInClosedCycle` returns false —
+not a cycle). canaries jq -S = 0 (prod9 has zero recursive defs — neutral). (The Bug2-5..2-14c chain that
+surfaced it is RESOLVED — see the compressed summary above.)
 
 Audit cadence + the non-spec-conformance plan roadmap live in `plan.md` / the breadcrumb,
 not here.

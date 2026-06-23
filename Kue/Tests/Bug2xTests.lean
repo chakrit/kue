@@ -986,6 +986,66 @@ theorem bug212_list_disj_still_terminates :
       "{\n    \"y\": {\n        \"head\": 1,\n        \"tail\": null\n    }\n}\n" = true := by
   native_decide
 
+-- ### Bug2-12 MUTUAL — closedness through a MUTUAL-recursion def cycle (RESOLVED 2026-06-23).
+--
+-- `#A: #B & {a:1}`, `#B: #A & {b:2}` is a CLOSED mutual cycle. Transitive expansion fixes each def's
+-- allowed-set to the UNION of all cycle members' declared labels: `#A = #B & {a} = #A & {a,b}`, so
+-- `allowed(#A) = {a,b}`. The lattice-principled behavior ADMITS the transitively-declared fields
+-- (`a`, `b`) and REJECTS a genuine extra (`c`). cue v0.16.1 OVER-REJECTS — it rejects even `#A`'s OWN
+-- declared field (`#A.a: field not allowed`), reading `#A`'s body as a use-site `{a}` added to an
+-- already-closed `#B`; but `#B` is not yet closed mid-cycle, so a def rejecting a field it itself
+-- declares is lattice-questionable. Kue conforms to the principled answer, NOT to cue — recorded in
+-- `cue-divergences.md`. Pre-fix Kue UNDER-CLOSED (admitted `c`): the cross-def back-ref bottoms via
+-- D#2, dropping `#B`'s closedness, so `#B & {a}` resolved to an OPEN body. FIXED by `defSlotInClosedCycle`:
+-- the `flattenConjDefRef` `close` gate now fires for any depth-0 def→def cycle reaching this slot, not
+-- only a DIRECT self-ref (Bug2-12). The transitive flatten already pulls every cycle member's literals
+-- into `expanded`; the Bug2-12b union-then-close-once machinery fixes the allowed-set to `{a,b}`.
+
+-- ADMIT (transitively-declared `a`, `b`): both in the union allowed-set. cue REJECTS even `a` (bug).
+theorem bug212_mutual_admits_transitive_declared :
+    exportJsonMatches "#A: #B & {a: 1}\n#B: #A & {b: 2}\nout: #A & {a: 1, b: 2}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- REJECT (genuine extra `c` ∉ {a,b}): the union closes the allowed-set, so `c` is `field not allowed`.
+-- Pins the under-close fix — pre-fix Kue admitted `c`. cue also rejects `c` (but for the wrong reason).
+theorem bug212_mutual_rejects_genuine_extra :
+    exportJsonBottoms "#A: #B & {a: 1}\n#B: #A & {b: 2}\nout: #A & {c: 3}\n" = true := by
+  native_decide
+
+-- BASE (bare `#A`, no use-site narrow): the closed mutual cycle yields `{a:1,b:2}` — closedness over
+-- the union does not reject the def's own declared fields. cue REJECTS even the base (bug).
+theorem bug212_mutual_base_admits_declared :
+    exportJsonMatches "#A: #B & {a: 1}\n#B: #A & {b: 2}\nout: #A\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- 3-WAY cycle ADMIT: `#A→#B→#C→#A` closes over `{a,b,c}`; all three transitively-declared fields admit.
+theorem bug212_mutual_threeway_admits :
+    exportJsonMatches "#A: #B & {a: 1}\n#B: #C & {b: 2}\n#C: #A & {c: 3}\nout: #A & {a: 1, b: 2, c: 3}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- 3-WAY cycle REJECT: a field in NO cycle member (`d`) is rejected by the closed union.
+theorem bug212_mutual_threeway_rejects_extra :
+    exportJsonBottoms "#A: #B & {a: 1}\n#B: #C & {b: 2}\n#C: #A & {c: 3}\nout: #A & {d: 4}\n" = true := by
+  native_decide
+
+-- OPEN-TAIL across the cycle (do NOT over-close): a `...` in ONE cycle member opens the merged union
+-- (`defOpenViaTail` dominates), so a use-site extra is ADMITTED. Pins that the cycle close preserves
+-- a tail-opened body, exactly like the self-rec/split open-tail cases.
+theorem bug212_mutual_opentail_admits_extra :
+    exportJsonMatches "#A: #B & {a: 1, ...}\n#B: #A & {b: 2}\nout: #A & {c: 3}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- ONE-WAY non-recursive boundary (must STAY on the distinct-meet path, NOT the cycle close): `#B` does
+-- NOT ref back, so it is not a cycle — `#A: #B & {a}` is a use-site `{a}` added to closed `#B`, which
+-- REJECTS (`a` ∉ {b}). cue agrees. Pins that `defSlotInClosedCycle` does not over-fire on a chain.
+theorem bug212_mutual_oneway_nonrec_rejects :
+    exportJsonBottoms "#A: #B & {a: 1}\n#B: {b: 2}\nout: #A\n" = true := by
+  native_decide
+
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
 --
 -- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)
@@ -1132,6 +1192,7 @@ theorem mfs_chained_selection_missing_absent :
 #check @bug214b_disj_arm_conflict_bottoms                     -- Bug2-14b/c
 #check @bug214_multi_level_comprehension_combined             -- Bug2-14 audit (multi-level + comprehension)
 #check @bug212_list_disj_still_terminates                     -- Bug2-12
+#check @bug212_mutual_oneway_nonrec_rejects                   -- Bug2-12 MUTUAL
 #check @mfs_chained_selection_missing_absent                  -- missing-field-selection
 
 end Kue
