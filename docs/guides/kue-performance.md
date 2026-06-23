@@ -183,6 +183,36 @@ fix is purely a speedup — byte-identical output.
   > satCache), or content-addressing def-body closures independent of the capturing frame. Both
   > touch the soundness core of frame identity (`FrameKey`/`ForceKey` proxy argument) and need a
   > dedicated no-false-share proof — not foldable into a leaf-bypass slice.
+  >
+  > **perf-#7 frame-sharing fix DESIGNED-AND-DEFERRED — the win does not exist (2026-06-23,
+  > measurement-driven REJECTION, NOT a proof-blocker punt).** The dedicated gated slice MEASURED
+  > the share ceiling before touching the soundness core, and the data kills the approach. Method:
+  > a zero-risk content-addressed SHADOW of `satCache` keyed on the FULL env CONTENTS (`(env,
+  > visited, value)` compared by derived structural `BEq`, never read by the result path), counting
+  > how many of the `satCache`-miss core evals a content-addressed env key would COLLAPSE (`env`s
+  > that are content-identical but id-distinct — exactly the frames a sound canonicalization could
+  > merge). Result on the whole-root export:
+  >
+  > | app          | core evals (`satMisses`) | content-collapsible | ceiling |
+  > |--------------|-------------------------:|--------------------:|--------:|
+  > | cert-manager |                  317,788 |                 144 |  0.045% |
+  > | argocd       |                  486,773 |                 288 |  0.059% |
+  >
+  > **The ~175× re-eval is REAL but NOT content-redundant.** The profile's `distinctShapes≈4763`
+  > counted *shape* similarity at digest-depth 8; the cache keys on *content* (via the sound
+  > ids-as-content-proxy). When the same shape is reached under ~175 frame envs, those envs carry
+  > ~175 GENUINELY-DIFFERENT observable bindings (distinct resource fields, distinct use-site
+  > narrowings) — distinct evaluations that share a top shape but not a resolved value. Collapsing
+  > them is a **FALSE SHARE** (serve one resource's value for another → wrong value), which is why
+  > the ceiling is ~0%: there are almost no id-distinct-but-content-identical envs to recover. No
+  > sound frame-sharing widening (aggressive canonicalization OR content-addressed closure key) can
+  > reclaim the ~175× factor — it is the irreducible cost of genuinely-distinct content, not
+  > id-divergence waste. **The proof obligation is moot: the share it would license is empirically
+  > almost empty AND unsound where non-empty.** The residual ~50s is the per-eval constant over a
+  > genuinely-large distinct-eval population, addressable only by lowering the per-eval cost or the
+  > eval COUNT (flatten/shorten chains — the user-controllable lever above), NOT by cross-env
+  > sharing. perf #7's frame-sharing leg is CLOSED as won't-fix; the live perf frontier rotates to
+  > the per-eval constant (item-6 LOW tail / a future per-eval-cost slice).
 - **[HISTORICAL] Full `apps/argocd.cue` bottomed — was a CORRECTNESS bug, NOT a perf/fuel
   limit (2026-06-19; RESOLVED 2026-06-23 by the Bug2-x chain — kept for the diagnosis trail).
   Superseded the earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness"

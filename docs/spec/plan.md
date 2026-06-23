@@ -140,24 +140,26 @@ spec-gap only (multi-arm-default display divergence). The full Bug2-5..2-14c cha
 DRY-1, and CARRIER-STRUCT-MEET are RESOLVED — durable rulings in Resolved/ruled-out below; the
 blow-by-blow in `implementation-log.md` + `spec-conformance-audit.md` + git.
 
-**🚨 NEXT LEADER — perf #7: frame-sharing across env-DEPENDENT evals (proof-first, GATED).**
-argocd exports content-identical at **~50.3s** vs `cue` 0.03s; cert-manager ~11.7s. Perf #7's
-two safe wins LANDED (2026-06-23, both jq-S=0, zero drift): a `selfEvaluatingLeaf?` fast path +
-saturated-only `satCache` insert (~53.4s → ~50.3s argocd, ~12.6s → ~11.7s cert-manager). The
-PROFILE named the residual root: `evalCalls=832338` core evals but only `distinctShapes=4763`
-distinct subtrees → a **~175× re-eval factor** — the SAME subtree is core-evaluated ~175× under
-~175 distinct frame envs because the cache keys on `env.ids` (FRAME-ID DIVERGENCE; `evalCacheHits=0`,
-the fuel-keyed `cache` is dead — all re-served from `satCache`). NOT fuel (DIGEST_DEPTH 1 vs 3
-measured FLAT), NOT an O(N²) collapse. The leaf bypass does NOT touch this residual (the leaves are
-trivial work). **The designed fix (DEDICATED GATED SLICE — proof-first, STOP-if-unprovable):**
-share env-DEPENDENT evals across frame envs — collapse structurally-identical def bodies forced
-under different resource scopes to one frame id (hitting the env-keyed satCache), OR content-address
-def-body closures independent of the capturing frame. **Both touch the SOUNDNESS CORE of frame
-identity (`FrameKey`/`ForceKey`) and need a no-false-share proof** — a frame-sharing widening that
-could alias-corrupt a value is a Violation; profile + design + STOP beats an unsound ship. The
-existing `FrameKey` soundness note (`Eval.lean` ~1403) is the proof-obligation template. Detail in
-`kue-performance.md` (argocd-EXPORTS block + perf-#7 PROFILED+OPTIMIZED note) + implementation-log
-(perf #7 slice).
+**perf #7 — frame-sharing across env-DEPENDENT evals: DESIGNED-AND-DEFERRED → WON'T-FIX
+(2026-06-23, measurement-driven REJECTION).** The proof-first gated slice MEASURED the share
+ceiling before touching the soundness core — and the data kills the approach, so nothing shipped
+(correct outcome, no Violation risk taken). Method: a zero-risk content-addressed SHADOW of
+`satCache` keyed on the FULL env CONTENTS (compared by structural `BEq`, never read by the result
+path) counting how many `satCache`-miss core evals a content-addressed env key would COLLAPSE.
+Result on the whole-root export: **cert-manager 144 / 317,788 = 0.045%**; **argocd 288 / 486,773 =
+0.059%**. The ~175× re-eval is REAL but NOT content-redundant: the profile's `distinctShapes≈4763`
+counted SHAPE similarity (digest-depth 8); the cache correctly keys on CONTENT (sound
+ids-as-content-proxy). The ~175 frame envs the same shape is reached under carry ~175
+GENUINELY-DIFFERENT observable bindings (distinct resource fields + use-site narrowings) — distinct
+evaluations, not id-divergence of identical content. Collapsing them is a FALSE SHARE (wrong value),
+which is why the ceiling is ~0%. **No sound frame-sharing widening can reclaim the ~175× — it is the
+irreducible cost of distinct content.** The proof obligation is moot (the share is empirically empty
+AND unsound where non-empty). perf #7's frame-sharing leg is CLOSED. Live perf frontier rotates to
+the per-eval CONSTANT / COUNT (item-6 LOW tail or a future per-eval-cost slice) — the residual ~50s
+is a genuinely-large distinct-eval population, addressable only by lowering per-eval cost or the
+eval count (flatten/shorten chains — the user-controllable lever), NOT by cross-env sharing. Full
+data + the rejection argument: `kue-performance.md` (perf-#7 frame-sharing DESIGNED-AND-DEFERRED
+block) + implementation-log (perf #7 frame-sharing slice).
 
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
@@ -245,11 +247,16 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    out: {b: 1} & {a: 2}  // cue: a, b (graph order); Kue: b, a (source order) — both spec-valid
    ```
 
-5. **Per-eval-cost perf (frontier — hash digest DONE; perf #7 is the active leader).**
+5. **Per-eval-cost perf (frontier — hash digest DONE; perf #7 frame-sharing WON'T-FIX).**
    The cache-key hash digest landed (cert-manager 119s → ~30s, byte-identical modulo #3, zero
    drift). Perf #7's two safe wins landed 2026-06-23 (~50.3s argocd, ~11.7s cert-manager). The
-   live residual is the ~175× env-DEPENDENT re-eval — the **NEXT LEADER block at the top of this
-   backlog** owns it (proof-first frame-sharing, GATED). See `kue-performance.md`.
+   ~175× env-DEPENDENT re-eval was profiled as the residual root and its frame-sharing fix was
+   then **MEASURED and REJECTED** (won't-fix, 2026-06-23): the content-share ceiling is ~0.05%
+   (cert-manager 144/317788, argocd 288/486773) — the re-evals run under genuinely-distinct
+   content, so collapsing them is a false share, not recoverable waste (see the perf #7 block
+   above + `kue-performance.md`). The live frontier is now the per-eval CONSTANT / eval COUNT over
+   a genuinely-large distinct population, not cross-env sharing — a future per-eval-cost slice, or
+   the user-controllable flatten/shorten lever. No active leader remains here.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

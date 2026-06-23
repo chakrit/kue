@@ -12528,3 +12528,72 @@ No live backlog item or durable ruling dropped; all internal doc links verified 
 Breadcrumb rotated → `docs/notes/2026-06-23-resume-plan-hygiene-argocd-milestone.md`. Files:
 `docs/spec/plan.md`, `docs/spec/spec-conformance-audit.md`, `www/index.html`,
 `docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
+
+## 2026-06-23 — perf #7 frame-sharing: DESIGNED-AND-DEFERRED → WON'T-FIX
+
+The dedicated, proof-first, GATED slice for perf #7's residual root — the ~175× re-evaluation of
+env-DEPENDENT value shapes (`evalCalls≈832K` for `distinctShapes≈4763` at digest-depth 8, the cache
+keying on `env.ids` so the same shape under ~175 frame envs re-evaluates ~175×). The designed fix:
+collapse structurally-identical def bodies forced under different resource scopes to one canonical
+frame identity (or content-address the def-body closure key), so the cache keys on CONTENT not on an
+allocation-divergent frame id, enabling cross-scope `satCache` sharing.
+
+### The no-false-share invariant (established BEFORE any code)
+
+The whole memo system is sound because **`env.ids` is a sound proxy for env CONTENTS**: the
+`FrameKey = (parentIds, fields)` canonicalization proves two envs sharing an id stack are
+contents-equal frame-by-frame (inductively over `parentIds`). So `EvalKey`/`SatKey`/`ForceKey`
+keying on `env.ids` never returns a value computed for a different env. Two forces of a def body are
+**share-equivalent** iff their captured envs agree on EVERYTHING the body can OBSERVE — i.e. the
+reachable captured bindings up to the body's free-variable set (the depth-indexed `refId` reach).
+Canonicalizing two frames that DISAGREE on an observable binding = a FALSE SHARE = a silent wrong
+value = a Violation. The proof obligation: bound the observable-frame set and prove the merged
+frames agree on it.
+
+### Why DEFERRED-as-WON'T-FIX, not shipped, and not "proof too hard"
+
+Rather than wrestle the (genuinely subtle) observable-depth bound — the producers' captured env is
+`pushFrame pkgFields env` over the FULL resource `env`, while the body is authored against
+`env.drop(id.depth+1)`, so the observable depth cannot be statically bounded at ≤1 in one slice — I
+**measured the win ceiling first** with a zero-risk instrument: a content-addressed SHADOW of
+`satCache` keyed on the FULL env CONTENTS (`(env, visited, value)` compared by derived structural
+`BEq`, hashed via `valueDigest`-over-frames), counting how many `satCache`-miss core evals a
+content-addressed env key would COLLAPSE — i.e. envs that are content-identical but id-distinct,
+exactly the frames a sound canonicalization could merge. The shadow is never read by the result
+path (correctness untouched); it only counts.
+
+Whole-root export measurement (counts exact + deterministic; the shadow's extra hashing inflated
+wall-time, irrelevant to the counts):
+
+| app          | core evals (satMisses) | content-collapsible | ceiling |
+|--------------|-----------------------:|--------------------:|--------:|
+| cert-manager |                317,788 |                 144 |  0.045% |
+| argocd       |                486,773 |                 288 |  0.059% |
+
+**The ~175× re-eval is REAL but NOT content-redundant.** `distinctShapes≈4763` measured SHAPE
+similarity at digest-depth 8; the cache correctly keys on CONTENT (via the sound ids-as-content
+proxy). When the same shape is reached under ~175 frame envs, those envs carry ~175
+GENUINELY-DIFFERENT observable bindings (distinct resource fields, distinct use-site narrowings) —
+distinct evaluations that share a top shape but not a resolved value. Collapsing them is a FALSE
+SHARE (serve one resource's value for another → wrong value), which is exactly why the ceiling is
+~0%: there are almost no id-distinct-but-content-identical envs to recover. So no sound
+frame-sharing widening (aggressive canonicalization OR content-addressed closure key) can reclaim
+the ~175× — it is the IRREDUCIBLE cost of genuinely-distinct content, not id-divergence waste. The
+proof obligation is moot: the share it would license is empirically almost empty AND unsound where
+non-empty.
+
+### Outcome
+
+NOTHING SHIPPED (no `Kue/` change; the instrument was fully reverted, tree clean, build green). This
+is the correct STOP outcome the correctness-over-performance decision codifies — except the stop is
+backed by hard data, not a deferred-proof punt. perf #7's frame-sharing leg is CLOSED as won't-fix.
+The live perf frontier rotates to the per-eval CONSTANT / eval COUNT over a genuinely-large distinct
+population (item-6 LOW tail or a future per-eval-cost slice); the residual ~50s argocd / ~12s
+cert-manager is addressable only by lowering per-eval cost or eval count (flatten/shorten chains —
+the user-controllable lever), NOT by cross-env sharing.
+
+DOCS + measurement only — no behavior change, so no fixture/canary drift possible; `lake build`
+green on the reverted tree, both canaries jq -S = 0 (unchanged from baseline). Files:
+`docs/guides/kue-performance.md` (perf-#7 frame-sharing DESIGNED-AND-DEFERRED block + ceiling table),
+`docs/spec/plan.md` (leader block + item 5 → won't-fix), `docs/reference/implementation-log.md`,
+`docs/notes/` (breadcrumb rotated).
