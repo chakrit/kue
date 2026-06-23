@@ -13013,3 +13013,80 @@ Canaries from `prod9/infra`: cert-manager jq -S = 0 (~12.4s), argocd jq -S = 0 (
 bound fires only on closed multi-ref cycle re-entry, which the real apps do not hit). **Measured
 before→after: the 3-line repro >40s (killed) → ~0.01s warm / ~0.55s cold; single-ref cycle
 byte-identical before→after.** No value change → no `cue-divergences`/`cue-spec-gaps` entry.
+
+---
+
+## Completed Slice: SC-4 — nested HIDDEN/LET plain-struct closedness on a direct def-meet
+
+Goal: adjudicate + conform SC-4. A def's nested PLAIN-struct value carried by a HIDDEN field
+(`#A: {_h: {x: int}}`) or read from a LET binding (`#A: {let _t = {x: int}, v: _t}`) did NOT close on
+a direct def-meet — `#A & {_h: {x: 1, extra: 2}}` (and the let analog) ADMITTED `extra` — while a
+nested REGULAR value already closed (SC-2). Adjudication outcome: **case (b)** — kue under-closed; fix
+to the lattice-principled behavior.
+
+### Adjudication (the principled answer FIRST, then cue cross-check)
+
+**Principled answer: REJECT the extra.** Closedness is a PROPERTY OF THE DEFINITION and is MONOTONE
+under meet (spec: referencing a def closes it "anywhere within the definition"; `&` cannot remove a
+constraint). A `_h: {x: int}` declared in a closed `#A` with no `...` is itself a CLOSED struct — the
+visibility of the carrying field (`_h` hidden vs `h` regular) and the carrier (let-bound vs regular
+field) do NOT change whether the nested value is closed. This is the exact basis SC-2 established for
+regular nested fields and SC-2b for instantiation, applied to the hidden/let carrier.
+
+**cue v0.16.1 cross-check (the prior "internally inconsistent" framing was STALE).** Pinned on the
+SC-4 shape + adjacent shapes:
+- `#A & {_h: {x: 5, extra: 2}}` (direct meet) → cue REJECTS (`_h.extra: field not allowed`).
+- `#A._h & {extra: 2}` (direct select then meet) → cue REJECTS.
+- `y: #A; y._h & {extra: 2}` (BOUND-then-select) → cue ADMITS.
+So cue is CONSISTENT on direct-meet vs direct-select (BOTH close); it only re-opens when selection
+crosses a regular binding `y` — the SAME SC-2b-family eval-strategy artifact (closedness lost crossing
+a plain field), not a spec mandate. The old "oracle #8" admit (`x._h & {extra}`) was exactly this
+bound-select path, mis-generalized in the SC-2 design to "a def's hidden-field nested struct admits
+extras". Verified the regular control (`#A & {h: {extra}}`) closes in both, the `#h`-def-field nested
+value closes in both, and a nested `...` opens in both.
+
+### Fix (Normalize-only, one-arm-each-twin)
+
+`Kue/Normalize.lean`, `normalizeDefinitionFieldWithFuel` (the CLOSING field-walker twin, SC-2): the
+`.field false true _` (in-file hidden `_x`) arm and the `.letBinding` arm now recurse the CLOSING
+walker `normalizeDefinitionValueWithFuel` (closes nested plain-struct values) instead of the SPINE
+`normalizeDefinitionsWithFuel` (preserves openness) — matching the regular `.field false false _` arm.
+The `importBinding` SKIP arm is UNCHANGED (the A2 trap defence: a bound package is never recursed, so
+cert-manager/argocd cannot re-bottom). The SPINE twin `normalizeFieldWithFuel` (the non-closing
+context) is UNCHANGED — a plain (non-def) struct never reaches the closing twin, so a plain
+`A: {_h: {x: 5}}` stays open. A nested `...` still returns `defOpenViaTail` unchanged (stays open); a
+NEW use-site hidden field is still admitted (`ignoresClosedness = isDefinition || isHidden` — a
+separate, orthogonal axis). The hidden-read-into-a-regular-field case (`#A: {_h: {x: 5}, v: _h}`)
+closes for free (the hidden field's OWN value is now closed; `v: _h` resolves to it).
+
+### Soundness boundaries (all oracle-checked vs cue v0.16.1; MATCH = same accept/reject)
+
+- hidden nested CLOSES (direct meet, concrete + abstract) — MATCH; depth-2 hidden→regular — MATCH.
+- hidden nested with `...` STAYS OPEN — MATCH. NEW use-site hidden field ADMITTED + selectable — MATCH.
+- let-read nested CLOSES (closed def) — MATCH; let-read with `...` STAYS OPEN — MATCH; let-read in a
+  PLAIN struct STAYS OPEN — MATCH (the spine, not the closing twin).
+- regular nested CLOSES — MATCH (SC-2 control, unchanged); plain non-def nested STAYS OPEN — MATCH;
+  `#h`-def-field nested CLOSES — MATCH; new regular field REJECTED — MATCH.
+- closedness family + D#2 regressions all MATCH: multi-decl close-once, distinct-def-meet reject,
+  struct-cycle bottoms.
+
+### Divergence recorded
+
+One residual: `cue-divergences.md` "nested closedness shed via a hidden-field binding (SC-4)" — cue
+re-opens the nested hidden value when selected through a regular binding (`y: #A; y._h & {extra}`
+ADMITS), the same SC-2b-family eval artifact; Kue preserves closedness monotonically on every path.
+The direct-meet path (the headline fixture) matches cue. No `cue-spec-gaps` entry — the spec speaks
+(closedness is monotone) and cue agrees on the direct paths, so this is a cue bug on one spelling, not
+a spec gap.
+
+### Coverage added + verify
+
+7 `EvalTests` `eval_sc4_*` pins (new `### SC-4` section): `eval_sc4_hidden_field_nested_closes` (the
+former obligation-4 pin `eval_sc2_hidden_field_nested_stays_open` FLIPPED — the stale bound-select
+admit became the direct-meet REJECT), `_hidden_field_nested_tail_stays_open`, `_new_hidden_field_admitted`,
+`_hidden_field_nested_depth2`, `_let_read_nested_closes`, `_let_read_plain_stays_open`. 4 `sc4_*`
+fixtures with `FixturePorts` entries (`sc4_hidden_nested_closes`, `…_tail_stays_open`, `…_depth2`,
+`sc4_let_read_nested_closes`). `normalizeDefinitionFieldWithFuel` stays total (no `partial`/`sorry`/new
+axiom). Full gate: `lake build` clean (112 jobs, no warning/axiom), `check-fixtures.sh` ZERO drift.
+Canaries from `prod9/infra`: cert-manager jq -S = 0 (~11.7s), argocd jq -S = 0 (~50s) — UNCHANGED (the
+nested-hidden/let-under-closed-def shape is off the real-app path).

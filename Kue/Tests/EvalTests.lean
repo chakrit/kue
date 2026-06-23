@@ -1601,10 +1601,10 @@ theorem eval_sc2b_instantiated_def_field_stays_closed :
 /-! ### SC-2 — nested def-body closedness (the closing field-walker twin).
 
 The four soundness obligations from the SC-2 design, pinned. The closing walker closes a
-referenced def's nested PLAIN-struct field VALUES (obligation 1), recursively, BUT only inside
-a referenced def — a plain non-def struct (obligation 2) and a hidden-field nested struct
-(obligation 4) stay open, and a nested `...` stays open (obligation 3). Each oracle-checked vs
-cue v0.16.1; obligations 1/3 agree with cue, 2/4 agree with cue (controls). -/
+referenced def's nested PLAIN-struct field VALUES (obligation 1), recursively, AND a def's
+HIDDEN-field nested PLAIN-struct value too (obligation 4 — SC-4 fix), BUT a plain non-def
+struct (obligation 2) and a nested `...` (obligation 3) stay open. Each oracle-checked vs
+cue v0.16.1; obligations 1/3/4 agree with cue, 2 agrees with cue (control). -/
 
 -- Obligation 1: a referenced closed def's nested field rejects an extra (the SC-2a fix).
 theorem eval_sc2_nested_def_field_closes :
@@ -1630,11 +1630,70 @@ theorem eval_sc2_nested_tail_stays_open :
       = true := by
   native_decide
 
--- Obligation 4: a def's HIDDEN-field nested struct stays OPEN (the spine walker, untouched).
-theorem eval_sc2_hidden_field_nested_stays_open :
+/-! ### SC-4 — a def's HIDDEN-field nested PLAIN-struct value CLOSES (the closing twin's
+hidden arm now recurses the CLOSING walker, like the regular arm).
+
+Closedness is a property of the definition and is MONOTONE; the visibility of the field
+carrying a nested value (`_h` hidden vs `h` regular) does NOT change whether that nested
+value is closed — a `_h: {x: int}` declared in a closed `#A` with no `...` is itself a
+closed struct. So `#A & {_h: {x: 1, extra: 2}}` REJECTS `extra`, exactly as the regular
+analog (obligation 1). cue v0.16.1 AGREES on the direct-meet AND the direct-select
+(`#A._h & {extra}`) paths; only the bound-then-select path (`y: #A; y._h & {extra}`)
+re-opens in cue — the same SC-2b-family eval artifact (closedness lost through a regular
+binding), where Kue follows the spec and diverges. The let-read analog (`v: _h` where `_h`
+is a let-bound struct in the def, read into a regular field) closes for free: `v` is a
+regular field whose resolved value is the closing-walked struct. -/
+
+-- SC-4 obligation 4 (FLIPPED from the stale "stays open"): direct-meet hidden nested CLOSES.
+theorem eval_sc4_hidden_field_nested_closes :
     evalSourceMatches
-        "#A: {_h: {x: int}}\nx: #A\nout: x._h & {x: 1, extra: 2}\n"
-        "#A: {_h: {x: int}}\nx: {_h: {x: int}}\nout: {x: 1, extra: 2}"
+        "#A: {_h: {x: int}}\nout: #A & {_h: {x: 1, extra: 2}}\n"
+        "#A: {_h: {x: int}}\nout: {_h: {x: 1, extra: _|_}}"
+      = true := by
+  native_decide
+
+-- SC-4: a nested `...` under a HIDDEN field still STAYS OPEN (the tail dominates closedness).
+theorem eval_sc4_hidden_field_nested_tail_stays_open :
+    evalSourceMatches
+        "#A: {_h: {x: int, ...}}\nout: #A & {_h: {x: 1, extra: 2}}\n"
+        "#A: {_h: {x: int, ...}}\nout: {_h: {x: 1, extra: 2, ...}}"
+      = true := by
+  native_decide
+
+-- SC-4: a NEW hidden field added at the use-site is still ADMITTED (top-level hidden ignores
+-- closedness — `ignoresClosedness = isDefinition || isHidden`; this is orthogonal to the
+-- nested-value close and must not regress).
+theorem eval_sc4_new_hidden_field_admitted :
+    evalSourceMatches
+        "#A: {a: int}\nout: #A & {_new: 9}\n"
+        "#A: {a: int}\nout: {a: int, _new: 9}"
+      = true := by
+  native_decide
+
+-- SC-4: a depth-2 hidden→regular nested struct also closes (recursion through the hidden value).
+theorem eval_sc4_hidden_field_nested_depth2 :
+    evalSourceMatches
+        "#A: {_h: {r: {b: int}}}\nout: #A & {_h: {r: {b: 1, extra: 2}}}\n"
+        "#A: {_h: {r: {b: int}}}\nout: {_h: {r: {b: 1, extra: _|_}}}"
+      = true := by
+  native_decide
+
+-- SC-4 LET analog: a LET-bound struct read into a regular field of a closed def CLOSES — the let
+-- arm of the closing twin now recurses the closing walker, so `_t`'s value closes and `v: _t`
+-- resolves to the closed struct. cue v0.16.1 AGREES (`out.v.extra: field not allowed`).
+theorem eval_sc4_let_read_nested_closes :
+    evalSourceMatches
+        "#A: {let _t = {x: 5}, v: _t}\nout: #A & {v: {extra: 2}}\n"
+        "#A: {v: {x: 5}}\nout: {v: {x: 5, extra: _|_}}"
+      = true := by
+  native_decide
+
+-- SC-4 LET control: a let-read nested struct in a PLAIN (non-def) struct STAYS OPEN — the closing
+-- twin never runs (the spine does), so `extra` is admitted (cue agrees).
+theorem eval_sc4_let_read_plain_stays_open :
+    evalSourceMatches
+        "A: {let _t = {x: 5}, v: _t}\nout: A & {v: {extra: 2}}\n"
+        "A: {v: {x: 5}}\nout: {v: {x: 5, extra: 2}}"
       = true := by
   native_decide
 

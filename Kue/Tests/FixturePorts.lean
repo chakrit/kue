@@ -1280,6 +1280,43 @@ def fixturePorts : List FixturePort :=
         | .ok value => formatResolvedTopLevel value
         | .error error => s!"parse error: {error.message}"
     },
+    -- SC-4 closedness pins (cue+spec AGREE on direct paths; oracle-checked v0.16.1). A def's
+    -- HIDDEN-field (`_h`) nested PLAIN-struct value closes EXACTLY like a regular-field one
+    -- (obligation 1) — visibility of the carrying field does not change whether its nested value
+    -- is closed. A nested `...` under the hidden field still opens it.
+    {
+      -- hidden nested closes: `#A:{_h:{x:int}}` & `{_h:{x:1,extra:2}}` → `out._h.extra: _|_`.
+      fileName := "definitions/sc4_hidden_nested_closes.expected",
+      content :=
+        match parseSource "#A: {_h: {x: int}}\nout: #A & {_h: {x: 1, extra: 2}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- a nested `...` under the hidden field keeps it OPEN — `extra` admitted (regression guard).
+      fileName := "definitions/sc4_hidden_nested_tail_stays_open.expected",
+      content :=
+        match parseSource "#A: {_h: {x: int, ...}}\nout: #A & {_h: {x: 1, extra: 2}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- depth-2 hidden→regular nested struct closes recursively (`out._h.r.extra: _|_`).
+      fileName := "definitions/sc4_hidden_nested_depth2.expected",
+      content :=
+        match parseSource "#A: {_h: {r: {b: int}}}\nout: #A & {_h: {r: {b: 1, extra: 2}}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- LET analog: a let-bound struct read into a regular field of a closed def closes
+      -- (`out.v.extra: _|_`); cue v0.16.1 agrees.
+      fileName := "definitions/sc4_let_read_nested_closes.expected",
+      content :=
+        match parseSource "#A: {let _t = {x: 5}, v: _t}\nout: #A & {v: {extra: 2}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
     {
       fileName := "refs/direct_self_reference.expected",
       content := formatTopLevel (resolveAndEval (mkStruct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))

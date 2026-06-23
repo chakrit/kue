@@ -135,7 +135,10 @@ spec-conformance-HIGH is DONE (the closedness family incl. SC-1b/1e + EMBED-CLOS
 MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, the
 4 ratifications). The BI-2 family is **COMPLETE** (math.Pow + math.Sqrt cover their full real
 domain in EXACT DECIMAL, Float correctly AVOIDED, axiom-clean). **EvalOps** (item 2) DONE
-2026-06-22. Remaining spec-conformance: **SC-4** (LOW, spec-gap-first). SC-3 is a recorded
+2026-06-22. Remaining spec-conformance: **NONE open** — **SC-4 RESOLVED 2026-06-23** (nested
+HIDDEN/LET plain-struct closedness on direct def-meet: case (b), kue under-closed → fixed; the
+closing field-walker twin's hidden+let arms now recurse the closing walker; conforms to cue on the
+direct paths, one SC-2b-family bound-select divergence recorded). SC-3 is a recorded
 spec-gap only (multi-arm-default display divergence). The full Bug2-5..2-14c chain, AD2-1,
 DRY-1, and CARRIER-STRUCT-MEET are RESOLVED — durable rulings in Resolved/ruled-out below; the
 blow-by-blow in `implementation-log.md` + `spec-conformance-audit.md` + git. **Bug2-12 MUTUAL

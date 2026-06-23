@@ -198,9 +198,22 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
    frame identity (`FrameKey`/`ForceKey`) and needs a no-false-share proof.** A frame-sharing widening
    that could alias-corrupt a value is a Violation: profile + design + STOP beats an unsound ship.
    Detail in `plan.md` (NEXT LEADER block) + `kue-performance.md` + implementation-log (perf #7 slice).
-2. **SC-4** (LOW, spec-gap-first — nested hidden/let-bound closedness on direct def-meet).
-   Spec-check first; do not reflexively match cue (it is internally inconsistent here).
-   See the SC-4 entry below.
+2. **SC-4** — **RESOLVED 2026-06-23 (case (b): kue under-closed → fixed; conforms to cue on the
+   direct paths).** Nested HIDDEN (`_h: {…}`) and LET-read (`let _t={…}; v: _t`) plain-struct values
+   under a closed def did NOT close on a direct def-meet (`#A & {_h: {extra}}` ADMITTED `extra`); a
+   nested REGULAR value already closed (SC-2). The closing field-walker twin
+   `normalizeDefinitionFieldWithFuel` routed the `_x`-hidden and `letBinding` arms through the SPINE
+   (preserving openness) while the regular arm recursed the CLOSING walker — so visibility/carrier
+   determined closedness, which is wrong: closedness is a property of the definition and is MONOTONE.
+   **FIX** (`Normalize.lean`): the hidden + let arms of the CLOSING twin now recurse
+   `normalizeDefinitionValueWithFuel` like the regular arm, so a def's nested hidden/let plain-struct
+   value closes (no-`...`) at any depth. The stale 2026-06-19 "cue internally inconsistent
+   (direct-`&` closes, select-then-`&` does not)" framing did NOT reproduce on cue v0.16.1: cue
+   CONSISTENTLY closes the nested hidden value on direct-meet AND direct-select (`#A._h & {extra}`),
+   and the old "oracle #8" admit was the BOUND-then-select path (`y: #A; y._h & {extra}`) — where cue
+   re-opens (same SC-2b-family eval artifact), the ONE residual divergence (recorded in
+   `cue-divergences.md`). cert-manager + argocd jq -S = 0 (unchanged); regular/plain/tail/new-hidden/
+   multi-decl/D#2 controls all match cue. See the SC-4 entry below (RESOLVED) + implementation-log.
 3. **Bug2-12** (SELF-recursive case — **RESOLVED 2026-06-23**; MUTUAL tail **RESOLVED 2026-06-23 →
    cue-divergence**; **multi-struct-conjunct OVER-CLOSE (Bug2-12b) — RESOLVED 2026-06-23, see item 0 below**).
    A SELF-recursive closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the
@@ -512,15 +525,31 @@ fixture pairs, all oracle-confirmed.
 history + implementation-log. The regex corpus is now divergence-free (RX-1 trilogy +
 RX-2a/b/c all DONE).
 
-**SC-4 (LOW, spec-gap-first).** Hidden-field / let-bound-PLAIN-struct nested values do not
-close on DIRECT def unification (`#A:{_h:{b:int}}; #A & {_h:{b,extra}}` and the let
-analog) where cue closes. cue is INTERNALLY INCONSISTENT (direct-`&` closes,
-select-then-`&` does not), so this is probably a cue eval-strategy artifact, not a spec
-mandate. **Spec-check FIRST** (record in `cue-spec-gaps.md`); only then decide whether to
-route these through the closing twin. Do NOT reflexively match cue. Lowest priority.
-(Origin: SC-1-batch + SC-2 Phase-A under-close hunt; the SC-2 design deliberately routes
-`letBinding` /hidden through the SPINE, correct for a let/hidden bound to a DEF — `c8b`
-/`c4b` paths where Kue==cue==OPEN.)
+**SC-4 — RESOLVED 2026-06-23 (case (b): kue under-closed → FIXED; conforms to cue on the
+direct paths).** Hidden-field (`_h: {…}`) / let-read (`let _t={…}; v: _t`) PLAIN-struct nested
+values under a closed def did NOT close on a DIRECT def unification (`#A:{_h:{b:int}}; #A &
+{_h:{b,extra}}` ADMITTED `extra`, and the let analog) where a nested REGULAR value already closed
+(SC-2). **Principled answer (the gate): REJECT.** Closedness is a PROPERTY OF THE DEFINITION and is
+MONOTONE; a `_h: {b: int}` declared in a closed `#A` with no `...` is itself a closed struct, so the
+visibility of the carrying field (`_h` hidden vs `h` regular) and the carrier (let vs regular field)
+do NOT change whether the nested value is closed. This is the SAME monotone-closedness basis SC-2
+established for regular nested fields and SC-2b for instantiation. **The stale framing was WRONG for
+cue v0.16.1:** cue is NOT internally inconsistent on direct-`&`-vs-direct-select — it CONSISTENTLY
+closes the nested hidden value on the direct-meet AND the direct-select path (`#A._h & {extra}` →
+`field not allowed`); the old "oracle #8" admit was the BOUND-then-select path (`y: #A; y._h &
+{extra}`), where cue DOES re-open — the SAME SC-2b-family eval artifact (closedness lost crossing a
+regular binding). **FIX** (`Normalize.lean`, `normalizeDefinitionFieldWithFuel`): the `_x`-hidden and
+`letBinding` arms of the CLOSING field-walker twin now recurse the CLOSING walker
+`normalizeDefinitionValueWithFuel` (like the regular arm), instead of the SPINE — so a def's nested
+hidden/let plain-struct value closes recursively at any depth. The `importBinding` SKIP is untouched
+(the A2 trap defence). A nested `...` still keeps the value OPEN; a NEW use-site hidden field is still
+ADMITTED (`ignoresClosedness = isDefinition || isHidden` — orthogonal). Kue matches cue on the direct
+paths and follows the spec on the bound-select path (the one residual divergence, recorded in
+`cue-divergences.md`). cert-manager + argocd jq -S = 0 (unchanged — rare shape off-path). 7 `EvalTests`
+`eval_sc4_*` pins (the former `eval_sc2_hidden_field_nested_stays_open` obligation-4 pin FLIPPED to
+`eval_sc4_hidden_field_nested_closes`) + 4 `sc4_*` fixtures. (Origin: SC-1-batch + SC-2 Phase-A
+under-close hunt; the SC-2 design had deliberately kept `letBinding`/hidden on the SPINE — that
+DEF-bound case stays correct, but the PLAIN-struct nested value was wrongly left open.)
 
 **MED tail:**
 

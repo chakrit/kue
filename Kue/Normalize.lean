@@ -130,17 +130,18 @@ mutual
         | .field false false _ =>
             ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
 
-  /-- CLOSING field-walker twin (SC-2). Identical to `normalizeFieldWithFuel` EXCEPT the
-      regular/optional/required arm recurses the CLOSING walker `normalizeDefinitionValueWithFuel`
-      (not the spine `normalizeDefinitionsWithFuel`), so a referenced def's nested PLAIN-struct
-      field values close recursively: `#A: {a: {b: int}}` closes `a`'s value `{b: int}` so an
-      added `extra` is rejected at any depth (oracle #1/#2/#3/#6). The other three arms are
-      UNCHANGED — and that is the trap defence:
+  /-- CLOSING field-walker twin (SC-2 + SC-4). Identical to `normalizeFieldWithFuel` EXCEPT the
+      regular/optional/required arm, the in-file HIDDEN (`_x`) arm, AND the `letBinding` arm all
+      recurse the CLOSING walker `normalizeDefinitionValueWithFuel` (not the spine
+      `normalizeDefinitionsWithFuel`), so a def's nested PLAIN-struct field values close recursively
+      regardless of how the value is carried: `#A: {a: {b: int}}` closes `a`'s value
+      (oracle #1/#2/#3/#6), `#A: {_h: {x: int}}` closes `_h`'s value, and `#A: {let _t={x:int}, v:_t}`
+      closes `_t`'s value (read into `v`) — so an added `extra` is rejected at any depth (SC-4).
+      Closedness is a property of the definition and is monotone; neither the visibility of the
+      carrying field nor the let-vs-regular carrier changes whether the nested value is closed. The
+      one remaining UNCHANGED arm is the trap defence:
       - `importBinding` → SKIP: a bound package is never recursed, so cert-manager/argocd cannot
         re-bottom (the A2 trap; the marker scopes the skip precisely to bound packages).
-      - `letBinding` / in-file hidden `_x` → SPINE: their nested struct VALUES do NOT close (a
-        def's hidden-field nested struct admits extras, oracle #8) — keep the spine, preserving
-        their own openness exactly as today.
       A separate function (not a `closing : Bool` flag) keeps the call site's intent encoded in
       WHICH function it calls — illegal-states philosophy. A plain (non-def) struct never reaches
       this twin (it goes through the spine / no normalization-close), so control #5 stays open. -/
@@ -153,9 +154,9 @@ mutual
         | .importBinding =>
             field
         | .field false true _ =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
         | .letBinding =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
         | .field false false _ =>
             ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
 
