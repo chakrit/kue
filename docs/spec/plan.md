@@ -608,6 +608,37 @@ Phase-A/B commits with ZERO retros and accrued operational learnings; see the br
 enumerated learnings to fold into `failure-modes.md` + `slice-loop.md`. AFTER that: the item-6 LATENT
 tail / SC-3. `v0.1.0-alpha.20260623` CUT + formula live (3 platforms).
 
+**Audit 2026-06-23 (Phase A, code-quality, SCOPED single-pass; batch `db8700f..HEAD` =
+nested-disj-mark designed-deferral `86538ba` + disj-select DRY collapse `cdf2f39`) — HEALTHY.** The
+DRY collapse (`selectEvaluatedField`'s `.disj` resolved-default carrier dispatch extracted to a
+shared non-recursive `selectFromConcrete`) is the only code change, and it is BEHAVIOR-SENSITIVE —
+fully re-oracled vs cue v0.16.1 + diffed against a `db8700f` before-binary:
+- **Carrier defaults BYTE-IDENTICAL** (before-binary diff = 0): struct/list-valued-field/select-
+  other-arm all `1`/`[1,2]` pre = post = cue. `selectFromConcrete` dispatches exactly as the old
+  inline 5-arm.
+- **Scalar-default-select fix CORRECT == cue** — int/bool/null/list/ref-resolved-scalar defaults: the
+  dead arm now sheds (`x: *5|{a:1}; y: x.a | "fb"` → `"fb"`), where OLD went AMBIGUOUS (a kue bug).
+  Bare select bottoms (cue type-errors); kue emits `conflicting values (bottom)` vs cue's `invalid
+  operand …` — message-only divergence, NOT a value divergence (byte-identical-to-cue is not the
+  gate; the spec verdict "field-select off a scalar is an error" is what matters).
+- **`_ => .bottom` catch-all NEVER over-bottoms.** Probed the worry case: an INCOMPLETE default
+  (`*int`, `*(>5)`) makes the WHOLE `x` field incomplete and never reaches a resolved-default select
+  (cue/old/new all `incomplete value`), so the only values reaching `selectFromConcrete` via a
+  resolved default are concrete scalar/carrier — exactly where pluck-or-bottom is right.
+- **Deep-nested `.disj`-default DEFERS unchanged** (explicit `some (.disj _) => .selector`); ambiguous-
+  `none` unchanged; both byte-identical pre/post.
+**Deferred-mark tripwires UNFLIPPED** — the 5 `nested_disj_mark_*` pins (2 `DEFERRAL_witness`
+`exportJsonBottoms = true` + 3 others) are a MEET-time Mark issue, orthogonal to selection;
+`cdf2f39` touches zero pin lines, `86538ba` is code-free (test pins + docs only). **TOTALITY:**
+`selectFromConcrete` non-recursive (trivially terminating), no new `partial`/`sorry`/axiom, no
+`_`-swallow hiding a reachable case. **DRY genuine:** the carrier dispatch now lives in ONE place
+(was re-listed in the `.disj` sub-case). **Canaries jq-S=0** (cert-manager + argocd, direct from
+`prod9/infra`). **+6 coverage pins added inline** (`593fa58`: bool/null/list/ref-scalar shed +
+direct `.bottom` dispatch + `#check`). **ONE docs nuance, NOT a regression:** `86538ba`'s STEP-0
+claims inline `*( … )` is a cue parse error — cue v0.16.1 actually accepts `*(*{a:1}|{a:2})|{a:9}`
+→ `{a:1}`; the deferral itself is correctly pinned, so this is a basis-prose imprecision in the
+nested-disj-mark adjudication, not a code or pin issue. Verdict: **HEALTHY.**
+
 **🎯 CONSOLIDATED-COMPLETE STATE (2026-06-23).** The substantive backlog is EXHAUSTED on two axes
 simultaneously: **(1) spec-conformance backlog EMPTY** — every correctness item RESOLVED; argocd +
 cert-manager are content-identical drop-ins (jq -S diff = 0). **(2) per-eval perf frontier CLOSED** —
