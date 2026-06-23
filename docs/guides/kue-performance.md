@@ -98,6 +98,31 @@ fix is purely a speedup — byte-identical output.
   longer a fuel-axis problem; the next perf lever is the per-eval constant, not the fuel
   ceiling. The practical advice above (flatten, shorten chains → lower convergence depth →
   fewer evals) remains the lever you control.
+- **Multi-ref CYCLIC defs blow up the flatten fan-out — a SMALL minimal repro of the
+  per-eval-cost frontier (2026-06-23, Phase-B audit).** A closed mutual cycle whose head
+  conjoins TWO OR MORE def references that both loop back is the same per-eval-cost wall as
+  cert-manager/argocd, in three lines:
+  ```cue
+  #A: #B & #C & {a: 1}
+  #B: #A & {b: 2}
+  #C: #A & {c: 3}
+  out: #A   // principled: {a:1, b:2, c:3}; Kue tries to ADMIT it but is >40s slow
+  ```
+  Measured: `kue export` runs **>40s** (killed; bounded re-run still alive at 25s), while a
+  SINGLE-ref cycle of any depth (`#A: #B & {a}`, `#B: #A & {b}`) exports in **~0.12s**. Both
+  are correct-when-they-finish; the multi-ref one only differs in COST. The blow-up is the
+  multi-ref flatten fan-out — `flattenConjDefRef` re-expands each cycle member's body once per
+  reference path, and with k back-refs in the cycle the work multiplies along the cross-product
+  of expansion paths (same family as the prod9 per-eval churn, NOT introduced by the
+  `defSlotInClosedCycle` cycle detector — verified to PREDATE the Bug2-12-mutual batch on a
+  `32643f5` worktree). NOTE the oracle is no help here: `cue` v0.16.1 cheaply REJECTS this
+  (`#B.b: field not allowed` — the Bug2-12-mutual over-rejection divergence, it closes
+  mid-cycle), so it never pays the admit cost. This is **NOT a soundness or termination
+  defect** (it terminates under fuel; the value is principled) — it is a concrete, fast-to-run
+  reproducer for the **per-eval-cost / flatten-fan-out** lever (the live perf frontier, since
+  perf-#7 frame-sharing is WON'T-FIX). Use it instead of the 50s argocd when profiling the
+  next per-eval-cost slice. The user-controllable mitigation is the same: avoid conjoining
+  multiple back-referencing defs in one closed cycle; flatten to a single reference chain.
 - **The embedding-`Self` two-pass is now bounded (2026-06-18 Pass-2 selective re-eval).** When a
   definition reads `Self.<label>` for a label supplied by an embedding, Kue runs a second pass over
   an augmented frame. It used to re-evaluate EVERY static field (a fresh frame id → no Pass-1 cache

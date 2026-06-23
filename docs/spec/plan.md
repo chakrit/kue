@@ -260,7 +260,13 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    content, so collapsing them is a false share, not recoverable waste (see the perf #7 block
    above + `kue-performance.md`). The live frontier is now the per-eval CONSTANT / eval COUNT over
    a genuinely-large distinct population, not cross-env sharing — a future per-eval-cost slice, or
-   the user-controllable flatten/shorten lever. No active leader remains here.
+   the user-controllable flatten/shorten lever. No active leader remains here. **Small fast repro
+   for the next slice (2026-06-23, Phase-B):** a closed mutual cycle conjoining ≥2 back-referencing
+   defs (`#A: #B & #C & {a}`, `#B: #A & {b}`, `#C: #A & {c}`) reproduces the per-eval-cost /
+   flatten-fan-out wall in 3 lines — `kue export` >40s vs a single-ref cycle ~0.12s (both correct
+   when finished; `cue` cheaply rejects via the Bug2-12-mutual over-rejection, so the oracle is no
+   profiling aid). PREDATES the cycle detector (verified on `32643f5`). Profile this instead of the
+   50s argocd; see `kue-performance.md` § Known limitations (Multi-ref CYCLIC defs).
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`
@@ -406,6 +412,30 @@ parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault`
 none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
+
+**Audit 2026-06-23 (Phase B, architecture/refactor; batch `32643f5..2bbdb05` = Bug2-12b + Bug2-12
+MUTUAL + cycle-detector edge pins) — HEALTHY (light confirm-and-close; Phase A HEALTHY `2bbdb05`).**
+Whole-graph reassessed healthy last round + the three-gate close-DRY already ruled
+(SHARED-PRIMITIVE-DISTINCT-SEAMS below) → scaled pass. **Module graph: ACYCLIC + layered, unchanged.**
+The new cycle-detector helpers (`defConjRefSlots` `Eval.lean:1615`, `defSlotInClosedCycle` `:1635`)
+sit correctly in `Eval` just above `flattenConjDefRef` — a NEUTRAL upper region, NOT the def-deferral
+tier (`:2245+`) and NOT the unsplittable core-force `mutual` (`:3004–4229`); they reuse the
+`mergeDefinitionDecls` primitive (`:385`), add NO cross-module edge. **`Eval.lean` = 4282 lines**
+(+~167 since the 4115 last round, all in the upper helper region) — below the ~4500 carve watch; the
+`Eval.DefDeferral` carve ruling stands (trigger: a def-deferral-tier slice past ~4500, OR core-force
+past ~4400 — neither met). **Tech-debt sweep clean** (no new `partial`/`sorry`/axiom; only "TODO/XXX"
+hits are `\uXXXX` doc-comments in `Json.lean`, not markers). **No NEW duplication** — the three-gate
+close (self-ref Bug2-12 / split-literal Bug2-12b / mutual `inCycle`) reuses `mergeDefinitionDecls`,
+already ruled distinct-seams-shared-primitive (no re-file). **Test/fixture health:** `Bug2xTests`
+1235, `TwoPassTests` 1493, `EvalTests` 1641 — all under the ~2000 silent-failure watch; no org due.
+**Perf-guide currency CONFIRMED + HEADLINE recorded:** the **multi-ref CYCLIC** repro (`#A: #B & #C
+& {a}`, both back to `#A`) added to `kue-performance.md` § Known limitations as a 3-line fast repro
+of the per-eval-cost / flatten-fan-out frontier (>40s vs single-ref ~0.12s; PREDATES the cycle
+detector, verified `32643f5`; `cue` cheaply rejects via the Bug2-12-mutual over-rejection so the
+oracle is no profiling aid) — NOT a soundness/termination defect, record-only. argocd ~50.5s,
+cert-manager ~11.4s (Phase-A jq-S=0); perf-#7 frame-sharing WON'T-FIX, per-eval-cost the live lever.
+**Overall: architecture HEALTHY.** No inline cleanups needed beyond the perf-doc record. Two-phase
+audit CLOSED; counter → 0.
 
 **Audit 2026-06-23 (Phase B, architecture/refactor over the module graph; batch `fccab69..6f77bfe`
 = Bug2-12 + missing-field-selection) — HEALTHY.** Thin batch (two small selection/closedness changes,
