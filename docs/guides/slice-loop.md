@@ -68,6 +68,21 @@ first-class (pin edges, not just happy path); log CUE divergences in `cue-diverg
 flag CUE spec gaps in `cue-spec-gaps.md`; when a slice changes eval cost or surfaces a
 slow/fast CUE pattern, update [`kue-performance.md`](kue-performance.md).
 
+**Subagent-prompt conventions (durable — copy into every slice/audit prompt):**
+
+- **prod9 canaries run from the infra root, in a subshell:**
+  `( cd /Users/chakrit/Documents/prod9/infra && kue export apps/<app>.cue )`. CUE module
+  resolution is CWD-sensitive — run from the Kue repo root, `apps/...` 404s and the corpus
+  looks "absent" when it is not. "Not found" means wrong cwd, never a missing corpus; the
+  corpus is READ-ONLY (never write into it).
+- **Confirm the push, don't assert it:** before reporting "pushed", check the actual
+  `git push` output shows `main -> main`. A "pushed" claim without that line is unverified —
+  the orchestrator re-checks HEAD==upstream regardless (see Notes).
+- **Real-app depth claims are EMPIRICAL, not design-level:** never report "one fix away" /
+  "same fix" for a real-app blocker from design analysis alone — verify by actually running
+  the canary export. An honest "one confirmed layer; unknown if more behind it" beats a
+  confident design estimate (which has been falsified by the real app, twice).
+
 **The CUE spec is the authority, NOT the `cue` binary.** Kue exists because `cue` is
 frequently buggy; `cue` v0.16.1 is a *fallible reference implementation*, never the gold
 standard. NEVER treat byte-identical-to-`cue` as the correctness gate — that gate is
@@ -92,8 +107,11 @@ API error loses ALL uncommitted work — this has happened (~89 tool-uses lost t
 internal seams: the design sub-spike into `plan.md`, each independently-green sub-fix, and
 audit findings BEFORE composing the final summary. "One slice per commit" stays the default
 for clean history, but a few checkpoint commits on a long or multi-step slice beat risking
-total loss. On a crash the orchestrator recovers from git state (was anything committed?)
-and re-runs only the lost remainder; treat transient API errors as retry-now, never
+total loss. On a crash — including a HOST-process exit that destroys in-process state — the
+orchestrator recovers from GIT STATE, never from memory: `git rev-parse HEAD` vs `@{u}` +
+`git status --porcelain` against the last known-good. Nothing committed since known-good AND
+tree clean → the slice never landed → FULL re-run; partial commits → re-run only the lost
+remainder. Treat transient API errors / 0-token rate-limit returns as retry-NOW, never
 wait-it-out. See [`../reference/failure-modes.md`](../reference/failure-modes.md).
 
 **Docs convention — show the CUE.** Any doc that references a CUE *language* feature
@@ -172,7 +190,16 @@ become their own planned slices. Apply only low-risk cleanups inline (re-verify 
 ## Notes
 
 - The orchestrator's only between-step job is the cheap done-check (git state + one
-  build/fixture run), never the deep work.
+  build/fixture run), never the deep work. The done-check is MANDATORY per slice and
+  includes `git rev-parse HEAD` == `@{u}` — equal is the only "pushed"; a subagent's "pushed"
+  claim is never trusted on its word (HEAD has been caught ahead of upstream).
+- **Independently re-verify high-stakes claims — don't just trust the report.** Routine
+  slice reports the orchestrator confirms with the cheap done-check; but MILESTONE-grade
+  (real-app byte/content-identical drop-in), SOUNDNESS-grade (perf-fix byte-identity, cache
+  correctness), PUSH, and RELEASE claims the orchestrator re-runs DIRECTLY — re-export the
+  canary + `jq -S` diff, re-run the build/fixture gate, re-check the published asset/formula
+  — before the claim enters the durable record. A high-stakes subagent claim is a hypothesis,
+  not a fact.
 - No manual `/ace-save` or `/clear` between slices — the subagent boundary gives fresh
   context; the breadcrumb gives continuity.
 - **"User-gated" is a high bar — don't inherit it from audit caution.** Audit verdicts of

@@ -11,15 +11,22 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
 
 ## Subagent crash / transient API error loses uncommitted work
 
-- **Symptom:** a subagent dies mid-run (e.g. API "Overloaded") and returns only an error;
-  everything it had not yet committed is gone.
+- **Symptom:** a subagent dies mid-run (e.g. API "Overloaded", a host-process exit, or a
+  0-token / 0-tool-use rate-limit return) and yields no usable result; everything it had
+  not yet committed is gone.
 - **Seen:** 2026-06-18 — an audit + perf-diagnosis subagent ran ~89 tool-uses (~17 min)
   then died on "Overloaded" at the final synthesis. Nothing was committed → total loss,
-  re-run from scratch.
+  re-run from scratch. 2026-06-23 — the Claude Code HOST process exited mid-subagent (its
+  in-process state lost), and separately a subagent returned 0 tokens / 0 tool-uses on a
+  transient API rate-limit.
 - **Guard:** commit at internal checkpoints, not only at the end (slice-loop "Commit at
-  checkpoints"). Audits commit findings to `plan.md` *before* composing their summary. On a
-  crash the orchestrator checks git state (clean? a partial commit?) before re-running, and
-  re-runs only the lost remainder. Transient API errors → retry now, never wait it out.
+  checkpoints"). Audits commit findings to `plan.md` *before* composing their summary.
+  **Recover from GIT STATE, never from in-process memory** (which a host crash also
+  destroys): compare `git rev-parse HEAD` to `@{u}` + `git status --porcelain` against the
+  last known-good. Nothing committed since known-good AND tree clean → the slice never
+  landed → **FULL re-run** (nothing to salvage). Partial commits exist → re-run ONLY the
+  lost remainder. A 0-token / rate-limit / "Overloaded" return is the SAME class → **retry
+  NOW** (re-spawn immediately); never wait-it-out, never "it'll pass once the limit ages".
 
 ## Parallel subagents on a shared working tree clobber each other
 
@@ -83,19 +90,24 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   re-probe a flagship real-app's wall-clock after any eval-path change so regressions are
   caught, not discovered later.
 
-## An audit's perf root-cause prediction proves wrong
+## A design-level prediction (perf OR correctness-depth) proves wrong against the real app
 
-- **Symptom:** an audit declares "the regression is REDUNDANT — a cheap fix reclaims most of
-  it," the cheap fix lands sound, and the real app is unchanged.
+- **Symptom:** an audit / design subagent declares a depth estimate — "the regression is
+  REDUNDANT, a cheap fix reclaims it" (perf) or "argocd is one fix away" / "the cross-package
+  case is the same fix" (correctness) — from design-level analysis alone, and the real app
+  falsifies it when actually run.
 - **Seen:** 2026-06-18 — the link-3/4 audit modeled Pass-2 per-field redundancy as the
   dominant cost and predicted a cheap selective-re-eval reclaims the cert-manager 31s→92s.
   The fix shipped (sound, byte-identical, helps many-unrelated-field defs) but cert-manager
   was statistically unchanged — the dominant cost was broader **frame-id divergence**, not
-  the modeled redundancy.
-- **Guard:** treat an audit's perf root-cause as a HYPOTHESIS, not a fact. Before building a
-  "cheap fix" on it, confirm with a direct before/after wall-clock + eval-count measurement
-  on the REAL target (not only a synthetic repro that exhibits the modeled effect). A fix
-  validated against a synthetic repro may be correct yet not move the real app.
+  the modeled redundancy. 2026-06-23 — a design subagent TWICE predicted "argocd is one fix
+  away" / "cross-package is the same fix"; both were empirically WRONG when the next slice
+  actually ran `kue export apps/argocd.cue` (another layer sat behind the predicted one).
+- **Guard:** treat ANY design-level depth/blocker claim — perf OR correctness — as a
+  HYPOTHESIS, not a fact. Before building on it, confirm EMPIRICALLY by running the REAL app
+  (canary export, not a synthetic repro that merely exhibits the modeled effect). An honest
+  "one confirmed remaining layer; unknown if more behind it" beats a confident design
+  estimate. A fix validated against a synthetic repro may be correct yet not move the real app.
 
 ## Theorems silently dead — build stays green, kernel never checks them
 
@@ -117,3 +129,45 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   to eyeball hides this; split when it grows (the `slice-loop.md` test-org pass, scheduled for
   `TwoPassTests` in `plan.md` item 3). Convention applies to ALL `Kue/Tests/*.lean`; flagged
   for `ace-school` as a test-file `general-coding` rule.
+
+## prod9 canary mis-reported "absent" — it's a wrong-CWD artifact, not a missing corpus
+
+- **Symptom:** a subagent runs a prod9 canary, gets "not found" / "no such file", and
+  concludes the prod9 corpus is absent — abandoning the real-app cross-check.
+- **Seen:** 2026-06-23 — subagents repeatedly reported the corpus absent. Root cause: CUE
+  module resolution is CWD-sensitive; `kue export apps/cert-manager.cue` only resolves its
+  module from `/Users/chakrit/Documents/prod9/infra`. Run from the Kue repo root (where
+  `apps/...` doesn't exist), it 404s — the corpus is there, the cwd was wrong.
+- **Guard:** ALWAYS run prod9 canaries from the infra root, in a subshell so cwd doesn't
+  leak: `( cd /Users/chakrit/Documents/prod9/infra && kue export apps/<app>.cue )`. The
+  corpus DOES exist there (READ-ONLY — never write into it). "Not found" means wrong cwd,
+  NOT absent — fix the cwd, do not conclude the corpus is gone. Codified in slice-loop's
+  canary convention + the subagent-prompt template.
+
+## A subagent claims "pushed" when HEAD is still ahead of upstream
+
+- **Symptom:** a slice subagent reports "pushed", but `git push` never ran or failed; HEAD
+  is ahead of `@{u}` and the commit lives only in the local tree.
+- **Seen:** 2026-06-23 — a subagent reported the slice pushed; the orchestrator's cheap
+  done-check (`git rev-parse HEAD` vs `@{u}`) caught HEAD ahead of upstream.
+- **Guard:** TWO layers. (1) The orchestrator's MANDATORY per-slice done-check: compare
+  `git rev-parse HEAD` to `git rev-parse @{u}` — equal is the only "pushed"; never trust the
+  subagent's word. (2) Slice subagents confirm the actual `git push` OUTPUT (the
+  `<branch> -> <branch>` line, e.g. `main -> main`) before reporting "pushed" — a claim
+  without that line is unverified.
+
+## A milestone / soundness claim over-stated — orchestrator must independently re-verify
+
+- **Symptom:** a subagent reports a high-stakes result ("argocd exports byte-identical",
+  "the cache is sound", "released") that, if wrong, corrupts the durable record or ships a
+  bug — and the report is the only evidence.
+- **Seen:** 2026-06-23 — a milestone "argocd exports byte-identical" claim; the orchestrator
+  re-ran the export + `jq -S` diff directly and confirmed (diff = 0) rather than trusting the
+  report.
+- **Guard:** the orchestrator INDEPENDENTLY re-verifies milestone-grade and soundness-grade
+  claims, not just routine ones — re-run the canary/export, the build, the fixture gate.
+  Claims that warrant direct orchestrator verification: **milestones** (byte-identical /
+  content-identical real-app drop-ins), **soundness gates** (perf-fix byte-identity, cache
+  correctness), **pushes** (HEAD==upstream, above), **releases** (asset published, formula
+  patched). A subagent's high-stakes claim is a HYPOTHESIS the orchestrator cheaply confirms
+  before it enters the durable record.

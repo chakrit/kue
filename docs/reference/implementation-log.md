@@ -13279,3 +13279,45 @@ canaries from `prod9/infra` jq -S = 0 (argocd 51178 B ~52s, cert-manager content
 permanent diagnostic. No `partial`/`sorry`/axiom; `BEq`/digest soundness + the `Value`
 `DecidableEq` carve-out untouched. No shell touched. No `cue-divergences`/`cue-spec-gaps` entry
 (no value change).
+
+## Resilience / Retrospective Pass (2026-06-23)
+
+Process-hardening pass — OVERDUE (~11 audit cycles this session, zero retros). DOCS/PROCESS
+only; no Lean/scripts/testdata change. Reviewed what broke OPERATIONALLY this session and
+recorded each with its guard in `failure-modes.md` (9 → 12 entries), folding durable
+mitigations into `slice-loop.md`.
+
+### Six operational learnings recorded
+
+1. **Host crash mid-subagent.** The Claude Code host process exited, destroying in-process
+   state. STRENGTHENED the existing "Subagent crash" entry: recover from GIT STATE (not
+   memory) — clean tree + nothing committed since known-good → FULL re-run; partial commits
+   → re-run only the lost remainder.
+2. **Transient API rate-limit (0-token / 0-tool-use return).** Same "Subagent crash" entry,
+   reinforced: retry-NOW, never wait-it-out — folded the 0-token-return symptom in.
+3. **prod9 canary mis-reported "absent" — wrong-CWD artifact.** NEW entry. `kue export
+   apps/<app>.cue` resolves its module only from `/Users/chakrit/Documents/prod9/infra`;
+   run from repo root it 404s. Guard: always `( cd .../prod9/infra && kue export ... )`.
+4. **Design-level depth prediction falsified by the real app, twice** ("argocd one fix away"
+   / "cross-package is the same fix"). GENERALIZED the "audit perf root-cause prediction
+   proves wrong" entry to cover correctness-depth: any design-level depth claim is a
+   hypothesis — verify EMPIRICALLY by running the canary.
+5. **Subagent claimed "pushed" with HEAD ahead of upstream.** NEW entry. Guard: orchestrator
+   MANDATORY `HEAD == @{u}` done-check; subagents confirm the `main -> main` push output.
+6. **Over-claim-then-orchestrator-verify** (milestone "argocd byte-identical"). NEW entry.
+   Guard: orchestrator INDEPENDENTLY re-verifies milestone / soundness / push / release
+   claims (re-run canary + `jq -S`, build, fixture gate) before they enter the durable record.
+
+### Guide mitigations folded into `slice-loop.md`
+
+- "Commit at checkpoints" paragraph — crash recovery from git state, incl. host-exit + the
+  clean-tree → FULL re-run case + 0-token retry-now.
+- NEW "Subagent-prompt conventions" subsection under "Slice (per subagent)" — prod9 canary
+  CWD subshell, confirm-the-push, real-app depth is empirical-not-design.
+- "Notes" / orchestrator done-check — mandatory `HEAD == @{u}` check + independent
+  re-verification of high-stakes (milestone / soundness / push / release) claims.
+
+### Verify
+
+`lake build` + `scripts/check-fixtures.sh` green (docs-only → unaffected). No canaries
+(no code change). Tree clean before edits at `890d453`.
