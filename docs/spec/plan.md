@@ -178,8 +178,18 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **NEXT LEADER: perf #7 (UN-GATED 2026-06-23 — argocd now exports, the
-last on-path correctness blocker is cleared).** **Bug2-14b + Bug2-14c RESOLVED (2026-06-23 — argocd
+(LOW spec-gap-first). **NEXT LEADER: perf #7 — STILL REAL, profiling target now PRECISE
+(Phase-B reassessment 2026-06-23).** argocd exports content-identical at ~53s vs `cue` 0.03s
+(~1700×). Profiled post-unblock: the wall is a FLAT per-eval-constant in shared-definition
+setup — selecting ANY single field (even 484-byte `listener.yaml`) costs the full 53s, and
+`kue eval` (no manifest) is also 53s, so the cost is in EVALUATION over the imported
+definition closure (`defs` + `defaults` + `apps/argo`), done ONCE regardless of selection,
+NOT in any output subtree (largest is 4.5KB) and NOT fuel-axis. Bug2-14 did NOT resolve perf;
+it unblocked correctness, exposing that the entire wall is fixed setup. The "heavy argo
+sub-package" framing was imprecise — the target is the **definition/import-closure setup
+per-eval constant**; apply the item-7 lens (cache-key cost, frame-id churn, force-cache hit
+rate) to the SETUP closure, with the flat-per-field signature as the reproducer. Detail in
+`kue-performance.md` (argocd-EXPORTS block + perf-#7 PROFILED note). **Bug2-14b + Bug2-14c RESOLVED (2026-06-23 — argocd
 exports content-identical, jq -S diff = 0, ~53s):** the argocd `#Mixin` structural-disjunction let-local
 (`_patch.kind`) now receives the host's `kind` narrowing on the force path. **Bug2-14b** — the
 `embedBodyEmbedsDisjDeep` gate was resolving against the OUTER fold `env`; the body's own embed-refs are
@@ -470,6 +480,58 @@ none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
+- **Phase-B audit (2026-06-23, batch `673cec8`..`c942993`: Bug2-14 plain-embed + Bug2-14b/14c
+  + Phase-A coverage; Phase A HEALTHY `c942993`, milestone NOT at risk) — architecture
+  HEALTHY; the argocd-EXPORT milestone (2nd prod9 drop-in) is recorded.** Module graph
+  re-checked WHOLE: ACYCLIC, strictly layered, UNCHANGED (`Builtin → {Lattice, Regex, Decimal,
+  Base64, Json, Yaml, CaseTable}` — NO `Eval`/`EvalOps` edge; `EvalOps → {Builtin, Decimal,
+  Regex}` no back-edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`;
+  `Decimal → Value`; `Lattice → {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`;
+  `Cli → Runtime`; `Normalize → Value`). The narrowing-delivery family stays cohesive in the
+  Eval def-deferral tier. Cleanliness sweep CLEAN: NO
+  `sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, NO `String.dropRight`/`dropLeft`, NO
+  dead code, NO stale TODO/FIXME/HACK (the only `XXX` hits are `\uXXXX` doc-comments in
+  `Json.lean`); `partial def`s are the standing carve-outs only (`Parse.lean`, `Module.lean`;
+  `Eval`/`Lattice` FULLY total). **Test/fixture health HEALTHY:** `TwoPassTests.lean` 1493,
+  `Bug2xTests.lean` 862 (post-split, +Bug2-14 family — both well under the 2000 silent-failure
+  surface; the coverage tripwire + `--` line-comment headers guard them); the bug214b/c module
+  fixtures (`testdata/modules/bug214{b,c}_*`) are exercised by `check-fixtures.sh` (export-vs-
+  `expected`) and the inline `native_decide` pins; `check-fixtures.sh` + `shellcheck` green. No
+  test-org due. **inject-family DRY RULED OUT — keep `injectEmbedSiblingNarrowings` /
+  `injectLetLocalNarrowings` SEPARATE** (the DRY-1 / `mergeFieldsWith` trap: the nested-`let`
+  recursion dispatches to a DIFFERENT walker by soundness design — `:1839` self vs `:1927`
+  `injectLetLocalNarrowings` — so a read-labels-only combinator would change the milestone
+  splice's let-frame gating; full basis in the dedicated inject-family entry below). **perf-#7
+  REASSESSED — STILL REAL, target now PRECISE** (the wall is a FLAT ~53s per-eval-constant in
+  definition/import-closure setup: any single-field selection AND `kue eval` both cost the full
+  53s, vs `cue` 0.03s; NOT a subtree hot spot, NOT output-driven, NOT fuel-axis — Bug2-14
+  unblocked correctness, exposing the wall is fixed setup; profile the SETUP closure with the
+  item-7 lens, flat-per-field signature as reproducer). perf-#7 STAYS the next leader. **APPLIED
+  INLINE (re-verified green — cert-manager AND argocd canaries jq-S=0):** `kue-performance.md`
+  de-staled — (a) the "argocd bottoms — a CORRECTNESS bug" block flipped to "argocd EXPORTS
+  content-identical; correctness chain CLOSED" with the perf-#7 PROFILED note (flat per-field,
+  53s setup constant); (b) cert-manager currency RE-RECONCILED ~30.5s → **~12.6s** (live;
+  measured fresh — a 2.4× drop accrued across the Bug2-6..2-14 close-once/frame-id chain; the
+  ~30.5s is retired). **Eval.DefDeferral carve — RECOMMEND HOLD, sharpened trigger
+  (line-budget math).** Eval.lean **4115** (+126 over the prior 3989 — the Bug2-14b/c
+  `bodyForceFrameEnv` gate helper + two-pass `.conj` fold, which land in the CORE force `mutual`
+  block `:3707+`, the UNSPLITTABLE region, NOT the def-deferral tier). Watch ~4500 → headroom
+  **385**. The named first carve is the def-deferral tier (`Eval.lean:2220–2828`,
+  `defBodyHasSiblingSelfRef` … `splitDisjConjunct`, ~600 lines, a cohesive `Eval.DefDeferral`
+  module). Carving it now would drop Eval.lean to ~3515 — but it removes lines from a tier that
+  is NOT where growth lands (the Bug2-14 family grows the core force `mutual`), so it de-risks
+  headroom WITHOUT addressing the growing region; the carve never touches the core force arm.
+  At the recent ~+126/narrowing-slice rate, 385 headroom is ~2-3 slices — closer than the prior
+  511, but the next slices add to the unsplittable core, so the carve's headroom benefit is real
+  yet indirect. **HOLD** (don't spend a slice on non-imminent, indirect headroom), trigger
+  SHARPENED: carve `Eval.DefDeferral` the moment EITHER (a) a def-deferral-tier slice itself
+  pushes Eval.lean past ~4500, OR (b) the core-force growth crosses ~4400 with the def-deferral
+  tier still intact (carve it FIRST to buy room before the unsplittable core forces a harder
+  split). Don't carve inline — it's a semantic-module refactor; schedule as a standalone slice
+  when the trigger fires. **Verdict: HEALTHY; argocd-EXPORT milestone recorded; inject-family
+  DRY RULED OUT (keep separate); perf-#7 reassessed STILL-REAL + next leader; two perf-doc
+  de-stales inline (`c942993`+1); Eval.DefDeferral HELD with sharpened trigger; no new code
+  fix-slice.**
 - **Phase-B audit (2026-06-23, batch `8a5f6a2`..`b660d10`: Bug2-13 code + Bug2-14 re-diagnosis;
   Phase A HEALTHY `b660d10`) — architecture HEALTHY.** Module graph re-checked WHOLE: ACYCLIC,
   strictly layered, UNCHANGED (`EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Builtin` NO
@@ -593,6 +655,41 @@ none soundness-bearing).
     LESS readable, not more. This is the FOUR-classifiers verdict exactly: the shared prefix is
     too thin to name, and the per-site variation (return type, frame use, gating, recursion, the
     sibling arms) IS the point. KEEP SEPARATE. Do not re-file as a DRY win.
+- **inject-family DRY (`injectEmbedSiblingNarrowings` Bug2-14 vs `injectLetLocalNarrowings`
+  Bug2-4) — RULED OUT: keep SEPARATE. The DRY-1 / `mergeFieldsWith` trap (variation IS the
+  recursion + a soundness-load-bearing frame distinction), NOT the `embedChainAny` shape
+  (Phase-B 2026-06-23, headline adjudication).** Both walk a `fuel`/`seen`/`narrowings` value
+  with the same `rewriteFields` map (meet the host narrowing into a read-and-declared
+  same-label slot, gated on a read-labels fn) — a candidate shared inject combinator. Three
+  variation points, decomposed against the `embedChainAny`-SHARE vs DRY-1-RULE-OUT precedents:
+  - **read-labels leaf (the ONLY `embedChainAny`-safe part):** `embedComprehensionReadLabels`
+    vs `letPromotedReadLabels` — pure, non-recursive. If this were the only difference, SHARE
+    would be right (the AD4-1 / `embedChainAny` shape). It is not.
+  - **the embed recursion:** `injectEmbedSiblingNarrowings` adds a `rewriteEmbeds` block
+    recursing through the embeddings list (`cs`, the `.structComp` second field); the let
+    walker has NO such block. The combinator would need a "recurse-into-embeds?" flag that
+    only one instantiation sets — a parameter-per-difference signature, the
+    `canonicalizeFields`-cannot-join precedent.
+  - **🚨 THE DECISIVE SOUNDNESS ASYMMETRY — the nested-`let` recursion DISPATCHES TO A
+    DIFFERENT WALKER by design.** At a `.letBinding` field, `injectLetLocalNarrowings` recurses
+    into ITSELF (`Eval.lean:1839`), but `injectEmbedSiblingNarrowings` calls
+    `injectLetLocalNarrowings` (`:1927`) — NOT itself. This is load-bearing: a `let` nested
+    inside an embed must be narrowed by **let-local rules** (gated on `letPromotedReadLabels`),
+    not embed-sibling rules. A shared combinator parameterized only on the read-labels leaf
+    would route the nested-`let` recursion through the SAME leaf — changing Bug2-14's
+    let-binding gating from `letPromotedReadLabels` to `embedComprehensionReadLabels`, a
+    SOUNDNESS change to the exact splice that landed the argocd milestone (the `_patch`
+    let-local disjunction-arm narrowing). The variation point IS the recursion (which walker
+    each sub-shape dispatches to) PLUS the frame/gating distinction (embed-frame vs let-frame)
+    — exactly the DRY-1 / `mergeFieldsWith` trap (when the soundness boundary is WHICH function
+    the recursion invokes, consolidation is FORBIDDEN regardless of skeleton-share), NOT the
+    `embedChainAny` shape (a pure non-recursive `Value → Bool/List String` leaf the combinator
+    owns while the fixed recursion stays lexically in the combinator). The two functions are
+    already MUTUALLY COMPOSED (embed→let), not merely parallel — the asymmetry is structural,
+    not incidental. **KEEP SEPARATE.** Per the soundness constraint: even where the skeleton
+    shares, a combinator that risks mis-injecting (wrong labels / wrong frame into the
+    milestone splice) stays separate. Do not re-file as a DRY win unless a future inject
+    walker over the SAME frame/gating with a pure non-recursive leaf lands.
 - **Phase-B audit (2026-06-23, batch `9b78c3d`..`2e337b1`: Bug2-8 + Bug2-9; Phase A HEALTHY
   `2e337b1` + the dead-tests recovery `0109bb4`) — architecture HEALTHY.** Module graph
   re-checked WHOLE: ACYCLIC, strictly layered (`Builtin → {Lattice, Regex, Decimal, Base64,

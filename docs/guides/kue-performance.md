@@ -128,10 +128,39 @@ fix is purely a speedup — byte-identical output.
   > Standing Capabilities. The 92s figure was stale (it predates the item-7 hash fix landing, or was a
   > cold/contended run); the steady measurement across the Bug2-1 and Bug2-2 slices is consistently
   > ~30.5s. Treat **~30.5s** as the cert-manager number; the 92s is retired.
-- **Full `apps/argocd.cue` bottoms — a CORRECTNESS bug, NOT a perf/fuel limit
-  (2026-06-19; supersedes the earlier "fuel-exhaustion-at-scale" and "cross-module
-  import-laziness" readings, both DISPROVEN — fuel sweep 100/200/600 +
-  `resolve`/`remapFuel` 100000 all still bottom; it reproduces SAME-MODULE).** Root cause:
+  > **Currency note RE-RECONCILED (2026-06-23, Phase-B audit, post-Bug2-14):** fresh
+  > `/usr/bin/time -p kue export apps/cert-manager.cue` on the current `main` measures
+  > **12.6s wall (12.3s user), content-identical to cue** (jq -S diff = 0) — a 2.4× drop from
+  > the ~30.5s above. The improvement accrued across the Bug2-6..2-14 close-once / frame-id
+  > chain (fewer redundant force-folds + tighter frame-id discrimination cut cert-manager's
+  > per-eval churn). **Treat ~12.6s as the live cert-manager number; ~30.5s is retired.**
+- **Full `apps/argocd.cue` EXPORTS content-identical (2026-06-23) — the correctness chain
+  is CLOSED; the residual ~53s is a pure perf-#7 frontier (profiled below).** The Bug2-x
+  narrowing chain (Bug #1 … Bug2-14/14b/14c) all LANDED; `kue export apps/argocd.cue` is now
+  byte-identical to `cue` (jq -S diff = 0, 51178 bytes, **~53s wall** vs `cue` 0.03s) — the
+  2nd prod9 real-app drop-in alongside cert-manager (~12.6s). The block below records the
+  correctness history (now resolved) and the perf-#7 profiling that the unblock enabled.
+  > **perf-#7 PROFILED (2026-06-23, post-Bug2-14 unblock) — the wall is a FLAT
+  > per-eval-constant in shared-definition setup, NOT a subtree hot spot, NOT output-driven,
+  > NOT fuel-axis.** The decisive measurement: selecting ANY single field costs the FULL
+  > ~53s — `argocd."listener.yaml"` (484 bytes of output) takes 53.5s, identical to
+  > `route.yaml`/`stage9.yaml`/`bluepages.yaml`/`configs.yaml` and to the whole-app export
+  > (53.4s). `kue eval` (no manifest) is also 53s, so the cost is in EVALUATION/resolution,
+  > before output. The 51KB output is modest (largest field ~4.5KB) — size is not the driver.
+  > Conclusion: the earlier "heavy `argo` sub-package" framing was imprecise — the cost is
+  > NOT in evaluating argo's output subtrees (those are small) but in **fixed upfront work
+  > over the imported definition closure** (`defs` + `defaults` + `apps/argo`), done ONCE
+  > regardless of selection. Bug2-14 did NOT resolve perf (it unblocked correctness, exposing
+  > that the entire wall is fixed setup). **perf-#7 STAYS REAL** (~1700× the `cue` 0.03s) and
+  > its profiling target is now precise: the per-eval constant of definition/import-closure
+  > setup, NOT a per-field subtree. Apply the item-7 lens (cache-key cost, frame-id churn,
+  > force-cache hit rate) to the SETUP closure, not to argo's outputs. The flat-per-field
+  > signature is the reproducer: any single-field selection times the same setup.
+- **[HISTORICAL] Full `apps/argocd.cue` bottomed — was a CORRECTNESS bug, NOT a perf/fuel
+  limit (2026-06-19; RESOLVED 2026-06-23 by the Bug2-x chain — kept for the diagnosis trail).
+  Superseded the earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness"
+  readings, both DISPROVEN — fuel sweep 100/200/600 + `resolve`/`remapFuel` 100000 all still
+  bottomed; it reproduced SAME-MODULE.** Root cause:
   a `parts.#Mixin` comprehension guard reads a use-site-narrowed sibling through a buried
   embed, and the narrowing did not reach the guard. The chain of narrowing fixes — Bug #1
   (single-embed), **Bug2-1** (let-buried read detection), **Bug2-2** (force-tier
@@ -154,22 +183,15 @@ fix is purely a speedup — byte-identical output.
   fixed at the selection boundary, `7e69e43` 2026-06-23) — all LANDED. Bug2-5 cut the argocd
   wall **153s → ~54s** but was NOT the final blocker; neither were Bug2-6/2-7/2-8/2-9/2-10
   /2-11/2-13. Bug2-11 advanced the real argocd `listener.yaml` subtree to FULLY narrow and
-  Bug2-13 cleared `route.yaml`'s `#service_port`, but the full app STILL bottoms. The residual
-  full-app blocker is now **Bug2-14** (RE-DIAGNOSED 2026-06-23 — an embed-merge frame-binding
-  bug, NOT a select arm). An embed declaring a field ABSTRACTLY which the host declares
-  CONCRETELY leaves the embed's `#Mixin` `_patch` comprehension reading the embed-LOCAL abstract
-  value (its sibling-ref was bound to the embed-local frame, not re-based to the merged
-  host-concrete frame) → the guard goes incomplete and never drains; the cross-package
-  def-of-def force path (`forceClosureWithConjunct`) makes `ls` un-drainable even under export →
-  `ls` exports silently-incomplete / `[ls]` → `conflicting values`. Fix is on the
-  `forceClosureWithConjunct`/`meetEmbeddingsWithFuel`/`.structComp`-fold tier via the
-  `remapConj*` ref-rebase facility; see the Bug2-14 RE-DIAGNOSED block + fix-seam design in
-  `spec-conformance-audit.md`. PARKED as a stress-test finding — do NOT chase it with
-  app-specific narrowing. **Perf takeaway:** this is a value-correctness divergence, not a
-  fuel/perf cliff. The ~54s wall (vs cert-manager ~30.5s) is a separate downstream per-eval
-  concern on the heavy `argo` sub-package, meaningful only once argocd actually exports —
-  gated behind **Bug2-14**, not a fuel-axis problem. The per-eval constant (not the fuel
-  ceiling) is the live perf frontier (item 7 residual).
+  Bug2-13 cleared `route.yaml`'s `#service_port`; **Bug2-14 + Bug2-14b/14c** (2026-06-23 —
+  the embed-merge frame-binding bug + the disjunction-arm let-local on the cross-package force
+  path: `injectEmbedSiblingNarrowings`, `bodyForceFrameEnv`, and the two-pass multi-closure
+  `.conj` fold) were the TERMINAL blockers, now LANDED → the full app EXPORTS content-identical.
+  **Perf takeaway (was a value-correctness divergence, now CLOSED):** with correctness resolved,
+  the ~53s wall (vs cert-manager ~12.6s) is the pure per-eval-constant frontier profiled in the
+  block above — a fixed definition/import-closure setup cost, NOT a fuel-axis problem and NOT a
+  subtree hot spot. The per-eval constant (not the fuel ceiling) is the live perf frontier
+  (item 7 residual); profile the SETUP closure, not argo's outputs.
 - **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
   is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
   fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking
