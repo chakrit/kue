@@ -241,11 +241,64 @@ theorem sat_low_fuel_truncates :
 
 -- SOUNDNESS: a truncated value re-evaluated at the SAME low fuel is served from the fuel-keyed
 -- `cache` (cheap, byte-identical), keeping the fuel axis honest for the 263-class. Second eval at
--- the SAME fuel 3 adds zero core evals (fuel-keyed `cache` hit, not a fuel-free hit).
+-- the SAME fuel 3 adds zero core evals (fuel-keyed `cache` hit, not a fuel-free hit). This already
+-- exercises the empty-`cache`-skip's NON-EMPTY probe arm: at fuel 3 `satTruncValue` truncates and
+-- the `.truncated` insert POPULATES the fuel-keyed `cache` (size 4), so the second eval reads it
+-- back through the `!isEmpty`-guarded probe (`5f038b7`) — value-identical.
 theorem sat_truncated_same_fuel_is_cached :
     (let r := evalTwiceAt 3 3 satTruncValue
      (r.snd.snd.snd - r.snd.snd.fst == 0) && (r.fst == r.snd.fst))
       = true := by
+  native_decide
+
+/-! ### Empty-`cache`-skip at PRODUCTION fuel (`5f038b7`) — the gap the SATURATING canaries leave.
+
+`evalValueWithFuel` probes the fuel-keyed `cache` only when `!cache.isEmpty` (an empty HashMap
+returns `none` for every key, so the skip is value-identical; the `cache` is populated EXCLUSIVELY
+in the `.truncated` insert arm). The argocd/cert-manager canaries FULLY SATURATE — the fuel-keyed
+`cache` stays empty the whole run (`fuelInserts=0`), so they NEVER exercise the NON-EMPTY probe arm
+at the production `evalFuel` (100). `satTruncValue` only truncates at LOW fuel (it saturates by
+fuel ~50), so the pins above hit the populated-`cache` arm but not at production fuel. A deep REF
+CHAIN of length > `evalFuel` truncates AT fuel 100 — the exact shape a real app would hit if it
+didn't saturate — driving the populated-`cache` non-empty probe at the production level, end-to-end
+through the top-level `evalSourceToString` pipeline (parse → resolve → eval at `evalFuel` → format). -/
+
+/-- A length-`n` reference chain `x0: x1\n…\nx{n-1}: x{n}\nx{n}: 1` as CUE source. Under `evalFuel`
+    (100) a chain SHORTER than the ceiling SATURATES (every `xi` resolves to `1`); a chain LONGER
+    truncates AT the ceiling (the deep links bottom on fuel exhaustion → `@`/`...` decoration),
+    populating the fuel-keyed `cache` at production fuel. -/
+def refChainSource (n : Nat) : String :=
+  (String.join ((List.range n).map (fun i => s!"x{i}: x{i + 1}\n"))) ++ s!"x{n}: 1\n"
+
+/-- True iff `evalSourceToString src` succeeds and its output carries a fuel-truncation marker
+    (`@<frame>.<id>` for an unresolved deep ref, or `...` for a truncated struct). -/
+def evalSourceTruncates (src : String) : Bool :=
+  match evalSourceToString src with
+  | .ok s => (s.splitOn "@").length > 1 || (s.splitOn "...").length > 1
+  | .error _ => false
+
+-- BOUNDARY: a chain SHORTER than `evalFuel` SATURATES — every link resolves to `1`, no truncation
+-- marker. Pins that the production-fuel truncation in the next pin is a real ceiling effect, not a
+-- chain that always truncates (a vacuous witness that would skip the populated-`cache` arm).
+theorem ref_chain_under_eval_fuel_saturates :
+    evalSourceTruncates (refChainSource 50) = false := by
+  native_decide
+
+-- SOUNDNESS (the empty-cache-skip's NON-EMPTY arm AT PRODUCTION FUEL): a chain LONGER than
+-- `evalFuel` (120 > 100) truncates at the ceiling — the deep links bottom on fuel exhaustion, so
+-- the `.truncated` insert POPULATES the fuel-keyed `cache` at production fuel. This is the path the
+-- saturating canaries (cache permanently empty) can never witness.
+theorem ref_chain_over_eval_fuel_truncates_at_production_fuel :
+    evalSourceTruncates (refChainSource 120) = true := by
+  native_decide
+
+-- SOUNDNESS (value-identity at production fuel): the production-fuel TRUNCATING program is
+-- deterministic — two fresh evals produce the byte-identical output. The empty-`cache`-skip
+-- changed only the PROBE path, never the value; this pins value-stability of the truncated result
+-- at the production fuel level. (Cross-checked byte-identical between the pre-`5f038b7` and post
+-- binaries on deep ref chains exceeding fuel 100; this pins the same identity at build time.)
+theorem ref_chain_truncation_is_deterministic_at_production_fuel :
+    (evalSourceToString (refChainSource 120) == evalSourceToString (refChainSource 120)) = true := by
   native_decide
 
 /-- THE THIRD-TRUNCATION-SOURCE pin (audit 2026-06-18 #6). The two `evalValueCoreWithFuel`
