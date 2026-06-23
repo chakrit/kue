@@ -10,11 +10,19 @@
 #
 # For each target it builds the image, extracts kue, shasums it, and uploads the
 # asset to the v<version> GitHub Release with --clobber (idempotent re-runs).
-# It does NOT create the tag/release or touch the Homebrew formula — release.sh
-# owns those; this assumes the release already exists.
+# It does NOT create the tag/release — release.sh owns those; this assumes the
+# release already exists. It DOES patch the formula's two Linux blocks (only),
+# leaving `version` + the macOS block to release.sh.
 #
 #   Usage: scripts/release-linux.sh <version>     # e.g. ...sh 0.1.0-alpha.20260622
 #   Env:   KUE_LINUX_TARGETS="amd64 arm64"        # subset to build (default: both)
+#          KUE_TAP_DIR=<path>                      # chakrit/homebrew-tap clone
+#                                                  # (default: ../homebrew-tap)
+#
+# After uploading, it patches the two Linux blocks of the tap formula
+# (on_linux/on_intel + on_linux/on_arm) to the freshly-built url/sha and pushes
+# the tap. release.sh owns `version` + the macOS block; this owns only the Linux
+# blocks, so the two scripts compose without clobbering each other.
 set -euo pipefail
 
 VERSION="${1:?usage: scripts/release-linux.sh <version>   (e.g. scripts/release-linux.sh 0.1.0-alpha.20260622)}"
@@ -25,6 +33,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="${REPO_ROOT}/dist"
 TOOLCHAIN="$(cat "${REPO_ROOT}/lean-toolchain")"
 TARGETS="${KUE_LINUX_TARGETS:-amd64 arm64}"
+TAP_DIR="${KUE_TAP_DIR:-"$(dirname "$REPO_ROOT")/homebrew-tap"}"
+FORMULA="${TAP_DIR}/Formula/kue.rb"
+
+# shellcheck source=scripts/patch-formula-block.sh
+. "$(dirname "${BASH_SOURCE[0]}")/patch-formula-block.sh"
 
 step() { printf '\n==> %s\n' "$1"; }
 die()  { printf 'release-linux: %s\n' "$1" >&2; exit 1; }
@@ -43,8 +56,14 @@ command -v docker >/dev/null || die "docker not found on PATH"
 docker buildx version >/dev/null 2>&1 || die "docker buildx unavailable (needed for --platform builds)"
 gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
   || die "release $TAG not found on $REPO — cut it with release.sh first"
+[ -f "$FORMULA" ] || die "tap formula not found at $FORMULA (set KUE_TAP_DIR)"
 
 mkdir -p "$DIST"
+
+# `asset|url|sha` records, one per built target, accumulated across the loop and
+# replayed into the formula after every requested target uploads cleanly. Plain
+# indexed array (macOS ships bash 3.2 — no associative arrays).
+PATCHED=()
 
 for arch in $TARGETS; do
   asset="$(asset_name "$arch")"
@@ -87,7 +106,30 @@ for arch in $TARGETS; do
   step "Uploading $asset to release $TAG"
   gh release upload "$TAG" "${DIST}/${asset}" --repo "$REPO" --clobber
 
+  PATCHED+=("${asset}|https://github.com/${REPO}/releases/download/${TAG}/${asset}|${sha}")
+
   step "Done with $asset"
 done
+
+step "Patching tap formula $FORMULA (Linux blocks)"
+# Patch only the blocks we actually built+uploaded this run, keyed by asset
+# name, so a subset build (KUE_LINUX_TARGETS=arm64) leaves the other Linux
+# block untouched and never clobbers the macOS block.
+for rec in "${PATCHED[@]}"; do
+  asset="${rec%%|*}"; rest="${rec#*|}"
+  url="${rest%|*}"; sha="${rest##*|}"
+  patch_formula_block "$FORMULA" "$asset" "$url" "$sha"
+  printf 'patched block: %s -> %s\n' "$asset" "$sha"
+done
+
+step "Pushing tap"
+git -C "$TAP_DIR" pull --ff-only
+git -C "$TAP_DIR" add Formula/kue.rb
+if git -C "$TAP_DIR" diff --cached --quiet; then
+  echo "formula already up to date — nothing to commit"
+else
+  git -C "$TAP_DIR" commit -m "kue ${VERSION} (linux assets)"
+  git -C "$TAP_DIR" push
+fi
 
 step "All requested Linux targets published to $TAG"

@@ -25,6 +25,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAP_DIR="${KUE_TAP_DIR:-"$(dirname "$REPO_ROOT")/homebrew-tap"}"
 FORMULA="${TAP_DIR}/Formula/kue.rb"
 
+# shellcheck source=scripts/patch-formula-block.sh
+. "$(dirname "${BASH_SOURCE[0]}")/patch-formula-block.sh"
+
 step() { printf '\n==> %s\n' "$1"; }
 die()  { printf 'release: %s\n' "$1" >&2; exit 1; }
 
@@ -64,12 +67,11 @@ fi
 
 step "Patching tap formula $FORMULA"
 URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
-# BSD sed (macOS) in-place edit.
-sed -i '' \
-  -e "s|^  version \".*\"|  version \"${VERSION}\"|" \
-  -e "s|^  url \".*\"|  url \"${URL}\"|" \
-  -e "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" \
-  "$FORMULA"
+# The formula is per-platform blocks; release.sh owns `version` + the macOS
+# on_arm block. Patch by asset name so we never touch the Linux blocks (those
+# belong to release-linux.sh).
+patch_formula_version "$FORMULA" "$VERSION"
+patch_formula_block "$FORMULA" "$ASSET" "$URL" "$SHA"
 
 step "Pushing tap"
 git -C "$TAP_DIR" pull --ff-only
