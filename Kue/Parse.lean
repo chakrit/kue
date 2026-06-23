@@ -13,7 +13,11 @@ deriving Repr, BEq, DecidableEq, Inhabited
 abbrev ParseResult (α : Type) := Except ParseError (α × List Char)
 
 inductive ParsedField where
-  | field (field : Field)
+  /-- A labelled field. `quoted` records whether the label was written as a quoted string
+      (`"dep": …`) rather than a bare identifier (`dep: …`); the two produce the same
+      `Field` but only a bare identifier participates in the file-block identifier scope,
+      so the import-name redeclaration check (A2-y) exempts the quoted form. -/
+  | field (field : Field) (quoted : Bool)
   | fieldAlias (alias : String) (field : Field)
   | pattern (labelPattern constraint : Value)
   | embedding (value : Value)
@@ -540,9 +544,25 @@ def parseFieldTerminator (terminator : Option Char) (chars : List Char) : Bool :
   | none, [] => true
   | _, _ => false
 
+/-- The bare-identifier, output-namespace labels declared at this struct's top level — the
+    labels that occupy the file-block identifier scope and so can collide with an imported
+    package's local name (A2-y). A label qualifies iff it was written as a BARE identifier
+    (`quoted = false`; a quoted `"dep"` is a string label, not an identifier declaration) and
+    its class is an ordinary field (definitions `#x` and hidden `_x` live in distinct
+    namespaces — cue exempts both — and `let`/`importBinding`/pattern/embedding declare no
+    output identifier here). All three presence rungs (`regular`/`optional`/`required`) count:
+    cue's `redeclared as imported package name` fires on `dep:`, `dep?:`, and `dep!:` alike. -/
+def bareIdentifierLabels : List ParsedField -> List String
+  | [] => []
+  | .field field false :: rest =>
+      match field.fieldClass with
+      | .field false false _ => field.label :: bareIdentifierLabels rest
+      | _ => bareIdentifierLabels rest
+  | _ :: rest => bareIdentifierLabels rest
+
 def splitParsedFields : List ParsedField -> ParsedFieldParts
   | [] => { fields := [], patterns := [], comprehensions := [], tail := none }
-  | .field field :: rest =>
+  | .field field _ :: rest =>
       let split := splitParsedFields rest
       { split with fields := field :: split.fields }
   | .fieldAlias alias field :: rest =>
@@ -1445,7 +1465,7 @@ mutual
     | ':' :: rest =>
         match parseFieldValue rest with
         | .error error => .error error
-        | .ok (value, rest) => parseOk (.field ⟨label, fieldClass, value⟩) rest
+        | .ok (value, rest) => parseOk (.field ⟨label, fieldClass, value⟩ false) rest
     | rest => parseError rest "expected ':' after field label"
 
   partial def parseAliasedField (chars : List Char) : ParseResult ParsedField :=
@@ -1509,7 +1529,7 @@ mutual
                 | .error error => .error error
                 | .ok (value, rest) =>
                     match labelValue with
-                    | .prim (.string label) => parseOk (.field ⟨label, fieldClass, value⟩) rest
+                    | .prim (.string label) => parseOk (.field ⟨label, fieldClass, value⟩ true) rest
                     | _ => parseOk (.dynamicField labelValue fieldClass value) rest
             | rest => parseError rest "expected ':' after quoted field label"
     | rest => parseError rest "expected quoted field label"
@@ -1597,7 +1617,8 @@ def parseDocumentFile (chars : List Char) : Except ParseError ParsedFile := do
       match skipTrivia rest with
       | [] =>
           let packageName ← sourcePackageName (String.ofList chars)
-          pure { value := parsedFieldsValue fields, packageName := packageName, imports := imports }
+          pure { value := parsedFieldsValue fields, packageName := packageName, imports := imports,
+                 topLevelFieldNames := bareIdentifierLabels fields }
       | rest => parseError rest "unexpected trailing input"
 
 def parseSourceFile (source : String) : Except ParseError ParsedFile :=

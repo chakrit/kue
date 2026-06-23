@@ -13321,3 +13321,82 @@ mitigations into `slice-loop.md`.
 
 `lake build` + `scripts/check-fixtures.sh` green (docs-only → unaffected). No canaries
 (no code change). Tree clean before edits at `890d453`.
+
+---
+
+## Completed Slice: A2-y — reject a top-level field colliding with an import's local name
+
+Goal: close the last latent loader-strictness gap. A top-level bare-identifier field whose
+name equals an imported package's bound local name (`import ".../dep"` + `dep: {…}`) is a
+LOAD error in `cue`; Kue silently kept BOTH the import binding and the field — and worse,
+resolved a reference `out: dep` to the imported PACKAGE rather than the user's field (a
+latent SOUNDNESS bug, not just leniency).
+
+### Spec-verify FIRST (the crux — over-strictness was the risk)
+
+Oracle-pinned `cue` v0.16.1's exact behavior on the collision. `cue` errors at LOAD with
+`<name> redeclared as imported package name` (a two-line diagnostic: the message + a
+`previous declaration at <file>:<line>` back-reference). Fires whether or not the import is
+referenced elsewhere. This is **SPEC-MANDATED, not a binary quirk**: the CUE spec's
+declaration rule — "No identifier may be declared twice in the same block" — combined with
+"an import declaration binds the package name in the file block". A same-name bare-identifier
+top-level field is a second declaration of that identifier in the one file block. So Kue
+CONFORMS to the spec; it does not merely match the binary.
+
+The exact COLLISION BOUNDARY, fully oracle-pinned:
+- **Collides** (cue rejects): a top-level field whose label equals the import's BOUND local
+  name, on any presence rung — `dep:`, `dep?:`, `dep!:`. The bound name is what matters: the
+  ALIAS name under `import d "…"` (`d` collides, `dep` does not), the QUALIFIER name under
+  `import "…:foo"` (`foo` collides, the last path element does not), and a builtin import's
+  bind name (`import "encoding/json"` + `json: {…}` collides too — a stdlib import still binds
+  its local name in the file scope).
+- **Exempt** (cue accepts): a QUOTED-string label `"dep": …` (a string label, not an
+  identifier declaration in the block); a DEFINITION `#dep` or HIDDEN `_dep` (distinct
+  namespaces); a NESTED `dep` (different scope); a DIFFERENT-named field. The aliased-field
+  corner `x=dep: 1` is a genuine SILENT spec gap — cue short-circuits on its own
+  `unreferenced alias` error first, so its redeclaration verdict there is unobservable.
+
+### Steps
+
+1. **Preserve quoted-vs-bare through to the loader.** `Field.label` strips quotes, so a
+   quoted `"dep"` and a bare `dep` were indistinguishable downstream — a label-string-only
+   check would over-reject the quoted form cue accepts. Added `(quoted : Bool)` to the
+   `ParsedField.field` constructor (`Parse.lean`) — the bare-label site sets `false`, the
+   quoted-static-label site `true`. `bareIdentifierLabels : List ParsedField → List String`
+   collects exactly the collision-eligible labels (bare `quoted=false`, class `.field false
+   false _` — all three rungs; quoted/`#`/`_`/`let`/embedding/pattern excluded). Carried on
+   `ParsedFile.topLevelFieldNames` (`Value.lean`), populated in `parseDocumentFile`.
+
+2. **The LOAD-time check, IO-confined in `Module.lean`.** Pure `checkImportRedeclaration
+   (bindName) (fieldNames) : Except String Unit` flags a bound name present in the file's
+   field-name set, erroring `importRedeclarationError bindName` (= cue's first line). Threaded
+   `fieldNames` through `collectBindings` (applied to BOTH the builtin-skip path and the
+   resolved path, using `importBindName imp <declaredName>` for the bound name). The
+   builtin-only fast path in `loadFileBound` (which returns before `collectBindings`) runs the
+   batch `checkBuiltinImportRedeclarations` so `import "encoding/json"` + `json: {}` errors too.
+   Per-FILE (file-scope): each file's imports vs that same file's field names, so a cross-file
+   sibling `dep` does NOT falsely collide (oracle-confirmed both cue + Kue accept that).
+   `Eval`/`Resolve` stay pure; all IO in `Module.lean`. Total, no `sorry`/axiom.
+
+3. **Tests + fixtures.** +13 `native_decide` pins in `ModuleTests` (`bareIdentifierLabels`
+   eligibility across bare/optional/required + the quoted/`#`/`_`/`let`/pattern exemptions;
+   `checkImportRedeclaration`/`checkBuiltinImportRedeclarations` collide-vs-ok; the
+   diagnostic text; the alias-no-collision via `importBindName`). Two module fixtures:
+   `modules/import_name_redeclaration` (`expected.err` — the collision errors at load) +
+   `modules/import_name_no_collision` (the valid boundary — quoted/`#`/`_`/different-name all
+   load, byte-identical to cue).
+
+### Verify
+
+`lake build` clean (112 jobs). `scripts/check-fixtures.sh` zero-drift (existing module/import
+corpus + the 2 new fixtures green). **Canaries jq -S = 0** from `/Users/chakrit/Documents/prod9/infra`:
+cert-manager (~11.7s) + argocd (~50.8s) UNAFFECTED — prod9 never hits the collision, confirming
+no over-rejection. No shell touched. Full collision/valid boundary re-oracled against cue: every
+case matches (5 collide, 7+ exempt).
+
+### Records
+
+1 cue-divergence (single-line vs two-line diagnostic — verdict + first line AGREE). 1 spec-gap
+(exemption boundary; the aliased-field-label corner deliberately exempted as the no-over-reject
+choice). `plan.md` item-6 A2-y struck (RESOLVED); A2-x noted as STAYS-unobservable (its merge is
+only reachable via the collision A2-y now rejects at load).

@@ -414,12 +414,28 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      `FixturePorts` entries (oracle: `{a:5,...} & {[string]:int}` → `{a:5}` open).
    - **A2-x (latent) — `importBinding` merge-asymmetry.** `mergeFieldClass` returns `none`
      for `importBinding & <real field>` (merges only with itself) where the old `.hidden`
-     merged via `.field`. Unobservable today (the only collision `cue` rejects at LOAD —
-     see A2-y).
-   - **A2-y (pre-existing) — missing import-name redeclaration check.** A top-level field
-     colliding with an imported package's local name (`import ".../dep"` + `dep: {…}`) is
-     a LOAD error in `cue`; Kue silently keeps both. File as a small loader slice. (Both
-     A2-x/A2-y are corners prod9 doesn't hit.)
+     merged via `.field`. **STAYS unobservable** — the only collision that would exercise
+     this merge is the one A2-y now rejects at LOAD (an `importBinding` never reaches a
+     `meet` with a same-named real field, because the load fails first). No work to do.
+   - ~~**A2-y (pre-existing) — missing import-name redeclaration check.**~~ — **DONE
+     2026-06-23.** A top-level bare-identifier field reusing an import's bound local name
+     (`import ".../dep"` + `dep: {…}`, incl. `dep?`/`dep!`, the alias name under `import d
+     "…"`, the qualifier name under `"…:foo"`, and a builtin `import "encoding/json"` +
+     `json: {…}`) is now a LOAD error — `<name> redeclared as imported package name`,
+     matching cue's verdict + first message line. **Spec-mandated** (the file-block
+     "No identifier may be declared twice in the same block": an import binds the package
+     name in the file block, a same-name bare field re-declares it), NOT a cue quirk — so
+     Kue conforms, it does not just match the binary. Pre-fix this was a genuine SOUNDNESS
+     bug: Kue silently kept BOTH, and resolved a reference `out: dep` to the imported
+     PACKAGE rather than the user's field (wrong value). Fixed in `Module.lean`
+     (`checkImportRedeclaration` over each file's `topLevelFieldNames`, threaded through
+     `collectBindings` + the builtin-only fast path); the parser now records quoted-vs-bare
+     on `ParsedField.field` so `bareIdentifierLabels` collects exactly the collision-eligible
+     labels. EXEMPTIONS match cue: quoted `"dep"`, `#dep`/`_dep` (distinct namespaces),
+     nested fields, and an alias/qualifier that does not match a field. Canaries jq-S=0
+     (prod9 never hits the collision — verified UNAFFECTED). 1 cue-divergence (single-line
+     vs two-line diagnostic) + 1 spec-gap (exemption boundary; the aliased-field-label
+     corner deliberately exempted as the no-over-reject choice). See implementation-log.
    - **`scalar-embed` provenance follow-ups** — opportunistic pins (3-level flatten, disj
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.

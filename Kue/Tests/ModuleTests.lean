@@ -277,4 +277,82 @@ example :
     (cacheDirFor none none none false).toString = "/.cache/cue" := by
   native_decide
 
+/-! ## A2-y — import-name redeclaration boundary
+
+    A top-level bare-identifier field whose name equals an import's bound local name is a
+    file-block redeclaration (cue: `<name> redeclared as imported package name`). The pure
+    pieces: `bareIdentifierLabels` extracts exactly the collision-eligible labels (bare,
+    output-namespace, all three presence rungs), exempting quoted labels, definitions,
+    hidden fields, and `let`s; `checkImportRedeclaration` flags a bound name present in that
+    set. Mirrors `Module.lean:160`'s loader gate without disk. -/
+
+/-- A bare regular field is collision-eligible — its label is in the set. -/
+example :
+    bareIdentifierLabels [.field ⟨"dep", .regular, .top⟩ false] = ["dep"] := by
+  native_decide
+
+/-- Optional and required fields are eligible too (cue rejects `dep?:`/`dep!:` alike). -/
+example :
+    bareIdentifierLabels
+      [.field ⟨"a", .optional, .top⟩ false, .field ⟨"b", .required, .top⟩ false]
+      = ["a", "b"] := by
+  native_decide
+
+/-- A QUOTED label (`"dep": …`) is NOT an identifier declaration — exempt (`quoted = true`). -/
+example :
+    bareIdentifierLabels [.field ⟨"dep", .regular, .top⟩ true] = [] := by
+  native_decide
+
+/-- A definition (`#x`) and a hidden field (`_x`) live in distinct namespaces — exempt. -/
+example :
+    bareIdentifierLabels
+      [.field ⟨"#dep", .definition, .top⟩ false, .field ⟨"_dep", .hidden, .top⟩ false]
+      = [] := by
+  native_decide
+
+/-- A `let` binding declares no output identifier here — exempt. -/
+example :
+    bareIdentifierLabels [.letBinding "dep" .top] = [] := by
+  native_decide
+
+/-- A pattern/embedding/comprehension declares no top-level name — exempt. -/
+example :
+    bareIdentifierLabels [.embedding .top, .comprehension [] .top] = [] := by
+  native_decide
+
+/-- The diagnostic text matches cue's first error line. -/
+example : importRedeclarationError "dep" = "dep redeclared as imported package name" := by
+  native_decide
+
+/-- The check ERRORS (no `.ok`) when the bound name is among the field labels.
+    (`Except String Unit` has no `DecidableEq`, so pin via `.toOption`: error ⇒ `none`.) -/
+example : (checkImportRedeclaration "dep" ["out", "dep"]).toOption = none := by
+  native_decide
+
+/-- No collision when the bound name is absent (normal import, alias/qualifier mismatch,
+    different-named field) — the `.ok` path keeps loading (`some ()`). -/
+example : (checkImportRedeclaration "dep" ["out", "other"]).toOption = some () := by
+  native_decide
+
+/-- The builtin-fast-path batch check errors on the first colliding import — here `json`
+    collides with a top-level `json` field. -/
+example :
+    (checkBuiltinImportRedeclarations
+      [{ path := "strings" }, { path := "encoding/json" }] ["json"]).toOption = none := by
+  native_decide
+
+/-- The batch check is `ok` when no builtin bind name matches a field. -/
+example :
+    (checkBuiltinImportRedeclarations
+      [{ path := "strings" }, { path := "encoding/json" }] ["out"]).toOption = some () := by
+  native_decide
+
+/-- An alias renames the binding, so only the ALIAS name collides — a field equal to the
+    last path element does not (the bound name is the alias). -/
+example :
+    (checkImportRedeclaration
+      (importBindName { path := "ex.com/dep", alias := some "d" } (some "dep")) ["dep"]).toOption
+      = some () := by
+  native_decide
+
 end Kue

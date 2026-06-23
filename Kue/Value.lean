@@ -953,6 +953,11 @@ structure ParsedFile where
   value : Value
   packageName : Option String
   imports : List Import
+  /-- The bare-identifier output-namespace labels declared at this file's top level — the
+      names occupying the file-block identifier scope, used to detect an import-name
+      redeclaration (A2-y). Excludes quoted-string labels, definitions, hidden fields, and
+      `let`/embedding/pattern declarations, none of which declare a colliding identifier. -/
+  topLevelFieldNames : List String := []
 deriving Repr, BEq
 
 end Kue

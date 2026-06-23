@@ -187,6 +187,37 @@ where
   lastPathElement (path : String) : String :=
     (path.splitOn "/").getLast!
 
+/-- The redeclaration error `cue` raises when a file's top-level field reuses the local name
+    an import binds in the file scope (A2-y). The import declaration binds `bindName` in the
+    file block; a bare-identifier top-level field of the same name is a second declaration of
+    that identifier in the one block — `cue`: `<name> redeclared as imported package name`. -/
+def importRedeclarationError (bindName : String) : String :=
+  s!"{bindName} redeclared as imported package name"
+
+/-- Reject an import whose bound local name collides with a top-level bare-identifier field
+    of the importing file (A2-y). `fieldNames` are that file's `topLevelFieldNames` — quoted
+    labels, definitions, hidden fields, and `let`s already excluded, so a present collision is
+    a genuine file-block redeclaration. `none` when there is no collision (the common case:
+    a normal import, an alias/qualifier that does not match a field, a different-named field).
+    Pure — the loader threads the per-file name set in. -/
+def checkImportRedeclaration (bindName : String) (fieldNames : List String) :
+    Except String Unit :=
+  if fieldNames.contains bindName then
+    .error (importRedeclarationError bindName)
+  else
+    .ok ()
+
+/-- Run the A2-y redeclaration check over a list of (builtin) imports against one file's
+    `fieldNames`, in order — used on the builtin-only fast path where no package is loaded,
+    so each bind name comes from `importBindName imp none` (alias > qualifier >
+    last-path-element). The first collision errors; `ok ()` when none collide. -/
+def checkBuiltinImportRedeclarations :
+    List Import -> List String -> Except String Unit
+  | [], _ => .ok ()
+  | imp :: rest, fieldNames => do
+      checkImportRedeclaration (importBindName imp none) fieldNames
+      checkBuiltinImportRedeclarations rest fieldNames
+
 /-! ## IO loader boundary -/
 
 /-- Resolve a (possibly relative) input path against the working directory to an absolute
@@ -379,7 +410,7 @@ mutual
         match parseSourceFile source with
         | .error error => return .error s!"{file}: parse error: {error.message}"
         | .ok parsed =>
-            match ← collectBindings visited ctx parsed.imports [] with
+            match ← collectBindings visited ctx parsed.topLevelFieldNames parsed.imports [] with
             | .error message => return .error message
             | .ok bindings =>
                 parseAndBindFiles visited ctx rest (parsed :: acc) (bindingAcc ++ bindings)
@@ -391,14 +422,20 @@ mutual
       surfaces a clean deferred error. -/
   partial def collectBindings
       (visited : List String) (ctx : ModuleContext)
+      (fieldNames : List String)
       (imports : List Import) (acc : List (String × Value)) :
       IO (Except String (List (String × Value))) := do
     match imports with
     | [] => return .ok acc.reverse
     | imp :: rest =>
         if isBuiltinImport imp.path then
-          -- A stdlib import binds no value; `evalBuiltinCall` dispatches its calls.
-          collectBindings visited ctx rest acc
+          -- A stdlib import binds no value, but it still binds its local name in the file
+          -- scope: `import "encoding/json"` + `json: {…}` redeclares `json` (A2-y, matching
+          -- cue). The bind name follows alias > qualifier > last-path-element (no package
+          -- is loaded, so no declared name).
+          match checkImportRedeclaration (importBindName imp none) fieldNames with
+          | .error message => return .error message
+          | .ok () => collectBindings visited ctx fieldNames rest acc
         else
           match ← resolveImportTarget ctx imp.path with
           | .error message => return .error message
@@ -407,7 +444,10 @@ mutual
               | .error message => return .error message
               | .ok (declaredName, value) =>
                   let bindName := importBindName imp declaredName
-                  collectBindings visited ctx rest ((bindName, value) :: acc)
+                  match checkImportRedeclaration bindName fieldNames with
+                  | .error message => return .error message
+                  | .ok () =>
+                      collectBindings visited ctx fieldNames rest ((bindName, value) :: acc)
 end
 
 /-- Load a package *directory* as the entry: discover its module, then merge all
@@ -445,9 +485,13 @@ def loadFileBound (path : String) : IO (Except String Value) := do
   | .error error => return .error s!"parse error: {error.line}:{error.column}: {error.message}"
   | .ok parsed =>
       -- A file with no imports — or only stdlib imports the builtin dispatch handles —
-      -- needs no module context and behaves exactly as the pre-import pipeline.
+      -- needs no module context and behaves exactly as the pre-import pipeline. A stdlib
+      -- import still binds its local name in the file scope, so the A2-y redeclaration check
+      -- runs here too (`import "encoding/json"` + `json: {…}` is a load error in cue).
       if parsed.imports.all (fun imp => isBuiltinImport imp.path) then
-        return .ok parsed.value
+        match checkBuiltinImportRedeclarations parsed.imports parsed.topLevelFieldNames with
+        | .error message => return .error message
+        | .ok () => return .ok parsed.value
       let cwd ← IO.currentDir
       let dir := discoveryStartDir cwd (System.FilePath.mk path)
       match ← findModuleRoot dir with
@@ -457,7 +501,7 @@ def loadFileBound (path : String) : IO (Except String Value) := do
           | .error message => return .error message
           | .ok (modPath, deps) =>
               let ctx := { root, modPath, deps }
-              match ← collectBindings [] ctx parsed.imports [] with
+              match ← collectBindings [] ctx parsed.topLevelFieldNames parsed.imports [] with
               | .error message => return .error message
               | .ok bindings => return .ok (bindImports bindings parsed.value)
 
