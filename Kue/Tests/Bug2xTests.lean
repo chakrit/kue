@@ -1268,6 +1268,18 @@ theorem mfs_chained_selection_missing_absent :
         = true := by
   native_decide
 
+-- ALIASED-BUILTIN call resolution (item-6 LATENT, A2-y audit). `import j "encoding/json"` aliases
+-- the package locally; the parser lowers `j.Marshal` off the LITERAL head, so a post-parse alias
+-- canonicalization rewrites the head to `json.Marshal` before the alias-blind `BuiltinFamily.ofName?`
+-- dispatch. EXPORT observable (not just eval) so a regression to `incomplete`/bottom fails. The
+-- unaliased form is unaffected; an aliased user import is never misdispatched to a builtin.
+theorem aliased_builtin_call_marshals_like_unaliased :
+    exportJsonMatches
+      "import j \"encoding/json\"\nout: j.Marshal({a: 1})\n"
+      "{\n    \"out\": \"{\\\"a\\\":1}\"\n}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -1290,5 +1302,6 @@ theorem mfs_chained_selection_missing_absent :
 #check @bug212_multiref_threeway_admits                       -- multi-ref flatten-fan-out BOUND
 #check @bug212_multiref_dup_backref_admits                    -- multi-ref dup back-ref bound
 #check @mfs_chained_selection_missing_absent                  -- missing-field-selection
+#check @aliased_builtin_call_marshals_like_unaliased          -- aliased-builtin call resolution
 
 end Kue

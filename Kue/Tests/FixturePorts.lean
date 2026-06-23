@@ -3398,6 +3398,38 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- ALIASED builtin imports across every family. The Lean port builds the CANONICAL
+      -- builtin-call AST (`json.Marshal`, `strings.ToUpper`, …) directly; the CLI port parses the
+      -- `.cue` (whose imports are ALIASED: `j`/`s`/`m`/`l`/`b`/`y`) and the post-parse alias
+      -- canonicalization must rewrite each head to the same canonical name. Both matching
+      -- `.expected` pins that an aliased call resolves identically to its unaliased form.
+      fileName := "builtins/aliased_builtin.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"jsonMarshal", .regular,
+                  .builtinCall "json.Marshal" [mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩,
+                ⟨"jsonList", .regular,
+                  .builtinCall "json.Marshal" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]⟩,
+                ⟨"strUpper", .regular, .builtinCall "strings.ToUpper" [.prim (.string "hello")]⟩,
+                ⟨"strLower", .regular, .builtinCall "strings.ToLower" [.prim (.string "WORLD")]⟩,
+                ⟨"strContains", .regular,
+                  .builtinCall "strings.Contains" [.prim (.string "foobar"), .prim (.string "oob")]⟩,
+                ⟨"mathPow", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int 10)]⟩,
+                ⟨"mathSqrt", .regular, .builtinCall "math.Sqrt" [.prim (.int 144)]⟩,
+                ⟨"listSum", .regular,
+                  .builtinCall "list.Sum" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)]]⟩,
+                ⟨"listConcat", .regular,
+                  .builtinCall "list.Concat"
+                    [.list [.list [.prim (.int 1), .prim (.int 2)], .list [.prim (.int 3)]]]⟩,
+                ⟨"b64Encode", .regular,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "hi")]⟩,
+                ⟨"yamlMarshal", .regular,
+                  .builtinCall "yaml.Marshal" [mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩
+              ] .regularOpen none []))
+    },
+    {
       -- The prod9/infra docker-config chain: a registry-auth struct is JSON-marshalled
       -- then base64-encoded. The CLI port independently evaluates the `.cue`; both
       -- matching `.expected` pins that `base64.Encode(null, json.Marshal({...}))` composes.

@@ -800,10 +800,60 @@ theorem parse_default_mark_group_with_sibling_parses :
     parseSucceeds "x: *(1|2) | 3\n" = true := by
   native_decide
 
+-- Aliased builtin-call canonicalization: an `import j "encoding/json"` aliases the package
+-- locally, so `j.Marshal` must dispatch identically to the unaliased `json.Marshal`. The parser
+-- lowers the call off the LITERAL head `j`, so a post-parse pass rewrites the alias head back to
+-- the canonical family name BEFORE the alias-blind `BuiltinFamily.ofName?` dispatch. These pin
+-- the unit pieces (the alias map + the head rewrite) and the end-to-end resolution per family.
+
+/-- The alias map records `(asWritten, canonical)` ONLY for a builtin import aliased to a
+    non-canonical head; an unaliased builtin (head == canonical) and a user import (non-builtin
+    path) contribute nothing — the boundary that keeps a user package from being misdispatched. -/
+theorem builtin_import_local_names_maps_only_aliased_builtins :
+    (builtinImportLocalNames [⟨"encoding/json", none, some "j"⟩]
+        == [("j", "json")])
+      && (builtinImportLocalNames [⟨"encoding/json", none, none⟩] == [])
+      && (builtinImportLocalNames [⟨"strings", none, some "s"⟩] == [("s", "strings")])
+      && (builtinImportLocalNames [⟨"ex.com/foo", none, some "f"⟩] == []) = true := by
+  native_decide
+
+/-- The head rewrite swaps the alias for its canonical package, keeps the leaf, and leaves an
+    unmapped head or a name with no `.` untouched. -/
+theorem canonicalize_builtin_call_name_rewrites_only_mapped_head :
+    (canonicalizeBuiltinCallName [("j", "json")] "j.Marshal" == "json.Marshal")
+      && (canonicalizeBuiltinCallName [("j", "json")] "json.Marshal" == "json.Marshal")
+      && (canonicalizeBuiltinCallName [("j", "json")] "f.Bar" == "f.Bar")
+      && (canonicalizeBuiltinCallName [("j", "json")] "len" == "len") = true := by
+  native_decide
+
+/-- End-to-end: an aliased builtin call resolves identically to the unaliased form, across every
+    package family (`json`/`strings`/`math`/`list`/`base64`/`yaml`). -/
+theorem parse_aliased_builtin_call_resolves_like_unaliased :
+    (parseOutputMatches "import j \"encoding/json\"\nout: j.Marshal({a: 1})\n"
+        "out: \"{\\\"a\\\":1}\"")
+      && parseOutputMatches "import s \"strings\"\nout: s.ToUpper(\"hi\")\n" "out: \"HI\""
+      && parseOutputMatches "import m \"math\"\nout: m.Pow(2, 10)\n" "out: 1024"
+      && parseOutputMatches "import l \"list\"\nout: l.Sum([1, 2, 3])\n" "out: 6"
+      && parseOutputMatches "import b \"encoding/base64\"\nout: b.Encode(null, \"hi\")\n"
+        "out: \"aGk=\""
+      && parseOutputMatches "import y \"encoding/yaml\"\nout: y.Marshal({a: 1})\n"
+        "out: \"a: 1\\n\"" = true := by
+  native_decide
+
+/-- BOUNDARY: the unaliased builtin is unchanged, and an aliased USER import is NOT rewritten to a
+    builtin — `f.Bar` stays a deferred selector (here `f` is unbound, so it resolves to `_|_`,
+    never a marshaled string). -/
+theorem parse_unaliased_builtin_and_aliased_user_import_unchanged :
+    (parseOutputMatches "import \"encoding/json\"\nout: json.Marshal({a: 1})\n"
+        "out: \"{\\\"a\\\":1}\"")
+      && parseOutputMatches "import f \"ex.com/foo\"\nout: f.Bar\n" "out: _|_" = true := by
+  native_decide
+
 -- Coverage tripwire: a swallowed section (e.g. an unterminated `/-- -/`) would drop these
 -- from elaboration. Each `#check` forces the last theorem of every section above to compile.
 #check @parse_pattern_tail_node_is_open_via_tail
 #check @parse_quoted_double_underscore_label_still_parses
 #check @parse_default_mark_group_with_sibling_parses
+#check @parse_unaliased_builtin_and_aliased_user_import_unchanged
 
 end Kue

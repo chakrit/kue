@@ -1569,14 +1569,126 @@ mutual
                     | _ => parseEmbedding chars
 end
 
+/-- Structural-recursion guard for the post-parse builtin-alias rewrite. A parsed body's
+    nesting depth is bounded by the source size and never approaches this; it only makes the
+    rewrite total without `partial`. -/
+def builtinAliasFuel : Nat := 1000
+
+/-- The local head a builtin import binds under (alias > `:identifier` qualifier >
+    last-path-element), paired with its CANONICAL family name (always the last path element).
+    The parser lowers `pkg.fn(...)` to `.builtinCall "pkg.fn"` off the LITERAL head it reads,
+    so an aliased builtin (`import j "encoding/json"` ⇒ `j.Marshal` ⇒ `.builtinCall
+    "j.Marshal"`) carries the alias, which `BuiltinFamily.ofName?` cannot classify. This pairs
+    the as-written head with the canonical name so a post-parse pass can rewrite the call head
+    back to the dispatchable form. -/
+def builtinImportLocalNames : List Import -> List (String × String)
+  | [] => []
+  | imp :: rest =>
+      let canonical := lastPathElement imp.path
+      let asWritten :=
+        match imp.alias with
+        | some alias => alias
+        | none => imp.packageName.getD canonical
+      let here :=
+        -- Only a BUILTIN path is dispatchable; a user import aliased to the same shape
+        -- (`import f "ex.com/foo"; f.Bar`) must NOT be rewritten to a builtin. And a head
+        -- already equal to its canonical name (the unaliased `import "encoding/json"`) needs
+        -- no entry — it dispatches correctly as written.
+        if isBuiltinImport imp.path && asWritten != canonical then [(asWritten, canonical)]
+        else []
+      here ++ builtinImportLocalNames rest
+
+/-- Rewrite the head of a `pkg.fn` builtin-call name from a local alias to its canonical
+    package name, leaving the leaf and any non-matching name untouched. `j.Marshal` with the
+    map `[("j", "json")]` becomes `json.Marshal`; an unmapped head or a name with no `.` is
+    returned verbatim. -/
+def canonicalizeBuiltinCallName (aliasMap : List (String × String)) (name : String) : String :=
+  match name.splitOn "." with
+  | head :: leaf :: more =>
+      match aliasMap.lookup head with
+      | some canonical => String.intercalate "." (canonical :: leaf :: more)
+      | none => name
+  | _ => name
+
+/-- Total structural rewrite mapping aliased builtin-call heads (`j.Marshal`) to their
+    canonical package names (`json.Marshal`) everywhere in a parsed file body, so the
+    alias-blind `BuiltinFamily.ofName?` dispatch resolves an aliased import identically to an
+    unaliased one. Only `.builtinCall` names are touched; every other node is rebuilt
+    unchanged. Recursion is structural with `fuel` as a guard, matching the resolve/remap
+    passes; the parsed forms never approach the bound. -/
+def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value -> Value
+  | 0, value => value
+  | fuel + 1, value =>
+      let rec' := canonicalizeBuiltinCalls aliasMap fuel
+      match value with
+      | .builtinCall name args =>
+          .builtinCall (canonicalizeBuiltinCallName aliasMap name) (args.map rec')
+      | .conj constraints => .conj (constraints.map rec')
+      | .unary op operand => .unary op (rec' operand)
+      | .binary op left right => .binary op (rec' left) (rec' right)
+      | .selector base label => .selector (rec' base) label
+      | .index base key => .index (rec' base) (rec' key)
+      | .disj alternatives => .disj (alternatives.map (fun a => (a.fst, rec' a.snd)))
+      | .struct fields openness tail patterns closedClauses =>
+          .struct
+            (fields.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+            openness
+            (tail.map rec')
+            (patterns.map (fun p => (rec' p.fst, rec' p.snd)))
+            (closedClauses.map (ClosedClause.mapPatterns rec'))
+      | .structComp fields comprehensions openness =>
+          .structComp
+            (fields.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+            (comprehensions.map rec')
+            openness
+      | .list items => .list (items.map rec')
+      | .listTail items tail => .listTail (items.map rec') (rec' tail)
+      | .embeddedList items tail decls =>
+          .embeddedList
+            (items.map rec')
+            (tail.map rec')
+            (decls.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+      | .embeddedScalar scalar decls =>
+          .embeddedScalar
+            (rec' scalar)
+            (decls.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+      | .comprehension clauses body =>
+          .comprehension (clauses.map (canonicalizeBuiltinClause aliasMap fuel)) (rec' body)
+      | .listComprehension clauses body =>
+          .listComprehension (clauses.map (canonicalizeBuiltinClause aliasMap fuel)) (rec' body)
+      | .interpolation parts => .interpolation (parts.map rec')
+      | .dynamicField label fieldClass value =>
+          .dynamicField (rec' label) fieldClass (rec' value)
+      | .closure capturedEnv body => .closure capturedEnv (rec' body)
+      | other => other
+  where
+    canonicalizeBuiltinClause (aliasMap : List (String × String)) (fuel : Nat) :
+        Clause Value -> Clause Value
+      | .forIn key value source =>
+          .forIn key value (canonicalizeBuiltinCalls aliasMap fuel source)
+      | .guard condition => .guard (canonicalizeBuiltinCalls aliasMap fuel condition)
+      | .letClause name value =>
+          .letClause name (canonicalizeBuiltinCalls aliasMap fuel value)
+
+/-- Canonicalize aliased builtin-call heads in a parsed body against the file's imports. A
+    no-op when no import aliases a builtin (the common case), so the unaliased path is
+    untouched. -/
+def applyBuiltinAliases (imports : List Import) (value : Value) : Value :=
+  match builtinImportLocalNames imports with
+  | [] => value
+  | aliasMap => canonicalizeBuiltinCalls aliasMap builtinAliasFuel value
+
 def parseDocument (chars : List Char) : Except ParseError Value :=
-  let chars := consumeImportClauses (consumePackageClauses chars)
-  match parseFieldsUntil none chars [] with
+  let afterPackage := consumePackageClauses chars
+  match parseImportClauses [] afterPackage with
   | .error error => .error error
-  | .ok (fields, rest) =>
-      match skipTrivia rest with
-      | [] => .ok (parsedFieldsValue fields)
-      | rest => parseError rest "unexpected trailing input"
+  | .ok (imports, afterImports) =>
+      match parseFieldsUntil none afterImports [] with
+      | .error error => .error error
+      | .ok (fields, rest) =>
+          match skipTrivia rest with
+          | [] => .ok (applyBuiltinAliases imports (parsedFieldsValue fields))
+          | rest => parseError rest "unexpected trailing input"
 
 /-- 1-based line and column for a char offset into `source`. Walks the first `offset`
     chars, counting newlines; the column resets to 1 after each `'\n'`. Total: recurses
@@ -1617,7 +1729,8 @@ def parseDocumentFile (chars : List Char) : Except ParseError ParsedFile := do
       match skipTrivia rest with
       | [] =>
           let packageName ← sourcePackageName (String.ofList chars)
-          pure { value := parsedFieldsValue fields, packageName := packageName, imports := imports,
+          pure { value := applyBuiltinAliases imports (parsedFieldsValue fields),
+                 packageName := packageName, imports := imports,
                  topLevelFieldNames := bareIdentifierLabels fields }
       | rest => parseError rest "unexpected trailing input"
 

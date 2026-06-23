@@ -436,17 +436,23 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      (prod9 never hits the collision — verified UNAFFECTED). 1 cue-divergence (single-line
      vs two-line diagnostic) + 1 spec-gap (exemption boundary; the aliased-field-label
      corner deliberately exempted as the no-over-reject choice). See implementation-log.
-   - **Aliased-builtin-call resolution (latent, LOW) — surfaced by the A2-y audit.** An
-     ALIASED stdlib import resolves the alias to nothing on the call path:
-     `import j "encoding/json"` + `j.Marshal(x)` yields `incomplete value: j.Marshal(...)`
-     where cue returns the marshalled string. The builtin dispatch keys the call name off the
-     literal member-access head (`json.Marshal`), but an alias rewrites the head to `j`, which
-     `evalBuiltinCall` does not recognise — the alias is never mapped back to the canonical
-     builtin namespace. PRE-EXISTING (reproduces with no field present, `import j
-     "encoding/json"` + `out: j.Marshal({a: 1})`); NOT an A2-y regression (A2-y only added the
-     redeclaration check and correctly EXEMPTS a `json:` field under alias `j`). prod9 canaries
-     use UNALIASED builtin imports, so jq-S=0 is unaffected. Fix = thread the builtin import's
-     alias into the member-access→`builtinCall` lowering so `j.Marshal` lowers to `json.Marshal`.
+   - ~~**Aliased-builtin-call resolution (latent, LOW) — surfaced by the A2-y audit.**~~
+     **RESOLVED 2026-06-23.** An ALIASED stdlib import (`import j "encoding/json"` +
+     `j.Marshal(x)`) yielded `incomplete value` where cue marshals — the parser lowered the
+     call off the LITERAL member-access head `j`, so `evalBuiltinCall` saw `j.Marshal`, which
+     `BuiltinFamily.ofName?` cannot classify. FIX: a post-parse alias canonicalization in
+     `parseDocument`/`parseDocumentFile` (`Parse.lean`) rewrites a builtin-alias call head back
+     to its canonical package name (`j.Marshal` → `json.Marshal`) BEFORE the alias-blind
+     dispatch, using `builtinImportLocalNames` over the file's imports — only when the import
+     PATH is a builtin (`isBuiltinImport`), so an aliased USER import (`import f "ex.com/foo"` +
+     `f.Bar`) is NEVER misdispatched. `builtinImportPaths`/`isBuiltinImport`/`lastPathElement`
+     moved to `Value.lean` (shared base) to avoid duplicating the builtin-path list across the
+     Parse/Module boundary. Resolves identically to cue across all six families
+     (`json`/`strings`/`math`/`list`/`base64`/`yaml`); unaliased unchanged; canaries jq-S=0
+     (prod9 uses unaliased imports). Pins: 4 ParseTests theorems (alias map + head rewrite +
+     per-family e2e + the unaliased/user-import boundary), 1 Bug2xTests export pin, fixtures
+     `testdata/cue/builtins/aliased_builtin.{cue,expected}` (dual CUE-port + CLI witness) and
+     module fixture `testdata/modules/alias_builtin_call/`. No `cue`-divergence (kue conforms).
    - **`scalar-embed` provenance follow-ups** — opportunistic pins (3-level flatten, disj
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.

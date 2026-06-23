@@ -211,7 +211,12 @@ Plus the **item-6 LOW tail** in `plan.md` (cosmetic/latent corners — `module-f
 — `__x` double-underscore + `*(1|2)` sole-marked default — RESOLVED 2026-06-23; both spec-mandated
 rejections, see `plan.md` item-6 + implementation-log. **A2-y — import-name redeclaration — RESOLVED
 2026-06-23** (spec-mandated LOAD error, fixed in `Module.lean`; A2-x stays unobservable as a
-consequence — see `plan.md` item-6 + implementation-log.)
+consequence — see `plan.md` item-6 + implementation-log.) **Aliased-builtin-call resolution —
+RESOLVED 2026-06-23** (an aliased stdlib import — `import j "encoding/json"` + `j.Marshal` — was
+dispatched off the literal alias head and returned `incomplete`; a post-parse alias canonicalization
+in `Parse.lean` rewrites the head to the canonical package before the alias-blind dispatch, scoped to
+builtin paths so a user import aliased is never misdispatched. Conforms to cue across all six families;
+no divergence — see `plan.md` item-6 + implementation-log.)
 
 **Bug2-5 → Bug2-14c — the argocd narrowing/close-once chain — ALL RESOLVED (2026-06-22..23).**
 A 10-fix chain that landed the argocd content-identical drop-in (jq -S diff = 0, ~50.3s). Each was

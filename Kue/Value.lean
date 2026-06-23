@@ -945,6 +945,26 @@ structure Import where
   alias : Option String := none
 deriving Repr, BEq, DecidableEq
 
+/-- The last `/`-separated segment of an import path (`encoding/json` → `json`,
+    `strings` → `strings`). The canonical local name a builtin package binds under, and the
+    family prefix `BuiltinFamily.ofName?` keys on (`json.`, `strings.`, …). -/
+def lastPathElement (path : String) : String :=
+  (path.splitOn "/").getLast!
+
+/-- The standard-library import paths whose symbols are dispatched by `evalBuiltinCall`
+    (call-form `pkg.fn(...)`), not bound as package values. The loader skips these so a
+    builtin import never triggers module resolution; the existing dotted-call path handles
+    them unchanged. The local bind names follow the last path element
+    (`encoding/base64` → `base64`). Shared (in the base layer) by the module loader and the
+    parser's builtin-alias canonicalization. -/
+def builtinImportPaths : List String :=
+  ["strings", "list", "math", "regexp", "encoding/base64", "encoding/json", "encoding/yaml"]
+
+/-- Whether an import path names a built-in stdlib package the loader must leave to the
+    call-form builtin dispatch rather than resolve from disk. -/
+def isBuiltinImport (path : String) : Bool :=
+  builtinImportPaths.contains path
+
 /-- The full result of parsing one `.cue` file: its top-level value (struct body), the
     declared `package` name (`none` when the file omits a package clause), and the imports
     it pulls in. Carries everything the loader needs to resolve and bind imports without

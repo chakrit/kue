@@ -31,19 +31,6 @@ def moduleNotOnDiskError (path modPath version : String) : String :=
   s!"unresolved import {path}: module {modPath}@{version} not found in vendor or cue cache " ++
     "(run `cue mod tidy`/`cue export` once, or vendor it); registry fetch is B3d"
 
-/-- The standard-library import paths whose symbols are dispatched by `evalBuiltinCall`
-    (call-form `pkg.fn(...)`), not bound as package values. The loader skips these so a
-    builtin import never triggers module resolution; the existing dotted-call path handles
-    them unchanged. The local bind names follow the last path element
-    (`encoding/base64` → `base64`). -/
-def builtinImportPaths : List String :=
-  ["strings", "list", "math", "regexp", "encoding/base64", "encoding/json", "encoding/yaml"]
-
-/-- Whether an import path names a built-in stdlib package the loader must leave to the
-    call-form builtin dispatch rather than resolve from disk. -/
-def isBuiltinImport (path : String) : Bool :=
-  builtinImportPaths.contains path
-
 /-- Resolve an import path to a subpath under the module root, purely from the module path.
     `importPath == modPath` ⇒ the module root (`""`); `importPath` under `modPath ++ "/"` ⇒
     the trailing subpath; anything else (a non-matching prefix) ⇒ `none`, signalling a
@@ -183,9 +170,6 @@ def importBindName (imp : Import) (declaredName : Option String) : String :=
           match declaredName with
           | some name => name
           | none => lastPathElement imp.path
-where
-  lastPathElement (path : String) : String :=
-    (path.splitOn "/").getLast!
 
 /-- The redeclaration error `cue` raises when a file's top-level field reuses the local name
     an import binds in the file scope (A2-y). The import declaration binds `bindName` in the

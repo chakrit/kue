@@ -13400,3 +13400,88 @@ case matches (5 collide, 7+ exempt).
 (exemption boundary; the aliased-field-label corner deliberately exempted as the no-over-reject
 choice). `plan.md` item-6 A2-y struck (RESOLVED); A2-x noted as STAYS-unobservable (its merge is
 only reachable via the collision A2-y now rejects at load).
+
+## Completed Slice: Aliased-builtin call resolution (item-6 LATENT, surfaced by A2-y audit)
+
+Goal: close the latent wrong-value gap an aliased stdlib import exposed. `import j
+"encoding/json"` + `out: j.Marshal({a: 1})` returned `incomplete value: j.Marshal(...)` where
+`cue` v0.16.1 marshals to `{"a":1}`. Pre-existing (reproduces with no field present), prod9
+canaries unaffected (they use UNALIASED builtin imports) — but a real wrong value for aliased
+imports.
+
+### Spec-verify FIRST
+
+`cue` v0.16.1 resolves an aliased builtin import IDENTICALLY to the unaliased form — an import
+alias is just a local rebinding of the package name, and member access through it resolves the
+same. Oracle-pinned: `import j "encoding/json"; j.Marshal(x)` == `import "encoding/json";
+json.Marshal(x)`; `import s "strings"; s.ToUpper` == `strings.ToUpper`; `import m "math"; m.Pow`
+== `math.Pow`. Clean spec-correct fix, no surprise — no `cue`-divergence to record.
+
+### Root cause + the seam
+
+The parser lowers a `pkg.fn(...)` member-access call to `.builtinCall "pkg.fn" args` off the
+LITERAL head it reads (`Parse.lean` `parseSelectorRest`, `s!"{pkg}.{label}"`). For an aliased
+import the head is the alias (`j`), so `evalBuiltinCall` sees `.builtinCall "j.Marshal"`, which
+`BuiltinFamily.ofName?` classifies as `none` (no `j.` prefix) → never dispatched. The fix had to
+map the alias back to the canonical package name BEFORE that dispatch.
+
+Seam analysis ruled out the obvious candidates: the parser's expression core is deliberately
+context-free (40-fn mutual block, threading an alias map is invasive and breaks the separation);
+`Resolve`/`Eval` have no import context; a stdin program never reaches the `Module.lean` loader
+(`Main.runEval`/`runExport` stdin paths call `parseSource`/`parseSources` directly), so a
+Module-only fix would miss stdin (and the test corpus runs via stdin). The ONE place with both
+the imports and full coverage of stdin + file + package loads is the **parse completion step**:
+`parseDocument` (stdin) and `parseDocumentFile` (file) both already parse the import clauses
+before the body.
+
+### Implementation
+
+A post-parse alias canonicalization in `Parse.lean`, applied to the parsed body in BOTH document
+parsers:
+
+- `builtinImportLocalNames : List Import → List (String × String)` — `(asWritten, canonical)`
+  pairs, ONLY for a builtin import (`isBuiltinImport imp.path`) aliased to a non-canonical head
+  (alias > `:identifier` qualifier > last-path-element vs `lastPathElement imp.path`). A user
+  import (non-builtin path) contributes nothing — the boundary that prevents misdispatching an
+  aliased USER package as a builtin.
+- `canonicalizeBuiltinCallName` — splits a builtin-call name on the first `.`, swaps a mapped
+  head for its canonical package, leaves the leaf + any unmapped/dotless name untouched.
+- `canonicalizeBuiltinCalls` — total fuel-bounded structural `Value` rewrite (modeled on
+  `resolveValueWithFuel`/`remapConjRefs`) touching ONLY `.builtinCall` names; every other node
+  rebuilt unchanged. `applyBuiltinAliases` is a no-op when no import aliases a builtin (the common
+  case), so the unaliased path is untouched.
+- `parseDocument` now collects imports (via the existing `parseImportClauses`) instead of
+  discarding them (`consumeImportClauses`), so the stdin path gets the rewrite too.
+
+To avoid duplicating the builtin-path list across the Parse/Module boundary (DRY — banned),
+`builtinImportPaths`/`isBuiltinImport`/`lastPathElement` moved DOWN to `Value.lean` (the shared
+base both import); `Module.lean`'s copies deleted and its `importBindName` `where`-local
+`lastPathElement` folded into the shared one.
+
+### Verify
+
+`lake build` clean (112 jobs, all `native_decide` green). `scripts/check-fixtures.sh` — `fixture
+pairs ok`, zero unintended drift (the 2 new fixtures + module fixture green). **Canaries jq -S =
+0** from `/Users/chakrit/Documents/prod9/infra`: cert-manager (~11.5s) + argocd (~50.7s)
+UNAFFECTED. No shell touched. All six families oracle'd == cue (`json`/`strings`/`math`/`list`/
+`base64`/`yaml`); unaliased unchanged; an aliased USER import (`import f "ex.com/foo"; f.Bar`)
+resolves to the user package (a deferred selector), NOT a builtin. The comprehension-loop-var →
+`json.Marshal` corner errors in BOTH kue and cue (pre-existing, alias-independent) — out of scope.
+
+### Tests
+
+4 ParseTests theorems: `builtin_import_local_names_maps_only_aliased_builtins` (the alias map +
+the user-import boundary), `canonicalize_builtin_call_name_rewrites_only_mapped_head` (the head
+rewrite), `parse_aliased_builtin_call_resolves_like_unaliased` (per-family e2e), and
+`parse_unaliased_builtin_and_aliased_user_import_unchanged` (the boundary). 1 Bug2xTests EXPORT
+pin `aliased_builtin_call_marshals_like_unaliased` (export observable — a regression to
+`incomplete`/bottom fails). Fixtures: `testdata/cue/builtins/aliased_builtin.{cue,expected}` (all
+six families; the dual CUE-port witness builds the CANONICAL AST in `FixturePorts.lean` while the
+CLI port parses the ALIASED `.cue` — both matching `.expected` proves the canonicalization) and
+multi-file module fixture `testdata/modules/alias_builtin_call/` (loader path).
+
+### Records
+
+No `cue`-divergence (kue conforms once fixed) and no spec-gap (an alias is an unambiguous local
+rebinding — spec-clear). `plan.md` item-6 aliased-builtin entry struck (RESOLVED);
+`spec-conformance-audit.md` item-6 tail updated.

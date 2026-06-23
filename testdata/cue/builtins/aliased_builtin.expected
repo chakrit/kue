@@ -1,0 +1,11 @@
+jsonMarshal: "{\"a\":1}"
+jsonList: "[1,2,3]"
+strUpper: "HELLO"
+strLower: "world"
+strContains: true
+mathPow: 1024
+mathSqrt: 12
+listSum: 10
+listConcat: [1, 2, 3]
+b64Encode: "aGk="
+yamlMarshal: "a: 1\n"
