@@ -1619,7 +1619,29 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (constraint : Value) : List Value
             match nthField id.index.val frame.snd with
             | some field =>
                 match Field.value field with
-                | .conj cs => cs.flatMap (flattenConjDefRef env fuel)
+                | .conj cs =>
+                    -- Bug2-12: a SELF-RECURSIVE CLOSED definition (`#X: #X & {a:1}`, whose body is
+                    -- the `.conj [#X, {a:1}]` reached here) loses its closedness on this flatten. A
+                    -- bare depth-0 self-ref conjunct (`#X` pointing back at THIS slot) is the
+                    -- structural-cycle fixpoint — the cycle path (D#2a) bottoms it, contributing no
+                    -- live fields — so the def's OWN closedness must come from the remaining
+                    -- struct-literal conjuncts (`{a:1}`). When the def is closed (its field
+                    -- `isDefinition` AND the body is genuinely self-referential), close each
+                    -- struct-literal conjunct via the def-body closer so a use-site `& {b:2}` meets a
+                    -- CLOSED struct (rejected). The self-ref conjunct is a `.refId`, which the closer
+                    -- leaves untouched, so cycle DETECTION/termination is unchanged (this runs at the
+                    -- flatten, never on `structStack`). A non-self-recursive multi-conjunct def
+                    -- (`#LS: #Base & {#extra}` — `#Base` is a DIFFERENT slot) is NOT self-referential,
+                    -- so its narrowing conjuncts stay OPEN and the close-once-via-`closedClauses`
+                    -- fold (Bug2-6..9) is preserved unchanged.
+                    let isSelfRef := cs.any fun c =>
+                      match c with
+                      | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
+                      | _ => false
+                    let close := field.fieldClass.isDefinition && isSelfRef
+                    let expanded := cs.flatMap (flattenConjDefRef env fuel)
+                    if close then expanded.map (normalizeDefinitionValueWithFuel normalizeFuel)
+                    else expanded
                 | _ => [constraint]
             | none => [constraint]
   | _, _ => [constraint]

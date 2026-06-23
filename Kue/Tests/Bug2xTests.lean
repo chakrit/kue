@@ -841,6 +841,82 @@ theorem bug214_multi_level_comprehension_combined :
         = true := by
   native_decide
 
+-- ### Bug2-12 — a SELF-recursive closed def must still reject use-site extras (RESOLVED).
+--
+-- `#X: #X & {a: 1}` is a CLOSED definition whose body REFERENCES itself. Self-recursion does NOT
+-- re-open it: closedness is a property of the definition, independent of how its body refers to
+-- itself. So `out: #X & {b: 2}` must REJECT `b` (cue v0.16.1: `out.b: field not allowed`), and the
+-- INLINED form `(#X & {a: 1}) & {b: 2}` leaks identically — the gap was in the closing normalizer,
+-- not a flatten path. Root cause: the def body here is a `.conj [#X, {a: 1}]` (a meet), and
+-- `normalizeDefinitionValueWithFuel` (the def-body closer) had NO `.conj` arm — it fell through the
+-- value-unchanged tail, so the def body's `{a: 1}` conjunct never closed. The structural-cycle path
+-- (D#2a) then terminated `#X` to a shallow bottom and the surviving `{a: 1}` was OPEN, admitting the
+-- use-site `b`. FIXED by a `.conj` arm in `normalizeDefinitionValueWithFuel` that closes each
+-- conjunct (def-closedness distributes over a meet); cycle detection/termination is UNTOUCHED (the
+-- fix runs at capture/normalize, never on `structStack`). cue REJECTS `b`.
+theorem bug212_selfrec_closed_def_rejects_use_extra :
+    exportJsonBottoms "#X: #X & {a: 1}\nout: #X & {b: 2}\n" = true := by
+  native_decide
+
+-- The INLINED form `(#X & {a: 1}) & {b: 2}` leaks identically pre-fix (it never reaches the flatten),
+-- confirming the fix is in the cycle/closedness interaction, not `flattenConjDefRef`. cue REJECTS.
+theorem bug212_selfrec_inlined_rejects_use_extra :
+    exportJsonBottoms "#X: #X & {a: 1}\nout: (#X & {a: 1}) & {b: 2}\n" = true := by
+  native_decide
+
+-- ADMIT boundary (do NOT over-close): a field the closed body DECLARES (`a`) still admits + narrows.
+theorem bug212_selfrec_closed_def_admits_declared :
+    exportJsonMatches "#X: #X & {a: int}\nout: #X & {a: 5}\n"
+      "{\n    \"out\": {\n        \"a\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- PATTERN boundary: a use-site field MATCHING the def's own pattern (`[=~\"^p\"]`) is ADMITTED even
+-- under self-recursion; the closed-pattern allowed-set survives the cycle path. cue `{a:1, p1:5}`.
+theorem bug212_selfrec_pattern_admits_match :
+    exportJsonMatches "#X: #X & {a: 1, [=~\"^p\"]: int}\nout: #X & {p1: 5}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"p1\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- PATTERN boundary (reject): a NON-matching extra is still rejected under self-recursion. cue rejects.
+theorem bug212_selfrec_pattern_rejects_nonmatch :
+    exportJsonBottoms "#X: #X & {a: 1, [=~\"^p\"]: int}\nout: #X & {q1: 5}\n" = true := by
+  native_decide
+
+-- OPEN-TAIL boundary (do NOT over-close): a self-recursive def with an explicit `...` stays OPEN —
+-- the use-site extra is admitted. The `.conj` closer must preserve a `defOpenViaTail` conjunct's
+-- openness. cue `{a:1, b:2}`.
+theorem bug212_selfrec_opentail_admits_extra :
+    exportJsonMatches "#X: #X & {a: 1, ...}\nout: #X & {b: 2}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- NESTED boundary (reject): closedness propagates into a nested struct literal under self-recursion —
+-- an extra in `sub` is rejected. cue `out.sub.extra: field not allowed`.
+theorem bug212_selfrec_nested_rejects_extra :
+    exportJsonBottoms "#X: #X & {a: 1, sub: {s: 1}}\nout: #X & {sub: {extra: 2}}\n" = true := by
+  native_decide
+
+-- NESTED boundary (admit): a declared nested field still admits. cue `{a:1, sub:{s:1}}`.
+theorem bug212_selfrec_nested_admits_declared :
+    exportJsonMatches "#X: #X & {a: 1, sub: {s: 1}}\nout: #X & {sub: {s: 1}}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"sub\": {\n            \"s\": 1\n        }\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- D#2 GUARDRAIL (must stay green): the structural-cycle DETECTION is untouched by the closer fix —
+-- `#L: {n, next: #L}` still ERRORS (`.structuralCycle`), never unrolls. Pinned end-to-end here so a
+-- Bug2-12 regression that perturbs cycle detection is caught in THIS file too.
+theorem bug212_struct_cycle_still_bottoms :
+    exportJsonBottoms "#L: {n: 1, next: #L}\nx: #L\n" = true := by
+  native_decide
+
+-- D#2 GUARDRAIL (must stay green): the terminating disjunction `#List | *null` still TERMINATES on
+-- `*null` — the closer fix does not change when/whether the cycle bottoms. cue `{head:1, tail:null}`.
+theorem bug212_list_disj_still_terminates :
+    exportJsonMatches "#List: {head: int, tail: #List | *null}\ny: #List & {head: 1}\n"
+      "{\n    \"y\": {\n        \"head\": 1,\n        \"tail\": null\n    }\n}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -858,5 +934,6 @@ theorem bug214_multi_level_comprehension_combined :
 #check @bug214_conflicting_type_bottoms                       -- Bug2-14
 #check @bug214b_disj_arm_conflict_bottoms                     -- Bug2-14b/c
 #check @bug214_multi_level_comprehension_combined             -- Bug2-14 audit (multi-level + comprehension)
+#check @bug212_list_disj_still_terminates                     -- Bug2-12
 
 end Kue

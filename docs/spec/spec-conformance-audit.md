@@ -199,11 +199,15 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
 2. **SC-4** (LOW, spec-gap-first — nested hidden/let-bound closedness on direct def-meet).
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
-3. **Bug2-12** (LOW/spec-check — recursive-def closedness leak). A SELF-recursive closed def
-   narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined form)
-   admits the extra; cue rejects. NOT introduced by `flattenConjDefRef` (the inlined form leaks
-   identically). Pre-existing closedness gap on the structural-cycle path; spec-check cue's
-   rejection before fixing. See the Bug2-12 entry below.
+3. **Bug2-12** (SELF-recursive case — **RESOLVED 2026-06-23**; MUTUAL tail OPEN). A SELF-recursive
+   closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined
+   form) admitted the extra; cue rejects (spec-correct — closedness is a property of the definition,
+   self-recursion does NOT re-open it). FIXED in `flattenConjDefRef`: a self-referential closed def's
+   `.conj` body now closes its struct-literal conjuncts (the self-ref conjunct bottoms via the cycle
+   path, contributing no fields, so the def's closedness must come from its own literals). Admit/
+   pattern/open-tail/nested boundaries all conform; D#2 detection + canaries unchanged. The MUTUAL
+   case (`#A: #B & {a}`, `#B: #A & {b}`) is a distinct leak deferred as a spec-gap (cue's "reject the
+   def's own field" reading is lattice-questionable) — see `cue-spec-gaps.md` Bug2-12 MUTUAL row.
 4. **missing-field-selection** (LOW, surfaced while pinning Bug2-13). `x.a.missing != _|_` on a
    genuinely-MISSING (never-declared) field of a regular struct → kue `incomplete value` vs cue
    `false`; the missing select stays a deferred `.selector` rather than reading absent. Distinct
@@ -263,15 +267,25 @@ boundary, commit) is HISTORY — in `implementation-log.md` (one entry per fix) 
   the `error` arm, both correctly NON-drain). **HONEST: the whole 37230-byte manifest byte-matches
   cue under sorted keys — no on-path layer hides behind a sound drain.**
 
-**Bug2-12** (LOW/spec-check — recursive-def closedness leak, found same audit): a SELF-recursive
+**Bug2-12** (SELF-recursive — **RESOLVED 2026-06-23**; MUTUAL tail recorded OPEN): a SELF-recursive
 closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined
-`(#X & {a:1}) & {b:2}`) → kue admits `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).
-NOT introduced by `flattenConjDefRef` — the INLINED form (which never reaches the flatten) leaks
-identically, and `flattenConjDefRef` correctly preserves named==inlined. Pre-existing closedness gap
-on the structural-cycle path (a closed def loses its allow-set when self-recursion is folded across a
-use-site narrowing). Spec-check before fixing — confirm cue's rejection is spec-mandated, not a
-structural-cycle artifact. (The Bug2-5..2-14c chain that surfaced it is RESOLVED — see the
-compressed summary above; full detail in `implementation-log.md` + git.)
+`(#X & {a:1}) & {b:2}`) admitted `b` (`{a:1,b:2}`); cue rejects (`field not allowed`).
+**Spec-verified cue is CORRECT here** — closedness is a property of the definition, independent of
+how its body self-references; self-recursion does NOT open the def. Root cause: the def body `#X & {a:1}`
+parses to a `.conj [#X, {a:1}]`, and the structural-cycle path terminated the self-`#X` to a shallow
+bottom while leaving the surviving `{a:1}` OPEN — the def-closedness was never applied to the cycle-folded
+struct (the closer `normalizeDefinitionValueWithFuel` has no `.conj` arm, and `refDefClosureBody?` skips a
+non-struct-like `.conj` body, so the bare-ref/flatten path produced an open struct). **FIX** (`flattenConjDefRef`,
+`Eval.lean`): when expanding a DEFINITION field whose `.conj` body is genuinely SELF-REFERENTIAL (a depth-0
+conjunct refs the same slot), close each expanded conjunct via `normalizeDefinitionValueWithFuel` — the
+struct literals close (`{a:1}` → `defClosed`), while the self-ref `.refId` conjunct is left untouched by the
+closer so the cycle path bottoms it identically. cert-manager + argocd jq -S = 0 (zero recursive defs, no
+firing); a non-self-recursive multi-conjunct def (`#LS: #Base & {#extra}`, Bug2-6..9) is NOT self-referential
+so its narrowing conjuncts stay OPEN and the close-once-via-`closedClauses` fold is untouched. The MUTUAL
+case (`#A: #B & {a}`, `#B: #A & {b}`) is a SEPARATE leak — kue under-closes (admits), cue rejects even the
+def's OWN field; cue's mutual reading is lattice-questionable, so it is recorded as an OPEN spec-gap rather
+than blindly matched (`cue-spec-gaps.md` Bug2-12 MUTUAL row), deferred as a future fix-slice. (The
+Bug2-5..2-14c chain that surfaced it is RESOLVED — see the compressed summary above.)
 
 Audit cadence + the non-spec-conformance plan roadmap live in `plan.md` / the breadcrumb,
 not here.

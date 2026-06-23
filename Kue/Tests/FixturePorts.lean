@@ -791,6 +791,45 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-12: a SELF-recursive CLOSED def (`#X: #X & {a:1}`) must still REJECT a use-site extra —
+      -- self-recursion does not re-open the definition. `out: #X & {b: 2}` bottoms `b`. Pre-fix the
+      -- `.conj` def body lost its closedness on the flatten and admitted `b`.
+      fileName := "definitions/bug212_selfrec_closed_rejects_extra.expected",
+      content :=
+        match parseSource "#X: #X & {a: 1}\nout: #X & {b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12 ADMIT boundary: a field the closed self-recursive body DECLARES (`a`) still admits
+      -- and narrows (`a: int` & `a: 5` → `a: 5`). The fix must not over-close.
+      fileName := "definitions/bug212_selfrec_admits_declared.expected",
+      content :=
+        match parseSource "#X: #X & {a: int}\nout: #X & {a: 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12 OPEN-TAIL boundary: a self-recursive def with an explicit `...` stays OPEN — the
+      -- use-site extra is admitted (`b: 2`). The closer preserves a `defOpenViaTail` conjunct's
+      -- openness, so this is NOT over-closed.
+      fileName := "definitions/bug212_selfrec_opentail_admits.expected",
+      content :=
+        match parseSource "#X: #X & {a: 1, ...}\nout: #X & {b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12 PATTERN boundary: a use-site field MATCHING the closed self-recursive def's own
+      -- pattern (`[=~"^p"]`) is ADMITTED (`p1: 5`); the closed-pattern allowed-set survives the
+      -- cycle-flatten path. A non-matching extra is rejected (pinned in `Bug2xTests`).
+      fileName := "definitions/bug212_selfrec_pattern_admits.expected",
+      content :=
+        match parseSource "#X: #X & {a: 1, [=~\"^p\"]: int}\nout: #X & {p1: 5}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

@@ -12597,3 +12597,81 @@ green on the reverted tree, both canaries jq -S = 0 (unchanged from baseline). F
 `docs/guides/kue-performance.md` (perf-#7 frame-sharing DESIGNED-AND-DEFERRED block + ceiling table),
 `docs/spec/plan.md` (leader block + item 5 → won't-fix), `docs/reference/implementation-log.md`,
 `docs/notes/` (breadcrumb rotated).
+
+---
+
+## Completed Slice: Bug2-12 — self-recursive closed def must still reject use-site extras
+
+### Goal
+
+Close a closedness SOUNDNESS leak on the structural-cycle path. `#X: #X & {a:1}` (a SELF-recursive
+CLOSED definition) then `out: #X & {b:2}` ADMITTED `b` (`{a:1,b:2}`); `cue` v0.16.1 REJECTS
+(`out.b: field not allowed`). The inlined form `(#X & {a:1}) & {b:2}` leaked identically, confirming
+the gap is in the cycle/closedness interaction, not a flatten-specific path.
+
+### Spec basis (verified FIRST)
+
+`cue` is SPEC-CORRECT here. Closedness is a property of the definition, independent of how its body
+self-references; self-recursion does NOT re-open it. Cross-checked the consistency: `#A & #B` (distinct
+closed-def meet) rejects both sides in BOTH kue and cue; the one-way `#A: #B & {a}`, `#B: {b}`
+(non-recursive) rejects `#A.a` in both — cue's closed-meet rule is internally consistent. So the
+self-recursive reject IS spec-mandated, not a cue artifact → FIX (not record-and-match).
+
+### Root cause
+
+The def body `#X & {a:1}` parses to a `.conj [#X, {a:1}]`. Two closing paths skip it:
+- `refDefClosureBody?` only fires for a struct-LIKE body (`.struct`/`.structComp`); a `.conj` body
+  returns `none`, so the standalone bare-ref path resolves via the structural-cycle `recurseBody`
+  WITHOUT closing.
+- The def-body closer `normalizeDefinitionValueWithFuel` had NO `.conj` arm — a `.conj` body hit the
+  `| _, value => value` tail UNCHANGED.
+
+So `#X`'s self-recursion terminated (`structStack` bottoms the inner `#X` with `.structuralCycle`) and
+the surviving `{a:1}` was OPEN. At the use site, `flattenConjDefRef` unrolled `#X & {b:2}` into open
+`{a:1}` literals + `{b:2}`, merging to an open struct that admitted `b`.
+
+### Fix (`flattenConjDefRef`, `Eval.lean`)
+
+When expanding a DEFINITION field whose `.conj` body is genuinely SELF-REFERENTIAL — a depth-0
+conjunct refs the SAME slot index being expanded — close each expanded conjunct via
+`normalizeDefinitionValueWithFuel`. The struct literals close (`{a:1}` → `defClosed`, rejecting a
+use-site extra); the self-ref `.refId` conjunct is left UNCHANGED by the closer (no `.refId` arm), so
+the structural-cycle path bottoms it identically — cycle DETECTION/termination is untouched (the fix
+runs at the flatten, never on `structStack`).
+
+The self-ref guard is the soundness boundary: a NON-self-recursive multi-conjunct def (`#LS: #Base &
+{#extra}`, Bug2-6..9 — `#Base` is a DIFFERENT slot, not a back-ref) is NOT self-referential, so its
+narrowing conjuncts stay OPEN and the close-once-via-`closedClauses` fold is preserved unchanged. (An
+earlier attempt — a blanket `.conj` arm in `normalizeDefinitionValueWithFuel` — over-closed: it broke
+6 Bug2-6..9 pins by closing the `{#extra}`/`{#q}` narrowing structs of distinct-def meets at load.
+Reverted in favor of the self-ref-gated flatten fix.)
+
+### Boundaries (all == cue v0.16.1)
+
+- REJECT: `#X: #X & {a:1}`, `out: #X & {b:2}` → `b: _|_`; the inlined form rejects identically; a
+  non-matching pattern extra (`[=~"^p"]` def, `out: #X & {q1:5}`) rejects; a nested extra
+  (`sub: {extra}`) rejects at depth.
+- ADMIT (no over-close): a declared field (`a: int` & `a: 5` → `a: 5`); a pattern-MATCHING field
+  (`p1: 5` under `[=~"^p"]`); an `...`-open-tail def admits any extra (`defOpenViaTail` preserved); a
+  declared nested field admits.
+
+### MUTUAL tail (recorded OPEN, NOT fixed)
+
+Mutual recursion `#A: #B & {a}`, `#B: #A & {b}` is a DISTINCT leak: kue admits (`{a:1,b:2}`), cue
+rejects even the def's OWN field (`#A.a: field not allowed`) under its closed-meet reading. cue's
+mutual reading is lattice-questionable (a def rejecting a field it itself declares); the fix would need
+transitive back-ref detection AND a decision on that questionable semantics, so it is recorded as an
+OPEN spec-gap (`cue-spec-gaps.md` Bug2-12 MUTUAL row) rather than blindly matched — deferred as a
+future fix-slice (guardrail #5: scoped to avoid over-reaching the cycle machinery).
+
+### Tests + verify
+
+11 `native_decide` pins in `Bug2xTests.lean` (`### Bug2-12` section): the 4 reject boundaries, 4 admit
+boundaries (declared / pattern-match / open-tail / nested), + 2 D#2 GUARDRAILS re-pinned end-to-end
+in this file (`#L:{n,next:#L}` still bottoms `.structuralCycle`; `#List | *null` still terminates on
+`*null`). 4 fixtures (`testdata/cue/definitions/bug212_selfrec_{closed_rejects_extra,admits_declared,
+opentail_admits,pattern_admits}.{cue,expected}` + `FixturePorts.lean` entries). Coverage tripwire
+sentinel added. `lake build` clean (no new warning/`sorry`/axiom — `flattenConjDefRef` depends only on
+`propext`); `scripts/check-fixtures.sh` → fixture pairs ok (only the 4 intended new fixtures);
+cert-manager + argocd jq -S = 0 (prod9 has zero recursive defs, so the self-ref guard never fires).
+LatticeTests/EvalTests D#2 pins green.
