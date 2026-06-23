@@ -5,7 +5,7 @@ at a time. The full record of completed slices lives in
 [`../reference/implementation-log.md`](../reference/implementation-log.md) (chronological,
 one entry per commit) and `git log`; this file holds only where we are and what's next. A
 periodic plan-hygiene pass distills it back to the live roadmap (history → log + git); see
-[`../guides/slice-loop.md`](../guides/slice-loop.md). Last distilled 2026-06-21.
+[`../guides/slice-loop.md`](../guides/slice-loop.md). Last distilled 2026-06-23.
 
 ## North Star
 
@@ -31,9 +31,10 @@ target is the language as specified, not bug-for-bug parity. See
 - **Real-app compilation is a stress test, not the goal.** Getting prod9 infra (argocd,
   cert-manager) to `export` *validates* correct semantics; it is never an end in itself.
   Rank slices by spec-correctness and clean design evolution — never let one app's shape
-  pull the loop into per-app special-casing. A real-app blocker needing app-specific
-  narrowing is parked as a stress-test finding (argocd/Bug2-7), not promoted to the
-  critical path; it resolves as the general semantics mature.
+  pull the loop into per-app special-casing. A real-app blocker is a stress-test finding,
+  resolved by GENERAL semantic fixes as they mature, never by per-app narrowing — the
+  Bug2-5..2-14c argocd chain landed exactly this way (each fix general, oracle-pinned at
+  single-package granularity, no argocd-keyed code).
 
 ## Standing Capabilities (what Kue does now)
 
@@ -76,7 +77,9 @@ field-ordering byte-parity gap (#3):
 - **Fuel-saturation perf.** Eval count FLAT across fuel (bracketed monotonic truncation
   counter; truncated values fuel-keyed, saturated results fuel-free). `evalFuel = 100`.
   Frame-id sharing + force-memo. Cache keyed on a bounded-depth structural digest
-  (`valueDigest`, `DIGEST_DEPTH=3`; `BEq` untouched → soundness unconditional).
+  (`valueDigest`, `DIGEST_DEPTH=3`; `BEq` untouched → soundness unconditional). Perf #7
+  (2026-06-23) added a `selfEvaluatingLeaf?` fast path (env-independent leaves bypass the
+  cache) + saturated-only `satCache` insert — both value-identical by construction.
 - **Builtins.** `base64.Encode`, `json.Marshal` (`Kue/Json.lean`), `yaml.Marshal`
   (`Kue/Yaml.lean`), `regexp.Match`, `math.Pow`/`math.Sqrt` (full real domain, exact decimal),
   `list.Sort` /`SortStable`, `strings.*` /`list.*`/`math.*` namespaces. Multiline strings.
@@ -98,68 +101,25 @@ field-ordering byte-parity gap (#3):
 - **CLI.** `kue eval`, `kue export [--out yaml|json] [file|dir]` (stdin or arg), clean
   missing-file diagnostics + exit codes.
 
-**Real-app status** (prod9 infra, read-only oracle):
-- **cert-manager: content-identical drop-in, ~30.6s.** Exports correctly at production
-  fuel, byte-identical to `cue` modulo field-order #3 (the item-7 cache-hash digest
-  collapsed the ~119s O(N²) wall to ~30.6s).
-- **argocd: content-identical drop-in, ~53s (2nd prod9 real app after cert-manager;
-  2026-06-23).** Full `apps/argocd.cue` now exports CONTENT-IDENTICAL to `cue` (jq -S diff = 0,
-  37230 bytes both, sorted-key, modulo field-order #3). Unblocked by Bug2-14b + Bug2-14c (the
-  last two on-path layers): the `#Mixin` structural-disjunction let-local (`_patch.kind`) now
-  receives the host's `kind` narrowing both through a single-closure embed chain (Bug2-14b — the
-  `embedBodyEmbedsDisjDeep` gate was resolving against the wrong frame) and across a multi-closure
-  `.conj` fold (Bug2-14c — a two-pass fold splicing a sibling closure's regular fields into a
-  disjunction-bearing closure). HONEST: the whole manifest byte-matches cue — no further on-path
-  layer hides behind a sound drain.
-- **argocd HISTORY (pre-full-export):** `packs.#Argo` (link 5) content-correct (4-link chain).
-  All three components content-identical to `cue` in the scratch module. **Bug2-5** (transitive-embed disj-path narrowing injection) FIXED
-  (`5fca57e`, 2026-06-22) — NOT the final blocker. **Bug2-6** (definition multi-declaration
-  close-once) FIXED (`ef824cb`, 2026-06-23) — also NOT the final blocker. **Bug2-7** (same-def
-  multi-decl close-once on the def-REFERENCE / force-fold path) FIXED (`3361699`, 2026-06-23 —
-  per-operand `canonicalizeFields`) — also NOT the final blocker. **Bug2-8** (same-def multi-decl
-  close-once ACROSS AN EMBED boundary) FIXED (`2332aff`, 2026-06-23 — a `DeclProvenance`
-  sum on a named `ConjOperand`; a plain embed's same-def-path decls fold into the static frame as
-  an `embeddedDecl` operand, close-once-UNIONing via `mergeConjOperandFields`/`mergeDefinitionDecls`,
-  and the meet-fold strips the embed's matching decl; the cert-manager REGULAR closed pattern stays
-  a MEET) — also NOT the final blocker. **Bug2-9** (use-site narrowing of a REFERENCED NAMED
-  multi-conjunct def, `ls = defaults.#ListenerSet & {#name,…}` where `defaults.#ListenerSet =
-  defs.#ListenerSet & parts.#UseCertManager & {…}`) FIXED (`5d9cf8f`, 2026-06-23 —
-  `flattenConjDefRef` flattens a depth-0 ref-to-`.conj`-bodied def into its constituents before the
-  `.conj` fold, making the named ref byte-identical to the inlined meet) — also NOT the final
-  blocker. **Bug2-10** (use-site narrowing into a `.structComp` HOST's embedded self-ref) FIXED
-  (`aa4172b`, 2026-06-23 — `conjStructCompDefer?` defers a structComp host with a sibling-self-ref
-  embed into the shared-`useOperands` fold; PLUS a pre-existing embed-meet closedness leak fixed via
-  `embeddingClosesHost`) — also NOT the final blocker. **Bug2-11** (use-site narrowing of a
-  TWO-LEVEL cross-package def-of-def selector) FIXED (`bdced40`, 2026-06-23 —
-  `conjBodyHasDeferringArm` + `.conj`-body capture in `importDefClosureBody?` + a `.conj`
-  re-fold arm in `forceClosureWithConjunctCore`, each arm keeping its OWN package frame) — the
-  real argocd `listener.yaml` subtree now FULLY narrows (metadata.name "argocd-ls",
-  #passthrough_hosts, all #additions). **NOT the final blocker either.** **Bug2-13** (unset
-  optional selection reads as ABSENT) FIXED (`7e69e43`, 2026-06-23 — `selectedFieldValue` + the
-  `.refId` eval arm resolve an `.optional`-rung field to `.bottom`; the over-fire guard is the
-  `.optional` rung itself, a set optional downgrades to `.regular`) — cleared `route.yaml`'s
-  `#service_port: _|_`, but **also NOT the final blocker.** **Bug2-14** (the general "case D"
-  embed-merge frame-binding bug — an embed declaring a label ABSTRACTLY which the host narrows
-  CONCRETELY leaves the embed body's sibling/comprehension read bound to the embed-LOCAL un-narrowed
-  value) **RESOLVED for the PLAIN-EMBED path** (`e404b21`, 2026-06-23 — `injectEmbedSiblingNarrowings`
-  at `meetEmbeddingsWithFuel`, meeting the host narrowing into the embed body's read-and-declared
-  same-label slot before the body evals; the analog of `injectLetLocalNarrowings` for an embed body;
-  both case-D forms == cue, over-rebase guarded, cert-manager content-identical) — was NOT the
-  terminal blocker. **Bug2-14b + Bug2-14c** (the last two on-path argocd layers) **RESOLVED**
-  (2026-06-23): the argocd `#Mixin` is a STRUCTURAL DISJUNCTION (`listShape | structShape | error`)
-  embedding a `let _patch` whose `for…if kind==…` guard reads a host-narrowed sibling `kind`.
-  **Bug2-14b** — `embedBodyEmbedsDisjDeep` was gated against the OUTER fold `env`, but the body's own
-  embed-refs are relative to the def frame the force PUSHES (the Bug2-11 wrong-frame hazard, confirmed
-  by trace: `#Mixin` resolved to the string `"ListenerSet"`); fixed by a `bodyForceFrameEnv` helper at
-  all three gate sites. **Bug2-14c** — the real `defaults.#ListenerSet = defs.#ListenerSet &
-  parts.#UseCertManager & {…}` is a MULTI-CLOSURE conjunction where `kind` lives in one closure and the
-  disjunction+`_patch` in another; the `.conj` fold forced each closure independently so `kind` never
-  reached `_patch.kind`. Fixed by a TWO-PASS fold splicing a sibling closure's regular fields into a
-  disjunction-bearing closure. Sound: arm selection stays correct (struct arm wins, list/error prune),
-  incomplete-guard DEFERS (not force-drain), real conflict BOTTOMS, cert-manager content-identical.
-  Module fixtures `bug214b_disjarm_letlocal_force` + `bug214c_disjarm_letlocal_crossconj`; inline pins
-  `Bug2xTests` `bug214b_disj_arm_{drains,incomplete_guard_defers,conflict_bottoms}`. Full repro +
-  mechanism in `spec-conformance-audit.md` Bug2-14b/c entry.
+**Real-app status** (prod9 infra, read-only oracle) — TWO content-identical drop-ins:
+- **cert-manager: content-identical drop-in, ~11.7s.** Exports correctly at production fuel,
+  byte-identical to `cue` modulo field-order #3 (the item-7 cache-hash digest collapsed the
+  ~119s O(N²) wall; the Bug2-x close-once/frame-id chain + perf #7 brought it to ~11.7s).
+- **argocd: content-identical drop-in, ~50.3s (2nd prod9 real app; 2026-06-23).** Full
+  `apps/argocd.cue` exports CONTENT-IDENTICAL to `cue` (jq -S diff = 0, sorted-key, modulo
+  field-order #3). The whole manifest byte-matches cue — no on-path layer hides behind a sound
+  drain. The ~50.3s wall is now a PURE perf concern (no correctness divergence) — see perf #7
+  (the ranked leader below).
+
+The argocd milestone closed a 10-fix narrowing/close-once chain (**Bug2-5 → Bug2-14c**,
+2026-06-22..23): definition multi-declaration close-once across reference / embed / cross-package
+boundaries, use-site narrowing delivery to deferred def interiors, unset-optional selection, and
+finally the `#Mixin` structural-disjunction let-local (`_patch.kind`) receiving the host's `kind`
+narrowing through a single-closure embed chain (Bug2-14b — wrong-frame gate) and a multi-closure
+`.conj` fold (Bug2-14c — two-pass sibling-field splice). The full blow-by-blow (every Bug2-N
+commit, mechanism, repro, soundness boundary) is HISTORY — in `implementation-log.md`,
+`spec-conformance-audit.md`, and `git log`. Durable rulings that survived the chain are in
+Resolved/ruled-out below.
 
 ## Live Backlog (open work, ranked)
 
@@ -173,91 +133,31 @@ owns the non-spec-conformance work.
 backlog (authoritative; do NOT duplicate the detail here).** Everything
 spec-conformance-HIGH is DONE (the closedness family incl. SC-1b/1e + EMBED-CLOSE-1, the
 MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, the
-4 ratifications). The BI-2 family is now **COMPLETE**: **BI-2** (math.Pow exact + Sort)
-+ **BI-2-residual** (math.Sqrt + Pow(·,½), 2026-06-21) + **BI-2-§3** (general neg-int +
-non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
-DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
-real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **NEXT LEADER: perf #7 — PROFILED + PARTIALLY OPTIMIZED (2026-06-23);
-the root cost is now NAMED and a deeper sound fix is DESIGNED + deferred.** argocd exports
-content-identical at **~50.3s** (was ~53.4s) vs `cue` 0.03s. The profile (instrumented
-`evalValueWithFuel` over the 832K-eval whole-root export) found: `evalCalls=832338`,
-**`evalCacheHits=0`** (the fuel-keyed `cache` never hits — all re-served from `satCache`), and
-**`distinctShapes=4763`** distinct value subtrees → a **~175× re-eval factor** — the SAME subtree
-is core-evaluated ~175× because reached under ~175 distinct frame envs and the cache keys on
-`env.ids`. This is FRAME-ID DIVERGENCE, not fuel (DIGEST_DEPTH 1 vs 3 measured FLAT, so the
-item-7 hash is well-tuned and digest cost is not the wall) and not an O(N²) collapse. Tag
-histogram: `.prim` 185K / `.struct` 129K / `.kind` 123K / `.refId` 108K / `.binary` 66K /
-`.conj` 49K / `.selector` 39K / `.list` 35K — `.prim`+`.kind` ≈ 37% are env-INDEPENDENT
-constants re-keyed per env. **Two sound optimizations landed** (both jq-S=0, zero fixture
-drift): (1) **self-evaluating-leaf fast path** (`selfEvaluatingLeaf?` — return env-independent
-leaves directly, skip the satCache/cache probe+insert); (2) **saturated-only satCache insert**
-(saturated results live only in the fuel-free `satCache`, never the dead fuel-keyed `cache`).
-Measured ~53.4s → ~50.3s (argocd), ~12.6s → ~11.7s (cert-manager). The win is modest because
-the leaves are trivial work; the dominant ~50s is the ~175× re-eval of env-DEPENDENT shapes.
-**DESIGNED next step (deferred — a dedicated gated slice):** share env-DEPENDENT evals across
-frame envs — more aggressive frame canonicalization (collapse structurally-identical def bodies
-forced under different resource scopes to one frame id, hitting the env-keyed satCache) or
-content-address def-body closures independent of the capturing frame; both touch the soundness
-core of frame identity (`FrameKey`/`ForceKey`) and need a no-false-share proof, NOT foldable
-into a leaf-bypass slice. Detail in `kue-performance.md` (argocd-EXPORTS block + perf-#7
-PROFILED+OPTIMIZED note) + implementation-log (perf #7 slice). **Bug2-14b + Bug2-14c RESOLVED (2026-06-23 — argocd
-exports content-identical, jq -S diff = 0, ~53s):** the argocd `#Mixin` structural-disjunction let-local
-(`_patch.kind`) now receives the host's `kind` narrowing on the force path. **Bug2-14b** — the
-`embedBodyEmbedsDisjDeep` gate was resolving against the OUTER fold `env`; the body's own embed-refs are
-relative to the def frame the force pushes (Bug2-11 wrong-frame), fixed by `bodyForceFrameEnv` at all
-three gate sites. **Bug2-14c** — the real `defaults.#ListenerSet = defs.#ListenerSet &
-parts.#UseCertManager & {…}` multi-closure conjunction forced each closure independently, so `kind` (in
-one closure) never reached `_patch.kind` (in another); fixed by a two-pass `.conj` fold splicing a sibling
-closure's regular fields into a disjunction-bearing closure. Full mechanism in `spec-conformance-audit.md`
-Bug2-14b/c entry. **Bug2-14 (case-D PLAIN-EMBED frame-binding) RESOLVED**
-(`e404b21`, 2026-06-23 — `injectEmbedSiblingNarrowings` at `meetEmbeddingsWithFuel`; the analog of
-`injectLetLocalNarrowings` for an embed body; both case-D forms == cue, over-rebase guarded, cert-manager
-content-identical) — was NOT the terminal argocd blocker (the design's "same fix as the force path" read
-was empirically wrong; Bug2-14b is the live blocker). RESOLVED / ruled out (do not re-file — see
-Resolved/ruled-out below): **Bug2-13** (unset optional selection reads as ABSENT, `7e69e43`
-2026-06-23 — `selectedFieldValue` + the `.refId` eval arm resolve an `.optional`-rung field to
-`.bottom`; cleared `route.yaml`'s `#service_port: _|_`; was NOT the final blocker — Bug2-14 is),
-**Bug2-11** (use-site narrowing of a TWO-LEVEL cross-package def-of-def selector, `bdced40`
-2026-06-23 — `conjBodyHasDeferringArm` + `.conj`-body capture + a `.conj` force-fold arm, right-frame;
-real argocd `listener.yaml` now fully narrows; was NOT the final blocker), **Bug2-10**
-(use-site narrowing into a `.structComp` host's
-embedded self-ref, `aa4172b` 2026-06-23 — `conjStructCompDefer?` + an embed-meet closedness-leak fix
-via `embeddingClosesHost`; was NOT the final argocd blocker; CORRECTED the prior "argocd is Bug2-10
-alone" claim — the blocker is Bug2-11), **Bug2-9** (use-site narrowing of a REFERENCED NAMED
-multi-conjunct def, `5d9cf8f` 2026-06-23 — `flattenConjDefRef`; was NOT the final argocd blocker;
-surfaced Bug2-10), **Bug2-8** (same-def multi-decl close-once ACROSS AN
-EMBED boundary, `2332aff` 2026-06-23 — `DeclProvenance`/`ConjOperand`; was NOT the final argocd
-blocker; surfaced Bug2-9), **Bug2-7** (def multi-decl close-once on the reference / force-fold
-path, `3361699` 2026-06-23 — surfaced Bug2-8), **Bug2-6** (definition
-multi-declaration close-once, `ef824cb` 2026-06-23 — surfaced Bug2-7), **Bug2-5**
-(transitive-embed disj-path narrowing injection, `5fca57e` 2026-06-22 — was NOT the final
-argocd blocker), **AD2-1** (lone-default normalizer unified, 2026-06-21), **DRY-1**. **SC-3**
-is now a recorded spec-gap only (the multi-arm-default display divergence; the lone-default
-half is gone — collapsed under AD2-1).
+4 ratifications). The BI-2 family is **COMPLETE** (math.Pow + math.Sqrt cover their full real
+domain in EXACT DECIMAL, Float correctly AVOIDED, axiom-clean). **EvalOps** (item 2) DONE
+2026-06-22. Remaining spec-conformance: **SC-4** (LOW, spec-gap-first). SC-3 is a recorded
+spec-gap only (multi-arm-default display divergence). The full Bug2-5..2-14c chain, AD2-1,
+DRY-1, and CARRIER-STRUCT-MEET are RESOLVED — durable rulings in Resolved/ruled-out below; the
+blow-by-blow in `implementation-log.md` + `spec-conformance-audit.md` + git.
 
-**🚨 TOP-RANKED SOUNDNESS FIX-SLICE — CARRIER-STRUCT-MEET — DONE (2026-06-22).** A scalar/list
-embedding carrier (`.embeddedScalar`/`.embeddedList` — the carrier IS its scalar/list) met with a
-PURE decls-only struct that had NO embed of its own WRONGLY MERGED the decls instead of
-conflicting. cue (spec-conformant here) rejects: `{#a:1,5} & {#b:2}` is `5 & {#b:2}` =
-int-vs-struct bottom (spec: unifying different types is `_|_`); Kue admitted `{#a:1,#b:2,5}` —
-MORE PERMISSIVE than the spec, a genuine soundness gap. **FIXED at 4 sites in `Lattice.lean`** (the
-`.struct fields _ none [] _` sub-case in each carrier's `none`-branch: `.embeddedList` left/right +
-`.embeddedScalar` left/right): a mechanical DELETION — dropped the `else <merge decls>` and routed
-the sub-case to `meetCore` (`_, .struct .. => .bottom`), applied UNIFORMLY to both carriers, by hand
-(per the Phase-B no-shared-meet-seam ruling). **Boundary held (oracle-confirmed v0.16.1, all green):**
-carrier & carrier MERGES (untouched — routes via the `scalarCarrierPartner?`/`asListPair` partner
-branch); carrier & output-field-struct BOTTOMS (untouched — `structHasOutputField`); carrier &
-decls-only-struct-without-embed now BOTTOMS (the fix). The source-level path (`{#a:1,5} & {#b:2}`)
-flows through `evalConjStandard`'s deferral fold → `meet` of the built carrier against the plain
-struct, hitting the fixed arm — NOT `lazyConjMergedFields` (a `{…,5}` is a `.structComp`, not a
-`conjStructOperand?`-eligible plain struct). Pins FLIPPED:
-`ListTests.meet_scalar_carrier_with_decls_struct` → `…_bottoms` (+ symmetric + `.embeddedList`
-analogs); `EvalTests.WITNESS_scalar_carrier_meet_{plain_decls_struct,lone_hidden_struct}_wrongly_
-merges` → positive `meet_*_with_declsonly_struct_bottoms` (+ symmetric, multi-decl, list analogs,
-carrier&carrier-merge + carrier&output-field-bottom source-level pins). `cue-spec-gaps.md` row 58
-updated to CONFORMING. Zero fixture drift (no `testdata` asserted the old merge). Next leader
-(after CARRIER-DECL-SELECT, now DONE — below): the **item-6 LOW list**.
+**🚨 NEXT LEADER — perf #7: frame-sharing across env-DEPENDENT evals (proof-first, GATED).**
+argocd exports content-identical at **~50.3s** vs `cue` 0.03s; cert-manager ~11.7s. Perf #7's
+two safe wins LANDED (2026-06-23, both jq-S=0, zero drift): a `selfEvaluatingLeaf?` fast path +
+saturated-only `satCache` insert (~53.4s → ~50.3s argocd, ~12.6s → ~11.7s cert-manager). The
+PROFILE named the residual root: `evalCalls=832338` core evals but only `distinctShapes=4763`
+distinct subtrees → a **~175× re-eval factor** — the SAME subtree is core-evaluated ~175× under
+~175 distinct frame envs because the cache keys on `env.ids` (FRAME-ID DIVERGENCE; `evalCacheHits=0`,
+the fuel-keyed `cache` is dead — all re-served from `satCache`). NOT fuel (DIGEST_DEPTH 1 vs 3
+measured FLAT), NOT an O(N²) collapse. The leaf bypass does NOT touch this residual (the leaves are
+trivial work). **The designed fix (DEDICATED GATED SLICE — proof-first, STOP-if-unprovable):**
+share env-DEPENDENT evals across frame envs — collapse structurally-identical def bodies forced
+under different resource scopes to one frame id (hitting the env-keyed satCache), OR content-address
+def-body closures independent of the capturing frame. **Both touch the SOUNDNESS CORE of frame
+identity (`FrameKey`/`ForceKey`) and need a no-false-share proof** — a frame-sharing widening that
+could alias-corrupt a value is a Violation; profile + design + STOP beats an unsound ship. The
+existing `FrameKey` soundness note (`Eval.lean` ~1403) is the proof-obligation template. Detail in
+`kue-performance.md` (argocd-EXPORTS block + perf-#7 PROFILED+OPTIMIZED note) + implementation-log
+(perf #7 slice).
 
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
@@ -345,15 +245,11 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    out: {b: 1} & {a: 2}  // cue: a, b (graph order); Kue: b, a (source order) — both spec-valid
    ```
 
-5. **Per-eval-cost perf (frontier — hash digest DONE; residual UN-GATED 2026-06-23 — NEXT LEADER).**
-   The cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
-   drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier, now UNBLOCKED):**
-   argocd's last on-path correctness blocker (Bug2-14b + Bug2-14c) is RESOLVED — `kue export
-   apps/argocd.cue` now exports CONTENT-IDENTICAL to cue (jq -S diff = 0) in ~53s. The wall is now a
-   PURE perf concern (no correctness divergence): the heavy `argo` sub-package dominates the ~53s. Profile
-   against this now-resolving target — the cache-hash digest already collapsed cert-manager's O(N²); apply
-   the same lens (cache-key cost, frame-id churn, the force-cache hit rate over the multi-closure two-pass
-   fold Bug2-14c added) to the argocd `argo` sub-package.
+5. **Per-eval-cost perf (frontier — hash digest DONE; perf #7 is the active leader).**
+   The cache-key hash digest landed (cert-manager 119s → ~30s, byte-identical modulo #3, zero
+   drift). Perf #7's two safe wins landed 2026-06-23 (~50.3s argocd, ~11.7s cert-manager). The
+   live residual is the ~175× env-DEPENDENT re-eval — the **NEXT LEADER block at the top of this
+   backlog** owns it (proof-first frame-sharing, GATED). See `kue-performance.md`.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`
@@ -492,138 +388,32 @@ none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
-- **Phase-B audit (2026-06-23, batch `673cec8`..`c942993`: Bug2-14 plain-embed + Bug2-14b/14c
-  + Phase-A coverage; Phase A HEALTHY `c942993`, milestone NOT at risk) — architecture
-  HEALTHY; the argocd-EXPORT milestone (2nd prod9 drop-in) is recorded.** Module graph
-  re-checked WHOLE: ACYCLIC, strictly layered, UNCHANGED (`Builtin → {Lattice, Regex, Decimal,
-  Base64, Json, Yaml, CaseTable}` — NO `Eval`/`EvalOps` edge; `EvalOps → {Builtin, Decimal,
-  Regex}` no back-edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`;
-  `Decimal → Value`; `Lattice → {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`;
-  `Cli → Runtime`; `Normalize → Value`). The narrowing-delivery family stays cohesive in the
-  Eval def-deferral tier. Cleanliness sweep CLEAN: NO
-  `sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, NO `String.dropRight`/`dropLeft`, NO
-  dead code, NO stale TODO/FIXME/HACK (the only `XXX` hits are `\uXXXX` doc-comments in
-  `Json.lean`); `partial def`s are the standing carve-outs only (`Parse.lean`, `Module.lean`;
-  `Eval`/`Lattice` FULLY total). **Test/fixture health HEALTHY:** `TwoPassTests.lean` 1493,
-  `Bug2xTests.lean` 862 (post-split, +Bug2-14 family — both well under the 2000 silent-failure
-  surface; the coverage tripwire + `--` line-comment headers guard them); the bug214b/c module
-  fixtures (`testdata/modules/bug214{b,c}_*`) are exercised by `check-fixtures.sh` (export-vs-
-  `expected`) and the inline `native_decide` pins; `check-fixtures.sh` + `shellcheck` green. No
-  test-org due. **inject-family DRY RULED OUT — keep `injectEmbedSiblingNarrowings` /
-  `injectLetLocalNarrowings` SEPARATE** (the DRY-1 / `mergeFieldsWith` trap: the nested-`let`
-  recursion dispatches to a DIFFERENT walker by soundness design — `:1839` self vs `:1927`
-  `injectLetLocalNarrowings` — so a read-labels-only combinator would change the milestone
-  splice's let-frame gating; full basis in the dedicated inject-family entry below). **perf-#7
-  REASSESSED — STILL REAL, target now PRECISE** (the wall is a FLAT ~53s per-eval-constant in
-  definition/import-closure setup: any single-field selection AND `kue eval` both cost the full
-  53s, vs `cue` 0.03s; NOT a subtree hot spot, NOT output-driven, NOT fuel-axis — Bug2-14
-  unblocked correctness, exposing the wall is fixed setup; profile the SETUP closure with the
-  item-7 lens, flat-per-field signature as reproducer). perf-#7 STAYS the next leader. **APPLIED
-  INLINE (re-verified green — cert-manager AND argocd canaries jq-S=0):** `kue-performance.md`
-  de-staled — (a) the "argocd bottoms — a CORRECTNESS bug" block flipped to "argocd EXPORTS
-  content-identical; correctness chain CLOSED" with the perf-#7 PROFILED note (flat per-field,
-  53s setup constant); (b) cert-manager currency RE-RECONCILED ~30.5s → **~12.6s** (live;
-  measured fresh — a 2.4× drop accrued across the Bug2-6..2-14 close-once/frame-id chain; the
-  ~30.5s is retired). **Eval.DefDeferral carve — RECOMMEND HOLD, sharpened trigger
-  (line-budget math).** Eval.lean **4115** (+126 over the prior 3989 — the Bug2-14b/c
-  `bodyForceFrameEnv` gate helper + two-pass `.conj` fold, which land in the CORE force `mutual`
-  block `:3707+`, the UNSPLITTABLE region, NOT the def-deferral tier). Watch ~4500 → headroom
-  **385**. The named first carve is the def-deferral tier (`Eval.lean:2220–2828`,
+**Per-round audit-verdict HISTORY (2026-06-21..23, ~7 Phase-A/B rounds over the
+CARRIER-STRUCT-MEET → Bug2-5..2-14c → perf #7 chain) — all HEALTHY; the as-built per-round
+detail is in `implementation-log.md` + git (each audit is its own commit).** Only the durable
+rulings those rounds produced survive here (the named DRY/no-share adjudications below + the
+carve-trigger). The recurring whole-graph facts a future audit re-verifies: the module graph is
+ACYCLIC + strictly layered (`Builtin → {Lattice, Regex, Decimal, Base64, Json, Yaml, CaseTable}`,
+NO `Eval`/`EvalOps` edge; `EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Eval → {Builtin,
+Decimal, EvalOps, Lattice, Regex, Normalize}`; `Lattice → {Value, Regex}`; `Runtime → Eval`;
+`Module → {Parse, Runtime}`; `Cli → Runtime`; `Normalize → Value`); cleanliness sweeps clean (no
+`sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, no `String.dropRight`/`dropLeft`, no dead
+code, no stale markers; `partial def`s are the `Parse.lean`/`Module.lean` carve-outs only, `Eval`
++`Lattice` FULLY total); test-health HEALTHY (`TwoPassTests.lean` split into `Bug2xTests.lean` at
+the silent-failure 2000-line surface, both well under it; coverage tripwire + `--` line-comment
+headers guard them — see item 3).
+
+- **`Eval.DefDeferral` carve — HELD, sharpened trigger.** `Eval.lean` is ~4115 (the Bug2-14b/c
+  fix grew the CORE force `mutual` block `:3707+`, the UNSPLITTABLE region — NOT the def-deferral
+  tier). The named first carve is the def-deferral tier (`Eval.lean:2220–2828`,
   `defBodyHasSiblingSelfRef` … `splitDisjConjunct`, ~600 lines, a cohesive `Eval.DefDeferral`
-  module). Carving it now would drop Eval.lean to ~3515 — but it removes lines from a tier that
-  is NOT where growth lands (the Bug2-14 family grows the core force `mutual`), so it de-risks
-  headroom WITHOUT addressing the growing region; the carve never touches the core force arm.
-  At the recent ~+126/narrowing-slice rate, 385 headroom is ~2-3 slices — closer than the prior
-  511, but the next slices add to the unsplittable core, so the carve's headroom benefit is real
-  yet indirect. **HOLD** (don't spend a slice on non-imminent, indirect headroom), trigger
-  SHARPENED: carve `Eval.DefDeferral` the moment EITHER (a) a def-deferral-tier slice itself
-  pushes Eval.lean past ~4500, OR (b) the core-force growth crosses ~4400 with the def-deferral
-  tier still intact (carve it FIRST to buy room before the unsplittable core forces a harder
-  split). Don't carve inline — it's a semantic-module refactor; schedule as a standalone slice
-  when the trigger fires. **Verdict: HEALTHY; argocd-EXPORT milestone recorded; inject-family
-  DRY RULED OUT (keep separate); perf-#7 reassessed STILL-REAL + next leader; two perf-doc
-  de-stales inline (`c942993`+1); Eval.DefDeferral HELD with sharpened trigger; no new code
-  fix-slice.**
-- **Phase-B audit (2026-06-23, batch `8a5f6a2`..`b660d10`: Bug2-13 code + Bug2-14 re-diagnosis;
-  Phase A HEALTHY `b660d10`) — architecture HEALTHY.** Module graph re-checked WHOLE: ACYCLIC,
-  strictly layered, UNCHANGED (`EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Builtin` NO
-  `Eval`/`EvalOps` edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`; `Lattice →
-  {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`; `Cli → Runtime`; `Normalize →
-  Value`). Cleanliness sweep CLEAN: NO `sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, NO
-  `String.dropRight`/`dropLeft`, NO dead code, NO stale TODO/FIXME/HACK; `partial def`s are the
-  standing carve-outs only (`Parse.lean` 62 lexer/parser, `Module.lean` 4 IO-loader; `Eval`/`Lattice`
-  FULLY total). **File sizes: `Eval.lean` 3989** (Bug2-13 was a small selection-time fix; the Bug2-14
-  slice shipped no code) — still under the ~4500 re-split watch. **`TwoPassTests.lean` SPLIT DONE
-  inline (`0deef2f`)** — carved the contiguous Bug2-6..2-13 run (64 theorems) into
-  `Bug2xTests.lean`, 2158 → 1500 lines, pin-count conserved 180 = 116 + 64, no behavior change (item
-  3, above). **Eval.DefDeferral carve — RECOMMEND DEFER (line-budget math).** Eval.lean 3989; watch
-  threshold ~4500; headroom ~511. The named first carve is the def-deferral tier (`Eval.lean:2158–2697`,
-  ~540 lines: `defBodyHasSiblingSelfRef` … `splitDisjConjunct`). But the Bug2-14 fix grows the CORE
-  evaluator `mutual` block's `forceClosureWithConjunctCore` `.structComp` arm (`:3581`+, the
-  UNSPLITTABLE block — the def-deferral tier is NOT where Bug2-14's code lands), adding a
-  `remapConjRefs` re-base call + a small layout-map helper ≈ 30–80 lines → 3989 + 80 = 4069, still
-  ~430 under 4500. So Bug2-14 does NOT push Eval.lean over threshold, AND folding the carve into the
-  Bug2-14 slice would carve a DIFFERENT tier than the one being modified (no de-risk benefit; the
-  carve never touches the core force arm). Carving NOW standalone spends a slice for non-imminent
-  headroom. **DEFER**; trigger sharpened: carve the def-deferral tier (`Eval.DefDeferral`) only if a
-  future def-deferral-tier slice pushes Eval.lean past ~4500 — Bug2-14 will not. **Bug2-14 FIX-SEAM
-  DESIGN written into `spec-conformance-audit.md`** (the re-base runs at
-  `forceClosureWithConjunctCore`'s `.structComp` arm via `remapConjRefs` keyed on
-  embed-local-layout → post-merge-`canonical`-layout, frame-neutral so the cross-pkg wrong-frame hazard
-  is avoided; re-base IFF the label is BOTH embed-declared AND host-narrowed — `remapConjRefs`'s
-  not-in-`mergedMap`→identity already leaves genuine embed-internal refs; the cross-package def-of-def
-  force-path is the SAME fix, not a separate layer — it is the witness that the re-base is needed,
-  since direct inline embeds drain only via export's accidental re-base; must-pin witnesses: the
-  comprehension form, the PLAIN sibling-ref form `host:{bk:"X",{bk:string,echo:bk}}`→`echo:"X"`,
-  embed-own-concrete + host-only stay-drained, the 5-pkg def-of-def force-path repro, cert-manager
-  byte-identical). **APPLIED INLINE (re-verified green, cert-manager jq-S=0):** (1) the TwoPassTests
-  split (`0deef2f`); (2) **perf-doc de-stale** — `kue-performance.md` argocd-bottoms entry said "the
-  residual full-app blocker is now **Bug2-13**" (STALE: Bug2-13 LANDED `7e69e43`); corrected the
-  narrowing-fix chain to include Bug2-13 LANDED + gating to **Bug2-14** (the RE-DIAGNOSED embed-merge
-  frame-binding bug), wall ~54s. **Verdict: HEALTHY; TwoPassTests split DONE inline; Eval.DefDeferral
-  carve DEFERRED (math above); Bug2-14 fix-seam design in place; one perf-doc de-stale; no new code
-  fix-slice — Bug2-14 stays the on-path argocd leader.**
-- **Phase-B audit (2026-06-23, batch `b913ae6`..`a4c33cf`: Bug2-10 + Bug2-11; Phase A HEALTHY
-  `a4c33cf`) — architecture HEALTHY.** Module graph re-checked WHOLE: ACYCLIC, strictly layered
-  (`Builtin → {Lattice, Regex, Decimal, Base64, Json, Yaml, CaseTable}` — NO `Eval`/`EvalOps`
-  edge; `EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Eval → {Builtin, Decimal, EvalOps,
-  Lattice, Regex, Normalize}`; `Lattice → {Value, Regex}`; `Runtime → Eval`; `Module → {Parse,
-  Runtime}`; `Cli → Runtime`). The Bug2-10/2-11 additions sit correctly in the Eval def-deferral
-  tier (`conjStructCompDefer?`, `conjBodyHasDeferringArm`, `resolveSelectorDefBody?` at
-  `Eval.lean:2381–2585`): one-directional call graph (→ `followAliasDefBody?`/force, no
-  back-edge), `.refId`/`.selector`/`.conj` heads exhaustive (no catch-all swallow — every
-  non-matching shape returns `none`/`false`). Cleanliness sweep CLEAN: NO
-  `sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, NO `String.dropRight`/`dropLeft`, NO dead
-  code, NO stale TODO/FIXME/HACK; `partial def`s are the standing carve-outs only (`Parse.lean`
-  62 lexer/parser, `Module.lean` 4 IO-loader; `Eval`/`Lattice` FULLY total). **File sizes:
-  `Eval.lean` 3965** (+185 over the prior Phase-B 3780 — Bug2-10/2-11 growth), still under the
-  ~4500 re-split watch but APPROACHING — the `Eval.DefDeferral`-first-carve ruling STANDS and is
-  now the named next action if the next 1–2 narrowing slices push past ~4500 (the def-deferral
-  tier `Eval.lean:2160–2670` is ~510 lines and is exactly the cohesive carve candidate; Bug2-13
-  is a SELECTION-time fix and will NOT grow that tier, so the threshold is not imminent). Other
-  modules: `CaseTable` 2438 (generated), `Parse` 1586, `Lattice` 1389, all others ≤960.
-  `TwoPassTests.lean` **2048** (+169 over the prior 1879; 60+ Bug2-x pin refs) — now PAST 2000,
-  the demonstrated silent-failure surface; the SPLIT (plan item 3) is **DUE** but is RANKED BELOW
-  Bug2-13 (the on-path argocd blocker stays the leader; the split is org-only, zero behavior
-  change, and the coverage tripwire + line-comment headers already guard it — no urgency forces
-  it ahead of the correctness blocker). **Type-leverage / ML idioms:** NO high-value next
-  tightening — the `DeclProvenance`/`ConjOperand` carriers (Bug2-8, `Value.lean`) remain
-  exemplary; the def-deferral family's `Option (List Field × Value)` return (`(capturedFrame,
-  body)`) is the RIGHT shape (the frame is data the consumer needs, carried in the type, not
-  inferred). The one structural observation — the Bug2-13 root — is that `findEvalField`
-  /`selectFromDecls` carry NO optionality distinction, so an unset optional selects to its
-  declared type (a loose-selection gap, filed as Bug2-13, design note in
-  `spec-conformance-audit.md`; the FIX tightens selection, not a representation). **APPLIED
-  INLINE (re-verified green, cert-canary jq -S = 0):** `kue-performance.md` argocd-bottoms entry
-  de-staled — said "residual blocker is now **Bug2-10**" (STALE: Bug2-10 `aa4172b` + Bug2-11
-  `bdced40` both LANDED); corrected the narrowing-fix chain to include Bug2-10/2-11 LANDED + the
-  gating to **Bug2-13**, wall ~54s. **Bug2-13 DESIGN NOTE** written into
-  `spec-conformance-audit.md` (the polarity bug lives in field SELECTION, not the
-  `classifyDefinedness` classifier — an unset optional selects to its declared type; fix = treat
-  an unset optional selection as absent, the selection-time analog of `containsBottomFields`'s
-  existing optional-skip; must-pin witnesses enumerated). **Verdict: HEALTHY; `resolveDefField?`
-  RULED-OUT — keep separate (below); one perf-doc de-stale inline; Bug2-13 design note in place;
-  TwoPassTests split DUE but ranked below Bug2-13; no new code fix-slice.**
+  module) — but carving it now removes lines from a tier that is NOT where growth lands, so the
+  headroom benefit is real yet indirect. **HOLD** (don't spend a slice on non-imminent, indirect
+  headroom). Trigger: carve the moment EITHER (a) a def-deferral-tier slice pushes `Eval.lean`
+  past ~4500, OR (b) core-force growth crosses ~4400 with the def-deferral tier still intact
+  (carve FIRST to buy room before the unsplittable core forces a harder split). Schedule as a
+  standalone semantic-module refactor, never inline. (Supersedes the "NOT WARRANTED at 3396"
+  ruling below — same carve target, threshold reached.)
 - **`resolveDefField?` (def-field resolution-skeleton share across the narrowing-delivery family)
   — RULED OUT: keep the ~6 functions SEPARATE. The full-family extraction is the `mergeFieldsWith`
   trap (variation = frame + recursion + return-type, not a pure leaf); the only frame-SAFE share
@@ -702,79 +492,6 @@ none soundness-bearing).
     shares, a combinator that risks mis-injecting (wrong labels / wrong frame into the
     milestone splice) stays separate. Do not re-file as a DRY win unless a future inject
     walker over the SAME frame/gating with a pure non-recursive leaf lands.
-- **Phase-B audit (2026-06-23, batch `9b78c3d`..`2e337b1`: Bug2-8 + Bug2-9; Phase A HEALTHY
-  `2e337b1` + the dead-tests recovery `0109bb4`) — architecture HEALTHY.** Module graph
-  re-checked WHOLE: ACYCLIC, strictly layered (`Builtin → {Lattice, Regex, Decimal, Base64,
-  Json, Yaml, CaseTable}` — NO `Eval`/`EvalOps` edge; `EvalOps → {Builtin, Decimal, Regex}` no
-  back-edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`; `Lattice →
-  {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`; `Cli → Runtime`). The Bug2-8
-  types (`DeclProvenance` 2-ctor sum + `ConjOperand` record) live in **`Value.lean`** (L1,
-  correct — they ARE struct-conjunction data, not eval logic) and are EXEMPLARY type-leverage:
-  `DeclProvenance` admits no nonsense "own-and-embedded" (a `Bool` would) and FORCES a match arm
-  on a new origin (no wildcard); `ConjOperand` carries provenance in the TYPE, not inferred from
-  operand position — the union-vs-meet boundary (`incomingProv != existingProv` in
-  `mergeConjOperandFields`) is type-driven, not positional. The Bug2-9 `flattenConjDefRef` sits
-  in the pre-`mutual` helper tier near `conjStructOperand?` (`Eval.lean:1575`) — RIGHT home (a
-  pure unevaluated-constraint transform, fuel-structural total, ONE call site at the `.conj`
-  fold's raw-constraint flatMap, NO catch-all swallow — every non-flattenable case returns
-  `[constraint]` identity). Cleanliness sweep CLEAN: NO `sorry`/`panic!`/`unreachable!`
-  /`.get!`-in-pure-code, NO `String.dropRight`/`dropLeft`, NO dead code, NO stale TODO/FIXME/HACK;
-  the `partial def`s are the standing carve-outs only (`Parse.lean` 62 lexer/parser, `Module.lean`
-  4 IO-loader; `Eval.lean`/`Lattice.lean` FULLY total). File sizes: `Eval.lean` **3780** (+222
-  over the prior Phase-B 3558 — Bug2-8/2-9 growth), still WELL under the ~4500 re-split watch — the
-  `Eval.DefDeferral`-first-carve ruling STANDS. **Type-leverage next-candidate: NONE high-value** —
-  `FieldClass.field (isDefinition, isHidden, optionality)`'s two `Bool`s are DELIBERATELY orthogonal
-  CUE axes (every combination legal, per-axis merge; a sum would be the 2×2×3 cube = worse); the
-  representation is mature post-TL-1/TL-2. **Test/fixture redundancy: NONE to prune** — the
-  `.cue/.expected` fixtures (full parse→eval→export) and the `native_decide` pins (internal eval
-  primitives) pin DIFFERENT layers; the dead-theorem incident itself proves both are load-bearing
-  (fixtures kept behavior correct while the pin layer was dead). **APPLIED INLINE (re-verified green,
-  cert-canary jq-S=0):** (1) **test-health hardening** (`0150095`) — TwoPassTests block→line comments
-  + coverage tripwire (the dead-theorem fallout, headline #1); (2) **perf-doc de-stale** —
-  `kue-performance.md` argocd-bottoms said "blocker is now **Bug2-8**" (STALE — Bug2-8 `2332aff` +
-  Bug2-9 `5d9cf8f` LANDED); corrected the chain to Bug2-8/2-9 LANDED + gating to **Bug2-10**, wall
-  ~58s→~53s. **Bug2-10 DESIGN NOTE + Bug2-10/2-11/2-12 SHARED-ROOT ANALYSIS** written into
-  `spec-conformance-audit.md` (root = conjunct-deferral gate, `conjDefClosure?` is `.refId`-only;
-  fix = defer a structComp host's embeds into the shared-use-operand fold; 2-10↔2-11 PARTIAL shared
-  root, 2-12 orthogonal closedness-leak; argocd chain is ONE deep fix Bug2-10, not three). **Filed:**
-  `TwoPassTests` SPLIT scheduled (item 3, by bug-family) + the durable test-health convention
-  (failure-modes.md row). **Verdict: HEALTHY; test-health hardened inline (`0150095`); one perf-doc
-  de-stale; Bug2-10 design note + shared-root analysis in place; SPLIT scheduled; no new code
-  fix-slice.**
-
-The per-round Phase-A/B audit verdicts (~13 rounds, 2026-06-20/21) and the FILED diagnoses
-for now-DONE items (MEET-RESID-1, D#1d-RESIDUAL, RESID-MASK-1/2, A#6, the dyn-field
-family, …) are HISTORY: the as-built detail is in
-[`../reference/implementation-log.md`](../reference/implementation-log.md) and `git log`
-(each audit is its own commit). What stays here is only the durable rulings — the ones a
-future audit would otherwise re-litigate.
-
-- **Phase-B audit (2026-06-23, batch `d949666`..`10e8837`: Bug2-6 + Bug2-7 close-once;
-  Phase A HEALTHY `10e8837`) — architecture HEALTHY.** Module graph re-checked whole:
-  ACYCLIC, strictly layered (`EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Builtin`
-  carries NO `Eval`/`EvalOps` edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex,
-  Normalize}`; `Lattice → {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`).
-  The Bug2-6/2-7 changes (`mergeDefinitionDecls`, `unionDefOpenness`,
-  `canonicalizeFields`/`mergeUnevaluatedFieldInto`, per-operand canonicalize in
-  `mergeConjOperands`) sit correctly in `Eval`'s unevaluated-merge tier — they need
-  `mergeFieldClass`/`isDefinition` (the eval layer's field-class machinery), so they belong
-  in `Eval`, not `Lattice` (`Lattice` owns the EVALUATED `meet` merge; the UNEVALUATED
-  `.conj`/close-once merge is an eval concern). Cleanliness sweep CLEAN: NO
-  `sorry`/`panic!`/`unreachable!`/`.get!`-in-total-code, NO `String.dropRight`/`dropLeft`,
-  NO dead code, NO stale TODO/FIXME/HACK; the 10 `Parse.lean` `partial def`s are the
-  standing IO/lexer carve-out, pure core total. File sizes: `Eval.lean` 3558 (+93 over the
-  prior Phase-B's 3465 — Bug2-6/2-7 growth), still WELL under the ~4500 re-split watch — the
-  `Eval.DefDeferral`-first-carve ruling STANDS (below). `TwoPassTests.lean` 1713 (+217 over
-  the prior 1496; 56 Bug2-x pin refs) — the file to watch; the test-org pass is
-  APPROACHING-due, not yet due (filed as a tracked note, not scheduled — Bug2-8 is next
-  leader). **APPLIED INLINE (re-verified green, cert-canary jq-S=0):** `kue-performance.md`
-  argocd-bottoms entry de-staled — said "the residual full-app blocker is now **Bug2-6**"
-  (STALE: Bug2-6 `ef824cb` + Bug2-7 `3361699` both LANDED); corrected the narrowing-fix
-  chain to include Bug2-6/2-7 + gating to **Bug2-8**, wall `153s → ~58s`. **Bug2-8 design
-  note** written into `spec-conformance-audit.md` (def-path provenance carrier
-  `DeclProvenance` through the embed force-fold). **Verdict: HEALTHY; `mergeFieldsWith`
-  RULED-OUT (below); one inline perf-doc de-stale; Bug2-8 design note in place; no new
-  fix-slice.**
 - **`mergeFieldsWith` consolidation (`mergeFieldListWith` / `canonicalizeFields` /
   `mergeConjFields` skeleton-share) — RULED OUT: keep SEPARATE. The skeleton-share is real
   but the seam where it matters (`mergeFieldListWith` ↔ `mergeConjFields`) is ALREADY shared
@@ -815,36 +532,6 @@ future audit would otherwise re-litigate.
     cross-operand path by construction. Per the prompt's own constraint: "if consolidation
     would blur or endanger that boundary, that's a reason to KEEP SEPARATE even if the
     skeleton is shared." It would, so they stay separate. **Do not re-file as a DRY win.**
-
-- **Phase-B audit (2026-06-23, batch `fcede10`..`71d4cf0`: CARRIER-STRUCT-MEET /
-  CARRIER-DECL-SELECT / Bug2-5 + Linux release infra; Phase A HEALTHY `71d4cf0`) —
-  architecture HEALTHY.** Module graph re-checked whole: ACYCLIC, strictly layered
-  (`EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Builtin → Lattice/…` NO
-  `Builtin → Eval`; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`;
-  `Runtime → Eval`). The Bug2-5 gate (`embedBodyEmbedsDisjDeep`) sits correctly in Eval's
-  def-deferral tier (follows `resolveEmbedDefBody?`, needs the eval-layer env) — right module.
-  Linux release infra (`scripts/release-linux.sh`, `Dockerfile.linux-build`, `.dockerignore`,
-  `df40b62`) does NOT touch the Lean graph; it is sound + robust (strict `set -euo pipefail`,
-  preconditions gated, toolchain single-sourced from `lean-toolchain`, idempotent `--clobber`,
-  trap-cleaned container extract, double smoke-test; debian-bullseye glibc-2.31 base,
-  container-local elan, no host mutation). **GitHub Actions ban CLEAN** (no `.github/`, no
-  workflow files; `.dockerignore` excludes `.github/` defensively). Cleanliness sweep clean:
-  NO `sorry`/`panic!`/`unreachable!`/`.get!`-in-total-code, NO `String.dropRight`/`dropLeft`,
-  NO dead code, NO stale TODO/FIXME/HACK (the `\uXXXX` hits in `Json.lean` are escape-doc); the
-  4 `Module.lean` `partial def`s are the justified IO-loader carve-out, not the pure core.
-  File sizes: `Eval.lean` 3465 (the `embedChainAny` dedup net-shaved a few off the Bug2-5
-  growth) — well under the ~4500 re-split watch, ruling STANDS (`embedChainAny` joins the
-  def-deferral tier, reinforcing it as the named first carve). `TwoPassTests.lean` 1496 (Bug2-5/
-  2-6 pins accreting) — the file to watch for the next test-org pass, not yet unwieldy.
-  **APPLIED INLINE (re-verified green):** (1) **`embedChainAny` share** (`0619097`) — the headline
-  ruling, below; (2) **perf-doc gating correction** — `kue-performance.md` argocd-bottoms entry
-  said "residual blocker is now **Bug2-5**" (STALE — Bug2-5 LANDED `5fca57e`); corrected to
-  Bug2-6, timing 153s→~54s. (`plan.md` item-5 + Standing Capabilities were already correct — no
-  un-gate had been wrongly applied.) **Bug2-6 design note** written into
-  `spec-conformance-audit.md` (provenance via `closedClauses` union-into-one-clause at the
-  `joinUnevaluated` seam; meet path untouched so `#A & #B` rejection structurally preserved).
-  **Filed:** one LOW Linux-script consistency item (item-6, `release-linux.sh` no dirty-tree
-  guard). **Verdict: HEALTHY; `embedChainAny` shared inline; one LOW item filed; no fix-slice.**
 - **`embedChainAny` (embed-chain walker share) — RULED: SHARE, applied inline `0619097`
   (2026-06-23). The AD4-1-safe case, NOT the DRY-1 trap.** `bodyNeedsDefer` and
   `embedBodyEmbedsDisjDeep` were byte-isomorphic except the leaf predicate
@@ -903,53 +590,9 @@ future audit would otherwise re-litigate.
     seam where the carriers genuinely AGREE (both select decls identically, and identically
     to plain `.struct`), so a `selectFromDecls` helper is real dedup, not false-sharing.
     Ranked BELOW CARRIER-STRUCT-MEET (lands after, to avoid touching the same arms twice).
-- **Phase-B audit (2026-06-22, batch `1ab6f19`(Phase-B prev)..`fa0a414`(scalar-embed) +
-  Phase-A `fc2bb6a`; TL-1 `384380e` / TL-2 `69239a2` / scalar-embed+B3 `fa0a414`) —
-  architecture HEALTHY.** Whole module graph re-checked after the carrier landed. ACYCLIC,
-  strictly layered, NO new edge from the carrier: the two ctors live in `Value` (L1, correct
-  — they ARE `Value` variants), meet in `Lattice` (imports only `Value`/`Regex`), produced
-  once at embed-eval in `Eval` (`meetEmbeddingsWithFuel:3021-3030`). `EvalOps` carve from the
-  prior round still clean (`EvalOps → {Builtin, Decimal, Regex}`, no back-edge). New-ctor
-  discipline VERIFIED graph-wide: `.embeddedScalar` has an explicit arm at every match site
-  (Lattice meet + `containsBottom`; Eval select/definedness/guard/dynlabel/digest/tag/
-  walkers; EvalOps `classifyArithOperand`+`resolveOperand` unwrap; Format/Manifest/Normalize
-  ×2/Runtime) — NO catch-all swallow. `valueTag .embeddedScalar => 32` correctly assigned (a
-  termination measure, not a finding — same deliberate `Value→Nat` pattern the prior ruling
-  noted). File sizes: `Eval.lean` 3442 (was 3396; +46 from the carrier arms — well under the
-  ~4500 re-split watch, ruling stands), `Lattice` 1417, `Value` 921, all others ≤2438
-  (`CaseTable`, generated). Cleanliness sweep clean: NO `sorry`/`panic!`/`unreachable!`
-  /`get!`-in-total-code, NO `String.dropRight`/`dropLeft`, NO dead code, NO stale
-  TODO/FIXME/HACK (the `\uXXXX` hits in `Json.lean` are escape-doc, not markers).
-  Perf-guide: NO note warranted — the carrier meet/normalize/format path is O(1) over the
-  inner scalar + O(decls), the same trivial profile as the pre-existing `.embeddedList`
-  carrier (which the guide also doesn't single out); no new slow pattern. **Filed as
-  fix-slices:** CARRIER-DECL-SELECT (DRY, LOW — the one genuine cross-carrier duplication,
-  the decl-selection seam; ranked below CARRIER-STRUCT-MEET). **Headline ruling:** carrier
-  share/no-share RESOLVED (above) — keep distinct ctors, share decl-selection only, NOT the
-  meet seam. **Verdict: HEALTHY; one DRY fix-slice filed; carrier design VINDICATED.**
-- **Phase-B audit (2026-06-22, batch `cd2f0a9`(BI-2-§3)/`3cc09ab`(EvalOps)/`b5d670c`
-  (import-eager) + Phase-A inline `31c76c8`/`8eaa180`) — architecture HEALTHY.** Whole
-  module graph re-checked: ACYCLIC, strictly layered (`Regex`/`Base64`/`CaseTable` L0 →
-  `Value` L1 → `Decimal`/`Lattice`/`Parse`/… L2 → `Manifest`/`Json`/`Yaml` → `Builtin` L6 →
-  **`EvalOps` L7** → **`Eval` L8** → `Runtime`/`Module` L10). The new EvalOps carve confirmed
-  clean: `EvalOps → {Builtin, Decimal, Regex}`, NO back-edge, NO `Builtin → Eval` (Builtin
-  L6, Eval L8); `classifyArithOperand` is FULLY exhaustive (every `Value` ctor → a decision,
-  no catch-all) — exemplary type-leverage. `selectedFieldValue` (the import-eager unification)
-  and `normalizeEvaluatedDisj`'s `normalizeDisj` reuse both clean. Cleanliness sweep: NO
-  `sorry`/`panic!`/`unreachable!`/`get!`-in-total-code, NO `String.dropRight`/`dropLeft`, NO
-  dead code (the `Order.lean` test-oracle ruling stands; all private helpers referenced), NO
-  stale TODO/FIXME/HACK markers. **APPLIED INLINE (low-risk, re-verified green):** the
-  `kue-performance.md` Pow row de-staled — split the integer-exponent row and added a
-  fractional/negative-exponent row (BI-2-residual + BI-2-§3 LANDED; `math.Pow`/`math.Sqrt`
-  now cover their full real domain in exact decimal — the old "currently bottom — see
-  BI-2-residual" text was stale). **Filed as fix-slices:** TL-1 (stringly-typed
-  builtin-family dispatch → `BuiltinFamily` enum, MEDIUM — **DONE 2026-06-22**) + TL-2
-  (`BindingId` two-bare-`Nat` → `Depth`/`FieldIndex` newtypes, LOW-MED —
-  **DONE 2026-06-22**) — both type-leverage tightenings, were in the item-6 LOW list,
-  neither inline (blast radius too broad). **Verdict: HEALTHY, two ranked tightenings
-  filed — both now landed.**
-- **`Eval.lean` split — NOT WARRANTED at 3396 lines (Phase-B 2026-06-22 ruling; do not
-  re-litigate below ~4500).** Structural map: 4 `mutual` blocks (`foldValueWithDepth` ~80
+- **`Eval.lean` core mutual block — NEVER split (structural map ruling, Phase-B 2026-06-22;
+  the carve-trigger above governs the def-deferral tier).** Structural map: 4 `mutual` blocks
+  (`foldValueWithDepth` ~80
   lines; `remapConjRefs` ~147; `hasSelfRefAtDepth` ~110; **the core evaluator
   `evalValueWithFuel`…`expandListClausesWithFuel`, ~1140 lines / 15 mutually-recursive
   defs**) — the core block is UNSPLITTABLE: its `termination_by (fuel, tag, length)` tuple
@@ -972,59 +615,6 @@ future audit would otherwise re-litigate.
   "stuff they all do" false-sharing the four-classifiers + DRY-1 rulings already reject:
   the shared part is too thin to name, the divergence IS the point. Keep separate; do not
   re-file.
-- **Phase-B audit (2026-06-21, batch `3d0124a`/`f3262a1`/`0091aba`) — architecture HEALTHY;
-  one trivially-clean DRY win applied inline.** Whole module graph: import edges acyclic
-  (`Builtin → Decimal`, `Eval → {Builtin, Decimal, Lattice, Regex, Normalize}`; no
-  `Builtin → Eval` back-edge); no dead code (the prior `Order.lean` ruling stands). All three
-  in-scope slices fit cleanly: **sqrt** (`isqrtNewton`/`isqrtNat`/`sqrtGuardScale`
-  /`decimalSqrt` in `Decimal.lean`, the signed-domain `decimalSqrtSigned`/`mathSqrt?`/`mathPow?`
-  in `Builtin.lean`) is in the right home, reuses `divideDecimalRational?` (DRY), adds no bad
-  import edge; **SC-1e** `closeTailResult` is correctly a local helper inside `mergeStructN`
-  (not leaked to module scope); **AD2-1** keeps the two normalizers' genuinely-distinct
-  branches. File sizes all under the ~4500 re-split watch (`Eval` 3702, `CaseTable` 2438,
-  `Parse` 1586, `Lattice` 1363, others ≤960; `Decimal` 271 after the sqrt add). Perf-guide:
-  no note warranted — `decimalSqrt`'s fixed Newton budget (~few dozen `Nat` steps, once per
-  call, no eval-fuel interaction) is trivially cheap. **APPLIED INLINE (low-risk, re-verified
-  green):** `normalizeEvaluatedDisj`'s `else` tail was byte-identical to all of `normalizeDisj`
-  — collapsed to a direct `normalizeDisj alternatives` call (the AD2-1-adjacent trivially-clean
-  shared-helper reuse; `Eval` already imports `Lattice`). `native_decide` pins + fixtures
-  unchanged ⇒ behavior-preserving. **Ranking of remaining work (next leader = EvalOps):**
-  (1) **BI-2-§3 — DONE (2026-06-21, `cd2f0a9`).** General neg-int + non-½ fractional
-  `math.Pow` landed in exact decimal: §1 `x^(-n)=1/x^n` (exact rational, no exp/ln); §2
-  `x^y = exp(y·ln x)` via `decimalExpScaled`/`decimalLnScaled` (fixed 40/60-term Taylor +
-  binary range reduction at working scale 50, structurally total, axiom-clean). Mantissa
-  byte-identical to cue's apd across 40 random + extreme cases; integral results collapse;
-  domain edges bottom. The **BI-2 family is now COMPLETE** — `math.Pow`/`math.Sqrt` cover
-  their full real domain, no Float. (2) **EvalOps extraction** (item 2) — mechanical,
-  parallel-safe, lower-risk, not urgent (`Eval` under threshold). (3) the **item-6
-  LOW/opportunistic list** — none block adoption. **Nothing here is user-gated**: the
-  once-"user-gated" trio is fully resolved (AD2-1 unified, SC-3 = documented spec-gap
-  convention, BI-2 family fully DONE) — the backlog is fully autonomous.
-- **Phase-A audit (2026-06-21, batch `3d0124a`/`f3262a1`/`0091aba`) — three soundness claims
-  RE-VERIFIED CLEAN; no fix needed.** Adversarial destroy-tests, not byte-compare-to-`cue`.
-  (1) **AD2-1 lone-`*v` ≡ `v`** — meeting the OLD residual form `.disj [(.default,v)]` against a
-  battery of right operands equals meeting bare `v` in VALUE on every chain tried: `*1&(*2|1)→1`
-  (NOT 2), `*1&(*1|2)`, `*1&(*3|1)→1`, order-flip `(*2|1)&*1`, `*1&(1|2)`, `*1&*1→1`, `*1&*2→⊥`
-  (both ⊥; only the bottom-REASON payload differs — disj-cross strips it via `containsBottom`,
-  orthogonal to the collapse), nested `*(*1|2)` resolving to `*1`, and a lone-`*1` inside a struct
-  field unified with `*2|1`. Multi-arm marks STILL preserved (`*1|2 & int == *1|2`) — the
-  rename did not weaken the boundary. `normalizeDisj` axiom-clean (`propext` only).
-  (2) **`Decimal.sqrt` total + exact + precise** — `isqrtNewton` depends on NO axioms;
-  `isqrtNat`/`decimalSqrt`/`mathSqrt?`/`mathPow?` on the 3 standard axioms only (no `sorryAx`,
-  no `partial`). Floor-exactness (`r²≤N<(r+1)²`) holds on perfect squares at 10^40/10^60, N²±1 at
-  10^20/10^30, ugly non-squares ~10^60, and scaled radicands at scale 80–120; `√2` renders the
-  correctly-rounded 34-sig-digit floor; `Sqrt(neg)/Pow(neg,½)→⊥`, `Pow(0,neg)→none`,
-  `Pow(0,0)→⊥`; `Sqrt(x)≡Pow(x,½)` for x∈{2,4,0,-2}; tiny scaled `Sqrt(0.0001)=0.01`. Budget
-  `2·digits+8` confirmed sufficient. The cue-divergence rows (Sqrt float64-vs-decimal; NaN/Inf→⊥)
-  are accurate and frame Kue as more-correct.
-  (3) **SC-1e closedness monotone across all 4 tail arms** — every adversarial ordering matches
-  the oracle in VALUE: field-closed tail-LEFT rejects forbidden, field-closed×field-closed×tail
-  conjunction-rejects all, pattern-closed reversed tail-left admits, closed-embed+tail rejects
-  forbidden / admits allowed, mixed field+pattern closed conjunction-rejects, SC-1b closed×closed
-  NOT regressed. One benign find: kue's struct-merge field-ORDER (`x2,x1`) differs from cue's
-  (`x1,x2`) on the embed+tail-admit case — same value, a merge-order render artifact (already
-  ratified, SC-3-area row 44), not a closedness divergence. `StructOpenness.meet` correctly makes
-  `defClosed` dominate. Verdict: all three claims SOUND; no code change.
 - **AD2-1 (disjunction-normalizer lone-arm rule) — RESOLVED (2026-06-21, UNIFIED).** The
   prior "USER-GATED" framing was over-caution about renaming named pins; the real question
   was autonomous (is the lone-default marker load-bearing?) and is answered NO. Proof: a
