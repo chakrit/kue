@@ -328,6 +328,14 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      from the committed macOS asset on the SAME release. Add the same clean-tree precondition.
      (Whether `release.sh` should auto-chain `release-linux.sh` — currently a deliberate two-step
      split, Linux backfilled per-release — is a UX call left to the user, not filed.)
+   - **Concurrent-release tap-clone race (LOW, audit 2026-06-23).** `release.sh` and
+     `release-linux.sh` patch DISJOINT formula blocks (asset-name-keyed `awk`, fail-loud,
+     idempotent — verified SOUND), so they never clobber each other's content. But both
+     independently `pull --ff-only` → `add` → `commit` → `push` against the SAME shared tap
+     working tree, so a CONCURRENT run races the git index and `push` (`--ff-only` reject, no
+     retry). Disjointness holds at the formula-content layer, NOT the git layer: the scripts are
+     safe SEQUENTIALLY (the intended workflow), would race in parallel. Doc the sequential
+     precondition in both headers, or take a tap-clone lock. Not a correctness defect.
    - **DRY `selectEvaluatedField .disj` ** — the resolved-default arm re-lists the
      struct-shape dispatch; collapse to `match resolveDisjDefault? alternatives` (gains
      free nested-disjunction recursion). PARTIALLY addressed by CARRIER-DECL-SELECT (the
@@ -394,6 +402,27 @@ parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault`
 none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
+
+**Audit 2026-06-23 (single-pass code-quality, batch `50a0db3..14fb23e`) — HEALTHY.** Scoped
+single pass (thin batch: ONE Lean change `014faaf` + docs/infra; whole-graph reassessed last
+round). Adversarial soundness of the perf #7 safe-wins **CONFIRMED SOUND**: (1) `selfEvaluatingLeaf?`
+is EXACTLY the env/fuel-independent identity set — all 9 listed constructors (`.prim/.kind/.top/
+.bottom/.bottomWith/.notPrim/.stringRegex/.boundConstraint/.thisStruct`) reach the core's trailing
+`| _, value => pure value` arm, none carries an unevaluated nested `Value`, and the env-dependent
+catch-all members (`.embeddedList/.embeddedScalar/.listComprehension`) are conservatively EXCLUDED
+(omission keeps the sound slow path) — no false leaf. (2) Saturated-only `satCache` insert is
+provably dead-code elimination: `SatKey = EvalKey ∖ {fuel}`, `satCache.get?` is checked FIRST (line
+2979) before `cache.get?` (2985), so a saturated entry always serves from satCache at any fuel — the
+removed fuel-keyed `cache` insert was structurally unreachable (`evalCacheHits=0` is corroboration,
+not the proof). Both canaries jq -S diff = 0 (argocd 51178 B ~50.5s, cert-manager 1448 B ~12s);
+5 metric pins moved to lower counts, value pins (`eval_deep_inline_value_correct`,
+`selpass_value_correct`) UNCHANGED + green; full `native_decide` suite + `check-fixtures.sh` green;
+no new `partial`/`sorry`/axiom. Plan-hygiene `014faaf..686f522` = NO-LOSS (all 5 live items —
+per-eval-cost frontier, SC-4, Bug2-12, missing-field-selection, item-6 tail — present; removed lines
+are resolved-history with commit hashes intact). Release scripts SOUND (block-aware/fail-loud/
+idempotent/disjoint; one LOW concurrent-tap-race note filed in item 6). CLAUDE.md amendment coherent.
+Inline fix: concurrent-release tap-clone race recorded as a LOW item-6 entry. `v0.1.0-alpha.20260623`
+CUT + formula live-correct on all 3 platforms.
 
 **Per-round audit-verdict HISTORY (2026-06-21..23, ~7 Phase-A/B rounds over the
 CARRIER-STRUCT-MEET → Bug2-5..2-14c → perf #7 chain) — all HEALTHY; the as-built per-round
