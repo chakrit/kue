@@ -458,6 +458,42 @@ none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
+**Audit 2026-06-23 (Phase B, architecture/refactor; batch `e2d8868..4431597` = parser-strictness +
+release-tooling + per-eval empty-`cache`-skip) — HEALTHY (light confirm-and-close; Phase A HEALTHY
+`4431597`). 🎯 This round records the CONSOLIDATED-COMPLETE state: spec-conformance backlog EMPTY
+AND per-eval perf frontier CLOSED.** Phase A came back HEALTHY (cache-skip byte-identical on
+truncating witnesses, parser over-strictness ruled out, release-tooling sound; 3 truncation pins
+`4431597`). **Module graph: ACYCLIC + layered, unchanged** — `Value` base → lattice/`Eval`/`Builtin`/
+`EvalOps` → `Runtime` (top integration) → `Cli`/`Main`; no cycles. The empty-`cache`-skip
+(`Eval.lean:3127`, `if st.cache.isEmpty then none else …`), the parser arms (`Parse.lean`), and
+`scripts/tap-push.sh` add NO cross-module edge. **`Eval.lean` = 4318** (+23 since 4295 last round;
+below the ~4500 `Eval.DefDeferral` carve watch — ruling stands, not due). **Tech-debt sweep clean**
+(no new `partial`/`sorry`/axiom; only TODO/XXX hits are `\uXXXX` doc-comments in `Json.lean`). The
+**`KUE_PROFILE` instrument** retained by the per-eval slice is SOUND to keep: fully env-gated in
+`Main.lean:91` (`(← IO.getEnv "KUE_PROFILE").isSome`), routes through a SEPARATE entry point
+(`resolveAndEvalProfileString` → `evalStructRefsProfile`) reached ONLY when set — zero-cost on the
+hot path when off. **Test/fixture health:** `Bug2xTests` 1294, `TwoPassTests` 1493, `EvalTests`
+1743, `ParseTests` 809, `EvalPerfTests` 634 — all under the ~2000 silent-failure watch; no org due.
+**Perf-guide currency CONFIRMED:** `kue-performance.md` records the per-eval frontier CLOSED
+(floor-characterized: argocd ~52s ≈ 486K necessary evals × irreducible meet cost; cache/hash ~2-3%;
+empty-`cache`-skip at noise floor; frame-sharing WON'T-FIX ~0.05% ceiling) — accurate, matches code.
+**Overall: architecture HEALTHY.** No inline code cleanups needed. Two-phase audit CLOSED; counter →
+0. **🚨 NEXT LEADER = the RESILIENCE / RETROSPECTIVE pass (OVERDUE)** — ~11 audit cycles / 23
+Phase-A/B commits with ZERO retros and accrued operational learnings; see the breadcrumb for the
+enumerated learnings to fold into `failure-modes.md` + `slice-loop.md`. AFTER that: the item-6 LATENT
+tail / SC-3. `v0.1.0-alpha.20260623` CUT + formula live (3 platforms).
+
+**🎯 CONSOLIDATED-COMPLETE STATE (2026-06-23).** The substantive backlog is EXHAUSTED on two axes
+simultaneously: **(1) spec-conformance backlog EMPTY** — every correctness item RESOLVED; argocd +
+cert-manager are content-identical drop-ins (jq -S diff = 0). **(2) per-eval perf frontier CLOSED** —
+floor-characterized (argocd ~52s ≈ 486K necessary core evals × the irreducible per-meet cost; the
+cache/hash machinery is only ~2-3%; cross-env frame-sharing is a false-share, WON'T-FIX). The only
+remaining perf lever is the USER-controllable one (flatten / shorten chains → fewer evals). Released
+`v0.1.0-alpha.20260623` (3 platforms, race-safe tooling). **What remains is LATENT / CLEANUP only:**
+the item-6 tail (A2-x/y loader corners, B2-A1/A2 latent, `module-file-scoped-imports` [prod9 doesn't
+hit], `resolveEmbeddedDisjDefault` check, DRY `selectEvaluatedField .disj`) + SC-3 (display-gap) —
+none soundness-bearing. Plus the now-OVERDUE resilience/retrospective pass (next leader).
+
 **Audit 2026-06-23 (Phase B, architecture/refactor; batch `735dc10..0459beb` = flatten-bound perf
 + SC-4 nested HIDDEN/LET closedness) — HEALTHY (light confirm-and-close; Phase A HEALTHY `0459beb`).
 🎯 This round records the SPEC-CONFORMANCE-BACKLOG-EMPTY milestone.** Phase A confirmed the backlog
