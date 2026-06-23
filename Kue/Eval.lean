@@ -1885,6 +1885,58 @@ where
       | none => [])
     (defFrameLabels ++ promoted).eraseDups
 
+/-- Bug2-14: meet a host narrowing INTO an embed body's OWN field that both DECLARES a label the
+    HOST narrows AND reads it from a sibling (a plain `echo: bk`) or its comprehension (`if bk ==
+    …`). When an embed declares `bk: string` (ABSTRACT) while the host declares `bk: "X"`
+    (CONCRETE), the embed body's `echo: bk` / `if bk == "X"` resolves against the EMBED-LOCAL
+    `string` (the embed is a separate frame; its sibling ref is depth-0 into its OWN slot, not the
+    host's), so the read sees the un-narrowed type — the value is wrong / the guard never fires.
+    The host's narrowing reaches the embed-output only via the LATER `meet` of the embed's fields
+    against the host (too late for the already-captured read). This rewrites the embed body so the
+    embed-local same-label slot carries the host-narrowed value BEFORE the body evaluates.
+
+    The analog of `injectLetLocalNarrowings` (Bug2-4), but for an embed body rather than a
+    let-local. Gated to the SAME-LABEL embed-abstract × host-concrete overlap exactly: only a
+    regular-output field the embed declares AND `embedComprehensionReadLabels` surfaces (so a plain
+    sibling ref `echo: bk` and a comprehension read both qualify) AND the host's `narrowings`
+    actually carries — so an embed-INTERNAL field the host does NOT narrow (`other: string` read by
+    `echo: other`) is untouched (stays embed-local), and a host-only field is irrelevant. Recurses
+    into NESTED embeds (a doubly-wrapped `{{bk:string,echo:bk}}`) and let bodies. Sound: it only
+    MEETS the host narrowing into a field the host narrows anyway (the embed's same label) — never
+    invents a value, never widens beyond the use-site meet (`int & "X"` still bottoms). `seen`/`fuel`
+    bound the recursion total over nested embeds/cycles. -/
+def injectEmbedSiblingNarrowings (fuel : Nat) (narrowings : List (String × Value)) (seen : List Value) :
+    Value -> Value
+  | v =>
+      match fuel with
+      | 0 => v
+      | f + 1 =>
+          if seen.contains v then v
+          else
+            let seen' := v :: seen
+            -- The embed body's OWN labels read by a sibling/comprehension (plain `echo: bk` is a
+            -- depth-0 ref, captured by `embedComprehensionReadLabels`).
+            let readLabels := embedComprehensionReadLabels v
+            let rewriteFields := fun (innerFields : List Field) =>
+              innerFields.map fun fl =>
+                if Field.isRegularOutput fl && readLabels.contains (Field.label fl) then
+                  match narrowings.find? (fun p => p.fst == Field.label fl) with
+                  | some (_, nv) => { fl with value := meet (Field.value fl) nv }
+                  | none => fl
+                else if fl.fieldClass == .letBinding then
+                  { fl with value := injectLetLocalNarrowings f narrowings seen' (Field.value fl) }
+                else fl
+            -- Recurse into a NESTED embedding (a plain embed of an embed) so a doubly-wrapped
+            -- abstract field is narrowed at its own level.
+            let rewriteEmbeds := fun (cs : List Value) =>
+              cs.map fun c =>
+                if isEmbeddingValue c then injectEmbedSiblingNarrowings f narrowings seen' c else c
+            match v with
+            | .structComp innerFields innerCs o =>
+                .structComp (rewriteFields innerFields) (rewriteEmbeds innerCs) o
+            | .struct innerFields o tail p e => .struct (rewriteFields innerFields) o tail p e
+            | _ => v
+
 /-- The DISCRIMINATOR labels of an embed body's embedded disjunction (Gap-2, Bug2-2): a regular
     sibling the body declares (`shape: string`) that the disjunction's arms also DECLARE as a
     field (`{shape:"struct",…} | {shape:"list",…}`). When such an embedded def is itself embedded
@@ -2002,6 +2054,16 @@ def evaluatedStructOperand? : Value -> Option (List Field × Bool)
   | .struct fields .defOpenViaTail _ _ _ => some (fields, false)
   | .struct fields openness _ _ _ => some (fields, openness.isOpen)
   | _ => none
+
+/-- The host's REGULAR-OUTPUT `(label, value)` pairs — the concrete narrowing a host struct
+    contributes when an embed declares the same label abstractly (Bug2-14). Empty for a
+    non-struct host (a scalar/list host has no field to narrow an embed sibling). -/
+def hostNarrowingPairs (host : Value) : List (String × Value) :=
+  match evaluatedStructOperand? host with
+  | some (fields, _) =>
+      fields.filterMap fun f =>
+        if Field.isRegularOutput f then some (Field.label f, Field.value f) else none
+  | none => []
 
 /-- The narrowing fields a use operand splices into a forced def's frame. Extends
     `evaluatedStructOperand?` with the `.embeddedList` case: a use operand that is a
@@ -3446,7 +3508,22 @@ mutual
                     | some (pkgFields, defBody) => do
                         let capturedEnv <- pushFrame pkgFields env
                         pure (.closure capturedEnv defBody)
-                    | none => evalValueWithFuel (nextFuel + 1) env [] embedding
+                    | none =>
+                        -- Bug2-14: a PLAIN embed (not a self-ref closure / imported def) that
+                        -- declares a label ABSTRACTLY which the HOST narrows CONCRETELY keeps its
+                        -- sibling/comprehension read (`echo: bk`, `if bk == …`) bound to the
+                        -- EMBED-LOCAL un-narrowed value — the embed is its OWN frame, so the read is
+                        -- depth-0 into its own slot, NOT the host's. The host's narrowing reaches the
+                        -- embed-output only via the LATER `meet current (embed)` below — too late for
+                        -- the already-captured read. Inject the host's (`current`'s) narrowing into
+                        -- the embed body's same-label read-and-declared slot BEFORE evaluating, so the
+                        -- read sees the merged value. The closure paths above deliver their narrowing
+                        -- via `spliceOperandForEmbed`; this is the missing delivery for the plain path.
+                        -- Gated to the read-and-declared × host-narrowed overlap
+                        -- (`injectEmbedSiblingNarrowings`), so an embed-INTERNAL field the host does
+                        -- not narrow stays embed-local (no over-rebase).
+                        evalValueWithFuel (nextFuel + 1) env []
+                          (injectEmbedSiblingNarrowings evalFuel (hostNarrowingPairs current) [] embedding)
               match evaluated with
               | .closure capturedEnv body => do
                   -- An embedded self-referential imported def (`parts.#Metadata`) evaluates to a

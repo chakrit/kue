@@ -674,6 +674,102 @@ theorem bug213_required_unset_not_swallowed_as_absent :
         = true := by
   native_decide
 
+-- ### Bug2-14 — re-base an embed body's sibling/comprehension read onto the host-narrowed value.
+--
+-- An embed declares a label ABSTRACTLY (`bk: string`) which the HOST declares CONCRETELY (`bk:
+-- "X"`). The embed body's sibling read — a plain `echo: bk` OR a comprehension guard `if bk == "X"`
+-- — is bound to the EMBED-LOCAL frame (the embed is its OWN frame; the read is depth-0 into its own
+-- slot, NOT the host's), so it reads the un-narrowed `string`: the plain ref exports `string`, the
+-- guard never fires (the comprehension defers and `export` errors incomplete). The host's narrowing
+-- reaches the embed-output only via the LATER `meet host (embed)` — too late for the already-captured
+-- read. FIXED by `injectEmbedSiblingNarrowings` at `meetEmbeddingsWithFuel`'s plain-embed eval: the
+-- host's (`current`'s) regular-output narrowing is MET into the embed body's same-label
+-- read-and-declared slot BEFORE the body evaluates, so the read sees the merged value. Gated to the
+-- read-and-declared × host-narrowed overlap exactly (`embedComprehensionReadLabels` ∩ host fields), so
+-- an embed-INTERNAL field the host does NOT narrow stays embed-local (no over-rebase). The analog of
+-- `injectLetLocalNarrowings` (Bug2-4) for an embed body rather than a let-local. General (not keyed to
+-- argocd); cert-manager stays content-identical.
+
+-- PLAIN sibling-ref form (the SCOPE-broadening witness — a comprehension-only fix would FAIL this):
+-- `echo: bk` reads the embed-local `bk`, which the host narrows to `"X"`. cue `{bk:"X", echo:"X"}`;
+-- kue formerly `echo: string`. Now `echo: "X"`.
+theorem bug214_plain_sibling_ref_reads_host_narrowed :
+    evalSourceMatches
+      "host: {\n\tbk: \"X\"\n\t{\n\t\tbk: string\n\t\techo: bk\n\t}\n}\n"
+      "host: {bk: \"X\", echo: \"X\"}"
+        = true := by
+  native_decide
+
+-- COMPREHENSION form (the argocd `#Mixin` shape: `if kind == …` reads the embed-local abstract
+-- field). The guard fires against the host-narrowed `bk == "X"` and the comprehension DRAINS. cue
+-- `{bk:"X", hit:true}`; kue formerly left the `for`/`if` undrained (export error). Now `hit: true`.
+theorem bug214_comprehension_guard_reads_host_narrowed :
+    evalSourceMatches
+      "host: {\n\tbk: \"X\"\n\t{\n\t\tbk: string\n\t\tfor k, v in {p: 1} {\n\t\t\tif bk == \"X\" { hit: true }\n\t\t}\n\t}\n}\n"
+      "host: {bk: \"X\", hit: true}"
+        = true := by
+  native_decide
+
+-- MULTI-LEVEL embed (a doubly-wrapped abstract field) — the injection recurses into nested embeds, so
+-- a field declared abstractly two embed levels down still reads the host-narrowed value. cue
+-- `{bk:"X", echo:"X"}`.
+theorem bug214_multi_level_embed_reads_host_narrowed :
+    evalSourceMatches
+      "host: {\n\tbk: \"X\"\n\t{\n\t\t{\n\t\t\tbk: string\n\t\t\techo: bk\n\t\t}\n\t}\n}\n"
+      "host: {bk: \"X\", echo: \"X\"}"
+        = true := by
+  native_decide
+
+-- NESTED COMPREHENSION reading the embed-narrowed field (the guard sits under two `for` frames). The
+-- injection narrows the embed-local `bk` slot regardless of how deeply the comprehension reads it.
+theorem bug214_nested_comprehension_reads_host_narrowed :
+    evalSourceMatches
+      "host: {\n\tbk: \"X\"\n\t{\n\t\tbk: string\n\t\tfor k, v in {p: 1} {\n\t\t\tfor k2, v2 in {q: 2} {\n\t\t\t\tif bk == \"X\" { hit: true }\n\t\t\t}\n\t\t}\n\t}\n}\n"
+      "host: {bk: \"X\", hit: true}"
+        = true := by
+  native_decide
+
+-- NEGATIVE (must STAY drained, no regression) — embed reads its OWN concrete field (`bk: "X"` in the
+-- embed, not abstract). Already correct; the injection must not change it. cue `{bk:"X", echo:"X"}`.
+theorem bug214_embed_own_concrete_stays_drained :
+    evalSourceMatches
+      "host: {\n\t{\n\t\tbk: \"X\"\n\t\techo: bk\n\t}\n}\n"
+      "host: {bk: \"X\", echo: \"X\"}"
+        = true := by
+  native_decide
+
+-- NEGATIVE (must STAY drained) — embed reads a HOST-ONLY field (not declared in the embed at all), so
+-- the read resolves up to the host frame and already sees `"X"`. cue `{bk:"X", echo:"X"}`.
+theorem bug214_host_only_field_stays_drained :
+    evalSourceMatches
+      "host: {\n\tbk: \"X\"\n\t{\n\t\techo: bk\n\t}\n}\n"
+      "host: {bk: \"X\", echo: \"X\"}"
+        = true := by
+  native_decide
+
+-- OVER-REBASE GUARD — an embed-INTERNAL field (`other: string`) the host does NOT narrow stays
+-- embed-local and INCOMPLETE; only the embed-declared × host-narrowed `bk` overlap re-bases. The
+-- injection is gated on the host actually narrowing the label, so `echo: other` (reading the
+-- never-host-narrowed `other`) keeps `string` — it MUST NOT be mis-rebased to the host's `bk`. cue
+-- leaves `echo`/`other` incomplete (`string`); kue eval keeps them `string` (export errors
+-- incomplete, matching cue). Pins that the re-base does NOT over-fire on a genuine embed-internal ref.
+theorem bug214_over_rebase_guard_embed_internal_stays_local :
+    evalSourceMatches
+      "host: {\n\tbk: \"X\"\n\t{\n\t\tother: string\n\t\techo: other\n\t}\n}\n"
+      "host: {bk: \"X\", other: string, echo: string}"
+        = true := by
+  native_decide
+
+-- CONFLICT BOTTOMS — the embed declares the same label with a CONFLICTING type (`bk: int`) vs the
+-- host's `bk: "X"`. The injection MEETS `int & "X"` = ⊥, so the struct bottoms (never a silent merge).
+-- cue: `conflicting values "X" and int`. Pins that the injection narrows soundly (a real conflict
+-- still bottoms — it does not widen past the use-site meet).
+theorem bug214_conflicting_type_bottoms :
+    exportJsonBottoms
+      "host: {\n\tbk: \"X\"\n\t{\n\t\tbk: int\n\t\techo: bk\n\t}\n}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -688,5 +784,6 @@ theorem bug213_required_unset_not_swallowed_as_absent :
 #check @bug210_no_self_ref_unchanged                          -- Bug2-10
 #check @bug211_selfconj_terminates_and_narrows                -- Bug2-11
 #check @bug213_required_unset_not_swallowed_as_absent         -- Bug2-13
+#check @bug214_conflicting_type_bottoms                       -- Bug2-14
 
 end Kue
