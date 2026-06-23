@@ -105,6 +105,65 @@ theorem select_field_off_scalar_default_drops_arm :
           = true := by
   native_decide
 
+-- GAINED ERROR (== cue) — BOOL default: the `.prim (.bool true)` default routes through
+    -- `selectFromConcrete`'s `_ => .bottom` (cue: `invalid operand … found bool`), so `x.a` is
+    -- `.bottom` and the dead arm sheds → `"fb"`. Exercises a non-int scalar arm distinct from the
+    -- int pin above.
+theorem select_field_off_bool_default_drops_arm :
+    exportJsonMatches
+        "x: *true | {a: 1}\ny: x.a | \"fb\"\n"
+        "{\n    \"x\": true,\n    \"y\": \"fb\"\n}\n"
+          = true := by
+  native_decide
+
+-- GAINED ERROR (== cue) — NULL default: the `.prim .null` default also hits `selectFromConcrete`'s
+    -- `_ => .bottom` (cue: `invalid operand … found null`), shedding the arm → `"fb"`. Distinct prim
+    -- shape from int/bool.
+theorem select_field_off_null_default_drops_arm :
+    exportJsonMatches
+        "x: *null | {a: 1}\ny: x.a | \"fb\"\n"
+        "{\n    \"x\": null,\n    \"y\": \"fb\"\n}\n"
+          = true := by
+  native_decide
+
+-- GAINED ERROR (== cue) — LIST default (the OTHER `selectFromConcrete` arm): a list default is an
+    -- `.embeddedList` CARRIER, so it routes through `selectFromDecls` — which `.bottom`s on the
+    -- absent field `a` (cue: `undefined field: a`), not the `_` scalar arm. Same observable: the dead
+    -- arm sheds → `"fb"`. Guards that a carrier-with-missing-field default also bottoms (not defers).
+theorem select_field_off_list_default_drops_arm :
+    exportJsonMatches
+        "x: *[1] | {a: 1}\ny: x.a | \"fb\"\n"
+        "{\n    \"x\": [\n        1\n    ],\n    \"y\": \"fb\"\n}\n"
+          = true := by
+  native_decide
+
+-- GAINED ERROR (== cue) — REF-RESOLVED scalar default (source-realistic): the default arm is a
+    -- `ref` (`*n | {a:1}`, `n: 5`) that EVAL resolves to `.prim 5` BEFORE selection, so it lands in
+    -- `selectFromConcrete`'s `_ => .bottom` exactly as a literal scalar default — `out: x.a | "fb"`
+    -- sheds → `"fb"` == cue (was kue-AMBIGUOUS). Guards the fix generalizes past int literals to a
+    -- ref-fed scalar, the shape a real config actually produces. An incomplete default (`*int`,
+    -- `*(>5)`) by contrast makes the WHOLE `x` field incomplete and never reaches a resolved-default
+    -- select, so the catch-all never over-bottoms it (verified: cue/old/new all `incomplete value`).
+theorem select_field_off_ref_scalar_default_drops_arm :
+    exportJsonMatches
+        "n: 5\nx: *n | {a:1}\nout: x.a | \"fb\"\n"
+        "{\n    \"n\": 5,\n    \"x\": 5,\n    \"out\": \"fb\"\n}\n"
+          = true := by
+  native_decide
+
+-- DIRECT DISPATCH PIN (the fix, at the function): selecting off a disjunction whose unique
+    -- default is a SCALAR `.prim` now `.bottom`s — `resolveDisjDefault?` returns the `.prim`, and
+    -- `selectFromConcrete`'s `_ => .bottom` plucks it. Asserts the new arm directly (the
+    -- `exportJsonMatches` shed pins only observe it end-to-end); the OLD `_` arm returned a deferred
+    -- `.selector`, so a regression that re-defers would flip this to `.selector`.
+theorem select_field_off_scalar_default_is_bottom :
+    (selectEvaluatedField
+      (.disj [(.default, .prim (.int 5)),
+              (.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])])
+      "a"
+      == .bottom) = true := by
+  native_decide
+
 -- NO OVER-FIRE (the `none` arm survives the collapse): a genuinely ambiguous disjunction (no
     -- unique default) still has `resolveDisjDefault?` return `none`, so selection stays a deferred
     -- `.selector` — the collapse maps `none => .selector base label` unchanged, never a spurious
@@ -1687,6 +1746,7 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
 #check @hidden_def_embed_concrete_source                      -- secret-data sub-1
 #check @disj_struct_no_over_defer                             -- secret-data sub-2
 #check @select_into_default_disjunction_deep_nested_defers    -- disj-select DRY collapse
+#check @select_field_off_list_default_drops_arm               -- disj-select scalar/carrier-default sheds
 #check @conj_disj_arms_fuel_zero_declines                     -- saturation guard
 #check @embed_disj_single_arm_narrows                         -- embed-disj-arm-fallthrough
 #check @embed_disj_arm_closedness_host_extra_field_survives   -- embed-disj-arm-closedness
