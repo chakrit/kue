@@ -830,6 +830,45 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Bug2-12b: a self-rec def whose literals are SPLIT across `&` (`#X & {a:1} & {c:3}`) closes its
+      -- literals over their COMBINED allowed-set, so a use-site re-declaring an existing field
+      -- (`& {c:3}`) ADMITS `{a:1,c:3}` — the def's OWN field. Pre-fix each split conjunct closed
+      -- SEPARATELY and the meet over-closed (`c` absent from the `{a}` clause → bottom).
+      fileName := "definitions/bug212b_multiconjunct_redeclare_admits.expected",
+      content :=
+        match parseSource "#X: #X & {a: 1} & {c: 3}\nout: #X & {c: 3}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12b GENUINE-EXTRA: a field in NO split literal (`b`) is still rejected across the split —
+      -- the union closes over `{a,c}` only, so `b` bottoms.
+      fileName := "definitions/bug212b_multiconjunct_genuine_extra_rejects.expected",
+      content :=
+        match parseSource "#X: #X & {a: 1} & {c: 3}\nout: #X & {b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12b OPEN-TAIL across the split: a `...` in ONE split conjunct opens the UNION
+      -- (`defOpenViaTail` dominates in `unionDefOpenness`), so a use-site extra (`b`) is ADMITTED.
+      fileName := "definitions/bug212b_multiconjunct_opentail_admits.expected",
+      content :=
+        match parseSource "#X: #X & {a: 1} & {c: 3, ...}\nout: #X & {b: 2}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- Bug2-12b CONFLICT across the split: a shared label declared with conflicting values in two
+      -- split conjuncts (`{a:1}` & `{a:2}`) still `.conj`-meets — `mergeDefinitionDecls` unions FIELDS,
+      -- so the shared label's values meet and conflict to bottom.
+      fileName := "definitions/bug212b_multiconjunct_conflict_bottoms.expected",
+      content :=
+        match parseSource "#X: #X & {a: 1} & {a: 2}\nout: #X\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- SC-1d: a pattern def with a `...` tail stays OPEN. `#A: {x, [=~"^a"], ...}` carries BOTH
       -- a selective pattern AND a `...`; the `...` opens the struct regardless of patterns (the two
       -- are orthogonal axes on `Value.struct`). Meeting `{extra: 5}` admits `extra` even though it

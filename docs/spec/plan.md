@@ -415,9 +415,11 @@ sites updated — confirmed no stray `base`-arg references). **Tech-debt sweep c
 `TwoPassTests` 1493 lines (post-`0deef2f` split) — both under the silent-failure watch; no further org
 due. **Perf-guide currency CONFIRMED:** argocd ~50s (jq-S=0, re-measured this audit), cert-manager ~11.5s
 (jq-S=0); perf #7 frame-sharing WON'T-FIX, per-eval-cost the live lever — `kue-performance.md` accurate.
-**One finding filed:** Bug2-12b fix-seam design (in `spec-conformance-audit.md` item 0 — the next-leader
-slice; design only, NOT fixed here). **No inline cleanups needed** (the batch left no debt). The
-close-each/close-once DRY ruling is recorded below.
+**One finding filed:** Bug2-12b fix-seam design (in `spec-conformance-audit.md` item 0). **Bug2-12b is
+now RESOLVED 2026-06-23** — the close-once-via-`mergeDefinitionDecls` fix landed on the flatten path
+(partition `expanded` into union-able literals vs the untouched self-ref `.refId`, close-each-first,
+`foldl mergeDefinitionDecls`, close once, re-emit `rest ++ [closed]`); see implementation-log. **No
+inline cleanups needed** (the batch left no debt). The close-each/close-once DRY ruling is recorded below.
 
 **close-each vs close-once (Bug2-12 flatten path vs Bug2-7 conj-fold path) — RULED: SHARED PRIMITIVE,
 DISTINCT SEAMS; the Bug2-12b fix REUSES `mergeDefinitionDecls`, it does NOT unify the two functions

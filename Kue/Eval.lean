@@ -1601,6 +1601,14 @@ def conjStructOperand? (env : Env) (fuel : Nat) : Value -> Option (List Field ×
                 | none => none
   | _ => none
 
+/-- Does a value carry FIELD CONTENT that `mergeDefinitionDecls` genuinely close-once-UNIONS — a
+    field/pattern-bearing struct (the `#m: {a:1}` decl shape), not a scalar/kind def value
+    (`#x: string`, which `mergeDefinitionDecls` would only `.conj`-meet, doubling the display)? -/
+def isUnionableDefValue : Value -> Bool
+  | .struct _ _ _ _ _ => true
+  | .structComp _ _ _ => true
+  | _ => false
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -1639,21 +1647,54 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (constraint : Value) : List Value
                     -- structural-cycle fixpoint — the cycle path (D#2a) bottoms it, contributing no
                     -- live fields — so the def's OWN closedness must come from the remaining
                     -- struct-literal conjuncts (`{a:1}`). When the def is closed (its field
-                    -- `isDefinition` AND the body is genuinely self-referential), close each
-                    -- struct-literal conjunct via the def-body closer so a use-site `& {b:2}` meets a
-                    -- CLOSED struct (rejected). The self-ref conjunct is a `.refId`, which the closer
-                    -- leaves untouched, so cycle DETECTION/termination is unchanged (this runs at the
+                    -- `isDefinition` AND the body is genuinely self-referential), close those
+                    -- struct-literal conjuncts so a use-site `& {b:2}` meets a CLOSED struct
+                    -- (rejected). The self-ref conjunct is a `.refId`, which the closer leaves
+                    -- untouched, so cycle DETECTION/termination is unchanged (this runs at the
                     -- flatten, never on `structStack`). A non-self-recursive multi-conjunct def
                     -- (`#LS: #Base & {#extra}` — `#Base` is a DIFFERENT slot) is NOT self-referential,
                     -- so its narrowing conjuncts stay OPEN and the close-once-via-`closedClauses`
                     -- fold (Bug2-6..9) is preserved unchanged.
+                    --
+                    -- Bug2-12b: the def's own struct literals may be SPLIT across `&`
+                    -- (`#X: #X & {a:1} & {c:3}`). Closing each literal SEPARATELY yields two
+                    -- independently-`defClosed` structs whose `.conj`-meet CONCATENATES the two
+                    -- `closedClauses` (clause `{a}` AND clause `{c}`), so a field must be in BOTH
+                    -- allowed-sets — re-declaring the def's OWN field across the split
+                    -- (`& {c:3}`) wrongly bottoms. The literals are repeated decls of ONE def path
+                    -- (the def body split across `&`), so they must close ONCE over their COMBINED
+                    -- allowed-set (the Bug2-6/2-7 close-once lever): UNION them via
+                    -- `mergeDefinitionDecls` (unions fields — a shared label still `.conj`-meets, so
+                    -- a real conflict survives; unions patterns; unions openness — a `...` in any
+                    -- literal keeps the merged body OPEN), close the SINGLE merged body once, and
+                    -- re-emit the untouched conjuncts (the self-ref `.refId` + any non-literal)
+                    -- alongside it. `mkStruct` inside the closer then derives the SINGLE self-clause
+                    -- over the union (`{a,c}`), admitting `a`, `c`, and a re-declared `c`; rejecting
+                    -- `b`. The self-ref `.refId` is in the untouched partition, so cycle detection
+                    -- and self-ref bottoming are unchanged.
                     let isSelfRef := cs.any fun c =>
                       match c with
                       | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
                       | _ => false
                     let close := field.fieldClass.isDefinition && isSelfRef
                     let expanded := cs.flatMap (flattenConjDefRef env fuel)
-                    if close then expanded.map (normalizeDefinitionValueWithFuel normalizeFuel)
+                    if close then
+                      let literals := expanded.filter isUnionableDefValue
+                      let rest := expanded.filter (fun c => !isUnionableDefValue c)
+                      match literals.map (normalizeDefinitionValueWithFuel normalizeFuel) with
+                      | [] => expanded
+                      -- Each literal is closed FIRST so its def-body openness is settled
+                      -- (`regularOpen` → `defClosed`, an explicit `...` stays `defOpenViaTail`);
+                      -- otherwise `unionDefOpenness` reads a raw `regularOpen` literal as OPEN and
+                      -- the union would re-open. The fold UNIONS the closed literals into ONE body —
+                      -- `mergeDefinitionDecls` re-derives a SINGLE `closedClauses` over the merged
+                      -- fields (no per-literal clause concatenation) and unions openness
+                      -- (`defOpenViaTail` dominates, so a split `...` keeps the union open). The
+                      -- final close is idempotent on the already-closed merged body.
+                      | first :: more =>
+                          let merged := more.foldl mergeDefinitionDecls first
+                          let closed := normalizeDefinitionValueWithFuel normalizeFuel merged
+                          rest ++ [closed]
                     else expanded
                 | _ => [constraint]
             | none => [constraint]
@@ -1714,14 +1755,6 @@ def openStructValue : Value -> Value
   -- A plain struct reopens; tail/pattern-bearing forms pass through.
   | .struct fields _ none [] _ => mkStruct fields .regularOpen none []
   | other => other
-
-/-- Does a value carry FIELD CONTENT that `mergeDefinitionDecls` genuinely close-once-UNIONS — a
-    field/pattern-bearing struct (the `#m: {a:1}` decl shape), not a scalar/kind def value
-    (`#x: string`, which `mergeDefinitionDecls` would only `.conj`-meet, doubling the display)? -/
-def isUnionableDefValue : Value -> Bool
-  | .struct _ _ _ _ _ => true
-  | .structComp _ _ _ => true
-  | _ => false
 
 /-- Is `label` a same-def-PATH collision between the two field lists — both declare it
     DEFINITION-class AND both values are union-able struct bodies (`isUnionableDefValue`)? Such a

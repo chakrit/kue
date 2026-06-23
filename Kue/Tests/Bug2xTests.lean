@@ -912,14 +912,64 @@ theorem bug212_singleliteral_redeclare_admits :
       "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
   native_decide
 
--- KNOWN OVER-CLOSE (Bug2-12b, OPEN — pins the CURRENT WRONG behavior so the regression is visible and
--- the future fix-slice has a flip target). A self-rec def whose literals are SPLIT across `&`
--- (`#X & {a:1} & {c:3}`) has each conjunct closed SEPARATELY by the Bug2-12 `expanded.map` closer, so a
--- use-site re-declaring an existing field (`& {c:3}`) wrongly BOTTOMS — cue ADMITS `{a:1,c:3}`. The fix
--- (close conjuncts over their UNION, the Bug2-7 close-once principle) must flip this to
--- `exportJsonMatches … {a:1,c:3}`. Documented OPEN in `spec-conformance-audit.md` item 0 (Bug2-12b).
-theorem bug212_multiconjunct_redeclare_OVERCLOSE :
-    exportJsonBottoms "#X: #X & {a: 1} & {c: 3}\nout: #X & {c: 3}\n" = true := by
+-- Bug2-12b RESOLVED (was a CONTAINED over-close). A self-rec def whose literals are SPLIT across `&`
+-- (`#X & {a:1} & {c:3}`) must close its literals over their COMBINED allowed-set, not each separately:
+-- a use-site re-declaring an existing field (`& {c:3}`) is the def's OWN field, so it ADMITS `{a:1,c:3}`
+-- (cue agrees). Pre-fix `flattenConjDefRef`'s `close==true` branch `expanded.map`-closed each conjunct
+-- SEPARATELY, yielding two `defClosed` structs whose `.conj`-meet concatenated the `closedClauses` (field
+-- in BOTH sets) and wrongly bottomed. FIXED by partitioning `expanded` into union-able def-body literals
+-- vs the rest (the self-ref `.refId`, untouched), `foldl mergeDefinitionDecls` the literals into ONE body
+-- (closed-each-first so `unionDefOpenness` does not read a raw `regularOpen` as open), closing that single
+-- union once, and re-emitting `rest ++ [closed]`. `mkStruct` derives the SINGLE self-clause over `{a,c}`.
+theorem bug212_multiconjunct_redeclare_admits :
+    exportJsonMatches "#X: #X & {a: 1} & {c: 3}\nout: #X & {c: 3}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- Bug2-12b GENUINE-EXTRA (must reject): a field in NO literal conjunct (`b`) is still rejected across the
+-- split — the union closes over `{a,c}`, so `b` is `field not allowed`. cue rejects.
+theorem bug212_multiconjunct_genuine_extra_rejects :
+    exportJsonBottoms "#X: #X & {a: 1} & {c: 3}\nout: #X & {b: 2}\n" = true := by
+  native_decide
+
+-- Bug2-12b OPEN-TAIL across the split (do NOT over-close): a `...` in ONE split conjunct opens the UNION
+-- (`unionDefOpenness` lets `defOpenViaTail` dominate), so a use-site extra is ADMITTED. cue `{a:1,b:2,c:3}`.
+theorem bug212_multiconjunct_opentail_admits :
+    exportJsonMatches "#X: #X & {a: 1} & {c: 3, ...}\nout: #X & {b: 2}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- Bug2-12b CONFLICT across the split (must bottom): a shared label declared with conflicting values in two
+-- split conjuncts (`{a:1}` & `{a:2}`) still `.conj`-meets — `mergeDefinitionDecls` unions FIELDS, so a
+-- shared label's values meet and conflict. cue `conflicting values 2 and 1`.
+theorem bug212_multiconjunct_conflict_bottoms :
+    exportJsonBottoms "#X: #X & {a: 1} & {a: 2}\nout: #X\n" = true := by
+  native_decide
+
+-- Bug2-12b THREE-WAY split admit: the union closes over `{a,c,e}` across THREE split conjuncts; a
+-- re-declared existing field (`e`) admits. cue `{a:1,c:3,e:5}`.
+theorem bug212_multiconjunct_threeway_admits :
+    exportJsonMatches "#X: #X & {a: 1} & {c: 3} & {e: 5}\nout: #X & {e: 5}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"e\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- Bug2-12b THREE-WAY split genuine-extra (reject): a field in none of the three literals (`z`) is rejected.
+theorem bug212_multiconjunct_threeway_extra_rejects :
+    exportJsonBottoms "#X: #X & {a: 1} & {c: 3} & {e: 5}\nout: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Bug2-12b SPLIT-WITH-PATTERN admit: a pattern living in ONE split conjunct (`[=~"^p"]`) survives the union
+-- — a matching use-site field (`p1`) is ADMITTED. The pattern unions into the merged body's allowed-set.
+-- cue `{a:1, p1:5}`.
+theorem bug212_multiconjunct_split_pattern_admits :
+    exportJsonMatches "#X: #X & {a: 1} & {[=~\"^p\"]: int}\nout: #X & {p1: 5}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"p1\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- Bug2-12b SPLIT-WITH-PATTERN reject: a use-site field matching NO pattern and in no literal (`q1`) is
+-- rejected by the closed union. cue rejects.
+theorem bug212_multiconjunct_split_pattern_rejects :
+    exportJsonBottoms "#X: #X & {a: 1} & {[=~\"^p\"]: int}\nout: #X & {q1: 5}\n" = true := by
   native_decide
 
 -- D#2 GUARDRAIL (must stay green): the structural-cycle DETECTION is untouched by the closer fix —

@@ -180,6 +180,8 @@ family (SC-1/1b/1c/1d/1e + SC-2, EMBED-CLOSE-1 pinned), the 4 spec-gap ratificat
 (disjunction-normalizer unified), and EvalOps extraction (`plan.md` item 2, DONE 2026-06-22).
 **The whole `Bug2-5 → Bug2-14c` argocd narrowing/close-once chain is RESOLVED (2026-06-22..23) —
 argocd exports content-identical (jq -S diff = 0), the 2nd prod9 drop-in after cert-manager.**
+**Bug2-12b (the split-literal self-rec over-close, the former item 0) is RESOLVED 2026-06-23 —
+the close-once-via-`mergeDefinitionDecls` fix on the flatten path; perf #7 is now the leader.**
 SC-3 is a recorded spec-gap only (multi-arm-default display divergence). Detail for every one of
 these is in Audit history + the Live-slice detail (below) + the implementation-log + git.
 
@@ -200,7 +202,7 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
    Spec-check first; do not reflexively match cue (it is internally inconsistent here).
    See the SC-4 entry below.
 3. **Bug2-12** (SELF-recursive case — **RESOLVED 2026-06-23**; MUTUAL tail OPEN; **multi-struct-conjunct
-   OVER-CLOSE regression OPEN — see item 0 below**). A SELF-recursive closed def narrowed with an
+   OVER-CLOSE (Bug2-12b) — RESOLVED 2026-06-23, see item 0 below**). A SELF-recursive closed def narrowed with an
    undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the inlined form) admitted the extra; cue
    rejects (spec-correct — closedness is a property of the definition, self-recursion does NOT re-open
    it). FIXED in `flattenConjDefRef`: a self-referential closed def's `.conj` body now closes its
@@ -210,24 +212,25 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
    {b}`) is a distinct leak deferred as a spec-gap (cue's "reject the def's own field" reading is
    lattice-questionable) — see `cue-spec-gaps.md` Bug2-12 MUTUAL row.
 
-0. **Bug2-12b — MULTI-STRUCT-CONJUNCT self-rec OVER-CLOSE (TOP soundness regression, OPEN 2026-06-23).**
-   The Bug2-12 fix `expanded.map (normalizeDefinitionValueWithFuel …)` closes EACH struct-literal conjunct
+0. **Bug2-12b — MULTI-STRUCT-CONJUNCT self-rec OVER-CLOSE — RESOLVED 2026-06-23.**
+   The Bug2-12 fix `expanded.map (normalizeDefinitionValueWithFuel …)` closed EACH struct-literal conjunct
    of a self-recursive def SEPARATELY. For a self-rec def whose literals are SPLIT across `&`
-   (`#X: #X & {a:1} & {c:3}`), this yields two independently-`defClosed` structs (`{a}` closed, `{c}`
-   closed) whose meet rejects any field not in BOTH allowed-sets. Consequence: a use-site that re-declares
-   the def's OWN field across the split (`out: #X & {c:3}`) BOTTOMS in kue, where **cue ADMITS
-   `{a:1,c:3}`** — an over-close on a field the def itself declares. ISOLATED to multi-conjunct self-rec:
-   the single-literal form (`#X: #X & {a:1, c:3}` → `& {c:3}` admits), non-self-rec multi-conjunct
-   (`#X: {a:1, c:3}` → admits), and the genuine-extra reject (`& {b:2}` bottoms) all CONFORM. ROOT: the
-   conjuncts must be closed over their COMBINED allowed-set (the Bug2-7 close-once principle), not
-   individually — close-each is wrong exactly as Bug2-7 close-each was. NOT fixed inline: the correct fix
-   merges the struct-literal conjuncts before closing, touching the soundness-critical conjunct-merge
-   machinery (the same path whose first Bug2-12 attempt "broke 6 Bug2-6..9 pins"); it needs its own TDD
-   slice (oracle: `#X: #X & {a:1} & {c:3}` ; `out: #X & {c:3}` → `{a:1,c:3}`, and `& {b:2}` → bottom).
-   Witness battery in the audit; canaries unaffected (rare shape, both jq-S=0). RANKED ABOVE perf #7 —
-   a contained-soundness over-close gates correctness before a perf lever.
+   (`#X: #X & {a:1} & {c:3}`), this yielded two independently-`defClosed` structs (`{a}` closed, `{c}`
+   closed) whose meet rejected any field not in BOTH allowed-sets, so a use-site re-declaring the def's
+   OWN field across the split (`out: #X & {c:3}`) BOTTOMED where **cue ADMITS `{a:1,c:3}`**.
+   **FIXED** in `flattenConjDefRef`'s `close == true` branch: partition `expanded` into the union-able
+   def-body literals (`isUnionableDefValue`) vs the rest (the self-ref `.refId` + any deferred conjunct,
+   UNTOUCHED), close EACH literal first (so `unionDefOpenness` sees settled def-body openness, not a raw
+   `regularOpen`), `foldl mergeDefinitionDecls` into ONE merged body, close that once, re-emit
+   `rest ++ [closed]`. `mkStruct` derives the SINGLE self-clause over the union `{a,c}` → admits `a`, `c`,
+   a re-declared `c`; rejects `b`. The split-`...` opens the union (`defOpenViaTail` dominates), a split
+   conflict still `.conj`-meets to bottom, and a split pattern survives. The 5 Bug2-6 + 7 Bug2-9 pins and
+   the D#2 guardrails stay green (gate `isDefinition && isSelfRef` unchanged; the self-ref `.refId`
+   untouched). Mechanism = the Bug2-6/2-7 close-once principle REUSED on the flatten path (`mergeDefinitionDecls`,
+   not a new function — the which-seam-fires distinction stays the soundness boundary). kue-was-wrong →
+   conforms; no divergence. See implementation-log 2026-06-23 (Bug2-12b slice).
 
-   **FIX-SEAM DESIGN (Phase-B 2026-06-23 — design only, NO code; this is the next-leader slice).**
+   **FIX-SEAM DESIGN (Phase-B 2026-06-23 — IMPLEMENTED; retained as the as-built record).**
    - **WHERE.** `flattenConjDefRef` (`Eval.lean:1624`), the `close == true` branch at `:1655-1657`:
      ```
      let expanded := cs.flatMap (flattenConjDefRef env fuel)

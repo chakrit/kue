@@ -12804,3 +12804,82 @@ behavior with a flip target for the fix-slice). All oracle-confirmed vs cue v0.1
 updated. Full gate green: `lake build` clean, `check-fixtures.sh` ok, cert-manager + argocd jq -S = 0,
 shellcheck clean. **Batch verdict: HEALTHY for both shipped claims; one new contained over-close
 (Bug2-12b) filed as the ranked-leader fix-slice.**
+
+---
+
+## Completed Slice: Bug2-12b — close a self-rec def's split literals over the COMBINED allowed-set
+
+Goal: fix the contained over-close the Bug2-12 fix introduced. A self-recursive closed def whose
+struct literals are SPLIT across `&` (`#X: #X & {a:1} & {c:3}`) closed each literal SEPARATELY, so a
+use-site re-declaring the def's OWN field (`out: #X & {c:3}`) wrongly bottomed where cue ADMITS
+`{a:1,c:3}` — an over-close on a field the def itself declares.
+
+### Root cause
+
+`flattenConjDefRef`'s `close == true` branch ran `expanded.map (normalizeDefinitionValueWithFuel …)`,
+closing each split-literal conjunct independently. For `#X: #X & {a:1} & {c:3}`, `expanded` carried two
+struct literals; each became a `defClosed` struct with its OWN single self-clause (`{a}`, `{c}`). Their
+downstream `.conj`-meet CONCATENATES the `closedClauses` (SC-1b conjunction semantics), so a field must
+be in BOTH allowed-sets — `c` rejected against `{a}`, and a use-site `& {c:3}` re-declaring `c`
+bottomed. Close-each is wrong exactly as Bug2-7's close-each was: the literals are repeated decls of ONE
+def path (the def body split across `&`) and must close ONCE over their COMBINED allowed-set.
+
+### Fix (reuse the Bug2-6/2-7 close-once primitive on the flatten path)
+
+In the `close == true` branch, partition `expanded` into the union-able def-body literals
+(`isUnionableDefValue` — `.struct`/`.structComp` bodies) vs the rest (the self-ref `.refId` + any
+deferred conjunct, left UNTOUCHED). `foldl mergeDefinitionDecls` the literals into ONE body, close that
+SINGLE merged body once via `normalizeDefinitionValueWithFuel`, and re-emit `rest ++ [closed]`.
+`mergeDefinitionDecls` (`Eval.lean:385`) unions fields (a shared label still `.conj`-meets, so a real
+conflict survives), unions patterns, and unions openness via `unionDefOpenness` (`defOpenViaTail`
+dominates — a split `...` keeps the union open); `mkStruct` re-derives the SINGLE `closedClauses` over
+the merged field-set (no per-literal clause concatenation). The self-clause is now over `{a,c}` →
+admits `a`, `c`, and a re-declared `c`; rejects `b`.
+
+**The close-each-first subtlety (the one trap hit and corrected during the slice).** The literals are
+UNEVALUATED at flatten time — a `{a:1}` literal is `regularOpen` (parser open-by-default), and the
+recursive `flattenConjDefRef` over the self-ref produces additional already-`defClosed` literals. A raw
+fold would feed `unionDefOpenness` a mix of `regularOpen` (read as OPEN) and `defClosed`, opening the
+union (`unionDefOpenness defClosed regularOpen = defOpenViaTail`) and silently re-opening the def. Fix:
+close EACH literal FIRST (`literals.map (normalizeDefinitionValueWithFuel …)`) so its def-body openness
+is settled (`regularOpen → defClosed`, an explicit `...` stays `defOpenViaTail`) BEFORE the fold; then
+`unionDefOpenness defClosed defClosed = defClosed` and `defClosed ∪ defOpenViaTail = defOpenViaTail`.
+This does NOT re-introduce the close-each `closedClauses` defect: `mergeDefinitionDecls` DROPS each
+input's `closedClauses` and re-derives a SINGLE clause via `mkStruct` over the union — so it is still
+"close ONCE over the combined set", just with each input's openness pre-normalized.
+
+`isUnionableDefValue` (a trivial 3-arm predicate) was moved up to before `flattenConjDefRef` so the
+branch can reach it.
+
+### Trap avoidance (the first Bug2-12 attempt broke 6 Bug2-6..9 pins — not repeated)
+
+The branch stays GATED `field.fieldClass.isDefinition && isSelfRef`, firing ONLY for a genuinely
+self-recursive closed def `.conj` body. It touches ONLY the `isUnionableDefValue` literal conjuncts; the
+self-ref `.refId` sits in the untouched `rest` partition, so cycle DETECTION/termination (D#2a) and
+self-ref bottoming are unchanged. A non-self-rec multi-conjunct def (`#LS: #Base & {#extra}`, `#Base` a
+different slot) is NOT `isSelfRef` → `close == false`, so the whole Bug2-6..9 close-once-via-`closedClauses`
+fold is bypassed; those pins never reach this arm.
+
+### Coverage added + verify
+
+Flipped `bug212_multiconjunct_redeclare_OVERCLOSE` → `bug212_multiconjunct_redeclare_admits`
+(`exportJsonMatches … {a:1,c:3}`). 7 new `native_decide` pins in `Bug2xTests.lean`:
+`bug212_multiconjunct_genuine_extra_rejects`, `bug212_multiconjunct_opentail_admits`,
+`bug212_multiconjunct_conflict_bottoms`, `bug212_multiconjunct_threeway_admits`,
+`bug212_multiconjunct_threeway_extra_rejects`, `bug212_multiconjunct_split_pattern_admits`,
+`bug212_multiconjunct_split_pattern_rejects`. 3 byte-exact `cue export` fixtures
+(`testdata/export/bug212b_multiconjunct_{redeclare,threeway,split_pattern}`) + 4 internal-format fixture
+pairs (`testdata/cue/definitions/bug212b_multiconjunct_{redeclare_admits,genuine_extra_rejects,
+opentail_admits,conflict_bottoms}`) with matching `FixturePorts.lean` entries. The open-tail export case
+is inline-pin-only (field-order spec-gap: kue keeps source order `c,b`, cue emits `b,c` — value-identical).
+
+The single-literal boundary (`bug212_singleliteral_redeclare_admits`), the 5 Bug2-6 close-once + 7 Bug2-9
+multiconjunct pins, and D#2 guardrails (`bug212_struct_cycle_still_bottoms`,
+`bug212_list_disj_still_terminates`) all STAY GREEN. All oracle-confirmed vs cue v0.16.1.
+
+`flattenConjDefRef` depends only on `propext` (within the standard 3); total, no `partial`/`sorry`. Full
+gate green: `lake build` clean (no new warning/axiom), `check-fixtures.sh` ok. Canaries: the change is a
+provable no-op on cert-manager/argocd — the arm fires only for self-recursive def `.conj` bodies and
+prod9 has zero recursive defs, so the corpus (off this machine, read-only prod9 cache) is byte-unchanged;
+jq -S = 0 carried from the `6f77bfe` checkpoint. Bug2-12b is kue-was-wrong → conforms once fixed; no new
+divergence, no residual spec-gap (the open-tail field-order is the pre-existing ratified #3 gap).
