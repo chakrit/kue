@@ -501,9 +501,23 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    - **`scalar-embed` provenance follow-ups** — opportunistic pins (3-level flatten, disj
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.
-   - **`resolveEmbeddedDisjDefault` (`Eval.lean:2093`)** — verify the pass-1
-     label-surfacing path does NOT also need the use-site-narrowing distribution that
-     `embed-disj-arm-fallthrough` added, or that label-surfacing-only is correct there.
+   - ~~**`resolveEmbeddedDisjDefault`** — verify the pass-1 label-surfacing path's
+     narrowing handling.~~ **RESOLVED [fixed] 2026-06-23 — CASE B (`embed-disj-arm-closedness`).**
+     The label-surfacing call (`evalEmbeddingFieldsWithFuel`, now `Eval.lean:~1897`/`~3757`) only
+     surfaces labels for the closedness union + Pass-2 frame; the VALUE comes from the `.disj`
+     distribution arm. Probing that arm adversarially found a REAL divergence: it OPENED each arm
+     (`openStructValue`) into the residual `.disj`, so a LATER use-site narrowing of a label
+     DISJOINT from a closed default arm was wrongly ADMITTED (the closed default won with a leaked
+     label) where cue rejects it by closedness and falls through to the survivor
+     (`{(*_#A{n} | _#B{s})} & {s:"x"}` → cue `{s:"x"}`, kue pre-fix `{n,s:"x"}` / `incomplete int`).
+     Fix: per-arm re-close over (host ∪ arm) labels (the analog of the top-level `closeEmbeddedOver`)
+     — widens by host labels yet restores each arm's own closedness against the later narrowing; the
+     DIRECT (non-embedded) path already got this. 4 pins, canaries jq-S=0. **LATENT follow-up
+     surfaced (NOT this slice): nested embedded disjunction-of-disjunction loses the default MARK
+     when the inner default sub-arm dies** (`{(*_#Outer1 | {c:1})} & narrow` where `_#Outer1` is
+     itself `*_#Inner | …` and the narrowing kills `_#Inner`) → kue exports "ambiguous: multiple
+     non-default disjuncts" where cue picks the marked survivor. Pre-existing (HEAD diverges too,
+     differently); a `flattenAlternatives`/`normalizeDisj` mark-inheritance gap, distinct mechanism.
 
 **Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
 re-litigate): the walkers were NEVER one problem — three distinct walker families + a

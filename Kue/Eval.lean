@@ -3865,9 +3865,29 @@ mutual
                   -- host (an embedding widens, never imposes its own closedness); `normalizeDisj`
                   -- prunes the dead default (`liveAlternatives`) so the survivor wins. The plain
                   -- scalar/struct disjunctions that have a unique default surviving still resolve to
-                  -- it (cue-exact). Closedness over the union is re-applied by the caller.
+                  -- it (cue-exact).
+                  --
+                  -- embed-disj-arm-closedness: each arm is then RE-CLOSED over (host ∪ arm) labels
+                  -- when the arm was a closed def — the per-arm analog of the top-level
+                  -- `closeEmbeddedOver` (line ~3539). Opening the arm widens the host's allowed set
+                  -- (so a host regular field the arm does not declare survives), but `met` is a
+                  -- residual `.disj` that `closeEmbeddedOver` passes through UNCLOSED — so each arm
+                  -- lost its own closedness. A LATER use-site narrowing introducing a label DISJOINT
+                  -- from a closed default arm must bottom that arm (`{(*_#A{n} | _#B{s})} & {s:"x"}`
+                  -- → cue picks `_#B`, `{s:"x"}`), but an open default arm wrongly ADMITS `s` and
+                  -- wins (`{n,s:"x"}`). Re-closing per-arm restores the rejection; the DIRECT
+                  -- (non-embedded) `(*_#A | _#B) & {s}` path already gets this because its arms stay
+                  -- closed defs at meet time.
+                  let hostFields := (evaluatedStructOperand? current).map Prod.fst |>.getD []
                   let distributed := alternatives.map fun alternative =>
-                    (alternative.fst, meet current (openStructValue alternative.snd))
+                    let armOpened := openStructValue alternative.snd
+                    let armResult := meet current armOpened
+                    let reclosed :=
+                      match evaluatedStructOperand? alternative.snd with
+                      | some (armFields, armOpen) =>
+                          closeEmbeddedOver hostFields armFields armOpen armResult
+                      | none => armResult
+                    (alternative.fst, reclosed)
                   meetEmbeddingsWithFuel (nextFuel + 1) env (normalizeDisj distributed) rest
               | _ =>
                   -- Scalar-embedding collapse (`{5}`→`5`), done HERE where the host struct is KNOWN

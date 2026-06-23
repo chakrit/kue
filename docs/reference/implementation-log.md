@@ -13650,3 +13650,76 @@ no-rule-needed fallback keyed on `(fuel, value)`, NOT structural `Value→Value`
 already guarded by a synced leaf-enumeration helper (`valueReducesToSelf`, with a "MUST stay in sync"
 maintenance note). Making them "exhaustive" would force re-listing every recursive ctor's full eval rule —
 a different, semantically-loaded change, not this hardening.
+
+---
+
+## Completed Slice: `resolveEmbeddedDisjDefault` soundness check → CASE B fix `embed-disj-arm-closedness` (2026-06-23)
+
+Closed the plan item-6 open question on `resolveEmbeddedDisjDefault`'s pass-1 label-surfacing
+path. **Determination: CASE B — a real divergence, fixed.** Adversarial-first per the slice brief;
+every witness oracle'd vs `cue` v0.16.1 (`/Users/chakrit/go/bin/cue`).
+
+### What the question actually was
+
+`resolveEmbeddedDisjDefault` (`= collapseDefaultDisjunction`, `Eval.lean:~1897`) is called in TWO
+places. The brief flagged the one in `evalEmbeddingFieldsWithFuel` (`~3757`): this is
+LABEL-SURFACING only — its `head ++ tail` result (`embeddingFields`) feeds exactly the Pass-2
+frame augment (a `Self.<embedded-label>` selection) + the closedness union
+(`closeEmbeddedOver merged embeddingFields …`, `~3539`). The VALUE is produced separately by the
+`.disj` distribution arm of `meetEmbeddingsWithFuel` (`~3858`), which is where the V2
+`embed-disj-arm-fallthrough` fix lives. So the label-surfacing call is NOT itself the value path —
+but probing the value path under a use-site narrowing (the brief's "reaching THIS path") found the
+bug one layer over.
+
+### The divergence (CASE B)
+
+The `.disj` distribution did `meet current (openStructValue alternative.snd)` per arm. `openStructValue`
+reopens a closed def arm to `.regularOpen` — correct to WIDEN the host's allowed labels (an embedding
+widens, never imposes), but it persisted into the residual `.disj`, so each arm lost its OWN closedness.
+A LATER use-site narrowing introducing a label DISJOINT from a closed DEFAULT arm was then wrongly
+ADMITTED, and the (still-live) default won:
+
+| witness                                       | cue v0.16.1        | kue pre-fix                  |
+|-----------------------------------------------|--------------------|------------------------------|
+| `{(*_#A{n:5} \| _#B{s:string})} & {s:"x"}`    | `{s:"x"}`          | `{n:5, s:"x"}` (leak)        |
+| `{(*_#A{n:int} \| _#B{s:string})} & {s:"x"}`  | `{s:"x"}`          | `incomplete value: int`      |
+| `#S:{(*_#A{tag,n} \| _#B{tag,s})}; #S&{s:"x"}`| `{tag:"b",s:"x"}`  | `incomplete value: int`      |
+
+cue rejects `s` from the closed default by closedness → default bottoms → survivor `_#B` wins. The
+DIRECT (non-embedded) `(*_#A | _#B) & {s:"x"}` path was already CORRECT (`{s:"x"}`) — its arms stay
+closed defs at meet time (`Lattice.meetWithFuel` `.disj, value` distributes WITHOUT opening), which
+is the mechanism the embedded path failed to match.
+
+### Fix (reuses the existing close machinery)
+
+In the `.disj` arm, after `meet current (openStructValue arm)`, RE-CLOSE each arm per-arm via
+`closeEmbeddedOver hostFields armFields armOpen armResult` — the exact analog of the top-level close
+at `~3539`, applied inside the distribution. `closeEmbeddedOver` re-applies `applyClosednessFrom`
+over (host ∪ arm) labels: widens by the host's labels (the host regular field a closed arm does not
+declare still survives — `embed-disj-arm-closedness-host-extra-field` guard) yet restores the arm's
+own closedness against the LATER narrowing. The default mark is preserved (the close is value-only).
+
+### Regression guards held (all pinned, all green)
+
+Disjunction-defaults capability `x:(*"a"|"b")&("b"|"c")`→`"b"`; equal-default dedup; mark-precedence;
+AD2-1 lone-default collapse; the four V2 `embed-disj-*` pins (dead-default fall-through, live-default
+kept, all-die conflict, single-arm); the host-extra-field WIDEN guard. 4 new `exportJsonMatches`
+pins (`embed_disj_arm_closedness_*`) + a section `#check` sentinel.
+
+### LATENT follow-up surfaced (NOT this slice, pre-existing)
+
+A NESTED embedded disjunction-of-disjunction — `{(*_#Outer1 | {c:1})} & narrow` where `_#Outer1` is
+itself `*_#Inner | …` and the narrowing kills the inner default `_#Inner` — loses the default MARK
+on the surviving sub-arm: kue exports "ambiguous value: multiple non-default disjuncts remain" where
+cue picks the marked survivor (`{b:"x"}`). Confirmed PRE-EXISTING by building HEAD in a throwaway
+worktree: HEAD diverges too (differently — `incomplete value: int`, because the inner closed arm was
+opened). My fix is strictly not-worse (it now correctly bottoms the inner closed arm; the residual
+just hits a SEPARATE `flattenAlternatives`/`normalizeDisj` mark-inheritance gap). Distinct mechanism,
+filed in the plan as a latent follow-up.
+
+### Verify
+
+`lake build` 112 jobs green (full `native_decide` suite incl. 4 new pins). `scripts/check-fixtures.sh`
+`fixture pairs ok` (zero drift). Canaries from `/Users/chakrit/Documents/prod9/infra`: cert-manager
+(~11.5s) + argocd (~51s) `jq -S` = 0 (content-identical). No shell touched (shellcheck N/A). No
+`cue`-divergence/spec-gap recorded — kue now conforms to cue + the closedness algebra.

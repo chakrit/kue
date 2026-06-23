@@ -675,6 +675,56 @@ theorem embed_disj_single_arm_narrows :
           = true := by
   native_decide
 
+-- ### embed-disj-arm-closedness: a distributed arm KEEPS its own closedness.
+--
+-- The embedded `.disj` distribution (`meetEmbeddingsWithFuel`) OPENS each arm so it widens the
+-- host's allowed set (a host regular field the arm does not declare survives), but the residual
+-- `.disj` then carried each arm OPEN — so a LATER use-site narrowing introducing a label DISJOINT
+-- from a closed default arm wrongly ADMITTED it and the default won, where cue rejects it
+-- (closedness) and falls through to the survivor. Fix: re-close each arm over (host ∪ arm) labels
+-- per-arm (the analog of the top-level `closeEmbeddedOver`). The DIRECT (non-embedded)
+-- `(*_#A | _#B) & {s}` path already got this — its arms stay closed defs at meet time. cue
+-- v0.16.1-exact.
+
+-- HEADLINE: closed default `_#A{n}` met (later) with `{s:"x"}` — `s` is NOT an `_#A` label, so the
+-- closed default bottoms (closedness) and the survivor `_#B{s}` wins → `{s:"x"}`. Pre-fix the
+-- opened default ADMITTED `s` and won with the leaked `n` (`{n:5, s:"x"}`).
+theorem embed_disj_arm_closedness_rejects_disjoint_narrow :
+    exportJsonMatches
+        "_#A: {n: 5}\n_#B: {s: string}\nout: {(*_#A | _#B)} & {s: \"x\"}\n"
+        "{\n    \"out\": {\n        \"s\": \"x\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- The `int`-default variant: the leaked `n: int` made the WHOLE export incomplete pre-fix
+-- (`incomplete value: int`); post-fix the closed default is rejected and `{s:"x"}` exports clean.
+theorem embed_disj_arm_closedness_int_default_no_leak :
+    exportJsonMatches
+        "_#A: {n: int}\n_#B: {s: string}\nout: {(*_#A | _#B)} & {s: \"x\"}\n"
+        "{\n    \"out\": {\n        \"s\": \"x\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- Through a closed DEF host (`#S`), arms carry an extra disjoint label: the survivor `_#B`'s OWN
+-- label `tag:"b"` surfaces with `s` (not the default `_#A`'s `tag:"a"`/`n`).
+theorem embed_disj_arm_closedness_def_host_survivor_labels :
+    exportJsonMatches
+        "_#A: {tag: \"a\", n: int}\n_#B: {tag: \"b\", s: string}\n#S: {(*_#A | _#B)}\nout: #S & {s: \"x\"}\n"
+        "{\n    \"out\": {\n        \"tag\": \"b\",\n        \"s\": \"x\"\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- WIDEN GUARD (no over-close): a host REGULAR field `h` the closed arms do NOT declare still
+-- survives — the per-arm re-close widens the allowed set by the host's labels (embedding widens),
+-- it only restores the arm's OWN closedness against a later DISJOINT narrowing. `{n:7}` is in
+-- `_#A`, so the default wins carrying `h`.
+theorem embed_disj_arm_closedness_host_extra_field_survives :
+    exportJsonMatches
+        "_#A: {n: int}\n_#B: {s: string}\nout: {h: \"host\", (*_#A | _#B)} & {n: 7}\n"
+        "{\n    \"out\": {\n        \"h\": \"host\",\n        \"n\": 7\n    }\n}\n"
+          = true := by
+  native_decide
+
 -- ### argocd `parts.#Mixin` — comprehension guard over a use-site-narrowed REGULAR sibling.
 --
 -- `#Inner` carries `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }`: the guard
@@ -1482,6 +1532,7 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
 #check @disj_struct_no_over_defer                             -- secret-data sub-2
 #check @conj_disj_arms_fuel_zero_declines                     -- saturation guard
 #check @embed_disj_single_arm_narrows                         -- embed-disj-arm-fallthrough
+#check @embed_disj_arm_closedness_host_extra_field_survives   -- embed-disj-arm-closedness
 #check @embed_comprehension_guard_real_conflict_bottoms       -- parts.#Mixin
 #check @let_buried_for_source_expands                         -- Bug2-1 / A-EN1
 #check @mixin_let_local_guard_false_drops_body                -- Bug2-4
