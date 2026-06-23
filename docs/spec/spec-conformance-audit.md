@@ -308,36 +308,61 @@ argocd force path; argocd STILL bottoms (`conflicting values`, ~53s). The 2nd la
 `forceClosureWithConjunctCore` tier (the design's predicted seam) but the lever is the LET-LOCAL
 narrowing flowing through a STRUCTURAL DISJUNCTION on the FORCE path — not the plain-sibling re-base.
 
-**Bug2-14b (HIGH — THE on-path argocd blocker; NEW filing 2026-06-23). Cross-package FORCE-path
-let-local narrowing through a structural disjunction does not reach the embed's `_patch` comprehension.**
-The argocd `#Mixin` is `listShape | structShape | error(…)` (a STRUCTURAL disjunction) embedding a
-`let _patch = { kind: string; for _, add in Self.#additions { if kind == add.#kind { add.#patch } }; … }`.
-The host (`defs.#ListenerSet`) declares `kind: "ListenerSet"` as a SIBLING. On the CROSS-PACKAGE force
-path (`forceClosureWithConjunctCore`, when `#Use`/`#ListenerSet` is imported across packages), the host's
-`kind` narrowing does NOT reach the disjunction's `structShape` arm's `_patch.kind` — the `for`/`if kind
-== …` guard reads the embed-local abstract `string` → defers → `_patch` never merges `metadata.annotations`.
-`kue export` of the bare value drops the annotations (silently-incomplete `{kind:"ListenerSet"}`); `[out]`
-(list-wrapped) surfaces the undrained comprehension residual (`incomplete value`); cue exports both WITH
-annotations. **Self-contained 4-package repro (during the slice at `/tmp/b214c`, `ex.com/b214c`):**
-```cue
-// parts: #Mixin (structShape | error) embeds `let _patch{kind:string; for…{if kind==add.#kind{add.#patch}}}`;
-//        #Use { #Mixin; #issuer:string|*"main"; #additions: ls:{#kind:"ListenerSet", #patch:{metadata:annotations:issuer:Self.#issuer}} }
-// defs:  #LS: { kind: "ListenerSet"; parts.#Use }
-// main:  out: defs.#LS & {#issuer:"le"}   // cue: metadata.annotations.issuer "le"; kue: {kind:"ListenerSet"} (DROPPED)
-```
-The SINGLE-level cross-package use (`defs.#LS & {#issuer:"le"}`, NO def-of-def) ALREADY drops it, so the
-defect is the cross-package FORCE path for a def transitively embedding `#Mixin` (disjunction + let
-reading a host-narrowed sibling), NOT specifically the def-of-def indirection. The DIRECT INLINE form of
-the SAME shape DRAINS (verified `/tmp/b214_argoshape.cue` → cue==kue full annotations) — export's re-eval
-re-expands the bucket in a frame where `kind` is merged; the force path re-builds the body WITHOUT that
-re-eval, so the let-local narrowing is missing. **Fix family:** carry the host's sibling narrowing (`kind`)
-into the embed's `let _patch` THROUGH the structural-disjunction arm distribution on the force path — the
-force-path analog of `injectLetLocalNarrowings` (Bug2-4) crossed with the disjunction-distribution
-(Bug2-5/Gap-2b) and the cross-package frame discipline (Bug2-11). This is the deep embed-merge-tier fix
-the original Bug2-14 design pointed at, but the lever is let-narrowing-through-disjunction-on-force, NOT
-the plain-sibling re-base. PARKED for a dedicated slice (the plain-embed fix landed first, sound + general).
-HONEST depth read: this is the ONE empirically-confirmed remaining on-path argocd layer; whether a further
-bug hides behind a sound drain is unknown until Bug2-14b lands and argocd re-runs.
+**Bug2-14b + Bug2-14c — BOTH RESOLVED (`<this slice>`, 2026-06-23); argocd now a content-identical
+drop-in (2nd prod9 real app after cert-manager).** The argocd `#Mixin` is `listShape | structShape |
+error(…)` (a STRUCTURAL disjunction) embedding `let _patch = { kind: string; for _, add in
+Self.#additions { if kind == add.#kind { add.#patch } }; … }`, whose guard reads a host-narrowed sibling
+`kind`. On the cross-package FORCE path the host's `kind` did NOT reach the disjunction's `structShape`
+arm's `_patch.kind` → the guard read the embed-local abstract `string` → deferred → `metadata.annotations`
+dropped. The fix is TWO distinct on-path layers, both empirically isolated and fixed this slice:
+
+**Bug2-14b — wrong-frame disjunction-deep gate (the SINGLE-closure embed chain).** ROOT (empirically
+pinned, NOT the design's predicted "disjunction-arm distribution" lever): `embedBodyEmbedsDisjDeep` was
+evaluated against the OUTER meet-fold / conj-fold `env`, but the closure body's OWN embed-refs (`#Use: {
+#Mixin; … }`'s `#Mixin` is a `.refId depth:=1`) are relative to the def frame `forceClosureWithConjunctCore`
+PUSHES. Against the bare outer `env` the ref landed in the WRONG frame (resolved `#Mixin` to the string
+`"ListenerSet"` — the Bug2-11 wrong-frame hazard, confirmed by trace), so the transitively-embedded
+disjunction was MISSED and the gate returned `false` → `spliceOperandForEmbed` dropped the host's regular
+`kind` → never reached `_patch.kind`. FIX: a `bodyForceFrameEnv (capturedEnv body) := (0, body-statics) ::
+capturedEnv` helper, applied at all THREE `embedBodyEmbedsDisjDeep` call sites that gate a body splice
+(the `meetEmbeddingsWithFuel` closure-force, the `evalEmbeddingFieldsWithFuel` closure-force, and the
+multi-closure fold). Arm selection stays correct (the `structShape` arm wins, `listShape`/`error` prune —
+verified at the `DISJ-DISTRIB` trace: `[BOT, struct[…metadata…], BOT]`). The single-closure repro
+(`#LS: { kind; parts.#Use }`, `defs.#LS & {#issuer:"le"}`) drains == cue after this.
+
+**Bug2-14c — cross-conjunct regular narrowing in the multi-closure `.conj` force fold (the REAL argocd
+shape).** The Bug2-14b fix alone did NOT drain argocd: the real `defaults.#ListenerSet = defs.#ListenerSet
+& parts.#UseCertManager & {…}` is a MULTI-CLOSURE conjunction where `kind` lives in closure A
+(`defs.#ListenerSet`) but the `#Mixin` disjunction + `_patch` live in closure B (`parts.#UseCertManager`).
+The `.conj` fold (`forceClosureWithConjunctCore`'s `allClosures` path) forced each closure INDEPENDENTLY
+with only the plain-struct operands as shared `useOperands` — so closure B's force never saw closure A's
+regular `kind` (it is not a plain-struct operand; it lives inside a sibling closure), and `_patch.kind`
+stayed abstract. Confirmed at the `CONJ-FOLD` trace: `nClosures=2`, closure A `[…, kind, spec]`, closure B
+`[…, _patch, #additions]`, shared `useOpLabels` carries the hidden `#…` fields but NOT `kind`. FIX: a
+TWO-PASS fold — pass 1 forces each closure with the base operands and collects its forced REGULAR-output
+fields; pass 2 re-forces ONLY a `embedBodyEmbedsDisjDeep`-bearing closure with the SIBLING closures'
+regular fields spliced as an extra operand (dropping its own labels). Sound: the spliced operand is the
+SAME Gap-2b regular-field route a single-closure embed gets, idempotent on a field an arm already carries;
+a real conflict still bottoms; a no-disjunction closure keeps its pass-1 result (byte-identical).
+
+**Self-contained faithful repro (this slice, using the REAL `defs`/`parts`/`attr` from cache at
+`/tmp/argols`, dep `prodigy9.co/defs@v0.3.19`):** `defaults.#ListenerSet & {#name:"argocd-ls", #ns:"argocd",
+#passthrough_hosts:["argo.prodigy9.co"]}` → kue == cue byte-identical (annotations + `spec.listeners` +
+`metadata`). Pre-fix kue dropped `metadata.annotations.cert-manager.io/cluster-issuer` (bare `out` silently
+incomplete; `[ls]` → `conflicting values`). Module fixtures: `bug214b_disjarm_letlocal_force` (single
+closure, `kind`+`#Use` in one body) and `bug214c_disjarm_letlocal_crossconj` (multi-closure conjunction,
+the argocd shape) — both pinned `kue == cue`. Inline `native_decide` pins (Bug2xTests
+`bug214b_disj_arm_{drains,incomplete_guard_defers,conflict_bottoms}`) cover the disjunction-arm let-local
+SOUNDNESS at single-package granularity: drains == cue, incomplete-guard DEFERS (not force-drain), real
+conflict BOTTOMS. **MILESTONE: `kue export apps/argocd.cue` now CONTENT-IDENTICAL to cue (jq -S diff = 0,
+37230 bytes both, ~53s wall).** cert-manager stays content-identical (jq -S = 0). General (not keyed to
+argocd identifiers); no `cue-divergence` (kue now matches cue). One spec-silent corner recorded in
+`cue-spec-gaps.md` (the abstract-`kind` disjunction-arm: kue defers `incomplete`, cue picks the `error`
+arm — both correctly NON-drain).
+
+HONEST depth read: argocd FULLY exports content-identical — no further on-path layer is hiding behind a
+sound drain (the whole 37230-byte manifest matches cue byte-for-byte under sorted keys). Bug2-14b/c were
+the last two on-path argocd layers.
 
 **Bug2-14 ORIGINAL RE-DIAGNOSIS (for history; case-D forms now RESOLVED above, Bug2-14b is the live
 blocker). PARKED framing superseded — the plain-embed half shipped.**

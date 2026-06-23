@@ -770,6 +770,49 @@ theorem bug214_conflicting_type_bottoms :
         = true := by
   native_decide
 
+-- Bug2-14b/c (the on-path argocd disjunction-arm let-local blocker, 2026-06-23). The argocd
+-- `#Mixin` is a STRUCTURAL disjunction (`listShape | structShape | error`) embedding a `let _patch =
+-- { kind: string; for … if kind == add.#kind … }` whose comprehension guard reads a host-narrowed
+-- sibling `kind`. On the cross-package FORCE path the host's `kind` ("ListenerSet") never reached
+-- `_patch.kind` through the surviving disjunction arm → the guard stayed incomplete → deferred →
+-- `metadata.annotations` dropped. ROOT: `embedBodyEmbedsDisjDeep` was gated against the OUTER fold
+-- `env`, so the body's own embed-refs (`.refId depth:=1`, relative to the def frame the force pushes)
+-- resolved in the WRONG frame and the transitively-embedded disjunction was missed — dropping the
+-- regular `kind` from the splice. FIXED by resolving the gate against the body's force frame
+-- (`bodyForceFrameEnv`) at all three sites, PLUS a two-pass multi-closure force fold (Bug2-14c) that
+-- splices a SIBLING closure's regular fields (`defs.#ListenerSet`'s `kind`) into a disjunction-bearing
+-- closure (`parts.#UseCertManager`'s `#Mixin`). The cross-package FORCE behavior is pinned by the
+-- module fixtures `bug214b_disjarm_letlocal_force` / `bug214c_disjarm_letlocal_crossconj`; the inline
+-- pins below pin the disjunction-arm let-local SOUNDNESS at single-package granularity (the arm meet).
+
+-- DRAINS — the disjunction's `structShape` arm survives, its `_patch` comprehension fires against the
+-- host-narrowed `kind` ("ListenerSet"), and the kind-scoped patch (`ann: "le"`) merges. cue
+-- `{kind:"ListenerSet", ann:"le"}`. Pins the let-local-through-disjunction-arm narrowing.
+theorem bug214b_disj_arm_letlocal_drains :
+    exportJsonMatches
+      "out: {\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in #additions {\n\t\t\tif kind == add.#kind { add.#patch }\n\t\t}\n\t\t...\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tstructShape | error(\"nope\")\n\t...\n} & {kind: \"ListenerSet\", #additions: ls: {#kind: \"ListenerSet\", #patch: {ann: \"le\"}}}\n"
+      "{\n    \"out\": {\n        \"kind\": \"ListenerSet\",\n        \"ann\": \"le\"\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- INCOMPLETE-GUARD DEFERS — `kind` is ABSTRACT (`string`), so `if kind == add.#kind` is genuinely
+-- undecidable: the comprehension must DEFER (export errors incomplete), NEVER force-drain a wrong
+-- value. Pins that the disjunction-arm narrowing does not over-fire on an undecidable guard.
+theorem bug214b_disj_arm_incomplete_guard_defers :
+    exportJsonBottoms
+      "out: {\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in #additions {\n\t\t\tif kind == add.#kind { add.#patch }\n\t\t}\n\t\t...\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tstructShape | error(\"nope\")\n\t...\n} & {kind: string, #additions: ls: {#kind: \"ListenerSet\", #patch: {ann: \"le\"}}}\n"
+        = true := by
+  native_decide
+
+-- CONFLICT BOTTOMS — the host narrows `ann` to a value CONFLICTING with the drained patch's
+-- `ann: "le"`; a real conflict on the drained content MUST bottom (never a silent merge). Pins that
+-- the disjunction-arm narrowing stays sound — it does not widen past the use-site meet.
+theorem bug214b_disj_arm_conflict_bottoms :
+    exportJsonBottoms
+      "out: {\n\t#additions: [string]: {#kind: string, #patch: _}\n\tlet _patch = {\n\t\tkind: string\n\t\tfor _, add in #additions {\n\t\t\tif kind == add.#kind { add.#patch }\n\t\t}\n\t\t...\n\t}\n\tlet structShape = {\n\t\t_patch\n\t\t...\n\t}\n\tstructShape | error(\"nope\")\n\t...\n} & {kind: \"ListenerSet\", ann: \"OTHER\", #additions: ls: {#kind: \"ListenerSet\", #patch: {ann: \"le\"}}}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -785,5 +828,6 @@ theorem bug214_conflicting_type_bottoms :
 #check @bug211_selfconj_terminates_and_narrows                -- Bug2-11
 #check @bug213_required_unset_not_swallowed_as_absent         -- Bug2-13
 #check @bug214_conflicting_type_bottoms                       -- Bug2-14
+#check @bug214b_disj_arm_conflict_bottoms                     -- Bug2-14b/c
 
 end Kue

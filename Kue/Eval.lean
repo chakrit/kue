@@ -2354,6 +2354,16 @@ def bodyNeedsDefer (env : Env) (fuel : Nat) (body : Value) : Bool :=
 def embedBodyEmbedsDisjDeep (env : Env) (fuel : Nat) (body : Value) : Bool :=
   embedChainAny embedBodyEmbedsDisj env fuel body
 
+/-- Bug2-14b: the env in which a closure body's OWN embed-refs resolve. `forceClosureWithConjunctCore`
+    pushes the body's static def frame at depth 0 (`(0, defFields) :: capturedEnv`), so a body
+    embedding (`#Use: { #Mixin; … }`'s `#Mixin`, a `.refId depth:=1`) skips that frame to land in
+    `capturedEnv`. Resolving the same ref against the bare outer `env` (the meet-fold / conj-fold
+    scope) lands in the WRONG frame — missing a transitively-embedded disjunction, so the
+    `embedBodyEmbedsDisjDeep` gate falsely returns `false` and the host's regular narrowing is
+    dropped from the splice. Mirror the force frame so the chain resolves. -/
+def bodyForceFrameEnv (capturedEnv : Env) (body : Value) : Env :=
+  (0, (match body with | .structComp fs _ _ => fs | .struct fs _ _ _ _ => fs | _ => [])) :: capturedEnv
+
 /-- The DEFINITION-class fields a body declares directly (its own static `#x` decls). A `.struct`
     body exposes its fields; a `.structComp` exposes its static fields (the embed/comprehension
     members are not field decls). Non-struct bodies expose none. -/
@@ -3407,11 +3417,43 @@ mutual
         | closures =>
             let useOperands := (evaluated.filterMap spliceNarrowingOperand?).map stripLetBindings
             let others := nonClosureNonStructOperands evaluated
-            let foldClosure := fun (acc : EvalM Value) (cl : Env × Value) => do
-              let current <- acc
+            -- Bug2-14c: a multi-closure conjunction (`defs.#ListenerSet & parts.#UseCertManager &
+            -- {…}`) where one closure declares a REGULAR field (`kind: "ListenerSet"`) that another
+            -- closure's BURIED disjunction let-local reads (`#Mixin`'s `let _patch = { kind: string;
+            -- for … if kind == add.#kind … }`). The base `useOperands` carry only the plain-struct
+            -- operands' fields — NOT a regular field that lives INSIDE a sibling closure — so forcing
+            -- the disjunction-bearing closure in isolation leaves its `_patch.kind` abstract and the
+            -- comprehension guard defers (annotations drop). Force the closures in TWO passes: pass 1
+            -- with the base operands collects each closure's forced REGULAR-output fields; pass 2
+            -- re-forces ONLY a disjunction-deep-bearing closure with the sibling closures' regular
+            -- fields spliced as an extra operand, so its `_patch.kind` sees the narrowed `kind`. The
+            -- regular-field splice is the SAME Gap-2b operand a single-closure embed gets; it is sound
+            -- regardless of which conjunct the narrowing originates in (meet is idempotent on a field
+            -- an arm already carries, a real conflict still bottoms). A closure with no buried
+            -- disjunction keeps its pass-1 result (byte-identical — no extra splice, no re-force).
+            let pass1 <- closures.mapM (fun cl => do
               let forced <- forceClosureWithConjunct fuel cl.fst cl.snd useOperands
-              pure (meet current forced)
-            let forced <- closures.foldl foldClosure (pure .top)
+              pure (cl, forced))
+            let siblingRegulars := pass1.flatMap (fun (_, forced) =>
+              match evaluatedStructOperand? forced with
+              | some (fields, _) => fields.filter Field.isRegularOutput
+              | none => [])
+            let forced <- pass1.foldlM (fun current (cl, p1) => do
+              let body := cl.snd
+              let isDisjDeep := embedBodyEmbedsDisjDeep (bodyForceFrameEnv cl.fst body) evalFuel body
+              if isDisjDeep then do
+                -- Re-force with the sibling closures' regular fields spliced (drop THIS closure's own
+                -- regulars from the extra operand — they already flow through its own force).
+                let ownLabels := match evaluatedStructOperand? p1 with
+                  | some (fields, _) => (fields.filter Field.isRegularOutput).map Field.label
+                  | none => []
+                let extra := siblingRegulars.filter (fun f => !ownLabels.contains (Field.label f))
+                if extra.isEmpty then pure (meet current p1)
+                else do
+                  let reforced <- forceClosureWithConjunct fuel cl.fst body (useOperands ++ [(extra, true)])
+                  pure (meet current reforced)
+              else pure (meet current p1))
+              .top
             pure (others.foldl (fun current v => meet current v) forced)
   termination_by (fuel, 6, 0)
 
@@ -3452,8 +3494,10 @@ mutual
             let resolved <-
               match evaluated with
               | .closure capturedEnv body =>
+                  -- Bug2-14b: the disjunction-deep gate resolves against the body's OWN def frame
+                  -- (`bodyForceFrameEnv`), not the outer `env` — the force-fold site mirror.
                   forceClosureWithConjunct nextFuel capturedEnv (openStructValue body)
-                    [spliceOperandForEmbed (embedBodyEmbedsDisjDeep env evalFuel body) body (narrowing, true)]
+                    [spliceOperandForEmbed (embedBodyEmbedsDisjDeep (bodyForceFrameEnv capturedEnv body) evalFuel body) body (narrowing, true)]
               | _ => pure evaluated
             let head :=
               match evaluatedStructOperand? (resolveEmbeddedDisjDefault resolved) with
@@ -3544,8 +3588,13 @@ mutual
                   -- still unify at the outer `meet current forced`, not via the splice (splicing them
                   -- makes the embed re-evaluate and conflict on them). `hiddenFieldsOnly` also drops
                   -- the host's `Self=`/`let` aliases (the embed has its own).
+                  -- Bug2-14b: the disjunction-deep gate must resolve the body's OWN embed-refs against
+                  -- the def frame the force pushes (`bodyForceFrameEnv`), NOT the outer meet-fold `env`
+                  -- — else a transitively-embedded `listShape | structShape | error` disjunction is
+                  -- missed and the host's regular `kind` drops from the splice, never reaching the
+                  -- buried `_patch.kind`.
                   let useOperands := (evaluatedStructOperand? current).toList.map
-                    (spliceOperandForEmbed (embedBodyEmbedsDisjDeep env evalFuel body) body)
+                    (spliceOperandForEmbed (embedBodyEmbedsDisjDeep (bodyForceFrameEnv capturedEnv body) evalFuel body) body)
                   let forced <-
                     forceClosureWithConjunct nextFuel capturedEnv (openStructValue body) useOperands
                   -- A deferral-bearing closure-embed keeps the plain meet — its def-path decls flow

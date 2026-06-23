@@ -12322,3 +12322,78 @@ frontier #7 STAYS GATED. cert-manager remains the only real-app content-identica
 `meetEmbeddingsWithFuel` plain-embed injection), `Kue/Tests/Bug2xTests.lean` (8 pins + tripwire),
 `testdata/export/bug214_embed_*` (2 fixture pairs), `docs/spec/{spec-conformance-audit,plan}.md`,
 `docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
+
+---
+
+## Completed Slice: Bug2-14b + Bug2-14c — disjunction-arm let-local narrowing on the force path (argocd EXPORTS)
+
+Goal: deliver the host's `kind` narrowing into a `let _patch` living inside the surviving arm of a
+structural disjunction (`listShape | structShape | error`) on the cross-package FORCE path — the last
+two on-path argocd blockers. **MILESTONE: `kue export apps/argocd.cue` now exports CONTENT-IDENTICAL to
+cue (jq -S diff = 0, 37230 bytes both, ~53s wall) — argocd is the 2nd prod9 real-app content-identical
+drop-in after cert-manager.**
+
+### Empirical diagnosis (traced, not designed)
+
+The design's predicted lever (disjunction-arm distribution) was again falsified by trace. TWO distinct
+on-path layers, isolated by `dbg_trace` over the faithful self-contained repro (`/tmp/argols`, REAL
+`prodigy9.co/defs@v0.3.19` from cache):
+
+- **Bug2-14b — wrong-frame disjunction-deep gate.** `embedBodyEmbedsDisjDeep` was evaluated against the
+  OUTER meet-fold / conj-fold `env`, but a closure body's OWN embed-refs (`#Use: { #Mixin; … }`'s
+  `#Mixin` is a `.refId depth:=1`) are relative to the def frame `forceClosureWithConjunctCore` PUSHES.
+  Against the bare outer `env` the ref resolved to the WRONG frame (trace: `#Mixin` resolved to the
+  string `"ListenerSet"` — the Bug2-11 wrong-frame hazard), so the transitively-embedded disjunction was
+  missed, the gate returned `false`, and `spliceOperandForEmbed` dropped the host's regular `kind` →
+  never reached `_patch.kind`. The single-closure repro (`#LS: { kind; parts.#Use }`) dropped annotations
+  silently; `[ls]` → `conflicting values`.
+
+- **Bug2-14c — cross-conjunct regular narrowing in the multi-closure `.conj` fold.** The Bug2-14b fix
+  alone did NOT drain argocd: the real `defaults.#ListenerSet = defs.#ListenerSet & parts.#UseCertManager
+  & {…}` is a MULTI-CLOSURE conjunction where `kind` lives in closure A (`defs.#ListenerSet`) but the
+  `#Mixin` disjunction + `_patch` live in closure B (`parts.#UseCertManager`). The `.conj` fold
+  (`allClosures` path) forced each closure independently with only the plain-struct operands as shared
+  `useOperands` — so closure B never saw closure A's regular `kind`. Trace: `CONJ-FOLD nClosures=2`,
+  closure A `[…, kind, spec]`, closure B `[…, _patch, #additions]`, shared `useOpLabels` carried the
+  hidden `#…` fields but NOT `kind`.
+
+### Implementation
+
+- `bodyForceFrameEnv (capturedEnv body) := (0, body-statics) :: capturedEnv` helper (DRY), applied at
+  all THREE `embedBodyEmbedsDisjDeep` body-gate sites (the `meetEmbeddingsWithFuel` closure-force, the
+  `evalEmbeddingFieldsWithFuel` closure-force, the multi-closure fold). This is the Bug2-14b fix.
+- A TWO-PASS multi-closure fold (Bug2-14c): pass 1 forces each closure with the base operands and
+  collects its forced REGULAR-output fields; pass 2 re-forces ONLY a `embedBodyEmbedsDisjDeep`-bearing
+  closure with the SIBLING closures' regular fields spliced as an extra operand (dropping its own
+  labels). Sound: the spliced operand is the SAME Gap-2b regular-field route a single-closure embed gets,
+  idempotent on a field an arm already carries; a real conflict still bottoms; a no-disjunction closure
+  keeps its pass-1 result (byte-identical — no re-force).
+
+### Soundness (verified)
+
+force-path == direct-inline == cue (the faithful repro byte-matches). Arm selection stays correct (the
+`structShape` arm wins, `listShape`/`error` prune — `DISJ-DISTRIB` trace `[BOT, struct[…metadata…],
+BOT]`). Incomplete-guard (abstract `kind`) DEFERS as `incomplete value`, does NOT force-drain (cue picks
+the `error` arm — both correctly NON-drain; recorded in `cue-spec-gaps.md`). Real conflict BOTTOMS.
+cert-manager content-identical (jq -S = 0). Frame correctness pinned by the cross-package module fixtures.
+
+### Tests
+
+Module fixtures `testdata/modules/bug214b_disjarm_letlocal_force` (single-closure embed chain) +
+`bug214c_disjarm_letlocal_crossconj` (multi-closure conjunction, the argocd shape) — both `kue == cue`
+via `check-fixtures.sh`. Inline `native_decide` pins `Bug2xTests` `bug214b_disj_arm_{drains,
+incomplete_guard_defers, conflict_bottoms}` + tripwire anchor. Full build clean (112 jobs), fixtures +
+shellcheck green.
+
+### argocd milestone
+
+`kue export apps/argocd.cue` → CONTENT-IDENTICAL to cue (jq -S diff = 0, 37230 bytes, ~53s wall). Perf
+frontier #7 UN-GATED (argocd's last on-path correctness blocker cleared; the ~53s is now pure perf). A
+fresh alpha is flagged as a NOTABLE-milestone release worth the user's greenlight.
+
+### Files
+
+`Kue/Eval.lean` (`bodyForceFrameEnv` helper; the three gate-site fixes; the two-pass `.conj` fold),
+`Kue/Tests/Bug2xTests.lean` (3 pins + tripwire), `testdata/modules/bug214{b,c}_*` (2 module fixtures),
+`docs/spec/{spec-conformance-audit,plan}.md`, `docs/reference/{implementation-log,cue-spec-gaps}.md`,
+`docs/notes/` (breadcrumb rotated).

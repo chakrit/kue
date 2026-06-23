@@ -102,10 +102,17 @@ field-ordering byte-parity gap (#3):
 - **cert-manager: content-identical drop-in, ~30.6s.** Exports correctly at production
   fuel, byte-identical to `cue` modulo field-order #3 (the item-7 cache-hash digest
   collapsed the ~119s O(N²) wall to ~30.6s).
-- **argocd: `packs.#Argo` (link 5) content-correct** (4-link chain). All three components
-  content-identical to `cue` (sorted-key, modulo field-order #3) in the scratch module.
-  **Full `apps/argocd.cue` STILL bottoms (~55s)** — the residual is a deterministic
-  CORRECTNESS divergence. **Bug2-5** (transitive-embed disj-path narrowing injection) FIXED
+- **argocd: content-identical drop-in, ~53s (2nd prod9 real app after cert-manager;
+  2026-06-23).** Full `apps/argocd.cue` now exports CONTENT-IDENTICAL to `cue` (jq -S diff = 0,
+  37230 bytes both, sorted-key, modulo field-order #3). Unblocked by Bug2-14b + Bug2-14c (the
+  last two on-path layers): the `#Mixin` structural-disjunction let-local (`_patch.kind`) now
+  receives the host's `kind` narrowing both through a single-closure embed chain (Bug2-14b — the
+  `embedBodyEmbedsDisjDeep` gate was resolving against the wrong frame) and across a multi-closure
+  `.conj` fold (Bug2-14c — a two-pass fold splicing a sibling closure's regular fields into a
+  disjunction-bearing closure). HONEST: the whole manifest byte-matches cue — no further on-path
+  layer hides behind a sound drain.
+- **argocd HISTORY (pre-full-export):** `packs.#Argo` (link 5) content-correct (4-link chain).
+  All three components content-identical to `cue` in the scratch module. **Bug2-5** (transitive-embed disj-path narrowing injection) FIXED
   (`5fca57e`, 2026-06-22) — NOT the final blocker. **Bug2-6** (definition multi-declaration
   close-once) FIXED (`ef824cb`, 2026-06-23) — also NOT the final blocker. **Bug2-7** (same-def
   multi-decl close-once on the def-REFERENCE / force-fold path) FIXED (`3361699`, 2026-06-23 —
@@ -137,20 +144,22 @@ field-ordering byte-parity gap (#3):
   value) **RESOLVED for the PLAIN-EMBED path** (`e404b21`, 2026-06-23 — `injectEmbedSiblingNarrowings`
   at `meetEmbeddingsWithFuel`, meeting the host narrowing into the embed body's read-and-declared
   same-label slot before the body evals; the analog of `injectLetLocalNarrowings` for an embed body;
-  both case-D forms == cue, over-rebase guarded, cert-manager content-identical) — **but the design's
-  "the cross-package def-of-def force-path is the SAME fix" read was EMPIRICALLY WRONG: argocd STILL
-  bottoms** (`conflicting values`, ~53s). The actual on-path blocker is a DISTINCT 2nd layer,
-  **Bug2-14b**: the argocd `#Mixin` is a STRUCTURAL DISJUNCTION (`listShape | structShape | error`)
-  embedding a `let _patch` whose `for…if kind==…` guard reads a host-narrowed sibling `kind`; on the
-  CROSS-PACKAGE FORCE path (`forceClosureWithConjunctCore`) the host's `kind` narrowing does NOT reach
-  `_patch.kind` through the disjunction arm → the comprehension defers → `metadata.annotations` drops
-  (bare export silently-incomplete; `[out]` → `conflicting values`). The DIRECT INLINE form of the same
-  shape DRAINS; the SINGLE-level cross-package use already drops it (NOT def-of-def-specific). Fix is
-  let-local narrowing-through-structural-disjunction on the force path (Bug2-4 × Bug2-5 × Bug2-11), the
-  deep embed-merge-tier fix — PARKED for a dedicated slice. Self-contained 4-package repro in
-  `spec-conformance-audit.md` Bug2-14b filing. ONE empirically-confirmed remaining layer; whether a
-  further bug hides behind a sound drain is unknown until Bug2-14b lands and argocd re-runs (honest — no
-  "one fix away" over-claim).
+  both case-D forms == cue, over-rebase guarded, cert-manager content-identical) — was NOT the
+  terminal blocker. **Bug2-14b + Bug2-14c** (the last two on-path argocd layers) **RESOLVED**
+  (2026-06-23): the argocd `#Mixin` is a STRUCTURAL DISJUNCTION (`listShape | structShape | error`)
+  embedding a `let _patch` whose `for…if kind==…` guard reads a host-narrowed sibling `kind`.
+  **Bug2-14b** — `embedBodyEmbedsDisjDeep` was gated against the OUTER fold `env`, but the body's own
+  embed-refs are relative to the def frame the force PUSHES (the Bug2-11 wrong-frame hazard, confirmed
+  by trace: `#Mixin` resolved to the string `"ListenerSet"`); fixed by a `bodyForceFrameEnv` helper at
+  all three gate sites. **Bug2-14c** — the real `defaults.#ListenerSet = defs.#ListenerSet &
+  parts.#UseCertManager & {…}` is a MULTI-CLOSURE conjunction where `kind` lives in one closure and the
+  disjunction+`_patch` in another; the `.conj` fold forced each closure independently so `kind` never
+  reached `_patch.kind`. Fixed by a TWO-PASS fold splicing a sibling closure's regular fields into a
+  disjunction-bearing closure. Sound: arm selection stays correct (struct arm wins, list/error prune),
+  incomplete-guard DEFERS (not force-drain), real conflict BOTTOMS, cert-manager content-identical.
+  Module fixtures `bug214b_disjarm_letlocal_force` + `bug214c_disjarm_letlocal_crossconj`; inline pins
+  `Bug2xTests` `bug214b_disj_arm_{drains,incomplete_guard_defers,conflict_bottoms}`. Full repro +
+  mechanism in `spec-conformance-audit.md` Bug2-14b/c entry.
 
 ## Live Backlog (open work, ranked)
 
@@ -169,16 +178,17 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-14b (NEW 2026-06-23, PARKED — cross-package
-FORCE-path let-local narrowing through a STRUCTURAL DISJUNCTION).** The argocd `#Mixin` is `listShape |
-structShape | error` embedding `let _patch{kind:string; for…{if kind==add.#kind{add.#patch}}}`; the host
-`defs.#ListenerSet` declares `kind:"ListenerSet"` as a sibling. On the cross-package FORCE path
-(`forceClosureWithConjunctCore`) the host's `kind` does NOT reach `_patch.kind` through the disjunction
-arm → the comprehension defers → `metadata.annotations` drops (bare export silently-incomplete; `[out]` →
-`conflicting values`). The SINGLE-level cross-package use already drops it (not def-of-def-specific); the
-DIRECT INLINE form drains. Fix is let-local narrowing-through-structural-disjunction on the force path
-(Bug2-4 × Bug2-5 × Bug2-11) — a dedicated embed-merge slice. Self-contained 4-package repro in
-`spec-conformance-audit.md` Bug2-14b filing. **Bug2-14 (case-D PLAIN-EMBED frame-binding) RESOLVED**
+(LOW spec-gap-first). **NEXT LEADER: perf #7 (UN-GATED 2026-06-23 — argocd now exports, the
+last on-path correctness blocker is cleared).** **Bug2-14b + Bug2-14c RESOLVED (2026-06-23 — argocd
+exports content-identical, jq -S diff = 0, ~53s):** the argocd `#Mixin` structural-disjunction let-local
+(`_patch.kind`) now receives the host's `kind` narrowing on the force path. **Bug2-14b** — the
+`embedBodyEmbedsDisjDeep` gate was resolving against the OUTER fold `env`; the body's own embed-refs are
+relative to the def frame the force pushes (Bug2-11 wrong-frame), fixed by `bodyForceFrameEnv` at all
+three gate sites. **Bug2-14c** — the real `defaults.#ListenerSet = defs.#ListenerSet &
+parts.#UseCertManager & {…}` multi-closure conjunction forced each closure independently, so `kind` (in
+one closure) never reached `_patch.kind` (in another); fixed by a two-pass `.conj` fold splicing a sibling
+closure's regular fields into a disjunction-bearing closure. Full mechanism in `spec-conformance-audit.md`
+Bug2-14b/c entry. **Bug2-14 (case-D PLAIN-EMBED frame-binding) RESOLVED**
 (`e404b21`, 2026-06-23 — `injectEmbedSiblingNarrowings` at `meetEmbeddingsWithFuel`; the analog of
 `injectLetLocalNarrowings` for an embed body; both case-D forms == cue, over-rebase guarded, cert-manager
 content-identical) — was NOT the terminal argocd blocker (the design's "same fix as the force path" read
@@ -313,16 +323,15 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    out: {b: 1} & {a: 2}  // cue: a, b (graph order); Kue: b, a (source order) — both spec-valid
    ```
 
-5. **Per-eval-cost perf (frontier — hash digest DONE; residual open, STILL GATED).** The
-   cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
-   drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):**
-   the heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5..Bug2-13 + the case-D PLAIN-EMBED half of Bug2-14 (`e404b21`) are fixed but
-   argocd STILL bottoms on **Bug2-14b** (cross-package FORCE-path let-local narrowing through a
-   structural disjunction — the `#Mixin` `_patch` comprehension's `kind` is not narrowed by the host's
-   sibling `kind` on `forceClosureWithConjunctCore`, so `metadata.annotations` drops → bare export
-   silently-incomplete / `[ls]` → `conflicting values`), a CORRECTNESS divergence, not fuel.
-   Un-gates once argocd ACTUALLY exports; profile against a resolving target then.
+5. **Per-eval-cost perf (frontier — hash digest DONE; residual UN-GATED 2026-06-23 — NEXT LEADER).**
+   The cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
+   drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier, now UNBLOCKED):**
+   argocd's last on-path correctness blocker (Bug2-14b + Bug2-14c) is RESOLVED — `kue export
+   apps/argocd.cue` now exports CONTENT-IDENTICAL to cue (jq -S diff = 0) in ~53s. The wall is now a
+   PURE perf concern (no correctness divergence): the heavy `argo` sub-package dominates the ~53s. Profile
+   against this now-resolving target — the cache-hash digest already collapsed cert-manager's O(N²); apply
+   the same lens (cache-key cost, frame-id churn, the force-cache hit rate over the multi-closure two-pass
+   fold Bug2-14c added) to the argocd `argo` sub-package.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`
