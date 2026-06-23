@@ -12397,3 +12397,97 @@ fresh alpha is flagged as a NOTABLE-milestone release worth the user's greenligh
 `Kue/Tests/Bug2xTests.lean` (3 pins + tripwire), `testdata/modules/bug214{b,c}_*` (2 module fixtures),
 `docs/spec/{spec-conformance-audit,plan}.md`, `docs/reference/{implementation-log,cue-spec-gaps}.md`,
 `docs/notes/` (breadcrumb rotated).
+
+---
+
+## Completed Slice: perf #7 — self-evaluating-leaf fast path + saturated-only satCache
+
+Goal: attack the FLAT per-eval setup constant that makes argocd export in ~53s where `cue`
+takes 0.03s. Profiling first (the gate: a precise profile is a valid outcome), then a
+SOUND, value-preserving optimization only if the profile reveals one.
+
+### The profile (the bankable finding)
+
+Instrumented `evalValueWithFuel` over a full `kue export apps/argocd.cue` run (832K-eval
+top-level eval). The decisive numbers:
+
+- `evalCalls=832338` core (cache-miss) evals, `satHits=125319`, **`evalCacheHits=0`** — the
+  fuel-keyed `cache` NEVER hits on this app; every re-served value comes from the fuel-free
+  `satCache` (everything reachable is saturated). The `cache` was pure overhead (832K inserts
+  read zero times).
+- **`distinctShapes=4763`** (distinct value subtrees at digest-depth 8) vs 832338 core evals
+  → a **~175× re-evaluation factor**: the SAME value subtree is core-evaluated ~175× because
+  it is reached under ~175 distinct frame envs, and the cache keys on `env.ids`. This is the
+  root shape — frame-id divergence preventing cross-scope sharing, NOT a fuel-axis problem,
+  NOT an O(N²) hash-bucket problem (DIGEST_DEPTH 1 vs 3 measured FLAT in wall-time, so the
+  item-7 hash is well-tuned and the digest cost is not the wall).
+- Tag histogram of the 832K core evals: `.prim` 185306, `.struct` 128644, `.kind` 123425,
+  `.refId` 108199, `.binary` 65935, `.conj` 48528, `.selector` 39098, `.list` 34753.
+  **`.prim`+`.kind` = 308731 ≈ 37%** of all core evals are ENV-INDEPENDENT self-evaluating
+  constants re-keyed per distinct env.
+- `forceCalls=45746`, `forceSize=30103` — the force memo is small and NOT the wall (the
+  item-7 lens applied to the SETUP closure: force-cache is fine; the cost is the leaf/struct
+  re-eval count × the per-eval hash+map constant).
+
+The flat-per-field signature is reproduced: selecting any single field (`-e "…"`) fires the
+identical 832338-eval line — `selectExprPath` does `resolveAndEval root` (the whole-root eval)
+before the lookup, so a 484-byte field costs the full root eval.
+
+### The optimizations (two, both provably value-preserving)
+
+1. **Self-evaluating-leaf fast path.** `evalValueWithFuel` short-circuits — returns the value
+   directly, no cache touch, no `truncCount` move — for `selfEvaluatingLeaf?`: the constructors
+   (`.prim`/`.kind`/`.top`/`.bottom`/`.bottomWith`/`.notPrim`/`.stringRegex`/`.boundConstraint`/
+   `.thisStruct`) that fall through `evalValueCoreWithFuel`'s trailing `| _, value => pure value`
+   arm, which reads none of `fuel`/`env`/`visited`. **Soundness:** for these, core eval is the
+   IDENTITY at every fuel ≥ 1; at fuel = 0 the core only adds a SPURIOUS truncation (`| 0, value
+   => truncate value`) for a value that was never fuel-sensitive, so skipping it removes only
+   FALSE `truncated` classifications a fuel-0 leaf would inject, never a genuine one (a subtree
+   that truly needs fuel bottoms on a `.refId`/struct-unroll — NOT a leaf — and still truncates).
+   The predicate is a strict subset of the core's catch-all set (conservative: a constructor the
+   core handles non-trivially is never listed; one omitted merely keeps the sound slow path).
+
+2. **Saturated-only `satCache` insert.** A saturated result is now stored ONLY in the fuel-free
+   `satCache`, never in the fuel-keyed `cache`. **Soundness:** `evalValueWithFuel` checks
+   `satCache` FIRST; a saturated value is therefore always served from `satCache` before
+   `cache.get?` is reached, so its `cache` entry was provably dead (read zero times — confirmed by
+   `evalCacheHits=0`). `cache` now holds only the fuel-TRUNCATED (fuel-sensitive) population, which
+   must stay fuel-keyed. `cache` is read/written at exactly one site each (both inside
+   `evalValueWithFuel`), so no other path depends on saturated entries living there.
+
+Neither weakens `BEq`/digest soundness; the `Value` `DecidableEq` carve-out is untouched. The
+hash only selects a bucket; `BEq` remains the sole equality arbiter.
+
+### Measured
+
+argocd `kue export` **~53.4s → ~50.3s user** (~6%), jq -S diff = 0 (51178 bytes, byte-identical
+to cue). cert-manager **~12.6s → ~11.7s**, jq -S diff = 0 (1448 bytes). Full `native_decide`
+suite + `check-fixtures.sh` green, ZERO fixture drift. The win is modest because the fast path
+eliminates the per-eval hash+map cost of the 37%-of-count leaves, but each leaf is trivial work,
+so the wall-time slice is small; the dominant cost is the ~175× re-eval of env-DEPENDENT shapes
+(structs/refs/conjunctions under divergent frames), which a leaf bypass does not touch.
+
+### Designed next step (deferred — not a one-slice safe change)
+
+The remaining ~50s is the ~175× re-evaluation of env-DEPENDENT value shapes. The principled fix
+is sharing those evaluations across frame envs — either more aggressive frame canonicalization
+(so structurally-identical def bodies forced under different resource scopes collapse to one
+frame id, hitting the env-keyed satCache) or content-addressing def-body closures independent of
+the capturing frame. Both touch the soundness core of frame identity (the `FrameKey`/`ForceKey`
+proxy argument) and need their own soundness proof + a no-false-share boundary — a dedicated
+slice, gated, not foldable into this one.
+
+### Tests
+
+The 5 `evalStructRefsCalls` perf pins in `EvalPerfTests.lean` shifted to their new (lower) counts
+— a pure metric move from no longer counting env-independent leaves as core evals; the COMPANION
+VALUE pins (`eval_deep_inline_value_correct`, `selpass_value_correct`) are UNCHANGED and green,
+witnessing value-preservation. `deepInlineRoot` slope `2·depth+2 → 2·depth+1`; `selPass` slope
+`+5 → +3`/field, base `21 → 12` at n2.
+
+### Files
+
+`Kue/Eval.lean` (`selfEvaluatingLeaf?` predicate; the fast-path guard in `evalValueWithFuel`; the
+saturated-only `satCache` insert), `Kue/Tests/EvalPerfTests.lean` (5 perf-pin counts + 2 comments),
+`docs/guides/kue-performance.md`, `docs/spec/plan.md`, `docs/reference/implementation-log.md`,
+`docs/notes/` (breadcrumb rotated).

@@ -28,20 +28,23 @@ def deepInlineValue : Nat -> Value
 def deepInlineRoot (n : Nat) : Value :=
   mkStruct [⟨"root", .regular, deepInlineValue n⟩] .regularOpen none []
 
--- PERF: with frame-id sharing the deep-inline eval count is LINEAR in depth (`2·depth + 2`),
--- not exponential. At depth 8 this is 18 core evals; WITHOUT sharing it is 767 (a 42× gap), so
+-- PERF: with frame-id sharing the deep-inline eval count is LINEAR in depth (`2·depth + 1`),
+-- not exponential. At depth 8 this is 17 core evals; WITHOUT sharing it is 767 (a 45× gap), so
 -- any regression that defeats sharing — or any unsound widening that stops the memo hitting —
--- blows this pin far past 18. This is the deterministic exponential→linear witness.
+-- blows this pin far past 17. This is the deterministic exponential→linear witness. (The slope
+-- shifted from `2·depth + 2` to `2·depth + 1` when the self-evaluating-leaf fast path stopped
+-- counting the once-shared scalar leaf as a core eval — a pure metric shift; value unchanged,
+-- witnessed by `eval_deep_inline_value_correct` below.)
 theorem eval_deep_inline_sharing_is_linear :
-    evalStructRefsCalls (deepInlineRoot 8) = 18 := by
+    evalStructRefsCalls (deepInlineRoot 8) = 17 := by
   native_decide
 
 theorem eval_deep_inline_count_depth4 :
-    evalStructRefsCalls (deepInlineRoot 4) = 10 := by
+    evalStructRefsCalls (deepInlineRoot 4) = 9 := by
   native_decide
 
 theorem eval_deep_inline_count_depth6 :
-    evalStructRefsCalls (deepInlineRoot 6) = 14 := by
+    evalStructRefsCalls (deepInlineRoot 6) = 13 := by
   native_decide
 
 -- PERF + VALUE: the shared eval still produces the correct deeply-nested value (sharing is a
@@ -87,15 +90,18 @@ theorem selpass_skips_static_sibling_reader :
       == false) = true := by
   native_decide
 
--- EVAL COUNT is LINEAR with the SMALL slope (+5/unrelated-field), witnessing the redundant Pass-2
+-- EVAL COUNT is LINEAR with the SMALL slope (+3/unrelated-field), witnessing the redundant Pass-2
 -- recompute is gone: pre-fix the slope was +10/field (every field re-evaluated in Pass 2). A
--- regression that re-broadened the re-eval set blows these past the asserted counts.
+-- regression that re-broadened the re-eval set blows these past the asserted counts. (The slope
+-- dropped from +5 to +3/field, and the base from 21→12 at n2, when the self-evaluating-leaf fast
+-- path stopped counting each `u_i` field's scalar operands — `Self.base + i`'s `base` prim and
+-- the `int i` literal — as core evals; the Pass-2 SELECTIVITY this pin guards is unchanged.)
 theorem selpass_eval_count_n2 :
-    evalStructRefsCalls (resolveStructRefs (selPassBody 2)) = 21 := by
+    evalStructRefsCalls (resolveStructRefs (selPassBody 2)) = 12 := by
   native_decide
 
 theorem selpass_eval_count_n6 :
-    evalStructRefsCalls (resolveStructRefs (selPassBody 6)) = 41 := by
+    evalStructRefsCalls (resolveStructRefs (selPassBody 6)) = 24 := by
   native_decide
 
 -- VALUE: the selective re-eval still resolves `Self.et` correctly (`dep: "z"`) AND the unrelated

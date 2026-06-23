@@ -77,6 +77,13 @@ fix is purely a speedup — byte-identical output.
   value settles below the fuel ceiling it is never re-derived at higher fuel — the dominant
   real-app cost (fuel multiplication) is gone. The only values that re-derive per fuel
   level are genuinely fuel-sensitive ones (cycle-truncated), which is correct, not waste.
+- **Env-independent leaves skip the cache entirely** (perf-#7 leaf fast path). A scalar/closed
+  constant (`.prim`/`.kind`/`.top`/`.bottom`/`.notPrim`/`.stringRegex`/`.boundConstraint`/
+  `.thisStruct`) is the identity of evaluation, so `evalValueWithFuel` returns it directly
+  without an env-keyed cache probe+insert. On a deep app these are ~37% of all core evals (each
+  re-reached under many distinct frame envs); bypassing them is a pure, value-identical speedup.
+  Only the fuel-TRUNCATED population now occupies the fuel-keyed `cache`; everything saturated
+  lives solely in the fuel-free `satCache`.
 
 ## Known limitations (current)
 
@@ -135,27 +142,47 @@ fix is purely a speedup — byte-identical output.
   > chain (fewer redundant force-folds + tighter frame-id discrimination cut cert-manager's
   > per-eval churn). **Treat ~12.6s as the live cert-manager number; ~30.5s is retired.**
 - **Full `apps/argocd.cue` EXPORTS content-identical (2026-06-23) — the correctness chain
-  is CLOSED; the residual ~53s is a pure perf-#7 frontier (profiled below).** The Bug2-x
-  narrowing chain (Bug #1 … Bug2-14/14b/14c) all LANDED; `kue export apps/argocd.cue` is now
-  byte-identical to `cue` (jq -S diff = 0, 51178 bytes, **~53s wall** vs `cue` 0.03s) — the
-  2nd prod9 real-app drop-in alongside cert-manager (~12.6s). The block below records the
-  correctness history (now resolved) and the perf-#7 profiling that the unblock enabled.
-  > **perf-#7 PROFILED (2026-06-23, post-Bug2-14 unblock) — the wall is a FLAT
-  > per-eval-constant in shared-definition setup, NOT a subtree hot spot, NOT output-driven,
-  > NOT fuel-axis.** The decisive measurement: selecting ANY single field costs the FULL
-  > ~53s — `argocd."listener.yaml"` (484 bytes of output) takes 53.5s, identical to
-  > `route.yaml`/`stage9.yaml`/`bluepages.yaml`/`configs.yaml` and to the whole-app export
-  > (53.4s). `kue eval` (no manifest) is also 53s, so the cost is in EVALUATION/resolution,
-  > before output. The 51KB output is modest (largest field ~4.5KB) — size is not the driver.
-  > Conclusion: the earlier "heavy `argo` sub-package" framing was imprecise — the cost is
-  > NOT in evaluating argo's output subtrees (those are small) but in **fixed upfront work
-  > over the imported definition closure** (`defs` + `defaults` + `apps/argo`), done ONCE
-  > regardless of selection. Bug2-14 did NOT resolve perf (it unblocked correctness, exposing
-  > that the entire wall is fixed setup). **perf-#7 STAYS REAL** (~1700× the `cue` 0.03s) and
-  > its profiling target is now precise: the per-eval constant of definition/import-closure
-  > setup, NOT a per-field subtree. Apply the item-7 lens (cache-key cost, frame-id churn,
-  > force-cache hit rate) to the SETUP closure, not to argo's outputs. The flat-per-field
-  > signature is the reproducer: any single-field selection times the same setup.
+  is CLOSED; the residual ~50s is the perf-#7 frontier (profiled + partially optimized).** The
+  Bug2-x narrowing chain (Bug #1 … Bug2-14/14b/14c) all LANDED; `kue export apps/argocd.cue` is
+  byte-identical to `cue` (jq -S diff = 0, 51178 bytes, **~50.3s wall** post-perf#7, was ~53.4s,
+  vs `cue` 0.03s) — the 2nd prod9 real-app drop-in alongside cert-manager (~11.7s). The block
+  below records the correctness history (resolved) and the perf-#7 profile + the two sound
+  optimizations the unblock enabled.
+  > **perf-#7 PROFILED + PARTIALLY OPTIMIZED (2026-06-23) — the wall is a ~175× RE-EVALUATION
+  > of env-DEPENDENT value shapes, NOT a subtree hot spot, NOT output-driven, NOT fuel-axis,
+  > NOT an O(N²) hash collapse.** Profiled the 832K-eval whole-root export by instrumenting
+  > `evalValueWithFuel`. Decisive numbers: `evalCalls=832338` core (cache-miss) evals,
+  > `evalCacheHits=0` (the fuel-keyed `cache` NEVER hits — every re-served value comes from the
+  > fuel-free `satCache`), and **`distinctShapes=4763`** distinct value subtrees (digest-depth 8)
+  > → a **~175× re-eval factor**: the SAME subtree is core-evaluated ~175× because it is reached
+  > under ~175 distinct frame envs and the cache keys on `env.ids`. This is frame-id divergence
+  > (the "frame-id churn" lens), NOT fuel: DIGEST_DEPTH 1 vs 3 measured FLAT in wall-time, so the
+  > item-7 hash is well-tuned and the per-key digest cost is not the wall. Tag histogram of the
+  > 832K: `.prim` 185K, `.struct` 129K, `.kind` 123K, `.refId` 108K, `.binary` 66K, `.conj` 49K,
+  > `.selector` 39K, `.list` 35K — **`.prim`+`.kind` ≈ 37%** are env-INDEPENDENT constants
+  > re-keyed per env. The flat-per-field signature holds: `-e "<field>"` fires the identical
+  > 832K-eval line because `selectExprPath` does `resolveAndEval root` (the whole-root eval)
+  > before the lookup.
+  >
+  > **Two sound optimizations landed (both jq-S=0, zero fixture drift):** (1) a
+  > **self-evaluating-leaf fast path** — `evalValueWithFuel` returns env-independent leaves
+  > (`selfEvaluatingLeaf?`: `.prim`/`.kind`/`.top`/`.bottom`/`.bottomWith`/`.notPrim`/
+  > `.stringRegex`/`.boundConstraint`/`.thisStruct`) directly, skipping the `valueDigest`-hashed
+  > satCache/cache probe+insert per occurrence (these are the core's identity arm; sound by
+  > construction); (2) **saturated-only `satCache` insert** — a saturated result lives ONLY in the
+  > fuel-free `satCache` (checked first), never in the fuel-keyed `cache` (which now holds only the
+  > fuel-TRUNCATED population), eliminating 832K dead `cache` inserts (`evalCacheHits=0` proved them
+  > unread). Measured **~53.4s → ~50.3s** (argocd), **~12.6s → ~11.7s** (cert-manager). The win is
+  > modest because the leaves are trivial work; the dominant ~50s is the ~175× re-eval of
+  > env-DEPENDENT shapes (structs/refs/conjunctions forced under divergent frames), which a leaf
+  > bypass cannot touch — see the next-step note below.
+  >
+  > **Next step (designed, deferred — a dedicated gated slice):** share env-DEPENDENT evaluations
+  > across frame envs — more aggressive frame canonicalization (so structurally-identical def
+  > bodies forced under different resource scopes collapse to one frame id, hitting the env-keyed
+  > satCache), or content-addressing def-body closures independent of the capturing frame. Both
+  > touch the soundness core of frame identity (`FrameKey`/`ForceKey` proxy argument) and need a
+  > dedicated no-false-share proof — not foldable into a leaf-bypass slice.
 - **[HISTORICAL] Full `apps/argocd.cue` bottomed — was a CORRECTNESS bug, NOT a perf/fuel
   limit (2026-06-19; RESOLVED 2026-06-23 by the Bug2-x chain — kept for the diagnosis trail).
   Superseded the earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness"

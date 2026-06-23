@@ -178,18 +178,30 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **NEXT LEADER: perf #7 — STILL REAL, profiling target now PRECISE
-(Phase-B reassessment 2026-06-23).** argocd exports content-identical at ~53s vs `cue` 0.03s
-(~1700×). Profiled post-unblock: the wall is a FLAT per-eval-constant in shared-definition
-setup — selecting ANY single field (even 484-byte `listener.yaml`) costs the full 53s, and
-`kue eval` (no manifest) is also 53s, so the cost is in EVALUATION over the imported
-definition closure (`defs` + `defaults` + `apps/argo`), done ONCE regardless of selection,
-NOT in any output subtree (largest is 4.5KB) and NOT fuel-axis. Bug2-14 did NOT resolve perf;
-it unblocked correctness, exposing that the entire wall is fixed setup. The "heavy argo
-sub-package" framing was imprecise — the target is the **definition/import-closure setup
-per-eval constant**; apply the item-7 lens (cache-key cost, frame-id churn, force-cache hit
-rate) to the SETUP closure, with the flat-per-field signature as the reproducer. Detail in
-`kue-performance.md` (argocd-EXPORTS block + perf-#7 PROFILED note). **Bug2-14b + Bug2-14c RESOLVED (2026-06-23 — argocd
+(LOW spec-gap-first). **NEXT LEADER: perf #7 — PROFILED + PARTIALLY OPTIMIZED (2026-06-23);
+the root cost is now NAMED and a deeper sound fix is DESIGNED + deferred.** argocd exports
+content-identical at **~50.3s** (was ~53.4s) vs `cue` 0.03s. The profile (instrumented
+`evalValueWithFuel` over the 832K-eval whole-root export) found: `evalCalls=832338`,
+**`evalCacheHits=0`** (the fuel-keyed `cache` never hits — all re-served from `satCache`), and
+**`distinctShapes=4763`** distinct value subtrees → a **~175× re-eval factor** — the SAME subtree
+is core-evaluated ~175× because reached under ~175 distinct frame envs and the cache keys on
+`env.ids`. This is FRAME-ID DIVERGENCE, not fuel (DIGEST_DEPTH 1 vs 3 measured FLAT, so the
+item-7 hash is well-tuned and digest cost is not the wall) and not an O(N²) collapse. Tag
+histogram: `.prim` 185K / `.struct` 129K / `.kind` 123K / `.refId` 108K / `.binary` 66K /
+`.conj` 49K / `.selector` 39K / `.list` 35K — `.prim`+`.kind` ≈ 37% are env-INDEPENDENT
+constants re-keyed per env. **Two sound optimizations landed** (both jq-S=0, zero fixture
+drift): (1) **self-evaluating-leaf fast path** (`selfEvaluatingLeaf?` — return env-independent
+leaves directly, skip the satCache/cache probe+insert); (2) **saturated-only satCache insert**
+(saturated results live only in the fuel-free `satCache`, never the dead fuel-keyed `cache`).
+Measured ~53.4s → ~50.3s (argocd), ~12.6s → ~11.7s (cert-manager). The win is modest because
+the leaves are trivial work; the dominant ~50s is the ~175× re-eval of env-DEPENDENT shapes.
+**DESIGNED next step (deferred — a dedicated gated slice):** share env-DEPENDENT evals across
+frame envs — more aggressive frame canonicalization (collapse structurally-identical def bodies
+forced under different resource scopes to one frame id, hitting the env-keyed satCache) or
+content-address def-body closures independent of the capturing frame; both touch the soundness
+core of frame identity (`FrameKey`/`ForceKey`) and need a no-false-share proof, NOT foldable
+into a leaf-bypass slice. Detail in `kue-performance.md` (argocd-EXPORTS block + perf-#7
+PROFILED+OPTIMIZED note) + implementation-log (perf #7 slice). **Bug2-14b + Bug2-14c RESOLVED (2026-06-23 — argocd
 exports content-identical, jq -S diff = 0, ~53s):** the argocd `#Mixin` structural-disjunction let-local
 (`_patch.kind`) now receives the host's `kind` narrowing on the force path. **Bug2-14b** — the
 `embedBodyEmbedsDisjDeep` gate was resolving against the OUTER fold `env`; the body's own embed-refs are

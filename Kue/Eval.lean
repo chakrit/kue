@@ -1195,6 +1195,29 @@ def valueTag : Value -> UInt64
   | .struct _ _ _ _ _ => 31
   | .embeddedScalar _ _ => 32
 
+/-- A value whose `evalValueCoreWithFuel` reduction is the IDENTITY, independent of
+    `fuel`/`env`/`visited`: the constructors that fall through to the core's trailing
+    `| _, value => pure value` arm (which reads none of those inputs). Exactly: `.prim`,
+    `.kind`, `.top`, `.bottom`, `.bottomWith`, `.notPrim`, `.stringRegex`, `.boundConstraint`,
+    `.thisStruct`. These are scalar/closed leaves carrying no reference into the env, so
+    evaluating them yields themselves at any fuel. `evalValueWithFuel` short-circuits them
+    before the (env-keyed) cache, skipping a `valueDigest`-hashed probe+insert per occurrence —
+    pure speed, value-identical. MUST stay in sync with the core's catch-all arm: a constructor
+    listed here that the core handles non-trivially would skip real work (a correctness bug); one
+    omitted here merely keeps the (sound) slow path. Every constructor NOT listed has an explicit
+    core arm that consumes `env`/`fuel`/`visited` (refs, structs, conjunctions, selectors, …). -/
+def selfEvaluatingLeaf? : Value -> Bool
+  | .prim _ => true
+  | .kind _ => true
+  | .top => true
+  | .bottom => true
+  | .bottomWith _ => true
+  | .notPrim _ => true
+  | .stringRegex _ => true
+  | .boundConstraint _ _ _ => true
+  | .thisStruct => true
+  | _ => false
+
 /--
 A TOTAL, fuel-free, BOUNDED-DEPTH structural digest of a `Value`, for use as a cache-key
 HASH (never as an equality test). Recurses `depth` levels into the value's children,
@@ -2936,6 +2959,22 @@ mutual
       (env : Env)
       (visited : List Nat)
       (value : Value) : EvalM Value := do
+    -- Fast path: an env-INDEPENDENT self-evaluating leaf (`selfEvaluatingLeaf?` — `.prim`,
+    -- `.kind`, `.top`, `.bottom`, `.bottomWith`, `.notPrim`, `.stringRegex`,
+    -- `.boundConstraint`, `.thisStruct`) is the identity of `evalValueCoreWithFuel` at every
+    -- fuel `≥ 1` (the trailing `| _, value => pure value` arm, which reads none of
+    -- `fuel`/`env`/`visited`), and at `fuel = 0` the core only adds a SPURIOUS truncation
+    -- (`| 0, value => truncate value`) for a value that was never fuel-sensitive. Returning it
+    -- directly is therefore value-identical AND saturation-correct: it removes only false
+    -- `truncated` classifications a fuel-0 leaf would inject, never a genuine one (a subtree
+    -- that truly needs fuel bottoms on a `.refId`/struct-unroll, which is NOT a leaf and still
+    -- truncates). It also skips the satCache/cache probe+insert (each a `valueDigest` hash) for
+    -- these leaves — the dominant flat-setup cost on a deep app: `.prim`+`.kind` alone are ~37%
+    -- of argocd's core evals, re-keyed per distinct frame env. Sound: the leaf's value never
+    -- depends on `env`, so caching it under an env-keyed key bought nothing but the hash cost.
+    if selfEvaluatingLeaf? value then
+      pure value
+    else
     let satKey : SatKey := ⟨env.ids, visited, value⟩
     match (<- get).satCache.get? satKey with
     | some cached => do
@@ -2954,11 +2993,20 @@ mutual
           let result <- evalValueCoreWithFuel fuel env visited value
           let after := (<- get).truncCount
           let sat : Saturation := if after == before then .saturated else .truncated
-          modify (fun state => { state with cache := state.cache.insert key (result, sat) })
           match sat with
           | .saturated =>
+              -- A saturated result is fuel-insensitive, so the fuel-free `satCache` (checked
+              -- FIRST, before the fuel-keyed `cache`) serves it at every future lookup — the
+              -- fuel-keyed `cache` entry would never be read (satCache always wins first). So
+              -- store saturated results ONLY in `satCache`, never in `cache`; this keeps `cache`
+              -- to the small fuel-TRUNCATED population, eliminating the per-eval cost of inserting
+              -- every (overwhelmingly saturated) result into a second large map.
               modify (fun state => { state with satCache := state.satCache.insert satKey result })
-          | .truncated => pure ()
+          | .truncated =>
+              -- A truncated result is fuel-SENSITIVE and is gated OUT of `satCache`; it must live
+              -- in the fuel-keyed `cache` so a same-fuel re-lookup serves it (and re-bumps
+              -- `truncCount` for cache-hit honesty).
+              modify (fun state => { state with cache := state.cache.insert key (result, sat) })
           pure result
   termination_by (fuel, 1, 0)
 
