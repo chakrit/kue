@@ -1,0 +1,9 @@
+{
+    "thing": {
+        "y": 2
+    },
+    "fromField": {
+        "y": 2
+    },
+    "fromPkg": "foo-value"
+}

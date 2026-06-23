@@ -436,6 +436,17 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      (prod9 never hits the collision — verified UNAFFECTED). 1 cue-divergence (single-line
      vs two-line diagnostic) + 1 spec-gap (exemption boundary; the aliased-field-label
      corner deliberately exempted as the no-over-reject choice). See implementation-log.
+   - **Aliased-builtin-call resolution (latent, LOW) — surfaced by the A2-y audit.** An
+     ALIASED stdlib import resolves the alias to nothing on the call path:
+     `import j "encoding/json"` + `j.Marshal(x)` yields `incomplete value: j.Marshal(...)`
+     where cue returns the marshalled string. The builtin dispatch keys the call name off the
+     literal member-access head (`json.Marshal`), but an alias rewrites the head to `j`, which
+     `evalBuiltinCall` does not recognise — the alias is never mapped back to the canonical
+     builtin namespace. PRE-EXISTING (reproduces with no field present, `import j
+     "encoding/json"` + `out: j.Marshal({a: 1})`); NOT an A2-y regression (A2-y only added the
+     redeclaration check and correctly EXEMPTS a `json:` field under alias `j`). prod9 canaries
+     use UNALIASED builtin imports, so jq-S=0 is unaffected. Fix = thread the builtin import's
+     alias into the member-access→`builtinCall` lowering so `j.Marshal` lowers to `json.Marshal`.
    - **`scalar-embed` provenance follow-ups** — opportunistic pins (3-level flatten, disj
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.
@@ -473,6 +484,26 @@ parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault`
 none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
+
+**Audit 2026-06-23 (Phase A, code-quality, SCOPED single-pass; batch `890d453..2bd75eb` =
+resilience/retrospective pass + A2-y import-name redeclaration) — HEALTHY.** A2-y is the only code
+change. **OVER-strictness: NONE** — every valid witness oracle'd vs cue v0.16.1 ACCEPTS where cue
+accepts and REJECTS where cue rejects (alias-no-collision `import d` + `x:`/`dep:` field, quoted
+`"dep"`, `#dep`/`_dep`, nested, different-name, qualified-import `"…:foo"` + `foo:`, builtin
+`encoding/json` + `json:`, per-FILE sibling `dep` with no import there — all match cue). The
+soundness fix is SOUND: a non-colliding field resolves to the FIELD and the import to the PACKAGE,
+byte-identical to cue (`thing`/`fromField`/`fromPkg` witness). The `ParsedField.quoted` parser
+ripple is CLEAN: `quoted` true only for `"…":` string labels, false for bare + `#`/`_`; both
+construction sites + both match sites (`bareIdentifierLabels`, `splitParsedFields`) updated, no
+missed site, no `_`-swallow of a future constructor on the eligibility path. TOTALITY: no new
+`partial`/`sorry`/axiom; the four new defs are total; IO confined to `Module.lean` (`Eval`/`Resolve`
+untouched). Canaries jq-S=0 (cert-manager 38 lines, argocd 1195 lines). Docs records accurate
+(cue-divergence single-vs-two-line, spec-gap aliased-field corner, plan/spec-conformance/impl-log all
+consistent). **+2 coverage fixtures added inline** (`import_name_field_resolves` pins the exact
+wrong-value the soundness fix closed; `import_alias_no_collision` pins A2-y does NOT over-reject a
+bare field under an import alias). **ONE latent finding surfaced, NOT a regression:** aliased-builtin
+call resolution (`import j "encoding/json"` + `j.Marshal` → `incomplete value`) — pre-existing,
+prod9-unaffected, filed in the item-6 LATENT tail above. Verdict: **HEALTHY.**
 
 **Audit 2026-06-23 (Phase B, architecture/refactor; batch `e2d8868..4431597` = parser-strictness +
 release-tooling + per-eval empty-`cache`-skip) — HEALTHY (light confirm-and-close; Phase A HEALTHY

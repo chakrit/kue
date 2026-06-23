@@ -1,0 +1,6 @@
+{
+    "dep": {
+        "x": 1
+    },
+    "fromPkg": "foo-value"
+}
