@@ -358,21 +358,23 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      the spec) + 1 spec-gap (the murky package-name / import-qualifier `__` corner,
      deliberately out-of-scope). Canaries jq-S=0 (no real config uses the rejected forms).
      See implementation-log.
-   - **`release-linux.sh` no dirty-tree guard (LOW, Phase-B 2026-06-23).** `release.sh`
-     requires a clean working tree before building (`git status --porcelain`);
-     `release-linux.sh` does not (it builds from `COPY . /src`, `.dockerignore` excludes
-     `.git`). A dirty tree could ship a Linux asset built from uncommitted changes that diverges
-     from the committed macOS asset on the SAME release. Add the same clean-tree precondition.
-     (Whether `release.sh` should auto-chain `release-linux.sh` — currently a deliberate two-step
-     split, Linux backfilled per-release — is a UX call left to the user, not filed.)
-   - **Concurrent-release tap-clone race (LOW, audit 2026-06-23).** `release.sh` and
-     `release-linux.sh` patch DISJOINT formula blocks (asset-name-keyed `awk`, fail-loud,
-     idempotent — verified SOUND), so they never clobber each other's content. But both
-     independently `pull --ff-only` → `add` → `commit` → `push` against the SAME shared tap
-     working tree, so a CONCURRENT run races the git index and `push` (`--ff-only` reject, no
-     retry). Disjointness holds at the formula-content layer, NOT the git layer: the scripts are
-     safe SEQUENTIALLY (the intended workflow), would race in parallel. Doc the sequential
-     precondition in both headers, or take a tap-clone lock. Not a correctness defect.
+   - ~~**`release-linux.sh` no dirty-tree guard (LOW, Phase-B 2026-06-23).**~~ — **DONE
+     2026-06-23.** Added the same clean-tree precondition `release.sh` has
+     (`[ -z "$(git … status --porcelain)" ] || die …`) before the Docker build, so the Linux
+     asset (`COPY . /src`) is built from a committed tree matching the macOS asset. See
+     implementation-log. (Whether `release.sh` should auto-chain `release-linux.sh` — a
+     deliberate two-step split — is a UX call left to the user, not filed.)
+   - ~~**Concurrent-release tap-clone race (LOW, audit 2026-06-23).**~~ — **DONE
+     2026-06-23**, now relevant because releases AUTO-CUT. New shared `scripts/tap-push.sh`
+     (sourced by both, DRY alongside `patch-formula-block.sh`) replaces each script's `pull
+     --ff-only` + `push` with a lock-FREE retry-on-reject loop: `fetch` + `reset --hard
+     <remote>/<branch>` (clean base at the remote tip, includes the sibling's block) →
+     re-apply OUR patch via an idempotent + block-scoped callback (the patcher keys on the
+     asset-suffixed url, invariant across bumps; it touches only our block, so the sibling's
+     is preserved) → commit-if-changed → push → on REJECT loop up to N (default 5) with
+     backoff, then `die`. `flock` deliberately AVOIDED (absent on the macOS release host).
+     Verified by a truly-concurrent dry-run (12-round stress + gh-remote round): zero lost
+     updates, the race loser re-fetches + re-patches + pushes. See implementation-log.
    - **DRY `selectEvaluatedField .disj` ** — the resolved-default arm re-lists the
      struct-shape dispatch; collapse to `match resolveDisjDefault? alternatives` (gains
      free nested-disjunction recursion). PARTIALLY addressed by CARRIER-DECL-SELECT (the

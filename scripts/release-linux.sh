@@ -36,11 +36,13 @@ TARGETS="${KUE_LINUX_TARGETS:-amd64 arm64}"
 TAP_DIR="${KUE_TAP_DIR:-"$(dirname "$REPO_ROOT")/homebrew-tap"}"
 FORMULA="${TAP_DIR}/Formula/kue.rb"
 
-# shellcheck source=scripts/patch-formula-block.sh
-. "$(dirname "${BASH_SOURCE[0]}")/patch-formula-block.sh"
-
 step() { printf '\n==> %s\n' "$1"; }
 die()  { printf 'release-linux: %s\n' "$1" >&2; exit 1; }
+
+# shellcheck source=scripts/patch-formula-block.sh
+. "$(dirname "${BASH_SOURCE[0]}")/patch-formula-block.sh"
+# shellcheck source=scripts/tap-push.sh
+. "$(dirname "${BASH_SOURCE[0]}")/tap-push.sh"
 
 # Map a Docker arch (the buildx --platform suffix) to the Rust-style asset name
 # used for the released file, matching the macOS asset's naming scheme.
@@ -57,6 +59,11 @@ docker buildx version >/dev/null 2>&1 || die "docker buildx unavailable (needed 
 gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
   || die "release $TAG not found on $REPO — cut it with release.sh first"
 [ -f "$FORMULA" ] || die "tap formula not found at $FORMULA (set KUE_TAP_DIR)"
+# The Docker build does `COPY . /src`, so a dirty tree would ship a Linux asset
+# built from uncommitted changes that diverge from the committed macOS asset on
+# the SAME release. Require a clean tree, matching release.sh.
+[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] \
+  || die "working tree dirty — commit or stash before releasing"
 
 mkdir -p "$DIST"
 
@@ -111,25 +118,21 @@ for arch in $TARGETS; do
   step "Done with $asset"
 done
 
-step "Patching tap formula $FORMULA (Linux blocks)"
+step "Patching + pushing tap formula $FORMULA (Linux blocks)"
 # Patch only the blocks we actually built+uploaded this run, keyed by asset
 # name, so a subset build (KUE_LINUX_TARGETS=arm64) leaves the other Linux
-# block untouched and never clobbers the macOS block.
-for rec in "${PATCHED[@]}"; do
-  asset="${rec%%|*}"; rest="${rec#*|}"
-  url="${rest%|*}"; sha="${rest##*|}"
-  patch_formula_block "$FORMULA" "$asset" "$url" "$sha"
-  printf 'patched block: %s -> %s\n' "$asset" "$sha"
-done
-
-step "Pushing tap"
-git -C "$TAP_DIR" pull --ff-only
-git -C "$TAP_DIR" add Formula/kue.rb
-if git -C "$TAP_DIR" diff --cached --quiet; then
-  echo "formula already up to date — nothing to commit"
-else
-  git -C "$TAP_DIR" commit -m "kue ${VERSION} (linux assets)"
-  git -C "$TAP_DIR" push
-fi
+# block untouched and never clobbers the macOS block. Wrapped in a callback so
+# tap_push can re-apply it after each rebase onto a concurrent release.sh push —
+# idempotent (asset-suffixed url survives the bump) and block-scoped (only our
+# Linux blocks), so the macOS block the sibling pushed is preserved.
+repatch_linux() {
+  for rec in "${PATCHED[@]}"; do
+    asset="${rec%%|*}"; rest="${rec#*|}"
+    url="${rest%|*}"; sha="${rest##*|}"
+    patch_formula_block "$FORMULA" "$asset" "$url" "$sha"
+    printf 'patched block: %s -> %s\n' "$asset" "$sha"
+  done
+}
+tap_push "$TAP_DIR" "kue ${VERSION} (linux assets)" repatch_linux
 
 step "All requested Linux targets published to $TAG"

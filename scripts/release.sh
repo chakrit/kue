@@ -25,11 +25,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAP_DIR="${KUE_TAP_DIR:-"$(dirname "$REPO_ROOT")/homebrew-tap"}"
 FORMULA="${TAP_DIR}/Formula/kue.rb"
 
-# shellcheck source=scripts/patch-formula-block.sh
-. "$(dirname "${BASH_SOURCE[0]}")/patch-formula-block.sh"
-
 step() { printf '\n==> %s\n' "$1"; }
 die()  { printf 'release: %s\n' "$1" >&2; exit 1; }
+
+# shellcheck source=scripts/patch-formula-block.sh
+. "$(dirname "${BASH_SOURCE[0]}")/patch-formula-block.sh"
+# shellcheck source=scripts/tap-push.sh
+. "$(dirname "${BASH_SOURCE[0]}")/tap-push.sh"
 
 [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ] \
   || die "must run on macOS arm64 (the formula ships an arm64 asset); host is $(uname -s)/$(uname -m)"
@@ -65,18 +67,18 @@ else
     --generate-notes "$DIST/$ASSET"
 fi
 
-step "Patching tap formula $FORMULA"
+step "Patching + pushing tap formula $FORMULA"
 URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
 # The formula is per-platform blocks; release.sh owns `version` + the macOS
 # on_arm block. Patch by asset name so we never touch the Linux blocks (those
-# belong to release-linux.sh).
-patch_formula_version "$FORMULA" "$VERSION"
-patch_formula_block "$FORMULA" "$ASSET" "$URL" "$SHA"
-
-step "Pushing tap"
-git -C "$TAP_DIR" pull --ff-only
-git -C "$TAP_DIR" add Formula/kue.rb
-git -C "$TAP_DIR" commit -m "kue ${VERSION}"
-git -C "$TAP_DIR" push
+# belong to release-linux.sh). The patch is wrapped in a callback so tap_push
+# can re-apply it after each rebase onto a concurrent release-linux.sh push —
+# idempotent (asset-suffixed url survives the bump) and block-scoped (only our
+# macOS block), so the Linux blocks the sibling pushed are preserved.
+repatch_macos() {
+  patch_formula_version "$FORMULA" "$VERSION"
+  patch_formula_block "$FORMULA" "$ASSET" "$URL" "$SHA"
+}
+tap_push "$TAP_DIR" "kue ${VERSION}" repatch_macos
 
 step "Done — install with: brew install chakrit/tap/kue"

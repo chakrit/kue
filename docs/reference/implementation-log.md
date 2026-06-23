@@ -13147,3 +13147,52 @@ exception (rejection rules only, no new recursion); no `sorry`/axiom. Full gate:
 jobs, no warning), `check-fixtures.sh` ZERO drift (no corpus fixture uses the now-rejected forms; valid
 `*` defaults in the corpus still parse). Canaries from `prod9/infra`: cert-manager jq -S = 0 (~11.4s),
 argocd jq -S = 0 (~54s) — UNAFFECTED (real configs use no `__`/`*(…)` invalid syntax).
+
+---
+
+## Completed Slice: release tooling — race-safe tap push + release-linux dirty-tree guard
+
+Goal (plan item-6 LOW ×2, now relevant because releases AUTO-CUT): harden the release scripts
+against the auto-release flow, where `release.sh` (macOS) and `release-linux.sh` (Linux) may run
+concurrently against the SAME tap clone. Two audit findings: (1) both did `pull --ff-only` +
+`commit` + `push` with no retry → a concurrent run races the index/push (lost commits, rejected
+push); (2) `release-linux.sh` lacked the clean-tree precondition `release.sh` has → could ship a
+Linux asset built from uncommitted changes (`COPY . /src`) diverging from the committed macOS asset.
+
+### Mechanism — retry-on-reject with re-fetch + re-patch (NO lock)
+
+`flock` is unavailable on macOS (the release host), so a lock would silently no-op there. Instead
+a new shared `scripts/tap-push.sh` (sourced by both scripts, DRY alongside the already-shared
+`patch-formula-block.sh`) exposes `tap_push <tap_dir> <commit_msg> <repatch_fn>`. Each attempt:
+resolve the remote from the branch's upstream (the tap remote is `gh`, not `origin` — never assume
+a name); `fetch` + `reset --hard <remote>/<branch>` to a clean base at the remote tip (which now
+contains any sibling block the concurrent run pushed); re-apply OUR patch via the caller's callback;
+commit-if-changed; push. On a push REJECT (a concurrent push landed first) LOOP from the fetch, up
+to `TAP_PUSH_RETRIES` (default 5) with `TAP_PUSH_BACKOFF` (default 2s) backoff, then `die`. The loop
+serializes safely WITHOUT a lock and also absorbs transient push failures.
+
+The callback (`repatch_macos` / `repatch_linux`) re-runs the script's own `patch_formula_*` calls,
+which are **idempotent + block-scoped**: the patcher keys on the asset-suffixed url line
+(`…/kue-aarch64-apple-darwin"`), invariant across version bumps, so re-patching reliably finds and
+rewrites the SAME block; and it touches ONLY that asset's block, so the sibling block brought in by
+the re-fetch is preserved. (`patch-formula-block.sh` unchanged — verified idempotent for realistic
+asset-suffixed urls and block-scoped by direct test.) `reset --hard` here is scoped to the tap clone
+and only ever discards this script's own regenerable patch — it never touches the kue working tree.
+
+### Dirty-tree guard
+
+`release-linux.sh` gains the same precondition `release.sh` has:
+`[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] || die "working tree dirty …"`, placed with the
+other preconditions before the Docker build, so the Linux asset is built from a committed tree
+matching the macOS asset.
+
+### Verify
+
+`shellcheck` 0.11.0 clean on all four scripts (release.sh, release-linux.sh, patch-formula-block.sh,
+tap-push.sh). Concurrency DRY-RUN: a throwaway bare remote + two clones running `repatch_macos` and
+`repatch_linux` truly concurrently (12-round stress + a `gh`-named-remote round) — every round landed
+BOTH the macOS block AND both Linux blocks + the version bump with ZERO lost updates; the loser of the
+race observed a real push rejection, re-fetched the winner's commit, re-patched its own block on top,
+and pushed. Retry-exhaustion path tested under perpetual contention → clean `die` after N, nonzero
+exit. No Lean change; `lake build` clean (112 jobs), `check-fixtures.sh` ZERO drift. The published
+`v0.1.0-alpha.20260623` release/assets/formula were NOT touched — change affects only FUTURE runs.
