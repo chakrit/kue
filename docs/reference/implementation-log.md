@@ -12740,3 +12740,67 @@ axiom). `scripts/check-fixtures.sh` → fixture pairs ok (only the 5 intended ne
 + argocd jq -S = 0 (not on the argocd path — zero drift). One message-only divergence recorded
 (`cue-divergences.md`): a missing field used as a VALUE (`y: x.b`) — cue `undefined field: b`, kue
 generic bottom; both reject, and the presence-test observable now byte-matches cue.
+
+---
+
+## Audit (Phase A — code-quality, batch `fccab69..889e86f`)
+
+Audited the two selection/closedness slices: Bug2-12 (`eb086ce`, self-rec closed def rejects use-site
+extras) and missing-field-selection (`889e86f`, concrete-struct miss → absent). Adversarial review of the
+two highest-risk soundness claims + the full gate.
+
+### Discriminator claim (missing-field-selection) — CONFIRMED
+
+The fix rests on: everything reaching `selectFromDecls` is already-concrete, so a miss is FINAL-absent;
+the only PROVISIONAL case (unresolved no-default disjunction) never reaches `selectFromDecls`. Enumerated
+every path into `selectFromDecls` (both `evalValueWithFuel` call sites at `Eval.lean` 3231/3233 evaluate
+`base` BEFORE selection; `selectEvaluatedField`'s struct/embed arms + the `.disj` arm gated by
+`resolveDisjDefault?`). Attacked with a 29-witness oracle battery vs cue v0.16.1: resolved-default-arm
+(supplies AND misses), UNRESOLVED no-default disjunction, later-conjunct-supplies, open-`...`-tail miss,
+comprehension guards (true/false/INCOMPLETE), let-deferred, for-comp (concrete + incomplete source),
+two-pass embedded-self, embed carriers, chained-after-deferral, required/incomplete fields. EVERY witness
+matched cue at the JSON level. The decisive case: an unresolved no-default disjunction (`x: {a:1} |
+{a:1,b:2}`, select `x.b`) does NOT bottom — kue defers the whole disjunction ("ambiguous value"), exactly
+as cue defers ("unresolved disjunction"). `resolveDisjDefault?` returns `some` only for a unique marked
+default or a sole live regular arm, so a provisional field never reaches the miss arm. **Claim sound.**
+
+### Bug2-12 self-ref gate — EXACT, but found a NEW regression (Bug2-12b)
+
+The `field.fieldClass.isDefinition && isSelfRef` gate is precise: `isSelfRef` requires a depth-0 conjunct
+`.refId` whose index equals the flattened slot's, so it fires ONLY on genuine self-reference. Confirmed
+the negatives: non-self-rec multi-conjunct (`#X: #Y & {c}`, `#Y` a different slot) is NOT closed by this
+path; two distinct self-rec defs in one scope are distinguished by index; mutual recursion (neither
+depth-0-same-index) is left to its existing path (the documented MUTUAL under-close spec-gap, accurate).
+Over-close negatives hold: open-`...`-tail, pattern-tail, and declared-field-narrow all still admit; D#2
+(`#L:{n,next:#L}` structural-cycle, `#List | *null` termination) unchanged.
+
+**NEW FINDING — Bug2-12b, TOP soundness over-close (OPEN, filed, NOT fixed inline).** The closer
+`expanded.map (normalizeDefinitionValueWithFuel …)` closes EACH struct-literal conjunct SEPARATELY. A
+self-rec def whose literals are SPLIT across `&` (`#X: #X & {a:1} & {c:3}`) becomes two independently-
+`defClosed` structs; a use-site re-declaring an existing field (`out: #X & {c:3}`) wrongly BOTTOMS where
+cue ADMITS `{a:1,c:3}` — an over-close on a field the def itself declares. ISOLATED: single-literal
+(`#X: #X & {a:1,c:3}`), non-self-rec multi-conjunct, and the genuine-extra-reject case all conform. Root:
+conjuncts must close over their COMBINED allowed-set (the Bug2-7 close-once principle), not individually.
+NOT fixed inline — the correct fix merges struct-literal conjuncts before closing, touching the
+soundness-critical conjunct-merge machinery (the path whose first Bug2-12 attempt broke 6 Bug2-6..9
+pins); needs its own TDD slice. Filed as `spec-conformance-audit.md` item 0 (ranked above perf #7).
+
+### Other categories
+
+Totality: no new `partial`/`sorry`/axiom (Bug2-12 `propext`-only; missing-field one-line). Illegal-states:
+the `.bottom` miss arm and the self-ref gate are precise, no `_`-swallow. DRY: the Bug2-12 self-ref-gated
+closing duplicates the close-each shape that should share the Bug2-7 close-once union — noted for Phase B
+(it is the same root as Bug2-12b). Spec accuracy: the missing-field message-only divergence and the
+Bug2-12 mutual-tail spec-gap entries are accurate; `plan.md`/`spec-conformance-audit.md`/log match the
+code.
+
+### Coverage added + verify
+
+4 new `native_decide` pins in `Bug2xTests.lean`: `mfs_disj_default_supplies_field` (default arm SUPPLIES
+the field → present, complement of the existing default-missing pin), `mfs_chained_selection_missing_absent`
+(select through a selector-result base → absent), `bug212_singleliteral_redeclare_admits` (the CONFORMING
+close-over-union boundary), and `bug212_multiconjunct_redeclare_OVERCLOSE` (pins the CURRENT WRONG Bug2-12b
+behavior with a flip target for the fix-slice). All oracle-confirmed vs cue v0.16.1; tripwire sentinel
+updated. Full gate green: `lake build` clean, `check-fixtures.sh` ok, cert-manager + argocd jq -S = 0,
+shellcheck clean. **Batch verdict: HEALTHY for both shipped claims; one new contained over-close
+(Bug2-12b) filed as the ranked-leader fix-slice.**

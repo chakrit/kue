@@ -903,6 +903,25 @@ theorem bug212_selfrec_nested_admits_declared :
         = true := by
   native_decide
 
+-- CONFORMING boundary (must stay green): a self-rec def whose declared fields live in ONE literal
+-- conjunct (`{a:1, c:3}`) admits a use-site RE-DECLARATION of an existing field — `& {c:3}` is the
+-- def's own field, so it is admitted + narrowed. cue `{a:1, c:3}`. Pins the close-over-UNION boundary
+-- that the multi-conjunct (split-literal) form violates — see `bug212_multiconjunct_redeclare_OVERCLOSE`.
+theorem bug212_singleliteral_redeclare_admits :
+    exportJsonMatches "#X: #X & {a: 1, c: 3}\nout: #X & {c: 3}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- KNOWN OVER-CLOSE (Bug2-12b, OPEN — pins the CURRENT WRONG behavior so the regression is visible and
+-- the future fix-slice has a flip target). A self-rec def whose literals are SPLIT across `&`
+-- (`#X & {a:1} & {c:3}`) has each conjunct closed SEPARATELY by the Bug2-12 `expanded.map` closer, so a
+-- use-site re-declaring an existing field (`& {c:3}`) wrongly BOTTOMS — cue ADMITS `{a:1,c:3}`. The fix
+-- (close conjuncts over their UNION, the Bug2-7 close-once principle) must flip this to
+-- `exportJsonMatches … {a:1,c:3}`. Documented OPEN in `spec-conformance-audit.md` item 0 (Bug2-12b).
+theorem bug212_multiconjunct_redeclare_OVERCLOSE :
+    exportJsonBottoms "#X: #X & {a: 1} & {c: 3}\nout: #X & {c: 3}\n" = true := by
+  native_decide
+
 -- D#2 GUARDRAIL (must stay green): the structural-cycle DETECTION is untouched by the closer fix —
 -- `#L: {n, next: #L}` still ERRORS (`.structuralCycle`), never unrolls. Pinned end-to-end here so a
 -- Bug2-12 regression that perturbs cycle detection is caught in THIS file too.
@@ -1023,6 +1042,28 @@ theorem mfs_unresolved_disj_stays_provisional :
         = true := by
   native_decide
 
+-- DISCRIMINATOR (default arm SUPPLIES the field): the complement of `mfs_disj_default_missing` — a
+-- resolved DEFAULT arm that CONTAINS `b` selects it as PRESENT (`val: 9`), not absent. Pins that
+-- the resolved-arm route through `selectFromDecls` reads the arm's OWN fields, so a default-supplied
+-- field stays present. cue: `eq false, neq true, val 9`.
+theorem mfs_disj_default_supplies_field :
+    evalSourceMatches
+      "x: {d: *{a: 1, b: 9} | {a: 2}, eq: d.b == _|_, neq: d.b != _|_, val: d.b}\n"
+      "x: {d: *{a: 1, b: 9} | {a: 2}, eq: false, neq: true, val: 9}"
+        = true := by
+  native_decide
+
+-- CHAINED selection (selector-result base): `z: y.inner` selects `inner` first (a deferral), and a
+-- MISSING field of the chained result (`z.b`) is still FINAL-absent — the chained base is a resolved
+-- concrete struct by the time `selectFromDecls` runs. Pins the "select chained after another
+-- deferral" path the discriminator audit enumerated. cue: `eq true, neq false`.
+theorem mfs_chained_selection_missing_absent :
+    evalSourceMatches
+      "x: {y: {inner: {a: 1}}, z: y.inner, eq: z.b == _|_, neq: z.b != _|_}\n"
+      "x: {y: {inner: {a: 1}}, z: {a: 1}, eq: true, neq: false}"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -1041,6 +1082,6 @@ theorem mfs_unresolved_disj_stays_provisional :
 #check @bug214b_disj_arm_conflict_bottoms                     -- Bug2-14b/c
 #check @bug214_multi_level_comprehension_combined             -- Bug2-14 audit (multi-level + comprehension)
 #check @bug212_list_disj_still_terminates                     -- Bug2-12
-#check @mfs_unresolved_disj_stays_provisional                 -- missing-field-selection
+#check @mfs_chained_selection_missing_absent                  -- missing-field-selection
 
 end Kue
