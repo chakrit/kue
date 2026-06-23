@@ -813,6 +813,34 @@ theorem bug214b_disj_arm_conflict_bottoms :
         = true := by
   native_decide
 
+-- OVER-SPLICE NEGATIVE (Phase-A audit, 2026-06-23). A DEF-FORM closure with an embedded disjunction
+-- whose discriminator the host narrows, and NO sibling closure — so the Bug2-14c two-pass fold's
+-- `siblingRegulars` carry only the closure's OWN regulars (dropped from the extra operand), leaving
+-- NOTHING to splice and NO spurious re-force. The disjunction still resolves correctly via the base
+-- force path (the `shape: "x"` arm wins, the `"y"` arm prunes). cue `{shape:"x", x:1}`. Pins that the
+-- two-pass fold is byte-identical to the single-closure force when there is no cross-closure flow.
+theorem bug214c_single_closure_disj_no_spurious_splice :
+    exportJsonMatches
+      "#D: {\n\tshape: string\n\t{shape: \"x\", x: 1} | {shape: \"y\", y: 2}\n}\nout: #D & {shape: \"x\"}\n"
+      "{\n    \"out\": {\n        \"shape\": \"x\",\n        \"x\": 1\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- MULTI-LEVEL + COMPREHENSION COMBINED (Phase-A audit, 2026-06-23). A doubly-wrapped embed
+-- (`{{ bk:string; for … if bk == "X" {hit} }}`) whose INNER abstract field is read by a
+-- comprehension guard two embed levels down, host-narrowed at the top. Combines the multi-level
+-- recursion (`rewriteEmbeds` into a nested embedding) AND the comprehension-guard form in ONE
+-- witness — neither existing pin (single-level comprehension, or multi-level plain-ref) covered the
+-- combination. PRE-fix this errored `incomplete` (the inner guard never saw the narrowed `bk`); the
+-- `injectEmbedSiblingNarrowings` recursion now narrows the inner slot so the guard fires. cue
+-- `{bk:"X", hit:true}`.
+theorem bug214_multi_level_comprehension_combined :
+    evalSourceMatches
+      "host: {\n\tbk: \"X\"\n\t{\n\t\t{\n\t\t\tbk: string\n\t\t\tfor k, v in {p: 1} {\n\t\t\t\tif bk == \"X\" { hit: true }\n\t\t\t}\n\t\t}\n\t}\n}\n"
+      "host: {bk: \"X\", hit: true}"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -829,5 +857,6 @@ theorem bug214b_disj_arm_conflict_bottoms :
 #check @bug213_required_unset_not_swallowed_as_absent         -- Bug2-13
 #check @bug214_conflicting_type_bottoms                       -- Bug2-14
 #check @bug214b_disj_arm_conflict_bottoms                     -- Bug2-14b/c
+#check @bug214_multi_level_comprehension_combined             -- Bug2-14 audit (multi-level + comprehension)
 
 end Kue
