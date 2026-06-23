@@ -1,6 +1,7 @@
 import Kue.Format
 import Kue.Lattice
 import Kue.Tests.BoundTests
+import Kue.Tests.Bug2xTests
 import Kue.Tests.BuiltinTests
 import Kue.Tests.BytesTests
 import Kue.Tests.CliTests
