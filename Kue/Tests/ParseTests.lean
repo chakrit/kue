@@ -849,11 +849,58 @@ theorem parse_unaliased_builtin_and_aliased_user_import_unchanged :
       && parseOutputMatches "import f \"ex.com/foo\"\nout: f.Bar\n" "out: _|_" = true := by
   native_decide
 
+-- Aliased stdlib CONSTANT canonicalization (the no-call analog of the call canonicalization
+-- above). A stdlib CONSTANT (`list.Ascending`/`Descending`/`Comparer`) resolves inline at parse
+-- off the LITERAL head, so an aliased import (`import l "list"` ⇒ `l.Ascending`) keys
+-- `stdlibPackageValue? "l" …` → `none` and survives as a deferred `.selector (.ref "l")
+-- "Ascending"`. The post-parse pass maps the alias head back to the canonical package and
+-- re-resolves, so an aliased constant yields the same comparator struct as the unaliased form.
+
+/-- The constant re-resolution maps a builtin-alias head to its canonical package and looks up
+    the stdlib constant; a non-builtin alias (absent from the map) and an unmapped/non-constant
+    label return `none` — the boundary that leaves a user import's `f.Ascending` untouched. -/
+theorem canonicalize_builtin_const_resolves_only_aliased_stdlib :
+    (canonicalizeBuiltinConst? [("l", "list")] "l" "Ascending"
+        == stdlibPackageValue? "list" "Ascending")
+      && (canonicalizeBuiltinConst? [("l", "list")] "l" "Descending"
+        == stdlibPackageValue? "list" "Descending")
+      && (canonicalizeBuiltinConst? [("l", "list")] "l" "Comparer"
+        == stdlibPackageValue? "list" "Comparer")
+      && (canonicalizeBuiltinConst? [("l", "list")] "l" "Nope" == none)
+      && (canonicalizeBuiltinConst? [("f", "list")] "g" "Ascending" == none)
+      && (canonicalizeBuiltinConst? [] "l" "Ascending" == none) = true := by
+  native_decide
+
+/-- End-to-end: an aliased stdlib constant resolves identically to the unaliased form — driving
+    `Sort` with `l.Ascending`/`l.Descending`, and a standalone `l.Comparer` (the bare comparator
+    struct, byte-identical to the unaliased `list.Comparer` rendering). -/
+theorem parse_aliased_stdlib_const_resolves_like_unaliased :
+    (parseOutputMatches "import l \"list\"\nout: l.Sort([3, 1, 2], l.Ascending)\n"
+        "out: [1, 2, 3]")
+      && parseOutputMatches "import l \"list\"\nout: l.Sort([3, 1, 2], l.Descending)\n"
+        "out: [3, 2, 1]"
+      && (parseOutputMatches "import l \"list\"\nout: l.Comparer\n"
+        "out: {T: number | string, x: number | string, y: number | string, less: bool}")
+      && (parseOutputMatches "import \"list\"\nout: list.Comparer\n"
+        "out: {T: number | string, x: number | string, y: number | string, less: bool}")
+        = true := by
+  native_decide
+
+/-- BOUNDARY: unaliased constants are unchanged, and an aliased USER import's const-shaped member
+    (`f.Ascending`) is NOT rewritten to the stdlib comparator — `f` is absent from the builtin
+    alias map, so the selector stays deferred (resolves to `_|_`, never the comparator struct). -/
+theorem parse_unaliased_const_and_aliased_user_member_unchanged :
+    (parseOutputMatches "import \"list\"\nout: list.Sort([3, 1, 2], list.Ascending)\n"
+        "out: [1, 2, 3]")
+      && parseOutputMatches "import f \"ex.com/foo\"\nout: f.Ascending\n" "out: _|_" = true := by
+  native_decide
+
 -- Coverage tripwire: a swallowed section (e.g. an unterminated `/-- -/`) would drop these
 -- from elaboration. Each `#check` forces the last theorem of every section above to compile.
 #check @parse_pattern_tail_node_is_open_via_tail
 #check @parse_quoted_double_underscore_label_still_parses
 #check @parse_default_mark_group_with_sibling_parses
 #check @parse_unaliased_builtin_and_aliased_user_import_unchanged
+#check @parse_unaliased_const_and_aliased_user_member_unchanged
 
 end Kue

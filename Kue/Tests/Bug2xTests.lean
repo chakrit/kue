@@ -1280,6 +1280,18 @@ theorem aliased_builtin_call_marshals_like_unaliased :
         = true := by
   native_decide
 
+-- ALIASED-STDLIB-CONSTANT resolution (item-6 LATENT, the no-call analog of the call pin above).
+-- A stdlib CONSTANT (`list.Ascending`) resolves inline at parse off the LITERAL head, so an
+-- aliased import (`import l "list"` ⇒ `l.Ascending`) survives as a deferred selector and `Sort`
+-- bottoms. The post-parse pass re-resolves the aliased head to the comparator struct. EXPORT
+-- observable: a regression back to a deferred selector bottoms the Sort and fails this pin.
+theorem aliased_stdlib_const_sorts_like_unaliased :
+    exportJsonMatches
+      "import l \"list\"\nout: l.Sort([3, 1, 2], l.Descending)\n"
+      "{\n    \"out\": [\n        3,\n        2,\n        1\n    ]\n}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -1303,5 +1315,6 @@ theorem aliased_builtin_call_marshals_like_unaliased :
 #check @bug212_multiref_dup_backref_admits                    -- multi-ref dup back-ref bound
 #check @mfs_chained_selection_missing_absent                  -- missing-field-selection
 #check @aliased_builtin_call_marshals_like_unaliased          -- aliased-builtin call resolution
+#check @aliased_stdlib_const_sorts_like_unaliased             -- aliased-stdlib constant resolution
 
 end Kue

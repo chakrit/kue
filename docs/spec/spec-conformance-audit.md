@@ -216,7 +216,13 @@ RESOLVED 2026-06-23** (an aliased stdlib import — `import j "encoding/json"` +
 dispatched off the literal alias head and returned `incomplete`; a post-parse alias canonicalization
 in `Parse.lean` rewrites the head to the canonical package before the alias-blind dispatch, scoped to
 builtin paths so a user import aliased is never misdispatched. Conforms to cue across all six families;
-no divergence — see `plan.md` item-6 + implementation-log.)
+no divergence — see `plan.md` item-6 + implementation-log.) **Aliased-stdlib-CONSTANT resolution —
+RESOLVED 2026-06-23** (the no-call analog: a stdlib constant — `list.Ascending`/`Descending`/`Comparer`
+— resolves inline at parse off the literal head, so an aliased import — `import l "list"` + `l.Ascending`
+— survived as a deferred selector and `Sort` bottomed; the SAME post-parse pass's `.selector` case now
+maps the aliased head back to the canonical package and re-resolves via `stdlibPackageValue?`, scoped to
+builtin paths so a user import's const-shaped member is never rewritten. Conforms to cue; no divergence —
+see `plan.md` item-6 + implementation-log.)
 
 **Bug2-5 → Bug2-14c — the argocd narrowing/close-once chain — ALL RESOLVED (2026-06-22..23).**
 A 10-fix chain that landed the argocd content-identical drop-in (jq -S diff = 0, ~50.3s). Each was

@@ -1610,10 +1610,25 @@ def canonicalizeBuiltinCallName (aliasMap : List (String × String)) (name : Str
       | none => name
   | _ => name
 
-/-- Total structural rewrite mapping aliased builtin-call heads (`j.Marshal`) to their
-    canonical package names (`json.Marshal`) everywhere in a parsed file body, so the
-    alias-blind `BuiltinFamily.ofName?` dispatch resolves an aliased import identically to an
-    unaliased one. Only `.builtinCall` names are touched; every other node is rebuilt
+/-- The aliased counterpart of `stdlibPackageValue?` for a no-call member access. The parser
+    resolves a stdlib CONSTANT (`list.Ascending`) inline at parse off the LITERAL head, so an
+    aliased import (`import l "list"` ⇒ `l.Ascending`) keys `stdlibPackageValue? "l" …` → `none`
+    and survives as a deferred `.selector (.ref "l") "Ascending"`. This maps the alias head back
+    to its canonical package and re-resolves, so an aliased constant yields the same comparator
+    struct as the unaliased form; a non-builtin alias (user import) is absent from the map and
+    returns `none`, leaving the selector untouched. -/
+def canonicalizeBuiltinConst? (aliasMap : List (String × String)) (head label : String) :
+    Option Value :=
+  match aliasMap.lookup head with
+  | some canonical => stdlibPackageValue? canonical label
+  | none => none
+
+/-- Total structural rewrite mapping aliased builtin heads to their canonical form everywhere
+    in a parsed file body, so the alias-blind dispatch resolves an aliased import identically to
+    an unaliased one. Two cases are rewritten: a `.builtinCall` head (`j.Marshal` →
+    `json.Marshal`, for the `BuiltinFamily.ofName?` call dispatch), and a no-call `.selector` on
+    an aliased package whose `(canonical, label)` names a stdlib CONSTANT (`l.Ascending` →
+    `list`'s comparator struct, via `stdlibPackageValue?`). Every other node is rebuilt
     unchanged. Recursion is structural with `fuel` as a guard, matching the resolve/remap
     passes; the parsed forms never approach the bound. -/
 def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value -> Value
@@ -1626,7 +1641,17 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value
       | .conj constraints => .conj (constraints.map rec')
       | .unary op operand => .unary op (rec' operand)
       | .binary op left right => .binary op (rec' left) (rec' right)
-      | .selector base label => .selector (rec' base) label
+      | .selector base label =>
+          -- An aliased stdlib CONSTANT (`l.Ascending`) survived parse as a deferred selector
+          -- because `stdlibPackageValue?` keyed off the alias head. Re-resolve it to the same
+          -- comparator struct the unaliased form yields; otherwise fall through to ordinary
+          -- field-access recursion (a user import's `f.Bar` is absent from the map → untouched).
+          match base with
+          | .ref head =>
+              match canonicalizeBuiltinConst? aliasMap head label with
+              | some value => value
+              | none => .selector (rec' base) label
+          | _ => .selector (rec' base) label
       | .index base key => .index (rec' base) (rec' key)
       | .disj alternatives => .disj (alternatives.map (fun a => (a.fst, rec' a.snd)))
       | .struct fields openness tail patterns closedClauses =>

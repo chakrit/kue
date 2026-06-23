@@ -453,6 +453,22 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      per-family e2e + the unaliased/user-import boundary), 1 Bug2xTests export pin, fixtures
      `testdata/cue/builtins/aliased_builtin.{cue,expected}` (dual CUE-port + CLI witness) and
      module fixture `testdata/modules/alias_builtin_call/`. No `cue`-divergence (kue conforms).
+   - ~~**Aliased-stdlib-CONSTANT resolution (latent, LOW) — adjacent to the calls fix.**~~
+     **RESOLVED 2026-06-23.** The no-call analog of the calls fix. A stdlib CONSTANT
+     (`list.Ascending`/`Descending`/`Comparer`) resolves INLINE at parse off the LITERAL head
+     (`stdlibPackageValue? pkg label`), so an aliased import (`import l "list"` + `l.Ascending`)
+     keyed `stdlibPackageValue? "l" …` → `none` and survived as a deferred `.selector (.ref "l")
+     "Ascending"` — `Sort` then bottomed where cue sorts. FIX: extend the SAME post-parse pass
+     (`canonicalizeBuiltinCalls`) — its `.selector` case now maps an aliased `.ref` head back to
+     the canonical package (`canonicalizeBuiltinConst?`, reusing the `builtinImportLocalNames`
+     alias map) and re-resolves via `stdlibPackageValue?`, yielding the same comparator struct as
+     the unaliased form. Scoped to builtin paths, so a user import's const-shaped member
+     (`import f "ex.com/foo"` + `f.Ascending`) is NEVER rewritten (stays a deferred selector). All
+     three `list` constants resolve == cue v0.16.1; unaliased unchanged; the calls fix unaffected;
+     canaries jq-S=0. Pins: 3 ParseTests theorems (the `canonicalizeBuiltinConst?` boundary +
+     per-constant e2e + the unaliased/user-member boundary), 1 Bug2xTests export pin, fixtures
+     `testdata/cue/builtins/aliased_list_const.{cue,expected}` (dual CUE-port + CLI witness) and
+     module fixture `testdata/modules/alias_list_const/`. No `cue`-divergence (kue conforms).
    - **`scalar-embed` provenance follow-ups** — opportunistic pins (3-level flatten, disj
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.

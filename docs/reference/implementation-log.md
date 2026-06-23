@@ -13485,3 +13485,76 @@ multi-file module fixture `testdata/modules/alias_builtin_call/` (loader path).
 No `cue`-divergence (kue conforms once fixed) and no spec-gap (an alias is an unambiguous local
 rebinding — spec-clear). `plan.md` item-6 aliased-builtin entry struck (RESOLVED);
 `spec-conformance-audit.md` item-6 tail updated.
+
+## Completed Slice: Aliased-stdlib-CONSTANT resolution (item-6 LATENT, the no-call analog of the calls fix)
+
+Goal: close the latent wrong-value gap the aliased-builtin-CALLS slice (`ebaafc4`) flagged for stdlib
+CONSTANTS reached via member access. `import l "list"` + `out: l.Sort([3,1,2], l.Ascending)` returned
+`conflicting values (bottom)` where `cue` v0.16.1 sorts to `[1,2,3]`. Pre-existing, prod9 canaries
+unaffected (they use UNALIASED imports) — but a real wrong value for aliased imports.
+
+### Spec-verify FIRST
+
+`cue` v0.16.1 resolves an aliased stdlib CONSTANT IDENTICALLY to the unaliased form — an import alias is a
+local rebinding, and member access through it resolves the same. Oracle-pinned: `import l "list";
+l.Sort([3,1,2], l.Ascending)` == `import "list"; list.Sort(..., list.Ascending)` ([1,2,3]); `l.Descending`
+== `list.Descending` ([3,2,1]); standalone bare `l.Comparer` == `list.Comparer` (the same incomplete
+comparator struct). Clean spec-correct fix — no `cue`-divergence to record.
+
+### Root cause + the seam (cleanly the SAME pattern as the calls fix)
+
+Unlike a `pkg.fn(...)` CALL — which the parser lowers to a deferred `.builtinCall "alias.fn"` node the
+post-parse `canonicalizeBuiltinCalls` pass rewrites — a stdlib CONSTANT is resolved INLINE during parse
+(`Parse.lean` `parseSelectorRest`, the no-call selector arm calls `stdlibPackageValue? pkg label` and
+splices the comparator struct on the spot). For an aliased import the head is the alias (`l`), so
+`stdlibPackageValue? "l" "Ascending"` → `none` and the node survives as `.selector (.ref "l") "Ascending"`
+— a deferred field access that resolves to bottom (`l` is an import, not a struct), bottoming `Sort`.
+
+The fix is the no-call analog of the calls fix and reuses its machinery rather than threading the parser:
+the post-parse pass already walks every node and already has the `builtinImportLocalNames` alias map. Its
+`.selector base label` case is the seam — when `base` is `.ref alias` and the alias maps to a canonical
+builtin AND `(canonical, label)` names a stdlib constant, re-resolve to the comparator struct; otherwise
+fall through to ordinary field-access recursion.
+
+### Implementation
+
+- `canonicalizeBuiltinConst? (aliasMap) (head label) : Option Value` — `aliasMap.lookup head` →
+  `stdlibPackageValue? canonical label`; `none` for a non-builtin alias (absent from the map, so a user
+  import's `f.Ascending` is untouched) or a non-constant label.
+- `canonicalizeBuiltinCalls`'s `.selector` case: when `base` is `.ref head` and `canonicalizeBuiltinConst?`
+  resolves, return that value; else `.selector (rec' base) label` as before. The aliased-CALL `.builtinCall`
+  rewrite is unchanged — both aliased heads now canonicalize in the one pass.
+- No new module/loader plumbing: the existing `applyBuiltinAliases` wiring in `parseDocument` (stdin) +
+  `parseDocumentFile` (file) covers both load paths, and is still a no-op when no import aliases a builtin.
+
+### Verify
+
+`lake build` clean (112 jobs, all `native_decide` green). `scripts/check-fixtures.sh` — `fixture pairs ok`,
+zero unintended drift (the new CLI + Lean-port fixture + module fixture green). **Canaries jq -S = 0** from
+`/Users/chakrit/Documents/prod9/infra` (whole-`apps` export, `."cert-manager"` + `.argocd` selected):
+both UNAFFECTED — prod9 uses unaliased imports. No shell touched. Behavior pinned: all three `list`
+constants resolve == cue; unaliased `list.Ascending` unchanged; the calls fix (`l.Sum`) still resolves; an
+aliased USER import's const-shaped member (`import f "ex.com/foo"; f.Ascending`) stays a deferred selector
+(`_|_`), NOT the comparator struct. A local field shadowing the alias name with no import (`l: {Ascending:
+7}`) stays field access (`7`) — the alias map is empty, the pass a no-op. An aliased import colliding with
+a top-level field of the same name is the A2-y redeclaration error on the FILE-load path (matches cue's
+rejection); the stdin/loader split for that collision is pre-existing and orthogonal to this slice.
+
+### Tests
+
+3 ParseTests theorems: `canonicalize_builtin_const_resolves_only_aliased_stdlib` (the helper + the
+non-builtin-alias / unmapped-label / empty-map boundary), `parse_aliased_stdlib_const_resolves_like_unaliased`
+(per-constant e2e — `Ascending`/`Descending` via `Sort` + standalone `Comparer`, vs the unaliased render),
+and `parse_unaliased_const_and_aliased_user_member_unchanged` (the boundary — unaliased unchanged + an
+aliased user member stays `_|_`). 1 Bug2xTests EXPORT pin `aliased_stdlib_const_sorts_like_unaliased` (a
+regression to a deferred selector bottoms the Sort and fails the export). Fixtures:
+`testdata/cue/builtins/aliased_list_const.{cue,expected}` (the dual CUE-port witness builds the CANONICAL
+AST in `FixturePorts.lean` from `stdlibPackageValue?` while the CLI port parses the ALIASED `.cue` — both
+matching `.expected` proves the canonicalization) and module fixture `testdata/modules/alias_list_const/`
+(loader path through file load + import binding).
+
+### Records
+
+No `cue`-divergence (kue conforms once fixed) and no spec-gap (an alias is an unambiguous local rebinding —
+spec-clear; the same basis as the calls fix). `plan.md` item-6 aliased-stdlib-constant entry struck
+(RESOLVED); `spec-conformance-audit.md` item-6 tail updated.

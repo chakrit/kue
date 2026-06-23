@@ -3430,6 +3430,30 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- ALIASED stdlib CONSTANTS (the no-call analog of `aliased_builtin` above). The Lean port
+      -- builds the CANONICAL AST: `list.Sort` driven by `stdlibPackageValue? "list" "Ascending"/
+      -- "Descending"` and the bare `list.Comparer` constant. The CLI port parses the `.cue` whose
+      -- import is ALIASED (`import l "list"`), so the post-parse pass must re-resolve `l.Ascending`/
+      -- `l.Descending`/`l.Comparer` to the SAME comparator structs. Both matching `.expected` pins
+      -- that an aliased constant resolves identically to its unaliased form.
+      fileName := "builtins/aliased_list_const.expected",
+      content :=
+        let ascending := (stdlibPackageValue? "list" "Ascending").getD .bottom
+        let descending := (stdlibPackageValue? "list" "Descending").getD .bottom
+        let comparer := (stdlibPackageValue? "list" "Comparer").getD .bottom
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"asc", .regular,
+                  .builtinCall "list.Sort"
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], ascending]⟩,
+                ⟨"desc", .regular,
+                  .builtinCall "list.Sort"
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], descending]⟩,
+                ⟨"cmp", .regular, comparer⟩
+              ] .regularOpen none []))
+    },
+    {
       -- The prod9/infra docker-config chain: a registry-auth struct is JSON-marshalled
       -- then base64-encoded. The CLI port independently evaluates the `.cue`; both
       -- matching `.expected` pins that `base64.Encode(null, json.Marshal({...}))` composes.
