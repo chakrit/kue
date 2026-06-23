@@ -13196,3 +13196,86 @@ race observed a real push rejection, re-fetched the winner's commit, re-patched 
 and pushed. Retry-exhaustion path tested under perpetual contention → clean `die` after N, nonzero
 exit. No Lean change; `lake build` clean (112 jobs), `check-fixtures.sh` ZERO drift. The published
 `v0.1.0-alpha.20260623` release/assets/formula were NOT touched — change affects only FUTURE runs.
+
+---
+
+## Completed Slice: perf — per-eval-constant PROFILED + empty-`cache`-skip fast path (floor characterized)
+
+Goal (plan perf item — the per-eval CONSTANT, argocd ~52.8s the one remaining user-visible
+issue): profile where each of the ~486K (argocd) / ~318K (cert-manager) NECESSARY core evals
+spends its time, then either land a sound byte-identical micro-opt or definitively characterize
+the floor. (The eval COUNT is content-irreducible — perf #7 proved the ~175× re-eval is
+genuinely-distinct content, frame-sharing WON'T-FIX ~0.05% ceiling. The only lever left is the
+per-eval CONSTANT.)
+
+### Profile (instrumented `evalValueWithFuel` cache-probe path; `KUE_PROFILE=1` stderr dump)
+
+Added transient hit/miss/insert counters to every cache probe in the eval wrapper, ran the
+whole-root export of both prod9 apps. Decisive numbers:
+
+| app          | evalCalls | satMisses | satInserts | fuelHits | fuelInserts | forceMisses |
+|--------------|----------:|----------:|-----------:|---------:|------------:|------------:|
+| cert-manager |   317,768 |   317,768 |    317,768 |        0 |           0 |      19,538 |
+| argocd       |   486,741 |   486,741 |    486,741 |        0 |           0 |      30,103 |
+
+The shape: **`satMisses == evalCalls`** (every core eval is a satCache miss — the satCache hits
+are re-reaches of already-converged values, a separate population) and **`fuelInserts == fuelHits
+== 0`** — the fuel-keyed `cache` is NEVER inserted into and NEVER read across the entire run.
+These apps are FULLY SATURATING: zero fuel-truncated results, so every result lands in the
+fuel-free `satCache` and the fuel-keyed `cache` stays permanently empty. Yet on EVERY satCache
+miss the wrapper built an `EvalKey` (an allocation) and probed `cache.get? key`, which recomputes
+`valueDigest DIGEST_DEPTH value` — the SAME depth-3 digest the satCache probe just computed on the
+same `value` — only to look it up in a provably-empty map and miss. That is one redundant full
+digest traversal + one `EvalKey` allocation + one HashMap probe per core eval, ~486K times.
+
+### The micro-opt — empty-`cache`-skip (sound, byte-identical, ZERO downside)
+
+On a satCache miss, probe the fuel-keyed `cache` ONLY when `cache.isEmpty` is false. An empty
+`HashMap` provably contains no key (`cache.get? key = none` for every key), so the `none` branch
+is taken either way — value-identical AND saturation-identical (the skipped probe could only ever
+have returned `none`). Skipping it elides the redundant `valueDigest` recomputation + the
+`EvalKey` allocation + the HashMap probe on every core eval of a fully-saturating program. The
+`EvalKey` is now built ONLY in the `.truncated` insert arm (the sole place a fuel-cache entry is
+created), so a fully-saturating run constructs zero `EvalKey`s. A program WITH truncation is
+unchanged: once `cache` is non-empty the probe runs exactly as before. `cache.isEmpty` is
+`@[inline]` and O(1) (reads the stored size), so the guard is free.
+
+**Soundness (byte-identity argument).** The change is a pure dead-branch elimination: it replaces
+`cache.get? key` with `if cache.isEmpty then none else cache.get? key`, and `cache.isEmpty = true →
+cache.get? key = none` is a HashMap invariant. So the value threaded to the `none`/`some` match is
+identical for every input; no `valueDigest`/`BEq`/saturation behavior is touched (digest is still
+only a bucket selector; `BEq` is still the sole equality arbiter). The satCache path, the
+truncCount bracketing, and the saturated/truncated gating are all unchanged. Witnessed by zero
+fixture byte-drift, full `native_decide` suite green, and both canaries jq -S = 0.
+
+### Measured — the win is at the noise floor; this is a FLOOR CHARACTERIZATION
+
+Before→after wall-times (`/usr/bin/time -p`, user seconds): **argocd ~52.8s → ~51.8–52.3s (~1–2%,
+noise-band)**; **cert-manager ~11.4s → ~11.8s (flat/noise)**. Both jq -S = 0, byte-identical to
+`cue` (argocd 51178 B, cert-manager content-identical). The optimization is correct and removes
+provably-dead work, but the MEASURED wall win is marginal — which is itself the finding.
+
+**The per-eval constant is dominated by genuine `evalValueCoreWithFuel` work, NOT the cache/hash
+machinery.** Eliminating one of the two per-eval `valueDigest` traversals moved the wall ~2%, so
+the digest+probe+alloc cache machinery is ~2-3% of per-eval cost (corroborating the earlier
+"DIGEST_DEPTH 1 vs 3 measured FLAT" finding — digest depth was never the wall). The remaining
+~97% is the meet/merge/resolve/force work in the core: the tag histogram (`.struct` 129K, `.refId`
+108K → force-closure path, `.conj` 49K → meet path, `.selector` 39K) is genuine reduction over a
+genuinely-distinct-content population (~175× re-eval of env-DEPENDENT shapes carrying distinct
+observable bindings — perf #7). **argocd ~52s ≈ ~486K necessary core evals × the irreducible
+per-meet cost; cert-manager ~11.4s ≈ ~318K × same.** No sound per-eval win exists without reducing
+the eval COUNT, which is content-irreducible (cross-env sharing is a false-share, WON'T-FIX). This
+definitively closes the per-eval-constant perf frontier: the floor is the genuine meet work, not
+recoverable cache/hash overhead. The user-controllable lever (flatten / shorten chains → fewer
+evals, `kue-performance.md`) remains the only way to move it.
+
+### Verify
+
+`lake build` clean (112 jobs, full `native_decide` suite green incl. `EvalPerfTests` count +
+cross-fuel saturation pins — the empty-`cache`-skip changes the probe path, not the eval COUNT or
+the satCache cross-fuel serving, so all pins hold unchanged). `check-fixtures.sh` ZERO drift. Both
+canaries from `prod9/infra` jq -S = 0 (argocd 51178 B ~52s, cert-manager content-identical
+~11.8s). `KUE_PROFILE=1` (env-gated stderr counter dump, no default-output change) retained as a
+permanent diagnostic. No `partial`/`sorry`/axiom; `BEq`/digest soundness + the `Value`
+`DecidableEq` carve-out untouched. No shell touched. No `cue-divergences`/`cue-spec-gaps` entry
+(no value change).

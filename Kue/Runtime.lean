@@ -21,6 +21,16 @@ def formatTopLevel : Value -> String
 def resolveAndEval (value : Value) : Value :=
   evalStructRefs (resolveStructRefs value)
 
+/-- Resolve+eval and return the eval-work counters as a formatted line (for `KUE_PROFILE`
+    stderr): core evals, memo hits, and final cache sizes. `fuelCacheSize=0` witnesses a
+    fully-saturating program where the empty-`cache`-skip fast path elides the redundant
+    fuel-cache probe on every core eval. -/
+def resolveAndEvalProfileString (value : Value) : String :=
+  let (_, evalCalls, cacheHits, satSize, fuelSize, forceSize) :=
+    evalStructRefsProfile (resolveStructRefs value)
+  s!"evalCalls={evalCalls} cacheHits={cacheHits} " ++
+  s!"satCacheSize={satSize} fuelCacheSize={fuelSize} forceCacheSize={forceSize}"
+
 def formatResolvedTopLevel (value : Value) : String :=
   formatTopLevel (resolveAndEval value)
 

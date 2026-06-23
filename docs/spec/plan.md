@@ -269,7 +269,23 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    content, so collapsing them is a false share, not recoverable waste (see the perf #7 block
    above + `kue-performance.md`). The live frontier is now the per-eval CONSTANT / eval COUNT over
    a genuinely-large distinct population, not cross-env sharing — a future per-eval-cost slice, or
-   the user-controllable flatten/shorten lever. No active leader remains here. **Multi-ref-cyclic
+   the user-controllable flatten/shorten lever.
+   **per-eval CONSTANT PROFILED + FLOOR-CHARACTERIZED (2026-06-23) — frontier CLOSED.** Instrumented
+   `evalValueWithFuel`'s cache probes: both apps are FULLY SATURATING (`fuelInserts=fuelHits=0` — the
+   fuel-keyed `cache` stays empty the whole run), yet every core eval (`satMisses==evalCalls`: argocd
+   486741, cert-manager 317768) still probed the empty fuel-cache, recomputing the SAME depth-3
+   `valueDigest` + an `EvalKey` alloc. Landed the sound **empty-`cache`-skip** (probe only when
+   `!cache.isEmpty`; an empty HashMap returns `none` for every key → value/saturation-identical;
+   `@[inline]` O(1)). Byte-identical (both canaries jq -S = 0, zero drift, suite green). **Measured
+   win is at the noise floor:** argocd ~52.8s → ~51.8–52.3s (~1-2%), cert-manager flat ~11.8s — which
+   IS the finding: the cache/hash machinery is only ~2-3% of per-eval cost; the wall is the genuine
+   `evalValueCoreWithFuel` meet/force/resolve work (tag histogram `.struct` 129K / `.refId` 108K /
+   `.conj` 49K / `.selector` 39K) over a genuinely-distinct-content population. **argocd ~52s ≈ ~486K
+   necessary core evals × the irreducible per-meet cost; no sound per-eval win exists without lowering
+   the eval COUNT, which is content-irreducible** (cross-env sharing = false-share, WON'T-FIX). The
+   per-eval-constant frontier is now CLOSED; the only remaining lever is the user-controllable
+   flatten/shorten one (`kue-performance.md` expensive-patterns table).
+   No active leader remains here. **Multi-ref-cyclic
    flatten fan-out FIXED (2026-06-23).** The closed-cycle repro (`#A: #B & #C & {a}`, `#B: #A & {b}`,
    `#C: #A & {c}`) that ran **>40s** (killed) now exports in **~0.01s warm / ~0.55s cold** — a
    `flattenConjDefRef` `expanding` visited-path bound returns a depth-0 ref to a slot already on the

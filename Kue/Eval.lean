@@ -3108,13 +3108,24 @@ mutual
       pure value
     else
     let satKey : SatKey := ⟨env.ids, visited, value⟩
-    match (<- get).satCache.get? satKey with
+    let st <- get
+    match st.satCache.get? satKey with
     | some cached => do
         modify (fun state => { state with cacheHits := state.cacheHits + 1 })
         pure cached
     | none =>
-      let key : EvalKey := ⟨fuel, env.ids, visited, value⟩
-      match (<- get).cache.get? key with
+      -- Fuel-keyed `cache` probe — but ONLY when it is non-empty. The `cache` holds ONLY the
+      -- fuel-TRUNCATED population (saturated results go to `satCache`, gated below). An empty
+      -- `cache` provably contains no key, so `cache.get? key = none` for EVERY key — skipping
+      -- the probe is value-identical. Skipping also avoids the redundant `valueDigest
+      -- DIGEST_DEPTH value` recomputation the `EvalKey` hash would do (the `SatKey` probe above
+      -- already digested the SAME `value`) plus the `EvalKey` allocation. On a fully-saturating
+      -- program (no truncation — the prod9 real apps, fuelInserts=0) the `cache` stays empty for
+      -- the whole run, so this elides one full depth-3 digest traversal + an allocation + a
+      -- HashMap probe on EVERY core eval. A program WITH truncation keeps the original behavior:
+      -- once `cache` is populated the probe runs exactly as before.
+      let fuelHit := if st.cache.isEmpty then none else st.cache.get? ⟨fuel, env.ids, visited, value⟩
+      match fuelHit with
       | some (cached, sat) => do
           let bump := if sat == .truncated then 1 else 0
           modify (fun state => { state with cacheHits := state.cacheHits + 1, truncCount := state.truncCount + bump })
@@ -3138,6 +3149,7 @@ mutual
               -- A truncated result is fuel-SENSITIVE and is gated OUT of `satCache`; it must live
               -- in the fuel-keyed `cache` so a same-fuel re-lookup serves it (and re-bumps
               -- `truncCount` for cache-hit honesty).
+              let key : EvalKey := ⟨fuel, env.ids, visited, value⟩
               modify (fun state => { state with cache := state.cache.insert key (result, sat) })
           pure result
   termination_by (fuel, 1, 0)
@@ -4285,6 +4297,17 @@ def evalStructRefsM (value : Value) : EvalM Value := do
 
 def evalStructRefs (value : Value) : Value :=
   runEval (evalStructRefsM value)
+
+/-- Run eval and return the core-eval count, memo-hit count, and final cache sizes — a
+    deterministic proxy for evaluation work and a witness that the fuel-keyed `cache` stays
+    empty on a fully-saturating program (the basis for the empty-`cache`-skip fast path in
+    `evalValueWithFuel`). Returns (result, evalCalls, cacheHits, satCacheSize, fuelCacheSize,
+    forceCacheSize). -/
+def evalStructRefsProfile (value : Value) :
+    Value × Nat × Nat × Nat × Nat × Nat :=
+  let (result, state) := (evalStructRefsM value).run { cache := ∅, nextFrameId := 0 }
+  (result, state.evalCalls, state.cacheHits,
+    state.satCache.size, state.cache.size, state.forceCache.size)
 
 /-- `evalCalls` for `evalStructRefs value` — the core-eval count for the perf pins. A
     deterministic proxy for evaluation work that witnesses exponential→linear on the

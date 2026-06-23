@@ -88,6 +88,10 @@ def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
           IO.eprintln s!"kue: {message}"
           pure evalErrorCode
       | .ok (.ok value) =>
+          if (← IO.getEnv "KUE_PROFILE").isSome then
+            IO.eprintln (Kue.resolveAndEvalProfileString value)
+            pure 0
+          else
           match exportBoundValue opts value with
           | .error message =>
               IO.eprintln s!"kue: export error: {message}"

@@ -234,6 +234,42 @@ fix is purely a speedup — byte-identical output.
   > eval COUNT (flatten/shorten chains — the user-controllable lever above), NOT by cross-env
   > sharing. perf #7's frame-sharing leg is CLOSED as won't-fix; the live perf frontier rotates to
   > the per-eval constant (item-6 LOW tail / a future per-eval-cost slice).
+  >
+  > **per-eval CONSTANT PROFILED + FLOOR CHARACTERIZED (2026-06-23) — the cache/hash machinery is
+  > ~2-3%; the wall is the genuine meet work. CLOSES the per-eval frontier.** Instrumented every
+  > cache probe in `evalValueWithFuel` (hit/miss/insert counters, `KUE_PROFILE=1` stderr dump) and
+  > ran the whole-root export of both apps:
+  >
+  > | app          | evalCalls | satMisses | fuelHits | fuelInserts | fuelCacheSize |
+  > |--------------|----------:|----------:|---------:|------------:|--------------:|
+  > | cert-manager |   317,768 |   317,768 |        0 |           0 |             0 |
+  > | argocd       |   486,741 |   486,741 |        0 |           0 |             0 |
+  >
+  > **Both apps are FULLY SATURATING:** zero fuel-truncated results, so the fuel-keyed `cache` is
+  > NEVER inserted into (`fuelInserts=0`) and NEVER read (`fuelHits=0`) — it stays permanently
+  > empty. But the wrapper still built an `EvalKey` and probed `cache.get? key` on EVERY satCache
+  > miss (`satMisses == evalCalls`), recomputing `valueDigest DIGEST_DEPTH value` — the SAME depth-3
+  > digest the satCache probe just did — only to miss in a provably-empty map. **Landed the sound
+  > empty-`cache`-skip:** probe the fuel-keyed `cache` only when `!cache.isEmpty` (an empty HashMap
+  > contains no key → `get? = none`, so the skip is value- and saturation-identical; `isEmpty` is
+  > `@[inline]` O(1)). This elides one redundant full digest traversal + one `EvalKey` allocation +
+  > one HashMap probe per core eval of a fully-saturating program; a truncating program is unchanged
+  > (probe runs once `cache` is non-empty). Byte-identical (both canaries jq -S = 0, zero fixture
+  > drift, full `native_decide` suite green).
+  >
+  > **The MEASURED win is at the noise floor — which IS the finding.** argocd **~52.8s → ~51.8–52.3s
+  > (~1-2%, noise-band)**, cert-manager **~11.4s → ~11.8s (flat)**. Eliminating one of the two
+  > per-eval `valueDigest` traversals moved the wall ~2%, so the digest+probe+alloc cache machinery
+  > is ~2-3% of per-eval cost (corroborates the earlier "DIGEST_DEPTH 1 vs 3 FLAT" result — digest
+  > depth was never the wall). **The remaining ~97% is genuine `evalValueCoreWithFuel` work:** the
+  > tag histogram (`.struct` 129K, `.refId` 108K force-closures, `.conj` 49K meets, `.selector` 39K)
+  > is real reduction over a genuinely-distinct-content population. **argocd ~52s ≈ ~486K necessary
+  > core evals × the irreducible per-meet cost; cert-manager ~11.4s ≈ ~318K × same.** No sound
+  > per-eval win exists without reducing the eval COUNT — which is content-irreducible (cross-env
+  > sharing is a false-share, WON'T-FIX above). **This definitively closes the per-eval-constant
+  > frontier: the floor is the genuine meet work, not recoverable cache/hash overhead.** The only
+  > lever that moves it is the user-controllable one (flatten / shorten chains → fewer evals — the
+  > expensive-patterns table above).
 - **[HISTORICAL] Full `apps/argocd.cue` bottomed — was a CORRECTNESS bug, NOT a perf/fuel
   limit (2026-06-19; RESOLVED 2026-06-23 by the Bug2-x chain — kept for the diagnosis trail).
   Superseded the earlier "fuel-exhaustion-at-scale" and "cross-module import-laziness"
