@@ -198,129 +198,13 @@ these is in Audit history + the Live-slice detail (below) + the implementation-l
    frame identity (`FrameKey`/`ForceKey`) and needs a no-false-share proof.** A frame-sharing widening
    that could alias-corrupt a value is a Violation: profile + design + STOP beats an unsound ship.
    Detail in `plan.md` (NEXT LEADER block) + `kue-performance.md` + implementation-log (perf #7 slice).
-2. **SC-4** — **RESOLVED 2026-06-23 (case (b): kue under-closed → fixed; conforms to cue on the
-   direct paths).** Nested HIDDEN (`_h: {…}`) and LET-read (`let _t={…}; v: _t`) plain-struct values
-   under a closed def did NOT close on a direct def-meet (`#A & {_h: {extra}}` ADMITTED `extra`); a
-   nested REGULAR value already closed (SC-2). The closing field-walker twin
-   `normalizeDefinitionFieldWithFuel` routed the `_x`-hidden and `letBinding` arms through the SPINE
-   (preserving openness) while the regular arm recursed the CLOSING walker — so visibility/carrier
-   determined closedness, which is wrong: closedness is a property of the definition and is MONOTONE.
-   **FIX** (`Normalize.lean`): the hidden + let arms of the CLOSING twin now recurse
-   `normalizeDefinitionValueWithFuel` like the regular arm, so a def's nested hidden/let plain-struct
-   value closes (no-`...`) at any depth. The stale 2026-06-19 "cue internally inconsistent
-   (direct-`&` closes, select-then-`&` does not)" framing did NOT reproduce on cue v0.16.1: cue
-   CONSISTENTLY closes the nested hidden value on direct-meet AND direct-select (`#A._h & {extra}`),
-   and the old "oracle #8" admit was the BOUND-then-select path (`y: #A; y._h & {extra}`) — where cue
-   re-opens (same SC-2b-family eval artifact), the ONE residual divergence (recorded in
-   `cue-divergences.md`). cert-manager + argocd jq -S = 0 (unchanged); regular/plain/tail/new-hidden/
-   multi-decl/D#2 controls all match cue. See the SC-4 entry below (RESOLVED) + implementation-log.
-3. **Bug2-12** (SELF-recursive case — **RESOLVED 2026-06-23**; MUTUAL tail **RESOLVED 2026-06-23 →
-   cue-divergence**; **multi-struct-conjunct OVER-CLOSE (Bug2-12b) — RESOLVED 2026-06-23, see item 0 below**).
-   A SELF-recursive closed def narrowed with an undeclared extra (`#X: #X & {a:1}` then `#X & {b:2}`, AND the
-   inlined form) admitted the extra; cue rejects (spec-correct — closedness is a property of the definition,
-   self-recursion does NOT re-open it). FIXED in `flattenConjDefRef`: a self-referential closed def's `.conj`
-   body now closes its struct-literal conjuncts (the self-ref conjunct bottoms via the cycle path,
-   contributing no fields, so the def's closedness must come from its own literals). Single-conjunct
-   admit/pattern/open-tail/nested boundaries all conform; D#2 detection + canaries unchanged. The MUTUAL case
-   (`#A: #B & {a}`, `#B: #A & {b}`) is now RESOLVED to the lattice-principled answer: the closed allowed-set
-   is the TRANSITIVE union of cycle members' declared labels (`{a,b}`), so Kue ADMITS the declared/transitive
-   fields and REJECTS a genuine extra (`c`). cue OVER-REJECTS even the def's own field (a cue bug) — recorded
-   as a cue-divergence, NOT matched. FIXED via `defSlotInClosedCycle` (the `close` gate now fires for any
-   depth-0 def→def cycle reaching the slot, reusing the Bug2-12b union-then-close-once machinery). See
-   `cue-divergences.md` "Mutual-recursion closed def rejects its OWN declared field" + `cue-spec-gaps.md`
-   Bug2-12 MUTUAL row.
-
-0. **Bug2-12b — MULTI-STRUCT-CONJUNCT self-rec OVER-CLOSE — RESOLVED 2026-06-23.**
-   The Bug2-12 fix `expanded.map (normalizeDefinitionValueWithFuel …)` closed EACH struct-literal conjunct
-   of a self-recursive def SEPARATELY. For a self-rec def whose literals are SPLIT across `&`
-   (`#X: #X & {a:1} & {c:3}`), this yielded two independently-`defClosed` structs (`{a}` closed, `{c}`
-   closed) whose meet rejected any field not in BOTH allowed-sets, so a use-site re-declaring the def's
-   OWN field across the split (`out: #X & {c:3}`) BOTTOMED where **cue ADMITS `{a:1,c:3}`**.
-   **FIXED** in `flattenConjDefRef`'s `close == true` branch: partition `expanded` into the union-able
-   def-body literals (`isUnionableDefValue`) vs the rest (the self-ref `.refId` + any deferred conjunct,
-   UNTOUCHED), close EACH literal first (so `unionDefOpenness` sees settled def-body openness, not a raw
-   `regularOpen`), `foldl mergeDefinitionDecls` into ONE merged body, close that once, re-emit
-   `rest ++ [closed]`. `mkStruct` derives the SINGLE self-clause over the union `{a,c}` → admits `a`, `c`,
-   a re-declared `c`; rejects `b`. The split-`...` opens the union (`defOpenViaTail` dominates), a split
-   conflict still `.conj`-meets to bottom, and a split pattern survives. The 5 Bug2-6 + 7 Bug2-9 pins and
-   the D#2 guardrails stay green (gate `isDefinition && isSelfRef` unchanged; the self-ref `.refId`
-   untouched). Mechanism = the Bug2-6/2-7 close-once principle REUSED on the flatten path (`mergeDefinitionDecls`,
-   not a new function — the which-seam-fires distinction stays the soundness boundary). kue-was-wrong →
-   conforms; no divergence. See implementation-log 2026-06-23 (Bug2-12b slice).
-
-   **FIX-SEAM DESIGN (Phase-B 2026-06-23 — IMPLEMENTED; retained as the as-built record).**
-   - **WHERE.** `flattenConjDefRef` (`Eval.lean:1624`), the `close == true` branch at `:1655-1657`:
-     ```
-     let expanded := cs.flatMap (flattenConjDefRef env fuel)
-     if close then expanded.map (normalizeDefinitionValueWithFuel normalizeFuel)
-     else expanded
-     ```
-     `expanded.map close` is the close-EACH defect. For `#X: #X & {a:1} & {c:3}`, `expanded =
-     [#X-refId, {a:1}, {c:3}]`; mapping the closer over it yields the self-ref `.refId` unchanged
-     (closer leaves refs untouched) PLUS two structs each `mkStruct … .defClosed` with its OWN
-     single self-clause (`{a}`, `{c}`). Their downstream `.conj`-meet CONCATENATES the two
-     `closedClauses` → a field must be in BOTH allowed-sets → `c` rejected against `{a}`, `a` against
-     `{c}` (and a use-site `& {c:3}` re-declares a field absent from the `{a}` clause → bottom).
-   - **THE FIX — union the literals, close ONCE (the Bug2-6/2-7 close-once lever).** Partition
-     `expanded` into (i) the union-able def-body literals (`isUnionableDefValue` — the `.struct`/
-     `.structComp` field-bearing bodies, exactly the Bug2-6 union shape) and (ii) the rest (the
-     self-ref `.refId` conjuncts — left UNTOUCHED so the cycle path still bottoms them — plus any
-     deferred/scalar/disj conjunct). `foldl mergeDefinitionDecls` the literals into ONE body, then
-     `normalizeDefinitionValueWithFuel normalizeFuel` that SINGLE merged body once. Re-emit
-     `<untouched conjuncts> ++ [<single closed-union body>]`. `mergeDefinitionDecls` (`:385`) already
-     unions fields (`mergeFieldListWith joinUnevaluated`, so a shared label still `.conj`-meets — the
-     conflict edge is preserved), unions patterns, and unions openness via `unionDefOpenness` (OPEN
-     dominates — so a `...` in any literal keeps the merged body open). `mkStruct` inside the closer
-     then derives the SINGLE self-clause over `{a,c}` → admits `a`, `c`, and a re-declared `c`;
-     rejects `b`. This is the exact Bug2-6 close-once result, now applied on the self-rec flatten path.
-   - **CONFIRM the lever.** `mergeDefinitionDecls` IS the right primitive (it is reachable — defined at
-     `:385`, well before `:1624`). Do NOT reach for `closedClauses` concatenation or `mergeConjOperands`
-     here: the literals are repeated decls of ONE def path (the def's own body split across `&`), the
-     WITHIN-operand union case — `mergeDefinitionDecls`, not the cross-operand `mergeConjFields` meet.
-   - **HOW IT AVOIDS THE FIRST-ATTEMPT TRAP (broke 6 Bug2-6..9 pins).** The first Bug2-12 attempt was a
-     BLANKET `.conj` close arm — it closed conjuncts that were NOT the def's own literals (nested/
-     unreferenced/cross-operand bodies), re-closing them and breaking the multi-decl/embed pins. This
-     fix is GATED identically to the current code (`close := field.fieldClass.isDefinition && isSelfRef`)
-     — it fires ONLY for a genuinely self-referential closed def, and within that it touches ONLY the
-     `isUnionableDefValue` literal conjuncts. The self-ref `.refId` is in the "rest" partition,
-     UNCHANGED, so cycle DETECTION/termination (D#2a) and the `.refId` self-ref bottoming are untouched.
-     A non-self-rec multi-conjunct def (`#LS: #Base & {#extra}`, `#Base` a DIFFERENT slot) is not
-     `isSelfRef`, so `close == false` and the whole close-once-via-`closedClauses` fold (Bug2-6..9) is
-     bypassed entirely — those pins never reach this arm. A nested/embedded def body inside a literal is
-     normalized by the closer's own structural recursion (as today), not re-closed at the wrong level.
-   - **MUST-PIN WITNESSES (the TDD slice's gate):**
-     - FLIP (the OPEN target): `#X: #X & {a:1} & {c:3}` ; `out: #X & {c:3}` → ADMITS `{a:1,c:3}` (today
-       bottoms — `bug212_multiconjunct_redeclare_OVERCLOSE` is the pin to flip to `exportJsonMatches`).
-     - GENUINE-EXTRA still REJECTS: `#X: #X & {a:1} & {c:3}` ; `out: #X & {b:2}` → bottom (`b` in no
-       literal).
-     - SINGLE-LITERAL UNCHANGED: `#X: #X & {a:1, c:3}` ; `& {c:3}` admits (`bug212_singleliteral_redeclare_admits`).
-     - OPEN-TAIL across split: `#X: #X & {a:1} & {c:3, ...}` ; `& {b:2}` → admits (openness UNIONs — new pin).
-     - CONFLICT across split: `#X: #X & {a:1} & {a:2}` → bottom (shared label still `.conj`-meets — new pin).
-     - The 6 Bug2-6..9 pins STAY GREEN: `bug26_*` (multi-decl close-once, distinct-closed-defs reject,
-       closed-pattern admit/reject), `bug29_*` (named-multiconjunct narrow/tail/nested/conflict/closed).
-     - D#2 guardrails green: `bug212_struct_cycle_still_bottoms`, `bug212_list_disj_still_terminates`.
-     - Canaries jq-S = 0 (argocd ~50s, cert-manager ~11.5s — both unaffected, rare shape off-path).
-4. **missing-field-selection — RESOLVED 2026-06-23.** A presence-test on a genuinely-MISSING
-   (never-declared) field of a concrete struct (`x: {a:1}` then `x.b != _|_`) → kue `incomplete
-   value` vs cue `false` (absent). Root cause: `selectFromDecls`'s miss arm DEFERRED to `.selector
-   base label`, classified `.incomplete` by `classifyDefinedness`, so the comparison stayed
-   unresolved. **The discriminator** (spec-verified vs cue v0.16.1): when selection reaches
-   `selectFromDecls` the carrier is ALREADY an evaluated CONCRETE struct/embed carrier (or a
-   resolved disjunction DEFAULT arm) — every conjunct merges into the struct value BEFORE selection
-   (`x: base & extra` supplies `b` at unification, not at select), so a field absent from the merged
-   decls is FINAL-absent and can never arrive later: it selects to `.bottom` (absent), matching cue
-   even with an open `...` tail. The PROVISIONAL case — an UNRESOLVED disjunction with no unique
-   default, where a later arm could supply the field — never reaches `selectFromDecls` (it stays the
-   deferred `.selector base label` in `selectEvaluatedField`'s `.disj` `_ =>` arm). **Fix**: one
-   line — `selectFromDecls`'s `none` arm yields `.bottom` (and the now-dead `base` param dropped).
-   Same family as Bug2-13 (a deferral was masking final absence). The audit's noted deep form
-   `x.a.missing` was ALREADY correct (the intermediate was a non-struct prim → catch-all bottom);
-   the shallow `x.b` and deep-into-a-struct `x.a.c` were the broken cases, both now absent. Also
-   fixed (free): a comprehension guard over a missing field now fires the correct arm, and a
-   resolved-default-disjunction select reads absent. Canaries jq -S = 0 (not on the argocd path,
-   zero drift). 10 `Bug2xTests` `mfs_*` pins + 5 `export/mfs_*` fixtures; one message-only
-   divergence recorded (value-USE `y: x.b` — cue `undefined field`, kue generic bottom; both reject,
-   presence-test now byte-matches).
+2. **SC-3 — multi-arm-default display-collapse — display-only spec-gap (LOW; not a value bug).**
+   `normalizeEvaluatedDisj` already flattens/dedups (`*1|*1|2` eval → `*1 | 2`). What remains is
+   purely cue's further DISPLAY-collapse to the default (`*1|2` → `1`, `{…} | *null` → `null`),
+   which Kue deliberately does NOT do — collapsing the default into the value is unsound (loses
+   the live non-default arm a later meet needs). Recorded as a spec-gap (`cue-spec-gaps.md`
+   D#2b/SC-3 row); a cosmetic Format-layer projection, close only if the eval-display convention
+   is ever revisited. Detail in the MED-tail item below.
 
 Plus the **item-6 LOW tail** in `plan.md` (cosmetic/latent corners — `module-file-scoped-imports`,
 parser strictness, `release-linux.sh` dirty-tree guard, A2-x/y, B2-A1/A2 — none soundness-bearing).

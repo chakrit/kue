@@ -129,6 +129,12 @@ owners: the **spec-conformance fixes** are owned by
 authoritative ranked list — do NOT duplicate it here); the **plan-only roadmap** below
 owns the non-spec-conformance work.
 
+**🎯 MILESTONE — the spec-conformance backlog is EMPTY (2026-06-23).** Every correctness
+item is RESOLVED; the genuinely-open set is now perf #7 (a perf lever, WON'T-FIX) + SC-3 (a
+display-only spec-gap) + the item-6 LOW tail — no soundness-bearing work remains. Both prod9
+real apps (argocd + cert-manager) are content-identical drop-ins (jq -S diff = 0). This closes
+the spec-first re-audit started 2026-06-19; conformance is now demonstrated, not aspirational.
+
 **Spec-conformance backlog — see `spec-conformance-audit.md` § Genuinely-open ranked
 backlog (authoritative; do NOT duplicate the detail here).** Everything
 spec-conformance-HIGH is DONE (the closedness family incl. SC-1b/1e + EMBED-CLOSE-1, the
@@ -423,6 +429,25 @@ parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault`
 none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
+
+**Audit 2026-06-23 (Phase B, architecture/refactor; batch `735dc10..0459beb` = flatten-bound perf
++ SC-4 nested HIDDEN/LET closedness) — HEALTHY (light confirm-and-close; Phase A HEALTHY `0459beb`).
+🎯 This round records the SPEC-CONFORMANCE-BACKLOG-EMPTY milestone.** Phase A confirmed the backlog
+is genuinely empty (SC-4 + Bug2-12 RESOLVED; only perf #7 — a perf lever — and SC-3 — display-only
+— remain). **Module graph: ACYCLIC + layered, unchanged** — SC-4's `Normalize.lean` change keeps
+`Normalize → Value` only; the flatten visited-bound sits in `Eval`'s upper helper region; no new
+cross-module edge. **`Eval.lean` = 4295** (+13 since 4282 last round; below the ~4500
+`Eval.DefDeferral` carve watch — ruling stands, not due). **Tech-debt sweep clean** (no new
+`partial`/`sorry`/axiom; only TODO/XXX hits are `\uXXXX` doc-comments in `Json.lean`); **no new
+duplication**. **Test/fixture health:** `Bug2xTests` 1294, `TwoPassTests` 1493, `EvalTests` 1743 —
+all under the ~2000 silent-failure watch; no org due. **Perf-guide currency CONFIRMED:** argocd
+~50.3s, cert-manager ~11.7s; perf #7 frame-sharing WON'T-FIX (~0.05% ceiling), flatten-bound DONE,
+per-eval-CONSTANT the live lever — `kue-performance.md` accurate. **Doc-hygiene shed APPLIED:**
+removed the RESOLVED SC-4 + Bug2-12 (+ Bug2-12b + FIX-SEAM DESIGN block) + missing-field-selection
+entries from `spec-conformance-audit.md` § Genuinely-open ranked backlog (as-built in
+`implementation-log.md` + git); the list now reads perf #7 + SC-3 + item-6 LOW tail — NO live item
+or durable ruling lost. Milestone recorded above (spec-conformance backlog block). **Overall:
+architecture HEALTHY.** Two-phase audit CLOSED; counter → 0.
 
 **Audit 2026-06-23 (Phase B, architecture/refactor; batch `32643f5..2bbdb05` = Bug2-12b + Bug2-12
 MUTUAL + cycle-detector edge pins) — HEALTHY (light confirm-and-close; Phase A HEALTHY `2bbdb05`).**
