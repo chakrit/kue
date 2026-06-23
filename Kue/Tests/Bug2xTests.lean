@@ -1046,6 +1046,43 @@ theorem bug212_mutual_oneway_nonrec_rejects :
     exportJsonBottoms "#A: #B & {a: 1}\n#B: {b: 2}\nout: #A\n" = true := by
   native_decide
 
+-- 4-WAY cycle (depth beyond the 3-way pin): `#A→#B→#C→#D→#A` closes over `{a,b,c,d}`. Pins that the
+-- fuel-bounded walk reaches every member at depth 4 — under-fire ruled out past the 3-way case.
+theorem bug212_mutual_fourway_admits :
+    exportJsonMatches
+      "#A: #B & {a: 1}\n#B: #C & {b: 2}\n#C: #D & {c: 3}\n#D: #A & {d: 4}\nout: #A & {a: 1, b: 2, c: 3, d: 4}\n"
+      "{\n    \"out\": {\n        \"d\": 4,\n        \"c\": 3,\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- 4-WAY cycle REJECT: a field in NO cycle member (`e`) is rejected by the closed union.
+theorem bug212_mutual_fourway_rejects_extra :
+    exportJsonBottoms
+      "#A: #B & {a: 1}\n#B: #C & {b: 2}\n#C: #D & {c: 3}\n#D: #A & {d: 4}\nout: #A & {e: 5}\n" = true := by
+  native_decide
+
+-- ENTRY FROM A NON-HEAD MEMBER: the use site references `#B` (not `#A`), yet `#B` must still close over the
+-- full transitive `{a,b}` — `defSlotInClosedCycle` starts the walk from the ENTERED slot, so every member
+-- carries the same closed allowed-set regardless of entry point. ADMIT `{a,b}`.
+theorem bug212_mutual_entry_from_member_admits :
+    exportJsonMatches "#A: #B & {a: 1}\n#B: #A & {b: 2}\nout: #B & {a: 1, b: 2}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- ENTRY FROM A NON-HEAD MEMBER REJECT: entering from `#B`, a genuine extra `z` ∉ {a,b} is still rejected.
+theorem bug212_mutual_entry_from_member_rejects :
+    exportJsonBottoms "#A: #B & {a: 1}\n#B: #A & {b: 2}\nout: #B & {z: 9}\n" = true := by
+  native_decide
+
+-- OPEN MEMBER opens the WHOLE cycle (the `...` lives on the NON-head member `#B`, distinct from
+-- `bug212_mutual_opentail_admits_extra` where it is on `#A`): the open tail propagates through the
+-- transitive union (`defOpenViaTail` dominates), so a use-site extra `z` is ADMITTED. cue OVER-REJECTS
+-- (mid-cycle premature close — see `cue-divergences.md`); Kue conforms to the principled answer.
+theorem bug212_mutual_open_member_admits_extra :
+    exportJsonMatches "#A: #B & {a: 1}\n#B: #A & {b: 2, ...}\nout: #A & {z: 9}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
 --
 -- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)
