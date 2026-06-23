@@ -131,21 +131,26 @@ field-ordering byte-parity gap (#3):
   optional selection reads as ABSENT) FIXED (`7e69e43`, 2026-06-23 — `selectedFieldValue` + the
   `.refId` eval arm resolve an `.optional`-rung field to `.bottom`; the over-fire guard is the
   `.optional` rung itself, a set optional downgrades to `.regular`) — cleared `route.yaml`'s
-  `#service_port: _|_`, but **also NOT the final blocker.** **The actual remaining on-path argocd
-  blocker is now Bug2-14** — but its root-cause was RE-DIAGNOSED 2026-06-23 (the original "missing
-  `selectEvaluatedField` `.structComp` arm" framing was WRONG; a drain-on-select was tried + proved
-  UNSOUND + reverted). TRUE root: an embed that declares a field ABSTRACTLY which the host declares
-  CONCRETELY leaves the embed's comprehension reading the EMBED-LOCAL abstract value (frame binding
-  not re-based to the merged host frame), so the `#Mixin` `_patch` comprehension never drains. Direct
-  inline embeds still drain under export; the CROSS-PACKAGE DEF-OF-DEF FORCE path (`forceClosureWithConjunct`)
-  leaves a residual that can't drain even on export → `ls` exports SILENTLY-INCOMPLETE (bare) or
-  `conflicting values` (`[ls]`, the `listener.yaml` shape). Full `apps/argocd.cue` STILL bottoms
-  (~54s, `conflicting values`). Fix is on the embed-merge tier (`forceClosureWithConjunct` /
-  `meetEmbeddingsWithFuel` / `.structComp` fold + the `remapConj*` ref-rebase facility), NOT a select
-  arm — PARKED for a dedicated slice. See `spec-conformance-audit.md` Bug2-14 RE-DIAGNOSED block
-  (6-line minimal "case D" repro + the 5-package faithful repro). ONE empirically-confirmed remaining
-  layer; whether a further bug hides behind a sound drain is unknown until the embed-merge fix lands
-  and argocd re-runs (honest — no "one fix away" over-claim).
+  `#service_port: _|_`, but **also NOT the final blocker.** **Bug2-14** (the general "case D"
+  embed-merge frame-binding bug — an embed declaring a label ABSTRACTLY which the host narrows
+  CONCRETELY leaves the embed body's sibling/comprehension read bound to the embed-LOCAL un-narrowed
+  value) **RESOLVED for the PLAIN-EMBED path** (`e404b21`, 2026-06-23 — `injectEmbedSiblingNarrowings`
+  at `meetEmbeddingsWithFuel`, meeting the host narrowing into the embed body's read-and-declared
+  same-label slot before the body evals; the analog of `injectLetLocalNarrowings` for an embed body;
+  both case-D forms == cue, over-rebase guarded, cert-manager content-identical) — **but the design's
+  "the cross-package def-of-def force-path is the SAME fix" read was EMPIRICALLY WRONG: argocd STILL
+  bottoms** (`conflicting values`, ~53s). The actual on-path blocker is a DISTINCT 2nd layer,
+  **Bug2-14b**: the argocd `#Mixin` is a STRUCTURAL DISJUNCTION (`listShape | structShape | error`)
+  embedding a `let _patch` whose `for…if kind==…` guard reads a host-narrowed sibling `kind`; on the
+  CROSS-PACKAGE FORCE path (`forceClosureWithConjunctCore`) the host's `kind` narrowing does NOT reach
+  `_patch.kind` through the disjunction arm → the comprehension defers → `metadata.annotations` drops
+  (bare export silently-incomplete; `[out]` → `conflicting values`). The DIRECT INLINE form of the same
+  shape DRAINS; the SINGLE-level cross-package use already drops it (NOT def-of-def-specific). Fix is
+  let-local narrowing-through-structural-disjunction on the force path (Bug2-4 × Bug2-5 × Bug2-11), the
+  deep embed-merge-tier fix — PARKED for a dedicated slice. Self-contained 4-package repro in
+  `spec-conformance-audit.md` Bug2-14b filing. ONE empirically-confirmed remaining layer; whether a
+  further bug hides behind a sound drain is unknown until Bug2-14b lands and argocd re-runs (honest — no
+  "one fix away" over-claim).
 
 ## Live Backlog (open work, ranked)
 
@@ -164,16 +169,20 @@ MEET-RESID-1/A#6 family, the dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-
 non-½ fractional Pow via `decimalExpScaled`/`decimalLnScaled`, 2026-06-21) — ALL in EXACT
 DECIMAL, Float correctly AVOIDED, axiom-clean. `math.Pow`/`math.Sqrt` now cover their full
 real domain. The genuinely-open set: **EvalOps** (item 2 — DONE 2026-06-22), **SC-4**
-(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-14 (RE-DIAGNOSED 2026-06-23, PARKED — embed-merge
-frame-binding bug, NOT a select arm).** An embed declaring a field ABSTRACTLY which the host declares
-CONCRETELY leaves the embed's `#Mixin` `_patch` comprehension reading the embed-LOCAL abstract value
-(ref not re-based to the merged host frame) → never drains; the cross-package def-of-def force path
-makes it un-drainable even under export → `ls` exports silently-incomplete / `[ls]` → `conflicting
-values`. Fix is on the `forceClosureWithConjunct`/`meetEmbeddingsWithFuel`/`.structComp`-fold tier via
-`remapConj*` ref-rebase — a dedicated embed-merge slice. The original "missing `selectEvaluatedField`
-`.structComp` arm" framing was WRONG; a drain-on-select was implemented, proved UNSOUND (drops
-comprehension content / `ls.metadata` loses `annotations`), and REVERTED. 6-line minimal "case D" repro
-+ 5-package faithful repro in `spec-conformance-audit.md`. RESOLVED / ruled out (do not re-file — see
+(LOW spec-gap-first). **ON-PATH ARGOCD LEADER: Bug2-14b (NEW 2026-06-23, PARKED — cross-package
+FORCE-path let-local narrowing through a STRUCTURAL DISJUNCTION).** The argocd `#Mixin` is `listShape |
+structShape | error` embedding `let _patch{kind:string; for…{if kind==add.#kind{add.#patch}}}`; the host
+`defs.#ListenerSet` declares `kind:"ListenerSet"` as a sibling. On the cross-package FORCE path
+(`forceClosureWithConjunctCore`) the host's `kind` does NOT reach `_patch.kind` through the disjunction
+arm → the comprehension defers → `metadata.annotations` drops (bare export silently-incomplete; `[out]` →
+`conflicting values`). The SINGLE-level cross-package use already drops it (not def-of-def-specific); the
+DIRECT INLINE form drains. Fix is let-local narrowing-through-structural-disjunction on the force path
+(Bug2-4 × Bug2-5 × Bug2-11) — a dedicated embed-merge slice. Self-contained 4-package repro in
+`spec-conformance-audit.md` Bug2-14b filing. **Bug2-14 (case-D PLAIN-EMBED frame-binding) RESOLVED**
+(`e404b21`, 2026-06-23 — `injectEmbedSiblingNarrowings` at `meetEmbeddingsWithFuel`; the analog of
+`injectLetLocalNarrowings` for an embed body; both case-D forms == cue, over-rebase guarded, cert-manager
+content-identical) — was NOT the terminal argocd blocker (the design's "same fix as the force path" read
+was empirically wrong; Bug2-14b is the live blocker). RESOLVED / ruled out (do not re-file — see
 Resolved/ruled-out below): **Bug2-13** (unset optional selection reads as ABSENT, `7e69e43`
 2026-06-23 — `selectedFieldValue` + the `.refId` eval arm resolve an `.optional`-rung field to
 `.bottom`; cleared `route.yaml`'s `#service_port: _|_`; was NOT the final blocker — Bug2-14 is),
@@ -308,13 +317,12 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    cache-key hash digest landed (cert-manager 119s → ~30.6s, byte-identical modulo #3, zero
    drift; FrameKey follow-up profiled as NOT needed). **Residual (the live perf frontier):**
    the heavy `argo` sub-package times out >200s once past the early bottom. STILL gated on the
-   argocd unblock — Bug2-5..Bug2-13 are fixed but argocd STILL bottoms on **Bug2-14** (RE-DIAGNOSED:
-   an embed-merge frame-binding bug — the `#Mixin` `_patch` comprehension reads the embed-local
-   abstract `kind` instead of the merged host-concrete one, so it never drains; the cross-pkg
-   def-of-def force path makes `ls` un-drainable even on export → `conflicting values`), a CORRECTNESS
-   divergence, not fuel. (Bug2-13's landing cleared `#service_port: _|_`; Bug2-14 cleared the SELECT
-   symptom `#listenerset_name` in a tried-then-reverted UNSOUND patch but the underlying `ls` drain is
-   the real blocker.) Un-gates once argocd ACTUALLY exports; profile against a resolving target then.
+   argocd unblock — Bug2-5..Bug2-13 + the case-D PLAIN-EMBED half of Bug2-14 (`e404b21`) are fixed but
+   argocd STILL bottoms on **Bug2-14b** (cross-package FORCE-path let-local narrowing through a
+   structural disjunction — the `#Mixin` `_patch` comprehension's `kind` is not narrowed by the host's
+   sibling `kind` on `forceClosureWithConjunctCore`, so `metadata.annotations` drops → bare export
+   silently-incomplete / `[ls]` → `conflicting values`), a CORRECTNESS divergence, not fuel.
+   Un-gates once argocd ACTUALLY exports; profile against a resolving target then.
 
 6. **Borderline / LOW (opportunistic; none block adoption).** (E#4-fix — arithmetic
    operator domain — landed 2026-06-20; see the implementation-log + `cue-spec-gaps.md`

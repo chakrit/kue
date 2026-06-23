@@ -286,8 +286,61 @@ def-meet unset/set fork. 7 `native_decide` pins (TwoPassTests Bug2-13) + 4 expor
 to record — kue now matches cue exactly, no residual). **Cleared `route.yaml`'s `#service_port: _|_`;
 argocd advances one layer to Bug2-14 (below) — NOT the terminal blocker.** Original filing follows.
 
-**Bug2-14 (HIGH — on-path argocd blocker; RE-DIAGNOSED 2026-06-23 by the Bug2-14 slice; the original
-filing's root-cause was WRONG — see below). PARKED: needs a deep embed-merge-tier fix, not a select arm.**
+**Bug2-14 — CASE-D FORMS RESOLVED (`e404b21`, 2026-06-23); a DISTINCT 2nd layer (Bug2-14b, below)
+remains the on-path argocd blocker.** The general embed-merge frame-binding bug — an embed declaring a
+label ABSTRACTLY which the host narrows CONCRETELY, leaving the embed body's sibling/comprehension read
+bound to the embed-LOCAL un-narrowed value — is FIXED for the PLAIN-EMBED path (both the plain
+sibling-ref `echo: bk` form AND the comprehension-guard `if bk == "X"` form, plus multi-level + nested
+comprehension). Mechanism: `injectEmbedSiblingNarrowings` at `meetEmbeddingsWithFuel`'s plain-embed eval
+(`Eval.lean`) meets the host's (`current`'s) regular-output narrowing INTO the embed body's same-label
+read-and-declared slot BEFORE the body evaluates — the analog of `injectLetLocalNarrowings` (Bug2-4) for
+an embed body. Gated to the read-and-declared × host-narrowed overlap exactly
+(`embedComprehensionReadLabels` ∩ host fields), so an embed-INTERNAL field the host does not narrow stays
+embed-local (over-rebase guard pinned: `host:{bk:"X",{other:string,echo:other}}` → `echo` stays
+incomplete). Recurses into nested embeds. A real conflict still bottoms (`int & "X"` = ⊥). General, not
+keyed to argocd. 8 `native_decide` pins (Bug2xTests Bug2-14) + 2 export fixtures
+(`bug214_embed_{plain_sibling_ref,comprehension_guard}`). cert-manager content-identical (jq -S = 0).
+Both case-D forms == cue v0.16.1.
+
+**The design's "the cross-package def-of-def force-path is the SAME fix" read was EMPIRICALLY WRONG —
+a genuinely distinct 2nd layer is exposed (Bug2-14b).** The plain-embed re-base does NOT drain the
+argocd force path; argocd STILL bottoms (`conflicting values`, ~53s). The 2nd layer is on the
+`forceClosureWithConjunctCore` tier (the design's predicted seam) but the lever is the LET-LOCAL
+narrowing flowing through a STRUCTURAL DISJUNCTION on the FORCE path — not the plain-sibling re-base.
+
+**Bug2-14b (HIGH — THE on-path argocd blocker; NEW filing 2026-06-23). Cross-package FORCE-path
+let-local narrowing through a structural disjunction does not reach the embed's `_patch` comprehension.**
+The argocd `#Mixin` is `listShape | structShape | error(…)` (a STRUCTURAL disjunction) embedding a
+`let _patch = { kind: string; for _, add in Self.#additions { if kind == add.#kind { add.#patch } }; … }`.
+The host (`defs.#ListenerSet`) declares `kind: "ListenerSet"` as a SIBLING. On the CROSS-PACKAGE force
+path (`forceClosureWithConjunctCore`, when `#Use`/`#ListenerSet` is imported across packages), the host's
+`kind` narrowing does NOT reach the disjunction's `structShape` arm's `_patch.kind` — the `for`/`if kind
+== …` guard reads the embed-local abstract `string` → defers → `_patch` never merges `metadata.annotations`.
+`kue export` of the bare value drops the annotations (silently-incomplete `{kind:"ListenerSet"}`); `[out]`
+(list-wrapped) surfaces the undrained comprehension residual (`incomplete value`); cue exports both WITH
+annotations. **Self-contained 4-package repro (during the slice at `/tmp/b214c`, `ex.com/b214c`):**
+```cue
+// parts: #Mixin (structShape | error) embeds `let _patch{kind:string; for…{if kind==add.#kind{add.#patch}}}`;
+//        #Use { #Mixin; #issuer:string|*"main"; #additions: ls:{#kind:"ListenerSet", #patch:{metadata:annotations:issuer:Self.#issuer}} }
+// defs:  #LS: { kind: "ListenerSet"; parts.#Use }
+// main:  out: defs.#LS & {#issuer:"le"}   // cue: metadata.annotations.issuer "le"; kue: {kind:"ListenerSet"} (DROPPED)
+```
+The SINGLE-level cross-package use (`defs.#LS & {#issuer:"le"}`, NO def-of-def) ALREADY drops it, so the
+defect is the cross-package FORCE path for a def transitively embedding `#Mixin` (disjunction + let
+reading a host-narrowed sibling), NOT specifically the def-of-def indirection. The DIRECT INLINE form of
+the SAME shape DRAINS (verified `/tmp/b214_argoshape.cue` → cue==kue full annotations) — export's re-eval
+re-expands the bucket in a frame where `kind` is merged; the force path re-builds the body WITHOUT that
+re-eval, so the let-local narrowing is missing. **Fix family:** carry the host's sibling narrowing (`kind`)
+into the embed's `let _patch` THROUGH the structural-disjunction arm distribution on the force path — the
+force-path analog of `injectLetLocalNarrowings` (Bug2-4) crossed with the disjunction-distribution
+(Bug2-5/Gap-2b) and the cross-package frame discipline (Bug2-11). This is the deep embed-merge-tier fix
+the original Bug2-14 design pointed at, but the lever is let-narrowing-through-disjunction-on-force, NOT
+the plain-sibling re-base. PARKED for a dedicated slice (the plain-embed fix landed first, sound + general).
+HONEST depth read: this is the ONE empirically-confirmed remaining on-path argocd layer; whether a further
+bug hides behind a sound drain is unknown until Bug2-14b lands and argocd re-runs.
+
+**Bug2-14 ORIGINAL RE-DIAGNOSIS (for history; case-D forms now RESOLVED above, Bug2-14b is the live
+blocker). PARKED framing superseded — the plain-embed half shipped.**
 
 **The original filing (Bug2-13 slice) named the wrong root.** It blamed `selectEvaluatedField`'s
 missing `.structComp` arm (`| _ => .bottom`). That arm IS missing, but it is a SHALLOW symptom: adding

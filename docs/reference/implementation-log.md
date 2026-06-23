@@ -12251,3 +12251,74 @@ Bug2-14 RE-DIAGNOSED block.
 
 `docs/spec/{spec-conformance-audit,plan}.md` (Bug2-14 RE-DIAGNOSED), `docs/notes/` (breadcrumb
 rotated), this log. NO `Kue/*.lean` or `testdata/` changes (the only sound change found was a non-fix).
+
+---
+
+## Completed Slice: Bug2-14 — re-base embed-body sibling/comprehension reads onto host-narrowed value (case-D PLAIN-EMBED half)
+
+Commit `e404b21` (2026-06-23). The general "case D" embed-merge frame-binding bug, RESOLVED for the
+PLAIN-EMBED path. NOT the terminal argocd blocker — a distinct 2nd layer (Bug2-14b, below) remains.
+
+### Behavior added
+
+An embed that declares a label ABSTRACTLY (`bk: string`) which the host declares CONCRETELY
+(`bk: "X"`) left the embed body's sibling read (`echo: bk`) or comprehension guard (`if bk == "X"`)
+bound to the EMBED-LOCAL frame — the embed is its own frame, so the read is depth-0 into its own slot,
+never the host's. The host's narrowing reached the embed-output only via the later `meet host (embed)`,
+too late for the captured read: the plain ref exported `string`, the guard never fired (the
+comprehension deferred → export incomplete). Now BOTH case-D forms resolve against the host-narrowed
+value (`echo: "X"`, `hit: true`), == cue v0.16.1.
+
+### Mechanism
+
+`injectEmbedSiblingNarrowings` (`Eval.lean`, a standalone fuel-total def) is applied at
+`meetEmbeddingsWithFuel`'s plain-embed eval (the `| none => evalValueWithFuel … embedding` arm): the
+host's (`current`'s) regular-output `(label, value)` narrowing (`hostNarrowingPairs`) is MET into the
+embed body's same-label read-and-declared slot BEFORE the body evaluates, so the read sees the merged
+value. The analog of `injectLetLocalNarrowings` (Bug2-4) for an embed body rather than a let-local;
+reuses `embedComprehensionReadLabels` for the read-label set (it captures a plain depth-0 sibling ref
+AND a comprehension guard/source read). Recurses into nested embeds (multi-level) and let bodies.
+
+### Soundness boundary
+
+Re-base IFF the label is BOTH embed-declared (a regular-output field of the embed body) AND
+host-narrowed (present in `current`'s regular fields). A label the embed declares but the host does NOT
+narrow (`other: string` read by `echo: other`) is not in `hostNarrowingPairs` → untouched, stays
+embed-local and incomplete — the over-rebase guard (pinned). A real conflict still bottoms
+(`int & "X"` = ⊥; never a silent merge). The injection only MEETS the host narrowing into a field the
+host narrows anyway — never invents a value, never widens past the use-site meet. General, not keyed to
+argocd identifiers.
+
+### Tests
+
+8 `native_decide` pins (`Bug2xTests.lean` Bug2-14 section, tripwire anchor
+`bug214_conflicting_type_bottoms`): plain sibling-ref, comprehension guard, multi-level embed, nested
+comprehension, embed-own-concrete stays-drained, host-only stays-drained, over-rebase guard, conflict
+bottoms. 2 export fixtures (`testdata/export/bug214_embed_{plain_sibling_ref,comprehension_guard}.{cue,json}`,
+oracle-generated, `cue fmt`-clean). cert-manager content-identical (jq -S = 0). Full suite + fixtures
+green; no new warning/`sorry`/axiom.
+
+### Bug2-14b filed (the actual on-path argocd blocker — PARKED)
+
+The design's "the cross-package def-of-def force-path is the SAME fix" read was EMPIRICALLY WRONG —
+argocd STILL bottoms (`conflicting values`, ~53s) after the plain-embed fix. The on-path shape is a
+STRUCTURAL DISJUNCTION (`listShape | structShape | error`) embedding a `let _patch` whose `for…if
+kind==…` guard reads a host-narrowed sibling `kind`; on the CROSS-PACKAGE FORCE path
+(`forceClosureWithConjunctCore`) the host's `kind` does not reach `_patch.kind` through the disjunction
+arm → the comprehension defers → `metadata.annotations` drops. The single-level cross-package use
+already drops it (NOT def-of-def-specific); the direct inline form drains. Fix is let-local
+narrowing-through-structural-disjunction on the force path (Bug2-4 × Bug2-5 × Bug2-11), a dedicated
+embed-merge slice. Self-contained 4-package repro + filing in `spec-conformance-audit.md` Bug2-14b.
+
+### argocd milestone
+
+`kue export apps/argocd.cue` STILL bottoms (`conflicting values`, ~53s wall) — NOT exported. The 5-pkg
+def-of-def force path does NOT drain post-fix (Bug2-14b is a genuinely distinct 2nd layer). Perf
+frontier #7 STAYS GATED. cert-manager remains the only real-app content-identical drop-in (~12.6s).
+
+### Files
+
+`Kue/Eval.lean` (`injectEmbedSiblingNarrowings`, `hostNarrowingPairs`, the
+`meetEmbeddingsWithFuel` plain-embed injection), `Kue/Tests/Bug2xTests.lean` (8 pins + tripwire),
+`testdata/export/bug214_embed_*` (2 fixture pairs), `docs/spec/{spec-conformance-audit,plan}.md`,
+`docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
