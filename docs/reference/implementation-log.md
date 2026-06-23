@@ -13723,3 +13723,45 @@ filed in the plan as a latent follow-up.
 `fixture pairs ok` (zero drift). Canaries from `/Users/chakrit/Documents/prod9/infra`: cert-manager
 (~11.5s) + argocd (~51s) `jq -S` = 0 (content-identical). No shell touched (shellcheck N/A). No
 `cue`-divergence/spec-gap recorded — kue now conforms to cue + the closedness algebra.
+
+## Audit (single-pass, code-quality) — batch `20b8397..32ddfda` — HEALTHY + over-close coverage
+
+Scoped single-pass audit over the type-safety catch-all refactor (`e8d6e85`) + the
+embed-disj-arm-closedness soundness fix (`32ddfda`). **Verdict: HEALTHY.**
+
+**Over-close verdict (the TOP risk) — REFUTED.** The per-arm re-close does NOT over-close a
+legitimately-open arm, every witness oracle'd vs cue v0.16.1:
+
+- A `...`-OPEN-tail default arm ADMITS a disjoint narrow (`{(*_#A{n:9,...} | _#B{s})} & {extra:1}`
+  → `{n:9, extra:1}`, not bottom) — `closeEmbeddedOver` is identity on a tail-bearing struct, so
+  the open arm is never re-closed; `evaluatedStructOperand?`'s `.defOpenViaTail → false` does NOT
+  cause over-close because the value never reaches the plain-struct re-close arm.
+- A PLAIN (non-def) open arm STAYS open (`_A{n}`, `armOpen=true` ⇒ no closedness imposed).
+- host-extra-field survives WHILE the closed arm rejects the disjoint narrow, on ONE shape
+  (`{h, (*_#A | _#B)} & {s:"x"}` → `{h, s:"x"}`).
+- mark-precedence / equal-default dedup / AD2-1 lone-default / `(*"a"|"b")&("b"|"c")→"b"` all
+  UNCHANGED. No valid arm wrongly bottoms.
+
+**The 3 reported witnesses == cue post-fix** (closed-default `n:5` leak, `incomplete int`,
+tagged-disjunction through `#S`).
+
+**New nested-disj-of-disj default-mark latent — independently confirmed PRE-EXISTING** by building
+the parent commit `e8d6e85` in a throwaway worktree: the same witness diverges there too
+(`incomplete value: int`), differently from HEAD (`ambiguous value: multiple non-default disjuncts
+remain`); both differ from cue's `{b:"x"}`. The fix is strictly not-worse. Filed (plan + breadcrumb)
+as the next-leader candidate.
+
+**Catch-all refactor BYTE-IDENTICAL.** 3 projection sites
+(`openStructValue`/`closeEmbeddedOver`/`collapseDefaultDisjunction`) enumerate ALL non-target ctors
+as pass-through identity (= the prior `| other => other`); `canonicalizeBuiltinCalls` enumerates only
+the 11 true leaves (every recursive ctor recurses above the old catch-all). Exhaustiveness is
+machine-proven by the compiler (green build, no `_`-wildcard) — stronger than a manual ctor count.
+
+**Coverage ADDED inline** (the over-close direction was unpinned pre-audit): 3 `exportJsonMatches`
+pins — `embed_disj_arm_closedness_open_tail_arm_admits_disjoint`,
+`_plain_open_arm_admits_disjoint`, `_host_extra_survives_and_disjoint_rejected` — + a `#check`
+sentinel. **Totality:** no new `partial`/`sorry`/axiom; the per-arm re-close is total.
+
+Verify: `lake build` 112 jobs green (full `native_decide` + 3 new pins). `check-fixtures.sh`
+`fixture pairs ok`. Both canaries `jq -S` = 0 from infra with the FRESHLY-BUILT binary (cert-manager
+~11.5s, argocd ~51s). shellcheck clean (no shell touched). Audit counter RESET to 0.

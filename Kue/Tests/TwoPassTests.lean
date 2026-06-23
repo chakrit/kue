@@ -725,6 +725,37 @@ theorem embed_disj_arm_closedness_host_extra_field_survives :
           = true := by
   native_decide
 
+-- NO OVER-CLOSE — `...`-OPEN default arm ADMITS a disjoint narrow: the default `_#A{n, ...}` has an
+-- explicit `...` tail, so the per-arm re-close must NOT close it (a tail-bearing struct is identity
+-- under `closeEmbeddedOver`). `{extra:1}` is disjoint from `n` yet the open arm admits it and wins,
+-- not bottoms — the re-close restores closedness ONLY for closed-def arms.
+theorem embed_disj_arm_closedness_open_tail_arm_admits_disjoint :
+    exportJsonMatches
+        "_#A: {n: 9, ...}\n_#B: {s: string}\nout: {(*_#A | _#B)} & {extra: 1}\n"
+        "{\n    \"out\": {\n        \"n\": 9,\n        \"extra\": 1\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- NO OVER-CLOSE — a PLAIN (non-def) open default arm `_A{n}` stays OPEN: a non-closed-def arm carries
+-- no closedness, so the per-arm re-close (`armOpen = true`) leaves it open and `{extra:1}` is admitted.
+-- The default wins → `{n:9, extra:1}`. Closedness is imposed ONLY where the arm itself was closed.
+theorem embed_disj_arm_closedness_plain_open_arm_admits_disjoint :
+    exportJsonMatches
+        "_A: {n: 9}\n_B: {s: string}\nout: {(*_A | _B)} & {extra: 1}\n"
+        "{\n    \"out\": {\n        \"n\": 9,\n        \"extra\": 1\n    }\n}\n"
+          = true := by
+  native_decide
+
+-- WIDEN + REJECT on ONE shape: a host regular field `h` (NOT in either closed arm) survives WHILE the
+-- closed default `_#A{n}` correctly bottoms the disjoint `{s:"x"}` narrow and the survivor `_#B{s}`
+-- wins → `{h:"host", s:"x"}`. Pins the widen-and-close interaction together, not just separately.
+theorem embed_disj_arm_closedness_host_extra_survives_and_disjoint_rejected :
+    exportJsonMatches
+        "_#A: {n: int}\n_#B: {s: string}\nout: {h: \"host\", (*_#A | _#B)} & {s: \"x\"}\n"
+        "{\n    \"out\": {\n        \"h\": \"host\",\n        \"s\": \"x\"\n    }\n}\n"
+          = true := by
+  native_decide
+
 -- ### argocd `parts.#Mixin` — comprehension guard over a use-site-narrowed REGULAR sibling.
 --
 -- `#Inner` carries `for _, add in Self.#additions { if kind == add.#kind { add.#patch } }`: the guard
@@ -1533,6 +1564,7 @@ theorem resid_mask2_terminal_conflict_arm_sheds_for_concrete_survivor :
 #check @conj_disj_arms_fuel_zero_declines                     -- saturation guard
 #check @embed_disj_single_arm_narrows                         -- embed-disj-arm-fallthrough
 #check @embed_disj_arm_closedness_host_extra_field_survives   -- embed-disj-arm-closedness
+#check @embed_disj_arm_closedness_open_tail_arm_admits_disjoint -- no over-close (open tail)
 #check @embed_comprehension_guard_real_conflict_bottoms       -- parts.#Mixin
 #check @let_buried_for_source_expands                         -- Bug2-1 / A-EN1
 #check @mixin_let_local_guard_false_drops_body                -- Bug2-4

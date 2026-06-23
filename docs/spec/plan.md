@@ -712,6 +712,29 @@ idempotent/disjoint; one LOW concurrent-tap-race note filed in item 6). CLAUDE.m
 Inline fix: concurrent-release tap-clone race recorded as a LOW item-6 entry. `v0.1.0-alpha.20260623`
 CUT + formula live-correct on all 3 platforms.
 
+**Audit 2026-06-23 (single-pass code-quality, batch `20b8397..32ddfda` = type-safety catch-all
+refactor `e8d6e85` + embed-disj-arm-closedness soundness fix `32ddfda`) — HEALTHY.** The TOP risk
+(per-arm re-close OVER-closing a legitimately-open arm) is REFUTED, every witness oracle'd vs cue
+v0.16.1: (1) a `...`-OPEN-tail default arm ADMITS a disjoint narrow (`{(*_#A{n,...} | _#B{s})} &
+{extra:1}` → `{n,extra}`, NOT bottom) — `closeEmbeddedOver` is identity on a tail-bearing struct, so
+the open arm is never closed. (2) a PLAIN (non-def) open arm STAYS open (`armOpen=true` ⇒ no
+closedness imposed). (3) host-extra-field survives WHILE the closed arm rejects the disjoint narrow,
+on ONE shape (`{h, (*_#A | _#B)} & {s:"x"}` → `{h, s:"x"}`). (4) mark-precedence / equal-default dedup
+/ AD2-1 lone-default / `(*"a"|"b")&("b"|"c")→"b"` ALL unchanged. NO valid arm wrongly bottoms. The 3
+reported witnesses (closed-default `n:5` leak, `incomplete int`, tagged-disjunction `#S`) == cue
+post-fix. The new nested-disj-of-disj default-mark latent is GENUINELY PRE-EXISTING — independently
+confirmed by building the parent `e8d6e85` in a throwaway worktree: same witness diverges there too
+(`incomplete int`), the fix is strictly not-worse. The catch-all refactor is BYTE-IDENTICAL: 3 sites
+(`openStructValue`/`closeEmbeddedOver`/`collapseDefaultDisjunction`) enumerate ALL non-target ctors
+as pass-through identity; the 4th (`canonicalizeBuiltinCalls`) enumerates only the 11 true leaves
+(every recursive ctor already recurses above) — exhaustiveness machine-proven by the compiler (green,
+no `_`-wildcard). TOTALITY: no new `partial`/`sorry`/axiom; the per-arm re-close is total (`some`/
+`none` exhaustive). Both canaries jq -S = 0 from infra (cert-manager ~11.5s, argocd ~51s) with the
+FRESHLY-BUILT binary. **+3 over-close coverage pins ADDED inline** (`embed_disj_arm_closedness_
+open_tail_arm_admits_disjoint` / `_plain_open_arm_admits_disjoint` / `_host_extra_survives_and_
+disjoint_rejected`) + a `#check` sentinel — the over-close direction was unpinned pre-audit. Verdict:
+**HEALTHY.**
+
 **Per-round audit-verdict HISTORY (2026-06-21..23, ~7 Phase-A/B rounds over the
 CARRIER-STRUCT-MEET → Bug2-5..2-14c → perf #7 chain) — all HEALTHY; the as-built per-round
 detail is in `implementation-log.md` + git (each audit is its own commit).** Only the durable
