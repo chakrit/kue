@@ -364,6 +364,73 @@ or conflicts on comprehension content). PARKED until a dedicated embed-merge sli
 content-identical and DOES materialize the `_patch` annotations, so the meet machinery is right in the
 direct case; only the def-of-def force path leaks).
 
+**Bug2-14 FIX-SEAM DESIGN (Phase-B 2026-06-23 — design only, NO code; grounds the parked slice).**
+Read against the live code (`Eval.lean`): `meetEmbeddingsWithFuel` (`:3409`) and
+`forceClosureWithConjunctCore` (`:3581`) — both inside the core evaluator `mutual` block — plus the
+splice helpers `spliceOperandForEmbed` (`:1967`) / `embedComprehensionReadLabels` (`:1854`) and the
+`remapConjRefs`/`remapConjValues`/`remapConjClauses` ref-rebase family (`:466`/`:548`/`:595`).
+
+- **WHERE the re-base happens.** The locus is `forceClosureWithConjunctCore`'s `.structComp` arm
+  (`:3587`–), the def-of-def force path's struct fold. Today the host narrowing reaches the embed by
+  TWO routes, NEITHER of which re-bases a same-label embed-local ref:
+  (1) `spliceOperandForEmbed` (`:1967`) surfaces the host's regular fields whose labels the embed
+  comprehension READS (`embedComprehensionReadLabels`, `:1854`) into `useOperands`, which
+  `mergeConjOperands` (`:3627`) folds AFTER the embed's own `defFields` (`.ownDecl`). (2) `narrowings`
+  (`:3634`) injects host regular fields into let-locals via `injectLetLocalNarrowings`. The defect: when
+  the embed ITSELF declares the same label (`bk: string` / `_patch.kind: string`), that embed-local
+  declaration is in `defFields`/the let body, and the comprehension's sibling-ref is a `.refId ⟨d,i⟩`
+  bound to the embed-local slot. `mergeConjOperands` unions the FIELD (so the merged slot value becomes
+  `string & "X" = "X"`), but the comprehension body's `.refId` still carries the embed-local frame
+  layout — it is NOT re-indexed onto the merged layout, so at expansion it reads the stale embed-local
+  `string`. The re-base must run on the embed's `comprehensions`/let bodies right after the
+  `mergeConjOperands` union (`:3627`–`:3641`), BEFORE `pushFrame canonical` (`:3643`) and
+  `expandComprehensionsWithFuel` (`:3651`).
+- **Which mechanism it reuses.** `remapConjRefs` (`:466`) is the right tool — it ALREADY re-indexes a
+  conjunct's frame-local `.refId`s onto a merged conjunction-frame layout (`oldLabels`→`mergedMap`),
+  with the exact depth discipline the comprehension needs (B1/A5: `.structComp` fields + comprehensions
+  at `frameDepth+1`; comprehension body at `clauseChainDepth` — +1 per `for`, +0 per `guard`). The
+  embed-merge re-base is the SAME operation `mergeConjOperands` already drives for the conj fold, just
+  applied to the embed body's comprehension/let conjuncts at the force-fold seam. The `oldLabels` is the
+  embed body's own field layout; the `mergedMap` is `canonical`'s layout after the host union. So the
+  fix is: thread the embed's comprehension/let bodies through `remapConjRefs` keyed on
+  `(embed-local layout → canonical layout)` at `:3641`-ish, so a sibling-ref to a host-narrowed label
+  resolves the MERGED slot.
+- **The soundness boundary (which refs to re-base vs leave).** A ref must be re-based IFF its target
+  label is BOTH declared embed-locally AND present (narrowed) in the merged host frame — the
+  same-label overlap that is the empirical discriminator (embed-own-only → DRAINS already; host-only →
+  DRAINS already; embed-abstract × host-concrete → the bug). `remapConjRefs` already encodes exactly
+  this: a label NOT in `mergedMap` is left at its old index (the `| _ => ` identity / unchanged-slot
+  path), so a genuinely embed-INTERNAL ref (a label the host does not narrow) is NOT mis-rebased. The
+  hazard to avoid is the CROSS-PACKAGE wrong-frame splice (the `crosspkg_defofdef_wrongframe_witness`
+  class — defs-local vs defaults-local frames): the re-base must use the embed's OWN captured frame as
+  `oldLabels` and the post-merge HOST `canonical` as `mergedMap`, never a use-site frame — i.e. it must
+  run under `capturedEnv` (the embed's package frame), mirroring `forceClosureWithConjunctCore`'s
+  existing `each-arm-in-its-own-frame` discipline (Bug2-11). A re-base keyed on the wrong frame would
+  re-introduce the "EU"/bottom mis-resolution; keying on the embed-local→canonical label map (a pure
+  layout remap, frame-neutral) is the safe form.
+- **Must-pin witnesses (the fix-slice's test surface).** (1) COMPREHENSION form (argocd `#Mixin`):
+  `host: {bk:"X", {bk:string, for k,v in {p:1} {if bk=="X" {hit:true}}}}` → `{bk:"X", hit:true}`. (2)
+  PLAIN sibling-ref form (the SCOPE-broadening witness — a comprehension-only fix MUST fail this):
+  `host: {bk:"X", {bk:string, echo:bk}}` → `echo:"X"`, and a `probe: bk` sibling → `"X"` not `string`.
+  (3) EMBED-OWN-CONCRETE (must STAY drained, no regression): embed reads its OWN concrete field. (4)
+  HOST-ONLY (must STAY drained): embed reads a host-only field. (5) CROSS-PACKAGE def-of-def FORCE-path
+  variant (the argocd-specific severity — a `testdata/modules/` 5-package faithful repro: bare `ls`
+  exports WITH `metadata.annotations`, `[ls]` does NOT bottom). (6) cert-manager content-identical
+  (the `#UseCertManager`/`#Mixin` direct-struct shape MUST stay byte-identical — the canary the re-base
+  must not disturb).
+- **Cross-package def-of-def force-path: SAME fix, not a separate layer (read).** The "two compounding
+  layers" framing (case-D frame-binding + def-of-def un-drainability) describes ONE root with two
+  severities, not two bugs. Direct inline embeds drain under export only because export's re-eval
+  re-expands the bucket in a frame where the host field is already merged — a coincidental re-base. The
+  def-of-def force path (`forceClosureWithConjunctCore`) is precisely the path that re-builds the body
+  WITHOUT that re-eval, so the missing re-base becomes observable. Once the re-base runs at the
+  force-fold seam (above), BOTH the direct case (already drains) and the force-path case drain by the
+  SAME mechanism — the force path stops needing export's accidental re-base. So the fix is ONE re-base
+  at `forceClosureWithConjunctCore`'s `.structComp` arm; the def-of-def path is not a second fix, it is
+  the witness that proves the re-base is genuinely needed (the direct case masks it). Confidence is
+  design-level, not landed — the slice must verify witness (5) drains AFTER the re-base with no separate
+  def-of-def change; if it does not, a second (genuinely distinct) layer is exposed and re-filed then.
+
 HONEST depth read: this is the ONE empirically-confirmed remaining on-path argocd layer (the route.yaml
 `#listenerset_name` select is downstream of it); whether a further bug hides behind a sound drain is
 unknown until the embed-merge fix lands and argocd re-runs. NO code shipped this slice (the only sound

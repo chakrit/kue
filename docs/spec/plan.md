@@ -254,18 +254,22 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    bottom), unary (`!` on bool + non-bool → bottom, `-` on int + non-numeric → bottom +
    incomplete defer) — the carve-set ops that previously had only end-to-end fixture coverage.
 
-3. **Test/fixture-org pass (periodic) — `TwoPassTests` SPLIT DUE (ranked BELOW Bug2-14, the
-   on-path argocd blocker); module carve DONE `4b25cef`; fixture regroup DEFERRED.**
-   **🚨 `TwoPassTests.lean` SPLIT — DUE as a near-term slice (Phase-B 2026-06-23 ruling: now ~2135
-   lines, past 2000 — grew with the Bug2-13 section).** It is the demonstrated silent-failure surface (the Phase-A dead-theorem incident:
-   ~140 theorems silently dead under unterminated `/-- -/`). The file IS too large to eyeball. Seam =
-   **by bug-family**: carve the `bug2x_*` sections (Bug2-1/2-2/2-4/2-5/2-6/2-7/2-8/2-9 + the
-   let-local/Mixin narrowing family — the ~bug26_*/bug27_*/bug28_*/bug29_*/mixin_*/let_* pins, lines
-   ~734–1879) into `Bug2xTests.lean`, leaving the foundational two-pass/argocd-link/disjunction-
-   selection/RESID-MASK pins in `TwoPassTests.lean`. Each resulting file gets the same end-of-file
-   COVERAGE TRIPWIRE (per-section `#check @<last-theorem>` anchors; see the `0150095` hardening). The
-   SPLIT-SLICE's first step: convert the carved file's headers to `--` line comments (TwoPassTests
-   already converted, `0150095`). Pin-count conserved; org-only, zero behavior change. **TEST-HEALTH
+3. **Test/fixture-org pass (periodic) — `TwoPassTests` SPLIT DONE `0deef2f` (2026-06-23);
+   module carve DONE `4b25cef`; fixture regroup DEFERRED.**
+   **`TwoPassTests.lean` SPLIT — DONE (Phase-B 2026-06-23, `0deef2f`).** The file (2158 lines, the
+   demonstrated silent-failure surface — the Phase-A dead-theorem incident: ~140 theorems silently
+   dead under unterminated `/-- -/`) was carved at the CONTIGUOUS Bug2-6..Bug2-13 run: the 64-theorem
+   close-once / def-ref / structComp-narrowing / optional-selection block (Bug2-6/2-7/2-8/2-9/2-10/2-11
+   /2-13 — was `Eval.lean`-region lines ~1466–2122) moved to a new `Kue/Tests/Bug2xTests.lean`,
+   leaving the foundational two-pass / argocd-link / disjunction-selection / RESID-MASK pins (incl. the
+   earlier Bug2-1/2-2/2-4/2-5 sections, which interleave with the foundational MEET-RESID/RESID-MASK
+   infra) in `TwoPassTests.lean`. The contiguous run was the LOWER-risk seam than the originally-guessed
+   "all bug2x" carve (the early Bug2-1/2-4/2-5 sections are not contiguous — fragmenting them would
+   split the foundational flow). Registered in `Kue/Tests.lean`. Pin-count CONSERVED: 180 = 116 + 64,
+   no duplicate names; both files keep `--` line-comment headers + an end-of-file `#check` coverage
+   tripwire (anchors moved with their sections). Org-only, zero behavior change; `lake build` green
+   (112 jobs, all tripwire `#check`s elaborate), fixtures + shellcheck clean, cert-manager
+   content-identical (jq -S = 0). **TEST-HEALTH
    CONVENTION (durable, applies to ALL new/touched `Kue/Tests/*.lean`):** section headers are `--`
    LINE comments, never `/-- -/`/`/-! -/` block comments (a line comment cannot swallow the next
    theorem); every test module carries an end-of-file `#check @<last-theorem-per-section>` tripwire.
@@ -449,6 +453,45 @@ none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
+- **Phase-B audit (2026-06-23, batch `8a5f6a2`..`b660d10`: Bug2-13 code + Bug2-14 re-diagnosis;
+  Phase A HEALTHY `b660d10`) — architecture HEALTHY.** Module graph re-checked WHOLE: ACYCLIC,
+  strictly layered, UNCHANGED (`EvalOps → {Builtin, Decimal, Regex}` no back-edge; `Builtin` NO
+  `Eval`/`EvalOps` edge; `Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`; `Lattice →
+  {Value, Regex}`; `Runtime → Eval`; `Module → {Parse, Runtime}`; `Cli → Runtime`; `Normalize →
+  Value`). Cleanliness sweep CLEAN: NO `sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, NO
+  `String.dropRight`/`dropLeft`, NO dead code, NO stale TODO/FIXME/HACK; `partial def`s are the
+  standing carve-outs only (`Parse.lean` 62 lexer/parser, `Module.lean` 4 IO-loader; `Eval`/`Lattice`
+  FULLY total). **File sizes: `Eval.lean` 3989** (Bug2-13 was a small selection-time fix; the Bug2-14
+  slice shipped no code) — still under the ~4500 re-split watch. **`TwoPassTests.lean` SPLIT DONE
+  inline (`0deef2f`)** — carved the contiguous Bug2-6..2-13 run (64 theorems) into
+  `Bug2xTests.lean`, 2158 → 1500 lines, pin-count conserved 180 = 116 + 64, no behavior change (item
+  3, above). **Eval.DefDeferral carve — RECOMMEND DEFER (line-budget math).** Eval.lean 3989; watch
+  threshold ~4500; headroom ~511. The named first carve is the def-deferral tier (`Eval.lean:2158–2697`,
+  ~540 lines: `defBodyHasSiblingSelfRef` … `splitDisjConjunct`). But the Bug2-14 fix grows the CORE
+  evaluator `mutual` block's `forceClosureWithConjunctCore` `.structComp` arm (`:3581`+, the
+  UNSPLITTABLE block — the def-deferral tier is NOT where Bug2-14's code lands), adding a
+  `remapConjRefs` re-base call + a small layout-map helper ≈ 30–80 lines → 3989 + 80 = 4069, still
+  ~430 under 4500. So Bug2-14 does NOT push Eval.lean over threshold, AND folding the carve into the
+  Bug2-14 slice would carve a DIFFERENT tier than the one being modified (no de-risk benefit; the
+  carve never touches the core force arm). Carving NOW standalone spends a slice for non-imminent
+  headroom. **DEFER**; trigger sharpened: carve the def-deferral tier (`Eval.DefDeferral`) only if a
+  future def-deferral-tier slice pushes Eval.lean past ~4500 — Bug2-14 will not. **Bug2-14 FIX-SEAM
+  DESIGN written into `spec-conformance-audit.md`** (the re-base runs at
+  `forceClosureWithConjunctCore`'s `.structComp` arm via `remapConjRefs` keyed on
+  embed-local-layout → post-merge-`canonical`-layout, frame-neutral so the cross-pkg wrong-frame hazard
+  is avoided; re-base IFF the label is BOTH embed-declared AND host-narrowed — `remapConjRefs`'s
+  not-in-`mergedMap`→identity already leaves genuine embed-internal refs; the cross-package def-of-def
+  force-path is the SAME fix, not a separate layer — it is the witness that the re-base is needed,
+  since direct inline embeds drain only via export's accidental re-base; must-pin witnesses: the
+  comprehension form, the PLAIN sibling-ref form `host:{bk:"X",{bk:string,echo:bk}}`→`echo:"X"`,
+  embed-own-concrete + host-only stay-drained, the 5-pkg def-of-def force-path repro, cert-manager
+  byte-identical). **APPLIED INLINE (re-verified green, cert-manager jq-S=0):** (1) the TwoPassTests
+  split (`0deef2f`); (2) **perf-doc de-stale** — `kue-performance.md` argocd-bottoms entry said "the
+  residual full-app blocker is now **Bug2-13**" (STALE: Bug2-13 LANDED `7e69e43`); corrected the
+  narrowing-fix chain to include Bug2-13 LANDED + gating to **Bug2-14** (the RE-DIAGNOSED embed-merge
+  frame-binding bug), wall ~54s. **Verdict: HEALTHY; TwoPassTests split DONE inline; Eval.DefDeferral
+  carve DEFERRED (math above); Bug2-14 fix-seam design in place; one perf-doc de-stale; no new code
+  fix-slice — Bug2-14 stays the on-path argocd leader.**
 - **Phase-B audit (2026-06-23, batch `b913ae6`..`a4c33cf`: Bug2-10 + Bug2-11; Phase A HEALTHY
   `a4c33cf`) — architecture HEALTHY.** Module graph re-checked WHOLE: ACYCLIC, strictly layered
   (`Builtin → {Lattice, Regex, Decimal, Base64, Json, Yaml, CaseTable}` — NO `Eval`/`EvalOps`
