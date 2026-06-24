@@ -6,10 +6,6 @@ import Kue.Cli
 def evalErrorCode : UInt32 := 1
 def usageErrorCode : UInt32 := 2
 
-def printSmoke : IO Unit :=
-  for line in Kue.smokeLines do
-    IO.println line
-
 def printEvalResult (result : Except Kue.ParseError String) : IO UInt32 := do
   match result with
   | .ok output =>
@@ -47,18 +43,15 @@ def runEvalFile (path : String) : IO UInt32 := do
       pure evalErrorCode
   | .ok loaded => printLoaded loaded
 
-/-- The `eval` path. No files reads stdin (empty stdin prints the smoke summary); a single
-    file routes through the import-aware loader; multiple files merge through the pure
-    pipeline. Preserves the historical bare `kue < file` / `kue <file…>` behavior. -/
+/-- The `eval` path. No files reads stdin (empty input evaluates to the empty struct, like
+    `cue eval -`); a single file routes through the import-aware loader; multiple files
+    merge through the pure pipeline. Reached only via the explicit `kue eval` subcommand or
+    the bare `kue <file…>` shorthand — never bare `kue`, which now prints help. -/
 def runEval : List String -> IO UInt32
   | [] => do
       let stdin ← IO.getStdin
       let source ← stdin.readToEnd
-      if source.trimAscii.toString.isEmpty then
-        printSmoke
-        pure 0
-      else
-        printEvalResult (Kue.evalSourceToString source)
+      printEvalResult (Kue.evalSourceToString source)
   | [path] => runEvalFile path
   | paths => do
       let sources ← readFileSources paths

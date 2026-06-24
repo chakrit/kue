@@ -532,6 +532,26 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      non-default disjuncts" where cue picks the marked survivor. Pre-existing (HEAD diverges too,
      differently); a `flattenAlternatives`/`normalizeDisj` mark-inheritance gap, distinct mechanism.
 
+7. **CLI / entry-UX (cue-aligned command surface).** **Entry-UX fix — DONE
+   (2026-06-24).** The two fresh-install killers are fixed: bare `kue` (no args) now
+   prints the top-level help and exits 0 (was: blocked on `IO.getStdin.readToEnd`, an
+   interactive freeze) — `parse [] => .help none`, pinned (`CliTests.parse_empty`). The
+   empty-stdin smoke demo is removed: `kue eval` on empty input evaluates the empty struct
+   → no output, exit 0 (matches `cue eval -`), and the dead `Kue/Examples.lean`
+   (`smokeLines` + the 14 `*SmokeResult` defs + their plan-pin theorem — referenced ONLY
+   by the removed `printSmoke` CLI hook) was deleted. Stdin eval is now explicit (`kue
+   eval`, piped or `<`), never bare `kue`. Harness call-sites that used the bare `kue
+   <file` redirect moved to explicit `kue eval <file`; the eval-agreement check repointed
+   to the file-arg shorthand (`kue <file>` == `kue eval <file>`). Small help polish:
+   aligned the `Commands:` description column + added an Examples block. **NEW SCOPED
+   OBJECTIVE (awaiting user direction — do NOT self-start):** the broader **cue-aligned
+   CLI command surface** (new subcommands — `vet`/`fmt`/`def`, a `-` explicit-stdin
+   marker, flag parity with `cue`). This is a user-scoped design objective, deliberately
+   NOT expanded here; the next leader for it = the user's CLI-design direction. **Known
+   DEFERRED (footnote, not in this slice):** `kue --version` reports `Kue.version` =
+   `0.1.0-alpha` (datestamped per nightly) rather than the dated release tag — defensible
+   as-is; revisit only if the version/build plumbing is reworked.
+
 **Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
 re-litigate): the walkers were NEVER one problem — three distinct walker families + a
 separate normalizer pair, different mechanisms/result-types/recursion-domains/termination

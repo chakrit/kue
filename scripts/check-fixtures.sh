@@ -110,7 +110,7 @@ check_cli_fixture_outputs() {
     output_file="${cli_dir}/${expected_file#"${fixture_dir}/"}"
     mkdir -p -- "$(dirname -- "${output_file}")"
 
-    if ! "${kue_exe}" <"${cue_file}" >"${output_file}"; then
+    if ! "${kue_exe}" eval <"${cue_file}" >"${output_file}"; then
       printf 'failed to evaluate CLI fixture %s\n' "${cue_file}" >&2
       status=1
     elif ! diff -u "${expected_file}" "${output_file}"; then
@@ -304,6 +304,27 @@ check_cli_behavior() {
     status=1
   fi
 
+  # Bare `kue` with no arguments prints the top-level help on exit 0 — it must NOT hang on
+  # stdin (the regression guard against the original interactive-freeze bug) nor dump the
+  # old smoke demo. Closed stdin proves it never blocks reading input.
+  if ! output="$("${kue_exe}" </dev/null)"; then
+    printf 'bare kue (no args) exited non-zero\n' >&2
+    status=1
+  elif [[ "${output}" != *"Commands:"* ]]; then
+    printf 'bare kue (no args) did not print the help Commands listing\n' >&2
+    status=1
+  fi
+
+  # `kue eval` on empty stdin evaluates the empty struct (matching `cue eval -`): no output,
+  # exit 0 — and specifically NOT the removed smoke demo.
+  if ! output="$("${kue_exe}" eval </dev/null)"; then
+    printf 'kue eval on empty stdin exited non-zero\n' >&2
+    status=1
+  elif [[ -n "${output}" ]]; then
+    printf 'kue eval on empty stdin printed output (expected empty): %q\n' "${output}" >&2
+    status=1
+  fi
+
   # `kue version` and `kue --version` print the version constant on exit 0.
   if ! output="$("${kue_exe}" version)"; then
     printf 'kue version exited non-zero\n' >&2
@@ -317,15 +338,16 @@ check_cli_behavior() {
     status=1
   fi
 
-  # The explicit `kue eval` subcommand must agree byte-for-byte with the bare path on a
-  # representative fixture (the internal-format default).
+  # The bare `kue <file>` shorthand must agree byte-for-byte with the explicit
+  # `kue eval <file>` subcommand on a representative fixture (the internal-format default).
+  # Both take the file as a positional arg, so the no-args→help change leaves them intact.
   local sample_cue
   sample_cue="${fixture_dir}/numeric/additive_expressions.cue"
   if [[ ! -f "${sample_cue}" ]]; then
     printf 'CLI behavior sample fixture %s is missing\n' "${sample_cue}" >&2
     status=1
-  elif ! diff -u <("${kue_exe}" <"${sample_cue}") <("${kue_exe}" eval <"${sample_cue}"); then
-    printf 'kue eval disagrees with the bare eval path on %s\n' "${sample_cue}" >&2
+  elif ! diff -u <("${kue_exe}" "${sample_cue}") <("${kue_exe}" eval "${sample_cue}"); then
+    printf 'kue <file> shorthand disagrees with kue eval <file> on %s\n' "${sample_cue}" >&2
     status=1
   fi
 

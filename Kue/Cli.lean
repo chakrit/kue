@@ -19,10 +19,10 @@ inductive HelpTopic where
   | export
 deriving Repr, BEq, DecidableEq
 
-/-- A fully parsed invocation. `eval` carries the positional file list (empty = stdin),
-    preserving the bare `kue <file…>` / `kue < file` back-compat paths the fixture harness
-    depends on. `error` carries a usage diagnostic; the dispatcher prints it to stderr and
-    exits with the usage code. -/
+/-- A fully parsed invocation. `eval` carries the positional file list (empty = stdin via
+    explicit `kue eval`); the bare `kue <file…>` shorthand routes through `parse`'s
+    fallthrough to `.eval files`. `error` carries a usage diagnostic; the dispatcher prints
+    it to stderr and exits with the usage code. -/
 inductive Command where
   | eval (files : List String)
   | export (opts : ExportOpts)
@@ -69,12 +69,13 @@ def parseEval : List String -> Command
       | some flag => .error s!"unknown eval flag: {flag}"
       | none => .eval args
 
-/-- Parse the whole argv into a `Command`. Dispatch rule: a recognized subcommand as the
-    first token routes to it; a recognized top-level flag (`--help`/`-h`,
-    `--version`/`-V`) maps to its command; anything else is treated as the `eval` path so
-    the bare `kue <file…>` and `kue < file` invocations keep working unchanged. -/
+/-- Parse the whole argv into a `Command`. Dispatch rule: no arguments prints the
+    top-level help (like `cue`/`git`/`docker`); a recognized subcommand as the first token
+    routes to it; a recognized top-level flag (`--help`/`-h`, `--version`/`-V`) maps to its
+    command; anything else is the `eval` path, so the bare `kue <file…>` shorthand keeps
+    working. Stdin eval is explicit: `kue eval` (piped or `<`), never bare `kue`. -/
 def parse : List String -> Command
-  | [] => .eval []
+  | [] => .help none
   | "eval" :: rest => parseEval rest
   | "export" :: rest => parseExport .json none none rest
   | "version" :: _ => .version
@@ -97,17 +98,22 @@ def topLevelHelp : String :=
 
 Usage:
   kue <command> [arguments]
-  kue [file...]            evaluate stdin or files (shorthand for `kue eval`)
+  kue <file...>             evaluate files (shorthand for `kue eval`)
 
 Commands:
-  eval [file...]           evaluate stdin or files; print the resolved value
+  eval [file...]            evaluate stdin or files; print the resolved value
   export [--out fmt] [file] manifest a value to JSON (default) or YAML
-  version                  print the kue version
-  help [command]           print help for kue or a command
+  version                   print the kue version
+  help [command]            print help for kue or a command
 
 Global flags:
-  -h, --help               print this help
-  -V, --version            print the kue version"
+  -h, --help                print this help
+  -V, --version             print the kue version
+
+Examples:
+  kue eval config.cue       evaluate a file
+  echo 'a: 1' | kue eval    evaluate CUE from stdin
+  kue export --out yaml x.cue   manifest x.cue as YAML"
 
 /-- Per-command usage for `eval`. -/
 def evalHelp : String :=

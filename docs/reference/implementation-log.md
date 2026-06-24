@@ -13892,3 +13892,75 @@ pairs ok` (zero drift). Canaries from `prod9/infra` root: cert-manager + argocd 
 (byte-identical drop-in preserved — the scalar-default fix is absent from both corpora). No shell
 touched. Total — no `partial`/`sorry`/axiom; `selectFromConcrete` is non-recursive (trivially
 terminating).
+
+---
+
+## Completed Slice: CLI entry-UX — bare `kue` prints help; drop the empty-stdin smoke demo
+
+Goal: make a freshly-`brew install`ed `kue` behave like a conventional CLI. Two
+fresh-install killers: (1) bare `kue` with no args HUNG — `parse [] => .eval [] => runEval
+[]` read `IO.getStdin.readToEnd`, which blocks forever on an interactive terminal, so a new
+user typing `kue` saw a freeze and concluded it was broken; (2) `kue eval` on empty stdin
+dumped a dev smoke reel (`int & 1 => 1`, `"a" & "b" => _|_`, …). Both are entry-path bugs;
+`--help`/`-h`/`version`/per-command help already existed and were left intact.
+
+### Fix (cue-aligned)
+
+1. **Bare `kue` (no args) → top-level help, exit 0.** `Cli.parse [] => .help none` (was
+   `.eval []`), matching `cue`/`git`/`docker` (bare command → usage). This fixes the hang
+   AND surfaces the help that was hidden behind it. The `kue <file…>` shorthand is
+   unaffected — it routes through `parse`'s positional-args fallthrough to `.eval files`,
+   not `parse []`. Stdin eval is now explicit: `kue eval` (piped or `<`), never bare
+   `kue`.
+
+2. **Empty-stdin smoke demo removed.** `runEval []` dropped its `if trimmed-empty →
+   printSmoke` branch; empty stdin now evaluates the empty source like any input → empty
+   struct → empty output, exit 0, matching `cue eval -` (verified: `printf '' | cue eval
+   -` → empty, exit 0). `printSmoke` deleted.
+
+3. **Dead code removed.** `Kue/Examples.lean` (`smokeLines`, the 14 `*SmokeResult` defs,
+   and the `smoke_lines_match_plan` `native_decide` theorem pinning the demo strings) was
+   referenced ONLY by the removed `printSmoke` CLI hook — nothing else imports any of it.
+   Deleted the file and its `import Kue.Examples` from `Kue.lean` (general-coding: no dead
+   code). Build dropped 112 → 110 jobs.
+
+4. **Harness call-sites.** `scripts/check-fixtures.sh` used the bare `kue <file` redirect
+   (no args) in two places — which now prints help. Moved `check_cli_fixture_outputs` to
+   the explicit `kue eval <file`, and repointed the `check_cli_behavior` eval-agreement
+   check from the now-tautological bare-vs-`eval` redirect to the file-arg shorthand
+   (`kue <file>` == `kue eval <file>`). Added two regression assertions: bare `kue
+   </dev/null` prints the `Commands:` listing on exit 0 (the anti-hang guard), and `kue
+   eval </dev/null` prints nothing on exit 0 (the no-smoke guard). The stale `Cli.lean`
+   back-compat comments (claiming the harness depends on bare `kue < file`) were
+   corrected.
+
+5. **Help polish (small, in-scope).** Aligned the `Commands:` description column (the
+   `export` line was the wide one), fixed the synopsis to `kue <file...>` (bare `kue` no
+   longer evals), and added a 3-line Examples block.
+
+### Tests
+
+`CliTests.parse_empty` flipped to `parse [] = .help none` (`native_decide`). The file-arg
+shorthand stays pinned (`parse_bare_file`/`parse_bare_files`). Harness gained the
+anti-hang + no-smoke assertions above.
+
+### Scope
+
+Entry-UX only. The broader cue-aligned command surface (new `vet`/`fmt`/`def` subcommands,
+a `-` explicit-stdin marker, flag parity) is a NEW user-scoped objective, deliberately not
+started here (tracked in plan.md item 7, awaiting the user's CLI-design direction). The
+`--version` = `0.1.0-alpha` vs dated-tag question is defensible as-is — noted, not
+changed.
+
+### Verify
+
+`lake build` 110 jobs green (no warning/`sorry`/axiom; CLI/IO is pure-adjacent, no new
+axioms in pure modules). Direct behavior: bare `kue` (no redirect) → help + exit 0, no
+hang (was exit 124 / timeout); bare `kue </dev/null` → help + exit 0; `kue eval
+</dev/null` → empty + exit 0 (not smoke); `kue <file>` byte-identical to `kue eval
+<file>`; `kue eval` still reads piped stdin (`a: 1` round-trips).
+`scripts/check-fixtures.sh` `fixture pairs ok` (zero drift, all CLI checks green).
+`shellcheck scripts/check-fixtures.sh` clean. Canaries from `prod9/infra` root:
+cert-manager + argocd
+`jq -S` diff = 0 (entry-UX change doesn't touch eval/export). Total — no
+`partial`/`sorry`/new axioms; the `parse` change is a single pure-arm flip.

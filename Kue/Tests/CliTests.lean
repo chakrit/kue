@@ -2,7 +2,9 @@ import Kue.Cli
 
 namespace Kue.Cli
 
-theorem parse_empty : parse [] = .eval [] := by native_decide
+-- No arguments prints the top-level help (cue/git/docker convention), never the eval
+-- path — this is what makes bare `kue` print usage instead of hanging on stdin.
+theorem parse_empty : parse [] = .help none := by native_decide
 
 theorem parse_bare_file : parse ["a.cue"] = .eval ["a.cue"] := by native_decide
 

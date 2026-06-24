@@ -2,7 +2,6 @@ import Kue.Value
 import Kue.Regex
 import Kue.Lattice
 import Kue.Format
-import Kue.Examples
 import Kue.Parse
 import Kue.Runtime
 import Kue.Manifest
