@@ -1,0 +1,46 @@
+# Builds + RUNS the Lean-into-Go spike inside a Linux container, proving the
+# single cgo binary calls Kue's real evaluator in-process on linux/<arch>.
+#
+# Mirrors ../Dockerfile.linux-build (debian bullseye, elan, the repo's pinned
+# toolchain — built NATIVELY for the container arch; linux/amd64 on an arm64
+# host runs under QEMU, slow but correct), then adds a Go toolchain and runs
+# spike/build.sh. The final RUN executes the spike binary; a wrong result (or a
+# crash) fails the image build, so a green build IS the verdict.
+FROM debian:bullseye-slim
+
+ARG LEAN_TOOLCHAIN
+ARG GO_VERSION=1.23.4
+ENV ELAN_HOME=/root/.elan
+ENV PATH=/root/.elan/bin:/usr/local/go/bin:$PATH
+
+# elan + a C/C++ toolchain (leanc/cgo shell out to cc/c++) + git (lake deps).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# elan, pinned to the repo's toolchain.
+RUN test -n "$LEAN_TOOLCHAIN" || (echo "LEAN_TOOLCHAIN build arg is required" >&2; exit 1) \
+    && curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+        | sh -s -- -y --default-toolchain "$LEAN_TOOLCHAIN" \
+    && lean --version
+
+# Go toolchain — arch-matched to the build platform (dpkg arch maps to Go arch).
+RUN GO_ARCH="$(dpkg --print-architecture)" \
+    && case "$GO_ARCH" in \
+         amd64) GO_ARCH=amd64 ;; \
+         arm64) GO_ARCH=arm64 ;; \
+         *) echo "unsupported arch $GO_ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" \
+        | tar -C /usr/local -xz \
+    && go version
+
+WORKDIR /src
+COPY . /src
+
+# Build the spike (lake build kue -> spike module -> archive -> cgo link) and
+# run it. build.sh's final step runs spike-bin; its "ALL CASES PASSED" line +
+# exit 0 are the proof. grep makes the assertion explicit in the build log.
+RUN bash spike/build.sh 2>&1 | tee /tmp/spike.log \
+    && grep -q "ALL CASES PASSED" /tmp/spike.log \
+    && echo "LINUX SPIKE OK: Lean engine ran in-process inside the Go binary"

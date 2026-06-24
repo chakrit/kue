@@ -8,3 +8,12 @@ dist/
 .git/
 .github/
 *.log
+
+# Host (macOS) spike outputs — arch-specific; the Linux build regenerates them.
+spike/spike-bin
+spike/libkuespike.a
+spike/cgo_flags.go
+spike/gen/
+spike/Spike.c
+spike/Spike.o
+spike/go.sum
