@@ -90,19 +90,25 @@ def parse (v : String) : Option Parsed := do
     return { major, minor, patch := "0", prerelease := [], build := "" }
   let r2' ← if r2.startsWith "." then some (r2.drop 1).toString else none
   let (patch, r3) ← parseInt r2'
-  -- Split off the optional `-prerelease` and `+build` tails.
-  let (preStr, afterPre) :=
+  -- Split off the optional `-prerelease` and `+build` tails. `hasPre`/`hasBuild` record
+  -- whether the marker was actually present, so an EMPTY tail (`v1.2.3-`, `v1.2.3+`,
+  -- `v1.2.3-a+`) is rejected exactly as Go's `parsePrerelease`/`parseBuild` reject `start == i`,
+  -- rather than being conflated with "no tail at all".
+  let (hasPre, preStr, afterPre) :=
     if r3.startsWith "-" then
       let body := (r3.drop 1).toString
       match body.splitOn "+" with
-      | pre :: rest => (pre, if rest.isEmpty then "" else "+" ++ String.intercalate "+" rest)
-      | [] => ("", "")
-    else ("", r3)
-  let (buildStr, tail) :=
-    if afterPre.startsWith "+" then ((afterPre.drop 1).toString, "")
-    else if preStr.isEmpty && r3.startsWith "+" then ((r3.drop 1).toString, "")
-    else ("", afterPre)
+      | pre :: rest => (true, pre, if rest.isEmpty then "" else "+" ++ String.intercalate "+" rest)
+      | [] => (true, "", "")
+    else (false, "", r3)
+  let (hasBuild, buildStr, tail) :=
+    if afterPre.startsWith "+" then (true, (afterPre.drop 1).toString, "")
+    else if !hasPre && r3.startsWith "+" then (true, (r3.drop 1).toString, "")
+    else (false, "", afterPre)
   if !tail.isEmpty then none
+  -- An empty prerelease/build segment after its marker is malformed.
+  else if hasPre && preStr.isEmpty then none
+  else if hasBuild && buildStr.isEmpty then none
   else
     -- Validate prerelease identifiers (each non-empty, valid, not bad-num).
     let preIds := if preStr.isEmpty then [] else preStr.splitOn "."

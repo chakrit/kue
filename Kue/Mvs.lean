@@ -72,11 +72,18 @@ def reachAux (graph : RequirementGraph) : Nat → List ModuleVersion → List Mo
       reachAux graph fuel (requiresOf graph m ++ rest) (visited ++ [m])
 
 /-- The set of module@version nodes reachable from `targets` (inclusive), in discovery order.
-    Fuel = node count + target count, an over-approximation guaranteeing the worklist drains
-    before fuel runs out (each non-skip step adds one distinct node to `visited`, and there are
-    at most `|allNodes|` distinct nodes; skips strictly shrink the worklist). -/
+
+    Fuel bounds TOTAL steps, not distinct expansions — a subtlety that bit the first version
+    (fuel = `|allNodes| + |targets| + 1` silently TRUNCATED a high-fan-in graph, because each
+    `m :: rest` step consumes fuel whether it expands or *skips* an already-visited node, and a
+    node re-required by many parents is re-enqueued once per parent). Sound bound: let
+    `N = |allNodes| + |targets|` over-approximate the distinct nodes ever visited. The worklist
+    starts with `≤ N` items; each of the `≤ N` expansions appends `requiresOf` (`≤ |allNodes| ≤ N`
+    items); so the total items ever enqueued — hence total pops/steps — is `≤ N + N·N ≤ (N+1)²`.
+    Fuel `= (N+1)²` therefore cannot run out before the worklist drains, for ANY graph shape. -/
 def reachable (graph : RequirementGraph) (targets : List ModuleVersion) : List ModuleVersion :=
-  reachAux graph ((allNodes graph).length + targets.length + 1) targets []
+  let n := (allNodes graph).length + targets.length + 1
+  reachAux graph (n * n) targets []
 
 /-- Fold a `path → max-version` association over the reachable nodes: for each node, keep the
     greater (by `Semver.compare`) of the version already recorded for its path and this node's

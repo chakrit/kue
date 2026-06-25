@@ -78,6 +78,13 @@ theorem semver_two_invalids_equal :
 #guard Semver.isValid "v1.2.3-rc.1+build.5"
 #guard Semver.isValid "v2"
 #guard !Semver.isValid "1.0.0"      -- missing the 'v'
+-- Empty prerelease/build segment after its marker is malformed (Go rejects `start == i`).
+#guard !Semver.isValid "v1.2.3-"        -- empty prerelease
+#guard !Semver.isValid "v1.2.3+"        -- empty build
+#guard !Semver.isValid "v1.2.3-alpha+"  -- prerelease then empty build
+#guard !Semver.isValid "v1.2.3-a+b+c"   -- two '+' ⇒ malformed build
+#guard Semver.isValid "v1.2.3+a-b"      -- build identifier may contain '-'
+#guard Semver.isValid "v1.0.0+meta-pre" -- '-' in build is not a prerelease marker
 -- maxVersion folds to the greater.
 #guard Semver.maxVersion "v1.2.0" "v1.10.0" == "v1.10.0"
 #guard Semver.maxVersion "v1.3.0" "v1.2.0" == "v1.3.0"
@@ -205,6 +212,30 @@ theorem mvs_remainder_sorted_by_path :
     (solve (mv "main" "v1.0.0") orderGraph
       == [mv "main" "v1.0.0", mv "alpha" "v1.0.0", mv "mid" "v1.0.0", mv "zeta" "v1.0.0"]) = true := by
   native_decide
+
+/-! ## MVS: high fan-in / dense graph does NOT truncate (fuel soundness)
+
+    A near-complete graph re-enqueues each node once per parent, so the worklist length far
+    exceeds the distinct-node count. The first fuel bound (`|allNodes|+|targets|+1`) bounded only
+    distinct expansions, not total steps, and SILENTLY DROPPED nodes here. The build list must
+    contain every reachable path. -/
+
+private def denseNodes : List String := ["A", "B", "C", "D", "E"]
+private def denseReqs : List ModuleVersion := denseNodes.map (fun n => mv n "v1.0.0")
+private def denseGraph : RequirementGraph :=
+  (mv "main" "v1.0.0", denseReqs) :: denseNodes.map (fun n => (mv n "v1.0.0", denseReqs))
+
+theorem mvs_dense_no_truncation :
+    (solve (mv "main" "v1.0.0") denseGraph
+      == [mv "main" "v1.0.0", mv "A" "v1.0.0", mv "B" "v1.0.0", mv "C" "v1.0.0",
+          mv "D" "v1.0.0", mv "E" "v1.0.0"]) = true := by
+  native_decide
+
+/-! ## Totality pins: only the standard classical axioms, no `sorryAx`/`partial`/custom axiom. -/
+
+-- `#print axioms` emits to stdout; a regression to `sorryAx` would show here in the build log.
+#print axioms Kue.Semver.compare
+#print axioms Kue.Mvs.solve
 
 end Mvs
 end Kue

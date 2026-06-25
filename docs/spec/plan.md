@@ -1071,6 +1071,76 @@ EARLY in/before B3d-6: **B3d-A1** (atomic cache-write — the primitive `cue.sum
 will reuse) and, if the fetch cluster grows, the **`Kue/ModuleFetch.lean`** carve (trigger noted
 above). B3d-B1 (digest newtype) rides B3d-6 itself. No blocker.
 
+## B3d Phase-A audit (2026-06-26, code-quality over `92f0b80..00e288a`)
+
+Batch: B3d-A1 (`80f3ec2`, atomic cache write) + B3d-6a (`00e288a`, `Kue/Semver.lean` +
+`Kue/Mvs.lean` + tests). **Verdict: HEALTHY-with-fixes** — two real Violations found and FIXED
+inline (both localized), zero remaining open.
+
+**Semver conformance (re-derived against Go `x/mod/semver` byte-for-byte).** Ordering is fully
+conformant: the whole prerelease precedence chain (`-alpha < -alpha.1 < -alpha.beta < -beta <
+-beta.2 < -beta.11 < -rc.1 < release`), numeric-vs-alphanumeric, `compareInt`
+length-then-ASCII, build-ignored, invalid<valid all match the oracle. The self-reported
+prerelease fix (splitting "no-prerelease-is-HIGHER", `comparePrerelease`, from
+"shorter-set-is-LOWER", `comparePrereleaseIds`) is CORRECT — no divergent ordering pair found.
+- **VIOLATION (validity, FIXED) — empty prerelease/build segment accepted.** Differential vs Go:
+  `v1.2.3-` (empty prerelease), `v1.2.3+` (empty build), `v1.2.3-alpha+` (prerelease then empty
+  build) parsed as VALID in Kue but Go rejects them (`parsePrerelease`/`parseBuild` reject
+  `start == i`). Root cause: `parse` conflated "no `-`/`+` tail" with "a `-`/`+` tail that is
+  empty", skipping validation when the segment string was empty. Fix: track `hasPre`/`hasBuild`
+  marker-present flags and reject an empty segment after its marker. `isValid` feeds candidate-tag
+  filtering in B3d-6b, so accepting a malformed tag as valid is a real (if narrow) bug. Pinned by
+  6 new `#guard`s in `MvsTests.lean`. (Ordering was unaffected — these strings never arise from a
+  real registry tag — but validity must match.)
+
+**MVS conformance (re-derived against cue `internal/mod/mvs/{mvs.go,graph.go}`).** Max-of-mins
+per path, build-list order (roots-first then `(path, version)`-sorted remainder), distinct-majors
+as distinct paths, cycle termination, unreachable exclusion, empty→just-main all match cue's
+`Graph.Require`/`BuildList`/`sortVersions`. Main-path pin matches cue's stated `Max(target, v) ==
+target` precondition (cue PANICS if violated; Kue silently pins — see Borderline below). The
+worked-example pins select cue's actual versions, not plausible-but-different ones.
+- **VIOLATION (fuel-soundness, FIXED) — `reachable` SILENTLY TRUNCATED dense graphs.** The fuel
+  bound `|allNodes| + |targets| + 1` bounded only DISTINCT expansions, but `reachAux` consumes
+  fuel on every step including SKIPS of already-visited nodes, and a node re-required by k parents
+  is re-enqueued k times. Adversarial near-complete graph (6 distinct nodes): only 4 reached
+  (`main, A, B, C`); `D`, `E` silently dropped → a build list MISSING modules / selecting too-low
+  versions, with no error. Exactly the "wrong-but-silent truncated build list" the audit emphasis
+  flagged. Fix: fuel = `(|allNodes| + |targets| + 1)²`, a provably-sufficient bound on TOTAL steps
+  (worklist ≤ N initial + N expansions × ≤N appends ⇒ ≤ N+N² ≤ (N+1)² pops). Verified the
+  adversarial graph now reaches all 6; pinned by `mvs_dense_no_truncation` (native_decide).
+  Out-of-fuel still returns whatever drained — it cannot now be reached, but a typed-error
+  surfacing is a possible future hardening (noted, not filed: unreachable by construction).
+
+**Totality (`#print axioms`, confirmed empirically — not from doc prose).** `Semver.compare`,
+`Mvs.solve`, `Module.atomicExtractDir`, `atomicWriteBinFile`, `freshNonce` all depend ONLY on
+`[propext, Classical.choice, Quot.sound]` (`freshNonce`: just `propext`/`Classical.choice`) — no
+`sorryAx`, no custom `axiom`, no `partial def`. `#print axioms` pins for `compare`/`solve` added to
+`MvsTests.lean` (emit in the build log; a regression to `sorryAx` would show).
+
+**B3d-A1 atomic-write correctness — CORRECT.** `atomicExtractDir` extracts to a sibling
+`.tmp-<destName>-<nonce>/` (same parent ⇒ same fs ⇒ atomic dir `rename(2)`) then renames onto the
+slot; `locateModuleDir` matches the EXACT `<esc>@<ver>` slot name via `extractCachePath`, so a
+`.tmp-` orphan is never a candidate (verified by reading `locateModuleDir`) — no partial state on
+the read path. Rename-over-existing: loser removes its temp and reuses the extant slot. `freshNonce`
+total. `atomicWriteBinFile` overwrites a stale `.zip` atomically (POSIX file rename over-existing
+is fine, unlike dirs). Crash-window soundness pinned in `check-fetch-pipeline.lean` (green).
+
+**Buckets.**
+- **Violation (FIXED inline):** (1) semver empty-segment validity; (2) MVS fuel truncation.
+- **Borderline (→ Phase B):** `Mvs.solve` silently pins `main` to `main.version` even when the
+  graph names a higher version of main's path; cue treats that as an invariant violation and
+  PANICS (`mistake: chose versions…`). Realistic inputs never trigger it (the main module is
+  always the highest of its own path), but the philosophy-clean form makes it unrepresentable or
+  returns a typed error rather than silently masking. LOW. `Mvs.solve` is also DEAD CODE today
+  (not wired into the resolver) — see the Phase-B handoff note. `atomicExtractDir`'s
+  check-then-rename has a benign TOCTOU window (worst case a rename error, never corruption);
+  hardening to try-rename-with-fallback is optional.
+- **Out-of-scope:** B3d-6b resolver wiring (the network-gated slice); `.afk.log` chore `6f06afa`.
+
+Inline fixes committed this audit: semver `parse` empty-segment rejection (`Kue/Semver.lean`) +
+MVS fuel bound (`Kue/Mvs.lean`) + 7 regression pins (`Kue/Tests/MvsTests.lean`). `lake build` clean
+(136 jobs); `check-fixtures.sh` green; shellcheck clean.
+
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
 **Audit 2026-06-25 (Phase B, architecture/refactor over the whole module graph; B3d-readiness
