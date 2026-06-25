@@ -41,6 +41,15 @@ def failingFetcher : Registry.OciRef → IO (Except String ByteArray) :=
 def isErr (r : Except String System.FilePath) : Bool :=
   match r with | .error _ => true | .ok _ => false
 
+/-- True when `dir` holds no `.tmp-` entry — proves the atomic publish left no orphan after a
+    successful install. A missing `dir` trivially has none. -/
+def noTmpDir (dir : System.FilePath) : IO Bool := do
+  if !(← dir.pathExists) then
+    pure true
+  else
+    let entries ← dir.readDir
+    pure (entries.all fun e => !(e.fileName.startsWith ".tmp-"))
+
 def expect (name : String) (ok : Bool) (allOk : Bool) : IO Bool := do
   if ok then
     IO.println s!"  ok: {name}"
@@ -115,6 +124,49 @@ def main (args : List String) : IO UInt32 := do
     let authorityPath := Registry.extractCachePath ((cacheRootDir / "mod").toString) mv
     allOk ← expect "located dir == Registry.extractCachePath (B3d-5a unification)"
       (located == some (System.FilePath.mk authorityPath)) allOk
+
+    -- B3d-A1 crash-window soundness: a leftover `.tmp-…` dir from an interrupted extract must
+    -- NOT be mistaken for the real module. The `.tmp-` prefix excludes it from the exact
+    -- `<esc>@<ver>` slot name `locateModuleDir` matches, so the read-path keys ONLY off the
+    -- atomically-published slot. Confirm a partial `.tmp-…@…` sibling is ignored, and that no
+    -- `.tmp-` dir lingers after the successful (atomic) install above.
+    -- A crash leaves the exact temp shape `atomicExtractDir` builds: `.tmp-<slot-name>-<nonce>`
+    -- in the slot's immediate parent (`extract/lib.example/`), where `<slot-name>` is the final
+    -- dir's `fileName` (`defs@v0.1.0`) — NOT the full slashed module path.
+    let slotName := (System.FilePath.mk authorityPath).fileName.getD "module"
+    let extractParent := (System.FilePath.mk authorityPath).parent.getD (cacheRootDir / "mod")
+    let partialTmp := extractParent / s!".tmp-{slotName}-crashnonce"
+    IO.FS.createDirAll (partialTmp / "cue.mod")
+    IO.FS.writeFile (partialTmp / "cue.mod" / "module.cue") "module: \"lib.example/defs\"\n"
+    let stillSlot ← locateModuleDir importerRoot fixtureDep
+    allOk ← expect "partial .tmp- extract dir is NOT loaded; locate still resolves the real slot"
+      (stillSlot == some (System.FilePath.mk authorityPath)) allOk
+    IO.FS.removeDirAll partialTmp
+
+    -- Crash-window with NO real slot: a partial `.tmp-…` against an absent slot must leave the
+    -- module unlocatable (no partial load), proving the read-path trusts only the published dir.
+    let absentDep : Dep := { modPath := "lib.example/ghost", version := "v0.1.0" }
+    let absentMv := Registry.mkModuleVersion absentDep.modPath absentDep.version
+    let ghostSlotName := (System.FilePath.mk (Registry.extractCachePath ((cacheRootDir / "mod").toString) absentMv)).fileName.getD "module"
+    let ghostParent := (System.FilePath.mk (Registry.extractCachePath ((cacheRootDir / "mod").toString) absentMv)).parent.getD (cacheRootDir / "mod")
+    let ghostTmp := ghostParent / s!".tmp-{ghostSlotName}-crashnonce"
+    IO.FS.createDirAll (ghostTmp / "cue.mod")
+    IO.FS.writeFile (ghostTmp / "cue.mod" / "module.cue") "module: \"lib.example/ghost\"\n"
+    let ghostLocated ← locateModuleDir importerRoot absentDep
+    allOk ← expect "partial .tmp- dir for an ABSENT slot ⇒ module stays unlocatable (none)"
+      ghostLocated.isNone allOk
+    IO.FS.removeDirAll ghostTmp
+
+    -- Idempotency / re-fetch: fetching when the final slot already exists must NOT crash on
+    -- rename-over-existing — it discards the fresh temp and reuses the extant complete slot.
+    let refetch ← fetchAndCacheModule "" importerRoot fixtureDep (fileZipFetcher zipPath)
+    allOk ← expect "re-fetch over an existing slot succeeds (no rename-over-existing crash)"
+      (refetch.toOption == some (System.FilePath.mk authorityPath)) allOk
+    let afterRefetch ← locateModuleDir importerRoot fixtureDep
+    allOk ← expect "slot still locatable + complete after re-fetch"
+      (afterRefetch == some (System.FilePath.mk authorityPath)) allOk
+    allOk ← expect "no lingering .tmp- dir after re-fetch"
+      (← noTmpDir extractParent) allOk
 
     -- Cleanup the importer subtree (the cache dir itself is the shell's to remove).
     IO.FS.removeDirAll tmpRoot

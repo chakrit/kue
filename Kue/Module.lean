@@ -360,27 +360,77 @@ def readCueSum (importerRoot : System.FilePath) : IO (List (String × String)) :
 def lookupCueSum (sums : List (String × String)) (dep : Dep) : Option String :=
   (sums.find? (fun s => s.fst == s!"{dep.modPath}@{dep.version}")).map (·.snd)
 
+/-- A collision-resistant temp-name suffix for a single write attempt: monotonic-clock
+    nanos paired with a random draw. The nanos give cross-process separation (two processes
+    almost never start an attempt the same nanosecond), the `IO.rand` covers the residual and
+    same-process same-nanos case. Total — both are ordinary `IO` reads, no `partial`. Used to
+    name a sibling `.tmp-…` slot so a leftover from one attempt never collides with another. -/
+def freshNonce : IO String := do
+  let nanos ← IO.monoNanosNow
+  let rand ← IO.rand 0 0xFFFFFF
+  pure s!"{nanos}-{rand}"
+
+/-- Atomic write of `bytes` to `path`: write to a sibling `<path>.tmp-<nonce>` under the same
+    parent (⇒ same filesystem), then `IO.FS.rename` onto `path`. POSIX `rename(2)` is atomic,
+    so `path` is only ever observed with its old contents or the full new contents — never a
+    truncated partial from a crash mid-write. The parent dir is created first. Reusable
+    primitive (B3d-6's `cue.sum`/lockfile writes will share it). -/
+def atomicWriteBinFile (path : System.FilePath) (bytes : ByteArray) : IO Unit := do
+  if let some parent := path.parent then
+    IO.FS.createDirAll parent
+  let nonce ← freshNonce
+  let tmp := System.FilePath.mk s!"{path.toString}.tmp-{nonce}"
+  IO.FS.writeBinFile tmp bytes
+  IO.FS.rename tmp path
+
+/-- Extract `entries` into the final directory slot `dest` atomically: unpack every entry into
+    a sibling temp dir `<parent>/.tmp-<dest-name>-<nonce>/` (SAME parent ⇒ same filesystem),
+    then `IO.FS.rename` that temp dir onto `dest`. POSIX directory `rename(2)` is atomic, so
+    `dest` is only ever observed COMPLETE or ABSENT — a crash mid-extract leaves only an
+    orphaned `.tmp-…` dir, which `locateModuleDir` never matches (it keys off the exact
+    `<esc>@<ver>` slot name, and the `.tmp-` prefix excludes the temp dir from that name).
+    Rename-over-existing race: if another process won and `dest` already exists when we go to
+    rename, discard our temp work (`removeDirAll`) and keep the extant complete slot rather
+    than risk a non-empty-target rename failure. Reusable primitive (B3d-6 reuses it). -/
+def atomicExtractDir (dest : System.FilePath) (entries : List (String × ByteArray)) :
+    IO Unit := do
+  let parent := dest.parent.getD dest
+  let destName := dest.fileName.getD "module"
+  IO.FS.createDirAll parent
+  let nonce ← freshNonce
+  let tmp := parent / s!".tmp-{destName}-{nonce}"
+  -- A fresh nonce makes a pre-existing temp of this exact name effectively impossible; clear
+  -- one defensively so a (vanishingly unlikely) collision can't poison the extract.
+  if ← tmp.pathExists then IO.FS.removeDirAll tmp
+  IO.FS.createDirAll tmp
+  for (name, contents) in entries do
+    let entryPath := joinModulePath tmp name
+    if let some entryParent := entryPath.parent then
+      IO.FS.createDirAll entryParent
+    IO.FS.writeBinFile entryPath contents
+  -- Atomic publish. If a concurrent fetch already published the slot, drop our temp and use
+  -- the extant complete copy (rename onto a non-empty dir would fail).
+  if ← dest.pathExists then
+    IO.FS.removeDirAll tmp
+  else
+    IO.FS.rename tmp dest
+
 /-- Write the fetched module into the cue cache under the cache-layout authority
     (`Registry.{downloadCachePath,extractCachePath}`): the raw verified zip to
-    `<root>/download/<esc-path>/@v/<esc-ver>.zip`, and each unpacked entry under
-    `<root>/extract/<esc-path>@<esc-ver>/` by its zip-relative name. `root` is the
-    `<cacheRoot>/mod` base both `Registry` cache-path builders expect (the dir holding
-    `download/` and `extract/`). Directories are created as needed (`createDirAll`); a simple
-    create-all (not a temp-dir-then-rename) is the alpha atomicity choice — acceptable because
-    the read-path keys off the extract *directory*, and the entries land before any
-    retry-locate reads it. Returns the extract-root path. -/
+    `<root>/download/<esc-path>/@v/<esc-ver>.zip`, and the unpacked entries under
+    `<root>/extract/<esc-path>@<esc-ver>/`. `root` is the `<cacheRoot>/mod` base both
+    `Registry` cache-path builders expect (the dir holding `download/` and `extract/`).
+    BOTH writes are atomic (temp-then-`rename`, via `atomicWriteBinFile`/`atomicExtractDir`):
+    the extract slot is only ever observed complete-or-absent, so `locateModuleDir`'s bare
+    `pathExists` is sound by construction; the `.zip` is whole-then-present for Go-modcache
+    parity. A crash leaves only orphaned `.tmp-…` siblings, never a partial real slot.
+    Returns the extract-root path. -/
 def writeModuleToCache (root : System.FilePath) (mv : Registry.ModuleVersion)
     (zipBytes : ByteArray) (entries : List (String × ByteArray)) : IO System.FilePath := do
   let downloadPath := System.FilePath.mk (Registry.downloadCachePath root.toString mv "zip")
-  if let some parent := downloadPath.parent then
-    IO.FS.createDirAll parent
-  IO.FS.writeBinFile downloadPath zipBytes
+  atomicWriteBinFile downloadPath zipBytes
   let extractRoot := System.FilePath.mk (Registry.extractCachePath root.toString mv)
-  for (name, contents) in entries do
-    let entryPath := joinModulePath extractRoot name
-    if let some parent := entryPath.parent then
-      IO.FS.createDirAll parent
-    IO.FS.writeBinFile entryPath contents
+  atomicExtractDir extractRoot entries
   pure extractRoot
 
 /-- Fetch a declared-but-missing dependency from its OCI registry, verify it, and install it

@@ -181,8 +181,16 @@ those forms.
   to before — the argocd/cert-manager canaries are unaffected). Only when the registry is `none`/
   unset, the fetch fails, or verification fails does the deferral error surface
   (`unresolved import …: module <modpath>@<ver> not found in vendor or cue cache …`). **Cache
-  write is atomic-enough for alpha** (create-all, not temp-dir-then-rename — the read-path keys
-  off the extract directory and entries land before the retry-locate). **`cue.sum` verification:**
+  write is ATOMIC (B3d-A1).** Both writes go through temp-then-`rename`: the extract entries
+  unpack into a sibling `extract/<…>/.tmp-<slot>-<nonce>/` dir (same parent ⇒ same filesystem),
+  then an atomic `IO.FS.rename` publishes the final `extract/<esc-path>@<esc-ver>/` slot — so it
+  is only ever observed COMPLETE or ABSENT and `locateModuleDir`'s bare `pathExists` is sound by
+  construction (a crash mid-extract leaves only an orphaned `.tmp-…` dir the read-path never
+  matches). The `.zip` likewise writes to `<ver>.zip.tmp-<nonce>` then renames (Go-modcache
+  parity). Rename-over-existing race (a concurrent fetch won the slot): the loser discards its
+  temp and reuses the extant complete slot. Reusable primitives `atomicWriteBinFile` /
+  `atomicExtractDir` (Kue/Module.lean) — B3d-6's `cue.sum`/lockfile WRITE will share them.
+  **`cue.sum` verification:**
   cue v0.16.1 ships NO `cue.sum` file (the OCI blob `sha256:` digest, already verified in the
   fetch, is the live integrity gate); kue ADDITIONALLY enforces a `cue.sum` `h1:` line when one is
   present (defensive/forward-compatible — a mismatch REJECTS the install), proceeding when absent.

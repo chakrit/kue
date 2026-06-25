@@ -14528,5 +14528,62 @@ instead of the not-on-disk error.
 ### For B3d-6
 
 MVS version *solving* (resolve a version *range* to a concrete pin), the `cue mod get/tidy`
-commands, and `cue.sum` WRITE. Cache-write atomicity hardening (temp-dir-then-rename) is a B3d-6
-candidate. Private/Bearer-token registries (the `WWW-Authenticate` flow) also remain.
+commands, and `cue.sum` WRITE — the last reuses the `atomicWriteBinFile` primitive landed in
+B3d-A1 (below). Private/Bearer-token registries (the `WWW-Authenticate` flow) also remain.
+
+---
+
+## Completed Slice: Atomic cache write — temp-dir + rename (B3d-A1)
+
+The TOP-RANKED B3d fix from both audit phases. B3d-5's `writeModuleToCache` extracted a fetched
+module's zip entries one-by-one DIRECTLY into the final slot `mod/extract/<esc>@<ver>/`, and
+`locateModuleDir` trusts that dir on a bare `pathExists`. A crash mid-extract left a PARTIAL
+module a later run silently loaded as complete (wrong value, no re-fetch). The bytes are already
+integrity-verified (OCI digest + per-entry CRC), so this is a durability/atomicity bug, not a
+security hole — MED soundness.
+
+### Design — atomic publish via sibling temp + POSIX rename
+
+- **`atomicExtractDir (dest) (entries)`** unpacks every entry into a sibling temp dir
+  `<parent>/.tmp-<dest-fileName>-<nonce>/` — SAME parent as the final slot ⇒ SAME filesystem ⇒
+  POSIX `rename(2)` is atomic — then `IO.FS.rename`s that temp dir onto `dest`. `dest` is
+  therefore only ever observed COMPLETE or ABSENT; `locateModuleDir`'s bare `pathExists` is sound
+  **by construction**, zero read-path change, no second on-disk invariant (the `.partial`-marker
+  alternative was rejected by the Phase-B audit — strictly worse).
+- **`atomicWriteBinFile (path) (bytes)`** does the same for a single file: write `<path>.tmp-<nonce>`
+  then rename onto `path`. The download `.zip` now goes through it (Go-modcache parity — removes the
+  truncated-`.zip` window).
+- Both are **reusable primitives** in `Kue/Module.lean`; B3d-6's `cue.sum`/lockfile WRITE will share
+  `atomicWriteBinFile`.
+
+### Nonce — `freshNonce`, total
+
+`IO.monoNanosNow` (cross-process separation — two attempts almost never start the same nanosecond)
+paired with `IO.rand 0 0xFFFFFF` (covers the residual + same-process same-nanos case), as
+`"<nanos>-<rand>"`. Both are ordinary `IO` reads — **no `partial`**, no failure mode. A fresh nonce
+per attempt means a stale `.tmp-…` from a prior crash never collides; `atomicExtractDir` also
+defensively `removeDirAll`s a same-named pre-existing temp before extracting.
+
+### Stale temp + rename-over-existing
+
+A leftover `.tmp-…` dir is excluded from the exact `<esc>@<ver>` slot name `locateModuleDir`
+matches (the `.tmp-` prefix guarantees it), so a crash orphan is never mistaken for a real module —
+CONFIRMED by test. Inline GC is left to a future `cue mod` cache-clean (B3d-6+), per the audit.
+Rename-over-existing race (a concurrent fetch published the slot first): the loser `removeDirAll`s
+its own temp and reuses the extant complete slot — `rename` onto a non-empty dir is never attempted.
+
+### Crash-window soundness tests (`scripts/check-fetch-pipeline.lean`)
+
+Extended the offline pipeline driver (repo-local `CUE_CACHE_DIR`):
+- a pre-created `.tmp-<slot>-…` partial dir for a PRESENT slot ⇒ `locateModuleDir` still resolves
+  the real published slot, never the partial;
+- a `.tmp-…` partial for an ABSENT slot ⇒ module stays `none` (no partial load);
+- **idempotent re-fetch** over an existing slot succeeds (no rename-over-existing crash) and leaves
+  NO lingering `.tmp-` dir.
+
+### Verification
+
+`lake build` clean (130 jobs, 0 warnings/`sorry`, no new `partial`/axiom). `scripts/check-fixtures.sh`
+green incl. the extended pipeline gate. `shellcheck` clean. Regression: `prod9/infra` argocd canary
+`kue export apps/argocd.cue | jq -S` vs `cue export … | jq -S` = **0-line diff** (read-path
+unmoved).

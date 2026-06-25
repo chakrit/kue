@@ -900,8 +900,17 @@ loader). Filed as the trigger, not a now-slice.
 
 **Findings (ranked):**
 
-- **B3d-A1 (soundness, MED — TOP-RANKED B3d fix) — non-atomic extract cache-write. DESIGN
-  SHARPENED.** Diagnosis unchanged (see Phase-A entry above): `writeModuleToCache` writes extract
+- **B3d-A1 (soundness, MED — TOP-RANKED B3d fix) — non-atomic extract cache-write. ✅ DONE
+  (commit below).** Implemented exactly as the design recommends: extract entries to a sibling
+  `extract/<…>/.tmp-<slot>-<nonce>/` then atomic `IO.FS.rename` onto the final slot; the `.zip`
+  via `<ver>.zip.tmp-<nonce>` + rename for Go-modcache parity. Factored two reusable primitives
+  in `Kue/Module.lean` — `atomicWriteBinFile (path) (bytes)` and `atomicExtractDir (dest)
+  (entries)` — **available for B3d-6's `cue.sum`/lockfile WRITE.** Nonce = `freshNonce`
+  (`IO.monoNanosNow` + `IO.rand 0 0xFFFFFF`), total (no `partial`). Rename-over-existing handled:
+  loser of a slot race discards its temp + reuses the extant slot. Crash-window soundness pinned
+  in `scripts/check-fetch-pipeline.lean` (a `.tmp-…` partial for a present AND an absent slot is
+  never loaded; re-fetch is idempotent and leaves no orphan). Canary 0-line diff. DESIGN
+  SHARPENED record kept below.** Diagnosis unchanged (see Phase-A entry above): `writeModuleToCache` writes extract
   entries one-by-one; a crash mid-extract leaves a partial dir that `locateModuleDir` trusts on bare
   `pathExists`, silently loading an incomplete module. **Concrete recommended design (architecture
   resolution):** mirror Go's modcache two-phase pattern, adapted to our layout —
