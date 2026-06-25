@@ -659,6 +659,63 @@ none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
+**Audit 2026-06-25 (Phase A, code-quality; batch `1bd93d8..fc5456d` = B3d-1/2/3 registry-fetch
+foundation: `Registry.lean`, `Sha256.lean`, `Oci.lean` + tests) — HEALTHY.** All re-derived
+against cue v0.16.1's own OCI tooling (the authority for this non-language-spec layer):
+`internal/mod/modresolve/resolve.go`, `mod/module/escape.go`, `mod/modregistry/client.go`,
+`mod/modzip/zip.go`, and `cuelabs.dev/.../ociref/reference.go`.
+- **Illegal-states (checked first):** strong. `RegistrySpec` (`none` | `reg host insecure repo`)
+  makes "no registry" unconfusable with an empty real one; `Resolution` (`found`/`noRegistry`/
+  `error`) gives `none`-routing its own constructor, never a sentinel host; `OciRef`/`Descriptor`
+  always carry all fields — a manifest omitting any descriptor field is a parse ERROR, not a
+  zero-placeholder. No loose `String`/`Bool`/`Option` carrying a hidden invariant; no
+  "can't-happen" branch a tighter type should erase.
+- **Correctness:** confirmed against source. Registry: complete-element longest-prefix match
+  (`bar` ∤ `barry`), insecure-host defaults, UNescaped repo = `path.Join(prefix, basePath)`,
+  tag = plain version, escape applied to cache dirs only — all matching `resolve.go`. Host/repo
+  first-`/` split coincides with `ociref.Parse`'s `(domainAndPort)/` regex (host never contains
+  `/`). SHA-256: NIST vectors + 0/55/56/63/64/65/119 padding boundaries pinned vs an independent
+  `shasum`; dirhash `%x  %s\n` two-space line + byte-sort + `h1:`+base64Std verified vs the Go
+  algorithm; BARE zip-entry names confirmed vs `modzip.Create` (line 563 `zw.Create(path)`, no
+  `<mod>@<ver>/` prefix). Oci: by-mediaType exactly-one layer selection (stronger than cue's
+  index check) accepts every well-formed cue manifest, rejects malformed.
+- **Totality:** no `partial`/`sorry`/axiom in any of the three modules; `#print axioms` on
+  `resolveFromConfig`/`parseConfig`/`sha256`/`hash1`/`parseModuleManifest` shows only
+  `propext`/`Classical.choice`/`Quot.sound`.
+- **DRY/reuse:** `hash1` reuses `Kue.base64Encode`; Oci reuses the stdlib `Lean.Json.parse`
+  (genuinely dependency-free, total) — `Kue/Json.lean` is serialize-only, so no second parser.
+  `hex` is genuinely new (no prior bytes→hex helper). No cross-module duplication.
+- **Test strength:** strong. No `testdata/` fixtures slipped in (pure unit pins only — the
+  fixture-pair rule N/A). Edge pins present for empty-config, IPv6 (loopback + non-loopback +
+  port), duplicate-prefix/catch-all errors, SHA-256 multi-block, dirhash ordering, manifest
+  duplicate/absent-layer, malformed JSON, missing/non-numeric fields.
+- **Inline fix (LOW-RISK, committed `11cfc77`):** the registry-fetch decision note said B3d-2
+  would "reuse `Json.lean`"; that file is serialize-only and the slice correctly used the stdlib
+  parser. The durable docs (compat-assumptions L619, impl-log L14066) already described the actual
+  choice; only the pre-slice decision note misled. Aligned both references.
+
+Borderline (flagged once, NOT fixed — `cue`-byte-identity is never the gate):
+- **Oci error phrasings drift from `client.go`.** cue's `GetModuleWithManifest` prints the manifest
+  *response* mediaType (`"%v does not resolve to a manifest (media type is %q)"`); Kue prints the
+  *config* mediaType in `"does not resolve to a module manifest (config media type is …)"`. The
+  CHECK is identical (`isModule` on config mediaType); only the message text differs. Tests assert
+  `.error _`, so no behavior gate. Leave as-is unless a future slice needs message parity.
+- **`isModuleFile` artifactType branch unmodelled.** cue accepts the modulefile layer if EITHER
+  `desc.ArtifactType` OR `desc.MediaType` equals the modulefile type (`client.go:593`); Kue's
+  `parseDescriptor` drops `artifactType` and matches on `mediaType` only. cue's own producer
+  (`putCheckedModule:393`) sets `MediaType`, so every cue-produced manifest passes; the gap is a
+  foreign producer that tags the type in `artifactType` only — narrow, and consistent with Kue's
+  documented "strictly stronger than cue's index check" stance.
+- **`hostOf` unbracketed-multi-colon host string.** For an (invalid, cue-rejected) bare IPv6 like
+  `2001:db8::1`, Kue keeps text before the LAST colon while cue's `net.SplitHostPort` errors and
+  falls back to the whole string. The `isInsecureHost` RESULT agrees (secure) and such hosts are
+  rejected upstream by `ociref`, so no real divergence.
+
+Out-of-scope (pre-existing / deferred-by-design, noted not fixed): the `file:`/`inline:` and full
+CUE-syntax config form (`pathEncoding`/`stripPrefix`/`prefixForTags`/`hashAsRepo`/`hashAsTag`) are
+footnote-deferred in compat-assumptions; host/path/version VALIDITY (`CheckPath`/`IsValidHost`/
+semver) is a documented caller invariant, not enforced here. Both are intentional B3d scope cuts.
+
 **Audit 2026-06-23 (Phase A, code-quality, SCOPED single-pass; batch `890d453..2bd75eb` =
 resilience/retrospective pass + A2-y import-name redeclaration) — HEALTHY.** A2-y is the only code
 change. **OVER-strictness: NONE** — every valid witness oracle'd vs cue v0.16.1 ACCEPTS where cue
