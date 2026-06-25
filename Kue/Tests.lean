@@ -20,6 +20,7 @@ import Kue.Tests.ManifestTests
 import Kue.Tests.ModuleTests
 import Kue.Tests.NormalizeTests
 import Kue.Tests.NumberTests
+import Kue.Tests.OciManifestTests
 import Kue.Tests.OrderTests
 import Kue.Tests.ParseTests
 import Kue.Tests.PresenceTests

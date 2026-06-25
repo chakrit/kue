@@ -14044,6 +14044,87 @@ escaping/tag rules are cue tooling, outside the language spec).
 
 ---
 
+## Completed Slice: B3d-2 — OCI image-manifest parsing (PURE, offline)
+
+Goal: parse a CUE module's OCI image manifest (`application/vnd.oci.image.manifest.v1+json`)
+JSON into typed descriptors — a total, PURE `String → Except String OciManifest` with NO
+network / `curl` / IO. The impure `curl` GET that produces the manifest bytes is B3d-4's edge;
+this is its pure, theorem-pinned core. Transport decision:
+`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`.
+
+### What landed
+
+New pure, IO-import-free module `Kue/Oci.lean` (+ `Kue/Tests/OciManifestTests.lean`,
+registered in `Kue.lean` / `Kue/Tests.lean`). NOT yet wired into `Module.lean` — that is
+B3d-4/5.
+
+- **Typed, illegal-states-unrepresentable** `structure Descriptor` (`mediaType`, `digest`,
+  `size : Nat`) + `structure OciManifest` (`config : Descriptor`, `layers : List Descriptor`).
+  A manifest that omits any descriptor field is a parse ERROR, never a descriptor with an
+  empty/zero placeholder. `schemaVersion` and the manifest-level `mediaType` are not retained
+  (not load-bearing for descriptor extraction; cue itself never re-checks `schemaVersion`).
+- **`parseManifest : String → Except String OciManifest`** over Lean's standard `Lean.Json.parse`
+  (`Lean.Data.Json`, shipped with the toolchain). **No second JSON parser:** `Kue/Json.lean`
+  only SERIALIZES (`ManifestValue → String`), so reusing the stdlib parser is the "reuse, don't
+  reinvent" intent of the slice; it adds no Lake dependency. A malformed JSON document surfaces
+  that parser's error cleanly; a missing/wrong-typed field surfaces `Lean.Json`'s own typed
+  error (`property not found: …` / `String expected` / `Natural number expected`).
+- **Layer selection BY mediaType, exactly-one** (`moduleZipDescriptor` → `application/zip`,
+  `moduleFileDescriptor` → `application/vnd.cue.modulefile.v1`): `selectUniqueLayer` errors if a
+  wanted layer is absent OR duplicated — never silently first-wins. This is strictly STRONGER
+  than cue's blind `layers[0]`/`layers[1]` indexing (it rejects an ambiguous/absent layer cue
+  would mis-read) while conforming to every well-formed manifest cue produces.
+- **`validateModuleManifest`** enforces cue's `GetModuleWithManifest` invariants with conforming
+  error phrasing: `isModule` (config mediaType == `application/vnd.cue.module.v1+json`), exactly
+  two layers (`"module manifest should refer to exactly two blobs, but got N"`), both selectable
+  layers present+unique. `isModuleManifest` / `parseModuleManifest` are the bool / one-shot forms.
+
+### Conformance (cue v0.16.1 source — authoritative OCI protocol, NOT the language spec)
+
+`mod/modregistry/client.go`:
+- `unmarshalManifest` — JSON-decodes into `ociregistry.Manifest`.
+- `isModule` — `m.Config.MediaType == moduleArtifactType` (`"application/vnd.cue.module.v1+json"`).
+- `isModuleFile` — `desc.MediaType == moduleFileMediaType` (`"application/vnd.cue.modulefile.v1"`).
+- `GetModuleWithManifest` — `len(Layers) == 2`; `isModuleFile(Layers[1])`; the error strings we
+  mirror.
+- `putCheckedModule` — the construction side: `Layers[0]` is the module zip (`application/zip`,
+  `Size`, `Digest = digest.FromBytes(zip)`), `Layers[1]` is `cue.mod/module.cue`
+  (`moduleFileMediaType`). The digest is the `sha256:<hex>` string we preserve VERBATIM so B3d-4
+  can compare `Sha256.digestString blob == d.digest`.
+
+### Illegal-states-unrepresentable + totality
+
+Every descriptor carries all three fields by construction; `OciManifest` is config + layers. All
+functions total — no `partial`, `sorry`, or axiom; parsing is `Except`-threaded, never panics.
+
+### Test coverage
+
+17 `native_decide`/`#guard` pins in `OciManifestTests.lean` (representative in-Lean manifest JSON
+— the cache stores extracted files, not the manifest, so there is no raw manifest on disk to
+golden against): a well-formed 2-layer module manifest → `moduleZipDescriptor` /
+`moduleFileDescriptor` yield the right `{mediaType, digest, size}`, digest preserved verbatim;
+config mediaType ≠ module type → `isModuleManifest` false + `validateModuleManifest` error; zip
+layer absent OR duplicated → typed error (never first-wins); malformed JSON → clean parse error;
+valid JSON missing a `digest` field / with a non-numeric `size` → typed error, no crash;
+`parseDescriptor` in isolation (well-formed + missing-`mediaType`).
+
+### Verify
+
+`lake build` 122 jobs green (no warning/`sorry`/axiom; every `native_decide`/`#guard` pin
+checked). `scripts/check-fixtures.sh` `fixture pairs ok` (zero drift; no fixtures added — pure
+unit-pinned). No shell touched. NO cue-divergence (conformed to cue's own OCI tooling); no
+spec-gap (OCI manifest parsing is tooling protocol, outside the CUE language spec — noted in
+`compat-assumptions.md`).
+
+### For B3d-4
+
+- B3d-4 GETs the manifest at the resolved OCI ref (B3d-1), `parseManifest`s it,
+  `validateModuleManifest`s it, then GETs the `moduleZipDescriptor` blob and checks
+  `Sha256.digestString blob == descriptor.digest` (B3d-3). `moduleFileDescriptor` lets it fetch
+  just `cue.mod/module.cue` for MVS dependency resolution without pulling the full zip.
+
+---
+
 ## Completed Slice: B3d-3 — SHA-256 (FIPS 180-4) + `cue.sum` `h1:` dirhash (PURE)
 
 Goal: the cryptographic primitive the B3d registry-fetch track needs — a total, IO-free

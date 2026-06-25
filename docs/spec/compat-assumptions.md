@@ -610,6 +610,34 @@ hash/strip/tag-prefix encodings and the file/inline kinds are not yet implemente
 that requires them is out of B3d-1 scope. (`modconfig.go` handles the kind split upstream;
 the simple parser receives the post-`simple:`-strip string.)
 
+## OCI image-manifest parsing (B3d-2)
+
+`Kue/Oci.lean` parses a CUE module's OCI image manifest
+(`application/vnd.oci.image.manifest.v1+json`) into typed descriptors — purely and offline
+(`String → Except String OciManifest`). This is OCI-tooling protocol, NOT the CUE language
+spec, so the authority is cue's own `mod/modregistry/client.go` (v0.16.1), conformed to
+exactly. Reuses Lean's standard `Lean.Json.parse` (`Kue/Json.lean` only serializes — there is
+no second JSON parser).
+
+- **Module identity.** A manifest is a CUE module iff `config.mediaType ==
+  "application/vnd.cue.module.v1+json"` (cue's `isModule`). A differing config mediaType yields
+  a typed "not a module manifest" error, never a silent accept.
+- **Layers.** A well-formed module manifest has exactly TWO layers: the module zip
+  (`application/zip`) and `cue.mod/module.cue` (`application/vnd.cue.modulefile.v1`). cue
+  constructs them as `layers[0]`/`layers[1]` and validates by index. **Kue selects each layer
+  BY mediaType and requires exactly one match** (`moduleZipDescriptor` / `moduleFileDescriptor`
+  error on an absent OR duplicated layer) — strictly stronger than cue's blind indexing, still
+  accepting every well-formed manifest cue produces, and never silently picking the first of an
+  ambiguous pair. `validateModuleManifest` additionally enforces the exactly-two-layers and
+  `isModule` invariants with cue's error phrasing.
+- **Descriptors.** Each `Descriptor` carries `mediaType`, the `sha256:<hex>` `digest`
+  (preserved VERBATIM for B3d-4's `Sha256.digestString blob == digest` check), and `size`. A
+  manifest that omits any field is a parse error, not a zero/empty placeholder.
+- **Not retained.** `schemaVersion` and the manifest-level `mediaType` are parsed-over but not
+  kept — they are not load-bearing for descriptor extraction and cue never re-checks
+  `schemaVersion`. Manifest `annotations` (module metadata) are likewise out of scope here;
+  B3d does not yet consume them.
+
 ## SHA-256 + `cue.sum` `h1:` dirhash (B3d-3)
 
 `Kue/Sha256.lean` provides a total, IO-free SHA-256 (FIPS 180-4) and the Go

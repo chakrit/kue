@@ -586,6 +586,28 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      build green, fixtures zero-drift. The `file:`/`inline:` kinds + CUE-syntax config-file
      form (`pathEncoding`/`stripPrefix`/`prefixForTags`/hash encodings) are DEFERRED (see
      `compat-assumptions.md`). NOT yet wired into `Module.lean` — that is B3d-4/5.
+   - **B3d-2 — OCI image-manifest parsing (PURE, offline) — DONE (2026-06-25).** New pure,
+     IO-free `Kue/Oci.lean` (+ `Kue/Tests/OciManifestTests.lean`). `parseManifest : String →
+     Except String OciManifest` over Lean's standard `Lean.Json.parse` (NO second JSON parser —
+     `Kue/Json.lean` only serializes; reusing the stdlib parser is the "reuse, don't reinvent"
+     intent, and adds no Lake dependency). Typed, illegal-states-unrepresentable `Descriptor`
+     (`mediaType`/`digest`/`size`) + `OciManifest` (`config` + `layers`): a manifest that omits
+     any descriptor field is a parse error, never a placeholder. Conformed to cue v0.16.1's OCI
+     tooling `mod/modregistry/client.go` (`unmarshalManifest`, `isModule`, `isModuleFile`, the
+     2-layer invariant in `GetModuleWithManifest`, the construction in `putCheckedModule`) — the
+     authoritative protocol, NOT the language spec. **Layer-selection rule:** `moduleZipDescriptor`
+     / `moduleFileDescriptor` select BY mediaType (`application/zip` / `application/vnd.cue.modulefile.v1`)
+     and require EXACTLY ONE match — strictly stronger than cue's blind `layers[0]`/`layers[1]`
+     indexing (rejects an ambiguous/absent layer cue would mis-read), still conforming to every
+     well-formed manifest cue produces. `validateModuleManifest` enforces cue's invariants with
+     conforming error phrasing: `isModule` (config mediaType == `application/vnd.cue.module.v1+json`),
+     exactly two layers, both selectable layers present+unique. Digest strings preserved VERBATIM
+     so B3d-4 can compare `Sha256.digestString blob == d.digest`. Total, no `partial`/`sorry`/
+     axiom. 17 `native_decide`/`#guard` pins (well-formed → right zip/modulefile descriptors;
+     non-module config → typed reject; zip absent/duplicated → error, never first-wins; malformed
+     JSON / missing-field / non-numeric-size → clean typed error, no crash). Representative
+     in-Lean manifest JSON (the cache stores extracted files, not the manifest). NOT yet wired
+     into `Module.lean` — B3d-4 GETs the manifest, then GETs+verifies the zip blob this names.
    - **B3d-3 — SHA-256 (FIPS 180-4) + `cue.sum` `h1:` dirhash (PURE) — DONE (2026-06-25).**
      New pure, IO-free `Kue/Sha256.lean` (+ `Kue/Tests/Sha256Tests.lean`). Total `UInt32`/
      `ByteArray` SHA-256 (the 64 `K` constants, 8 `H0`, padding with big-endian 64-bit length
