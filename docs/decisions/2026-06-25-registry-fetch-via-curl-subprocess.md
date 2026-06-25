@@ -50,8 +50,10 @@ The win isn't just transport — it's that the OCI *protocol* splits cleanly int
 core + a **thin impure edge**:
 
 - **PURE (fixture / `native_decide` testable, zero network):** `CUE_REGISTRY` parsing,
-  module-path → OCI repo escaping, version → tag, OCI manifest JSON parsing (reuse
-  `Json.lean`), digest + `cue.sum` dirhash, download/extract cache-path computation.
+  module-path → OCI repo escaping, version → tag, OCI manifest JSON parsing (reuse the
+  stdlib `Lean.Json.parse` — `Kue/Json.lean` turned out serialize-only, so B3d-2 reuses
+  the toolchain's parser, no second JSON parser), digest + `cue.sum` dirhash,
+  download/extract cache-path computation.
 - **IMPURE (thin, in `Module.lean`):** the actual `curl` GET of manifest + blob, and the
   zip extraction. Network-tested; logged as needing network if unverifiable offline.
 
@@ -66,8 +68,9 @@ fetched module then evaluates to.
 1. **B3d-1 — `CUE_REGISTRY` parse + module→OCI-ref resolution** (PURE). Simple-syntax registry
    config (default, host[:port], `/path` prefix, `+insecure`/`+secure`, `prefix=reg` longest-
    match, `none`); path-escape → repo; version → tag. `file:`/CUE-syntax config = footnote-deferred.
-2. **B3d-2 — OCI manifest + blob-descriptor parse** (PURE, via `Json.lean`): pull the module-
-   content layer digest/size/mediaType from a manifest.
+2. **B3d-2 — OCI manifest + blob-descriptor parse** (PURE, via the stdlib `Lean.Json.parse`;
+   `Kue/Json.lean` is serialize-only): pull the module-content layer digest/size/mediaType
+   from a manifest.
 3. **B3d-3 — SHA-256 + `h1:` dirhash** (PURE): digest verification + `cue.sum`.
 4. **B3d-4 — the `curl` IO edge** (`Module.lean`): GET manifest + blob, tag-list for version
    enumeration. Network.
