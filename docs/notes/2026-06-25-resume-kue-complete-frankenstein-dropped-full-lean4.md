@@ -1,6 +1,10 @@
 # RESUME HERE — kue complete; Go-FFI frankenstein DROPPED; full Lean 4 (2026-06-25)
 
-Live START-HERE; supersedes the spike-COMMIT and CLI-entry-UX breadcrumbs (deleted).
+**SUPERSEDED (2026-06-26) by [`2026-06-25-resume-b3d-registry-fetch-active.md`](2026-06-25-resume-b3d-registry-fetch-active.md)**
+— its "project complete, no autonomous leader" framing is OBE; B3d is now the active track.
+Kept for the pre-B3d durable findings below. NOT the live START-HERE.
+
+Prior-state note; supersedes the spike-COMMIT and CLI-entry-UX breadcrumbs (deleted).
 Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 [`../reference/implementation-log.md`](../reference/implementation-log.md).
 
