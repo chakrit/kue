@@ -765,9 +765,10 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      live in `Registry.lean` and have no second consumer either. Extracting a shared
      bytes-util before a second consumer exists is a premature abstraction (the repo's
      illegal-states-first philosophy favors tight homes, not speculative util drawers).
-     **Re-evaluate when B3d-4 lands** — if the curl edge needs hex/percent-encoding outside
-     `Sha256`/`Registry`, file the extraction THEN, with the real second consumer to shape
-     the boundary.
+     **Re-evaluated at B3d-4 (2026-06-26, Phase-B): CONFIRMED STILL YAGNI** — the curl edge
+     added NO cross-module hex/int-read consumer (`Sha256.beWord` is BE, `Zip.u16`/`u32` are LE,
+     one consumer each; `Inflate` is bit-level only). Next trigger is a THIRD module needing
+     multi-byte int reads. Full re-eval in the B3d Phase-B audit section below.
 
 **Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
 re-litigate): the walkers were NEVER one problem — three distinct walker families + a
@@ -873,6 +874,144 @@ correct). Overlapping LZ77 back-copy is byte-by-byte (correct).
 Inline fixes committed this audit: NONE (both findings are slice-sized, not low-risk-inline).
 `lake build` clean (130 jobs); `check-fixtures.sh` green (ocifetch + pipeline + zip golden +
 fixture pairs); shellcheck clean.
+
+## B3d Phase-B audit (2026-06-26, architecture/refactor over the whole module graph)
+
+Scope: the B3d module graph (`Registry`/`Sha256`/`Oci`/`OciFetch`/`Inflate`/`Zip` + `Module.lean`
+wiring) plus a B3d-6-readiness check. **Verdict: HEALTHY-with-fixes.** Module graph is clean (no
+cycles; IO contained; `Eval`/`Resolve`/`Value` import ZERO B3d module). One architecture fix-slice
+SHARPENED (B3d-A1, below — the design is now concrete), one new LOW fix-slice filed (B3d-B1, digest
+newtype, B3d-6-adjacent). `Kue/Bytes.lean` re-evaluation: confirmed-negative (no shared signature).
+Build green (130 jobs), full fixtures + shellcheck green.
+
+**Module-graph health (confirmed).** Import edges: `Sha256→Base64`; `Oci→{Lean.Json, Registry}`;
+`OciFetch→{Oci, Sha256, Registry}`; `Zip→Inflate`; `Inflate` leaf; `Registry` leaf;
+`Module→{Parse, Runtime, Registry, OciFetch, Zip, Sha256}`. No cycles. IO is confined to `OciFetch`
+(the sole `IO.Process` user) and `Module` (cache writes) — `Registry`/`Sha256`/`Oci`/`Inflate`/`Zip`
+are pure and `native_decide`-testable. The pure-island → thin-IO-edge seam the decision note promised
+holds exactly. Each module is single-responsibility. **`Module.lean` (624 lines) is NOT yet outgrowing
+its home** — the fetch/cache logic (`readCueRegistry`/`readCueSum`/`lookupCueSum`/`writeModuleToCache`/
+`fetchAndCacheModule`, ~90 lines) is a coherent IO-edge cluster, not yet large enough to warrant a
+`Kue/ModuleFetch.lean` carve. **Re-evaluate at B3d-6:** `cue mod get/tidy` + MVS solving + `cue.sum`
+WRITE will add substantial IO+logic to this same edge; if that pushes the fetch cluster past
+~200 lines or introduces a distinct command-dispatch responsibility, carve `Kue/ModuleFetch.lean`
+THEN (it would import `OciFetch`/`Zip`/`Sha256`/`Registry`, leaving `Module.lean` the read-path +
+loader). Filed as the trigger, not a now-slice.
+
+**Findings (ranked):**
+
+- **B3d-A1 (soundness, MED — TOP-RANKED B3d fix) — non-atomic extract cache-write. DESIGN
+  SHARPENED.** Diagnosis unchanged (see Phase-A entry above): `writeModuleToCache` writes extract
+  entries one-by-one; a crash mid-extract leaves a partial dir that `locateModuleDir` trusts on bare
+  `pathExists`, silently loading an incomplete module. **Concrete recommended design (architecture
+  resolution):** mirror Go's modcache two-phase pattern, adapted to our layout —
+  1. **Extract to a sibling temp dir, then atomic `IO.FS.rename` into place.** Write all entries
+     under `extract/.tmp-<esc-path>@<esc-ver>-<pid-or-nonce>/` (SAME parent dir ⇒ same filesystem ⇒
+     POSIX `rename(2)` is atomic), then `IO.FS.rename` that temp dir onto the final
+     `extract/<esc-path>@<esc-ver>/` slot. The slot therefore only ever exists complete-or-absent;
+     `locateModuleDir`'s `pathExists` test becomes sound WITHOUT a marker file. This is the minimal,
+     filesystem-guaranteed fix and the recommended path.
+  2. **The download `.zip` is already whole-then-present** (single `writeBinFile`), so leave it — but
+     for full parity with Go's modcache, write it to `<ver>.zip.tmp` then `rename` to `<ver>.zip` too
+     (cheap, removes the one-line race where a crash between open and full write leaves a truncated
+     `.zip`; the read-path doesn't consume `.zip` today so this is belt-and-suspenders, do it in the
+     same slice for consistency).
+  3. **Reject the `.partial`-marker alternative.** A marker file (write `.partial`, extract, delete
+     `.partial`; `locateModuleDir` skips any dir with a `.partial` sibling) ALSO works but is strictly
+     worse: it adds a second on-disk invariant the read-path must check on EVERY locate, and a crash
+     between "delete marker" and nothing leaves no window but a crash that deletes the marker without
+     completing extract (impossible in our order, but the pattern invites it) is a latent footgun.
+     Temp-dir-rename needs ZERO read-path change and has no second invariant. Prefer it.
+  4. **Cleanup of orphaned temp dirs:** a crash leaves `.tmp-…` dirs behind. Don't GC them inline
+     (that's a `cue mod` cache-maintenance concern); just make the temp name collision-free per
+     attempt (nonce/pid) so a retry never trips on a stale temp, and let `cue mod` cache-clean (a
+     B3d-6+ command) sweep them. Note this as a known residual, not a blocker.
+  **Is it its own slice? YES** — touches the live IO write path, needs a same-filesystem temp
+  location + a rename, and adds a crash-window pipeline assertion (extract a partial dir, assert
+  `locateModuleDir` does NOT trust it). NOT low-risk-inline. Rank: do it as the FIRST B3d-6-adjacent
+  slice (before or alongside B3d-6 cache-touching work — the atomic-write primitive B3d-6's
+  `cue.sum` WRITE + `cue mod tidy` will also want).
+
+- **B3d-B1 (type-leverage, LOW — B3d-6-adjacent) — `Descriptor.digest`/`cue.sum` h1 stringly-typed.**
+  `Descriptor.digest : String`, the `sha256:`-prefixed OCI digest, and the `cue.sum` `h1:` hash are
+  compared with verbatim `==` (correct, fails closed) but carry an unenforced format invariant
+  (`sha256:` + 32 lowercase hex bytes; `h1:` + std-base64 of 32 bytes). **Decision: YAGNI NOW, file
+  LOW, trigger at B3d-6.** Rationale: the digest is preserved verbatim PRECISELY to compare against
+  `Sha256.digestString`'s output (same producer/format), there is exactly ONE comparison site
+  (`curlGetVerified`), and a non-canonical server value fails closed — so a `Digest` newtype buys no
+  safety the current code lacks. Its real payoff is at the PARSE boundary AND at B3d-6's `cue.sum`
+  WRITE (which must EMIT a well-formed `h1:` — a `Hash`/`Digest` smart constructor makes "emit a
+  malformed sum" unrepresentable). **Recommended design when triggered:** a `Digest` structure with a
+  smart constructor `parse : String → Except String Digest` (validate `sha256:` prefix + 32×2
+  lowercase-hex), `digest : Descriptor` becomes `Digest`, `Sha256.digestString` returns `Digest`
+  directly, and the comparison becomes a `DecidableEq` on the refined type — parse-once-at-boundary,
+  illegal digests unrepresentable. Same for a `Hash1` newtype on the `cue.sum` side. **Do it as part
+  of B3d-6** (where the second consumer — sum WRITE — exists to shape the boundary), NOT a speculative
+  refactor now. A wide inline refactor here is exactly the premature abstraction the philosophy warns
+  against.
+
+**Type-leverage sweep of the six new modules (no further fix-slices):**
+- `Registry.RegistrySpec` (none|reg sum), `Registry.Resolution` (found|noRegistry|error sum),
+  `Zip.Method` (stored|deflate sum), `Oci.Descriptor`/`OciManifest` (all-fields-required structs) are
+  ALREADY illegal-states-tight — good. No `Bool`+invariant or `Option`+invariant reducible to a sum
+  was found beyond B3d-B1's strings.
+- **`Inflate.readDynamicTables` `else -- sym == 18` (BORDERLINE, not filed).** After matching
+  `sym<16`/`==16`/`==17`, the `else` assumes `sym==18`; a hypothetical `sym≥19` would be silently
+  handled as 18. UNREACHABLE by construction — `clcTable = Huffman.build clcLens` over 19 symbols
+  (0..18), so `decode` can only emit `sym≤18`. A refined Huffman-symbol type could erase the branch,
+  but at disproportionate cost (the bound is a property of `Huffman.build`'s input array length, not
+  cheaply expressible as a dependent index without threading a proof through every decode). Per the
+  philosophy's "reach for dependent types where they buy REAL safety — not for their own sake," this
+  stays as-is. Recorded so it is not re-raised. (Same shape, ACCEPTABLE, in `Inflate.decompressBlock`
+  `sym>285` and the `inflate` `_ => reserved BTYPE=3` — the latter genuinely exhausts a 2-bit pattern,
+  total.)
+
+**`Kue/Bytes.lean` re-evaluation (the B3d-4 trigger fired) — CONFIRMED STILL YAGNI.** Phase-B 2026-06-25
+said "re-evaluate when B3d-4 lands"; now it has. **Consumer count of shared byte→int / byte→hex
+helpers across the whole graph:**
+- **bytes→hex:** `Sha256.hex` only — ONE encoder, consumed by `digestString` + `hash1`, both inside
+  `Sha256.lean`. (`Yaml.hexDigit` is an is-hex-digit PREDICATE, not encoding — no duplication.)
+- **byte→int reads:** `Sha256.beWord` (BIG-endian u32, one internal site) vs `Zip.u16`/`Zip.u32`
+  (LITTLE-endian, Zip-internal). DIFFERENT endianness, DIFFERENT width set, ONE consumer each.
+- **`Inflate`:** bit-level reads only (`BitReader`), ZERO byte-offset int reads — no overlap at all.
+- **`Registry`:** no byte helpers.
+A shared `Bytes.lean` would collect `hex` + `beU32` + `leU16` + `leU32`, each with a single consumer
+in its home module and NO cross-module call. That is a speculative util-drawer with zero dedup —
+exactly the premature abstraction the illegal-states-first philosophy rejects (tight homes over util
+drawers). **Verdict: do NOT extract. Re-trigger only if a THIRD module needs LE OR BE multi-byte int
+reads** (e.g. a future tar/gzip reader sharing `leU32` with `Zip`) — then the boundary has a real
+shape. Recorded durably so this is not re-litigated each audit.
+
+**Test/fixture health.** Organization is COHERENT, not sprawling: `Kue/Tests/{RegistryTests,
+Sha256Tests,OciManifestTests,ZipTests}.lean` (native_decide pins, one per pure module) +
+`scripts/check-{ocifetch,fetch-pipeline,zip}.lean` (the IO/file-driven fixture drivers, which can't be
+`native_decide`'d) + `testdata/{ocifetch,zip}`. The split (pure→pins, IO→script-drivers) is the right
+seam and mirrors the module split. No oversized test module among the four. **Seam coverage gap stands
+(B3d-A2, filed Phase-A, LOW):** the DEFLATE/ZIP adversarial reject branches (invalid Huffman code,
+distance-too-far-back, STORED LEN/NLEN, fuel exhaustion, bad CD sig, unsupported method, CRC/size
+mismatch) are pinned only for BTYPE=3 — B3d-A2 closes it. No new test finding.
+
+**Performance-guide currency.** `kue-performance.md` needs a B3d note (inflate cost on large zips is
+O(output size) with fuel-bounded loops; fetch latency is curl/network-dominated, off the eval hot
+path; the new `native_decide` pins — sha256 vectors, zip golden — add compile-time `native_decide`
+cost but are one-shot, not per-eval). Filed as a LOW doc-touch fold-in (note added to plan; the guide
+edit itself is trivial and can ride the B3d-A2 or A1 slice). Not blocking.
+
+**Out-of-scope / acceptable (not findings):** the `else`-chain branches noted above (unreachable by
+construction); `config` blob unverified (only mediaType load-bearing); curl flag choices (fail-loud,
+per decision note). All correct.
+
+Inline fixes committed this audit: NONE (B3d-A1/B1 are slice-sized; B3d-A2 stands; the perf note is a
+trivial fold-in for a coming slice). `lake build` clean (130 jobs); `check-fixtures.sh` green;
+shellcheck clean.
+
+**B3d-6 readiness: READY.** The architecture is correctly shaped for B3d-6 (MVS solving + `cue mod
+get/tidy` + `cue.sum` WRITE): the pure protocol island (`Registry`/`Oci`/`Sha256`) gives MVS its
+offline resolution + version→tag + escaping primitives; `Sha256.hash1` already produces the `h1:` line
+B3d-6 must WRITE; the IO edge is contained and extensible. Two architecture preconditions to land
+EARLY in/before B3d-6: **B3d-A1** (atomic cache-write — the primitive `cue.sum` WRITE + `cue mod tidy`
+will reuse) and, if the fetch cluster grows, the **`Kue/ModuleFetch.lean`** carve (trigger noted
+above). B3d-B1 (digest newtype) rides B3d-6 itself. No blocker.
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
