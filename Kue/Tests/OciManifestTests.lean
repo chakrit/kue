@@ -186,5 +186,95 @@ theorem non_numeric_size_errors :
 #guard (match parseDescriptor (Lean.Json.mkObj [("digest", "sha256:ab"), ("size", (7 : Nat))]) with
   | .error _ => true | .ok _ => false)
 
+/-! ## OCI Distribution endpoints + curl argv (B3d-4 PURE builders)
+
+    Expected shapes from `ocirequest/create.go` (`/v2/<repo>/manifests/<tag>`,
+    `/v2/<repo>/blobs/<digest>`) and `client.go` `doRequest` (the `Accept` header set). The
+    `OciRef` inputs mirror what `Registry.resolve` produces. -/
+
+-- A secure registry GETs the manifest over HTTPS at `/v2/<repo>/manifests/<tag>`.
+theorem manifest_url_secure :
+    (manifestUrl ⟨"registry.cue.works", false, "fruit.com/apple", "v1.2.3"⟩
+      == "https://registry.cue.works/v2/fruit.com/apple/manifests/v1.2.3") = true := by
+  native_decide
+
+-- An insecure (loopback/+insecure) registry uses HTTP.
+theorem manifest_url_insecure :
+    (manifestUrl ⟨"localhost:5000", true, "fruit.com/apple", "v1.2.3"⟩
+      == "http://localhost:5000/v2/fruit.com/apple/manifests/v1.2.3") = true := by
+  native_decide
+
+-- A repository carrying a registry path-prefix is kept whole in the URL path.
+theorem manifest_url_path_prefix :
+    (manifestUrl ⟨"reg.example.com", false, "offset/example.com/blah", "v0.0.1"⟩
+      == "https://reg.example.com/v2/offset/example.com/blah/manifests/v0.0.1") = true := by
+  native_decide
+
+-- An IPv6 host (brackets preserved verbatim by the resolver) flows through unchanged.
+theorem manifest_url_ipv6_host :
+    (manifestUrl ⟨"[::1]:5000", true, "x.com/m", "v1.0.0"⟩
+      == "http://[::1]:5000/v2/x.com/m/manifests/v1.0.0") = true := by
+  native_decide
+
+-- The blob endpoint is `/v2/<repo>/blobs/<digest>`, the digest verbatim in the path.
+theorem blob_url_secure :
+    (blobUrl ⟨"registry.cue.works", false, "fruit.com/apple", "v1.2.3"⟩
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      == "https://registry.cue.works/v2/fruit.com/apple/blobs/"
+         ++ "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") = true := by
+  native_decide
+
+theorem blob_url_insecure :
+    (blobUrl ⟨"localhost:5000", true, "x.com/m", "v1.0.0"⟩ "sha256:abcd"
+      == "http://localhost:5000/v2/x.com/m/blobs/sha256:abcd") = true := by
+  native_decide
+
+-- Scheme selection: insecure → http, secure → https.
+#guard scheme ⟨"h", true, "r", "t"⟩ == "http"
+#guard scheme ⟨"h", false, "r", "t"⟩ == "https"
+
+-- The Accept media types match cue's `knownManifestMediaTypes`, in order (image manifest first).
+theorem accept_types_match_cue :
+    (manifestAcceptTypes
+      == [ "application/vnd.oci.image.manifest.v1+json",
+           "application/vnd.oci.image.index.v1+json",
+           "application/vnd.oci.artifact.manifest.v1+json",
+           "application/vnd.docker.distribution.manifest.v1+json",
+           "application/vnd.docker.distribution.manifest.v2+json",
+           "application/vnd.docker.distribution.manifest.list.v2+json",
+           "*/*" ]) = true := by
+  native_decide
+
+-- Each Accept type becomes one `-H "Accept: <type>"` pair (mirroring Go's multi-valued header).
+theorem accept_header_args_one_H_each :
+    (acceptHeaderArgs ["application/vnd.oci.image.manifest.v1+json", "*/*"]
+      == ["-H", "Accept: application/vnd.oci.image.manifest.v1+json", "-H", "Accept: */*"])
+      = true := by
+  native_decide
+
+-- Base flags: silent-but-show-errors, follow-redirects, fail-with-body.
+#guard curlBaseFlags == ["-sSL", "--fail-with-body"]
+
+-- The full manifest GET argv: base flags, every Accept header, then the URL (URL last).
+theorem manifest_curl_argv_exact :
+    (manifestCurlArgs ⟨"registry.cue.works", false, "fruit.com/apple", "v1.2.3"⟩
+      == ["-sSL", "--fail-with-body",
+          "-H", "Accept: application/vnd.oci.image.manifest.v1+json",
+          "-H", "Accept: application/vnd.oci.image.index.v1+json",
+          "-H", "Accept: application/vnd.oci.artifact.manifest.v1+json",
+          "-H", "Accept: application/vnd.docker.distribution.manifest.v1+json",
+          "-H", "Accept: application/vnd.docker.distribution.manifest.v2+json",
+          "-H", "Accept: application/vnd.docker.distribution.manifest.list.v2+json",
+          "-H", "Accept: */*",
+          "https://registry.cue.works/v2/fruit.com/apple/manifests/v1.2.3"]) = true := by
+  native_decide
+
+-- The full blob GET argv: base flags then the URL — no Accept negotiation (content-addressed).
+theorem blob_curl_argv_exact :
+    (blobCurlArgs ⟨"localhost:5000", true, "x.com/m", "v1.0.0"⟩ "sha256:abcd"
+      == ["-sSL", "--fail-with-body", "http://localhost:5000/v2/x.com/m/blobs/sha256:abcd"])
+      = true := by
+  native_decide
+
 end Oci
 end Kue

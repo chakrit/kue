@@ -664,3 +664,44 @@ So the dirhash `name` is the raw zip-entry path. `hash1` is name-agnostic; the z
 contents)` pairs; reading a module zip into that list is the IO edge, B3d-4. cue v0.16.1
 itself relies on OCI blob-digest verification rather than writing a `cue.sum` in its embedded
 source path; `h1:` here serves verification of the `cue.sum` format `cue mod` produces.
+
+## OCI fetch over a `curl` subprocess (B3d-4)
+
+`Kue/OciFetch.lean` is the IO edge that GETs a module's OCI manifest + blobs off a registry,
+over a `curl` subprocess (decision
+`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`). The protocol is the OCI
+Distribution Spec v1.1, conformed to cue's own client (`cuelabs.dev/.../ociregistry/ociclient`
++ `mod/modregistry/client.go`, v0.16.1) — tooling, not the CUE language spec, so the Go code is
+the authority. Pure URL/argv builders live in `Kue/Oci.lean`; the impure runner is the only
+`IO.Process` user in the codebase.
+
+- **Endpoints used.** Manifest GET `<scheme>://<host>/v2/<repository>/manifests/<tag>`; blob GET
+  `<scheme>://<host>/v2/<repository>/blobs/<digest>`. `<scheme>` is `http` for an insecure
+  (loopback / `+insecure`) registry, `https` otherwise. `<repository>`/`<tag>` come from
+  `Registry.resolve` (B3d-1); the tag is the plain version.
+- **Manifest `Accept` header.** A manifest GET offers cue's `knownManifestMediaTypes` (OCI image
+  manifest + index, the deprecated artifact type, three docker manifest types, `*/*`) as one
+  `-H "Accept: <type>"` per type — some registries withhold the body without an explicit
+  `Accept`. A blob GET sends no `Accept` (content-addressed by digest).
+- **curl flags (fail-loud).** `-sSL --fail-with-body`: silent-but-show-errors, follow redirects
+  (registries 307 a blob to object storage), and exit non-zero on a non-2xx HTTP status while
+  still surfacing the error body. An HTTP error is a Lean `Except.error`, never an empty success.
+- **Integrity gate.** A fetched blob is REJECTED unless `Sha256.digestString bytes ==
+  descriptor.digest` (B3d-3's verifier). A corrupt/tampered/wrong-content blob is an error.
+- **Byte fidelity.** stdout is captured as RAW bytes (`spawn` + `readBinToEnd`), not via
+  `IO.Process.output` (which UTF-8-decodes and would corrupt a binary zip).
+
+**Verification.** The whole curl composition is offline-tested against `file://` fixtures
+(`testdata/ocifetch/`, driven by `scripts/check-ocifetch.lean` under `check-fixtures.sh`),
+including digest-mismatch rejection. The live HTTPS fetch from `registry.cue.works` is
+human-gated (network egress is outside the AFK envelope) and logged in `.afk.log`.
+
+**DEFERRED.**
+- **Registry auth / login.** The fetch assumes anonymous access (the Central Registry serves
+  public modules without a token). The Bearer-token `WWW-Authenticate` challenge/response flow,
+  `cue login`, and credential stores are NOT implemented — a private/authenticated registry is
+  out of scope until B3d-6.
+- **Tag listing for MVS.** `GET /v2/<repo>/tags/list` (version enumeration for MVS version
+  *solving*) is NOT implemented here; B3d-4 fetches a known `<tag>`. Version solving is B3d-6.
+- **Resolver wiring.** B3d-4 only provides the fetch capability; replacing `Module.lean`'s
+  `registry fetch is B3d` error with resolve → fetch → verify → cache-write → extract is B3d-5.

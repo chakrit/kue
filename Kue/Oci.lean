@@ -1,4 +1,5 @@
 import Lean.Data.Json
+import Kue.Registry
 
 /-!
 # OCI image-manifest parsing (B3d-2, PURE, offline)
@@ -151,6 +152,77 @@ def validateModuleManifest (m : OciManifest) : Except String OciManifest := do
 /-- Parse and validate in one step: `parseManifest` then `validateModuleManifest`. -/
 def parseModuleManifest (text : String) : Except String OciManifest := do
   validateModuleManifest (← parseManifest text)
+
+/-! ## OCI Distribution endpoints + curl argv (B3d-4, PURE)
+
+    The HTTP request shapes cue's OCI client uses, built purely so the impure edge
+    (`Kue/OciFetch.lean`) only runs `curl` against them. Authoritative protocol source
+    (cue v0.16.1 — tooling, so the Go code IS the spec):
+    - `cuelabs.dev/go/oci/ociregistry/ociclient/internal/ocirequest/create.go`: the URL paths
+      `GET /v2/<repo>/manifests/<tag>` and `GET /v2/<repo>/blobs/<digest>`.
+    - `ociclient/client.go` `doRequest`: a manifest GET sends a multi-valued `Accept` header
+      with `knownManifestMediaTypes` (image manifest + index, the deprecated artifact type, the
+      docker manifest types, and `*/*`).
+    The scheme is `http` for an `insecure` (loopback/`+insecure`) registry, `https` otherwise. -/
+
+/-- The request scheme for an `OciRef`: `http` when `insecure`, else `https`. -/
+def scheme (ref : Registry.OciRef) : String :=
+  if ref.insecure then "http" else "https"
+
+/-- `GET /v2/<repository>/manifests/<tag>` — the manifest endpoint for a resolved module
+    (`ocirequest` `ReqManifestGet`). The tag is the plain version (`v0.3.19`). -/
+def manifestUrl (ref : Registry.OciRef) : String :=
+  s!"{scheme ref}://{ref.host}/v2/{ref.repository}/manifests/{ref.tag}"
+
+/-- `GET /v2/<repository>/blobs/<digest>` — the blob (zip / module-file) endpoint. `digest` is
+    the descriptor's verbatim `sha256:<hex>` string (a content-addressed GET). -/
+def blobUrl (ref : Registry.OciRef) (digest : String) : String :=
+  s!"{scheme ref}://{ref.host}/v2/{ref.repository}/blobs/{digest}"
+
+/-- The `Accept` media types cue's client sends on a manifest GET, in order
+    (`client.go` `knownManifestMediaTypes`). Some registries withhold the manifest body without
+    an explicit `Accept`, so all known kinds are offered (and `*/*` as a fallback). -/
+def manifestAcceptTypes : List String :=
+  [ "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.oci.artifact.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "*/*" ]
+
+/-! ### curl argv
+
+    Flags chosen by philosophy — fail loudly, never silently mis-succeed:
+    - `-s` silent (no progress meter) + `-S` show-errors (a `-s`-suppressed error still prints to
+      stderr) — quiet success, loud failure.
+    - `-L` follow redirects: registries 307 a blob GET to backing object storage; without `-L`
+      curl would return the redirect body, not the blob.
+    - `--fail-with-body`: a non-2xx HTTP status makes curl exit non-zero (so the IO runner sees
+      the failure) WHILE still writing the error body to stdout (`--fail` alone discards it), so a
+      registry's JSON error is preserved for the diagnostic. An HTTP 404/401 must be a Lean
+      `Except.error`, never a successful empty fetch.
+
+    Output goes to stdout (`IO.Process.output` captures it as bytes); no `-o <file>`, so nothing
+    is written to disk by the fetch itself (cache-write is B3d-5). -/
+
+/-- The base curl flags every GET shares (silent-but-show-errors, follow-redirects, fail-loud). -/
+def curlBaseFlags : List String :=
+  ["-sSL", "--fail-with-body"]
+
+/-- The `-H "Accept: <type>"` argv pairs for a manifest GET — one `-H` per media type, mirroring
+    Go's multi-valued `Accept` header (`req.Header["Accept"] = knownManifestMediaTypes`). -/
+def acceptHeaderArgs (types : List String) : List String :=
+  types.flatMap (fun t => ["-H", s!"Accept: {t}"])
+
+/-- Full curl argv for a manifest GET: base flags, the `Accept` headers, then the URL. -/
+def manifestCurlArgs (ref : Registry.OciRef) : List String :=
+  curlBaseFlags ++ acceptHeaderArgs manifestAcceptTypes ++ [manifestUrl ref]
+
+/-- Full curl argv for a blob GET: base flags, then the URL. A blob is content-addressed, so no
+    `Accept` negotiation — the digest fixes the bytes. -/
+def blobCurlArgs (ref : Registry.OciRef) (digest : String) : List String :=
+  curlBaseFlags ++ [blobUrl ref digest]
 
 end Oci
 end Kue

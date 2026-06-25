@@ -627,6 +627,43 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      mixed vector (all vs `shasum -a 256`), the digest/hex/primitive forms, and TWO end-to-end
      `h1:` values reproduced INDEPENDENTLY from the Go algorithm via `shasum`+`base64` — a true
      cross-check, no soft gap. NOT yet wired into `Module.lean` — that is B3d-4/5.
+   - **B3d-4 — OCI fetch over a `curl` subprocess (offline-verified) — DONE (2026-06-26).**
+     The IO edge of the B3d track, decomposed into PURE builders + a THIN impure runner. PURE
+     (`Kue/Oci.lean`, `native_decide`-pinned): `manifestUrl`/`blobUrl` (the OCI Distribution
+     endpoints `…/v2/<repo>/manifests/<tag>` and `…/v2/<repo>/blobs/<digest>` per
+     `ocirequest/create.go`), `scheme` (http for insecure, https else), `manifestAcceptTypes`
+     (cue's `knownManifestMediaTypes` verbatim — image manifest + index, the deprecated artifact
+     type, the three docker types, `*/*`), and the curl argv builders `manifestCurlArgs`/
+     `blobCurlArgs` over `curlBaseFlags = ["-sSL", "--fail-with-body"]`. IMPURE
+     (`Kue/OciFetch.lean`, the codebase's FIRST `IO.Process` user; imports only the pure trio
+     Oci/Sha256/Registry — never Eval/Resolve/Value, the Phase-B seam): `runCurl` (spawns curl,
+     captures stdout as RAW bytes via `spawn` + `readBinToEnd` — NOT `IO.Process.output`, which
+     UTF-8-decodes and would corrupt a binary zip; stdout drained before `wait` so a large body
+     never deadlocks), `curlGet`, `curlGetVerified` (the SHA-256 integrity gate at URL level),
+     `fetchManifest` (GET → `parseManifest` → `validateModuleManifest`), `fetchBlob`
+     (`curlGetVerified` against `descriptor.digest`), `fetchModuleZip` (manifest → zip descriptor
+     → verified blob bytes; stops at bytes — extract/cache-write are B3d-5). **curl flags chosen
+     by philosophy — fail loud, never silently mis-succeed:** `-s` silent + `-S` show-errors,
+     `-L` follow redirects (registries 307 a blob GET to object storage), `--fail-with-body` (a
+     non-2xx HTTP status exits non-zero so the runner sees the failure, while still writing the
+     error body for the diagnostic — `--fail` alone discards it). Manifest GET sends one
+     `-H "Accept: <type>"` per media type, mirroring Go's multi-valued `Accept` header. **Digest
+     integrity is the gate:** a fetched blob is REJECTED unless `Sha256.digestString bytes ==
+     descriptor.digest` — a corrupt/tampered/wrong-content blob is an error, never a silent
+     success. **Offline-tested** via `scripts/check-ocifetch.lean` (run by
+     `scripts/check-fixtures.sh`): drives the whole curl composition against `file://` URLs over
+     committed `testdata/ocifetch/` fixtures (a valid 2-layer manifest + a `module.zip` blob with
+     its real precomputed sha256 as the descriptor digest), asserting curl reads file://, captured
+     bytes hash to the fixture digest (byte-faithful), digest-verify PASSES on the correct digest,
+     digest-verify REJECTS a wrong digest, a missing path errors (no silent empty success), and the
+     fixture manifest validates with its zip digest matching the blob. No network, no out-of-tree
+     writes. Total, no `partial`/`sorry`; pure builders depend only on `propext`, the IO functions
+     on the standard `propext`/`Quot.sound`/`Classical.choice` every `IO` action carries. **The
+     live HTTPS fetch from `registry.cue.works` is human-gated** (network egress is outside the
+     AFK envelope): implemented + offline-verified, but the real-registry smoke is logged in
+     `.afk.log` with the exact `curl` one-liner to run — a logged gap, not a failure. NOT wired
+     into `Module.lean` — replacing the `registry fetch is B3d` error with
+     resolve→fetch→verify→cache-write→extract→read-path is B3d-5.
    - **B3d-5a — UNIFY the cache-layout authority (DRY, MED; do AS PART OF B3d-5) — OPEN.**
      The extract-cache path is now computed in TWO places that must agree once B3d-5 wires
      fetch→write→read: the read-path `Module.lean` `locateModuleDir` builds

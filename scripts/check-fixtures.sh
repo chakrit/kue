@@ -10,6 +10,7 @@ readonly repo_root
 readonly fixture_dir="${repo_root}/testdata/cue"
 readonly export_dir="${repo_root}/testdata/export"
 readonly module_dir="${repo_root}/testdata/modules"
+readonly ocifetch_dir="${repo_root}/testdata/ocifetch"
 generated_dir=
 
 cleanup() {
@@ -384,6 +385,27 @@ check_cli_behavior() {
   return "${status}"
 }
 
+# Drive the B3d-4 OCI-fetch curl seam against `file://` fixtures (testdata/ocifetch/),
+# OFFLINE. Proves the whole composition — curl subprocess, raw-byte capture, SHA-256 digest
+# verification — works without a network or a real registry, and that the digest-integrity
+# gate rejects a tampered blob. The live HTTPS fetch from registry.cue.works is human-gated
+# (see .afk.log); this covers everything reproducible offline.
+check_ocifetch_seam() {
+  if [[ ! -d "${ocifetch_dir}" ]]; then
+    return 0
+  fi
+
+  if ! lake build Kue.OciFetch >/dev/null; then
+    printf 'failed to build Kue.OciFetch\n' >&2
+    return 1
+  fi
+
+  if ! lake env lean --run "${repo_root}/scripts/check-ocifetch.lean" "${ocifetch_dir}"; then
+    printf 'OCI-fetch file:// seam check failed\n' >&2
+    return 1
+  fi
+}
+
 main() {
   local status=0
   local cue_file
@@ -436,6 +458,10 @@ main() {
   fi
 
   if ! check_cli_behavior; then
+    status=1
+  fi
+
+  if ! check_ocifetch_seam; then
     status=1
   fi
 

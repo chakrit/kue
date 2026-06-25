@@ -1,0 +1,44 @@
+# AFK blocker log — Kue slice loop
+
+## B3d-4 live-registry fetch — BLOCKER (needs a human; logged, not failed)
+
+- **What:** B3d-4 (OCI fetch over a curl subprocess) is implemented and offline-verified.
+  The pure URL/argv/Accept builders (`Kue/Oci.lean`) are `native_decide`-pinned, and the
+  impure edge (`Kue/OciFetch.lean`: `runCurl`/`curlGet`/`curlGetVerified`/`fetchManifest`/
+  `fetchBlob`/`fetchModuleZip`) is driven end-to-end through `curl` against `file://`
+  fixtures by `scripts/check-ocifetch.lean` (wired into `scripts/check-fixtures.sh`),
+  including the digest-mismatch REJECTION path. What was NOT run: a real HTTPS GET from
+  `registry.cue.works`.
+
+- **Why it needs a human:** the only true verification of the live edge is an actual
+  network egress to a real registry, which is OUTSIDE the AFK envelope (no outward-facing
+  / network actions, no writes outside the tree). So the live smoke is human-gated, not
+  auto-run.
+
+- **What to run to verify (one-liner, no Kue needed — exercises the exact request shape
+  B3d-4 builds):** fetch a real CUE module manifest from the Central Registry. Pick a
+  module known to be published, e.g. the registry's own probe, and GET its manifest with
+  the same flags + Accept headers Kue emits:
+
+      curl -sSL --fail-with-body \
+        -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+        -H "Accept: application/vnd.oci.image.index.v1+json" \
+        -H "Accept: */*" \
+        https://registry.cue.works/v2/<module-path>/manifests/<version>
+
+  (Replace `<module-path>`/`<version>` with a real published module, e.g. one of your own
+  `prodigy9.co/...@v...` deps. A 2xx + a JSON manifest body confirms the live path; the
+  config `mediaType` should be `application/vnd.cue.module.v1+json`.) Then GET the zip
+  blob it references:
+
+      curl -sSL --fail-with-body \
+        https://registry.cue.works/v2/<module-path>/blobs/<zip-layer-digest>
+
+  Once B3d-5 wires the edge into the resolver, the integration smoke becomes: delete the
+  dep from vendor + cache, then `kue export <file>` and confirm it fetches + digest-verifies
+  + resolves (instead of the `registry fetch is B3d` error). A one-word go-ahead unblocks
+  running the live smoke.
+
+- **Note (auth):** `registry.cue.works` serves public modules anonymously, so the GET above
+  needs no token. Authenticated/private registries (Bearer-token `WWW-Authenticate` flow)
+  are a deferred B3d-6 concern — see `docs/spec/compat-assumptions.md`.

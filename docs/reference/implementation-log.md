@@ -14221,3 +14221,120 @@ protocol + a published standard, outside the CUE language spec — noted in
   it hands B3d-4.
 - **`cue.sum` (B3d-5)**: `hash1` takes the in-memory `(zip-entry-name, contents)` list; the
   zip reader (B3d-4) supplies BARE entry names verbatim (no `<module>@<version>/` prefix).
+
+---
+
+## Completed Slice: B3d-4 — OCI fetch over a `curl` subprocess (offline-verified)
+
+Goal: the IO edge of the B3d registry-fetch track — actually GET an OCI module manifest +
+blob off a registry, over a `curl` subprocess (decision
+`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`), decomposed into PURE,
+offline-testable builders plus a thin impure runner. B3d-4 only PROVIDES the fetch capability;
+wiring it into the resolver (the `Module.lean` fetch-trigger) is B3d-5.
+
+### PURE — OCI Distribution URL/argv builders (`Kue/Oci.lean`)
+
+Authoritative protocol source (cue v0.16.1 tooling, so the Go code IS the spec): the URL paths
+in `cuelabs.dev/go/oci/ociregistry/.../ocirequest/create.go` and the manifest `Accept` header
+set in `ociclient/client.go` `doRequest`. Added (all `native_decide`/`#guard`-pinned):
+
+- `scheme : OciRef → String` — `http` if `insecure` else `https`.
+- `manifestUrl ref` → `<scheme>://<host>/v2/<repository>/manifests/<tag>`.
+- `blobUrl ref digest` → `<scheme>://<host>/v2/<repository>/blobs/<digest>` (digest verbatim).
+- `manifestAcceptTypes` — cue's `knownManifestMediaTypes` in order: the OCI image manifest +
+  index, the deprecated `…artifact.manifest.v1+json`, the three docker manifest types, then
+  `*/*`. Some registries withhold the body without an explicit `Accept`, so all known kinds are
+  offered.
+- `curlBaseFlags := ["-sSL", "--fail-with-body"]`; `acceptHeaderArgs` (one
+  `-H "Accept: <type>"` per type, mirroring Go's multi-valued header);
+  `manifestCurlArgs`/`blobCurlArgs` (full argv, URL last).
+
+`Oci.lean` gained `import Kue.Registry` (pure → pure; it consumes `Registry.OciRef`).
+
+**curl flags — chosen by philosophy (fail loud, never silently mis-succeed):** `-s` silent (no
+progress meter) + `-S` show-errors (a `-s`-suppressed error still prints to stderr); `-L`
+follow redirects (registries 307 a blob GET to backing object storage — without `-L` curl
+returns the redirect body, not the blob); `--fail-with-body` (a non-2xx HTTP status makes curl
+exit non-zero so the IO runner sees the failure, WHILE still writing the error body to stdout —
+`--fail` alone discards it, so the registry's JSON error is preserved for the diagnostic). An
+HTTP 404/401 is thus a Lean `Except.error`, never a successful empty fetch. Output goes to
+stdout (no `-o`), so the fetch itself writes nothing to disk.
+
+### IMPURE — the thin curl runner + fetch composition (`Kue/OciFetch.lean`, NEW)
+
+The codebase's FIRST `IO.Process` user. Imports only the pure trio Oci/Sha256/Registry — never
+Eval/Resolve/Value (the Phase-B seam: IO depends on the pure protocol core, never the reverse).
+Each function is a total `IO (Except String _)`:
+
+- `runCurl args` — **spawns** curl (`stdout := .piped`) and captures stdout as RAW bytes via
+  `readBinToEnd`. NOT `IO.Process.output`: that decodes stdout as a UTF-8 `String`, which
+  corrupts a binary module zip and would make digest verification compare mangled bytes. stdout
+  (the body, possibly large) is drained BEFORE `wait` so a full pipe never deadlocks the child;
+  stderr (kept small, since `--fail-with-body` routes error bodies to stdout) is read after.
+  Exit 0 → `ok bytes`; non-zero → `error` with the exit code + stderr.
+- `curlGet url extraArgs` — the single curl seam every fetch routes through
+  (`curlBaseFlags ++ extraArgs ++ [url]`).
+- `curlGetVerified url expectedDigest` — the SHA-256 **integrity gate** at URL level: requires
+  `Sha256.digestString bytes == expectedDigest`, else error. Expressed at the URL level so it is
+  exercisable against a `file://` fixture offline.
+- `fetchManifest ref` — GET (with the manifest `Accept` headers) → `parseManifest` →
+  `validateModuleManifest`; returns a confirmed 2-layer CUE module manifest.
+- `fetchBlob ref descriptor` — `curlGetVerified (blobUrl ref descriptor.digest) descriptor.digest`.
+  A corrupt/tampered/wrong-content blob is REJECTED — the integrity gate the whole B3d-3 SHA-256
+  work exists to enforce.
+- `fetchModuleZip ref` — manifest → `moduleZipDescriptor` → `fetchBlob`; returns the verified
+  zip BYTES. Extraction + cache-write + resolver wiring are B3d-5.
+
+No `partial`/`sorry`. The pure builders depend only on `propext`; the IO functions on the
+standard `propext`/`Quot.sound`/`Classical.choice` every `IO` action carries.
+
+### Offline test — the curl seam end-to-end via `file://` (NO network)
+
+Mechanism (matches the existing IO-test idiom — `scripts/write-fixture-ports.lean` run by
+`scripts/check-fixtures.sh`): a new `scripts/check-ocifetch.lean`, run as
+`lake env lean --run scripts/check-ocifetch.lean <testdata/ocifetch>` and wired into
+`check-fixtures.sh` (`check_ocifetch_seam`), so the loop's verify gate covers it. Fixtures under
+`testdata/ocifetch/` (committed, repo-local): `manifest.json` (a valid 2-layer cue module
+manifest whose zip-layer digest is the REAL sha256 of `module.zip`), `module.zip` (an opaque
+blob standing in for a module zip — the seam tests integrity, not zip validity, which is B3d-5),
+`modulefile.cue` (the module-file blob). Six assertions, all PASSING:
+
+1. `curlGet` reads a `file://` blob (the subprocess seam works without a network).
+2. captured bytes hash to the fixture digest (raw-byte capture is byte-faithful — proves
+   `readBinToEnd`, not UTF-8 String decoding).
+3. `curlGetVerified` (the `fetchBlob` path) PASSES on the correct digest.
+4. **`curlGetVerified` REJECTS a mismatched digest** — the integrity gate, the whole point of
+   verifying blobs (REQUIRED test).
+5. `curlGet` on a missing path errors (curl exits non-zero → `Except.error`; no silent empty
+   success).
+6. the fixture manifest validates + its zip descriptor digest matches `module.zip`.
+
+The fixture digests were precomputed with `shasum -a 256` (an impl kue does not share — a true
+cross-check). No network, no out-of-tree writes (the script only READS the fixtures).
+
+### Verify
+
+`lake build` 124 jobs green (no warning/`sorry`; the new pure pins all checked).
+`scripts/check-fixtures.sh` → `fixture pairs ok` + the `ocifetch file:// seam ok` block (all six
+assertions). `shellcheck scripts/check-fixtures.sh` clean. `curl --version` present
+(8.20.0). No cue-divergence (conformed to the OCI Distribution spec + cue's client). Spec gap:
+none beyond what `compat-assumptions.md` already records for the fetch edge (auth/login,
+tag-listing for MVS = B3d-6).
+
+### The live-registry fetch — human-gated (logged, not failed)
+
+The real HTTPS GET from `registry.cue.works` was NOT run: network egress + out-of-tree writes
+are outside the AFK envelope. The edge is implemented + offline-verified (`file://`); the live
+smoke is logged in `.afk.log` with the exact `curl` one-liner (manifest GET with the same flags
++ `Accept` headers Kue emits, then a blob GET) a human can run — a one-word go-ahead unblocks it.
+A logged gap, not a failure; the slice lands green offline.
+
+### For B3d-5 (wire into resolver)
+
+B3d-5 replaces the `Module.lean:32` `moduleNotOnDiskError` (`registry fetch is B3d`) with:
+resolve (`Registry.resolveFromConfig` over `$CUE_REGISTRY`) → `OciFetch.fetchManifest` →
+`moduleZipDescriptor` → `OciFetch.fetchBlob` (or `fetchModuleZip` for both at once) → write the
+verified zip to the download cache (`Registry.downloadCachePath`) → unzip into the extract cache
+(`Registry.extractCachePath`) → fall through to the existing read-path (`locateModuleDir`). It
+also folds in B3d-5a (unify the cache-layout authority). B3d-4's edge hands it the verified zip
+bytes; what it still needs is a zip extractor and the cache directory writes (both new IO).

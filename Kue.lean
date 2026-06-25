@@ -18,5 +18,6 @@ import Kue.Module
 import Kue.Sha256
 import Kue.Registry
 import Kue.Oci
+import Kue.OciFetch
 import Kue.Cli
 import Kue.Tests
