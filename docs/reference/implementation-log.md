@@ -13964,3 +13964,80 @@ hang (was exit 124 / timeout); bare `kue </dev/null` → help + exit 0; `kue eva
 cert-manager + argocd
 `jq -S` diff = 0 (entry-UX change doesn't touch eval/export). Total — no
 `partial`/`sorry`/new axioms; the `parse` change is a single pure-arm flip.
+
+---
+
+## Completed Slice: B3d-1 — `CUE_REGISTRY` parse + module→OCI-ref resolution (PURE)
+
+Goal: the fully PURE, offline foundation of the B3d registry-fetch track — given a
+`CUE_REGISTRY` config string + a module path + a version, compute the OCI location (host,
+secure-flag, repository, tag) with NO network, NO `curl`, NO IO. Transport decision:
+`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`.
+
+### What landed
+
+New pure, IO-import-free module `Kue/Registry.lean` (+ `Kue/Tests/RegistryTests.lean`,
+registered in `Kue.lean` / `Kue/Tests.lean`). NOT yet wired into `Module.lean` — that is
+B3d-4/5. Two pieces:
+
+1. **`CUE_REGISTRY` simple-syntax parser** (`parseConfig`, `parseRegistry`). Empty/unset →
+   the Central Registry default `registry.cue.works`, secure. A comma-separated list of
+   `prefix=registryspec` (prefix-routed) or bare `registryspec` (catch-all) entries. A
+   registry spec = `host` / `host:port` / `[::1]:5000`, an optional `/repository`
+   path-prefix (split at the FIRST `/`), an optional `+secure`/`+insecure` suffix (peeled at
+   the LAST `+`, index > 0). The literal `none` (global or `prefix=none`) means "no
+   registry". Errors: empty part, empty prefix, empty reference, duplicate prefix, duplicate
+   catch-all, unknown suffix.
+
+2. **`module@version → OciRef` resolution** (`resolve`, `resolveFromConfig`,
+   `selectRegistry`, `prefixMatches`, `joinRepo`). Longest-complete-element-prefix match
+   (`foo/bar` matches `foo/bar/x`, NOT `foo/barry`; exact `prefix==path` wins outright;
+   catch-all fallback). A `none` registry resolves to `Resolution.noRegistry` (fetch must
+   fail cleanly). The repository = `joinRepo(prefix, basePath)`, the tag = the plain
+   version.
+
+### Conformance (cue v0.16.1 source — authoritative OCI protocol, NOT the language spec)
+
+- `internal/mod/modresolve/resolve.go`: `ParseCUERegistry` (the simple-syntax parse +
+  duplicate/empty rules), `parseRegistry` (one spec: `none` sentinel, `+suffix` at last `+`,
+  `host[/repo]` first-slash split, `isInsecureHost`), `ResolveToLocation` (longest-prefix
+  complete-element match, `path.Join(repository, mpath)`, `Tag = PrefixForTags+vers` —
+  `PrefixForTags` empty in simple syntax). Many test expectations mirror its
+  `resolve_test.go` lookup table.
+- `mod/modconfig/modconfig.go`: `DefaultRegistry = "registry.cue.works"`; the
+  `file:`/`inline:`/`simple:` kind split (only `simple` reaches this parser; `file`/`inline`
+  DEFERRED).
+- `mod/module/escape.go` `escapeString`: ASCII `A`–`Z` → `!` + lower-case, applied only when
+  an upper-case rune is present (`Foo.com/Bar` → `!foo.com/!bar`). **Surprise pinned:** this
+  escaping is used ONLY by the on-disk download/extract cache layout
+  (`mod/modcache/cache.go`), NOT the OCI repository name — `ResolveToLocation` joins the RAW
+  (unescaped) base module path. Both forms modelled (`escapePath`/`escapeVersion`,
+  `extractCachePath`/`downloadCachePath`) for B3d-4/5 to consume.
+- `mod/module/module.go` `BasePath` + `cue/ast/importpath.go` `SplitPackageVersion`: the
+  `@<major>` suffix (`prodigy9.co/defs@v0`) is cut at the FIRST `@` and discarded for the OCI
+  repo; the OCI tag carries the FULL version (`v0.3.19`). `stripMajor` / `mkModuleVersion`.
+
+### Illegal-states-unrepresentable + totality
+
+`RegistrySpec` = `none | reg host insecure repository` (a `none` registry carries no
+host/repo — never confusable with an empty real one). `Resolution` = `found OciRef |
+noRegistry | error msg` (a success always carries all four fields; "no registry" is its own
+constructor, never a sentinel host). All functions total — no `partial`, `sorry`, or axiom.
+
+### Test coverage
+
+40+ `native_decide` theorems + `#guard`s in `RegistryTests.lean`: default/empty; bare host;
+`host:port` secure; `host/path-prefix` join; multi-element prefix; `+insecure`/`+secure`
+overrides (incl. with prefix); localhost / `127.0.0.1` / `[::1]` / `[::1]:5000` / `[0:0::1]`
+default-insecure; non-loopback IPv6 secure; global `none`; `prefix=none` (matched +
+fall-through); catch-all-`none`; longest-prefix-wins; complete-element boundary
+(`bar` ≠ `barry`); exact-prefix; fallback entry; order-independence; the five config errors;
+major-strip + full-version tag; `escape.go` upper-case escaping; both cache-path layouts.
+
+### Verify
+
+`lake build` 114 jobs green (no warning/`sorry`/axiom). `scripts/check-fixtures.sh`
+`fixture pairs ok` (zero drift; no fixtures added — pure unit-pinned). No shell touched.
+CLI smoke (`kue export <file>`) byte-identical. NO cue-divergence (conformed to cue source);
+spec-gap recorded in `compat-assumptions.md` (the `file:`/CUE-syntax-config deferral; the
+escaping/tag rules are cue tooling, outside the language spec).

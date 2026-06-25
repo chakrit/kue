@@ -15,5 +15,6 @@ import Kue.Eval
 import Kue.Resolve
 import Kue.Builtin
 import Kue.Module
+import Kue.Registry
 import Kue.Cli
 import Kue.Tests

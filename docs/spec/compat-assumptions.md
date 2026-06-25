@@ -570,3 +570,42 @@ surface entry in "Parser and CLI scope".
   string, which Kue matches). A top-level bare scalar or list **literal** as a whole
   source file is a pre-existing parser limitation (top level must be a field set), not an
   export-mode gap.
+
+## Registry config and module → OCI-ref resolution (`CUE_REGISTRY`, B3d-1)
+
+`Kue/Registry.lean` ports the OCI-tooling layer that maps a `CUE_REGISTRY` config + a module
+path + version to an OCI location (host, secure-flag, repository, tag), purely and offline.
+This is **cue tooling, not the CUE language spec** — so cue v0.16.1's own source IS the
+reference here (`internal/mod/modresolve/resolve.go`, `mod/modconfig/modconfig.go`,
+`mod/module/escape.go`, `mod/modcache/cache.go`), and Kue conforms to it exactly.
+
+- **Default.** Empty/unset `CUE_REGISTRY` → the Central Registry host `registry.cue.works`
+  for all modules, secure.
+- **Simple syntax.** A comma-separated, order-independent list. A bare entry is a catch-all
+  registry; a `prefix=registryspec` entry routes modules under that module-path prefix.
+  A registry spec is `host` / `host:port` / `[::1]:5000`, with an optional `/repository`
+  path-prefix (all routed modules stored under it) and an optional `+secure`/`+insecure`
+  suffix. Default security: insecure for `localhost` / `127.0.0.1` / `::1`, secure
+  otherwise.
+- **`none`.** A global `none` or `prefix=none` resolves to "no registry" — a fetch under it
+  must fail (modelled as `Resolution.noRegistry`, distinct from any host).
+- **Prefix matching.** Longest match wins, on COMPLETE path elements only: `foo.example/bar`
+  matches `foo.example/bar/x` but NOT `foo.example/barry`. An exact `prefix == path` wins
+  outright. Duplicate identical prefixes (and a duplicate catch-all) are config errors.
+- **Repository + tag.** The OCI repository is the registry path-prefix joined with the
+  **UNESCAPED** base module path (Go `path.Join`), and the tag is the **plain full version**
+  (`v0.3.19`). The `@<major>` suffix on a module path (`prodigy9.co/defs@v0`) is the major
+  version — stripped for the repo, while the OCI tag carries the full version. Confirmed
+  against cue source: `ResolveToLocation` does NOT escape the repository; `EscapePath`/
+  `EscapeVersion` (the `!`-lowercasing in `escape.go`) apply ONLY to the on-disk
+  download/extract cache directory layout (`modcache/cache.go`), which Kue also models for a
+  later slice.
+
+**DEFERRED — the `file:` / `inline:` config kinds and the full CUE-syntax config-file form.**
+`CUE_REGISTRY` may carry a `file:<path>` / `inline:<cue>` kind prefix selecting a richer
+config file (the `#File` schema: `moduleRegistries` / `defaultRegistry` with `pathEncoding`
+=`path`/`hashAsRepo`/`hashAsTag`, `stripPrefix`, `prefixForTags`). Kue implements **only the
+simple comma-separated syntax** (the `simple:` kind, or a bare value). The
+hash/strip/tag-prefix encodings and the file/inline kinds are not yet implemented; a config
+that requires them is out of B3d-1 scope. (`modconfig.go` handles the kind split upstream;
+the simple parser receives the post-`simple:`-strip string.)

@@ -564,6 +564,29 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    re-spike. See `docs/decisions/2026-06-25-lean-engine-embedded-in-go-via-cgo.md`
    (status: feasibility-proven, REJECTED).
 
+   **B3d (registry/OCI module fetch) — ACTIVE (2026-06-25).** Transport DECIDED: a `curl`
+   subprocess, NOT FFI (`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`),
+   which splits the OCI protocol into a PURE core (offline TDD) + a thin impure curl edge.
+   Slice plan B3d-1…B3d-6 lives in that decision note.
+   - **B3d-1 — `CUE_REGISTRY` parse + module→OCI-ref resolution (PURE) — DONE (2026-06-25).**
+     New pure, IO-free `Kue/Registry.lean` (+ `Kue/Tests/RegistryTests.lean`). The
+     simple-syntax `CUE_REGISTRY` parser (empty→`registry.cue.works`; bare host /
+     `host:port` / `[::1]:5000`; optional `/path` repository prefix; `+secure`/`+insecure`;
+     `prefix=spec` longest-complete-element-match; bare catch-all; `none` global and
+     `prefix=none`; duplicate-prefix / duplicate-catch-all / empty-part / unknown-suffix
+     errors) plus `module@version → {host, insecure, repository, tag}` resolution. Conformed
+     to cue v0.16.1's own OCI tooling (`internal/mod/modresolve/resolve.go`,
+     `mod/modconfig/modconfig.go`) — the authoritative protocol, NOT the language spec. Key
+     pinned facts: the OCI **repository is UNESCAPED** (`path.Join(prefix, basePath)` on the
+     raw base path; the `@major` suffix stripped, the OCI tag = the plain full version);
+     `escape.go`'s `!`-lowercasing escaping applies ONLY to the on-disk download/extract
+     cache layout (`modcache/cache.go`), modelled here for B3d-4/5. Illegal-states-
+     unrepresentable: `RegistrySpec` (`none` | real), `Resolution` (`found` | `noRegistry` |
+     `error`). Total, no `partial`/`sorry`/axiom. 40+ `native_decide`/`#guard` pins; full
+     build green, fixtures zero-drift. The `file:`/`inline:` kinds + CUE-syntax config-file
+     form (`pathEncoding`/`stripPrefix`/`prefixForTags`/hash encodings) are DEFERRED (see
+     `compat-assumptions.md`). NOT yet wired into `Module.lean` — that is B3d-4/5.
+
 **Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
 re-litigate): the walkers were NEVER one problem — three distinct walker families + a
 separate normalizer pair, different mechanisms/result-types/recursion-domains/termination
