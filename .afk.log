@@ -105,3 +105,38 @@ fix-slices filed in plan.md (§ "B3d Phase-A audit"):
 
 No inline fixes this audit. lake build clean (130 jobs); check-fixtures.sh
 green; shellcheck clean. Committed c93bade (plan.md only) — NOT pushed (AFK).
+
+---
+## RUN SUMMARY (AFK 2026-06-25→26) — offline B3d track COMPLETE, stopped at a clean checkpoint
+
+**Status above:** the B3d-A1 atomicity blocker is now RESOLVED — landed as `80f3ec2`
+(extract-to-temp + `IO.FS.rename`). The two remaining blockers above (B3d-4 + B3d-5
+live-registry smokes) are still open — they need a human to run network egress; the
+one-liners to verify are in those sections.
+
+**What landed (18 commits, `8775ecc..f40dd9c`, all on `main`, ALL UNPUSHED):** the entire
+offline-tractable half of B3d — Lean-native registry/OCI module fetch. 8 new modules
+(`Registry`/`Oci`/`Sha256`/`OciFetch`/`Inflate`/`Zip`/`Semver`/`Mvs`), curl-subprocess
+transport (no FFI), three enforced+unbypassable integrity gates (blob sha256 / zip CRC-32 /
+cue.sum h1), atomic cache writes, a pure DEFLATE inflate (total, fuel-proved, 69-file real-zip
+golden), and a pure MVS solver + Go-semver compare. B3d-1…5 (+5a/5z), 6a, A1 all DONE. Four
+audit phases (two full A→B rounds) all HEALTHY — and they earned their keep: Phase A on the
+MVS slice caught + fixed an UNSOUND fuel bound that silently truncated the build list, plus a
+semver empty-segment validity bug (`e0d1156`). argocd canary re-verified 0-diff (read-path
+intact). `lake build` 136 jobs green, all fixture gates green, tree clean.
+
+**What's queued for an attended session (in priority order):**
+1. **`git push`** the 18 commits (AFK can't push).
+2. **Run the two live smokes** above (B3d-4 manifest/blob GET + B3d-5 remove-dep-and-export)
+   to confirm the curl edge against the real `registry.cue.works`.
+3. **B3d-6b** — the single remaining substantive slice (plan.md Live Backlog item 7): network
+   requirement-graph fetch, OCI tags/list, `cue mod get/tidy`, wiring `Mvs.solve` into the
+   resolver (GATE on a diamond-divergence fixture — it's a behavior change a green canary masks),
+   `cue.sum` WRITE (reuses `atomicWriteBinFile`). Network/behavior-gated → not crossable in AFK.
+4. **Cut the owed alpha** (`scripts/release.sh` + `scripts/release-linux.sh`) — PUSH-class.
+5. Minor ranked LOW items in plan.md: B3d-A2 (reject-branch test pins), B3d-B1 (digest newtype),
+   Mvs main-pin corner, ModuleFetch.lean conditional carve.
+
+**Why the run stopped here:** out of *unblocked* work. Everything remaining requires live
+registry egress and/or an attended behavior-change verification — the AFK envelope's
+"log the boundary, don't cross it." Clean, fully-audited checkpoint; breadcrumb refreshed.
