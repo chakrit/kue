@@ -564,13 +564,15 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    re-spike. See `docs/decisions/2026-06-25-lean-engine-embedded-in-go-via-cgo.md`
    (status: feasibility-proven, REJECTED).
 
-   **B3d (registry/OCI module fetch) — WIRED (2026-06-26); B3d-6 remains.** Transport DECIDED: a
+   **B3d (registry/OCI module fetch) — WIRED (2026-06-26); B3d-6b remains.** Transport DECIDED: a
    `curl` subprocess, NOT FFI (`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`),
    which splits the OCI protocol into a PURE core (offline TDD) + a thin impure curl edge.
-   Slice plan B3d-1…B3d-6 lives in that decision note. B3d-1…B3d-5 (+ B3d-5a, B3d-5z) are DONE:
-   fetch-on-missing is wired into `Module.lean` and offline-verified; the live HTTPS fetch is
-   human-gated (`.afk.log`). Remaining: **B3d-6** — MVS version *solving*, `cue mod get/tidy`, and
-   `cue.sum` WRITE.
+   Slice plan B3d-1…B3d-6 lives in that decision note. B3d-1…B3d-5 (+ B3d-5a, B3d-5z, B3d-6a) are
+   DONE: fetch-on-missing is wired into `Module.lean` and offline-verified; the live HTTPS fetch is
+   human-gated (`.afk.log`); semver compare + the pure MVS solver are landed. Remaining: **B3d-6b**
+   (network-gated) — `cue mod get/tidy` commands, fetching deps' `module.cue` to BUILD the
+   requirement graph, "latest"-tag listing, wiring the MVS solver into the resolver, and `cue.sum`
+   WRITE.
    - **B3d-1 — `CUE_REGISTRY` parse + module→OCI-ref resolution (PURE) — DONE (2026-06-25).**
      New pure, IO-free `Kue/Registry.lean` (+ `Kue/Tests/RegistryTests.lean`). The
      simple-syntax `CUE_REGISTRY` parser (empty→`registry.cue.works`; bare host /
@@ -756,6 +758,53 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      and the escaping-identity), closing the latent uppercase divergence
      (`Foo.com/Bar` → `…/extract/!foo.com/!bar@…`, also pinned). Closes the cache-layout finding
      from the B3d Phase-B audit (2026-06-25).
+   - **B3d-6a — semver compare + pure MVS solver (PURE, offline) — DONE (2026-06-26).** The
+     fully-offline pure core of B3d-6: the version-ordering + version-selection math, with NO
+     network. Two new IO-free, total modules. **`Kue/Semver.lean`** — a faithful port of Go's
+     `golang.org/x/mod/semver` `Compare` (the package cue depends on; authoritative over
+     semver.org): `parse : String → Option Parsed` (leading `v`, `vMAJOR`/`vMAJOR.MINOR`
+     `.0`-shorthands, no-leading-zero `parseInt`, `-prerelease` + `+build` tails, identifier
+     validity incl. `isBadNum`), and `compare` returning `-1/0/+1` — invalid < valid (two invalids
+     equal); numeric major/minor/patch via Go's `compareInt` (LENGTH-then-ASCII on the no-leading-
+     zero decimal string, so `v1.2.0 < v1.10.0` numerically); a prerelease sorts BEFORE the same
+     release; prerelease identifiers dot-by-dot (numeric < non-numeric, two numerics by length-then-
+     ASCII, longer equal-prefix set wins) via the SPLIT `comparePrerelease` (empty=no-prerelease is
+     HIGHER) / `comparePrereleaseIds` (exhaustion ⇒ shorter is LOWER) — the two rules Go's single
+     function conflates at its top-level empty-string check. **Build metadata `+…` ignored in
+     precedence** (parsed for validity only). Cite: `~/go/pkg/mod/golang.org/x/mod@v0.15.0/semver/
+     semver.go`. **`Kue/Mvs.lean`** — Russ Cox's MVS (cue `internal/mod/mvs/{mvs.go,graph.go}`):
+     `solve : ModuleVersion → RequirementGraph → List ModuleVersion` where `RequirementGraph =
+     List (ModuleVersion × List ModuleVersion)` is an EXPLICIT finite value (no IO callback —
+     deterministic, pure, total). Algorithm = **max of the mins**: the transitive reachable set
+     from the root, then per module-PATH the MAXIMUM version seen anywhere (`Graph.Require`'s
+     `selected[path]=max(...)` via `Semver.compare`); build list = target first (pinned to its own
+     version — `reqs.Max(target,v)==target`), then every other selected path sorted by
+     `(path,version)` (`Graph.BuildList`+`sortVersions`). **Distinct majors are distinct paths**
+     (`m` vs `m/v2`) ⇒ they coexist, never a conflict. **Termination (no `partial`):** reachability
+     is `reachAux` with `fuel = |allNodes|+|targets|+1` and a visited set — each non-skip step adds
+     one distinct node, skips shrink the worklist, so a CYCLE halts; maxima/sort are finite folds.
+     **Tests** (`Kue/Tests/MvsTests.lean`, `native_decide`/`#guard`): semver — the full doc-comment
+     precedence chain `v1.0.0-alpha < -alpha.1 < -alpha.beta < -beta < -beta.2 < -beta.11 < -rc.1 <
+     v1.0.0`, numeric-vs-alpha, `v1.2.0<v1.10.0`, build-ignored, invalid<valid, leading-zero
+     invalidity, shorthands. MVS — the canonical **diamond** (main→A,B; A→C v1.2.0; B→C v1.3.0 ⇒
+     select C v1.3.0, max of mins), an **upgrade** (direct higher min dominates), a **downgrade-by-
+     not-requiring** (drop B's edge ⇒ C falls to v1.2.0), same-module-two-mins→higher, distinct-
+     majors-coexist, a **cycle terminates**, unreachable excluded, empty⇒just-main, main-path-
+     pinned-over-a-higher-graph-version, and path-sorted remainder. Total, no `sorry`/`partial`/
+     axioms beyond `propext`. NOT yet wired into the resolver (that needs the network-fetched
+     requirement graph) — B3d-6b.
+   - **B3d-6b — `cue mod get/tidy` + requirement-graph fetch + cue.sum WRITE (NETWORK-GATED) —
+     REMAINING.** The network-dependent command surface that sits ON TOP of B3d-6a's pure solver,
+     deferred out of the AFK envelope (live registry egress needs a human). Needs: (1) fetch each
+     dep's `module.cue` (its `deps` block) to BUILD the `RequirementGraph` the solver consumes —
+     reuses the B3d-4 curl edge + a `module.cue` `deps` parser; (2) tag-listing on the registry to
+     resolve "latest"/major→concrete-version for `cue mod get <module>` (the OCI `…/tags/list`
+     endpoint); (3) the `cue mod get` / `cue mod tidy` CLI command parsing + dispatch; (4) wiring
+     `Mvs.solve` into the resolver — replace the current lenient per-hop resolution (see
+     `compat-assumptions.md`) with a single up-front MVS build-list computed from the fetched
+     graph; (5) `cue.sum` WRITE via `Module.atomicWriteBinFile` (the dirhash machinery from B3d-3
+     already exists; only the tidy-time WRITE is missing). All five are network/command-surface
+     work; the version math they depend on is DONE.
    - **Shared bytes-util module (`Kue/Bytes.lean`) — YAGNI, NOT now.** Phase A flagged
      `Sha256.hex` (bytes→hex) + the dirhash byte-ordering as candidate shared primitives.
      Decision (Phase B, 2026-06-25): `Sha256.hex` is the codebase's ONLY bytes→hex encoder

@@ -14587,3 +14587,98 @@ Extended the offline pipeline driver (repo-local `CUE_CACHE_DIR`):
 green incl. the extended pipeline gate. `shellcheck` clean. Regression: `prod9/infra` argocd canary
 `kue export apps/argocd.cue | jq -S` vs `cue export … | jq -S` = **0-line diff** (read-path
 unmoved).
+
+---
+
+## Completed Slice: B3d-6a — semver compare + pure MVS solver (PURE, offline)
+
+Goal: land the fully-offline pure core of B3d-6 — the version-ordering and version-selection
+math — so the network-gated `cue mod` surface (B3d-6b) sits on top of a proven, total solver.
+Two new IO-free modules; no network, no out-of-tree writes.
+
+### Semver comparison (`Kue/Semver.lean`)
+
+A faithful Lean port of Go's `golang.org/x/mod/semver` `Compare` — the package cue depends on
+for module-version ordering, authoritative OVER strict semver.org. Source cited:
+`~/go/pkg/mod/golang.org/x/mod@v0.15.0/semver/semver.go` (`parse`, `parseInt`,
+`parsePrerelease`, `compareInt`, `comparePrerelease`, `isNum`, `isBadNum`).
+
+- `parse : String → Option Parsed` — leading `v`; `vMAJOR` and `vMAJOR.MINOR` are `.0` / `.0.0`
+  shorthands; `parseInt` rejects extra leading zeros; an optional `-prerelease` (dot-split
+  identifiers, each `[0-9A-Za-z-]`-only, non-empty, all-numeric ones rejected for leading zero
+  via `isBadNum`) and an optional `+build` (same charset, no bad-num rule); anything trailing ⇒
+  invalid. Returns `none` for an invalid version.
+- `compare : String → String → Int` (`-1/0/+1`): **invalid < valid**, two invalids equal (Go's
+  `Compare` contract). Numeric major/minor/patch via Go's **`compareInt` = LENGTH-then-ASCII** on
+  the no-leading-zero decimal string — so `v1.2.0 < v1.10.0` and `v2.0.0 < v10.0.0` order
+  NUMERICALLY, not lexically. A version WITH a prerelease sorts BEFORE the same release.
+- Prerelease ordering is the SPLIT of Go's single `comparePrerelease`: `comparePrerelease`
+  handles the top-level "no prerelease is HIGHER" rule (empty list > non-empty); the inner
+  `comparePrereleaseIds` does dot-by-dot (numeric < non-numeric; two numerics by length-then-
+  ASCII; otherwise ASCII) and on EXHAUSTION makes the SHORTER set LOWER ("a larger set of
+  pre-release fields has higher precedence"). Keeping these two rules separate (Go conflates them
+  behind its top-level empty-string check) was the one subtlety — an initial single-function
+  version mis-ordered `alpha < alpha.1`.
+- **Build metadata `+…` is IGNORED in precedence** (parsed for validity only).
+
+### MVS solver (`Kue/Mvs.lean`)
+
+Russ Cox's Minimal Version Selection (<https://research.swtch.com/vgo-mvs>), the algorithm cue
+and Go use. Source cited: cue v0.16.1 `internal/mod/mvs/mvs.go` (`BuildList`/`buildList`) and
+`graph.go` (`NewGraph`, `Graph.Require`, `Graph.BuildList`, `sortVersions`).
+
+- `RequirementGraph = List (ModuleVersion × List ModuleVersion)` — an EXPLICIT finite value (each
+  module@version → its direct (module, minVersion) requirements). Pure: no IO callback, so
+  reachability + maxima are deterministic and termination is structural. (Resolved by philosophy:
+  an explicit graph value over `cue`'s network-pulling `Reqs` interface — illegal-states fewer,
+  total, offline-testable.)
+- `solve : ModuleVersion → RequirementGraph → List ModuleVersion`. Algorithm = **max of the
+  mins**: compute the transitively reachable node set from the root, then for every module PATH
+  the MAXIMUM version appearing anywhere in that set (mirrors `Graph.Require`'s
+  `selected[path] = max(selected[path], dep.version)` over `Semver.compare`). "Minimal" names the
+  per-requirement minimum each edge demands; MVS takes their max so all constraints hold while
+  never jumping to "latest" ⇒ reproducible.
+- **Build-list ORDER** (cue's `Graph.BuildList` + `sortVersions`): the **target first**, pinned to
+  its own version (cue requires `reqs.Max(target,v)==target` — the target always wins for its own
+  path, even if the graph names a higher version of it), then every OTHER selected path sorted by
+  `(path, version)` (path ASCII, version by `Semver.compare` as tiebreak).
+- **Distinct MAJORS are distinct PATHS** (`m` vs `m/v2`) — they get independent `selected[path]`
+  entries and coexist; never a conflict. (The major is encoded in the path, exactly as cue's
+  `module.Version`.)
+- **Termination, no `partial`/fuel-hack:** reachability is `reachAux` over a `fuel` bound =
+  `|allNodes| + |targets| + 1` with a visited set — each non-skip step adds one DISTINCT node
+  (≤ `|allNodes|`), each skip strictly shrinks the worklist, so a **cycle halts** and the worklist
+  drains before fuel runs out. `selectMaxima`/`sortSelected` are finite folds/`qsort`. Only
+  `propext` (no `sorry`, no axioms beyond the stdlib defaults).
+- `solveMany` covers cue's multi-target `BuildList` (a workspace with several main modules): roots
+  first (deduped by path, in order), then the sorted remainder.
+
+### Tests (`Kue/Tests/MvsTests.lean`, TDD-first, `native_decide`/`#guard`)
+
+- **Semver:** the full doc-comment precedence chain pinned pairwise —
+  `v1.0.0-alpha < -alpha.1 < -alpha.beta < -beta < -beta.2 < -beta.11 < -rc.1 < v1.0.0` (note
+  `-beta.2 < -beta.11` is the NUMERIC-not-lexical pin); `v1.2.0<v1.10.0` / `v2.0.0<v10.0.0` /
+  `v1.0.2<v1.0.10`; numeric-identifier < alpha-identifier; longer-prerelease-set wins;
+  build-metadata-ignored; invalid<valid + two-invalids-equal; leading-zero invalidity;
+  `vMAJOR`/`vMAJOR.MINOR` shorthands; `maxVersion` fold.
+- **MVS — the canonical worked examples:** the **diamond** (main→A,B; A→C v1.2.0; B→C v1.3.0 ⇒
+  select **C v1.3.0**, max of mins); an **upgrade** (main directly requires C v1.4.0 ⇒ it
+  dominates both transitive mins); a **downgrade-by-not-requiring** (drop B's edge on C ⇒ C falls
+  to v1.2.0, no explicit downgrade). Plus same-module-two-mins→take-higher,
+  distinct-majors-coexist (`m`+`m/v2`), a **cycle (A⇄B) terminates**, unreachable-excluded,
+  empty-graph⇒just-main, main-path-pinned-over-a-higher-graph-version, and path-sorted remainder.
+
+### Verification
+
+`lake build` clean (136 jobs, **0 warnings/`sorry`**, no `partial`/axiom in the new modules).
+`scripts/check-fixtures.sh` green — `fixture pairs ok` + the fetch-pipeline / zip-golden / ocifetch
+gates all pass (no regression). No shell touched (`shellcheck` n/a). **No network, no out-of-tree
+writes** — both modules are IO-free and the tests are `native_decide` over in-source fixtures.
+
+### Remaining (B3d-6b, network-gated)
+
+NOT wired into the resolver — that needs the requirement graph BUILT from network-fetched deps'
+`module.cue`. B3d-6b: (1) fetch each dep's `module.cue` `deps` to build the `RequirementGraph`;
+(2) OCI `tags/list` for "latest"/major resolution; (3) `cue mod get`/`cue mod tidy` command
+parse + dispatch; (4) wire `Mvs.solve` into the resolver (replace lenient per-hop resolution with
+one up-front MVS build-list); (5) `cue.sum` WRITE via `Module.atomicWriteBinFile`.

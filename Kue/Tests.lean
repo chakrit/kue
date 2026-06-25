@@ -18,6 +18,7 @@ import Kue.Tests.LatticeTests
 import Kue.Tests.ListTests
 import Kue.Tests.ManifestTests
 import Kue.Tests.ModuleTests
+import Kue.Tests.MvsTests
 import Kue.Tests.NormalizeTests
 import Kue.Tests.NumberTests
 import Kue.Tests.OciManifestTests

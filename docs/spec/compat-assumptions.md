@@ -170,7 +170,12 @@ those forms.
   → `unresolved import …: not in-module and matches no dependency …`.
   **kue is more lenient than `cue` on the transitive graph:** it reads the *intermediate*
   module's `deps` per hop, whereas `cue` requires every transitive dep pinned flat in the
-  main module (MVS). Both resolve when the artifact is on disk.
+  main module (MVS). Both resolve when the artifact is on disk. **The MVS version solver now
+  EXISTS (B3d-6a):** `Kue/Mvs.lean` computes the real max-of-mins build list from an explicit
+  requirement graph (semver-ordered via `Kue/Semver.lean`), but it is **not yet wired into the
+  resolver** — wiring it (so resolution runs a single up-front MVS build-list instead of the
+  lenient per-hop read) is B3d-6b, because building the requirement graph needs the deps'
+  `module.cue` fetched over the network.
 - **Registry FETCH-on-missing — WIRED (B3d-5, 2026-06-26).** A declared dep absent from BOTH
   the vendor tree and the cue cache is no longer a hard error: kue resolves the importer's
   `CUE_REGISTRY` (empty/unset ⇒ `registry.cue.works`) + the modpath@version to an OCI ref,
@@ -196,8 +201,10 @@ those forms.
   present (defensive/forward-compatible — a mismatch REJECTS the install), proceeding when absent.
   See `docs/reference/cue-spec-gaps.md`. **The live HTTPS fetch from `registry.cue.works` was
   offline-verified only** (file-source + repo-local cache); the real network+real-cache smoke is
-  human-gated (`.afk.log`). **Deferred (B3d-6):** MVS version *solving*, `cue mod get/tidy`, and
-  `cue.sum` WRITE (`cue mod tidy`).
+  human-gated (`.afk.log`). **MVS version *solving* now LANDED (B3d-6a)** — pure semver compare +
+  the max-of-mins solver (`Kue/{Semver,Mvs}.lean`), offline. **Deferred (B3d-6b, network-gated):**
+  `cue mod get/tidy` commands, fetching deps' `module.cue` to BUILD the requirement graph,
+  "latest"-tag listing, wiring the solver into the resolver, and `cue.sum` WRITE (`cue mod tidy`).
 - **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import
   comment/ trailing-comma robustness. Real prod9 grouped imports parse fine today, so this
   stays parked. The stdin and multi-file CLI paths still discard imports (pre-B3a

@@ -19,6 +19,8 @@ import Kue.Sha256
 import Kue.Inflate
 import Kue.Zip
 import Kue.Registry
+import Kue.Semver
+import Kue.Mvs
 import Kue.Oci
 import Kue.OciFetch
 import Kue.Cli
