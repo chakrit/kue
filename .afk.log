@@ -42,3 +42,43 @@
 - **Note (auth):** `registry.cue.works` serves public modules anonymously, so the GET above
   needs no token. Authenticated/private registries (Bearer-token `WWW-Authenticate` flow)
   are a deferred B3d-6 concern — see `docs/spec/compat-assumptions.md`.
+
+## B3d-5 live-registry fetch-on-missing — BLOCKER (needs a human; logged, not failed)
+
+- **What:** B3d-5 (fetch→extract→cache-write→read-path wiring) is implemented and
+  OFFLINE-verified. `Kue.fetchAndCacheModule` resolves a declared-but-missing dep's
+  `CUE_REGISTRY`+modpath@ver to an `OciRef`, fetches the digest-verified zip
+  (`OciFetch.fetchModuleZip`), unzips+CRC-verifies (`Zip.readZip`), optionally checks a
+  `cue.sum` `h1:`, writes the raw zip + extracted entries into the cue cache
+  (`mod/download/...` + `mod/extract/...`), and retries `locateModuleDir`. Driven end-to-end
+  by `scripts/check-fetch-pipeline.lean` (wired into `scripts/check-fixtures.sh`) against a
+  local fixture zip with `CUE_CACHE_DIR` pointed at a repo-local temp dir — install, locate,
+  download-layout, cue.sum accept/reject, `none`-registry, and transport-failure paths all
+  pinned. What was NOT run (out of AFK envelope): a real HTTPS fetch of a genuinely-missing
+  dep from `registry.cue.works` (network egress + a WRITE to the real `~/Library/Caches/cue`).
+
+- **Why a human:** the live path makes an outbound HTTPS request to the Central Registry AND
+  writes into the real user cache — both outside the AFK no-network / no-out-of-tree-writes
+  envelope.
+
+- **Exact human smoke (one run unblocks it):**
+  1. Pick a real dep already declared in `prod9/infra` (`prodigy9.co/defs@v0` at `v0.3.19`).
+  2. Remove it from BOTH the vendor tree and the real cache so kue MUST fetch:
+     `rm -rf ~/Library/Caches/cue/mod/extract/prodigy9.co ~/Library/Caches/cue/mod/download/prodigy9.co`
+     (and ensure `cue.mod/pkg/prodigy9.co` is absent — it already is on this checkout).
+  3. From `/Users/chakrit/Documents/prod9/infra`, run
+     `/Users/chakrit/Documents/chakrit/kue/.lake/build/bin/kue export --out json apps/argocd.cue`.
+  4. EXPECT: a successful fetch+digest-verify+extract+load — the export matches `cue export`
+     (`diff <(kue …|jq -S .) <(cue …|jq -S .)` = 0 lines) — instead of the old
+     `… not found in vendor or cue cache … registry fetch is B3d` error. Confirm the module
+     reappeared at `~/Library/Caches/cue/mod/extract/prodigy9.co/defs@v0.3.19/`.
+
+- **Note (cue.sum):** cue v0.16.1 ships NO `cue.sum` file mechanism (no `HashZip`/dirhash
+  consumer in its source) — the OCI blob `sha256:` digest (already gated in `fetchBlob`) is
+  the live integrity check. kue's `cue.sum` `h1:` verification is defensive/forward-compatible
+  (enforced when a `cue.sum` is present, skipped when absent). Recorded in
+  `docs/reference/cue-spec-gaps.md`. WRITING/maintaining `cue.sum` (`cue mod tidy`) stays
+  B3d-6.
+
+- **Note (auth):** as B3d-4 — `registry.cue.works` serves public modules anonymously, no
+  token needed; private/Bearer-token registries are B3d-6.

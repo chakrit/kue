@@ -1,5 +1,9 @@
 import Kue.Parse
 import Kue.Runtime
+import Kue.Registry
+import Kue.OciFetch
+import Kue.Zip
+import Kue.Sha256
 
 /-!
 # Module / import resolution (B3a)
@@ -299,8 +303,11 @@ def locateModuleDir (importerRoot : System.FilePath) (dep : Dep) : IO (Option Sy
   let pkgBase := importerRoot / "cue.mod" / "pkg"
   let vendoredVersioned := joinModulePath pkgBase s!"{dep.modPath}@{dep.version}"
   let vendoredBare := joinModulePath pkgBase dep.modPath
-  let extractBase := (← cacheRoot) / "mod" / "extract"
-  let cached := joinModulePath extractBase s!"{dep.modPath}@{dep.version}"
+  -- B3d-5a: route the extract-cache path through `Registry.extractCachePath` — the SOLE
+  -- cache-layout authority — so the read-path (here) and the write-path (`fetchAndCacheModule`)
+  -- agree by construction, including the on-disk escaping of any upper-case module path.
+  let cached := System.FilePath.mk (Registry.extractCachePath
+    ((← cacheRoot) / "mod").toString (Registry.mkModuleVersion dep.modPath dep.version))
   let candidates := [vendoredVersioned, vendoredBare, cached]
   firstExisting candidates
 where
@@ -321,6 +328,102 @@ def listPackageFiles (dir : System.FilePath) : IO (List System.FilePath) := do
 def subpathDir (root : System.FilePath) (subpath : String) : System.FilePath :=
   joinModulePath root subpath
 
+/-! ## Registry fetch-on-missing (B3d-5, IO edge)
+
+    When a declared dependency is absent from disk, fetch it from its OCI registry, verify it,
+    write it into the cue cache in the layout the read-path already consumes, and let the
+    existing `locateModuleDir` take over. The OCI protocol core is pure (`Registry`/`Oci`/
+    `Sha256`/`Zip`); only the `curl` GET + the cache writes are IO, confined here. -/
+
+/-- Read the importer module's `CUE_REGISTRY` (empty/unset ⇒ the Central Registry default,
+    handled purely by `Registry.parseConfig`). The sole env read of the fetch path. -/
+def readCueRegistry : IO String := do
+  pure ((← IO.getEnv "CUE_REGISTRY").getD "")
+
+/-- Parse an importer's `cue.sum` (when present) into `(modpath@version, h1-hash)` pairs.
+    Format mirrors Go's `go.sum`: whitespace-separated `<module> <version> h1:<base64>` lines;
+    blank/short lines are skipped. cue v0.16.1 ships NO `cue.sum` mechanism (the OCI blob digest
+    is its live integrity gate — see `fetchAndCacheModule`), so this is a defensive,
+    forward-compatible verifier: a sum present is enforced, an absent file is no error. -/
+def readCueSum (importerRoot : System.FilePath) : IO (List (String × String)) := do
+  let path := importerRoot / "cue.sum"
+  if !(← path.pathExists) then
+    pure []
+  else
+    let text ← IO.FS.readFile path
+    pure <| text.splitOn "\n" |>.filterMap fun line =>
+      match line.trimAscii.toString.splitOn " " |>.filter (·.length > 0) with
+      | modPath :: version :: hash :: _ => some (s!"{modPath}@{version}", hash)
+      | _ => none
+
+/-- The recorded `h1:` sum for `dep` in a parsed `cue.sum`, if any (keyed `modpath@version`). -/
+def lookupCueSum (sums : List (String × String)) (dep : Dep) : Option String :=
+  (sums.find? (fun s => s.fst == s!"{dep.modPath}@{dep.version}")).map (·.snd)
+
+/-- Write the fetched module into the cue cache under the cache-layout authority
+    (`Registry.{downloadCachePath,extractCachePath}`): the raw verified zip to
+    `<root>/download/<esc-path>/@v/<esc-ver>.zip`, and each unpacked entry under
+    `<root>/extract/<esc-path>@<esc-ver>/` by its zip-relative name. `root` is the
+    `<cacheRoot>/mod` base both `Registry` cache-path builders expect (the dir holding
+    `download/` and `extract/`). Directories are created as needed (`createDirAll`); a simple
+    create-all (not a temp-dir-then-rename) is the alpha atomicity choice — acceptable because
+    the read-path keys off the extract *directory*, and the entries land before any
+    retry-locate reads it. Returns the extract-root path. -/
+def writeModuleToCache (root : System.FilePath) (mv : Registry.ModuleVersion)
+    (zipBytes : ByteArray) (entries : List (String × ByteArray)) : IO System.FilePath := do
+  let downloadPath := System.FilePath.mk (Registry.downloadCachePath root.toString mv "zip")
+  if let some parent := downloadPath.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeBinFile downloadPath zipBytes
+  let extractRoot := System.FilePath.mk (Registry.extractCachePath root.toString mv)
+  for (name, contents) in entries do
+    let entryPath := joinModulePath extractRoot name
+    if let some parent := entryPath.parent then
+      IO.FS.createDirAll parent
+    IO.FS.writeBinFile entryPath contents
+  pure extractRoot
+
+/-- Fetch a declared-but-missing dependency from its OCI registry, verify it, and install it
+    into the cue cache so the read-path finds it. Steps: resolve `CUE_REGISTRY` + `dep` to an
+    `OciRef` (a `none`/unset registry ⇒ a clear "cannot fetch" error); fetch the
+    digest-verified module zip (`fetchZip`, injected so the offline test drives a `file://`
+    source while production passes `OciFetch.fetchModuleZip`); unzip + CRC-verify the entries
+    (`Zip.readZip`); verify the importer's `cue.sum` `h1:` when one is recorded (else proceed —
+    cue v0.16.1 has no `cue.sum`, the OCI blob digest already gated the bytes); write the zip +
+    entries into the cache. Returns the extract-root path. Total `IO (Except …)` — every failure
+    is a typed error, never an exception. -/
+def fetchAndCacheModule (cueRegistry : String) (importerRoot : System.FilePath) (dep : Dep)
+    (fetchZip : Registry.OciRef → IO (Except String ByteArray)) :
+    IO (Except String System.FilePath) := do
+  let mv := Registry.mkModuleVersion dep.modPath dep.version
+  match Registry.resolveFromConfig cueRegistry dep.modPath dep.version with
+  | .error e =>
+      pure (.error s!"cannot fetch {dep.modPath}@{dep.version}: invalid CUE_REGISTRY: {e}")
+  | .noRegistry =>
+      pure (.error
+        s!"cannot fetch {dep.modPath}@{dep.version}: registry is `none` (no registry to fetch from)")
+  | .found ref => do
+      match ← fetchZip ref with
+      | .error e => pure (.error s!"fetch {dep.modPath}@{dep.version} failed: {e}")
+      | .ok zipBytes =>
+          match Zip.readZip zipBytes with
+          | .error e => pure (.error s!"unpacking {dep.modPath}@{dep.version} failed: {e}")
+          | .ok entries =>
+              let sums ← readCueSum importerRoot
+              match lookupCueSum sums dep with
+              | some recorded =>
+                  let actual := Sha256.hash1 entries
+                  if actual != recorded then
+                    pure (.error <|
+                      s!"cue.sum verification failed for {dep.modPath}@{dep.version}: " ++
+                      s!"recorded {recorded}, computed {actual}")
+                  else do
+                    let extractRoot ← writeModuleToCache ((← cacheRoot) / "mod") mv zipBytes entries
+                    pure (.ok extractRoot)
+              | none => do
+                  let extractRoot ← writeModuleToCache ((← cacheRoot) / "mod") mv zipBytes entries
+                  pure (.ok extractRoot)
+
 /-- Resolve a single non-builtin import path, within module `ctx`, to the context and
     directory its package loads from.
 
@@ -337,17 +440,36 @@ def resolveImportTarget (ctx : ModuleContext) (importPath : String) :
   match resolveCrossModule ctx.deps importPath with
   | some (dep, subpath) =>
       match ← locateModuleDir ctx.root dep with
-      | none => return .error (moduleNotOnDiskError importPath dep.modPath dep.version)
-      | some moduleRoot =>
-          match ← readModuleInfo moduleRoot with
-          | .error message => return .error message
-          | .ok (depModPath, depDeps) =>
-              let depCtx := { root := moduleRoot, modPath := depModPath, deps := depDeps }
-              return .ok (depCtx, subpathDir moduleRoot subpath)
+      | none =>
+          -- Declared dep absent from vendor + cache: fetch it from the registry, install it,
+          -- and retry the locate (B3d-5). Only error if the fetch/verify fails or, after a
+          -- successful install, the module still can't be located (a malformed cache write).
+          let cueRegistry ← readCueRegistry
+          match ← fetchAndCacheModule cueRegistry ctx.root dep OciFetch.fetchModuleZip with
+          | .error _ =>
+              -- Keep the existing clean deferral phrasing as the user-facing error: the dep is
+              -- not on disk and the fetch could not supply it.
+              return .error (moduleNotOnDiskError importPath dep.modPath dep.version)
+          | .ok _ =>
+              match ← locateModuleDir ctx.root dep with
+              | none => return .error (moduleNotOnDiskError importPath dep.modPath dep.version)
+              | some moduleRoot => loadDepContext moduleRoot subpath
+      | some moduleRoot => loadDepContext moduleRoot subpath
   | none =>
       match resolveImportSubpath ctx.modPath importPath with
       | some subpath => return .ok (ctx, subpathDir ctx.root subpath)
       | none => return .error (unknownModuleError importPath)
+where
+  /-- Build the dependency module's context from its located root (read its own
+      `module:`/`deps`) and return it paired with the package subdirectory. The hop into the
+      dep's own context lets its transitive imports resolve against the right root/deps. -/
+  loadDepContext (moduleRoot : System.FilePath) (subpath : String) :
+      IO (Except String (ModuleContext × System.FilePath)) := do
+    match ← readModuleInfo moduleRoot with
+    | .error message => return .error message
+    | .ok (depModPath, depDeps) =>
+        let depCtx := { root := moduleRoot, modPath := depModPath, deps := depDeps }
+        return .ok (depCtx, subpathDir moduleRoot subpath)
 
 mutual
   /-- Load a package directory into `(declaredName, mergedStruct)`, recursively resolving

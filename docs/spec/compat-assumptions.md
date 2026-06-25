@@ -167,14 +167,29 @@ those forms.
   located module root and loaded via the same `loadPackage` machinery; a cross-module
   import *inside* a loaded module hops to that module's own context, so transitive
   cross-module resolves recursively. A path matching neither the module prefix nor any dep
-  → `unresolved import …: not in-module and matches no dependency …`; a declared dep
-  absent from vendor and cache →
-  `unresolved import …: module <modpath>@<ver> not found in vendor or cue cache … registry fetch is B3d`.
+  → `unresolved import …: not in-module and matches no dependency …`.
   **kue is more lenient than `cue` on the transitive graph:** it reads the *intermediate*
   module's `deps` per hop, whereas `cue` requires every transitive dep pinned flat in the
-  main module (MVS). Both resolve when the artifact is on disk. **Deferred (B3d):**
-  registry FETCH (OCI/`CUE_REGISTRY`), MVS version *solving*, and `cue.sum` verification —
-  B3c assumes the artifact is already on disk.
+  main module (MVS). Both resolve when the artifact is on disk.
+- **Registry FETCH-on-missing — WIRED (B3d-5, 2026-06-26).** A declared dep absent from BOTH
+  the vendor tree and the cue cache is no longer a hard error: kue resolves the importer's
+  `CUE_REGISTRY` (empty/unset ⇒ `registry.cue.works`) + the modpath@version to an OCI ref,
+  fetches the digest-verified module zip over a `curl` subprocess, unzips + CRC-verifies it,
+  writes it into the cue cache (`mod/download/<esc-path>/@v/<esc-ver>.zip` +
+  `mod/extract/<esc-path>@<esc-ver>/`), and retries the locate — the existing read-path then
+  takes over unchanged. A module already on disk takes the read-path with NO fetch (byte-identical
+  to before — the argocd/cert-manager canaries are unaffected). Only when the registry is `none`/
+  unset, the fetch fails, or verification fails does the deferral error surface
+  (`unresolved import …: module <modpath>@<ver> not found in vendor or cue cache …`). **Cache
+  write is atomic-enough for alpha** (create-all, not temp-dir-then-rename — the read-path keys
+  off the extract directory and entries land before the retry-locate). **`cue.sum` verification:**
+  cue v0.16.1 ships NO `cue.sum` file (the OCI blob `sha256:` digest, already verified in the
+  fetch, is the live integrity gate); kue ADDITIONALLY enforces a `cue.sum` `h1:` line when one is
+  present (defensive/forward-compatible — a mismatch REJECTS the install), proceeding when absent.
+  See `docs/reference/cue-spec-gaps.md`. **The live HTTPS fetch from `registry.cue.works` was
+  offline-verified only** (file-source + repo-local cache); the real network+real-cache smoke is
+  human-gated (`.afk.log`). **Deferred (B3d-6):** MVS version *solving*, `cue mod get/tidy`, and
+  `cue.sum` WRITE (`cue mod tidy`).
 - **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import
   comment/ trailing-comma robustness. Real prod9 grouped imports parse fine today, so this
   stays parked. The stdin and multi-file CLI paths still discard imports (pre-B3a

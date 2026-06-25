@@ -14425,3 +14425,108 @@ B3d-5 now has the full chain: `OciFetch.fetchModuleZip ref` → verified zip BYT
 (`Registry.extractCachePath`), and (b) `Sha256.hash1 entries` for the `cue.sum` `h1:`
 verification. The extractor and CRC gate are done; what B3d-5 still adds is the cache directory
 writes (new IO) and the resolver wiring that replaces `Module.lean`'s `registry fetch is B3d`.
+
+## B3d-5 — fetch→extract→cache-write→read-path wiring (+ B3d-5a folded) — 2026-06-26
+
+The CONNECT slice: the B3d pieces (Registry resolve, OciFetch curl edge, Sha256/hash1, Zip
+reader) were all built but inert. B3d-5 wires them into `Module.lean`'s import resolver so a
+declared dependency absent from disk is FETCHED rather than hard-erroring `registry fetch is B3d`.
+
+### Wiring
+
+`Module.lean` gained `import {Registry,OciFetch,Zip,Sha256}` — the correct dependency direction
+(the IO module depends on the pure protocol core; the core never depends on IO). The fetch
+triggers at exactly ONE site: the `none` branch of `resolveImportTarget` (a dep that
+`locateModuleDir` finds in neither vendor nor cache). On that branch it reads `CUE_REGISTRY`,
+calls `fetchAndCacheModule`, and on success retries `locateModuleDir` — the existing read-path
+then takes over UNCHANGED. On a fetch/verify failure it falls back to the original
+`moduleNotOnDiskError` phrasing (the dep genuinely couldn't be supplied). A module already on disk
+never enters this branch, so the read-path is byte-identical to before.
+
+New functions (all total `IO (Except …)`, no new `partial`/`sorry`):
+- `readCueRegistry : IO String` — the env read (empty/unset ⇒ `Registry.parseConfig`'s default).
+- `readCueSum : FilePath → IO (List (String × String))` — parse an importer's `cue.sum`
+  (`<modpath> <version> h1:<base64>` lines, go.sum-shaped) when present; `[]` when absent.
+- `lookupCueSum` — the recorded `h1:` for a dep, keyed `modpath@version`.
+- `writeModuleToCache root mv zipBytes entries` — write the raw zip to
+  `<root>/download/<esc-path>/@v/<esc-ver>.zip` and each entry under
+  `<root>/extract/<esc-path>@<esc-ver>/`, via the `Registry` cache-path authority (`root` is the
+  `<cacheRoot>/mod` base). Returns the extract root.
+- `fetchAndCacheModule cueRegistry importerRoot dep fetchZip` — resolve (`none`/unset registry ⇒
+  clear "cannot fetch" error) → `fetchZip ref` → `Zip.readZip` → `cue.sum` `h1:` check (when
+  recorded) → `writeModuleToCache`. `fetchZip` is INJECTED (production passes
+  `OciFetch.fetchModuleZip`; the offline test passes a local-file reader) so the cache-write +
+  read-path is exercisable without the OCI URL scheme.
+- `resolveImportTarget` gained a `where loadDepContext` helper (shared by the present-on-disk and
+  post-fetch branches) — reads the dep module's own `module:`/`deps` and returns its context.
+
+### Cache-write layout + atomicity
+
+Layout is Go-module-style, the same the read-path already consumed: `mod/download/<esc-path>/@v/
+<esc-ver>.zip` (raw verified zip) + `mod/extract/<esc-path>@<esc-ver>/<entry>` (unpacked). Both go
+through `Registry.{downloadCachePath,extractCachePath}`. Atomicity is a plain `createDirAll` +
+write (NOT temp-dir-then-rename) — the alpha choice. Acceptable because the read-path keys off the
+extract *directory* and the entries land before the retry-locate reads it; a crash mid-write would
+leave a partial extract dir a future `cue mod` verify (B3d-6) should re-validate. Noted as a
+B3d-6 hardening candidate.
+
+### cue.sum verification (the integrity finding)
+
+cue v0.16.1 ships **no** `cue.sum` mechanism — there is no `HashZip`/`golang.org/x/mod/sumdb/
+dirhash` consumer in its source, and nothing reads or writes a `cue.sum` file. The OCI blob
+`sha256:` digest (verified in `fetchBlob`/`curlGetVerified`, B3d-4) is cue's only live integrity
+check. So B3d-3's `Sha256.hash1` had no live consumer. Resolved by philosophy
+(defense-in-depth + don't-block-real-modules): the OCI digest is the primary gate (matches cue);
+kue ADDITIONALLY enforces a `cue.sum` `h1:` line when the importer ships one (a mismatch REJECTS
+the install — never silently proceed), and proceeds when absent (matching cue v0.16.1). Recorded
+in `cue-spec-gaps.md`. `cue.sum` WRITE (`cue mod tidy`) is B3d-6.
+
+### B3d-5a — unified cache-path authority (folded in)
+
+The Phase-B audit flagged a latent divergence: `locateModuleDir` computed the extract path itself
+(`joinModulePath`, UNescaped) while `Registry.extractCachePath` computed it ESCAPED — agreeing on
+real lowercase paths but diverging on an (illegal-but-constructible) uppercase path
+(`Foo.com/Bar`: read `…/Foo.com/…` vs write `…/!foo.com/…` → silent cache miss). Fixed by routing
+`locateModuleDir`'s `cached` candidate through `Registry.extractCachePath` — now read- and
+write-path agree by construction, including the escaping. Byte-identical for real lowercase
+modules: the argocd canary stayed at a 0-line `cue export` diff, and `ModuleTests` pins
+`extractCachePath "/c/mod" (mk "lib.example/defs" "v0.1.0") = "/c/mod/extract/lib.example/defs@v0.1.0"`,
+the escaping-identity on lowercase, and the closed uppercase divergence.
+
+### Tests
+
+- **Offline pipeline test** `scripts/check-fetch-pipeline.lean` (wired into `check-fixtures.sh`,
+  mirroring `check-ocifetch.lean`/`check-zip.lean`): drives `fetchAndCacheModule` with a real
+  DEFLATE fixture zip `testdata/ocifetch/pipeline/module.zip` (`lib.example/defs@v0.1.0`) and
+  `CUE_CACHE_DIR` → a repo-local temp dir set by the shell wrapper (Lean has no `setEnv`). Pins:
+  install succeeds → extract root + entries on disk → raw zip in the download layout →
+  `locateModuleDir` finds it → located dir == `Registry.extractCachePath` (B3d-5a); plus the
+  negative cases run first against the still-empty cache and each is asserted to error AND leave
+  nothing locatable — `none` registry, transport failure, and a WRONG `cue.sum` `h1:` (rejection);
+  and a MATCHING `cue.sum` passes. No network (the fetcher reads a local file); the temp cache is
+  removed by the wrapper.
+- **B3d-5a guards** in `Kue/Tests/ModuleTests.lean` (`native_decide`): the lowercase
+  `extractCachePath` layout, the escaping-identity on a real path, and the uppercase divergence.
+- **Canary (non-regression):** `kue export apps/argocd.cue` from `prod9/infra` (the
+  `prodigy9.co/defs` dep is in the real cache) is byte-identical to `cue export` (`jq -S` diff =
+  0 lines) — the present-on-disk read-path never enters the fetch branch and the B3d-5a
+  unification did not move the cache location. (cert-manager in this infra checkout is plain YAML,
+  not a CUE module — argocd is the live CUE canary.)
+
+`lake build` clean (0 warnings/`sorry`; `fetchAndCacheModule`/`writeModuleToCache`/`locateModuleDir`
+on only `propext`/`Classical.choice`/`Quot.sound`). `scripts/check-fixtures.sh` green incl. the new
+pipeline gate. `shellcheck scripts/check-fixtures.sh` clean.
+
+### The live gap (human-gated)
+
+NOT run (out of AFK envelope): the real HTTPS fetch of a genuinely-missing dep from
+`registry.cue.works` — outbound network egress + a WRITE to the real `~/Library/Caches/cue`. Exact
+human smoke recorded in `.afk.log`: remove `prodigy9.co/defs` from the real cache, `kue export
+apps/argocd.cue` from `prod9/infra`, expect a successful fetch+verify+load (export = `cue export`)
+instead of the not-on-disk error.
+
+### For B3d-6
+
+MVS version *solving* (resolve a version *range* to a concrete pin), the `cue mod get/tidy`
+commands, and `cue.sum` WRITE. Cache-write atomicity hardening (temp-dir-then-rename) is a B3d-6
+candidate. Private/Bearer-token registries (the `WWW-Authenticate` flow) also remain.

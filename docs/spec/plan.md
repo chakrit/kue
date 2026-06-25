@@ -564,10 +564,13 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    re-spike. See `docs/decisions/2026-06-25-lean-engine-embedded-in-go-via-cgo.md`
    (status: feasibility-proven, REJECTED).
 
-   **B3d (registry/OCI module fetch) — ACTIVE (2026-06-25).** Transport DECIDED: a `curl`
-   subprocess, NOT FFI (`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`),
+   **B3d (registry/OCI module fetch) — WIRED (2026-06-26); B3d-6 remains.** Transport DECIDED: a
+   `curl` subprocess, NOT FFI (`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`),
    which splits the OCI protocol into a PURE core (offline TDD) + a thin impure curl edge.
-   Slice plan B3d-1…B3d-6 lives in that decision note.
+   Slice plan B3d-1…B3d-6 lives in that decision note. B3d-1…B3d-5 (+ B3d-5a, B3d-5z) are DONE:
+   fetch-on-missing is wired into `Module.lean` and offline-verified; the live HTTPS fetch is
+   human-gated (`.afk.log`). Remaining: **B3d-6** — MVS version *solving*, `cue mod get/tidy`, and
+   `cue.sum` WRITE.
    - **B3d-1 — `CUE_REGISTRY` parse + module→OCI-ref resolution (PURE) — DONE (2026-06-25).**
      New pure, IO-free `Kue/Registry.lean` (+ `Kue/Tests/RegistryTests.lean`). The
      simple-syntax `CUE_REGISTRY` parser (empty→`registry.cue.works`; bare host /
@@ -705,30 +708,54 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      code does not share). All 69 files byte-identical, CRC-verified. No network; READ-only over
      committed fixtures. B3d-5 now has: `fetchModuleZip` bytes → `readZip` → `(name, contents)`
      entries → cache-write + `hash1` dirhash.
-   - **B3d-5a — UNIFY the cache-layout authority (DRY, MED; do AS PART OF B3d-5) — OPEN.**
-     The extract-cache path is now computed in TWO places that must agree once B3d-5 wires
-     fetch→write→read: the read-path `Module.lean` `locateModuleDir` builds
-     `joinModulePath (cacheRoot/"mod"/"extract") s!"{dep.modPath}@{dep.version}"`
-     (= `…/mod/extract/<modpath>@<ver>`, UNescaped, via segment-split), and the write-path
-     `Registry.lean` `extractCachePath root mv` builds
-     `s!"{root}/extract/{escapePath mv.basePath}@{escapeVersion mv.version}"`
-     (= `…/mod/extract/<modpath>@<ver>`, ESCAPED). Confirmed byte-identical for real
-     lowercase module paths (`CheckPath` forbids uppercase, so `escapeString` is a no-op);
-     `extract_cache_path_layout` pins the Registry side. They overlap, with ONE latent
-     divergence: the read-path omits `escapeString`, so an (illegal-but-constructible)
-     uppercase path would read from `…/Foo.com/…` while the write-path wrote to
-     `…/!foo.com/…` → silent cache miss. **Fix (during B3d-5, when both paths go live at
-     once): make `Registry.extractCachePath`/`downloadCachePath` the SOLE cache-layout
-     authority** and route `locateModuleDir`'s `cached` candidate through it (build a
-     `Registry.ModuleVersion` from the `Dep`, call `extractCachePath`). `Module.lean`
-     already imports `Runtime`; it gains a NEW edge `Module → Registry` — the correct
-     direction (the IO module depends on the pure core, never the reverse). Do NOT extract
-     inline now: the read-path and write-path do not BOTH exist until B3d-5, so unifying
-     before then is a speculative move with no second live consumer; bundling it INTO B3d-5
-     is the cheap, non-speculative seam. Until then, the read-path's missing escaping is a
-     no-op on every real path. Records: this overlap is the cache-layout finding from the
-     B3d Phase-B audit (2026-06-25); the consolidation is a B3d-5 sub-task, not a standalone
-     slice.
+   - **B3d-5 — fetch→extract→cache-write→read-path wiring (+ B3d-5a folded) — DONE
+     (2026-06-26).** The CONNECT slice: the line-340 `none` branch of `resolveImportTarget` (a
+     declared dep absent from vendor+cache) no longer hard-errors `registry fetch is B3d` — it
+     fetches, verifies, installs into the cue cache, and retries the locate. New IO edge in
+     `Module.lean` (which gained `import {Registry,OciFetch,Zip,Sha256}` — the correct
+     direction: the IO module depends on the pure protocol core, never the reverse):
+     **`fetchAndCacheModule cueRegistry importerRoot dep fetchZip`** = resolve `CUE_REGISTRY`+dep
+     to an `OciRef` via `Registry.resolveFromConfig` (a `none`/unset registry ⇒ a clear
+     "cannot fetch" error, never a silent empty install) → `fetchZip ref` (production passes
+     `OciFetch.fetchModuleZip`, which already digest-verifies the blob; the param is INJECTED so
+     the offline test drives a local-file source) → `Zip.readZip` (CRC+size verified) →
+     `cue.sum` `h1:` check when one is recorded → `writeModuleToCache`. **Cache-write layout +
+     atomicity:** `writeModuleToCache` routes through the `Registry` authority — the raw verified
+     zip to `mod/download/<esc-path>/@v/<esc-ver>.zip`, each unpacked entry under
+     `mod/extract/<esc-path>@<esc-ver>/` by its bare zip-relative name (`createDirAll` per parent).
+     Atomicity is a simple create-all (NOT temp-dir-then-rename) — the alpha choice, acceptable
+     because the read-path keys off the extract *directory* and the entries land before the
+     retry-locate reads it; a crash mid-write would leave a partial extract dir that a future
+     `cue mod` verify (B3d-6) should re-validate. **`cue.sum`:** cue v0.16.1 ships NO `cue.sum`
+     mechanism (no `HashZip`/dirhash consumer in its source) — the OCI blob `sha256:` digest is
+     the live integrity gate. kue's `h1:` verification is defensive/forward-compatible: a recorded
+     sum that mismatches REJECTS the install (`Sha256.hash1` over the zip entries = the Go
+     `dirhash.Hash1` port from B3d-3); an absent file proceeds (matching cue). Recorded in
+     `cue-spec-gaps.md`; cue.sum WRITE (`cue mod tidy`) is B3d-6. **Read-path UNCHANGED when the
+     module IS present:** the fetch fires ONLY on the `none` branch; a vendored/cached dep takes
+     the existing path with no fetch. **Canary (non-regression):** `kue export apps/argocd.cue`
+     from `prod9/infra` (`prodigy9.co/defs` cached) is byte-identical to `cue export`
+     (`jq -S` diff = 0) — no fetch triggered, the B3d-5a cache-path unification did not move the
+     real lowercase module. **Offline pipeline test:** `scripts/check-fetch-pipeline.lean` (wired
+     into `check-fixtures.sh`) drives `fetchAndCacheModule` with a local fixture zip
+     (`testdata/ocifetch/pipeline/`, a real DEFLATE `lib.example/defs@v0.1.0`) and
+     `CUE_CACHE_DIR` → a repo-local temp dir — pinning install+locate, the download-layout, the
+     cue.sum accept+reject paths, `none`-registry, and transport-failure (no network, no real-cache
+     write). Totality: no new `partial`/`sorry`; only `propext`/`Classical.choice`/`Quot.sound`.
+     **The live HTTPS fetch from `registry.cue.works` (network + real-cache write) is human-gated —
+     see `.afk.log`.** Remaining for B3d-6: MVS version *solving*, `cue mod get/tidy` commands, and
+     `cue.sum` WRITE.
+   - **B3d-5a — UNIFY the cache-layout authority (DRY, MED; do AS PART OF B3d-5) — DONE
+     (2026-06-26, folded into B3d-5).** `Registry.{extractCachePath,downloadCachePath}` is now the
+     SOLE cache-layout authority: `Module.locateModuleDir`'s `cached` candidate is built via
+     `Registry.extractCachePath ((cacheRoot/"mod").toString) (Registry.mkModuleVersion …)` — the
+     same call the B3d-5 write-path uses — so read-path and write-path agree by construction,
+     including the on-disk `escapeString` of any upper-case path. Byte-identical for real lowercase
+     modules (the argocd canary stayed at 0-line diff; `ModuleTests` pins
+     `extractCachePath "/c/mod" (mk "lib.example/defs" "v0.1.0") = "/c/mod/extract/lib.example/defs@v0.1.0"`
+     and the escaping-identity), closing the latent uppercase divergence
+     (`Foo.com/Bar` → `…/extract/!foo.com/!bar@…`, also pinned). Closes the cache-layout finding
+     from the B3d Phase-B audit (2026-06-25).
    - **Shared bytes-util module (`Kue/Bytes.lean`) — YAGNI, NOT now.** Phase A flagged
      `Sha256.hex` (bytes→hex) + the dirhash byte-ordering as candidate shared primitives.
      Decision (Phase B, 2026-06-25): `Sha256.hex` is the codebase's ONLY bytes→hex encoder

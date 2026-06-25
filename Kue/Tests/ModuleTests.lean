@@ -26,6 +26,37 @@ example : resolveImportSubpath "example.com" "other.org/defs" = none := by
 example : resolveImportSubpath "example.com" "example.computer/defs" = none := by
   native_decide
 
+/-! ### B3d-5a — unified cache-path authority (read-path == `Registry.extractCachePath`)
+
+    `locateModuleDir` now routes its extract-cache path through `Registry.extractCachePath`, so the
+    read-path and the B3d-5 write-path agree by construction. These pin the two facts that
+    unification rests on: for a real LOWERCASE module path the escaped form is byte-identical to
+    the bare segment-join (the canaries must not move), and for an upper-case path the two would
+    have DIVERGED (the latent bug the unification closes). -/
+
+/-- Canary: a real lowercase module path's `extractCachePath` is byte-identical to the bare
+    `<root>/extract/<modpath>@<ver>` the old segment-join produced — so the read-path is unchanged
+    for every real module. -/
+example :
+    Registry.extractCachePath "/c/mod" (Registry.mkModuleVersion "lib.example/defs" "v0.1.0")
+      = "/c/mod/extract/lib.example/defs@v0.1.0" := by
+  native_decide
+
+/-- The escaping is identity on a lowercase path (`escapePath`/`escapeVersion`), so unifying the
+    read-path onto the escaped authority cannot move any real module's location. -/
+example :
+    Registry.escapePath "prodigy9.co/defs" = "prodigy9.co/defs"
+      ∧ Registry.escapeVersion "v0.3.19" = "v0.3.19" := by
+  native_decide
+
+/-- The divergence the unification closes: an (illegal-but-constructible) UPPER-case path escapes
+    to a `!`-lowercased on-disk form. The pre-B3d-5a read-path computed the BARE path here, missing
+    the cache — now both read- and write-path use this escaped authority. -/
+example :
+    Registry.extractCachePath "/c/mod" (Registry.mkModuleVersion "Foo.com/Bar" "v1")
+      = "/c/mod/extract/!foo.com/!bar@v1" := by
+  native_decide
+
 private def fileA : ParsedFile :=
   { value := mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
     packageName := some "defs"

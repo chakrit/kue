@@ -427,6 +427,38 @@ check_zip_golden() {
   fi
 }
 
+# Drive the B3d-5 fetch->extract->cache-write->read-path wiring (Kue.fetchAndCacheModule) over
+# the committed testdata/ocifetch/pipeline/ fixtures, OFFLINE. The fetch step reads the local
+# fixture zip (no network, no real registry); CUE_CACHE_DIR points at a fresh repo-local temp dir
+# so the cache-write path is exercised WITHOUT touching the real ~/Library/Caches/cue. Asserts the
+# module installs + is located, the integrity gate (cue.sum h1:) accepts/rejects, and the B3d-5a
+# unified cache-path authority. The live HTTPS fetch from registry.cue.works is human-gated
+# (see .afk.log).
+check_fetch_pipeline() {
+  local pipeline_dir="${ocifetch_dir}/pipeline"
+  if [[ ! -d "${pipeline_dir}" ]]; then
+    return 0
+  fi
+
+  if ! lake build Kue.Module >/dev/null; then
+    printf 'failed to build Kue.Module\n' >&2
+    return 1
+  fi
+
+  local cache_dir
+  cache_dir="$(mktemp -d "${pipeline_dir}/.cache-XXXXXX")"
+
+  local rc=0
+  if ! CUE_CACHE_DIR="${cache_dir}" \
+    lake env lean --run "${repo_root}/scripts/check-fetch-pipeline.lean" "${pipeline_dir}"; then
+    printf 'fetch pipeline check failed\n' >&2
+    rc=1
+  fi
+
+  rm -rf -- "${cache_dir}"
+  return "${rc}"
+}
+
 main() {
   local status=0
   local cue_file
@@ -483,6 +515,10 @@ main() {
   fi
 
   if ! check_ocifetch_seam; then
+    status=1
+  fi
+
+  if ! check_fetch_pipeline; then
     status=1
   fi
 
