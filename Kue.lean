@@ -16,6 +16,8 @@ import Kue.Resolve
 import Kue.Builtin
 import Kue.Module
 import Kue.Sha256
+import Kue.Inflate
+import Kue.Zip
 import Kue.Registry
 import Kue.Oci
 import Kue.OciFetch

@@ -11,6 +11,7 @@ readonly fixture_dir="${repo_root}/testdata/cue"
 readonly export_dir="${repo_root}/testdata/export"
 readonly module_dir="${repo_root}/testdata/modules"
 readonly ocifetch_dir="${repo_root}/testdata/ocifetch"
+readonly zip_dir="${repo_root}/testdata/zip"
 generated_dir=
 
 cleanup() {
@@ -406,6 +407,26 @@ check_ocifetch_seam() {
   fi
 }
 
+# Drive the B3d-5z pure-Lean ZIP reader (Kue.Zip.readZip: container parse + RFC 1951 inflate +
+# CRC-32 verification) over a REAL cached cue module zip (testdata/zip/module.zip, all-DEFLATE),
+# OFFLINE. Cross-checks the extracted content against the independently-produced ground truth
+# testdata/zip/module.zip.sha256 (one `<sha256>  <name>` line per file via `unzip -p | shasum`).
+check_zip_golden() {
+  if [[ ! -d "${zip_dir}" ]]; then
+    return 0
+  fi
+
+  if ! lake build Kue.Zip >/dev/null; then
+    printf 'failed to build Kue.Zip\n' >&2
+    return 1
+  fi
+
+  if ! lake env lean --run "${repo_root}/scripts/check-zip.lean" "${zip_dir}"; then
+    printf 'ZIP reader golden check failed\n' >&2
+    return 1
+  fi
+}
+
 main() {
   local status=0
   local cue_file
@@ -462,6 +483,10 @@ main() {
   fi
 
   if ! check_ocifetch_seam; then
+    status=1
+  fi
+
+  if ! check_zip_golden; then
     status=1
   fi
 

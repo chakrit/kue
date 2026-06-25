@@ -34,6 +34,7 @@ import Kue.Tests.StringsTests
 import Kue.Tests.StructTests
 import Kue.Tests.TwoPassTests
 import Kue.Tests.YamlTests
+import Kue.Tests.ZipTests
 
 namespace Kue
 

@@ -664,6 +664,47 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      `.afk.log` with the exact `curl` one-liner to run — a logged gap, not a failure. NOT wired
      into `Module.lean` — replacing the `registry fetch is B3d` error with
      resolve→fetch→verify→cache-write→extract→read-path is B3d-5.
+   - **B3d-5z — pure-Lean ZIP reader + DEFLATE inflate + CRC-32 (offline-verified) — DONE
+     (2026-06-26).** The PURE transform the verified module-zip bytes from `fetchModuleZip`
+     (B3d-4) need next: unzip them into in-memory `(name, contents)` entries that B3d-5 writes to
+     the cache and `Sha256.hash1` hashes into a `cue.sum` line. **Fork resolved by philosophy —
+     pure Lean, NOT an `unzip` subprocess:** the curl GET is the sole impurity in the fetch path;
+     the transform of already-verified bytes is deterministic, total, fully offline-`native_decide`-
+     testable, adds no runtime dependency, and composes directly with the dirhash. An `unzip`
+     subprocess would re-introduce a process seam (and a host-tool dependency) for a transform that
+     belongs in the pure core, so it loses on every axis we weigh. cue module zips are confirmed
+     all-DEFLATE (`unzip -v` shows `Defl:N`), so STORED-only would not do — real RFC 1951 inflate
+     was required. Two new pure modules: **`Kue/Inflate.lean`** (RFC 1951): an LSB-first `BitReader`,
+     a canonical `Huffman` decoder (built from per-symbol code lengths, decoded MSB-first within a
+     code), the three block types (`stored`/fixed-Huffman/dynamic-Huffman with the code-length-code
+     preamble + RLE-coded lengths), the §3.2.5 length/distance base+extra-bit tables, and LZ77
+     back-reference copy (byte-by-byte so overlapping copies — e.g. `dist=1` run-fills — are
+     correct). **`Kue/Zip.lean`** (PKWARE container): little-endian readers, table-free CRC-32
+     (poly `0xEDB88320`, the zip standard), an `End-Of-Central-Directory` backward scan, a
+     `Central-Directory` walk (the AUTHORITATIVE entry index — local headers can defer sizes), a
+     `Method` sum type (`stored`/`deflate`; any other method = typed error, no silent skip), and
+     `readZip : ByteArray → Except String (List (String × ByteArray))` which decompresses each
+     entry, **VERIFIES its CRC-32 + uncompressed size against the central-directory values** (the
+     integrity gate, like the blob-digest gate in B3d-4 — a mismatch is rejected), and skips
+     directory entries (empty/trailing-`/` names) exactly as cue's own `mod/modzip` `Unzip` does.
+     Entry names are the BARE module-root-relative paths (no `<mod>@<ver>/` prefix — cue's modzip
+     convention, confirmed B3d-3), so they feed `hash1` verbatim. **Totality (no `partial`):** the
+     Huffman symbol loop is bounded by `bitLen + 1` (every iteration consumes ≥ 1 bit; the reader
+     cannot pass `data.size*8`), the block loop by `data.size + 1` (every block reads ≥ 3 bits),
+     and `decodeGo` by `maxBits - len` (≤ 15) via `termination_by`; out-of-fuel ⇒ a typed
+     "truncated/malformed" error, never a hang. Only `propext`/`Quot.sound`(/`Classical.choice`)
+     axioms. **Tests:** `Kue/Tests/ZipTests.lean` `native_decide`-pins — CRC-32 standard vectors
+     (`""`→0, `"123456789"`→`0xCBF43926`), raw-deflate vectors from Python `zlib`
+     (fixed-Huffman literals, fixed-Huffman back-ref, dynamic-Huffman, empty, `dist=1` RLE), and
+     synthetic STORED (`zip -0`) + DEFLATE (`zip -9`) archives decoded back to their files — all
+     independently produced, a genuine cross-check. **Golden:** `scripts/check-zip.lean` (run by
+     `scripts/check-fixtures.sh`) drives `readZip` over a real cached cue module zip
+     `testdata/zip/module.zip` (`prodigy9.co/defs` v0.3.4 — 69 flat all-DEFLATE files) and
+     cross-checks every extracted file's sha256 + central-directory order against
+     `testdata/zip/module.zip.sha256` (ground truth from `unzip -p | shasum`, an extractor Kue's
+     code does not share). All 69 files byte-identical, CRC-verified. No network; READ-only over
+     committed fixtures. B3d-5 now has: `fetchModuleZip` bytes → `readZip` → `(name, contents)`
+     entries → cache-write + `hash1` dirhash.
    - **B3d-5a — UNIFY the cache-layout authority (DRY, MED; do AS PART OF B3d-5) — OPEN.**
      The extract-cache path is now computed in TWO places that must agree once B3d-5 wires
      fetch→write→read: the read-path `Module.lean` `locateModuleDir` builds

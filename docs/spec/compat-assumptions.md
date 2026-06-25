@@ -705,3 +705,38 @@ human-gated (network egress is outside the AFK envelope) and logged in `.afk.log
   *solving*) is NOT implemented here; B3d-4 fetches a known `<tag>`. Version solving is B3d-6.
 - **Resolver wiring.** B3d-4 only provides the fetch capability; replacing `Module.lean`'s
   `registry fetch is B3d` error with resolve → fetch → verify → cache-write → extract is B3d-5.
+
+## ZIP extraction + DEFLATE inflate (B3d-5z)
+
+`Kue.Zip.readZip : ByteArray → Except String (List (String × ByteArray))` is the PURE transform
+of a verified module-zip's bytes into in-memory `(name, contents)` entries. It is pure Lean
+(`Kue/Inflate.lean` for RFC 1951 inflate, `Kue/Zip.lean` for the PKWARE container + CRC-32), NOT
+an `unzip` subprocess — the curl GET is the sole impurity in the fetch path.
+
+- **Authoritative entry list = the Central Directory.** The reader parses the End-Of-Central-
+  Directory record (backward scan, since the trailing comment is variable-length) and walks the
+  Central Directory for each entry's name / method / CRC-32 / compressed+uncompressed sizes /
+  local-header offset. Local file headers are NOT trusted for sizes (streaming writers defer them
+  to a data descriptor); the local header is re-read only for its name+extra lengths to locate the
+  compressed-data start.
+- **Compression methods.** STORED (method 0) and DEFLATE (method 8) — the only methods cue's
+  `mod/modzip` emits (every cue module-zip entry is observed DEFLATE, `Defl:N`). The method is a
+  closed `Method` sum (`stored`/`deflate`); any OTHER central-directory method is a typed
+  `Except.error` at parse time — NEVER a silent skip. (No cue module zip uses any other method;
+  if one ever does, kue errors loudly rather than dropping the entry.)
+- **Integrity gate.** Each extracted entry's uncompressed bytes are verified against the
+  central-directory CRC-32 (poly `0xEDB88320`, the zip standard) AND the declared uncompressed
+  size; a mismatch is a typed error, like B3d-4's blob-digest gate. A corrupt/tampered entry is
+  rejected, never returned.
+- **Directory entries skipped.** Entries with an empty name or a trailing `/` are omitted from
+  the result, exactly as cue's own `mod/modzip` `Unzip` does (`name == "" || strings.HasSuffix(name,
+  "/")`). `readZip` returns files only, in central-directory order. Entry names are the bare
+  module-root-relative slash paths (no `<module>@<version>/` prefix — cue's modzip convention,
+  B3d-3), so they feed `hash1` verbatim.
+- **DEFLATE coverage.** All three RFC 1951 block types (STORED, fixed Huffman, dynamic Huffman),
+  LZ77 back-references with overlapping copies, and the full §3.2.5 length/distance tables are
+  implemented. There is no support for ZIP64 (entries ≥ 4 GiB or > 65535 entries), encryption, or
+  the legacy `Implode`/`Shrink`/etc. methods — none occur in a cue module zip; each surfaces as a
+  typed error (a ZIP64 archive's 16-bit EOCD count/offset would be `0xFFFF`/`0xFFFFFFFF` sentinel
+  values, which the current reader does not chase to the ZIP64 EOCD — deferred until a real cue
+  module zip needs it, which is not expected since module zips are small).

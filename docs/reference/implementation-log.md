@@ -14338,3 +14338,90 @@ verified zip to the download cache (`Registry.downloadCachePath`) → unzip into
 (`Registry.extractCachePath`) → fall through to the existing read-path (`locateModuleDir`). It
 also folds in B3d-5a (unify the cache-layout authority). B3d-4's edge hands it the verified zip
 bytes; what it still needs is a zip extractor and the cache directory writes (both new IO).
+
+---
+
+## Completed Slice: B3d-5z — pure-Lean ZIP reader + DEFLATE inflate + CRC-32 (offline-verified)
+
+Goal: the PURE transform the verified module-zip bytes from `OciFetch.fetchModuleZip` (B3d-4)
+need next — unzip them into in-memory `(name, contents)` entries so B3d-5 can write them to the
+cache and `Sha256.hash1` (already present, takes `List (String × ByteArray)`) can hash them into
+a `cue.sum` `h1:` line.
+
+### The fork: pure Lean, not an `unzip` subprocess
+
+Resolved by philosophy (decision note
+`docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`, extended to extraction). The
+curl GET is the SOLE impurity in the fetch path; the transform of already-verified bytes belongs
+in the pure core. Pure Lean is deterministic, total, fully offline-`native_decide`-testable, adds
+no runtime dependency, and composes directly with the dirhash — it wins on every axis. cue module
+zips are confirmed all-DEFLATE (`unzip -v` shows `Defl:N`), so a STORED-only reader would not do:
+real RFC 1951 inflate was required.
+
+### `Kue/Inflate.lean` (RFC 1951 inflate)
+
+- **`BitReader`** — LSB-first within each byte (`readBit`/`readBits`/`alignByte`/`readByte`);
+  Huffman codes' MSB-first-within-the-code packing is handled by the decoder, not the reader.
+- **`Huffman`** — a canonical table BUILT from per-symbol code lengths (§3.2.2: count per length,
+  first-code-per-length, symbols grouped by length in ascending symbol order); `decodeGo` walks
+  bits MSB-first accumulating `(code, len)` and maps a matched code to its symbol in `O(maxBits)`.
+- **Three block types** — STORED (§3.2.4: align, LEN/NLEN with the `NLEN = ~LEN` check, raw
+  copy), fixed Huffman (§3.2.6 fixed lit/len + 5-bit dist tables), dynamic Huffman (§3.2.7: HLIT/
+  HDIST/HCLEN, the code-length-code preamble in `clcOrder`, then RLE symbols 16/17/18 decoding the
+  literal+distance code lengths).
+- **§3.2.5 base+extra tables** for length codes 257..285 and distance codes 0..29.
+- **LZ77 back-reference copy** — `copyBackref` copies byte-by-byte from `out.size - dist`, so
+  overlapping copies (a `dist=1` run-length fill is the common case) are correct; a `dist`
+  pointing before the output start is a typed error.
+
+### `Kue/Zip.lean` (PKWARE container + CRC-32 + top level)
+
+- **Little-endian `u16`/`u32`** readers (out-of-range → 0, caught structurally upstream).
+- **CRC-32** — table-free, poly `0xEDB88320`, reflected, init/final `0xFFFFFFFF` (the zip
+  standard). `crc32 "" = 0`, `crc32 "123456789" = 0xCBF43926`.
+- **`Method`** sum type (`stored`/`deflate`) — illegal-states-unrepresentable for compression;
+  any other central-directory method is a typed error at parse time, never a silent skip.
+- **EOCD backward scan** (`findEocd`, bounded by the ≤ 65535-byte comment window) → **Central
+  Directory walk** (`parseCentralDirectory`, bounded by the EOCD entry count) reading name /
+  method / CRC / sizes / local-header offset per entry. The central directory is the
+  AUTHORITATIVE index (local headers can defer sizes to a data descriptor); the local header is
+  re-read only for its name+extra lengths to find the compressed-data start.
+- **`readZip : ByteArray → Except String (List (String × ByteArray))`** — decompresses each
+  entry (STORED = raw span, DEFLATE = `Inflate.inflate`), VERIFIES the uncompressed size AND the
+  CRC-32 against the central-directory values (the integrity gate, like B3d-4's blob-digest gate —
+  a mismatch is rejected, never returned), and SKIPS directory entries (empty or trailing-`/`
+  names) exactly as cue's own `mod/modzip` `Unzip` does. Entries returned in central-directory
+  order; names are the bare module-root-relative paths (no `<mod>@<ver>/` prefix, cue's modzip
+  convention) so they feed `hash1` verbatim.
+
+### Totality (no `partial`)
+
+The Huffman symbol loop is bounded by `bitLen + 1` (every iteration consumes ≥ 1 bit and the
+reader cannot advance past `data.size * 8`); the block loop by `data.size + 1` (every block reads
+≥ 3 bits); `decodeGo` by `maxBits - len` (≤ 15) via `termination_by`. Out-of-fuel is unreachable
+on well-formed input (the end-of-block symbol always arrives first) but yields a typed
+"truncated/malformed" error rather than a `partial` non-termination hole. `#print axioms` shows
+only `propext`/`Quot.sound`(/`Classical.choice`) — no `sorryAx`, no `partial`.
+
+### Tests
+
+`Kue/Tests/ZipTests.lean` `native_decide`-pins, all on SMALL independently-produced inputs (a
+big in-kernel inflate is slow, so the large golden goes through the binary): CRC-32 standard
+vectors; raw-deflate byte vectors from Python `zlib.compressobj(wbits=-15)` (fixed-Huffman
+literals, fixed-Huffman back-ref, dynamic-Huffman, empty, `dist=1` RLE) — an encoder Kue does
+not share, so decoding them back is a genuine cross-check; synthetic STORED (`zip -0`) and
+DEFLATE (`zip -9`) archives from the system `zip` tool decoded back to their `(name, contents)`;
+and error paths (non-zip → error, reserved BTYPE=3 → error). Golden: `scripts/check-zip.lean`
+(wired into `scripts/check-fixtures.sh`, mirroring `check-ocifetch.lean`) drives `readZip` over
+a real cached cue module zip `testdata/zip/module.zip` (`prodigy9.co/defs` v0.3.4 — 69 flat
+all-DEFLATE files, ~90 KB) and cross-checks every file's sha256 + central-directory order against
+`testdata/zip/module.zip.sha256` (ground truth from `unzip -p <zip> <name> | shasum -a 256`).
+All 69 files byte-identical, all CRC-verified. No network; READ-only over committed fixtures.
+
+### For B3d-5 (wire into resolver)
+
+B3d-5 now has the full chain: `OciFetch.fetchModuleZip ref` → verified zip BYTES →
+`Zip.readZip bytes` → `(name, contents)` entries → (a) write each to the extract cache
+(`Registry.extractCachePath`), and (b) `Sha256.hash1 entries` for the `cue.sum` `h1:`
+verification. The extractor and CRC gate are done; what B3d-5 still adds is the cache directory
+writes (new IO) and the resolver wiring that replaces `Module.lean`'s `registry fetch is B3d`.
