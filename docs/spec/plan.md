@@ -798,6 +798,82 @@ dedup, not false-sharing). Next leader: the **item-6 LOW list** (`module-file-sc
 parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault` check — all LOW,
 none soundness-bearing).
 
+## B3d Phase-A audit (2026-06-26, code-quality over `90aa8d5..c9c8e30`)
+
+Batch: B3d-4 (`OciFetch`/`Oci` curl edge), B3d-5z (`Inflate`/`Zip`), B3d-5 (`Module.lean`
+fetch-on-missing wiring). **Verdict: HEALTHY-with-fixes.** The three integrity gates are
+ENFORCED on the production path and UNBYPASSABLE (traced below); inflate is total + robust.
+No Violation, no security hole. Two ranked fix-slices (one soundness-bearing, one
+test-strength); both fold into the next round.
+
+**Integrity-gate trace (the security core) — all three enforced + unbypassable:**
+- **Blob digest (B3d-4).** Production path `resolveImportTarget → fetchAndCacheModule …
+  OciFetch.fetchModuleZip → fetchModuleZip → fetchBlob → curlGetVerified` requires
+  `Sha256.digestString bytes == descriptor.digest` and fails CLOSED on any mismatch
+  (`digestString` emits `sha256:`+lowercase-hex; compared `==` verbatim against the
+  manifest digest — no prefix/case-fold drift; a non-canonical server digest simply
+  rejects). Exercised in `check-ocifetch.lean` (PASS + REJECT) over `file://`.
+- **CRC-32 + uncompressed-size (B3d-5z).** `decompressEntry` checks `content.size ==
+  uncompSize` THEN `crc32 content == e.crc32`; either mismatch ⇒ typed error, content never
+  returned. On the real path before any cache-write.
+- **`cue.sum` h1 (B3d-5).** `fetchAndCacheModule` enforces `Sha256.hash1 entries ==
+  recorded` when a `cue.sum` line is present; mismatch REJECTS before `writeModuleToCache`.
+  Absent `cue.sum` proceeds BY DESIGN (cue v0.16.1 ships no cue.sum; the OCI blob digest is
+  the always-on live gate) — a spec-gap decision, not a hole. Reject path pinned in
+  `check-fetch-pipeline.lean`.
+- **Ordering is correct:** fetch → `readZip` (CRC) → cue.sum → `writeModuleToCache`. Nothing
+  unverified ever reaches `download/` or `extract/`. The manifest itself is fetched by tag
+  (no pre-known digest — correct OCI trust model; the layer digests it names ARE verified).
+
+**Inflate totality/robustness:** total (no `partial`/`sorry`/axiom beyond
+`propext`/`Quot.sound`/`Classical`); fuel bounds (`bitLen+1` symbol loop, `size+1` block
+loop, `maxBits+1` decode) provably sufficient, out-of-fuel = typed error. Malformed input
+(BTYPE=3, invalid Huffman code, distance-too-far-back via `copyBackref` guard, STORED
+LEN/NLEN mismatch, dynamic-preamble underflow) all map to typed errors — no panic, no hang,
+no OOB. `fixedDistLengths` = 30 (codes 30/31 reserved ⇒ unmatched ⇒ "invalid distance code",
+correct). Overlapping LZ77 back-copy is byte-by-byte (correct).
+
+**Findings (ranked):**
+
+- **B3d-A1 (soundness, MED — TOP-RANKED B3d fix) — non-atomic extract cache-write.**
+  `writeModuleToCache` extracts entries one-by-one (`createDirAll`+`writeBinFile`); a crash
+  mid-extract leaves a PARTIAL extract dir. `locateModuleDir` trusts the extract dir on mere
+  `pathExists` (no completeness/marker check), so a later run loads an INCOMPLETE module and
+  silently produces a wrong result without re-fetching. NOT a security bypass (bytes were
+  already digest+CRC verified; a tamper can't pass), and crash-windowed — but a real
+  latent-wrong-value gap, which the Working Principles rank as a Violation-adjacent
+  soundness item even absent a failing fixture. Self-flagged "alpha" in the B3d-5 decision;
+  this rules it MUST-FIX, not ship-as-is. **Fix:** extract to a sibling temp dir then
+  `IO.FS.rename` atomically into the `extract/<esc-path>@<esc-ver>/` slot (same-filesystem
+  rename is atomic); the download `.zip` is already written whole-then-present, leave it.
+  Add a pipeline assertion that a half-written extract dir is NOT trusted (or that rename is
+  all-or-nothing). Not low-risk-inline (touches the live write path + needs a same-fs temp
+  location) → slice.
+
+- **B3d-A2 (test-strength, LOW) — adversarial DEFLATE/ZIP reject branches under-pinned.**
+  `ZipTests.lean` pins only BTYPE=3 among the malformed-input branches. The other reachable
+  reject paths — invalid Huffman code, distance-too-far-back, STORED LEN/NLEN mismatch, fuel
+  exhaustion on a truncated stream, bad CD signature, unsupported method, CRC mismatch,
+  size mismatch — have no regression pin. They are CORRECT (traced above) but unguarded
+  against future drift. **Fix:** add `native_decide`/`#guard` error-marker pins for each
+  (mirror `inflate_reserved_btype`), plus a zip with a corrupted CRC byte asserting
+  `decompressEntry` rejects. Per "tests are first-class" + audit emphasis #2. Low-risk but
+  multi-case → slice (not inline).
+
+**Out-of-scope / acceptable (not findings):**
+- `Descriptor.digest : String` (bare `sha256:<hex>` not parsed into a refined type) — loose
+  but acceptable: it's preserved VERBATIM precisely to compare against the recomputed digest
+  string, and a non-canonical value fails closed. Tightening to a parsed `Digest` newtype is
+  a Phase-B candidate, not a Phase-A Violation.
+- `config` blob never fetched/verified — only its mediaType is load-bearing; correct.
+- curl flags (`-sSL --fail-with-body`): `-L` follows the 307-to-blob-storage, `--fail-with-body`
+  turns 404/401 into a non-zero exit (→ `Except.error`) while preserving the error body — fail-loud,
+  conforms to the decision note. Correct.
+
+Inline fixes committed this audit: NONE (both findings are slice-sized, not low-risk-inline).
+`lake build` clean (130 jobs); `check-fixtures.sh` green (ocifetch + pipeline + zip golden +
+fixture pairs); shellcheck clean.
+
 ## Resolved / ruled-out (recorded so they are not re-raised)
 
 **Audit 2026-06-25 (Phase B, architecture/refactor over the whole module graph; B3d-readiness
