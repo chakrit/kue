@@ -14041,3 +14041,102 @@ major-strip + full-version tag; `escape.go` upper-case escaping; both cache-path
 CLI smoke (`kue export <file>`) byte-identical. NO cue-divergence (conformed to cue source);
 spec-gap recorded in `compat-assumptions.md` (the `file:`/CUE-syntax-config deferral; the
 escaping/tag rules are cue tooling, outside the language spec).
+
+---
+
+## Completed Slice: B3d-3 — SHA-256 (FIPS 180-4) + `cue.sum` `h1:` dirhash (PURE)
+
+Goal: the cryptographic primitive the B3d registry-fetch track needs — a total, IO-free
+SHA-256 over `ByteArray` (to verify OCI blob `sha256:<hex>` digests in B3d-4) plus the Go
+`golang.org/x/mod/sumdb/dirhash` `Hash1` ("h1:") algorithm a `cue.sum` line is built from
+(to verify in B3d-5). kue had NO crypto/SHA-256 before this slice. Transport/decomposition
+decision: `docs/decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`.
+
+### What landed
+
+New pure, IO-import-free module `Kue/Sha256.lean` (+ `Kue/Tests/Sha256Tests.lean`, registered
+in `Kue.lean` / `Kue/Tests.lean`). NOT yet wired into `Module.lean` — that is B3d-4/5. Three
+pieces:
+
+1. **SHA-256 core** (`sha256 : ByteArray → ByteArray`, 32-byte digest; `sha256String` for
+   UTF-8 text). `UInt32`/`ByteArray` throughout (a `List Nat` impl is too slow under
+   `native_decide`). FIPS 180-4: the 64 `K` round constants, the 8 `H0` init words, message
+   padding (`0x80` + zero-fill to length ≡ 56 mod 64 + big-endian 64-bit BIT-length suffix),
+   the 64-word message schedule (`σ₀`/`σ₁` recurrence), the 64-round compression
+   (`Ch`/`Maj`/`Σ₀`/`Σ₁`, wrapping `UInt32 +`, `rotr` = `(x >>> n) ||| (x <<< (32-n))`), and
+   big-endian word→byte serialisation. `UInt32`'s native ops ARE the spec's mod-2³² `+`, `SHR`,
+   `<<`, `⊕`; only `rotr` is spelled out.
+2. **Hex + OCI digest** (`hex : ByteArray → String` lowercase, `digestString` = `sha256:<hex>`).
+   No prior bytes→hex helper existed in the codebase (only a hex-DIGIT predicate in `Yaml.lean`),
+   so `hex` is new; B3d-4 uses `digestString` to verify a downloaded manifest/blob.
+3. **dirhash `Hash1`** (`hash1 : List (String × ByteArray) → String`, `hash1Line` for one
+   file). Byte-order name sort (compare on `String.toUTF8.toList`, matching Go `slices.Sort`
+   over strings), per-file summary line `lowerhex(sha256(contents)) ++ "  " ++ name ++ "\n"`
+   (TWO U+0020 spaces, one U+000A — `fmt.Fprintf(h, "%x  %s\n", …)`), outer SHA-256 over the
+   concatenated summary, result `"h1:" ++ base64Std`. The std-base64 step REUSES
+   `Kue.base64Encode` (the `encoding/base64` builtin's encoder) — not reimplemented.
+
+### dirhash conformance + cue-source citation
+
+The dirhash algorithm is `golang.org/x/mod/sumdb/dirhash` `hash.go` `Hash1` (read at
+`~/go/pkg/mod/golang.org/x/mod@v0.26.0/sumdb/dirhash/hash.go`). The load-bearing
+cue-specific fact is the dirhash `name` for a module-zip entry: cue's `modzip.Create`
+(`~/go/pkg/mod/cuelang.org/go@v0.16.1/mod/modzip/zip.go`, the `dirFileIO.Path` =
+`f.slashPath` path passed to `zw.Create`) stores zip entries under their BARE
+module-root-relative slash path (`cue.mod/module.cue`, `foo.cue`) — it does NOT prefix
+`<module>@<version>/` the way Go's own modzip does. `CheckZip` (same file) confirms by
+validating bare names (`cue.mod/module.cue`, not `mod@ver/cue.mod/module.cue`). So the
+dirhash `name` IS the raw zip-entry path; `hash1` is name-agnostic, keeping the zip-name
+edge in B3d-4. cue v0.16.1 does NOT itself write/verify a `cue.sum` via dirhash in its
+embedded source path (OCI blob-digest verification is its mechanism); `h1:` here serves
+`cue.sum`-file verification (the format `cue mod` writes).
+
+### Illegal-states + totality
+
+All functions total — no `partial`, `sorry`, or axiom. SHA-256 is fixed-round (64 per
+512-bit block) over a finite statically-padded message, so totality is structural. `#print
+axioms` on `sha256`/`hash1`/`hash1Line` shows only `propext`/`Quot.sound`/`Classical.choice`
+(the last from `Array.qsort`'s well-foundedness in stdlib) — no `sorryAx`.
+
+### Test coverage + ground truth
+
+30+ `native_decide`/`#guard` pins in `Sha256Tests.lean`:
+- **NIST/FIPS 180-4 vectors** (exact): `""` → `e3b0c4…b855`; `"abc"` → `ba7816…15ad`; the
+  56-byte `"abcdbcde…nopq"` two-block example → `248d6a…06c1`.
+- **Padding boundaries** (all `'a'`-repeated, pinned vs `shasum -a 256` — an impl kue does not
+  share): lengths 0, 55 (largest single-block-padding fit), 56 (forces 2nd block), 63, 64
+  (exactly one input block), 65, 119 (the two-input-block padding boundary), plus an 85-byte
+  mixed-content vector.
+- **Digest/hex/primitive** spot pins (`digestString` empty-blob; `hex` lowercase; `rotr`,
+  `ch`, `maj`).
+- **dirhash structural**: `hash1Line` shape (inner sha256 + two-space + name + newline);
+  the base64-std step over the empty digest.
+- **dirhash `h1:` END-TO-END**: TWO values (single-file `cue.mod/module.cue`; two-file
+  unsorted-input exercising the byte-order sort) reproduced INDEPENDENTLY from the Go
+  algorithm with `shasum -a 256` + `base64` + the documented `%x  %s\n` summary —
+  `h1:ftG4xWQPV4pZ9dJyz1U9yMplIdnOoyX/hdskb0yd9w8=` and
+  `h1:P7/mTCFrvF77thKflcmV8eVMxjYU7kC0InTdJLeRHRI=`. This is a TRUE cross-check (not
+  self-consistency), so there is **no soft gap** — the end-to-end `h1:` is independently
+  grounded offline. (No local `cue.sum` exists on disk to anchor against, but the Go-algorithm
+  reproduction via standard Unix tools is an equivalent, stronger ground truth.)
+
+### Verify
+
+`lake build` 118 jobs green (no warning/`sorry`/axiom; every `native_decide` pin checked,
+incl. all SHA-256 vectors + both `h1:` values). `scripts/check-fixtures.sh` `fixture pairs
+ok` (zero drift; no fixtures added — pure unit-pinned). No shell touched. NO cue-divergence
+(conformed to FIPS 180-4 + the Go dirhash source); no spec-gap (SHA-256/dirhash are tooling
+protocol + a published standard, outside the CUE language spec — noted in
+`compat-assumptions.md`).
+
+### For B3d-2 / B3d-4
+
+- **B3d-4 (curl edge)** verifies blob digests with `digestString`/`sha256`: an OCI manifest
+  has exactly 2 layers, `layers[1]` = module file (`application/vnd.cue.modulefile.v1`),
+  `layers[0]` = the zip (`application/zip`); each blob's descriptor digest is `sha256:<hex>`
+  of its bytes (`digest.FromBytes`, `mod/modregistry/client.go`). `digestString blob` must
+  equal the descriptor's `digest` field.
+- **B3d-2 (manifest parse)** supplies those descriptors; `Sha256.digestString` is the verifier
+  it hands B3d-4.
+- **`cue.sum` (B3d-5)**: `hash1` takes the in-memory `(zip-entry-name, contents)` list; the
+  zip reader (B3d-4) supplies BARE entry names verbatim (no `<module>@<version>/` prefix).

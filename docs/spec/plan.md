@@ -586,6 +586,25 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      build green, fixtures zero-drift. The `file:`/`inline:` kinds + CUE-syntax config-file
      form (`pathEncoding`/`stripPrefix`/`prefixForTags`/hash encodings) are DEFERRED (see
      `compat-assumptions.md`). NOT yet wired into `Module.lean` — that is B3d-4/5.
+   - **B3d-3 — SHA-256 (FIPS 180-4) + `cue.sum` `h1:` dirhash (PURE) — DONE (2026-06-25).**
+     New pure, IO-free `Kue/Sha256.lean` (+ `Kue/Tests/Sha256Tests.lean`). Total `UInt32`/
+     `ByteArray` SHA-256 (the 64 `K` constants, 8 `H0`, padding with big-endian 64-bit length
+     suffix, 64-round compression, `Ch`/`Maj`/`Σ`/`σ`), a `hex`/`digestString` (`sha256:<hex>`)
+     for OCI blob-digest verification (B3d-4 consumes it), and `hash1 : List (String ×
+     ByteArray) → String` reproducing Go `golang.org/x/mod/sumdb/dirhash` `Hash1`: byte-order
+     name sort, per-file `lowerhex(sha256(contents)) ++ "  " ++ name ++ "\n"` (TWO spaces),
+     outer SHA-256, `"h1:" ++ base64Std`. The std-base64 step REUSES `Kue.base64Encode` (the
+     `encoding/base64` builtin's encoder), not reimplemented; `hex` is new (no prior bytes→hex
+     helper). Key pinned protocol fact: a cue module zip stores entries under their BARE
+     module-root-relative path (`cue.mod/module.cue`, `foo.cue`), NOT `<module>@<version>/`-
+     prefixed like Go's own modzip (`cuelang.org/go/mod/modzip` `zip.go` `Create`), so the
+     dirhash `name` IS the raw zip-entry path; `hash1` is name-agnostic so the zip-name edge
+     stays in B3d-4. Total, no `partial`/`sorry`/axiom (only `propext`/`Quot.sound`/
+     `Classical.choice`). 30+ `native_decide`/`#guard` pins: the three NIST/FIPS vectors
+     (`""`/`"abc"`/56-byte two-block), padding boundaries 0/55/56/63/64/65/119 + an 85-byte
+     mixed vector (all vs `shasum -a 256`), the digest/hex/primitive forms, and TWO end-to-end
+     `h1:` values reproduced INDEPENDENTLY from the Go algorithm via `shasum`+`base64` — a true
+     cross-check, no soft gap. NOT yet wired into `Module.lean` — that is B3d-4/5.
 
 **Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
 re-litigate): the walkers were NEVER one problem — three distinct walker families + a

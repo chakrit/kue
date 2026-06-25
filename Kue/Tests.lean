@@ -27,6 +27,7 @@ import Kue.Tests.RegexTests
 import Kue.Tests.RegistryTests
 import Kue.Tests.ResolveTests
 import Kue.Tests.RuntimeTests
+import Kue.Tests.Sha256Tests
 import Kue.Tests.SortTests
 import Kue.Tests.StringsTests
 import Kue.Tests.StructTests

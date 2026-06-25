@@ -609,3 +609,30 @@ simple comma-separated syntax** (the `simple:` kind, or a bare value). The
 hash/strip/tag-prefix encodings and the file/inline kinds are not yet implemented; a config
 that requires them is out of B3d-1 scope. (`modconfig.go` handles the kind split upstream;
 the simple parser receives the post-`simple:`-strip string.)
+
+## SHA-256 + `cue.sum` `h1:` dirhash (B3d-3)
+
+`Kue/Sha256.lean` provides a total, IO-free SHA-256 (FIPS 180-4) and the Go
+`golang.org/x/mod/sumdb/dirhash` `Hash1` ("h1:") algorithm. These are NOT in the CUE
+language spec — SHA-256 is a published standard (FIPS 180-4) and dirhash is module-tooling
+protocol — so the authority is FIPS 180-4 + the Go source, conformed to exactly. Now
+AVAILABLE (was a hard capability gap — kue had no crypto before this slice):
+
+- **Digest verification.** `digestString bytes = "sha256:" ++ hex (sha256 bytes)` reproduces
+  OCI's `digest.FromBytes` (`mod/modregistry/client.go`); B3d-4 verifies a downloaded
+  manifest/blob against its descriptor `digest`.
+- **`cue.sum` `h1:`.** `hash1 : List (String × ByteArray) → String` reproduces `Hash1` over
+  in-memory `(name, contents)` files (byte-order name sort, per-file
+  `lowerhex(sha256(contents)) ++ "  " ++ name ++ "\n"`, outer SHA-256, `"h1:" ++ base64Std`).
+  The std-base64 step reuses the `encoding/base64` builtin's encoder (`Kue.base64Encode`).
+
+**Module-zip entry naming (pinned protocol fact).** cue's `modzip.Create`
+(`mod/modzip/zip.go`) stores zip entries under their BARE module-root-relative slash path
+(`cue.mod/module.cue`, `foo.cue`) — NOT prefixed `<module>@<version>/` like Go's own modzip.
+So the dirhash `name` is the raw zip-entry path. `hash1` is name-agnostic; the zip reader
+(B3d-4) supplies entry names verbatim.
+
+**DEFERRED — the zip-reading IO edge.** `hash1` operates on already-in-memory `(name,
+contents)` pairs; reading a module zip into that list is the IO edge, B3d-4. cue v0.16.1
+itself relies on OCI blob-digest verification rather than writing a `cue.sum` in its embedded
+source path; `h1:` here serves verification of the `cue.sum` format `cue mod` produces.
