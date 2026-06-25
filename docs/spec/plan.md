@@ -627,6 +627,42 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      mixed vector (all vs `shasum -a 256`), the digest/hex/primitive forms, and TWO end-to-end
      `h1:` values reproduced INDEPENDENTLY from the Go algorithm via `shasum`+`base64` — a true
      cross-check, no soft gap. NOT yet wired into `Module.lean` — that is B3d-4/5.
+   - **B3d-5a — UNIFY the cache-layout authority (DRY, MED; do AS PART OF B3d-5) — OPEN.**
+     The extract-cache path is now computed in TWO places that must agree once B3d-5 wires
+     fetch→write→read: the read-path `Module.lean` `locateModuleDir` builds
+     `joinModulePath (cacheRoot/"mod"/"extract") s!"{dep.modPath}@{dep.version}"`
+     (= `…/mod/extract/<modpath>@<ver>`, UNescaped, via segment-split), and the write-path
+     `Registry.lean` `extractCachePath root mv` builds
+     `s!"{root}/extract/{escapePath mv.basePath}@{escapeVersion mv.version}"`
+     (= `…/mod/extract/<modpath>@<ver>`, ESCAPED). Confirmed byte-identical for real
+     lowercase module paths (`CheckPath` forbids uppercase, so `escapeString` is a no-op);
+     `extract_cache_path_layout` pins the Registry side. They overlap, with ONE latent
+     divergence: the read-path omits `escapeString`, so an (illegal-but-constructible)
+     uppercase path would read from `…/Foo.com/…` while the write-path wrote to
+     `…/!foo.com/…` → silent cache miss. **Fix (during B3d-5, when both paths go live at
+     once): make `Registry.extractCachePath`/`downloadCachePath` the SOLE cache-layout
+     authority** and route `locateModuleDir`'s `cached` candidate through it (build a
+     `Registry.ModuleVersion` from the `Dep`, call `extractCachePath`). `Module.lean`
+     already imports `Runtime`; it gains a NEW edge `Module → Registry` — the correct
+     direction (the IO module depends on the pure core, never the reverse). Do NOT extract
+     inline now: the read-path and write-path do not BOTH exist until B3d-5, so unifying
+     before then is a speculative move with no second live consumer; bundling it INTO B3d-5
+     is the cheap, non-speculative seam. Until then, the read-path's missing escaping is a
+     no-op on every real path. Records: this overlap is the cache-layout finding from the
+     B3d Phase-B audit (2026-06-25); the consolidation is a B3d-5 sub-task, not a standalone
+     slice.
+   - **Shared bytes-util module (`Kue/Bytes.lean`) — YAGNI, NOT now.** Phase A flagged
+     `Sha256.hex` (bytes→hex) + the dirhash byte-ordering as candidate shared primitives.
+     Decision (Phase B, 2026-06-25): `Sha256.hex` is the codebase's ONLY bytes→hex encoder
+     and has exactly ONE consumer (`digestString`/`hash1`, both in `Sha256.lean`).
+     `Yaml.lean`'s `hexDigit` is a different thing — an is-hex-digit *predicate* for token
+     resolution, not byte encoding — so NO duplication exists. `escapeString`/percent-encoding
+     live in `Registry.lean` and have no second consumer either. Extracting a shared
+     bytes-util before a second consumer exists is a premature abstraction (the repo's
+     illegal-states-first philosophy favors tight homes, not speculative util drawers).
+     **Re-evaluate when B3d-4 lands** — if the curl edge needs hex/percent-encoding outside
+     `Sha256`/`Registry`, file the extraction THEN, with the real second consumer to shape
+     the boundary.
 
 **Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
 re-litigate): the walkers were NEVER one problem — three distinct walker families + a
@@ -658,6 +694,42 @@ parser strictness `*(1|2)`/`__x`, A2-x/y, B2-A1/A2, `resolveEmbeddedDisjDefault`
 none soundness-bearing).
 
 ## Resolved / ruled-out (recorded so they are not re-raised)
+
+**Audit 2026-06-25 (Phase B, architecture/refactor over the whole module graph; B3d-readiness
+focus; baseline `9afd54c` Phase-A HEALTHY) — HEALTHY.** Two-phase audit CLOSED. Build green
+(122 jobs), fixtures zero-drift. Headlines:
+- **B3d-4/5 seam is STRUCTURALLY SOUND and the right shape for the IO edge.** The new pure
+  island `Registry`/`Sha256`/`Oci` has NO inbound deps and imports only `Base64`
+  (`Sha256`) / `Lean.Data.Json` (`Oci`) / nothing-Kue (`Registry`). The IO edge lives in
+  `Module.lean` (imports `Parse` + `Runtime` only). **Recommended import edges for B3d-4/5
+  (hand these to the orchestrator):** `Module → Oci` (parse the GET'd manifest),
+  `Module → Sha256` (verify `digestString blob == descriptor.digest`; `cue.sum` `hash1`),
+  `Module → Registry` (resolve `CUE_REGISTRY` + cache-path authority — see B3d-5a). All
+  three point IO→pure, the correct direction; NONE creates a cycle (the pure trio imports
+  nothing under `Kue/` except `Base64`, and `Module` is downstream of everything). `Eval`/
+  `Resolve`/`Value` never touch the trio and must not — verified they don't today. The
+  decision note's "IO is confined to `Module.lean`" invariant holds and is enforceable by
+  these one-directional edges. No risk B3d-4 pulls IO into a pure module IF the edges go
+  Module→{Oci,Sha256,Registry} and never the reverse.
+- **Type-system leverage in the new island: TIGHT (spot-checked, confirms Phase A).**
+  `RegistrySpec`/`Resolution`/`Descriptor`/`OciManifest` are sum/record types that make
+  illegal states unrepresentable (a `none` registry carries no host; a descriptor missing a
+  field is a parse error, never a placeholder). No loose-type tightening to propose in the
+  new code. (Module-graph-wide loose-type sweep: nothing new beyond the standing item-6 list;
+  the registry-fetch foundation did not regress it.)
+- **Cache-path duplication: CONFIRMED OVERLAP** (read-path `Module.locateModuleDir` vs
+  write-path `Registry.extractCachePath`/`downloadCachePath`) — filed as **B3d-5a** in the
+  B3d section above: same path for real lowercase modules, one latent uppercase-escaping
+  divergence, consolidate INTO B3d-5 (not standalone, since both paths aren't live until
+  then). Not inline-fixed: speculative before the second consumer exists.
+- **Shared bytes-util (`Kue/Bytes.lean`): YAGNI** — single consumer of `Sha256.hex`, no real
+  duplication (Yaml's `hexDigit` is a predicate, not encoding). Filed in B3d section;
+  re-evaluate at B3d-4. No `String.dropRight`/deprecated APIs, no stale TODOs in the new
+  modules. SHA-256 tests are all `native_decide` (native-compiled, no kernel-reduction perf
+  hit) — `kue-performance.md` needs NO note. Test files well-sized (Registry 285, Sha256 176,
+  Oci 190 lines); `testdata/` untouched by B3d (the OCI/SHA fixtures are in-Lean vectors).
+  **No inline cleanups committed** (the one real finding, B3d-5a, is a B3d-5 sub-task, not a
+  low-risk inline edit). **Overall: architecture HEALTHY; B3d-4 has a clean target.**
 
 **Audit 2026-06-25 (Phase A, code-quality; batch `1bd93d8..fc5456d` = B3d-1/2/3 registry-fetch
 foundation: `Registry.lean`, `Sha256.lean`, `Oci.lean` + tests) — HEALTHY.** All re-derived
