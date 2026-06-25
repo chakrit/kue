@@ -82,3 +82,26 @@
 
 - **Note (auth):** as B3d-4 — `registry.cue.works` serves public modules anonymously, no
   token needed; private/Bearer-token registries are B3d-6.
+
+---
+## B3d Phase-A audit (2026-06-26) — HEALTHY-with-fixes, no push (audit committed c93bade)
+
+Audited 90aa8d5..c9c8e30 (B3d-4/5z/5). All three integrity gates ENFORCED +
+unbypassable on the production path (OCI blob sha256 digest, zip CRC-32+size,
+cue.sum h1). Inflate total + robust. No Violation, no security hole. Two
+fix-slices filed in plan.md (§ "B3d Phase-A audit"):
+
+- **B3d-A1 (soundness, MED, top-ranked):** writeModuleToCache extracts entries
+  non-atomically and locateModuleDir trusts the extract dir on bare pathExists —
+  a crash MID-EXTRACT leaves a partial module a later run loads silently (wrong
+  value, no re-fetch). NOT a security bypass (bytes are digest+CRC verified
+  before write; a tamper can't pass), crash-windowed. Filed as a slice, NOT
+  fixed inline (touches the live IO write path + needs a same-fs temp dir for
+  the atomic rename — beyond the low-risk-inline bar). What you'd do: approve
+  the extract-to-temp + IO.FS.rename slice (the proper fix), or say "inline it"
+  to take it now.
+- **B3d-A2 (test-strength, LOW):** adversarial DEFLATE/ZIP reject branches
+  under-pinned (only BTYPE=3). Add error-marker native_decide pins. Slice.
+
+No inline fixes this audit. lake build clean (130 jobs); check-fixtures.sh
+green; shellcheck clean. Committed c93bade (plan.md only) — NOT pushed (AFK).
