@@ -2,16 +2,38 @@
 
 - **Date:** 2026-06-25
 - **PR:** manual (spike under `spike/`)
-- **Status:** accepted (spike verdict: **COMMIT**)
+- **Status:** **feasibility proven, architecture REJECTED for now** (chakrit, 2026-06-25) —
+  pursue full Lean 4 instead. The spike *verdict* was COMMIT (it links + runs); the *product
+  decision* is to NOT adopt it. See "Decision reversal" below.
 
-## Decision
+## Decision reversal (2026-06-25)
 
-Kue can ship as a **single Go binary** that owns `main` and links the Lean 4 evaluator in
-as a guest via cgo — **no `kue` subprocess**. A feasibility spike proved the full Lean
-runtime (the real evaluator + GMP bignum via `Decimal` + the C++ runtime + libuv) links and
-coexists with the Go runtime in one process, on **macOS arm64** and **Linux x86_64**. This
-unblocks the intended architecture: Go owns the OCI/CUE-module ecosystem surface at `main`;
-the strongly-typed Lean engine does evaluation in-process.
+**We are NOT pursuing the Go+Lean frankenstein. Full Lean 4 it is.** The spike answered the
+narrow feasibility question (the cgo link works on both platforms) but, walking the design
+through, the **Lean↔Go seam is too leaky** to be worth it for a project whose value is
+correctness *and* human-traceability:
+
+- The owned-vs-borrowed FFI-arg refcount trap (silent double-free on the 2nd call) — found
+  only by the spike; a sign of how sharp the edges are.
+- The IO boundary forces a real `Module.lean` refactor (lift IO to Go, expose a pure
+  `bindAndEval` entry) and a `String(s) → Value` marshaling contract that has to stay exact.
+- Dual-toolchain build (elan + Go + the cgo C++/GMP/libuv link line, per platform), static
+  libc++ on Linux, the 4.29-shaped init dance — all fragile build surface.
+
+A fragile FFI seam undercuts both of kue's reasons to exist. Full Lean 4 keeps the whole
+thing one verifiable, traceable artifact. **The registry/OCI/module-fetch layer (B3d) stays
+a Lean-native problem (deferred), NOT a Go-FFI one.**
+
+The spike artifacts (`spike/`) + this note are kept as a *durable feasibility record*: if the
+single-binary-with-Go-ecosystem question is ever reopened, the working link lines, init
+sequence, and seam gotchas are documented below — don't re-spike from scratch.
+
+## What the spike proved (kept for the record — NOT the chosen path)
+
+Kue *can* ship as a single Go binary owning `main` with the Lean engine linked in via cgo —
+no `kue` subprocess. The full Lean runtime (real evaluator + GMP bignum via `Decimal` + the
+C++ runtime + libuv) links and coexists with the Go runtime in one process, on **macOS
+arm64** and **Linux x86_64**.
 
 The spike lives in `spike/` and is isolated — it is NOT part of `lake build kue` or the
 release scripts. `lake build kue` + `scripts/check-fixtures.sh` stay green and unchanged.

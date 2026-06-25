@@ -552,6 +552,18 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    `0.1.0-alpha` (datestamped per nightly) rather than the dated release tag — defensible
    as-is; revisit only if the version/build plumbing is reworked.
 
+   **Module-fetch / registry direction — DECIDED (2026-06-25): full Lean 4, NOT a Go
+   frankenstein.** The single-binary Go-shell + Lean-engine-via-cgo architecture (a Go
+   outer CLI reusing cue's OCI/module ecosystem, calling the Lean engine through an FFI
+   seam) was explored and *spiked to a working link* on macOS arm64 + Linux x86_64
+   (`spike/`, `6a32729`), but chakrit **rejected** it: the Lean↔Go seam is too leaky
+   (owned-vs-borrowed refcount trap, an IO-boundary `Module.lean` refactor, dual-toolchain
+   cgo build) for a project whose value is correctness *and* human-traceability. The
+   registry/OCI/module-fetch layer (`B3d` below) therefore **stays a Lean-native, deferred
+   problem** — NOT a Go-FFI one. Spike kept as a durable feasibility record; do not
+   re-spike. See `docs/decisions/2026-06-25-lean-engine-embedded-in-go-via-cgo.md`
+   (status: feasibility-proven, REJECTED).
+
 **Walker / normalizer dedup family — FULLY CLOSED.** Decomposition ruling (durable, do not
 re-litigate): the walkers were NEVER one problem — three distinct walker families + a
 separate normalizer pair, different mechanisms/result-types/recursion-domains/termination
