@@ -137,6 +137,39 @@ intact). `lake build` 136 jobs green, all fixture gates green, tree clean.
 5. Minor ranked LOW items in plan.md: B3d-A2 (reject-branch test pins), B3d-B1 (digest newtype),
    Mvs main-pin corner, ModuleFetch.lean conditional carve.
 
+---
+## AFK run 2 (2026-06-28→29) — cue-compat EVAL conformance (NEW front)
+
+**Trigger:** user asleep, "keep going." Envelope: commit don't push, no network to real
+registries, no out-of-tree writes, log blockers. This front is fully AFK-safe — eval debugging
+uses the already-cached deps (no network) and edits only in-tree.
+
+**Landed attended before sleep (committed, UNPUSHED):**
+- **B3d-7 OCI bearer auth** (`6e6d52b`) — curl + docker credential-helper. LIVE-PROVEN: kue
+  fetched private `prodigy9.co/defs@v0.3.19` from ghcr.io end-to-end (auth→fetch→digest→inflate→
+  cache→resolver), verified independently. The whole B3d fetch arc now works against a real
+  private registry.
+- **Protocol update** (`<this commit>`) — new `testdata/wild/` regression category: wild bugs
+  captured as failing fixtures FIRST, spec-adjudicated (not cue-matched). CLAUDE.md + slice-loop.md.
+
+**NEW FINDING — corrects the "correctness DONE / byte-identical drop-in" headline.** Proving
+the fetch end-to-end exposed that kue evaluates **4 of 5 real prod9 apps to `bottom`** where
+cue exports cleanly: `n8n` / `lem` / `x9` / `typesense` FAIL; `cert-manager` ok (diff 0);
+`gateway` both-fail (genuinely bad input). The old canary (argocd) is GONE from the infra
+checkout, and cert-manager is the trivial case — so "correctness done" held only on a 2-app
+sample. The broader app set reveals a systemic eval gap.
+
+**⚠️ Do NOT assume kue is the wrong side.** Per the spec-authority rule, a `bottom`-vs-cue may
+be cue's bug. Each case is adjudicated against the SPEC before "fixing." (User flagged this
+explicitly.)
+
+**Plan for this run (per the new protocol):** diagnostic `ac1b3a0` is root-causing on `lem.cue`
+(smallest) + building a minimal self-contained repro. When it returns: (1) adjudicate vs spec;
+(2) capture as `testdata/wild/<slug>/` fixture FIRST (red); (3) fix slice (green); (4) re-sweep
+the 4 apps to see if one root covers them; (5) audit cadence; loop. Breadcrumb/plan "correctness
+DONE" correction is PENDING the diagnostic's scope verdict (one root vs several) — will update
+once known.
+
 **Why the run stopped here:** out of *unblocked* work. Everything remaining requires live
 registry egress and/or an attended behavior-change verification — the AFK envelope's
 "log the boundary, don't cross it." Clean, fully-audited checkpoint; breadcrumb refreshed.
