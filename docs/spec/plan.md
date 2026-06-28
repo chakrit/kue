@@ -594,6 +594,40 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      itself `*_#Inner | …` and the narrowing kills `_#Inner`) → kue exports "ambiguous: multiple
      non-default disjuncts" where cue picks the marked survivor. Pre-existing (HEAD diverges too,
      differently); a `flattenAlternatives`/`normalizeDisj` mark-inheritance gap, distinct mechanism.
+   - **B-AUDIT-refold-1 (type/DRY, MED — Phase-B 2026-06-29 HEADLINE) — embedding-`Self`
+     re-fold is a near-duplicate across both struct-eval arms.** The L1 fix (`f6fc514`)
+     added a third "gate → augmented `nestedForEmbeds` → re-eval embeddings → meet" block;
+     it now appears VERBATIM-MODULO-TWO-NAMES in both arms — `.structComp`
+     (`Eval.lean:3558–3572`, vars `fields`/`env`) and def-force (`Eval.lean:4132–4146`,
+     vars `canonical`/`capturedEnv`). The ONLY deltas between the two copies are (1) the
+     canonical-field list name and (2) the captured env. Three statements (`refoldEmbeds`
+     guard, conditional `pushFrame`+re-eval `nestedForEmbeds`, conditional
+     `evalEmbeddingFieldsWithFuel`) plus the `met`'s `nested → nestedForEmbeds` swap are
+     duplicated. **Drift risk (real, why this ranks): the two arms have a history of
+     diverging-then-reconverging** (the perf guide already notes the static-field two-pass
+     was independently re-tuned per arm); a future embed-`Self` fix touching one arm and not
+     the other silently breaks the other's list-embed path with NO type-level catch — they
+     are structurally independent today. **Extraction (concrete):** hoist a shared helper
+     above the `mutual` block (alongside `needsEmbeddedSelfPass`/`embeddingsReadEmbeddedSelf`),
+     ```
+     refoldEmbeddingsIfSelf
+       (fuel : Nat) (canonical : List Field) (newEmbeddedFields : List Field)
+       (embeddings : List Value) (env : Env) (merged : …)
+       (nested : Frame) (embeddingFieldsPass1 : …)
+       : EvalM (Frame × …)   -- returns (nestedForEmbeds, embeddingFields)
+     ```
+     so both arms call it with their own `(canonical, env)` and thread the returned
+     `nestedForEmbeds` into the `met`. It lives in the `mutual` block (it calls
+     `evalEmbeddingFieldsWithFuel`). The two parallel GATES
+     (`needsEmbeddedSelfPass` for static fields vs `embeddingsReadEmbeddedSelf` for embedding
+     values) are NOT merged — they answer different questions (which surface reads the
+     embedded label) and feed different re-eval targets; keeping them separate is correct, but
+     note both share `thisStructBindingIndex?`+`refsSelfEmbeddedLabel` plumbing, so the helper
+     should take the gate result as a param, not recompute it. **EVAL-CORE — own slice, own
+     verify: `lake build` + the full 1843-pin regression + cert-manager/argocd jq-S=0
+     (byte-identical is the bar — pure refactor, zero behavior change) + the two wild fixtures
+     stay green.** Do NOT do inline. Ranked: lead of the Borderline/LOW cleanups (it's the one
+     active drift hazard in eval-core; the rest are latent).
 
 7. **CLI / entry-UX (cue-aligned command surface).** **Entry-UX fix — DONE
    (2026-06-24).** The two fresh-install killers are fixed: bare `kue` (no args) now
