@@ -1,23 +1,53 @@
-# RESUME HERE — B3d registry-fetch: offline track COMPLETE; B3d-6b is the one gated slice (AFK run 2026-06-25→26)
+# RESUME HERE — B3d fetch DONE + live-proven; EVAL-CONFORMANCE front now active (AFK run 2026-06-28→29)
 
-Live START-HERE. Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md) (B3d entries + Live
-Backlog item 7 = B3d-6b). Per-slice history: [`../reference/implementation-log.md`](../reference/implementation-log.md).
-Transport decision: [`../decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`](../decisions/2026-06-25-registry-fetch-via-curl-subprocess.md).
+Live START-HERE. Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
+[`../reference/implementation-log.md`](../reference/implementation-log.md). Transport decision:
+[`../decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`](../decisions/2026-06-25-registry-fetch-via-curl-subprocess.md).
+AFK run state + blockers: [`../../.afk.log`](../../.afk.log).
 
 ## TL;DR for the next session
 
-An unattended `/ace-afk` run built the **entire offline-tractable half of B3d** (Lean-native
-registry/OCI module fetch — the one real capability gap: kue READS modules, now it can FETCH
-them too). 18 commits, 8 new modules, all DONE + double-audited HEALTHY + **all UNPUSHED** (AFK).
-The single remaining substantive slice, **B3d-6b**, is network/human-gated and was deliberately
-NOT crossed (live registry egress + a resolver behavior-change that a green canary would mask).
+**B3d module-fetch is DONE end-to-end, including auth, and LIVE-PROVEN.** B3d-7 (`6e6d52b`, OCI
+bearer-token auth over curl + the Docker credential-helper) landed attended; kue fetched the real
+private `prodigy9.co/defs@v0.3.19` from **ghcr.io** with an empty cache — auth→fetch→digest→inflate→
+cache→resolver, verified independently. The prod9 registry is `CUE_REGISTRY="prodigy9.co=ghcr.io/prod9"`
+(simple prefix syntax kue already parses; private → Docker-keychain PAT, sourced via the cred helper).
+B3d-6b (MVS resolver-wiring + `cue mod get/tidy`) is still the remaining module-MGMT piece but is
+NOT needed for the single-pinned-dep fetch real apps use.
 
-**First two things to do attended:** (1) `git push` the 18 commits (AFK couldn't). (2) Run the
-two live smokes logged in `.afk.log` (a real HTTPS fetch from registry.cue.works + the
-remove-dep-and-`kue export` end-to-end) to confirm the curl edge against a real registry. Then
-pick up B3d-6b.
+**⚠️ "Correctness DONE" is RETRACTED.** Proving the fetch end-to-end let the *broader* prod9 app
+corpus load — and it exposed that kue mis-evaluates real apps. The old canary (argocd) is GONE from
+the infra checkout; "correctness done" had held only on a 2-app sample (cert-manager = trivial). The
+**eval-conformance front is now the active work** (see below). New `testdata/wild/` regression
+category added (CLAUDE.md + slice-loop.md): real-world bugs captured as failing fixtures FIRST,
+spec-adjudicated (cue is fallible — a `bottom`-vs-cue may be cue's bug; adjudicate vs SPEC).
 
-## What landed (all on `main`, UNPUSHED — `8775ecc..f40dd9c`)
+## Eval-conformance front (the active work)
+
+kue exported 4 of 5 real apps (`lem`/`n8n`/`x9`/`typesense`) to `bottom` where cue is clean
+(`cert-manager` clean both; `gateway` bad-input both). Peeled THREE distinct eval bugs:
+
+- **Layer 1 — FIXED** (`f6fc514`): `Self.#hidden` read *inside a list embedding* resolved to `_|_`
+  (the embedding-`Self` two-pass re-evaluated only static fields, never embedding values). Fix:
+  `embeddingsReadEmbeddedSelf` gate. Wild fixture `testdata/wild/self-hidden-in-list-embed/`.
+- **Layer 2 — FIXED** (`4b24902`): a defaulted disjunction (`string | *"x"`) as an interpolation
+  operand stayed incomplete. Fix: `collapseDefaultDisjunction` over interpolation parts (reuses the
+  shared default-shed path). Wild fixture `testdata/wild/default-disj-in-interpolation/`.
+- **Layer 3 — OPEN**: the 4 apps STILL bottom on a HARD `conflicting values` in
+  `packs.#WebApp & parts.#UseKeel` (defs@v0.3.19) — distinct from L1/L2. **No faithful minimal repro
+  yet** (only reproduces in the full app graph; reductions flip polarity). Next slice's first job =
+  isolate a faithful repro, then fix. Logged in `.afk.log` + plan.md "Layer 3 — OPEN".
+
+Verify the front by re-sweeping (cd+relative, NEVER absolute paths — those make `cue` resolve the
+module wrong → false diffs): `( cd /Users/chakrit/Documents/prod9/infra && CUE_REGISTRY=prodigy9.co=ghcr.io/prod9 \
+diff <(kue export apps/<app>.cue|jq -S .) <(cue export apps/<app>.cue|jq -S .) )`.
+
+**Attended TODO:** `git push` (AFK can't); cut the owed alpha; then resume Layer 3 + B3d-6b.
+
+## (historical) B3d offline-track summary — the fetch arc, all done
+
+All on `main`, UNPUSHED. Offline half = `8775ecc..f40dd9c`; auth (B3d-7) `6e6d52b`; eval fixes
+`f6fc514`/`4b24902`.
 
 Architecture (decided by philosophy): HTTPS via a **`curl` subprocess**, not FFI — a clean
 bytes-in/bytes-out process boundary, engine stays pure, no build-dep growth. This split B3d into
