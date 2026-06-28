@@ -1292,6 +1292,55 @@ theorem aliased_stdlib_const_sorts_like_unaliased :
         = true := by
   native_decide
 
+-- Self-hidden-in-list-embed (wild-caught 2026-06-28, prod9 `defaults.#Basics`/`packs.#WebApp`).
+-- A def embeds another def by reference (`#Base: {#Meta, …}`) and has a `Self`-aliased LIST embedding
+-- whose item reads a hidden field the embed contributes (`name: Self.#name`). kue resolved that read
+-- to `_|_` (the embedded-`Self` two-pass scanned only static fields, never the EMBEDDING the list read
+-- sits in) and exported `bottom`. Spec: embedding is unification, so `#name` is in scope however
+-- contributed → `Self.#name` is `string`; the def is non-output, so it never reaches export. `{z:1}`.
+
+-- The fix: the list-embedded `Self.#hidden` read resolves to the embedded def's value (not `_|_`),
+-- and the non-output definition stays out of export.
+theorem self_hidden_in_list_embed_resolves :
+    exportJsonMatches
+      "#Meta: {#name: string, _}\n#Base: Self={#Meta, [{kind: \"A\", name: Self.#name}, {kind: \"B\"}]}\nz: 1\n"
+      "{\n    \"z\": 1\n}\n"
+        = true := by
+  native_decide
+
+-- The list item's `name` (read out of the def by index) is the concrete `Self.#name`, not `_|_` —
+-- pins the eval-level resolution, not merely that the def stays out of export.
+theorem self_hidden_in_list_embed_value_concrete :
+    exportJsonMatches
+      "#Meta: {#name: string, _}\n#Base: Self={#Meta, #name: \"x\", [{kind: \"A\", name: Self.#name}, {kind: \"B\"}]}\nout: #Base[0].name\n"
+      "{\n    \"out\": \"x\"\n}\n"
+        = true := by
+  native_decide
+
+-- ADVERSARIAL: a GENUINE conflict inside a definition still bottoms (the fix must not swallow real
+-- conflicts). `#u: 1 & 2` referenced into output → bottom, matching cue.
+theorem def_genuine_conflict_still_bottoms :
+    exportJsonBottoms "#U: {#u: 1 & 2}\nout: #U.#u\n" = true := by
+  native_decide
+
+-- ADVERSARIAL: a PLAIN (non-list) `Self.#hidden` read across an embed still resolves (the existing
+-- static-field two-pass path is untouched).
+theorem self_hidden_plain_embed_resolves :
+    exportJsonMatches
+      "#Meta: {#name: string, _}\n#Base: Self={#Meta, name: Self.#name}\nout: #Base & {#name: \"y\"}\n"
+      "{\n    \"out\": {\n        \"name\": \"y\"\n    }\n}\n"
+        = true := by
+  native_decide
+
+-- ADVERSARIAL: a list embedding WITHOUT any `Self.#hidden` read is unaffected (gate stays off →
+-- byte-identical to the pre-fix single-pass path); the non-output def stays out of export.
+theorem list_embed_no_self_hidden_unaffected :
+    exportJsonMatches
+      "#Meta: {#name: string, _}\n#Base: {#Meta, [{kind: \"A\"}, {kind: \"B\"}]}\nz: 1\n"
+      "{\n    \"z\": 1\n}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -1316,5 +1365,6 @@ theorem aliased_stdlib_const_sorts_like_unaliased :
 #check @mfs_chained_selection_missing_absent                  -- missing-field-selection
 #check @aliased_builtin_call_marshals_like_unaliased          -- aliased-builtin call resolution
 #check @aliased_stdlib_const_sorts_like_unaliased             -- aliased-stdlib constant resolution
+#check @list_embed_no_self_hidden_unaffected                  -- Self-hidden-in-list-embed (wild 2026-06-28)
 
 end Kue

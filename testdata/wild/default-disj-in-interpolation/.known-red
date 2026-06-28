@@ -1,0 +1,2 @@
+Quarantined: default-disjunction not concretized in string interpolation at export.
+Next-slice red seed. Delete this marker when the fix lands.

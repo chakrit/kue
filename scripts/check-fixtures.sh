@@ -10,6 +10,7 @@ readonly repo_root
 readonly fixture_dir="${repo_root}/testdata/cue"
 readonly export_dir="${repo_root}/testdata/export"
 readonly module_dir="${repo_root}/testdata/modules"
+readonly wild_dir="${repo_root}/testdata/wild"
 readonly ocifetch_dir="${repo_root}/testdata/ocifetch"
 readonly zip_dir="${repo_root}/testdata/zip"
 generated_dir=
@@ -174,6 +175,51 @@ check_export_fixtures() {
       status=1
     fi
   done
+
+  return "${status}"
+}
+
+# Drive `kue export --out json` over each wild-caught regression under
+# testdata/wild/<name>/. A wild fixture ships a single `<name>.cue` repro and a `<name>.expected`
+# holding the `cue export`-matching JSON. These are spec-adjudicated captures of real-world
+# bottoms — fixtures-first, so a fix is pinned the moment it lands. Prints any diff; non-zero on
+# mismatch.
+#
+# A `<name>/.known-red` marker QUARANTINES a captured-but-unfixed case: its repro is committed
+# (so the next slice has its red seed) but it does not yet pass, so it is reported and SKIPPED
+# from the green gate rather than failing the whole suite. Deleting the marker (when the fix
+# lands) re-arms it as a permanent guard.
+check_wild_fixtures() {
+  local kue_exe="${repo_root}/.lake/build/bin/kue"
+  local status=0
+  local expected_file
+  local stem
+  local cue_file
+
+  if [[ ! -d "${wild_dir}" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r expected_file; do
+    stem="${expected_file%.expected}"
+    cue_file="${stem}.cue"
+    if [[ ! -f "${cue_file}" ]]; then
+      printf 'missing source for wild fixture %s\n' "${expected_file}" >&2
+      status=1
+      continue
+    fi
+
+    if [[ -f "$(dirname -- "${expected_file}")/.known-red" ]]; then
+      printf 'wild fixture %s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
+        "${cue_file#"${repo_root}/"}" >&2
+      continue
+    fi
+
+    if ! diff -u "${expected_file}" \
+      <("${kue_exe}" export --out json "${cue_file}"); then
+      status=1
+    fi
+  done < <(find "${wild_dir}" -name '*.expected' -type f | sort)
 
   return "${status}"
 }
@@ -507,6 +553,10 @@ main() {
   fi
 
   if ! check_module_fixtures; then
+    status=1
+  fi
+
+  if ! check_wild_fixtures; then
     status=1
   fi
 

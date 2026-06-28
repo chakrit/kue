@@ -36,6 +36,27 @@ target is the language as specified, not bug-for-bug parity. See
   Bug2-5..2-14c argocd chain landed exactly this way (each fix general, oracle-pinned at
   single-package granularity, no argocd-keyed code).
 
+## Current front — prod9 cue-compat eval conformance
+
+`apps/{lem,n8n,x9,typesense}.cue` (via `defaults.#Basics`/`packs.#WebApp`,
+`prodigy9.co/defs@v0.3.19`) bottomed in kue where cue/the spec are clean; cert-manager clean.
+Peeled in two layers:
+
+- **Layer 1 — Self.#hidden in list embeddings — FIXED (2026-06-28).** A `Self`-aliased list
+  embedding reading a hidden field contributed by a sibling def-embed (`[{name: Self.#name}]`)
+  resolved to `_|_`: the embedding-`Self` two-pass scanned only static fields, never the
+  embedding the read sits in. Fix: re-evaluate embeddings against the augmented frame when an
+  embedding reads a sibling-embedded `Self.<L>` (`embeddingsReadEmbeddedSelf`, both struct-eval
+  arms). Wild fixture `testdata/wild/self-hidden-in-list-embed/` red → green; 5 new pins. A
+  faithful minimal `#Basics`-shaped repro exports clean once `#registry` is concrete — proving
+  the chained `Self.#components.X` read now resolves for all four apps.
+- **Layer 2 — default-disjunction not concretized in string interpolation — NEXT SLICE (red
+  seed captured).** The four apps still bottom solely on `#registry: string | *"ghcr.io"` read
+  into `"\(Self.#registry)-pull-secret"`: kue keeps the interpolation incomplete instead of
+  applying the `*` default at export. Separate from the embedding machinery. Captured as
+  `testdata/wild/default-disj-in-interpolation/` (QUARANTINED via `.known-red` so the green gate
+  holds); delete the marker when fixed.
+
 ## Standing Capabilities (what Kue does now)
 
 The semantic core is broad and oracle-checked against `cue` v0.16.1

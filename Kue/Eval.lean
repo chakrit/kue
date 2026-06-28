@@ -207,6 +207,22 @@ def needsEmbeddedSelfPass (canonical : List Field) (newEmbeddedLabels : List Str
         canonical.any fun fl =>
           refsSelfEmbeddedLabel evalFuel 0 selfIndex newEmbeddedLabels (Field.value fl)
 
+/-- Does any EMBEDDING value read `Self.<label>` for a label contributed by a SIBLING embedding
+    (a label in `newEmbeddedLabels` no static field declares)? An embedding sits at the host's
+    frame depth (same as a static field's value), so the scanner runs at `depth 0` against the
+    host's `Self` alias — identically to `needsEmbeddedSelfPass`. Gates the embedding-`Self`
+    re-fold: a list-embedded `Self.#hidden` read (`[{name: Self.#name}]` where `#name` comes from
+    a `#Meta` embed) is in an EMBEDDING, not a static field, so the static-field two-pass misses
+    it — the embeddings must be re-evaluated against the augmented frame for it to resolve. -/
+def embeddingsReadEmbeddedSelf (canonical : List Field) (embeddings : List Value)
+    (newEmbeddedLabels : List String) : Bool :=
+  !newEmbeddedLabels.isEmpty &&
+    match thisStructBindingIndex? canonical with
+    | none => false
+    | some selfIndex =>
+        embeddings.any fun e =>
+          refsSelfEmbeddedLabel evalFuel 0 selfIndex newEmbeddedLabels e
+
 /-- The set of `Self.<label>` reads in `value` whose `Self` is the alias at `selfIndex` `depth`
     frame-pushers deep — the label-collecting twin of `refsSelfEmbeddedLabel` (same structural
     descent, same depth discipline). Used to compute which static fields the Pass-2 re-eval must
@@ -3533,6 +3549,19 @@ mutual
                   match bySlot.find? (fun (j, _) => j == i) with
                   | some (_, v) => v
                   | none => p1)
+            -- Embedding-`Self` re-fold: a list-embedded `Self.<embedded-label>` read (`[{name:
+            -- Self.#name}]` with `#name` from a sibling `#Meta` embed) lives in an EMBEDDING, not a
+            -- static field, so the static-field two-pass above misses it and Pass-1 left it `_|_`.
+            -- When an embedding reads such a label, re-evaluate the embeddings (and meet) against the
+            -- augmented frame so the read resolves against the embedded value. Gated identically
+            -- (byte-identical when no embedding reads a sibling-embedded `Self.<L>`).
+            let refoldEmbeds := embeddingsReadEmbeddedSelf fields embeddings (newEmbeddedFields.map Field.label)
+            let nestedForEmbeds <-
+              if refoldEmbeds then pushFrame (canonicalizeFields (fields ++ newEmbeddedFields)) env
+              else pure nested
+            let embeddingFields <-
+              if refoldEmbeds then evalEmbeddingFieldsWithFuel fuel nestedForEmbeds merged embeddings
+              else pure embeddingFields
             match mergeEvaluatedFields (staticFields ++ expanded) with
             | none => pure .bottom
             | some merged =>
@@ -3540,7 +3569,7 @@ mutual
                 -- host, then re-close ONCE over `def ∪ embed` labels — an embedding widens the host's
                 -- allowed set without imposing its own closedness (CUE rule). Closing the host
                 -- BEFORE the meet would let a closed embed/host reject the other's regular fields.
-                let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
+                let met <- meetEmbeddingsWithFuel fuel nestedForEmbeds (mkStruct merged .regularOpen none []) embeddings
                 -- Embedding a CLOSED def closes the host over `host ∪ embed` labels (CUE rule): a
                 -- subsequent MEET against this struct (`{#Closed} & {extra}`) must reject `extra`.
                 -- ONLY for a `regularOpen` host (open-by-default, no explicit `...`); an explicit
@@ -4092,6 +4121,17 @@ mutual
                   match bySlot.find? (fun (j, _) => j == i) with
                   | some (_, v) => v
                   | none => p1)
+            -- Embedding-`Self` re-fold (mirrors the eager arm): a list-embedded `Self.<embedded-label>`
+            -- read lives in an EMBEDDING the static-field two-pass misses; re-evaluate the embeddings
+            -- (and meet) against the augmented frame so the read resolves. Byte-identical when no
+            -- embedding reads a sibling-embedded `Self.<L>`.
+            let refoldEmbeds := embeddingsReadEmbeddedSelf canonical embeddings (newEmbeddedFields.map Field.label)
+            let nestedForEmbeds <-
+              if refoldEmbeds then pushFrame (canonicalizeFields (canonical ++ newEmbeddedFields)) capturedEnv
+              else pure nested
+            let embeddingFields <-
+              if refoldEmbeds then evalEmbeddingFieldsWithFuel fuel nestedForEmbeds merged embeddings
+              else pure embeddingFields
             match mergeEvaluatedFields (staticFields ++ expanded) with
             | none => pure .bottom
             | some merged =>
@@ -4099,7 +4139,7 @@ mutual
                 -- own declared shape, so it must widen the closed allow-set alongside the static and
                 -- embedding labels — otherwise re-closing rejects it as undeclared. `defFields` does
                 -- NOT contain `y` (it lives only in the comprehension), so fold `expanded` in too.
-                let met <- meetEmbeddingsWithFuel fuel nested (mkStruct merged .regularOpen none []) embeddings
+                let met <- meetEmbeddingsWithFuel fuel nestedForEmbeds (mkStruct merged .regularOpen none []) embeddings
                 -- Embedding a CLOSED def closes the host over `host ∪ embed` labels (CUE rule —
                 -- mirrors the eager arm): a use-site narrowing reaches the embed's self-ref, but a
                 -- use-site EXTRA the def does not declare is rejected. `defOpenness` is the deferred

@@ -14776,3 +14776,85 @@ B3d-7 unblocks B3d-6b's requirement-graph fetch: its dep-`module.cue` GETs now w
 authed/private registries, not just public anonymous ones. B3d-6b still needs the `module.cue`
 `deps` parser to BUILD the graph, OCI `tags/list` for "latest"/major resolution, the
 `cue mod get/tidy` command surface, wiring `Mvs.solve` into the resolver, and `cue.sum` WRITE.
+
+## Completed Slice: Self.#hidden in List Embeddings (wild self-hidden-in-list-embed)
+
+Wild-caught (2026-06-28) from prod9 `apps/{lem,n8n,x9,typesense}.cue` via
+`defaults.#Basics`/`packs.#WebApp` (`prodigy9.co/defs@v0.3.19`): kue exported `bottom` where
+cue and the spec yield a clean value.
+
+### Root cause
+
+A definition embeds another def by reference (`#Base: {#Meta, …}`) and carries a `Self`-aliased
+LIST embedding whose item reads a hidden field the embed contributes (`[{name: Self.#name}]`,
+`#name` from the `#Meta` embed). The embedding-`Self` two-pass
+(`needsEmbeddedSelfPass`/`embeddedSelfPassFieldIndices`, `Kue/Eval.lean`) re-evaluates only the
+STATIC `canonical` fields against the frame augmented with the embedded labels. The
+`Self.<embedded-label>` read here lives inside an EMBEDDING (the list literal classified
+`isEmbeddingValue`), not a static field — so the two-pass never touched it. The list embedding
+was evaluated by `evalEmbeddingFieldsWithFuel` / `meetEmbeddingsWithFuel` against the Pass-1
+frame (`nested`), which lacks the sibling-embedding-contributed `#name` → `Self.#name` resolved
+to `_|_`, then the non-output definition's `_|_` failed export.
+
+Spec basis (kue was WRONG): embedding is unification, so a hidden field is in scope for
+same-struct references however contributed → `Self.#name` must be `string`; and a non-concrete
+value in an unreferenced definition is non-output and must not fail export. cue agrees with the
+spec (no `cue-divergences.md` entry).
+
+### The fix (`Kue/Eval.lean`)
+
+New gate `embeddingsReadEmbeddedSelf canonical embeddings newEmbeddedLabels` (mirrors
+`needsEmbeddedSelfPass`, but scans the EMBEDDING values rather than the static fields — an
+embedding sits at the host's frame depth, so `refsSelfEmbeddedLabel evalFuel 0 selfIndex` applies
+directly). When it fires, the embeddings are RE-EVALUATED against the augmented frame
+(`canonical ++ newEmbeddedFields`): both `evalEmbeddingFieldsWithFuel` (for `embeddingFields`,
+used by `closeEmbeddedOver`) and `meetEmbeddingsWithFuel` (for `met`, the actual embedded values)
+take `nestedForEmbeds` instead of `nested`. Gated tightly — byte-identical when no embedding reads
+a sibling-embedded `Self.<L>`. Applied identically to BOTH struct-eval arms: the eager
+`.structComp` arm (~`Eval.lean:3553`) and the def-force arm (~`Eval.lean:4124`).
+
+`Kue/Manifest.lean` was NOT touched — fix #1 alone makes `Self.#name` resolve to `string`
+(incomplete, not `.contradiction`), and the existing manifester arm already keeps the non-output
+definition out of export. The genuine-conflict case (`#u: 1 & 2` → bottom) still errors (pinned).
+
+### Tests
+
+New wild fixture `testdata/wild/self-hidden-in-list-embed/` (red → green), wired into a new
+`check_wild_fixtures` runner in `scripts/check-fixtures.sh` (`kue export --out json` vs
+`<slug>.expected`). New `native_decide` pins in `Kue/Tests/Bug2xTests.lean`:
+`self_hidden_in_list_embed_resolves` (export `{z:1}`), `self_hidden_in_list_embed_value_concrete`
+(the list item's `name` is the concrete `Self.#name`), `def_genuine_conflict_still_bottoms`
+(adversarial: `#u: 1 & 2` still bottoms), `self_hidden_plain_embed_resolves` (adversarial:
+non-list `Self.#hidden` still works), `list_embed_no_self_hidden_unaffected` (adversarial: a list
+embedding with no Self-hidden read is byte-identical).
+
+### prod9 re-sweep (read-only, cached deps, no network)
+
+`apps/{lem,n8n,x9,typesense,cert-manager}.cue`, `kue export` vs `cue export`:
+
+| app          | before | after                                              |
+| ------------ | ------ | -------------------------------------------------- |
+| lem          | bottom | bottom — RESIDUAL (default-disj-in-interpolation)  |
+| n8n          | bottom | bottom — RESIDUAL (same)                           |
+| x9           | bottom | bottom — RESIDUAL (same)                           |
+| typesense    | bottom | bottom — RESIDUAL (same)                           |
+| cert-manager | 0-diff | 0-diff (no regression)                             |
+
+The list-embed Self-hidden layer this slice targets is RESOLVED for all four: a faithful minimal
+repro (`#Basics`-shaped, nested `Self.#components.pull_secret` reads, list embedding, `#out`
+selection) exports clean once `#registry` is made concrete — proving the chained
+`Self.#components.X` read now resolves (was the bottleneck). The four apps still bottom solely on
+a SEPARATE, newly-isolated layer: a DEFAULT disjunction (`#registry: string | *"ghcr.io"`) read
+into a string interpolation (`"\(Self.#registry)-pull-secret"`) does not apply its `*` default at
+export, leaving the interpolation incomplete. cert-manager has no such construct, hence clean.
+
+That residual is captured as a NEW wild fixture `testdata/wild/default-disj-in-interpolation/`
+(the next slice's red seed), QUARANTINED via a `.known-red` marker so the green gate holds until
+its fix lands. `check_wild_fixtures` skips (and reports) a `.known-red` dir.
+
+### Verification
+
+`lake build` clean (0 warnings/`sorry`/axiom; all pre-existing `native_decide` pins still pass —
+this is an eval-core change). `scripts/check-fixtures.sh` exit 0 (self-hidden green;
+default-disj quarantined). `shellcheck scripts/check-fixtures.sh` clean. No network, no
+out-of-tree writes (prod9 + cue cache read-only).
