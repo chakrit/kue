@@ -14924,3 +14924,88 @@ its fix lands. `check_wild_fixtures` skips (and reports) a `.known-red` dir.
 this is an eval-core change). `scripts/check-fixtures.sh` exit 0 (self-hidden green;
 default-disj quarantined). `shellcheck scripts/check-fixtures.sh` clean. No network, no
 out-of-tree writes (prod9 + cue cache read-only).
+
+---
+
+## Completed Slice: collapse let/ref-delivered list carriers in meet (prod9 eval-conformance layer 3)
+
+Goal: fix the spurious `_|_` when a list-embedding carrier struct's list-embed body is delivered
+through a `let`/reference rather than written inline. Captured wild fixture
+`testdata/wild/let-list-meets-carrier/` (`f`/`e`/`f2` → `[1,2]`).
+
+### Real mechanism (root-caused empirically, NOT the pre-slice diagnosis)
+
+The pre-slice breadcrumb fingered the meet arms (`Lattice.lean` ~1247–1307 + `meetCore:519`) and
+proposed widening the meet to recognize more carriers. That was a RED HERRING — a meet-layer fix
+over-collapses a genuine conflict. The actual mechanism, confirmed by a `dbg_trace` at the meet
+entry:
+
+- Inline `{#name:"web",[1,2]}` and field-ref `ls:{#k,[...]}; [1,2]&ls` BOTH already worked. Only
+  the `let` delivery (and only when BOTH the carrier and the resulting list reach a `.struct ×
+  .embeddedList` meet) bottomed.
+- A struct-body `let` becomes a `letBinding` FIELD on the enclosing struct. The embed body
+  (`[1,2]&ls`) evaluates to an `.embeddedList`. The enclosing struct — now carrying ONLY the
+  `letBinding` decl (no output field) — then meets that `.embeddedList`. Operand order is
+  `.struct, .embeddedList`, which hits the meet arm `leftLike, .embeddedList`; `asListPair` fails
+  on a struct, so it routes to `meetCore` → `.bottom` (`Lattice.lean:520`). This SHADOWS the
+  `listLike, .struct fields _ none [] _` list-collapse arm (which only fires when the struct is on
+  the RIGHT). Inline never reaches this because the embed is still a `.list` at collapse time, not
+  an `.embeddedList`.
+
+### Surgical fix
+
+`Kue/Eval.lean`, `meetEmbeddingsWithFuel`'s embedding-collapse arm (the `_ =>` branch for a
+non-closure/non-disj evaluated embedding, where `current` is a `.struct fields _ none [] _`): add
+a LIST-embedding collapse mirroring the existing `{5}`→`5` scalar collapse. When the host has no
+output field and the evaluated embedding is list-shaped (`asListPair`), build the `.embeddedList`
+carrying the host's `declFields` (merged with the embed's own decls via `mergeStructFieldsWith`).
+The fix lives in eval — NOT meet — because PROVENANCE is the soundness key: here `evaluated` is the
+host's OWN embedding (collapse is sound), whereas at meet time `{#a,[1,2]} & {#b}` is a SEPARATE
+foreign decls-struct conjunct that cue v0.16.1 rejects as a list-vs-struct conflict (two existing
+pins `meet_embedded_list_with_decls_struct_bottoms` / `_decls_struct_with_embedded_list_` assert
+this). A meet-layer fix could not distinguish the two (an empty `{}` ≈ a residual decl-struct at
+meet time) — exactly the reasoning the `{5}`→`5` comment already records. `Lattice.lean` left
+untouched.
+
+### Tests
+
+Wild fixture `testdata/wild/let-list-meets-carrier/` (auto-discovered by `check_wild_fixtures`)
+red → green: `f`/`e`/`f2` → `[1,2]`. Adversarial cross-checks vs cue v0.16.1, all matching:
+
+- decls stay selectable after collapse (`(carrier & let-list).#name` → `"web"`).
+- genuine conflicts STILL bottom: `[1,2]&[3,4,5]` (length), `[1]&["x"]` (element), let-delivered
+  length conflict `{#name,[1,2]}&[3,4,5]`, carrier & extra REGULAR field via let
+  (`{#name,[1,2]} & {extra:1}` → cue list-vs-struct conflict).
+- `{#a,[1,2]} & {#b}` foreign-decls-struct conflict UNCHANGED (the over-collapse guard).
+- inline `ctrl`, plain struct meet, and a carrier-stays-struct meet (`{#name}&{#k}` → `{}`) all
+  unaffected.
+
+### prod9 re-sweep (read-only, cached deps, no network) — Layer 4 remains
+
+`kue export` vs `cue export`, cue-missing lines (`grep -c '^>'`-equivalent):
+
+| app          | before (L2) | after (L3) | status                                  |
+| ------------ | ----------- | ---------- | --------------------------------------- |
+| lem          | 188         | 187        | bottom — LAYER 4 (imported `#WebApp`)   |
+| n8n          | 322         | 321        | bottom — LAYER 4 (same)                 |
+| x9           | 449         | 448        | bottom — LAYER 4 (same)                 |
+| typesense    | 223         | 222        | bottom — LAYER 4 (same)                 |
+| cert-manager | 0           | 0          | 0-diff (no regression)                  |
+| gateway      | 0           | 0          | both-bottom (bad input, unchanged)      |
+
+The four apps STILL bottom — a distinct LAYER 4. Bisection: `packs.#WebApp & {…}` (the let-carrier
+`let web = #WebApp & {…}; [...]`) bottoms even WITHOUT `parts.#UseKeel`. `#WebApp` is a `Self={…}`
+def embedding `attr.#Metadata`/`attr.#Hosts` and emitting a top-level `[Self.#components.…]` list.
+A self-contained local reduction of the `Self=`+nested-`#components`-list+embed-def shape now
+exports CLEAN (the L3 fix covers it), so the L4 trigger is a subtler facet of the imported def
+(candidate: `attr.#Metadata`/`attr.#Hosts` carrier embeddings, the `#replicas: int | *1` / `#env:
+… | *{}` default disjunctions interacting with the list emit, or a cross-import frame detail). NOT
+yet a self-contained wild fixture — module-free reductions flip polarity, so it needs dedicated
+bisection from the real app graph (next slice). **Eval-conformance front is NOT closed.**
+
+### Verification
+
+`lake build` clean (0 warnings/`sorry`/axiom; all pre-existing `native_decide` pins still pass —
+this is an eval-core change, so a broken pin would be a real regression; none).
+`scripts/check-fixtures.sh` exit 0 (let-list-meets-carrier green; all prior fixtures unchanged).
+No network, no out-of-tree writes (prod9 + cue cache read-only).

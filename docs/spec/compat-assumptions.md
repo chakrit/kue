@@ -97,6 +97,17 @@ those forms.
   Oracle evidence (`cue` v0.16.1): `{[1,2,3]}` →`[1,2,3]`; `{#a:1,[1,2]}` →`[1,2]`;
   `{#a:1,[...]}` →`[]`; `{a:1,[1,2]}` →conflict; `{a?:int,[1,2]}` →`[1,2]`; `{a:1}&[1,2]`
   →conflict; `v.#a` and `v[0]` both work on the dual-nature value.
+  - **The decls-only-host × list collapse is PROVENANCE-gated — it lives in eval, not
+    meet.** When a list embed is delivered through a `let`/reference (`{let ls=…, [1,2]&ls}`),
+    the embed evaluates to an `.embeddedList` and the enclosing decls-only struct then meets
+    it as `.struct × .embeddedList` — which the generic meet bottoms (a struct is not
+    `asListPair`-able). The collapse is therefore performed in `Eval.meetEmbeddingsWithFuel`
+    (mirroring the `{5}`→`5` scalar-embedding collapse) where the embedding is KNOWN to be the
+    host's OWN — sound to collapse. This must NOT be lifted into `Lattice.meetWithFuel`: at
+    meet time a decls-only struct meeting an `.embeddedList` may be a SEPARATE foreign conjunct
+    (`{#a:1,[1,2]} & {#b:2}`), which `cue` rejects as a list-vs-struct conflict (`⊥`). The two
+    are indistinguishable structurally (an empty `{}` ≈ a residual decl-struct), so the meet
+    arm stays conservative-bottom and the collapse stays where provenance survives.
   - **DEFERRED — the `nsp` /`#Argo` *direct* manifest still bottoms, but that matches
     `cue`.** `x: packs.#Argo & {#name:…}` (no `[...]` in the consuming struct) errors in
     *both* kue and `cue` (struct/list conflict): the consuming struct must itself carry a

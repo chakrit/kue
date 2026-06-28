@@ -3956,6 +3956,31 @@ mutual
                         -- Pure `{5}`→`5`: no output field AND no decls. LEFT UNTOUCHED (the
                         -- soundness boundary — never widened to admit decls).
                         meetEmbeddingsWithFuel (nextFuel + 1) env evaluated rest
+                      else if !structHasOutputField fields && (asListPair evaluated).isSome then
+                        -- List-embedding collapse — the LIST analog of the scalar-carrier collapse
+                        -- below, done HERE where provenance is known: `evaluated` is the HOST's OWN
+                        -- embedding (`{let ls=…, <list>&ls}` / `{#name:"web", [1,2]}`), so the
+                        -- decls-only host (no output field) collapses to that list carrying its
+                        -- decls. This is NOT the `.embeddedList & {foreign decls-struct}` meet
+                        -- (`{#a,[1,2]} & {#b}`) — that is a genuine list-vs-struct CONFLICT (cue
+                        -- v0.16.1) handled by `meetCore`, because the decls there are a SEPARATE
+                        -- conjunct, not the carrier's own. Doing the collapse at meet time cannot
+                        -- distinguish the two (an empty `{}` and a residual decl-struct look alike),
+                        -- so it lives here — exactly the reasoning the `{5}`→`5` comment records.
+                        -- The let `ls` decl is a `letBinding`; `declFields` keeps it (non-output),
+                        -- so the carrier stays selectable. An output-bearing host falls through to
+                        -- the union-meet below, which bottoms a real struct-vs-list conflict.
+                        let collapsed :=
+                          match evaluated with
+                          | .embeddedList items tail edecls =>
+                              match mergeStructFieldsWith (meet) (declFields fields) edecls with
+                              | some decls => .embeddedList items tail decls
+                              | none => .bottom
+                          | other =>
+                              match asListPair other with
+                              | some (items, tail) => .embeddedList items tail (declFields fields)
+                              | none => other
+                        meetEmbeddingsWithFuel (nextFuel + 1) env collapsed rest
                       else if !structHasOutputField fields && isTerminalScalar evaluated then
                         -- Scalar-WITH-decls carrier (`{#a:1, 5}`→`5`, `.#a` selectable): the host
                         -- has decls (else the collapse above fired) but no output field, and the

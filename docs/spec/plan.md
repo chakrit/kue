@@ -90,14 +90,39 @@ Peeled in two layers:
   - *No Violations.* One Borderline (non-blocking): a stray untracked `repro-bottom.cue` debug
     scratch file sits at repo root — working-tree litter from the L1/L2 work, not committed, not a
     secret. Left in place (AFK: no untracked-file deletion); flag for a human to `rm`.
-- **Layer 3 — `#WebApp & #UseKeel` composition conflict — OPEN (next slice).** After layers 1–2,
-  the four apps STILL bottom on `"website.yaml": _|_` / `#out: _|_`, sourced from
-  `packs.#WebApp & parts.#UseKeel` (`prodigy9.co/defs@v0.3.19`): a `conflicting values` HARD
-  conflict (not incomplete), distinct from layers 1–2. cert-manager unaffected (0-diff). NOT yet
-  a self-contained wild fixture — the conflict only manifests faithfully (kue bottoms / cue clean)
-  in the full app graph; module-free reductions flip polarity. First job of the next slice:
-  isolate a faithful minimal repro from the real app. Re-sweep diff lines after layer-2:
-  lem 188, n8n 322, x9 449, typesense 223, cert-manager 0.
+- **Layer 3 — let/ref-delivered list-carrier meet bottomed — FIXED (2026-06-29).** A
+  list-embedding carrier struct (`{let ls=…, [1,2]&ls}` / `{#name:"web", [1,2]}`) whose enclosing
+  struct carries ONLY non-output decls (a `let`/`Self=` binding, a hidden/def field) bottomed when
+  its list-embedding body was delivered through a `let`/reference. The embed evaluates to an
+  `.embeddedList`, then the enclosing decls-only struct meets it — operand order `.struct,
+  .embeddedList` hits the `leftLike, .embeddedList` meet arm (whose `asListPair` fails on a struct)
+  and routes to `meetCore` → `.bottom`, SHADOWING the `listLike, .struct …` list-collapse arm.
+  Inline (`{#name:"web",[1,2]}`) worked because the embed is still a `.list` (not yet an
+  `.embeddedList`), so it hits the collapse arm directly. **Fix is at the EVAL layer, NOT meet**
+  (`meetEmbeddingsWithFuel`, `Kue/Eval.lean`): a list-embedding collapse mirroring the existing
+  `{5}`→`5` scalar collapse — when the host (`current`) is a decls-only struct (no output field)
+  and its evaluated embedding is list-shaped (`asListPair`), build the `.embeddedList` carrying the
+  host's `declFields` (merged with the embed's own decls). Provenance is the soundness key:
+  `evaluated` is the host's OWN embedding, so this is NOT the `{#a,[1,2]} & {#b}` case (a SEPARATE
+  foreign decls-struct conjunct) — cue v0.16.1 rejects THAT as a list-vs-struct conflict, and
+  `meetCore` still bottoms it (two existing pins assert this; a meet-layer fix would have
+  over-collapsed them — that was the red herring this slice ruled out). Wild fixture
+  `testdata/wild/let-list-meets-carrier/` (`f`/`e`/`f2`) red → green; decls stay selectable
+  (`.#name` → `"web"`, cue-exact); genuine list conflicts (`[1,2]&[3,4,5]`, `[1]&["x"]`,
+  let-delivered length conflict, carrier & extra regular field) all still bottom, matching cue.
+- **Layer 4 — imported `#WebApp` carrier still bottoms — OPEN (next slice).** Layer 3 fixed the
+  minimal+adversarial captures, but the four real apps STILL bottom (re-sweep UNCHANGED:
+  lem 188, n8n 322, x9 449, typesense 223; cert-manager 0, gateway 0 both-bottom). The residual
+  is in `packs.#WebApp` itself (a `Self={…}` def embedding `attr.#Metadata`/`attr.#Hosts`,
+  emitting a top-level `[Self.#components.env, …]` list) wrapped in the `let web = #WebApp & {…};
+  [...]` carrier — and it bottoms even WITHOUT `parts.#UseKeel` (bisected: `packs.#WebApp & {…}`
+  alone). A self-contained local reduction of the `Self=`+nested-`#components`-list+embed-def shape
+  exports CLEAN (the layer-3 fix covers it), so the trigger is a subtler facet of the imported
+  def (candidates: `attr.#Metadata`/`attr.#Hosts` carrier embeddings, the `#replicas: int | *1` /
+  `#env: … | *{}` default disjunctions interacting with the list emit, or a cross-import frame
+  detail). NOT yet a self-contained wild fixture — needs dedicated bisection from the real app
+  graph (module-free reductions flip polarity, as in layer 3). First job of the next slice:
+  isolate a faithful minimal repro, then capture + fix.
 
 ## Standing Capabilities (what Kue does now)
 
