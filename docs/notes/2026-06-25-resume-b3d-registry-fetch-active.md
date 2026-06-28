@@ -25,24 +25,48 @@ spec-adjudicated (cue is fallible — a `bottom`-vs-cue may be cue's bug; adjudi
 ## Eval-conformance front (the active work)
 
 kue exported 4 of 5 real apps (`lem`/`n8n`/`x9`/`typesense`) to `bottom` where cue is clean
-(`cert-manager` clean both; `gateway` bad-input both). Peeled THREE distinct eval bugs:
+(`cert-manager` clean both; `gateway` bad-input both). **FIVE distinct eval bugs peeled so far,
+all FIXED + permanently guarded by a `testdata/wild/` fixture — yet the 4 apps STILL fully bottom**
+(depth under-estimated repeatedly; every "this converges it" was wrong). The bugs are one
+`#WebApp`-shape family (carrier / list-embed / disjunction / closedness):
 
-- **Layer 1 — FIXED** (`f6fc514`): `Self.#hidden` read *inside a list embedding* resolved to `_|_`
-  (the embedding-`Self` two-pass re-evaluated only static fields, never embedding values). Fix:
-  `embeddingsReadEmbeddedSelf` gate. Wild fixture `testdata/wild/self-hidden-in-list-embed/`.
-- **Layer 2 — FIXED** (`4b24902`): a defaulted disjunction (`string | *"x"`) as an interpolation
-  operand stayed incomplete. Fix: `collapseDefaultDisjunction` over interpolation parts (reuses the
-  shared default-shed path). Wild fixture `testdata/wild/default-disj-in-interpolation/`.
-- **Layer 3 — OPEN**: the 4 apps STILL bottom on a HARD `conflicting values` in
-  `packs.#WebApp & parts.#UseKeel` (defs@v0.3.19) — distinct from L1/L2. **No faithful minimal repro
-  yet** (only reproduces in the full app graph; reductions flip polarity). Next slice's first job =
-  isolate a faithful repro, then fix. Logged in `.afk.log` + plan.md "Layer 3 — OPEN".
+- **L1 — FIXED** (`f6fc514`): `Self.#hidden` read inside a list embedding → `_|_`. Fix
+  `embeddingsReadEmbeddedSelf`. `wild/self-hidden-in-list-embed/`.
+- **L2 — FIXED** (`4b24902`): defaulted disjunction as interpolation operand stayed incomplete.
+  Fix `collapseDefaultDisjunction` over interp parts. `wild/default-disj-in-interpolation/`.
+- **L3 — FIXED** (`f521de5`): `let`/ref-delivered list carrier met → spurious bottom. Fix in
+  `meetEmbeddingsWithFuel`. `wild/let-list-meets-carrier/`.
+- **A (SOUNDNESS) — FIXED** (`c451245`): a *definition* embedding a disjunction lost its closedness
+  through the arms → kue ACCEPTED what cue rejects (over-accept). Fix in `Normalize.lean`
+  (def-body normalizer recurses the closing walker into a `.disj` embedding). `wild/def-closedness-thru-embedded-disj/`.
+  Prerequisite for L4.
+- **L4 — FIXED** (`6c347b5`, A unblocked it): struct embedding a disjunction with a list arm dropped
+  the arm next to a list-carrier host. Fix in `meetEmbeddingsWithFuel` `.disj` distribution.
+  `wild/disj-arm-list-embed-dropped/`.
+- **L5 — OPEN** (the current app residual): an imported `#WebApp` `Self=`-host struct embedding a
+  disjunction with an `error()`/`⊥` arm, in EMBED form. Diagnosed to `Eval.lean:2209-2247`
+  (`embedBodyEmbedsDisj`/`spliceOperandForEmbed`); seed repro at repo-root `repro-l5.cue`. NOT yet
+  captured as a wild fixture / not fixed.
 
-Verify the front by re-sweeping (cd+relative, NEVER absolute paths — those make `cue` resolve the
-module wrong → false diffs): `( cd /Users/chakrit/Documents/prod9/infra && CUE_REGISTRY=prodigy9.co=ghcr.io/prod9 \
+**STRATEGIC NOTE (the decision waiting for chakrit):** B3d fetch + auth fully succeeded and are
+LIVE-PROVEN. But cue-compat on the real corpus is a DEEP multi-bug campaign, not a few fixes — 5
+eval bugs fixed and the apps are still 100% divergent; depth beyond L5 is unknown (estimates wrong
+3×). This is no longer obviously good AFK grinding (a soundness fix already surfaced; convergence
+unpredictable). **Decide the campaign:** keep grinding L5+ (attended is safer for the closedness-
+adjacent work), reprioritize to B3d-6b/other, or accept current state. The wild-fixture protocol
+means every bug found stays fixed — so pausing loses nothing.
+
+**Audit DUE on resume:** the eval batch L3+A+re-L4 (`4b64502..6c347b5`) has NOT had its two-phase
+audit (A is a soundness fix — audit it before the next eval batch). It passed the strong empirical
+guards though: all ~1843 `native_decide` pins + cert-manager canary 0 + adversarial cross-checks.
+
+Verify the front by re-sweeping (cd+relative, NEVER absolute paths — those make `cue` misresolve the
+module → false diffs): `( cd /Users/chakrit/Documents/prod9/infra && CUE_REGISTRY=prodigy9.co=ghcr.io/prod9 \
 diff <(kue export apps/<app>.cue|jq -S .) <(cue export apps/<app>.cue|jq -S .) )`.
 
-**Attended TODO:** `git push` (AFK can't); cut the owed alpha; then resume Layer 3 + B3d-6b.
+**Attended TODO (priority order):** `git push` the ~37 commits (AFK can't); cut the owed alpha; run
+the eval-batch audit; decide the L5+ campaign; then B3d-6b. Repo-root `repro-*.cue` are scratch seeds
+(L5's is live; L1/L3/L4's are superseded by their committed `wild/` fixtures — safe to `rm`).
 
 ## (historical) B3d offline-track summary — the fetch arc, all done
 
