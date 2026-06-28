@@ -59,11 +59,21 @@ You are a thin orchestrator, not the implementer:
    These are the only cross-session/cross-machine memory; trust them over conversation.
 3. **Spawn one subagent per slice.** It runs the full ace workflow in fresh context (plan
    → TDD → verify: `lake build` + `scripts/check-fixtures.sh` + `shellcheck` → commit/push
-   → update plan + implementation-log + breadcrumb). Three standing per-slice duties
+   → update plan + implementation-log + breadcrumb). Four standing per-slice duties
    beyond the code:
    - **Tests are first-class.** Don't settle for one happy-path fixture — audit edge/error
      cases and expand coverage (fixtures + `native_decide` theorems) until behavior is
      pinned. Strengthen weak existing tests you touch.
+   - **Wild-caught regressions become fixtures FIRST.** A bug found in the wild — a real
+     prod9 app export, a manual run, any stumble *outside* a planned slice — is captured as
+     a minimal, self-contained *failing* fixture under `testdata/wild/<slug>/` BEFORE the
+     fix (reproduce red first, the fix turns it green, it stays a permanent guard). Lift the
+     offending construct out of any private dep so the repro needs no registry/prod9. The
+     expected value is **spec-adjudicated, not `cue`-matched** — a `bottom`/diff vs `cue`
+     may mean `cue` is the buggy side, so pin the spec-correct value and log any `cue`
+     disagreement in `cue-divergences.md`. Real-world cases are the highest-signal tests we
+     have (the corpus the canaries miss); none is fixed-and-forgotten without a `wild/`
+     entry. Procedure: [`docs/guides/slice-loop.md`](docs/guides/slice-loop.md).
    - **Spec is authority; `cue` is a fallible reference.** Kue exists because `cue` is
      buggy — byte-identical-to-`cue` is NEVER the gate (that gate replicates bugs).
      Conform to the CUE spec; where it's silent, to lattice-theoretic first principles

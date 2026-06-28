@@ -101,6 +101,31 @@ non-`cue`-buggy domain like the Unicode case table — is governed by
 [the oracle-as-data-source decision](../decisions/2026-06-20-oracle-as-data-source.md); it is
 NEVER a correctness gate for CUE semantics.)
 
+**Wild-caught regressions → `testdata/wild/` fixture FIRST, then fix.** The canaries are a
+tiny sample; the moment a *real* situation surfaces a divergence outside a planned slice —
+a prod9 app export that errors or differs, a manual exploration, an orchestrator/user
+stumble — it is captured as a regression fixture *before* any fix. This is the highest-signal
+test we get (the wild corpus the curated fixtures miss), and the rule is test-first even
+here: the fixture must REPRODUCE (fail) first, the fix turns it green, and it stays a
+permanent guard so the same real-world case can never silently regress.
+
+- **Home:** `testdata/wild/<slug>/` (its own fixture group, registered in `FixturePorts`),
+  so wild cases are visibly real-world-sourced and never fixed-and-forgotten.
+- **Minimal + self-contained:** lift the offending construct OUT of any private dep — the
+  repro must need no registry/network/prod9 corpus (inline the few lines that trigger it).
+  A `<slug>.cue` (+ a tiny `cue.mod` module repro only if the bug is import/module-shaped)
+  plus its expected output.
+- **Expected value is SPEC-adjudicated, never `cue`-matched.** A `bottom` or a diff vs `cue`
+  does NOT establish Kue is wrong — `cue` is the fallible reference (see the spec-authority
+  rule directly above); `cue` accepting something may be `cue`'s bug. Adjudicate the case
+  against the CUE spec (or lattice-theoretic first principles when silent), pin the
+  spec-correct value, and if `cue` disagrees record it in `cue-divergences.md`. Only after
+  adjudication is the fixture's `expected` written.
+- **Provenance line:** record where it came from (source app + date) alongside the fixture,
+  so its real-world relevance stays traceable.
+- **Then fix as a normal slice:** the failing `wild/` fixture IS that slice's red; green it,
+  audit edges around it, done.
+
 **Commit at checkpoints, not only at the end.** A subagent that crashes or hits a transient
 API error loses ALL uncommitted work — this has happened (~89 tool-uses lost to an
 "Overloaded" error mid-audit, nothing committed → total re-run). So commit at natural
