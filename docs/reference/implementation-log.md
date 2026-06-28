@@ -14777,6 +14777,72 @@ authed/private registries, not just public anonymous ones. B3d-6b still needs th
 `deps` parser to BUILD the graph, OCI `tags/list` for "latest"/major resolution, the
 `cue mod get/tidy` command surface, wiring `Mvs.solve` into the resolver, and `cue.sum` WRITE.
 
+## Completed Slice: Default disjunction in string interpolation (wild default-disj-in-interpolation)
+
+Wild-caught (2026-06-28), fixed 2026-06-29. The layer-2 residual that survived the
+`self-hidden-in-list-embed` fix: a DEFAULT disjunction read as a string-interpolation operand
+kept the interpolation incomplete instead of shedding to its default.
+
+### Root cause
+
+`Kue/Eval.lean`, the `fuel + 1, .interpolation parts` eval arm: each part was evaluated, then
+`evalInterpolation` rendered the operands via `interpolationText?`. A `.disj` operand (e.g.
+`#r: string | *"ghcr.io"`) is non-string-coercible, so `interpolationText?` returned `none` and
+the whole interpolation stayed a `.interpolation` — `incomplete value: "\(string | *"ghcr.io")…"`
+at export. The mechanism was confirmed empirically (the previous slice's hand-off diagnosis held),
+not assumed: an interpolation hole is a CONCRETE-REQUIRED context, and the default was never
+forced there.
+
+### The fix (`Kue/Eval.lean`)
+
+`.map collapseDefaultDisjunction` over the evaluated parts before `evalInterpolation`. This reuses
+the SHARED default-shedding projection (`Kue/EvalOps.lean`, `collapseDefaultDisjunction` →
+`resolveDisjDefault?`) that the dyn-label key, the `if` guard, the scalar/unary operand, and the
+embedded-disjunction arm already use — no parallel path forked (DRY). It is identity on every
+non-default-disjunction value, and `resolveDisjDefault?` only sheds a UNIQUE marked default (or a
+sole live regular arm), so an ambiguous disjunction (no default, multiple defaults) stays a `.disj`
+and renders incomplete — matching cue.
+
+### Tests
+
+Wild fixture `testdata/wild/default-disj-in-interpolation/` UNQUARANTINED (`.known-red` removed) —
+now enforced: `"\(#r)-suffix"` with `#r: string | *"ghcr.io"` → `"ghcr.io-suffix"`. Five
+`native_decide` pins in `Bug2xTests.lean` (each cross-checked against cue):
+
+- `interp_default_disj_sheds_to_default` — the fix.
+- `interp_no_default_disj_bottoms` — `string | int` (no default) stays incomplete → bottoms.
+- `interp_default_overridden_by_unification` — `#r: "x"` overrides → `"x-suffix"` (unified, not
+  default).
+- `interp_multiple_defaults_bottoms` — `*"a" | *"b"` (no unique default) → bottoms.
+- `plain_ref_default_disj_unchanged` — `y: #r` (non-interpolation) → `"ghcr.io"` unchanged;
+  confirms only the interpolation path moved.
+
+### prod9 re-sweep (read-only, cached deps, no network) — LAYER 3 FOUND
+
+`apps/{lem,n8n,x9,typesense,cert-manager}.cue`, `kue export` vs `cue export`, diff lines:
+
+| app          | before | after | note                                          |
+| ------------ | ------ | ----- | --------------------------------------------- |
+| lem          | bottom | 188   | still bottoms — NEW layer 3                   |
+| n8n          | bottom | 322   | still bottoms — NEW layer 3                   |
+| x9           | bottom | 449   | still bottoms — NEW layer 3                   |
+| typesense    | bottom | 223   | still bottoms — NEW layer 3                   |
+| cert-manager | 0      | 0     | no regression                                 |
+
+The interpolation fix IS confirmed working in the apps: the `namespace.yaml` subtree now exports
+clean, with `"ghcr.io-pull-secret"` (the defaulted-disjunction interpolation) resolved. The
+residual bottom is a SEPARATE construct — `"website.yaml": _|_` and `#out: _|_`, sourced from the
+`packs.#WebApp & parts.#UseKeel` composition (`prodigy9.co/defs@v0.3.19`): a `conflicting values`
+hard conflict (not an incomplete), distinct from layers 1–2. cert-manager has no such composition,
+hence clean.
+
+LAYER 3 NOT captured as a self-contained wild fixture: every module-free reduction attempted
+either flips polarity (kue clean / cue errors) or drops `#UseKeel` inputs cue needs (both error) —
+the conflict only manifests faithfully (kue bottoms / cue clean) inside the full app graph, which
+is not self-contained `.cue`. Isolating a faithful minimal repro is the next slice's first job;
+the reproduction path is the real app under `CUE_REGISTRY="prodigy9.co=ghcr.io/prod9"` with the
+cached `defs@v0.3.19`. Logged as a blocker in `.afk.log`.
+
 ## Completed Slice: Self.#hidden in List Embeddings (wild self-hidden-in-list-embed)
 
 Wild-caught (2026-06-28) from prod9 `apps/{lem,n8n,x9,typesense}.cue` via

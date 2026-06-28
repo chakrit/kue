@@ -13,6 +13,9 @@
   disjunction with a marked default (`*d`) resolves to `d` when a concrete value is REQUIRED
   (export, interpolation operands are required-concrete). `cue export` → `{ "y":
   "ghcr.io-suffix" }`. No `cue-divergences.md` entry — cue agrees with the spec.
-- **Status:** `.known-red` — captured, not yet fixed. This is the next slice's red seed; it is
-  quarantined from the green gate until the default-concretization fix lands (then delete the
-  marker).
+- **Status:** FIXED + ENFORCED (2026-06-29). `.known-red` removed; the fixture now guards the
+  green gate. Fix: interpolation-operand evaluation sheds a defaulted disjunction via the shared
+  `collapseDefaultDisjunction` projection (`Kue/Eval.lean`, the `.interpolation` eval arm) — the
+  same path the dyn-label key / `if` guard / scalar operand already use. The 4 prod9 apps no
+  longer bottom on the `pull_secret` interpolation, but a SEPARATE layer-3 conflict in the
+  `#WebApp & #UseKeel` composition still bottoms them (see implementation-log + breadcrumb).

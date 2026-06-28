@@ -1341,6 +1341,48 @@ theorem list_embed_no_self_hidden_unaffected :
         = true := by
   native_decide
 
+-- WILD (2026-06-29): a defaulted disjunction read as a string-interpolation operand sheds to its
+-- default — interpolation requires a concrete operand, so `string | *"ghcr.io"` → `"ghcr.io"` →
+-- `"ghcr.io-suffix"`. Was the residual layer that bottomed lem/n8n/x9/typesense after the layer-1
+-- self-hidden fix. cue agrees.
+theorem interp_default_disj_sheds_to_default :
+    exportJsonMatches
+      "#r: string | *\"ghcr.io\"\ny: \"\\(#r)-suffix\"\n"
+      "{\n    \"y\": \"ghcr.io-suffix\"\n}\n"
+        = true := by
+  native_decide
+
+-- ADVERSARIAL (over-shedding guard): a disjunction with NO default in an interpolation operand
+-- stays incomplete → export bottoms (cue: "invalid interpolation: unresolved disjunction").
+theorem interp_no_default_disj_bottoms :
+    exportJsonBottoms "#r: string | int\ny: \"\\(#r)-suffix\"\n" = true := by
+  native_decide
+
+-- ADVERSARIAL: a default OVERRIDDEN by unification uses the unified value, not the default —
+-- `#r: string | *"ghcr.io"` then `#r: "x"` → `"x-suffix"`.
+theorem interp_default_overridden_by_unification :
+    exportJsonMatches
+      "#r: string | *\"ghcr.io\"\n#r: \"x\"\ny: \"\\(#r)-suffix\"\n"
+      "{\n    \"y\": \"x-suffix\"\n}\n"
+        = true := by
+  native_decide
+
+-- ADVERSARIAL: multiple marked defaults → no unique winner → interpolation stays incomplete →
+-- export bottoms (cue agrees).
+theorem interp_multiple_defaults_bottoms :
+    exportJsonBottoms "#r: *\"a\" | *\"b\"\ny: \"\\(#r)-suffix\"\n" = true := by
+  native_decide
+
+-- ADVERSARIAL: a PLAIN (non-interpolation) reference to the defaulted disjunction is unchanged —
+-- the default still applies at export (`y: #r` → `"ghcr.io"`), confirming this slice only touched
+-- the interpolation operand path, not general default resolution.
+theorem plain_ref_default_disj_unchanged :
+    exportJsonMatches
+      "#r: string | *\"ghcr.io\"\ny: #r\n"
+      "{\n    \"y\": \"ghcr.io\"\n}\n"
+        = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health hardening, Phase-B 2026-06-23). Anchors the LAST theorem of every
 -- section carved into this file. If a stray block comment (`/-` … runaway) or an editing slip ever
 -- swallows a section, the anchor name becomes unknown and `#check` fails to ELABORATE — a hard build
@@ -1366,5 +1408,6 @@ theorem list_embed_no_self_hidden_unaffected :
 #check @aliased_builtin_call_marshals_like_unaliased          -- aliased-builtin call resolution
 #check @aliased_stdlib_const_sorts_like_unaliased             -- aliased-stdlib constant resolution
 #check @list_embed_no_self_hidden_unaffected                  -- Self-hidden-in-list-embed (wild 2026-06-28)
+#check @plain_ref_default_disj_unchanged                      -- default-disj-in-interpolation (wild 2026-06-29)
 
 end Kue

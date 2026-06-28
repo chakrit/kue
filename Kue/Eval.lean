@@ -3584,7 +3584,11 @@ mutual
                 pure (withDeferredComprehensions resolved deferredComps openness)
     | fuel + 1, .interpolation parts => do
         let evaluated <- evalValuesWithFuel fuel env visited parts
-        pure (evalInterpolation evaluated)
+        -- An interpolation hole requires a concrete operand, so a defaulted disjunction
+        -- sheds to its default here via the shared `collapseDefaultDisjunction` (identity on
+        -- every non-default-disjunction value) — `string | *"ghcr.io"` → `"ghcr.io"`. An
+        -- ambiguous disjunction (no unique default) stays a `.disj` and renders incomplete.
+        pure (evalInterpolation (evaluated.map collapseDefaultDisjunction))
     | fuel + 1, .dynamicField label fieldClass value => do
         let evaluatedLabel <- evalValueWithFuel fuel env visited label
         match classifyDynLabel (resolveDynLabelDefault evaluatedLabel) with

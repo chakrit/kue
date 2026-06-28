@@ -173,3 +173,18 @@ once known.
 **Why the run stopped here:** out of *unblocked* work. Everything remaining requires live
 registry egress and/or an attended behavior-change verification — the AFK envelope's
 "log the boundary, don't cross it." Clean, fully-audited checkpoint; breadcrumb refreshed.
+
+## BLOCKER (2026-06-29) — layer-3 prod9 bottom, no faithful self-contained repro
+- WHAT: After landing layer-2 (default-disj-in-interpolation, committed), the 4 prod9 apps
+  (lem/n8n/x9/typesense) STILL bottom — now on `"website.yaml": _|_` / `#out: _|_` from the
+  `packs.#WebApp & parts.#UseKeel` composition (prodigy9.co/defs@v0.3.19). cert-manager 0-diff.
+  Diff lines after layer-2: lem 188, n8n 322, x9 449, typesense 223, cert 0.
+- WHY NEEDS A HUMAN / not crossed: the conflict only reproduces faithfully (kue bottoms / cue
+  clean) inside the FULL app graph under CUE_REGISTRY=prodigy9.co=ghcr.io/prod9 + cached
+  defs@v0.3.19 — not self-contained `.cue`. Every module-free reduction I tried flips polarity
+  (kue clean / cue errors) or drops #UseKeel inputs cue needs. The wild-fixture harness needs a
+  self-contained `.cue`; fabricating a non-faithful one would mislead, so I did NOT create one.
+- WHAT I'D DO (one word unblocks): "isolate" → next slice spends real effort minimizing a
+  faithful repro from the WebApp/UseKeel/Deployment/Service/ListenerSet/HTTPRoute graph (likely a
+  conditional-guard `if Self.#labels != _|_` + list-embed-of-#components interaction), capture as
+  a quarantined `testdata/wild/` fixture, then fix. Reproduction path is the real app.

@@ -50,12 +50,21 @@ Peeled in two layers:
   arms). Wild fixture `testdata/wild/self-hidden-in-list-embed/` red → green; 5 new pins. A
   faithful minimal `#Basics`-shaped repro exports clean once `#registry` is concrete — proving
   the chained `Self.#components.X` read now resolves for all four apps.
-- **Layer 2 — default-disjunction not concretized in string interpolation — NEXT SLICE (red
-  seed captured).** The four apps still bottom solely on `#registry: string | *"ghcr.io"` read
-  into `"\(Self.#registry)-pull-secret"`: kue keeps the interpolation incomplete instead of
-  applying the `*` default at export. Separate from the embedding machinery. Captured as
-  `testdata/wild/default-disj-in-interpolation/` (QUARANTINED via `.known-red` so the green gate
-  holds); delete the marker when fixed.
+- **Layer 2 — default-disjunction not concretized in string interpolation — FIXED
+  (2026-06-29).** `#registry: string | *"ghcr.io"` read into `"\(Self.#registry)-pull-secret"`
+  kept the interpolation incomplete. Fix: `.map collapseDefaultDisjunction` over evaluated parts
+  in the `.interpolation` eval arm (`Kue/Eval.lean`), reusing the shared default-shedding
+  projection. Wild fixture `testdata/wild/default-disj-in-interpolation/` unquarantined → green;
+  5 new `native_decide` pins. The `namespace.yaml` subtree of all four apps now exports clean
+  (`"ghcr.io-pull-secret"` resolved).
+- **Layer 3 — `#WebApp & #UseKeel` composition conflict — OPEN (next slice).** After layers 1–2,
+  the four apps STILL bottom on `"website.yaml": _|_` / `#out: _|_`, sourced from
+  `packs.#WebApp & parts.#UseKeel` (`prodigy9.co/defs@v0.3.19`): a `conflicting values` HARD
+  conflict (not incomplete), distinct from layers 1–2. cert-manager unaffected (0-diff). NOT yet
+  a self-contained wild fixture — the conflict only manifests faithfully (kue bottoms / cue clean)
+  in the full app graph; module-free reductions flip polarity. First job of the next slice:
+  isolate a faithful minimal repro from the real app. Re-sweep diff lines after layer-2:
+  lem 188, n8n 322, x9 449, typesense 223, cert-manager 0.
 
 ## Standing Capabilities (what Kue does now)
 
