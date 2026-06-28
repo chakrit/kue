@@ -133,7 +133,24 @@ Peeled in two layers:
   `#C & {x:1}` → `{x:1}` (unchanged). cert-manager canary 0; lem/n8n/x9/typesense still fully
   bottom (L4 unchanged — root A was a prerequisite, not the L4 fix). **This unblocks L4** (the
   imported `#WebApp` shape relies on closedness distributing through its default disjunctions).
-- **Layer 4 — imported `#WebApp` carrier still bottoms — OPEN (next slice).** Layer 3 fixed the
+- **disj-arm-list-embed-dropped (L4) — LANDED.** A struct embedding a disjunction with a
+  list-shaped arm dropped that arm when the host is a list-carrier → spurious bottom
+  (`out: #Emit & #Mixin & {#name:"web",[...]}` where `#Mixin: {{[...]} | {kind:string}}`).
+  Root cause: the embedded-disjunction distribution arm (`meetEmbeddingsWithFuel`'s `.disj`
+  branch, `Kue/Eval.lean`) met each arm against the host with the PLAIN `meet`, which treats a
+  list-shaped arm (`{[...]}`) against a list-carrier host as struct-vs-list and bottoms it →
+  `normalizeDisj` prunes the live list arm → overall bottom. Fix: when the plain meet bottoms
+  AND the arm is list-shaped (`asListPair`), re-run the arm through the single-embedding sub-fold
+  (`meetEmbeddingsWithFuel … [arm]`) — the same path the `conjDisjArms?` branch already uses — so
+  the host's OWN list-collapse fires. Gated to list-shaped arms (struct-arm closedness reclosing
+  untouched) and to the host's own embedded disjunction (provenance sound: a foreign list-vs-struct
+  conjunct stays a `meetCore` conflict, never reaches here). Root A (`c451245`, closedness
+  propagating into embedded disjunction arms) was the prerequisite that let this land soundly —
+  **A+L4 pair complete.** Wild fixture `disj-arm-list-embed-dropped` red → green (unquarantined).
+  Adversarial pins (cue-cross-checked): `1&[2]`, `{x:1}&[2]`, `{#a,[1,2]}&{#b}` foreign → all
+  bottom; all-arms-bottom disj → bottom; root-A def-embed-disj closed-arm-violation → still bottoms
+  (A not re-broken). **L5 (imported `#WebApp` app carrier) still OPEN** — see next bullet.
+- **Layer 4 / L5 — imported `#WebApp` carrier still bottoms — OPEN (next slice).** Layer 3 fixed the
   minimal+adversarial captures, but the four real apps STILL bottom (re-sweep UNCHANGED:
   lem 188, n8n 322, x9 449, typesense 223; cert-manager 0, gateway 0 both-bottom). The residual
   is in `packs.#WebApp` itself (a `Self={…}` def embedding `attr.#Metadata`/`attr.#Hosts`,

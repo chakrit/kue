@@ -15091,3 +15091,47 @@ quarantined). cert-manager canary diff = 0 (closedness-heavy guard). prod9 re-sw
 typesense still FULLY bottom (L4 unchanged — the apps emit nothing in both before/after; root A is
 a prerequisite for L4, not the L4 fix). Diff is `Kue/Normalize.lean` only (+18/-4). No network, no
 out-of-tree writes (prod9 + cue cache read-only).
+
+## Completed Slice: `disj-arm-list-embed-dropped` (L4 — re-applied; root A unblocked it)
+
+A struct embedding a disjunction with a list-shaped arm dropped that arm when the host is a
+list-carrier → spurious bottom. Repro (the wild fixture):
+`#Emit: {#name:string, [{x:#name}]}; #Mixin: {{[...]} | {kind:string}}; out: #Emit & #Mixin &
+{#name:"web", [...]}` → cue `{"out":[{"x":"web"}]}`, kue was `bottom`.
+
+**Root cause (re-derived against current source — the held fix's site moved under root A).** The
+embedded-disjunction distribution arm — `meetEmbeddingsWithFuel`'s `.disj` branch
+(`Kue/Eval.lean` ~3926) — met each disjunction arm against the host with the PLAIN `meet`. For a
+list-shaped arm (`{[...]}` → an `.embeddedList`/list carrier) against a list-carrier host that is
+still a decls-bearing struct, the plain `meet` sees struct-vs-list → `.bottom`; `normalizeDisj`
+then prunes the (live) list arm, and with the struct arm `{kind:string}` genuinely bottoming
+against the list host, the whole disjunction bottoms. The non-disj single-embedding path already
+collapses this correctly (the `{5}`→`5` / list-carrier collapse in the `_` arm), and the bare-disj
+conjunct path (`th`) works — only the WRAPPED embedded disjunction (`{(disj)}`, the `.disj`
+distribution) lacked the collapse.
+
+**Fix (`Kue/Eval.lean`, `.disj` distribution arm, ~line 3940).** When the plain `meet current
+armOpened` bottoms AND the arm is list-shaped (`asListPair alternative.snd |>.isSome`), re-run the
+arm through the single-embedding sub-fold `meetEmbeddingsWithFuel nextFuel env current [arm]` — the
+exact path the `conjDisjArms?` branch (~3837) already uses — so the host's OWN list-collapse fires
+and the list-carrier host keeps the arm. Gated two ways: (1) list-shaped arms only — the struct-arm
+per-arm `closeEmbeddedOver` reclosing is untouched; (2) the disjunction is the host's OWN embedding
+(this `embedding`), so the collapse is provenance-sound — a FOREIGN list-vs-struct conjunct
+(`{#a,[1,2]} & {#b}`) never reaches this arm, it stays a `meetCore` conflict. `Kue/Lattice.lean`
+untouched. The `mapM` (was `map`) threads the sub-fold's `EvalM`.
+
+**Why this lands now.** A prior slice wrote this fix but HELD it (it surfaced a closedness
+over-accept). Root A (`c451245` — definition closedness propagates into embedded disjunction arms)
+fixed that over-accept, so the re-applied L4 lands soundly. **A+L4 pair complete.**
+
+**Verify.** `lake build` clean (0 warnings/sorry; all `native_decide`/`#guard` pins pass).
+`scripts/check-fixtures.sh` exit 0 — `disj-arm-list-embed-dropped` now GREEN and unquarantined
+(`.known-red` removed); all other wild + export/cue suites green. Adversarial pins (cue-cross-
+checked): `1&[2]`, `{x:1}&[2]`, `{#a,[1,2]}&{#b}` foreign → all bottom; all-arms-bottom disj →
+bottom; root-A def-embed-disj closed-arm-violation → still bottoms (A NOT re-broken);
+`{[1,2]}&{#b}` single-arm foreign → still bottoms (collapse scoped to disj arms). cert-manager
+canary diff = 0 (byte-identical, `jq -S`, 11.5s). prod9 re-sweep (new binary, ~18s each):
+lem/n8n/x9/typesense STILL fully bottom — UNCHANGED (the residual is L5: the imported `#WebApp`
+`Self=`+error-arm embed carrier, beyond A+L4). The fix is gated to turn list-arm-disj bottoms into
+non-bottoms only — it cannot make any bottom worse, and none of the four apps improved. Diff is
+`Kue/Eval.lean` only. No network, no out-of-tree writes (prod9 + cue cache read-only); not pushed.

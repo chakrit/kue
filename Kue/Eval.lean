@@ -3923,15 +3923,31 @@ mutual
                   -- (non-embedded) `(*_#A | _#B) & {s}` path already gets this because its arms stay
                   -- closed defs at meet time.
                   let hostFields := (evaluatedStructOperand? current).map Prod.fst |>.getD []
-                  let distributed := alternatives.map fun alternative =>
+                  let distributed <- alternatives.mapM fun alternative => do
                     let armOpened := openStructValue alternative.snd
-                    let armResult := meet current armOpened
+                    let plainMet := meet current armOpened
+                    -- An arm that is a LIST-shaped embedding (`{[...]}`, an `.embeddedList`, or a
+                    -- bare list) must fold into the host through the SAME single-embedding sub-fold
+                    -- the `conjDisjArms?` path uses (line ~3837), not the plain struct `meet` — so
+                    -- the host's own list-collapse fires and a list-carrier host keeps the arm
+                    -- (cue distributes `host & (listArm | structArm)` and the list arm survives).
+                    -- The plain `meet` treats the arm as struct-vs-list and bottoms it, pruning the
+                    -- live list arm → spurious overall bottom. Gated to list-shaped arms so the
+                    -- struct-arm closedness reclosing below is untouched; provenance is the host's
+                    -- OWN embedded disjunction (this `embedding`), so the collapse is sound (a
+                    -- foreign list-vs-struct conjunct never reaches here — it stays a `meetCore`
+                    -- conflict).
+                    let armResult <-
+                      if isBottom plainMet && (asListPair alternative.snd).isSome then
+                        meetEmbeddingsWithFuel nextFuel env current [alternative.snd]
+                      else
+                        pure plainMet
                     let reclosed :=
                       match evaluatedStructOperand? alternative.snd with
                       | some (armFields, armOpen) =>
                           closeEmbeddedOver hostFields armFields armOpen armResult
                       | none => armResult
-                    (alternative.fst, reclosed)
+                    pure (alternative.fst, reclosed)
                   meetEmbeddingsWithFuel (nextFuel + 1) env (normalizeDisj distributed) rest
               | _ =>
                   -- Scalar-embedding collapse (`{5}`→`5`), done HERE where the host struct is KNOWN
