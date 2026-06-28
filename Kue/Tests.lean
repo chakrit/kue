@@ -21,6 +21,7 @@ import Kue.Tests.ModuleTests
 import Kue.Tests.MvsTests
 import Kue.Tests.NormalizeTests
 import Kue.Tests.NumberTests
+import Kue.Tests.OciAuthTests
 import Kue.Tests.OciManifestTests
 import Kue.Tests.OrderTests
 import Kue.Tests.ParseTests

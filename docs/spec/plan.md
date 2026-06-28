@@ -569,10 +569,15 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    which splits the OCI protocol into a PURE core (offline TDD) + a thin impure curl edge.
    Slice plan B3d-1…B3d-6 lives in that decision note. B3d-1…B3d-5 (+ B3d-5a, B3d-5z, B3d-6a) are
    DONE: fetch-on-missing is wired into `Module.lean` and offline-verified; the live HTTPS fetch is
-   human-gated (`.afk.log`); semver compare + the pure MVS solver are landed. Remaining: **B3d-6b**
-   (network-gated) — `cue mod get/tidy` commands, fetching deps' `module.cue` to BUILD the
-   requirement graph, "latest"-tag listing, wiring the MVS solver into the resolver, and `cue.sum`
-   WRITE.
+   human-gated (`.afk.log`); semver compare + the pure MVS solver are landed. **B3d-7 — OCI
+   bearer-token auth — DONE (2026-06-28):** the curl edge now does the Docker/OCI token flow
+   (bare GET → `401` → `WWW-Authenticate` parse → docker-credential resolve → token mint → authed
+   retry), proven LIVE against real `ghcr.io` for `prodigy9.co/defs@v0.3.19` (manifest + digest-
+   verified zip blob). This **unblocks B3d-6b's requirement-graph fetch** — its dep-`module.cue`
+   GETs now work against authed/private registries, not just public anonymous ones. Remaining:
+   **B3d-6b** (network-gated) — `cue mod get/tidy` commands, fetching deps' `module.cue` to BUILD
+   the requirement graph, "latest"-tag listing, wiring the MVS solver into the resolver, and
+   `cue.sum` WRITE.
    - **B3d-1 — `CUE_REGISTRY` parse + module→OCI-ref resolution (PURE) — DONE (2026-06-25).**
      New pure, IO-free `Kue/Registry.lean` (+ `Kue/Tests/RegistryTests.lean`). The
      simple-syntax `CUE_REGISTRY` parser (empty→`registry.cue.works`; bare host /
@@ -793,11 +798,39 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      pinned-over-a-higher-graph-version, and path-sorted remainder. Total, no `sorry`/`partial`/
      axioms beyond `propext`. NOT yet wired into the resolver (that needs the network-fetched
      requirement graph) — B3d-6b.
+   - **B3d-7 — OCI bearer-token auth (curl + docker credential-helper) — DONE (2026-06-28).** The
+     curl edge did a BARE GET, so real registries (`ghcr.io`) `401`'d it. Added the Docker/OCI
+     **Bearer-token flow** with NO new binary dependency (oras/crane rejected to keep "self-
+     contained on ubiquitous tools" — curl + the docker credential-helper protocol only). PURE
+     core `Kue/OciAuth.lean` (`native_decide`-pinned, total): `parseChallenge` (a
+     `WWW-Authenticate: Bearer …` header → `{realm, service, scope}`, tolerant of param order,
+     quotes, whitespace, case-insensitive scheme, comma-in-quoted-scope, extra params);
+     `tokenUrl`/`queryEncode` (RFC-3986 token-request URL build); `parseTokenResponse` (`token` ∥
+     `access_token`); `credSourceFor` (docker `config.json` → `inline base64` ∥ `helper binary` ∥
+     `none`, with `credHelpers.<host>` > `credsStore` > inline precedence); `splitUserPass` /
+     `parseHelperResponse`. `Kue/Base64.lean` gained a total `base64Decode`/`base64DecodeString`
+     for the inline `auth` field. IO edge in `Kue/OciFetch.lean`: `authedGet` (bare GET → on `401`
+     header-probe via `curl -D -` → `parseChallenge` → `resolveCredential` (inline base64-decode ∥
+     spawn `docker-credential-<helper> get`, host on stdin) → `mintToken` (Basic-auth GET to the
+     realm; anonymous tokenless mint when no cred — public repos) → authed retry with
+     `Authorization: Bearer`); an in-memory `TokenCache` (`IO.Ref`) keyed by realm|service|scope so
+     a module's manifest + blob GETs reuse ONE token. `fetchManifest`/`fetchBlob`/`fetchModuleZip`
+     route through it; binary-blob raw-byte capture is preserved (no UTF-8 decode of blobs). 🔒
+     Secret hygiene: a credential/token lives only in argv for the curl child + in-memory strings,
+     never logged/persisted/committed; errors report outcomes (an unsatisfiable `401`, a helper
+     non-zero exit), never the secret. **Proven LIVE** against real `ghcr.io` for
+     `prodigy9.co/defs@v0.3.19` (`CUE_REGISTRY=prodigy9.co=ghcr.io/prod9`, osxkeychain helper):
+     manifest = the validated 2-layer module manifest; zip blob DIGEST-VERIFIES
+     (`sha256:b5de5cb…ffa2fb`, 109225 bytes). Offline pins in `Kue/Tests/OciAuthTests.lean`; the
+     live probe is `scripts/check-ghcr-live.lean` (NETWORK+creds, deliberately NOT in the offline
+     `check-fixtures.sh` gate). **Unblocks B3d-6b's requirement-graph fetch** against
+     authed/private registries.
    - **B3d-6b — `cue mod get/tidy` + requirement-graph fetch + cue.sum WRITE (NETWORK-GATED) —
      REMAINING.** The network-dependent command surface that sits ON TOP of B3d-6a's pure solver,
      deferred out of the AFK envelope (live registry egress needs a human). Needs: (1) fetch each
      dep's `module.cue` (its `deps` block) to BUILD the `RequirementGraph` the solver consumes —
-     reuses the B3d-4 curl edge + a `module.cue` `deps` parser; (2) tag-listing on the registry to
+     reuses the B3d-4 curl edge (now BEARER-AUTH-CAPABLE via B3d-7, so private/authed registries
+     work) + a `module.cue` `deps` parser; (2) tag-listing on the registry to
      resolve "latest"/major→concrete-version for `cue mod get <module>` (the OCI `…/tags/list`
      endpoint); (3) the `cue mod get` / `cue mod tidy` CLI command parsing + dispatch; (4) wiring
      `Mvs.solve` into the resolver — replace the current lenient per-hop resolution (see

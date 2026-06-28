@@ -201,7 +201,17 @@ those forms.
   present (defensive/forward-compatible — a mismatch REJECTS the install), proceeding when absent.
   See `docs/reference/cue-spec-gaps.md`. **The live HTTPS fetch from `registry.cue.works` was
   offline-verified only** (file-source + repo-local cache); the real network+real-cache smoke is
-  human-gated (`.afk.log`). **MVS version *solving* now LANDED (B3d-6a)** — pure semver compare +
+  human-gated (`.afk.log`). **Authed-registry fetch now SUPPORTED (B3d-7, 2026-06-28).** The curl
+  edge does the Docker/OCI **Bearer-token flow**: a registry that gates reads behind a `401` +
+  `WWW-Authenticate: Bearer …` (e.g. `ghcr.io`, `registry-1.docker.io`) is satisfied by minting a
+  token (Basic-auth GET to the challenge realm) and retrying with `Authorization: Bearer`. Private-
+  registry credentials come from the **docker credential config** — `~/.docker/config.json`'s
+  inline `auths.<host>.auth` (base64 `user:pass`) or a credential HELPER
+  (`docker-credential-<binary> get`, per `credHelpers.<host>` else `credsStore`; e.g. macOS
+  `osxkeychain`). When no credential is configured, an ANONYMOUS tokenless mint is attempted, which
+  public registries issue for public repos. No new binary dependency (curl + the credential-helper
+  protocol only). PROVEN LIVE against `ghcr.io` (`prodigy9.co/defs@v0.3.19`): manifest + digest-
+  verified zip blob. **MVS version *solving* now LANDED (B3d-6a)** — pure semver compare +
   the max-of-mins solver (`Kue/{Semver,Mvs}.lean`), offline. **Deferred (B3d-6b, network-gated):**
   `cue mod get/tidy` commands, fetching deps' `module.cue` to BUILD the requirement graph,
   "latest"-tag listing, wiring the solver into the resolver, and `cue.sum` WRITE (`cue mod tidy`).

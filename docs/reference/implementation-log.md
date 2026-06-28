@@ -14682,3 +14682,97 @@ NOT wired into the resolver — that needs the requirement graph BUILT from netw
 (2) OCI `tags/list` for "latest"/major resolution; (3) `cue mod get`/`cue mod tidy` command
 parse + dispatch; (4) wire `Mvs.solve` into the resolver (replace lenient per-hop resolution with
 one up-front MVS build-list); (5) `cue.sum` WRITE via `Module.atomicWriteBinFile`.
+
+## Completed Slice: B3d-7 — OCI Bearer-token Auth (curl + docker credential-helper)
+
+The unblock for fetching real/private deps: the curl edge did a BARE GET, so registries that gate
+reads behind the Docker/OCI **Bearer-token flow** (`ghcr.io`, `registry-1.docker.io`) returned
+`401`. This slice adds that flow. Decision (recorded, not relitigated): implement bearer auth over
+curl + source credentials via the **docker credential-helper protocol** — NO new binary dependency
+(oras/crane rejected to preserve "self-contained on ubiquitous tools").
+
+### The auth flow
+
+A bare GET → `401` + `WWW-Authenticate: Bearer realm=…,service=…,scope=…`. The client mints a token
+(`GET <realm>?service=…&scope=…` with HTTP Basic when a credential exists, tokenless otherwise) →
+`{"token":…}` → retries the original request with `Authorization: Bearer <token>` → `200`.
+
+`OciFetch.authedGet`: bare GET → on the non-2xx, a header PROBE (`curl -sSL -o /dev/null -D -`, no
+`--fail-with-body` so the `401`'s headers come back) → `wwwAuthenticateOf` (last `WWW-Authenticate`
+line, case-insensitive) → `OciAuth.parseChallenge` → `mintToken` → authed retry. A `401` that can't
+be parsed/satisfied is a clear typed `Except.error`, never a hang or a swallowed empty success. The
+raw-byte blob path is preserved (no UTF-8 decode of binary); the bearer header is built from an
+in-memory token and passed only as curl argv.
+
+### Cred-helper dispatch (`resolveCredential`)
+
+`OciAuth.credSourceFor` decodes `~/.docker/config.json` (pure over the file text) to a `CredSource`
+sum: `inline base64UserPass` (the `auths.<host>.auth` field) | `helper binaryName`
+(`credHelpers.<host>` wins, else global `credsStore`, only for hosts with an `auths` entry) | `none`.
+The IO edge: inline → `base64DecodeString` + `splitUserPass`; helper → spawn
+`docker-credential-<binary> get` (host on stdin, EOF via dropping the moved stdin handle) →
+`parseHelperResponse` `{Username,Secret}`; none → `none` (then an anonymous tokenless mint, which
+public registries like ghcr issue for public repos).
+
+### Token cache
+
+`OciFetch.TokenCache = IO.Ref (List (String × String))`, keyed by `realm|service|scope`. A fresh
+cache per `fetchModuleZip` is threaded through `fetchManifest` + `fetchBlob` so a `401`-gated
+registry mints ONE token for the manifest + blob GETs. IN-MEMORY only — never persisted.
+
+### base64 DECODE (`Kue/Base64.lean`)
+
+The module had encode only; added a total `base64Decode : String → Option (List UInt8)` (rejects
+bad length, non-alphabet chars, malformed padding — `none`, no panic) + `base64DecodeString`.
+Round-trips `base64Encode`; pinned against the system `base64` tool (independent ground truth).
+
+### Pure core (`Kue/OciAuth.lean`, `native_decide`-pinned)
+
+`parseChallenge` (param order / quotes / whitespace / case-insensitive scheme / comma-in-quoted-
+scope / extra params tolerated; missing realm or non-Bearer scheme → `none`); `queryEncode`
+(RFC-3986 unreserved set) + `tokenUrl`; `parseTokenResponse` (`token` ∥ `access_token`, `token`
+wins); `credSourceFor`; `splitUserPass`; `parseHelperResponse`. All total over `Lean.Json.parse`,
+no `partial`/`sorry`/axioms.
+
+### The live ghcr proof
+
+Drove kue's OWN `fetchManifest` + `fetchBlob` against the REAL `ghcr.io` for
+`prodigy9.co/defs@v0.3.19` (`CUE_REGISTRY=prodigy9.co=ghcr.io/prod9`, sourcing the cred from the
+osxkeychain helper). Result: manifest = the validated 2-layer module manifest; the zip blob
+DIGEST-VERIFIES (`sha256:b5de5cb543c043ec2fd41d96f47d76eb68ce5eb71bc240be8aac421192ffa2fb`, 109225
+bytes — public content addresses). The whole bare-GET → 401 → challenge-parse → cred-resolve →
+token-mint → authed-retry → digest-verify pipeline works end-to-end. Probe:
+`scripts/check-ghcr-live.lean` (NETWORK + creds, deliberately NOT in the offline gate).
+
+### Secret hygiene
+
+A resolved credential and a minted token live ONLY as curl argv (visible to the curl child, never
+echoed by us) + in-memory `String`s. Never printed, logged, written to disk, committed, or put in a
+fixture. Offline tests use SYNTHETIC base64 (`dXNlcjpwYXNz` = `user:pass`) and synthetic
+challenges/responses. The staged diff was grepped for token-shaped strings before commit — clean.
+Errors report OUTCOMES (an unsatisfiable `401`, a helper non-zero exit), never the secret value.
+
+### Tests
+
+Offline (`Kue/Tests/OciAuthTests.lean`, `native_decide`/`#guard`): base64 decode round-trips +
+malformed rejection; `WWW-Authenticate` parse (canonical ghcr, case-insensitive scheme, param
+reorder, unquoted, whitespace + extra params, comma-in-quoted-scope, no-scope, `Basic` rejected,
+missing-realm rejected); token-URL build + percent-encoding; token-response (`token` vs
+`access_token`, both-present, extra fields, empty/none/malformed); docker-config → `CredSource`
+(inline / credsStore-with-auths-entry / per-host-helper-wins / absent-host / store-without-entry /
+malformed); `splitUserPass` (first-colon, colon-in-password, no-colon); `parseHelperResponse` (incl.
+the `<token>` identity-token convention). Live: the ghcr probe above.
+
+### Verification
+
+`lake build` clean (0 warnings/`sorry`, no `partial`/axiom in the new modules — the `Id.run do`
+loops are structurally total). `scripts/check-fixtures.sh` green (no regression; the new offline
+auth pins compile-as-`#guard`). Live ghcr probe PASS (manifest ok, blob digest + size match). No
+shell touched (the live probe is a Lean script run via `lake env lean --run`, so `shellcheck` n/a).
+
+### Remaining (B3d-6b)
+
+B3d-7 unblocks B3d-6b's requirement-graph fetch: its dep-`module.cue` GETs now work against
+authed/private registries, not just public anonymous ones. B3d-6b still needs the `module.cue`
+`deps` parser to BUILD the graph, OCI `tags/list` for "latest"/major resolution, the
+`cue mod get/tidy` command surface, wiring `Mvs.solve` into the resolver, and `cue.sum` WRITE.
