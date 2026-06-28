@@ -188,3 +188,32 @@ registry egress and/or an attended behavior-change verification — the AFK enve
   faithful repro from the WebApp/UseKeel/Deployment/Service/ListenerSet/HTTPRoute graph (likely a
   conditional-guard `if Self.#labels != _|_` + list-embed-of-#components interaction), capture as
   a quarantined `testdata/wild/` fixture, then fix. Reproduction path is the real app.
+
+## 2026-06-29 — Layer 4: imported packs.#WebApp carrier still bottoms (BLOCKER, next slice)
+
+**What.** prod9 eval-conformance: after landing Layer 3 (let/ref-delivered list carrier
+collapse, commit f521de5), `apps/{lem,n8n,x9,typesense}.cue` STILL fully bottom on
+`"website.yaml"`/`#out`. Re-sweep cue-missing lines: lem 187, n8n 321, x9 448, typesense 222
+(cert-manager 0, gateway 0). The minimal+adversarial fixtures are all green; the residual is a
+DISTINCT layer 4.
+
+**Where it stops.** Bisected: `packs.#WebApp & {…}` wrapped in `let web = … ; [...]` bottoms even
+WITHOUT `parts.#UseKeel`. `#WebApp` (infra-defs/packs/web_app.cue) is a `Self={…}` def embedding
+`attr.#Metadata`/`attr.#Hosts`, with a `#components` struct and a top-level
+`[Self.#components.env, …]` list emit, plus `#replicas: int | *1` / `#env: … | *{}` default
+disjunctions. A self-contained local reduction of the Self=+nested-#components-list+embed-def
+shape now exports CLEAN (Layer 3 covers it), so the trigger is a subtler facet of the IMPORTED
+def. Module-free reductions flip polarity (kue clean OR cue conflict), as in Layer 3 — so it needs
+bisection from the real app graph, not a guessed local repro.
+
+**Why it needs a human / next slice (not crossing now).** This is a fresh root-cause + fixture
+capture, not a continuation of the committed fix — a full slice of its own. Not an envelope
+boundary (no push/global-state needed), just out of scope for this slice's surgical target.
+
+**What I'd do.** Spawn a Layer-4 slice: (1) bisect lem inside prod9/infra by progressively
+stripping `#WebApp` facets (drop `attr.#Hosts`, then `attr.#Metadata`, then the `*1`/`*{}`
+defaults, then the nested `#components` list) until the bottom disappears — isolating the exact
+facet; (2) reduce to a self-contained `testdata/wild/` fixture (quarantine `.known-red` if not
+fixable that slice); (3) fix at the principled layer. Candidates: carrier-embed interaction with
+default disjunctions, or `attr.#Metadata`/`#Hosts` carrier embeddings meeting the list emit
+through the import frame.
