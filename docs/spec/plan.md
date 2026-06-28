@@ -57,6 +57,39 @@ Peeled in two layers:
   projection. Wild fixture `testdata/wild/default-disj-in-interpolation/` unquarantined → green;
   5 new `native_decide` pins. The `namespace.yaml` subtree of all four apps now exports clean
   (`"ghcr.io-pull-secret"` resolved).
+
+  **Phase-A audit (2026-06-29, batch `f40dd9c..4b24902` = B3d-7 auth + eval-L1 + eval-L2) —
+  HEALTHY, closed.** Re-traced all three slices against the philosophy + spec.
+  - *Secret hygiene (highest priority): no leak on any path.* Auth secrets live only in curl argv
+    + in-memory `String`s; `TokenCache` is an `IO.Ref`, never persisted; `resolveCredential` and
+    every error path report outcomes, not secrets. All offline tests use synthetic creds/base64;
+    `check-ghcr-live.lean` asserts only public digests. Tree + all three commits grep clean for
+    token/PAT/key shapes.
+  - *Auth correctness:* `parseChallenge` (order/quote/whitespace/case/comma-in-scope tolerant,
+    Basic rejected, realm required), `parseTokenResponse` (`token` wins over `access_token`),
+    `credSourceFor` precedence (`credHelpers` > `credsStore`+auths-entry > inline > none),
+    strict-canonical `base64Decode` (rejects non-zero discarded bits), anon-token fallback, and
+    an unsatisfiable 401 → typed error (no hang/swallow) — all pinned, conform to the Docker
+    token-auth flow.
+  - *Eval-L1 no over-fire:* `embeddingsReadEmbeddedSelf` fires only when (a) an embedding
+    contributed a label no static field declares AND (b) some embedding value reads that label
+    through the host `Self` alias at the right depth/index — byte-identical (gate off) for plain
+    embeds. Spec basis: embedding = unification, so the hidden field is in scope however
+    contributed. Adversarial pins sufficient (genuine `#u:1&2` still bottoms; plain non-list
+    Self.#hidden resolves; list-embed-without-self-hidden unaffected).
+  - *Eval-L2 no over-shed:* `.map collapseDefaultDisjunction` reuses the SAME shared projection as
+    dyn-label/if-guard/scalar (no behavior fork); identity on non-`.disj`, collapses only a unique
+    default, leaves ambiguous disjunctions `.disj` (stay incomplete). Pins sufficient
+    (shed / no-default→bottom / unification-override / multi-default→bottom / plain-ref).
+  - *Totality / axioms:* no new `partial`/`sorry`/custom axiom — touched eval + auth defs depend
+    only on `propext`/`Classical.choice`/`Quot.sound`. `collapseDefaultDisjunction` is
+    exhaustively enumerated (no catch-all → a new `Value` ctor forces a decision).
+  - *`check_wild_fixtures` + `.known-red`:* sound — the green gate enforces every non-quarantined
+    wild fixture (missing `.cue` → fail; mismatch → fail); a `.known-red` dir is printed +
+    skipped, removing the marker re-arms it. Both fixtures now enforced (neither quarantined).
+  - *No Violations.* One Borderline (non-blocking): a stray untracked `repro-bottom.cue` debug
+    scratch file sits at repo root — working-tree litter from the L1/L2 work, not committed, not a
+    secret. Left in place (AFK: no untracked-file deletion); flag for a human to `rm`.
 - **Layer 3 — `#WebApp & #UseKeel` composition conflict — OPEN (next slice).** After layers 1–2,
   the four apps STILL bottom on `"website.yaml": _|_` / `#out: _|_`, sourced from
   `packs.#WebApp & parts.#UseKeel` (`prodigy9.co/defs@v0.3.19`): a `conflicting values` HARD
