@@ -15009,3 +15009,85 @@ bisection from the real app graph (next slice). **Eval-conformance front is NOT 
 this is an eval-core change, so a broken pin would be a real regression; none).
 `scripts/check-fixtures.sh` exit 0 (let-list-meets-carrier green; all prior fixtures unchanged).
 No network, no out-of-tree writes (prod9 + cue cache read-only).
+
+## Root A (SOUNDNESS over-accept): def closedness through embedded disjunction
+
+`fix(eval): propagate definition closedness into embedded disjunction arms (was over-accept)`
+
+### The bug (over-accept — kue admits what cue/spec reject)
+
+A *definition* embedding a structural disjunction lost closedness through the arms:
+
+```cue
+#M: {{a: int} | {kind: string}}
+out: #M & {kind: "k"}
+```
+
+- **cue v0.16.1 / spec:** `{"out":{"kind":"k"}}`. `#M` is closed; closedness distributes into
+  the embedded disjunction's arms; the `{a:int}` arm closes → `& {kind:"k"}` adds a disallowed
+  field → that arm is `_|_`; only `{kind:string}` survives → concrete.
+- **kue (before):** `"ambiguous value: multiple non-default disjuncts remain"` — BOTH arms
+  survived because the `{a:int}` arm was OPEN and wrongly admitted `kind`. A soundness over-accept
+  (worse direction than the L1–L4 over-rejections).
+
+### The REAL mechanism (empirically pinned, not from the brief)
+
+Three diagnoses were red herrings this run, so the site was pinned with `dbg_trace`, not assumed:
+
+1. The NON-embedded form `#M: {a:int} | {kind:string}` is already CORRECT — its disj body is a
+   `.disj` whose arms `normalizeDefinitionValueWithFuel` closes (the `.disj` arm recurses each
+   alternative; a no-pattern struct arm → `mkStruct … defClosed`). The meet then distributes
+   `& {kind:"k"}` per arm and the closed `{a:int}` arm bottoms.
+2. The EMBEDDED form carries the disjunction as an *embedding* (a `comprehension` member of `#M`'s
+   `.structComp` body), not as the body's `.disj` directly.
+3. `normalizeDefinitionValueWithFuel`'s `.structComp` arm passed ALL `comprehensions` through
+   UNTOUCHED (by design — a struct/ref embedding UNIONS labels into the def's allowed set and must
+   NOT impose closedness, else it rejects the def's own siblings). But that also skipped a
+   disjunction embedding, leaving its struct-literal arms at the parser default `regularOpen`.
+   Trace at `meetEmbeddingsWithFuel`'s `.disj` branch (the `embed-disj-arm-closedness` site)
+   confirmed both arms arrived `StructOpenness.regularOpen`, so the per-arm `closeEmbeddedOver`
+   saw `armOpen=true` and left them open. cue closes a struct LITERAL written inside a def body
+   regardless of whether it sits in a disjunction; kue's normalize did not.
+
+### The fix (surgical, soundness-direction)
+
+`Kue/Normalize.lean`, the def-body `.structComp` arm of `normalizeDefinitionValueWithFuel`: map the
+embeddings, recursing the CLOSING normalizer into a `.disj` embedding (which closes each
+struct-literal arm), leaving every other embedding untouched:
+
+```lean
+let normalizedComprehensions := comprehensions.map fun c =>
+  match c with
+  | .disj _ => normalizeDefinitionValueWithFuel fuel c
+  | _ => c
+```
+
+`.disj` is matched directly (Normalize.lean predates `isEmbeddingValue`, which lives in Eval). A
+non-disj embedding (a `.refId` to another def, a struct embed) is a no-op pass-through, so
+referenced-def arms keep their OWN closedness — no over-close. The over-correction guard is
+structural: only `normalizeDefinitionValueWithFuel` (the CLOSING walker, reached by def bodies
+only) carries the fix; a NON-definition struct `M: {{a:int}|{kind:string}}` goes through the spine
+`normalizeDefinitionsWithFuel` (line `.structComp` recurses comprehensions with the spine, openness
+preserved), so its arms stay OPEN — the open control is UNCHANGED.
+
+### Adversarial pins (all cross-checked vs cue v0.16.1)
+
+- Fixture `#M & {kind:"k"}` → `{kind:"k"}` (closed arm dropped, concrete). ✓
+- Open control `M:{{a:int}|{kind:string}}; M & {kind:"k"}` → both arms kept (kue "ambiguous",
+  cue "incomplete") — UNCHANGED, the critical over-rejection guard. ✓
+- `#N:{{a:int}|{b:int}}; #N & {a:1}` → `{a:1}` (allowed by the `{a:int}` arm, `{b:int}` closed
+  rejects `a`) = cue. No over-close. ✓
+- `#M & {zzz:1}` → bottom (ALL arms violated, empty disjunction) = cue. ✓
+- `#X:{{n:int}|{s:string}}; #X & {s:"x"}` → `{s:"x"}` (closed `{n:int}` arm rejects `s`) = cue. ✓
+- Plain closed unchanged: `#C:{x:int}; #C & {x:1,y:2}` → bottom; `#C & {x:1}` → `{x:1}`. ✓
+
+### Verification
+
+`lake build` clean (140/140, 0 warnings/`sorry`; only the standard `propext/Classical.choice/
+Quot.sound` axioms; every `native_decide` pin passes — the closedness family is the key regression
+surface, a broken pin would be a real soundness regression, none broke).
+`scripts/check-fixtures.sh` exit 0 (root-A fixture green; L1/L2/L3 green; L4 stays `.known-red`
+quarantined). cert-manager canary diff = 0 (closedness-heavy guard). prod9 re-sweep: lem/n8n/x9/
+typesense still FULLY bottom (L4 unchanged — the apps emit nothing in both before/after; root A is
+a prerequisite for L4, not the L4 fix). Diff is `Kue/Normalize.lean` only (+18/-4). No network, no
+out-of-tree writes (prod9 + cue cache read-only).

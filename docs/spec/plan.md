@@ -110,6 +110,29 @@ Peeled in two layers:
   `testdata/wild/let-list-meets-carrier/` (`f`/`e`/`f2`) red → green; decls stay selectable
   (`.#name` → `"web"`, cue-exact); genuine list conflicts (`[1,2]&[3,4,5]`, `[1]&["x"]`,
   let-delivered length conflict, carrier & extra regular field) all still bottom, matching cue.
+- **Root A (SOUNDNESS over-accept) — def closedness through embedded disjunction — FIXED.** A
+  *definition* embedding a structural disjunction (`#M: {{a:int} | {kind:string}}`) lost its
+  closedness through the arms, so kue ACCEPTED what cue/spec REJECT (`#M & {kind:"k"}` → kue
+  "ambiguous, both arms"; cue/spec → `{kind:"k"}`, the `{a:int}` arm closed-rejects `kind` → bottom
+  → survivor concrete). Root cause: `normalizeDefinitionValueWithFuel`'s `.structComp` arm left ALL
+  `comprehensions` (embeddings) untouched — correct for struct/ref embeds (they UNION labels, must
+  not impose closedness), but WRONG for a disjunction embedding whose arms are struct LITERALS in
+  the def body: those must close exactly as the non-embedded `#M: {a:int} | {kind:string}` arms do
+  (the `.disj` arm already closes them). Empirically pinned via `dbg_trace`: the arms arrived
+  `regularOpen` at the embed-disj-arm-close site (`meetEmbeddingsWithFuel`'s `.disj` branch,
+  `Kue/Eval.lean`), so the per-arm `closeEmbeddedOver` saw `armOpen=true` and left them open. Fix
+  (`Kue/Normalize.lean`, def-body `.structComp` arm): recurse the CLOSING normalizer
+  (`normalizeDefinitionValueWithFuel`) into a `.disj` embedding so each struct-literal arm closes;
+  a `.refId`/non-disj embedding is a no-op pass-through (no over-close, referenced-def arms keep
+  their own closedness). Over-correction guarded: the NON-definition control (`M: {{a:int} |
+  {kind:string}}`) goes through the spine (non-closing) walker → arms stay OPEN, both survive,
+  UNCHANGED (cue-exact incomplete). Wild fixture `def-closedness-thru-embedded-disj` red → green.
+  Adversarial pins (all cue-cross-checked): `#N:{{a:int}|{b:int}} & {a:1}` → `{a:1}` (both-allowed,
+  no over-close); `#M & {zzz:1}` → bottom (all arms violated); `#X:{{n:int}|{s:string}} & {s:"x"}`
+  → `{s:"x"}` (closed `{n:int}` arm rejects `s`); plain `#C:{x:int} & {x:1,y:2}` → bottom,
+  `#C & {x:1}` → `{x:1}` (unchanged). cert-manager canary 0; lem/n8n/x9/typesense still fully
+  bottom (L4 unchanged — root A was a prerequisite, not the L4 fix). **This unblocks L4** (the
+  imported `#WebApp` shape relies on closedness distributing through its default disjunctions).
 - **Layer 4 — imported `#WebApp` carrier still bottoms — OPEN (next slice).** Layer 3 fixed the
   minimal+adversarial captures, but the four real apps STILL bottom (re-sweep UNCHANGED:
   lem 188, n8n 322, x9 449, typesense 223; cert-manager 0, gateway 0 both-bottom). The residual

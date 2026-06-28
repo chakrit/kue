@@ -15,10 +15,24 @@ mutual
         -- here (the old bug) silently closed the def, bottoming `#D & {extra}` — while `#D: {e}`
         -- (`regularOpen`) closes (`defClosed`) and rejects an added field, exactly as CUE. The
         -- parser's open-by-default is irrelevant once this is a def body, so `closeDefBody` drops
-        -- it. Embeddings (`comprehensions`) are left untouched: an embedding UNIONS its labels into
-        -- the def's allowed set (CUE), it is not the def's own closed declaration — force-closing
-        -- it would make the embed reject the def's own siblings.
-        .structComp (fields.map (normalizeDefinitionFieldWithFuel fuel)) comprehensions openness.closeDefBody
+        -- it. Non-disjunction embeddings (`comprehensions`) are left untouched: an embedding UNIONS
+        -- its labels into the def's allowed set (CUE), it is not the def's own closed declaration —
+        -- force-closing it would make the embed reject the def's own siblings.
+        --
+        -- def-closedness-thru-embedded-disj: an embedded STRUCTURAL DISJUNCTION (`#M: {{a:int} |
+        -- {kind:string}}`) is the exception. Its arms are struct LITERALS written inside the def
+        -- body, so closedness DISTRIBUTES into them exactly as it does for a non-embedded disj body
+        -- (`#M: {a:int} | {kind:string}`, which the `.disj` arm below closes). Without this, the
+        -- arms stay parser-default `regularOpen`, so `#M & {kind:"k"}` admits the `kind` field on
+        -- the `{a:int}` arm too → both arms survive → a SOUNDNESS over-accept (kue admits what
+        -- cue/spec close-and-reject). Recursing the CLOSING normalizer into a disj embedding closes
+        -- each struct-literal arm; a non-struct-literal arm (a `.refId` to another def) is a no-op
+        -- pass-through, so referenced-def arms keep their own closedness — no over-close.
+        let normalizedComprehensions := comprehensions.map fun c =>
+          match c with
+          | .disj _ => normalizeDefinitionValueWithFuel fuel c
+          | _ => c
+        .structComp (fields.map (normalizeDefinitionFieldWithFuel fuel)) normalizedComprehensions openness.closeDefBody
     -- A `defOpenViaTail` struct (the legacy `structTail` def body) keeps the def OPEN via its
     -- explicit `...`, so it is returned UNCHANGED. A no-pattern struct CLOSES (openness →
     -- `defClosed`). A pattern-bearing struct normalizes fields + patterns and keeps its openness.
