@@ -15474,3 +15474,47 @@ fix-slice (e-followup) in the plan rather than expanding this slice's scope.
 `lake build` clean (140 jobs, 0 warnings/sorry — proves the `for`-loop rewrites are total).
 `scripts/check-fixtures.sh` → `fixture pairs ok`; `scripts/check-test-health.sh` →
 `test health ok`. No scripts touched (no shellcheck needed). Zero fixture delta. Not pushed.
+
+---
+
+## Completed Slice: Phase A code-quality audit — eval batch `4b64502..HEAD`
+
+Audit-only slice (no production-code change), per the slice-loop guard-rail that audits get a
+log entry even when they ship no code. Scope: the un-audited eval batch — the design-record
+fix-slice batch (a–e: `97a6e2b`, `736d96b`, `4b8e6ac`, `4f126af`) plus the previously-flagged
+soundness-grade eval batch (`4b64502..6c347b5`, root A closedness-thru-embedded-disj). 21
+commits, ~46 non-doc files touched.
+
+### Verified landed (binding guard-rail — audits confirm prior filings)
+
+a–e all genuinely in the code, not merely marked DONE: (a) `scripts/check-test-health.sh`
+enforces block-comment/tripwire/size across every `Kue/Tests/*.lean` via `find` — the
+convention is script-enforced, so the migration is complete by construction; (b) the 13
+in-scope value-producing `| _ =>` catch-alls are `|`-joined ctor enumerations (shared RHS, no
+copy-paste — the correct DRY idiom; the scalar-embed collapse is hoisted to a thunk so no
+enumerated arm carries a recursive call); (c) all 4 `Module.lean` `partial def` waivers are
+HONEST (filesystem parent-chain + inherent mutual IO-import-graph cycle — no structural
+measure available); (d) `classifyForSource` + the `nonIterableSource` `BottomReason` + the 3
+new comprehension fixtures (each with a `FixturePorts` entry, spec-adjudicated expected); (e)
+timeless-comment sweep confirmed on the non-test sites. (e-followup) test-file sweep correctly
+captured in plan.md.
+
+### Soundness-grade changes scrutinized
+
+Root A (closedness-thru-embedded-disj, `Normalize.lean`): the closing normalizer recurses only
+into `.disj` embeddings, struct-literal arms close, `.refId` arms pass through — no over-close;
+sound. The for-non-iterable type-error change (d): the concrete/incomplete/iterable
+classification is total (no catch-all); `Kind` holds only scalar kinds (no list/struct), so
+`.kind → concreteNonIterable` is sound; incomplete operands correctly defer. ONE defect found
+(PA-1): `classifyForSource` folds `.bottom`/`.bottomWith` into `.incomplete` on a false
+"can't-happen" premise — an evaluated bottom source (`1 & 2`) defers instead of propagating,
+retaining a dead disjunct where cue eliminates it (`[for x in (1&2){x}] | [5]` → kue
+"ambiguous" vs cue `[5]`). Wild-caught during the audit → committed red seed
+`testdata/wild/for-bottom-source-masked-as-incomplete/` (`.known-red`); fix-slice PA-1 filed.
+
+### Verify
+
+`lake build` exit 0. `scripts/check-fixtures.sh` → `fixture pairs ok` (the new red seed is
+quarantined, gate skips it). `scripts/check-test-health.sh` → `test health ok`. `shellcheck
+scripts/*.sh` clean. No production code touched; the only additions are the quarantined wild
+fixture + the plan/log/breadcrumb updates. Not pushed.

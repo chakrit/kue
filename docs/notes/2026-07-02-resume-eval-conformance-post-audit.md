@@ -50,8 +50,14 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    - **Protocol amendments** — 8 proposed "keep going" improvements from the audit:
      [`2026-07-02-keep-going-protocol-critique.md`](2026-07-02-keep-going-protocol-critique.md).
      Do not apply until accepted/edited.
-2. **Eval-batch audit due** (`4b64502..6c347b5` — L3 + root A + L4; root A is
-   soundness). Run before the next eval batch.
+2. **Eval-batch audit — DISCHARGED (Phase A, 2026-07-02).** Audited `4b64502..HEAD` (the
+   `4b64502..6c347b5` L3+rootA+L4 batch AND the a–e design-record fix-slices). a–e verified
+   genuinely landed; root A + the for-non-iterable change scrutinized sound. ONE defect
+   found: **PA-1** — `classifyForSource` masks a BOTTOM `for` source as incomplete (false
+   "can't-happen" premise), retaining a dead disjunct where cue eliminates it (value-level
+   soundness). Red seed committed + quarantined
+   (`testdata/wild/for-bottom-source-masked-as-incomplete/`); fix-slice PA-1 filed in
+   plan.md. Phase B (architecture) still owed for this batch.
 3. **Audit fix-slices** in plan.md Live Backlog. **(a) TEST-HEALTH retrofit +
    `scripts/check-test-health.sh` gate — DONE (2026-07-02):** all 33 hand-authored test
    modules converted to `--` headers, per-section `#check` tripwires added, gate enforces

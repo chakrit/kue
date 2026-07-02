@@ -369,6 +369,25 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
   `FixturePorts:96/3823/3838`. Deferred from (e) to keep that slice scoped; convert on-touch or
   as a dedicated sweep.
 
+### Fix-slices from the 2026-07-02 Phase A audit of the eval batch (`4b64502..HEAD`, ranked)
+
+- **(PA-1) `classifyForSource` masks a BOTTOM `for` source as incomplete [HIGH, soundness].**
+  `Eval.lean` `classifyForSource` enumerates `.bottom`/`.bottomWith` into the `.incomplete`
+  arm with the (false) justification "Bottoms never reach here". The `.forIn` caller
+  evaluates the source and matches `classifyForSource` with NO bottom short-circuit, so a
+  source evaluating to bottom (`1 & 2`) reaches the classifier and is DEFERRED instead of
+  propagated. Value-level divergence, not just a diagnostic: `out: [for x in (1 & 2) {x}] |
+  [5]` → cue `[5]` (⊥ arm eliminated), kue "ambiguous value: multiple non-default disjuncts
+  remain" (dead arm retained). Bare `out: [for x in (1 & 2) {x}]` → "incomplete value" where
+  cue reports the conflict — same bottom-masked-as-incomplete family as the TL-1 and
+  missing-field-selection fixes. **Fix:** give `ForSourceClass` a bottom-propagating verdict
+  (a 4th case, or fold into the caller) and route `.bottom`/`.bottomWith` to it, mirroring
+  `classifyGuard`'s `.bottom bot => pure (.bottom bot)` arm — the sibling classifier already
+  does this correctly. **Red seed COMMITTED + quarantined:**
+  `testdata/wild/for-bottom-source-masked-as-incomplete/` (`.known-red`); the fix greens it.
+  Add `native_decide` pins for the bare + disjunction forms and remove the `.known-red`
+  marker in the same slice.
+
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
 Sequence after the spec-conformance correctness work: bank cheap-ready cleanups, then the
