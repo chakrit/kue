@@ -15773,3 +15773,50 @@ required (no eval-core change). Committed on `main`, not pushed.
 With PB-2 and PB-3 landed, the **entire 2026-07-02 Phase A/B audit fix-slice batch is
 FULLY DISCHARGED** — PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 all DONE. No audit-filed
 fix-slice remains open.
+
+---
+
+## Completed Slice: B2-A2 — pattern×tail cross-combo fixtures (test-gap fill)
+
+Goal: promote the two struct pattern/tail cross-combinations that were pinned only by
+`native_decide` into real testdata fixtures, so behavior is exercised through the full
+`kue eval` CLI path (not just the in-Lean `meet` algebra).
+
+### Gap
+
+The two committed B2.5 definitions fixtures (`pattern_tail_unify`,
+`multi_pattern_tail_unify`) both exercise only **patterns-LEFT × tail-RIGHT**
+(`{[string]:int} & {a:5, ...}`). The reverse order (**tail-LEFT × patterns-RIGHT**) and the
+**both-tails+patterns** case (each operand carrying a tail AND a pattern) were pinned only by
+`LatticeTests` `native_decide` theorems (`mergeStructN_tail_pattern_unifies`,
+`mergeStructN_tail_patterns_unifies`, and — for two-tail merge — only without patterns via
+`mergeStructN_tail_tail_applies_both_tails_to_extras`). No fixture drove them through
+`kue eval`.
+
+### Fixtures added
+
+- `testdata/cue/definitions/tail_pattern_unify.{cue,expected}` — `{a:5, ...} & {[string]:int}`
+  ⟹ `{a: 5, [string]: int, ...}`. Reverse of `pattern_tail_unify`; `meet` is commutative here.
+- `testdata/cue/definitions/both_tails_pattern_unify.{cue,expected}` —
+  `{a:5, [=~"^a"]:int, ...} & {b:"hi", [=~"^b"]:string, ...}` ⟹
+  `{a: 5, b: "hi", [=~"^a"]: int, [=~"^b"]: string, ...}`. Each pattern constrains its own
+  matching field; both tails keep the struct open.
+
+Both carry matching `FixturePorts.lean` entries (binding rule: every fixture has BOTH a
+testdata pair AND a port), so each `.expected` is triangulated by the in-Lean `meet` port,
+the `kue eval` CLI, and `cue`.
+
+### Spec adjudication
+
+Oracle `{a:5,...} & {[string]:int}` → `{a:5}` (open). cue v0.16.1 agrees on both cases:
+reverse → `{a: 5}` open; both-tails+patterns → `{a: 5, b: "hi"}` open. Lean `meet` port and
+`kue eval` produce the same rendered structural form. **No latent bug surfaced** — the
+`native_decide` theorems had encoded the behavior correctly; this slice only widened the
+observation surface. No `cue-divergences` / `cue-spec-gaps` entry needed.
+
+### Verification
+
+`lake build` exit 0 (148 jobs, no warnings/sorry). `check-fixtures.sh` exit 0 (`fixture
+pairs ok`; both new fixtures GREEN through the Lean-port diff and the CLI diff).
+`check-test-health.sh` exit 0. No scripts touched (shellcheck n/a); cert-manager canary not
+required (pure coverage, no eval-core change). Committed on `main`, not pushed.

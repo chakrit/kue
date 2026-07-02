@@ -531,10 +531,6 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      (the only tail a parsed struct carries is bare `...` = `.top`, a no-op to
      drop+re-supply); breaks the day typed-ellipsis lands. Thread `tail` through the
      pattern arm + a round-trip pin; pairs with any typed-ellipsis slice.
-   - **B2-A2 (test-gap fill)** — both B2.5 fixtures exercise patterns-LEFT × tail-RIGHT;
-     the reverse and both-tails+patterns are pinned only by `native_decide`. Add
-     `testdata/cue/definitions/{tail_pattern_unify,both_tails_pattern_unify}` pairs +
-     `FixturePorts` entries (oracle: `{a:5,...} & {[string]:int}` → `{a:5}` open).
    - **A2-x (latent) — `importBinding` merge-asymmetry.** STAYS unobservable — the only
      collision that would exercise the asymmetric merge is the one A2-y rejects at LOAD.
      No work to do; recorded so it is not re-investigated.
@@ -542,6 +538,11 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.
    Done (ruling + pointer only; blow-by-blow in the implementation-log):
+   - **B2-A2 (test-gap fill)** — DONE 2026-07-02. Promoted the two untested-by-fixture
+     directions (tail-LEFT × patterns-RIGHT, and both-tails+patterns) from `native_decide`-only
+     into real testdata: `testdata/cue/definitions/{tail_pattern_unify,both_tails_pattern_unify}`
+     pairs + `FixturePorts` entries. cue v0.16.1, kue eval, and the Lean `meet` port all agree
+     (`{a:5}` open; `{a:5,b:"hi"}` open) — no latent bug. Pure coverage; no eval-core change.
    - **B-AUDIT-refold-1** — DONE 2026-07-02. Shared `refoldEmbeddingsIfSelf` helper (in the
      core-force `mutual` block, just before `evalEmbeddingFieldsWithFuel`); both struct-eval
      arms (`.structComp`, def-force) call it with their own `(canonical, env)` and thread the

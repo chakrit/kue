@@ -1413,6 +1413,28 @@ def fixturePorts : List FixturePort :=
               .defOpenViaTail (some .top) []))
     },
     {
+      -- B2-A2: reverse of `pattern_tail_unify` — tail-struct LEFT, pattern-struct RIGHT. Meet
+      -- is commutative here, so the unified value matches the forward order. cue v0.16.1 → {a: 5}.
+      fileName := "definitions/tail_pattern_unify.expected",
+      content :=
+        formatField "x"
+          (meet
+            (mkStruct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top) [])
+            (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))]))
+    },
+    {
+      -- B2-A2: both sides carry a tail AND a pattern. Each pattern constrains its own matching
+      -- field; both tails keep the struct open. cue v0.16.1 → {a: 5, b: "hi"}.
+      fileName := "definitions/both_tails_pattern_unify.expected",
+      content :=
+        formatField "x"
+          (meet
+            (mkStruct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top)
+              [((.stringRegex "^a"), (.kind .int))])
+            (mkStruct [⟨"b", .regular, .prim (.string "hi")⟩] .defOpenViaTail (some .top)
+              [((.stringRegex "^b"), (.kind .string))]))
+    },
+    {
       fileName := "definitions/string_kind_pattern.expected",
       content :=
         formatField "x"

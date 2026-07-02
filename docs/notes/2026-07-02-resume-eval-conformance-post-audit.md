@@ -16,6 +16,12 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 
 ## State
 
+- **B2-A2 landed (2026-07-02, item-6 LOW).** Promoted the two struct pattern/tail
+  cross-combos that were `native_decide`-only into real testdata:
+  `definitions/{tail_pattern_unify,both_tails_pattern_unify}` pairs + `FixturePorts`
+  entries. Covers tail-LEFT × patterns-RIGHT and both-tails+patterns; cue v0.16.1 / kue
+  eval / Lean `meet` all agree (`{a:5}` open; `{a:5,b:"hi"}` open). No latent bug; pure
+  coverage, no eval-core change. Moved to item-6 "Done" sublist.
 - **Full-repo audit + repair (2026-07-02).** Four parallel auditors (design record,
   reference/guides, code/skill-compliance, fixture infrastructure) swept everything;
   repairs landed the same day. Code health confirmed strong: zero
