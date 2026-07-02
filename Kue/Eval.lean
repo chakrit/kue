@@ -1215,17 +1215,63 @@ def structPairs : List Field -> List (Value × Value)
       else
         structPairs fields
 
-/-- The (key, value) iteration pairs a source produces, or `none` if it is not iterable.
-    An `.embeddedList` (a struct embedding a list with decls, `{#a:1,[1,2]}`) iterates the
-    EMBEDDED LIST (B3) — cue: `for x in {#a:1,[1,2]}` → `[1,2]`. An `.embeddedScalar` carrier is
-    NOT iterable (its value is a scalar) → `none` via the catch-all, matching Kue's standing
-    non-iterable handling (cue hard-errors there; see cue-divergences.md). -/
-def comprehensionPairs : Value -> Option (List (Value × Value))
-  | .list items => some (listPairsFrom 0 items)
-  | .listTail items _ => some (listPairsFrom 0 items)
-  | .embeddedList items _ _ => some (listPairsFrom 0 items)
-  | .struct fields _ _ _ _ => some (structPairs fields)
-  | _ => none
+/-- The domain status of an evaluated `for` source, mirroring `classifyArithOperand`'s
+    concrete-wrong → error / incomplete → defer discipline. The CUE spec mandates `for` range
+    over a list or struct:
+    - `iterable` — a list/struct/embedded-list carrier: carries the (key, value) pairs to walk.
+      An `.embeddedList` (`{#a:1,[1,2]}`) iterates the EMBEDDED LIST (B3), cue: `[1,2]`.
+    - `concreteNonIterable` — a CONCRETE scalar (or scalar carrier `{#a:1,5}`): definitively
+      outside the list/struct domain ⇒ a TYPE ERROR (cue: `cannot range over 5 …`). Carries the
+      offending type for the `nonIterableSource` reason.
+    - `incomplete` — an unresolved/abstract form (ref, kind, bound, unresolved disjunction, …):
+      it may still resolve to a list/struct, so the comprehension DEFERS (residual), exactly as
+      an incomplete `if` guard defers (D#1b). Enumerated with no catch-all so a new ctor forces a
+      decision here. -/
+inductive ForSourceClass where
+  | iterable (pairs : List (Value × Value))
+  | concreteNonIterable (type : ConcreteTypeName)
+  | incomplete
+
+def classifyForSource : Value -> ForSourceClass
+  | .list items => .iterable (listPairsFrom 0 items)
+  | .listTail items _ => .iterable (listPairsFrom 0 items)
+  | .embeddedList items _ _ => .iterable (listPairsFrom 0 items)
+  | .struct fields _ _ _ _ => .iterable (structPairs fields)
+  -- A value whose type is DECIDABLY disjoint from list/struct is outside the domain NOW, even if
+  -- not fully concrete: it can never unify to a list/struct, so cue errors it (`found int, want
+  -- list or struct`) rather than holding. That covers a concrete scalar (`.prim`), a scalar
+  -- carrier (`{#a:1,5}` — recurse onto its terminal scalar), an abstract scalar TYPE (`.kind`,
+  -- `Kind` holds only scalar kinds), a string-regex constraint, and a numeric bound. `.notPrim`
+  -- (`!=5`) admits non-scalars, so it is NOT decidable here → defers.
+  | .prim p => .concreteNonIterable (.scalar p.kind)
+  | .embeddedScalar scalar _ => classifyForSource scalar
+  | .kind k => .concreteNonIterable (.scalar k)
+  | .stringRegex _ => .concreteNonIterable (.scalar .string)
+  | .boundConstraint _ _ _ => .concreteNonIterable (.scalar .number)
+  -- Genuinely-unresolved forms may still resolve to a list/struct → DEFER (residual). `.top` (any),
+  -- a `.notPrim` exclusion, an unresolved ref/selector/disjunction/conjunction, a residual
+  -- comprehension/builtin/interpolation — each can still concretize into an iterable. Bottoms never
+  -- reach here (the source is evaluated; a bottom would surface upstream); classed defer.
+  | .top => .incomplete
+  | .bottom => .incomplete
+  | .bottomWith _ => .incomplete
+  | .notPrim _ => .incomplete
+  | .conj _ => .incomplete
+  | .builtinCall _ _ => .incomplete
+  | .unary _ _ => .incomplete
+  | .binary _ _ _ => .incomplete
+  | .ref _ => .incomplete
+  | .refId _ => .incomplete
+  | .thisStruct => .incomplete
+  | .selector _ _ => .incomplete
+  | .index _ _ => .incomplete
+  | .disj _ => .incomplete
+  | .comprehension _ _ => .incomplete
+  | .structComp _ _ _ => .incomplete
+  | .listComprehension _ _ => .incomplete
+  | .interpolation _ => .incomplete
+  | .dynamicField _ _ _ => .incomplete
+  | .closure _ _ => .incomplete
 
 /--
 Memoization key. Evaluation of a `Value` is a pure function of `(fuel, env, visited,
@@ -4414,9 +4460,13 @@ mutual
             expandClauseChain onExhausted fuel nested rest body
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
-            match comprehensionPairs evaluatedSource with
-            | none => pure (.payload ∅)
-            | some pairs => expandForPairs onExhausted fuel env key value rest body pairs
+            -- Fully classified (no catch-all): an iterable walks its pairs; a CONCRETE
+            -- non-iterable is a type error (spec mandates `for` range over a list/struct); an
+            -- INCOMPLETE source DEFERS the comprehension (it may still resolve to a list/struct).
+            match classifyForSource evaluatedSource with
+            | .iterable pairs => expandForPairs onExhausted fuel env key value rest body pairs
+            | .concreteNonIterable ty => pure (.bottom (.bottomWith [.nonIterableSource ty]))
+            | .incomplete => pure .deferred
   termination_by (fuel, 0, 0)
 
   /-- Expand the remaining clause chain once per iteration pair, concatenating payloads. A bottom

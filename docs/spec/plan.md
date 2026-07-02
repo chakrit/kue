@@ -334,9 +334,18 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
 - **(c) `Module.lean` `partial def` cleanup [LOW].** Lines ~226/531/557/579: convert the
   list-recursive ones (`parseAndBindFiles`, `collectBindings`) to structural/fuel
   recursion; add site waivers to the rest.
-- **(d) Re-adjudicate `for` over a concrete non-iterable [LOW-MED].** Under the E#4
-  principle (a concrete operand outside the spec-mandated domain = type error, not
-  zero-iter), Kue's zero-iter is likely wrong — fix + move the `cue-divergences.md` row.
+- **(d) Re-adjudicate `for` over a concrete non-iterable — ✅ DONE (2026-07-02).** Under the
+  E#4 principle Kue's zero-iter WAS wrong (cue spec-correctly hard-errors). `classifyForSource`
+  (`Eval.lean`, replacing `comprehensionPairs`) now: an iterable (list/struct/embedded-list)
+  walks its pairs; a CONCRETE / decidably-non-iterable source (scalar `.prim`/carrier, abstract
+  scalar `.kind`, `.stringRegex`, numeric `.boundConstraint`) is a type error
+  (`.nonIterableSource`); a genuinely-unresolved source (`.top`, unresolved ref/disjunction —
+  may still become a list/struct) DEFERS. Matches cue's verdict on all (error on `5`/`"s"`/
+  `true`/`int`, hold on `_`). `cue-divergences.md` row REMOVED (Kue now conforms; recorded under
+  "Resolved"). Pins: `ComprehensionTests` `listcomp_for_scalar_{int,string,bool}_is_type_error`,
+  `listcomp_for_scalar_carrier_is_type_error`, `structcomp_for_scalar_int_is_type_error`,
+  `listcomp_for_abstract_scalar_is_type_error`, `listcomp_for_top_source_defers`; fixtures
+  `comprehensions/for_scalar_type_error`, `for_struct_scalar_type_error`, `for_top_source_defers`.
 - **(e) Timeless-comment sweep [LOW, on-touch].** "no longer"/"the old X" sites:
   `Builtin.lean:941`, `Normalize.lean:126`, `Regex.lean:651`, `LatticeTests:708`,
   `RegexTests:6/183`, `Bug2xTests:545`.

@@ -15368,3 +15368,63 @@ The four `other => other` identity sites from 2026-06-23 were already enumerated
 health ok`; `shellcheck scripts/*.sh` clean. Pure refactor: zero behavior change (no fixture
 or `native_decide` delta), so no ctor was silently mishandled under any catch-all; no new
 tests warranted. Not pushed.
+
+---
+
+## Completed Slice: `for` over a concrete non-iterable = type error (audit fix-slice (d))
+
+Goal: re-adjudicate Kue's zero-iteration on a non-iterable `for` source under the E#4
+principle (a concrete operand outside a spec-mandated domain is a type error, not a benign
+default). The CUE spec mandates `for` range over a list or struct; cue spec-correctly
+hard-errors a scalar source (`cannot range over 5 (found int, want list or struct)`), so
+Kue's `out: []` was the wrong side — a `cue-divergences.md` row FLAGGED it 2026-07-02.
+
+### Adjudication
+
+Ran `cue` v0.16.1 on the repros: `for x in 5`/`"s"`/`true` and the scalar carrier
+`{#a:1,5}` all ERROR (`cannot range over …`); an abstract scalar type also errors
+(`y: int; for x in y` → `cannot range over y (found int, want list or struct)`); only a
+genuinely-open source holds (`y: _; for x in y` → cue keeps the residual `[for x in y {x}]`).
+So the domain boundary is *decidability*, not concreteness: a value whose type can never
+unify to a list/struct is out-of-domain NOW (error), even if not fully concrete; a value
+that may still become a list/struct DEFERS. cue is spec-correct throughout — Kue was wrong.
+
+### Change
+
+- `Kue/Value.lean`: new `BottomReason.nonIterableSource (type : ConcreteTypeName)` (sibling to
+  `nonBoolGuard`/`nonArithmeticOperand`/`nonStringLabel`).
+- `Kue/Eval.lean`: replaced `comprehensionPairs : Value -> Option …` with a three-way total
+  `classifyForSource : Value -> ForSourceClass` (`iterable pairs` / `concreteNonIterable ty` /
+  `incomplete`), enumerated with no catch-all so a new `Value` ctor forces a decision (mirrors
+  `classifyArithOperand`). Iterable: list/listTail/embeddedList/struct. concreteNonIterable
+  (decidably non-list/struct): `.prim` (→ `.scalar kind`), `.embeddedScalar` (recurse onto the
+  terminal scalar — a carrier manifests as its scalar), `.kind` (`Kind` holds only scalar kinds),
+  `.stringRegex` (→ string), `.boundConstraint` (→ number). incomplete (may still become a
+  list/struct → DEFER): `.top`, `.notPrim`, unresolved refs/selectors/disjunctions/conjunctions,
+  residual comprehensions/builtins/interpolations, bottoms. The `.forIn` clause site: `.iterable`
+  walks pairs, `.concreteNonIterable ty` → `.bottom (.bottomWith [.nonIterableSource ty])`,
+  `.incomplete` → `.deferred` (same discipline as an incomplete `if` guard, D#1b).
+
+### Behavior (before → after; cue-adjudicated)
+
+- `out: [for x in 5 {x}]` (also `"s"`, `true`, carrier `{#a:1,5}`, abstract `y: int`):
+  `out: []` → `out: [_|_]` (list bottom element). cue ERRORS all → Kue now conforms.
+- `out: {for x in 5 {a: x}}`: `out: {}` → `out: _|_`. cue errors → conforms.
+- `y: _; out: [for x in y {x}]`: unchanged HOLD, now via `.deferred` (was zero-iter) — residual
+  `out: [for x in @0.0 {@1.0}]`. cue holds `[for x in y {x}]`; the `@depth.index` rendering is
+  the pre-existing D#1b display-only family (value verdict identical), so NO new divergence row.
+
+### Tests
+
+`ComprehensionTests`: replaced the stale `listcomp_for_scalar_carrier_zero` pin with
+`listcomp_for_scalar_{int,string,bool}_is_type_error`, `listcomp_for_scalar_carrier_is_type_error`,
+`structcomp_for_scalar_int_is_type_error`, `listcomp_for_abstract_scalar_is_type_error`, and
+`listcomp_for_top_source_defers` (pins the deferred residual, distinguishing defer from bottom).
+Fixtures `testdata/cue/comprehensions/for_scalar_type_error`, `for_struct_scalar_type_error`,
+`for_top_source_defers` (+ FixturePorts ports). `cue-divergences.md` zero-iter row REMOVED,
+recorded under a new "Resolved" section.
+
+### Verify
+
+`lake build` clean (0 warnings/sorry). `scripts/check-fixtures.sh` → `fixture pairs ok`;
+`scripts/check-test-health.sh` → `test health ok`; `shellcheck scripts/*.sh` clean. Not pushed.

@@ -61,9 +61,14 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    Lattice/Builtin catch-alls all scrutinize `Prim`/`Kind`/`Option`/`List`, not `Value`),
    each `| _ =>` replaced by a `|`-joined explicit ctor enumeration; scalar-embed fallback
    hoisted to a `let` thunk to keep enumerated arms recursion-free (else `decreasing_by`
-   blows up). Pure refactor, fixtures/health green. Remaining (c–e): `Module.lean`
-   partial-def cleanup, `for`-over-non-iterable re-adjudication under E#4, timeless-comment
-   sweep.
+   blows up). Pure refactor, fixtures/health green. **(d) `for`-over-non-iterable
+   re-adjudication under E#4 — DONE (2026-07-02):** cue is spec-correct (hard-errors a
+   non-iterable source); Kue's zero-iter was wrong. Replaced `comprehensionPairs` with a
+   three-way `classifyForSource` — a decidably-non-iterable source (scalar `.prim`/carrier,
+   abstract scalar `.kind`, `.stringRegex`, numeric `.boundConstraint`) is a type error
+   (`.nonIterableSource`), a genuinely-open source (`.top`, unresolved ref/disj) DEFERS. Matches
+   cue on all cases; `cue-divergences.md` zero-iter row REMOVED (→ Resolved). New pins + 3
+   fixtures. Remaining (c, e): `Module.lean` partial-def cleanup, timeless-comment sweep.
 4. **root2/root3 quarantined RED** — same closedness family as the L5 campaign; natural
    first targets if the grind is chosen.
 5. **Pending school changes** (for `ace-school`, not from here): the TEST-HEALTH test

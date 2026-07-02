@@ -43,11 +43,49 @@ theorem listcomp_for_embedded_list :
     evalSourceMatches "out: [for x in {#a: 1, [1, 2]} {x}]\n" "out: [1, 2]" = true := by
   native_decide
 
--- B3 boundary: a scalar carrier (`{#a:1, 5}`) is NOT iterable — its manifested value is an int,
--- so `for x in {#a:1,5}` yields zero iterations (Kue's standing non-iterable handling; cue
--- hard-errors "cannot range over … found int" — a tracked divergence, see cue-divergences.md).
-theorem listcomp_for_scalar_carrier_zero :
-    evalSourceMatches "out: [for x in {#a: 1, 5} {x}]\n" "out: []" = true := by
+-- A CONCRETE non-iterable `for` source is a TYPE ERROR (fix-slice (d), E#4 principle): the spec
+-- mandates `for` range over a list or struct, so a concrete scalar is outside the domain — the
+-- comprehension bottoms rather than silently zero-iterating. In a LIST comprehension the bottom is
+-- the single element (`[_|_]`, same shape as a D#1a bottom guard); cue AGREES the source is a type
+-- error (`cannot range over 5 …`) — Kue now conforms (see cue-divergences.md).
+theorem listcomp_for_scalar_int_is_type_error :
+    evalSourceMatches "out: [for x in 5 {x}]\n" "out: [_|_]" = true := by
+  native_decide
+
+theorem listcomp_for_scalar_string_is_type_error :
+    evalSourceMatches "out: [for x in \"s\" {x}]\n" "out: [_|_]" = true := by
+  native_decide
+
+theorem listcomp_for_scalar_bool_is_type_error :
+    evalSourceMatches "out: [for x in true {x}]\n" "out: [_|_]" = true := by
+  native_decide
+
+-- A scalar carrier (`{#a:1, 5}`) manifests as its inner scalar (int 5), so it inherits the SAME
+-- concrete-non-iterable type error — consistent with a bare scalar, not a special case.
+theorem listcomp_for_scalar_carrier_is_type_error :
+    evalSourceMatches "out: [for x in {#a: 1, 5} {x}]\n" "out: [_|_]" = true := by
+  native_decide
+
+-- STRUCT comprehension over a concrete non-iterable: the whole struct bottoms (`out: _|_`), same
+-- shape as a struct-comprehension non-bool guard.
+theorem structcomp_for_scalar_int_is_type_error :
+    evalSourceMatches "out: {for x in 5 {a: x}}\n" "out: _|_" = true := by
+  native_decide
+
+-- An abstract scalar TYPE (`int`) is DECIDABLY non-iterable (it can never unify to a list/struct),
+-- so it is a type error just like a concrete scalar — cue agrees (`cannot range over y (found int,
+-- want list or struct)`). This distinguishes "decidably-wrong" from a genuinely-unresolved source.
+theorem listcomp_for_abstract_scalar_is_type_error :
+    evalSourceMatches "y: int\nout: [for x in y {x}]\n" "y: int\nout: [_|_]" = true := by
+  native_decide
+
+-- A GENUINELY-UNRESOLVED `for` source (`_`, which may still resolve to a list/struct) DEFERS — the
+-- comprehension stays a residual, NOT a type error. cue agrees: it HOLDS `out: [for x in y {x}]`
+-- with `y: _`. This is the decidably-wrong→bottom / could-still-iterate→defer discipline; the
+-- residual must not regress to either a spurious zero-iter or a spurious bottom.
+theorem listcomp_for_top_source_defers :
+    evalSourceMatches "y: _\nout: [for x in y {x}]\n" "y: _\nout: [for x in @0.0 {@1.0}]"
+      = true := by
   native_decide
 
 -- if guard mixed with a plain element: order preserved, false guard yields zero.

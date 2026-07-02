@@ -2536,6 +2536,35 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- fix-slice (d), E#4: a CONCRETE non-iterable `for` source is a type error (spec mandates
+      -- range over a list/struct), NOT a silent zero-iter. In a LIST comprehension the bottom is
+      -- the single element (`[_|_]`); cue agrees (`cannot range over 5 …`).
+      fileName := "comprehensions/for_scalar_type_error.expected",
+      content :=
+        match parseSource "out: [for x in 5 {x}]\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- fix-slice (d): the STRUCT-comprehension twin — a concrete non-iterable source bottoms the
+      -- whole struct (`out: _|_`), the same shape as a struct-comprehension non-bool guard.
+      fileName := "comprehensions/for_struct_scalar_type_error.expected",
+      content :=
+        match parseSource "out: {for x in 5 {a: x}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- fix-slice (d): a GENUINELY-UNRESOLVED source (`_`, which may still resolve to a
+      -- list/struct) DEFERS — the comprehension stays a residual, NOT a type error. cue holds it
+      -- too; Kue renders the resolved-ref residual with `@depth.index` (D#1b display-only family).
+      fileName := "comprehensions/for_top_source_defers.expected",
+      content :=
+        match parseSource "y: _\nout: [for x in y {x}]\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "comprehensions/comprehension_loopvar_shadow.expected",
       content :=
         formatTopLevel

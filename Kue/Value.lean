@@ -582,6 +582,13 @@ inductive BottomReason where
       `*` int as repetition (`"ab" * 2 = "abab"`) and errors a negative count (`cannot convert
       negative number to uint64`). -/
   | negativeRepeatCount (count : Int)
+  /-- A `for` comprehension whose source resolved to a CONCRETE value outside the iterable
+      domain (`for x in 5`, `for x in "s"`, `for x in true`). The CUE spec mandates `for` range
+      over a list or struct, so a concrete scalar is a type error (cue: `cannot range over 5
+      (found int, want list or struct)`), NOT a silent zero-iteration. Distinct from an
+      INCOMPLETE source (a ref/kind/bound that may still resolve to a list/struct), which
+      DEFERS the comprehension residual. Carries the offending source's type for provenance. -/
+  | nonIterableSource (type : ConcreteTypeName)
 deriving Repr, BEq, DecidableEq
 
 /--
