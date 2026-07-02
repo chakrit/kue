@@ -787,7 +787,12 @@ def selectFromConcrete (base : Value) (label : String) : Value :=
   | .embeddedList _ _ decls => selectFromDecls label decls
   | .embeddedScalar _ decls => selectFromDecls label decls
   | .bottomWith reasons => .bottomWith reasons
-  | _ => .bottom
+  | .top | .bottom | .prim _ | .kind _ | .notPrim _
+  | .stringRegex _ | .boundConstraint _ _ _ | .conj _ | .builtinCall _ _
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .selector _ _ | .index _ _ | .disj _ | .list _ | .listTail _ _
+  | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
+  | .interpolation _ | .dynamicField _ _ _ | .closure _ _ => .bottom
 
 def selectEvaluatedField (base : Value) (label : String) : Value :=
   match base with
@@ -804,7 +809,13 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       | some (.disj _) => .selector base label
       | some default => selectFromConcrete default label
       | none => .selector base label
-  | _ => selectFromConcrete base label
+  | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+  | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .conj _
+  | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+  | .thisStruct | .selector _ _ | .index _ _ | .struct _ _ _ _ _ | .list _
+  | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
+  | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
+  | .dynamicField _ _ _ | .closure _ _ => selectFromConcrete base label
 
 def getListValue? : Nat -> List Value -> Option Value
   | _, [] => none
@@ -821,7 +832,13 @@ def selectEvaluatedListIndex (base key : Value) (items : List Value) : Value :=
         | some item => item
         | none => .bottomWith [.indexOutOfRange index items.length]
   | .prim _ => .bottom
-  | _ => .index base key
+  | .top | .bottom | .bottomWith _ | .kind _ | .notPrim _
+  | .stringRegex _ | .boundConstraint _ _ _ | .conj _ | .builtinCall _ _
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
+  | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
+  | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
+  | .dynamicField _ _ _ | .closure _ _ => .index base key
 
 def selectEvaluatedListTailIndex (base key : Value) (items : List Value) : Value :=
   match key with
@@ -833,7 +850,13 @@ def selectEvaluatedListTailIndex (base key : Value) (items : List Value) : Value
         | some item => item
         | none => .index base key
   | .prim _ => .bottom
-  | _ => .index base key
+  | .top | .bottom | .bottomWith _ | .kind _ | .notPrim _
+  | .stringRegex _ | .boundConstraint _ _ _ | .conj _ | .builtinCall _ _
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
+  | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
+  | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
+  | .dynamicField _ _ _ | .closure _ _ => .index base key
 
 def selectEvaluatedFieldIndex (base key : Value) (fields : List Field) : Value :=
   match key with
@@ -842,7 +865,13 @@ def selectEvaluatedFieldIndex (base key : Value) (fields : List Field) : Value :
       | some field => Field.value field
       | none => .index base key
   | .prim _ => .bottom
-  | _ => .index base key
+  | .top | .bottom | .bottomWith _ | .kind _ | .notPrim _
+  | .stringRegex _ | .boundConstraint _ _ _ | .conj _ | .builtinCall _ _
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
+  | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
+  | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
+  | .dynamicField _ _ _ | .closure _ _ => .index base key
 
 def selectEvaluatedIndex (base key : Value) : Value :=
   match base with
@@ -853,7 +882,12 @@ def selectEvaluatedIndex (base key : Value) : Value :=
   | .embeddedList items (some _) _ => selectEvaluatedListTailIndex base key items
   | .bottom => .bottom
   | .bottomWith reasons => .bottomWith reasons
-  | _ => .bottom
+  | .top | .prim _ | .kind _ | .notPrim _ | .stringRegex _
+  | .boundConstraint _ _ _ | .conj _ | .builtinCall _ _ | .unary _ _
+  | .binary _ _ _ | .ref _ | .refId _ | .thisStruct | .selector _ _
+  | .index _ _ | .disj _ | .embeddedScalar _ _ | .comprehension _ _
+  | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
+  | .dynamicField _ _ _ | .closure _ _ => .bottom
 
 /--
 Definedness classes for the `e == _|_` / `e != _|_` presence test (CUE's "is this
@@ -1161,7 +1195,13 @@ def withDeferredComprehensions (resolved : Value) (deferred : List Value)
   | _ :: _ =>
       match resolved with
       | .struct fields _ _ _ _ => .structComp fields deferred openness
-      | _ => resolved
+      | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+      | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .conj _
+      | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+      | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .list _
+      | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
+      | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
+      | .interpolation _ | .dynamicField _ _ _ | .closure _ _ => resolved
 
 def listPairsFrom (index : Nat) : List Value -> List (Value × Value)
   | [] => []
@@ -2054,7 +2094,13 @@ def injectLetLocalNarrowings (fuel : Nat) (narrowings : List (String × Value)) 
             match v with
             | .structComp innerFields innerCs o => .structComp (rewriteFields innerFields) innerCs o
             | .struct innerFields o tail p e => .struct (rewriteFields innerFields) o tail p e
-            | _ => v
+            | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+            | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .conj _
+            | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+            | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .list _
+            | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
+            | .comprehension _ _ | .listComprehension _ _ | .interpolation _
+            | .dynamicField _ _ _ | .closure _ _ => v
 
 /-- The labels of an embed body's OWN top-level fields that a comprehension inside it reads by a
     bare reference (`defFrameRefIndices` at the def frame, mapped index → label), FOLLOWING `let`
@@ -2148,7 +2194,13 @@ def injectEmbedSiblingNarrowings (fuel : Nat) (narrowings : List (String × Valu
             | .structComp innerFields innerCs o =>
                 .structComp (rewriteFields innerFields) (rewriteEmbeds innerCs) o
             | .struct innerFields o tail p e => .struct (rewriteFields innerFields) o tail p e
-            | _ => v
+            | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+            | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .conj _
+            | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+            | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .list _
+            | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
+            | .comprehension _ _ | .listComprehension _ _ | .interpolation _
+            | .dynamicField _ _ _ | .closure _ _ => v
 
 /-- The DISCRIMINATOR labels of an embed body's embedded disjunction (Gap-2, Bug2-2): a regular
     sibling the body declares (`shape: string`) that the disjunction's arms also DECLARE as a
@@ -3796,7 +3848,13 @@ mutual
                   -- (`bodyForceFrameEnv`), not the outer `env` — the force-fold site mirror.
                   forceClosureWithConjunct nextFuel capturedEnv (openStructValue body)
                     [spliceOperandForEmbed (embedBodyEmbedsDisjDeep (bodyForceFrameEnv capturedEnv body) evalFuel body) body (narrowing, true)]
-              | _ => pure evaluated
+              | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+              | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .conj _
+              | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+              | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _
+              | .list _ | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
+              | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
+              | .interpolation _ | .dynamicField _ _ _ => pure evaluated
             let head :=
               match evaluatedStructOperand? (resolveEmbeddedDisjDefault resolved) with
               | some (fields, _) => fields
@@ -3866,6 +3924,66 @@ mutual
                         -- not narrow stays embed-local (no over-rebase).
                         evalValueWithFuel (nextFuel + 1) env []
                           (injectEmbedSiblingNarrowings evalFuel (hostNarrowingPairs current) [] embedding)
+              -- Fallback for a NON-closure, NON-disjunction embedding: the scalar/list-embedding
+              -- collapse (`{5}`→`5`), done HERE where the host struct is KNOWN to be EMBEDDING a
+              -- scalar — not reconstructed at meet time, where an empty struct `{}` is
+              -- indistinguishable from `{5}`'s residual `.struct []` and would wrongly absorb any
+              -- scalar an empty/decl-free struct meets (`{} & 5` must be a conflict, not `5`).
+              -- Collapse only when LOSSLESS — no output field and no non-output decl to drop
+              -- (`collapsesToScalarEmbed`) — and the embedding resolved to a TERMINAL scalar.
+              -- Hoisted ahead of `match evaluated` so its enumerated catch-all arms carry no
+              -- recursive call: enumerating a recursive-call-bearing shared arm duplicates the
+              -- `decreasing_by` obligation across every constructor and blows elaboration.
+              let scalarEmbeddingCollapse : EvalM Value :=
+                -- A non-closure embedding is OPENED before the meet (an embedding UNIONS its labels
+                -- into the host's allowed set but never imposes its OWN closedness — CUE rule); the
+                -- host's closedness over `def ∪ embed` labels is re-applied by the caller.
+                match current with
+                | .struct fields _ none [] _ =>
+                    if collapsesToScalarEmbed fields evaluated then
+                      -- Pure `{5}`→`5`: no output field AND no decls. LEFT UNTOUCHED (soundness
+                      -- boundary — never widened to admit decls).
+                      meetEmbeddingsWithFuel (nextFuel + 1) env evaluated rest
+                    else if !structHasOutputField fields && (asListPair evaluated).isSome then
+                      -- List-embedding collapse — the LIST analog of the scalar-carrier collapse:
+                      -- `evaluated` is the HOST's OWN embedding, so the decls-only host collapses to
+                      -- that list carrying its decls. NOT the `.embeddedList & {foreign decls}` meet
+                      -- (a genuine list-vs-struct conflict handled by `meetCore`); collapse at meet
+                      -- time cannot distinguish the two, so it lives here. `declFields` keeps the
+                      -- non-output `let ls` decl selectable.
+                      let collapsed :=
+                        match evaluated with
+                        | .embeddedList items tail edecls =>
+                            match mergeStructFieldsWith (meet) (declFields fields) edecls with
+                            | some decls => .embeddedList items tail decls
+                            | none => .bottom
+                        | other =>
+                            match asListPair other with
+                            | some (items, tail) => .embeddedList items tail (declFields fields)
+                            | none => other
+                      meetEmbeddingsWithFuel (nextFuel + 1) env collapsed rest
+                    else if !structHasOutputField fields && isTerminalScalar evaluated then
+                      -- Scalar-WITH-decls carrier (`{#a:1, 5}`→`5`, `.#a` selectable): host has
+                      -- decls but no output field, embedding is a terminal scalar. The
+                      -- `.embeddedScalar` carrier is the direct analog of the `.embeddedList`
+                      -- list-with-decls carrier — scalar manifests, decls stay selectable.
+                      meetEmbeddingsWithFuel (nextFuel + 1) env
+                        (.embeddedScalar evaluated (declFields fields)) rest
+                    else
+                      -- Bug2-8: union a same-def-path `#m` decl the host already carries with the
+                      -- embed's arm so the meet is idempotent on `#m`. Other labels meet as before.
+                      meetEmbeddingsWithFuel (nextFuel + 1) env
+                        (meetEmbedUnioningDefDecls current evaluated) rest
+                | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+                | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .conj _
+                | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+                | .thisStruct | .selector _ _ | .index _ _ | .disj _
+                | .struct _ _ _ _ _ | .list _ | .listTail _ _ | .embeddedList _ _ _
+                | .embeddedScalar _ _ | .comprehension _ _ | .structComp _ _ _
+                | .listComprehension _ _ | .interpolation _ | .dynamicField _ _ _
+                | .closure _ _ =>
+                    meetEmbeddingsWithFuel (nextFuel + 1) env
+                      (meetEmbedUnioningDefDecls current evaluated) rest
               match evaluated with
               | .closure capturedEnv body => do
                   -- An embedded self-referential imported def (`parts.#Metadata`) evaluates to a
@@ -3949,74 +4067,13 @@ mutual
                       | none => armResult
                     pure (alternative.fst, reclosed)
                   meetEmbeddingsWithFuel (nextFuel + 1) env (normalizeDisj distributed) rest
-              | _ =>
-                  -- Scalar-embedding collapse (`{5}`→`5`), done HERE where the host struct is KNOWN
-                  -- to be EMBEDDING a scalar — not reconstructed at meet time, where an empty struct
-                  -- `{}` is indistinguishable from `{5}`'s residual `.struct []` and would wrongly
-                  -- absorb any scalar an empty/decl-free struct meets (`{} & 5` must be a conflict,
-                  -- not `5`). Collapse only when LOSSLESS — the host has no output field and no
-                  -- non-output decl to drop (`collapsesToScalarEmbed`) — and the embedding resolved
-                  -- to a TERMINAL scalar. List comprehensions rely on this (`[{x} for…]`'s body is a
-                  -- struct embedding a scalar that must collapse to the element). The fold continues
-                  -- with the scalar as `current`, so a second equal embedding (`{5,5}`) unifies via
-                  -- the plain `meet` below and a distinct one (`{5,6}`) conflicts.
-                  match current with
-                  -- A non-closure embedding (a plain struct, a same-package def ref) is OPENED before
-                  -- the meet: an embedding UNIONS its labels into the host's allowed set but never
-                  -- imposes its OWN closedness on the host (CUE rule, see `openStructValue`). Without
-                  -- this, embedding a closed struct `{pval}` into a host carrying `x` makes the closed
-                  -- embed reject `x` → `.bottom`. The host's closedness over `def ∪ embed` labels is
-                  -- re-applied by the caller (`meetEmbeddingsClosingOver`).
-                  | .struct fields _ none [] _ =>
-                      if collapsesToScalarEmbed fields evaluated then
-                        -- Pure `{5}`→`5`: no output field AND no decls. LEFT UNTOUCHED (the
-                        -- soundness boundary — never widened to admit decls).
-                        meetEmbeddingsWithFuel (nextFuel + 1) env evaluated rest
-                      else if !structHasOutputField fields && (asListPair evaluated).isSome then
-                        -- List-embedding collapse — the LIST analog of the scalar-carrier collapse
-                        -- below, done HERE where provenance is known: `evaluated` is the HOST's OWN
-                        -- embedding (`{let ls=…, <list>&ls}` / `{#name:"web", [1,2]}`), so the
-                        -- decls-only host (no output field) collapses to that list carrying its
-                        -- decls. This is NOT the `.embeddedList & {foreign decls-struct}` meet
-                        -- (`{#a,[1,2]} & {#b}`) — that is a genuine list-vs-struct CONFLICT (cue
-                        -- v0.16.1) handled by `meetCore`, because the decls there are a SEPARATE
-                        -- conjunct, not the carrier's own. Doing the collapse at meet time cannot
-                        -- distinguish the two (an empty `{}` and a residual decl-struct look alike),
-                        -- so it lives here — exactly the reasoning the `{5}`→`5` comment records.
-                        -- The let `ls` decl is a `letBinding`; `declFields` keeps it (non-output),
-                        -- so the carrier stays selectable. An output-bearing host falls through to
-                        -- the union-meet below, which bottoms a real struct-vs-list conflict.
-                        let collapsed :=
-                          match evaluated with
-                          | .embeddedList items tail edecls =>
-                              match mergeStructFieldsWith (meet) (declFields fields) edecls with
-                              | some decls => .embeddedList items tail decls
-                              | none => .bottom
-                          | other =>
-                              match asListPair other with
-                              | some (items, tail) => .embeddedList items tail (declFields fields)
-                              | none => other
-                        meetEmbeddingsWithFuel (nextFuel + 1) env collapsed rest
-                      else if !structHasOutputField fields && isTerminalScalar evaluated then
-                        -- Scalar-WITH-decls carrier (`{#a:1, 5}`→`5`, `.#a` selectable): the host
-                        -- has decls (else the collapse above fired) but no output field, and the
-                        -- embedding is a terminal scalar. Build the `.embeddedScalar` carrier — the
-                        -- direct analog of the `.embeddedList` list-with-decls carrier — so the
-                        -- scalar manifests while the decls stay selectable. A second scalar embed
-                        -- (`{#a:1,5,6}`) meets this carrier and bottoms on `5 & 6` via the
-                        -- `.embeddedScalar` meet arm; an equal one (`{#a:1,5,5}`) unifies.
-                        meetEmbeddingsWithFuel (nextFuel + 1) env
-                          (.embeddedScalar evaluated (declFields fields)) rest
-                      else
-                        -- Bug2-8: union a same-def-path `#m` decl the host already carries (the
-                        -- static fold landed the close-once union there) with the embed's arm so
-                        -- the meet is idempotent on `#m` — not a re-close-reject of the host's
-                        -- own labels. Non-def / embed-absent labels meet as before.
-                        meetEmbeddingsWithFuel (nextFuel + 1) env
-                          (meetEmbedUnioningDefDecls current evaluated) rest
-                  | _ =>
-                      meetEmbeddingsWithFuel (nextFuel + 1) env
-                        (meetEmbedUnioningDefDecls current evaluated) rest
+              | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+              | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .conj _
+              | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+              | .thisStruct | .selector _ _ | .index _ _ | .struct _ _ _ _ _ | .list _
+              | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
+              | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
+              | .interpolation _ | .dynamicField _ _ _ => scalarEmbeddingCollapse
   termination_by embeddings => (fuel, 3, embeddings.length)
 
   /-- Force a closure (slice 4 — the closure-meet unlock) by splicing the use-site struct
@@ -4233,7 +4290,13 @@ mutual
         -- package frame because `capturedEnv` is the def's frame, NOT the use-site's.
         let narrowing := useOperands.map (fun op => mkStruct op.fst (.ofBool op.snd) none [])
         evalValueWithFuel fuel capturedEnv [] (.conj (arms ++ narrowing))
-    | _ => do
+    | .top | .bottom | .bottomWith _ | .prim _ | .kind _
+    | .notPrim _ | .stringRegex _ | .boundConstraint _ _ _ | .builtinCall _ _
+    | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+    | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
+    | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
+    | .listComprehension _ _ | .interpolation _ | .dynamicField _ _ _
+    | .closure _ _ => do
         let forced <- evalValueWithFuel fuel capturedEnv [] body
         pure (useOperands.foldl (fun current op => meet current (mkStruct op.fst (.ofBool op.snd) none [])) forced)
   termination_by (fuel, 4, 0)

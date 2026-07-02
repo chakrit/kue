@@ -316,10 +316,21 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
   ≤1800-line cap). Wired into the verify sequence (CLAUDE.md, slice-loop, lean4-guide,
   RELEASE, README). Completes the TEST-HEALTH CONVENTION (item 3 below) with a script gate
   instead of convention-by-memory. Detail in the implementation-log.
-- **(b) Enumerate value-producing `| _ =>` catch-alls [MED].** `Eval.lean` has ~76 (e.g.
-  `selectFromConcrete` :790, :856), `Lattice.lean` 14 (e.g. :139/:619), `Builtin.lean`
-  13. Explicit ctor enumeration per the standing rule (a new `Value` ctor must force a
-  decision); boolean/`Option` probes exempt.
+- **(b) Enumerate value-producing `| _ =>` catch-alls — DONE (2026-07-02).** Scope audit:
+  of the raw counts (Eval ~85, Lattice 14, Builtin 13), only **13 sites** were in-scope
+  (match on `Value` AND produce a `Value`) — all in `Eval.lean`
+  (`selectFromConcrete`/`selectEvaluatedField`/`selectEvaluatedIndex` + the list/field/tail
+  index dispatch, `withDeferredComprehensions`, the two `injectLet/Embed…Narrowings`
+  rewrites, and three arms of the `meetEmbeddingsWithFuel`/`forceClosureWithConjunct` fold).
+  Every Lattice/Builtin catch-all was OUT (scrutinee is `Prim`/`Kind`/`Option`/`List`, not
+  `Value`, or RHS non-`Value`). Each in-scope `| _ =>` replaced by a `|`-joined explicit
+  ctor enumeration (DRY: one shared RHS, but a new `Value` ctor now fails exhaustiveness).
+  Pure refactor, zero behavior change (fixtures + `native_decide` green); the build proved
+  no ctor was silently wrong under a catch-all. The `meetEmbeddingsWithFuel` scalar-embed
+  fallback was hoisted to a `let scalarEmbeddingCollapse` thunk so the enumerated arms carry
+  no recursive call — enumerating a recursive-call-bearing shared arm duplicates the
+  `decreasing_by` obligation across every constructor and blows elaboration. Detail in the
+  implementation-log.
 - **(c) `Module.lean` `partial def` cleanup [LOW].** Lines ~226/531/557/579: convert the
   list-recursive ones (`parseAndBindFiles`, `collectBindings`) to structural/fuel
   recursion; add site waivers to the rest.

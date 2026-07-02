@@ -15316,3 +15316,55 @@ kept block-comment headers; ~30 modules had neither, and no script checked any o
 ok`. `scripts/check-fixtures.sh` → `fixture pairs ok` (all suites green). `shellcheck
 scripts/check-fixtures.sh scripts/check-test-health.sh` clean. Docs-and-tests slice: no
 `Kue/*` source (non-test) changed; not pushed.
+
+---
+
+## Completed Slice: Enumerate value-producing `| _ =>` catch-alls (audit fix-slice (b))
+
+Goal: eliminate every value-producing `| _ =>` catch-all that matches on a `Value`, per the
+standing rule (a new `Value` ctor must force a decision at each dispatch/rewrite site). A
+prose ban rots; explicit enumeration turns "handle the new ctor" into a hard build error.
+
+### Scope audit
+
+Raw `| _ =>` counts (Eval ~85, Lattice 14, Builtin 13) are NOT all in-scope. A catch-all is
+in-scope only if it BOTH matches on a `Value` AND its arm produces a `Value`. Classification:
+
+- **Builtin.lean — 0 in-scope.** All 13 scrutinize `Prim` (`mathAbs`/`mathRound`) or
+  `Option`/`List` (`listMin`/`listMax`/…) — a new `Value` ctor cannot reach them.
+- **Lattice.lean — 0 in-scope.** `meetStringRegexPrim` matches `Prim`; `meetKindWithBound`
+  matches `Kind`; `meetConjValueWith`/`addConstraintWith` match `List Value` shape (and
+  produce `List Value`). None is a match ON a `Value` producing a `Value`.
+- **Eval.lean — 13 in-scope**, all converted: `selectFromConcrete`, `selectEvaluatedField`,
+  `selectEvaluatedIndex`, `selectEvaluatedListIndex`/`…ListTailIndex`/`…FieldIndex`,
+  `withDeferredComprehensions`, `injectLetLocalNarrowings`, `injectEmbedSiblingNarrowings`,
+  the embed-force `match evaluated` (`pure evaluated` identity), the
+  `meetEmbeddingsWithFuel` scalar-embed fallback, its inner `match current`, and the
+  `forceClosureWithConjunct` body dispatch.
+
+Out-of-scope catch-alls left untouched: probe/`Bool`/`Option`/`Nat`/`List` returns, non-`Value`
+scrutinees, and the comprehension-payload dispatch (`.payload`/`.deferred`, a non-`Value` type).
+The four `other => other` identity sites from 2026-06-23 were already enumerated (not touched).
+
+### Steps
+
+1. Replaced each in-scope `| _ =>` with a `|`-joined explicit ctor enumeration mapping to the
+   same RHS the catch-all had. `|`-join (not one-arm-per-ctor) keeps it DRY — a single shared
+   RHS — while still forcing exhaustiveness: a new `Value` ctor is absent from the list ⇒
+   compile error. Partially-covered ctors (e.g. `.struct fields _ none [] _`) get a general
+   `.struct _ _ _ _ _` in the enumeration for their remaining shapes.
+2. **Elaboration fix (hoist).** Enumerating the outer `match evaluated` arm that wrapped the
+   large scalar-embed collapse block timed out `«tactic execution»` (200k heartbeats):
+   enumerating a shared arm that contains recursive calls duplicates the `decreasing_by`
+   obligation across every constructor. Hoisted that block into a `let scalarEmbeddingCollapse
+   : EvalM Value := …` ahead of the match, so the enumerated arms return a bare identifier
+   (no recursive call) and the recursion is elaborated once. Not a workaround — the proper
+   factoring for an enumerated dispatch over a fuel-recursive fold.
+
+### Verify
+
+`lake build` clean (140 jobs, 0 warnings/sorry) — the build IS the exhaustiveness proof.
+`scripts/check-fixtures.sh` → `fixture pairs ok`; `scripts/check-test-health.sh` → `test
+health ok`; `shellcheck scripts/*.sh` clean. Pure refactor: zero behavior change (no fixture
+or `native_decide` delta), so no ctor was silently mishandled under any catch-all; no new
+tests warranted. Not pushed.

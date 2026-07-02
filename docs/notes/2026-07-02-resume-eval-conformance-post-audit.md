@@ -56,9 +56,14 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    `scripts/check-test-health.sh` gate — DONE (2026-07-02):** all 33 hand-authored test
    modules converted to `--` headers, per-section `#check` tripwires added, gate enforces
    (headers / tripwire presence / ≤1800-line cap) and is wired into the verify sequence;
-   `FixturePorts.lean` generated-data exempt. Remaining (b–e): value-producing catch-all
-   enumeration (Eval/Lattice/Builtin), `Module.lean` partial-def cleanup,
-   `for`-over-non-iterable re-adjudication under E#4, timeless-comment sweep.
+   `FixturePorts.lean` generated-data exempt. **(b) value-producing catch-all enumeration —
+   DONE (2026-07-02):** scope audit found only 13 in-scope sites (all `Eval.lean`;
+   Lattice/Builtin catch-alls all scrutinize `Prim`/`Kind`/`Option`/`List`, not `Value`),
+   each `| _ =>` replaced by a `|`-joined explicit ctor enumeration; scalar-embed fallback
+   hoisted to a `let` thunk to keep enumerated arms recursion-free (else `decreasing_by`
+   blows up). Pure refactor, fixtures/health green. Remaining (c–e): `Module.lean`
+   partial-def cleanup, `for`-over-non-iterable re-adjudication under E#4, timeless-comment
+   sweep.
 4. **root2/root3 quarantined RED** — same closedness family as the L5 campaign; natural
    first targets if the grind is chosen.
 5. **Pending school changes** (for `ace-school`, not from here): the TEST-HEALTH test
