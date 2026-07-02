@@ -64,11 +64,17 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    the 4500 DefDeferral-carve trigger (carve the ~600-line deferral tier); **PB-2**
    `TwoPassTests`/`EvalTests` (1763/1743) near the 1800 cap → test-org pass now DUE;
    **PB-3** `architecture.md` layer-numbering doc note (LOW). Ranking: PA-1 (DONE) →
-   B-AUDIT-refold-1 (DONE) → PB-1 → PB-2 → PB-3. **B-AUDIT-refold-1 landed (2026-07-02):
-   shared `refoldEmbeddingsIfSelf` helper in the core-force `mutual` block; both struct-eval
-   arms call it; pure refactor, fixtures/health green, cert-manager jq-S delta = 0. → next
-   step: PB-1 (carve the ~600-line DefDeferral tier out of `Eval.lean`, now >4500 lines),
-   then PB-2 (test-org pass, `TwoPassTests`/`EvalTests` near the 1800 cap).**
+   B-AUDIT-refold-1 (DONE) → PB-1 (DONE) → PB-2 → PB-3. **PB-1 landed (2026-07-02):
+   evaluator carved into a 3-module chain `EvalBase → EvalDefer → Eval` (`Eval.lean` 4636 →
+   1517, keeps the unsplittable core-force `mutual`; `EvalDefer.lean` = def-deferral tier +
+   `hasSelfRefAtDepth` mutual = 692; `EvalBase.lean` = shared base machinery = 2451). FINDING:
+   the tier is not independently separable (depends on base helpers the core force also uses →
+   isolating it alone cycles); `EvalBase` breaks the cycle, hence 3 modules not 1. Byte-identical:
+   build clean, full regression + wild green, cert-manager jq-S delta = 0. → next step:
+   PB-2 (test-org pass — split `TwoPassTests` (1763) + `EvalTests` (1743), both near the 1800
+   cap, at their next contiguous seams; pin-counts conserved, org-only; the deferred
+   `testdata/cue/{definitions,comprehensions}` sub-grouping may ride this pass), then PB-3
+   (`architecture.md` transitive-edge doc note, XS).**
 3. **Audit fix-slices** in plan.md Live Backlog. **(a) TEST-HEALTH retrofit +
    `scripts/check-test-health.sh` gate — DONE (2026-07-02):** all 33 hand-authored test
    modules converted to `--` headers, per-section `#check` tripwires added, gate enforces

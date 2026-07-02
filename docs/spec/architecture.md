@@ -70,7 +70,26 @@ a bottom at any depth is found, including through a `.structComp` residual's res
 fields. Target laws: commutativity, associativity, idempotence, top/bottom identities, and
 distribution of meet over finite disjunctions.
 
-### 5. Evaluation — `Eval.lean`, `EvalOps.lean`, `Builtin.lean`
+### 5. Evaluation — `EvalBase.lean`, `EvalDefer.lean`, `Eval.lean`, `EvalOps.lean`, `Builtin.lean`
+
+The evaluator is split into three files along a strict import chain `EvalBase →
+EvalDefer → Eval` (each imports the one before it; no back-edge). `EvalBase.lean` holds
+the base machinery every evaluation step builds on: field/frame/env helpers, the
+depth-threading value folds, merge/canonicalize (the `remapConj*` rebase mutual), the
+`select*` selection family, the `classify*` verdict helpers, interpolation, the value
+digest, the `Frame`/`Env`/`EvalState`/`EvalM` types + `pushFrame`, and the conj-flatten
+and embed-narrowing helpers. `EvalDefer.lean` holds the **def-deferral tier**: the
+self-reference analysis mutual (`hasSelfRefAtDepth`) and the def-resolution/deferral
+family (`resolveEmbedDefBody?`, `bodyNeedsDefer`, `conjBodyHasDeferringArm`,
+`importDefClosureBody?`, `refDefClosureBody?`, `conjDefClosure?`, `conjStructCompDefer?`,
+`followAliasDefBody?`, `resolveSelectorDefBody?`, `conjDisjArms?`, `splitDisjConjunct`,
+…) — the logic that decides whether and how a definition's body is deferred during force.
+The tier is not independently separable: it sits atop the `EvalBase` machinery that the
+core force also uses, so isolating the tier alone would cycle; `EvalBase` is the
+lower layer that breaks that cycle. `Eval.lean` holds the clause-outcome types, the
+effectful merge-sort helpers, the **core-force `mutual` block** (never split — its
+`termination_by (fuel, tag, length)` ordering can't cross a module boundary), and the
+`runEval`/`evalStructRefs*` entry wrappers.
 
 `Eval.lean` resolves references, applies constraints, distributes meets, evaluates
 expressions, and handles reference cycles explicitly with a visited-binding path and

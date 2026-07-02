@@ -409,7 +409,17 @@ delete or de-stale. The type-system-leverage backlog is already worked out in
 Resolved/ruled-out below (the walker/normalizer/inject/merge/carrier DRY family is FULLY
 CLOSED; the newtype candidates are filed on B3d-6b). Three fresh findings:
 
-- **(PB-1) `Eval.lean` crossed the DefDeferral-carve trigger — 4609 > 4500 [MED, arch].**
+- **(PB-1) `Eval.lean` crossed the DefDeferral-carve trigger — DONE (2026-07-02).**
+  Carved the evaluator into a 3-module chain `EvalBase → EvalDefer → Eval` (contiguous
+  cuts, byte-identical: `lake build` clean, full regression + wild green, cert-manager
+  jq-S delta=0). `EvalDefer.lean` (692 lines) holds the def-deferral tier + the
+  `hasSelfRefAtDepth` self-ref mutual; `EvalBase.lean` (2451 lines) holds the shared base
+  machinery the tier and the core force both use; `Eval.lean` dropped 4636 → 1517, keeping
+  the unsplittable core-force `mutual` block + entry wrappers. FINDING: the tier is NOT
+  independently separable — it depends on base helpers the core force also uses, so
+  isolating the ~600-line tier alone would cycle (`EvalDefer` would need `Eval`). `EvalBase`
+  is the lower layer that breaks the cycle; hence a 3-module split, not the 1-module carve
+  the trigger originally sketched. Detail in the implementation-log.
   The standing ruling *"`Eval.DefDeferral` carve — HELD, sharpened trigger"* (Resolved
   below) says carve when core-force growth crosses ~4400 with the tier intact OR a
   def-deferral slice pushes the file past ~4500. The L3/root-A/L4 + PA-area eval batch
@@ -449,7 +459,7 @@ CLOSED; the newtype candidates are filed on B3d-6b). Three fresh findings:
 **Ranking incl. PA-1 and the existing B-AUDIT-refold-1:** PA-1 (HIGH, soundness) →
 B-AUDIT-refold-1 (MED, the one *active* eval-core drift hazard — a re-fold near-duplicate
 across both struct-eval arms with a history of diverging; see item-6 Borderline/LOW) →
-PB-1 (MED, file navigability) → PB-2 (MED-LOW, unblocks the gate before it trips) → PB-3
+PB-1 (DONE) → PB-2 (MED-LOW, unblocks the gate before it trips) → PB-3
 (LOW, doc). **Periodic passes:** plan-hygiene NOT due (distilled today, 697 lines);
 perf-guide CURRENT (the recent batch is correctness-only — no new slow pattern or landed
 mitigation); resilience/retro not forced here. Test-org is the one periodic pass now due

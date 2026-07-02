@@ -15652,3 +15652,62 @@ Pure refactor — BYTE-IDENTICAL behavior bar (zero fixture/canary delta the suc
 `cue` = 0 (empty). No latent divergence surfaced (the two arms are genuinely behavior-identical
 modulo the two parameterized names). No scripts touched (shellcheck n/a). Committed on `main`,
 not pushed.
+
+---
+
+## Completed Slice: PB-1 — carve the evaluator into EvalBase → EvalDefer → Eval
+
+Goal: `Eval.lean` had grown to 4636 lines, past the ~4500 DefDeferral-carve trigger. Carve
+the def-deferral tier into its own module, leaving `Eval.lean` holding the unsplittable
+core-force `mutual` block. Pure refactor, byte-identical bar.
+
+### Finding: the tier is not independently separable
+
+The def-deferral tier (the ~600-line `resolveEmbedDefBody?` / `bodyNeedsDefer` /
+`conjDefClosure?` / `splitDisjConjunct` … family) depends on the base evaluation machinery
+(field/frame/env helpers, folds, merge, selection, classification, `Frame`/`Env`/`EvalState`,
+`pushFrame`, conj-flatten, embed-narrowing). That base machinery is ALSO used by the
+core-force `mutual` block. So the layering is `base → tier → core-force`. Isolating the tier
+alone into `EvalDefer` while the base stayed in `Eval` would cycle (`EvalDefer` needs the base
+from `Eval`; `Eval`'s core force needs the tier from `EvalDefer`). The core force does NOT
+depend on the tier in the reverse direction that would block the carve — verified the tier
+never references any core-mutual member (it is defined before the mutual and could not
+forward-reference it). Resolution: split the shared base into its own lower module, giving a
+3-module chain rather than the 1-module carve the trigger originally sketched.
+
+### Steps
+
+1. `Kue/EvalBase.lean` (2451 lines) — the base layer: `findEvalField`/`nthField`/frame-slot
+   helpers, `foldValueWithDepth`, the regex-error probes, `canonicalizeFields` + the
+   `remapConj*` rebase mutual, the `select*` family, the `classify*` verdicts, interpolation,
+   `valueTag`/`valueDigest`, the `Frame`/`Env`/`EvalKey`/`EvalState`/`EvalM` types + `pushFrame`,
+   `flattenConjDefRef` and the `let`/embed narrowing-injection helpers. Imports the leaf
+   modules only (`Builtin`, `Decimal`, `EvalOps`, `Lattice`, `Regex`, `Normalize`, `Std.Data.HashMap`).
+
+2. `Kue/EvalDefer.lean` (692 lines) — the def-deferral tier: the `hasSelfRefAtDepth` self-ref
+   analysis mutual plus the def-resolution/deferral family (`defBodyHasSiblingSelfRef`,
+   `resolveEmbedDefBody?`, `embeddingClosesHost`, `bodyNeedsDefer`, `followAliasDefBody?`,
+   `resolveSelectorDefBody?`, `conjBodyHasDeferringArm`, `importDefClosureBody?`,
+   `refDefClosureBody?`, `conjDefClosure?`, `conjStructCompDefer?`, `refAliasDefClosure?`,
+   `importSelectorDef?`, `refAliasSelectorDef?`, `conjDisjArms?`, `splitDisjConjunct`).
+   `import Kue.EvalBase`; no back-edge.
+
+3. `Kue/Eval.lean` (4636 → 1517 lines) — the clause-outcome types (`ClauseOutcome` +
+   `ClauseExpansion`/`ListClauseExpansion`), the effectful merge-sort helpers (`mergeRunsM` …
+   `sortValuesM`), the core-force `mutual` block (never split — `termination_by (fuel, tag,
+   length)` can't cross a module boundary), and the `runEval`/`evalStructRefs*` entry wrappers.
+   `import Kue.EvalDefer`.
+
+4. Wired `import Kue.EvalBase` + `import Kue.EvalDefer` into `Kue.lean` ahead of `import Kue.Eval`.
+   `lakefile.lean`'s `lean_lib Kue` globs transitively, so no lakefile change. Architecture
+   doc §5 updated to the 3-file chain + edges.
+
+All cuts are contiguous line-range moves (no scattered extraction), so behavior is
+byte-identical by construction.
+
+### Verify
+
+`lake build` exit 0 (no warnings/sorry). `check-fixtures.sh` ok (full regression `fixture
+pairs ok`, zero delta, wild fixtures green). `check-test-health.sh` ok. cert-manager canary
+`jq -S` diff vs `cue` = 0 (empty). No scripts touched (shellcheck n/a). Committed on `main`,
+not pushed.
