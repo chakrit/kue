@@ -56,33 +56,19 @@ lake build Kue.Builtin  # build a single module while iterating
 .lake/build/bin/kue     # the built CLI; reads CUE from stdin, prints to stdout
 ```
 
-The CLI reads source from **stdin** when given no args (empty input prints a smoke
-banner), or reads each path argument as a source file. The fixture check drives the
-stdin path.
+Bare `kue` (no args) prints the top-level help (`Kue/Cli.lean`); subcommands read
+source from stdin or from each path argument as a source file. The fixture check
+drives the stdin path.
 
 ## File Organization
 
-The library aggregator `Kue.lean` imports every module. Current layout (see
-[`../spec/architecture.md`](../spec/architecture.md) for how the layers fit together):
-
-```text
-Kue/
-  Parse.lean         # recursive-descent parser over the supported subset
-  Resolve.lean       # label references -> binding ids, nested scopes
-  Value.lean         # semantic value domain (+ bottom provenance)
-  Decimal.lean       # exact-decimal: DecimalValue, parse/add/sub/mul/div/cmp/format
-  Order.lean         # subsumption / partial order
-  Lattice.lean       # meet, join, normalization, top/bottom laws
-  Normalize.lean     # definition-implied closedness
-  Builtin.lean       # close, len, math/list/strings builtins, div/mod/quo/rem
-  Eval.lean          # evaluator, cycles, builtin dispatch
-  Manifest.lean      # export: default selection, field filtering, errors
-  Format.lean        # stable CUE-like rendering
-  Runtime.lean       # shared resolve -> eval -> format flow for CLI + fixtures
-  FixturePorts.lean  # computed Kue values for the testdata/cue corpus
-  Examples.lean      # tiny executable examples
-  Tests.lean         # test aggregator; per-area checks in *Tests.lean
-```
+The library aggregator `Kue.lean` imports every module. The stable structure: core
+semantic modules live directly under `Kue/` (parser, resolver, value domain, lattice,
+evaluator, manifest, format, runtime, CLI, modules/registry), test modules under
+`Kue/Tests/` (aggregated by `Kue/Tests.lean`), and shell gates under `scripts/`. The
+per-module inventory and layer diagram live in
+[`../spec/architecture.md`](../spec/architecture.md) — consult that, not a re-listing
+here.
 
 Keep parser concerns separate from semantic concerns. A mathematically clean value
 domain is more important than accepting all source syntax early.
@@ -283,7 +269,7 @@ both entries:
 1. `testdata/cue/<subsystem>/<name>.cue` + `testdata/cue/<subsystem>/<name>.expected` —
    the source and KUE's expected output, under a subsystem subdir (`numeric/ structs/
    definitions/ …`). `.expected` is **Kue's** output format, not raw CUE's.
-2. A hand-built entry in `Kue/FixturePorts.lean` whose `fileName` is the
+2. A hand-built entry in `Kue/Tests/FixturePorts.lean` whose `fileName` is the
    `<subsystem>/<name>.expected` relative subpath — the same value constructed directly as
    a Lean `Value` and formatted.
 

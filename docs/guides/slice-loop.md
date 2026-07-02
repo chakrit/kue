@@ -109,8 +109,11 @@ test we get (the wild corpus the curated fixtures miss), and the rule is test-fi
 here: the fixture must REPRODUCE (fail) first, the fix turns it green, and it stays a
 permanent guard so the same real-world case can never silently regress.
 
-- **Home:** `testdata/wild/<slug>/` (its own fixture group, registered in `FixturePorts`),
-  so wild cases are visibly real-world-sourced and never fixed-and-forgotten.
+- **Home:** `testdata/wild/<slug>/` — AUTO-DISCOVERED by `check_wild_fixtures` in
+  `scripts/check-fixtures.sh` (every non-quarantined dir is enforced; a `.known-red`
+  marker quarantines a captured-but-unfixed case). No `FixturePorts` registration.
+  Consequence: wild fixtures are enforced ONLY by the shell gate — `lake build` never
+  sees them, so a slice is not green until `check-fixtures.sh` passes too.
 - **Minimal + self-contained:** lift the offending construct OUT of any private dep — the
   repro must need no registry/network/prod9 corpus (inline the few lines that trigger it).
   A `<slug>.cue` (+ a tiny `cue.mod` module repro only if the bug is import/module-shaped)

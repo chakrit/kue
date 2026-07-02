@@ -14533,6 +14533,53 @@ B3d-A1 (below). Private/Bearer-token registries (the `WWW-Authenticate` flow) al
 
 ---
 
+## Audit Slice: B3d Phase-A code-quality (curl/inflate/zip + fetch wiring, `90aa8d5..c9c8e30`)
+
+Recovery entry, retroactively written 2026-07-02 — landed as `c93bade` (2026-06-26,
+`docs/spec/plan.md` +76) with no log entry at the time.
+
+Phase-A audit of B3d-4 (OciFetch/Oci), B3d-5z (Inflate/Zip), B3d-5 (Module.lean
+fetch-on-missing), per `docs/guides/slice-loop.md` Phase A. **Verdict:
+HEALTHY-with-fixes.** The three integrity gates (OCI blob sha256 digest, zip CRC-32 +
+uncompressed-size, `cue.sum` h1) are ENFORCED on the production fetch path and
+unbypassable — traced fetch → readZip(CRC) → cue.sum → writeModuleToCache; nothing
+unverified reaches the cache; digest compared verbatim, fails closed. Inflate total (no
+partial/sorry/axiom), fuel bounds provably sufficient, malformed-DEFLATE branches all map
+to typed errors. No Violation, no security hole.
+
+Fix-slices folded into `plan.md`: **B3d-A1** (soundness, MED, top-ranked — non-atomic
+extract cache-write + pathExists-only trust in `locateModuleDir`; a crash mid-extract
+leaves a partial module the read path silently trusts; fix = extract-to-temp + atomic
+rename) and **B3d-A2** (test-strength, LOW — adversarial DEFLATE/ZIP reject branches
+under-pinned). No inline fixes (both slice-sized). `lake build` (130 jobs) +
+`check-fixtures.sh` + shellcheck green.
+
+---
+
+## Audit Slice: B3d Phase-B architecture (module graph + B3d-6 readiness)
+
+Recovery entry, retroactively written 2026-07-02 — landed as `92f0b80` (2026-06-26) with
+no log entry at the time.
+
+Architecture/refactor audit over the B3d module graph. **Verdict: HEALTHY-with-fixes.**
+Module graph clean — no cycles; IO confined to OciFetch/Module; Eval/Resolve/Value import
+zero B3d modules.
+
+- **B3d-A1 SHARPENED** with a concrete design: extract-to-sibling-temp + atomic
+  `IO.FS.rename` (same-fs), the `.partial`-marker alternative rejected, `.zip` temp-rename
+  for Go-modcache parity. Own slice; land in/before B3d-6.
+- **B3d-B1 filed (LOW, new):** `Descriptor.digest` / `cue.sum` h1 stringly-typed — YAGNI
+  now; trigger at B3d-6 where `cue.sum` WRITE gives a second consumer (Digest/Hash
+  smart-constructor newtypes, parse-once-at-boundary).
+- `Kue/Bytes.lean` re-eval trigger fired → CONFIRMED STILL YAGNI (no shared signature:
+  Sha256 BE vs Zip LE, one consumer each). `Inflate.readDynamicTables` sym==18 branch
+  BORDERLINE but unreachable by `Huffman.build` construction — as-is. `Module.lean` not
+  yet outgrowing its home; `ModuleFetch.lean` carve trigger noted for B3d-6.
+
+B3d-6 readiness: READY. `lake build` (130 jobs) + fixtures + shellcheck green.
+
+---
+
 ## Completed Slice: Atomic cache write — temp-dir + rename (B3d-A1)
 
 The TOP-RANKED B3d fix from both audit phases. B3d-5's `writeModuleToCache` extracted a fetched
@@ -14682,6 +14729,52 @@ NOT wired into the resolver — that needs the requirement graph BUILT from netw
 (2) OCI `tags/list` for "latest"/major resolution; (3) `cue mod get`/`cue mod tidy` command
 parse + dispatch; (4) wire `Mvs.solve` into the resolver (replace lenient per-hop resolution with
 one up-front MVS build-list); (5) `cue.sum` WRITE via `Module.atomicWriteBinFile`.
+
+## Audit Slice: B3d Phase-A on B3d-6a — semver empty-segment validity + MVS fuel truncation
+
+Recovery entry, retroactively written 2026-07-02 — landed as `e0d1156` (2026-06-26;
+`Kue/Semver.lean`, `Kue/Mvs.lean`, `Kue/Tests/MvsTests.lean`, `docs/spec/plan.md`) with
+no log entry at the time.
+
+Re-derived B3d-6a against the Go/cue oracles; **two Violations found, both fixed inline.**
+
+- **Semver:** ordering byte-for-byte conformant with Go `x/mod/semver`, but parse
+  accepted EMPTY prerelease/build segments (`v1.2.3-`, `v1.2.3+`, `v1.2.3-alpha+` valid in
+  Kue, invalid in Go). Root cause: parse conflated "no `-`/`+` tail" with "an empty
+  tail". Fix: track hasPre/hasBuild, reject an empty segment after its marker. `isValid`
+  feeds B3d-6b candidate-tag filtering — a real (narrow) bug.
+- **MVS:** max-of-mins/build-list order/distinct-majors/cycles all conform, but
+  `reachable`'s fuel bound `|allNodes|+|targets|+1` counted only DISTINCT expansions while
+  `reachAux` burns fuel on every step incl. skips — a near-complete 6-node graph reached
+  only 4, silently dropping build-list nodes. Fix: fuel = (N+1)², a sound bound on TOTAL
+  steps.
+
+Totality reconfirmed via `#print axioms` (propext/Classical.choice/Quot.sound only).
+Tests: +6 semver empty-segment `#guard`s, `mvs_dense_no_truncation` (`native_decide`),
+axiom pins for `compare`/`solve`. `lake build` (136 jobs) + fixtures + shellcheck green.
+
+---
+
+## Audit Slice: B3d Phase-B CLOSURE — track HEALTHY; audit sections distilled
+
+Recovery entry, retroactively written 2026-07-02 — landed as `f40dd9c` (2026-06-26,
+docs-only) with no log entry at the time.
+
+Final Phase-B architecture/cleanup audit of the B3d registry-fetch track. **Verdict:
+HEALTHY** — module graph a clean DAG (IO confined to OciFetch+Module; Eval/Resolve/Value
+import zero B3d modules; pure-island → thin-IO-edge seam holds); three integrity gates
+enforced + unbypassable; inflate total. `Mvs.solve` ruled an ACCEPTABLE
+deliberately-staged pure primitive (follow-on B3d-6b filed), not orphaned dead code.
+`Module.lean` (674 lines) not yet outgrowing its home; `Kue/ModuleFetch.lean` carve filed
+as a B3d-6b-conditional trigger.
+
+Plan-hygiene: the three accumulated 2026-06-26 B3d audit sections (~292 lines) folded
+into one terse closed-state note in `plan.md` carrying the landed-track summary + ranked
+open items (B3d-6b network-gated, B3d-A2, B3d-B1, `Mvs.solve` main-pin hardening, the
+ModuleFetch carve trigger, the perf-guide note). No code touched; build (136 jobs) +
+fixtures + shellcheck green.
+
+---
 
 ## Completed Slice: B3d-7 — OCI Bearer-token Auth (curl + docker credential-helper)
 
@@ -14924,6 +15017,53 @@ its fix lands. `check_wild_fixtures` skips (and reports) a `.known-red` dir.
 this is an eval-core change). `scripts/check-fixtures.sh` exit 0 (self-hidden green;
 default-disj quarantined). `shellcheck scripts/check-fixtures.sh` clean. No network, no
 out-of-tree writes (prod9 + cue cache read-only).
+
+---
+
+## Audit Slice: Phase-A eval-batch audit (`f40dd9c..4b24902` = B3d-7 auth + eval-L1/L2) — HEALTHY, closed
+
+Recovery entry, retroactively written 2026-07-02 — landed as `4b64502` (2026-06-29) with
+no log entry at the time; the full findings block lives in `plan.md`'s "Phase-A audit
+(2026-06-29 … HEALTHY, closed)" note.
+
+Re-traced all three slices against philosophy + CUE spec. **No Violations.**
+
+- **Secret hygiene (highest priority): no leak path.** Auth secrets in curl argv +
+  in-memory only; `TokenCache` is an `IO.Ref`, never persisted; error paths report
+  outcomes, not secrets. Offline tests synthetic; the live script asserts public digests
+  only. Tree + all three commits grep clean for token/PAT/key shapes.
+- **Auth correctness pinned:** challenge parse, token-field precedence, cred-source
+  precedence, strict base64, anon fallback, unsatisfiable-401 → typed error.
+- **Eval-L1:** `embeddingsReadEmbeddedSelf` precise — gate off ⇒ byte-identical for plain
+  embeds; adversarial pins sufficient. Spec basis: embedding = unification.
+- **Eval-L2:** reuses the shared `collapseDefaultDisjunction` (no behavior fork);
+  ambiguous disjunctions stay incomplete.
+- No new `partial`/`sorry`/axiom; `check_wild_fixtures`/`.known-red` quarantine ruled
+  sound (both wild fixtures enforced). Borderline (non-blocking): stray untracked
+  `repro-bottom.cue` debug scratch at repo root, flagged for a human to `rm`.
+
+`lake build` + `check-fixtures.sh` + shellcheck green.
+
+---
+
+## Audit Slice: Phase-B on the eval batch — embed-Self re-fold extraction fix-slice filed
+
+Recovery entry, retroactively written 2026-07-02 — landed as `d7a9ac3` (2026-06-29) with
+no log entry at the time.
+
+Phase-B architecture audit of `f40dd9c..4b24902`, whole-graph lens. **Verdict:
+HEALTHY** — module graph acyclic; IO confined to OciFetch; OciAuth pure (IO→pure
+direction correct); the L2 fix genuinely DRY (reuses `collapseDefaultDisjunction`). No
+ModuleFetch carve warranted (OciFetch 290 / Module 674 lines, single responsibility
+each).
+
+Two findings FILED, docs-only (no eval-core touched — concurrency guard):
+**B-AUDIT-refold-1** (HEADLINE, MED) — the L1 fix duplicated the embedding-Self re-fold
+block verbatim-modulo-two-names across both struct-eval arms (`.structComp` + def-force),
+a real drift hazard; a shared-helper extraction is designed and ranked lead of the
+Borderline/LOW cleanups (eval-core → own slice + full regression, NOT inline). And a new
+`kue-performance.md` row for the L1 embedding-value re-fold cost (~2x embedding fold on
+embedding-heavy structs). The commit itself shipped no code change.
 
 ---
 

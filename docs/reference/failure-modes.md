@@ -127,8 +127,28 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   swallowed section makes its anchor an unknown identifier, so `#check` fails to ELABORATE = a
   hard build error, not a silent green. (3) A **size limit** on test modules — a file too large
   to eyeball hides this; split when it grows (the `slice-loop.md` test-org pass, scheduled for
-  `TwoPassTests` in `plan.md` item 3). Convention applies to ALL `Kue/Tests/*.lean`; flagged
-  for `ace-school` as a test-file `general-coding` rule.
+  `TwoPassTests` in `plan.md` item 3). Flagged for `ace-school` as a test-file
+  `general-coding` rule. **Honest coverage status (2026-07-02 audit):** the convention is
+  binding for NEW and TOUCHED test files, but the repo-wide retrofit never happened — only
+  ~4 of 37 `Kue/Tests/*.lean` files carry tripwires, and ~23 still use block-comment
+  headers (build currently green; nothing swallowed today). The retrofit plus a machine
+  gate (`scripts/check-test-health.sh`) is a filed fix-slice in `plan.md`'s Live Backlog;
+  until it lands, the unprotected files have NO guard against a recurrence.
+
+## Prose-only conventions rot; script-enforced gates hold
+
+- **Symptom:** a convention declared "applies to ALL X" is honored only on new/touched
+  files; the existing corpus never migrates, and the durable doc overstates the protection
+  actually in force.
+- **Seen:** 2026-07-02 audit — the TEST-HEALTH convention above was declared for ALL
+  `Kue/Tests/*.lean` (Phase B `0150095`), but later agents applied it only to files they
+  touched: ~4/37 files have coverage tripwires, ~23 retain block-comment headers, and no
+  script checks any of it. The doc read as if the guard were repo-wide.
+- **Guard:** land a convention WITH its migration in the same slice — a declared-for-ALL
+  rule that ships without retrofitting the existing corpus is a wish, not a guard. Wire
+  every such convention into a machine gate (`scripts/check-*.sh`) so drift fails the
+  verify step instead of accumulating silently; prose in a doc binds only the agent that
+  wrote it.
 
 ## prod9 canary mis-reported "absent" — it's a wrong-CWD artifact, not a missing corpus
 
