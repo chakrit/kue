@@ -3660,12 +3660,8 @@ mutual
             -- augmented frame so the read resolves against the embedded value. Gated identically
             -- (byte-identical when no embedding reads a sibling-embedded `Self.<L>`).
             let refoldEmbeds := embeddingsReadEmbeddedSelf fields embeddings (newEmbeddedFields.map Field.label)
-            let nestedForEmbeds <-
-              if refoldEmbeds then pushFrame (canonicalizeFields (fields ++ newEmbeddedFields)) env
-              else pure nested
-            let embeddingFields <-
-              if refoldEmbeds then evalEmbeddingFieldsWithFuel fuel nestedForEmbeds merged embeddings
-              else pure embeddingFields
+            let (nestedForEmbeds, embeddingFields) <- refoldEmbeddingsIfSelf fuel fields
+              newEmbeddedFields embeddings env merged nested embeddingFields refoldEmbeds
             match mergeEvaluatedFields (staticFields ++ expanded) with
             | none => pure .bottom
             | some merged =>
@@ -3858,6 +3854,33 @@ mutual
               .top
             pure (others.foldl (fun current v => meet current v) forced)
   termination_by (fuel, 6, 0)
+
+  /-- Embedding-`Self` re-fold, shared by both struct-eval arms (`.structComp` and def-force):
+      a list-embedded `Self.<embedded-label>` read lives in an EMBEDDING the static-field two-pass
+      misses, so re-evaluate the embeddings against a frame augmented with the embedded labels when
+      `refoldEmbeds` says one of them reads such a label. Byte-identical otherwise (returns the
+      Pass-1 frame `nested` + `embeddingFieldsPass1` untouched). `refoldEmbeds` is the gate RESULT
+      (`embeddingsReadEmbeddedSelf`), passed in so this stays orthogonal to the static-field gate
+      `needsEmbeddedSelfPass`. Returns `(nestedForEmbeds, embeddingFields)` for the caller to thread
+      into its `met`. -/
+  def refoldEmbeddingsIfSelf
+      (fuel : Nat)
+      (canonical : List Field)
+      (newEmbeddedFields : List Field)
+      (embeddings : List Value)
+      (env : Env)
+      (merged : List Field)
+      (nested : Env)
+      (embeddingFieldsPass1 : List Field)
+      (refoldEmbeds : Bool) : EvalM (Env × List Field) := do
+    let nestedForEmbeds <-
+      if refoldEmbeds then pushFrame (canonicalizeFields (canonical ++ newEmbeddedFields)) env
+      else pure nested
+    let embeddingFields <-
+      if refoldEmbeds then evalEmbeddingFieldsWithFuel fuel nestedForEmbeds merged embeddings
+      else pure embeddingFieldsPass1
+    pure (nestedForEmbeds, embeddingFields)
+  termination_by (fuel, 3, embeddings.length + 1)
 
   /-- The fields each embedding contributes, for computing a closed embed-def's allowed-label
       union (slice A): embedding `#Base = {kind}` into a closed `#Def` widens the allowed set by
@@ -4280,12 +4303,8 @@ mutual
             -- (and meet) against the augmented frame so the read resolves. Byte-identical when no
             -- embedding reads a sibling-embedded `Self.<L>`.
             let refoldEmbeds := embeddingsReadEmbeddedSelf canonical embeddings (newEmbeddedFields.map Field.label)
-            let nestedForEmbeds <-
-              if refoldEmbeds then pushFrame (canonicalizeFields (canonical ++ newEmbeddedFields)) capturedEnv
-              else pure nested
-            let embeddingFields <-
-              if refoldEmbeds then evalEmbeddingFieldsWithFuel fuel nestedForEmbeds merged embeddings
-              else pure embeddingFields
+            let (nestedForEmbeds, embeddingFields) <- refoldEmbeddingsIfSelf fuel canonical
+              newEmbeddedFields embeddings capturedEnv merged nested embeddingFields refoldEmbeds
             match mergeEvaluatedFields (staticFields ++ expanded) with
             | none => pure .bottom
             | some merged =>

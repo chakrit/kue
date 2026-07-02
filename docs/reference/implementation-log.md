@@ -15609,3 +15609,46 @@ cue and kue AGREE on all forms — no `cue-divergences.md` row.
 `lake build` exit 0 (exhaustiveness + totality), `check-fixtures.sh` ok (graduated seed +
 3 new fixtures green), `check-test-health.sh` ok. No scripts touched (shellcheck n/a).
 Committed on `main`, not pushed.
+
+---
+
+## Completed Slice: B-AUDIT-refold-1 — dedup the embedding-`Self` re-fold
+
+Goal: remove the near-duplicate embedding-`Self` re-fold block that appeared
+verbatim-modulo-two-names in both struct-eval arms (`.structComp` and def-force). The block
+had a history of drifting-then-reconverging across the two arms with no type-level catch;
+extracting it into one shared helper makes a future one-arm fix impossible to apply asymmetrically.
+
+Pure refactor — BYTE-IDENTICAL behavior bar (zero fixture/canary delta the success criterion).
+
+### Change
+
+- New helper `refoldEmbeddingsIfSelf` inside the core-force `mutual` block, placed just before
+  `evalEmbeddingFieldsWithFuel` (it calls that member, so it must live in the mutual block):
+  ```
+  refoldEmbeddingsIfSelf
+    (fuel : Nat) (canonical : List Field) (newEmbeddedFields : List Field)
+    (embeddings : List Value) (env : Env) (merged : List Field)
+    (nested : Env) (embeddingFieldsPass1 : List Field) (refoldEmbeds : Bool)
+    : EvalM (Env × List Field)
+  ```
+  Returns `(nestedForEmbeds, embeddingFields)`: when `refoldEmbeds`, re-pushes a frame augmented
+  with `newEmbeddedFields` and re-evaluates the embeddings against it; otherwise returns the
+  Pass-1 `nested` + `embeddingFieldsPass1` unchanged. `termination_by (fuel, 3, embeddings.length + 1)`
+  — strictly above `evalEmbeddingFieldsWithFuel`'s `(fuel, 3, embeddings.length)` (same fuel), below
+  both callers.
+- The gate RESULT (`refoldEmbeds`, from `embeddingsReadEmbeddedSelf`) is passed as a parameter,
+  not recomputed — the two parallel gates (`needsEmbeddedSelfPass` for static fields,
+  `embeddingsReadEmbeddedSelf` for embedding values) stay unmerged and each computed at its call site.
+- Both arms now call the helper: `.structComp` in `evalValueCoreWithFuel` (with `fields`/`env`),
+  def-force in `forceClosureWithConjunctCore` (with `canonical`/`capturedEnv`). Each threads the
+  returned `nestedForEmbeds` into its `meetEmbeddingsWithFuel` `met`. Three duplicated statements
+  per arm collapse to one call.
+
+### Verify
+
+`lake build` exit 0 (no warnings/sorry), `check-fixtures.sh` ok (full 1843-pin regression,
+`fixture pairs ok`, zero delta), `check-test-health.sh` ok. cert-manager canary `jq -S` diff vs
+`cue` = 0 (empty). No latent divergence surfaced (the two arms are genuinely behavior-identical
+modulo the two parameterized names). No scripts touched (shellcheck n/a). Committed on `main`,
+not pushed.
