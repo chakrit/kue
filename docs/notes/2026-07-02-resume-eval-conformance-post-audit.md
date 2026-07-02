@@ -42,10 +42,14 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 
 ## Open (ranked)
 
-1. **chakrit's queue:** `git push` (~40+ unpushed commits on `main`), the owed alpha
-   (push-class), and the **L5+ campaign decision** — grind eval-conformance
-   (attended safer; closedness-adjacent) / reprioritize to B3d-6b / accept current.
-   L5's wild capture is DONE (pre-authorized); the fix-grind awaits the decision.
+1. **chakrit's two decisions** (push + alpha are DONE — main pushed at `6fbc105`+,
+   `v0.1.0-alpha.20260702` released with all 3 assets, 2026-07-02):
+   - **L5+ campaign** — grind eval-conformance (attended safer; closedness-adjacent) /
+     reprioritize to B3d-6b / accept current. L5's wild capture is DONE
+     (pre-authorized); the fix-grind awaits the decision.
+   - **Protocol amendments** — 8 proposed "keep going" improvements from the audit:
+     [`2026-07-02-keep-going-protocol-critique.md`](2026-07-02-keep-going-protocol-critique.md).
+     Do not apply until accepted/edited.
 2. **Eval-batch audit due** (`4b64502..6c347b5` — L3 + root A + L4; root A is
    soundness). Run before the next eval batch.
 3. **Audit fix-slices** in plan.md Live Backlog (a–e): TEST-HEALTH retrofit +
@@ -55,6 +59,10 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    re-adjudication under E#4, timeless-comment sweep.
 4. **root2/root3 quarantined RED** — same closedness family as the L5 campaign; natural
    first targets if the grind is chosen.
+5. **Pending school changes** (for `ace-school`, not from here): the TEST-HEALTH test
+   convention (already flagged in `failure-modes.md`) + the audit meta-lesson
+   "prose-only conventions rot; land conventions with migration + a script gate"
+   (candidate `general-coding` addition).
 
 ## Standing context
 

@@ -34,6 +34,8 @@ Standing grant for this repo (chakrit, 2026-06-14):
   driving. Push/release are attended-only: in AFK mode (below), commit but do NOT push or release.
 - **Go fast.** Use every tool that genuinely speeds the work — subagents, batched/parallel
   calls, concurrent edits. Parallelize only when it actually helps.
+- **Maximum quality over cost (chakrit, 2026-07-02).** Run subagents on the most capable
+  available model tier for this repo; never downgrade to save tokens.
 - **Keep specs current as a restore point.** `docs/spec/` (plan, architecture,
   compat-assumptions), `docs/reference/implementation-log.md`, decisions, and notes are
   the crash-safe source of truth. Update them as work lands, not in an end-batch — a slice
