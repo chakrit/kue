@@ -15567,3 +15567,45 @@ NOT due (distilled today); perf-guide CURRENT (recent batch correctness-only); t
 No production code touched; only plan.md + this log + the breadcrumb updated. The Phase A
 verify (`lake build` exit 0, `check-fixtures.sh` ok, `check-test-health.sh` ok, `shellcheck`
 clean) at `6197dc3` still holds — no code delta since. Not pushed.
+
+## Completed Slice: PA-1 — bottom `for`-source masked as incomplete (2026-07-02)
+
+Phase A fix-slice. `classifyForSource` folded `.bottom`/`.bottomWith` into the `.incomplete`
+arm on a false premise ("bottoms never reach here"). The `.forIn` caller evaluates the
+source and matches `classifyForSource` with no bottom short-circuit, so a source evaluating
+to bottom (`1 & 2`) was DEFERRED (treated as an open comprehension) instead of PROPAGATED —
+a soundness bug: in a disjunction the dead ⊥ arm survived (`⊥ | x = x` was not applied),
+yielding "ambiguous value" where the arm should drop.
+
+### Change
+
+- `ForSourceClass` (`Kue/Eval.lean`) gained a `bottom (value : Value)` verdict, the 4th
+  case — mirroring `GuardVerdict.bottom`.
+- `classifyForSource` routes `.bottom => .bottom .bottom` and `.bottomWith reasons =>
+  .bottom (.bottomWith reasons)` (was `.incomplete`). Iterable / concrete-non-iterable /
+  genuinely-incomplete arms unchanged — only actual-bottom is the new propagation path.
+- The `.forIn` caller (`expandClauseChain`) handles the new verdict with
+  `.bottom bot => pure (.bottom bot)`, short-circuiting the comprehension. Exhaustive match,
+  no catch-all (`lake build` proves it).
+
+### cue agreement
+
+cue and kue AGREE on all forms — no `cue-divergences.md` row.
+- `out: [for x in (1 & 2) {x}] | [5]` → both `[5]` (⊥ arm eliminated).
+- bare `out: [for x in (1 & 2) {x}]` / struct twin → both conflict-bottom.
+
+### Tests
+
+- Wild red seed `testdata/wild/for-bottom-source-masked-as-incomplete/` GRADUATED: green
+  under `check_wild_fixtures`, `.known-red` removed (now gate-enforced).
+- New fixtures (testdata pair + FixturePorts entry each):
+  `comprehensions/for_bottom_source_list` (`[_|_]`), `for_bottom_source_struct` (`_|_`),
+  `for_bottom_source_disjunction` (`[5]` — the value divergence). Defer case
+  (`for_top_source_defers`) and concrete-non-iterable case (`for_scalar_type_error`,
+  `for_struct_scalar_type_error`) already present, unregressed.
+
+### Verify
+
+`lake build` exit 0 (exhaustiveness + totality), `check-fixtures.sh` ok (graduated seed +
+3 new fixtures green), `check-test-health.sh` ok. No scripts touched (shellcheck n/a).
+Committed on `main`, not pushed.

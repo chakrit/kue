@@ -1223,6 +1223,8 @@ def structPairs : List Field -> List (Value × Value)
     - `concreteNonIterable` — a CONCRETE scalar (or scalar carrier `{#a:1,5}`): definitively
       outside the list/struct domain ⇒ a TYPE ERROR (cue: `cannot range over 5 …`). Carries the
       offending type for the `nonIterableSource` reason.
+    - `bottom` — a source that EVALUATES to bottom (`1 & 2`): a definite error, propagated
+      (D#1a — short-circuits the comprehension, mirroring `classifyGuard`'s `.bottom` arm).
     - `incomplete` — an unresolved/abstract form (ref, kind, bound, unresolved disjunction, …):
       it may still resolve to a list/struct, so the comprehension DEFERS (residual), exactly as
       an incomplete `if` guard defers (D#1b). Enumerated with no catch-all so a new ctor forces a
@@ -1230,6 +1232,7 @@ def structPairs : List Field -> List (Value × Value)
 inductive ForSourceClass where
   | iterable (pairs : List (Value × Value))
   | concreteNonIterable (type : ConcreteTypeName)
+  | bottom (value : Value)
   | incomplete
 
 def classifyForSource : Value -> ForSourceClass
@@ -1248,13 +1251,16 @@ def classifyForSource : Value -> ForSourceClass
   | .kind k => .concreteNonIterable (.scalar k)
   | .stringRegex _ => .concreteNonIterable (.scalar .string)
   | .boundConstraint _ _ _ => .concreteNonIterable (.scalar .number)
+  -- A source that EVALUATES to bottom (`1 & 2`) is a definite value, not a maybe: propagate it
+  -- (D#1a — a bottom `for` source short-circuits the comprehension, mirroring the bottom `if`
+  -- guard `classifyGuard` routes through its `.bottom` arm). Masking it as `.incomplete` is a
+  -- soundness bug — the dead arm would survive a disjunction (`⊥ | x = x`) instead of dropping.
+  | .bottom => .bottom .bottom
+  | .bottomWith reasons => .bottom (.bottomWith reasons)
   -- Genuinely-unresolved forms may still resolve to a list/struct → DEFER (residual). `.top` (any),
   -- a `.notPrim` exclusion, an unresolved ref/selector/disjunction/conjunction, a residual
-  -- comprehension/builtin/interpolation — each can still concretize into an iterable. Bottoms never
-  -- reach here (the source is evaluated; a bottom would surface upstream); classed defer.
+  -- comprehension/builtin/interpolation — each can still concretize into an iterable.
   | .top => .incomplete
-  | .bottom => .incomplete
-  | .bottomWith _ => .incomplete
   | .notPrim _ => .incomplete
   | .conj _ => .incomplete
   | .builtinCall _ _ => .incomplete
@@ -4461,11 +4467,13 @@ mutual
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source
             -- Fully classified (no catch-all): an iterable walks its pairs; a CONCRETE
-            -- non-iterable is a type error (spec mandates `for` range over a list/struct); an
-            -- INCOMPLETE source DEFERS the comprehension (it may still resolve to a list/struct).
+            -- non-iterable is a type error (spec mandates `for` range over a list/struct); a
+            -- BOTTOM source propagates (D#1a — short-circuits the comprehension); an INCOMPLETE
+            -- source DEFERS the comprehension (it may still resolve to a list/struct).
             match classifyForSource evaluatedSource with
             | .iterable pairs => expandForPairs onExhausted fuel env key value rest body pairs
             | .concreteNonIterable ty => pure (.bottom (.bottomWith [.nonIterableSource ty]))
+            | .bottom bot => pure (.bottom bot)
             | .incomplete => pure .deferred
   termination_by (fuel, 0, 0)
 

@@ -372,6 +372,13 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
 ### Fix-slices from the 2026-07-02 Phase A audit of the eval batch (`4b64502..HEAD`, ranked)
 
 - **(PA-1) `classifyForSource` masks a BOTTOM `for` source as incomplete [HIGH, soundness].**
+  🎯 DONE (2026-07-02). `ForSourceClass` gained a `bottom (value : Value)` verdict;
+  `classifyForSource` routes `.bottom`/`.bottomWith` to it (mirroring `classifyGuard`), and
+  the `.forIn` caller propagates it with `.bottom bot => pure (.bottom bot)`. cue and kue now
+  AGREE on the repro (`out: [for x in (1 & 2) {x}] | [5]` → `[5]`, the ⊥ arm eliminated) and
+  the bare forms (both conflict) — no divergence row. Red seed GRADUATED (green, `.known-red`
+  removed). New fixtures: `comprehensions/for_bottom_source_{list,struct,disjunction}` (both
+  testdata pairs + FixturePorts entries). Original filing:
   `Eval.lean` `classifyForSource` enumerates `.bottom`/`.bottomWith` into the `.incomplete`
   arm with the (false) justification "Bottoms never reach here". The `.forIn` caller
   evaluates the source and matches `classifyForSource` with NO bottom short-circuit, so a

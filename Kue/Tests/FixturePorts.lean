@@ -2565,6 +2565,34 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- PA-1: a `for` source that EVALUATES to bottom (`1 & 2`) propagates the bottom (D#1a —
+      -- short-circuits the comprehension), NOT defers as incomplete. In a LIST comprehension the
+      -- bottom is the single element (`[_|_]`), the same shape as the concrete-non-iterable case.
+      fileName := "comprehensions/for_bottom_source_list.expected",
+      content :=
+        match parseSource "out: [for x in (1 & 2) {x}]\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- PA-1: the STRUCT-comprehension twin — a bottom source bottoms the whole struct (`out: _|_`).
+      fileName := "comprehensions/for_bottom_source_struct.expected",
+      content :=
+        match parseSource "out: {for x in (1 & 2) {a: x}}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- PA-1: the VALUE divergence — a bottom `for` source in a disjunction arm is ELIMINATED
+      -- (`⊥ | x = x`), leaving `[5]`. Before the fix the arm deferred as incomplete and was
+      -- retained, yielding "ambiguous value". cue agrees (`[5]`).
+      fileName := "comprehensions/for_bottom_source_disjunction.expected",
+      content :=
+        match parseSource "out: [for x in (1 & 2) {x}] | [5]\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       fileName := "comprehensions/comprehension_loopvar_shadow.expected",
       content :=
         formatTopLevel

@@ -54,16 +54,18 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    diff-scoped correctness): audited `4b64502..HEAD`; a–e verified landed; root A + the
    for-non-iterable change sound. ONE defect: **PA-1** — `classifyForSource` masks a BOTTOM
    `for` source as incomplete (false "can't-happen"), retaining a dead disjunct where cue
-   eliminates it (value-level soundness); red seed committed + quarantined
-   (`testdata/wild/for-bottom-source-masked-as-incomplete/`). **Phase B (architecture,
+   eliminates it (value-level soundness). **PA-1 FIXED (2026-07-02):** `ForSourceClass`
+   gained a `bottom` verdict, `classifyForSource` routes bottoms to it, the `.forIn` caller
+   propagates it — wild seed GRADUATED (green, `.known-red` removed), 3 new fixtures, cue
+   agreement on all forms (no divergence). **Phase B (architecture,
    whole graph) — DISCHARGED, HEALTHY.** Module graph clean acyclic DAG (all
    `architecture.md` edges re-verified); code-health pristine (no dead code / deprecated
    APIs / stray partials). Three fresh findings filed: **PB-1** `Eval.lean` = 4609 >
    the 4500 DefDeferral-carve trigger (carve the ~600-line deferral tier); **PB-2**
    `TwoPassTests`/`EvalTests` (1763/1743) near the 1800 cap → test-org pass now DUE;
-   **PB-3** `architecture.md` layer-numbering doc note (LOW). Ranking: PA-1 →
-   B-AUDIT-refold-1 → PB-1 → PB-2 → PB-3. **Two-phase audit for this batch is COMPLETE →
-   next step: fix PA-1 (HIGH soundness) as the next slice.**
+   **PB-3** `architecture.md` layer-numbering doc note (LOW). Ranking: PA-1 (DONE) →
+   B-AUDIT-refold-1 → PB-1 → PB-2 → PB-3. **Two-phase audit COMPLETE; PA-1 landed →
+   next step: B-AUDIT-refold-1 (MED, active eval-core re-fold drift hazard).**
 3. **Audit fix-slices** in plan.md Live Backlog. **(a) TEST-HEALTH retrofit +
    `scripts/check-test-health.sh` gate — DONE (2026-07-02):** all 33 hand-authored test
    modules converted to `--` headers, per-section `#check` tripwires added, gate enforces
