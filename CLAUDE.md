@@ -122,6 +122,41 @@ with a hard safety **envelope** (no human watching) — stay strictly inside it:
 
 Full skill: `ace-afk` in the school.
 
+## Recurring misalignments (guards — binding)
+
+Distilled from the 2026-07-02 full-repo audit; each rule below was violated by a prior
+autonomous pass. Follow them as hard rules:
+
+- **A convention lands with its migration.** Declaring a repo-wide rule ("applies to ALL
+  test files") while converting only touched files is non-compliance — every prose-only
+  convention in this repo rotted; every script-enforced gate held. Convert the whole
+  existing surface in the same slice, and wire the rule into a `scripts/check-*.sh` gate
+  wherever a cheap grep can enforce it.
+- **Audits verify that previously-filed fix-slices actually landed** — check the last
+  audit's filings before filing new ones. "Scheduled in the plan" decays to zero unless
+  it re-enters the active queue.
+- **`| _ =>` is banned in any match on `Value`/AST that *produces* a `Value`** (dispatch
+  or rewrite). Enumerate constructors — a doc comment above a catch-all does not
+  substitute for exhaustiveness. Bool/Option probe helpers may keep `_`.
+- **`partial def` outside `Parse.lean` requires a one-line waiver comment at the site.**
+  List recursion never qualifies — write it structurally.
+- **Never enumerate module/file inventories in prose docs** — link
+  `docs/spec/architecture.md` instead. Any doc that names files is updated in the slice
+  that adds/moves a file, same standard as the implementation log.
+- **Comments are timeless.** "no longer", "the old X", "before/after the fix" narrate
+  history — that belongs in the log and commits, not in code.
+- **Audit slices get implementation-log entries too**, same as code slices — including
+  audits that ship no code change.
+- **Wild fixtures are auto-discovered** by `check_wild_fixtures` in
+  `scripts/check-fixtures.sh`, NOT registered in `FixturePorts.lean`; only the shell gate
+  enforces them (`lake build` never sees them). Red seeds are COMMITTED (`.known-red`
+  quarantine), never left as untracked scratch or log-file prose.
+- **Docs claiming completion carry retraction pointers when later work reopens them.**
+  A stale "🎯 DONE" block one section below the live front is a restore hazard — annotate
+  it in the same slice that reopens the work.
+- **Canary is cert-manager** (from `/Users/chakrit/Documents/prod9/infra`); argocd is
+  GONE from that checkout — its drop-in status is historical, do not try to re-verify it.
+
 ## Docs
 
 Start with [docs/README.md](docs/README.md). `docs/` holds usage docs (`guides/`,

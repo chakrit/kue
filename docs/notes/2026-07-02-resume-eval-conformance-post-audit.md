@@ -1,0 +1,68 @@
+# RESUME HERE — eval-conformance front; L5 seed captured; docs re-baselined (2026-07-02)
+
+The live START-HERE. Supersedes
+[`2026-06-25-resume-b3d-registry-fetch-active.md`](2026-06-25-resume-b3d-registry-fetch-active.md).
+Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
+[`../reference/implementation-log.md`](../reference/implementation-log.md).
+
+## State
+
+- **Full-repo audit + repair (2026-07-02).** Four parallel auditors (design record,
+  reference/guides, code/skill-compliance, fixture infrastructure) swept everything;
+  repairs landed the same day. Code health confirmed strong: zero
+  `sorry`/`axiom`/`unsafe`, IO layering clean, shellcheck clean, red-first wild protocol
+  held 5/5. The dominant defect class was **doc drift + prose-convention rot**, now
+  repaired and guarded.
+- **Docs re-baselined.** plan.md distilled 1734 → 697 lines (Status header, resolved
+  items collapsed to ruling+pointer); stale "correctness DONE / backlog EMPTY" milestone
+  blocks carry RETRACTED-2026-06-28 pointers; architecture.md "Where We Are" rewritten
+  (the banned Float recommendation removed, B3d/EvalOps marked done);
+  spec-conformance-audit.md backlog corrected (perf #7 = WON'T-FIX; live correctness
+  backlog = plan § Current front); 6 missing audit entries recovered into the
+  implementation-log; lean4-guide / cue-language-guide de-staled ("cue as oracle" →
+  spec-authority); distribution ADR marked `revised`.
+- **Guard-rails written.** CLAUDE.md § "Recurring misalignments" — ten binding rules
+  distilled from what prior autonomous passes got wrong (convention-lands-with-migration,
+  script gates over prose, `| _ =>` ban in Value-producing matches, `partial def`
+  waivers, no file inventories in prose, timeless comments, audits get log entries,
+  wild auto-discovery + committed red seeds, retraction pointers, cert-manager-only
+  canary).
+- **Fixture gate hardened** (`check_wild_fixtures`): enumerates `testdata/wild/*/` dirs
+  (a missing/typo'd expected file now FAILS instead of silently vanishing); new
+  `<slug>.expected.err` pins spec-correct-BOTTOM outcomes; kue exit codes checked.
+- **Red seeds committed** (were log-file prose / untracked scratch):
+  - `closed-disj-both-arms-reject-extra` (cl2) — **GREEN, enforced**: fixed en passant
+    by the root-A/L4 closedness work; kue now bottoms, matching spec + cue.
+  - `def-disj-closedness-extra-field` (root2) — RED, `.known-red` (kue: ambiguous;
+    spec+cue: bottom).
+  - `single-closed-embed-extra-field` (root3) — RED, `.known-red` (kue: incomplete;
+    spec+cue: field not allowed). Root pinned at `Kue/Lattice.lean:1224` per .afk.log.
+  - `webapp-carrier-l5` — the L5 seed (was untracked `repro-l5.cue`), self-contained,
+    `.known-red`, provisional `.expected` from cue's export.
+
+## Open (ranked)
+
+1. **chakrit's queue:** `git push` (~40+ unpushed commits on `main`), the owed alpha
+   (push-class), and the **L5+ campaign decision** — grind eval-conformance
+   (attended safer; closedness-adjacent) / reprioritize to B3d-6b / accept current.
+   L5's wild capture is DONE (pre-authorized); the fix-grind awaits the decision.
+2. **Eval-batch audit due** (`4b64502..6c347b5` — L3 + root A + L4; root A is
+   soundness). Run before the next eval batch.
+3. **Audit fix-slices** in plan.md Live Backlog (a–e): TEST-HEALTH retrofit +
+   `scripts/check-test-health.sh` gate (highest leverage — every prose-only convention
+   rotted, every script gate held), value-producing catch-all enumeration
+   (Eval/Lattice/Builtin), `Module.lean` partial-def cleanup, `for`-over-non-iterable
+   re-adjudication under E#4, timeless-comment sweep.
+4. **root2/root3 quarantined RED** — same closedness family as the L5 campaign; natural
+   first targets if the grind is chosen.
+
+## Standing context
+
+- Spec is authority; `cue` v0.16.1 (`/Users/chakrit/go/bin/cue`) a fallible cross-check.
+- Canary: **cert-manager only** (`apps/cert-manager.cue` under
+  `/Users/chakrit/Documents/prod9/infra`, run from that cwd). argocd is GONE from that
+  checkout — historical claim, do not re-verify.
+- kue binary: `.lake/build/bin/kue`. Gate: `lake build` + `scripts/check-fixtures.sh`.
+- Relay from AFK run-2's self-flag: it ran `git checkout Kue/Eval.lean` (reverting its
+  own in-session edit; no pre-existing WIP lost) — an envelope violation, disclosed for
+  chakrit's awareness.
