@@ -1,5 +1,7 @@
 # Kue Architecture
 
+Status: implemented — living document.
+
 How the implementation is layered today. The representation is still free to change; what
 holds stable is the separation of concerns — parsing, resolution, semantic values, lattice
 operations, evaluation, manifestation, and the compatibility harness stay distinct.
@@ -68,7 +70,7 @@ a bottom at any depth is found, including through a `.structComp` residual's res
 fields. Target laws: commutativity, associativity, idempotence, top/bottom identities, and
 distribution of meet over finite disjunctions.
 
-### 5. Evaluation — `Eval.lean`, `Builtin.lean`
+### 5. Evaluation — `Eval.lean`, `EvalOps.lean`, `Builtin.lean`
 
 `Eval.lean` resolves references, applies constraints, distributes meets, evaluates
 expressions, and handles reference cycles explicitly with a visited-binding path and
@@ -76,12 +78,16 @@ bounded fuel (host-language recursion failure is not acceptable cycle semantics)
 including structural-cycle detection (a def/regular self-ref through a struct layer
 bottoms with `.structuralCycle`; a `#List | *null` recursion terminates on the default
 arm). It does not require export-level concreteness — `int`, `string | int`, `>0 & <10`
-are valid results. `Builtin.lean` holds the pure builtin helpers (`close`, `len`, `and`,
-`or`, `div`, `mod`, `quo`, `rem`, the `strings` /`list`/`math` namespaces, `math.Pow` 's
-exact domain, Unicode case mapping via `CaseTable.lean`); `Eval` dispatches resolved
-builtin calls and preserves incomplete ones as semantic values. Effectful builtins whose
-comparator needs `EvalM` (`list.Sort`/`SortStable`) are intercepted in `Eval` rather than
-`Builtin` (which must stay pure — there is no `Builtin → Eval` back-edge).
+are valid results. `EvalOps.lean` carries the pure scalar/expression
+algebra (arithmetic/comparison/boolean/unary operand classification and evaluation,
+default-disjunction collapse) carved out from under the recursive evaluator — `EvalOps →
+{Builtin, Decimal, Regex}`, with no back-edge into `Eval`. `Builtin.lean` holds the pure
+builtin helpers (`close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, the `strings`
+/`list`/`math` namespaces, `math.Pow` 's exact domain, Unicode case mapping via
+`CaseTable.lean`); `Eval` dispatches resolved builtin calls and preserves incomplete ones
+as semantic values. Effectful builtins whose comparator needs `EvalM`
+(`list.Sort`/`SortStable`) are intercepted in `Eval` rather than `Builtin` (which must
+stay pure — there is no `Builtin → Eval` back-edge).
 
 ### 6. Manifestation and formatting — `Manifest.lean`, `Format.lean`
 
@@ -90,10 +96,28 @@ definition/optional/`let` fields, and rejects unresolved or ambiguous values via
 explicit `ManifestError`, kept separate from evaluation to preserve CUE's `eval` vs
 `export` distinction. `Format.lean` renders values in stable CUE-like text.
 
-### 7. Runtime and compatibility harness — `Runtime.lean`, `FixturePorts.lean`, `Examples.lean`, tests
+### 7. Modules and registry fetch — `Module.lean` + the B3d island
+
+`Module.lean` owns `cue.mod` discovery, multi-file package merge, in-module +
+cross-module import resolution (vendored or extract-cache), and fetch-on-missing for a
+declared dep absent from both. It is one of the two IO modules (the other is `OciFetch`);
+`Eval`/`Resolve`/`Value` import none of this layer. The registry-fetch island under it is
+a pure protocol core plus one thin IO edge: `Registry.lean` (`CUE_REGISTRY` parse,
+module→OCI-ref resolution, cache-path authority), `Oci.lean` (manifest parse, URL/curl-arg
+builders), `OciAuth.lean` (Docker/OCI bearer-token flow parsing), `Sha256.lean` (FIPS
+180-4 + `cue.sum` `h1:` dirhash), `Inflate.lean` (RFC 1951 DEFLATE), `Zip.lean` (PKWARE +
+CRC-32), `Semver.lean` (Go `x/mod/semver` port), `Mvs.lean` (pure
+minimal-version-selection solver), and `OciFetch.lean` (the sole `IO.Process` curl edge;
+imports the pure core,
+never the evaluator). Import direction is strictly IO → pure: `Module → {Parse, Runtime,
+Registry, OciFetch, Zip, Sha256}`, `OciFetch → {Oci, OciAuth, Base64, Sha256, Registry}`.
+
+### 8. Runtime, CLI, and harness — `Runtime.lean`, `Cli.lean`, `FixturePorts.lean`
 
 `Runtime.lean` centralizes the resolve → evaluate → format flow shared by the CLI and
-fixtures, including multi-source merging with package-name consistency. The compatibility
+fixtures, including multi-source merging with package-name consistency. `Cli.lean`
+(imports `Runtime`) parses the `kue` command surface (`eval`, `export`, `version`, help);
+`Main.lean` is the executable entry. The compatibility
 corpus lives in `testdata/cue/` as paired `.cue` / `.expected` files, grouped into
 subsystem subdirs (`numeric/ structs/ definitions/ lists/ refs/ …`); `FixturePorts.lean`
 records each expected output as a computed Kue value keyed by its `<subdir>/<stem>`
@@ -103,19 +127,20 @@ modules carry theorem-style and executable checks.
 
 ## Where We Are / What's Next
 
-The semantic core, evaluator, manifestation, CLI, and a broad expression layer are
-implemented and oracle-checked against `cue` v0.16.1. Comprehensions (incl. `let` clauses,
-guard classification), dynamic fields, structural-cycle detection, the closedness family,
-imports/module resolution (in-module + cross-module, qualified import paths),
-cross-package def-meet via captured-frame closures, an RE2-equivalent regex engine
-(`Regex.lean`, a true leaf), and the `strings` /`list`/`math`/`encoding` builtin
-namespaces all landed — see `plan.md` § Standing Capabilities. The live roadmap is in
-[`plan.md`](plan.md); the full slice-by-slice history is in
-[`../reference/implementation-log.md`](../reference/implementation-log.md). The remaining
-work is a small user-gated tail (disjunction-display dedup, a Float/NaN/Infinity numeric
-model for `math.Sqrt` + non-integer `math.Pow`) plus mechanical cleanups (the `EvalOps`
-carve); not-yet-modeled corners (per-file import scoping, OCI/registry fetch, the exotic
-go-yaml surface) are tracked in [`compat-assumptions.md`](compat-assumptions.md).
+The semantic core, evaluator, manifestation, CLI, builtins (exact-decimal numerics per
+[`../decisions/2026-06-22-numeric-model-exact-decimal-no-float.md`](../decisions/2026-06-22-numeric-model-exact-decimal-no-float.md)
+— Float/NaN deliberately avoided), imports/module resolution, and the OCI/registry fetch
+(B3d, live-proven against `ghcr.io`) are implemented and oracle-checked against `cue`
+v0.16.1 — see `plan.md` § Standing Capabilities. That completeness was demonstrated on a
+2-app sample (argocd + cert-manager, content-identical drop-ins as of 2026-06-23); the
+broader prod9 corpus then exposed real eval divergences, so the **current front is
+eval-conformance** (five bugs fixed, L5 open — `plan.md` § Current front). Remaining
+tails: B3d-6b (`cue mod get/tidy`, MVS resolver wiring, `cue.sum` write) and the item-6
+LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in
+[`../reference/implementation-log.md`](../reference/implementation-log.md);
+not-yet-modeled corners (per-file import scoping, the exotic go-yaml surface) are tracked
+in
+[`compat-assumptions.md`](compat-assumptions.md).
 
 ## Tooling
 

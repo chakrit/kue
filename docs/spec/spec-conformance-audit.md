@@ -1,5 +1,8 @@
 # Spec-conformance re-audit
 
+Status: implemented — the 2026-06-19..23 re-audit is complete; kept current as the
+conformance-backlog record.
+
 A full re-examination of every `cue` -grounded behavioral decision in Kue against the
 **CUE language spec** and **lattice first principles**, triggered by the 2026-06-19
 reframe (`docs/guides/slice-loop.md` → "The CUE spec is the authority"). The slice loop
@@ -7,8 +10,8 @@ had drifted into byte-identical-to-`cue`-v0.16.1 as the correctness gate — str
 bug-replicating. This audit reclassifies what is actually correct vs. what merely matches
 a fallible binary.
 
-Feature slices are PAUSED until the high-risk areas are reclassified; findings here become
-the spec-first fix-slice backlog in `plan.md`.
+Feature slices were PAUSED while the high-risk areas were reclassified (the 2026-06-19..23
+re-audit, complete); findings here became the spec-first fix-slice backlog in `plan.md`.
 
 ## Authority hierarchy (the gate)
 
@@ -185,19 +188,17 @@ the close-once-via-`mergeDefinitionDecls` fix on the flatten path; perf #7 is no
 SC-3 is a recorded spec-gap only (multi-arm-default display divergence). Detail for every one of
 these is in Audit history + the Live-slice detail (below) + the implementation-log + git.
 
+**The live correctness backlog is now `plan.md` § Current front** (eval-conformance on the
+prod9 corpus; L5 open, soundness-adjacent) — this list holds only the pre-existing ranked
+tail.
+
 **The genuinely-open set (ranked):**
 
-1. **perf #7 — frame-sharing across env-DEPENDENT evals (RANKED LEADER; proof-first, GATED).**
-   argocd exports content-identical at **~50.3s** vs `cue` 0.03s; cert-manager ~11.7s. Perf #7's
-   two safe wins landed 2026-06-23 (`selfEvaluatingLeaf?` fast path + saturated-only `satCache`
-   insert, both jq-S=0, zero drift). The PROFILE named the residual: a **~175× re-eval factor**
-   (`evalCalls=832338` core evals vs `distinctShapes=4763` distinct subtrees — the same subtree
-   re-evaluated under ~175 distinct frame envs because the cache keys on `env.ids`; `evalCacheHits=0`,
-   the fuel-keyed `cache` is dead). The designed fix — share env-DEPENDENT evals across frame envs
-   (frame canonicalization or content-addressed def-body closures) — **touches the soundness core of
-   frame identity (`FrameKey`/`ForceKey`) and needs a no-false-share proof.** A frame-sharing widening
-   that could alias-corrupt a value is a Violation: profile + design + STOP beats an unsound ship.
-   Detail in `plan.md` (NEXT LEADER block) + `kue-performance.md` + implementation-log (perf #7 slice).
+1. **perf #7 — frame-sharing: MEASURED-AND-REJECTED, WON'T-FIX (2026-06-23).** The share
+   ceiling was measured at ~0.05% (cert-manager 144/317,788; argocd 288/486,773) and the
+   non-empty share is a FALSE share (genuinely-distinct content) — no sound frame-sharing
+   exists. Closure detail: `plan.md` perf #7 block + `kue-performance.md` +
+   implementation-log.
 2. **NESTED-DISJ-MARK — nested-disjunction outer-default inheritance when the inner default dies
    (DESIGNED-DEFERRAL 2026-06-23; the lone open VALUE divergence).** A `*`-marked GROUP that is
    itself a disjunction-with-inner-`*` (`*_O | …`, `_O: *_I | _B`) puts the whole group in the outer
@@ -649,8 +650,8 @@ re-accrete superseded re-ranks, completed Phase-A/B write-ups, and resolved fix-
 diagnoses; a hygiene pass periodically distills the backlog to the LIVE open set + North
 Star
 + standing capabilities and moves DONE detail to `implementation-log.md` /git. Last run
-2026-06-21 (distilled the ~9 accreted audit blocks + the shipped D#2 design out of both
-docs; RX-2c marked DONE — `maxRepeat=1000` landed with RX-1a). `docs/README.md` +
+2026-07-02 (distilled `plan.md` ~1734 → under ~700 lines; closed the stale perf-#7
+leader ranking here; the live correctness backlog moved to `plan.md` § Current front). `docs/README.md` +
 `www/index.html` routing/refresh is owned by the orchestrator — not touched here.
 
 **Spec-doc errors (cosmetic, no code action):** the CUE spec's disjunction worked-example

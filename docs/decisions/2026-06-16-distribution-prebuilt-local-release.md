@@ -2,7 +2,11 @@
 
 - **Date:** 2026-06-16
 - **PR:** manual (promoted from a setup note, 2026-06-19)
-- **Status:** accepted
+- **Status:** revised
+
+> **Update 2026-06-23:** releases now ship 3 platforms (macOS arm64 + Linux amd64/arm64
+> via `scripts/release-linux.sh`), and `kue version` exists — the two Consequences below
+> are historical. The core decision (prebuilt binaries, local script, no CI) stands.
 
 ## Decision
 

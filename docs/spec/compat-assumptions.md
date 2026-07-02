@@ -1,5 +1,7 @@
 # Kue Compatibility Assumptions
 
+Status: accepted — living document.
+
 This file records deliberate compatibility assumptions made while CUE behavior is still
 being modeled. Each item should be testable and replaceable by a narrower semantic slice.
 

@@ -1,6 +1,8 @@
 # RESUME HERE — B3d fetch DONE + live-proven; EVAL-CONFORMANCE front now active (AFK run 2026-06-28→29)
 
-Live START-HERE. Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
+**SUPERSEDED (2026-07-02) by
+[`2026-07-02-resume-eval-conformance-post-audit.md`](2026-07-02-resume-eval-conformance-post-audit.md)**
+— kept for the durable B3d findings below. NOT the live START-HERE. Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 [`../reference/implementation-log.md`](../reference/implementation-log.md). Transport decision:
 [`../decisions/2026-06-25-registry-fetch-via-curl-subprocess.md`](../decisions/2026-06-25-registry-fetch-via-curl-subprocess.md).
 AFK run state + blockers: [`../../.afk.log`](../../.afk.log).
@@ -119,9 +121,9 @@ test pins, LOW), B3d-B1 (digest/`h1:` newtype, rides 6b), `Mvs.solve` main-pin c
   lift this — push freely, run the live smokes.
 - A fresh alpha is owed (CLI entry-UX + the whole B3d foundation since `v0.1.0-alpha.20260624`) —
   release is PUSH-class so AFK didn't cut it; cut one attended via `scripts/release.sh` (+ Linux).
-- Spec is authority; `cue` (`~/go/bin/cue` v0.16.1) a fallible cross-check. Canary: argocd `jq -S`
-  = 0 from `/Users/chakrit/Documents/prod9/infra` (`apps/argocd.cue`; cert-manager there is plain
-  YAML, not CUE). prod9 + cue caches READ-ONLY. kue binary: `.lake/build/bin/kue`. Orchestrator
+- Spec is authority; `cue` (`~/go/bin/cue` v0.16.1) a fallible cross-check. Canary: cert-manager
+  `jq -S` = 0 from `/Users/chakrit/Documents/prod9/infra` (`apps/cert-manager.cue`); argocd is
+  GONE from that checkout (historical only). prod9 + cue caches READ-ONLY. kue binary: `.lake/build/bin/kue`. Orchestrator
   verifies every subagent claim from git/build (`HEAD` vs `@{u}`), never its words.
 - Pre-B3d durable findings: see the demoted [`2026-06-25-resume-kue-complete-frankenstein-dropped-full-lean4.md`](2026-06-25-resume-kue-complete-frankenstein-dropped-full-lean4.md)
   (correctness DONE, perf CLOSED, the dropped Go-cgo frankenstein, CUE-loading-is-eval-free).

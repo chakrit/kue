@@ -34,8 +34,14 @@ memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-l
 - [Compatibility Assumptions](spec/compat-assumptions.md) — assumptions and deliberately
   narrow choices made while matching CUE behavior.
 - [Plan](spec/plan.md) — live roadmap: standing capabilities and the next slices.
+- [Spec-Conformance Audit](spec/spec-conformance-audit.md) — the spec-first re-audit of
+  every `cue`-grounded behavior; owns the consolidated conformance fix backlog.
 - [Implementation Log](reference/implementation-log.md) — the full slice-by-slice record
   of completed work, retained for verification.
+- [CUE Divergences](reference/cue-divergences.md) — where `cue` disagrees with the spec
+  and Kue deliberately follows the spec; one row per divergence.
+- [CUE Spec Gaps](reference/cue-spec-gaps.md) — where the spec is silent and Kue's
+  principled choice is recorded, even when Kue matches `cue`.
 - [Failure Modes & Guards](reference/failure-modes.md) — operational pitfalls hit running
   the autonomous loop (crashes, contention, stale docs), each with its guard; appended on
   the periodic resilience pass.
@@ -47,6 +53,15 @@ memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-l
   — why Kue ships prebuilt arm64 binaries cut by a local script, not CI.
 - [Implementation Language: Lean 4](decisions/2026-06-17-implementation-language-lean4.md)
   — why Kue stays on Lean 4 over an OCaml/Haskell/Rust rewrite, and what would flip it.
+- [Oracle as Data Source](decisions/2026-06-20-oracle-as-data-source.md) — the `cue`
+  binary may seed generated data for externally-standardized domains, never gate
+  correctness.
+- [Numeric Model: Exact Decimal, No Float](decisions/2026-06-22-numeric-model-exact-decimal-no-float.md)
+  — why `math.Pow`/`math.Sqrt` cover their real domain in exact decimal; Float/NaN banned.
+- [Lean Engine in Go via cgo](decisions/2026-06-25-lean-engine-embedded-in-go-via-cgo.md)
+  — the Go-shell + Lean-engine FFI spike: feasibility-proven, REJECTED (leaky seam).
+- [Registry Fetch via curl Subprocess](decisions/2026-06-25-registry-fetch-via-curl-subprocess.md)
+  — why OCI module fetch shells out to `curl` instead of FFI or an HTTP library.
 - [Lean 4 Guide](guides/lean4-guide.md) — repo-local Lean 4 quickstart: Lake setup,
   module layout, proof workflow, and how to model CUE semantics in Lean.
 - [Performance Guide](guides/kue-performance.md) — how to write CUE that Kue evaluates

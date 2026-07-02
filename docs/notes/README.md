@@ -21,4 +21,6 @@ Notes are disposable. Edit them, rewrite them, delete them — whichever
 fits. They're a snapshot of past thinking, not policy and not a claim
 about the present. If a note has become misleading or noisy, removing
 it is fine. Nothing else in the project should depend on a specific
-note still existing.
+note still existing. One exception: the single live START-HERE breadcrumb
+(the slice loop's cross-session memory) is superseded-in-place, never
+silently deleted.
