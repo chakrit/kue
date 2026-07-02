@@ -50,14 +50,20 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    - **Protocol amendments** — 8 proposed "keep going" improvements from the audit:
      [`2026-07-02-keep-going-protocol-critique.md`](2026-07-02-keep-going-protocol-critique.md).
      Do not apply until accepted/edited.
-2. **Eval-batch audit — DISCHARGED (Phase A, 2026-07-02).** Audited `4b64502..HEAD` (the
-   `4b64502..6c347b5` L3+rootA+L4 batch AND the a–e design-record fix-slices). a–e verified
-   genuinely landed; root A + the for-non-iterable change scrutinized sound. ONE defect
-   found: **PA-1** — `classifyForSource` masks a BOTTOM `for` source as incomplete (false
-   "can't-happen" premise), retaining a dead disjunct where cue eliminates it (value-level
-   soundness). Red seed committed + quarantined
-   (`testdata/wild/for-bottom-source-masked-as-incomplete/`); fix-slice PA-1 filed in
-   plan.md. Phase B (architecture) still owed for this batch.
+2. **Eval-batch audit — COMPLETE (both phases, 2026-07-02).** Phase A (`6197dc3`,
+   diff-scoped correctness): audited `4b64502..HEAD`; a–e verified landed; root A + the
+   for-non-iterable change sound. ONE defect: **PA-1** — `classifyForSource` masks a BOTTOM
+   `for` source as incomplete (false "can't-happen"), retaining a dead disjunct where cue
+   eliminates it (value-level soundness); red seed committed + quarantined
+   (`testdata/wild/for-bottom-source-masked-as-incomplete/`). **Phase B (architecture,
+   whole graph) — DISCHARGED, HEALTHY.** Module graph clean acyclic DAG (all
+   `architecture.md` edges re-verified); code-health pristine (no dead code / deprecated
+   APIs / stray partials). Three fresh findings filed: **PB-1** `Eval.lean` = 4609 >
+   the 4500 DefDeferral-carve trigger (carve the ~600-line deferral tier); **PB-2**
+   `TwoPassTests`/`EvalTests` (1763/1743) near the 1800 cap → test-org pass now DUE;
+   **PB-3** `architecture.md` layer-numbering doc note (LOW). Ranking: PA-1 →
+   B-AUDIT-refold-1 → PB-1 → PB-2 → PB-3. **Two-phase audit for this batch is COMPLETE →
+   next step: fix PA-1 (HIGH soundness) as the next slice.**
 3. **Audit fix-slices** in plan.md Live Backlog. **(a) TEST-HEALTH retrofit +
    `scripts/check-test-health.sh` gate — DONE (2026-07-02):** all 33 hand-authored test
    modules converted to `--` headers, per-section `#check` tripwires added, gate enforces

@@ -388,6 +388,66 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
   Add `native_decide` pins for the bare + disjunction forms and remove the `.known-red`
   marker in the same slice.
 
+### Fix-slices from the 2026-07-02 Phase B audit (whole module graph, ranked)
+
+Phase B (architecture / refactor / cleanup) over the whole graph. **Module graph is a
+clean acyclic DAG** — every import edge in `architecture.md` § Durable whole-graph facts
+verified against reality (`Value → Regex`; `Builtin → {Lattice, Regex, Decimal, Base64,
+Json, Yaml, CaseTable}`, no `Eval` edge; `EvalOps → {Builtin, Decimal, Regex}` no
+back-edge; `Lattice → {Value, Regex}`; `Normalize → Value`; IO confined to
+`Module`+`OciFetch`). Code health pristine: zero `sorry`/`panic!`/`unreachable!`/`.get!`
+in pure code, zero dead code, zero deprecated APIs (`dropRight` etc.), no stray `partial
+def` outside `Parse`/`Module` (both waived). No inline cleanups warranted — nothing to
+delete or de-stale. The type-system-leverage backlog is already worked out in
+Resolved/ruled-out below (the walker/normalizer/inject/merge/carrier DRY family is FULLY
+CLOSED; the newtype candidates are filed on B3d-6b). Three fresh findings:
+
+- **(PB-1) `Eval.lean` crossed the DefDeferral-carve trigger — 4609 > 4500 [MED, arch].**
+  The standing ruling *"`Eval.DefDeferral` carve — HELD, sharpened trigger"* (Resolved
+  below) says carve when core-force growth crosses ~4400 with the tier intact OR a
+  def-deferral slice pushes the file past ~4500. The L3/root-A/L4 + PA-area eval batch
+  pushed `Eval.lean` to **4609** with the tier intact → the trigger has FIRED. Carve the
+  def-deferral tier (~600 lines) into its own module (`Kue/EvalDefer.lean` or similar),
+  leaving `Eval.lean` the core-force `mutual` block (which is NEVER split — its
+  `termination_by (fuel, tag, length)` can't cross a module boundary; see the ruling). Per
+  the ruling this buys FILE headroom, not mutual-block headroom (the growth is in the
+  unsplittable block), but it keeps the file navigable. **Pure refactor, byte-identical
+  bar** — own slice, own verify (`lake build` + full regression + cert-manager jq-S=0 +
+  wild fixtures green); do NOT do inline. Size: MED-LARGE. Sequence AFTER PA-1 (soundness)
+  and B-AUDIT-refold-1 (drift hazard).
+
+- **(PB-2) Test-org pass approaching-due — `EvalTests`/`TwoPassTests` near the 1800 cap
+  [MED-LOW, test-org].** `check-test-health.sh` caps modules at 1800 lines; `TwoPassTests`
+  is **1763** and `EvalTests` **1743** — within ~40–60 lines. The gate is green today, but
+  the next eval/two-pass-touching slice will trip the cap and BLOCK forward motion. Do the
+  periodic test-org pass PROACTIVELY: split both at natural seams (the prior org pass split
+  `TwoPassTests`→`Bug2xTests` at the Bug2-6..13 seam and `EvalTests`→`ComprehensionTests`+
+  `SortTests`; find the next contiguous seam in each). Pin-counts conserved, org-only.
+  `FixturePorts.lean` at 3875 is exempt (machine-generated data). Also the DEFERRED
+  `testdata/cue/{definitions,comprehensions}` sub-grouping (item 3) can ride this pass or
+  stay dropped. Size: MED.
+
+- **(PB-3) `architecture.md` layer numbering understates a real transitive edge [LOW,
+  doc].** `Builtin → Json → Manifest → {Format, Lattice}` and `Builtin → Yaml → Json`
+  mean `Builtin` (numbered layer 5) transitively depends on `Manifest`/`Format` (layer 6).
+  This is LEGITIMATE — `json.Marshal`/`yaml.Marshal` are export/manifestation operations,
+  so the marshalling builtins genuinely need the export phase — and it introduces NO cycle.
+  But the numbered-layer prose reads as if layer 6 strictly follows layer 5, and the
+  Durable whole-graph facts list omits the `Json → Manifest` / `Yaml → Json` /
+  `Manifest → {Format, Lattice}` edges. Add one clarifying sentence to `architecture.md`
+  (marshalling builtins depend on Manifest by design) and complete the edge list.
+  Low-risk; deferred to a doc-touching slice rather than applied inline to avoid a full
+  build re-verify for a one-line doc note. Size: XS.
+
+**Ranking incl. PA-1 and the existing B-AUDIT-refold-1:** PA-1 (HIGH, soundness) →
+B-AUDIT-refold-1 (MED, the one *active* eval-core drift hazard — a re-fold near-duplicate
+across both struct-eval arms with a history of diverging; see item-6 Borderline/LOW) →
+PB-1 (MED, file navigability) → PB-2 (MED-LOW, unblocks the gate before it trips) → PB-3
+(LOW, doc). **Periodic passes:** plan-hygiene NOT due (distilled today, 697 lines);
+perf-guide CURRENT (the recent batch is correctness-only — no new slow pattern or landed
+mitigation); resilience/retro not forced here. Test-org is the one periodic pass now due
+(PB-2).
+
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
 Sequence after the spec-conformance correctness work: bank cheap-ready cleanups, then the
