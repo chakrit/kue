@@ -180,46 +180,85 @@ check_export_fixtures() {
 }
 
 # Drive `kue export --out json` over each wild-caught regression under
-# testdata/wild/<name>/. A wild fixture ships a single `<name>.cue` repro and a `<name>.expected`
-# holding the `cue export`-matching JSON. These are spec-adjudicated captures of real-world
-# bottoms — fixtures-first, so a fix is pinned the moment it lands. Prints any diff; non-zero on
-# mismatch.
+# testdata/wild/<slug>/. Every fixture DIRECTORY is enumerated and must ship a `<slug>.cue`
+# repro plus exactly one expectation: `<slug>.expected` (spec-adjudicated JSON the export must
+# match on exit 0) or `<slug>.expected.err` (a substring the failing export's stderr must
+# contain, exit non-zero — pinning a spec-correct BOTTOM). A dir missing either half, or
+# shipping both expectation forms, FAILS the gate loudly — a typo'd/absent expected file can
+# never silently drop a fixture from the suite.
 #
-# A `<name>/.known-red` marker QUARANTINES a captured-but-unfixed case: its repro is committed
+# A `<slug>/.known-red` marker QUARANTINES a captured-but-unfixed case: its repro is committed
 # (so the next slice has its red seed) but it does not yet pass, so it is reported and SKIPPED
-# from the green gate rather than failing the whole suite. Deleting the marker (when the fix
+# from the green gate rather than failing the whole suite. The shape requirement (cue file +
+# expectation present) still applies to quarantined dirs. Deleting the marker (when the fix
 # lands) re-arms it as a permanent guard.
 check_wild_fixtures() {
   local kue_exe="${repo_root}/.lake/build/bin/kue"
   local status=0
-  local expected_file
-  local stem
+  local dir
+  local slug
   local cue_file
+  local expected_file
+  local err_file
+  local output_file
+  local stderr_output
 
   if [[ ! -d "${wild_dir}" ]]; then
     return 0
   fi
 
-  while IFS= read -r expected_file; do
-    stem="${expected_file%.expected}"
-    cue_file="${stem}.cue"
+  for dir in "${wild_dir}"/*/; do
+    slug="$(basename -- "${dir}")"
+    cue_file="${dir}${slug}.cue"
+    expected_file="${dir}${slug}.expected"
+    err_file="${dir}${slug}.expected.err"
+
     if [[ ! -f "${cue_file}" ]]; then
-      printf 'missing source for wild fixture %s\n' "${expected_file}" >&2
+      printf 'wild fixture %s has no %s.cue\n' "${dir#"${repo_root}/"}" "${slug}" >&2
       status=1
       continue
     fi
 
-    if [[ -f "$(dirname -- "${expected_file}")/.known-red" ]]; then
+    if [[ -f "${expected_file}" && -f "${err_file}" ]]; then
+      printf 'wild fixture %s has both %s.expected and %s.expected.err; pick one\n' \
+        "${dir#"${repo_root}/"}" "${slug}" "${slug}" >&2
+      status=1
+      continue
+    fi
+
+    if [[ ! -f "${expected_file}" && ! -f "${err_file}" ]]; then
+      printf 'wild fixture %s has neither %s.expected nor %s.expected.err\n' \
+        "${dir#"${repo_root}/"}" "${slug}" "${slug}" >&2
+      status=1
+      continue
+    fi
+
+    if [[ -f "${dir}.known-red" ]]; then
       printf 'wild fixture %s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
         "${cue_file#"${repo_root}/"}" >&2
       continue
     fi
 
-    if ! diff -u "${expected_file}" \
-      <("${kue_exe}" export --out json "${cue_file}"); then
-      status=1
+    if [[ -f "${expected_file}" ]]; then
+      output_file="$(mktemp)"
+      if ! "${kue_exe}" export --out json "${cue_file}" >"${output_file}"; then
+        printf 'wild fixture %s: kue export exited non-zero\n' "${cue_file#"${repo_root}/"}" >&2
+        status=1
+      elif ! diff -u "${expected_file}" "${output_file}"; then
+        status=1
+      fi
+      rm -f -- "${output_file}"
+    else
+      if stderr_output="$("${kue_exe}" export --out json "${cue_file}" 2>&1 >/dev/null)"; then
+        printf 'wild fixture %s expected an error but succeeded\n' "${cue_file#"${repo_root}/"}" >&2
+        status=1
+      elif [[ "${stderr_output}" != *"$(cat "${err_file}")"* ]]; then
+        printf 'wild fixture %s error mismatch: got %q\n' \
+          "${cue_file#"${repo_root}/"}" "${stderr_output}" >&2
+        status=1
+      fi
     fi
-  done < <(find "${wild_dir}" -name '*.expected' -type f | sort)
+  done
 
   return "${status}"
 }

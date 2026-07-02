@@ -22,4 +22,8 @@ Layout per case — `testdata/wild/<slug>/`:
 - `<slug>.expected` — the spec-correct output (the assertion).
 - `PROVENANCE.md` — one line: source app + date + the CUE construct at fault + spec basis.
 
-Registered in `Kue/Tests/FixturePorts.lean` and exercised by `scripts/check-fixtures.sh`.
+AUTO-DISCOVERED by `check_wild_fixtures` in `scripts/check-fixtures.sh` — every
+non-quarantined `<slug>/` dir is enforced (a `.known-red` marker quarantines a
+captured-but-unfixed case; delete it when the fix lands to re-arm the guard). No
+registration step. Wild fixtures are enforced ONLY by that shell gate — `lake build`
+never sees them.
