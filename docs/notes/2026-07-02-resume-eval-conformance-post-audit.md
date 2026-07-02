@@ -1,9 +1,18 @@
-# RESUME HERE — eval-conformance front; L5 seed captured; docs re-baselined (2026-07-02)
+# RESUME HERE — eval-conformance front; 2026-07-02 audit campaign FULLY DISCHARGED
 
 The live START-HERE. Supersedes
 [`2026-06-25-resume-b3d-registry-fetch-active.md`](2026-06-25-resume-b3d-registry-fetch-active.md).
 Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 [`../reference/implementation-log.md`](../reference/implementation-log.md).
+
+> **2026-07-02 audit + fix-slice campaign COMPLETE.** The full-repo audit (design record,
+> reference/guides, code/skill-compliance, fixtures) and BOTH eval-batch audit phases (A
+> correctness, B architecture) are done, and every fix-slice they filed has landed:
+> repair batch (a)–(e), PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 — all DONE. **No
+> audit-filed fix-slice remains open.** What's genuinely next is chakrit's two parked
+> decisions (Open #1: L5+ campaign vs reprioritize vs accept; protocol amendments), or —
+> if those stay parked — pulling from the standing backlog / plan-only roadmap (B3d-6b MVS
+> wiring, item-6 LOW list). Nothing below this line is a blocker; it's the closed record.
 
 ## State
 
@@ -70,11 +79,15 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    `hasSelfRefAtDepth` mutual = 692; `EvalBase.lean` = shared base machinery = 2451). FINDING:
    the tier is not independently separable (depends on base helpers the core force also uses →
    isolating it alone cycles); `EvalBase` breaks the cycle, hence 3 modules not 1. Byte-identical:
-   build clean, full regression + wild green, cert-manager jq-S delta = 0. → next step:
-   PB-2 (test-org pass — split `TwoPassTests` (1763) + `EvalTests` (1743), both near the 1800
-   cap, at their next contiguous seams; pin-counts conserved, org-only; the deferred
-   `testdata/cue/{definitions,comprehensions}` sub-grouping may ride this pass), then PB-3
-   (`architecture.md` transitive-edge doc note, XS).**
+   build clean, full regression + wild green, cert-manager jq-S delta = 0.** **PB-2 landed
+   (2026-07-02):** `TwoPassTests` 1763 → 1516 (held-residual/MEET-RESID/RESID-MASK family →
+   `ResidualTests.lean`, 21 thms; 137 = 116 + 21); `EvalTests` 1743 → 1468
+   (closedness/pattern/SC-2/SC-4 family → `ClosednessTests.lean`, 28 thms; 214 = 186 + 28);
+   pin-counts conserved, org-only, both new modules TEST-HEALTH-compliant + wired into
+   `Kue/Tests.lean`; deferred `testdata/cue` sub-grouping stayed dropped. **PB-3 landed
+   (2026-07-02):** `architecture.md` §5 got the marshalling-builtin forward-edge clarification
+   + the omitted `Json → Manifest` / `Yaml → Json` / `Manifest → {Format, Lattice}` edges.
+   **→ the 2026-07-02 Phase A/B audit fix-slice batch is now FULLY DISCHARGED.**
 3. **Audit fix-slices** in plan.md Live Backlog. **(a) TEST-HEALTH retrofit +
    `scripts/check-test-health.sh` gate — DONE (2026-07-02):** all 33 hand-authored test
    modules converted to `--` headers, per-section `#check` tripwires added, gate enforces

@@ -433,34 +433,42 @@ CLOSED; the newtype candidates are filed on B3d-6b). Three fresh findings:
   wild fixtures green); do NOT do inline. Size: MED-LARGE. Sequence AFTER PA-1 (soundness)
   and B-AUDIT-refold-1 (drift hazard).
 
-- **(PB-2) Test-org pass approaching-due — `EvalTests`/`TwoPassTests` near the 1800 cap
-  [MED-LOW, test-org].** `check-test-health.sh` caps modules at 1800 lines; `TwoPassTests`
-  is **1763** and `EvalTests` **1743** — within ~40–60 lines. The gate is green today, but
-  the next eval/two-pass-touching slice will trip the cap and BLOCK forward motion. Do the
-  periodic test-org pass PROACTIVELY: split both at natural seams (the prior org pass split
-  `TwoPassTests`→`Bug2xTests` at the Bug2-6..13 seam and `EvalTests`→`ComprehensionTests`+
-  `SortTests`; find the next contiguous seam in each). Pin-counts conserved, org-only.
-  `FixturePorts.lean` at 3875 is exempt (machine-generated data). Also the DEFERRED
-  `testdata/cue/{definitions,comprehensions}` sub-grouping (item 3) can ride this pass or
-  stay dropped. Size: MED.
+- **(PB-2) Test-org pass — DONE (2026-07-02).** Split both near-cap modules at natural
+  seams, pin-counts conserved (org-only, zero behavior change): `TwoPassTests` 1763 → **1516**
+  carved the held-residual / MEET-RESID / RESID-MASK family into `Kue/Tests/ResidualTests.lean`
+  (21 theorems; 137 = 116 + 21); `EvalTests` 1743 → **1468** carved the struct-closedness /
+  pattern-constraint / SC-2/SC-4 def-closing family into `Kue/Tests/ClosednessTests.lean`
+  (28 theorems; 214 = 186 + 28). Both new modules mirror the TEST-HEALTH CONVENTION
+  (`--` headers, per-section `#check @` tripwires); EvalTests got fresh tripwires since all
+  three of its old anchors moved with the SC-4 section. Wired into `Kue/Tests.lean`
+  alphabetically. `check-test-health.sh` green, both sources comfortably under the cap
+  (~280–330 lines of headroom). The DEFERRED `testdata/cue/{definitions,comprehensions}`
+  sub-grouping (item 3) stays dropped — not trivial enough to ride this pass. Original filing:
+  `check-test-health.sh` caps modules at 1800 lines; `TwoPassTests` was **1763** and
+  `EvalTests` **1743** — the next eval/two-pass-touching slice would have tripped the cap and
+  BLOCKED forward motion. `FixturePorts.lean` at 3875 is exempt (machine-generated data).
+  Size: MED.
 
-- **(PB-3) `architecture.md` layer numbering understates a real transitive edge [LOW,
-  doc].** `Builtin → Json → Manifest → {Format, Lattice}` and `Builtin → Yaml → Json`
-  mean `Builtin` (numbered layer 5) transitively depends on `Manifest`/`Format` (layer 6).
-  This is LEGITIMATE — `json.Marshal`/`yaml.Marshal` are export/manifestation operations,
-  so the marshalling builtins genuinely need the export phase — and it introduces NO cycle.
-  But the numbered-layer prose reads as if layer 6 strictly follows layer 5, and the
-  Durable whole-graph facts list omits the `Json → Manifest` / `Yaml → Json` /
-  `Manifest → {Format, Lattice}` edges. Add one clarifying sentence to `architecture.md`
-  (marshalling builtins depend on Manifest by design) and complete the edge list.
-  Low-risk; deferred to a doc-touching slice rather than applied inline to avoid a full
-  build re-verify for a one-line doc note. Size: XS.
+- **(PB-3) `architecture.md` layer numbering understates a real transitive edge — DONE
+  (2026-07-02).** Added the clarifying sentence to §5 (Builtin): the marshalling builtins
+  are a deliberate forward edge into the export layer (`json.Marshal`/`yaml.Marshal` ARE
+  export operations, legitimate layering, not a cycle), and recorded the omitted durable
+  edges `Json → Manifest`, `Yaml → Json`, `Manifest → {Format, Lattice}`. (There is no
+  standalone "Durable whole-graph facts" heading in `architecture.md`; the DAG edge facts
+  are stated inline per layer, so the omitted edges landed at the origin of the
+  understatement, §5.) Original filing: `Builtin → Json → Manifest → {Format, Lattice}` and
+  `Builtin → Yaml → Json` mean `Builtin` (layer 5) transitively depends on `Manifest`/
+  `Format` (layer 6); the numbered-layer prose read as if layer 6 strictly follows layer 5.
+  Size: XS.
 
 **Ranking incl. PA-1 and the existing B-AUDIT-refold-1:** PA-1 (HIGH, soundness) →
 B-AUDIT-refold-1 (MED, the one *active* eval-core drift hazard — a re-fold near-duplicate
 across both struct-eval arms with a history of diverging; see item-6 Borderline/LOW) →
 PB-1 (DONE) → PB-2 (MED-LOW, unblocks the gate before it trips) → PB-3
-(LOW, doc). **Periodic passes:** plan-hygiene NOT due (distilled today, 697 lines);
+(LOW, doc). **The 2026-07-02 Phase A/B audit fix-slice batch is now FULLY DISCHARGED**
+— PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 all DONE (2026-07-02). No audit-filed
+fix-slice remains open; next work comes from the standing backlog (L5/protocol, B3d-6b,
+item-6 LOW list) or the plan-only roadmap, not this audit. **Periodic passes:** plan-hygiene NOT due (distilled today, 697 lines);
 perf-guide CURRENT (the recent batch is correctness-only — no new slow pattern or landed
 mitigation); resilience/retro not forced here. Test-org is the one periodic pass now due
 (PB-2).

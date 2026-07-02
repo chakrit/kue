@@ -15711,3 +15711,65 @@ byte-identical by construction.
 pairs ok`, zero delta, wild fixtures green). `check-test-health.sh` ok. cert-manager canary
 `jq -S` diff vs `cue` = 0 (empty). No scripts touched (shellcheck n/a). Committed on `main`,
 not pushed.
+
+---
+
+## Completed Slice: PB-2 test-org split + PB-3 architecture.md edge note
+
+Goal: land the last two 2026-07-02 Phase A/B audit fix-slices — proactively split the two
+near-cap test modules (PB-2) and complete the architecture doc's transitive-edge record
+(PB-3) — discharging the audit fix-slice batch in full.
+
+### PB-2 — test-org split (org-only, pin-counts conserved, zero behavior change)
+
+`scripts/check-test-health.sh` caps `Kue/Tests/*.lean` at 1800 lines; `TwoPassTests`
+(1763) and `EvalTests` (1743) were within ~40–60 lines of tripping the gate and blocking
+the next eval/two-pass-touching slice. Split both at their next contiguous natural seams:
+
+- `Kue/Tests/TwoPassTests.lean` 1763 → **1516**. Carved the held-residual / MEET-RESID /
+  RESID-MASK family (a HELD `.structComp` residual survives `meet`; dead residual
+  disjunction arms masked/pruned without over-holding a real conflict) into
+  **`Kue/Tests/ResidualTests.lean`** (21 theorems). Conservation: 137 = 116 + 21.
+- `Kue/Tests/EvalTests.lean` 1743 → **1468**. Carved the struct-closedness /
+  pattern-constraint / B2.2-pattern-path / B6-depth / SC-2 / SC-4 def-closing family into
+  **`Kue/Tests/ClosednessTests.lean`** (28 theorems). Conservation: 214 = 186 + 28.
+  All three of EvalTests's original `#check` tripwires anchored SC-4 theorems that moved
+  with the carve, so EvalTests received fresh tripwires (arith operand deferral,
+  comparison/unary, lazy sibling meet) to keep `check_tripwires` satisfied; the three SC-4
+  anchors moved into ClosednessTests.
+
+Both new modules mirror the TEST-HEALTH CONVENTION exactly (imports mirror `Bug2xTests`;
+`--` line-comment section headers; per-section end-of-file `#check @<last-theorem>`
+tripwires; single `namespace Kue`). Wired into the test aggregator `Kue/Tests.lean`
+alphabetically (`ClosednessTests` after `CliTests`; `ResidualTests` after `RegistryTests`).
+The DEFERRED `testdata/cue/{definitions,comprehensions}` sub-grouping (audit item 3) stayed
+dropped — not trivial enough to ride this pass. `FixturePorts.lean` (3903) is generated-data
+exempt and untouched.
+
+### PB-3 — architecture.md transitive-edge note (doc, XS)
+
+`Builtin → Json → Manifest → {Format, Lattice}` and `Builtin → Yaml → Json` mean `Builtin`
+(numbered layer 5) transitively depends on `Manifest`/`Format` (layer 6); the numbered-layer
+prose read as if layer 6 strictly follows layer 5. Added one clarifying sentence to §5 (the
+Builtin paragraph): the marshalling builtins are a deliberate forward edge into the export
+layer because `json.Marshal`/`yaml.Marshal` ARE export operations — legitimate layering, not
+a cycle — and recorded the omitted durable edges `Json → Manifest`, `Yaml → Json`,
+`Manifest → {Format, Lattice}`. (There is no standalone "Durable whole-graph facts" heading
+in `architecture.md`; the DAG edge facts are stated inline per layer, so the omitted edges
+landed at the origin of the understatement, §5.)
+
+### Verification
+
+`lake build` exit 0 (148 jobs, no warnings/sorry — proves every moved theorem still
+compiles and every relocated `#check` tripwire resolves). `check-fixtures.sh` ok (`fixture
+pairs ok`, zero delta — test-org touched no fixtures). `check-test-health.sh` ok — both
+split sources under the cap with ~280–330 lines of headroom, both new modules compliant.
+Theorem-count conservation confirmed via `git show HEAD:` counts (TwoPass 137, Eval 214)
+against post-split sums. No scripts touched (shellcheck n/a); cert-manager canary not
+required (no eval-core change). Committed on `main`, not pushed.
+
+### Batch status
+
+With PB-2 and PB-3 landed, the **entire 2026-07-02 Phase A/B audit fix-slice batch is
+FULLY DISCHARGED** — PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 all DONE. No audit-filed
+fix-slice remains open.

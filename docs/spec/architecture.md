@@ -106,7 +106,13 @@ builtin helpers (`close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, the `s
 `CaseTable.lean`); `Eval` dispatches resolved builtin calls and preserves incomplete ones
 as semantic values. Effectful builtins whose comparator needs `EvalM`
 (`list.Sort`/`SortStable`) are intercepted in `Eval` rather than `Builtin` (which must
-stay pure — there is no `Builtin → Eval` back-edge).
+stay pure — there is no `Builtin → Eval` back-edge). The marshalling builtins are a
+deliberate forward edge into the export layer: `Builtin → Json → Manifest → {Format,
+Lattice}` and `Builtin → Yaml → Json` mean `Builtin` (layer 5) transitively depends on
+`Manifest`/`Format` (layer 6) — because `json.Marshal`/`yaml.Marshal` ARE export
+operations, so a marshalling builtin genuinely needs the export phase; this is legitimate
+layering, not a cycle. Durable whole-graph edges from this: `Json → Manifest`, `Yaml →
+Json`, `Manifest → {Format, Lattice}`.
 
 ### 6. Manifestation and formatting — `Manifest.lean`, `Format.lean`
 

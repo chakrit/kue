@@ -5,6 +5,7 @@ import Kue.Tests.Bug2xTests
 import Kue.Tests.BuiltinTests
 import Kue.Tests.BytesTests
 import Kue.Tests.CliTests
+import Kue.Tests.ClosednessTests
 import Kue.Tests.ClosureTests
 import Kue.Tests.ComprehensionTests
 import Kue.Tests.EvalPerfTests
@@ -28,6 +29,7 @@ import Kue.Tests.ParseTests
 import Kue.Tests.PresenceTests
 import Kue.Tests.RegexTests
 import Kue.Tests.RegistryTests
+import Kue.Tests.ResidualTests
 import Kue.Tests.ResolveTests
 import Kue.Tests.RuntimeTests
 import Kue.Tests.Sha256Tests
