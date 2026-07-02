@@ -306,12 +306,16 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
 
 ### Fix-slices from the 2026-07-02 design-record audit (ranked)
 
-- **(a) TEST-HEALTH retrofit + machine enforcement [MED, mechanical].** Convert the
-  remaining ~23 `Kue/Tests/*.lean` block-comment section headers to `--` line comments,
-  add per-section end-of-file `#check` tripwires to ALL test modules, and add a
-  `scripts/check-test-health.sh` grep gate (headers, tripwires, size cap ~1800 lines)
-  wired into the verify step. Completes the TEST-HEALTH CONVENTION (item 3 below) with
-  enforcement instead of convention-by-memory.
+- **(a) TEST-HEALTH retrofit + machine enforcement — DONE (2026-07-02).** All 33
+  hand-authored `Kue/Tests/*.lean` modules converted to `--` line-comment section headers
+  (zero block comments remain; `FixturePorts.lean` is generated data, exempt), per-section
+  end-of-file `#check` tripwires added to every theorem-bearing module (anchored to each
+  `/-!`-delimited section's last theorem; anonymous-`example`-only modules carry none, as
+  no name can anchor `#check`), and `scripts/check-test-health.sh` added enforcing all
+  three (no `^[[:space:]]*/-` block comments, tripwire presence where named theorems exist,
+  ≤1800-line cap). Wired into the verify sequence (CLAUDE.md, slice-loop, lean4-guide,
+  RELEASE, README). Completes the TEST-HEALTH CONVENTION (item 3 below) with a script gate
+  instead of convention-by-memory. Detail in the implementation-log.
 - **(b) Enumerate value-producing `| _ =>` catch-alls [MED].** `Eval.lean` has ~76 (e.g.
   `selectFromConcrete` :790, :856), `Lattice.lean` 14 (e.g. :139/:619), `Builtin.lean`
   13. Explicit ctor enumeration per the standing rule (a new `Value` ctor must force a
@@ -350,7 +354,8 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
    LINE comments, never `/-- -/`/`/-! -/` block comments (a line comment cannot swallow
    the next theorem); every test module carries an end-of-file `#check
    @<last-theorem-per-section>` tripwire. Recorded in
-   `docs/reference/failure-modes.md`; machine enforcement is audit fix-slice (a) above.
+   `docs/reference/failure-modes.md`; machine enforcement LANDED via fix-slice (a) above
+   (`scripts/check-test-health.sh`, repo-wide retrofit).
    **Remaining sub-item (DEFERRED, optional):** sub-grouping `testdata/cue/{definitions,
    comprehensions}` into nested subdirs — high-blast-radius (`FixturePorts.lean`'s
    `fileName` strings are the join key, ~77 fixtures); deferred per "DEFER rather than

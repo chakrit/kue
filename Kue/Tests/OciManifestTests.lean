@@ -1,28 +1,28 @@
 import Kue.Oci
 
-/-!
-# OCI image-manifest parsing tests (B3d-2)
-
-`native_decide`/`#guard` pins for the PURE, offline OCI manifest parser. Expected behavior is
-taken from cue v0.16.1's own source — the authoritative OCI protocol reference (NOT the language
-spec, so cue's code IS the spec here):
-`mod/modregistry/client.go` — `unmarshalManifest`, `isModule`, `isModuleFile`, the 2-layer
-invariant in `GetModuleWithManifest`, and the manifest construction in `putCheckedModule`
-(`config.mediaType == "application/vnd.cue.module.v1+json"`; `layers[0]` zip / `layers[1]`
-`application/vnd.cue.modulefile.v1`).
--/
+--
+-- # OCI image-manifest parsing tests (B3d-2)
+--
+-- `native_decide`/`#guard` pins for the PURE, offline OCI manifest parser. Expected behavior is
+-- taken from cue v0.16.1's own source — the authoritative OCI protocol reference (NOT the language
+-- spec, so cue's code IS the spec here):
+-- `mod/modregistry/client.go` — `unmarshalManifest`, `isModule`, `isModuleFile`, the 2-layer
+-- invariant in `GetModuleWithManifest`, and the manifest construction in `putCheckedModule`
+-- (`config.mediaType == "application/vnd.cue.module.v1+json"`; `layers[0]` zip / `layers[1]`
+-- `application/vnd.cue.modulefile.v1`).
+--
 
 namespace Kue
 namespace Oci
 
-/-! ## Fixtures: representative OCI image-manifest JSON (cue's `putCheckedModule` shape)
+-- ## Fixtures: representative OCI image-manifest JSON (cue's `putCheckedModule` shape)
+--
+-- These mirror the exact JSON `json.Marshal` produces for cue's `ocispec.Manifest`: a scratch
+-- `{}` config tagged `application/vnd.cue.module.v1+json`, then two layers — the module zip and
+-- the `cue.mod/module.cue` file. Digests are real `sha256:<hex>` strings (preserved verbatim so
+-- B3d-4 can compare `Sha256.digestString blob` against them).
 
-    These mirror the exact JSON `json.Marshal` produces for cue's `ocispec.Manifest`: a scratch
-    `{}` config tagged `application/vnd.cue.module.v1+json`, then two layers — the module zip and
-    the `cue.mod/module.cue` file. Digests are real `sha256:<hex>` strings (preserved verbatim so
-    B3d-4 can compare `Sha256.digestString blob` against them). -/
-
-/-- A well-formed 2-layer CUE module manifest. -/
+-- A well-formed 2-layer CUE module manifest.
 private def goodManifest : String :=
   "{\"schemaVersion\":2," ++
   "\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\"," ++
@@ -37,7 +37,7 @@ private def goodManifest : String :=
       "\"digest\":\"sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae\"," ++
       "\"size\":57}]}"
 
-/-- config mediaType is NOT the CUE module artifact type → not a module. -/
+-- config mediaType is NOT the CUE module artifact type → not a module.
 private def notAModuleManifest : String :=
   "{\"schemaVersion\":2," ++
   "\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\"," ++
@@ -52,7 +52,7 @@ private def notAModuleManifest : String :=
       "\"digest\":\"sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae\"," ++
       "\"size\":57}]}"
 
-/-- No `application/zip` layer (both layers are the modulefile type). -/
+-- No `application/zip` layer (both layers are the modulefile type).
 private def noZipManifest : String :=
   "{\"schemaVersion\":2," ++
   "\"config\":{\"mediaType\":\"application/vnd.cue.module.v1+json\"," ++
@@ -63,7 +63,7 @@ private def noZipManifest : String :=
     "{\"mediaType\":\"application/vnd.cue.modulefile.v1\"," ++
       "\"digest\":\"sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae\",\"size\":57}]}"
 
-/-- Two `application/zip` layers — ambiguous, must not silently pick one. -/
+-- Two `application/zip` layers — ambiguous, must not silently pick one.
 private def twoZipManifest : String :=
   "{\"schemaVersion\":2," ++
   "\"config\":{\"mediaType\":\"application/vnd.cue.module.v1+json\"," ++
@@ -74,7 +74,7 @@ private def twoZipManifest : String :=
     "{\"mediaType\":\"application/zip\"," ++
       "\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"size\":99}]}"
 
-/-! ## Well-formed manifest: parse + typed descriptors -/
+-- ## Well-formed manifest: parse + typed descriptors
 
 -- A well-formed manifest parses, and the parsed config mediaType is the CUE module artifact type.
 theorem parses_good_manifest :
@@ -120,7 +120,7 @@ theorem zip_digest_preserved_verbatim :
       | .error _ => false) = true := by
   native_decide
 
-/-! ## config mediaType ≠ module type → typed "not a module" error -/
+-- ## config mediaType ≠ module type → typed "not a module" error
 
 -- It still PARSES (it's valid JSON / valid manifest shape) ...
 theorem not_a_module_parses :
@@ -139,7 +139,7 @@ theorem validate_rejects_non_module :
       | .error _ => false) = true := by
   native_decide
 
-/-! ## zip layer absent / duplicated → typed error (never silently pick one) -/
+-- ## zip layer absent / duplicated → typed error (never silently pick one)
 
 -- No `application/zip` layer → `moduleZipDescriptor` errors.
 theorem no_zip_errors :
@@ -155,7 +155,7 @@ theorem two_zip_errors :
       | .error _ => false) = true := by
   native_decide
 
-/-! ## Malformed JSON → the parse error surfaces cleanly (total, no crash) -/
+-- ## Malformed JSON → the parse error surfaces cleanly (total, no crash)
 
 theorem malformed_json_errors :
     (match parseManifest "{not valid json" with
@@ -176,7 +176,7 @@ theorem non_numeric_size_errors :
       | .error _ => true | .ok _ => false) = true := by
   native_decide
 
-/-! ## Descriptor parsing in isolation -/
+-- ## Descriptor parsing in isolation
 
 #guard (parseDescriptor (Lean.Json.mkObj
   [("mediaType", "application/zip"), ("digest", "sha256:ab"), ("size", (7 : Nat))])).toOption
@@ -186,11 +186,11 @@ theorem non_numeric_size_errors :
 #guard (match parseDescriptor (Lean.Json.mkObj [("digest", "sha256:ab"), ("size", (7 : Nat))]) with
   | .error _ => true | .ok _ => false)
 
-/-! ## OCI Distribution endpoints + curl argv (B3d-4 PURE builders)
-
-    Expected shapes from `ocirequest/create.go` (`/v2/<repo>/manifests/<tag>`,
-    `/v2/<repo>/blobs/<digest>`) and `client.go` `doRequest` (the `Accept` header set). The
-    `OciRef` inputs mirror what `Registry.resolve` produces. -/
+-- ## OCI Distribution endpoints + curl argv (B3d-4 PURE builders)
+--
+-- Expected shapes from `ocirequest/create.go` (`/v2/<repo>/manifests/<tag>`,
+-- `/v2/<repo>/blobs/<digest>`) and `client.go` `doRequest` (the `Accept` header set). The
+-- `OciRef` inputs mirror what `Registry.resolve` produces.
 
 -- A secure registry GETs the manifest over HTTPS at `/v2/<repo>/manifests/<tag>`.
 theorem manifest_url_secure :
@@ -276,5 +276,16 @@ theorem blob_curl_argv_exact :
       = true := by
   native_decide
 
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @zip_digest_preserved_verbatim   -- Well-formed manifest: parse + typed descriptors
+#check @validate_rejects_non_module     -- config mediaType ≠ module type → typed "not a mod...
+#check @two_zip_errors                  -- zip layer absent / duplicated → typed error (neve...
+#check @non_numeric_size_errors         -- Malformed JSON → the parse error surfaces cleanly...
+#check @blob_curl_argv_exact            -- OCI Distribution endpoints + curl argv (B3d-4 PUR...
+
 end Oci
+
 end Kue

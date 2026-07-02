@@ -1,11 +1,11 @@
 import Kue.Tests.EvalTestHelpers
 
-/-! # `list.Sort` / `list.SortStable` pins (BI-2)
-
-Carved out of `EvalTests.lean` (test-org pass). The comparator is a `{x, y, less}` struct
-evaluated per pair; `list.Ascending`/`list.Descending` are the predefined comparator values.
-End-to-end (parse → resolve → eval), since the sort is driven from the eval layer (the pure
-`Builtin` layer cannot evaluate the comparator). Each `.expected` is cue v0.16.1-cross-checked. -/
+-- # `list.Sort` / `list.SortStable` pins (BI-2)
+--
+-- Carved out of `EvalTests.lean` (test-org pass). The comparator is a `{x, y, less}` struct
+-- evaluated per pair; `list.Ascending`/`list.Descending` are the predefined comparator values.
+-- End-to-end (parse → resolve → eval), since the sort is driven from the eval layer (the pure
+-- `Builtin` layer cannot evaluate the comparator). Each `.expected` is cue v0.16.1-cross-checked.
 
 namespace Kue
 
@@ -92,5 +92,12 @@ theorem eval_list_ascending_is_comparator_struct :
         "out: {T: number | string, x: number | string, y: number | string, less: number | string < number | string}"
       = true := by
   native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @eval_list_ascending_is_comparator_struct   -- `list.Sort` / `list.SortStable` pins (BI-2)
 
 end Kue

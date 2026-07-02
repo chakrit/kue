@@ -128,12 +128,11 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   hard build error, not a silent green. (3) A **size limit** on test modules — a file too large
   to eyeball hides this; split when it grows (the `slice-loop.md` test-org pass, scheduled for
   `TwoPassTests` in `plan.md` item 3). Flagged for `ace-school` as a test-file
-  `general-coding` rule. **Honest coverage status (2026-07-02 audit):** the convention is
-  binding for NEW and TOUCHED test files, but the repo-wide retrofit never happened — only
-  ~4 of 37 `Kue/Tests/*.lean` files carry tripwires, and ~23 still use block-comment
-  headers (build currently green; nothing swallowed today). The retrofit plus a machine
-  gate (`scripts/check-test-health.sh`) is a filed fix-slice in `plan.md`'s Live Backlog;
-  until it lands, the unprotected files have NO guard against a recurrence.
+  `general-coding` rule. **Coverage status (2026-07-02 — RETROFIT LANDED):** the repo-wide
+  retrofit + machine gate (`scripts/check-test-health.sh`, fix-slice (a)) shipped — all
+  hand-authored `Kue/Tests/*.lean` modules now use `--` headers, every theorem-bearing
+  module carries a `#check` tripwire, and the gate (wired into the verify sequence) fails
+  the build on any regression. `FixturePorts.lean` is generated data, exempt.
 
 ## Prose-only conventions rot; script-enforced gates hold
 

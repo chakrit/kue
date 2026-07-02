@@ -62,7 +62,8 @@ Periodic, not every cycle:
 ## Slice (per subagent)
 
 Full workflow in fresh context: plan → TDD → implement → verify (`lake build` +
-`scripts/check-fixtures.sh` + `shellcheck`) → commit/push to `gh:main` → update
+`scripts/check-fixtures.sh` + `scripts/check-test-health.sh` + `shellcheck`) → commit/push
+to `gh:main` → update
 `plan.md`, `implementation-log.md`, and the breadcrumb. Four standing duties: tests are
 first-class (pin edges, not just happy path); log CUE divergences in `cue-divergences.md`;
 flag CUE spec gaps in `cue-spec-gaps.md`; when a slice changes eval cost or surfaces a

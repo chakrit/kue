@@ -29,10 +29,10 @@ theorem parse_basic_document_resolves_references :
       "#Port: int & >=0 & <=65535\nport: 8080\nname: \"api\"" = true := by
   native_decide
 
-/-- An optional definition field (`#x?`) parses with both modifiers — definition and
-    optional — and meeting the definition against a provided `#x` merges the slot to a
-    present definition. Oracle: `cue v0.16.1` evals `y` to `{#x: "hi"}`. The flat-enum
-    parser dropped the definition-ness when it saw `?`, so this never merged. -/
+-- An optional definition field (`#x?`) parses with both modifiers — definition and
+-- optional — and meeting the definition against a provided `#x` merges the slot to a
+-- present definition. Oracle: `cue v0.16.1` evals `y` to `{#x: "hi"}`. The flat-enum
+-- parser dropped the definition-ness when it saw `?`, so this never merged.
 theorem parse_optional_definition_merges_when_provided :
     parseOutputMatches
       "#D: {#x?: string}\ny: #D & {#x: \"hi\"}\n"
@@ -87,10 +87,10 @@ theorem parse_struct_reference_embedding :
       "#Base: {a: int}\nx: {a: 1}" = true := by
   native_decide
 
-/-- Field-name axes are orthogonal (CUE): `_#x` is a HIDDEN DEFINITION — both `isDefinition`
-    and `isHidden` true. The flat parser classified `_#x` as hidden-only (`isDefinition` false),
-    which dropped its definition-ness: a hidden-def embedding's sibling self-ref never deferred to
-    a closure and missed use-site narrowing (argocd `#OpaqueSecret` link 2). Pin each axis. -/
+-- Field-name axes are orthogonal (CUE): `_#x` is a HIDDEN DEFINITION — both `isDefinition`
+-- and `isHidden` true. The flat parser classified `_#x` as hidden-only (`isDefinition` false),
+-- which dropped its definition-ness: a hidden-def embedding's sibling self-ref never deferred to
+-- a closure and missed use-site narrowing (argocd `#OpaqueSecret` link 2). Pin each axis.
 theorem parse_field_class_definition :
     (parseFieldClass "#x" "#x".toList).fst == FieldClass.field true false .regular := by
   native_decide
@@ -109,60 +109,60 @@ theorem parse_static_field_alias :
       "\"not an identifier\": 4\nfoo: 4" = true := by
   native_decide
 
-/-- A `#Def: Self={…}` value alias: `Self.field` self-reference resolves within the
-    definition (the load-bearing prod9/infra pattern). -/
+-- A `#Def: Self={…}` value alias: `Self.field` self-reference resolves within the
+-- definition (the load-bearing prod9/infra pattern).
 theorem parse_value_alias_self_reference :
     parseOutputMatches
       "#D: Self={\n\tx: 5\n\ty: Self.x\n}\n"
       "#D: {x: 5, y: 5}" = true := by
   native_decide
 
-/-- A `Self.#hidden` self-reference resolves the hidden field — the `#Secret`/`#ConfigMap`
-    shape that base64/encoding builtins wrap. -/
+-- A `Self.#hidden` self-reference resolves the hidden field — the `#Secret`/`#ConfigMap`
+-- shape that base64/encoding builtins wrap.
 theorem parse_value_alias_hidden_self_reference :
     parseOutputMatches
       "#S: Self={\n\t#name: \"tls\"\n\tdata: Self.#name\n}\n"
       "#S: {#name: \"tls\", data: \"tls\"}" = true := by
   native_decide
 
-/-- A non-`Self` value alias whose name is referenced inside its own value. The alias is
-    visible within the value it labels (not to siblings, per CUE scoping). -/
+-- A non-`Self` value alias whose name is referenced inside its own value. The alias is
+-- visible within the value it labels (not to siblings, per CUE scoping).
 theorem parse_value_alias_named :
     parseOutputMatches
       "a: X={\n\tg: \"hi\"\n\te: X.g\n}\n"
       "a: {g: \"hi\", e: \"hi\"}" = true := by
   native_decide
 
-/-- The alias is visible from arbitrarily deep nested fields within its value. -/
+-- The alias is visible from arbitrarily deep nested fields within its value.
 theorem parse_value_alias_deep_nested :
     parseOutputMatches
       "a: Self={\n\tx: 1\n\tinner: {q: Self.x}\n}\n"
       "a: {x: 1, inner: {q: 1}}" = true := by
   native_decide
 
-/-- Value alias composes with B1 colon-shorthand: `b: c: Self.a` desugars under the alias. -/
+-- Value alias composes with B1 colon-shorthand: `b: c: Self.a` desugars under the alias.
 theorem parse_value_alias_with_colon_shorthand :
     parseOutputMatches
       "f: Self={\n\ta: 7\n\tb: c: Self.a\n}\n"
       "f: {a: 7, b: {c: 7}}" = true := by
   native_decide
 
-/-- A self-reference cycle through the alias terminates at top (bounded), never loops. -/
+-- A self-reference cycle through the alias terminates at top (bounded), never loops.
 theorem parse_value_alias_cycle_bounded :
     parseOutputMatches
       "a: Self={\n\tx: Self.y\n\ty: Self.x\n}\n"
       "a: {x: _, y: _}" = true := by
   native_decide
 
-/-- Regression: `a == b` stays an equality expression, NOT a `X=`-style alias. Asserted at
-    the Value level — the evaluated result is the concrete boolean. -/
+-- Regression: `a == b` stays an equality expression, NOT a `X=`-style alias. Asserted at
+-- the Value level — the evaluated result is the concrete boolean.
 theorem parse_equality_not_alias :
     parseOutputMatches
       "r: 1 == 1\ns: 1 == 2\n"
       "r: true\ns: false" = true := by
   native_decide
 
-/-- A malformed `X=` with no value expression reports a sensible line:col. -/
+-- A malformed `X=` with no value expression reports a sensible line:col.
 theorem parse_value_alias_missing_value_fails :
     parseFailsAt "a: X=\n" 2 1 = true := by
   native_decide
@@ -429,69 +429,69 @@ theorem parse_grouped_import_clause_is_ignored :
       "x: 1" = true := by
   native_decide
 
-/-! ## Qualified import-path parsing (F-3)
+-- ## Qualified import-path parsing (F-3)
+--
+-- `ImportPath = '"' ImportLocation [ ":" identifier ] '"'`: the `:identifier` qualifier is
+-- split out of the location at parse time into `Import.packageName`, leaving `path` the
+-- bare location. `isPackageIdentifier`/`splitImportPath` enforce the identifier rule.
 
-    `ImportPath = '"' ImportLocation [ ":" identifier ] '"'`: the `:identifier` qualifier is
-    split out of the location at parse time into `Import.packageName`, leaving `path` the
-    bare location. `isPackageIdentifier`/`splitImportPath` enforce the identifier rule. -/
-
-/-- A bare location parses with no qualifier; `path` is the whole location. -/
+-- A bare location parses with no qualifier; `path` is the whole location.
 theorem parse_import_bare_location :
     (parseImportSpec "\"example.com/defs\"".toList
       == .ok ({ path := "example.com/defs" }, [])) = true := by
   native_decide
 
-/-- An explicit `:identifier` qualifier is split out: `path` is the location, `packageName`
-    the qualifier. -/
+-- An explicit `:identifier` qualifier is split out: `path` is the location, `packageName`
+-- the qualifier.
 theorem parse_import_qualified_location :
     (parseImportSpec "\"example.com/defs:foo\"".toList
       == .ok ({ path := "example.com/defs", packageName := some "foo" }, [])) = true := by
   native_decide
 
-/-- The qualifier names the package even when the last path element is not itself a valid
-    identifier (the case the suffix exists for — `pkg-with-dash:pkg`). -/
+-- The qualifier names the package even when the last path element is not itself a valid
+-- identifier (the case the suffix exists for — `pkg-with-dash:pkg`).
 theorem parse_import_qualifier_for_dashed_last_element :
     (parseImportSpec "\"domain.com/pkg-with-dash:pkg\"".toList
       == .ok ({ path := "domain.com/pkg-with-dash", packageName := some "pkg" }, [])) = true := by
   native_decide
 
-/-- A `PackageName` alias prefix coexists with a `:identifier` qualifier; both are recorded. -/
+-- A `PackageName` alias prefix coexists with a `:identifier` qualifier; both are recorded.
 theorem parse_import_alias_and_qualifier :
     (parseImportSpec "bar \"example.com/defs:foo\"".toList
       == .ok ({ path := "example.com/defs", packageName := some "foo", alias := some "bar" }, [])) = true := by
   native_decide
 
-/-- An underscore-led qualifier is a legal (non-definition) identifier. -/
+-- An underscore-led qualifier is a legal (non-definition) identifier.
 theorem parse_import_underscore_qualifier :
     (parseImportSpec "\"example.com/defs:_foo\"".toList
       == .ok ({ path := "example.com/defs", packageName := some "_foo" }, [])) = true := by
   native_decide
 
-/-- A qualifier with a leading digit is not an identifier → parse error. -/
+-- A qualifier with a leading digit is not an identifier → parse error.
 theorem parse_import_invalid_digit_qualifier_errors :
     (parseImportSpec "\"example.com/defs:2bad\"".toList).isOk = false := by
   native_decide
 
-/-- A definition-identifier qualifier (`#foo`) is rejected — a PackageName may not be a
-    definition identifier. -/
+-- A definition-identifier qualifier (`#foo`) is rejected — a PackageName may not be a
+-- definition identifier.
 theorem parse_import_definition_qualifier_errors :
     (parseImportSpec "\"example.com/defs:#foo\"".toList).isOk = false := by
   native_decide
 
-/-- An empty qualifier (`location:`) is rejected. -/
+-- An empty qualifier (`location:`) is rejected.
 theorem parse_import_empty_qualifier_errors :
     (parseImportSpec "\"example.com/defs:\"".toList).isOk = false := by
   native_decide
 
-/-- An empty location (`":foo"`, no ImportLocation) is rejected — cue errors `invalid
-    import path: ":foo"`. -/
+-- An empty location (`":foo"`, no ImportLocation) is rejected — cue errors `invalid
+-- import path: ":foo"`.
 theorem parse_import_empty_location_errors :
     (parseImportSpec "\":foo\"".toList).isOk = false := by
   native_decide
 
-/-- `isPackageIdentifier` accepts a plain identifier, accepts an underscore lead and a
-    double-underscore, and rejects empty / digit-led / definition forms / the lone blank
-    identifier `_` (cue: `_ is not a valid import path qualifier`). -/
+-- `isPackageIdentifier` accepts a plain identifier, accepts an underscore lead and a
+-- double-underscore, and rejects empty / digit-led / definition forms / the lone blank
+-- identifier `_` (cue: `_ is not a valid import path qualifier`).
 theorem parse_is_package_identifier_cases :
     (isPackageIdentifier "foo" && isPackageIdentifier "_foo" && isPackageIdentifier "a1"
       && isPackageIdentifier "__"
@@ -529,8 +529,8 @@ theorem parse_error_position_unterminated_string :
     parseFailsAt "a: \"unterminated\n" 2 1 = true := by
   native_decide
 
-/-- Two sources parse to the same pre-resolution `Value` AST. The colon-shorthand
-    contract: `a: b: 1` must build exactly what `a: {b: 1}` builds. -/
+-- Two sources parse to the same pre-resolution `Value` AST. The colon-shorthand
+-- contract: `a: b: 1` must build exactly what `a: {b: 1}` builds.
 def parseSameValue (left right : String) : Bool :=
   match parseSource left, parseSource right with
   | .ok l, .ok r => l == r
@@ -582,15 +582,15 @@ theorem shorthand_prod9_metadata :
       "metadata: {name: \"api\"}\nspec: {replicas: 3}" = true := by
   native_decide
 
-/-- The `a: b` reference form is unchanged: a bare label NOT followed by `:` stays an
-    ordinary value, never a shorthand field. -/
+-- The `a: b` reference form is unchanged: a bare label NOT followed by `:` stays an
+-- ordinary value, never a shorthand field.
 theorem reference_value_not_treated_as_shorthand :
     parseOutputMatches "b: 2\na: b\n" "b: 2\na: 2" = true := by
   native_decide
 
-/-- A multiline `"""…"""` literal parses to the same `Value` AST as the single-line string
-    with the dedented content: the closing-line indentation is stripped from every content
-    line, the leading/trailing newlines are dropped, and the lines join with `\n`. -/
+-- A multiline `"""…"""` literal parses to the same `Value` AST as the single-line string
+-- with the dedented content: the closing-line indentation is stripped from every content
+-- line, the leading/trailing newlines are dropped, and the lines join with `\n`.
 theorem multiline_basic_equals_single_line :
     parseSameValue "x: \"\"\"\n\thello\n\tworld\n\t\"\"\"\n" "x: \"hello\\nworld\"\n" = true := by
   native_decide
@@ -615,68 +615,68 @@ theorem multiline_escape_applies :
     parseSameValue "x: \"\"\"\n\ta\\tb\n\t\"\"\"\n" "x: \"a\\tb\"\n" = true := by
   native_decide
 
-/-- Interpolation `\(expr)` works inside a multiline literal, building the same
-    `.interpolation` AST as the single-line form. -/
+-- Interpolation `\(expr)` works inside a multiline literal, building the same
+-- `.interpolation` AST as the single-line form.
 theorem multiline_interpolation_equals_single_line :
     parseSameValue
       "n: \"bob\"\nx: \"\"\"\n\thi \\(n)\n\tbye\n\t\"\"\"\n"
       "n: \"bob\"\nx: \"hi \\(n)\\nbye\"\n" = true := by
   native_decide
 
-/-- A `'''…'''` literal is the multiline bytes form, parsing to the same dedented bytes
-    value as the single-line bytes literal. -/
+-- A `'''…'''` literal is the multiline bytes form, parsing to the same dedented bytes
+-- value as the single-line bytes literal.
 theorem multiline_bytes_equals_single_line :
     parseSameValue "x: '''\n\tabc\n\tdef\n\t'''\n" "x: 'abc\\ndef'\n" = true := by
   native_decide
 
-/-- A content line lacking the closing-line indentation prefix is rejected, matching CUE's
-    "invalid whitespace". The bad line `bad` is line 4 here. -/
+-- A content line lacking the closing-line indentation prefix is rejected, matching CUE's
+-- "invalid whitespace". The bad line `bad` is line 4 here.
 theorem multiline_under_indented_line_fails :
     parseFails "x: \"\"\"\n\tok\nbad\n\t\"\"\"\n" = true := by
   native_decide
 
-/-- Content on the opening-delimiter line is rejected: the delimiter must be followed by a
-    newline. -/
+-- Content on the opening-delimiter line is rejected: the delimiter must be followed by a
+-- newline.
 theorem multiline_content_on_opening_line_fails :
     parseFailsAt "x: \"\"\"hi\n\t\"\"\"\n" 1 7 = true := by
   native_decide
 
-/-- Interpolation inside multiline bytes is a documented deferral, rejected at parse. -/
+-- Interpolation inside multiline bytes is a documented deferral, rejected at parse.
 theorem multiline_bytes_interpolation_deferred :
     parseFails "n: 5\nx: '''\n\tv\\(n)\n\t'''\n" = true := by
   native_decide
 
-/-- SC-1d: a pattern def with a `...` tail stays OPEN — the parser must PRESERVE the `...` when
-    patterns are present (it dropped it before, building a `.regularOpen`/`none`-tail node). With
-    the tail kept the def is open-via-tail, so meeting `{extra: 5}` admits `extra` despite it
-    matching no pattern. The output echoes the retained `...`. -/
+-- SC-1d: a pattern def with a `...` tail stays OPEN — the parser must PRESERVE the `...` when
+-- patterns are present (it dropped it before, building a `.regularOpen`/`none`-tail node). With
+-- the tail kept the def is open-via-tail, so meeting `{extra: 5}` admits `extra` despite it
+-- matching no pattern. The output echoes the retained `...`.
 theorem parse_pattern_tail_stays_open :
     parseOutputMatches
       "#A: {x: int, [=~\"^a\"]: int, ...}\nout: #A & {x: 1, extra: 5}\n"
       "#A: {x: int, [=~\"^a\"]: int, ...}\nout: {x: 1, extra: 5, [=~\"^a\"]: int, ...}" = true := by
   native_decide
 
-/-- SC-1d regression guard: the SAME pattern def WITHOUT `...` still CLOSES (SC-1c). `z` neither
-    declared nor matching `[=~"^a"]` bottoms. The fix preserves the tail without re-opening the
-    no-`...` case. -/
+-- SC-1d regression guard: the SAME pattern def WITHOUT `...` still CLOSES (SC-1c). `z` neither
+-- declared nor matching `[=~"^a"]` bottoms. The fix preserves the tail without re-opening the
+-- no-`...` case.
 theorem parse_pattern_notail_closes :
     parseOutputMatches
       "#A: {x: int, [=~\"^a\"]: int}\nout: #A & {x: 1, z: 9}\n"
       "#A: {x: int, [=~\"^a\"]: int}\nout: {x: 1, z: _|_, [=~\"^a\"]: int}" = true := by
   native_decide
 
-/-- SC-1d: `...` opens the label-set but the pattern still value-constrains a MATCHING field —
-    `abc` matches `[=~"^a"]: int` so the string `"no"` bottoms. Orthogonal axes: `...` admits the
-    label, the pattern constrains the value. -/
+-- SC-1d: `...` opens the label-set but the pattern still value-constrains a MATCHING field —
+-- `abc` matches `[=~"^a"]: int` so the string `"no"` bottoms. Orthogonal axes: `...` admits the
+-- label, the pattern constrains the value.
 theorem parse_pattern_tail_value_constrains :
     parseOutputMatches
       "#A: {x: int, [=~\"^a\"]: int, ...}\nout: #A & {x: 1, abc: \"no\"}\n"
       "#A: {x: int, [=~\"^a\"]: int, ...}\nout: {x: 1, abc: _|_, [=~\"^a\"]: int, ...}" = true := by
   native_decide
 
-/-- SC-1d coherence (ILL-1): a parsed pattern+`...` struct is OPEN-via-tail with `closedClauses
-    = []` (open ⇒ closes nothing). Inspect the parsed node directly: the tail is preserved AND the
-    openness is `defOpenViaTail` AND no closed clauses leak in. -/
+-- SC-1d coherence (ILL-1): a parsed pattern+`...` struct is OPEN-via-tail with `closedClauses
+-- = []` (open ⇒ closes nothing). Inspect the parsed node directly: the tail is preserved AND the
+-- openness is `defOpenViaTail` AND no closed clauses leak in.
 theorem parse_pattern_tail_node_is_open_via_tail :
     (match parseSource "x: {a: int, [=~\"^a\"]: int, ...}\n" with
      | .ok (.struct [⟨"x", .regular, .struct _ openness tail _ closing⟩] _ _ _ _) =>
@@ -691,54 +691,54 @@ theorem parse_pattern_tail_node_is_open_via_tail :
 -- VALID hidden-field form; `#__x`/`_#__x` begin with `#`/`_#` (definition prefixes), not
 -- `__`, so they stay valid; a quoted `"__x"` is a string label, not an identifier.
 
-/-- A `__`-prefixed reference is rejected (spec: identifiers starting with `__` are reserved).
-    `cue` likewise rejects `b: __x` as `identifiers starting with '__' are reserved`. -/
+-- A `__`-prefixed reference is rejected (spec: identifiers starting with `__` are reserved).
+-- `cue` likewise rejects `b: __x` as `identifiers starting with '__' are reserved`.
 theorem parse_double_underscore_reference_reserved :
     parseFails "__x: 1\nb: __x\n" = true := by
   native_decide
 
-/-- A `__`-prefixed FIELD LABEL is rejected at parse — the reservation is on the identifier
-    spelling, regardless of position. (`cue` accepts the inline `a: __x: 1` shorthand but
-    rejects the brace form `a: { __x: 1 }`; Kue rejects both, conforming to the spec — see
-    cue-divergences.) -/
+-- A `__`-prefixed FIELD LABEL is rejected at parse — the reservation is on the identifier
+-- spelling, regardless of position. (`cue` accepts the inline `a: __x: 1` shorthand but
+-- rejects the brace form `a: { __x: 1 }`; Kue rejects both, conforming to the spec — see
+-- cue-divergences.)
 theorem parse_double_underscore_field_label_reserved :
     parseFails "__x: 1\n" = true := by
   native_decide
 
-/-- The inline nested form `a: __x: 1` is ALSO rejected — `cue` accepts it (a parser
-    inconsistency); the spec reserves `__x` everywhere. -/
+-- The inline nested form `a: __x: 1` is ALSO rejected — `cue` accepts it (a parser
+-- inconsistency); the spec reserves `__x` everywhere.
 theorem parse_double_underscore_inline_nested_reserved :
     parseFails "a: __x: 1\n" = true := by
   native_decide
 
-/-- The bare two-underscore `__` and the triple `___x` both begin with `__` → reserved. -/
+-- The bare two-underscore `__` and the triple `___x` both begin with `__` → reserved.
 theorem parse_bare_and_triple_underscore_reserved :
     (parseFails "__: 1\n" && parseFails "___x: 1\nb: ___x\n") = true := by
   native_decide
 
-/-- The reservation diagnostic anchors at the identifier (`b: __x` → the `__x` at col 4). -/
+-- The reservation diagnostic anchors at the identifier (`b: __x` → the `__x` at col 4).
 theorem parse_double_underscore_position :
     parseFailsAt "a: 1\nb: __x\n" 2 4 = true := by
   native_decide
 
-/-- BOUNDARY: a SINGLE leading underscore `_x` is the valid hidden-field identifier — it
-    must still parse and resolve. -/
+-- BOUNDARY: a SINGLE leading underscore `_x` is the valid hidden-field identifier — it
+-- must still parse and resolve.
 theorem parse_single_underscore_hidden_still_parses :
     parseSucceeds "_x: 1\nb: _x\n" = true := by
   native_decide
 
-/-- BOUNDARY: the blank identifier `_` (top) still parses. -/
+-- BOUNDARY: the blank identifier `_` (top) still parses.
 theorem parse_blank_underscore_still_parses :
     parseSucceeds "a: _\n" = true := by
   native_decide
 
-/-- BOUNDARY: `#__x` (definition prefix `#`) and `_#__x` (hidden-definition prefix `_#`)
-    begin with `#`/`_#`, NOT `__`, so they are NOT reserved — both still parse. -/
+-- BOUNDARY: `#__x` (definition prefix `#`) and `_#__x` (hidden-definition prefix `_#`)
+-- begin with `#`/`_#`, NOT `__`, so they are NOT reserved — both still parse.
 theorem parse_definition_prefixed_double_underscore_still_parses :
     (parseSucceeds "#__x: 5\nb: #__x\n" && parseSucceeds "_#__x: 5\nb: _#__x\n") = true := by
   native_decide
 
-/-- BOUNDARY: a QUOTED label `"__x"` is a string, not an identifier — not reserved. -/
+-- BOUNDARY: a QUOTED label `"__x"` is a string, not an identifier — not reserved.
 theorem parse_quoted_double_underscore_label_still_parses :
     parseSucceeds "\"__x\": 1\n" = true := by
   native_decide
@@ -749,53 +749,53 @@ theorem parse_quoted_double_underscore_label_still_parses :
 -- alternatives to prefer and `cue` rejects it at parse with `preference mark not allowed at
 -- this position`. A marked disjunct WITH siblings stays valid.
 
-/-- `*(1|2)` is rejected: the mark is on a parenthesized group that is the SOLE disjunct, not
-    an element of a disjunction. `cue`: `preference mark not allowed at this position`. -/
+-- `*(1|2)` is rejected: the mark is on a parenthesized group that is the SOLE disjunct, not
+-- an element of a disjunction. `cue`: `preference mark not allowed at this position`.
 theorem parse_default_mark_on_sole_paren_group_rejected :
     parseFails "x: *(1|2)\n" = true := by
   native_decide
 
-/-- `*("a"|"b")` (string variant) and `*({a:1}|{b:2})` (struct variant) are rejected the same
-    way — the mark sits on a sole parenthesized-group disjunct. -/
+-- `*("a"|"b")` (string variant) and `*({a:1}|{b:2})` (struct variant) are rejected the same
+-- way — the mark sits on a sole parenthesized-group disjunct.
 theorem parse_default_mark_on_paren_group_variants_rejected :
     (parseFails "x: *(\"a\"|\"b\")\n" && parseFails "x: *({a:1}|{b:2})\n") = true := by
   native_decide
 
-/-- `*1` (a single disjunct marked, no `|` sibling) is rejected — there is nothing to prefer
-    it over. -/
+-- `*1` (a single disjunct marked, no `|` sibling) is rejected — there is nothing to prefer
+-- it over.
 theorem parse_default_mark_on_single_disjunct_rejected :
     (parseFails "x: *1\n" && parseFails "x: *(1)\n") = true := by
   native_decide
 
-/-- The rejection anchors at the leading `*` (`x: *(1|2)` → col 4). -/
+-- The rejection anchors at the leading `*` (`x: *(1|2)` → col 4).
 theorem parse_default_mark_rejected_position :
     parseFailsAt "x: *(1|2)\n" 1 4 = true := by
   native_decide
 
-/-- BOUNDARY: `*1 | 2` (mark on a disjunct WITH a sibling) parses to the marked disjunction
-    AST intact — the canonical valid default. (Eval-collapse to `1` is pinned in the
-    disjunction-default suites; here the parse-level round-trip preserves the mark.) -/
+-- BOUNDARY: `*1 | 2` (mark on a disjunct WITH a sibling) parses to the marked disjunction
+-- AST intact — the canonical valid default. (Eval-collapse to `1` is pinned in the
+-- disjunction-default suites; here the parse-level round-trip preserves the mark.)
 theorem parse_default_mark_valid_two_disjuncts :
     parseOutputMatches "x: *1 | 2\n" "x: *1 | 2" = true := by
   native_decide
 
-/-- BOUNDARY: a valid string default `*"a" | "b"` and a list default `*[1] | [2]` both parse,
-    preserving the mark. -/
+-- BOUNDARY: a valid string default `*"a" | "b"` and a list default `*[1] | [2]` both parse,
+-- preserving the mark.
 theorem parse_default_mark_valid_string_and_list :
     (parseOutputMatches "x: *\"a\" | \"b\"\n" "x: *\"a\" | \"b\""
       && parseOutputMatches "x: *[1] | [2]\n" "x: *[1] | [2]") = true := by
   native_decide
 
-/-- BOUNDARY: a parenthesized whole disjunction `(*1 | 2)` is valid — the `*` marks the inner
-    disjunct `1`, which has the sibling `2`. The parens dissolve, leaving the marked
-    disjunction. -/
+-- BOUNDARY: a parenthesized whole disjunction `(*1 | 2)` is valid — the `*` marks the inner
+-- disjunct `1`, which has the sibling `2`. The parens dissolve, leaving the marked
+-- disjunction.
 theorem parse_default_mark_valid_inside_parens :
     parseOutputMatches "x: (*1 | 2)\n" "x: *1 | 2" = true := by
   native_decide
 
-/-- BOUNDARY: `*(1|2) | 3` PARSES (the mark is on a disjunct that has the sibling `3`); the
-    `*(1|2)` default being itself an unresolved disjunction is an EVAL concern, not a parse
-    error — matching `cue`, which parse-accepts and reports an incomplete value downstream. -/
+-- BOUNDARY: `*(1|2) | 3` PARSES (the mark is on a disjunct that has the sibling `3`); the
+-- `*(1|2)` default being itself an unresolved disjunction is an EVAL concern, not a parse
+-- error — matching `cue`, which parse-accepts and reports an incomplete value downstream.
 theorem parse_default_mark_group_with_sibling_parses :
     parseSucceeds "x: *(1|2) | 3\n" = true := by
   native_decide
@@ -806,9 +806,9 @@ theorem parse_default_mark_group_with_sibling_parses :
 -- the canonical family name BEFORE the alias-blind `BuiltinFamily.ofName?` dispatch. These pin
 -- the unit pieces (the alias map + the head rewrite) and the end-to-end resolution per family.
 
-/-- The alias map records `(asWritten, canonical)` ONLY for a builtin import aliased to a
-    non-canonical head; an unaliased builtin (head == canonical) and a user import (non-builtin
-    path) contribute nothing — the boundary that keeps a user package from being misdispatched. -/
+-- The alias map records `(asWritten, canonical)` ONLY for a builtin import aliased to a
+-- non-canonical head; an unaliased builtin (head == canonical) and a user import (non-builtin
+-- path) contribute nothing — the boundary that keeps a user package from being misdispatched.
 theorem builtin_import_local_names_maps_only_aliased_builtins :
     (builtinImportLocalNames [⟨"encoding/json", none, some "j"⟩]
         == [("j", "json")])
@@ -822,8 +822,8 @@ theorem builtin_import_local_names_maps_only_aliased_builtins :
           == [("strings", "json")]) = true := by
   native_decide
 
-/-- The head rewrite swaps the alias for its canonical package, keeps the leaf, and leaves an
-    unmapped head or a name with no `.` untouched. -/
+-- The head rewrite swaps the alias for its canonical package, keeps the leaf, and leaves an
+-- unmapped head or a name with no `.` untouched.
 theorem canonicalize_builtin_call_name_rewrites_only_mapped_head :
     (canonicalizeBuiltinCallName [("j", "json")] "j.Marshal" == "json.Marshal")
       && (canonicalizeBuiltinCallName [("j", "json")] "json.Marshal" == "json.Marshal")
@@ -831,8 +831,8 @@ theorem canonicalize_builtin_call_name_rewrites_only_mapped_head :
       && (canonicalizeBuiltinCallName [("j", "json")] "len" == "len") = true := by
   native_decide
 
-/-- End-to-end: an aliased builtin call resolves identically to the unaliased form, across every
-    package family (`json`/`strings`/`math`/`list`/`base64`/`yaml`). -/
+-- End-to-end: an aliased builtin call resolves identically to the unaliased form, across every
+-- package family (`json`/`strings`/`math`/`list`/`base64`/`yaml`).
 theorem parse_aliased_builtin_call_resolves_like_unaliased :
     (parseOutputMatches "import j \"encoding/json\"\nout: j.Marshal({a: 1})\n"
         "out: \"{\\\"a\\\":1}\"")
@@ -847,20 +847,20 @@ theorem parse_aliased_builtin_call_resolves_like_unaliased :
         = true := by
   native_decide
 
-/-- BINDING, not spelling: when an alias's text collides with ANOTHER builtin's canonical name,
-    the call dispatches by the import's PATH, not the spelling. `import json "strings"` binds
-    `json` to the `strings` package, so `json.ToUpper` is `strings.ToUpper`, NOT a json call; and
-    the inverse `import strings "encoding/json"` makes `strings.Marshal` a json marshal. The single
-    highest wrong-dispatch risk — pinned end-to-end. -/
+-- BINDING, not spelling: when an alias's text collides with ANOTHER builtin's canonical name,
+-- the call dispatches by the import's PATH, not the spelling. `import json "strings"` binds
+-- `json` to the `strings` package, so `json.ToUpper` is `strings.ToUpper`, NOT a json call; and
+-- the inverse `import strings "encoding/json"` makes `strings.Marshal` a json marshal. The single
+-- highest wrong-dispatch risk — pinned end-to-end.
 theorem parse_aliased_builtin_call_dispatches_by_binding_not_spelling :
     (parseOutputMatches "import json \"strings\"\nout: json.ToUpper(\"hi\")\n" "out: \"HI\"")
       && parseOutputMatches "import strings \"encoding/json\"\nout: strings.Marshal({a: 1})\n"
         "out: \"{\\\"a\\\":1}\"" = true := by
   native_decide
 
-/-- BOUNDARY: the unaliased builtin is unchanged, and an aliased USER import is NOT rewritten to a
-    builtin — `f.Bar` stays a deferred selector (here `f` is unbound, so it resolves to `_|_`,
-    never a marshaled string). -/
+-- BOUNDARY: the unaliased builtin is unchanged, and an aliased USER import is NOT rewritten to a
+-- builtin — `f.Bar` stays a deferred selector (here `f` is unbound, so it resolves to `_|_`,
+-- never a marshaled string).
 theorem parse_unaliased_builtin_and_aliased_user_import_unchanged :
     (parseOutputMatches "import \"encoding/json\"\nout: json.Marshal({a: 1})\n"
         "out: \"{\\\"a\\\":1}\"")
@@ -874,9 +874,9 @@ theorem parse_unaliased_builtin_and_aliased_user_import_unchanged :
 -- "Ascending"`. The post-parse pass maps the alias head back to the canonical package and
 -- re-resolves, so an aliased constant yields the same comparator struct as the unaliased form.
 
-/-- The constant re-resolution maps a builtin-alias head to its canonical package and looks up
-    the stdlib constant; a non-builtin alias (absent from the map) and an unmapped/non-constant
-    label return `none` — the boundary that leaves a user import's `f.Ascending` untouched. -/
+-- The constant re-resolution maps a builtin-alias head to its canonical package and looks up
+-- the stdlib constant; a non-builtin alias (absent from the map) and an unmapped/non-constant
+-- label return `none` — the boundary that leaves a user import's `f.Ascending` untouched.
 theorem canonicalize_builtin_const_resolves_only_aliased_stdlib :
     (canonicalizeBuiltinConst? [("l", "list")] "l" "Ascending"
         == stdlibPackageValue? "list" "Ascending")
@@ -889,9 +889,9 @@ theorem canonicalize_builtin_const_resolves_only_aliased_stdlib :
       && (canonicalizeBuiltinConst? [] "l" "Ascending" == none) = true := by
   native_decide
 
-/-- End-to-end: an aliased stdlib constant resolves identically to the unaliased form — driving
-    `Sort` with `l.Ascending`/`l.Descending`, and a standalone `l.Comparer` (the bare comparator
-    struct, byte-identical to the unaliased `list.Comparer` rendering). -/
+-- End-to-end: an aliased stdlib constant resolves identically to the unaliased form — driving
+-- `Sort` with `l.Ascending`/`l.Descending`, and a standalone `l.Comparer` (the bare comparator
+-- struct, byte-identical to the unaliased `list.Comparer` rendering).
 theorem parse_aliased_stdlib_const_resolves_like_unaliased :
     (parseOutputMatches "import l \"list\"\nout: l.Sort([3, 1, 2], l.Ascending)\n"
         "out: [1, 2, 3]")
@@ -904,9 +904,9 @@ theorem parse_aliased_stdlib_const_resolves_like_unaliased :
         = true := by
   native_decide
 
-/-- BOUNDARY: unaliased constants are unchanged, and an aliased USER import's const-shaped member
-    (`f.Ascending`) is NOT rewritten to the stdlib comparator — `f` is absent from the builtin
-    alias map, so the selector stays deferred (resolves to `_|_`, never the comparator struct). -/
+-- BOUNDARY: unaliased constants are unchanged, and an aliased USER import's const-shaped member
+-- (`f.Ascending`) is NOT rewritten to the stdlib comparator — `f` is absent from the builtin
+-- alias map, so the selector stays deferred (resolves to `_|_`, never the comparator struct).
 theorem parse_unaliased_const_and_aliased_user_member_unchanged :
     (parseOutputMatches "import \"list\"\nout: list.Sort([3, 1, 2], list.Ascending)\n"
         "out: [1, 2, 3]")

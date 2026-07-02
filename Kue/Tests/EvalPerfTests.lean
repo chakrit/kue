@@ -7,18 +7,18 @@ import Kue.Tests.EvalTestHelpers
 
 namespace Kue
 
-/-! ### Frame-id sharing (perf B) — canonical frame identity + its soundness boundary.
+-- ### Frame-id sharing (perf B) — canonical frame identity + its soundness boundary.
+--
+-- The perf win: structurally-identical re-pushes under the same parent id-stack reuse a frame
+-- id, so the downstream `EvalKey` (keyed on `env.ids`) hits the memo instead of re-deriving an
+-- identical subtree. The deep-inline shape `{a: <body>, b: <body>}` (each level inlines the same
+-- nested struct TWICE) is the worst case: pre-sharing each inline copy keys apart → 2^depth
+-- re-pushes; shared, the second copy reuses the first's id → linear. The soundness boundary is
+-- pinned right after: id reuse must happen ONLY for genuinely-identical evaluations.
 
-The perf win: structurally-identical re-pushes under the same parent id-stack reuse a frame
-id, so the downstream `EvalKey` (keyed on `env.ids`) hits the memo instead of re-deriving an
-identical subtree. The deep-inline shape `{a: <body>, b: <body>}` (each level inlines the same
-nested struct TWICE) is the worst case: pre-sharing each inline copy keys apart → 2^depth
-re-pushes; shared, the second copy reuses the first's id → linear. The soundness boundary is
-pinned right after: id reuse must happen ONLY for genuinely-identical evaluations. -/
-
-/-- A depth-`n` deep-inline value: `root: {a: B, b: B}` where `B` recurses to depth `n`. The
-    two slots `a`/`b` carry IDENTICAL inline bodies, so frame-id sharing collapses the second
-    push into the first. -/
+-- A depth-`n` deep-inline value: `root: {a: B, b: B}` where `B` recurses to depth `n`. The
+-- two slots `a`/`b` carry IDENTICAL inline bodies, so frame-id sharing collapses the second
+-- push into the first.
 def deepInlineValue : Nat -> Value
   | 0 => mkStruct [⟨"v", .regular, .prim (.string "x")⟩] .regularOpen none []
   | n + 1 =>
@@ -54,12 +54,12 @@ theorem eval_deep_inline_value_correct :
       = "root: {a: {a: {v: \"x\"}, b: {v: \"x\"}}, b: {a: {v: \"x\"}, b: {v: \"x\"}}}" := by
   native_decide
 
-/-! ### Pass-2 selective re-eval (perf, audit PART B). The embedding-`Self` two-pass re-evaluated
-    EVERY static field against the augmented frame, so a field that never reads `Self.<embedded-
-    label>` was redundantly recomputed (a fresh frame id → no Pass-1 cache hit). The fix re-evaluates
-    ONLY the fields that depend (directly or transitively via a sibling `Self.<L>` read) on an
-    embedded label, reusing Pass-1 values for the rest — byte-identical (correctness gate: zero
-    fixture drift), eval-count reduced. -/
+-- ### Pass-2 selective re-eval (perf, audit PART B). The embedding-`Self` two-pass re-evaluated
+-- EVERY static field against the augmented frame, so a field that never reads `Self.<embedded-
+-- label>` was redundantly recomputed (a fresh frame id → no Pass-1 cache hit). The fix re-evaluates
+-- ONLY the fields that depend (directly or transitively via a sibling `Self.<L>` read) on an
+-- embedded label, reusing Pass-1 values for the rest — byte-identical (correctness gate: zero
+-- fixture drift), eval-count reduced.
 
 -- The audit's shape: an OPEN `{embed; …; ...}` def whose embed supplies `et`, with ONE field
 -- `dep: Self.et` (depends on the embedded label) and N unrelated fields `u_i: Self.base + i`
@@ -111,9 +111,9 @@ theorem selpass_value_correct :
       = "#self: @self\nbase: 100\ndep: \"z\"\nu0: 100\nu1: 101\net: \"z\"" := by
   native_decide
 
-/-- Push two frames and report `(id1, id2)`. The soundness boundary lives in whether these
-    ids coincide: they MUST coincide only when the two pushes are the genuinely-same evaluation
-    (same fields AND same parent id-stack). -/
+-- Push two frames and report `(id1, id2)`. The soundness boundary lives in whether these
+-- ids coincide: they MUST coincide only when the two pushes are the genuinely-same evaluation
+-- (same fields AND same parent id-stack).
 def twoPushIds (fields1 : List Field) (env1 : Env) (fields2 : List Field) (env2 : Env) :
     Nat × Nat :=
   runEval do
@@ -163,24 +163,24 @@ theorem frame_no_share_closed_vs_open :
       = false := by
   native_decide
 
-/-! ### Fuel-saturation caching — the fuel-multiplication fix + its soundness boundary.
+-- ### Fuel-saturation caching — the fuel-multiplication fix + its soundness boundary.
+--
+-- A result whose entire (transitive) eval never hit a `fuel = 0` base nor a cycle `.top` is
+-- SATURATED: fuel-insensitive, identical at every higher fuel. Such results are cached FUEL-FREE
+-- (`satCache`), so a converged value evaluated at fuel f and re-requested at any fuel ≥ f is served
+-- from one cache entry — collapsing the per-fuel-level re-derivation (cert-manager: ~84 levels → 1).
+-- TRUNCATED results (the 263 fuel-truncation cases) stay fuel-keyed and are NEVER served across fuel.
+--
+-- Classification is by bracketing the monotonic `truncCount` in the single cached wrapper, so the
+-- hole the design flagged (an arm forgetting to propagate `truncated`) cannot occur: no arm
+-- classifies. The pins below witness both the PERF win (a re-eval at higher fuel adds ZERO core
+-- evals) and the SOUNDNESS boundary (a fuel-differing value is NOT served its low-fuel truncated
+-- form at high fuel).
 
-A result whose entire (transitive) eval never hit a `fuel = 0` base nor a cycle `.top` is
-SATURATED: fuel-insensitive, identical at every higher fuel. Such results are cached FUEL-FREE
-(`satCache`), so a converged value evaluated at fuel f and re-requested at any fuel ≥ f is served
-from one cache entry — collapsing the per-fuel-level re-derivation (cert-manager: ~84 levels → 1).
-TRUNCATED results (the 263 fuel-truncation cases) stay fuel-keyed and are NEVER served across fuel.
-
-Classification is by bracketing the monotonic `truncCount` in the single cached wrapper, so the
-hole the design flagged (an arm forgetting to propagate `truncated`) cannot occur: no arm
-classifies. The pins below witness both the PERF win (a re-eval at higher fuel adds ZERO core
-evals) and the SOUNDNESS boundary (a fuel-differing value is NOT served its low-fuel truncated
-form at high fuel). -/
-
-/-- Evaluate `value` at `f1` then at `f2` in the SAME `EvalM` run (shared `satCache`/`cache`),
-    reporting `(v1, v2, callsAfterFirst, callsTotal)`. The second eval's added core evals are
-    `callsTotal - callsAfterFirst`: ZERO iff `f2`'s request was served from the fuel-free
-    `satCache` (the value saturated at `f1`). The env is `[]` (no enclosing frame). -/
+-- Evaluate `value` at `f1` then at `f2` in the SAME `EvalM` run (shared `satCache`/`cache`),
+-- reporting `(v1, v2, callsAfterFirst, callsTotal)`. The second eval's added core evals are
+-- `callsTotal - callsAfterFirst`: ZERO iff `f2`'s request was served from the fuel-free
+-- `satCache` (the value saturated at `f1`). The env is `[]` (no enclosing frame).
 def evalTwiceAt (f1 f2 : Nat) (value : Value) : Value × Value × Nat × Nat :=
   let action : EvalM (Value × Value × Nat × Nat) := do
     let v1 <- evalValueWithFuel f1 [] [] value
@@ -190,16 +190,16 @@ def evalTwiceAt (f1 f2 : Nat) (value : Value) : Value × Value × Nat × Nat :=
     pure (v1, v2, callsAfterFirst, callsTotal)
   (action.run { cache := ∅, nextFrameId := 0 }).fst
 
-/-- `value` evaluated standalone at `fuel` (fresh state) — the GROUND TRUTH a cross-fuel reuse
-    must match. -/
+-- `value` evaluated standalone at `fuel` (fresh state) — the GROUND TRUTH a cross-fuel reuse
+-- must match.
 def evalOnceAt (fuel : Nat) (value : Value) : Value :=
   (evalValueWithFuel fuel [] [] value |>.run { cache := ∅, nextFrameId := 0 }).fst
 
-/-- A SELF-REFERENTIAL value that GROWS with fuel — the synthetic 263-class. `{a: {b: <outer a>}}`:
-    field `b` references the enclosing `a` (depth 1), so each fuel level expands one more `{b: …}`
-    nesting before bottoming on the unresolved binding. `@fuel 3 → {a:{b:{b:@1.0}}}`, `@fuel 5 →
-    {a:{b:{b:{b:@1.0}}}}`, … — the SAME `(env,visited,value)` yields DIFFERENT values at different
-    fuel. This is exactly the case that MUST stay fuel-keyed (never served fuel-free). -/
+-- A SELF-REFERENTIAL value that GROWS with fuel — the synthetic 263-class. `{a: {b: <outer a>}}`:
+-- field `b` references the enclosing `a` (depth 1), so each fuel level expands one more `{b: …}`
+-- nesting before bottoming on the unresolved binding. `@fuel 3 → {a:{b:{b:@1.0}}}`, `@fuel 5 →
+-- {a:{b:{b:{b:@1.0}}}}`, … — the SAME `(env,visited,value)` yields DIFFERENT values at different
+-- fuel. This is exactly the case that MUST stay fuel-keyed (never served fuel-free).
 def satTruncValue : Value :=
   mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []
 
@@ -251,27 +251,27 @@ theorem sat_truncated_same_fuel_is_cached :
       = true := by
   native_decide
 
-/-! ### Empty-`cache`-skip at PRODUCTION fuel (`5f038b7`) — the gap the SATURATING canaries leave.
+-- ### Empty-`cache`-skip at PRODUCTION fuel (`5f038b7`) — the gap the SATURATING canaries leave.
+--
+-- `evalValueWithFuel` probes the fuel-keyed `cache` only when `!cache.isEmpty` (an empty HashMap
+-- returns `none` for every key, so the skip is value-identical; the `cache` is populated EXCLUSIVELY
+-- in the `.truncated` insert arm). The argocd/cert-manager canaries FULLY SATURATE — the fuel-keyed
+-- `cache` stays empty the whole run (`fuelInserts=0`), so they NEVER exercise the NON-EMPTY probe arm
+-- at the production `evalFuel` (100). `satTruncValue` only truncates at LOW fuel (it saturates by
+-- fuel ~50), so the pins above hit the populated-`cache` arm but not at production fuel. A deep REF
+-- CHAIN of length > `evalFuel` truncates AT fuel 100 — the exact shape a real app would hit if it
+-- didn't saturate — driving the populated-`cache` non-empty probe at the production level, end-to-end
+-- through the top-level `evalSourceToString` pipeline (parse → resolve → eval at `evalFuel` → format).
 
-`evalValueWithFuel` probes the fuel-keyed `cache` only when `!cache.isEmpty` (an empty HashMap
-returns `none` for every key, so the skip is value-identical; the `cache` is populated EXCLUSIVELY
-in the `.truncated` insert arm). The argocd/cert-manager canaries FULLY SATURATE — the fuel-keyed
-`cache` stays empty the whole run (`fuelInserts=0`), so they NEVER exercise the NON-EMPTY probe arm
-at the production `evalFuel` (100). `satTruncValue` only truncates at LOW fuel (it saturates by
-fuel ~50), so the pins above hit the populated-`cache` arm but not at production fuel. A deep REF
-CHAIN of length > `evalFuel` truncates AT fuel 100 — the exact shape a real app would hit if it
-didn't saturate — driving the populated-`cache` non-empty probe at the production level, end-to-end
-through the top-level `evalSourceToString` pipeline (parse → resolve → eval at `evalFuel` → format). -/
-
-/-- A length-`n` reference chain `x0: x1\n…\nx{n-1}: x{n}\nx{n}: 1` as CUE source. Under `evalFuel`
-    (100) a chain SHORTER than the ceiling SATURATES (every `xi` resolves to `1`); a chain LONGER
-    truncates AT the ceiling (the deep links bottom on fuel exhaustion → `@`/`...` decoration),
-    populating the fuel-keyed `cache` at production fuel. -/
+-- A length-`n` reference chain `x0: x1\n…\nx{n-1}: x{n}\nx{n}: 1` as CUE source. Under `evalFuel`
+-- (100) a chain SHORTER than the ceiling SATURATES (every `xi` resolves to `1`); a chain LONGER
+-- truncates AT the ceiling (the deep links bottom on fuel exhaustion → `@`/`...` decoration),
+-- populating the fuel-keyed `cache` at production fuel.
 def refChainSource (n : Nat) : String :=
   (String.join ((List.range n).map (fun i => s!"x{i}: x{i + 1}\n"))) ++ s!"x{n}: 1\n"
 
-/-- True iff `evalSourceToString src` succeeds and its output carries a fuel-truncation marker
-    (`@<frame>.<id>` for an unresolved deep ref, or `...` for a truncated struct). -/
+-- True iff `evalSourceToString src` succeeds and its output carries a fuel-truncation marker
+-- (`@<frame>.<id>` for an unresolved deep ref, or `...` for a truncated struct).
 def evalSourceTruncates (src : String) : Bool :=
   match evalSourceToString src with
   | .ok s => (s.splitOn "@").length > 1 || (s.splitOn "...").length > 1
@@ -301,15 +301,15 @@ theorem ref_chain_truncation_is_deterministic_at_production_fuel :
     (evalSourceToString (refChainSource 120) == evalSourceToString (refChainSource 120)) = true := by
   native_decide
 
-/-- THE THIRD-TRUNCATION-SOURCE pin (audit 2026-06-18 #6). The two `evalValueCoreWithFuel`
-    arms (`fuel=0` base, cycle `.top`) are NOT the only fuel-truncation sources: the comprehension
-    /embedding-expansion helpers (`expandClausesWithFuel`, `expandComprehensionWithFuel`,
-    `evalEmbeddingFieldsWithFuel`, `meetEmbeddingsWithFuel`) each have a fuel=0 arm that DROPS
-    fields/meets when fuel runs out mid-expansion. The original saturation slice did not bump
-    `truncCount` there, so a comprehension truncated at low fuel was misclassified SATURATED and
-    cached fuel-free → a higher-fuel request was served the smaller (wrong) struct. The audit fix
-    bumps `truncCount` at all four helper arms. This `.structComp`-wrapped `if true {x:1}` expands
-    to `{x:1}` at high fuel but DROPS `x` at low fuel — the exact shape that corrupted. -/
+-- THE THIRD-TRUNCATION-SOURCE pin (audit 2026-06-18 #6). The two `evalValueCoreWithFuel`
+-- arms (`fuel=0` base, cycle `.top`) are NOT the only fuel-truncation sources: the comprehension
+-- /embedding-expansion helpers (`expandClausesWithFuel`, `expandComprehensionWithFuel`,
+-- `evalEmbeddingFieldsWithFuel`, `meetEmbeddingsWithFuel`) each have a fuel=0 arm that DROPS
+-- fields/meets when fuel runs out mid-expansion. The original saturation slice did not bump
+-- `truncCount` there, so a comprehension truncated at low fuel was misclassified SATURATED and
+-- cached fuel-free → a higher-fuel request was served the smaller (wrong) struct. The audit fix
+-- bumps `truncCount` at all four helper arms. This `.structComp`-wrapped `if true {x:1}` expands
+-- to `{x:1}` at high fuel but DROPS `x` at low fuel — the exact shape that corrupted.
 def satCompTruncValue : Value :=
   .structComp []
     [.comprehension [.guard (.prim (.bool true))]
@@ -333,12 +333,12 @@ theorem sat_comprehension_low_fuel_truncates :
     (evalOnceAt 2 satCompTruncValue != evalOnceAt 20 satCompTruncValue) = true := by
   native_decide
 
-/-- THE LIST-COMPREHENSION fuel-truncation source (slice `list-comprehension-parse-eval`). The
-    new `expandListClausesWithFuel` has the SAME `fuel=0` arm as its struct sibling: it DROPS the
-    yielded elements when fuel runs out mid-expansion. It MUST bump `truncCount` there, or a
-    list-comp truncated at low fuel is misclassified SATURATED and cached fuel-free → a higher-fuel
-    request is served the smaller (wrong) list. This `[for x in [1,2,3] {9}]` yields `[]` at fuel 1
-    (truncated) but `[9,9,9]` at fuel 20 (full) — the exact hazard shape. -/
+-- THE LIST-COMPREHENSION fuel-truncation source (slice `list-comprehension-parse-eval`). The
+-- new `expandListClausesWithFuel` has the SAME `fuel=0` arm as its struct sibling: it DROPS the
+-- yielded elements when fuel runs out mid-expansion. It MUST bump `truncCount` there, or a
+-- list-comp truncated at low fuel is misclassified SATURATED and cached fuel-free → a higher-fuel
+-- request is served the smaller (wrong) list. This `[for x in [1,2,3] {9}]` yields `[]` at fuel 1
+-- (truncated) but `[9,9,9]` at fuel 20 (full) — the exact hazard shape.
 def satListCompTruncValue : Value :=
   .list [.listComprehension
     [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])]
@@ -360,14 +360,14 @@ theorem sat_list_comprehension_low_fuel_truncates :
     (evalOnceAt 1 satListCompTruncValue != evalOnceAt 20 satListCompTruncValue) = true := by
   native_decide
 
-/-! ### `EvalState.truncate` — the truncation primitive's structural contract (truncate-primitive
-slice). The seven `fuel=0` drop sites all emit through this one combinator; the cross-fuel hazard
-pins above prove they still truncate+bump END-TO-END (behavior preserved). These pins instead pin
-the COMBINATOR ITSELF: bump-and-return are FUSED, so the audit-#6 invariant ("a dropped result is
-always counted") is checked at build, not just held by the call sites. -/
+-- ### `EvalState.truncate` — the truncation primitive's structural contract (truncate-primitive
+-- slice). The seven `fuel=0` drop sites all emit through this one combinator; the cross-fuel hazard
+-- pins above prove they still truncate+bump END-TO-END (behavior preserved). These pins instead pin
+-- the COMBINATOR ITSELF: bump-and-return are FUSED, so the audit-#6 invariant ("a dropped result is
+-- always counted") is checked at build, not just held by the call sites.
 
-/-- Run `EvalState.truncate result` over a state whose `truncCount` is `start`, returning the
-    emitted value and the resulting count. The other fields are irrelevant to the bump. -/
+-- Run `EvalState.truncate result` over a state whose `truncCount` is `start`, returning the
+-- emitted value and the resulting count. The other fields are irrelevant to the bump.
 def runTruncate {α : Type} (start : Nat) (result : α) : α × Nat :=
   let action : EvalM α := EvalState.truncate result
   let (emitted, state) := action.run { cache := ∅, nextFrameId := 0, truncCount := start }
@@ -396,13 +396,13 @@ theorem truncate_bumps_for_every_dropped_shape :
       && (runTruncate 7 (.payload [] : ListClauseExpansion)).snd == 8) = true := by
   native_decide
 
-/-! ### perf-B memo false-share pins (audit 2026-06-18 #5, owed `perfb-soundness-pins`).
-
-The perf-B audit cleared the frame-share + force memos as SOUND but flagged that the 4 existing
-pins test `pushFrame` ID COINCIDENCE, not the resulting VALUE — a regression could corrupt a value
-while still satisfying a coincidence pin. These are the owed E2E *value* pins: a memo false-share
-would change the EXPORTED value and trip them. Folded into the fuel-saturation slice so its new
-`Saturation` threading through the SAME keys inherits real false-share coverage. -/
+-- ### perf-B memo false-share pins (audit 2026-06-18 #5, owed `perfb-soundness-pins`).
+--
+-- The perf-B audit cleared the frame-share + force memos as SOUND but flagged that the 4 existing
+-- pins test `pushFrame` ID COINCIDENCE, not the resulting VALUE — a regression could corrupt a value
+-- while still satisfying a coincidence pin. These are the owed E2E *value* pins: a memo false-share
+-- would change the EXPORTED value and trip them. Folded into the fuel-saturation slice so its new
+-- `Saturation` threading through the SAME keys inherits real false-share coverage.
 
 -- PERF-B PIN 1 (force-memo `useOperands` keying, E2E value — audit finding #1). `#D & {x:1}`
 -- forced at two sites must SHARE (same value `1`) while `#D & {x:2}` stays distinct (`2`) — the
@@ -566,24 +566,24 @@ theorem perfb_frame_id_does_not_leak :
       = true := by
   native_decide
 
-/-! ### Cache-key HASH digest (item 7) — the O(N²) memo-lookup fix + its bucket-distribution pin.
+-- ### Cache-key HASH digest (item 7) — the O(N²) memo-lookup fix + its bucket-distribution pin.
+--
+-- `EvalKey`/`SatKey` previously hashed on `valueTag` ALONE (top constructor tag, 0–31, no subtree
+-- traversal) + `envIds.LENGTH`. At a deep app's steady state the cache population is overwhelmingly
+-- `.struct`/`.selector` at the same ceiling fuel → every distinct value collapsed into ONE hash
+-- bucket → each `cache.get?` ran derived structural `BEq` over the full tree against every colliding
+-- entry → O(N) per lookup, O(N²) total (cert-manager exported correctly but in ~119s vs `cue` 0.03s).
+--
+-- The fix: `valueDigest DIGEST_DEPTH` — a total, fuel-free, bounded-depth structural digest — replaces
+-- `valueTag` in both hashes, and the FULL `envIds` is hashed (not `.length`). SOUNDNESS is
+-- unconditional: the hash only selects a bucket; `BEq` (UNCHANGED) is the sole equality arbiter, so a
+-- lossy digest can only cause a recompute-miss or collide-scan (slower), never a wrong value. The
+-- correctness witness is the byte-identical fixture gate; the WIN witness is the bucket distribution
+-- below (eval COUNT is unchanged — the win is per-lookup time, so a count pin would not show it).
 
-`EvalKey`/`SatKey` previously hashed on `valueTag` ALONE (top constructor tag, 0–31, no subtree
-traversal) + `envIds.LENGTH`. At a deep app's steady state the cache population is overwhelmingly
-`.struct`/`.selector` at the same ceiling fuel → every distinct value collapsed into ONE hash
-bucket → each `cache.get?` ran derived structural `BEq` over the full tree against every colliding
-entry → O(N) per lookup, O(N²) total (cert-manager exported correctly but in ~119s vs `cue` 0.03s).
-
-The fix: `valueDigest DIGEST_DEPTH` — a total, fuel-free, bounded-depth structural digest — replaces
-`valueTag` in both hashes, and the FULL `envIds` is hashed (not `.length`). SOUNDNESS is
-unconditional: the hash only selects a bucket; `BEq` (UNCHANGED) is the sole equality arbiter, so a
-lossy digest can only cause a recompute-miss or collide-scan (slower), never a wrong value. The
-correctness witness is the byte-identical fixture gate; the WIN witness is the bucket distribution
-below (eval COUNT is unchanged — the win is per-lookup time, so a count pin would not show it). -/
-
-/-- A k8s-resource-SHAPED struct parameterized by `i`: same shape (a `metadata` sub-struct with a
-    name + a replica count, plus a `kind`), distinct CONTENT per `i` — the cert-manager steady-state
-    population. The digest must separate these into distinct buckets; `valueTag` collapses them. -/
+-- A k8s-resource-SHAPED struct parameterized by `i`: same shape (a `metadata` sub-struct with a
+-- name + a replica count, plus a `kind`), distinct CONTENT per `i` — the cert-manager steady-state
+-- population. The digest must separate these into distinct buckets; `valueTag` collapses them.
 def k8sShapedStruct (i : Nat) : Value :=
   mkStruct
     [⟨"kind", .regular, .prim (.string "Deployment")⟩,
@@ -593,7 +593,7 @@ def k8sShapedStruct (i : Nat) : Value :=
        mkStruct [⟨"replicas", .regular, .prim (.int (Int.ofNat i))⟩] .regularOpen none []⟩]
     .regularOpen none []
 
-/-- Count distinct values in a `List UInt64` (the bucket count for a digest population). -/
+-- Count distinct values in a `List UInt64` (the bucket count for a digest population).
 def distinctCount (xs : List UInt64) : Nat := (xs.foldl (fun acc x =>
   if acc.contains x then acc else x :: acc) []).length
 
@@ -630,5 +630,18 @@ theorem digest_total_on_deep_value :
       = true := by
   native_decide
 
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @eval_deep_inline_value_correct              -- Frame-id sharing (perf B) — canonical frame ident...
+#check @frame_no_share_closed_vs_open               -- Pass-2 selective re-eval (perf, audit PART B). Th...
+#check @sat_truncated_same_fuel_is_cached           -- Fuel-saturation caching — the fuel-multiplication...
+#check @sat_list_comprehension_low_fuel_truncates   -- Empty-`cache`-skip at PRODUCTION fuel (`5f038b7`)...
+#check @truncate_bumps_for_every_dropped_shape      -- `EvalState.truncate` — the truncation primitive's...
+#check @perfb_frame_id_does_not_leak                -- perf-B memo false-share pins (audit 2026-06-18 #5...
+#check @digest_total_on_deep_value                  -- Cache-key HASH digest (item 7) — the O(N²) memo-l...
 
 end Kue

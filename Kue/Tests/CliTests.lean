@@ -99,4 +99,10 @@ theorem parse_export_unknown_flag_is_error :
 theorem parse_eval_unknown_flag_is_error :
     parse ["eval", "--bogus"] = .error "unknown eval flag: --bogus" := by native_decide
 
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @parse_eval_unknown_flag_is_error
+
 end Kue.Cli

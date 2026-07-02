@@ -24,4 +24,11 @@ theorem exclusion_rejects_forbidden_primitive :
     subsumes (.notPrim (.int 0)) (.prim (.int 0)) = false := by
   native_decide
 
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @exclusion_rejects_forbidden_primitive
+
 end Kue

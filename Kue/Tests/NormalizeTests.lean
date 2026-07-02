@@ -65,4 +65,11 @@ theorem nested_definition_struct_normalizes_closed :
           ] .regularOpen none []) = true := by
   native_decide
 
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @nested_definition_struct_normalizes_closed
+
 end Kue

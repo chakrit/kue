@@ -1161,4 +1161,11 @@ theorem unknown_leaf_family_abstract_arg_stays_unresolved :
       == .builtinCall "math.NoSuch" [.ref "x"]) = true := by
   native_decide
 
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @unknown_leaf_family_abstract_arg_stays_unresolved
+
 end Kue

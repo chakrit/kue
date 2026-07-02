@@ -197,4 +197,11 @@ theorem manifest_structcomp_optional_bottom_stays_incomplete :
           .regularOpen)) := by
   rfl
 
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @manifest_structcomp_optional_bottom_stays_incomplete
+
 end Kue

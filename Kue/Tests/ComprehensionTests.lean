@@ -3,22 +3,22 @@ import Kue.Resolve
 import Kue.Runtime
 import Kue.Tests.EvalTestHelpers
 
-/-! # Comprehension evaluation pins
-
-End-to-end + AST-level pins for the comprehension subsystem (`for` / `let` / `if`-guard
-clauses, list and struct comprehensions). Carved out of `EvalTests.lean` (test-org pass).
-The guard *classifier* unit pins (`classifyGuard`, D#1b/D#1c) live in `PresenceTests.lean`;
-this module holds the comprehension-evaluation pins, including the comprehension-guard
-end-to-end shapes. Each `.expected` string is cue v0.16.1-cross-checked. -/
+-- # Comprehension evaluation pins
+--
+-- End-to-end + AST-level pins for the comprehension subsystem (`for` / `let` / `if`-guard
+-- clauses, list and struct comprehensions). Carved out of `EvalTests.lean` (test-org pass).
+-- The guard *classifier* unit pins (`classifyGuard`, D#1b/D#1c) live in `PresenceTests.lean`;
+-- this module holds the comprehension-evaluation pins, including the comprehension-guard
+-- end-to-end shapes. Each `.expected` string is cue v0.16.1-cross-checked.
 
 namespace Kue
 
-/-! ### list-comprehension parse+eval pins (slice `list-comprehension-parse-eval`).
-
-End-to-end behavioral pins over the full list-comprehension surface, each cue v0.16.1-exact (the
-`.expected` strings are the oracle-checked outputs). Parsed-resolved-evaluated-formatted, so a
-regression anywhere in the parser/resolver/eval chain trips them. Paired with the
-fuel-truncation/saturation guards above (`sat_list_comprehension_*`). -/
+-- ### list-comprehension parse+eval pins (slice `list-comprehension-parse-eval`).
+--
+-- End-to-end behavioral pins over the full list-comprehension surface, each cue v0.16.1-exact (the
+-- `.expected` strings are the oracle-checked outputs). Parsed-resolved-evaluated-formatted, so a
+-- regression anywhere in the parser/resolver/eval chain trips them. Paired with the
+-- fuel-truncation/saturation guards above (`sat_list_comprehension_*`).
 
 -- for over a literal list, body uses the loop var.
 theorem listcomp_for_basic :
@@ -93,14 +93,14 @@ theorem listcomp_struct_body :
     evalSourceMatches "out: [for x in [1, 2] {a: x}]\n" "out: [{a: 1}, {a: 2}]" = true := by
   native_decide
 
-/-! ### `let`-clause comprehension pins (D#3).
-
-`let <ident> = <expr>` as a comprehension clause: parses (was UNPARSEABLE), binds one name in a
-NEW scope frame (`+1`, like `for`; `if` is `+0`) visible to subsequent clauses and the body. Spec:
-*"The `for` and `let` clauses each define a new scope in which new values are bound to be available
-for the next clause."* Each `.expected` is cue v0.16.1-cross-checked. The subtle pins are
-`letcomp_for_after_let` (frame accounting: a `for` after a `let` must still resolve earlier
-bindings across the let frame) and `letcomp_in_guard` (a later `if` reads the let-bound name). -/
+-- ### `let`-clause comprehension pins (D#3).
+--
+-- `let <ident> = <expr>` as a comprehension clause: parses (was UNPARSEABLE), binds one name in a
+-- NEW scope frame (`+1`, like `for`; `if` is `+0`) visible to subsequent clauses and the body. Spec:
+-- *"The `for` and `let` clauses each define a new scope in which new values are bound to be available
+-- for the next clause."* Each `.expected` is cue v0.16.1-cross-checked. The subtle pins are
+-- `letcomp_for_after_let` (frame accounting: a `for` after a `let` must still resolve earlier
+-- bindings across the let frame) and `letcomp_in_guard` (a later `if` reads the let-bound name).
 
 -- basic: `let y = x*2` binds `y`, read by the body.
 theorem letcomp_basic :
@@ -160,11 +160,11 @@ theorem letcomp_let_not_start_clause :
     evalSourceMatches "out: {\n\tlet y = 5\n\tv: y\n}\n" "out: {v: 5}" = true := by
   native_decide
 
-/-! ### AST-level comprehension evaluation pins.
-
-Direct `.structComp` shapes (constructed, not parsed) exercising `evalStructRefs` over the
-comprehension clauses: `for` over a struct/list, `if` admit/drop, and the body/source seeing a
-sibling field. -/
+-- ### AST-level comprehension evaluation pins.
+--
+-- Direct `.structComp` shapes (constructed, not parsed) exercising `evalStructRefs` over the
+-- comprehension clauses: `for` over a struct/list, `if` admit/drop, and the body/source seeing a
+-- sibling field.
 
 theorem eval_comprehension_for_keyed_over_struct :
     (evalStructRefs
@@ -237,9 +237,9 @@ theorem eval_comprehension_for_source_sees_sibling_field :
       = true := by
   native_decide
 
-/-- Slice C. The negated real-app guard shape: `x: bool | *false; if !x { y: 1 }`. The `!`
-    distributes over the default disjunction and the guard collapses the default to `true`,
-    so the body admits. cue-exact (`{x: false, out: {y: 1}}`). -/
+-- Slice C. The negated real-app guard shape: `x: bool | *false; if !x { y: 1 }`. The `!`
+-- distributes over the default disjunction and the guard collapses the default to `true`,
+-- so the body admits. cue-exact (`{x: false, out: {y: 1}}`).
 theorem eval_comprehension_guard_negated_default_disj_admits :
     (evalStructRefs
       (resolveStructRefs
@@ -253,7 +253,7 @@ theorem eval_comprehension_guard_negated_default_disj_admits :
          ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
-/-- Slice C. The direct guard shape `if x` with `x: bool | *true` admits (default `true`). -/
+-- Slice C. The direct guard shape `if x` with `x: bool | *true` admits (default `true`).
 theorem eval_comprehension_guard_direct_default_disj_admits :
     (evalStructRefs
       (resolveStructRefs
@@ -267,11 +267,11 @@ theorem eval_comprehension_guard_direct_default_disj_admits :
          ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
   native_decide
 
-/-- Slice C + D#1b. A NON-default disjunction guard is INCOMPLETE — only marked defaults
-    collapse to a concrete bool. `if x` with `x: true | false` (no default) cannot be decided,
-    so the comprehension DEFERS: it stays a residual `.structComp` carrying the unresolved
-    `.comprehension`, NOT a silent drop to `{}`. Matches cue eval (holds `if x {…}`; `cue export`
-    then errors `unresolved disjunction … (type bool)`). Pre-D#1b this WRONGLY dropped to `{}`. -/
+-- Slice C + D#1b. A NON-default disjunction guard is INCOMPLETE — only marked defaults
+-- collapse to a concrete bool. `if x` with `x: true | false` (no default) cannot be decided,
+-- so the comprehension DEFERS: it stays a residual `.structComp` carrying the unresolved
+-- `.comprehension`, NOT a silent drop to `{}`. Matches cue eval (holds `if x {…}`; `cue export`
+-- then errors `unresolved disjunction … (type bool)`). Pre-D#1b this WRONGLY dropped to `{}`.
 theorem eval_comprehension_guard_non_default_disj_defers :
     (evalStructRefs
       (resolveStructRefs
@@ -291,23 +291,23 @@ theorem eval_comprehension_guard_non_default_disj_defers :
              .regularOpen⟩] .regularOpen none []) = true := by
   native_decide
 
-/-! ### `[]`-arm body-bottom asymmetry (AD4-1 — the `expandClauseChain` `onExhausted` parameter).
-
-When a comprehension's clause chain is EXHAUSTED and the brace-block body itself evaluates to a
-bare bottom, the struct and list comprehension drivers diverge — and this divergence is the entire
-reason `expandClauseChain` takes the whole `[]`-arm body handler as a parameter rather than a naive
-`body → β` wrap (a wrap would wrongly make the list twin bottom-propagate). It is VERIFIED-CORRECT
-CUE semantics, not an accident, so it is pinned here so the AD4-1 dedup can never silently collapse
-the two handlers into one.
-
-- STRUCT (`out: {for x in ["s"] {x, a: 1}}`): embedding the string scalar `"s"` into the body
-  struct bottoms the WHOLE body; the struct `[]` handler SHORT-CIRCUITS that bare bottom (D#1a), so
-  `out` becomes `_|_`. cue agrees (`cannot combine regular field "a" with "s"`).
-- LIST (`out: [for x in [1] {x & "s"}]`): the element `1 & "s"` bottoms, but the list `[]` handler
-  wraps ANY body — including a bottom — as a ONE-element list, so `out` becomes `[_|_]` (a list with
-  a bottom ELEMENT), NOT `_|_`. A bottom element is not the list being bottom; `cue eval` renders
-  the same value (`out.0: conflicting values "s" and 1`).
-Both forms then ERROR identically under concrete `export` (the bottom surfaces either way). -/
+-- ### `[]`-arm body-bottom asymmetry (AD4-1 — the `expandClauseChain` `onExhausted` parameter).
+--
+-- When a comprehension's clause chain is EXHAUSTED and the brace-block body itself evaluates to a
+-- bare bottom, the struct and list comprehension drivers diverge — and this divergence is the entire
+-- reason `expandClauseChain` takes the whole `[]`-arm body handler as a parameter rather than a naive
+-- `body → β` wrap (a wrap would wrongly make the list twin bottom-propagate). It is VERIFIED-CORRECT
+-- CUE semantics, not an accident, so it is pinned here so the AD4-1 dedup can never silently collapse
+-- the two handlers into one.
+--
+-- - STRUCT (`out: {for x in ["s"] {x, a: 1}}`): embedding the string scalar `"s"` into the body
+-- struct bottoms the WHOLE body; the struct `[]` handler SHORT-CIRCUITS that bare bottom (D#1a), so
+-- `out` becomes `_|_`. cue agrees (`cannot combine regular field "a" with "s"`).
+-- - LIST (`out: [for x in [1] {x & "s"}]`): the element `1 & "s"` bottoms, but the list `[]` handler
+-- wraps ANY body — including a bottom — as a ONE-element list, so `out` becomes `[_|_]` (a list with
+-- a bottom ELEMENT), NOT `_|_`. A bottom element is not the list being bottom; `cue eval` renders
+-- the same value (`out.0: conflicting values "s" and 1`).
+-- Both forms then ERROR identically under concrete `export` (the bottom surfaces either way).
 
 -- STRUCT body-bottom SHORT-CIRCUITS: the comprehension collapses to the bare bottom.
 theorem comprehension_struct_body_bottom_short_circuits :
@@ -329,15 +329,15 @@ theorem comprehension_list_body_bottom_export_errors :
     exportJsonBottoms "out: [for x in [1] {x & \"s\"}]\n" = true := by
   native_decide
 
-/-! ### D#1d — comprehension body tail / pattern are body-local (emit fields, don't drop).
-
-The struct-comprehension `[]`-arm handler (`expandClausesWithFuel`) emits the body struct's
-named fields. A body's `...` tail and `[pat]:` constraints are BODY-LOCAL: they bound the body
-block but do NOT propagate out of the `for`/`if` into the enclosing struct — only the named
-fields merge (cue: `for _ in [1] {a: 1, ...}` ⇒ `{a: 1}`, the tail discarded). The handler match
-formerly required `.struct _ _ none [] _` (no tail, no patterns), so a tail/pattern-bearing body
-fell through to the catch-all and was DROPPED WHOLESALE — `a: 1` vanished with it. Now it matches
-ANY `.struct`, taking the fields and leaving tail/patterns behind. -/
+-- ### D#1d — comprehension body tail / pattern are body-local (emit fields, don't drop).
+--
+-- The struct-comprehension `[]`-arm handler (`expandClausesWithFuel`) emits the body struct's
+-- named fields. A body's `...` tail and `[pat]:` constraints are BODY-LOCAL: they bound the body
+-- block but do NOT propagate out of the `for`/`if` into the enclosing struct — only the named
+-- fields merge (cue: `for _ in [1] {a: 1, ...}` ⇒ `{a: 1}`, the tail discarded). The handler match
+-- formerly required `.struct _ _ none [] _` (no tail, no patterns), so a tail/pattern-bearing body
+-- fell through to the catch-all and was DROPPED WHOLESALE — `a: 1` vanished with it. Now it matches
+-- ANY `.struct`, taking the fields and leaving tail/patterns behind.
 
 -- A body with an open `...` tail: emit the field, drop the tail (body-local).
 theorem comprehension_body_tail_is_body_local :
@@ -355,15 +355,15 @@ theorem comprehension_body_tail_exports_field :
       "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
-/-! ### DYN-DEF-1 — dynamic-field label deferral (a dropped field becomes a held residual).
-
-A dynamic field `(expr): v` whose `expr` is NOT yet a concrete string must be HELD as a residual
-`.dynamicField`, not dropped — so a use-site narrowing that concretes `expr` can re-key it, and an
-abstract export errors instead of silently vanishing (cue v0.16.1: holds under `eval`, errors
-`key value of dynamic field must be concrete` under `export`). Pins are export-level (JSON,
-display-independent) so the held-form's pre-existing `@d.i` reference rendering doesn't make them
-brittle. The held-vs-dropped distinction is witnessed by `exportJsonBottoms`: a HELD residual
-fails export (incomplete); a DROPPED field would export `{}` successfully. -/
+-- ### DYN-DEF-1 — dynamic-field label deferral (a dropped field becomes a held residual).
+--
+-- A dynamic field `(expr): v` whose `expr` is NOT yet a concrete string must be HELD as a residual
+-- `.dynamicField`, not dropped — so a use-site narrowing that concretes `expr` can re-key it, and an
+-- abstract export errors instead of silently vanishing (cue v0.16.1: holds under `eval`, errors
+-- `key value of dynamic field must be concrete` under `export`). Pins are export-level (JSON,
+-- display-independent) so the held-form's pre-existing `@d.i` reference rendering doesn't make them
+-- brittle. The held-vs-dropped distinction is witnessed by `exportJsonBottoms`: a HELD residual
+-- fails export (incomplete); a DROPPED field would export `{}` successfully.
 
 -- The witness: a def's dynamic field, keyed on a field narrowed at the use site, is RE-KEYED
 -- (not dropped). cue → `{out: {kind: "specific", specific: "m"}}`.
@@ -419,15 +419,15 @@ theorem dyndef_bottom_key_propagates :
     exportJsonBottoms "out: {((1 & 2)): \"m\"}\n" = true := by
   native_decide
 
-/-! ### Dynamic-field label DEFAULT-disjunction collapse (DYN-DEF-1 follow-up).
-
-A dynamic-field label that evaluates to a DEFAULT disjunction collapses to its default before
-classification (`resolveDynLabelDefault` at both `.dynamicField` sites), exactly as a default
-disjunction collapses as an `if` guard or under manifestation — so `(*"a" | "b"): v` keys on
-`"a"`. Pre-fix `classifyDynLabel`'s `.disj` arm sent EVERY disjunction (default or not) to DEFER,
-so a default-keyed field was wrongly held and exported `incomplete` instead of cue's concrete
-re-key. The AMBIGUOUS (non-default) disjunction still defers — `resolveDisjDefault?` returns none
-and the field stays a residual (its own pin below, `dyndef_nondefault_disj_key_still_defers`). -/
+-- ### Dynamic-field label DEFAULT-disjunction collapse (DYN-DEF-1 follow-up).
+--
+-- A dynamic-field label that evaluates to a DEFAULT disjunction collapses to its default before
+-- classification (`resolveDynLabelDefault` at both `.dynamicField` sites), exactly as a default
+-- disjunction collapses as an `if` guard or under manifestation — so `(*"a" | "b"): v` keys on
+-- `"a"`. Pre-fix `classifyDynLabel`'s `.disj` arm sent EVERY disjunction (default or not) to DEFER,
+-- so a default-keyed field was wrongly held and exported `incomplete` instead of cue's concrete
+-- re-key. The AMBIGUOUS (non-default) disjunction still defers — `resolveDisjDefault?` returns none
+-- and the field stays a residual (its own pin below, `dyndef_nondefault_disj_key_still_defers`).
 
 -- A default disjunction label keys on its default. cue v0.16.1 → `{out: {a: 1}}`.
 theorem dyndef_default_disj_key_collapses :
@@ -453,5 +453,18 @@ theorem dyndef_default_disj_key_nonstring_errors :
 theorem dyndef_nondefault_disj_key_still_defers :
     exportJsonBottoms "out: {(\"a\" | \"b\"): 1}\n" = true := by
   native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @listcomp_struct_body                               -- list-comprehension parse+eval pins (slice `list-c...
+#check @letcomp_let_not_start_clause                       -- `let`-clause comprehension pins (D#3)
+#check @eval_comprehension_guard_non_default_disj_defers   -- AST-level comprehension evaluation pins
+#check @comprehension_list_body_bottom_export_errors       -- `[]`-arm body-bottom asymmetry (AD4-1 — the `expa...
+#check @comprehension_body_tail_exports_field              -- D#1d — comprehension body tail / pattern are body...
+#check @dyndef_bottom_key_propagates                       -- DYN-DEF-1 — dynamic-field label deferral (a dropp...
+#check @dyndef_nondefault_disj_key_still_defers            -- Dynamic-field label DEFAULT-disjunction collapse...
 
 end Kue

@@ -2,9 +2,9 @@ import Kue.Yaml
 
 namespace Kue
 
-/-! Serializer pins for `manifestToYaml` / `valueToYaml` and the pretty-JSON path.
-    Every expected string was oracle-checked against `cue` v0.16.1 (`cue export --out
-    yaml` / default JSON / `yaml.Marshal`) before being encoded here. -/
+-- Serializer pins for `manifestToYaml` / `valueToYaml` and the pretty-JSON path.
+-- Every expected string was oracle-checked against `cue` v0.16.1 (`cue export --out
+-- yaml` / default JSON / `yaml.Marshal`) before being encoded here.
 
 -- Scalars: numbers/bool/null render bare; `1.50` keeps exact spelling.
 theorem yaml_scalar_int : manifestToYaml (.prim (.int 42)) = "42" := by native_decide
@@ -47,10 +47,10 @@ theorem yaml_string_dashes_pure4 : manifestToYaml (.prim (.string "----")) = "\"
 theorem yaml_string_leading_dash_bare : manifestToYaml (.prim (.string "-x")) = "-x" := by native_decide
 theorem yaml_string_trailing_comma_bare : manifestToYaml (.prim (.string "comma,")) = "comma," := by native_decide
 
-/-! ### Scalar quoting battery — every case oracle-confirmed against `cue` v0.16.1
-    (`cue export --out yaml`). The fix: multi-dot/segment infra tokens (IPs, semvers,
-    CIDRs, `name:tag` images) are NOT valid YAML numbers and stay **bare**, while genuine
-    numbers / bools / nulls / dates / base60 stay **quoted** to preserve string-ness. -/
+-- ### Scalar quoting battery — every case oracle-confirmed against `cue` v0.16.1
+-- (`cue export --out yaml`). The fix: multi-dot/segment infra tokens (IPs, semvers,
+-- CIDRs, `name:tag` images) are NOT valid YAML numbers and stay **bare**, while genuine
+-- numbers / bools / nulls / dates / base60 stay **quoted** to preserve string-ness.
 
 -- Infra tokens that previously over-quoted, now bare (multi-segment ⇒ not a scalar number).
 theorem yaml_ip_bare : manifestToYaml (.prim (.string "34.142.159.249")) = "34.142.159.249" := by native_decide
@@ -238,5 +238,13 @@ theorem json_pretty_nested :
           "    \"f\": [],\n" ++
           "    \"g\": {}\n" ++
           "}\n") := by native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @yaml_string_trailing_comma_bare   -- Serializer pins for `manifestToYaml` / `valueToYa...
+#check @json_pretty_nested                -- Scalar quoting battery — every case oracle-confir...
 
 end Kue

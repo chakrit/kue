@@ -24,4 +24,11 @@ theorem string_kind_rejects_bytes_primitive :
     subsumes (.kind .string) (.prim (.bytes "abc")) = false := by
   native_decide
 
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @string_kind_rejects_bytes_primitive
+
 end Kue

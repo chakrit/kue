@@ -282,9 +282,10 @@ the `<name>.manifest.expected` suffix and the manifest helpers in `FixturePorts.
 A slice is not done until all three pass:
 
 ```sh
-lake build                  # builds + checks every theorem
-scripts/check-fixtures.sh   # fixture pairs (CLI path == Lean-port path == .expected)
-shellcheck scripts/*.sh     # any shell you touched
+lake build                    # builds + checks every theorem
+scripts/check-fixtures.sh     # fixture pairs (CLI path == Lean-port path == .expected)
+scripts/check-test-health.sh  # test-file section headers, tripwires, size cap
+shellcheck scripts/*.sh       # any shell you touched
 ```
 
 ### Oracle-checking against `cue`

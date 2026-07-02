@@ -5,9 +5,9 @@ import Kue.Runtime
 
 namespace Kue
 
-/-! `e == _|_` / `e != _|_` is CUE's definedness test, not value equality. These pin the
-three-way classification (defined / error / incomplete) and the comprehension guard's use
-of it, plus that ordinary `==`/`!=` on non-`_|_` operands is unchanged. -/
+-- `e == _|_` / `e != _|_` is CUE's definedness test, not value equality. These pin the
+-- three-way classification (defined / error / incomplete) and the comprehension guard's use
+-- of it, plus that ordinary `==`/`!=` on non-`_|_` operands is unchanged.
 
 -- Classification: resolved values are `defined`, evaluated bottoms are `error`, residual
 -- forms are `incomplete`.
@@ -101,9 +101,9 @@ theorem ordinary_eq_unchanged :
     (evalEq (.prim (.int 1)) (.prim (.int 1)) == .prim (.bool true)) = true := by
   native_decide
 
-/-! D#1a — a BOTTOM comprehension guard PROPAGATES (does not vanish). The guard `1/0 > 0`
-evaluates to bottom; the comprehension becomes that bottom. The `false`/`true` guards are
-unchanged. -/
+-- D#1a — a BOTTOM comprehension guard PROPAGATES (does not vanish). The guard `1/0 > 0`
+-- evaluates to bottom; the comprehension becomes that bottom. The `false`/`true` guards are
+-- unchanged.
 
 -- A bottom guard makes the comprehension struct bottom (not an empty struct).
 theorem guard_bottom_propagates :
@@ -153,10 +153,10 @@ theorem guard_true_still_yields :
       == mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
-/-! D#1b / D#1c — the guard classifier. `classifyGuard` enumerates every guard outcome with no
-catch-all: concrete bool true/false, a propagating bottom, a CONCRETE non-bool type error (D#1c),
-and a genuinely-incomplete DEFER (D#1b). The residual presence-test shape `X !=/== _|_` is NOT a
-defer — it drops (the field's presence is undetermined), preserving the pre-D#1b behavior. -/
+-- D#1b / D#1c — the guard classifier. `classifyGuard` enumerates every guard outcome with no
+-- catch-all: concrete bool true/false, a propagating bottom, a CONCRETE non-bool type error (D#1c),
+-- and a genuinely-incomplete DEFER (D#1b). The residual presence-test shape `X !=/== _|_` is NOT a
+-- defer — it drops (the field's presence is undetermined), preserving the pre-D#1b behavior.
 
 -- Unit: concrete bools classify true/false. (`GuardVerdict` derives `BEq`, not `DecidableEq` —
 -- its `.bottom` arm carries a `Value`, which the project keeps off `DecidableEq` — so assert via
@@ -198,12 +198,12 @@ theorem classify_guard_presence_eq_drops :
     (classifyGuard (.binary .eq (.selector (.refId ⟨0, 0⟩) "g") .bottom) == .concreteFalse) = true := by
   native_decide
 
-/-! DYN-DEF-1 — the dynamic-field label classifier. `classifyDynLabel` enumerates every label
-outcome with no catch-all: a concrete string re-keys, a bottom propagates, a CONCRETE non-string
-is a type error, and a genuinely-abstract label DEFERS (the field stays a residual `.dynamicField`
-rather than dropping). The abstract `string` kind DEFERS — it may still narrow to a concrete
-string at a use site, the property the bug fix restores. (`DynLabelVerdict` derives `BEq`, not
-`DecidableEq`, so assert via `==`, mirroring the `Value`/`GuardVerdict` convention.) -/
+-- DYN-DEF-1 — the dynamic-field label classifier. `classifyDynLabel` enumerates every label
+-- outcome with no catch-all: a concrete string re-keys, a bottom propagates, a CONCRETE non-string
+-- is a type error, and a genuinely-abstract label DEFERS (the field stays a residual `.dynamicField`
+-- rather than dropping). The abstract `string` kind DEFERS — it may still narrow to a concrete
+-- string at a use site, the property the bug fix restores. (`DynLabelVerdict` derives `BEq`, not
+-- `DecidableEq`, so assert via `==`, mirroring the `Value`/`GuardVerdict` convention.)
 
 -- Unit: a concrete string label re-keys to that name.
 theorem classify_dynlabel_string_concrete :
@@ -322,5 +322,15 @@ theorem guard_incomplete_not_dropped :
         .regularOpen))
       == mkStruct [] .regularOpen none []) = false := by
   native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @ordinary_eq_unchanged              -- `e == _|_` / `e != _|_` is CUE's definedness test...
+#check @guard_true_still_yields            -- D#1a — a BOTTOM comprehension guard PROPAGATES (d...
+#check @classify_guard_presence_eq_drops   -- D#1b / D#1c — the guard classifier. `classifyGuar...
+#check @guard_incomplete_not_dropped       -- DYN-DEF-1 — the dynamic-field label classifier. `...
 
 end Kue

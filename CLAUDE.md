@@ -60,7 +60,8 @@ You are a thin orchestrator, not the implementer:
    (`docs/spec/plan.md`), implementation-log (`docs/reference/implementation-log.md`).
    These are the only cross-session/cross-machine memory; trust them over conversation.
 3. **Spawn one subagent per slice.** It runs the full ace workflow in fresh context (plan
-   → TDD → verify: `lake build` + `scripts/check-fixtures.sh` + `shellcheck` → commit/push
+   → TDD → verify: `lake build` + `scripts/check-fixtures.sh` + `scripts/check-test-health.sh`
+     + `shellcheck` → commit/push
    → update plan + implementation-log + breadcrumb). Four standing per-slice duties
    beyond the code:
    - **Tests are first-class.** Don't settle for one happy-path fixture — audit edge/error

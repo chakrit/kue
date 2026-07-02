@@ -38,4 +38,11 @@ theorem eval_sources_rejects_mismatched_packages :
         ] = true := by
   native_decide
 
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @eval_sources_rejects_mismatched_packages
+
 end Kue

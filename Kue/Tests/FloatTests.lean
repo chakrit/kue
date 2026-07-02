@@ -24,4 +24,11 @@ theorem int_kind_rejects_float_primitive :
     subsumes (.kind .int) (.prim (.float "1.5")) = false := by
   native_decide
 
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @int_kind_rejects_float_primitive
+
 end Kue

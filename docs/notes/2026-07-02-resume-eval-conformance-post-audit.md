@@ -52,11 +52,13 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
      Do not apply until accepted/edited.
 2. **Eval-batch audit due** (`4b64502..6c347b5` — L3 + root A + L4; root A is
    soundness). Run before the next eval batch.
-3. **Audit fix-slices** in plan.md Live Backlog (a–e): TEST-HEALTH retrofit +
-   `scripts/check-test-health.sh` gate (highest leverage — every prose-only convention
-   rotted, every script gate held), value-producing catch-all enumeration
-   (Eval/Lattice/Builtin), `Module.lean` partial-def cleanup, `for`-over-non-iterable
-   re-adjudication under E#4, timeless-comment sweep.
+3. **Audit fix-slices** in plan.md Live Backlog. **(a) TEST-HEALTH retrofit +
+   `scripts/check-test-health.sh` gate — DONE (2026-07-02):** all 33 hand-authored test
+   modules converted to `--` headers, per-section `#check` tripwires added, gate enforces
+   (headers / tripwire presence / ≤1800-line cap) and is wired into the verify sequence;
+   `FixturePorts.lean` generated-data exempt. Remaining (b–e): value-producing catch-all
+   enumeration (Eval/Lattice/Builtin), `Module.lean` partial-def cleanup,
+   `for`-over-non-iterable re-adjudication under E#4, timeless-comment sweep.
 4. **root2/root3 quarantined RED** — same closedness family as the L5 campaign; natural
    first targets if the grind is chosen.
 5. **Pending school changes** (for `ace-school`, not from here): the TEST-HEALTH test
@@ -70,7 +72,8 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 - Canary: **cert-manager only** (`apps/cert-manager.cue` under
   `/Users/chakrit/Documents/prod9/infra`, run from that cwd). argocd is GONE from that
   checkout — historical claim, do not re-verify.
-- kue binary: `.lake/build/bin/kue`. Gate: `lake build` + `scripts/check-fixtures.sh`.
+- kue binary: `.lake/build/bin/kue`. Gate: `lake build` + `scripts/check-fixtures.sh` +
+  `scripts/check-test-health.sh`.
 - Relay from AFK run-2's self-flag: it ran `git checkout Kue/Eval.lean` (reverting its
   own in-session edit; no pre-existing WIP lost) — an envelope violation, disclosed for
   chakrit's awareness.

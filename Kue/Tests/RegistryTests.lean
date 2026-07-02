@@ -1,20 +1,20 @@
 import Kue.Registry
 
-/-!
-# Registry config + OCI-ref resolution tests (B3d-1)
-
-`native_decide` pins for the pure `CUE_REGISTRY` parser and module→OCI-ref resolver. Expected
-values are taken from cue v0.16.1's own source — the authoritative OCI protocol reference:
-`internal/mod/modresolve/resolve.go` (`ParseCUERegistry`, `parseRegistry`, `ResolveToLocation`),
-`mod/modconfig/modconfig.go` (`registry.cue.works` default), `mod/module/escape.go`
-(`escapeString`), `mod/modcache/cache.go` (cache layout). Many literal expectations mirror
-`internal/mod/modresolve/resolve_test.go`'s lookup table.
--/
+--
+-- # Registry config + OCI-ref resolution tests (B3d-1)
+--
+-- `native_decide` pins for the pure `CUE_REGISTRY` parser and module→OCI-ref resolver. Expected
+-- values are taken from cue v0.16.1's own source — the authoritative OCI protocol reference:
+-- `internal/mod/modresolve/resolve.go` (`ParseCUERegistry`, `parseRegistry`, `ResolveToLocation`),
+-- `mod/modconfig/modconfig.go` (`registry.cue.works` default), `mod/module/escape.go`
+-- (`escapeString`), `mod/modcache/cache.go` (cache layout). Many literal expectations mirror
+-- `internal/mod/modresolve/resolve_test.go`'s lookup table.
+--
 
 namespace Kue
 namespace Registry
 
-/-! ## Default (empty CUE_REGISTRY) → Central Registry, secure -/
+-- ## Default (empty CUE_REGISTRY) → Central Registry, secure
 
 -- Empty config: every module resolves to `registry.cue.works`, secure, repo = bare module path.
 theorem resolve_default_central :
@@ -26,7 +26,7 @@ theorem resolve_default_central :
 -- An empty config still parses (default catch-all installed) and never errors.
 #guard (parseConfig "").toOption.isSome
 
-/-! ## Bare host / host:port / host:port secure-default -/
+-- ## Bare host / host:port / host:port secure-default
 
 -- A bare catch-all host (`CatchAllWithNoDefault` in resolve_test) — secure, no path prefix.
 theorem resolve_bare_host :
@@ -40,7 +40,7 @@ theorem resolve_host_port_secure :
       == .found ⟨"registry.somewhere:5000", false, "fruit.com/apple", "v1.2.3"⟩) = true := by
   native_decide
 
-/-! ## host/path-prefix → repository = prefix-joined module path -/
+-- ## host/path-prefix → repository = prefix-joined module path
 
 -- A registry with a `/offset` path prefix: repository = `path.Join("offset", mpath)`
 -- (`PrefixWithCatchAllDefault` in resolve_test → `offset/example.com/blah`).
@@ -55,7 +55,7 @@ theorem resolve_multi_element_prefix :
       == .found ⟨"reg.example.com", false, "a/b/c/x.com/m", "v1.0.0"⟩) = true := by
   native_decide
 
-/-! ## +insecure / +secure overrides -/
+-- ## +insecure / +secure overrides
 
 -- `+insecure` flips a normally-secure host to insecure.
 theorem resolve_explicit_insecure :
@@ -76,7 +76,7 @@ theorem resolve_secure_suffix_with_prefix :
       == .found ⟨"reg.example.com", false, "off/x.com/m", "v1.0.0"⟩) = true := by
   native_decide
 
-/-! ## localhost / 127.0.0.1 / [::1] default-insecure -/
+-- ## localhost / 127.0.0.1 / [::1] default-insecure
 
 -- `localhost:5000` defaults to insecure (`LocalhostIsInsecure` in resolve_test).
 theorem resolve_localhost_default_insecure :
@@ -116,7 +116,7 @@ theorem resolve_ipv6_nonloopback_secure :
       == .found ⟨"[2001:db8::1]", false, "fruit.com/apple", "v1.2.3"⟩) = true := by
   native_decide
 
-/-! ## `none` (global) and `prefix=none` -/
+-- ## `none` (global) and `prefix=none`
 
 -- The global `none` registry: a module fetch must FAIL — `noRegistry`, never a default host.
 theorem resolve_global_none :
@@ -148,7 +148,7 @@ theorem resolve_catchall_none_unmatched_fails :
       == .noRegistry) = true := by
   native_decide
 
-/-! ## Prefix matching: longest-wins, complete-element boundary, fallback, duplicates -/
+-- ## Prefix matching: longest-wins, complete-element boundary, fallback, duplicates
 
 -- Longest-prefix wins: `example.com/blah` matches `example.com` (catch-all) but the more
 -- specific `example.com/blah` prefix should win when both are configured.
@@ -229,7 +229,7 @@ theorem parse_unknown_suffix_errors :
       | .error _ => true | .ok _ => false) = true := by
   native_decide
 
-/-! ## Major-version stripping and tag = plain version -/
+-- ## Major-version stripping and tag = plain version
 
 -- The `@v0` major suffix is stripped from the OCI repo; the FULL version is the tag.
 theorem resolve_strips_major_keeps_full_version :
@@ -243,7 +243,7 @@ theorem resolve_strips_major_keeps_full_version :
 #guard (mkModuleVersion "prodigy9.co/defs@v0" "v0.3.19")
   == ⟨"prodigy9.co/defs", "v0.3.19"⟩
 
-/-! ## On-disk cache-layout escaping (escape.go) -/
+-- ## On-disk cache-layout escaping (escape.go)
 
 -- No upper-case ⇒ verbatim.
 #guard escapePath "foo.com/bar" == "foo.com/bar"
@@ -275,11 +275,26 @@ theorem extract_cache_path_escapes_upper :
       == "/c/extract/!foo.com/!m@v1.0.0") = true := by
   native_decide
 
-/-! ## joinRepo (Go path.Join two-arg) edge cases -/
+-- ## joinRepo (Go path.Join two-arg) edge cases
 
 #guard joinRepo "" "x.com/m" == "x.com/m"          -- empty prefix ⇒ bare module path
 #guard joinRepo "offset" "x.com/m" == "offset/x.com/m"
 #guard joinRepo "a/b" "x.com/m" == "a/b/x.com/m"
 
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @resolve_default_central                   -- Default (empty CUE_REGISTRY) → Central Registry,...
+#check @resolve_host_port_secure                  -- Bare host / host:port / host:port secure-default
+#check @resolve_multi_element_prefix              -- host/path-prefix → repository = prefix-joined mod...
+#check @resolve_secure_suffix_with_prefix         -- +insecure / +secure overrides
+#check @resolve_ipv6_nonloopback_secure           -- localhost / 127.0.0.1 / [::1] default-insecure
+#check @resolve_catchall_none_unmatched_fails     -- `none` (global) and `prefix=none`
+#check @parse_unknown_suffix_errors               -- Prefix matching: longest-wins, complete-element b...
+#check @resolve_strips_major_keeps_full_version   -- Major-version stripping and tag = plain version
+#check @extract_cache_path_escapes_upper          -- On-disk cache-layout escaping (escape.go)
+
 end Registry
+
 end Kue

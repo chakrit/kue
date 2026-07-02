@@ -91,10 +91,10 @@ theorem format_field_level_bottom :
     formatValue (mkStruct [⟨"a", .regular, .bottomWith [.fieldConflict "a"]⟩] .regularOpen none []) = "{a: _|_}" := by
   native_decide
 
-/-- Optionality is a lattice, not a set of incompatible tags: `a? & a!` meets to `a!`
-    (required dominates over optional; oracle-confirmed `cue v0.16.1` — the result is a
-    required-but-not-present field, not a contradiction). The pre-orthogonality enum wrongly
-    bottomed this combination. -/
+-- Optionality is a lattice, not a set of incompatible tags: `a? & a!` meets to `a!`
+-- (required dominates over optional; oracle-confirmed `cue v0.16.1` — the result is a
+-- required-but-not-present field, not a contradiction). The pre-orthogonality enum wrongly
+-- bottomed this combination.
 theorem meet_optional_with_required_yields_required :
     meet
       (mkStruct [⟨"a", .optional, .kind .int⟩] .regularOpen none [])
@@ -116,10 +116,10 @@ theorem meet_definition_field_values :
       = mkStruct [⟨"#A", .definition, .prim (.int 1)⟩] .regularOpen none [] := by
   rfl
 
-/-- Optional definition (`#x?`) meets the provided definition (`#x`) to a present
-    definition carrying the value — the orthogonal axes compose (definition stays,
-    optional → regular). The pre-orthogonality enum could not represent `#x?` at all and
-    refused this merge. Oracle: `cue v0.16.1` `#D:{#x?:string}; y:#D&{#x:"hi"}` → `#x:"hi"`. -/
+-- Optional definition (`#x?`) meets the provided definition (`#x`) to a present
+-- definition carrying the value — the orthogonal axes compose (definition stays,
+-- optional → regular). The pre-orthogonality enum could not represent `#x?` at all and
+-- refused this merge. Oracle: `cue v0.16.1` `#D:{#x?:string}; y:#D&{#x:"hi"}` → `#x:"hi"`.
 theorem meet_optional_definition_with_provided_definition :
     meet
       (mkStruct [⟨"#x", .field true false .optional, .kind .string⟩] .regularOpen none [])
@@ -127,8 +127,8 @@ theorem meet_optional_definition_with_provided_definition :
       = mkStruct [⟨"#x", .definition, .prim (.string "hi")⟩] .regularOpen none [] := by
   rfl
 
-/-- Optional hidden (`_x?`) meets provided hidden (`_x`): hidden stays, optional →
-    regular. Oracle: `cue v0.16.1` `{_x?:int} & {_x:5}` selects `_x` as `5`. -/
+-- Optional hidden (`_x?`) meets provided hidden (`_x`): hidden stays, optional →
+-- regular. Oracle: `cue v0.16.1` `{_x?:int} & {_x:5}` selects `_x` as `5`.
 theorem meet_optional_hidden_with_provided_hidden :
     meet
       (mkStruct [⟨"_x", .field false true .optional, .kind .int⟩] .regularOpen none [])
@@ -136,8 +136,8 @@ theorem meet_optional_hidden_with_provided_hidden :
       = mkStruct [⟨"_x", .hidden, .prim (.int 5)⟩] .regularOpen none [] := by
   rfl
 
-/-- Required definition (`#x!`) meets provided definition (`#x`): the regular conjunct
-    discharges `!`, so the field becomes present. Oracle: `#y!:int` & `#y:3` → `#y:3`. -/
+-- Required definition (`#x!`) meets provided definition (`#x`): the regular conjunct
+-- discharges `!`, so the field becomes present. Oracle: `#y!:int` & `#y:3` → `#y:3`.
 theorem meet_required_definition_discharged_by_value :
     meet
       (mkStruct [⟨"#y", .field true false .required, .kind .int⟩] .regularOpen none [])
@@ -145,10 +145,10 @@ theorem meet_required_definition_discharged_by_value :
       = mkStruct [⟨"#y", .definition, .prim (.int 3)⟩] .regularOpen none [] := by
   rfl
 
-/-- A definition (`#x?`/`#x`) — optional or not — ignores closedness on both axes;
-    a definition does not contribute to manifest output regardless of its presence rung;
-    an optional definition is not output, but a provided (`regular`) definition is still
-    non-output (it is a definition). -/
+-- A definition (`#x?`/`#x`) — optional or not — ignores closedness on both axes;
+-- a definition does not contribute to manifest output regardless of its presence rung;
+-- an optional definition is not output, but a provided (`regular`) definition is still
+-- non-output (it is a definition).
 theorem optional_definition_axes :
     (FieldClass.isDefinition (.field true false .optional) == true
       && FieldClass.ignoresClosedness (.field true false .optional) == true
@@ -156,8 +156,8 @@ theorem optional_definition_axes :
       && FieldClass.producesOutput (.field true false .regular) == false) = true := by
   native_decide
 
-/-- The optionality lattice: `regular` (present) dominates and discharges `required`;
-    `required` dominates `optional`; `optional & optional` stays optional. -/
+-- The optionality lattice: `regular` (present) dominates and discharges `required`;
+-- `required` dominates `optional`; `optional & optional` stays optional.
 theorem optionality_meet_lattice :
     (Optionality.meet .regular .required == .regular
       && Optionality.meet .required .regular == .regular
@@ -655,15 +655,15 @@ theorem meet_struct_field_order_is_declaration_order :
       = "{b: 1, a: 2}" := by
   native_decide
 
-/-! ## SC-1b — closed × closed-pattern intersection (per-conjunct allowed-set provenance)
-
-The meet of two CLOSED structs is closed to the INTERSECTION of their allowed-sets: a field
-survives iff EVERY closed conjunct admits it (`label ∈ its fields` OR matches one of its
-closing patterns). The pre-fix flat-union `closingPatterns` store admitted a field matching
-ANY conjunct's pattern; `closedClauses` carries each conjunct's allowed-set as one clause and
-AND-s them, so the lossy later-meet is gone. Each pin is oracle-confirmed against cue v0.16.1.
-Spec basis: closedness guide ("which conjuncts introduced which patterns and closedness
-constraints"); closing = adding `..._|_` (monotone/conjunctive). -/
+-- ## SC-1b — closed × closed-pattern intersection (per-conjunct allowed-set provenance)
+--
+-- The meet of two CLOSED structs is closed to the INTERSECTION of their allowed-sets: a field
+-- survives iff EVERY closed conjunct admits it (`label ∈ its fields` OR matches one of its
+-- closing patterns). The pre-fix flat-union `closingPatterns` store admitted a field matching
+-- ANY conjunct's pattern; `closedClauses` carries each conjunct's allowed-set as one clause and
+-- AND-s them, so the lossy later-meet is gone. Each pin is oracle-confirmed against cue v0.16.1.
+-- Spec basis: closedness guide ("which conjuncts introduced which patterns and closedness
+-- constraints"); closing = adding `..._|_` (monotone/conjunctive).
 
 -- WITNESS. Disjoint patterns `^x` / `^y`: a field matching ONE operand's pattern but not the
 -- other's is rejected on a later meet — the bug the union-store missed. `x1` matches `^x`
@@ -751,15 +751,15 @@ theorem sc1b_closed_empty_rejects_extra :
     exportJsonBottoms "out: close({}) & {x: 1}\n" = true := by
   native_decide
 
-/-! ## SC-1e — closed × open-`...` keeps closedness (monotonicity under meet)
-
-A CLOSED struct met with an open-`...` partner stays CLOSED: closedness is monotone under
-meet, so the partner's bare `...` does NOT re-open the closed conjunct's allowed-set. The pre
--fix tail-bearing arms dropped `bothClauses` (passed `closedClauses = []`) and emitted a
-`.defOpenViaTail` result, re-opening. The fix routes every tail arm through `closeTailResult`,
-which collapses to a closed no-tail result carrying `bothClauses` when the meet is closed. Each
-pin is oracle-confirmed against cue v0.16.1 (cue CORRECT here). Spec basis: closedness is a
-monotone/conjunctive constraint; `...` is a no-op against an already-closed allowed-set. -/
+-- ## SC-1e — closed × open-`...` keeps closedness (monotonicity under meet)
+--
+-- A CLOSED struct met with an open-`...` partner stays CLOSED: closedness is monotone under
+-- meet, so the partner's bare `...` does NOT re-open the closed conjunct's allowed-set. The pre
+-- -fix tail-bearing arms dropped `bothClauses` (passed `closedClauses = []`) and emitted a
+-- `.defOpenViaTail` result, re-opening. The fix routes every tail arm through `closeTailResult`,
+-- which collapses to a closed no-tail result carrying `bothClauses` when the meet is closed. Each
+-- pin is oracle-confirmed against cue v0.16.1 (cue CORRECT here). Spec basis: closedness is a
+-- monotone/conjunctive constraint; `...` is a no-op against an already-closed allowed-set.
 
 -- WITNESS (pattern-closed, catch-all arm). `(#A & #B)` is closed to `^x ∩ ^y`; the open-`...`
 -- partner must NOT re-open it. `x1` matches `^x` but not `^y` → rejected, exactly as the no-`...`
@@ -802,14 +802,14 @@ theorem sc1e_open_open_tail_stays_open :
       "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
-/-! ## EMBED-CLOSE-1 — closedness preserved through embedding (kue spec-correct; cue self-contradicts)
-
-kue rejects `y1` (∉ `#A`'s `^x`) in BOTH the embed form `{#A, y1}` and the meet form `#A & {y1}`.
-cue SELF-CONTRADICTS: it admits the embed form but rejects the meet form (recorded in
-cue-divergences.md). kue follows the closedness-monotonicity spec — embedding a closed def does
-not drop its closedness — and stays consistent. Neither form carries a `...`, so the SC-1e
-tail-arm fix leaves these untouched; the pins LOCK the existing-correct rejection so a future
-closedness change cannot silently regress it. -/
+-- ## EMBED-CLOSE-1 — closedness preserved through embedding (kue spec-correct; cue self-contradicts)
+--
+-- kue rejects `y1` (∉ `#A`'s `^x`) in BOTH the embed form `{#A, y1}` and the meet form `#A & {y1}`.
+-- cue SELF-CONTRADICTS: it admits the embed form but rejects the meet form (recorded in
+-- cue-divergences.md). kue follows the closedness-monotonicity spec — embedding a closed def does
+-- not drop its closedness — and stays consistent. Neither form carries a `...`, so the SC-1e
+-- tail-arm fix leaves these untouched; the pins LOCK the existing-correct rejection so a future
+-- closedness change cannot silently regress it.
 
 theorem embed_close1_meet_form_rejects :
     exportJsonBottoms "#A: {[=~\"^x\"]: int}\nout: #A & {y1: 5}\n" = true := by
@@ -818,5 +818,15 @@ theorem embed_close1_meet_form_rejects :
 theorem embed_close1_embed_form_rejects :
     exportJsonBottoms "#A: {[=~\"^x\"]: int}\nout: {#A, y1: 5}\n" = true := by
   native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @meet_struct_field_order_is_declaration_order
+#check @sc1b_closed_empty_rejects_extra                -- SC-1b — closed × closed-pattern intersection (per...
+#check @sc1e_open_open_tail_stays_open                 -- SC-1e — closed × open-`...` keeps closedness (mon...
+#check @embed_close1_embed_form_rejects                -- EMBED-CLOSE-1 — closedness preserved through embe...
 
 end Kue

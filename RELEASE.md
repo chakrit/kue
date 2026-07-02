@@ -39,7 +39,8 @@ right order and none are forgotten. Design rationale lives in
 ```sh
 lake build
 scripts/check-fixtures.sh        # expect: fixture pairs ok
-shellcheck scripts/check-fixtures.sh
+scripts/check-test-health.sh     # expect: test health ok
+shellcheck scripts/check-fixtures.sh scripts/check-test-health.sh
 ```
 
 ## Cut the release

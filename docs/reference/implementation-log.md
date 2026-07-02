@@ -15275,3 +15275,44 @@ lem/n8n/x9/typesense STILL fully bottom — UNCHANGED (the residual is L5: the i
 `Self=`+error-arm embed carrier, beyond A+L4). The fix is gated to turn list-arm-disj bottoms into
 non-bottoms only — it cannot make any bottom worse, and none of the four apps improved. Diff is
 `Kue/Eval.lean` only. No network, no out-of-tree writes (prod9 + cue cache read-only); not pushed.
+
+## Completed Slice: TEST-HEALTH retrofit + machine enforcement (fix-slice (a))
+
+Goal: complete the TEST-HEALTH CONVENTION with a machine gate + repo-wide migration, so the
+convention stops depending on per-agent memory. Prior state (2026-07-02 audit): only
+`Bug2xTests`/`TwoPassTests` were fully compliant; `EvalTests`/`ParseTests` had tripwires but
+kept block-comment headers; ~30 modules had neither, and no script checked any of it.
+
+### What landed
+
+1. **Block comments → `--` line comments (all 33 hand-authored modules).** Every `/-! … -/`
+   section header and `/-- … -/` per-declaration docstring in `Kue/Tests/*.lean` converted to
+   `--` line comments (multi-line blocks preserved, each line re-prefixed). A line comment
+   self-terminates at EOL and structurally cannot swallow the next declaration — the root
+   cause of the 2026-06-23 silently-dead-theorems incident. `FixturePorts.lean` (generated
+   fixture data) is exempt.
+
+2. **Coverage tripwires on every theorem-bearing module.** End-of-file
+   `#check @<last-theorem-per-section>` blocks added, one anchor per `/-!`-delimited section
+   (the last theorem in that section). A swallowed section makes its anchor an unknown
+   identifier → `#check` fails to elaborate = hard build error. Nested-namespace modules
+   (`Mvs`/`OciAuth`/`Oci`/`Registry`/`Sha256`/`Zip`) place the block inside the inner
+   namespace so names resolve. Anonymous-`example`-only modules (`ModuleTests`) and
+   theorem-free helpers/data (`EvalTestHelpers`, `FixturePorts`) carry none — no name can
+   anchor `#check`; the gate exempts them.
+
+3. **`scripts/check-test-health.sh` gate** (mirrors `check-fixtures.sh` idioms; shellcheck-
+   clean). Three checks over `Kue/Tests/*.lean` (excluding generated `FixturePorts.lean`):
+   no `^[[:space:]]*/-` block comments; a `#check @` tripwire present wherever a `^theorem `
+   exists; per-module line count ≤ 1800. Negative-tested (injected block comment → exit 1).
+
+4. **Wired into the verify sequence** everywhere `check-fixtures.sh` is invoked: `CLAUDE.md`,
+   `docs/guides/slice-loop.md`, `docs/guides/lean4-guide.md`, `RELEASE.md`, `README.md`.
+   `docs/reference/failure-modes.md` coverage-status note updated (retrofit landed).
+
+### Verify
+
+`lake build` clean (140 jobs, 0 warnings/sorry). `scripts/check-test-health.sh` → `test health
+ok`. `scripts/check-fixtures.sh` → `fixture pairs ok` (all suites green). `shellcheck
+scripts/check-fixtures.sh scripts/check-test-health.sh` clean. Docs-and-tests slice: no
+`Kue/*` source (non-test) changed; not pushed.

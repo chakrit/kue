@@ -42,6 +42,9 @@ source as above. Releases are cut locally with [`scripts/release.sh`](scripts/re
   builtins/ multiline/ manifest/`); each pair's files sit together under one subdir.
 - `scripts/check-fixtures.sh` — validates fixture pairs, regenerates Lean fixture
   ports, compares stdin CLI output, and runs `cue fmt --check`.
+- `scripts/check-test-health.sh` — enforces the test-file health convention: `--`
+  line-comment section headers (no swallowing block comments), an end-of-file `#check`
+  coverage tripwire per theorem module, and a per-module line-count cap.
 - `docs/` — durable docs (usage + design record). Start at [`docs/README.md`](docs/README.md).
 - `lakefile.lean`, `lean-toolchain` — Lake build config (Lean `v4.29.1`).
 - `CLAUDE.md`, `ace.toml` — AI agent environment config (managed by

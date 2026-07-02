@@ -101,15 +101,15 @@ theorem eval_cycle_with_repeated_selection :
   native_decide
 
 
-/-! ### structural-cycle detection (D#2a).
-
-The CUE spec mandates dynamic detection of STRUCTURAL cycles — a definition (or regular field)
-whose body re-enters the SAME struct through a struct layer (`#L: {next: #L}`) — as an error,
-DISTINCT from a bare REFERENCE cycle (`x: x` → `_`). Detection is an in-progress struct-body
-stack on the `.refId` eval path (`structStack`): a struct body re-entered while still on the
-stack bottoms with `.structuralCycle` rather than unrolling fuel-deep to garbage. These pins
-cover the spec's oracle table (cue v0.16.1): error cases, the reference-cycle control, the
-finite-deep control, and the recursive-list idiom that must NOT false-positive. -/
+-- ### structural-cycle detection (D#2a).
+--
+-- The CUE spec mandates dynamic detection of STRUCTURAL cycles — a definition (or regular field)
+-- whose body re-enters the SAME struct through a struct layer (`#L: {next: #L}`) — as an error,
+-- DISTINCT from a bare REFERENCE cycle (`x: x` → `_`). Detection is an in-progress struct-body
+-- stack on the `.refId` eval path (`structStack`): a struct body re-entered while still on the
+-- stack bottoms with `.structuralCycle` rather than unrolling fuel-deep to garbage. These pins
+-- cover the spec's oracle table (cue v0.16.1): error cases, the reference-cycle control, the
+-- finite-deep control, and the recursive-list idiom that must NOT false-positive.
 
 -- Oracle #1: a self-referential def is a structural cycle. The lever tags the re-entry
 -- `.structuralCycle` (asserted on the REASON, not merely "some bottom"), so a regression to the
@@ -181,22 +181,22 @@ theorem structural_cycle_mutual_regular_fields_detected :
   native_decide
 
 
-/-! ### terminating-disjunct (D#2b).
-
-The spec's "a node is valid if any of its conjuncts is not cyclic" rule: a recursive def in a
-disjunction (`#List | *null`) terminates by taking the non-cyclic arm once the cyclic arm bottoms
-with `.structuralCycle` (D#2a). The cyclic arm is pruned by `liveAlternatives`/`resolveDisjDefault?`
-(value resolution) — already the existing algebra; D#2b's code change is in `normalizeEvaluatedDisj`,
-which now applies `liveAlternatives` (flatten + drop-bottom + dedup, SC-3) so the bottomed arm never
-lingers in the EVAL value either. The pruning is value-SOUND: a `containsBottom` arm is dead in every
-meet, so removing it changes no value. The surviving default is NOT collapsed into the value (a later
-`a & 2` must still see a non-default arm) — default selection stays a manifest/force projection.
-
-These pin the VALUE verdict (export, byte-identical to cue where the verdict agrees); Kue's eval
-DISPLAY keeps the full `{…} | *null` per its established full-disjunction-with-default convention
-(see `disjunctions/default_disjunction.expected`), which intentionally diverges from cue's
-display-collapse — a recorded spec-gap, not a value bug. The export fixtures
-`testdata/export/terminating_disj_*` carry the same verdicts as committed pairs. -/
+-- ### terminating-disjunct (D#2b).
+--
+-- The spec's "a node is valid if any of its conjuncts is not cyclic" rule: a recursive def in a
+-- disjunction (`#List | *null`) terminates by taking the non-cyclic arm once the cyclic arm bottoms
+-- with `.structuralCycle` (D#2a). The cyclic arm is pruned by `liveAlternatives`/`resolveDisjDefault?`
+-- (value resolution) — already the existing algebra; D#2b's code change is in `normalizeEvaluatedDisj`,
+-- which now applies `liveAlternatives` (flatten + drop-bottom + dedup, SC-3) so the bottomed arm never
+-- lingers in the EVAL value either. The pruning is value-SOUND: a `containsBottom` arm is dead in every
+-- meet, so removing it changes no value. The surviving default is NOT collapsed into the value (a later
+-- `a & 2` must still see a non-default arm) — default selection stays a manifest/force projection.
+--
+-- These pin the VALUE verdict (export, byte-identical to cue where the verdict agrees); Kue's eval
+-- DISPLAY keeps the full `{…} | *null` per its established full-disjunction-with-default convention
+-- (see `disjunctions/default_disjunction.expected`), which intentionally diverges from cue's
+-- display-collapse — a recorded spec-gap, not a value bug. The export fixtures
+-- `testdata/export/terminating_disj_*` carry the same verdicts as committed pairs.
 
 -- Oracle #2 (the spec headline): `#List | *null` terminates on `*null` once the cyclic `#List` arm
 -- bottoms → `tail: null`. cue agrees (`tail: null`); Kue under-resolved before D#2a+D#2b.
@@ -258,10 +258,10 @@ theorem sc3_default_not_collapsed_into_value :
   native_decide
 
 
-/-! ### scalar struct-embedding collapse pins (root prerequisite for list comprehensions).
-
-A struct with no output field embedding a non-struct value IS that value (CUE: `{5}`→`5`). cue
-v0.16.1-exact; collapse only when LOSSLESS (no output field). -/
+-- ### scalar struct-embedding collapse pins (root prerequisite for list comprehensions).
+--
+-- A struct with no output field embedding a non-struct value IS that value (CUE: `{5}`→`5`). cue
+-- v0.16.1-exact; collapse only when LOSSLESS (no output field).
 
 -- bare scalar literal collapses; a ref-embedding collapses to the resolved scalar.
 theorem scalar_embed_collapse_ref :
@@ -288,12 +288,12 @@ theorem scalar_embed_two_distinct_conflicts :
     evalSourceMatches "out: {5, 6}\n" "out: _|_" = true := by
   native_decide
 
-/-! ### empty/decl-free struct ∩ scalar is a CONFLICT, not a collapse (audit #10 V1).
-
-The `{5}`→`5` collapse lives in embed-eval (`meetEmbeddingsWithFuel`), where the host is KNOWN
-to embed a scalar — NOT in `meet`, which cannot tell an empty struct `{}` from `{5}`'s residual
-`mkStruct []`. A genuine struct ∩ scalar must conflict (cue v0.16.1: mismatched types). Before the
-fix these all wrongly collapsed to the scalar. -/
+-- ### empty/decl-free struct ∩ scalar is a CONFLICT, not a collapse (audit #10 V1).
+--
+-- The `{5}`→`5` collapse lives in embed-eval (`meetEmbeddingsWithFuel`), where the host is KNOWN
+-- to embed a scalar — NOT in `meet`, which cannot tell an empty struct `{}` from `{5}`'s residual
+-- `mkStruct []`. A genuine struct ∩ scalar must conflict (cue v0.16.1: mismatched types). Before the
+-- fix these all wrongly collapsed to the scalar.
 
 -- empty struct meeting a scalar conflicts (was wrongly `5`). cue: mismatched types struct/int.
 theorem empty_struct_meet_scalar_conflicts :
@@ -320,12 +320,12 @@ theorem field_struct_then_scalar_conflicts :
     evalSourceMatches "out: {}\nout: 5\n" "out: _|_" = true := by
   native_decide
 
-/-! ### scalar-with-decls carrier (`{#a: 1, 5}` → `5`, `.#a` selectable) — CUE v0.16.1.
-
-The scalar analog of the `.embeddedList` carrier: a struct with only non-output members
-embedding a SCALAR manifests as that scalar while keeping its decls selectable. The pure
-`{5}` collapse (no decls) is UNTOUCHED — it still drops to the bare scalar (the soundness
-net below). Oracle: `cue export {#a:1,5}` → `5`; `.#a` selects `1`. -/
+-- ### scalar-with-decls carrier (`{#a: 1, 5}` → `5`, `.#a` selectable) — CUE v0.16.1.
+--
+-- The scalar analog of the `.embeddedList` carrier: a struct with only non-output members
+-- embedding a SCALAR manifests as that scalar while keeping its decls selectable. The pure
+-- `{5}` collapse (no decls) is UNTOUCHED — it still drops to the bare scalar (the soundness
+-- net below). Oracle: `cue export {#a:1,5}` → `5`; `.#a` selects `1`.
 
 -- SOUNDNESS NET (must stay green through the whole slice): pure `{5}` (no decls) collapses.
 theorem soundness_pure_scalar_collapse_unchanged :
@@ -716,9 +716,9 @@ theorem eval_non_cycle_reference_still_uses_target_value :
       == mkStruct [⟨"x", .regular, .kind .int⟩, ⟨"y", .regular, .kind .int⟩] .regularOpen none []) = true := by
   native_decide
 
-/-- A value alias (`Self={…}`) lowers to a `.thisStruct` let-binding; `Self.field`
-    (a selector on the binding) resolves as a same-struct sibling reference. Pins the
-    eval-level `thisStruct` mechanism directly. -/
+-- A value alias (`Self={…}`) lowers to a `.thisStruct` let-binding; `Self.field`
+-- (a selector on the binding) resolves as a same-struct sibling reference. Pins the
+-- eval-level `thisStruct` mechanism directly.
 theorem eval_value_alias_self_reference :
     (evalStructRefs
       (resolveStructRefs
@@ -734,7 +734,7 @@ theorem eval_value_alias_self_reference :
         ] .regularOpen none []) = true := by
   native_decide
 
-/-- A self-reference cycle through the alias is bounded to top, never diverging. -/
+-- A self-reference cycle through the alias is bounded to top, never diverging.
 theorem eval_value_alias_cycle_bounds_to_top :
     (evalStructRefs
       (resolveStructRefs
@@ -823,9 +823,9 @@ theorem eval_incomplete_builtin_call_remains_call :
       == mkStruct [⟨"x", .regular, .builtinCall "len" [.kind .string]⟩] .regularOpen none []) = true := by
   native_decide
 
-/-- Slice C (`closure-default-in-guard`). A marked-default disjunction collapses to its
-    default in a concrete context; a non-default disjunction does not. These pin
-    `resolveDisjDefault?` directly. -/
+-- Slice C (`closure-default-in-guard`). A marked-default disjunction collapses to its
+-- default in a concrete context; a non-default disjunction does not. These pin
+-- `resolveDisjDefault?` directly.
 theorem resolve_default_disj_picks_marked_default :
     (resolveDisjDefault? [(.default, .prim (.bool false)), (.regular, .kind .bool)]
       == some (.prim (.bool false))) = true := by
@@ -841,36 +841,36 @@ theorem resolve_default_disj_multiple_defaults_stays_unresolved :
       == none) = true := by
   native_decide
 
-/-- Slice F1. A unary op RESOLVES its disjunction operand to the default first, then applies
-    the scalar op — it does NOT distribute. `!(bool | *false)` resolves to `false`, then
-    `!false = true`. (Old slice-C behavior `bool | *true` was wrong: CUE forces the operand
-    concrete; `!(bool | *false)` → `true`, oracle-verified.) -/
+-- Slice F1. A unary op RESOLVES its disjunction operand to the default first, then applies
+-- the scalar op — it does NOT distribute. `!(bool | *false)` resolves to `false`, then
+-- `!false = true`. (Old slice-C behavior `bool | *true` was wrong: CUE forces the operand
+-- concrete; `!(bool | *false)` → `true`, oracle-verified.)
 theorem distribute_not_over_default_disj :
     (distributeUnary .boolNot (.disj [(.default, .prim (.bool false)), (.regular, .kind .bool)])
       == .prim (.bool true)) = true := by
   native_decide
 
-/-- Slice F1. `(int | *1) + 1` resolves the operand to `1`, then `1 + 1 = 2` — NOT
-    `int+1 | *2`. CUE forces arithmetic operands concrete (`(int | *1) + 1 → 2`,
-    oracle-verified), never a cross-product. -/
+-- Slice F1. `(int | *1) + 1` resolves the operand to `1`, then `1 + 1 = 2` — NOT
+-- `int+1 | *2`. CUE forces arithmetic operands concrete (`(int | *1) + 1 → 2`,
+-- oracle-verified), never a cross-product.
 theorem distribute_add_over_default_disj :
     (distributeBinary .add (.disj [(.default, .prim (.int 1)), (.regular, .kind .int)]) (.prim (.int 1))
       == .prim (.int 2)) = true := by
   native_decide
 
-/-! ### Slice F1 — default-mark algebra (audit #3 Violation)
+-- ### Slice F1 — default-mark algebra (audit #3 Violation)
+--
+-- Three coupled facets, oracle-verified against `cue` v0.16.1:
+-- (1) unification ANDs default sets across the cross product (was OR);
+-- (2) `flattenAlternatives` honors two-level default precedence (a default-marked outer
+-- arm selects the inner disjunction's own default structure);
+-- (3) equal defaults dedup before the unique-default test.
+-- Arithmetic/comparison/unary ops resolve each operand to its default FIRST (no
+-- distribution / cross-product).
 
-    Three coupled facets, oracle-verified against `cue` v0.16.1:
-    (1) unification ANDs default sets across the cross product (was OR);
-    (2) `flattenAlternatives` honors two-level default precedence (a default-marked outer
-        arm selects the inner disjunction's own default structure);
-    (3) equal defaults dedup before the unique-default test.
-    Arithmetic/comparison/unary ops resolve each operand to its default FIRST (no
-    distribution / cross-product). -/
-
-/-- F1 facet 1, the cross-product where `combineMark` lives. Unification ANDs the default
-    sets: `(1|*2) & (1|2|3)` → the no-`*` right operand contributes its whole set as
-    defaults, so only `*2 & 2` survives as a default → resolves to `2`. -/
+-- F1 facet 1, the cross-product where `combineMark` lives. Unification ANDs the default
+-- sets: `(1|*2) & (1|2|3)` → the no-`*` right operand contributes its whole set as
+-- defaults, so only `*2 & 2` survives as a default → resolves to `2`.
 theorem f1_unify_cross_and_marks_resolves :
     (resolveDisjDefault?
       (match meet
@@ -881,9 +881,9 @@ theorem f1_unify_cross_and_marks_resolves :
       == some (.prim (.int 2))) = true := by
   native_decide
 
-/-- F1 facet 1, NEGATIVE: two distinct defaults survive the cross → ambiguous (no resolve).
-    `(*1|2) & (1|*2)` crosses to live `1|2` with no surviving default (`*1&1` regular,
-    `2&*2` regular) → stays the disjunction `1 | 2`. -/
+-- F1 facet 1, NEGATIVE: two distinct defaults survive the cross → ambiguous (no resolve).
+-- `(*1|2) & (1|*2)` crosses to live `1|2` with no surviving default (`*1&1` regular,
+-- `2&*2` regular) → stays the disjunction `1 | 2`.
 theorem f1_unify_cross_two_survivors_ambiguous :
     (meet
       (.disj [(.default, .prim (.int 1)), (.regular, .prim (.int 2))])
@@ -891,7 +891,7 @@ theorem f1_unify_cross_two_survivors_ambiguous :
       == .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]) = true := by
   native_decide
 
-/-- F1. `combineMark` is AND: a result alternative is default iff BOTH inputs were. -/
+-- F1. `combineMark` is AND: a result alternative is default iff BOTH inputs were.
 theorem f1_combine_mark_is_and :
     (combineMark .default .default == .default
       && combineMark .default .regular == .regular
@@ -899,25 +899,25 @@ theorem f1_combine_mark_is_and :
       && combineMark .regular .regular == .regular) = true := by
   native_decide
 
-/-- F1 facet 3, equal-default dedup. `*1 | *1 | 2` → the two equal defaults collapse to one,
-    so a unique default remains → resolves to `1`. The headline dedup case. -/
+-- F1 facet 3, equal-default dedup. `*1 | *1 | 2` → the two equal defaults collapse to one,
+-- so a unique default remains → resolves to `1`. The headline dedup case.
 theorem f1_equal_defaults_dedup_resolves :
     (resolveDisjDefault?
       [(.default, .prim (.int 1)), (.default, .prim (.int 1)), (.regular, .prim (.int 2))]
       == some (.prim (.int 1))) = true := by
   native_decide
 
-/-- F1 facet 3, NEGATIVE: DISTINCT defaults stay ambiguous (no spurious dedup). -/
+-- F1 facet 3, NEGATIVE: DISTINCT defaults stay ambiguous (no spurious dedup).
 theorem f1_distinct_defaults_stay_ambiguous :
     (resolveDisjDefault? [(.default, .prim (.int 1)), (.default, .prim (.int 2))]
       == none) = true := by
   native_decide
 
-/-- F1 facet 2, two-level default precedence. `*d | 5` with `d : 1 | 2` (no inner default):
-    the outer default selects `d`'s disjunction, promoting its own arms to defaults (no
-    inner `*` → both `1` and `2` become defaults), while the regular outer `5` stays
-    regular. The flatten thus carries the inner default structure rather than blanket- or
-    OR-marking — the OLD bug produced `*1 | 2 | 5`. -/
+-- F1 facet 2, two-level default precedence. `*d | 5` with `d : 1 | 2` (no inner default):
+-- the outer default selects `d`'s disjunction, promoting its own arms to defaults (no
+-- inner `*` → both `1` and `2` become defaults), while the regular outer `5` stays
+-- regular. The flatten thus carries the inner default structure rather than blanket- or
+-- OR-marking — the OLD bug produced `*1 | 2 | 5`.
 theorem f1_nested_default_flatten_carries_inner :
     (liveAlternatives
       [(.default, .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]),
@@ -925,10 +925,10 @@ theorem f1_nested_default_flatten_carries_inner :
       == [(.default, .prim (.int 1)), (.default, .prim (.int 2)), (.regular, .prim (.int 5))]) = true := by
   native_decide
 
-/-- F1 facet 2, precedence at resolve. With the `*d | 5` flatten above, the two carried
-    defaults `1`, `2` are DISTINCT → `resolveDisjDefault?` shadows the regular `5` and stays
-    ambiguous (matches cue `incomplete value 1 | 2`), neither resolving to `1` nor keeping
-    `5`. -/
+-- F1 facet 2, precedence at resolve. With the `*d | 5` flatten above, the two carried
+-- defaults `1`, `2` are DISTINCT → `resolveDisjDefault?` shadows the regular `5` and stays
+-- ambiguous (matches cue `incomplete value 1 | 2`), neither resolving to `1` nor keeping
+-- `5`.
 theorem f1_nested_default_flatten_resolve_ambiguous :
     (resolveDisjDefault?
       [(.default, .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]),
@@ -936,8 +936,8 @@ theorem f1_nested_default_flatten_resolve_ambiguous :
       == none) = true := by
   native_decide
 
-/-- F1 facet 2. `*d | 5` with `d : *1 | 2` (inner default `*1`): only the inner default
-    carries → unique default `1` → resolves to `1` (matches cue). -/
+-- F1 facet 2. `*d | 5` with `d : *1 | 2` (inner default `*1`): only the inner default
+-- carries → unique default `1` → resolves to `1` (matches cue).
 theorem f1_nested_inner_default_resolves :
     (resolveDisjDefault?
       [(.default, .disj [(.default, .prim (.int 1)), (.regular, .prim (.int 2))]),
@@ -945,9 +945,9 @@ theorem f1_nested_inner_default_resolves :
       == some (.prim (.int 1))) = true := by
   native_decide
 
-/-- F1 facet 2, NEGATIVE: a REGULAR outer arm does NOT contribute its inner disjunction to
-    the default set. `d | *5` with `d : 1 | 2` → `d`'s arms stay regular (shed), the lone
-    default `5` wins → resolves to `5`. -/
+-- F1 facet 2, NEGATIVE: a REGULAR outer arm does NOT contribute its inner disjunction to
+-- the default set. `d | *5` with `d : 1 | 2` → `d`'s arms stay regular (shed), the lone
+-- default `5` wins → resolves to `5`.
 theorem f1_nested_regular_outer_sheds :
     (resolveDisjDefault?
       [(.regular, .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]),
@@ -955,8 +955,8 @@ theorem f1_nested_regular_outer_sheds :
       == some (.prim (.int 5))) = true := by
   native_decide
 
-/-- F1, arithmetic resolve-first. `(1|*2) + (10|*20)` resolves each operand to its default
-    (`2`, `20`) then adds → `22`. The headline arithmetic case; NOT a mark cross-product. -/
+-- F1, arithmetic resolve-first. `(1|*2) + (10|*20)` resolves each operand to its default
+-- (`2`, `20`) then adds → `22`. The headline arithmetic case; NOT a mark cross-product.
 theorem f1_arithmetic_resolves_operands_first :
     (distributeBinary .add
       (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
@@ -964,9 +964,9 @@ theorem f1_arithmetic_resolves_operands_first :
       == .prim (.int 22)) = true := by
   native_decide
 
-/-- F1, arithmetic NEGATIVE: a no-default operand does NOT resolve, so the op stays a stuck
-    node — `(1|2) + 10` keeps the unevaluated `(1|2) + 10`, matching cue's "unresolved
-    disjunction" (manifest reports incomplete), never an over-resolution. -/
+-- F1, arithmetic NEGATIVE: a no-default operand does NOT resolve, so the op stays a stuck
+-- node — `(1|2) + 10` keeps the unevaluated `(1|2) + 10`, matching cue's "unresolved
+-- disjunction" (manifest reports incomplete), never an over-resolution.
 theorem f1_arithmetic_no_default_stays_stuck :
     (distributeBinary .add
       (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))])
@@ -975,372 +975,372 @@ theorem f1_arithmetic_no_default_stays_stuck :
       = true := by
   native_decide
 
-/-- F1, a non-default disjunction stays a non-default disjunction through resolve — no arm
-    becomes a default and it does not collapse (`1 | 2` stays ambiguous). -/
+-- F1, a non-default disjunction stays a non-default disjunction through resolve — no arm
+-- becomes a default and it does not collapse (`1 | 2` stays ambiguous).
 theorem f1_non_default_disj_stays_non_default :
     (resolveDisjDefault? [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]
       == none) = true := by
   native_decide
 
-/-- Was a deferred-bottom pin; float×float now evaluates exactly through the decimal
-    layer. Scales add and CUE preserves the summed scale verbatim: `1.5 * 2.0 = 3.00`
-    (oracle-confirmed, cue v0.16.1), no trailing-zero trim. -/
+-- Was a deferred-bottom pin; float×float now evaluates exactly through the decimal
+-- layer. Scales add and CUE preserves the summed scale verbatim: `1.5 * 2.0 = 3.00`
+-- (oracle-confirmed, cue v0.16.1), no trailing-zero trim.
 theorem eval_mul_two_floats :
     evalMul (.prim (.float "1.5")) (.prim (.float "2.0")) = .prim (.float "3.00") := by
   rfl
 
-/-- Was a deferred-bottom pin; float÷float now evaluates through the decimal layer.
-    `/` always yields a float; `3.0 / 2.0 = 1.5` terminates cleanly (oracle-confirmed,
-    cue v0.16.1). -/
+-- Was a deferred-bottom pin; float÷float now evaluates through the decimal layer.
+-- `/` always yields a float; `3.0 / 2.0 = 1.5` terminates cleanly (oracle-confirmed,
+-- cue v0.16.1).
 theorem eval_div_two_floats :
     (evalDiv (.prim (.float "3.0")) (.prim (.float "2.0")) == .prim (.float "1.5")) = true := by
   native_decide
 
-/-- Multiplication preserves the full summed scale: `1.0 * 1.0 = 1.00`. -/
+-- Multiplication preserves the full summed scale: `1.0 * 1.0 = 1.00`.
 theorem eval_mul_scale_preserved :
     (evalMul (.prim (.float "1.0")) (.prim (.float "1.0")) == .prim (.float "1.00")) = true := by
   native_decide
 
-/-- Mixed int×float promotes to float; int contributes scale 0. -/
+-- Mixed int×float promotes to float; int contributes scale 0.
 theorem eval_mul_int_float :
     (evalMul (.prim (.int 2)) (.prim (.float "1.5")) == .prim (.float "3.0")) = true := by
   native_decide
 
-/-- float×int likewise. -/
+-- float×int likewise.
 theorem eval_mul_float_int :
     (evalMul (.prim (.float "1.5")) (.prim (.int 2)) == .prim (.float "3.0")) = true := by
   native_decide
 
-/-- Negative operand carries through multiplication. -/
+-- Negative operand carries through multiplication.
 theorem eval_mul_negative :
     (evalMul (.prim (.float "-1.5")) (.prim (.float "2.0")) == .prim (.float "-3.00")) = true := by
   native_decide
 
-/-- int×int stays int (no float promotion). -/
+-- int×int stays int (no float promotion).
 theorem eval_mul_int_int :
     evalMul (.prim (.int 3)) (.prim (.int 4)) = .prim (.int 12) := by
   rfl
 
-/-- Terminating division renders without padding. -/
+-- Terminating division renders without padding.
 theorem eval_div_terminating :
     (evalDiv (.prim (.float "1.0")) (.prim (.float "4.0")) == .prim (.float "0.25")) = true := by
   native_decide
 
-/-- Clean division still yields a float, never an int: `4.0 / 2.0 = 2.0`. -/
+-- Clean division still yields a float, never an int: `4.0 / 2.0 = 2.0`.
 theorem eval_div_clean_is_float :
     (evalDiv (.prim (.float "4.0")) (.prim (.float "2.0")) == .prim (.float "2.0")) = true := by
   native_decide
 
-/-- Mixed float÷int promotes; `3.0 / 2 = 1.5`. -/
+-- Mixed float÷int promotes; `3.0 / 2 = 1.5`.
 theorem eval_div_float_int :
     (evalDiv (.prim (.float "3.0")) (.prim (.int 2)) == .prim (.float "1.5")) = true := by
   native_decide
 
-/-- Mixed int÷float promotes; `2 / 4.0 = 0.5`. -/
+-- Mixed int÷float promotes; `2 / 4.0 = 0.5`.
 theorem eval_div_int_float :
     (evalDiv (.prim (.int 2)) (.prim (.float "4.0")) == .prim (.float "0.5")) = true := by
   native_decide
 
-/-- Negative division carries the sign. -/
+-- Negative division carries the sign.
 theorem eval_div_negative :
     (evalDiv (.prim (.float "-1.0")) (.prim (.float "4.0")) == .prim (.float "-0.25")) = true := by
   native_decide
 
-/-- Float division by zero is bottom with divisionByZero provenance. -/
+-- Float division by zero is bottom with divisionByZero provenance.
 theorem eval_div_float_by_zero :
     (evalDiv (.prim (.float "1.0")) (.prim (.float "0.0")) == .bottomWith [.divisionByZero]) = true := by
   native_decide
 
-/-- int÷int now routes through the same decimal divider and yields a float: `6 / 2 = 3.0`. -/
+-- int÷int now routes through the same decimal divider and yields a float: `6 / 2 = 3.0`.
 theorem eval_div_int_int_is_float :
     (evalDiv (.prim (.int 6)) (.prim (.int 2)) == .prim (.float "3.0")) = true := by
   native_decide
 
-/-- Repeating-decimal division renders at 34 significant digits, round-half-up.
-    `2.0 / 3.0 = 0.666…667` (34 sig digits). This is the apd-context subset that is
-    now reachable; see compat-assumptions for the rounding-tie boundary. -/
+-- Repeating-decimal division renders at 34 significant digits, round-half-up.
+-- `2.0 / 3.0 = 0.666…667` (34 sig digits). This is the apd-context subset that is
+-- now reachable; see compat-assumptions for the rounding-tie boundary.
 theorem eval_div_repeating :
     (evalDiv (.prim (.float "2.0")) (.prim (.float "3.0"))
       == .prim (.float "0.6666666666666666666666666666666667")) = true := by
   native_decide
 
-/-- Repeating division with an integer part rounds at 34 sig digits, not 34 frac
-    digits: `10.0 / 3.0 = 3.33…3` (33 frac digits). Pins the significant-digit rule
-    that the prior fixed-fraction int divider got wrong for quotients ≥ 1. -/
+-- Repeating division with an integer part rounds at 34 sig digits, not 34 frac
+-- digits: `10.0 / 3.0 = 3.33…3` (33 frac digits). Pins the significant-digit rule
+-- that the prior fixed-fraction int divider got wrong for quotients ≥ 1.
 theorem eval_div_repeating_int_part :
     (evalDiv (.prim (.float "10.0")) (.prim (.float "3.0"))
       == .prim (.float "3.333333333333333333333333333333333")) = true := by
   native_decide
 
-/-- Rounding carries past 9s: `100.0 / 7.0 = 14.28…29`, last digit rounded up. -/
+-- Rounding carries past 9s: `100.0 / 7.0 = 14.28…29`, last digit rounded up.
 theorem eval_div_repeating_round_up :
     (evalDiv (.prim (.float "100.0")) (.prim (.float "7.0"))
       == .prim (.float "14.28571428571428571428571428571429")) = true := by
   native_decide
 
-/-- High-fuel pin: a full-34-significant-digit repeating quotient with no leading
-    zeros. `1.0 / 7.0 = 0.142857…429` emits the maximum significant digits plus the
-    guard, so the `divisionDigitsFuel` ceiling must not be exhausted before the
-    over-budget exit. Reduces under `native_decide` ⇒ the bound is sufficient. -/
+-- High-fuel pin: a full-34-significant-digit repeating quotient with no leading
+-- zeros. `1.0 / 7.0 = 0.142857…429` emits the maximum significant digits plus the
+-- guard, so the `divisionDigitsFuel` ceiling must not be exhausted before the
+-- over-budget exit. Reduces under `native_decide` ⇒ the bound is sufficient.
 theorem eval_div_repeating_full_sig :
     (evalDiv (.prim (.float "1.0")) (.prim (.float "7.0"))
       == .prim (.float "0.1428571428571428571428571428571429")) = true := by
   native_decide
 
-/-- High-fuel pin exercising the leading-zero slack in the fuel bound: `1.0 / 700.0
-    = 0.001428…429` has two leading fractional zeros (non-emitting iterations) on
-    top of the 34 significant digits, so it leans on the `+ <den digit count>` term
-    of `divisionDigitsFuel`. -/
+-- High-fuel pin exercising the leading-zero slack in the fuel bound: `1.0 / 700.0
+-- = 0.001428…429` has two leading fractional zeros (non-emitting iterations) on
+-- top of the 34 significant digits, so it leans on the `+ <den digit count>` term
+-- of `divisionDigitsFuel`.
 theorem eval_div_repeating_leading_zeros :
     (evalDiv (.prim (.float "1.0")) (.prim (.float "700.0"))
       == .prim (.float "0.001428571428571428571428571428571429")) = true := by
   native_decide
 
-/-! E#4 — arithmetic operator domain. The CUE spec closes `+ - * /` over int/decimal, and
-    additionally `+`/`*` over strings and bytes. A CONCRETE operand outside an op's domain is a
-    TYPE ERROR (`nonArithmeticOperand`), the same class as `1 + "x"`; an INCOMPLETE operand keeps
-    the binary DEFERRED (`.binary`) since it may still resolve to a number. These pin the unit
-    behavior of `evalAdd`/`evalSub`/`evalMul`/`evalDiv` directly, independent of display. -/
+-- E#4 — arithmetic operator domain. The CUE spec closes `+ - * /` over int/decimal, and
+-- additionally `+`/`*` over strings and bytes. A CONCRETE operand outside an op's domain is a
+-- TYPE ERROR (`nonArithmeticOperand`), the same class as `1 + "x"`; an INCOMPLETE operand keeps
+-- the binary DEFERRED (`.binary`) since it may still resolve to a number. These pin the unit
+-- behavior of `evalAdd`/`evalSub`/`evalMul`/`evalDiv` directly, independent of display.
 
-/-- A concrete list operand bottoms `+` (was a held residual; cue: superseded-by-list.Concat). -/
+-- A concrete list operand bottoms `+` (was a held residual; cue: superseded-by-list.Concat).
 theorem eval_add_list_is_type_error :
     (evalAdd (.list [.prim (.int 1)]) (.list [.prim (.int 2)])
       == .bottomWith [.nonArithmeticOperand .add .list]) = true := by
   native_decide
 
-/-- `-` over a list operand bottoms (cue: `cannot use [..] as type number`). -/
+-- `-` over a list operand bottoms (cue: `cannot use [..] as type number`).
 theorem eval_sub_list_is_type_error :
     (evalSub (.list [.prim (.int 1)]) (.prim (.int 3))
       == .bottomWith [.nonArithmeticOperand .sub .list]) = true := by
   native_decide
 
-/-- `*` over a list operand bottoms in either order (cue: superseded-by-list.Repeat). -/
+-- `*` over a list operand bottoms in either order (cue: superseded-by-list.Repeat).
 theorem eval_mul_list_is_type_error :
     (evalMul (.prim (.int 3)) (.list [.prim (.int 1), .prim (.int 2)])
       == .bottomWith [.nonArithmeticOperand .mul .list]) = true := by
   native_decide
 
-/-- `/` over a list operand bottoms. -/
+-- `/` over a list operand bottoms.
 theorem eval_div_list_is_type_error :
     (evalDiv (.list [.prim (.int 1)]) (.prim (.int 3))
       == .bottomWith [.nonArithmeticOperand .div .list]) = true := by
   native_decide
 
-/-- A concrete (no-pattern) struct operand bottoms `+` with the `.struct` operand type. -/
+-- A concrete (no-pattern) struct operand bottoms `+` with the `.struct` operand type.
 theorem eval_add_struct_is_type_error :
     (evalAdd (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
         (mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])
       == .bottomWith [.nonArithmeticOperand .add .struct]) = true := by
   native_decide
 
-/-- A `.listTail` (open list) is also a concrete non-arithmetic operand → type error. -/
+-- A `.listTail` (open list) is also a concrete non-arithmetic operand → type error.
 theorem eval_add_list_tail_is_type_error :
     (evalAdd (.listTail [.prim (.int 1)] (.kind .int)) (.prim (.int 2))
       == .bottomWith [.nonArithmeticOperand .add .list]) = true := by
   native_decide
 
-/-- Per-op asymmetry: `+` over two strings is concat (NOT a type error). -/
+-- Per-op asymmetry: `+` over two strings is concat (NOT a type error).
 theorem eval_add_strings_concats :
     evalAdd (.prim (.string "a")) (.prim (.string "b")) = .prim (.string "ab") := by
   rfl
 
-/-- Per-op asymmetry: `-` over strings IS a type error (string ∉ `-` domain). The wrong-typed
-    prim pair routes through the existing decimal path to a plain `.bottom` (cue errors too). -/
+-- Per-op asymmetry: `-` over strings IS a type error (string ∉ `-` domain). The wrong-typed
+-- prim pair routes through the existing decimal path to a plain `.bottom` (cue errors too).
 theorem eval_sub_strings_is_bottom :
     evalSub (.prim (.string "a")) (.prim (.string "b")) = .bottom := by
   rfl
 
-/-- `*` over (string, int) is REPETITION (cue, superseding strings.Repeat): `"ab" * 2 = "abab"`. -/
+-- `*` over (string, int) is REPETITION (cue, superseding strings.Repeat): `"ab" * 2 = "abab"`.
 theorem eval_mul_string_int_repeats :
     evalMul (.prim (.string "ab")) (.prim (.int 2)) = .prim (.string "abab") := by
   rfl
 
-/-- Repetition is order-agnostic: `2 * "ab" = "abab"`. -/
+-- Repetition is order-agnostic: `2 * "ab" = "abab"`.
 theorem eval_mul_int_string_repeats :
     evalMul (.prim (.int 2)) (.prim (.string "ab")) = .prim (.string "abab") := by
   rfl
 
-/-- `*` over (bytes, int) repeats the bytes: `'ab' * 2 = 'abab'`. -/
+-- `*` over (bytes, int) repeats the bytes: `'ab' * 2 = 'abab'`.
 theorem eval_mul_bytes_int_repeats :
     evalMul (.prim (.bytes "ab")) (.prim (.int 2)) = .prim (.bytes "abab") := by
   rfl
 
-/-- A zero count yields the empty value (not an error). -/
+-- A zero count yields the empty value (not an error).
 theorem eval_mul_string_zero_is_empty :
     evalMul (.prim (.string "ab")) (.prim (.int 0)) = .prim (.string "") := by
   rfl
 
-/-- A negative repetition count is a type error (cue: cannot convert negative number to uint64). -/
+-- A negative repetition count is a type error (cue: cannot convert negative number to uint64).
 theorem eval_mul_string_negative_count_is_error :
     evalMul (.prim (.string "ab")) (.prim (.int (-1))) = .bottomWith [.negativeRepeatCount (-1)] := by
   rfl
 
-/-- CRITICAL regression pin: a concrete list paired with an INCOMPLETE operand (abstract `int`
-    kind) DEFERS — it does NOT bottom, because the kind may still resolve to a number (cue holds
-    `[1] + x` while `x: int`). The concrete-nonarith side alone must not force a type error. -/
+-- CRITICAL regression pin: a concrete list paired with an INCOMPLETE operand (abstract `int`
+-- kind) DEFERS — it does NOT bottom, because the kind may still resolve to a number (cue holds
+-- `[1] + x` while `x: int`). The concrete-nonarith side alone must not force a type error.
 theorem eval_add_list_incomplete_partner_defers :
     evalAdd (.list [.prim (.int 1)]) (.kind .int) = .binary .add (.list [.prim (.int 1)]) (.kind .int) := by
   rfl
 
-/-- Symmetric: incomplete LEFT × concrete list RIGHT also defers. -/
+-- Symmetric: incomplete LEFT × concrete list RIGHT also defers.
 theorem eval_mul_incomplete_partner_list_defers :
     evalMul (.kind .int) (.list [.prim (.int 1)]) = .binary .mul (.kind .int) (.list [.prim (.int 1)]) := by
   rfl
 
-/-- A bound-constraint operand is incomplete → arithmetic defers (it may concretize to a number). -/
+-- A bound-constraint operand is incomplete → arithmetic defers (it may concretize to a number).
 theorem eval_add_bound_operand_defers :
     evalAdd (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 1))
       = .binary .add (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 1)) := by
   rfl
 
-/-- An unresolved ref operand is incomplete → defers (the pre-fix baseline, must stay). -/
+-- An unresolved ref operand is incomplete → defers (the pre-fix baseline, must stay).
 theorem eval_add_ref_operand_defers :
     evalAdd (.refId ⟨0, 0⟩) (.prim (.int 1)) = .binary .add (.refId ⟨0, 0⟩) (.prim (.int 1)) := by
   rfl
 
-/-! ### Comparison / boolean / unary scalar-op pins (EvalOps)
+-- ### Comparison / boolean / unary scalar-op pins (EvalOps)
+--
+-- Direct unit pins for `evalEq`/`evalNe`, the ordering ops (`evalPrimitiveOrdering` via
+-- `evalBinary .lt/.le/.gt/.ge`), the boolean ops, and unary negation/not — the carve-set
+-- functions that previously had only end-to-end fixture coverage. They fix the edge
+-- behavior (incomparable-kind comparison, bool ordering, unary on non-numeric) at the
+-- function level, independent of display.
 
-    Direct unit pins for `evalEq`/`evalNe`, the ordering ops (`evalPrimitiveOrdering` via
-    `evalBinary .lt/.le/.gt/.ge`), the boolean ops, and unary negation/not — the carve-set
-    functions that previously had only end-to-end fixture coverage. They fix the edge
-    behavior (incomparable-kind comparison, bool ordering, unary on non-numeric) at the
-    function level, independent of display. -/
-
-/-- `<` over two ints decides numerically. -/
+-- `<` over two ints decides numerically.
 theorem eval_lt_int_true :
     (evalBinary .lt (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool true)) = true := by
   native_decide
 
-/-- `<` is lexicographic over strings. -/
+-- `<` is lexicographic over strings.
 theorem eval_lt_string_true :
     (evalBinary .lt (.prim (.string "a")) (.prim (.string "b")) == .prim (.bool true)) = true := by
   native_decide
 
-/-- `<=` is reflexive at equality. -/
+-- `<=` is reflexive at equality.
 theorem eval_le_int_equal_true :
     (evalBinary .le (.prim (.int 2)) (.prim (.int 2)) == .prim (.bool true)) = true := by
   native_decide
 
-/-- `>` over ints decides numerically. -/
+-- `>` over ints decides numerically.
 theorem eval_gt_int_true :
     (evalBinary .gt (.prim (.int 5)) (.prim (.int 2)) == .prim (.bool true)) = true := by
   native_decide
 
-/-- `>=` over ints decides numerically. -/
+-- `>=` over ints decides numerically.
 theorem eval_ge_int_true :
     (evalBinary .ge (.prim (.int 5)) (.prim (.int 5)) == .prim (.bool true)) = true := by
   native_decide
 
-/-- Comparison over INCOMPARABLE kinds (int vs string) bottoms — cue: `invalid operands …
-    to '<'`. The `prim,prim` arm finds no decimal compare and no same-string match ⇒ `.bottom`. -/
+-- Comparison over INCOMPARABLE kinds (int vs string) bottoms — cue: `invalid operands …
+-- to '<'`. The `prim,prim` arm finds no decimal compare and no same-string match ⇒ `.bottom`.
 theorem eval_lt_incomparable_kinds_is_bottom :
     (evalBinary .lt (.prim (.int 1)) (.prim (.string "a")) == .bottom) = true := by
   native_decide
 
-/-- `bool` is NOT ordered: `true < false` bottoms (cue: `invalid operands … (type bool and bool)`). -/
+-- `bool` is NOT ordered: `true < false` bottoms (cue: `invalid operands … (type bool and bool)`).
 theorem eval_lt_bool_unordered_is_bottom :
     (evalBinary .lt (.prim (.bool true)) (.prim (.bool false)) == .bottom) = true := by
   native_decide
 
-/-- An incomplete operand keeps an ordering comparison DEFERRED (residual `.binary`). -/
+-- An incomplete operand keeps an ordering comparison DEFERRED (residual `.binary`).
 theorem eval_lt_incomplete_defers :
     (evalBinary .lt (.kind .int) (.prim (.int 2))
       == .binary .lt (.kind .int) (.prim (.int 2))) = true := by
   native_decide
 
-/-- `==` over distinct ints is `false`. -/
+-- `==` over distinct ints is `false`.
 theorem eval_eq_int_distinct_false :
     (evalEq (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool false)) = true := by
   native_decide
 
-/-- `!=` is the negation of `==`. -/
+-- `!=` is the negation of `==`.
 theorem eval_ne_int_distinct_true :
     (evalNe (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool true)) = true := by
   native_decide
 
-/-- AUDIT (EvalOps gap): `==` across DISTINCT KINDS (`1 == "1"`) is `false`, NOT bottom — cue
-    treats `==`/`!=` as total over concrete prims (it falls through `evalDecimalCompare?` to the
-    structural `left == right`, which differs across kinds). Oracle: cue `1 == "1"` ⇒ `false`. -/
+-- AUDIT (EvalOps gap): `==` across DISTINCT KINDS (`1 == "1"`) is `false`, NOT bottom — cue
+-- treats `==`/`!=` as total over concrete prims (it falls through `evalDecimalCompare?` to the
+-- structural `left == right`, which differs across kinds). Oracle: cue `1 == "1"` ⇒ `false`.
 theorem eval_eq_cross_kind_int_string_false :
     (evalEq (.prim (.int 1)) (.prim (.string "1")) == .prim (.bool false)) = true := by
   native_decide
 
-/-- AUDIT (EvalOps gap): `!=` across distinct kinds is `true` (the `==` complement). -/
+-- AUDIT (EvalOps gap): `!=` across distinct kinds is `true` (the `==` complement).
 theorem eval_ne_cross_kind_int_string_true :
     (evalNe (.prim (.int 1)) (.prim (.string "1")) == .prim (.bool true)) = true := by
   native_decide
 
-/-- AUDIT (EvalOps gap): string `<=` is `!stringsLt right left` — pins the REVERSED-operand lambda
-    in the `.le` arm (`"b" <= "a"` ⇒ `false`). Oracle: cue `"b" <= "a"` ⇒ `false`. -/
+-- AUDIT (EvalOps gap): string `<=` is `!stringsLt right left` — pins the REVERSED-operand lambda
+-- in the `.le` arm (`"b" <= "a"` ⇒ `false`). Oracle: cue `"b" <= "a"` ⇒ `false`.
 theorem eval_le_string_reverse_false :
     (evalBinary .le (.prim (.string "b")) (.prim (.string "a")) == .prim (.bool false)) = true := by
   native_decide
 
-/-- AUDIT (EvalOps gap): string `>=` is `!stringsLt left right` — pins the `.ge` string lambda
-    (`"b" >= "a"` ⇒ `true`). Oracle: cue `"b" >= "a"` ⇒ `true`. -/
+-- AUDIT (EvalOps gap): string `>=` is `!stringsLt left right` — pins the `.ge` string lambda
+-- (`"b" >= "a"` ⇒ `true`). Oracle: cue `"b" >= "a"` ⇒ `true`.
 theorem eval_ge_string_reverse_true :
     (evalBinary .ge (.prim (.string "b")) (.prim (.string "a")) == .prim (.bool true)) = true := by
   native_decide
 
-/-- AUDIT (EvalOps gap): string `<=` is reflexive at equality (`"a" <= "a"` ⇒ `true`) — the
-    `decimalEqValues || …` short-circuit has no string analog, so this exercises the
-    `!stringsLt right left` path at the boundary where both `stringsLt` directions are false. -/
+-- AUDIT (EvalOps gap): string `<=` is reflexive at equality (`"a" <= "a"` ⇒ `true`) — the
+-- `decimalEqValues || …` short-circuit has no string analog, so this exercises the
+-- `!stringsLt right left` path at the boundary where both `stringsLt` directions are false.
 theorem eval_le_string_reflexive_true :
     (evalBinary .le (.prim (.string "a")) (.prim (.string "a")) == .prim (.bool true)) = true := by
   native_decide
 
-/-- `&&` over bools decides directly. -/
+-- `&&` over bools decides directly.
 theorem eval_bool_and :
     (evalBinary .boolAnd (.prim (.bool true)) (.prim (.bool false)) == .prim (.bool false)) = true := by
   native_decide
 
-/-- `||` over bools decides directly. -/
+-- `||` over bools decides directly.
 theorem eval_bool_or :
     (evalBinary .boolOr (.prim (.bool false)) (.prim (.bool true)) == .prim (.bool true)) = true := by
   native_decide
 
-/-- `&&` over a NON-bool prim bottoms (cue: `cannot use … as bool`). -/
+-- `&&` over a NON-bool prim bottoms (cue: `cannot use … as bool`).
 theorem eval_bool_and_non_bool_is_bottom :
     (evalBinary .boolAnd (.prim (.int 1)) (.prim (.bool true)) == .bottom) = true := by
   native_decide
 
-/-- Unary `!` negates a bool. -/
+-- Unary `!` negates a bool.
 theorem eval_unary_not_bool :
     (evalUnary .boolNot (.prim (.bool true)) == .prim (.bool false)) = true := by
   native_decide
 
-/-- Unary `!` on a non-bool bottoms (cue: `invalid operation !3`). -/
+-- Unary `!` on a non-bool bottoms (cue: `invalid operation !3`).
 theorem eval_unary_not_non_bool_is_bottom :
     (evalUnary .boolNot (.prim (.int 3)) == .bottom) = true := by
   native_decide
 
-/-- Unary `-` negates an int. -/
+-- Unary `-` negates an int.
 theorem eval_unary_neg_int :
     (evalUnary .numNeg (.prim (.int 5)) == .prim (.int (-5))) = true := by
   native_decide
 
-/-- Unary `-` on a non-numeric operand bottoms (cue: `invalid operation -"a"`). -/
+-- Unary `-` on a non-numeric operand bottoms (cue: `invalid operation -"a"`).
 theorem eval_unary_neg_non_numeric_is_bottom :
     (evalUnary .numNeg (.prim (.string "x")) == .bottom) = true := by
   native_decide
 
-/-- Unary `-` on an incomplete operand keeps the unary DEFERRED (residual `.unary`). -/
+-- Unary `-` on an incomplete operand keeps the unary DEFERRED (residual `.unary`).
 theorem eval_unary_neg_incomplete_defers :
     (evalUnary .numNeg (.kind .int) == .unary .numNeg (.kind .int)) = true := by
   native_decide
 
-/-- Slice 2c.1: an in-struct sibling reference (`b: a`) sees the FULLY-MERGED value of a
-    duplicated label, not the first conjunct. `{a: int, b: a, a: 1}` canonicalizes the two
-    `a` slots into `.conj [int, 1]` at slot 0, so `b` evaluates to `1`, and the duplicate
-    collapses to a single `a` field. -/
+-- Slice 2c.1: an in-struct sibling reference (`b: a`) sees the FULLY-MERGED value of a
+-- duplicated label, not the first conjunct. `{a: int, b: a, a: 1}` canonicalizes the two
+-- `a` slots into `.conj [int, 1]` at slot 0, so `b` evaluates to `1`, and the duplicate
+-- collapses to a single `a` field.
 theorem eval_in_struct_sibling_merge :
     (resolveAndEval
       (mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
       == mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
-/-- A duplicate-label conflict bottoms both the label and any sibling referencing it:
-    `{a: 1, b: a, a: 2}` -> `a` and `b` both bottom. -/
+-- A duplicate-label conflict bottoms both the label and any sibling referencing it:
+-- `{a: 1, b: a, a: 2}` -> `a` and `b` both bottom.
 theorem eval_in_struct_sibling_conflict :
     (resolveAndEval
       (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])
@@ -1350,8 +1350,8 @@ theorem eval_in_struct_sibling_conflict :
         ] .regularOpen none []) = true := by
   native_decide
 
-/-- Canonicalization is visible through nested sub-structs: `c.e` references the outer `a`,
-    seeing the merged `int & 1 = 1`. -/
+-- Canonicalization is visible through nested sub-structs: `c.e` references the outer `a`,
+-- seeing the merged `int & 1 = 1`.
 theorem eval_nested_sibling_merge :
     (resolveAndEval
       (mkStruct [
@@ -1365,18 +1365,18 @@ theorem eval_nested_sibling_merge :
         ] .regularOpen none []) = true := by
   native_decide
 
-/-- A self-referential merged slot must not loop: `{a: a, a: 1}` canonicalizes to
-    `.conj [a, 1]` at slot 0; the self-ref hits the `slotVisited` -> `.top` guard, so the
-    meet collapses to `1` rather than diverging. -/
+-- A self-referential merged slot must not loop: `{a: a, a: 1}` canonicalizes to
+-- `.conj [a, 1]` at slot 0; the self-ref hits the `slotVisited` -> `.top` guard, so the
+-- meet collapses to `1` rather than diverging.
 theorem eval_merged_self_ref_cycle :
     (resolveAndEval
       (mkStruct [⟨"a", .regular, .ref "a"⟩, ⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
       == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
   native_decide
 
-/-- 2c.2: struct conjunction through a referenced binding. `d & {a: 1}` merges the conjuncts'
-    declarations into one frame before evaluating bodies, so `d.b: a` sees the narrowed `a`
-    and `y.b` resolves to `1` (not `int`). -/
+-- 2c.2: struct conjunction through a referenced binding. `d & {a: 1}` merges the conjuncts'
+-- declarations into one frame before evaluating bodies, so `d.b: a` sees the narrowed `a`
+-- and `y.b` resolves to `1` (not `int`).
 theorem eval_meet_lazy_sibling_ref :
     (resolveAndEval
       (mkStruct [
@@ -1390,8 +1390,8 @@ theorem eval_meet_lazy_sibling_ref :
         ] .regularOpen none []) = true := by
   native_decide
 
-/-- 2c.2: literal struct conjunction (no reference operand). `{a: int, b: a} & {a: 1}` → `b: 1`
-    via the merged frame. -/
+-- 2c.2: literal struct conjunction (no reference operand). `{a: int, b: a} & {a: 1}` → `b: 1`
+-- via the merged frame.
 theorem eval_meet_lazy_literal :
     (resolveAndEval
       (mkStruct [
@@ -1408,8 +1408,8 @@ theorem eval_meet_lazy_literal :
         ] .regularOpen none []) = true := by
   native_decide
 
-/-- 2c.2: a chained sibling reference within one conjunct, narrowed across the meet —
-    `{a: int, b: a, c: b} & {a: 1}` resolves `a`, `b`, `c` all to `1`. -/
+-- 2c.2: a chained sibling reference within one conjunct, narrowed across the meet —
+-- `{a: int, b: a, c: b} & {a: 1}` resolves `a`, `b`, `c` all to `1`.
 theorem eval_meet_lazy_chain :
     (resolveAndEval
       (mkStruct [
@@ -1434,8 +1434,8 @@ theorem eval_meet_lazy_chain :
         ] .regularOpen none []) = true := by
   native_decide
 
-/-- 2c.2: nested sub-struct visibility through a *definition* meet. `out.val` references the
-    hidden `#x`; `#D & {#x: "hi"}` narrows `#x` and the nested `out.val` resolves to `"hi"`. -/
+-- 2c.2: nested sub-struct visibility through a *definition* meet. `out.val` references the
+-- hidden `#x`; `#D & {#x: "hi"}` narrows `#x` and the nested `out.val` resolves to `"hi"`.
 theorem eval_meet_lazy_hidden_def :
     (resolveAndEval
       (mkStruct [
@@ -1464,16 +1464,16 @@ theorem eval_meet_lazy_hidden_def :
         ] .regularOpen none []) = true := by
   native_decide
 
-/-! ### B2.2 must-fix item 3 — `applyEvaluatedStructN` pattern path (end-to-end, live).
-
-With production emitting the unified `.struct`, an evaluated pattern-struct now flows through
-`applyEvaluatedStructN`'s pattern arm (`meet (mkStruct [] op none patterns) (mkStruct fields
-…)`), which applies each `[pattern]: constraint` to the matching evaluated fields. These pin
-that arm against cue v0.16.1: a matching field is constrained (`xy` matches `=~"x"`, so
-`string & "hi" = "hi"`; a conflicting constraint bottoms it), a non-matching field is left
-untouched (`z`). cue elides the residual `[=~"x"]: c` pattern in `eval` output but APPLIES it;
-Kue keeps the pattern visible (a formatting divergence, recorded) — the field VALUES agree
-exactly with cue (`xy: "hi"`/`xy: _|_`, `z: 1`). -/
+-- ### B2.2 must-fix item 3 — `applyEvaluatedStructN` pattern path (end-to-end, live).
+--
+-- With production emitting the unified `.struct`, an evaluated pattern-struct now flows through
+-- `applyEvaluatedStructN`'s pattern arm (`meet (mkStruct [] op none patterns) (mkStruct fields
+-- …)`), which applies each `[pattern]: constraint` to the matching evaluated fields. These pin
+-- that arm against cue v0.16.1: a matching field is constrained (`xy` matches `=~"x"`, so
+-- `string & "hi" = "hi"`; a conflicting constraint bottoms it), a non-matching field is left
+-- untouched (`z`). cue elides the residual `[=~"x"]: c` pattern in `eval` output but APPLIES it;
+-- Kue keeps the pattern visible (a formatting divergence, recorded) — the field VALUES agree
+-- exactly with cue (`xy: "hi"`/`xy: _|_`, `z: 1`).
 theorem eval_pattern_struct_applies_to_matching_field :
     evalSourceMatches
         "out: {[=~\"x\"]: string, xy: \"hi\", z: 1}\n"
@@ -1488,14 +1488,14 @@ theorem eval_pattern_struct_constraint_conflict_bottoms_field :
       = true := by
   native_decide
 
-/-! ### B6 — definition-body closedness enforced through a regular field (gap 1).
-
-A closed `#Def` nested under a REGULAR field reaches the use-site meet still closed, so an
-undeclared field is rejected. Pre-B6 `normalizeFieldWithFuel` left a regular field's value
-unwalked, so the nested def stayed open and admitted the extra. Oracle: cue v0.16.1 reports
-`out.extra: field not allowed` for the closed form and admits `extra` when the def is opened via
-`...`. The eager-selector form (`x.#Inner`, gap 2) is the SAME root cause — once normalize closes
-the def, the eager selector returns the closed body and the existing meet enforces it. -/
+-- ### B6 — definition-body closedness enforced through a regular field (gap 1).
+--
+-- A closed `#Def` nested under a REGULAR field reaches the use-site meet still closed, so an
+-- undeclared field is rejected. Pre-B6 `normalizeFieldWithFuel` left a regular field's value
+-- unwalked, so the nested def stayed open and admitted the extra. Oracle: cue v0.16.1 reports
+-- `out.extra: field not allowed` for the closed form and admits `extra` when the def is opened via
+-- `...`. The eager-selector form (`x.#Inner`, gap 2) is the SAME root cause — once normalize closes
+-- the def, the eager selector returns the closed body and the existing meet enforces it.
 theorem eval_closed_def_under_regular_field_rejects_extra :
     evalSourceMatches
         "a: {\n\t#Inner: {x: int}\n}\nout: a.#Inner & {x: 1, extra: 2}\n"
@@ -1517,13 +1517,13 @@ theorem eval_open_def_under_regular_field_admits_extra :
       = true := by
   native_decide
 
-/-! ### B6-A2 — definition-body closedness enforced through a `let`-bound value.
-
-A closed `#Def` nested under a `let` binding closes exactly as under a regular field: `letBinding`
-is its OWN `FieldClass` kind, NOT the import-binding A2 trap (the hidden-field skip), so the spine
-walker can recurse it safely. Oracle cue v0.16.1: `let x = {#I: {y:int}}; x.#I & {extra}` →
-`out.extra: field not allowed`; an open def (`...`) under the same `let` admits `extra` (no
-over-close). This is the `letBinding` arm of the future A2-followup 4-way `FieldClass` split. -/
+-- ### B6-A2 — definition-body closedness enforced through a `let`-bound value.
+--
+-- A closed `#Def` nested under a `let` binding closes exactly as under a regular field: `letBinding`
+-- is its OWN `FieldClass` kind, NOT the import-binding A2 trap (the hidden-field skip), so the spine
+-- walker can recurse it safely. Oracle cue v0.16.1: `let x = {#I: {y:int}}; x.#I & {extra}` →
+-- `out.extra: field not allowed`; an open def (`...`) under the same `let` admits `extra` (no
+-- over-close). This is the `letBinding` arm of the future A2-followup 4-way `FieldClass` split.
 theorem eval_let_nested_def_closes :
     evalSourceMatches
         "let x = {#I: {y: int}}\nout: x.#I & {y: 1, extra: 2}\n"
@@ -1545,12 +1545,12 @@ theorem eval_let_plain_struct_stays_open :
       = true := by
   native_decide
 
-/-! ### B6-T1 — closedness regression pins.
-
-B6 is the most regression-prone class (prior closedness changes bottomed `#ListenerSet`/
-cert-manager). These pin the shapes the Phase-A over-close hunt exercised so future closedness
-work cannot silently regress them. Each oracle-checked vs cue v0.16.1. (SC-2 closed the former
-direct-def-path gap — `#D.r & {extra}` now correctly rejects; pinned in the SC-2 cluster below.) -/
+-- ### B6-T1 — closedness regression pins.
+--
+-- B6 is the most regression-prone class (prior closedness changes bottomed `#ListenerSet`/
+-- cert-manager). These pin the shapes the Phase-A over-close hunt exercised so future closedness
+-- work cannot silently regress them. Each oracle-checked vs cue v0.16.1. (SC-2 closed the former
+-- direct-def-path gap — `#D.r & {extra}` now correctly rejects; pinned in the SC-2 cluster below.)
 theorem eval_b6_depth2_nested_def_closes :
     evalSourceMatches
         "a: {b: {#Inner: {x: int}}}\nout: a.b.#Inner & {x: 1, extra: 2}\n"
@@ -1598,13 +1598,13 @@ theorem eval_sc2b_instantiated_def_field_stays_closed :
       = true := by
   native_decide
 
-/-! ### SC-2 — nested def-body closedness (the closing field-walker twin).
-
-The four soundness obligations from the SC-2 design, pinned. The closing walker closes a
-referenced def's nested PLAIN-struct field VALUES (obligation 1), recursively, AND a def's
-HIDDEN-field nested PLAIN-struct value too (obligation 4 — SC-4 fix), BUT a plain non-def
-struct (obligation 2) and a nested `...` (obligation 3) stay open. Each oracle-checked vs
-cue v0.16.1; obligations 1/3/4 agree with cue, 2 agrees with cue (control). -/
+-- ### SC-2 — nested def-body closedness (the closing field-walker twin).
+--
+-- The four soundness obligations from the SC-2 design, pinned. The closing walker closes a
+-- referenced def's nested PLAIN-struct field VALUES (obligation 1), recursively, AND a def's
+-- HIDDEN-field nested PLAIN-struct value too (obligation 4 — SC-4 fix), BUT a plain non-def
+-- struct (obligation 2) and a nested `...` (obligation 3) stay open. Each oracle-checked vs
+-- cue v0.16.1; obligations 1/3/4 agree with cue, 2 agrees with cue (control).
 
 -- Obligation 1: a referenced closed def's nested field rejects an extra (the SC-2a fix).
 theorem eval_sc2_nested_def_field_closes :
@@ -1630,19 +1630,19 @@ theorem eval_sc2_nested_tail_stays_open :
       = true := by
   native_decide
 
-/-! ### SC-4 — a def's HIDDEN-field nested PLAIN-struct value CLOSES (the closing twin's
-hidden arm now recurses the CLOSING walker, like the regular arm).
-
-Closedness is a property of the definition and is MONOTONE; the visibility of the field
-carrying a nested value (`_h` hidden vs `h` regular) does NOT change whether that nested
-value is closed — a `_h: {x: int}` declared in a closed `#A` with no `...` is itself a
-closed struct. So `#A & {_h: {x: 1, extra: 2}}` REJECTS `extra`, exactly as the regular
-analog (obligation 1). cue v0.16.1 AGREES on the direct-meet AND the direct-select
-(`#A._h & {extra}`) paths; only the bound-then-select path (`y: #A; y._h & {extra}`)
-re-opens in cue — the same SC-2b-family eval artifact (closedness lost through a regular
-binding), where Kue follows the spec and diverges. The let-read analog (`v: _h` where `_h`
-is a let-bound struct in the def, read into a regular field) closes for free: `v` is a
-regular field whose resolved value is the closing-walked struct. -/
+-- ### SC-4 — a def's HIDDEN-field nested PLAIN-struct value CLOSES (the closing twin's
+-- hidden arm now recurses the CLOSING walker, like the regular arm).
+--
+-- Closedness is a property of the definition and is MONOTONE; the visibility of the field
+-- carrying a nested value (`_h` hidden vs `h` regular) does NOT change whether that nested
+-- value is closed — a `_h: {x: int}` declared in a closed `#A` with no `...` is itself a
+-- closed struct. So `#A & {_h: {x: 1, extra: 2}}` REJECTS `extra`, exactly as the regular
+-- analog (obligation 1). cue v0.16.1 AGREES on the direct-meet AND the direct-select
+-- (`#A._h & {extra}`) paths; only the bound-then-select path (`y: #A; y._h & {extra}`)
+-- re-opens in cue — the same SC-2b-family eval artifact (closedness lost through a regular
+-- binding), where Kue follows the spec and diverges. The let-read analog (`v: _h` where `_h`
+-- is a let-bound struct in the def, read into a regular field) closes for free: `v` is a
+-- regular field whose resolved value is the closing-walked struct.
 
 -- SC-4 obligation 4 (FLIPPED from the stale "stays open"): direct-meet hidden nested CLOSES.
 theorem eval_sc4_hidden_field_nested_closes :

@@ -1,23 +1,23 @@
 import Kue.Semver
 import Kue.Mvs
 
-/-!
-# Semver comparison + MVS solver tests (B3d-6a)
-
-`native_decide`/`#guard` pins for `Kue.Semver` (Go `x/mod/semver` ordering) and `Kue.Mvs`
-(Russ Cox MVS). Expected values come from the authoritative sources, not from `cue` output:
-- semver: `~/go/pkg/mod/golang.org/x/mod@v0.15.0/semver/semver.go` (`Compare` + the doc-comment
-  precedence chain `1.0.0-alpha < … < 1.0.0-rc.1 < 1.0.0`).
-- MVS: cue v0.16.1 `internal/mod/mvs/{mvs.go,graph.go}` and the diamond worked example from
-  <https://research.swtch.com/vgo-mvs>.
--/
+--
+-- # Semver comparison + MVS solver tests (B3d-6a)
+--
+-- `native_decide`/`#guard` pins for `Kue.Semver` (Go `x/mod/semver` ordering) and `Kue.Mvs`
+-- (Russ Cox MVS). Expected values come from the authoritative sources, not from `cue` output:
+-- - semver: `~/go/pkg/mod/golang.org/x/mod@v0.15.0/semver/semver.go` (`Compare` + the doc-comment
+-- precedence chain `1.0.0-alpha < … < 1.0.0-rc.1 < 1.0.0`).
+-- - MVS: cue v0.16.1 `internal/mod/mvs/{mvs.go,graph.go}` and the diamond worked example from
+-- <https://research.swtch.com/vgo-mvs>.
+--
 
 namespace Kue
 namespace Mvs
 
 open Kue.Registry (ModuleVersion)
 
-/-! ## Semver: numeric major/minor/patch ordering -/
+-- ## Semver: numeric major/minor/patch ordering
 
 -- Numeric, not lexical: 10 > 2 even though "10" < "2" as strings (compareInt length rule).
 theorem semver_minor_numeric : (Semver.compare "v1.2.0" "v1.10.0" < 0) = true := by native_decide
@@ -28,7 +28,7 @@ theorem semver_equal : (Semver.compare "v1.2.3" "v1.2.3" == 0) = true := by nati
 theorem semver_shorthand_major : (Semver.compare "v1" "v1.0.0" == 0) = true := by native_decide
 theorem semver_shorthand_minor : (Semver.compare "v1.2" "v1.2.0" == 0) = true := by native_decide
 
-/-! ## Semver: prerelease ordering -/
+-- ## Semver: prerelease ordering
 
 -- A prerelease sorts BEFORE the same version without one.
 theorem semver_prerelease_before_release :
@@ -59,7 +59,7 @@ theorem semver_numeric_lt_alpha :
 theorem semver_longer_prerelease_wins :
     (Semver.compare "v1.0.0-alpha" "v1.0.0-alpha.0" < 0) = true := by native_decide
 
-/-! ## Semver: build metadata ignored, validity -/
+-- ## Semver: build metadata ignored, validity
 
 -- Build metadata is parsed but does NOT affect precedence.
 theorem semver_build_ignored :
@@ -89,14 +89,14 @@ theorem semver_two_invalids_equal :
 #guard Semver.maxVersion "v1.2.0" "v1.10.0" == "v1.10.0"
 #guard Semver.maxVersion "v1.3.0" "v1.2.0" == "v1.3.0"
 
-/-! ## MVS: helpers and node constructor -/
+-- ## MVS: helpers and node constructor
 
 private def mv (path version : String) : ModuleVersion := ⟨path, version⟩
 
-/-! ## MVS: the diamond (research.swtch.com/vgo-mvs)
-
-    main → A v1.0.0, B v1.0.0;  A v1.0.0 → C v1.2.0;  B v1.0.0 → C v1.3.0.
-    Max of the two minimums on C ⇒ select C v1.3.0. Build list = main, then A,B,C sorted. -/
+-- ## MVS: the diamond (research.swtch.com/vgo-mvs)
+--
+-- main → A v1.0.0, B v1.0.0;  A v1.0.0 → C v1.2.0;  B v1.0.0 → C v1.3.0.
+-- Max of the two minimums on C ⇒ select C v1.3.0. Build list = main, then A,B,C sorted.
 
 private def diamondGraph : RequirementGraph :=
   [ (mv "main" "v1.0.0", [mv "A" "v1.0.0", mv "B" "v1.0.0"]),
@@ -108,7 +108,7 @@ theorem mvs_diamond_selects_max :
       == [mv "main" "v1.0.0", mv "A" "v1.0.0", mv "B" "v1.0.0", mv "C" "v1.3.0"]) = true := by
   native_decide
 
-/-! ## MVS: same module, two minimums of the same major → take the higher -/
+-- ## MVS: same module, two minimums of the same major → take the higher
 
 private def twoMinGraph : RequirementGraph :=
   [ (mv "main" "v1.0.0", [mv "X" "v1.1.0", mv "Y" "v1.0.0"]),
@@ -119,7 +119,7 @@ theorem mvs_two_min_takes_higher :
       == [mv "main" "v1.0.0", mv "X" "v1.4.0", mv "Y" "v1.0.0"]) = true := by
   native_decide
 
-/-! ## MVS: an "upgrade" — requiring a higher min pulls the selection up -/
+-- ## MVS: an "upgrade" — requiring a higher min pulls the selection up
 
 -- main now requires C v1.4.0 directly; it dominates both A's v1.2.0 and B's v1.3.0.
 private def upgradeGraph : RequirementGraph :=
@@ -132,10 +132,10 @@ theorem mvs_upgrade_dominates :
       == [mv "main" "v1.0.0", mv "A" "v1.0.0", mv "B" "v1.0.0", mv "C" "v1.4.0"]) = true := by
   native_decide
 
-/-! ## MVS: "downgrade by not requiring" — dropping an edge lowers the selection
-
-    Same modules as the diamond, but B no longer requires C v1.3.0 (its requirement is removed);
-    only A's v1.2.0 remains, so C downgrades to v1.2.0 — no explicit downgrade needed. -/
+-- ## MVS: "downgrade by not requiring" — dropping an edge lowers the selection
+--
+-- Same modules as the diamond, but B no longer requires C v1.3.0 (its requirement is removed);
+-- only A's v1.2.0 remains, so C downgrades to v1.2.0 — no explicit downgrade needed.
 
 private def downgradeGraph : RequirementGraph :=
   [ (mv "main" "v1.0.0", [mv "A" "v1.0.0", mv "B" "v1.0.0"]),
@@ -147,7 +147,7 @@ theorem mvs_downgrade_by_not_requiring :
       == [mv "main" "v1.0.0", mv "A" "v1.0.0", mv "B" "v1.0.0", mv "C" "v1.2.0"]) = true := by
   native_decide
 
-/-! ## MVS: distinct majors are distinct paths and coexist -/
+-- ## MVS: distinct majors are distinct paths and coexist
 
 -- `m` and `m/v2` are different paths ⇒ both appear, each at its own selected version.
 private def majorsGraph : RequirementGraph :=
@@ -158,7 +158,7 @@ theorem mvs_distinct_majors_coexist :
       == [mv "main" "v1.0.0", mv "m" "v1.5.0", mv "m/v2" "v2.1.0"]) = true := by
   native_decide
 
-/-! ## MVS: a cycle in the requirement graph terminates -/
+-- ## MVS: a cycle in the requirement graph terminates
 
 -- A ⇄ B mutual requirement (legal in MVS); reachability must halt and select both.
 private def cycleGraph : RequirementGraph :=
@@ -171,7 +171,7 @@ theorem mvs_cycle_terminates :
       == [mv "main" "v1.0.0", mv "A" "v1.0.0", mv "B" "v1.0.0"]) = true := by
   native_decide
 
-/-! ## MVS: an unreachable module is excluded -/
+-- ## MVS: an unreachable module is excluded
 
 -- Z is in the graph as a key but nothing reachable from main requires it ⇒ excluded.
 private def unreachableGraph : RequirementGraph :=
@@ -184,7 +184,7 @@ theorem mvs_unreachable_excluded :
       == [mv "main" "v1.0.0", mv "A" "v1.0.0"]) = true := by
   native_decide
 
-/-! ## MVS: empty requirements → just the main module -/
+-- ## MVS: empty requirements → just the main module
 
 theorem mvs_empty_just_main :
     (solve (mv "main" "v1.0.0") []
@@ -202,7 +202,7 @@ theorem mvs_main_path_pinned :
       == [mv "main" "v1.0.0", mv "A" "v1.0.0"]) = true := by
   native_decide
 
-/-! ## MVS: build-list ordering is path-sorted after the root -/
+-- ## MVS: build-list ordering is path-sorted after the root
 
 -- Out-of-order requirements still produce a path-sorted remainder.
 private def orderGraph : RequirementGraph :=
@@ -213,12 +213,12 @@ theorem mvs_remainder_sorted_by_path :
       == [mv "main" "v1.0.0", mv "alpha" "v1.0.0", mv "mid" "v1.0.0", mv "zeta" "v1.0.0"]) = true := by
   native_decide
 
-/-! ## MVS: high fan-in / dense graph does NOT truncate (fuel soundness)
-
-    A near-complete graph re-enqueues each node once per parent, so the worklist length far
-    exceeds the distinct-node count. The first fuel bound (`|allNodes|+|targets|+1`) bounded only
-    distinct expansions, not total steps, and SILENTLY DROPPED nodes here. The build list must
-    contain every reachable path. -/
+-- ## MVS: high fan-in / dense graph does NOT truncate (fuel soundness)
+--
+-- A near-complete graph re-enqueues each node once per parent, so the worklist length far
+-- exceeds the distinct-node count. The first fuel bound (`|allNodes|+|targets|+1`) bounded only
+-- distinct expansions, not total steps, and SILENTLY DROPPED nodes here. The build list must
+-- contain every reachable path.
 
 private def denseNodes : List String := ["A", "B", "C", "D", "E"]
 private def denseReqs : List ModuleVersion := denseNodes.map (fun n => mv n "v1.0.0")
@@ -231,11 +231,30 @@ theorem mvs_dense_no_truncation :
           mv "D" "v1.0.0", mv "E" "v1.0.0"]) = true := by
   native_decide
 
-/-! ## Totality pins: only the standard classical axioms, no `sorryAx`/`partial`/custom axiom. -/
+-- ## Totality pins: only the standard classical axioms, no `sorryAx`/`partial`/custom axiom.
 
 -- `#print axioms` emits to stdout; a regression to `sorryAx` would show here in the build log.
 #print axioms Kue.Semver.compare
 #print axioms Kue.Mvs.solve
 
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @semver_shorthand_minor           -- Semver: numeric major/minor/patch ordering
+#check @semver_longer_prerelease_wins    -- Semver: prerelease ordering
+#check @semver_two_invalids_equal        -- Semver: build metadata ignored, validity
+#check @mvs_diamond_selects_max          -- MVS: the diamond (research.swtch.com/vgo-mvs)
+#check @mvs_two_min_takes_higher         -- MVS: same module, two minimums of the same major...
+#check @mvs_upgrade_dominates            -- MVS: an "upgrade" — requiring a higher min pulls...
+#check @mvs_downgrade_by_not_requiring   -- MVS: "downgrade by not requiring" — dropping an e...
+#check @mvs_distinct_majors_coexist      -- MVS: distinct majors are distinct paths and coexist
+#check @mvs_cycle_terminates             -- MVS: a cycle in the requirement graph terminates
+#check @mvs_unreachable_excluded         -- MVS: an unreachable module is excluded
+#check @mvs_main_path_pinned             -- MVS: empty requirements → just the main module
+#check @mvs_remainder_sorted_by_path     -- MVS: build-list ordering is path-sorted after the...
+#check @mvs_dense_no_truncation          -- MVS: high fan-in / dense graph does NOT truncate...
+
 end Mvs
+
 end Kue

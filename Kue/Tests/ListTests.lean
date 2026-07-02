@@ -111,52 +111,52 @@ theorem open_list_tail_rejects_conflicting_extra_item :
       = false := by
   native_decide
 
-/-! ### List-embedding-in-struct (`meet(struct, list)`) semantics — CUE v0.16.1
+-- ### List-embedding-in-struct (`meet(struct, list)`) semantics — CUE v0.16.1
+--
+-- A struct whose members are all non-output (hidden/definition/optional/let) embedding a
+-- list IS that list (an `embeddedList` carrying the surviving decls). A regular/required
+-- field present makes it a genuine struct/list conflict (bottom). Oracle-matched.
 
-A struct whose members are all non-output (hidden/definition/optional/let) embedding a
-list IS that list (an `embeddedList` carrying the surviving decls). A regular/required
-field present makes it a genuine struct/list conflict (bottom). Oracle-matched. -/
-
-/-- Only-non-output struct meet a list → the list, with the decl preserved. -/
+-- Only-non-output struct meet a list → the list, with the decl preserved.
 theorem meet_hidden_struct_list_is_embedded_list :
     (meet (mkStruct [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
           (.list [.prim (.int 1), .prim (.int 2)])
       == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩])
       = true := by native_decide
 
-/-- A regular (output) field present → genuine conflict. -/
+-- A regular (output) field present → genuine conflict.
 theorem meet_regular_struct_list_is_bottom :
     isBottom (meet (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
-/-- A required field present → genuine conflict. -/
+-- A required field present → genuine conflict.
 theorem meet_required_struct_list_is_bottom :
     isBottom (meet (mkStruct [⟨"a", .required, .kind .int⟩] .regularOpen none [])
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
-/-- Optional fields are non-output → the list survives. -/
+-- Optional fields are non-output → the list survives.
 theorem meet_optional_struct_list_is_embedded_list :
     (meet (mkStruct [⟨"a", .optional, .kind .int⟩] .regularOpen none [])
           (.list [.prim (.int 1), .prim (.int 2)])
       == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"a", .optional, .kind .int⟩])
       = true := by native_decide
 
-/-- Empty struct (no members at all) embedding a list → the bare list (no decls). -/
+-- Empty struct (no members at all) embedding a list → the bare list (no decls).
 theorem meet_empty_struct_list_is_embedded_list :
     (meet (mkStruct [] .regularOpen none []) (.list [.prim (.int 7)])
       == .embeddedList [.prim (.int 7)] none [])
       = true := by native_decide
 
-/-- Open list embed: `[...]` is `listTail [] top` → `embeddedList [] (some top)`. -/
+-- Open list embed: `[...]` is `listTail [] top` → `embeddedList [] (some top)`.
 theorem meet_hidden_struct_open_list :
     (meet (mkStruct [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
           (.listTail [] .top)
       == .embeddedList [] (some .top) [⟨"#a", .definition, .prim (.int 1)⟩])
       = true := by native_decide
 
-/-- Meet of two embeddedLists merges decls and meets the lists (`[...int] & [1,2]`). -/
+-- Meet of two embeddedLists merges decls and meets the lists (`[...int] & [1,2]`).
 theorem meet_two_embedded_lists :
     (meet (.embeddedList [] (some (.kind .int)) [⟨"#a", .definition, .prim (.int 1)⟩])
           (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#b", .definition, .prim (.int 2)⟩])
@@ -164,50 +164,50 @@ theorem meet_two_embedded_lists :
            [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
       = true := by native_decide
 
-/-- An embeddedList carrier meet a pure decls-only struct (no embed of its own) BOTTOMS: the
-    carrier IS its list, so `[1,2] & {#b:2}` is a list-vs-struct kind conflict
-    (`{#a:1,[1,2]} & {#b:2}`; CUE v0.16.1 agrees). The decls do NOT merge — merge happens ONLY
-    against another list-shaped carrier (`meet_two_embedded_lists`, above). -/
+-- An embeddedList carrier meet a pure decls-only struct (no embed of its own) BOTTOMS: the
+-- carrier IS its list, so `[1,2] & {#b:2}` is a list-vs-struct kind conflict
+-- (`{#a:1,[1,2]} & {#b:2}`; CUE v0.16.1 agrees). The decls do NOT merge — merge happens ONLY
+-- against another list-shaped carrier (`meet_two_embedded_lists`, above).
 theorem meet_embedded_list_with_decls_struct_bottoms :
     (meet (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩])
           (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none []))
       == .bottom
       := by native_decide
 
-/-- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically. -/
+-- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically.
 theorem meet_decls_struct_with_embedded_list_bottoms :
     (meet (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
           (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩]))
       == .bottom
       := by native_decide
 
-/-- An embeddedList whose list conflicts a concrete element carries an element bottom
-    (matching `cue`'s `x.0: conflicting values` and the export error). -/
+-- An embeddedList whose list conflicts a concrete element carries an element bottom
+-- (matching `cue`'s `x.0: conflicting values` and the export error).
 theorem meet_embedded_list_conflicting_elements :
     containsBottom (meet (.embeddedList [.prim (.int 1)] none [])
                          (.embeddedList [.prim (.int 9)] none []))
       = true := by native_decide
 
-/-- An embeddedList still manifests as its list (decls and open tail dropped). -/
+-- An embeddedList still manifests as its list (decls and open tail dropped).
 theorem manifest_embedded_list_is_list :
     (manifest (.embeddedList [.prim (.int 1), .prim (.int 2)] (some .top)
                  [⟨"#a", .definition, .prim (.int 1)⟩])).toOption
       == some (.list [.prim (.int 1), .prim (.int 2)])
       := by native_decide
 
-/-! ### Scalar-with-decls carrier (`.embeddedScalar`) lattice pins — CUE v0.16.1
+-- ### Scalar-with-decls carrier (`.embeddedScalar`) lattice pins — CUE v0.16.1
+--
+-- The scalar analog of `.embeddedList`: a struct with only non-output members embedding a
+-- SCALAR carries that scalar plus selectable decls. The pure `{5}` collapse (no decls) is a
+-- SEPARATE path and never produces this ctor — the soundness boundary. Oracle-matched.
 
-The scalar analog of `.embeddedList`: a struct with only non-output members embedding a
-SCALAR carries that scalar plus selectable decls. The pure `{5}` collapse (no decls) is a
-SEPARATE path and never produces this ctor — the soundness boundary. Oracle-matched. -/
-
-/-- A carrier meet a bare scalar narrows the scalar, keeping the decls (`{#a:1,int} & 5`). -/
+-- A carrier meet a bare scalar narrows the scalar, keeping the decls (`{#a:1,int} & 5`).
 theorem meet_scalar_carrier_with_scalar :
     (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1)⟩]) (.prim (.int 5))
       == .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
       = true := by native_decide
 
-/-- Two carriers meet: scalars unify, decls merge (`{#a:1,int} & {#b:2,5}`). -/
+-- Two carriers meet: scalars unify, decls merge (`{#a:1,int} & {#b:2,5}`).
 theorem meet_two_scalar_carriers :
     (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1)⟩])
           (.embeddedScalar (.prim (.int 5)) [⟨"#b", .definition, .prim (.int 2)⟩])
@@ -215,33 +215,42 @@ theorem meet_two_scalar_carriers :
            [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
       = true := by native_decide
 
-/-- A carrier whose scalar conflicts carries an inline bottom (the RESID-MASK convention,
-    mirroring `meet_embedded_list_conflicting_elements`). -/
+-- A carrier whose scalar conflicts carries an inline bottom (the RESID-MASK convention,
+-- mirroring `meet_embedded_list_conflicting_elements`).
 theorem meet_scalar_carrier_conflicting :
     containsBottom (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
                          (.prim (.int 6)))
       = true := by native_decide
 
-/-- A carrier meet a pure decls-only struct (no embed of its own) BOTTOMS: the carrier IS its
-    scalar, so `5 & {#b:2}` is an int-vs-struct kind conflict (`{#a:1,5} & {#b:2}`; CUE v0.16.1
-    agrees). The decls do NOT merge — merge happens ONLY against another carrier (above). -/
+-- A carrier meet a pure decls-only struct (no embed of its own) BOTTOMS: the carrier IS its
+-- scalar, so `5 & {#b:2}` is an int-vs-struct kind conflict (`{#a:1,5} & {#b:2}`; CUE v0.16.1
+-- agrees). The decls do NOT merge — merge happens ONLY against another carrier (above).
 theorem meet_scalar_carrier_with_decls_struct_bottoms :
     (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
           (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none []))
       == .bottom
       := by native_decide
 
-/-- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically. -/
+-- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically.
 theorem meet_decls_struct_with_scalar_carrier_bottoms :
     (meet (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
           (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]))
       == .bottom
       := by native_decide
 
-/-- A carrier manifests as its scalar (decls dropped from output). -/
+-- A carrier manifests as its scalar (decls dropped from output).
 theorem manifest_scalar_carrier_is_scalar :
     (manifest (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])).toOption
       == some (.prim (.int 5))
       := by native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @open_list_tail_rejects_conflicting_extra_item
+#check @manifest_embedded_list_is_list                  -- List-embedding-in-struct (`meet(struct, list)`) s...
+#check @manifest_scalar_carrier_is_scalar               -- Scalar-with-decls carrier (`.embeddedScalar`) lat...
 
 end Kue

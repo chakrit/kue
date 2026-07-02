@@ -1,35 +1,35 @@
 import Kue.Sha256
 
-/-!
-# SHA-256 + dirhash `h1:` tests (B3d-3)
-
-`native_decide`/`#guard` pins for the pure SHA-256 core and the `cue.sum` `h1:` dirhash.
-
-Ground truth:
-- SHA-256 vectors `""`, `"abc"`, the 56-byte NIST two-block vector: FIPS 180-4 / NIST CSRC.
-- Padding-boundary vectors (lengths 0/55/56/63/64/65/119, `'a'` repeated) and the longer
-  85-byte mixed vector: computed independently with `shasum -a 256` (an implementation Kue's
-  code does not share), so they are a genuine cross-check, not a self-consistency test.
-- dirhash `h1:` end-to-end values: reproduced independently from the Go
-  `golang.org/x/mod/sumdb/dirhash` `Hash1` algorithm using `shasum -a 256` + `base64` + the
-  documented `%x  %s\n` summary line (TWO spaces). Two cases (single- and two-file).
-
-The cue module-zip entry-name convention (BARE module-root-relative path, NOT
-`<module>@<version>/`-prefixed — `cuelang.org/go/mod/modzip` `zip.go` `Create`) is documented
-in `Kue/Sha256.lean`; `hash1` is name-agnostic so the tests pin it on representative names.
--/
+--
+-- # SHA-256 + dirhash `h1:` tests (B3d-3)
+--
+-- `native_decide`/`#guard` pins for the pure SHA-256 core and the `cue.sum` `h1:` dirhash.
+--
+-- Ground truth:
+-- - SHA-256 vectors `""`, `"abc"`, the 56-byte NIST two-block vector: FIPS 180-4 / NIST CSRC.
+-- - Padding-boundary vectors (lengths 0/55/56/63/64/65/119, `'a'` repeated) and the longer
+-- 85-byte mixed vector: computed independently with `shasum -a 256` (an implementation Kue's
+-- code does not share), so they are a genuine cross-check, not a self-consistency test.
+-- - dirhash `h1:` end-to-end values: reproduced independently from the Go
+-- `golang.org/x/mod/sumdb/dirhash` `Hash1` algorithm using `shasum -a 256` + `base64` + the
+-- documented `%x  %s\n` summary line (TWO spaces). Two cases (single- and two-file).
+--
+-- The cue module-zip entry-name convention (BARE module-root-relative path, NOT
+-- `<module>@<version>/`-prefixed — `cuelang.org/go/mod/modzip` `zip.go` `Create`) is documented
+-- in `Kue/Sha256.lean`; `hash1` is name-agnostic so the tests pin it on representative names.
+--
 
 namespace Kue
 namespace Sha256
 
-/-- An `n`-byte array of the ASCII byte `'a'` (0x61) — the boundary-vector message generator. -/
+-- An `n`-byte array of the ASCII byte `'a'` (0x61) — the boundary-vector message generator.
 def aBytes (n : Nat) : ByteArray := Id.run do
   let mut out := ByteArray.empty
   for _ in [0:n] do
     out := out.push 0x61
   return out
 
-/-! ## NIST / FIPS 180-4 standard vectors (MUST pass exactly) -/
+-- ## NIST / FIPS 180-4 standard vectors (MUST pass exactly)
 
 -- Empty input → the canonical empty-string SHA-256.
 theorem sha256_empty :
@@ -49,10 +49,10 @@ theorem sha256_nist_two_block :
       == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1") = true := by
   native_decide
 
-/-! ## Padding boundaries (the one-block↔two-block split — classic bug site)
-
-    Lengths 55/56 straddle the point where the 0x80 + 64-bit length no longer fit in the same
-    block; 63/64/65 straddle a full-block boundary. All `'a'`-repeated, pinned vs `shasum`. -/
+-- ## Padding boundaries (the one-block↔two-block split — classic bug site)
+--
+-- Lengths 55/56 straddle the point where the 0x80 + 64-bit length no longer fit in the same
+-- block; 63/64/65 straddle a full-block boundary. All `'a'`-repeated, pinned vs `shasum`.
 
 -- len 0 (covered above by sha256_empty, repeated through aBytes for the generator path).
 theorem sha256_len0 :
@@ -104,7 +104,7 @@ theorem sha256_longer_mixed :
       == "d51712a8d1852b5acf942c19caddf168f80120d2f3a72c2d917227fd37f22788") = true := by
   native_decide
 
-/-! ## Digest form + hex helper -/
+-- ## Digest form + hex helper
 
 -- The OCI `sha256:<hex>` descriptor-digest form (digest.FromBytes of the empty blob).
 theorem digest_empty :
@@ -119,7 +119,7 @@ theorem digest_empty :
 #guard hexDigit 10 == 'a'
 #guard hexDigit 15 == 'f'
 
-/-! ## 32-bit primitives (spot pins for the FIPS functions) -/
+-- ## 32-bit primitives (spot pins for the FIPS functions)
 
 #guard rotr 0x12345678 8 == 0x78123456
 #guard rotr 0x00000001 1 == 0x80000000
@@ -128,7 +128,7 @@ theorem digest_empty :
 #guard maj 0xffffffff 0xffffffff 0x00000000 == 0xffffffff   -- two-of-three ones
 #guard maj 0x00000000 0x00000000 0xffffffff == 0x00000000
 
-/-! ## dirhash `Hash1` structural pieces -/
+-- ## dirhash `Hash1` structural pieces
 
 -- The inner per-file line: lowerhex(sha256(contents)) ++ TWO spaces ++ name ++ "\n".
 -- contents = "a: 1\n", name = "foo.cue" → inner sha256 pinned vs shasum.
@@ -144,9 +144,9 @@ theorem hash1_base64_step :
       == "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=") = true := by
   native_decide
 
-/-! ## dirhash `h1:` end-to-end (independent Go-algorithm ground truth)
-
-    Reproduced with `shasum -a 256` + `base64` over the documented `%x  %s\n` summary. -/
+-- ## dirhash `h1:` end-to-end (independent Go-algorithm ground truth)
+--
+-- Reproduced with `shasum -a 256` + `base64` over the documented `%x  %s\n` summary.
 
 -- Single file: name "cue.mod/module.cue", contents 'module "x"\n'.
 theorem hash1_single_file :
@@ -172,5 +172,16 @@ theorem hash1_order_independent :
                 ("foo.cue", "a: 1\n".toUTF8)]) = true := by
   native_decide
 
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @sha256_nist_two_block     -- NIST / FIPS 180-4 standard vectors (MUST pass exa...
+#check @sha256_longer_mixed       -- Padding boundaries (the one-block↔two-block split...
+#check @digest_empty              -- Digest form + hex helper
+#check @hash1_base64_step         -- dirhash `Hash1` structural pieces
+#check @hash1_order_independent   -- dirhash `h1:` end-to-end (independent Go-algorith...
+
 end Sha256
+
 end Kue

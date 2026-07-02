@@ -303,11 +303,11 @@ theorem closed_regex_pattern_subsumes_hidden_and_definition_extra_fields :
       = true := by
   native_decide
 
-/-! ## RX-2b — an invalid regex constraint subsumes nothing
-
-    `.stringRegex` with an invalid concrete pattern is an unsatisfiable (bottom) constraint;
-    the `.stringRegex`-vs-string subsumes arm guards on `regexParseError?` and returns `false`
-    before `matchRegex`. A VALID pattern still subsumes a matching string exactly as before. -/
+-- ## RX-2b — an invalid regex constraint subsumes nothing
+--
+-- `.stringRegex` with an invalid concrete pattern is an unsatisfiable (bottom) constraint;
+-- the `.stringRegex`-vs-string subsumes arm guards on `regexParseError?` and returns `false`
+-- before `matchRegex`. A VALID pattern still subsumes a matching string exactly as before.
 
 theorem invalid_regex_constraint_subsumes_nothing :
     subsumes (.stringRegex "a(") (.prim (.string "x")) = false := by
@@ -317,5 +317,13 @@ theorem valid_regex_constraint_subsumes_match :
     (subsumes (.stringRegex "^a") (.prim (.string "abc")) == true
       && subsumes (.stringRegex "^a") (.prim (.string "zzz")) == false) = true := by
   native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @closed_regex_pattern_subsumes_hidden_and_definition_extra_fields
+#check @valid_regex_constraint_subsumes_match                              -- RX-2b — an invalid regex constraint subsumes nothing
 
 end Kue

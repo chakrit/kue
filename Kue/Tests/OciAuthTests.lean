@@ -1,22 +1,22 @@
 import Kue.OciAuth
 import Kue.Base64
 
-/-!
-# OCI Bearer-token auth tests (B3d-7, PURE, offline)
-
-`native_decide`/`#guard` pins for the pure auth core in `Kue/OciAuth.lean` + the base64 DECODE
-added to `Kue/Base64.lean`. All inputs are SYNTHETIC — no real token, PAT, or keychain secret
-appears here (a leaked secret is a slice failure). Expected behavior is taken from the Docker
-Registry v2 token spec (the OCI distribution spec references it) and docker's `config.json`
-credential-resolution precedence.
-
-Ground truth for the base64 vectors: the system `base64` tool (an independent implementation), so
-these are a genuine cross-check of `base64Decode`, not a self-consistency test.
--/
+--
+-- # OCI Bearer-token auth tests (B3d-7, PURE, offline)
+--
+-- `native_decide`/`#guard` pins for the pure auth core in `Kue/OciAuth.lean` + the base64 DECODE
+-- added to `Kue/Base64.lean`. All inputs are SYNTHETIC — no real token, PAT, or keychain secret
+-- appears here (a leaked secret is a slice failure). Expected behavior is taken from the Docker
+-- Registry v2 token spec (the OCI distribution spec references it) and docker's `config.json`
+-- credential-resolution precedence.
+--
+-- Ground truth for the base64 vectors: the system `base64` tool (an independent implementation), so
+-- these are a genuine cross-check of `base64Decode`, not a self-consistency test.
+--
 
 namespace Kue
 
-/-! ## base64 decode (the inline `auth` field is base64 of `user:pass`) -/
+-- ## base64 decode (the inline `auth` field is base64 of `user:pass`)
 
 -- Round-trips against the system `base64` tool's output (independent ground truth).
 #guard base64DecodeString "dXNlcjpwYXNz" == some "user:pass"
@@ -40,7 +40,7 @@ theorem base64_roundtrips_empty_password :
 #guard base64Decode "" == none              -- empty
 #guard base64Decode "====" == none          -- all padding, no data
 
-/-! ## WWW-Authenticate challenge parsing -/
+-- ## WWW-Authenticate challenge parsing
 
 namespace OciAuth
 
@@ -85,7 +85,7 @@ private def ghcrChallenge : String :=
 -- A Bearer challenge missing the realm is unusable → rejected.
 #guard parseChallenge "Bearer service=\"s\",scope=\"x\"" == none
 
-/-! ## token-request URL construction -/
+-- ## token-request URL construction
 
 private def ghcrParsedChallenge : Challenge :=
   { realm := "https://ghcr.io/token", service := some "ghcr.io",
@@ -105,7 +105,7 @@ private def ghcrParsedChallenge : Challenge :=
 #guard queryEncode "Az0-_.~" == "Az0-_.~"
 #guard queryEncode "a b" == "a%20b"
 
-/-! ## token-response JSON parsing (`token` vs `access_token`) -/
+-- ## token-response JSON parsing (`token` vs `access_token`)
 
 #guard parseTokenResponse "{\"token\":\"abc123\"}" == some "abc123"
 #guard parseTokenResponse "{\"access_token\":\"xyz789\"}" == some "xyz789"
@@ -118,7 +118,7 @@ private def ghcrParsedChallenge : Challenge :=
 #guard parseTokenResponse "{\"token\":\"\"}" == none
 #guard parseTokenResponse "not json" == none
 
-/-! ## docker config.json → CredSource -/
+-- ## docker config.json → CredSource
 
 -- Inline `auths.<host>.auth` (synthetic base64).
 private def inlineConfig : String :=
@@ -147,7 +147,7 @@ private def perHostConfig : String :=
 -- Malformed config text → none (total, no panic).
 #guard credSourceFor "not json" "ghcr.io" == .none
 
-/-! ## inline user:pass + credential-helper response parsing -/
+-- ## inline user:pass + credential-helper response parsing
 
 #guard splitUserPass "user:pass" == some ("user", "pass")
 -- A password containing colons splits only at the FIRST colon.
@@ -165,5 +165,12 @@ private def perHostConfig : String :=
 #guard parseHelperResponse "{\"Username\":\"alice\"}" == none
 #guard parseHelperResponse "garbage" == none
 
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @base64_roundtrips_empty_password   -- base64 decode (the inline `auth` field is base64...
+
 end OciAuth
+
 end Kue

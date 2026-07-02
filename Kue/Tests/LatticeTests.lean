@@ -4,52 +4,52 @@ import Kue.Lattice
 import Kue.Runtime
 import Kue.Tests.EvalTestHelpers
 
-/-! # `LatticeTests` — `meet` / `join` algebra (B4 + B2 regression gate)
-
-Dedicated unit pins for the lattice operators. `meet` (greatest-lower-bound / unification)
-and `join` (least-upper-bound / disjunction) are exercised indirectly all over `EvalTests`
-and the fixtures, but had no home of their own (B4). This module pins the algebra directly,
-with a deliberate focus on the **struct-shape arms B2 will collapse** — the
-`struct`/`structTail`/`structPattern`/`structPatterns`/`structComp` pairwise meets.
-
-Two layers, by what survives the B2 refactor:
-
-* **Scalar / kind / bound / regex / list / disjunction algebra** — pinned at the
-  `meet`/`join` constructor level. These RHS values do not change under B2 (they touch no
-  struct constructor), so a constructor-level pin is the right, tightest gate.
-* **Struct-shape behavior** — pinned at the SOURCE level via `evalSourceMatches`, NOT via
-  the internal `.structTail`/`.structPattern` constructor RHS. B2 collapses those five
-  constructors into one normalized struct, so any pin asserting a specific struct
-  constructor as its RHS would break *by construction* when B2 lands — a false regression.
-  A source→exported-value pin captures what `cue` produces and what B2 must preserve,
-  independent of which constructor carries it internally. (`StructTests` already pins the
-  `tail×struct` / `pattern×struct` arms at the constructor level; those are the merge-time
-  shapes that B2 keeps observable, so they are not duplicated here.)
-
-All struct cases below are oracle-checked against `cue` v0.16.1 (`/Users/chakrit/go/bin/cue`).
-
-## B2.5 — the struct cross-combination fix (FIXED, pinned below)
-
-`meetWithFuel` (`Lattice.lean`) once MISSED two struct cross-combinations: a pattern-bearing
-struct meeting a tail-bearing struct (in either order) had no explicit arm and fell through to
-`.bottom`, where `cue` unifies. The legacy five-constructor type could not co-represent a tail
-AND patterns, so the arm was unrepresentable. The B2 collapse to one `ValuemkStruct (fields,
-openness, tail, patterns)` carries both axes, and B2.5 flips the residual `.bottom` to a real
-unify:
-
-```
-#P: {[string]: int}
-#T: {a: 5, ...}
-out: #P & #T        // cue v0.16.1 → {a: 5} (open) ; kue → {a: 5} (open) — FIXED
-```
-
-The pins below (`mergeStructN_*_unifies`, both orders, single + multi-pattern) lock in the
-cue-correct unified value: the pattern constrains every field, the tail keeps the struct open,
-and both axes are retained. -/
+-- # `LatticeTests` — `meet` / `join` algebra (B4 + B2 regression gate)
+--
+-- Dedicated unit pins for the lattice operators. `meet` (greatest-lower-bound / unification)
+-- and `join` (least-upper-bound / disjunction) are exercised indirectly all over `EvalTests`
+-- and the fixtures, but had no home of their own (B4). This module pins the algebra directly,
+-- with a deliberate focus on the **struct-shape arms B2 will collapse** — the
+-- `struct`/`structTail`/`structPattern`/`structPatterns`/`structComp` pairwise meets.
+--
+-- Two layers, by what survives the B2 refactor:
+--
+-- * **Scalar / kind / bound / regex / list / disjunction algebra** — pinned at the
+-- `meet`/`join` constructor level. These RHS values do not change under B2 (they touch no
+-- struct constructor), so a constructor-level pin is the right, tightest gate.
+-- * **Struct-shape behavior** — pinned at the SOURCE level via `evalSourceMatches`, NOT via
+-- the internal `.structTail`/`.structPattern` constructor RHS. B2 collapses those five
+-- constructors into one normalized struct, so any pin asserting a specific struct
+-- constructor as its RHS would break *by construction* when B2 lands — a false regression.
+-- A source→exported-value pin captures what `cue` produces and what B2 must preserve,
+-- independent of which constructor carries it internally. (`StructTests` already pins the
+-- `tail×struct` / `pattern×struct` arms at the constructor level; those are the merge-time
+-- shapes that B2 keeps observable, so they are not duplicated here.)
+--
+-- All struct cases below are oracle-checked against `cue` v0.16.1 (`/Users/chakrit/go/bin/cue`).
+--
+-- ## B2.5 — the struct cross-combination fix (FIXED, pinned below)
+--
+-- `meetWithFuel` (`Lattice.lean`) once MISSED two struct cross-combinations: a pattern-bearing
+-- struct meeting a tail-bearing struct (in either order) had no explicit arm and fell through to
+-- `.bottom`, where `cue` unifies. The legacy five-constructor type could not co-represent a tail
+-- AND patterns, so the arm was unrepresentable. The B2 collapse to one `ValuemkStruct (fields,
+-- openness, tail, patterns)` carries both axes, and B2.5 flips the residual `.bottom` to a real
+-- unify:
+--
+-- ```
+-- #P: {[string]: int}
+-- #T: {a: 5, ...}
+-- out: #P & #T        // cue v0.16.1 → {a: 5} (open) ; kue → {a: 5} (open) — FIXED
+-- ```
+--
+-- The pins below (`mergeStructN_*_unifies`, both orders, single + multi-pattern) lock in the
+-- cue-correct unified value: the pattern constrains every field, the tail keeps the struct open,
+-- and both axes are retained.
 
 namespace Kue
 
-/-! ## Lattice laws — identities and absorption -/
+-- ## Lattice laws — identities and absorption
 
 theorem lattice_meet_top_is_identity (value : Value) : meet .top value = value := by
   cases value <;> rfl
@@ -63,7 +63,7 @@ theorem lattice_join_bottom_is_identity (value : Value) : join .bottom value = v
 theorem lattice_join_top_absorbs (value : Value) : join .top value = .top := by
   cases value <;> rfl
 
-/-! ## Scalars -/
+-- ## Scalars
 
 theorem lattice_meet_equal_ints :
     meet (.prim (.int 5)) (.prim (.int 5)) = .prim (.int 5) := by
@@ -83,7 +83,7 @@ theorem lattice_join_distinct_ints_is_disjunction :
       == .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]) = true := by
   native_decide
 
-/-! ## Kinds -/
+-- ## Kinds
 
 theorem lattice_meet_number_int_narrows_to_int :
     meet (.kind .number) (.kind .int) = .kind .int := by
@@ -102,8 +102,8 @@ theorem lattice_join_kind_subsumes_regex :
     (join (.kind .string) (.stringRegex "^a$") == .kind .string) = true := by
   native_decide
 
-/-! ## Bounds — the bound×scalar narrowing surface lives in `BoundTests`; pin the
-join-with-kind absorption here so the algebra has a `join` bound pin. -/
+-- ## Bounds — the bound×scalar narrowing surface lives in `BoundTests`; pin the
+-- join-with-kind absorption here so the algebra has a `join` bound pin.
 
 theorem lattice_meet_bound_with_satisfying_scalar :
     meet (.boundConstraint (intDecimal 0) .ge .number) (.prim (.int 1)) = .prim (.int 1) := by
@@ -114,7 +114,7 @@ theorem lattice_meet_bound_with_violating_scalar :
       = .bottomWith [.boundConflict] := by
   rfl
 
-/-! ## Regex -/
+-- ## Regex
 
 theorem lattice_meet_regex_with_matching_string :
     (meet (.stringRegex "^a$") (.prim (.string "a")) == .prim (.string "a")) = true := by
@@ -124,7 +124,7 @@ theorem lattice_meet_regex_with_non_matching_string :
     (isBottom (meet (.stringRegex "^a$") (.prim (.string "b")))) = true := by
   native_decide
 
-/-! ## Lists -/
+-- ## Lists
 
 theorem lattice_meet_lists_elementwise :
     meet (.list [.prim (.int 1), .kind .int]) (.list [.kind .int, .prim (.int 2)])
@@ -140,7 +140,7 @@ theorem lattice_join_distinct_lists_is_disjunction :
       == .disj [(.regular, .list [.prim (.int 1)]), (.regular, .list [.prim (.int 2)])]) = true := by
   native_decide
 
-/-! ## Disjunctions — distribution + default-mark algebra. -/
+-- ## Disjunctions — distribution + default-mark algebra.
 
 theorem lattice_meet_disjunction_distributes_and_prunes :
     meet
@@ -158,16 +158,16 @@ theorem lattice_meet_disjunction_collapses_vacuous_lone_default :
       = .prim (.int 1) := by
   rfl
 
-/-! ### Lone-default marker is VACUOUS (the AD2-1 soundness proof).
-
-A lone default `*v` (direct or residual from a collapsed larger disjunction) is value-
-identical to the bare `v` in EVERY onward meet — the mark is non-load-bearing, so collapsing
-it (above) is sound and `normalizeDisj` matches `normalizeEvaluatedDisj`. These pin the mark
-algebra that guarantees it: `combineMark` is AND and `withDefaultConvention` only synthesizes
-defaults for an all-regular operand, so a vacuous lone default never beats a real default nor
-manufactures one. Each case meets a lone `*1` and the bare `1` against the same right operand
-and asserts equality. (`loneDefault1` is the residual `normalizeDisj` would have produced
-pre-fix; we feed it via the `.disj`-meet path to exercise the cross-product, then compare.) -/
+-- ### Lone-default marker is VACUOUS (the AD2-1 soundness proof).
+--
+-- A lone default `*v` (direct or residual from a collapsed larger disjunction) is value-
+-- identical to the bare `v` in EVERY onward meet — the mark is non-load-bearing, so collapsing
+-- it (above) is sound and `normalizeDisj` matches `normalizeEvaluatedDisj`. These pin the mark
+-- algebra that guarantees it: `combineMark` is AND and `withDefaultConvention` only synthesizes
+-- defaults for an all-regular operand, so a vacuous lone default never beats a real default nor
+-- manufactures one. Each case meets a lone `*1` and the bare `1` against the same right operand
+-- and asserts equality. (`loneDefault1` is the residual `normalizeDisj` would have produced
+-- pre-fix; we feed it via the `.disj`-meet path to exercise the cross-product, then compare.)
 
 private def loneDefault1 : Value := .disj [(.default, .prim (.int 1))]
 private def bare1 : Value := .prim (.int 1)
@@ -204,16 +204,16 @@ theorem lattice_multi_arm_default_marker_preserved :
       == .disj [(.default, .prim (.int 1)), (.regular, .prim (.int 2))]) = true := by
   native_decide
 
-/-! ## Struct-shape arms (B2 regression gate) — source-level, oracle-checked vs cue v0.16.1.
-
-These pin the OBSERVABLE result of each struct constructor pair that B2 collapses. They are
-the gate B2's mechanical migration must keep green; the internal constructor carrying the
-result may change, the exported value may not. The struct shapes are pinned through the JSON
-`export` (`exportJsonMatches`) rather than the CUE-syntax `eval` output, because eval keeps
-the structural decoration (`...`, `[string]: T`) that B2 will re-render — JSON shows only the
-concrete fields, which B2 must preserve. The one rejection case (closed def + extra field)
-errors the whole export, so it is pinned through `eval` as a bottomed field (`b: _|_`), itself
-representation-independent. -/
+-- ## Struct-shape arms (B2 regression gate) — source-level, oracle-checked vs cue v0.16.1.
+--
+-- These pin the OBSERVABLE result of each struct constructor pair that B2 collapses. They are
+-- the gate B2's mechanical migration must keep green; the internal constructor carrying the
+-- result may change, the exported value may not. The struct shapes are pinned through the JSON
+-- `export` (`exportJsonMatches`) rather than the CUE-syntax `eval` output, because eval keeps
+-- the structural decoration (`...`, `[string]: T`) that B2 will re-render — JSON shows only the
+-- concrete fields, which B2 must preserve. The one rejection case (closed def + extra field)
+-- errors the whole export, so it is pinned through `eval` as a bottomed field (`b: _|_`), itself
+-- representation-independent.
 
 -- struct × struct, OPEN: two open structs merge their fields.
 theorem lattice_struct_meet_struct_open_merges :
@@ -258,16 +258,16 @@ theorem lattice_structPatterns_meet_structPatterns :
         "{\n    \"out\": {\n        \"x1\": 3,\n        \"y1\": 4\n    }\n}\n" = true := by
   native_decide
 
-/-! ## `mkStruct` smart-constructor invariants (B2.1)
+-- ## `mkStruct` smart-constructor invariants (B2.1)
+--
+-- The B2 target representation `Value.struct` is built only through `mkStruct`, which
+-- normalizes its arguments so the illegal states (incoherent tail/openness, duplicate
+-- patterns) are unconstructable. These pins are the regression gate for that guarantee — they
+-- exercise `mkStruct`/`coherentTail`/`dedupPatterns` directly (no producer feeds `struct`
+-- through eval yet in B2.1), so they survive the later B2 migration unchanged.
 
-The B2 target representation `Value.struct` is built only through `mkStruct`, which
-normalizes its arguments so the illegal states (incoherent tail/openness, duplicate
-patterns) are unconstructable. These pins are the regression gate for that guarantee — they
-exercise `mkStruct`/`coherentTail`/`dedupPatterns` directly (no producer feeds `struct`
-through eval yet in B2.1), so they survive the later B2 migration unchanged. -/
-
-/-- Helper: does a built `struct` carry the coherent `tail = some _ ↔ defOpenViaTail`
-    shape? `true` for any other constructor (the property is vacuous off-`struct`). -/
+-- Helper: does a built `struct` carry the coherent `tail = some _ ↔ defOpenViaTail`
+-- shape? `true` for any other constructor (the property is vacuous off-`struct`).
 def structNTailCoherent : Value -> Bool
   | .struct _ openness tail _ _ =>
       match tail, openness with
@@ -342,14 +342,14 @@ theorem mkStruct_keeps_distinct_patterns :
       = true := by
   native_decide
 
-/-! ## `mergeStructN` arm pins (B2.2/CP3-pre must-fix item 2)
-
-These exercise the `mergeStructN` arms through the LIVE `meet` path (production still emits
-old `.struct`, but `meet (.struct…) (.struct…)` already dispatches to `mergeStructN`).
-Each pins a behavior the legacy arms carried that a subtly-wrong arm could silently drop:
-the cross-shape field-merge order, the tail-on-both-sides extra-field application, the
-arm-7 pattern dedup, and the pattern×tail cross-combinations B2.5 unifies (the `_unifies`
-pins below — formerly `.bottom`, now the cue-correct unified value). -/
+-- ## `mergeStructN` arm pins (B2.2/CP3-pre must-fix item 2)
+--
+-- These exercise the `mergeStructN` arms through the LIVE `meet` path (production still emits
+-- old `.struct`, but `meet (.struct…) (.struct…)` already dispatches to `mergeStructN`).
+-- Each pins a behavior the legacy arms carried that a subtly-wrong arm could silently drop:
+-- the cross-shape field-merge order, the tail-on-both-sides extra-field application, the
+-- arm-7 pattern dedup, and the pattern×tail cross-combinations B2.5 unifies (the `_unifies`
+-- pins below — formerly `.bottom`, now the cue-correct unified value).
 
 -- `struct × structTail` field-merge ORDER: the tail-bearing side's fields come FIRST
 -- (`mergeStructFieldsWith rightFields leftFields` reverses the natural left-first order).
@@ -481,14 +481,14 @@ theorem mergeStructN_tail_patterns_remeet_tail :
           .defOpenViaTail (some .top) [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
-/-! ## SC-1: closed struct meeting a pattern struct stays closed
-
-A closed `#C` met with an OPEN pattern struct `P` keeps `P`'s pattern as a value-constraint
-but does NOT widen `#C`'s closed allowed set: the meet is closed (`StructOpenness.meet`),
-and `P`'s pattern is non-closing (an open conjunct closes nothing). Spec basis: closedness
-is conjunctive/monotone ("closing = adding `..._|_`"); cue agrees (`#C & P & {z:9}` →
-`out.z: field not allowed`). Before SC-1, arms 5/6 stored only the pattern side's openness
-and dropped the plain side's closedness, re-opening `#C`. -/
+-- ## SC-1: closed struct meeting a pattern struct stays closed
+--
+-- A closed `#C` met with an OPEN pattern struct `P` keeps `P`'s pattern as a value-constraint
+-- but does NOT widen `#C`'s closed allowed set: the meet is closed (`StructOpenness.meet`),
+-- and `P`'s pattern is non-closing (an open conjunct closes nothing). Spec basis: closedness
+-- is conjunctive/monotone ("closing = adding `..._|_`"); cue agrees (`#C & P & {z:9}` →
+-- `out.z: field not allowed`). Before SC-1, arms 5/6 stored only the pattern side's openness
+-- and dropped the plain side's closedness, re-opening `#C`.
 
 -- `#C & P` (closed plain × open pattern): result is `defClosed`, carries `P`'s pattern as a
 -- value-constraint, and has #C's single clause only (P is open → contributes no clause). The
@@ -540,12 +540,12 @@ theorem mergeStructN_open_meets_pattern_stays_open :
           .regularOpen none [(.kind .string, .kind .int)] []) = true := by
   native_decide
 
-/-! ### SC-1b — clause-conjunction allowed-set (the representation invariant)
-
-`fieldAllowedByClausesWith` is the CONJUNCTION (`all`) over per-conjunct clauses, not the
-flat-union (`any`) the old `closingPatterns` store amounted to. A two-clause list `[{^x},
-{^y}]` admits a label iff it matches `^x` AND `^y`; a single-pattern label is rejected. This
-pins the semantic core directly, independent of the parse/eval pipeline. -/
+-- ### SC-1b — clause-conjunction allowed-set (the representation invariant)
+--
+-- `fieldAllowedByClausesWith` is the CONJUNCTION (`all`) over per-conjunct clauses, not the
+-- flat-union (`any`) the old `closingPatterns` store amounted to. A two-clause list `[{^x},
+-- {^y}]` admits a label iff it matches `^x` AND `^y`; a single-pattern label is rejected. This
+-- pins the semantic core directly, independent of the parse/eval pipeline.
 
 -- `x1` matches `^x` (clause 1) but NOT `^y` (clause 2) ⇒ the conjunction REJECTS it. Under a
 -- union (`any`) it would have been admitted — the SC-1b bug.
@@ -582,10 +582,10 @@ theorem sc1b_clauses_admit_closedness_ignoring_field :
       ⟨"#D", .definition, .kind .string⟩ = true := by
   native_decide
 
-/-! ## `StructOpenness.meet` (B2.1)
-
-The openness lattice the B2.4 single meet arm will consume: closed dominates,
-`defOpenViaTail` is preserved against any open, two regular opens stay open. -/
+-- ## `StructOpenness.meet` (B2.1)
+--
+-- The openness lattice the B2.4 single meet arm will consume: closed dominates,
+-- `defOpenViaTail` is preserved against any open, two regular opens stay open.
 
 theorem openness_meet_closed_dominates :
     (StructOpenness.meet .defClosed .regularOpen == .defClosed
@@ -602,12 +602,12 @@ theorem openness_meet_open_idempotent :
     StructOpenness.meet .regularOpen .regularOpen == .regularOpen := by
   native_decide
 
-/-! ## `StructOpenness.closeDefBody` (B2b)
-
-The def-body openness derivation `normalizeDefinitionValueWithFuel` applies to a `structComp`
-body: a no-`...` body (`regularOpen`) CLOSES, a `...` body (`defOpenViaTail`) stays open, and
-`defClosed` is a fixed point. Replaces the legacy `open_ := hasTail` rule, pinned at the type
-level. -/
+-- ## `StructOpenness.closeDefBody` (B2b)
+--
+-- The def-body openness derivation `normalizeDefinitionValueWithFuel` applies to a `structComp`
+-- body: a no-`...` body (`regularOpen`) CLOSES, a `...` body (`defOpenViaTail`) stays open, and
+-- `defClosed` is a fixed point. Replaces the legacy `open_ := hasTail` rule, pinned at the type
+-- level.
 
 theorem close_def_body_regular_closes :
     StructOpenness.closeDefBody .regularOpen == .defClosed := by
@@ -621,9 +621,9 @@ theorem close_def_body_closed_fixed_point :
     StructOpenness.closeDefBody .defClosed == .defClosed := by
   native_decide
 
-/-- End-to-end pin on the ONE semantic site: `normalizeDefinitionValueWithFuel` closes a
-    no-`...` `structComp` def body (`regularOpen → defClosed`) and leaves a `...` body open
-    (`defOpenViaTail` fixed point). -/
+-- End-to-end pin on the ONE semantic site: `normalizeDefinitionValueWithFuel` closes a
+-- no-`...` `structComp` def body (`regularOpen → defClosed`) and leaves a `...` body open
+-- (`defOpenViaTail` fixed point).
 theorem normalize_def_structComp_openness :
     (normalizeDefinitionValueWithFuel normalizeFuel (.structComp [] [] .regularOpen)
         == .structComp [] [] .defClosed
@@ -631,12 +631,12 @@ theorem normalize_def_structComp_openness :
         == .structComp [] [] .defOpenViaTail) = true := by
   native_decide
 
-/-! ## RX-2b — invalid/deferred regex bottoms at the eval + lattice dispatch sites
-
-    A CONCRETE invalid pattern (`a(` unbalanced, `(?i)a` deferred) bottoms with the
-    `.invalidRegex` reason at `=~`, `!~`, the pattern×string meet, and the pattern-label
-    application. `!~` bottoms too (NOT silently `true`). A VALID pattern still matches/meets
-    exactly as before, and an ABSTRACT operand stays an unresolved residual (NOT bottom). -/
+-- ## RX-2b — invalid/deferred regex bottoms at the eval + lattice dispatch sites
+--
+-- A CONCRETE invalid pattern (`a(` unbalanced, `(?i)a` deferred) bottoms with the
+-- `.invalidRegex` reason at `=~`, `!~`, the pattern×string meet, and the pattern-label
+-- application. `!~` bottoms too (NOT silently `true`). A VALID pattern still matches/meets
+-- exactly as before, and an ABSTRACT operand stays an unresolved residual (NOT bottom).
 
 theorem rx2b_match_invalid_bottoms :
     evalRegexMatch (.prim (.string "x")) (.prim (.string "a("))
@@ -692,14 +692,14 @@ theorem rx2b_label_pattern_abstract_does_not_trip :
     (patternsRegexError? [(.kind .string, .kind .int)]).isNone = true := by
   native_decide
 
-/-! ## A#6 — `containsBottom` is TOTAL/structural (no fuel cap)
-
-`containsBottom` was fuel-capped at 100: a `.bottom` nested deeper than 100 levels was
-MISSED, so a dead disjunction arm survived `liveAlternatives` → a wrong value. The fix made
-it a total structural walk over the finite `Value` inductive — NO depth can hide a bottom.
-These pin that the cap is gone (deep bottoms detected at any depth) and that the end-to-end
-disjunction-pruning path is sound. `nestList n` wraps a seed in `n` levels of `.list [·]`,
-exercising the `containsBottomList` mutual helper at depth. -/
+-- ## A#6 — `containsBottom` is TOTAL/structural (no fuel cap)
+--
+-- `containsBottom` was fuel-capped at 100: a `.bottom` nested deeper than 100 levels was
+-- MISSED, so a dead disjunction arm survived `liveAlternatives` → a wrong value. The fix made
+-- it a total structural walk over the finite `Value` inductive — NO depth can hide a bottom.
+-- These pin that the cap is gone (deep bottoms detected at any depth) and that the end-to-end
+-- disjunction-pruning path is sound. `nestList n` wraps a seed in `n` levels of `.list [·]`,
+-- exercising the `containsBottomList` mutual helper at depth.
 
 private def nestList : Nat → Value → Value
   | 0, seed => seed
@@ -751,5 +751,28 @@ theorem a6_deep_optional_bottom_skipped :
     containsBottom (nestList 150 (.struct [⟨"u", .optional, .bottom⟩] .regularOpen none [] []))
       = false := by
   native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @lattice_join_top_absorbs                                  -- Lattice laws — identities and absorption
+#check @lattice_join_distinct_ints_is_disjunction                 -- Scalars
+#check @lattice_join_kind_subsumes_regex                          -- Kinds
+#check @lattice_meet_bound_with_violating_scalar                  -- Bounds — the bound×scalar narrowing surface lives...
+#check @lattice_meet_regex_with_non_matching_string               -- Regex
+#check @lattice_join_distinct_lists_is_disjunction                -- Lists
+#check @lattice_meet_disjunction_collapses_vacuous_lone_default   -- Disjunctions — distribution + default-mark algebra
+#check @lattice_multi_arm_default_marker_preserved                -- Lone-default marker is VACUOUS (the AD2-1 soundne...
+#check @lattice_structPatterns_meet_structPatterns                -- Struct-shape arms (B2 regression gate) — source-l...
+#check @mkStruct_keeps_distinct_patterns                          -- `mkStruct` smart-constructor invariants (B2.1)
+#check @mergeStructN_tail_patterns_remeet_tail                    -- `mergeStructN` arm pins (B2.2/CP3-pre must-fix it...
+#check @mergeStructN_open_meets_pattern_stays_open                -- SC-1: closed struct meeting a pattern struct stay...
+#check @sc1b_clauses_admit_closedness_ignoring_field              -- SC-1b — clause-conjunction allowed-set (the repre...
+#check @openness_meet_open_idempotent                             -- `StructOpenness.meet` (B2.1)
+#check @normalize_def_structComp_openness                         -- `StructOpenness.closeDefBody` (B2b)
+#check @rx2b_label_pattern_abstract_does_not_trip                 -- RX-2b — invalid/deferred regex bottoms at the eva...
+#check @a6_deep_optional_bottom_skipped                           -- A#6 — `containsBottom` is TOTAL/structural (no fu...
 
 end Kue

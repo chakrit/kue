@@ -1,31 +1,31 @@
 import Kue.Regex
 
-/-!
-RX-1a parser pins. AST-shape assertions only — no matching yet (matching is RX-1b). Each
-theorem pins `parseRegex` to the EXACT AST so the structure is the contract RX-1b/c compile
-against. Patterns 1-7 are the audit's RX-1 repros that the old `Value.lean` engine
-mis-parsed (group-with-quantifier vs first-group-expansion, `\b` as anchor not literal `b`,
-`a+?` as lazy-plus not opt-of-`a`).
-
-`Regex` derives only `BEq` (Lean cannot auto-derive `DecidableEq` through the nested
-`List Regex` recursion), so the pins compare with `==` against `Bool` — the same `…= true`
-shape the rest of the suite uses, fully reducible by `native_decide`.
--/
+--
+-- RX-1a parser pins. AST-shape assertions only — no matching yet (matching is RX-1b). Each
+-- theorem pins `parseRegex` to the EXACT AST so the structure is the contract RX-1b/c compile
+-- against. Patterns 1-7 are the audit's RX-1 repros that the old `Value.lean` engine
+-- mis-parsed (group-with-quantifier vs first-group-expansion, `\b` as anchor not literal `b`,
+-- `a+?` as lazy-plus not opt-of-`a`).
+--
+-- `Regex` derives only `BEq` (Lean cannot auto-derive `DecidableEq` through the nested
+-- `List Regex` recursion), so the pins compare with `==` against `Bool` — the same `…= true`
+-- shape the rest of the suite uses, fully reducible by `native_decide`.
+--
 
 namespace Kue
 
 open Regex
 
-/-- Pin: `parseRegex p` produces exactly AST `r` (`Except` has no `BEq`, so match + the
-    derived `Regex` `==`). -/
+-- Pin: `parseRegex p` produces exactly AST `r` (`Except` has no `BEq`, so match + the
+-- derived `Regex` `==`).
 private def parsesTo (p : String) (r : Regex) : Bool :=
   match parseRegex p with | .ok r' => r' == r | .error _ => false
 
-/-- A char class for `[a-z0-9]`, reused by repro 3. -/
+-- A char class for `[a-z0-9]`, reused by repro 3.
 private def az09 : Regex := .cls [('a', 'z'), ('0', '9')] false
 private def d09 : Regex := .cls [('0', '9')] false
 
-/-! ## The 7 repro patterns parse into the correct structure -/
+-- ## The 7 repro patterns parse into the correct structure
 
 -- 1. grouped `+` binds the GROUP, not the trailing `b`.
 theorem rx_repro_group_plus :
@@ -80,14 +80,14 @@ theorem rx_repro_word_boundary :
 theorem rx_repro_lazy_plus :
     parsesTo "a+?" (.plus false (.lit 'a')) = true := by native_decide
 
-/-! ## Greediness as a Bool field — greedy vs lazy across all quantifiers -/
+-- ## Greediness as a Bool field — greedy vs lazy across all quantifiers
 
 theorem rx_greedy_star : parsesTo "a*" (.star true (.lit 'a')) = true := by native_decide
 theorem rx_lazy_star : parsesTo "a*?" (.star false (.lit 'a')) = true := by native_decide
 theorem rx_greedy_opt : parsesTo "a?" (.opt true (.lit 'a')) = true := by native_decide
 theorem rx_lazy_opt : parsesTo "a??" (.opt false (.lit 'a')) = true := by native_decide
 
-/-! ## Repeat `{m,n}` shapes — `max : Option Nat` (no sentinel) -/
+-- ## Repeat `{m,n}` shapes — `max : Option Nat` (no sentinel)
 
 theorem rx_repeat_exact :
     parsesTo "a{3}" (.«repeat» true 3 (some 3) (.lit 'a')) = true := by native_decide
@@ -98,7 +98,7 @@ theorem rx_repeat_range :
 theorem rx_repeat_lazy :
     parsesTo "a{2,5}?" (.«repeat» false 2 (some 5) (.lit 'a')) = true := by native_decide
 
-/-! ## Non-capturing group does NOT consume a capture index -/
+-- ## Non-capturing group does NOT consume a capture index
 
 theorem rx_noncapturing_group :
     parsesTo "(?:ab)(c)"
@@ -106,7 +106,7 @@ theorem rx_noncapturing_group :
         [.group none (.concat [.lit 'a', .lit 'b']), .group (some 1) (.lit 'c')]) = true := by
   native_decide
 
-/-! ## Char classes — negation, perl-class fold, dot -/
+-- ## Char classes — negation, perl-class fold, dot
 
 theorem rx_negated_class :
     parsesTo "[^abc]" (.cls [('a', 'a'), ('b', 'b'), ('c', 'c')] true) = true := by
@@ -125,7 +125,7 @@ theorem rx_class_negshort_folds_to_complement :
       (.cls [(Char.ofNat 0, Char.ofNat 0x2F), (Char.ofNat 0x3A, Char.ofNat 0x10FFFF)] false)
       = true := by native_decide
 
-/-! ## Invalid patterns → error (NOT silent literal-fallback) -/
+-- ## Invalid patterns → error (NOT silent literal-fallback)
 
 private def parseErrors (p : String) : Bool :=
   match parseRegex p with | .error _ => true | .ok _ => false
@@ -136,21 +136,21 @@ theorem rx_dangling_backslash : parseErrors "ab\\" = true := by native_decide
 theorem rx_bad_repeat_order : parseErrors "a{5,2}" = true := by native_decide
 theorem rx_nothing_to_repeat : parseErrors "*abc" = true := by native_decide
 
-/-- RE2 caps repeat counts at 1000: `{0,1000}` parses, `{0,1001}` and `{1001}` / `{1001,}`
-    error (matching cue's `invalid repeat count`); also bounds `desugar`'s expansion. -/
+-- RE2 caps repeat counts at 1000: `{0,1000}` parses, `{0,1001}` and `{1001}` / `{1001,}`
+-- error (matching cue's `invalid repeat count`); also bounds `desugar`'s expansion.
 theorem rx_repeat_at_cap : parseErrors "a{0,1000}" = false := by native_decide
 theorem rx_repeat_over_cap_range : parseErrors "a{0,1001}" = true := by native_decide
 theorem rx_repeat_over_cap_exact : parseErrors "a{1001}" = true := by native_decide
 theorem rx_repeat_over_cap_open : parseErrors "a{1001,}" = true := by native_decide
 
-/-- `\1` backreference is rejected (RE2 has none) — with the SPECIFIC reason, distinct from
-    a generic malformed error. -/
+-- `\1` backreference is rejected (RE2 has none) — with the SPECIFIC reason, distinct from
+-- a generic malformed error.
 private def isBackref (p : String) (d : Char) : Bool :=
   match parseRegex p with | .error (.backreference d') => d == d' | _ => false
 
 theorem rx_backreference_rejected : isBackref "(a)\\1" '1' = true := by native_decide
 
-/-! ## Deferred RE2 constructs → explicit `.unsupportedRegex`, never silent-wrong -/
+-- ## Deferred RE2 constructs → explicit `.unsupportedRegex`, never silent-wrong
 
 private def isUnsupported (p : String) : Bool :=
   match parseRegex p with | .error (.unsupportedRegex _) => true | _ => false
@@ -160,12 +160,12 @@ theorem rx_unicode_prop_unsupported : isUnsupported "\\p{L}" = true := by native
 theorem rx_named_capture_unsupported : isUnsupported "(?P<n>a)" = true := by native_decide
 theorem rx_posix_class_unsupported : isUnsupported "[[:alpha:]]" = true := by native_decide
 
-/-! ## RX-2b — `regexParseError?` is the shared invalid-pattern decision
-
-    The 4 `matchRegex` dispatch sites (`=~`/`!~`, `Order.subsumesWithFuel`,
-    `Lattice.meetStringRegexPrim`, `regexp.Match`) guard on this one helper, so a concrete
-    invalid/deferred pattern bottoms uniformly instead of swallowing to a non-match. A VALID
-    pattern returns `none` (no behavior change for the matching corpus above). -/
+-- ## RX-2b — `regexParseError?` is the shared invalid-pattern decision
+--
+-- The 4 `matchRegex` dispatch sites (`=~`/`!~`, `Order.subsumesWithFuel`,
+-- `Lattice.meetStringRegexPrim`, `regexp.Match`) guard on this one helper, so a concrete
+-- invalid/deferred pattern bottoms uniformly instead of swallowing to a non-match. A VALID
+-- pattern returns `none` (no behavior change for the matching corpus above).
 
 theorem rx_parse_error_malformed : regexParseError? "a(" = some (.malformed "unbalanced ( — missing )") := by
   native_decide
@@ -175,14 +175,14 @@ theorem rx_parse_error_valid_is_none : regexParseError? "^a" = none := by native
 theorem rx_parse_error_valid_group_is_none : regexParseError? "^([a-z0-9]+(-[a-z0-9]+)*)$" = none := by
   native_decide
 
-/-! ## RX-1b — Pike-VM match pins (the behavior change)
+-- ## RX-1b — Pike-VM match pins (the behavior change)
+--
+-- `matchRegex` is the unanchored RE2 `Match`/CUE `=~` boolean. Each repro below was
+-- cross-checked against `cue` v0.16.1 (the spec authority is RE2; cue delegates to Go's
+-- RE2 and agrees on every one). The 7 audit repros now MATCH correctly — the whole point
+-- of RX-1: the old `Value.lean` engine mis-validated all of them.
 
-    `matchRegex` is the unanchored RE2 `Match`/CUE `=~` boolean. Each repro below was
-    cross-checked against `cue` v0.16.1 (the spec authority is RE2; cue delegates to Go's
-    RE2 and agrees on every one). The 7 audit repros now MATCH correctly — the whole point
-    of RX-1: the old `Value.lean` engine mis-validated all of them. -/
-
-/-- True iff the unanchored engine matches. -/
+-- True iff the unanchored engine matches.
 private def m (p s : String) : Bool := matchRegex p s
 
 -- 1. Grouped `+` binds the GROUP: `^(ab)+$` matches `abab`, rejects `aba`.
@@ -214,7 +214,7 @@ theorem rx_match_lazy_plus : m "a+?" "aaa" = true := by native_decide
 theorem rx_match_alt_plus_substr : m "(foo|bar)+" "xfoobarx" = true := by native_decide
 theorem rx_match_alt_plus_none : m "(foo|bar)+" "xbazx" = false := by native_decide
 
-/-! ## Existing simple-pattern behavior stays correct (the old engine got these right) -/
+-- ## Existing simple-pattern behavior stays correct (the old engine got these right)
 
 theorem rx_match_anchor_start : m "^a" "abc" = true := by native_decide
 theorem rx_match_miss : m "z" "abc" = false := by native_decide
@@ -246,14 +246,14 @@ theorem rx_match_perl_space_neg : m "^a\\Sz$" "a_z" = true := by native_decide
 theorem rx_match_perl_word : m "^a\\wz$" "a_z" = true := by native_decide
 theorem rx_match_perl_word_neg : m "^a\\Wz$" "a-z" = true := by native_decide
 
-/-! ## RX-2a — negated shorthand classes (`\D` `\W` `\S`) INSIDE a `[…]` char class
-
-    The lone remaining regex-corpus divergence: a negated shorthand inside a class folds its
-    full COMPLEMENT set into the class union (via `Regex.complementRanges` over the whole
-    `Char` domain), instead of erroring. Each pin below was cross-checked against `cue`
-    v0.16.1 (RE2 semantics; the spec authority). The interaction the prompt flags — member
-    `\D` complement vs whole-class `[^…]` negation — is pinned by `[^\D]` (the class negates
-    AFTER the member folds, recovering the digits) and `[\d\D]` (every char). -/
+-- ## RX-2a — negated shorthand classes (`\D` `\W` `\S`) INSIDE a `[…]` char class
+--
+-- The lone remaining regex-corpus divergence: a negated shorthand inside a class folds its
+-- full COMPLEMENT set into the class union (via `Regex.complementRanges` over the whole
+-- `Char` domain), instead of erroring. Each pin below was cross-checked against `cue`
+-- v0.16.1 (RE2 semantics; the spec authority). The interaction the prompt flags — member
+-- `\D` complement vs whole-class `[^…]` negation — is pinned by `[^\D]` (the class negates
+-- AFTER the member folds, recovering the digits) and `[\d\D]` (every char).
 
 -- `[\D]`/`[\W]`/`[\S]` = the complement set, matching/rejecting a representative char each.
 -- `\D` covers below '0' (space), above '9', and non-ASCII; `\S` excludes newline (whitespace).
@@ -295,14 +295,14 @@ theorem rx_class_pos_d_no : m "^[\\d]$" "a" = false := by native_decide
 -- `regexParseError?` no longer flags an in-class negated shorthand as deferred.
 theorem rx_class_negshort_now_parses : regexParseError? "[\\D5]" = none := by native_decide
 
-/-! ## Capture slots are computed (groundwork for RX-1c submatch / `ReplaceAll`)
+-- ## Capture slots are computed (groundwork for RX-1c submatch / `ReplaceAll`)
+--
+-- `matchRegex` returns only the bool, but the Pike-VM fills a capture array. We pin the
+-- whole-match span (slots 0/1) and group spans directly off `run` to prove the slots are
+-- live and correct, so RX-1c can expose them without re-deriving. The unanchored prefix
+-- (`.*?`) means slot 0 is the match START offset, slot 1 the END (half-open).
 
-    `matchRegex` returns only the bool, but the Pike-VM fills a capture array. We pin the
-    whole-match span (slots 0/1) and group spans directly off `run` to prove the slots are
-    live and correct, so RX-1c can expose them without re-deriving. The unanchored prefix
-    (`.*?`) means slot 0 is the match START offset, slot 1 the END (half-open). -/
-
-/-- Run the unanchored program and read slot `i` of the first match. -/
+-- Run the unanchored program and read slot `i` of the first match.
 private def slot (p s : String) (i : Nat) : Option Nat :=
   match parseRegex p with
   | .error _ => none
@@ -322,10 +322,10 @@ theorem rx_cap_g2_end : slot "(a+)(b+)" "aabbb" 5 = some 5 := by native_decide
 theorem rx_greedy_extends : slot "a.*c" "abcabc" 1 = some 6 := by native_decide
 theorem rx_lazy_stops : slot "a.*?c" "abcabc" 1 = some 3 := by native_decide
 
-/-! ## RX-1c — submatch / Find* / ReplaceAll engine layer (pure String entrypoints)
-
-    Pins on the Regex-leaf functions directly (the builtin dispatch is pinned in
-    BuiltinTests). Every `expected` oracle-checked vs cue v0.16.1. -/
+-- ## RX-1c — submatch / Find* / ReplaceAll engine layer (pure String entrypoints)
+--
+-- Pins on the Regex-leaf functions directly (the builtin dispatch is pinned in
+-- BuiltinTests). Every `expected` oracle-checked vs cue v0.16.1.
 
 -- `findSubmatch` returns group 0 (whole match) then each group's span, leftmost (RE2).
 theorem rx_findsubmatch_spans : findSubmatch "a(x*)b" "-axxb-" = some ["axxb", "xx"] := by
@@ -391,5 +391,24 @@ theorem rx_findall_crosses_newline :
 theorem rx_replaceall_prod9_multiline :
     replaceAll "([^\n]+)--two\n" "\t--one\n\t--two\n\t--three" "${0}${1}--insert\n"
       = some "\t--one\n\t--two\n\t--insert\n\t--three" := by native_decide
+
+
+
+-- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
+-- a swallowed section makes its anchor an unknown identifier and fails `#check`
+-- elaboration.
+#check @rx_repro_lazy_plus                      -- The 7 repro patterns parse into the correct struc...
+#check @rx_lazy_opt                             -- Greediness as a Bool field — greedy vs lazy acros...
+#check @rx_repeat_lazy                          -- Repeat `{m,n}` shapes — `max : Option Nat` (no se...
+#check @rx_noncapturing_group                   -- Non-capturing group does NOT consume a capture index
+#check @rx_class_negshort_folds_to_complement   -- Char classes — negation, perl-class fold, dot
+#check @rx_backreference_rejected               -- Invalid patterns → error (NOT silent literal-fall...
+#check @rx_posix_class_unsupported              -- Deferred RE2 constructs → explicit `.unsupportedR...
+#check @rx_parse_error_valid_group_is_none      -- RX-2b — `regexParseError?` is the shared invalid-...
+#check @rx_match_alt_plus_none                  -- RX-1b — Pike-VM match pins (the behavior change)
+#check @rx_match_perl_word_neg                  -- Existing simple-pattern behavior stays correct (t...
+#check @rx_class_negshort_now_parses            -- RX-2a — negated shorthand classes (`\D` `\W` `\S`...
+#check @rx_lazy_stops                           -- Capture slots are computed (groundwork for RX-1c...
+#check @rx_replaceall_prod9_multiline           -- RX-1c — submatch / Find* / ReplaceAll engine laye...
 
 end Kue
