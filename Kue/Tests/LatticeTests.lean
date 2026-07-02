@@ -705,8 +705,8 @@ private def nestList : Nat → Value → Value
   | 0, seed => seed
   | n + 1, seed => .list [nestList n seed]
 
--- THE soundness fix: a bottom 150 levels deep (past the old cap of 100) is now detected.
--- Under fuel=100 this returned `false` — the latent wrong-value bug.
+-- Soundness: a bottom nested 150 levels deep is detected. The traversal budget must reach
+-- past shallow caps, or `containsBottom` would wrongly report `false` for a deep bottom.
 theorem a6_deep_bottom_detected_past_old_cap :
     containsBottom (nestList 150 .bottom) = true := by
   native_decide

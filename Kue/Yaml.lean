@@ -31,8 +31,8 @@ layers** `cue export --out yaml` actually composes, both verified against `cue` 
 
 A multi-segment token (`34.142.159.249`, `1.2.3`, `10.0.0.0/8`, `nginx:1.25`) is none of
 these — not a number, not a date (no all-`[-+0-9:. \t]` body with a separator), not a
-token — so it stays **bare**, matching `cue`. This replaces the old over-broad
-"any digit-dot-underscore run is numeric" check, which wrongly quoted IPs/versions/CIDRs. -/
+token — so it stays **bare**, matching `cue`. A naive "any digit-dot-underscore run is
+numeric" check would wrongly quote IPs/versions/CIDRs. -/
 
 /-- YAML-1.1 plain scalars that resolve to a bool or null (go-yaml's `resolveMap`) or that
     cue's `legacyStrings` force-quotes for 1.1 backward-compat, **plus** go-yaml's

@@ -223,6 +223,8 @@ def discoveryStartDir (cwd : System.FilePath) (path : System.FilePath) : System.
 
 /-- Walk parent directories of `start` looking for `cue.mod/module.cue`; return the
     directory that contains `cue.mod` (the module root). `none` when no ancestor has one. -/
+-- partial: recurses up an unbounded parent chain; terminates at the filesystem root
+-- (the `parent == start` fixpoint), not on a structural measure Lean can see.
 partial def findModuleRoot (start : System.FilePath) : IO (Option System.FilePath) := do
   let candidate := start / "cue.mod" / "module.cue"
   if ← candidate.pathExists then
@@ -528,6 +530,9 @@ mutual
       `visited` holds the directories already on the load stack (as strings) to detect
       cycles — across module hops, since dirs are absolute. All FS access is here; the
       merge is pure. -/
+  -- partial: mutually recursive with `parseAndBindFiles`/`collectBindings` over the
+  -- filesystem import graph; termination rests on the `visited` cycle-guard, not a
+  -- structural measure.
   partial def loadPackage
       (ctx : ModuleContext) (visited : List String) (dir : System.FilePath) :
       IO (Except String (Option String × Value)) := do
@@ -539,7 +544,7 @@ mutual
     let files ← listPackageFiles dir
     if files.isEmpty then
       return .error s!"no .cue files in package directory: {dirKey}"
-    match ← parseAndBindFiles (dirKey :: visited) ctx files [] [] with
+    match ← parseAndBindFiles (dirKey :: visited) ctx files with
     | .error message => return .error message
     | .ok (rawFiles, bindings) =>
         match loadPackageFromParsed rawFiles with
@@ -554,56 +559,62 @@ mutual
       bound) alongside the combined import-binding set across all files. Binding is deferred to
       `loadPackage`, which dedupes and binds ONCE onto the merged body — so a package imported in
       multiple sibling files is a single binding, never a meet of per-file copies. -/
+  -- partial: mutually recursive with `loadPackage` over the filesystem import graph;
+  -- termination rests on the `visited` cycle-guard, not a structural measure. The file
+  -- iteration itself is a total structural `for`.
   partial def parseAndBindFiles
       (visited : List String) (ctx : ModuleContext)
-      (files : List System.FilePath)
-      (acc : List ParsedFile) (bindingAcc : List (String × Value)) :
+      (files : List System.FilePath) :
       IO (Except String (List ParsedFile × List (String × Value))) := do
-    match files with
-    | [] => return .ok (acc.reverse, bindingAcc)
-    | file :: rest =>
-        let source ← IO.FS.readFile file
-        match parseSourceFile source with
-        | .error error => return .error s!"{file}: parse error: {error.message}"
-        | .ok parsed =>
-            match ← collectBindings visited ctx parsed.topLevelFieldNames parsed.imports [] with
-            | .error message => return .error message
-            | .ok bindings =>
-                parseAndBindFiles visited ctx rest (parsed :: acc) (bindingAcc ++ bindings)
+    let mut rawFiles : Array ParsedFile := #[]
+    let mut bindings : List (String × Value) := []
+    for file in files do
+      let source ← IO.FS.readFile file
+      match parseSourceFile source with
+      | .error error => return .error s!"{file}: parse error: {error.message}"
+      | .ok parsed =>
+          match ← collectBindings visited ctx parsed.topLevelFieldNames parsed.imports with
+          | .error message => return .error message
+          | .ok fileBindings =>
+              rawFiles := rawFiles.push parsed
+              bindings := bindings ++ fileBindings
+    return .ok (rawFiles.toList, bindings)
 
   /-- Resolve every import path to its package value, in order. In-module paths load a
       subdirectory of `ctx.root`; otherwise the path is matched against `ctx.deps` and the
       owning module is loaded from vendor or the cue cache under its own context. A path
       that is neither in-module nor a known dependency, or a known dep absent from disk,
       surfaces a clean deferred error. -/
+  -- partial: mutually recursive with `loadPackage` over the filesystem import graph;
+  -- termination rests on the `visited` cycle-guard, not a structural measure. The import
+  -- iteration itself is a total structural `for`.
   partial def collectBindings
       (visited : List String) (ctx : ModuleContext)
       (fieldNames : List String)
-      (imports : List Import) (acc : List (String × Value)) :
+      (imports : List Import) :
       IO (Except String (List (String × Value))) := do
-    match imports with
-    | [] => return .ok acc.reverse
-    | imp :: rest =>
-        if isBuiltinImport imp.path then
-          -- A stdlib import binds no value, but it still binds its local name in the file
-          -- scope: `import "encoding/json"` + `json: {…}` redeclares `json` (A2-y, matching
-          -- cue). The bind name follows alias > qualifier > last-path-element (no package
-          -- is loaded, so no declared name).
-          match checkImportRedeclaration (importBindName imp none) fieldNames with
-          | .error message => return .error message
-          | .ok () => collectBindings visited ctx fieldNames rest acc
-        else
-          match ← resolveImportTarget ctx imp.path with
-          | .error message => return .error message
-          | .ok (loadCtx, dir) =>
-              match ← loadPackage loadCtx visited dir with
-              | .error message => return .error message
-              | .ok (declaredName, value) =>
-                  let bindName := importBindName imp declaredName
-                  match checkImportRedeclaration bindName fieldNames with
-                  | .error message => return .error message
-                  | .ok () =>
-                      collectBindings visited ctx fieldNames rest ((bindName, value) :: acc)
+    let mut acc : Array (String × Value) := #[]
+    for imp in imports do
+      if isBuiltinImport imp.path then
+        -- A stdlib import binds no value, but it still binds its local name in the file
+        -- scope: `import "encoding/json"` + `json: {…}` redeclares `json` (A2-y, matching
+        -- cue). The bind name follows alias > qualifier > last-path-element (no package
+        -- is loaded, so no declared name).
+        match checkImportRedeclaration (importBindName imp none) fieldNames with
+        | .error message => return .error message
+        | .ok () => pure ()
+      else
+        match ← resolveImportTarget ctx imp.path with
+        | .error message => return .error message
+        | .ok (loadCtx, dir) =>
+            match ← loadPackage loadCtx visited dir with
+            | .error message => return .error message
+            | .ok (declaredName, value) =>
+                let bindName := importBindName imp declaredName
+                match checkImportRedeclaration bindName fieldNames with
+                | .error message => return .error message
+                | .ok () => acc := acc.push (bindName, value)
+    return .ok acc.toList
 end
 
 /-- Load a package *directory* as the entry: discover its module, then merge all
@@ -657,7 +668,7 @@ def loadFileBound (path : String) : IO (Except String Value) := do
           | .error message => return .error message
           | .ok (modPath, deps) =>
               let ctx := { root, modPath, deps }
-              match ← collectBindings [] ctx parsed.topLevelFieldNames parsed.imports [] with
+              match ← collectBindings [] ctx parsed.topLevelFieldNames parsed.imports with
               | .error message => return .error message
               | .ok bindings => return .ok (bindImports bindings parsed.value)
 

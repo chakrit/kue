@@ -331,9 +331,16 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
   no recursive call — enumerating a recursive-call-bearing shared arm duplicates the
   `decreasing_by` obligation across every constructor and blows elaboration. Detail in the
   implementation-log.
-- **(c) `Module.lean` `partial def` cleanup [LOW].** Lines ~226/531/557/579: convert the
-  list-recursive ones (`parseAndBindFiles`, `collectBindings`) to structural/fuel
-  recursion; add site waivers to the rest.
+- **(c) `Module.lean` `partial def` cleanup — ✅ DONE (2026-07-02).** All 4 `partial def`s
+  now carry a one-line waiver: `findModuleRoot` (unbounded parent-chain walk),
+  `loadPackage`/`parseAndBindFiles`/`collectBindings` (mutual recursion over the filesystem
+  import graph, terminating via the `visited` cycle-guard). The two list self-recursions
+  (`parseAndBindFiles` over files, `collectBindings` over imports) are rewritten as total
+  structural `for` loops — no `partial` remains for a list. They keep `partial` only because
+  they are in a genuine mutual-recursion cycle with `loadPackage` (a callback cannot break
+  it), which is the honest, waived reason; the plan's "make them non-partial" was not
+  achievable while `collectBindings` must call `loadPackage` and vice-versa. `acc`/`bindingAcc`
+  accumulator params dropped (internal to the loops).
 - **(d) Re-adjudicate `for` over a concrete non-iterable — ✅ DONE (2026-07-02).** Under the
   E#4 principle Kue's zero-iter WAS wrong (cue spec-correctly hard-errors). `classifyForSource`
   (`Eval.lean`, replacing `comprehensionPairs`) now: an iterable (list/struct/embedded-list)
@@ -346,9 +353,21 @@ lever). Full data + rejection argument: `kue-performance.md` + implementation-lo
   `listcomp_for_scalar_carrier_is_type_error`, `structcomp_for_scalar_int_is_type_error`,
   `listcomp_for_abstract_scalar_is_type_error`, `listcomp_for_top_source_defers`; fixtures
   `comprehensions/for_scalar_type_error`, `for_struct_scalar_type_error`, `for_top_source_defers`.
-- **(e) Timeless-comment sweep [LOW, on-touch].** "no longer"/"the old X" sites:
-  `Builtin.lean:941`, `Normalize.lean:126`, `Regex.lean:651`, `LatticeTests:708`,
-  `RegexTests:6/183`, `Bug2xTests:545`.
+- **(e) Timeless-comment sweep — ✅ DONE (2026-07-02) for the audit-listed sites + all
+  non-test source.** Rewrote the 7 listed sites (`Builtin.lean:941`, `Normalize.lean:126`,
+  `Regex.lean:651`, `LatticeTests:708`, `RegexTests:6/183`, `Bug2xTests:545`) to describe
+  current behavior. A grep sweep for `no longer|the old|previously|used to|before/after the
+  fix` showed the audit list was NOT complete: also fixed all clear code-history narrations in
+  non-test source — `Yaml.lean:34`, `Parse.lean:334`, `Normalize.lean:15`,
+  `Eval.lean:977/1051/1354/3127/3864/3931/4070/4526`. Skipped value-state/purpose phrasings
+  that are timeless ("no longer `.optional`" = meet result, "Used to <verb>" = purpose,
+  Sha256 "no longer fit" = block-boundary math).
+- **(e-followup) Timeless-comment sweep, test files [LOW, on-touch].** ~20 clear code-history
+  comments remain in `Tests/`: `PresenceTests:316`, `TwoPassTests:12/62/78/157/224/596/708/763`,
+  `ComprehensionTests:390`, `ModuleTests:38`, `YamlTests:55`, `ClosureTests:222`,
+  `LatticeTests:546/683`, `EvalPerfTests:571/613`, `BuiltinTests:1049/1103`, `EvalTests:920/1205`,
+  `FixturePorts:96/3823/3838`. Deferred from (e) to keep that slice scoped; convert on-touch or
+  as a dedicated sweep.
 
 ### Plan-only roadmap (not in the spec-conformance backlog)
 

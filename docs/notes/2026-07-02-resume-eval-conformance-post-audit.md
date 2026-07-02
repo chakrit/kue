@@ -68,7 +68,13 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    abstract scalar `.kind`, `.stringRegex`, numeric `.boundConstraint`) is a type error
    (`.nonIterableSource`), a genuinely-open source (`.top`, unresolved ref/disj) DEFERS. Matches
    cue on all cases; `cue-divergences.md` zero-iter row REMOVED (→ Resolved). New pins + 3
-   fixtures. Remaining (c, e): `Module.lean` partial-def cleanup, timeless-comment sweep.
+   fixtures. **(c) `Module.lean` partial-def cleanup — DONE (2026-07-02):** all 4 `partial
+   def`s carry a one-line waiver; `parseAndBindFiles`/`collectBindings` list self-recursion
+   rewritten as total `for` loops (they stay waived-partial only for the inherent mutual cycle
+   with `loadPackage`). **(e) timeless-comment sweep — DONE (2026-07-02):** 7 audit-listed
+   sites + all clear code-history comments in non-test source fixed; ~20 test-file comments
+   deferred to (e-followup) in plan.md. **The 2026-07-02 audit fix-slice batch (a)–(e) is now
+   COMPLETE.**
 4. **root2/root3 quarantined RED** — same closedness family as the L5 campaign; natural
    first targets if the grind is chosen.
 5. **Pending school changes** (for `ace-school`, not from here): the TEST-HEALTH test

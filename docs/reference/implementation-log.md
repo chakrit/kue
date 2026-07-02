@@ -15428,3 +15428,49 @@ recorded under a new "Resolved" section.
 
 `lake build` clean (0 warnings/sorry). `scripts/check-fixtures.sh` → `fixture pairs ok`;
 `scripts/check-test-health.sh` → `test health ok`; `shellcheck scripts/*.sh` clean. Not pushed.
+
+## Completed Slice: `partial def` waivers + timeless-comment sweep (audit fix-slices (c)+(e))
+
+Goal: close the last two LOW mechanical fix-slices from the 2026-07-02 design-record audit.
+Both are cleanup — zero fixture/behavior delta expected and observed. Bundled because they
+touch disjoint surfaces.
+
+### (c) `Module.lean` partial-def cleanup
+
+Enforces CLAUDE.md's rule "`partial def` outside `Parse.lean` requires a one-line waiver;
+list recursion never qualifies — write it structurally." Four `partial def`s:
+
+- `findModuleRoot` — waived: recurses up an unbounded parent chain, terminating at the
+  filesystem-root fixpoint (`parent == start`), not on a structural measure.
+- `loadPackage`, `parseAndBindFiles`, `collectBindings` — a genuine mutual-recursion cycle
+  over the filesystem import graph, terminating only via the `visited` cycle-guard. Each
+  carries that waiver.
+
+The two functions the plan named "list-recursive" (`parseAndBindFiles` self-recurses over
+`files`, `collectBindings` over `imports`) had their list self-recursion rewritten as total
+structural `for` loops (Array accumulators, early `return` on error). No `partial` now exists
+for a *list*. They keep `partial` only because they are in the mutual cycle with
+`loadPackage` — `collectBindings` must call `loadPackage` (to load an imported package) and
+`loadPackage` calls back through `parseAndBindFiles`, so the cycle is inherent and a callback
+cannot break it. The plan's aspiration to make these two non-partial was therefore not
+achievable; the waived-partial state is the honest outcome. Dropped the now-internal
+`acc`/`bindingAcc` accumulator params; updated both call sites (`loadPackage`, `loadFileBound`).
+
+### (e) Timeless-comment sweep
+
+Rewrote the 7 audit-listed sites to describe present behavior (dropping "no longer" / "the
+old X" / "before/after the fix"): `Builtin.lean:941`, `Normalize.lean:126`, `Regex.lean:651`,
+`LatticeTests:708`, `RegexTests:6/183`, `Bug2xTests:545`. A grep sweep
+(`no longer|the old|previously|used to|before/after the fix`) showed the audit list was
+incomplete, so also fixed every clear code-history narration in non-test source:
+`Yaml.lean:34`, `Parse.lean:334`, `Normalize.lean:15`,
+`Eval.lean:977/1051/1354/3127/3864/3931/4070/4526`. Skipped genuinely-timeless phrasings the
+grep also matched — "no longer `.optional`" (a meet *result*), "Used to <verb>" (purpose),
+Sha256 "no longer fit" (block-boundary math). ~20 test-file history comments remain; filed as
+fix-slice (e-followup) in the plan rather than expanding this slice's scope.
+
+### Verify
+
+`lake build` clean (140 jobs, 0 warnings/sorry — proves the `for`-loop rewrites are total).
+`scripts/check-fixtures.sh` → `fixture pairs ok`; `scripts/check-test-health.sh` →
+`test health ok`. No scripts touched (no shellcheck needed). Zero fixture delta. Not pushed.

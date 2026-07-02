@@ -974,7 +974,7 @@ def evalPresenceTest (equality : Bool) (value : Value) : Value :=
 
 /-- The verdict for a comprehension `if` guard's evaluated condition. CUE requires the guard
     to be `bool`; `classifyGuard` sorts the (already default-resolved) condition into the five
-    spec-distinguished cases, replacing the old residual `_ => drop` catch-all:
+    spec-distinguished cases — an exhaustive split, no catch-all `drop`:
     - `concreteTrue`/`concreteFalse` — a concrete `bool`: admit / drop the body.
     - `bottom` — an evaluated error: propagate (D#1a; a nested bottom guard must not vanish).
     - `nonBool` — a concrete value of non-`bool` type (`if "x"`/`if 3`/`if {…}`/`if [..]`): a
@@ -1048,7 +1048,7 @@ def classifyGuard : Value -> GuardVerdict
 
 /-- The verdict for a dynamic field's evaluated label `(expr): v`. CUE requires a field label
     to be a string; `classifyDynLabel` sorts the evaluated label into the three spec-distinguished
-    cases, replacing the old `_ => drop` that silently discarded the field:
+    cases — an exhaustive split, no silent `drop` of the field:
     - `concreteString` — re-key the field to this label.
     - `bottom` — an evaluated error: propagate (a bottom key must not vanish; cue surfaces the
       underlying conflict).
@@ -1351,10 +1351,10 @@ mixing each constructor's tag with its scalar payload (label, prim, refId, selec
 label, etc.) and the digests of its child values; at `depth = 0` it stops and returns the
 tag alone.
 
-Why this exists: the cache hashes (`EvalKey`/`SatKey`) previously keyed on `valueTag`
-ALONE — the top constructor tag (0–31) with no subtree traversal. At a deep app's steady
-state the population is overwhelmingly `.struct`/`.selector` at the same ceiling fuel, so
-every distinct value collapsed into ONE hash bucket; each `cache.get?` then ran derived
+Why this exists: keying the cache hashes (`EvalKey`/`SatKey`) on `valueTag` ALONE — the
+top constructor tag (0–31) with no subtree traversal — collapses the cache. At a deep app's
+steady state the population is overwhelmingly `.struct`/`.selector` at the same ceiling fuel,
+so every distinct value falls into ONE hash bucket; each `cache.get?` then runs derived
 structural `BEq` over the full value tree against every colliding entry → O(N) per lookup,
 O(N²) total. A depth-bounded digest gives each distinct k8s-shaped struct a distinct
 bucket (depth 3 separates 1000 distinct resource-shaped structs into ~1000 buckets,
@@ -3124,8 +3124,8 @@ def splitDisjConjunct (env : Env) :
 
 /-- The outcome of expanding a comprehension's clause chain, generic over the produced payload
     `β` (`List Field` for a STRUCT comprehension, `List Value` for a LIST comprehension). Three
-    spec-distinct cases, replacing the old `Except Value (List Field)` (which had no way to
-    express "defer"):
+    spec-distinct cases — a plain `Except Value (List Field)` cannot express the third,
+    "defer":
     - `payload` — the comprehension resolved (concrete-true / `for`-expansion); emit these
       fields/elements.
     - `bottom` — a bottom must propagate out (D#1a evaluated-bottom guard, D#1c concrete-non-bool
@@ -3861,9 +3861,9 @@ mutual
 
       `narrowing` is load-bearing: a `.closure` embed whose body has a CONDITIONAL comprehension
       (`if #port > 0 { ports: … }`) introduces `ports` ONLY when the guard fires, which depends on
-      the host's narrowed `#port`. Forcing the embed WITHOUT the narrowing (the old behavior)
-      dropped the conditional label from the allowed set, so the host's closedness then rejected
-      the field the actual embed-meet produced → spurious `bottom`. So force the embed-closure WITH
+      the host's narrowed `#port`. Forcing the embed WITHOUT the narrowing drops the conditional
+      label from the allowed set, so the host's closedness then rejects the field the actual
+      embed-meet produces → spurious `bottom`. So force the embed-closure WITH
       the host's hidden fields spliced (the same `useOperands` the value-producing `meet` uses). -/
   def evalEmbeddingFieldsWithFuel
       (fuel : Nat)
@@ -3928,8 +3928,8 @@ mutual
             -- DISTRIBUTED: the host's narrowing is folded into EVERY arm (each re-entering this
             -- fold so the post-ss1 def-deferral force-splices the narrowing before the arm's
             -- self-ref collapses), bottoms are PRUNED (`normalizeDisj` via `liveAlternatives`), and
-            -- the survivor resolves. Committing to the default arm first (the old `resolveDisjDefault?`
-            -- collapse) bottomed when the narrowing KILLED the default arm with no fall-through to a
+            -- the survivor resolves. Committing to the default arm first would bottom when the
+            -- narrowing KILLS the default arm with no fall-through to a
             -- surviving arm (`#S & {v:"s"}` over `*_#A{v:int} | _#B{v:string}` → cue `{kind:"b",v:"s"}`,
             -- kue bottom). This mirrors the `.conj` fold's `splitDisjConjunct` arm-distribution.
             -- A plain scalar/struct disjunction yields `none` from `conjDisjArms?` and keeps the
@@ -4067,8 +4067,8 @@ mutual
                   -- An embedded DEFAULT DISJUNCTION whose arms are already EVALUATED (no deferral
                   -- needed — `conjDisjArms?` returned `none`) must DISTRIBUTE the host's narrowing
                   -- into EVERY arm and PRUNE bottoms, not collapse to the default arm first. Picking
-                  -- the default arm (the old `resolveEmbeddedDisjDefault`) bottomed when the narrowing
-                  -- KILLED the default arm with no fall-through: `(*_#A{v:int} | _#B{v:string})` met
+                  -- the default arm would bottom when the narrowing KILLS the default arm with no
+                  -- fall-through: `(*_#A{v:int} | _#B{v:string})` met
                   -- with `{v:"s"}` → cue `{kind:"b",v:"s"}`, kue bottom. Each arm meets the OPENED
                   -- host (an embedding widens, never imposes its own closedness); `normalizeDisj`
                   -- prunes the dead default (`liveAlternatives`) so the survivor wins. The plain
@@ -4522,8 +4522,8 @@ mutual
         -- residual (an abstract-keyed dyn field `{(k):1}`, or a nested deferred `if`/`for`) is
         -- NOT resolved — defer the WHOLE comprehension (re-emit the original `.comprehension`
         -- node) so the residual is HELD, not dropped to `{}`. cue holds such a block under eval
-        -- (errors incomplete under export). Unblocked by MEET-RESID-1: the held residual now
-        -- survives the `meet`/embed that previously bottomed it (the 7-TwoPassTests unnarrowed
+        -- (errors incomplete under export). Under MEET-RESID-1 the held residual survives the
+        -- `meet`/embed that would otherwise bottom it (the 7-TwoPassTests unnarrowed
         -- `#Outer` embed). A transient body resolves on the re-eval/force pass before reaching
         -- here, so this arm fires ONLY on a genuinely-undecidable residual.
         | .structComp .. => .deferred

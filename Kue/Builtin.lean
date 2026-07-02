@@ -938,8 +938,7 @@ def evalCoreBuiltin : String -> List Value -> Value
     (`BuiltinFamily.ofName?`) and matched EXHAUSTIVELY — every family has an arm, with no
     catch-all over `BuiltinFamily` that could swallow a future family. A non-builtin name
     (`none`) routes through `unresolvedOrBottom`: concrete args ⇒ bottom (a CUE resolution
-    error, no longer a silent residual), abstract args ⇒ a deferred residual for a later
-    pass. -/
+    error), abstract args ⇒ a deferred residual for a later pass. -/
 def evalBuiltinCall (name : String) (args : List Value) : Value :=
   match BuiltinFamily.ofName? name with
   | some .core => evalCoreBuiltin name args

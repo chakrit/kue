@@ -12,7 +12,7 @@ mutual
         -- Normalize nested DEFINITION fields (matching the `.struct` arm) and derive the def
         -- body's openness via `StructOpenness.closeDefBody`: a definition is closed by default,
         -- an explicit `...` (`defOpenViaTail`) opens it. So `#D: {e, ...}` stays OPEN — closing it
-        -- here (the old bug) silently closed the def, bottoming `#D & {extra}` — while `#D: {e}`
+        -- here would silently close the def, bottoming `#D & {extra}` — while `#D: {e}`
         -- (`regularOpen`) closes (`defClosed`) and rejects an added field, exactly as CUE. The
         -- parser's open-by-default is irrelevant once this is a def body, so `closeDefBody` drops
         -- it. Non-disjunction embeddings (`comprehensions`) are left untouched: an embedding UNIONS
@@ -123,7 +123,7 @@ mutual
       - `importBinding`: a bound imported package (`Module.bindImports`) left UNTOUCHED so it
         stays cue-lazy. Recursing it re-closes unreferenced nested defs and re-bottoms
         cert-manager/argocd (the A2 trap). The marker scopes this skip PRECISELY to bound
-        packages — a real in-file `_x` no longer escapes through it (B6-A1).
+        packages — a real in-file `_x` does not escape through it (B6-A1).
       - real in-file hidden (`_x`) OR `let` binding: value recurses the SPINE walker
         `normalizeDefinitionsWithFuel`, closing nested `#Def`s while preserving the field's own
         openness — same treatment regular fields get (cue closes `_pkg.#Svc & {extra}` and

@@ -648,7 +648,7 @@ private def addThread (insts : Array Inst) (ctx : AssertKind → Bool)
           if ctx kind then addThread insts ctx pos fuel cl n caps else cl
       | some .accept =>
           -- First accept in the closure wins (highest priority); it CUTS every
-          -- lower-priority thread reached after it (they no longer get parked below).
+          -- lower-priority thread reached after it (none is parked below).
           match cl.matched with
           | some _ => cl
           | none => { cl with matched := some caps }

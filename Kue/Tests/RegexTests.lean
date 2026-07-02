@@ -3,8 +3,8 @@ import Kue.Regex
 --
 -- RX-1a parser pins. AST-shape assertions only — no matching yet (matching is RX-1b). Each
 -- theorem pins `parseRegex` to the EXACT AST so the structure is the contract RX-1b/c compile
--- against. Patterns 1-7 are the audit's RX-1 repros that the old `Value.lean` engine
--- mis-parsed (group-with-quantifier vs first-group-expansion, `\b` as anchor not literal `b`,
+-- against. Patterns 1-7 are the audit's RX-1 repros — shapes the AST must get exactly right
+-- (group-with-quantifier vs first-group-expansion, `\b` as anchor not literal `b`,
 -- `a+?` as lazy-plus not opt-of-`a`).
 --
 -- `Regex` derives only `BEq` (Lean cannot auto-derive `DecidableEq` through the nested
@@ -179,8 +179,8 @@ theorem rx_parse_error_valid_group_is_none : regexParseError? "^([a-z0-9]+(-[a-z
 --
 -- `matchRegex` is the unanchored RE2 `Match`/CUE `=~` boolean. Each repro below was
 -- cross-checked against `cue` v0.16.1 (the spec authority is RE2; cue delegates to Go's
--- RE2 and agrees on every one). The 7 audit repros now MATCH correctly — the whole point
--- of RX-1: the old `Value.lean` engine mis-validated all of them.
+-- RE2 and agrees on every one). All 7 audit repros MATCH correctly — the RX-1 contract for
+-- the Pike-VM engine.
 
 -- True iff the unanchored engine matches.
 private def m (p s : String) : Bool := matchRegex p s

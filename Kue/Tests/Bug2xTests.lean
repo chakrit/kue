@@ -542,8 +542,8 @@ theorem bug211_defofdef_conflict_bottoms :
   native_decide
 
 -- SINGLE-LEVEL CONTROL (must STAY green): a single-level cross-pkg-shaped selector (`#Defs & {…}`, no
--- `#Defaults` indirection) narrows fine BOTH before and after the fix — isolates the def-of-def
--- indirection as the cause. cue: `{kind: "ListenerSet", metadata: {name: "x"}}`.
+-- `#Defaults` indirection) narrows fine — isolating the def-of-def indirection as the failure
+-- mode the sibling case exercises. cue: `{kind: "ListenerSet", metadata: {name: "x"}}`.
 theorem bug211_singlelevel_narrowed :
     evalSourceMatches
       "#Meta: Self={#name: string, metadata: name: Self.#name}\n#Defs: {#Meta, #gateway_name: string, kind: \"ListenerSet\"}\nout: #Defs & {#name: \"x\", #gateway_name: \"nginx\"}\n"

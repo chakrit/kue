@@ -331,8 +331,8 @@ def parseFieldClass (label : String) (chars : List Char) : FieldClass × List Ch
     | rest => (Optionality.regular, rest)
   -- CUE field-name axes are orthogonal: `#x` is a definition, `_x` is hidden, and `_#x` is
   -- BOTH (a hidden definition — closed AND excluded from output). Classifying `_#x` as
-  -- hidden-only (the old `!isDefinition && …`) dropped its definition-ness, so a hidden-def
-  -- embedding's sibling self-ref never deferred to a closure and missed use-site narrowing.
+  -- hidden-only would drop its definition-ness, so a hidden-def embedding's sibling self-ref
+  -- would not defer to a closure and would miss use-site narrowing.
   let isDefinition := label.startsWith "#" || label.startsWith "_#"
   let isHidden := label.startsWith "_"
   (.field isDefinition isHidden optionality, rest)
