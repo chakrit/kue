@@ -1,0 +1,2 @@
+#C: {p: int}
+out: {q: _|_, p: int}

@@ -15,10 +15,11 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 > correctness, B architecture) are done, and every fix-slice they filed has landed:
 > repair batch (a)–(e), PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 — all DONE. **No
 > audit-filed fix-slice remains open.** The **protocol amendments (A1–A8) are now APPLIED
-> (2026-07-03)** — see the Open block. What's genuinely next is the **L5 grind campaign**
-> (root2 / root3 / webapp-carrier-l5 RED seeds), or — if it stays parked — pulling from the
-> standing backlog / plan-only roadmap (B3d-6b MVS wiring, item-6 LOW list). Nothing below
-> this line is a blocker; it's the closed record.
+> (2026-07-03)** — see the Open block. The **L5 grind campaign is COMPLETE (2026-07-03):**
+> all three RED seeds (root2, root3, webapp-carrier-l5) are GREEN and gate-enforced — the
+> declared seed-metric is met. What's genuinely next is pulling from the standing backlog /
+> plan-only roadmap (B3d-6b MVS wiring, item-6 LOW list). Nothing below this line is a
+> blocker; it's the closed record.
 
 ## State
 
@@ -64,18 +65,25 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
   - `single-closed-embed-extra-field` (root3) — **GREEN, enforced (2026-07-03, L5 slice 1)**.
     Same artifact: `M: {#A}` = `{p:int}` (incomplete) exported before `out`; embed-close was
     already sound (`{#A} & {p,r}` bottoms, covered by bug210). Corrected to `#M`. No code change.
-  - `webapp-carrier-l5` — the L5 seed (was untracked `repro-l5.cue`), self-contained,
-    STILL `.known-red` (kue over-rejects → bottom; cue exports). Distinct root: `Self`-ref host
-    embedding a disjunction with an `error()`/`⊥` arm (`Eval.lean` splice), NOT closedness. Next
-    L5 target.
+  - `webapp-carrier-l5` — **GREEN, enforced (2026-07-03, L5 slice 2)**; `.known-red` removed.
+    RETRACTION: the "distinct root — `Self`-ref host embedding an `error()`/`⊥`-arm disjunction
+    (`Eval.lean` splice), NOT closedness" framing was WRONG. Bisect refuted it — the disjunction
+    and `error()` arm are RED HERRINGS. Minimal trigger: a sibling-field-ref def `&`-met with an
+    ellipsis-only (OPEN) embed (`#Ctl:{name:"x",spec:name,...}` / `out:#Ctl & {...}`). Root cause:
+    `evaluatedStructOperand?` (`Kue/EvalBase.lean`) mapped a `.defOpenViaTail` (explicit-`...`, i.e.
+    OPEN) operand to closedness `false`, spuriously closing the OPEN host to the operand's empty
+    label set so the sibling-ref field bottomed as `fieldNotAllowed`. Fix: an open-tail operand
+    contributes `true` — closedness ANDs, so `#Closed & {...}` still stays closed (soundness guard
+    fixture pins it). It IS closedness-family, contra the old note. See its PROVENANCE.md.
 
 ## Open (ranked)
 
-1. **L5+ campaign — chakrit's one remaining decision.** Grind eval-conformance (attended
-   safer; closedness-adjacent) / reprioritize to B3d-6b / accept current. L5's wild capture
-   is DONE (pre-authorized); the fix-grind (root2 / root3 / webapp-carrier-l5 RED seeds)
-   awaits the decision. If greenlit, this is the queued next campaign; declared target metric
-   = those RED seeds going green (blind-grind circuit breaker armed).
+1. **L5 campaign — COMPLETE (2026-07-03).** All three RED seeds (root2, root3,
+   webapp-carrier-l5) are GREEN and gate-enforced; the declared target metric (those seeds
+   going green) is MET. root2/root3 were measurement artifacts (L5 slice 1); webapp-carrier-l5
+   was a genuine over-rejection in `evaluatedStructOperand?` (L5 slice 2, fixed). Next work
+   comes from the standing backlog / plan-only roadmap (B3d-6b MVS wiring, item-6 LOW list) —
+   chakrit's call on which to pull.
    - **Protocol amendments — APPLIED 2026-07-03 (was a parked decision, now discharged).**
      All 8 keep-going amendments (A1–A8) landed; the proposal note
      [`2026-07-02-keep-going-protocol-critique.md`](2026-07-02-keep-going-protocol-critique.md)
@@ -136,9 +144,12 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    sites + all clear code-history comments in non-test source fixed; ~20 test-file comments
    deferred to (e-followup) in plan.md. **The 2026-07-02 audit fix-slice batch (a)–(e) is now
    COMPLETE.**
-4. **root2/root3 — GRADUATED GREEN (2026-07-03, L5 slice 1).** No closedness bug existed;
-   the `1224` pin was stale. `webapp-carrier-l5` remains the sole RED closedness-family seed,
-   and it is NOT a closedness bug (it's the `Self`-ref/error-arm splice, `Eval.lean`).
+4. **root2/root3/webapp-carrier-l5 — ALL GRADUATED GREEN (L5 campaign complete).** root2/root3
+   (L5 slice 1, 2026-07-03): no closedness bug existed; the `1224` pin was stale (measurement
+   artifacts). webapp-carrier-l5 (L5 slice 2, 2026-07-03): a genuine over-rejection —
+   `evaluatedStructOperand?` (`Kue/EvalBase.lean`) mis-mapped an open-tail operand to closed,
+   closing the open host. Fixed; the "`Self`-ref/error-arm splice in `Eval.lean`" framing was a
+   RED HERRING (see the red-seed list above). All three seeds gate-enforced.
 5. **Pending school changes** (for `ace-school`, not from here): the TEST-HEALTH test
    convention (already flagged in `failure-modes.md`) + the audit meta-lesson
    "prose-only conventions rot; land conventions with migration + a script gate"

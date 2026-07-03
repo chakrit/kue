@@ -772,6 +772,40 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- webapp-carrier-l5 (L5): an explicit-`...` (OPEN) use operand must NOT close its host.
+      -- `#Ctl & {...}` where `#Ctl` reads a sibling (`spec: name`) — the `{...}` conjunct is
+      -- open, so it imposes no closedness; the sibling ref resolves. Pre-fix `evaluatedStructOperand?`
+      -- mapped the `.defOpenViaTail` operand to `false` (closed, empty allow-set), closing the open
+      -- host so `spec` bottomed as `fieldNotAllowed`. cue v0.16.1: `{name: "x", spec: "x"}`.
+      fileName := "definitions/open_tail_embed_sibling_ref_resolves.expected",
+      content :=
+        match parseSource "#Ctl: {name: \"x\", spec: name, ...}\nout: #Ctl & {...}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- webapp-carrier-l5 (L5) — the seed's own shape: a hidden `Self.#name` back-ref met with a
+      -- SEPARATE ellipsis-only embed conjunct `{...}`. `#name: "x"` flows into `spec: Self.#name`
+      -- across the open-tail embed. Pins the same open-operand-must-not-close fix on the seed's
+      -- hidden-field form. cue v0.16.1: `{#name: "x" (hidden), spec: "x"}`.
+      fileName := "definitions/open_tail_embed_hidden_backref_resolves.expected",
+      content :=
+        match parseSource "#Ctl: Self={#name: string, spec: Self.#name, ...}\nout: #Ctl & {\n\t{...}\n\t#name: \"x\"\n}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- webapp-carrier-l5 (L5) SOUNDNESS GUARD (no under-rejection): the open-operand fix must NOT
+      -- reopen a genuinely CLOSED def. `#C & {q: 2, ...}` — `#C` is closed to `{p}`; the `{q,...}`
+      -- operand is open (contributes `true`), but closedness ANDs, so the merged host stays closed
+      -- and `q` is REJECTED. cue v0.16.1: `out.q: field not allowed`.
+      fileName := "definitions/open_tail_operand_no_reopen_closed.expected",
+      content :=
+        match parseSource "#C: {p: int}\nout: #C & {q: 2, ...}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- Bug2-10 EDGE (deep nested self-ref): the embed's self-ref is read 2 frames deep
       -- (`spec: acme: val: Self.#name`). `hasSelfRefAtDepth` (in `defBodyHasSiblingSelfRef`)
       -- descends nested frames, so the deferral fires and the narrowing reaches the deep read.

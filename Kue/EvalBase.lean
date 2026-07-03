@@ -2397,9 +2397,11 @@ def closeEmbeddedOver (defFields embeddingFields : List Field) (defOpen : Bool) 
     forced closure body. Returns `none` for non-struct values (primitives, lists, …), which
     cannot be spliced and fall back to a plain `meet` against the forced body. -/
 def evaluatedStructOperand? : Value -> Option (List Field × Bool)
-  -- A tail-bearing struct contributes `false` (a `...` tail does not reopen on splice);
-  -- otherwise the openness bool (`regularOpen → true`, `defClosed → false`).
-  | .struct fields .defOpenViaTail _ _ _ => some (fields, false)
+  -- An explicit `...` tail is OPEN: as a use/conjunct operand it imposes no closedness on the
+  -- host (`applyClosednessFrom` is a no-op when open), so it contributes `true`. A closed sibling
+  -- operand still restricts the merged set via its own `false`; an open operand never reopens it
+  -- (closedness ANDs). Mapping `defOpenViaTail → false` wrongly closed an open host to the
+  -- operand's own (often empty) label set, bottoming the host's sibling-referencing fields.
   | .struct fields openness _ _ _ => some (fields, openness.isOpen)
   | _ => none
 

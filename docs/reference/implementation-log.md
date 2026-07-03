@@ -15942,6 +15942,9 @@ The disj/embed closedness machinery was already sound via the intervening
 
 `webapp-carrier-l5` stays `.known-red` — a DISTINCT root (a `Self`-ref host embedding an
 `error()`/`⊥`-arm disjunction, `Eval.lean` splice), NOT closedness. Next L5 target.
+**RETRACTED by L5 slice 2 (below):** this attribution was WRONG on both counts — the
+`error()`/disjunction framing was a red herring, and the seed IS closedness-family; the
+real root was `evaluatedStructOperand?` in `EvalBase.lean` (NOT `Eval.lean`). Now GREEN.
 
 ### Verification
 
@@ -15949,3 +15952,70 @@ The disj/embed closedness machinery was already sound via the intervening
 shellcheck clean). Live cert-manager canary (`kue` vs `cue` jq-S export) delta EMPTY. No
 `cue` divergence and no spec gap (all cases match `cue` v0.16.1). Committed on `main`, NOT
 pushed (AFK envelope).
+
+---
+
+## Completed Slice: L5 slice 2 — graduate webapp-carrier-l5; open-tail operand mis-closed the host (2026-07-03)
+
+Goal: fix `webapp-carrier-l5`, the last RED L5 seed. It over-rejected (`bottom`, exit 1)
+where spec + `cue` v0.16.1 export `{out:{kind:"StatefulSet",spec:{foo:"x"}}}`.
+
+### Finding (the prior `Eval.lean` splice / `error()`-arm diagnosis was a RED HERRING)
+
+Bisecting the seed to its minimal trigger refuted the earlier framing entirely — no
+disjunction and no `error()` are needed to reproduce. Minimal trigger: a struct with a
+sibling FIELD-REFERENCE, unified via `&` with a struct carrying an ELLIPSIS-ONLY (OPEN)
+embed:
+
+```
+#Ctl: { name: "x", spec: name, ... }
+out: #Ctl & { {...} }
+```
+
+kue bottomed; spec + `cue` export `{out:{name:"x",spec:"x"}}`. Dropping the sibling ref,
+the embed, or making the embed NON-empty (`{extra:1}`) each makes it green — so the trigger
+is precisely `<sibling-ref def> & <ellipsis-only-open embed>`.
+
+Root cause: `evaluatedStructOperand?` (`Kue/EvalBase.lean:2399`) special-cased a
+`.defOpenViaTail` struct (an explicit-`...`, i.e. OPEN, use operand) to closedness `false`.
+In the conj force-splice fold, that spuriously-closed operand closed the OPEN host to the
+operand's own (empty) label set, so the host's sibling-referencing field evaluated to
+`bottomWith (fieldNotAllowed "spec")`.
+
+### Fix
+
+Drop the special case; the general arm now handles it:
+
+```
+| .struct fields openness _ _ _ => some (fields, openness.isOpen)
+```
+
+An open-tail operand contributes `true` (open). `applyClosednessFrom` is a no-op when open,
+so an open operand imposes no closedness; a genuinely-closed sibling still restricts via its
+own `false` — closedness ANDs, so `#Closed & {...}` STAYS closed (no under-rejection). The
+helper returns `Option (List Field × Bool)` (a probe, not a `Value`), so its `| _ => none`
+is not a Value-producing catch-all.
+
+### Steps
+
+1. Removed the `.defOpenViaTail → (fields, false)` special case in `evaluatedStructOperand?`;
+   updated the doc comment to the open-operand rationale.
+2. Removed `testdata/wild/webapp-carrier-l5/.known-red` (already committed in `b5425fb`);
+   the strict-xfail wild gate now enforces the seed GREEN.
+3. Added 3 regular-tree fixtures under `testdata/cue/definitions/` + `FixturePorts` entries:
+   `open_tail_embed_sibling_ref_resolves` (the minimal trigger), `open_tail_embed_hidden_backref_resolves`
+   (the seed's own hidden `Self.#name` back-ref shape), and the SOUNDNESS GUARD
+   `open_tail_operand_no_reopen_closed` (`#C:{p:int}` closed, `#C & {q:2,...}` → `q` still
+   REJECTED — the open operand must not reopen a closed def).
+4. Finalized `webapp-carrier-l5/PROVENANCE.md` from PROVISIONAL to spec-adjudicated; annotated
+   the prior L5-slice-1 log/plan/breadcrumb claims that mis-attributed this root.
+
+### Verification
+
+`./scripts/check.sh` green: full build via the capped `./lake`, all fixtures + wild
+(webapp-carrier-l5 enforced GREEN), the 3 new fixtures green, realworld + test-health +
+shellcheck clean. `webapp-carrier-l5` seed exports `{out:{kind:"StatefulSet",spec:{foo:"x"}}}`,
+matching `.expected`. Live cert-manager canary (`kue` vs `cue` jq-S export) delta EMPTY. No
+`cue` divergence, no spec gap (all cases match `cue` v0.16.1). **L5 seed-metric COMPLETE:
+all three seeds (root2, root3, webapp-carrier-l5) GREEN + gate-enforced.** Committed on
+`main`, NOT pushed (AFK envelope).

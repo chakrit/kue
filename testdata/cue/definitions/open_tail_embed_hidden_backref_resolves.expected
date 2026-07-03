@@ -1,0 +1,2 @@
+#Ctl: {#name: string, spec: string, ...}
+out: {#name: "x", spec: "x", ...}

@@ -164,8 +164,13 @@ Peeled in two layers:
   **A+L4 pair complete.** Wild fixture `disj-arm-list-embed-dropped` red → green (unquarantined).
   Adversarial pins (cue-cross-checked): `1&[2]`, `{x:1}&[2]`, `{#a,[1,2]}&{#b}` foreign → all
   bottom; all-arms-bottom disj → bottom; root-A def-embed-disj closed-arm-violation → still bottoms
-  (A not re-broken). **L5 (imported `#WebApp` app carrier) still OPEN** — see next bullet.
-- **Layer 4 / L5 — imported `#WebApp` carrier still bottoms — OPEN (next slice).** Layer 3 fixed the
+  (A not re-broken). **L5 seed-metric COMPLETE (2026-07-03)** — see the L5 slice bullets below;
+  the "still OPEN / next slice" framing in the next bullet is RETRACTED (kept for the diagnosis
+  trail, but superseded by L5 slice 2).
+- **Layer 4 / L5 — imported `#WebApp` carrier — RETRACTED 2026-07-03 (superseded by L5 slice 2).**
+  This bullet's diagnosis (`Eval.lean:2209-2247` splice / disjunction / `error()`-arm) was a
+  RED HERRING; the real root was `evaluatedStructOperand?` in `Kue/EvalBase.lean` mis-closing an
+  open-tail operand. Kept for the bisection trail only. Original text: Layer 3 fixed the
   minimal+adversarial captures, but the four real apps STILL bottom (re-sweep UNCHANGED:
   lem 188, n8n 322, x9 449, typesense 223; cert-manager 0, gateway 0 both-bottom). The residual
   is in `packs.#WebApp` itself (a `Self={…}` def embedding `attr.#Metadata`/`attr.#Hosts`,
@@ -195,8 +200,24 @@ Peeled in two layers:
   `out` is the observed result → both bottom, matching the `.expected.err`. Added 3 regular-tree
   pins (`disj_def_refs_closed_reject_extra`, `disj_def_refs_closed_accept_in_schema`,
   `embed_closed_def_accept_in_schema`) + `FixturePorts` entries; embed-negative already pinned by
-  `bug210_embed_meet_extra_rejected`. `webapp-carrier-l5` stays RED — a DISTINCT root (`Self`-ref
-  host embedding an `error()`-arm disjunction, `Eval.lean`), NOT closedness. cert-manager canary 0.
+  `bug210_embed_meet_extra_rejected`. cert-manager canary 0. (This entry's original tail called
+  `webapp-carrier-l5` a distinct `Eval.lean` `Self`-ref/error-arm root — RETRACTED by L5 slice 2:
+  it was closedness-family, root `evaluatedStructOperand?` in `EvalBase.lean`.)
+- **L5 slice 2 (2026-07-03) — webapp-carrier-l5 GRADUATED; the `Eval.lean` splice / error-arm
+  framing was a RED HERRING.** The seed over-rejected (`bottom`) where spec + `cue` v0.16.1 export
+  `{out:{kind:"StatefulSet",spec:{foo:"x"}}}`. Bisect to the minimal trigger — a sibling-field-ref
+  def `&`-met with an ellipsis-only (OPEN) embed (`#Ctl:{name:"x",spec:name,...}` / `out:#Ctl & {...}`)
+  — refuted the disjunction/`error()` framing (both are red herrings; no disjunction is needed).
+  Root cause: `evaluatedStructOperand?` (`Kue/EvalBase.lean:2399`) special-cased a `.defOpenViaTail`
+  (explicit-`...`, i.e. OPEN) operand to closedness `false`, spuriously closing the OPEN host to the
+  operand's own (empty) label set via the conj force-splice, so the host's sibling-referencing field
+  bottomed as `fieldNotAllowed`. Fix: drop the special case — an open-tail operand contributes
+  `openness.isOpen` (`true`); `applyClosednessFrom` is a no-op when open, and a genuinely-closed
+  sibling still restricts via its own `false`, so `#Closed & {...}` stays closed (closedness ANDs).
+  Three new fixtures (`open_tail_embed_sibling_ref_resolves`, `open_tail_embed_hidden_backref_resolves`,
+  and the soundness guard `open_tail_operand_no_reopen_closed`) + `FixturePorts` entries; the wild
+  seed's `.known-red` removed (now gate-enforced GREEN). cert-manager canary 0; no `cue` divergence.
+  **L5 seed-metric COMPLETE: all three seeds (root2, root3, webapp-carrier-l5) GREEN + enforced.**
 
 ## Standing Capabilities (what Kue does now)
 
@@ -297,7 +318,7 @@ below owns the non-spec-conformance work.
 
 > Partially RETRACTED 2026-06-28 — the milestone below held only on the {argocd,
 > cert-manager} 2-app sample; a root-A soundness over-accept was found after; see
-> § Current front (L5 open).
+> § Current front (L5 seeds all green 2026-07-03; prod9 corpus still the open front).
 
 **🎯 MILESTONE — the spec-conformance backlog is EMPTY (2026-06-23).** Every correctness
 item is RESOLVED; the genuinely-open set is now perf #7 (a perf lever, WON'T-FIX) + SC-3 (a
@@ -494,7 +515,8 @@ across both struct-eval arms with a history of diverging; see item-6 Borderline/
 PB-1 (DONE) → PB-2 (MED-LOW, unblocks the gate before it trips) → PB-3
 (LOW, doc). **The 2026-07-02 Phase A/B audit fix-slice batch is now FULLY DISCHARGED**
 — PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 all DONE (2026-07-02). No audit-filed
-fix-slice remains open; next work comes from the standing backlog (L5 grind, B3d-6b,
+fix-slice remains open; next work comes from the standing backlog (L5 seed-metric now
+COMPLETE — all three seeds green 2026-07-03; remaining: B3d-6b,
 item-6 LOW list; the protocol amendments are APPLIED — see the header banner) or the
 plan-only roadmap, not this audit. **Periodic passes:** plan-hygiene NOT due (distilled today, 697 lines);
 perf-guide CURRENT (the recent batch is correctness-only — no new slow pattern or landed
@@ -705,7 +727,7 @@ embed-disj-arm-closedness); `f40dd9c..4b24902` (B3d-7 + eval-L1/L2 — recorded 
 
 > Partially RETRACTED 2026-06-28 — the consolidated-complete state below held only on
 > the {argocd, cert-manager} 2-app sample; a root-A soundness over-accept was found
-> after; see § Current front (L5 open).
+> after; see § Current front (L5 seeds all green 2026-07-03; prod9 corpus still the open front).
 
 **🎯 CONSOLIDATED-COMPLETE STATE (2026-06-23).** The substantive backlog was EXHAUSTED on
 two axes simultaneously: **(1) spec-conformance backlog EMPTY** — every correctness item
