@@ -195,7 +195,9 @@ lone open VALUE divergence is **NESTED-DISJ-MARK** (nested-disjunction outer-def
 inheritance when the inner default dies) — a **DESIGNED-DEFERRAL 2026-06-23**: the fix needs a
 3rd `Mark` state or a non-flattening nested-disj invariant, both LARGE + delicate → STOP rather
 than risk default-selection. **SC-3** is a display-only spec-gap (multi-arm-default display
-divergence). Full records: `spec-conformance-audit.md` + `cue-spec-gaps.md`.
+divergence; a 2026-07-04 AFK sweep of the whole disjunction/default area confirmed ZERO export
+divergence and recorded the all-default `*1 | *2` display as an SC-3 sub-case — guards
+`EvalTests` `disj_meet_*`). Full records: `spec-conformance-audit.md` + `cue-spec-gaps.md`.
 
 **perf #7 frame-sharing across env-DEPENDENT evals — WON'T-FIX (2026-06-23,
 measurement-driven).** A zero-risk content-addressed shadow measured the share ceiling:

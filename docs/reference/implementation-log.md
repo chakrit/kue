@@ -17136,3 +17136,43 @@ which also carries the byte-array repr (≥ 0x80 escapes) and the string-context
 Verify: `./scripts/check.sh` PASS (build + fixture/wild/realworld/test-health + shellcheck; the
 `byte-literal-interpolation` seed correctly QUARANTINED). cert-manager canary EMPTY. Committed on
 `main`, explicit pathspec, NOT pushed (AFK).
+
+## Conformance Probe: disjunctions + default markers (AFK sweep)
+
+Bounded conformance probe of the most divergence-prone CUE area — disjunction unification
+(distribution), default-mark (`*`) resolution, bottom-elimination, dedup — comparing CUE spec
+(authority), `cue` v0.16.1 (fallible), and `kue` three ways over ~50 cases. Explicitly SKIPPED
+the deferred NESTED-DISJ-MARK tier-2 (`cue-spec-gaps.md`) and the already-filed AUDIT-STRUCT-EQ
+half-2 dedup-order gap.
+
+### Result: area is VALUE-CONFORMANT — zero export divergence
+
+Every `export` verdict across the whole matrix matched `cue` byte-for-byte (or both error):
+distribution (`(1|2)&(2|3)`→2, `(1|2)&(2|3|1)`→ambiguous, `(1|2)&(3|4)`→empty-disjunction
+bottom), default through meet (`(*1|2)&(1|2)`→1, `(*1|2)&(2|*1)`→1, `*1|2&2`→1), struct-arm
+default (`(*{a:1}|{a:2,b:3})&{b:3}`→`{a:1,b:3}`), bound narrowing (`(1|2|3)&(>=2)`→`2|3`),
+bool/null defaults (`*true|false`→true, `*null|1`→null), associativity/flatten (`1|(2|3)`→
+`1|2|3`), dedup (`1|1`→1). No wild fixture warranted — no real divergence.
+
+### The one new observation — an SC-3 display sub-case (NOT a value gap)
+
+A markerless×markerless disj-meet renders `*1 | *2` in eval where `cue` elides to `1 | 2`
+(`(1|2)&(1|2)`, and the direct `*1|*2`). `withDefaultConvention` promotes each markerless
+operand's whole set to defaults, so the surviving arms are all `.default` (default-set = full
+set) — semantically identical to markerless (export ambiguous either way, confirmed). This is
+the documented SC-3 keep-marked family. A "demote all-default → regular" fix is NOT globally
+sound: applied in the shared normalizer it breaks `(*1|*2)|*3` (where the inner all-default MUST
+collapse to regular so the outer `*3` wins → export `3`; `kue` already gets this right via
+context-sensitive flatten). Recorded as a sub-case under the SC-3 row in `cue-spec-gaps.md`; not
+forced, per AFK soundness-core guidance.
+
+### Tests
+
+- 8 `native_decide` guards in `Kue/Tests/EvalTests.lean` (`disj_meet_*`), pinning the
+  export-correct resolution of distribution / bottom-elim / all-default-ambiguity / default-
+  position-independence / struct-default-through-meet / bound-narrowing, plus one eval-display
+  guard locking the SC-3 all-default `*1 | *2` form. Complement the existing constructor-level
+  F1 default-mark-algebra pins with end-to-end (parse→eval→export) coverage.
+
+Verify: `./scripts/check.sh` PASS. cert-manager canary EMPTY (no source touched — tests + docs
+only). Committed on `main`, explicit pathspec, NOT pushed (AFK).

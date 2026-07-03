@@ -982,6 +982,65 @@ theorem f1_non_default_disj_stays_non_default :
       == none) = true := by
   native_decide
 
+-- ### Disjunction-meet conformance sweep (2026-07-04 AFK probe).
+--
+-- End-to-end pins (parse → eval → export) over disjunction×disjunction distribution,
+-- bottom-elimination, and default preservation through meet. Every VALUE verdict below is
+-- oracle-confirmed byte-identical to cue v0.16.1; the eval-DISPLAY divergences that remain are
+-- the documented SC-3 keep-marked family (Kue shows `*` marks cue elides), never a value gap.
+
+-- Distribution, single survivor: `(1|2) & (2|3)` crosses to the lone live arm `2`, which
+-- resolves on export. cue: `{"x":2}`.
+theorem disj_meet_distribute_single_survivor :
+    exportJsonMatches "x: (1|2) & (2|3)\n" "{\n    \"x\": 2\n}\n" = true := by
+  native_decide
+
+-- Distribution, multiple survivors → ambiguous. `(1|2) & (2|3|1)` keeps `1|2` (no default),
+-- so export fails ambiguous — matching cue's `incomplete value 1 | 2`.
+theorem disj_meet_distribute_multi_survivor_ambiguous :
+    exportJsonBottoms "x: (1|2) & (2|3|1)\n" = true := by
+  native_decide
+
+-- Bottom-elimination, empty intersection → the whole disjunction bottoms. `(1|2) & (3|4)` has
+-- no surviving arm. cue: `2 errors in empty disjunction`.
+theorem disj_meet_empty_intersection_bottoms :
+    exportJsonBottoms "x: (1|2) & (3|4)\n" = true := by
+  native_decide
+
+-- All-default from a markerless×markerless meet. `(1|2) & (1|2)`: each markerless operand
+-- contributes its whole set as defaults (`withDefaultConvention`), so the surviving arms are
+-- BOTH default — default-set = full set → export ambiguous, matching cue's `incomplete 1 | 2`.
+theorem disj_meet_markerless_pair_ambiguous :
+    exportJsonBottoms "x: (1|2) & (1|2)\n" = true := by
+  native_decide
+
+-- SC-3 all-default DISPLAY sub-case: the same markerless×markerless meet renders in eval as
+-- `*1 | *2` (both arms carry the vacuous full-set default) where cue elides to `1 | 2`. The
+-- (value, default) semantics coincide (export identical, pinned above); only the marked-vs-
+-- elided display differs — the SC-3 keep-marked family. Pins current Kue display as a guard.
+theorem disj_meet_markerless_pair_eval_all_default_display :
+    evalSourceMatches "x: (1|2) & (1|2)\n" "x: *1 | *2" = true := by
+  native_decide
+
+-- Default position-independent through meet: `(*1|2) & (2|*1)` — the surviving default `1` is
+-- picked regardless of which operand or arm-position carries the mark. cue: `1`.
+theorem disj_meet_default_position_independent :
+    exportJsonMatches "x: (*1|2) & (2|*1)\n" "{\n    \"x\": 1\n}\n" = true := by
+  native_decide
+
+-- Struct-arm default preserved through a narrowing meet: `(*{a:1}|{a:2,b:3}) & {b:3}` narrows
+-- BOTH arms with `{b:3}`; the marked arm stays the default → `{a:1,b:3}`. cue agrees.
+theorem disj_meet_struct_default_preserved :
+    exportJsonMatches "x: (*{a:1}|{a:2,b:3}) & {b:3}\n"
+      "{\n    \"x\": {\n        \"a\": 1,\n        \"b\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- Bound narrows a disjunction to its in-range arms, no default introduced: `(1|2|3) & (>=2)`
+-- keeps `2 | 3` (ambiguous). cue: `2 | 3`.
+theorem disj_meet_bound_narrows_arms :
+    evalSourceMatches "x: (1|2|3) & (>=2)\n" "x: 2 | 3" = true := by
+  native_decide
+
 -- Was a deferred-bottom pin; float×float now evaluates exactly through the decimal
 -- layer. Scales add and CUE preserves the summed scale verbatim: `1.5 * 2.0 = 3.00`
 -- (oracle-confirmed, cue v0.16.1), no trailing-zero trim.
