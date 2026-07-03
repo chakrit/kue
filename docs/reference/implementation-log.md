@@ -16741,3 +16741,43 @@ serialize/worktree parallel committers. (2) long builds are the orchestrator's
 
 `./scripts/check.sh` GREEN (exit 0; docs-only, confirms no gate breakage). Committed on
 `main` with explicit pathspec, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: TYPED-ELLIPSIS-PROBE (B2-A1) — 2026-07-04 soundness probe (non-bug)
+
+Probe of the suspected typed struct ellipsis `{...T}` soundness gap (does kue drop a typed
+tail and over-accept a wrong-typed extra field where cue bottoms?). **Verdict: NON-BUG on
+every axis.** No fix needed; landed two parse-rejection guard theorems + docs.
+
+### Probe matrix (cue v0.16.1 vs kue)
+
+- **Struct `{...T}` — PARSE-REJECTED BY BOTH.** `...int` / `..._` / `...string`: cue errors
+  "missing ',' in struct literal"; kue errors "typed struct ellipsis is not supported yet"
+  (`Parse.lean:1483`, via `parseStructEllipsis` — only bare `...` yields `.ellipsis .top`).
+  The CUE spec marks `...expr` reserved-but-unimplemented; both conform by rejecting. So a
+  struct `tail` NEVER carries anything but `.top` from source — the over-acceptance the probe
+  hypothesized is UNREACHABLE (you cannot even write the syntax).
+- **The internal machinery is already correct anyway.** `applyEvaluatedStructN`
+  (`EvalBase.lean:342,350`) PRESERVES the tail (the "DROPS tail" premise in the old B2-A1
+  plan note was stale). `meet` applies a typed tail soundly: rejects a wrong-typed ADDITIONAL
+  field (`bottomWith`), accepts a matching one, exempts a struct's OWN explicit fields
+  (proven `rfl`, `StructTests` `meet_typed_ellipsis_*`). Empirically confirmed a pattern+typed
+  -tail carrier applies correctly (own explicit fields exempt — cue-correct).
+- **List `[...T]` — PARSED + ENFORCED BY BOTH, kue matches cue.** `[...int] & [1,2]` → both
+  `[1,2]`; `[...int] & [1,"s"]` → both bottom; `[int,...string] & [1,"ok",3]` → both bottom.
+  No divergence.
+
+### Change
+
+Two Lean guard theorems in `Kue/Tests/ParseTests.lean` pinning the parse rejection (the
+cue-cross-checked behavior, previously unguarded end-to-end): `parse_struct_typed_ellipsis_rejected`
+(`{...int}` → error message contains "typed struct ellipsis"), `parse_struct_typed_top_ellipsis_rejected`
+(`{..._}` → parse fails). No product-code change (nothing was broken).
+
+### Verify
+
+`./scripts/check.sh` GREEN (exit 0). cert-manager canary EMPTY (kue == cue, byte-identical
+after `jq -S`). No product-code change ⇒ soundness unchanged; bare-`...` structs unaffected.
+Recorded the reserved-but-unimplemented status + unreachable pattern×tail ambiguity in
+`cue-spec-gaps.md`. Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).

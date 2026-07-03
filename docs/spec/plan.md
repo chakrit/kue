@@ -280,11 +280,20 @@ rejection argument: `kue-performance.md` + implementation-log.
 1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).
 
-2. **B2-A1 (latent, currently lossless) — pairs with typed-ellipsis.** `applyEvaluatedStructN`
-   (`Eval.lean:330`) routes the patterns-present case through a meet that DROPS `tail`. Lossless
-   today (the only tail a parsed struct carries is bare `...` = `.top`, a no-op to drop+re-supply);
-   breaks the day typed-ellipsis lands. Thread `tail` through the pattern arm + a round-trip pin;
-   land with any typed-ellipsis slice.
+2. **B2-A1 — RESOLVED-BY-PROBE (2026-07-04, non-bug).** The prior claim ("`applyEvaluatedStructN`
+   routes the patterns-present case through a meet that DROPS `tail`") was STALE: `applyEvaluatedStructN`
+   (`EvalBase.lean:342,350`) PRESERVES `tail` on both arms (empty-patterns → `mkStruct … tail`;
+   patterns-present → the `tail` stays on the pattern-bearing struct fed to `meet`). Typed-tail
+   application is already correct and theorem-pinned: `meet` rejects a wrong-typed ADDITIONAL field
+   (`StructTests` `meet_typed_ellipsis_rejects_conflicting_extra_field`), accepts a matching one,
+   and exempts a struct's OWN declared fields (`…does_not_constrain_declared_field_by_tail`) — which
+   is why `applyEvaluatedStructN` correctly leaves its own explicit fields untouched. **No source
+   reaches this path:** `{...T}` is rejected at parse in BOTH kue (`Parse.lean:1483` "typed struct
+   ellipsis is not supported yet") and cue v0.16.1 ("missing ',' in struct literal") — the CUE spec
+   marks `...expr` reserved-but-unimplemented. Lists differ: `[...T]` IS parsed+enforced by both,
+   and kue matches cue (`[...int] & [1,"s"]` → bottom on both). Parse-rejection now guarded by
+   `ParseTests` `parse_struct_typed_{ellipsis,top_ellipsis}_rejected`. Nothing to fix unless/until
+   typed-ellipsis SYNTAX is implemented (a separate feature, not a soundness debt).
 
 3. **scalar-embed provenance follow-ups (opportunistic).** Pins (3-level flatten, disj ops
    beyond `+` /`&`, composed select-into-F1-default) when next touching Lattice/Eval.

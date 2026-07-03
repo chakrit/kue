@@ -411,6 +411,18 @@ theorem parse_struct_ellipsis_unification :
       "x: {a: 1, b: \"ok\", ...}" = true := by
   native_decide
 
+-- Typed struct ellipsis `{...T}` is reserved-but-unimplemented in the CUE spec; `cue`
+-- v0.16.1 rejects it at parse ("missing ',' in struct literal"). Kue rejects it too, so
+-- the struct `tail` only ever carries bare `...` (`.top`) from source. Guards that the
+-- parser never silently synthesizes a typed tail (which the meet path would then apply).
+theorem parse_struct_typed_ellipsis_rejected :
+    parseFailsWith "x: {...int}\n" "typed struct ellipsis" = true := by
+  native_decide
+
+theorem parse_struct_typed_top_ellipsis_rejected :
+    parseFails "x: {..._}\n" = true := by
+  native_decide
+
 theorem parse_byte_literal :
     parseOutputMatches
       "data: 'abc'\n"
