@@ -299,17 +299,20 @@
       <code>cue</code> binary.</p>
     <div class="headline">
       <span class="pill done">Now</span>
-      <span><strong>Two</strong> real prod9 apps export as fast, content-identical drop-ins
-        for <code>cue</code>: <strong>cert-manager</strong> (~11.7s) and now
-        <strong>argocd</strong> (~50.3s) — the latter unblocked by a ten-fix narrowing /
-        close-once chain (<code>Bug2-5</code>…<code>Bug2-14c</code>), every fix general and
-        spec-grounded, none keyed to argocd. The <strong>spec-conformance re-audit is
-        complete</strong> and <strong>every high-severity finding has landed</strong>: the
-        RE2 regex engine, structural cycles, the full closedness family
-        (<code>closedClauses</code> intersection), the dyn-field and residual-through-meet
-        families, Unicode case folding, and full-domain <code>math.Pow</code>/<code>Sqrt</code>.
-        The live frontier is now <strong>pure performance</strong>. Latest cut:
-        <code>v0.1.0-alpha.20260622</code>.</span>
+      <span><strong>cert-manager</strong> exports as a fast, content-identical drop-in for
+        <code>cue</code> (~11.7s) — the live in-gate canary. The broader prod9 corpus
+        (<strong>lem / n8n / x9 / typesense</strong>) drove a layer-by-layer
+        <strong>eval-conformance campaign</strong>: each blocking construct was lifted into a
+        self-contained failing fixture and fixed with a general, spec-grounded change —
+        <strong>L1–L5 complete</strong> (list-embedding <code>Self.#hidden</code>,
+        default-disjunction interpolation, let-delivered list carriers, closedness through
+        embedded disjunctions, and open-tail-operand closedness). The <strong>spec-conformance
+        re-audit is complete</strong> and every high-severity finding has landed: the RE2 regex
+        engine, structural cycles, the full closedness family, the dyn-field and
+        residual-through-meet families, Unicode case folding, full-domain
+        <code>math.Pow</code>/<code>Sqrt</code>. Imports are now file-scoped and
+        <code>let</code>/alias shadow is rejected at load. Latest cut:
+        <code>v0.1.0-alpha.20260623</code> · Lean&nbsp;4.31.</span>
     </div>
   </header>
 
@@ -337,9 +340,10 @@
 
   <section>
     <h2>Real-app status</h2>
-    <p class="sub">Two real prod9 apps now export content-identical to <code>cue</code>. Real-app
-      compilation is a stress test that <em>validates</em> the semantics — never the ranking
-      driver, and never resolved by per-app special-casing.</p>
+    <p class="sub">cert-manager is the live content-identical drop-in; argocd was a second
+      (now historical — removed from the infra checkout). Real-app compilation is a stress test
+      that <em>validates</em> the semantics — never the ranking driver, and never resolved by
+      per-app special-casing.</p>
     <div class="callout">
       <div class="app-row">
         <span class="app-name">cert-manager <span class="pill done">Done</span></span>
@@ -352,8 +356,9 @@
           chase.</span>
       </div>
       <div class="app-row">
-        <span class="app-name">argocd <span class="pill done">Done</span></span>
-        <span class="app-desc"><span class="ok">Content-identical drop-in #2.</span> The full
+        <span class="app-name">argocd <span class="pill back">Historical</span></span>
+        <span class="app-desc"><span class="ok">Content-identical drop-in #2 (2026-06-23;
+          since removed from the infra checkout — not re-verifiable).</span> The full
           <code>apps/argocd.cue</code> exports byte-for-byte equal to <code>cue</code> under sorted
           keys (jq&nbsp;<code>-S</code> diff&nbsp;=&nbsp;0) in <strong>~50.3s</strong>. It took a
           ten-fix narrowing / close-once chain (<code>Bug2-5</code>…<code>Bug2-14c</code>):
@@ -486,8 +491,10 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
   <section>
     <h2>Spec-first fix backlog</h2>
     <p class="sub">The re-audit's findings, ranked. Every HIGH-severity fix has landed and the
-      argocd narrowing chain is closed; the live frontier is now <strong>pure performance</strong>,
-      and the open tail below it is small and LOW. See the
+      argocd narrowing chain is closed; the spec-conformance backlog is empty. The live front is
+      now <strong>prod9 eval-conformance</strong> (the L1–L5 campaign) and load-time validation
+      (<code>let</code>/alias no-shadow — forward done, reverse open); performance frame-sharing
+      is WON'T-FIX (a measured false-share). See the
       <a href="../docs/spec/spec-conformance-audit.md">audit tracker</a> for the full list.</p>
     <div class="road">
 
@@ -531,24 +538,23 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
           too.</p>
       </div>
 
-      <div class="item live">
+      <div class="item">
         <div class="item-head">
           <span class="item-title">perf #7 — share evaluations across frame scopes</span>
-          <span class="pill next">Frontier</span>
-          <span class="item-rank">proof-first · gated on a no-false-share proof</span>
+          <span class="pill back">Won't-fix</span>
+          <span class="item-rank">measurement-driven rejection · 2026-06-23</span>
         </div>
-        <p class="item-desc">The live leader, and a <em>pure</em> perf concern — no correctness
-          divergence. argocd exports content-identical in ~50.3s vs <code>cue</code>'s 0.03s; the
-          profile names the cause precisely: a <strong>~175× re-evaluation factor</strong> —
-          832,338 core evals over only 4,763 distinct value subtrees, because the same subtree is
-          re-evaluated under ~175 distinct frame scopes and the cache keys on frame identity. Two
-          safe wins shipped (an env-independent-leaf fast path + a dead-cache removal, both
-          value-identical by construction). The designed next step — collapsing structurally
-          identical evaluations across frame scopes — touches the <strong>soundness core of frame
-          identity</strong>, so it is a dedicated, gated slice: it needs a proof that no two
-          genuinely-distinct values can be aliased. <em>Correctness comes before performance</em> —
-          a frame-sharing widening that could return a wrong value is a violation, so the rule is
-          profile, design, and <strong>stop</strong> rather than ship something unproven.</p>
+        <p class="item-desc">A <em>pure</em> perf concern — no correctness divergence. The profile
+          named a <strong>~175× re-evaluation factor</strong> (the same subtree re-evaluated under
+          ~175 distinct frame scopes, and the cache keys on frame identity). Two safe wins shipped
+          (an env-independent-leaf fast path + a dead-cache removal, both value-identical by
+          construction). The designed next step — collapsing evaluations across frame scopes —
+          was then <strong>measured and rejected</strong>: a zero-risk content-addressed shadow put
+          the share ceiling at 0.045% / 0.059% (cert-manager / argocd). The re-eval is genuinely
+          <em>distinct content</em> reached under different observable bindings, not redundancy, so
+          collapsing it would be a <strong>false share</strong> (a wrong value). <em>Correctness
+          comes before performance</em> — no sound frame-sharing reclaims it, so this is WON'T-FIX;
+          the residual wall is the irreducible cost of distinct content.</p>
       </div>
 
       <div class="item">
@@ -722,8 +728,8 @@ out: pkg.#Def &amp; {name: "x"}</code></pre>
 
   <footer>
     Human-facing status view, served from <code>www/</code> — distinct from the agent design
-    record under <code>docs/</code>. Last updated 2026-06-23 against the distilled
-    <code>docs/spec/plan.md</code>; latest release <code>v0.1.0-alpha.20260622</code>. A
+    record under <code>docs/</code>. Last updated 2026-07-04 against the distilled
+    <code>docs/spec/plan.md</code>; latest release <code>v0.1.0-alpha.20260623</code>. A
     hand-rendered, human-scannable snapshot, refreshed on plan-hygiene passes.
   </footer>
 

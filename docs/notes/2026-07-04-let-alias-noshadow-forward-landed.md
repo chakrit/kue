@@ -27,6 +27,14 @@ never collide; cross-file never collides. Field-side exempt: quoted / `#def` / d
 pattern labels. Binder-side exempt: `for` vars and comprehension `let` CLAUSES. Full probe
 matrix in the implementation-log (slice "let/alias no-shadow validation — FORWARD direction").
 
+## Plan-hygiene pass (2026-07-04)
+
+`docs/spec/plan.md` distilled 936 → 490 lines and ground-truthed to current reality (L1–L5
+campaign COMPLETE; A1–A8 applied; file-scoped imports + let/alias forward done; both
+2026-07-03 audit phases CLEAN; toolchain v4.31.0). The ranked OPEN backlog is now accurate:
+(1) let/alias REVERSE (below), (2) B3d-6b, (3) B2-A1, (4) scalar-embed pins + a LOW tail.
+`www/index.html` refreshed to match. Next-step pointer UNCHANGED — still the reverse direction.
+
 ## Next step (the open fork)
 
 REVERSE direction is an OPEN under-rejection: a `let` in an ENCLOSING scope shadowed by a field

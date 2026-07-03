@@ -16301,3 +16301,47 @@ not — so the narrow, sound forward check ships now. Red-seeded + quarantined:
 ### Verify
 `./scripts/check.sh` GREEN (build via `./lake`; fixtures; realworld; shellcheck). cert-manager
 canary byte-identical to cue v0.16.1: EMPTY delta (the over-rejection guard).
+
+---
+
+## Completed Slice: Plan-hygiene distillation (2026-07-04)
+
+Goal: distill `docs/spec/plan.md` back to the LIVE roadmap after a large batch landed since
+the 2026-07-02 distillation (amendments A1–A8, L5 campaign, CPU-cap tooling, toolchain
+v4.31.0, two-phase audit, file-scoped imports, let/alias no-shadow forward). Docs-only; no
+code change. A periodic plan-hygiene pass per `slice-loop.md` § Plan-hygiene.
+
+### What changed
+
+- `docs/spec/plan.md` **936 → 490 lines.** Shed HISTORY to the implementation-log + git,
+  keeping North Star, Working Principles, Standing Capabilities, the ranked OPEN backlog, the
+  durable rulings, and pointers.
+  - Collapsed the ~166-line § Current front L1–L5 blow-by-blow into a ~30-line campaign
+    summary (each layer one ruling line + wild-fixture name + the durable "every fix general,
+    none app-keyed" ruling). The four-app end-to-end re-export is flagged as the outstanding
+    EMPIRICAL check — the plan no longer implies the apps export clean.
+  - Collapsed the ~214 lines of 2026-07-02 fix-slice audit sections (a–e, PA-1,
+    B-AUDIT-refold-1, PB-1/2/3) + the two 2026-07-03 CLEAN audit write-ups into a compact
+    "Audit status — all filed fix-slices DISCHARGED" block.
+  - Collapsed the numbered plan-only roadmap (items 1–7) to ruling+pointer one-liners; folded
+    `module-file-scoped-imports` (DONE `53fe3cc`) and the item-6 DONE members into pointers.
+  - Preserved verbatim: the Durable rulings (do-not-re-litigate), Durable whole-graph facts
+    (updated the eval-module edge to the `EvalBase → EvalDefer → Eval` carve), and Pointers.
+- **Ground-truthed the OPEN backlog to current reality (ranked):** (1) let/alias no-shadow
+  REVERSE direction — under-rejection, red-seeded + quarantined
+  (`let-shadowed-by-nested-field` + 2), needs `quoted`-on-`Value.Field` or ancestor-`let`
+  threading (invasive, deliberate); (2) B3d-6b (network-gated); (3) B2-A1 (latent, pairs with
+  typed-ellipsis); (4) scalar-embed provenance pins (opportunistic); LOW tail (e-followup,
+  testdata regroup, B3d-A2/B1, Mvs main-pin, ModuleFetch carve trigger, A2-x). Moved to
+  resolved: A1–A8, L5 (3 seeds green), file-scoped imports, let/alias forward, both 2026-07-03
+  audit phases, toolchain v4.31.0, CPU-cap tooling.
+- `www/index.html` (human-facing status page) refreshed to match — focused status-content
+  edits only, structure/style preserved: hero headline (cert-manager live canary; L1–L5
+  campaign; imports file-scoped; let/alias load-check; release `20260623`, Lean 4.31); argocd
+  row re-pilled Historical (removed from infra checkout); perf #7 item re-pilled WON'T-FIX with
+  the measured false-share rejection; backlog sub reframed off "pure performance" onto the
+  eval-conformance / load-validation front; footer date + release bumped.
+
+### Verify
+`./scripts/check.sh` GREEN (docs-only, but run once to confirm no gate broke: build via
+`./lake`; fixtures; realworld cert-manager; test-health; shellcheck). No fixture/canary change.
