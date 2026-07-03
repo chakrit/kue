@@ -163,6 +163,8 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
   checkout — historical claim, do not re-verify.
 - kue binary: `.lake/build/bin/kue`. Gate: `./scripts/check.sh` (single entrypoint —
   `lake build` + every `scripts/check-*.sh` by glob + `shellcheck scripts/*.sh`).
+- Toolchain: `leanprover/lean4:v4.31.0` (bumped from v4.29.1 2026-07-03; clean, canary
+  byte-identical). Build ONLY via `./lake` (caps to 2 cores + `nice`) — never bare `lake`.
 - Relay from AFK run-2's self-flag: it ran `git checkout Kue/Eval.lean` (reverting its
   own in-session edit; no pre-existing WIP lost) — an envelope violation, disclosed for
   chakrit's awareness.

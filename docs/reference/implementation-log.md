@@ -16019,3 +16019,17 @@ matching `.expected`. Live cert-manager canary (`kue` vs `cue` jq-S export) delt
 `cue` divergence, no spec gap (all cases match `cue` v0.16.1). **L5 seed-metric COMPLETE:
 all three seeds (root2, root3, webapp-carrier-l5) GREEN + gate-enforced.** Committed on
 `main`, NOT pushed (AFK envelope).
+
+## 2026-07-03 — Toolchain upgrade v4.29.1 → v4.31.0
+
+Bumped `lean-toolchain` from `leanprover/lean4:v4.29.1` to `v4.31.0` (latest; no external
+Lake deps to update). Migration was near-zero: the only source fixup was
+`set_option maxHeartbeats 4000000 in` on `fixturePorts` (the large fixture list exceeds
+v4.31's default elaboration heartbeat budget — a compile-time setting, no semantic change).
+
+### Verification
+
+`./scripts/check.sh` GREEN on v4.31.0 (full build via capped `./lake`, all fixtures + wild
++ realworld + test-health + shellcheck). Live cert-manager canary (`kue` vs `cue` jq-S)
+delta EMPTY — behaviour byte-identical across the bump, so all `native_decide` theorems
+still hold and eval semantics are unchanged. Committed on `main`, NOT pushed (AFK envelope).

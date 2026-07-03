@@ -29,6 +29,7 @@ def formatManifestFieldResult (name : String) (value : Value) : String :=
   | .ok actual => actual
   | .error _ => "manifest error"
 
+set_option maxHeartbeats 4000000 in
 def fixturePorts : List FixturePort :=
   [
     {
