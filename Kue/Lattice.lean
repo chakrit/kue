@@ -3,8 +3,38 @@ import Kue.Regex
 
 namespace Kue
 
+/-- Do two primitives denote the same value under unification? Structural for all kinds
+    except float-vs-float, which compares by exact base-10 rational value: `1.0` and `1.00`
+    are one value at different scales, so `1.0 & 1.00` is `1.0`, not a conflict. This keeps
+    `&` consistent with `==` (`1.0 == 1.00` is already `true`). Idempotent meet on the
+    numeric lattice — unifying two equal values yields that value, never bottom. -/
+def primsUnifyEqual (left right : Prim) : Bool :=
+  match left, right with
+  | .float leftText, .float rightText =>
+      match parseDecimalText leftText, parseDecimalText rightText with
+      | some leftValue, some rightValue => decimalEqValues leftValue rightValue
+      | _, _ => leftText == rightText
+  | _, _ => decide (left = right)
+
+theorem decimalEqValues_refl (value : DecimalValue) : decimalEqValues value value = true := by
+  unfold decimalEqValues decimalCompareNumerators
+  simp
+
+theorem primsUnifyEqual_refl (prim : Prim) : primsUnifyEqual prim prim = true := by
+  cases prim with
+  | float text =>
+      simp only [primsUnifyEqual]
+      cases hParse : parseDecimalText text with
+      | none => simp [hParse]
+      | some value => simp [hParse, decimalEqValues_refl]
+  | null => rfl
+  | bool value => simp [primsUnifyEqual]
+  | int value => simp [primsUnifyEqual]
+  | string value => simp [primsUnifyEqual]
+  | bytes value => simp [primsUnifyEqual]
+
 def meetPrim (left right : Prim) : Value :=
-  if left = right then
+  if primsUnifyEqual left right then
     .prim left
   else
     .bottomWith [.primitiveConflict left right]

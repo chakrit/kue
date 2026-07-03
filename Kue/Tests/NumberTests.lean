@@ -6,7 +6,7 @@ namespace Kue
 
 theorem format_number_kind :
     formatValue (.kind .number) = "number" := by
-  native_decide
+  rfl
 
 theorem meet_number_kind_with_int_primitive :
     meet (.kind .number) (.prim (.int 1)) = .prim (.int 1) := by
@@ -93,11 +93,32 @@ theorem number_kind_subsumes_integer_lower_bound :
     subsumes (.kind .number) (.boundConstraint (intDecimal 0) .ge .number) = true := by
   native_decide
 
+-- Float unification compares by exact base-10 value, not by literal string, so two
+-- renderings of the same value unify (keeping the left operand) instead of bottoming.
+theorem meet_prim_float_trailing_zero_unifies :
+    meetPrim (.float "1.0") (.float "1.00") = .prim (.float "1.0") := by
+  rfl
+
+theorem meet_prim_float_scientific_matches_decimal :
+    meetPrim (.float "1e2") (.float "100.0") = .prim (.float "1e2") := by
+  rfl
+
+theorem meet_prim_float_distinct_values_bottoms :
+    meetPrim (.float "1.0") (.float "2.0")
+      = .bottomWith [.primitiveConflict (.float "1.0") (.float "2.0")] := by
+  rfl
+
+-- int-vs-float remains a type conflict even when the magnitudes coincide.
+theorem meet_prim_int_float_same_magnitude_bottoms :
+    meetPrim (.int 1) (.float "1.0")
+      = .bottomWith [.primitiveConflict (.int 1) (.float "1.0")] := by
+  rfl
+
 
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
 -- elaboration.
-#check @number_kind_subsumes_integer_lower_bound
+#check @meet_prim_int_float_same_magnitude_bottoms
 
 end Kue

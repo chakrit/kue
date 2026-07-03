@@ -16781,3 +16781,52 @@ cue-cross-checked behavior, previously unguarded end-to-end): `parse_struct_type
 after `jq -S`). No product-code change ⇒ soundness unchanged; bare-`...` structs unaffected.
 Recorded the reserved-but-unimplemented status + unreachable pattern×tail ambiguity in
 `cue-spec-gaps.md`. Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: Float-Unify Equal-Value / Different-Representation (numeric conformance probe)
+
+Goal: bounded conformance probe of numeric literals/formatting/arithmetic + a stdlib-builtin
+sampling, hunting NEW divergences the fixtures miss (cue v0.16.1 as fallible cross-check, spec
+as authority). Fix any kue≠spec bug found; file the rest.
+
+### Finding (kue ≠ spec — SEMANTIC bug, fixed)
+
+Unifying two float literals equal-in-value but distinct-in-string bottomed:
+`1.0 & 1.00`, `0.10 & 0.1`, `100.0 & 1e2`, `1.5 & 1.50` → kue "conflicting values (bottom)";
+cue/spec → the value (kept as the LEFT operand). Self-inconsistent — kue's `==` already
+returns `true` for `1.0 == 1.00`, yet `&` bottomed on the same pair. Root cause: `meetPrim`
+(`Kue/Lattice.lean`) compared `Prim` structurally (`left = right`), reading two `.float`
+carrying different strings as distinct values.
+
+### Change
+
+- `Kue/Lattice.lean`: new `primsUnifyEqual` — float-vs-float compares by exact base-10
+  rational value (`parseDecimalText` + `decimalEqValues`); every other prim kind stays
+  structural (via `decide (left = right)`); int-vs-float stays a type conflict. `meetPrim`
+  now returns `.prim left` when `primsUnifyEqual`, else `primitiveConflict`. Reflexivity
+  lemmas `decimalEqValues_refl` / `primsUnifyEqual_refl` keep `meetWithFuel_identical_prim`
+  (`Tests.lean`) proving.
+- Wild fixture (ENFORCED, green after fix): `testdata/wild/float-unify-equal-diff-representation`.
+- `Kue/Tests/NumberTests.lean`: `meet_prim_float_trailing_zero_unifies`,
+  `meet_prim_float_scientific_matches_decimal`, `meet_prim_float_distinct_values_bottoms`,
+  `meet_prim_int_float_same_magnitude_bottoms` (all `rfl`).
+
+### Probed clean (kue == cue, spec-correct — recorded so the next probe skips them)
+
+`0.1+0.2`, `1.0/3.0`, huge bignum literals+arithmetic, int/float unify rejection, all numeric
+bounds, `math.Round`/`Floor`/`Ceil`/`Trunc` (incl. negatives/`.5`), `div`/`mod`/`quo`/`rem`
+sign behavior, `len(string)` byte-count (ascii/multibyte/emoji), `strings.Join`/`Split`/
+`ToUpper`/`TrimSpace`/`Replace`/`Contains`, `list.Concat`/`Range`/`Sort`/`FlattenN`.
+
+### Filed (not fixed here — see plan.md § NUMERIC/BUILTIN CONFORMANCE PROBE)
+
+- GDA-FLOAT-RENDER: float export not canonicalized to CUE's apd General-Decimal-Arithmetic
+  `to-scientific-string` (value-equal, notation-different; dedicated churny slice).
+- STRINGS-RUNES-MISSING (`strings.Runes` unregistered → silent bottom) and LIST-SLICE-MISSING
+  (`x[lo:hi]` parser gap) — feature gaps, not wrong-value bugs.
+
+### Verify
+
+`./scripts/check.sh` GREEN (exit 0). cert-manager canary EMPTY (kue == cue after `jq -S`).
+Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).

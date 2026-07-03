@@ -56,7 +56,8 @@ theorem join_top_left (value : Value) : join .top value = .top := by
 
 theorem meetWithFuel_identical_prim (prim : Prim) :
     meetWithFuel 100 (.prim prim) (.prim prim) = .prim prim := by
-  rw [meetWithFuel] <;> first | (unfold meetCore; simp [meetPrim]) | simp
+  rw [meetWithFuel] <;> first
+    | (unfold meetCore; simp [meetPrim, primsUnifyEqual_refl]) | simp
 
 theorem meet_identical_prim (prim : Prim) : meet (.prim prim) (.prim prim) = .prim prim := by
   rw [meet]

@@ -331,6 +331,42 @@ rejection argument: `kue-performance.md` + implementation-log.
   enclosing `scopes`; `embeddedList`/`embeddedScalar` are eval-only, never present at the two
   pre-eval call sites). No latent bug surfaced. cert-manager canary EMPTY; `check.sh` green.
 
+### NUMERIC/BUILTIN CONFORMANCE PROBE (2026-07-04) — one bug fixed, follow-ups filed
+
+Bounded divergence hunt over numeric literals/formatting/arithmetic + a stdlib-builtin
+sampling. Confirmed CONFORMANT (kue == cue, spec-correct): `0.1+0.2`, `1.0/3.0` (34-digit),
+huge bignum int literals + arithmetic, int-vs-float unification rejection, all numeric
+bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `math.Round`/
+`Floor`/`Ceil`/`Trunc` incl. negatives + `.5`, `div`/`mod`/`quo`/`rem` sign behavior,
+`len(string)` (bytes: ascii/multibyte/emoji), `strings.Join`/`Split`/`ToUpper`/`TrimSpace`/
+`Replace`/`Contains`, `list.Concat`/`Range`/`Sort`/`FlattenN`.
+
+- **FLOAT-UNIFY-EQUAL (semantic bug) — FIXED this slice.** `meetPrim` compared `Prim`
+  structurally, so unifying two floats equal-in-value but distinct-in-string (`1.0 & 1.00`,
+  `0.10 & 0.1`, `100.0 & 1e2`, `1.5 & 1.50`) bottomed — contradicting kue's own `==` (which
+  returns `true`). `primsUnifyEqual` now compares float-vs-float by exact base-10 value
+  (`parseDecimalText`+`decimalEqValues`), keeping the LEFT operand (cue's rule); other kinds
+  stay structural; int-vs-float stays a type conflict. Wild fixture
+  `float-unify-equal-diff-representation` (enforced) + `NumberTests` `meet_prim_float_*`.
+- **GDA-FLOAT-RENDER (formatting divergence; FILE — dedicated churny slice).** kue emits a
+  float's stored source string (lightly normalized) rather than CUE's canonical apd
+  General-Decimal-Arithmetic `to-scientific-string`. Same VALUE, different notation, so not a
+  semantic bug — but every case below diverges from `cue export`: lowercase `1e+2` vs cue
+  `1E+2`; no decimal-expansion of small exponents (`1e-2`→cue `0.01`, `1.5e-3`→`0.0015`,
+  `12345e-2`→`123.45`); no scientific switch for large magnitudes (`1e40`→kue
+  `100…0.0`, cue `1E+40`); negative-zero literal `-0.0` not normalized to `0.0` (cue
+  normalizes at parse; kue keeps `-0.0`, incl. the leftover from `-0.0 & 0.0`); and
+  arithmetic sign-of-zero (`0.0 * -1`→kue `0.0`, cue `-0.0`). Fix = render floats through a
+  GDA `to-scientific-string` function on the exact `DecimalValue` (adjusted-exponent rule:
+  plain when `exp<=0 && adjusted>=-6`, else `E` scientific). High blast radius across float
+  fixtures — own careful slice; not adoption-blocking (values agree).
+- **STRINGS-RUNES-MISSING + LIST-SLICE-MISSING (feature gaps; FILE, not bugs).**
+  `strings.Runes` is unregistered → falls to the builtin fallback and silently bottoms
+  ("conflicting values (bottom)") instead of returning a rune-codepoint list; list slicing
+  `x[lo:hi]` is a parser gap ("expected ']' after index"). Both are unimplemented CUE
+  surface, not wrong-value bugs; implement when a real config needs them. (Consider: an
+  unregistered builtin bottoming silently is itself worth a clearer diagnostic — separate.)
+
 ### Audit status — all filed fix-slices DISCHARGED
 
 The **2026-07-02 two-phase audit** fix-slice batch is FULLY DISCHARGED — (a) TEST-HEALTH
