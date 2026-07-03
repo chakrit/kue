@@ -1,5 +1,9 @@
 # Breadcrumb: 2026-07-04 — Phase B audit done → two-phase audit COMPLETE
 
+> SUPERSEDED as the live front by `2026-07-04-resilience-retro-landed.md`. The "Next step"
+> ranking below is still current — the resilience pass was an out-of-band process-hardening
+> slice, not a plan item; resume from the ranked queue here.
+
 Supersedes `2026-07-04-audit-resolve-catchall-landed.md` as the live front.
 
 ## What landed

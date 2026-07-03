@@ -16704,3 +16704,40 @@ the repo (helper body sourced verbatim): kr=0→verdict 2; kr=1,passed=0→verdi
 msg; kr=1,passed=1→verdict 1 + graduation msg — for both the wild and module label forms, output
 matching the pre-refactor text exactly. No eval change ⇒ no canary. Committed on `main`, NOT
 pushed (AFK envelope).
+
+---
+
+## Completed Slice: RESILIENCE-RETRO — 2026-07-03/04 operational failure-modes pass
+
+Docs-only resilience/retrospective pass (no Lean/eval change). Reviewed what broke
+*operationally* over the 2026-07-03/04 session and recorded each in
+`docs/reference/failure-modes.md`, then folded the actionable mitigations into
+`docs/guides/slice-loop.md`.
+
+### failure-modes.md — 2 new entries, 2 extended
+
+- NEW: **A subagent stalls babysitting a long-running foreground build** — toolchain-upgrade
+  + Phase-A audit subagents each stalled re-notifying on a multi-minute build; guard = the
+  orchestrator runs known-long builds as a `run_in_background` job, never delegates them.
+- NEW: **An invasive change to a foundational type slips a regression past the canary** —
+  `Field.quoted` (`f128600`) joined the derived `BEq`, breaking `{x:1}=={"x":1}`; the canary
+  missed it, Phase A caught it. Guard = mandatory two-phase audit after reshaping an
+  equality-derived/widely-matched type; keep provenance bits inert (strip or exclude from eq).
+- EXTENDED: **Parallel commit-bearing subagents collide on one shared index** — added facet
+  (b): a bare `git commit` (no pathspec) sweeps a peer's already-staged change (`b5425fb`);
+  `git add <paths>` alone is insufficient. Guard = ALWAYS `git commit -F msg -- <files>`.
+- EXTENDED: **A breadcrumb / handoff misdiagnoses the root cause** — added the three 2026-07-04
+  red-herring pins (L5-1 `Lattice.lean:1224` artifact; L5-2 real cause `evaluatedStructOperand?`
+  open-tail closedness; module-import "spec says X"). Guard = treat any inherited pin as a
+  hypothesis; reproduce + bisect before touching code.
+
+### slice-loop.md — subagent-prompt conventions
+
+Two new standing bullets: (1) commit with an explicit pathspec, never a bare commit;
+serialize/worktree parallel committers. (2) long builds are the orchestrator's
+`run_in_background` job, not a stalling subagent.
+
+### Verify
+
+`./scripts/check.sh` GREEN (exit 0; docs-only, confirms no gate breakage). Committed on
+`main` with explicit pathspec, NOT pushed (AFK envelope).

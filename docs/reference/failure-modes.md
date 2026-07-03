@@ -28,6 +28,21 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   lost remainder. A 0-token / rate-limit / "Overloaded" return is the SAME class → **retry
   NOW** (re-spawn immediately); never wait-it-out, never "it'll pass once the limit ages".
 
+## A subagent stalls babysitting a long-running foreground build
+
+- **Symptom:** a subagent kicks off a multi-minute foreground build (`./lake build`, a
+  toolchain download, a full rebuild), then ends its turn "waiting for the build" and
+  re-notifies without progress — burning tokens on turns that do nothing, because a
+  subagent cannot cleanly babysit a build that outlasts its turn.
+- **Seen:** 2026-07-03/04 — a toolchain-upgrade subagent and a Phase-A audit subagent each
+  started a multi-minute build, then repeatedly returned "still building" with no forward
+  motion. The orchestrator recovered by re-running the build itself as a background job and
+  taking over verify.
+- **Guard:** the ORCHESTRATOR — not a subagent — runs known-long builds (toolchain bumps,
+  full rebuilds, downloads) as a `run_in_background` job that re-invokes on completion, and
+  owns the verify step for that slice. NEVER delegate a multi-minute foreground build to a
+  subagent that will stall on it. A subagent handles only builds that finish within a turn.
+
 ## Parallel subagents on a shared working tree clobber each other
 
 - **Symptom:** two concurrent subagents stage/commit each other's files, or race the git
@@ -45,15 +60,21 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   SAME working tree/index. Whichever commits first sweeps in the other's already-staged files,
   so one commit conflates two slices' changes — content is correct, but attribution is wrong
   (a bisect points at the wrong commit).
-- **Seen:** 2026-07-03 — the protocol-amendments run staged A8's `.claude/settings.json` +
-  `.gitignore` change and A3a's `scripts/check.sh` before either committed; both landed in the
-  tooling agent's commit `a4e7390`, so A8's git-ban settings appear under a "check.sh aggregator"
-  subject. Left as-is (envelope: no history rewrite); logged so the muddled attribution is
-  traceable, not mysterious.
-- **Guard:** when fanning out parallel subagents that COMMIT, do ONE of — (1) give each
-  `isolation: worktree` so indexes are disjoint; (2) SERIALIZE the commit step (one commits,
-  the next starts only after); or (3) have subagents stage NOTHING and return diffs for the
-  orchestrator to stage + commit sequentially. This is distinct from the file-disjoint race
+- **Seen:** 2026-07-03 — (a) the protocol-amendments run staged A8's `.claude/settings.json`
+  + `.gitignore` change and A3a's `scripts/check.sh` before either committed; both landed in
+  the tooling agent's commit `a4e7390`, so A8's git-ban settings appear under a "check.sh
+  aggregator" subject. (b) WORSE — a bare `git commit -F msg` (no pathspec) commits the WHOLE
+  index, so committing alongside a still-running peer swept that peer's already-staged
+  `.known-red` removal into an unrelated commit `b5425fb`. `git add <own paths>` did NOT
+  save it: the later bare commit still took the peer's staged change. Left as-is (envelope:
+  no history rewrite); logged so the muddled attribution is traceable, not mysterious.
+- **Guard:** TWO facets. (i) When fanning out parallel subagents that COMMIT, do ONE of —
+  give each `isolation: worktree` so indexes are disjoint; SERIALIZE the commit step (one
+  commits, the next starts only after); or have subagents stage NOTHING and return diffs for
+  the orchestrator to commit sequentially. (ii) ALWAYS commit with an explicit pathspec —
+  `git commit -F msg -- <files>` — NEVER a bare `git commit`. `git add <paths>` alone is
+  insufficient: a later bare commit still sweeps a peer's already-staged changes; only the
+  pathspec on the commit bounds what lands. This is distinct from the file-disjoint race
   above (that guards the index LOCK; this guards commit ATTRIBUTION even when writes don't
   overlap). **Candidate school-level lesson** (parallel-subagent commit discipline).
 
@@ -83,10 +104,18 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
 - **Symptom:** a slice built on a handed-down diagnosis chases the wrong fix.
 - **Seen:** 2026-06-18 — "cross-def cache collision" (really a missing comprehension
   expansion); "force doesn't recurse" (really closedness + a parser misclassification).
-  Both corrected by an independent audit/bisect *before* the wrong fix shipped.
-- **Guard:** validate a root cause with an independent audit and a minimal OFFLINE bisect
-  repro before a fix-slice builds on it. Never trust a recalled diagnosis over a fresh
-  oracle check.
+  Both corrected by an independent audit/bisect *before* the wrong fix shipped. 2026-07-04 —
+  THREE inherited root-cause pins were wrong in one session: L5-1 (`Lattice.lean:1224` —
+  closedness was already fine; the seed was a measurement artifact, no bug), L5-2 (framed as
+  an `error()`-arm / disjunction / `Eval.lean:2209` issue — actual cause was
+  `evaluatedStructOperand?` open-tail closedness), and module-import "spec says X"
+  assumptions that needed re-checking against the actual spec. A wrong pin here can force an
+  unsound change into the soundness core.
+- **Guard:** treat any inherited root-cause pin / prior diagnosis (breadcrumb, handoff,
+  red-seed note, a "spec says X" assertion) as a HYPOTHESIS, not a fact. REPRODUCE the
+  minimal trigger and BISECT before touching code; validate with an independent audit and a
+  minimal OFFLINE repro before a fix-slice builds on it. Never trust a recalled diagnosis
+  over a fresh oracle check — a wrong pin wastes a slice or, worse, motivates an unsound fix.
 
 ## Durable docs silt up / go stale
 
@@ -192,6 +221,24 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   subagent's word. (2) Slice subagents confirm the actual `git push` OUTPUT (the
   `<branch> -> <branch>` line, e.g. `main -> main`) before reporting "pushed" — a claim
   without that line is unverified.
+
+## An invasive change to a foundational type slips a regression past the canary
+
+- **Symptom:** a field added to (or a reshaping of) a widely-matched, equality-derived type
+  silently changes behavior the canary corpus does not exercise; the canary stays green, so
+  "done" is declared with a live regression, caught only by a later code-quality audit.
+- **Seen:** 2026-07-04 — adding `Field.quoted` to `Value.Field` (`f128600`) silently joined
+  it to the DERIVED `BEq`/`DecidableEq`, so `{x:1} != {"x":1}` (quoted vs unquoted label now
+  compared unequal). The cert-manager canary MISSED it — the corpus has no quoted-vs-unquoted
+  label equality — and only the follow-up Phase A code-quality audit caught it.
+- **Guard:** TWO facets. (i) The canary proves ONLY what the corpus exercises; it is NOT a
+  substitute for a code-quality audit after an invasive/foundational change. A two-phase
+  audit is MANDATORY before "done" whenever a field is added to — or the shape changed of —
+  an equality-derived or widely-matched type. (ii) Adding a field to a `deriving
+  BEq/DecidableEq` structure silently pollutes equality with that field — a known trap.
+  Provenance / non-semantic bits (like `quoted`) must be kept INERT: strip them before they
+  reach a value, or exclude them from the equality instance; never let a derived `BEq` fold
+  in a bit that carries no semantic meaning.
 
 ## A milestone / soundness claim over-stated — orchestrator must independently re-verify
 

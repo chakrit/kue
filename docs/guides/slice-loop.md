@@ -90,6 +90,16 @@ misalignments).
   from the Kue repo root, `apps/...` 404s and the corpus looks "absent" when it is not.
   "Not found" means wrong cwd, never a missing corpus; the corpus is READ-ONLY (never
   write into it).
+- **Commit with an explicit pathspec — never a bare commit.** `git commit -F msg -- <files>`,
+  always. A bare `git commit` (even after `git add <own paths>`) commits the WHOLE index and
+  sweeps a parallel peer's already-staged changes into your commit. When fanning out parallel
+  subagents that COMMIT, also SERIALIZE the commit step or give each `isolation: worktree` —
+  disjoint indexes or one-at-a-time, never concurrent bare commits on one tree.
+- **Long builds are the ORCHESTRATOR's job, not a subagent's.** A multi-minute build
+  (toolchain bump, full rebuild, download) outlasts a subagent's turn — it stalls, re-notifies,
+  and burns tokens. The orchestrator runs known-long builds as a `run_in_background` job that
+  re-invokes on completion and owns that slice's verify. Delegate to a subagent only builds
+  that finish within a turn.
 - **Confirm the push, don't assert it:** before reporting "pushed", check the actual
   `git push` output shows `main -> main`. A "pushed" claim without that line is unverified —
   the orchestrator re-checks HEAD==upstream regardless (see Notes).
