@@ -433,6 +433,33 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   / non-string falls through to `unresolvedOrBottom` (concrete ⇒ bottom, matching cue's
   error). Fixture `strings_runes` (ascii/multibyte/emoji/empty/combining) + 6 `native_decide`
   theorems. kue == cue v0.16.1 on all cases.
+- **BI-3-STDLIB-PROBE — DONE (2026-07-04).** Conformance probe of the deeper stdlib +
+  type/kind ops (registered-builtin sweep + language meets). **Registered & implemented this
+  slice** (all unregistered gaps, kue previously bottomed, cue succeeds — kue == cue v0.16.1):
+  `list.Reverse`; `strings.LastIndex` (byte index of last occurrence, empty needle ⇒ byte
+  length), `strings.Compare` (byte-lexicographic −1/0/1), `strings.Trim`/`TrimLeft`/`TrimRight`
+  (cutset is a rune SET, not a prefix), `strings.TrimPrefix`/`TrimSuffix` (single fixed affix).
+  Helpers `listReverse`/`stringLastByteIndex`/`byteSeqCompare`/`stringCompare`/`stringTrim*` in
+  `Builtin.lean`, dispatch arms in `evalListBuiltin`/`evalStringsBuiltin` (wrong shape ⇒
+  `unresolvedOrBottom`). Fixtures `strings_trim`, `strings_compare`, `list_reverse` + 10
+  `native_decide` (`BuiltinTests.lean`). **Type/kind meet ops SWEPT CLEAN** (no code change): `int
+  & number`→int, `1 & number`→1, `1.5 & int`→⊥, `1 & float`→⊥, `"x" & bytes`→⊥, `null & int`→⊥,
+  `_ & 5`→5, `>5 & int & <10 & 7`→7, `(int|string) & 5`→5, `>5 & <3`→⊥ — all agree with cue
+  (verdict + concrete value); 2 guard theorems pin the family. Also-conformant (both error, only
+  message text differs): all negative/oob/empty-list arg errors on `list.Take`/`Slice`/`Repeat`/
+  `Range(zerostep)`/`Min`/`Avg`, `strings.Repeat(neg)`. **cue-non-functions confirmed** (kue
+  bottom is correct — these are NOT functions in cue v0.16.1): `strings.Title`/`PadLeft`/`PadRight`,
+  `math.GreatestCommonDivisor`, `math.MaxInt64` (undefined field). Canary EMPTY.
+- **BI-3-RESIDUAL (stdlib gaps FILED, not fixed — from BI-3 probe).** Unregistered builtins cue
+  supports that kue still bottoms, deferred as bounded follow-ups: `math.Mod` (float remainder,
+  Go `math.Mod`), `math.Signbit`; `strings.MinRunes`/`MaxRunes` (rune-count validators),
+  `strings.SliceRunes` (rune-indexed slice, oob ⇒ error), `strings.ByteAt`/`ByteSlice`;
+  `list.IsSorted`/`Sort`/`SortStable` (comparator-struct `list.Ascending`/`Descending` — the
+  effectful-builtin seam BI-EFF; kue leaves these an incomplete residual today). SEPARATE
+  (deferred exp/ln increment, needs decimal `exp`/`ln` to 34 digits — see BI-2-residual /
+  cue-spec-gaps): `math.Log`/`Log10`/`Exp`, general fractional/negative `math.Pow` exponent, and
+  the `math.Pi` constant (cue ships a 64-digit literal). None soundness-bearing; kue bottoms
+  rather than emit a wrong value.
 - **LIST-SLICE-MISSING (feature gap) — DONE (2026-07-04).** List slicing `x[lo:hi]` now
   parses as a postfix form alongside indexing `x[i]` and desugars to `list.Slice` (parser
   branch in `parseSelectorRest` + `parseSliceRest`, `Kue/Parse.lean`). Bounds are optional

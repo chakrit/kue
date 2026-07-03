@@ -1,0 +1,8 @@
+trim: "hi"
+trimSpace: "héllo"
+trimLeft: "X"
+trimRight: "X"
+trimPre: "llo"
+trimPreNo: "hello"
+trimSuf: "hel"
+trimSufNo: "hello"

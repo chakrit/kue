@@ -3383,6 +3383,84 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "builtins/strings_trim.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"trim", .regular,
+                  .builtinCall "strings.Trim"
+                    [.prim (.string "¡¡hi!!"), .prim (.string "¡!")], false⟩,
+                ⟨"trimSpace", .regular,
+                  .builtinCall "strings.Trim"
+                    [.prim (.string "  héllo  "), .prim (.string " ")], false⟩,
+                ⟨"trimLeft", .regular,
+                  .builtinCall "strings.TrimLeft"
+                    [.prim (.string "abcabX"), .prim (.string "abc")], false⟩,
+                ⟨"trimRight", .regular,
+                  .builtinCall "strings.TrimRight"
+                    [.prim (.string "Xcba"), .prim (.string "abc")], false⟩,
+                ⟨"trimPre", .regular,
+                  .builtinCall "strings.TrimPrefix"
+                    [.prim (.string "hello"), .prim (.string "he")], false⟩,
+                ⟨"trimPreNo", .regular,
+                  .builtinCall "strings.TrimPrefix"
+                    [.prim (.string "hello"), .prim (.string "xy")], false⟩,
+                ⟨"trimSuf", .regular,
+                  .builtinCall "strings.TrimSuffix"
+                    [.prim (.string "hello"), .prim (.string "lo")], false⟩,
+                ⟨"trimSufNo", .regular,
+                  .builtinCall "strings.TrimSuffix"
+                    [.prim (.string "hello"), .prim (.string "xy")], false⟩
+              ] .regularOpen none []))
+    },
+    {
+      fileName := "builtins/strings_compare.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"lt", .regular,
+                  .builtinCall "strings.Compare"
+                    [.prim (.string "a"), .prim (.string "b")], false⟩,
+                ⟨"eq", .regular,
+                  .builtinCall "strings.Compare"
+                    [.prim (.string "abc"), .prim (.string "abc")], false⟩,
+                ⟨"gt", .regular,
+                  .builtinCall "strings.Compare"
+                    [.prim (.string "b"), .prim (.string "a")], false⟩,
+                ⟨"lastIdx", .regular,
+                  .builtinCall "strings.LastIndex"
+                    [.prim (.string "abcabc"), .prim (.string "bc")], false⟩,
+                ⟨"lastNone", .regular,
+                  .builtinCall "strings.LastIndex"
+                    [.prim (.string "abc"), .prim (.string "z")], false⟩,
+                ⟨"lastEmpty", .regular,
+                  .builtinCall "strings.LastIndex"
+                    [.prim (.string "abc"), .prim (.string "")], false⟩
+              ] .regularOpen none []))
+    },
+    {
+      fileName := "builtins/list_reverse.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"nums", .regular,
+                  .builtinCall "list.Reverse"
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]], false⟩,
+                ⟨"empty", .regular,
+                  .builtinCall "list.Reverse" [.list []], false⟩,
+                ⟨"single", .regular,
+                  .builtinCall "list.Reverse" [.list [.prim (.int 42)]], false⟩,
+                ⟨"nested", .regular,
+                  .builtinCall "list.Reverse"
+                    [.list [.list [.prim (.int 1)],
+                            .list [.prim (.int 2), .prim (.int 3)],
+                            .prim (.string "x")]], false⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "builtins/list_builtin_float.expected",
       content :=
         formatTopLevel

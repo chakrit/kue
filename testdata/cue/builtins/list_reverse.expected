@@ -1,0 +1,4 @@
+nums: [3, 2, 1]
+empty: []
+single: [42]
+nested: ["x", [2, 3], [1]]

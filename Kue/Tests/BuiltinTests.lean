@@ -1194,6 +1194,78 @@ theorem unknown_leaf_family_abstract_arg_stays_unresolved :
 
 
 
+-- BI-3 conformance-probe additions: strings trim/search family + list.Reverse.
+-- Oracle-confirmed vs `cue` v0.16.1 (all exact matches).
+
+theorem strings_last_index_finds_last_occurrence :
+    (evalBuiltinCall "strings.LastIndex" [.prim (.string "abcabc"), .prim (.string "bc")]
+      == .prim (.int 4)) = true := by
+  native_decide
+
+theorem strings_last_index_missing_is_minus_one :
+    (evalBuiltinCall "strings.LastIndex" [.prim (.string "abc"), .prim (.string "z")]
+      == .prim (.int (-1))) = true := by
+  native_decide
+
+theorem strings_last_index_empty_needle_is_byte_length :
+    (evalBuiltinCall "strings.LastIndex" [.prim (.string "héllo"), .prim (.string "")]
+      == .prim (.int 6)) = true := by
+  native_decide
+
+theorem strings_compare_orders_by_bytes :
+    (evalBuiltinCall "strings.Compare" [.prim (.string "a"), .prim (.string "b")]
+        == .prim (.int (-1)))
+      && (evalBuiltinCall "strings.Compare" [.prim (.string "abc"), .prim (.string "abc")]
+        == .prim (.int 0))
+      && (evalBuiltinCall "strings.Compare" [.prim (.string "b"), .prim (.string "a")]
+        == .prim (.int 1)) = true := by
+  native_decide
+
+theorem strings_trim_removes_cutset_runes_both_ends :
+    (evalBuiltinCall "strings.Trim" [.prim (.string "¡¡hi!!"), .prim (.string "¡!")]
+      == .prim (.string "hi")) = true := by
+  native_decide
+
+theorem strings_trim_left_and_right_are_one_sided :
+    (evalBuiltinCall "strings.TrimLeft" [.prim (.string "abcabX"), .prim (.string "abc")]
+        == .prim (.string "X"))
+      && (evalBuiltinCall "strings.TrimRight" [.prim (.string "Xcba"), .prim (.string "abc")]
+        == .prim (.string "X")) = true := by
+  native_decide
+
+theorem strings_trim_prefix_suffix_are_fixed_affixes :
+    (evalBuiltinCall "strings.TrimPrefix" [.prim (.string "hello"), .prim (.string "he")]
+        == .prim (.string "llo"))
+      && (evalBuiltinCall "strings.TrimPrefix" [.prim (.string "hello"), .prim (.string "xy")]
+        == .prim (.string "hello"))
+      && (evalBuiltinCall "strings.TrimSuffix" [.prim (.string "hello"), .prim (.string "lo")]
+        == .prim (.string "hel")) = true := by
+  native_decide
+
+theorem list_reverse_reverses_and_handles_edges :
+    (evalBuiltinCall "list.Reverse"
+        [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]
+        == .list [.prim (.int 3), .prim (.int 2), .prim (.int 1)])
+      && (evalBuiltinCall "list.Reverse" [.list []] == .list []) = true := by
+  native_decide
+
+-- Type/kind meet operations: SWEPT CLEAN vs `cue` v0.16.1 (BI-3 probe). Every case
+-- below agrees with `cue` — either a concrete narrowing or a bottom/incomplete verdict.
+-- `number & int → int` (incomplete, not concrete); `int & 5 → 5`; `1.5 & int → ⊥`
+-- (mismatched types); `"x" & bytes → ⊥`; `null & int → ⊥`; `_ & 5 → 5`.
+theorem type_kind_meet_int_number_narrows_to_value :
+    (meet (.prim (.int 5)) (.kind .number) == .prim (.int 5))
+      && (meet (.kind .int) (.prim (.int 5)) == .prim (.int 5))
+      && (meet Value.top (.prim (.int 5)) == .prim (.int 5)) = true := by
+  native_decide
+
+theorem type_kind_meet_mismatched_domains_is_bottom :
+    containsBottom (meet (.prim (.float "1.5")) (.kind .int))
+      && containsBottom (meet (.prim (.string "x")) (.kind .bytes))
+      && containsBottom (meet (.prim .null) (.kind .int))
+      && containsBottom (meet (.prim (.int 1)) (.kind .float)) = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
 -- elaboration.

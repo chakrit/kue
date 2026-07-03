@@ -17315,3 +17315,49 @@ BUILTIN-IMPORT-LENIENCY, NESTED-DISJ-MARK, STRUCT-EQ half-2) — no decay, no re
 
 The 2026-07-04 two-phase audit is COMPLETE. No inline code change (all findings non-trivial → plan).
 Committed on `main`, explicit pathspec, NOT pushed (AFK).
+
+---
+
+## Completed Slice: BI-3 stdlib conformance probe — trim/search family + list.Reverse
+
+Goal (AFK conformance probe): sweep the deeper stdlib builtins and language type/kind meets for
+divergences from cue v0.16.1, register the bounded unregistered gaps, and pin the swept-clean areas
+with guards. See plan.md **BI-3-STDLIB-PROBE** / **BI-3-RESIDUAL**.
+
+### What landed (all kue == cue v0.16.1, oracle-confirmed)
+
+Registered + implemented seven unregistered builtins (kue previously bottomed):
+- `list.Reverse` — `listReverse` (list `.reverse`).
+- `strings.LastIndex` — `stringLastByteIndex` (byte index of last occurrence; empty needle ⇒ UTF-8
+  byte length, e.g. `LastIndex("héllo","")` = 6; forward scan tracking the highest match start, a
+  bounded `for` so total — no `partial`/`while`).
+- `strings.Compare` — `byteSeqCompare`/`stringCompare` (structural byte-lexicographic −1/0/1).
+- `strings.Trim`/`TrimLeft`/`TrimRight` — cutset is a rune SET (`String.toList.contains`), matching
+  Go/cue, NOT a fixed prefix; `Trim("¡¡hi!!","¡!")` = `"hi"`.
+- `strings.TrimPrefix`/`TrimSuffix` — single fixed affix, unchanged when absent.
+
+Dispatch arms added to `evalListBuiltin` / `evalStringsBuiltin`; wrong arity/type falls through to
+`unresolvedOrBottom` (concrete ⇒ bottom, deferred otherwise). Fixtures `builtins/strings_trim`,
+`builtins/strings_compare`, `builtins/list_reverse` (+ FixturePorts entries) and 10 `native_decide`
+theorems in `BuiltinTests.lean`.
+
+### Swept clean (no code change, guards added)
+
+Type/kind meet operations are fully conformant with cue: `int & number`→int (incomplete),
+`1 & number`→1, `1.5 & int`/`1 & float`/`"x" & bytes`/`null & int`→⊥, `_ & 5`→5,
+`>5 & int & <10 & 7`→7, `(int|string) & 5`→5, `>5 & <3`→⊥, `3.0 & int`→⊥. Pinned by 2 guard
+theorems (`type_kind_meet_int_number_narrows_to_value`,
+`type_kind_meet_mismatched_domains_is_bottom`). Also confirmed conformant: all
+negative/oob/empty-list arg-error paths on `list.Take`/`Slice`/`Repeat`/`Range`/`Min`/`Avg` and
+`strings.Repeat` (both bottom; only cue's error *message* is richer — presentation, not semantics).
+Confirmed cue-non-functions (kue bottom is CORRECT): `strings.Title`/`PadLeft`/`PadRight`,
+`math.GreatestCommonDivisor`, `math.MaxInt64`.
+
+### Filed, not fixed (BI-3-RESIDUAL)
+
+`math.Mod`/`Signbit`, `strings.MinRunes`/`MaxRunes`/`SliceRunes`/`ByteAt`, `list.IsSorted`/`Sort`/
+`SortStable` (effectful comparator seam BI-EFF). Separate deferred exp/ln increment:
+`math.Log`/`Log10`/`Exp`, general fractional/negative `math.Pow`, `math.Pi`. None soundness-bearing.
+
+`./scripts/check.sh` GREEN; cert-manager canary EMPTY. Committed on `main`, explicit pathspec, NOT
+pushed (AFK).

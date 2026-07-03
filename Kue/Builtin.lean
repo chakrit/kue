@@ -443,6 +443,69 @@ def listAllInts (items : List Value) : Bool :=
     | .prim (.int _) => true
     | _ => false
 
+/-- Reverse the elements of `items`. Mirrors CUE's `list.Reverse`. -/
+def listReverse (items : List Value) : Value :=
+  .list items.reverse
+
+/-- Byte index of the LAST occurrence of `needle` in `hay`, or `-1`. An empty
+    needle yields the UTF-8 byte length (Go's `strings.LastIndex`, which CUE follows).
+    Forward scan recording the highest match start, so it stays a bounded `for` (total). -/
+def stringLastByteIndex (hay needle : String) : Int := Id.run do
+  let h := hay.toUTF8
+  let n := needle.toUTF8
+  if n.size == 0 then
+    return Int.ofNat h.size
+  if n.size > h.size then
+    return -1
+  let mut last : Int := -1
+  for i in [0:h.size - n.size + 1] do
+    let mut matched := true
+    for j in [0:n.size] do
+      if h[i + j]! != n[j]! then
+        matched := false
+    if matched then
+      last := Int.ofNat i
+  return last
+
+/-- Three-way lexicographic comparison of UTF-8 byte sequences: `-1`, `0`, or `1`.
+    Mirrors Go's `strings.Compare`, which CUE's `strings.Compare` follows. -/
+def byteSeqCompare : List UInt8 -> List UInt8 -> Int
+  | [], [] => 0
+  | [], _ :: _ => -1
+  | _ :: _, [] => 1
+  | a :: xs, b :: ys =>
+      if a < b then -1
+      else if b < a then 1
+      else byteSeqCompare xs ys
+
+/-- `strings.Compare(a, b)`: byte-lexicographic `-1`/`0`/`1`. -/
+def stringCompare (a b : String) : Int :=
+  byteSeqCompare a.toUTF8.toList b.toUTF8.toList
+
+/-- Drop leading runes of `s` that are members of the rune SET `cutset`
+    (Go/CUE `strings.TrimLeft` — cutset is a set of code points, not a prefix). -/
+def stringTrimLeft (s cutset : String) : String :=
+  String.ofList (s.toList.dropWhile (fun c => cutset.toList.contains c))
+
+/-- Drop trailing runes of `s` that are members of the rune set `cutset`. -/
+def stringTrimRight (s cutset : String) : String :=
+  String.ofList (s.toList.reverse.dropWhile (fun c => cutset.toList.contains c)).reverse
+
+/-- Drop leading and trailing runes of `s` in the rune set `cutset`
+    (Go/CUE `strings.Trim`). -/
+def stringTrim (s cutset : String) : String :=
+  stringTrimRight (stringTrimLeft s cutset) cutset
+
+/-- Remove `pre` from the front of `s` iff present, else return `s` unchanged
+    (Go/CUE `strings.TrimPrefix` — a single fixed affix, not a cutset). -/
+def stringTrimPrefix (s pre : String) : String :=
+  if s.startsWith pre then String.ofList (s.toList.drop pre.length) else s
+
+/-- Remove `suf` from the end of `s` iff present, else return `s` unchanged
+    (Go/CUE `strings.TrimSuffix`). -/
+def stringTrimSuffix (s suf : String) : String :=
+  if s.endsWith suf then String.ofList (s.toList.take (s.length - suf.length)) else s
+
 /-- Sum of a numeric list. All-int ⇒ exact int (empty list ⇒ 0). Any `.float`
     element promotes to exact decimal accumulation, collapsing an integral result
     back to int (CUE: `list.Sum([1.0,2.0,3.0]) = 6`). A non-numeric element ⇒
@@ -551,6 +614,7 @@ def evalListBuiltin : String -> List Value -> Value
   | "list.Max", [.list items] => listMax items
   | "list.Avg", [.list items] => listAvg items
   | "list.SortStrings", [.list items] => listSortStrings items
+  | "list.Reverse", [.list items] => listReverse items
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `strings.*` builtin over already-evaluated arguments.
@@ -564,6 +628,20 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.bool (s.endsWith suf))
   | "strings.Index", [.prim (.string s), .prim (.string sub)] =>
       .prim (.int (stringByteIndex s sub))
+  | "strings.LastIndex", [.prim (.string s), .prim (.string sub)] =>
+      .prim (.int (stringLastByteIndex s sub))
+  | "strings.Compare", [.prim (.string a), .prim (.string b)] =>
+      .prim (.int (stringCompare a b))
+  | "strings.Trim", [.prim (.string s), .prim (.string cutset)] =>
+      .prim (.string (stringTrim s cutset))
+  | "strings.TrimLeft", [.prim (.string s), .prim (.string cutset)] =>
+      .prim (.string (stringTrimLeft s cutset))
+  | "strings.TrimRight", [.prim (.string s), .prim (.string cutset)] =>
+      .prim (.string (stringTrimRight s cutset))
+  | "strings.TrimPrefix", [.prim (.string s), .prim (.string pre)] =>
+      .prim (.string (stringTrimPrefix s pre))
+  | "strings.TrimSuffix", [.prim (.string s), .prim (.string suf)] =>
+      .prim (.string (stringTrimSuffix s suf))
   | "strings.Count", [.prim (.string s), .prim (.string sub)] =>
       .prim (.int (Int.ofNat (stringCount s sub)))
   | "strings.Split", [.prim (.string s), .prim (.string sep)] =>
