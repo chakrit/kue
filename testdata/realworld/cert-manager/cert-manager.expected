@@ -1,0 +1,38 @@
+{
+    "cert-manager": {
+        "cluster-issuer.yaml": [
+            {
+                "apiVersion": "cert-manager.io/v1",
+                "kind": "ClusterIssuer",
+                "spec": {
+                    "acme": {
+                        "email": "ops@example.test",
+                        "privateKeySecretRef": {
+                            "name": "cluster-issuer-main-secret"
+                        },
+                        "solvers": [
+                            {
+                                "http01": {
+                                    "gatewayHTTPRoute": {
+                                        "parentRefs": [
+                                            {
+                                                "group": "gateway.networking.k8s.io",
+                                                "kind": "Gateway",
+                                                "name": "example-gateway",
+                                                "namespace": "example-ns"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        ],
+                        "server": "https://acme-v02.api.letsencrypt.org/directory"
+                    }
+                },
+                "metadata": {
+                    "name": "cluster-issuer-main"
+                }
+            }
+        ]
+    }
+}
