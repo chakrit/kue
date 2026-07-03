@@ -233,30 +233,54 @@ check_wild_fixtures() {
       continue
     fi
 
+    # A quarantined (.known-red) fixture is EXPECTED to fail: while it still fails it is
+    # reported and skipped. But if it now PASSES (the bug got fixed en passant), the gate
+    # HARD-FAILS — the seed must graduate in the slice that fixed it, not linger quarantined.
+    local known_red=0
     if [[ -f "${dir}.known-red" ]]; then
-      printf 'wild fixture %s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
-        "${cue_file#"${repo_root}/"}" >&2
-      continue
+      known_red=1
     fi
 
+    local passed=1
     if [[ -f "${expected_file}" ]]; then
       output_file="$(mktemp)"
       if ! "${kue_exe}" export --out json "${cue_file}" >"${output_file}"; then
-        printf 'wild fixture %s: kue export exited non-zero\n' "${cue_file#"${repo_root}/"}" >&2
-        status=1
-      elif ! diff -u "${expected_file}" "${output_file}"; then
-        status=1
+        passed=0
+        if [[ "${known_red}" -eq 0 ]]; then
+          printf 'wild fixture %s: kue export exited non-zero\n' "${cue_file#"${repo_root}/"}" >&2
+        fi
+      elif ! diff -u "${expected_file}" "${output_file}" >/dev/null; then
+        passed=0
+        if [[ "${known_red}" -eq 0 ]]; then
+          diff -u "${expected_file}" "${output_file}" || true
+        fi
       fi
       rm -f -- "${output_file}"
     else
       if stderr_output="$("${kue_exe}" export --out json "${cue_file}" 2>&1 >/dev/null)"; then
-        printf 'wild fixture %s expected an error but succeeded\n' "${cue_file#"${repo_root}/"}" >&2
-        status=1
+        passed=0
+        if [[ "${known_red}" -eq 0 ]]; then
+          printf 'wild fixture %s expected an error but succeeded\n' "${cue_file#"${repo_root}/"}" >&2
+        fi
       elif [[ "${stderr_output}" != *"$(cat "${err_file}")"* ]]; then
-        printf 'wild fixture %s error mismatch: got %q\n' \
-          "${cue_file#"${repo_root}/"}" "${stderr_output}" >&2
-        status=1
+        passed=0
+        if [[ "${known_red}" -eq 0 ]]; then
+          printf 'wild fixture %s error mismatch: got %q\n' \
+            "${cue_file#"${repo_root}/"}" "${stderr_output}" >&2
+        fi
       fi
+    fi
+
+    if [[ "${known_red}" -eq 1 ]]; then
+      if [[ "${passed}" -eq 1 ]]; then
+        printf 'known-red %s now passes — remove .known-red to enforce it\n' "${slug}" >&2
+        status=1
+      else
+        printf 'wild fixture %s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
+          "${cue_file#"${repo_root}/"}" >&2
+      fi
+    elif [[ "${passed}" -eq 0 ]]; then
+      status=1
     fi
   done
 
