@@ -182,6 +182,35 @@ check_export_fixtures() {
   return "${status}"
 }
 
+# Adjudicate the three-state `.known-red` quarantine verdict shared by the wild and
+# module-subpath gates. Emits the graduation/quarantine diagnostic itself; the caller maps
+# the return code onto its own status and (for non-quarantined failures) its own failure
+# diagnostics. `grad_label` names the fixture in the graduation message; `quar_label` names
+# it in the quarantine message — each caller passes a preformatted label so its wording
+# stays identical.
+#   return 0 — quarantined and still failing: reported + skipped (gate unaffected)
+#   return 1 — quarantined but now PASSES: graduation hard-fail (caller sets status=1)
+#   return 2 — not quarantined: caller applies its own pass/fail handling
+handle_known_red() {
+  local known_red=$1
+  local passed=$2
+  local grad_label=$3
+  local quar_label=$4
+
+  if [[ "${known_red}" -ne 1 ]]; then
+    return 2
+  fi
+
+  if [[ "${passed}" -eq 1 ]]; then
+    printf 'known-red %s now passes — remove .known-red to enforce it\n' "${grad_label}" >&2
+    return 1
+  fi
+
+  printf '%s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
+    "${quar_label}" >&2
+  return 0
+}
+
 # Drive `kue export --out json` over each wild-caught regression under
 # testdata/wild/<slug>/. Every fixture DIRECTORY is enumerated and must ship a `<slug>.cue`
 # repro plus exactly one expectation: `<slug>.expected` (spec-adjudicated JSON the export must
@@ -274,15 +303,12 @@ check_wild_fixtures() {
       fi
     fi
 
-    if [[ "${known_red}" -eq 1 ]]; then
-      if [[ "${passed}" -eq 1 ]]; then
-        printf 'known-red %s now passes — remove .known-red to enforce it\n' "${slug}" >&2
-        status=1
-      else
-        printf 'wild fixture %s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
-          "${cue_file#"${repo_root}/"}" >&2
-      fi
-    elif [[ "${passed}" -eq 0 ]]; then
+    local verdict=0
+    handle_known_red "${known_red}" "${passed}" \
+      "${slug}" "wild fixture ${cue_file#"${repo_root}/"}" || verdict=$?
+    if [[ "${verdict}" -eq 1 ]]; then
+      status=1
+    elif [[ "${verdict}" -eq 2 && "${passed}" -eq 0 ]]; then
       status=1
     fi
   done
@@ -355,16 +381,12 @@ check_module_subpaths() {
       continue
     fi
 
-    if [[ "${known_red}" -eq 1 ]]; then
-      if [[ "${passed}" -eq 1 ]]; then
-        printf 'known-red module fixture %s subpath %s now passes — remove .known-red to enforce it\n' \
-          "${dir#"${repo_root}/"}" "${subpath}" >&2
-        status=1
-      else
-        printf 'module fixture %s subpath %s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
-          "${dir#"${repo_root}/"}" "${subpath}" >&2
-      fi
-    elif [[ "${passed}" -eq 0 ]]; then
+    local label="module fixture ${dir#"${repo_root}/"} subpath ${subpath}"
+    local verdict=0
+    handle_known_red "${known_red}" "${passed}" "${label}" "${label}" || verdict=$?
+    if [[ "${verdict}" -eq 1 ]]; then
+      status=1
+    elif [[ "${verdict}" -eq 2 && "${passed}" -eq 0 ]]; then
       if [[ -f "${err_file}" ]]; then
         printf 'module fixture %s subpath %s expected error containing %q, got %q\n' \
           "${dir#"${repo_root}/"}" "${subpath}" "$(cat "${err_file}")" "${stderr_output}" >&2

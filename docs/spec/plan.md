@@ -301,13 +301,15 @@ rejection argument: `kue-performance.md` + implementation-log.
   (rides B3d-6b sum-write); **Mvs.solve main-pin** (rides B3d-6b); **`Kue/ModuleFetch.lean`
   carve** (trigger only if B3d-6b pushes the fetch cluster past ~200 lines); **kue-performance
   B3d note**.
-- **GATE-KNOWNRED-DRY (LOW, infra; from the 2026-07-04 Phase B / A7 rotation).**
-  `check_wild_fixtures` (`scripts/check-fixtures.sh:277-287`) and `check_module_subpaths`
-  (`358-366`) implement the SAME three-state `.known-red` protocol (still-fails → report+skip;
-  now-passes → HARD-FAIL "graduate it"; shape-check always applies) as two copy-pasted decision
-  blocks. Extract a shared `handle_known_red <human-label> <passed>` helper that prints the
-  report/graduate message and returns the status contribution; call it from both gates. Gate code
-  (guards everything) → its own green `check.sh` run; not an inline audit fix.
+- **GATE-KNOWNRED-DRY (LOW, infra; from the 2026-07-04 Phase B / A7 rotation) — DONE.**
+  The two copy-pasted three-state `.known-red` blocks in `check_wild_fixtures` and
+  `check_module_subpaths` are replaced by one `handle_known_red <known_red> <passed> <grad_label>
+  <quar_label>` helper: it emits the graduation/quarantine diagnostic and returns a verdict
+  (0 = quarantined-skip, 1 = graduation hard-fail, 2 = not-quarantined → caller's own pass/fail
+  handling). Each caller passes a preformatted label so its wording stays byte-identical to
+  before (wild: `<slug>` / `wild fixture <cue>`; module: `module fixture <dir> subpath <sub>` for
+  both). Behavior EXACTLY preserved; shellcheck-clean; `check.sh` green. Three-state verdict
+  smoke-tested in isolation (no live `.known-red` currently exists).
 - **A2-x (latent) — `importBinding` merge-asymmetry.** STAYS unobservable (the only collision
   that would exercise it is the one A2-y rejects at LOAD). No work; recorded so it is not
   re-investigated.

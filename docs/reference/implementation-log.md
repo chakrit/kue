@@ -16673,3 +16673,34 @@ A safe defer, not a wrong result. `dedupAlternatives` order-independence (half-2
 `./scripts/check.sh` GREEN (build via `./lake`; seed graduated; new fixtures green; test-health
 ok). cert-manager canary EMPTY (`kue export` vs `cue export`, jq -S identical). Committed on
 `main`, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: GATE-KNOWNRED-DRY — share the `.known-red` quarantine helper
+
+Pure DRY, shell-only (no Lean/eval change). `scripts/check-fixtures.sh` carried the SAME
+three-state `.known-red` quarantine protocol copy-pasted in `check_wild_fixtures` and
+`check_module_subpaths`.
+
+### Change
+- New helper `handle_known_red <known_red> <passed> <grad_label> <quar_label>`: emits the
+  graduation/quarantine diagnostic itself and returns a verdict — `0` = quarantined & still
+  failing (report + skip, gate unaffected), `1` = quarantined but now PASSES (graduation
+  hard-fail → caller sets `status=1`), `2` = not quarantined (caller applies its own pass/fail
+  handling). Defined once, above both gates.
+- Both call sites replace their copy-pasted `if [[ known_red -eq 1 ]] … elif passed …` block
+  with `handle_known_red … || verdict=$?` + a 3-line verdict map. The non-quarantined failure
+  diagnostics (wild: bare `status=1`; module: the err/diff branch) stay at each call site,
+  reached only on verdict `2`.
+- Message wording BYTE-IDENTICAL to before: each caller passes a preformatted label — wild
+  `<slug>` (graduation) / `wild fixture <cue>` (quarantine); module `module fixture <dir> subpath
+  <sub>` for both. The shape-check-applies-to-quarantined behavior is untouched (it lives before
+  the helper call).
+
+### Verify
+`shellcheck scripts/check-fixtures.sh` clean; `./scripts/check.sh` GREEN (exit 0). No live
+`.known-red` currently exists, so the three-state verdict was smoke-tested in isolation OUTSIDE
+the repo (helper body sourced verbatim): kr=0→verdict 2; kr=1,passed=0→verdict 0 + quarantine
+msg; kr=1,passed=1→verdict 1 + graduation msg — for both the wild and module label forms, output
+matching the pre-refactor text exactly. No eval change ⇒ no canary. Committed on `main`, NOT
+pushed (AFK envelope).
