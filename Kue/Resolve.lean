@@ -45,25 +45,34 @@ def clauseLoopFrame (key : Option String) (value : String) : List (String × Nat
   | some key => [(key, 0), (value, 1)]
   | none => [(value, 0)]
 
+/- The single frame-pushing reference traversal, parameterized over a leaf `onRef` handler
+   (`scopes → label → Value`). Both reference passes ride this ONE walker so their scoping can
+   never drift: `resolveValueWithFuel` supplies a handler that emits a positional `.refId`, and
+   the file-scoped-import rewrite (`rewriteFileImportRefs`) supplies one that relabels an
+   unshadowed import ref. Only the leaf differs; every binder push (struct/`structComp` field
+   frame, `for`/`let` clause frame) is shared. -/
 mutual
-  def resolveFieldRefsWithFuel (fuel : Nat) (scopes : List (List (String × Nat))) (field : Field) : Field :=
-    ⟨Field.label field, Field.fieldClass field, resolveValueWithFuel fuel scopes (Field.value field)⟩
+  def mapRefsFieldWithFuel
+      (onRef : List (List (String × Nat)) -> String -> Value)
+      (fuel : Nat) (scopes : List (List (String × Nat))) (field : Field) : Field :=
+    ⟨Field.label field, Field.fieldClass field, mapRefsValueWithFuel onRef fuel scopes (Field.value field)⟩
 
-  def resolveClausesWithFuel
+  def mapRefsClausesWithFuel
+      (onRef : List (List (String × Nat)) -> String -> Value)
       (fuel : Nat)
       (scopes : List (List (String × Nat)))
       (clauses : List (Clause Value))
       (body : Value) : List (Clause Value) × Value :=
     match clauses with
-    | [] => ([], resolveValueWithFuel fuel scopes body)
+    | [] => ([], mapRefsValueWithFuel onRef fuel scopes body)
     | .forIn key value source :: rest =>
-        let resolvedSource := resolveValueWithFuel fuel scopes source
+        let resolvedSource := mapRefsValueWithFuel onRef fuel scopes source
         let nested := clauseLoopFrame key value :: scopes
-        let (restClauses, resolvedBody) := resolveClausesWithFuel fuel nested rest body
+        let (restClauses, resolvedBody) := mapRefsClausesWithFuel onRef fuel nested rest body
         (.forIn key value resolvedSource :: restClauses, resolvedBody)
     | .guard condition :: rest =>
-        let resolvedCondition := resolveValueWithFuel fuel scopes condition
-        let (restClauses, resolvedBody) := resolveClausesWithFuel fuel scopes rest body
+        let resolvedCondition := mapRefsValueWithFuel onRef fuel scopes condition
+        let (restClauses, resolvedBody) := mapRefsClausesWithFuel onRef fuel scopes rest body
         (.guard resolvedCondition :: restClauses, resolvedBody)
     | .letClause name value :: rest =>
         -- The bound value resolves in the scope BEFORE the let's own frame is pushed (it sees
@@ -71,78 +80,118 @@ mutual
         -- `for` source. The let then pushes ONE frame binding `name` at slot 0
         -- (`clauseLoopFrame none name` = `[(name, 0)]`), so later clauses + the body resolve a
         -- `.refId ⟨0, 0⟩` to it. Spec: a `let` clause defines a new scope (+1 frame).
-        let resolvedValue := resolveValueWithFuel fuel scopes value
+        let resolvedValue := mapRefsValueWithFuel onRef fuel scopes value
         let nested := clauseLoopFrame none name :: scopes
-        let (restClauses, resolvedBody) := resolveClausesWithFuel fuel nested rest body
+        let (restClauses, resolvedBody) := mapRefsClausesWithFuel onRef fuel nested rest body
         (.letClause name resolvedValue :: restClauses, resolvedBody)
 
-  def resolveValueWithFuel : Nat -> List (List (String × Nat)) -> Value -> Value
+  def mapRefsValueWithFuel
+      (onRef : List (List (String × Nat)) -> String -> Value) :
+      Nat -> List (List (String × Nat)) -> Value -> Value
     | 0, _, value => value
-    | _ + 1, scopes, .ref label =>
-        match findInScopes label 0 scopes with
-        | some id => .refId id
-        | none => .ref label
+    | _ + 1, scopes, .ref label => onRef scopes label
     | fuel + 1, scopes, .conj constraints =>
-        .conj (constraints.map (resolveValueWithFuel fuel scopes))
+        .conj (constraints.map (mapRefsValueWithFuel onRef fuel scopes))
     | fuel + 1, scopes, .builtinCall name args =>
-        .builtinCall name (args.map (resolveValueWithFuel fuel scopes))
+        .builtinCall name (args.map (mapRefsValueWithFuel onRef fuel scopes))
     | fuel + 1, scopes, .unary op value =>
-        .unary op (resolveValueWithFuel fuel scopes value)
+        .unary op (mapRefsValueWithFuel onRef fuel scopes value)
     | fuel + 1, scopes, .binary op left right =>
         .binary op
-          (resolveValueWithFuel fuel scopes left)
-          (resolveValueWithFuel fuel scopes right)
+          (mapRefsValueWithFuel onRef fuel scopes left)
+          (mapRefsValueWithFuel onRef fuel scopes right)
     | fuel + 1, scopes, .selector base label =>
-        .selector (resolveValueWithFuel fuel scopes base) label
+        .selector (mapRefsValueWithFuel onRef fuel scopes base) label
     | fuel + 1, scopes, .index base key =>
         .index
-          (resolveValueWithFuel fuel scopes base)
-          (resolveValueWithFuel fuel scopes key)
+          (mapRefsValueWithFuel onRef fuel scopes base)
+          (mapRefsValueWithFuel onRef fuel scopes key)
     | fuel + 1, scopes, .disj alternatives =>
         .disj (alternatives.map fun alternative =>
-          (alternative.fst, resolveValueWithFuel fuel scopes alternative.snd)
+          (alternative.fst, mapRefsValueWithFuel onRef fuel scopes alternative.snd)
         )
     | fuel + 1, scopes, .struct fields openness tail patterns closedClauses =>
         -- 1:1 ref-resolution preserving the coherent struct shape (rebuild directly; the
         -- openness/tail-presence/pattern-count are invariant under resolution).
         let nested := buildFrame fields :: scopes
         .struct
-          (fields.map (resolveFieldRefsWithFuel fuel nested))
+          (fields.map (mapRefsFieldWithFuel onRef fuel nested))
           openness
-          (tail.map (resolveValueWithFuel fuel nested))
+          (tail.map (mapRefsValueWithFuel onRef fuel nested))
           (patterns.map fun pattern =>
             (
-              resolveValueWithFuel fuel nested pattern.fst,
-              resolveValueWithFuel fuel nested pattern.snd
+              mapRefsValueWithFuel onRef fuel nested pattern.fst,
+              mapRefsValueWithFuel onRef fuel nested pattern.snd
             ))
-          (closedClauses.map (ClosedClause.mapPatterns (resolveValueWithFuel fuel nested)))
+          (closedClauses.map (ClosedClause.mapPatterns (mapRefsValueWithFuel onRef fuel nested)))
     | fuel + 1, scopes, .list items =>
-        .list (items.map (resolveValueWithFuel fuel scopes))
+        .list (items.map (mapRefsValueWithFuel onRef fuel scopes))
     | fuel + 1, scopes, .listTail items tail =>
         .listTail
-          (items.map (resolveValueWithFuel fuel scopes))
-          (resolveValueWithFuel fuel scopes tail)
+          (items.map (mapRefsValueWithFuel onRef fuel scopes))
+          (mapRefsValueWithFuel onRef fuel scopes tail)
     | fuel + 1, scopes, .comprehension clauses body =>
-        let (resolvedClauses, resolvedBody) := resolveClausesWithFuel fuel scopes clauses body
+        let (resolvedClauses, resolvedBody) := mapRefsClausesWithFuel onRef fuel scopes clauses body
         .comprehension resolvedClauses resolvedBody
     | fuel + 1, scopes, .listComprehension clauses body =>
-        let (resolvedClauses, resolvedBody) := resolveClausesWithFuel fuel scopes clauses body
+        let (resolvedClauses, resolvedBody) := mapRefsClausesWithFuel onRef fuel scopes clauses body
         .listComprehension resolvedClauses resolvedBody
     | fuel + 1, scopes, .structComp fields comprehensions openness =>
         let nested := buildFrame fields :: scopes
         .structComp
-          (fields.map (resolveFieldRefsWithFuel fuel nested))
-          (comprehensions.map (resolveValueWithFuel fuel nested))
+          (fields.map (mapRefsFieldWithFuel onRef fuel nested))
+          (comprehensions.map (mapRefsValueWithFuel onRef fuel nested))
           openness
     | fuel + 1, scopes, .interpolation parts =>
-        .interpolation (parts.map (resolveValueWithFuel fuel scopes))
+        .interpolation (parts.map (mapRefsValueWithFuel onRef fuel scopes))
     | fuel + 1, scopes, .dynamicField label fieldClass value =>
         .dynamicField
-          (resolveValueWithFuel fuel scopes label)
+          (mapRefsValueWithFuel onRef fuel scopes label)
           fieldClass
-          (resolveValueWithFuel fuel scopes value)
+          (mapRefsValueWithFuel onRef fuel scopes value)
     | _, _, value => value
 end
+
+/-- The reference-resolution leaf: a bare `.ref` becomes a positional `.refId` when its label
+    is in scope, else stays an unresolved `.ref`. -/
+def resolveRefLeaf (scopes : List (List (String × Nat))) (label : String) : Value :=
+  match findInScopes label 0 scopes with
+  | some id => .refId id
+  | none => .ref label
+
+def resolveValueWithFuel (fuel : Nat) (scopes : List (List (String × Nat))) (value : Value) : Value :=
+  mapRefsValueWithFuel resolveRefLeaf fuel scopes value
+
+def resolveFieldRefsWithFuel (fuel : Nat) (scopes : List (List (String × Nat))) (field : Field) : Field :=
+  mapRefsFieldWithFuel resolveRefLeaf fuel scopes field
+
+def resolveClausesWithFuel (fuel : Nat) (scopes : List (List (String × Nat)))
+    (clauses : List (Clause Value)) (body : Value) : List (Clause Value) × Value :=
+  mapRefsClausesWithFuel resolveRefLeaf fuel scopes clauses body
+
+/-- The file-scoped-import rewrite leaf: relabel a bare `.ref name` to `relabel name` ONLY when
+    `name` is one of this file's imports (`importNames`) AND is NOT shadowed by an enclosing
+    binder — a name bound in any outer frame (a struct field, a `let`, a `for` variable, or a
+    value/field alias, all of which the shared walker pushes into `scopes`). Every other ref
+    passes through untouched, so sibling package fields and stdlib references are undisturbed.
+    Shadow detection reuses `findInScopes`, so it cannot drift from reference resolution. -/
+def rewriteImportRefLeaf (importNames : List String) (relabel : String -> String)
+    (scopes : List (List (String × Nat))) (label : String) : Value :=
+  if (findInScopes label 0 scopes).isSome then
+    .ref label
+  else if importNames.contains label then
+    .ref (relabel label)
+  else
+    .ref label
+
+/-- Rewrite one parsed file's import references to file-scoped labels BEFORE the sibling
+    meet-merge, so an import bound in one file cannot leak into a sibling. Rides the shared
+    `mapRefsValueWithFuel` traversal (identical frame-pushing to the resolver), so an enclosing
+    binder that shadows an import name is honoured exactly as reference resolution would. Starts
+    with empty `scopes`: the file body's own outermost struct pushes its field frame. -/
+def rewriteFileImportRefs (importNames : List String) (relabel : String -> String)
+    (value : Value) : Value :=
+  mapRefsValueWithFuel (rewriteImportRefLeaf importNames relabel) resolveFuel [] value
 
 def resolveStructRefs : Value -> Value
   | .struct fields openness tail patterns closedClauses =>

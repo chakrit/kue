@@ -110,11 +110,11 @@ def resolveCrossModule (deps : List Dep) (importPath : String) : Option (Dep × 
     declared package name (`none` when every file omits a package clause) paired with the
     merged value. Pure — the parsing and disk listing happened upstream.
 
-    The file `value`s here are RAW bodies (imports NOT yet bound): the SAME package imported in
-    two sibling files must bind ONCE, not once-per-file-then-meet. Binding per-file then
-    `meet`-folding duplicates the hidden import label and `meet`s two independently-loaded copies
-    of the same package struct, which corrupts the binding (→ bottom). So `loadPackage` binds the
-    DEDUPED package-level binding set onto the merged body via `bindMergedImports`. -/
+    The file `value`s here are already REWRITTEN (each file's import references relabelled to its
+    file-scoped labels by `parseAndBindFiles`) but not yet BOUND: `loadPackage` prepends the
+    combined file-scoped binding set onto this merged body once, after the meet. File-scoped
+    labels keep two files' same-named imports in distinct slots (no `meet`-to-bottom collision)
+    while package FIELDS still merge and stay shared across files. -/
 def loadPackageFromParsed (files : List ParsedFile) : Except ParseError (Option String × Value) := do
   let names := files.map (·.packageName)
   let declared ← foldPackageNames none names
@@ -142,6 +142,21 @@ def dedupeBindingsWith (seen : List String) :
 
 def dedupeBindings (bindings : List (String × Value)) : List (String × Value) :=
   dedupeBindingsWith [] bindings
+
+/-- A NUL byte, used only as the separator inside a file-scoped import label. NUL cannot occur
+    in a CUE bare identifier (nor, in practice, a field label), so a label built from it is
+    uncollidable with any user-written name. -/
+def importLabelSep : String := "".push (Char.ofNat 0)
+
+/-- The synthetic, per-file import-binding label that makes each sibling file's imports occupy
+    a DISTINCT slot in the merged package struct (`file_scoped_import_*`). Two files importing
+    the same local name get different labels (different `fileIdx`), so their bindings never
+    meet-collide; a file's reference to its own import is rewritten to this label
+    (`rewriteFileImportRefs`) and resolves to that one slot — preserving import SHARING (one slot
+    per file-import) while keeping imports file-scoped. NUL-separated ⇒ uncollidable with user
+    identifiers. -/
+def fileScopedImportLabel (fileIdx : Nat) (name : String) : String :=
+  s!"{importLabelSep}imp{importLabelSep}{fileIdx}{importLabelSep}{name}"
 
 /-- Inject each `(localName, packageValue)` binding as a synthetic top-level
     `importBinding` field of the importing file's struct, prepended ahead of the body so a
@@ -550,15 +565,22 @@ mutual
         match loadPackageFromParsed rawFiles with
         | .error error => return .error s!"package merge error: {error.message}"
         | .ok (declared, merged) =>
-            -- Bind the DEDUPED package-level import set onto the MERGED body — once, after the
-            -- sibling meet — so a package imported in two files is a single binding, not a meet of
-            -- two copies. (Per-file binding then merge was the cert-manager `conflicting values`.)
-            return .ok (declared, bindImports (dedupeBindings bindings) merged)
+            -- Bind the FILE-SCOPED import set (each file's imports carry a distinct synthetic
+            -- label, `fileScopedImportLabel`) onto the MERGED body — once, after the sibling meet.
+            -- Distinct labels ⇒ a package imported in two files occupies two slots that never
+            -- meet-collide, and each file's references were rewritten to its own label upstream,
+            -- so imports stay file-scoped while package FIELDS remain shared across files.
+            return .ok (declared, bindImports bindings merged)
 
-  /-- Parse each file and resolve its imports, accumulating the RAW parsed files (bodies NOT
-      bound) alongside the combined import-binding set across all files. Binding is deferred to
-      `loadPackage`, which dedupes and binds ONCE onto the merged body — so a package imported in
-      multiple sibling files is a single binding, never a meet of per-file copies. -/
+  /-- Parse each file and resolve its imports, accumulating the parsed files (each body's own
+      import references REWRITTEN to file-scoped labels) alongside the combined import-binding
+      set across all files. Imports are FILE-SCOPED (CUE scopes an import to the file that
+      declares it): each file `i` gets `fileScopedImportLabel i` labels — distinct slots that
+      never meet-collide across siblings — and its body's references to those imports are
+      rewritten to the matching labels (shadow-aware, `rewriteFileImportRefs`) before the merge.
+      Per-file duplicate local names still first-win (`dedupeBindings` within the file); the
+      cross-file set is NOT deduped — that would re-conflate two files' same-named imports, the
+      very bug this scoping fixes. `loadPackage` then binds the combined set onto the merged body. -/
   -- partial: mutually recursive with `loadPackage` over the filesystem import graph;
   -- termination rests on the `visited` cycle-guard, not a structural measure. The file
   -- iteration itself is a total structural `for`.
@@ -568,6 +590,7 @@ mutual
       IO (Except String (List ParsedFile × List (String × Value))) := do
     let mut rawFiles : Array ParsedFile := #[]
     let mut bindings : List (String × Value) := []
+    let mut fileIdx : Nat := 0
     for file in files do
       let source ← IO.FS.readFile file
       match parseSourceFile source with
@@ -576,8 +599,14 @@ mutual
           match ← collectBindings visited ctx parsed.topLevelFieldNames parsed.imports with
           | .error message => return .error message
           | .ok fileBindings =>
-              rawFiles := rawFiles.push parsed
-              bindings := bindings ++ fileBindings
+              let deduped := dedupeBindings fileBindings
+              let importNames := deduped.map (·.fst)
+              let relabel := fileScopedImportLabel fileIdx
+              let rewrittenValue := rewriteFileImportRefs importNames relabel parsed.value
+              let scopedBindings := deduped.map (fun b => (relabel b.fst, b.snd))
+              rawFiles := rawFiles.push { parsed with value := rewrittenValue }
+              bindings := bindings ++ scopedBindings
+              fileIdx := fileIdx + 1
     return .ok (rawFiles.toList, bindings)
 
   /-- Resolve every import path to its package value, in order. In-module paths load a

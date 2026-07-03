@@ -617,23 +617,14 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
 6. **Borderline / LOW (opportunistic; none block adoption).**
 
    Open:
-   - **`module-file-scoped-imports`** (arch-sized) — Kue merges every sibling file's
-     import bindings into one shared package frame; CUE scopes them per-file. Bind each
-     file's imports into a per-file scope frame. **RED-SEEDED 2026-07-03** (divergence
-     CONFIRMED vs spec + cue v0.16.1; not a red herring). Three faces, all captured as
-     committed `.known-red` module fixtures (`testdata/modules/file_scoped_import_{collision,shadow}`,
-     + green over-scope guard `…_share`): (1) same-name-different-target — each file's `x`
-     must bind its OWN import (cue: `AName=liba,BName=libb`; kue-bug: both `liba`); (2)
-     shadow-leak — a file's own top-level field `x` must win where a sibling imported `x`
-     (cue: `local-b`; kue-bug: sibling's import leaks in); (3) sibling-not-visible — a file
-     referencing an identifier only a SIBLING imported is `reference "x" not found` (cue),
-     not resolved (kue-bug). Root cause: static de-Bruijn resolution (`resolveStructRefs`)
-     runs ONCE on the post-`meet` merged struct with all files' importBindings prepended to
-     the one shared depth-0 frame (`Module.loadPackage`/`bindImports`, `Module.lean:536,153`).
-     **NOT landed in AFK** (envelope: the sound fix is core resolve/eval surgery needing
-     attended verification — see `.afk.log` blocker for the recommended design: unique
-     per-file importBinding labels + a scope-aware ref-rewrite that preserves import
-     SHARING, avoiding the substitute-value perf trap).
+   - **`let`/alias no-shadow validation (UNDER-rejection)** — cue rejects a `let` or value
+     alias that shadows an enclosing binding of the same name at LOAD (`cannot have both alias
+     and field with name "x" in same scope`); Kue lacks this validation and silently accepts
+     the shadow. GENERAL (not import-specific) — wild-caught 2026-07-03 while verifying
+     file-scoped-import shadow detection. RED-SEEDED + quarantined:
+     `testdata/wild/let-alias-shadow-not-rejected` (`.known-red`). A load-time validation
+     feature (parser/scope-check), independent of the import-scoping fix; graduate the seed
+     when it lands.
    - **B2-A1 (latent, currently lossless)** — `applyEvaluatedStructN` (`Eval.lean:330`)
      routes the patterns-present case through a meet that DROPS `tail`. Lossless today
      (the only tail a parsed struct carries is bare `...` = `.top`, a no-op to
@@ -646,6 +637,20 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
      ops beyond `+` /`&`, composed select-into-F1-default) when next touching
      Lattice/Eval.
    Done (ruling + pointer only; blow-by-blow in the implementation-log):
+   - **`module-file-scoped-imports`** — DONE 2026-07-03. Imports are now FILE-SCOPED: each
+     sibling file's imports carry a distinct synthetic label (`fileScopedImportLabel`, NUL-
+     separated ⇒ uncollidable), so two files' same-named imports occupy separate slots (no
+     `meet`-to-bottom) and each file's own references are rewritten to its label
+     (`rewriteFileImportRefs`) BEFORE the merge — package FIELDS still merge and stay shared.
+     The rewrite is shadow-aware and rides the SAME parametrized `mapRefsValueWithFuel`
+     traversal as reference resolution (leaf handlers differ; frame-pushing shared), so
+     shadowing cannot drift. All three faces green: collision + shadow seeds graduated
+     (`.known-red` removed); sibling-not-visible pinned as an ERROR fixture
+     (`file_scoped_import_sibling_invisible`, new `expected.<sub>.err` subpath-gate form);
+     binder-form shadow guard `file_scoped_import_shadow_binders` (nested field, `for` var,
+     comprehension `let` — the forms cue ACCEPTS) verified byte-identical to cue v0.16.1.
+     cert-manager canary empty. `Module.lean` (`parseAndBindFiles`/`loadPackage`),
+     `Resolve.lean` (walker parametrization + rewrite), `check-fixtures.sh` (`.err` subpath form).
    - **B2-A2 (test-gap fill)** — DONE 2026-07-02. Promoted the two untested-by-fixture
      directions (tail-LEFT × patterns-RIGHT, and both-tails+patterns) from `native_decide`-only
      into real testdata: `testdata/cue/definitions/{tail_pattern_unify,both_tails_pattern_unify}`

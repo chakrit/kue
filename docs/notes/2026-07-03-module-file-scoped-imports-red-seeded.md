@@ -1,5 +1,10 @@
 # Breadcrumb — 2026-07-03: module-file-scoped-imports RED-SEEDED (fix pending attended)
 
+> **RETRACTED / SUPERSEDED 2026-07-03 — THE FIX LANDED.** Imports are now file-scoped; all
+> three faces are green, both seeds graduated (`.known-red` removed), face-3 pinned as an
+> error fixture, cert-manager canary empty. See implementation-log "module-file-scoped-imports
+> — FIX LANDED" and plan item-6 Done. The "Next step (attended)" / "Do NOT" below are HISTORY.
+
 ## State
 - Divergence CONFIRMED vs spec + `cue` v0.16.1 (NOT a red herring). Kue merges sibling files'
   imports into one shared package frame; CUE scopes them per-file. Three faces (collision,

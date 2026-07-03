@@ -16159,3 +16159,60 @@ The sound fix is core resolve/eval surgery (per-file import scope under static d
 resolution, where `meet` re-layouts the field frame). Two candidate designs, both
 attended-only; recommended design + rationale in `.afk.log`. `./scripts/check.sh` GREEN
 (seeds quarantined, guard green); cert-manager canary byte-identical (no core change).
+
+---
+
+## Completed Slice: module-file-scoped-imports — FIX LANDED (file-scoped import binding)
+
+Fixes the RED-SEEDED divergence above: CUE scopes an import to the FILE that declares it;
+Kue merged every sibling file's imports into one shared package frame. All three faces now
+match `cue` v0.16.1.
+
+### The fix
+- **File-scoped labels.** Each sibling file `i`'s imports are bound under a distinct
+  synthetic label `fileScopedImportLabel i name` (NUL-separated, `\x00imp\x00<i>\x00<name>`
+  — uncollidable with any CUE identifier). Two files importing the same local name get
+  DIFFERENT labels → distinct slots in the merged struct → no same-label `meet`-to-bottom.
+  The global `dedupeBindings` at bind time is DROPPED (it was the conflation bug); dedup is
+  now per-file (first-wins within one file), and the cross-file set is concatenated.
+  (`Module.lean`: `fileScopedImportLabel`, `parseAndBindFiles`, `loadPackage`.)
+- **Shadow-aware ref rewrite, pre-merge.** Before the sibling `meet`, each file's body has
+  its OWN import references rewritten `.ref name → .ref (fileScopedImportLabel i name)` —
+  but ONLY when `name` is one of THAT file's imports AND is not shadowed by an enclosing
+  binder. Package FIELDS are untouched, so a cross-file bare field reference still resolves
+  post-merge and stays SHARED (one slot per file-import, referenced by `refId` — no
+  substitute-the-package-VALUE perf trap). (`Resolve.lean`: `rewriteFileImportRefs`.)
+- **One traversal, two leaves (anti-drift).** `resolveValueWithFuel` and the rewrite now ride
+  a single parametrized walker `mapRefsValueWithFuel onRef` — the resolver's leaf emits a
+  positional `.refId`; the rewrite's leaf relabels an unshadowed import ref. Every binder
+  push (struct/`structComp` field frame, `for`/`let` clause frame) is SHARED, so shadow
+  scoping cannot drift from reference resolution. `resolveValueWithFuel` /
+  `resolveFieldRefsWithFuel` / `resolveClausesWithFuel` are preserved as thin wrappers
+  (signatures unchanged; all pins hold). The post-merge `resolveStructRefs` then maps the
+  unique labels to their prepended slots exactly as before — refs stay SYMBOLIC through
+  `meet`, so there is no de-Bruijn arithmetic to fight.
+
+### Tests
+- **Seeds graduated.** `file_scoped_import_{collision,shadow}` `.known-red` markers REMOVED —
+  the module gate now enforces them green. Over-scope guard `file_scoped_import_share` stays
+  green (distinct imports resolve AND `RefShared: Shared` cross-file field ref still shares).
+- **Face-3 pinned as an ERROR.** `file_scoped_import_sibling_invisible` — b.cue reads an `x`
+  only a.cue imported → rejects (unresolved reference → bottom, exit 1). Pinned via a NEW
+  subpath-gate error form `expected.<sub>.err` (mirrors the wild gate), added to
+  `check_module_subpaths`. NOTE: cue reports `reference "x" not found`; Kue reports the
+  generic `conflicting values (bottom)` (the unresolved-ref provenance is lost when the
+  selector folds over bottom) — the VERDICT agrees (both reject); only the message is leaner.
+- **Binder-form shadow guard.** `file_scoped_import_shadow_binders` proves an import name is
+  correctly shadowed by a nested struct field, a `for` variable, and a comprehension `let` —
+  the binder forms cue ACCEPTS — while the top-level unshadowed import ref still resolves.
+  Byte-identical to cue v0.16.1.
+- **Wild-caught adjacent gap.** While verifying, cue was found to REJECT a `let`/value-alias
+  that shadows an enclosing binding (`cannot have both alias and field with name … in same
+  scope`) — a GENERAL no-shadow rule Kue lacks (silently accepts). Captured as a quarantined
+  red seed `testdata/wild/let-alias-shadow-not-rejected` (`.known-red`) + plan Open item; a
+  separate load-time-validation feature, out of this slice's scope.
+
+### Verify
+`./scripts/check.sh` GREEN (build via `./lake` + all gates; graduated seeds + new fixtures
+green; `native_decide` theorems elaborate). cert-manager canary (multi-file — the exact
+silent-corruption check) byte-identical to cue v0.16.1: EMPTY delta.

@@ -297,6 +297,12 @@ check_wild_fixtures() {
 # cue.mod discovery from a sub-directory path arg. Prints any diff; returns non-zero on
 # mismatch.
 #
+# Each subpath is pinned by EITHER a success oracle `expected.<sanitized>` (stdout diffed
+# byte-exact) OR an error oracle `expected.<sanitized>.err` (the export must FAIL with stderr
+# containing the recorded substring — the `.err` mirror of the wild/main.cue error form, used
+# to pin a spec-mandated rejection such as a sibling-not-visible reference). Exactly one must
+# be present per subpath.
+#
 # A `<dir>/.known-red` marker QUARANTINES the fixture's subpath diffs (mirroring the wild
 # gate): a still-failing subpath is reported and SKIPPED from the green gate; a subpath that
 # now PASSES hard-fails, so a red seed must graduate in the slice that fixes it, not linger.
@@ -306,6 +312,8 @@ check_module_subpaths() {
   local subpath
   local sanitized
   local expected_file
+  local err_file
+  local stderr_output
   local known_red=0
   local passed
 
@@ -318,17 +326,33 @@ check_module_subpaths() {
     sanitized="${subpath%.cue}"
     sanitized="${sanitized//\//-}"
     expected_file="${dir}expected.${sanitized}"
+    err_file="${dir}expected.${sanitized}.err"
 
-    if [[ ! -f "${expected_file}" ]]; then
-      printf 'module subpath fixture %s missing %s\n' "${dir}" "${expected_file}" >&2
+    if [[ -f "${expected_file}" && -f "${err_file}" ]]; then
+      printf 'module subpath fixture %s subpath %s has both %s and %s; pick one\n' \
+        "${dir}" "${subpath}" "${expected_file}" "${err_file}" >&2
       status=1
       continue
     fi
 
     passed=1
-    if ! diff -u "${expected_file}" \
-      <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}") >/dev/null 2>&1; then
-      passed=0
+    if [[ -f "${err_file}" ]]; then
+      # Error-expectation: the export MUST fail and its stderr MUST contain the substring.
+      if stderr_output="$(cd "${dir}" && "${kue_exe}" export --out json "${subpath}" 2>&1 >/dev/null)"; then
+        passed=0
+      elif [[ "${stderr_output}" != *"$(cat "${err_file}")"* ]]; then
+        passed=0
+      fi
+    elif [[ -f "${expected_file}" ]]; then
+      if ! diff -u "${expected_file}" \
+        <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}") >/dev/null 2>&1; then
+        passed=0
+      fi
+    else
+      printf 'module subpath fixture %s missing %s or %s\n' \
+        "${dir}" "${expected_file}" "${err_file}" >&2
+      status=1
+      continue
     fi
 
     if [[ "${known_red}" -eq 1 ]]; then
@@ -341,8 +365,13 @@ check_module_subpaths() {
           "${dir#"${repo_root}/"}" "${subpath}" >&2
       fi
     elif [[ "${passed}" -eq 0 ]]; then
-      diff -u "${expected_file}" \
-        <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}") || true
+      if [[ -f "${err_file}" ]]; then
+        printf 'module fixture %s subpath %s expected error containing %q, got %q\n' \
+          "${dir#"${repo_root}/"}" "${subpath}" "$(cat "${err_file}")" "${stderr_output}" >&2
+      else
+        diff -u "${expected_file}" \
+          <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}") || true
+      fi
       status=1
     fi
   done <"${dir}subpaths"
