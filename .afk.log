@@ -1,75 +1,50 @@
-# AFK run — 2026-07-03 (supersedes all prior run summaries; their blockers are resolved)
+# AFK run — 2026-07-03/04 (supersedes all prior summaries)
 
 Gate GREEN (`./scripts/check.sh`), tree clean, everything committed on `main`, **NOT pushed**
-(AFK envelope). 23 commits unpushed.
+(AFK envelope). ~47 commits unpushed. Every commit is canary-byte-identical (cert-manager
+`kue export` == `cue export`, jq -S) and audited.
 
-## What landed this run
+## Landed this run (chronological themes)
 
-- **Protocol amendments A1–A8 — APPLIED.** Retraction duty (5th per-slice duty), strict-xfail
-  wild quarantine, `scripts/check.sh` aggregator, "audit the last audit" (A4), single-home
-  decision precedence (A5), blind-grind circuit breaker (A6), infra-in-audit rotation (A7),
-  git-ban `ask` rules in `.claude/settings.json` (A8). Proposal note stamped APPLIED.
-- **CPU cap — enforced via wrappers.** `./lake` + `./lean` at repo root cap `LEAN_NUM_THREADS=2`
-  and run under `nice -n 19`; gate scripts route bare `lake` through them via PATH; the slice
-  convention is "build only via `./lake`". Verified under a full rebuild (1 worker, nice 19,
-  machine responsive). Override upward with `LEAN_NUM_THREADS=8 ./lake build`.
-- **Toolchain v4.29.1 → v4.31.0.** Clean bump; only fixup was `set_option maxHeartbeats` on the
-  large `fixturePorts` list. Gate green, cert-manager canary byte-identical (native_decide + eval
-  semantics unchanged).
-- **L5 grind campaign — COMPLETE.** All three RED seeds GREEN + gate-enforced: root2/root3 were
-  measurement artifacts (carrier → hidden def), webapp-carrier-l5 was a genuine over-rejection in
-  `evaluatedStructOperand?` (open-tail operand spuriously closing its host; fixed, soundness-guard
-  fixture added). Any prior "apps 0/4 / repro-l5.cue / Eval.lean:2209" framing is OBSOLETE.
-- **Two-phase audit — COMPLETE, CLEAN.** Phase A (`a8d07b7`) zero findings, A4 confirmed all prior
-  fix-slices landed, L5-2 closedness adjudicated SOUND (adversarial: no under-rejection). Phase B
-  (`7487d06`) module graph healthy, all new infra sound, one LOW gate-hole fixed inline.
+- **Your infra asks:** 2-core CPU cap + permanent `nice` via `./lake`/`./lean` wrappers
+  (build ONLY via `./lake`); Lean toolchain **v4.29.1 → v4.31.0** (clean, canary identical);
+  no external deps to bump.
+- **Protocol amendments A1–A8** applied + the operational retro (failure-modes recorded,
+  conventions hardened: explicit-pathspec commits, long-builds-are-the-orchestrator's-job).
+- **Correctness campaign — the captured backlog is CLOSED, all red seeds graduated except
+  two architectural quarantines (byte-literal-high-byte, byte-literal-interpolation):**
+  L5 closedness (3 seeds); per-file import scoping; `let`/alias no-shadow (forward+reverse,
+  via a new `Field.quoted` model); a quoted-BEq equality regression (found by audit, fixed);
+  concrete struct/list `==`; float-by-value unification (`1.0 & 1.00`); `strings.Runes`;
+  list slicing `x[lo:hi]`; interpolation operand typing; byte-literal escape decoding.
+- **Conformance probes** (the North-Star bug-hunt): numeric → found+fixed a float
+  self-inconsistency bug; interpolation/regexp/encoding → found+fixed interp-typing;
+  disjunctions/defaults → CLEAN (value-conformant, guard theorems added).
+- **int/float `==` spec adjudication:** ruled kue CORRECT / cue BUGGY (`[1]==[1.0]` is
+  spec-true; cue's container `false` is a cue bug) — recorded in cue-divergences.
+- **Audits:** THREE full two-phase (A+B) rounds this session, all closed HEALTHY (findings
+  fixed or filed). Latest Phase B judges the core CUE semantic surface **substantially
+  complete** — frontier shifted from correctness to representation-quality + non-core.
 
-## OPEN (for chakrit — genuine blockers, not skipped work)
+## OPEN (for you)
 
-1. **`git push` the 23 commits** — AFK can't push. First human action.
-2. **Cut the owed alpha** — PUSH-class (release), AFK-blocked. `scripts/release.sh` +
-   `release-linux.sh` once pushed.
-3. **Next-campaign direction (your call).** The correctness/soundness backlog is EMPTY. What
-   remains is a prioritization pick with no correctness-basis to auto-resolve it:
-   - **B3d-6b** (`cue mod get/tidy`, MVS build-list) — the single substantive feature slice, but
-     **network-gated** (registry fetch) → AFK-blocked regardless of the decision.
-   - **item-6 LOW tail** — `module-file-scoped-imports` now RED-SEEDED (see blocker 5);
-     B2-A1 (latent, pairs with a future typed-ellipsis slice), scalar-embed provenance pins
-     (opportunistic). No clean standalone autonomous win.
-4. **Plan-hygiene pass — SOON-due** (plan.md grew 697 → 901 lines with audit sections). Phase B
-   deliberately deferred it one cycle; distill next cycle.
+1. **`git push` the ~47 commits** + cut the owed alpha (both PUSH-class, AFK-blocked).
+2. **Highest-leverage next slice (attended-grade):** **BYTE-ARRAY-REPR (0f)** — bytes are
+   String-backed (`Prim.bytes : String`) so can't hold an octet ≥0x80; a `Prim.bytes :
+   Array UInt8` refactor (MEDIUM, ~16 sites/9 files) fixes 3 latent bugs and unblocks
+   BYTE-INTERPOLATION + BYTES-SLICE. Recommended `Array UInt8` (keeps derived BEq/Repr).
+3. **Autonomously-safe but deliberate (churny core-type changes; this run showed such
+   changes carry regression risk):** ARCH-QUOTED-STRIP (0c), PRIM-FLOAT-PARSED (0e).
+4. **Broad:** BUILTIN-IMPORT-LENIENCY (kue resolves stdlib builtins without the `import`
+   cue requires — enforcing likely needs a fixture-corpus migration).
+5. **Designed-deferral / blocked:** NESTED-DISJ-MARK (tier-2 divergence), STRUCT-EQ half-2
+   (dedup order-independence, touches global equality), B3d-6b (network-gated).
 
-## Why stopped here
-Not out of ability to find tasks, but out of *unblocked, decision-free, envelope-safe* substantive
-work: every remaining substantial item needs a push (human), a network fetch (envelope), or a
-prioritization call (yours). Clean checkpoint — gate green, everything committed and guarded.
+Detail + restore point: the breadcrumb under `docs/notes/` (kept current per slice) and
+`docs/spec/plan.md` (ranked backlog). Operational lessons: `docs/reference/failure-modes.md`.
 
-5. **`module-file-scoped-imports` — RED-SEEDED, fix NOT landed (needs attended verify).**
-   Divergence CONFIRMED vs spec + cue v0.16.1 (three faces: same-name-different-target,
-   shadow-leak, sibling-not-visible). Seeds committed `.known-red` under
-   `testdata/modules/file_scoped_import_{collision,shadow}` + green over-scope guard `…_share`;
-   module gate gained `.known-red` quarantine so they stay committed without breaking green.
-   - *Why it needs a human:* the fix is core resolve/eval surgery. Refs are resolved to
-     positional de-Bruijn `refId`s in ONE `resolveStructRefs` pass over the post-`meet` merged
-     struct (`Runtime.lean:22`); imports are prepended to the single shared depth-0 frame
-     (`Module.bindImports`/`loadPackage`, `Module.lean:153,536`). Per-file scoping fights the
-     positional model — `meet` re-layouts the field frame, and imports need a per-file frame
-     while package FIELDS stay shared (cross-file bare refs must still resolve; guard `…_share`
-     pins this). A subtle wrongness here silently corrupts cert-manager/argocd — exactly the
-     L5 "pins have been wrong" trap. Out of AFK envelope.
-   - *What I'd do (recommended, so a one-word go unblocks):* give each file's imports UNIQUE
-     synthetic importBinding labels (e.g. `\x00imp\x00<fileIdx>\x00<name>`, uncollidable with
-     user idents), prepend ALL files' uniquely-labelled bindings to the merged struct (distinct
-     slots → no same-label `meet`-to-bottom, so drop `dedupeBindings`; same package in N files
-     → N slots, referenced separately, never met). Then per file, BEFORE merge, walk the body
-     and rewrite `.ref name` → `.ref <uniqueLabel(file,name)>` ONLY when `name` is one of THAT
-     file's imports AND not shadowed by an enclosing binder (field/let/for/alias); leave every
-     other ref untouched. Existing post-merge `resolveStructRefs` then maps unique labels to
-     their slots. This PRESERVES import SHARING (one slot per file-import, refId-referenced —
-     no perf blowup) — do NOT substitute the package VALUE at each ref site (clean but copies a
-     big package per reference → cert-manager perf trap). The one correctness risk is the
-     shadow-detection walk matching cue's scoping EXACTLY; reuse the frame-pushing shape of
-     `resolveValueWithFuel` (`Resolve.lean`) so shadowing can't drift, and verify against cue
-     across: nested `let x`, `for x in`, top-level field `x`, value alias `x=`, and the three
-     seed faces. When it lands: delete the two `.known-red` markers (the gate then enforces
-     them) and pin face-3 (sibling-not-visible error) too.
+## State read
+Not stopped for lack of tasks — the autonomous *correctness* well is worked out (an
+independent audit confirms it). Remaining is representation-quality / attended / broad /
+blocked. The loop continues on the lowest-risk high-value option (more conformance
+probing) rather than churning a risky core-type refactor unattended.
