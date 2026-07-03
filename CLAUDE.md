@@ -60,9 +60,9 @@ You are a thin orchestrator, not the implementer:
    (`docs/spec/plan.md`), implementation-log (`docs/reference/implementation-log.md`).
    These are the only cross-session/cross-machine memory; trust them over conversation.
 3. **Spawn one subagent per slice.** It runs the full ace workflow in fresh context (plan
-   → TDD → verify: `lake build` + `scripts/check-fixtures.sh` + `scripts/check-test-health.sh`
-     + `shellcheck` → commit/push
-   → update plan + implementation-log + breadcrumb). Four standing per-slice duties
+   → TDD → verify: `./scripts/check.sh` — the single entrypoint (`lake build` + every
+   `scripts/check-*.sh` gate by glob + `shellcheck scripts/*.sh`) → commit/push
+   → update plan + implementation-log + breadcrumb). Five standing per-slice duties
    beyond the code:
    - **Tests are first-class.** Don't settle for one happy-path fixture — audit edge/error
      cases and expand coverage (fixtures + `native_decide` theorems) until behavior is
@@ -85,6 +85,9 @@ You are a thin orchestrator, not the implementer:
      (claim, spec basis, `cue` output, Kue output, `cue` version).
    - **Flag spec gaps.** When the spec is silent/ambiguous, record Kue's principled choice
      + basis in `docs/reference/cue-spec-gaps.md`, even when Kue matches `cue`.
+   - **Retraction.** A slice that reopens or supersedes a prior claim greps the docs for
+     that claim and annotates every stale site IN THE SAME SLICE — see the retraction
+     guard under § Recurring misalignments.
 4. **Cheaply verify, don't re-do.** Confirm the slice landed — tree clean, pushed,
    build/fixtures green, log+breadcrumb updated — with a light check (git state, one
    build/fixture run). No full skill sweep; the subagent owns depth.
@@ -98,7 +101,10 @@ You are a thin orchestrator, not the implementer:
    `scripts/release.sh` (local only — CI/GitHub Actions banned); see the guide.
 6. **Loop or stop.** Verify passes + slices remain → spawn the next. Stop only at a
    genuine blocker, a failed verify the subagent couldn't fix, or an empty plan — leaving
-   the breadcrumb pointing at the next step.
+   the breadcrumb pointing at the next step. **Blind-grind circuit breaker:** after ~3
+   consecutive fix-slices with zero movement in the campaign's declared target metric,
+   trigger the mandatory reassessment checkpoint (§ slice-loop.md "Blind-grind circuit
+   breaker") — attended: escalate to chakrit; AFK: log to `.afk.log`.
 
 No manual `/ace-save` or `/clear` between slices — the subagent boundary gives fresh
 context, the breadcrumb gives continuity.
@@ -155,8 +161,10 @@ autonomous pass. Follow them as hard rules:
   enforces them (`lake build` never sees them). Red seeds are COMMITTED (`.known-red`
   quarantine), never left as untracked scratch or log-file prose.
 - **Docs claiming completion carry retraction pointers when later work reopens them.**
-  A stale "🎯 DONE" block one section below the live front is a restore hazard — annotate
-  it in the same slice that reopens the work.
+  A slice that reopens or supersedes a prior claim greps the docs for that claim and
+  annotates every site — a stale "🎯 DONE" block one section below the live front is a
+  restore hazard — IN THE SAME SLICE that reopens the work. This is the fifth per-slice
+  duty (§ Continuous slice loop).
 - **Canary is cert-manager** (from `/Users/chakrit/Documents/prod9/infra`); argocd is
   GONE from that checkout — its drop-in status is historical, do not try to re-verify it.
 

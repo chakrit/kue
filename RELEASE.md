@@ -37,10 +37,7 @@ right order and none are forgotten. Design rationale lives in
 ## Pre-release verify gate (must be green)
 
 ```sh
-lake build
-scripts/check-fixtures.sh        # expect: fixture pairs ok
-scripts/check-test-health.sh     # expect: test health ok
-shellcheck scripts/check-fixtures.sh scripts/check-test-health.sh
+./scripts/check.sh   # lake build + every scripts/check-*.sh gate (glob) + shellcheck scripts/*.sh
 ```
 
 ## Cut the release

@@ -5,14 +5,20 @@ The live START-HERE. Supersedes
 Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 [`../reference/implementation-log.md`](../reference/implementation-log.md).
 
+> **Doc precedence (amendment A5):** this breadcrumb owns what's-NEXT (the "Open" block
+> below is the single home for open decisions); the plan owns what's-TRUE. On disagreement,
+> breadcrumb wins for next-step, plan wins for roadmap/rulings. See
+> [`../guides/slice-loop.md`](../guides/slice-loop.md).
+
 > **2026-07-02 audit + fix-slice campaign COMPLETE.** The full-repo audit (design record,
 > reference/guides, code/skill-compliance, fixtures) and BOTH eval-batch audit phases (A
 > correctness, B architecture) are done, and every fix-slice they filed has landed:
 > repair batch (a)–(e), PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 — all DONE. **No
-> audit-filed fix-slice remains open.** What's genuinely next is chakrit's two parked
-> decisions (Open #1: L5+ campaign vs reprioritize vs accept; protocol amendments), or —
-> if those stay parked — pulling from the standing backlog / plan-only roadmap (B3d-6b MVS
-> wiring, item-6 LOW list). Nothing below this line is a blocker; it's the closed record.
+> audit-filed fix-slice remains open.** The **protocol amendments (A1–A8) are now APPLIED
+> (2026-07-03)** — see the Open block. What's genuinely next is the **L5 grind campaign**
+> (root2 / root3 / webapp-carrier-l5 RED seeds), or — if it stays parked — pulling from the
+> standing backlog / plan-only roadmap (B3d-6b MVS wiring, item-6 LOW list). Nothing below
+> this line is a blocker; it's the closed record.
 
 ## State
 
@@ -57,14 +63,19 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 
 ## Open (ranked)
 
-1. **chakrit's two decisions** (push + alpha are DONE — main pushed at `6fbc105`+,
-   `v0.1.0-alpha.20260702` released with all 3 assets, 2026-07-02):
-   - **L5+ campaign** — grind eval-conformance (attended safer; closedness-adjacent) /
-     reprioritize to B3d-6b / accept current. L5's wild capture is DONE
-     (pre-authorized); the fix-grind awaits the decision.
-   - **Protocol amendments** — 8 proposed "keep going" improvements from the audit:
-     [`2026-07-02-keep-going-protocol-critique.md`](2026-07-02-keep-going-protocol-critique.md).
-     Do not apply until accepted/edited.
+1. **L5+ campaign — chakrit's one remaining decision.** Grind eval-conformance (attended
+   safer; closedness-adjacent) / reprioritize to B3d-6b / accept current. L5's wild capture
+   is DONE (pre-authorized); the fix-grind (root2 / root3 / webapp-carrier-l5 RED seeds)
+   awaits the decision. If greenlit, this is the queued next campaign; declared target metric
+   = those RED seeds going green (blind-grind circuit breaker armed).
+   - **Protocol amendments — APPLIED 2026-07-03 (was a parked decision, now discharged).**
+     All 8 keep-going amendments (A1–A8) landed; the proposal note
+     [`2026-07-02-keep-going-protocol-critique.md`](2026-07-02-keep-going-protocol-critique.md)
+     carries an APPLIED retraction stamp. Batch record in the implementation-log.
+   - **Queued for push (envelope-blocked, awaiting chakrit).** The 11 pre-amendment commits
+     + all amendment commits (`63c05d3`, `57fc772`, `efb6cae`, `a4e7390`, `ca4a322`, + the
+     governance commit) are committed on `main` but UNPUSHED — this run was AFK. Push waits
+     for chakrit.
 2. **Eval-batch audit — COMPLETE (both phases, 2026-07-02).** Phase A (`6197dc3`,
    diff-scoped correctness): audited `4b64502..HEAD`; a–e verified landed; root A + the
    for-non-iterable change sound. ONE defect: **PA-1** — `classifyForSource` masks a BOTTOM
@@ -130,8 +141,8 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 - Canary: **cert-manager only** (`apps/cert-manager.cue` under
   `/Users/chakrit/Documents/prod9/infra`, run from that cwd). argocd is GONE from that
   checkout — historical claim, do not re-verify.
-- kue binary: `.lake/build/bin/kue`. Gate: `lake build` + `scripts/check-fixtures.sh` +
-  `scripts/check-test-health.sh`.
+- kue binary: `.lake/build/bin/kue`. Gate: `./scripts/check.sh` (single entrypoint —
+  `lake build` + every `scripts/check-*.sh` by glob + `shellcheck scripts/*.sh`).
 - Relay from AFK run-2's self-flag: it ran `git checkout Kue/Eval.lean` (reverting its
   own in-session edit; no pre-existing WIP lost) — an envelope violation, disclosed for
   chakrit's awareness.

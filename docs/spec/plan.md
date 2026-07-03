@@ -2,6 +2,19 @@
 
 Status: accepted — living roadmap.
 
+> **Doc precedence (amendment A5):** OPEN DECISIONS live in the breadcrumb's "Open" block;
+> this plan POINTS to them, never holds a second copy. On disagreement — what's-NEXT →
+> breadcrumb wins; what's-TRUE → this plan wins. See
+> [`../guides/slice-loop.md`](../guides/slice-loop.md) § "Open decisions — single home".
+
+> **Protocol amendments A1–A8 (keep-going critique) — APPLIED 2026-07-03.** All eight
+> ratified process amendments landed: 5 governance doc-edits (A1 retraction duty, A4
+> audit-the-last-audit, A5 doc precedence, A6 blind-grind breaker, A7 infra-in-audit) + 3
+> already in code (A2 strict-xfail quarantine, A3 `check.sh` + sanitized canary, A8 git-ban
+> settings). Batch record in
+> [`../reference/implementation-log.md`](../reference/implementation-log.md); the discharged
+> proposal note carries an APPLIED retraction stamp.
+
 The live implementation roadmap. Kept small, current, and actionable — one focused slice
 at a time. The full record of completed slices lives in
 [`../reference/implementation-log.md`](../reference/implementation-log.md) (chronological,
@@ -467,8 +480,9 @@ across both struct-eval arms with a history of diverging; see item-6 Borderline/
 PB-1 (DONE) → PB-2 (MED-LOW, unblocks the gate before it trips) → PB-3
 (LOW, doc). **The 2026-07-02 Phase A/B audit fix-slice batch is now FULLY DISCHARGED**
 — PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3 all DONE (2026-07-02). No audit-filed
-fix-slice remains open; next work comes from the standing backlog (L5/protocol, B3d-6b,
-item-6 LOW list) or the plan-only roadmap, not this audit. **Periodic passes:** plan-hygiene NOT due (distilled today, 697 lines);
+fix-slice remains open; next work comes from the standing backlog (L5 grind, B3d-6b,
+item-6 LOW list; the protocol amendments are APPLIED — see the header banner) or the
+plan-only roadmap, not this audit. **Periodic passes:** plan-hygiene NOT due (distilled today, 697 lines);
 perf-guide CURRENT (the recent batch is correctness-only — no new slow pattern or landed
 mitigation); resilience/retro not forced here. Test-org is the one periodic pass now due
 (PB-2).

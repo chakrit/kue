@@ -15820,3 +15820,78 @@ observation surface. No `cue-divergences` / `cue-spec-gaps` entry needed.
 pairs ok`; both new fixtures GREEN through the Lean-port diff and the CLI diff).
 `check-test-health.sh` exit 0. No scripts touched (shellcheck n/a); cert-manager canary not
 required (pure coverage, no eval-core change). Committed on `main`, not pushed.
+
+---
+
+## Completed Slice: Protocol amendments A1–A8 (keep-going critique) — consolidated batch
+
+Goal: apply the eight ratified process amendments from the 2026-07-02 full-repo audit
+critique ([`../notes/2026-07-02-keep-going-protocol-critique.md`](../notes/2026-07-02-keep-going-protocol-critique.md)).
+Diagnosis behind them: every script-enforced invariant held; every prose-only/remembered
+one drifted. Recorded as ONE batch entry (governance, spanning three commits) rather than
+per-amendment, since five amendments are a single coherent doc-edit.
+
+### What each amendment changed
+
+- **A1 — fifth per-slice duty: retraction.** A slice that reopens/supersedes a prior claim
+  greps the docs for that claim and annotates every stale site IN THE SAME SLICE. Merged the
+  mechanic into the existing CLAUDE.md § "Recurring misalignments" retraction-pointer guard
+  (one rule, not two), promoted it to an enumerated fifth per-slice duty in CLAUDE.md
+  § "Continuous slice loop" and in `docs/guides/slice-loop.md` § "Slice (per subagent)". No
+  duplicated wording — both loop sites reference the CLAUDE.md guard.
+- **A2 — strict-xfail quarantine (CODE, `a4e7390`).** `check_wild_fixtures` in
+  `scripts/check-fixtures.sh` now HARD-FAILS when a `.known-red` fixture unexpectedly passes
+  (`known-red <slug> now passes — remove .known-red to enforce it`), so an en-passant fix
+  can't leave a stale quarantine.
+- **A3a — single verify entrypoint (CODE, `a4e7390`).** `scripts/check.sh`: `lake build` +
+  every `scripts/check-*.sh` by glob + `shellcheck scripts/*.sh`, collecting all failures.
+  Doc half (this batch): collapsed every multi-command verify-gate enumeration to
+  `./scripts/check.sh` across CLAUDE.md, `docs/guides/slice-loop.md`,
+  `docs/guides/lean4-guide.md`, `RELEASE.md`, and the breadcrumb Standing-context gate line.
+- **A3b — portable sanitized canary (CODE, `ca4a322`).** `testdata/realworld/cert-manager/`
+  (self-contained, sanitized) + `scripts/check-realworld.sh`, auto-globbed by `check.sh` so
+  the real-app canary runs IN-GATE. Doc half: reframed the LIVE-infra prod9 canary as an
+  OPTIONAL attended spot-check, explicitly NOT part of `check.sh` (external repo, non-portable).
+- **A4 — audits open by auditing the last audit.** Made "diff the previous audit's filed
+  fix-slices against landed commits; re-rank or explicitly drop each" the literal FIRST step
+  of the Phase A procedure in `docs/guides/slice-loop.md` (formalizes the existing CLAUDE.md
+  guard; cross-referenced, not duplicated).
+- **A5 — single home for open decisions.** OPEN DECISIONS live only in the breadcrumb "Open"
+  block; the plan POINTS, never holds a second copy. Precedence: what's-NEXT → breadcrumb
+  wins; what's-TRUE → plan wins. Added the rule to `docs/guides/slice-loop.md` and stamped a
+  one-line precedence banner in the headers of both the plan and the current breadcrumb.
+- **A6 — blind-grind circuit breaker.** After ~3 consecutive fix-slices with ZERO movement
+  in a campaign's declared target metric, a MANDATORY reassessment checkpoint fires (re-scope
+  / bisect / escalate, OR record a justification to continue) — a forced stop-and-think, not
+  an auto-halt. New section in `docs/guides/slice-loop.md`, referenced from CLAUDE.md § loop
+  step 6. Attended → escalate; AFK → log to `.afk.log`.
+- **A7 — rotate infrastructure into the audit.** Every ~3rd audit cycle, Phase B explicitly
+  targets the GATES/TOOLING (`check-*.sh`, `check.sh`, fixture discovery, release tooling),
+  not just the module graph. Added to Phase B in `docs/guides/slice-loop.md`.
+- **A8 — mechanize git bans (CODE, swept into `a4e7390`).** `ask` rules in repo
+  `.claude/settings.json` for `Bash(git checkout:*)` / `Bash(git restore:*)` /
+  `Bash(git reset --hard:*)` + a `.gitignore` change to track that file.
+
+### Commits
+
+- `a4e7390` — A3a (`check.sh`) + A2 (strict-xfail quarantine); A8's staged
+  `.claude/settings.json` + `.gitignore` were SWEPT IN here (see anomaly below).
+- `ca4a322` — A3b (sanitized cert-manager fixture + `check-realworld.sh`).
+- The governance doc-edit commit that lands this entry (A1/A4/A5/A6/A7 + the A3a/A3b doc
+  halves + this batch record + the failure-mode + the critique-note APPLIED stamp).
+
+### Anomaly (recorded, deliberately NOT rewritten per AFK envelope)
+
+`a4e7390` conflates A2, A3a, and A8: two parallel subagents each `git add`+`commit` against
+the shared index, and A8's already-staged files were swept into the tooling agent's commit
+before it committed. Content is correct; attribution is muddled (A8 appears under a
+"check.sh aggregator" subject). No history rewrite (envelope: no working-tree destruction /
+force-push). Captured as a reusable guard in
+[`failure-modes.md`](failure-modes.md) § "Parallel commit-bearing subagents collide on one
+shared index" (candidate school-level lesson).
+
+### Verification
+
+Docs-only batch (no code change here; the code halves landed in `a4e7390`/`ca4a322`).
+`./scripts/check.sh` green — docs don't affect the build, so this confirms no script was
+broken. Committed on `main`, NOT pushed (AFK envelope).

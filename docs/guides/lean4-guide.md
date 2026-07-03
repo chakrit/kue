@@ -279,14 +279,19 @@ the `<name>.manifest.expected` suffix and the manifest helpers in `FixturePorts.
 
 ### The full verify gate
 
-A slice is not done until all three pass:
+A slice is not done until the single entrypoint passes:
 
 ```sh
-lake build                    # builds + checks every theorem
-scripts/check-fixtures.sh     # fixture pairs (CLI path == Lean-port path == .expected)
-scripts/check-test-health.sh  # test-file section headers, tripwires, size cap
-shellcheck scripts/*.sh       # any shell you touched
+./scripts/check.sh   # lake build + every scripts/check-*.sh gate (glob) + shellcheck scripts/*.sh
 ```
+
+`check.sh` runs `lake build` (builds + checks every theorem), then every `check-*.sh` gate
+by glob — fixture pairs (`check-fixtures.sh`), test-file health (`check-test-health.sh`), and
+the sanitized real-app canary (`check-realworld.sh`, the in-gate cert-manager fixture) — then
+`shellcheck scripts/*.sh`. It collects all failures and prints a PASS/FAIL summary. A new
+gate needs zero wiring: drop a `scripts/check-*.sh` and the glob picks it up. The LIVE-infra
+cert-manager canary (`cd /Users/chakrit/Documents/prod9/infra && …`) is an optional attended
+spot-check, deliberately NOT in `check.sh`.
 
 ### Oracle-checking against `cue`
 

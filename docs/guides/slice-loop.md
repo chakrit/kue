@@ -61,21 +61,29 @@ Periodic, not every cycle:
 
 ## Slice (per subagent)
 
-Full workflow in fresh context: plan → TDD → implement → verify (`lake build` +
-`scripts/check-fixtures.sh` + `scripts/check-test-health.sh` + `shellcheck`) → commit/push
-to `gh:main` → update
-`plan.md`, `implementation-log.md`, and the breadcrumb. Four standing duties: tests are
+Full workflow in fresh context: plan → TDD → implement → verify (`./scripts/check.sh` —
+the single repo-local entrypoint: `lake build` + every `scripts/check-*.sh` gate by glob +
+`shellcheck scripts/*.sh`) → commit/push to `gh:main` → update
+`plan.md`, `implementation-log.md`, and the breadcrumb. Five standing duties: tests are
 first-class (pin edges, not just happy path); log CUE divergences in `cue-divergences.md`;
 flag CUE spec gaps in `cue-spec-gaps.md`; when a slice changes eval cost or surfaces a
-slow/fast CUE pattern, update [`kue-performance.md`](kue-performance.md).
+slow/fast CUE pattern, update [`kue-performance.md`](kue-performance.md); and **retraction**
+— a slice that reopens or supersedes a prior claim greps the docs and annotates every stale
+site IN THE SAME SLICE (the fifth per-slice duty; canonical rule in CLAUDE.md § Recurring
+misalignments).
 
 **Subagent-prompt conventions (durable — copy into every slice/audit prompt):**
 
-- **prod9 canaries run from the infra root, in a subshell:**
-  `( cd /Users/chakrit/Documents/prod9/infra && kue export apps/<app>.cue )`. CUE module
-  resolution is CWD-sensitive — run from the Kue repo root, `apps/...` 404s and the corpus
-  looks "absent" when it is not. "Not found" means wrong cwd, never a missing corpus; the
-  corpus is READ-ONLY (never write into it).
+- **Canary — two tiers.** The **sanitized, self-contained cert-manager fixture**
+  (`testdata/realworld/cert-manager/{cert-manager.cue,.expected}`) runs IN-GATE via
+  `scripts/check-realworld.sh` (auto-globbed by `./scripts/check.sh`) — portable, no
+  external repo, part of the standard verify. The **LIVE-infra attended canary**
+  (`( cd /Users/chakrit/Documents/prod9/infra && kue export apps/<app>.cue )`) is an
+  OPTIONAL eval-core spot-check, explicitly NOT part of `check.sh` (external repo,
+  non-portable, attended-only). When you run it: CUE module resolution is CWD-sensitive —
+  from the Kue repo root, `apps/...` 404s and the corpus looks "absent" when it is not.
+  "Not found" means wrong cwd, never a missing corpus; the corpus is READ-ONLY (never
+  write into it).
 - **Confirm the push, don't assert it:** before reporting "pushed", check the actual
   `git push` output shows `main -> main`. A "pushed" claim without that line is unverified —
   the orchestrator re-checks HEAD==upstream regardless (see Notes).
@@ -158,6 +166,13 @@ is a tracked bug, fixed only by sound optimization.
 
 ## Phase A — Code-quality audit (the diff/batch since the last audit)
 
+**FIRST STEP (before any new findings): audit the last audit.** Diff the previous audit's
+filed fix-slices against landed commits — for each, confirm it actually landed (a commit,
+not just a plan entry), then re-rank or EXPLICITLY DROP it. "Scheduled in the plan" decays
+to zero unless it re-enters the active queue. Only after this reconciliation do you file new
+findings. (Formalizes the CLAUDE.md guard *"Audits verify that previously-filed fix-slices
+actually landed."*)
+
 Scope: the slices landed since the previous audit. Check:
 - **Correctness** — behavior matches CUE/oracle; edge + error cases handled, not just the
   happy path.
@@ -180,6 +195,13 @@ Output: fold findings into `plan.md` as fix-slices. Apply only LOW-RISK fixes in
 you do, re-run the full verify gate and commit.
 
 ## Phase B — Architecture / refactor / cleanup audit (the whole module graph)
+
+**Every ~3rd audit cycle, rotate infrastructure into scope.** On that cycle Phase B
+explicitly audits the GATES and TOOLING themselves — the `scripts/check-*.sh` gates, the
+`check.sh` aggregator, wild/fixture auto-discovery, and the release tooling — not just the
+module graph. The gates are code too and rot the same way; a cheap grep that stopped
+matching, a discovery glob that silently skips a dir, or a stale release step is exactly the
+class of drift the script gates exist to prevent. File findings as fix-slices like any other.
 
 Scope: cross-cutting design, broader than the recent diff. Check:
 - **Type-system leverage / ML idioms (the philosophy above — a top-level concern here).**
@@ -206,6 +228,30 @@ Scope: cross-cutting design, broader than the recent diff. Check:
 
 Output: fold findings into `plan.md` as architecture fix-slices (ranked); large refactors
 become their own planned slices. Apply only low-risk cleanups inline (re-verify + commit).
+
+## Open decisions — single home + precedence
+
+Two durable records carry state: the **breadcrumb** (`docs/notes/…` START-HERE) and the
+**plan** (`docs/spec/plan.md`). To stop the two-authorities drift (the plan once said an
+item was self-startable while the breadcrumb said it awaited chakrit):
+
+- **OPEN DECISIONS live in ONE place — the breadcrumb's "Open" block.** `plan.md` POINTS
+  to them; it never holds a second copy of an open decision's state.
+- **Precedence when they disagree:** **what's-NEXT → the breadcrumb wins** (it owns the
+  ordered open queue and the next-step pointer); **what's-TRUE → the plan wins** (it owns
+  the roadmap, capabilities, and resolved rulings). A conflict is a bug in whichever doc
+  lost its lane — fix it in the same slice you notice it.
+
+## Blind-grind circuit breaker
+
+Each campaign names its **target metric** up front (e.g. an L-series grind = the specific
+RED seeds going green; a real-app push = the prod9 drop-in count). After **~3 consecutive
+fix-slices with ZERO movement in that metric**, a MANDATORY reassessment checkpoint fires:
+re-scope, bisect from a different angle, or escalate — OR record an explicit justification
+to continue (some correct prerequisite work legitimately shows no needle movement, so this
+is a forced stop-and-think, NOT an auto-halt). Attended → escalate to chakrit; AFK → log
+the checkpoint to `.afk.log` (what the metric is, the 3 slices that didn't move it, and the
+re-scope/continue call) and proceed only on a recorded justification.
 
 ## Releases (local only — CI/GitHub Actions is BANNED)
 

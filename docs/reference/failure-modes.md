@@ -39,6 +39,24 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   commits stack linearly (fast-forward push); the only real race is the index lock (retry).
   Use git-worktree isolation when disjointness can't be guaranteed.
 
+## Parallel commit-bearing subagents collide on one shared index (attribution muddled)
+
+- **Symptom:** two subagents fanned out in parallel each `git add` + `git commit` against the
+  SAME working tree/index. Whichever commits first sweeps in the other's already-staged files,
+  so one commit conflates two slices' changes — content is correct, but attribution is wrong
+  (a bisect points at the wrong commit).
+- **Seen:** 2026-07-03 — the protocol-amendments run staged A8's `.claude/settings.json` +
+  `.gitignore` change and A3a's `scripts/check.sh` before either committed; both landed in the
+  tooling agent's commit `a4e7390`, so A8's git-ban settings appear under a "check.sh aggregator"
+  subject. Left as-is (envelope: no history rewrite); logged so the muddled attribution is
+  traceable, not mysterious.
+- **Guard:** when fanning out parallel subagents that COMMIT, do ONE of — (1) give each
+  `isolation: worktree` so indexes are disjoint; (2) SERIALIZE the commit step (one commits,
+  the next starts only after); or (3) have subagents stage NOTHING and return diffs for the
+  orchestrator to stage + commit sequentially. This is distinct from the file-disjoint race
+  above (that guards the index LOCK; this guards commit ATTRIBUTION even when writes don't
+  overlap). **Candidate school-level lesson** (parallel-subagent commit discipline).
+
 ## Byte-identical fixtures miss a latent bug at a different fuel / condition
 
 - **Symptom:** the fixture gate is green, but a real bug hides at an unexercised fuel level
