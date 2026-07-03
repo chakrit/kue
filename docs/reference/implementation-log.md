@@ -16471,3 +16471,54 @@ ZERO fix-slices, so there was nothing to verify-landed. Confirmed and proceeded.
 ### Verify
 `./scripts/check.sh` GREEN; the new wild seed is correctly QUARANTINED (`.known-red`, gate skips
 it while red). Committed on `main`, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: 2026-07-04 AUDIT-QUOTED-BEQ fix — `quoted` made inert to value equality
+
+Fixes the HIGH correctness regression `f128600` filed as AUDIT-QUOTED-BEQ (plan rank 0):
+`Field.quoted` leaked into the derived `Value`/`Field`/`ClosedClause` `BEq`, so `{x:1}` and
+`{"x":1}` (identical to CUE) compared UNEQUAL and disjunction dedup errored `ambiguous value`.
+
+### Route: STRIP (not custom equality)
+`Parse.stripFieldQuoting : Nat -> Value -> Value` — a total, fuel-bounded, enumerated-constructor
+(no `| _ =>` catch-all) `Value` walk mirroring `canonicalizeBuiltinCalls`, setting every
+`Field.quoted := false` via `{f with value := rec' f.value, quoted := false}`. Wired at BOTH
+top-level parse→eval seams — `parseDocument` (`Parse.lean`, the `.ok value` arm) and
+`parseDocumentFile` (the `ParsedFile` build) — inside the existing `applyBuiltinAliases` call, so
+it runs ONCE over the whole finalized tree AFTER every scope's `checkLetFieldShadow` has read the
+true quoting (nested checks all ran during nested `parsedFieldsValue`). With `quoted` uniformly
+`false` at eval time, derived `BEq` AND `DecidableEq` are consistent — no custom instance. The
+alternative (custom mutual `BEq` ignoring `quoted`) was rejected: the strip is simpler and keeps
+the derived instances honest. `closure.capturedEnv` fields are left untouched (as
+`canonicalizeBuiltinCalls` does) — closures do not exist at the parse seam.
+
+### The `==` symptom was a DIFFERENT bug — split out
+The PROVENANCE/plan bundled `({x:1}) == ({"x":1})` → `incomplete` with AUDIT-QUOTED-BEQ. It is NOT
+this bug: `EvalOps.evalEq` handles only `.prim` and DEFERS every struct/list comparison to
+`.binary .eq` BEFORE any `Value` `BEq`, so the strip never reaches `==` (all-bare `{x:1}=={x:1}`
+defers identically). Struct `==` was simply never implemented. Compounding it, kue's struct
+equality is raw order-SENSITIVE `Value` `BEq` (no canonical field sort), which ALSO makes dedup
+diverge on reordered fields (`{a:1,b:2} | {b:2,a:1}` → `ambiguous`, cue collapses). Filed as
+**AUDIT-STRUCT-EQ** (plan 0b) with a committed known-red seed
+`testdata/wild/struct-equality-quoted-labels-defers/` and a `cue-divergences.md` row. NOT fixed
+here — order-independent concrete struct equality is a distinct, soundness-sensitive slice; not
+rushed under AFK.
+
+### Tests
+- Graduated the seed: `git rm testdata/wild/quoted-label-breaks-value-equality/.known-red` (now
+  green — `d: {x:1} | {"x":1}` → `{"d":{"x":1}}`).
+- New green wild fixtures: `quoted-label-nested-in-list-dedup` (`[{x:1}] | [{"x":1}]` → `[{x:1}]`),
+  `necessary-quoted-label-preserved` (`{"a-b":1}` — a must-be-quoted label keeps its quoting on
+  output; the strip normalizes the provenance bit, not the label — formatting re-quotes from the
+  label string, no over-normalization).
+- New known-red wild seed `struct-equality-quoted-labels-defers` for AUDIT-STRUCT-EQ.
+- 4 `native_decide` theorems in `ParseTests.lean` (AUDIT-QUOTED-BEQ section): disjunction dedup,
+  nested-list dedup, necessary-quote preserved, and no-shadow-still-exempts-quoted-after-strip
+  (proves the strip did not regress the reverse check). Coverage tripwire `#check` added.
+- All 24 `noshadow_*` theorems intact (strip runs AFTER `checkLetFieldShadow`).
+
+### Verify
+`./scripts/check.sh` GREEN (build via `./lake` + all gates + shellcheck). cert-manager canary
+EMPTY (`kue export` == `cue export` on `apps/cert-manager.cue`, jq -S). `native_decide` theorems
+pass. AUDIT-STRUCT-EQ seed correctly quarantined. Committed on `main`, NOT pushed (AFK envelope).

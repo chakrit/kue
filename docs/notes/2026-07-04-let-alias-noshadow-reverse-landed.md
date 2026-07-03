@@ -1,5 +1,9 @@
 # Breadcrumb — let/alias no-shadow validation, REVERSE direction landed (2026-07-04)
 
+> SUPERSEDED by `2026-07-04-audit-quoted-beq-landed.md`. The "Next step" below listed
+> AUDIT-QUOTED-BEQ (rank 0) as open — it is now DONE (strip route). Use the newer note as the
+> live front.
+
 ## Where things stand
 
 The `let`/alias no-shadow load validation is now COMPLETE — BOTH directions enforced. The three

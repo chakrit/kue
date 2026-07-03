@@ -206,20 +206,36 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`).** `Field.quoted : Bool`
-   was added to `Value.lean` AND included in the derived `BEq` for `Value`/`Field`/`ClosedClause`.
-   `quoted` is parse-time provenance for the load-time no-shadow check ONLY, but it is NOT inert to
-   evaluation: it leaks into every `Value`-`BEq` site, so two structs CUE deems identical
-   (`{x:1}` vs `{"x":1}`) compare UNEQUAL. Observed divergences (kue vs cue v0.16.1): `d: {x:1} |
-   {"x":1}` → kue `ambiguous value` (cue collapses to `{x:1}` — `dedupAlternatives` fails to dedup);
-   `({x:1}) == ({"x":1})` → kue `incomplete value` (cue `true` — the `==`/`!=` operators compare
-   structs by `Value` BEq); same nested in lists. Wild red seed committed +
-   quarantined: `testdata/wild/quoted-label-breaks-value-equality/` (`.known-red`). Fix: exclude
-   `quoted` from `Value`/`Field` semantic equality — either a custom `BEq` that ignores it (mutual
-   with `Value`, fiddly) OR strip `quoted → false` in a post-parse total `Value` walk after all
-   `checkLetFieldShadow` scopes have run (the bit is dead weight past parse). Non-trivial (either
-   path is a full mutual/total `Value` traversal + a design call); NOT inline. Graduate the seed
-   (`rm .known-red`) in the fixing slice.
+0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04).**
+   `Field.quoted : Bool` was added to `Value.lean` AND included in the derived `BEq` for
+   `Value`/`Field`/`ClosedClause`. `quoted` is parse-time provenance for the load-time no-shadow
+   check ONLY, but it was NOT inert to evaluation: it leaked into every `Value`-`BEq` site, so two
+   structs CUE deems identical (`{x:1}` vs `{"x":1}`) compared UNEQUAL and `dedupAlternatives`
+   failed to collapse `d: {x:1} | {"x":1}` (kue `ambiguous value`, cue `{x:1}`). Fixed via the
+   STRIP route: `Parse.stripFieldQuoting` — a total, enumerated (no catch-all) `Value` walk
+   mirroring `canonicalizeBuiltinCalls` — normalizes every `Field.quoted → false` at both
+   parse→eval seams (`parseDocument`, `parseDocumentFile`), AFTER `checkLetFieldShadow` reads the
+   true quoting. Derived `BEq`/`DecidableEq` then see a uniform `false` and stay consistent (no
+   custom instance). Seed graduated; dedup + nested-list + necessary-quoting fixtures + 4
+   `native_decide` theorems added; all 24 `noshadow_*` theorems intact; cert-manager canary empty.
+
+   **Split-out (the `==` symptom was NOT this bug):** `({x:1}) == ({"x":1})` still errors
+   `incomplete value` — filed as **AUDIT-STRUCT-EQ** below. `evalEq` DEFERS all non-`.prim`
+   operands before any `BEq`, so the strip never reaches the `==` operator; struct `==` was simply
+   never implemented. Orthogonal to label quoting.
+
+0b. **AUDIT-STRUCT-EQ (MEDIUM — feature gap + pre-existing divergence).** `Kue/EvalOps.lean:evalEq`
+   handles only `.prim`; every struct/list `==`/`!=` defers to `.binary .eq` → `incomplete value`
+   (all-bare `({x:1}) == ({x:1})` defers identically — not a quoting issue). cue reduces concrete
+   struct/list `==` to a bool. TWO entangled issues: (1) reduce concrete struct/list operands to
+   bool, deferring while non-concrete (`{x:int} == {x:int}`, which cue also leaves unreduced);
+   (2) cue struct `==` is ORDER-INDEPENDENT (`{a:1,b:2} == {b:2,a:1}` → `true`), but kue's struct
+   equality is raw order-SENSITIVE `Value` `BEq` (no canonical field sort) — the SAME model makes
+   kue's disjunction dedup diverge on reordered fields (`{a:1,b:2} | {b:2,a:1}` → `ambiguous`, cue
+   collapses; logged in `cue-divergences.md`). A CUE-correct `==` needs order-independent,
+   regular-fields-only, concreteness-guarded equality, which would ALSO fix that dedup divergence.
+   Wild red seed committed + quarantined: `testdata/wild/struct-equality-quoted-labels-defers/`
+   (`.known-red`). Graduate when the order-independent concrete equality lands.
 
 1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).

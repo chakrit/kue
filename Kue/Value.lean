@@ -728,8 +728,12 @@ inductive Value where
 
     `quoted` is a parse-time provenance bit consumed only by the load-time no-shadow check
     (a quoted `"x":` label never collides with a `let x`); it defaults `false` so every
-    evaluation-time `Field` construction is unaffected, and every downstream consumer that
-    ignores label provenance reads it as a plain field. -/
+    evaluation-time `Field` construction is unaffected. It is NOT inert on its own: it sits in
+    the derived `BEq`/`DecidableEq`, so a stray `true` would make two spec-equal structs
+    (`{x:1}` vs `{"x":1}`) compare unequal. `Parse.stripFieldQuoting` normalizes it to `false`
+    across the whole tree at the parse→eval seam — AFTER `checkLetFieldShadow` reads the true
+    quoting — so every equality-sensitive consumer past parse sees a uniform `false`. Keep it
+    that way: any new pre-eval producer that sets `quoted := true` must feed through that strip. -/
 structure Field where
   label : String
   fieldClass : FieldClass
