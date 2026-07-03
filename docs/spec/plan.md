@@ -224,7 +224,8 @@ rejection argument: `kue-performance.md` + implementation-log.
    operands before any `BEq`, so the strip never reaches the `==` operator; struct `==` was simply
    never implemented. Orthogonal to label quoting.
 
-0b. **AUDIT-STRUCT-EQ (MEDIUM — feature gap + pre-existing divergence).** `Kue/EvalOps.lean:evalEq`
+0b. **AUDIT-STRUCT-EQ (MEDIUM — feature gap + pre-existing divergence). RE-SCOPED by the 2026-07-04
+   Phase B audit: SPLIT into an autonomous-safe half and a deferred half.** `Kue/EvalOps.lean:evalEq`
    handles only `.prim`; every struct/list `==`/`!=` defers to `.binary .eq` → `incomplete value`
    (all-bare `({x:1}) == ({x:1})` defers identically — not a quoting issue). cue reduces concrete
    struct/list `==` to a bool. TWO entangled issues: (1) reduce concrete struct/list operands to
@@ -232,10 +233,46 @@ rejection argument: `kue-performance.md` + implementation-log.
    (2) cue struct `==` is ORDER-INDEPENDENT (`{a:1,b:2} == {b:2,a:1}` → `true`), but kue's struct
    equality is raw order-SENSITIVE `Value` `BEq` (no canonical field sort) — the SAME model makes
    kue's disjunction dedup diverge on reordered fields (`{a:1,b:2} | {b:2,a:1}` → `ambiguous`, cue
-   collapses; logged in `cue-divergences.md`). A CUE-correct `==` needs order-independent,
-   regular-fields-only, concreteness-guarded equality, which would ALSO fix that dedup divergence.
-   Wild red seed committed + quarantined: `testdata/wild/struct-equality-quoted-labels-defers/`
-   (`.known-red`). Graduate when the order-independent concrete equality lands.
+   collapses; logged in `cue-divergences.md`).
+
+   **Phase B architectural verdict (2026-07-04):**
+   - **DO NOT redefine the global `Value` `BEq` to be order-independent.** It is used for structural
+     CYCLE detection (`Eval.lean:292 structStack.contains bodyVal`; comment: "Identity is exact
+     `Value` equality") and builtin-arg dedup (`Lattice.lean:394`). Order-independence is a COARSER
+     equality → distinct-order structs would collide → spurious cycle false-positives + changed
+     dedup semantics globally. `satCache`/`cache` are keyed on `valueDigest`, NOT full `BEq`, so
+     they are unaffected either way.
+   - **Half (1) — `evalEq` concrete struct/list `==` via a DEDICATED order-independent,
+     regular-fields-only, concreteness-guarded `structEqConcrete? : Value → Value → Option Bool`
+     used ONLY by `evalEq` — AUTONOMOUS-SAFE.** Additive and soundness-isolated: `evalEq` currently
+     just defers non-`.prim`, so a new function that turns some defers into concrete bools (else
+     defers) cannot regress existing behavior. Guard concreteness first (mirror
+     `classifyArithOperand`'s concrete-vs-incomplete split); compare regular fields as a
+     sorted-by-label map, recurse structurally, exclude hidden/optional/def/pattern members.
+     Graduates the committed `testdata/wild/struct-equality-quoted-labels-defers/` seed
+     (`.known-red`). ~1 focused slice, MEDIUM. **Drive this next.**
+   - **Half (2) — order-independent `dedupAlternatives` — DEFER / attended.** Touches
+     `Lattice.dedupAlternatives`, which feeds disjunction resolution globally; couple it with a
+     broader disjunction-canonicalization pass, not the `evalEq` slice. Fixes the reordered-field
+     dedup divergence in `cue-divergences.md`.
+
+0c. **ARCH-QUOTED-STRIP (MEDIUM — architecture; from the 2026-07-04 Phase B audit).** `Field.quoted`
+   is parse provenance living on the eval-layer `Value.Field`, made inert only by
+   `Parse.stripFieldQuoting` run at the two parse→eval seams. The ONLY reader of `Value.Field.quoted`
+   is `collidableFieldLabel` (the REVERSE no-shadow check, which needs depth-reachable quoting off
+   the built `Value` subtree); every other site must treat it inert, guaranteed solely by the strip
+   pass + a doc comment. That "any new pre-eval producer that sets `quoted := true` must feed through
+   the strip" is an UNENFORCED invariant — the class the repo makes unrepresentable, and it already
+   bit once (AUDIT-QUOTED-BEQ). **Durable fix: parse-only quoting** — drop `quoted` from
+   `Value.Field` entirely; have `parsedFieldsValue` bubble a subtree "collidable (bare/hidden) field
+   labels" set UP through its recursion (or a parse-time collector over `ParsedField`) so the reverse
+   check reads quoting from parse provenance and quoting NEVER reaches the eval layer. Deletes the
+   ~55-line `stripFieldQuoting` walk and makes the leak unrepresentable. Cost: threads a second
+   return (the collidable-label set) through `parsedFieldsValue` — a signature change, ~1 slice,
+   MEDIUM. **Cheap interim if deferred:** convert the doc-invariant into a machine-checked guard — a
+   `hasQuotedField : Value → Bool` checker + a test that `parseDocument` output over quoted-label
+   fixtures carries no surviving `quoted := true`. NOT low-risk enough for an inline audit fix
+   (touches parse signatures) → a real slice.
 
 1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).
@@ -261,6 +298,13 @@ rejection argument: `kue-performance.md` + implementation-log.
   (rides B3d-6b sum-write); **Mvs.solve main-pin** (rides B3d-6b); **`Kue/ModuleFetch.lean`
   carve** (trigger only if B3d-6b pushes the fetch cluster past ~200 lines); **kue-performance
   B3d note**.
+- **GATE-KNOWNRED-DRY (LOW, infra; from the 2026-07-04 Phase B / A7 rotation).**
+  `check_wild_fixtures` (`scripts/check-fixtures.sh:277-287`) and `check_module_subpaths`
+  (`358-366`) implement the SAME three-state `.known-red` protocol (still-fails → report+skip;
+  now-passes → HARD-FAIL "graduate it"; shape-check always applies) as two copy-pasted decision
+  blocks. Extract a shared `handle_known_red <human-label> <passed>` helper that prints the
+  report/graduate message and returns the status contribution; call it from both gates. Gate code
+  (guards everything) → its own green `check.sh` run; not an inline audit fix.
 - **A2-x (latent) — `importBinding` merge-asymmetry.** STAYS unobservable (the only collision
   that would exercise it is the one A2-y rejects at LOAD). No work; recorded so it is not
   re-investigated.
@@ -294,6 +338,19 @@ under-rejection across meet orders, 3-way conjunctions, nested, field-referenced
 `./lake`+`./lean` cap / strict-xfail quarantine / `check-realworld.sh` + sanitized cert-manager)
 all sound; one LOW hole fixed inline (`check.sh` now shellchecks the `./lake`/`./lean` root
 wrappers). Toolchain is Lean **v4.31.0** (`1d7fc37`). No open audit-filed fix-slice remains.
+
+The **2026-07-04 Phase B audit** (`a8d07b7..HEAD` + whole-graph; A7 infra-rotation cycle) closed
+with the module graph HEALTHY and TWO new fix-slices filed. A4: both Phase A fixes verified landed
+IN CODE (`stripFieldQuoting` wired at both seams post-`checkLetFieldShadow`; `mapRefsValueWithFuel`
+catch-all enumerated) — neither decayed. Architecture verdicts: the `mapRefsValueWithFuel` unified
+walker is GOOD reuse (AD4-1 leaf-differs shape, not the DRY-1 trap); file-scoped imports' NUL-sep
+synthetic label + shadow-aware rewrite is CLEAN, Module/Resolve boundary intact; `Field.quoted` +
+strip-walk is SOUND but carries an unenforced "must-strip" invariant → filed **ARCH-QUOTED-STRIP**
+(rank 0c, parse-only quoting). A7 infra: `check.sh` aggregator + `./lake`/`./lean` caps sound; the
+two-gate `.known-red` quarantine is DUPLICATED → filed **GATE-KNOWNRED-DRY** (LOW tail). AUDIT-
+STRUCT-EQ re-scoped (split; see rank 0b). No inline code change (all findings non-trivial). Periodic
+passes: test-org/plan-hygiene/perf-guide NOT due; resilience/retro APPROACHING (flagged, not
+overdue). The **2026-07-04 two-phase audit is now COMPLETE.**
 
 The **2026-07-04 Phase A audit** (`a8d07b7..HEAD`: file-scoped imports `53fe3cc`, let/alias
 no-shadow forward `e20af9a` + reverse `f128600`) found ONE HIGH regression and ONE LOW latent —

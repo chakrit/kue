@@ -16557,3 +16557,63 @@ No latent bug surfaced — no swallowed ctor needed recursion for correctness, s
 warnings/sorry. `./scripts/check.sh` GREEN (all gates + shellcheck). cert-manager canary EMPTY
 (`kue export` == `cue export` on `apps/cert-manager.cue`, jq -S) — confirms the byte-identical
 claim. Committed on `main`, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: 2026-07-04 Phase B audit (a8d07b7..HEAD, A7 infra rotation)
+
+The architecture/refactor pass complementing the 2026-07-04 Phase A audit (`9297734`), and the
+3rd-cycle A7 rotation that pulls GATES/TOOLING into scope. Doc-only slice (findings folded into the
+plan as fix-slices; no inline code change).
+
+### A4 — Phase A fixes verified landed (not just planned)
+- **AUDIT-QUOTED-BEQ** (`790c121`): `Parse.stripFieldQuoting` (`Kue/Parse.lean:1859`) is a total,
+  fuel-bounded, fully-enumerated (no catch-all) `Value` walk setting `Field.quoted := false`, wired
+  at BOTH parse→eval seams (`parseDocument:1926`, `parseDocumentFile:1969`) AFTER `parsedFieldsValue`
+  runs `checkLetFieldShadow`. Derived `BEq`/`DecidableEq` see uniform `false`. GENUINELY DONE.
+- **AUDIT-RESOLVE-CATCHALL** (`41324a6`): `mapRefsValueWithFuel` (`Kue/Resolve.lean:157-169`)
+  enumerates all 13 leaf/eval-only ctors, no `_` catch-all. GENUINELY DONE.
+
+### Architecture verdicts
+- **`mapRefsValueWithFuel` unified walker — GOOD reuse, not over-abstracted.** Two genuine
+  consumers (`resolveRefLeaf`, `rewriteImportRefLeaf`) with IDENTICAL frame-pushing; only the leaf
+  differs. This is the AD4-1 "share the combinator, leaf differs" shape (recursion stays lexically
+  in the walker → `termination_by fuel` unchanged), NOT the DRY-1 trap. Exhaustive.
+- **File-scoped imports — CLEAN.** `fileScopedImportLabel` (`Kue/Module.lean:158`) =
+  `\0imp\0{idx}\0{name}` (NUL sep, uncollidable with any CUE identifier); non-output
+  (`importBinding` class); `rewriteFileImportRefs` rides the shared walker with a shadow-aware leaf
+  reusing `findInScopes`, so import-shadow honouring cannot drift from reference resolution.
+  Module/Resolve boundary intact (Resolve pure, Module wires).
+- **`Field.quoted` + strip-walk — SOUND but carries an UNENFORCED invariant (DEBT).** Filed as
+  ARCH-QUOTED-STRIP. The ONLY reader of `Value.Field.quoted` is `collidableFieldLabel` (the reverse
+  no-shadow check); every other site must treat it inert, guaranteed solely by the strip pass + a
+  doc comment. That "any new pre-eval producer must feed through the strip" invariant is exactly the
+  class the repo makes unrepresentable — and it already bit once (AUDIT-QUOTED-BEQ). Durable fix:
+  parse-only quoting (drop `quoted` from `Value.Field`; bubble a subtree collidable-label set up
+  through `parsedFieldsValue`), which deletes the ~55-line strip entirely.
+
+### A7 infra verdict
+- **`check.sh`** — glob-discovers `check-*.sh` (new gate = zero wiring), collects all failures,
+  shellchecks `scripts/*.sh` + the `./lake`/`./lean` root wrappers. Sound.
+- **`./lake`/`./lean` CPU-cap wrappers** — `LEAN_NUM_THREADS=2` + `nice`, shellchecked; nothing
+  toolchain-version-specific, sound post-v4.31.0 bump.
+- **Two-gate `.known-red` quarantine — DUPLICATED (finding GATE-KNOWNRED-DRY).**
+  `check_wild_fixtures` and `check_module_subpaths` implement the SAME three-state protocol
+  (still-fails → report+skip; now-passes → HARD-FAIL "graduate it"; shape-check always applies) as
+  two copy-pasted decision blocks (`check-fixtures.sh:277-287` vs `358-366`). Should share a
+  `handle_known_red` helper.
+
+### Findings filed (see plan.md § Ranked OPEN backlog)
+- **ARCH-QUOTED-STRIP** (MEDIUM, architecture) — parse-only quoting; deletes the strip pass.
+- **GATE-KNOWNRED-DRY** (LOW, infra) — share a `.known-red` decision helper across the two gates.
+- **AUDIT-STRUCT-EQ** (MEDIUM, open) — re-scoped: SPLIT the `evalEq` half (autonomous-safe, additive
+  order-independent equality reachable only from `evalEq`) from the `dedupAlternatives` half (global
+  disjunction impact → defer/attended). Do NOT redefine global `Value` `BEq` (cycle detection at
+  `Eval.lean:292 structStack.contains` relies on exact equality).
+
+### Verify
+Doc-only; no code touched, so no `lake build`/gate re-run required. Committed on `main`, NOT pushed
+(AFK envelope). Periodic passes: test-org NOT due (largest non-generated module `TwoPassTests`
+1516 < 1800 cap; `testdata/wild/` ~18 flat dirs, tidy); plan-hygiene NOT due (distilled today);
+perf-guide current (no perf-affecting change this batch); resilience/retro APPROACHING (several
+audit cycles since the `890d453..2bd75eb` retro) — flag, not yet overdue.
