@@ -16866,3 +16866,53 @@ stay separate, cue does not normalize). Wrong-arity (`Runes("a","b")`) and non-s
 
 `./scripts/check.sh` GREEN (exit 0). cert-manager canary EMPTY (kue == cue after `jq -S`).
 Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).
+
+## Audit: 2026-07-04 Phase A code-quality (`abbab99..HEAD`)
+
+Slice-loop Phase A over the batch since the 2026-07-04 Phase B audit: `1130638` struct/list
+concrete `==`, `4e36a39` gate DRY, `6d13b52` retro docs, `785c8e5` typed-ellipsis probe,
+`8a76260` float-unify meetPrim (soundness-core), `6461d16` `strings.Runes`.
+
+### A4 — last audit's filings verified landed
+
+- **GATE-KNOWNRED-DRY (LOW)** — LANDED (`4e36a39`): shared `handle_known_red()` helper in
+  `scripts/check-fixtures.sh`, called from both fixture-pair and wild gates.
+- **AUDIT-STRUCT-EQ half-1 (MEDIUM)** — LANDED (`1130638`): `structEqConcrete?` +
+  `concreteEq`, reachable only from `evalEq`. (But see the finding below — the "matches cue
+  exactly" claim was overstated.)
+- **ARCH-QUOTED-STRIP (MEDIUM)** — intentionally still OPEN (a big parse-signature refactor);
+  no decay.
+
+### Findings
+
+- **`8a76260` float-unify — CLEAN (audited hardest).** Adversarial matrix vs cue v0.16.1:
+  `1.0&1.00`→`1.0`; LEFT-operand rule confirmed (`1.50&1.5`→`1.50`, `1.5&1.50`→`1.5`, both
+  match cue); int-vs-float a TYPE CONFLICT both orders (`1&1.0`, `1.0&1` → bottom); over-unify
+  rejected (`1.5&1.6`, `2.5&2.50&2.5000001` → bottom); value-based across exponent
+  (`1e3&1000.0` unifies, keeps left); `0.0&-0.0`→`0.0`. meet and `==` now AGREE (the fixed
+  self-inconsistency). NaN/inf not representable in CUE number literals (N/A). `parseDecimalText`/
+  `decimalEqValues` total, exact base-10 rational (no float rounding), safe string-eq fallback on
+  unparseable text.
+- **`6461d16` strings.Runes — CLEAN.** Astral single-scalar (`"a😀b"`→`[97,128512,98]`), empty
+  `[]`, combining marks own scalar; registered with no catch-all; wrong-arity/non-string fall to
+  `unresolvedOrBottom` → bottom (cue rejects too; message-fidelity is a pre-existing global gap).
+- **`1130638` struct/list `==` — ONE finding (MEDIUM), filed STRUCT-EQ-LEAF-TYPESENSE (plan 0d).**
+  Concreteness guard is sound (incomplete/required/bottom always DEFER — pinned by theorems).
+  Structs order-independent, lists order-sensitive, cross-shape false — all correct. BUT
+  `concreteEq`'s number-leaf uses value equality, so `[1.0]==[1]`/`{a:1.0}=={a:1}` → kue `true`,
+  cue `false` (before this commit they DEFERRED — a fresh, unrecorded divergence). The slice's
+  "matches cue exactly" claim missed it (no int-vs-float-in-container theorem/fixture). cue is
+  itself inconsistent (scalar `1.0==1` true, structural type-sensitive). Adjudication needed;
+  recommend matching cue (distinct lattice elements). Doc claims corrected inline this audit.
+
+### Inline fixes (low-risk, doc-accuracy retractions)
+
+Corrected the overstated "matches cue EXACTLY" claim at three durable sites (plan.md half-1
+block, the half-1 breadcrumb, this log's audit entry) and filed STRUCT-EQ-LEAF-TYPESENSE as plan
+item 0d. No code semantics changed inline (the leaf-typesense fix is a semantic ruling → its own
+slice).
+
+### Verify
+
+`./lake build` green; `./scripts/check-fixtures.sh` green (all wild + pairs). Docs-only inline
+changes. Committed on `main` with explicit pathspec, NOT pushed (AFK envelope). Phase B owed next.

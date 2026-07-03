@@ -29,6 +29,13 @@ on `main`, NOT pushed (AFK envelope).
 
 ## Next
 
+**2026-07-04 Phase A audit DONE** (`abbab99..HEAD`) — float-unify (`8a76260`) and
+`strings.Runes` (`6461d16`) CLEAN; struct/list `==` (`1130638`) has ONE MEDIUM finding filed
+**STRUCT-EQ-LEAF-TYPESENSE** (plan 0d): `[1.0]==[1]`/`{a:1.0}=={a:1}` → kue `true`, cue `false`
+(number-leaf value-equality inside containers). Doc "matches cue exactly" claims corrected
+inline. A4 verified GATE-KNOWNRED-DRY + STRUCT-EQ half-1 landed; ARCH-QUOTED-STRIP still open
+by design. **Phase B (architecture/refactor) now OWED** before the next slice batch.
+
 `LIST-SLICE-MISSING` (`x[lo:hi]` parser gap) still open. Attended: GDA-FLOAT-RENDER slice
 (float export canonical-form byte-match + negative-zero) is the highest-value numeric
 follow-up. Resume plan HIGH/MEDIUM tail.

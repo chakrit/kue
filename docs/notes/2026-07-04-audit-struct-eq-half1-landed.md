@@ -17,9 +17,14 @@ Option Bool`, reachable ONLY from `evalEq`'s non-`prim`/non-`bottom` arm:
 - Both mutual blocks use `termination_by structural` (the `containsBottom` pattern) — total, no
   fuel, no `partial def`.
 
-Probe matrix matches cue v0.16.1 EXACTLY (reordered/quoted/hidden-ignored/nested/open-tail/
-cross-shape/lists/`1==1.0`). Over-eager DEFER trap guarded: an incomplete operand keeps `==`
-incomplete even when another field already differs.
+Probe matrix matches cue v0.16.1 on the tested cases (reordered/quoted/hidden-ignored/nested/
+open-tail/cross-shape/lists/scalar `1==1.0`). Over-eager DEFER trap guarded: an incomplete operand
+keeps `==` incomplete even when another field already differs.
+
+> **RETRACTION (2026-07-04 Phase A audit):** the "matches EXACTLY" claim was overstated. The
+> matrix MISSED int-vs-float leaves inside containers: `[1.0]==[1]` and `{a:1.0}=={a:1}` yield kue
+> `true`, cue `false` (cue is type-sensitive on number leaves structurally, yet scalar `1.0==1` is
+> `true` — cue's own inconsistency). Filed **STRUCT-EQ-LEAF-TYPESENSE** (plan 0d).
 
 Seed `struct-equality-quoted-labels-defers` GRADUATED; new wild guard
 `struct-equality-incomplete-defers` (`.expected.err`); 5 `testdata/export/structeq_*` fixtures; 14

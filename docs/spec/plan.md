@@ -252,7 +252,11 @@ rejection argument: `kue-performance.md` + implementation-log.
      primitives reuse the decimal-aware leaf equality; cross-shape → `false`. `evalNe`/`.ne` inherit
      the negation. Seed `struct-equality-quoted-labels-defers` graduated; 5 export fixtures +
      `struct-equality-incomplete-defers` wild guard + 14 `native_decide` theorems; gate green;
-     cert-manager canary empty. Probe-matrix matches cue v0.16.1 exactly. NESTED `embeddedScalar`
+     cert-manager canary empty. Probe-matrix matches cue v0.16.1 on the tested cases (reordered/
+     quoted/hidden-ignored/nested/open-tail/cross-shape/lists/scalar `1==1.0`) — but the "matches
+     EXACTLY" claim was overstated: the 2026-07-04 Phase A audit found the matrix MISSED int-vs-float
+     leaves inside containers (`[1.0]==[1]`, `{a:1.0}=={a:1}` → kue `true`, cue `false`). Filed as
+     **STRUCT-EQ-LEAF-TYPESENSE** (0d below). NESTED `embeddedScalar`
      field values stay deferred (isConcrete → false): a safe, exotic residual, not a regression.
    - **Half (2) — order-independent `dedupAlternatives` — DEFER / attended.** Touches
      `Lattice.dedupAlternatives`, which feeds disjunction resolution globally; couple it with a
@@ -276,6 +280,27 @@ rejection argument: `kue-performance.md` + implementation-log.
    `hasQuotedField : Value → Bool` checker + a test that `parseDocument` output over quoted-label
    fixtures carries no surviving `quoted := true`. NOT low-risk enough for an inline audit fix
    (touches parse signatures) → a real slice.
+
+0d. **STRUCT-EQ-LEAF-TYPESENSE (MEDIUM — divergence introduced by `1130638`; needs adjudication;
+   from the 2026-07-04 Phase A audit).** `concreteEq`'s `.prim`-leaf arm (`Kue/EvalOps.lean`)
+   compares numbers with the decimal-aware value equality (`evalDecimalCompare? decimalEqValues`),
+   so an int leaf equals a value-equal float leaf. Inside a container this makes
+   `[1.0] == [1]` and `{a:1.0} == {a:1}` yield `true`, where cue v0.16.1 yields `false`. Before
+   `1130638` these DEFERRED (`incomplete value`), so the commit turned a defer into a wrong-per-cue
+   bool — a fresh, UNRECORDED divergence, and the slice's "matches cue exactly" claim missed it (no
+   theorem/fixture pins int-vs-float in a container). cue is internally INCONSISTENT here: scalar
+   `1.0 == 1` is `true` (kue matches), but structural `[1.0]==[1]` is type-SENSITIVE (`false`).
+   **Adjudication (spec is genuinely silent → also a `cue-spec-gaps.md` entry):**
+   - **Recommended — match cue (type-sensitive number leaves):** `1` and `1.0` are DISTINCT lattice
+     elements (`1 & 1.0 = ⊥`, confirmed both engines), so a structural equality that distinguishes
+     them is the lattice-faithful reading; the scalar numeric `1.0==1` is the documented special case.
+     Impl: `concreteEq`'s `.prim left, .prim right` compares kind-then-value — float-vs-float via
+     `decimalEqValues` (keeps `[2.50]==[2.5]` → `true`), int-vs-int by value, int-vs-float → `false`.
+   - **Alternative — keep kue's internally-consistent behavior** (structural `==` = recursive scalar
+     `==`) and RECORD it in `cue-divergences.md` as a deliberate divergence.
+   - **Either way:** expand the `native_decide` matrix (int-vs-float in list AND struct, at depth) +
+     add an export fixture, and land the doc record. NOT an inline audit fix (semantic ruling +
+     tests) → a real slice.
 
 1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).
