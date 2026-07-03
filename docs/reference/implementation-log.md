@@ -16617,3 +16617,59 @@ Doc-only; no code touched, so no `lake build`/gate re-run required. Committed on
 1516 < 1800 cap; `testdata/wild/` ~18 flat dirs, tidy); plan-hygiene NOT due (distilled today);
 perf-guide current (no perf-affecting change this batch); resilience/retro APPROACHING (several
 audit cycles since the `890d453..2bd75eb` retro) — flag, not yet overdue.
+
+---
+
+## Completed Slice: AUDIT-STRUCT-EQ half-1 — concrete struct/list `==` in `evalEq`
+
+Goal: reduce concrete struct/list `==`/`!=` to a bool, closing the "struct `==` unimplemented"
+gap where `evalEq` deferred every non-`.prim` operand to `.binary .eq` → `incomplete value`. The
+SAFE half of AUDIT-STRUCT-EQ (Phase B split): additive, reachable ONLY from `evalEq`, cannot
+regress existing concrete results (it only turns defers into bools). The `dedupAlternatives`
+order-independence half stays deferred/attended.
+
+### What landed (`Kue/EvalOps.lean`)
+- `structEqConcrete? : Value → Value → Option Bool` — the `evalEq` fast path. Concreteness guard
+  FIRST: `none` (defer) unless BOTH operands pass `isConcrete` AND are free of any (even deeply
+  hidden) bottom (`containsBottom`). Only then `some (concreteEq …)`.
+- `isConcrete` (mutual with `isConcreteFields`/`isConcreteList`, `termination_by structural`):
+  fully-concrete iff `.prim`, or a struct whose REGULAR fields are all concrete (required → not
+  settled → defer; hidden/def/`let`/import/optional/pattern ignored — the manifest output-field
+  filter), or a list/listTail/embeddedList whose items are all concrete (open tail dropped:
+  `[1,...] == [1]` ⇒ true). Everything else (structComp, disj-without-default, refs, bounds,
+  kinds, embeddedScalar, …) → non-concrete → defer.
+- `concreteEq` (mutual with `concreteEqFields`/`concreteEqList`, `termination_by structural` on
+  the LEFT operand — the `containsBottom` recursion pattern): structs compare ORDER-INDEPENDENTLY
+  (equal `countOutputFields` + every left regular field label-matched in the right via
+  `outputFieldValue?` with `concreteEq` values); lists ORDER- and LENGTH-sensitively element-wise;
+  primitives reuse the decimal-aware leaf equality (`1 == 1.0`); cross-shape (struct vs list, …) →
+  `false`. `evalEq`'s final arm dispatches `some result → .prim (.bool result)`, `none →
+  .binary .eq` (the existing defer); `evalNe`/`.ne` inherit the negation for free.
+
+### Probe matrix (matches cue v0.16.1 EXACTLY)
+Equal / reordered / quoted-vs-unquoted / unequal / diff-size / nested-reordered / hidden-ignored /
+def-ignored / optional-absent / empty structs → correct bools; equal / reordered→false /
+diff-length→false / nested / list-of-structs / open-tail→true lists; struct-vs-list→false;
+`null==null`→true; `1==1.0`→true. DEFER guard: an incomplete operand (`{b:_x}` with `_x:int`) keeps
+`==` incomplete EVEN when another field already differs (`{a:1,b:_x} == {a:2,b:_x}` → defer, not
+false); required field defers; a deeply-hidden bottom defers (conservative — cue surfaces it).
+
+### Tests
+- Graduated the committed `testdata/wild/struct-equality-quoted-labels-defers/` seed (removed
+  `.known-red`; `.expected` = `{r:true, s:false}`).
+- New wild guard `testdata/wild/struct-equality-incomplete-defers/` (`.expected.err` =
+  `incomplete value`) — pins the over-eager DEFER trap.
+- 5 export fixtures `testdata/export/structeq_*` (`.cue`/`.json` cue oracle): reordered/quoted/
+  nonoutput-ignored/nested+crossshape/lists.
+- 14 `native_decide` theorems in `Kue/Tests/EvalTests.lean` (`eval_eq_*`, `eval_ne_*`,
+  incomplete/required defer via `structEqConcrete? … = none`).
+
+### Known residual (safe)
+NESTED `embeddedScalar` field values (`{a:{_h:1,5}}`) stay deferred (`isConcrete` → false). Exotic;
+top-level `{_h:1,5}` is unwrapped by `resolveOperand` before `evalEq`, so `{_h:1,5}==5` still works.
+A safe defer, not a wrong result. `dedupAlternatives` order-independence (half-2) remains open.
+
+### Verify
+`./scripts/check.sh` GREEN (build via `./lake`; seed graduated; new fixtures green; test-health
+ok). cert-manager canary EMPTY (`kue export` vs `cue export`, jq -S identical). Committed on
+`main`, NOT pushed (AFK envelope).

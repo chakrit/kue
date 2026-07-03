@@ -200,6 +200,114 @@ def collapseDefaultDisjunction : Value -> Value
   | value@(.dynamicField _ _ _) => value
   | value@(.closure _ _) => value
 
+/-- Count a struct's REGULAR OUTPUT fields (`.field false false .regular`) — the only ones
+    CUE compares for `==`. Hidden/definition/`let`/import/optional/required fields are excluded
+    (mirrors `Manifest`'s output-field filter). -/
+def countOutputFields : List Field -> Nat
+  | [] => 0
+  | field :: rest =>
+      (if field.fieldClass == FieldClass.regular then 1 else 0) + countOutputFields rest
+
+/-- The value of the regular OUTPUT field named `label`, if present. Skips non-output fields
+    (a `_label`/`#label`/optional/required same-string field is NOT this field). -/
+def outputFieldValue? (label : String) : List Field -> Option Value
+  | [] => none
+  | field :: rest =>
+      if field.fieldClass == FieldClass.regular && field.label == label then some field.value
+      else outputFieldValue? label rest
+
+/-- The element list a list-shaped value exposes for `==`: a plain list, an open-tailed list
+    (`[1, ...]` — the tail is a constraint on absent elements, no output, so it is DROPPED:
+    cue `[1, ...] == [1]` ⇒ `true`), or a struct-that-IS-a-list (`embeddedList`). Any other
+    value is not list-shaped. -/
+def listItems? : Value -> Option (List Value)
+  | .list items => some items
+  | .listTail items _ => some items
+  | .embeddedList items _ _ => some items
+  | _ => none
+
+/- Full-concreteness guard for struct/list `==`. CUE holds `==` incomplete unless BOTH operands
+   are fully concrete (`{a: 1} == {a: int}` stays incomplete, and an incomplete field defers even
+   when another field already differs). Mirrors the manifest output-field filter: only REGULAR
+   fields carry a settled value that must be concrete; hidden/definition/`let`/import/optional
+   fields are non-output and ignored; a REQUIRED field is not settled (cue defers `{x!:1} == …`).
+   `structComp`, disjunctions without a default, refs, bounds, kinds, and every other abstract form
+   are non-concrete ⇒ DEFER. Structural over the finite `Value` (the `containsBottom` pattern). -/
+mutual
+def isConcrete : Value -> Bool
+  | .prim _ => true
+  | .struct fields _ _ _ _ => isConcreteFields fields
+  | .list items => isConcreteList items
+  | .listTail items _ => isConcreteList items
+  | .embeddedList items _ _ => isConcreteList items
+  | _ => false
+  termination_by structural value => value
+
+def isConcreteFields : List Field -> Bool
+  | [] => true
+  | ⟨_, fieldClass, value, _⟩ :: rest =>
+      (if fieldClass == FieldClass.regular then isConcrete value
+       else match FieldClass.optionality fieldClass with
+            | .required => false
+            | _ => true)
+        && isConcreteFields rest
+  termination_by structural fields => fields
+
+def isConcreteList : List Value -> Bool
+  | [] => true
+  | value :: rest => isConcrete value && isConcreteList rest
+  termination_by structural values => values
+end
+
+/- Concrete `==` on two operands the caller has already proven fully concrete and bottom-free.
+   Structs compare ORDER-INDEPENDENTLY over regular output fields (equal output-field count AND
+   every left field label-matched in the right with equal value); lists compare ORDER- and
+   LENGTH-sensitively element-wise; primitives reuse the decimal-aware leaf equality (so
+   `1 == 1.0`). Cross-shape pairs (struct vs list, prim vs struct, …) are `false`. Returns `Bool`,
+   so a `_` probe arm is permitted (it produces no `Value`). Structural over the left operand. -/
+mutual
+def concreteEq : Value -> Value -> Bool
+  | .prim left, .prim right => (evalDecimalCompare? decimalEqValues left right).getD (left == right)
+  | .struct leftFields _ _ _ _, .struct rightFields _ _ _ _ =>
+      countOutputFields leftFields == countOutputFields rightFields
+        && concreteEqFields leftFields rightFields
+  | .list items, right =>
+      match listItems? right with | some rightItems => concreteEqList items rightItems | none => false
+  | .listTail items _, right =>
+      match listItems? right with | some rightItems => concreteEqList items rightItems | none => false
+  | .embeddedList items _ _, right =>
+      match listItems? right with | some rightItems => concreteEqList items rightItems | none => false
+  | _, _ => false
+  termination_by structural left => left
+
+def concreteEqFields : List Field -> List Field -> Bool
+  | [], _ => true
+  | ⟨label, fieldClass, value, _⟩ :: rest, rightFields =>
+      (if fieldClass == FieldClass.regular then
+         match outputFieldValue? label rightFields with
+         | some rightValue => concreteEq value rightValue
+         | none => false
+       else true)
+        && concreteEqFields rest rightFields
+  termination_by structural fields => fields
+
+def concreteEqList : List Value -> List Value -> Bool
+  | [], right => right.isEmpty
+  | _ :: _, [] => false
+  | left :: leftRest, right :: rightRest => concreteEq left right && concreteEqList leftRest rightRest
+  termination_by structural values => values
+end
+
+/-- The `==` verdict for two non-`prim`, non-`bottom` operands, or `none` to DEFER. Yields a
+    definite bool only when BOTH operands are fully concrete and free of any (even deeply hidden)
+    bottom — the over-eager trap CUE avoids by keeping `==` incomplete on abstract operands. A
+    present bottom anywhere DEFERS rather than folding to a bool (conservative: cue surfaces the
+    bottom, kue holds the residual). -/
+def structEqConcrete? (left right : Value) : Option Bool :=
+  if containsBottom left || containsBottom right then none
+  else if isConcrete left && isConcrete right then some (concreteEq left right)
+  else none
+
 def evalEq (left right : Value) : Value :=
   match left, right with
   | .prim left, .prim right =>
@@ -210,7 +318,10 @@ def evalEq (left right : Value) : Value :=
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
-  | _, _ => .binary .eq left right
+  | left, right =>
+      match structEqConcrete? left right with
+      | some result => .prim (.bool result)
+      | none => .binary .eq left right
 
 def evalNe (left right : Value) : Value :=
   match evalEq left right with

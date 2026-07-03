@@ -242,15 +242,18 @@ rejection argument: `kue-performance.md` + implementation-log.
      equality → distinct-order structs would collide → spurious cycle false-positives + changed
      dedup semantics globally. `satCache`/`cache` are keyed on `valueDigest`, NOT full `BEq`, so
      they are unaffected either way.
-   - **Half (1) — `evalEq` concrete struct/list `==` via a DEDICATED order-independent,
-     regular-fields-only, concreteness-guarded `structEqConcrete? : Value → Value → Option Bool`
-     used ONLY by `evalEq` — AUTONOMOUS-SAFE.** Additive and soundness-isolated: `evalEq` currently
-     just defers non-`.prim`, so a new function that turns some defers into concrete bools (else
-     defers) cannot regress existing behavior. Guard concreteness first (mirror
-     `classifyArithOperand`'s concrete-vs-incomplete split); compare regular fields as a
-     sorted-by-label map, recurse structurally, exclude hidden/optional/def/pattern members.
-     Graduates the committed `testdata/wild/struct-equality-quoted-labels-defers/` seed
-     (`.known-red`). ~1 focused slice, MEDIUM. **Drive this next.**
+   - **Half (1) — `evalEq` concrete struct/list `==` — ✅ DONE (2026-07-04).** `Kue/EvalOps.lean`
+     adds `structEqConcrete? : Value → Value → Option Bool`, reachable ONLY from `evalEq`'s
+     non-`prim`/non-`bottom` arm. Concreteness guard FIRST (`isConcrete` + `containsBottom`) →
+     `none` (defer) unless BOTH operands are fully concrete and bottom-free, mirroring the manifest
+     output-field filter (regular fields only; required defers; hidden/def/`let`/import/optional/
+     pattern ignored). Then `concreteEq`: structs compare ORDER-INDEPENDENTLY over regular output
+     fields (equal count + label-matched equal values); lists ORDER- and LENGTH-sensitively;
+     primitives reuse the decimal-aware leaf equality; cross-shape → `false`. `evalNe`/`.ne` inherit
+     the negation. Seed `struct-equality-quoted-labels-defers` graduated; 5 export fixtures +
+     `struct-equality-incomplete-defers` wild guard + 14 `native_decide` theorems; gate green;
+     cert-manager canary empty. Probe-matrix matches cue v0.16.1 exactly. NESTED `embeddedScalar`
+     field values stay deferred (isConcrete → false): a safe, exotic residual, not a regression.
    - **Half (2) — order-independent `dedupAlternatives` — DEFER / attended.** Touches
      `Lattice.dedupAlternatives`, which feeds disjunction resolution globally; couple it with a
      broader disjunction-canonicalization pass, not the `evalEq` slice. Fixes the reordered-field

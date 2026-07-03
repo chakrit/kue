@@ -23,6 +23,9 @@ operator at all. The all-bare `({x: 1}) == ({x: 1})` defers identically — the 
    order-independent, regular-fields-only, concreteness-guarded equality — which would also
    fix that dedup divergence.
 
-**Status:** RED (`.known-red`), captured not fixed. See `docs/reference/cue-divergences.md`
-(order-sensitive struct equality) and the plan's AUDIT-STRUCT-EQ fix-slice. Graduate when the
-order-independent concrete equality lands.
+**Status:** GREEN (graduated 2026-07-04 by AUDIT-STRUCT-EQ half-1). `Kue/EvalOps.lean` now
+routes non-`prim`, non-`bottom` `evalEq` operands through `structEqConcrete?`, which compares
+fully-concrete structs order-INDEPENDENTLY over regular output fields (quoted labels already
+stripped to bare by AUDIT-QUOTED-BEQ) and lists order-SENSITIVELY, deferring when either operand
+is non-concrete. Issue (2) — the disjunction dedup order-independence — remains the DEFERRED
+half (unsafe, attended; `Value` global `BEq` still order-sensitive for cycle detection/dedup).

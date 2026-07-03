@@ -1464,10 +1464,111 @@ theorem eval_meet_lazy_hidden_def :
         ] .regularOpen none []) = true := by
   native_decide
 
+-- ## Concrete struct/list equality (`evalEq` beyond `.prim`)
+
+-- Order-INDEPENDENT struct equality: `{a:1,b:2} == {b:2,a:1}` ⇒ `true`.
+theorem eval_eq_struct_reordered_true :
+    (evalEq
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none [])
+        (mkStruct [⟨"b", .regular, .prim (.int 2), false⟩, ⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Quoted vs unquoted label is the SAME field (`quoted` bit ignored by `concreteEq`).
+theorem eval_eq_struct_quoted_label_true :
+    (evalEq
+        (mkStruct [⟨"x", .regular, .prim (.int 1), true⟩] .regularOpen none [])
+        (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Differing regular value ⇒ `false`.
+theorem eval_eq_struct_unequal_false :
+    (evalEq
+        (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+        (mkStruct [⟨"x", .regular, .prim (.int 2), false⟩] .regularOpen none [])
+      == .prim (.bool false)) = true := by
+  native_decide
+
+-- Differing output-field COUNT ⇒ `false`.
+theorem eval_eq_struct_diff_size_false :
+    (evalEq
+        (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+        (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩, ⟨"y", .regular, .prim (.int 2), false⟩] .regularOpen none [])
+      == .prim (.bool false)) = true := by
+  native_decide
+
+-- Hidden field differs but is NON-output ⇒ still `true`.
+theorem eval_eq_struct_hidden_ignored_true :
+    (evalEq
+        (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩, ⟨"_h", .hidden, .prim (.int 9), false⟩] .regularOpen none [])
+        (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Empty structs are equal.
+theorem eval_eq_empty_structs_true :
+    (evalEq (mkStruct [] .regularOpen none []) (mkStruct [] .regularOpen none []) == .prim (.bool true)) = true := by
+  native_decide
+
+-- Lists are ORDER-sensitive: `[1,2,3] == [3,2,1]` ⇒ `false`.
+theorem eval_eq_list_reordered_false :
+    (evalEq
+        (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])
+        (.list [.prim (.int 3), .prim (.int 2), .prim (.int 1)])
+      == .prim (.bool false)) = true := by
+  native_decide
+
+-- Equal lists ⇒ `true`; different length ⇒ `false`.
+theorem eval_eq_list_equal_true :
+    (evalEq (.list [.prim (.int 1), .prim (.int 2)]) (.list [.prim (.int 1), .prim (.int 2)]) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_eq_list_diff_length_false :
+    (evalEq (.list [.prim (.int 1)]) (.list [.prim (.int 1), .prim (.int 2)]) == .prim (.bool false)) = true := by
+  native_decide
+
+-- Open-tailed list drops its tail: `[1, ...] == [1]` ⇒ `true`.
+theorem eval_eq_open_list_vs_closed_true :
+    (evalEq (.listTail [.prim (.int 1)] .top) (.list [.prim (.int 1)]) == .prim (.bool true)) = true := by
+  native_decide
+
+-- Struct vs list ⇒ `false` (cross-shape).
+theorem eval_eq_struct_vs_list_false :
+    (evalEq (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none []) (.list [.prim (.int 1)])
+      == .prim (.bool false)) = true := by
+  native_decide
+
+-- The over-eager DEFER guard: an INCOMPLETE (ref) field keeps `==` residual, NOT a bool —
+-- even when another field already differs.
+theorem eval_eq_incomplete_field_defers :
+    (structEqConcrete?
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .ref "z", false⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .prim (.int 2), false⟩, ⟨"b", .regular, .ref "z", false⟩] .regularOpen none [])
+      == none) = true := by
+  native_decide
+
+-- A REQUIRED field is not settled ⇒ DEFER.
+theorem eval_eq_required_field_defers :
+    (structEqConcrete?
+        (mkStruct [⟨"x", .required, .prim (.int 1), false⟩] .regularOpen none [])
+        (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+      == none) = true := by
+  native_decide
+
+-- `evalNe` inherits the negation for free.
+theorem eval_ne_struct_reordered_false :
+    (evalNe
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none [])
+        (mkStruct [⟨"b", .regular, .prim (.int 2), false⟩, ⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+      == .prim (.bool false)) = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section; a swallowed
 -- section turns its anchor into an unknown identifier and `#check` fails to elaborate.
 #check @eval_add_ref_operand_defers                           -- arithmetic operand deferral
 #check @eval_unary_neg_incomplete_defers                      -- comparison / unary ops
 #check @eval_meet_lazy_hidden_def                             -- lazy sibling meet
+#check @eval_ne_struct_reordered_false                        -- concrete struct/list equality
 
 end Kue
