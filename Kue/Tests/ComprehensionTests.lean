@@ -211,11 +211,11 @@ theorem eval_comprehension_for_keyed_over_struct :
           []
           [
             .comprehension
-              [.forIn (some "k") "v" (mkStruct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-              (mkStruct [⟨"key", .regular, .ref "k"⟩, ⟨"val", .regular, .ref "v"⟩] .regularOpen none [])
+              [.forIn (some "k") "v" (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+              (mkStruct [⟨"key", .regular, .ref "k", false⟩, ⟨"val", .regular, .ref "v", false⟩] .regularOpen none [])
           ]
           .regularOpen))
-      == mkStruct [⟨"key", .regular, .prim (.string "x")⟩, ⟨"val", .regular, .prim (.int 1)⟩] .regularOpen none [])
+      == mkStruct [⟨"key", .regular, .prim (.string "x"), false⟩, ⟨"val", .regular, .prim (.int 1), false⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -227,10 +227,10 @@ theorem eval_comprehension_for_over_list :
           [
             .comprehension
               [.forIn none "v" (.list [.prim (.int 42)])]
-              (mkStruct [⟨"only", .regular, .ref "v"⟩] .regularOpen none [])
+              (mkStruct [⟨"only", .regular, .ref "v", false⟩] .regularOpen none [])
           ]
           .regularOpen))
-      == mkStruct [⟨"only", .regular, .prim (.int 42)⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"only", .regular, .prim (.int 42), false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_comprehension_if_true_admits :
@@ -238,9 +238,9 @@ theorem eval_comprehension_if_true_admits :
       (resolveStructRefs
         (.structComp
           []
-          [.comprehension [.guard (.prim (.bool true))] (mkStruct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none [])]
+          [.comprehension [.guard (.prim (.bool true))] (mkStruct [⟨"flag", .regular, .prim (.bool true), false⟩] .regularOpen none [])]
           .regularOpen))
-      == mkStruct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"flag", .regular, .prim (.bool true), false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_comprehension_if_false_drops :
@@ -248,7 +248,7 @@ theorem eval_comprehension_if_false_drops :
       (resolveStructRefs
         (.structComp
           []
-          [.comprehension [.guard (.prim (.bool false))] (mkStruct [⟨"hidden", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          [.comprehension [.guard (.prim (.bool false))] (mkStruct [⟨"hidden", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
           .regularOpen))
       == mkStruct [] .regularOpen none []) = true := by
   native_decide
@@ -257,10 +257,10 @@ theorem eval_comprehension_body_sees_sibling_field :
     (evalStructRefs
       (resolveStructRefs
         (.structComp
-          [⟨"base", .regular, .prim (.int 7)⟩]
-          [.comprehension [.guard (.prim (.bool true))] (mkStruct [⟨"copy", .regular, .ref "base"⟩] .regularOpen none [])]
+          [⟨"base", .regular, .prim (.int 7), false⟩]
+          [.comprehension [.guard (.prim (.bool true))] (mkStruct [⟨"copy", .regular, .ref "base", false⟩] .regularOpen none [])]
           .regularOpen))
-      == mkStruct [⟨"base", .regular, .prim (.int 7)⟩, ⟨"copy", .regular, .prim (.int 7)⟩] .regularOpen none [])
+      == mkStruct [⟨"base", .regular, .prim (.int 7), false⟩, ⟨"copy", .regular, .prim (.int 7), false⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -268,10 +268,10 @@ theorem eval_comprehension_for_source_sees_sibling_field :
     (evalStructRefs
       (resolveStructRefs
         (.structComp
-          [⟨"k", .regular, .prim (.int 3)⟩]
-          [.comprehension [.forIn none "v" (.list [.ref "k"])] (mkStruct [⟨"g", .regular, .ref "v"⟩] .regularOpen none [])]
+          [⟨"k", .regular, .prim (.int 3), false⟩]
+          [.comprehension [.forIn none "v" (.list [.ref "k"])] (mkStruct [⟨"g", .regular, .ref "v", false⟩] .regularOpen none [])]
           .regularOpen))
-      == mkStruct [⟨"k", .regular, .prim (.int 3)⟩, ⟨"g", .regular, .prim (.int 3)⟩] .regularOpen none [])
+      == mkStruct [⟨"k", .regular, .prim (.int 3), false⟩, ⟨"g", .regular, .prim (.int 3), false⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -281,28 +281,28 @@ theorem eval_comprehension_for_source_sees_sibling_field :
 theorem eval_comprehension_guard_negated_default_disj_admits :
     (evalStructRefs
       (resolveStructRefs
-        (mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
+        (mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)], false⟩,
            ⟨"out", .regular,
              .structComp []
                [.comprehension [.guard (.unary .boolNot (.ref "x"))]
-                 (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-               .regularOpen⟩] .regularOpen none []))
-      == mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)]⟩,
-         ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
+                 (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+               .regularOpen, false⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool false)), (.regular, .kind .bool)], false⟩,
+         ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [], false⟩] .regularOpen none []) = true := by
   native_decide
 
 -- Slice C. The direct guard shape `if x` with `x: bool | *true` admits (default `true`).
 theorem eval_comprehension_guard_direct_default_disj_admits :
     (evalStructRefs
       (resolveStructRefs
-        (mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
+        (mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)], false⟩,
            ⟨"out", .regular,
              .structComp []
                [.comprehension [.guard (.ref "x")]
-                 (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-               .regularOpen⟩] .regularOpen none []))
-      == mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)]⟩,
-         ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []) = true := by
+                 (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+               .regularOpen, false⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .disj [(.default, .prim (.bool true)), (.regular, .kind .bool)], false⟩,
+         ⟨"out", .regular, mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [], false⟩] .regularOpen none []) = true := by
   native_decide
 
 -- Slice C + D#1b. A NON-default disjunction guard is INCOMPLETE — only marked defaults
@@ -314,19 +314,19 @@ theorem eval_comprehension_guard_non_default_disj_defers :
     (evalStructRefs
       (resolveStructRefs
         (mkStruct [⟨"x", .regular,
-             .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
+             .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))], false⟩,
            ⟨"out", .regular,
              .structComp []
                [.comprehension [.guard (.ref "x")]
-                 (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-               .regularOpen⟩] .regularOpen none []))
+                 (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+               .regularOpen, false⟩] .regularOpen none []))
       == mkStruct [⟨"x", .regular,
-           .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))]⟩,
+           .disj [(.regular, .prim (.bool true)), (.regular, .prim (.bool false))], false⟩,
          ⟨"out", .regular,
            .structComp []
              [.comprehension [.guard (.refId ⟨1, 0⟩)]
-               (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-             .regularOpen⟩] .regularOpen none []) = true := by
+               (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+             .regularOpen, false⟩] .regularOpen none []) = true := by
   native_decide
 
 -- ### `[]`-arm body-bottom asymmetry (AD4-1 — the `expandClauseChain` `onExhausted` parameter).

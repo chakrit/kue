@@ -134,15 +134,15 @@ mutual
     | fuel + 1, field =>
         match Field.fieldClass field with
         | .field true _ _ =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionValueWithFuel fuel field.value }
         | .importBinding =>
             field
         | .field false true _ =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionsWithFuel fuel field.value }
         | .letBinding =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionsWithFuel fuel field.value }
         | .field false false _ =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionsWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionsWithFuel fuel field.value }
 
   /-- CLOSING field-walker twin (SC-2 + SC-4). Identical to `normalizeFieldWithFuel` EXCEPT the
       regular/optional/required arm, the in-file HIDDEN (`_x`) arm, AND the `letBinding` arm all
@@ -164,15 +164,15 @@ mutual
     | fuel + 1, field =>
         match Field.fieldClass field with
         | .field true _ _ =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionValueWithFuel fuel field.value }
         | .importBinding =>
             field
         | .field false true _ =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionValueWithFuel fuel field.value }
         | .letBinding =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionValueWithFuel fuel field.value }
         | .field false false _ =>
-            ⟨Field.label field, Field.fieldClass field, normalizeDefinitionValueWithFuel fuel (Field.value field)⟩
+            { field with value := normalizeDefinitionValueWithFuel fuel field.value }
 
   def normalizeDefinitionsWithFuel : Nat -> Value -> Value
     | 0, value => value

@@ -426,7 +426,7 @@ def mergeUnevaluatedFieldInto (fields : List Field) (field : Field) : Option (Li
                 mergeDefinitionDecls (Field.value current) (Field.value field)
               else
                 joinUnevaluated (Field.value current) (Field.value field)
-            some (⟨Field.label current, fieldClass, value⟩ :: rest)
+            some ({ current with fieldClass := fieldClass, value := value } :: rest)
         | none => none
       else
         match mergeUnevaluatedFieldInto rest field with
@@ -579,8 +579,7 @@ mutual
       (mergedMap : List (String × Nat)) : List Field -> List Field
     | [] => []
     | field :: rest =>
-        ⟨Field.label field, Field.fieldClass field,
-          remapConjRefs fuel frameDepth oldLabels mergedMap (Field.value field)⟩
+        { field with value := remapConjRefs fuel frameDepth oldLabels mergedMap field.value }
           :: remapConjFields fuel frameDepth oldLabels mergedMap rest
   termination_by fields => (fuel, 1, fields.length)
 
@@ -1121,8 +1120,8 @@ evaluated, so referencing them re-evaluates a concrete value.
 -/
 def loopFrame (key : Option String) (keyValue : Value) (value : String) (element : Value) : List Field :=
   match key with
-  | some key => [⟨key, .regular, keyValue⟩, ⟨value, .regular, element⟩]
-  | none => [⟨value, .regular, element⟩]
+  | some key => [⟨key, .regular, keyValue, false⟩, ⟨value, .regular, element, false⟩]
+  | none => [⟨value, .regular, element, false⟩]
 
 /--
 CUE renders interpolation holes by their natural string form: a string contributes its

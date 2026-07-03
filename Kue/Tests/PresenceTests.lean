@@ -15,7 +15,7 @@ theorem classify_prim_defined :
     classifyDefinedness (.prim (.int 1)) = .defined := by native_decide
 
 theorem classify_struct_defined :
-    classifyDefinedness (mkStruct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none []) = .defined := by
+    classifyDefinedness (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none []) = .defined := by
   native_decide
 
 theorem classify_bottom_error :
@@ -51,14 +51,14 @@ theorem all_bottom_disj_ne_bottom_false :
 -- A concrete operand: `!= _|_` is true, `== _|_` is false.
 theorem concrete_ne_bottom_true :
     (evalStructRefs (resolveStructRefs
-      (mkStruct [⟨"b", .regular, .binary .ne (.prim (.int 1)) .bottom⟩] .regularOpen none []))
-      == mkStruct [⟨"b", .regular, .prim (.bool true)⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"b", .regular, .binary .ne (.prim (.int 1)) .bottom, false⟩] .regularOpen none []))
+      == mkStruct [⟨"b", .regular, .prim (.bool true), false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem concrete_eq_bottom_false :
     (evalStructRefs (resolveStructRefs
-      (mkStruct [⟨"b", .regular, .binary .eq (.prim (.int 1)) .bottom⟩] .regularOpen none []))
-      == mkStruct [⟨"b", .regular, .prim (.bool false)⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"b", .regular, .binary .eq (.prim (.int 1)) .bottom, false⟩] .regularOpen none []))
+      == mkStruct [⟨"b", .regular, .prim (.bool false), false⟩] .regularOpen none []) = true := by
   native_decide
 
 -- An incomplete operand keeps the comparison residual (never resolves to a bool).
@@ -70,12 +70,12 @@ theorem incomplete_ne_bottom_residual :
 theorem guard_fires_on_present :
     (evalStructRefs (resolveStructRefs
       (.structComp
-        [⟨"f", .regular, .prim (.int 3)⟩]
+        [⟨"f", .regular, .prim (.int 3), false⟩]
         [.comprehension
           [.guard (.binary .ne (.ref "f") .bottom)]
-          (mkStruct [⟨"seen", .regular, .ref "f"⟩] .regularOpen none [])]
+          (mkStruct [⟨"seen", .regular, .ref "f", false⟩] .regularOpen none [])]
         .regularOpen))
-      == mkStruct [⟨"f", .regular, .prim (.int 3)⟩, ⟨"seen", .regular, .prim (.int 3)⟩] .regularOpen none [])
+      == mkStruct [⟨"f", .regular, .prim (.int 3), false⟩, ⟨"seen", .regular, .prim (.int 3), false⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -83,12 +83,12 @@ theorem guard_fires_on_present :
 theorem guard_drops_on_absent :
     (evalStructRefs (resolveStructRefs
       (.structComp
-        [⟨"base", .regular, mkStruct [⟨"f", .regular, .prim (.int 3)⟩] .regularOpen none []⟩]
+        [⟨"base", .regular, mkStruct [⟨"f", .regular, .prim (.int 3), false⟩] .regularOpen none [], false⟩]
         [.comprehension
           [.guard (.binary .ne (.selector (.ref "base") "g") .bottom)]
-          (mkStruct [⟨"seen", .regular, .prim (.bool true)⟩] .regularOpen none [])]
+          (mkStruct [⟨"seen", .regular, .prim (.bool true), false⟩] .regularOpen none [])]
         .regularOpen))
-      == mkStruct [⟨"base", .regular, mkStruct [⟨"f", .regular, .prim (.int 3)⟩] .regularOpen none []⟩] .regularOpen none [])
+      == mkStruct [⟨"base", .regular, mkStruct [⟨"f", .regular, .prim (.int 3), false⟩] .regularOpen none [], false⟩] .regularOpen none [])
       = true := by
   native_decide
 
@@ -112,7 +112,7 @@ theorem guard_bottom_propagates :
         []
         [.comprehension
           [.guard (.binary .gt (.binary .div (.prim (.int 1)) (.prim (.int 0))) (.prim (.int 0)))]
-          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)))
       = true := by
   native_decide
@@ -124,7 +124,7 @@ theorem guard_bottom_from_sibling_propagates :
         []
         [.comprehension
           [.guard (.binary .gt (.conj [.prim (.int 1), .prim (.int 2)]) (.prim (.int 0)))]
-          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)))
       = true := by
   native_decide
@@ -136,7 +136,7 @@ theorem guard_false_still_drops :
         []
         [.comprehension
           [.guard (.prim (.bool false))]
-          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen))
       == mkStruct [] .regularOpen none []) = true := by
   native_decide
@@ -148,9 +148,9 @@ theorem guard_true_still_yields :
         []
         [.comprehension
           [.guard (.prim (.bool true))]
-          (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen))
-      == mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []) = true := by
   native_decide
 
 -- D#1b / D#1c — the guard classifier. `classifyGuard` enumerates every guard outcome with no
@@ -175,7 +175,7 @@ theorem classify_guard_int_nonbool :
 theorem classify_guard_null_nonbool :
     (classifyGuard (.prim .null) == .nonBool (.scalar .null)) = true := by native_decide
 theorem classify_guard_struct_nonbool :
-    (classifyGuard (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) == .nonBool .struct) = true := by
+    (classifyGuard (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []) == .nonBool .struct) = true := by
   native_decide
 theorem classify_guard_list_nonbool :
     (classifyGuard (.list [.prim (.int 1)]) == .nonBool .list) = true := by native_decide
@@ -231,7 +231,7 @@ theorem classify_dynlabel_bool_nonstring :
 theorem classify_dynlabel_null_nonstring :
     (classifyDynLabel (.prim .null) == .nonString (.scalar .null)) = true := by native_decide
 theorem classify_dynlabel_struct_nonstring :
-    (classifyDynLabel (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none []) == .nonString .struct)
+    (classifyDynLabel (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []) == .nonString .struct)
       = true := by native_decide
 theorem classify_dynlabel_list_nonstring :
     (classifyDynLabel (.list [.prim (.int 1)]) == .nonString .list) = true := by native_decide
@@ -260,7 +260,7 @@ theorem guard_nonbool_string_bottoms :
     isBottom (evalStructRefs (resolveStructRefs
       (.structComp []
         [.comprehension [.guard (.prim (.string "x"))]
-          (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)))
       = true := by
   native_decide
@@ -269,7 +269,7 @@ theorem guard_nonbool_int_bottoms :
     isBottom (evalStructRefs (resolveStructRefs
       (.structComp []
         [.comprehension [.guard (.prim (.int 3))]
-          (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)))
       = true := by
   native_decide
@@ -282,10 +282,10 @@ theorem list_guard_nonbool_bottoms_element :
       (mkStruct [⟨"out", .regular,
           .list [.prim (.int 1),
             .listComprehension [.guard (.prim (.string "z"))]
-              (.structComp [] [.prim (.int 2)] .regularOpen)]⟩]
+              (.structComp [] [.prim (.int 2)] .regularOpen)], false⟩]
         .regularOpen none []))
       == mkStruct [⟨"out", .regular,
-          .list [.prim (.int 1), .bottomWith [.nonBoolGuard (.scalar .string)]]⟩]
+          .list [.prim (.int 1), .bottomWith [.nonBoolGuard (.scalar .string)]], false⟩]
         .regularOpen none []) = true := by
   native_decide
 
@@ -295,20 +295,20 @@ theorem list_guard_nonbool_bottoms_element :
 theorem guard_incomplete_defers_residual :
     (evalStructRefs (resolveStructRefs
       (mkStruct [
-          ⟨"x", .regular, .kind .bool⟩,
+          ⟨"x", .regular, .kind .bool, false⟩,
           ⟨"out", .regular,
             .structComp []
               [.comprehension [.guard (.ref "x")]
-                (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-              .regularOpen⟩]
+                (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+              .regularOpen, false⟩]
         .regularOpen none []))
       == mkStruct [
-          ⟨"x", .regular, .kind .bool⟩,
+          ⟨"x", .regular, .kind .bool, false⟩,
           ⟨"out", .regular,
             .structComp []
               [.comprehension [.guard (.refId ⟨1, 0⟩)]
-                (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-              .regularOpen⟩]
+                (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+              .regularOpen, false⟩]
         .regularOpen none []) = true := by
   native_decide
 
@@ -318,7 +318,7 @@ theorem guard_incomplete_not_dropped :
     (evalStructRefs (resolveStructRefs
       (.structComp []
         [.comprehension [.guard (.kind .bool)]
-          (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen))
       == mkStruct [] .regularOpen none []) = false := by
   native_decide

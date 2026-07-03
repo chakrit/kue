@@ -37,38 +37,38 @@ theorem manifest_open_list_non_concrete_prefix_incomplete :
   rfl
 
 theorem manifest_open_list_nested_in_struct :
-    manifest (mkStruct [⟨"xs", .regular, .listTail [.prim (.int 1)] .top⟩] .regularOpen none [])
+    manifest (mkStruct [⟨"xs", .regular, .listTail [.prim (.int 1)] .top, false⟩] .regularOpen none [])
       = .ok (.struct [("xs", .list [.prim (.int 1)])]) := by
   rfl
 
 theorem manifest_concrete_struct :
-    manifest (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none [])
+    manifest (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.string "x"), false⟩] .regularOpen none [])
       = .ok (.struct [("a", .prim (.int 1)), ("b", .prim (.string "x"))]) := by
   rfl
 
 theorem manifest_string_pattern_struct_outputs_regular_fields :
-    manifest (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [((.kind .string), (.kind .int))])
+    manifest (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [((.kind .string), (.kind .int))])
       = .ok (.struct [("a", .prim (.int 1))]) := by
   rfl
 
 theorem manifest_filters_non_output_fields :
     manifest
       (mkStruct [
-          ⟨"a", .regular, .prim (.int 1)⟩,
-          ⟨"b", .optional, .prim (.int 2)⟩,
-          ⟨"_c", .hidden, .prim (.int 3)⟩,
-          ⟨"#D", .definition, .kind .int⟩
+          ⟨"a", .regular, .prim (.int 1), false⟩,
+          ⟨"b", .optional, .prim (.int 2), false⟩,
+          ⟨"_c", .hidden, .prim (.int 3), false⟩,
+          ⟨"#D", .definition, .kind .int, false⟩
         ] .regularOpen none [])
       = .ok (.struct [("a", .prim (.int 1))]) := by
   rfl
 
 theorem manifest_incomplete_regular_field_fails :
-    manifest (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
+    manifest (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none [])
       = .error (.incomplete (.kind .int)) := by
   rfl
 
 theorem manifest_unsatisfied_required_field_fails :
-    manifest (mkStruct [⟨"a", .required, .prim (.int 1)⟩] .regularOpen none [])
+    manifest (mkStruct [⟨"a", .required, .prim (.int 1), false⟩] .regularOpen none [])
       = .error (.incomplete (.prim (.int 1))) := by
   rfl
 
@@ -96,7 +96,7 @@ theorem manifest_selects_single_default :
 
 theorem manifest_selects_struct_field_default :
     (manifest
-      (mkStruct [⟨"mode", .regular, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+      (mkStruct [⟨"mode", .regular, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
       == .ok (.struct [("mode", .prim (.string "prod"))])) = true := by
   native_decide
 
@@ -116,29 +116,29 @@ theorem manifest_default_override_after_regular_unification :
 
 theorem manifest_ignores_absent_optional_default :
     manifest
-      (mkStruct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+      (mkStruct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
       = .ok (.struct []) := by
   rfl
 
 theorem manifest_selects_optional_default_when_regular_field_exists :
     (manifest
       (meet
-        (mkStruct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
-        (mkStruct [⟨"mode", .regular, .top⟩] .regularOpen none []))
+        (mkStruct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
+        (mkStruct [⟨"mode", .regular, .top, false⟩] .regularOpen none []))
       == .ok (.struct [("mode", .prim (.string "prod"))])) = true := by
   native_decide
 
 theorem manifest_unsatisfied_required_default_fails :
     manifest
-      (mkStruct [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+      (mkStruct [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
       = .error (.incomplete (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])) := by
   rfl
 
 theorem manifest_selects_required_default_when_regular_field_exists :
     (manifest
       (meet
-        (mkStruct [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
-        (mkStruct [⟨"mode", .regular, .top⟩] .regularOpen none []))
+        (mkStruct [⟨"mode", .required, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
+        (mkStruct [⟨"mode", .regular, .top, false⟩] .regularOpen none []))
       == .ok (.struct [("mode", .prim (.string "prod"))])) = true := by
   native_decide
 
@@ -152,8 +152,8 @@ theorem manifest_selects_required_default_when_regular_field_exists :
 -- disjunction arm). A held comprehension stands in for the deferred residual.
 theorem manifest_structcomp_inner_conflict_is_contradiction :
     manifest (.structComp
-        [⟨"x", .regular, .bottomWith [.fieldConflict "x"]⟩]
-        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        [⟨"x", .regular, .bottomWith [.fieldConflict "x"], false⟩]
+        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)
       = .error .contradiction := by
   rfl
@@ -162,8 +162,8 @@ theorem manifest_structcomp_inner_conflict_is_contradiction :
 -- inner `.struct` to the nested bottom (A#6 totality × the residual boundary). Still a contradiction.
 theorem manifest_structcomp_nested_conflict_is_contradiction :
     manifest (.structComp
-        [⟨"p", .regular, mkStruct [⟨"q", .regular, .bottomWith [.fieldConflict "q"]⟩] .regularOpen none []⟩]
-        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        [⟨"p", .regular, mkStruct [⟨"q", .regular, .bottomWith [.fieldConflict "q"], false⟩] .regularOpen none [], false⟩]
+        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)
       = .error .contradiction := by
   rfl
@@ -173,12 +173,12 @@ theorem manifest_structcomp_nested_conflict_is_contradiction :
 -- ONLY to find a real bottom and does not reclassify every residual as a contradiction.
 theorem manifest_structcomp_clean_residual_stays_incomplete :
     manifest (.structComp
-        [⟨"x", .regular, .prim (.int 1)⟩]
-        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        [⟨"x", .regular, .prim (.int 1), false⟩]
+        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)
       = .error (.incomplete (.structComp
-          [⟨"x", .regular, .prim (.int 1)⟩]
-          [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          [⟨"x", .regular, .prim (.int 1), false⟩]
+          [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
           .regularOpen)) := by
   rfl
 
@@ -188,12 +188,12 @@ theorem manifest_structcomp_clean_residual_stays_incomplete :
 -- tolerates elsewhere.
 theorem manifest_structcomp_optional_bottom_stays_incomplete :
     manifest (.structComp
-        [⟨"u", .optional, .bottomWith [.fieldConflict "u"]⟩]
-        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+        [⟨"u", .optional, .bottomWith [.fieldConflict "u"], false⟩]
+        [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
         .regularOpen)
       = .error (.incomplete (.structComp
-          [⟨"u", .optional, .bottomWith [.fieldConflict "u"]⟩]
-          [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+          [⟨"u", .optional, .bottomWith [.fieldConflict "u"], false⟩]
+          [.comprehension [] (mkStruct [⟨"y", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
           .regularOpen)) := by
   rfl
 

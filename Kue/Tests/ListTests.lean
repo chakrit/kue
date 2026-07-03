@@ -50,23 +50,23 @@ theorem meet_open_list_tail_preserves_extra_bottom :
 
 theorem meet_struct_field_open_list_tail_with_longer_closed_list :
     meet
-      (mkStruct [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] .regularOpen none [])
-      (mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [])
-      = mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [] := by
+      (mkStruct [⟨"x", .regular, .listTail [.kind .int] (.kind .string), false⟩] .regularOpen none [])
+      (mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")], false⟩] .regularOpen none [])
+      = mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")], false⟩] .regularOpen none [] := by
   rfl
 
 theorem meet_struct_field_open_list_tail_preserves_extra_bottom :
     meet
-      (mkStruct [⟨"x", .regular, .listTail [.kind .int] (.kind .string)⟩] .regularOpen none [])
-      (mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩] .regularOpen none [])
-      = mkStruct [⟨"x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]]⟩] .regularOpen none [] := by
+      (mkStruct [⟨"x", .regular, .listTail [.kind .int] (.kind .string), false⟩] .regularOpen none [])
+      (mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.int 2)], false⟩] .regularOpen none [])
+      = mkStruct [⟨"x", .regular, .list [.prim (.int 1), .bottomWith [.kindConflict .string .int]], false⟩] .regularOpen none [] := by
   rfl
 
 theorem meet_struct_field_closed_list_uses_list_meet :
     meet
-      (mkStruct [⟨"x", .regular, .list [.kind .int, .kind .string]⟩] .regularOpen none [])
-      (mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [])
-      = mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none [] := by
+      (mkStruct [⟨"x", .regular, .list [.kind .int, .kind .string], false⟩] .regularOpen none [])
+      (mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")], false⟩] .regularOpen none [])
+      = mkStruct [⟨"x", .regular, .list [.prim (.int 1), .prim (.string "x")], false⟩] .regularOpen none [] := by
   rfl
 
 theorem meet_list_item_disjunction_distributes :
@@ -119,28 +119,28 @@ theorem open_list_tail_rejects_conflicting_extra_item :
 
 -- Only-non-output struct meet a list → the list, with the decl preserved.
 theorem meet_hidden_struct_list_is_embedded_list :
-    (meet (mkStruct [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
+    (meet (mkStruct [⟨"#a", .definition, .prim (.int 1), false⟩] .regularOpen none [])
           (.list [.prim (.int 1), .prim (.int 2)])
-      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩])
+      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1), false⟩])
       = true := by native_decide
 
 -- A regular (output) field present → genuine conflict.
 theorem meet_regular_struct_list_is_bottom :
-    isBottom (meet (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
+    isBottom (meet (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
 -- A required field present → genuine conflict.
 theorem meet_required_struct_list_is_bottom :
-    isBottom (meet (mkStruct [⟨"a", .required, .kind .int⟩] .regularOpen none [])
+    isBottom (meet (mkStruct [⟨"a", .required, .kind .int, false⟩] .regularOpen none [])
                    (.list [.prim (.int 1), .prim (.int 2)]))
       = true := by native_decide
 
 -- Optional fields are non-output → the list survives.
 theorem meet_optional_struct_list_is_embedded_list :
-    (meet (mkStruct [⟨"a", .optional, .kind .int⟩] .regularOpen none [])
+    (meet (mkStruct [⟨"a", .optional, .kind .int, false⟩] .regularOpen none [])
           (.list [.prim (.int 1), .prim (.int 2)])
-      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"a", .optional, .kind .int⟩])
+      == .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"a", .optional, .kind .int, false⟩])
       = true := by native_decide
 
 -- Empty struct (no members at all) embedding a list → the bare list (no decls).
@@ -151,17 +151,17 @@ theorem meet_empty_struct_list_is_embedded_list :
 
 -- Open list embed: `[...]` is `listTail [] top` → `embeddedList [] (some top)`.
 theorem meet_hidden_struct_open_list :
-    (meet (mkStruct [⟨"#a", .definition, .prim (.int 1)⟩] .regularOpen none [])
+    (meet (mkStruct [⟨"#a", .definition, .prim (.int 1), false⟩] .regularOpen none [])
           (.listTail [] .top)
-      == .embeddedList [] (some .top) [⟨"#a", .definition, .prim (.int 1)⟩])
+      == .embeddedList [] (some .top) [⟨"#a", .definition, .prim (.int 1), false⟩])
       = true := by native_decide
 
 -- Meet of two embeddedLists merges decls and meets the lists (`[...int] & [1,2]`).
 theorem meet_two_embedded_lists :
-    (meet (.embeddedList [] (some (.kind .int)) [⟨"#a", .definition, .prim (.int 1)⟩])
-          (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#b", .definition, .prim (.int 2)⟩])
+    (meet (.embeddedList [] (some (.kind .int)) [⟨"#a", .definition, .prim (.int 1), false⟩])
+          (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#b", .definition, .prim (.int 2), false⟩])
       == .embeddedList [.prim (.int 1), .prim (.int 2)] none
-           [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
+           [⟨"#a", .definition, .prim (.int 1), false⟩, ⟨"#b", .definition, .prim (.int 2), false⟩])
       = true := by native_decide
 
 -- An embeddedList carrier meet a pure decls-only struct (no embed of its own) BOTTOMS: the
@@ -169,15 +169,15 @@ theorem meet_two_embedded_lists :
 -- (`{#a:1,[1,2]} & {#b:2}`; CUE v0.16.1 agrees). The decls do NOT merge — merge happens ONLY
 -- against another list-shaped carrier (`meet_two_embedded_lists`, above).
 theorem meet_embedded_list_with_decls_struct_bottoms :
-    (meet (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩])
-          (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none []))
+    (meet (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1), false⟩])
+          (mkStruct [⟨"#b", .definition, .prim (.int 2), false⟩] .regularOpen none []))
       == .bottom
       := by native_decide
 
 -- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically.
 theorem meet_decls_struct_with_embedded_list_bottoms :
-    (meet (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
-          (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1)⟩]))
+    (meet (mkStruct [⟨"#b", .definition, .prim (.int 2), false⟩] .regularOpen none [])
+          (.embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 1), false⟩]))
       == .bottom
       := by native_decide
 
@@ -191,7 +191,7 @@ theorem meet_embedded_list_conflicting_elements :
 -- An embeddedList still manifests as its list (decls and open tail dropped).
 theorem manifest_embedded_list_is_list :
     (manifest (.embeddedList [.prim (.int 1), .prim (.int 2)] (some .top)
-                 [⟨"#a", .definition, .prim (.int 1)⟩])).toOption
+                 [⟨"#a", .definition, .prim (.int 1), false⟩])).toOption
       == some (.list [.prim (.int 1), .prim (.int 2)])
       := by native_decide
 
@@ -203,22 +203,22 @@ theorem manifest_embedded_list_is_list :
 
 -- A carrier meet a bare scalar narrows the scalar, keeping the decls (`{#a:1,int} & 5`).
 theorem meet_scalar_carrier_with_scalar :
-    (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1)⟩]) (.prim (.int 5))
-      == .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
+    (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1), false⟩]) (.prim (.int 5))
+      == .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1), false⟩])
       = true := by native_decide
 
 -- Two carriers meet: scalars unify, decls merge (`{#a:1,int} & {#b:2,5}`).
 theorem meet_two_scalar_carriers :
-    (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1)⟩])
-          (.embeddedScalar (.prim (.int 5)) [⟨"#b", .definition, .prim (.int 2)⟩])
+    (meet (.embeddedScalar (.kind .int) [⟨"#a", .definition, .prim (.int 1), false⟩])
+          (.embeddedScalar (.prim (.int 5)) [⟨"#b", .definition, .prim (.int 2), false⟩])
       == .embeddedScalar (.prim (.int 5))
-           [⟨"#a", .definition, .prim (.int 1)⟩, ⟨"#b", .definition, .prim (.int 2)⟩])
+           [⟨"#a", .definition, .prim (.int 1), false⟩, ⟨"#b", .definition, .prim (.int 2), false⟩])
       = true := by native_decide
 
 -- A carrier whose scalar conflicts carries an inline bottom (the RESID-MASK convention,
 -- mirroring `meet_embedded_list_conflicting_elements`).
 theorem meet_scalar_carrier_conflicting :
-    containsBottom (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
+    containsBottom (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1), false⟩])
                          (.prim (.int 6)))
       = true := by native_decide
 
@@ -226,21 +226,21 @@ theorem meet_scalar_carrier_conflicting :
 -- scalar, so `5 & {#b:2}` is an int-vs-struct kind conflict (`{#a:1,5} & {#b:2}`; CUE v0.16.1
 -- agrees). The decls do NOT merge — merge happens ONLY against another carrier (above).
 theorem meet_scalar_carrier_with_decls_struct_bottoms :
-    (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])
-          (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none []))
+    (meet (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1), false⟩])
+          (mkStruct [⟨"#b", .definition, .prim (.int 2), false⟩] .regularOpen none []))
       == .bottom
       := by native_decide
 
 -- Operand order is symmetric — the decls-only struct on the LEFT bottoms identically.
 theorem meet_decls_struct_with_scalar_carrier_bottoms :
-    (meet (mkStruct [⟨"#b", .definition, .prim (.int 2)⟩] .regularOpen none [])
-          (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]))
+    (meet (mkStruct [⟨"#b", .definition, .prim (.int 2), false⟩] .regularOpen none [])
+          (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1), false⟩]))
       == .bottom
       := by native_decide
 
 -- A carrier manifests as its scalar (decls dropped from output).
 theorem manifest_scalar_carrier_is_scalar :
-    (manifest (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩])).toOption
+    (manifest (.embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1), false⟩])).toOption
       == some (.prim (.int 5))
       := by native_decide
 

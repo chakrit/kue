@@ -169,9 +169,9 @@ def bindImports (bindings : List (String × Value)) : Value -> Value
   | .struct fields openness tail patterns closedClauses =>
       -- Import bindings are `importBinding` (ignore closedness), so the clauses' field-label
       -- sets need not list them; carry `closedClauses` through unchanged.
-      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ fields) openness tail patterns closedClauses
+      .struct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd, false⟩) ++ fields) openness tail patterns closedClauses
   | value =>
-      mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd⟩) ++ [⟨"", FieldClass.regular, value⟩]) .defClosed none []
+      mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd, false⟩) ++ [⟨"", FieldClass.regular, value, false⟩]) .defClosed none []
 
 /-- The local name a package binds under, in spec precedence: the `PackageName` alias
     prefix (`import foo "…"`) when present; else the explicit `:identifier` qualifier

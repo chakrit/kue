@@ -13,8 +13,8 @@ namespace Kue
     -- case and fell through to `.bottom`.
 theorem select_into_default_disjunction :
     (selectEvaluatedField
-      (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"c", .regular, .prim (.int 9)⟩] .regularOpen none []),
-              (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+      (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"c", .regular, .prim (.int 9), false⟩] .regularOpen none []),
+              (.regular, mkStruct [⟨"a", .regular, .prim (.int 2), false⟩] .regularOpen none [])])
       "a"
       == .prim (.int 1)) = true := by
   native_decide
@@ -24,8 +24,8 @@ theorem select_into_default_disjunction :
     -- `selectFromDecls` helper — same path the plain-`.struct` arm above takes.
 theorem select_into_default_disjunction_scalar_carrier :
     (selectEvaluatedField
-      (.disj [(.default, .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1)⟩]),
-              (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
+      (.disj [(.default, .embeddedScalar (.prim (.int 5)) [⟨"#a", .definition, .prim (.int 1), false⟩]),
+              (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2), false⟩] .regularOpen none [])])
       "#a"
       == .prim (.int 1)) = true := by
   native_decide
@@ -34,8 +34,8 @@ theorem select_into_default_disjunction_scalar_carrier :
     -- off the list carrier identically to the scalar and struct shapes.
 theorem select_into_default_disjunction_list_carrier :
     (selectEvaluatedField
-      (.disj [(.default, .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 7)⟩]),
-              (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2)⟩] .regularOpen none [])])
+      (.disj [(.default, .embeddedList [.prim (.int 1), .prim (.int 2)] none [⟨"#a", .definition, .prim (.int 7), false⟩]),
+              (.regular, mkStruct [⟨"#a", .definition, .prim (.int 2), false⟩] .regularOpen none [])])
       "#a"
       == .prim (.int 7)) = true := by
   native_decide
@@ -45,12 +45,12 @@ theorem select_into_default_disjunction_list_carrier :
     -- spurious `bottom` and never a silent pick of one arm.
 theorem select_into_nondefault_disjunction_defers :
     (selectEvaluatedField
-      (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-              (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+      (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+              (.regular, mkStruct [⟨"a", .regular, .prim (.int 2), false⟩] .regularOpen none [])])
       "a"
       == .selector
-           (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-                   (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+           (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+                   (.regular, mkStruct [⟨"a", .regular, .prim (.int 2), false⟩] .regularOpen none [])])
            "a") = true := by
   native_decide
 
@@ -67,9 +67,9 @@ theorem select_into_nondefault_disjunction_defers :
     -- result pre- and post-collapse.
 theorem select_into_default_disjunction_nested_carrier :
     (selectEvaluatedField
-      (.disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-                                (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])]),
-              (.regular, mkStruct [⟨"a", .regular, .prim (.int 9)⟩] .regularOpen none [])])
+      (.disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+                                (.regular, mkStruct [⟨"a", .regular, .prim (.int 2), false⟩] .regularOpen none [])]),
+              (.regular, mkStruct [⟨"a", .regular, .prim (.int 9), false⟩] .regularOpen none [])])
       "a"
       == .prim (.int 1)) = true := by
   native_decide
@@ -82,14 +82,14 @@ theorem select_into_default_disjunction_nested_carrier :
     -- deferral stays byte-identical, NOT a spurious `.bottom`.
 theorem select_into_default_disjunction_deep_nested_defers :
     (selectEvaluatedField
-      (.disj [(.default, .disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-                                                  (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])]),
-                                (.regular, mkStruct [⟨"a", .regular, .prim (.int 7)⟩] .regularOpen none [])])])
+      (.disj [(.default, .disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+                                                  (.regular, mkStruct [⟨"a", .regular, .prim (.int 2), false⟩] .regularOpen none [])]),
+                                (.regular, mkStruct [⟨"a", .regular, .prim (.int 7), false⟩] .regularOpen none [])])])
       "a"
       == .selector
-           (.disj [(.default, .disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-                                                        (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])]),
-                                      (.regular, mkStruct [⟨"a", .regular, .prim (.int 7)⟩] .regularOpen none [])])])
+           (.disj [(.default, .disj [(.default, .disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+                                                        (.regular, mkStruct [⟨"a", .regular, .prim (.int 2), false⟩] .regularOpen none [])]),
+                                      (.regular, mkStruct [⟨"a", .regular, .prim (.int 7), false⟩] .regularOpen none [])])])
            "a") = true := by
   native_decide
 
@@ -159,7 +159,7 @@ theorem select_field_off_ref_scalar_default_drops_arm :
 theorem select_field_off_scalar_default_is_bottom :
     (selectEvaluatedField
       (.disj [(.default, .prim (.int 5)),
-              (.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])])
+              (.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])])
       "a"
       == .bottom) = true := by
   native_decide
@@ -170,12 +170,12 @@ theorem select_field_off_scalar_default_is_bottom :
     -- pick or bottom.
 theorem select_into_ambiguous_disjunction_still_defers :
     (selectEvaluatedField
-      (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-              (.regular, mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+      (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+              (.regular, mkStruct [⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none [])])
       "a"
       == .selector
-           (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-                   (.regular, mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])])
+           (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+                   (.regular, mkStruct [⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none [])])
            "a") = true := by
   native_decide
 
@@ -185,17 +185,17 @@ theorem select_into_ambiguous_disjunction_still_defers :
     -- `Self.a` resolves. A non-default disjunction passes through untouched.
 theorem resolve_embedded_default_disjunction :
     (resolveEmbeddedDisjDefault
-      (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-              (.regular, mkStruct [⟨"a", .regular, .prim (.int 2)⟩] .regularOpen none [])])
-      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []) = true := by
+      (.disj [(.default, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+              (.regular, mkStruct [⟨"a", .regular, .prim (.int 2), false⟩] .regularOpen none [])])
+      == mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem resolve_embedded_nondefault_disjunction_unchanged :
     (resolveEmbeddedDisjDefault
-      (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-              (.regular, mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])])
-      == .disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-                (.regular, mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])]) = true := by
+      (.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+              (.regular, mkStruct [⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none [])])
+      == .disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+                (.regular, mkStruct [⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none [])]) = true := by
   native_decide
 
 -- TWO-PASS GATE (perf): the embedding-`Self` re-evaluation fires ONLY when a static field
@@ -203,19 +203,19 @@ theorem resolve_embedded_nondefault_disjunction_unchanged :
     -- (a `parts.#Metadata` embed never read via `Self.metadata`) on the single-pass path.
 theorem embedded_self_pass_fires_on_self_select :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩, ⟨"b", .regular, .selector (.refId ⟨0, 0⟩) "a"⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩, ⟨"b", .regular, .selector (.refId ⟨0, 0⟩) "a", false⟩]
       ["a"] = true := by
   native_decide
 
 theorem embedded_self_pass_skips_unselected_embed_label :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩, ⟨"b", .regular, .selector (.refId ⟨0, 0⟩) "a"⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩, ⟨"b", .regular, .selector (.refId ⟨0, 0⟩) "a", false⟩]
       ["metadata"] = false := by
   native_decide
 
 theorem embedded_self_pass_skips_when_no_self_select :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩, ⟨"b", .regular, .prim (.int 1)⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩, ⟨"b", .regular, .prim (.int 1), false⟩]
       ["metadata"] = false := by
   native_decide
 
@@ -236,17 +236,17 @@ theorem embedded_self_pass_skips_when_no_self_select :
 -- DEEP: `Self.a` read one frame deep (`b: { c: Self.a }`) fires the gate.
 theorem embedded_self_pass_fires_on_nested_self_select :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"b", .regular, mkStruct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "a"⟩] .regularOpen none []⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩,
+       ⟨"b", .regular, mkStruct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "a", false⟩] .regularOpen none [], false⟩]
       ["a"] = true := by
   native_decide
 
 -- LIST-COMPREHENSION SOURCE: `b: [for x in Self.a {…}]` fires the gate (source at depth 0).
 theorem embedded_self_pass_fires_on_listcomp_source :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩,
+      [⟨"Self", .letBinding, .thisStruct, false⟩,
        ⟨"b", .regular, .list [.listComprehension [.forIn none "x" (.selector (.refId ⟨0, 0⟩) "a")]
-                                (mkStruct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])]⟩]
+                                (mkStruct [⟨"v", .regular, .refId ⟨0, 0⟩, false⟩] .regularOpen none [])], false⟩]
       ["a"] = true := by
   native_decide
 
@@ -254,10 +254,10 @@ theorem embedded_self_pass_fires_on_listcomp_source :
 -- depth 1) — the real argocd shape — fires the gate.
 theorem embedded_self_pass_fires_on_nested_listcomp_source :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩,
+      [⟨"Self", .letBinding, .thisStruct, false⟩,
        ⟨"spec", .regular, mkStruct [⟨"listeners", .regular, .list [.listComprehension
               [.forIn none "x" (.selector (.refId ⟨1, 0⟩) "a")]
-              (mkStruct [⟨"v", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])]⟩] .regularOpen none []⟩]
+              (mkStruct [⟨"v", .regular, .refId ⟨0, 0⟩, false⟩] .regularOpen none [])], false⟩] .regularOpen none [], false⟩]
       ["a"] = true := by
   native_decide
 
@@ -265,8 +265,8 @@ theorem embedded_self_pass_fires_on_nested_listcomp_source :
 -- still does not fire — the depth-tracking widens detection only for genuinely-embedded labels.
 theorem embedded_self_pass_skips_nested_unselected :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"b", .regular, mkStruct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "other"⟩] .regularOpen none []⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩,
+       ⟨"b", .regular, mkStruct [⟨"c", .regular, .selector (.refId ⟨1, 0⟩) "other", false⟩] .regularOpen none [], false⟩]
       ["a"] = false := by
   native_decide
 
@@ -283,16 +283,16 @@ theorem embedded_self_pass_skips_nested_unselected :
 -- GATE: `count: len(Self.x)` (an embedded-label read inside a builtin arg) fires the two-pass.
 theorem embedded_self_pass_fires_on_builtin_wrapped_select :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "x"]⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩,
+       ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "x"], false⟩]
       ["x"] = true := by
   native_decide
 
 -- NESTED builtin arg (`spec: { n: len(Self.x) }`, read at depth 1) also fires.
 theorem embedded_self_pass_fires_on_nested_builtin_wrapped_select :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"spec", .regular, mkStruct [⟨"n", .regular, .builtinCall "len" [.selector (.refId ⟨1, 0⟩) "x"]⟩] .regularOpen none []⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩,
+       ⟨"spec", .regular, mkStruct [⟨"n", .regular, .builtinCall "len" [.selector (.refId ⟨1, 0⟩) "x"], false⟩] .regularOpen none [], false⟩]
       ["x"] = true := by
   native_decide
 
@@ -308,8 +308,8 @@ theorem selfreferenced_labels_descends_builtin_arg :
 theorem selpass_selects_builtin_wrapped_field :
     (embeddedSelfPassFieldIndices
         (canonicalizeFields
-          [⟨"#self", .definition, .thisStruct⟩,
-           ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "et"]⟩])
+          [⟨"#self", .definition, .thisStruct, false⟩,
+           ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "et"], false⟩])
         ["et"]
       == [1]) = true := by
   native_decide
@@ -317,8 +317,8 @@ theorem selpass_selects_builtin_wrapped_field :
 -- NO OVER-FIRE: a builtin arg reading an UNRELATED label does not fire the gate.
 theorem embedded_self_pass_skips_builtin_unrelated :
     needsEmbeddedSelfPass
-      [⟨"Self", .letBinding, .thisStruct⟩,
-       ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "other"]⟩]
+      [⟨"Self", .letBinding, .thisStruct, false⟩,
+       ⟨"count", .regular, .builtinCall "len" [.selector (.refId ⟨0, 0⟩) "other"], false⟩]
       ["x"] = false := by
   native_decide
 
@@ -339,8 +339,8 @@ theorem remap_structcomp_conjunct_reindexes_inner_refid :
     (remapConjRefs remapFuel 0
         [Field.regular "a" .top, Field.regular "b" .top]
         [("b", 0), ("a", 1)]
-        (.structComp [⟨"x", .regular, .refId ⟨1, 1⟩⟩] [] .regularOpen)
-      == .structComp [⟨"x", .regular, .refId ⟨1, 0⟩⟩] [] .regularOpen) = true := by
+        (.structComp [⟨"x", .regular, .refId ⟨1, 1⟩, false⟩] [] .regularOpen)
+      == .structComp [⟨"x", .regular, .refId ⟨1, 0⟩, false⟩] [] .regularOpen) = true := by
   native_decide
 
 -- A `.structComp` conjunct's COMPREHENSION list is also remapped (a comprehension body reading a
@@ -453,7 +453,7 @@ theorem descend_clauses_agrees_remapConjClauses :
 -- on its own; ALL signal comes from the leaf hook.
 theorem fold_value_with_depth_empty_monoid_is_empty :
     (foldValueWithDepth (β := List Nat) (fun _ _ => []) [] (fun _ _ => none) evalFuel 0
-        (mkStruct [⟨"a", .regular, .refId ⟨0, 3⟩⟩] .regularOpen none
+        (mkStruct [⟨"a", .regular, .refId ⟨0, 3⟩, false⟩] .regularOpen none
           [(.kind .string, .comprehension [.forIn none "x" (.list [])] (.refId ⟨1, 7⟩))])
       == []) = true := by
   native_decide
@@ -464,7 +464,7 @@ theorem fold_value_with_depth_empty_monoid_is_empty :
 theorem fold_value_with_depth_leaf_short_circuits :
     (foldValueWithDepth (β := List Nat) (· ++ ·) []
         (fun _ v => match v with | .struct .. => some [99] | _ => none) evalFuel 0
-        (mkStruct [⟨"a", .regular, .refId ⟨0, 0⟩⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .refId ⟨0, 0⟩, false⟩] .regularOpen none [])
       == [99]) = true := by
   native_decide
 
@@ -533,7 +533,7 @@ theorem descend_clauses_frame_count_matches_resolve :
 theorem self_referenced_labels_collects_through_for_body :
     (selfReferencedLabels evalFuel 0 0
         (.comprehension [.forIn none "x" (.list [])]
-          (mkStruct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] .regularOpen none []))
+          (mkStruct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t", false⟩] .regularOpen none []))
       == ["#t"]) = true := by
   native_decide
 
@@ -542,7 +542,7 @@ theorem self_referenced_labels_collects_through_for_body :
 theorem self_referenced_labels_guard_no_frame :
     (selfReferencedLabels evalFuel 0 0
         (.comprehension [.guard (.selector (.refId ⟨0, 0⟩) "#g")]
-          (mkStruct [⟨"v", .regular, .selector (.refId ⟨1, 0⟩) "#t"⟩] .regularOpen none []))
+          (mkStruct [⟨"v", .regular, .selector (.refId ⟨1, 0⟩) "#t", false⟩] .regularOpen none []))
       == ["#g", "#t"]) = true := by
   native_decide
 
@@ -555,7 +555,7 @@ theorem self_referenced_labels_guard_no_frame :
 theorem refs_self_embedded_label_detects_through_for_body :
     refsSelfEmbeddedLabel evalFuel 0 0 ["#t"]
         (.comprehension [.forIn none "x" (.list [])]
-          (mkStruct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t"⟩] .regularOpen none [])) = true := by
+          (mkStruct [⟨"v", .regular, .selector (.refId ⟨2, 0⟩) "#t", false⟩] .regularOpen none [])) = true := by
   native_decide
 
 -- NOTE on end-to-end coverage: the observable wrong-value form of this miss (a static field
@@ -958,7 +958,7 @@ theorem nested_disj_mark_tier2_struct_DEFERRAL_witness :
 theorem embed_comprehension_reads_guarded_regular_sibling :
     embedComprehensionReadLabels
       (.structComp
-        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩, ⟨"kind", .regular, .kind .string⟩]
+        [⟨"Self", .letBinding, .thisStruct, false⟩, ⟨"#additions", .hidden, .top, false⟩, ⟨"kind", .regular, .kind .string, false⟩]
         [.comprehension
           [.forIn (some "_") "add" (.selector (.refId ⟨0, 0⟩) "#additions")]
           (.structComp []
@@ -1014,8 +1014,8 @@ theorem embed_comprehension_guard_real_conflict_bottoms :
 theorem let_buried_guard_reads_regular_sibling :
     embedComprehensionReadLabels
       (.structComp
-        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩,
-         ⟨"kind", .regular, .kind .string⟩,
+        [⟨"Self", .letBinding, .thisStruct, false⟩, ⟨"#additions", .hidden, .top, false⟩,
+         ⟨"kind", .regular, .kind .string, false⟩,
          ⟨"_patch", .letBinding,
             (.structComp []
               [.comprehension
@@ -1025,7 +1025,7 @@ theorem let_buried_guard_reads_regular_sibling :
                     [.guard (.binary .eq (.refId ⟨3, 2⟩) (.selector (.refId ⟨1, 1⟩) "#kind"))]
                     (.structComp [] [.selector (.refId ⟨3, 1⟩) "#patch"] .regularOpen)]
                   .regularOpen)]
-              .regularOpen)⟩]
+              .regularOpen), false⟩]
         [.refId ⟨0, 3⟩]
         .regularOpen)
       = ["_patch", "Self", "kind"] := by
@@ -1037,8 +1037,8 @@ theorem let_buried_guard_reads_regular_sibling :
 theorem two_lets_buried_guard_reads_regular_sibling :
     ("kind" ∈ embedComprehensionReadLabels
       (.structComp
-        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩,
-         ⟨"kind", .regular, .kind .string⟩,
+        [⟨"Self", .letBinding, .thisStruct, false⟩, ⟨"#additions", .hidden, .top, false⟩,
+         ⟨"kind", .regular, .kind .string, false⟩,
          ⟨"_patch", .letBinding,
             (.structComp []
               [.comprehension
@@ -1048,8 +1048,8 @@ theorem two_lets_buried_guard_reads_regular_sibling :
                     [.guard (.binary .eq (.refId ⟨3, 2⟩) (.selector (.refId ⟨1, 1⟩) "#kind"))]
                     (.structComp [] [.selector (.refId ⟨3, 1⟩) "#patch"] .regularOpen)]
                   .regularOpen)]
-              .regularOpen)⟩,
-         ⟨"structShape", .letBinding, (.structComp [] [.refId ⟨1, 3⟩] .regularOpen)⟩]
+              .regularOpen), false⟩,
+         ⟨"structShape", .letBinding, (.structComp [] [.refId ⟨1, 3⟩] .regularOpen), false⟩]
         [.refId ⟨0, 4⟩]
         .regularOpen)) = true := by
   native_decide
@@ -1060,13 +1060,13 @@ theorem two_lets_buried_guard_reads_regular_sibling :
 theorem let_buried_no_regular_read_no_over_splice :
     (embedComprehensionReadLabels
       (.structComp
-        [⟨"Self", .letBinding, .thisStruct⟩, ⟨"#additions", .hidden, .top⟩,
+        [⟨"Self", .letBinding, .thisStruct, false⟩, ⟨"#additions", .hidden, .top, false⟩,
          ⟨"_patch", .letBinding,
             (.structComp []
               [.comprehension
                 [.forIn (some "_") "add" (.selector (.refId ⟨1, 0⟩) "#additions")]
                 (.structComp [] [.selector (.refId ⟨2, 1⟩) "#patch"] .regularOpen)]
-              .regularOpen)⟩]
+              .regularOpen), false⟩]
         [.refId ⟨0, 2⟩]
         .regularOpen)).filter (fun l => l == "name" || l == "kind") = [] := by
   native_decide
@@ -1077,7 +1077,7 @@ theorem let_buried_no_regular_read_no_over_splice :
 theorem let_self_ref_cycle_terminates :
     (embedComprehensionReadLabels
       (.structComp
-        [⟨"a", .letBinding, (.refId ⟨0, 0⟩)⟩]
+        [⟨"a", .letBinding, (.refId ⟨0, 0⟩), false⟩]
         [.refId ⟨0, 0⟩]
         .regularOpen)).length ≤ 1 := by
   native_decide
@@ -1136,7 +1136,7 @@ theorem let_buried_for_source_expands :
 theorem let_local_declare_and_read_surfaces_label :
     ("kind" ∈ letPromotedReadLabels evalFuel []
       (.structComp
-        [⟨"kind", .regular, .kind .string⟩]
+        [⟨"kind", .regular, .kind .string, false⟩]
         [.comprehension
           [.forIn (some "_") "add" (.selector (.refId ⟨1, 0⟩) "#additions")]
           (.structComp []
@@ -1152,7 +1152,7 @@ theorem let_local_declare_and_read_surfaces_label :
 -- injected and an unrelated declaration stays byte-identical.
 theorem let_local_unread_not_surfaced :
     ("x" ∈ letPromotedReadLabels evalFuel []
-      (.structComp [⟨"x", .regular, .kind .string⟩] [] .regularOpen)) = false := by
+      (.structComp [⟨"x", .regular, .kind .string, false⟩] [] .regularOpen)) = false := by
   native_decide
 
 -- Totality / cycle bound: `injectLetLocalNarrowings` over a self-referential let value terminates
@@ -1160,8 +1160,8 @@ theorem let_local_unread_not_surfaced :
 -- the cycle is broken without narrowing an unread slot).
 theorem inject_let_local_self_ref_terminates :
     (injectLetLocalNarrowings evalFuel [("kind", .prim (.string "X"))] []
-      (.structComp [⟨"a", .letBinding, (.refId ⟨0, 0⟩)⟩] [.refId ⟨0, 0⟩] .regularOpen)
-      == (.structComp [⟨"a", .letBinding, (.refId ⟨0, 0⟩)⟩] [.refId ⟨0, 0⟩] .regularOpen)) = true := by
+      (.structComp [⟨"a", .letBinding, (.refId ⟨0, 0⟩), false⟩] [.refId ⟨0, 0⟩] .regularOpen)
+      == (.structComp [⟨"a", .letBinding, (.refId ⟨0, 0⟩), false⟩] [.refId ⟨0, 0⟩] .regularOpen)) = true := by
   native_decide
 
 -- End-to-end (the argocd `#Mixin` minimal shape, WITH the structural disjunction): the matched
@@ -1217,8 +1217,8 @@ theorem embed_body_embeds_disj_deep_transitive :
     -- env frame holds `#Mixin` at slot 0 (a struct-comp body whose `cs` is the structural disjunction).
     (embedBodyEmbedsDisjDeep
       [(0, [⟨"#Mixin", .definition,
-              (.structComp [] [.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []),
-                                      (.regular, .builtinCall "error" [.prim (.string "no")])]] .regularOpen)⟩])]
+              (.structComp [] [.disj [(.regular, mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []),
+                                      (.regular, .builtinCall "error" [.prim (.string "no")])]] .regularOpen), false⟩])]
       evalFuel
       -- the middle body re-embeds `#Mixin` (a depth-0 ref to slot 0) — no `.disj` of its OWN.
       (.structComp [] [.refId ⟨0, 0⟩] .regularOpen)) = true := by
@@ -1228,7 +1228,7 @@ theorem embed_body_embeds_disj_deep_transitive :
 -- so the deep gate adds no splice, byte-identical to pre-fix for every non-mixin embed chain.
 theorem embed_body_embeds_disj_deep_no_disj :
     (embedBodyEmbedsDisjDeep
-      [(0, [⟨"#Plain", .definition, (.structComp [⟨"a", .regular, .prim (.int 1)⟩] [] .regularOpen)⟩])]
+      [(0, [⟨"#Plain", .definition, (.structComp [⟨"a", .regular, .prim (.int 1), false⟩] [] .regularOpen), false⟩])]
       evalFuel
       (.structComp [] [.refId ⟨0, 0⟩] .regularOpen)) = false := by
   native_decide
@@ -1340,12 +1340,12 @@ theorem bug25_transitive_no_over_prune_two_struct_arms :
 theorem embed_disj_arm_decl_labels_inline :
     embedDisjArmDeclLabels
       (.structComp
-        [⟨"#k", .hidden, .kind .string⟩, ⟨"shape", .regular, .kind .string⟩]
+        [⟨"#k", .hidden, .kind .string, false⟩, ⟨"shape", .regular, .kind .string, false⟩]
         [.disj
-          [(.regular, mkStruct [⟨"shape", .regular, .prim (.string "struct")⟩,
-                               ⟨"val", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none []),
-           (.regular, mkStruct [⟨"shape", .regular, .prim (.string "list")⟩,
-                               ⟨"items", .regular, .list [.refId ⟨1, 0⟩]⟩] .regularOpen none []),
+          [(.regular, mkStruct [⟨"shape", .regular, .prim (.string "struct"), false⟩,
+                               ⟨"val", .regular, .refId ⟨1, 0⟩, false⟩] .regularOpen none []),
+           (.regular, mkStruct [⟨"shape", .regular, .prim (.string "list"), false⟩,
+                               ⟨"items", .regular, .list [.refId ⟨1, 0⟩], false⟩] .regularOpen none []),
            (.regular, .builtinCall "error" [.prim (.string "no shape")])]]
         .regularOpen)
       = ["shape"] := by
@@ -1357,12 +1357,12 @@ theorem embed_disj_arm_decl_labels_inline :
 theorem embed_disj_arm_decl_labels_let_refs :
     embedDisjArmDeclLabels
       (.structComp
-        [⟨"#additions", .hidden, .top⟩, ⟨"kind", .regular, .kind .string⟩,
-         ⟨"shape", .regular, .kind .string⟩,
+        [⟨"#additions", .hidden, .top, false⟩, ⟨"kind", .regular, .kind .string, false⟩,
+         ⟨"shape", .regular, .kind .string, false⟩,
          ⟨"listShape", .letBinding,
-            (mkStruct [⟨"shape", .regular, .prim (.string "list")⟩] .regularOpen none [])⟩,
+            (mkStruct [⟨"shape", .regular, .prim (.string "list"), false⟩] .regularOpen none []), false⟩,
          ⟨"structShape", .letBinding,
-            (.structComp [⟨"shape", .regular, .prim (.string "struct")⟩] [] .regularOpen)⟩]
+            (.structComp [⟨"shape", .regular, .prim (.string "struct"), false⟩] [] .regularOpen), false⟩]
         [.disj
           [(.regular, .refId ⟨0, 4⟩), (.regular, .refId ⟨0, 3⟩),
            (.regular, .builtinCall "error" [.prim (.string "no shape")])]]
@@ -1375,7 +1375,7 @@ theorem embed_disj_arm_decl_labels_let_refs :
 theorem embed_disj_arm_decl_labels_no_disj_gate :
     embedDisjArmDeclLabels
       (.structComp
-        [⟨"shape", .regular, .kind .string⟩]
+        [⟨"shape", .regular, .kind .string, false⟩]
         [.refId ⟨1, 0⟩]
         .regularOpen)
       = [] := by
@@ -1470,7 +1470,7 @@ theorem disj_embed_struct_disc_struct_struct_stays_ambiguous :
 -- splice never fires there and the narrow comprehension-read splice is preserved (byte-identical).
 theorem embed_body_embeds_disj_gate_no_disj :
     embedBodyEmbedsDisj
-      (.structComp [⟨"shape", .regular, .kind .string⟩] [.refId ⟨1, 0⟩] .regularOpen)
+      (.structComp [⟨"shape", .regular, .kind .string, false⟩] [.refId ⟨1, 0⟩] .regularOpen)
       = false := by
   native_decide
 

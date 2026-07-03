@@ -16280,6 +16280,12 @@ no over-rejection.
 
 ### Deliberately NOT caught (reverse-direction under-rejection)
 
+> **RETRACTED 2026-07-04** — the reverse direction LANDED the same day (see the slice below,
+> "let/alias no-shadow — REVERSE direction"). `Field.quoted` was added to the `Value` layer,
+> so a descendant field's quoted-accurate name is now checkable against ancestor `let`s. The
+> "too invasive" judgement below was wrong on the site count (the `:= false` default kept the
+> real blast radius to ~40 hand sites + a mechanical pass over positional literals, not 1932).
+
 The REVERSE direction — a `let` in an ENCLOSING scope shadowed by a field in a NESTED scope
 (q7, r5, s4, f4) — is not enforced. Detecting it soundly needs the DESCENDANT field's
 quoted-accurate name checked against ancestor `let`s, but quoted-ness survives only at parse
@@ -16345,3 +16351,73 @@ code change. A periodic plan-hygiene pass per `slice-loop.md` § Plan-hygiene.
 ### Verify
 `./scripts/check.sh` GREEN (docs-only, but run once to confirm no gate broke: build via
 `./lake`; fixtures; realworld cert-manager; test-health; shellcheck). No fixture/canary change.
+
+---
+
+## Completed Slice: let/alias no-shadow validation — REVERSE direction (2026-07-04)
+
+Closes the no-shadow rule's other direction: a `let`/value-alias in an ENCLOSING scope shadowed
+by a bare/hidden FIELD in a NESTED scope. cue rejects it (`cannot have both alias and field with
+name "x" in same scope`); Kue under-rejected. Graduates the three red seeds
+`testdata/wild/let-shadowed-by-{nested-field,descendant-field-in-struct,field-in-def-body}`
+(`.known-red` removed). Retracts the FORWARD slice's "Deliberately NOT caught" section.
+
+### The blocker and the fix (model quoting on the Value layer)
+
+The forward check reads quoted-ness from the parse-time `ParsedField` (a `"x":` label declares no
+colliding identifier). The reverse check needs the same quoted-accuracy for a DESCENDANT field —
+but nested structs are already-parsed `Value`s by the time an ancestor's `let` is checked, and
+`Value.Field` dropped the quoted bit. Fix (illegal-states-unrepresentable, not a threaded flag):
+
+- **`Field.quoted : Bool := false`** added to `Kue/Value.lean`. A parse-time provenance bit, set
+  `true` ONLY at `parseQuotedLabelField` for a genuinely-quoted `"x":` static label; every
+  evaluation-time reconstruction leaves it `false` (the default). Real blast radius from the
+  default: the library `⟨…⟩` positional constructions the compiler flagged (Parse, Normalize,
+  Resolve, Lattice, EvalBase, Eval, Module — converted to `{ f with value := … }` where they
+  reconstruct a field, preserving provenance; `, false`/`, true` where they mint one), plus a
+  mechanical pass appending `, false` to positional `Field` literals in `Tests/` (Lean's `⟨⟩`
+  requires all explicit fields even when the last has a default). No `{ … }` record construction
+  or `.field` projection needed touching.
+
+### The check (unified, one traversal)
+
+`checkLetFieldShadow` (in `parsedFieldsValue`) now runs BOTH directions at every struct scope:
+- FORWARD: `collidableLabels parsedFields` (top-level bare/hidden field names, quoted-accurate
+  from `ParsedField`) ∩ `collectLetNames declared` (subtree `let`/alias names).
+- REVERSE: `topLevelLetNames parsedFields` (this scope's `let`/value-alias names) ∩
+  `collectFieldNames declared` (subtree bare/hidden field names, quoted-accurate via
+  `Field.quoted`).
+
+`collectLetNames`/`collectFieldNames` are now ONE predicate-parameterised traversal
+`collectMemberLabels (keep : Field → Option String)` (leaf predicates `letBinderLabel` /
+`collidableFieldLabel`), so the two sides can never structurally drift (DRY — replaced the former
+`collectLetNames`/`fieldLetNames`/`clauseLetNames` mutual). Soundness: every descendant scope is
+comparable (ancestor-or-self) to the anchoring struct, and incomparable cousins anchor at
+distinct structs, so neither direction fires across incomparable scopes — no over-rejection.
+
+### Probe matrix (reverse rows, cue v0.16.1)
+
+| case | shape                                                          | cue |
+| ---- | -------------------------------------------------------------- | --- |
+| q7   | enclosing `let x` + nested field `x` (seed)                    | R   |
+| f-l  | enclosing `let x` + field `x` in a list-element struct         | R   |
+| f-d  | enclosing `let x` + field `x` in a DEFINITION body             | R   |
+| s4   | enclosing `let x` + QUOTED nested `"x":`                       | A   |
+| r5   | enclosing `let x` + DEFINITION nested `#x`                     | A   |
+| —    | enclosing `let x` + DYNAMIC nested `(k):`                      | A   |
+| —    | enclosing `let x` + nested field of a DIFFERENT name          | A   |
+| —    | `let x` in sibling `a` + field `x` in incomparable sibling `b`| A   |
+
+### Tests
+- 3 reverse seeds graduated (`.known-red` removed; `.expected.err` = full message;
+  `PROVENANCE.md` → GREEN); auto-discovered by `check_wild_fixtures`.
+- 8 new `native_decide` theorems in `Kue/Tests/ParseTests.lean` (`noshadow_reverse_*`): 3
+  rejections + 5 over-rejection accept-guards (quoted/definition/dynamic/non-shadowing/
+  incomparable-sibling). The 16 forward theorems still hold.
+- The whole `Tests/` `Field`-literal rewrite is behavior-preserving (`quoted := false` default) —
+  every prior `native_decide` theorem still elaborates.
+
+### Verify
+`./scripts/check.sh` GREEN (build via `./lake`; fixtures incl. 3 graduated wild seeds; realworld;
+test-health; shellcheck). cert-manager canary byte-identical to cue v0.16.1: **EMPTY delta** (the
+over-rejection guard — the reverse check adds no false rejection to a real `let`-heavy app).

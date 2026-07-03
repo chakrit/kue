@@ -4,25 +4,25 @@ import Kue.Lattice
 namespace Kue
 
 theorem close_value_marks_struct_closed :
-    closeValue (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
-      = mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [] := by
+    closeValue (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none [])
+      = mkStruct [⟨"a", .regular, .kind .int, false⟩] .defClosed none [] := by
   rfl
 
 theorem close_value_rejects_extra_field_after_meet :
     meet
-      (closeValue (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []))
-      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])
+      (closeValue (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none []))
+      (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none [])
       =
         mkStruct [
-            ⟨"a", .regular, .prim (.int 1)⟩,
-            ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"]⟩
+            ⟨"a", .regular, .prim (.int 1), false⟩,
+            ⟨"b", .regular, .bottomWith [.fieldNotAllowed "b"], false⟩
           ] .defClosed none [] [⟨["a"], []⟩] := by
   rfl
 
 theorem close_value_is_shallow_for_nested_regular_structs :
     closeValue
-      (mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none [])
-      = mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .kind .int⟩] .regularOpen none []⟩] .defClosed none [] := by
+      (mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .kind .int, false⟩] .regularOpen none [], false⟩] .regularOpen none [])
+      = mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .kind .int, false⟩] .regularOpen none [], false⟩] .defClosed none [] := by
   rfl
 
 theorem len_value_counts_string_utf8_bytes :
@@ -37,10 +37,10 @@ theorem len_value_counts_list_items :
 theorem len_value_counts_regular_struct_fields_only :
     lenValue
       (mkStruct [
-          ⟨"a", .regular, .prim (.int 1)⟩,
-          ⟨"b", .optional, .prim (.int 2)⟩,
-          ⟨"_c", .hidden, .prim (.int 3)⟩,
-          ⟨"#D", .definition, .prim (.int 4)⟩
+          ⟨"a", .regular, .prim (.int 1), false⟩,
+          ⟨"b", .optional, .prim (.int 2), false⟩,
+          ⟨"_c", .hidden, .prim (.int 3), false⟩,
+          ⟨"#D", .definition, .prim (.int 4), false⟩
         ] .regularOpen none [])
       = .prim (.int 1) := by
   rfl
@@ -857,10 +857,10 @@ theorem json_marshal_bool_and_null :
 theorem json_marshal_nested_preserves_key_order :
     (evalBuiltinCall "json.Marshal"
       [mkStruct [
-          ⟨"b", .regular, .prim (.int 2)⟩,
-          ⟨"a", .regular, .prim (.int 1)⟩,
+          ⟨"b", .regular, .prim (.int 2), false⟩,
+          ⟨"a", .regular, .prim (.int 1), false⟩,
           ⟨"c", .regular,
-            mkStruct [⟨"z", .regular, .prim (.int 1)⟩, ⟨"y", .regular, .prim (.int 2)⟩] .regularOpen none []⟩
+            mkStruct [⟨"z", .regular, .prim (.int 1), false⟩, ⟨"y", .regular, .prim (.int 2), false⟩] .regularOpen none [], false⟩
         ] .regularOpen none []]
       == .prim (.string "{\"b\":2,\"a\":1,\"c\":{\"z\":1,\"y\":2}}")) = true := by
   native_decide
@@ -877,12 +877,12 @@ theorem json_marshal_empty_struct_and_list :
 
 theorem json_marshal_escapes_quote_backslash_control_not_html :
     (evalBuiltinCall "json.Marshal"
-      [mkStruct [⟨"html", .regular, .prim (.string "<a>&\"b\\c\n\t")⟩] .regularOpen none []]
+      [mkStruct [⟨"html", .regular, .prim (.string "<a>&\"b\\c\n\t"), false⟩] .regularOpen none []]
       == .prim (.string "{\"html\":\"<a>&\\\"b\\\\c\\n\\t\"}")) = true := by
   native_decide
 
 theorem json_marshal_incomplete_is_bottom :
-    (evalBuiltinCall "json.Marshal" [mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []]
+    (evalBuiltinCall "json.Marshal" [mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none []]
       == .bottom) = true := by
   native_decide
 

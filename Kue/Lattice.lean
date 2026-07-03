@@ -223,7 +223,7 @@ def containsBottomAlts : List (Mark × Value) -> Bool
     the field was unset, killing BOTH arms → `_|_` instead of the surviving arm. -/
 def containsBottomFields : List Field -> Bool
   | [] => false
-  | ⟨_, fieldClass, value⟩ :: rest =>
+  | ⟨_, fieldClass, value, _⟩ :: rest =>
       (match FieldClass.optionality fieldClass with
         | .optional => false
         | _ => containsBottom value)
@@ -651,7 +651,7 @@ def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
       some (.field (ld || rd) (lh || rh) (lo.meet ro))
 
 def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : Field :=
-  ⟨label, fieldClass, value⟩
+  { label, fieldClass, value }
 
 def mergeFieldValueWith (meetValue : Value -> Value -> Value) (left right : Field) : Option Field :=
   match mergeFieldClass (Field.fieldClass left) (Field.fieldClass right) with

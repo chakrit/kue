@@ -20,13 +20,13 @@ namespace Kue
 -- two slots `a`/`b` carry IDENTICAL inline bodies, so frame-id sharing collapses the second
 -- push into the first.
 def deepInlineValue : Nat -> Value
-  | 0 => mkStruct [⟨"v", .regular, .prim (.string "x")⟩] .regularOpen none []
+  | 0 => mkStruct [⟨"v", .regular, .prim (.string "x"), false⟩] .regularOpen none []
   | n + 1 =>
       let inner := deepInlineValue n
-      mkStruct [⟨"a", .regular, inner⟩, ⟨"b", .regular, inner⟩] .regularOpen none []
+      mkStruct [⟨"a", .regular, inner, false⟩, ⟨"b", .regular, inner, false⟩] .regularOpen none []
 
 def deepInlineRoot (n : Nat) : Value :=
-  mkStruct [⟨"root", .regular, deepInlineValue n⟩] .regularOpen none []
+  mkStruct [⟨"root", .regular, deepInlineValue n, false⟩] .regularOpen none []
 
 -- PERF: with frame-id sharing the deep-inline eval count is LINEAR in depth (`2·depth + 1`),
 -- not exponential. At depth 8 this is 17 core evals; WITHOUT sharing it is 767 (a 45× gap), so
@@ -64,15 +64,15 @@ theorem eval_deep_inline_value_correct :
 -- The audit's shape: an OPEN `{embed; …; ...}` def whose embed supplies `et`, with ONE field
 -- `dep: Self.et` (depends on the embedded label) and N unrelated fields `u_i: Self.base + i`
 -- (depend only on the static sibling `base`). The two-pass must re-eval ONLY `dep`.
-def selPassSelfF : Field := ⟨"#self", .definition, .thisStruct⟩
-def selPassBaseF : Field := ⟨"base", .regular, .prim (.int 100)⟩
-def selPassDepF : Field := ⟨"dep", .regular, .selector (.refId ⟨0, 0⟩) "et"⟩
+def selPassSelfF : Field := ⟨"#self", .definition, .thisStruct, false⟩
+def selPassBaseF : Field := ⟨"base", .regular, .prim (.int 100), false⟩
+def selPassDepF : Field := ⟨"dep", .regular, .selector (.refId ⟨0, 0⟩) "et", false⟩
 def selPassUnrelated (n : Nat) : List Field :=
   (List.range n).map fun i =>
-    (⟨s!"u{i}", .regular, .binary .add (.selector (.refId ⟨0, 0⟩) "base") (.prim (.int (Int.ofNat i)))⟩ : Field)
+    (⟨s!"u{i}", .regular, .binary .add (.selector (.refId ⟨0, 0⟩) "base") (.prim (.int (Int.ofNat i))), false⟩ : Field)
 def selPassBody (n : Nat) : Value :=
   .structComp ([selPassSelfF, selPassBaseF, selPassDepF] ++ selPassUnrelated n)
-    [mkStruct [⟨"et", .regular, .prim (.string "z")⟩] .defClosed none []] .defOpenViaTail
+    [mkStruct [⟨"et", .regular, .prim (.string "z"), false⟩] .defClosed none []] .defOpenViaTail
 
 -- SELECTION: the Pass-2 re-eval set is EXACTLY the dependent field (`dep` at canonical index 2),
 -- regardless of how many unrelated fields surround it — the redundant recompute is excluded.
@@ -124,7 +124,7 @@ def twoPushIds (fields1 : List Field) (env1 : Env) (fields2 : List Field) (env2 
 -- SOUNDNESS PIN 1: structurally-IDENTICAL re-pushes under the SAME parent SHARE an id (the
 -- whole point — this is what makes the memo hit).
 theorem frame_share_identical :
-    (let f := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
+    (let f := [(⟨"x", .regular, .prim (.int 1), false⟩ : Field)]
      let ids := twoPushIds f [] f []
      ids.fst == ids.snd)
       = true := by
@@ -133,8 +133,8 @@ theorem frame_share_identical :
 -- SOUNDNESS PIN 2: structurally-DIFFERENT re-pushes (different field value) do NOT share — a
 -- too-coarse key would corrupt by returning one struct's memo for the other.
 theorem frame_no_share_different_fields :
-    (let f1 := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
-     let f2 := [(⟨"x", .regular, .prim (.int 2)⟩ : Field)]
+    (let f1 := [(⟨"x", .regular, .prim (.int 1), false⟩ : Field)]
+     let f2 := [(⟨"x", .regular, .prim (.int 2), false⟩ : Field)]
      let ids := twoPushIds f1 [] f2 []
      ids.fst == ids.snd)
       = false := by
@@ -144,7 +144,7 @@ theorem frame_no_share_different_fields :
 -- the body walk different outer frames, so the two evaluations differ. The parent id-stack is
 -- load-bearing in the sharing key.
 theorem frame_no_share_different_parent :
-    (let f := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
+    (let f := [(⟨"x", .regular, .prim (.int 1), false⟩ : Field)]
      let ids := twoPushIds f [(7, [])] f [(9, [])]
      ids.fst == ids.snd)
       = false := by
@@ -156,8 +156,8 @@ theorem frame_no_share_different_parent :
 -- (closed) eval of the same import alias can never falsely collide. `.definition` vs `.regular`
 -- on the same label is the closed-vs-open stand-in; they must not share.
 theorem frame_no_share_closed_vs_open :
-    (let f1 := [(⟨"x", .definition, .prim (.int 1)⟩ : Field)]
-     let f2 := [(⟨"x", .regular, .prim (.int 1)⟩ : Field)]
+    (let f1 := [(⟨"x", .definition, .prim (.int 1), false⟩ : Field)]
+     let f2 := [(⟨"x", .regular, .prim (.int 1), false⟩ : Field)]
      let ids := twoPushIds f1 [] f2 []
      ids.fst == ids.snd)
       = false := by
@@ -201,7 +201,7 @@ def evalOnceAt (fuel : Nat) (value : Value) : Value :=
 -- {a:{b:{b:{b:@1.0}}}}`, … — the SAME `(env,visited,value)` yields DIFFERENT values at different
 -- fuel. This is exactly the case that MUST stay fuel-keyed (never served fuel-free).
 def satTruncValue : Value :=
-  mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .refId ⟨1, 0⟩⟩] .regularOpen none []⟩] .regularOpen none []
+  mkStruct [⟨"a", .regular, mkStruct [⟨"b", .regular, .refId ⟨1, 0⟩, false⟩] .regularOpen none [], false⟩] .regularOpen none []
 
 -- PERF + SOUNDNESS: a CONVERGING value (`deepInlineValue 2`, literal nesting, no fuel-sensitive
 -- refs) SATURATES at fuel 6 (its fields never reach fuel 0). A re-request at fuel 20 in the same
@@ -313,7 +313,7 @@ theorem ref_chain_truncation_is_deterministic_at_production_fuel :
 def satCompTruncValue : Value :=
   .structComp []
     [.comprehension [.guard (.prim (.bool true))]
-      (mkStruct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+      (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
     .regularOpen
 
 -- SOUNDNESS (third-truncation-source corruption): the comprehension truncates at fuel 2
@@ -559,7 +559,7 @@ theorem link5_presence_test_plain_disjunction_is_present :
 -- with the SAME body but DIFFERENT captured-env ids have equal `valueTag` and Format-print equal.
 -- A future `valueTag`/`Format` edit that started hashing/printing `capturedEnv` would trip this.
 theorem perfb_frame_id_does_not_leak :
-    (let body : Value := mkStruct [⟨"k", .regular, .prim (.int 1)⟩] .regularOpen none []
+    (let body : Value := mkStruct [⟨"k", .regular, .prim (.int 1), false⟩] .regularOpen none []
      let c1 : Value := .closure [(7, [])] body
      let c2 : Value := .closure [(9, [])] body
      (valueTag c1 == valueTag c2) && (formatValue c1 == formatValue c2))
@@ -586,11 +586,11 @@ theorem perfb_frame_id_does_not_leak :
 -- population. The digest must separate these into distinct buckets; `valueTag` collapses them.
 def k8sShapedStruct (i : Nat) : Value :=
   mkStruct
-    [⟨"kind", .regular, .prim (.string "Deployment")⟩,
+    [⟨"kind", .regular, .prim (.string "Deployment"), false⟩,
      ⟨"metadata", .regular,
-       mkStruct [⟨"name", .regular, .prim (.string s!"res-{i}")⟩] .regularOpen none []⟩,
+       mkStruct [⟨"name", .regular, .prim (.string s!"res-{i}"), false⟩] .regularOpen none [], false⟩,
      ⟨"spec", .regular,
-       mkStruct [⟨"replicas", .regular, .prim (.int (Int.ofNat i))⟩] .regularOpen none []⟩]
+       mkStruct [⟨"replicas", .regular, .prim (.int (Int.ofNat i)), false⟩] .regularOpen none [], false⟩]
     .regularOpen none []
 
 -- Count distinct values in a `List UInt64` (the bucket count for a digest population).

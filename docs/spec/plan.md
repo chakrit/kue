@@ -160,8 +160,9 @@ field-ordering byte-parity gap (#3):
   Registry/OCI fetch-on-missing (B3d, live-proven incl. bearer-token auth against `ghcr.io`).
   IO confined to `Kue/Module.lean` + `Kue/OciFetch.lean`; `Eval` /`Resolve` stay pure.
 - **Load-time validation.** Import-name redeclaration (A2-y) and `let`/alias vs
-  bare/hidden-field shadow in the SAME scope (FORWARD direction, `e20af9a`) are rejected at
-  parse/load with cue's message; parser strictness (`*(1|2)`, `__x`) spec-mandated rejects.
+  bare/hidden-field shadow across comparable scopes — BOTH directions (forward `e20af9a`;
+  reverse via `Field.quoted`, 2026-07-04) — are rejected at parse/load with cue's message;
+  parser strictness (`*(1|2)`, `__x`) spec-mandated rejects.
 - **CLI.** `kue eval`, `kue export [--out yaml|json] [file|dir]` (stdin or arg), `kue
   version`, clean missing-file diagnostics + exit codes.
 
@@ -205,31 +206,16 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-1. **let/alias no-shadow — REVERSE direction (under-rejection) [the live next step].** The
-   FORWARD direction landed 2026-07-04 (`e20af9a`): a `let`/value-alias colliding with a
-   bare/hidden field in the SAME scope is rejected per-file at parse time (`checkLetFieldShadow`
-   = `collidableLabels` ∩ `collectLetNames` in `Kue/Parse.lean`), with cue's exact message;
-   16 probe theorems in `ParseTests.lean`; cert-manager canary EMPTY (no over-rejection).
-   **REVERSE is still OPEN:** a `let` in an ENCLOSING scope shadowed by a field in a NESTED
-   scope is not yet rejected. Red-seeded + quarantined (`.known-red`):
-   `testdata/wild/{let-shadowed-by-nested-field,let-shadowed-by-descendant-field-in-struct,
-   let-shadowed-by-field-in-def-body}`; `cue-spec-gaps.md` row. The descendant field's
-   quoted-accurate name must be checked against ancestor `let`s — either thread ancestor-`let`
-   names down the expression parser to each `parsedFieldsValue`, or preserve the `quoted` bit on
-   `Value.Field` (~1932 sites) for a post-parse Value-tree walk. **Over-rejection (cert-manager)
-   is the cardinal danger** — a `quoted`-blind Value-walk fails the `noshadow_quoted_label_accepts`
-   guard, so do NOT ship a broad walk that ignores `quoted`. INVASIVE, deliberate planned slice.
-
-2. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
+1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).
 
-3. **B2-A1 (latent, currently lossless) — pairs with typed-ellipsis.** `applyEvaluatedStructN`
+2. **B2-A1 (latent, currently lossless) — pairs with typed-ellipsis.** `applyEvaluatedStructN`
    (`Eval.lean:330`) routes the patterns-present case through a meet that DROPS `tail`. Lossless
    today (the only tail a parsed struct carries is bare `...` = `.top`, a no-op to drop+re-supply);
    breaks the day typed-ellipsis lands. Thread `tail` through the pattern arm + a round-trip pin;
    land with any typed-ellipsis slice.
 
-4. **scalar-embed provenance follow-ups (opportunistic).** Pins (3-level flatten, disj ops
+3. **scalar-embed provenance follow-ups (opportunistic).** Pins (3-level flatten, disj ops
    beyond `+` /`&`, composed select-into-F1-default) when next touching Lattice/Eval.
 
 **LOW tail (opportunistic; none block adoption):**

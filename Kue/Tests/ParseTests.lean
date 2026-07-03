@@ -685,7 +685,7 @@ theorem parse_pattern_tail_value_constrains :
 -- openness is `defOpenViaTail` AND no closed clauses leak in.
 theorem parse_pattern_tail_node_is_open_via_tail :
     (match parseSource "x: {a: int, [=~\"^a\"]: int, ...}\n" with
-     | .ok (.struct [⟨"x", .regular, .struct _ openness tail _ closing⟩] _ _ _ _) =>
+     | .ok (.struct [⟨"x", .regular, .struct _ openness tail _ closing, false⟩] _ _ _ _) =>
          openness == .defOpenViaTail && tail.isSome && closing == ([] : List ClosedClause)
      | _ => false) = true := by
   native_decide
@@ -1020,6 +1020,58 @@ theorem noshadow_let_over_let_accepts :
       = true := by
   native_decide
 
+-- REVERSE direction (a `let` in an ENCLOSING scope shadowed by a FIELD in a NESTED scope).
+-- Symmetric to the forward rejections; sound only because `Field.quoted` now survives to the
+-- `Value` layer, so a descendant field's quoted-accurate name can be checked against ancestor
+-- `let`s. Graduates testdata/wild/let-shadowed-by-{nested-field,descendant-field-in-struct,
+-- field-in-def-body}.
+
+-- REJECTED — an enclosing `let x` shadowed by a nested field `x` (the seed shape).
+theorem noshadow_reverse_nested_field_rejects :
+    parseFailsWith "let x = 1\nout: {\n\tx: 2\n\tgot: x\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — an enclosing `let x` shadowed by a field `x` in a DESCENDANT (list-element) struct.
+theorem noshadow_reverse_descendant_field_rejects :
+    parseFailsWith "out: {\n\tlet x = 1\n\tlst: [{x: 2}]\n\tgot: x\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — an enclosing `let x` shadowed by a field `x` inside a DEFINITION body.
+theorem noshadow_reverse_field_in_def_body_rejects :
+    parseFailsWith "let x = 1\n#d: {\n\tx: 2\n}\nout: x\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- ACCEPTED (reverse over-rejection guards) — an ancestor `let x` must NOT falsely collide with:
+
+-- a QUOTED nested label `"x"` (a string label, not an identifier) — the key guard the `quoted`
+-- bit exists for.
+theorem noshadow_reverse_quoted_nested_accepts :
+    parseSucceeds "let x = 1\nout: {\n\t\"x\": 2\n\tgot: x\n}\n" = true := by
+  native_decide
+
+-- a DEFINITION nested label `#x` (distinct namespace).
+theorem noshadow_reverse_definition_nested_accepts :
+    parseSucceeds "let x = 1\nout: {\n\t#x: 2\n}\no: x\n" = true := by
+  native_decide
+
+-- a DYNAMIC nested label `(k)` (computed, not a static identifier).
+theorem noshadow_reverse_dynamic_nested_accepts :
+    parseSucceeds "let x = 1\nk: \"x\"\nout: {\n\t(k): 2\n}\no: x\n" = true := by
+  native_decide
+
+-- a nested field of a DIFFERENT name (no shadowing at all).
+theorem noshadow_reverse_non_shadowing_nested_accepts :
+    parseSucceeds "let x = 1\nout: {\n\ty: 2\n\tgot: x\n}\n" = true := by
+  native_decide
+
+-- a field in an INCOMPARABLE sibling scope of the `let` (cousin scopes never meet).
+theorem noshadow_reverse_incomparable_sibling_accepts :
+    parseSucceeds "a: {\n\tlet x = 2\n\tg: x\n}\nb: {\n\tx: 3\n}\n" = true := by
+  native_decide
+
 -- Coverage tripwire: a swallowed section (e.g. an unterminated `/-- -/`) would drop these
 -- from elaboration. Each `#check` forces the last theorem of every section above to compile.
 #check @parse_pattern_tail_node_is_open_via_tail
@@ -1029,5 +1081,7 @@ theorem noshadow_let_over_let_accepts :
 #check @parse_unaliased_const_and_aliased_user_member_unchanged
 #check @noshadow_value_alias_rejects
 #check @noshadow_let_over_let_accepts
+#check @noshadow_reverse_field_in_def_body_rejects
+#check @noshadow_reverse_incomparable_sibling_accepts
 
 end Kue

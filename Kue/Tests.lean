@@ -99,15 +99,15 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
     meet
       (.disj
         [
-          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web")⟩] .regularOpen none []),
-          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db")⟩] .regularOpen none [])
+          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web"), false⟩] .regularOpen none []),
+          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db"), false⟩] .regularOpen none [])
         ])
       (mkStruct
-        [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
+        [⟨"kind", .regular, .prim (.string "web"), false⟩, ⟨"port", .regular, .prim (.int 80), false⟩]
         .regularOpen none [])
       =
         mkStruct
-          [⟨"kind", .regular, .prim (.string "web")⟩, ⟨"port", .regular, .prim (.int 80)⟩]
+          [⟨"kind", .regular, .prim (.string "web"), false⟩, ⟨"port", .regular, .prim (.int 80), false⟩]
           .regularOpen none [] := by
   rfl
 

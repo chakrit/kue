@@ -95,7 +95,7 @@ mutual
       (visited : List Nat)
       (field : Field) : EvalM Field := do
     let evaluated <- evalValueWithFuel fuel env visited (Field.value field)
-    pure ⟨Field.label field, Field.fieldClass field, evaluated⟩
+    pure { field with value := evaluated }
   termination_by (fuel, 2, 0)
 
   def evalFieldRefsListWithFuel
@@ -575,7 +575,7 @@ mutual
         match classifyDynLabel (resolveDynLabelDefault evaluatedLabel) with
         | .concreteString name => do
             let evaluatedValue <- evalValueWithFuel fuel env visited value
-            pure (mkStruct [⟨name, fieldClass, evaluatedValue⟩] .regularOpen none [])
+            pure (mkStruct [⟨name, fieldClass, evaluatedValue, false⟩] .regularOpen none [])
         | .bottom bot => pure bot
         | .nonString ty => pure (.bottomWith [.nonStringLabel ty])
         -- DEFER: an abstract label holds the field unevaluated, so an enclosing context can
@@ -608,7 +608,7 @@ mutual
     let savedError := (<- get).sortError
     modify (fun state => { state with sortError := none })
     let lt : Value -> Value -> EvalM Bool := fun a b => do
-      let probe := .conj [cmp, mkStruct [⟨"x", .regular, a⟩, ⟨"y", .regular, b⟩] .regularOpen none []]
+      let probe := .conj [cmp, mkStruct [⟨"x", .regular, a, false⟩, ⟨"y", .regular, b, false⟩] .regularOpen none []]
       let less <- evalValueWithFuel fuel env visited (.selector probe "less")
       match less with
       | .prim (.bool result) => pure result
@@ -1292,7 +1292,7 @@ mutual
         match classifyDynLabel (resolveDynLabelDefault evaluatedLabel) with
         | .concreteString name => do
             let evaluatedValue <- evalValueWithFuel fuel env [] value
-            pure (.ok ([⟨name, fieldClass, evaluatedValue⟩], []))
+            pure (.ok ([⟨name, fieldClass, evaluatedValue, false⟩], []))
         | .bottom bot => pure (.error bot)
         | .nonString ty => pure (.error (.bottomWith [.nonStringLabel ty]))
         -- DEFER: an abstract label keeps the field as a residual `.dynamicField` (carrying the
@@ -1362,7 +1362,7 @@ mutual
             -- An unreferenced binding's value sits unread in the frame, so a bottom it would
             -- carry never propagates unless the body actually selects it.
             let evaluatedValue <- evalValueWithFuel fuel env [] value
-            let nested <- pushFrame [⟨name, .regular, evaluatedValue⟩] env
+            let nested <- pushFrame [⟨name, .regular, evaluatedValue, false⟩] env
             expandClauseChain onExhausted fuel nested rest body
         | .forIn key value source :: rest => do
             let evaluatedSource <- evalValueWithFuel fuel env [] source

@@ -58,12 +58,12 @@ example :
   native_decide
 
 private def fileA : ParsedFile :=
-  { value := mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
+  { value := mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []
     packageName := some "defs"
     imports := [] }
 
 private def fileB : ParsedFile :=
-  { value := mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
+  { value := mkStruct [⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none []
     packageName := some "defs"
     imports := [] }
 
@@ -72,7 +72,7 @@ private def fileB : ParsedFile :=
 example :
     (match loadPackageFromParsed [fileA, fileB] with
      | .ok (some "defs", value) =>
-         value == mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []
+         value == mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none []
      | _ => false) = true := by
   native_decide
 
@@ -110,18 +110,18 @@ example :
 -- references but excluded from output (distinguished from a real in-file hidden field so
 -- the import binding stays output-reachability-lazy).
 example :
-    (bindImports [("defs", mkStruct [] .regularOpen none [])] (mkStruct [⟨"out", .regular, .top⟩] .defClosed none [])
-      == mkStruct [⟨"defs", .importBinding, mkStruct [] .regularOpen none []⟩, ⟨"out", .regular, .top⟩] .defClosed none [] [⟨["out"], []⟩]) = true := by
+    (bindImports [("defs", mkStruct [] .regularOpen none [])] (mkStruct [⟨"out", .regular, .top, false⟩] .defClosed none [])
+      == mkStruct [⟨"defs", .importBinding, mkStruct [] .regularOpen none [], false⟩, ⟨"out", .regular, .top, false⟩] .defClosed none [] [⟨["out"], []⟩]) = true := by
   native_decide
 
 -- `dedupeBindings` keeps the FIRST binding per name and drops later duplicates — the same
 -- package imported in two sibling files must bind ONCE, not be `meet`-folded into a corrupt
 -- duplicate (the cert-manager `conflicting values` bug). First occurrence wins.
 example :
-    (dedupeBindings [("attr", mkStruct [⟨"a", .regular, .top⟩] .regularOpen none []),
+    (dedupeBindings [("attr", mkStruct [⟨"a", .regular, .top, false⟩] .regularOpen none []),
                      ("strings", mkStruct [] .regularOpen none []),
-                     ("attr", mkStruct [⟨"b", .regular, .bottom⟩] .regularOpen none [])]
-      == [("attr", mkStruct [⟨"a", .regular, .top⟩] .regularOpen none []), ("strings", mkStruct [] .regularOpen none [])]) = true := by
+                     ("attr", mkStruct [⟨"b", .regular, .bottom, false⟩] .regularOpen none [])]
+      == [("attr", mkStruct [⟨"a", .regular, .top, false⟩] .regularOpen none []), ("strings", mkStruct [] .regularOpen none [])]) = true := by
   native_decide
 
 -- Distinct bind names (same path under two aliases, or two different packages) all survive —
@@ -167,10 +167,10 @@ example : resolveImportSubpath (depKeyModulePath "ex.com/m") "ex.com/m/sub" = so
 
 private def depsValue : Value :=
   mkStruct
-    [⟨"module", .regular, .prim (.string "prodigy9.co")⟩,
+    [⟨"module", .regular, .prim (.string "prodigy9.co"), false⟩,
      ⟨"deps", .regular,
-       mkStruct [⟨"prodigy9.co/defs@v0", .regular, mkStruct [⟨"v", .regular, .prim (.string "v0.3.19")⟩] .regularOpen none []⟩,
-          ⟨"other.org/lib@v1", .regular, mkStruct [⟨"v", .regular, .prim (.string "v1.2.0")⟩] .regularOpen none []⟩] .regularOpen none []⟩]
+       mkStruct [⟨"prodigy9.co/defs@v0", .regular, mkStruct [⟨"v", .regular, .prim (.string "v0.3.19"), false⟩] .regularOpen none [], false⟩,
+          ⟨"other.org/lib@v1", .regular, mkStruct [⟨"v", .regular, .prim (.string "v1.2.0"), false⟩] .regularOpen none [], false⟩] .regularOpen none [], false⟩]
     .regularOpen none []
 
 -- `parseDeps` reads each `deps` entry into `(modPath, version)`, stripping the `@major`.
@@ -181,7 +181,7 @@ example :
   native_decide
 
 -- A module value with no `deps` field yields an empty dependency table.
-example : parseDeps (mkStruct [⟨"module", .regular, .prim (.string "x.com")⟩] .regularOpen none []) = [] := by
+example : parseDeps (mkStruct [⟨"module", .regular, .prim (.string "x.com"), false⟩] .regularOpen none []) = [] := by
   native_decide
 
 private def deps : List Dep :=
@@ -319,25 +319,25 @@ example :
 
 -- A bare regular field is collision-eligible — its label is in the set.
 example :
-    bareIdentifierLabels [.field ⟨"dep", .regular, .top⟩ false] = ["dep"] := by
+    bareIdentifierLabels [.field ⟨"dep", .regular, .top, false⟩ false] = ["dep"] := by
   native_decide
 
 -- Optional and required fields are eligible too (cue rejects `dep?:`/`dep!:` alike).
 example :
     bareIdentifierLabels
-      [.field ⟨"a", .optional, .top⟩ false, .field ⟨"b", .required, .top⟩ false]
+      [.field ⟨"a", .optional, .top, false⟩ false, .field ⟨"b", .required, .top, false⟩ false]
       = ["a", "b"] := by
   native_decide
 
 -- A QUOTED label (`"dep": …`) is NOT an identifier declaration — exempt (`quoted = true`).
 example :
-    bareIdentifierLabels [.field ⟨"dep", .regular, .top⟩ true] = [] := by
+    bareIdentifierLabels [.field ⟨"dep", .regular, .top, false⟩ true] = [] := by
   native_decide
 
 -- A definition (`#x`) and a hidden field (`_x`) live in distinct namespaces — exempt.
 example :
     bareIdentifierLabels
-      [.field ⟨"#dep", .definition, .top⟩ false, .field ⟨"_dep", .hidden, .top⟩ false]
+      [.field ⟨"#dep", .definition, .top, false⟩ false, .field ⟨"_dep", .hidden, .top, false⟩ false]
       = [] := by
   native_decide
 

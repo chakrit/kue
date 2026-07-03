@@ -721,13 +721,20 @@ inductive Value where
   | closure (capturedEnv : List (Nat × List Field)) (body : Value)
 
 /-- A single struct member: its `label`, its `fieldClass` (regular/optional/required/
-    hidden/definition/let), and its `value`. A named record replacing the former positional
-    triple so projections are explicit and misindexing is impossible. Defined mutually with
-    `Value` because `Value`'s struct-bearing constructors carry `List Field`. -/
+    hidden/definition/let), its `value`, and whether the label was written `quoted` (`"x":`
+    rather than bare `x:`). A named record replacing the former positional triple so
+    projections are explicit and misindexing is impossible. Defined mutually with `Value`
+    because `Value`'s struct-bearing constructors carry `List Field`.
+
+    `quoted` is a parse-time provenance bit consumed only by the load-time no-shadow check
+    (a quoted `"x":` label never collides with a `let x`); it defaults `false` so every
+    evaluation-time `Field` construction is unaffected, and every downstream consumer that
+    ignores label provenance reads it as a plain field. -/
 structure Field where
   label : String
   fieldClass : FieldClass
   value : Value
+  quoted : Bool := false
 
 /-- One closed conjunct's CONTRIBUTION to a struct's closed allowed-set (SC-1b provenance).
     A field `f` is admitted by this clause iff `f.label ∈ fieldLabels` OR `f.label` matches

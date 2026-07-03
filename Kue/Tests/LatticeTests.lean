@@ -356,14 +356,14 @@ theorem mkStruct_keeps_distinct_patterns :
 -- `{b, a} & {c, ...}` ⟹ fields `[c, b, a]`, NOT `[b, a, c]`.
 theorem mergeStructN_struct_tail_reverses_field_order :
     (meet
-        (mkStruct [⟨"b", .regular, .prim (.string "x")⟩, ⟨"a", .regular, .prim (.int 1)⟩]
+        (mkStruct [⟨"b", .regular, .prim (.string "x"), false⟩, ⟨"a", .regular, .prim (.int 1), false⟩]
           .regularOpen none [])
-        (mkStruct [⟨"c", .regular, .prim (.bool true)⟩] .defOpenViaTail (some .top) [])
+        (mkStruct [⟨"c", .regular, .prim (.bool true), false⟩] .defOpenViaTail (some .top) [])
       == mkStruct
           [
-            ⟨"c", .regular, .prim (.bool true)⟩,
-            ⟨"b", .regular, .prim (.string "x")⟩,
-            ⟨"a", .regular, .prim (.int 1)⟩
+            ⟨"c", .regular, .prim (.bool true), false⟩,
+            ⟨"b", .regular, .prim (.string "x"), false⟩,
+            ⟨"a", .regular, .prim (.int 1), false⟩
           ]
           .defOpenViaTail (some .top) []) = true := by
   native_decide
@@ -372,14 +372,14 @@ theorem mergeStructN_struct_tail_reverses_field_order :
 -- left is the tail-bearing side, `mergeStructFieldsWith leftFields rightFields` ⟹ `[c, b, a]`.
 theorem mergeStructN_tail_struct_keeps_tail_fields_first :
     (meet
-        (mkStruct [⟨"c", .regular, .prim (.bool true)⟩] .defOpenViaTail (some .top) [])
-        (mkStruct [⟨"b", .regular, .prim (.string "x")⟩, ⟨"a", .regular, .prim (.int 1)⟩]
+        (mkStruct [⟨"c", .regular, .prim (.bool true), false⟩] .defOpenViaTail (some .top) [])
+        (mkStruct [⟨"b", .regular, .prim (.string "x"), false⟩, ⟨"a", .regular, .prim (.int 1), false⟩]
           .regularOpen none [])
       == mkStruct
           [
-            ⟨"c", .regular, .prim (.bool true)⟩,
-            ⟨"b", .regular, .prim (.string "x")⟩,
-            ⟨"a", .regular, .prim (.int 1)⟩
+            ⟨"c", .regular, .prim (.bool true), false⟩,
+            ⟨"b", .regular, .prim (.string "x"), false⟩,
+            ⟨"a", .regular, .prim (.int 1), false⟩
           ]
           .defOpenViaTail (some .top) []) = true := by
   native_decide
@@ -388,10 +388,10 @@ theorem mergeStructN_tail_struct_keeps_tail_fields_first :
 -- tail (`int`) constrains the right's extra field `b`; the merged tail is `meet leftT rightT`.
 theorem mergeStructN_tail_tail_applies_both_tails_to_extras :
     (meet
-        (mkStruct [⟨"a", .regular, .top⟩] .defOpenViaTail (some (.kind .int)) [])
-        (mkStruct [⟨"b", .regular, .top⟩] .defOpenViaTail (some .top) [])
+        (mkStruct [⟨"a", .regular, .top, false⟩] .defOpenViaTail (some (.kind .int)) [])
+        (mkStruct [⟨"b", .regular, .top, false⟩] .defOpenViaTail (some .top) [])
       == mkStruct
-          [⟨"a", .regular, .top⟩, ⟨"b", .regular, .kind .int⟩]
+          [⟨"a", .regular, .top, false⟩, ⟨"b", .regular, .kind .int, false⟩]
           .defOpenViaTail (some (.kind .int)) []) = true := by
   native_decide
 
@@ -423,16 +423,16 @@ theorem mergeStructN_pattern_pattern_concats_distinct_patterns :
 theorem mergeStructN_pattern_tail_unifies :
     (meet
         (mkStruct [] .regularOpen none [(.stringRegex "a", .kind .int)])
-        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
-      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top) [])
+      == mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top)
           [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
 theorem mergeStructN_tail_pattern_unifies :
     (meet
-        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top) [])
         (mkStruct [] .regularOpen none [(.stringRegex "a", .kind .int)])
-      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+      == mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top)
           [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
@@ -443,17 +443,17 @@ theorem mergeStructN_patterns_tail_unifies :
     (meet
         (mkStruct [] .regularOpen none
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)])
-        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
-      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top) [])
+      == mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top)
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)]) = true := by
   native_decide
 
 theorem mergeStructN_tail_patterns_unifies :
     (meet
-        (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top) [])
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top) [])
         (mkStruct [] .regularOpen none
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)])
-      == mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .defOpenViaTail (some .top)
+      == mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .defOpenViaTail (some .top)
           [(.stringRegex "a", .kind .int), (.stringRegex "b", .kind .string)]) = true := by
   native_decide
 
@@ -463,8 +463,8 @@ theorem mergeStructN_tail_patterns_unifies :
 theorem mergeStructN_pattern_tail_field_conflict :
     (meet
         (mkStruct [] .regularOpen none [(.stringRegex "a", .kind .int)])
-        (mkStruct [⟨"a", .regular, .prim (.string "x")⟩] .defOpenViaTail (some .top) [])
-      == mkStruct [⟨"a", .regular, .bottomWith [.fieldConstraint "a"]⟩] .defOpenViaTail (some .top)
+        (mkStruct [⟨"a", .regular, .prim (.string "x"), false⟩] .defOpenViaTail (some .top) [])
+      == mkStruct [⟨"a", .regular, .bottomWith [.fieldConstraint "a"], false⟩] .defOpenViaTail (some .top)
           [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
@@ -474,10 +474,10 @@ theorem mergeStructN_pattern_tail_field_conflict :
 -- {b: 9, ...}` → cue v0.16.1 `{a: 5, b: 9}` (open).
 theorem mergeStructN_tail_patterns_remeet_tail :
     (meet
-        (mkStruct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top)
+        (mkStruct [⟨"a", .regular, .prim (.int 5), false⟩] .defOpenViaTail (some .top)
           [(.stringRegex "a", .kind .int)])
-        (mkStruct [⟨"b", .regular, .prim (.int 9)⟩] .defOpenViaTail (some .top) [])
-      == mkStruct [⟨"a", .regular, .prim (.int 5)⟩, ⟨"b", .regular, .prim (.int 9)⟩]
+        (mkStruct [⟨"b", .regular, .prim (.int 9), false⟩] .defOpenViaTail (some .top) [])
+      == mkStruct [⟨"a", .regular, .prim (.int 5), false⟩, ⟨"b", .regular, .prim (.int 9), false⟩]
           .defOpenViaTail (some .top) [(.stringRegex "a", .kind .int)]) = true := by
   native_decide
 
@@ -495,9 +495,9 @@ theorem mergeStructN_tail_patterns_remeet_tail :
 -- closed allowed set is `#C`'s fields only.
 theorem mergeStructN_closed_meets_open_pattern_stays_closed :
     (meet
-        (mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [])
+        (mkStruct [⟨"a", .regular, .kind .int, false⟩] .defClosed none [])
         (mkStruct [] .regularOpen none [(.kind .string, .kind .int)])
-      == mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none
+      == mkStruct [⟨"a", .regular, .kind .int, false⟩] .defClosed none
           [(.kind .string, .kind .int)] [⟨["a"], []⟩]) = true := by
   native_decide
 
@@ -506,11 +506,11 @@ theorem mergeStructN_closed_meets_open_pattern_stays_closed :
 theorem mergeStructN_closed_pattern_rejects_extra_field :
     (meet
         (meet
-          (mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [])
+          (mkStruct [⟨"a", .regular, .kind .int, false⟩] .defClosed none [])
           (mkStruct [] .regularOpen none [(.kind .string, .kind .int)]))
-        (mkStruct [⟨"z", .regular, .prim (.int 9)⟩] .regularOpen none [])
+        (mkStruct [⟨"z", .regular, .prim (.int 9), false⟩] .regularOpen none [])
       == mkStruct
-          [⟨"a", .regular, .kind .int⟩, ⟨"z", .regular, .bottomWith [.fieldNotAllowed "z"]⟩]
+          [⟨"a", .regular, .kind .int, false⟩, ⟨"z", .regular, .bottomWith [.fieldNotAllowed "z"], false⟩]
           .defClosed none [(.kind .string, .kind .int)] [⟨["a"], []⟩]) = true := by
   native_decide
 
@@ -519,10 +519,10 @@ theorem mergeStructN_closed_pattern_rejects_extra_field :
 -- the def's own, so `mkStruct`'s default makes it a closing clause (`{[a], [string]}`).
 theorem mergeStructN_closed_own_pattern_admits_matching_field :
     (meet
-        (mkStruct [⟨"a", .regular, .kind .int⟩] .defClosed none [(.kind .string, .kind .int)])
-        (mkStruct [⟨"z", .regular, .prim (.int 9)⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .kind .int, false⟩] .defClosed none [(.kind .string, .kind .int)])
+        (mkStruct [⟨"z", .regular, .prim (.int 9), false⟩] .regularOpen none [])
       == mkStruct
-          [⟨"a", .regular, .kind .int⟩, ⟨"z", .regular, .prim (.int 9)⟩]
+          [⟨"a", .regular, .kind .int, false⟩, ⟨"z", .regular, .prim (.int 9), false⟩]
           .defClosed none [(.kind .string, .kind .int)]
           [⟨["a"], [.kind .string]⟩]) = true := by
   native_decide
@@ -532,11 +532,11 @@ theorem mergeStructN_closed_own_pattern_admits_matching_field :
 theorem mergeStructN_open_meets_pattern_stays_open :
     (meet
         (meet
-          (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
+          (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none [])
           (mkStruct [] .regularOpen none [(.kind .string, .kind .int)]))
-        (mkStruct [⟨"z", .regular, .prim (.int 9)⟩] .regularOpen none [])
+        (mkStruct [⟨"z", .regular, .prim (.int 9), false⟩] .regularOpen none [])
       == mkStruct
-          [⟨"a", .regular, .kind .int⟩, ⟨"z", .regular, .prim (.int 9)⟩]
+          [⟨"a", .regular, .kind .int, false⟩, ⟨"z", .regular, .prim (.int 9), false⟩]
           .regularOpen none [(.kind .string, .kind .int)] []) = true := by
   native_decide
 
@@ -552,14 +552,14 @@ theorem mergeStructN_open_meets_pattern_stays_open :
 theorem sc1b_clauses_conjunction_rejects_single_match :
     fieldAllowedByClausesWith meet
       [⟨[], [.stringRegex "^x"]⟩, ⟨[], [.stringRegex "^y"]⟩]
-      ⟨"x1", .regular, .prim (.int 5)⟩ = false := by
+      ⟨"x1", .regular, .prim (.int 5), false⟩ = false := by
   native_decide
 
 -- A label matching BOTH clauses' patterns is admitted.
 theorem sc1b_clauses_conjunction_admits_double_match :
     fieldAllowedByClausesWith meet
       [⟨[], [.stringRegex "^x"]⟩, ⟨[], [.stringRegex "x$"]⟩]
-      ⟨"xax", .regular, .prim (.int 5)⟩ = true := by
+      ⟨"xax", .regular, .prim (.int 5), false⟩ = true := by
   native_decide
 
 -- A field-only clause `{a}` rejects a pattern-matched label the other clause admits (CRUX):
@@ -567,19 +567,19 @@ theorem sc1b_clauses_conjunction_admits_double_match :
 theorem sc1b_field_clause_in_conjunction_rejects :
     fieldAllowedByClausesWith meet
       [⟨["a"], []⟩, ⟨[], [.stringRegex "^x"]⟩]
-      ⟨"x1", .regular, .prim (.int 5)⟩ = false := by
+      ⟨"x1", .regular, .prim (.int 5), false⟩ = false := by
   native_decide
 
 -- The EMPTY clause list is open: admits everything (no closed conjunct restricts).
 theorem sc1b_empty_clauses_admit_all :
-    fieldAllowedByClausesWith meet [] ⟨"anything", .regular, .prim (.int 5)⟩ = true := by
+    fieldAllowedByClausesWith meet [] ⟨"anything", .regular, .prim (.int 5), false⟩ = true := by
   native_decide
 
 -- A field that `ignoresClosedness` (hidden/definition) is admitted regardless of clauses.
 theorem sc1b_clauses_admit_closedness_ignoring_field :
     fieldAllowedByClausesWith meet
       [⟨[], [.stringRegex "^x"]⟩]
-      ⟨"#D", .definition, .kind .string⟩ = true := by
+      ⟨"#D", .definition, .kind .string, false⟩ = true := by
   native_decide
 
 -- ## `StructOpenness.meet` (B2.1)
@@ -683,7 +683,7 @@ theorem rx2b_meet_valid_unchanged :
 -- (the 5th consumer — `labelMatchesPatternWith` previously swallowed the parse bottom into
 -- a non-match). An ABSTRACT label predicate (`.kind .string`) does not trip.
 theorem rx2b_label_pattern_invalid_bottoms :
-    applyEvaluatedStructN [⟨"k", .regular, .prim (.int 1)⟩] .regularOpen none
+    applyEvaluatedStructN [⟨"k", .regular, .prim (.int 1), false⟩] .regularOpen none
         [(.stringRegex "a(", .kind .int)] []
       == .bottomWith [.invalidRegex "a(" (.malformed "unbalanced ( — missing )")] := by
   native_decide
@@ -748,7 +748,7 @@ theorem a6_normalize_disj_collapses_past_deep_bottom :
 -- (`containsBottomFields`) composes with the deep walk — a deep `.struct` whose only bottom
 -- is behind `#u?: _|_` does not bottom (mirrors `fixture_optional_bottom_arm_survives`).
 theorem a6_deep_optional_bottom_skipped :
-    containsBottom (nestList 150 (.struct [⟨"u", .optional, .bottom⟩] .regularOpen none [] []))
+    containsBottom (nestList 150 (.struct [⟨"u", .optional, .bottom, false⟩] .regularOpen none [] []))
       = false := by
   native_decide
 

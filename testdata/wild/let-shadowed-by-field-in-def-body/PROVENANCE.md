@@ -6,4 +6,4 @@
 DEFINITION body. REVERSE direction (ancestor `let`, descendant field); kue enforces only
 the forward direction. Spec-adjudicated UNDER-rejection.
 
-**Status:** RED (`.known-red`). See `docs/reference/cue-spec-gaps.md`.
+**Status:** GREEN (graduated 2026-07-04). The REVERSE no-shadow direction landed by modeling `Field.quoted` on the `Value` layer; the descendant field is checked against ancestor `let`s.

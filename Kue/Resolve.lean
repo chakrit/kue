@@ -55,7 +55,7 @@ mutual
   def mapRefsFieldWithFuel
       (onRef : List (List (String × Nat)) -> String -> Value)
       (fuel : Nat) (scopes : List (List (String × Nat))) (field : Field) : Field :=
-    ⟨Field.label field, Field.fieldClass field, mapRefsValueWithFuel onRef fuel scopes (Field.value field)⟩
+    { field with value := mapRefsValueWithFuel onRef fuel scopes field.value }
 
   def mapRefsClausesWithFuel
       (onRef : List (List (String × Nat)) -> String -> Value)

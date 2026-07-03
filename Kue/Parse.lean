@@ -567,7 +567,7 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
       { split with fields := field :: split.fields }
   | .fieldAlias alias field :: rest =>
       let split := splitParsedFields rest
-      { split with fields := field :: ⟨alias, .letBinding, .ref (Field.label field)⟩ :: split.fields }
+      { split with fields := field :: ⟨alias, .letBinding, .ref (Field.label field), false⟩ :: split.fields }
   | .pattern labelPattern constraint :: rest =>
       let split := splitParsedFields rest
       { split with patterns := (labelPattern, constraint) :: split.patterns }
@@ -576,7 +576,7 @@ def splitParsedFields : List ParsedField -> ParsedFieldParts
       { split with comprehensions := value :: split.comprehensions }
   | .letBinding name value :: rest =>
       let split := splitParsedFields rest
-      { split with fields := ⟨name, .letBinding, value⟩ :: split.fields }
+      { split with fields := ⟨name, .letBinding, value, false⟩ :: split.fields }
   | .ellipsis tail :: rest =>
       let split := splitParsedFields rest
       { split with tail := some tail }
@@ -607,71 +607,112 @@ def collidableLabels : List ParsedField -> List String
       | _ => collidableLabels rest
   | _ :: rest => collidableLabels rest
 
--- Every `let`/value-alias name bound as a STRUCT MEMBER in a value's lexical subtree: the
--- alias binders (`FieldClass.letBinding`, which also carries desugared value aliases `x=…`).
--- Comprehension `let` CLAUSES and `for` loop variables are NOT struct aliases — cue accepts a
--- field alongside a comprehension `let`/`for` of the same name — so clause binders are skipped
--- (their VALUES/bodies are still recursed, to catch struct-member `let`s nested inside a
--- comprehension body). Consumed by the no-shadow check to reject a field whose name a
--- struct-member `let`/alias in the same or a nested scope reuses. Produces `List String` (a
--- collector, not a `Value`-dispatch), so the leaf `| _` is a terminal, not a swallowed ctor.
+-- Struct-member labels a value's lexical subtree contributes to the no-shadow check, selected
+-- by `keep` (the `let`-binder side for FORWARD, the collidable-field side for REVERSE). ONE
+-- traversal parameterised by the leaf predicate so the two directions can never structurally
+-- drift. Comprehension `let` CLAUSES and `for` loop variables are NOT struct members — cue
+-- accepts a field alongside a comprehension `let`/`for` of the same name — so their clause
+-- binders are skipped (clause VALUES/bodies are still recursed, to catch struct-member decls
+-- nested inside a comprehension). Produces `List String` (a collector, not a `Value`-dispatch),
+-- so the leaf `| _` is a terminal, not a swallowed ctor.
 mutual
-  partial def collectLetNames : Value -> List String
+  partial def collectMemberLabels (keep : Field -> Option String) : Value -> List String
     | .struct fields _ tail patterns _ =>
-        fieldLetNames fields
-          ++ (match tail with | some t => collectLetNames t | none => [])
-          ++ patterns.flatMap (fun p => collectLetNames p.fst ++ collectLetNames p.snd)
+        fieldMemberLabels keep fields
+          ++ (match tail with | some t => collectMemberLabels keep t | none => [])
+          ++ patterns.flatMap (fun p => collectMemberLabels keep p.fst ++ collectMemberLabels keep p.snd)
     | .structComp fields comprehensions _ =>
-        fieldLetNames fields ++ comprehensions.flatMap collectLetNames
+        fieldMemberLabels keep fields ++ comprehensions.flatMap (collectMemberLabels keep)
     | .embeddedList items tail decls =>
-        items.flatMap collectLetNames
-          ++ (match tail with | some t => collectLetNames t | none => [])
-          ++ fieldLetNames decls
-    | .embeddedScalar scalar decls => collectLetNames scalar ++ fieldLetNames decls
-    | .comprehension clauses body => clauseLetNames clauses ++ collectLetNames body
-    | .listComprehension clauses body => clauseLetNames clauses ++ collectLetNames body
-    | .list items => items.flatMap collectLetNames
-    | .listTail items tail => items.flatMap collectLetNames ++ collectLetNames tail
-    | .conj cs => cs.flatMap collectLetNames
-    | .disj alts => alts.flatMap (fun a => collectLetNames a.snd)
-    | .binary _ l r => collectLetNames l ++ collectLetNames r
-    | .unary _ inner => collectLetNames inner
-    | .selector base _ => collectLetNames base
-    | .index base key => collectLetNames base ++ collectLetNames key
-    | .builtinCall _ args => args.flatMap collectLetNames
-    | .interpolation parts => parts.flatMap collectLetNames
-    | .dynamicField label _ value => collectLetNames label ++ collectLetNames value
+        items.flatMap (collectMemberLabels keep)
+          ++ (match tail with | some t => collectMemberLabels keep t | none => [])
+          ++ fieldMemberLabels keep decls
+    | .embeddedScalar scalar decls => collectMemberLabels keep scalar ++ fieldMemberLabels keep decls
+    | .comprehension clauses body => clauseMemberLabels keep clauses ++ collectMemberLabels keep body
+    | .listComprehension clauses body => clauseMemberLabels keep clauses ++ collectMemberLabels keep body
+    | .list items => items.flatMap (collectMemberLabels keep)
+    | .listTail items tail => items.flatMap (collectMemberLabels keep) ++ collectMemberLabels keep tail
+    | .conj cs => cs.flatMap (collectMemberLabels keep)
+    | .disj alts => alts.flatMap (fun a => collectMemberLabels keep a.snd)
+    | .binary _ l r => collectMemberLabels keep l ++ collectMemberLabels keep r
+    | .unary _ inner => collectMemberLabels keep inner
+    | .selector base _ => collectMemberLabels keep base
+    | .index base key => collectMemberLabels keep base ++ collectMemberLabels keep key
+    | .builtinCall _ args => args.flatMap (collectMemberLabels keep)
+    | .interpolation parts => parts.flatMap (collectMemberLabels keep)
+    | .dynamicField label _ value => collectMemberLabels keep label ++ collectMemberLabels keep value
     | _ => []
 
-  partial def fieldLetNames : List Field -> List String
+  partial def fieldMemberLabels (keep : Field -> Option String) : List Field -> List String
     | [] => []
     | fl :: rest =>
-        (if fl.fieldClass == .letBinding then [fl.label] else [])
-          ++ collectLetNames fl.value ++ fieldLetNames rest
+        (match keep fl with | some n => [n] | none => [])
+          ++ collectMemberLabels keep fl.value ++ fieldMemberLabels keep rest
 
-  partial def clauseLetNames : List (Clause Value) -> List String
+  partial def clauseMemberLabels (keep : Field -> Option String) : List (Clause Value) -> List String
     | [] => []
-    | .letClause _ value :: rest => collectLetNames value ++ clauseLetNames rest
-    | .forIn _ _ source :: rest => collectLetNames source ++ clauseLetNames rest
-    | .guard cond :: rest => collectLetNames cond ++ clauseLetNames rest
+    | .letClause _ value :: rest => collectMemberLabels keep value ++ clauseMemberLabels keep rest
+    | .forIn _ _ source :: rest => collectMemberLabels keep source ++ clauseMemberLabels keep rest
+    | .guard cond :: rest => collectMemberLabels keep cond ++ clauseMemberLabels keep rest
 end
 
+/-- Leaf predicate: a `let`/value-alias struct-member binder (`FieldClass.letBinding`, which
+    also carries desugared value aliases `x=…`). -/
+def letBinderLabel (field : Field) : Option String :=
+  if field.fieldClass == .letBinding then some field.label else none
+
+/-- Leaf predicate: a bare/hidden output-identifier field that can collide with a same-named
+    `let`/alias — a non-quoted, non-definition field (regular/optional/required OR hidden). A
+    quoted `"x"` label, a definition `#x`, and `let`/import binders declare no colliding
+    identifier here, so are exempt (the over-rejection guard on the field side). -/
+def collidableFieldLabel (field : Field) : Option String :=
+  if field.quoted then none
+  else match field.fieldClass with
+    | .field false _ _ => some field.label
+    | _ => none
+
+/-- Every struct-member `let`/alias name bound in a value's lexical subtree. -/
+def collectLetNames (value : Value) : List String := collectMemberLabels letBinderLabel value
+
+/-- Every quoted-accurate bare/hidden field name declared in a value's lexical subtree — the
+    REVERSE-direction dual of `collectLetNames`. Sound only because `Field.quoted` survives to
+    the `Value` layer (a string `"x"` label is excluded), so an ancestor `let x` is not falsely
+    reported colliding with a descendant `"x":`. -/
+def collectFieldNames (value : Value) : List String := collectMemberLabels collidableFieldLabel value
+
+/-- The `let`/value-alias names bound at THIS struct's top level (from `parsedFields`, before the
+    value tree flattens them). A comprehension `let` CLAUSE lives inside a `.comprehension`
+    parsed-field, not at top level, so it is naturally excluded — cue exempts clause binders. -/
+def topLevelLetNames : List ParsedField -> List String
+  | [] => []
+  | .letBinding name _ :: rest => name :: topLevelLetNames rest
+  | .fieldAlias alias _ :: rest => alias :: topLevelLetNames rest
+  | _ :: rest => topLevelLetNames rest
+
 /-- The no-shadow error cue raises when a `let`/alias and a field share a name in the same
-    lexical scope (or a `let`/alias shadows a field of an enclosing scope). -/
+    lexical scope (or across a comparable enclosing/nested scope pair). -/
 def letFieldShadowError (name : String) : String :=
   s!"cannot have both alias and field with name \"{name}\" in same scope"
 
-/-- Reject a struct whose top-level bare/hidden field reuses a name bound by a `let`/alias
-    in the same scope or any nested scope (the FORWARD direction of cue's no-shadow rule:
-    a field is an ancestor-or-self of the offending `let`). `collidableLabels` is quoted-
-    accurate (parse-time), and `let`/alias names are never quoted, so a reported collision
-    is exactly one cue rejects — no over-rejection. -/
+/-- Reject a struct where a `let`/alias and a bare/hidden field share a name across comparable
+    lexical scopes (cue's load-time no-shadow rule). Runs at every struct scope, catching BOTH
+    directions: a top-level FIELD colliding with a `let` anywhere in the subtree (FORWARD), and a
+    top-level `let` colliding with a FIELD anywhere in the subtree (REVERSE). Both sides are
+    quoted-accurate — `collidableLabels`/`collidableFieldLabel` exempt string labels and `let`
+    names are never quoted — so a reported collision is exactly one cue rejects (no
+    over-rejection; the cert-manager canary is the guard). Every descendant scope is comparable
+    to the anchoring struct and incomparable cousins are anchored at distinct structs, so neither
+    direction fires across incomparable scopes. -/
 def checkLetFieldShadow (parsedFields : List ParsedField) (structValue : Value) :
     Except ParseError Unit :=
-  let lets := collectLetNames structValue
-  match (collidableLabels parsedFields).find? (fun label => lets.contains label) with
+  let subtreeLets := collectLetNames structValue
+  let subtreeFields := collectFieldNames structValue
+  match (collidableLabels parsedFields).find? (fun label => subtreeLets.contains label) with
   | some name => .error { message := letFieldShadowError name }
-  | none => .ok ()
+  | none =>
+    match (topLevelLetNames parsedFields).find? (fun name => subtreeFields.contains name) with
+    | some name => .error { message := letFieldShadowError name }
+    | none => .ok ()
 
 def parsedFieldsValue (parsedFields : List ParsedField) : Except ParseError Value := do
   let parts := splitParsedFields parsedFields
@@ -826,9 +867,9 @@ def valueAliasHead? (chars : List Char) : Option (String × List Char) :=
     own alias and siblings cannot see it, so the value passes through unchanged. -/
 def bindValueAlias (name : String) : Value -> Value
   | .struct fields openness tail ps cps =>
-      .struct (⟨name, .letBinding, .thisStruct⟩ :: fields) openness tail ps cps
+      .struct (⟨name, .letBinding, .thisStruct, false⟩ :: fields) openness tail ps cps
   | .structComp fields cs openness =>
-      .structComp (⟨name, .letBinding, .thisStruct⟩ :: fields) cs openness
+      .structComp (⟨name, .letBinding, .thisStruct, false⟩ :: fields) cs openness
   | value => value
 
 /-- Three identical delimiter chars (`"""` or `'''`) at the head, else `none`. -/
@@ -899,8 +940,8 @@ def stdlibPackageValue? (pkg label : String) : Option Value :=
   let numberOrString : Value := .disj [(.regular, .kind .number), (.regular, .kind .string)]
   let comparator (less : Value) : Value :=
     mkStruct
-      [⟨"T", .regular, numberOrString⟩, ⟨"x", .regular, numberOrString⟩,
-       ⟨"y", .regular, numberOrString⟩, ⟨"less", .regular, less⟩]
+      [⟨"T", .regular, numberOrString, false⟩, ⟨"x", .regular, numberOrString, false⟩,
+       ⟨"y", .regular, numberOrString, false⟩, ⟨"less", .regular, less, false⟩]
       .regularOpen none []
   -- cue's `less` is `bool & x < y`; the `bool &` is dropped because `x < y` already yields a
   -- bool, and Kue's `meet (bool) (unresolved <)` eagerly bottoms (a pre-existing divergence,
@@ -1556,7 +1597,7 @@ mutual
     | ':' :: rest =>
         match parseFieldValue rest with
         | .error error => .error error
-        | .ok (value, rest) => parseOk (.field ⟨label, fieldClass, value⟩ false) rest
+        | .ok (value, rest) => parseOk (.field ⟨label, fieldClass, value, false⟩ false) rest
     | rest => parseError rest "expected ':' after field label"
 
   partial def parseAliasedField (chars : List Char) : ParseResult ParsedField :=
@@ -1573,7 +1614,7 @@ mutual
                 | ':' :: rest =>
                     match parseFieldValue rest with
                     | .error error => .error error
-                    | .ok (value, rest) => parseOk (.fieldAlias alias ⟨label, fieldClass, value⟩) rest
+                    | .ok (value, rest) => parseOk (.fieldAlias alias ⟨label, fieldClass, value, false⟩) rest
                 | rest => parseError rest "expected ':' after aliased field label"
         | rest => parseError rest "expected '=' after field alias"
 
@@ -1620,7 +1661,7 @@ mutual
                 | .error error => .error error
                 | .ok (value, rest) =>
                     match labelValue with
-                    | .prim (.string label) => parseOk (.field ⟨label, fieldClass, value⟩ true) rest
+                    | .prim (.string label) => parseOk (.field ⟨label, fieldClass, value, true⟩ true) rest
                     | _ => parseOk (.dynamicField labelValue fieldClass value) rest
             | rest => parseError rest "expected ':' after quoted field label"
     | rest => parseError rest "expected quoted field label"
@@ -1747,14 +1788,14 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value
       | .disj alternatives => .disj (alternatives.map (fun a => (a.fst, rec' a.snd)))
       | .struct fields openness tail patterns closedClauses =>
           .struct
-            (fields.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+            (fields.map (fun f => { f with value := rec' f.value }))
             openness
             (tail.map rec')
             (patterns.map (fun p => (rec' p.fst, rec' p.snd)))
             (closedClauses.map (ClosedClause.mapPatterns rec'))
       | .structComp fields comprehensions openness =>
           .structComp
-            (fields.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+            (fields.map (fun f => { f with value := rec' f.value }))
             (comprehensions.map rec')
             openness
       | .list items => .list (items.map rec')
@@ -1763,11 +1804,11 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value
           .embeddedList
             (items.map rec')
             (tail.map rec')
-            (decls.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+            (decls.map (fun f => { f with value := rec' f.value }))
       | .embeddedScalar scalar decls =>
           .embeddedScalar
             (rec' scalar)
-            (decls.map (fun f => ⟨f.label, f.fieldClass, rec' f.value⟩))
+            (decls.map (fun f => { f with value := rec' f.value }))
       | .comprehension clauses body =>
           .comprehension (clauses.map (canonicalizeBuiltinClause aliasMap fuel)) (rec' body)
       | .listComprehension clauses body =>

@@ -38,9 +38,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2))⟩,
-                ⟨"diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3))⟩,
-                ⟨"cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b"))⟩
+                ⟨"sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2)), false⟩,
+                ⟨"diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3)), false⟩,
+                ⟨"cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -49,14 +49,14 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd"))⟩,
+                ⟨"bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd")), false⟩,
                 ⟨
                   "left",
                   .regular,
                   .binary .add
                     (.binary .add (.prim (.bytes "a")) (.prim (.bytes "b")))
                     (.prim (.bytes "c"))
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -65,12 +65,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25"))⟩,
-                ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5"))⟩,
-                ⟨"floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2))⟩,
-                ⟨"whole", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "1.5"))⟩,
-                ⟨"exp", .regular, .binary .add (.prim (.float "1e+3")) (.prim (.int 2))⟩,
-                ⟨"small", .regular, .binary .add (.prim (.float "0.1")) (.prim (.float "0.2"))⟩
+                ⟨"floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25")), false⟩,
+                ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5")), false⟩,
+                ⟨"floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2)), false⟩,
+                ⟨"whole", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "1.5")), false⟩,
+                ⟨"exp", .regular, .binary .add (.prim (.float "1e+3")) (.prim (.int 2)), false⟩,
+                ⟨"small", .regular, .binary .add (.prim (.float "0.1")) (.prim (.float "0.2")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -79,17 +79,17 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"mul", .regular, .binary .mul (.prim (.int 3)) (.prim (.int 4))⟩,
+                ⟨"mul", .regular, .binary .mul (.prim (.int 3)) (.prim (.int 4)), false⟩,
                 ⟨
                   "precedence",
                   .regular,
                   .binary .add (.prim (.int 1)) (.binary .mul (.prim (.int 2)) (.prim (.int 3)))
-                ⟩,
+                , false⟩,
                 ⟨
                   "left",
                   .regular,
                   .binary .mul (.binary .mul (.prim (.int 2)) (.prim (.int 3))) (.prim (.int 4))
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -101,14 +101,14 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"listAdd", .regular, .binary .add (.list [.prim (.int 1), .prim (.int 2)]) (.list [.prim (.int 3), .prim (.int 4)])⟩,
-                ⟨"listMul", .regular, .binary .mul (.prim (.int 3)) (.list [.prim (.int 1), .prim (.int 2)])⟩,
-                ⟨"listMul2", .regular, .binary .mul (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3))⟩,
-                ⟨"listSub", .regular, .binary .sub (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3))⟩,
-                ⟨"listDiv", .regular, .binary .div (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3))⟩,
-                ⟨"structAdd", .regular, .binary .add (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []) (mkStruct [⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none [])⟩,
-                ⟨"boolMul", .regular, .binary .mul (.prim (.bool true)) (.prim (.bool false))⟩,
-                ⟨"nullSub", .regular, .binary .sub (.prim .null) (.prim .null)⟩
+                ⟨"listAdd", .regular, .binary .add (.list [.prim (.int 1), .prim (.int 2)]) (.list [.prim (.int 3), .prim (.int 4)]), false⟩,
+                ⟨"listMul", .regular, .binary .mul (.prim (.int 3)) (.list [.prim (.int 1), .prim (.int 2)]), false⟩,
+                ⟨"listMul2", .regular, .binary .mul (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3)), false⟩,
+                ⟨"listSub", .regular, .binary .sub (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3)), false⟩,
+                ⟨"listDiv", .regular, .binary .div (.list [.prim (.int 1), .prim (.int 2)]) (.prim (.int 3)), false⟩,
+                ⟨"structAdd", .regular, .binary .add (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []) (mkStruct [⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none []), false⟩,
+                ⟨"boolMul", .regular, .binary .mul (.prim (.bool true)) (.prim (.bool false)), false⟩,
+                ⟨"nullSub", .regular, .binary .sub (.prim .null) (.prim .null), false⟩
               ] .regularOpen none []))
     },
     {
@@ -120,11 +120,11 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"concat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b"))⟩,
-                ⟨"repeat", .regular, .binary .mul (.prim (.string "ab")) (.prim (.int 2))⟩,
-                ⟨"repeatL", .regular, .binary .mul (.prim (.int 2)) (.prim (.string "ab"))⟩,
-                ⟨"zero", .regular, .binary .mul (.prim (.string "xyz")) (.prim (.int 0))⟩,
-                ⟨"strSub", .regular, .binary .sub (.prim (.string "a")) (.prim (.string "b"))⟩
+                ⟨"concat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b")), false⟩,
+                ⟨"repeat", .regular, .binary .mul (.prim (.string "ab")) (.prim (.int 2)), false⟩,
+                ⟨"repeatL", .regular, .binary .mul (.prim (.int 2)) (.prim (.string "ab")), false⟩,
+                ⟨"zero", .regular, .binary .mul (.prim (.string "xyz")) (.prim (.int 0)), false⟩,
+                ⟨"strSub", .regular, .binary .sub (.prim (.string "a")) (.prim (.string "b")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -136,12 +136,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"abstract", .regular, .kind .int⟩,
-                ⟨"listDefer", .regular, .binary .add (.ref "abstract") (.list [.prim (.int 1)])⟩,
-                ⟨"numDefer", .regular, .binary .mul (.ref "abstract") (.prim (.int 2))⟩,
-                ⟨"resolved", .regular, .kind .int⟩,
-                ⟨"resolved", .regular, .prim (.int 5)⟩,
-                ⟨"sum", .regular, .binary .add (.ref "resolved") (.prim (.int 3))⟩
+                ⟨"abstract", .regular, .kind .int, false⟩,
+                ⟨"listDefer", .regular, .binary .add (.ref "abstract") (.list [.prim (.int 1)]), false⟩,
+                ⟨"numDefer", .regular, .binary .mul (.ref "abstract") (.prim (.int 2)), false⟩,
+                ⟨"resolved", .regular, .kind .int, false⟩,
+                ⟨"resolved", .regular, .prim (.int 5), false⟩,
+                ⟨"sum", .regular, .binary .add (.ref "resolved") (.prim (.int 3)), false⟩
               ] .regularOpen none []))
     },
     {
@@ -150,10 +150,10 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"div", .regular, .binary .div (.prim (.int 5)) (.prim (.int 2))⟩,
-                ⟨"whole", .regular, .binary .div (.prim (.int 6)) (.prim (.int 3))⟩,
-                ⟨"third", .regular, .binary .div (.prim (.int 1)) (.prim (.int 3))⟩,
-                ⟨"negative", .regular, .binary .div (.prim (.int (-5))) (.prim (.int 2))⟩
+                ⟨"div", .regular, .binary .div (.prim (.int 5)) (.prim (.int 2)), false⟩,
+                ⟨"whole", .regular, .binary .div (.prim (.int 6)) (.prim (.int 3)), false⟩,
+                ⟨"third", .regular, .binary .div (.prim (.int 1)) (.prim (.int 3)), false⟩,
+                ⟨"negative", .regular, .binary .div (.prim (.int (-5))) (.prim (.int 2)), false⟩
               ] .regularOpen none []))
     },
     {
@@ -162,16 +162,16 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"mulFloats", .regular, .binary .mul (.prim (.float "1.5")) (.prim (.float "2.0"))⟩,
-                ⟨"mulScale", .regular, .binary .mul (.prim (.float "1.0")) (.prim (.float "1.0"))⟩,
-                ⟨"mulIntFloat", .regular, .binary .mul (.prim (.int 2)) (.prim (.float "1.5"))⟩,
-                ⟨"mulNegative", .regular, .binary .mul (.prim (.float "-1.5")) (.prim (.float "2.0"))⟩,
-                ⟨"divTerminate", .regular, .binary .div (.prim (.float "1.0")) (.prim (.float "4.0"))⟩,
-                ⟨"divClean", .regular, .binary .div (.prim (.float "4.0")) (.prim (.float "2.0"))⟩,
-                ⟨"divFloatInt", .regular, .binary .div (.prim (.float "3.0")) (.prim (.int 2))⟩,
-                ⟨"divRepeat", .regular, .binary .div (.prim (.float "2.0")) (.prim (.float "3.0"))⟩,
-                ⟨"divRepeatInt", .regular, .binary .div (.prim (.float "10.0")) (.prim (.float "3.0"))⟩,
-                ⟨"divRoundUp", .regular, .binary .div (.prim (.float "100.0")) (.prim (.float "7.0"))⟩
+                ⟨"mulFloats", .regular, .binary .mul (.prim (.float "1.5")) (.prim (.float "2.0")), false⟩,
+                ⟨"mulScale", .regular, .binary .mul (.prim (.float "1.0")) (.prim (.float "1.0")), false⟩,
+                ⟨"mulIntFloat", .regular, .binary .mul (.prim (.int 2)) (.prim (.float "1.5")), false⟩,
+                ⟨"mulNegative", .regular, .binary .mul (.prim (.float "-1.5")) (.prim (.float "2.0")), false⟩,
+                ⟨"divTerminate", .regular, .binary .div (.prim (.float "1.0")) (.prim (.float "4.0")), false⟩,
+                ⟨"divClean", .regular, .binary .div (.prim (.float "4.0")) (.prim (.float "2.0")), false⟩,
+                ⟨"divFloatInt", .regular, .binary .div (.prim (.float "3.0")) (.prim (.int 2)), false⟩,
+                ⟨"divRepeat", .regular, .binary .div (.prim (.float "2.0")) (.prim (.float "3.0")), false⟩,
+                ⟨"divRepeatInt", .regular, .binary .div (.prim (.float "10.0")) (.prim (.float "3.0")), false⟩,
+                ⟨"divRoundUp", .regular, .binary .div (.prim (.float "100.0")) (.prim (.float "7.0")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -180,15 +180,15 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"divValue", .regular, .binary .intDiv (.prim (.int (-7))) (.prim (.int 3))⟩,
-                ⟨"modValue", .regular, .binary .intMod (.prim (.int (-7))) (.prim (.int 3))⟩,
-                ⟨"quoValue", .regular, .binary .intQuo (.prim (.int (-7))) (.prim (.int 3))⟩,
-                ⟨"remValue", .regular, .binary .intRem (.prim (.int (-7))) (.prim (.int 3))⟩,
+                ⟨"divValue", .regular, .binary .intDiv (.prim (.int (-7))) (.prim (.int 3)), false⟩,
+                ⟨"modValue", .regular, .binary .intMod (.prim (.int (-7))) (.prim (.int 3)), false⟩,
+                ⟨"quoValue", .regular, .binary .intQuo (.prim (.int (-7))) (.prim (.int 3)), false⟩,
+                ⟨"remValue", .regular, .binary .intRem (.prim (.int (-7))) (.prim (.int 3)), false⟩,
                 ⟨
                   "precedence",
                   .regular,
                   .binary .add (.prim (.int 1)) (.binary .intDiv (.prim (.int 7)) (.prim (.int 3)))
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -197,14 +197,14 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"same", .regular, .binary .eq (.prim (.int 1)) (.prim (.int 1))⟩,
-                ⟨"diff", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))⟩,
-                ⟨"text", .regular, .binary .eq (.prim (.string "a")) (.prim (.string "b"))⟩,
+                ⟨"same", .regular, .binary .eq (.prim (.int 1)) (.prim (.int 1)), false⟩,
+                ⟨"diff", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2)), false⟩,
+                ⟨"text", .regular, .binary .eq (.prim (.string "a")) (.prim (.string "b")), false⟩,
                 ⟨
                   "precedence",
                   .regular,
                   .binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2))
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -213,16 +213,16 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"lt", .regular, .binary .lt (.prim (.int 1)) (.prim (.int 2))⟩,
-                ⟨"le", .regular, .binary .le (.prim (.int 2)) (.prim (.int 2))⟩,
-                ⟨"gt", .regular, .binary .gt (.prim (.int 3)) (.prim (.int 2))⟩,
-                ⟨"ge", .regular, .binary .ge (.prim (.int 3)) (.prim (.int 4))⟩,
-                ⟨"slt", .regular, .binary .lt (.prim (.string "a")) (.prim (.string "b"))⟩,
+                ⟨"lt", .regular, .binary .lt (.prim (.int 1)) (.prim (.int 2)), false⟩,
+                ⟨"le", .regular, .binary .le (.prim (.int 2)) (.prim (.int 2)), false⟩,
+                ⟨"gt", .regular, .binary .gt (.prim (.int 3)) (.prim (.int 2)), false⟩,
+                ⟨"ge", .regular, .binary .ge (.prim (.int 3)) (.prim (.int 4)), false⟩,
+                ⟨"slt", .regular, .binary .lt (.prim (.string "a")) (.prim (.string "b")), false⟩,
                 ⟨
                   "precedence",
                   .regular,
                   .binary .lt (.binary .add (.prim (.int 1)) (.prim (.int 2))) (.prim (.int 4))
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -231,12 +231,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2))⟩,
-                ⟨"le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50"))⟩,
-                ⟨"gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9"))⟩,
-                ⟨"ge", .regular, .binary .ge (.prim (.float "1.0")) (.prim (.int 1))⟩,
-                ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0"))⟩,
-                ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (.float "1.0"))⟩
+                ⟨"lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2)), false⟩,
+                ⟨"le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50")), false⟩,
+                ⟨"gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9")), false⟩,
+                ⟨"ge", .regular, .binary .ge (.prim (.float "1.0")) (.prim (.int 1)), false⟩,
+                ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0")), false⟩,
+                ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (.float "1.0")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -245,29 +245,29 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"andFalse", .regular, .binary .boolAnd (.prim (.bool true)) (.prim (.bool false))⟩,
-                ⟨"orTrue", .regular, .binary .boolOr (.prim (.bool false)) (.prim (.bool true))⟩,
+                ⟨"andFalse", .regular, .binary .boolAnd (.prim (.bool true)) (.prim (.bool false)), false⟩,
+                ⟨"orTrue", .regular, .binary .boolOr (.prim (.bool false)) (.prim (.bool true)), false⟩,
                 ⟨
                   "andCmp",
                   .regular,
                   .binary .boolAnd
                     (.binary .lt (.prim (.int 1)) (.prim (.int 2)))
                     (.binary .gt (.prim (.int 3)) (.prim (.int 2)))
-                ⟩,
+                , false⟩,
                 ⟨
                   "orCmp",
                   .regular,
                   .binary .boolOr
                     (.prim (.bool false))
                     (.binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2)))
-                ⟩,
+                , false⟩,
                 ⟨
                   "grouped",
                   .regular,
                   .binary .boolAnd
                     (.binary .boolOr (.prim (.bool false)) (.prim (.bool true)))
                     (.prim (.bool true))
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -276,9 +276,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"notFalse", .regular, .unary .boolNot (.prim (.bool false))⟩,
-                ⟨"notCmp", .regular, .unary .boolNot (.binary .lt (.prim (.int 1)) (.prim (.int 2)))⟩,
-                ⟨"double", .regular, .unary .boolNot (.unary .boolNot (.prim (.bool true)))⟩
+                ⟨"notFalse", .regular, .unary .boolNot (.prim (.bool false)), false⟩,
+                ⟨"notCmp", .regular, .unary .boolNot (.binary .lt (.prim (.int 1)) (.prim (.int 2))), false⟩,
+                ⟨"double", .regular, .unary .boolNot (.unary .boolNot (.prim (.bool true))), false⟩
               ] .regularOpen none []))
     },
     {
@@ -287,11 +287,11 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2)))⟩,
-                ⟨"posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2)))⟩,
-                ⟨"negRefBase", .regular, .prim (.int 3)⟩,
-                ⟨"negRef", .regular, .unary .numNeg (.ref "negRefBase")⟩,
-                ⟨"precedence", .regular, .binary .mul (.unary .numNeg (.prim (.int 2))) (.prim (.int 3))⟩
+                ⟨"negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2))), false⟩,
+                ⟨"posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2))), false⟩,
+                ⟨"negRefBase", .regular, .prim (.int 3), false⟩,
+                ⟨"negRef", .regular, .unary .numNeg (.ref "negRefBase"), false⟩,
+                ⟨"precedence", .regular, .binary .mul (.unary .numNeg (.prim (.int 2))) (.prim (.int 3)), false⟩
               ] .regularOpen none []))
     },
     {
@@ -300,17 +300,17 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"match", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩,
-                ⟨"miss", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "z"))⟩,
-                ⟨"notMatch", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "z"))⟩,
-                ⟨"notMiss", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩,
+                ⟨"match", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a")), false⟩,
+                ⟨"miss", .regular, .binary .regexMatch (.prim (.string "abc")) (.prim (.string "z")), false⟩,
+                ⟨"notMatch", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "z")), false⟩,
+                ⟨"notMiss", .regular, .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "^a")), false⟩,
                 ⟨
                   "precedence",
                   .regular,
                   .binary .regexMatch
                     (.binary .add (.prim (.string "ab")) (.prim (.string "c")))
                     (.prim (.string "^abc$"))
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -322,27 +322,27 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"classD", .regular,
-                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[\\D]$"))⟩,
+                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[\\D]$")), false⟩,
                 ⟨"classDdigit", .regular,
-                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[\\D]$"))⟩,
+                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[\\D]$")), false⟩,
                 ⟨"classW", .regular,
-                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\W]$"))⟩,
+                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\W]$")), false⟩,
                 ⟨"classS", .regular,
-                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\S]$"))⟩,
+                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\S]$")), false⟩,
                 ⟨"union", .regular,
-                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[\\D5]$"))⟩,
+                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[\\D5]$")), false⟩,
                 ⟨"unionDigit", .regular,
-                  .binary .regexMatch (.prim (.string "7")) (.prim (.string "^[\\D5]$"))⟩,
+                  .binary .regexMatch (.prim (.string "7")) (.prim (.string "^[\\D5]$")), false⟩,
                 ⟨"unionMember", .regular,
-                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[a\\W]$"))⟩,
+                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[a\\W]$")), false⟩,
                 ⟨"everything", .regular,
-                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\d\\D]$"))⟩,
+                  .binary .regexMatch (.prim (.string " ")) (.prim (.string "^[\\d\\D]$")), false⟩,
                 ⟨"negMember", .regular,
-                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[^\\D]$"))⟩,
+                  .binary .regexMatch (.prim (.string "5")) (.prim (.string "^[^\\D]$")), false⟩,
                 ⟨"negMemberNo", .regular,
-                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[^\\D]$"))⟩,
+                  .binary .regexMatch (.prim (.string "a")) (.prim (.string "^[^\\D]$")), false⟩,
                 ⟨"notClass", .regular,
-                  .binary .regexNotMatch (.prim (.string "5")) (.prim (.string "^[\\D]$"))⟩
+                  .binary .regexNotMatch (.prim (.string "5")) (.prim (.string "^[\\D]$")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -353,17 +353,17 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 -- Concrete invalid (`a(` unbalanced) bottoms at `=~` and `!~` (NOT `false`/`true`).
                 ⟨"invalid", .regular,
-                  .binary .regexMatch (.prim (.string "x")) (.prim (.string "a("))⟩,
+                  .binary .regexMatch (.prim (.string "x")) (.prim (.string "a(")), false⟩,
                 ⟨"notInvalid", .regular,
-                  .binary .regexNotMatch (.prim (.string "x")) (.prim (.string "a("))⟩,
+                  .binary .regexNotMatch (.prim (.string "x")) (.prim (.string "a(")), false⟩,
                 -- Deferred RE2 construct (`(?i)`) bottoms too (surfaced, not silent-wrong).
                 ⟨"deferred", .regular,
-                  .binary .regexMatch (.prim (.string "x")) (.prim (.string "(?i)a"))⟩,
+                  .binary .regexMatch (.prim (.string "x")) (.prim (.string "(?i)a")), false⟩,
                 -- Valid patterns unchanged: still match / still negate.
                 ⟨"valid", .regular,
-                  .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩,
+                  .binary .regexMatch (.prim (.string "abc")) (.prim (.string "^a")), false⟩,
                 ⟨"validNot", .regular,
-                  .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "^a"))⟩
+                  .binary .regexNotMatch (.prim (.string "abc")) (.prim (.string "^a")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -373,25 +373,25 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"groupPlus", .regular,
-                  .binary .regexMatch (.prim (.string "abab")) (.prim (.string "^(ab)+$"))⟩,
+                  .binary .regexMatch (.prim (.string "abab")) (.prim (.string "^(ab)+$")), false⟩,
                 ⟨"groupPlusNo", .regular,
-                  .binary .regexMatch (.prim (.string "aba")) (.prim (.string "^(ab)+$"))⟩,
+                  .binary .regexMatch (.prim (.string "aba")) (.prim (.string "^(ab)+$")), false⟩,
                 ⟨"nestedGroup", .regular,
                   .binary .regexMatch (.prim (.string "foo-bar-baz"))
-                    (.prim (.string "^([a-z0-9]+(-[a-z0-9]+)*)$"))⟩,
+                    (.prim (.string "^([a-z0-9]+(-[a-z0-9]+)*)$")), false⟩,
                 ⟨"semver", .regular,
                   .binary .regexMatch (.prim (.string "v1.2.3"))
-                    (.prim (.string "^(v[0-9]+)(\\.[0-9]+)*$"))⟩,
+                    (.prim (.string "^(v[0-9]+)(\\.[0-9]+)*$")), false⟩,
                 ⟨"altGroups", .regular,
-                  .binary .regexMatch (.prim (.string "axyd")) (.prim (.string "a(b|x)(c|y)d"))⟩,
+                  .binary .regexMatch (.prim (.string "axyd")) (.prim (.string "a(b|x)(c|y)d")), false⟩,
                 ⟨"wordBoundary", .regular,
-                  .binary .regexMatch (.prim (.string "cat dog")) (.prim (.string "\\bdog\\b"))⟩,
+                  .binary .regexMatch (.prim (.string "cat dog")) (.prim (.string "\\bdog\\b")), false⟩,
                 ⟨"wordBoundNo", .regular,
-                  .binary .regexMatch (.prim (.string "dogcat")) (.prim (.string "\\bdog\\b"))⟩,
+                  .binary .regexMatch (.prim (.string "dogcat")) (.prim (.string "\\bdog\\b")), false⟩,
                 ⟨"lazyPlus", .regular,
-                  .binary .regexMatch (.prim (.string "aaa")) (.prim (.string "a+?"))⟩,
+                  .binary .regexMatch (.prim (.string "aaa")) (.prim (.string "a+?")), false⟩,
                 ⟨"altPlusSub", .regular,
-                  .binary .regexMatch (.prim (.string "xfoobarx")) (.prim (.string "(foo|bar)+"))⟩
+                  .binary .regexMatch (.prim (.string "xfoobarx")) (.prim (.string "(foo|bar)+")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -404,11 +404,11 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"x", .regular, .prim (.string "abc")⟩,
-                ⟨"n", .regular, .prim (.int (-7))⟩,
-                ⟨"lenX", .regular, .builtinCall "len" [.ref "x"]⟩,
-                ⟨"divN", .regular, .builtinCall "div" [.ref "n", .prim (.int 3)]⟩,
-                ⟨"incomplete", .regular, .builtinCall "len" [.kind .string]⟩
+                ⟨"x", .regular, .prim (.string "abc"), false⟩,
+                ⟨"n", .regular, .prim (.int (-7)), false⟩,
+                ⟨"lenX", .regular, .builtinCall "len" [.ref "x"], false⟩,
+                ⟨"divN", .regular, .builtinCall "div" [.ref "n", .prim (.int 3)], false⟩,
+                ⟨"incomplete", .regular, .builtinCall "len" [.kind .string], false⟩
               ] .regularOpen none []))
     },
     {
@@ -416,8 +416,8 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)]⟩,
-              ⟨"orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")]⟩
+              ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)], false⟩,
+              ⟨"orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")], false⟩
             ] .regularOpen none [])
     },
     {
@@ -425,12 +425,12 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"divValue", .regular, divValue (.prim (.int (-7))) (.prim (.int 3))⟩,
-              ⟨"modValue", .regular, modValue (.prim (.int (-7))) (.prim (.int 3))⟩,
-              ⟨"quoValue", .regular, quoValue (.prim (.int (-7))) (.prim (.int 3))⟩,
-              ⟨"remValue", .regular, remValue (.prim (.int (-7))) (.prim (.int 3))⟩,
-              ⟨"incompleteDiv", .regular, divValue (.kind .int) (.prim (.int 3))⟩,
-              ⟨"zeroDivisor", .regular, divValue (.prim (.int 7)) (.prim (.int 0))⟩
+              ⟨"divValue", .regular, divValue (.prim (.int (-7))) (.prim (.int 3)), false⟩,
+              ⟨"modValue", .regular, modValue (.prim (.int (-7))) (.prim (.int 3)), false⟩,
+              ⟨"quoValue", .regular, quoValue (.prim (.int (-7))) (.prim (.int 3)), false⟩,
+              ⟨"remValue", .regular, remValue (.prim (.int (-7))) (.prim (.int 3)), false⟩,
+              ⟨"incompleteDiv", .regular, divValue (.kind .int) (.prim (.int 3)), false⟩,
+              ⟨"zeroDivisor", .regular, divValue (.prim (.int 7)) (.prim (.int 0)), false⟩
             ] .regularOpen none [])
     },
     {
@@ -438,19 +438,19 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (closeValue (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []))
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+            (closeValue (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.string "x"), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/closed_hidden_definition.expected",
       content :=
         formatField "x"
           (meet
-            (closeValue (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []))
+            (closeValue (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none []))
             (mkStruct [
-                ⟨"a", .regular, .prim (.int 1)⟩,
-                ⟨"_h", .hidden, .prim (.string "secret")⟩,
-                ⟨"#D", .definition, .kind .string⟩
+                ⟨"a", .regular, .prim (.int 1), false⟩,
+                ⟨"_h", .hidden, .prim (.string "secret"), false⟩,
+                ⟨"#D", .definition, .kind .string, false⟩
               ] .regularOpen none []))
     },
     {
@@ -483,7 +483,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (closeValue (mkStruct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))]))
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none []))
     },
     {
       -- RX-2b: a struct carrying an invalid concrete pattern-LABEL predicate (`[=~"a("]`)
@@ -1075,7 +1075,7 @@ def fixturePorts : List FixturePort :=
             (mkStruct [⟨"x", .regular,
                 .binary .add
                   (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
-                  (.disj [(.regular, .prim (.int 10)), (.default, .prim (.int 20))])⟩] .regularOpen none []))
+                  (.disj [(.regular, .prim (.int 10)), (.default, .prim (.int 20))]), false⟩] .regularOpen none []))
     },
     {
       fileName := "disjunctions/default_arithmetic_cross.manifest.expected",
@@ -1086,7 +1086,7 @@ def fixturePorts : List FixturePort :=
               (mkStruct [⟨"x", .regular,
                   .binary .add
                     (.disj [(.regular, .prim (.int 1)), (.default, .prim (.int 2))])
-                    (.disj [(.regular, .prim (.int 10)), (.default, .prim (.int 20))])⟩] .regularOpen none []))
+                    (.disj [(.regular, .prim (.int 10)), (.default, .prim (.int 20))]), false⟩] .regularOpen none []))
             "x")
     },
     -- F1. Equal defaults dedup: `*1 | *1 | 2 → 1` (two equal defaults collapse to one, the
@@ -1129,13 +1129,13 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (normalizeDefinitions
-            (mkStruct [⟨"#A", .definition, mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []))
+            (mkStruct [⟨"#A", .definition, mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none [], false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/definition_reference.expected",
       content :=
         formatField "x"
-          (resolveAndEval (mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .ref "#A"⟩] .regularOpen none []))
+          (resolveAndEval (mkStruct [⟨"#A", .definition, .kind .int, false⟩, ⟨"x", .regular, .ref "#A", false⟩] .regularOpen none []))
     },
     {
       -- B6 gap-1: a closed `#Def` nested under a REGULAR field. Selecting it (`a.#Inner`) and
@@ -1147,8 +1147,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .regular, mkStruct [⟨"#Inner", .definition, mkStruct [⟨"x", .regular, .kind .int⟩] .regularOpen none []⟩] .regularOpen none []⟩,
-                ⟨"out", .regular, .conj [.selector (.ref "a") "#Inner", mkStruct [⟨"x", .regular, .prim (.int 1)⟩, ⟨"extra", .regular, .prim (.int 2)⟩] .regularOpen none []]⟩
+                ⟨"a", .regular, mkStruct [⟨"#Inner", .definition, mkStruct [⟨"x", .regular, .kind .int, false⟩] .regularOpen none [], false⟩] .regularOpen none [], false⟩,
+                ⟨"out", .regular, .conj [.selector (.ref "a") "#Inner", mkStruct [⟨"x", .regular, .prim (.int 1), false⟩, ⟨"extra", .regular, .prim (.int 2), false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {
@@ -1160,8 +1160,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .regular, mkStruct [⟨"#Inner", .definition, mkStruct [⟨"x", .regular, .kind .int⟩] (.defOpenViaTail) (some .top) []⟩] .regularOpen none []⟩,
-                ⟨"out", .regular, .conj [.selector (.ref "a") "#Inner", mkStruct [⟨"x", .regular, .prim (.int 1)⟩, ⟨"extra", .regular, .prim (.int 2)⟩] .regularOpen none []]⟩
+                ⟨"a", .regular, mkStruct [⟨"#Inner", .definition, mkStruct [⟨"x", .regular, .kind .int, false⟩] (.defOpenViaTail) (some .top) [], false⟩] .regularOpen none [], false⟩,
+                ⟨"out", .regular, .conj [.selector (.ref "a") "#Inner", mkStruct [⟨"x", .regular, .prim (.int 1), false⟩, ⟨"extra", .regular, .prim (.int 2), false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {
@@ -1386,7 +1386,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "refs/direct_self_reference.expected",
-      content := formatTopLevel (resolveAndEval (mkStruct [⟨"x", .regular, .ref "x"⟩] .regularOpen none []))
+      content := formatTopLevel (resolveAndEval (mkStruct [⟨"x", .regular, .ref "x", false⟩] .regularOpen none []))
     },
     {
       -- D#2a: a self-referential def is a STRUCTURAL cycle — the body re-enters the same struct
@@ -1419,19 +1419,19 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"base", .regular, .prim (.string "stage9")⟩,
+                ⟨"base", .regular, .prim (.string "stage9"), false⟩,
                 ⟨"components", .regular,
                   mkStruct [
-                      ⟨"repo", .regular, mkStruct [⟨"who", .regular, .ref "base"⟩] .regularOpen none []⟩,
-                      ⟨"project", .regular, mkStruct [⟨"who", .regular, .ref "base"⟩] .regularOpen none []⟩,
-                      ⟨"app", .regular, mkStruct [⟨"who", .regular, .ref "base"⟩] .regularOpen none []⟩
-                    ] .regularOpen none []⟩,
+                      ⟨"repo", .regular, mkStruct [⟨"who", .regular, .ref "base", false⟩] .regularOpen none [], false⟩,
+                      ⟨"project", .regular, mkStruct [⟨"who", .regular, .ref "base", false⟩] .regularOpen none [], false⟩,
+                      ⟨"app", .regular, mkStruct [⟨"who", .regular, .ref "base", false⟩] .regularOpen none [], false⟩
+                    ] .regularOpen none [], false⟩,
                 ⟨"repoWho", .regular,
-                  .selector (.selector (.ref "components") "repo") "who"⟩,
+                  .selector (.selector (.ref "components") "repo") "who", false⟩,
                 ⟨"projectWho", .regular,
-                  .selector (.selector (.ref "components") "project") "who"⟩,
+                  .selector (.selector (.ref "components") "project") "who", false⟩,
                 ⟨"appWho", .regular,
-                  .selector (.selector (.ref "components") "app") "who"⟩
+                  .selector (.selector (.ref "components") "app") "who", false⟩
               ] .regularOpen none []))
     },
     {
@@ -1440,9 +1440,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number]⟩,
-                ⟨"a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number]⟩,
-                ⟨"b", .regular, .ref "a"⟩
+                ⟨"x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number], false⟩,
+                ⟨"a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number], false⟩,
+                ⟨"b", .regular, .ref "a", false⟩
               ] .regularOpen none []))
     },
     {
@@ -1455,7 +1455,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.prim (.string "a")), (.kind .int))])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.string "x"), false⟩] .regularOpen none []))
     },
     {
       -- B2.5: pattern-struct × tail-struct now UNIFIES (was `_|_`). The pattern constrains
@@ -1465,7 +1465,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
-            (mkStruct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top) []))
+            (mkStruct [⟨"a", .regular, .prim (.int 5), false⟩] .defOpenViaTail (some .top) []))
     },
     {
       -- B2.5: multi-pattern × tail. Both patterns retained; each constrains its matching field.
@@ -1476,7 +1476,7 @@ def fixturePorts : List FixturePort :=
           (meet
             (mkStruct [] .regularOpen none
               [((.stringRegex "^a"), (.kind .int)), ((.stringRegex "^b"), (.kind .string))])
-            (mkStruct [⟨"a", .regular, .prim (.int 5)⟩, ⟨"b", .regular, .prim (.string "hi")⟩]
+            (mkStruct [⟨"a", .regular, .prim (.int 5), false⟩, ⟨"b", .regular, .prim (.string "hi"), false⟩]
               .defOpenViaTail (some .top) []))
     },
     {
@@ -1486,7 +1486,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top) [])
+            (mkStruct [⟨"a", .regular, .prim (.int 5), false⟩] .defOpenViaTail (some .top) [])
             (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))]))
     },
     {
@@ -1496,9 +1496,9 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"a", .regular, .prim (.int 5)⟩] .defOpenViaTail (some .top)
+            (mkStruct [⟨"a", .regular, .prim (.int 5), false⟩] .defOpenViaTail (some .top)
               [((.stringRegex "^a"), (.kind .int))])
-            (mkStruct [⟨"b", .regular, .prim (.string "hi")⟩] .defOpenViaTail (some .top)
+            (mkStruct [⟨"b", .regular, .prim (.string "hi"), false⟩] .defOpenViaTail (some .top)
               [((.stringRegex "^b"), (.kind .string))]))
     },
     {
@@ -1507,7 +1507,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/string_kind_pattern_mismatch.expected",
@@ -1515,7 +1515,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.string "x"), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/string_kind_pattern_only.expected",
@@ -1526,15 +1526,15 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (resolveAndEval
-            (mkStruct [⟨"#labels", .optional, mkStruct [] .regularOpen none [((.kind .string), (.kind .string))]⟩] .regularOpen none []))
+            (mkStruct [⟨"#labels", .optional, mkStruct [] .regularOpen none [((.kind .string), (.kind .string))], false⟩] .regularOpen none []))
     },
     {
       fileName := "structs/field_conflict.expected",
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"a", .regular, .prim (.string "a")⟩] .regularOpen none [])
-            (mkStruct [⟨"a", .regular, .prim (.string "b")⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.string "a"), false⟩] .regularOpen none [])
+            (mkStruct [⟨"a", .regular, .prim (.string "b"), false⟩] .regularOpen none []))
     },
     {
       fileName := "structs/field_alias.expected",
@@ -1542,9 +1542,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"not an identifier", .regular, .prim (.int 4)⟩,
-                ⟨"A", .letBinding, .ref "not an identifier"⟩,
-                ⟨"foo", .regular, .ref "A"⟩
+                ⟨"not an identifier", .regular, .prim (.int 4), false⟩,
+                ⟨"A", .letBinding, .ref "not an identifier", false⟩,
+                ⟨"foo", .regular, .ref "A", false⟩
               ] .regularOpen none []))
     },
     {
@@ -1553,8 +1553,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
-                ⟨"x", .regular, .selector (.ref "base") "inner"⟩
+                ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4), false⟩] .regularOpen none [], false⟩,
+                ⟨"x", .regular, .selector (.ref "base") "inner", false⟩
               ] .regularOpen none []))
     },
     {
@@ -1563,8 +1563,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"xs", .regular, .list [.prim (.int 10), .prim (.int 20)]⟩,
-                ⟨"x", .regular, .index (.ref "xs") (.prim (.int 1))⟩
+                ⟨"xs", .regular, .list [.prim (.int 10), .prim (.int 20)], false⟩,
+                ⟨"x", .regular, .index (.ref "xs") (.prim (.int 1)), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1573,8 +1573,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4)⟩] .regularOpen none []⟩,
-                ⟨"x", .regular, .index (.ref "base") (.prim (.string "inner"))⟩
+                ⟨"base", .regular, mkStruct [⟨"inner", .regular, .prim (.int 4), false⟩] .regularOpen none [], false⟩,
+                ⟨"x", .regular, .index (.ref "base") (.prim (.string "inner")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1583,10 +1583,10 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"x", .regular, .kind .int⟩,
-                ⟨"x", .regular, .prim (.int 1)⟩,
-                ⟨"conflict", .regular, .prim (.string "a")⟩,
-                ⟨"conflict", .regular, .prim (.string "b")⟩
+                ⟨"x", .regular, .kind .int, false⟩,
+                ⟨"x", .regular, .prim (.int 1), false⟩,
+                ⟨"conflict", .regular, .prim (.string "a"), false⟩,
+                ⟨"conflict", .regular, .prim (.string "b"), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1598,9 +1598,9 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"x", .regular, .prim (.int 1000)⟩,
-              ⟨"y", .regular, .prim (.float "1.25e+3")⟩,
-              ⟨"z", .regular, .prim (.float "-2e+3")⟩
+              ⟨"x", .regular, .prim (.int 1000), false⟩,
+              ⟨"y", .regular, .prim (.float "1.25e+3"), false⟩,
+              ⟨"z", .regular, .prim (.float "-2e+3"), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1608,11 +1608,11 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"hex", .regular, .prim (.int 31)⟩,
-              ⟨"oct", .regular, .prim (.int 15)⟩,
-              ⟨"bin", .regular, .prim (.int 10)⟩,
-              ⟨"negHex", .regular, .prim (.int (-16))⟩,
-              ⟨"sep", .regular, .prim (.int 10)⟩
+              ⟨"hex", .regular, .prim (.int 31), false⟩,
+              ⟨"oct", .regular, .prim (.int 15), false⟩,
+              ⟨"bin", .regular, .prim (.int 10), false⟩,
+              ⟨"negHex", .regular, .prim (.int (-16)), false⟩,
+              ⟨"sep", .regular, .prim (.int 10), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1620,9 +1620,9 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"x", .regular, .prim (.int 1)⟩,
-              ⟨"y", .regular, .prim (.float "1.5")⟩,
-              ⟨"z", .regular, .prim (.int 16)⟩
+              ⟨"x", .regular, .prim (.int 1), false⟩,
+              ⟨"y", .regular, .prim (.float "1.5"), false⟩,
+              ⟨"z", .regular, .prim (.int 16), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1630,11 +1630,11 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"k", .regular, .prim (.int 1000)⟩,
-              ⟨"ki", .regular, .prim (.int 1024)⟩,
-              ⟨"fracK", .regular, .prim (.int 1500)⟩,
-              ⟨"fracKi", .regular, .prim (.int 1536)⟩,
-              ⟨"neg", .regular, .prim (.int (-1500))⟩
+              ⟨"k", .regular, .prim (.int 1000), false⟩,
+              ⟨"ki", .regular, .prim (.int 1024), false⟩,
+              ⟨"fracK", .regular, .prim (.int 1500), false⟩,
+              ⟨"fracKi", .regular, .prim (.int 1536), false⟩,
+              ⟨"neg", .regular, .prim (.int (-1500)), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1642,7 +1642,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatManifestFieldResult "x"
           (resolveAndEval
-            (mkStruct [⟨"_secret", .hidden, .prim (.string "x")⟩, ⟨"value", .regular, .ref "_secret"⟩] .regularOpen none []))
+            (mkStruct [⟨"_secret", .hidden, .prim (.string "x"), false⟩, ⟨"value", .regular, .ref "_secret", false⟩] .regularOpen none []))
     },
     {
       fileName := "refs/underscore_ident_reference.expected",
@@ -1650,12 +1650,12 @@ def fixturePorts : List FixturePort :=
         formatField "out"
           (resolveAndEval
             (mkStruct [
-                ⟨"_base", .hidden, .prim (.int 5)⟩,
-                ⟨"ref", .regular, .ref "_base"⟩,
-                ⟨"cmp", .regular, .binary .ne (.ref "_base") (.prim (.int 3))⟩,
-                ⟨"sum", .regular, .binary .add (.ref "_base") (.prim (.int 1))⟩,
-                ⟨"eq", .regular, .binary .eq (.ref "_base") (.prim (.int 5))⟩,
-                ⟨"nested", .regular, .binary .ne (.ref "_base") (.ref "_base")⟩
+                ⟨"_base", .hidden, .prim (.int 5), false⟩,
+                ⟨"ref", .regular, .ref "_base", false⟩,
+                ⟨"cmp", .regular, .binary .ne (.ref "_base") (.prim (.int 3)), false⟩,
+                ⟨"sum", .regular, .binary .add (.ref "_base") (.prim (.int 1)), false⟩,
+                ⟨"eq", .regular, .binary .eq (.ref "_base") (.prim (.int 5)), false⟩,
+                ⟨"nested", .regular, .binary .ne (.ref "_base") (.ref "_base"), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1665,13 +1665,13 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"bottom", .regular,
-                  .disj [(.regular, .bottom), (.regular, .prim (.int 2))]⟩,
+                  .disj [(.regular, .bottom), (.regular, .prim (.int 2))], false⟩,
                 ⟨"self", .regular,
                   bindValueAlias "X"
                     (mkStruct [
-                        ⟨"n", .regular, .prim (.int 1)⟩,
-                        ⟨"m", .regular, .selector (.ref "X") "n"⟩
-                      ] .regularOpen none [])⟩
+                        ⟨"n", .regular, .prim (.int 1), false⟩,
+                        ⟨"m", .regular, .selector (.ref "X") "n", false⟩
+                      ] .regularOpen none []), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1707,16 +1707,16 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"stringLen", .regular, lenValue (.prim (.string "abc"))⟩,
-              ⟨"listLen", .regular, lenValue (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])⟩,
+              ⟨"stringLen", .regular, lenValue (.prim (.string "abc")), false⟩,
+              ⟨"listLen", .regular, lenValue (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]), false⟩,
               ⟨"structLen", .regular,
                 lenValue
                   (mkStruct [
-                      ⟨"a", .regular, .prim (.int 1)⟩,
-                      ⟨"b", .optional, .prim (.int 2)⟩,
-                      ⟨"_c", .hidden, .prim (.int 3)⟩,
-                      ⟨"#D", .definition, .prim (.int 4)⟩
-                    ] .regularOpen none [])⟩
+                      ⟨"a", .regular, .prim (.int 1), false⟩,
+                      ⟨"b", .optional, .prim (.int 2), false⟩,
+                      ⟨"_c", .hidden, .prim (.int 3), false⟩,
+                      ⟨"#D", .definition, .prim (.int 4), false⟩
+                    ] .regularOpen none []), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1724,8 +1724,8 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"lenString", .regular, lenValue (.kind .string)⟩,
-              ⟨"emptyOr", .regular, orValues []⟩
+              ⟨"lenString", .regular, lenValue (.kind .string), false⟩,
+              ⟨"emptyOr", .regular, orValues [], false⟩
             ] .regularOpen none [])
     },
     {
@@ -1733,11 +1733,11 @@ def fixturePorts : List FixturePort :=
       content :=
         formatManifestFieldResult "x"
           (mkStruct [
-              ⟨"a", .regular, .prim (.int 1)⟩,
-              ⟨"b", .regular, .list [.prim (.string "x")]⟩,
-              ⟨"_hidden", .hidden, .prim (.bool true)⟩,
-              ⟨"#Schema", .definition, .kind .int⟩,
-              ⟨"optional", .optional, .prim (.string "skip")⟩
+              ⟨"a", .regular, .prim (.int 1), false⟩,
+              ⟨"b", .regular, .list [.prim (.string "x")], false⟩,
+              ⟨"_hidden", .hidden, .prim (.bool true), false⟩,
+              ⟨"#Schema", .definition, .kind .int, false⟩,
+              ⟨"optional", .optional, .prim (.string "skip"), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1746,7 +1746,7 @@ def fixturePorts : List FixturePort :=
         formatManifestFieldResult "x"
           (mkStruct [
               ⟨"mode", .regular,
-                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩
+                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩
             ] .regularOpen none [])
     },
     {
@@ -1755,13 +1755,13 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"base", .letBinding, .prim (.int 2)⟩,
-                ⟨"x", .regular, .conj [.ref "base", .kind .int]⟩,
+                ⟨"base", .letBinding, .prim (.int 2), false⟩,
+                ⟨"x", .regular, .conj [.ref "base", .kind .int], false⟩,
                 ⟨"nested", .regular,
                   mkStruct [
-                      ⟨"kind", .letBinding, .kind .string⟩,
-                      ⟨"value", .regular, .conj [.ref "kind", .prim (.string "ok")]⟩
-                    ] .regularOpen none []⟩
+                      ⟨"kind", .letBinding, .kind .string, false⟩,
+                      ⟨"value", .regular, .conj [.ref "kind", .prim (.string "ok")], false⟩
+                    ] .regularOpen none [], false⟩
               ] .regularOpen none []))
     },
     {
@@ -1770,9 +1770,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .letBinding, .prim (.int 1)⟩,
-                ⟨"b", .letBinding, .binary .add (.ref "a") (.prim (.int 1))⟩,
-                ⟨"x", .regular, .ref "b"⟩
+                ⟨"a", .letBinding, .prim (.int 1), false⟩,
+                ⟨"b", .letBinding, .binary .add (.ref "a") (.prim (.int 1)), false⟩,
+                ⟨"x", .regular, .ref "b", false⟩
               ] .regularOpen none []))
     },
     {
@@ -1781,13 +1781,13 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"v", .letBinding, .prim (.int 1)⟩,
-                ⟨"outer", .regular, .ref "v"⟩,
+                ⟨"v", .letBinding, .prim (.int 1), false⟩,
+                ⟨"outer", .regular, .ref "v", false⟩,
                 ⟨"inner", .regular,
                   mkStruct [
-                      ⟨"v", .letBinding, .prim (.int 2)⟩,
-                      ⟨"val", .regular, .ref "v"⟩
-                    ] .regularOpen none []⟩
+                      ⟨"v", .letBinding, .prim (.int 2), false⟩,
+                      ⟨"val", .regular, .ref "v", false⟩
+                    ] .regularOpen none [], false⟩
               ] .regularOpen none []))
     },
     {
@@ -1798,10 +1798,10 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"top", .regular,
                   mkStruct [
-                      ⟨"base", .regular, .prim (.int 10)⟩,
-                      ⟨"doubled", .letBinding, .binary .mul (.ref "base") (.prim (.int 2))⟩,
-                      ⟨"out", .regular, .ref "doubled"⟩
-                    ] .regularOpen none []⟩
+                      ⟨"base", .regular, .prim (.int 10), false⟩,
+                      ⟨"doubled", .letBinding, .binary .mul (.ref "base") (.prim (.int 2)), false⟩,
+                      ⟨"out", .regular, .ref "doubled", false⟩
+                    ] .regularOpen none [], false⟩
               ] .regularOpen none []))
     },
     {
@@ -1810,38 +1810,38 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"secret", .letBinding, .prim (.string "abc")⟩,
-                ⟨"shown", .regular, .ref "secret"⟩,
-                ⟨"other", .regular, .prim (.int 1)⟩
+                ⟨"secret", .letBinding, .prim (.string "abc"), false⟩,
+                ⟨"shown", .regular, .ref "secret", false⟩,
+                ⟨"other", .regular, .prim (.int 1), false⟩
               ] .regularOpen none []))
     },
     {
       fileName := "refs/mutual_reference_cycle.expected",
       content :=
         formatTopLevel
-          (resolveAndEval (mkStruct [⟨"x", .regular, .ref "y"⟩, ⟨"y", .regular, .ref "x"⟩] .regularOpen none []))
+          (resolveAndEval (mkStruct [⟨"x", .regular, .ref "y", false⟩, ⟨"y", .regular, .ref "x", false⟩] .regularOpen none []))
     },
     {
       fileName := "lists/nested_list_field.expected",
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"items", .regular, .list [.kind .int, .kind .string]⟩] .regularOpen none [])
-            (mkStruct [⟨"items", .regular, .list [.prim (.int 1), .prim (.string "x")]⟩] .regularOpen none []))
+            (mkStruct [⟨"items", .regular, .list [.kind .int, .kind .string], false⟩] .regularOpen none [])
+            (mkStruct [⟨"items", .regular, .list [.prim (.int 1), .prim (.string "x")], false⟩] .regularOpen none []))
     },
     {
       fileName := "lists/nested_reference_list.expected",
       content :=
         formatTopLevel
-          (resolveAndEval (mkStruct [⟨"#A", .definition, .kind .int⟩, ⟨"x", .regular, .list [.ref "#A"]⟩] .regularOpen none []))
+          (resolveAndEval (mkStruct [⟨"#A", .definition, .kind .int, false⟩, ⟨"x", .regular, .list [.ref "#A"], false⟩] .regularOpen none []))
     },
     {
       fileName := "structs/nested_struct_field.expected",
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none [])
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []))
     },
     {
       fileName := "disjunctions/number_disjunction.expected",
@@ -1868,7 +1868,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatManifestFieldResult "x"
           (mkStruct [⟨"mode", .optional,
-              .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
+              .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
     },
     {
       fileName := "manifest/optional_default_materialized.manifest.expected",
@@ -1876,8 +1876,8 @@ def fixturePorts : List FixturePort :=
         formatManifestFieldResult "x"
           (meet
             (mkStruct [⟨"mode", .optional,
-                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
-            (mkStruct [⟨"mode", .regular, .top⟩] .regularOpen none []))
+                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
+            (mkStruct [⟨"mode", .regular, .top, false⟩] .regularOpen none []))
     },
     {
       fileName := "numeric/primitive_exclusion.expected",
@@ -1888,8 +1888,8 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none [])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none [])
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.string "x"), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_label_pattern.expected",
@@ -1897,7 +1897,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.stringRegex "^a$"), (.kind .int))])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "x")⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.string "x"), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/multiple_pattern_fields.expected",
@@ -1906,9 +1906,9 @@ def fixturePorts : List FixturePort :=
           (meet
             (mkStruct [] .regularOpen none [(.stringRegex "^a", .kind .int), (.stringRegex "z$", .kind .string)])
             (mkStruct [
-                ⟨"az", .regular, .prim (.int 1)⟩,
-                ⟨"ax", .regular, .prim (.int 2)⟩,
-                ⟨"bz", .regular, .prim (.string "ok")⟩
+                ⟨"az", .regular, .prim (.int 1), false⟩,
+                ⟨"ax", .regular, .prim (.int 2), false⟩,
+                ⟨"bz", .regular, .prim (.string "ok"), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1919,11 +1919,11 @@ def fixturePorts : List FixturePort :=
               ⟨"x", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a.*z$"), (.kind .int))])
-                  (mkStruct [⟨"abcz", .regular, .prim (.int 1)⟩, ⟨"abcy", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+                  (mkStruct [⟨"abcz", .regular, .prim (.int 1), false⟩, ⟨"abcy", .regular, .prim (.string "skip"), false⟩] .regularOpen none []), false⟩,
               ⟨"y", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a.+z$"), (.kind .int))])
-                  (mkStruct [⟨"az", .regular, .prim (.string "skip")⟩, ⟨"abz", .regular, .prim (.int 2)⟩] .regularOpen none [])⟩
+                  (mkStruct [⟨"az", .regular, .prim (.string "skip"), false⟩, ⟨"abz", .regular, .prim (.int 2), false⟩] .regularOpen none []), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1935,14 +1935,14 @@ def fixturePorts : List FixturePort :=
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^[ab]cz$"), (.kind .int))])
                   (mkStruct [
-                      ⟨"acz", .regular, .prim (.int 1)⟩,
-                      ⟨"bcz", .regular, .prim (.int 2)⟩,
-                      ⟨"ccz", .regular, .prim (.string "skip")⟩
-                    ] .regularOpen none [])⟩,
+                      ⟨"acz", .regular, .prim (.int 1), false⟩,
+                      ⟨"bcz", .regular, .prim (.int 2), false⟩,
+                      ⟨"ccz", .regular, .prim (.string "skip"), false⟩
+                    ] .regularOpen none []), false⟩,
               ⟨"y", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a[0-9]z$"), (.kind .int))])
-                  (mkStruct [⟨"a5z", .regular, .prim (.int 1)⟩, ⟨"axz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩
+                  (mkStruct [⟨"a5z", .regular, .prim (.int 1), false⟩, ⟨"axz", .regular, .prim (.string "skip"), false⟩] .regularOpen none []), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1951,7 +1951,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.stringRegex "^a\\.z$"), (.kind .int))])
-            (mkStruct [⟨"a.z", .regular, .prim (.string "bad")⟩, ⟨"abz", .regular, .prim (.string "skip")⟩] .regularOpen none []))
+            (mkStruct [⟨"a.z", .regular, .prim (.string "bad"), false⟩, ⟨"abz", .regular, .prim (.string "skip"), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_question_pattern.expected",
@@ -1960,9 +1960,9 @@ def fixturePorts : List FixturePort :=
           (meet
             (mkStruct [] .regularOpen none [((.stringRegex "^colou?r$"), (.kind .int))])
             (mkStruct [
-                ⟨"color", .regular, .prim (.string "bad")⟩,
-                ⟨"colour", .regular, .prim (.int 2)⟩,
-                ⟨"colouur", .regular, .prim (.string "skip")⟩
+                ⟨"color", .regular, .prim (.string "bad"), false⟩,
+                ⟨"colour", .regular, .prim (.int 2), false⟩,
+                ⟨"colouur", .regular, .prim (.string "skip"), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1973,11 +1973,11 @@ def fixturePorts : List FixturePort :=
               ⟨"x", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a\\dz$"), (.kind .int))])
-                  (mkStruct [⟨"a5z", .regular, .prim (.string "bad")⟩, ⟨"adz", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+                  (mkStruct [⟨"a5z", .regular, .prim (.string "bad"), false⟩, ⟨"adz", .regular, .prim (.string "skip"), false⟩] .regularOpen none []), false⟩,
               ⟨"y", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a\\Dz$"), (.kind .int))])
-                  (mkStruct [⟨"a5z", .regular, .prim (.string "skip")⟩, ⟨"adz", .regular, .prim (.int 1)⟩] .regularOpen none [])⟩
+                  (mkStruct [⟨"a5z", .regular, .prim (.string "skip"), false⟩, ⟨"adz", .regular, .prim (.int 1), false⟩] .regularOpen none []), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1987,9 +1987,9 @@ def fixturePorts : List FixturePort :=
           (meet
             (mkStruct [] .regularOpen none [((.stringRegex "^cat$|^dog$"), (.kind .int))])
             (mkStruct [
-                ⟨"cat", .regular, .prim (.string "bad")⟩,
-                ⟨"dog", .regular, .prim (.int 2)⟩,
-                ⟨"cow", .regular, .prim (.string "skip")⟩
+                ⟨"cat", .regular, .prim (.string "bad"), false⟩,
+                ⟨"dog", .regular, .prim (.int 2), false⟩,
+                ⟨"cow", .regular, .prim (.string "skip"), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1999,9 +1999,9 @@ def fixturePorts : List FixturePort :=
           (meet
             (mkStruct [] .regularOpen none [((.stringRegex "^(cat|dog)$"), (.kind .int))])
             (mkStruct [
-                ⟨"cat", .regular, .prim (.string "bad")⟩,
-                ⟨"dog", .regular, .prim (.int 2)⟩,
-                ⟨"cow", .regular, .prim (.string "skip")⟩
+                ⟨"cat", .regular, .prim (.string "bad"), false⟩,
+                ⟨"dog", .regular, .prim (.int 2), false⟩,
+                ⟨"cow", .regular, .prim (.string "skip"), false⟩
               ] .regularOpen none []))
     },
     {
@@ -2012,11 +2012,11 @@ def fixturePorts : List FixturePort :=
               ⟨"x", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a\\wz$"), (.kind .int))])
-                  (mkStruct [⟨"a_z", .regular, .prim (.string "bad")⟩, ⟨"a-z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+                  (mkStruct [⟨"a_z", .regular, .prim (.string "bad"), false⟩, ⟨"a-z", .regular, .prim (.string "skip"), false⟩] .regularOpen none []), false⟩,
               ⟨"y", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a\\Wz$"), (.kind .int))])
-                  (mkStruct [⟨"a_z", .regular, .prim (.string "skip")⟩, ⟨"a-z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
+                  (mkStruct [⟨"a_z", .regular, .prim (.string "skip"), false⟩, ⟨"a-z", .regular, .prim (.string "bad"), false⟩] .regularOpen none []), false⟩
             ] .regularOpen none [])
     },
     {
@@ -2027,11 +2027,11 @@ def fixturePorts : List FixturePort :=
               ⟨"x", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a\\sz$"), (.kind .int))])
-                  (mkStruct [⟨"a z", .regular, .prim (.string "bad")⟩, ⟨"a_z", .regular, .prim (.string "skip")⟩] .regularOpen none [])⟩,
+                  (mkStruct [⟨"a z", .regular, .prim (.string "bad"), false⟩, ⟨"a_z", .regular, .prim (.string "skip"), false⟩] .regularOpen none []), false⟩,
               ⟨"y", .regular,
                 meet
                   (mkStruct [] .regularOpen none [((.stringRegex "^a\\Sz$"), (.kind .int))])
-                  (mkStruct [⟨"a z", .regular, .prim (.string "skip")⟩, ⟨"a_z", .regular, .prim (.string "bad")⟩] .regularOpen none [])⟩
+                  (mkStruct [⟨"a z", .regular, .prim (.string "skip"), false⟩, ⟨"a_z", .regular, .prim (.string "bad"), false⟩] .regularOpen none []), false⟩
             ] .regularOpen none [])
     },
     {
@@ -2040,7 +2040,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.stringRegex "^a\\d{2}z$"), (.kind .int))])
-            (mkStruct [⟨"a12z", .regular, .prim (.string "bad")⟩, ⟨"a1z", .regular, .prim (.string "skip")⟩] .regularOpen none []))
+            (mkStruct [⟨"a12z", .regular, .prim (.string "bad"), false⟩, ⟨"a1z", .regular, .prim (.string "skip"), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/regex_bounded_repetition_pattern.expected",
@@ -2049,9 +2049,9 @@ def fixturePorts : List FixturePort :=
           (meet
             (mkStruct [] .regularOpen none [((.stringRegex "^a\\d{2,3}z$"), (.kind .int))])
             (mkStruct [
-                ⟨"a12z", .regular, .prim (.int 2)⟩,
-                ⟨"a123z", .regular, .prim (.string "bad")⟩,
-                ⟨"a1z", .regular, .prim (.string "skip")⟩
+                ⟨"a12z", .regular, .prim (.int 2), false⟩,
+                ⟨"a123z", .regular, .prim (.string "bad"), false⟩,
+                ⟨"a1z", .regular, .prim (.string "skip"), false⟩
               ] .regularOpen none []))
     },
     {
@@ -2060,8 +2060,8 @@ def fixturePorts : List FixturePort :=
         formatManifestFieldResult "x"
           (meet
             (mkStruct [⟨"mode", .required,
-                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))]⟩] .regularOpen none [])
-            (mkStruct [⟨"mode", .regular, .top⟩] .regularOpen none []))
+                .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
+            (mkStruct [⟨"mode", .regular, .top, false⟩] .regularOpen none []))
     },
     {
       fileName := "bounds/strict_int_bounds.expected",
@@ -2091,7 +2091,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
-            (mkStruct [⟨"a", .regular, .prim (.string "x")⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.string "x"), false⟩] .regularOpen none []))
     },
     {
       fileName := "definitions/string_pattern_constraint.expected",
@@ -2099,15 +2099,15 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (mkStruct [] .regularOpen none [((.kind .string), (.kind .int))])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.int 2)⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none []))
     },
     {
       fileName := "structs/struct_ellipsis.expected",
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"a", .regular, .kind .int⟩] .defOpenViaTail (some .top) [])
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩, ⟨"b", .regular, .prim (.string "ok")⟩] .regularOpen none []))
+            (mkStruct [⟨"a", .regular, .kind .int, false⟩] .defOpenViaTail (some .top) [])
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.string "ok"), false⟩] .regularOpen none []))
     },
     {
       fileName := "disjunctions/struct_disjunction_meet.expected",
@@ -2116,12 +2116,12 @@ def fixturePorts : List FixturePort :=
           (meet
             (.disj
               [
-                (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web")⟩] .regularOpen none []),
-                (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db")⟩] .regularOpen none [])
+                (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web"), false⟩] .regularOpen none []),
+                (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db"), false⟩] .regularOpen none [])
               ])
             (mkStruct [
-                ⟨"kind", .regular, .prim (.string "web")⟩,
-                ⟨"port", .regular, .prim (.int 80)⟩
+                ⟨"kind", .regular, .prim (.string "web"), false⟩,
+                ⟨"port", .regular, .prim (.int 80), false⟩
               ] .regularOpen none []))
     },
     {
@@ -2130,9 +2130,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"x", .regular, .ref "y"⟩,
-                ⟨"y", .regular, .ref "z"⟩,
-                ⟨"z", .regular, .ref "x"⟩
+                ⟨"x", .regular, .ref "y", false⟩,
+                ⟨"y", .regular, .ref "z", false⟩,
+                ⟨"z", .regular, .ref "x", false⟩
               ] .regularOpen none []))
     },
     {
@@ -2148,13 +2148,13 @@ def fixturePorts : List FixturePort :=
                     []
                     [
                       .comprehension
-                        [.forIn (some "k") "v" (mkStruct [⟨"x", .regular, .prim (.int 1)⟩] .regularOpen none [])]
+                        [.forIn (some "k") "v" (mkStruct [⟨"x", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
                         (mkStruct [
-                            ⟨"key", .regular, .ref "k"⟩,
-                            ⟨"val", .regular, .ref "v"⟩
+                            ⟨"key", .regular, .ref "k", false⟩,
+                            ⟨"val", .regular, .ref "v", false⟩
                           ] .regularOpen none [])
                     ]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2200,19 +2200,19 @@ def fixturePorts : List FixturePort :=
                   "out",
                   .regular,
                   .structComp
-                    [⟨"base", .regular, .prim (.int 0)⟩]
+                    [⟨"base", .regular, .prim (.int 0), false⟩]
                     [
                       .comprehension
                         [.forIn none "v" (.list [.prim (.int 42)])]
-                        (mkStruct [⟨"only", .regular, .ref "v"⟩] .regularOpen none []),
+                        (mkStruct [⟨"only", .regular, .ref "v", false⟩] .regularOpen none []),
                       .comprehension
                         [.guard (.prim (.bool true))]
-                        (mkStruct [⟨"flag", .regular, .prim (.bool true)⟩] .regularOpen none []),
+                        (mkStruct [⟨"flag", .regular, .prim (.bool true), false⟩] .regularOpen none []),
                       .comprehension
                         [.guard (.prim (.bool false))]
-                        (mkStruct [⟨"hidden", .regular, .prim (.int 1)⟩] .regularOpen none [])
+                        (mkStruct [⟨"hidden", .regular, .prim (.int 1), false⟩] .regularOpen none [])
                     ]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2222,7 +2222,7 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"staging", .regular,
-                  .disj [(.regular, .kind .bool), (.default, .prim (.bool false))]⟩,
+                  .disj [(.regular, .kind .bool), (.default, .prim (.bool false))], false⟩,
                 ⟨
                   "out",
                   .regular,
@@ -2231,12 +2231,12 @@ def fixturePorts : List FixturePort :=
                     [
                       .comprehension
                         [.guard (.unary .boolNot (.ref "staging"))]
-                        (mkStruct [⟨"prod", .regular, .prim (.bool true)⟩] .regularOpen none []),
+                        (mkStruct [⟨"prod", .regular, .prim (.bool true), false⟩] .regularOpen none []),
                       .comprehension
                         [.guard (.ref "staging")]
-                        (mkStruct [⟨"dev", .regular, .prim (.bool true)⟩] .regularOpen none [])
+                        (mkStruct [⟨"dev", .regular, .prim (.bool true), false⟩] .regularOpen none [])
                     ]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2255,9 +2255,9 @@ def fixturePorts : List FixturePort :=
                     [
                       .comprehension
                         [.guard (.binary .gt (.binary .div (.prim (.int 1)) (.prim (.int 0))) (.prim (.int 0)))]
-                        (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])
+                        (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none [])
                     ]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2277,7 +2277,7 @@ def fixturePorts : List FixturePort :=
                       .listComprehension
                         [.guard (.binary .gt (.binary .div (.prim (.int 1)) (.prim (.int 0))) (.prim (.int 0)))]
                         (.structComp [] [.prim (.int 1)] .regularOpen)
-                    ]⟩
+                    ], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2292,8 +2292,8 @@ def fixturePorts : List FixturePort :=
                 ⟨"out", .regular,
                   .structComp []
                     [.comprehension [.guard (.prim (.string "x"))]
-                      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-                    .regularOpen⟩
+                      (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2306,8 +2306,8 @@ def fixturePorts : List FixturePort :=
                 ⟨"out", .regular,
                   .structComp []
                     [.comprehension [.guard (.prim (.int 3))]
-                      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-                    .regularOpen⟩
+                      (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2324,7 +2324,7 @@ def fixturePorts : List FixturePort :=
                       .prim (.int 1),
                       .listComprehension [.guard (.prim (.string "z"))]
                         (.structComp [] [.prim (.int 2)] .regularOpen)
-                    ]⟩
+                    ], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2337,12 +2337,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"x", .regular, .kind .bool⟩,
+                ⟨"x", .regular, .kind .bool, false⟩,
                 ⟨"out", .regular,
                   .structComp []
                     [.comprehension [.guard (.ref "x")]
-                      (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])]
-                    .regularOpen⟩
+                      (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])]
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2353,7 +2353,7 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"x", .regular, .conj [.prim (.int 1), .prim (.int 2)]⟩,
+                ⟨"x", .regular, .conj [.prim (.int 1), .prim (.int 2)], false⟩,
                 ⟨
                   "out",
                   .regular,
@@ -2362,9 +2362,9 @@ def fixturePorts : List FixturePort :=
                     [
                       .comprehension
                         [.guard (.binary .gt (.ref "x") (.prim (.int 0)))]
-                        (mkStruct [⟨"b", .regular, .prim (.int 1)⟩] .regularOpen none [])
+                        (mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none [])
                     ]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2373,12 +2373,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"n", .regular, .prim (.int 3)⟩,
+                ⟨"n", .regular, .prim (.int 3), false⟩,
                 ⟨
                   "out",
                   .regular,
                   .interpolation [.prim (.string "v"), .ref "n", .prim (.string "x")]
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -2386,14 +2386,14 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (resolveAndEval
-            (mkStruct [⟨"x", .regular, .prim (.string "hello\nworld")⟩] .regularOpen none []))
+            (mkStruct [⟨"x", .regular, .prim (.string "hello\nworld"), false⟩] .regularOpen none []))
     },
     {
       fileName := "multiline/multiline_dedent.expected",
       content :=
         formatTopLevel
           (resolveAndEval
-            (mkStruct [⟨"x", .regular, .prim (.string "line1\n  line2")⟩] .regularOpen none []))
+            (mkStruct [⟨"x", .regular, .prim (.string "line1\n  line2"), false⟩] .regularOpen none []))
     },
     {
       fileName := "multiline/multiline_interpolation.expected",
@@ -2401,12 +2401,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"n", .regular, .prim (.string "bob")⟩,
+                ⟨"n", .regular, .prim (.string "bob"), false⟩,
                 ⟨
                   "x",
                   .regular,
                   .interpolation [.prim (.string "hi "), .ref "n", .prim (.string "\nbye")]
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -2414,7 +2414,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (resolveAndEval
-            (mkStruct [⟨"x", .regular, .prim (.string "")⟩] .regularOpen none []))
+            (mkStruct [⟨"x", .regular, .prim (.string ""), false⟩] .regularOpen none []))
     },
     {
       fileName := "multiline/multiline_cert.expected",
@@ -2426,7 +2426,7 @@ def fixturePorts : List FixturePort :=
                   "cert",
                   .regular,
                   .prim (.string "-----BEGIN CERTIFICATE-----\nMIIBIjANBg\n-----END CERTIFICATE-----")
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -2434,7 +2434,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (resolveAndEval
-            (mkStruct [⟨"x", .regular, .prim (.bytes "abc\ndef")⟩] .regularOpen none []))
+            (mkStruct [⟨"x", .regular, .prim (.bytes "abc\ndef"), false⟩] .regularOpen none []))
     },
     {
       fileName := "structs/dynamic_field.expected",
@@ -2442,12 +2442,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"k", .regular, .prim (.string "name")⟩,
+                ⟨"k", .regular, .prim (.string "name"), false⟩,
                 ⟨
                   "out",
                   .regular,
                   .structComp [] [.dynamicField (.ref "k") .regular (.prim (.int 42))] .regularOpen
-                ⟩
+                , false⟩
               ] .regularOpen none []))
     },
     {
@@ -2465,15 +2465,15 @@ def fixturePorts : List FixturePort :=
                       .comprehension
                         [.forIn (some "k") "v"
                           (mkStruct [
-                              ⟨"a", .regular, .prim (.int 1)⟩,
-                              ⟨"b", .regular, .prim (.int 2)⟩
+                              ⟨"a", .regular, .prim (.int 1), false⟩,
+                              ⟨"b", .regular, .prim (.int 2), false⟩
                             ] .regularOpen none [])]
                         (.structComp
                           []
                           [.dynamicField (.interpolation [.ref "k"]) .regular (.ref "v")]
                           .regularOpen)
                     ]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2487,7 +2487,7 @@ def fixturePorts : List FixturePort :=
                     [.listComprehension
                       [.forIn none "x"
                         (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])]
-                      (.structComp [] [.binary .mul (.ref "x") (.prim (.int 2))] .regularOpen)]⟩
+                      (.structComp [] [.binary .mul (.ref "x") (.prim (.int 2))] .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2505,7 +2505,7 @@ def fixturePorts : List FixturePort :=
                         [.binary .add
                           (.binary .mul (.ref "i") (.prim (.int 100)))
                           (.ref "x")]
-                        .regularOpen)]⟩
+                        .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2519,10 +2519,10 @@ def fixturePorts : List FixturePort :=
                     [.listComprehension
                       [.forIn (some "k") "v"
                         (mkStruct [
-                            ⟨"a", .regular, .prim (.int 1)⟩,
-                            ⟨"b", .regular, .prim (.int 2)⟩
+                            ⟨"a", .regular, .prim (.int 1), false⟩,
+                            ⟨"b", .regular, .prim (.int 2), false⟩
                           ] .regularOpen none [])]
-                      (.structComp [] [.ref "v"] .regularOpen)]⟩
+                      (.structComp [] [.ref "v"] .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2532,13 +2532,13 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"l", .regular,
-                  .list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)]⟩,
+                  .list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)], false⟩,
                 ⟨"out", .regular,
                   .list
                     [.listComprehension
                       [.forIn none "x" (.ref "l"),
                        .guard (.binary .gt (.ref "x") (.prim (.int 2)))]
-                      (.structComp [] [.ref "x"] .regularOpen)]⟩
+                      (.structComp [] [.ref "x"] .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2547,13 +2547,13 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"xs", .regular, .list [.prim (.int 1), .prim (.int 2)]⟩,
-                ⟨"ys", .regular, .list [.prim (.int 10), .prim (.int 20)]⟩,
+                ⟨"xs", .regular, .list [.prim (.int 1), .prim (.int 2)], false⟩,
+                ⟨"ys", .regular, .list [.prim (.int 10), .prim (.int 20)], false⟩,
                 ⟨"out", .regular,
                   .list
                     [.listComprehension
                       [.forIn none "x" (.ref "xs"), .forIn none "y" (.ref "ys")]
-                      (.structComp [] [.binary .add (.ref "x") (.ref "y")] .regularOpen)]⟩
+                      (.structComp [] [.binary .add (.ref "x") (.ref "y")] .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2562,14 +2562,14 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"xs", .regular, .list [.prim (.int 5), .prim (.int 6)]⟩,
+                ⟨"xs", .regular, .list [.prim (.int 5), .prim (.int 6)], false⟩,
                 ⟨"out", .regular,
                   .list
                     [.prim (.int 1),
                      .listComprehension
                        [.forIn none "x" (.ref "xs")]
                        (.structComp [] [.ref "x"] .regularOpen),
-                     .prim (.int 2)]⟩
+                     .prim (.int 2)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2578,8 +2578,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .regular, .prim (.int 7)⟩,
-                ⟨"out", .regular, .structComp [] [.ref "a"] .regularOpen⟩
+                ⟨"a", .regular, .prim (.int 7), false⟩,
+                ⟨"out", .regular, .structComp [] [.ref "a"] .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2687,12 +2687,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"v", .regular, .prim (.string "sibling")⟩,
+                ⟨"v", .regular, .prim (.string "sibling"), false⟩,
                 ⟨
                   "out",
                   .regular,
                   .structComp
-                    [⟨"keep", .regular, .ref "v"⟩]
+                    [⟨"keep", .regular, .ref "v", false⟩]
                     [
                       .comprehension
                         [.forIn none "v" (.list [.prim (.int 10), .prim (.int 20)])]
@@ -2702,7 +2702,7 @@ def fixturePorts : List FixturePort :=
                             (.interpolation [.prim (.string "k"), .ref "v"]) .regular (.ref "v")]
                           .regularOpen)
                     ]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2719,7 +2719,7 @@ def fixturePorts : List FixturePort :=
                       [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]),
                        .letClause "y" (.binary .mul (.ref "x") (.prim (.int 2)))]
                       (.structComp [] [.dynamicField (.prim (.string "a")) .regular (.ref "y")]
-                        .regularOpen)]⟩
+                        .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2740,7 +2740,7 @@ def fixturePorts : List FixturePort :=
                        .guard (.binary .eq
                          (.binary .mul (.ref "half") (.prim (.int 2))) (.ref "x"))]
                       (.structComp [] [.dynamicField (.prim (.string "even")) .regular (.ref "x")]
-                        .regularOpen)]⟩
+                        .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2759,7 +2759,7 @@ def fixturePorts : List FixturePort :=
                        .letClause "z" (.binary .add (.ref "y") (.prim (.int 1))),
                        .guard (.binary .gt (.ref "z") (.prim (.int 3)))]
                       (.structComp [] [.dynamicField (.prim (.string "a")) .regular (.ref "z")]
-                        .regularOpen)]⟩
+                        .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2779,7 +2779,7 @@ def fixturePorts : List FixturePort :=
                        .forIn none "w"
                          (.list [.ref "y", .binary .add (.ref "y") (.prim (.int 1))])]
                       (.structComp [] [.dynamicField (.prim (.string "v")) .regular (.ref "w")]
-                        .regularOpen)]⟩
+                        .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2791,14 +2791,14 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"y", .regular, .prim (.string "outer")⟩,
+                ⟨"y", .regular, .prim (.string "outer"), false⟩,
                 ⟨"out", .regular,
                   .list
                     [.listComprehension
                       [.forIn none "x" (.list [.prim (.int 1), .prim (.int 2)]),
                        .letClause "y" (.binary .mul (.ref "x") (.prim (.int 10)))]
                       (.structComp [] [.dynamicField (.prim (.string "v")) .regular (.ref "y")]
-                        .regularOpen)]⟩
+                        .regularOpen)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -2820,7 +2820,7 @@ def fixturePorts : List FixturePort :=
                         [.dynamicField (.interpolation [.prim (.string "k"), .ref "x"])
                           .regular (.ref "y")]
                         .regularOpen)]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2833,9 +2833,9 @@ def fixturePorts : List FixturePort :=
                   "out",
                   .regular,
                   .structComp
-                    [⟨"base", .regular, .prim (.int 7)⟩]
-                    [mkStruct [⟨"copy", .regular, .ref "base"⟩] .regularOpen none []]
-                    .regularOpen⟩
+                    [⟨"base", .regular, .prim (.int 7), false⟩]
+                    [mkStruct [⟨"copy", .regular, .ref "base", false⟩] .regularOpen none []]
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2848,9 +2848,9 @@ def fixturePorts : List FixturePort :=
                   "out",
                   .regular,
                   .structComp
-                    [⟨"base", .regular, .prim (.int 7)⟩]
-                    [mkStruct [⟨"inner", .regular, mkStruct [⟨"deep", .regular, .ref "base"⟩] .regularOpen none []⟩] .regularOpen none []]
-                    .regularOpen⟩
+                    [⟨"base", .regular, .prim (.int 7), false⟩]
+                    [mkStruct [⟨"inner", .regular, mkStruct [⟨"deep", .regular, .ref "base", false⟩] .regularOpen none [], false⟩] .regularOpen none []]
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2864,14 +2864,14 @@ def fixturePorts : List FixturePort :=
                   .regular,
                   .structComp
                     [
-                      ⟨"base", .regular, .prim (.int 7)⟩,
-                      ⟨"sib", .regular, .prim (.int 9)⟩
+                      ⟨"base", .regular, .prim (.int 7), false⟩,
+                      ⟨"sib", .regular, .prim (.int 9), false⟩
                     ]
                     [mkStruct [
-                        ⟨"copy", .regular, .ref "base"⟩,
-                        ⟨"copy2", .regular, .ref "sib"⟩
+                        ⟨"copy", .regular, .ref "base", false⟩,
+                        ⟨"copy2", .regular, .ref "sib", false⟩
                       ] .regularOpen none []]
-                    .regularOpen⟩
+                    .regularOpen, false⟩
               ] .regularOpen none []))
     },
     {
@@ -2889,7 +2889,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (resolveAndEval
             (.structComp
-              [⟨"#a", .definition, .prim (.int 1)⟩]
+              [⟨"#a", .definition, .prim (.int 1), false⟩]
               [.list [.prim (.int 1), .prim (.int 2)]]
               .regularOpen))
     },
@@ -2900,7 +2900,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (resolveAndEval
             (.structComp
-              [⟨"#a", .definition, .prim (.int 1)⟩]
+              [⟨"#a", .definition, .prim (.int 1), false⟩]
               [.listTail [] .top]
               .regularOpen))
     },
@@ -2911,7 +2911,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (resolveAndEval
             (.structComp
-              [⟨"a", .regular, .prim (.int 1)⟩]
+              [⟨"a", .regular, .prim (.int 1), false⟩]
               [.list [.prim (.int 1), .prim (.int 2)]]
               .regularOpen))
     },
@@ -2921,7 +2921,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatField "x"
           (meet
-            (mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none [])
+            (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
             (.list [.prim (.int 1), .prim (.int 2)]))
     },
     {
@@ -2931,7 +2931,7 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (resolveAndEval
             (.structComp
-              [⟨"a", .optional, .kind .int⟩]
+              [⟨"a", .optional, .kind .int, false⟩]
               [.list [.prim (.int 1), .prim (.int 2)]]
               .regularOpen))
     },
@@ -2943,9 +2943,9 @@ def fixturePorts : List FixturePort :=
         formatField "x"
           (meet
             (resolveAndEval
-              (.structComp [⟨"#a", .definition, .prim (.int 1)⟩] [.listTail [] (.kind .int)] .regularOpen))
+              (.structComp [⟨"#a", .definition, .prim (.int 1), false⟩] [.listTail [] (.kind .int)] .regularOpen))
             (resolveAndEval
-              (.structComp [⟨"#b", .definition, .prim (.int 2)⟩]
+              (.structComp [⟨"#b", .definition, .prim (.int 2), false⟩]
                 [.list [.prim (.int 1), .prim (.int 2)]] .regularOpen)))
     },
     {
@@ -2953,13 +2953,13 @@ def fixturePorts : List FixturePort :=
       fileName := "lists/list_embedding_select_index.expected",
       content :=
         let base : Value :=
-          .structComp [⟨"#a", .definition, .prim (.int 1)⟩]
+          .structComp [⟨"#a", .definition, .prim (.int 1), false⟩]
             [.list [.prim (.int 10), .prim (.int 20)]] .regularOpen
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"p", .regular, .selector base "#a"⟩,
-                ⟨"q", .regular, .index base (.prim (.int 0))⟩
+                ⟨"p", .regular, .selector base "#a", false⟩,
+                ⟨"q", .regular, .index base (.prim (.int 0)), false⟩
               ] .regularOpen none []))
     },
     {
@@ -2969,39 +2969,39 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"contains", .regular,
-                  .builtinCall "strings.Contains" [.prim (.string "seafood"), .prim (.string "foo")]⟩,
+                  .builtinCall "strings.Contains" [.prim (.string "seafood"), .prim (.string "foo")], false⟩,
                 ⟨"hasPrefix", .regular,
-                  .builtinCall "strings.HasPrefix" [.prim (.string "seafood"), .prim (.string "sea")]⟩,
+                  .builtinCall "strings.HasPrefix" [.prim (.string "seafood"), .prim (.string "sea")], false⟩,
                 ⟨"hasSuffix", .regular,
-                  .builtinCall "strings.HasSuffix" [.prim (.string "seafood"), .prim (.string "food")]⟩,
+                  .builtinCall "strings.HasSuffix" [.prim (.string "seafood"), .prim (.string "food")], false⟩,
                 ⟨"index", .regular,
-                  .builtinCall "strings.Index" [.prim (.string "héllo"), .prim (.string "llo")]⟩,
+                  .builtinCall "strings.Index" [.prim (.string "héllo"), .prim (.string "llo")], false⟩,
                 ⟨"indexMiss", .regular,
-                  .builtinCall "strings.Index" [.prim (.string "chicken"), .prim (.string "xyz")]⟩,
+                  .builtinCall "strings.Index" [.prim (.string "chicken"), .prim (.string "xyz")], false⟩,
                 ⟨"count", .regular,
-                  .builtinCall "strings.Count" [.prim (.string "cheese"), .prim (.string "e")]⟩,
+                  .builtinCall "strings.Count" [.prim (.string "cheese"), .prim (.string "e")], false⟩,
                 ⟨"split", .regular,
-                  .builtinCall "strings.Split" [.prim (.string "a,b,c"), .prim (.string ",")]⟩,
+                  .builtinCall "strings.Split" [.prim (.string "a,b,c"), .prim (.string ",")], false⟩,
                 ⟨"splitEmptySep", .regular,
-                  .builtinCall "strings.Split" [.prim (.string "héllo"), .prim (.string "")]⟩,
+                  .builtinCall "strings.Split" [.prim (.string "héllo"), .prim (.string "")], false⟩,
                 ⟨"splitTrailing", .regular,
-                  .builtinCall "strings.Split" [.prim (.string "a,b,"), .prim (.string ",")]⟩,
+                  .builtinCall "strings.Split" [.prim (.string "a,b,"), .prim (.string ",")], false⟩,
                 ⟨"join", .regular,
                   .builtinCall "strings.Join"
                     [.list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")],
-                     .prim (.string "-")]⟩,
+                     .prim (.string "-")], false⟩,
                 ⟨"replaceN", .regular,
                   .builtinCall "strings.Replace"
-                    [.prim (.string "aaaa"), .prim (.string "a"), .prim (.string "b"), .prim (.int 2)]⟩,
+                    [.prim (.string "aaaa"), .prim (.string "a"), .prim (.string "b"), .prim (.int 2)], false⟩,
                 ⟨"replaceAll", .regular,
                   .builtinCall "strings.Replace"
-                    [.prim (.string "oink oink"), .prim (.string "k"), .prim (.string "ky"), .prim (.int (-1))]⟩,
+                    [.prim (.string "oink oink"), .prim (.string "k"), .prim (.string "ky"), .prim (.int (-1))], false⟩,
                 ⟨"repeat", .regular,
-                  .builtinCall "strings.Repeat" [.prim (.string "ab"), .prim (.int 3)]⟩,
+                  .builtinCall "strings.Repeat" [.prim (.string "ab"), .prim (.int 3)], false⟩,
                 ⟨"trimSpace", .regular,
-                  .builtinCall "strings.TrimSpace" [.prim (.string "  hi  ")]⟩,
+                  .builtinCall "strings.TrimSpace" [.prim (.string "  hi  ")], false⟩,
                 ⟨"fields", .regular,
-                  .builtinCall "strings.Fields" [.prim (.string "  a  b c ")]⟩
+                  .builtinCall "strings.Fields" [.prim (.string "  a  b c ")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3013,77 +3013,77 @@ def fixturePorts : List FixturePort :=
                 ⟨"concat", .regular,
                   .builtinCall "list.Concat"
                     [.list [.list [.prim (.int 1), .prim (.int 2)], .list [.prim (.int 3)],
-                            .list [.prim (.int 4), .prim (.int 5)]]]⟩,
+                            .list [.prim (.int 4), .prim (.int 5)]]], false⟩,
                 ⟨"concatEmpty", .regular,
-                  .builtinCall "list.Concat" [.list []]⟩,
+                  .builtinCall "list.Concat" [.list []], false⟩,
                 ⟨"flatten1", .regular,
                   .builtinCall "list.FlattenN"
                     [.list [.list [.prim (.int 1), .list [.prim (.int 2)]], .list [.prim (.int 3)]],
-                     .prim (.int 1)]⟩,
+                     .prim (.int 1)], false⟩,
                 ⟨"flatten2", .regular,
                   .builtinCall "list.FlattenN"
                     [.list [.list [.prim (.int 1), .list [.prim (.int 2)]], .list [.prim (.int 3)]],
-                     .prim (.int 2)]⟩,
+                     .prim (.int 2)], false⟩,
                 ⟨"flattenAll", .regular,
                   .builtinCall "list.FlattenN"
                     [.list [.prim (.int 1),
                             .list [.prim (.int 2), .list [.prim (.int 3), .list [.prim (.int 4)]]]],
-                     .prim (.int (-1))]⟩,
+                     .prim (.int (-1))], false⟩,
                 ⟨"flatten0", .regular,
                   .builtinCall "list.FlattenN"
-                    [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]], .prim (.int 0)]⟩,
+                    [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]], .prim (.int 0)], false⟩,
                 ⟨"repeat", .regular,
                   .builtinCall "list.Repeat"
-                    [.list [.prim (.int 1), .prim (.int 2)], .prim (.int 3)]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2)], .prim (.int 3)], false⟩,
                 ⟨"repeat0", .regular,
                   .builtinCall "list.Repeat"
-                    [.list [.prim (.int 1), .prim (.int 2)], .prim (.int 0)]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2)], .prim (.int 0)], false⟩,
                 ⟨"rangeUp", .regular,
-                  .builtinCall "list.Range" [.prim (.int 0), .prim (.int 5), .prim (.int 1)]⟩,
+                  .builtinCall "list.Range" [.prim (.int 0), .prim (.int 5), .prim (.int 1)], false⟩,
                 ⟨"rangeStep", .regular,
-                  .builtinCall "list.Range" [.prim (.int 0), .prim (.int 10), .prim (.int 2)]⟩,
+                  .builtinCall "list.Range" [.prim (.int 0), .prim (.int 10), .prim (.int 2)], false⟩,
                 ⟨"rangeDown", .regular,
-                  .builtinCall "list.Range" [.prim (.int 5), .prim (.int 0), .prim (.int (-1))]⟩,
+                  .builtinCall "list.Range" [.prim (.int 5), .prim (.int 0), .prim (.int (-1))], false⟩,
                 ⟨"rangeEmpty", .regular,
-                  .builtinCall "list.Range" [.prim (.int 1), .prim (.int 1), .prim (.int 1)]⟩,
+                  .builtinCall "list.Range" [.prim (.int 1), .prim (.int 1), .prim (.int 1)], false⟩,
                 ⟨"slice", .regular,
                   .builtinCall "list.Slice"
                     [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)],
-                     .prim (.int 1), .prim (.int 3)]⟩,
+                     .prim (.int 1), .prim (.int 3)], false⟩,
                 ⟨"take", .regular,
                   .builtinCall "list.Take"
                     [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)],
-                     .prim (.int 2)]⟩,
+                     .prim (.int 2)], false⟩,
                 ⟨"takeOver", .regular,
                   .builtinCall "list.Take"
-                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 5)]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 5)], false⟩,
                 ⟨"drop", .regular,
                   .builtinCall "list.Drop"
                     [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)],
-                     .prim (.int 2)]⟩,
+                     .prim (.int 2)], false⟩,
                 ⟨"dropOver", .regular,
                   .builtinCall "list.Drop"
-                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 5)]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 5)], false⟩,
                 ⟨"contains", .regular,
                   .builtinCall "list.Contains"
-                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 2)]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 2)], false⟩,
                 ⟨"containsNo", .regular,
                   .builtinCall "list.Contains"
-                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 9)]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], .prim (.int 9)], false⟩,
                 ⟨"containsSub", .regular,
                   .builtinCall "list.Contains"
-                    [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]], .list [.prim (.int 1)]]⟩,
+                    [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]], .list [.prim (.int 1)]], false⟩,
                 ⟨"sum", .regular,
                   .builtinCall "list.Sum"
-                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]], false⟩,
                 ⟨"sumEmpty", .regular,
-                  .builtinCall "list.Sum" [.list []]⟩,
+                  .builtinCall "list.Sum" [.list []], false⟩,
                 ⟨"min", .regular,
                   .builtinCall "list.Min"
-                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)]]⟩,
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)]], false⟩,
                 ⟨"max", .regular,
                   .builtinCall "list.Max"
-                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)]]⟩
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)]], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3094,26 +3094,26 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"basic", .regular,
                   .builtinCall "list.SortStrings"
-                    [.list [.prim (.string "banana"), .prim (.string "apple"), .prim (.string "cherry")]]⟩,
+                    [.list [.prim (.string "banana"), .prim (.string "apple"), .prim (.string "cherry")]], false⟩,
                 ⟨"dup", .regular,
                   .builtinCall "list.SortStrings"
-                    [.list [.prim (.string "b"), .prim (.string "a"), .prim (.string "b"), .prim (.string "a")]]⟩,
+                    [.list [.prim (.string "b"), .prim (.string "a"), .prim (.string "b"), .prim (.string "a")]], false⟩,
                 ⟨"empty", .regular,
-                  .builtinCall "list.SortStrings" [.list []]⟩,
+                  .builtinCall "list.SortStrings" [.list []], false⟩,
                 ⟨"single", .regular,
-                  .builtinCall "list.SortStrings" [.list [.prim (.string "x")]]⟩,
+                  .builtinCall "list.SortStrings" [.list [.prim (.string "x")]], false⟩,
                 ⟨"sorted", .regular,
                   .builtinCall "list.SortStrings"
-                    [.list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]]⟩,
+                    [.list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]], false⟩,
                 ⟨"reverse", .regular,
                   .builtinCall "list.SortStrings"
-                    [.list [.prim (.string "c"), .prim (.string "b"), .prim (.string "a")]]⟩,
+                    [.list [.prim (.string "c"), .prim (.string "b"), .prim (.string "a")]], false⟩,
                 ⟨"caps", .regular,
                   .builtinCall "list.SortStrings"
-                    [.list [.prim (.string "b"), .prim (.string "A"), .prim (.string "a"), .prim (.string "B")]]⟩,
+                    [.list [.prim (.string "b"), .prim (.string "A"), .prim (.string "a"), .prim (.string "B")]], false⟩,
                 ⟨"unicode", .regular,
                   .builtinCall "list.SortStrings"
-                    [.list [.prim (.string "é"), .prim (.string "a"), .prim (.string "z"), .prim (.string "Z")]]⟩
+                    [.list [.prim (.string "é"), .prim (.string "a"), .prim (.string "z"), .prim (.string "Z")]], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3122,30 +3122,30 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"powSquare", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int 10)]⟩,
-                ⟨"powZeroExp", .regular, .builtinCall "math.Pow" [.prim (.int 5), .prim (.int 0)]⟩,
-                ⟨"powBaseZero", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int 5)]⟩,
-                ⟨"powFloatBase", .regular, .builtinCall "math.Pow" [.prim (.float "1.5"), .prim (.int 3)]⟩,
-                ⟨"powNegBase", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.int 3)]⟩,
-                ⟨"powNegBaseEv", .regular, .builtinCall "math.Pow" [.prim (.int (-3)), .prim (.int 4)]⟩,
-                ⟨"powFloatPow", .regular, .builtinCall "math.Pow" [.prim (.float "2.5"), .prim (.int 4)]⟩,
-                ⟨"powWholeFlt", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.float "2.0")]⟩,
-                ⟨"powBig", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int 20)]⟩,
-                ⟨"powDecExact", .regular, .builtinCall "math.Pow" [.prim (.float "0.1"), .prim (.int 2)]⟩,
-                ⟨"powOne", .regular, .builtinCall "math.Pow" [.prim (.int 7), .prim (.int 1)]⟩,
-                ⟨"powNegInt", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))]⟩,
-                ⟨"powNegInt10", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int (-2))]⟩,
-                ⟨"powNegOneBs", .regular, .builtinCall "math.Pow" [.prim (.int 1), .prim (.int (-5))]⟩,
-                ⟨"powNegRep", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.int (-1))]⟩,
-                ⟨"powZeroNeg", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int (-1))]⟩,
-                ⟨"powQuarter", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")]⟩,
-                ⟨"powTenth", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.1")]⟩,
-                ⟨"powThreeHalf", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "1.5")]⟩,
+                ⟨"powSquare", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int 10)], false⟩,
+                ⟨"powZeroExp", .regular, .builtinCall "math.Pow" [.prim (.int 5), .prim (.int 0)], false⟩,
+                ⟨"powBaseZero", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int 5)], false⟩,
+                ⟨"powFloatBase", .regular, .builtinCall "math.Pow" [.prim (.float "1.5"), .prim (.int 3)], false⟩,
+                ⟨"powNegBase", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.int 3)], false⟩,
+                ⟨"powNegBaseEv", .regular, .builtinCall "math.Pow" [.prim (.int (-3)), .prim (.int 4)], false⟩,
+                ⟨"powFloatPow", .regular, .builtinCall "math.Pow" [.prim (.float "2.5"), .prim (.int 4)], false⟩,
+                ⟨"powWholeFlt", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.float "2.0")], false⟩,
+                ⟨"powBig", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int 20)], false⟩,
+                ⟨"powDecExact", .regular, .builtinCall "math.Pow" [.prim (.float "0.1"), .prim (.int 2)], false⟩,
+                ⟨"powOne", .regular, .builtinCall "math.Pow" [.prim (.int 7), .prim (.int 1)], false⟩,
+                ⟨"powNegInt", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))], false⟩,
+                ⟨"powNegInt10", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int (-2))], false⟩,
+                ⟨"powNegOneBs", .regular, .builtinCall "math.Pow" [.prim (.int 1), .prim (.int (-5))], false⟩,
+                ⟨"powNegRep", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.int (-1))], false⟩,
+                ⟨"powZeroNeg", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int (-1))], false⟩,
+                ⟨"powQuarter", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")], false⟩,
+                ⟨"powTenth", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.1")], false⟩,
+                ⟨"powThreeHalf", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "1.5")], false⟩,
                 ⟨"powCubeRoot", .regular,
                   .builtinCall "math.Pow"
-                    [.prim (.int 8), .prim (.float "0.3333333333333333333333333333333333")]⟩,
-                ⟨"powNegBaseFr", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.25")]⟩,
-                ⟨"powZeroFr", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.float "0.25")]⟩
+                    [.prim (.int 8), .prim (.float "0.3333333333333333333333333333333333")], false⟩,
+                ⟨"powNegBaseFr", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.25")], false⟩,
+                ⟨"powZeroFr", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.float "0.25")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3154,21 +3154,21 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"sqrtTwo", .regular, .builtinCall "math.Sqrt" [.prim (.int 2)]⟩,
-                ⟨"sqrtFive", .regular, .builtinCall "math.Sqrt" [.prim (.int 5)]⟩,
-                ⟨"sqrtPerfect", .regular, .builtinCall "math.Sqrt" [.prim (.int 144)]⟩,
-                ⟨"sqrtFour", .regular, .builtinCall "math.Sqrt" [.prim (.int 4)]⟩,
-                ⟨"sqrtHundred", .regular, .builtinCall "math.Sqrt" [.prim (.int 100)]⟩,
-                ⟨"sqrtBigSq", .regular, .builtinCall "math.Sqrt" [.prim (.int 1000000)]⟩,
-                ⟨"sqrtZero", .regular, .builtinCall "math.Sqrt" [.prim (.int 0)]⟩,
-                ⟨"sqrtOne", .regular, .builtinCall "math.Sqrt" [.prim (.int 1)]⟩,
-                ⟨"sqrtDecSq", .regular, .builtinCall "math.Sqrt" [.prim (.float "2.25")]⟩,
-                ⟨"sqrtDecQtr", .regular, .builtinCall "math.Sqrt" [.prim (.float "0.25")]⟩,
-                ⟨"sqrtThree", .regular, .builtinCall "math.Sqrt" [.prim (.int 3)]⟩,
-                ⟨"powHalf", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]⟩,
-                ⟨"powHalfSq", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "0.5")]⟩,
+                ⟨"sqrtTwo", .regular, .builtinCall "math.Sqrt" [.prim (.int 2)], false⟩,
+                ⟨"sqrtFive", .regular, .builtinCall "math.Sqrt" [.prim (.int 5)], false⟩,
+                ⟨"sqrtPerfect", .regular, .builtinCall "math.Sqrt" [.prim (.int 144)], false⟩,
+                ⟨"sqrtFour", .regular, .builtinCall "math.Sqrt" [.prim (.int 4)], false⟩,
+                ⟨"sqrtHundred", .regular, .builtinCall "math.Sqrt" [.prim (.int 100)], false⟩,
+                ⟨"sqrtBigSq", .regular, .builtinCall "math.Sqrt" [.prim (.int 1000000)], false⟩,
+                ⟨"sqrtZero", .regular, .builtinCall "math.Sqrt" [.prim (.int 0)], false⟩,
+                ⟨"sqrtOne", .regular, .builtinCall "math.Sqrt" [.prim (.int 1)], false⟩,
+                ⟨"sqrtDecSq", .regular, .builtinCall "math.Sqrt" [.prim (.float "2.25")], false⟩,
+                ⟨"sqrtDecQtr", .regular, .builtinCall "math.Sqrt" [.prim (.float "0.25")], false⟩,
+                ⟨"sqrtThree", .regular, .builtinCall "math.Sqrt" [.prim (.int 3)], false⟩,
+                ⟨"powHalf", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")], false⟩,
+                ⟨"powHalfSq", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "0.5")], false⟩,
                 ⟨"powHalfDec", .regular,
-                  .builtinCall "math.Pow" [.prim (.float "2.25"), .prim (.float "0.5")]⟩
+                  .builtinCall "math.Pow" [.prim (.float "2.25"), .prim (.float "0.5")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3179,47 +3179,47 @@ def fixturePorts : List FixturePort :=
         -- Inline comparators, built as the same AST the parser emits for `{x: _, y: _, less: …}`.
         let lessXY (op : BinaryOp) : Value :=
           mkStruct
-            [⟨"x", .regular, .top⟩, ⟨"y", .regular, .top⟩,
-             ⟨"less", .regular, .binary op (.ref "x") (.ref "y")⟩]
+            [⟨"x", .regular, .top, false⟩, ⟨"y", .regular, .top, false⟩,
+             ⟨"less", .regular, .binary op (.ref "x") (.ref "y"), false⟩]
             .regularOpen none []
-        let kStruct (k : Int) : Value := mkStruct [⟨"k", .regular, .prim (.int k)⟩] .regularOpen none []
+        let kStruct (k : Int) : Value := mkStruct [⟨"k", .regular, .prim (.int k), false⟩] .regularOpen none []
         let kvStruct (k : Int) (v : String) : Value :=
-          mkStruct [⟨"k", .regular, .prim (.int k)⟩, ⟨"v", .regular, .prim (.string v)⟩] .regularOpen none []
+          mkStruct [⟨"k", .regular, .prim (.int k), false⟩, ⟨"v", .regular, .prim (.string v), false⟩] .regularOpen none []
         -- Comparator over a `.k` sub-field: `{x: {k: _}, y: {k: _}, less: x.k < y.k}`.
         let lessByK : Value :=
           mkStruct
-            [⟨"x", .regular, mkStruct [⟨"k", .regular, .top⟩] .regularOpen none []⟩,
-             ⟨"y", .regular, mkStruct [⟨"k", .regular, .top⟩] .regularOpen none []⟩,
-             ⟨"less", .regular, .binary .lt (.selector (.ref "x") "k") (.selector (.ref "y") "k")⟩]
+            [⟨"x", .regular, mkStruct [⟨"k", .regular, .top, false⟩] .regularOpen none [], false⟩,
+             ⟨"y", .regular, mkStruct [⟨"k", .regular, .top, false⟩] .regularOpen none [], false⟩,
+             ⟨"less", .regular, .binary .lt (.selector (.ref "x") "k") (.selector (.ref "y") "k"), false⟩]
             .regularOpen none []
         formatTopLevel
           (resolveAndEval
             (mkStruct [
                 ⟨"ascending", .regular,
-                  .builtinCall "list.Sort" [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], ascending]⟩,
+                  .builtinCall "list.Sort" [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], ascending], false⟩,
                 ⟨"descending", .regular,
-                  .builtinCall "list.Sort" [.list [.prim (.int 1), .prim (.int 3), .prim (.int 2)], descending]⟩,
+                  .builtinCall "list.Sort" [.list [.prim (.int 1), .prim (.int 3), .prim (.int 2)], descending], false⟩,
                 ⟨"alreadySort", .regular,
-                  .builtinCall "list.Sort" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], ascending]⟩,
-                ⟨"empty", .regular, .builtinCall "list.Sort" [.list [], ascending]⟩,
-                ⟨"single", .regular, .builtinCall "list.Sort" [.list [.prim (.int 5)], ascending]⟩,
+                  .builtinCall "list.Sort" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)], ascending], false⟩,
+                ⟨"empty", .regular, .builtinCall "list.Sort" [.list [], ascending], false⟩,
+                ⟨"single", .regular, .builtinCall "list.Sort" [.list [.prim (.int 5)], ascending], false⟩,
                 ⟨"duplicates", .regular,
                   .builtinCall "list.Sort"
-                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2), .prim (.int 1), .prim (.int 3)], ascending]⟩,
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2), .prim (.int 1), .prim (.int 3)], ascending], false⟩,
                 ⟨"strings", .regular,
                   .builtinCall "list.Sort"
-                    [.list [.prim (.string "banana"), .prim (.string "apple"), .prim (.string "cherry")], ascending]⟩,
+                    [.list [.prim (.string "banana"), .prim (.string "apple"), .prim (.string "cherry")], ascending], false⟩,
                 ⟨"negatives", .regular,
                   .builtinCall "list.Sort"
-                    [.list [.prim (.int 3), .prim (.int (-1)), .prim (.int 2), .prim (.int (-5)), .prim (.int 0)], ascending]⟩,
+                    [.list [.prim (.int 3), .prim (.int (-1)), .prim (.int 2), .prim (.int (-5)), .prim (.int 0)], ascending], false⟩,
                 ⟨"inlineCmp", .regular,
-                  .builtinCall "list.Sort" [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], lessXY .lt]⟩,
+                  .builtinCall "list.Sort" [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], lessXY .lt], false⟩,
                 ⟨"byField", .regular,
-                  .builtinCall "list.Sort" [.list [kStruct 3, kStruct 1, kStruct 2], lessByK]⟩,
+                  .builtinCall "list.Sort" [.list [kStruct 3, kStruct 1, kStruct 2], lessByK], false⟩,
                 ⟨"stableTies", .regular,
                   .builtinCall "list.SortStable"
-                    [.list [kvStruct 1 "a", kvStruct 1 "b", kvStruct 0 "c", kvStruct 1 "d"], lessByK]⟩,
-                ⟨"stableEmpty", .regular, .builtinCall "list.SortStable" [.list [], ascending]⟩
+                    [.list [kvStruct 1 "a", kvStruct 1 "b", kvStruct 0 "c", kvStruct 1 "d"], lessByK], false⟩,
+                ⟨"stableEmpty", .regular, .builtinCall "list.SortStable" [.list [], ascending], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3229,33 +3229,33 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"upperLower", .regular,
-                  .builtinCall "strings.ToUpper" [.prim (.string "hello World 123!")]⟩,
+                  .builtinCall "strings.ToUpper" [.prim (.string "hello World 123!")], false⟩,
                 ⟨"upperUpper", .regular,
-                  .builtinCall "strings.ToUpper" [.prim (.string "ALREADY UP")]⟩,
+                  .builtinCall "strings.ToUpper" [.prim (.string "ALREADY UP")], false⟩,
                 ⟨"lowerMixed", .regular,
-                  .builtinCall "strings.ToLower" [.prim (.string "Hello WORLD 123!")]⟩,
+                  .builtinCall "strings.ToLower" [.prim (.string "Hello WORLD 123!")], false⟩,
                 ⟨"lowerLower", .regular,
-                  .builtinCall "strings.ToLower" [.prim (.string "already low")]⟩,
+                  .builtinCall "strings.ToLower" [.prim (.string "already low")], false⟩,
                 ⟨"upperEmpty", .regular,
-                  .builtinCall "strings.ToUpper" [.prim (.string "")]⟩,
+                  .builtinCall "strings.ToUpper" [.prim (.string "")], false⟩,
                 ⟨"lowerEmpty", .regular,
-                  .builtinCall "strings.ToLower" [.prim (.string "")]⟩,
+                  .builtinCall "strings.ToLower" [.prim (.string "")], false⟩,
                 ⟨"upperPunct", .regular,
-                  .builtinCall "strings.ToUpper" [.prim (.string "abc123!@#")]⟩,
+                  .builtinCall "strings.ToUpper" [.prim (.string "abc123!@#")], false⟩,
                 ⟨"lowerPunct", .regular,
-                  .builtinCall "strings.ToLower" [.prim (.string "ABC123!@#")]⟩,
+                  .builtinCall "strings.ToLower" [.prim (.string "ABC123!@#")], false⟩,
                 ⟨"titleWords", .regular,
-                  .builtinCall "strings.ToTitle" [.prim (.string "hello world foo")]⟩,
+                  .builtinCall "strings.ToTitle" [.prim (.string "hello world foo")], false⟩,
                 ⟨"titleUpper", .regular,
-                  .builtinCall "strings.ToTitle" [.prim (.string "HELLO WORLD")]⟩,
+                  .builtinCall "strings.ToTitle" [.prim (.string "HELLO WORLD")], false⟩,
                 ⟨"titleEmpty", .regular,
-                  .builtinCall "strings.ToTitle" [.prim (.string "")]⟩,
+                  .builtinCall "strings.ToTitle" [.prim (.string "")], false⟩,
                 ⟨"titleSeps", .regular,
-                  .builtinCall "strings.ToTitle" [.prim (.string "a-b a.b a_b a/b")]⟩,
+                  .builtinCall "strings.ToTitle" [.prim (.string "a-b a.b a_b a/b")], false⟩,
                 ⟨"titleDigit", .regular,
-                  .builtinCall "strings.ToTitle" [.prim (.string "3 abc a3bc")]⟩,
+                  .builtinCall "strings.ToTitle" [.prim (.string "3 abc a3bc")], false⟩,
                 ⟨"titleLead", .regular,
-                  .builtinCall "strings.ToTitle" [.prim (.string "  leading")]⟩
+                  .builtinCall "strings.ToTitle" [.prim (.string "  leading")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3264,22 +3264,22 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"upLatin", .regular, .builtinCall "strings.ToUpper" [.prim (.string "café")]⟩,
-                ⟨"loLatin", .regular, .builtinCall "strings.ToLower" [.prim (.string "CAFÉ")]⟩,
-                ⟨"upGreek", .regular, .builtinCall "strings.ToUpper" [.prim (.string "αβγ")]⟩,
-                ⟨"loGreek", .regular, .builtinCall "strings.ToLower" [.prim (.string "ΑΒΓ")]⟩,
-                ⟨"upCyrillic", .regular, .builtinCall "strings.ToUpper" [.prim (.string "я")]⟩,
-                ⟨"loCyrillic", .regular, .builtinCall "strings.ToLower" [.prim (.string "Я")]⟩,
-                ⟨"upMicro", .regular, .builtinCall "strings.ToUpper" [.prim (.string "µ")]⟩,
-                ⟨"upYdiaer", .regular, .builtinCall "strings.ToUpper" [.prim (.string "ÿ")]⟩,
-                ⟨"upSharpS", .regular, .builtinCall "strings.ToUpper" [.prim (.string "ß")]⟩,
-                ⟨"upUncased", .regular, .builtinCall "strings.ToUpper" [.prim (.string "中→")]⟩,
+                ⟨"upLatin", .regular, .builtinCall "strings.ToUpper" [.prim (.string "café")], false⟩,
+                ⟨"loLatin", .regular, .builtinCall "strings.ToLower" [.prim (.string "CAFÉ")], false⟩,
+                ⟨"upGreek", .regular, .builtinCall "strings.ToUpper" [.prim (.string "αβγ")], false⟩,
+                ⟨"loGreek", .regular, .builtinCall "strings.ToLower" [.prim (.string "ΑΒΓ")], false⟩,
+                ⟨"upCyrillic", .regular, .builtinCall "strings.ToUpper" [.prim (.string "я")], false⟩,
+                ⟨"loCyrillic", .regular, .builtinCall "strings.ToLower" [.prim (.string "Я")], false⟩,
+                ⟨"upMicro", .regular, .builtinCall "strings.ToUpper" [.prim (.string "µ")], false⟩,
+                ⟨"upYdiaer", .regular, .builtinCall "strings.ToUpper" [.prim (.string "ÿ")], false⟩,
+                ⟨"upSharpS", .regular, .builtinCall "strings.ToUpper" [.prim (.string "ß")], false⟩,
+                ⟨"upUncased", .regular, .builtinCall "strings.ToUpper" [.prim (.string "中→")], false⟩,
                 ⟨"upMixed", .regular,
-                  .builtinCall "strings.ToUpper" [.prim (.string "café 123 αβγ я 中")]⟩,
+                  .builtinCall "strings.ToUpper" [.prim (.string "café 123 αβγ я 中")], false⟩,
                 ⟨"loMixed", .regular,
-                  .builtinCall "strings.ToLower" [.prim (.string "CAFÉ 123 ΑΒΓ Я 中")]⟩,
+                  .builtinCall "strings.ToLower" [.prim (.string "CAFÉ 123 ΑΒΓ Я 中")], false⟩,
                 ⟨"titleNonAscii", .regular,
-                  .builtinCall "strings.ToTitle" [.prim (.string "über alles")]⟩
+                  .builtinCall "strings.ToTitle" [.prim (.string "über alles")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3290,37 +3290,37 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"remainder", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 2)]⟩,
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 2)], false⟩,
                 ⟨"zero", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 0)]⟩,
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 0)], false⟩,
                 ⟨"negative", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int (-1))]⟩,
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int (-1))], false⟩,
                 ⟨"exceed", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 5)]⟩,
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 5)], false⟩,
                 ⟨"exact", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 3)]⟩,
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 3)], false⟩,
                 ⟨"one", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 1)]⟩,
+                    [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 1)], false⟩,
                 ⟨"absent", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "xyz"), .prim (.string ","), .prim (.int 2)]⟩,
+                    [.prim (.string "xyz"), .prim (.string ","), .prim (.int 2)], false⟩,
                 ⟨"emptyStr", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string ""), .prim (.string ","), .prim (.int 2)]⟩,
+                    [.prim (.string ""), .prim (.string ","), .prim (.int 2)], false⟩,
                 ⟨"emptySepN", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "abc"), .prim (.string ""), .prim (.int 2)]⟩,
+                    [.prim (.string "abc"), .prim (.string ""), .prim (.int 2)], false⟩,
                 ⟨"emptySepA", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string "abc"), .prim (.string ""), .prim (.int (-1))]⟩,
+                    [.prim (.string "abc"), .prim (.string ""), .prim (.int (-1))], false⟩,
                 ⟨"emptyBoth", .regular,
                   .builtinCall "strings.SplitN"
-                    [.prim (.string ""), .prim (.string ""), .prim (.int (-1))]⟩
+                    [.prim (.string ""), .prim (.string ""), .prim (.int (-1))], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3331,47 +3331,47 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"avgDiv", .regular,
                   .builtinCall "list.Avg"
-                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]], false⟩,
                 ⟨"avgNoDiv", .regular,
-                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (.int 2)]]⟩,
+                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (.int 2)]], false⟩,
                 ⟨"avgThirds", .regular,
                   .builtinCall "list.Avg"
-                    [.list [.prim (.int 1), .prim (.int 1), .prim (.int 2)]]⟩,
+                    [.list [.prim (.int 1), .prim (.int 1), .prim (.int 2)]], false⟩,
                 ⟨"avgQuarter", .regular,
                   .builtinCall "list.Avg"
-                    [.list [.prim (.int 1), .prim (.int 1), .prim (.int 1), .prim (.int 2)]]⟩,
+                    [.list [.prim (.int 1), .prim (.int 1), .prim (.int 1), .prim (.int 2)]], false⟩,
                 ⟨"avgFloat", .regular,
                   .builtinCall "list.Avg"
-                    [.list [.prim (.float "1.0"), .prim (.float "2.0")]]⟩,
+                    [.list [.prim (.float "1.0"), .prim (.float "2.0")]], false⟩,
                 ⟨"avgMixed", .regular,
-                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (.float "2.0")]]⟩,
+                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (.float "2.0")]], false⟩,
                 ⟨"sumFloat", .regular,
                   .builtinCall "list.Sum"
-                    [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]]⟩,
+                    [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]], false⟩,
                 ⟨"sumMixed", .regular,
                   .builtinCall "list.Sum"
-                    [.list [.prim (.int 1), .prim (.float "2.0"), .prim (.int 3)]]⟩,
+                    [.list [.prim (.int 1), .prim (.float "2.0"), .prim (.int 3)]], false⟩,
                 ⟨"sumMixedFrac", .regular,
                   .builtinCall "list.Sum"
-                    [.list [.prim (.int 1), .prim (.float "2.5"), .prim (.int 3)]]⟩,
+                    [.list [.prim (.int 1), .prim (.float "2.5"), .prim (.int 3)]], false⟩,
                 ⟨"minFloat", .regular,
                   .builtinCall "list.Min"
-                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]⟩,
+                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]], false⟩,
                 ⟨"minMixed", .regular,
                   .builtinCall "list.Min"
-                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]]⟩,
+                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]], false⟩,
                 ⟨"maxFloat", .regular,
                   .builtinCall "list.Max"
-                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]⟩,
+                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]], false⟩,
                 ⟨"maxMixed", .regular,
                   .builtinCall "list.Max"
-                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]]⟩,
+                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]], false⟩,
                 ⟨"rangeFloat", .regular,
                   .builtinCall "list.Range"
-                    [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.5")]⟩,
+                    [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.5")], false⟩,
                 ⟨"rangeNeg", .regular,
                   .builtinCall "list.Range"
-                    [.prim (.float "2.0"), .prim (.float "0.0"), .prim (.float "-0.5")]⟩
+                    [.prim (.float "2.0"), .prim (.float "0.0"), .prim (.float "-0.5")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3381,51 +3381,51 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"absNegInt", .regular,
-                  .builtinCall "math.Abs" [.prim (.int (-5))]⟩,
+                  .builtinCall "math.Abs" [.prim (.int (-5))], false⟩,
                 ⟨"absPosInt", .regular,
-                  .builtinCall "math.Abs" [.prim (.int 5)]⟩,
+                  .builtinCall "math.Abs" [.prim (.int 5)], false⟩,
                 ⟨"absZero", .regular,
-                  .builtinCall "math.Abs" [.prim (.int 0)]⟩,
+                  .builtinCall "math.Abs" [.prim (.int 0)], false⟩,
                 ⟨"absFloat", .regular,
-                  .builtinCall "math.Abs" [.prim (.float "-3.5")]⟩,
+                  .builtinCall "math.Abs" [.prim (.float "-3.5")], false⟩,
                 ⟨"absBigFloat", .regular,
-                  .builtinCall "math.Abs" [.prim (.float "-123.456")]⟩,
+                  .builtinCall "math.Abs" [.prim (.float "-123.456")], false⟩,
                 ⟨"multTrue", .regular,
-                  .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int 3)]⟩,
+                  .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int 3)], false⟩,
                 ⟨"multFalse", .regular,
-                  .builtinCall "math.MultipleOf" [.prim (.int 13), .prim (.int 3)]⟩,
+                  .builtinCall "math.MultipleOf" [.prim (.int 13), .prim (.int 3)], false⟩,
                 ⟨"multNegValue", .regular,
-                  .builtinCall "math.MultipleOf" [.prim (.int (-12)), .prim (.int 3)]⟩,
+                  .builtinCall "math.MultipleOf" [.prim (.int (-12)), .prim (.int 3)], false⟩,
                 ⟨"multNegDivisor", .regular,
-                  .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int (-3))]⟩,
+                  .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int (-3))], false⟩,
                 ⟨"floorPos", .regular,
-                  .builtinCall "math.Floor" [.prim (.float "3.7")]⟩,
+                  .builtinCall "math.Floor" [.prim (.float "3.7")], false⟩,
                 ⟨"floorNeg", .regular,
-                  .builtinCall "math.Floor" [.prim (.float "-3.2")]⟩,
+                  .builtinCall "math.Floor" [.prim (.float "-3.2")], false⟩,
                 ⟨"floorInt", .regular,
-                  .builtinCall "math.Floor" [.prim (.int 5)]⟩,
+                  .builtinCall "math.Floor" [.prim (.int 5)], false⟩,
                 ⟨"floorExact", .regular,
-                  .builtinCall "math.Floor" [.prim (.float "3.0")]⟩,
+                  .builtinCall "math.Floor" [.prim (.float "3.0")], false⟩,
                 ⟨"ceilPos", .regular,
-                  .builtinCall "math.Ceil" [.prim (.float "3.2")]⟩,
+                  .builtinCall "math.Ceil" [.prim (.float "3.2")], false⟩,
                 ⟨"ceilNeg", .regular,
-                  .builtinCall "math.Ceil" [.prim (.float "-3.7")]⟩,
+                  .builtinCall "math.Ceil" [.prim (.float "-3.7")], false⟩,
                 ⟨"ceilInt", .regular,
-                  .builtinCall "math.Ceil" [.prim (.int 5)]⟩,
+                  .builtinCall "math.Ceil" [.prim (.int 5)], false⟩,
                 ⟨"roundHalf", .regular,
-                  .builtinCall "math.Round" [.prim (.float "2.5")]⟩,
+                  .builtinCall "math.Round" [.prim (.float "2.5")], false⟩,
                 ⟨"roundNegHalf", .regular,
-                  .builtinCall "math.Round" [.prim (.float "-2.5")]⟩,
+                  .builtinCall "math.Round" [.prim (.float "-2.5")], false⟩,
                 ⟨"roundDown", .regular,
-                  .builtinCall "math.Round" [.prim (.float "2.4")]⟩,
+                  .builtinCall "math.Round" [.prim (.float "2.4")], false⟩,
                 ⟨"roundUp", .regular,
-                  .builtinCall "math.Round" [.prim (.float "0.5")]⟩,
+                  .builtinCall "math.Round" [.prim (.float "0.5")], false⟩,
                 ⟨"truncPos", .regular,
-                  .builtinCall "math.Trunc" [.prim (.float "3.7")]⟩,
+                  .builtinCall "math.Trunc" [.prim (.float "3.7")], false⟩,
                 ⟨"truncNeg", .regular,
-                  .builtinCall "math.Trunc" [.prim (.float "-3.99")]⟩,
+                  .builtinCall "math.Trunc" [.prim (.float "-3.99")], false⟩,
                 ⟨"truncInt", .regular,
-                  .builtinCall "math.Trunc" [.prim (.int 5)]⟩
+                  .builtinCall "math.Trunc" [.prim (.int 5)], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3438,20 +3438,20 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"metadata", .regular,
-                  mkStruct [⟨"name", .regular, .prim (.string "api")⟩] .regularOpen none []⟩,
+                  mkStruct [⟨"name", .regular, .prim (.string "api"), false⟩] .regularOpen none [], false⟩,
                 ⟨"spec", .regular,
                   mkStruct [
-                      ⟨"replicas", .regular, .prim (.int 3)⟩,
+                      ⟨"replicas", .regular, .prim (.int 3), false⟩,
                       ⟨"template", .regular,
                         mkStruct [⟨"spec", .regular,
-                            mkStruct [⟨"containers", .regular, .list [.prim (.string "c")]⟩] .regularOpen none []⟩] .regularOpen none []⟩
-                    ] .regularOpen none []⟩,
+                            mkStruct [⟨"containers", .regular, .list [.prim (.string "c")], false⟩] .regularOpen none [], false⟩] .regularOpen none [], false⟩
+                    ] .regularOpen none [], false⟩,
                 ⟨"labels", .regular,
-                  mkStruct [⟨"prodigy9.co/app", .regular, .prim (.string "web")⟩] .regularOpen none []⟩,
+                  mkStruct [⟨"prodigy9.co/app", .regular, .prim (.string "web"), false⟩] .regularOpen none [], false⟩,
                 ⟨"mixed", .regular,
                   mkStruct [⟨"a", .regular,
                       mkStruct [⟨"b", .regular,
-                        mkStruct [⟨"c", .regular, .prim (.int 1)⟩] .regularOpen none []⟩] .regularOpen none []⟩] .regularOpen none []⟩
+                        mkStruct [⟨"c", .regular, .prim (.int 1), false⟩] .regularOpen none [], false⟩] .regularOpen none [], false⟩] .regularOpen none [], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3467,23 +3467,23 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"#Secret", .definition,
                   mkStruct [
-                      ⟨"Self", .letBinding, .thisStruct⟩,
-                      ⟨"#name", .definition, .prim (.string "tls")⟩,
-                      ⟨"data", .regular, .selector (.ref "Self") "#name"⟩
-                    ] .defClosed none []⟩,
+                      ⟨"Self", .letBinding, .thisStruct, false⟩,
+                      ⟨"#name", .definition, .prim (.string "tls"), false⟩,
+                      ⟨"data", .regular, .selector (.ref "Self") "#name", false⟩
+                    ] .defClosed none [], false⟩,
                 ⟨"aliased", .regular,
                   mkStruct [
-                      ⟨"X", .letBinding, .thisStruct⟩,
-                      ⟨"greeting", .regular, .prim (.string "hi")⟩,
-                      ⟨"echo", .regular, .selector (.ref "X") "greeting"⟩
-                    ] .regularOpen none []⟩,
+                      ⟨"X", .letBinding, .thisStruct, false⟩,
+                      ⟨"greeting", .regular, .prim (.string "hi"), false⟩,
+                      ⟨"echo", .regular, .selector (.ref "X") "greeting", false⟩
+                    ] .regularOpen none [], false⟩,
                 ⟨"nestedSelf", .regular,
                   mkStruct [
-                      ⟨"Self", .letBinding, .thisStruct⟩,
-                      ⟨"port", .regular, .prim (.int 8080)⟩,
+                      ⟨"Self", .letBinding, .thisStruct, false⟩,
+                      ⟨"port", .regular, .prim (.int 8080), false⟩,
                       ⟨"inner", .regular,
-                        mkStruct [⟨"lo", .regular, .selector (.ref "Self") "port"⟩] .regularOpen none []⟩
-                    ] .regularOpen none []⟩
+                        mkStruct [⟨"lo", .regular, .selector (.ref "Self") "port", false⟩] .regularOpen none [], false⟩
+                    ] .regularOpen none [], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3493,21 +3493,21 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"ascii", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "hello")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "hello")], false⟩,
                 ⟨"empty", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "")], false⟩,
                 ⟨"multibyte", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "héllo")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "héllo")], false⟩,
                 ⟨"pad1", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "a")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "a")], false⟩,
                 ⟨"pad2", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "ab")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "ab")], false⟩,
                 ⟨"pad0", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "abc")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "abc")], false⟩,
                 ⟨"overBytes", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.bytes "hello")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.bytes "hello")], false⟩,
                 ⟨"nonNull", .regular,
-                  .builtinCall "base64.Encode" [.prim (.string "std"), .prim (.string "hello")]⟩
+                  .builtinCall "base64.Encode" [.prim (.string "std"), .prim (.string "hello")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3516,31 +3516,31 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"str", .regular, .builtinCall "json.Marshal" [.prim (.string "hi")]⟩,
-                ⟨"intVal", .regular, .builtinCall "json.Marshal" [.prim (.int 42)]⟩,
-                ⟨"negInt", .regular, .builtinCall "json.Marshal" [.prim (.int (-5))]⟩,
-                ⟨"floatVal", .regular, .builtinCall "json.Marshal" [.prim (.float "1.5")]⟩,
-                ⟨"floatWhole", .regular, .builtinCall "json.Marshal" [.prim (.float "1.0")]⟩,
-                ⟨"boolVal", .regular, .builtinCall "json.Marshal" [.prim (.bool true)]⟩,
-                ⟨"nullVal", .regular, .builtinCall "json.Marshal" [.prim .null]⟩,
+                ⟨"str", .regular, .builtinCall "json.Marshal" [.prim (.string "hi")], false⟩,
+                ⟨"intVal", .regular, .builtinCall "json.Marshal" [.prim (.int 42)], false⟩,
+                ⟨"negInt", .regular, .builtinCall "json.Marshal" [.prim (.int (-5))], false⟩,
+                ⟨"floatVal", .regular, .builtinCall "json.Marshal" [.prim (.float "1.5")], false⟩,
+                ⟨"floatWhole", .regular, .builtinCall "json.Marshal" [.prim (.float "1.0")], false⟩,
+                ⟨"boolVal", .regular, .builtinCall "json.Marshal" [.prim (.bool true)], false⟩,
+                ⟨"nullVal", .regular, .builtinCall "json.Marshal" [.prim .null], false⟩,
                 ⟨"nested", .regular,
                   .builtinCall "json.Marshal"
                     [mkStruct [
-                        ⟨"b", .regular, .prim (.int 2)⟩,
-                        ⟨"a", .regular, .prim (.int 1)⟩,
+                        ⟨"b", .regular, .prim (.int 2), false⟩,
+                        ⟨"a", .regular, .prim (.int 1), false⟩,
                         ⟨"c", .regular,
-                          mkStruct [⟨"z", .regular, .prim (.int 1)⟩, ⟨"y", .regular, .prim (.int 2)⟩] .regularOpen none []⟩
-                      ] .regularOpen none []]⟩,
+                          mkStruct [⟨"z", .regular, .prim (.int 1), false⟩, ⟨"y", .regular, .prim (.int 2), false⟩] .regularOpen none [], false⟩
+                      ] .regularOpen none []], false⟩,
                 ⟨"listVal", .regular,
                   .builtinCall "json.Marshal"
-                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]⟩,
-                ⟨"emptyObj", .regular, .builtinCall "json.Marshal" [mkStruct [] .regularOpen none []]⟩,
-                ⟨"emptyList", .regular, .builtinCall "json.Marshal" [.list []]⟩,
+                    [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]], false⟩,
+                ⟨"emptyObj", .regular, .builtinCall "json.Marshal" [mkStruct [] .regularOpen none []], false⟩,
+                ⟨"emptyList", .regular, .builtinCall "json.Marshal" [.list []], false⟩,
                 ⟨"escapes", .regular,
                   .builtinCall "json.Marshal"
-                    [mkStruct [⟨"html", .regular, .prim (.string "<a>&\"b\\c\n\t")⟩] .regularOpen none []]⟩,
+                    [mkStruct [⟨"html", .regular, .prim (.string "<a>&\"b\\c\n\t"), false⟩] .regularOpen none []], false⟩,
                 ⟨"incomplete", .regular,
-                  .builtinCall "json.Marshal" [mkStruct [⟨"a", .regular, .kind .int⟩] .regularOpen none []]⟩
+                  .builtinCall "json.Marshal" [mkStruct [⟨"a", .regular, .kind .int, false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3555,24 +3555,24 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"jsonMarshal", .regular,
-                  .builtinCall "json.Marshal" [mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩,
+                  .builtinCall "json.Marshal" [mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []], false⟩,
                 ⟨"jsonList", .regular,
-                  .builtinCall "json.Marshal" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]⟩,
-                ⟨"strUpper", .regular, .builtinCall "strings.ToUpper" [.prim (.string "hello")]⟩,
-                ⟨"strLower", .regular, .builtinCall "strings.ToLower" [.prim (.string "WORLD")]⟩,
+                  .builtinCall "json.Marshal" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]], false⟩,
+                ⟨"strUpper", .regular, .builtinCall "strings.ToUpper" [.prim (.string "hello")], false⟩,
+                ⟨"strLower", .regular, .builtinCall "strings.ToLower" [.prim (.string "WORLD")], false⟩,
                 ⟨"strContains", .regular,
-                  .builtinCall "strings.Contains" [.prim (.string "foobar"), .prim (.string "oob")]⟩,
-                ⟨"mathPow", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int 10)]⟩,
-                ⟨"mathSqrt", .regular, .builtinCall "math.Sqrt" [.prim (.int 144)]⟩,
+                  .builtinCall "strings.Contains" [.prim (.string "foobar"), .prim (.string "oob")], false⟩,
+                ⟨"mathPow", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int 10)], false⟩,
+                ⟨"mathSqrt", .regular, .builtinCall "math.Sqrt" [.prim (.int 144)], false⟩,
                 ⟨"listSum", .regular,
-                  .builtinCall "list.Sum" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)]]⟩,
+                  .builtinCall "list.Sum" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)]], false⟩,
                 ⟨"listConcat", .regular,
                   .builtinCall "list.Concat"
-                    [.list [.list [.prim (.int 1), .prim (.int 2)], .list [.prim (.int 3)]]]⟩,
+                    [.list [.list [.prim (.int 1), .prim (.int 2)], .list [.prim (.int 3)]]], false⟩,
                 ⟨"b64Encode", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "hi")]⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.string "hi")], false⟩,
                 ⟨"yamlMarshal", .regular,
-                  .builtinCall "yaml.Marshal" [mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩
+                  .builtinCall "yaml.Marshal" [mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3592,11 +3592,11 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"asc", .regular,
                   .builtinCall "list.Sort"
-                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], ascending]⟩,
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], ascending], false⟩,
                 ⟨"desc", .regular,
                   .builtinCall "list.Sort"
-                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], descending]⟩,
-                ⟨"cmp", .regular, comparer⟩
+                    [.list [.prim (.int 3), .prim (.int 1), .prim (.int 2)], descending], false⟩,
+                ⟨"cmp", .regular, comparer, false⟩
               ] .regularOpen none []))
     },
     {
@@ -3610,12 +3610,12 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"registry", .regular,
                   mkStruct [⟨"reg.io", .regular,
-                      mkStruct [⟨"auth", .regular, .prim (.string "abc")⟩] .regularOpen none []⟩] .regularOpen none []⟩,
+                      mkStruct [⟨"auth", .regular, .prim (.string "abc"), false⟩] .regularOpen none [], false⟩] .regularOpen none [], false⟩,
                 ⟨"data", .regular,
                   .builtinCall "base64.Encode"
                     [.prim .null,
                       .builtinCall "json.Marshal"
-                        [mkStruct [⟨"auths", .regular, .ref "registry"⟩] .regularOpen none []]]⟩
+                        [mkStruct [⟨"auths", .regular, .ref "registry", false⟩] .regularOpen none []]], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3629,17 +3629,17 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"anchoredStart", .regular,
-                  .builtinCall "regexp.Match" [.prim (.string "^x"), .prim (.string "xyz")]⟩,
+                  .builtinCall "regexp.Match" [.prim (.string "^x"), .prim (.string "xyz")], false⟩,
                 ⟨"unanchored", .regular,
-                  .builtinCall "regexp.Match" [.prim (.string "y"), .prim (.string "xyz")]⟩,
+                  .builtinCall "regexp.Match" [.prim (.string "y"), .prim (.string "xyz")], false⟩,
                 ⟨"midMatch", .regular,
-                  .builtinCall "regexp.Match" [.prim (.string "b"), .prim (.string "abc")]⟩,
+                  .builtinCall "regexp.Match" [.prim (.string "b"), .prim (.string "abc")], false⟩,
                 ⟨"noMatch", .regular,
-                  .builtinCall "regexp.Match" [.prim (.string "q"), .prim (.string "xyz")]⟩,
+                  .builtinCall "regexp.Match" [.prim (.string "q"), .prim (.string "xyz")], false⟩,
                 ⟨"anchoredEnd", .regular,
-                  .builtinCall "regexp.Match" [.prim (.string "z$"), .prim (.string "xyz")]⟩,
+                  .builtinCall "regexp.Match" [.prim (.string "z$"), .prim (.string "xyz")], false⟩,
                 ⟨"charClass", .regular,
-                  .builtinCall "regexp.Match" [.prim (.string "[0-9]"), .prim (.string "a1b")]⟩
+                  .builtinCall "regexp.Match" [.prim (.string "[0-9]"), .prim (.string "a1b")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3655,51 +3655,51 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"replaceLiteral", .regular,
                   .builtinCall "regexp.ReplaceAll"
-                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "T")]⟩,
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "T")], false⟩,
                 ⟨"replaceGroup", .regular,
                   .builtinCall "regexp.ReplaceAll"
-                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")]⟩,
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")], false⟩,
                 ⟨"replaceBrace", .regular,
                   .builtinCall "regexp.ReplaceAll"
                     [.prim (.string "a(x*)b"), .prim (.string "-axxb-"),
-                      .prim (.string "${1}suffix")]⟩,
+                      .prim (.string "${1}suffix")], false⟩,
                 ⟨"replaceBareName", .regular,
                   .builtinCall "regexp.ReplaceAll"
                     [.prim (.string "a(x*)b"), .prim (.string "-axxb-"),
-                      .prim (.string "$1suffix")]⟩,
+                      .prim (.string "$1suffix")], false⟩,
                 ⟨"replaceDollar", .regular,
                   .builtinCall "regexp.ReplaceAll"
-                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$$")]⟩,
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$$")], false⟩,
                 ⟨"replaceMulti", .regular,
                   .builtinCall "regexp.ReplaceAll"
                     [.prim (.string "a(x*)b"), .prim (.string "-axxb-axxxb-"),
-                      .prim (.string "T")]⟩,
+                      .prim (.string "T")], false⟩,
                 ⟨"replaceNoMatch", .regular,
                   .builtinCall "regexp.ReplaceAll"
-                    [.prim (.string "a(x*)b"), .prim (.string "-aQb-"), .prim (.string "T")]⟩,
+                    [.prim (.string "a(x*)b"), .prim (.string "-aQb-"), .prim (.string "T")], false⟩,
                 ⟨"replaceZeroWidth", .regular,
                   .builtinCall "regexp.ReplaceAll"
-                    [.prim (.string "x*"), .prim (.string "abc"), .prim (.string "-")]⟩,
+                    [.prim (.string "x*"), .prim (.string "abc"), .prim (.string "-")], false⟩,
                 ⟨"replaceLiteralFn", .regular,
                   .builtinCall "regexp.ReplaceAllLiteral"
-                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")]⟩,
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-"), .prim (.string "$1")], false⟩,
                 ⟨"prod9Filter", .regular,
                   .builtinCall "regexp.ReplaceAll"
                     [.prim (.string "([hb][^\\s]+)lo"), .prim (.string "hello jello bello"),
-                      .prim (.string "${1}ly")]⟩,
+                      .prim (.string "${1}ly")], false⟩,
                 ⟨"findOne", .regular,
                   .builtinCall "regexp.Find"
-                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-")]⟩,
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-")], false⟩,
                 ⟨"findSub", .regular,
                   .builtinCall "regexp.FindSubmatch"
-                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-")]⟩,
+                    [.prim (.string "a(x*)b"), .prim (.string "-axxb-")], false⟩,
                 ⟨"findAllSpans", .regular,
                   .builtinCall "regexp.FindAll"
-                    [.prim (.string "ab"), .prim (.string "abab"), .prim (.int (-1))]⟩,
+                    [.prim (.string "ab"), .prim (.string "abab"), .prim (.int (-1))], false⟩,
                 ⟨"findAllSub", .regular,
                   .builtinCall "regexp.FindAllSubmatch"
                     [.prim (.string "a(x*)b"), .prim (.string "-axb-axxb-"),
-                      .prim (.int (-1))]⟩
+                      .prim (.int (-1))], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3712,34 +3712,34 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"concrete", .regular, .binary .ne (.prim (.int 1)) .bottom⟩,
-                ⟨"missing", .regular, .binary .eq (.prim (.int 1)) .bottom⟩,
-                ⟨"streq", .regular, .binary .eq (.prim (.string "a")) .bottom⟩,
+                ⟨"concrete", .regular, .binary .ne (.prim (.int 1)) .bottom, false⟩,
+                ⟨"missing", .regular, .binary .eq (.prim (.int 1)) .bottom, false⟩,
+                ⟨"streq", .regular, .binary .eq (.prim (.string "a")) .bottom, false⟩,
                 ⟨
                   "present",
                   .regular,
                   .structComp
-                    [⟨"f", .regular, .prim (.int 3)⟩]
+                    [⟨"f", .regular, .prim (.int 3), false⟩]
                     [
                       .comprehension
                         [.guard (.binary .ne (.ref "f") .bottom)]
-                        (mkStruct [⟨"seen", .regular, .ref "f"⟩] .regularOpen none [])
+                        (mkStruct [⟨"seen", .regular, .ref "f", false⟩] .regularOpen none [])
                     ]
                     .regularOpen
-                ⟩,
+                , false⟩,
                 ⟨
                   "absent",
                   .regular,
                   .structComp
-                    [⟨"base", .regular, mkStruct [⟨"f", .regular, .prim (.int 3)⟩] .regularOpen none []⟩]
+                    [⟨"base", .regular, mkStruct [⟨"f", .regular, .prim (.int 3), false⟩] .regularOpen none [], false⟩]
                     [
                       .comprehension
                         [.guard (.binary .ne (.selector (.ref "base") "g") .bottom)]
-                        (mkStruct [⟨"seen", .regular, .prim (.bool true)⟩] .regularOpen none [])
+                        (mkStruct [⟨"seen", .regular, .prim (.bool true), false⟩] .regularOpen none [])
                     ]
                     .regularOpen
-                ⟩,
-                ⟨"ordinary", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2))⟩
+                , false⟩,
+                ⟨"ordinary", .regular, .binary .ne (.prim (.int 1)) (.prim (.int 2)), false⟩
               ] .regularOpen none []))
     },
     {
@@ -3752,9 +3752,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .regular, .kind .int⟩,
-                ⟨"b", .regular, .ref "a"⟩,
-                ⟨"a", .regular, .prim (.int 1)⟩
+                ⟨"a", .regular, .kind .int, false⟩,
+                ⟨"b", .regular, .ref "a", false⟩,
+                ⟨"a", .regular, .prim (.int 1), false⟩
               ] .regularOpen none []))
     },
     {
@@ -3765,9 +3765,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .regular, .prim (.int 1)⟩,
-                ⟨"b", .regular, .ref "a"⟩,
-                ⟨"a", .regular, .prim (.int 2)⟩
+                ⟨"a", .regular, .prim (.int 1), false⟩,
+                ⟨"b", .regular, .ref "a", false⟩,
+                ⟨"a", .regular, .prim (.int 2), false⟩
               ] .regularOpen none []))
     },
     {
@@ -3778,9 +3778,9 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .regular, .kind .int⟩,
-                ⟨"c", .regular, mkStruct [⟨"e", .regular, .ref "a"⟩] .regularOpen none []⟩,
-                ⟨"a", .regular, .prim (.int 1)⟩
+                ⟨"a", .regular, .kind .int, false⟩,
+                ⟨"c", .regular, mkStruct [⟨"e", .regular, .ref "a", false⟩] .regularOpen none [], false⟩,
+                ⟨"a", .regular, .prim (.int 1), false⟩
               ] .regularOpen none []))
     },
     {
@@ -3792,8 +3792,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"a", .regular, .ref "a"⟩,
-                ⟨"a", .regular, .prim (.int 1)⟩
+                ⟨"a", .regular, .ref "a", false⟩,
+                ⟨"a", .regular, .prim (.int 1), false⟩
               ] .regularOpen none []))
     },
     {
@@ -3806,8 +3806,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"d", .regular, mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩] .regularOpen none []⟩,
-                ⟨"y", .regular, .conj [.ref "d", mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []]⟩
+                ⟨"d", .regular, mkStruct [⟨"a", .regular, .kind .int, false⟩, ⟨"b", .regular, .ref "a", false⟩] .regularOpen none [], false⟩,
+                ⟨"y", .regular, .conj [.ref "d", mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3821,9 +3821,9 @@ def fixturePorts : List FixturePort :=
                 ⟨"x", .regular,
                   .conj
                     [
-                      mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩] .regularOpen none [],
-                      mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
-                    ]⟩
+                      mkStruct [⟨"a", .regular, .kind .int, false⟩, ⟨"b", .regular, .ref "a", false⟩] .regularOpen none [],
+                      mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []
+                    ], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3835,8 +3835,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"d", .regular, mkStruct [⟨"a", .regular, .kind .int⟩, ⟨"b", .regular, .ref "a"⟩] .regularOpen none []⟩,
-                ⟨"y", .regular, .conj [.ref "d", mkStruct [⟨"a", .regular, .boundConstraint (intDecimal 0) .gt .number⟩] .regularOpen none []]⟩
+                ⟨"d", .regular, mkStruct [⟨"a", .regular, .kind .int, false⟩, ⟨"b", .regular, .ref "a", false⟩] .regularOpen none [], false⟩,
+                ⟨"y", .regular, .conj [.ref "d", mkStruct [⟨"a", .regular, .boundConstraint (intDecimal 0) .gt .number, false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3850,10 +3850,10 @@ def fixturePorts : List FixturePort :=
             (mkStruct [
                 ⟨"#D", .definition,
                   mkStruct [
-                      ⟨"#x", .definition, .kind .string⟩,
-                      ⟨"out", .regular, mkStruct [⟨"val", .regular, .ref "#x"⟩] .regularOpen none []⟩
-                    ] .regularOpen none []⟩,
-                ⟨"y", .regular, .conj [.ref "#D", mkStruct [⟨"#x", .definition, .prim (.string "hi")⟩] .regularOpen none []]⟩
+                      ⟨"#x", .definition, .kind .string, false⟩,
+                      ⟨"out", .regular, mkStruct [⟨"val", .regular, .ref "#x", false⟩] .regularOpen none [], false⟩
+                    ] .regularOpen none [], false⟩,
+                ⟨"y", .regular, .conj [.ref "#D", mkStruct [⟨"#x", .definition, .prim (.string "hi"), false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3868,12 +3868,12 @@ def fixturePorts : List FixturePort :=
                   .conj
                     [
                       mkStruct [
-                          ⟨"a", .regular, .kind .int⟩,
-                          ⟨"b", .regular, .ref "a"⟩,
-                          ⟨"c", .regular, .ref "b"⟩
+                          ⟨"a", .regular, .kind .int, false⟩,
+                          ⟨"b", .regular, .ref "a", false⟩,
+                          ⟨"c", .regular, .ref "b", false⟩
                         ] .regularOpen none [],
-                      mkStruct [⟨"a", .regular, .prim (.int 1)⟩] .regularOpen none []
-                    ]⟩
+                      mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []
+                    ], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3889,14 +3889,14 @@ def fixturePorts : List FixturePort :=
                     [
                       .disj
                         [
-                          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web")⟩] .regularOpen none []),
-                          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db")⟩] .regularOpen none [])
+                          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "web"), false⟩] .regularOpen none []),
+                          (.regular, mkStruct [⟨"kind", .regular, .prim (.string "db"), false⟩] .regularOpen none [])
                         ],
                       mkStruct [
-                          ⟨"kind", .regular, .prim (.string "web")⟩,
-                          ⟨"port", .regular, .prim (.int 80)⟩
+                          ⟨"kind", .regular, .prim (.string "web"), false⟩,
+                          ⟨"port", .regular, .prim (.int 80), false⟩
                         ] .regularOpen none []
-                    ]⟩
+                    ], false⟩
               ] .regularOpen none []))
     },
     {
