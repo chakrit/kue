@@ -23,7 +23,7 @@ main() {
 
   cd "${repo_root}"
 
-  if ! lake build -j "${LEAN_NUM_THREADS}"; then
+  if ! lake build; then
     printf 'lake build failed\n' >&2
     status=1
     failures+=("lake build")

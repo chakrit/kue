@@ -74,11 +74,11 @@ misalignments).
 
 **Subagent-prompt conventions (durable — copy into every slice/audit prompt):**
 
-- **Cap build CPU.** `lake build` saturates every core by default and starves an
-  interactive machine. Verify through `./scripts/check.sh` (it sources
-  `scripts/lean-cap.sh`, capping `LEAN_NUM_THREADS` to ~half the host's cores); for an
-  ad-hoc `lake build` in a slice, `source scripts/lean-cap.sh` first (or prefix
-  `LEAN_NUM_THREADS=<n> lake build`). Override upward on a dedicated build box.
+- **Cap build CPU.** `lake build` saturates every core and starves an interactive
+  machine. `source scripts/lean-cap.sh` before any `lake build` (the gate scripts already
+  do): it pins `LEAN_NUM_THREADS=2` (Lean threads + Lake job count) and wraps `lake` in
+  `nice` so builds stay low-priority and core-bounded. Override upward on a dedicated
+  build box (`LEAN_NUM_THREADS=8 …`).
 - **Canary — two tiers.** The **sanitized, self-contained cert-manager fixture**
   (`testdata/realworld/cert-manager/{cert-manager.cue,.expected}`) runs IN-GATE via
   `scripts/check-realworld.sh` (auto-globbed by `./scripts/check.sh`) — portable, no
