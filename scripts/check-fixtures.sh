@@ -296,12 +296,22 @@ check_wild_fixtures() {
 # `-` and the `.cue` suffix is dropped (`sub/main.cue` -> `expected.sub-main`). Pins the
 # cue.mod discovery from a sub-directory path arg. Prints any diff; returns non-zero on
 # mismatch.
+#
+# A `<dir>/.known-red` marker QUARANTINES the fixture's subpath diffs (mirroring the wild
+# gate): a still-failing subpath is reported and SKIPPED from the green gate; a subpath that
+# now PASSES hard-fails, so a red seed must graduate in the slice that fixes it, not linger.
 check_module_subpaths() {
   local dir=$1
   local status=0
   local subpath
   local sanitized
   local expected_file
+  local known_red=0
+  local passed
+
+  if [[ -f "${dir}.known-red" ]]; then
+    known_red=1
+  fi
 
   while IFS= read -r subpath; do
     [[ -z "${subpath}" ]] && continue
@@ -315,8 +325,24 @@ check_module_subpaths() {
       continue
     fi
 
+    passed=1
     if ! diff -u "${expected_file}" \
-      <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}"); then
+      <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}") >/dev/null 2>&1; then
+      passed=0
+    fi
+
+    if [[ "${known_red}" -eq 1 ]]; then
+      if [[ "${passed}" -eq 1 ]]; then
+        printf 'known-red module fixture %s subpath %s now passes — remove .known-red to enforce it\n' \
+          "${dir#"${repo_root}/"}" "${subpath}" >&2
+        status=1
+      else
+        printf 'module fixture %s subpath %s is QUARANTINED (.known-red) — captured, not yet fixed; skipping gate\n' \
+          "${dir#"${repo_root}/"}" "${subpath}" >&2
+      fi
+    elif [[ "${passed}" -eq 0 ]]; then
+      diff -u "${expected_file}" \
+        <(cd "${dir}" && "${kue_exe}" export --out json "${subpath}") || true
       status=1
     fi
   done <"${dir}subpaths"
@@ -333,7 +359,7 @@ check_module_subpaths() {
 # A fixture that ships a `subpaths` file (one relative path per line) is a sub-directory
 # path-arg fixture instead: each subpath is exported from inside the fixture dir and diffed
 # against its `expected.<sanitized>` oracle output (see `check_module_subpaths`). Such a
-# fixture has no root `main.cue`.
+# fixture has no root `main.cue`. A `.known-red` marker there quarantines its subpath diffs.
 #
 # A cross-module fixture may carry a self-contained `_cache/` directory holding the
 # extracted dependency modules in the cue cache layout (mod/extract/<modpath>@<ver>/). When

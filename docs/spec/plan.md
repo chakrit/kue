@@ -618,9 +618,22 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
 
    Open:
    - **`module-file-scoped-imports`** (arch-sized) — Kue merges every sibling file's
-     import bindings into one shared package frame; CUE scopes them per-file. Bites only
-     the same-NAME-different-target case; real prod9 doesn't hit it. Bind each file's
-     imports into a per-file scope frame.
+     import bindings into one shared package frame; CUE scopes them per-file. Bind each
+     file's imports into a per-file scope frame. **RED-SEEDED 2026-07-03** (divergence
+     CONFIRMED vs spec + cue v0.16.1; not a red herring). Three faces, all captured as
+     committed `.known-red` module fixtures (`testdata/modules/file_scoped_import_{collision,shadow}`,
+     + green over-scope guard `…_share`): (1) same-name-different-target — each file's `x`
+     must bind its OWN import (cue: `AName=liba,BName=libb`; kue-bug: both `liba`); (2)
+     shadow-leak — a file's own top-level field `x` must win where a sibling imported `x`
+     (cue: `local-b`; kue-bug: sibling's import leaks in); (3) sibling-not-visible — a file
+     referencing an identifier only a SIBLING imported is `reference "x" not found` (cue),
+     not resolved (kue-bug). Root cause: static de-Bruijn resolution (`resolveStructRefs`)
+     runs ONCE on the post-`meet` merged struct with all files' importBindings prepended to
+     the one shared depth-0 frame (`Module.loadPackage`/`bindImports`, `Module.lean:536,153`).
+     **NOT landed in AFK** (envelope: the sound fix is core resolve/eval surgery needing
+     attended verification — see `.afk.log` blocker for the recommended design: unique
+     per-file importBinding labels + a scope-aware ref-rewrite that preserves import
+     SHARING, avoiding the substitute-value perf trap).
    - **B2-A1 (latent, currently lossless)** — `applyEvaluatedStructN` (`Eval.lean:330`)
      routes the patterns-present case through a meet that DROPS `tail`. Lossless today
      (the only tail a parsed struct carries is bare `...` = `.top`, a no-op to

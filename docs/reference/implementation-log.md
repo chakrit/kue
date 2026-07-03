@@ -16116,3 +16116,46 @@ them clean. Fix: extended the shellcheck invocation to name the two root wrapper
 Plan-hygiene SOON-due (distilled 2026-07-02 at 697 lines, now 901 — accumulating, not this
 cycle). Test-org NOT due. Perf-guide CURRENT (the CPU cap is a build-time concern, out of
 the runtime cost model's scope; the v4.31 bump surfaced no runtime perf change).
+
+---
+
+## Completed Slice: module-file-scoped-imports — RED SEED + gate infra (analysis, no core fix)
+
+Goal: confirm and pin the per-file import-scoping divergence (plan item-6 LOW, arch-sized),
+capturing it as committed red seeds. Method was RED-FIRST / VERIFY-THEN-FIX: adjudicate
+against the CUE spec + `cue` v0.16.1 BEFORE touching the loader.
+
+### Divergence — CONFIRMED (not a red herring)
+CUE scopes an import to the FILE block that declares it; Kue merges every sibling file's
+importBindings into the ONE shared package frame (`Module.loadPackage` binds the deduped
+set onto the post-`meet` merged body via `bindImports`; `resolveStructRefs` then resolves
+all files' refs against that single depth-0 frame). Three faces, each spec+cue verified,
+Kue wrong on all three:
+1. **same-name-different-target** — `p/a.cue: import x "…/liba"`, `p/b.cue: import x "…/libb"`.
+   cue: `{AName:"from-liba", BName:"from-libb"}`; kue-bug: `BName:"from-liba"` (a.cue's `x`
+   wins the by-name dedupe, shared frame).
+2. **shadow-leak** — only a.cue imports `x`; b.cue declares its OWN `x:{…}` field + reads it.
+   cue: `BName:"local-b"` (file's field shadows; b has no import x); kue-bug: `"from-liba"`
+   (prepended importBinding out-indexes the body field in `buildFrame`).
+3. **sibling-not-visible** — b.cue reads `x` that only a.cue imported. cue: `reference "x"
+   not found`; kue-bug: resolves to a.cue's import.
+cue is CORRECT here (Kue bug, not a cue-divergence) and the spec is explicit (imports are
+file-scoped) — so no `cue-divergences.md` / `cue-spec-gaps.md` entry.
+
+### Landed
+- Red seeds (faces 1+2) as `.known-red` subpath module fixtures + a GREEN over-scope guard
+  (`file_scoped_import_share`: distinct import names resolve AND a cross-file bare field
+  reference `RefShared: Shared` still shares — pins that the fix must not over-scope package
+  FIELDS, only imports). Face 3 (error form) is documented, not gate-encoded (the subpath
+  gate has no error-expectation form; the shadow-leak seed already pins the leak direction).
+- **Gate infra**: extended `check_module_subpaths` (`scripts/check-fixtures.sh`) with the
+  same `.known-red` quarantine the wild gate uses — a still-red subpath is reported+skipped,
+  a now-passing one HARD-FAILS ("remove .known-red to enforce it") so a seed graduates in
+  the slice that fixes it. Prior to this the module gate had no red-quarantine, so a
+  multi-file-package red seed could not be committed without breaking the gate.
+
+### NOT landed (AFK boundary)
+The sound fix is core resolve/eval surgery (per-file import scope under static de-Bruijn
+resolution, where `meet` re-layouts the field frame). Two candidate designs, both
+attended-only; recommended design + rationale in `.afk.log`. `./scripts/check.sh` GREEN
+(seeds quarantined, guard green); cert-manager canary byte-identical (no core change).

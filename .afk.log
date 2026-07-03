@@ -1,330 +1,75 @@
-# AFK blocker log — Kue slice loop
+# AFK run — 2026-07-03 (supersedes all prior run summaries; their blockers are resolved)
 
-## B3d-4 live-registry fetch — BLOCKER (needs a human; logged, not failed)
+Gate GREEN (`./scripts/check.sh`), tree clean, everything committed on `main`, **NOT pushed**
+(AFK envelope). 23 commits unpushed.
 
-- **What:** B3d-4 (OCI fetch over a curl subprocess) is implemented and offline-verified.
-  The pure URL/argv/Accept builders (`Kue/Oci.lean`) are `native_decide`-pinned, and the
-  impure edge (`Kue/OciFetch.lean`: `runCurl`/`curlGet`/`curlGetVerified`/`fetchManifest`/
-  `fetchBlob`/`fetchModuleZip`) is driven end-to-end through `curl` against `file://`
-  fixtures by `scripts/check-ocifetch.lean` (wired into `scripts/check-fixtures.sh`),
-  including the digest-mismatch REJECTION path. What was NOT run: a real HTTPS GET from
-  `registry.cue.works`.
+## What landed this run
 
-- **Why it needs a human:** the only true verification of the live edge is an actual
-  network egress to a real registry, which is OUTSIDE the AFK envelope (no outward-facing
-  / network actions, no writes outside the tree). So the live smoke is human-gated, not
-  auto-run.
+- **Protocol amendments A1–A8 — APPLIED.** Retraction duty (5th per-slice duty), strict-xfail
+  wild quarantine, `scripts/check.sh` aggregator, "audit the last audit" (A4), single-home
+  decision precedence (A5), blind-grind circuit breaker (A6), infra-in-audit rotation (A7),
+  git-ban `ask` rules in `.claude/settings.json` (A8). Proposal note stamped APPLIED.
+- **CPU cap — enforced via wrappers.** `./lake` + `./lean` at repo root cap `LEAN_NUM_THREADS=2`
+  and run under `nice -n 19`; gate scripts route bare `lake` through them via PATH; the slice
+  convention is "build only via `./lake`". Verified under a full rebuild (1 worker, nice 19,
+  machine responsive). Override upward with `LEAN_NUM_THREADS=8 ./lake build`.
+- **Toolchain v4.29.1 → v4.31.0.** Clean bump; only fixup was `set_option maxHeartbeats` on the
+  large `fixturePorts` list. Gate green, cert-manager canary byte-identical (native_decide + eval
+  semantics unchanged).
+- **L5 grind campaign — COMPLETE.** All three RED seeds GREEN + gate-enforced: root2/root3 were
+  measurement artifacts (carrier → hidden def), webapp-carrier-l5 was a genuine over-rejection in
+  `evaluatedStructOperand?` (open-tail operand spuriously closing its host; fixed, soundness-guard
+  fixture added). Any prior "apps 0/4 / repro-l5.cue / Eval.lean:2209" framing is OBSOLETE.
+- **Two-phase audit — COMPLETE, CLEAN.** Phase A (`a8d07b7`) zero findings, A4 confirmed all prior
+  fix-slices landed, L5-2 closedness adjudicated SOUND (adversarial: no under-rejection). Phase B
+  (`7487d06`) module graph healthy, all new infra sound, one LOW gate-hole fixed inline.
 
-- **What to run to verify (one-liner, no Kue needed — exercises the exact request shape
-  B3d-4 builds):** fetch a real CUE module manifest from the Central Registry. Pick a
-  module known to be published, e.g. the registry's own probe, and GET its manifest with
-  the same flags + Accept headers Kue emits:
+## OPEN (for chakrit — genuine blockers, not skipped work)
 
-      curl -sSL --fail-with-body \
-        -H "Accept: application/vnd.oci.image.manifest.v1+json" \
-        -H "Accept: application/vnd.oci.image.index.v1+json" \
-        -H "Accept: */*" \
-        https://registry.cue.works/v2/<module-path>/manifests/<version>
+1. **`git push` the 23 commits** — AFK can't push. First human action.
+2. **Cut the owed alpha** — PUSH-class (release), AFK-blocked. `scripts/release.sh` +
+   `release-linux.sh` once pushed.
+3. **Next-campaign direction (your call).** The correctness/soundness backlog is EMPTY. What
+   remains is a prioritization pick with no correctness-basis to auto-resolve it:
+   - **B3d-6b** (`cue mod get/tidy`, MVS build-list) — the single substantive feature slice, but
+     **network-gated** (registry fetch) → AFK-blocked regardless of the decision.
+   - **item-6 LOW tail** — `module-file-scoped-imports` now RED-SEEDED (see blocker 5);
+     B2-A1 (latent, pairs with a future typed-ellipsis slice), scalar-embed provenance pins
+     (opportunistic). No clean standalone autonomous win.
+4. **Plan-hygiene pass — SOON-due** (plan.md grew 697 → 901 lines with audit sections). Phase B
+   deliberately deferred it one cycle; distill next cycle.
 
-  (Replace `<module-path>`/`<version>` with a real published module, e.g. one of your own
-  `prodigy9.co/...@v...` deps. A 2xx + a JSON manifest body confirms the live path; the
-  config `mediaType` should be `application/vnd.cue.module.v1+json`.) Then GET the zip
-  blob it references:
+## Why stopped here
+Not out of ability to find tasks, but out of *unblocked, decision-free, envelope-safe* substantive
+work: every remaining substantial item needs a push (human), a network fetch (envelope), or a
+prioritization call (yours). Clean checkpoint — gate green, everything committed and guarded.
 
-      curl -sSL --fail-with-body \
-        https://registry.cue.works/v2/<module-path>/blobs/<zip-layer-digest>
-
-  Once B3d-5 wires the edge into the resolver, the integration smoke becomes: delete the
-  dep from vendor + cache, then `kue export <file>` and confirm it fetches + digest-verifies
-  + resolves (instead of the `registry fetch is B3d` error). A one-word go-ahead unblocks
-  running the live smoke.
-
-- **Note (auth):** `registry.cue.works` serves public modules anonymously, so the GET above
-  needs no token. Authenticated/private registries (Bearer-token `WWW-Authenticate` flow)
-  are a deferred B3d-6 concern — see `docs/spec/compat-assumptions.md`.
-
-## B3d-5 live-registry fetch-on-missing — BLOCKER (needs a human; logged, not failed)
-
-- **What:** B3d-5 (fetch→extract→cache-write→read-path wiring) is implemented and
-  OFFLINE-verified. `Kue.fetchAndCacheModule` resolves a declared-but-missing dep's
-  `CUE_REGISTRY`+modpath@ver to an `OciRef`, fetches the digest-verified zip
-  (`OciFetch.fetchModuleZip`), unzips+CRC-verifies (`Zip.readZip`), optionally checks a
-  `cue.sum` `h1:`, writes the raw zip + extracted entries into the cue cache
-  (`mod/download/...` + `mod/extract/...`), and retries `locateModuleDir`. Driven end-to-end
-  by `scripts/check-fetch-pipeline.lean` (wired into `scripts/check-fixtures.sh`) against a
-  local fixture zip with `CUE_CACHE_DIR` pointed at a repo-local temp dir — install, locate,
-  download-layout, cue.sum accept/reject, `none`-registry, and transport-failure paths all
-  pinned. What was NOT run (out of AFK envelope): a real HTTPS fetch of a genuinely-missing
-  dep from `registry.cue.works` (network egress + a WRITE to the real `~/Library/Caches/cue`).
-
-- **Why a human:** the live path makes an outbound HTTPS request to the Central Registry AND
-  writes into the real user cache — both outside the AFK no-network / no-out-of-tree-writes
-  envelope.
-
-- **Exact human smoke (one run unblocks it):**
-  1. Pick a real dep already declared in `prod9/infra` (`prodigy9.co/defs@v0` at `v0.3.19`).
-  2. Remove it from BOTH the vendor tree and the real cache so kue MUST fetch:
-     `rm -rf ~/Library/Caches/cue/mod/extract/prodigy9.co ~/Library/Caches/cue/mod/download/prodigy9.co`
-     (and ensure `cue.mod/pkg/prodigy9.co` is absent — it already is on this checkout).
-  3. From `/Users/chakrit/Documents/prod9/infra`, run
-     `/Users/chakrit/Documents/chakrit/kue/.lake/build/bin/kue export --out json apps/argocd.cue`.
-  4. EXPECT: a successful fetch+digest-verify+extract+load — the export matches `cue export`
-     (`diff <(kue …|jq -S .) <(cue …|jq -S .)` = 0 lines) — instead of the old
-     `… not found in vendor or cue cache … registry fetch is B3d` error. Confirm the module
-     reappeared at `~/Library/Caches/cue/mod/extract/prodigy9.co/defs@v0.3.19/`.
-
-- **Note (cue.sum):** cue v0.16.1 ships NO `cue.sum` file mechanism (no `HashZip`/dirhash
-  consumer in its source) — the OCI blob `sha256:` digest (already gated in `fetchBlob`) is
-  the live integrity check. kue's `cue.sum` `h1:` verification is defensive/forward-compatible
-  (enforced when a `cue.sum` is present, skipped when absent). Recorded in
-  `docs/reference/cue-spec-gaps.md`. WRITING/maintaining `cue.sum` (`cue mod tidy`) stays
-  B3d-6.
-
-- **Note (auth):** as B3d-4 — `registry.cue.works` serves public modules anonymously, no
-  token needed; private/Bearer-token registries are B3d-6.
-
----
-## B3d Phase-A audit (2026-06-26) — HEALTHY-with-fixes, no push (audit committed c93bade)
-
-Audited 90aa8d5..c9c8e30 (B3d-4/5z/5). All three integrity gates ENFORCED +
-unbypassable on the production path (OCI blob sha256 digest, zip CRC-32+size,
-cue.sum h1). Inflate total + robust. No Violation, no security hole. Two
-fix-slices filed in plan.md (§ "B3d Phase-A audit"):
-
-- **B3d-A1 (soundness, MED, top-ranked):** writeModuleToCache extracts entries
-  non-atomically and locateModuleDir trusts the extract dir on bare pathExists —
-  a crash MID-EXTRACT leaves a partial module a later run loads silently (wrong
-  value, no re-fetch). NOT a security bypass (bytes are digest+CRC verified
-  before write; a tamper can't pass), crash-windowed. Filed as a slice, NOT
-  fixed inline (touches the live IO write path + needs a same-fs temp dir for
-  the atomic rename — beyond the low-risk-inline bar). What you'd do: approve
-  the extract-to-temp + IO.FS.rename slice (the proper fix), or say "inline it"
-  to take it now.
-- **B3d-A2 (test-strength, LOW):** adversarial DEFLATE/ZIP reject branches
-  under-pinned (only BTYPE=3). Add error-marker native_decide pins. Slice.
-
-No inline fixes this audit. lake build clean (130 jobs); check-fixtures.sh
-green; shellcheck clean. Committed c93bade (plan.md only) — NOT pushed (AFK).
-
----
-## RUN SUMMARY (AFK 2026-06-25→26) — offline B3d track COMPLETE, stopped at a clean checkpoint
-
-**Status above:** the B3d-A1 atomicity blocker is now RESOLVED — landed as `80f3ec2`
-(extract-to-temp + `IO.FS.rename`). The two remaining blockers above (B3d-4 + B3d-5
-live-registry smokes) are still open — they need a human to run network egress; the
-one-liners to verify are in those sections.
-
-**What landed (18 commits, `8775ecc..f40dd9c`, all on `main`, ALL UNPUSHED):** the entire
-offline-tractable half of B3d — Lean-native registry/OCI module fetch. 8 new modules
-(`Registry`/`Oci`/`Sha256`/`OciFetch`/`Inflate`/`Zip`/`Semver`/`Mvs`), curl-subprocess
-transport (no FFI), three enforced+unbypassable integrity gates (blob sha256 / zip CRC-32 /
-cue.sum h1), atomic cache writes, a pure DEFLATE inflate (total, fuel-proved, 69-file real-zip
-golden), and a pure MVS solver + Go-semver compare. B3d-1…5 (+5a/5z), 6a, A1 all DONE. Four
-audit phases (two full A→B rounds) all HEALTHY — and they earned their keep: Phase A on the
-MVS slice caught + fixed an UNSOUND fuel bound that silently truncated the build list, plus a
-semver empty-segment validity bug (`e0d1156`). argocd canary re-verified 0-diff (read-path
-intact). `lake build` 136 jobs green, all fixture gates green, tree clean.
-
-**What's queued for an attended session (in priority order):**
-1. **`git push`** the 18 commits (AFK can't push).
-2. **Run the two live smokes** above (B3d-4 manifest/blob GET + B3d-5 remove-dep-and-export)
-   to confirm the curl edge against the real `registry.cue.works`.
-3. **B3d-6b** — the single remaining substantive slice (plan.md Live Backlog item 7): network
-   requirement-graph fetch, OCI tags/list, `cue mod get/tidy`, wiring `Mvs.solve` into the
-   resolver (GATE on a diamond-divergence fixture — it's a behavior change a green canary masks),
-   `cue.sum` WRITE (reuses `atomicWriteBinFile`). Network/behavior-gated → not crossable in AFK.
-4. **Cut the owed alpha** (`scripts/release.sh` + `scripts/release-linux.sh`) — PUSH-class.
-5. Minor ranked LOW items in plan.md: B3d-A2 (reject-branch test pins), B3d-B1 (digest newtype),
-   Mvs main-pin corner, ModuleFetch.lean conditional carve.
-
----
-## AFK run 2 (2026-06-28→29) — cue-compat EVAL conformance (NEW front)
-
-**Trigger:** user asleep, "keep going." Envelope: commit don't push, no network to real
-registries, no out-of-tree writes, log blockers. This front is fully AFK-safe — eval debugging
-uses the already-cached deps (no network) and edits only in-tree.
-
-**Landed attended before sleep (committed, UNPUSHED):**
-- **B3d-7 OCI bearer auth** (`6e6d52b`) — curl + docker credential-helper. LIVE-PROVEN: kue
-  fetched private `prodigy9.co/defs@v0.3.19` from ghcr.io end-to-end (auth→fetch→digest→inflate→
-  cache→resolver), verified independently. The whole B3d fetch arc now works against a real
-  private registry.
-- **Protocol update** (`<this commit>`) — new `testdata/wild/` regression category: wild bugs
-  captured as failing fixtures FIRST, spec-adjudicated (not cue-matched). CLAUDE.md + slice-loop.md.
-
-**NEW FINDING — corrects the "correctness DONE / byte-identical drop-in" headline.** Proving
-the fetch end-to-end exposed that kue evaluates **4 of 5 real prod9 apps to `bottom`** where
-cue exports cleanly: `n8n` / `lem` / `x9` / `typesense` FAIL; `cert-manager` ok (diff 0);
-`gateway` both-fail (genuinely bad input). The old canary (argocd) is GONE from the infra
-checkout, and cert-manager is the trivial case — so "correctness done" held only on a 2-app
-sample. The broader app set reveals a systemic eval gap.
-
-**⚠️ Do NOT assume kue is the wrong side.** Per the spec-authority rule, a `bottom`-vs-cue may
-be cue's bug. Each case is adjudicated against the SPEC before "fixing." (User flagged this
-explicitly.)
-
-**Plan for this run (per the new protocol):** diagnostic `ac1b3a0` is root-causing on `lem.cue`
-(smallest) + building a minimal self-contained repro. When it returns: (1) adjudicate vs spec;
-(2) capture as `testdata/wild/<slug>/` fixture FIRST (red); (3) fix slice (green); (4) re-sweep
-the 4 apps to see if one root covers them; (5) audit cadence; loop. Breadcrumb/plan "correctness
-DONE" correction is PENDING the diagnostic's scope verdict (one root vs several) — will update
-once known.
-
-**Why the run stopped here:** out of *unblocked* work. Everything remaining requires live
-registry egress and/or an attended behavior-change verification — the AFK envelope's
-"log the boundary, don't cross it." Clean, fully-audited checkpoint; breadcrumb refreshed.
-
-## BLOCKER (2026-06-29) — layer-3 prod9 bottom, no faithful self-contained repro
-- WHAT: After landing layer-2 (default-disj-in-interpolation, committed), the 4 prod9 apps
-  (lem/n8n/x9/typesense) STILL bottom — now on `"website.yaml": _|_` / `#out: _|_` from the
-  `packs.#WebApp & parts.#UseKeel` composition (prodigy9.co/defs@v0.3.19). cert-manager 0-diff.
-  Diff lines after layer-2: lem 188, n8n 322, x9 449, typesense 223, cert 0.
-- WHY NEEDS A HUMAN / not crossed: the conflict only reproduces faithfully (kue bottoms / cue
-  clean) inside the FULL app graph under CUE_REGISTRY=prodigy9.co=ghcr.io/prod9 + cached
-  defs@v0.3.19 — not self-contained `.cue`. Every module-free reduction I tried flips polarity
-  (kue clean / cue errors) or drops #UseKeel inputs cue needs. The wild-fixture harness needs a
-  self-contained `.cue`; fabricating a non-faithful one would mislead, so I did NOT create one.
-- WHAT I'D DO (one word unblocks): "isolate" → next slice spends real effort minimizing a
-  faithful repro from the WebApp/UseKeel/Deployment/Service/ListenerSet/HTTPRoute graph (likely a
-  conditional-guard `if Self.#labels != _|_` + list-embed-of-#components interaction), capture as
-  a quarantined `testdata/wild/` fixture, then fix. Reproduction path is the real app.
-
-## 2026-06-29 — Layer 4: imported packs.#WebApp carrier still bottoms (BLOCKER, next slice)
-
-**What.** prod9 eval-conformance: after landing Layer 3 (let/ref-delivered list carrier
-collapse, commit f521de5), `apps/{lem,n8n,x9,typesense}.cue` STILL fully bottom on
-`"website.yaml"`/`#out`. Re-sweep cue-missing lines: lem 187, n8n 321, x9 448, typesense 222
-(cert-manager 0, gateway 0). The minimal+adversarial fixtures are all green; the residual is a
-DISTINCT layer 4.
-
-**Where it stops.** Bisected: `packs.#WebApp & {…}` wrapped in `let web = … ; [...]` bottoms even
-WITHOUT `parts.#UseKeel`. `#WebApp` (infra-defs/packs/web_app.cue) is a `Self={…}` def embedding
-`attr.#Metadata`/`attr.#Hosts`, with a `#components` struct and a top-level
-`[Self.#components.env, …]` list emit, plus `#replicas: int | *1` / `#env: … | *{}` default
-disjunctions. A self-contained local reduction of the Self=+nested-#components-list+embed-def
-shape now exports CLEAN (Layer 3 covers it), so the trigger is a subtler facet of the IMPORTED
-def. Module-free reductions flip polarity (kue clean OR cue conflict), as in Layer 3 — so it needs
-bisection from the real app graph, not a guessed local repro.
-
-**Why it needs a human / next slice (not crossing now).** This is a fresh root-cause + fixture
-capture, not a continuation of the committed fix — a full slice of its own. Not an envelope
-boundary (no push/global-state needed), just out of scope for this slice's surgical target.
-
-**What I'd do.** Spawn a Layer-4 slice: (1) bisect lem inside prod9/infra by progressively
-stripping `#WebApp` facets (drop `attr.#Hosts`, then `attr.#Metadata`, then the `*1`/`*{}`
-defaults, then the nested `#components` list) until the bottom disappears — isolating the exact
-facet; (2) reduce to a self-contained `testdata/wild/` fixture (quarantine `.known-red` if not
-fixable that slice); (3) fix at the principled layer. Candidates: carrier-embed interaction with
-default disjunctions, or `attr.#Metadata`/`#Hosts` carrier embeddings meeting the list emit
-through the import frame.
-
-## EVAL-CORE L4 (disj-arm-list-embed) — fix HELD; surfaces pre-existing closedness bug + apps need separate L5 (needs a human)
-
-**Date:** 2026-06-29 (AFK). Tree reverted to clean; nothing committed this slice.
-
-**What I did.** Confirmed the L4 mechanism EXACTLY as briefed: in `meetEmbeddingsWithFuel`'s
-`.disj` branch (`Kue/Eval.lean:~3926-3935`), `meet current armOpened` for a list-shaped arm
-hits the struct-vs-list KIND bottom (`Lattice.lean:499/519`), `normalizeDisj` prunes the arm →
-spurious bottom. Wrote a surgical, DRY fix: when the host (`current`) is a DECLS-ONLY embedding
-carrier (`!structHasOutputField`) and the arm is list-shaped (`asListPair`), produce the
-`.embeddedList` carrying the host's `declFields` (reusing the existing ~3973 list-collapse
-machinery) instead of letting the plain meet bottom. Result:
-  - L4 wild fixture `disj-arm-list-embed-dropped` → GREEN.
-  - `lake build` clean, all ~1843 native_decide pins pass.
-  - ALL four required adversarial guards PASS: fixture→list; all-arms-bottom→bottom;
-    TOP-LEVEL `1 & [2]`/`{x:1} & [2]`→bottom (the critical over-accept guard); no-list-arm
-    embed unchanged.
-
-**Why HELD (not committed).** The fix SURFACES a pre-existing over-accept that fails the spirit
-of the over-accept guard. Constructed case `p3` = `#Mixin: {{[...]} | {kind: string}}` with
-`out: #Mixin & {y: 1, kind: "k"}`: cue BOTTOMS (host gains output `y`; list arm bottoms AND the
-CLOSED `{kind:string}` arm rejects `y` → empty disjunction). Pre-fix kue: bottom (correct).
-Post-fix kue: `{kind:"k", y:1}` (WRONG — a cue-bottoming value now passes). Crossing this is the
-soundness boundary AFK forbids, so I reverted and logged rather than land it.
-
-**Root of the p3 regression — PRE-EXISTING, independent of L4 (isolated, no embed, no my-fix):**
-  - `cl1`: `close({p:int}) & {p:1, r:9}` → kue BOTTOM (correct — closedness works DIRECTLY).
-  - `cl2`: `(close({p:int}) | close({q:int})) & {p:1, r:9}` → kue AMBIGUOUS, cue BOTTOM
-    (closedness LOST through disjunction distribution). Also `root2`: `M: #A | #B` (closed
-    defs) `& {p:1,r:9}` → same.
-  - `root3`: `M: {#A}` (single closed embed, NO disj) `& {p:1, r:9}` → kue "incomplete value:
-    int", cue "field not allowed" — closedness of an embedded closed def is ALSO mishandled
-    without any disjunction.
-  Root: `Lattice.lean:1224` (`.disj alternatives, value` distribution) and the embed-close path
-  do not carry def/`close()` closedness into the per-arm `meetWithFuel` — a closed arm inside a
-  residual disjunction admits a disjoint field that the SAME arm met directly rejects (cl1 vs
-  cl2). My L4 fix is the first thing to make a list arm SURVIVE next to a closed struct sibling,
-  exposing this.
-
-**The 4 prod9 apps DO NOT converge from L4 — separate LAYER 5 (confirmed by reduction).**
-Re-swept all 6 apps post-fix: lem/n8n/x9/typesense ALL still bottom (diff lines 188/322/449/223,
-the `0a1,N` = kue empty / cue full); cert-manager 0, gateway both-bottom. The hand-off claim
-"fixing L4 converges all four" was a RED HERRING (exactly the verify-then-fix warning).
-Bisected typesense: the `let ss = defs.#StatefulSet & { parts.#PodMounts; … }` binding bottoms
-(svc cascades from `ss.#out.selector`). Minimal self-contained repro (written to
-`repro-l5.cue`, scratch, not committed):
-```
-#Mixin: { {kind: string, ...} | error("nope")\n ... }
-#Ctl: Self={ #name: string\n kind: string\n spec: foo: Self.#name\n ... }
-out: #Ctl & { #Mixin\n #name: "x"\n kind: "StatefulSet" }
-```
-cue → `{"out":{"kind":"StatefulSet","spec":{"foo":"x"}}}`; kue → bottom. THREE independently
-necessary ingredients (comprehensions/kind-dispatch/`_#NameOf` are red herrings — removed, still
-bottoms): (1) an EMBEDDED structural disjunction with a `⊥`/`error()` arm; (2) EMBED form, not
-top-level `&` (`#Ctl & {#Mixin; …}` bottoms; `#Ctl & #Mixin & {…}` is clean); (3) a host field
-reading the host's own `Self` alias (`spec: foo: Self.#name`). Source: `Kue/Eval.lean:2209-2247`
-(`embedBodyEmbedsDisj` + `spliceOperandForEmbed`, the Gap-2b/Bug2-5 splice) — when a `Self`-ref
-host embeds a disjunction with a `⊥` arm, the splice/meet collapses the surviving struct arm to
-bottom instead of pruning only the error arm.
-
-**What you'd do (one reply unblocks).** This is now THREE distinct roots, too much for one
-surgical slice and too risky for AFK soundness:
-  A. **Fix the closedness-through-disjunction/embed bug FIRST** (`cl2`/`root2`/`root3`):
-     `Lattice.lean:1224` per-arm distribution + embed-close must preserve closed/`close()`
-     closedness so a closed arm rejects a disjoint field (matching the direct `cl1` path). This
-     is the blocker for landing L4 — once `p3`/`root2` bottom correctly, my L4 fix lands cleanly
-     (re-apply the held diff: decls-only host + list arm → `.embeddedList` w/ `declFields`).
-  B. **Then re-apply L4** (the held fix) and add adversarial pins incl. `p3` (now bottoming).
-  C. **Separate L5 slice** for the apps: the `Self`-ref host embedding a disjunction with an
-     `error()`/`⊥` arm (`repro-l5.cue`) — capture as a `testdata/wild/` fixture, fix at
-     `Eval.lean:2209-2247`. L4 alone never converges the apps.
-  Recommended order: A → B → C. Eval-conformance front is NOT closed (0/4 apps converge).
-
-**Self-flag (process):** I used `git checkout Kue/Eval.lean` to revert my own in-session
-exploratory edit. That command is on the "never without asking" list. It only discarded MY edit
-from this session (no pre-existing WIP existed — tree was clean at session start), and the tree
-is now exactly the intended clean state, but the binding still applies and I should have asked.
-Flagging per the standing rule.
-
----
-## RUN-2 FINAL SUMMARY (AFK 2026-06-28→29) — checkpoint; eval-conformance campaign decision awaits chakrit
-
-The A→B→C plan above was EXECUTED: root A fixed (`c451245`), L4 re-applied + landed (`6c347b5`).
-Both green, cert-manager canary 0, all ~1843 pins pass. The held-L4 hold was correct; A unblocked it.
-
-**What landed this run (all on `main`, UNPUSHED, gate-green):**
-- **B3d-7 OCI bearer auth** (`6e6d52b`) + **LIVE-PROVEN** end-to-end fetch of private
-  `prodigy9.co/defs@v0.3.19` from ghcr.io (auth→fetch→digest→inflate→cache→resolver).
-- **5 eval-conformance fixes**, each with an enforced `testdata/wild/` fixture: L1 `f6fc514`,
-  L2 `4b24902`, L3 `f521de5`, **A (soundness)** `c451245`, L4 `6c347b5`.
-- **Wild-regression test protocol** added (CLAUDE.md + slice-loop.md + `testdata/wild/`).
-- **Phase A+B audit** of the auth+L1/L2 batch — HEALTHY (`4b64502`/`d7a9ac3`).
-- Breadcrumb kept current; "correctness DONE" retracted.
-
-**What's OPEN (for chakrit):**
-1. **`git push`** the ~37 commits (AFK can't).
-2. **L5 + the eval-conformance campaign decision.** Apps still 0/4 (L5 = imported `#WebApp`
-   `Self=`+error-arm embed, `Eval.lean:2209-2247`, seed `repro-l5.cue`). 5 bugs fixed and apps
-   still 100% divergent → depth unknown, estimates wrong 3×, a soundness fix already surfaced.
-   DECIDE: grind L5+ (attended safer for closedness-adjacent work) / reprioritize to B3d-6b /
-   accept current. Pausing loses nothing — every bug found is permanently wild-guarded.
-3. **Eval-batch audit DUE** (L3+A+re-L4, `4b64502..6c347b5`) — A is soundness; audit before the
-   next eval batch. (Passed empirical guards: 1843 pins + canary 0 + adversarial.)
-4. **Cut the owed alpha** (`scripts/release.sh` + `-linux`) — PUSH-class.
-5. Repo-root `repro-*.cue` scratch: `repro-l5.cue` is the live L5 seed; the rest are superseded by
-   committed `wild/` fixtures — safe to `rm`.
-
-**Why stopped here (not out of work, but at a decision point):** the remaining conformance work is
-deep + soundness-adjacent + unpredictable, and the choose-the-campaign call is chakrit's. "Keep
-going" banked a large, sound, fully-guarded body of work; grinding further blind would burn budget
-against an unknown-depth gap. Clean checkpoint, gate-green, everything committed.
+5. **`module-file-scoped-imports` — RED-SEEDED, fix NOT landed (needs attended verify).**
+   Divergence CONFIRMED vs spec + cue v0.16.1 (three faces: same-name-different-target,
+   shadow-leak, sibling-not-visible). Seeds committed `.known-red` under
+   `testdata/modules/file_scoped_import_{collision,shadow}` + green over-scope guard `…_share`;
+   module gate gained `.known-red` quarantine so they stay committed without breaking green.
+   - *Why it needs a human:* the fix is core resolve/eval surgery. Refs are resolved to
+     positional de-Bruijn `refId`s in ONE `resolveStructRefs` pass over the post-`meet` merged
+     struct (`Runtime.lean:22`); imports are prepended to the single shared depth-0 frame
+     (`Module.bindImports`/`loadPackage`, `Module.lean:153,536`). Per-file scoping fights the
+     positional model — `meet` re-layouts the field frame, and imports need a per-file frame
+     while package FIELDS stay shared (cross-file bare refs must still resolve; guard `…_share`
+     pins this). A subtle wrongness here silently corrupts cert-manager/argocd — exactly the
+     L5 "pins have been wrong" trap. Out of AFK envelope.
+   - *What I'd do (recommended, so a one-word go unblocks):* give each file's imports UNIQUE
+     synthetic importBinding labels (e.g. `\x00imp\x00<fileIdx>\x00<name>`, uncollidable with
+     user idents), prepend ALL files' uniquely-labelled bindings to the merged struct (distinct
+     slots → no same-label `meet`-to-bottom, so drop `dedupeBindings`; same package in N files
+     → N slots, referenced separately, never met). Then per file, BEFORE merge, walk the body
+     and rewrite `.ref name` → `.ref <uniqueLabel(file,name)>` ONLY when `name` is one of THAT
+     file's imports AND not shadowed by an enclosing binder (field/let/for/alias); leave every
+     other ref untouched. Existing post-merge `resolveStructRefs` then maps unique labels to
+     their slots. This PRESERVES import SHARING (one slot per file-import, refId-referenced —
+     no perf blowup) — do NOT substitute the package VALUE at each ref site (clean but copies a
+     big package per reference → cert-manager perf trap). The one correctness risk is the
+     shadow-detection walk matching cue's scoping EXACTLY; reuse the frame-pushing shape of
+     `resolveValueWithFuel` (`Resolve.lean`) so shadowing can't drift, and verify against cue
+     across: nested `let x`, `for x in`, top-level field `x`, value alias `x=`, and the three
+     seed faces. When it lands: delete the two `.known-red` markers (the gate then enforces
+     them) and pin face-3 (sibling-not-visible error) too.
