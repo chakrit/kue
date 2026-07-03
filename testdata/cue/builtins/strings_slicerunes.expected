@@ -1,0 +1,5 @@
+basic: "el"
+unicode: "él"
+astral: "a😀"
+whole: "hello"
+empty: ""

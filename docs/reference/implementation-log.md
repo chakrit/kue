@@ -17361,3 +17361,42 @@ Confirmed cue-non-functions (kue bottom is CORRECT): `strings.Title`/`PadLeft`/`
 
 `./scripts/check.sh` GREEN; cert-manager canary EMPTY. Committed on `main`, explicit pathspec, NOT
 pushed (AFK).
+
+## Completed Slice: BI-3-RESIDUAL bounded subset — math.Mod / math.Signbit / strings.SliceRunes
+
+Registered + implemented the three BOUNDED residual builtins from the BI-3 probe; the validator
+and byte-repr residuals stay filed (they need a seam kue lacks — not forced).
+
+### What landed (kue == cue v0.16.1 on the agreeing corpus)
+
+- **`math.Mod(x, y)`** — Go float-remainder, result takes the SIGN OF THE DIVIDEND
+  (`Mod(-5,3)=-2`, `Mod(5,-3)=2`). Computed in EXACT decimal (`mathMod`: scale to a common
+  denominator, `Int.tdiv` truncated quotient, `x − q·y`, collapse integral → int). Zero divisor
+  ⇒ bottom (cue errors `NaN`). DIVERGENCE (recorded): `Mod(5.5,2.1)`=`1.3` exact vs cue's float64
+  `1.2999999999999998` — same exact-over-float posture as `math.Sqrt`/`Pow`.
+- **`math.Signbit(x)`** — `mathSignbit`: `.bool (numerator < 0)`. `Signbit(-0.0)`=false (cue
+  normalizes the `-0.0` literal to `0.0` at parse; a negative-zero numerator is `0` here too, so
+  the test agrees).
+- **`strings.SliceRunes(s, lo, hi)`** — `stringSliceRunes`: half-open `[lo,hi)` window indexed by
+  RUNE (`Char` scalar — multibyte/astral are single units, `SliceRunes("a😀bc",0,2)="a😀"`);
+  negative bounds, `hi` past the rune count, or `lo>hi` ⇒ bottom (cue `index out of range`).
+
+Dispatch arms in `evalMathBuiltin` (`math.Mod`/`math.Signbit`) and `evalStringsBuiltin`
+(`strings.SliceRunes`), no catch-all in the Value-producing matches. Fixtures
+`builtins/math_mod_signbit` (6 Mod + 5 Signbit cases) and `builtins/strings_slicerunes` (rune/
+unicode/astral/whole/empty) + FixturePorts entries; 21 `native_decide` in `BuiltinTests.lean`
+(sign/zero-divisor/non-numeric/oob/neg/lo>hi edges + the exact-vs-cue-float divergence).
+
+### Still filed (seam kue lacks — NOT forced)
+
+- **`strings.MinRunes`/`MaxRunes`, `struct.MinFields`/`MaxFields`** — CONSTRAINT validators.
+  `"abc" & strings.MinRunes(3)` requires a `.builtinCall`-participates-in-`meet` seam; today
+  `meet(scalar, .builtinCall)` ⇒ bottom (`Lattice.lean:481`), and the validator family
+  (`matchN`/`matchIf`/`list.MatchN`) is the unimplemented BI-EFF EXTENSION-RULE seam
+  (`Eval.lean`). Verified cue semantics (`"ab" & MinRunes(3)` ⇒ ⊥, `"abc"` ⇒ `"abc"`, bare call ⇒
+  incomplete) but implementing without the seam would force a workaround — filed instead.
+- **`strings.ByteAt`/`ByteSlice`** — need byte-array-repr (DEPENDENT of BYTE-ARRAY-REPR).
+- **`list.IsSorted`/`Sort`/`SortStable`** — effectful comparator seam BI-EFF.
+
+`./scripts/check.sh` GREEN; cert-manager canary EMPTY. Committed on `main`, explicit pathspec, NOT
+pushed (AFK).

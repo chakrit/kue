@@ -450,10 +450,21 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   `Range(zerostep)`/`Min`/`Avg`, `strings.Repeat(neg)`. **cue-non-functions confirmed** (kue
   bottom is correct — these are NOT functions in cue v0.16.1): `strings.Title`/`PadLeft`/`PadRight`,
   `math.GreatestCommonDivisor`, `math.MaxInt64` (undefined field). Canary EMPTY.
-- **BI-3-RESIDUAL (stdlib gaps FILED, not fixed — from BI-3 probe).** Unregistered builtins cue
-  supports that kue still bottoms, deferred as bounded follow-ups: `math.Mod` (float remainder,
-  Go `math.Mod`), `math.Signbit`; `strings.MinRunes`/`MaxRunes` (rune-count validators),
-  `strings.SliceRunes` (rune-indexed slice, oob ⇒ error), `strings.ByteAt`/`ByteSlice`;
+- **BI-3-RESIDUAL (bounded subset DONE 2026-07-04; validators + byte-repr still FILED).**
+  **Registered & implemented this slice** (kue == cue v0.16.1 on the agreeing corpus): `math.Mod`
+  (Go float-remainder, sign of dividend, exact-decimal `x − trunc(x/y)·y`; `Mod(x,0)` ⇒ bottom;
+  DIVERGES from cue's float64 on non-float64-exact remainders — `Mod(5.5,2.1)`=`1.3` vs cue
+  `1.2999…998`, recorded in `cue-divergences.md`), `math.Signbit` (true iff `numerator<0`;
+  `Signbit(-0.0)`=false, matching cue's parse-time `-0.0`→`0.0`), `strings.SliceRunes` (half-open
+  rune-indexed window on `Char` scalars; oob/neg/`lo>hi` ⇒ bottom). Helpers `mathMod`/`mathSignbit`/
+  `stringSliceRunes` in `Builtin.lean`, dispatch arms in `evalMathBuiltin`/`evalStringsBuiltin`.
+  Fixtures `builtins/math_mod_signbit`, `builtins/strings_slicerunes` + 21 `native_decide`
+  (`BuiltinTests.lean`). **Still FILED** (validator seam kue lacks — the `matchN`/`matchIf`/
+  `list.MatchN` family, `Eval.lean` BI-EFF EXTENSION RULE): `strings.MinRunes`/`MaxRunes` (rune-count
+  CONSTRAINT validators — `"abc" & strings.MinRunes(3)` needs a `.builtinCall`-participates-in-`meet`
+  seam; today `meet(scalar, .builtinCall)` ⇒ bottom, `Lattice.lean:481`, so a validator can't be
+  forced without the seam), `struct.MinFields`/`MaxFields` (same validator seam). Also still filed:
+  `strings.ByteAt`/`ByteSlice` (need byte-array-repr, DEPENDENT of BYTE-ARRAY-REPR),
   `list.IsSorted`/`Sort`/`SortStable` (comparator-struct `list.Ascending`/`Descending` — the
   effectful-builtin seam BI-EFF; kue leaves these an incomplete residual today). SEPARATE
   (deferred exp/ln increment, needs decimal `exp`/`ln` to 34 digits — see BI-2-residual /

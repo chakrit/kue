@@ -3461,6 +3461,59 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "builtins/math_mod_signbit.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"modPos", .regular,
+                  .builtinCall "math.Mod" [.prim (.int 5), .prim (.int 3)], false⟩,
+                ⟨"modNegDiv", .regular,
+                  .builtinCall "math.Mod" [.prim (.int (-5)), .prim (.int 3)], false⟩,
+                ⟨"modNegBy", .regular,
+                  .builtinCall "math.Mod" [.prim (.int 5), .prim (.int (-3))], false⟩,
+                ⟨"modBothNeg", .regular,
+                  .builtinCall "math.Mod" [.prim (.int (-5)), .prim (.int (-3))], false⟩,
+                ⟨"modFloat", .regular,
+                  .builtinCall "math.Mod" [.prim (.float "5.5"), .prim (.int 2)], false⟩,
+                ⟨"modIntFloat", .regular,
+                  .builtinCall "math.Mod" [.prim (.int 7), .prim (.float "2.5")], false⟩,
+                ⟨"signNegInt", .regular,
+                  .builtinCall "math.Signbit" [.prim (.int (-3))], false⟩,
+                ⟨"signPosInt", .regular,
+                  .builtinCall "math.Signbit" [.prim (.int 3)], false⟩,
+                ⟨"signZero", .regular,
+                  .builtinCall "math.Signbit" [.prim (.int 0)], false⟩,
+                ⟨"signNegFlt", .regular,
+                  .builtinCall "math.Signbit" [.prim (.float "-3.5")], false⟩,
+                ⟨"signNegZero", .regular,
+                  .builtinCall "math.Signbit" [.prim (.float "-0.0")], false⟩
+              ] .regularOpen none []))
+    },
+    {
+      fileName := "builtins/strings_slicerunes.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"basic", .regular,
+                  .builtinCall "strings.SliceRunes"
+                    [.prim (.string "hello"), .prim (.int 1), .prim (.int 3)], false⟩,
+                ⟨"unicode", .regular,
+                  .builtinCall "strings.SliceRunes"
+                    [.prim (.string "héllo"), .prim (.int 1), .prim (.int 3)], false⟩,
+                ⟨"astral", .regular,
+                  .builtinCall "strings.SliceRunes"
+                    [.prim (.string "a😀bc"), .prim (.int 0), .prim (.int 2)], false⟩,
+                ⟨"whole", .regular,
+                  .builtinCall "strings.SliceRunes"
+                    [.prim (.string "hello"), .prim (.int 0), .prim (.int 5)], false⟩,
+                ⟨"empty", .regular,
+                  .builtinCall "strings.SliceRunes"
+                    [.prim (.string "hello"), .prim (.int 2), .prim (.int 2)], false⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "builtins/list_builtin_float.expected",
       content :=
         formatTopLevel

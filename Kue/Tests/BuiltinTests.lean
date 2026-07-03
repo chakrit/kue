@@ -513,6 +513,113 @@ theorem math_multiple_of_zero_divisor_is_division_by_zero :
       == .bottomWith [.divisionByZero]) = true := by
   native_decide
 
+-- `math.Mod` — Go float-remainder: result takes the sign of the DIVIDEND. Computed in
+-- exact decimal (integral results collapse to int); zero divisor bottoms. Oracle: cue v0.16.1.
+theorem math_mod_pos :
+    (evalBuiltinCall "math.Mod" [.prim (.int 5), .prim (.int 3)] == .prim (.int 2)) = true := by
+  native_decide
+
+theorem math_mod_neg_dividend :
+    (evalBuiltinCall "math.Mod" [.prim (.int (-5)), .prim (.int 3)]
+      == .prim (.int (-2))) = true := by
+  native_decide
+
+theorem math_mod_neg_divisor_takes_dividend_sign :
+    (evalBuiltinCall "math.Mod" [.prim (.int 5), .prim (.int (-3))]
+      == .prim (.int 2)) = true := by
+  native_decide
+
+theorem math_mod_float_exact :
+    (evalBuiltinCall "math.Mod" [.prim (.float "5.5"), .prim (.int 2)]
+      == .prim (.float "1.5")) = true := by
+  native_decide
+
+theorem math_mod_int_over_float_collapses_to_int :
+    (evalBuiltinCall "math.Mod" [.prim (.int 7), .prim (.float "2.5")]
+      == .prim (.int 2)) = true := by
+  native_decide
+
+-- Kue computes Mod in EXACT decimal, so `Mod(5.5, 2.1) = 1.3`; cue's float64 emits the
+-- artifact `1.2999999999999998` (Kue is more precise — see cue-divergences.md).
+theorem math_mod_exact_beats_cue_float :
+    (evalBuiltinCall "math.Mod" [.prim (.float "5.5"), .prim (.float "2.1")]
+      == .prim (.float "1.3")) = true := by
+  native_decide
+
+theorem math_mod_zero_divisor_bottoms :
+    (evalBuiltinCall "math.Mod" [.prim (.int 5), .prim (.int 0)] == .bottom) = true := by
+  native_decide
+
+theorem math_mod_non_numeric_bottoms :
+    (evalBuiltinCall "math.Mod" [.prim (.string "x"), .prim (.int 2)] == .bottom) = true := by
+  native_decide
+
+-- `math.Signbit` — true iff negative; cue normalizes `-0.0`→`0.0` so `Signbit(-0.0)=false`.
+theorem math_signbit_negative_int :
+    (evalBuiltinCall "math.Signbit" [.prim (.int (-3))] == .prim (.bool true)) = true := by
+  native_decide
+
+theorem math_signbit_positive_int :
+    (evalBuiltinCall "math.Signbit" [.prim (.int 3)] == .prim (.bool false)) = true := by
+  native_decide
+
+theorem math_signbit_zero_is_false :
+    (evalBuiltinCall "math.Signbit" [.prim (.int 0)] == .prim (.bool false)) = true := by
+  native_decide
+
+theorem math_signbit_negative_float :
+    (evalBuiltinCall "math.Signbit" [.prim (.float "-3.5")] == .prim (.bool true)) = true := by
+  native_decide
+
+theorem math_signbit_negative_zero_is_false :
+    (evalBuiltinCall "math.Signbit" [.prim (.float "-0.0")] == .prim (.bool false)) = true := by
+  native_decide
+
+theorem math_signbit_non_numeric_bottoms :
+    (evalBuiltinCall "math.Signbit" [.prim (.string "x")] == .bottom) = true := by
+  native_decide
+
+-- `strings.SliceRunes(s, lo, hi)` — half-open rune-indexed window (Unicode scalar, not byte);
+-- oob/negative/`lo>hi` bottom. Oracle: cue v0.16.1.
+theorem strings_slicerunes_basic :
+    (evalBuiltinCall "strings.SliceRunes"
+      [.prim (.string "hello"), .prim (.int 1), .prim (.int 3)]
+      == .prim (.string "el")) = true := by
+  native_decide
+
+theorem strings_slicerunes_unicode_by_rune :
+    (evalBuiltinCall "strings.SliceRunes"
+      [.prim (.string "héllo"), .prim (.int 1), .prim (.int 3)]
+      == .prim (.string "él")) = true := by
+  native_decide
+
+theorem strings_slicerunes_astral_single_unit :
+    (evalBuiltinCall "strings.SliceRunes"
+      [.prim (.string "a😀bc"), .prim (.int 0), .prim (.int 2)]
+      == .prim (.string "a😀")) = true := by
+  native_decide
+
+theorem strings_slicerunes_empty_window :
+    (evalBuiltinCall "strings.SliceRunes"
+      [.prim (.string "hello"), .prim (.int 2), .prim (.int 2)]
+      == .prim (.string "")) = true := by
+  native_decide
+
+theorem strings_slicerunes_oob_high_bottoms :
+    (evalBuiltinCall "strings.SliceRunes"
+      [.prim (.string "hello"), .prim (.int 0), .prim (.int 6)] == .bottom) = true := by
+  native_decide
+
+theorem strings_slicerunes_negative_low_bottoms :
+    (evalBuiltinCall "strings.SliceRunes"
+      [.prim (.string "hello"), .prim (.int (-1)), .prim (.int 3)] == .bottom) = true := by
+  native_decide
+
+theorem strings_slicerunes_lo_gt_hi_bottoms :
+    (evalBuiltinCall "strings.SliceRunes"
+      [.prim (.string "hello"), .prim (.int 3), .prim (.int 1)] == .bottom) = true := by
+  native_decide
+
 theorem math_floor_rounds_toward_negative_infinity :
     (evalBuiltinCall "math.Floor" [.prim (.float "-3.2")] == .prim (.int (-4))) = true := by
   native_decide

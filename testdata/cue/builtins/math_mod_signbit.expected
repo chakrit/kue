@@ -1,0 +1,11 @@
+modPos: 2
+modNegDiv: -2
+modNegBy: 2
+modBothNeg: -2
+modFloat: 1.5
+modIntFloat: 2
+signNegInt: true
+signPosInt: false
+signZero: false
+signNegFlt: true
+signNegZero: false

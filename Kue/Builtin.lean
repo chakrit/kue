@@ -506,6 +506,19 @@ def stringTrimPrefix (s pre : String) : String :=
 def stringTrimSuffix (s suf : String) : String :=
   if s.endsWith suf then String.ofList (s.toList.take (s.length - suf.length)) else s
 
+/-- `strings.SliceRunes(s, lo, hi)`: the half-open `[lo, hi)` window of `s` indexed by
+    RUNE (Unicode scalar), not byte — a `Char` is a scalar, so multibyte/astral runes are
+    single units. Negative bounds, `hi` past the rune count, or `lo > hi` are errors
+    (bottom), matching CUE (`index out of range`). -/
+def stringSliceRunes (s : String) (lo hi : Int) : Value :=
+  let runes := s.toList
+  if lo < 0 || hi < 0 then
+    .bottom
+  else if hi > Int.ofNat runes.length || lo > hi then
+    .bottom
+  else
+    .prim (.string (String.ofList ((runes.drop lo.toNat).take (hi - lo).toNat)))
+
 /-- Sum of a numeric list. All-int ⇒ exact int (empty list ⇒ 0). Any `.float`
     element promotes to exact decimal accumulation, collapsing an integral result
     back to int (CUE: `list.Sum([1.0,2.0,3.0]) = 6`). A non-numeric element ⇒
@@ -666,6 +679,8 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.string (unicodeToLower s))
   | "strings.ToTitle", [.prim (.string s)] =>
       .prim (.string (asciiToTitle s))
+  | "strings.SliceRunes", [.prim (.string s), .prim (.int lo), .prim (.int hi)] =>
+      stringSliceRunes s lo hi
   | name, args => unresolvedOrBottom name args
 
 /-- Absolute value, preserving the numeric domain: int stays int, float stays float.
@@ -687,6 +702,34 @@ def mathMultipleOf (value divisor : Int) : Value :=
     .bottomWith [.divisionByZero]
   else
     .prim (.bool (value % divisor == 0))
+
+/-- `math.Mod(x, y)`: the floating-point remainder `x - trunc(x/y)·y` — Go `math.Mod`
+    semantics, where the result takes the SIGN OF THE DIVIDEND. Computed EXACTLY in
+    decimal (scale to a common denominator, truncated-toward-zero integer quotient),
+    so on finite decimals the remainder is exact: `Mod(5.5, 2.1) = 1.3` where CUE's
+    float64 emits the artifact `1.2999999999999998` (Kue is exact and more precise —
+    same posture as `math.Sqrt`; see `cue-divergences.md`). An integral result
+    collapses to `int` (`Mod(7, 2.5) = 2`). A zero divisor is an error (bottom); CUE
+    errors (`NaN`). A non-numeric argument is bottom. -/
+def mathMod (dividend divisor : Prim) : Value :=
+  match decimalFromPrim? dividend, decimalFromPrim? divisor with
+  | some x, some y =>
+      let scale := maxNat x.scale y.scale
+      let xn := scaleDecimalNumerator scale x
+      let yn := scaleDecimalNumerator scale y
+      if yn == 0 then
+        .bottom
+      else
+        collapseDecimalToValue { numerator := xn - Int.tdiv xn yn * yn, scale := scale }
+  | _, _ => .bottom
+
+/-- `math.Signbit(x)` — true iff `x` is negative. CUE normalizes a `-0.0` literal to
+    `0.0` at parse, so `Signbit(-0.0) = false`; a negative zero has numerator `0` here
+    too, so the `numerator < 0` test agrees. A non-numeric argument is bottom. -/
+def mathSignbit (value : Prim) : Value :=
+  match decimalFromPrim? value with
+  | some d => .prim (.bool (d.numerator < 0))
+  | none => .bottom
 
 /-- Exact decimal `base^exponent` for a NON-NEGATIVE integer `exponent`, by repeated
     exact multiplication (`mulDecimalValues`: numerators multiply, scales add). Structural
@@ -832,6 +875,8 @@ def evalMathBuiltin : String -> List Value -> Value
   | "math.Abs", [.prim p] => mathAbs p
   | "math.MultipleOf", [.prim (.int value), .prim (.int divisor)] =>
       mathMultipleOf value divisor
+  | "math.Mod", [.prim dividend, .prim divisor] => mathMod dividend divisor
+  | "math.Signbit", [.prim value] => mathSignbit value
   | "math.Floor", [.prim p] => mathRound .floor p
   | "math.Ceil", [.prim p] => mathRound .ceil p
   | "math.Round", [.prim p] => mathRound .round p
