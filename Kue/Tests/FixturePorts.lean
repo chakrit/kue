@@ -2417,7 +2417,9 @@ def fixturePorts : List FixturePort :=
                 ⟨"out_list", .regular,
                   .interpolation [.list [.prim (.int 1), .prim (.int 2)]], false⟩,
                 ⟨"out_struct", .regular,
-                  .interpolation [mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []], false⟩
+                  .interpolation [mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []], false⟩,
+                ⟨"out_pattern", .regular,
+                  .interpolation [mkStruct [] .regularOpen none [(.kind .string, .kind .int)]], false⟩
               ] .regularOpen none []))
     },
     {

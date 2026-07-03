@@ -132,6 +132,10 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
 #guard evalInterpolation [.list [.prim (.int 1)]] == .bottomWith [.nonInterpolatable .list]
 #guard evalInterpolation [mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []]
   == .bottomWith [.nonInterpolatable .struct]
+-- A struct is never interpolatable regardless of patterns: a pattern-bearing struct is a type
+-- error (bottom), NOT a deferrable incomplete (regression: it used to DEFER).
+#guard evalInterpolation [mkStruct [] .regularOpen none [(.kind .string, .kind .int)]]
+  == .bottomWith [.nonInterpolatable .struct]
 -- A null anywhere in a multi-part interpolation sinks the whole hole.
 #guard evalInterpolation [.prim (.string "x"), .prim .null, .prim (.string "y")]
   == .bottomWith [.nonInterpolatable (.scalar .null)]

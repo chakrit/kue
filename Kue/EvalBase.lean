@@ -1159,7 +1159,7 @@ def classifyInterpolationPart : Value -> InterpVerdict
   | .list _ => .nonInterpolatable .list
   | .listTail _ _ => .nonInterpolatable .list
   | .embeddedList _ _ _ => .nonInterpolatable .list
-  | .struct _ _ _ [] _ => .nonInterpolatable .struct
+  | .struct _ _ _ _ _ => .nonInterpolatable .struct
   -- A scalar carrier interpolates as its inner scalar — mirrors `classifyDynLabel`.
   | .embeddedScalar scalar _ => classifyInterpolationPart scalar
   -- Interpolatable-but-unrendered (bytes) and every unresolved/abstract form ⇒ DEFER:
@@ -1179,7 +1179,6 @@ def classifyInterpolationPart : Value -> InterpVerdict
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
   | .disj _ => .incomplete
-  | .struct _ _ _ (_ :: _) _ => .incomplete
   | .structComp _ _ _ => .incomplete
   | .comprehension _ _ => .incomplete
   | .listComprehension _ _ => .incomplete

@@ -441,8 +441,9 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   interpolation carrier (`.interpolation` renders to a STRING, no byte-context marker) — a new
   `Value`-producing arm rippling ~20 match sites + digest/format/manifest, disproportionate to
   bundle; `\(` falls through to a literal `(` (`(1)` → `KDEp`), red preserved. Follow-up slice
-  **BYTE-INTERPOLATION**: byte-array bytes repr (fixes ≥ 0x80) + byte-context interpolation carrier
-  (graduates the seed + string-context bytes operand `"\(bytesval)"`, currently DEFERRED/safe).
+  **BYTE-INTERPOLATION**: byte-array bytes repr (fixes ≥ 0x80, graduates the `byte-literal-high-byte`
+  red seed) + byte-context interpolation carrier (graduates the `byte-literal-interpolation` seed +
+  string-context bytes operand `"\(bytesval)"`, currently DEFERRED/safe).
   Related:
   bytes-operand render into a STRING interpolation (`"\(bytesval)"`) is also unimplemented — kue
   DEFERS it (safe), cue renders the UTF-8 form (`"ab"`); fold into the same slice.
@@ -459,26 +460,20 @@ divergence row + `numeric/equality_expressions` fixtures present and match code;
 still open; ARCH-QUOTED-STRIP / GDA-FLOAT-RENDER / BYTES-SLICE-MISSING / BYTE-INTERPOLATION /
 BUILTIN-IMPORT-LENIENCY all still tracked, no decay). Two LOW findings:
 
-- **INTERP-STRUCT-PATTERN-DEFER (LOW — correctness/consistency; FILE).** `classifyInterpolationPart`
-  (`Kue/EvalBase.lean:1182`) routes a pattern-bearing struct (`.struct _ _ _ (_ :: _) _`) to
-  `.incomplete` (DEFER) while a no-pattern struct (`:1162`) is `.nonInterpolatable` (ERROR). An
-  evaluated pattern-bearing struct is still struct-typed and never resolves to a scalar, so cue
-  type-errors `"\({[string]:int})"` at eval; kue over-DEFERS. Safe direction — VALUE/export verdict
-  agrees (both non-exporting; incomplete-at-export vs cue's eval type-error, same display-only family
-  as the list-slice residual gap). Fix: collapse both struct arms to one `.struct _ _ _ _ _ =>
-  .nonInterpolatable .struct` (a struct is never interpolatable regardless of patterns). Touches a
-  Value-producing classifier + needs a `"\({[string]:int})"` → `_|_` fixture + native_decide, so a
-  slice, not an inline audit fix.
-- **BYTE-HIGHBYTE-NO-RED-SEED (LOW — test-debt / rule-compliance; FILE).** The documented ≥0x80
-  byte-escape limitation is a REACHABLE silent wrong value recorded only in prose (BYTE-LITERAL-LEXING
-  above + commit `88d6040`), which the repo rule "red seeds are COMMITTED, never left as prose"
-  forbids. `'\xff'` decodes `Char.ofNat 0xFF`, which `String.ofList` UTF-8-encodes to two bytes
-  `0xC3 0xBF` → base64 `w78=`; the spec-correct value is the single byte `0xFF` → `/w==`. Same class:
-  octal `\400`+ (>255) is unrange-checked. Capture a `.known-red` wild seed `byte-literal-high-byte`
-  (`a: '\xff'` → expected `{ "a": "/w==" }`) ahead of the byte-array-repr fix already folded into
-  BYTE-INTERPOLATION. NOT applied inline this audit: gate-safety requires a fresh `./lake build` to
-  confirm the seed reproduces RED against current HEAD (the on-disk binary predates `88d6040`), which
-  is the orchestrator's job — bundle the seed into the BYTE-INTERPOLATION slice's build.
+- **INTERP-STRUCT-PATTERN-DEFER (LOW — correctness/consistency). ✅ DONE 2026-07-04.** Collapsed
+  both struct arms of `classifyInterpolationPart` (`Kue/EvalBase.lean`) to a single pattern-agnostic
+  `.struct _ _ _ _ _ => .nonInterpolatable .struct` — a pattern-bearing struct now ERRORS (bottom)
+  like a plain struct instead of over-DEFERring, matching cue's eval type-error on
+  `"\({[string]:int})"`. Exhaustiveness preserved (struct covered once). Regression: `out_pattern`
+  in `numeric/interpolation_type_error` fixture (`→ _|_`) + native_decide guard in `Tests.lean`
+  (pattern-struct → bottom; incomplete-scalar interp still DEFERS). cert-manager canary empty.
+- **BYTE-HIGHBYTE-NO-RED-SEED (test-debt / rule-compliance). ✅ SEEDED 2026-07-04** (fix rides
+  BYTE-INTERPOLATION). Captured `.known-red` wild seed `testdata/wild/byte-literal-high-byte`
+  (`a: '\xff'` → expected `{ "a": "/w==" }`), confirmed RED against HEAD: kue exports `w78=`
+  (2-byte UTF-8 of U+00FF), spec/cue is `/w==` (raw byte 0xFF). Root = String-backed bytes can't
+  hold a byte ≥0x80 as one byte; the real fix is the byte-array `Value` repr folded into
+  **BYTE-INTERPOLATION** below — seed STAYS QUARANTINED until that lands. Octal `'\377'` is the same
+  byte and fails identically (covered by the same root; no separate seed needed).
 
 ### Audit status — all filed fix-slices DISCHARGED
 

@@ -17226,3 +17226,31 @@ still tracked in plan. Nothing decayed.
 
 No source touched (docs-only) → cert-manager canary trivially EMPTY. Phase B (architecture) still
 owed for this batch. Committed on `main`, explicit pathspec, NOT pushed (AFK).
+
+## Completed Slice: 2026-07-04 Phase A follow-up — two LOW findings (interp-struct fix + high-byte seed)
+
+Landed the two LOW findings the Phase A audit filed above.
+
+### INTERP-STRUCT-PATTERN-DEFER — FIXED
+
+`classifyInterpolationPart` (`Kue/EvalBase.lean`) had two struct arms: a no-pattern struct
+(`.struct _ _ _ [] _`) → `.nonInterpolatable .struct` (ERROR) and a pattern-bearing struct
+(`.struct _ _ _ (_ :: _) _`) → `.incomplete` (DEFER). A struct is never interpolatable regardless
+of patterns — cue type-errors `"\({[string]:int})"`. Collapsed both to one pattern-agnostic
+`.struct _ _ _ _ _ => .nonInterpolatable .struct`; exhaustiveness preserved (no `| _ =>`, struct
+covered exactly once). Verified vs cue: `"\({[string]:int})"` and `"\({a:1})"` both → bottom;
+an INCOMPLETE non-struct operand (`.ref`) still DEFERS.
+
+Tests: `out_pattern` field added to `numeric/interpolation_type_error` fixture (pair + FixturePorts
+entry, `→ _|_`); native_decide guard in `Tests.lean` (pattern-struct interp → bottom; existing
+plain-struct → bottom and incomplete-scalar → defer guards retained).
+
+### BYTE-HIGHBYTE-NO-RED-SEED — SEEDED (quarantined; fix rides BYTE-INTERPOLATION)
+
+Committed `testdata/wild/byte-literal-high-byte/` (`.cue` `a: '\xff'`, `.expected` `{ "a": "/w==" }`,
+`PROVENANCE.md`, `.known-red`). Confirmed RED against HEAD: kue exports `w78=` (2-byte UTF-8 of
+U+00FF), spec/cue `/w==` (raw byte 0xFF). Root = String-backed bytes; real fix = byte-array `Value`
+repr, folded into BYTE-INTERPOLATION. Octal `'\377'` is the same byte / same root — no separate seed.
+
+Gate `./scripts/check.sh` GREEN (both byte seeds correctly quarantined, interp fixture green, zero
+regression). cert-manager canary EMPTY. Committed on `main`, explicit pathspec, NOT pushed (AFK).
