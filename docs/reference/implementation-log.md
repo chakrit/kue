@@ -16830,3 +16830,39 @@ sign behavior, `len(string)` byte-count (ascii/multibyte/emoji), `strings.Join`/
 
 `./scripts/check.sh` GREEN (exit 0). cert-manager canary EMPTY (kue == cue after `jq -S`).
 Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: STRINGS-RUNES-MISSING — register `strings.Runes` (feature gap → done)
+
+Goal: `strings.Runes(s)` was unregistered → fell through the strings dispatcher to
+`unresolvedOrBottom` and silently bottomed instead of returning the rune-codepoint list cue
+produces. Register it, matching cue v0.16.1 exactly.
+
+### cue v0.16.1 behavior (confirmed)
+
+`strings.Runes(s)` returns a LIST of INT Unicode code points, one per rune (NOT single-char
+strings, NOT bytes): `"abc"`→`[97,98,99]`; `"héllo"`→`[104,233,108,108,111]`;
+`"a😀b"`→`[97,128512,98]` (astral emoji = one rune, full code point); `""`→`[]`;
+decomposed `"e"+U+0301`→`[101,769]` (each Unicode scalar is its own rune — combining marks
+stay separate, cue does not normalize). Wrong-arity (`Runes("a","b")`) and non-string arg
+(`Runes(5)`) are cue errors.
+
+### Change
+
+- `Kue/Builtin.lean`: `stringRunes (value : String) : List Value` maps `value.toList` (Lean
+  `Char` = Unicode scalar value, so multibyte/astral are one element each — not bytes/
+  surrogates) to `.prim (.int (Int.ofNat c.val.toNat))`. Dispatch arm
+  `| "strings.Runes", [.prim (.string s)] => .list (stringRunes s)` in `evalStringsBuiltin`.
+  No new `BuiltinFamily` case (already `.strings`); no `| _ =>` added — wrong-arity /
+  non-string args fall through the existing `| name, args => unresolvedOrBottom name args`
+  tail (concrete ⇒ bottom, matching cue's error).
+- Fixture `testdata/cue/builtins/strings_runes.{cue,expected}` (ascii, multibyte, emoji/
+  astral, empty, decomposed combining) + `FixturePorts` entry.
+- `Kue/Tests/BuiltinTests.lean`: 6 `native_decide` theorems — ascii, multibyte, astral
+  emoji single-scalar, empty, wrong-arity ⇒ bottom, non-string arg ⇒ bottom.
+
+### Verify
+
+`./scripts/check.sh` GREEN (exit 0). cert-manager canary EMPTY (kue == cue after `jq -S`).
+Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).

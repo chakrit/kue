@@ -3324,6 +3324,24 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "builtins/strings_runes.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"ascii", .regular,
+                  .builtinCall "strings.Runes" [.prim (.string "abc")], false⟩,
+                ⟨"multibyte", .regular,
+                  .builtinCall "strings.Runes" [.prim (.string "héllo")], false⟩,
+                ⟨"emoji", .regular,
+                  .builtinCall "strings.Runes" [.prim (.string "a😀b")], false⟩,
+                ⟨"empty", .regular,
+                  .builtinCall "strings.Runes" [.prim (.string "")], false⟩,
+                ⟨"combining", .regular,
+                  .builtinCall "strings.Runes" [.prim (.string "é")], false⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "builtins/list_builtin_float.expected",
       content :=
         formatTopLevel

@@ -360,12 +360,17 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   GDA `to-scientific-string` function on the exact `DecimalValue` (adjusted-exponent rule:
   plain when `exp<=0 && adjusted>=-6`, else `E` scientific). High blast radius across float
   fixtures — own careful slice; not adoption-blocking (values agree).
-- **STRINGS-RUNES-MISSING + LIST-SLICE-MISSING (feature gaps; FILE, not bugs).**
-  `strings.Runes` is unregistered → falls to the builtin fallback and silently bottoms
-  ("conflicting values (bottom)") instead of returning a rune-codepoint list; list slicing
-  `x[lo:hi]` is a parser gap ("expected ']' after index"). Both are unimplemented CUE
-  surface, not wrong-value bugs; implement when a real config needs them. (Consider: an
-  unregistered builtin bottoming silently is itself worth a clearer diagnostic — separate.)
+- **STRINGS-RUNES-MISSING — DONE (2026-07-04).** `strings.Runes(s)` now registered:
+  `stringRunes` maps each `Char` (Unicode scalar) to `.prim (.int codepoint)`, so
+  multibyte/astral are one int per rune (`"a😀b"`→`[97,128512,98]`), astral-correct (full
+  code point, not surrogate halves/bytes). Dispatch arm in `evalStringsBuiltin`; wrong-arity
+  / non-string falls through to `unresolvedOrBottom` (concrete ⇒ bottom, matching cue's
+  error). Fixture `strings_runes` (ascii/multibyte/emoji/empty/combining) + 6 `native_decide`
+  theorems. kue == cue v0.16.1 on all cases.
+- **LIST-SLICE-MISSING (feature gap; FILE, not a bug).** List slicing `x[lo:hi]` is a
+  parser gap ("expected ']' after index") — unimplemented CUE surface, not a wrong-value
+  bug; implement when a real config needs it. (Consider: an unregistered builtin bottoming
+  silently is itself worth a clearer diagnostic — separate.)
 
 ### Audit status — all filed fix-slices DISCHARGED
 

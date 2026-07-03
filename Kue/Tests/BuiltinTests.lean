@@ -193,6 +193,37 @@ theorem strings_count_empty_needle_is_rune_count_plus_one :
       == .prim (.int 4)) = true := by
   native_decide
 
+theorem strings_runes_ascii_is_code_points :
+    (evalBuiltinCall "strings.Runes" [.prim (.string "abc")]
+      == .list [.prim (.int 97), .prim (.int 98), .prim (.int 99)]) = true := by
+  native_decide
+
+theorem strings_runes_multibyte_is_one_int_per_rune :
+    (evalBuiltinCall "strings.Runes" [.prim (.string "héllo")]
+      == .list [.prim (.int 104), .prim (.int 233), .prim (.int 108),
+                .prim (.int 108), .prim (.int 111)]) = true := by
+  native_decide
+
+theorem strings_runes_astral_emoji_is_single_scalar :
+    (evalBuiltinCall "strings.Runes" [.prim (.string "a😀b")]
+      == .list [.prim (.int 97), .prim (.int 128512), .prim (.int 98)]) = true := by
+  native_decide
+
+theorem strings_runes_empty_is_empty_list :
+    (evalBuiltinCall "strings.Runes" [.prim (.string "")]
+      == .list []) = true := by
+  native_decide
+
+theorem strings_runes_wrong_arity_is_bottom :
+    (evalBuiltinCall "strings.Runes" [.prim (.string "a"), .prim (.string "b")]
+      == .bottom) = true := by
+  native_decide
+
+theorem strings_runes_non_string_arg_is_bottom :
+    (evalBuiltinCall "strings.Runes" [.prim (.int 5)]
+      == .bottom) = true := by
+  native_decide
+
 theorem strings_join_non_string_element_is_bottom :
     (evalBuiltinCall "strings.Join" [.list [.prim (.int 1)], .prim (.string ",")]
       == .bottom) = true := by

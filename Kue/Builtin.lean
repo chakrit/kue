@@ -218,6 +218,12 @@ def stringFields (value : String) : List Value := Id.run do
     fields := fields.push (.prim (.string (String.ofList current.reverse)))
   return fields.toList
 
+/-- `strings.Runes`: the string's Unicode code points, one INT per rune. A Lean `Char` is a
+    Unicode scalar value, so multibyte and astral characters each yield a single element
+    (their full code point) — never bytes or surrogate halves. -/
+def stringRunes (value : String) : List Value :=
+  value.toList.map (fun c => .prim (.int (Int.ofNat c.val.toNat)))
+
 /-- Binary-search the `[lo, hi)` window of a `(src, dst)` table sorted ascending by `src`.
     Total: each recursive call strictly shrinks `hi - lo` (the measure), so it terminates on
     the window width regardless of the table contents — no `partial`. -/
@@ -574,6 +580,8 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.string (String.ofList (s.toList.dropWhile (·.isWhitespace) |>.reverse.dropWhile (·.isWhitespace) |>.reverse)))
   | "strings.Fields", [.prim (.string s)] =>
       .list (stringFields s)
+  | "strings.Runes", [.prim (.string s)] =>
+      .list (stringRunes s)
   | "strings.ToUpper", [.prim (.string s)] =>
       .prim (.string (unicodeToUpper s))
   | "strings.ToLower", [.prim (.string s)] =>
