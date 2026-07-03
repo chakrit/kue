@@ -1,4 +1,17 @@
-# def-disj-closedness-extra-field  (root A family — QUARANTINED, .known-red)
+# def-disj-closedness-extra-field  (root A family — GRADUATED 2026-07-03)
+
+> **RETRACTION (2026-07-03, L5 slice 1).** The "Root cause (kue WRONG)" claim below is
+> WRONG. Closedness is NOT lost through the disjunction distribution: `(#A | #B) & {p,r}`
+> and `#M & {p,r}` (hidden def) both bottom CORRECTLY — verified against `cue` v0.16.1
+> across def-ref, `close()`-builtin, and mixed open/closed-arm variants. The disj/embed
+> closedness threading in `Lattice.lean` was already sound (covered by the intervening
+> `def-closedness-thru-embedded-disj`, bug26/bug27, and bug210 fixes). The seed's original
+> RED was a MEASUREMENT artifact: `M` was a *regular exported* field, so its OWN inherent
+> incompleteness (`M: #A | #B` = `{p:int}|{q:int}` — genuinely ambiguous; `cue` errors on
+> it identically: "M: incomplete value {p:int} | {q:int}") surfaced at export BEFORE `out`'s
+> correct bottom. The seed was corrected to a HIDDEN def (`#M`) so `out` is the observed
+> result — now GREEN, `.known-red` removed, gate-enforced. No `Lattice.lean` change.
+
 
 - **Source:** logged 2026-06-29 in `.afk.log` as `root2` while isolating the root of the L4
   `disj-arm-list-embed-dropped` regression (found probing outside the planned slice, never

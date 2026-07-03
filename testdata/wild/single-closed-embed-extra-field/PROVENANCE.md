@@ -1,4 +1,16 @@
-# single-closed-embed-extra-field  (root A family — QUARANTINED, .known-red)
+# single-closed-embed-extra-field  (root A family — GRADUATED 2026-07-03)
+
+> **RETRACTION (2026-07-03, L5 slice 1).** The "Root cause (kue WRONG)" claim below is
+> WRONG. The embed-close path is NOT mishandled: `{#A} & {p,r}` inline and `#M & {p,r}`
+> (hidden def) both bottom CORRECTLY (cue: "field not allowed"), and the positive
+> `{#A} & {p:1}` → `{p:1}` — verified against `cue` v0.16.1. It was already covered by the
+> bug210 embed-close fixtures. The seed's original "incomplete value: int" was a
+> MEASUREMENT artifact: `M` was a *regular exported* field = `{#A}` = `{p:int}`, whose own
+> `int` is not concrete, so `M` errored at export BEFORE `out`'s correct bottom (`cue`
+> reports `M.p: incomplete value int` identically). Corrected to a HIDDEN def (`#M`) so
+> `out` is the observed result — now GREEN, `.known-red` removed, gate-enforced. No
+> `Lattice.lean` change.
+
 
 - **Source:** logged 2026-06-29 in `.afk.log` as `root3` while isolating the root of the L4
   `disj-arm-list-embed-dropped` regression (found probing outside the planned slice, never

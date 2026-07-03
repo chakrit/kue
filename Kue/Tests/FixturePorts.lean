@@ -740,6 +740,38 @@ def fixturePorts : List FixturePort :=
         | .error error => s!"parse error: {error.message}"
     },
     {
+      -- Closedness survives a disjunction of definition REFERENCES: `(#A | #B) & {p,r}`
+      -- distributes per arm; each closed arm rejects the disjoint field, so every arm bottoms
+      -- and the empty disjunction is `_|_`. cue v0.16.1: "2 errors in empty disjunction: field
+      -- not allowed". Pins the through-disjunction path against the direct-meet path (bug26/27).
+      fileName := "definitions/disj_def_refs_closed_reject_extra.expected",
+      content :=
+        match parseSource "#A: {p: int}\n#B: {q: int}\nout: (#A | #B) & {p: 1, r: 9}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- POSITIVE guard against over-rejection: a field IN a closed arm's schema survives the
+      -- disjunction distribution — `(#A | #B) & {p: 1}` selects the `#A` arm to `{p: 1}` (the
+      -- `#B` arm bottoms on `p`). Closedness must reject the disjoint field WITHOUT rejecting
+      -- the in-schema one. cue v0.16.1 agrees (`{p: 1}`).
+      fileName := "definitions/disj_def_refs_closed_accept_in_schema.expected",
+      content :=
+        match parseSource "#A: {p: int}\n#B: {q: int}\nout: (#A | #B) & {p: 1}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
+      -- POSITIVE guard (embed): embedding a closed def closes the host, but an in-schema field
+      -- still merges — `{#A} & {p: 1}` → `{p: 1}`. Complements bug210_embed_meet_extra_rejected
+      -- (the disjoint-field REJECT). cue v0.16.1 agrees (`{p: 1}`).
+      fileName := "definitions/embed_closed_def_accept_in_schema.expected",
+      content :=
+        match parseSource "#A: {p: int}\nout: {#A} & {p: 1}\n" with
+        | .ok value => formatResolvedTopLevel value
+        | .error error => s!"parse error: {error.message}"
+    },
+    {
       -- Bug2-10 EDGE (deep nested self-ref): the embed's self-ref is read 2 frames deep
       -- (`spec: acme: val: Self.#name`). `hasSelfRefAtDepth` (in `defBodyHasSiblingSelfRef`)
       -- descends nested frames, so the deferral fires and the narrowing reaches the deep read.

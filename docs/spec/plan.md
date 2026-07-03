@@ -183,6 +183,20 @@ Peeled in two layers:
   a captured bug stays guarded). The fix-grind BEYOND capture awaits chakrit's campaign
   decision: grind L5+ (attended is safer for closedness-adjacent work), reprioritize to
   B3d-6b/other, or accept the current state.
+- **L5 slice 1 (2026-07-03) — root2/root3 graduated; the `Lattice.lean:1224` pin was a RED
+  HERRING.** The two quarantined closedness seeds are now GREEN and gate-enforced, with NO
+  `Lattice.lean` change: closedness IS already preserved through the disjunction distribution
+  and the embed-close path (verified vs `cue` v0.16.1 across def-reference disjunction,
+  `close()`-builtin, and mixed open/closed-arm variants; open arms still accept extras, only
+  closed arms reject). The seeds' RED was a MEASUREMENT artifact — each bound its carrier as a
+  *regular exported* field (`M: #A | #B` / `M: {#A}`), so the carrier's OWN inherent
+  incompleteness/ambiguity (`{p:int}|{q:int}`; `{p:int}`) surfaced at export before `out`'s
+  correct bottom (`cue` errors on the carrier identically). Corrected to a HIDDEN def (`#M`) so
+  `out` is the observed result → both bottom, matching the `.expected.err`. Added 3 regular-tree
+  pins (`disj_def_refs_closed_reject_extra`, `disj_def_refs_closed_accept_in_schema`,
+  `embed_closed_def_accept_in_schema`) + `FixturePorts` entries; embed-negative already pinned by
+  `bug210_embed_meet_extra_rejected`. `webapp-carrier-l5` stays RED — a DISTINCT root (`Self`-ref
+  host embedding an `error()`-arm disjunction, `Eval.lean`), NOT closedness. cert-manager canary 0.
 
 ## Standing Capabilities (what Kue does now)
 

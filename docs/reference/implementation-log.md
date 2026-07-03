@@ -15895,3 +15895,57 @@ shared index" (candidate school-level lesson).
 Docs-only batch (no code change here; the code halves landed in `a4e7390`/`ca4a322`).
 `./scripts/check.sh` green — docs don't affect the build, so this confirms no script was
 broken. Committed on `main`, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: L5 slice 1 — graduate root2/root3; `Lattice.lean:1224` closedness pin was a red herring (2026-07-03)
+
+Goal: fix the two quarantined closedness seeds (`def-disj-closedness-extra-field` /
+`single-closed-embed-extra-field`) whose `.afk.log` root cause pinned closedness LOST
+through the disjunction distribution and the embed-close path at `Kue/Lattice.lean:1224`.
+
+### Finding (verify-then-fix: the pin was WRONG)
+
+No `Lattice.lean` change was needed. Closedness IS already preserved through both paths.
+Verified against `cue` v0.16.1:
+
+- `(#A | #B) & {p:1,r:9}` (def-reference disjunction) → bottom; `#M & {p:1,r:9}` with a
+  hidden `#M: #A | #B` → bottom.
+- `{#A} & {p:1,r:9}` (embed) → bottom; hidden-def form → bottom.
+- `close({p:int}) | close({q:int})` through a disjunction, met with an extra field → bottom.
+- Positive (no over-rejection): `(#A|#B) & {p:1}` → `{p:1}`; `{#A} & {p:1}` → `{p:1}`.
+- Open arm still accepts extras: `#A | #B` with `#B: {q:int, ...}` (open), met with
+  `{q:2, r:9}` → `{q:2, r:9}` (only CLOSED arms reject).
+
+The seeds' RED was a MEASUREMENT ARTIFACT. Each bound its carrier as a *regular exported*
+field — `M: #A | #B` (= `{p:int}|{q:int}`, genuinely ambiguous) / `M: {#A}` (= `{p:int}`,
+`int` not concrete). That carrier's OWN inherent incompleteness/ambiguity surfaced at
+export BEFORE `out`'s (correct) bottom; `cue` errors on the carrier identically
+(`M: incomplete value {p:int} | {q:int}` / `M.p: incomplete value int`). So the observed
+"ambiguous value" / "incomplete value: int" came from `M`, not from `out` losing closedness.
+The disj/embed closedness machinery was already sound via the intervening
+`def-closedness-thru-embedded-disj`, bug26/bug27, and bug210 fixes.
+
+### Steps
+
+1. Corrected both seeds to a HIDDEN carrier def (`M` → `#M`) so `out` is the observed
+   export result. Both now render `conflicting values (bottom)`, matching `.expected.err`.
+2. Removed both `.known-red` markers (`git rm`); the strict-xfail wild gate now enforces them.
+3. Annotated each seed's `PROVENANCE.md` with a RETRACTION of the wrong `1224` root-cause claim.
+4. Added 3 regular-tree pins under `testdata/cue/definitions/` + `FixturePorts` entries:
+   `disj_def_refs_closed_reject_extra` (empty-disjunction bottom),
+   `disj_def_refs_closed_accept_in_schema` (positive, no over-reject),
+   `embed_closed_def_accept_in_schema` (positive embed). The embed-NEGATIVE case was already
+   pinned by `bug210_embed_meet_extra_rejected` (`{#Meta} & {b}` rejects `b`).
+
+### Status of siblings
+
+`webapp-carrier-l5` stays `.known-red` — a DISTINCT root (a `Self`-ref host embedding an
+`error()`/`⊥`-arm disjunction, `Eval.lean` splice), NOT closedness. Next L5 target.
+
+### Verification
+
+`./scripts/check.sh` green (both seeds graduated, ~1843-pin set intact, test-health +
+shellcheck clean). Live cert-manager canary (`kue` vs `cue` jq-S export) delta EMPTY. No
+`cue` divergence and no spec gap (all cases match `cue` v0.16.1). Committed on `main`, NOT
+pushed (AFK envelope).

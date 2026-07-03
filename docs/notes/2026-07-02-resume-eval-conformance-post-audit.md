@@ -54,12 +54,20 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 - **Red seeds committed** (were log-file prose / untracked scratch):
   - `closed-disj-both-arms-reject-extra` (cl2) — **GREEN, enforced**: fixed en passant
     by the root-A/L4 closedness work; kue now bottoms, matching spec + cue.
-  - `def-disj-closedness-extra-field` (root2) — RED, `.known-red` (kue: ambiguous;
-    spec+cue: bottom).
-  - `single-closed-embed-extra-field` (root3) — RED, `.known-red` (kue: incomplete;
-    spec+cue: field not allowed). Root pinned at `Kue/Lattice.lean:1224` per .afk.log.
+  - `def-disj-closedness-extra-field` (root2) — **GREEN, enforced (2026-07-03, L5 slice 1)**.
+    The `Lattice.lean:1224` root-cause pin was a RED HERRING: closedness IS preserved through
+    the disjunction distribution (verified vs cue across def-ref/`close()`/mixed-arm variants).
+    The seed's RED was a measurement artifact — the carrier `M` was a *regular exported* field
+    whose own inherent ambiguity (`{p:int}|{q:int}`) surfaced before `out`'s correct bottom
+    (cue errors on `M` identically). Corrected to a HIDDEN def (`#M`); `out` now bottoms as
+    expected. No `Lattice.lean` change. See its PROVENANCE.md retraction.
+  - `single-closed-embed-extra-field` (root3) — **GREEN, enforced (2026-07-03, L5 slice 1)**.
+    Same artifact: `M: {#A}` = `{p:int}` (incomplete) exported before `out`; embed-close was
+    already sound (`{#A} & {p,r}` bottoms, covered by bug210). Corrected to `#M`. No code change.
   - `webapp-carrier-l5` — the L5 seed (was untracked `repro-l5.cue`), self-contained,
-    `.known-red`, provisional `.expected` from cue's export.
+    STILL `.known-red` (kue over-rejects → bottom; cue exports). Distinct root: `Self`-ref host
+    embedding a disjunction with an `error()`/`⊥` arm (`Eval.lean` splice), NOT closedness. Next
+    L5 target.
 
 ## Open (ranked)
 
@@ -128,8 +136,9 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
    sites + all clear code-history comments in non-test source fixed; ~20 test-file comments
    deferred to (e-followup) in plan.md. **The 2026-07-02 audit fix-slice batch (a)–(e) is now
    COMPLETE.**
-4. **root2/root3 quarantined RED** — same closedness family as the L5 campaign; natural
-   first targets if the grind is chosen.
+4. **root2/root3 — GRADUATED GREEN (2026-07-03, L5 slice 1).** No closedness bug existed;
+   the `1224` pin was stale. `webapp-carrier-l5` remains the sole RED closedness-family seed,
+   and it is NOT a closedness bug (it's the `Self`-ref/error-arm splice, `Eval.lean`).
 5. **Pending school changes** (for `ace-school`, not from here): the TEST-HEALTH test
    convention (already flagged in `failure-modes.md`) + the audit meta-lesson
    "prose-only conventions rot; land conventions with migration + a script gate"
