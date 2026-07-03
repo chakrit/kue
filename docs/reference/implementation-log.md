@@ -16063,3 +16063,56 @@ None. No `partial def` in any eval module; no value-producing `| _ =>` catch-all
 batch; timeless comments clean; every new fixture carries a testdata pair + FixturePorts
 entry; wild seeds green with no lingering `.known-red`/untracked scratch. `./scripts/check.sh`
 GREEN. Phase B owed for this batch (infra-in-scope rotation — the check.sh/gate tooling).
+
+## 2026-07-03 — Phase B architecture/infra audit (A7 rotation) — CLEAN, 1 inline fix
+
+Audit-only slice (audits get a log entry per the CLAUDE.md guard). This is the A7
+infra-in-scope rotation: Phase B audited the GATES/TOOLING as first-class code alongside
+the module graph. Complements the same-batch Phase A (`a8d07b7`, CLEAN).
+
+### Module graph
+Layering/cycles CLEAN. The PB-1 carve is a strict linear import chain `EvalOps → EvalBase
+→ EvalDefer → Eval` with no back-edge (verified against each file's `import` block); seam
+is sound and `architecture.md` §5 documents it accurately (incl. the "isolating the tier
+alone would cycle" rationale). No module has outgrown its home that a split would fix now:
+largest non-registry test module is `TwoPassTests` at 1516 lines (under the ~1800 cap);
+`FixturePorts.lean` (3992) is a generated registry, exempt. Test-org pass NOT due.
+
+### Infra review (A7) — verdict per tool
+- **`scripts/check.sh`** — SOUND. Glob-discovers every `check-*.sh` via nullglob, never
+  matches itself (`check.sh` has no hyphen), accumulates ALL failures (not stop-at-first)
+  with a PASS/FAIL summary, fully repo-local/clone-portable (computed `script_dir`/`repo_root`,
+  no absolute paths, no external-repo refs). ONE finding (below), fixed inline.
+- **`./lake` + `./lean` + CPU cap** — SOUND. `elan which lake`/`lean` resolves the real
+  toolchain binary, so a repo-root PATH entry (gate scripts prepend it) cannot recurse into
+  the wrapper. `LEAN_NUM_THREADS=2` default (overridable upward) bounds Lean threads + Lake
+  jobs; `nice -n 19` floors priority. Enforcement coherent: gates route bare `lake` through
+  the wrapper via PATH, agents call `./lake` explicitly. NO leftover `lean-cap.sh` remnant
+  anywhere in the tree (grep-clean — the retired sourced-convention approach was fully
+  removed). The 8 lines duplicated across `lake`/`lean` are intentional per-tool boilerplate,
+  not worth a shared helper (extracting one for two 12-line wrappers is over-engineering).
+- **strict-xfail quarantine** (`check_wild_fixtures`) — SOUND. A `.known-red` dir that now
+  PASSES hard-fails ("remove .known-red to enforce it"); while still red it is reported +
+  skipped. No false pos/neg: the `passed` flag is computed correctly for both the `.expected`
+  (diff) and `.expected.err` (stderr-substring) paths, and the shape checks (cue file +
+  exactly one expectation form) apply to quarantined dirs too. Auto-discovery interaction is
+  clean — every dir is enumerated; the marker only gates the pass/fail decision.
+- **`check-realworld.sh` + cert-manager fixture** — SOUND. Byte-comparison via `diff -u`
+  expected↔output; a dir missing either half fails loudly; builds the kue exe on demand.
+  Sanitization re-grep CLEAN: the only hits were the cert-manager API field NAME
+  `privateKeySecretRef` and the placeholder `cluster-issuer-main-secret` — no leaked
+  prod9/personal/secret/token/path/tailnet values.
+
+Consistency across the `check-*.sh` family is good — shared `script_dir`/`repo_root` idiom,
+shared PATH-routing of `lake`, uniform loud-fail-on-missing-half.
+
+### Finding (LOW, fixed inline)
+`check.sh` shellchecked only `scripts/*.sh` — the `./lake` and `./lean` root wrappers (shell
+too, and the CPU-cap surface) were NOT covered by the gate. Clean today, but nothing kept
+them clean. Fix: extended the shellcheck invocation to name the two root wrappers. Re-ran
+`./scripts/check.sh` → GREEN.
+
+### Periodic passes
+Plan-hygiene SOON-due (distilled 2026-07-02 at 697 lines, now 901 — accumulating, not this
+cycle). Test-org NOT due. Perf-guide CURRENT (the CPU cap is a build-time concern, out of
+the runtime cost model's scope; the v4.31 bump surfaced no runtime perf change).

@@ -21,13 +21,18 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 > plan-only roadmap (B3d-6b MVS wiring, item-6 LOW list). Nothing below this line is a
 > blocker; it's the closed record.
 
-> **2026-07-03 Phase A audit (eval batch `08a537e..HEAD`) — CLEAN, zero fix-slices.** A4
-> confirmed all five prior fix-slices (PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3) genuinely
-> LANDED. L5-2 open-tail-operand closedness change adjudicated **SOUND** (adversarial probes:
-> no under-rejection — closed operands still reject disjoint fields). No correctness/totality/
-> illegal-state/DRY/skill findings; gate GREEN. **Phase B is OWED for this batch** — the
-> infra-in-scope rotation (check.sh aggregator, `./lake` CPU cap, strict-xfail quarantine,
-> realworld gate) is the next audit step. See plan.md § "2026-07-03 Phase A audit".
+> **2026-07-03 two-phase audit — COMPLETE, BOTH phases CLEAN.** Phase A (`a8d07b7`, eval
+> batch `08a537e..HEAD`): A4 confirmed all five prior fix-slices LANDED; L5-2 open-tail-operand
+> closedness adjudicated SOUND (adversarial probes — no under-rejection); zero fix-slices.
+> Phase B (A7 infra-in-scope rotation): module graph layering/cycles CLEAN, `EvalOps →
+> EvalBase → EvalDefer → Eval` carve sound + matched by `architecture.md`. Infra verdict:
+> `check.sh` / `./lake`+`./lean` cap / strict-xfail quarantine / `check-realworld.sh` +
+> sanitized cert-manager — ALL sound; sanitization re-grep clean; no `lean-cap.sh` remnant.
+> ONE LOW finding fixed inline: `check.sh` now shellchecks the `./lake`/`./lean` root wrappers
+> (were an uncovered gate hole). No fix-slices filed. **Two-phase audit for this batch is
+> DONE.** Periodic: plan-hygiene SOON-due (901 lines, distilled 2026-07-02); test-org not due;
+> perf-guide current. Next work is chakrit's-call from the standing backlog (B3d-6b, item-6)
+> or plan roadmap. **22 commits unpushed on `main`, awaiting chakrit's push.**
 
 ## State
 
@@ -170,7 +175,8 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
   `/Users/chakrit/Documents/prod9/infra`, run from that cwd). argocd is GONE from that
   checkout — historical claim, do not re-verify.
 - kue binary: `.lake/build/bin/kue`. Gate: `./scripts/check.sh` (single entrypoint —
-  `lake build` + every `scripts/check-*.sh` by glob + `shellcheck scripts/*.sh`).
+  `lake build` + every `scripts/check-*.sh` by glob + `shellcheck scripts/*.sh` and the
+  `./lake`/`./lean` root wrappers).
 - Toolchain: `leanprover/lean4:v4.31.0` (bumped from v4.29.1 2026-07-03; clean, canary
   byte-identical). Build ONLY via `./lake` (caps to 2 cores + `nice`) — never bare `lake`.
 - Relay from AFK run-2's self-flag: it ran `git checkout Kue/Eval.lean` (reverting its

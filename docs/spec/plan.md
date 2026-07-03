@@ -523,6 +523,17 @@ perf-guide CURRENT (the recent batch is correctness-only — no new slow pattern
 mitigation); resilience/retro not forced here. Test-org is the one periodic pass now due
 (PB-2).
 
+**2026-07-03 two-phase audit — COMPLETE, both phases CLEAN.** Phase A code-quality
+(`a8d07b7`) CLEAN, zero fix-slices. Phase B architecture/infra (A7 rotation — gates+tooling
+in scope) CLEAN: module graph layering/cycles clean, the `EvalOps → EvalBase → EvalDefer →
+Eval` carve sound and matched by `architecture.md`; infra (`check.sh` / `./lake`+`./lean`
+cap / strict-xfail quarantine / `check-realworld.sh` + sanitized cert-manager) all sound;
+sanitization re-grep clean. ONE LOW finding fixed inline — `check.sh` now shellchecks the
+`./lake`/`./lean` root wrappers (were an uncovered gate hole). No fix-slices filed. Periodic
+now: plan-hygiene SOON-due (901 lines, distilled 2026-07-02); test-org NOT due (largest
+non-registry test module 1516 < ~1800); perf-guide current (build cap is build-time,
+out of the runtime cost model).
+
 ### 2026-07-03 Phase A audit of the eval batch (`08a537e..HEAD`) — CLEAN, zero fix-slices
 
 Scope: the un-audited batch since the last Phase A/B (`08a537e`) — PA-1 (ae332cb),

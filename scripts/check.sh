@@ -41,11 +41,14 @@ main() {
     fi
   done
 
-  printf '=== shellcheck scripts/*.sh ===\n'
-  if ! shellcheck "${script_dir}"/*.sh; then
+  # Shellcheck the gate scripts AND the repo-root ./lake and ./lean build wrappers — the
+  # wrappers carry the CPU cap and are shell too, so they rot the same way; the glob can't
+  # reach them (no `.sh` extension), so name them.
+  printf '=== shellcheck scripts/*.sh + ./lake ./lean ===\n'
+  if ! shellcheck "${script_dir}"/*.sh "${repo_root}/lake" "${repo_root}/lean"; then
     printf 'shellcheck failed\n' >&2
     status=1
-    failures+=("shellcheck scripts/*.sh")
+    failures+=("shellcheck scripts/*.sh ./lake ./lean")
   fi
 
   if [[ "${status}" -eq 0 ]]; then
