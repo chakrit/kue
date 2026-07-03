@@ -17068,3 +17068,71 @@ Filed (not fixed this slice), red-seeded / recorded — see plan.md:
 Verify: `./scripts/check.sh` PASS (build + fixture/wild/realworld/test-health + shellcheck;
 the two byte-literal seeds correctly QUARANTINED). cert-manager canary EMPTY. Committed on
 `main`, explicit pathspec, NOT pushed (AFK).
+
+---
+
+## Completed Slice: Byte-Literal Escape Lexing
+
+Goal: graduate the `byte-literal-hex-escape` red seed by decoding CUE byte-literal (`'...'`)
+escape sequences. The lexer previously dropped the backslash and kept the literal escape
+chars (`'\x01ab'` → `x01ab` → base64 `eDAxYWI=`, not the correct `AWFi`).
+
+### cue byte-literal escape/interp probe matrix (cue v0.15, spec-authoritative)
+
+| construct        | source        | cue base64  | note                                  |
+| ---------------- | ------------- | ----------- | ------------------------------------- |
+| hex byte         | `'\x41'`      | `QQ==`      | 2 hex digits → one byte               |
+| hex, high        | `'\xff'`      | `/w==`      | raw byte 0xFF (repr-limited in kue)   |
+| octal byte       | `'\101'`      | `QQ==`      | EXACTLY 3 octal digits (`\0` errors)  |
+| unicode esc      | `'\u00e9'`   | `w6k=`      | `\uNNNN` codepoint → UTF-8 (2 bytes) |
+| unicode long     | `'\U0001F600'`| `8J+YgA==`  | codepoint → UTF-8 (4 bytes)           |
+| named controls   | `'\a\b\f\n\r\t\v'` | `BwgMCg0JCw==` | 07 08 0C 0A 0D 09 0B          |
+| escaped quote    | `'\''`        | `Jw==`      | 0x27                                  |
+| literal non-ASCII| `'é'`         | `w6k=`      | source UTF-8 bytes (already correct)  |
+| interpolation    | `'\(1)'`      | `MQ==`      | byte 0x31 — DEFERRED (still red)      |
+
+String literals (`"..."`) REJECT `\x`/`\NNN` (`invalid string: invalid syntax`) but accept
+`\u`/`\U` — the byte-only vs shared escape split. (kue's string path is separately lenient
+on unknown escapes; out of scope here.)
+
+### Behavior
+
+`decodeByteEscape` (+ `readHexDigits`, `readOctalRest`, `hexDigitVal?`, `octDigitVal?`) and
+`parseQuotedByteBody` in `Kue/Parse.lean` decode, inside a `'...'` literal: `\xNN` (hex byte),
+`\NNN` (exactly-three-digit octal byte), `\uNNNN`/`\UNNNNNNNN` (unicode → UTF-8 via
+`Char.ofNat`), and `\a\b\f\n\r\t\v\\\'\"`. Unrecognized escapes keep the escaped char literally
+(drop the `\`), matching the lenient string path. Base64 JSON export already worked
+(`Json.lean` `base64Encode value.toUTF8.toList`) — only decoding was missing.
+
+Soundness note: a decoded value < 0x80 UTF-8-encodes to exactly the one intended byte, so all
+fixtured cases are exact and cue-matched. KNOWN LIMITATION: bytes are String-backed, so a
+`\xNN`/`\NNN` with value ≥ 0x80 denotes a raw byte the String cannot hold — it decodes to that
+codepoint's two-byte UTF-8 form instead of a lone byte (cue is right; kue is repr-limited). No
+fixture exercises ≥ 0x80; the proper fix (byte-array bytes representation) is the
+BYTE-INTERPOLATION follow-up in plan.md.
+
+### Deferred (seed stays quarantined)
+
+Byte-context interpolation `'\(1)'` remains `.known-red`. It needs a distinct byte-interpolation
+carrier: `.interpolation` renders to a STRING and carries no byte-context marker, and a byte
+interpolation may have zero literal segments (`'\(1)'`), so context cannot be inferred from the
+segments. A correct fix adds a new `Value`-producing arm rippling ~20 match sites plus the
+digest/format/manifest paths — disproportionate to bundle here. `\(` falls through to a literal
+`(` (kue emits `(1)` → `KDEp`), preserving the red. Tracked as BYTE-INTERPOLATION (plan.md),
+which also carries the byte-array repr (≥ 0x80 escapes) and the string-context bytes operand
+(`"\(bytesval)"`, currently DEFERRED/safe).
+
+### Tests
+
+- Graduated `testdata/wild/byte-literal-hex-escape` (`git rm .known-red`); `'\x01ab'` → `AWFi`.
+- New wild `testdata/wild/byte-literal-octal-escape` (`'\101\102\103'` → `QUJD`), green-from-birth
+  base64 oracle locking the octal family against cue.
+- New `testdata/cue/numeric/byte_literal_escapes.{cue,expected}` (eval fixture, hex/octal/unicode/
+  plain/mixed) + `FixturePorts` AST port.
+- 8 `native_decide` in `Kue/Tests/BytesTests.lean` (hex, control-hex 0x01, octal, unicode, named
+  controls, escaped quote, plain-unchanged regression, and the interpolation-keeps-literal red
+  witness), anchored by a coverage tripwire.
+
+Verify: `./scripts/check.sh` PASS (build + fixture/wild/realworld/test-health + shellcheck; the
+`byte-literal-interpolation` seed correctly QUARANTINED). cert-manager canary EMPTY. Committed on
+`main`, explicit pathspec, NOT pushed (AFK).

@@ -138,6 +138,79 @@ def parseStringEscape : Char -> Char
   | 't' => '\t'
   | value => value
 
+/-- Value of a single hex digit (`0-9a-fA-F`), else `none`. -/
+def hexDigitVal? (c : Char) : Option Nat :=
+  if parseAsciiBetween '0' '9' c then some (c.toNat - '0'.toNat)
+  else if parseAsciiBetween 'a' 'f' c then some (c.toNat - 'a'.toNat + 10)
+  else if parseAsciiBetween 'A' 'F' c then some (c.toNat - 'A'.toNat + 10)
+  else none
+
+/-- Value of a single octal digit (`0-7`), else `none`. -/
+def octDigitVal? (c : Char) : Option Nat :=
+  if parseAsciiBetween '0' '7' c then some (c.toNat - '0'.toNat) else none
+
+/-- Read exactly `count` hex digits, folding MSB-first, or `none` if fewer are present. -/
+def readHexDigits (count : Nat) (acc : Nat) : List Char -> Option (Nat × List Char)
+  | chars =>
+    match count, chars with
+    | 0, chars => some (acc, chars)
+    | _ + 1, [] => none
+    | n + 1, c :: rest =>
+        match hexDigitVal? c with
+        | some d => readHexDigits n (acc * 16 + d) rest
+        | none => none
+
+/-- Read exactly three octal digits after the leading one (`d0`), or `none` if malformed.
+    CUE octal byte escapes are exactly three digits (`\101`), not variable-length. -/
+def readOctalRest (d0 : Nat) : List Char -> Option (Nat × List Char)
+  | c1 :: c2 :: rest =>
+      match octDigitVal? c1, octDigitVal? c2 with
+      | some d1, some d2 => some (d0 * 64 + d1 * 8 + d2, rest)
+      | _, _ => none
+  | _ => none
+
+/-- Decode one byte-literal escape body (the chars AFTER the `\`), returning the decoded
+    character(s) and the remainder, or `none` if the escape is unrecognized/malformed (the
+    caller then keeps the escaped char literally, matching CUE's lenient string escapes for
+    the simple cases). CUE byte literals additionally support `\xNN` (hex byte), `\NNN`
+    (octal byte), `\uNNNN`/`\UNNNNNNNN` (unicode → UTF-8), and `\a\b\f\v` alongside the
+    shared `\n\r\t\\\'\"`. A decoded value < 0x80 UTF-8-encodes to the single intended
+    byte; a `\xNN`/`\NNN` with NN ≥ 0x80 is a raw byte the String-backed bytes value cannot
+    hold exactly (it becomes that codepoint's two-byte UTF-8 form) — a known limitation
+    tracked for a byte-array representation. `\(` is deliberately unhandled here: byte-
+    context interpolation is not yet implemented, so it falls through to a literal `(`. -/
+def decodeByteEscape : List Char -> Option (List Char × List Char)
+  | 'x' :: rest =>
+      match readHexDigits 2 0 rest with
+      | some (value, rest) => some ([Char.ofNat value], rest)
+      | none => none
+  | 'u' :: rest =>
+      match readHexDigits 4 0 rest with
+      | some (value, rest) => some ([Char.ofNat value], rest)
+      | none => none
+  | 'U' :: rest =>
+      match readHexDigits 8 0 rest with
+      | some (value, rest) => some ([Char.ofNat value], rest)
+      | none => none
+  | 'a' :: rest => some ([Char.ofNat 0x07], rest)
+  | 'b' :: rest => some ([Char.ofNat 0x08], rest)
+  | 'f' :: rest => some ([Char.ofNat 0x0c], rest)
+  | 'v' :: rest => some ([Char.ofNat 0x0b], rest)
+  | 'n' :: rest => some (['\n'], rest)
+  | 'r' :: rest => some (['\r'], rest)
+  | 't' :: rest => some (['\t'], rest)
+  | '\\' :: rest => some (['\\'], rest)
+  | '\'' :: rest => some (['\''], rest)
+  | '"' :: rest => some (['"'], rest)
+  | c :: rest =>
+      match octDigitVal? c with
+      | some d0 =>
+          match readOctalRest d0 rest with
+          | some (value, rest) => some ([Char.ofNat value], rest)
+          | none => none
+      | none => none
+  | [] => none
+
 partial def parseQuotedWith (quote : Char) : List Char -> List Char -> ParseResult String
   | [], _ => parseError [] "unterminated string literal"
   | value :: rest, acc =>
@@ -154,8 +227,24 @@ def parseQuotedString : List Char -> ParseResult String
   | '"' :: rest => parseQuotedWith '"' rest []
   | chars => parseError chars "expected string literal"
 
+/-- Lex a single-quoted byte literal body, decoding CUE byte escapes (`\xNN`, `\NNN` octal,
+    `\uNNNN`, `\UNNNNNNNN`, `\a\b\f\n\r\t\v\\\'\"`). Unrecognized escapes keep the escaped
+    char literally (drops the `\`), matching the lenient string path; `\(` is thus left as a
+    literal `(` since byte-context interpolation is not yet implemented. -/
+partial def parseQuotedByteBody : List Char -> List Char -> ParseResult String
+  | [], _ => parseError [] "unterminated byte literal"
+  | '\'' :: rest, acc => parseOk (String.ofList acc.reverse) rest
+  | '\\' :: rest, acc =>
+      match decodeByteEscape rest with
+      | some (decoded, rest) => parseQuotedByteBody rest (decoded.reverse ++ acc)
+      | none =>
+          match rest with
+          | escaped :: rest => parseQuotedByteBody rest (escaped :: acc)
+          | [] => parseError [] "unterminated byte escape"
+  | value :: rest, acc => parseQuotedByteBody rest (value :: acc)
+
 def parseQuotedBytes : List Char -> ParseResult String
-  | '\'' :: rest => parseQuotedWith '\'' rest []
+  | '\'' :: rest => parseQuotedByteBody rest []
   | chars => parseError chars "expected byte literal"
 
 def parseQuotedLabel : List Char -> ParseResult String :=

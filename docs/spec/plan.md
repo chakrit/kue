@@ -427,13 +427,21 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   `BottomReason.nonInterpolatable`. Concrete scalars still render; UNRESOLVED operands (ref/kind/
   bound/disj) still DEFER (no false errors — cert-manager canary EMPTY). Fixture
   `numeric/interpolation_type_error` + 8 `native_decide` (`Tests.lean`).
-- **BYTE-LITERAL-LEXING (bug; RED-SEEDED, FILE) — 2026-07-04.** Two byte-literal (`'...'`) lexer
-  defects found in the same probe: (a) interpolation `'\(1)'` is not evaluated — kue emits the raw
-  bytes `(1)` (cue: byte `0x31`, base64 `MQ==`); (b) the `\xNN` hex escape is not decoded —
-  `'\x01ab'` keeps the literal chars `x01ab` (cue: bytes `0x01 'a' 'b'`, base64 `AWFi`). Both
-  parser-level, both kue-wrong (cue spec-correct). Red seeds `testdata/wild/byte-literal-interpolation`
-  + `testdata/wild/byte-literal-hex-escape` (`.known-red`). Fix belongs to a dedicated byte-literal
-  lexing slice (interpolation opener + escape-sequence decoding in the `'...'` lexer). Related:
+- **BYTE-LITERAL-LEXING (bug; escape half DONE 2026-07-04; interpolation DEFERRED).** Escape
+  decoding FIXED: `decodeByteEscape` + `parseQuotedByteBody` in `Parse.lean` decode `\xNN` (hex
+  byte), `\NNN` (exactly-three-digit octal), `\uNNNN`/`\UNNNNNNNN` (unicode → UTF-8), and
+  `\a\b\f\n\r\t\v\\\'\"`. Graduated `byte-literal-hex-escape` (`'\x01ab'` → `AWFi`); added
+  `byte-literal-octal-escape` (`QUJD`), `numeric/byte_literal_escapes` (eval fixture + FixturePort),
+  8 `native_decide` (`BytesTests.lean`). Base64 JSON export already worked (`Json.lean`). KNOWN
+  LIMITATION: bytes are String-backed, so `\xNN`/`\NNN` ≥ 0x80 decode to that codepoint's two-byte
+  UTF-8 form, not a single raw byte (no fixture exercises ≥ 0x80). Byte-context interpolation
+  DEFERRED — seed `byte-literal-interpolation` STAYS `.known-red`: it needs a distinct byte-
+  interpolation carrier (`.interpolation` renders to a STRING, no byte-context marker) — a new
+  `Value`-producing arm rippling ~20 match sites + digest/format/manifest, disproportionate to
+  bundle; `\(` falls through to a literal `(` (`(1)` → `KDEp`), red preserved. Follow-up slice
+  **BYTE-INTERPOLATION**: byte-array bytes repr (fixes ≥ 0x80) + byte-context interpolation carrier
+  (graduates the seed + string-context bytes operand `"\(bytesval)"`, currently DEFERRED/safe).
+  Related:
   bytes-operand render into a STRING interpolation (`"\(bytesval)"`) is also unimplemented — kue
   DEFERS it (safe), cue renders the UTF-8 form (`"ab"`); fold into the same slice.
 - **BUILTIN-IMPORT-LENIENCY (observation; FILE, not fixed).** kue resolves stdlib builtins

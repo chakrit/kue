@@ -60,6 +60,21 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      -- Byte-literal escapes decode to the same bytes the AST carries directly here; the
+      -- CLI check drives the lexer over the `.cue`, this port pins the format side.
+      fileName := "numeric/byte_literal_escapes.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"hexbytes", .regular, .prim (.bytes "AB"), false⟩,
+                ⟨"octbytes", .regular, .prim (.bytes "12"), false⟩,
+                ⟨"unibytes", .regular, .prim (.bytes "AB"), false⟩,
+                ⟨"plainbytes", .regular, .prim (.bytes "abc"), false⟩,
+                ⟨"mixed", .regular, .prim (.bytes "Az"), false⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "numeric/float_additive_expressions.expected",
       content :=
         formatTopLevel

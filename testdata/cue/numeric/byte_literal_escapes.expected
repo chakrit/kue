@@ -1,0 +1,5 @@
+hexbytes: 'AB'
+octbytes: '12'
+unibytes: 'AB'
+plainbytes: 'abc'
+mixed: 'Az'

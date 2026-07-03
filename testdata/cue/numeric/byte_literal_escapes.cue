@@ -1,0 +1,5 @@
+hexbytes:   '\x41\x42'
+octbytes:   '\061\062'
+unibytes:   '\u0041\u0042'
+plainbytes: 'abc'
+mixed:      '\x41z'
