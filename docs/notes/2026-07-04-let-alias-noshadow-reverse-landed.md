@@ -31,13 +31,24 @@ and incomparable cousins anchor at DISTINCT structs — so neither direction fir
 incomparable scopes. The reverse quoted-guard (`let x=1; out:{"x":2}` must ACCEPT) holds only
 because `Field.quoted` reaches the Value walk. cert-manager canary EMPTY confirms.
 
-## Next step (open fork — pick by rank)
+## Audit status (2026-07-04)
 
-The no-shadow work is fully closed; `cue-spec-gaps.md` row is CLOSED, forward-log section
-retracted. The ranked OPEN backlog (`docs/spec/plan.md`) now leads with:
-1. **B3d-6b (NETWORK-GATED)** — `cue mod get/tidy` + requirement-graph fetch + `cue.sum` WRITE.
-2. **B2-A1** — thread `tail` through the patterns-present meet (lands with typed-ellipsis).
-3. scalar-embed provenance pins + a LOW opportunistic tail.
+**Phase A DONE, Phase B OWED.** The 2026-07-04 Phase A code-quality audit of the batch
+`a8d07b7..HEAD` (file-scoped imports `53fe3cc`, no-shadow forward `e20af9a` + reverse
+`f128600`) found ONE HIGH regression + ONE LOW latent; the mechanical `Tests/` pass,
+`Field.quoted` set-site, the unified shadow check, and file-scoped imports all verified CLEAN.
+Phase B (architecture/refactor; infra-in-scope rotation is due — this is the 3rd cycle) is owed
+NEXT before more slices. Details: `plan.md` § Audit status + implementation-log 2026-07-04.
 
-B3d-6b is network-gated (needs a live registry); if AFK/offline, prefer B2-A1 or the LOW tail
-(timeless-comment sweep of `Tests/`).
+## Next step (pick by rank)
+
+1. **Phase B audit (owed)** — run before new feature slices.
+2. **AUDIT-QUOTED-BEQ (HIGH, plan rank 0)** — `f128600` put `Field.quoted` into `Value`/`Field`
+   derived `BEq`, so `{x:1}`/`{"x":1}` compare unequal → breaks disjunction dedup and the
+   `==`/`!=` operators. Red seed committed + quarantined:
+   `testdata/wild/quoted-label-breaks-value-equality/` (`.known-red`). Fix = exclude `quoted` from
+   semantic equality (custom mutual `BEq`, or post-parse total strip-walk); graduate the seed.
+3. **B3d-6b (NETWORK-GATED)** — `cue mod get/tidy` + requirement-graph fetch + `cue.sum` WRITE.
+4. **B2-A1** — thread `tail` through the patterns-present meet (lands with typed-ellipsis).
+
+If AFK/offline, B3d-6b is network-gated — prefer the Phase B audit or AUDIT-QUOTED-BEQ.

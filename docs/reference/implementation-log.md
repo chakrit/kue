@@ -16421,3 +16421,53 @@ distinct structs, so neither direction fires across incomparable scopes — no o
 `./scripts/check.sh` GREEN (build via `./lake`; fixtures incl. 3 graduated wild seeds; realworld;
 test-health; shellcheck). cert-manager canary byte-identical to cue v0.16.1: **EMPTY delta** (the
 over-rejection guard — the reverse check adds no false rejection to a real `let`-heavy app).
+
+---
+
+## Completed Slice: 2026-07-04 Phase A code-quality audit (`a8d07b7..HEAD`)
+
+Code-quality audit of the batch since the 2026-07-03 clean audit: file-scoped imports
+(`53fe3cc`), let/alias no-shadow forward (`e20af9a`) + reverse + `Field.quoted` model
+(`f128600`). Docs-only; one wild red seed committed. Phase B owed.
+
+### A4 — audit the last audit
+The 2026-07-03 two-phase audit (`a8d07b7` Phase A / `7487d06` Phase B) was CLEAN and filed
+ZERO fix-slices, so there was nothing to verify-landed. Confirmed and proceeded.
+
+### Findings
+- **AUDIT-QUOTED-BEQ (HIGH — correctness regression, `f128600`).** `Field.quoted` was added
+  to the derived `BEq` for `Value`/`Field`/`ClosedClause`. The bit is parse-time provenance for
+  the load-time no-shadow check only, but it leaks into every `Value`-`BEq` site, so
+  `{x:1}`/`{"x":1}` (identical to CUE) compare unequal. Reproduced: `d: {x:1} | {"x":1}` → kue
+  `ambiguous value` (cue collapses; `dedupAlternatives` fails); `({x:1}) == ({"x":1})` → kue
+  `incomplete` (cue `true`; the `==`/`!=` operators use `Value` BEq). Wild red seed captured +
+  quarantined: `testdata/wild/quoted-label-breaks-value-equality/` (`.known-red`). Filed rank 0 in
+  `plan.md`; non-trivial fix (exclude `quoted` from semantic equality — custom mutual `BEq`, or a
+  post-parse total `Value` strip-walk), so NOT inline.
+- **AUDIT-RESOLVE-CATCHALL (LOW, pre-existing, latent).** `mapRefsValueWithFuel`
+  (`Resolve.lean:152`) ends in `| _, _, value => value` — a `| _ =>` catch-all in a
+  Value-producing rewrite, banned by the CLAUDE.md guard (the 2026-07-02 audit item (b) enumerated
+  Eval.lean but missed this). Behaviorally correct today (swallowed ctors are eval-only,
+  unreachable at both pre-eval call sites). Filed LOW-tail; `closure` must stay pass-through (own
+  `capturedEnv`), so the fix carries a small scoping decision. Predates this batch; no regression.
+
+### Verified CLEAN (no finding)
+- **Mechanical ~2,500-site `, false` `Tests/` pass** is behavior-preserving, not merely
+  build-passing: Lean's type-directed `⟨⟩` elaboration precludes a silent mis-target (no
+  `(String,FieldClass,Value,Bool)` look-alike exists), and `, false` makes the pre-existing
+  `quoted` default explicit. Spot-checked across StructTests/EvalTests/ClosureTests/ParseTests; the
+  only `, true⟩` in the diff is the genuine parse site.
+- **`Field.quoted`** set-once at `parseQuotedLabelField` (`Parse.lean:1664`), read only by
+  `collidableFieldLabel`; no eval/format/manifest match. (The BEq leak is AUDIT-QUOTED-BEQ, a
+  consequence of the derive, not a second set-site.)
+- **Unified `checkLetFieldShadow` / `collectMemberLabels`** — correct both directions, DRY,
+  readable; its `| _ => []` is a `List String` collector terminal (allowed), not a Value-dispatch.
+  Over-rejection accept-guards real; cert-manager canary EMPTY.
+- **File-scoped imports** — `mapRefsValueWithFuel` unification shares every binder frame; NUL
+  synthetic labels uncollidable + `importBinding`-class (non-output) + shadow-aware; 5
+  `file_scoped_import_*` fixtures pin sharing/distinctness.
+- **Spec accuracy** — `cue-spec-gaps` reverse no-shadow row CLOSED, matches code.
+
+### Verify
+`./scripts/check.sh` GREEN; the new wild seed is correctly QUARANTINED (`.known-red`, gate skips
+it while red). Committed on `main`, NOT pushed (AFK envelope).

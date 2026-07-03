@@ -206,6 +206,21 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`).** `Field.quoted : Bool`
+   was added to `Value.lean` AND included in the derived `BEq` for `Value`/`Field`/`ClosedClause`.
+   `quoted` is parse-time provenance for the load-time no-shadow check ONLY, but it is NOT inert to
+   evaluation: it leaks into every `Value`-`BEq` site, so two structs CUE deems identical
+   (`{x:1}` vs `{"x":1}`) compare UNEQUAL. Observed divergences (kue vs cue v0.16.1): `d: {x:1} |
+   {"x":1}` → kue `ambiguous value` (cue collapses to `{x:1}` — `dedupAlternatives` fails to dedup);
+   `({x:1}) == ({"x":1})` → kue `incomplete value` (cue `true` — the `==`/`!=` operators compare
+   structs by `Value` BEq); same nested in lists. Wild red seed committed +
+   quarantined: `testdata/wild/quoted-label-breaks-value-equality/` (`.known-red`). Fix: exclude
+   `quoted` from `Value`/`Field` semantic equality — either a custom `BEq` that ignores it (mutual
+   with `Value`, fiddly) OR strip `quoted → false` in a post-parse total `Value` walk after all
+   `checkLetFieldShadow` scopes have run (the bit is dead weight past parse). Non-trivial (either
+   path is a full mutual/total `Value` traversal + a design call); NOT inline. Graduate the seed
+   (`rm .known-red`) in the fixing slice.
+
 1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).
 
@@ -233,6 +248,15 @@ rejection argument: `kue-performance.md` + implementation-log.
 - **A2-x (latent) — `importBinding` merge-asymmetry.** STAYS unobservable (the only collision
   that would exercise it is the one A2-y rejects at LOAD). No work; recorded so it is not
   re-investigated.
+- **AUDIT-RESOLVE-CATCHALL (LOW, pre-existing, latent).** `mapRefsValueWithFuel`
+  (`Resolve.lean:152`) ends in `| _, _, value => value` — a `| _ =>` catch-all in a
+  Value-producing rewrite, which the CLAUDE.md guard bright-lines as banned (the 2026-07-02 audit
+  item (b) enumerated the Eval.lean sites but not this one). Behaviorally correct today: the
+  swallowed ctors (`embeddedList`/`embeddedScalar`/`closure` + leaves) are eval-only, unreachable
+  at both call sites (`resolveStructRefs`, `rewriteFileImportRefs`), which run pre-eval. Fix:
+  enumerate the constructors; `closure` MUST stay pass-through (it carries its own `capturedEnv`,
+  not the enclosing `scopes`) and `embeddedList`/`embeddedScalar` need an explicit scoping decision
+  — hence a small design call, not a mechanical inline fix. Predates this batch; no regression.
 
 ### Audit status — all filed fix-slices DISCHARGED
 
@@ -255,6 +279,22 @@ under-rejection across meet orders, 3-way conjunctions, nested, field-referenced
 `./lake`+`./lean` cap / strict-xfail quarantine / `check-realworld.sh` + sanitized cert-manager)
 all sound; one LOW hole fixed inline (`check.sh` now shellchecks the `./lake`/`./lean` root
 wrappers). Toolchain is Lean **v4.31.0** (`1d7fc37`). No open audit-filed fix-slice remains.
+
+The **2026-07-04 Phase A audit** (`a8d07b7..HEAD`: file-scoped imports `53fe3cc`, let/alias
+no-shadow forward `e20af9a` + reverse `f128600`) found ONE HIGH regression and ONE LOW latent —
+filed as AUDIT-QUOTED-BEQ (rank 0) and AUDIT-RESOLVE-CATCHALL (LOW tail) above; Phase B owed. A4:
+the 2026-07-03 audit was CLEAN (zero fix-slices), nothing to verify-landed — confirmed. Verified
+CLEAN: the mechanical ~2,500-site `, false` `Tests/` pass is behavior-preserving (Lean's
+type-directed `⟨⟩` elaboration precludes a silent mis-target; `, false` makes the pre-existing
+`quoted` default explicit); `Field.quoted` is set-once at the genuine quoted parse site
+(`parseQuotedLabelField`, `Parse.lean:1664`) and read only by `collidableFieldLabel` (the leak into
+`BEq` is the AUDIT-QUOTED-BEQ finding, not a second bug); the unified `checkLetFieldShadow` /
+predicate-parameterised `collectMemberLabels` is correct both directions, DRY, and readable (its
+`| _ => []` is a `List String` COLLECTOR terminal, not a Value-dispatch), with real over-rejection
+accept-guards (quoted/def/dynamic/for-var/comprehension-let/incomparable-sibling) and an EMPTY
+cert-manager canary; file-scoped imports' `mapRefsValueWithFuel` unification shares every binder
+frame and its NUL-separated synthetic labels are uncollidable + `importBinding`-class (non-output)
++ shadow-aware; the `cue-spec-gaps` reverse no-shadow row is CLOSED and matches the code.
 
 ### Plan-only roadmap — resolved items (ruling + pointer; detail in the log + git)
 
