@@ -314,6 +314,35 @@ rejection argument: `kue-performance.md` + implementation-log.
    the primary win is illegal-states-unrepresentable. Couple with GDA-FLOAT-RENDER (both touch the
    float representation) if convenient.
 
+0f. **BYTE-ARRAY-REPR (MEDIUM, core-type — attended-grade; from the 2026-07-04 Phase B audit;
+   CONSOLIDATES the bytes-as-String debt).** `Prim.bytes` carries a `String` (`Kue/Value.lean:21`),
+   so a byte ≥0x80 cannot be represented as one octet — `decodeByteEscape` (`Parse.lean:182`) folds
+   `\xNN`/`\NNN` through `Char.ofNat` into that codepoint's multi-byte UTF-8 form. This ONE loose
+   representation is the root of THREE filed items: BYTE-HIGHBYTE (Json/Yaml base64 round-trips
+   through lossy `.toUTF8`), BYTES-SLICE-MISSING (needs byte-indexed slicing), and BYTE-INTERPOLATION
+   (byte-context carrier). **Verdict — CONSOLIDATE the repr change, keep the two feature follow-ups
+   dependent.** Refine the carrier to a byte array. **Choose `Array UInt8`, NOT `ByteArray`:** it
+   preserves the existing `deriving Repr, BEq, DecidableEq` on `Prim` (`Value.lean:22`) + `Hashable`
+   for `digestPrim`, and keeps the `primsUnifyEqual_refl` proof (`Lattice.lean:23`) closing —
+   `ByteArray` lacks `DecidableEq`/`Repr` in Lean core (a soundness snag). No interaction with the
+   `Field.quoted` strip (that walks labels, never `Prim` payloads) or STRUCT-EQ (bytes compare by
+   byte-array equality, cleaner than String). **Invasiveness MEDIUM: ~16 production sites across 9
+   files** (Value, Parse×3, Lattice×2 +proof, EvalOps×3, Builtin×2, EvalBase×2, Format, Json, Yaml)
+   + carrier-literal churn in ~6 test modules. The diff is CORRECTIVE, not just mechanical — it fixes
+   three latent bugs at the SAME sites: `len('\xff')` (`Builtin.lean:36`, counts UTF-8 bytes → should
+   be `.size`), `formatPrim` output (`Format.lean:60`, emits NO byte-escaping today — needs a `\xNN`
+   encoder), and the lossy `.toUTF8` base64 (`Json.lean:54`/`Yaml.lean:311`/`Builtin.lean:780`).
+   **What it unlocks vs. what stays separate:** fully CLOSES BYTE-HIGHBYTE (graduates
+   `byte-literal-high-byte` — fold it INTO this slice). It is a PREREQUISITE that de-risks but does
+   NOT subsume the other two: BYTES-SLICE-MISSING still needs its own byte-slice dispatch (repr just
+   makes the impl a clean `Array.extract`); BYTE-INTERPOLATION still needs the byte-context carrier
+   arm rippling ~20 match sites (repr makes segment concat a clean array append but the carrier
+   plumbing is the bulk cost, independent of String-vs-array). So: land BYTE-ARRAY-REPR FIRST as a
+   focused core-type slice (carrier + the 3 latent fixes + high-byte graduation), then BYTES-SLICE
+   and BYTE-INTERPOLATION as small dependents. Also fixes the multiline-bytes escape gap
+   (`parseMultilineBytes`, `Parse.lean:1434`, currently routes through the string escape lexer).
+   DO NOT implement autonomously — a core `Prim` change is deliberate/attended-grade.
+
 1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).
 
@@ -412,7 +441,7 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   negative / `lo>hi` → bottom; string operand → bottom; incomplete bound → residual defer.
   kue == cue v0.16.1 across the matrix (canary empty). Fixture `list_slice` + 14
   `native_decide` (`SliceTests.lean`). Follow-up: BYTES-SLICE-MISSING (below).
-- **BYTES-SLICE-MISSING (feature gap; FILE, not a bug).** cue slices bytes too
+- **BYTES-SLICE-MISSING (feature gap; FILE, not a bug — DEPENDENT of BYTE-ARRAY-REPR rank 0f).** cue slices bytes too
   (`'hello'[1:3]` → `'el'`, base64 `ZWw=`), byte-indexed; kue bottoms (the `list.Slice`
   desugar is list-only). Deferred deliberately from LIST-SLICE: reusing `list.Slice` for
   bytes would wrongly make the user-facing `list.Slice('bytes',…)` succeed, and a clean fix
@@ -444,6 +473,10 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   **BYTE-INTERPOLATION**: byte-array bytes repr (fixes ≥ 0x80, graduates the `byte-literal-high-byte`
   red seed) + byte-context interpolation carrier (graduates the `byte-literal-interpolation` seed +
   string-context bytes operand `"\(bytesval)"`, currently DEFERRED/safe).
+  **RE-SCOPED (2026-07-04 Phase B): the byte-array repr half is now BYTE-ARRAY-REPR (rank 0f), which
+  CLOSES BYTE-HIGHBYTE (fold that seed's graduation into 0f). BYTE-INTERPOLATION remains the residual
+  byte-context-carrier follow-up, a DEPENDENT that lands after 0f — the carrier plumbing (~20 sites)
+  is its own cost, not unlocked by the repr alone.**
   Related:
   bytes-operand render into a STRING interpolation (`"\(bytesval)"`) is also unimplemented — kue
   DEFERS it (safe), cue renders the UTF-8 form (`"ab"`); fold into the same slice.
@@ -471,9 +504,20 @@ BUILTIN-IMPORT-LENIENCY all still tracked, no decay). Two LOW findings:
   BYTE-INTERPOLATION). Captured `.known-red` wild seed `testdata/wild/byte-literal-high-byte`
   (`a: '\xff'` → expected `{ "a": "/w==" }`), confirmed RED against HEAD: kue exports `w78=`
   (2-byte UTF-8 of U+00FF), spec/cue is `/w==` (raw byte 0xFF). Root = String-backed bytes can't
-  hold a byte ≥0x80 as one byte; the real fix is the byte-array `Value` repr folded into
-  **BYTE-INTERPOLATION** below — seed STAYS QUARANTINED until that lands. Octal `'\377'` is the same
+  hold a byte ≥0x80 as one byte; the real fix is **BYTE-ARRAY-REPR (rank 0f)**, which fully CLOSES
+  this — graduate the seed in that slice; it STAYS QUARANTINED until 0f lands. Octal `'\377'` is the same
   byte and fails identically (covered by the same root; no separate seed needed).
+
+The **2026-07-04 Phase B audit** (`dfdd1ab..HEAD`; A7 GATES/TOOLING infra-rotation cycle) closed
+HEALTHY. Phase A fixes confirmed landed (INTERP-STRUCT-PATTERN-DEFER at `EvalBase.lean:1162`;
+BYTE-HIGHBYTE seed tracked). PART 1: the three String-backed-bytes items consolidate under one
+core-type fix-slice **BYTE-ARRAY-REPR (rank 0f, attended-grade, MEDIUM)** — `Array UInt8` carrier,
+folds BYTE-HIGHBYTE, keeps BYTES-SLICE / BYTE-INTERPOLATION as dependents. A7 infra: `check.sh` +
+`handle_known_red` DRY (holding across both gates) + strict-xfail + realworld + test-health all
+SOUND; seed hygiene PASS (24 wild, 2 `.known-red`, both tracked+filed); FixturePorts (generated,
+exempt) not unmanageable. Architecture CLEAN: graph acyclic/layered, list-slice desugar no layer
+blur. No inline code change (all findings non-trivial). Periodic passes: plan-hygiene/test-org NOT
+due, perf-guide current, resilience/retro APPROACHING. **The 2026-07-04 two-phase audit is COMPLETE.**
 
 ### Audit status — all filed fix-slices DISCHARGED
 
