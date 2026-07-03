@@ -17021,3 +17021,50 @@ plan.md (unimplemented direction; cue is spec-correct on bytes, so not a diverge
 
 `./scripts/check.sh` PASS (build + fixture/wild/realworld/test-health gates + shellcheck).
 cert-manager canary EMPTY. Committed on `main`, explicit pathspec, NOT pushed (AFK).
+
+---
+
+## Completed Slice: Interpolation operand typing (INTERP-OPERAND-TYPING)
+
+Goal: a string interpolation `"\(x)"` whose operand is a CONCRETE value of a type
+interpolation forbids must be a type error, not a silent passthrough. A 2026-07-04
+conformance probe (string-interpolation / regexp / encoding sweep) found kue rendered
+`"\(null)"`→`"null"`, `"\([1,2])"`→literal `"\([1,2])"`, `"\({b:1})"`→literal
+`"\({b:1})"`. The CUE spec restricts an interpolation operand to `bool|string|bytes|number`
+(cue: `cannot use … (type …) as type (bool|string|bytes|number)`); all three cases are
+kue-wrong. cue agrees with the spec — no `cue-divergences.md` entry.
+
+Behavior:
+- Concrete `null` / list / struct operand → `.bottomWith [.nonInterpolatable ty]` (renders
+  `_|_`), matching cue's reject verdict.
+- Concrete scalar (`string`/`int`/`float`/`bool`) → renders to its natural string form
+  (unchanged).
+- UNRESOLVED / abstract operand (ref, kind, bound, unresolved disjunction) → DEFERS: the hole
+  stays a residual `.interpolation` rather than erroring. Preserves the default-disjunction
+  interpolation path (`default-disj-in-interpolation` wild fixture) and cert-manager's heavy
+  interpolation use — canary EMPTY.
+- `bytes` operand → DEFERS (spec-interpolatable but Kue does not yet render bytes to its string
+  form; a wrong `nonInterpolatable` error would be worse than an unresolved hole). Tracked with
+  the byte-literal lexing gap.
+
+Implementation (`Kue/EvalBase.lean`): `classifyInterpolationPart` — a total, all-`Value`-ctor
+classifier (no catch-all; a new ctor forces a decision here) mirroring `classifyDynLabel` —
+returns an `InterpVerdict` (`text` / `bottom` / `nonInterpolatable` / `incomplete`);
+`combineInterpVerdict` folds parts with precedence `bottom > nonInterpolatable > incomplete >
+text`; `evalInterpolation` maps the folded verdict to a value. New `BottomReason.nonInterpolatable
+(type : ConcreteTypeName)` (`Kue/Value.lean`), same family as `nonBoolGuard`/`nonStringLabel`.
+
+Tests: fixture `numeric/interpolation_type_error.{cue,expected}` (+ `FixturePorts` AST port) —
+null/list/struct holes all `_|_`. 8 `native_decide` in `Tests.lean` pin render, all three
+type-errors, a null-in-multipart sink, and the ref/bytes defer paths.
+
+Filed (not fixed this slice), red-seeded / recorded — see plan.md:
+- **BYTE-LITERAL-LEXING** (bug, red seeds `testdata/wild/byte-literal-interpolation` +
+  `byte-literal-hex-escape`, `.known-red`): byte-literal interpolation `'\(1)'` unevaluated
+  and `\xNN` escape undecoded; both parser-level, both kue-wrong (cue spec-correct).
+- **BUILTIN-IMPORT-LENIENCY** (observation): kue resolves stdlib builtins without the
+  `import` clause cue requires — broad, all builtin packages, value semantics otherwise match.
+
+Verify: `./scripts/check.sh` PASS (build + fixture/wild/realworld/test-health + shellcheck;
+the two byte-literal seeds correctly QUARANTINED). cert-manager canary EMPTY. Committed on
+`main`, explicit pathspec, NOT pushed (AFK).

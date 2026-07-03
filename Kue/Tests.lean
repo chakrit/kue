@@ -124,4 +124,19 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
 #guard formatValue (.builtinCall "len" [.kind .string]) == "len(string)"
 #guard formatValue (.builtinCall "or" [.list []]) == "or([])"
 
+-- Interpolation operand typing: concrete scalars render, concrete null/list/struct are type
+-- errors (spec: operand must be `bool|string|bytes|number`), unresolved operands DEFER.
+#guard evalInterpolation [.prim (.string "a"), .prim (.int 1)] == .prim (.string "a1")
+#guard evalInterpolation [.prim (.bool true)] == .prim (.string "true")
+#guard evalInterpolation [.prim .null] == .bottomWith [.nonInterpolatable (.scalar .null)]
+#guard evalInterpolation [.list [.prim (.int 1)]] == .bottomWith [.nonInterpolatable .list]
+#guard evalInterpolation [mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []]
+  == .bottomWith [.nonInterpolatable .struct]
+-- A null anywhere in a multi-part interpolation sinks the whole hole.
+#guard evalInterpolation [.prim (.string "x"), .prim .null, .prim (.string "y")]
+  == .bottomWith [.nonInterpolatable (.scalar .null)]
+-- Unresolved (ref) and bytes-pending operands defer rather than error or passthrough-render.
+#guard evalInterpolation [.ref "b"] == .interpolation [.ref "b"]
+#guard evalInterpolation [.prim (.bytes "x")] == .interpolation [.prim (.bytes "x")]
+
 end Kue

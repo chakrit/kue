@@ -589,6 +589,14 @@ inductive BottomReason where
       INCOMPLETE source (a ref/kind/bound that may still resolve to a list/struct), which
       DEFERS the comprehension residual. Carries the offending source's type for provenance. -/
   | nonIterableSource (type : ConcreteTypeName)
+  /-- A string-interpolation hole `"\(x)"` whose operand resolved to a CONCRETE value outside
+      the interpolatable domain (`"\(null)"`, `"\([1,2])"`, `"\({b:1})"`). The CUE spec restricts
+      an interpolation operand to `bool|string|bytes|number`, so a concrete null, list, or struct
+      is a type error (cue: `cannot use … (type …) as type (bool|string|bytes|number)`), NOT a
+      literal passthrough. Distinct from an INCOMPLETE operand (a ref/kind/bound/disjunction that
+      may still resolve to an interpolatable scalar), which DEFERS the interpolation residual.
+      Carries the offending operand's type for provenance. -/
+  | nonInterpolatable (type : ConcreteTypeName)
 deriving Repr, BEq, DecidableEq
 
 /--

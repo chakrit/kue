@@ -2393,6 +2393,19 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "numeric/interpolation_type_error.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"out_null", .regular, .interpolation [.prim .null], false⟩,
+                ⟨"out_list", .regular,
+                  .interpolation [.list [.prim (.int 1), .prim (.int 2)]], false⟩,
+                ⟨"out_struct", .regular,
+                  .interpolation [mkStruct [⟨"b", .regular, .prim (.int 1), false⟩] .regularOpen none []], false⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "multiline/multiline_string.expected",
       content :=
         formatTopLevel

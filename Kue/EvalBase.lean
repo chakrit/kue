@@ -1123,39 +1123,88 @@ def loopFrame (key : Option String) (keyValue : Value) (value : String) (element
   | some key => [⟨key, .regular, keyValue, false⟩, ⟨value, .regular, element, false⟩]
   | none => [⟨value, .regular, element, false⟩]
 
-/--
-CUE renders interpolation holes by their natural string form: a string contributes its
-raw content, numbers and booleans and null their literal spelling. Non-string-coercible
-primitives (bytes) and non-primitive holes have no interpolation rendering.
--/
-def interpolationText? : Value -> Option String
-  | .prim (.string value) => some value
-  | .prim (.int value) => some (toString value)
-  | .prim (.float value) => some value
-  | .prim (.bool true) => some "true"
-  | .prim (.bool false) => some "false"
-  | .prim .null => some "null"
-  | _ => none
+/-- The verdict on one evaluated interpolation hole, mirroring `DynLabelVerdict`/`classifyGuard`:
+    an exhaustive split with no silent passthrough.
+    - `text` — a concrete operand of interpolatable type (`bool|string|number`), rendered to its
+      natural string form (a string contributes its raw content, numbers/booleans their spelling).
+    - `bottom` — an evaluated error: propagate.
+    - `nonInterpolatable` — a CONCRETE value of a type interpolation forbids (`null`, list, struct):
+      a type error (cue: `cannot use … as type (bool|string|bytes|number)`), NOT a passthrough.
+    - `incomplete` — an unresolved/abstract operand (ref, kind, bound, builtin, unresolved
+      disjunction, or a bytes value pending render support): the hole cannot render yet, so it
+      DEFERS — the interpolation stays a residual `.interpolation` rather than erroring. -/
+inductive InterpVerdict where
+  | text (s : String)
+  | bottom (value : Value)
+  | nonInterpolatable (type : ConcreteTypeName)
+  | incomplete
+deriving BEq
 
-def interpolatePartsText? : List Value -> Option String
-  | [] => some ""
-  | part :: parts =>
-      match interpolationText? part, interpolatePartsText? parts with
-      | some head, some rest => some (head ++ rest)
-      | _, _ => none
+/-- Classify one evaluated interpolation hole, enumerating EVERY `Value` constructor (no
+    catch-all) so a new arm forces a decision here. Mirrors `classifyDynLabel`.
 
-def partIsBottom : Value -> Bool
-  | .bottom => true
-  | .bottomWith _ => true
-  | _ => false
+    `bytes` is a spec-interpolatable type, but Kue does not yet render a bytes operand to its
+    string form, so it DEFERS rather than erroring (a wrong `nonInterpolatable` would be worse
+    than an unresolved hole); byte-literal parsing/rendering is tracked separately. -/
+def classifyInterpolationPart : Value -> InterpVerdict
+  | .prim (.string value) => .text value
+  | .prim (.int value) => .text (toString value)
+  | .prim (.float value) => .text value
+  | .prim (.bool true) => .text "true"
+  | .prim (.bool false) => .text "false"
+  | .bottom => .bottom .bottom
+  | .bottomWith reasons => .bottom (.bottomWith reasons)
+  -- Concrete values of a forbidden interpolation type ⇒ type error (NOT defer, NOT passthrough):
+  | .prim .null => .nonInterpolatable (.scalar .null)
+  | .list _ => .nonInterpolatable .list
+  | .listTail _ _ => .nonInterpolatable .list
+  | .embeddedList _ _ _ => .nonInterpolatable .list
+  | .struct _ _ _ [] _ => .nonInterpolatable .struct
+  -- A scalar carrier interpolates as its inner scalar — mirrors `classifyDynLabel`.
+  | .embeddedScalar scalar _ => classifyInterpolationPart scalar
+  -- Interpolatable-but-unrendered (bytes) and every unresolved/abstract form ⇒ DEFER:
+  | .prim (.bytes _) => .incomplete
+  | .top => .incomplete
+  | .kind _ => .incomplete
+  | .notPrim _ => .incomplete
+  | .stringRegex _ => .incomplete
+  | .boundConstraint _ _ _ => .incomplete
+  | .conj _ => .incomplete
+  | .builtinCall _ _ => .incomplete
+  | .unary _ _ => .incomplete
+  | .binary _ _ _ => .incomplete
+  | .ref _ => .incomplete
+  | .refId _ => .incomplete
+  | .thisStruct => .incomplete
+  | .selector _ _ => .incomplete
+  | .index _ _ => .incomplete
+  | .disj _ => .incomplete
+  | .struct _ _ _ (_ :: _) _ => .incomplete
+  | .structComp _ _ _ => .incomplete
+  | .comprehension _ _ => .incomplete
+  | .listComprehension _ _ => .incomplete
+  | .interpolation _ => .incomplete
+  | .dynamicField _ _ _ => .incomplete
+  | .closure _ _ => .incomplete
+
+/-- Fold two hole verdicts with precedence `bottom > nonInterpolatable > incomplete > text`:
+    an error anywhere sinks the whole interpolation, an incomplete hole defers it, and only an
+    all-`text` interpolation renders. Left-biased on the error/incomplete carriers. -/
+def combineInterpVerdict : InterpVerdict -> InterpVerdict -> InterpVerdict
+  | .bottom v, _ => .bottom v
+  | _, .bottom v => .bottom v
+  | .nonInterpolatable t, _ => .nonInterpolatable t
+  | _, .nonInterpolatable t => .nonInterpolatable t
+  | .incomplete, _ => .incomplete
+  | _, .incomplete => .incomplete
+  | .text a, .text b => .text (a ++ b)
 
 def evalInterpolation (parts : List Value) : Value :=
-  if parts.any partIsBottom then
-    .bottom
-  else
-    match interpolatePartsText? parts with
-    | some text => .prim (.string text)
-    | none => .interpolation parts
+  match parts.foldl (fun acc p => combineInterpVerdict acc (classifyInterpolationPart p)) (.text "") with
+  | .text text => .prim (.string text)
+  | .bottom value => value
+  | .nonInterpolatable type => .bottomWith [.nonInterpolatable type]
+  | .incomplete => .interpolation parts
 
 /--
 A `structComp` carries three kinds of member in its `comprehensions` bucket: field

@@ -418,6 +418,30 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   list and bytes) — a separate slice with its own byte-indexed fixtures. Tracked here as an
   unimplemented direction (cue is spec-correct on bytes slicing; not a divergence).
 
+- **INTERP-OPERAND-TYPING (bug) — DONE (2026-07-04).** A string interpolation `"\(x)"` with a
+  CONCRETE operand of a forbidden type now bottoms instead of passthrough-rendering. Probe (2026-07-04
+  string-interpolation/regexp/encoding sweep) found `"\(null)"`→`"null"`, `"\([1,2])"`→literal
+  `"\([1,2])"`, `"\({b:1})"`→literal `"\({b:1})"` — all kue-wrong; spec restricts an interpolation
+  operand to `bool|string|bytes|number`. Fix: `classifyInterpolationPart` (total, all-ctor
+  enumeration, mirrors `classifyDynLabel`) + `combineInterpVerdict` fold in `EvalBase.lean`, new
+  `BottomReason.nonInterpolatable`. Concrete scalars still render; UNRESOLVED operands (ref/kind/
+  bound/disj) still DEFER (no false errors — cert-manager canary EMPTY). Fixture
+  `numeric/interpolation_type_error` + 8 `native_decide` (`Tests.lean`).
+- **BYTE-LITERAL-LEXING (bug; RED-SEEDED, FILE) — 2026-07-04.** Two byte-literal (`'...'`) lexer
+  defects found in the same probe: (a) interpolation `'\(1)'` is not evaluated — kue emits the raw
+  bytes `(1)` (cue: byte `0x31`, base64 `MQ==`); (b) the `\xNN` hex escape is not decoded —
+  `'\x01ab'` keeps the literal chars `x01ab` (cue: bytes `0x01 'a' 'b'`, base64 `AWFi`). Both
+  parser-level, both kue-wrong (cue spec-correct). Red seeds `testdata/wild/byte-literal-interpolation`
+  + `testdata/wild/byte-literal-hex-escape` (`.known-red`). Fix belongs to a dedicated byte-literal
+  lexing slice (interpolation opener + escape-sequence decoding in the `'...'` lexer). Related:
+  bytes-operand render into a STRING interpolation (`"\(bytesval)"`) is also unimplemented — kue
+  DEFERS it (safe), cue renders the UTF-8 form (`"ab"`); fold into the same slice.
+- **BUILTIN-IMPORT-LENIENCY (observation; FILE, not fixed).** kue resolves stdlib builtins
+  (`regexp.Match`, `strings.*`, `list.*`, `math.*`) WITHOUT the `import "..."` clause cue requires
+  (`reference "regexp" not found`). Broad lenient-vs-strict resolution behavior across ALL builtin
+  packages, not interpolation-specific; the builtin VALUE semantics themselves match cue once imported.
+  Tracked as an unimplemented strictness gate (a dedicated import-enforcement slice), not a value bug.
+
 ### Audit status — all filed fix-slices DISCHARGED
 
 The **2026-07-02 two-phase audit** fix-slice batch is FULLY DISCHARGED — (a) TEST-HEALTH
