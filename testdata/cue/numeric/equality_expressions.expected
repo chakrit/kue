@@ -2,3 +2,7 @@ same: true
 diff: true
 text: false
 precedence: true
+scalarIntFloat: true
+listIntFloat: true
+structIntFloat: true
+nestedList: true

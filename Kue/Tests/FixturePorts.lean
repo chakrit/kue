@@ -204,7 +204,18 @@ def fixturePorts : List FixturePort :=
                   "precedence",
                   .regular,
                   .binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2))
-                , false⟩
+                , false⟩,
+                ⟨"scalarIntFloat", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0")), false⟩,
+                ⟨"listIntFloat", .regular,
+                  .binary .eq (.list [.prim (.int 1)]) (.list [.prim (.float "1.0")]), false⟩,
+                ⟨"structIntFloat", .regular,
+                  .binary .eq
+                    (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+                    (mkStruct [⟨"a", .regular, .prim (.float "1.0"), false⟩] .regularOpen none []),
+                  false⟩,
+                ⟨"nestedList", .regular,
+                  .binary .eq (.list [.list [.prim (.int 1)]]) (.list [.list [.prim (.float "1.0")]]),
+                  false⟩
               ] .regularOpen none []))
     },
     {

@@ -281,26 +281,36 @@ rejection argument: `kue-performance.md` + implementation-log.
    fixtures carries no surviving `quoted := true`. NOT low-risk enough for an inline audit fix
    (touches parse signatures) → a real slice.
 
-0d. **STRUCT-EQ-LEAF-TYPESENSE (MEDIUM — divergence introduced by `1130638`; needs adjudication;
-   from the 2026-07-04 Phase A audit).** `concreteEq`'s `.prim`-leaf arm (`Kue/EvalOps.lean`)
-   compares numbers with the decimal-aware value equality (`evalDecimalCompare? decimalEqValues`),
-   so an int leaf equals a value-equal float leaf. Inside a container this makes
-   `[1.0] == [1]` and `{a:1.0} == {a:1}` yield `true`, where cue v0.16.1 yields `false`. Before
-   `1130638` these DEFERRED (`incomplete value`), so the commit turned a defer into a wrong-per-cue
-   bool — a fresh, UNRECORDED divergence, and the slice's "matches cue exactly" claim missed it (no
-   theorem/fixture pins int-vs-float in a container). cue is internally INCONSISTENT here: scalar
-   `1.0 == 1` is `true` (kue matches), but structural `[1.0]==[1]` is type-SENSITIVE (`false`).
-   **Adjudication (spec is genuinely silent → also a `cue-spec-gaps.md` entry):**
-   - **Recommended — match cue (type-sensitive number leaves):** `1` and `1.0` are DISTINCT lattice
-     elements (`1 & 1.0 = ⊥`, confirmed both engines), so a structural equality that distinguishes
-     them is the lattice-faithful reading; the scalar numeric `1.0==1` is the documented special case.
-     Impl: `concreteEq`'s `.prim left, .prim right` compares kind-then-value — float-vs-float via
-     `decimalEqValues` (keeps `[2.50]==[2.5]` → `true`), int-vs-int by value, int-vs-float → `false`.
-   - **Alternative — keep kue's internally-consistent behavior** (structural `==` = recursive scalar
-     `==`) and RECORD it in `cue-divergences.md` as a deliberate divergence.
-   - **Either way:** expand the `native_decide` matrix (int-vs-float in list AND struct, at depth) +
-     add an export fixture, and land the doc record. NOT an inline audit fix (semantic ruling +
-     tests) → a real slice.
+0d. **STRUCT-EQ-LEAF-TYPESENSE — ✅ RESOLVED (2026-07-04 Phase B, kue correct / cue buggy).**
+   Adjudicated against the CUE spec: **value-based numeric equality applies recursively inside
+   containers**, so kue's `1130638` code was already CORRECT and cue's `[1]==[1.0]=false` is a cue
+   bug. Spec (Comparison operators): "Numeric values are equal if they represent the same number.
+   When comparing an integer with a floating-point number, the integer is first converted to
+   floating-point" + list/struct `==` are "recursively equal" over elements — recursive element
+   equality reuses `==`, so the int→float carve-out applies at any depth. cue is internally
+   INCONSISTENT (scalar `1==1.0`→`true`, container `[1]==[1.0]`→`false`); kue is value-based
+   EVERYWHERE, hence spec-correct AND consistent. The Phase A "recommended: match cue / type-
+   sensitive" lean was WRONG (would replicate the cue bug); the spec is EXPLICIT, not silent, so
+   this is a `cue-divergences.md` entry, NOT a spec-gap. `1 & 1.0 = ⊥` does not bear on `==`
+   (comparison ≠ unification). Landed inline: 6 `native_decide` theorems (int-vs-float in list,
+   struct, nested-at-depth, unequal, `evalNe` negation) + 4 fixture cases in
+   `numeric/equality_expressions` + the divergence record. No code change (kue was already right).
+
+0e. **PRIM-FLOAT-PARSED (LOW-MEDIUM — type-system leverage + minor perf; from the 2026-07-04
+   Phase B audit).** `Prim.float` carries the raw literal `String` (`Kue/Value.lean:19`), so every
+   float-vs-float meet (`primsUnifyEqual`, `Kue/Lattice.lean:14`) and every float compare
+   (`toDecimalValue?`/`evalDecimalCompare?`) RE-PARSES the text via `parseDecimalText` on the hot
+   path. Two smells: (1) repeated `parseDecimalText` work on a value that never changes, and (2) the
+   `parseDecimalText` `Option` forces a `| _, _ => leftText == rightText` "can't happen" fallback in
+   `primsUnifyEqual` (a float literal from the lexer ALWAYS parses) — exactly the illegal-state the
+   repo wants erased at the type. **Fix: refine `Prim.float` to carry a smart-constructed
+   `DecimalValue` alongside the source text** (`float (value : DecimalValue) (text : String)`, built
+   once at lex time). Erases the re-parse AND the unreachable fallback branches; the retained `text`
+   preserves round-trip rendering (GDA-FLOAT-RENDER's concern). Cost: `Prim.float` is a CORE type
+   threaded through lexer/formatter/eval — a signature change touching many sites → its own MEDIUM
+   slice, not an inline fix. Perf impact is real but small (float meets are a minority of meets);
+   the primary win is illegal-states-unrepresentable. Couple with GDA-FLOAT-RENDER (both touch the
+   float representation) if convenient.
 
 1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
    get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).

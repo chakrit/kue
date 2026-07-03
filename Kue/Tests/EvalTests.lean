@@ -1564,11 +1564,45 @@ theorem eval_ne_struct_reordered_false :
       == .prim (.bool false)) = true := by
   native_decide
 
+-- int-vs-float leaves compare BY VALUE, recursively inside containers (CUE spec: list/struct
+-- `==` is recursive element equality; number `==` converts int to float). `cue` v0.16.1 returns
+-- `false` for the container cases (STRUCT-EQ-LEAF-TYPESENSE) — a `cue` bug; Kue is spec-correct.
+theorem eval_eq_scalar_int_float_true :
+    (evalEq (.prim (.int 1)) (.prim (.float "1.0")) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_eq_list_int_vs_float_true :
+    (evalEq (.list [.prim (.int 1)]) (.list [.prim (.float "1.0")]) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_eq_struct_int_vs_float_true :
+    (evalEq
+        (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .prim (.float "1.0"), false⟩] .regularOpen none [])
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Depth: int-vs-float nested two containers deep still compares by value.
+theorem eval_eq_nested_list_int_vs_float_true :
+    (evalEq (.list [.list [.prim (.int 1)]]) (.list [.list [.prim (.float "1.0")]])
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- A value-UNEQUAL int-vs-float leaf inside a container is `false` (not merely type-blind).
+theorem eval_eq_list_int_vs_float_unequal_false :
+    (evalEq (.list [.prim (.int 1)]) (.list [.prim (.float "2.0")]) == .prim (.bool false)) = true := by
+  native_decide
+
+-- `evalNe` inherits the negation: `[1] != [1.0]` ⇒ `false`.
+theorem eval_ne_list_int_vs_float_false :
+    (evalNe (.list [.prim (.int 1)]) (.list [.prim (.float "1.0")]) == .prim (.bool false)) = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section; a swallowed
 -- section turns its anchor into an unknown identifier and `#check` fails to elaborate.
 #check @eval_add_ref_operand_defers                           -- arithmetic operand deferral
 #check @eval_unary_neg_incomplete_defers                      -- comparison / unary ops
 #check @eval_meet_lazy_hidden_def                             -- lazy sibling meet
-#check @eval_ne_struct_reordered_false                        -- concrete struct/list equality
+#check @eval_ne_list_int_vs_float_false                       -- concrete struct/list equality
 
 end Kue

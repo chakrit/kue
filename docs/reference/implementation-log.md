@@ -16916,3 +16916,55 @@ slice).
 
 `./lake build` green; `./scripts/check-fixtures.sh` green (all wild + pairs). Docs-only inline
 changes. Committed on `main` with explicit pathspec, NOT pushed (AFK envelope). Phase B owed next.
+
+## Audit: 2026-07-04 Phase B architecture + STRUCT-EQ-LEAF-TYPESENSE adjudication (`abbab99..HEAD`)
+
+Complementary architecture pass for the batch Phase A (`67fc023`) just audited. Two parts.
+
+### PART 1 — STRUCT-EQ-LEAF-TYPESENSE ruling: **(A) kue correct / cue buggy** (spec-grounded)
+
+Adjudicated against the CUE spec's Comparison-operators section (verbatim from
+`doc/ref/spec.md`): "Numeric values are equal if they represent the same number. When comparing
+an integer with a floating-point number, the integer is first converted to floating-point"; and
+list/struct `==` are defined over elements that are "recursively equal". Recursive element
+equality reuses `==`, so the int→float conversion carve-out applies at ANY depth inside a
+container. Therefore `[1]==[1.0]`, `{a:1}=={a:1.0}`, `[[1]]==[[1.0]]` are all spec-mandated
+`true`. cue v0.16.1 returns `false` for the container cases (type-sensitive one level down) while
+returning `true` at the scalar top — internally INCONSISTENT and spec-violating. **kue's `1130638`
+code (`concreteEq` `.prim` leaf reusing `evalDecimalCompare? decimalEqValues`) was already
+correct** and is value-based everywhere = spec-correct AND consistent. Phase A's tentative
+"recommended: match cue / type-sensitive" lean was WRONG — it would import cue's bug; and the spec
+is EXPLICIT here, so this is a `cue-divergences.md` entry, NOT a `cue-spec-gaps.md` one. `1 & 1.0
+= ⊥` does not bear on `==` (comparison ≠ unification).
+
+Landed INLINE (low-risk: no `==` code change): 6 `native_decide` theorems in `EvalTests`
+(int-vs-float in list / struct / nested-at-depth / unequal-false / `evalNe`-negation / scalar) +
+4 fixture cases appended to `numeric/equality_expressions` (`.cue`/`.expected`/FixturePorts port)
++ the divergence record + plan 0d closed as RESOLVED. Gate green (`./scripts/check.sh` PASS).
+
+### PART 2 — architecture verdict: HEALTHY
+
+- **float-unify (`primsUnifyEqual`/`meetPrim`/`parseDecimalText`/`decimalEqValues`):** right
+  abstraction; float-vs-float compared by exact base-10 value, other kinds structural — clean.
+  ONE finding: `Prim.float` stores raw `String`, re-parsed on every float meet/compare, and the
+  `parseDecimalText` `Option` forces a "can't happen" fallback branch. Filed **PRIM-FLOAT-PARSED**
+  (plan 0e, LOW-MEDIUM) — refine `Prim.float` to carry a smart-constructed `DecimalValue` + text;
+  erases re-parse and the unreachable branch (illegal-states-unrepresentable). Core-type change →
+  own slice; perf win small (float meets are a minority).
+- **struct-eq (`structEqConcrete?`/`concreteEq`):** clean, DRY, well-placed. Already SHARES the
+  decimal-aware leaf equality (`evalDecimalCompare? decimalEqValues`) with the float-unify path —
+  no duplication. Total (`termination_by structural`), no `partial def`, `Bool`-probe `_` arms
+  permitted. No finding.
+- **Module layering:** EvalOps → EvalBase → EvalDefer → Eval intact; no cycles. HEALTHY.
+- **Test/fixture health:** `EvalTests` 1614 lines (approaching the ~1800 soft cap — watch, not
+  yet due); `FixturePorts` 4021 (data table, not logic). `testdata/wild` = 20 dirs, 0 `.known-red`
+  (all green guards). No org pass due this cycle.
+- **Open filed items** ARCH-QUOTED-STRIP (0c), GDA-FLOAT-RENDER, LIST-SLICE-MISSING all still
+  tracked in plan.md — confirmed, not re-filed.
+- **Periodic passes:** plan.md at 662 lines — plan-hygiene approaching but not due; perf-guide
+  needs no float-`==` note (values unchanged, no new slow pattern).
+
+### Verify
+
+`./scripts/check.sh` PASS (build + all fixture/wild/realworld/test-health gates + shellcheck).
+Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).
