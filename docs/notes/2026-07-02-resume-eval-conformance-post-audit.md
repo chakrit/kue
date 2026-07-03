@@ -21,6 +21,14 @@ Authoritative roadmap: [`../spec/plan.md`](../spec/plan.md). Per-slice history:
 > plan-only roadmap (B3d-6b MVS wiring, item-6 LOW list). Nothing below this line is a
 > blocker; it's the closed record.
 
+> **2026-07-03 Phase A audit (eval batch `08a537e..HEAD`) — CLEAN, zero fix-slices.** A4
+> confirmed all five prior fix-slices (PA-1, B-AUDIT-refold-1, PB-1, PB-2, PB-3) genuinely
+> LANDED. L5-2 open-tail-operand closedness change adjudicated **SOUND** (adversarial probes:
+> no under-rejection — closed operands still reject disjoint fields). No correctness/totality/
+> illegal-state/DRY/skill findings; gate GREEN. **Phase B is OWED for this batch** — the
+> infra-in-scope rotation (check.sh aggregator, `./lake` CPU cap, strict-xfail quarantine,
+> realworld gate) is the next audit step. See plan.md § "2026-07-03 Phase A audit".
+
 ## State
 
 - **B2-A2 landed (2026-07-02, item-6 LOW).** Promoted the two struct pattern/tail

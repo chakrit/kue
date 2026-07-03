@@ -16033,3 +16033,33 @@ v4.31's default elaboration heartbeat budget — a compile-time setting, no sema
 + realworld + test-health + shellcheck). Live cert-manager canary (`kue` vs `cue` jq-S)
 delta EMPTY — behaviour byte-identical across the bump, so all `native_decide` theorems
 still hold and eval semantics are unchanged. Committed on `main`, NOT pushed (AFK envelope).
+
+## 2026-07-03 — Phase A code-quality audit (eval batch `08a537e..HEAD`) — CLEAN
+
+Audit-only slice (no code change; audits get a log entry per the CLAUDE.md guard). Scope:
+PA-1, B-AUDIT-refold-1, PB-1, PB-2/PB-3, L5-1/L5-2, toolchain v4.31.0, and the
+check.sh/`./lake` tooling.
+
+### A4 — audit the last audit
+All five fix-slices the previous Phase A/B (6197dc3/08a537e) filed verified LANDED in the
+tree, not merely plan-marked DONE: PA-1 (`ForSourceClass.bottom` + exhaustive `.forIn`
+propagation), B-AUDIT-refold-1 (`refoldEmbeddingsIfSelf` shared helper at `Eval.lean`),
+PB-1 (`EvalBase -> EvalDefer -> Eval` — verified import chain is acyclic, core-force mutual
+block intact in `Eval.lean`), PB-2 (`ClosednessTests`/`ResidualTests` split + registered),
+PB-3 (`architecture.md` §5 marshalling-edge note). None decayed.
+
+### L5-2 closedness — SOUND (scrutinized hardest; closedness is the soundness core)
+`evaluatedStructOperand?` dropped its `.defOpenViaTail -> false` special case for uniform
+`openness.isOpen`. Traced every Bool consumer — `applyClosednessFrom` (no-op when open),
+`spliceOperandForEmbed` (threads openness), `closeEmbeddedOver` (arm reclose) — the mapping
+`defOpenViaTail -> true` (open) is correct at each. Adversarial probes (built binary vs cue
+v0.16.1) confirmed NO under-rejection introduced: a genuinely-closed operand/def STILL
+rejects a disjoint field with an open-tail sibling present, in both meet orders, in 3-way
+`#A & #B & {c, ...}` conjunctions, nested (`p.y`), and via a field-referenced open-tail
+struct. The `open_tail_operand_no_reopen_closed` guard exercises the property.
+
+### Findings
+None. No `partial def` in any eval module; no value-producing `| _ =>` catch-all in the
+batch; timeless comments clean; every new fixture carries a testdata pair + FixturePorts
+entry; wild seeds green with no lingering `.known-red`/untracked scratch. `./scripts/check.sh`
+GREEN. Phase B owed for this batch (infra-in-scope rotation — the check.sh/gate tooling).

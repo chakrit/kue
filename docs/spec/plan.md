@@ -523,6 +523,40 @@ perf-guide CURRENT (the recent batch is correctness-only — no new slow pattern
 mitigation); resilience/retro not forced here. Test-org is the one periodic pass now due
 (PB-2).
 
+### 2026-07-03 Phase A audit of the eval batch (`08a537e..HEAD`) — CLEAN, zero fix-slices
+
+Scope: the un-audited batch since the last Phase A/B (`08a537e`) — PA-1 (ae332cb),
+B-AUDIT-refold-1 (c641200), PB-1 carve (63c05d3), PB-2/PB-3 (57fc772), L5-1 root2/root3
+graduation (04a45e6), **L5-2 open-tail-operand closedness fix (d52aed9)**, toolchain
+v4.31.0 (1d7fc37), plus the check.sh/`./lake`/strict-xfail/realworld tooling (Phase-B
+material, deferred to B7).
+
+- **A4 (audit-the-last-audit):** all five prior-audit fix-slices verified LANDED in the
+  code, not just marked DONE — PA-1 (`ForSourceClass.bottom` verdict + `.forIn`
+  propagation, exhaustive), B-AUDIT-refold-1 (`refoldEmbeddingsIfSelf` shared helper,
+  `Eval.lean`), PB-1 (clean `EvalBase → EvalDefer → Eval` layering, no cycle, core-force
+  mutual block intact), PB-2 (`ClosednessTests`/`ResidualTests` split, registered in
+  `Tests.lean`), PB-3 (`architecture.md` §5 edge note). None decayed.
+- **L5-2 closedness verdict — SOUND.** Dropping the `.defOpenViaTail → false` special
+  case in `evaluatedStructOperand?` (now `openness.isOpen` uniformly) is consistent at
+  every Bool consumer (`applyClosednessFrom` no-op when open; `spliceOperandForEmbed`
+  openness thread; `closeEmbeddedOver` arm reclose). Adversarial probes confirm NO
+  under-rejection: a closed operand/def still rejects a disjoint field with an open-tail
+  sibling present, in both meet orders, in 3-way `#A & #B & {...}` conjunctions, nested
+  (`p.y`), and via a field-referenced open-tail struct — kue matches cue v0.16.1 on all.
+  The `open_tail_operand_no_reopen_closed` guard genuinely exercises this (`#C{p} & {q,
+  ...}` → `q: _|_`).
+- **Correctness / totality / illegal-states / DRY / test-strength / skill compliance:**
+  no findings. No `partial def` in any eval module; no value-producing `| _ =>` catch-all
+  in the batch (EvalBase:350's `_` matches a `List`, not `Value`); timeless comments clean
+  (grep false-positives only); all new fixtures carry BOTH a testdata pair AND a
+  FixturePorts entry; wild seeds graduated green with no lingering `.known-red` or
+  untracked scratch. `./scripts/check.sh` GREEN.
+
+**Phase B is owed** for this batch (the tooling/gate infra — check.sh aggregator, `./lake`
+CPU cap, strict-xfail quarantine, realworld gate — is the ~3rd-cycle infra-in-scope
+rotation per slice-loop.md Phase B).
+
 ### Plan-only roadmap (not in the spec-conformance backlog)
 
 Sequence after the spec-conformance correctness work: bank cheap-ready cleanups, then the
