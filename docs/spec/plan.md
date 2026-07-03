@@ -452,6 +452,34 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   packages, not interpolation-specific; the builtin VALUE semantics themselves match cue once imported.
   Tracked as an unimplemented strictness gate (a dedicated import-enforcement slice), not a value bug.
 
+### 2026-07-04 Phase A audit findings (batch `dfdd1ab..HEAD`: list-slice / interp-typing / byte-escapes)
+
+Batch verdict: all three code changes SOUND. A4 reconciliation clean (STRUCT-EQ-LEAF-TYPESENSE
+divergence row + `numeric/equality_expressions` fixtures present and match code; PRIM-FLOAT-PARSED
+still open; ARCH-QUOTED-STRIP / GDA-FLOAT-RENDER / BYTES-SLICE-MISSING / BYTE-INTERPOLATION /
+BUILTIN-IMPORT-LENIENCY all still tracked, no decay). Two LOW findings:
+
+- **INTERP-STRUCT-PATTERN-DEFER (LOW — correctness/consistency; FILE).** `classifyInterpolationPart`
+  (`Kue/EvalBase.lean:1182`) routes a pattern-bearing struct (`.struct _ _ _ (_ :: _) _`) to
+  `.incomplete` (DEFER) while a no-pattern struct (`:1162`) is `.nonInterpolatable` (ERROR). An
+  evaluated pattern-bearing struct is still struct-typed and never resolves to a scalar, so cue
+  type-errors `"\({[string]:int})"` at eval; kue over-DEFERS. Safe direction — VALUE/export verdict
+  agrees (both non-exporting; incomplete-at-export vs cue's eval type-error, same display-only family
+  as the list-slice residual gap). Fix: collapse both struct arms to one `.struct _ _ _ _ _ =>
+  .nonInterpolatable .struct` (a struct is never interpolatable regardless of patterns). Touches a
+  Value-producing classifier + needs a `"\({[string]:int})"` → `_|_` fixture + native_decide, so a
+  slice, not an inline audit fix.
+- **BYTE-HIGHBYTE-NO-RED-SEED (LOW — test-debt / rule-compliance; FILE).** The documented ≥0x80
+  byte-escape limitation is a REACHABLE silent wrong value recorded only in prose (BYTE-LITERAL-LEXING
+  above + commit `88d6040`), which the repo rule "red seeds are COMMITTED, never left as prose"
+  forbids. `'\xff'` decodes `Char.ofNat 0xFF`, which `String.ofList` UTF-8-encodes to two bytes
+  `0xC3 0xBF` → base64 `w78=`; the spec-correct value is the single byte `0xFF` → `/w==`. Same class:
+  octal `\400`+ (>255) is unrange-checked. Capture a `.known-red` wild seed `byte-literal-high-byte`
+  (`a: '\xff'` → expected `{ "a": "/w==" }`) ahead of the byte-array-repr fix already folded into
+  BYTE-INTERPOLATION. NOT applied inline this audit: gate-safety requires a fresh `./lake build` to
+  confirm the seed reproduces RED against current HEAD (the on-disk binary predates `88d6040`), which
+  is the orchestrator's job — bundle the seed into the BYTE-INTERPOLATION slice's build.
+
 ### Audit status — all filed fix-slices DISCHARGED
 
 The **2026-07-02 two-phase audit** fix-slice batch is FULLY DISCHARGED — (a) TEST-HEALTH

@@ -17176,3 +17176,53 @@ forced, per AFK soundness-core guidance.
 
 Verify: `./scripts/check.sh` PASS. cert-manager canary EMPTY (no source touched — tests + docs
 only). Committed on `main`, explicit pathspec, NOT pushed (AFK).
+
+---
+
+## Completed Slice: 2026-07-04 Phase A code-quality audit (batch `dfdd1ab..HEAD`)
+
+Two-phase audit, Phase A. Scope: the three audit-worthy code slices since Phase B `dfdd1ab` —
+list-slice `f2c9b9d`, interp-typing `8d6854c`, byte-escapes `88d6040` (`a2cae17` was tests+docs
+only). AFK: findings folded into `plan.md`, no push.
+
+### A4 reconciliation — clean, no decay
+
+Verified the prior audit's filings: STRUCT-EQ-LEAF-TYPESENSE resolved (kue-correct/cue-buggy) with
+its `cue-divergences.md` row + `numeric/equality_expressions` fixtures + `EvalTests eval_eq_*`
+present and matching code; PRIM-FLOAT-PARSED still open (0e, not landed, as expected); ARCH-QUOTED-
+STRIP / GDA-FLOAT-RENDER / BYTES-SLICE-MISSING / BYTE-INTERPOLATION / BUILTIN-IMPORT-LENIENCY all
+still tracked in plan. Nothing decayed.
+
+### Per-change verdict — all three SOUND
+
+- **list-slice `f2c9b9d`.** Parser `[`-branch dispatch (`parseSelectorRest` slice/index split +
+  `parseSliceRest`) is unambiguous — `:` inside a postfix `[…]` is only ever a slice separator;
+  single-index `x[i]` unchanged. Bounds inherit the tested `list.Slice` pipeline (oob/neg/lo>hi →
+  bottom, incomplete → residual defer). The `list.Slice(…)`/`len(…)` desugar leaks into the eval
+  RESIDUAL display, but that is a spec-adjudicated display-only gap (cue-spec-gaps row "Eval-display
+  of a deferred list slice") — VALUE/export verdict matches cue. Totality OK (new fn `partial` in
+  Parse, the standing exception).
+- **interp-typing `8d6854c`.** `classifyInterpolationPart` enumerates every `Value` ctor, no
+  catch-all. `combineInterpVerdict` precedence `bottom > nonInterpolatable > incomplete > text` is
+  correct: an INCOMPLETE operand alone always DEFERS (nonInterpolatable arises only from a genuinely
+  concrete forbidden-type part, never spuriously). `BottomReason.nonInterpolatable` needs no new
+  match site — bottom reasons are never enumerated for rendering (any bottom → `_|_`). Scalars
+  render, bytes/refs/kinds defer, cert-manager canary empty.
+- **byte-escapes `88d6040`.** `decodeByteEscape`/`readHexDigits`/`readOctalRest` total (plain `def`,
+  Lean-proved). Byte-vs-string escape split correct (strings keep `\x`/`\NNN` literal via lenient
+  `parseStringEscape`; only the byte path decodes). Fixtures cover the <0x80 range soundly. The
+  ≥0x80 raw-byte gap (String-backed bytes) is a REACHABLE silent wrong value — contained only by
+  "no fixture exercises it", not by a committed red seed.
+
+### Findings (both LOW, filed as fix-slices in plan.md)
+
+- INTERP-STRUCT-PATTERN-DEFER — pattern-bearing struct over-DEFERS interpolation where cue
+  type-errors (`EvalBase.lean:1182`); safe (export verdict agrees). Collapse both struct arms to
+  `.nonInterpolatable .struct`.
+- BYTE-HIGHBYTE-NO-RED-SEED — the ≥0x80 silent-wrong-value limitation is prose-only; capture a
+  `.known-red` `byte-literal-high-byte` seed (`'\xff'` → `/w==`) ahead of the byte-array-repr fix
+  (folded into BYTE-INTERPOLATION). Not applied inline: gate-safety needs a fresh build to confirm
+  RED against HEAD (on-disk binary predates `88d6040`) — orchestrator's job.
+
+No source touched (docs-only) → cert-manager canary trivially EMPTY. Phase B (architecture) still
+owed for this batch. Committed on `main`, explicit pathspec, NOT pushed (AFK).
