@@ -402,10 +402,21 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   / non-string falls through to `unresolvedOrBottom` (concrete ⇒ bottom, matching cue's
   error). Fixture `strings_runes` (ascii/multibyte/emoji/empty/combining) + 6 `native_decide`
   theorems. kue == cue v0.16.1 on all cases.
-- **LIST-SLICE-MISSING (feature gap; FILE, not a bug).** List slicing `x[lo:hi]` is a
-  parser gap ("expected ']' after index") — unimplemented CUE surface, not a wrong-value
-  bug; implement when a real config needs it. (Consider: an unregistered builtin bottoming
-  silently is itself worth a clearer diagnostic — separate.)
+- **LIST-SLICE-MISSING (feature gap) — DONE (2026-07-04).** List slicing `x[lo:hi]` now
+  parses as a postfix form alongside indexing `x[i]` and desugars to `list.Slice` (parser
+  branch in `parseSelectorRest` + `parseSliceRest`, `Kue/Parse.lean`). Bounds are optional
+  (omitted low = `0`, omitted high = `len(base)`). Semantics inherited from the existing
+  `listSlice` + builtin-defer machinery: list-only operand, half-open 0-based; oob-high /
+  negative / `lo>hi` → bottom; string operand → bottom; incomplete bound → residual defer.
+  kue == cue v0.16.1 across the matrix (canary empty). Fixture `list_slice` + 14
+  `native_decide` (`SliceTests.lean`). Follow-up: BYTES-SLICE-MISSING (below).
+- **BYTES-SLICE-MISSING (feature gap; FILE, not a bug).** cue slices bytes too
+  (`'hello'[1:3]` → `'el'`, base64 `ZWw=`), byte-indexed; kue bottoms (the `list.Slice`
+  desugar is list-only). Deferred deliberately from LIST-SLICE: reusing `list.Slice` for
+  bytes would wrongly make the user-facing `list.Slice('bytes',…)` succeed, and a clean fix
+  needs its own slice dispatch (an internal `__slice`/slice-family builtin handling both
+  list and bytes) — a separate slice with its own byte-indexed fixtures. Tracked here as an
+  unimplemented direction (cue is spec-correct on bytes slicing; not a divergence).
 
 ### Audit status — all filed fix-slices DISCHARGED
 

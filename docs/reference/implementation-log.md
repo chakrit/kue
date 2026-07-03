@@ -16968,3 +16968,56 @@ Landed INLINE (low-risk: no `==` code change): 6 `native_decide` theorems in `Ev
 
 `./scripts/check.sh` PASS (build + all fixture/wild/realworld/test-health gates + shellcheck).
 Committed on `main` with explicit pathspec, NOT pushed (AFK envelope).
+
+## Completed Slice: List slicing `x[lo:hi]` (LIST-SLICE-MISSING)
+
+Parser gained the slice postfix form alongside indexing. `parseSelectorRest`'s `[` branch
+now, after the first sub-expression, dispatches on `:` (→ slice) vs `]` (→ index); a new
+`parseSliceRest` reads the optional high bound and closing `]`. Bounds are optional:
+omitted low = `0`, omitted high = `len(base)`. A slice **desugars** to
+`.builtinCall "list.Slice" [base, low, high]` (Kue/Parse.lean) — no new `Value`
+constructor.
+
+### Design: desugar over a dedicated ctor
+
+A dedicated `.slice base lo hi` ctor would have touched ~11 files (every structural
+traversal + every catch-all enumeration that lists `.index`), with real risk of a `_`-arm
+silently mishandling the new ctor. Desugaring to the existing `list.Slice` builtin reuses
+the whole tested pipeline for free: `listSlice` already implements cue's exact bounds
+(`low<0 || high<0 || high>len || low>high → bottom`, else `(drop low).take (high-low)`),
+arg pre-evaluation (Eval.lean builtin arm), and defer via `unresolvedOrBottom` (incomplete
+arg ⇒ residual `.builtinCall`, concrete ⇒ bottom). Total, no `partial def` added outside
+the parser.
+
+### Semantics (kue == cue v0.16.1; canary empty)
+
+- Valid: `[1,2,3,4][1:3]`→`[2,3]`; `[2:2]`/`[0:0]`→`[]`; `[0:4]`/`[:]`→whole; `[:2]`,`[1:]`
+  honor the defaults; nested `l[1:3][0]`→`2`.
+- Bounds errors → bottom: high-oob (cue `index N out of range`), negative low (cue `cannot
+  convert negative number to uint64`), `lo>hi` (cue `invalid slice index: lo > hi`). All
+  bottom on our side — message families differ, verdict matches.
+- String operand → bottom (cue `cannot slice "…" (type string)`) — `list.Slice` rejects a
+  non-list arm.
+- Incomplete bound (`l[x:2]`, `x: int`) → **defers** to residual `list.Slice([…], int, 2)`,
+  not bottom (the concrete-index guard); errors as incomplete only at export, as cue does.
+- Single-index `x[i]` unchanged (regression guard).
+
+### Deferred: BYTES-SLICE-MISSING
+
+cue slices bytes byte-indexed (`'hello'[1:3]`→`'el'`); kue bottoms (desugar is list-only).
+Not folded in: reusing `list.Slice` for bytes would corrupt the user-facing `list.Slice`
+signature, and a clean fix needs its own slice dispatch — filed BYTES-SLICE-MISSING in
+plan.md (unimplemented direction; cue is spec-correct on bytes, so not a divergence).
+
+### Tests
+
+- Export fixture `testdata/export/list_slice.{cue,json}` — all valid forms incl. omitted
+  bounds + nested, byte-identical to cue.
+- `Kue/Tests/SliceTests.lean` — 14 `native_decide`: valid interior/empty/whole/omitted-low/
+  omitted-high/both-omitted, index regression, high-oob/negative/`lo>hi`/string → bottom,
+  incomplete → defer (residual pinned), all five parse forms.
+
+### Verify
+
+`./scripts/check.sh` PASS (build + fixture/wild/realworld/test-health gates + shellcheck).
+cert-manager canary EMPTY. Committed on `main`, explicit pathspec, NOT pushed (AFK).

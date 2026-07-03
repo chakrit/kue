@@ -1,5 +1,9 @@
 # Breadcrumb: 2026-07-04 — two-phase audit COMPLETE for the `abbab99..HEAD` batch
 
+> SUPERSEDED as the live front by `2026-07-04-list-slice-landed.md` (LIST-SLICE-MISSING
+> done). The ranked backlog below stays authoritative except LIST-SLICE-MISSING is now DONE
+> and BYTES-SLICE-MISSING is newly filed.
+
 Supersedes `2026-07-04-strings-runes-registered.md` / `2026-07-04-audit-struct-eq-half1-landed.md`
 as the live front. The batch (struct/list `==` `1130638`, gate-DRY `4e36a39`, typed-ellipsis
 `785c8e5`, float-unify `8a76260`, runes `6461d16`) has now had BOTH audit phases:

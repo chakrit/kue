@@ -1164,13 +1164,38 @@ mutual
                     | none => parseSelectorRest (.selector base label) rest
                 | _ => parseSelectorRest (.selector base label) rest
     | '[' :: rest =>
-        match parseExpression rest with
-        | .error error => .error error
-        | .ok (key, rest) =>
-            match skipTrivia rest with
-            | ']' :: rest => parseSelectorRest (.index base key) rest
-            | rest => parseError rest "expected ']' after index"
+        -- `[e]` indexes; `[lo:hi]` slices. Slice bounds are optional: an omitted low is
+        -- `0`, an omitted high is `len(base)`. Slicing desugars to `list.Slice`, which
+        -- already carries cue's bounds/negative/incomplete semantics (list-only operand,
+        -- oob/lo>hi/negative → bottom, incomplete bound → residual defer).
+        match skipTrivia rest with
+        | ':' :: afterColon => parseSliceRest base (.prim (.int 0)) afterColon
+        | afterBracket =>
+            match parseExpression afterBracket with
+            | .error error => .error error
+            | .ok (first, rest) =>
+                match skipTrivia rest with
+                | ':' :: afterColon => parseSliceRest base first afterColon
+                | ']' :: rest => parseSelectorRest (.index base first) rest
+                | rest => parseError rest "expected ']' or ':' after '['"
     | rest => parseOk base rest
+
+  /-- Parse the tail of a slice `base[low : …]` after the low bound and `:` are consumed:
+      an optional high bound (default `len(base)`) then `]`. Desugars to
+      `list.Slice(base, low, high)`. -/
+  partial def parseSliceRest (base low : Value) (chars : List Char) : ParseResult Value :=
+    match skipTrivia chars with
+    | ']' :: rest =>
+        parseSelectorRest
+          (.builtinCall "list.Slice" [base, low, .builtinCall "len" [base]]) rest
+    | afterColon =>
+        match parseExpression afterColon with
+        | .error error => .error error
+        | .ok (high, rest) =>
+            match skipTrivia rest with
+            | ']' :: rest =>
+                parseSelectorRest (.builtinCall "list.Slice" [base, low, high]) rest
+            | rest => parseError rest "expected ']' after slice bounds"
 
   partial def parsePrimaryAtom (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
