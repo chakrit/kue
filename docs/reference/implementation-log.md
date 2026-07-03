@@ -16522,3 +16522,38 @@ rushed under AFK.
 `./scripts/check.sh` GREEN (build via `./lake` + all gates + shellcheck). cert-manager canary
 EMPTY (`kue export` == `cue export` on `apps/cert-manager.cue`, jq -S). `native_decide` theorems
 pass. AUDIT-STRUCT-EQ seed correctly quarantined. Committed on `main`, NOT pushed (AFK envelope).
+
+---
+
+## Completed Slice: AUDIT-RESOLVE-CATCHALL — enumerate the banned Value-producing catch-all
+
+Goal: remove the `| _, _, value => value` catch-all at the tail of `mapRefsValueWithFuel`
+(`Kue/Resolve.lean`), a `| _ =>` in a `Value`-PRODUCING rewrite, which CLAUDE.md bright-lines
+as banned. Enumerate the swallowed constructors so a future `Value` ctor forces a decision at
+this rewrite site (compiler exhaustiveness) instead of being silently passed through.
+
+### Change
+Replaced the single catch-all with 13 explicit pass-through arms, one per `Value` constructor
+not already handled above: the leaves (`top`, `bottom`, `bottomWith`, `prim`, `kind`, `notPrim`,
+`stringRegex`, `boundConstraint`), the already-resolved/atomic forms (`refId`, `thisStruct`),
+and the eval-only carriers (`embeddedList`, `embeddedScalar`, `closure`). Each returns its value
+unchanged. Fuel=0 for every ctor is still caught by the leading `| 0, _, value => value` arm, so
+the new arms are all `_ + 1`; the Nat match stays exhaustive (`0` + `_ + 1`).
+
+### Behavior — byte-identical (pure refactor)
+Every enumerated ctor was pass-through under the old catch-all and remains pass-through, so no
+observable behavior changes. Verified each against the two pre-eval call sites
+(`resolveStructRefs`, `rewriteFileImportRefs`):
+- Leaves + `refId`/`thisStruct` carry no rewritable sub-`.ref` — correct pass-through.
+- `embeddedList`/`embeddedScalar` are produced ONLY by eval; they never appear at a pre-eval
+  traversal, so pass-through is vacuously correct (and matches the prior behavior).
+- `closure` MUST stay pass-through — it owns its `capturedEnv`, not the enclosing `scopes`;
+  recursing into a closure body with the wrong scope stack would corrupt its capture. No recursion
+  added.
+No latent bug surfaced — no swallowed ctor needed recursion for correctness, so no wild fixture.
+
+### Verify
+`lake build` via `./lake` GREEN — exhaustiveness now compiler-PROVEN (no catch-all), zero
+warnings/sorry. `./scripts/check.sh` GREEN (all gates + shellcheck). cert-manager canary EMPTY
+(`kue export` == `cue export` on `apps/cert-manager.cue`, jq -S) — confirms the byte-identical
+claim. Committed on `main`, NOT pushed (AFK envelope).

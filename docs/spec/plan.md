@@ -264,15 +264,14 @@ rejection argument: `kue-performance.md` + implementation-log.
 - **A2-x (latent) — `importBinding` merge-asymmetry.** STAYS unobservable (the only collision
   that would exercise it is the one A2-y rejects at LOAD). No work; recorded so it is not
   re-investigated.
-- **AUDIT-RESOLVE-CATCHALL (LOW, pre-existing, latent).** `mapRefsValueWithFuel`
-  (`Resolve.lean:152`) ends in `| _, _, value => value` — a `| _ =>` catch-all in a
-  Value-producing rewrite, which the CLAUDE.md guard bright-lines as banned (the 2026-07-02 audit
-  item (b) enumerated the Eval.lean sites but not this one). Behaviorally correct today: the
-  swallowed ctors (`embeddedList`/`embeddedScalar`/`closure` + leaves) are eval-only, unreachable
-  at both call sites (`resolveStructRefs`, `rewriteFileImportRefs`), which run pre-eval. Fix:
-  enumerate the constructors; `closure` MUST stay pass-through (it carries its own `capturedEnv`,
-  not the enclosing `scopes`) and `embeddedList`/`embeddedScalar` need an explicit scoping decision
-  — hence a small design call, not a mechanical inline fix. Predates this batch; no regression.
+- **AUDIT-RESOLVE-CATCHALL (LOW, pre-existing, latent) — DONE.** `mapRefsValueWithFuel`'s
+  trailing `| _, _, value => value` catch-all is REPLACED by 13 explicit pass-through arms (the
+  leaves + `refId`/`thisStruct`/`embeddedList`/`embeddedScalar`/`closure`), so exhaustiveness is
+  now compiler-proven — a new `Value` ctor fails the build at this rewrite site instead of being
+  silently swallowed. Byte-identical behavior (all swallowed ctors were pass-through under the
+  catch-all and remain so; `closure` stays pass-through — it owns its `capturedEnv`, not the
+  enclosing `scopes`; `embeddedList`/`embeddedScalar` are eval-only, never present at the two
+  pre-eval call sites). No latent bug surfaced. cert-manager canary EMPTY; `check.sh` green.
 
 ### Audit status — all filed fix-slices DISCHARGED
 

@@ -149,7 +149,24 @@ mutual
           (mapRefsValueWithFuel onRef fuel scopes label)
           fieldClass
           (mapRefsValueWithFuel onRef fuel scopes value)
-    | _, _, value => value
+    -- Leaves and eval-only forms: no rewritable `.ref` is reachable through any of these at
+    -- this pre-eval traversal's call sites, so each passes through unchanged. `embeddedList`/
+    -- `embeddedScalar` are produced only by eval (never present here); `closure` owns its own
+    -- `capturedEnv` and must NOT be recursed into. Enumerated with no catch-all so a new
+    -- `Value` constructor forces a decision at this rewrite site (CLAUDE.md bright-line).
+    | _ + 1, _, value@(.top) => value
+    | _ + 1, _, value@(.bottom) => value
+    | _ + 1, _, value@(.bottomWith _) => value
+    | _ + 1, _, value@(.prim _) => value
+    | _ + 1, _, value@(.kind _) => value
+    | _ + 1, _, value@(.notPrim _) => value
+    | _ + 1, _, value@(.stringRegex _) => value
+    | _ + 1, _, value@(.boundConstraint _ _ _) => value
+    | _ + 1, _, value@(.refId _) => value
+    | _ + 1, _, value@(.thisStruct) => value
+    | _ + 1, _, value@(.embeddedList _ _ _) => value
+    | _ + 1, _, value@(.embeddedScalar _ _) => value
+    | _ + 1, _, value@(.closure _ _) => value
 end
 
 /-- The reference-resolution leaf: a bare `.ref` becomes a positional `.refId` when its label
