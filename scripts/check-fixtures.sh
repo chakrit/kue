@@ -7,8 +7,8 @@ readonly script_dir
 repo_root="$(cd "${script_dir}/.." && pwd)"
 readonly repo_root
 
-# shellcheck source=scripts/lean-cap.sh
-. "${script_dir}/lean-cap.sh"
+# Route bare `lake` through the repo ./lake wrapper (CPU cap + nice); see ./lake.
+export PATH="${repo_root}:${PATH}"
 
 readonly fixture_dir="${repo_root}/testdata/cue"
 readonly export_dir="${repo_root}/testdata/export"

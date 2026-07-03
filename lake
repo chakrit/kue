@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Repo build wrapper — ALWAYS build via ./lake, never bare `lake`.
+# Caps CPU so builds never starve the machine: LEAN_NUM_THREADS bounds Lean's thread pool
+# AND Lake's job count (default 2; override upward on a dedicated build box), and `nice`
+# keeps workers at the lowest priority. Resolves the real lake via `elan which` so a
+# repo-root PATH entry (used by the gate scripts) cannot recurse back into this wrapper.
+set -euo pipefail
+: "${LEAN_NUM_THREADS:=2}"
+export LEAN_NUM_THREADS
+real_lake="$(elan which lake 2>/dev/null || true)"
+[ -n "${real_lake}" ] || real_lake="lake"
+exec nice -n 19 "${real_lake}" "$@"

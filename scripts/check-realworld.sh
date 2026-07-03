@@ -18,8 +18,8 @@ readonly script_dir
 repo_root="$(cd "${script_dir}/.." && pwd)"
 readonly repo_root
 
-# shellcheck source=scripts/lean-cap.sh
-. "${script_dir}/lean-cap.sh"
+# Route bare `lake` through the repo ./lake wrapper (CPU cap + nice); see ./lake.
+export PATH="${repo_root}:${PATH}"
 
 readonly realworld_dir="${repo_root}/testdata/realworld"
 readonly kue_exe="${repo_root}/.lake/build/bin/kue"

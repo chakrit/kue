@@ -7,8 +7,8 @@ readonly script_dir
 repo_root="$(cd "${script_dir}/.." && pwd)"
 readonly repo_root
 
-# shellcheck source=scripts/lean-cap.sh
-. "${script_dir}/lean-cap.sh"
+# Route bare `lake` through the repo ./lake wrapper (CPU cap + nice); see ./lake.
+export PATH="${repo_root}:${PATH}"
 
 # The single repo-local verify entrypoint: `lake build`, then every `scripts/check-*.sh`
 # gate (glob-discovered so a new gate needs zero wiring here), then `shellcheck scripts/*.sh`.
