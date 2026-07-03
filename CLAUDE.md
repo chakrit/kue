@@ -36,6 +36,12 @@ Standing grant for this repo (chakrit, 2026-06-14):
   calls, concurrent edits. Parallelize only when it actually helps.
 - **Maximum quality over cost (chakrit, 2026-07-02).** Run subagents on the most capable
   available model tier for this repo; never downgrade to save tokens.
+  - **Tier escalation (chakrit, 2026-07-03).** The session default (Opus 4.8) is the
+    working tier for routine slices — don't spend the pricier **Fable 5** on ordinary
+    work. Fable 5 is the escalation lever for a genuine *wall*: a fix that stalled, a
+    logged blocker, a soundness/proof problem the default couldn't crack. Reach for it
+    (spawn the retry as a Fable 5 subagent) only after the default has actually hit the
+    wall — not pre-emptively.
 - **Keep specs current as a restore point.** `docs/spec/` (plan, architecture,
   compat-assumptions), `docs/reference/implementation-log.md`, decisions, and notes are
   the crash-safe source of truth. Update them as work lands, not in an end-batch — a slice
