@@ -7,6 +7,9 @@ readonly script_dir
 repo_root="$(cd "${script_dir}/.." && pwd)"
 readonly repo_root
 
+# shellcheck source=scripts/lean-cap.sh
+. "${script_dir}/lean-cap.sh"
+
 readonly fixture_dir="${repo_root}/testdata/cue"
 readonly export_dir="${repo_root}/testdata/export"
 readonly module_dir="${repo_root}/testdata/modules"

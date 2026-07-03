@@ -7,6 +7,9 @@ readonly script_dir
 repo_root="$(cd "${script_dir}/.." && pwd)"
 readonly repo_root
 
+# shellcheck source=scripts/lean-cap.sh
+. "${script_dir}/lean-cap.sh"
+
 # The single repo-local verify entrypoint: `lake build`, then every `scripts/check-*.sh`
 # gate (glob-discovered so a new gate needs zero wiring here), then `shellcheck scripts/*.sh`.
 # Collects all failures instead of stopping at the first, and prints a PASS/FAIL summary.
@@ -20,7 +23,7 @@ main() {
 
   cd "${repo_root}"
 
-  if ! lake build; then
+  if ! lake build -j "${LEAN_NUM_THREADS}"; then
     printf 'lake build failed\n' >&2
     status=1
     failures+=("lake build")
