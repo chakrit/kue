@@ -397,6 +397,41 @@ rejection argument: `kue-performance.md` + implementation-log.
   enclosing `scopes`; `embeddedList`/`embeddedScalar` are eval-only, never present at the two
   pre-eval call sites). No latent bug surfaced. cert-manager canary EMPTY; `check.sh` green.
 
+### COMPREHENSION/EMBEDDING/PATTERN CONFORMANCE PROBE (2026-07-04) — area clean, one parser gap seeded
+
+Bounded divergence hunt over `for`/`if`/`let` comprehensions, struct embedding, and pattern
+constraints (`[expr]: T`). Area is **spec-conformant** at the VALUE level across the whole
+matrix — the only real divergence is a parser-completeness gap (below). Confirmed CONFORMANT
+(kue == cue, spec-correct): `for k,v` over struct (skips hidden/optional/def members), `for
+i,x` over list, value-only `for`, nested/multi-clause `for`, `let`-clause + `if`-guard,
+empty-source (no fields), `for`/`if` producing struct fields dynamically; embed struct+sibling,
+embed scalar/string/list carrier, embed def/ref, embed comprehension/conditional, embed
+conflict → ⊥; pattern applied to added fields, regex-keyed, multi-pattern overlap, pattern +
+explicit field (explicit must satisfy pattern → ⊥ on violation), pattern + `...` tail, pattern
+excludes hidden/def fields, pattern via unification, dynamic field matched by pattern. Guard
+theorems: `ComprehensionTests` `listcomp_for_kv_skips_nonregular`/`structcomp_for_produces_fields`;
+`StructTests` `pattern_via_unification_constrains_added_field`/`pattern_explicit_field_must_satisfy`/
+`pattern_matches_dynamic_field`.
+
+- **PATTERN-BOUND-REF-OPERAND (parser completeness; FILE — parser+evaluator, soundness-adjacent).**
+  kue's parser accepts only LITERAL operands for relational/bound operators: `parseBoundValue`
+  (`Kue/Parse.lean`) wants a numeric literal for `> >= < <=`; the `=~`/`!~` arms call
+  `parseQuotedString` (string literal); `!=` wants a `.prim`. A REFERENCE or any expression
+  operand — `x: >k`, `{[=~_re]: int}`, `{[>k]: int}`, `<len(y)` — fails to parse ("expected
+  string literal" / "expected number digits"). cue v0.16.1 accepts all: CUE grammar has
+  `unary_op = … | rel_op` with an arbitrary `UnaryExpr` operand. kue is WRONG (over-restrictive) —
+  rejects valid CUE. **Fix is broad + soundness-core, red-seeded not forced (AFK):** the bound
+  `Value` repr must carry an UNRESOLVED operand expression; the parser must parse a general
+  `UnaryExpr` operand for every rel_op; the evaluator must evaluate the operand (deferring on
+  incomplete) before applying the relation. Bounds are pervasive → own careful attended slice.
+  Red seed `testdata/wild/pattern-bound-reference-operand/` (`.known-red`; spec-adjudicated
+  expected). NOT a cue-divergence (cue is spec-correct here); a plain kue completeness bug.
+- **Embed/comprehension field ORDER — already-ratified spec gap, NOT re-filed.** `{ {a:1}, b:2 }`
+  → kue `{b,a}` (declaration order, embeddings after regular fields), cue `{a,b}`. This is
+  "Field order #3" (spec-conformance-audit § RATIFIED): spec declares structs unordered, cue's
+  order is "an undocumented internal-graph artifact"; parity DECLINED, Kue keeps source order.
+  jq `-S` canary is order-insensitive. Recognized + skipped per probe instructions.
+
 ### NUMERIC/BUILTIN CONFORMANCE PROBE (2026-07-04) — one bug fixed, follow-ups filed
 
 Bounded divergence hunt over numeric literals/formatting/arithmetic + a stdlib-builtin

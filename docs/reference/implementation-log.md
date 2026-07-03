@@ -17400,3 +17400,51 @@ unicode/astral/whole/empty) + FixturePorts entries; 21 `native_decide` in `Built
 
 `./scripts/check.sh` GREEN; cert-manager canary EMPTY. Committed on `main`, explicit pathspec, NOT
 pushed (AFK).
+
+---
+
+## Completed Slice: Comprehension/embedding/pattern conformance probe — area clean, one parser gap seeded
+
+Goal: bounded divergence hunt (EVAL-CORE probe) over `for`/`if`/`let` comprehensions,
+struct embedding, and pattern constraints `[expr]: T` — a less conformance-swept area than
+the L-campaign's closedness sweep. Each case compared against CUE spec + `cue` v0.16.1.
+
+Outcome: **area is spec-conformant at the value level** across the full probe matrix. The
+one real divergence is a parser-completeness gap; one apparent divergence resolved to an
+already-ratified spec gap.
+
+### Swept clean (kue == cue, spec-correct; guard theorems added)
+- for-comprehensions: `for k,v` over struct (skips hidden/optional/definition members),
+  `for i,x` over list, value-only, nested, multi-clause, `let`-clause, `if`-guard, empty
+  source (no fields), producing struct fields dynamically.
+- if/let comprehensions: bare `if` add/absent, nested `if`/`for`, `let` visibility.
+- struct embedding: struct+sibling, scalar/string/list carrier, def/ref, comprehension,
+  conditional, conflict → ⊥.
+- patterns: `[string]`/regex-keyed applied to added fields, multi-pattern overlap, pattern +
+  explicit field (explicit must satisfy the pattern; violation → ⊥), pattern + `...` tail,
+  hidden/def fields excluded, pattern via unification, dynamic field matched by pattern.
+
+Guard theorems: `ComprehensionTests` `listcomp_for_kv_skips_nonregular`,
+`structcomp_for_produces_fields`; `StructTests` `pattern_via_unification_constrains_added_field`,
+`pattern_explicit_field_must_satisfy`, `pattern_matches_dynamic_field`.
+
+### One real divergence — PATTERN-BOUND-REF-OPERAND (parser completeness; seeded, FILED)
+kue's parser accepts only LITERAL operands for relational/bound operators (`> >= < <=` want a
+numeric literal via `parseBoundValue`; `=~`/`!~` want a string literal via `parseQuotedString`;
+`!=` wants a `.prim`). A REFERENCE or expression operand — `x: >k`, `{[=~_re]: int}`,
+`{[>k]: int}` — fails to parse. cue v0.16.1 accepts all (CUE grammar: `rel_op UnaryExpr`, an
+arbitrary operand). kue is over-restrictive → rejects valid CUE. Red seed
+`testdata/wild/pattern-bound-reference-operand/` (`.known-red`, spec-adjudicated expected
+`{"out":{"abc":1,"xyz":9}}`). NOT a cue-divergence (cue is spec-correct); a plain kue bug.
+Fix is broad + soundness-core (bound Value repr must carry an unresolved operand; parser must
+parse a general `UnaryExpr`; evaluator must evaluate/defer it) → red-seeded, not forced under
+AFK. Filed in `plan.md` § COMPREHENSION/EMBEDDING/PATTERN CONFORMANCE PROBE.
+
+### Recognized + skipped (already-ratified, not re-filed)
+Embed/comprehension field ORDER: `{ {a:1}, b:2 }` → kue `{b,a}` (declaration order),
+cue `{a,b}`. This is "Field order #3" (spec-conformance-audit § RATIFIED) — spec declares
+structs unordered, parity with cue DECLINED, Kue keeps source order. jq `-S` canary is
+order-insensitive.
+
+`./scripts/check.sh` GREEN; cert-manager canary EMPTY. Committed on `main`, explicit pathspec,
+NOT pushed (AFK).

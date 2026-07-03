@@ -36,6 +36,20 @@ theorem listcomp_for_kv_struct :
     evalSourceMatches "out: [for k, v in {a: 1, b: 2} {v}]\n" "out: [1, 2]" = true := by
   native_decide
 
+-- for-k,v iterates only REGULAR fields: hidden (`_b`), optional (`c?`), and definition (`#d`)
+-- members are skipped, so only `a` is visited (cue v0.16.1-exact). EVAL-CORE probe 2026-07-04.
+theorem listcomp_for_kv_skips_nonregular :
+    evalSourceMatches "out: [for k, v in {a: 1, _b: 2, c?: 3, #d: 4} {k}]\n" "out: [\"a\"]"
+      = true := by
+  native_decide
+
+-- A struct-body `for` PRODUCES fields into the enclosing struct: `{a: 1, for k in ["b","c"]
+-- {"\(k)": 1}}` adds `b`, `c` alongside the sibling `a`. EVAL-CORE probe 2026-07-04.
+theorem structcomp_for_produces_fields :
+    evalSourceMatches "out: {a: 1, for k in [\"b\", \"c\"] {\"\\(k)\": 1}}\n"
+      "out: {a: 1, b: 1, c: 1}" = true := by
+  native_decide
+
 -- B3: a `for` over an `.embeddedList` (a struct embedding a list with decls) iterates the
 -- EMBEDDED LIST, not zero times. cue v0.16.1: `for x in {#a:1,[1,2]}` → `[1, 2]`. The decls
 -- (`#a`) are non-iterable members that the list iteration skips.

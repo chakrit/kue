@@ -819,6 +819,33 @@ theorem embed_close1_embed_form_rejects :
     exportJsonBottoms "#A: {[=~\"^x\"]: int}\nout: {#A, y1: 5}\n" = true := by
   native_decide
 
+-- ## PATTERN-PROBE — pattern-constraint conformance (EVAL-CORE probe 2026-07-04)
+--
+-- Swept-clean pins from the comprehensions+embedding+patterns conformance probe. cue
+-- v0.16.1-cross-checked. The one divergence the probe surfaced (a bound/pattern operand
+-- that is a REFERENCE, not a literal — `{[=~_re]: int}`) is a PARSER limitation captured
+-- red under `testdata/wild/pattern-bound-reference-operand/`, not pinned here.
+
+-- A pattern applied via UNIFICATION (`{[string]: int} & {a: 2}`) constrains the added field
+-- and drops out of the concrete export — the field `a` typechecks against `int`.
+theorem pattern_via_unification_constrains_added_field :
+    exportJsonMatches "out: {[string]: int} & {a: 2}\n" "{\n    \"out\": {\n        \"a\": 2\n    }\n}\n"
+      = true := by
+  native_decide
+
+-- An EXPLICIT field must ALSO satisfy a co-declared pattern: `{a: 1, [string]: string}` —
+-- `a` matches `[string]` so `1 & string` bottoms (cue: `conflicting values 1 and string`).
+theorem pattern_explicit_field_must_satisfy :
+    exportJsonBottoms "out: {a: 1, [string]: string}\n" = true := by
+  native_decide
+
+-- A DYNAMIC (interpolated) field name is matched by a co-declared pattern like a static one:
+-- `{"\(_k)": 1, [string]: int}` with `_k: "foo"` → `foo` matches `[string]`, `1 & int` ok.
+theorem pattern_matches_dynamic_field :
+    exportJsonMatches "_k: \"foo\"\nout: {\"\\(_k)\": 1, [string]: int}\n"
+      "{\n    \"out\": {\n        \"foo\": 1\n    }\n}\n" = true := by
+  native_decide
+
 
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
@@ -828,5 +855,6 @@ theorem embed_close1_embed_form_rejects :
 #check @sc1b_closed_empty_rejects_extra                -- SC-1b — closed × closed-pattern intersection (per...
 #check @sc1e_open_open_tail_stays_open                 -- SC-1e — closed × open-`...` keeps closedness (mon...
 #check @embed_close1_embed_form_rejects                -- EMBED-CLOSE-1 — closedness preserved through embe...
+#check @pattern_matches_dynamic_field                  -- PATTERN-PROBE — pattern-constraint conformance (E...
 
 end Kue
