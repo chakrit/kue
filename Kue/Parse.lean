@@ -592,7 +592,88 @@ def parsedFieldsBaseValue (fields : List Field) : List (Value × Value) -> Value
   | [pattern] => mkStruct fields .regularOpen none [(pattern.fst, pattern.snd)]
   | patterns => mkStruct fields .regularOpen none patterns
 
-def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
+/-- The labels at THIS struct's top level that can collide with a `let`/alias of the same
+    name (cue: `cannot have both alias and field with name X in same scope`). A label
+    qualifies iff it was written as a BARE identifier (`quoted = false`) and its class is an
+    ordinary field — regular/optional/required OR hidden (`_x`). Definitions (`#x`), quoted
+    labels, dynamic `(expr)` labels, patterns, embeddings, and `let`/alias bindings declare
+    no colliding output identifier here. Unlike `bareIdentifierLabels` (A2-y, import scope)
+    this INCLUDES hidden fields: cue rejects `_x` reused by `let _x`. -/
+def collidableLabels : List ParsedField -> List String
+  | [] => []
+  | .field field false :: rest =>
+      match field.fieldClass with
+      | .field false _ _ => field.label :: collidableLabels rest
+      | _ => collidableLabels rest
+  | _ :: rest => collidableLabels rest
+
+-- Every `let`/value-alias name bound as a STRUCT MEMBER in a value's lexical subtree: the
+-- alias binders (`FieldClass.letBinding`, which also carries desugared value aliases `x=…`).
+-- Comprehension `let` CLAUSES and `for` loop variables are NOT struct aliases — cue accepts a
+-- field alongside a comprehension `let`/`for` of the same name — so clause binders are skipped
+-- (their VALUES/bodies are still recursed, to catch struct-member `let`s nested inside a
+-- comprehension body). Consumed by the no-shadow check to reject a field whose name a
+-- struct-member `let`/alias in the same or a nested scope reuses. Produces `List String` (a
+-- collector, not a `Value`-dispatch), so the leaf `| _` is a terminal, not a swallowed ctor.
+mutual
+  partial def collectLetNames : Value -> List String
+    | .struct fields _ tail patterns _ =>
+        fieldLetNames fields
+          ++ (match tail with | some t => collectLetNames t | none => [])
+          ++ patterns.flatMap (fun p => collectLetNames p.fst ++ collectLetNames p.snd)
+    | .structComp fields comprehensions _ =>
+        fieldLetNames fields ++ comprehensions.flatMap collectLetNames
+    | .embeddedList items tail decls =>
+        items.flatMap collectLetNames
+          ++ (match tail with | some t => collectLetNames t | none => [])
+          ++ fieldLetNames decls
+    | .embeddedScalar scalar decls => collectLetNames scalar ++ fieldLetNames decls
+    | .comprehension clauses body => clauseLetNames clauses ++ collectLetNames body
+    | .listComprehension clauses body => clauseLetNames clauses ++ collectLetNames body
+    | .list items => items.flatMap collectLetNames
+    | .listTail items tail => items.flatMap collectLetNames ++ collectLetNames tail
+    | .conj cs => cs.flatMap collectLetNames
+    | .disj alts => alts.flatMap (fun a => collectLetNames a.snd)
+    | .binary _ l r => collectLetNames l ++ collectLetNames r
+    | .unary _ inner => collectLetNames inner
+    | .selector base _ => collectLetNames base
+    | .index base key => collectLetNames base ++ collectLetNames key
+    | .builtinCall _ args => args.flatMap collectLetNames
+    | .interpolation parts => parts.flatMap collectLetNames
+    | .dynamicField label _ value => collectLetNames label ++ collectLetNames value
+    | _ => []
+
+  partial def fieldLetNames : List Field -> List String
+    | [] => []
+    | fl :: rest =>
+        (if fl.fieldClass == .letBinding then [fl.label] else [])
+          ++ collectLetNames fl.value ++ fieldLetNames rest
+
+  partial def clauseLetNames : List (Clause Value) -> List String
+    | [] => []
+    | .letClause _ value :: rest => collectLetNames value ++ clauseLetNames rest
+    | .forIn _ _ source :: rest => collectLetNames source ++ clauseLetNames rest
+    | .guard cond :: rest => collectLetNames cond ++ clauseLetNames rest
+end
+
+/-- The no-shadow error cue raises when a `let`/alias and a field share a name in the same
+    lexical scope (or a `let`/alias shadows a field of an enclosing scope). -/
+def letFieldShadowError (name : String) : String :=
+  s!"cannot have both alias and field with name \"{name}\" in same scope"
+
+/-- Reject a struct whose top-level bare/hidden field reuses a name bound by a `let`/alias
+    in the same scope or any nested scope (the FORWARD direction of cue's no-shadow rule:
+    a field is an ancestor-or-self of the offending `let`). `collidableLabels` is quoted-
+    accurate (parse-time), and `let`/alias names are never quoted, so a reported collision
+    is exactly one cue rejects — no over-rejection. -/
+def checkLetFieldShadow (parsedFields : List ParsedField) (structValue : Value) :
+    Except ParseError Unit :=
+  let lets := collectLetNames structValue
+  match (collidableLabels parsedFields).find? (fun label => lets.contains label) with
+  | some name => .error { message := letFieldShadowError name }
+  | none => .ok ()
+
+def parsedFieldsValue (parsedFields : List ParsedField) : Except ParseError Value := do
   let parts := splitParsedFields parsedFields
   -- A parsed struct is open by default (the eager eval arm honors `openness.isOpen`; a
   -- non-definition struct stays open). `structCompOpenness` records an explicit `...` as
@@ -622,7 +703,11 @@ def parsedFieldsValue (parsedFields : List ParsedField) : Value :=
   -- (kept ONE node so a force-spliced def's `Self.<field>` self-refs see the embed-contributed fields —
   -- the argocd `#ListenerSet` regression). `...` and pattern constraints are orthogonal axes on the
   -- unified `Value.struct`; `declared` carries the right openness/tail/patterns in every combination.
-  declared
+  -- No-shadow validation (cue load rule): a bare/hidden field may not reuse a name a `let`/alias
+  -- binds in this scope or any nested scope. Quoted-accurate on the field side (parse-time
+  -- `parsedFields`), so it flags exactly cue's rejections.
+  checkLetFieldShadow parsedFields declared
+  .ok declared
 
 def structEllipsisEndsHere : List Char -> Bool
   | [] => true
@@ -1292,7 +1377,10 @@ mutual
   partial def parseStruct (chars : List Char) : ParseResult Value :=
     match parseFieldsUntil (some '}') chars [] with
     | .error error => .error error
-    | .ok (fields, rest) => parseOk (parsedFieldsValue fields) rest
+    | .ok (fields, rest) =>
+        match parsedFieldsValue fields with
+        | .error error => .error error
+        | .ok value => parseOk value rest
 
   partial def parseFieldsUntil
       (terminator : Option Char)
@@ -1455,7 +1543,10 @@ mutual
       if valuePositionStartsField chars || valuePositionStartsPatternField chars then
         match parseField chars with
         | .error error => .error error
-        | .ok (inner, rest) => parseOk (parsedFieldsValue [inner]) rest
+        | .ok (inner, rest) =>
+            match parsedFieldsValue [inner] with
+            | .error error => .error error
+            | .ok value => parseOk value rest
       else
         parseExpression chars
 
@@ -1725,7 +1816,10 @@ def parseDocument (chars : List Char) : Except ParseError Value :=
       | .error error => .error error
       | .ok (fields, rest) =>
           match skipTrivia rest with
-          | [] => .ok (applyBuiltinAliases imports (parsedFieldsValue fields))
+          | [] =>
+              match parsedFieldsValue fields with
+              | .error error => .error error
+              | .ok value => .ok (applyBuiltinAliases imports value)
           | rest => parseError rest "unexpected trailing input"
 
 /-- 1-based line and column for a char offset into `source`. Walks the first `offset`
@@ -1767,7 +1861,8 @@ def parseDocumentFile (chars : List Char) : Except ParseError ParsedFile := do
       match skipTrivia rest with
       | [] =>
           let packageName ← sourcePackageName (String.ofList chars)
-          pure { value := applyBuiltinAliases imports (parsedFieldsValue fields),
+          let value ← parsedFieldsValue fields
+          pure { value := applyBuiltinAliases imports value,
                  packageName := packageName, imports := imports,
                  topLevelFieldNames := bareIdentifierLabels fields }
       | rest => parseError rest "unexpected trailing input"

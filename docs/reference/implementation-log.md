@@ -16216,3 +16216,88 @@ match `cue` v0.16.1.
 `./scripts/check.sh` GREEN (build via `./lake` + all gates; graduated seeds + new fixtures
 green; `native_decide` theorems elaborate). cert-manager canary (multi-file — the exact
 silent-corruption check) byte-identical to cue v0.16.1: EMPTY delta.
+
+---
+
+## Completed Slice: let/alias no-shadow validation — FORWARD direction (2026-07-04)
+
+Graduates `testdata/wild/let-alias-shadow-not-rejected`. cue rejects at LOAD when a
+`let`/value-alias and a field share a name across comparable lexical scopes; Kue accepted
+silently (under-rejection). Over-rejection is the danger here (this validation gates real
+apps — cert-manager uses many `let`s), so the exact rule was pinned against cue v0.16.1
+FIRST.
+
+### cue's exact rule (probe matrix, cue v0.16.1)
+
+The message says "same scope", but the true rule spans nested scopes. A `let`/value-alias
+named `n` collides with a **bare-or-hidden identifier field** named `n` iff their declaration
+scopes are COMPARABLE in the per-file lexical tree (one is an ancestor-or-equal of the other).
+Incomparable "cousin" scopes never collide. The rule is PER-FILE (cross-file package members
+never collide). Exempt on the field side: quoted labels (`"x"`), definitions (`#x`), dynamic
+`(expr)` labels, patterns. Exempt on the binder side: `for` loop variables and comprehension
+`let` CLAUSES (a distinct binding scope — a field may share their name).
+
+Probe matrix (R = cue rejects, A = cue accepts):
+
+| case | shape | cue |
+| ---- | ------------------------------------------------------- | --- |
+| p1   | field `x` (top) + `let x` in nested `out` (the seed)    | R   |
+| p7   | field `x` + `let x`, both top-level (same scope)        | R   |
+| q3   | field `x` + `let x` in the SAME nested struct           | R   |
+| q2   | field `x` (top) + `let x` in a sibling's nested scope   | R   |
+| q4   | field `x` (top) + `let x` three scopes deep             | R   |
+| r2/3 | OPTIONAL `x?:` / REQUIRED `x!:` field + `let x`         | R   |
+| r4   | HIDDEN `_x:` field + `let _x`                            | R   |
+| r6   | field `x` (top) + `let x` in a comprehension BODY struct| R   |
+| f1   | field `x` (top) + `let x` in a list-element struct      | R   |
+| f2   | field `x` (top) + `let x` in a DEFINITION body          | R   |
+| va1  | field `X` (top) + value alias `X=` nested               | R   |
+| p5   | `let list` shadowing an IMPORT `list` (file scope)      | R   |
+| q0   | non-shadowing `let x` (no field `x`)                    | A   |
+| q1   | field `x` in sibling `a`, `let x` in sibling `b`        | A   |
+| q5   | `let x` shadowing an enclosing `let x` (no field)       | A   |
+| q8/s2| DEFINITION `#x` + `let x`                               | A   |
+| r1   | QUOTED `"x":` field + `let x`                           | A   |
+| s3   | DYNAMIC `(k):` field + `let x`                          | A   |
+| p8   | field `x` + `for x in …` (loop var, not alias)          | A   |
+| cc1  | outer field `y` + comprehension `let y` CLAUSE          | A   |
+| s1/r7| field `x` and `let x` in DIFFERENT files, same package  | A   |
+
+### What Kue implements (FORWARD direction)
+
+`Kue/Parse.lean`, in `parsedFieldsValue` (now `Except ParseError Value`): at every struct
+scope, `collidableLabels parsedFields` (quoted-accurate bare/hidden field names — parse-time
+`ParsedField` carries the `quoted` bit that `Value` drops) is intersected with
+`collectLetNames declared` (struct-member `let`/alias names in this struct's whole subtree;
+comprehension clause binders and `for` vars excluded). A hit `.error`s with cue's message
+`cannot have both alias and field with name "x" in same scope`. Threaded through the four
+`parsedFieldsValue` call sites (parseStruct, colon-shorthand, parseDocument, parseDocumentFile).
+
+This catches every collision where the FIELD is an ancestor-or-self of the offending `let`
+(all R rows above). It is SOUND — quoted-accurate on the field side, and `let`/alias names are
+never quoted — so it flags only collisions cue also flags. cert-manager canary EMPTY confirms
+no over-rejection.
+
+### Deliberately NOT caught (reverse-direction under-rejection)
+
+The REVERSE direction — a `let` in an ENCLOSING scope shadowed by a field in a NESTED scope
+(q7, r5, s4, f4) — is not enforced. Detecting it soundly needs the DESCENDANT field's
+quoted-accurate name checked against ancestor `let`s, but quoted-ness survives only at parse
+time inside each struct's own `parsedFieldsValue`, and threading ancestor-`let` context down
+through the whole expression parser (or preserving `quoted` on `Value.Field` — 1932 construction
+sites) was judged too invasive for this slice. Under-rejection is spec-safe; over-rejection is
+not — so the narrow, sound forward check ships now. Red-seeded + quarantined:
+`testdata/wild/let-shadowed-by-nested-field`, `…-by-descendant-field-in-struct`,
+`…-by-field-in-def-body` (`.known-red`). Logged in `cue-spec-gaps.md`.
+
+### Tests
+- Seed `let-alias-shadow-not-rejected` graduated (`.expected.err` → full message; `.known-red`
+  removed).
+- 16 `native_decide` probe theorems in `Kue/Tests/ParseTests.lean` (`noshadow_*`): 9 rejections,
+  7 accept-guards (quoted/definition/dynamic/for-var/comprehension-let/siblings/let-over-let) —
+  the accept-guards are the over-rejection tripwires.
+- 3 reverse-direction red seeds committed (quarantined).
+
+### Verify
+`./scripts/check.sh` GREEN (build via `./lake`; fixtures; realworld; shellcheck). cert-manager
+canary byte-identical to cue v0.16.1: EMPTY delta (the over-rejection guard).

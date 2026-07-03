@@ -617,14 +617,20 @@ perf frontier (#7 residual), then the deeper parity gap (#6).
 6. **Borderline / LOW (opportunistic; none block adoption).**
 
    Open:
-   - **`let`/alias no-shadow validation (UNDER-rejection)** — cue rejects a `let` or value
-     alias that shadows an enclosing binding of the same name at LOAD (`cannot have both alias
-     and field with name "x" in same scope`); Kue lacks this validation and silently accepts
-     the shadow. GENERAL (not import-specific) — wild-caught 2026-07-03 while verifying
-     file-scoped-import shadow detection. RED-SEEDED + quarantined:
-     `testdata/wild/let-alias-shadow-not-rejected` (`.known-red`). A load-time validation
-     feature (parser/scope-check), independent of the import-scoping fix; graduate the seed
-     when it lands.
+   - **`let`/alias no-shadow validation — FORWARD direction DONE (2026-07-04).** cue rejects a
+     `let`/value-alias that collides with a bare/hidden field of the same name at LOAD
+     (`cannot have both alias and field with name "x" in same scope`). Implemented per-file at
+     parse time in `parsedFieldsValue` (`Kue/Parse.lean`): `collidableLabels` (quoted-accurate
+     field names) × `collectLetNames` (struct-member `let`/alias names in the subtree). Seed
+     `testdata/wild/let-alias-shadow-not-rejected` GRADUATED; 16 `native_decide` probe theorems
+     in `ParseTests.lean`; cert-manager canary EMPTY (no over-rejection). Rule + probe matrix in
+     the implementation-log. **REVERSE direction still OPEN (under-rejection):** a `let` in an
+     ENCLOSING scope shadowed by a field in a NESTED scope is not yet rejected — the field side
+     of a descendant needs parse-time ancestor-`let` context threaded through the expression
+     parser, which the current quoted-accurate hook does not carry. Red-seeded + quarantined:
+     `testdata/wild/let-shadowed-by-nested-field`, `…-by-descendant-field-in-struct`,
+     `…-by-field-in-def-body` (`.known-red`); logged in `cue-spec-gaps.md`. Graduate when the
+     reverse direction lands.
    - **B2-A1 (latent, currently lossless)** — `applyEvaluatedStructN` (`Eval.lean:330`)
      routes the patterns-present case through a meet that DROPS `tail`. Lossless today
      (the only tail a parsed struct carries is bare `...` = `.top`, a no-op to

@@ -23,6 +23,12 @@ def parseFailsAt (source : String) (line col : Nat) : Bool :=
   | .ok _ => false
   | .error error => error.line == line && error.column == col
 
+def parseFailsWith (source needle : String) : Bool :=
+  match parseSource source with
+  | .ok _ => false
+  | .error error => needle.isPrefixOf error.message
+      || (error.message.splitOn needle).length > 1
+
 theorem parse_basic_document_resolves_references :
     parseOutputMatches
       "package demo\n#Port: int & >=0 & <=65535\nport: #Port & 8080\nname: \"api\"\n"
@@ -913,6 +919,107 @@ theorem parse_unaliased_const_and_aliased_user_member_unchanged :
       && parseOutputMatches "import f \"ex.com/foo\"\nout: f.Ascending\n" "out: _|_" = true := by
   native_decide
 
+-- No-shadow validation (cue load rule: `cannot have both alias and field with name X in
+-- same scope`). A struct-member `let`/value-alias may not reuse the name of a bare/hidden
+-- field in the SAME scope or any ENCLOSING scope (equivalently: a field may not share a name
+-- with a `let`/alias bound in its own or a nested scope). Probe matrix adjudicated against
+-- cue v0.16.1. FORWARD direction (field is ancestor-or-self of the offending `let`) is
+-- enforced; see cue-spec-gaps for the reverse-direction under-rejection still open.
+
+-- REJECTED — same scope: a field and a `let` of the same name in one struct.
+theorem noshadow_same_scope_rejects :
+    parseFailsWith "out: {\n\tx: 1\n\tlet x = 2\n\tgot: x\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — enclosing field, nested `let` (the graduated seed shape).
+theorem noshadow_enclosing_field_nested_let_rejects :
+    parseFailsWith "x: 1\nout: {\n\tlet x = \"s\"\n\tgot: x\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — top field, `let` several scopes deep.
+theorem noshadow_deeply_nested_let_rejects :
+    parseFailsWith "x: 1\na: {\n\tb: {\n\t\tlet x = 2\n\t\tgot: x\n\t}\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — a top field shadowed by a `let` in a SIBLING's nested scope.
+theorem noshadow_sibling_nested_let_rejects :
+    parseFailsWith "x: 1\nout: {\n\tlet y = 1\n\tg: y\n}\ninner: {\n\tlet x = 2\n\tg: x\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — an OPTIONAL field collides just like a regular one.
+theorem noshadow_optional_field_rejects :
+    parseFailsWith "x?: 1\nout: {\n\tlet x = 2\n\tgot: x\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — a HIDDEN field collides (unlike A2-y import scope, hidden participates here).
+theorem noshadow_hidden_field_rejects :
+    parseFailsWith "_x: 1\nout: {\n\tlet _x = 2\n\tgot: _x\n}\n"
+      "cannot have both alias and field with name \"_x\"" = true := by
+  native_decide
+
+-- REJECTED — a field shadowed by a struct-member `let` nested inside a comprehension BODY.
+theorem noshadow_let_in_comprehension_body_rejects :
+    parseFailsWith "x: 1\nout: {\n\tfor i in [1] {\n\t\tlet x = i\n\t\tg: x\n\t}\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — a field shadowed by a `let` inside a DEFINITION body (defs are nested scopes).
+theorem noshadow_let_in_definition_body_rejects :
+    parseFailsWith "x: 1\n#d: {\n\tlet x = 2\n\tg: x\n}\n"
+      "cannot have both alias and field with name \"x\"" = true := by
+  native_decide
+
+-- REJECTED — a value alias `X=…` counts as an alias, same as `let` (here `X=` shadows the
+-- enclosing field `X`).
+theorem noshadow_value_alias_rejects :
+    parseFailsWith "X: 1\nout: {\n\tfoo: X={a: 1}\n\tbar: X.a\n}\n"
+      "cannot have both alias and field with name \"X\"" = true := by
+  native_decide
+
+-- ACCEPTED (over-rejection guards) — each must still PARSE. Getting these wrong REJECTS
+-- valid CUE (breaks real apps: cert-manager); they are as load-bearing as the rejections.
+
+-- A QUOTED label `"x"` is a string label, not an identifier — never collides with `let x`.
+theorem noshadow_quoted_label_accepts :
+    parseSucceeds "\"x\": 1\nout: {\n\tlet x = 2\n\tgot: x\n}\n" = true := by
+  native_decide
+
+-- A DEFINITION `#x` lives in a distinct namespace — no collision with `let x`.
+theorem noshadow_definition_label_accepts :
+    parseSucceeds "#x: 1\nout: {\n\tlet x = 2\n\tgot: x\n}\n" = true := by
+  native_decide
+
+-- A DYNAMIC `(expr)` label is not a static identifier — no collision.
+theorem noshadow_dynamic_label_accepts :
+    parseSucceeds "k: \"x\"\n(k): 1\nout: {\n\tlet x = 2\n\tg: x\n}\n" = true := by
+  native_decide
+
+-- A `for` loop variable is not an alias — a field and `for x` of the same name coexist.
+theorem noshadow_for_variable_accepts :
+    parseSucceeds "x: 1\nout: {\n\tfor x in [1, 2] {\n\t\t\"k\\(x)\": x\n\t}\n}\n" = true := by
+  native_decide
+
+-- A comprehension `let` CLAUSE is not a struct alias — it may share a name with an outer field.
+theorem noshadow_comprehension_let_clause_accepts :
+    parseSucceeds "y: \"outer\"\nout: [for x in [1, 2] let y = x * 10 {v: y}]\n" = true := by
+  native_decide
+
+-- A `let` in one scope and a same-named field in an INCOMPARABLE sibling scope never meet.
+theorem noshadow_incomparable_siblings_accept :
+    parseSucceeds "a: {\n\tx: 1\n}\nb: {\n\tlet x = 2\n\tgot: x\n}\n" = true := by
+  native_decide
+
+-- `let` shadowing an outer `let` (both aliases, no field) is allowed.
+theorem noshadow_let_over_let_accepts :
+    parseSucceeds "out: {\n\tlet x = 1\n\tinner: {\n\t\tlet x = 2\n\t\tg: x\n\t}\n\tq: x\n}\n"
+      = true := by
+  native_decide
+
 -- Coverage tripwire: a swallowed section (e.g. an unterminated `/-- -/`) would drop these
 -- from elaboration. Each `#check` forces the last theorem of every section above to compile.
 #check @parse_pattern_tail_node_is_open_via_tail
@@ -920,5 +1027,7 @@ theorem parse_unaliased_const_and_aliased_user_member_unchanged :
 #check @parse_default_mark_group_with_sibling_parses
 #check @parse_unaliased_builtin_and_aliased_user_import_unchanged
 #check @parse_unaliased_const_and_aliased_user_member_unchanged
+#check @noshadow_value_alias_rejects
+#check @noshadow_let_over_let_accepts
 
 end Kue
