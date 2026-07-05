@@ -32,7 +32,24 @@ The two big registry legs are the next real slices, plan entries now verified-ac
 Lower tail: B3d-A2 (DEFLATE/ZIP adversarial reject pins), UNUSED-IMPORT enforcement (sibling of
 BUILTIN-IMPORT-LENIENCY, documented in `compat-assumptions.md`).
 
-## Attended-only, parked
+## Attended-only, parked — RELEASE DECISION (needs chakrit)
 
-`linux/amd64` (QEMU) release asset for `v0.1.0-alpha.20260705` — the `on_intel` tap block is stale
-vs the bumped version; needs a per-run go-ahead (heavy build). macOS + linux/arm64 already published.
+The `v0.1.0-alpha.20260705` tag sits at `88f02a8` (the morning grant commit); HEAD is now 24
+commits ahead (`b7fdebe`) after the full day's frontier (0f…leg2, B3d-6b closed, GDA, audits).
+The morning release published macOS + linux/arm64 only; its `on_intel` (amd64) tap block was
+never repatched, so it still points at the `20260702` asset — **`brew install` on Intel-Linux
+is broken** for this version.
+
+`release-linux.sh` does `COPY . /src` — it builds from the WORKING TREE (HEAD), not the tag. So
+building amd64 now would attach 24-commits-newer code to a release whose mac/arm64 assets are the
+morning snapshot → platform-inconsistent. Every fix path is outward-facing/irreversible, so NOT
+done unattended. Options put to chakrit (pick one):
+
+1. **Supersede at HEAD (recommended):** move the `20260705` tag to `b7fdebe`, rebuild all 3
+   platforms (mac + linux amd64 + arm64). One clean daily alpha with the full day's work; fixes
+   `on_intel`. Replaces the hours-old morning release.
+2. **New suffixed alpha at HEAD:** cut `v0.1.0-alpha.20260705.1` (all 3) at HEAD, leave the
+   morning tag as-is. Additive; but untested version-suffix in release.sh/tap patching.
+3. **Do nothing:** leave the morning partial; tomorrow's daily alpha at HEAD supersedes it.
+
+On chakrit's pick: execute, then the amd64 build fires (Docker layers warm, quick).
