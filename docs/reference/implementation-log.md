@@ -18351,3 +18351,58 @@ kept in core with a test-support-in-core rationale note at the def). Both DISCHA
 
 `./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical; shellcheck
 PASS). Docs-only (plan.md + this log); committed on `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: B3d-6b-leg2 — `cue mod get` (deps-block emitter + tags/list latest)
+
+Closes B3d-6b's final FILED dependent. `kue mod get <module>[@version]` adds/updates a
+dependency in `cue.mod/module.cue`, the last substantive registry surface. Test-first; the
+whole resolve+emit pipeline is pure and offline (`native_decide`), the network only supplies a
+tag list and no gate depends on it.
+
+### What landed (all in `Kue/ModCmd.lean`)
+
+- **Deps-block emitter (the new capability).** `applyModGet source target`: parse the existing
+  module.cue for its deps (`parseDeps`), merge the target dep in (`mergeDep` — keyed on module
+  path + major via `depKey`, so distinct majors of one module coexist as separate entries), then
+  re-render ONLY the `deps` block (`renderDepsBlock` — cue's canonical tab-indented form, keys
+  sorted ascending) and splice it back. Non-deps content is preserved verbatim via a string/brace-
+  aware textual excision (`exciseTopLevelDeps` → `exciseAux`/`afterDepsField`/`dropBalanced`,
+  fuel-bounded, total — no `partial`). Illegal-states-unrepresentable: a deps field present in the
+  parse but not locatable by the textual scan ERRORS rather than emitting a file with two
+  conflicting deps blocks. Byte-identical to `cue mod get` v0.16.1 for the canonical block-form add
+  (manual `diff` vs `cue mod edit --require`); kue preserves non-deps content where cue reformats
+  the whole file — spec-silent, recorded in `cue-spec-gaps.md` (MODULE.CUE REFORMATTING).
+- **Tag "latest" resolution.** `parseVerSpec` classifies the `@version` suffix (`latest` / exact
+  `vX.Y.Z` / partial `vX` / `vX.Y`); `resolveVerSpec` filters the registry tag list to valid
+  NON-prerelease semver matching the constraint and takes the max (`Semver.maxVersion` fold). A
+  bare `get <mod>` = `latest`. No match ⇒ typed error, never a silent pick. Pure.
+- **Pure driver + IO edge.** `modGetResolveAndApply source arg tags` is the offline core (source +
+  arg + in-memory tags → `(resolvedVersion, newSource)`). `ociListTags` performs the read-only OCI
+  `.../tags/list` GET (auth-capable, reuses `OciFetch.authedGet`; new `Oci.tagsListUrl`);
+  `runModGet` ties read → (conditional) tags fetch → resolve+emit → atomic write. A full `@vX.Y.Z`
+  skips the network entirely.
+- **Wiring.** `Kue/Cli.lean`: `ModOp.get (arg : String)`, `parseMod` parses `get` (single module
+  arg, help, usage errors), help text updated. `Main.lean`: `runModGet` dispatch + diagnostics.
+
+### Tests
+
+40 `native_decide` examples in `Tests/ModCmdTests.lean` pin: `depKey`; `mergeDep` update-in-place
+vs append-new-major; `renderDepsBlock` exact strings + sort; `exciseTopLevelDeps` over
+trailing/nested-brace/string-with-braces/`depsfoo`-non-match/absent cases; `parseVerSpec`
+classification; `resolveVerSpec` latest/major/majorMinor/exact + prerelease-filtered + empty-error;
+and `modGetResolveAndApply` end-to-end (add-exact byte-identical, latest, major, same-major update,
+add-second-major, no-op, downgrade, empty-path error, bad-constraint error) with re-parse
+round-trips. `Tests/CliTests.lean`: `parse_mod_get` (+ no-arg / extra-args usage errors) replace the
+retracted `parse_mod_get_is_error` deferral pin.
+
+### Retraction (leg2's "deferred / needs deps-block emitter" claim)
+
+Closed/annotated in the same slice: `plan.md` (ranked item #1 + § B3d track — B3d-6b now FULLY
+LANDED, no dependents), `compat-assumptions.md` (leg2 landed line), `Cli.lean`/`ModCmd.lean` code
+comments (deferral text removed), `CliTests.lean` (theorem flipped). B3d-6b is fully closed.
+
+`./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical — the canary
+does not run `mod get`, confirmed untouched; shellcheck PASS). Committed on `main`, explicit
+pathspec, NOT pushed.

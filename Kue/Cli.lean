@@ -21,9 +21,11 @@ inductive HelpTopic where
 deriving Repr, BEq, DecidableEq
 
 /-- A `mod` module-management operation. `tidy` resolves the requirement graph (MVS) and writes
-    `cue.sum` (B3d-6b). `get` (module.cue mutation) is a filed follow-up — see `parseMod`. -/
+    `cue.sum` (B3d-6b). `get` adds/updates a dependency in `cue.mod/module.cue`, carrying the raw
+    `<module>[@version]` argument (parsed + resolved in `ModCmd.runModGet`). -/
 inductive ModOp where
   | tidy
+  | get (arg : String)
 deriving Repr, BEq, DecidableEq
 
 /-- A fully parsed invocation. `eval` carries the positional file list (empty = stdin via
@@ -78,17 +80,24 @@ def parseEval : List String -> Command
       | none => .eval args
 
 /-- Parse the `mod` subcommand: `mod tidy` resolves the requirement graph (MVS) and writes
-    `cue.sum`. `mod get` (which mutates `cue.mod/module.cue`) is a filed follow-up — it needs a CUE
-    deps-block emitter — so it reports that cleanly. An unknown/absent subcommand is a usage error. -/
+    `cue.sum`; `mod get <module>[@version]` adds/updates a dependency in `cue.mod/module.cue`
+    (emitting the deps block, resolving `latest`/`@vN` against the registry tag list). An
+    unknown/absent subcommand is a usage error. -/
 def parseMod : List String -> Command
-  | [] => .error "mod: expected a subcommand (tidy)"
+  | [] => .error "mod: expected a subcommand (tidy, get)"
   | "--help" :: _ => .help (some .mod)
   | "-h" :: _ => .help (some .mod)
   | "tidy" :: _ => .mod .tidy
-  | "get" :: _ =>
-      .error "mod get: not yet implemented (adding a dep to cue.mod/module.cue needs the CUE \
-        deps-block emitter — B3d-6b follow-up); declare the dep and run `kue mod tidy`"
-  | other :: _ => .error s!"mod: unknown subcommand: {other} (expected tidy)"
+  | "get" :: rest =>
+      match rest with
+      | [] => .error "mod get: expected a module path (e.g. `kue mod get example.com/foo@v1`)"
+      | "--help" :: _ => .help (some .mod)
+      | "-h" :: _ => .help (some .mod)
+      | [arg] =>
+          if arg.startsWith "-" then .error s!"mod get: unknown flag: {arg}"
+          else .mod (.get arg)
+      | _ => .error "mod get: expected exactly one module argument"
+  | other :: _ => .error s!"mod: unknown subcommand: {other} (expected tidy, get)"
 
 /-- Parse the whole argv into a `Command`. Dispatch rule: no arguments prints the
     top-level help (like `cue`/`git`/`docker`); a recognized subcommand as the first token
@@ -126,6 +135,7 @@ Commands:
   eval [file...]            evaluate stdin or files; print the resolved value
   export [--out fmt] [file] manifest a value to JSON (default) or YAML
   mod tidy                  resolve the module requirement graph (MVS); write cue.sum
+  mod get <module>[@ver]    add/update a dependency in cue.mod/module.cue
   version                   print the kue version
   help [command]            print help for kue or a command
 
@@ -169,10 +179,16 @@ def modHelp : String :=
 
 Usage:
   kue mod tidy
+  kue mod get <module>[@version]
 
 `tidy` reads the main module's declared dependencies, fetches each transitive dependency's
 cue.mod/module.cue over the (read-only) registry, runs Minimal Version Selection to pick one
 version per module path (max-of-mins), and writes cue.sum with the verified h1: digests.
+
+`get` adds or updates one dependency in cue.mod/module.cue's deps block. With no version (or
+`@latest`) it selects the highest non-prerelease version from the registry's tag list; a partial
+`@v1` or `@v1.2` selects the highest matching that prefix; a full `@v1.2.3` pins exactly. The deps
+key is `\"<module>@v<major>\"`, so distinct majors of one module coexist.
 
 The registry GETs are read-only; cue.sum is written into the module root."
 

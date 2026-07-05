@@ -1,5 +1,7 @@
 import Kue.Module
 import Kue.Mvs
+import Kue.Oci
+import Kue.OciFetch
 import Kue.Semver
 import Kue.Sha256
 import Kue.Zip
@@ -153,6 +155,305 @@ def runTidy (root : System.FilePath) (fetch : EntryFetcher) :
               let rows := cueSumRows main buildList nodes
               writeCueSum root rows
               pure (.ok { buildList, sumRows := rows })
+
+/-! ## `cue mod get` — the deps-block emitter + tag "latest" resolution (B3d-6b-leg2)
+
+`cue mod get <module>[@version]` adds or updates a dependency in `cue.mod/module.cue`. Two pure
+capabilities plus one IO edge:
+
+- **Deps-block emitter** — parse the existing module.cue for its deps, merge the target dep in
+  (keyed on module path + major version, so distinct majors coexist), then re-render ONLY the
+  `deps` block in cue's canonical tab-indented form, splicing it back in place of any existing
+  block. Non-deps content is preserved verbatim (kue does NOT reformat the whole file the way
+  `cue mod get` does — see `cue-spec-gaps.md`), so unknown/`source:`/comment content is never
+  lost. Illegal-states-unrepresentable: if a deps field is present in the parse but the textual
+  excision cannot locate it, we ERROR rather than emit a file with two conflicting deps blocks.
+- **Tag "latest" resolution** — a bare `get <mod>`, `@latest`, or a partial `@v1`/`@v1.2`
+  constraint resolves against the registry's `.../tags/list` (read-only) by filtering to valid
+  NON-prerelease semver tags matching the constraint and taking the max (`Semver.maxVersion`).
+- **IO edge** — `ociListTags` performs the read-only tags/list GET; the pure driver
+  (`modGetResolveAndApply`) takes an in-memory tag list, so the whole resolve+emit pipeline is
+  `native_decide`-checkable OFFLINE (no gate depends on the network).
+-/
+
+/-! ### Deps-block emitter (pure) -/
+
+/-- The `deps` key CUE writes for a dependency: `"<modpath>@v<major>"`, the major being the parsed
+    semver major of `version`. `none` when `version` is not a valid semver. -/
+def depKey (modPath version : String) : Option String :=
+  (Semver.parse version).map (fun p => s!"{modPath}@v{p.major}")
+
+/-- `depKey` with a degenerate fall-back to the bare path (only reached for a non-semver version,
+    which the caller rejects up front) — total, for use where a `String` key is required. -/
+def depKeyOrPath (dep : Dep) : String :=
+  (depKey dep.modPath dep.version).getD dep.modPath
+
+/-- Add `target` to `existing`, or update the entry sharing its `deps` key (same module path AND
+    major) in place; distinct majors of one path coexist as separate entries. Render sorts, so the
+    append position is immaterial. -/
+def mergeDep (existing : List Dep) (target : Dep) : List Dep :=
+  let key := depKeyOrPath target
+  if existing.any (fun d => depKeyOrPath d == key) then
+    existing.map (fun d => if depKeyOrPath d == key then target else d)
+  else
+    existing ++ [target]
+
+/-- One canonical `deps` entry, tab-indented exactly as cue v0.16.1 emits it:
+    `\t"<key>": {\n\t\tv: "<version>"\n\t}\n`. -/
+def renderDepEntry (key version : String) : String :=
+  "\t\"" ++ key ++ "\": {\n\t\tv: \"" ++ version ++ "\"\n\t}\n"
+
+/-- Render the whole `deps: { … }` block from `deps`, keys sorted ascending (cue's order). Empty
+    `deps` still renders `deps: {\n}\n` (a get always supplies ≥1, so this is a defensive case). -/
+def renderDepsBlock (deps : List Dep) : String :=
+  let keyed := deps.map (fun d => (depKeyOrPath d, d.version))
+  let sorted := (keyed.toArray.qsort (fun a b => a.fst < b.fst)).toList
+  "deps: {\n" ++ String.join (sorted.map (fun (k, v) => renderDepEntry k v)) ++ "}\n"
+
+/-- Whether the parsed module value carries a top-level field named `name`. -/
+def hasTopLevelField : Value → String → Bool
+  | .struct fields _ _ _ _, name => fields.any (fun f => f.label == name)
+  | _, _ => false
+
+/-- An identifier-continuation char, for token-boundary checks (`deps` vs `depsfoo`). -/
+def isNameCont (c : Char) : Bool := c.isAlphanum || c == '_' || c == '$'
+
+/-- Drop leading whitespace (space/tab/newline/CR). Structural. -/
+def dropWs : List Char → List Char
+  | c :: rest => if c == ' ' || c == '\t' || c == '\n' || c == '\r' then dropWs rest else c :: rest
+  | [] => []
+
+/-- Drop the leading identifier token (a run of name-continuation chars). Structural. -/
+def dropName : List Char → List Char
+  | c :: rest => if isNameCont c then dropName rest else c :: rest
+  | [] => []
+
+/-- Whether `chars` begins a top-level `deps` field: the token `deps` (a complete token — the next
+    char is not name-continuation), then `:`, then `{`, whitespace-tolerant between. Pure
+    lookahead. -/
+def startsDepsField (chars : List Char) : Bool :=
+  match chars with
+  | 'd' :: 'e' :: 'p' :: 's' :: rest =>
+      let boundary := match rest with | c :: _ => !isNameCont c | [] => true
+      if !boundary then false
+      else match dropWs rest with
+        | ':' :: r2 => match dropWs r2 with | '{' :: _ => true | _ => false
+        | _ => false
+  | _ => false
+
+/-- Drop a balanced `{ … }` starting AT the `{`; return the remainder AFTER the matching `}`.
+    String-aware (`"…"` with `\` escapes) and brace-nested. Fuel-bounded; exhaustion returns `[]`. -/
+def dropBalanced : Nat → Nat → Bool → Bool → List Char → List Char
+  | 0, _, _, _, rest => rest
+  | _, _, _, _, [] => []
+  | fuel + 1, depth, inString, escaped, c :: rest =>
+      if inString then
+        if escaped then dropBalanced fuel depth true false rest
+        else if c == '\\' then dropBalanced fuel depth true true rest
+        else if c == '"' then dropBalanced fuel depth false false rest
+        else dropBalanced fuel depth true false rest
+      else
+        match c with
+        | '"' => dropBalanced fuel depth true false rest
+        | '{' => dropBalanced fuel (depth + 1) false false rest
+        | '}' => if depth ≤ 1 then rest else dropBalanced fuel (depth - 1) false false rest
+        | _ => dropBalanced fuel depth false false rest
+
+/-- Given `chars` at the start of a top-level `deps` field, return the remainder AFTER the whole
+    `deps: { … }` block and one trailing newline. -/
+def afterDepsField (chars : List Char) : List Char :=
+  let atBrace := dropWs (dropColon (dropWs (dropName chars)))
+  dropNewline (dropBalanced (chars.length + 1) 0 false false atBrace)
+where
+  dropColon : List Char → List Char
+    | ':' :: r => r
+    | r => r
+  dropNewline : List Char → List Char
+    | '\n' :: r => r
+    | r => r
+
+/-- The excision fold: walk `chars`, copying to `acc`, tracking brace depth + string state, and
+    when a top-level (`depth == 0`, line-start) `deps` field starts, skip its whole block. Returns
+    the source with any top-level `deps` block removed, and whether one was found. Fuel-bounded. -/
+def exciseAux : Nat → Nat → Bool → Bool → Bool → List Char → List Char → Bool → (List Char × Bool)
+  | 0, _, _, _, _, rest, acc, found => (acc.reverse ++ rest, found)
+  | _, _, _, _, _, [], acc, found => (acc.reverse, found)
+  | fuel + 1, depth, inString, escaped, atLineStart, c :: rest, acc, found =>
+      if inString then
+        if escaped then exciseAux fuel depth true false false rest (c :: acc) found
+        else if c == '\\' then exciseAux fuel depth true true false rest (c :: acc) found
+        else if c == '"' then exciseAux fuel depth false false false rest (c :: acc) found
+        else exciseAux fuel depth true false false rest (c :: acc) found
+      else if depth == 0 && atLineStart && startsDepsField (c :: rest) then
+        exciseAux fuel 0 false false true (afterDepsField (c :: rest)) acc true
+      else
+        match c with
+        | '"' => exciseAux fuel depth true false false rest (c :: acc) found
+        | '{' => exciseAux fuel (depth + 1) false false false rest (c :: acc) found
+        | '}' => exciseAux fuel (depth - 1) false false false rest (c :: acc) found
+        | '\n' => exciseAux fuel depth false false true rest (c :: acc) found
+        | ' ' => exciseAux fuel depth false false atLineStart rest (c :: acc) found
+        | '\t' => exciseAux fuel depth false false atLineStart rest (c :: acc) found
+        | _ => exciseAux fuel depth false false false rest (c :: acc) found
+
+/-- Remove the top-level `deps: { … }` field from module.cue `source`, string/brace-aware.
+    Returns `(source-without-deps, wasFound)`. -/
+def exciseTopLevelDeps (source : String) : String × Bool :=
+  let cs := source.toList
+  let (kept, found) := exciseAux (cs.length + 1) 0 false false true cs [] false
+  (String.ofList kept, found)
+
+/-- Drop trailing whitespace (spaces, tabs, newlines) from `s` — so the rendered deps block joins
+    onto the preceding content with exactly one separating newline. -/
+def trimTrailingWs (s : String) : String :=
+  String.ofList (s.toList.reverse.dropWhile
+    (fun c => c == ' ' || c == '\t' || c == '\n' || c == '\r')).reverse
+
+/-- Apply `cue mod get`'s edit to module.cue `source`: parse for existing deps, merge `target` in,
+    and re-render the deps block, preserving all other content. `target.version` must be a concrete
+    valid semver (resolution happened upstream). Errors — never a malformed file — on an unparseable
+    source, an invalid target version, or a deps field the textual excision cannot locate. -/
+def applyModGet (source : String) (target : Dep) : Except String String :=
+  if !Semver.isValid target.version then
+    .error s!"mod get: not a valid version: {target.version}"
+  else match parseSource source with
+    | .error e => .error s!"cue.mod/module.cue parse error: {e.message}"
+    | .ok value =>
+        let existing := parseDeps value
+        let hadDeps := hasTopLevelField value "deps"
+        let (stripped, found) := exciseTopLevelDeps source
+        if hadDeps && !found then
+          .error "cue.mod/module.cue: cannot locate the top-level deps block to update \
+            (reformat it with `cue fmt` and retry)"
+        else
+          let merged := mergeDep existing target
+          let base := trimTrailingWs stripped
+          .ok (base ++ (if base.isEmpty then "" else "\n") ++ renderDepsBlock merged)
+
+/-! ### Tag "latest" resolution (pure) -/
+
+/-- A parsed `@version` constraint from a `cue mod get` argument. `latest` = the max non-prerelease
+    tag; `exact` = a fully-pinned version (no tag lookup); `major`/`majorMinor` = the max
+    non-prerelease tag under that prefix. -/
+inductive VerSpec where
+  | latest
+  | exact (v : String)
+  | major (m : String)
+  | majorMinor (m minor : String)
+deriving Repr, BEq, DecidableEq
+
+/-- Parse a `@version` suffix (the text after `@`) into a `VerSpec`. `latest` is literal; a `v`-led
+    version with a prerelease/build tail, or a full `vX.Y.Z`, is `exact`; `vX` / `vX.Y` are the
+    partial major/major-minor constraints. `none` when it is not a recognizable version. -/
+def parseVerSpec (s : String) : Option VerSpec :=
+  if s == "latest" then some .latest
+  else if !s.startsWith "v" then none
+  else if (Semver.parse s).isNone then none
+  else if s.any (fun c => c == '-' || c == '+') then some (.exact s)
+  else match (s.drop 1).toString.splitOn "." with
+    | [m] => some (.major m)
+    | [m, minor] => some (.majorMinor m minor)
+    | _ => some (.exact s)
+
+/-- The max semver in `versions` (`Semver.maxVersion`-fold); `none` on an empty list. -/
+def maxVersionOf : List String → Option String
+  | [] => none
+  | v :: rest => some (rest.foldl (fun acc x => Semver.maxVersion acc x) v)
+
+/-- Resolve a `VerSpec` to a concrete version against the registry `tags`: `exact` is returned
+    as-is (validated); the others filter `tags` to valid NON-prerelease semver matching the
+    constraint and take the max. A no-match is a typed error. -/
+def resolveVerSpec (spec : VerSpec) (tags : List String) : Except String String :=
+  match spec with
+  | .exact v => .ok v
+  | .latest => pick (fun _ => true) "any release"
+  | .major m => pick (fun p => p.major == m) s!"major v{m}"
+  | .majorMinor m minor =>
+      pick (fun p => p.major == m && p.minor == minor) s!"v{m}.{minor}"
+where
+  pick (keep : Semver.Parsed → Bool) (desc : String) : Except String String :=
+    let cands := tags.filter fun t =>
+      match Semver.parse t with
+      | some p => p.prerelease.isEmpty && keep p
+      | none => false
+    match maxVersionOf cands with
+    | some v => .ok v
+    | none => .error s!"mod get: no non-prerelease version matching {desc} in the registry tag list"
+
+/-- Split a `cue mod get` argument into `(modulePath, versionConstraint?)` on the first `@` (a
+    module path never contains `@` — the major suffix is a separate concern). -/
+def splitModuleArg (arg : String) : String × Option String :=
+  match arg.splitOn "@" with
+  | [p] => (p, none)
+  | p :: rest => (p, some (String.intercalate "@" rest))
+  | [] => (arg, none)
+
+/-- The pure core of `cue mod get`: given the current module.cue `source`, the raw `<module>[@ver]`
+    argument, and the registry `tags`, resolve the concrete version and produce the new module.cue
+    text. Returns `(resolvedVersion, newSource)`. Fully offline — the network only supplies `tags`. -/
+def modGetResolveAndApply (source arg : String) (tags : List String) :
+    Except String (String × String) := do
+  let (modPath, verArg) := splitModuleArg arg
+  if modPath.isEmpty then .error "mod get: empty module path"
+  else
+    let spec ←
+      match verArg with
+      | none => .ok VerSpec.latest
+      | some v =>
+          match parseVerSpec v with
+          | some s => .ok s
+          | none => .error s!"mod get: unrecognized version constraint: @{v}"
+    let concrete ← resolveVerSpec spec tags
+    let newSource ← applyModGet source { modPath, version := concrete }
+    .ok (concrete, newSource)
+
+/-! ### IO edge — read-only tags/list GET (production only; no gate depends on it) -/
+
+/-- Parse a `.../tags/list` response body (`{"tags": […]}`) into the tag list. Total over
+    `Lean.Json.parse`. -/
+def parseTagsList (text : String) : Except String (List String) := do
+  let json ← Lean.Json.parse text
+  let arr ← (← json.getObjVal? "tags").getArr?
+  arr.toList.mapM (fun j => j.getStr?)
+
+/-- List a module's tags via the read-only OCI `.../tags/list` GET (auth-capable via B3d-7). Only
+    the production `mod get` path calls this; the offline gate drives `modGetResolveAndApply` with
+    in-memory tags. -/
+def ociListTags (cueRegistry modPath : String) : IO (Except String (List String)) := do
+  match Registry.resolveFromConfig cueRegistry modPath "v0.0.0" with
+  | .error e => pure (.error s!"invalid CUE_REGISTRY: {e}")
+  | .noRegistry => pure (.error s!"cannot list tags for {modPath}: registry is `none`")
+  | .found ref => do
+      let cache ← OciFetch.TokenCache.fresh
+      match ← OciFetch.authedGet cache ref.host (Oci.tagsListUrl ref) [] with
+      | .error e => pure (.error e)
+      | .ok bytes =>
+          match String.fromUTF8? bytes with
+          | none => pure (.error "tags/list response is not valid UTF-8")
+          | some text => pure (parseTagsList text)
+
+/-- Run `cue mod get <arg>` for the module rooted at `root`: read module.cue, fetch the registry
+    tag list only when resolution needs it (a full `@vX.Y.Z` skips the network), resolve + emit via
+    the pure core, then atomically write the updated module.cue. Returns the resolved
+    `(modulePath, version)`. -/
+def runModGet (root : System.FilePath) (arg cueRegistry : String) :
+    IO (Except String (String × String)) := do
+  let (modPath, verArg) := splitModuleArg arg
+  let modFile := root / "cue.mod" / "module.cue"
+  let source ← IO.FS.readFile modFile
+  let needTags :=
+    match verArg with
+    | none => true
+    | some v => match parseVerSpec v with | some (.exact _) => false | _ => true
+  let tagsE ← if needTags then ociListTags cueRegistry modPath else pure (.ok [])
+  match tagsE with
+  | .error e => pure (.error e)
+  | .ok tags =>
+      match modGetResolveAndApply source arg tags with
+      | .error e => pure (.error e)
+      | .ok (version, newSource) => do
+          atomicWriteBinFile modFile newSource.toUTF8
+          pure (.ok (modPath, version))
 
 end ModCmd
 end Kue

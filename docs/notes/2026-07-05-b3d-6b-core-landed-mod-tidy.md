@@ -12,6 +12,10 @@
 `./scripts/check.sh` GREEN. cert-manager canary unaffected (the export/import-resolution path was
 NOT touched — that is leg4, below).
 
+> **RESOLVED 2026-07-05:** both FILED dependents below LANDED — leg4 (export-path MVS) and leg2
+> (`mod get`). B3d-6b is FULLY CLOSED. The "what's next" list below is historical; see
+> `plan.md` § B3d track and `docs/notes/2026-07-05-b3d-6b-leg2-mod-get-landed.md`.
+
 **What's next (the two FILED dependents — see `plan.md` § B3d track for full scope):**
 
 1. **B3d-6b-leg4 — export-path MVS rewiring (MEDIUM, delicate, canary-risking; own attended

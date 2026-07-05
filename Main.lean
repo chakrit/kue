@@ -136,8 +136,29 @@ def runModTidy : IO UInt32 := do
               IO.println s!"  {mvv.basePath} {mvv.version}"
           pure 0
 
+/-- The `mod get <module>[@version]` subcommand: discover the module root from the cwd, resolve the
+    version (registry tag list for `latest`/partial constraints; a full version skips the network),
+    and rewrite `cue.mod/module.cue`'s deps block. Read-only registry GET; module.cue write is
+    atomic. -/
+def runModGet (arg : String) : IO UInt32 := do
+  let root ← IO.currentDir
+  match ← Kue.findModuleRoot root with
+  | none =>
+      IO.eprintln "kue: no cue.mod/module.cue found in any parent directory"
+      pure evalErrorCode
+  | some moduleRoot =>
+      let cueRegistry ← Kue.readCueRegistry
+      match ← Kue.ModCmd.runModGet moduleRoot arg cueRegistry with
+      | .error message =>
+          IO.eprintln s!"kue: mod get: {message}"
+          pure evalErrorCode
+      | .ok (modPath, version) =>
+          IO.println s!"added {modPath} {version} to cue.mod/module.cue"
+          pure 0
+
 def runMod : Kue.Cli.ModOp -> IO UInt32
   | .tidy => runModTidy
+  | .get arg => runModGet arg
 
 def runCommand : Kue.Cli.Command -> IO UInt32
   | .eval files => runEval files

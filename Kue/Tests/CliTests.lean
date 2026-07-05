@@ -112,9 +112,17 @@ theorem parse_mod_unknown_is_error :
     (match parse ["mod", "frobnicate"] with | .error _ => true | _ => false) = true := by
   native_decide
 
--- `mod get` reports its deferral cleanly (a filed follow-up, not silently accepted).
-theorem parse_mod_get_is_error :
-    (match parse ["mod", "get", "x.com/y@v1"] with | .error _ => true | _ => false) = true := by
+-- `mod get <module>[@ver]` parses to the get op carrying the raw argument (B3d-6b-leg2).
+theorem parse_mod_get : parse ["mod", "get", "x.com/y@v1"] = .mod (.get "x.com/y@v1") := by
+  native_decide
+
+-- `mod get` with no module argument is a usage error.
+theorem parse_mod_get_no_arg_is_error :
+    (match parse ["mod", "get"] with | .error _ => true | _ => false) = true := by native_decide
+
+-- `mod get` with more than one positional is a usage error.
+theorem parse_mod_get_extra_args_is_error :
+    (match parse ["mod", "get", "a", "b"] with | .error _ => true | _ => false) = true := by
   native_decide
 
 -- `mod --help` routes to the mod help topic.

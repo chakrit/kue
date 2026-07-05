@@ -391,16 +391,17 @@ rejection argument: `kue-performance.md` + implementation-log.
    is absorbed by the gate + fixtures + audit, not human review) — pin the carrier + 3 latent
    fixes + high-byte graduation with `native_decide` theorems before the refactor.
 
-1. **B3d-6b — CORE LANDED 2026-07-05 (`kue mod tidy` + MVS + `cue.sum` write + main-pin fix);
-   two legs FILED as dependents.** The substantive registry work landed: `kue mod tidy`
+1. **B3d-6b — FULLY LANDED 2026-07-05 (`kue mod tidy` + MVS + `cue.sum` write + main-pin fix +
+   leg 4 export-path MVS + leg 2 `mod get`).** The substantive registry work landed: `kue mod tidy`
    fetches each transitive dependency's `module.cue` over the read-only registry GET, builds the
    `RequirementGraph`, runs the CHECKED MVS solver (`Mvs.solveChecked` — the main-pin fix: a dep
    requiring a higher version of the main module's own path is a typed error, not a silent pin),
    and WRITES `cue.sum` with the verified `h1:` digests. New `Kue/ModCmd.lean` (carved from
    `Module.lean`); offline gate `scripts/check-mod-tidy.lean` drives a diamond graph proving
    max-of-mins selection + cue.sum. **leg 4 LANDED 2026-07-05** (export-path MVS rewiring — the
-   disk-built graph governs import resolution; see § B3d track). **Still open:** `mod get` +
-   tags/list (leg 2 — needs a CUE deps-block emitter). See § B3d track.
+   disk-built graph governs import resolution). **leg 2 LANDED 2026-07-05** (`kue mod get
+   <module>[@version]` — deps-block emitter + `.../tags/list` "latest" resolution; see § B3d track).
+   **B3d-6b is now fully closed** — no remaining FILED dependents.
 
 2. **B2-A1 — RESOLVED-BY-PROBE (2026-07-04, non-bug).** The prior claim ("`applyEvaluatedStructN`
    routes the patterns-present case through a meet that DROPS `tail`") was STALE: `applyEvaluatedStructN`
@@ -894,10 +895,10 @@ requirement graph governs import version selection — max-of-mins, not per-hop)
 staged-but-unused primitive.
 
 **Open B3d items (ranked):**
-- **B3d-6b — CORE + leg4 LANDED 2026-07-05.** Legs (1) requirement-graph fetch, (3) `mod tidy`
+- **B3d-6b — FULLY LANDED 2026-07-05 (all legs).** Legs (1) requirement-graph fetch, (3) `mod tidy`
   command parse + dispatch, (5) `cue.sum` WRITE, and the `Mvs.solve` main-pin fix landed via
-  `Kue/ModCmd.lean` + `kue mod tidy` (offline gate `scripts/check-mod-tidy.lean`). **ONE leg
-  remains as a FILED dependent (leg 2, below).**
+  `Kue/ModCmd.lean` + `kue mod tidy` (offline gate `scripts/check-mod-tidy.lean`); leg 4
+  (export-path MVS) and leg 2 (`mod get`) landed same-day. **No FILED dependents remain.**
   - **B3d-6b-leg4 — export-path MVS rewiring — LANDED 2026-07-05.** The MVS build list now governs
     the IMPORT-RESOLUTION path (`Module.lean`'s mutual loader): at load entry `solveVersionOverride`
     builds the requirement graph OFF DISK (`buildDiskRequirementGraph` — root-threaded BFS over each
@@ -914,15 +915,21 @@ staged-but-unused primitive.
     selection + `selectedVersion`. Divergence CLOSED in `compat-assumptions.md`. The flat-requirement
     *enforcement* (cue requires every transitive dep pinned in main) is deliberately NOT in scope —
     kue discovers deps transitively; that stays a separate, bounded leniency.
-  - **B3d-6b-leg2 — `mod get` + tags/list (MEDIUM; needs a CUE deps-block emitter).** `cue mod get
-    <module>[@version]` mutates `cue.mod/module.cue` (adds/updates a dep), which requires emitting
-    CUE for the deps block — a distinct surface kue lacks. Fold in leg 2's OCI `.../tags/list` GET
-    + semver-max "latest"/major→concrete resolution (pure `Semver.maxVersion` reuse) since it is
-    only consumed by `get`. `parseMod` currently reports `get`'s deferral cleanly.
-    **Mechanism VERIFIED-ACCURATE against code 2026-07-05 (plan-sweep):** `Semver.maxVersion`
-    (`Kue/Semver.lean:187`) exists for the max-resolution reuse. Location fix — `parseMod` lives in
-    `Kue/Cli.lean:83` (NOT `ModCmd.lean`); it returns the clean `.error` deferral for `get`, naming
-    the missing deps-block emitter. No stale premise; only the file pointer corrected.
+  - **B3d-6b-leg2 — `mod get` + tags/list — LANDED 2026-07-05.** `kue mod get <module>[@version]`
+    adds/updates a dependency in `cue.mod/module.cue`. Three pure capabilities + one IO edge, all
+    in `Kue/ModCmd.lean`: (a) the **deps-block emitter** — parse the existing module.cue for its
+    deps, merge the target (keyed on module path + major, so distinct majors coexist), re-render
+    ONLY the `deps` block in cue's canonical tab-indented form via a string/brace-aware textual
+    excision that preserves all non-deps content (illegal-states-unrepresentable: a present-but-
+    unlocatable deps block ERRORS rather than emit a conflicting file); (b) **tag "latest"
+    resolution** — bare/`@latest`/`@vN`/`@vN.M` filter the registry `.../tags/list` to valid
+    non-prerelease semver matching the constraint and take the max (`Semver.maxVersion`); (c) the
+    pure driver `modGetResolveAndApply` (source + arg + in-memory tags → new source), so the whole
+    pipeline is `native_decide`-checkable OFFLINE. Byte-identical to `cue mod get` v0.16.1 for the
+    canonical (block-form) add. Divergence: kue preserves non-deps content verbatim where cue
+    reformats the whole file — spec-silent, recorded in `cue-spec-gaps.md`. 40 `native_decide`
+    tests (`Tests/ModCmdTests.lean`) + CLI parse pins (`Tests/CliTests.lean`). The read-only
+    tags/list GET (`ociListTags`) is production-only; no gate depends on the network.
 - **B3d-A2** (test-strength, LOW) — pin the DEFLATE/ZIP adversarial reject branches (invalid
   Huffman code, distance-too-far-back, STORED LEN/NLEN, fuel exhaustion, bad CD sig, unsupported
   method, CRC/size mismatch); only BTYPE=3 is pinned today.

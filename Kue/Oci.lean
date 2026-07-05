@@ -179,6 +179,12 @@ def manifestUrl (ref : Registry.OciRef) : String :=
 def blobUrl (ref : Registry.OciRef) (digest : String) : String :=
   s!"{scheme ref}://{ref.host}/v2/{ref.repository}/blobs/{digest}"
 
+/-- `GET /v2/<repository>/tags/list` — the tag-enumeration endpoint (`ocirequest` `ReqTagsList`).
+    The response is `{"name": …, "tags": […]}`; `ref.tag` is irrelevant to this URL (only host +
+    repository matter), so any resolved ref for the module path suffices. -/
+def tagsListUrl (ref : Registry.OciRef) : String :=
+  s!"{scheme ref}://{ref.host}/v2/{ref.repository}/tags/list"
+
 /-- The `Accept` media types cue's client sends on a manifest GET, in order
     (`client.go` `knownManifestMediaTypes`). Some registries withhold the manifest body without
     an explicit `Accept`, so all known kinds are offered (and `*/*` as a fallback). -/

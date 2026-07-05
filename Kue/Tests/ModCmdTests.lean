@@ -84,5 +84,158 @@ example :
       = [ ("A", "v1.0.0", "h1:AAA="), ("C", "v1.3.0", "h1:CCC=") ] := by
   native_decide
 
+--
+-- # `cue mod get` pure layer (B3d-6b-leg2)
+--
+-- The deps-block emitter, tag "latest" resolution, and the end-to-end pure driver are all offline
+-- and `native_decide`-checkable (the network only supplies the tag list). Emitter output is
+-- cross-validated byte-identical against `cue mod get` v0.16.1 for the canonical (block-form) case.
+--
+
+-- ## depKey: dependency → its `deps` key `"<modpath>@v<major>"`
+
+example : depKey "foo.example/bar" "v1.2.3" = some "foo.example/bar@v1" := by native_decide
+example : depKey "z.example/m" "v0.3.1" = some "z.example/m@v0" := by native_decide
+example : depKey "x" "not-a-version" = none := by native_decide
+
+-- ## mergeDep: update the same-major entry in place; append a new major
+
+example :
+    mergeDep [dep "c.example/c" "v1.2.0"] (dep "c.example/c" "v1.3.0")
+      = [dep "c.example/c" "v1.3.0"] := by native_decide
+
+example :
+    mergeDep [dep "c.example/c" "v1.2.0"] (dep "c.example/c" "v2.0.0")
+      = [dep "c.example/c" "v1.2.0", dep "c.example/c" "v2.0.0"] := by native_decide
+
+example :
+    mergeDep [] (dep "a.example/a" "v1.0.0") = [dep "a.example/a" "v1.0.0"] := by native_decide
+
+-- ## renderDepsBlock: canonical, tab-indented, keys sorted ascending (cue's exact form)
+
+example :
+    renderDepsBlock [dep "foo.example/bar" "v1.2.3"]
+      = "deps: {\n\t\"foo.example/bar@v1\": {\n\t\tv: \"v1.2.3\"\n\t}\n}\n" := by native_decide
+
+-- Two entries render sorted by key regardless of input order.
+example :
+    renderDepsBlock [dep "z.example/z" "v2.0.0", dep "a.example/a" "v1.0.0"]
+      = "deps: {\n\t\"a.example/a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n"
+        ++ "\t\"z.example/z@v2\": {\n\t\tv: \"v2.0.0\"\n\t}\n}\n" := by native_decide
+
+-- ## exciseTopLevelDeps: string/brace-aware removal of the top-level deps block
+
+private def blockForm : String :=
+  "module: \"app.example@v0\"\nlanguage: {\n\tversion: \"v0.15.4\"\n}\n"
+
+-- No deps field present ⇒ nothing removed, `found = false`.
+example : (exciseTopLevelDeps blockForm).2 = false := by native_decide
+example : (exciseTopLevelDeps blockForm).1 = blockForm := by native_decide
+
+-- A trailing deps block is removed cleanly (source minus the block), `found = true`.
+example :
+    exciseTopLevelDeps
+        "module: \"m@v0\"\ndeps: {\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\n"
+      = ("module: \"m@v0\"\n", true) := by native_decide
+
+-- A deps value containing nested braces AND a string with braces/`deps:` inside is matched to its
+-- correct closing brace (the string content never trips the scanner).
+example :
+    (exciseTopLevelDeps
+        "module: \"m@v0\"\ndeps: {\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t\tx: \"}deps: {\"\n\t}\n}\nsource: {\n\tkind: \"self\"\n}\n").1
+      = "module: \"m@v0\"\nsource: {\n\tkind: \"self\"\n}\n" := by native_decide
+
+-- `depsfoo` is NOT the deps field (token boundary).
+example : (exciseTopLevelDeps "module: \"m@v0\"\ndepsfoo: 1\n").2 = false := by native_decide
+
+-- ## parseVerSpec: constraint classification
+
+example : parseVerSpec "latest" = some .latest := by native_decide
+example : parseVerSpec "v1.2.3" = some (.exact "v1.2.3") := by native_decide
+example : parseVerSpec "v1" = some (.major "1") := by native_decide
+example : parseVerSpec "v1.2" = some (.majorMinor "1" "2") := by native_decide
+example : parseVerSpec "v0" = some (.major "0") := by native_decide
+example : parseVerSpec "v1.2.3-rc.1" = some (.exact "v1.2.3-rc.1") := by native_decide
+example : parseVerSpec "banana" = none := by native_decide
+
+-- ## resolveVerSpec: filter valid non-prerelease tags matching the constraint, take the max
+
+private def tags : List String :=
+  ["v1.0.0", "v1.3.2", "v2.0.0-rc.1", "v0.9.0", "v2.5.0", "not-a-tag"]
+
+-- latest = max non-prerelease overall (the v2.0.0-rc.1 prerelease and junk tag are excluded).
+example : (resolveVerSpec .latest tags).toOption = some "v2.5.0" := by native_decide
+
+-- major v1 = max under v1 (v1.3.2).
+example : (resolveVerSpec (.major "1") tags).toOption = some "v1.3.2" := by native_decide
+
+-- major-minor v1.0 = max under v1.0 (only v1.0.0).
+example : (resolveVerSpec (.majorMinor "1" "0") tags).toOption = some "v1.0.0" := by native_decide
+
+-- exact is returned as-is, no tag lookup.
+example : (resolveVerSpec (.exact "v9.9.9") []).toOption = some "v9.9.9" := by native_decide
+
+-- A prerelease-only pool for a major ⇒ typed error (no non-prerelease match).
+example : (resolveVerSpec (.major "2") ["v2.0.0-rc.1", "v2.1.0-beta"]).toOption = none := by
+  native_decide
+
+-- An empty / no-match tag list ⇒ typed error, never a silent pick.
+example : (resolveVerSpec .latest []).toOption = none := by native_decide
+
+-- ## modGetResolveAndApply: end-to-end (offline), re-parsing the emitted module.cue
+
+-- Re-read the emitted module.cue's deps (round-trip through the real parser).
+private def reDeps (src : String) : Option (List Dep) :=
+  match parseSource src with
+  | .ok v => some (parseDeps v)
+  | .error _ => none
+
+-- Add an exact dep to a deps-less module: byte-identical to `cue mod get` v0.16.1 (block form).
+example :
+    (modGetResolveAndApply blockForm "foo.example/bar@v1.2.3" []).toOption
+      = some ("v1.2.3",
+          "module: \"app.example@v0\"\nlanguage: {\n\tversion: \"v0.15.4\"\n}\n"
+          ++ "deps: {\n\t\"foo.example/bar@v1\": {\n\t\tv: \"v1.2.3\"\n\t}\n}\n") := by
+  native_decide
+
+-- Bare `get` resolves `latest` against the tag list, then emits.
+example :
+    (modGetResolveAndApply blockForm "foo.example/bar" tags).toOption.map (·.1) = some "v2.5.0" := by
+  native_decide
+
+example :
+    ((modGetResolveAndApply blockForm "foo.example/bar" tags).toOption.map (·.2)).bind reDeps
+      = some [dep "foo.example/bar" "v2.5.0"] := by native_decide
+
+private def existingV1 : String :=
+  "module: \"a.example/a@v0\"\nlanguage: version: \"v0.15.4\"\ndeps: {\n\t\"c.example/c@v1\": v: \"v1.2.0\"\n}\n"
+
+-- Update the same-major dep in place (one-line-form input preserved; deps re-rendered canonically).
+example :
+    ((modGetResolveAndApply existingV1 "c.example/c@v1.3.0" []).toOption.map (·.2)).bind reDeps
+      = some [dep "c.example/c" "v1.3.0"] := by native_decide
+
+-- Add a second major alongside the existing entry.
+example :
+    ((modGetResolveAndApply existingV1 "c.example/c@v2.0.0" []).toOption.map (·.2)).bind reDeps
+      = some [dep "c.example/c" "v1.2.0", dep "c.example/c" "v2.0.0"] := by native_decide
+
+-- No-op: requesting the version already pinned re-emits the same single entry.
+example :
+    ((modGetResolveAndApply existingV1 "c.example/c@v1.2.0" []).toOption.map (·.2)).bind reDeps
+      = some [dep "c.example/c" "v1.2.0"] := by native_decide
+
+-- Downgrade is permitted (get sets the requested version, MVS/tidy is a separate concern).
+example :
+    (modGetResolveAndApply existingV1 "c.example/c@v1.1.0" []).toOption.map (·.1) = some "v1.1.0" := by
+  native_decide
+
+-- Empty module path ⇒ typed error.
+example : (modGetResolveAndApply blockForm "@v1.0.0" []).toOption = none := by native_decide
+
+-- Unrecognized version constraint ⇒ typed error.
+example : (modGetResolveAndApply blockForm "foo.example/bar@garbage" []).toOption = none := by
+  native_decide
+
 end ModCmd
 end Kue

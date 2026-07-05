@@ -26,8 +26,8 @@ The two big registry legs are the next real slices, plan entries now verified-ac
    Touches the loader the cert-manager canary exercises → needs a canary re-run (the net, not a
    stop condition under the standing grant). Disk-first graph builder + version-override through
    `ModuleContext` + an on-disk diamond fixture.
-2. **B3d-6b-leg2 (`mod get` + tags/list, MEDIUM)** — needs a CUE deps-block emitter kue lacks;
-   folds in OCI `.../tags/list` "latest" resolution (`Semver.maxVersion` reuse).
+2. **B3d-6b-leg2 (`mod get` + tags/list, MEDIUM)** — LANDED 2026-07-05 (deps-block emitter +
+   tags/list latest resolution; B3d-6b fully closed). Historical below.
 
 Lower tail: B3d-A2 (DEFLATE/ZIP adversarial reject pins), UNUSED-IMPORT enforcement (sibling of
 BUILTIN-IMPORT-LENIENCY, documented in `compat-assumptions.md`).

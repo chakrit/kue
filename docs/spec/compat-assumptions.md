@@ -250,8 +250,10 @@ those forms.
   `kue mod tidy` fetches deps' `module.cue` to BUILD the requirement graph (read-only GET), runs
   the CHECKED MVS solver, and WRITES `cue.sum` (`Kue/ModCmd.lean`). **leg4 LANDED (2026-07-05):**
   the same solver now governs the import-resolution path off a disk-built graph (see the
-  IMPORT-RESOLUTION note above). One FILED dependent remains: `mod get` + `.../tags/list` "latest"
-  resolution (leg2, needs a CUE deps-block emitter). See [`plan.md`](plan.md) § B3d track.
+  IMPORT-RESOLUTION note above). **leg2 LANDED (2026-07-05):** `kue mod get <module>[@version]`
+  emits/patches the `module.cue` deps block + resolves `latest`/`@vN` against the registry
+  `.../tags/list`. **B3d-6b is now fully closed — no FILED dependents remain.** See
+  [`plan.md`](plan.md) § B3d track.
 - **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import
   comment/ trailing-comma robustness. Real prod9 grouped imports parse fine today, so this
   stays parked. The stdin and multi-file CLI paths still discard imports (pre-B3a
