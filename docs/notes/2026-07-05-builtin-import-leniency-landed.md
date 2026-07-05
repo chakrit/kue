@@ -48,5 +48,7 @@ forms, aliased/wrong/missing/multiple/nested imports, slice-operator exemption v
 Backlog per plan.md OPEN: BYTES-SLICE-MISSING, BYTE-INTERPOLATION, B3d-6b (network-gated).
 Separate remaining leniency (NOT this slice, recorded in compat-assumptions): UNUSED-IMPORT — kue
 does not flag an imported-but-unused package (cue errors `imported and not used`); same
-dead-binding-detection family as unreferenced-`let`. **Two-phase audit window**: check whether one
+dead-binding-detection family as unreferenced-`let`. [Retraction 2026-07-05: UNUSED-IMPORT has
+since LANDED — enforced in `resolveImports`; see `2026-07-05-unused-import-enforcement-landed.md`
+and compat-assumptions UNUSED-IMPORT → CLOSED.] **Two-phase audit window**: check whether one
 is due (this + recent slices since the last audit).

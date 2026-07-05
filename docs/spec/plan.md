@@ -631,9 +631,18 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   parses pass through. The slice operator `x[lo:hi]` desugars to a NEW core `slice` builtin —
   import-exempt (a language operator) and distinct from the import-gated public `list.Slice`.
   Corpus needed zero fixture migration (all 28 builtin-using fixtures already imported, being
-  cue-oracle-derived); tests in `ImportEnforcementTests.lean`. Remaining separate leniency (NOT
-  this slice): kue does not error on an UNUSED import (cue: `imported and not used`) — see
-  cue-spec-gaps.
+  cue-oracle-derived); tests in `ImportEnforcementTests.lean`.
+- **UNUSED-IMPORT — ✅ LANDED 2026-07-05 (sibling of BUILTIN-IMPORT-LENIENCY).** The mirror
+  half: an `import` present but never referenced in the file body is now cue's `imported and
+  not used` build error, so the document bottoms (`.importedNotUsed`). Enforced in `resolveImports`
+  (`Kue/Parse.lean`, both parse entry points) via a pre-canonicalization `collectReferencedHeads`
+  walk that gathers every referenced package head and checks each import's local bind name against
+  it; detection only under-reports so a used import is never mis-flagged. Corpus migration: ZERO
+  genuine unused imports (a 632-file scan flagged only two pre-existing ERROR fixtures where a
+  prior error — import-name redeclaration, invalid package id — supersedes). Two stale ParseTests
+  that pinned the old leniency (`parse_import_clause_is_ignored`) retargeted to the enforced
+  bottom. Tests in `ImportEnforcementTests.lean` (16 new theorems). Both halves of cue's import
+  contract (declared ⇔ used) now hold.
 
 ### 2026-07-04 Phase A audit findings (batch `dfdd1ab..HEAD`: list-slice / interp-typing / byte-escapes)
 

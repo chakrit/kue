@@ -435,16 +435,25 @@ theorem parse_bytes_kind_unification :
       "x: 'abc'" = true := by
   native_decide
 
-theorem parse_import_clause_is_ignored :
+-- A single import clause is consumed and the body parses — but an UNUSED import is cue's
+-- `imported and not used` build error, so the document bottoms (UNUSED-IMPORT enforcement).
+theorem parse_unused_import_clause_bottoms :
     parseOutputMatches
       "import \"strings\"\nx: 1\n"
-      "x: 1" = true := by
+      "_|_" = true := by
   native_decide
 
-theorem parse_grouped_import_clause_is_ignored :
+-- Same for the grouped `import ( … )` form: clause consumed, unused import bottoms the file.
+theorem parse_unused_grouped_import_clause_bottoms :
     parseOutputMatches
       "import (\n\t\"strings\"\n)\nx: 1\n"
-      "x: 1" = true := by
+      "_|_" = true := by
+  native_decide
+
+-- With the import USED, the clause is consumed and the body parses through to a residual call
+-- (the positive companion — the clause is stripped, not the enforcement misfiring).
+theorem parse_used_import_clause_parses_body :
+    parseSucceeds "import \"strings\"\nx: strings.ToUpper(\"a\")\n" = true := by
   native_decide
 
 -- ## Qualified import-path parsing (F-3)

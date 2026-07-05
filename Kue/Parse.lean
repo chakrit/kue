@@ -2036,6 +2036,90 @@ def applyBuiltinAliases (imports : List Import) (value : Value) : Value :=
   canonicalizeBuiltinCalls (builtinImportLocalNames imports)
     (importedBuiltinPackages imports) builtinAliasFuel value
 
+/-- Every local identifier the parsed body references as a package head: the label of each
+    `.ref` node (a selector base `pkg.field` parses as `.selector (.ref "pkg") …`, and a deferred
+    stdlib constant as `.selector (.ref "pkg") "Const"`, so both surface here) plus the head
+    segment of each `.builtinCall` name (`strings.ToUpper` → `strings`; an aliased `j.Marshal`
+    → `j`, read off the AS-WRITTEN head BEFORE canonicalization rewrites it). This is the "used"
+    set the unused-import check tests each import's local bind name against. Enumerated
+    exhaustively (no catch-all) so a new recursive `Value` constructor forces an arm here — an
+    import used only through an unhandled node would otherwise be mis-flagged unused. -/
+def collectReferencedHeads : Nat -> Value -> List String
+  | 0, _ => []
+  | fuel + 1, value =>
+    let rec' := collectReferencedHeads fuel
+    match value with
+    | .ref label => [label]
+    | .builtinCall name args => (name.splitOn ".").headD "" :: args.flatMap rec'
+    | .conj constraints => constraints.flatMap rec'
+    | .unary _ operand => rec' operand
+    | .binary _ left right => rec' left ++ rec' right
+    | .selector base _ => rec' base
+    | .index base key => rec' base ++ rec' key
+    | .disj alternatives => alternatives.flatMap (fun a => rec' a.snd)
+    | .struct fields _ tail patterns closedClauses =>
+        fields.flatMap (fun f => rec' f.value)
+          ++ (tail.map rec').getD []
+          ++ patterns.flatMap (fun p => rec' p.fst ++ rec' p.snd)
+          ++ closedClauses.flatMap (fun c => c.patterns.flatMap rec')
+    | .structComp fields comprehensions _ =>
+        fields.flatMap (fun f => rec' f.value) ++ comprehensions.flatMap rec'
+    | .list items => items.flatMap rec'
+    | .listTail items tail => items.flatMap rec' ++ rec' tail
+    | .embeddedList items tail decls =>
+        items.flatMap rec' ++ (tail.map rec').getD [] ++ decls.flatMap (fun f => rec' f.value)
+    | .embeddedScalar scalar decls => rec' scalar ++ decls.flatMap (fun f => rec' f.value)
+    | .comprehension clauses body =>
+        clauses.flatMap (collectReferencedHeadsClause fuel) ++ rec' body
+    | .listComprehension clauses body =>
+        clauses.flatMap (collectReferencedHeadsClause fuel) ++ rec' body
+    | .interpolation parts => parts.flatMap rec'
+    | .dynamicField label _ value => rec' label ++ rec' value
+    | .closure _ body => rec' body
+    | .top => []
+    | .bottom => []
+    | .bottomWith _ => []
+    | .prim _ => []
+    | .kind _ => []
+    | .notPrim _ => []
+    | .stringRegex _ => []
+    | .boundConstraint _ _ _ => []
+    | .refId _ => []
+    | .thisStruct => []
+  where
+    collectReferencedHeadsClause (fuel : Nat) : Clause Value -> List String
+      | .forIn _ _ source => collectReferencedHeads fuel source
+      | .guard condition => collectReferencedHeads fuel condition
+      | .letClause _ value => collectReferencedHeads fuel value
+
+/-- The local identifier an import binds in the file scope: explicit alias, else the
+    `:identifier` package qualifier, else the last path element. Matches `Module.importBindName`'s
+    resolution for the builtin/no-declared-name case — the name a body must reference for the
+    import to count as used. -/
+def importLocalBindName (imp : Import) : String :=
+  match imp.alias with
+  | some alias => alias
+  | none => imp.packageName.getD (lastPathElement imp.path)
+
+/-- The imports a file declares but never references — cue's `imported and not used` set. An
+    import counts as USED when its local bind name appears among `collectReferencedHeads` of the
+    parsed body (a `pkg.field` selector, an aliased `p.Fn` builtin call, or a bare `pkg` ref).
+    Detection only ever UNDER-reports (a body reference we don't model leaves the import counted
+    as used), never over-reports, so a genuinely-used import is never mis-flagged. -/
+def unusedImports (imports : List Import) (value : Value) : List Import :=
+  let used := collectReferencedHeads builtinAliasFuel value
+  imports.filter (fun imp => !used.contains (importLocalBindName imp))
+
+/-- Enforce cue's import requirements on a parsed body: FIRST reject any imported-but-unused
+    package (`imported and not used` — a whole-file build error, so the document collapses to a
+    bottom carrying one reason per unused import), otherwise canonicalize aliased builtin heads
+    and gate un-imported builtin USES via `applyBuiltinAliases`. The two checks are the mirrored
+    halves of cue's import contract (declared ⇒ used, used ⇒ declared). -/
+def resolveImports (imports : List Import) (value : Value) : Value :=
+  match unusedImports imports value with
+  | [] => applyBuiltinAliases imports value
+  | unused => .bottomWith (unused.map (fun imp => .importedNotUsed imp.path imp.alias))
+
 def parseDocument (chars : List Char) : Except ParseError Value :=
   let afterPackage := consumePackageClauses chars
   match parseImportClauses [] afterPackage with
@@ -2049,7 +2133,7 @@ def parseDocument (chars : List Char) : Except ParseError Value :=
               match parsedFieldsValue fields with
               | .error error => .error error
               | .ok value =>
-                  .ok (applyBuiltinAliases imports value)
+                  .ok (resolveImports imports value)
           | rest => parseError rest "unexpected trailing input"
 
 /-- 1-based line and column for a char offset into `source`. Walks the first `offset`
@@ -2092,7 +2176,7 @@ def parseDocumentFile (chars : List Char) : Except ParseError ParsedFile := do
       | [] =>
           let packageName ← sourcePackageName (String.ofList chars)
           let value ← parsedFieldsValue fields
-          pure { value := applyBuiltinAliases imports value,
+          pure { value := resolveImports imports value,
                  packageName := packageName, imports := imports,
                  topLevelFieldNames := bareIdentifierLabels fields }
       | rest => parseError rest "unexpected trailing input"

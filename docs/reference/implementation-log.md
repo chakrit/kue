@@ -18406,3 +18406,66 @@ comments (deferral text removed), `CliTests.lean` (theorem flipped). B3d-6b is f
 `./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical — the canary
 does not run `mod get`, confirmed untouched; shellcheck PASS). Committed on `main`, explicit
 pathspec, NOT pushed.
+
+---
+
+## Completed Slice: UNUSED-IMPORT enforcement — 2026-07-05
+
+Goal: close the second half of cue's import contract. BUILTIN-IMPORT-LENIENCY (earlier today)
+enforced `used ⇒ declared` (a qualified builtin used without its `import` errors); this slice
+enforces `declared ⇒ used` — an `import` present but never referenced in the file body is cue's
+`imported and not used` build error (validated against cue v0.16.1: plain `imported and not used:
+"strings"`, aliased `… "strings" as s`, path `… "encoding/json"`).
+
+Enforcement. `resolveImports imports value` (`Kue/Parse.lean`) replaces the direct
+`applyBuiltinAliases` call at BOTH parse entry points (`parseDocument` single-file/inline,
+`parseDocumentFile` module-load). It FIRST rejects any imported-but-unused package — the document
+collapses to `.bottomWith (unused.map (.importedNotUsed path alias))`, one reason per unused import
+carrying the PATH + optional alias — otherwise falls through to the existing
+canonicalize/gate pass. New `BottomReason.importedNotUsed (path) (alias)` in `Value.lean`.
+
+"Used" detection. `collectReferencedHeads : Nat → Value → List String` walks the parsed body
+BEFORE canonicalization (canonicalize rewrites aliased heads `j.Marshal → json.Marshal` and
+resolves const selectors, erasing the as-written head), gathering every referenced package head:
+each `.ref` label (covers selector bases `pkg.field` and deferred stdlib consts `list.Ascending`,
+both parsed as `.selector (.ref head) …`) plus the head segment of each `.builtinCall` name
+(`strings.ToUpper` → `strings`, aliased `j.Marshal` → `j`). Enumerated exhaustively (no catch-all,
+mirroring `canonicalizeBuiltinCalls`) so a new recursive `Value` constructor forces an arm — the
+walk only ever UNDER-reports (an unmodeled reference leaves the import counted as used), never
+over-reports, so a genuinely-used import is never mis-flagged as unused (the soundness direction
+that matters: a false "unused" error on a used import is worse than the prior leniency).
+`unusedImports` filters imports whose `importLocalBindName` (alias > `:identifier` qualifier >
+last-path-element) is absent from the used set.
+
+Corpus migration (the Law-critical number). A 632-file scan (`testdata/` + inline test CUE)
+found ZERO genuine unused imports. Two files flagged, both PRE-EXISTING error fixtures where a
+prior error supersedes: `import_name_redeclaration` (expects `dep redeclared as imported package
+name` — the loader's redeclaration check runs after parse and its error wins over the bottom
+value; module-fixture gate confirms the expected stderr still matches) and
+`qualified_import_invalid_id` (`:2bad` invalid package id — errors at parse, before the unused
+check runs). cert-manager canary: NO imports at all (confirmed), export byte-identical (in-gate
+realworld canary green). No `scripts/check-*.sh` grep gate wired — same reason BUILTIN-IMPORT found
+one infeasible (aliases, `:identifier` qualifiers, local-field shadowing defeat a robust grep);
+the runtime now enforces it natively, the stronger guard.
+
+Test migration. Two stale `ParseTests` pinned the OLD leniency (`parse_import_clause_is_ignored`
+/ `parse_grouped_import_clause_is_ignored` asserted `import "strings"\nx: 1` → `x: 1`). Retargeted
+to the enforced bottom (`parse_unused_import_clause_bottoms` / `…_grouped_…`) plus a positive
+companion (`parse_used_import_clause_parses_body`). `ImportEnforcementTests.lean` gains 16 theorems:
+unused single/aliased/grouped/multiple bottom, reason-pinned path+alias, and use-site coverage
+proving the detector reaches every real form — nested struct, string interpolation, list
+comprehension body, definition (`#D`), and the no-call const form (`list.Ascending`).
+
+Residual (recorded `cue-spec-gaps.md` UNUSED-IMPORT row). The VERDICT matches cue (unused import →
+file bottoms, exit 1); the CLI MESSAGE is the generic `conflicting values (bottom)`, not cue's
+name-specific `imported and not used: "<path>"` — the SAME message-generality residual as the
+un-imported-builtin case (kue renders every bottom uniformly; the structured `.importedNotUsed`
+reason carries the provenance).
+
+Retractions (same slice). `compat-assumptions.md` UNUSED-IMPORT leniency → CLOSED (kue matches
+cue); `plan.md` BUILTIN-IMPORT-LENIENCY block's forward-reference dropped, a LANDED UNUSED-IMPORT
+entry added; the `2026-07-05-builtin-import-leniency-landed.md` note's "remaining leniency"
+paragraph annotated with a landed-retraction pointer; `cue-spec-gaps.md` UNUSED-IMPORT row added.
+
+`./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical; shellcheck
+PASS). Committed on `main`, explicit pathspec, NOT pushed.

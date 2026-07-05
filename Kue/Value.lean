@@ -720,6 +720,11 @@ inductive BottomReason where
       may still resolve to an interpolatable scalar), which DEFERS the interpolation residual.
       Carries the offending operand's type for provenance. -/
   | nonInterpolatable (type : ConcreteTypeName)
+  /-- An `import` declaration whose package is never referenced in the file body. cue rejects
+      such a file at build (`imported and not used: "<path>"`, plus ` as <alias>` for an aliased
+      import) — the dead-import sibling of the unreferenced-`let` diagnostic. Carries the import
+      PATH and optional alias for the cue-matching message. -/
+  | importedNotUsed (path : String) (alias : Option String)
 deriving Repr, BEq, DecidableEq
 
 /--

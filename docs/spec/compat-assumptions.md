@@ -81,12 +81,17 @@ those forms.
   `cue` *errors* on an unreferenced `let` /alias (`unreferenced alias or let clause` —
   intentional dead-binding detection); kue silently drops it. Tightening kue to match is a
   later slice if a real file needs the diagnostic.
-- **UNUSED-IMPORT leniency (kue-does-less, sibling of the unreferenced-`let` above).** Since
-  BUILTIN-IMPORT-LENIENCY landed (2026-07-05), kue enforces the USE side — a qualified builtin
-  used WITHOUT its `import` errors, matching cue. The reverse — an `import` present but never
-  used — cue *errors* (`imported and not used: "strings"`); kue silently accepts. Same
-  dead-binding-detection family as the `let` case; a later slice if a real file needs the
-  diagnostic. NOT in `cue-divergences.md` (kue-does-less, not kue-is-right).
+- **UNUSED-IMPORT — CLOSED 2026-07-05 (kue matches cue).** Both halves of cue's import
+  contract now hold: BUILTIN-IMPORT-LENIENCY enforces `used ⇒ declared` (a qualified builtin
+  used without its `import` errors), and this slice enforces `declared ⇒ used` — an `import`
+  present but never referenced in the file body is cue's `imported and not used` build error,
+  so the document collapses to a bottom (`.importedNotUsed path alias`, one per unused import).
+  Detection is a pre-canonicalization walk of the parsed body (`collectReferencedHeads`,
+  `Kue/Parse.lean`) gathering every referenced package head — selector bases (`pkg.field`),
+  aliased builtin-call heads (`p.Fn`), deferred stdlib-const heads (`list.Ascending`), and bare
+  `pkg` refs — checked against each import's local bind name in `resolveImports`. The detector
+  only ever UNDER-reports (a body reference it does not model leaves the import counted as used),
+  so a genuinely-used import is never mis-flagged. NOT a `cue`-divergence (kue now matches cue).
 - **List-embedding-in-struct eval — IMPLEMENTED (2026-06-17), oracle-matched.** A struct
   whose members are *all non-output* (hidden `_x`, definition `#x`, optional `a?:`, or
   `let`) embedding a list *is* that list: it manifests as the list, indexes as the list,
