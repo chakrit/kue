@@ -21,8 +21,8 @@ theorem definition_typed_tail_stays_typed_tail :
   native_decide
 
 -- SWEEP fix (A1/B1 class): a definition field whose value is directly a `.list` (or comprehension/
--- embeddedList/dynamicField) carrying a nested `#Def` struct had its body SWALLOWED by the old
--- `| _, value => value` catch-all, so the nested def was never closed (admitting extra fields where
+-- embeddedList/dynamicField) carrying a nested `#Def` struct would have its body SWALLOWED by a
+-- `| _, value => value` catch-all, leaving the nested def unclosed (admitting extra fields where
 -- CUE rejects). The `.list` arm descends with the closing normalizer; nested `#Inner` closes.
 theorem definition_list_value_closes_nested_definition :
     (normalizeDefinitions

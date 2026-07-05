@@ -1238,8 +1238,8 @@ theorem builtin_family_classifies_by_prefix_not_leaf :
   native_decide
 
 -- THE FIX. An unknown-FAMILY name with CONCRETE args is a CUE resolution error (`cue`:
--- `reference "foobar" not found`) — Kue now BOTTOMS it, where the old stringly-typed
--- `startsWith` chain fell through to a SILENT `.builtinCall` residual (manifested as an
+-- `reference "foobar" not found`) — Kue BOTTOMS it, where a stringly-typed
+-- `startsWith` dispatch chain would fall through to a SILENT `.builtinCall` residual (an
 -- inert "incomplete value", masking the error). Concrete-args ⇒ bottom is exactly the
 -- decision the in-family path already makes for an unknown LEAF (`unresolvedOrBottom`); the
 -- `none` arm now shares it, so the silent-admit class is gone.

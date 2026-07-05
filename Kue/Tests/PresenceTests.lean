@@ -313,7 +313,7 @@ theorem guard_incomplete_defers_residual :
   native_decide
 
 -- D#1b: the abstract guard does NOT silently drop — the residual struct is distinct from the
--- collapsed empty form the old catch-all produced.
+-- collapsed empty form a catch-all would produce.
 theorem guard_incomplete_not_dropped :
     (evalStructRefs (resolveStructRefs
       (.structComp []

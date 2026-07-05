@@ -667,8 +667,7 @@ def meetListPrefixTailWith
     `importBinding`; two real fields merge by OR-ing definition-ness, OR-ing hidden-ness,
     and meeting on the presence lattice (`#x? & #x` → definition + present; `x? & x!` →
     required; `_x? & _x` → hidden + present). The non-field kinds do not merge with any
-    other class (`none`), matching the old enum's refusal to combine `letBinding` with
-    any other class. -/
+    other class (`none`): a `letBinding` combines with nothing. -/
 def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
   match left, right with
   | .letBinding, .letBinding => some .letBinding

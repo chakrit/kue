@@ -386,10 +386,10 @@ theorem comprehension_list_body_bottom_export_errors :
 -- The struct-comprehension `[]`-arm handler (`expandClausesWithFuel`) emits the body struct's
 -- named fields. A body's `...` tail and `[pat]:` constraints are BODY-LOCAL: they bound the body
 -- block but do NOT propagate out of the `for`/`if` into the enclosing struct — only the named
--- fields merge (cue: `for _ in [1] {a: 1, ...}` ⇒ `{a: 1}`, the tail discarded). The handler match
--- formerly required `.struct _ _ none [] _` (no tail, no patterns), so a tail/pattern-bearing body
--- fell through to the catch-all and was DROPPED WHOLESALE — `a: 1` vanished with it. Now it matches
--- ANY `.struct`, taking the fields and leaving tail/patterns behind.
+-- fields merge (cue: `for _ in [1] {a: 1, ...}` ⇒ `{a: 1}`, the tail discarded). The handler matches
+-- ANY `.struct`, taking the fields and leaving tail/patterns behind. A narrower `.struct _ _ none [] _`
+-- (no tail, no patterns) would let a tail/pattern-bearing body fall through to the catch-all and be
+-- DROPPED WHOLESALE — `a: 1` vanishing with it.
 
 -- A body with an open `...` tail: emit the field, drop the tail (body-local).
 theorem comprehension_body_tail_is_body_local :
@@ -401,7 +401,7 @@ theorem comprehension_body_pattern_is_body_local :
     evalSourceMatches "out: {for x in [\"s\"] {a: 1, [string]: int}}\n" "out: {a: 1}" = true := by
   native_decide
 
--- Export-faithful: the field survives concretely (a regression to the old drop would export `{}`).
+-- Export-faithful: the field survives concretely (dropping the body would export `{}`).
 theorem comprehension_body_tail_exports_field :
     exportJsonMatches "out: {for x in [\"s\"] {a: 1, ...}}\n"
       "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by

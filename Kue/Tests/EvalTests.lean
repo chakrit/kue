@@ -917,7 +917,7 @@ theorem f1_distinct_defaults_stay_ambiguous :
 -- the outer default selects `d`'s disjunction, promoting its own arms to defaults (no
 -- inner `*` → both `1` and `2` become defaults), while the regular outer `5` stays
 -- regular. The flatten thus carries the inner default structure rather than blanket- or
--- OR-marking — the OLD bug produced `*1 | 2 | 5`.
+-- OR-marking — a blanket-OR-mark would wrongly produce `*1 | 2 | 5`.
 theorem f1_nested_default_flatten_carries_inner :
     (liveAlternatives
       [(.default, .disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))]),

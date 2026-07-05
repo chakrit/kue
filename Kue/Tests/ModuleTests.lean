@@ -35,7 +35,7 @@ example : resolveImportSubpath "example.com" "example.computer/defs" = none := b
 -- have DIVERGED (the latent bug the unification closes).
 
 -- Canary: a real lowercase module path's `extractCachePath` is byte-identical to the bare
--- `<root>/extract/<modpath>@<ver>` the old segment-join produced — so the read-path is unchanged
+-- `<root>/extract/<modpath>@<ver>` join — so the read-path resolves identically
 -- for every real module.
 example :
     Registry.extractCachePath "/c/mod" (Registry.mkModuleVersion "lib.example/defs" "v0.1.0")

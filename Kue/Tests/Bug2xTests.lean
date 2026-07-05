@@ -20,9 +20,9 @@ namespace Kue
 --
 -- Two SEPARATE declarations of one definition path (`#Foo: {a:1}` + `#Foo: {c:3}`) UNIFY their field
 -- SETS and close ONCE over the union (the same union-not-intersect rule as embedding closedness) →
--- cue v0.16.1 gives `{a:1, c:3}`. Kue formerly closed each decl's body SEPARATELY (`defClosed` at
--- load) and conjoined them (`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`), so the meet
--- MUTUALLY REJECTED → `{a:_|_, c:_|_}` (export bottomed). FIXED by `mergeDefinitionDecls`: when
+-- cue v0.16.1 gives `{a:1, c:3}`. Closing each decl's body SEPARATELY (`defClosed` at
+-- load) and conjoining them (`canonicalizeFields` → `.conj [defClosed{a}, defClosed{c}]`) makes the
+-- meet MUTUALLY REJECT → `{a:_|_, c:_|_}` (export bottoms). `mergeDefinitionDecls` instead: when
 -- `canonicalizeFields`/`mergeConjFields` merge two same-label DEFINITION-class decls, the bodies are
 -- UNIONED into ONE def body (close-once via the existing single-`closedClauses`-clause path), NOT a
 -- `.conj`. The `#A & #B` use-site-meet path is structurally untouched (a `meet` of two already-closed
@@ -231,8 +231,8 @@ theorem bug27_closed_pattern_multi_decl_rejects_int_via_ref :
 -- Bug2-7 unions same-def decls declared WITHIN one struct body (one operand). Bug2-8 is when a def
 -- declares `#m` once and EMBEDS another def that also declares `#m` (`#A: {#m:{a}}` then `#Use: {#A;
 -- #m:{c}; vis:#m}`): the two `#m` decls are repeated declarations of the ONE def path `#m` spanning the
--- embed boundary, which cue close-once-UNIONS (`{a:1, c:3}`). kue formerly `.conj`-meet them across the
--- embed → each clause re-closes separately → mutual reject → bottom.
+-- embed boundary, which cue close-once-UNIONS (`{a:1, c:3}`). `.conj`-meeting them across the
+-- embed would re-close each clause separately → mutual reject → bottom (wrong).
 --
 -- The fix carries def-path PROVENANCE through the embed merge (a SUM `DeclProvenance` =
 -- `ownDecl`/`embeddedDecl`, on a named `ConjOperand`). A PLAIN embedding's same-def-path decls
@@ -692,7 +692,7 @@ theorem bug213_required_unset_not_swallowed_as_absent :
 
 -- PLAIN sibling-ref form (the SCOPE-broadening witness — a comprehension-only fix would FAIL this):
 -- `echo: bk` reads the embed-local `bk`, which the host narrows to `"X"`. cue `{bk:"X", echo:"X"}`;
--- kue formerly `echo: string`. Now `echo: "X"`.
+-- without the scope-broadening this reads `echo: string` (wrong).
 theorem bug214_plain_sibling_ref_reads_host_narrowed :
     evalSourceMatches
       "host: {\n\tbk: \"X\"\n\t{\n\t\tbk: string\n\t\techo: bk\n\t}\n}\n"
@@ -702,7 +702,7 @@ theorem bug214_plain_sibling_ref_reads_host_narrowed :
 
 -- COMPREHENSION form (the argocd `#Mixin` shape: `if kind == …` reads the embed-local abstract
 -- field). The guard fires against the host-narrowed `bk == "X"` and the comprehension DRAINS. cue
--- `{bk:"X", hit:true}`; kue formerly left the `for`/`if` undrained (export error). Now `hit: true`.
+-- `{bk:"X", hit:true}`; without host-narrowed resolution the `for`/`if` stays undrained (export error).
 theorem bug214_comprehension_guard_reads_host_narrowed :
     evalSourceMatches
       "host: {\n\tbk: \"X\"\n\t{\n\t\tbk: string\n\t\tfor k, v in {p: 1} {\n\t\t\tif bk == \"X\" { hit: true }\n\t\t}\n\t}\n}\n"

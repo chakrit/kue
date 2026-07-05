@@ -610,8 +610,8 @@ theorem digest_separates_k8s_population :
     distinctCount (k8sDigests DIGEST_DEPTH 1000) = 1000 := by
   native_decide
 
--- THE BASELINE (what the fix replaced): the OLD shallow `valueTag` hash collapses ALL 1000 into ONE
--- bucket → the O(N²) wall. Pins the contrast: the digest is what reclaims the lookup cost.
+-- THE CONTRAST: the shallow `valueTag` hash collapses ALL 1000 into ONE
+-- bucket → the O(N²) wall. Pins that the digest is what reclaims the lookup cost.
 theorem valueTag_collapses_k8s_population :
     distinctCount (k8sTags 1000) = 1 := by
   native_decide

@@ -59,7 +59,7 @@ theorem select_into_nondefault_disjunction_defers :
     -- the shared `selectFromConcrete`, called both at top-level and once the default resolves. The
     -- collapse is BYTE-IDENTICAL on the carrier defaults (the cases below + the three above) and on
     -- the doubly-nested-default deferral, and gains a correct field-off-scalar-default error (the
-    -- `.prim` default now `.bottom`s the arm == cue, where the old `_` arm deferred to `.selector`).
+    -- `.prim` default now `.bottom`s the arm == cue, where a catch-all `_` arm would defer to `.selector`).
 
 -- BYTE-IDENTICAL (carrier default, deep nest): a default arm that is a `.disj` whose own
     -- unique default is a carrier — one `liveAlternatives` flatten resolves the inner default to a
@@ -75,8 +75,8 @@ theorem select_into_default_disjunction_nested_carrier :
   native_decide
 
 -- BYTE-IDENTICAL (doubly-nested `.disj`-valued default DEFERS, unchanged): a TRIPLE-nested
-    -- disjunction leaves an INNER `.disj` as the resolved default after one flatten. The old `_`
-    -- arm deferred to `.selector`; the collapse's explicit `some (.disj _) => .selector` keeps that
+    -- disjunction leaves an INNER `.disj` as the resolved default after one flatten. A catch-all `_`
+    -- arm would defer to `.selector`; the collapse's explicit `some (.disj _) => .selector` pins that
     -- exact deferral (recursing would gain cue's `1` but needs a well-founded termination proof —
     -- not worth it for a shape eval-time flatten makes unreachable from source). Pin guards the
     -- deferral stays byte-identical, NOT a spurious `.bottom`.
@@ -154,8 +154,8 @@ theorem select_field_off_ref_scalar_default_drops_arm :
 -- DIRECT DISPATCH PIN (the fix, at the function): selecting off a disjunction whose unique
     -- default is a SCALAR `.prim` now `.bottom`s — `resolveDisjDefault?` returns the `.prim`, and
     -- `selectFromConcrete`'s `_ => .bottom` plucks it. Asserts the new arm directly (the
-    -- `exportJsonMatches` shed pins only observe it end-to-end); the OLD `_` arm returned a deferred
-    -- `.selector`, so a regression that re-defers would flip this to `.selector`.
+    -- `exportJsonMatches` shed pins only observe it end-to-end); a catch-all `_` arm would return a
+    -- deferred `.selector`, so a regression that re-defers would flip this to `.selector`.
 theorem select_field_off_scalar_default_is_bottom :
     (selectEvaluatedField
       (.disj [(.default, .prim (.int 5)),

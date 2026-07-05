@@ -1423,8 +1423,9 @@ mutual
         -- Emit the body's regular fields. The match is deliberately on ANY `.struct` (any
         -- openness/tail/patterns): a comprehension body's `...` tail and `[pat]:` constraints are
         -- body-local — they do NOT propagate out of the `for`/`if` block, only its named fields
-        -- merge into the enclosing struct (cue: `for _ in [1] {a:1, ...}` ⇒ `{a:1}`). The old
-        -- `.struct _ _ none [] _` dropped a tail/pattern-bearing body wholesale.
+        -- merge into the enclosing struct (cue: `for _ in [1] {a:1, ...}` ⇒ `{a:1}`). Matching all
+        -- axes (`.struct fields _ _ _ _`) keeps the named fields regardless of tail/patterns; a
+        -- narrower `.struct _ _ none [] _` arm would drop a tail/pattern-bearing body wholesale.
         | .struct fields _ _ _ _ => .payload fields
         -- D#1d-RESIDUAL: a comprehension BODY that itself evaluates to a HELD `.structComp`
         -- residual (an abstract-keyed dyn field `{(k):1}`, or a nested deferred `if`/`for`) is

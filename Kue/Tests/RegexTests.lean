@@ -214,7 +214,7 @@ theorem rx_match_lazy_plus : m "a+?" "aaa" = true := by native_decide
 theorem rx_match_alt_plus_substr : m "(foo|bar)+" "xfoobarx" = true := by native_decide
 theorem rx_match_alt_plus_none : m "(foo|bar)+" "xbazx" = false := by native_decide
 
--- ## Existing simple-pattern behavior stays correct (the old engine got these right)
+-- ## Existing simple-pattern behavior stays correct (basic anchors/classes the engine handles directly)
 
 theorem rx_match_anchor_start : m "^a" "abc" = true := by native_decide
 theorem rx_match_miss : m "z" "abc" = false := by native_decide

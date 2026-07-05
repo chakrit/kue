@@ -378,9 +378,9 @@ end Optionality
     A field independently is/isn't a definition (`#x`), is/isn't hidden (`_x`), and sits
     on the presence lattice (`Optionality`). `letBinding` is a distinct kind (a `let`
     binding is not a field and composes with nothing), kept as its own constructor so the
-    field axes never have to encode a non-field. This makes the formerly-illegal
-    combinations — `#x?` (optional definition), `#x!` (required definition), `_x?`
-    (optional hidden) — first-class and merge per-axis. -/
+    field axes never have to encode a non-field. The cross-axis combinations — `#x?`
+    (optional definition), `#x!` (required definition), `_x?` (optional hidden) — are
+    first-class and merge per-axis. -/
 inductive FieldClass where
   | field (isDefinition : Bool) (isHidden : Bool) (optionality : Optionality)
   | letBinding
@@ -652,9 +652,9 @@ inductive Value where
   (`struct`/`structTail`/`structPattern`/`structPatterns`) into one: `fields` are the
   named members, `openness` is the three-state `StructOpenness`, `tail` is the optional
   `...` tail value (present iff `openness = .defOpenViaTail`, enforced by `mkStruct`),
-  `patterns` are the `[pattern]: constraint` pairs (orthogonal to `tail`, which the old
-  type could not carry together — the root of the missing `structPattern×structTail` meet
-  arm), and `closedClauses` are the CLOSED-allowed-set provenance (SC-1/SC-1b). Each clause
+  `patterns` are the `[pattern]: constraint` pairs (orthogonal to `tail`; a single struct
+  carries both, so the `structPattern×structTail` meet arm is expressible), and
+  `closedClauses` are the CLOSED-allowed-set provenance (SC-1/SC-1b). Each clause
   is ONE closed conjunct's allowed-set (`fieldLabels` it declared + `patterns` it closed
   with); a field is allowed iff EVERY clause admits it (`label ∈ c.fieldLabels` OR it
   matches some `c.patterns`). A self-closed struct carries ONE clause; a meet of two closed

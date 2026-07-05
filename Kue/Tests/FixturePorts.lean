@@ -2714,8 +2714,8 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- PA-1: the VALUE divergence — a bottom `for` source in a disjunction arm is ELIMINATED
-      -- (`⊥ | x = x`), leaving `[5]`. Before the fix the arm deferred as incomplete and was
-      -- retained, yielding "ambiguous value". cue agrees (`[5]`).
+      -- (`⊥ | x = x`), leaving `[5]`. Retaining the arm as a deferred incomplete would instead
+      -- yield "ambiguous value". cue agrees (`[5]`).
       fileName := "comprehensions/for_bottom_source_disjunction.expected",
       content :=
         match parseSource "out: [for x in (1 & 2) {x}] | [5]\n" with
@@ -4127,10 +4127,10 @@ def fixturePorts : List FixturePort :=
     },
     {
       -- A-EN3-DYN static control (regression): the SAME shape with a STATIC body field (`k: kind`)
-      -- instead of the dynamic `("k"): kind`. This already evaluated correctly before the fix (the
-      -- self-ref `kind` resolves at the for-body struct frame, which the deferral gate scans at the
-      -- right depth), and MUST stay correct — pinning that the dyn-field fix did not perturb the
-      -- static comprehension path. Oracle cue v0.16.1 → `patch.out: [{k: "specific"}]` (identical
+      -- instead of the dynamic `("k"): kind`. This evaluates correctly independent of the dyn-field
+      -- handling (the self-ref `kind` resolves at the for-body struct frame, which the deferral gate
+      -- scans at the right depth), and MUST stay correct — pinning that the dyn-field handling leaves the
+      -- static comprehension path intact. Oracle cue v0.16.1 → `patch.out: [{k: "specific"}]` (identical
       -- to the dynamic case).
       fileName := "comprehensions/static_comprehension_narrowed_sibling.expected",
       content :=

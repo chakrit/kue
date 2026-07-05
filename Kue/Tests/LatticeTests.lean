@@ -349,7 +349,7 @@ theorem mkStruct_keeps_distinct_patterns :
 -- Each pins a behavior the legacy arms carried that a subtly-wrong arm could silently drop:
 -- the cross-shape field-merge order, the tail-on-both-sides extra-field application, the
 -- arm-7 pattern dedup, and the pattern×tail cross-combinations B2.5 unifies (the `_unifies`
--- pins below — formerly `.bottom`, now the cue-correct unified value).
+-- pins below — the cue-correct unified value, not `.bottom`).
 
 -- `struct × structTail` field-merge ORDER: the tail-bearing side's fields come FIRST
 -- (`mergeStructFieldsWith rightFields leftFields` reverses the natural left-first order).
@@ -543,7 +543,7 @@ theorem mergeStructN_open_meets_pattern_stays_open :
 -- ### SC-1b — clause-conjunction allowed-set (the representation invariant)
 --
 -- `fieldAllowedByClausesWith` is the CONJUNCTION (`all`) over per-conjunct clauses, not the
--- flat-union (`any`) the old `closingPatterns` store amounted to. A two-clause list `[{^x},
+-- flat-union (`any`) a single merged `closingPatterns` store amounts to. A two-clause list `[{^x},
 -- {^y}]` admits a label iff it matches `^x` AND `^y`; a single-pattern label is rejected. This
 -- pins the semantic core directly, independent of the parse/eval pipeline.
 
@@ -731,9 +731,9 @@ theorem a6_deep_bottomWith_detected :
     containsBottom (nestList 150 (.bottomWith [.structuralCycle])) = true := by
   native_decide
 
--- End-to-end: a disjunction whose deep-bottom arm sits past the old cap is pruned by
+-- End-to-end: a disjunction whose deep-bottom arm sits past the shallow cap is pruned by
 -- `liveAlternatives`, leaving the single live arm — so `normalizeDisj` collapses to it.
--- Pre-fix the dead arm survived → a spurious 2-arm `.disj` (wrong value).
+-- Without pruning the dead arm survives → a spurious 2-arm `.disj` (wrong value).
 theorem a6_live_alternatives_prunes_deep_bottom_arm :
     (liveAlternatives [(.regular, nestList 150 .bottom), (.regular, .prim (.int 1))]
       == [(.regular, .prim (.int 1))]) = true := by

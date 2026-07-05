@@ -378,8 +378,8 @@ def unionDefOpenness (left right : StructOpenness) : StructOpenness :=
 /-- Merge two *unevaluated* bodies that are repeated declarations of the SAME definition path
     (Bug2-6 close-once). cue unifies a definition's multiple declarations BEFORE closing, then
     closes ONCE over the UNION of their field-sets (`#Foo: {a:1}` + `#Foo: {c:3}` → `{a:1,c:3}`,
-    closed to `{a,c}`). Kue formerly `.conj`-ed the two SEPARATELY-closed bodies, so the meet
-    mutually rejected each side's fields. This unions the two decls into ONE def body that the
+    closed to `{a,c}`). Closing each decl's body SEPARATELY then `.conj`-ing them makes the meet
+    mutually reject each side's fields; instead this unions the two decls into ONE def body that the
     eval close then closes ONCE (the single-clause `closedClauses` path), so the union admits
     exactly `a ∪ c` and rejects anything else.
 
