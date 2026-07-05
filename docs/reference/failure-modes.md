@@ -255,3 +255,24 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   correctness), **pushes** (HEAD==upstream, above), **releases** (asset published, formula
   patched). A subagent's high-stakes claim is a HYPOTHESIS the orchestrator cheaply confirms
   before it enters the durable record.
+
+## A datestamped alpha cut EARLY goes stale; completing it later ships inconsistency
+
+- **Symptom:** an alpha cut at the START of a session (before the day's work) leaves a
+  release that's many commits behind HEAD. `release-linux.sh` does `COPY . /src` — it builds
+  from the WORKING TREE (HEAD), NOT the release tag. So "just finish the missing platform
+  asset" later attaches HEAD-newer code to a release whose other-platform assets are the early
+  snapshot → a platform-INCONSISTENT release under one version tag.
+- **Seen:** 2026-07-05 — `v0.1.0-alpha.20260705` cut at the morning grant commit; after a full
+  day (29 commits: B3d-6b closed, GDA, the whole frontier) the amd64 asset was still unbuilt.
+  Building it then would have shipped amd64-with-the-day's-work against mac/arm64-without-it.
+- **Guard:** cut the datestamped daily alpha LATE (at/near the day's final HEAD), not early —
+  or, if an early cut is already stale, re-cut the WHOLE release (all platforms) at HEAD rather
+  than completing one platform. `release-linux.sh` defaults to `amd64 arm64` (both) precisely so
+  all Linux blocks stay same-version.
+- **Meta-guard (over-escalation):** don't conflate "cut a fresh alpha" (routine, autonomous
+  under the standing grant) with "delete/force-move an already-published tag" (the only
+  outward-facing/irreversible sliver that warrants escalation). The non-destructive path — cut a
+  new non-colliding version (`…20260705.1`) at HEAD, all platforms, leaving the stale tag a
+  harmless orphan — is fully within the grant. On 2026-07-05 the whole release was wrongly
+  framed as "blocked on chakrit" when only the optional tag-deletion ever needed a human.

@@ -19,6 +19,10 @@ GDA-FLOAT-RENDER landed and pushed before this; this slice is committed on `main
 
 ## Next step (the frontier)
 
+> **SUPERSEDED 2026-07-05 (end of session)** — both registry legs LANDED (B3d-6b fully
+> closed) and the release decision RESOLVED. Current authoritative resume pointer:
+> `docs/notes/2026-07-05-session-resume-eod.md`. Sections below are historical.
+
 The two big registry legs are the next real slices, plan entries now verified-accurate:
 
 1. **B3d-6b-leg4 (export-path MVS rewiring, MEDIUM+)** — wire the MVS build-list into the
@@ -32,7 +36,12 @@ The two big registry legs are the next real slices, plan entries now verified-ac
 Lower tail: B3d-A2 (DEFLATE/ZIP adversarial reject pins), UNUSED-IMPORT enforcement (sibling of
 BUILTIN-IMPORT-LENIENCY, documented in `compat-assumptions.md`).
 
-## Attended-only, parked — RELEASE DECISION (needs chakrit)
+## Attended-only, parked — RELEASE DECISION → RESOLVED 2026-07-05
+
+> **RESOLVED** — cut `v0.1.0-alpha.20260705.1` at HEAD (all 3 platforms), the non-destructive
+> path (option 2, done autonomously — it was always within the grant; only tag-deletion ever
+> needed a human). `on_intel` fixed; morning `20260705` left a harmless orphan. See
+> `failure-modes.md` "A datestamped alpha cut EARLY goes stale". Historical detail below.
 
 The `v0.1.0-alpha.20260705` tag sits at `88f02a8` (the morning grant commit); HEAD is now 24
 commits ahead (`b7fdebe`) after the full day's frontier (0f…leg2, B3d-6b closed, GDA, audits).
