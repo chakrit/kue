@@ -18198,3 +18198,37 @@ not flagged — cue errors `imported and not used`; a separate later slice).
 
 `./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical). Committed on
 `main`, explicit pathspec, NOT pushed.
+
+## Completed Slice: Consolidation/hygiene — plan-mechanism sweep + AUD-B2/B4 — 2026-07-05
+
+A restore-point hygiene slice after the batch-5 frontier run. Three parts.
+
+**Part 1 — plan-mechanism staleness sweep.** Two plan entries this session (ARCH-QUOTED-STRIP
+0c, GDA-FLOAT-RENDER) had "mechanism" text naming a data source the code no longer matched,
+each costing a mid-slice stop. Swept every open plan item against the actual code, focusing on
+the two big remaining registry legs before spawning agents at them:
+- **B3d-6b-leg4 (export-path MVS): VERIFIED-ACCURATE.** `Mvs.solveChecked` (`Kue/Mvs.lean:143`)
+  and `ModCmd.fetchGraph` (`Kue/ModCmd.lean:117`) exist as stated; `ModuleContext`
+  (`Kue/Module.lean:258`) is the correct seam to thread the (not-yet-existing) version-override
+  through — that field IS the work, not a false premise. The "disk-first builder" is genuinely
+  new (today's `fetchGraph` is registry-fed); `readModuleInfo` is the reuse anchor. No stale premise.
+- **B3d-6b-leg2 (`mod get` + deps-block emitter): VERIFIED-ACCURATE**, one file-pointer fix —
+  `parseMod` lives in `Kue/Cli.lean:83`, not `ModCmd.lean`; `Semver.maxVersion` (`Kue/Semver.lean:187`)
+  exists for the "latest" reuse. No stale premise.
+No third stale mechanism found; both legs are safe to scope from their (now annotated) plan entries.
+
+**Part 2 — AUD-B2 (opaque modtidy fixtures) DONE.** The five `testdata/ocifetch/modtidy/*.zip`
+were opaque binaries. Checked in the readable file tree each encodes under `src/<name>/`
+(`cue.mod/module.cue` + package `.cue`), a deterministic regenerator `scripts/gen-modtidy-fixtures.py`
+(fixed mtime + DEFLATE for a stable diff), and a `README.md`. The gate derives each `h1:` dirhash
+from decompressed contents at run time, so regenerated containers stay green. Zips regenerated
+content-identical to the originals.
+
+**Part 3 — AUD-B4 (`Value.textBytes` placement) DONE / documented in place.** Test-only but stays
+in core `Value`: relocating it would cost seven new imports across the seven test modules that use
+it (no shared test-support import) for a one-line `Value`-domain constructor helper — churn for zero
+core benefit. Left in place with a test-support-in-core rationale note at the def (the lower-churn
+correct option).
+
+`./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical). AUD-B2/B4
+closed in `plan.md`. Committed on `main`, explicit pathspec, NOT pushed.

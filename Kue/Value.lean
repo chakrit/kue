@@ -52,7 +52,12 @@ end Prim
 
 /-- The UTF-8 byte encoding of `text`, the carrier a `Prim.bytes` holds for plain
     (escape-free) byte-literal content. The bridge from known text to the byte-array
-    carrier, used by byte-literal expected values and tests. -/
+    carrier, used by byte-literal expected values and tests.
+
+    Test-support-in-core (AUD-B4): the only callers are `Kue/Tests/*`. It stays here rather
+    than in test support because the callers span seven test modules that share no common
+    support import — relocating this one-liner would cost seven new imports for zero core
+    benefit. A `Value`-domain constructor helper is a defensible core home. -/
 def textBytes (text : String) : Array UInt8 := text.toUTF8.data
 
 inductive Mark where
