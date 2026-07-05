@@ -646,6 +646,29 @@ STRUCT-EQ re-scoped (split; see rank 0b). No inline code change (all findings no
 passes: test-org/plan-hygiene/perf-guide NOT due; resilience/retro APPROACHING (flagged, not
 overdue). The **2026-07-04 two-phase audit is now COMPLETE.**
 
+The **2026-07-05 two-phase audit** (bytes/mvs/mod-tidy batch `88f02a8..`) is COMPLETE. Phase A
+(`f9e5ae6`) filed AUD-A1..A4 to the log; Phase B RESOLVED all four in code (unlike prior phases,
+this one refactored): AUD-A3 DRY (`mainPathConflict : Option String`, `solveChecked` reuses it,
+`0202aa5`); AUD-A4 illegal-states (`cueSumRows` folds over fetched nodes so every row carries its
+`h1` — can't-happen drop erased, `ecbe8ac`); AUD-A1 unused simp args (`ace8898`); AUD-A2
+convention-migration (timeless-comment sweep of ~27 sites + `scripts/check-comments.sh` grep gate
+over `Kue/**/*.lean`, `17f9f02`). One NEW finding resolved inline — AUD-B1: `Mvs.solveMany` was
+dead/untested speculative surface, now pinned by `mvs_multi_root_pins_each_and_sorts_shared`.
+Architecture verdicts clean: `ModCmd` carve from `Module` has no back-coupling/cycle; `ModCmd`/`Mvs`
+`partial`-free (fuel-bounded); mod-tidy fixtures consistent + gate self-validating (dynamic `h1:`);
+byte-carrier change clean (base64 centralized, no String residue). A whole-graph Explore scan filed
+three fix-slices (below). Detail: log.
+
+**Open Phase-B fix-slices (2026-07-05, ranked):**
+- **AUD-B3 (MEDIUM).** `EvalOps.lean` `evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`
+  (`:404/:412/:426/:435`) each match on `Value` and emit a residual `.binary`/`.unary` from a
+  `| _ =>` catch-all — banned (Value-producing match). Enumerate the non-concrete ctors or route all
+  four through one exhaustively-matched residual helper.
+- **AUD-B2 (LOW).** `testdata/ocifetch/modtidy/*.zip` are opaque binaries with no checked-in `.cue`
+  source/generator; add a generator mirroring `gen-case-table.py`.
+- **AUD-B4 (LOW).** `Value.textBytes` is test-only but lives in core `Value` — relocate to test
+  support; bundle a `base64Encode` carrier review (ByteArray-natural vs `List UInt8`). Cosmetic.
+
 The **2026-07-04 Phase A audit** (`a8d07b7..HEAD`: file-scoped imports `53fe3cc`, let/alias
 no-shadow forward `e20af9a` + reverse `f128600`) found ONE HIGH regression and ONE LOW latent —
 filed as AUDIT-QUOTED-BEQ (rank 0) and AUDIT-RESOLVE-CATCHALL (LOW tail) above; Phase B owed. A4:

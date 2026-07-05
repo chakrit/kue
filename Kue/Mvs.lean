@@ -150,7 +150,8 @@ def solveChecked (main : ModuleVersion) (graph : RequirementGraph) :
 
 /-- Multi-target variant (cue's `BuildList` takes `targets []V`): roots first (deduped by path,
     in root order, each pinned to its own version), then the remaining selected paths sorted.
-    Single-root `solve` is the common case; this covers a workspace with several main modules. -/
+    The faithful general form; `solve`/`solveChecked` (the single-root case) are the LIVE path the
+    resolver wires — this awaits workspace support (several main modules), pinned by test until then. -/
 def solveMany (targets : List ModuleVersion) (graph : RequirementGraph) : List ModuleVersion :=
   let nodes := reachable graph targets
   let maxima := selectMaxima nodes

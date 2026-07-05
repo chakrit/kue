@@ -17617,3 +17617,91 @@ None new — the batch's own divergence/gap records (byte-literal formatting cho
 `cue.sum` extension, MVS max-of-mins conformance) were already logged by the batch slices.
 
 `./scripts/check.sh` GREEN. Committed on `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: Phase B architecture audit — bytes/mvs/mod-tidy batch (2026-07-05)
+
+Phase-B (architecture/refactor/cleanup) audit, second half of the 2026-07-05 two-phase audit
+(Phase A: `f9e5ae6`). Scope: the module graph, focused on the recent batch (bytes carrier,
+`Mvs`, the `ModCmd` carve). Unlike Phase A, this phase DID refactor: it addressed the four
+architectural findings Phase A filed, plus one new dead-code finding.
+
+### First step — verify Phase A's filings landed
+
+Phase A filed AUD-A1..A4 to THIS log (not `plan.md`'s backlog). All four resolved here in code
+(commits below); none decayed.
+
+### Findings addressed (each a scoped commit, `check.sh` green after each)
+
+- **AUD-A3 (DRY) — `0202aa5`.** `Mvs.solveChecked` re-derived the main-path conflict predicate
+  inline. `mainPathConflict` now returns `Option String` (the offending version, or `none`);
+  `solveChecked` reuses it for both detection and the error message — one source of truth. Test
+  `mvs_main_conflict_detected` pins the named version (`some "v2.0.0"`).
+- **AUD-A4 (illegal-states) — `ecbe8ac`.** `ModCmd.cueSumRows` mapped build-list → nodes via
+  `find?`, dropping (`filterMap none`) a can't-happen missing node. Inverted: fold over the FETCHED
+  nodes (each carries its own `h1`), keeping build-list members, excluding main. Every row now has
+  its digest by construction — the missing-node branch is erased, not commented. `cue.sum` is
+  order-independent (`formatCueSum` sorts); mod-tidy gate green.
+- **AUD-A1 (tech-debt) — `ace8898`.** Dropped the unused `hParse` simp args in
+  `Lattice.primsUnifyEqual_refl`'s float branch; two pre-existing build warnings cleared, proof
+  green.
+- **AUD-A2 (convention-migration) — `17f9f02`.** The "comments are timeless" rule had no
+  enforcement and had rotted (~27 history-narrating comments across source + tests). Swept the whole
+  surface to timeless phrasing (wrong alternatives stated as hypotheticals, not prior code states)
+  AND wired `scripts/check-comments.sh` (glob-discovered, shellchecked) banning the idioms
+  `formerly | before the fix | after the fix | the old` over `Kue/**/*.lean`. Idiom set is
+  deliberately narrow — zero false positives; broader idioms ("used to" == "utilized to", factual
+  "no longer") collide with timeless English and stay reviewer-enforced (rationale in the gate
+  header). "A convention lands with its migration" satisfied: full sweep + cheap gate.
+
+### New finding — resolved inline
+
+- **AUD-B1 (dead code → covered).** `Mvs.solveMany` (cue's multi-target `BuildList([]V)`) had NO
+  caller and NO test — speculative surface. It is a faithful, total port of the reference signature
+  (`solve` is its unary case), so the defect was missing coverage, not illegitimate existence.
+  Pinned it with `mvs_multi_root_pins_each_and_sorts_shared` (two distinct-path roots + shared dep,
+  path-sorted remainder) + axioms/coverage tripwire. Landed with this doc slice.
+
+### Architecture verdicts (no change needed)
+
+- **`ModCmd` carve from `Module` is CLEAN.** `ModCmd` consumes `Module`'s exports (`Dep`,
+  `parseDeps`, `readModuleInfo`, `atomicWriteBinFile`, `formatCueSum`); no back-coupling (`Module`
+  does not import `ModCmd`), no cycle. Import-resolution IO stays in `Module`; command layer +
+  transitive-fetch/MVS/`cue.sum`-write in `ModCmd`. One responsibility each.
+- **`ModCmd`/`Mvs` are `partial`-free** — both use fuel-bounded, visited-guarded structural
+  recursion (`fetchGraphAux`, `reachAux`). `Module.lean`'s four `partial def`s each carry a
+  `-- partial:` waiver.
+- **mod-tidy fixtures consistent** with sibling `testdata/ocifetch/` families; the gate
+  (`check-mod-tidy.lean`) documents the diamond graph in prose and computes expected `h1:` digests
+  dynamically from the zips (not hardcoded), so it is self-validating.
+- **byte-carrier change (`Prim.bytes : Array UInt8`) is clean** — base64 centralized in
+  `Base64.lean`, UTF-8 via stdlib, no hand-rolled duplicate encode/decode; the eval path
+  (`evalConcat`/`evalRepeatBytes`) operates on `Array UInt8` directly, no String-carrier residue.
+
+### Whole-graph scan (Explore subagent) — verdicts + filings
+
+A read-only module-graph scan corroborated the carve/layering verdicts and surfaced findings
+beyond the batch. Two agent claims did NOT hold on verification: `findModuleRoot`
+(`Module.lean:242`) DOES carry a `-- partial:` waiver (all four `Module.lean` partials do), and
+`base64Encode`'s carrier swap is NOT a clean win — callers pass a MIX of `Array UInt8` (`.bytes`)
+and `ByteArray`-derived (`toUTF8`/`sha256`) lists, so `List UInt8` is the reasonable common type
+(folded into AUD-B4 as cosmetic, not landed). Filed:
+
+- **AUD-B3 (MEDIUM, rule violation).** `EvalOps.lean` `evalBoolBinary:404`, `evalBoolNot:412`,
+  `evalNumPos:426`, `evalNumNeg:435` each match on `Value` operands and emit a residual
+  `.binary`/`.unary` `Value` from a `| _ =>` catch-all — banned per CLAUDE.md ("`| _ =>` in a match
+  on `Value` that PRODUCES a `Value`"; a doc comment is not exhaustiveness). Pre-existing (outside
+  this batch). Fix: enumerate the remaining non-concrete constructors, or route all four through one
+  shared, exhaustively-matched residual-fallthrough helper. Its own slice.
+- **AUD-B2 (LOW, test-org).** The `testdata/ocifetch/modtidy/*.zip` fixtures are opaque committed
+  binaries with no checked-in `.cue` source or generator; regenerating them requires
+  reverse-engineering the gate. File a generator (`scripts/gen-modtidy-fixtures.*`) emitting the zips
+  from readable `.cue` sources, mirroring `gen-case-table.py`. The gate's dynamic-digest design keeps
+  them honest meanwhile.
+- **AUD-B4 (LOW, byte-carrier tidy).** `Value.textBytes` is production code in the core `Value`
+  module but referenced only from tests — relocate to test support (or accept as a documented
+  test-only helper). Bundle the `base64Encode` carrier review here (ByteArray-natural vs the current
+  `List UInt8`); both cosmetic.
+
+`./scripts/check.sh` GREEN. Committed on `main`, explicit pathspec, NOT pushed.

@@ -264,12 +264,27 @@ theorem mvs_dense_no_truncation :
           mv "D" "v1.0.0", mv "E" "v1.0.0"]) = true := by
   native_decide
 
+-- ## MVS multi-target: `solveMany` (cue's `BuildList([]V)` — a workspace with several mains)
+--
+-- Two distinct-path roots, each pinned to its own version and listed first in root order; the
+-- shared dependency's max-of-mins selection follows, path-sorted. `solve` is the unary case.
+
+private def multiRootGraph : RequirementGraph :=
+  [ (mv "main1" "v1.0.0", [mv "C" "v1.0.0"]),
+    (mv "main2" "v1.0.0", [mv "C" "v1.2.0"]) ]
+
+theorem mvs_multi_root_pins_each_and_sorts_shared :
+    (solveMany [mv "main1" "v1.0.0", mv "main2" "v1.0.0"] multiRootGraph
+      == [mv "main1" "v1.0.0", mv "main2" "v1.0.0", mv "C" "v1.2.0"]) = true := by
+  native_decide
+
 -- ## Totality pins: only the standard classical axioms, no `sorryAx`/`partial`/custom axiom.
 
 -- `#print axioms` emits to stdout; a regression to `sorryAx` would show here in the build log.
 #print axioms Kue.Semver.compare
 #print axioms Kue.Mvs.solve
 #print axioms Kue.Mvs.solveChecked
+#print axioms Kue.Mvs.solveMany
 
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
@@ -289,6 +304,7 @@ theorem mvs_dense_no_truncation :
 #check @mvs_main_conflict_detected       -- MVS main-pin fix: solveChecked typed-error / conflict
 #check @mvs_remainder_sorted_by_path     -- MVS: build-list ordering is path-sorted after the...
 #check @mvs_dense_no_truncation          -- MVS: high fan-in / dense graph does NOT truncate...
+#check @mvs_multi_root_pins_each_and_sorts_shared  -- MVS multi-target: solveMany roots + shared dep
 
 end Mvs
 
