@@ -1388,6 +1388,73 @@ theorem eval_unary_neg_incomplete_defers :
     (evalUnary .numNeg (.kind .int) == .unary .numNeg (.kind .int)) = true := by
   native_decide
 
+-- AUD-B3 residual-preservation guards. The `evalBoolBinary`/`evalBoolNot`/`evalNumPos`/
+-- `evalNumNeg` (+ `evalPrimitiveOrdering`/`evalRegexMatch`) catch-alls were replaced with an
+-- ENUMERATED `classifyScalarOperand` dispatch; these pins fix EXACTLY which constructors keep
+-- producing the residual `.binary`/`.unary` so the enumeration cannot silently reroute one.
+
+-- `&&` with an abstract operand DEFERS (residual `.binary`), it does not bottom.
+theorem eval_bool_and_incomplete_defers :
+    (evalBinary .boolAnd (.kind .bool) (.prim (.bool true))
+      == .binary .boolAnd (.kind .bool) (.prim (.bool true))) = true := by
+  native_decide
+
+-- A `.ref` operand (a distinct abstract ctor) also defers — the enumeration routes every
+-- non-prim/non-bottom shape to the residual, not just `.kind`.
+theorem eval_bool_or_ref_defers :
+    (evalBinary .boolOr (.ref "x") (.prim (.bool false))
+      == .binary .boolOr (.ref "x") (.prim (.bool false))) = true := by
+  native_decide
+
+-- A `.bottom` operand BEATS a residual partner: `⊥ && <abstract>` is `⊥`, not deferred.
+theorem eval_bool_and_bottom_beats_residual :
+    (evalBinary .boolAnd .bottom (.kind .bool) == .bottom) = true := by
+  native_decide
+
+-- A `.bottomWith` on the RIGHT (with an abstract left) propagates its reasons, not a residual.
+theorem eval_bool_and_right_bottomwith_propagates :
+    (evalBinary .boolAnd (.kind .bool) (.bottomWith [.divisionByZero])
+      == .bottomWith [.divisionByZero]) = true := by
+  native_decide
+
+-- Unary `!` on an abstract operand keeps the unary DEFERRED (residual `.unary`).
+theorem eval_unary_not_incomplete_defers :
+    (evalUnary .boolNot (.kind .bool) == .unary .boolNot (.kind .bool)) = true := by
+  native_decide
+
+-- Unary `+` is identity on int and float, bottoms a non-numeric prim, and defers an abstract.
+theorem eval_unary_pos_int :
+    (evalUnary .numPos (.prim (.int 5)) == .prim (.int 5)) = true := by
+  native_decide
+
+theorem eval_unary_pos_float :
+    (evalUnary .numPos (.prim (.float "1.5")) == .prim (.float "1.5")) = true := by
+  native_decide
+
+theorem eval_unary_pos_non_numeric_is_bottom :
+    (evalUnary .numPos (.prim (.string "x")) == .bottom) = true := by
+  native_decide
+
+theorem eval_unary_pos_incomplete_defers :
+    (evalUnary .numPos (.kind .int) == .unary .numPos (.kind .int)) = true := by
+  native_decide
+
+-- Unary `-` negates a float via `negateFloatText`.
+theorem eval_unary_neg_float :
+    (evalUnary .numNeg (.prim (.float "1.5")) == .prim (.float "-1.5")) = true := by
+  native_decide
+
+-- Regex match on an abstract operand DEFERS (residual `.binary`), it does not bottom.
+theorem eval_regex_match_incomplete_defers :
+    (evalBinary .regexMatch (.kind .string) (.prim (.string "^a"))
+      == .binary .regexMatch (.kind .string) (.prim (.string "^a"))) = true := by
+  native_decide
+
+-- Regex match over two NON-string prims bottoms (both concrete, wrong type).
+theorem eval_regex_match_non_string_is_bottom :
+    (evalBinary .regexMatch (.prim (.int 1)) (.prim (.int 2)) == .bottom) = true := by
+  native_decide
+
 -- Slice 2c.1: an in-struct sibling reference (`b: a`) sees the FULLY-MERGED value of a
 -- duplicated label, not the first conjunct. `{a: int, b: a, a: 1}` canonicalizes the two
 -- `a` slots into `.conj [int, 1]` at slot 0, so `b` evaluates to `1`, and the duplicate

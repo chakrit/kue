@@ -17705,3 +17705,51 @@ and `ByteArray`-derived (`toUTF8`/`sha256`) lists, so `List UInt8` is the reason
   `List UInt8`); both cosmetic.
 
 `./scripts/check.sh` GREEN. Committed on `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: AUD-B3 — enumerate scalar-op residual dispatch (`refactor(evalops)`)
+
+Goal: discharge the AUD-B3 rule violation — six `EvalOps.lean` functions matched on `Value`
+operands and produced a residual `.binary`/`.unary` `Value` from a `| _ =>`/`| _, _ =>`
+catch-all, banned per CLAUDE.md ("`| _ =>` in a match on `Value` that PRODUCES a `Value`";
+a doc comment is not exhaustiveness).
+
+### Change
+
+Added one shared, fully-enumerated classifier `classifyScalarOperand : Value ->
+ScalarOperandClass` (`prim`/`bottom`/`bottomReasons`/`defer`) with NO `Value` catch-all — a
+new `Value` constructor now forces a classify decision, exactly as `classifyArithOperand`
+does for `+ - * /`. All six sites now dispatch on the finite `ScalarOperandClass` (a `_` on
+the class enum is permitted — the ban is on catch-alls over `Value`), reproducing the prior
+arm precedence bit-for-bit:
+
+- The four filed: `evalBoolBinary`, `evalBoolNot`, `evalNumPos`, `evalNumNeg`.
+- Two more of the identical pattern in the same file, converted in the same slice per the
+  "a convention lands with its migration" Law (leaving them would re-rot the rule):
+  `evalPrimitiveOrdering`, `evalRegexMatch`.
+
+Strictly behavior-preserving: every constructor that residualized before (all abstract
+forms → `defer`) still residualizes; `prim`/`bottom`/`bottomWith` handling is unchanged.
+`evalAdd`/`evalSub`/`evalMul`/`evalDiv` were NOT touched — their `| _, _ =>` already routes
+through the enumerated `arithmeticDomainResult`, so they were never in violation.
+
+### Tests
+
+14 `native_decide` residual-preservation pins added to `EvalTests.lean`, fixing WHICH
+constructors keep producing the residual (`.kind`/`.ref` defer, `.bottom` beats a residual
+partner, right-`.bottomWith` propagates its reasons, `numPos` int/float identity + non-numeric
+bottom, `numNeg` float negate, regex abstract-defers + non-string-bottom) so the enumeration
+cannot silently reroute a constructor.
+
+### Guard
+
+No cheap grep guard is feasible: the compliant fix idiom emits a residual line
+`| _, _ => .binary op left right` matching the CLASS enum — SYNTACTICALLY identical to a
+banned `Value` catch-all, and to `arithmeticDomainResult`'s own `| _, _ => .binary`. A
+syntactic grep cannot separate compliant enum-catch-alls from banned `Value`-catch-alls
+without type information, mirroring the "no longer"/"previously" idioms `check-comments.sh`
+leaves reviewer-enforced. Stays reviewer-enforced.
+
+`./scripts/check.sh` GREEN (no new exhaustiveness/`unusedVariables` warnings). Committed on
+`main`, explicit pathspec, NOT pushed.

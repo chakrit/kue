@@ -660,10 +660,15 @@ byte-carrier change clean (base64 centralized, no String residue). A whole-graph
 three fix-slices (below). Detail: log.
 
 **Open Phase-B fix-slices (2026-07-05, ranked):**
-- **AUD-B3 (MEDIUM).** `EvalOps.lean` `evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`
-  (`:404/:412/:426/:435`) each match on `Value` and emit a residual `.binary`/`.unary` from a
-  `| _ =>` catch-all — banned (Value-producing match). Enumerate the non-concrete ctors or route all
-  four through one exhaustively-matched residual helper.
+- **AUD-B3 (MEDIUM) — DONE (`<commit>`).** Routed all six Value-producing catch-all sites
+  (`evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`, plus the same-pattern
+  `evalPrimitiveOrdering`/`evalRegexMatch` — converted together per the "convention lands with its
+  migration" Law) through one enumerated `classifyScalarOperand : Value -> ScalarOperandClass`
+  (no `Value` catch-all; the residual dispatch is now on the finite class enum, like
+  `classifyArithOperand`). Strictly behavior-preserving; 14 `native_decide` residual-preservation
+  pins added. No grep guard: the compliant fix idiom emits a line `| _, _ => .binary …` matching the
+  CLASS enum — syntactically identical to a banned `Value` catch-all (and to `arithmeticDomainResult`),
+  so no cheap grep separates compliant from banned. Stays reviewer-enforced.
 - **AUD-B2 (LOW).** `testdata/ocifetch/modtidy/*.zip` are opaque binaries with no checked-in `.cue`
   source/generator; add a generator mirroring `gen-case-table.py`.
 - **AUD-B4 (LOW).** `Value.textBytes` is test-only but lives in core `Value` — relocate to test

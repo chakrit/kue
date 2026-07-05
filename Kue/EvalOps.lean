@@ -347,12 +347,59 @@ def charsLt : List Char -> List Char -> Bool
 def stringsLt (left right : String) : Bool :=
   charsLt left.toList right.toList
 
+/-- A scalar-op operand, classified for the bool / numeric / comparison / regex ops. `prim`
+    carries the leaf so the op can compute on it; `bottom`/`bottomReasons` propagate a bottom;
+    every ABSTRACT form (ref, kind, bound, unresolved disjunction, struct, list, comprehension,
+    …) is `defer` — the op holds a residual `.binary`/`.unary`. Fully enumerated over `Value`
+    (no catch-all) so a new constructor forces a classify decision here, exactly as
+    `classifyArithOperand` does for `+ - * /`. -/
+inductive ScalarOperandClass where
+  | prim (value : Prim)
+  | bottom
+  | bottomReasons (reasons : List BottomReason)
+  | defer
+
+/-- Classify a scalar-op operand. Shared by `evalPrimitiveOrdering`/`evalRegexMatch`/
+    `evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`, so each dispatches on the finite
+    `ScalarOperandClass` (a `_` on the CLASS enum is permitted — the ban is on catch-alls over
+    `Value`) instead of a `| _ =>` catch-all on `Value` itself. -/
+def classifyScalarOperand : Value -> ScalarOperandClass
+  | .prim value => .prim value
+  | .bottom => .bottom
+  | .bottomWith reasons => .bottomReasons reasons
+  | .top => .defer
+  | .kind _ => .defer
+  | .notPrim _ => .defer
+  | .stringRegex _ => .defer
+  | .boundConstraint _ _ _ => .defer
+  | .conj _ => .defer
+  | .builtinCall _ _ => .defer
+  | .unary _ _ => .defer
+  | .binary _ _ _ => .defer
+  | .ref _ => .defer
+  | .refId _ => .defer
+  | .thisStruct => .defer
+  | .selector _ _ => .defer
+  | .index _ _ => .defer
+  | .disj _ => .defer
+  | .struct _ _ _ _ _ => .defer
+  | .list _ => .defer
+  | .listTail _ _ => .defer
+  | .embeddedList _ _ _ => .defer
+  | .embeddedScalar _ _ => .defer
+  | .comprehension _ _ => .defer
+  | .structComp _ _ _ => .defer
+  | .listComprehension _ _ => .defer
+  | .interpolation _ => .defer
+  | .dynamicField _ _ _ => .defer
+  | .closure _ _ => .defer
+
 def evalPrimitiveOrdering
     (decimalOp : DecimalValue -> DecimalValue -> Bool)
     (stringOp : String -> String -> Bool)
     (op : BinaryOp)
     (left right : Value) : Value :=
-  match left, right with
+  match classifyScalarOperand left, classifyScalarOperand right with
   | .prim left, .prim right =>
       match evalDecimalCompare? decimalOp left right with
       | some value => .prim (.bool value)
@@ -362,20 +409,20 @@ def evalPrimitiveOrdering
           | _, _ => .bottom
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
-  | .bottomWith reasons, _ => .bottomWith reasons
-  | _, .bottomWith reasons => .bottomWith reasons
+  | .bottomReasons reasons, _ => .bottomWith reasons
+  | _, .bottomReasons reasons => .bottomWith reasons
   | _, _ => .binary op left right
 
 def evalRegexMatch (left right : Value) : Value :=
-  match left, right with
+  match classifyScalarOperand left, classifyScalarOperand right with
   | .prim (.string value), .prim (.string pattern) =>
       match regexParseError? pattern with
       | some err => .bottomWith [.invalidRegex pattern err]
       | none => .prim (.bool (matchRegex pattern value))
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
-  | .bottomWith reasons, _ => .bottomWith reasons
-  | _, .bottomWith reasons => .bottomWith reasons
+  | .bottomReasons reasons, _ => .bottomWith reasons
+  | _, .bottomReasons reasons => .bottomWith reasons
   | .prim _, .prim _ => .bottom
   | _, _ => .binary .regexMatch left right
 
@@ -394,22 +441,22 @@ def evalIntKeywordBinary
   | value => value
 
 def evalBoolBinary (op : BinaryOp) (boolOp : Bool -> Bool -> Bool) (left right : Value) : Value :=
-  match left, right with
+  match classifyScalarOperand left, classifyScalarOperand right with
   | .prim (.bool left), .prim (.bool right) => .prim (.bool (boolOp left right))
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
-  | .bottomWith reasons, _ => .bottomWith reasons
-  | _, .bottomWith reasons => .bottomWith reasons
+  | .bottomReasons reasons, _ => .bottomWith reasons
+  | _, .bottomReasons reasons => .bottomWith reasons
   | .prim _, .prim _ => .bottom
   | _, _ => .binary op left right
 
 def evalBoolNot (value : Value) : Value :=
-  match value with
+  match classifyScalarOperand value with
   | .prim (.bool value) => .prim (.bool (!value))
-  | .bottom => .bottom
-  | .bottomWith reasons => .bottomWith reasons
   | .prim _ => .bottom
-  | _ => .unary .boolNot value
+  | .bottom => .bottom
+  | .bottomReasons reasons => .bottomWith reasons
+  | .defer => .unary .boolNot value
 
 def negateFloatText (value : String) : String :=
   match value.toList with
@@ -417,22 +464,22 @@ def negateFloatText (value : String) : String :=
   | _ => "-" ++ value
 
 def evalNumPos (value : Value) : Value :=
-  match value with
+  match classifyScalarOperand value with
   | .prim (.int value) => .prim (.int value)
   | .prim (.float value) => .prim (.float value)
-  | .bottom => .bottom
-  | .bottomWith reasons => .bottomWith reasons
   | .prim _ => .bottom
-  | _ => .unary .numPos value
+  | .bottom => .bottom
+  | .bottomReasons reasons => .bottomWith reasons
+  | .defer => .unary .numPos value
 
 def evalNumNeg (value : Value) : Value :=
-  match value with
+  match classifyScalarOperand value with
   | .prim (.int value) => .prim (.int (-value))
   | .prim (.float value) => .prim (.float (negateFloatText value))
-  | .bottom => .bottom
-  | .bottomWith reasons => .bottomWith reasons
   | .prim _ => .bottom
-  | _ => .unary .numNeg value
+  | .bottom => .bottom
+  | .bottomReasons reasons => .bottomWith reasons
+  | .defer => .unary .numNeg value
 
 def evalUnary (op : UnaryOp) (value : Value) : Value :=
   match op with
