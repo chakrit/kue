@@ -17559,3 +17559,61 @@ end-to-end live `mod tidy` was not completed (the central registry proxies GitHu
 enumeration returned null; no known-good public module@version pinned). NOT a gate dependency.
 
 `./scripts/check.sh` GREEN. Committed on `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: Phase A code-quality audit — bytes/mvs/mod-tidy batch (B3d-6b + BYTE-HIGHBYTE)
+
+Phase-A (code-quality) audit of the 4-commit batch `88f02a8..HEAD`
+(`docs(grant)`, `feat(bytes)` Array UInt8 carrier, `fix(mvs)` typed main-pin,
+`feat(mod)` `kue mod tidy`). Ships no behavior change; one trivial fix + this entry.
+
+### First step — audit the prior audit
+
+No standing Phase-A fix-slice queue predates this batch (the batch itself carries the
+B3d-6b filings + the byte-repr close). Nothing to reconcile/drop; proceeded to new findings.
+
+### Verdict
+
+Batch is sound. Type-first discipline held: `Prim.bytes : Array UInt8` (rank-0f repr
+tightening, high bytes exact); `solveChecked : Except String _` surfaces the cue-panic
+main-pin case as a typed error instead of a silent pin; `mod tidy`'s transitive fetch is
+fuel-bounded + visited-guarded (`fetchGraphAux`, total, no `partial`). No `| _ =>`
+catch-all was introduced on a `Value`/AST match that PRODUCES a `Value`; the new `partial
+def`s (`parseMultilineByteBody`, `parseMultilineBytes`) are inside `Parse.lean` (standing
+exception). Test strength is real: high-byte round-trip, raw-`\x` vs codepoint-`\u`
+distinction, base64 export, format round-trip, empty literal; MVS reject/allow/match +
+diamond; `mod tidy` empty-deps / transport-failure / malformed-module.cue error paths.
+
+### Fixed inline
+
+- `Kue/Tests/BytesTests.lean:40` — timeless-comment violation ("…(0xC3 0xBF) **the String
+  carrier held**", narrating the superseded representation). Reworded to the timeless
+  distinction. Comment-only; `./scripts/check.sh` re-run GREEN.
+
+### Filed as fix-slices (folded into plan.md, non-trivial — not landed here)
+
+- **AUD-A1 (low, tech-debt).** Pre-existing `unusedSimpArgs` warnings at
+  `Lattice.lean:28-29` (`primsUnifyEqual_refl` float branch: `simp [hParse]` args unused).
+  Non-fatal (gate green), pre-existing, out of this batch's changed lines — cleanup slice,
+  verify the proof stays green after dropping the args.
+- **AUD-A2 (low, convention-migration).** The "comments are timeless" guard has ~20
+  pre-existing violations in `Kue/Tests/*.lean` ("the old X", "no longer", "used to"). A
+  convention lands with its migration: sweep the existing surface, then wire a cheap
+  `check-*.sh` grep guard over `Kue/**/*.lean` so it cannot rot again. (This audit fixed
+  only the one instance the batch newly introduced.)
+- **AUD-A3 (low, DRY).** `Mvs.solveChecked` re-derives `mainPathMaxSelected + compare > 0`
+  inline rather than reusing `mainPathConflict`; the predicate is exercised only by a test.
+  It needs the offending version `v` for the message, so a clean reuse means having
+  `mainPathConflict` return the version (`Option String`) and deriving the Bool from it.
+- **AUD-A4 (low, illegal-states).** `ModCmd.cueSumRows` drops a build-list path with no
+  fetched node via `filterMap`+`none` under a "cannot happen" comment. Type-tighten so the
+  solver output carries its node (thread the fetched table into the build-list type) to
+  erase the branch. Phase-B-adjacent tightening.
+
+### cue-divergence / spec-gap
+
+None new — the batch's own divergence/gap records (byte-literal formatting choice,
+`cue.sum` extension, MVS max-of-mins conformance) were already logged by the batch slices.
+
+`./scripts/check.sh` GREEN. Committed on `main`, explicit pathspec, NOT pushed.

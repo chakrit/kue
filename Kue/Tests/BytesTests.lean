@@ -37,7 +37,7 @@ theorem lex_bytes_plain_unchanged :
     lexBytes "'abc'" = some #[0x61, 0x62, 0x63] := by native_decide
 
 -- HIGH-BYTE ROUND-TRIP (graduates the `byte-literal-high-byte` wild seed). A `\xff` is the
--- ONE octet 0xFF — not the two-byte UTF-8 form of U+00FF (0xC3 0xBF) the String carrier held.
+-- ONE octet 0xFF — distinct from the two-byte UTF-8 form of the codepoint U+00FF (0xC3 0xBF).
 theorem lex_bytes_high_byte_hex :
     lexBytes "'\\xff'" = some #[0xff] := by native_decide
 
