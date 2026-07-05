@@ -228,10 +228,11 @@ theorem mvs_checked_matches_solve_diamond :
       == some (solve (mv "main" "v1.0.0") diamondGraph)) = true := by
   native_decide
 
--- The conflict predicate agrees: true on the upgrade graph, false on the equal graph.
+-- The conflict predicate agrees: names the offending version on the upgrade graph, `none` on the
+-- equal graph — and the named version is exactly what `solveChecked`'s error reports.
 theorem mvs_main_conflict_detected :
-    (mainPathConflict (mv "main" "v1.0.0") mainPinGraph
-      && !mainPathConflict (mv "main" "v1.0.0") mainEqualGraph) = true := by
+    (mainPathConflict (mv "main" "v1.0.0") mainPinGraph == some "v2.0.0"
+      && (mainPathConflict (mv "main" "v1.0.0") mainEqualGraph).isNone) = true := by
   native_decide
 
 -- ## MVS: build-list ordering is path-sorted after the root

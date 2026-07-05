@@ -127,13 +127,14 @@ def mainPathMaxSelected (main : ModuleVersion) (graph : RequirementGraph) : Opti
   let nodes := reachable graph [main]
   (selectMaxima nodes).find? (fun (p, _) => p == main.basePath) |>.map (·.snd)
 
-/-- Whether the reachable graph requires a version of `main`'s own path STRICTLY GREATER than
-    `main.version`. cue PANICS here (`buildList`: `reqs.Max(target, v) != target`); `solve` silently
-    pins `main` to `main.version` instead. `solveChecked` uses this to surface a typed error. -/
-def mainPathConflict (main : ModuleVersion) (graph : RequirementGraph) : Bool :=
+/-- The version of `main`'s own path the reachable graph requires when it is STRICTLY GREATER than
+    `main.version` — the cue-panic case (`buildList`: `reqs.Max(target, v) != target`), where `solve`
+    would silently pin `main` to `main.version` instead. `none` when there is no such conflict.
+    `solveChecked` reuses this both to detect the conflict and to name the offending version. -/
+def mainPathConflict (main : ModuleVersion) (graph : RequirementGraph) : Option String :=
   match mainPathMaxSelected main graph with
-  | some v => Semver.compare v main.version > 0
-  | none => false
+  | some v => if Semver.compare v main.version > 0 then some v else none
+  | none => none
 
 /-- Checked MVS solve (the B3d-6b main-pin fix): like `solve`, but a graph that transitively
     requires a version of the main module's OWN path higher than it declares is a typed ERROR —
@@ -141,13 +142,10 @@ def mainPathConflict (main : ModuleVersion) (graph : RequirementGraph) : Bool :=
     The resolver wiring calls THIS so the pin is never silent. -/
 def solveChecked (main : ModuleVersion) (graph : RequirementGraph) :
     Except String (List ModuleVersion) :=
-  match mainPathMaxSelected main graph with
+  match mainPathConflict main graph with
   | some v =>
-      if Semver.compare v main.version > 0 then
-        .error s!"main module {main.basePath}: dependency graph requires {v} of the main module's \
-          own path, higher than its declared {main.version} (cue rejects this)"
-      else
-        .ok (solve main graph)
+      .error s!"main module {main.basePath}: dependency graph requires {v} of the main module's \
+        own path, higher than its declared {main.version} (cue rejects this)"
   | none => .ok (solve main graph)
 
 /-- Multi-target variant (cue's `BuildList` takes `targets []V`): roots first (deduped by path,
