@@ -41,6 +41,9 @@ is substantially complete (see below). Candidate next slices, by philosophy:
 - **BUILTIN-IMPORT-LENIENCY** — strictness gate.
 
 Deferred by design: NESTED-DISJ-MARK (lone open VALUE divergence). Network-gated: B3d-6b.
+[RETRACTED 2026-07-05: NESTED-DISJ-MARK was NOT a genuine deferral — the spec's marking rule M2
+mandates Kue's ambiguous result; `cue` is the buggy side. Closed, reclassified to
+`cue-divergences.md`. There are now ZERO open VALUE-level divergences.]
 
 ## Substantial-completeness read (for the orchestrator)
 

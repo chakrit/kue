@@ -199,24 +199,23 @@ tail.
    non-empty share is a FALSE share (genuinely-distinct content) — no sound frame-sharing
    exists. Closure detail: `plan.md` perf #7 block + `kue-performance.md` +
    implementation-log.
-2. **NESTED-DISJ-MARK — nested-disjunction outer-default inheritance when the inner default dies
-   (DESIGNED-DEFERRAL 2026-06-23; the lone open VALUE divergence).** A `*`-marked GROUP that is
-   itself a disjunction-with-inner-`*` (`*_O | …`, `_O: *_I | _B`) puts the whole group in the outer
-   default-set with the inner `*` a preference within it. Spec-verified cue v0.16.1 two-tier rule:
-   tier-1 inner-preferred-survives wins; **tier-2** — inner default dies under a narrowing ⇒ the
-   surviving inner arm inherits the outer `*` and beats an outer-regular survivor (the marked
-   survivor; `(*_#O | {c}) & {b:"x"}` → cue `{b:"x"}`). Kue DIVERGES on tier-2 only: it eagerly
-   flattens `(.default, .disj nested)` at eval time (`Eval.lean:3410-3414`), so the inner non-default
-   sub-arm goes `.regular` and a later inner-default-death makes export AMBIGUOUS. **Root: a flat
-   2-state `Mark` cannot encode the two-tier membership-with-preference.** DESIGNED fix (two
-   equally-principled, both LARGE + delicate — STOP per slice guidance rather than risk regressing
-   default-selection): (A) a 3rd `Mark` state threaded through the flatten/select algebra (8-file
-   ripple); or (B) keep `(.default, .disj nested)` un-flattened through `normalizeDisj` and resolve it
-   narrowing-aware at meet time (ripples the flatness invariant `liveAlternatives`/`resolveDisjDefault?`/
-   `Manifest`). Tier-1 + unmarked-group + no-narrow VALUE all match cue (only tier-2 export diverges).
-   Full diagnosis + designed fix + the two-tier rule: `cue-spec-gaps.md` NESTED-DISJ-MARK row; deferral
-   witnesses + discriminators pinned in `TwoPassTests` `nested_disj_mark_*` (oracle'd vs cue v0.16.1).
-   prod9 canaries jq-S=0 (the shape is absent from cert-manager + argocd).
+2. **NESTED-DISJ-MARK — CLOSED (2026-07-05): Kue was SPEC-CORRECT, `cue` is the buggy side.**
+   Marking a disjunct that already carries a default (`*_O | …`, `_O: *_I | _B`), then killing the
+   inner default under a narrow (`(*_I | 9) & >=5`, `_I: *1|5`). The 2026-06-23 "DESIGNED-DEFERRAL /
+   lone open VALUE divergence" was **mis-adjudicated** — it assumed `cue`'s resolved output (`5` /
+   `{b:"x"}`) was correct and Kue needed a large 3rd-`Mark`-state fix to match it. Re-derived against
+   the spec's EXPLICIT default algebra: marking rule **M2** `*⟨v, d⟩ => ⟨v, d⟩` ("keep existing
+   defaults for marked term" — the outer `*` is ABSORBED, it does NOT re-broaden the inner default
+   `d` to the whole value set), confirmed by the spec note "for any marked disjunction `a`, `a|a`,
+   `*a|a` and `*a|*a` all resolve to `a`". With M2 + **U1** (`⟨v1,d1⟩ & ⟨v2⟩ => ⟨v1&v2, d1&v2⟩`), the
+   scalar reduces to `⟨5|9, 1&≥5⟩ = ⟨5|9, ⊥⟩` — default dead ⇒ AMBIGUOUS `5|9`, exactly Kue's output.
+   `cue`'s `5` comes from broadening `*⟨v,d⟩ => ⟨v,v⟩` (M1-after-strip), which M2 forbids — a `cue`
+   bug. **Resolution: NO Kue code change; the designed 3rd-`Mark`-state fix is WITHDRAWN** (it would
+   have imported `cue`'s bug). Reclassified `cue-spec-gaps.md` → `cue-divergences.md` (M2/U1 basis).
+   Guards (spec-correct, ambiguity pinned) in `TwoPassTests` `nested_disj_mark_marked_inner_*` /
+   `_triple_nest_*` / `_dies_inside_struct_field_*` (+ survives-narrow / no-narrow / unmarked-control).
+   prod9 canaries jq-S=0 (the shape is absent from cert-manager + argocd). **ZERO open VALUE-level
+   divergences remain.**
 3. **SC-3 — multi-arm-default display-collapse — display-only spec-gap (LOW; not a value bug).**
    `normalizeEvaluatedDisj` already flattens/dedups (`*1|*1|2` eval → `*1 | 2`). What remains is
    purely cue's further DISPLAY-collapse to the default (`*1|2` → `1`, `{…} | *null` → `null`),

@@ -61,8 +61,10 @@ comprehensions/embedding); every bounded unregistered builtin now registered.
 BYTE-ARRAY-REPR (0f, highest-leverage — fixes 3 byte bugs, unblocks byte-interp + byte-slice),
 PATTERN-BOUND-REF-OPERAND, BI-EFF constraint-validator seam (MinRunes/MaxRunes/MinFields/
 MaxFields + matchN/matchIf), STRUCT-EQ half-2, ARCH-QUOTED-STRIP (0c), PRIM-FLOAT-PARSED (0e),
-BUILTIN-IMPORT-LENIENCY, diagnostic-message quality, NESTED-DISJ-MARK (designed-deferral),
-B3d-6b (network-gated). 3 quarantined seeds, all filed: byte-literal-high-byte,
+BUILTIN-IMPORT-LENIENCY, diagnostic-message quality,
+B3d-6b (network-gated). [RETRACTED 2026-07-05: NESTED-DISJ-MARK was NOT deferrable work — Kue
+was already SPEC-CORRECT (spec rule M2); `cue` is buggy. Closed + reclassified to
+`cue-divergences.md`.] 3 quarantined seeds, all filed: byte-literal-high-byte,
 byte-literal-interpolation, pattern-bound-reference-operand.
 
 ## Pending school changes (for `ace-school` to propose — NOT applied to the school this run)

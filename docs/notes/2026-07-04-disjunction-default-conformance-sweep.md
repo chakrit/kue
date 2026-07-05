@@ -27,6 +27,8 @@ SC-3 sub-case in `cue-spec-gaps.md`; not forced (AFK soundness-core guidance).
 ### Already-known, NOT re-filed
 
 - **NESTED-DISJ-MARK** tier-2 (DESIGNED-DEFERRAL) — skipped per instruction, not re-opened.
+  [RETRACTED 2026-07-05: not a deferral — Kue is SPEC-CORRECT per marking rule M2; `cue` is buggy.
+  Closed, reclassified to `cue-divergences.md`.]
 - **AUDIT-STRUCT-EQ half-2** dedup order-sensitivity — reconfirmed (`1|2|1`→`2|1`,
   `{a:1,b:2}|{b:2,a:1}` no-dedup) but export-safe in every probed case (both ambiguous); the
   already-filed OPEN gap, not re-filed.

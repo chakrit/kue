@@ -17806,3 +17806,62 @@ turns them green.
 divergence is REMOVED from `cue-divergences.md` (kue now agrees with cue AND spec).
 **AUDIT-STRUCT-EQ is fully CLOSED** (half-1 concrete `==` 2026-07-04; half-2 dedup 2026-07-05).
 Committed on `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: NESTED-DISJ-MARK — Kue was SPEC-CORRECT, `cue` is buggy (RECLASSIFIED, 2026-07-05)
+
+Re-adjudicated the "lone open VALUE divergence" — the 2026-06-23 **DESIGNED-DEFERRAL** for
+nested-disjunction default-mark. Outcome: the deferral was **mis-adjudicated**. Kue's behavior is
+SPEC-CORRECT; `cue` violates its own default-marking rule. NO Kue code change; the slice reclassifies
+the item, withdraws the designed 3rd-`Mark`-state "fix", and reframes the pins as spec-correct guards.
+
+**The mis-adjudication.** The prior sessions probed `cue` v0.16.1, reverse-engineered a "two-tier
+rule" from its output (`(*_I | 9) & >=5` with `_I:*1|5` → `5`; struct analog → `{b:"x"}`), assumed
+`cue` was right, and concluded the spec was *silent on precedence* — so Kue's ambiguous output was a
+divergence needing a LARGE fix (a 3rd `Mark` state or a non-flattening nested-disj invariant). They
+never applied the spec's formal default algebra to the case.
+
+**The spec is EXPLICIT (not silent).** CUE spec "Default values" gives the marking rules:
+- `M0:  ⟨v⟩    => ⟨v⟩`      — no default for an unmarked/undefaulted term
+- `M1: *⟨v⟩    => ⟨v, v⟩`   — introduce an identical default for a marked term
+- `M2: *⟨v, d⟩ => ⟨v, d⟩`   — **keep existing defaults for a marked term** (the `*` is ABSORBED)
+- `M3:  ⟨v, d⟩ => ⟨v⟩`      — strip a default from an unmarked term
+
+plus the note: "for any marked disjunction `a`, the expressions `a|a`, `*a|a` and `*a|*a` all resolve
+to `a`" — i.e. `*a = a` for an already-defaulted `a`. **M2 is decisive: marking a disjunct that
+already carries a default does NOT re-broaden that default to the whole value set.**
+
+**Derivation (scalar `(*_I | 9) & >=5`, `_I: *1|5`):** `_I` = M1(*1)|M0(5) via D1 ⇒ `⟨1|5, 1⟩`;
+`*_I` ⇒ **M2** ⇒ `⟨1|5, 1⟩` (default STAYS `1`, not `1|5`); `*_I | 9` ⇒ D1 ⇒ `⟨1|5|9, 1⟩`; `& >=5` ⇒
+**U1** (`⟨v1,d1⟩ & ⟨v2⟩ => ⟨v1&v2, d1&v2⟩`) ⇒ `⟨(1|5|9)&≥5, 1&≥5⟩ = ⟨5|9, ⊥⟩`. Default `⊥` ⇒ no
+unique default ⇒ **AMBIGUOUS `5|9`** — exactly Kue's output. `cue`'s `5` requires the default set to
+be `1|5`, i.e. `cue` applies `*⟨v,d⟩ => ⟨v,v⟩` (M1-after-strip broadening) — precisely what M2 forbids
+and the `*a=a` note contradicts. The struct analog dies by CLOSEDNESS (`{a:5}` closed def rejects
+`b`) identically; `cue` broadens at every nesting level (triple-nest → `cue` still `5`, spec+Kue
+`5|7|9` ambiguous). **`cue` has a bug in default-mark handling for nested defaulted disjunctions.**
+
+**Why Kue needs NO change.** Kue's eager flatten of a `(.default, .disj nested)` arm
+(`Eval.lean` `normalizeEvaluatedDisj`) IS M2's absorb-the-mark: the inner non-default sub-arm becomes
+`.regular` (carries no inherited outer default), so when the inner default dies the survivor is
+regular ⇒ ambiguous. That is the spec verdict, not a bug. The prior "root cause: a flat 2-state
+`Mark` can't encode two-tier membership-with-preference" dissolves — there is no two-tier rule to
+encode; M2 says the mark is absorbed.
+
+**Landed (no behavior change).** (1) `cue-spec-gaps.md` NESTED-DISJ-MARK row REMOVED (spec is
+explicit, not a gap). (2) `cue-divergences.md` NEW row (cue bug, M2/U1 basis, cue v0.16.1). (3)
+`plan.md` + `spec-conformance-audit.md` #2 closed — **ZERO open VALUE-level divergences remain**;
+the designed 3rd-`Mark`-state fix WITHDRAWN. (4) `TwoPassTests` `nested_disj_mark_*` reframed: the two
+`⚠ DEFERRAL WITNESS` pins (which asserted the ambiguous as "the current wrong-ambiguous, flips when
+fixed") are now SPEC-CORRECT GUARDS with the full M2/U1 derivation in-comment; renamed
+`_marked_inner_default_dies_is_ambiguous` / `_marked_inner_struct_default_dies_is_ambiguous`; the
+`#check` sentinel repointed. Added 2 edge-case guards (`_triple_nest_dies_is_ambiguous`,
+`_dies_inside_struct_field_is_ambiguous`). (5) Retraction: annotated the "deferred by design / lone
+open divergence" claims in the three 2026-07-04 notes.
+
+### Result
+
+`./scripts/check.sh` GREEN (all `nested_disj_mark_*` pins hold on the unchanged eval core — Kue was
+already spec-correct). cert-manager canary GREEN (the shape is absent from cert-manager + argocd;
+jq-S=0, no eval delta). No Kue source touched; no `partial`/`sorry`/axiom added. Committed on `main`,
+explicit pathspec, NOT pushed.

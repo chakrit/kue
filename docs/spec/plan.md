@@ -190,11 +190,16 @@ Correctness gates real-app adoption; cleanups are parallel-safe filler. The
 [`spec-conformance-audit.md`](spec-conformance-audit.md) § Genuinely-open ranked backlog (the
 authoritative ranked list — do NOT duplicate it here). Everything spec-conformance-HIGH is
 DONE (the closedness family incl. SC-1b/1e + EMBED-CLOSE-1, the MEET-RESID-1/A#6 family, the
-dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, SC-4, Bug2-12 MUTUAL, EvalOps). The
-lone open VALUE divergence is **NESTED-DISJ-MARK** (nested-disjunction outer-default
-inheritance when the inner default dies) — a **DESIGNED-DEFERRAL 2026-06-23**: the fix needs a
-3rd `Mark` state or a non-flattening nested-disj invariant, both LARGE + delicate → STOP rather
-than risk default-selection. **SC-3** is a display-only spec-gap (multi-arm-default display
+dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, SC-4, Bug2-12 MUTUAL, EvalOps).
+**NESTED-DISJ-MARK is CLOSED (2026-07-05): Kue was already SPEC-CORRECT; `cue` is the buggy
+side.** The former "lone open VALUE divergence / DESIGNED-DEFERRAL 2026-06-23" was mis-adjudicated
+— applying the spec's default-marking rule **M2** (`*⟨v, d⟩ => ⟨v, d⟩`: a mark on an
+already-defaulted disjunct is ABSORBED, it does NOT re-broaden the inner default) + **U1**
+(`d1 & v2` for the default under a narrow) mandates the AMBIGUOUS result Kue already produces;
+`cue`'s resolved value comes from an M2-violating broadening (a `cue` bug). NO Kue code change; the
+designed 3rd-`Mark`-state fix is WITHDRAWN (it would have imported `cue`'s bug). Reclassified from
+`cue-spec-gaps.md` to `cue-divergences.md` (M2/U1 basis). With this, **there are ZERO open
+VALUE-level divergences.** **SC-3** is a display-only spec-gap (multi-arm-default display
 divergence; a 2026-07-04 AFK sweep of the whole disjunction/default area confirmed ZERO export
 divergence and recorded the all-default `*1 | *2` display as an SC-3 sub-case — guards
 `EvalTests` `disj_meet_*`). Full records: `spec-conformance-audit.md` + `cue-spec-gaps.md`.

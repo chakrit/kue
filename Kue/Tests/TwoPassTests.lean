@@ -881,32 +881,42 @@ theorem embed_disj_arm_closedness_host_extra_survives_and_disjoint_rejected :
           = true := by
   native_decide
 
--- ### NESTED-DISJ-MARK — outer-default-mark inheritance when the inner default dies (DESIGNED-DEFERRAL).
+-- ### NESTED-DISJ-MARK — marking a disjunct that already carries a default (Kue SPEC-CORRECT; cue BUG).
 --
--- A `*`-marked GROUP that is itself a disjunction-with-inner-`*` (`*_O | …` where `_O: *_I | _B`)
--- puts the WHOLE group in the OUTER default-set, inner `*` a PREFERENCE WITHIN it. Spec-verified
--- cue v0.16.1 two-tier rule (the source `*( … )` form is a PARSE ERROR — the shape only arises via
--- a def/ref): (tier 1) inner-preferred arm survives ⇒ it wins; (tier 2) inner default DIES under a
--- narrowing ⇒ the surviving inner arm INHERITS the outer `*` and beats an outer-REGULAR survivor.
--- An UNMARKED group does NOT inherit. Kue currently DIVERGES on tier 2: it eagerly flattens
--- `(.default, .disj nested)` at eval time (`Eval.lean:3410-3414`), so the inner non-default sub-arm
--- becomes `.regular`, losing the outer `*`; when the inner default dies the survivor is regular and
--- export goes AMBIGUOUS where cue picks the marked survivor. Root: a flat 2-state `Mark` cannot
--- encode the two-tier "outer-default-set membership WITH inner preference". DESIGNED, deferred (the
--- fix needs a 3rd `Mark` state or a non-flattening nested-disj invariant — both LARGE + delicate;
--- STOP per slice guidance). Full diagnosis + designed fix: `cue-spec-gaps.md` NESTED-DISJ-MARK row.
+-- When a `*` marks a term that is ITSELF a defaulted disjunction (`*_O | …` where `_O: *_I | _B`, so
+-- `_O` resolves to a `⟨value, default⟩`), the CUE spec's default algebra is EXPLICIT — not silent.
+-- Marking rule M2: `*⟨v, d⟩ => ⟨v, d⟩` ("keep existing defaults for marked term") — the outer `*` is
+-- ABSORBED, it does NOT re-broaden the inner default to the whole value set. (M1 `*⟨v⟩ => ⟨v, v⟩`
+-- only introduces a default for an UNmarked/undefaulted term.) The spec's own closing note confirms
+-- it: "for any marked disjunction `a`, the expressions `a|a`, `*a|a` and `*a|*a` all resolve to `a`"
+-- — so `*a = a` for an already-defaulted `a`.
+--
+-- Worked derivation, scalar `(*_I | 9) & >=5` with `_I: *1|5`:
+--   _I  = *1|5                     M1(*1)=⟨1,1⟩, M0(5)=⟨5⟩, D1 ⇒ ⟨1|5, 1⟩
+--   *_I = *⟨1|5, 1⟩                M2 ⇒ ⟨1|5, 1⟩   (default stays 1 — NOT broadened to 1|5)
+--   *_I | 9                        D1 ⇒ ⟨1|5|9, 1⟩
+--   & >=5                          U1: ⟨v1,d1⟩ & ⟨v2⟩ ⇒ ⟨v1&v2, d1&v2⟩
+--                                     ⇒ ⟨(1|5|9)&≥5, 1&≥5⟩ = ⟨5|9, ⊥⟩
+--   default ⊥ ⇒ no unique default ⇒ AMBIGUOUS `5 | 9`.   Kue exports ambiguous — SPEC-CORRECT.
+-- cue exports `5`: it broadens `*⟨v,d⟩ → ⟨v,v⟩` (M1-after-strip), so its default set is `1|5` and
+-- `& >=5` leaves `5` as a surviving default. That contradicts M2 (and the `*a=a` note) — a cue BUG.
+-- The struct analog dies by CLOSEDNESS (`{a:5}` closed def rejects `b`) identically. See
+-- `docs/reference/cue-divergences.md` NESTED-DISJ-MARK (M2/U1 basis, cue v0.16.1).
+-- Kue needs NO change — the eager flatten of a `(.default, .disj nested)` arm is exactly M2's
+-- absorb-the-mark behavior. These pins GUARD the spec-correct verdict against a future regression
+-- toward cue's broadening (the earlier "designed-deferral / 3rd Mark state" plan is WITHDRAWN).
 
--- TIER-1 (MATCHES cue): inner-preferred arm `1` survives a non-disjunction narrow that also admits
--- the inner-regular `5`, so the inner `*` wins → `1`. Pins the preference tier holds.
-theorem nested_disj_mark_tier1_inner_pref_wins :
+-- TIER where the inner default SURVIVES the narrow (MATCHES cue): default `1` admitted by `[1,5]`,
+-- so per M2/U1 `1 & [1,5] = 1` survives ⇒ `1`. Pins that M2 keeps (does not drop) the inner default.
+theorem nested_disj_mark_inner_default_survives_narrow :
     exportJsonMatches
         "_I: *1 | 5\nout: (*_I | 9) & (>=1 & <=5)\n"
         "{\n    \"out\": 1\n}\n"
           = true := by
   native_decide
 
--- NO-NARROW VALUE VERDICT (MATCHES cue): `*_I | 9` with `_I:*1|5` resolves to the inner default `1`
--- (the eval-DISPLAY of the residual diverges — SC-3 family — but the export VALUE is cue-exact).
+-- NO-NARROW VALUE VERDICT (MATCHES cue): `*_I | 9` with `_I:*1|5` ⇒ ⟨1|5|9, 1⟩ ⇒ default `1`
+-- (the eval-DISPLAY of the residual is the SC-3 family; the export VALUE is spec-exact and cue-exact).
 theorem nested_disj_mark_no_narrow_resolves_to_inner_default :
     exportJsonMatches
         "_I: *1 | 5\nout: *_I | 9\n"
@@ -914,30 +924,46 @@ theorem nested_disj_mark_no_narrow_resolves_to_inner_default :
           = true := by
   native_decide
 
--- REGRESSION GUARD (MATCHES cue): an UNMARKED group `((*_#I | _#B) | {…})` does NOT inherit the
--- (absent) outer default — the inner survivor stays regular and export is AMBIGUOUS, exactly cue's
--- `incomplete {b:"x"} | {b:"x",c?:int}`. The future fix must NOT over-mark this (no spurious default).
+-- CONTROL — an UNMARKED group `((*_#I | _#B) | {…})`: M3 strips the inner default, so there is no
+-- outer default at all and export is AMBIGUOUS. cue AGREES here (`incomplete {b:"x"} | {…}`) — the
+-- discriminator that distinguishes this from the marked cases below is whether cue keeps a default,
+-- and here neither has one. Guards that Kue introduces no spurious default on the unmarked shape.
 theorem nested_disj_mark_unmarked_group_stays_ambiguous :
     exportJsonBottoms
         "_#I: {a: 5}\n_#B: {s: string}\nout: {((*_#I | _#B) | {c?: int, s: string})} & {s: \"x\"}\n"
           = true := by
   native_decide
 
--- ⚠ DEFERRAL WITNESS (scalar) — Kue DIVERGES (KNOWN): `(*_I | 9) & >=5` with `_I:*1|5` kills the
--- inner default `1`; cue picks the marked survivor `5`, Kue goes AMBIGUOUS (tier-2 mark not inherited).
--- Pinned via `exportJsonBottoms` = TRUE (the current wrong-ambiguous). This pin FLIPS to false when the
--- designed fix lands — a tripwire that the deferral is still open. cue-exact target: `{"out":5}`.
-theorem nested_disj_mark_tier2_scalar_DEFERRAL_witness :
+-- SPEC-CORRECT GUARD (scalar) — Kue exports AMBIGUOUS `5 | 9`, the value the spec's M2/U1 rules
+-- mandate (derivation above): the inner default `1` dies under `& >=5` and M2 forbids broadening, so
+-- no default survives. cue exports `5` (M2-violating broadening) — a cue BUG (`cue-divergences.md`).
+-- `exportJsonBottoms = true` pins the spec-correct ambiguity; a regression to a spurious concrete
+-- value (importing cue's bug) FAILS this pin.
+theorem nested_disj_mark_marked_inner_default_dies_is_ambiguous :
     exportJsonBottoms "_I: *1 | 5\nout: (*_I | 9) & >=5\n" = true := by
   native_decide
 
--- ⚠ DEFERRAL WITNESS (struct, the FILED repro shape) — Kue DIVERGES (KNOWN): the inner default `_#I`
--- dies by CLOSEDNESS under `& {b:"x"}`; cue picks the marked survivor `{b:"x"}`, Kue goes AMBIGUOUS.
--- `exportJsonBottoms` = TRUE pins the current divergence; flips when fixed. cue target: `{"out":{"b":"x"}}`.
-theorem nested_disj_mark_tier2_struct_DEFERRAL_witness :
+-- SPEC-CORRECT GUARD (struct) — same shape, inner default `_#I` dies by CLOSEDNESS under `& {b:"x"}`
+-- (`{a:5}` is a closed def, `b` not admitted). Spec ⇒ AMBIGUOUS `{b:"x"} | {c:int, b:"x"}`; cue's
+-- `{b:"x"}` is the same broadening bug. `exportJsonBottoms = true` pins the spec-correct verdict.
+theorem nested_disj_mark_marked_inner_struct_default_dies_is_ambiguous :
     exportJsonBottoms
         "_#I: {a: 5}\n_#B: {b: string}\n_#O: *_#I | _#B\nout: {(*_#O | {c: int})} & {b: \"x\"}\n"
           = true := by
+  native_decide
+
+-- SPEC-CORRECT GUARD (triple nesting) — `_J: *_I | 7` with `_I: *1|5`: M2 keeps `_J`'s default `1`
+-- through two `*` levels (⟨1|5|7, 1⟩), so `(*_J | 9) & >=5` ⇒ ⟨5|7|9, ⊥⟩ ⇒ AMBIGUOUS `5|7|9`.
+-- Pins that M2's absorb-the-mark holds at arbitrary nesting depth; cue's `5` broadens at every level.
+theorem nested_disj_mark_triple_nest_dies_is_ambiguous :
+    exportJsonBottoms "_I: *1 | 5\n_J: *_I | 7\nout: (*_J | 9) & >=5\n" = true := by
+  native_decide
+
+-- SPEC-CORRECT GUARD (disjunction inside a struct field) — the same marked-nested-default-dies shape
+-- under a field `out.x`; export bottoms on the ambiguous `x` per M2/U1. Pins that the rule is not
+-- special to a top-level result — it holds wherever the disjunction sits.
+theorem nested_disj_mark_dies_inside_struct_field_is_ambiguous :
+    exportJsonBottoms "_I: *1 | 5\nout: {x: (*_I | 9) & >=5}\n" = true := by
   native_decide
 
 -- ### argocd `parts.#Mixin` — comprehension guard over a use-site-narrowed REGULAR sibling.
@@ -1507,7 +1533,7 @@ theorem embed_body_embeds_disj_gate_direct_disj :
 #check @embed_disj_single_arm_narrows                         -- embed-disj-arm-fallthrough
 #check @embed_disj_arm_closedness_host_extra_field_survives   -- embed-disj-arm-closedness
 #check @embed_disj_arm_closedness_open_tail_arm_admits_disjoint -- no over-close (open tail)
-#check @nested_disj_mark_tier2_struct_DEFERRAL_witness        -- NESTED-DISJ-MARK (designed-deferral)
+#check @nested_disj_mark_marked_inner_struct_default_dies_is_ambiguous -- NESTED-DISJ-MARK (Kue spec-correct; cue bug)
 #check @embed_comprehension_guard_real_conflict_bottoms       -- parts.#Mixin
 #check @let_buried_for_source_expands                         -- Bug2-1 / A-EN1
 #check @mixin_let_local_guard_false_drops_body                -- Bug2-4
