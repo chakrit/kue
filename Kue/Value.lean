@@ -12,11 +12,26 @@ inductive Kind where
   | bytes
 deriving Repr, BEq, DecidableEq
 
+/-- An exact base-10 rational: `numerator / 10^scale`. The canonical numeric value used
+    for decimal literals and bound limits, so comparison and arithmetic are total and
+    exact (no float rounding). A `Prim.float` carries one (smart-constructed from its
+    source text at build time via `mkFloatText`), and `boundConstraint` carries one. -/
+structure DecimalValue where
+  numerator : Int
+  scale : Nat
+deriving Repr, BEq, DecidableEq
+
+/-- A `float` carries BOTH its exact decimal `value` (smart-constructed from `text` once,
+    at lex/result-construction time — never re-parsed on the meet/compare hot path) and the
+    original source `text` (so rendering round-trips verbatim: `1.50` prints `1.50`, `1e+3`
+    prints `1e+3`). Every construction goes through `mkFloatText`, which sets
+    `value := parseDecimalText text`, so the two fields never disagree and derived `BEq`
+    stays exactly text-equality. -/
 inductive Prim where
   | null
   | bool (value : Bool)
   | int (value : Int)
-  | float (value : String)
+  | float (value : DecimalValue) (text : String)
   | string (value : String)
   | bytes (value : Array UInt8)
 deriving Repr, BEq, DecidableEq
@@ -27,7 +42,7 @@ def kind : Prim -> Kind
   | .null => .null
   | .bool _ => .bool
   | .int _ => .int
-  | .float _ => .float
+  | .float _ _ => .float
   | .string _ => .string
   | .bytes _ => .bytes
 
@@ -41,15 +56,6 @@ def textBytes (text : String) : Array UInt8 := text.toUTF8.data
 inductive Mark where
   | regular
   | default
-deriving Repr, BEq, DecidableEq
-
-/-- An exact base-10 rational: `numerator / 10^scale`. The canonical numeric value used
-    for decimal literals and bound limits, so comparison and arithmetic are total and
-    exact (no float rounding). Lives here (rather than `Decimal.lean`) because
-    `boundConstraint` carries one and `Value` must see the type. -/
-structure DecimalValue where
-  numerator : Int
-  scale : Nat
 deriving Repr, BEq, DecidableEq
 
 def evalPow10 : Nat -> Nat
@@ -214,9 +220,18 @@ def parseDecimalText (value : String) : Option DecimalValue :=
   | '+' :: rest => parseUnsignedDecimalText false rest
   | chars => parseUnsignedDecimalText false chars
 
+/-- The ONLY sanctioned way to build a `Prim.float`: parse `text` to its exact decimal
+    ONCE here, storing both. A numeric literal from the lexer and a decimal rendered by our
+    own formatters always parse, so the `none` fallback (`intDecimal 0`) is unreachable in
+    practice; it keeps the constructor total without a hot-path `Option`. Because `value` is
+    a deterministic function of `text`, derived `BEq` on the result reduces to text-equality,
+    exactly as the former `float (value : String)` representation compared. -/
+def mkFloatText (text : String) : Prim :=
+  .float ((parseDecimalText text).getD (intDecimal 0)) text
+
 def decimalFromPrim? : Prim -> Option DecimalValue
   | .int value => some { numerator := value, scale := 0 }
-  | .float value => parseDecimalText value
+  | .float value _ => some value
   | _ => none
 
 /-- The numeric domain a bound constrains. A bare bound (`>0`) is `number` — it admits

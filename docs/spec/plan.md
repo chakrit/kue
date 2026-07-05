@@ -327,8 +327,18 @@ rejection argument: `kue-performance.md` + implementation-log.
    struct, nested-at-depth, unequal, `evalNe` negation) + 4 fixture cases in
    `numeric/equality_expressions` + the divergence record. No code change (kue was already right).
 
-0e. **PRIM-FLOAT-PARSED (LOW-MEDIUM — type-system leverage + minor perf; from the 2026-07-04
-   Phase B audit).** `Prim.float` carries the raw literal `String` (`Kue/Value.lean:19`), so every
+0e. **PRIM-FLOAT-PARSED ✅ LANDED 2026-07-05 (LOW-MEDIUM — type-system leverage + minor perf; from
+   the 2026-07-04 Phase B audit).** `Prim.float` now carries `(value : DecimalValue) (text : String)`
+   (was raw `String`), smart-constructed through the sole `mkFloatText` constructor which sets
+   `value := parseDecimalText text` once at build time. `decimalFromPrim?` and `primsUnifyEqual` read
+   the stored decimal with ZERO hot-path re-parse; the illegal `| _, _ => leftText == rightText`
+   fallback in `primsUnifyEqual` is ERASED (the float arm is now a total `decimalEqValues` on the two
+   stored values). `mathAbs`/`mathRound` also drop their per-call `parseDecimalText`. Behavior-
+   preserving by construction: `value` is a deterministic function of `text`, so derived `BEq` on
+   `Prim.float` still reduces to text-equality (fixtures + cert-manager canary byte-identical). 5 new
+   `native_decide` theorems in `FloatTests.lean` pin the invariants (stored-decimal exactness/totality,
+   by-value unify, verbatim text round-trip incl. trailing-zero/scientific, BEq≡text, bound edges).
+   Original spec retained for provenance: `Prim.float` carried the raw literal `String` (`Kue/Value.lean:19`), so every
    float-vs-float meet (`primsUnifyEqual`, `Kue/Lattice.lean:14`) and every float compare
    (`toDecimalValue?`/`evalDecimalCompare?`) RE-PARSES the text via `parseDecimalText` on the hot
    path. Two smells: (1) repeated `parseDecimalText` work on a value that never changes, and (2) the

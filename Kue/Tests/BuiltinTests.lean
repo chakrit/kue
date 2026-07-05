@@ -399,37 +399,37 @@ theorem list_sort_strings_abstract_arg_stays_unresolved :
 
 theorem list_sum_float_collapses_integral :
     (evalBuiltinCall "list.Sum"
-        [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]]
+        [.list [.prim (mkFloatText "1.0"), .prim (mkFloatText "2.0"), .prim (mkFloatText "3.0")]]
       == .prim (.int 6)) = true := by
   native_decide
 
 theorem list_sum_mixed_int_float_promotes :
     (evalBuiltinCall "list.Sum"
-        [.list [.prim (.int 1), .prim (.float "2.5"), .prim (.int 3)]]
-      == .prim (.float "6.5")) = true := by
+        [.list [.prim (.int 1), .prim (mkFloatText "2.5"), .prim (.int 3)]]
+      == .prim (mkFloatText "6.5")) = true := by
   native_decide
 
 theorem list_sum_mixed_integral_collapses_int :
     (evalBuiltinCall "list.Sum"
-        [.list [.prim (.int 1), .prim (.float "2.0"), .prim (.int 3)]]
+        [.list [.prim (.int 1), .prim (mkFloatText "2.0"), .prim (.int 3)]]
       == .prim (.int 6)) = true := by
   native_decide
 
 theorem list_min_float_collapses_integral :
     (evalBuiltinCall "list.Min"
-        [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]
+        [.list [.prim (mkFloatText "3.0"), .prim (mkFloatText "1.0"), .prim (mkFloatText "2.0")]]
       == .prim (.int 1)) = true := by
   native_decide
 
 theorem list_min_mixed_picks_float :
     (evalBuiltinCall "list.Min"
-        [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]]
-      == .prim (.float "1.5")) = true := by
+        [.list [.prim (.int 3), .prim (mkFloatText "1.5"), .prim (.int 2)]]
+      == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 theorem list_max_float_collapses_integral :
     (evalBuiltinCall "list.Max"
-        [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]]
+        [.list [.prim (mkFloatText "3.0"), .prim (mkFloatText "1.0"), .prim (mkFloatText "2.0")]]
       == .prim (.int 3)) = true := by
   native_decide
 
@@ -442,19 +442,19 @@ theorem list_avg_exact_divisible_collapses_int :
 theorem list_avg_terminating_is_float :
     (evalBuiltinCall "list.Avg"
         [.list [.prim (.int 1), .prim (.int 2)]]
-      == .prim (.float "1.5")) = true := by
+      == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 theorem list_avg_nonterminating_is_34_sig_digit_float :
     (evalBuiltinCall "list.Avg"
         [.list [.prim (.int 1), .prim (.int 1), .prim (.int 2)]]
-      == .prim (.float "1.333333333333333333333333333333333")) = true := by
+      == .prim (mkFloatText "1.333333333333333333333333333333333")) = true := by
   native_decide
 
 theorem list_avg_float_input :
     (evalBuiltinCall "list.Avg"
-        [.list [.prim (.float "1.0"), .prim (.float "2.0")]]
-      == .prim (.float "1.5")) = true := by
+        [.list [.prim (mkFloatText "1.0"), .prim (mkFloatText "2.0")]]
+      == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 theorem list_avg_empty_is_bottom :
@@ -472,21 +472,21 @@ theorem list_avg_abstract_arg_stays_unresolved :
 
 theorem list_range_float_step_collapses_elements :
     (evalBuiltinCall "list.Range"
-        [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.5")]
-      == .list [.prim (.int 0), .prim (.float "0.5"), .prim (.int 1), .prim (.float "1.5")])
+        [.prim (mkFloatText "0.0"), .prim (mkFloatText "2.0"), .prim (mkFloatText "0.5")]
+      == .list [.prim (.int 0), .prim (mkFloatText "0.5"), .prim (.int 1), .prim (mkFloatText "1.5")])
       = true := by
   native_decide
 
 theorem list_range_float_negative_step_descends :
     (evalBuiltinCall "list.Range"
-        [.prim (.float "2.0"), .prim (.float "0.0"), .prim (.float "-0.5")]
-      == .list [.prim (.int 2), .prim (.float "1.5"), .prim (.int 1), .prim (.float "0.5")])
+        [.prim (mkFloatText "2.0"), .prim (mkFloatText "0.0"), .prim (mkFloatText "-0.5")]
+      == .list [.prim (.int 2), .prim (mkFloatText "1.5"), .prim (.int 1), .prim (mkFloatText "0.5")])
       = true := by
   native_decide
 
 theorem list_range_float_zero_step_is_bottom :
     (evalBuiltinCall "list.Range"
-        [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.0")]
+        [.prim (mkFloatText "0.0"), .prim (mkFloatText "2.0"), .prim (mkFloatText "0.0")]
       == .bottom) = true := by
   native_decide
 
@@ -495,7 +495,7 @@ theorem math_abs_int_stays_int :
   native_decide
 
 theorem math_abs_float_stays_float :
-    (evalBuiltinCall "math.Abs" [.prim (.float "-3.5")] == .prim (.float "3.5")) = true := by
+    (evalBuiltinCall "math.Abs" [.prim (mkFloatText "-3.5")] == .prim (mkFloatText "3.5")) = true := by
   native_decide
 
 theorem math_multiple_of_true_for_divisible :
@@ -530,20 +530,20 @@ theorem math_mod_neg_divisor_takes_dividend_sign :
   native_decide
 
 theorem math_mod_float_exact :
-    (evalBuiltinCall "math.Mod" [.prim (.float "5.5"), .prim (.int 2)]
-      == .prim (.float "1.5")) = true := by
+    (evalBuiltinCall "math.Mod" [.prim (mkFloatText "5.5"), .prim (.int 2)]
+      == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 theorem math_mod_int_over_float_collapses_to_int :
-    (evalBuiltinCall "math.Mod" [.prim (.int 7), .prim (.float "2.5")]
+    (evalBuiltinCall "math.Mod" [.prim (.int 7), .prim (mkFloatText "2.5")]
       == .prim (.int 2)) = true := by
   native_decide
 
 -- Kue computes Mod in EXACT decimal, so `Mod(5.5, 2.1) = 1.3`; cue's float64 emits the
 -- artifact `1.2999999999999998` (Kue is more precise — see cue-divergences.md).
 theorem math_mod_exact_beats_cue_float :
-    (evalBuiltinCall "math.Mod" [.prim (.float "5.5"), .prim (.float "2.1")]
-      == .prim (.float "1.3")) = true := by
+    (evalBuiltinCall "math.Mod" [.prim (mkFloatText "5.5"), .prim (mkFloatText "2.1")]
+      == .prim (mkFloatText "1.3")) = true := by
   native_decide
 
 theorem math_mod_zero_divisor_bottoms :
@@ -568,11 +568,11 @@ theorem math_signbit_zero_is_false :
   native_decide
 
 theorem math_signbit_negative_float :
-    (evalBuiltinCall "math.Signbit" [.prim (.float "-3.5")] == .prim (.bool true)) = true := by
+    (evalBuiltinCall "math.Signbit" [.prim (mkFloatText "-3.5")] == .prim (.bool true)) = true := by
   native_decide
 
 theorem math_signbit_negative_zero_is_false :
-    (evalBuiltinCall "math.Signbit" [.prim (.float "-0.0")] == .prim (.bool false)) = true := by
+    (evalBuiltinCall "math.Signbit" [.prim (mkFloatText "-0.0")] == .prim (.bool false)) = true := by
   native_decide
 
 theorem math_signbit_non_numeric_bottoms :
@@ -621,23 +621,23 @@ theorem strings_slicerunes_lo_gt_hi_bottoms :
   native_decide
 
 theorem math_floor_rounds_toward_negative_infinity :
-    (evalBuiltinCall "math.Floor" [.prim (.float "-3.2")] == .prim (.int (-4))) = true := by
+    (evalBuiltinCall "math.Floor" [.prim (mkFloatText "-3.2")] == .prim (.int (-4))) = true := by
   native_decide
 
 theorem math_ceil_rounds_toward_positive_infinity :
-    (evalBuiltinCall "math.Ceil" [.prim (.float "-3.7")] == .prim (.int (-3))) = true := by
+    (evalBuiltinCall "math.Ceil" [.prim (mkFloatText "-3.7")] == .prim (.int (-3))) = true := by
   native_decide
 
 theorem math_round_half_away_from_zero_positive :
-    (evalBuiltinCall "math.Round" [.prim (.float "2.5")] == .prim (.int 3)) = true := by
+    (evalBuiltinCall "math.Round" [.prim (mkFloatText "2.5")] == .prim (.int 3)) = true := by
   native_decide
 
 theorem math_round_half_away_from_zero_negative :
-    (evalBuiltinCall "math.Round" [.prim (.float "-2.5")] == .prim (.int (-3))) = true := by
+    (evalBuiltinCall "math.Round" [.prim (mkFloatText "-2.5")] == .prim (.int (-3))) = true := by
   native_decide
 
 theorem math_trunc_drops_fraction_toward_zero :
-    (evalBuiltinCall "math.Trunc" [.prim (.float "-3.99")] == .prim (.int (-3))) = true := by
+    (evalBuiltinCall "math.Trunc" [.prim (mkFloatText "-3.99")] == .prim (.int (-3))) = true := by
   native_decide
 
 theorem math_floor_of_integer_is_identity :
@@ -668,7 +668,7 @@ theorem math_pow_zero_base_positive_exponent_is_zero :
   native_decide
 
 theorem math_pow_float_base_stays_exact_decimal :
-    (evalBuiltinCall "math.Pow" [.prim (.float "1.5"), .prim (.int 3)] == .prim (.float "3.375")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (mkFloatText "1.5"), .prim (.int 3)] == .prim (mkFloatText "3.375")) = true := by
   native_decide
 
 theorem math_pow_negative_base_odd_exponent_is_negative :
@@ -681,13 +681,13 @@ theorem math_pow_negative_base_even_exponent_is_positive :
 
 -- A whole-VALUED float exponent (`3.0`) counts as the integer exponent `3` (cue: `Pow(3, 2.0) = 9`).
 theorem math_pow_whole_float_exponent_is_integer_exponent :
-    (evalBuiltinCall "math.Pow" [.prim (.int 3), .prim (.float "2.0")] == .prim (.int 9)) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 3), .prim (mkFloatText "2.0")] == .prim (.int 9)) = true := by
   native_decide
 
 -- A terminating decimal stays EXACT (not padded to 34 digits — the positive-int-exp path never
 -- routes through cue's apd division): `Pow(0.1, 2) = 0.01`.
 theorem math_pow_terminating_decimal_is_exact :
-    (evalBuiltinCall "math.Pow" [.prim (.float "0.1"), .prim (.int 2)] == .prim (.float "0.01")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (mkFloatText "0.1"), .prim (.int 2)] == .prim (mkFloatText "0.01")) = true := by
   native_decide
 
 -- `Pow(0, 0)` is a cue error (bottom). CONFORMS (both error).
@@ -699,11 +699,11 @@ theorem math_pow_zero_zero_is_bottom :
 -- int-pow + the division renderer; no exp/ln). `Pow(2,-3) = 0.125` — Kue trims the exact value;
 -- `cue` pads to `0.1250…000` (34 digits), a display divergence (cue-divergences.md).
 theorem math_pow_negative_integer_exponent_is_exact_rational :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))] == .prim (.float "0.125")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))] == .prim (mkFloatText "0.125")) = true := by
   native_decide
 
 theorem math_pow_negative_integer_exponent_terminating :
-    (evalBuiltinCall "math.Pow" [.prim (.int 10), .prim (.int (-2))] == .prim (.float "0.01")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 10), .prim (.int (-2))] == .prim (mkFloatText "0.01")) = true := by
   native_decide
 
 -- `Pow(1, -n) = 1` collapses to int (cue agrees: `1`).
@@ -715,7 +715,7 @@ theorem math_pow_one_negative_exponent_collapses_to_int :
 -- byte-identical to cue's apd value modulo cue's trailing-zero padding).
 theorem math_pow_negative_exponent_repeating :
     (evalBuiltinCall "math.Pow" [.prim (.int 3), .prim (.int (-1))]
-      == .prim (.float "0.3333333333333333333333333333333333")) = true := by
+      == .prim (mkFloatText "0.3333333333333333333333333333333333")) = true := by
   native_decide
 
 -- `Pow(0, neg)` is a division by zero — `cue` emits `Infinity`; Kue bottoms (no Infinity).
@@ -728,25 +728,25 @@ theorem math_pow_zero_negative_exponent_is_bottom :
 -- digits; integral results collapse to int.
 -- `Pow(2, 0.25) = 1.189…476` — byte-identical to cue's apd `Pow(2, 0.25)`.
 theorem math_pow_general_fractional_exponent_is_exact_decimal :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")]
-      == .prim (.float "1.189207115002721066717499970560476")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.25")]
+      == .prim (mkFloatText "1.189207115002721066717499970560476")) = true := by
   native_decide
 
 -- `Pow(2, 0.1) = 1.071…342` — byte-identical to cue's apd.
 theorem math_pow_general_fractional_tenth :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.1")]
-      == .prim (.float "1.071773462536293164213006325023342")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.1")]
+      == .prim (mkFloatText "1.071773462536293164213006325023342")) = true := by
   native_decide
 
 -- `Pow(4, 1.5) = 8` — an exact integer; the exp/ln path lands within 34 digits and collapses.
 theorem math_pow_general_fractional_collapses_to_int :
-    (evalBuiltinCall "math.Pow" [.prim (.int 4), .prim (.float "1.5")] == .prim (.int 8)) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 4), .prim (mkFloatText "1.5")] == .prim (.int 8)) = true := by
   native_decide
 
 -- `Pow(8, ⅓)` with the exponent given as cue's 34-digit `1.0/3.0` (`0.333…333`) = 2 (collapses).
 theorem math_pow_general_cube_root_collapses_to_int :
     (evalBuiltinCall "math.Pow"
-        [.prim (.int 8), .prim (.float "0.3333333333333333333333333333333333")]
+        [.prim (.int 8), .prim (mkFloatText "0.3333333333333333333333333333333333")]
       == .prim (.int 2)) = true := by
   native_decide
 
@@ -755,8 +755,8 @@ theorem math_pow_general_cube_root_collapses_to_int :
 -- test; here we pin that `Pow(2, 0.5)` (the sqrt route) equals what the exp/ln series produces
 -- for the same value, confirming the two transcendental paths are mutually consistent.
 theorem math_pow_half_matches_general_path :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]
-      == .prim (.float "1.414213562373095048801688724209698")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.5")]
+      == .prim (mkFloatText "1.414213562373095048801688724209698")) = true := by
   native_decide
 
 -- AUDIT (BI-2-§3 totality witnesses): the exp/ln path's FIXED 40/60-term budgets + binary range
@@ -769,56 +769,56 @@ theorem math_pow_half_matches_general_path :
 -- (`9.999…998`, not `10`), so this pins the exp/ln path to cue's apd mantissa bit-for-bit.
 theorem math_pow_large_base_cube_root_matches_cue_artifact :
     (evalBuiltinCall "math.Pow"
-        [.prim (.int 1000), .prim (.float "0.3333333333333333333333333333333333")]
-      == .prim (.float "9.999999999999999999999999999999998")) = true := by
+        [.prim (.int 1000), .prim (mkFloatText "0.3333333333333333333333333333333333")]
+      == .prim (mkFloatText "9.999999999999999999999999999999998")) = true := by
   native_decide
 
 -- Mid base, cube-root exponent — a genuine 34-digit irrational (`10^⅓`).
 theorem math_pow_ten_cube_root_is_exact_decimal :
     (evalBuiltinCall "math.Pow"
-        [.prim (.int 10), .prim (.float "0.3333333333333333333333333333333333")]
-      == .prim (.float "2.15443469003188372175929356651935")) = true := by
+        [.prim (.int 10), .prim (mkFloatText "0.3333333333333333333333333333333333")]
+      == .prim (mkFloatText "2.15443469003188372175929356651935")) = true := by
   native_decide
 
 -- Fractional base < 1 under a fractional exponent (`0.5^0.5 = √½`) — exercises the `ln m` series
 -- on a sub-unit mantissa and a negative `ln x`.
 theorem math_pow_fractional_base_half_exponent_is_exact_decimal :
-    (evalBuiltinCall "math.Pow" [.prim (.float "0.5"), .prim (.float "0.5")]
-      == .prim (.float "0.7071067811865475244008443621048490")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (mkFloatText "0.5"), .prim (mkFloatText "0.5")]
+      == .prim (mkFloatText "0.7071067811865475244008443621048490")) = true := by
   native_decide
 
 -- Exponent NEAR ZERO (`2^0.0001 ≈ 1`) — `y·ln x` is tiny, stressing the low-magnitude end of the
 -- exp series where the result clusters just above 1.
 theorem math_pow_tiny_exponent_is_exact_decimal :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.0001")]
-      == .prim (.float "1.000069317120376569192439912602643")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.0001")]
+      == .prim (mkFloatText "1.000069317120376569192439912602643")) = true := by
   native_decide
 
 -- Base NEAR ONE (`1.0001^2.5`) — `ln x` is tiny and positive; the `artanh` series runs near its
 -- zero, a distinct regime from a far-from-1 mantissa.
 theorem math_pow_base_near_one_is_exact_decimal :
-    (evalBuiltinCall "math.Pow" [.prim (.float "1.0001"), .prim (.float "2.5")]
-      == .prim (.float "1.000250018750312496093867182617432")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (mkFloatText "1.0001"), .prim (mkFloatText "2.5")]
+      == .prim (mkFloatText "1.000250018750312496093867182617432")) = true := by
   native_decide
 
 -- Exponent > 1 with a non-collapsing irrational result (`2^2.5 = 4√2`) — the `2^n` range-reduction
 -- factor of `exp` fires (`n ≠ 0`).
 theorem math_pow_exponent_above_one_is_exact_decimal :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "2.5")]
-      == .prim (.float "5.656854249492380195206754896838792")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "2.5")]
+      == .prim (mkFloatText "5.656854249492380195206754896838792")) = true := by
   native_decide
 
 -- Large exponent magnitude with a large integer collapse (`100^1.5 = 1000`) — the exp/ln path
 -- must round-and-collapse a big integral result, not drift off by an ULP.
 theorem math_pow_large_base_fractional_collapses_to_int :
-    (evalBuiltinCall "math.Pow" [.prim (.int 100), .prim (.float "1.5")] == .prim (.int 1000)) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 100), .prim (mkFloatText "1.5")] == .prim (.int 1000)) = true := by
   native_decide
 
 -- Negative INTEGER exponent on a negative base (`(-2)^(-3) = -0.125`) — the §1 reciprocal path over
 -- a negative base; an exact terminating rational, sign preserved.
 theorem math_pow_negative_base_negative_integer_exponent_is_exact :
     (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.int (-3))]
-      == .prim (.float "-0.125")) = true := by
+      == .prim (mkFloatText "-0.125")) = true := by
   native_decide
 
 -- Negative base, EVEN integer exponent (`(-2)^4 = 16`) — exact repeated multiplication keeps the
@@ -834,29 +834,29 @@ theorem math_pow_large_integer_exponent_is_exact :
 
 -- Negative base, non-integer exponent: out of the real domain (complex). Kue bottoms; cue errors.
 theorem math_pow_negative_base_fractional_exponent_is_bottom :
-    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.25")] == .bottom) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (mkFloatText "0.25")] == .bottom) = true := by
   native_decide
 
 -- `Pow(0, positive-fractional) = 0`.
 theorem math_pow_zero_base_fractional_exponent_is_zero :
-    (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (.float "0.25")] == .prim (.int 0)) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 0), .prim (mkFloatText "0.25")] == .prim (.int 0)) = true := by
   native_decide
 
 -- BI-2-residual: `Pow(x, ½) = √x`, computed in exact decimal and routed through the SAME sqrt as
 -- `math.Sqrt` (self-consistency). `Pow(2, 0.5)` is byte-identical to cue's apd `Pow(2, 0.5)`.
 theorem math_pow_half_exponent_is_sqrt :
-    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]
-      == .prim (.float "1.414213562373095048801688724209698")) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.5")]
+      == .prim (mkFloatText "1.414213562373095048801688724209698")) = true := by
   native_decide
 
 -- A perfect square under the ½ exponent collapses to int (`Pow(4, 0.5) = 2`, cue agrees: `2`).
 theorem math_pow_half_exponent_perfect_square_collapses_to_int :
-    (evalBuiltinCall "math.Pow" [.prim (.int 4), .prim (.float "0.5")] == .prim (.int 2)) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int 4), .prim (mkFloatText "0.5")] == .prim (.int 2)) = true := by
   native_decide
 
 -- A negative base under a ½ exponent is out of the real domain (complex). Kue bottoms; cue errors.
 theorem math_pow_negative_base_half_exponent_is_bottom :
-    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.5")] == .bottom) = true := by
+    (evalBuiltinCall "math.Pow" [.prim (.int (-2)), .prim (mkFloatText "0.5")] == .bottom) = true := by
   native_decide
 
 -- math.Sqrt — exact decimal (Kue self-consistent with Pow; diverges from cue's float64 Sqrt).
@@ -888,18 +888,18 @@ theorem math_sqrt_one_is_one :
 -- `Pow(2, 0.5)` (NOT cue's float64 `Sqrt(2) = 1.4142135623730951` — Kue is more precise).
 theorem math_sqrt_two_is_34_significant_digits :
     (evalBuiltinCall "math.Sqrt" [.prim (.int 2)]
-      == .prim (.float "1.414213562373095048801688724209698")) = true := by
+      == .prim (mkFloatText "1.414213562373095048801688724209698")) = true := by
   native_decide
 
 theorem math_sqrt_five_is_34_significant_digits :
     (evalBuiltinCall "math.Sqrt" [.prim (.int 5)]
-      == .prim (.float "2.236067977499789696409173668731276")) = true := by
+      == .prim (mkFloatText "2.236067977499789696409173668731276")) = true := by
   native_decide
 
 -- A non-integer perfect square trims to its exact minimal-scale value (Kue's exact-decimal
 -- choice; cue's apd pads to `1.500…000` — a display divergence, recorded).
 theorem math_sqrt_two_point_two_five_is_one_point_five :
-    (evalBuiltinCall "math.Sqrt" [.prim (.float "2.25")] == .prim (.float "1.5")) = true := by
+    (evalBuiltinCall "math.Sqrt" [.prim (mkFloatText "2.25")] == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 -- A negative input is a real-domain error. Kue BOTTOMS (no NaN); cue emits the float `NaN.0`.
@@ -910,7 +910,7 @@ theorem math_sqrt_negative_is_bottom :
 -- Internal consistency: `Sqrt(x)` and `Pow(x, ½)` produce the IDENTICAL value (cue's do NOT).
 theorem math_sqrt_equals_pow_half :
     (evalBuiltinCall "math.Sqrt" [.prim (.int 2)]
-      == evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")]) = true := by
+      == evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.5")]) = true := by
   native_decide
 
 theorem math_sqrt_type_mismatch_is_bottom :
@@ -983,7 +983,7 @@ theorem json_marshal_int :
   native_decide
 
 theorem json_marshal_float_preserves_text :
-    (evalBuiltinCall "json.Marshal" [.prim (.float "1.50")]
+    (evalBuiltinCall "json.Marshal" [.prim (mkFloatText "1.50")]
       == .prim (.string "1.50")) = true := by
   native_decide
 
@@ -1367,7 +1367,7 @@ theorem type_kind_meet_int_number_narrows_to_value :
   native_decide
 
 theorem type_kind_meet_mismatched_domains_is_bottom :
-    containsBottom (meet (.prim (.float "1.5")) (.kind .int))
+    containsBottom (meet (.prim (mkFloatText "1.5")) (.kind .int))
       && containsBottom (meet (.prim (.string "x")) (.kind .bytes))
       && containsBottom (meet (.prim .null) (.kind .int))
       && containsBottom (meet (.prim (.int 1)) (.kind .float)) = true := by

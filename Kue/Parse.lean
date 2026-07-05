@@ -615,7 +615,7 @@ def parseNumberValue (chars : List Char) : ParseResult Value :=
   | .error error => .error error
   | .ok (token, rest) =>
       if token.contains '.' || token.contains 'e' then
-        parseOk (.prim (.float token)) rest
+        parseOk (.prim (mkFloatText token)) rest
       else
         match token.toInt? with
         | some value => parseOk (.prim (.int value)) rest

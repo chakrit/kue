@@ -497,11 +497,11 @@ theorem eval_float_additive_expressions :
     formatTopLevel
       (resolveAndEval
         (mkStruct [
-            ⟨"floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25")), false⟩,
-            ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5")), false⟩,
-            ⟨"floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2)), false⟩,
-            ⟨"exp", .regular, .binary .add (.prim (.float "1e+3")) (.prim (.int 2)), false⟩,
-            ⟨"small", .regular, .binary .add (.prim (.float "0.1")) (.prim (.float "0.2")), false⟩
+            ⟨"floatSum", .regular, .binary .add (.prim (mkFloatText "1.5")) (.prim (mkFloatText "2.25")), false⟩,
+            ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (mkFloatText "2.5")), false⟩,
+            ⟨"floatSub", .regular, .binary .sub (.prim (mkFloatText "5.5")) (.prim (.int 2)), false⟩,
+            ⟨"exp", .regular, .binary .add (.prim (mkFloatText "1e+3")) (.prim (.int 2)), false⟩,
+            ⟨"small", .regular, .binary .add (.prim (mkFloatText "0.1")) (.prim (mkFloatText "0.2")), false⟩
           ] .regularOpen none []))
       = "floatSum: 3.75\nintFloat: 3.5\nfloatSub: 3.5\nexp: 1002.0\nsmall: 0.3" := by
   native_decide
@@ -580,12 +580,12 @@ theorem eval_numeric_comparison_expressions :
     formatTopLevel
       (resolveAndEval
         (mkStruct [
-            ⟨"lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2)), false⟩,
-            ⟨"le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50")), false⟩,
-            ⟨"gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9")), false⟩,
-            ⟨"ge", .regular, .binary .ge (.prim (.float "1.0")) (.prim (.int 1)), false⟩,
-            ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0")), false⟩,
-            ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (.float "1.0")), false⟩
+            ⟨"lt", .regular, .binary .lt (.prim (mkFloatText "1.5")) (.prim (.int 2)), false⟩,
+            ⟨"le", .regular, .binary .le (.prim (mkFloatText "1.5")) (.prim (mkFloatText "1.50")), false⟩,
+            ⟨"gt", .regular, .binary .gt (.prim (mkFloatText "1e+3")) (.prim (mkFloatText "999.9")), false⟩,
+            ⟨"ge", .regular, .binary .ge (.prim (mkFloatText "1.0")) (.prim (.int 1)), false⟩,
+            ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (mkFloatText "1.0")), false⟩,
+            ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (mkFloatText "1.0")), false⟩
           ] .regularOpen none []))
       = "lt: true\nle: true\ngt: true\nge: true\neq: true\nne: false" := by
   native_decide
@@ -624,7 +624,7 @@ theorem eval_unary_numeric_expressions :
         (mkStruct [
             ⟨"negGroup", .regular, .unary .numNeg (.binary .add (.prim (.int 1)) (.prim (.int 2))), false⟩,
             ⟨"posGroup", .regular, .unary .numPos (.binary .add (.prim (.int 1)) (.prim (.int 2))), false⟩,
-            ⟨"negFloat", .regular, .unary .numNeg (.prim (.float "1.5")), false⟩
+            ⟨"negFloat", .regular, .unary .numNeg (.prim (mkFloatText "1.5")), false⟩
           ] .regularOpen none []))
       = "negGroup: -3\nposGroup: 3\nnegFloat: -1.5" := by
   native_decide
@@ -1045,34 +1045,34 @@ theorem disj_meet_bound_narrows_arms :
 -- layer. Scales add and CUE preserves the summed scale verbatim: `1.5 * 2.0 = 3.00`
 -- (oracle-confirmed, cue v0.16.1), no trailing-zero trim.
 theorem eval_mul_two_floats :
-    evalMul (.prim (.float "1.5")) (.prim (.float "2.0")) = .prim (.float "3.00") := by
+    evalMul (.prim (mkFloatText "1.5")) (.prim (mkFloatText "2.0")) = .prim (mkFloatText "3.00") := by
   rfl
 
 -- Was a deferred-bottom pin; float÷float now evaluates through the decimal layer.
 -- `/` always yields a float; `3.0 / 2.0 = 1.5` terminates cleanly (oracle-confirmed,
 -- cue v0.16.1).
 theorem eval_div_two_floats :
-    (evalDiv (.prim (.float "3.0")) (.prim (.float "2.0")) == .prim (.float "1.5")) = true := by
+    (evalDiv (.prim (mkFloatText "3.0")) (.prim (mkFloatText "2.0")) == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 -- Multiplication preserves the full summed scale: `1.0 * 1.0 = 1.00`.
 theorem eval_mul_scale_preserved :
-    (evalMul (.prim (.float "1.0")) (.prim (.float "1.0")) == .prim (.float "1.00")) = true := by
+    (evalMul (.prim (mkFloatText "1.0")) (.prim (mkFloatText "1.0")) == .prim (mkFloatText "1.00")) = true := by
   native_decide
 
 -- Mixed int×float promotes to float; int contributes scale 0.
 theorem eval_mul_int_float :
-    (evalMul (.prim (.int 2)) (.prim (.float "1.5")) == .prim (.float "3.0")) = true := by
+    (evalMul (.prim (.int 2)) (.prim (mkFloatText "1.5")) == .prim (mkFloatText "3.0")) = true := by
   native_decide
 
 -- float×int likewise.
 theorem eval_mul_float_int :
-    (evalMul (.prim (.float "1.5")) (.prim (.int 2)) == .prim (.float "3.0")) = true := by
+    (evalMul (.prim (mkFloatText "1.5")) (.prim (.int 2)) == .prim (mkFloatText "3.0")) = true := by
   native_decide
 
 -- Negative operand carries through multiplication.
 theorem eval_mul_negative :
-    (evalMul (.prim (.float "-1.5")) (.prim (.float "2.0")) == .prim (.float "-3.00")) = true := by
+    (evalMul (.prim (mkFloatText "-1.5")) (.prim (mkFloatText "2.0")) == .prim (mkFloatText "-3.00")) = true := by
   native_decide
 
 -- int×int stays int (no float promotion).
@@ -1082,59 +1082,59 @@ theorem eval_mul_int_int :
 
 -- Terminating division renders without padding.
 theorem eval_div_terminating :
-    (evalDiv (.prim (.float "1.0")) (.prim (.float "4.0")) == .prim (.float "0.25")) = true := by
+    (evalDiv (.prim (mkFloatText "1.0")) (.prim (mkFloatText "4.0")) == .prim (mkFloatText "0.25")) = true := by
   native_decide
 
 -- Clean division still yields a float, never an int: `4.0 / 2.0 = 2.0`.
 theorem eval_div_clean_is_float :
-    (evalDiv (.prim (.float "4.0")) (.prim (.float "2.0")) == .prim (.float "2.0")) = true := by
+    (evalDiv (.prim (mkFloatText "4.0")) (.prim (mkFloatText "2.0")) == .prim (mkFloatText "2.0")) = true := by
   native_decide
 
 -- Mixed float÷int promotes; `3.0 / 2 = 1.5`.
 theorem eval_div_float_int :
-    (evalDiv (.prim (.float "3.0")) (.prim (.int 2)) == .prim (.float "1.5")) = true := by
+    (evalDiv (.prim (mkFloatText "3.0")) (.prim (.int 2)) == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 -- Mixed int÷float promotes; `2 / 4.0 = 0.5`.
 theorem eval_div_int_float :
-    (evalDiv (.prim (.int 2)) (.prim (.float "4.0")) == .prim (.float "0.5")) = true := by
+    (evalDiv (.prim (.int 2)) (.prim (mkFloatText "4.0")) == .prim (mkFloatText "0.5")) = true := by
   native_decide
 
 -- Negative division carries the sign.
 theorem eval_div_negative :
-    (evalDiv (.prim (.float "-1.0")) (.prim (.float "4.0")) == .prim (.float "-0.25")) = true := by
+    (evalDiv (.prim (mkFloatText "-1.0")) (.prim (mkFloatText "4.0")) == .prim (mkFloatText "-0.25")) = true := by
   native_decide
 
 -- Float division by zero is bottom with divisionByZero provenance.
 theorem eval_div_float_by_zero :
-    (evalDiv (.prim (.float "1.0")) (.prim (.float "0.0")) == .bottomWith [.divisionByZero]) = true := by
+    (evalDiv (.prim (mkFloatText "1.0")) (.prim (mkFloatText "0.0")) == .bottomWith [.divisionByZero]) = true := by
   native_decide
 
 -- int÷int now routes through the same decimal divider and yields a float: `6 / 2 = 3.0`.
 theorem eval_div_int_int_is_float :
-    (evalDiv (.prim (.int 6)) (.prim (.int 2)) == .prim (.float "3.0")) = true := by
+    (evalDiv (.prim (.int 6)) (.prim (.int 2)) == .prim (mkFloatText "3.0")) = true := by
   native_decide
 
 -- Repeating-decimal division renders at 34 significant digits, round-half-up.
 -- `2.0 / 3.0 = 0.666…667` (34 sig digits). This is the apd-context subset that is
 -- now reachable; see compat-assumptions for the rounding-tie boundary.
 theorem eval_div_repeating :
-    (evalDiv (.prim (.float "2.0")) (.prim (.float "3.0"))
-      == .prim (.float "0.6666666666666666666666666666666667")) = true := by
+    (evalDiv (.prim (mkFloatText "2.0")) (.prim (mkFloatText "3.0"))
+      == .prim (mkFloatText "0.6666666666666666666666666666666667")) = true := by
   native_decide
 
 -- Repeating division with an integer part rounds at 34 sig digits, not 34 frac
 -- digits: `10.0 / 3.0 = 3.33…3` (33 frac digits). Pins the significant-digit rule
 -- that the prior fixed-fraction int divider got wrong for quotients ≥ 1.
 theorem eval_div_repeating_int_part :
-    (evalDiv (.prim (.float "10.0")) (.prim (.float "3.0"))
-      == .prim (.float "3.333333333333333333333333333333333")) = true := by
+    (evalDiv (.prim (mkFloatText "10.0")) (.prim (mkFloatText "3.0"))
+      == .prim (mkFloatText "3.333333333333333333333333333333333")) = true := by
   native_decide
 
 -- Rounding carries past 9s: `100.0 / 7.0 = 14.28…29`, last digit rounded up.
 theorem eval_div_repeating_round_up :
-    (evalDiv (.prim (.float "100.0")) (.prim (.float "7.0"))
-      == .prim (.float "14.28571428571428571428571428571429")) = true := by
+    (evalDiv (.prim (mkFloatText "100.0")) (.prim (mkFloatText "7.0"))
+      == .prim (mkFloatText "14.28571428571428571428571428571429")) = true := by
   native_decide
 
 -- High-fuel pin: a full-34-significant-digit repeating quotient with no leading
@@ -1142,8 +1142,8 @@ theorem eval_div_repeating_round_up :
 -- guard, so the `divisionDigitsFuel` ceiling must not be exhausted before the
 -- over-budget exit. Reduces under `native_decide` ⇒ the bound is sufficient.
 theorem eval_div_repeating_full_sig :
-    (evalDiv (.prim (.float "1.0")) (.prim (.float "7.0"))
-      == .prim (.float "0.1428571428571428571428571428571429")) = true := by
+    (evalDiv (.prim (mkFloatText "1.0")) (.prim (mkFloatText "7.0"))
+      == .prim (mkFloatText "0.1428571428571428571428571428571429")) = true := by
   native_decide
 
 -- High-fuel pin exercising the leading-zero slack in the fuel bound: `1.0 / 700.0
@@ -1151,8 +1151,8 @@ theorem eval_div_repeating_full_sig :
 -- top of the 34 significant digits, so it leans on the `+ <den digit count>` term
 -- of `divisionDigitsFuel`.
 theorem eval_div_repeating_leading_zeros :
-    (evalDiv (.prim (.float "1.0")) (.prim (.float "700.0"))
-      == .prim (.float "0.001428571428571428571428571428571429")) = true := by
+    (evalDiv (.prim (mkFloatText "1.0")) (.prim (mkFloatText "700.0"))
+      == .prim (mkFloatText "0.001428571428571428571428571428571429")) = true := by
   native_decide
 
 -- E#4 — arithmetic operator domain. The CUE spec closes `+ - * /` over int/decimal, and
@@ -1428,7 +1428,7 @@ theorem eval_unary_pos_int :
   native_decide
 
 theorem eval_unary_pos_float :
-    (evalUnary .numPos (.prim (.float "1.5")) == .prim (.float "1.5")) = true := by
+    (evalUnary .numPos (.prim (mkFloatText "1.5")) == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 theorem eval_unary_pos_non_numeric_is_bottom :
@@ -1441,7 +1441,7 @@ theorem eval_unary_pos_incomplete_defers :
 
 -- Unary `-` negates a float via `negateFloatText`.
 theorem eval_unary_neg_float :
-    (evalUnary .numNeg (.prim (.float "1.5")) == .prim (.float "-1.5")) = true := by
+    (evalUnary .numNeg (.prim (mkFloatText "1.5")) == .prim (mkFloatText "-1.5")) = true := by
   native_decide
 
 -- Regex match on an abstract operand DEFERS (residual `.binary`), it does not bottom.
@@ -1694,34 +1694,34 @@ theorem eval_ne_struct_reordered_false :
 -- `==` is recursive element equality; number `==` converts int to float). `cue` v0.16.1 returns
 -- `false` for the container cases (STRUCT-EQ-LEAF-TYPESENSE) — a `cue` bug; Kue is spec-correct.
 theorem eval_eq_scalar_int_float_true :
-    (evalEq (.prim (.int 1)) (.prim (.float "1.0")) == .prim (.bool true)) = true := by
+    (evalEq (.prim (.int 1)) (.prim (mkFloatText "1.0")) == .prim (.bool true)) = true := by
   native_decide
 
 theorem eval_eq_list_int_vs_float_true :
-    (evalEq (.list [.prim (.int 1)]) (.list [.prim (.float "1.0")]) == .prim (.bool true)) = true := by
+    (evalEq (.list [.prim (.int 1)]) (.list [.prim (mkFloatText "1.0")]) == .prim (.bool true)) = true := by
   native_decide
 
 theorem eval_eq_struct_int_vs_float_true :
     (evalEq
         (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
-        (mkStruct [⟨"a", .regular, .prim (.float "1.0"), false⟩] .regularOpen none [])
+        (mkStruct [⟨"a", .regular, .prim (mkFloatText "1.0"), false⟩] .regularOpen none [])
       == .prim (.bool true)) = true := by
   native_decide
 
 -- Depth: int-vs-float nested two containers deep still compares by value.
 theorem eval_eq_nested_list_int_vs_float_true :
-    (evalEq (.list [.list [.prim (.int 1)]]) (.list [.list [.prim (.float "1.0")]])
+    (evalEq (.list [.list [.prim (.int 1)]]) (.list [.list [.prim (mkFloatText "1.0")]])
       == .prim (.bool true)) = true := by
   native_decide
 
 -- A value-UNEQUAL int-vs-float leaf inside a container is `false` (not merely type-blind).
 theorem eval_eq_list_int_vs_float_unequal_false :
-    (evalEq (.list [.prim (.int 1)]) (.list [.prim (.float "2.0")]) == .prim (.bool false)) = true := by
+    (evalEq (.list [.prim (.int 1)]) (.list [.prim (mkFloatText "2.0")]) == .prim (.bool false)) = true := by
   native_decide
 
 -- `evalNe` inherits the negation: `[1] != [1.0]` ⇒ `false`.
 theorem eval_ne_list_int_vs_float_false :
-    (evalNe (.list [.prim (.int 1)]) (.list [.prim (.float "1.0")]) == .prim (.bool false)) = true := by
+    (evalNe (.list [.prim (.int 1)]) (.list [.prim (mkFloatText "1.0")]) == .prim (.bool false)) = true := by
   native_decide
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section; a swallowed

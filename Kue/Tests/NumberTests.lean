@@ -13,7 +13,7 @@ theorem meet_number_kind_with_int_primitive :
   rfl
 
 theorem meet_number_kind_with_float_primitive :
-    meet (.kind .number) (.prim (.float "1.5")) = .prim (.float "1.5") := by
+    meet (.kind .number) (.prim (mkFloatText "1.5")) = .prim (mkFloatText "1.5") := by
   rfl
 
 theorem meet_number_kind_with_int_kind :
@@ -37,7 +37,7 @@ theorem number_kind_subsumes_int_primitive :
   native_decide
 
 theorem number_kind_subsumes_float_primitive :
-    subsumes (.kind .number) (.prim (.float "1.5")) = true := by
+    subsumes (.kind .number) (.prim (mkFloatText "1.5")) = true := by
   native_decide
 
 theorem number_kind_subsumes_int_kind :
@@ -96,22 +96,22 @@ theorem number_kind_subsumes_integer_lower_bound :
 -- Float unification compares by exact base-10 value, not by literal string, so two
 -- renderings of the same value unify (keeping the left operand) instead of bottoming.
 theorem meet_prim_float_trailing_zero_unifies :
-    meetPrim (.float "1.0") (.float "1.00") = .prim (.float "1.0") := by
+    meetPrim (mkFloatText "1.0") (mkFloatText "1.00") = .prim (mkFloatText "1.0") := by
   rfl
 
 theorem meet_prim_float_scientific_matches_decimal :
-    meetPrim (.float "1e2") (.float "100.0") = .prim (.float "1e2") := by
+    meetPrim (mkFloatText "1e2") (mkFloatText "100.0") = .prim (mkFloatText "1e2") := by
   rfl
 
 theorem meet_prim_float_distinct_values_bottoms :
-    meetPrim (.float "1.0") (.float "2.0")
-      = .bottomWith [.primitiveConflict (.float "1.0") (.float "2.0")] := by
+    meetPrim (mkFloatText "1.0") (mkFloatText "2.0")
+      = .bottomWith [.primitiveConflict (mkFloatText "1.0") (mkFloatText "2.0")] := by
   rfl
 
 -- int-vs-float remains a type conflict even when the magnitudes coincide.
 theorem meet_prim_int_float_same_magnitude_bottoms :
-    meetPrim (.int 1) (.float "1.0")
-      = .bottomWith [.primitiveConflict (.int 1) (.float "1.0")] := by
+    meetPrim (.int 1) (mkFloatText "1.0")
+      = .bottomWith [.primitiveConflict (.int 1) (mkFloatText "1.0")] := by
   rfl
 
 

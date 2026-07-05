@@ -10,10 +10,7 @@ namespace Kue
     numeric lattice — unifying two equal values yields that value, never bottom. -/
 def primsUnifyEqual (left right : Prim) : Bool :=
   match left, right with
-  | .float leftText, .float rightText =>
-      match parseDecimalText leftText, parseDecimalText rightText with
-      | some leftValue, some rightValue => decimalEqValues leftValue rightValue
-      | _, _ => leftText == rightText
+  | .float leftValue _, .float rightValue _ => decimalEqValues leftValue rightValue
   | _, _ => decide (left = right)
 
 theorem decimalEqValues_refl (value : DecimalValue) : decimalEqValues value value = true := by
@@ -22,11 +19,7 @@ theorem decimalEqValues_refl (value : DecimalValue) : decimalEqValues value valu
 
 theorem primsUnifyEqual_refl (prim : Prim) : primsUnifyEqual prim prim = true := by
   cases prim with
-  | float text =>
-      simp only [primsUnifyEqual]
-      cases hParse : parseDecimalText text with
-      | none => simp
-      | some value => simp [decimalEqValues_refl]
+  | float value text => simp [primsUnifyEqual, decimalEqValues_refl]
   | null => rfl
   | bool value => simp [primsUnifyEqual]
   | int value => simp [primsUnifyEqual]
@@ -679,7 +672,7 @@ def primSortKey : Prim -> String
   | .null => "null"
   | .bool value => toString value
   | .int value => toString value
-  | .float value => value
+  | .float _ text => text
   | .string value => value
   | .bytes value => toString value
 

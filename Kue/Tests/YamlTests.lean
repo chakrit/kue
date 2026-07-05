@@ -8,7 +8,7 @@ namespace Kue
 
 -- Scalars: numbers/bool/null render bare; `1.50` keeps exact spelling.
 theorem yaml_scalar_int : manifestToYaml (.prim (.int 42)) = "42" := by native_decide
-theorem yaml_scalar_float : manifestToYaml (.prim (.float "1.50")) = "1.50" := by native_decide
+theorem yaml_scalar_float : manifestToYaml (.prim (mkFloatText "1.50")) = "1.50" := by native_decide
 theorem yaml_scalar_true : manifestToYaml (.prim (.bool true)) = "true" := by native_decide
 theorem yaml_scalar_null : manifestToYaml (.prim .null) = "null" := by native_decide
 
@@ -221,7 +221,7 @@ theorem json_pretty_nested :
       ⟨"a", .regular, .prim (.int 1), false⟩,
       ⟨"b", .regular, mkStruct [⟨"c", .regular, .prim (.string "x"), false⟩,
                                ⟨"d", .regular, .list [.prim (.int 1), .prim (.int 2)], false⟩] .regularOpen none [], false⟩,
-      ⟨"e", .regular, .prim (.float "1.50"), false⟩,
+      ⟨"e", .regular, .prim (mkFloatText "1.50"), false⟩,
       ⟨"f", .regular, .list [] , false⟩,
       ⟨"g", .regular, mkStruct [] .regularOpen none [], false⟩] .regularOpen none [])).toOption
       ==

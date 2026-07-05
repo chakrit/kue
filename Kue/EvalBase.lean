@@ -1149,7 +1149,7 @@ deriving BEq
 def classifyInterpolationPart : Value -> InterpVerdict
   | .prim (.string value) => .text value
   | .prim (.int value) => .text (toString value)
-  | .prim (.float value) => .text value
+  | .prim (.float _ text) => .text text
   | .prim (.bool true) => .text "true"
   | .prim (.bool false) => .text "false"
   | .bottom => .bottom .bottom
@@ -1435,7 +1435,7 @@ private def digestPrim : Prim → UInt64
   | .null => 101
   | .bool b => mixHash 102 (hash b)
   | .int n => mixHash 103 (hash n)
-  | .float s => mixHash 104 (hash s)
+  | .float _ text => mixHash 104 (hash text)
   | .string s => mixHash 105 (hash s)
   | .bytes s => mixHash 106 (hash s)
 

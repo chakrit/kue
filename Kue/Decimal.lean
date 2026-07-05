@@ -26,7 +26,7 @@ def collapseDecimalToValue (value : DecimalValue) : Value :=
   if trimmed.scale == 0 then
     .prim (.int trimmed.numerator)
   else
-    .prim (.float (formatDecimalAtScale trimmed false))
+    .prim (mkFloatText (formatDecimalAtScale trimmed false))
 
 /-- Multiplication is exact: numerators multiply, scales add. CUE preserves the
     summed scale verbatim (no trailing-zero trimming): `1.0 * 1.0 = 1.00`. -/
@@ -206,7 +206,7 @@ def decimalSqrt (value : DecimalValue) : Value :=
     collapseDecimalToValue { numerator := Int.ofNat root, scale := places }
   else
     match divideDecimalRational? (Int.ofNat root) (Int.ofNat (10 ^ places)) with
-    | some text => .prim (.float text)
+    | some text => .prim (mkFloatText text)
     | none => .bottom
 
 /-- Multiplication of two decimal primitives, always yielding a float. The summed
@@ -214,7 +214,7 @@ def decimalSqrt (value : DecimalValue) : Value :=
 def evalDecimalMultiply? (left right : Prim) : Option Prim :=
   match decimalFromPrim? left, decimalFromPrim? right with
   | some left, some right =>
-      some (.float (formatDecimalAtScale (mulDecimalValues left right) true))
+      some (mkFloatText (formatDecimalAtScale (mulDecimalValues left right) true))
   | _, _ => none
 
 /-- Outcome of dividing two primitives: either an operand was not numeric, the
@@ -252,13 +252,13 @@ def avgDecimalValue? (sum : DecimalValue) (count : Nat) : Option Value :=
     if sum.numerator % den == 0 then
       some (.prim (.int (sum.numerator / den)))
     else
-      (divideDecimalRational? sum.numerator den).map (fun text => .prim (.float text))
+      (divideDecimalRational? sum.numerator den).map (fun text => .prim (mkFloatText text))
 
 def evalDecimalBinary?
     (op : DecimalValue -> DecimalValue -> DecimalValue)
     (left right : Prim) : Option Prim :=
   match decimalFromPrim? left, decimalFromPrim? right with
-  | some left, some right => some (.float (formatFiniteDecimal (op left right) true))
+  | some left, some right => some (mkFloatText (formatFiniteDecimal (op left right) true))
   | _, _ => none
 
 def evalDecimalCompare?

@@ -80,12 +80,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25")), false⟩,
-                ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5")), false⟩,
-                ⟨"floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2)), false⟩,
-                ⟨"whole", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "1.5")), false⟩,
-                ⟨"exp", .regular, .binary .add (.prim (.float "1e+3")) (.prim (.int 2)), false⟩,
-                ⟨"small", .regular, .binary .add (.prim (.float "0.1")) (.prim (.float "0.2")), false⟩
+                ⟨"floatSum", .regular, .binary .add (.prim (mkFloatText "1.5")) (.prim (mkFloatText "2.25")), false⟩,
+                ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (mkFloatText "2.5")), false⟩,
+                ⟨"floatSub", .regular, .binary .sub (.prim (mkFloatText "5.5")) (.prim (.int 2)), false⟩,
+                ⟨"whole", .regular, .binary .add (.prim (mkFloatText "1.5")) (.prim (mkFloatText "1.5")), false⟩,
+                ⟨"exp", .regular, .binary .add (.prim (mkFloatText "1e+3")) (.prim (.int 2)), false⟩,
+                ⟨"small", .regular, .binary .add (.prim (mkFloatText "0.1")) (.prim (mkFloatText "0.2")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -177,16 +177,16 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"mulFloats", .regular, .binary .mul (.prim (.float "1.5")) (.prim (.float "2.0")), false⟩,
-                ⟨"mulScale", .regular, .binary .mul (.prim (.float "1.0")) (.prim (.float "1.0")), false⟩,
-                ⟨"mulIntFloat", .regular, .binary .mul (.prim (.int 2)) (.prim (.float "1.5")), false⟩,
-                ⟨"mulNegative", .regular, .binary .mul (.prim (.float "-1.5")) (.prim (.float "2.0")), false⟩,
-                ⟨"divTerminate", .regular, .binary .div (.prim (.float "1.0")) (.prim (.float "4.0")), false⟩,
-                ⟨"divClean", .regular, .binary .div (.prim (.float "4.0")) (.prim (.float "2.0")), false⟩,
-                ⟨"divFloatInt", .regular, .binary .div (.prim (.float "3.0")) (.prim (.int 2)), false⟩,
-                ⟨"divRepeat", .regular, .binary .div (.prim (.float "2.0")) (.prim (.float "3.0")), false⟩,
-                ⟨"divRepeatInt", .regular, .binary .div (.prim (.float "10.0")) (.prim (.float "3.0")), false⟩,
-                ⟨"divRoundUp", .regular, .binary .div (.prim (.float "100.0")) (.prim (.float "7.0")), false⟩
+                ⟨"mulFloats", .regular, .binary .mul (.prim (mkFloatText "1.5")) (.prim (mkFloatText "2.0")), false⟩,
+                ⟨"mulScale", .regular, .binary .mul (.prim (mkFloatText "1.0")) (.prim (mkFloatText "1.0")), false⟩,
+                ⟨"mulIntFloat", .regular, .binary .mul (.prim (.int 2)) (.prim (mkFloatText "1.5")), false⟩,
+                ⟨"mulNegative", .regular, .binary .mul (.prim (mkFloatText "-1.5")) (.prim (mkFloatText "2.0")), false⟩,
+                ⟨"divTerminate", .regular, .binary .div (.prim (mkFloatText "1.0")) (.prim (mkFloatText "4.0")), false⟩,
+                ⟨"divClean", .regular, .binary .div (.prim (mkFloatText "4.0")) (.prim (mkFloatText "2.0")), false⟩,
+                ⟨"divFloatInt", .regular, .binary .div (.prim (mkFloatText "3.0")) (.prim (.int 2)), false⟩,
+                ⟨"divRepeat", .regular, .binary .div (.prim (mkFloatText "2.0")) (.prim (mkFloatText "3.0")), false⟩,
+                ⟨"divRepeatInt", .regular, .binary .div (.prim (mkFloatText "10.0")) (.prim (mkFloatText "3.0")), false⟩,
+                ⟨"divRoundUp", .regular, .binary .div (.prim (mkFloatText "100.0")) (.prim (mkFloatText "7.0")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -220,16 +220,16 @@ def fixturePorts : List FixturePort :=
                   .regular,
                   .binary .eq (.binary .add (.prim (.int 1)) (.prim (.int 1))) (.prim (.int 2))
                 , false⟩,
-                ⟨"scalarIntFloat", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0")), false⟩,
+                ⟨"scalarIntFloat", .regular, .binary .eq (.prim (.int 1)) (.prim (mkFloatText "1.0")), false⟩,
                 ⟨"listIntFloat", .regular,
-                  .binary .eq (.list [.prim (.int 1)]) (.list [.prim (.float "1.0")]), false⟩,
+                  .binary .eq (.list [.prim (.int 1)]) (.list [.prim (mkFloatText "1.0")]), false⟩,
                 ⟨"structIntFloat", .regular,
                   .binary .eq
                     (mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [])
-                    (mkStruct [⟨"a", .regular, .prim (.float "1.0"), false⟩] .regularOpen none []),
+                    (mkStruct [⟨"a", .regular, .prim (mkFloatText "1.0"), false⟩] .regularOpen none []),
                   false⟩,
                 ⟨"nestedList", .regular,
-                  .binary .eq (.list [.list [.prim (.int 1)]]) (.list [.list [.prim (.float "1.0")]]),
+                  .binary .eq (.list [.list [.prim (.int 1)]]) (.list [.list [.prim (mkFloatText "1.0")]]),
                   false⟩
               ] .regularOpen none []))
     },
@@ -257,12 +257,12 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2)), false⟩,
-                ⟨"le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50")), false⟩,
-                ⟨"gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9")), false⟩,
-                ⟨"ge", .regular, .binary .ge (.prim (.float "1.0")) (.prim (.int 1)), false⟩,
-                ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0")), false⟩,
-                ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (.float "1.0")), false⟩
+                ⟨"lt", .regular, .binary .lt (.prim (mkFloatText "1.5")) (.prim (.int 2)), false⟩,
+                ⟨"le", .regular, .binary .le (.prim (mkFloatText "1.5")) (.prim (mkFloatText "1.50")), false⟩,
+                ⟨"gt", .regular, .binary .gt (.prim (mkFloatText "1e+3")) (.prim (mkFloatText "999.9")), false⟩,
+                ⟨"ge", .regular, .binary .ge (.prim (mkFloatText "1.0")) (.prim (.int 1)), false⟩,
+                ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (mkFloatText "1.0")), false⟩,
+                ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (mkFloatText "1.0")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -1617,7 +1617,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "numeric/float_kind.expected",
-      content := formatField "x" (meet (.kind .float) (.prim (.float "1.5")))
+      content := formatField "x" (meet (.kind .float) (.prim (mkFloatText "1.5")))
     },
     {
       fileName := "numeric/number_literals.expected",
@@ -1625,8 +1625,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (mkStruct [
               ⟨"x", .regular, .prim (.int 1000), false⟩,
-              ⟨"y", .regular, .prim (.float "1.25e+3"), false⟩,
-              ⟨"z", .regular, .prim (.float "-2e+3"), false⟩
+              ⟨"y", .regular, .prim (mkFloatText "1.25e+3"), false⟩,
+              ⟨"z", .regular, .prim (mkFloatText "-2e+3"), false⟩
             ] .regularOpen none [])
     },
     {
@@ -1647,7 +1647,7 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (mkStruct [
               ⟨"x", .regular, .prim (.int 1), false⟩,
-              ⟨"y", .regular, .prim (.float "1.5"), false⟩,
+              ⟨"y", .regular, .prim (mkFloatText "1.5"), false⟩,
               ⟨"z", .regular, .prim (.int 16), false⟩
             ] .regularOpen none [])
     },
@@ -1879,7 +1879,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "numeric/number_kind.expected",
-      content := formatField "x" (meet (.kind .number) (.prim (.float "1.5")))
+      content := formatField "x" (meet (.kind .number) (.prim (mkFloatText "1.5")))
     },
     {
       fileName := "lists/open_list_tail.expected",
@@ -2097,19 +2097,19 @@ def fixturePorts : List FixturePort :=
       -- A bare bound is number-domain: it admits a float operand (`>0 & 1.5` ⇒ `1.5`),
       -- where an int-only bound would conflict. The 2b fix to the prior over-strict bound.
       fileName := "bounds/number_bound_float.expected",
-      content := formatField "x" (meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (.float "1.5")))
+      content := formatField "x" (meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (mkFloatText "1.5")))
     },
     {
       -- A decimal bound literal (`>0.5`) compares its limit exactly against a float operand.
       fileName := "bounds/decimal_bound_float.expected",
-      content := formatField "x" (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (.float "1.0")))
+      content := formatField "x" (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (mkFloatText "1.0")))
     },
     {
       -- A bare two-sided range is number-domain on both ends: `>=0 & <=10 & 5.5` ⇒ `5.5`.
       fileName := "bounds/number_range_float.expected",
       content :=
         formatField "x"
-          (meet (meet (.boundConstraint (intDecimal 0) .ge .number) (.boundConstraint (intDecimal 10) .le .number)) (.prim (.float "5.5")))
+          (meet (meet (.boundConstraint (intDecimal 0) .ge .number) (.boundConstraint (intDecimal 10) .le .number)) (.prim (mkFloatText "5.5")))
     },
     {
       fileName := "definitions/string_pattern_conflict.expected",
@@ -3166,27 +3166,27 @@ def fixturePorts : List FixturePort :=
                 ⟨"powSquare", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int 10)], false⟩,
                 ⟨"powZeroExp", .regular, .builtinCall "math.Pow" [.prim (.int 5), .prim (.int 0)], false⟩,
                 ⟨"powBaseZero", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int 5)], false⟩,
-                ⟨"powFloatBase", .regular, .builtinCall "math.Pow" [.prim (.float "1.5"), .prim (.int 3)], false⟩,
+                ⟨"powFloatBase", .regular, .builtinCall "math.Pow" [.prim (mkFloatText "1.5"), .prim (.int 3)], false⟩,
                 ⟨"powNegBase", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.int 3)], false⟩,
                 ⟨"powNegBaseEv", .regular, .builtinCall "math.Pow" [.prim (.int (-3)), .prim (.int 4)], false⟩,
-                ⟨"powFloatPow", .regular, .builtinCall "math.Pow" [.prim (.float "2.5"), .prim (.int 4)], false⟩,
-                ⟨"powWholeFlt", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.float "2.0")], false⟩,
+                ⟨"powFloatPow", .regular, .builtinCall "math.Pow" [.prim (mkFloatText "2.5"), .prim (.int 4)], false⟩,
+                ⟨"powWholeFlt", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (mkFloatText "2.0")], false⟩,
                 ⟨"powBig", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int 20)], false⟩,
-                ⟨"powDecExact", .regular, .builtinCall "math.Pow" [.prim (.float "0.1"), .prim (.int 2)], false⟩,
+                ⟨"powDecExact", .regular, .builtinCall "math.Pow" [.prim (mkFloatText "0.1"), .prim (.int 2)], false⟩,
                 ⟨"powOne", .regular, .builtinCall "math.Pow" [.prim (.int 7), .prim (.int 1)], false⟩,
                 ⟨"powNegInt", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.int (-3))], false⟩,
                 ⟨"powNegInt10", .regular, .builtinCall "math.Pow" [.prim (.int 10), .prim (.int (-2))], false⟩,
                 ⟨"powNegOneBs", .regular, .builtinCall "math.Pow" [.prim (.int 1), .prim (.int (-5))], false⟩,
                 ⟨"powNegRep", .regular, .builtinCall "math.Pow" [.prim (.int 3), .prim (.int (-1))], false⟩,
                 ⟨"powZeroNeg", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.int (-1))], false⟩,
-                ⟨"powQuarter", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.25")], false⟩,
-                ⟨"powTenth", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.1")], false⟩,
-                ⟨"powThreeHalf", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "1.5")], false⟩,
+                ⟨"powQuarter", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.25")], false⟩,
+                ⟨"powTenth", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.1")], false⟩,
+                ⟨"powThreeHalf", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (mkFloatText "1.5")], false⟩,
                 ⟨"powCubeRoot", .regular,
                   .builtinCall "math.Pow"
-                    [.prim (.int 8), .prim (.float "0.3333333333333333333333333333333333")], false⟩,
-                ⟨"powNegBaseFr", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (.float "0.25")], false⟩,
-                ⟨"powZeroFr", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (.float "0.25")], false⟩
+                    [.prim (.int 8), .prim (mkFloatText "0.3333333333333333333333333333333333")], false⟩,
+                ⟨"powNegBaseFr", .regular, .builtinCall "math.Pow" [.prim (.int (-2)), .prim (mkFloatText "0.25")], false⟩,
+                ⟨"powZeroFr", .regular, .builtinCall "math.Pow" [.prim (.int 0), .prim (mkFloatText "0.25")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3203,13 +3203,13 @@ def fixturePorts : List FixturePort :=
                 ⟨"sqrtBigSq", .regular, .builtinCall "math.Sqrt" [.prim (.int 1000000)], false⟩,
                 ⟨"sqrtZero", .regular, .builtinCall "math.Sqrt" [.prim (.int 0)], false⟩,
                 ⟨"sqrtOne", .regular, .builtinCall "math.Sqrt" [.prim (.int 1)], false⟩,
-                ⟨"sqrtDecSq", .regular, .builtinCall "math.Sqrt" [.prim (.float "2.25")], false⟩,
-                ⟨"sqrtDecQtr", .regular, .builtinCall "math.Sqrt" [.prim (.float "0.25")], false⟩,
+                ⟨"sqrtDecSq", .regular, .builtinCall "math.Sqrt" [.prim (mkFloatText "2.25")], false⟩,
+                ⟨"sqrtDecQtr", .regular, .builtinCall "math.Sqrt" [.prim (mkFloatText "0.25")], false⟩,
                 ⟨"sqrtThree", .regular, .builtinCall "math.Sqrt" [.prim (.int 3)], false⟩,
-                ⟨"powHalf", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (.float "0.5")], false⟩,
-                ⟨"powHalfSq", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (.float "0.5")], false⟩,
+                ⟨"powHalf", .regular, .builtinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.5")], false⟩,
+                ⟨"powHalfSq", .regular, .builtinCall "math.Pow" [.prim (.int 4), .prim (mkFloatText "0.5")], false⟩,
                 ⟨"powHalfDec", .regular,
-                  .builtinCall "math.Pow" [.prim (.float "2.25"), .prim (.float "0.5")], false⟩
+                  .builtinCall "math.Pow" [.prim (mkFloatText "2.25"), .prim (mkFloatText "0.5")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3475,9 +3475,9 @@ def fixturePorts : List FixturePort :=
                 ⟨"modBothNeg", .regular,
                   .builtinCall "math.Mod" [.prim (.int (-5)), .prim (.int (-3))], false⟩,
                 ⟨"modFloat", .regular,
-                  .builtinCall "math.Mod" [.prim (.float "5.5"), .prim (.int 2)], false⟩,
+                  .builtinCall "math.Mod" [.prim (mkFloatText "5.5"), .prim (.int 2)], false⟩,
                 ⟨"modIntFloat", .regular,
-                  .builtinCall "math.Mod" [.prim (.int 7), .prim (.float "2.5")], false⟩,
+                  .builtinCall "math.Mod" [.prim (.int 7), .prim (mkFloatText "2.5")], false⟩,
                 ⟨"signNegInt", .regular,
                   .builtinCall "math.Signbit" [.prim (.int (-3))], false⟩,
                 ⟨"signPosInt", .regular,
@@ -3485,9 +3485,9 @@ def fixturePorts : List FixturePort :=
                 ⟨"signZero", .regular,
                   .builtinCall "math.Signbit" [.prim (.int 0)], false⟩,
                 ⟨"signNegFlt", .regular,
-                  .builtinCall "math.Signbit" [.prim (.float "-3.5")], false⟩,
+                  .builtinCall "math.Signbit" [.prim (mkFloatText "-3.5")], false⟩,
                 ⟨"signNegZero", .regular,
-                  .builtinCall "math.Signbit" [.prim (.float "-0.0")], false⟩
+                  .builtinCall "math.Signbit" [.prim (mkFloatText "-0.0")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3532,36 +3532,36 @@ def fixturePorts : List FixturePort :=
                     [.list [.prim (.int 1), .prim (.int 1), .prim (.int 1), .prim (.int 2)]], false⟩,
                 ⟨"avgFloat", .regular,
                   .builtinCall "list.Avg"
-                    [.list [.prim (.float "1.0"), .prim (.float "2.0")]], false⟩,
+                    [.list [.prim (mkFloatText "1.0"), .prim (mkFloatText "2.0")]], false⟩,
                 ⟨"avgMixed", .regular,
-                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (.float "2.0")]], false⟩,
+                  .builtinCall "list.Avg" [.list [.prim (.int 1), .prim (mkFloatText "2.0")]], false⟩,
                 ⟨"sumFloat", .regular,
                   .builtinCall "list.Sum"
-                    [.list [.prim (.float "1.0"), .prim (.float "2.0"), .prim (.float "3.0")]], false⟩,
+                    [.list [.prim (mkFloatText "1.0"), .prim (mkFloatText "2.0"), .prim (mkFloatText "3.0")]], false⟩,
                 ⟨"sumMixed", .regular,
                   .builtinCall "list.Sum"
-                    [.list [.prim (.int 1), .prim (.float "2.0"), .prim (.int 3)]], false⟩,
+                    [.list [.prim (.int 1), .prim (mkFloatText "2.0"), .prim (.int 3)]], false⟩,
                 ⟨"sumMixedFrac", .regular,
                   .builtinCall "list.Sum"
-                    [.list [.prim (.int 1), .prim (.float "2.5"), .prim (.int 3)]], false⟩,
+                    [.list [.prim (.int 1), .prim (mkFloatText "2.5"), .prim (.int 3)]], false⟩,
                 ⟨"minFloat", .regular,
                   .builtinCall "list.Min"
-                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]], false⟩,
+                    [.list [.prim (mkFloatText "3.0"), .prim (mkFloatText "1.0"), .prim (mkFloatText "2.0")]], false⟩,
                 ⟨"minMixed", .regular,
                   .builtinCall "list.Min"
-                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]], false⟩,
+                    [.list [.prim (.int 3), .prim (mkFloatText "1.5"), .prim (.int 2)]], false⟩,
                 ⟨"maxFloat", .regular,
                   .builtinCall "list.Max"
-                    [.list [.prim (.float "3.0"), .prim (.float "1.0"), .prim (.float "2.0")]], false⟩,
+                    [.list [.prim (mkFloatText "3.0"), .prim (mkFloatText "1.0"), .prim (mkFloatText "2.0")]], false⟩,
                 ⟨"maxMixed", .regular,
                   .builtinCall "list.Max"
-                    [.list [.prim (.int 3), .prim (.float "1.5"), .prim (.int 2)]], false⟩,
+                    [.list [.prim (.int 3), .prim (mkFloatText "1.5"), .prim (.int 2)]], false⟩,
                 ⟨"rangeFloat", .regular,
                   .builtinCall "list.Range"
-                    [.prim (.float "0.0"), .prim (.float "2.0"), .prim (.float "0.5")], false⟩,
+                    [.prim (mkFloatText "0.0"), .prim (mkFloatText "2.0"), .prim (mkFloatText "0.5")], false⟩,
                 ⟨"rangeNeg", .regular,
                   .builtinCall "list.Range"
-                    [.prim (.float "2.0"), .prim (.float "0.0"), .prim (.float "-0.5")], false⟩
+                    [.prim (mkFloatText "2.0"), .prim (mkFloatText "0.0"), .prim (mkFloatText "-0.5")], false⟩
               ] .regularOpen none []))
     },
     {
@@ -3577,9 +3577,9 @@ def fixturePorts : List FixturePort :=
                 ⟨"absZero", .regular,
                   .builtinCall "math.Abs" [.prim (.int 0)], false⟩,
                 ⟨"absFloat", .regular,
-                  .builtinCall "math.Abs" [.prim (.float "-3.5")], false⟩,
+                  .builtinCall "math.Abs" [.prim (mkFloatText "-3.5")], false⟩,
                 ⟨"absBigFloat", .regular,
-                  .builtinCall "math.Abs" [.prim (.float "-123.456")], false⟩,
+                  .builtinCall "math.Abs" [.prim (mkFloatText "-123.456")], false⟩,
                 ⟨"multTrue", .regular,
                   .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int 3)], false⟩,
                 ⟨"multFalse", .regular,
@@ -3589,31 +3589,31 @@ def fixturePorts : List FixturePort :=
                 ⟨"multNegDivisor", .regular,
                   .builtinCall "math.MultipleOf" [.prim (.int 12), .prim (.int (-3))], false⟩,
                 ⟨"floorPos", .regular,
-                  .builtinCall "math.Floor" [.prim (.float "3.7")], false⟩,
+                  .builtinCall "math.Floor" [.prim (mkFloatText "3.7")], false⟩,
                 ⟨"floorNeg", .regular,
-                  .builtinCall "math.Floor" [.prim (.float "-3.2")], false⟩,
+                  .builtinCall "math.Floor" [.prim (mkFloatText "-3.2")], false⟩,
                 ⟨"floorInt", .regular,
                   .builtinCall "math.Floor" [.prim (.int 5)], false⟩,
                 ⟨"floorExact", .regular,
-                  .builtinCall "math.Floor" [.prim (.float "3.0")], false⟩,
+                  .builtinCall "math.Floor" [.prim (mkFloatText "3.0")], false⟩,
                 ⟨"ceilPos", .regular,
-                  .builtinCall "math.Ceil" [.prim (.float "3.2")], false⟩,
+                  .builtinCall "math.Ceil" [.prim (mkFloatText "3.2")], false⟩,
                 ⟨"ceilNeg", .regular,
-                  .builtinCall "math.Ceil" [.prim (.float "-3.7")], false⟩,
+                  .builtinCall "math.Ceil" [.prim (mkFloatText "-3.7")], false⟩,
                 ⟨"ceilInt", .regular,
                   .builtinCall "math.Ceil" [.prim (.int 5)], false⟩,
                 ⟨"roundHalf", .regular,
-                  .builtinCall "math.Round" [.prim (.float "2.5")], false⟩,
+                  .builtinCall "math.Round" [.prim (mkFloatText "2.5")], false⟩,
                 ⟨"roundNegHalf", .regular,
-                  .builtinCall "math.Round" [.prim (.float "-2.5")], false⟩,
+                  .builtinCall "math.Round" [.prim (mkFloatText "-2.5")], false⟩,
                 ⟨"roundDown", .regular,
-                  .builtinCall "math.Round" [.prim (.float "2.4")], false⟩,
+                  .builtinCall "math.Round" [.prim (mkFloatText "2.4")], false⟩,
                 ⟨"roundUp", .regular,
-                  .builtinCall "math.Round" [.prim (.float "0.5")], false⟩,
+                  .builtinCall "math.Round" [.prim (mkFloatText "0.5")], false⟩,
                 ⟨"truncPos", .regular,
-                  .builtinCall "math.Trunc" [.prim (.float "3.7")], false⟩,
+                  .builtinCall "math.Trunc" [.prim (mkFloatText "3.7")], false⟩,
                 ⟨"truncNeg", .regular,
-                  .builtinCall "math.Trunc" [.prim (.float "-3.99")], false⟩,
+                  .builtinCall "math.Trunc" [.prim (mkFloatText "-3.99")], false⟩,
                 ⟨"truncInt", .regular,
                   .builtinCall "math.Trunc" [.prim (.int 5)], false⟩
               ] .regularOpen none []))
@@ -3709,8 +3709,8 @@ def fixturePorts : List FixturePort :=
                 ⟨"str", .regular, .builtinCall "json.Marshal" [.prim (.string "hi")], false⟩,
                 ⟨"intVal", .regular, .builtinCall "json.Marshal" [.prim (.int 42)], false⟩,
                 ⟨"negInt", .regular, .builtinCall "json.Marshal" [.prim (.int (-5))], false⟩,
-                ⟨"floatVal", .regular, .builtinCall "json.Marshal" [.prim (.float "1.5")], false⟩,
-                ⟨"floatWhole", .regular, .builtinCall "json.Marshal" [.prim (.float "1.0")], false⟩,
+                ⟨"floatVal", .regular, .builtinCall "json.Marshal" [.prim (mkFloatText "1.5")], false⟩,
+                ⟨"floatWhole", .regular, .builtinCall "json.Marshal" [.prim (mkFloatText "1.0")], false⟩,
                 ⟨"boolVal", .regular, .builtinCall "json.Marshal" [.prim (.bool true)], false⟩,
                 ⟨"nullVal", .regular, .builtinCall "json.Marshal" [.prim .null], false⟩,
                 ⟨"nested", .regular,

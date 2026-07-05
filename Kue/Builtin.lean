@@ -687,12 +687,9 @@ def evalStringsBuiltin : String -> List Value -> Value
     Mirrors CUE's `math.Abs` (int → int, float → float). -/
 def mathAbs : Prim -> Value
   | .int value => .prim (.int value.natAbs)
-  | .float text =>
-      match parseDecimalText text with
-      | some value =>
-          let absValue := { value with numerator := value.numerator.natAbs }
-          .prim (.float (formatFiniteDecimal absValue true))
-      | none => .bottom
+  | .float value _ =>
+      let absValue := { value with numerator := value.numerator.natAbs }
+      .prim (mkFloatText (formatFiniteDecimal absValue true))
   | _ => .bottom
 
 /-- Whether `value` is an integer multiple of `divisor`; a zero divisor is an
@@ -754,7 +751,7 @@ def reciprocalDecimalToValue (p : DecimalValue) : Value :=
     .prim (.int (num / p.numerator))
   else
     match divideDecimalRational? num p.numerator with
-    | some text => .prim (.float text)
+    | some text => .prim (mkFloatText text)
     | none => .bottom
 
 /-- Exact-decimal square root over a SIGNED decimal: non-negative → `decimalSqrt`
@@ -851,10 +848,7 @@ def roundDecimalToInt (mode : RoundMode) (value : DecimalValue) : Int :=
     `math.Floor`/`Ceil`/`Round`/`Trunc` return an integer. -/
 def mathRound (mode : RoundMode) : Prim -> Value
   | .int value => .prim (.int value)
-  | .float text =>
-      match parseDecimalText text with
-      | some value => .prim (.int (roundDecimalToInt mode value))
-      | none => .bottom
+  | .float value _ => .prim (.int (roundDecimalToInt mode value))
   | _ => .bottom
 
 /-- Dispatch a `math.*` builtin over already-evaluated arguments.

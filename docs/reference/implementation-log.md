@@ -17988,3 +17988,44 @@ banner), `cue-spec-gaps.md` reverse-no-shadow row (newtype mechanism), phase-b b
 instances + Field field), `Kue/Parse.lean` (reader + strip deletion + seams), `Kue/Tests/{Lattice,
 Parse}Tests.lean`. No spec-gap/divergence added — quoted == bare is spec-determined, not silent; the
 choice is internal representation. Committed on `main`, explicit pathspec, NOT pushed.
+
+## Completed Slice: PRIM-FLOAT-PARSED (plan 0e) — 2026-07-05
+
+Refined the core `Prim.float` carrier from a raw `String` to `float (value : DecimalValue)
+(text : String)`. The exact base-10 value is smart-constructed ONCE, at lex/result-construction
+time, through the sole sanctioned constructor `mkFloatText text` (which sets `value :=
+(parseDecimalText text).getD (intDecimal 0)`); the `text` is retained verbatim so rendering
+round-trips exactly (`1.50`→`1.50`, `1e+3`→`1e+3`).
+
+**Illegal-state erased.** `primsUnifyEqual`'s float arm was `match parseDecimalText l, r | some,
+some => decimalEqValues | _,_ => l == r` — a re-parse plus an unreachable "can't happen" fallback
+(a lexer float ALWAYS parses). It is now a total `decimalEqValues leftValue rightValue` on the two
+STORED decimals: no Option, no fallback. `decimalFromPrim?`'s float case is likewise total (`some
+value`, no parse). `mathAbs`/`mathRound` dropped their per-call `parseDecimalText` (+ dead `none`
+arms) by reading the stored decimal. The hot meet/compare path no longer re-parses a value that
+never changes.
+
+**Behavior-preserving by construction.** `value` is a deterministic function of `text`
+(`parseDecimalText`), so derived `BEq` on `Prim.float` reduces to text-equality EXACTLY as the
+former `String` rep did — two distinct source texts (even value-equal `1.0`/`1.00`) stay
+structurally unequal, so no `Value` equality, dedup, disjunction, or fixture shifts. Rendering
+reads `text` unchanged. Hence no RED wild repro: the change is a representation refactor, not a bug
+fix — the by-value unification it builds on (`1.0 & 1.00`) already landed (plan §meet), and no
+current output was lossy/wrong.
+
+**Sites.** Type + `mkFloatText` + `decimalFromPrim?` (`Value.lean`, `DecimalValue` moved above
+`Prim`); `primsUnifyEqual` + its refl proof + `primSortKey` (`Lattice.lean`); construction routed
+through `mkFloatText` in `Decimal.lean` (collapse/mul/div/avg/binary), `EvalOps.lean` (div/numPos/
+numNeg), `Builtin.lean` (abs/multipleOf-recip/round), `Parse.lean` (literal); text-field reads in
+`Format.lean`/`Json.lean`/`Yaml.lean`/`EvalBase.lean` (interpolation + hash). Test literals
+`.float "x"` → `mkFloatText "x"` across 8 test files (mechanical, value unchanged).
+
+**Tests.** 5 new `native_decide`/`rfl` theorems in `FloatTests.lean`: `float_stores_exact_decimal`
+(stored decimal exact + total across `1.5`/`-2.5`/`1e+3`/`1e-6`), `float_unify_equal_by_stored_value`
+(`1.0 & 1.00`, `1.50 & 1.5`), `float_text_round_trips_verbatim` (trailing-zero + scientific +
+negative-exp verbatim), `float_beq_reduces_to_text_equality` (the load-bearing BEq≡text invariant),
+`float_pinned_across_contexts` (`>=1.5` admits / `>1.5` rejects `1.5`). Tripwire anchor added.
+
+`./scripts/check.sh` GREEN; cert-manager realworld canary byte-identical. No spec-gap/divergence
+added — numeric semantics (precision, rendering, `1.0`==`1.00`) are unchanged and spec-conforming;
+the change is purely internal representation. Committed on `main`, explicit pathspec, NOT pushed.

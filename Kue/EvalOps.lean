@@ -159,7 +159,7 @@ def evalDiv (left right : Value) : Value :=
   | _, .bottomWith reasons => .bottomWith reasons
   | .prim left, .prim right =>
       match evalDecimalDivide? left right with
-      | .ok text => .prim (.float text)
+      | .ok text => .prim (mkFloatText text)
       | .divByZero => .bottomWith [.divisionByZero]
       | .nonNumeric => .bottom
   | _, _ => arithmeticDomainResult .div left right
@@ -466,7 +466,7 @@ def negateFloatText (value : String) : String :=
 def evalNumPos (value : Value) : Value :=
   match classifyScalarOperand value with
   | .prim (.int value) => .prim (.int value)
-  | .prim (.float value) => .prim (.float value)
+  | .prim (.float value text) => .prim (.float value text)
   | .prim _ => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
@@ -475,7 +475,7 @@ def evalNumPos (value : Value) : Value :=
 def evalNumNeg (value : Value) : Value :=
   match classifyScalarOperand value with
   | .prim (.int value) => .prim (.int (-value))
-  | .prim (.float value) => .prim (.float (negateFloatText value))
+  | .prim (.float _ text) => .prim (mkFloatText (negateFloatText text))
   | .prim _ => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons

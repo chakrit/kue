@@ -33,12 +33,12 @@ theorem fixture_float_additive_expressions :
     formatTopLevel
       (resolveAndEval
         (mkStruct [
-            ⟨"floatSum", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "2.25")), false⟩,
-            ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (.float "2.5")), false⟩,
-            ⟨"floatSub", .regular, .binary .sub (.prim (.float "5.5")) (.prim (.int 2)), false⟩,
-            ⟨"whole", .regular, .binary .add (.prim (.float "1.5")) (.prim (.float "1.5")), false⟩,
-            ⟨"exp", .regular, .binary .add (.prim (.float "1e+3")) (.prim (.int 2)), false⟩,
-            ⟨"small", .regular, .binary .add (.prim (.float "0.1")) (.prim (.float "0.2")), false⟩
+            ⟨"floatSum", .regular, .binary .add (.prim (mkFloatText "1.5")) (.prim (mkFloatText "2.25")), false⟩,
+            ⟨"intFloat", .regular, .binary .add (.prim (.int 1)) (.prim (mkFloatText "2.5")), false⟩,
+            ⟨"floatSub", .regular, .binary .sub (.prim (mkFloatText "5.5")) (.prim (.int 2)), false⟩,
+            ⟨"whole", .regular, .binary .add (.prim (mkFloatText "1.5")) (.prim (mkFloatText "1.5")), false⟩,
+            ⟨"exp", .regular, .binary .add (.prim (mkFloatText "1e+3")) (.prim (.int 2)), false⟩,
+            ⟨"small", .regular, .binary .add (.prim (mkFloatText "0.1")) (.prim (mkFloatText "0.2")), false⟩
           ] .regularOpen none []))
       = "floatSum: 3.75\nintFloat: 3.5\nfloatSub: 3.5\nwhole: 3.0\nexp: 1002.0\nsmall: 0.3" := by
   native_decide
@@ -129,12 +129,12 @@ theorem fixture_numeric_comparison_expressions :
     formatTopLevel
       (resolveAndEval
         (mkStruct [
-            ⟨"lt", .regular, .binary .lt (.prim (.float "1.5")) (.prim (.int 2)), false⟩,
-            ⟨"le", .regular, .binary .le (.prim (.float "1.5")) (.prim (.float "1.50")), false⟩,
-            ⟨"gt", .regular, .binary .gt (.prim (.float "1e+3")) (.prim (.float "999.9")), false⟩,
-            ⟨"ge", .regular, .binary .ge (.prim (.float "1.0")) (.prim (.int 1)), false⟩,
-            ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (.float "1.0")), false⟩,
-            ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (.float "1.0")), false⟩
+            ⟨"lt", .regular, .binary .lt (.prim (mkFloatText "1.5")) (.prim (.int 2)), false⟩,
+            ⟨"le", .regular, .binary .le (.prim (mkFloatText "1.5")) (.prim (mkFloatText "1.50")), false⟩,
+            ⟨"gt", .regular, .binary .gt (.prim (mkFloatText "1e+3")) (.prim (mkFloatText "999.9")), false⟩,
+            ⟨"ge", .regular, .binary .ge (.prim (mkFloatText "1.0")) (.prim (.int 1)), false⟩,
+            ⟨"eq", .regular, .binary .eq (.prim (.int 1)) (.prim (mkFloatText "1.0")), false⟩,
+            ⟨"ne", .regular, .binary .ne (.prim (.int 1)) (.prim (mkFloatText "1.0")), false⟩
           ] .regularOpen none []))
       = "lt: true\nle: true\ngt: true\nge: true\neq: true\nne: false" := by
   native_decide
@@ -338,8 +338,8 @@ theorem fixture_number_literals :
     formatTopLevel
       (mkStruct [
           ⟨"x", .regular, .prim (.int 1000), false⟩,
-          ⟨"y", .regular, .prim (.float "1.25e+3"), false⟩,
-          ⟨"z", .regular, .prim (.float "-2e+3"), false⟩
+          ⟨"y", .regular, .prim (mkFloatText "1.25e+3"), false⟩,
+          ⟨"z", .regular, .prim (mkFloatText "-2e+3"), false⟩
         ] .regularOpen none [])
       = "x: 1000\ny: 1.25e+3\nz: -2e+3" := by
   native_decide
@@ -360,7 +360,7 @@ theorem fixture_unary_plus_numbers :
     formatTopLevel
       (mkStruct [
           ⟨"x", .regular, .prim (.int 1), false⟩,
-          ⟨"y", .regular, .prim (.float "1.5"), false⟩,
+          ⟨"y", .regular, .prim (mkFloatText "1.5"), false⟩,
           ⟨"z", .regular, .prim (.int 16), false⟩
         ] .regularOpen none [])
       = "x: 1\ny: 1.5\nz: 16" := by
@@ -725,11 +725,11 @@ theorem fixture_bytes_kind :
   native_decide
 
 theorem fixture_float_kind :
-    formatField "x" (meet (.kind .float) (.prim (.float "1.5"))) = "x: 1.5" := by
+    formatField "x" (meet (.kind .float) (.prim (mkFloatText "1.5"))) = "x: 1.5" := by
   native_decide
 
 theorem fixture_number_kind :
-    formatField "x" (meet (.kind .number) (.prim (.float "1.5"))) = "x: 1.5" := by
+    formatField "x" (meet (.kind .number) (.prim (mkFloatText "1.5"))) = "x: 1.5" := by
   native_decide
 
 theorem fixture_number_disjunction :

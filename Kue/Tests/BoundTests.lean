@@ -114,7 +114,7 @@ theorem meet_number_kind_with_strict_bound_drops_kind :
 -- The float-rejection the `int` conjunct buys: `(int & >0) & 1.5` is bottom (mismatched
 -- int/float), where bare `>0 & 1.5` would otherwise admit the float in CUE.
 theorem meet_int_strict_bound_rejects_float :
-    (meet (meet (.kind .int) (.boundConstraint (intDecimal 0) .gt .number)) (.prim (.float "1.5")) == .bottomWith [.kindConflict .int .float]) = true := by
+    (meet (meet (.kind .int) (.boundConstraint (intDecimal 0) .gt .number)) (.prim (mkFloatText "1.5")) == .bottomWith [.kindConflict .int .float]) = true := by
   native_decide
 
 theorem meet_int_strict_bound_admits_satisfying_int :
@@ -197,12 +197,12 @@ theorem meet_canonical_conj_member_order :
 -- The 2b fix: a bare bound admits a float (`>0 & 1.5` ⇒ `1.5`), where the pre-2b int-only
 -- bound bottomed.
 theorem meet_bare_bound_admits_float :
-    (meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (.float "1.5")) == .prim (.float "1.5")) = true := by
+    (meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (mkFloatText "1.5")) == .prim (mkFloatText "1.5")) = true := by
   native_decide
 
 -- `int & >0` still rejects a float — the kept `int` conjunct, not the bound, enforces it.
 theorem meet_int_bound_rejects_float :
-    (meet (meet (.kind .int) (.boundConstraint (intDecimal 0) .gt .number)) (.prim (.float "1.5"))
+    (meet (meet (.kind .int) (.boundConstraint (intDecimal 0) .gt .number)) (.prim (mkFloatText "1.5"))
       == .bottomWith [.kindConflict .int .float]) = true := by
   native_decide
 
@@ -214,8 +214,8 @@ theorem meet_float_bound_rejects_int :
 
 -- A decimal bound literal compares exactly: `>0.5` admits `1.0`, rejects `0.25`.
 theorem meet_decimal_bound_admits_and_rejects :
-    (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (.float "1.0")) == .prim (.float "1.0")) = true
-      ∧ (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (.float "0.25"))
+    (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (mkFloatText "1.0")) == .prim (mkFloatText "1.0")) = true
+      ∧ (meet (.boundConstraint { numerator := 5, scale := 1 } .gt .number) (.prim (mkFloatText "0.25"))
           == .bottomWith [.boundConflict]) = true := by
   native_decide
 
@@ -235,10 +235,10 @@ theorem meet_negative_decimal_bound_admits :
 -- different scales (`>0.50` vs `0.5`) compare as equal, so the strict bound rejects and
 -- the non-strict bound admits — no trailing-zero/precision artifact.
 theorem meet_decimal_bound_trailing_zero_tie :
-    (meet (.boundConstraint { numerator := 50, scale := 2 } .gt .number) (.prim (.float "0.5"))
+    (meet (.boundConstraint { numerator := 50, scale := 2 } .gt .number) (.prim (mkFloatText "0.5"))
         == .bottomWith [.boundConflict]) = true
-      ∧ (meet (.boundConstraint { numerator := 50, scale := 2 } .ge .number) (.prim (.float "0.5"))
-          == .prim (.float "0.5")) = true := by
+      ∧ (meet (.boundConstraint { numerator := 50, scale := 2 } .ge .number) (.prim (mkFloatText "0.5"))
+          == .prim (mkFloatText "0.5")) = true := by
   native_decide
 
 
