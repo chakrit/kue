@@ -516,8 +516,9 @@ DEF-bound case stays correct, but the PLAIN-struct nested value was wrongly left
     validates the qualifier (identifier-start + parts, not `#` /`_#`) at PARSE, rejecting
     junk cue defers to a load error (F-3 divergence). `importBindName` precedence is alias
     > qualifier > declared-name > last-element. SCOPE = parse + bind-name; the stricter
-    suffix-vs-loaded-declared-name MISMATCH gate (cue's `package name "other"`) is a
-    recorded resolution residual (needs the loaded name). 8 parse pins + 4
+    suffix-vs-loaded-declared-name MISMATCH gate (cue's `package name "other"`) was a
+    recorded resolution residual — CLOSED 2026-07-06 by AUD-B6 (`collectBindings` package-name
+    gate; bind-name resolution now purely lexical). 8 parse pins + 4
     `importBindName` /`isPackageIdentifier` pins + 4 module fixtures
     (`qualified_import{,_bare,_mixed,_invalid_id}`, all byte-identical to cue on the
     success cases). 1 cue-divergence (junk-qualifier parse-reject) + 1 spec-gap (validity

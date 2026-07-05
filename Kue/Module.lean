@@ -175,22 +175,19 @@ def bindImports (bindings : List (String × Value)) : Value -> Value
   | value =>
       mkStruct (bindings.map (fun b => ⟨b.fst, FieldClass.importBinding, b.snd, false⟩) ++ [⟨"", FieldClass.regular, value, false⟩]) .defClosed none []
 
-/-- The local name a package binds under, in spec precedence: the `PackageName` alias
-    prefix (`import foo "…"`) when present; else the explicit `:identifier` qualifier
-    (`import "…:foo"`); else the package's declared name; else the last path element as a
-    final fallback (a package whose files all omit a clause — rare; CUE infers the name from
-    the path). The qualifier outranks the declared name because it is the importer's chosen
-    package name within the location. -/
-def importBindName (imp : Import) (declaredName : Option String) : String :=
-  match imp.alias with
-  | some alias => alias
-  | none =>
-      match imp.packageName with
-      | some qualifier => qualifier
-      | none =>
-          match declaredName with
-          | some name => name
-          | none => lastPathElement imp.path
+/-- The name a bare/qualified import EXPECTS its target package to declare: the explicit
+    `:identifier` qualifier when present, else the last path element. `cue` requires the loaded
+    package's own `package` clause to equal this (a bare `import ".../foo"` demands `package foo`;
+    a qualified `import ".../math-utils:math"` demands `package math`). The alias is irrelevant
+    here — it renames the binding locally, it does not change which package the location names. -/
+def expectedPackageName (imp : Import) : String :=
+  imp.packageName.getD (lastPathElement imp.path)
+
+/-- `cue`'s load error when an import's target directory holds no file declaring the expected
+    package name (`import ".../foo"` where the dir declares `package bar`): cue rejects it with
+    `no files in package directory with package name "foo"` and demands the `:bar` qualifier. -/
+def packageNameMismatchError (expected : String) : String :=
+  s!"no files in package directory with package name \"{expected}\""
 
 /-- The redeclaration error `cue` raises when a file's top-level field reuses the local name
     an import binds in the file scope (A2-y). The import declaration binds `bindName` in the
@@ -214,13 +211,13 @@ def checkImportRedeclaration (bindName : String) (fieldNames : List String) :
 
 /-- Run the A2-y redeclaration check over a list of (builtin) imports against one file's
     `fieldNames`, in order — used on the builtin-only fast path where no package is loaded,
-    so each bind name comes from `importBindName imp none` (alias > qualifier >
-    last-path-element). The first collision errors; `ok ()` when none collide. -/
+    so each bind name comes from `importBindName` (alias > qualifier > last-path-element).
+    The first collision errors; `ok ()` when none collide. -/
 def checkBuiltinImportRedeclarations :
     List Import -> List String -> Except String Unit
   | [], _ => .ok ()
   | imp :: rest, fieldNames => do
-      checkImportRedeclaration (importBindName imp none) fieldNames
+      checkImportRedeclaration (importBindName imp) fieldNames
       checkBuiltinImportRedeclarations rest fieldNames
 
 /-! ## IO loader boundary -/
@@ -743,9 +740,8 @@ mutual
       if isBuiltinImport imp.path then
         -- A stdlib import binds no value, but it still binds its local name in the file
         -- scope: `import "encoding/json"` + `json: {…}` redeclares `json` (A2-y, matching
-        -- cue). The bind name follows alias > qualifier > last-path-element (no package
-        -- is loaded, so no declared name).
-        match checkImportRedeclaration (importBindName imp none) fieldNames with
+        -- cue). The bind name follows alias > qualifier > last-path-element.
+        match checkImportRedeclaration (importBindName imp) fieldNames with
         | .error message => return .error message
         | .ok () => pure ()
       else
@@ -755,7 +751,20 @@ mutual
             match ← loadPackage loadCtx visited dir with
             | .error message => return .error message
             | .ok (declaredName, value) =>
-                let bindName := importBindName imp declaredName
+                -- cue's bare/qualified-import package-name gate: the loaded package's own
+                -- `package` clause must equal the name the import expects (qualifier, else last
+                -- path element). A divergence (`import ".../foo"` where the dir says `package
+                -- bar`) is a cue LOAD error demanding the `:bar` qualifier — not a silent bind
+                -- under `bar`. Enforcing it here keeps `importBindName` purely lexical: a bound
+                -- package's name always matches its last-path-element/qualifier, so the
+                -- parse-time unused-import check (which has no declared name) can never mis-name
+                -- a used import as unused. A clause-less package (`none`) cannot mismatch.
+                match declaredName with
+                | some declared =>
+                    if declared != expectedPackageName imp then
+                      return .error (packageNameMismatchError (expectedPackageName imp))
+                | none => pure ()
+                let bindName := importBindName imp
                 match checkImportRedeclaration bindName fieldNames with
                 | .error message => return .error message
                 | .ok () => acc := acc.push (bindName, value)

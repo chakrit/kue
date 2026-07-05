@@ -81,30 +81,33 @@ example :
     (loadPackageFromParsed [fileA, { fileB with packageName := some "other" }]).toOption.isNone = true := by
   native_decide
 
--- A bare import binds under the package's declared name.
-example : importBindName { path := "example.com/defs", alias := none } (some "defs") = "defs" := by
+-- A bare import binds under its last path element (the name its target package must declare).
+example : importBindName { path := "example.com/defs", alias := none } = "defs" := by
   native_decide
 
--- An aliased import binds under the alias, ignoring the declared name.
-example : importBindName { path := "example.com/defs", alias := some "d" } (some "defs") = "d" := by
+-- An aliased import binds under the alias.
+example : importBindName { path := "example.com/defs", alias := some "d" } = "d" := by
   native_decide
 
--- An explicit `:identifier` qualifier (F-3) outranks the package's declared name.
+-- An explicit `:identifier` qualifier (F-3) binds under the qualifier.
 example :
-    importBindName { path := "example.com/defs", packageName := some "foo" } (some "defs") = "foo" := by
+    importBindName { path := "example.com/defs", packageName := some "foo" } = "foo" := by
   native_decide
 
--- The `PackageName` alias prefix still wins over an explicit qualifier.
+-- The `PackageName` alias prefix wins over an explicit qualifier.
 example :
     importBindName { path := "example.com/defs", packageName := some "foo", alias := some "d" }
-      (some "defs") = "d" := by
+      = "d" := by
   native_decide
 
--- With no qualifier and no alias, a qualified-import path that was suffix-stripped at
--- parse time binds under the loaded declared name exactly as a bare import does.
+-- `expectedPackageName` — the clause the loader gate demands of the target package: qualifier
+-- when present, else last path element. A bare `import ".../foo"` requires `package foo`;
+-- a qualified `import ".../math-utils:math"` requires `package math`; the alias is irrelevant.
+example : expectedPackageName { path := "example.com/foo" } = "foo" := by native_decide
+example : expectedPackageName { path := "example.com/math-utils", packageName := some "math" }
+    = "math" := by native_decide
 example :
-    importBindName { path := "example.com/pkg-with-dash", packageName := some "pkg" } none = "pkg" := by
-  native_decide
+    expectedPackageName { path := "example.com/foo", alias := some "d" } = "foo" := by native_decide
 
 -- `bindImports` prepends each binding as an `importBinding` top-level field, in scope for
 -- references but excluded from output (distinguished from a real in-file hidden field so
@@ -382,7 +385,7 @@ example :
 -- last path element does not (the bound name is the alias).
 example :
     (checkImportRedeclaration
-      (importBindName { path := "ex.com/dep", alias := some "d" } (some "dep")) ["dep"]).toOption
+      (importBindName { path := "ex.com/dep", alias := some "d" }) ["dep"]).toOption
       = some () := by
   native_decide
 

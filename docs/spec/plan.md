@@ -452,28 +452,21 @@ rejection argument: `kue-performance.md` + implementation-log.
   catch-all and remain so; `closure` stays pass-through — it owns its `capturedEnv`, not the
   enclosing `scopes`; `embeddedList`/`embeddedScalar` are eval-only, never present at the two
   pre-eval call sites). No latent bug surfaced. cert-manager canary EMPTY; `check.sh` green.
-- **UNUSED-IMPORT-BINDNAME (MEDIUM — latent false-positive; filed by the `0427bf1..HEAD` Phase A
-  audit) — OPEN.** `Parse.importLocalBindName` (the parse-time unused-import check's bind-name
-  oracle) resolves `alias > packageName-qualifier > lastPathElement`, DROPPING the `declaredName`
-  arm that `Module.importBindName` has. For a bare (non-aliased, non-qualified) NON-builtin PACKAGE
-  import whose imported package declares a name ≠ the path's last element, and which the body
-  references BY that declared name, the parse-time check compares the body's used-head (the declared
-  name) against `lastPathElement` — a mismatch — and FALSELY flags the used import
-  `imported and not used`, bottoming the file. Reachable: package files flow through
-  `parseSourceFile` → `resolveImports` (`Module.parseAndBindFiles:712`), so the false bottom fires
-  BEFORE `collectBindings` learns the real `declaredName`. LATENT: no current fixture imports a
-  package whose name diverges from its dir (all stdlib have name==tail; the CUE convention is
-  name==dir), so all gates stay green. Root cause is a LAYERING one — the true bind name of a
-  package import is only known after the package loads, which the parser cannot do. Proper fix:
-  enforce unused-import at the layer that knows the bind name — keep the parse-time check for
-  imports whose bind name is parse-CERTAIN (builtin: name always==tail; or alias/qualifier present)
-  and DEFER the bare-non-builtin case to `collectBindings`/`bindImports` where `declaredName` is in
-  hand. NOTE: the collector-level `collectReferencedHeads` WALK is itself false-positive-safe —
-  exhaustively enumerated over all parse-time `Value` constructors (no catch-all), every `[]` arm
-  carries no `Value` operand (`boundConstraint` holds a `DecimalValue`, not a `Value`), so no used
-  reference form is missed; the gap is purely the bind-name oracle, not the reference walk.
-  Repro when picked up: a multi-file `wild/` (or module) fixture — pkg dir `x/foo/` whose files say
-  `package bar`, imported `"…/x/foo"` and used as `bar.Field`; expect NON-bottom (cross-check `cue`).
+- **UNUSED-IMPORT-BINDNAME / AUD-B6 (MEDIUM — latent false-positive; filed by the `0427bf1..HEAD`
+  Phase A audit) — DONE 2026-07-06.** RETRACTION: this entry's original diagnosis assumed `cue`
+  ACCEPTS a bare `import ".../x/foo"` whose dir declares `package bar` (used as `bar.Field`) and
+  expected the fix to make Kue return NON-bottom. That premise is WRONG: `cue` v0.16.1 REJECTS such a
+  program — `no files in package directory with package name "foo"` — requiring the `:bar` qualifier.
+  So `importLocalBindName` dropping the `declaredName` arm can only mis-flag programs `cue` itself
+  rejects; teaching the check the `declaredName` arm would make Kue wrongly ACCEPT a `cue`-illegal
+  import. Resolved instead as the F-3 suffix-vs-declared-name MISMATCH gate: `collectBindings`
+  enforces the loaded `package` clause == expected name (qualifier, else last path element), a
+  cue-shaped load error on divergence. This keeps `importBindName` purely lexical (param-free, moved
+  to `Value.lean`, one resolution shared by parse-time check + loader binder; `importLocalBindName`
+  deleted) so the parse-time unused check can never mis-name a bound import. (The
+  `collectReferencedHeads` WALK was always false-positive-safe — exhaustive, no catch-all, `[]` arms
+  carry no `Value`; the gap was never the reference walk.) Fixtures `import_bare_pkgname_mismatch`
+  (expected.err) + `import_qualifier_pkgname_rescue`.
 
 ### COMPREHENSION/EMBEDDING/PATTERN CONFORMANCE PROBE (2026-07-04) — area clean, one parser gap seeded
 
@@ -689,11 +682,20 @@ LOW/deferred verdict stands. Not closable, not newly urgent.
   `native_decide` regressions added to `ModCmdTests` (line-comment `}` in deps, block-comment `}{"`
   in deps, lone `"` in a line comment, top-level `{` comment, end-to-end `applyModGet` no-corrupt).
   All previously-adversarial shapes now correct; build + `check.sh` green.
-- **UNUSED-IMPORT-BINDNAME (MEDIUM — latent false-positive). FILED** (ranked backlog, above). The
-  `collectReferencedHeads` WALK is false-positive-SAFE (exhaustive, no catch-all, `[]` arms carry no
-  `Value`); the gap is `importLocalBindName` dropping the `declaredName` arm, which over-reports a
-  used bare non-builtin package import whose declared name ≠ path tail as unused. Latent (no fixture
-  hits it); proper fix relayers the check to where the bind name is known. Full diagnosis in backlog.
+- **UNUSED-IMPORT-BINDNAME / AUD-B6 (MEDIUM — latent false-positive). DONE 2026-07-06** — resolved
+  as the F-3 suffix-vs-declared-name MISMATCH gate, NOT the audit's assumed "defer + accept". The
+  audit expected `import ".../foo"` (dir declares `package bar`) used as `bar.Field` to be a false
+  unused-flag on a VALID program; `cue` v0.16.1 REJECTS that program (`no files in package directory
+  with package name "foo"`, demanding the `:bar` qualifier). So the divergence set is exactly the
+  programs `cue` rejects — the naive "give the check the declaredName arm" fix would make Kue ACCEPT
+  a `cue`-illegal import (wrong-direction divergence). Root-cause fix: `collectBindings` now enforces
+  the loaded package's `package` clause == the import's expected name (qualifier, else last path
+  element); a mismatch is a cue-shaped load error. That keeps `importBindName` purely LEXICAL (one
+  param-free resolution in `Value.lean`, shared by the parse-time unused check and the loader binder —
+  `Parse.importLocalBindName` deleted, DRY), so a bound package's name always equals its
+  last-path-element/qualifier and the parse-time check can never mis-name a used import. Fixtures:
+  `import_bare_pkgname_mismatch` (expected.err, cue-shaped) + `import_qualifier_pkgname_rescue`
+  (`:bar` rescues, byte-identical to cue). See implementation-log 2026-07-06.
 
 Emitter (`parseDeps`/`renderDepsBlock`) canonical form re-checked against the committed
 byte-identical-to-`cue`-v0.16.1 fixtures (tab indent, `{v: "…"}` shape, ascending key sort) — SOUND;

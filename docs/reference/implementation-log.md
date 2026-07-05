@@ -9770,13 +9770,13 @@ the split, populating `path` + `packageName` (+ `alias`).
 qualifier > declared package name > last path element. The qualifier outranks the declared name
 because it is the importer's chosen package name within the location.
 
-**Scope: parse + bind-name; one resolution residual.** A `"location:identifier"` import now PARSES
-and resolves where it previously failed; the qualifier is recorded and honored as the binding name,
-never dropped. The STRICTER spec obligation — that the qualifier must MATCH the loaded package's
-declared `package` clause (cue errors `no files in package directory with package name "other"`) —
-is NOT yet enforced; it needs the loaded declared name and is a load-time gate beyond parsing. A
-qualifier that mis-names an existing package currently binds under the qualifier without verifying
-equality (recorded as a resolution residual in `cue-spec-gaps.md`).
+**Scope: parse + bind-name; one resolution residual — CLOSED 2026-07-06 (AUD-B6).** A
+`"location:identifier"` import now PARSES and resolves where it previously failed; the qualifier is
+recorded and honored as the binding name, never dropped. The STRICTER spec obligation — that the
+qualifier (or, for a bare import, the last path element) must MATCH the loaded package's declared
+`package` clause (cue errors `no files in package directory with package name "other"`) — was NOT
+yet enforced when this landed. It is now enforced by the AUD-B6 slice (`collectBindings`
+package-name gate); see the 2026-07-06 AUD-B6 entry.
 
 **Tests.** 8 `native_decide` parse pins (`Kue/Tests/ParseTests.lean`): bare location; explicit
 qualifier split; dash-last-element-needs-qualifier; alias + qualifier; underscore qualifier;
@@ -18570,3 +18570,70 @@ block/RLE step consumes ≥1 unit against a matched fuel bound, so they cannot f
 
 `./scripts/check.sh` GREEN (all gates; zip golden 69-file CRC-verified extract still byte-identical;
 shellcheck PASS). Committed on `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: AUD-B6 — bare/qualified-import package-name gate (F-3 residual) — 2026-07-06
+
+Goal: close the AUD-B6 "latent false-positive in unused-import detection" finding. The audit
+observed that `Parse.importLocalBindName` (the parse-time unused-import bind-name oracle) drops the
+`declaredName` arm `Module.importBindName` carries, and predicted a used bare non-builtin import
+whose package declares a name ≠ its path tail would be FALSELY flagged `imported and not used`.
+
+### The reframe (why the audit's fix was wrong)
+
+The audit expected the repro program — `import "example.com/m/foo"` where dir `foo/` declares
+`package bar`, referenced as `bar.Field` — to be VALID and return NON-bottom. Cross-checking `cue`
+v0.16.1 shows it REJECTS that program: `no files in package directory with package name "foo"` —
+a bare import demands the target package declare a name equal to the last path element (or an
+explicit `:bar` qualifier). So the divergence set between the two bind-name functions is EXACTLY the
+programs `cue` itself rejects. The audit's proposed fix (give the parse-time check the `declaredName`
+arm, or defer-and-accept) would make Kue ACCEPT a `cue`-illegal import — a wrong-direction
+divergence. Resolved by philosophy (conform to `cue`): the correct fix is the F-3
+suffix-vs-declared-name MISMATCH gate, a load-time obligation recorded as unenforced since the
+2026-06-20 F-3 slice.
+
+### Fork resolution + basis
+
+Fork (from the slice brief): resolve the declared name at parse time, or defer the unused-check to
+after binding collection. Neither is right — the declared name is genuinely unavailable at parse
+time AND the used-vs-declared question is moot once the name gate rejects the mismatch. Chosen: make
+bind-name resolution purely LEXICAL and enforce the package-name gate at load. This is the most
+total / illegal-states-unrepresentable option — a bound package's local name is now always its
+alias / qualifier / last-path-element, never a post-load surprise, so the parse-time unused check
+(which has no declared name) can never mis-name a bound import as unused. The false positive becomes
+unreachable by construction: any program that could trigger it is rejected earlier by the gate with
+the cue-shaped error.
+
+### What landed
+
+- `Value.lean`: new param-free `importBindName (imp : Import) : String` (alias > qualifier > last
+  path element) — the single shared bind-name resolution.
+- `Parse.lean`: `importLocalBindName` DELETED; `unusedImports` uses `importBindName` (DRY — the two
+  functions were always equal for cue-legal input; now provably one function).
+- `Module.lean`: its two-arg `importBindName` DELETED. New `expectedPackageName` +
+  `packageNameMismatchError`. `collectBindings` non-builtin branch now gates: the loaded package's
+  declared clause must equal `expectedPackageName imp`, else a cue-shaped load error. `none` (a
+  clause-less package) cannot mismatch and is admitted unchanged.
+- `ModuleTests.lean`: `importBindName` example pins updated to the param-free signature; added
+  `expectedPackageName` pins (bare, qualified, alias-irrelevant).
+
+### Tests
+
+- `testdata/modules/import_bare_pkgname_mismatch` (`expected.err`): the AUD-B6 repro, now pinned to
+  `cue`'s ACTUAL behavior — `no files in package directory with package name "foo"`. RED before the
+  gate (Kue exited 0, `"": _|_`), GREEN after (cue-shaped load error, exit 1).
+- `testdata/modules/import_qualifier_pkgname_rescue` (`expected`): the same divergent-name dir with
+  the `:bar` qualifier exports `{"out":"v"}`, byte-identical to `cue` — the qualifier is how `cue`
+  admits a name≠tail package, and Kue now matches.
+
+### Retraction
+
+- `docs/spec/plan.md` AUD-B6 backlog + closeout entries rewritten (the "expect NON-bottom" repro was
+  factually wrong; recorded the reframe).
+- `docs/spec/spec-conformance-audit.md` F-3 row (#13) and `implementation-log` F-3 residual note
+  marked CLOSED.
+- `cue-spec-gaps.md` F-3 row updated: the mismatch gate is now enforced; bind name is lexical.
+
+Not a `cue-divergence` — the change REMOVES a latent divergence (Kue was leniently binding under a
+name `cue` rejects). `./scripts/check.sh` GREEN (all gates; shellcheck PASS).

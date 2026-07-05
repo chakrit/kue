@@ -1121,6 +1121,17 @@ deriving Repr, BEq, DecidableEq
 def lastPathElement (path : String) : String :=
   (path.splitOn "/").getLast!
 
+/-- The local identifier an import binds in the file scope, from LEXICAL data alone: the
+    explicit `PackageName` alias (`import foo "…"`), else the `:identifier` qualifier, else
+    the last path element. The loaded package's declared name never feeds this — a bare
+    import's declared name is required to equal the last path element (enforced at load,
+    `collectBindings`), so it can only ever reproduce the lexical fallback. One resolution
+    shared by the parse-time unused-import check and the loader's binder. -/
+def importBindName (imp : Import) : String :=
+  match imp.alias with
+  | some alias => alias
+  | none => imp.packageName.getD (lastPathElement imp.path)
+
 /-- The standard-library import paths whose symbols are dispatched by `evalBuiltinCall`
     (call-form `pkg.fn(...)`), not bound as package values. The loader skips these so a
     builtin import never triggers module resolution; the existing dotted-call path handles

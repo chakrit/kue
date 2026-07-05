@@ -2092,23 +2092,17 @@ def collectReferencedHeads : Nat -> Value -> List String
       | .guard condition => collectReferencedHeads fuel condition
       | .letClause _ value => collectReferencedHeads fuel value
 
-/-- The local identifier an import binds in the file scope: explicit alias, else the
-    `:identifier` package qualifier, else the last path element. Matches `Module.importBindName`'s
-    resolution for the builtin/no-declared-name case — the name a body must reference for the
-    import to count as used. -/
-def importLocalBindName (imp : Import) : String :=
-  match imp.alias with
-  | some alias => alias
-  | none => imp.packageName.getD (lastPathElement imp.path)
-
 /-- The imports a file declares but never references — cue's `imported and not used` set. An
-    import counts as USED when its local bind name appears among `collectReferencedHeads` of the
-    parsed body (a `pkg.field` selector, an aliased `p.Fn` builtin call, or a bare `pkg` ref).
-    Detection only ever UNDER-reports (a body reference we don't model leaves the import counted
-    as used), never over-reports, so a genuinely-used import is never mis-flagged. -/
+    import counts as USED when its local bind name (`importBindName`) appears among
+    `collectReferencedHeads` of the parsed body (a `pkg.field` selector, an aliased `p.Fn`
+    builtin call, or a bare `pkg` ref). The bind name is fully lexical: the loader's bare-import
+    package-name gate guarantees a bare import's declared name equals its last path element, so
+    the parse-time name matches the loader's binder exactly. Detection only ever UNDER-reports
+    (a body reference we don't model leaves the import counted as used), never over-reports, so a
+    genuinely-used import is never mis-flagged. -/
 def unusedImports (imports : List Import) (value : Value) : List Import :=
   let used := collectReferencedHeads builtinAliasFuel value
-  imports.filter (fun imp => !used.contains (importLocalBindName imp))
+  imports.filter (fun imp => !used.contains (importBindName imp))
 
 /-- Enforce cue's import requirements on a parsed body: FIRST reject any imported-but-unused
     package (`imported and not used` — a whole-file build error, so the document collapses to a
