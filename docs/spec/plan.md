@@ -660,7 +660,7 @@ byte-carrier change clean (base64 centralized, no String residue). A whole-graph
 three fix-slices (below). Detail: log.
 
 **Open Phase-B fix-slices (2026-07-05, ranked):**
-- **AUD-B3 (MEDIUM) — DONE (`<commit>`).** Routed all six Value-producing catch-all sites
+- **AUD-B3 (MEDIUM) — DONE (`6012a8e`).** Routed all six Value-producing catch-all sites
   (`evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`, plus the same-pattern
   `evalPrimitiveOrdering`/`evalRegexMatch` — converted together per the "convention lands with its
   migration" Law) through one enumerated `classifyScalarOperand : Value -> ScalarOperandClass`
