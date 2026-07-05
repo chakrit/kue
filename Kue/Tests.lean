@@ -141,6 +141,6 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
   == .bottomWith [.nonInterpolatable (.scalar .null)]
 -- Unresolved (ref) and bytes-pending operands defer rather than error or passthrough-render.
 #guard evalInterpolation [.ref "b"] == .interpolation [.ref "b"]
-#guard evalInterpolation [.prim (.bytes "x")] == .interpolation [.prim (.bytes "x")]
+#guard evalInterpolation [.prim (.bytes (textBytes "x"))] == .interpolation [.prim (.bytes (textBytes "x"))]
 
 end Kue

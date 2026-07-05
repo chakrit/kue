@@ -488,7 +488,7 @@ theorem eval_additive_expressions :
             ⟨"sum", .regular, .binary .add (.prim (.int 1)) (.prim (.int 2)), false⟩,
             ⟨"diff", .regular, .binary .sub (.prim (.int 5)) (.prim (.int 3)), false⟩,
             ⟨"cat", .regular, .binary .add (.prim (.string "a")) (.prim (.string "b")), false⟩,
-            ⟨"bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd")), false⟩
+            ⟨"bytes", .regular, .binary .add (.prim (.bytes (textBytes "ab"))) (.prim (.bytes (textBytes "cd"))), false⟩
           ] .regularOpen none []))
       = "sum: 3\ndiff: 2\ncat: \"ab\"\nbytes: 'abcd'" := by
   native_decide
@@ -1221,7 +1221,7 @@ theorem eval_mul_int_string_repeats :
 
 -- `*` over (bytes, int) repeats the bytes: `'ab' * 2 = 'abab'`.
 theorem eval_mul_bytes_int_repeats :
-    evalMul (.prim (.bytes "ab")) (.prim (.int 2)) = .prim (.bytes "abab") := by
+    evalMul (.prim (.bytes (textBytes "ab"))) (.prim (.int 2)) = .prim (.bytes (textBytes "abab")) := by
   rfl
 
 -- A zero count yields the empty value (not an error).

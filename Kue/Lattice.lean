@@ -581,7 +581,7 @@ def primSortKey : Prim -> String
   | .int value => toString value
   | .float value => value
   | .string value => value
-  | .bytes value => value
+  | .bytes value => toString value
 
 /-- The primary/secondary sort key for a constraint that may appear as a `.conj` member,
     minus a bound's decimal limit (which `conjMemberLe` compares directly so different

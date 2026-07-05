@@ -155,7 +155,7 @@ theorem yaml_block_scalar_leading_space_indent_indicator :
 
 -- bytes → base64 string scalar (matches JSON's byte handling).
 theorem yaml_bytes_base64 :
-    manifestToYaml (.prim (.bytes "hi")) = "aGk=" := by native_decide
+    manifestToYaml (.prim (.bytes (textBytes "hi"))) = "aGk=" := by native_decide
 
 -- A k8s-Deployment-shaped value, oracle-matched byte-for-byte against `cue export --out yaml`.
 theorem yaml_k8s_deployment :

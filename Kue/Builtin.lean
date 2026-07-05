@@ -33,7 +33,7 @@ def countRegularFields : List Field -> Nat
 
 def lenValue : Value -> Value
   | .prim (.string value) => .prim (.int (Int.ofNat value.utf8ByteSize))
-  | .prim (.bytes value) => .prim (.int (Int.ofNat value.utf8ByteSize))
+  | .prim (.bytes value) => .prim (.int (Int.ofNat value.size))
   | .kind .string => .builtinCall "len" [.kind .string]
   | .kind .bytes => .builtinCall "len" [.kind .bytes]
   | .list items => .prim (.int (Int.ofNat items.length))
@@ -901,7 +901,7 @@ def evalBase64Builtin : String -> List Value -> Value
   | "base64.Encode", [.prim .null, .prim (.string s)] =>
       .prim (.string (base64Encode s.toUTF8.toList))
   | "base64.Encode", [.prim .null, .prim (.bytes b)] =>
-      .prim (.string (base64Encode b.toUTF8.toList))
+      .prim (.string (base64Encode b.toList))
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `json.*` builtin over already-evaluated arguments. `Marshal` manifests

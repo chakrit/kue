@@ -314,8 +314,15 @@ rejection argument: `kue-performance.md` + implementation-log.
    the primary win is illegal-states-unrepresentable. Couple with GDA-FLOAT-RENDER (both touch the
    float representation) if convenient.
 
-0f. **BYTE-ARRAY-REPR (MEDIUM, core-type — ordinary test-first slice; from the 2026-07-04 Phase B audit;
-   CONSOLIDATES the bytes-as-String debt).** `Prim.bytes` carries a `String` (`Kue/Value.lean:21`),
+0f. **BYTE-ARRAY-REPR ✅ LANDED 2026-07-05 (MEDIUM, core-type — ordinary test-first slice; from the
+   2026-07-04 Phase B audit; CONSOLIDATES the bytes-as-String debt).** `Prim.bytes` now carries
+   `Array UInt8` (was `String`). Fully CLOSED BYTE-HIGHBYTE — the `byte-literal-high-byte` seed
+   graduated GREEN (`'\xff'`/`'\377'` → `/w==`, the single octet 0xFF). The three latent bugs were
+   fixed at the same sites: `len` byte count (`.size`), `formatPrim` `\xNN`/named-escape byte encoder,
+   lossy `.toUTF8` base64 (Json/Yaml/Builtin now encode the raw bytes). Also fixed the multiline-bytes
+   escape gap (dedicated `parseMultilineByteBody` decoding byte escapes). **Prerequisite for
+   BYTES-SLICE-MISSING and BYTE-INTERPOLATION is now MET** — both remain open dependents (below).
+   Original spec retained for provenance: `Prim.bytes` carried a `String` (`Kue/Value.lean:21`),
    so a byte ≥0x80 cannot be represented as one octet — `decodeByteEscape` (`Parse.lean:182`) folds
    `\xNN`/`\NNN` through `Char.ofNat` into that codepoint's multi-byte UTF-8 form. This ONE loose
    representation is the root of THREE filed items: BYTE-HIGHBYTE (Json/Yaml base64 round-trips
@@ -520,7 +527,9 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   negative / `lo>hi` → bottom; string operand → bottom; incomplete bound → residual defer.
   kue == cue v0.16.1 across the matrix (canary empty). Fixture `list_slice` + 14
   `native_decide` (`SliceTests.lean`). Follow-up: BYTES-SLICE-MISSING (below).
-- **BYTES-SLICE-MISSING (feature gap; FILE, not a bug — DEPENDENT of BYTE-ARRAY-REPR rank 0f).** cue slices bytes too
+- **BYTES-SLICE-MISSING (feature gap; FILE, not a bug — DEPENDENT of BYTE-ARRAY-REPR rank 0f; repr
+  prerequisite MET 2026-07-05, impl still open — the `Array UInt8` carrier makes the slice a clean
+  `Array.extract`).** cue slices bytes too
   (`'hello'[1:3]` → `'el'`, base64 `ZWw=`), byte-indexed; kue bottoms (the `list.Slice`
   desugar is list-only). Deferred deliberately from LIST-SLICE: reusing `list.Slice` for
   bytes would wrongly make the user-facing `list.Slice('bytes',…)` succeed, and a clean fix
@@ -542,15 +551,18 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   byte), `\NNN` (exactly-three-digit octal), `\uNNNN`/`\UNNNNNNNN` (unicode → UTF-8), and
   `\a\b\f\n\r\t\v\\\'\"`. Graduated `byte-literal-hex-escape` (`'\x01ab'` → `AWFi`); added
   `byte-literal-octal-escape` (`QUJD`), `numeric/byte_literal_escapes` (eval fixture + FixturePort),
-  8 `native_decide` (`BytesTests.lean`). Base64 JSON export already worked (`Json.lean`). KNOWN
+  8 `native_decide` (`BytesTests.lean`). Base64 JSON export already worked (`Json.lean`). ~~KNOWN
   LIMITATION: bytes are String-backed, so `\xNN`/`\NNN` ≥ 0x80 decode to that codepoint's two-byte
-  UTF-8 form, not a single raw byte (no fixture exercises ≥ 0x80). Byte-context interpolation
+  UTF-8 form~~ — RETRACTED 2026-07-05 by BYTE-ARRAY-REPR (rank 0f): the `Array UInt8` carrier holds
+  `\xNN`/`\NNN` ≥ 0x80 as a single raw byte; `BytesTests.lean` now pins the high-byte round-trip.
+  Byte-context interpolation
   DEFERRED — seed `byte-literal-interpolation` STAYS `.known-red`: it needs a distinct byte-
   interpolation carrier (`.interpolation` renders to a STRING, no byte-context marker) — a new
   `Value`-producing arm rippling ~20 match sites + digest/format/manifest, disproportionate to
   bundle; `\(` falls through to a literal `(` (`(1)` → `KDEp`), red preserved. Follow-up slice
-  **BYTE-INTERPOLATION**: byte-array bytes repr (fixes ≥ 0x80, graduates the `byte-literal-high-byte`
-  red seed) + byte-context interpolation carrier (graduates the `byte-literal-interpolation` seed +
+  **BYTE-INTERPOLATION**: ~~byte-array bytes repr (fixes ≥ 0x80, graduates the `byte-literal-high-byte`
+  red seed)~~ (DONE 2026-07-05 in BYTE-ARRAY-REPR rank 0f) + byte-context interpolation carrier
+  (graduates the `byte-literal-interpolation` seed +
   string-context bytes operand `"\(bytesval)"`, currently DEFERRED/safe).
   **RE-SCOPED (2026-07-04 Phase B): the byte-array repr half is now BYTE-ARRAY-REPR (rank 0f), which
   CLOSES BYTE-HIGHBYTE (fold that seed's graduation into 0f). BYTE-INTERPOLATION remains the residual
@@ -579,13 +591,11 @@ BUILTIN-IMPORT-LENIENCY all still tracked, no decay). Two LOW findings:
   `"\({[string]:int})"`. Exhaustiveness preserved (struct covered once). Regression: `out_pattern`
   in `numeric/interpolation_type_error` fixture (`→ _|_`) + native_decide guard in `Tests.lean`
   (pattern-struct → bottom; incomplete-scalar interp still DEFERS). cert-manager canary empty.
-- **BYTE-HIGHBYTE-NO-RED-SEED (test-debt / rule-compliance). ✅ SEEDED 2026-07-04** (fix rides
-  BYTE-INTERPOLATION). Captured `.known-red` wild seed `testdata/wild/byte-literal-high-byte`
-  (`a: '\xff'` → expected `{ "a": "/w==" }`), confirmed RED against HEAD: kue exports `w78=`
-  (2-byte UTF-8 of U+00FF), spec/cue is `/w==` (raw byte 0xFF). Root = String-backed bytes can't
-  hold a byte ≥0x80 as one byte; the real fix is **BYTE-ARRAY-REPR (rank 0f)**, which fully CLOSES
-  this — graduate the seed in that slice; it STAYS QUARANTINED until 0f lands. Octal `'\377'` is the same
-  byte and fails identically (covered by the same root; no separate seed needed).
+- **BYTE-HIGHBYTE-NO-RED-SEED (test-debt / rule-compliance). ✅ SEEDED 2026-07-04 → GRADUATED GREEN
+  2026-07-05** (BYTE-ARRAY-REPR rank 0f). Wild seed `testdata/wild/byte-literal-high-byte`
+  (`a: '\xff'` → `{ "a": "/w==" }`) was RED against HEAD (kue exported `w78=`, the 2-byte UTF-8 of
+  U+00FF); the `Array UInt8` carrier now holds the raw byte 0xFF as one octet, so the seed passes and
+  its `.known-red` quarantine was removed. Octal `'\377'` is the same byte, also green.
 
 The **2026-07-04 Phase B audit** (`dfdd1ab..HEAD`; A7 GATES/TOOLING infra-rotation cycle) closed
 HEALTHY. Phase A fixes confirmed landed (INTERP-STRUCT-PATTERN-DEFER at `EvalBase.lean:1162`;

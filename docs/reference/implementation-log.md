@@ -17448,3 +17448,47 @@ order-insensitive.
 
 `./scripts/check.sh` GREEN; cert-manager canary EMPTY. Committed on `main`, explicit pathspec,
 NOT pushed (AFK).
+
+---
+
+## BYTE-ARRAY-REPR (rank 0f) — `Prim.bytes` carrier `String` → `Array UInt8` (2026-07-05)
+
+Refined the bytes carrier from `String` to `Array UInt8` (NOT `ByteArray` — that lacks
+`DecidableEq`/`Repr` in Lean core, which `Prim`'s `deriving` and the `primsUnifyEqual_refl`
+proof depend on). A byte ≥ 0x80 is now held as one octet instead of a String forcing it
+into that codepoint's multi-byte UTF-8 form. The single repr fix retired the bytes-as-String
+debt behind BYTE-HIGHBYTE and unblocks BYTES-SLICE-MISSING / BYTE-INTERPOLATION (dependents,
+still open).
+
+Three latent bugs fixed at the same sites, plus the multiline-bytes escape gap:
+- `lenValue` (`Builtin.lean`) counts `.size` (array length), not `utf8ByteSize` — so
+  `len('\xff') == 1`, not 2.
+- `formatPrim` (`Format.lean`) gained a byte encoder (`formatByte`/`formatBytesLiteral`):
+  `\n\r\t` named escapes, `\'`/`\\`, printable ASCII verbatim, `\xNN` for other control/high
+  bytes. Previously emitted the raw payload with no escaping.
+- Base64 export (`Json.lean`, `Yaml.lean`, `Builtin.lean` `base64.Encode`) encodes the raw
+  bytes (`.toList`) instead of the lossy `.toUTF8.toList` of the String carrier.
+- Multiline bytes (`'''…'''`) get a dedicated `parseMultilineByteBody` (`Parse.lean`) that
+  decodes byte escapes via `decodeByteEscape`, rather than routing through the string escape
+  lexer (which mangled `\xNN`).
+
+Parser: `decodeByteEscape` now returns `List UInt8` (`\xNN`/`\NNN` → one raw octet;
+`\uNNNN`/`\UNNNNNNNN` → the codepoint's UTF-8 bytes via `charBytes`/`codepointBytes`);
+`parseQuotedByteBody`/`parseQuotedBytes` accumulate `List UInt8` and return `Array UInt8`.
+
+Tests: rewrote `BytesTests.lean` to pin raw bytes — high-byte round-trip (`'\xff'`/`'\377'`
+→ `#[0xff]`), mixed ASCII+high, `ÿ` multibyte codepoint distinction, empty bytes,
+`formatByte` `\xNN` round-trip, and `manifestToJson (.bytes #[0xff]) = "\"/w==\""`. Added the
+`textBytes : String → Array UInt8` bridge (`Value.lean`) for ASCII test/expected literals;
+migrated ~16 `.bytes "…"` sites across FixturePorts/FixtureTests/EvalTests/BuiltinTests/Tests.
+`evalRepeat` split into `evalRepeatString`/`evalRepeatBytes` (`EvalOps.lean`).
+
+Graduated the wild seed `testdata/wild/byte-literal-high-byte` (`a: '\xff'` → `{"a":"/w=="}`)
+GREEN and removed its `.known-red` quarantine. `byte-literal-interpolation` stays quarantined
+(BYTE-INTERPOLATION dependent). Updated `testdata/cue/multiline/multiline_bytes.expected` to
+the new single-quote inline-escape form (`x: 'abc\ndef'`); recorded the byte-literal
+formatting choice (single-quote inline escapes vs cue's triple-quote promotion) in
+`cue-spec-gaps.md`. No `cue-divergences.md` entry — cue agrees on every byte VALUE.
+
+`./scripts/check.sh` GREEN (150 build jobs + all gates). Committed on `main`, explicit
+pathspec, NOT pushed.

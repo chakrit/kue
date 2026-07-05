@@ -50,6 +50,27 @@ def isCueBareLabel (label : String) : Bool :=
 def formatFieldLabel (label : String) : String :=
   if isCueBareLabel label then label else s!"\"{escapeCueStringContent label}\""
 
+/-- A single lowercase hex digit for `n < 16`. -/
+def hexDigitChar (n : Nat) : Char :=
+  if n < 10 then Char.ofNat (n + '0'.toNat) else Char.ofNat (n - 10 + 'a'.toNat)
+
+/-- Render one byte inside a byte literal: the common controls take their named escape
+    (`\n\r\t`); `'` and `\` are backslash-escaped; a printable ASCII byte prints as itself;
+    every other byte (control or ≥ 0x80) prints as a `\xNN` hex escape. Every case
+    round-trips through `parseQuotedBytes`. -/
+def formatByte (byte : UInt8) : String :=
+  if byte == 0x0a then "\\n"
+  else if byte == 0x0d then "\\r"
+  else if byte == 0x09 then "\\t"
+  else if byte == 0x27 then "\\'"
+  else if byte == 0x5c then "\\\\"
+  else if 0x20 <= byte && byte <= 0x7e then String.singleton (Char.ofNat byte.toNat)
+  else "\\x" ++ String.ofList [hexDigitChar (byte.toNat / 16), hexDigitChar (byte.toNat % 16)]
+
+/-- Render a byte value as a CUE byte literal (`'...'`), escaping non-printable/high bytes. -/
+def formatBytesLiteral (bytes : Array UInt8) : String :=
+  "'" ++ String.join (bytes.toList.map formatByte) ++ "'"
+
 def formatPrim : Prim -> String
   | .null => "null"
   | .bool true => "true"
@@ -57,7 +78,7 @@ def formatPrim : Prim -> String
   | .int value => toString value
   | .float value => value
   | .string value => s!"\"{escapeCueStringContent value}\""
-  | .bytes value => "'" ++ value ++ "'"
+  | .bytes value => formatBytesLiteral value
 
 def joinWith (separator : String) : List String -> String
   | [] => ""

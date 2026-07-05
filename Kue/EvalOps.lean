@@ -96,9 +96,14 @@ def arithmeticDomainResult (op : BinaryOp) (left right : Value) : Value :=
 /-- String/bytes `*` int = repetition (`"ab" * 2 = "abab"`, `'ab' * 2 = 'abab'`), the cue
     behavior superseding `strings.Repeat`/`bytes.Repeat`. A negative count is a type error
     (cue: `cannot convert negative number to uint64`); a zero count yields the empty value. -/
-def evalRepeat (text : String) (count : Int) (wrap : String -> Prim) : Value :=
+def evalRepeatString (text : String) (count : Int) : Value :=
   if count < 0 then .bottomWith [.negativeRepeatCount count]
-  else .prim (wrap (String.join (List.replicate count.toNat text)))
+  else .prim (.string (String.join (List.replicate count.toNat text)))
+
+/-- Byte-array analog of `evalRepeatString`: `'ab' * 2 = 'abab'` by array concatenation. -/
+def evalRepeatBytes (bytes : Array UInt8) (count : Int) : Value :=
+  if count < 0 then .bottomWith [.negativeRepeatCount count]
+  else .prim (.bytes (List.replicate count.toNat bytes.toList).flatten.toArray)
 
 def evalAdd (left right : Value) : Value :=
   match left, right with
@@ -132,10 +137,10 @@ def evalMul (left right : Value) : Value :=
   match left, right with
   | .prim (.int left), .prim (.int right) => .prim (.int (left * right))
   -- string/bytes `*` int = repetition (either operand order); cue supersedes strings/bytes.Repeat.
-  | .prim (.string text), .prim (.int count) => evalRepeat text count .string
-  | .prim (.int count), .prim (.string text) => evalRepeat text count .string
-  | .prim (.bytes text), .prim (.int count) => evalRepeat text count .bytes
-  | .prim (.int count), .prim (.bytes text) => evalRepeat text count .bytes
+  | .prim (.string text), .prim (.int count) => evalRepeatString text count
+  | .prim (.int count), .prim (.string text) => evalRepeatString text count
+  | .prim (.bytes text), .prim (.int count) => evalRepeatBytes text count
+  | .prim (.int count), .prim (.bytes text) => evalRepeatBytes text count
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomWith reasons, _ => .bottomWith reasons

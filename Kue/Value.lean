@@ -18,7 +18,7 @@ inductive Prim where
   | int (value : Int)
   | float (value : String)
   | string (value : String)
-  | bytes (value : String)
+  | bytes (value : Array UInt8)
 deriving Repr, BEq, DecidableEq
 
 namespace Prim
@@ -32,6 +32,11 @@ def kind : Prim -> Kind
   | .bytes _ => .bytes
 
 end Prim
+
+/-- The UTF-8 byte encoding of `text`, the carrier a `Prim.bytes` holds for plain
+    (escape-free) byte-literal content. The bridge from known text to the byte-array
+    carrier, used by byte-literal expected values and tests. -/
+def textBytes (text : String) : Array UInt8 := text.toUTF8.data
 
 inductive Mark where
   | regular

@@ -308,7 +308,7 @@ def yamlScalarPrim : Prim -> String
   | .int value => toString value
   | .float value => value
   | .string value => yamlScalarString value
-  | .bytes value => yamlScalarString (base64Encode value.toUTF8.toList)
+  | .bytes value => yamlScalarString (base64Encode value.toList)
 
 /-- A YAML key. A plain-safe key is bare; otherwise it follows the same quoting rule as
     a string value (e.g. `f`, `n`, `y`, `true`, numeric-looking, special chars). -/

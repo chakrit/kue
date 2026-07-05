@@ -51,7 +51,7 @@ def manifestPrimToJson : Prim -> String
   | .int value => toString value
   | .float value => value
   | .string value => jsonString value
-  | .bytes value => jsonString (base64Encode value.toUTF8.toList)
+  | .bytes value => jsonString (base64Encode value.toList)
 
 mutual
   /-- Compact JSON of a manifested value: object keys in source order (`cue`/Go preserve

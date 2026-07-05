@@ -49,13 +49,13 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd")), false⟩,
+                ⟨"bytes", .regular, .binary .add (.prim (.bytes (textBytes "ab"))) (.prim (.bytes (textBytes "cd"))), false⟩,
                 ⟨
                   "left",
                   .regular,
                   .binary .add
-                    (.binary .add (.prim (.bytes "a")) (.prim (.bytes "b")))
-                    (.prim (.bytes "c"))
+                    (.binary .add (.prim (.bytes (textBytes "a"))) (.prim (.bytes (textBytes "b"))))
+                    (.prim (.bytes (textBytes "c")))
                 , false⟩
               ] .regularOpen none []))
     },
@@ -67,11 +67,11 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"hexbytes", .regular, .prim (.bytes "AB"), false⟩,
-                ⟨"octbytes", .regular, .prim (.bytes "12"), false⟩,
-                ⟨"unibytes", .regular, .prim (.bytes "AB"), false⟩,
-                ⟨"plainbytes", .regular, .prim (.bytes "abc"), false⟩,
-                ⟨"mixed", .regular, .prim (.bytes "Az"), false⟩
+                ⟨"hexbytes", .regular, .prim (.bytes (textBytes "AB")), false⟩,
+                ⟨"octbytes", .regular, .prim (.bytes (textBytes "12")), false⟩,
+                ⟨"unibytes", .regular, .prim (.bytes (textBytes "AB")), false⟩,
+                ⟨"plainbytes", .regular, .prim (.bytes (textBytes "abc")), false⟩,
+                ⟨"mixed", .regular, .prim (.bytes (textBytes "Az")), false⟩
               ] .regularOpen none []))
     },
     {
@@ -422,7 +422,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "numeric/bytes_kind.expected",
-      content := formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc")))
+      content := formatField "x" (meet (.kind .bytes) (.prim (.bytes (textBytes "abc"))))
     },
     {
       fileName := "refs/builtin_reference_eval.expected",
@@ -2475,7 +2475,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (resolveAndEval
-            (mkStruct [⟨"x", .regular, .prim (.bytes "abc\ndef"), false⟩] .regularOpen none []))
+            (mkStruct [⟨"x", .regular, .prim (.bytes (textBytes "abc\ndef")), false⟩] .regularOpen none []))
     },
     {
       fileName := "structs/dynamic_field.expected",
@@ -3695,7 +3695,7 @@ def fixturePorts : List FixturePort :=
                 ⟨"pad0", .regular,
                   .builtinCall "base64.Encode" [.prim .null, .prim (.string "abc")], false⟩,
                 ⟨"overBytes", .regular,
-                  .builtinCall "base64.Encode" [.prim .null, .prim (.bytes "hello")], false⟩,
+                  .builtinCall "base64.Encode" [.prim .null, .prim (.bytes (textBytes "hello"))], false⟩,
                 ⟨"nonNull", .regular,
                   .builtinCall "base64.Encode" [.prim (.string "std"), .prim (.string "hello")], false⟩
               ] .regularOpen none []))

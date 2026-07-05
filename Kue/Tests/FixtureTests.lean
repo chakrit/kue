@@ -17,13 +17,13 @@ theorem fixture_bytes_additive_expressions :
     formatTopLevel
       (resolveAndEval
         (mkStruct [
-            ⟨"bytes", .regular, .binary .add (.prim (.bytes "ab")) (.prim (.bytes "cd")), false⟩,
+            ⟨"bytes", .regular, .binary .add (.prim (.bytes (textBytes "ab"))) (.prim (.bytes (textBytes "cd"))), false⟩,
             ⟨
               "left",
               .regular,
               .binary .add
-                (.binary .add (.prim (.bytes "a")) (.prim (.bytes "b")))
-                (.prim (.bytes "c"))
+                (.binary .add (.prim (.bytes (textBytes "a"))) (.prim (.bytes (textBytes "b"))))
+                (.prim (.bytes (textBytes "c")))
             , false⟩
           ] .regularOpen none []))
       = "bytes: 'abcd'\nleft: 'abc'" := by
@@ -721,7 +721,7 @@ theorem fixture_primitive_exclusion :
   native_decide
 
 theorem fixture_bytes_kind :
-    formatField "x" (meet (.kind .bytes) (.prim (.bytes "abc"))) = "x: 'abc'" := by
+    formatField "x" (meet (.kind .bytes) (.prim (.bytes (textBytes "abc")))) = "x: 'abc'" := by
   native_decide
 
 theorem fixture_float_kind :

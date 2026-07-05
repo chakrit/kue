@@ -169,44 +169,51 @@ def readOctalRest (d0 : Nat) : List Char -> Option (Nat × List Char)
       | _, _ => none
   | _ => none
 
+/-- The UTF-8 bytes of a single character, for a plain (unescaped) byte-literal char or an
+    unrecognized escape kept literally. -/
+def charBytes (c : Char) : List UInt8 := (String.singleton c).toUTF8.toList
+
+/-- The UTF-8 bytes of a Unicode codepoint (`\uNNNN`/`\UNNNNNNNN`), which encode to one or
+    more bytes. Distinct from `\xNN`/`\NNN`, which name a single raw byte directly. -/
+def codepointBytes (n : Nat) : List UInt8 := charBytes (Char.ofNat n)
+
 /-- Decode one byte-literal escape body (the chars AFTER the `\`), returning the decoded
-    character(s) and the remainder, or `none` if the escape is unrecognized/malformed (the
+    raw bytes and the remainder, or `none` if the escape is unrecognized/malformed (the
     caller then keeps the escaped char literally, matching CUE's lenient string escapes for
     the simple cases). CUE byte literals additionally support `\xNN` (hex byte), `\NNN`
     (octal byte), `\uNNNN`/`\UNNNNNNNN` (unicode → UTF-8), and `\a\b\f\v` alongside the
-    shared `\n\r\t\\\'\"`. A decoded value < 0x80 UTF-8-encodes to the single intended
-    byte; a `\xNN`/`\NNN` with NN ≥ 0x80 is a raw byte the String-backed bytes value cannot
-    hold exactly (it becomes that codepoint's two-byte UTF-8 form) — a known limitation
-    tracked for a byte-array representation. `\(` is deliberately unhandled here: byte-
-    context interpolation is not yet implemented, so it falls through to a literal `(`. -/
-def decodeByteEscape : List Char -> Option (List Char × List Char)
+    shared `\n\r\t\\\'\"`. A `\xNN`/`\NNN` names ONE raw byte — including NN ≥ 0x80, held
+    exactly by the `Array UInt8` carrier; `\uNNNN`/`\UNNNNNNNN` names a codepoint and
+    UTF-8-encodes to its byte sequence. `\(` is deliberately unhandled here: byte-context
+    interpolation is not yet implemented, so it falls through to a literal `(`. -/
+def decodeByteEscape : List Char -> Option (List UInt8 × List Char)
   | 'x' :: rest =>
       match readHexDigits 2 0 rest with
-      | some (value, rest) => some ([Char.ofNat value], rest)
+      | some (value, rest) => some ([UInt8.ofNat value], rest)
       | none => none
   | 'u' :: rest =>
       match readHexDigits 4 0 rest with
-      | some (value, rest) => some ([Char.ofNat value], rest)
+      | some (value, rest) => some (codepointBytes value, rest)
       | none => none
   | 'U' :: rest =>
       match readHexDigits 8 0 rest with
-      | some (value, rest) => some ([Char.ofNat value], rest)
+      | some (value, rest) => some (codepointBytes value, rest)
       | none => none
-  | 'a' :: rest => some ([Char.ofNat 0x07], rest)
-  | 'b' :: rest => some ([Char.ofNat 0x08], rest)
-  | 'f' :: rest => some ([Char.ofNat 0x0c], rest)
-  | 'v' :: rest => some ([Char.ofNat 0x0b], rest)
-  | 'n' :: rest => some (['\n'], rest)
-  | 'r' :: rest => some (['\r'], rest)
-  | 't' :: rest => some (['\t'], rest)
-  | '\\' :: rest => some (['\\'], rest)
-  | '\'' :: rest => some (['\''], rest)
-  | '"' :: rest => some (['"'], rest)
+  | 'a' :: rest => some ([0x07], rest)
+  | 'b' :: rest => some ([0x08], rest)
+  | 'f' :: rest => some ([0x0c], rest)
+  | 'v' :: rest => some ([0x0b], rest)
+  | 'n' :: rest => some ([0x0a], rest)
+  | 'r' :: rest => some ([0x0d], rest)
+  | 't' :: rest => some ([0x09], rest)
+  | '\\' :: rest => some ([0x5c], rest)
+  | '\'' :: rest => some ([0x27], rest)
+  | '"' :: rest => some ([0x22], rest)
   | c :: rest =>
       match octDigitVal? c with
       | some d0 =>
           match readOctalRest d0 rest with
-          | some (value, rest) => some ([Char.ofNat value], rest)
+          | some (value, rest) => some ([UInt8.ofNat value], rest)
           | none => none
       | none => none
   | [] => none
@@ -231,19 +238,19 @@ def parseQuotedString : List Char -> ParseResult String
     `\uNNNN`, `\UNNNNNNNN`, `\a\b\f\n\r\t\v\\\'\"`). Unrecognized escapes keep the escaped
     char literally (drops the `\`), matching the lenient string path; `\(` is thus left as a
     literal `(` since byte-context interpolation is not yet implemented. -/
-partial def parseQuotedByteBody : List Char -> List Char -> ParseResult String
+partial def parseQuotedByteBody : List Char -> List UInt8 -> ParseResult (Array UInt8)
   | [], _ => parseError [] "unterminated byte literal"
-  | '\'' :: rest, acc => parseOk (String.ofList acc.reverse) rest
+  | '\'' :: rest, acc => parseOk acc.reverse.toArray rest
   | '\\' :: rest, acc =>
       match decodeByteEscape rest with
       | some (decoded, rest) => parseQuotedByteBody rest (decoded.reverse ++ acc)
       | none =>
           match rest with
-          | escaped :: rest => parseQuotedByteBody rest (escaped :: acc)
+          | escaped :: rest => parseQuotedByteBody rest ((charBytes escaped).reverse ++ acc)
           | [] => parseError [] "unterminated byte escape"
-  | value :: rest, acc => parseQuotedByteBody rest (value :: acc)
+  | value :: rest, acc => parseQuotedByteBody rest ((charBytes value).reverse ++ acc)
 
-def parseQuotedBytes : List Char -> ParseResult String
+def parseQuotedBytes : List Char -> ParseResult (Array UInt8)
   | '\'' :: rest => parseQuotedByteBody rest []
   | chars => parseError chars "expected byte literal"
 
@@ -1431,13 +1438,58 @@ mutual
   partial def parseMultilineString (chars : List Char) : ParseResult Value :=
     parseMultilineOpen '"' chars
 
+  /-- Parse the content of a multiline byte literal (`'''…'''`) after the opening line's
+      newline. Mirrors `parseMultilineBody`'s indentation-stripping and closing-line
+      handling, but accumulates RAW bytes and decodes byte escapes (`\xNN`/`\NNN`/`\uNNNN`)
+      via `decodeByteEscape` — so a high byte survives as one octet — rather than routing
+      through the string escape lexer. Interpolation is rejected (byte-context interpolation
+      is unimplemented). `strip` is the closing line's indentation, dropped from every line. -/
+  partial def parseMultilineByteBody
+      (strip : List Char) (atLineStart : Bool)
+      (chars : List Char) (acc : List UInt8) : ParseResult (Array UInt8) :=
+    if atLineStart then
+      match dropPrefix? strip chars with
+      | some afterStrip =>
+          match multilineDelimiter? '\'' afterStrip with
+          | some rest =>
+              -- Drop the newline separating the last content line from the closing line.
+              let trimmed := match acc with
+                | byte :: rest => if byte == 0x0a then rest else byte :: rest
+                | acc => acc
+              parseOk trimmed.reverse.toArray rest
+          | none => parseMultilineByteBody strip false afterStrip acc
+      | none =>
+          match chars with
+          | '\n' :: rest => parseMultilineByteBody strip true rest (0x0a :: acc)
+          | [] => parseError [] "unterminated multiline literal"
+          | _ => parseError chars "invalid whitespace in multiline literal"
+    else
+      match chars with
+      | [] => parseError [] "unterminated multiline literal"
+      | '\n' :: rest => parseMultilineByteBody strip true rest (0x0a :: acc)
+      | '\\' :: '(' :: _ =>
+          parseError chars "interpolation in multiline bytes is not supported yet"
+      | '\\' :: rest =>
+          match decodeByteEscape rest with
+          | some (decoded, rest) => parseMultilineByteBody strip false rest (decoded.reverse ++ acc)
+          | none =>
+              match rest with
+              | escaped :: rest =>
+                  parseMultilineByteBody strip false rest ((charBytes escaped).reverse ++ acc)
+              | [] => parseError [] "unterminated byte escape"
+      | value :: rest => parseMultilineByteBody strip false rest ((charBytes value).reverse ++ acc)
+
   partial def parseMultilineBytes (chars : List Char) : ParseResult Value :=
-    match parseMultilineOpen '\'' chars with
-    | .error error => .error error
-    | .ok (value, rest) =>
-        match value with
-        | .prim (.string text) => parseOk (.prim (.bytes text)) rest
-        | _ => parseError chars "interpolation in multiline bytes is not supported yet"
+    match multilineStripPrefix? '\'' chars with
+    | none => parseError chars "unterminated multiline literal"
+    | some strip =>
+        let afterWs := (splitLeadingHorizontalWhitespace chars).snd
+        match afterWs with
+        | '\n' :: rest =>
+            match parseMultilineByteBody strip true rest [] with
+            | .error error => .error error
+            | .ok (bytes, rest) => parseOk (.prim (.bytes bytes)) rest
+        | _ => parseError chars "expected newline after multiline quote"
 
   partial def parseIdentifierValue (chars : List Char) : ParseResult Value :=
     match parseIdentifier chars with

@@ -956,7 +956,7 @@ theorem base64_encode_multibyte_over_utf8 :
   native_decide
 
 theorem base64_encode_over_bytes_value :
-    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.bytes "hello")]
+    (evalBuiltinCall "base64.Encode" [.prim .null, .prim (.bytes (textBytes "hello"))]
       == .prim (.string "aGVsbG8=")) = true := by
   native_decide
 
