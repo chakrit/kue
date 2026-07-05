@@ -148,6 +148,41 @@ example :
 -- `depsfoo` is NOT the deps field (token boundary).
 example : (exciseTopLevelDeps "module: \"m@v0\"\ndepsfoo: 1\n").2 = false := by native_decide
 
+-- Regression (audit d6dac7c..): the scanner is COMMENT-aware. A `//` line comment INSIDE the deps
+-- block carrying an unbalanced `}` must not truncate the block early (it did before, splicing the
+-- deps remnants into the file as top-level content — a silent corruption).
+example :
+    (exciseTopLevelDeps
+        "module: \"m@v0\"\ndeps: {\n\t// nested } brace\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\nsource: {\n\tkind: \"self\"\n}\n")
+      = ("module: \"m@v0\"\nsource: {\n\tkind: \"self\"\n}\n", true) := by native_decide
+
+-- A `/* */` block comment INSIDE deps, with braces AND an unterminated-looking quote, is inert.
+example :
+    (exciseTopLevelDeps
+        "module: \"m@v0\"\ndeps: {\n\t/* }{ \"x */\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\nx: 1\n").1
+      = "module: \"m@v0\"\nx: 1\n" := by native_decide
+
+-- A lone `\"` inside a line comment must NOT flip string state (it would swallow the real close).
+example :
+    (exciseTopLevelDeps
+        "deps: {\n\t// a \" quote\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\ny: 2\n").1
+      = "y: 2\n" := by native_decide
+
+-- A top-level comment carrying an unbalanced `{` must not raise brace depth (which would hide the
+-- following top-level deps field from detection).
+example :
+    (exciseTopLevelDeps
+        "// opening { comment\nmodule: \"m@v0\"\ndeps: {\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\n")
+      = ("// opening { comment\nmodule: \"m@v0\"\n", true) := by native_decide
+
+-- End-to-end: a comment inside the deps block no longer corrupts the emitted module.cue.
+example :
+    (applyModGet
+        "module: \"m@v0\"\ndeps: {\n\t// keep me sane }\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\n"
+        (dep "b.example/b" "v1.0.0")).toOption
+      = some ("module: \"m@v0\"\ndeps: {\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n"
+          ++ "\t\"b.example/b@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\n") := by native_decide
+
 -- ## parseVerSpec: constraint classification
 
 example : parseVerSpec "latest" = some .latest := by native_decide

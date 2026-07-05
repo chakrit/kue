@@ -452,6 +452,28 @@ rejection argument: `kue-performance.md` + implementation-log.
   catch-all and remain so; `closure` stays pass-through — it owns its `capturedEnv`, not the
   enclosing `scopes`; `embeddedList`/`embeddedScalar` are eval-only, never present at the two
   pre-eval call sites). No latent bug surfaced. cert-manager canary EMPTY; `check.sh` green.
+- **UNUSED-IMPORT-BINDNAME (MEDIUM — latent false-positive; filed by the `0427bf1..HEAD` Phase A
+  audit) — OPEN.** `Parse.importLocalBindName` (the parse-time unused-import check's bind-name
+  oracle) resolves `alias > packageName-qualifier > lastPathElement`, DROPPING the `declaredName`
+  arm that `Module.importBindName` has. For a bare (non-aliased, non-qualified) NON-builtin PACKAGE
+  import whose imported package declares a name ≠ the path's last element, and which the body
+  references BY that declared name, the parse-time check compares the body's used-head (the declared
+  name) against `lastPathElement` — a mismatch — and FALSELY flags the used import
+  `imported and not used`, bottoming the file. Reachable: package files flow through
+  `parseSourceFile` → `resolveImports` (`Module.parseAndBindFiles:712`), so the false bottom fires
+  BEFORE `collectBindings` learns the real `declaredName`. LATENT: no current fixture imports a
+  package whose name diverges from its dir (all stdlib have name==tail; the CUE convention is
+  name==dir), so all gates stay green. Root cause is a LAYERING one — the true bind name of a
+  package import is only known after the package loads, which the parser cannot do. Proper fix:
+  enforce unused-import at the layer that knows the bind name — keep the parse-time check for
+  imports whose bind name is parse-CERTAIN (builtin: name always==tail; or alias/qualifier present)
+  and DEFER the bare-non-builtin case to `collectBindings`/`bindImports` where `declaredName` is in
+  hand. NOTE: the collector-level `collectReferencedHeads` WALK is itself false-positive-safe —
+  exhaustively enumerated over all parse-time `Value` constructors (no catch-all), every `[]` arm
+  carries no `Value` operand (`boundConstraint` holds a `DecimalValue`, not a `Value`), so no used
+  reference form is missed; the gap is purely the bind-name oracle, not the reference walk.
+  Repro when picked up: a multi-file `wild/` (or module) fixture — pkg dir `x/foo/` whose files say
+  `package bar`, imported `"…/x/foo"` and used as `bar.Field`; expect NON-bottom (cross-check `cue`).
 
 ### COMPREHENSION/EMBEDDING/PATTERN CONFORMANCE PROBE (2026-07-04) — area clean, one parser gap seeded
 
@@ -643,6 +665,49 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   that pinned the old leniency (`parse_import_clause_is_ignored`) retargeted to the enforced
   bottom. Tests in `ImportEnforcementTests.lean` (16 new theorems). Both halves of cue's import
   contract (declared ⇔ used) now hold.
+
+### 2026-07-05 two-phase audit findings (batch `d6dac7c..HEAD`: `mod get` leg2 + unused-import)
+
+A4 (audit-the-last-audit): the 2026-07-05 Phase-B filings reconcile clean — AUD-B2/B3/B4 all landed
+(DONE, unchanged); **AUD-B5 re-verified STILL OPEN + correctly scoped** — `buildDiskGraphAux`
+(`Module.lean:385`) and `fetchGraphAux` (`ModCmd.lean:91`) are byte-for-byte the two BFS builders
+AUD-B5 describes; leg2 added no third graph walk (`mod get` uses tags/list, not a graph), so the
+LOW/deferred verdict stands. Not closable, not newly urgent.
+
+**Phase A — one REAL bug fixed inline, one MEDIUM latent false-positive filed:**
+
+- **MODGET-COMMENT-EXCISION (correctness — silent module.cue corruption). ✅ FIXED (this audit).**
+  Adversarial probe of `exciseTopLevelDeps`/`dropBalanced` (`ModCmd.lean`) found the textual deps
+  splicer was NOT comment-aware: a `//` or `/* */` comment carrying an unbalanced `}` (or a lone
+  `"`) INSIDE the deps block made `dropBalanced` mis-close early, splicing the deps-block remnants
+  back into module.cue as top-level content — `applyModGet` then emitted a corrupt file (no error,
+  `found=true`). A top-level comment with an unbalanced `{` raised brace depth and hid the following
+  deps field (errored on a valid file). FIX: replaced the `(inString, escaped)` bool pair in both
+  scanners with a `Lex` sum type (`normal | str escaped | line | block`) — illegal-states
+  (escaped-while-not-in-string) now unrepresentable — and taught both to skip `//`/`/* */` (braces
+  and quotes inside a comment are inert; comments are copied verbatim by the excision). Six
+  `native_decide` regressions added to `ModCmdTests` (line-comment `}` in deps, block-comment `}{"`
+  in deps, lone `"` in a line comment, top-level `{` comment, end-to-end `applyModGet` no-corrupt).
+  All previously-adversarial shapes now correct; build + `check.sh` green.
+- **UNUSED-IMPORT-BINDNAME (MEDIUM — latent false-positive). FILED** (ranked backlog, above). The
+  `collectReferencedHeads` WALK is false-positive-SAFE (exhaustive, no catch-all, `[]` arms carry no
+  `Value`); the gap is `importLocalBindName` dropping the `declaredName` arm, which over-reports a
+  used bare non-builtin package import whose declared name ≠ path tail as unused. Latent (no fixture
+  hits it); proper fix relayers the check to where the bind name is known. Full diagnosis in backlog.
+
+Emitter (`parseDeps`/`renderDepsBlock`) canonical form re-checked against the committed
+byte-identical-to-`cue`-v0.16.1 fixtures (tab indent, `{v: "…"}` shape, ascending key sort) — SOUND;
+not re-run against the live registry (offline gate). Guards: `collectReferencedHeads` fully
+enumerated (no `Value` catch-all); `hasTopLevelField`'s `_` is a Bool probe (allowed); totality
+holds (all new scanners fuel-bounded, no `partial def`); `check-comments` green.
+
+**Phase B — placement CLEAN, no refactor warranted.** `mod get` machinery is coherently homed in
+`ModCmd` (sibling to `mod tidy`); `Oci.tagsListUrl` sits with `manifestUrl` in the OCI URL family;
+`collectReferencedHeads`/`unusedImports` sit in `Parse` immediately after the mirror
+`applyBuiltinAliases`/`importedBuiltinPackages` import machinery. `parseDeps` is the single deps
+reader, shared by tidy (`depsFromEntries`) and get (`applyModGet`) — no new duplication. The only
+open architecture item is the pre-existing AUD-B5 (re-affirmed above). No dead code; graph stays
+acyclic/layered. No inline Phase-B change.
 
 ### 2026-07-04 Phase A audit findings (batch `dfdd1ab..HEAD`: list-slice / interp-typing / byte-escapes)
 

@@ -18469,3 +18469,60 @@ paragraph annotated with a landed-retraction pointer; `cue-spec-gaps.md` UNUSED-
 
 `./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical; shellcheck
 PASS). Committed on `main`, explicit pathspec, NOT pushed.
+
+## 2026-07-05 — Two-phase audit (`d6dac7c..HEAD`: `mod get` leg2 + unused-import)
+
+Sequential Phase A → Phase B over the two correctness-sensitive slices since `d6dac7c` (`b7fdebe`
+mod-get deps-block emitter/excision + tags-list; `0427bf1` unused-import enforcement). Per
+slice-loop.md (no `/ace-audit`).
+
+Phase A — adversarial focus on the two highest-risk points the audit brief named.
+
+MODGET-COMMENT-EXCISION (REAL bug, FIXED). Stress-tested `exciseTopLevelDeps`/`dropBalanced`
+(`Kue/ModCmd.lean`) against the brief's shapes (nested/string braces — already covered; comments
+with braces; deps-last-no-newline; `depsFoo`; CRLF). Two shapes broke it, both because the scanners
+tracked only `(inString, escaped)` and were BLIND to CUE comments (`//`, `/* */`): (1) a comment
+carrying an unbalanced `}` INSIDE the deps block made `dropBalanced` mis-close at the comment's `}`,
+so the excision spliced the deps-block remnants back into module.cue as top-level content and
+`applyModGet` emitted a CORRUPT file silently (`found=true`, no error) — confirmed end-to-end via a
+scratch `#eval`; (2) a lone `"` in a line comment flipped string state; (3) a top-level comment with
+an unbalanced `{` raised brace depth and hid the following top-level deps field (errored on a valid
+file). FIX: replaced the two-bool state in both `dropBalanced` and `exciseAux` with a `Lex` sum type
+(`normal | str (escaped) | line | block`) — the nonsense `escaped ∧ ¬inString` is now
+type-unrepresentable — and taught both scanners to enter/leave `//` and `/* */`; inside a comment,
+braces and quotes are inert and (for `exciseAux`) copied verbatim. `afterDepsField`/`exciseTopLevelDeps`
+updated to the new signature. Six `native_decide` regressions added to `Kue/Tests/ModCmdTests.lean`
+(line-comment `}` in deps → clean removal; block-comment `}{"` in deps inert; lone `"` in line
+comment; top-level `{`-comment no longer hides deps; end-to-end `applyModGet` no-corrupt). All
+adversarial shapes re-probed correct post-fix. Deps-last-no-newline and CRLF were already correct
+(trailing-ws trim absorbs the CRLF remnant).
+
+UNUSED-IMPORT-BINDNAME (MEDIUM latent false-positive, FILED — plan.md ranked backlog). Verified the
+false-positive-safety claim by enumerating reference forms: the `collectReferencedHeads` WALK is
+SAFE — exhaustively enumerated over every parse-time `Value` constructor with NO catch-all, and each
+`[]` arm carries no `Value` operand (`boundConstraint` holds a `DecimalValue`; `refId`/`thisStruct`
+are post-canonicalization/runtime-only), so no used reference form (nested struct, interpolation
+hole, comprehension body, definition, alias, const-form — all with passing tests) is missed. The gap
+is elsewhere: `importLocalBindName` drops the `declaredName` arm `Module.importBindName` has, so a
+bare non-builtin PACKAGE import whose package name ≠ path tail, referenced by that name, is falsely
+flagged `imported and not used` — reachable because package files run through `parseSourceFile` →
+`resolveImports` before `collectBindings` learns the declared name. Latent (no fixture imports a
+divergently-named package; CUE convention is name==dir), so gates stay green. Root cause is layering;
+proper fix defers the bare-non-builtin case to the binding layer. Filed with repro recipe, not fixed
+inline (a semantic + relayer decision, not a low-risk audit fix).
+
+Emitter re-check: `renderDepsBlock`/`parseDeps` canonical form (tab indent, `{v:"…"}`, ascending key
+sort) matches the committed byte-identical-to-`cue`-v0.16.1 fixtures; not re-run live (offline gate).
+
+Phase B — placement/layering CLEAN, no refactor warranted. `mod get` (emitter, excision, tags-list)
+is coherently homed in `ModCmd` as a `mod tidy` sibling; `Oci.tagsListUrl` sits with `manifestUrl`
+in the OCI URL family; `collectReferencedHeads`/`unusedImports` sit in `Parse` beside the mirror
+`applyBuiltinAliases`/`importedBuiltinPackages`. `parseDeps` is the sole deps reader (shared by
+tidy's `depsFromEntries` and get's `applyModGet`) — no new duplication. AUD-B5 (two BFS graph
+builders DRY) re-verified STILL OPEN + correctly scoped: `buildDiskGraphAux` (`Module.lean:385`) and
+`fetchGraphAux` (`ModCmd.lean:91`) are unchanged and remain the two the finding names (leg2 added no
+third graph walk); LOW/deferred stands, not closable. No dead code; graph acyclic/layered. No inline
+Phase-B change.
+
+`./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical; shellcheck
+PASS). Committed on `main`, explicit pathspec, NOT pushed.

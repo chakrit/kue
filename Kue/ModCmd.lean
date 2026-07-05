@@ -241,29 +241,47 @@ def startsDepsField (chars : List Char) : Bool :=
         | _ => false
   | _ => false
 
+/-- Lexer state for the module.cue textual scanners: normal code, inside a `"…"` string (tracking
+    whether the last char was the escape `\`), or inside a `//` line / `/* */` block comment. A sum
+    type so the nonsense combination (escaped while not in a string) is unrepresentable, and so
+    braces/quotes inside a string OR a comment are inert to the brace scanner. -/
+inductive Lex where
+  | normal
+  | str (escaped : Bool)
+  | line
+  | block
+
 /-- Drop a balanced `{ … }` starting AT the `{`; return the remainder AFTER the matching `}`.
-    String-aware (`"…"` with `\` escapes) and brace-nested. Fuel-bounded; exhaustion returns `[]`. -/
-def dropBalanced : Nat → Nat → Bool → Bool → List Char → List Char
-  | 0, _, _, _, rest => rest
-  | _, _, _, _, [] => []
-  | fuel + 1, depth, inString, escaped, c :: rest =>
-      if inString then
-        if escaped then dropBalanced fuel depth true false rest
-        else if c == '\\' then dropBalanced fuel depth true true rest
-        else if c == '"' then dropBalanced fuel depth false false rest
-        else dropBalanced fuel depth true false rest
-      else
-        match c with
-        | '"' => dropBalanced fuel depth true false rest
-        | '{' => dropBalanced fuel (depth + 1) false false rest
-        | '}' => if depth ≤ 1 then rest else dropBalanced fuel (depth - 1) false false rest
-        | _ => dropBalanced fuel depth false false rest
+    String- and comment-aware (`"…"` with `\` escapes, `//` and `/* */`; braces/quotes inside a
+    string or comment are inert) and brace-nested. Fuel-bounded; exhaustion returns `[]`. -/
+def dropBalanced : Nat → Nat → Lex → List Char → List Char
+  | 0, _, _, rest => rest
+  | _, _, _, [] => []
+  | fuel + 1, depth, .str escaped, c :: rest =>
+      if escaped then dropBalanced fuel depth (.str false) rest
+      else if c == '\\' then dropBalanced fuel depth (.str true) rest
+      else if c == '"' then dropBalanced fuel depth .normal rest
+      else dropBalanced fuel depth (.str false) rest
+  | fuel + 1, depth, .line, c :: rest =>
+      dropBalanced fuel depth (if c == '\n' then .normal else .line) rest
+  | fuel + 1, depth, .block, c :: rest =>
+      match c, rest with
+      | '*', '/' :: r2 => dropBalanced fuel depth .normal r2
+      | _, _ => dropBalanced fuel depth .block rest
+  | fuel + 1, depth, .normal, c :: rest =>
+      match c, rest with
+      | '/', '/' :: r2 => dropBalanced fuel depth .line r2
+      | '/', '*' :: r2 => dropBalanced fuel depth .block r2
+      | '"', _ => dropBalanced fuel depth (.str false) rest
+      | '{', _ => dropBalanced fuel (depth + 1) .normal rest
+      | '}', _ => if depth ≤ 1 then rest else dropBalanced fuel (depth - 1) .normal rest
+      | _, _ => dropBalanced fuel depth .normal rest
 
 /-- Given `chars` at the start of a top-level `deps` field, return the remainder AFTER the whole
     `deps: { … }` block and one trailing newline. -/
 def afterDepsField (chars : List Char) : List Char :=
   let atBrace := dropWs (dropColon (dropWs (dropName chars)))
-  dropNewline (dropBalanced (chars.length + 1) 0 false false atBrace)
+  dropNewline (dropBalanced (chars.length + 1) 0 .normal atBrace)
 where
   dropColon : List Char → List Char
     | ':' :: r => r
@@ -272,35 +290,45 @@ where
     | '\n' :: r => r
     | r => r
 
-/-- The excision fold: walk `chars`, copying to `acc`, tracking brace depth + string state, and
-    when a top-level (`depth == 0`, line-start) `deps` field starts, skip its whole block. Returns
-    the source with any top-level `deps` block removed, and whether one was found. Fuel-bounded. -/
-def exciseAux : Nat → Nat → Bool → Bool → Bool → List Char → List Char → Bool → (List Char × Bool)
-  | 0, _, _, _, _, rest, acc, found => (acc.reverse ++ rest, found)
-  | _, _, _, _, _, [], acc, found => (acc.reverse, found)
-  | fuel + 1, depth, inString, escaped, atLineStart, c :: rest, acc, found =>
-      if inString then
-        if escaped then exciseAux fuel depth true false false rest (c :: acc) found
-        else if c == '\\' then exciseAux fuel depth true true false rest (c :: acc) found
-        else if c == '"' then exciseAux fuel depth false false false rest (c :: acc) found
-        else exciseAux fuel depth true false false rest (c :: acc) found
-      else if depth == 0 && atLineStart && startsDepsField (c :: rest) then
-        exciseAux fuel 0 false false true (afterDepsField (c :: rest)) acc true
+/-- The excision fold: walk `chars`, copying to `acc`, tracking brace depth + lexer state, and when
+    a top-level (`depth == 0`, line-start) `deps` field starts, skip its whole block. Comments are
+    copied verbatim but their braces/quotes are inert (so a `}` in a comment cannot mis-close the
+    deps block or a top-level brace). Returns the source with any top-level `deps` block removed,
+    and whether one was found. Fuel-bounded. -/
+def exciseAux : Nat → Nat → Lex → Bool → List Char → List Char → Bool → (List Char × Bool)
+  | 0, _, _, _, rest, acc, found => (acc.reverse ++ rest, found)
+  | _, _, _, _, [], acc, found => (acc.reverse, found)
+  | fuel + 1, depth, .str escaped, _, c :: rest, acc, found =>
+      if escaped then exciseAux fuel depth (.str false) false rest (c :: acc) found
+      else if c == '\\' then exciseAux fuel depth (.str true) false rest (c :: acc) found
+      else if c == '"' then exciseAux fuel depth .normal false rest (c :: acc) found
+      else exciseAux fuel depth (.str false) false rest (c :: acc) found
+  | fuel + 1, depth, .line, _, c :: rest, acc, found =>
+      exciseAux fuel depth (if c == '\n' then .normal else .line) (c == '\n') rest (c :: acc) found
+  | fuel + 1, depth, .block, _, c :: rest, acc, found =>
+      match c, rest with
+      | '*', '/' :: r2 => exciseAux fuel depth .normal false r2 ('/' :: '*' :: acc) found
+      | _, _ => exciseAux fuel depth .block false rest (c :: acc) found
+  | fuel + 1, depth, .normal, atLineStart, c :: rest, acc, found =>
+      if depth == 0 && atLineStart && startsDepsField (c :: rest) then
+        exciseAux fuel 0 .normal true (afterDepsField (c :: rest)) acc true
       else
-        match c with
-        | '"' => exciseAux fuel depth true false false rest (c :: acc) found
-        | '{' => exciseAux fuel (depth + 1) false false false rest (c :: acc) found
-        | '}' => exciseAux fuel (depth - 1) false false false rest (c :: acc) found
-        | '\n' => exciseAux fuel depth false false true rest (c :: acc) found
-        | ' ' => exciseAux fuel depth false false atLineStart rest (c :: acc) found
-        | '\t' => exciseAux fuel depth false false atLineStart rest (c :: acc) found
-        | _ => exciseAux fuel depth false false false rest (c :: acc) found
+        match c, rest with
+        | '/', '/' :: r2 => exciseAux fuel depth .line false r2 ('/' :: '/' :: acc) found
+        | '/', '*' :: r2 => exciseAux fuel depth .block false r2 ('*' :: '/' :: acc) found
+        | '"', _ => exciseAux fuel depth (.str false) false rest (c :: acc) found
+        | '{', _ => exciseAux fuel (depth + 1) .normal false rest (c :: acc) found
+        | '}', _ => exciseAux fuel (depth - 1) .normal false rest (c :: acc) found
+        | '\n', _ => exciseAux fuel depth .normal true rest (c :: acc) found
+        | ' ', _ => exciseAux fuel depth .normal atLineStart rest (c :: acc) found
+        | '\t', _ => exciseAux fuel depth .normal atLineStart rest (c :: acc) found
+        | _, _ => exciseAux fuel depth .normal false rest (c :: acc) found
 
-/-- Remove the top-level `deps: { … }` field from module.cue `source`, string/brace-aware.
+/-- Remove the top-level `deps: { … }` field from module.cue `source`, string/comment/brace-aware.
     Returns `(source-without-deps, wasFound)`. -/
 def exciseTopLevelDeps (source : String) : String × Bool :=
   let cs := source.toList
-  let (kept, found) := exciseAux (cs.length + 1) 0 false false true cs [] false
+  let (kept, found) := exciseAux (cs.length + 1) 0 .normal true cs [] false
   (String.ofList kept, found)
 
 /-- Drop trailing whitespace (spaces, tabs, newlines) from `s` — so the rendered deps block joins
