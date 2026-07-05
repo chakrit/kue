@@ -2,6 +2,7 @@ import Kue.Parse
 import Kue.Runtime
 import Kue.Registry
 import Kue.Semver
+import Kue.Mvs
 import Kue.OciFetch
 import Kue.Zip
 import Kue.Sha256
@@ -254,11 +255,25 @@ partial def findModuleRoot (start : System.FilePath) : IO (Option System.FilePat
 /-- A module's identity for resolution: its on-disk root, declared module path, and the
     dependency table read from its `cue.mod/module.cue`. Cross-module resolution hops from
     one context to the target module's own context, so its transitive in-module and
-    cross-module imports resolve against the right root and deps. -/
+    cross-module imports resolve against the right root and deps.
+
+    `selected` is the MVS build-list version override (bare module path → selected version),
+    computed once at load entry over the whole requirement graph and threaded UNCHANGED through
+    every cross-module hop. When it pins a version for a path, that version governs the import's
+    resolution instead of the intermediate module's own per-hop `deps` pin — so a diamond
+    resolves to the max-of-mins version everywhere (B3d-6b-leg4), matching cue's MVS. Empty ⇒
+    pure per-hop resolution (the fallback when the graph is not buildable off disk); a
+    single-version graph selects each path's only version, so the override is then a no-op. -/
 structure ModuleContext where
   root : System.FilePath
   modPath : String
   deps : List Dep
+  selected : List (String × String) := []
+
+/-- The MVS-selected version for `modPath`, if the build list pins one (`ctx.selected`); else
+    `none`, leaving the per-hop `deps` version to stand. -/
+def selectedVersion (selected : List (String × String)) (modPath : String) : Option String :=
+  (selected.find? (fun s => s.fst == modPath)).map (·.snd)
 
 /-- Read and parse `cue.mod/module.cue`, returning the `module:` path and the dependency
     table. The file is CUE, so reuse the parser and read the fields off the top-level
@@ -345,6 +360,79 @@ def listPackageFiles (dir : System.FilePath) : IO (List System.FilePath) := do
     root) — the same segment-join as `joinModulePath`, named for the subpath use. -/
 def subpathDir (root : System.FilePath) (subpath : String) : System.FilePath :=
   joinModulePath root subpath
+
+/-! ## Disk-first requirement graph + MVS selection (B3d-6b-leg4)
+
+    Build the MVS requirement graph off DISK (no registry egress), run the checked solver, and
+    turn its build list into a per-path version override the loader threads through
+    `ModuleContext.selected`. This is the disk-side twin of `ModCmd.fetchGraph` (which BUILDS the
+    same graph shape from registry GETs for `mod tidy`): the algorithms match but the inputs
+    differ — this walk locates each node ON DISK via `locateModuleDir` (root-threaded per hop, so
+    a vendored transitive dep resolves against its own root) and carries no `h1:` digest (only
+    `cue.sum` writes need one). The parallel is not factored because the root-threading and the
+    absent digest make a shared skeleton more obscure than two focused walks. -/
+
+/-- A generous total-step bound for the disk requirement-graph walk; only a pathological or
+    cyclic graph trips it (the visited set already terminates real cycles). -/
+def diskGraphFuel : Nat := 100000
+
+/-- Fuel-bounded, visited-guarded BFS building the MVS requirement graph off disk. Each worklist
+    item pairs a `Dep` with the root of the module that REQUIRES it (its importer), so the node is
+    located exactly as the loader would locate it (vendored-under-importer first, then the global
+    cache). A node absent from disk is a typed error — the caller treats that as "graph not
+    buildable" and falls back to per-hop resolution, so a declared-but-unvendored dep never turns
+    a currently-resolving load into a hard failure. Structural on `fuel` ⇒ total, no `partial`. -/
+def buildDiskGraphAux :
+    Nat → List (System.FilePath × Dep) → List Registry.ModuleVersion →
+    Mvs.RequirementGraph → IO (Except String Mvs.RequirementGraph)
+  | 0, _, _, _ => pure (.error "disk requirement-graph walk exceeded fuel (graph too large or cyclic)")
+  | _, [], _, acc => pure (.ok acc)
+  | fuel + 1, (importerRoot, dep) :: rest, visited, acc =>
+    let node : Registry.ModuleVersion := ⟨dep.modPath, dep.version⟩
+    if visited.contains node then
+      buildDiskGraphAux fuel rest visited acc
+    else do
+      match ← locateModuleDir importerRoot dep with
+      | none => pure (.error s!"module {dep.modPath}@{dep.version} not found on disk")
+      | some moduleRoot =>
+          match ← readModuleInfo moduleRoot with
+          | .error e => pure (.error e)
+          | .ok (_, deps) =>
+              let children := deps.map (fun d => (moduleRoot, d))
+              let edge := (node, deps.map (fun d => (⟨d.modPath, d.version⟩ : Registry.ModuleVersion)))
+              buildDiskGraphAux fuel (children ++ rest) (node :: visited) (acc ++ [edge])
+
+/-- Assemble the full disk requirement graph for a main module: seed the walk with the main
+    module's declared deps (rooted at `mainRoot`), then include the main node itself (bare path,
+    empty-version MVS sentinel) as a root edge. -/
+def buildDiskRequirementGraph (mainRoot : System.FilePath) (mainMod : String)
+    (mainDeps : List Dep) : IO (Except String Mvs.RequirementGraph) := do
+  let mainNode : Registry.ModuleVersion := ⟨depKeyModulePath mainMod, ""⟩
+  let seed := mainDeps.map (fun d => (mainRoot, d))
+  match ← buildDiskGraphAux diskGraphFuel seed [mainNode] [] with
+  | .error e => pure (.error e)
+  | .ok depEdges =>
+      let mainEdge := (mainNode, mainDeps.map (fun d => (⟨d.modPath, d.version⟩ : Registry.ModuleVersion)))
+      pure (.ok (mainEdge :: depEdges))
+
+/-- The MVS version override for a load: build the disk requirement graph, run `solveChecked`,
+    and project the build list to `(bare-path, selected-version)` pairs (dropping the main node).
+    A graph that will not build off disk ⇒ an EMPTY override (per-hop fallback — canary-safe: a
+    single-version load is byte-identical either way, and a currently-resolving lenient load is
+    never regressed into a build error). A main-path conflict (a dep requiring a higher version of
+    the main module's own path — the case cue rejects) surfaces as a typed error via
+    `solveChecked`, exactly as `mod tidy` does. -/
+def solveVersionOverride (mainRoot : System.FilePath) (mainMod : String) (mainDeps : List Dep) :
+    IO (Except String (List (String × String))) := do
+  match ← buildDiskRequirementGraph mainRoot mainMod mainDeps with
+  | .error _ => pure (.ok [])
+  | .ok graph =>
+      let mainNode : Registry.ModuleVersion := ⟨depKeyModulePath mainMod, ""⟩
+      match Mvs.solveChecked mainNode graph with
+      | .error e => pure (.error e)
+      | .ok buildList =>
+          pure (.ok (buildList.filterMap fun mv =>
+            if mv.basePath == mainNode.basePath then none else some (mv.basePath, mv.version)))
 
 /-! ## Registry fetch-on-missing (B3d-5, IO edge)
 
@@ -526,6 +614,11 @@ def resolveImportTarget (ctx : ModuleContext) (importPath : String) :
     IO (Except String (ModuleContext × System.FilePath)) := do
   match resolveCrossModule ctx.deps importPath with
   | some (dep, subpath) =>
+      -- MVS override: the build list may pin a HIGHER version for this path than the per-hop
+      -- `deps` entry (a diamond where another requirer demanded more). When it does, that
+      -- version governs; absent an override (single-version graph, or a non-buildable graph
+      -- ⇒ empty override), the per-hop version stands.
+      let dep := { dep with version := (selectedVersion ctx.selected dep.modPath).getD dep.version }
       match ← locateModuleDir ctx.root dep with
       | none =>
           -- Declared dep absent from vendor + cache: fetch it from the registry, install it,
@@ -555,7 +648,10 @@ where
     match ← readModuleInfo moduleRoot with
     | .error message => return .error message
     | .ok (depModPath, depDeps) =>
-        let depCtx := { root := moduleRoot, modPath := depModPath, deps := depDeps }
+        -- Thread the SAME global MVS override into the dep's context: version selection is a
+        -- whole-graph property, so every hop resolves each path to the one selected version.
+        let depCtx := { root := moduleRoot, modPath := depModPath, deps := depDeps,
+                        selected := ctx.selected }
         return .ok (depCtx, subpathDir moduleRoot subpath)
 
 mutual
@@ -685,10 +781,13 @@ def loadPackageDir (path : String) : IO (Except String Value) := do
       match ← readModuleInfo root with
       | .error message => return .error message
       | .ok (modPath, deps) =>
-          let ctx := { root, modPath, deps }
-          match ← loadPackage ctx [] dir with
+          match ← solveVersionOverride root modPath deps with
           | .error message => return .error message
-          | .ok (_, value) => return .ok value
+          | .ok selected =>
+              let ctx := { root, modPath, deps, selected }
+              match ← loadPackage ctx [] dir with
+              | .error message => return .error message
+              | .ok (_, value) => return .ok value
 
 /-- Load a top-level file, resolve and bind its in-module imports, and return the bound
     value for the existing pure resolve/eval pipeline. A file with no imports parses, binds
@@ -716,10 +815,13 @@ def loadFileBound (path : String) : IO (Except String Value) := do
           match ← readModuleInfo root with
           | .error message => return .error message
           | .ok (modPath, deps) =>
-              let ctx := { root, modPath, deps }
-              match ← collectBindings [] ctx parsed.topLevelFieldNames parsed.imports with
+              match ← solveVersionOverride root modPath deps with
               | .error message => return .error message
-              | .ok bindings => return .ok (bindImports bindings parsed.value)
+              | .ok selected =>
+                  let ctx := { root, modPath, deps, selected }
+                  match ← collectBindings [] ctx parsed.topLevelFieldNames parsed.imports with
+                  | .error message => return .error message
+                  | .ok bindings => return .ok (bindImports bindings parsed.value)
 
 /-- The single IO entry the CLI routes through: a directory argument loads the package
     (sibling merge); a file argument loads that one file (no merge), exactly as before.

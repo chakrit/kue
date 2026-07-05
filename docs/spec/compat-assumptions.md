@@ -187,15 +187,24 @@ those forms.
   import *inside* a loaded module hops to that module's own context, so transitive
   cross-module resolves recursively. A path matching neither the module prefix nor any dep
   → `unresolved import …: not in-module and matches no dependency …`.
-  **kue is more lenient than `cue` on the IMPORT-RESOLUTION transitive graph:** it reads the
-  *intermediate* module's `deps` per hop, whereas `cue` requires every transitive dep pinned flat
-  in the main module (MVS). Both resolve when the artifact is on disk. **The MVS solver is now
-  WIRED into `kue mod tidy` (B3d-6b, 2026-07-05):** `mod tidy` fetches each transitive dep's
-  `module.cue` (read-only GET), builds the requirement graph, runs `Mvs.solveChecked` (max-of-mins,
-  semver-ordered via `Kue/Semver.lean`), and writes `cue.sum`. **The IMPORT-RESOLUTION path is
-  still per-hop lenient** — wiring the MVS build list into it (so `kue export`/`eval` selects
-  max-of-mins across the graph too) is the filed dependent B3d-6b-leg4 (a delicate, canary-risking
-  change kept separate). Until then this leniency stands as a documented, accepted divergence.
+  **MVS version selection now GOVERNS the IMPORT-RESOLUTION path (B3d-6b-leg4, 2026-07-05).** At
+  load entry the loader builds the requirement graph OFF DISK (`buildDiskRequirementGraph` — walks
+  each dep's on-disk `cue.mod/module.cue` via `locateModuleDir`+`readModuleInfo`, root-threaded per
+  hop, no network), runs `Mvs.solveChecked`, and threads the build-list projection (bare path →
+  selected version) through `ModuleContext.selected`. A cross-module import then resolves to the
+  MAX-OF-MINS version across the whole graph, not the intermediate module's per-hop `deps` pin — so
+  a diamond (`a`→c@v0.1.0, `b`→c@v0.2.0) resolves c to v0.2.0 EVERYWHERE, matching cue (fixture
+  `testdata/modules/crossmod_diamond`, cross-checked byte-identical against cue v0.16.1). The
+  **multi-version-selection divergence is CLOSED.** Two bounded parts of the old leniency REMAIN, by
+  design, as separate concerns: (1) kue does NOT require every transitive dep pinned FLAT in the
+  main module — it discovers them transitively; cue's flat-requirement *enforcement* is not leg 4's
+  scope. (2) When the requirement graph is not buildable off disk (a declared dep absent from
+  vendor+cache), the override is EMPTY and resolution falls back to per-hop — a currently-resolving
+  lenient load is never regressed into a build error; a single-version graph selects each path's
+  only version, so the override is a no-op (the cert-manager canary is provably byte-identical). A
+  main-path conflict (a dep requiring a higher version of the main module's own path — the case cue
+  rejects) surfaces as a typed error via `solveChecked`, never a silent pin. **`kue mod tidy`
+  (B3d-6b) also runs the same solver** over a REGISTRY-fetched graph and writes `cue.sum`.
 - **Registry FETCH-on-missing — WIRED (B3d-5, 2026-06-26).** A declared dep absent from BOTH
   the vendor tree and the cue cache is no longer a hard error: kue resolves the importer's
   `CUE_REGISTRY` (empty/unset ⇒ `registry.cue.works`) + the modpath@version to an OCI ref,
@@ -239,10 +248,10 @@ those forms.
   verified zip blob. **MVS version *solving* now LANDED (B3d-6a)** — pure semver compare +
   the max-of-mins solver (`Kue/{Semver,Mvs}.lean`), offline. **B3d-6b CORE LANDED (2026-07-05):**
   `kue mod tidy` fetches deps' `module.cue` to BUILD the requirement graph (read-only GET), runs
-  the CHECKED MVS solver, and WRITES `cue.sum` (`Kue/ModCmd.lean`). Two FILED dependents remain:
-  wiring MVS into the import-resolution path (leg4, delicate/canary-risking) and `mod get` +
-  `.../tags/list` "latest" resolution (leg2, needs a CUE deps-block emitter). See
-  [`plan.md`](plan.md) § B3d track.
+  the CHECKED MVS solver, and WRITES `cue.sum` (`Kue/ModCmd.lean`). **leg4 LANDED (2026-07-05):**
+  the same solver now governs the import-resolution path off a disk-built graph (see the
+  IMPORT-RESOLUTION note above). One FILED dependent remains: `mod get` + `.../tags/list` "latest"
+  resolution (leg2, needs a CUE deps-block emitter). See [`plan.md`](plan.md) § B3d track.
 - **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import
   comment/ trailing-comma robustness. Real prod9 grouped imports parse fine today, so this
   stays parked. The stdin and multi-file CLI paths still discard imports (pre-B3a

@@ -124,8 +124,10 @@ explicit `ManifestError`, kept separate from evaluation to preserve CUE's `eval`
 ### 7. Modules and registry fetch — `Module.lean` + the B3d island
 
 `Module.lean` owns `cue.mod` discovery, multi-file package merge, in-module +
-cross-module import resolution (vendored or extract-cache), and fetch-on-missing for a
-declared dep absent from both. It is one of the two IO modules (the other is `OciFetch`);
+cross-module import resolution (vendored or extract-cache), fetch-on-missing for a
+declared dep absent from both, and MVS version selection over a disk-built requirement graph
+(`solveVersionOverride` — the selected version governs each cross-module import, threaded through
+`ModuleContext.selected`). It is one of the two IO modules (the other is `OciFetch`);
 `Eval`/`Resolve`/`Value` import none of this layer. The registry-fetch island under it is
 a pure protocol core plus one thin IO edge: `Registry.lean` (`CUE_REGISTRY` parse,
 module→OCI-ref resolution, cache-path authority), `Oci.lean` (manifest parse, URL/curl-arg
@@ -137,7 +139,7 @@ imports the pure core,
 never the evaluator), and `ModCmd.lean` (the `kue mod tidy` command layer — transitive
 requirement-graph fetch, MVS via `Mvs.solveChecked`, and `cue.sum` WRITE; carved out of
 `Module.lean`). Import direction is strictly IO → pure: `Module → {Parse, Runtime,
-Registry, Semver, OciFetch, Zip, Sha256}`, `OciFetch → {Oci, OciAuth, Base64, Sha256, Registry}`,
+Registry, Semver, Mvs, OciFetch, Zip, Sha256}`, `OciFetch → {Oci, OciAuth, Base64, Sha256, Registry}`,
 `ModCmd → {Module, Mvs, Semver, Sha256, Zip}`.
 
 ### 8. Runtime, CLI, and harness — `Runtime.lean`, `Cli.lean`, `FixturePorts.lean`
@@ -163,8 +165,8 @@ v0.16.1 — see `plan.md` § Standing Capabilities. That completeness was demons
 2-app sample (argocd + cert-manager, content-identical drop-ins as of 2026-06-23); the
 broader prod9 corpus then exposed real eval divergences, so the **current front is
 eval-conformance** (five bugs fixed, L5 open — `plan.md` § Current front). Remaining
-tails: B3d-6b CORE LANDED (`kue mod tidy` — requirement-graph fetch + MVS + `cue.sum` write, in
-the new `Kue/ModCmd.lean`; two filed dependents: import-resolution MVS wiring + `mod get`) and the
+tails: B3d-6b CORE + leg4 LANDED (`kue mod tidy` — requirement-graph fetch + MVS + `cue.sum` write, in
+the new `Kue/ModCmd.lean`; import-resolution MVS wiring now landed too; one filed dependent: `mod get`) and the
 item-6 LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in
 [`../reference/implementation-log.md`](../reference/implementation-log.md);
 not-yet-modeled corners (per-file import scoping, the exotic go-yaml surface) are tracked

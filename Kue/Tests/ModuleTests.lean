@@ -386,4 +386,83 @@ example :
       = some () := by
   native_decide
 
+-- ## B3d-6b-leg4 — export-path MVS version override
+--
+-- The loader threads `ModuleContext.selected` (the MVS build-list projection: bare path →
+-- selected version) so a cross-module import resolves to the max-of-mins version across the whole
+-- requirement graph, not the intermediate module's per-hop `deps` pin. These pin the pure pieces
+-- the IO loader composes: `Mvs.solveChecked` over a disk-shaped graph, its projection to the
+-- override map (exactly `solveVersionOverride`'s inner fold), and `selectedVersion`'s lookup.
+
+-- The on-disk diamond of `testdata/modules/crossmod_diamond`: `pa` requires c@v0.1.0, `pb`
+-- requires c@v0.2.0. MVS selects c@v0.2.0 for BOTH — the override map the loader threads pins
+-- `c.example/pc` to v0.2.0, so `fromA` and `fromB` agree (per-hop lenient made `fromA` see v0.1.0).
+private def diamondGraph : Mvs.RequirementGraph :=
+  [(⟨"app.example", ""⟩, [⟨"a.example/pa", "v0.1.0"⟩, ⟨"b.example/pb", "v0.1.0"⟩]),
+   (⟨"a.example/pa", "v0.1.0"⟩, [⟨"c.example/pc", "v0.1.0"⟩]),
+   (⟨"b.example/pb", "v0.1.0"⟩, [⟨"c.example/pc", "v0.2.0"⟩]),
+   (⟨"c.example/pc", "v0.1.0"⟩, []),
+   (⟨"c.example/pc", "v0.2.0"⟩, [])]
+
+-- The override map (drop the main node, keep `(basePath, version)`) — mirrors the projection in
+-- `solveVersionOverride`. `c.example/pc` is pinned to the MAX (v0.2.0), the whole point.
+example :
+    (match Mvs.solveChecked ⟨"app.example", ""⟩ diamondGraph with
+     | .ok bl => bl.filterMap (fun mv =>
+         if mv.basePath == "app.example" then none else some (mv.basePath, mv.version))
+     | .error _ => [])
+      = [("a.example/pa", "v0.1.0"), ("b.example/pb", "v0.1.0"), ("c.example/pc", "v0.2.0")] := by
+  native_decide
+
+-- A single-version (no-conflict) graph selects each path's only version — so the override is a
+-- pure no-op vs per-hop resolution (the canary-safety property: single-version loads never move).
+private def singleGraph : Mvs.RequirementGraph :=
+  [(⟨"app.example", ""⟩, [⟨"lib.example/defs", "v0.1.0"⟩]),
+   (⟨"lib.example/defs", "v0.1.0"⟩, [])]
+
+example :
+    (match Mvs.solveChecked ⟨"app.example", ""⟩ singleGraph with
+     | .ok bl => bl.filterMap (fun mv =>
+         if mv.basePath == "app.example" then none else some (mv.basePath, mv.version))
+     | .error _ => [])
+      = [("lib.example/defs", "v0.1.0")] := by
+  native_decide
+
+-- Transitive (3-deep) diamond: `m → d1 → d2 → d3` and `d1 → d3` directly at a LOWER version.
+-- MVS selects the max of d3 across the reachable graph (v0.3.0), pinning it three hops deep.
+private def chain3Graph : Mvs.RequirementGraph :=
+  [(⟨"m.example", ""⟩, [⟨"d1.example", "v1.0.0"⟩]),
+   (⟨"d1.example", "v1.0.0"⟩, [⟨"d2.example", "v1.0.0"⟩, ⟨"d3.example", "v0.1.0"⟩]),
+   (⟨"d2.example", "v1.0.0"⟩, [⟨"d3.example", "v0.3.0"⟩]),
+   (⟨"d3.example", "v0.1.0"⟩, []),
+   (⟨"d3.example", "v0.3.0"⟩, [])]
+
+example :
+    (match Mvs.solveChecked ⟨"m.example", ""⟩ chain3Graph with
+     | .ok bl => bl.filterMap (fun mv =>
+         if mv.basePath == "m.example" then none else some (mv.basePath, mv.version))
+     | .error _ => [])
+      = [("d1.example", "v1.0.0"), ("d2.example", "v1.0.0"), ("d3.example", "v0.3.0")] := by
+  native_decide
+
+-- A dependency that transitively requires a HIGHER version of the MAIN module's own path is the
+-- case cue rejects — `solveChecked` surfaces a typed error (never a silent pin), and the loader
+-- propagates it. The main node carries the empty-version sentinel, so any real version conflicts.
+private def mainConflictGraph : Mvs.RequirementGraph :=
+  [(⟨"app.example", ""⟩, [⟨"dep.example/x", "v0.1.0"⟩]),
+   (⟨"dep.example/x", "v0.1.0"⟩, [⟨"app.example", "v1.0.0"⟩]),
+   (⟨"app.example", "v1.0.0"⟩, [])]
+
+example : (Mvs.solveChecked ⟨"app.example", ""⟩ mainConflictGraph).toOption.isNone = true := by
+  native_decide
+
+-- `selectedVersion` finds a pinned path (the override governs) …
+example : selectedVersion [("c.example/pc", "v0.2.0")] "c.example/pc" = some "v0.2.0" := by
+  native_decide
+
+-- … and returns `none` for a path the build list does not pin (a dep whose path is absent from
+-- the graph) — so the per-hop `deps` version stands, the override never inventing a version.
+example : selectedVersion [("c.example/pc", "v0.2.0")] "other.example/y" = none := by
+  native_decide
+
 end Kue

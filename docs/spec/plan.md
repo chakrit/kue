@@ -398,9 +398,9 @@ rejection argument: `kue-performance.md` + implementation-log.
    requiring a higher version of the main module's own path is a typed error, not a silent pin),
    and WRITES `cue.sum` with the verified `h1:` digests. New `Kue/ModCmd.lean` (carved from
    `Module.lean`); offline gate `scripts/check-mod-tidy.lean` drives a diamond graph proving
-   max-of-mins selection + cue.sum. **Still open (two dependents, ranked below):** the export-path
-   MVS rewiring (leg 4 — a delicate, canary-risking change kept separate) and `mod get` + tags/list
-   (leg 2 — needs a CUE deps-block emitter). See § B3d track.
+   max-of-mins selection + cue.sum. **leg 4 LANDED 2026-07-05** (export-path MVS rewiring — the
+   disk-built graph governs import resolution; see § B3d track). **Still open:** `mod get` +
+   tags/list (leg 2 — needs a CUE deps-block emitter). See § B3d track.
 
 2. **B2-A1 — RESOLVED-BY-PROBE (2026-07-04, non-bug).** The prior claim ("`applyEvaluatedStructN`
    routes the patterns-present case through a meet that DROPS `tail`") was STALE: `applyEvaluatedStructN`
@@ -838,34 +838,32 @@ Both 2026-06-26 audit rounds closed **HEALTHY**: module graph is a clean DAG (IO
 production path; inflate is total (fuel-bounded, malformed → typed-error). Totality
 `#print axioms`-pinned (stdlib axioms only). 🔒 Secret hygiene (B3d-7): a credential/token lives
 only in curl argv + in-memory strings, never logged/persisted; errors report outcomes, never the
-secret. `Mvs.solve` is now WIRED into `kue mod tidy` (via `Mvs.solveChecked`, the main-pin fix) over a
-requirement graph fetched from real deps' `module.cue` — no longer a staged-but-unused primitive.
-The remaining unwired seam is the IMPORT-RESOLUTION path (B3d-6b-leg4), still filed.
+secret. `Mvs.solve` is WIRED both into `kue mod tidy` (via `Mvs.solveChecked`, the main-pin fix, over a
+registry-fetched graph) AND into the IMPORT-RESOLUTION path (B3d-6b-leg4, 2026-07-05: a disk-built
+requirement graph governs import version selection — max-of-mins, not per-hop) — no longer a
+staged-but-unused primitive.
 
 **Open B3d items (ranked):**
-- **B3d-6b — CORE LANDED 2026-07-05.** Legs (1) requirement-graph fetch, (3) `mod tidy` command
-  parse + dispatch, (5) `cue.sum` WRITE, and the `Mvs.solve` main-pin fix all landed via
-  `Kue/ModCmd.lean` + `kue mod tidy` (offline gate `scripts/check-mod-tidy.lean`). **Two legs
-  remain as FILED dependents:**
-  - **B3d-6b-leg4 — export-path MVS rewiring (MEDIUM, delicate, canary-risking; own attended
-    slice).** Wire the MVS build list into the IMPORT-RESOLUTION path (`Module.lean`'s mutual
-    loader) so cross-module version selection is max-of-mins rather than the current lenient
-    per-hop pin — GATED ON a new diamond-divergence on-disk fixture under `testdata/modules/`
-    (per-hop picks the lower version, MVS the higher, oracle-matched export differs). The solver
-    + build-list machinery already exist (`Mvs.solveChecked`, `ModCmd.fetchGraph`); the work is a
-    DISK-FIRST transitive graph builder (locate-or-fetch each dep, read module.cue) + a version-
-    override threaded through `ModuleContext` (a NO-OP for single-version graphs, so the
-    cert-manager canary is provably unaffected). Kept separate because it touches the exact loader
-    the canary exercises and needs the canary re-run — do NOT rush it into an already-large slice.
-    The current leniency is a documented, accepted divergence (see `compat-assumptions.md`).
-    **Mechanism VERIFIED-ACCURATE against code 2026-07-05 (plan-sweep):** `Mvs.solveChecked`
-    (`Kue/Mvs.lean:143`) and `ModCmd.fetchGraph` (`Kue/ModCmd.lean:117`) exist as stated;
-    `ModuleContext` (`Kue/Module.lean:258`) carries `{root, modPath, deps}` and no version-override
-    field yet — that field IS the work, and this struct is the correct seam to thread it through, not
-    a false premise. The "disk-first builder" is genuinely NEW: `fetchGraph` today is REGISTRY-fed
-    (an `EntryFetcher` doing registry GETs), so leg 4 adds a locate-or-fetch disk walker on top;
-    `readModuleInfo` (`Kue/Module.lean`) already reads `cue.mod/module.cue` off disk and is the
-    reuse anchor. No stale premise.
+- **B3d-6b — CORE + leg4 LANDED 2026-07-05.** Legs (1) requirement-graph fetch, (3) `mod tidy`
+  command parse + dispatch, (5) `cue.sum` WRITE, and the `Mvs.solve` main-pin fix landed via
+  `Kue/ModCmd.lean` + `kue mod tidy` (offline gate `scripts/check-mod-tidy.lean`). **ONE leg
+  remains as a FILED dependent (leg 2, below).**
+  - **B3d-6b-leg4 — export-path MVS rewiring — LANDED 2026-07-05.** The MVS build list now governs
+    the IMPORT-RESOLUTION path (`Module.lean`'s mutual loader): at load entry `solveVersionOverride`
+    builds the requirement graph OFF DISK (`buildDiskRequirementGraph` — root-threaded BFS over each
+    dep's on-disk `cue.mod/module.cue` via `locateModuleDir`+`readModuleInfo`, total, no network),
+    runs `Mvs.solveChecked`, and threads the build-list projection (bare path → version) through the
+    new `ModuleContext.selected` field; `resolveImportTarget` overrides each cross-module import's
+    version with the selected one. Cross-module selection is now max-of-mins, not per-hop. On-disk
+    diamond fixture `testdata/modules/crossmod_diamond` (`a`→c@v0.1.0, `b`→c@v0.2.0; MVS picks
+    v0.2.0 for both) — red-first proved per-hop gave `fromA`=v0.1.0, the fix gives v0.2.0 both,
+    cross-checked byte-identical against cue v0.16.1. **Canary-safe by construction:** a
+    single-version graph selects each path's only version (override is a no-op), and a non-buildable
+    graph falls back to an EMPTY override (per-hop, today's behavior) — the cert-manager canary
+    re-ran byte-identical. 7 new `native_decide` tests pin diamond/3-deep/single/main-conflict
+    selection + `selectedVersion`. Divergence CLOSED in `compat-assumptions.md`. The flat-requirement
+    *enforcement* (cue requires every transitive dep pinned in main) is deliberately NOT in scope —
+    kue discovers deps transitively; that stays a separate, bounded leniency.
   - **B3d-6b-leg2 — `mod get` + tags/list (MEDIUM; needs a CUE deps-block emitter).** `cue mod get
     <module>[@version]` mutates `cue.mod/module.cue` (adds/updates a dep), which requires emitting
     CUE for the deps block — a distinct surface kue lacks. Fold in leg 2's OCI `.../tags/list` GET

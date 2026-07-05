@@ -17544,12 +17544,11 @@ the unselected version, plus empty-deps / transport-failure / malformed-module.c
 
 Two of B3d-6b's five legs are FILED as dependents (see `plan.md` § B3d track), kept separate by
 philosophy — precise + no rushed canary risk:
-- **leg4 — export-path MVS rewiring.** Wiring the build list into the IMPORT-RESOLUTION path
-  (`Module.lean`'s mutual loader) is delicate and touches the exact code the cert-manager canary
-  exercises; it needs a disk-first transitive graph builder + a version-override threaded through
-  `ModuleContext` (a no-op for single-version graphs) + a new on-disk diamond-divergence fixture +
-  a canary re-run. Its own attended slice. The current per-hop leniency is a documented, accepted
-  divergence (compat-assumptions.md).
+- **leg4 — export-path MVS rewiring — LANDED 2026-07-05 (see the leg4 entry below).** Wiring the
+  build list into the IMPORT-RESOLUTION path (`Module.lean`'s mutual loader) is delicate and touches
+  the exact code the cert-manager canary exercises; it needs a disk-first transitive graph builder +
+  a version-override threaded through `ModuleContext` (a no-op for single-version graphs) + a new
+  on-disk diamond-divergence fixture + a canary re-run. Its own attended slice.
 - **leg2 — `mod get` + `.../tags/list`.** `mod get` mutates `cue.mod/module.cue`, needing a CUE
   deps-block emitter kue lacks; fold in the OCI tags/list "latest" resolution there (its only
   consumer).
@@ -18207,7 +18206,8 @@ A restore-point hygiene slice after the batch-5 frontier run. Three parts.
 0c, GDA-FLOAT-RENDER) had "mechanism" text naming a data source the code no longer matched,
 each costing a mid-slice stop. Swept every open plan item against the actual code, focusing on
 the two big remaining registry legs before spawning agents at them:
-- **B3d-6b-leg4 (export-path MVS): VERIFIED-ACCURATE.** `Mvs.solveChecked` (`Kue/Mvs.lean:143`)
+- **B3d-6b-leg4 (export-path MVS): VERIFIED-ACCURATE — then LANDED 2026-07-05 (entry below).**
+  `Mvs.solveChecked` (`Kue/Mvs.lean:143`)
   and `ModCmd.fetchGraph` (`Kue/ModCmd.lean:117`) exist as stated; `ModuleContext`
   (`Kue/Module.lean:258`) is the correct seam to thread the (not-yet-existing) version-override
   through — that field IS the work, not a false premise. The "disk-first builder" is genuinely
@@ -18232,3 +18232,50 @@ correct option).
 
 `./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical). AUD-B2/B4
 closed in `plan.md`. Committed on `main`, explicit pathspec, NOT pushed.
+
+## 2026-07-05 — B3d-6b-leg4: export-path MVS rewiring (import resolution now MVS-governed)
+
+Wired the MVS build list into the IMPORT-RESOLUTION path so cross-module version selection is
+max-of-mins across the whole requirement graph, not the older per-hop-lenient pin. The final leg of
+B3d-6b's core; closes the multi-version-selection divergence in `compat-assumptions.md`.
+
+**Mechanism.** At load entry (`loadPackageDir`/`loadFileBound`) a new `solveVersionOverride`:
+1. `buildDiskRequirementGraph` walks the requirement graph OFF DISK — a fuel-bounded, visited-guarded
+   BFS (`buildDiskGraphAux`, structural on fuel ⇒ total, no `partial`) that pairs each `Dep` with the
+   root of the module requiring it, locates it via `locateModuleDir` (root-threaded per hop: vendored-
+   under-importer first, then the global cache — no network), and reads its deps via `readModuleInfo`.
+2. `Mvs.solveChecked` over that graph. A main-path conflict (a dep requiring a higher version of the
+   main module's own path — the case cue rejects) surfaces as a typed error, never a silent pin.
+3. Project the build list to `(basePath, version)` pairs (drop the main node) → threaded through the
+   new `ModuleContext.selected` field, UNCHANGED across every cross-module hop (`loadDepContext`).
+
+`resolveImportTarget` overrides the per-hop `resolveCrossModule` version with `selectedVersion
+ctx.selected dep.modPath` when the build list pins one. `selected` defaults to `[]` (pure per-hop).
+
+**Canary-safe by construction (why it's a no-op for cert-manager).** A single-version graph selects
+each path's only version, so the override equals the per-hop version — byte-identical. A graph that
+will not build off disk (a declared dep absent from vendor+cache) yields an EMPTY override and
+resolution falls back to per-hop — so a currently-resolving lenient load is never regressed into a
+build error, and no new eager all-deps-must-resolve enforcement is introduced (that flat-requirement
+enforcement is deliberately out of scope, a separate bounded leniency). The cert-manager realworld
+canary re-ran byte-identical.
+
+**DRY note.** `buildDiskGraphAux` is the disk twin of `ModCmd.fetchGraphAux` (same graph shape) but
+NOT factored: the disk walk is root-threaded per hop and carries no `h1:` digest, whereas the registry
+walk is root-agnostic and digest-bearing — a shared skeleton would be more obscure than two focused
+walks. Parallel noted in a doc comment at the seam.
+
+**Tests.** On-disk diamond fixture `testdata/modules/crossmod_diamond` (`a.example/pa`→c@v0.1.0,
+`b.example/pb`→c@v0.2.0; MVS selects c@v0.2.0 for BOTH). RED-first proved (override neutralized):
+per-hop gave `fromA`=c-v0.1.0 / `fromB`=c-v0.2.0; the fix gives v0.2.0 both. Expected is
+spec-adjudicated (MVS max-of-mins) AND cross-checked byte-identical against a flat cue-conformant copy
+under `cue export` v0.16.1 — no divergence. 7 new `native_decide` tests in `ModuleTests.lean` pin the
+pure pieces: diamond selection → override map, single-version no-op, transitive 3-deep chain,
+main-path conflict → typed error, and `selectedVersion` found/not-found (a path absent from the graph
+leaves the per-hop version standing).
+
+**Retraction.** Annotated the stale "leg4 FILED / VERIFIED-ACCURATE" sites in this log + `plan.md` +
+`compat-assumptions.md` in this slice; the divergence note is rewritten to CLOSED.
+
+`./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical; shellcheck PASS).
+Committed on `main`, explicit pathspec, NOT pushed.
