@@ -25,8 +25,8 @@ theorem primsUnifyEqual_refl (prim : Prim) : primsUnifyEqual prim prim = true :=
   | float text =>
       simp only [primsUnifyEqual]
       cases hParse : parseDecimalText text with
-      | none => simp [hParse]
-      | some value => simp [hParse, decimalEqValues_refl]
+      | none => simp
+      | some value => simp [decimalEqValues_refl]
   | null => rfl
   | bool value => simp [primsUnifyEqual]
   | int value => simp [primsUnifyEqual]
