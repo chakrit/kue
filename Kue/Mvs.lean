@@ -120,6 +120,36 @@ def solve (main : ModuleVersion) (graph : RequirementGraph) : List ModuleVersion
     (fun (p, v) => (⟨p, v⟩ : ModuleVersion))
   main :: sortSelected others
 
+/-- The version max-of-mins selects for `main`'s OWN path across the reachable graph (ignoring the
+    root pin), if the graph mentions that path at all. Isolates the cue-panic case: a dependency
+    that transitively requires a HIGHER version of the main module's own path than `main` declares. -/
+def mainPathMaxSelected (main : ModuleVersion) (graph : RequirementGraph) : Option String :=
+  let nodes := reachable graph [main]
+  (selectMaxima nodes).find? (fun (p, _) => p == main.basePath) |>.map (·.snd)
+
+/-- Whether the reachable graph requires a version of `main`'s own path STRICTLY GREATER than
+    `main.version`. cue PANICS here (`buildList`: `reqs.Max(target, v) != target`); `solve` silently
+    pins `main` to `main.version` instead. `solveChecked` uses this to surface a typed error. -/
+def mainPathConflict (main : ModuleVersion) (graph : RequirementGraph) : Bool :=
+  match mainPathMaxSelected main graph with
+  | some v => Semver.compare v main.version > 0
+  | none => false
+
+/-- Checked MVS solve (the B3d-6b main-pin fix): like `solve`, but a graph that transitively
+    requires a version of the main module's OWN path higher than it declares is a typed ERROR —
+    the case cue panics on — rather than a silent pin. Total; every other graph solves as `solve`.
+    The resolver wiring calls THIS so the pin is never silent. -/
+def solveChecked (main : ModuleVersion) (graph : RequirementGraph) :
+    Except String (List ModuleVersion) :=
+  match mainPathMaxSelected main graph with
+  | some v =>
+      if Semver.compare v main.version > 0 then
+        .error s!"main module {main.basePath}: dependency graph requires {v} of the main module's \
+          own path, higher than its declared {main.version} (cue rejects this)"
+      else
+        .ok (solve main graph)
+  | none => .ok (solve main graph)
+
 /-- Multi-target variant (cue's `BuildList` takes `targets []V`): roots first (deduped by path,
     in root order, each pinned to its own version), then the remaining selected paths sorted.
     Single-root `solve` is the common case; this covers a workspace with several main modules. -/

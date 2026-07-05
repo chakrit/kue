@@ -202,6 +202,38 @@ theorem mvs_main_path_pinned :
       == [mv "main" "v1.0.0", mv "A" "v1.0.0"]) = true := by
   native_decide
 
+-- ## MVS main-pin fix (B3d-6b): `solveChecked` surfaces the cue-panic case as a typed error
+--
+-- `solve` SILENTLY pins main even when the graph names a higher version of main's own path;
+-- cue PANICS there. `solveChecked` rejects that graph and solves every other exactly as `solve`.
+
+-- The panic case: A requires main@v2.0.0 while main declares v1.0.0 → checked solve ERRORS.
+theorem mvs_checked_rejects_main_upgrade :
+    (solveChecked (mv "main" "v1.0.0") mainPinGraph).toOption.isNone = true := by
+  native_decide
+
+-- A graph naming main's own path at an EQUAL-or-lower version is NOT a conflict — solves fine.
+private def mainEqualGraph : RequirementGraph :=
+  [ (mv "main" "v1.0.0", [mv "A" "v1.0.0"]),
+    (mv "A" "v1.0.0", [mv "main" "v1.0.0"]) ]
+
+theorem mvs_checked_allows_main_equal :
+    ((solveChecked (mv "main" "v1.0.0") mainEqualGraph).toOption
+      == some [mv "main" "v1.0.0", mv "A" "v1.0.0"]) = true := by
+  native_decide
+
+-- A graph that never mentions main's own path solves identically to `solve`.
+theorem mvs_checked_matches_solve_diamond :
+    ((solveChecked (mv "main" "v1.0.0") diamondGraph).toOption
+      == some (solve (mv "main" "v1.0.0") diamondGraph)) = true := by
+  native_decide
+
+-- The conflict predicate agrees: true on the upgrade graph, false on the equal graph.
+theorem mvs_main_conflict_detected :
+    (mainPathConflict (mv "main" "v1.0.0") mainPinGraph
+      && !mainPathConflict (mv "main" "v1.0.0") mainEqualGraph) = true := by
+  native_decide
+
 -- ## MVS: build-list ordering is path-sorted after the root
 
 -- Out-of-order requirements still produce a path-sorted remainder.
@@ -236,6 +268,7 @@ theorem mvs_dense_no_truncation :
 -- `#print axioms` emits to stdout; a regression to `sorryAx` would show here in the build log.
 #print axioms Kue.Semver.compare
 #print axioms Kue.Mvs.solve
+#print axioms Kue.Mvs.solveChecked
 
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
@@ -252,6 +285,7 @@ theorem mvs_dense_no_truncation :
 #check @mvs_cycle_terminates             -- MVS: a cycle in the requirement graph terminates
 #check @mvs_unreachable_excluded         -- MVS: an unreachable module is excluded
 #check @mvs_main_path_pinned             -- MVS: empty requirements → just the main module
+#check @mvs_main_conflict_detected       -- MVS main-pin fix: solveChecked typed-error / conflict
 #check @mvs_remainder_sorted_by_path     -- MVS: build-list ordering is path-sorted after the...
 #check @mvs_dense_no_truncation          -- MVS: high fan-in / dense graph does NOT truncate...
 
