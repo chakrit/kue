@@ -1250,15 +1250,12 @@ mutual
                     | .ok (call, rest) => parseSelectorRest call rest
                 | _ => parseSelectorRest (.selector base label) rest
             | rest =>
-                -- A no-call selector. A `pkg.Constant` that the stdlib exposes as a VALUE
-                -- (`list.Ascending`/`Descending`/`Comparer`) becomes that comparator struct;
-                -- anything else stays ordinary field access.
-                match base with
-                | .ref pkg =>
-                    match stdlibPackageValue? pkg label with
-                    | some value => parseSelectorRest value rest
-                    | none => parseSelectorRest (.selector base label) rest
-                | _ => parseSelectorRest (.selector base label) rest
+                -- A no-call selector. A `pkg.Constant` the stdlib exposes as a VALUE
+                -- (`list.Ascending`/`Descending`/`Comparer`) is left as a deferred selector
+                -- and resolved by the import-aware post-parse pass, which gates it on the
+                -- package being imported (matching a call-form builtin); a non-stdlib
+                -- selector stays ordinary field access there too.
+                parseSelectorRest (.selector base label) rest
     | '[' :: rest =>
         -- `[e]` indexes; `[lo:hi]` slices. Slice bounds are optional: an omitted low is
         -- `0`, an omitted high is `len(base)`. Slicing desugars to `list.Slice`, which
@@ -1277,20 +1274,21 @@ mutual
     | rest => parseOk base rest
 
   /-- Parse the tail of a slice `base[low : …]` after the low bound and `:` are consumed:
-      an optional high bound (default `len(base)`) then `]`. Desugars to
-      `list.Slice(base, low, high)`. -/
+      an optional high bound (default `len(base)`) then `]`. Desugars to the core `slice`
+      builtin — a language operator distinct from the public, import-gated `list.Slice`, so
+      slicing never requires `import "list"`. -/
   partial def parseSliceRest (base low : Value) (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | ']' :: rest =>
         parseSelectorRest
-          (.builtinCall "list.Slice" [base, low, .builtinCall "len" [base]]) rest
+          (.builtinCall "slice" [base, low, .builtinCall "len" [base]]) rest
     | afterColon =>
         match parseExpression afterColon with
         | .error error => .error error
         | .ok (high, rest) =>
             match skipTrivia rest with
             | ']' :: rest =>
-                parseSelectorRest (.builtinCall "list.Slice" [base, low, high]) rest
+                parseSelectorRest (.builtinCall "slice" [base, low, high]) rest
             | rest => parseError rest "expected ']' after slice bounds"
 
   partial def parsePrimaryAtom (chars : List Char) : ParseResult Value :=
@@ -1908,45 +1906,60 @@ def canonicalizeBuiltinCallName (aliasMap : List (String × String)) (name : Str
       | none => name
   | _ => name
 
-/-- The aliased counterpart of `stdlibPackageValue?` for a no-call member access. The parser
-    resolves a stdlib CONSTANT (`list.Ascending`) inline at parse off the LITERAL head, so an
-    aliased import (`import l "list"` ⇒ `l.Ascending`) keys `stdlibPackageValue? "l" …` → `none`
-    and survives as a deferred `.selector (.ref "l") "Ascending"`. This maps the alias head back
-    to its canonical package and re-resolves, so an aliased constant yields the same comparator
-    struct as the unaliased form; a non-builtin alias (user import) is absent from the map and
-    returns `none`, leaving the selector untouched. -/
-def canonicalizeBuiltinConst? (aliasMap : List (String × String)) (head label : String) :
-    Option Value :=
-  match aliasMap.lookup head with
-  | some canonical => stdlibPackageValue? canonical label
+/-- Resolve/gate a no-call selector on a package head against the file's imports. When
+    `(head, label)` names a stdlib CONSTANT (`list.Ascending`/`Descending`/`Comparer` —
+    resolved via `stdlibPackageValue?` off the alias-canonical package), it yields that value
+    ONLY if the package is imported (`aliasMap` covers aliased builtin imports, `importedPkgs`
+    the canonical set); an un-imported reference is `reference "<head>" not found` (bottom),
+    matching cue. A selector on a non-stdlib head is `none` — ordinary field access, untouched. -/
+def resolveBuiltinConstSelector (aliasMap : List (String × String))
+    (importedPkgs : List String) (head label : String) : Option Value :=
+  let canonicalPkg := (aliasMap.lookup head).getD head
+  match stdlibPackageValue? canonicalPkg label with
+  | some value =>
+      if importedPkgs.contains canonicalPkg then some value
+      else some (.bottomWith [.unresolvedReference head])
   | none => none
 
-/-- Total structural rewrite mapping aliased builtin heads to their canonical form everywhere
-    in a parsed file body, so the alias-blind dispatch resolves an aliased import identically to
-    an unaliased one. Two cases are rewritten: a `.builtinCall` head (`j.Marshal` →
-    `json.Marshal`, for the `BuiltinFamily.ofName?` call dispatch), and a no-call `.selector` on
-    an aliased package whose `(canonical, label)` names a stdlib CONSTANT (`l.Ascending` →
-    `list`'s comparator struct, via `stdlibPackageValue?`). Every other node is rebuilt
-    unchanged. Recursion is structural with `fuel` as a guard, matching the resolve/remap
-    passes; the parsed forms never approach the bound. -/
-def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value -> Value
+/-- Gate an (already alias-canonicalized) `.builtinCall` head on its package being imported. A
+    qualified head whose package is a builtin stdlib package (`strings.ToUpper`, `list.Slice`)
+    requires that package in scope; an un-imported one is `reference "<pkg>" not found`
+    (bottom), matching cue. Core builtins (`len`, the `slice` desugar — no package prefix) and
+    non-builtin names are never gated. -/
+def gateBuiltinImport (importedPkgs : List String) (name : String) (args : List Value) :
+    Value :=
+  match name.splitOn "." with
+  | pkg :: _ :: _ =>
+      if builtinPackageNames.contains pkg && !importedPkgs.contains pkg then
+        .bottomWith [.unresolvedReference pkg]
+      else .builtinCall name args
+  | _ => .builtinCall name args
+
+/-- Total structural rewrite that both canonicalizes aliased builtin heads to their dispatch
+    form (`j.Marshal` → `json.Marshal`) and ENFORCES cue's import requirement: a qualified
+    builtin reference (call `strings.ToUpper` or constant `list.Ascending`) resolves only when
+    its package is imported (`importedPkgs`), otherwise it becomes `reference "<pkg>" not found`
+    (bottom). A no-call `.selector` on a stdlib CONSTANT is resolved here (the parser defers it);
+    every other node is rebuilt unchanged. Recursion is structural with `fuel` as a guard,
+    matching the resolve/remap passes; the parsed forms never approach the bound. -/
+def canonicalizeBuiltinCalls (aliasMap : List (String × String))
+    (importedPkgs : List String) : Nat -> Value -> Value
   | 0, value => value
   | fuel + 1, value =>
-      let rec' := canonicalizeBuiltinCalls aliasMap fuel
+      let rec' := canonicalizeBuiltinCalls aliasMap importedPkgs fuel
       match value with
       | .builtinCall name args =>
-          .builtinCall (canonicalizeBuiltinCallName aliasMap name) (args.map rec')
+          gateBuiltinImport importedPkgs (canonicalizeBuiltinCallName aliasMap name) (args.map rec')
       | .conj constraints => .conj (constraints.map rec')
       | .unary op operand => .unary op (rec' operand)
       | .binary op left right => .binary op (rec' left) (rec' right)
       | .selector base label =>
-          -- An aliased stdlib CONSTANT (`l.Ascending`) survived parse as a deferred selector
-          -- because `stdlibPackageValue?` keyed off the alias head. Re-resolve it to the same
-          -- comparator struct the unaliased form yields; otherwise fall through to ordinary
-          -- field-access recursion (a user import's `f.Bar` is absent from the map → untouched).
+          -- A stdlib CONSTANT (`list.Ascending`, aliased or not) survives parse as a deferred
+          -- selector; resolve it here, gated on the package being imported. Otherwise fall
+          -- through to ordinary field-access recursion (a user import's `f.Bar` → untouched).
           match base with
           | .ref head =>
-              match canonicalizeBuiltinConst? aliasMap head label with
+              match resolveBuiltinConstSelector aliasMap importedPkgs head label with
               | some value => value
               | none => .selector (rec' base) label
           | _ => .selector (rec' base) label
@@ -1976,9 +1989,11 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value
             (rec' scalar)
             (decls.map (fun f => { f with value := rec' f.value }))
       | .comprehension clauses body =>
-          .comprehension (clauses.map (canonicalizeBuiltinClause aliasMap fuel)) (rec' body)
+          .comprehension
+            (clauses.map (canonicalizeBuiltinClause aliasMap importedPkgs fuel)) (rec' body)
       | .listComprehension clauses body =>
-          .listComprehension (clauses.map (canonicalizeBuiltinClause aliasMap fuel)) (rec' body)
+          .listComprehension
+            (clauses.map (canonicalizeBuiltinClause aliasMap importedPkgs fuel)) (rec' body)
       | .interpolation parts => .interpolation (parts.map rec')
       | .dynamicField label fieldClass value =>
           .dynamicField (rec' label) fieldClass (rec' value)
@@ -1998,21 +2013,28 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String)) : Nat -> Value
       | .refId _ => value
       | .thisStruct => value
   where
-    canonicalizeBuiltinClause (aliasMap : List (String × String)) (fuel : Nat) :
+    canonicalizeBuiltinClause (aliasMap : List (String × String))
+        (importedPkgs : List String) (fuel : Nat) :
         Clause Value -> Clause Value
       | .forIn key value source =>
-          .forIn key value (canonicalizeBuiltinCalls aliasMap fuel source)
-      | .guard condition => .guard (canonicalizeBuiltinCalls aliasMap fuel condition)
+          .forIn key value (canonicalizeBuiltinCalls aliasMap importedPkgs fuel source)
+      | .guard condition => .guard (canonicalizeBuiltinCalls aliasMap importedPkgs fuel condition)
       | .letClause name value =>
-          .letClause name (canonicalizeBuiltinCalls aliasMap fuel value)
+          .letClause name (canonicalizeBuiltinCalls aliasMap importedPkgs fuel value)
 
-/-- Canonicalize aliased builtin-call heads in a parsed body against the file's imports. A
-    no-op when no import aliases a builtin (the common case), so the unaliased path is
-    untouched. -/
+/-- The canonical package names (`encoding/json` → `json`) of the builtin stdlib packages a
+    file imports — the set the import gate accepts a qualified builtin reference against. -/
+def importedBuiltinPackages (imports : List Import) : List String :=
+  imports.filterMap (fun imp =>
+    if isBuiltinImport imp.path then some (lastPathElement imp.path) else none)
+
+/-- Canonicalize aliased builtin heads AND enforce cue's import requirement against a parsed
+    body: a qualified builtin reference resolves only when its package is imported, else it is
+    `reference "<pkg>" not found` (bottom). Always walks (an un-imported builtin must be caught
+    even with no aliases present), so it is not gated on the alias map being non-empty. -/
 def applyBuiltinAliases (imports : List Import) (value : Value) : Value :=
-  match builtinImportLocalNames imports with
-  | [] => value
-  | aliasMap => canonicalizeBuiltinCalls aliasMap builtinAliasFuel value
+  canonicalizeBuiltinCalls (builtinImportLocalNames imports)
+    (importedBuiltinPackages imports) builtinAliasFuel value
 
 def parseDocument (chars : List Char) : Except ParseError Value :=
   let afterPackage := consumePackageClauses chars

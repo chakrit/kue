@@ -892,19 +892,23 @@ theorem parse_unaliased_builtin_and_aliased_user_import_unchanged :
 -- "Ascending"`. The post-parse pass maps the alias head back to the canonical package and
 -- re-resolves, so an aliased constant yields the same comparator struct as the unaliased form.
 
--- The constant re-resolution maps a builtin-alias head to its canonical package and looks up
--- the stdlib constant; a non-builtin alias (absent from the map) and an unmapped/non-constant
--- label return `none` — the boundary that leaves a user import's `f.Ascending` untouched.
-theorem canonicalize_builtin_const_resolves_only_aliased_stdlib :
-    (canonicalizeBuiltinConst? [("l", "list")] "l" "Ascending"
+-- The constant re-resolution maps a builtin-alias (or unaliased) head to its canonical package
+-- and looks up the stdlib constant, GATED on the package being imported: imported → the value;
+-- a stdlib const of an UN-imported package → `reference "<head>" not found` (bottom); a
+-- non-constant label or non-builtin head → `none` (ordinary field access, left untouched).
+theorem resolve_builtin_const_selector_gates_on_import :
+    (resolveBuiltinConstSelector [("l", "list")] ["list"] "l" "Ascending"
         == stdlibPackageValue? "list" "Ascending")
-      && (canonicalizeBuiltinConst? [("l", "list")] "l" "Descending"
+      && (resolveBuiltinConstSelector [("l", "list")] ["list"] "l" "Descending"
         == stdlibPackageValue? "list" "Descending")
-      && (canonicalizeBuiltinConst? [("l", "list")] "l" "Comparer"
+      && (resolveBuiltinConstSelector [("l", "list")] ["list"] "l" "Comparer"
         == stdlibPackageValue? "list" "Comparer")
-      && (canonicalizeBuiltinConst? [("l", "list")] "l" "Nope" == none)
-      && (canonicalizeBuiltinConst? [("f", "list")] "g" "Ascending" == none)
-      && (canonicalizeBuiltinConst? [] "l" "Ascending" == none) = true := by
+      && (resolveBuiltinConstSelector [] ["list"] "list" "Ascending"
+        == stdlibPackageValue? "list" "Ascending")
+      && (resolveBuiltinConstSelector [("l", "list")] ["list"] "l" "Nope" == none)
+      && (resolveBuiltinConstSelector [] ["list"] "g" "Ascending" == none)
+      && (resolveBuiltinConstSelector [] [] "list" "Ascending"
+        == some (Value.bottomWith [.unresolvedReference "list"])) = true := by
   native_decide
 
 -- End-to-end: an aliased stdlib constant resolves identically to the unaliased form — driving

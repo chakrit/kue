@@ -621,11 +621,18 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   Related:
   bytes-operand render into a STRING interpolation (`"\(bytesval)"`) is also unimplemented — kue
   DEFERS it (safe), cue renders the UTF-8 form (`"ab"`); fold into the same slice.
-- **BUILTIN-IMPORT-LENIENCY (observation; FILE, not fixed).** kue resolves stdlib builtins
-  (`regexp.Match`, `strings.*`, `list.*`, `math.*`) WITHOUT the `import "..."` clause cue requires
-  (`reference "regexp" not found`). Broad lenient-vs-strict resolution behavior across ALL builtin
-  packages, not interpolation-specific; the builtin VALUE semantics themselves match cue once imported.
-  Tracked as an unimplemented strictness gate (a dedicated import-enforcement slice), not a value bug.
+- **BUILTIN-IMPORT-LENIENCY — ✅ LANDED 2026-07-05.** A package-qualified stdlib builtin
+  reference (call `strings.ToUpper(...)` or constant `list.Ascending`) now resolves ONLY when its
+  package is imported; an un-imported reference is `reference "<pkg>" not found` (bottom), matching
+  cue v0.16.1. Enforced in the import-aware post-parse pass (`applyBuiltinAliases` →
+  `canonicalizeBuiltinCalls`/`gateBuiltinImport`/`resolveBuiltinConstSelector`, `Kue/Parse.lean`),
+  the single choke point both single-file (`parseDocument`) and module-load (`parseDocumentFile`)
+  parses pass through. The slice operator `x[lo:hi]` desugars to a NEW core `slice` builtin —
+  import-exempt (a language operator) and distinct from the import-gated public `list.Slice`.
+  Corpus needed zero fixture migration (all 28 builtin-using fixtures already imported, being
+  cue-oracle-derived); tests in `ImportEnforcementTests.lean`. Remaining separate leniency (NOT
+  this slice): kue does not error on an UNUSED import (cue: `imported and not used`) — see
+  cue-spec-gaps.
 
 ### 2026-07-04 Phase A audit findings (batch `dfdd1ab..HEAD`: list-slice / interp-typing / byte-escapes)
 

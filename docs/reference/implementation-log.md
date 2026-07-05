@@ -18139,3 +18139,62 @@ FORM row added (spec-silent, kue matches cue).
 `./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical — cert-manager
 carries no float literal that triggers the changed rendering, so zero drift). Committed on `main`,
 explicit pathspec, NOT pushed.
+
+## BUILTIN-IMPORT-LENIENCY — enforce cue's import requirement for qualified builtins (2026-07-05)
+
+**Behavior.** A package-qualified stdlib builtin reference now resolves ONLY when its package is
+imported, matching cue v0.16.1. `strings.ToUpper("x")` (call) or `list.Ascending` (constant) with
+no `import "<pkg>"` in the file is `.bottomWith [.unresolvedReference "<pkg>"]` → `reference
+"<pkg>" not found` (bottom); the reference resolves once the package is imported (directly or
+aliased). Closes the last standing leniency observation.
+
+**Mechanism.** The parser lowers `pkg.fn(...)` to a `.builtinCall "pkg.fn"` and (previously)
+eagerly resolved a stdlib constant `pkg.Const` at parse — both BEFORE imports are consultable. The
+enforcement lives in the import-aware post-parse pass, the single choke point every parse flows
+through (`applyBuiltinAliases`, called by both `parseDocument` and `parseDocumentFile`):
+- `applyBuiltinAliases` now ALWAYS walks (was a no-op when no builtin alias was present) — an
+  un-imported builtin must be caught even with zero aliases. It threads `importedBuiltinPackages
+  imports` (the canonical last-path-element names of the file's builtin imports) into
+  `canonicalizeBuiltinCalls`.
+- `gateBuiltinImport importedPkgs name args` (Parse.lean): after alias-canonicalization, a
+  qualified `.builtinCall` head whose package ∈ `builtinPackageNames` but ∉ `importedPkgs` becomes
+  `reference "<pkg>" not found`. Core builtins (`len`, `slice` — no package prefix) and non-builtin
+  names are never gated.
+- The constant form is no longer resolved in the parser (`parseSelectorRest` leaves the deferred
+  `.selector (.ref pkg) label`); `resolveBuiltinConstSelector aliasMap importedPkgs head label`
+  resolves it in the post-parse pass, gated on the package being imported — replacing the old
+  `canonicalizeBuiltinConst?` (which only handled the aliased case and never gated).
+
+**Slice operator vs public `list.Slice`.** cue exposes a real `list.Slice(...)` package function
+(import-required), but kue ALSO desugared the slice OPERATOR `x[lo:hi]` to `list.Slice` — a name
+collision that would wrongly force `import "list"` on plain slicing. Resolved by desugaring the
+operator to a NEW import-exempt core builtin `slice` (`BuiltinFamily.core`, `evalCoreBuiltin`,
+delegating to the same `listSlice`), distinct from the still-gated public `list.Slice`. Slicing
+needs no import (matching cue); explicit `list.Slice(...)` does. Deferred-slice residuals now
+render `slice(...)` instead of `list.Slice(...)` (both already diverged from cue's held `l[x:2]` —
+pre-existing display-only, see cue-spec-gaps LIST-SLICE row, updated same slice).
+
+**Corpus migration (the Law).** ZERO fixtures needed migration: all 28 builtin-using `.cue`
+fixtures already imported (being cue-oracle-derived — cue would have errored generating a lenient
+oracle), and every parse-driven builtin test (SortTests) already carried `import "list"`. The
+inline builtin usages in BuiltinTests/StringsTests exercise the dispatch functions directly
+(`evalBuiltinCall`/hand-built `.builtinCall`), bypassing parse enforcement, so they are unaffected.
+cert-manager canary uses no builtins — byte-identical, unchanged. No `check-*.sh` grep gate wired:
+a robust grep is infeasible (aliased imports, local-field shadowing, user packages bound to a
+builtin name all defeat a naive `pkg.` scan), AND the runtime now enforces it natively (kue rejects
+un-imported use, matching cue) — a far stronger guard than a grep. Reviewer + runtime enforced.
+
+**Tests (test-first).** `ImportEnforcementTests.lean` (17 theorems): call form gated/resolved,
+aliased import, wrong/missing/multiple/nested imports, `encoding/json` last-path-element binding,
+constant form gated/resolved (aliased + unaliased), slice-operator exemption vs gated public
+`list.Slice`, local-field shadowing of a builtin name. `ParseTests` const-resolver unit test
+migrated to `resolveBuiltinConstSelector` (import-gated). `SliceTests` residual expectation +
+comments updated to `slice(...)`.
+
+**Retractions (same slice).** `plan.md` BUILTIN-IMPORT-LENIENCY observation closed (LANDED);
+`cue-spec-gaps.md` BUILTIN-IMPORT-LENIENCY row → LANDED, LIST-SLICE row → `slice(...)`;
+`compat-assumptions.md` UNUSED-IMPORT leniency recorded (kue still does-less: an unused import is
+not flagged — cue errors `imported and not used`; a separate later slice).
+
+`./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical). Committed on
+`main`, explicit pathspec, NOT pushed.

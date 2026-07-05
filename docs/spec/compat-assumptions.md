@@ -81,6 +81,12 @@ those forms.
   `cue` *errors* on an unreferenced `let` /alias (`unreferenced alias or let clause` —
   intentional dead-binding detection); kue silently drops it. Tightening kue to match is a
   later slice if a real file needs the diagnostic.
+- **UNUSED-IMPORT leniency (kue-does-less, sibling of the unreferenced-`let` above).** Since
+  BUILTIN-IMPORT-LENIENCY landed (2026-07-05), kue enforces the USE side — a qualified builtin
+  used WITHOUT its `import` errors, matching cue. The reverse — an `import` present but never
+  used — cue *errors* (`imported and not used: "strings"`); kue silently accepts. Same
+  dead-binding-detection family as the `let` case; a later slice if a real file needs the
+  diagnostic. NOT in `cue-divergences.md` (kue-does-less, not kue-is-right).
 - **List-embedding-in-struct eval — IMPLEMENTED (2026-06-17), oracle-matched.** A struct
   whose members are *all non-output* (hidden `_x`, definition `#x`, optional `a?:`, or
   `let`) embedding a list *is* that list: it manifests as the list, indexes as the list,

@@ -4,8 +4,9 @@ import Kue.Tests.ParseTests
 namespace Kue
 
 -- List slicing `x[lo:hi]` (half-open, 0-based; bounds optional). Parses as a postfix form
--- alongside indexing `x[i]` and desugars to `list.Slice`, inheriting cue's bounds/negative/
--- incomplete semantics. Oracle: cue v0.16.1.
+-- alongside indexing `x[i]` and desugars to the core `slice` builtin — a language operator
+-- distinct from the import-gated public `list.Slice`, so slicing needs no `import "list"`. It
+-- inherits cue's bounds/negative/incomplete semantics. Oracle: cue v0.16.1.
 
 -- Valid slices (CUE-syntax eval keeps the concrete sublist).
 theorem slice_interior :
@@ -45,11 +46,11 @@ theorem slice_low_gt_high_bottoms :
 theorem slice_string_operand_bottoms :
     exportJsonBottoms "out: \"hello\"[1:3]\n" = true := by native_decide
 
--- An incomplete bound DEFERS (residual `list.Slice`), not bottom — the guard that a
--- non-concrete index keeps the slice open for a later pass rather than erroring eagerly.
+-- An incomplete bound DEFERS (residual `slice`), not bottom — the guard that a non-concrete
+-- index keeps the slice open for a later pass rather than erroring eagerly.
 theorem slice_incomplete_index_defers :
     evalSourceMatches "x: int\nl: [1, 2, 3, 4]\nout: l[x:2]\n"
-      "x: int\nl: [1, 2, 3, 4]\nout: list.Slice([1, 2, 3, 4], int, 2)" = true := by
+      "x: int\nl: [1, 2, 3, 4]\nout: slice([1, 2, 3, 4], int, 2)" = true := by
   native_decide
 
 -- Parser: every slice form parses, and a nested slice-then-index chains.

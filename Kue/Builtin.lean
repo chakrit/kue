@@ -1034,7 +1034,7 @@ deriving Repr, BEq, DecidableEq
     (`math.NoSuch`) classifies to its family; the leaf is rejected inside the family
     dispatcher, not here. -/
 def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
-  if [ "close", "len", "and", "or", "div", "mod", "quo", "rem" ].contains name then
+  if [ "close", "len", "and", "or", "div", "mod", "quo", "rem", "slice" ].contains name then
     some .core
   else if name.startsWith "strings." then some .strings
   else if name.startsWith "list." then some .list
@@ -1045,9 +1045,10 @@ def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
   else if name.startsWith "yaml." then some .yaml
   else none
 
-/-- Dispatch the eight `core` exact-name builtins. Reached only for a name `ofName?`
-    classified as `.core`, so every real call matches one of the eight arms; the final arm
-    is unreachable by that contract and routes through `unresolvedOrBottom` to stay total. -/
+/-- Dispatch the `core` exact-name builtins (import-free: the eight CUE built-ins plus the
+    `slice` desugar of `x[lo:hi]`). Reached only for a name `ofName?` classified as `.core`;
+    a non-concrete `slice` bound routes through `unresolvedOrBottom` to defer, as does the
+    unreachable final arm, keeping the dispatch total. -/
 def evalCoreBuiltin : String -> List Value -> Value
   | "close", [value] => closeValue value
   | "len", [value] => lenValue value
@@ -1057,6 +1058,10 @@ def evalCoreBuiltin : String -> List Value -> Value
   | "mod", [left, right] => modValue left right
   | "quo", [left, right] => quoValue left right
   | "rem", [left, right] => remValue left right
+  -- The slice-syntax desugar (`x[lo:hi]`); a language operator that, unlike the public
+  -- `list.Slice` package function, needs no `import "list"`. Concrete bounds slice; a
+  -- non-concrete bound falls through to the residual defer.
+  | "slice", [.list items, .prim (.int low), .prim (.int high)] => listSlice items low high
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a builtin call over already-evaluated arguments. The family is classified once

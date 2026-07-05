@@ -1125,6 +1125,12 @@ def builtinImportPaths : List String :=
 def isBuiltinImport (path : String) : Bool :=
   builtinImportPaths.contains path
 
+/-- The local dispatch-head names of the built-in stdlib packages (`encoding/base64` →
+    `base64`). A qualified builtin reference (`strings.ToUpper`, `list.Ascending`) is usable
+    only when its package is one of these AND imported; the import gate keys off this set. -/
+def builtinPackageNames : List String :=
+  builtinImportPaths.map lastPathElement
+
 /-- The full result of parsing one `.cue` file: its top-level value (struct body), the
     declared `package` name (`none` when the file omits a package clause), and the imports
     it pulls in. Carries everything the loader needs to resolve and bind imports without
