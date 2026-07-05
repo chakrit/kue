@@ -699,6 +699,21 @@ Architecture verdicts clean: `ModCmd` carve from `Module` has no back-coupling/c
 byte-carrier change clean (base64 centralized, no String residue). A whole-graph Explore scan filed
 three fix-slices (below). Detail: log.
 
+The **2026-07-05 (batch-5) two-phase audit** (`7b6e66f..e10d282`: ARCH-QUOTED-STRIP plan 0c,
+PRIM-FLOAT-PARSED plan 0e) is COMPLETE — **BOTH PHASES CLEAN, zero new fix-slices**. Phase A
+hard-verified the two designated high-value points: the inert `BEq Quoted := ⟨fun _ _ => true⟩`
+is SAFE (Value/Field derive only `Repr, BEq` — no `DecidableEq`/`LawfulBEq` to contradict it; the
+sole quoting readers `letBinderLabel`/`collidableFieldLabel` read `field.quoted.value` directly,
+never via `BEq`; `valueDigest` already omitted quoted so BEq/digest now consistent by construction;
+`Coe Bool Quoted` one-directional, no surprising elaboration), and `mkFloatText`'s
+`.getD (intDecimal 0)` fallback is UNREACHABLE (all 10 sites feed lexer- or own-formatter text; no
+unvalidated string reaches it → no masked-`0` bug, no wild fixture). No new `Value` catch-all;
+`check-comments` green; convention migrated with its surface. Phase B verified `DecimalValue`
+above `Prim` is coherent (no forward-ref), `mkFloatText` is the SOLE float route (only raw `.float`
+is inside it + an identity passthrough), and no dead code from the `stripFieldQuoting` deletion
+(`builtinAliasFuel` still consumed by `canonicalizeBuiltinCalls`). AUD-B2/B4 re-verified STILL OPEN
++ correctly scoped. Detail: log.
+
 The **2026-07-05 (batch-4) two-phase audit** (`6012a8e..41dbe9e`: AUD-B3 enumeration,
 STRUCT-EQ half-2, NESTED-DISJ-MARK reframe) is COMPLETE — **BOTH PHASES CLEAN, zero new
 fix-slices** (a valid clean-audit outcome, no work invented). Phase A verified

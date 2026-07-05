@@ -18029,3 +18029,65 @@ negative-exp verbatim), `float_beq_reduces_to_text_equality` (the load-bearing B
 `./scripts/check.sh` GREEN; cert-manager realworld canary byte-identical. No spec-gap/divergence
 added — numeric semantics (precision, rendering, `1.0`==`1.00`) are unchanged and spec-conforming;
 the change is purely internal representation. Committed on `main`, explicit pathspec, NOT pushed.
+
+## Completed Audit: 2026-07-05 (batch-5) two-phase — ARCH-QUOTED-STRIP + PRIM-FLOAT-PARSED — CLEAN
+
+Two-phase audit over the two core-type refactors landed since the batch-4 audit:
+`7b6e66f` (ARCH-QUOTED-STRIP, plan 0c) and `e10d282` (PRIM-FLOAT-PARSED, plan 0e). **Both
+phases CLEAN — zero new fix-slices** (a valid clean-audit outcome; no work invented). No code
+change; this entry records the audit per the standing "audit slices get a log entry too" duty.
+
+**Prior-audit reconciliation (Phase A first step).** batch-4 filed AUD-B2 (LOW, modtidy zip
+generator) and AUD-B4 (LOW, `Value.textBytes` in core); AUD-B3 was DONE (`6012a8e`). AUD-B2 and
+AUD-B4 re-verified STILL OPEN + correctly scoped (see reaffirmation below). No filed slice decayed.
+
+**Phase A — code-quality. The two designated high-value scrutiny points both hold:**
+
+1. **Inert `BEq Quoted := ⟨fun _ _ => true⟩` — SAFE.** `Value`/`Field` derive ONLY `Repr, BEq`
+   (`Value.lean:801` `deriving instance Repr, BEq for Value, Field, ClosedClause` — no
+   `DecidableEq`, no `LawfulBEq`), so there is no second structural-equality instance that could
+   contradict the payload-ignoring `BEq` and re-expose quoting. The ONLY consumers of quoting
+   semantics — `letBinderLabel` and `collidableFieldLabel` (`Parse.lean:765`) — read
+   `field.quoted.value` directly, never through `BEq`; no site distinguishes quoted via equality.
+   `valueDigest` already omitted `quoted`, so `BEq` and the digest are now consistent BY
+   CONSTRUCTION (the old strip-pass left that an unenforced must-strip invariant; the newtype makes
+   the leak type-unrepresentable — strictly better). `Coe Bool Quoted` is one-directional
+   (Bool→Quoted, fires only where `Quoted` is expected, i.e. the ~20 eval-layer `Field`
+   constructions writing `false`); no surprising elaboration in Bool contexts.
+
+2. **`mkFloatText`'s `.getD (intDecimal 0)` fallback — UNREACHABLE, no masking.** All 10
+   construction sites feed lexer- or own-formatter-produced text: `Parse.lean:618` (lexer
+   `parseNumberToken`, a validated numeric literal); `Decimal.lean:{29,209,217,255,261}`
+   (`formatDecimalAtScale`/`divideDecimalRational?`/`formatFiniteDecimal`); `EvalOps.lean:162`
+   (`evalDecimalDivide?` `.ok` from `divideDecimalRational?`); `EvalOps.lean:478` (`negateFloatText`
+   of already-valid float text); `Builtin.lean:{692,754}` (`formatFiniteDecimal`/
+   `divideDecimalRational?`). No unvalidated external text reaches it, so the `0` fallback cannot
+   fire in practice — no latent masked-`0` bug, no wild fixture warranted. The one remaining raw
+   `.float` (`EvalOps.lean:469` `| .prim (.float value text) => .prim (.float value text)`) is an
+   identity passthrough reusing an already-parsed `value` — not an unparsed-rep bypass.
+
+3. **Guards.** No `| _ =>` on Value-producing matches introduced (the `stripFieldQuoting` deletion
+   REMOVED a fully-enumerated match; nothing new added). `check-comments.sh` GREEN. Convention
+   migrated with its surface — every `Field` construction routes through `Coe Bool Quoted` in the
+   same slice, no half-migration.
+
+**Phase B — architecture. CLEAN:**
+
+- **`DecimalValue` moved above `Prim`** (`Value.lean:19` → `Prim` at `30` → `parseDecimalText` at
+  `217` → `mkFloatText` at `229`): ordering coherent, no forward-reference hack; `mkFloatText` sees
+  both `Prim` and `parseDecimalText`.
+- **`mkFloatText` is the SOLE float-construction route:** the only raw `.float` is inside
+  `mkFloatText` itself plus the identity passthrough above — no bypass leaks an unparsed rep.
+- **`Quoted` well-placed** (defined near `Field`/`Clause` in `Value.lean`).
+- **No dead code from the deletions:** `stripFieldQuoting`/`stripClauseQuoting` fully removed, zero
+  dangling refs; `builtinAliasFuel` is NOT orphaned (still consumed by `canonicalizeBuiltinCalls`,
+  `Parse.lean:2015`); both parse→eval seam calls removed.
+
+**AUD-B2/B4 reaffirmed OPEN.** AUD-B2: `testdata/ocifetch/modtidy/{a,b,c-1.2.0,c-1.3.0,malformed}.zip`
+are 5 opaque committed binaries; only `scripts/gen-case-table.py` exists — no modtidy generator.
+Still open, correctly scoped LOW. AUD-B4: `Value.textBytes` (`Value.lean:54`) has ZERO non-test
+callers (all uses in `Tests.lean`/`FixturePorts.lean`) yet lives in core `Value`. Still open,
+correctly scoped LOW (cosmetic). Neither reached the active queue this batch; both remain filed.
+
+`./scripts/check.sh` GREEN (all gates: `lake build` + every `check-*.sh` + shellcheck; cert-manager
+realworld canary byte-identical). Audit committed on `main`, explicit pathspec, NOT pushed.
