@@ -49,16 +49,20 @@ def depsFromEntries (entries : List (String × ByteArray)) : Except String (List
           | .error e => .error s!"cue.mod/module.cue parse error: {e.message}"
           | .ok value => .ok (parseDeps value)
 
-/-- The `(path, version, h1)` `cue.sum` rows for a solved build list: every build-list entry
-    EXCEPT the main module, paired with the `h1:` sum recorded for its fetched node. A build-list
-    path with no fetched node is dropped (cannot happen — every selected version is a fetched
-    edge min). Pure over the fetched node table. -/
+/-- The `(path, version, h1)` `cue.sum` rows for a solved build list: each FETCHED node the build
+    list selected (excluding the main module), paired with the `h1:` digest recorded when it was
+    fetched. Rows are derived FROM the fetched nodes — each of which carries its own digest — so
+    every row inherently has an `h1`; a selected version is a fetched node by construction (MVS only
+    selects versions present in the graph, and the graph is built from these very nodes), so there is
+    no build-list entry without a digest to drop. `cue.sum` is order-independent (`formatCueSum`
+    sorts). Pure. -/
 def cueSumRows (main : Registry.ModuleVersion) (buildList : List Registry.ModuleVersion)
     (nodes : List (Registry.ModuleVersion × (List Dep × String))) :
     List (String × String × String) :=
-  buildList.filterMap fun mvv =>
-    if mvv.basePath == main.basePath then none
-    else (nodes.find? (fun n => n.fst == mvv)).map fun n => (mvv.basePath, mvv.version, n.snd.snd)
+  nodes.filterMap fun (node, _, h1) =>
+    if node.basePath != main.basePath && buildList.contains node then
+      some (node.basePath, node.version, h1)
+    else none
 
 /-! ## IO edge — transitive graph fetch + cue.sum write -/
 
