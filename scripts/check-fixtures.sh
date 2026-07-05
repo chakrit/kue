@@ -616,6 +616,29 @@ check_zip_golden() {
   fi
 }
 
+# Drive the B3d-6b `cue mod tidy` pipeline (Kue.ModCmd.runTidy) over the committed
+# testdata/ocifetch/modtidy/ fixtures, OFFLINE. The EntryFetcher reads local fixture zips (no
+# network, no real registry); cue.sum is written into a repo-local temp importer root (never a
+# real cache). Asserts the transitive module.cue fetch -> requirement-graph build -> CHECKED MVS
+# solve (diamond version conflict resolved by max-of-mins) -> cue.sum WRITE with verified h1:
+# digests, plus the transport-failure and malformed-module.cue error paths.
+check_mod_tidy() {
+  local modtidy_dir="${ocifetch_dir}/modtidy"
+  if [[ ! -d "${modtidy_dir}" ]]; then
+    return 0
+  fi
+
+  if ! lake build Kue.ModCmd >/dev/null; then
+    printf 'failed to build Kue.ModCmd\n' >&2
+    return 1
+  fi
+
+  if ! lake env lean --run "${repo_root}/scripts/check-mod-tidy.lean" "${modtidy_dir}"; then
+    printf 'mod tidy pipeline check failed\n' >&2
+    return 1
+  fi
+}
+
 # Drive the B3d-5 fetch->extract->cache-write->read-path wiring (Kue.fetchAndCacheModule) over
 # the committed testdata/ocifetch/pipeline/ fixtures, OFFLINE. The fetch step reads the local
 # fixture zip (no network, no real registry); CUE_CACHE_DIR points at a fresh repo-local temp dir
@@ -712,6 +735,10 @@ main() {
   fi
 
   if ! check_fetch_pipeline; then
+    status=1
+  fi
+
+  if ! check_mod_tidy; then
     status=1
   fi
 

@@ -1,5 +1,6 @@
 import Kue
 import Kue.Cli
+import Kue.ModCmd
 
 /-- Process exit codes. Usage errors (bad subcommand/flag) are distinct from
     evaluation/parse failures so callers and scripts can tell them apart. -/
@@ -113,9 +114,35 @@ def runExport (opts : Kue.Cli.ExportOpts) : IO UInt32 := do
                   IO.print output
                   pure 0
 
+/-- The `mod tidy` subcommand: discover the module root from the cwd, resolve the requirement
+    graph (transitive read-only registry GETs), run MVS, and write `cue.sum`. Prints the resolved
+    build list; a resolution/fetch failure is a clean diagnostic. -/
+def runModTidy : IO UInt32 := do
+  let root ← IO.currentDir
+  match ← Kue.findModuleRoot root with
+  | none =>
+      IO.eprintln "kue: no cue.mod/module.cue found in any parent directory"
+      pure evalErrorCode
+  | some moduleRoot =>
+      let cueRegistry ← Kue.readCueRegistry
+      match ← Kue.ModCmd.runTidy moduleRoot (Kue.ModCmd.ociEntryFetcher cueRegistry) with
+      | .error message =>
+          IO.eprintln s!"kue: mod tidy: {message}"
+          pure evalErrorCode
+      | .ok res =>
+          IO.println s!"resolved {res.sumRows.length} dependencies; wrote cue.sum"
+          for mvv in res.buildList do
+            if !mvv.version.isEmpty then
+              IO.println s!"  {mvv.basePath} {mvv.version}"
+          pure 0
+
+def runMod : Kue.Cli.ModOp -> IO UInt32
+  | .tidy => runModTidy
+
 def runCommand : Kue.Cli.Command -> IO UInt32
   | .eval files => runEval files
   | .export opts => runExport opts
+  | .mod op => runMod op
   | .version => do
       IO.println Kue.version
       pure 0

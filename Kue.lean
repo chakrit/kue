@@ -23,6 +23,7 @@ import Kue.Zip
 import Kue.Registry
 import Kue.Semver
 import Kue.Mvs
+import Kue.ModCmd
 import Kue.Oci
 import Kue.OciFetch
 import Kue.Cli

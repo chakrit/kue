@@ -99,10 +99,32 @@ theorem parse_export_unknown_flag_is_error :
 theorem parse_eval_unknown_flag_is_error :
     parse ["eval", "--bogus"] = .error "unknown eval flag: --bogus" := by native_decide
 
+-- ## `mod` subcommand parsing (B3d-6b)
+
+theorem parse_mod_tidy : parse ["mod", "tidy"] = .mod .tidy := by native_decide
+
+-- A bare `mod` with no subcommand is a usage error.
+theorem parse_mod_bare_is_error :
+    (match parse ["mod"] with | .error _ => true | _ => false) = true := by native_decide
+
+-- An unknown `mod` subcommand is a usage error.
+theorem parse_mod_unknown_is_error :
+    (match parse ["mod", "frobnicate"] with | .error _ => true | _ => false) = true := by
+  native_decide
+
+-- `mod get` reports its deferral cleanly (a filed follow-up, not silently accepted).
+theorem parse_mod_get_is_error :
+    (match parse ["mod", "get", "x.com/y@v1"] with | .error _ => true | _ => false) = true := by
+  native_decide
+
+-- `mod --help` routes to the mod help topic.
+theorem parse_mod_help : parse ["mod", "--help"] = .help (some .mod) := by native_decide
+
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
 -- elaboration.
 #check @parse_eval_unknown_flag_is_error
+#check @parse_mod_help                    -- `mod` subcommand parsing (B3d-6b)
 
 end Kue.Cli

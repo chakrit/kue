@@ -17,6 +17,13 @@ deriving Repr, BEq, DecidableEq
 inductive HelpTopic where
   | eval
   | export
+  | mod
+deriving Repr, BEq, DecidableEq
+
+/-- A `mod` module-management operation. `tidy` resolves the requirement graph (MVS) and writes
+    `cue.sum` (B3d-6b). `get` (module.cue mutation) is a filed follow-up — see `parseMod`. -/
+inductive ModOp where
+  | tidy
 deriving Repr, BEq, DecidableEq
 
 /-- A fully parsed invocation. `eval` carries the positional file list (empty = stdin via
@@ -26,6 +33,7 @@ deriving Repr, BEq, DecidableEq
 inductive Command where
   | eval (files : List String)
   | export (opts : ExportOpts)
+  | mod (op : ModOp)
   | version
   | help (topic : Option HelpTopic)
   | error (message : String)
@@ -69,6 +77,19 @@ def parseEval : List String -> Command
       | some flag => .error s!"unknown eval flag: {flag}"
       | none => .eval args
 
+/-- Parse the `mod` subcommand: `mod tidy` resolves the requirement graph (MVS) and writes
+    `cue.sum`. `mod get` (which mutates `cue.mod/module.cue`) is a filed follow-up — it needs a CUE
+    deps-block emitter — so it reports that cleanly. An unknown/absent subcommand is a usage error. -/
+def parseMod : List String -> Command
+  | [] => .error "mod: expected a subcommand (tidy)"
+  | "--help" :: _ => .help (some .mod)
+  | "-h" :: _ => .help (some .mod)
+  | "tidy" :: _ => .mod .tidy
+  | "get" :: _ =>
+      .error "mod get: not yet implemented (adding a dep to cue.mod/module.cue needs the CUE \
+        deps-block emitter — B3d-6b follow-up); declare the dep and run `kue mod tidy`"
+  | other :: _ => .error s!"mod: unknown subcommand: {other} (expected tidy)"
+
 /-- Parse the whole argv into a `Command`. Dispatch rule: no arguments prints the
     top-level help (like `cue`/`git`/`docker`); a recognized subcommand as the first token
     routes to it; a recognized top-level flag (`--help`/`-h`, `--version`/`-V`) maps to its
@@ -78,6 +99,7 @@ def parse : List String -> Command
   | [] => .help none
   | "eval" :: rest => parseEval rest
   | "export" :: rest => parseExport .json none none rest
+  | "mod" :: rest => parseMod rest
   | "version" :: _ => .version
   | "--version" :: _ => .version
   | "-V" :: _ => .version
@@ -103,6 +125,7 @@ Usage:
 Commands:
   eval [file...]            evaluate stdin or files; print the resolved value
   export [--out fmt] [file] manifest a value to JSON (default) or YAML
+  mod tidy                  resolve the module requirement graph (MVS); write cue.sum
   version                   print the kue version
   help [command]            print help for kue or a command
 
@@ -140,10 +163,24 @@ Flags:
   --out json|yaml          output format (default: json)
   -e, --expression expr    export the value at field path expr (e.g. common.name)"
 
+/-- Per-command usage for `mod`. -/
+def modHelp : String :=
+  "kue mod — module management
+
+Usage:
+  kue mod tidy
+
+`tidy` reads the main module's declared dependencies, fetches each transitive dependency's
+cue.mod/module.cue over the (read-only) registry, runs Minimal Version Selection to pick one
+version per module path (max-of-mins), and writes cue.sum with the verified h1: digests.
+
+The registry GETs are read-only; cue.sum is written into the module root."
+
 /-- Resolve a help request to its usage text. -/
 def helpText : Option HelpTopic -> String
   | none => topLevelHelp
   | some .eval => evalHelp
   | some .export => exportHelp
+  | some .mod => modHelp
 
 end Kue.Cli

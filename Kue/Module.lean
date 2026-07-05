@@ -1,6 +1,7 @@
 import Kue.Parse
 import Kue.Runtime
 import Kue.Registry
+import Kue.Semver
 import Kue.OciFetch
 import Kue.Zip
 import Kue.Sha256
@@ -357,21 +358,40 @@ def subpathDir (root : System.FilePath) (subpath : String) : System.FilePath :=
 def readCueRegistry : IO String := do
   pure ((← IO.getEnv "CUE_REGISTRY").getD "")
 
+/-- Parse `cue.sum` text into `(modpath@version, h1-hash)` pairs. Format mirrors Go's `go.sum`:
+    whitespace-separated `<module> <version> h1:<base64>` lines; blank/short lines are skipped.
+    Pure — the IO wrapper `readCueSum` only supplies the file text. -/
+def parseCueSumText (text : String) : List (String × String) :=
+  text.splitOn "\n" |>.filterMap fun line =>
+    match line.trimAscii.toString.splitOn " " |>.filter (·.length > 0) with
+    | modPath :: version :: hash :: _ => some (s!"{modPath}@{version}", hash)
+    | _ => none
+
+/-- One `cue.sum` line: `<modpath> <version> <h1>` + `\n` (`h1` is the full `h1:<base64>`). The
+    inverse of one `parseCueSumText` line. -/
+def formatCueSumLine (modPath version h1 : String) : String :=
+  s!"{modPath} {version} {h1}\n"
+
+/-- Serialize resolved `(modpath, version, h1)` sums to `cue.sum` text — the inverse of
+    `parseCueSumText`. Sorted by `(modpath, semver version)` for a deterministic file (mirroring
+    Go's `module.Sort` over `go.sum`); one line per entry. Pure; `writeCueSum` supplies the IO. -/
+def formatCueSum (entries : List (String × String × String)) : String :=
+  let sorted := entries.toArray.qsort (fun a b =>
+    let (ma, va, _) := a
+    let (mb, vb, _) := b
+    if ma != mb then ma < mb else Semver.compare va vb < 0) |>.toList
+  String.join (sorted.map (fun (m, v, h) => formatCueSumLine m v h))
+
 /-- Parse an importer's `cue.sum` (when present) into `(modpath@version, h1-hash)` pairs.
-    Format mirrors Go's `go.sum`: whitespace-separated `<module> <version> h1:<base64>` lines;
-    blank/short lines are skipped. cue v0.16.1 ships NO `cue.sum` mechanism (the OCI blob digest
-    is its live integrity gate — see `fetchAndCacheModule`), so this is a defensive,
-    forward-compatible verifier: a sum present is enforced, an absent file is no error. -/
+    cue v0.16.1 ships NO `cue.sum` mechanism (the OCI blob digest is its live integrity gate —
+    see `fetchAndCacheModule`), so this is a defensive, forward-compatible verifier: a sum present
+    is enforced, an absent file is no error. -/
 def readCueSum (importerRoot : System.FilePath) : IO (List (String × String)) := do
   let path := importerRoot / "cue.sum"
   if !(← path.pathExists) then
     pure []
   else
-    let text ← IO.FS.readFile path
-    pure <| text.splitOn "\n" |>.filterMap fun line =>
-      match line.trimAscii.toString.splitOn " " |>.filter (·.length > 0) with
-      | modPath :: version :: hash :: _ => some (s!"{modPath}@{version}", hash)
-      | _ => none
+    pure (parseCueSumText (← IO.FS.readFile path))
 
 /-- The recorded `h1:` sum for `dep` in a parsed `cue.sum`, if any (keyed `modpath@version`). -/
 def lookupCueSum (sums : List (String × String)) (dep : Dep) : Option String :=
