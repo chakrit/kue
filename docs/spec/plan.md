@@ -226,8 +226,9 @@ rejection argument: `kue-performance.md` + implementation-log.
    operands before any `BEq`, so the strip never reaches the `==` operator; struct `==` was simply
    never implemented. Orthogonal to label quoting.
 
-0b. **AUDIT-STRUCT-EQ (MEDIUM — feature gap + pre-existing divergence). RE-SCOPED by the 2026-07-04
-   Phase B audit: SPLIT into an autonomous-safe half and a deferred half.** `Kue/EvalOps.lean:evalEq`
+0b. **AUDIT-STRUCT-EQ — ✅ FULLY CLOSED (half-1 2026-07-04, half-2 2026-07-05).** (MEDIUM — feature
+   gap + pre-existing divergence). RE-SCOPED by the 2026-07-04 Phase B audit: SPLIT into an
+   autonomous-safe half and a deferred half; BOTH now landed. `Kue/EvalOps.lean:evalEq`
    handles only `.prim`; every struct/list `==`/`!=` defers to `.binary .eq` → `incomplete value`
    (all-bare `({x:1}) == ({x:1})` defers identically — not a quoting issue). cue reduces concrete
    struct/list `==` to a bool. TWO entangled issues: (1) reduce concrete struct/list operands to
@@ -260,10 +261,22 @@ rejection argument: `kue-performance.md` + implementation-log.
      leaves inside containers (`[1.0]==[1]`, `{a:1.0}=={a:1}` → kue `true`, cue `false`). Filed as
      **STRUCT-EQ-LEAF-TYPESENSE** (0d below). NESTED `embeddedScalar`
      field values stay deferred (isConcrete → false): a safe, exotic residual, not a regression.
-   - **Half (2) — order-independent `dedupAlternatives` — DEFER / attended.** Touches
-     `Lattice.dedupAlternatives`, which feeds disjunction resolution globally; couple it with a
-     broader disjunction-canonicalization pass, not the `evalEq` slice. Fixes the reordered-field
-     dedup divergence in `cue-divergences.md`.
+   - **Half (2) — order-independent `dedupAlternatives` — ✅ DONE (2026-07-05).** `Lattice.lean`
+     adds `normalizeFieldOrder : Value → Value` (a field-ORDER normal form: every struct-bearing
+     constructor's member list sorted by label via `sortFieldsByLabel`, sub-values normalized
+     recursively; list element order PRESERVED; `termination_by structural`, total) and
+     `eqUpToFieldOrder := normalizeFieldOrder left == normalizeFieldOrder right`. `dedupAlternatives`
+     now tests arm equality with `eqUpToFieldOrder` (NOT the global order-sensitive `BEq`) and keeps
+     the INCOMING (earlier-in-list) arm's value, so `{a:1,b:2} | {b:2,a:1}` collapses to one arm
+     displaying the first-declared order — matching cue byte-for-byte. Chosen route: a canonical
+     normal form (order-independence BY CONSTRUCTION) over an ad-hoc order-insensitive compare. The
+     global `Value` `BEq` is UNTOUCHED — cycle detection (`Eval.lean` `structStack.contains`) still
+     relies on exact equality; the coarser equality is confined to the dedup path. Over-collapse
+     guarded: differing value / label-set / openness / field-class / list-element-order all stay
+     distinct. 17 `native_decide` theorems (`LatticeTests` `structeq_*`) + `structeq_disj_reorder`
+     export fixture (reordered/three-way/nested, kue == cue). `./scripts/check.sh` GREEN;
+     cert-manager canary in-gate GREEN. The reordered-dedup divergence is REMOVED from
+     `cue-divergences.md` (kue now agrees with cue and spec). **AUDIT-STRUCT-EQ is fully CLOSED.**
 
 0c. **ARCH-QUOTED-STRIP (MEDIUM — architecture; from the 2026-07-04 Phase B audit).** `Field.quoted`
    is parse provenance living on the eval-layer `Value.Field`, made inert only by

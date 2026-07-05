@@ -297,16 +297,116 @@ def combineMarkOr : Mark -> Mark -> Mark
   | .regular, .regular => .regular
   | _, _ => .default
 
+/-- Sort a field list by label into a canonical order. `List.mergeSort` is STABLE, so the
+    same-label slots a still-held/pre-eval struct can carry keep their input order — the safe
+    direction: reordered DISTINCT labels normalize together, reordered same-label DUPLICATES
+    do not (they would merge differently, so they stay distinct). Non-recursive: it sorts an
+    already-`normalizeFieldOrder`-normalized field list, so it never descends into `Value`. -/
+def sortFieldsByLabel (fields : List Field) : List Field :=
+  fields.mergeSort (fun left right => left.label <= right.label)
+
+/- `normalizeFieldOrder` rewrites a `Value` into a canonical field-ORDER normal form: every
+   struct-bearing constructor's member list is sorted by label (`sortFieldsByLabel`) with its
+   sub-values normalized recursively. Two values that are equal UP TO struct-field order (and
+   only that) normalize to the SAME term, so `==` on the normal form is order-independent BY
+   CONSTRUCTION — the equality `dedupAlternatives` needs so reordered-but-equal disjunction
+   arms collapse (spec: a struct is a MAP, `{a:1,b:2}` and `{b:2,a:1}` are the SAME value).
+   LIST/tuple element order is PRESERVED (lists are sequences — order-significant); only struct
+   MEMBER order is canonicalized. The global `Value` `BEq` is left exact and untouched: cycle
+   detection (`Eval.lean` `structStack.contains`) relies on it, so this normal form is confined
+   to the dedup equality and never widens `==`. `closedClauses` order is left as built (equal
+   arms build them identically; not normalizing is the conservative, no-over-collapse choice).
+   Deferred/pre-eval constructors that never sit as a resolved disjunction arm pass through
+   unchanged. `termination_by structural` — total, no fuel. Enumerates every constructor (the
+   `| _ =>` catch-all is banned in a `Value`-producing match). -/
+mutual
+
+def normalizeFieldOrder : Value -> Value
+  | .top => .top
+  | .bottom => .bottom
+  | .bottomWith reasons => .bottomWith reasons
+  | .prim value => .prim value
+  | .kind kind => .kind kind
+  | .notPrim value => .notPrim value
+  | .stringRegex pattern => .stringRegex pattern
+  | .boundConstraint bound kind domain => .boundConstraint bound kind domain
+  | .conj constraints => .conj (normalizeFieldOrderList constraints)
+  | .builtinCall name args => .builtinCall name (normalizeFieldOrderList args)
+  | .unary op value => .unary op (normalizeFieldOrder value)
+  | .binary op left right => .binary op (normalizeFieldOrder left) (normalizeFieldOrder right)
+  | .ref label => .ref label
+  | .refId id => .refId id
+  | .thisStruct => .thisStruct
+  | .selector base label => .selector (normalizeFieldOrder base) label
+  | .index base key => .index (normalizeFieldOrder base) (normalizeFieldOrder key)
+  | .disj alternatives => .disj (normalizeFieldOrderAlts alternatives)
+  | .struct fields openness tail patterns closedClauses =>
+      .struct (sortFieldsByLabel (normalizeFieldOrderFields fields)) openness
+        (match tail with | some t => some (normalizeFieldOrder t) | none => none)
+        (normalizeFieldOrderPatterns patterns) closedClauses
+  | .list items => .list (normalizeFieldOrderList items)
+  | .listTail items tail => .listTail (normalizeFieldOrderList items) (normalizeFieldOrder tail)
+  | .embeddedList items tail decls =>
+      .embeddedList (normalizeFieldOrderList items)
+        (match tail with | some t => some (normalizeFieldOrder t) | none => none)
+        (sortFieldsByLabel (normalizeFieldOrderFields decls))
+  | .embeddedScalar scalar decls =>
+      .embeddedScalar (normalizeFieldOrder scalar)
+        (sortFieldsByLabel (normalizeFieldOrderFields decls))
+  | .comprehension clauses body => .comprehension clauses body
+  | .structComp fields comprehensions openness =>
+      .structComp (sortFieldsByLabel (normalizeFieldOrderFields fields)) comprehensions openness
+  | .listComprehension clauses body => .listComprehension clauses body
+  | .interpolation parts => .interpolation parts
+  | .dynamicField label fieldClass value => .dynamicField label fieldClass value
+  | .closure capturedEnv body => .closure capturedEnv body
+  termination_by structural value => value
+
+def normalizeFieldOrderList : List Value -> List Value
+  | [] => []
+  | value :: rest => normalizeFieldOrder value :: normalizeFieldOrderList rest
+  termination_by structural values => values
+
+def normalizeFieldOrderAlts : List (Mark × Value) -> List (Mark × Value)
+  | [] => []
+  | (mark, value) :: rest => (mark, normalizeFieldOrder value) :: normalizeFieldOrderAlts rest
+  termination_by structural alternatives => alternatives
+
+def normalizeFieldOrderFields : List Field -> List Field
+  | [] => []
+  | ⟨label, fieldClass, value, quoted⟩ :: rest =>
+      ⟨label, fieldClass, normalizeFieldOrder value, quoted⟩ :: normalizeFieldOrderFields rest
+  termination_by structural fields => fields
+
+def normalizeFieldOrderPatterns : List (Value × Value) -> List (Value × Value)
+  | [] => []
+  | (labelPattern, constraint) :: rest =>
+      (normalizeFieldOrder labelPattern, normalizeFieldOrder constraint)
+        :: normalizeFieldOrderPatterns rest
+  termination_by structural patterns => patterns
+end
+
+/-- Value equality UP TO struct field order: compare the field-order normal forms. Order-
+    independent over struct members, order-SENSITIVE over list elements — the equality
+    `dedupAlternatives` uses so reordered-but-equal disjunction arms collapse. Distinct from the
+    global `Value` `BEq` (exact/order-sensitive), which cycle detection still relies on. -/
+def eqUpToFieldOrder (left right : Value) : Bool :=
+  normalizeFieldOrder left == normalizeFieldOrder right
+
 /-- Merge alternatives that share a value: a value is a default iff ANY of its occurrences
     is default (`combineMarkOr`). Collapses `*1|*1|2 → *1|2`, `*1|1 → *1`, `1|1 → 1`, so
-    equal defaults dedup and resolve to one. First occurrence's position is preserved. -/
+    equal defaults dedup and resolve to one. Two struct arms equal only UP TO FIELD ORDER
+    (`eqUpToFieldOrder`, not the order-sensitive global `BEq`) count as the same value and
+    collapse, so `{a:1,b:2} | {b:2,a:1}` reduces to one arm (spec: a struct is a map). The
+    surviving slot keeps the INCOMING (earlier-in-list) arm's value, so the first-declared
+    field order is what displays. -/
 def dedupAlternatives (alternatives : List (Mark × Value)) : List (Mark × Value) :=
   alternatives.foldr
     (fun alternative merged =>
-      if merged.any (fun existing => existing.snd == alternative.snd) then
+      if merged.any (fun existing => eqUpToFieldOrder existing.snd alternative.snd) then
         merged.map fun existing =>
-          if existing.snd == alternative.snd then
-            (combineMarkOr existing.fst alternative.fst, existing.snd)
+          if eqUpToFieldOrder existing.snd alternative.snd then
+            (combineMarkOr existing.fst alternative.fst, alternative.snd)
           else existing
       else alternative :: merged)
     []

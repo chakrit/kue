@@ -752,6 +752,138 @@ theorem a6_deep_optional_bottom_skipped :
       = false := by
   native_decide
 
+-- ## Order-independent disjunction dedup (STRUCT-EQ half-2)
+--
+-- `dedupAlternatives` collapses two struct arms that differ ONLY in field ORDER: a struct is a
+-- MAP, not a sequence, so `{a:1,b:2}` and `{b:2,a:1}` are the SAME value (spec). The equality
+-- is `eqUpToFieldOrder` (a field-order normal form), confined to the dedup path — the global
+-- `Value` `BEq` (cycle detection) stays exact/order-sensitive. LIST element order stays
+-- SIGNIFICANT; genuinely-different structs must NOT collapse (over-collapse guard).
+
+private def sAB : Value :=
+  .struct [Field.regular "a" (.prim (.int 1)), Field.regular "b" (.prim (.int 2))]
+    .regularOpen none [] []
+private def sBA : Value :=
+  .struct [Field.regular "b" (.prim (.int 2)), Field.regular "a" (.prim (.int 1))]
+    .regularOpen none [] []
+
+-- Reordered struct arms collapse to ONE, keeping the first-arm field order (`sAB`).
+theorem structeq_dedup_reordered_collapses :
+    (dedupAlternatives [(.regular, sAB), (.regular, sBA)] == [(.regular, sAB)]) = true := by
+  native_decide
+
+-- `normalizeDisj` over the two reordered arms collapses to the single struct value.
+theorem structeq_normalizeDisj_reordered_single :
+    (normalizeDisj [(.regular, sAB), (.regular, sBA)] == sAB) = true := by
+  native_decide
+
+-- `disjOfValues` of two reordered structs is the single struct (not a `.disj`).
+theorem structeq_disjOfValues_reordered_single :
+    (disjOfValues sAB sBA == sAB) = true := by
+  native_decide
+
+-- `eqUpToFieldOrder` sees the reorder as equal; the global exact `BEq` still sees them UNEQUAL
+-- (the coarser dedup equality is confined — it does NOT widen `==`).
+theorem structeq_eqUpToFieldOrder_confined :
+    (eqUpToFieldOrder sAB sBA == true && (sAB == sBA) == false) = true := by
+  native_decide
+
+-- A three-field permutation collapses (canonical sort, not a pairwise-adjacent swap).
+private def s3ABC : Value :=
+  .struct [Field.regular "a" (.prim (.int 1)), Field.regular "b" (.prim (.int 2)),
+           Field.regular "c" (.prim (.int 3))] .regularOpen none [] []
+private def s3CAB : Value :=
+  .struct [Field.regular "c" (.prim (.int 3)), Field.regular "a" (.prim (.int 1)),
+           Field.regular "b" (.prim (.int 2))] .regularOpen none [] []
+theorem structeq_dedup_three_field_permutation_collapses :
+    (dedupAlternatives [(.regular, s3ABC), (.regular, s3CAB)] == [(.regular, s3ABC)]) = true := by
+  native_decide
+
+-- NESTED reorder: an inner struct whose fields are reordered still collapses (recursive).
+private def sNestXY : Value :=
+  .struct [Field.regular "o" (.struct [Field.regular "x" (.prim (.int 1)),
+             Field.regular "y" (.prim (.int 2))] .regularOpen none [] [])] .regularOpen none [] []
+private def sNestYX : Value :=
+  .struct [Field.regular "o" (.struct [Field.regular "y" (.prim (.int 2)),
+             Field.regular "x" (.prim (.int 1))] .regularOpen none [] [])] .regularOpen none [] []
+theorem structeq_dedup_nested_inner_reorder_collapses :
+    (dedupAlternatives [(.regular, sNestXY), (.regular, sNestYX)] == [(.regular, sNestXY)]) = true := by
+  native_decide
+
+-- Struct INSIDE a list: element structs reorder-collapse though the list keeps element order.
+theorem structeq_dedup_struct_in_list_reorder_collapses :
+    (dedupAlternatives [(.regular, .list [sAB]), (.regular, .list [sBA])]
+      == [(.regular, .list [sAB])]) = true := by
+  native_decide
+
+-- Empty structs collapse (degenerate — no fields to order).
+theorem structeq_dedup_empty_structs_collapse :
+    (dedupAlternatives [(.regular, .struct [] .regularOpen none [] []),
+                        (.regular, .struct [] .regularOpen none [] [])]
+      == [(.regular, .struct [] .regularOpen none [] [])]) = true := by
+  native_decide
+
+-- DEFAULT-mark algebra composes with the reorder collapse: `*{a:1,b:2} | {b:2,a:1}` → one
+-- DEFAULT arm (`combineMarkOr` ORs the marks; the incoming first-arm value survives).
+theorem structeq_dedup_reordered_default_collapses_to_default :
+    (dedupAlternatives [(.default, sAB), (.regular, sBA)] == [(.default, sAB)]) = true := by
+  native_decide
+
+-- Over-collapse guard: same labels, DIFFERENT value (`b:2` vs `b:3`) — NOT collapsed.
+private def sAB3 : Value :=
+  .struct [Field.regular "a" (.prim (.int 1)), Field.regular "b" (.prim (.int 3))] .regularOpen none [] []
+theorem structeq_dedup_different_value_stays_two :
+    (dedupAlternatives [(.regular, sAB), (.regular, sAB3)]
+      == [(.regular, sAB), (.regular, sAB3)]) = true := by
+  native_decide
+
+-- Over-collapse guard: different label SET (`b` vs `c`) — NOT collapsed.
+private def sAC : Value :=
+  .struct [Field.regular "a" (.prim (.int 1)), Field.regular "c" (.prim (.int 2))] .regularOpen none [] []
+theorem structeq_dedup_different_labels_stays_two :
+    (dedupAlternatives [(.regular, sAB), (.regular, sAC)]
+      == [(.regular, sAB), (.regular, sAC)]) = true := by
+  native_decide
+
+-- Over-collapse guard: LISTS are order-SENSITIVE — `[1,2]` and `[2,1]` are DIFFERENT values.
+theorem structeq_dedup_reordered_list_stays_two :
+    (dedupAlternatives [(.regular, .list [.prim (.int 1), .prim (.int 2)]),
+                        (.regular, .list [.prim (.int 2), .prim (.int 1)])]
+      == [(.regular, .list [.prim (.int 1), .prim (.int 2)]),
+          (.regular, .list [.prim (.int 2), .prim (.int 1)])]) = true := by
+  native_decide
+
+-- Over-collapse guard: matching label set but a value mismatch under a label (`a:1` vs `a:9`)
+-- after the sort — NOT collapsed.
+private def sBA9 : Value :=
+  .struct [Field.regular "b" (.prim (.int 2)), Field.regular "a" (.prim (.int 9))] .regularOpen none [] []
+theorem structeq_dedup_reorder_value_mismatch_stays_two :
+    (dedupAlternatives [(.regular, sAB), (.regular, sBA9)]
+      == [(.regular, sAB), (.regular, sBA9)]) = true := by
+  native_decide
+
+-- Over-collapse guard: differing OPENNESS (open vs closed `{a:1}`) — distinct, NOT collapsed.
+theorem structeq_dedup_different_openness_stays_two :
+    ((dedupAlternatives
+        [(.regular, mkStruct [Field.regular "a" (.prim (.int 1))] .regularOpen none []),
+         (.regular, mkStruct [Field.regular "a" (.prim (.int 1))] .defClosed none [])]).length == 2)
+      = true := by
+  native_decide
+
+-- Over-collapse guard: differing FIELD CLASS (regular vs optional `a`) — distinct, NOT collapsed.
+theorem structeq_dedup_optional_vs_regular_stays_two :
+    ((dedupAlternatives
+        [(.regular, .struct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [] []),
+         (.regular, .struct [⟨"a", .optional, .prim (.int 1), false⟩] .regularOpen none [] [])]).length
+      == 2) = true := by
+  native_decide
+
+-- Integration: a bare disjunction of two reordered struct arms resolves (collapses) and exports.
+theorem structeq_disjunction_reordered_arms_export :
+    exportJsonMatches "d: {a: 1, b: 2} | {b: 2, a: 1}\n"
+        "{\n    \"d\": {\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
 
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
@@ -774,5 +906,6 @@ theorem a6_deep_optional_bottom_skipped :
 #check @normalize_def_structComp_openness                         -- `StructOpenness.closeDefBody` (B2b)
 #check @rx2b_label_pattern_abstract_does_not_trip                 -- RX-2b — invalid/deferred regex bottoms at the eva...
 #check @a6_deep_optional_bottom_skipped                           -- A#6 — `containsBottom` is TOTAL/structural (no fu...
+#check @structeq_disjunction_reordered_arms_export                -- Order-independent disjunction dedup (STRUCT-EQ ha...
 
 end Kue

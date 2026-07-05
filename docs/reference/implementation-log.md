@@ -17753,3 +17753,56 @@ leaves reviewer-enforced. Stays reviewer-enforced.
 
 `./scripts/check.sh` GREEN (no new exhaustiveness/`unusedVariables` warnings). Committed on
 `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: AUDIT-STRUCT-EQ half-2 — order-independent `dedupAlternatives`
+
+Goal: close the deferred half of AUDIT-STRUCT-EQ (plan 0b). Two struct disjunction arms
+that differ ONLY in field ORDER must dedup to one (a struct is a MAP, not a sequence —
+spec: reordered-but-equal structs are the same value). Previously `{a:1,b:2} | {b:2,a:1}`
+errored `ambiguous value: multiple non-default disjuncts remain`; cue collapses to one arm.
+
+### Approach — canonical normal form (illegal-states-unrepresentable, not ad-hoc compare)
+
+`Kue/Lattice.lean`:
+
+- `sortFieldsByLabel : List Field → List Field` — stable `mergeSort` by label (same-label
+  slots keep input order: reordered DISTINCT labels normalize together, reordered same-label
+  DUPLICATES do not, so a held pre-eval struct with duplicates never over-collapses).
+- `normalizeFieldOrder : Value → Value` (mutual with list/alt/field/pattern helpers) — a
+  field-ORDER normal form: every struct-bearing constructor (`struct`/`structComp`/
+  `embeddedList`/`embeddedScalar`) has its member list sorted by label with sub-values
+  normalized recursively; LIST/tuple element order is PRESERVED (order-significant).
+  `termination_by structural` — total, no fuel. Enumerates every `Value` constructor (the
+  `| _ =>` catch-all is banned in a Value-producing match).
+- `eqUpToFieldOrder l r := normalizeFieldOrder l == normalizeFieldOrder r`.
+- `dedupAlternatives` now tests arm equality with `eqUpToFieldOrder` and keeps the INCOMING
+  (earlier-in-list) arm's value, so the surviving arm displays the FIRST-declared field
+  order — matching cue byte-for-byte.
+
+The global `Value` `BEq` is UNTOUCHED: cycle detection (`Eval.lean` `structStack.contains`)
+and builtin-arg dedup rely on exact/order-sensitive equality. The coarser order-independent
+equality is confined to the dedup path (the Phase B architectural verdict's sanctioned route).
+
+### Tests
+
+17 `native_decide` theorems in `LatticeTests.lean` (`structeq_*`): reordered 2-arm collapse
+(keeps first-arm order), `normalizeDisj`/`disjOfValues` single-arm collapse, `eqUpToFieldOrder`
+confinement (coarse eq true, exact `==` still false), three-field permutation, nested-inner
+reorder, struct-inside-list, empty structs, DEFAULT-mark composition (`*S | S'` → one default).
+Over-collapse guards (all stay distinct): differing value, differing label set, list element
+ORDER (`[1,2]` vs `[2,1]`), value mismatch under matching labels, differing openness
+(open vs closed), differing field class (regular vs optional). Plus the `structeq_disj_reorder`
+export fixture (reordered / three-way / nested-inner), kue output == cue v0.16.1 byte-for-byte.
+
+RED reproduced first: with the pre-fix order-sensitive predicate the 8 positive-collapse
+theorems + export integration failed `native_decide`; over-collapse guards passed. The fix
+turns them green.
+
+### Result
+
+`./scripts/check.sh` GREEN; cert-manager canary (in-gate) GREEN. The reordered-dedup
+divergence is REMOVED from `cue-divergences.md` (kue now agrees with cue AND spec).
+**AUDIT-STRUCT-EQ is fully CLOSED** (half-1 concrete `==` 2026-07-04; half-2 dedup 2026-07-05).
+Committed on `main`, explicit pathspec, NOT pushed.
