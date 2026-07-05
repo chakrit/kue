@@ -677,6 +677,17 @@ Architecture verdicts clean: `ModCmd` carve from `Module` has no back-coupling/c
 byte-carrier change clean (base64 centralized, no String residue). A whole-graph Explore scan filed
 three fix-slices (below). Detail: log.
 
+The **2026-07-05 (batch-4) two-phase audit** (`6012a8e..41dbe9e`: AUD-B3 enumeration,
+STRUCT-EQ half-2, NESTED-DISJ-MARK reframe) is COMPLETE — **BOTH PHASES CLEAN, zero new
+fix-slices** (a valid clean-audit outcome, no work invented). Phase A verified
+`classifyScalarOperand` + `normalizeFieldOrder` each enumerate all 29 `Value` constructors
+with no `Value` catch-all (class-enum catch-alls permitted), the new tests carry
+over-collapse + negative guards (not happy-path), and the timeless-comment gate is green.
+Phase B verified `normalizeFieldOrder` placement (colocated with its sole consumer
+`dedupAlternatives`), no duplication with `canonicalizeFields`/`conjMemberLe`, and the
+coarse `eqUpToFieldOrder` confinement leak-proof (used only in the dedup path; global `BEq`
+untouched for cycle detection). AUD-B2/B4 re-verified STILL OPEN + correctly scoped. Detail: log.
+
 **Open Phase-B fix-slices (2026-07-05, ranked):**
 - **AUD-B3 (MEDIUM) — DONE (`6012a8e`).** Routed all six Value-producing catch-all sites
   (`evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`, plus the same-pattern

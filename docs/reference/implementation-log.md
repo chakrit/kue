@@ -17865,3 +17865,64 @@ open divergence" claims in the three 2026-07-04 notes.
 already spec-correct). cert-manager canary GREEN (the shape is absent from cert-manager + argocd;
 jq-S=0, no eval delta). No Kue source touched; no `partial`/`sorry`/axiom added. Committed on `main`,
 explicit pathspec, NOT pushed.
+
+---
+
+## Completed Audit: 2026-07-05 two-phase audit — evalops/struct-eq/nested-disj batch
+
+Scope: the three slices since the prior (this-session) Phase B audit — `6012a8e` (AUD-B3
+`classifyScalarOperand` enumeration), `a245297` (STRUCT-EQ half-2 order-independent dedup),
+`41dbe9e` (NESTED-DISJ-MARK reframe, no code change). Two phases run sequentially, A then B.
+
+### Phase A — code-quality
+
+Audit-the-last-audit: the prior Phase-B fix-slices reconcile cleanly — **AUD-B3 landed**
+(`6012a8e`, verified); **AUD-B2 / AUD-B4** re-verified STILL OPEN and correctly scoped
+(below). No decay.
+
+Findings: **CLEAN — zero fix-slices.** Verifications performed:
+- `classifyScalarOperand` (`EvalOps.lean`) enumerates all **29** `Value` constructors with
+  NO `Value` catch-all (diffed the constructor set against `Value.lean` — exact match). The
+  4-variant `ScalarOperandClass` dispatch in `evalBoolBinary`/`evalBoolNot`/`evalNumPos`/
+  `evalNumNeg`/`evalPrimitiveOrdering`/`evalRegexMatch` is exhaustive; the `| _, _ =>` in
+  `evalBoolBinary` is a catch-all on the finite CLASS enum (the permitted `.defer` pair
+  case), NOT on `Value` — compliant with the ban.
+- `normalizeFieldOrder` (`Lattice.lean`) enumerates all **29** constructors, no catch-all;
+  the mutual block is `termination_by structural` (total, no `partial`, no fuel).
+- Test strength STRONG: `LatticeTests` adds over-collapse guards (different value / label
+  set / openness / field-class, order-sensitive lists) AND positive collapse cases (3-field
+  permutation, nested inner reorder, struct-in-list, default-mark algebra); `eqUpToFieldOrder`
+  confinement pinned (`structeq_eqUpToFieldOrder_confined` — coarse eq true, global `BEq`
+  false). `EvalTests` adds 14 residual-preservation pins fixing exactly which constructors
+  keep deferring vs bottoming.
+- Timeless-comment gate (`scripts/check-comments.sh`) is wired into `check.sh` by glob and
+  GREEN; new comments use hypothetical phrasing ("a catch-all would defer"), not history.
+- Convention-migration Law satisfied: AUD-B3 converted all six catch-all sites together.
+
+### Phase B — architecture/refactor/cleanup
+
+Findings: **CLEAN — zero refactors, zero new fix-slices.** Verifications:
+- **Placement.** `normalizeFieldOrder`/`sortFieldsByLabel`/`eqUpToFieldOrder` sit in
+  `Lattice.lean` directly above their sole consumer `dedupAlternatives`. Colocation is the
+  right call — it keeps the "confined to the dedup path" invariant visible; moving the pass
+  to `Normalize.lean` (definition-normalization, a different purpose) would obscure it. Not
+  moved.
+- **No duplication.** `sortFieldsByLabel` (stable `mergeSort` by label) has no twin:
+  `canonicalizeFields` (`EvalBase.lean`) MERGES duplicate labels preserving order (does not
+  sort); `conjMemberLe`/`members.mergeSort` (`Lattice.lean:715`) sorts CONJ members, a
+  different domain. Genuinely needed — evaluated struct fields arrive in declaration order.
+- **Confinement leak-proof.** `eqUpToFieldOrder` is used ONLY in `dedupAlternatives`
+  (two sites); `normalizeFieldOrder` is reachable ONLY through it. Cycle detection
+  (`Eval.lean` `structStack.contains`) and every exact-equality site still use the global
+  order-sensitive `Value` `BEq`, which is untouched. The coarse equality does not widen `==`.
+- Previously-filed still-open findings re-verified against reality: **AUD-B2** — the five
+  `testdata/ocifetch/modtidy/*.zip` are still opaque binaries with no `.cue` source or
+  generator (STILL VALID, LOW). **AUD-B4** — `Value.textBytes` (`Value.lean:39`) is still in
+  core `Value` with every call site under `Kue/Tests/` (STILL VALID, LOW/cosmetic). Both kept
+  open, correctly scoped.
+
+### Result
+
+Both phases CLEAN — a valid outcome, no work invented. `./scripts/check.sh` GREEN. No Kue
+source touched; no `partial`/`sorry`/axiom added. Log + plan updated. Committed on `main`,
+explicit pathspec, NOT pushed.
