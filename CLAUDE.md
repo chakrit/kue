@@ -25,13 +25,30 @@ Standing grant for this repo (chakrit, 2026-06-14):
 - **Lean into Lean 4.** Use dependent types, total functions, theorem checks,
   `structure`/`inductive` invariants to make illegal states unrepresentable and push
   correctness into the type system.
-- **Commit/push/release freely (attended).** Commit, push, AND cut releases on the current
-  branch (`main` included) without asking, as part of advancing work. A due daily-alpha or a
-  notable-milestone release is **auto-cut** via `scripts/release.sh` (+ `scripts/release-linux.sh`
-  for the Linux assets) — never gated on a per-release greenlight. **Don't pause at milestones.**
-  A completed goal, a clean checkpoint, or a discretionary next-leader fork is NOT a reason to
-  stop and ask "what next" or "should I release" — resolve by philosophy and keep the loop
-  driving. Push/release are attended-only: in AFK mode (below), commit but do NOT push or release.
+- **Commit/push/release freely (attended).** Commit, push, AND cut **alpha/beta** releases
+  on the current branch (`main` included) whenever they advance work — no per-release
+  greenlight, ever. Alphas/betas auto-cut via `scripts/release.sh` (+ `scripts/release-linux.sh`
+  for the Linux assets) as I see fit. **The one release-cadence stop is a semver-*minor*
+  release** (a public "this is a milestone" signal): pause and check with chakrit only when a
+  minor bump reads as the better call than another alpha/beta — never for the routine cut.
+  **Don't pause at milestones otherwise.** A completed goal, a clean checkpoint, or a
+  discretionary next-leader fork is NOT a reason to stop and ask "what next" or "should I
+  release" — resolve by philosophy and keep the loop driving. Push/release are attended-only:
+  in AFK mode (below), commit but do NOT push or release.
+- **Internal risk is never a stop condition (chakrit, 2026-07-05).** A slice's churn, blast
+  radius, or regression risk does not escalate it to chakrit — a human skim catches a Lean
+  regression no better than the gate does. The answer to risk is to *strengthen the net*
+  (test-first fixtures + `native_decide` theorems, then `./scripts/check.sh`, then the
+  two-phase audit), not to defer to human review. Core-type refactors (quoted-field model,
+  float representation, global equality) land as ordinary test-first slices. Escalate **only**
+  for (a) irreversible / outward-facing acts, or (b) a philosophy-*silent* fork where two
+  options are equally principled *and* expensive to reverse — reversible-by-git +
+  gate-arbitrated is neither.
+- **Spec-silent non-core surfaces default to cue-compat (chakrit, 2026-07-05).** "Conform to
+  the CUE spec" governs *core* semantics. For a **feature surface the spec doesn't cover**
+  (e.g. builtin-import leniency, CLI/tooling behavior), the spec can't adjudicate — the
+  tiebreak is **cue-compat**, not lattice-first-principles. Record the resolution in
+  `cue-spec-gaps.md`.
 - **Go fast.** Use every tool that genuinely speeds the work — subagents, batched/parallel
   calls, concurrent edits. Parallelize only when it actually helps.
 - **Maximum quality over cost (chakrit, 2026-07-02).** Run subagents on the most capable
@@ -124,6 +141,10 @@ with a hard safety **envelope** (no human watching) — stay strictly inside it:
 - **No global-state mutation** (already standing).
 - **No outward-facing or irreversible actions** — no `push`, publish, release, deploy,
   mail, or destructive API calls. `push` is the canonical "needs a human" act.
+- **Read-only network is allowed (chakrit, 2026-07-05), attended and AFK.** GET-class,
+  non-mutating fetches (registry `module.cue` reads, requirement-graph resolution, doc
+  fetches) are *inside* the envelope — they're neither outward-facing nor irreversible. Only
+  network *writes*/publishes are outside it. This unblocks B3d-6b's read-only fetch surface.
 - **No working-tree destruction** (already standing).
 - **Commit, don't push.** Land green slices on the current branch; pushing waits for a
   human. Overrides the attended commit/push grant.
@@ -147,6 +168,12 @@ autonomous pass. Follow them as hard rules:
   convention in this repo rotted; every script-enforced gate held. Convert the whole
   existing surface in the same slice, and wire the rule into a `scripts/check-*.sh` gate
   wherever a cheap grep can enforce it.
+- **AFK's "OPEN (for you)" list is a handoff, not a decision queue (chakrit, 2026-07-05).**
+  On attended resume, do NOT replay `.afk.log`'s open items back as questions. AFK blocks
+  `push`/release/publish (envelope), so those genuinely queue — but on resume the attended
+  grant *already* hands them to me; and *which slice next* was never chakrit's call
+  (philosophy + leverage decide it). Re-surfacing them as "decisions for you" is the exact
+  under-read of autonomy this guard exists to kill. Read the list, then act on it.
 - **Audits verify that previously-filed fix-slices actually landed** — check the last
   audit's filings before filing new ones. "Scheduled in the plan" decays to zero unless
   it re-enters the active queue.

@@ -160,8 +160,8 @@ v0.16.1 — see `plan.md` § Standing Capabilities. That completeness was demons
 2-app sample (argocd + cert-manager, content-identical drop-ins as of 2026-06-23); the
 broader prod9 corpus then exposed real eval divergences, so the **current front is
 eval-conformance** (five bugs fixed, L5 open — `plan.md` § Current front). Remaining
-tails: B3d-6b (`cue mod get/tidy`, MVS resolver wiring, `cue.sum` write) and the item-6
-LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in
+tails: B3d-6b (`cue mod get/tidy`, MVS resolver wiring, `cue.sum` write; now ACTIONABLE —
+read-only fetch allowed) and the item-6 LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in
 [`../reference/implementation-log.md`](../reference/implementation-log.md);
 not-yet-modeled corners (per-file import scoping, the exotic go-yaml surface) are tracked
 in

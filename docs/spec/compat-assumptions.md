@@ -187,8 +187,9 @@ those forms.
   EXISTS (B3d-6a):** `Kue/Mvs.lean` computes the real max-of-mins build list from an explicit
   requirement graph (semver-ordered via `Kue/Semver.lean`), but it is **not yet wired into the
   resolver** — wiring it (so resolution runs a single up-front MVS build-list instead of the
-  lenient per-hop read) is B3d-6b, because building the requirement graph needs the deps'
-  `module.cue` fetched over the network.
+  lenient per-hop read) is B3d-6b — building the requirement graph needs the deps'
+  `module.cue` fetched over the network, a READ-ONLY GET now inside the read-only-network
+  grant, so B3d-6b is ACTIONABLE.
 - **Registry FETCH-on-missing — WIRED (B3d-5, 2026-06-26).** A declared dep absent from BOTH
   the vendor tree and the cue cache is no longer a hard error: kue resolves the importer's
   `CUE_REGISTRY` (empty/unset ⇒ `registry.cue.works`) + the modpath@version to an OCI ref,
@@ -213,8 +214,9 @@ those forms.
   fetch, is the live integrity gate); kue ADDITIONALLY enforces a `cue.sum` `h1:` line when one is
   present (defensive/forward-compatible — a mismatch REJECTS the install), proceeding when absent.
   See `docs/reference/cue-spec-gaps.md`. **The live HTTPS fetch from `registry.cue.works` was
-  offline-verified only** (file-source + repo-local cache); the real network+real-cache smoke is
-  human-gated (`.afk.log`). **Authed-registry fetch now SUPPORTED (B3d-7, 2026-06-28).** The curl
+  offline-verified only** (file-source + repo-local cache); the real network+real-cache smoke is a
+  read-only GET, now ACTIONABLE (inside the read-only-network grant, attended AND AFK).
+  **Authed-registry fetch now SUPPORTED (B3d-7, 2026-06-28).** The curl
   edge does the Docker/OCI **Bearer-token flow**: a registry that gates reads behind a `401` +
   `WWW-Authenticate: Bearer …` (e.g. `ghcr.io`, `registry-1.docker.io`) is satisfied by minting a
   token (Basic-auth GET to the challenge realm) and retrying with `Authorization: Bearer`. Private-
@@ -225,9 +227,11 @@ those forms.
   public registries issue for public repos. No new binary dependency (curl + the credential-helper
   protocol only). PROVEN LIVE against `ghcr.io` (`prodigy9.co/defs@v0.3.19`): manifest + digest-
   verified zip blob. **MVS version *solving* now LANDED (B3d-6a)** — pure semver compare +
-  the max-of-mins solver (`Kue/{Semver,Mvs}.lean`), offline. **Deferred (B3d-6b, network-gated):**
-  `cue mod get/tidy` commands, fetching deps' `module.cue` to BUILD the requirement graph,
-  "latest"-tag listing, wiring the solver into the resolver, and `cue.sum` WRITE (`cue mod tidy`).
+  the max-of-mins solver (`Kue/{Semver,Mvs}.lean`), offline. **B3d-6b — ACTIONABLE,
+  read-only fetch allowed:** `cue mod get/tidy` commands, fetching deps' `module.cue`
+  to BUILD the requirement graph (a READ-ONLY GET, now in-envelope), "latest"-tag
+  listing, wiring the solver into the resolver, and `cue.sum` WRITE (`cue mod tidy`, a
+  LOCAL file write).
 - **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import
   comment/ trailing-comma robustness. Real prod9 grouped imports parse fine today, so this
   stays parked. The stdin and multi-file CLI paths still discard imports (pre-B3a
@@ -746,8 +750,9 @@ the authority. Pure URL/argv builders live in `Kue/Oci.lean`; the impure runner 
 
 **Verification.** The whole curl composition is offline-tested against `file://` fixtures
 (`testdata/ocifetch/`, driven by `scripts/check-ocifetch.lean` under `check-fixtures.sh`),
-including digest-mismatch rejection. The live HTTPS fetch from `registry.cue.works` is
-human-gated (network egress is outside the AFK envelope) and logged in `.afk.log`.
+including digest-mismatch rejection. The live HTTPS fetch from `registry.cue.works` is a
+read-only GET, ACTIONABLE inside the read-only-network grant (attended AND AFK — only network
+writes/publishes stay outside the envelope).
 
 **DEFERRED.**
 - **Registry auth / login.** The fetch assumes anonymous access (the Central Registry serves

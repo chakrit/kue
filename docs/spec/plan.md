@@ -314,7 +314,7 @@ rejection argument: `kue-performance.md` + implementation-log.
    the primary win is illegal-states-unrepresentable. Couple with GDA-FLOAT-RENDER (both touch the
    float representation) if convenient.
 
-0f. **BYTE-ARRAY-REPR (MEDIUM, core-type — attended-grade; from the 2026-07-04 Phase B audit;
+0f. **BYTE-ARRAY-REPR (MEDIUM, core-type — ordinary test-first slice; from the 2026-07-04 Phase B audit;
    CONSOLIDATES the bytes-as-String debt).** `Prim.bytes` carries a `String` (`Kue/Value.lean:21`),
    so a byte ≥0x80 cannot be represented as one octet — `decodeByteEscape` (`Parse.lean:182`) folds
    `\xNN`/`\NNN` through `Char.ofNat` into that codepoint's multi-byte UTF-8 form. This ONE loose
@@ -341,10 +341,16 @@ rejection argument: `kue-performance.md` + implementation-log.
    focused core-type slice (carrier + the 3 latent fixes + high-byte graduation), then BYTES-SLICE
    and BYTE-INTERPOLATION as small dependents. Also fixes the multiline-bytes escape gap
    (`parseMultilineBytes`, `Parse.lean:1434`, currently routes through the string escape lexer).
-   DO NOT implement autonomously — a core `Prim` change is deliberate/attended-grade.
+   Land it autonomously test-first: a core `Prim` change is not a stop condition (internal risk
+   is absorbed by the gate + fixtures + audit, not human review) — pin the carrier + 3 latent
+   fixes + high-byte graduation with `native_decide` theorems before the refactor.
 
-1. **B3d-6b (NETWORK-GATED) — the single remaining substantive registry slice.** `cue mod
-   get/tidy` + requirement-graph fetch + `cue.sum` WRITE. Five legs (see § B3d track below).
+1. **B3d-6b (ACTIONABLE, high-value) — the single remaining substantive registry
+   slice.** `cue mod get/tidy` + requirement-graph fetch + `cue.sum` WRITE. The
+   requirement-graph fetch is READ-ONLY (GET each dep's `module.cue`); `cue.sum` is a
+   LOCAL file write, not a network write — so under the read-only-network grant (attended
+   AND AFK), B3d-6b is no longer human/network-gated — an ordinary actionable frontier
+   slice. Five legs (see § B3d track below).
 
 2. **B2-A1 — RESOLVED-BY-PROBE (2026-07-04, non-bug).** The prior claim ("`applyEvaluatedStructN`
    routes the patterns-present case through a meet that DROPS `tail`") was STALE: `applyEvaluatedStructN`
@@ -584,7 +590,7 @@ BUILTIN-IMPORT-LENIENCY all still tracked, no decay). Two LOW findings:
 The **2026-07-04 Phase B audit** (`dfdd1ab..HEAD`; A7 GATES/TOOLING infra-rotation cycle) closed
 HEALTHY. Phase A fixes confirmed landed (INTERP-STRUCT-PATTERN-DEFER at `EvalBase.lean:1162`;
 BYTE-HIGHBYTE seed tracked). PART 1: the three String-backed-bytes items consolidate under one
-core-type fix-slice **BYTE-ARRAY-REPR (rank 0f, attended-grade, MEDIUM)** — `Array UInt8` carrier,
+core-type fix-slice **BYTE-ARRAY-REPR (rank 0f, MEDIUM)** — `Array UInt8` carrier,
 folds BYTE-HIGHBYTE, keeps BYTES-SLICE / BYTE-INTERPOLATION as dependents. A7 infra: `check.sh` +
 `handle_known_red` DRY (holding across both gates) + strict-xfail + realworld + test-health all
 SOUND; seed hygiene PASS (24 wild, 2 `.known-red`, both tracked+filed); FixturePorts (generated,
@@ -703,13 +709,14 @@ production path; inflate is total (fuel-bounded, malformed → typed-error). Tot
 `#print axioms`-pinned (stdlib axioms only). 🔒 Secret hygiene (B3d-7): a credential/token lives
 only in curl argv + in-memory strings, never logged/persisted; errors report outcomes, never the
 secret. `Mvs.solve` is an ACCEPTABLE staged primitive (pure, total, fully `native_decide`-pinned,
-reachable from `MvsTests`) unwired only because the resolver edge is network/human-gated — filed
-as B3d-6b, not stranded.
+reachable from `MvsTests`) unwired only pending B3d-6b's resolver wiring — now ACTIONABLE
+(its requirement-graph fetch is read-only), not stranded.
 
 **Open B3d items (ranked):**
-- **B3d-6b** (NETWORK-GATED, the single remaining substantive slice) — `cue mod get/tidy`
-  + requirement-graph fetch + cue.sum WRITE. Five legs, all needing live registry egress
-  or the command surface: (1) fetch each dep's `module.cue` `deps` block to BUILD the
+- **B3d-6b** (ACTIONABLE, the single remaining substantive slice) — `cue mod get/tidy`
+  + requirement-graph fetch + cue.sum WRITE. Five legs; the registry egress is READ-ONLY
+  (allowed attended AND AFK) and `cue.sum` WRITE is a LOCAL file write: (1) fetch each
+  dep's `module.cue` `deps` block to BUILD the
   `RequirementGraph` (curl edge is bearer-auth-capable via B3d-7); (2) OCI `.../tags/list` for
   "latest"/major→concrete; (3) `cue mod get`/`cue mod tidy` command parse + dispatch; (4) wire
   `Mvs.solve` into the resolver (replace lenient per-hop resolution with one up-front MVS
