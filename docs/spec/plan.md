@@ -352,12 +352,16 @@ rejection argument: `kue-performance.md` + implementation-log.
    is absorbed by the gate + fixtures + audit, not human review) — pin the carrier + 3 latent
    fixes + high-byte graduation with `native_decide` theorems before the refactor.
 
-1. **B3d-6b (ACTIONABLE, high-value) — the single remaining substantive registry
-   slice.** `cue mod get/tidy` + requirement-graph fetch + `cue.sum` WRITE. The
-   requirement-graph fetch is READ-ONLY (GET each dep's `module.cue`); `cue.sum` is a
-   LOCAL file write, not a network write — so under the read-only-network grant (attended
-   AND AFK), B3d-6b is no longer human/network-gated — an ordinary actionable frontier
-   slice. Five legs (see § B3d track below).
+1. **B3d-6b — CORE LANDED 2026-07-05 (`kue mod tidy` + MVS + `cue.sum` write + main-pin fix);
+   two legs FILED as dependents.** The substantive registry work landed: `kue mod tidy`
+   fetches each transitive dependency's `module.cue` over the read-only registry GET, builds the
+   `RequirementGraph`, runs the CHECKED MVS solver (`Mvs.solveChecked` — the main-pin fix: a dep
+   requiring a higher version of the main module's own path is a typed error, not a silent pin),
+   and WRITES `cue.sum` with the verified `h1:` digests. New `Kue/ModCmd.lean` (carved from
+   `Module.lean`); offline gate `scripts/check-mod-tidy.lean` drives a diamond graph proving
+   max-of-mins selection + cue.sum. **Still open (two dependents, ranked below):** the export-path
+   MVS rewiring (leg 4 — a delicate, canary-risking change kept separate) and `mod get` + tags/list
+   (leg 2 — needs a CUE deps-block emitter). See § B3d track.
 
 2. **B2-A1 — RESOLVED-BY-PROBE (2026-07-04, non-bug).** The prior claim ("`applyEvaluatedStructN`
    routes the patterns-present case through a meet that DROPS `tail`") was STALE: `applyEvaluatedStructN`
@@ -386,9 +390,8 @@ rejection argument: `kue-performance.md` + implementation-log.
   comprehensions}` into nested subdirs; high blast radius (`FixturePorts.lean`'s `fileName`
   strings are the join key, ~77 fixtures). Pick up as a dedicated careful slice or drop.
 - **B3d-A2** DEFLATE/ZIP adversarial reject-branch pins; **B3d-B1** `Digest`/`Hash1` newtype
-  (rides B3d-6b sum-write); **Mvs.solve main-pin** (rides B3d-6b); **`Kue/ModuleFetch.lean`
-  carve** (trigger only if B3d-6b pushes the fetch cluster past ~200 lines); **kue-performance
-  B3d note**.
+  (second consumer now exists — B3d-6b cue.sum write); **kue-performance B3d note**.
+  (Mvs.solve main-pin + the `ModuleFetch` carve both LANDED 2026-07-05 with B3d-6b's core.)
 - **GATE-KNOWNRED-DRY (LOW, infra; from the 2026-07-04 Phase B / A7 rotation) — DONE.**
   The two copy-pasted three-state `.known-red` blocks in `check_wild_fixtures` and
   `check_module_subpaths` are replaced by one `handle_known_red <known_red> <passed> <grad_label>
@@ -718,32 +721,44 @@ Both 2026-06-26 audit rounds closed **HEALTHY**: module graph is a clean DAG (IO
 production path; inflate is total (fuel-bounded, malformed → typed-error). Totality
 `#print axioms`-pinned (stdlib axioms only). 🔒 Secret hygiene (B3d-7): a credential/token lives
 only in curl argv + in-memory strings, never logged/persisted; errors report outcomes, never the
-secret. `Mvs.solve` is an ACCEPTABLE staged primitive (pure, total, fully `native_decide`-pinned,
-reachable from `MvsTests`) unwired only pending B3d-6b's resolver wiring — now ACTIONABLE
-(its requirement-graph fetch is read-only), not stranded.
+secret. `Mvs.solve` is now WIRED into `kue mod tidy` (via `Mvs.solveChecked`, the main-pin fix) over a
+requirement graph fetched from real deps' `module.cue` — no longer a staged-but-unused primitive.
+The remaining unwired seam is the IMPORT-RESOLUTION path (B3d-6b-leg4), still filed.
 
 **Open B3d items (ranked):**
-- **B3d-6b** (ACTIONABLE, the single remaining substantive slice) — `cue mod get/tidy`
-  + requirement-graph fetch + cue.sum WRITE. Five legs; the registry egress is READ-ONLY
-  (allowed attended AND AFK) and `cue.sum` WRITE is a LOCAL file write: (1) fetch each
-  dep's `module.cue` `deps` block to BUILD the
-  `RequirementGraph` (curl edge is bearer-auth-capable via B3d-7); (2) OCI `.../tags/list` for
-  "latest"/major→concrete; (3) `cue mod get`/`cue mod tidy` command parse + dispatch; (4) wire
-  `Mvs.solve` into the resolver (replace lenient per-hop resolution with one up-front MVS
-  build-list) GATED ON a diamond-divergence fixture; (5) `cue.sum` WRITE via
-  `Module.atomicWriteBinFile` (the B3d-3 dirhash + B3d-A1 atomic primitive both already exist).
+- **B3d-6b — CORE LANDED 2026-07-05.** Legs (1) requirement-graph fetch, (3) `mod tidy` command
+  parse + dispatch, (5) `cue.sum` WRITE, and the `Mvs.solve` main-pin fix all landed via
+  `Kue/ModCmd.lean` + `kue mod tidy` (offline gate `scripts/check-mod-tidy.lean`). **Two legs
+  remain as FILED dependents:**
+  - **B3d-6b-leg4 — export-path MVS rewiring (MEDIUM, delicate, canary-risking; own attended
+    slice).** Wire the MVS build list into the IMPORT-RESOLUTION path (`Module.lean`'s mutual
+    loader) so cross-module version selection is max-of-mins rather than the current lenient
+    per-hop pin — GATED ON a new diamond-divergence on-disk fixture under `testdata/modules/`
+    (per-hop picks the lower version, MVS the higher, oracle-matched export differs). The solver
+    + build-list machinery already exist (`Mvs.solveChecked`, `ModCmd.fetchGraph`); the work is a
+    DISK-FIRST transitive graph builder (locate-or-fetch each dep, read module.cue) + a version-
+    override threaded through `ModuleContext` (a NO-OP for single-version graphs, so the
+    cert-manager canary is provably unaffected). Kept separate because it touches the exact loader
+    the canary exercises and needs the canary re-run — do NOT rush it into an already-large slice.
+    The current leniency is a documented, accepted divergence (see `compat-assumptions.md`).
+  - **B3d-6b-leg2 — `mod get` + tags/list (MEDIUM; needs a CUE deps-block emitter).** `cue mod get
+    <module>[@version]` mutates `cue.mod/module.cue` (adds/updates a dep), which requires emitting
+    CUE for the deps block — a distinct surface kue lacks. Fold in leg 2's OCI `.../tags/list` GET
+    + semver-max "latest"/major→concrete resolution (pure `Semver.maxVersion` reuse) since it is
+    only consumed by `get`. `parseMod` currently reports `get`'s deferral cleanly.
 - **B3d-A2** (test-strength, LOW) — pin the DEFLATE/ZIP adversarial reject branches (invalid
   Huffman code, distance-too-far-back, STORED LEN/NLEN, fuel exhaustion, bad CD sig, unsupported
   method, CRC/size mismatch); only BTYPE=3 is pinned today.
-- **B3d-B1** (type-leverage, LOW — rides B3d-6b) — `Descriptor.digest`/`cue.sum` `h1:` are
-  `String` with an unenforced format invariant; a `Digest`/`Hash1` smart-constructor newtype
-  earns its keep at B3d-6b's sum WRITE boundary. YAGNI until that second consumer exists.
-- **`Mvs.solve` main-pin** (philosophy-clean, LOW — rides B3d-6b) — `solve` silently pins `main`
-  to `main.version` even when the graph names a higher version of main's path (cue PANICS there).
-  Make it unrepresentable or a typed error when the resolver wiring lands.
-- **`Kue/ModuleFetch.lean` carve** (architecture, conditional) — `Module.lean` is NOT yet
-  outgrowing its home; the fetch/cache cluster (~90 lines) is coherent. Trigger: if B3d-6b pushes
-  that cluster past ~200 lines or adds a distinct command-dispatch responsibility, carve then.
+- **B3d-B1** (type-leverage, LOW — now has its second consumer) — `Descriptor.digest`/`cue.sum`
+  `h1:` are `String` with an unenforced format invariant; `cue.sum` WRITE (B3d-6b) is the second
+  `h1:` consumer, so a `Digest`/`Hash1` smart-constructor newtype now earns its keep. Still LOW.
+- **`Mvs.solve` main-pin — DONE 2026-07-05.** `Mvs.solveChecked` surfaces the cue-panic case
+  (a dependency requiring a higher version of the main module's own path) as a typed error
+  instead of a silent pin; `mod tidy` calls it. 4 native_decide theorems.
+- **`Kue/ModuleFetch.lean` carve — DONE 2026-07-05 (as `Kue/ModCmd.lean`).** B3d-6b's command
+  layer (transitive graph fetch + cue.sum write + `mod tidy` orchestration) was carved into a new
+  `Kue/ModCmd.lean` rather than growing `Module.lean` past the ~200-line trigger; `Module.lean`
+  keeps import resolution + the shared fetch/cache primitives.
 - **`kue-performance.md` B3d note** (doc, LOW) — inflate is O(output) fuel-bounded; fetch latency
   is curl/network-dominated, off the eval hot path. Fold into a coming B3d slice.
 

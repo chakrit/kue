@@ -132,10 +132,13 @@ module→OCI-ref resolution, cache-path authority), `Oci.lean` (manifest parse, 
 builders), `OciAuth.lean` (Docker/OCI bearer-token flow parsing), `Sha256.lean` (FIPS
 180-4 + `cue.sum` `h1:` dirhash), `Inflate.lean` (RFC 1951 DEFLATE), `Zip.lean` (PKWARE +
 CRC-32), `Semver.lean` (Go `x/mod/semver` port), `Mvs.lean` (pure
-minimal-version-selection solver), and `OciFetch.lean` (the sole `IO.Process` curl edge;
+minimal-version-selection solver), `OciFetch.lean` (the sole `IO.Process` curl edge;
 imports the pure core,
-never the evaluator). Import direction is strictly IO → pure: `Module → {Parse, Runtime,
-Registry, OciFetch, Zip, Sha256}`, `OciFetch → {Oci, OciAuth, Base64, Sha256, Registry}`.
+never the evaluator), and `ModCmd.lean` (the `kue mod tidy` command layer — transitive
+requirement-graph fetch, MVS via `Mvs.solveChecked`, and `cue.sum` WRITE; carved out of
+`Module.lean`). Import direction is strictly IO → pure: `Module → {Parse, Runtime,
+Registry, Semver, OciFetch, Zip, Sha256}`, `OciFetch → {Oci, OciAuth, Base64, Sha256, Registry}`,
+`ModCmd → {Module, Mvs, Semver, Sha256, Zip}`.
 
 ### 8. Runtime, CLI, and harness — `Runtime.lean`, `Cli.lean`, `FixturePorts.lean`
 
@@ -160,8 +163,9 @@ v0.16.1 — see `plan.md` § Standing Capabilities. That completeness was demons
 2-app sample (argocd + cert-manager, content-identical drop-ins as of 2026-06-23); the
 broader prod9 corpus then exposed real eval divergences, so the **current front is
 eval-conformance** (five bugs fixed, L5 open — `plan.md` § Current front). Remaining
-tails: B3d-6b (`cue mod get/tidy`, MVS resolver wiring, `cue.sum` write; now ACTIONABLE —
-read-only fetch allowed) and the item-6 LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in
+tails: B3d-6b CORE LANDED (`kue mod tidy` — requirement-graph fetch + MVS + `cue.sum` write, in
+the new `Kue/ModCmd.lean`; two filed dependents: import-resolution MVS wiring + `mod get`) and the
+item-6 LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in
 [`../reference/implementation-log.md`](../reference/implementation-log.md);
 not-yet-modeled corners (per-file import scoping, the exotic go-yaml surface) are tracked
 in

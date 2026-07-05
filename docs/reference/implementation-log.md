@@ -17492,3 +17492,70 @@ formatting choice (single-quote inline escapes vs cue's triple-quote promotion) 
 
 `./scripts/check.sh` GREEN (150 build jobs + all gates). Committed on `main`, explicit
 pathspec, NOT pushed.
+
+---
+
+## B3d-6b CORE — `kue mod tidy` + MVS + cue.sum write + main-pin fix (2026-07-05)
+
+The single remaining substantive registry slice's core, in three commits.
+
+### `fix(mvs): typed-error main-pin — solveChecked` (2a3afb8)
+
+`Mvs.solve` silently pins the main module to its declared version even when the requirement
+graph transitively requires a HIGHER version of main's own path — the case cue PANICS on
+(`buildList`: `reqs.Max(target, v) != target`). Added `Mvs.solveChecked`
+(`Except String (List ModuleVersion)`): a typed error on that conflict, otherwise identical to
+`solve`. `mainPathMaxSelected`/`mainPathConflict` isolate the predicate. 4 native_decide theorems
+(reject-on-upgrade, allow-on-equal, match-solve-on-clean, conflict-predicate); axioms +
+coverage-tripwire extended. Discharges the "Mvs.solve main-pin" rider.
+
+### `feat(mod): kue mod tidy` (04695c4)
+
+New `Kue/ModCmd.lean` (carved from `Module.lean` per the ~200-line trigger — discharges the
+`ModuleFetch` carve rider). `kue mod tidy` resolves a module's dependency graph end-to-end:
+- **Requirement-graph fetch (leg 1).** `fetchGraphAux` — a fuel-bounded, visited-guarded
+  transitive walk (total, no `partial`) that GETs each transitive dep's `cue.mod/module.cue`
+  (read-only) via an injected `EntryFetcher`; `ociEntryFetcher` (resolve ref → `fetchModuleZip`
+  → `Zip.readZip`) is the sole network user, so the whole pipeline runs OFFLINE in tests.
+  `depsFromEntries` reads a module's deps out of its zip entries; `buildRequirementGraph`
+  assembles the MVS graph (pure).
+- **MVS (leg 4's solver use, in the command).** `runTidy` runs `Mvs.solveChecked` over the
+  fetched graph → the max-of-mins build list.
+- **cue.sum WRITE (leg 5).** `Module.readCueSum` refactored to a pure `parseCueSumText`; added
+  its inverse `formatCueSum` (sorted by path+semver, deterministic). `cueSumRows` maps the build
+  list to `(path, version, h1)` rows (h1 = `Sha256.hash1` of the fetched entries); `writeCueSum`
+  writes them atomically via `atomicWriteBinFile`.
+- **Command (leg 3).** `kue mod tidy` parsed + dispatched (Cli + Main + help). `mod get` reports
+  its deferral cleanly (module.cue mutation needs a CUE deps-block emitter — filed as
+  B3d-6b-leg2). 5 native_decide parse theorems; 10 pure-layer theorems in `Tests/ModCmdTests.lean`.
+
+Offline gate `scripts/check-mod-tidy.lean` (wired into `check-fixtures.sh`) drives a diamond
+requirement graph (main→A,B; A→C@v1.2.0; B→C@v1.3.0) over committed `testdata/ocifetch/modtidy/`
+zips, proving max-of-mins selects C@v1.3.0, cue.sum carries the correct h1: digests and excludes
+the unselected version, plus empty-deps / transport-failure / malformed-module.cue error paths.
+
+### Scope + filed dependents
+
+Two of B3d-6b's five legs are FILED as dependents (see `plan.md` § B3d track), kept separate by
+philosophy — precise + no rushed canary risk:
+- **leg4 — export-path MVS rewiring.** Wiring the build list into the IMPORT-RESOLUTION path
+  (`Module.lean`'s mutual loader) is delicate and touches the exact code the cert-manager canary
+  exercises; it needs a disk-first transitive graph builder + a version-override threaded through
+  `ModuleContext` (a no-op for single-version graphs) + a new on-disk diamond-divergence fixture +
+  a canary re-run. Its own attended slice. The current per-hop leniency is a documented, accepted
+  divergence (compat-assumptions.md).
+- **leg2 — `mod get` + `.../tags/list`.** `mod get` mutates `cue.mod/module.cue`, needing a CUE
+  deps-block emitter kue lacks; fold in the OCI tags/list "latest" resolution there (its only
+  consumer).
+
+`cue`-divergence check: `mod tidy`'s MVS behavior CONFORMS to cue's mvs (max-of-mins); no new
+`cue-divergences.md` entry. spec-gap: `cue.sum` itself is a kue extension (cue v0.16.1 ships none)
+— already recorded in `cue-spec-gaps.md` under the B3d-5 cue.sum entry; the main-module empty-`""`
+version (the MVS target has no semver) is an internal modelling choice, not user-observable.
+
+Live read-only smoke (2026-07-05, now allowed): `registry.cue.works` `/v2/` → 200 and real
+`.../tags/list` JSON for real module paths — the read-only GET path reaches the network. A full
+end-to-end live `mod tidy` was not completed (the central registry proxies GitHub modules and tag
+enumeration returned null; no known-good public module@version pinned). NOT a gate dependency.
+
+`./scripts/check.sh` GREEN. Committed on `main`, explicit pathspec, NOT pushed.

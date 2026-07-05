@@ -181,15 +181,15 @@ those forms.
   import *inside* a loaded module hops to that module's own context, so transitive
   cross-module resolves recursively. A path matching neither the module prefix nor any dep
   → `unresolved import …: not in-module and matches no dependency …`.
-  **kue is more lenient than `cue` on the transitive graph:** it reads the *intermediate*
-  module's `deps` per hop, whereas `cue` requires every transitive dep pinned flat in the
-  main module (MVS). Both resolve when the artifact is on disk. **The MVS version solver now
-  EXISTS (B3d-6a):** `Kue/Mvs.lean` computes the real max-of-mins build list from an explicit
-  requirement graph (semver-ordered via `Kue/Semver.lean`), but it is **not yet wired into the
-  resolver** — wiring it (so resolution runs a single up-front MVS build-list instead of the
-  lenient per-hop read) is B3d-6b — building the requirement graph needs the deps'
-  `module.cue` fetched over the network, a READ-ONLY GET now inside the read-only-network
-  grant, so B3d-6b is ACTIONABLE.
+  **kue is more lenient than `cue` on the IMPORT-RESOLUTION transitive graph:** it reads the
+  *intermediate* module's `deps` per hop, whereas `cue` requires every transitive dep pinned flat
+  in the main module (MVS). Both resolve when the artifact is on disk. **The MVS solver is now
+  WIRED into `kue mod tidy` (B3d-6b, 2026-07-05):** `mod tidy` fetches each transitive dep's
+  `module.cue` (read-only GET), builds the requirement graph, runs `Mvs.solveChecked` (max-of-mins,
+  semver-ordered via `Kue/Semver.lean`), and writes `cue.sum`. **The IMPORT-RESOLUTION path is
+  still per-hop lenient** — wiring the MVS build list into it (so `kue export`/`eval` selects
+  max-of-mins across the graph too) is the filed dependent B3d-6b-leg4 (a delicate, canary-risking
+  change kept separate). Until then this leniency stands as a documented, accepted divergence.
 - **Registry FETCH-on-missing — WIRED (B3d-5, 2026-06-26).** A declared dep absent from BOTH
   the vendor tree and the cue cache is no longer a hard error: kue resolves the importer's
   `CUE_REGISTRY` (empty/unset ⇒ `registry.cue.works`) + the modpath@version to an OCI ref,
@@ -208,14 +208,18 @@ those forms.
   matches). The `.zip` likewise writes to `<ver>.zip.tmp-<nonce>` then renames (Go-modcache
   parity). Rename-over-existing race (a concurrent fetch won the slot): the loser discards its
   temp and reuses the extant complete slot. Reusable primitives `atomicWriteBinFile` /
-  `atomicExtractDir` (Kue/Module.lean) — B3d-6's `cue.sum`/lockfile WRITE will share them.
-  **`cue.sum` verification:**
+  `atomicExtractDir` (Kue/Module.lean) — B3d-6b's `cue.sum` WRITE now shares `atomicWriteBinFile`.
+  **`cue.sum` verify + WRITE:**
   cue v0.16.1 ships NO `cue.sum` file (the OCI blob `sha256:` digest, already verified in the
   fetch, is the live integrity gate); kue ADDITIONALLY enforces a `cue.sum` `h1:` line when one is
   present (defensive/forward-compatible — a mismatch REJECTS the install), proceeding when absent.
-  See `docs/reference/cue-spec-gaps.md`. **The live HTTPS fetch from `registry.cue.works` was
-  offline-verified only** (file-source + repo-local cache); the real network+real-cache smoke is a
-  read-only GET, now ACTIONABLE (inside the read-only-network grant, attended AND AFK).
+  **`kue mod tidy` (B3d-6b) now WRITES `cue.sum`** with the resolved build list's `h1:` digests
+  (`Module.formatCueSum`, the inverse of `parseCueSumText`, sorted by path+semver for determinism),
+  atomically via `atomicWriteBinFile`.
+  See `docs/reference/cue-spec-gaps.md`. **Live registry read-only reachability was smoke-tested
+  2026-07-05** (`registry.cue.works` `/v2/` → 200, real `.../tags/list` JSON for real module
+  paths); the full manifest+blob fetch stays B3d-7-live-proven (against `ghcr.io`). Neither is a
+  gate dependency — `check.sh` runs the whole pipeline OFFLINE against committed fixtures.
   **Authed-registry fetch now SUPPORTED (B3d-7, 2026-06-28).** The curl
   edge does the Docker/OCI **Bearer-token flow**: a registry that gates reads behind a `401` +
   `WWW-Authenticate: Bearer …` (e.g. `ghcr.io`, `registry-1.docker.io`) is satisfied by minting a
@@ -227,11 +231,12 @@ those forms.
   public registries issue for public repos. No new binary dependency (curl + the credential-helper
   protocol only). PROVEN LIVE against `ghcr.io` (`prodigy9.co/defs@v0.3.19`): manifest + digest-
   verified zip blob. **MVS version *solving* now LANDED (B3d-6a)** — pure semver compare +
-  the max-of-mins solver (`Kue/{Semver,Mvs}.lean`), offline. **B3d-6b — ACTIONABLE,
-  read-only fetch allowed:** `cue mod get/tidy` commands, fetching deps' `module.cue`
-  to BUILD the requirement graph (a READ-ONLY GET, now in-envelope), "latest"-tag
-  listing, wiring the solver into the resolver, and `cue.sum` WRITE (`cue mod tidy`, a
-  LOCAL file write).
+  the max-of-mins solver (`Kue/{Semver,Mvs}.lean`), offline. **B3d-6b CORE LANDED (2026-07-05):**
+  `kue mod tidy` fetches deps' `module.cue` to BUILD the requirement graph (read-only GET), runs
+  the CHECKED MVS solver, and WRITES `cue.sum` (`Kue/ModCmd.lean`). Two FILED dependents remain:
+  wiring MVS into the import-resolution path (leg4, delicate/canary-risking) and `mod get` +
+  `.../tags/list` "latest" resolution (leg2, needs a CUE deps-block emitter). See
+  [`plan.md`](plan.md) § B3d track.
 - **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import
   comment/ trailing-comma robustness. Real prod9 grouped imports parse fine today, so this
   stays parked. The stdin and multi-file CLI paths still discard imports (pre-B3a
