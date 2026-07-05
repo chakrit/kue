@@ -884,6 +884,45 @@ theorem structeq_disjunction_reordered_arms_export :
         "{\n    \"d\": {\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
   native_decide
 
+-- ARCH-QUOTED-STRIP (Option B, 2026-07-05). `Field.quoted : Quoted` — a newtype whose `BEq`
+-- IGNORES its payload — so label-quoting provenance is inert to `Value`/`Field` equality BY
+-- CONSTRUCTION: the AUDIT-QUOTED-BEQ leak is type-unrepresentable and no separate
+-- normalization pass is needed. These pin the property directly on the `Value` layer (behavioral
+-- round-trips live in `ParseTests`). Delete/flip `BEq Quoted` to a payload-respecting form and
+-- every theorem below (plus the `ParseTests` dedup pins) goes RED — the leak the strip masked.
+private def qBareField : Field := Field.regular "x" (.prim (.int 1))
+private def qQuotedField : Field :=
+  { label := "x", fieldClass := .regular, value := .prim (.int 1), quoted := ⟨true⟩ }
+private def qBareStruct : Value := .struct [qBareField] .regularOpen none [] []
+private def qQuotedStruct : Value := .struct [qQuotedField] .regularOpen none [] []
+
+-- `quoted` is inert to Field BEq: a bare `x:` and a quoted `"x":` field compare EQUAL.
+theorem quoted_inert_field_beq : (qBareField == qQuotedField) = true := by native_decide
+
+-- ...and to struct BEq: `{x:1}` == `{"x":1}` at the raw `Value` layer (the equality the dedup
+-- path relied on the strip to deliver; now it holds without any normalization).
+theorem quoted_inert_struct_beq : (qBareStruct == qQuotedStruct) = true := by native_decide
+
+-- BEq-vs-`valueDigest` consistency: both ignore `quoted`. The strip masked that `valueDigest`
+-- already omitted `quoted` while derived BEq respected it — now they agree by construction.
+theorem quoted_inert_digest_consistent :
+    valueDigest DIGEST_DEPTH qBareStruct = valueDigest DIGEST_DEPTH qQuotedStruct := by native_decide
+
+-- Composes with the STRUCT-EQ normal form (`eqUpToFieldOrder`): quoted arm == bare arm.
+theorem quoted_inert_eqUpToFieldOrder :
+    eqUpToFieldOrder qBareStruct qQuotedStruct = true := by native_decide
+
+-- Dedup collapses a quoted (reordered) arm against a bare arm — quoting + field-order both inert.
+private def qBareAB : Value :=
+  .struct [Field.regular "a" (.prim (.int 1)), Field.regular "b" (.prim (.int 2))] .regularOpen none [] []
+private def qQuotedBA : Value :=
+  .struct [{ label := "b", fieldClass := .regular, value := .prim (.int 2), quoted := ⟨true⟩ },
+           { label := "a", fieldClass := .regular, value := .prim (.int 1), quoted := ⟨true⟩ }]
+    .regularOpen none [] []
+theorem quoted_inert_dedup_collapses :
+    (dedupAlternatives [(.regular, qBareAB), (.regular, qQuotedBA)] == [(.regular, qBareAB)]) = true := by
+  native_decide
+
 
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
@@ -907,5 +946,6 @@ theorem structeq_disjunction_reordered_arms_export :
 #check @rx2b_label_pattern_abstract_does_not_trip                 -- RX-2b — invalid/deferred regex bottoms at the eva...
 #check @a6_deep_optional_bottom_skipped                           -- A#6 — `containsBottom` is TOTAL/structural (no fu...
 #check @structeq_disjunction_reordered_arms_export                -- Order-independent disjunction dedup (STRUCT-EQ ha...
+#check @quoted_inert_dedup_collapses                              -- ARCH-QUOTED-STRIP — `Quoted` newtype inert to equ...
 
 end Kue

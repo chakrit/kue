@@ -213,7 +213,11 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04).**
+0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
+   MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +
+   "no custom instance" resolution below is HISTORICAL: `stripFieldQuoting` is deleted and
+   `Field.quoted` is now the `Quoted` newtype (inert `BEq`), which makes the leak
+   type-unrepresentable without any strip pass. Read 0c for the live mechanism.
    `Field.quoted : Bool` was added to `Value.lean` AND included in the derived `BEq` for
    `Value`/`Field`/`ClosedClause`. `quoted` is parse-time provenance for the load-time no-shadow
    check ONLY, but it was NOT inert to evaluation: it leaked into every `Value`-`BEq` site, so two
@@ -283,23 +287,30 @@ rejection argument: `kue-performance.md` + implementation-log.
      cert-manager canary in-gate GREEN. The reordered-dedup divergence is REMOVED from
      `cue-divergences.md` (kue now agrees with cue and spec). **AUDIT-STRUCT-EQ is fully CLOSED.**
 
-0c. **ARCH-QUOTED-STRIP (MEDIUM — architecture; from the 2026-07-04 Phase B audit).** `Field.quoted`
-   is parse provenance living on the eval-layer `Value.Field`, made inert only by
-   `Parse.stripFieldQuoting` run at the two parse→eval seams. The ONLY reader of `Value.Field.quoted`
-   is `collidableFieldLabel` (the REVERSE no-shadow check, which needs depth-reachable quoting off
-   the built `Value` subtree); every other site must treat it inert, guaranteed solely by the strip
-   pass + a doc comment. That "any new pre-eval producer that sets `quoted := true` must feed through
-   the strip" is an UNENFORCED invariant — the class the repo makes unrepresentable, and it already
-   bit once (AUDIT-QUOTED-BEQ). **Durable fix: parse-only quoting** — drop `quoted` from
-   `Value.Field` entirely; have `parsedFieldsValue` bubble a subtree "collidable (bare/hidden) field
-   labels" set UP through its recursion (or a parse-time collector over `ParsedField`) so the reverse
-   check reads quoting from parse provenance and quoting NEVER reaches the eval layer. Deletes the
-   ~55-line `stripFieldQuoting` walk and makes the leak unrepresentable. Cost: threads a second
-   return (the collidable-label set) through `parsedFieldsValue` — a signature change, ~1 slice,
-   MEDIUM. **Cheap interim if deferred:** convert the doc-invariant into a machine-checked guard — a
-   `hasQuotedField : Value → Bool` checker + a test that `parseDocument` output over quoted-label
-   fixtures carries no surviving `quoted := true`. NOT low-risk enough for an inline audit fix
-   (touches parse signatures) → a real slice.
+0c. **ARCH-QUOTED-STRIP — ✅ DONE (2026-07-05, Option B).** `Field.quoted` was parse provenance on
+   the eval-layer `Value.Field`, made inert only by a `Parse.stripFieldQuoting` walk at the two
+   parse→eval seams — an UNENFORCED "any pre-eval producer setting `quoted := true` must feed through
+   the strip" invariant that already bit once (AUDIT-QUOTED-BEQ). **Mechanism deviation from the
+   filed plan:** the filed durable fix ("drop `quoted` entirely; have `parsedFieldsValue` bubble a
+   collidable-label set up through its recursion") was found INFEASIBLE in-slice — `parsedFieldsValue`
+   is NOT recursive over the subtree and there is no `ParsedField` subtree: nested structs are already
+   fully-built `Value`s (with `Field.quoted`) by the time they arrive, so the reverse no-shadow check
+   (`collidableFieldLabel`/`collectFieldNames`) walks the built `Value`, including structs embedded
+   arbitrarily deep inside expressions. Dropping the field would require threading a provenance set
+   through the ENTIRE expression parser (a parser-wide return-type change), not ~1 slice. **Chosen
+   (Option B):** `Field.quoted : Quoted` — a newtype whose `BEq` IGNORES its payload (`fun _ _ =>
+   true`), keeping automatic `deriving Repr, BEq for Value, Field`. Quoting is now inert to every
+   `Value`/`Field` equality BY CONSTRUCTION (the AUDIT-QUOTED-BEQ leak is type-unrepresentable, no
+   producer can perturb equality), which also makes derived `BEq` consistent with `valueDigest` (which
+   already omitted `quoted`) — the inconsistency the strip masked. `collidableFieldLabel` keeps reading
+   the provenance (`field.quoted.value`); a `Coe Bool Quoted` leaves eval-layer field constructions
+   writing a plain `false`. The ~55-line `stripFieldQuoting` walk + both seam calls are DELETED (not
+   bypassed). Supersedes AUDIT-QUOTED-BEQ's "strip route / no custom instance" (rank 0 below): Option B
+   keeps *derived* BEq — a one-line inert `BEq Quoted`, NOT a hand-rolled mutual `BEq Value`/`Field`,
+   which was that decision's actual concern — so it supersedes cleanly. TDD red→green demonstrated
+   (payload-respecting `BEq Quoted` ⇒ the `quoted_inert_*` pins + `ParseTests` dedup pins go RED; the
+   digest-consistency pin stays green, proving BEq was the sole leak). 6 new `native_decide` theorems
+   (`LatticeTests` `quoted_inert_*`); `./scripts/check.sh` GREEN; cert-manager canary byte-identical.
 
 0d. **STRUCT-EQ-LEAF-TYPESENSE — ✅ RESOLVED (2026-07-04 Phase B, kue correct / cue buggy).**
    Adjudicated against the CUE spec: **value-based numeric equality applies recursively inside
@@ -658,7 +669,8 @@ catch-all enumerated) — neither decayed. Architecture verdicts: the `mapRefsVa
 walker is GOOD reuse (AD4-1 leaf-differs shape, not the DRY-1 trap); file-scoped imports' NUL-sep
 synthetic label + shadow-aware rewrite is CLEAN, Module/Resolve boundary intact; `Field.quoted` +
 strip-walk is SOUND but carries an unenforced "must-strip" invariant → filed **ARCH-QUOTED-STRIP**
-(rank 0c, parse-only quoting). A7 infra: `check.sh` aggregator + `./lake`/`./lean` caps sound; the
+(rank 0c — DONE 2026-07-05 via the `Quoted`-newtype Option B, not the filed parse-only-quoting
+mechanism; see 0c). A7 infra: `check.sh` aggregator + `./lake`/`./lean` caps sound; the
 two-gate `.known-red` quarantine is DUPLICATED → filed **GATE-KNOWNRED-DRY** (LOW tail). AUDIT-
 STRUCT-EQ re-scoped (split; see rank 0b). No inline code change (all findings non-trivial). Periodic
 passes: test-org/plan-hygiene/perf-guide NOT due; resilience/retro APPROACHING (flagged, not

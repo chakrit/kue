@@ -1033,10 +1033,10 @@ theorem noshadow_let_over_let_accepts :
   native_decide
 
 -- REVERSE direction (a `let` in an ENCLOSING scope shadowed by a FIELD in a NESTED scope).
--- Symmetric to the forward rejections; sound only because `Field.quoted` now survives to the
--- `Value` layer, so a descendant field's quoted-accurate name can be checked against ancestor
--- `let`s. Graduates testdata/wild/let-shadowed-by-{nested-field,descendant-field-in-struct,
--- field-in-def-body}.
+-- Symmetric to the forward rejections; sound only because `Field.quoted` survives to the
+-- `Value` layer (the `Quoted` newtype is inert to equality but readable by the no-shadow check),
+-- so a descendant field's quoted-accurate name can be checked against ancestor `let`s. Graduates
+-- testdata/wild/let-shadowed-by-{nested-field,descendant-field-in-struct,field-in-def-body}.
 
 -- REJECTED — an enclosing `let x` shadowed by a nested field `x` (the seed shape).
 theorem noshadow_reverse_nested_field_rejects :
@@ -1084,32 +1084,33 @@ theorem noshadow_reverse_incomparable_sibling_accepts :
     parseSucceeds "a: {\n\tlet x = 2\n\tg: x\n}\nb: {\n\tx: 3\n}\n" = true := by
   native_decide
 
--- AUDIT-QUOTED-BEQ (correctness regression from f128600). `Field.quoted` is parse-time
--- provenance for the no-shadow check ONLY; `stripFieldQuoting` normalizes it to `false` at the
--- parse→eval seam (AFTER every scope's `checkLetFieldShadow` reads the true quoting), so it is
--- inert to `Value` equality (`BEq`/`DecidableEq` see a uniform `false`). While `quoted` leaked
--- into the derived `BEq`, the arms below compared UNEQUAL and disjunction dedup errored
--- `ambiguous value`; the strip makes two spec-equal structs compare equal so the arms collapse.
+-- AUDIT-QUOTED-BEQ (correctness regression from f128600), now closed structurally by
+-- ARCH-QUOTED-STRIP (Option B): `Field.quoted : Quoted` is a newtype whose `BEq` IGNORES its
+-- payload, so label-quoting is inert to `Value` equality BY CONSTRUCTION — no strip pass. While
+-- `quoted` was a plain `Bool` in the derived `BEq`, the arms below compared UNEQUAL and
+-- disjunction dedup errored `ambiguous value`; the inert newtype makes two spec-equal structs
+-- compare equal so the arms collapse. (Value-layer pins live in `LatticeTests` `quoted_inert_*`.)
 
 -- A quoted `"x":` arm and a bare `x:` arm are the identical value — the disjunction dedups to one.
 theorem quoted_label_inert_disjunction_dedups :
     parseOutputMatches "d: {x: 1} | {\"x\": 1}\n" "d: {x: 1}" = true := by
   native_decide
 
--- Same equality nested inside a list element — the strip reaches struct equality under a list.
+-- Same equality nested inside a list element — inert quoting reaches struct equality under a list.
 theorem quoted_label_inert_nested_list_dedups :
     parseOutputMatches "d: [{x: 1}] | [{\"x\": 1}]\n" "d: [{x: 1}]" = true := by
   native_decide
 
 -- Over-normalization guard: a label that CANNOT be bare (`a-b`) keeps its necessary quoting on
--- output — the strip normalizes the provenance bit, not the label; formatting re-quotes from the
--- label string. Not over-normalized into an invalid bare form.
+-- output — quoting provenance is inert to VALUE, not to the LABEL; formatting re-quotes from the
+-- label string (`isCueBareLabel`). Not over-normalized into an invalid bare form.
 theorem necessary_quoted_label_preserved :
     parseOutputMatches "v: {\"a-b\": 1}\n" "v: {\"a-b\": 1}" = true := by
   native_decide
 
--- The no-shadow check still sees TRUE quoting (strip runs after it): a quoted nested `"x"` must
--- NOT collide with an ancestor `let x`. Pins that stripping did not regress the reverse check.
+-- The no-shadow check still reads TRUE quoting (the newtype is inert to equality, not to the
+-- reader): a quoted nested `"x"` must NOT collide with an ancestor `let x`. Pins that dropping the
+-- strip did not regress the reverse check.
 theorem quoted_label_still_exempts_noshadow_after_strip :
     parseSucceeds "let x = 1\nout: {\n\t\"x\": 2\n\tgot: x\n}\n" = true := by
   native_decide

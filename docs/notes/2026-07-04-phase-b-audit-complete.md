@@ -35,9 +35,11 @@ Periodic passes: test-org / plan-hygiene / perf-guide NOT due; resilience/retro 
    order-independent, regular-fields-only, concreteness-guarded `structEqConcrete? : Value → Value
    → Option Bool` used ONLY by `evalEq`. Additive (evalEq currently just defers non-`.prim`), so it
    can't regress. Graduates the `struct-equality-quoted-labels-defers` `.known-red` seed. ~1 slice.
-2. **ARCH-QUOTED-STRIP (plan 0c).** Parse-only quoting: drop `quoted` from `Value.Field`, bubble a
-   subtree collidable-label set up through `parsedFieldsValue`, delete the `stripFieldQuoting` walk.
-   MEDIUM (parse signature change). Cheap interim if deferred: a `hasQuotedField` guard theorem.
+2. **ARCH-QUOTED-STRIP (plan 0c).** — ✅ DONE 2026-07-05, but NOT via this proposed mechanism.
+   "Parse-only quoting: drop `quoted`, bubble a collidable-label set up through `parsedFieldsValue`"
+   was infeasible in-slice (`parsedFieldsValue` is not recursive; nested structs arrive pre-built).
+   Landed instead as Option B: `Field.quoted : Quoted` newtype with an inert `BEq`; strip deleted.
+   See plan 0c + `2026-07-05-arch-quoted-strip-landed.md`.
 3. **GATE-KNOWNRED-DRY (LOW tail).** Share a `handle_known_red` helper across the two `.known-red`
    gates in `check-fixtures.sh`.
 4. **B3d-6b (NETWORK-GATED).** `cue mod get/tidy` + requirement-graph fetch + `cue.sum` WRITE.

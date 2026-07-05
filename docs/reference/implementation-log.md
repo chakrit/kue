@@ -16476,6 +16476,12 @@ it while red). Committed on `main`, NOT pushed (AFK envelope).
 
 ## Completed Slice: 2026-07-04 AUDIT-QUOTED-BEQ fix — `quoted` made inert to value equality
 
+> **MECHANISM SUPERSEDED 2026-07-05 by ARCH-QUOTED-STRIP (Option B).** The `stripFieldQuoting`
+> strip pass described below is DELETED. `Field.quoted` is now the `Quoted` newtype whose `BEq`
+> ignores its payload, so quoting is inert to equality by construction (no strip). This entry is
+> retained as history of the original fix; see the 2026-07-05 ARCH-QUOTED-STRIP entry for the live
+> mechanism.
+
 Fixes the HIGH correctness regression `f128600` filed as AUDIT-QUOTED-BEQ (plan rank 0):
 `Field.quoted` leaked into the derived `Value`/`Field`/`ClosedClause` `BEq`, so `{x:1}` and
 `{"x":1}` (identical to CUE) compared UNEQUAL and disjunction dedup errored `ambiguous value`.
@@ -17926,3 +17932,59 @@ Findings: **CLEAN — zero refactors, zero new fix-slices.** Verifications:
 Both phases CLEAN — a valid outcome, no work invented. `./scripts/check.sh` GREEN. No Kue
 source touched; no `partial`/`sorry`/axiom added. Log + plan updated. Committed on `main`,
 explicit pathspec, NOT pushed.
+
+## Completed Slice: 2026-07-05 ARCH-QUOTED-STRIP (Option B) — `Field.quoted` → inert `Quoted` newtype
+
+Closes plan 0c. `Field.quoted : Bool` was parse-time label-quoting provenance living on the
+eval-layer `Value.Field`, made inert to equality ONLY by a ~55-line `Parse.stripFieldQuoting` walk
+run at the two parse→eval seams (`parseDocument`, `parseDocumentFile`). That "any pre-eval producer
+setting `quoted := true` must feed through the strip" was an UNENFORCED invariant — the class that
+bit once as AUDIT-QUOTED-BEQ.
+
+**Mechanism deviation from the filed plan.** The filed durable fix ("drop `quoted` entirely; bubble
+a subtree collidable-label set up through `parsedFieldsValue`'s recursion, or a parse-time collector
+over `ParsedField`") was found INFEASIBLE in-slice: `parsedFieldsValue` is NOT recursive over the
+subtree, and there is no `ParsedField` subtree — nested structs are already fully-built `Value`s
+(carrying `Field.quoted`) by the time they arrive from expression parsing. The reverse no-shadow
+check (`collidableFieldLabel` / `collectFieldNames`) walks the built `Value`, including structs
+embedded arbitrarily deep inside expressions (`a: b & {"x":2}`). Dropping the field would require
+threading a provenance set through the ENTIRE expression parser (a parser-wide return-type change),
+far more than ~1 slice. Reported the fork; coordinator sanctioned Option B.
+
+**Option B (landed).** `Field.quoted : Quoted`, a newtype `structure Quoted where value : Bool :=
+false` with `instance : BEq Quoted := ⟨fun _ _ => true⟩` (payload-ignoring) + `instance : Coe Bool
+Quoted`. `deriving Repr, BEq for Value, Field` stays automatic and now picks up the inert `BEq
+Quoted`, so quoting is inert to every `Value`/`Field` equality BY CONSTRUCTION — the AUDIT-QUOTED-BEQ
+leak is type-unrepresentable, no producer can perturb equality. This also makes derived `BEq`
+consistent with `valueDigest` (which already omitted `quoted`) — the inconsistency the strip masked.
+`collidableFieldLabel` keeps reading the provenance via `field.quoted.value`; the `Coe` leaves the
+~20 eval-layer field constructions writing a plain `false`/`true` unchanged. Supersedes
+AUDIT-QUOTED-BEQ's "strip route / no custom instance": Option B keeps *derived* BEq — a one-line
+inert `BEq Quoted`, NOT a hand-rolled mutual `BEq Value`/`Field` (that decision's actual concern).
+
+**Deleted (not bypassed):** `Parse.stripFieldQuoting` (def + `stripClauseQuoting` where-clause) and
+both seam calls. Only comments now name it (its absence).
+
+**TDD red→green.** Flipping `BEq Quoted` to a payload-respecting form (`fun a b => a.value ==
+b.value`) drove the four `quoted_inert_*` equality pins + the `ParseTests` `quoted_label_inert_*`
+dedup pins RED (`native_decide` refutation); the digest-consistency pin stayed GREEN, proving
+`valueDigest` already ignored `quoted` and derived BEq was the sole leak. The inert instance turns
+all green.
+
+**Tests.** 6 new `native_decide` theorems in `LatticeTests` (`quoted_inert_field_beq`,
+`quoted_inert_struct_beq`, `quoted_inert_digest_consistent`, `quoted_inert_eqUpToFieldOrder`,
+`quoted_inert_dedup_collapses`, + coverage-tripwire anchor) pinning quoting inert to Field/struct
+`BEq`, to `valueDigest`, and composing with the STRUCT-EQ normal form (`eqUpToFieldOrder`/dedup).
+The 4 behavioral `ParseTests` `quoted_label_inert_*` pins (disjunction dedup, nested-list, necessary
+quoting preserved, no-shadow exemption) stay green with refreshed comments. Reverse-no-shadow probe
+theorems intact (`collidableFieldLabel` still quoted-accurate).
+
+**Retraction.** Annotated every stale "strip route / no custom instance" site in the same slice:
+plan 0c (closed, mechanism deviation noted), plan rank-0 AUDIT-QUOTED-BEQ (mechanism-superseded
+banner), plan Phase-B batch-verdict filing pointer, this log's AUDIT-QUOTED-BEQ entry (superseded
+banner), `cue-spec-gaps.md` reverse-no-shadow row (newtype mechanism), phase-b breadcrumb next-step.
+
+`./scripts/check.sh` GREEN; cert-manager canary byte-identical. Files: `Kue/Value.lean` (Quoted +
+instances + Field field), `Kue/Parse.lean` (reader + strip deletion + seams), `Kue/Tests/{Lattice,
+Parse}Tests.lean`. No spec-gap/divergence added — quoted == bare is spec-determined, not silent; the
+choice is internal representation. Committed on `main`, explicit pathspec, NOT pushed.

@@ -762,7 +762,7 @@ def letBinderLabel (field : Field) : Option String :=
     quoted `"x"` label, a definition `#x`, and `let`/import binders declare no colliding
     identifier here, so are exempt (the over-rejection guard on the field side). -/
 def collidableFieldLabel (field : Field) : Option String :=
-  if field.quoted then none
+  if field.quoted.value then none
   else match field.fieldClass with
     | .field false _ _ => some field.label
     | _ => none
@@ -2014,68 +2014,6 @@ def applyBuiltinAliases (imports : List Import) (value : Value) : Value :=
   | [] => value
   | aliasMap => canonicalizeBuiltinCalls aliasMap builtinAliasFuel value
 
-/-- Total `Value` walk normalizing every `Field.quoted` to `false`. `quoted` is parse-time
-    provenance consumed ONLY by the load-time no-shadow check (`checkLetFieldShadow`); past
-    that check it must be inert to evaluation. Run once at the parse→eval seam AFTER every
-    scope's `checkLetFieldShadow` has read the true quoting, so derived `Value`/`Field`
-    equality (`BEq`/`DecidableEq`) sees a uniform `false` and two spec-equal structs
-    (`{x:1}` vs `{"x":1}`) compare equal. Fuel + enumerated-constructor shape mirror
-    `canonicalizeBuiltinCalls` at the same seam (a new recursive `Value` ctor fails to
-    compile here until its strip arm is written, never silently passed through). -/
-def stripFieldQuoting : Nat -> Value -> Value
-  | 0, value => value
-  | fuel + 1, value =>
-      let rec' := stripFieldQuoting fuel
-      let stripField := fun (f : Field) => { f with value := rec' f.value, quoted := false }
-      match value with
-      | .conj constraints => .conj (constraints.map rec')
-      | .builtinCall name args => .builtinCall name (args.map rec')
-      | .unary op operand => .unary op (rec' operand)
-      | .binary op left right => .binary op (rec' left) (rec' right)
-      | .selector base label => .selector (rec' base) label
-      | .index base key => .index (rec' base) (rec' key)
-      | .disj alternatives => .disj (alternatives.map (fun a => (a.fst, rec' a.snd)))
-      | .struct fields openness tail patterns closedClauses =>
-          .struct
-            (fields.map stripField)
-            openness
-            (tail.map rec')
-            (patterns.map (fun p => (rec' p.fst, rec' p.snd)))
-            (closedClauses.map (ClosedClause.mapPatterns rec'))
-      | .structComp fields comprehensions openness =>
-          .structComp (fields.map stripField) (comprehensions.map rec') openness
-      | .list items => .list (items.map rec')
-      | .listTail items tail => .listTail (items.map rec') (rec' tail)
-      | .embeddedList items tail decls =>
-          .embeddedList (items.map rec') (tail.map rec') (decls.map stripField)
-      | .embeddedScalar scalar decls =>
-          .embeddedScalar (rec' scalar) (decls.map stripField)
-      | .comprehension clauses body =>
-          .comprehension (clauses.map (stripClauseQuoting fuel)) (rec' body)
-      | .listComprehension clauses body =>
-          .listComprehension (clauses.map (stripClauseQuoting fuel)) (rec' body)
-      | .interpolation parts => .interpolation (parts.map rec')
-      | .dynamicField label fieldClass fieldValue =>
-          .dynamicField (rec' label) fieldClass (rec' fieldValue)
-      | .closure capturedEnv body => .closure capturedEnv (rec' body)
-      -- Leaves carry no nested `Value`; the strip is the identity. Enumerated, not `_`.
-      | .top => value
-      | .bottom => value
-      | .bottomWith _ => value
-      | .prim _ => value
-      | .kind _ => value
-      | .notPrim _ => value
-      | .stringRegex _ => value
-      | .boundConstraint _ _ _ => value
-      | .ref _ => value
-      | .refId _ => value
-      | .thisStruct => value
-  where
-    stripClauseQuoting (fuel : Nat) : Clause Value -> Clause Value
-      | .forIn key value source => .forIn key value (stripFieldQuoting fuel source)
-      | .guard condition => .guard (stripFieldQuoting fuel condition)
-      | .letClause name value => .letClause name (stripFieldQuoting fuel value)
-
 def parseDocument (chars : List Char) : Except ParseError Value :=
   let afterPackage := consumePackageClauses chars
   match parseImportClauses [] afterPackage with
@@ -2089,7 +2027,7 @@ def parseDocument (chars : List Char) : Except ParseError Value :=
               match parsedFieldsValue fields with
               | .error error => .error error
               | .ok value =>
-                  .ok (applyBuiltinAliases imports (stripFieldQuoting builtinAliasFuel value))
+                  .ok (applyBuiltinAliases imports value)
           | rest => parseError rest "unexpected trailing input"
 
 /-- 1-based line and column for a char offset into `source`. Walks the first `offset`
@@ -2132,7 +2070,7 @@ def parseDocumentFile (chars : List Char) : Except ParseError ParsedFile := do
       | [] =>
           let packageName ← sourcePackageName (String.ofList chars)
           let value ← parsedFieldsValue fields
-          pure { value := applyBuiltinAliases imports (stripFieldQuoting builtinAliasFuel value),
+          pure { value := applyBuiltinAliases imports value,
                  packageName := packageName, imports := imports,
                  topLevelFieldNames := bareIdentifierLabels fields }
       | rest => parseError rest "unexpected trailing input"

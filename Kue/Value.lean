@@ -621,6 +621,25 @@ inductive Clause (Value : Type) where
   | letClause (name : String) (value : Value)
 deriving Repr, BEq
 
+/-- Parse-time provenance: was a struct label written as a quoted string (`"x":`) rather than a
+    bare identifier (`x:`)? Consumed by exactly ONE reader — the load-time no-shadow check
+    (`Parse.collidableFieldLabel`), where a quoted `"x":` must not collide with a `let x`.
+
+    Wrapped in a newtype whose `BEq` IGNORES its payload (`fun _ _ => true`) so quoting is inert
+    to every derived `Value`/`Field` equality BY CONSTRUCTION: two spec-equal structs (`{x:1}` vs
+    `{"x":1}`) always compare equal, and no pre-eval producer setting `quoted` can perturb
+    equality. This makes the AUDIT-QUOTED-BEQ leak type-unrepresentable — no separate
+    normalization pass, no unenforced "must-strip" invariant — and matches `valueDigest`, which
+    already omits `quoted` (BEq and the digest are now consistent by construction). `Coe Bool
+    Quoted` keeps the eval-layer field constructions writing a plain `false`. -/
+structure Quoted where
+  value : Bool := false
+deriving Repr
+
+instance : BEq Quoted := ⟨fun _ _ => true⟩
+
+instance : Coe Bool Quoted := ⟨(Quoted.mk ·)⟩
+
 mutual
 
 inductive Value where
@@ -739,19 +758,16 @@ inductive Value where
     projections are explicit and misindexing is impossible. Defined mutually with `Value`
     because `Value`'s struct-bearing constructors carry `List Field`.
 
-    `quoted` is a parse-time provenance bit consumed only by the load-time no-shadow check
-    (a quoted `"x":` label never collides with a `let x`); it defaults `false` so every
-    evaluation-time `Field` construction is unaffected. It is NOT inert on its own: it sits in
-    the derived `BEq`/`DecidableEq`, so a stray `true` would make two spec-equal structs
-    (`{x:1}` vs `{"x":1}`) compare unequal. `Parse.stripFieldQuoting` normalizes it to `false`
-    across the whole tree at the parse→eval seam — AFTER `checkLetFieldShadow` reads the true
-    quoting — so every equality-sensitive consumer past parse sees a uniform `false`. Keep it
-    that way: any new pre-eval producer that sets `quoted := true` must feed through that strip. -/
+    `quoted` (a `Quoted` newtype) is parse-time provenance consumed only by the load-time
+    no-shadow check (a quoted `"x":` label never collides with a `let x`); it defaults not-quoted
+    so every evaluation-time `Field` construction is unaffected. `Quoted`'s `BEq` ignores its
+    payload, so quoting is inert to derived `Value`/`Field` equality BY CONSTRUCTION — two
+    spec-equal structs (`{x:1}` vs `{"x":1}`) always compare equal, no strip pass required. -/
 structure Field where
   label : String
   fieldClass : FieldClass
   value : Value
-  quoted : Bool := false
+  quoted : Quoted := {}
 
 /-- One closed conjunct's CONTRIBUTION to a struct's closed allowed-set (SC-1b provenance).
     A field `f` is admitted by this clause iff `f.label ∈ fieldLabels` OR `f.label` matches
