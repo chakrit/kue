@@ -18526,3 +18526,47 @@ Phase-B change.
 
 `./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical; shellcheck
 PASS). Committed on `main`, explicit pathspec, NOT pushed.
+
+---
+
+## Completed Slice: B3d-A2 — DEFLATE/ZIP adversarial reject-branch pins
+
+Goal (test-strength, LOW): make every malformed cue-module archive/stream provably REJECTED —
+not silently mis-decoded or wrongly accepted, which would be a soundness hole in the
+registry-fetch integrity path. Before this slice only BTYPE=3 (reserved DEFLATE block type) and
+"not a zip" were pinned; the rest of `Kue/Inflate.lean` + `Kue/Zip.lean`'s ERROR paths were
+untested.
+
+### What landed
+
+14 new `native_decide` theorems in `Kue/Tests/ZipTests.lean` (section "adversarial reject
+branches (B3d-A2)"), each pinning the EXACT typed error string — a wrong branch firing (a
+different message) fails the pin, so these guard against a reject silently relocating. Two helpers
+`inflErr`/`zipErr` project the `Except` to its error string (`"OK"` on unexpected success).
+
+DEFLATE (RFC 1951), 9 branches: STORED LEN/NLEN one's-complement mismatch; back-reference
+distance-too-far-back (`copyBackref` guard); invalid fixed distance code (30/31); fixed
+literal/length symbol 286 out of range; dynamic preamble with empty code-length-code table
+(invalid CLC); dynamic incomplete literal/length table (invalid litlen code); dynamic distance
+symbol 30 out of range (RFC-reserved); symbol-loop fuel exhaustion on a truncated 1-bit-literal
+stream (proves the fuel bound fires a typed error, no hang); + the pre-existing reserved BTYPE=3.
+
+ZIP (PKWARE APPNOTE), 5 branches: short/no-EOCD archive; bad central-directory header signature;
+unsupported compression method (12/BZIP2); bad local file header signature; CRC-32 mismatch;
+uncompressed-size mismatch. All are single-field mutations of the known-good `storedZip`
+(`List.set` at the corrupted offset, self-documenting) except the truncated case.
+
+### Method / ground truth
+
+Malformed DEFLATE bit-streams were hand-crafted with an LSB-first bit packer + MSB-first canonical
+Huffman encoder, and independently cross-checked against Python `zlib.decompressobj(wbits=-15)`
+(raw deflate), which rejects each one. ZIP mutations were validated against the actual Kue decoder.
+NO soundness bug found: every adversarial input already rejected correctly at the intended branch.
+
+Defensive-unreachable branches left un-pinned (noted in plan.md): the outer block-loop fuel guard
+(`inflate.go`) and the dynamic-code-length underflow guard — both are bounded such that each
+block/RLE step consumes ≥1 unit against a matched fuel bound, so they cannot fire on any input
+(they exist only to keep the functions total without `partial`).
+
+`./scripts/check.sh` GREEN (all gates; zip golden 69-file CRC-verified extract still byte-identical;
+shellcheck PASS). Committed on `main`, explicit pathspec, NOT pushed.

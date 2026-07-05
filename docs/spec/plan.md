@@ -429,9 +429,9 @@ rejection argument: `kue-performance.md` + implementation-log.
 - **item-3 testdata regroup (DEFERRED)** — sub-grouping `testdata/cue/{definitions,
   comprehensions}` into nested subdirs; high blast radius (`FixturePorts.lean`'s `fileName`
   strings are the join key, ~77 fixtures). Pick up as a dedicated careful slice or drop.
-- **B3d-A2** DEFLATE/ZIP adversarial reject-branch pins; **B3d-B1** `Digest`/`Hash1` newtype
-  (second consumer now exists — B3d-6b cue.sum write); **kue-performance B3d note**.
-  (Mvs.solve main-pin + the `ModuleFetch` carve both LANDED 2026-07-05 with B3d-6b's core.)
+- **B3d-B1** `Digest`/`Hash1` newtype (second consumer now exists — B3d-6b cue.sum write);
+  **kue-performance B3d note**. (B3d-A2, Mvs.solve main-pin, and the `ModuleFetch` carve all
+  LANDED 2026-07-05.)
 - **GATE-KNOWNRED-DRY (LOW, infra; from the 2026-07-04 Phase B / A7 rotation) — DONE.**
   The two copy-pasted three-state `.known-red` blocks in `check_wild_fixtures` and
   `check_module_subpaths` are replaced by one `handle_known_red <known_red> <passed> <grad_label>
@@ -1004,9 +1004,18 @@ staged-but-unused primitive.
     reformats the whole file — spec-silent, recorded in `cue-spec-gaps.md`. 40 `native_decide`
     tests (`Tests/ModCmdTests.lean`) + CLI parse pins (`Tests/CliTests.lean`). The read-only
     tags/list GET (`ociListTags`) is production-only; no gate depends on the network.
-- **B3d-A2** (test-strength, LOW) — pin the DEFLATE/ZIP adversarial reject branches (invalid
-  Huffman code, distance-too-far-back, STORED LEN/NLEN, fuel exhaustion, bad CD sig, unsupported
-  method, CRC/size mismatch); only BTYPE=3 is pinned today.
+- **B3d-A2** (test-strength, LOW) — DONE 2026-07-05. Pinned every adversarial DEFLATE/ZIP reject
+  branch to its EXACT typed error (not just "is error"), so a wrong branch firing fails the pin.
+  14 new `native_decide` theorems in `Tests/ZipTests.lean`: 9 DEFLATE (STORED LEN/NLEN, dist-too-
+  far-back, invalid dist code, litlen-symbol-286-OOR, dynamic bad-CLC, dynamic invalid-litlen,
+  dynamic dist-symbol-30-OOR, block fuel-exhaustion, + the prior BTYPE=3) and 5 ZIP (short/no-EOCD,
+  bad CD sig, unsupported method, bad local sig, CRC mismatch, size mismatch). Malformed DEFLATE
+  streams bit-crafted + cross-checked against Python `zlib` (raw, wbits=-15); ZIPs are single-field
+  mutations of `storedZip`. NO soundness bug: every branch already rejected correctly (the fuel
+  guard fires on a truncated 1-bit-literal stream — proven no-hang). Distance-symbol-30 and
+  literal-symbol-286 are reachable only via a dynamic table / the fixed table's over-wide code
+  space; the block-loop fuel guard and the dynamic-length-underflow guard are defensive-unreachable
+  by construction (each block/RLE-step consumes ≥1 unit against a matched bound) and left un-pinned.
 - **B3d-B1** (type-leverage, LOW — now has its second consumer) — `Descriptor.digest`/`cue.sum`
   `h1:` are `String` with an unenforced format invariant; `cue.sum` WRITE (B3d-6b) is the second
   `h1:` consumer, so a `Digest`/`Hash1` smart-constructor newtype now earns its keep. Still LOW.

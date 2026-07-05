@@ -113,6 +113,114 @@ theorem inflate_reserved_btype :
     (match Inflate.inflate (bytes [6,0]) with | .error _ => true | .ok _ => false) = true := by
   native_decide
 
+-- ## adversarial reject branches (B3d-A2) — every malformed archive/stream is provably REJECTED
+--
+-- A malformed cue-module archive must never silently mis-decode or wrongly succeed — that would
+-- be a soundness hole in the registry-fetch integrity path. We pin every adversarial reject
+-- branch to its EXACT typed error (not just "is error"): a wrong branch firing (a different
+-- message) fails the pin, so these guard against a reject silently moving.
+--
+-- Malformed DEFLATE bit-streams were bit-crafted (LSB-first packing, MSB-first Huffman codes)
+-- and cross-checked against Python `zlib.decompressobj(wbits=-15)`, which independently rejects
+-- every one (D1/D3/D4/DD1/DD4 as "invalid …"; DD2/DD3 truncate). Malformed ZIPs are single-field
+-- mutations of the known-good `storedZip`, so the offset being corrupted is self-evident.
+
+-- Error string of an inflate attempt (`"OK"` on unexpected success), for exact-message pins.
+def inflErr (l : List Nat) : String :=
+  match Inflate.inflate (bytes l) with | .ok _ => "OK" | .error e => e
+
+-- Error string of a `readZip` attempt (`"OK"` on unexpected success).
+def zipErr (l : List Nat) : String :=
+  match readZip (bytes l) with | .ok _ => "OK" | .error e => e
+
+-- ### DEFLATE (RFC 1951) reject branches
+
+-- STORED block with LEN/NLEN not one's-complement (RFC 1951 §3.2.4). Bytes: final STORED header,
+-- byte-align, LEN=2, NLEN=0 (should be ~2 = 0xFFFD).
+theorem inflate_stored_len_nlen :
+    (inflErr [1,2,0,0,0] == "inflate: STORED block LEN/NLEN mismatch") = true := by native_decide
+
+-- Fixed-Huffman back-reference whose distance (2) points before the start of the 1-byte output
+-- (distance-too-far-back). A malformed backref must error, never read garbage/underflow.
+theorem inflate_dist_too_far :
+    (inflErr [75,4,66] == "inflate: back-reference distance 2 exceeds output") = true := by
+  native_decide
+
+-- Fixed-Huffman distance code 31 (0b11111) — the fixed distance table defines only symbols 0..29,
+-- so codes 30/31 are invalid (RFC 1951 §3.2.6). Decode must reject.
+theorem inflate_invalid_dist_code :
+    (inflErr [75,76,76,4,126] == "inflate: invalid distance code") = true := by native_decide
+
+-- Fixed-Huffman literal/length symbol 286 — in the fixed table's code space but assigned no
+-- meaning by the spec (only 257..285 are length codes). Must reject, not treat as a length.
+theorem inflate_litlen_symbol_oor :
+    (inflErr [27,3] == "inflate: literal/length symbol 286 out of range") = true := by
+  native_decide
+
+-- Dynamic block with all code-length-code lengths zero ⇒ empty preamble Huffman table ⇒ the
+-- first code-length code cannot decode (bad dynamic-table code-length sequence).
+theorem inflate_dynamic_bad_clc :
+    (inflErr [5,0,0,0,0] == "inflate: invalid code-length code in dynamic preamble") = true := by
+  native_decide
+
+-- Dynamic block with an incomplete literal/length table (only symbol 0 defined, length 2), fed a
+-- code that matches no symbol ⇒ invalid literal/length code.
+theorem inflate_dynamic_invalid_litlen :
+    (inflErr
+      [5,192,1,4,0,0,0,128,160,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,26]
+      == "inflate: invalid literal/length code") = true := by native_decide
+
+-- Dynamic block whose distance table defines symbol 30 (HDIST=30) — RFC 1951 reserves distance
+-- symbols 30/31 (no base value). Using one must reject before any back-reference copy.
+theorem inflate_dynamic_dist_symbol_oor :
+    (inflErr
+      [13,158,1,4,0,0,0,64,2,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0,0,14]
+      == "inflate: distance symbol 30 out of range") = true := by native_decide
+
+-- Dynamic block with a 1-bit literal code and NO end-of-block, truncated: past-end zero bits
+-- decode to that literal forever. The fuel guard must fire a typed error (proving no hang),
+-- not loop — the whole point of the explicit fuel bound.
+theorem inflate_block_fuel_exhausted :
+    (inflErr
+      [5,192,1,4,0,0,0,0,144,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,1]
+      == "inflate: block exhausted fuel (truncated or missing end-of-block)") = true := by
+  native_decide
+
+-- ### ZIP container (PKWARE APPNOTE) reject branches — single-field mutations of `storedZip`
+-- (local hdr @0, central-directory hdr @37, EOCD @88).
+
+-- A truncated/short archive (< 22 bytes, no room for an EOCD) is rejected as not-a-zip.
+theorem readZip_truncated :
+    (zipErr [80,75,3,4,10] == "zip: no End-Of-Central-Directory record (not a zip / truncated)")
+      = true := by native_decide
+
+-- Corrupt the central-directory header signature (`PK\x01\x02` byte @38): the CD walk rejects it.
+theorem readZip_bad_cd_sig :
+    (zipErr (storedZip.set 38 0)
+      == "zip: bad central-directory header signature at offset 37") = true := by native_decide
+
+-- Set the CD compression-method field (@47) to 12 (BZIP2) — not STORED/DEFLATE. Typed reject at
+-- parse time, never a silent skip.
+theorem readZip_unsupported_method :
+    (zipErr (storedZip.set 47 12)
+      == "zip: unsupported compression method 12 (only STORED/DEFLATE)") = true := by native_decide
+
+-- Corrupt the local file header signature (`PK\x03\x04` byte @1): reject when locating the data.
+theorem readZip_bad_local_sig :
+    (zipErr (storedZip.set 1 0)
+      == "zip: bad local file header signature for a.txt") = true := by native_decide
+
+-- Corrupt the CD CRC-32 low byte (@53, 0xAC→0x53): the integrity gate rejects the mismatch.
+theorem readZip_crc_mismatch :
+    (zipErr (storedZip.set 53 83)
+      == "zip: a.txt CRC-32 mismatch (got 3633523372, expected 3633523283)") = true := by
+  native_decide
+
+-- Bump the CD uncompressed-size field (@61, 2→3): the size gate rejects the discrepancy.
+theorem readZip_size_mismatch :
+    (zipErr (storedZip.set 61 3)
+      == "zip: a.txt uncompressed size 2 ≠ declared 3") = true := by native_decide
+
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
@@ -122,6 +230,8 @@ theorem inflate_reserved_btype :
 #check @inflate_rle              -- back-reference / overlapping copy
 #check @readZip_deflate          -- ZIP container — synthetic archives (system `zip`)
 #check @inflate_reserved_btype   -- error paths (typed, never silent)
+#check @inflate_block_fuel_exhausted  -- adversarial reject branches (B3d-A2) — DEFLATE
+#check @readZip_size_mismatch    -- adversarial reject branches (B3d-A2) — ZIP
 
 end Zip
 
