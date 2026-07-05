@@ -1630,6 +1630,23 @@ def fixturePorts : List FixturePort :=
             ] .regularOpen none [])
     },
     {
+      fileName := "numeric/float_gda_render.expected",
+      content :=
+        formatTopLevel
+          (mkStruct [
+              ⟨"small_exp", .regular, .prim (mkFloatText "1e-2"), false⟩,
+              ⟨"frac_shift", .regular, .prim (mkFloatText "12345e-2"), false⟩,
+              ⟨"sci_positive", .regular, .prim (mkFloatText "1e+2"), false⟩,
+              ⟨"sci_large", .regular, .prim (mkFloatText "1e+40"), false⟩,
+              ⟨"plain_boundary", .regular, .prim (mkFloatText "1e-6"), false⟩,
+              ⟨"sci_boundary", .regular, .prim (mkFloatText "1e-7"), false⟩,
+              ⟨"collapse_whole", .regular, .prim (mkFloatText "1.00e+2"), false⟩,
+              ⟨"neg_zero", .regular, .prim (mkFloatText "-0.0"), false⟩,
+              ⟨"whole_from_exp", .regular, .prim (mkFloatText "2e+0"), false⟩,
+              ⟨"trailing_zero", .regular, .prim (mkFloatText "1.50"), false⟩
+            ] .regularOpen none [])
+    },
+    {
       fileName := "numeric/non_decimal_numbers.expected",
       content :=
         formatTopLevel

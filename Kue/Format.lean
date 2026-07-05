@@ -76,7 +76,7 @@ def formatPrim : Prim -> String
   | .bool true => "true"
   | .bool false => "false"
   | .int value => toString value
-  | .float _ text => text
+  | .float _ text => renderFloatText cueFloatStyle text
   | .string value => s!"\"{escapeCueStringContent value}\""
   | .bytes value => formatBytesLiteral value
 

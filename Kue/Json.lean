@@ -42,14 +42,15 @@ def jsonString (value : String) : String :=
   "\"" ++ String.ofList (escapeJsonChars value.toList) ++ "\""
 
 /-- JSON rendering of a manifested primitive. A `.bytes` payload is base64-encoded as
-    a JSON string (Go marshals `[]byte` to standard base64); a float is rendered from
-    its exact stored decimal text verbatim (`cue` preserves `1.50`, `10.0`). -/
+    a JSON string (Go marshals `[]byte` to standard base64); a float renders through CUE's
+    canonical GDA `to-scientific-string` (uppercase `E`, bare whole floats), e.g. `1.50`,
+    `100`, `0.01`, `1E+40`. -/
 def manifestPrimToJson : Prim -> String
   | .null => "null"
   | .bool true => "true"
   | .bool false => "false"
   | .int value => toString value
-  | .float _ text => text
+  | .float _ text => renderFloatText jsonFloatStyle text
   | .string value => jsonString value
   | .bytes value => jsonString (base64Encode value.toList)
 

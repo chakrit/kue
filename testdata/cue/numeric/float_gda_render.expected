@@ -1,0 +1,10 @@
+small_exp: 0.01
+frac_shift: 123.45
+sci_positive: 1e+2
+sci_large: 1e+40
+plain_boundary: 0.000001
+sci_boundary: 1e-7
+collapse_whole: 100.0
+neg_zero: 0.0
+whole_from_exp: 2.0
+trailing_zero: 1.50

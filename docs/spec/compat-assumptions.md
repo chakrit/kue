@@ -559,8 +559,9 @@ lives in the reusable `Kue/Json.lean` (`manifestToJson`), shared with B5.
 - **`json.Marshal(value)` produces compact JSON byte-for-byte matching `cue`.**
   Oracle-confirmed (`cue` v0.16.1): object keys are emitted in **source/insertion order,
   NOT sorted** (`{b,a,c}` → `{"b":…,"a":…,"c":…}`); separators are `,` and `:` with no
-  spaces; floats render from their exact stored decimal text verbatim (`1.0`→`"1.0"`,
-  `1.50` →`"1.50"`, `0.1` →`"0.1"`); a bytes value marshals to a base64 JSON string (Go
+  spaces; floats render through CUE's canonical GDA `to-scientific-string` form
+  (`1.0`→`"1.0"`, `1.50` →`"1.50"`, `0.1` →`"0.1"`, `1e-2`→`"0.01"`, `1e40`→`"1E+40"`; see
+  GDA-FLOAT-RENDER in `cue-spec-gaps.md`); a bytes value marshals to a base64 JSON string (Go
   `[]byte` semantics); control characters below `0x20` escape as `\b\f\n\r\t` or `\uXXXX`;
   `<`, `>`, `&`, `/` and all non-ASCII runes pass through verbatim — `cue` disables Go's
   default HTML-escaping (this is `cue` 's documented behavior, not a defect, so it is NOT

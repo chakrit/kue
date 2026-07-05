@@ -26,10 +26,11 @@ theorem int_kind_rejects_float_primitive :
 
 
 -- ── PRIM-FLOAT-PARSED (0e): the smart-constructed decimal representation ──
--- `mkFloatText` stores the exact base-10 value ALONGSIDE the verbatim source text.
+-- `mkFloatText` stores the exact base-10 value ALONGSIDE the source text.
 -- These pin: (a) the stored decimal is correct and read WITHOUT re-parsing, (b) the
--- retained text round-trips rendering verbatim, and (c) derived `BEq` still reduces to
--- text-equality (the invariant that keeps fixtures/canary byte-stable across the change).
+-- retained text is the render anchor (GDA-FLOAT-RENDER derives canonical output from its apd
+-- form; superseded: rendering is representation-preserving, NOT byte-verbatim), and (c)
+-- derived `BEq` still reduces to text-equality (the invariant that keeps `BEq` text-stable).
 
 -- The stored decimal is the exact base-10 value of the source text, read directly
 -- (no hot-path re-parse) — total for every float, so `decimalFromPrim?` never `none`s.
@@ -47,9 +48,9 @@ theorem float_unify_equal_by_stored_value :
       ∧ primsUnifyEqual (mkFloatText "1.50") (mkFloatText "1.5") = true := by
   native_decide
 
--- The retained source text renders VERBATIM: trailing zeros and scientific-notation
--- exponents survive (GDA-FLOAT-RENDER's round-trip concern), so export is byte-stable.
-theorem float_text_round_trips_verbatim :
+-- The retained text is the render anchor: representation-preserving cases (trailing zeros,
+-- already-canonical scientific/plain forms) render unchanged under cue-native GDA.
+theorem float_render_preserves_representation :
     formatValue (.prim (mkFloatText "1.50")) = "1.50"
       ∧ formatValue (.prim (mkFloatText "1e+3")) = "1e+3"
       ∧ formatValue (.prim (mkFloatText "-2e+3")) = "-2e+3"
@@ -75,10 +76,69 @@ theorem float_pinned_across_contexts :
   exact ⟨rfl, rfl⟩
 
 
+-- ── GDA-FLOAT-RENDER: canonical decimal output via `to-scientific-string` ──
+-- Rendering derives the apd `(coefficient, exponent)` form from the retained `text` (the
+-- normalized `DecimalValue` can't — it collapses `1e2`/`1.00e2` and expands `1e40`), then
+-- applies CUE's General-Decimal-Arithmetic rule per output style. Every row is
+-- spec-adjudicated against `cue` v0.16.1.
+
+-- apd extraction is representation-faithful: `1e2` keeps a positive exponent (coefficient 1),
+-- `1.00e2` collapses to coefficient 100 exponent 0 (they are DISTINCT apd forms though equal
+-- in value), `1.50` preserves the trailing zero as magnitude, `-0.0` normalizes its sign.
+theorem float_apd_form_faithful :
+    floatApdForm "1e+2" = (false, 1, 2)
+      ∧ floatApdForm "1.00e+2" = (false, 100, 0)
+      ∧ floatApdForm "1.50" = (false, 150, -2)
+      ∧ floatApdForm "12345e-2" = (false, 12345, -2)
+      ∧ floatApdForm "-2e+3" = (true, 2, 3)
+      ∧ floatApdForm "-0.0" = (false, 0, -1) := by
+  native_decide
+
+-- JSON style: uppercase `E`, whole floats bare. Pins the full matrix + edges: small-exponent
+-- expansion, `1e-6`/`1e-7` plain/scientific boundary, large-magnitude scientific, the
+-- `1e2`≠`1.00e2` collapse, negative, high precision, negative-zero normalization.
+theorem float_render_json :
+    renderFloatText jsonFloatStyle "1.50" = "1.50"
+      ∧ renderFloatText jsonFloatStyle "1e+2" = "1E+2"
+      ∧ renderFloatText jsonFloatStyle "1e-2" = "0.01"
+      ∧ renderFloatText jsonFloatStyle "12345e-2" = "123.45"
+      ∧ renderFloatText jsonFloatStyle "1e+40" = "1E+40"
+      ∧ renderFloatText jsonFloatStyle "1e-6" = "0.000001"
+      ∧ renderFloatText jsonFloatStyle "1e-7" = "1E-7"
+      ∧ renderFloatText jsonFloatStyle "1.234e+10" = "1.234E+10"
+      ∧ renderFloatText jsonFloatStyle "1.00e+2" = "100"
+      ∧ renderFloatText jsonFloatStyle "-0.0" = "0.0"
+      ∧ renderFloatText jsonFloatStyle "-2e+3" = "-2E+3"
+      ∧ renderFloatText jsonFloatStyle "100.0" = "100.0" := by
+  native_decide
+
+-- cue-native style: lowercase `e`, `.0` tail on whole floats. Same matrix.
+theorem float_render_cue_native :
+    renderFloatText cueFloatStyle "1e+2" = "1e+2"
+      ∧ renderFloatText cueFloatStyle "1e-2" = "0.01"
+      ∧ renderFloatText cueFloatStyle "12345e-2" = "123.45"
+      ∧ renderFloatText cueFloatStyle "1e+40" = "1e+40"
+      ∧ renderFloatText cueFloatStyle "1e-7" = "1e-7"
+      ∧ renderFloatText cueFloatStyle "1.234e+10" = "1.234e+10"
+      ∧ renderFloatText cueFloatStyle "1.00e+2" = "100.0"
+      ∧ renderFloatText cueFloatStyle "2e+0" = "2.0"
+      ∧ renderFloatText cueFloatStyle "-0.0" = "0.0" := by
+  native_decide
+
+-- YAML style: uppercase `E`, `.` tail on whole floats (go-yaml's whole-float form).
+theorem float_render_yaml :
+    renderFloatText yamlFloatStyle "1e+2" = "1E+2"
+      ∧ renderFloatText yamlFloatStyle "1e-2" = "0.01"
+      ∧ renderFloatText yamlFloatStyle "1.00e+2" = "100."
+      ∧ renderFloatText yamlFloatStyle "2e+0" = "2."
+      ∧ renderFloatText yamlFloatStyle "-1.00e+2" = "-100." := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
 -- elaboration.
 #check @int_kind_rejects_float_primitive
 #check @float_pinned_across_contexts
+#check @float_render_yaml
 
 end Kue

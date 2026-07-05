@@ -1,0 +1,15 @@
+out:
+  trailing_zero: 1.50
+  small_exp: 0.01
+  frac_shift: 123.45
+  sci_positive: 1E+2
+  sci_large: 1E+40
+  plain_boundary: 0.000001
+  sci_boundary: 1E-7
+  sci_mantissa: 1.234E+10
+  collapse_whole: 100.
+  neg_zero: 0.0
+  neg_sci: -2E+3
+  high_precision: 3.14159265358979
+  whole_from_exp: 2.
+  plain_fraction: 100000.0

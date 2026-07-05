@@ -18091,3 +18091,51 @@ correctly scoped LOW (cosmetic). Neither reached the active queue this batch; bo
 
 `./scripts/check.sh` GREEN (all gates: `lake build` + every `check-*.sh` + shellcheck; cert-manager
 realworld canary byte-identical). Audit committed on `main`, explicit pathspec, NOT pushed.
+
+## Completed Slice: GDA-FLOAT-RENDER — 2026-07-05
+
+Floats now render through CUE's canonical General-Decimal-Arithmetic `to-scientific-string`,
+replacing verbatim `text` emission. Byte-identical to `cue` v0.16.1 across all three export
+surfaces on the full matrix + edges.
+
+**False-premise correction (the crux).** The plan's stated mechanism — "render GDA on the exact
+`DecimalValue`" — is impossible and is superseded. A normalized `DecimalValue {numerator, scale}`
+has a non-negative `scale`, so `applyDecimalExponent` multiplies a positive exponent into the
+coefficient: `1e2` and `1.00e2` both become `{100, 0}`, yet `cue` renders them `1E+2` vs `100`
+(representation-dependent, from the literal's apd form); `1e40`→`{10^40, 0}` would render PLAIN
+`100…0`, not scientific `1E+40`. No function of `DecimalValue` alone can match `cue`. The apd
+`(coefficient, exponent)` form is reconstructed from the retained source `text` instead — the
+round-trip anchor PRIM-FLOAT-PARSED (0e) deliberately kept.
+
+**Mechanism.** `Value.lean` gains `floatApdForm` (text `[-]W[.F][e±D]` → `(negative, coefficient,
+exponent)`; coefficient = value of `W ++ F` digits with trailing zeros as magnitude, `exponent =
+D − |F|`, zero coefficient drops its sign) and `renderFloatApd` (GDA `to-scientific-string`:
+adjusted-exp `E = exponent + numDigits − 1`; PLAIN when `exponent ≤ 0 ∧ E ≥ −6`, else
+`E`-scientific). `renderFloatText style text` is the single entrypoint. Per-surface knobs via
+`FloatRenderStyle`: `jsonFloatStyle` (uppercase `E`, bare whole floats), `yamlFloatStyle`
+(uppercase `E`, `.` whole floats — go-yaml's form), `cueFloatStyle` (lowercase `e`, `.0` whole
+floats). Wired into `formatPrim` (`Format.lean`), `manifestPrimToJson` (`Json.lean`),
+`yamlScalarPrim` (`Yaml.lean`).
+
+**Negative zero.** `-0.0` normalizes to `0.0` on render (coeff 0 drops sign) — matches `cue`'s
+parse-time normalization of a literal `-0.0` and the `-0.0 & 0.0` meet leftover. Diverges from
+`cue`'s arithmetic `0.0 * -1`→`-0.0` (`cue` does NOT uniformly normalize export zeros, contrary to
+the plan's premise); kue is lattice-consistent (`-0.0 == 0.0`, so equal values render equally) and
+already produced `0.0` for that arithmetic. Recorded in `cue-divergences.md`.
+
+**Tests (test-first).** `FloatTests.lean` GDA section: `float_apd_form_faithful` (apd extraction incl.
+`1e2`≠`1.00e2` distinction, trailing-zero magnitude, `-0.0` sign drop), `float_render_json`
+(12-case matrix + edges), `float_render_cue_native`, `float_render_yaml`. `float_text_round_trips_
+verbatim` renamed `float_render_preserves_representation` (retraction: rendering is no longer
+byte-verbatim). Fixtures: `testdata/export/float_render_gda.{cue,json,yaml}` (JSON/YAML export),
+`testdata/cue/numeric/float_gda_render.expected` (cue-native, ported in `FixturePorts.lean`).
+Expected values are spec-adjudicated (GDA) and confirmed byte-identical to `cue` v0.16.1.
+
+**Retractions (same slice).** `Value.lean` `Prim.float` doc, `Json.lean` comment, `FloatTests`
+comment, `compat-assumptions.md` "verbatim" claim all updated; `plan.md` GDA entry closed + the
+stale `-0.0` target and the batch-3 "still open" list annotated. `cue-spec-gaps.md` FLOAT OUTPUT
+FORM row added (spec-silent, kue matches cue).
+
+`./scripts/check.sh` GREEN (all gates; cert-manager realworld canary byte-identical — cert-manager
+carries no float literal that triggers the changed rendering, so zero drift). Committed on `main`,
+explicit pathspec, NOT pushed.

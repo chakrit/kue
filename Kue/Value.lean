@@ -23,10 +23,12 @@ deriving Repr, BEq, DecidableEq
 
 /-- A `float` carries BOTH its exact decimal `value` (smart-constructed from `text` once,
     at lex/result-construction time — never re-parsed on the meet/compare hot path) and the
-    original source `text` (so rendering round-trips verbatim: `1.50` prints `1.50`, `1e+3`
-    prints `1e+3`). Every construction goes through `mkFloatText`, which sets
-    `value := parseDecimalText text`, so the two fields never disagree and derived `BEq`
-    stays exactly text-equality. -/
+    original source `text`. The `text` is the render anchor: it is the ONLY faithful record of
+    the literal's apd `(coefficient, exponent)` form (the normalized `DecimalValue` erases a
+    positive exponent), so `renderFloatText` derives CUE's canonical GDA output from it —
+    representation-preserving, but NOT byte-verbatim (`12345e-2` renders `123.45`). Every
+    construction goes through `mkFloatText`, which sets `value := parseDecimalText text`, so the
+    two fields never disagree and derived `BEq` stays exactly text-equality. -/
 inductive Prim where
   | null
   | bool (value : Bool)
@@ -131,6 +133,102 @@ def formatFiniteDecimal (value : DecimalValue) (forceFloat : Bool) : String :=
     prints as an integer, `>0` not `>0.0`). -/
 def formatBoundLimit (value : DecimalValue) : String :=
   formatFiniteDecimal value false
+
+/-- The per-format knobs of the GDA float renderer. CUE's decimal output form is
+    spec-silent (the spec pins values, not textual form), so Kue matches `cue` per
+    output surface: JSON/YAML use uppercase `E`; JSON prints a whole float bare
+    (`100`), YAML with a trailing dot (`100.`), cue-native with `.0` (`100.0`). -/
+structure FloatRenderStyle where
+  /-- The exponent letter for scientific notation: `"E"` (JSON/YAML) or `"e"` (cue-native). -/
+  expChar : String
+  /-- The suffix appended to an integer-valued float (adjusted exponent 0): `""` (JSON),
+      `"."` (YAML), or `".0"` (cue-native). -/
+  wholeTail : String
+
+def jsonFloatStyle : FloatRenderStyle := { expChar := "E", wholeTail := "" }
+def yamlFloatStyle : FloatRenderStyle := { expChar := "E", wholeTail := "." }
+def cueFloatStyle : FloatRenderStyle := { expChar := "e", wholeTail := ".0" }
+
+/-- The value of a decimal-digit `List Char` (leading zeros absorbed, trailing preserved as
+    magnitude), e.g. `"100" ⇒ 100`. Non-digits contribute their `- '0'` offset; callers pass
+    digit-only lists. -/
+def digitCharsToNat (chars : List Char) : Nat :=
+  chars.foldl (fun acc c => acc * 10 + (c.toNat - '0'.toNat)) 0
+
+/-- Split a `List Char` at the FIRST occurrence of `target`: the prefix before it, and the
+    suffix after it (`none` if `target` is absent). -/
+def splitAtChar (target : Char) : List Char -> List Char × Option (List Char)
+  | [] => ([], none)
+  | c :: rest =>
+      if c == target then ([], some rest)
+      else
+        let (pre, post) := splitAtChar target rest
+        (c :: pre, post)
+
+/-- Parse a signed integer from `[+|-]digits` (empty ⇒ 0). -/
+def parseSignedIntChars : List Char -> Int
+  | '+' :: rest => Int.ofNat (digitCharsToNat rest)
+  | '-' :: rest => -(Int.ofNat (digitCharsToNat rest))
+  | rest => Int.ofNat (digitCharsToNat rest)
+
+/-- The exact apd `(coefficient, exponent)` form of a float's canonical source text
+    `[-]W[.F][e±D]` — the representation CUE's `to-scientific-string` renders from and the
+    normalized `DecimalValue` (non-negative scale) CANNOT reconstruct (it multiplies a
+    positive exponent into the coefficient, collapsing `1e2`/`1.00e2` and erasing the
+    scientific switch for `1e40`). The literal's own `text` is the only faithful source, so
+    rendering derives the apd form here rather than from `DecimalValue`. `coefficient` is the
+    integer value of the concatenated `W ++ F` digits (trailing zeros survive as magnitude,
+    e.g. `1.50 ⇒ 150`); `exponent = D − |F|`; a zero coefficient normalizes the sign away
+    (`-0.0 ⇒ +0`, matching `cue`'s parse-time negative-zero normalization). -/
+def floatApdForm (text : String) : Bool × Nat × Int :=
+  let (negative, afterSign) :=
+    match text.toList with
+    | '-' :: rest => (true, rest)
+    | '+' :: rest => (false, rest)
+    | rest => (false, rest)
+  let (mantissa, exponentPart) := splitAtChar 'e' afterSign
+  let (wholeChars, fractionOpt) := splitAtChar '.' mantissa
+  let fractionChars := fractionOpt.getD []
+  let exponentValue := parseSignedIntChars (exponentPart.getD [])
+  let coefficient := digitCharsToNat (wholeChars ++ fractionChars)
+  let exponent := exponentValue - Int.ofNat fractionChars.length
+  (negative && coefficient != 0, coefficient, exponent)
+
+/-- CUE's General-Decimal-Arithmetic `to-scientific-string` on an apd `(coefficient,
+    exponent)` form (see `floatApdForm`), parameterized by the output `style`. Adjusted
+    exponent `E = exponent + numDigits − 1` decides the form: PLAIN when
+    `exponent ≤ 0 ∧ E ≥ −6` (integer at `exponent = 0`, else a decimal-point placement /
+    `0.00…` pad), otherwise `E`-SCIENTIFIC (decimal point after the first digit, exponent
+    `E`). An integer-valued float takes the style's `wholeTail`. -/
+def renderFloatApd (style : FloatRenderStyle) (negative : Bool) (coefficient : Nat)
+    (exponent : Int) : String :=
+  let digits := (toString coefficient).toList
+  let numDigits := digits.length
+  let adjusted := exponent + Int.ofNat numDigits - 1
+  let sign := if negative then "-" else ""
+  if exponent <= 0 && adjusted >= -6 then
+    if exponent == 0 then
+      sign ++ toString coefficient ++ style.wholeTail
+    else
+      let fractionWidth := (-exponent).toNat
+      if numDigits > fractionWidth then
+        let intWidth := numDigits - fractionWidth
+        sign ++ String.ofList (digits.take intWidth) ++ "." ++ String.ofList (digits.drop intWidth)
+      else
+        sign ++ "0." ++ repeatZeros (fractionWidth - numDigits) ++ toString coefficient
+  else
+    let mantissa :=
+      if numDigits == 1 then toString coefficient
+      else String.ofList (digits.take 1) ++ "." ++ String.ofList (digits.drop 1)
+    let exponentSign := if adjusted >= 0 then "+" else "-"
+    sign ++ mantissa ++ style.expChar ++ exponentSign ++ toString adjusted.natAbs
+
+/-- Render a `Prim.float`'s source `text` in CUE's canonical GDA form for the given output
+    `style` (`jsonFloatStyle`/`yamlFloatStyle`/`cueFloatStyle`). The single float-rendering
+    entrypoint shared by `Format`/`Json`/`Yaml`, replacing verbatim `text` emission. -/
+def renderFloatText (style : FloatRenderStyle) (text : String) : String :=
+  let (negative, coefficient, exponent) := floatApdForm text
+  renderFloatApd style negative coefficient exponent
 
 def evalDigitValue? (value : Char) : Option Nat :=
   if '0'.toNat <= value.toNat && value.toNat <= '9'.toNat then

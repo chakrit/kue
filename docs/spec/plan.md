@@ -504,18 +504,26 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   (`parseDecimalText`+`decimalEqValues`), keeping the LEFT operand (cue's rule); other kinds
   stay structural; int-vs-float stays a type conflict. Wild fixture
   `float-unify-equal-diff-representation` (enforced) + `NumberTests` `meet_prim_float_*`.
-- **GDA-FLOAT-RENDER (formatting divergence; FILE — dedicated churny slice).** kue emits a
-  float's stored source string (lightly normalized) rather than CUE's canonical apd
-  General-Decimal-Arithmetic `to-scientific-string`. Same VALUE, different notation, so not a
-  semantic bug — but every case below diverges from `cue export`: lowercase `1e+2` vs cue
-  `1E+2`; no decimal-expansion of small exponents (`1e-2`→cue `0.01`, `1.5e-3`→`0.0015`,
-  `12345e-2`→`123.45`); no scientific switch for large magnitudes (`1e40`→kue
-  `100…0.0`, cue `1E+40`); negative-zero literal `-0.0` not normalized to `0.0` (cue
-  normalizes at parse; kue keeps `-0.0`, incl. the leftover from `-0.0 & 0.0`); and
-  arithmetic sign-of-zero (`0.0 * -1`→kue `0.0`, cue `-0.0`). Fix = render floats through a
-  GDA `to-scientific-string` function on the exact `DecimalValue` (adjusted-exponent rule:
-  plain when `exp<=0 && adjusted>=-6`, else `E` scientific). High blast radius across float
-  fixtures — own careful slice; not adoption-blocking (values agree).
+- **GDA-FLOAT-RENDER ✅ LANDED 2026-07-05.** Floats now render through CUE's canonical GDA
+  `to-scientific-string` per output surface via `renderFloatText` (`Value.lean`), replacing
+  verbatim `text` emission in `Format`/`Json`/`Yaml`. Byte-identical to `cue` v0.16.1 across
+  JSON (uppercase `E`, bare whole floats), YAML (uppercase `E`, `.` whole floats), and
+  cue-native (lowercase `e`, `.0` whole floats) on the full matrix: small-exp expansion
+  (`1e-2`→`0.01`, `12345e-2`→`123.45`), large-magnitude scientific (`1e40`→`1E+40`),
+  plain/scientific boundary at adjusted-exp `≥ −6` (`1e-6`→`0.000001`, `1e-7`→`1E-7`),
+  representation collapse (`1.00e2`→`100`/`100.0`), `-0.0`→`0.0`. **Plan's original mechanism
+  was FALSE and is superseded:** "render on the exact `DecimalValue`" cannot work — a
+  normalized `DecimalValue` (non-negative `scale`) multiplies a positive exponent into the
+  coefficient, so `1e2` and `1.00e2` share `{100,0}` yet must render `1E+2` vs `100`, and
+  `1e40`→`{10^40,0}` would render PLAIN not scientific. The apd `(coefficient, exponent)` form
+  is reconstructed from the retained `text` instead (the round-trip anchor 0e kept). Recorded
+  in `cue-spec-gaps.md` (FLOAT OUTPUT FORM — spec-silent, kue matches cue). Retraction: the
+  original bullet's claim that "arithmetic sign-of-zero (`0.0 * -1`→cue `-0.0`)" is a target to
+  match is WRONG — `cue` export does NOT uniformly normalize zeros (it exports `-0.0` for that
+  arithmetic case); kue normalizes ALL rendered zeros to `0.0` (lattice-consistency: `-0.0 ==
+  0.0`), matching cue on the literal `-0.0`→`0.0` and diverging on the arithmetic case,
+  recorded in `cue-divergences.md`. Fixtures: `testdata/export/float_render_gda.*`,
+  `testdata/cue/numeric/float_gda_render.expected`; `FloatTests` GDA section (4 theorems).
 - **STRINGS-RUNES-MISSING — DONE (2026-07-04).** `strings.Runes(s)` now registered:
   `stringRunes` maps each `Char` (Unicode scalar) to `.prim (.int codepoint)`, so
   multibyte/astral are one int per rune (`"a😀b"`→`[97,128512,98]`), astral-correct (full
@@ -624,7 +632,8 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
 Batch verdict: all three code changes SOUND. A4 reconciliation clean (STRUCT-EQ-LEAF-TYPESENSE
 divergence row + `numeric/equality_expressions` fixtures present and match code; PRIM-FLOAT-PARSED
 still open; ARCH-QUOTED-STRIP / GDA-FLOAT-RENDER / BYTES-SLICE-MISSING / BYTE-INTERPOLATION /
-BUILTIN-IMPORT-LENIENCY all still tracked, no decay). Two LOW findings:
+BUILTIN-IMPORT-LENIENCY all still tracked, no decay). [Retraction 2026-07-05: PRIM-FLOAT-PARSED
+and GDA-FLOAT-RENDER have since LANDED — see their entries above.] Two LOW findings:
 
 - **INTERP-STRUCT-PATTERN-DEFER (LOW — correctness/consistency). ✅ DONE 2026-07-04.** Collapsed
   both struct arms of `classifyInterpolationPart` (`Kue/EvalBase.lean`) to a single pattern-agnostic

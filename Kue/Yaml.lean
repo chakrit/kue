@@ -306,7 +306,7 @@ def yamlScalarPrim : Prim -> String
   | .bool true => "true"
   | .bool false => "false"
   | .int value => toString value
-  | .float _ text => text
+  | .float _ text => renderFloatText yamlFloatStyle text
   | .string value => yamlScalarString value
   | .bytes value => yamlScalarString (base64Encode value.toList)
 
