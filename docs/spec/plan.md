@@ -741,7 +741,57 @@ Phase B verified `normalizeFieldOrder` placement (colocated with its sole consum
 coarse `eqUpToFieldOrder` confinement leak-proof (used only in the dedup path; global `BEq`
 untouched for cycle detection). AUD-B2/B4 re-verified STILL OPEN + correctly scoped. Detail: log.
 
+The **2026-07-05 (leg4/float/import batch) two-phase audit** (`6eafcf5..HEAD`:
+GDA-FLOAT-RENDER `7996477`, BUILTIN-IMPORT-LENIENCY `1f292a8`, B3d-6b-leg4 `33ca159`,
+consolidation `3f0f378`) is COMPLETE — **Phase A CLEAN (zero fix-slices), Phase B ONE LOW
+finding filed (AUD-B5, deferred with tradeoff)**. A4 (audit-the-last-audit): the batch-4
+Phase-B filings AUD-B2 (modtidy zip source) and AUD-B4 (`textBytes` in-place note) landed in
+this batch's consolidation commit `3f0f378` — VERIFIED (`scripts/gen-modtidy-fixtures.py`
+regenerates the five zips from readable `src/` trees; the `textBytes` rationale note is at the
+def in `Kue/Value.lean`). Both correctly DISCHARGED.
+
+Phase A hard-verified the four designated high-value points against real call sites:
+- **Float apd rendering** — `floatApdForm` parses EVERY float `text` the lexer can emit
+  (lexer normalizes the exponent to lowercase `e` with an explicit sign and strips a leading
+  `+`, so the lowercase-`e`-only split is sound) AND every eval-produced float text
+  (`formatFiniteDecimal`/`divideDecimalRational?`/`negateFloatText` emit only plain
+  `[-]W[.F]`, never scientific). The `1e-6`/`1e-7` plain↔scientific boundary is correct
+  (`exponent ≤ 0 ∧ adjusted ≥ −6`). Cross-checked `cue` on `100.0`/`10.0e1`/`250e-2`/`0.0`/
+  `1e2`/`1e-7` across JSON/YAML/cue — all three surfaces byte-match.
+- **Import enforcement** — no un-imported builtin path slips the gate: `applyBuiltinAliases`
+  runs at BOTH parse entrypoints (`parseDocument`, `parseDocumentFile`), per-file; no
+  `.builtinCall` for a qualified name is constructed after the gate except the eval-time
+  `json/yaml.Marshal` re-defer (which only fires for a call that already passed the gate);
+  the only no-call stdlib constants are `list.Ascending/Descending/Comparer`, all routed
+  through the import-checked `resolveBuiltinConstSelector`. No legitimately-imported builtin
+  is wrongly rejected (aliased + unaliased call and constant forms all resolve; gate keys off
+  the canonicalized package name against `importedBuiltinPackages`).
+- **leg-4 override** — a currently-resolving lenient load is never regressed: a
+  declared-but-unvendored dep makes `buildDiskGraphAux` error → `solveVersionOverride` returns
+  an EMPTY override (per-hop fallback); `solveChecked` errors ONLY on a dep requiring the main
+  module's OWN path (the genuine cue-reject case), never on a benign graph. `ModuleContext.selected`
+  is threaded through all three construction sites (`loadPackageDir`, `loadFileBound`, the
+  recursive `depCtx`) — no hop drops it into the `[]` default.
+- **Guards** — no swallowing `| _ =>` on a Value-producing match (the `.selector`-arm
+  `| _ => .selector (rec' base) label` is a `.ref?` probe inside a fully-enumerated outer
+  match, not a dispatch swallow); `gateBuiltinImport`'s `_` is on a `List String` splitOn
+  result; `check-comments` green; the import convention migrated with its enforcement.
+
 **Open Phase-B fix-slices (2026-07-05, ranked):**
+- **AUD-B5 (LOW) — FILED, deferred.** `buildDiskGraphAux` (`Kue/Module.lean`, disk-first) and
+  `fetchGraphAux` (`Kue/ModCmd.lean`, registry) share an identical fuel-bounded, visited-guarded
+  BFS SKELETON (fuel decrement, visited-membership check, worklist append, acc append) that
+  differs only in the per-node STEP (worklist element `Dep` vs `FilePath × Dep` for
+  importer-root threading; node located via registry `fetch` vs disk `locateModuleDir +
+  readModuleInfo`; payload `(deps, h1)` vs plain requirement edges, no digest). The slice
+  deliberately did NOT share them, judging the asymmetry to obscure a shared skeleton. Audit
+  view: the asymmetry lives entirely in the step callback, so a generic
+  `bfsGraph (step : W → IO (Except String (ModuleVersion × List W × E))) : Nat → List W → …`
+  combinator would cleanly DRY the ~8 lines of loop plumbing while each caller supplies its own
+  step. LOW because both functions are ~15 lines and currently clear; extracting a generic
+  higher-order combinator risks obscuring two focused walks and needs both the `mod tidy` and
+  the crossmod-diamond paths re-verified. Defensible either way — filed for the roadmap to
+  weigh, not forced inline.
 - **AUD-B3 (MEDIUM) — DONE (`6012a8e`).** Routed all six Value-producing catch-all sites
   (`evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`, plus the same-pattern
   `evalPrimitiveOrdering`/`evalRegexMatch` — converted together per the "convention lands with its
