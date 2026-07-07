@@ -44,6 +44,11 @@ secrets stored in any repo.
   `../homebrew-tap` (override with `KUE_TAP_DIR`).
 - **No `kue version` subcommand** — `kue` treats any arg as a file path, so the formula
   `test` pipes CUE via stdin instead: `printf 'x: int & 1\n' | kue` → `x: 1`.
+- **Push the branch before `release.sh`** — the script pushes the *tag* (and its commit
+  objects) but never the branch ref. Cutting from an unpushed `main` leaves the tag on a
+  commit `gh/main` doesn't contain — the release-consistency failure mode. Run
+  `git push gh main` first, then `release.sh <version>`, then `release-linux.sh <version>`
+  for the two Linux assets.
 
 ## Alternatives considered
 
