@@ -30,3 +30,4 @@ spike/cgo_flags.go
 spike/gen/
 spike/Spike.c
 spike/Spike.o
+.inbox.log
