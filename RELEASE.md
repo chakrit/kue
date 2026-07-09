@@ -3,7 +3,7 @@
 How to cut a Kue release. **Local only — GitHub Actions / CI is banned.** The entire
 pipeline is `scripts/release.sh`; this file is the checklist around it so steps run in the
 right order and none are forgotten. Design rationale lives in
-[`docs/notes/2026-06-16-release-and-homebrew-setup.md`](docs/notes/2026-06-16-release-and-homebrew-setup.md).
+[`docs/decisions/2026-06-16-distribution-prebuilt-local-release.md`](docs/decisions/2026-06-16-distribution-prebuilt-local-release.md).
 
 ## Cadence & versioning
 

@@ -9375,7 +9375,7 @@ needs class-level set-complement in `parseClassEscape`), then the MED tail (D#1b
 residual display, BI-1/2, F-3).
 
 Files: `Kue/Eval.lean` (`normalizeEvaluatedDisj`), `Kue/Tests/EvalTests.lean`,
-`Kue/Tests/FixturePorts.lean`, `docs/reference/cue-spec-gaps.md`,
+`Kue/Tests/FixturePorts.lean`, `docs/spec/cue-spec-gaps.md`,
 `testdata/cue/disjunctions/default_dedup.expected`,
 `testdata/export/terminating_disj_{default,nonnull_default,cyclic_nondefault}.{cue,json}`.
 
@@ -9540,7 +9540,7 @@ Files: `Kue/Value.lean` (`NonBoolGuardType`, `BottomReason.nonBoolGuard`), `Kue/
 4 caller arms), `Kue/Tests/PresenceTests.lean`, `Kue/Tests/EvalTests.lean`,
 `Kue/Tests/EvalPerfTests.lean`, `Kue/Tests/FixturePorts.lean`,
 `testdata/cue/comprehensions/{guard_nonbool_string,guard_nonbool_int,list_guard_nonbool,guard_incomplete_defers}.{cue,expected}`,
-`docs/reference/cue-divergences.md`, `docs/reference/cue-spec-gaps.md`.
+`docs/spec/cue-divergences.md`, `docs/spec/cue-spec-gaps.md`.
 
 ## Completed Slice: D#3 — `let` clauses in comprehensions (2026-06-20)
 
@@ -9635,7 +9635,7 @@ Files: `Kue/Value.lean` (`Clause.letClause`, `descendClauses` `.letClause` arm),
 `Kue/Normalize.lean` (two clause arms), `Kue/Format.lean` (`formatClauseWithFuel` arm),
 `Kue/Tests/EvalTests.lean` (9 pins), `Kue/Tests/FixturePorts.lean` (6 entries),
 `testdata/cue/comprehensions/{list_let_basic,list_let_in_guard,list_let_multiple,list_let_for_after,let_shadows_outer,struct_let_basic}.{cue,expected}`,
-`docs/reference/cue-divergences.md`, `docs/reference/cue-spec-gaps.md`.
+`docs/spec/cue-divergences.md`, `docs/spec/cue-spec-gaps.md`.
 
 ---
 
@@ -9733,7 +9733,7 @@ Files: `Kue/Builtin.lean` (`decimalPowNat`, `mathPow?`, `evalMathBuiltin` `math.
 eval arm), `Kue/Parse.lean` (`stdlibPackageValue?` + `parseSelectorRest` no-call selector branch),
 `Kue/Tests/BuiltinTests.lean` (13 Pow pins), `Kue/Tests/EvalTests.lean` (13 Sort pins),
 `Kue/Tests/FixturePorts.lean` (2 entries),
-`testdata/cue/builtins/{math_pow,list_sort}.{cue,expected}`, `docs/reference/cue-spec-gaps.md`.
+`testdata/cue/builtins/{math_pow,list_sort}.{cue,expected}`, `docs/spec/cue-spec-gaps.md`.
 
 ## Completed Slice: F-3 — parse qualified import path `"location:identifier"` (2026-06-20)
 
@@ -9808,8 +9808,8 @@ batch — two-phase audit due after ~1 more slice.
 Files: `Kue/Value.lean` (`Import.packageName` field + doc), `Kue/Parse.lean` (`isPackageIdentifier`,
 `splitImportPath`, `parseImportSpec`), `Kue/Module.lean` (`importBindName` precedence),
 `Kue/Tests/ParseTests.lean` (8 pins), `Kue/Tests/ModuleTests.lean` (4 pins),
-`testdata/modules/qualified_import{,_bare,_mixed,_invalid_id}/*`, `docs/reference/cue-divergences.md`,
-`docs/reference/cue-spec-gaps.md`, `docs/spec/spec-conformance-audit.md`.
+`testdata/modules/qualified_import{,_bare,_mixed,_invalid_id}/*`, `docs/spec/cue-divergences.md`,
+`docs/spec/cue-spec-gaps.md`, `docs/spec/spec-conformance-audit.md`.
 
 ## Completed Slice: Test-org pass — carve EvalTests into Comprehension + Sort modules
 
@@ -10107,7 +10107,7 @@ pins, no eval-path code). No shell touched → `shellcheck` N/A. All gap probes 
 `kue` (`.lake/build/bin/kue`) + the `cue` oracle (`/Users/chakrit/go/bin/cue` v0.16.1,
 READ-ONLY).
 
-Files: `Kue/Tests/StructTests.lean` (3 ratification pins), `docs/reference/cue-spec-gaps.md`
+Files: `Kue/Tests/StructTests.lean` (3 ratification pins), `docs/spec/cue-spec-gaps.md`
 (rows 1–3 → RATIFIED with corrected bases; new ⚠ MIS-FILED E#4 row),
 `docs/spec/spec-conformance-audit.md` (4-ratifications item closed; E#4-fix added to the MED
 tail), `docs/spec/plan.md` (backlog line updated; item #4 RATIFIED-closed; E#4-fix added as
@@ -10197,7 +10197,7 @@ No shell touched → `shellcheck` N/A. Oracle: `/Users/chakrit/go/bin/cue` v0.16
 Files: `Kue/Eval.lean` (classifier + gate + repeat), `Kue/Value.lean` (2 `BottomReason`s),
 `Kue/Tests/EvalTests.lean` (~19 pins), `Kue/Tests/FixturePorts.lean` (3 ports),
 `testdata/cue/numeric/{list_arithmetic_type_error,string_repeat_multiplication,
-arithmetic_incomplete_operand_defers}.{cue,expected}`, `docs/reference/cue-spec-gaps.md`
+arithmetic_incomplete_operand_defers}.{cue,expected}`, `docs/spec/cue-spec-gaps.md`
 (E#4 row → RESOLVED), `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (E#4-fix DONE).
 
 ## Completed Slice: AD4-1 — unify the comprehension clause-walker twins behind one generic driver
@@ -10762,7 +10762,7 @@ no fix needed.**
 
 ### SPEC-CONFORMANCE — eager prune is spec-consonant; cue's hold is permitted lazy eval
 
-The CUE spec (`docs/reference/cue-language-guide.md` Disjunction) mandates *"distribute the unification
+The CUE spec (`docs/vendor/cue-language-guide.md` Disjunction) mandates *"distribute the unification
 over the alternatives and **eliminate bottom alternatives**"* (`("a"|"b") & "c" == _|_`) and treats
 `_|_` as the identity for `|`. Eager elimination of a DEFINITELY-bottom arm is therefore spec-correct
 and the more precise lattice move. The spec does NOT pin the *timing* — it also says *"Evaluation can
@@ -11070,7 +11070,7 @@ Files: `Kue/Decimal.lean` (`decimalDigitCount`, `isqrtNewton`, `isqrtNat`, `sqrt
 `decimalSqrt`), `Kue/Builtin.lean` (`decimalSqrtSigned`, `mathSqrt?`, `isHalfExponent`, `mathPow?`
 ½-route, `math.Sqrt` arm + deferral docstring), `Kue/Tests/BuiltinTests.lean` (17 pins),
 `Kue/Tests/FixturePorts.lean` (math_sqrt port), `testdata/cue/builtins/math_sqrt.{cue,expected}`,
-`docs/reference/cue-divergences.md` (2 rows), `docs/reference/cue-spec-gaps.md` (Pow/Sqrt row),
+`docs/spec/cue-divergences.md` (2 rows), `docs/spec/cue-spec-gaps.md` (Pow/Sqrt row),
 `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (BI-2-residual SPLIT, "USER-GATED"
 dropped, Float-avoided noted).
 
@@ -11120,7 +11120,7 @@ Files: `Kue/Decimal.lean` (`lnExpScale`/`lnExpUnit`/`ln2Scaled`/`mulScaled`/`div
 /`roundScaledToSigDigits`/`decimalPowGeneral`), `Kue/Builtin.lean` (`reciprocalDecimalToValue`,
 rewired `mathPow?`), `Kue/Tests/BuiltinTests.lean` (13 pins), `Kue/Tests/FixturePorts.lean`
 (math_pow port +11), `testdata/cue/builtins/math_pow.{cue,expected}`,
-`docs/reference/cue-divergences.md` (1 row), `docs/reference/cue-spec-gaps.md` (Pow row clause c),
+`docs/spec/cue-divergences.md` (1 row), `docs/spec/cue-spec-gaps.md` (Pow row clause c),
 `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (BI-2 family COMPLETE). Commit `cd2f0a9`.
 
 ---
@@ -11250,7 +11250,7 @@ bottom). No spec gap (closed-def-rejects-extra is core CUE closedness; spec is c
 `fixture pairs ok` (zero drift; 2 new module fixtures are expected additions); `shellcheck` n/a
 (no shell touched). Files: `Kue/Eval.lean` (`selectedFieldValue` + 4 pluck sites),
 `Kue/Tests/ClosureTests.lean` (7 pins + 1 corrected), `testdata/modules/import_open_def_addfield/`
-+ `import_closed_def_pattern/` (new), `docs/reference/cue-divergences.md` (1 row),
++ `import_closed_def_pattern/` (new), `docs/spec/cue-divergences.md` (1 row),
 `docs/spec/spec-conformance-audit.md` + `docs/spec/plan.md` (resolved), `docs/notes/` (breadcrumb).
 
 ---
@@ -11316,7 +11316,7 @@ edge preservation (`unknown_family_abstract_arg_stays_unresolved`, `unknown_fami
 only on `propext`/`Classical.choice`/`Quot.sound`); `check-fixtures.sh` → `fixture pairs ok`
 (zero drift); `shellcheck` n/a (no shell touched). Files: `Kue/Builtin.lean` (`BuiltinFamily` +
 `ofName?` + `evalCoreBuiltin` + rewritten `evalBuiltinCall`), `Kue/Tests/BuiltinTests.lean`
-(13 pins), `docs/reference/cue-divergences.md` + `docs/reference/cue-spec-gaps.md` (1 row each),
+(13 pins), `docs/spec/cue-divergences.md` + `docs/spec/cue-spec-gaps.md` (1 row each),
 `docs/spec/plan.md` + `docs/notes/` (resolved + breadcrumb).
 
 ---
@@ -11583,7 +11583,7 @@ pre-existing pin + fixture green, pin-count conserved (+2 new). NO cue-divergenc
 
 **Files.** `Kue/Eval.lean` (helper + 6 sites), `Kue/Runtime.lean` (within-module collapse +
 doc-comment), `Kue/Tests/TwoPassTests.lean` (+2 pins), `docs/spec/plan.md`,
-`docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb).
+`docs/spec/implementation-log.md`, `docs/notes/` (breadcrumb).
 
 ## 2026-06-22 — release `v0.1.0-alpha.20260622` cut (attended)
 
@@ -11671,7 +11671,7 @@ worse than the parked bottom). Full detail in `spec-conformance-audit.md` Live-s
 **Files.** `Kue/Eval.lean` (`embedBodyEmbedsDisjDeep` + `spliceOperandForEmbed` signature +
 2 callsites), `Kue/Tests/TwoPassTests.lean` (Bug2-5 section, 8 pins),
 `testdata/export/bug25_disj_arm_let_local_narrowing.{cue,json,args}`,
-`docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/reference/cue-divergences.md`,
+`docs/spec/spec-conformance-audit.md`, `docs/spec/plan.md`, `docs/spec/cue-divergences.md`,
 `docs/notes/` (breadcrumb).
 
 ---
@@ -12321,7 +12321,7 @@ frontier #7 STAYS GATED. cert-manager remains the only real-app content-identica
 `Kue/Eval.lean` (`injectEmbedSiblingNarrowings`, `hostNarrowingPairs`, the
 `meetEmbeddingsWithFuel` plain-embed injection), `Kue/Tests/Bug2xTests.lean` (8 pins + tripwire),
 `testdata/export/bug214_embed_*` (2 fixture pairs), `docs/spec/{spec-conformance-audit,plan}.md`,
-`docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
+`docs/spec/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
 
 ---
 
@@ -12489,7 +12489,7 @@ witnessing value-preservation. `deepInlineRoot` slope `2·depth+2 → 2·depth+1
 
 `Kue/Eval.lean` (`selfEvaluatingLeaf?` predicate; the fast-path guard in `evalValueWithFuel`; the
 saturated-only `satCache` insert), `Kue/Tests/EvalPerfTests.lean` (5 perf-pin counts + 2 comments),
-`docs/guides/kue-performance.md`, `docs/spec/plan.md`, `docs/reference/implementation-log.md`,
+`docs/guides/kue-performance.md`, `docs/spec/plan.md`, `docs/spec/implementation-log.md`,
 `docs/notes/` (breadcrumb rotated).
 
 ## 2026-06-23 — Plan-hygiene pass (docs-only; distill the design record to the live roadmap)
@@ -12527,7 +12527,7 @@ unchanged; the self-contained ones re-vet clean in `cue`.
 No live backlog item or durable ruling dropped; all internal doc links verified resolving.
 Breadcrumb rotated → `docs/notes/2026-06-23-resume-plan-hygiene-argocd-milestone.md`. Files:
 `docs/spec/plan.md`, `docs/spec/spec-conformance-audit.md`, `www/index.html`,
-`docs/reference/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
+`docs/spec/implementation-log.md`, `docs/notes/` (breadcrumb rotated).
 
 ## 2026-06-23 — perf #7 frame-sharing: DESIGNED-AND-DEFERRED → WON'T-FIX
 
@@ -12595,7 +12595,7 @@ the user-controllable lever), NOT by cross-env sharing.
 DOCS + measurement only — no behavior change, so no fixture/canary drift possible; `lake build`
 green on the reverted tree, both canaries jq -S = 0 (unchanged from baseline). Files:
 `docs/guides/kue-performance.md` (perf-#7 frame-sharing DESIGNED-AND-DEFERRED block + ceiling table),
-`docs/spec/plan.md` (leader block + item 5 → won't-fix), `docs/reference/implementation-log.md`,
+`docs/spec/plan.md` (leader block + item 5 → won't-fix), `docs/spec/implementation-log.md`,
 `docs/notes/` (breadcrumb rotated).
 
 ---
@@ -15308,7 +15308,7 @@ kept block-comment headers; ~30 modules had neither, and no script checked any o
 
 4. **Wired into the verify sequence** everywhere `check-fixtures.sh` is invoked: `CLAUDE.md`,
    `docs/guides/slice-loop.md`, `docs/guides/lean4-guide.md`, `RELEASE.md`, `README.md`.
-   `docs/reference/failure-modes.md` coverage-status note updated (retrofit landed).
+   `docs/guides/failure-modes.md` coverage-status note updated (retrofit landed).
 
 ### Verify
 
@@ -15826,7 +15826,7 @@ required (pure coverage, no eval-core change). Committed on `main`, not pushed.
 ## Completed Slice: Protocol amendments A1–A8 (keep-going critique) — consolidated batch
 
 Goal: apply the eight ratified process amendments from the 2026-07-02 full-repo audit
-critique ([`../notes/2026-07-02-keep-going-protocol-critique.md`](../notes/2026-07-02-keep-going-protocol-critique.md)).
+critique ([`../notes/2026-07-02-keep-going-protocol-critique.md`](../scratch/2026-07-02-keep-going-protocol-critique.md)).
 Diagnosis behind them: every script-enforced invariant held; every prose-only/remembered
 one drifted. Recorded as ONE batch entry (governance, spanning three commits) rather than
 per-amendment, since five amendments are a single coherent doc-edit.
@@ -15887,7 +15887,7 @@ the shared index, and A8's already-staged files were swept into the tooling agen
 before it committed. Content is correct; attribution is muddled (A8 appears under a
 "check.sh aggregator" subject). No history rewrite (envelope: no working-tree destruction /
 force-push). Captured as a reusable guard in
-[`failure-modes.md`](failure-modes.md) § "Parallel commit-bearing subagents collide on one
+[`failure-modes.md`](../guides/failure-modes.md) § "Parallel commit-bearing subagents collide on one
 shared index" (candidate school-level lesson).
 
 ### Verification
@@ -16717,7 +16717,7 @@ pushed (AFK envelope).
 
 Docs-only resilience/retrospective pass (no Lean/eval change). Reviewed what broke
 *operationally* over the 2026-07-03/04 session and recorded each in
-`docs/reference/failure-modes.md`, then folded the actionable mitigations into
+`docs/guides/failure-modes.md`, then folded the actionable mitigations into
 `docs/guides/slice-loop.md`.
 
 ### failure-modes.md — 2 new entries, 2 extended

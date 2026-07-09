@@ -4,12 +4,13 @@
 for whoever (human or agent) *uses* what this repo produces. Answers "how do I
 accomplish X?"
 
-A guide is goal-driven: it walks one real task start to finish. Enumerating
-facts (every flag, every config key) is `../reference/`. Explaining how the
-system fits together or why it's shaped that way is `../spec/`.
+A guide is goal-driven: it walks one real task start to finish. Third-party
+facts you keep looking up (a framework, an external CLI) are `../vendor/`.
+Explaining how our system fits together, or enumerating our own surface, is
+`../spec/`.
 
 ## Format
 
 One file per task: `<slug>.md` (no date prefix — a guide describes a task, not a
-moment). Keep each guide to one job; link to `../reference/` for exhaustive
-detail rather than inlining it. Update in place.
+moment). Keep each guide to one job; link to `../spec/` or `../vendor/` for
+exhaustive detail rather than inlining it. Update in place.

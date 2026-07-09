@@ -66,7 +66,7 @@ re-audit, complete); findings here became the spec-first fix-slice backlog in `p
 ## Audit history (archived — full detail in implementation-log.md + git)
 
 Completed findings and shipped design specs, compressed to pointers. Each cites the
-landing commit; the as-built detail lives in `docs/reference/implementation-log.md` and
+landing commit; the as-built detail lives in `docs/spec/implementation-log.md` and
 git history.
 
 - 2026-06-20 — **D#3** `let` clauses in comprehensions — the LAST open D-area item, now
@@ -664,7 +664,7 @@ The full D#2 design spike (oracle ground truth, the superseded `ForceKey` -tripl
 ancestor-scheme, the as-built `structStack` redesign, the terminating-disjunct algebra,
 the soundness/totality argument, and the 2-slice plan) is HISTORY: D#2a + D#2b both landed
 2026-06-20 and D#2 (structural cycles) is COMPLETE. The as-built detail lives in
-[`../reference/implementation-log.md`](../reference/implementation-log.md) (D#2a/D#2b
+[`implementation-log.md`](implementation-log.md) (D#2a/D#2b
 entries) and git; the spec-gap on the eval-display of the cycle bottom is in
-[`../reference/cue-spec-gaps.md`](../reference/cue-spec-gaps.md) (D#2a row). The design
+[`cue-spec-gaps.md`](cue-spec-gaps.md) (D#2a row). The design
 prose is no longer carried here — the slice shipped and the behavior is pinned.

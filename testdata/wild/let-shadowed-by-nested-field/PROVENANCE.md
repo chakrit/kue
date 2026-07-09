@@ -11,4 +11,4 @@ parse-time ancestor-`let` context threaded into nested field parsing, which the 
 quoted-accurate `parsedFieldsValue` hook does not carry. Spec-adjudicated UNDER-rejection.
 
 **Status:** GREEN (graduated 2026-07-04). The REVERSE no-shadow direction landed by modeling `Field.quoted` on the `Value` layer; the descendant field is checked against ancestor `let`s.
-`docs/reference/cue-spec-gaps.md` (let/alias no-shadow, reverse direction).
+`docs/spec/cue-spec-gaps.md` (let/alias no-shadow, reverse direction).

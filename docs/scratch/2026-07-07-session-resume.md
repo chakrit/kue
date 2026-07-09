@@ -1,3 +1,5 @@
+<!-- not spec/decision because: live cross-session breadcrumb; disposable, superseded in place -->
+
 # Session resume — 2026-07-07
 
 > chakrit: real-world test-drive day for the alpha. This session ran the bridge + one slice
@@ -17,7 +19,7 @@ Clean tree, `main` == `gh/main` at `0c7aefb`. `check.sh` GREEN (AUD-B6 slice ver
   suffix-vs-declared-name gate** enforced in `collectBindings`. Closes the F-3 residual open
   since 2026-06-20. Fixtures: `import_bare_pkgname_mismatch` (red→green),
   `import_qualifier_pkgname_rescue` (`:bar` qualifier rescue). Not a divergence — it
-  *removes* a latent one. Detail: `docs/notes/2026-07-06-aud-b6-pkgname-gate.md`.
+  *removes* a latent one. Detail: `docs/spec/implementation-log.md` (AUD-B6 entry).
 - **`.inbox.log` gitignored — `0c7aefb`** (ace-connect control-mode inbox artifact).
 - **Release `v0.1.0-alpha.20260707.1`** — all 3 assets (macOS arm64, linux amd64+arm64),
   tap bumped + pushed clean. Pushed `main` *before* `release.sh` so the tag sits on the

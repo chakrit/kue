@@ -236,7 +236,7 @@ those forms.
   **`kue mod tidy` (B3d-6b) now WRITES `cue.sum`** with the resolved build list's `h1:` digests
   (`Module.formatCueSum`, the inverse of `parseCueSumText`, sorted by path+semver for determinism),
   atomically via `atomicWriteBinFile`.
-  See `docs/reference/cue-spec-gaps.md`. **Live registry read-only reachability was smoke-tested
+  See `docs/spec/cue-spec-gaps.md`. **Live registry read-only reachability was smoke-tested
   2026-07-05** (`registry.cue.works` `/v2/` → 200, real `.../tags/list` JSON for real module
   paths); the full manifest+blob fetch stays B3d-7-live-proven (against `ghcr.io`). Neither is a
   gate dependency — `check.sh` runs the whole pipeline OFFLINE against committed fixtures.
@@ -504,7 +504,7 @@ those forms.
     alias as a hard error (`unreferenced alias or let clause X`); Kue accepts it and emits
     the value. This is consistent with Kue's standing permissive stance (cf. separators)
     and is a Kue-does-less boundary, not a `cue` defect, so it is not in
-    `docs/reference/cue-divergences.md`. A scalar alias (`a: X="hi"`) is therefore always
+    `docs/spec/cue-divergences.md`. A scalar alias (`a: X="hi"`) is therefore always
     "unreferenced" by `cue` 's rule but evaluates fine in Kue.
 - Static field selectors such as `base.inner` are represented explicitly and evaluate
   declared fields on evaluated structs. Static index expressions such as `xs[1]` and
@@ -537,7 +537,7 @@ those forms.
   `İ` (U+0130)→`i`, `ı` (U+0131)→ `I`, exactly as `cue` (pinned:
   `strings_to_{lower,upper}_dot{ted,less}_*_i`); only the locale-specific retailoring of
   those (e.g. `İ` →dotless `ı` under `tr`) is deferred. All recorded as a spec-gap in
-  `docs/reference/cue-spec-gaps.md`. Code points outside the BMP (astral planes) are not
+  `docs/spec/cue-spec-gaps.md`. Code points outside the BMP (astral planes) are not
   in the table → identity (no astral-plane cased letter is common; extend the generator's
   range if a real case appears).
 - **`ToTitle` is STILL ASCII-bounded (the lone case holdout).** It upper-cases only the

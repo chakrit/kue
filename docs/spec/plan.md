@@ -15,7 +15,7 @@ Status: accepted — living roadmap.
 
 The live implementation roadmap. Kept small, current, and actionable — one focused slice
 at a time. The full record of completed slices lives in
-[`../reference/implementation-log.md`](../reference/implementation-log.md) (chronological,
+[`implementation-log.md`](implementation-log.md) (chronological,
 one entry per commit) and `git log`; this file holds only where we are and what's next. A
 periodic plan-hygiene pass distills it back to the live roadmap (history → log + git); see
 [`../guides/slice-loop.md`](../guides/slice-loop.md). Last distilled 2026-07-04.
@@ -1142,15 +1142,15 @@ FULLY total). Test-health guarded by the TEST-HEALTH CONVENTION + `check-test-he
 ## Pointers (history + reference for anything dropped)
 
 - **Completed-slice history + verification record:**
-  [`../reference/implementation-log.md`](../reference/implementation-log.md)
+  [`implementation-log.md`](implementation-log.md)
   (chronological, one entry per commit) and `git log`. Every audit batch and design spike
   is recorded there — this plan holds only the live roadmap.
 - **Spec-conformance fix backlog (authoritative):**
   [`spec-conformance-audit.md`](spec-conformance-audit.md) § Genuinely-open ranked backlog.
 - **CUE-divergence record:**
-  [`../reference/cue-divergences.md`](../reference/cue-divergences.md).
+  [`cue-divergences.md`](cue-divergences.md).
 - **CUE spec-gap record:**
-  [`../reference/cue-spec-gaps.md`](../reference/cue-spec-gaps.md).
+  [`cue-spec-gaps.md`](cue-spec-gaps.md).
 - **Decisions:** [`../decisions/`](../decisions/) (compatibility target,
   correctness-over-perf, numeric model, oracle-as-data-source, registry transport).
 - **Slice loop + audit cadence:** [`../guides/slice-loop.md`](../guides/slice-loop.md).
@@ -1158,7 +1158,7 @@ FULLY total). Test-health guarded by the TEST-HEALTH CONVENTION + `check-test-he
 - **Status page (human-facing, served):** [`../../www/index.html`](../../www/index.html) —
   single human-scannable status page, OUTSIDE the agent design-record; refreshed on
   plan-hygiene passes.
-- **CUE semantics reference:** [`../reference/cue-language-guide.md`](../reference/cue-language-guide.md);
+- **CUE semantics reference:** [`../vendor/cue-language-guide.md`](../vendor/cue-language-guide.md);
   [`architecture.md`](architecture.md) + [`compat-assumptions.md`](compat-assumptions.md).
 - **Latest session state / next step:** the most recent breadcrumb in
-  [`../notes/`](../notes/).
+  [`../scratch/`](../scratch/).

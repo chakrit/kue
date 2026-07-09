@@ -346,8 +346,8 @@ Avoid hard-coding builtin behavior into unrelated evaluator paths.
 The CUE spec is the authority; the `cue` binary (v0.16.1) is a fallible cross-check,
 not an oracle. Byte-parity with `cue` is never the gate — where `cue` disagrees with
 the spec it is wrong, and the disagreement is recorded in
-[`cue-divergences.md`](cue-divergences.md) (spec-silent points go to
-[`cue-spec-gaps.md`](cue-spec-gaps.md)). Cross-check against `cue` to surface
+[`cue-divergences.md`](../spec/cue-divergences.md) (spec-silent points go to
+[`cue-spec-gaps.md`](../spec/cue-spec-gaps.md)). Cross-check against `cue` to surface
 candidate divergences, then adjudicate each against the spec. Build tests in layers:
 
 - spec examples for unification and disjunction;

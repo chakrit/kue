@@ -7,8 +7,8 @@ system*. Updated in place as understanding evolves; always reflects present
 design, not history.
 
 If it's a ruling on a question, that's a decision — `../decisions/`. If it's
-enumerable lookup detail (every flag, every config key, a schema table), that's
-`../reference/`. If it's research, exploration, or a draft, `../notes/`.
+third-party lookup detail (their flags, their API), that's `../vendor/`. If it's
+research, exploration, or a draft, `../scratch/`.
 
 ## Format
 

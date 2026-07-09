@@ -168,7 +168,7 @@ eval-conformance** (five bugs fixed, L5 open — `plan.md` § Current front). Re
 tails: B3d-6b CORE + leg4 LANDED (`kue mod tidy` — requirement-graph fetch + MVS + `cue.sum` write, in
 the new `Kue/ModCmd.lean`; import-resolution MVS wiring now landed too; one filed dependent: `mod get`) and the
 item-6 LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in
-[`../reference/implementation-log.md`](../reference/implementation-log.md);
+[`implementation-log.md`](implementation-log.md);
 not-yet-modeled corners (per-file import scoping, the exotic go-yaml surface) are tracked
 in
 [`compat-assumptions.md`](compat-assumptions.md).

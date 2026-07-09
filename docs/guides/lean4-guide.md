@@ -312,7 +312,7 @@ Mechanics that bite:
   result to `int`-kind (e.g. the numeric-`list`-builtin integral-collapse rule).
 
 When `cue` is buggy or surprising and Kue does the correct thing, log it in
-[`../reference/cue-divergences.md`](../reference/cue-divergences.md) (claim, `cue`
+[`../spec/cue-divergences.md`](../spec/cue-divergences.md) (claim, `cue`
 output, Kue output, why Kue is right, `cue` version).
 
 ## Design Rules for This Repo

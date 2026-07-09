@@ -1,3 +1,7 @@
+<!-- not spec/decision because: retained design rationale; the amendments it proposed are now
+     governance in CLAUDE.md + slice-loop.md, so this is the disposable working record, not the ruling -->
+
+
 # "Keep going" protocol critique — proposed amendments (2026-07-02)
 
 From the 2026-07-02 full-repo audit. Diagnosis: every script-enforced invariant held;
@@ -6,7 +10,7 @@ every prose-only/remembered one drifted. Four structural flaws → eight amendme
 > **Status: APPLIED 2026-07-03.** All 8 amendments landed (ratified by chakrit): A2/A3/A8
 > in code (commits `a4e7390`, `ca4a322`), A1/A4/A5/A6/A7 as governance doc-edits (CLAUDE.md
 > + `docs/guides/slice-loop.md` + banners in the plan/breadcrumb). Consolidated batch
-> record: [`../reference/implementation-log.md`](../reference/implementation-log.md). This
+> record: [`../spec/implementation-log.md`](../spec/implementation-log.md). This
 > note is retained as the design rationale; it is no longer a pending decision.
 
 ## Flaws

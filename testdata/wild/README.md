@@ -13,7 +13,7 @@ Rules (full text in the guide):
   registry/network/prod9 needed to run it.
 - **Expected value is SPEC-adjudicated, never `cue`-matched** — `cue` is a fallible
   reference; a `bottom`/diff vs `cue` may be `cue`'s bug. Pin the spec-correct value; log any
-  `cue` disagreement in `../../docs/reference/cue-divergences.md`.
+  `cue` disagreement in `../../docs/spec/cue-divergences.md`.
 
 Layout per case — `testdata/wild/<slug>/`:
 

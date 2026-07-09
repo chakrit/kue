@@ -54,7 +54,7 @@ Periodic, not every cycle:
   cycles, or once failures have accrued), review what broke *operationally* since the last
   retro — crashed/overloaded subagents, lost work, transient API errors, working-tree
   contention, late-caught misdiagnoses, flaky oracle/tooling — and record each with its
-  guard in [`../reference/failure-modes.md`](../reference/failure-modes.md). Fold durable
+  guard in [`failure-modes.md`](failure-modes.md). Fold durable
   mitigations back into this guide and the subagent-prompt conventions so the same failure
   cannot recur. This is process hardening — the operational analog of the code audits.
 - **Release** — see "Releases" below (~1 datestamped alpha/day, local script, no CI).
@@ -165,7 +165,7 @@ orchestrator recovers from GIT STATE, never from memory: `git rev-parse HEAD` vs
 `git status --porcelain` against the last known-good. Nothing committed since known-good AND
 tree clean → the slice never landed → FULL re-run; partial commits → re-run only the lost
 remainder. Treat transient API errors / 0-token rate-limit returns as retry-NOW, never
-wait-it-out. See [`../reference/failure-modes.md`](../reference/failure-modes.md).
+wait-it-out. See [`failure-modes.md`](failure-modes.md).
 
 **Docs convention — show the CUE.** Any doc that references a CUE *language* feature
 includes a short (2–4 line) CUE code block showing the concrete construct, so a reader
@@ -247,7 +247,7 @@ become their own planned slices. Apply only low-risk cleanups inline (re-verify 
 
 ## Open decisions — single home + precedence
 
-Two durable records carry state: the **breadcrumb** (`docs/notes/…` START-HERE) and the
+Two durable records carry state: the **breadcrumb** (`docs/scratch/…` START-HERE) and the
 **plan** (`docs/spec/plan.md`). To stop the two-authorities drift (the plan once said an
 item was self-startable while the breadcrumb said it awaited chakrit):
 

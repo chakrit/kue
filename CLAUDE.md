@@ -60,8 +60,8 @@ Standing grant for this repo (chakrit, 2026-06-14):
     (spawn the retry as a Fable 5 subagent) only after the default has actually hit the
     wall — not pre-emptively.
 - **Keep specs current as a restore point.** `docs/spec/` (plan, architecture,
-  compat-assumptions), `docs/reference/implementation-log.md`, decisions, and notes are
-  the crash-safe source of truth. Update them as work lands, not in an end-batch — a slice
+  compat-assumptions, implementation-log), decisions, and the `docs/scratch/` breadcrumb
+  are the crash-safe source of truth. Update them as work lands, not in an end-batch — a slice
   isn't done until its spec/log entry is written, so a crash or `/clear` leaves a clean
   restore + fork point.
 - **Two bindings autonomy never overrides:** no working-tree-overwriting git
@@ -79,8 +79,8 @@ You are a thin orchestrator, not the implementer:
 
 1. **Auto-compact on** so the loop survives long runs; you accumulate only slice
    summaries.
-2. **Re-orient** from the durable record — breadcrumb (`docs/notes/…`), plan
-   (`docs/spec/plan.md`), implementation-log (`docs/reference/implementation-log.md`).
+2. **Re-orient** from the durable record — breadcrumb (`docs/scratch/…`), plan
+   (`docs/spec/plan.md`), implementation-log (`docs/spec/implementation-log.md`).
    These are the only cross-session/cross-machine memory; trust them over conversation.
 3. **Spawn one subagent per slice.** It runs the full ace workflow in fresh context (plan
    → TDD → verify: `./scripts/check.sh` — the single entrypoint (`lake build` + every
@@ -104,10 +104,10 @@ You are a thin orchestrator, not the implementer:
      buggy — byte-identical-to-`cue` is NEVER the gate (that gate replicates bugs).
      Conform to the CUE spec; where it's silent, to lattice-theoretic first principles
      (precise, total, illegal-states-unrepresentable). When `cue` disagrees with the spec
-     it is WRONG — follow the spec and record it in `docs/reference/cue-divergences.md`
+     it is WRONG — follow the spec and record it in `docs/spec/cue-divergences.md`
      (claim, spec basis, `cue` output, Kue output, `cue` version).
    - **Flag spec gaps.** When the spec is silent/ambiguous, record Kue's principled choice
-     + basis in `docs/reference/cue-spec-gaps.md`, even when Kue matches `cue`.
+     + basis in `docs/spec/cue-spec-gaps.md`, even when Kue matches `cue`.
    - **Retraction.** A slice that reopens or supersedes a prior claim greps the docs for
      that claim and annotates every stale site IN THE SAME SLICE — see the retraction
      guard under § Recurring misalignments.
@@ -203,10 +203,14 @@ autonomous pass. Follow them as hard rules:
 
 ## Docs
 
-Start with [docs/README.md](docs/README.md). `docs/` holds usage docs (`guides/`,
-`reference/`; by type) and a design record (`spec/`, `decisions/`, `notes/`; by
-permanence). Default new artifacts to `notes/`. CUE semantics, architecture,
-compat-assumptions, and the plan live under `spec/`; the Lean 4 workflow under `guides/`.
+Start with [docs/README.md](docs/README.md). `docs/` routes by a single gate (walk it top
+to bottom, file at the first yes): a defended ruling → `decisions/`; third-party CUE
+lookup → `vendor/`; a how-to for using Kue or operating the repo → `guides/`; how Kue is
+built or its behavior record → `spec/`; genuinely unsettled exploration → `scratch/` (last
+resort, opened with a "not spec/decision because ___" line). Nothing defaults to
+`scratch/`. CUE semantics reference lives under `vendor/`; architecture, compat-assumptions,
+plan, implementation-log, cue-divergences, and cue-spec-gaps under `spec/`; the Lean 4
+workflow, slice loop, and failure-modes under `guides/`.
 
 ## Agent Environment
 

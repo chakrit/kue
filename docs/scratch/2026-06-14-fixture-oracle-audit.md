@@ -1,3 +1,5 @@
+<!-- not spec/decision because: point-in-time audit exploration; findings not current policy -->
+
 # Fixture-as-oracle audit — 2026-06-14
 
 Discharges the consequence in
