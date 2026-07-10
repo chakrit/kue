@@ -86,6 +86,11 @@ def formatManifestError : ManifestError -> String
   | .contradiction => "conflicting values (bottom)"
   | .incomplete value => s!"incomplete value: {formatValue value}"
   | .ambiguous _ => "ambiguous value: multiple non-default disjuncts remain"
+  | .importedNotUsed imports =>
+      "\n".intercalate (imports.map fun (path, alias) =>
+        match alias with
+        | none => s!"imported and not used: \"{path}\""
+        | some name => s!"imported and not used: \"{path}\" as {name}")
 
 /-- Look up a field by label on a resolved struct-like value, returning its value when
     present. Mirrors the decl-bearing cases of `selectEvaluatedField` but distinguishes a

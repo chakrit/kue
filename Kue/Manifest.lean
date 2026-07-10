@@ -13,6 +13,10 @@ inductive ManifestError where
   | contradiction
   | incomplete (value : Value)
   | ambiguous (alternatives : List (Mark × Value))
+  /-- A whole-file build failure: one or more imports declared but never referenced. Carries the
+      offending imports as `(path, optional alias)` pairs so the CLI renders cue's per-import
+      `imported and not used: "<path>"` message instead of the generic contradiction. -/
+  | importedNotUsed (imports : List (String × Option String))
 deriving Repr, BEq
 
 /-- `Except` carries no stdlib `BEq`, so `manifest`/`formatManifestField` results cannot be
@@ -26,6 +30,14 @@ instance [BEq ε] [BEq α] : BEq (Except ε α) where
 
 def manifestFuel : Nat :=
   100
+
+/-- Collect the `imported and not used` reasons out of a bottom's reason list. A non-empty result
+    marks a top-level import-gate bottom (`resolveImports` produces these standalone), routing the
+    manifest error to the cue-shaped per-import message rather than the generic contradiction. -/
+def unusedImportReasons (reasons : List BottomReason) : List (String × Option String) :=
+  reasons.filterMap fun
+    | .importedNotUsed path alias => some (path, alias)
+    | _ => none
 
 mutual
   def manifestFieldsWithFuel : Nat -> List Field -> Except ManifestError (List (String × ManifestValue))
@@ -74,7 +86,10 @@ mutual
     | 0, value => .error (.incomplete value)
     | _ + 1, .prim prim => .ok (.prim prim)
     | _ + 1, .bottom => .error .contradiction
-    | _ + 1, .bottomWith _ => .error .contradiction
+    | _ + 1, .bottomWith reasons =>
+      match unusedImportReasons reasons with
+      | [] => .error .contradiction
+      | imports => .error (.importedNotUsed imports)
     | _ + 1, .top => .error (.incomplete .top)
     | _ + 1, .kind kind => .error (.incomplete (.kind kind))
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))

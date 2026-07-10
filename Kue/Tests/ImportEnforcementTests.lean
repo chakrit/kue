@@ -125,6 +125,22 @@ theorem aliased_unused_import_reason_pinned :
     topBottomHasUnusedImport "import s \"strings\"\nx: 1\n" "strings" (some "s") = true := by
   native_decide
 
+-- The CLI RENDERS the unused-import bottom as cue's `imported and not used: "<path>"` message,
+-- not the generic `conflicting values (bottom)` — the STDLIB-E render fix. Pins the exact wording.
+theorem unused_import_render_message :
+    exportErrorMessage "import \"strings\"\nx: 1\n" = "imported and not used: \"strings\"" := by
+  native_decide
+
+-- The aliased form renders the `as <alias>` suffix cue emits.
+theorem aliased_unused_import_render_message :
+    exportErrorMessage "import s \"strings\"\nx: 1\n"
+      = "imported and not used: \"strings\" as s" := by native_decide
+
+-- Two unused imports render one cue-shaped line each, in declaration order.
+theorem two_unused_imports_render_message :
+    exportErrorMessage "import (\n\t\"list\"\n\t\"strings\"\n)\nx: 1\n"
+      = "imported and not used: \"list\"\nimported and not used: \"strings\"" := by native_decide
+
 -- Multiple imports where only some are used: the unused one flags, exactly (the used `strings`
 -- does not save the unused `list`).
 theorem multiple_imports_only_unused_flagged :

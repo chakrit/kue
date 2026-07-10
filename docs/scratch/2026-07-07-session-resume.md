@@ -35,8 +35,8 @@ survives context wipe — don't rebind the slug; recover per ace-connect Flow st
 
 ## STDLIB campaign (2026-07-10) — wild-caught from an alpha stdlib test-drive
 
-Slices **A + B + C LANDED**; **D–E queued** in `plan.md` § Ranked OPEN backlog (STDLIB
-campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
+Slices **A–E all LANDED** (2026-07-10); follow-on **STDLIB-F queued** in `plan.md` § Ranked OPEN
+backlog. Test-drive against `cue` v0.16.1 surfaced five findings:
 
 - **A — stdlib import ROUTING + error quality. ✅ LANDED.** kue misrouted dot-free stdlib
   paths (`strconv`, `struct`, `time`) to the disk loader → misleading `no cue.mod…`. Fixed by
@@ -67,13 +67,19 @@ campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
   enforcement in `parseFieldsUntil` (`missing ',' in struct literal`). Wild fixture
   `testdata/wild/import-after-decl/`; parse theorems in `Kue/Tests/ParseTests.lean`. Spec-gap
   STDLIB-D + log recorded.
-- **E — unused-import diagnosis MESSAGE** (LOW): verdict already lands; CLI shows generic
-  `conflicting values (bottom)` not cue's `imported and not used: "<path>"` — a message-render
-  slice (the `.importedNotUsed` reason already carries path+alias).
+- **E — unused-import diagnosis MESSAGE. ✅ LANDED (2026-07-10).** Confirmed render-only:
+  `Manifest.ManifestError.importedNotUsed` + `unusedImportReasons` route the `.importedNotUsed`
+  bottom reason to `Runtime.formatManifestError`, which now renders cue's `imported and not used:
+  "<path>"` (`" as <alias>"` aliased, one line per unused import). Wild fixtures
+  `testdata/wild/{unused-import,unused-import-aliased,used-import-ok}/`; render pins
+  `*_render_message` in `ImportEnforcementTests`.
 
-**Next:** dispatch slice E (unused-import message, LOW) — the last STDLIB-campaign item. Prior AUD-B5/B3d-B1 next-steps
-LANDED (`ed510fd`.. history); the "autonomy paused" gate above is HISTORICAL to the 2026-07-07
-attended session — the standing keep-going loop governs.
+STDLIB campaign A–E all LANDED.
+
+**Next:** STDLIB-F (list-item separator enforcement) — queued in `plan.md`. Slice D added
+`fieldSeparator` to structs but `parseListItems` still accepts space-separated items `[1 2]` where
+cue requires a `,`/newline. Prior AUD-B5/B3d-B1 next-steps LANDED; the "autonomy paused" gate above
+is HISTORICAL to the 2026-07-07 attended session — the standing keep-going loop governs.
 
 ## Pending school changes
 

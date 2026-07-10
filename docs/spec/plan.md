@@ -214,7 +214,8 @@ rejection argument: `kue-performance.md` + implementation-log.
 ### Ranked OPEN backlog
 
 **STDLIB campaign (2026-07-10, from an alpha stdlib test-drive against `cue` v0.16.1).** Five
-findings, ranked. Slice A landed; B–E queued.
+findings A–E, ranked — all LANDED (2026-07-10). A follow-on **STDLIB-F** (list-item separator
+enforcement), surfaced by slice D's separator work, is queued below.
 
 - **A — stdlib import ROUTING + error quality. ✅ LANDED (2026-07-10).** kue misrouted every
   non-whitelisted import (dot-free stdlib paths `strconv`, `struct`, `time` included) to the
@@ -261,12 +262,24 @@ findings, ranked. Slice A landed; B–E queued.
   between declarations, else `missing ',' in struct literal`). Late import is one instance.
   Wild fixture `testdata/wild/import-after-decl/`; parse theorems in `Kue/Tests/ParseTests.lean`
   (§ Import placement + field separators). Spec-gap + log recorded.
-- **E — unused-import diagnosis MESSAGE (LOW).** The `declared ⇒ used` VERDICT already lands
-  (2026-07-05, § UNUSED-IMPORT spec-gap): an unused import bottoms the file. Residual: the CLI
-  renders the generic `conflicting values (bottom)`, not cue's name-specific
-  `imported and not used: "<path>"`. The structured `.importedNotUsed` reason already carries
-  path+alias; this is a CLI message-rendering slice (same message-generality residual as the
-  unimplemented-builtin and un-imported-builtin cases).
+- **E — unused-import diagnosis MESSAGE (LOW). ✅ LANDED (2026-07-10).** Confirmed render-only,
+  as predicted: the `declared ⇒ used` VERDICT already lands (2026-07-05) with `.importedNotUsed`
+  carrying path+alias; only the CLI render collapsed it to the generic `conflicting values
+  (bottom)`. `Manifest.manifestWithFuel` now routes a `.bottomWith` whose reasons carry
+  `.importedNotUsed` (via `unusedImportReasons`) to a new `ManifestError.importedNotUsed
+  [(path, alias?)]`, which `Runtime.formatManifestError` renders as cue's per-import
+  `imported and not used: "<path>"` (`" as <alias>"` when aliased, one line each for multiple).
+  Position is NOT emitted — the reason carries no source span. Wild fixtures
+  `testdata/wild/{unused-import,unused-import-aliased,used-import-ok}/`; render theorems
+  `*_render_message` in `ImportEnforcementTests` (via new `exportErrorMessage` helper). Spec-gap
+  recorded.
+
+- **F — list-item separator enforcement (queued).** Slice D added CUE's newline/comma statement
+  separation to STRUCT literals (`parseFieldsUntil`'s `fieldSeparator`), but LIST literals were
+  not covered: `parseListItems` still accepts space-separated items like `[1 2]` where cue
+  requires a separator (`,`/newline) between elements (`[1 2]` ⇒ cue `expected ',' or ']'`).
+  Mirror D's `fieldSeparator` discipline into `parseListItems`. Wild fixture red-first; parse
+  theorems in `ParseTests`.
 
 0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
    MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +

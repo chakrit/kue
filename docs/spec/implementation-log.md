@@ -18456,11 +18456,10 @@ unused single/aliased/grouped/multiple bottom, reason-pinned path+alias, and use
 proving the detector reaches every real form — nested struct, string interpolation, list
 comprehension body, definition (`#D`), and the no-call const form (`list.Ascending`).
 
-Residual (recorded `cue-spec-gaps.md` UNUSED-IMPORT row). The VERDICT matches cue (unused import →
-file bottoms, exit 1); the CLI MESSAGE is the generic `conflicting values (bottom)`, not cue's
-name-specific `imported and not used: "<path>"` — the SAME message-generality residual as the
-un-imported-builtin case (kue renders every bottom uniformly; the structured `.importedNotUsed`
-reason carries the provenance).
+Residual [CLOSED by STDLIB-E, 2026-07-10 — see log entry below]. The VERDICT matches cue (unused
+import → file bottoms, exit 1); the CLI MESSAGE was the generic `conflicting values (bottom)`, not
+cue's name-specific `imported and not used: "<path>"`. STDLIB-E rendered the specific message; the
+un-imported-builtin case remains generic.
 
 Retractions (same slice). `compat-assumptions.md` UNUSED-IMPORT leniency → CLOSED (kue matches
 cue); `plan.md` BUILTIN-IMPORT-LENIENCY block's forward-reference dropped, a LANDED UNUSED-IMPORT
@@ -19005,3 +19004,43 @@ clear message is more total than mirroring a lexer artifact. Recorded in `cue-sp
 
 - `docs/spec/plan.md`: STDLIB backlog item D marked LANDED (was `import-placement parse
   grammar`), with the refined root cause (general statement separation, not import-specific).
+
+## Completed Slice: STDLIB-E — unused-import diagnosis message (render) — 2026-07-10
+
+Wild-caught (alpha CLI test-drive vs cue v0.16.1): `import "math"` + unused ⇒ kue rendered the
+generic `kue: export error: conflicting values (bottom)` where cue emits the name-specific
+`imported and not used: "math"`. VERIFIED render-only (as STDLIB-E predicted): the `.importedNotUsed
+path alias` reason is ALREADY produced by `resolveImports` (`Kue/Parse.lean`) and carried on the
+top-level `.bottomWith` — only the manifest→CLI render collapsed it.
+
+### Fix
+
+- `Kue/Manifest.lean`: new `ManifestError.importedNotUsed (imports : List (String × Option String))`
+  + `unusedImportReasons` (filterMap over a bottom's reasons, an Option-producing probe — `| _ =>
+  none` permitted). `manifestWithFuel`'s `.bottomWith reasons` arm routes to it when any
+  `.importedNotUsed` reason is present, else the generic `.contradiction`.
+- `Kue/Runtime.lean`: `formatManifestError` renders the new arm as cue's per-import
+  `imported and not used: "<path>"` (`" as <alias>"` when aliased, `"\n"`-joined one line per unused
+  import, declaration order). No source position — the reason carries no span; cue-compat governs
+  the wording (spec-silent tooling), not the position line.
+
+### Tests
+
+- Wild fixtures (auto-discovered): `testdata/wild/unused-import/` (`.expected.err = imported and not
+  used: "math"`), `testdata/wild/unused-import-aliased/` (`… "math" as m`), `testdata/wild/
+  used-import-ok/` (`.expected` JSON — a USED import still exports, no false unused). RED before /
+  GREEN after.
+- `Kue/Tests/ImportEnforcementTests.lean`: `unused_import_render_message`,
+  `aliased_unused_import_render_message`, `two_unused_imports_render_message` pin the exact wording
+  via new `exportErrorMessage` helper (`Kue/Tests/EvalTestHelpers.lean`).
+- `./scripts/check.sh` GREEN (full suite + cert-manager/realworld canaries unchanged).
+
+### Retraction
+
+- STDLIB-E prediction ("purely a render slice") HELD — no retraction of a wrong diagnosis needed.
+- `docs/spec/plan.md`: STDLIB-E marked LANDED; STDLIB campaign header notes A–E all landed; new
+  STDLIB-F (list-item separator enforcement) queued — slice D's `fieldSeparator` covers structs but
+  `parseListItems` still accepts `[1 2]`.
+- `docs/spec/cue-spec-gaps.md`: UNUSED-IMPORT row's message-generality residual marked CLOSED.
+- `docs/spec/implementation-log.md`: 2026-07-05 UNUSED-IMPORT entry's residual paragraph annotated
+  with the STDLIB-E closure pointer.

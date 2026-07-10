@@ -27,6 +27,14 @@ def exportJsonBottoms (source : String) : Bool :=
   | .ok (.error _) => true
   | _ => false
 
+-- The rendered CLI error string of a failed single-source JSON export (`formatManifestError`
+-- output, exactly what `kue: export error: <msg>` wraps). Empty string on parse failure or a
+-- successful export — lets a pin assert the exact cue-shaped wording, not merely "some bottom".
+def exportErrorMessage (source : String) : String :=
+  match exportSourcesToString .json [source] with
+  | .ok (.error message) => message
+  | _ => ""
+
 -- Does a resolved value carry a `.structuralCycle` bottom anywhere in its struct/disj/list
 -- spine? Pins the REASON of a structural-cycle detection (D#2a), not merely "some bottom" — a
 -- plain `exportJsonBottoms` is satisfied by an unrelated conflict, so it cannot witness that the
