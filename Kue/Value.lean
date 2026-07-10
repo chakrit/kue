@@ -1146,6 +1146,22 @@ def builtinImportPaths : List String :=
 def isBuiltinImport (path : String) : Bool :=
   builtinImportPaths.contains path
 
+/-- Whether an import path is a standard-library (builtin) path rather than an external
+    module path. CUE distinguishes them STRUCTURALLY: a stdlib path's first element carries
+    no domain (`strconv`, `struct`, `encoding/hex`, `text/template`), an external module
+    path's first element is a domain (`example.com/foo`, `prodigy9.co/defs`). The dot in the
+    first path element is the sole discriminant. -/
+def isStdlibImportPath (path : String) : Bool :=
+  match (path.splitOn "/").head? with
+  | some first => !first.contains '.'
+  | none => false
+
+/-- A stdlib import path kue recognizes as a builtin package but does not yet implement
+    (`strconv`, `struct`, `time`, …): dot-free first element, absent from `builtinImportPaths`.
+    Routed to a clear "unsupported builtin package" error, NOT the disk module loader. -/
+def isUnimplementedBuiltin (path : String) : Bool :=
+  isStdlibImportPath path && !isBuiltinImport path
+
 /-- The local dispatch-head names of the built-in stdlib packages (`encoding/base64` →
     `base64`). A qualified builtin reference (`strings.ToUpper`, `list.Ascending`) is usable
     only when its package is one of these AND imported; the import gate keys off this set. -/

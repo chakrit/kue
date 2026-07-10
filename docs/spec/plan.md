@@ -213,6 +213,33 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**STDLIB campaign (2026-07-10, from an alpha stdlib test-drive against `cue` v0.16.1).** Five
+findings, ranked. Slice A landed; B–E queued.
+
+- **A — stdlib import ROUTING + error quality. ✅ LANDED (2026-07-10).** kue misrouted every
+  non-whitelisted import (dot-free stdlib paths `strconv`, `struct`, `time` included) to the
+  disk module loader, surfacing the misleading `no cue.mod/module.cue found` error. Fixed:
+  `isStdlibImportPath` (`Kue/Value.lean`) classifies by first path element (dot-free ⇒ builtin
+  layer, dotted-domain ⇒ external module); a recognized-but-unimplemented stdlib path now emits
+  `unsupported builtin package "<path>": …`. External paths route to `resolveImportTarget`
+  unchanged. Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/`. Spec-gap +
+  log recorded. Scope was ROUTING only — NOT the package function bodies (B/C).
+- **B — `struct` builtin package (MEDIUM).** Implement `struct.MinFields`/`struct.MaxFields`
+  (and the package's other members). Currently a recognized-but-unimplemented builtin (slice-A
+  error). Add to `builtinImportPaths` + dispatch in `evalBuiltinCall` once bodies exist.
+- **C — `strconv` builtin package (MEDIUM).** Implement `strconv.Atoi`/`Itoa`/`Quote`/… — the
+  original test-drive trigger (`x: strconv.Atoi("42")`). Same wiring as B.
+- **D — import-placement parse grammar (MEDIUM).** An `import` clause not in the canonical
+  file-header position (after `package`, before declarations) — test-drive found a parse-grammar
+  gap in where import declarations are accepted. Seed a failing parse fixture, adjudicate against
+  the CUE grammar (import decls precede all other declarations), fix `Parse.lean`.
+- **E — unused-import diagnosis MESSAGE (LOW).** The `declared ⇒ used` VERDICT already lands
+  (2026-07-05, § UNUSED-IMPORT spec-gap): an unused import bottoms the file. Residual: the CLI
+  renders the generic `conflicting values (bottom)`, not cue's name-specific
+  `imported and not used: "<path>"`. The structured `.importedNotUsed` reason already carries
+  path+alias; this is a CLI message-rendering slice (same message-generality residual as the
+  unimplemented-builtin and un-imported-builtin cases).
+
 0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
    MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +
    "no custom instance" resolution below is HISTORICAL: `stripFieldQuoting` is deleted and

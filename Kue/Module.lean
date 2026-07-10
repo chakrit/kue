@@ -37,6 +37,15 @@ def moduleNotOnDiskError (path modPath version : String) : String :=
   s!"unresolved import {path}: module {modPath}@{version} not found in vendor or cue cache " ++
     "(run `cue mod tidy`/`cue export` once, or vendor it); registry fetch is B3d"
 
+/-- Emitted for a stdlib import path kue recognizes structurally as a builtin package
+    (dot-free first element) but does not yet implement. Distinguishes an unimplemented
+    standard-library package from an external module: the latter carries a domain and is
+    resolved from disk. Naming the package keeps the diagnostic actionable instead of the
+    misleading `no cue.mod` disk-loader error. -/
+def unimplementedBuiltinError (path : String) : String :=
+  s!"unsupported builtin package \"{path}\": recognized as a CUE standard-library import " ++
+    "but not yet implemented in kue"
+
 /-- Resolve an import path to a subpath under the module root, purely from the module path.
     `importPath == modPath` ⇒ the module root (`""`); `importPath` under `modPath ++ "/"` ⇒
     the trailing subpath; anything else (a non-matching prefix) ⇒ `none`, signalling a
@@ -769,6 +778,11 @@ mutual
         match checkImportRedeclaration (importBindName imp) fieldNames with
         | .error message => return .error message
         | .ok () => pure ()
+      else if isUnimplementedBuiltin imp.path then
+        -- A dot-free stdlib path kue recognizes but has not implemented (`strconv`, `struct`,
+        -- `time`, …): a builtin-layer concern, never a disk module. Fail clearly instead of
+        -- routing it to `resolveImportTarget` and surfacing the misleading `no cue.mod` error.
+        return .error (unimplementedBuiltinError imp.path)
       else
         match ← resolveImportTarget ctx imp.path with
         | .error message => return .error message
@@ -833,6 +847,11 @@ def loadFileBound (path : String) : IO (Except String Value) := do
   match parseSourceFile source with
   | .error error => return .error s!"parse error: {error.line}:{error.column}: {error.message}"
   | .ok parsed =>
+      -- A recognized-but-unimplemented stdlib import (`strconv`, `struct`, …) is a builtin-layer
+      -- concern with no module context; fail clearly here, before module-root discovery could
+      -- surface the misleading `no cue.mod` disk-loader error for a dot-free stdlib path.
+      if let some imp := parsed.imports.find? (fun imp => isUnimplementedBuiltin imp.path) then
+        return .error (unimplementedBuiltinError imp.path)
       -- A file with no imports — or only stdlib imports the builtin dispatch handles —
       -- needs no module context and behaves exactly as the pre-import pipeline. A stdlib
       -- import still binds its local name in the file scope, so the A2-y redeclaration check

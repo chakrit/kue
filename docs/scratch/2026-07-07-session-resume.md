@@ -33,17 +33,31 @@ binary → answered (prebuilt asset / brew tap / `lake build`); they'll ping on 
 that look like `cue` bugs. Logged in `.inbox.log`. If resuming post-`/clear`, the Monitor
 survives context wipe — don't rebind the slug; recover per ace-connect Flow step 4.
 
-## Next steps (all LOW / fork-gated — DO NOT auto-start; autonomy is paused)
+## STDLIB campaign (2026-07-10) — wild-caught from an alpha stdlib test-drive
 
-1. **AUD-B5 (LOW) — LANDED.** Both BFS graph builders (`buildDiskGraphAux` `Module.lean`,
-   `fetchGraphAux` `ModCmd.lean`) now share the `Module.bfsRequirementGraphAux` step-callback
-   combinator (structural on `fuel`, leaf `expand`). Pure refactor, check.sh green.
-2. **B3d-B1 (LOW) — LANDED.** `Kue.Hash1` newtype now wraps the `cue.sum` `h1:<base64>` token
-   end-to-end (produce→accumulate→format/parse→verify); `Hash1.parse`/`render` are the file-format
-   boundary. The main-node digest sentinel was eliminated (main dropped from the fetched-node table;
-   `runTidy` supplies its graph edge). OCI `sha256:` digest left a bare `String`. check.sh green.
-3. **Wild-caught** — chakrit's alpha test-drive may surface real divergences; each becomes a
-   `testdata/wild/` failing fixture FIRST, spec-adjudicated value (not cue-matched).
+Slice **A LANDED** (this session); **B–E queued** in `plan.md` § Ranked OPEN backlog (STDLIB
+campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
+
+- **A — stdlib import ROUTING + error quality. ✅ LANDED.** kue misrouted dot-free stdlib
+  paths (`strconv`, `struct`, `time`) to the disk loader → misleading `no cue.mod…`. Fixed by
+  the STRUCTURAL rule: `isStdlibImportPath` (dot-free first path element = builtin layer;
+  dotted-domain = external module) + `isUnimplementedBuiltin` (`Kue/Value.lean`); loader emits
+  `unsupported builtin package "<path>": …` (`collectBindings` + `loadFileBound`,
+  `Kue/Module.lean`). Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/`.
+  Spec-gap + log recorded.
+- **B — `struct` builtin package** (MEDIUM): implement `struct.MinFields`/`MaxFields`/… bodies.
+- **C — `strconv` builtin package** (MEDIUM): implement `strconv.Atoi`/`Itoa`/… (test-drive
+  trigger). B/C add to `builtinImportPaths` + dispatch once bodies exist.
+- **D — import-placement parse grammar** (MEDIUM): a parse gap in where `import` declarations
+  are accepted (must precede all other declarations); seed a failing parse fixture, fix
+  `Parse.lean`.
+- **E — unused-import diagnosis MESSAGE** (LOW): verdict already lands; CLI shows generic
+  `conflicting values (bottom)` not cue's `imported and not used: "<path>"` — a message-render
+  slice (the `.importedNotUsed` reason already carries path+alias).
+
+**Next:** dispatch slice B or C (both MEDIUM, independent). Prior AUD-B5/B3d-B1 next-steps
+LANDED (`ed510fd`.. history); the "autonomy paused" gate above is HISTORICAL to the 2026-07-07
+attended session — the standing keep-going loop governs.
 
 ## Pending school changes
 

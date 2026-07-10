@@ -18741,3 +18741,53 @@ longer be swapped with an arbitrary string).
 
 Not a `cue-divergence` and not a spec-gap — an internal type-leverage refactor with no CUE-semantic
 surface (`cue.sum` byte output is unchanged).
+
+---
+
+## Completed Slice: STDLIB-A — structural stdlib import routing + clear unimplemented-builtin error — 2026-07-10
+
+Goal: stop misrouting recognized standard-library imports to the disk module loader. A
+wild-caught test-drive (`import "strconv"; x: strconv.Atoi("42")`) showed kue emit the
+misleading `no cue.mod/module.cue found in any parent directory` for `strconv` — a dot-free
+stdlib path — because routing keyed off `isBuiltinImport` (a membership test over the
+implemented whitelist) and sent everything else to disk. Scope: ROUTING + error quality
+ONLY; the `struct`/`strconv` function bodies are later slices B/C.
+
+### Design
+
+- **Route by the STRUCTURAL stdlib-vs-external distinction CUE uses, not whitelist
+  membership.** A stdlib/builtin import path's first element carries no domain (no dot:
+  `strconv`, `struct`, `encoding/hex`, `text/template`); an external module path's first
+  element is a domain (`example.com/foo`, `prodigy9.co/defs`). The dot in the first path
+  element is the sole discriminant.
+- **Two new predicates in `Kue/Value.lean`** beside `isBuiltinImport`:
+  `isStdlibImportPath` (dot-free first path element) and
+  `isUnimplementedBuiltin = isStdlibImportPath ∧ ¬isBuiltinImport`.
+- **Clear error `unimplementedBuiltinError` in `Kue/Module.lean`:**
+  `unsupported builtin package "<path>": recognized as a CUE standard-library import but not
+  yet implemented in kue`. Message text is kue's principled choice — spec is silent on it
+  (recorded in `cue-spec-gaps.md` as the STDLIB-IMPORT ROUTING gap).
+- **Routing lands at both the shared loader point and the file entry.** `collectBindings`
+  gets a middle `else if isUnimplementedBuiltin` arm (covers directory loads + transitive
+  imported-package imports); `loadFileBound` gets a pre-module-root `if let` guard so the
+  clear error beats `no cue.mod` for a bare-file argument with no module context. External
+  (dotted-domain) paths route to `resolveImportTarget` unchanged.
+
+### Tests
+
+- Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/` (auto-discovered by
+  `check-fixtures.sh`): RED against the pre-fix binary (`no cue.mod…`), GREEN post-fix,
+  pinning the `unsupported builtin package "strconv"` error substring. Graduated in-slice,
+  not `.known-red`.
+- Manual verification: external dotted `import "example.com/foo"` still routes to the disk
+  loader (`no cue.mod`), confirming only stdlib paths were re-routed.
+- `./scripts/check.sh` GREEN (lake build + every `check-*.sh` + shellcheck).
+
+### Retraction
+
+- `docs/scratch/2026-07-07-session-resume.md`: the AUD-B5/B3d-B1 next-steps (both LANDED) +
+  the paused-autonomy framing replaced by the stdlib campaign state.
+
+Not a `cue-divergence`: routing matches cue (stdlib handled by the builtin layer). The
+"unimplemented builtin" error is kue-specific only because kue's builtin coverage is a
+subset of cue's — not a semantic disagreement. Recorded as a spec-gap (message text).
