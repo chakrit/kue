@@ -35,7 +35,7 @@ survives context wipe — don't rebind the slug; recover per ace-connect Flow st
 
 ## STDLIB campaign (2026-07-10) — wild-caught from an alpha stdlib test-drive
 
-Slices **A + B LANDED**; **C–E queued** in `plan.md` § Ranked OPEN backlog (STDLIB
+Slices **A + B + C LANDED**; **D–E queued** in `plan.md` § Ranked OPEN backlog (STDLIB
 campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
 
 - **A — stdlib import ROUTING + error quality. ✅ LANDED.** kue misrouted dot-free stdlib
@@ -50,9 +50,14 @@ campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
   (`applyFieldCountConstraint`/`finalizeFieldCountConj`, `Kue/Lattice.lean`). Counts only
   REGULAR fields (optional/required/hidden/def/`let` excluded). Fixture
   `testdata/export/struct_field_count`; `fieldcount_*` theorems. Spec-gap + log recorded.
-- **C — `strconv` builtin package** (MEDIUM): implement `strconv.Atoi`/`Itoa`/… (test-drive
-  trigger). Adds to `builtinImportPaths` + a `strconv` `BuiltinFamily` dispatch (same wiring
-  pattern as B, but pure functions — no `meet`-participating validator).
+- **C — `strconv` builtin package. ✅ LANDED.** Pure conversions in `Kue/Strconv.lean` via a
+  new `.strconv` `BuiltinFamily` arm. Shipped: `Atoi`, `FormatInt`, `FormatUint`, `ParseInt`,
+  `ParseUint`, `FormatBool`, `ParseBool` (arbitrary-precision; base-0 prefixes + underscores +
+  `bitSize` range). Deferred (→ `unsupportedBuiltin`): `Itoa` (non-callable in cue),
+  `FormatFloat`/`ParseFloat` (exact-decimal core), `Quote`/`Unquote`/… (Unicode `IsPrint` table).
+  Divergence: base restricted to Go's `2..36` (cue leaks `2..62`) — `cue-divergences.md`. Fixture
+  `testdata/export/strconv_basic`; `Kue/Tests/StrconvTests.lean` (52 theorems). Wild fixture
+  `stdlib-import-misrouted-to-disk-loader` repointed `strconv`→`time` (retraction).
 - **D — import-placement parse grammar** (MEDIUM): a parse gap in where `import` declarations
   are accepted (must precede all other declarations); seed a failing parse fixture, fix
   `Parse.lean`.
@@ -60,7 +65,8 @@ campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
   `conflicting values (bottom)` not cue's `imported and not used: "<path>"` — a message-render
   slice (the `.importedNotUsed` reason already carries path+alias).
 
-**Next:** dispatch slice C (`strconv`, MEDIUM) or D/E. Prior AUD-B5/B3d-B1 next-steps
+**Next:** dispatch slice D (import-placement parse grammar, MEDIUM) or E (unused-import message,
+LOW). Prior AUD-B5/B3d-B1 next-steps
 LANDED (`ed510fd`.. history); the "autonomy paused" gate above is HISTORICAL to the 2026-07-07
 attended session — the standing keep-going loop governs.
 

@@ -18863,3 +18863,81 @@ Not a `cue-divergence`: kue matches `cue` v0.16.1 on every probed case. The coun
 semantics (required fields excluded) are a stdlib-package behavior the language spec does not
 cover — recorded in `cue-spec-gaps.md` under the STDLIB-STRUCT-FIELDCOUNT entry (spec-silent
 → cue-compat tiebreak).
+
+## Completed Slice: STDLIB-C — `strconv` standard-library package (numeric + bool conversions) — 2026-07-10
+
+Goal: implement the CUE `strconv` package so `import "strconv"` resolves and the common
+conversions evaluate. Unlike `struct`'s validators, these are PURE FUNCTIONS (value in, value
+out) — same dispatch pattern as `strings.*`/`math.*`. Correctness over coverage: pin each
+implemented function byte-exact vs `cue` v0.16.1, defer anything that can't be pinned to the
+`unsupportedBuiltin` bottom rather than ship an approximate divergence.
+
+### Surface (probed exhaustively against `cue` v0.16.1)
+
+Shipped (arbitrary-precision — cue uses `math/big`/`apd`, matching Kue's exact `Int`):
+- `Atoi(s)` — signed base-10, optional `+`/`-`, leading zeros, no underscores.
+- `FormatInt(i, base)` / `FormatUint(i, base)` — identical in cue (both render the SIGNED value
+  via big, so a negative `FormatUint` prints `-…`). Base `2..36`, lowercase digits.
+- `ParseInt(s, base, bitSize)` / `ParseUint(s, base, bitSize)` — base `0` (prefix auto-detect
+  `0x`/`0b`/`0o`/leading-`0` octal) or `2..36`; Go's underscore-separator rule (base 0 only, via
+  a faithful `underscoreOK` port); case-insensitive digits; `bitSize` range (`0` unbounded,
+  `b>0` signed `[-2^(b-1),2^(b-1)-1]` / unsigned `[0,2^b-1]`, `b<0` empty — cue is NOT capped at
+  64, unlike Go's stdlib). `ParseUint` parses the sign then range-checks (negative ⇒ out of
+  range, not syntax).
+- `FormatBool(b)` / `ParseBool(s)` — Go's accepted sets (`1 t T TRUE true True` / `0 f F FALSE
+  false False`).
+
+Deferred (route to `unsupportedBuiltin` on concrete args, else residual — never silent-wrong):
+- `Itoa` — NOT a callable function in cue v0.16.1 (`cannot call non-function strconv.Itoa`).
+- `FormatFloat` / `ParseFloat` — float shortest-round-trip formatting (Ryū/Grisu, `bitSize`-32
+  rounding) is incompatible with Kue's exact-decimal core.
+- `Quote` / `Unquote` / `QuoteToASCII` / `QuoteToGraphic` / `QuoteRune` / `UnquoteChar` — need
+  Go's full Unicode `IsPrint` table for byte-exact escaping.
+
+### Design
+
+- **New `Kue/Strconv.lean`** — all pure helpers (`strconvParse` core for Int/Uint, `strconvAtoi`,
+  `strconvFormatInt`, `strconvParseBool`, plus `underscoreOK`/`parseMag`/`formatMag`/`rangeOk`
+  building blocks). Total functions only; base conversion uses a fuel-bounded structural
+  recursion (`strconvFormatMagAux`, `fuel := n`), no `partial def`.
+- **`strconv` wired into `builtinImportPaths`** (`Kue/Value.lean`); dispatch via a new `.strconv`
+  `BuiltinFamily` arm + `evalStrconvBuiltin` (`Kue/Builtin.lean`). No `Parse.lean` change — the
+  generic `pkg.fn(args)` → `.builtinCall "strconv.Atoi"` path + import gate handle it once
+  `strconv` is a builtin package name. The final dispatch arm mirrors `evalRegexpBuiltin`'s
+  concrete-⇒-`unsupportedBuiltin` / abstract-⇒-defer split for the deferred functions.
+- **Three typed `BottomReason`s** (`Kue/Value.lean`): `strconvSyntax (input)`,
+  `strconvRange (input)`, `strconvInvalidBase (base)` — mirroring cue's three error classes
+  (`invalid syntax` / `value out of range` / `invalid base`). No exhaustive `BottomReason` match
+  exists in the tree, so adding constructors was a derived-instances-only change.
+
+### Divergence — base `37..62`
+
+cue ACCEPTS base up to 62 for `FormatInt`/`ParseInt` (`FormatInt(255,37)="6x"`, using
+`math/big`'s `0-9a-zA-Z` alphabet) — a leak of big's wider range, inconsistent with the `strconv`
+surface it presents. Go's `strconv` DOCUMENTS `2..36` (panics/errors outside). Kue follows the
+documented contract: base outside `2..36` (plus `0` for parse) is `strconvInvalidBase`. Recorded
+in `cue-divergences.md`; the spec-silent basis + cue-compat-within-contract choice in
+`cue-spec-gaps.md` (STDLIB-STRCONV).
+
+### Tests
+
+- Export fixture `testdata/export/strconv_basic.{cue,json}` — success cases across the shipped
+  surface (Atoi/FormatInt/FormatUint/ParseInt/ParseUint/FormatBool/ParseBool + a round-trip).
+  Byte-identical to the `cue` v0.16.1 oracle.
+- 52 `native_decide` theorems (`Kue/Tests/StrconvTests.lean`): representative + boundary + error
+  inputs per function (Atoi sign/zeros/bignum/nonnumeric/underscore-reject; FormatInt hex/neg/
+  bin/base36/base-bounds; ParseInt base-0 prefixes/underscores/placement-errors/bitSize
+  boundaries/invalid-base; ParseUint negative-⇒-range/uint64 boundary; bool sets), a
+  `ParseInt∘FormatInt` round-trip, and the deferred-⇒-`unsupportedBuiltin` routing. `Value` has
+  no `DecidableEq` (mutual inductive), so assertions use the `(lhs == rhs) = true` BEq form.
+- `./scripts/check.sh` GREEN.
+
+### Retraction
+
+- `docs/spec/plan.md`: STDLIB backlog item C marked LANDED (was the original test-drive trigger
+  `strconv.Atoi("42")`).
+- Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/` REPOINTED `strconv` →
+  `time`: it pinned the recognized-but-unimplemented stdlib routing/error contract via
+  `strconv.Atoi`, which now RESOLVES. `time` is still an unimplemented dot-free stdlib package,
+  so the package-agnostic routing guard stays live (`.cue`, `.expected.err`, PROVENANCE retraction
+  note updated).

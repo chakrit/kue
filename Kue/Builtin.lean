@@ -1,6 +1,7 @@
 import Kue.Lattice
 import Kue.Regex
 import Kue.Decimal
+import Kue.Strconv
 import Kue.Base64
 import Kue.Json
 import Kue.Yaml
@@ -1023,6 +1024,7 @@ inductive BuiltinFamily where
   | math
   | struct
   | regexp
+  | strconv
   | base64
   | json
   | yaml
@@ -1042,6 +1044,7 @@ def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
   else if name.startsWith "math." then some .math
   else if name.startsWith "struct." then some .struct
   else if name.startsWith "regexp." then some .regexp
+  else if name.startsWith "strconv." then some .strconv
   else if name.startsWith "base64." then some .base64
   else if name.startsWith "json." then some .json
   else if name.startsWith "yaml." then some .yaml
@@ -1075,6 +1078,35 @@ def evalStructBuiltin : String -> List Value -> Value
   | "struct.MaxFields", [.prim (.int n)] => .fieldCountConstraint .max n
   | name, args => unresolvedOrBottom name args
 
+/-- Dispatch the `strconv` package builtins (STDLIB-C). Numeric parsing/formatting is
+    arbitrary-precision, matching cue's `Atoi` of an over-`int64` literal and Kue's exact `Int`.
+    Base `2..36` per Go's documented contract (cue leaks `math/big`'s `2..62`; see
+    `cue-divergences.md`).
+
+    Kept DEFERRED (`unsupportedBuiltin` on concrete args, else residual): `Itoa` (not a callable
+    function in cue v0.16.1), `FormatFloat`/`ParseFloat` (float shortest-round-trip formatting is
+    incompatible with Kue's exact-decimal core), and the `Quote`/`Unquote` family (needs Go's full
+    Unicode `IsPrint` table). -/
+def evalStrconvBuiltin : String -> List Value -> Value
+  | "strconv.Atoi", [.prim (.string s)] => strconvAtoi s
+  | "strconv.FormatInt", [.prim (.int i), .prim (.int base)] => strconvFormatInt i base
+  | "strconv.FormatUint", [.prim (.int i), .prim (.int base)] => strconvFormatInt i base
+  | "strconv.ParseInt", [.prim (.string s), .prim (.int base), .prim (.int bits)] =>
+      strconvParse true s base bits
+  | "strconv.ParseUint", [.prim (.string s), .prim (.int base), .prim (.int bits)] =>
+      strconvParse false s base bits
+  | "strconv.FormatBool", [.prim (.bool b)] => .prim (.string (if b then "true" else "false"))
+  | "strconv.ParseBool", [.prim (.string s)] => strconvParseBool s
+  | name, args =>
+      if args.any containsBottom then
+        .bottom
+      else if args.all isConcreteArg then
+        -- A concrete call to a still-deferred form (`Itoa`/`FormatFloat`/`Quote`/…):
+        -- a clear unsupported signal, never a silent wrong answer.
+        .bottomWith [.unsupportedBuiltin name]
+      else
+        .builtinCall name args
+
 /-- Dispatch a builtin call over already-evaluated arguments. The family is classified once
     (`BuiltinFamily.ofName?`) and matched EXHAUSTIVELY — every family has an arm, with no
     catch-all over `BuiltinFamily` that could swallow a future family. A non-builtin name
@@ -1088,6 +1120,7 @@ def evalBuiltinCall (name : String) (args : List Value) : Value :=
   | some .math => evalMathBuiltin name args
   | some .struct => evalStructBuiltin name args
   | some .regexp => evalRegexpBuiltin name args
+  | some .strconv => evalStrconvBuiltin name args
   | some .base64 => evalBase64Builtin name args
   | some .json => evalJsonBuiltin name args
   | some .yaml => evalYamlBuiltin name args

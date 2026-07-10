@@ -1,0 +1,17 @@
+{
+    "atoi": 42,
+    "atoi_neg": -7,
+    "atoi_big": 99999999999999999999999,
+    "format_int_hex": "ff",
+    "format_int_neg": "-ff",
+    "format_int_bin": "101",
+    "format_int_b36": "z",
+    "format_uint_hex": "ff",
+    "parse_int_hex": 255,
+    "parse_int_auto": 31,
+    "parse_int_us": 1000,
+    "parse_uint_max": 18446744073709551615,
+    "format_bool": "true",
+    "parse_bool": true,
+    "roundtrip": 48879
+}

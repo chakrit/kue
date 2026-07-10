@@ -235,8 +235,20 @@ findings, ranked. Slice A landed; B–E queued.
   accretion (`{a:1} & MinFields(2) & {b:2}`) is spec-correct. Fixture
   `testdata/export/struct_field_count`; theorems `fieldcount_*` in `FixtureTests`. The package's
   OTHER members (if any) are out of scope for this slice.
-- **C — `strconv` builtin package (MEDIUM).** Implement `strconv.Atoi`/`Itoa`/`Quote`/… — the
-  original test-drive trigger (`x: strconv.Atoi("42")`). Same wiring as B.
+- **C — `strconv` builtin package (MEDIUM). ✅ LANDED (2026-07-10).** Pure conversions in
+  `Kue/Strconv.lean`, dispatched via a new `.strconv` `BuiltinFamily` arm. **Shipped** (exact vs
+  cue v0.16.1, arbitrary-precision matching Kue's `Int`): `Atoi`, `FormatInt`, `FormatUint`
+  (= `FormatInt` in cue), `ParseInt`, `ParseUint`, `FormatBool`, `ParseBool`. `ParseInt`/`ParseUint`
+  cover base-0 prefix auto-detect (`0x`/`0b`/`0o`/leading-`0` octal), Go's underscore-separator
+  rule (base 0 only), case-insensitive digits, and the `bitSize` range check (`0` = unbounded,
+  `b>0` = signed `[-2^(b-1),2^(b-1)-1]` / unsigned `[0,2^b-1]`, `b<0` = empty). Errors are typed
+  `BottomReason`s (`strconvSyntax`/`strconvRange`/`strconvInvalidBase`). **Deferred** (route to
+  `unsupportedBuiltin`): `Itoa` (not a callable function in cue v0.16.1), `FormatFloat`/`ParseFloat`
+  (float shortest-round-trip is incompatible with the exact-decimal core), `Quote`/`Unquote`/
+  `QuoteToASCII`/… (need Go's full Unicode `IsPrint` table). **Divergence:** base restricted to Go's
+  documented `2..36`; cue leaks `math/big`'s `2..62` — recorded in `cue-divergences.md`. Fixture
+  `testdata/export/strconv_basic`; theorems in `Kue/Tests/StrconvTests.lean`. STDLIB-A wild fixture
+  repointed `strconv`→`time` (retraction).
 - **D — import-placement parse grammar (MEDIUM).** An `import` clause not in the canonical
   file-header position (after `package`, before declarations) — test-drive found a parse-grammar
   gap in where import declarations are accepted. Seed a failing parse fixture, adjudicate against

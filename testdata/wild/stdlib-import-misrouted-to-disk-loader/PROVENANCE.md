@@ -21,5 +21,9 @@
   element names a standard-library package. Recorded in `docs/spec/cue-spec-gaps.md` (the
   exact unimplemented-builtin error text is kue's principled choice; spec is silent on it).
 - **Graduated GREEN** in the same slice: the routing fix emits the clear error, so the
-  fixture pins `unsupported builtin package "strconv"` as its stable `.expected.err`
+  fixture pins `unsupported builtin package "<pkg>"` as its stable `.expected.err`
   substring. Not `.known-red`.
+- **Retraction (STDLIB-C, 2026-07-10):** `strconv` is now implemented, so it no longer
+  hits the unimplemented-routing path. The fixture is REPOINTED to `time` (still an
+  unimplemented dot-free stdlib package) to keep the routing/error contract under guard —
+  the guard is package-agnostic, not about `strconv` specifically.

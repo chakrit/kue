@@ -674,6 +674,18 @@ inductive BottomReason where
   | divisionByZero
   | excludedValue (value : Prim)
   | unsupportedBuiltin (name : String)
+  /-- A `strconv.Atoi`/`ParseInt`/`ParseUint`/`ParseBool` input that is not a syntactically
+      valid literal for the requested base (`Atoi("abc")`, `ParseInt("0x", 0, 64)`,
+      `ParseBool("yes")`). Mirrors Go/cue's `invalid syntax`. Carries the offending input. -/
+  | strconvSyntax (input : String)
+  /-- A `strconv.ParseInt`/`ParseUint` literal that parses but falls outside the signed/unsigned
+      range the `bitSize` selects (`ParseInt("128", 10, 8)`, `ParseUint("-5", 10, 64)`). Mirrors
+      Go/cue's `value out of range`. Carries the offending input. -/
+  | strconvRange (input : String)
+  /-- A `strconv.FormatInt`/`FormatUint`/`ParseInt`/`ParseUint` base outside the Go-documented
+      `2..36` contract (and `0` for the parse auto-detect). cue leaks `math/big`'s wider `2..62`
+      range; Kue follows the documented contract (see `cue-divergences.md`). Carries the base. -/
+  | strconvInvalidBase (base : Int)
   /-- A concrete regex pattern that RE2/cue reject as invalid (unbalanced groups, dangling
       escapes) or that Kue defers (flags, named captures). Carries the offending pattern and
       the structured parse error. Raised at every `=~`/`!~`/pattern-meet/`regexp.Match` site
@@ -1180,7 +1192,7 @@ def importBindName (imp : Import) : String :=
     (`encoding/base64` → `base64`). Shared (in the base layer) by the module loader and the
     parser's builtin-alias canonicalization. -/
 def builtinImportPaths : List String :=
-  ["strings", "list", "math", "struct", "regexp",
+  ["strings", "list", "math", "struct", "regexp", "strconv",
    "encoding/base64", "encoding/json", "encoding/yaml"]
 
 /-- Whether an import path names a built-in stdlib package the loader must leave to the
