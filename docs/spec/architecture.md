@@ -132,7 +132,8 @@ declared dep absent from both, and MVS version selection over a disk-built requi
 a pure protocol core plus one thin IO edge: `Registry.lean` (`CUE_REGISTRY` parse,
 module→OCI-ref resolution, cache-path authority), `Oci.lean` (manifest parse, URL/curl-arg
 builders), `OciAuth.lean` (Docker/OCI bearer-token flow parsing), `Sha256.lean` (FIPS
-180-4 + `cue.sum` `h1:` dirhash), `Inflate.lean` (RFC 1951 DEFLATE), `Zip.lean` (PKWARE +
+180-4 + `cue.sum` `h1:` dirhash, exporting the `Hash1` digest newtype threaded through the
+`cue.sum` produce/parse/format/verify chain), `Inflate.lean` (RFC 1951 DEFLATE), `Zip.lean` (PKWARE +
 CRC-32), `Semver.lean` (Go `x/mod/semver` port), `Mvs.lean` (pure
 minimal-version-selection solver), `OciFetch.lean` (the sole `IO.Process` curl edge;
 imports the pure core,

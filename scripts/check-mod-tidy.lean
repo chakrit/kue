@@ -36,11 +36,11 @@ def fixtureFetcher (dir : String) : ModCmd.EntryFetcher := fun dep => do
   | none => pure (.error s!"no fixture for {dep.modPath}@{dep.version} (simulated transport failure)")
   | some name => pure (Zip.readZip (← IO.FS.readBinFile s!"{dir}/{name}"))
 
-/-- The `h1:` sum of a fixture zip's entries — the expected `cue.sum` value for that module. -/
-def fixtureH1 (dir : String) (name : String) : IO String := do
+/-- The `Hash1` of a fixture zip's entries — the expected `cue.sum` value for that module. -/
+def fixtureH1 (dir : String) (name : String) : IO Hash1 := do
   match Zip.readZip (← IO.FS.readBinFile s!"{dir}/{name}") with
   | .ok entries => pure (Sha256.hash1 entries)
-  | .error _ => pure "h1:ERR"
+  | .error _ => pure (Hash1.parse "h1:ERR")
 
 def isErr {α : Type} (r : Except String α) : Bool :=
   match r with | .error _ => true | .ok _ => false
@@ -80,7 +80,7 @@ def main (args : List String) : IO UInt32 := do
         let h1a ← fixtureH1 dir "a.zip"
         let h1b ← fixtureH1 dir "b.zip"
         let h1c ← fixtureH1 dir "c-1.3.0.zip"
-        let expectedSum : List (String × String) :=
+        let expectedSum : List (String × Hash1) :=
           [("a.example/a@v1.0.0", h1a), ("b.example/b@v1.0.0", h1b), ("c.example/c@v1.3.0", h1c)]
         allOk ← expect "cue.sum contains A, B, C@v1.3.0 with correct h1: digests"
           (parsed == expectedSum) allOk

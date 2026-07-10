@@ -31,6 +31,31 @@ reimplemented here.
 -/
 
 namespace Kue
+
+/-- A `cue.sum` content digest: the `golang.org/x/mod/sumdb/dirhash` `Hash1` output, held verbatim
+    as the full `h1:<base64>` token a `cue.sum` line records. A newtype so a digest can never be
+    swapped with an arbitrary string — only `Sha256.hash1` (produce) and `Hash1.parse` (the
+    `cue.sum` read boundary) mint one, and only `Hash1.render` turns it back into the file token.
+    Distinct from the OCI `sha256:<hex>` digest (`Sha256.digestString`), which is a separate concern
+    that stays a bare `String`. -/
+structure Hash1 where
+  token : String
+deriving Repr, BEq, DecidableEq
+
+namespace Hash1
+
+/-- Parse a `cue.sum` hash field into a `Hash1` — the file-read boundary. Verbatim: the token is
+    stored as written (a malformed field is a `cue.sum` concern the reader already tolerates). -/
+def parse (token : String) : Hash1 := ⟨token⟩
+
+/-- Render a `Hash1` back to its `cue.sum` file token (the verbatim `h1:<base64>`) — the file-write
+    boundary and the only route from a typed digest back to a raw string. -/
+def render (h : Hash1) : String := h.token
+
+instance : ToString Hash1 := ⟨render⟩
+
+end Hash1
+
 namespace Sha256
 
 /-! ## Round constants and initial hash (FIPS 180-4 §4.2.2, §5.3.3) -/
@@ -221,15 +246,16 @@ def hash1Line (name : String) (contents : ByteArray) : String :=
   hex (sha256 contents) ++ "  " ++ name ++ "\n"
 
 /-- `Hash1` over a list of `(name, contents)` files: sort by name (byte order), build the
-    per-file summary lines, SHA-256 the concatenated summary, return `"h1:" ++ base64Std(...)`.
+    per-file summary lines, SHA-256 the concatenated summary, return the typed `h1:<base64>`
+    `Hash1` (the SOLE producer of one).
     Byte-order sort = compare on the UTF-8 byte sequences; for the ASCII module/zip paths cue
     produces, this coincides with Lean's `String` `<` on the same bytes, but we sort on
     `String.toUTF8.toList` explicitly to match `slices.Sort` over Go strings exactly. -/
-def hash1 (files : List (String × ByteArray)) : String :=
+def hash1 (files : List (String × ByteArray)) : Hash1 :=
   let sorted := files.toArray.qsort (fun a b =>
     byteLt a.1.toUTF8.toList b.1.toUTF8.toList) |>.toList
   let summary := String.join (sorted.map (fun (name, contents) => hash1Line name contents))
-  "h1:" ++ base64Encode (sha256 summary.toUTF8).toList
+  ⟨"h1:" ++ base64Encode (sha256 summary.toUTF8).toList⟩
 where
   /-- Lexicographic `<` on two `UInt8` lists (byte-order string comparison): shorter-is-less on a
       common prefix, else the first differing byte decides. Total, structurally recursive. -/

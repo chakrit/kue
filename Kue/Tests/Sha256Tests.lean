@@ -150,7 +150,7 @@ theorem hash1_base64_step :
 
 -- Single file: name "cue.mod/module.cue", contents 'module "x"\n'.
 theorem hash1_single_file :
-    (hash1 [("cue.mod/module.cue", "module \"x\"\n".toUTF8)]
+    ((hash1 [("cue.mod/module.cue", "module \"x\"\n".toUTF8)]).render
       == "h1:ftG4xWQPV4pZ9dJyz1U9yMplIdnOoyX/hdskb0yd9w8=") = true := by
   native_decide
 
@@ -159,9 +159,21 @@ theorem hash1_single_file :
 --   cue.mod/module.cue contents = 'module "foo.example@v0"\n'
 --   foo.cue            contents = 'a: 1\n'
 theorem hash1_two_files_sorted :
-    (hash1 [("foo.cue", "a: 1\n".toUTF8),
-            ("cue.mod/module.cue", "module \"foo.example@v0\"\n".toUTF8)]
+    ((hash1 [("foo.cue", "a: 1\n".toUTF8),
+            ("cue.mod/module.cue", "module \"foo.example@v0\"\n".toUTF8)]).render
       == "h1:P7/mTCFrvF77thKflcmV8eVMxjYU7kC0InTdJLeRHRI=") = true := by
+  native_decide
+
+-- ## Hash1 newtype boundary
+--
+-- `render` is the inverse of `parse` (the file token is held verbatim), and `hash1`'s output
+-- renders to exactly the `h1:<base64>` string a `cue.sum` line records — so wrapping buys the
+-- type-leverage with zero effect on the serialized bytes.
+theorem hash1_render_parse_roundtrip :
+    ((Hash1.parse "h1:AAA=").render == "h1:AAA=") = true := by native_decide
+
+theorem hash1_produces_h1_prefix :
+    ((hash1 [("cue.mod/module.cue", "module \"x\"\n".toUTF8)]).render.startsWith "h1:") = true := by
   native_decide
 
 -- Sort is by name, so passing the same two files already-sorted yields the identical h1.

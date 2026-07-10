@@ -467,24 +467,25 @@ def solveVersionOverride (mainRoot : System.FilePath) (mainMod : String) (mainDe
 def readCueRegistry : IO String := do
   pure ((← IO.getEnv "CUE_REGISTRY").getD "")
 
-/-- Parse `cue.sum` text into `(modpath@version, h1-hash)` pairs. Format mirrors Go's `go.sum`:
+/-- Parse `cue.sum` text into `(modpath@version, Hash1)` pairs. Format mirrors Go's `go.sum`:
     whitespace-separated `<module> <version> h1:<base64>` lines; blank/short lines are skipped.
-    Pure — the IO wrapper `readCueSum` only supplies the file text. -/
-def parseCueSumText (text : String) : List (String × String) :=
+    The hash field crosses into the typed `Hash1` here — the `cue.sum` read boundary. Pure — the IO
+    wrapper `readCueSum` only supplies the file text. -/
+def parseCueSumText (text : String) : List (String × Hash1) :=
   text.splitOn "\n" |>.filterMap fun line =>
     match line.trimAscii.toString.splitOn " " |>.filter (·.length > 0) with
-    | modPath :: version :: hash :: _ => some (s!"{modPath}@{version}", hash)
+    | modPath :: version :: hash :: _ => some (s!"{modPath}@{version}", Hash1.parse hash)
     | _ => none
 
-/-- One `cue.sum` line: `<modpath> <version> <h1>` + `\n` (`h1` is the full `h1:<base64>`). The
-    inverse of one `parseCueSumText` line. -/
-def formatCueSumLine (modPath version h1 : String) : String :=
-  s!"{modPath} {version} {h1}\n"
+/-- One `cue.sum` line: `<modpath> <version> <h1>` + `\n`. The inverse of one `parseCueSumText`
+    line; `Hash1.render` is the write boundary back to the file token. -/
+def formatCueSumLine (modPath version : String) (h1 : Hash1) : String :=
+  s!"{modPath} {version} {h1.render}\n"
 
-/-- Serialize resolved `(modpath, version, h1)` sums to `cue.sum` text — the inverse of
+/-- Serialize resolved `(modpath, version, Hash1)` sums to `cue.sum` text — the inverse of
     `parseCueSumText`. Sorted by `(modpath, semver version)` for a deterministic file (mirroring
     Go's `module.Sort` over `go.sum`); one line per entry. Pure; `writeCueSum` supplies the IO. -/
-def formatCueSum (entries : List (String × String × String)) : String :=
+def formatCueSum (entries : List (String × String × Hash1)) : String :=
   let sorted := entries.toArray.qsort (fun a b =>
     let (ma, va, _) := a
     let (mb, vb, _) := b
@@ -495,15 +496,15 @@ def formatCueSum (entries : List (String × String × String)) : String :=
     cue v0.16.1 ships NO `cue.sum` mechanism (the OCI blob digest is its live integrity gate —
     see `fetchAndCacheModule`), so this is a defensive, forward-compatible verifier: a sum present
     is enforced, an absent file is no error. -/
-def readCueSum (importerRoot : System.FilePath) : IO (List (String × String)) := do
+def readCueSum (importerRoot : System.FilePath) : IO (List (String × Hash1)) := do
   let path := importerRoot / "cue.sum"
   if !(← path.pathExists) then
     pure []
   else
     pure (parseCueSumText (← IO.FS.readFile path))
 
-/-- The recorded `h1:` sum for `dep` in a parsed `cue.sum`, if any (keyed `modpath@version`). -/
-def lookupCueSum (sums : List (String × String)) (dep : Dep) : Option String :=
+/-- The recorded `Hash1` for `dep` in a parsed `cue.sum`, if any (keyed `modpath@version`). -/
+def lookupCueSum (sums : List (String × Hash1)) (dep : Dep) : Option Hash1 :=
   (sums.find? (fun s => s.fst == s!"{dep.modPath}@{dep.version}")).map (·.snd)
 
 /-- A collision-resistant temp-name suffix for a single write attempt: monotonic-clock

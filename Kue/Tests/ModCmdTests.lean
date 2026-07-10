@@ -16,6 +16,7 @@ open Kue.Registry (ModuleVersion)
 
 private def dep (p v : String) : Dep := { modPath := p, version := v }
 private def mv (p v : String) : ModuleVersion := ⟨p, v⟩
+private def h (s : String) : Hash1 := Hash1.parse s
 
 -- ## Requirement-graph assembly: dep tables → MVS graph
 
@@ -47,13 +48,13 @@ example :
 example :
     parseCueSumText
         (formatCueSum
-          [ ("b.com/y", "v2.0.0", "h1:BBB="), ("a.com/x", "v1.0.0", "h1:AAA=") ])
-      = [ ("a.com/x@v1.0.0", "h1:AAA="), ("b.com/y@v2.0.0", "h1:BBB=") ] := by
+          [ ("b.com/y", "v2.0.0", h "h1:BBB="), ("a.com/x", "v1.0.0", h "h1:AAA=") ])
+      = [ ("a.com/x@v1.0.0", h "h1:AAA="), ("b.com/y@v2.0.0", h "h1:BBB=") ] := by
   native_decide
 
 -- Two versions of the SAME path sort by semver ascending (v1.2.0 before v1.10.0 — numeric).
 example :
-    formatCueSum [ ("m", "v1.10.0", "h1:B="), ("m", "v1.2.0", "h1:A=") ]
+    formatCueSum [ ("m", "v1.10.0", h "h1:B="), ("m", "v1.2.0", h "h1:A=") ]
       = "m v1.2.0 h1:A=\nm v1.10.0 h1:B=\n" := by
   native_decide
 
@@ -74,14 +75,14 @@ example :
 
 -- ## cueSumRows: build list → cue.sum rows (main excluded, h1 looked up per node)
 
-private def nodes : List (ModuleVersion × (List Dep × String)) :=
-  [ (mv "main" "", ([dep "A" "v1.0.0"], "")),
-    (mv "A" "v1.0.0", ([], "h1:AAA=")),
-    (mv "C" "v1.3.0", ([], "h1:CCC=")) ]
+private def nodes : List (ModuleVersion × (List Dep × Hash1)) :=
+  [ (mv "main" "", ([dep "A" "v1.0.0"], h "")),
+    (mv "A" "v1.0.0", ([], h "h1:AAA=")),
+    (mv "C" "v1.3.0", ([], h "h1:CCC=")) ]
 
 example :
     cueSumRows (mv "main" "") [mv "main" "", mv "A" "v1.0.0", mv "C" "v1.3.0"] nodes
-      = [ ("A", "v1.0.0", "h1:AAA="), ("C", "v1.3.0", "h1:CCC=") ] := by
+      = [ ("A", "v1.0.0", h "h1:AAA="), ("C", "v1.3.0", h "h1:CCC=") ] := by
   native_decide
 
 --

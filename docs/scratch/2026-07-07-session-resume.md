@@ -38,7 +38,10 @@ survives context wipe — don't rebind the slug; recover per ace-connect Flow st
 1. **AUD-B5 (LOW) — LANDED.** Both BFS graph builders (`buildDiskGraphAux` `Module.lean`,
    `fetchGraphAux` `ModCmd.lean`) now share the `Module.bfsRequirementGraphAux` step-callback
    combinator (structural on `fuel`, leaf `expand`). Pure refactor, check.sh green.
-2. **B3d-B1 (LOW)** — `Digest`/`Hash1` newtype for type-leverage.
+2. **B3d-B1 (LOW) — LANDED.** `Kue.Hash1` newtype now wraps the `cue.sum` `h1:<base64>` token
+   end-to-end (produce→accumulate→format/parse→verify); `Hash1.parse`/`render` are the file-format
+   boundary. The main-node digest sentinel was eliminated (main dropped from the fetched-node table;
+   `runTidy` supplies its graph edge). OCI `sha256:` digest left a bare `String`. check.sh green.
 3. **Wild-caught** — chakrit's alpha test-drive may surface real divergences; each becomes a
    `testdata/wild/` failing fixture FIRST, spec-adjudicated value (not cue-matched).
 

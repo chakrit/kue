@@ -59,8 +59,8 @@ def depsFromEntries (entries : List (String × ByteArray)) : Except String (List
     no build-list entry without a digest to drop. `cue.sum` is order-independent (`formatCueSum`
     sorts). Pure. -/
 def cueSumRows (main : Registry.ModuleVersion) (buildList : List Registry.ModuleVersion)
-    (nodes : List (Registry.ModuleVersion × (List Dep × String))) :
-    List (String × String × String) :=
+    (nodes : List (Registry.ModuleVersion × (List Dep × Hash1))) :
+    List (String × String × Hash1) :=
   nodes.filterMap fun (node, _, h1) =>
     if node.basePath != main.basePath && buildList.contains node then
       some (node.basePath, node.version, h1)
@@ -91,8 +91,8 @@ def ociEntryFetcher (cueRegistry : String) : EntryFetcher := fun dep => do
     The disk-side twin is `Module.buildDiskGraphAux`. -/
 def fetchGraphAux (fetch : EntryFetcher) (fuel : Nat) (worklist : List Dep)
     (visited : List Registry.ModuleVersion)
-    (acc : List (Registry.ModuleVersion × (List Dep × String))) :
-    IO (Except String (List (Registry.ModuleVersion × (List Dep × String)))) :=
+    (acc : List (Registry.ModuleVersion × (List Dep × Hash1))) :
+    IO (Except String (List (Registry.ModuleVersion × (List Dep × Hash1)))) :=
   bfsRequirementGraphAux
     (nodeOf := depToMV)
     (expand := fun dep => do
@@ -109,24 +109,24 @@ def fetchGraphAux (fetch : EntryFetcher) (fuel : Nat) (worklist : List Dep)
     graph completes and only a pathological one trips the guard. -/
 def fetchFuel : Nat := 100000
 
-/-- Build the full `(node, (deps, h1))` table for a main module + its declared deps: seed the main
-    node (its `h1` unused — main is never a `cue.sum` entry), then transitively fetch every
-    dependency's module.cue. -/
+/-- The `(node, (deps, h1))` table for a main module's transitive dependencies: seed the walk with
+    `main` visited (so it is never fetched — it is not a registry artifact and has no digest) and its
+    declared deps as the worklist. Every returned node is a FETCHED dependency, so each carries a real
+    `Hash1`; the main module is deliberately absent (`runTidy` supplies main's own graph edge). This
+    is what keeps the digest table honest — no sentinel digest for a node that never had one. -/
 def fetchGraph (fetch : EntryFetcher) (main : Registry.ModuleVersion) (mainDeps : List Dep) :
-    IO (Except String (List (Registry.ModuleVersion × (List Dep × String)))) := do
-  match ← fetchGraphAux fetch fetchFuel mainDeps [main] [] with
-  | .error e => pure (.error e)
-  | .ok depNodes => pure (.ok ((main, (mainDeps, "")) :: depNodes))
+    IO (Except String (List (Registry.ModuleVersion × (List Dep × Hash1)))) :=
+  fetchGraphAux fetch fetchFuel mainDeps [main] []
 
 /-- Atomically write `entries` to `<root>/cue.sum` (via `Module.atomicWriteBinFile`). -/
-def writeCueSum (root : System.FilePath) (entries : List (String × String × String)) : IO Unit :=
+def writeCueSum (root : System.FilePath) (entries : List (String × String × Hash1)) : IO Unit :=
   atomicWriteBinFile (root / "cue.sum") (formatCueSum entries).toUTF8
 
 /-- The result of `mod tidy`: the MVS build list (main first, then each selected dependency) and
     the `cue.sum` rows written. -/
 structure TidyResult where
   buildList : List Registry.ModuleVersion
-  sumRows : List (String × String × String)
+  sumRows : List (String × String × Hash1)
 deriving Repr
 
 /-- Run `cue mod tidy` for the module rooted at `root`, using `fetch` for registry GETs: read the
@@ -143,12 +143,14 @@ def runTidy (root : System.FilePath) (fetch : EntryFetcher) :
       let main : Registry.ModuleVersion := ⟨modPath, ""⟩
       match ← fetchGraph fetch main deps with
       | .error e => pure (.error e)
-      | .ok nodes =>
-          let graph := buildRequirementGraph (nodes.map (fun n => (n.fst, n.snd.fst)))
+      | .ok depNodes =>
+          -- `fetchGraph` returns only fetched deps; add the main module's own graph edge here (it
+          -- has no digest, so it never belonged in the `cue.sum` node table).
+          let graph := buildRequirementGraph ((main, deps) :: depNodes.map (fun n => (n.fst, n.snd.fst)))
           match Mvs.solveChecked main graph with
           | .error e => pure (.error e)
           | .ok buildList =>
-              let rows := cueSumRows main buildList nodes
+              let rows := cueSumRows main buildList depNodes
               writeCueSum root rows
               pure (.ok { buildList, sumRows := rows })
 

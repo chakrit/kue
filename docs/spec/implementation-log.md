@@ -18683,3 +18683,61 @@ GREEN (lake build + every `check-*.sh` + shellcheck).
 
 Not a `cue-divergence` and not a spec-gap — a mechanical internal refactor with no CUE-semantic
 surface.
+
+---
+
+## Completed Slice: B3d-B1 — `Hash1` newtype for the `cue.sum` h1 digest
+
+Goal: replace the bare `String` that carries the `cue.sum` `h1:<base64>` digest with a `Kue.Hash1`
+newtype, so the compiler enforces that only a real digest reaches a digest position (a hash can no
+longer be swapped with an arbitrary string).
+
+### Design
+
+- **Name `Hash1`, not `Digest`.** It is exactly the Go `golang.org/x/mod/sumdb/dirhash` `Hash1`
+  output, and the coexisting OCI `sha256:<hex>` digest (`Sha256.digestString`) already occupies the
+  "digest" mental slot in the same file; `Hash1` is the unambiguous name.
+- **Wraps the FULL `h1:<base64>` token verbatim** (not the raw base64 payload). The whole
+  produce→verify chain already flowed the full token; wrapping it end-to-end is zero-churn on the
+  bytes — `Hash1.render` is identity on the stored token, so `cue.sum` serialization/parsing stays
+  byte-identical.
+- **`Hash1.parse` / `Hash1.render` are the only file-format boundary**; `Sha256.hash1` is the sole
+  producer; interior code (`fetchGraph`, `cueSumRows`, `formatCueSum`, `parseCueSumText`,
+  `readCueSum`, `lookupCueSum`, the `fetchAndCacheModule` verify) all stay typed. `ToString Hash1`
+  (= `render`) keeps error-message and script interpolation clean.
+- **Main-node sentinel eliminated (the real illegal-states-unrepresentable win).** The old
+  `fetchGraph` prepended `(main, (mainDeps, ""))` — a fake empty h1 for a node that has no digest.
+  Rather than relocate that lie into a junk `Hash1`, `fetchGraph` now returns ONLY fetched
+  dependency nodes (each with a real `Hash1`), and `runTidy` supplies the main module's own graph
+  edge (`(main, deps) :: …`) directly — it already had `main` and `deps` in scope. The digest table
+  is now uniformly real; no sentinel, no `Option`, no can't-happen branch.
+
+### Steps
+
+1. `Kue/Sha256.lean`: add `structure Hash1 where token : String` (`Repr, BEq, DecidableEq`) with
+   `Hash1.parse`/`Hash1.render` + `ToString`; `Sha256.hash1` returns `Hash1`.
+2. `Kue/Module.lean`: `parseCueSumText`/`formatCueSumLine`/`formatCueSum`/`readCueSum`/`lookupCueSum`
+   thread `Hash1`; the `fetchAndCacheModule` verify compares two `Hash1` via derived `BEq`.
+3. `Kue/ModCmd.lean`: `fetchGraphAux`/`fetchGraph`/`cueSumRows`/`writeCueSum`/`TidyResult.sumRows`
+   thread `Hash1`; `fetchGraph` drops the main sentinel; `runTidy` adds the main graph edge.
+
+### Tests
+
+- Existing guards pin byte-identity: the `mod tidy` pipeline (`scripts/check-mod-tidy.lean`
+  round-trips `cue.sum` through `parseCueSumText`/`formatCueSum` and checks h1 digests) and the
+  fetch pipeline's `cue.sum` integrity gate (`scripts/check-fetch-pipeline.lean`). Both GREEN.
+- New `native_decide` pins in `Kue/Tests/Sha256Tests.lean`: `hash1_render_parse_roundtrip`
+  (`render ∘ parse = id`) and `hash1_produces_h1_prefix` (`hash1` output renders with the `h1:`
+  prefix) — documenting the newtype boundary contract.
+- `ModCmdTests.lean`/`Sha256Tests.lean` cue.sum + hash1 pins updated to the typed form (a local
+  `h : String → Hash1` helper keeps them terse); the expected byte strings are unchanged.
+- `./scripts/check.sh` GREEN (lake build + every `check-*.sh` + shellcheck).
+
+### Retraction
+
+- `docs/spec/plan.md`: both B3d-B1 backlog entries (the roadmap line and the audit-filed
+  type-leverage entry) rewritten open→DONE.
+- `docs/scratch/2026-07-07-session-resume.md`: next-step #2 marked LANDED.
+
+Not a `cue-divergence` and not a spec-gap — an internal type-leverage refactor with no CUE-semantic
+surface (`cue.sum` byte output is unchanged).

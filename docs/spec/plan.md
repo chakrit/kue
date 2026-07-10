@@ -429,9 +429,12 @@ rejection argument: `kue-performance.md` + implementation-log.
 - **item-3 testdata regroup (DEFERRED)** — sub-grouping `testdata/cue/{definitions,
   comprehensions}` into nested subdirs; high blast radius (`FixturePorts.lean`'s `fileName`
   strings are the join key, ~77 fixtures). Pick up as a dedicated careful slice or drop.
-- **B3d-B1** `Digest`/`Hash1` newtype (second consumer now exists — B3d-6b cue.sum write);
-  **kue-performance B3d note**. (B3d-A2, Mvs.solve main-pin, and the `ModuleFetch` carve all
-  LANDED 2026-07-05.)
+- **B3d-B1 — DONE 2026-07-10.** `Kue.Hash1` newtype now wraps the `cue.sum` `h1:<base64>` token
+  end-to-end (produce `Sha256.hash1` → accumulate `fetchGraph`/`cueSumRows` → parse/format
+  `parseCueSumText`/`formatCueSum` → verify `fetchAndCacheModule`); `Hash1.parse`/`render` are the
+  file-format boundary. The OCI `Descriptor.digest` (`sha256:<hex>`) stays a bare `String`
+  (separate concern). **kue-performance B3d note** still open. (B3d-A2, Mvs.solve main-pin, and
+  the `ModuleFetch` carve all LANDED 2026-07-05.)
 - **GATE-KNOWNRED-DRY (LOW, infra; from the 2026-07-04 Phase B / A7 rotation) — DONE.**
   The two copy-pasted three-state `.known-red` blocks in `check_wild_fixtures` and
   `check_module_subpaths` are replaced by one `handle_known_red <known_red> <passed> <grad_label>
@@ -1016,9 +1019,12 @@ staged-but-unused primitive.
   literal-symbol-286 are reachable only via a dynamic table / the fixed table's over-wide code
   space; the block-loop fuel guard and the dynamic-length-underflow guard are defensive-unreachable
   by construction (each block/RLE-step consumes ≥1 unit against a matched bound) and left un-pinned.
-- **B3d-B1** (type-leverage, LOW — now has its second consumer) — `Descriptor.digest`/`cue.sum`
-  `h1:` are `String` with an unenforced format invariant; `cue.sum` WRITE (B3d-6b) is the second
-  `h1:` consumer, so a `Digest`/`Hash1` smart-constructor newtype now earns its keep. Still LOW.
+- **B3d-B1 — DONE 2026-07-10 (type-leverage).** The `cue.sum` `h1:` string is now the `Kue.Hash1`
+  newtype threaded produce→accumulate→format/parse→verify, so a raw string can no longer reach a
+  digest position; the main-module node (which never had a digest) was dropped from the fetched-node
+  table entirely rather than carrying a sentinel — `runTidy` supplies its graph edge directly. The
+  OCI `Descriptor.digest` (`sha256:<hex>`) was left a bare `String`: a distinct concern with no
+  second consumer, so a newtype there would be ceremony.
 - **`Mvs.solve` main-pin — DONE 2026-07-05.** `Mvs.solveChecked` surfaces the cue-panic case
   (a dependency requiring a higher version of the main module's own path) as a typed error
   instead of a silent pin; `mod tidy` calls it. 4 native_decide theorems.
