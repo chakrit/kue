@@ -18941,3 +18941,67 @@ in `cue-divergences.md`; the spec-silent basis + cue-compat-within-contract choi
   `strconv.Atoi`, which now RESOLVES. `time` is still an unimplemented dot-free stdlib package,
   so the package-agnostic routing guard stays live (`.cue`, `.expected.err`, PROVENANCE retraction
   note updated).
+
+---
+
+## Completed Slice: STDLIB-D — CUE statement separation (newline-termination) + missing-separator rejection — 2026-07-10
+
+Goal: reject an `import` declaration placed after a regular declaration (the wild-caught bug
+`x: 1\nimport "strings"` — cue v0.16.1 `PARSE error`, kue evaluated past it to bottom),
+matching the CUE grammar's `SourceFile = [PackageClause] {ImportDecl} {Declaration}` (imports
+precede declarations).
+
+### Root cause — NOT import-specific
+
+The under-rejection was a symptom of a deeper gap: kue had NO statement separation at all.
+The operator-precedence chain (`parseDisjunctionRest`, `parseConjunctionRest`,
+`parseLogicalOrRest`, `parseLogicalAndRest`, `parseComparison`, `parseAdditiveRest`,
+`parseMultiplicativeRest`) each did `skipTrivia` — which crosses NEWLINES — while hunting for a
+trailing binary operator. So a newline never terminated an expression; the greedy parser ran
+past it and `parseFieldsUntil` accepted consecutive declarations with no separator. Observed
+identically across `x: 1\nimport "strings"`, `foo "bar"`, and `a: 1 b: 2` — cue rejects all
+three (`import` is just an identifier once declarations begin; the STRING/second-field has no
+separating comma). The import case is one instance of a missing field-separator gate.
+
+### Fix — implement CUE's implicit-comma-at-newline (ASI)
+
+- **`skipSameLineTrivia`** (`Kue/Parse.lean`) — trailing-operator lookahead skips horizontal
+  whitespace and block comments but STOPS at a newline or line comment (`//`), leaving the
+  newline in place. Every `*Rest` combinator's operator lookahead switched from `skipTrivia`
+  to `skipSameLineTrivia`, and its no-operator fallthrough now returns the UN-skipped position
+  (so the terminating newline survives up the chain). An operator found at line END still
+  continues onto the next line, because the operand parse does its own leading `skipTrivia`
+  after consuming the operator — so `x: 1 +\n2` = `3`, `x: {a:1} &\n{b:2}` merges, but
+  `x: 1\n+ 2` terminates `x: 1`. Postfix selectors already used `skipPostfixTrivia` (same-line),
+  so `.`/`[` were already correct and untouched. `parseMultiplicativeRest` guards `//` (a line
+  comment, not two `/` divisions — CUE has no unary `/`).
+- **`fieldSeparator` / `fieldSeparatorAux`** (`Kue/Parse.lean`) — scans the trivia after a
+  parsed field for a separator (`,`/`;`/newline; a line comment ends at a newline so it counts;
+  a block comment does not). `parseFieldsUntil` now requires a separator between consecutive
+  declarations unless the next token is the terminator (`}`/EOF), else `missing ',' in struct
+  literal`. Applies to both the top-level file body and nested `{…}` bodies (one code path).
+  Lists are untouched (element separation stays in `parseCommaOrSemicolon`).
+
+### Error text
+
+Uniform `missing ',' in struct literal` for every missing-separator case (late import,
+`foo "bar"`, `a: 1 b: 2`). cue's wording is path-dependent (`missing ',' in struct literal`
+vs `expected label or ':', found 'STRING'`); the spec pins the REJECTION, not the text — one
+clear message is more total than mirroring a lexer artifact. Recorded in `cue-spec-gaps.md`
+(STDLIB-D).
+
+### Tests
+
+- Wild fixture `testdata/wild/import-after-decl/` (`.expected.err` = `missing ','`) — the
+  reproduced bug, RED before / GREEN after; auto-discovered by `check_wild_fixtures`.
+- `Kue/Tests/ParseTests.lean` § Import placement + field separators: late-import rejection,
+  `foo "bar"` / `a: 1 b: 2` rejections, positives (package→import→decl, multiple import decls,
+  import-first, newline-separated fields), and line-continuation positives (operator at line
+  end, struct meet across `&`, trailing line comment).
+- `./scripts/check.sh` GREEN (full suite + cert-manager/realworld canaries unchanged — the ASI
+  change broke zero existing theorems).
+
+### Retraction
+
+- `docs/spec/plan.md`: STDLIB backlog item D marked LANDED (was `import-placement parse
+  grammar`), with the refined root cause (general statement separation, not import-specific).

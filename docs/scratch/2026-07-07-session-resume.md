@@ -58,15 +58,20 @@ campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
   Divergence: base restricted to Go's `2..36` (cue leaks `2..62`) — `cue-divergences.md`. Fixture
   `testdata/export/strconv_basic`; `Kue/Tests/StrconvTests.lean` (52 theorems). Wild fixture
   `stdlib-import-misrouted-to-disk-loader` repointed `strconv`→`time` (retraction).
-- **D — import-placement parse grammar** (MEDIUM): a parse gap in where `import` declarations
-  are accepted (must precede all other declarations); seed a failing parse fixture, fix
-  `Parse.lean`.
+- **D — import-placement parse grammar. ✅ LANDED (2026-07-10).** Root cause was NOT
+  import-specific: kue lacked CUE's statement separation entirely — the operator-precedence
+  chain crossed newlines when hunting a trailing operator, so a newline never terminated an
+  expression and consecutive declarations with no comma passed (`x: 1\nimport "strings"`,
+  `foo "bar"`, `a: 1 b: 2`). Fixed by CUE's implicit-comma-at-newline: `skipSameLineTrivia`
+  for trailing-operator lookahead (operator-at-line-END still continues) + `fieldSeparator`
+  enforcement in `parseFieldsUntil` (`missing ',' in struct literal`). Wild fixture
+  `testdata/wild/import-after-decl/`; parse theorems in `Kue/Tests/ParseTests.lean`. Spec-gap
+  STDLIB-D + log recorded.
 - **E — unused-import diagnosis MESSAGE** (LOW): verdict already lands; CLI shows generic
   `conflicting values (bottom)` not cue's `imported and not used: "<path>"` — a message-render
   slice (the `.importedNotUsed` reason already carries path+alias).
 
-**Next:** dispatch slice D (import-placement parse grammar, MEDIUM) or E (unused-import message,
-LOW). Prior AUD-B5/B3d-B1 next-steps
+**Next:** dispatch slice E (unused-import message, LOW) — the last STDLIB-campaign item. Prior AUD-B5/B3d-B1 next-steps
 LANDED (`ed510fd`.. history); the "autonomy paused" gate above is HISTORICAL to the 2026-07-07
 attended session — the standing keep-going loop governs.
 

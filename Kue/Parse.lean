@@ -90,6 +90,22 @@ partial def skipPostfixTrivia : List Char -> List Char
       else
         value :: rest
 
+/-- Skip same-line trivia when hunting for a trailing binary operator that would CONTINUE an
+    expression: horizontal whitespace and block comments, stopping at a newline, a line
+    comment (`//`), or the next real token. A newline after a complete expression terminates
+    it — CUE inserts an implicit comma there — so it is never crossed here; it is left in
+    place for the field/element separator to observe. An operator found on the same line still
+    continues onto the next line, since the operand parse skips full trivia after the
+    operator. -/
+partial def skipSameLineTrivia : List Char -> List Char
+  | '/' :: '*' :: rest => skipSameLineTrivia (dropBlockComment rest)
+  | value :: rest =>
+      if parseHorizontalWhitespace value then
+        skipSameLineTrivia rest
+      else
+        value :: rest
+  | [] => []
+
 def dropPrefix? : List Char -> List Char -> Option (List Char)
   | [], rest => some rest
   | expected :: expectedRest, value :: rest =>
@@ -634,6 +650,25 @@ def parseCommaOrSemicolon : List Char -> List Char
   | ';' :: rest => skipTrivia rest
   | chars => chars
 
+/-- Scan the trivia after a parsed field for a field separator, reporting whether one was
+    crossed and advancing to the next non-trivia token. CUE separates struct declarations by
+    an explicit `,`/`;` or by a newline (a newline auto-inserts a comma). A line comment ends
+    at a newline, so it counts; a block comment is bare whitespace and does not. The `sawSep`
+    accumulator carries the verdict across interleaved comments and horizontal whitespace. -/
+partial def fieldSeparatorAux (sawSep : Bool) : List Char -> Bool × List Char
+  | [] => (sawSep, [])
+  | '/' :: '/' :: rest => fieldSeparatorAux true (dropLine rest)
+  | '/' :: '*' :: rest => fieldSeparatorAux sawSep (dropBlockComment rest)
+  | ',' :: rest => fieldSeparatorAux true rest
+  | ';' :: rest => fieldSeparatorAux true rest
+  | '\n' :: rest => fieldSeparatorAux true rest
+  | value :: rest =>
+      if parseWhitespace value then fieldSeparatorAux sawSep rest
+      else (sawSep, value :: rest)
+
+def fieldSeparator : List Char -> Bool × List Char :=
+  fieldSeparatorAux false
+
 def parseFieldTerminator (terminator : Option Char) (chars : List Char) : Bool :=
   match terminator, chars with
   | some expected, value :: _ => value == expected
@@ -1062,21 +1097,21 @@ mutual
       (start : List Char)
       (alternatives : List (Mark × Value))
       (chars : List Char) : ParseResult Value :=
-    match skipTrivia chars with
+    match skipSameLineTrivia chars with
     | '|' :: rest =>
         match parseMarkedConjunction rest with
         | .error error => .error error
         | .ok (alternative, rest) => parseDisjunctionRest start (alternatives ++ [alternative]) rest
-    | rest =>
+    | _ =>
         match alternatives with
-        | [(.regular, value)] => parseOk value rest
+        | [(.regular, value)] => parseOk value chars
         -- The `*` default mark is valid ONLY on a disjunct that has siblings (`*1 | 2`):
         -- the spec marks an ELEMENT OF a disjunction, so a sole marked operand (`*(1|2)`,
         -- `*1`) has no alternatives to prefer and `cue` rejects it at parse. A marked
         -- disjunct with ≥2 elements stays valid (caught by the `_` arm below). `start`
         -- anchors the diagnostic at the leading `*`.
         | [(.default, _)] => parseError start "preference mark not allowed at this position"
-        | _ => parseOk (.disj alternatives) rest
+        | _ => parseOk (.disj alternatives) chars
 
   partial def parseMarkedConjunction (chars : List Char) : ParseResult (Mark × Value) :=
     match skipTrivia chars with
@@ -1095,15 +1130,15 @@ mutual
     | .ok (first, rest) => parseConjunctionRest [first] rest
 
   partial def parseConjunctionRest (constraints : List Value) (chars : List Char) : ParseResult Value :=
-    match skipTrivia chars with
+    match skipSameLineTrivia chars with
     | '&' :: rest =>
         match parseLogicalOr rest with
         | .error error => .error error
         | .ok (constraint, rest) => parseConjunctionRest (constraints ++ [constraint]) rest
-    | rest =>
+    | _ =>
         match constraints with
-        | [value] => parseOk value rest
-        | values => parseOk (.conj values) rest
+        | [value] => parseOk value chars
+        | values => parseOk (.conj values) chars
 
   partial def parseLogicalOr (chars : List Char) : ParseResult Value :=
     match parseLogicalAnd chars with
@@ -1111,12 +1146,12 @@ mutual
     | .ok (first, rest) => parseLogicalOrRest first rest
 
   partial def parseLogicalOrRest (left : Value) (chars : List Char) : ParseResult Value :=
-    match skipTrivia chars with
+    match skipSameLineTrivia chars with
     | '|' :: '|' :: rest =>
         match parseLogicalAnd rest with
         | .error error => .error error
         | .ok (right, rest) => parseLogicalOrRest (.binary .boolOr left right) rest
-    | rest => parseOk left rest
+    | _ => parseOk left chars
 
   partial def parseLogicalAnd (chars : List Char) : ParseResult Value :=
     match parseComparison chars with
@@ -1124,18 +1159,18 @@ mutual
     | .ok (first, rest) => parseLogicalAndRest first rest
 
   partial def parseLogicalAndRest (left : Value) (chars : List Char) : ParseResult Value :=
-    match skipTrivia chars with
+    match skipSameLineTrivia chars with
     | '&' :: '&' :: rest =>
         match parseComparison rest with
         | .error error => .error error
         | .ok (right, rest) => parseLogicalAndRest (.binary .boolAnd left right) rest
-    | rest => parseOk left rest
+    | _ => parseOk left chars
 
   partial def parseComparison (chars : List Char) : ParseResult Value :=
     match parseAdditive chars with
     | .error error => .error error
     | .ok (left, rest) =>
-        match skipTrivia rest with
+        match skipSameLineTrivia rest with
         | '<' :: '=' :: rest =>
             match parseAdditive rest with
             | .error error => .error error
@@ -1168,7 +1203,7 @@ mutual
             match parseAdditive rest with
             | .error error => .error error
             | .ok (right, rest) => parseOk (.binary .gt left right) rest
-        | rest => parseOk left rest
+        | _ => parseOk left rest
 
   partial def parseAdditive (chars : List Char) : ParseResult Value :=
     match parseMultiplicative chars with
@@ -1176,7 +1211,7 @@ mutual
     | .ok (first, rest) => parseAdditiveRest first rest
 
   partial def parseAdditiveRest (left : Value) (chars : List Char) : ParseResult Value :=
-    match skipTrivia chars with
+    match skipSameLineTrivia chars with
     | '+' :: rest =>
         match parseMultiplicative rest with
         | .error error => .error error
@@ -1185,7 +1220,7 @@ mutual
         match parseMultiplicative rest with
         | .error error => .error error
         | .ok (right, rest) => parseAdditiveRest (.binary .sub left right) rest
-    | rest => parseOk left rest
+    | _ => parseOk left chars
 
   partial def parseMultiplicative (chars : List Char) : ParseResult Value :=
     match parseUnary chars with
@@ -1193,23 +1228,25 @@ mutual
     | .ok (first, rest) => parseMultiplicativeRest first rest
 
   partial def parseMultiplicativeRest (left : Value) (chars : List Char) : ParseResult Value :=
-    let chars := skipTrivia chars
-    match chars with
+    match skipSameLineTrivia chars with
     | '*' :: rest =>
         match parseUnary rest with
         | .error error => .error error
         | .ok (right, rest) => parseMultiplicativeRest (.binary .mul left right) rest
+    -- `//` opens a line comment, not two divisions (CUE has no unary `/`), so it terminates
+    -- the expression rather than reading as a `/` operator.
+    | '/' :: '/' :: _ => parseOk left chars
     | '/' :: rest =>
         match parseUnary rest with
         | .error error => .error error
         | .ok (right, rest) => parseMultiplicativeRest (.binary .div left right) rest
-    | rest =>
-        match parseMultiplicativeKeywordOp? rest with
+    | scanned =>
+        match parseMultiplicativeKeywordOp? scanned with
         | some (op, rest) =>
             match parseUnary rest with
             | .error error => .error error
             | .ok (right, rest) => parseMultiplicativeRest (.binary op left right) rest
-        | none => parseOk left rest
+        | none => parseOk left chars
 
   partial def parseUnary (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
@@ -1601,7 +1638,11 @@ mutual
       match parseField chars with
       | .error error => .error error
       | .ok (field, rest) =>
-          parseFieldsUntil terminator (parseCommaOrSemicolon (skipTrivia rest)) (fields ++ [field])
+          let (sawSeparator, next) := fieldSeparator rest
+          if parseFieldTerminator terminator next || sawSeparator then
+            parseFieldsUntil terminator next (fields ++ [field])
+          else
+            parseError next "missing ',' in struct literal"
 
   partial def parsePatternField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with

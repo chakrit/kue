@@ -456,6 +456,70 @@ theorem parse_used_import_clause_parses_body :
     parseSucceeds "import \"strings\"\nx: strings.ToUpper(\"a\")\n" = true := by
   native_decide
 
+-- ## Import placement + field separators (D)
+--
+-- CUE's SourceFile is `[PackageClause] { ImportDecl } { Declaration }`: every ImportDecl
+-- precedes the first Declaration. Once declarations begin, `import` is an ordinary identifier,
+-- so an `import "path"` form after a field is a syntax error — `import` reads as a label and
+-- the following STRING has no separating comma/newline. `cue` v0.16.1 rejects it. The parser
+-- enforces this through general field-separator enforcement (a newline or `,`/`;` must sit
+-- between declarations), of which the late import is one instance.
+
+-- An `import` declaration after a regular field is rejected (the wild-caught bug).
+theorem parse_late_import_after_field_rejected :
+    parseFailsWith "x: 1\nimport \"strings\"\ny: strings.ToUpper(\"a\")\n"
+      "missing ','" = true := by
+  native_decide
+
+-- The defect generalizes: any bare identifier followed by more same-line tokens with no
+-- separator is a missing-comma error, not two silently-accepted embeddings.
+theorem parse_identifier_then_string_no_separator_rejected :
+    parseFailsWith "x: 1\nfoo \"bar\"\n" "missing ','" = true := by
+  native_decide
+
+-- Two fields on one line without a comma is a missing-comma error.
+theorem parse_two_fields_one_line_no_comma_rejected :
+    parseFailsWith "a: 1 b: 2\n" "missing ','" = true := by
+  native_decide
+
+-- (a) imports after a package clause and before declarations parse.
+theorem parse_package_then_import_then_decl :
+    parseSucceeds "package p\nimport \"strings\"\nx: strings.ToUpper(\"a\")\n" = true := by
+  native_decide
+
+-- (b) multiple import declarations before any declaration parse.
+theorem parse_multiple_import_decls_before_decl :
+    parseSucceeds "import \"strings\"\nimport \"strconv\"\nx: strings.ToUpper(strconv.FormatInt(1, 10))\n"
+      = true := by
+  native_decide
+
+-- (c) an import as the first declaration, followed by a body, parses.
+theorem parse_import_first_then_body :
+    parseSucceeds "import \"strings\"\nx: strings.ToUpper(\"a\")\n" = true := by
+  native_decide
+
+-- Newline-separated fields still parse — the separator gate must not over-reject the common
+-- case (regression guard for the field-separator enforcement).
+theorem parse_newline_separated_fields_ok :
+    parseSucceeds "x: 1\ny: 2\n" = true := by
+  native_decide
+
+-- A binary operator at line END continues onto the next line (CUE line-continuation): the
+-- newline is NOT a terminator when the expression is syntactically incomplete.
+theorem parse_operator_line_continuation :
+    parseOutputMatches "x: 1 +\n2\n" "x: 3" = true := by
+  native_decide
+
+-- Struct meet continued across a trailing `&` likewise parses and merges.
+theorem parse_struct_meet_line_continuation :
+    parseOutputMatches "x: {a: 1} &\n{b: 2}\n" "x: {a: 1, b: 2}" = true := by
+  native_decide
+
+-- A trailing line comment terminates the value without being misread as division.
+theorem parse_trailing_line_comment_terminates :
+    parseOutputMatches "x: 1 // note\ny: 2\n" "x: 1\ny: 2" = true := by
+  native_decide
+
 -- ## Qualified import-path parsing (F-3)
 --
 -- `ImportPath = '"' ImportLocation [ ":" identifier ] '"'`: the `:identifier` qualifier is
@@ -1140,5 +1204,6 @@ theorem quoted_label_still_exempts_noshadow_after_strip :
 #check @noshadow_let_over_let_accepts
 #check @noshadow_reverse_field_in_def_body_rejects
 #check @noshadow_reverse_incomparable_sibling_accepts
+#check @parse_trailing_line_comment_terminates
 
 end Kue

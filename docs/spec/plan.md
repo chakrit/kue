@@ -249,10 +249,18 @@ findings, ranked. Slice A landed; B–E queued.
   documented `2..36`; cue leaks `math/big`'s `2..62` — recorded in `cue-divergences.md`. Fixture
   `testdata/export/strconv_basic`; theorems in `Kue/Tests/StrconvTests.lean`. STDLIB-A wild fixture
   repointed `strconv`→`time` (retraction).
-- **D — import-placement parse grammar (MEDIUM).** An `import` clause not in the canonical
-  file-header position (after `package`, before declarations) — test-drive found a parse-grammar
-  gap in where import declarations are accepted. Seed a failing parse fixture, adjudicate against
-  the CUE grammar (import decls precede all other declarations), fix `Parse.lean`.
+- **D — import-placement parse grammar. ✅ LANDED (2026-07-10).** Root cause was NOT
+  import-specific: kue lacked CUE's statement separation entirely — the operator-precedence
+  chain skipped full trivia (newlines included) when hunting a trailing binary operator, so a
+  newline never terminated an expression and consecutive declarations with no comma were
+  silently accepted (`x: 1\nimport "strings"`, `foo "bar"`, `a: 1 b: 2` all passed). Fixed by
+  implementing CUE's newline-termination (implicit-comma) rule: `skipSameLineTrivia` for every
+  trailing-operator lookahead (horizontal ws + block comments, stopping at newline/`//`),
+  operator-at-line-END still continuing (the operand parse skips full trivia after the
+  operator), plus `fieldSeparator` enforcement in `parseFieldsUntil` (a `,`/`;`/newline must sit
+  between declarations, else `missing ',' in struct literal`). Late import is one instance.
+  Wild fixture `testdata/wild/import-after-decl/`; parse theorems in `Kue/Tests/ParseTests.lean`
+  (§ Import placement + field separators). Spec-gap + log recorded.
 - **E — unused-import diagnosis MESSAGE (LOW).** The `declared ⇒ used` VERDICT already lands
   (2026-07-05, § UNUSED-IMPORT spec-gap): an unused import bottoms the file. Residual: the CLI
   renders the generic `conflicting values (bottom)`, not cue's name-specific
