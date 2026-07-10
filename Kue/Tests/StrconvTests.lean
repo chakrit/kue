@@ -1,4 +1,5 @@
 import Kue.Builtin
+import Kue.Tests.EvalTestHelpers
 
 namespace Kue
 
@@ -191,6 +192,20 @@ theorem quote_deferred :
     (call "strconv.Quote" [.prim (.string "hi")]
       == .bottomWith [.unsupportedBuiltin "strconv.Quote"]) = true := by native_decide
 
+-- A concrete call to a deferred-but-recognized function renders a CLEAR CLI message naming the
+-- unimplemented function (mirroring the unsupported-PACKAGE path), not the generic
+-- `conflicting values (bottom)`. Pins the exact wording of the manifest→CLI render.
+theorem quote_render_message :
+    exportErrorMessage "import \"strconv\"\nx: strconv.Quote(\"hi\")\n"
+      = "unsupported builtin function \"strconv.Quote\": recognized but not yet implemented in kue" := by
+  native_decide
+
+-- An IMPLEMENTED strconv call still exports concretely (the deferred-function diagnostic did not
+-- regress the working dispatch).
+theorem atoi_still_exports :
+    exportJsonMatches "import \"strconv\"\nx: strconv.Atoi(\"42\")\n"
+      "{\n    \"x\": 42\n}\n" = true := by native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each function group; a
 -- swallowed group makes its anchor an unknown identifier and fails `#check` elaboration.
 #check @atoi_no_underscores                 -- Atoi
@@ -199,5 +214,6 @@ theorem quote_deferred :
 #check @parseuint_uint64_overflow           -- ParseUint
 #check @parsebool_invalid                   -- FormatBool / ParseBool
 #check @quote_deferred                      -- deferred → unsupportedBuiltin
+#check @atoi_still_exports                  -- render path (clear message + no regression)
 
 end Kue

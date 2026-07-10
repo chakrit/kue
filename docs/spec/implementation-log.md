@@ -19142,3 +19142,71 @@ no auto-comma) is SPEC-INVALID (kue must reject, matching cue). Recorded in `cue
 - `docs/spec/plan.md`: STDLIB-F entry marked LANDED (was "queued").
 - `docs/spec/cue-divergences.md`: new LIST-SEP row (newline-elided list literals — cue's `[]`
   rejection vs its `{}` acceptance is the bug).
+
+---
+
+## Completed Slice: STDLIB-batch two-phase audit followup (LOW findings + strconv deferred-fn diagnostics)
+
+Goal: close the three remaining LOW/polish findings from the STDLIB-batch two-phase audit and
+record one newly-verified kue-leniency bug. One audit-followup commit.
+
+### Phase-B LOW-1 — `BuiltinFamily` stale doc comment
+
+The `BuiltinFamily` doc (`Kue/Builtin.lean`) claimed "eight exact unqualified builtins" and
+"seven qualified stdlib packages". Actual counts had drifted: NINE core names
+(`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem` + the `slice` desugar of `x[lo:hi]`) and NINE
+qualified families (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`).
+Corrected to reality, kept timeless (no before/after narration).
+
+### Phase-B LOW-2 — sync theorem pinning the two package-set encodings
+
+`builtinPackageNames` (`Kue/Value.lean` — the import gate, derived `builtinImportPaths.map
+lastPathElement`) and `BuiltinFamily.ofName?` (`Kue/Builtin.lean` — the dispatch classifier, an
+exhaustive `startsWith "<pkg>."` chain) independently enumerate the qualified stdlib set with
+nothing cross-checking them; a future package added to one but not the other would silently
+desync. New `native_decide` theorem `every_builtin_package_resolves_to_family`
+(`ImportEnforcementTests`) asserts every `n ∈ builtinPackageNames` satisfies
+`(BuiltinFamily.ofName? (n ++ ".SomeFn")).isSome`. The probe appends a leaf because `ofName?`
+prefix-matches on `<pkg>.`; the names key off the last path element (`encoding/base64` → `base64`),
+which is exactly the family prefix, so the encoded-path packages resolve too. The exhaustive
+constructor match in `ofName?` is KEPT (deliberate traceability, prior ruling) — the theorem is the
+sync tool, not a data-drive off the list.
+
+### Phase-A finding #3 — strconv deferred-function diagnostics
+
+`strconv.Quote`/`Unquote`/`FormatFloat`/`ParseFloat` (deferred in STDLIB-C) bottom on concrete args
+with `.bottomWith [.unsupportedBuiltin "<name>"]` — correct (never silent-wrong) — but the CLI
+rendered that generic `conflicting values (bottom)`, unlike the unsupported-PACKAGE path's clear
+message. Mirroring STDLIB-E's render approach:
+
+- `Kue/Manifest.lean`: new `ManifestError.unsupportedBuiltinFunction (name : String)` +
+  `unsupportedBuiltinName?` (first `.unsupportedBuiltin` name in a reason list, via `findSome?`).
+  `manifestWithFuel`'s `.bottomWith` arm now matches `(unusedImportReasons, unsupportedBuiltinName?)`
+  — an unsupported-builtin reason (with no unused-import reason) routes to the new error; unused-import
+  keeps precedence; else the generic contradiction.
+- `Kue/Runtime.lean` `formatManifestError`: renders `unsupported builtin function "strconv.Quote":
+  recognized but not yet implemented in kue`.
+
+### Block-comment leniency — recorded, NOT fixed (own slice)
+
+Verified: kue accepts C-style block comments `/* */` (`Kue/Parse.lean` `dropBlockComment`); cue
+v0.16.1 rejects them (`expected operand, found '/'`) and the CUE spec sanctions ONLY `//` line
+comments. `printf 'x: 1 /* c */\ny: 2\n'` → kue `{"x":1,"y":2}`, cue errors. kue diverges from BOTH
+spec and cue — a leniency bug. Recorded in `cue-divergences.md` § Known kue-side divergences and
+QUEUED as `BLOCK-COMMENT-REJECT` in `plan.md` (separate parser-conformance change with its own blast
+radius — `ModCmd.lean`'s comment-aware scanner also honors `/* */`).
+
+### Tests
+
+- `ImportEnforcementTests` `every_builtin_package_resolves_to_family` (LOW-2 sync pin).
+- `StrconvTests` `quote_render_message` (RED before → GREEN: the new clear message) +
+  `atoi_still_exports` (an IMPLEMENTED strconv call still exports concretely — no regression). Added
+  `import Kue.Tests.EvalTestHelpers` for the `exportErrorMessage`/`exportJsonMatches` helpers.
+- `./scripts/check.sh` GREEN (full suite + canaries).
+
+### Retraction
+
+- `docs/spec/plan.md`: STDLIB-batch audit followup record (LOW-1/LOW-2/finding #3 CLOSED) +
+  `BLOCK-COMMENT-REJECT` QUEUED in the Ranked OPEN backlog.
+- `docs/spec/cue-divergences.md`: new § Known kue-side divergences with the BLOCK-COMMENT-REJECT row
+  (kue is WRONG — the inverse of the main table's cue-is-wrong invariant, kept in a distinct section).

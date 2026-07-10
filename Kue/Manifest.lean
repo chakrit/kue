@@ -17,6 +17,11 @@ inductive ManifestError where
       offending imports as `(path, optional alias)` pairs so the CLI renders cue's per-import
       `imported and not used: "<path>"` message instead of the generic contradiction. -/
   | importedNotUsed (imports : List (String × Option String))
+  /-- A concrete call to a builtin kue recognizes but has not yet implemented
+      (`strconv.Quote`, `strconv.FormatFloat`, …), deferred to `.bottomWith [.unsupportedBuiltin …]`.
+      Carries the qualified function name so the CLI names the unimplemented function instead of the
+      generic contradiction. -/
+  | unsupportedBuiltinFunction (name : String)
 deriving Repr, BEq
 
 /-- `Except` carries no stdlib `BEq`, so `manifest`/`formatManifestField` results cannot be
@@ -37,6 +42,15 @@ def manifestFuel : Nat :=
 def unusedImportReasons (reasons : List BottomReason) : List (String × Option String) :=
   reasons.filterMap fun
     | .importedNotUsed path alias => some (path, alias)
+    | _ => none
+
+/-- The first `unsupportedBuiltin` name in a bottom's reason list, if any. A concrete call to a
+    deferred-but-recognized builtin (`strconv.Quote`) tags its bottom this way; surfacing the name
+    lets the manifest error name the unimplemented function rather than collapse to a generic
+    contradiction. -/
+def unsupportedBuiltinName? (reasons : List BottomReason) : Option String :=
+  reasons.findSome? fun
+    | .unsupportedBuiltin name => some name
     | _ => none
 
 /-- Finalize a disjunction arm's retained field-count residual at manifestation. An arm shaped
@@ -102,9 +116,10 @@ mutual
     | _ + 1, .prim prim => .ok (.prim prim)
     | _ + 1, .bottom => .error .contradiction
     | _ + 1, .bottomWith reasons =>
-      match unusedImportReasons reasons with
-      | [] => .error .contradiction
-      | imports => .error (.importedNotUsed imports)
+      match unusedImportReasons reasons, unsupportedBuiltinName? reasons with
+      | [], some name => .error (.unsupportedBuiltinFunction name)
+      | [], none => .error .contradiction
+      | imports, _ => .error (.importedNotUsed imports)
     | _ + 1, .top => .error (.incomplete .top)
     | _ + 1, .kind kind => .error (.incomplete (.kind kind))
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))

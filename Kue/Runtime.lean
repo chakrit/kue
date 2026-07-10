@@ -91,6 +91,8 @@ def formatManifestError : ManifestError -> String
         match alias with
         | none => s!"imported and not used: \"{path}\""
         | some name => s!"imported and not used: \"{path}\" as {name}")
+  | .unsupportedBuiltinFunction name =>
+      s!"unsupported builtin function \"{name}\": recognized but not yet implemented in kue"
 
 /-- Look up a field by label on a resolved struct-like value, returning its value when
     present. Mirrors the decl-bearing cases of `selectEvaluatedField` but distinguishes a

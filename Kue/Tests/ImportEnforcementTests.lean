@@ -186,8 +186,20 @@ theorem import_used_in_const_form_ok :
     exportJsonMatches "import \"list\"\nout: list.Sort([2, 1], list.Ascending)\n"
       "{\n    \"out\": [\n        1,\n        2\n    ]\n}\n" = true := by native_decide
 
+-- ## Two encodings of the builtin-package set stay in sync
+
+-- `builtinPackageNames` (Value.lean, the import-gate set) and `BuiltinFamily.ofName?`
+-- (Builtin.lean, the dispatch classifier) independently enumerate the qualified stdlib
+-- packages. Pin them together at build time: every declared package name must classify to a
+-- family, so a future package added to one list but not the other fails the gate. The probe
+-- appends a leaf (`ofName?` prefix-matches on `<pkg>.`), and the names key off the last path
+-- element (`encoding/base64` → `base64`), which is exactly the family prefix `ofName?` uses.
+theorem every_builtin_package_resolves_to_family :
+    builtinPackageNames.all (fun n => (BuiltinFamily.ofName? (n ++ ".SomeFn")).isSome) = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health): anchors the last theorem so a swallowed section fails
 -- `#check` elaboration.
-#check @import_used_in_const_form_ok
+#check @every_builtin_package_resolves_to_family
 
 end Kue

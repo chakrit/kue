@@ -292,6 +292,36 @@ enforcement), surfaced by slice D's separator work, is queued below.
   for structs, a cue bug recorded in `cue-divergences.md`). Comma/trailing-comma/nested/ellipsis/
   empty forms unchanged. Wild `testdata/wild/list-same-line-no-comma`; `ParseTests` LIST-SEP block.
 
+**STDLIB-batch two-phase audit followup (2026-07-10, `4625079..2c3659b`).** Three remaining LOW/polish
+findings closed in one audit-followup slice; one new leniency bug QUEUED.
+- **Phase-B LOW-1 — `BuiltinFamily` stale doc comment. ✅ CLOSED (2026-07-10).** The doc said "eight
+  exact unqualified builtins" / "seven qualified stdlib packages"; the counts had drifted to NINE
+  core names (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem` + the `slice` desugar) and NINE
+  qualified families. Corrected to reality in `Kue/Builtin.lean`.
+- **Phase-B LOW-2 — two package-set encodings unpinned. ✅ CLOSED (2026-07-10).** `builtinPackageNames`
+  (`Value.lean`, import gate) and `BuiltinFamily.ofName?` (`Builtin.lean`, dispatch classifier)
+  independently enumerate the qualified stdlib set with nothing cross-checking them. New
+  `native_decide` theorem `every_builtin_package_resolves_to_family` (`ImportEnforcementTests`) pins
+  every `n ∈ builtinPackageNames` to `(ofName? (n ++ ".SomeFn")).isSome`, so a future package added
+  to one list but not the other fails the gate. The exhaustive-constructor `ofName?` match is kept
+  (deliberate traceability, prior ruling); the theorem is the sync tool, not a data-drive.
+- **Phase-A finding #3 — strconv deferred-function diagnostics. ✅ CLOSED (2026-07-10).** A concrete
+  call to a deferred-but-recognized builtin (`strconv.Quote`/`Unquote`/`FormatFloat`/`ParseFloat`)
+  bottomed with `.unsupportedBuiltin <name>` but the CLI rendered it as the generic `conflicting
+  values (bottom)`. Mirroring STDLIB-E's render approach: new `ManifestError.unsupportedBuiltinFunction`
+  (`Manifest.lean`, routed via `unsupportedBuiltinName?` in `manifestWithFuel`) renders in
+  `Runtime.formatManifestError` as `unsupported builtin function "strconv.Quote": recognized but not
+  yet implemented in kue`. Pins: `StrconvTests` `quote_render_message` (message) + `atoi_still_exports`
+  (implemented call still concrete).
+- **BLOCK-COMMENT-REJECT — QUEUED (parser conformance, kue-leniency bug).** kue accepts C-style block
+  comments `/* */` (`Kue/Parse.lean` `dropBlockComment`, wired into `skipTrivia`/`skipSameLineTrivia`/
+  `fieldSeparatorAux`); cue v0.16.1 rejects them (`expected operand, found '/'`) and the spec sanctions
+  ONLY `//` line comments — kue diverges from BOTH spec and cue (recorded in `cue-divergences.md` §
+  Known kue-side divergences). Fix: remove the `dropBlockComment` leniency, reject `/* */` per spec.
+  BLAST RADIUS FIRST — grep any internal/fixture/testdata use of block comments before removing;
+  `ModCmd.lean`'s comment-aware `module.cue` scanner also honors `/* */` and must be checked. Own
+  fixture (red→green wild) + parse theorem.
+
 0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
    MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +
    "no custom instance" resolution below is HISTORICAL: `stripFieldQuoting` is deleted and

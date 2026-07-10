@@ -1010,9 +1010,11 @@ def evalRegexpBuiltin : String -> List Value -> Value
       else
         .builtinCall name args
 
-/-- The closed set of builtin families on the FAMILY axis. `core` holds the eight exact
-    unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`); the rest are the
-    seven qualified stdlib packages. The within-family LEAF (e.g. `math.Pow`) stays a
+/-- The closed set of builtin families on the FAMILY axis. `core` holds the nine exact
+    unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`, plus the `slice`
+    desugar of `x[lo:hi]`); the rest are the nine qualified stdlib packages
+    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`). The
+    within-family LEAF (e.g. `math.Pow`) stays a
     `String` — genuinely many-valued and string-dispatched inside each `eval*Builtin`. This
     is the closed, versionable axis: a new family forces a new constructor, and the
     exhaustive match in `evalBuiltinCall` then forces a dispatch decision (no silent

@@ -87,9 +87,21 @@ STDLIB campaign A–E all LANDED.
   elision inside `[]` while accepting it for structs — a cue bug, recorded in `cue-divergences.md`).
   Wild `testdata/wild/list-same-line-no-comma`; `ParseTests` LIST-SEP block. Detail in log.
 
-**Next:** STDLIB campaign A–F all landed — no queued follow-on. Pick the next slice from `plan.md`
-§ Ranked OPEN backlog. Prior AUD-B5/B3d-B1 next-steps LANDED; the "autonomy paused" gate above is
-HISTORICAL to the 2026-07-07 attended session — the standing keep-going loop governs.
+### STDLIB-batch two-phase audit followup (2026-07-10) — LANDED
+
+Closed the three remaining LOW/polish findings from the STDLIB-batch two-phase audit in one
+audit-followup commit: **Phase-B LOW-1** (`BuiltinFamily` doc drift 8/7 → 9/9 corrected),
+**Phase-B LOW-2** (new `every_builtin_package_resolves_to_family` sync theorem pinning
+`builtinPackageNames` ↔ `BuiltinFamily.ofName?`), **Phase-A finding #3** (strconv deferred-fn
+now renders `unsupported builtin function "strconv.Quote": …` via new
+`ManifestError.unsupportedBuiltinFunction`, not generic bottom). Also VERIFIED + recorded (not
+fixed) a kue-leniency bug: kue accepts `/* */` block comments; cue+spec reject → `cue-divergences.md`
+§ Known kue-side divergences + QUEUED `BLOCK-COMMENT-REJECT` in `plan.md`. `check.sh` GREEN.
+
+**Next:** STDLIB campaign + its audit followup all landed. `BLOCK-COMMENT-REJECT` is the freshest
+QUEUED item (parser conformance — mind blast radius: `ModCmd.lean` scanner also honors `/* */`);
+otherwise pick from `plan.md` § Ranked OPEN backlog. The "autonomy paused" gate above is HISTORICAL to
+the 2026-07-07 attended session — the standing keep-going loop governs.
 
 ## Pending school changes
 
