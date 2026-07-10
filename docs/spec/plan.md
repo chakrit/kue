@@ -283,12 +283,14 @@ enforcement), surfaced by slice D's separator work, is queued below.
   `*_render_message` in `ImportEnforcementTests` (via new `exportErrorMessage` helper). Spec-gap
   recorded.
 
-- **F — list-item separator enforcement (queued).** Slice D added CUE's newline/comma statement
-  separation to STRUCT literals (`parseFieldsUntil`'s `fieldSeparator`), but LIST literals were
-  not covered: `parseListItems` still accepts space-separated items like `[1 2]` where cue
-  requires a separator (`,`/newline) between elements (`[1 2]` ⇒ cue `expected ',' or ']'`).
-  Mirror D's `fieldSeparator` discipline into `parseListItems`. Wild fixture red-first; parse
-  theorems in `ParseTests`.
+- **F — list-item separator enforcement. LANDED (LIST-SEP, 2026-07-10).** Slice D added CUE's
+  newline/comma statement separation to STRUCT literals (`parseFieldsUntil`'s `fieldSeparator`);
+  F mirrors that discipline into `parseListItems` by REUSING the same `fieldSeparator` +
+  `parseFieldTerminator` helpers (no parallel list-specific separator). After: same-line
+  comma-less `[1 2]` ⇒ parse error `missing ',' in list literal` (matches cue); newline-elided
+  `[1\n2]` ⇒ `[1, 2]` (spec-correct auto-comma — cue REJECTS this inside `[]` while accepting it
+  for structs, a cue bug recorded in `cue-divergences.md`). Comma/trailing-comma/nested/ellipsis/
+  empty forms unchanged. Wild `testdata/wild/list-same-line-no-comma`; `ParseTests` LIST-SEP block.
 
 0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
    MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +

@@ -35,7 +35,7 @@ survives context wipe — don't rebind the slug; recover per ace-connect Flow st
 
 ## STDLIB campaign (2026-07-10) — wild-caught from an alpha stdlib test-drive
 
-Slices **A–E all LANDED** (2026-07-10); follow-on **STDLIB-F queued** in `plan.md` § Ranked OPEN
+Slices **A–F all LANDED** (2026-07-10). Earlier follow-on **STDLIB-F queued** in `plan.md` § Ranked OPEN
 backlog. Test-drive against `cue` v0.16.1 surfaced five findings:
 
 - **A — stdlib import ROUTING + error quality. ✅ LANDED.** kue misrouted dot-free stdlib
@@ -81,10 +81,15 @@ backlog. Test-drive against `cue` v0.16.1 surfaced five findings:
 
 STDLIB campaign A–E all LANDED.
 
-**Next:** STDLIB-F (list-item separator enforcement) — queued in `plan.md`. Slice D added
-`fieldSeparator` to structs but `parseListItems` still accepts space-separated items `[1 2]` where
-cue requires a `,`/newline. Prior AUD-B5/B3d-B1 next-steps LANDED; the "autonomy paused" gate above
-is HISTORICAL to the 2026-07-07 attended session — the standing keep-going loop governs.
+- **F — list-item separator enforcement. ✅ LANDED (LIST-SEP, 2026-07-10).** Mirrored slice D's
+  `fieldSeparator` into `parseListItems` (DRY — same helper, no parallel separator). `[1 2]` now
+  errors `missing ',' in list literal`; `[1\n2]`→`[1, 2]` (spec auto-comma; cue rejects newline-
+  elision inside `[]` while accepting it for structs — a cue bug, recorded in `cue-divergences.md`).
+  Wild `testdata/wild/list-same-line-no-comma`; `ParseTests` LIST-SEP block. Detail in log.
+
+**Next:** STDLIB campaign A–F all landed — no queued follow-on. Pick the next slice from `plan.md`
+§ Ranked OPEN backlog. Prior AUD-B5/B3d-B1 next-steps LANDED; the "autonomy paused" gate above is
+HISTORICAL to the 2026-07-07 attended session — the standing keep-going loop governs.
 
 ## Pending school changes
 

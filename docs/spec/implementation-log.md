@@ -19091,3 +19091,54 @@ the two live regular arms → no unique default → `resolveDisjDefault?` return
   "manifest adjudicates at finalization" claim reached only top-level residuals).
 - `docs/spec/cue-spec-gaps.md`: STDLIB-STRUCT-FIELDCOUNT row's finalize note + test count updated;
   new FIELDCOUNT-DISJ row records the disjunction-arm resolution.
+
+## Completed Slice: LIST-SEP — list-item separator enforcement (auto-comma inside `[]`) — 2026-07-10
+
+Slice D (STDLIB-D) added CUE statement separation to STRUCT literals via `fieldSeparator`, but
+LIST literals were untouched: `parseListItems` skipped ALL trivia (including newlines) then
+consumed an OPTIONAL `,`/`;` (`parseCommaOrSemicolon (skipTrivia rest)`), so any two adjacent
+elements parsed with no separator — `[1 2]` silently became `[1, 2]`.
+
+### Adjudication (spec vs cue — primary source)
+
+The CUE spec's automatic-comma-insertion rule (Lexical analysis → "Commas") is UNIFORM: "a comma
+is automatically inserted into the token stream immediately after a line's final token if that
+token is [an identifier, keyword, or bottom; a number or string literal, including an
+interpolation; one of the characters `)`, `]`, `}`, or `?`; an ellipsis `...`]." It names NO
+list-literal exclusion. Verified vs cue v0.16.1:
+- `[1 2]` (same line, no comma): cue REJECTS `missing ',' in list literal`; kue (pre-fix) accepted.
+- `[1\n2]` (newline elision): cue REJECTS `missing ',' before newline in list literal`; but cue
+  ACCEPTS the identical elision for STRUCTS (`a:1\nb:2` ⇒ ok).
+
+Ruling: the auto-comma rule fires at a line's END → `[1\n2]` is SPEC-VALID (kue correct, cue
+spec-divergent — its struct/list inconsistency is the corroborating tell); `[1 2]` (no line break,
+no auto-comma) is SPEC-INVALID (kue must reject, matching cue). Recorded in `cue-divergences.md`.
+
+### Fix
+
+- `Kue/Parse.lean` `parseListItems`: replaced the two `parseListItems (parseCommaOrSemicolon
+  (skipTrivia rest)) …` tails with a SINGLE post-item separator check reusing the struct-side
+  `fieldSeparator` + `parseFieldTerminator`: `let (sawSeparator, next) := fieldSeparator rest; if
+  parseFieldTerminator (some ']') next || sawSeparator then parseListItems next … else parseError
+  next "missing ',' in list literal"`. DRY — no parallel list separator helper; both the
+  comprehension (`for`/`if`) and plain-expression element branches now share one continuation
+  (dispatch collapsed into a local `itemResult`). No new `partial def`, no `| _ =>` producing a
+  Value.
+
+### Tests
+
+- Wild fixture (auto-discovered): `testdata/wild/list-same-line-no-comma/` (`[1 2]` →
+  `.expected.err = missing ',' in list literal`). RED before / GREEN after.
+- `Kue/Tests/ParseTests.lean` LIST-SEP block: `parse_list_same_line_no_comma_rejected` (reject),
+  `parse_list_newline_elided_elements` (`[1\n2]`→`[1, 2]`, the divergence),
+  `parse_list_newline_after_bracket`, plus regression pins `parse_list_comma_separated`,
+  `parse_list_multiline_trailing_comma`, `parse_list_empty`, `parse_list_single_element`,
+  `parse_list_nested`, `parse_list_ellipsis_tail`.
+- `./scripts/check.sh` GREEN (full suite + cert-manager/realworld canaries unchanged — real CUE
+  configs universally comma-separate list elements, so the tightened gate regressed nothing).
+
+### Retraction
+
+- `docs/spec/plan.md`: STDLIB-F entry marked LANDED (was "queued").
+- `docs/spec/cue-divergences.md`: new LIST-SEP row (newline-elided list literals — cue's `[]`
+  rejection vs its `{}` acceptance is the bug).

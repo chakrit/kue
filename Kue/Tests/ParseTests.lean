@@ -520,6 +520,62 @@ theorem parse_trailing_line_comment_terminates :
     parseOutputMatches "x: 1 // note\ny: 2\n" "x: 1\ny: 2" = true := by
   native_decide
 
+-- ## List element separators (LIST-SEP)
+--
+-- CUE's automatic-comma-insertion rule is UNIFORM: a comma is auto-inserted after a line's
+-- final token when it is an identifier/keyword/bottom, a number/string literal, one of
+-- `) ] } ?`, or `...`. The spec does not exclude list literals. So elements are separated by
+-- the SAME rule as struct declarations — an explicit `,`/`;` OR a newline. `parseListItems`
+-- reuses the struct-side `fieldSeparator`, closing the earlier over-lenient gap where any two
+-- same-line elements parsed with no separator. `cue` v0.16.1 rejects newline-elided lists
+-- (`missing ',' before newline in list literal`) — that is a cue bug (it accepts the identical
+-- elision for structs); Kue follows the spec. See cue-divergences.md.
+
+-- Same-line adjacent elements with no comma is a missing-comma error (was silently `[1, 2]`).
+theorem parse_list_same_line_no_comma_rejected :
+    parseFailsWith "x: [1 2]\n" "missing ',' in list literal" = true := by
+  native_decide
+
+-- Newline between elements auto-inserts a comma (spec-correct; cue diverges by rejecting).
+theorem parse_list_newline_elided_elements :
+    parseOutputMatches "x: [1\n2]\n" "x: [1, 2]" = true := by
+  native_decide
+
+-- The common comma-separated form is unchanged.
+theorem parse_list_comma_separated :
+    parseOutputMatches "x: [1, 2]\n" "x: [1, 2]" = true := by
+  native_decide
+
+-- The extremely common multiline trailing-comma form must not regress.
+theorem parse_list_multiline_trailing_comma :
+    parseOutputMatches "x: [\n\t1,\n\t2,\n]\n" "x: [1, 2]" = true := by
+  native_decide
+
+-- An empty list parses.
+theorem parse_list_empty :
+    parseOutputMatches "x: []\n" "x: []" = true := by
+  native_decide
+
+-- A single element needs no separator.
+theorem parse_list_single_element :
+    parseOutputMatches "x: [1]\n" "x: [1]" = true := by
+  native_decide
+
+-- Nested lists parse (each inner `]` is an auto-comma token, so `[[1], [2]]` separates).
+theorem parse_list_nested :
+    parseOutputMatches "x: [[1], [2]]\n" "x: [[1], [2]]" = true := by
+  native_decide
+
+-- The ellipsis tail form is unaffected by the separator change.
+theorem parse_list_ellipsis_tail :
+    parseSucceeds "x: [1, ...int]\n" = true := by
+  native_decide
+
+-- A newline immediately after `[` then newline-separated elements parses (auto-comma).
+theorem parse_list_newline_after_bracket :
+    parseOutputMatches "x: [\n1\n2\n]\n" "x: [1, 2]" = true := by
+  native_decide
+
 -- ## Qualified import-path parsing (F-3)
 --
 -- `ImportPath = '"' ImportLocation [ ":" identifier ] '"'`: the `:identifier` qualifier is

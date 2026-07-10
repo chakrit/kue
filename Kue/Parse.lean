@@ -1578,16 +1578,23 @@ mutual
             -- Parse it with the SAME clause machinery the struct-comprehension form uses; the
             -- brace-block body value is yielded as list ELEMENTS at eval time. A bare `if`/`for`
             -- identifier cannot start a plain list expression, so this dispatch is unambiguous.
-            if startsWithWord "for" trimmed || startsWithWord "if" trimmed then
-              match parseListComprehension trimmed with
-              | .error error => .error error
-              | .ok (item, rest) =>
-                  parseListItems (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
-            else
-              match parseExpression trimmed with
-              | .error error => .error error
-              | .ok (item, rest) =>
-                  parseListItems (parseCommaOrSemicolon (skipTrivia rest)) (items ++ [item])
+            let itemResult :=
+              if startsWithWord "for" trimmed || startsWithWord "if" trimmed then
+                parseListComprehension trimmed
+              else
+                parseExpression trimmed
+            match itemResult with
+            | .error error => .error error
+            | .ok (item, rest) =>
+                -- Elements are separated by the SAME rule as struct declarations: an explicit
+                -- `,`/`;` or a newline (auto-inserted comma). `fieldSeparator` reports whether
+                -- one was crossed; without a separator, adjacent same-line elements are a
+                -- missing-comma error rather than being silently concatenated.
+                let (sawSeparator, next) := fieldSeparator rest
+                if parseFieldTerminator (some ']') next || sawSeparator then
+                  parseListItems next (items ++ [item])
+                else
+                  parseError next "missing ',' in list literal"
 
   /-- Parse a list-context comprehension `for…/if… {body}` into a `.listComprehension` item,
       reusing the shared clause parser. `parseComprehensionClauses` returns the clause chain
