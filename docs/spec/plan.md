@@ -666,6 +666,8 @@ A4 (audit-the-last-audit): the 2026-07-05 Phase-B filings reconcile clean — AU
 (`Module.lean:385`) and `fetchGraphAux` (`ModCmd.lean:91`) are byte-for-byte the two BFS builders
 AUD-B5 describes; leg2 added no third graph walk (`mod get` uses tags/list, not a graph), so the
 LOW/deferred verdict stands. Not closable, not newly urgent.
+  - **[RETRACTED — AUD-B5 landed]** Both walks now share `Module.bfsRequirementGraphAux`; see the
+    AUD-B5 DONE entry under "Open Phase-B fix-slices".
 
 **Phase A — one REAL bug fixed inline, one MEDIUM latent false-positive filed:**
 
@@ -710,6 +712,9 @@ holds (all new scanners fuel-bounded, no `partial def`); `check-comments` green.
 reader, shared by tidy (`depsFromEntries`) and get (`applyModGet`) — no new duplication. The only
 open architecture item is the pre-existing AUD-B5 (re-affirmed above). No dead code; graph stays
 acyclic/layered. No inline Phase-B change.
+  <!-- RETRACTED: AUD-B5 has since landed (Module.bfsRequirementGraphAux); no open architecture
+       item remains from this batch. -->
+
 
 ### 2026-07-04 Phase A audit findings (batch `dfdd1ab..HEAD`: list-slice / interp-typing / byte-escapes)
 
@@ -855,20 +860,13 @@ Phase A hard-verified the four designated high-value points against real call si
   result; `check-comments` green; the import convention migrated with its enforcement.
 
 **Open Phase-B fix-slices (2026-07-05, ranked):**
-- **AUD-B5 (LOW) — FILED, deferred.** `buildDiskGraphAux` (`Kue/Module.lean`, disk-first) and
-  `fetchGraphAux` (`Kue/ModCmd.lean`, registry) share an identical fuel-bounded, visited-guarded
-  BFS SKELETON (fuel decrement, visited-membership check, worklist append, acc append) that
-  differs only in the per-node STEP (worklist element `Dep` vs `FilePath × Dep` for
-  importer-root threading; node located via registry `fetch` vs disk `locateModuleDir +
-  readModuleInfo`; payload `(deps, h1)` vs plain requirement edges, no digest). The slice
-  deliberately did NOT share them, judging the asymmetry to obscure a shared skeleton. Audit
-  view: the asymmetry lives entirely in the step callback, so a generic
-  `bfsGraph (step : W → IO (Except String (ModuleVersion × List W × E))) : Nat → List W → …`
-  combinator would cleanly DRY the ~8 lines of loop plumbing while each caller supplies its own
-  step. LOW because both functions are ~15 lines and currently clear; extracting a generic
-  higher-order combinator risks obscuring two focused walks and needs both the `mod tidy` and
-  the crossmod-diamond paths re-verified. Defensible either way — filed for the roadmap to
-  weigh, not forced inline.
+- **AUD-B5 (LOW) — DONE.** Extracted `Module.bfsRequirementGraphAux` — a generic
+  `(nodeOf : α → ModuleVersion) (expand : α → IO (Except String (List α × β))) (fuelExhausted)`
+  combinator, structural on `fuel` (⇒ total, no `partial`; `expand` is a leaf callback that never
+  recurses, keeping structural-recursion inference intact — the AD4-1 shape). `buildDiskGraphAux`
+  (`Kue/Module.lean`, disk-first) and `fetchGraphAux` (`Kue/ModCmd.lean`, registry) are now thin
+  call sites; both fuel-exhaustion messages preserved byte-for-byte. Pure refactor — the mod-tidy +
+  disk-graph fixtures are the guard; `./scripts/check.sh` green.
 - **AUD-B3 (MEDIUM) — DONE (`6012a8e`).** Routed all six Value-producing catch-all sites
   (`evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`, plus the same-pattern
   `evalPrimitiveOrdering`/`evalRegexMatch` — converted together per the "convention lands with its

@@ -85,29 +85,25 @@ def ociEntryFetcher (cueRegistry : String) : EntryFetcher := fun dep => do
       | .ok zipBytes => pure (Zip.readZip zipBytes)
 
 /-- Transitively fetch each dependency's `cue.mod/module.cue`, accumulating `(node, (deps, h1))`
-    for every reachable module. Fuel-bounded BFS over the module graph, visited-guarded, so a
-    cycle terminates and no `partial` is needed. `fuel` bounds total worklist steps; exhaustion is
-    a typed error (a pathologically large/cyclic graph). Structural on `fuel`. -/
-def fetchGraphAux (fetch : EntryFetcher) :
-    Nat → List Dep → List Registry.ModuleVersion →
-    List (Registry.ModuleVersion × (List Dep × String)) →
-    IO (Except String (List (Registry.ModuleVersion × (List Dep × String))))
-  | 0, _, _, _ =>
-      pure (.error "requirement-graph fetch exceeded fuel (graph too large or cyclic)")
-  | _, [], _, acc => pure (.ok acc)
-  | fuel + 1, dep :: rest, visited, acc =>
-      let node := depToMV dep
-      if visited.contains node then
-        fetchGraphAux fetch fuel rest visited acc
-      else do
-        match ← fetch dep with
-        | .error e => pure (.error s!"fetch {dep.modPath}@{dep.version} failed: {e}")
-        | .ok entries =>
-            match depsFromEntries entries with
-            | .error e => pure (.error s!"{dep.modPath}@{dep.version}: {e}")
-            | .ok deps =>
-                fetchGraphAux fetch fuel (deps ++ rest) (node :: visited)
-                  (acc ++ [(node, (deps, Sha256.hash1 entries))])
+    for every reachable module. A thin `Module.bfsRequirementGraphAux` call site: fuel-bounded BFS
+    over the module graph, visited-guarded, so a cycle terminates and no `partial` is needed. `fuel`
+    bounds total worklist steps; exhaustion is a typed error (a pathologically large/cyclic graph).
+    The disk-side twin is `Module.buildDiskGraphAux`. -/
+def fetchGraphAux (fetch : EntryFetcher) (fuel : Nat) (worklist : List Dep)
+    (visited : List Registry.ModuleVersion)
+    (acc : List (Registry.ModuleVersion × (List Dep × String))) :
+    IO (Except String (List (Registry.ModuleVersion × (List Dep × String)))) :=
+  bfsRequirementGraphAux
+    (nodeOf := depToMV)
+    (expand := fun dep => do
+      match ← fetch dep with
+      | .error e => pure (.error s!"fetch {dep.modPath}@{dep.version} failed: {e}")
+      | .ok entries =>
+          match depsFromEntries entries with
+          | .error e => pure (.error s!"{dep.modPath}@{dep.version}: {e}")
+          | .ok deps => pure (.ok (deps, (deps, Sha256.hash1 entries))))
+    (fuelExhausted := "requirement-graph fetch exceeded fuel (graph too large or cyclic)")
+    fuel worklist visited acc
 
 /-- The fuel budget for the transitive fetch: a generous total-step bound so any realistic module
     graph completes and only a pathological one trips the guard. -/

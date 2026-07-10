@@ -35,8 +35,9 @@ survives context wipe — don't rebind the slug; recover per ace-connect Flow st
 
 ## Next steps (all LOW / fork-gated — DO NOT auto-start; autonomy is paused)
 
-1. **AUD-B5 (LOW)** — DRY the two BFS graph builders (`buildDiskGraphAux` `Module.lean` vs
-   `fetchGraphAux` `ModCmd.lean`) via a step-callback combinator. Non-sharing defensible.
+1. **AUD-B5 (LOW) — LANDED.** Both BFS graph builders (`buildDiskGraphAux` `Module.lean`,
+   `fetchGraphAux` `ModCmd.lean`) now share the `Module.bfsRequirementGraphAux` step-callback
+   combinator (structural on `fuel`, leaf `expand`). Pure refactor, check.sh green.
 2. **B3d-B1 (LOW)** — `Digest`/`Hash1` newtype for type-leverage.
 3. **Wild-caught** — chakrit's alpha test-drive may surface real divergences; each becomes a
    `testdata/wild/` failing fixture FIRST, spec-adjudicated value (not cue-matched).

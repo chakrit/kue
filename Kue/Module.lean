@@ -366,29 +366,51 @@ def subpathDir (root : System.FilePath) (subpath : String) : System.FilePath :=
     same graph shape from registry GETs for `mod tidy`): the algorithms match but the inputs
     differ — this walk locates each node ON DISK via `locateModuleDir` (root-threaded per hop, so
     a vendored transitive dep resolves against its own root) and carries no `h1:` digest (only
-    `cue.sum` writes need one). The parallel is not factored because the root-threading and the
-    absent digest make a shared skeleton more obscure than two focused walks. -/
+    `cue.sum` writes need one). The shared BFS skeleton is `bfsRequirementGraphAux`; each walk
+    supplies its own `nodeOf`/`expand` leaf callback (the per-node effect that yields child
+    worklist items + this node's payload). -/
 
 /-- A generous total-step bound for the disk requirement-graph walk; only a pathological or
     cyclic graph trips it (the visited set already terminates real cycles). -/
 def diskGraphFuel : Nat := 100000
+
+/-- Generic fuel-bounded, visited-guarded BFS building a requirement graph. Recurses structurally
+    on `fuel` (⇒ total, no `partial`). `expand` is a LEAF callback that must NOT recurse — it
+    yields this node's child worklist items and its accumulated payload; keeping the recursion out
+    of the callback is what preserves structural-recursion inference. `nodeOf` projects the visited
+    key from a worklist item; `fuelExhausted` is the caller's exhaustion message. Both the disk walk
+    (`buildDiskGraphAux`) and the registry fetch (`ModCmd.fetchGraphAux`) are thin call sites. -/
+def bfsRequirementGraphAux {α β : Type}
+    (nodeOf : α → Registry.ModuleVersion)
+    (expand : α → IO (Except String (List α × β)))
+    (fuelExhausted : String) :
+    Nat → List α → List Registry.ModuleVersion → List (Registry.ModuleVersion × β) →
+    IO (Except String (List (Registry.ModuleVersion × β)))
+  | 0, _, _, _ => pure (.error fuelExhausted)
+  | _, [], _, acc => pure (.ok acc)
+  | fuel + 1, item :: rest, visited, acc =>
+    let node := nodeOf item
+    if visited.contains node then
+      bfsRequirementGraphAux nodeOf expand fuelExhausted fuel rest visited acc
+    else do
+      match ← expand item with
+      | .error e => pure (.error e)
+      | .ok (children, payload) =>
+          bfsRequirementGraphAux nodeOf expand fuelExhausted fuel
+            (children ++ rest) (node :: visited) (acc ++ [(node, payload)])
 
 /-- Fuel-bounded, visited-guarded BFS building the MVS requirement graph off disk. Each worklist
     item pairs a `Dep` with the root of the module that REQUIRES it (its importer), so the node is
     located exactly as the loader would locate it (vendored-under-importer first, then the global
     cache). A node absent from disk is a typed error — the caller treats that as "graph not
     buildable" and falls back to per-hop resolution, so a declared-but-unvendored dep never turns
-    a currently-resolving load into a hard failure. Structural on `fuel` ⇒ total, no `partial`. -/
-def buildDiskGraphAux :
-    Nat → List (System.FilePath × Dep) → List Registry.ModuleVersion →
-    Mvs.RequirementGraph → IO (Except String Mvs.RequirementGraph)
-  | 0, _, _, _ => pure (.error "disk requirement-graph walk exceeded fuel (graph too large or cyclic)")
-  | _, [], _, acc => pure (.ok acc)
-  | fuel + 1, (importerRoot, dep) :: rest, visited, acc =>
-    let node : Registry.ModuleVersion := ⟨dep.modPath, dep.version⟩
-    if visited.contains node then
-      buildDiskGraphAux fuel rest visited acc
-    else do
+    a currently-resolving load into a hard failure. A thin `bfsRequirementGraphAux` call site. -/
+def buildDiskGraphAux (fuel : Nat) (worklist : List (System.FilePath × Dep))
+    (visited : List Registry.ModuleVersion) (acc : Mvs.RequirementGraph) :
+    IO (Except String Mvs.RequirementGraph) :=
+  bfsRequirementGraphAux
+    (nodeOf := fun (_, dep) => ⟨dep.modPath, dep.version⟩)
+    (expand := fun (importerRoot, dep) => do
       match ← locateModuleDir importerRoot dep with
       | none => pure (.error s!"module {dep.modPath}@{dep.version} not found on disk")
       | some moduleRoot =>
@@ -396,8 +418,10 @@ def buildDiskGraphAux :
           | .error e => pure (.error e)
           | .ok (_, deps) =>
               let children := deps.map (fun d => (moduleRoot, d))
-              let edge := (node, deps.map (fun d => (⟨d.modPath, d.version⟩ : Registry.ModuleVersion)))
-              buildDiskGraphAux fuel (children ++ rest) (node :: visited) (acc ++ [edge])
+              let edge := deps.map (fun d => (⟨d.modPath, d.version⟩ : Registry.ModuleVersion))
+              pure (.ok (children, edge)))
+    (fuelExhausted := "disk requirement-graph walk exceeded fuel (graph too large or cyclic)")
+    fuel worklist visited acc
 
 /-- Assemble the full disk requirement graph for a main module: seed the walk with the main
     module's declared deps (rooted at `mainRoot`), then include the main node itself (bare path,

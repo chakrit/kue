@@ -18637,3 +18637,49 @@ the cue-shaped error.
 
 Not a `cue-divergence` — the change REMOVES a latent divergence (Kue was leniently binding under a
 name `cue` rejects). `./scripts/check.sh` GREEN (all gates; shellcheck PASS).
+
+---
+
+## Completed Slice: AUD-B5 — DRY the two fuel-bounded BFS requirement-graph builders
+
+Goal: fold the two byte-for-byte-identical fuel-bounded, visited-guarded BFS requirement-graph
+walks (`buildDiskGraphAux` in `Kue/Module.lean`, `fetchGraphAux` in `Kue/ModCmd.lean`) into one
+shared combinator, without touching behavior.
+
+### Steps
+
+1. Add `Module.bfsRequirementGraphAux` (`Kue/Module.lean`). Generic over the worklist item type
+   `α` and the per-node payload type `β`, parameterized by `nodeOf : α → Registry.ModuleVersion`
+   (the visited key), `expand : α → IO (Except String (List α × β))` (a LEAF callback yielding
+   child worklist items + this node's payload), and a `fuelExhausted` message. Recurses
+   structurally on `fuel` (⇒ total, no `partial`); `expand` never recurses, so structural-recursion
+   inference holds (the AD4-1 leaf-callback shape, NOT the DRY-1 `fuel+1`-hiding trap). Accumulates
+   `List (Registry.ModuleVersion × β)` — which unifies with `Mvs.RequirementGraph` (β =
+   `List ModuleVersion`) for the disk walk and `List (ModuleVersion × (List Dep × String))` for the
+   fetch walk. Placed in `Kue/Module.lean` (upstream of `ModCmd.lean`, no import cycle).
+
+2. Rewrite `buildDiskGraphAux` as a thin call site: `nodeOf := fun (_, dep) => ⟨…⟩`; `expand`
+   locates the module on disk (`locateModuleDir` + `readModuleInfo`) and yields `(children, edge)`.
+
+3. Rewrite `fetchGraphAux` as a thin call site: `nodeOf := depToMV`; `expand` fetches over the
+   registry (`fetch` + `depsFromEntries`) and yields `(deps, (deps, Sha256.hash1 entries))`.
+
+Both fuel-exhaustion messages preserved byte-for-byte (parameterized, not hard-coded in the
+combinator).
+
+### Tests
+
+Pure refactor — no behavior change, so the existing guards stand: the `mod tidy` pipeline tests
+(exercise `fetchGraphAux`, incl. max-of-mins selection, unfetchable/malformed-dep typed errors)
+and the disk-graph / MVS-override fixtures (exercise `buildDiskGraphAux`). `./scripts/check.sh`
+GREEN (lake build + every `check-*.sh` + shellcheck).
+
+### Retraction
+
+- `docs/spec/plan.md`: AUD-B5 "FILED, deferred" backlog entry rewritten to DONE; the two batch-audit
+  narratives asserting AUD-B5 "STILL OPEN" / "the only open architecture item" annotated with
+  RETRACTED pointers.
+- `docs/scratch/2026-07-07-session-resume.md`: next-step #1 marked LANDED.
+
+Not a `cue-divergence` and not a spec-gap — a mechanical internal refactor with no CUE-semantic
+surface.
