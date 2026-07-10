@@ -562,6 +562,14 @@ def producesOutput : FieldClass -> Bool
   | .letBinding => false
   | .importBinding => false
 
+/-- Whether a field of this class counts toward `struct.MinFields`/`MaxFields`. CUE counts
+    only REGULAR fields: a required (`x!`) field does NOT count (verified against cue v0.16.1:
+    `{a:1, b!:2} & struct.MinFields(2)` fails at `1 < 2`), narrower than `producesOutput` which
+    admits required. Only `.field false false .regular` qualifies. -/
+def countsAsField : FieldClass -> Bool
+  | .field false false .regular => true
+  | _ => false
+
 end FieldClass
 
 /-- The openness of a struct, as three mutually exclusive states (the B2 target
@@ -763,6 +771,16 @@ instance : BEq Quoted := ⟨fun _ _ => true⟩
 
 instance : Coe Bool Quoted := ⟨(Quoted.mk ·)⟩
 
+/-- Which side of the field-count lattice a `struct.MinFields`/`struct.MaxFields` validator
+    bounds. A sum, never a `Bool` flag: the two are genuinely different comparators (`count >= n`
+    vs `count <= n`) with different monotonicity under unification (a `min` is monotone-satisfiable
+    as fields accrete, a `max` monotone-violable), and enumerating them forces every consumer to
+    handle both. -/
+inductive FieldCountBound where
+  | min
+  | max
+deriving Repr, BEq, DecidableEq
+
 mutual
 
 inductive Value where
@@ -779,6 +797,17 @@ inductive Value where
       `>0 & 1.5` ⇒ `1.5`), narrowed to `int`/`float` by meeting with the matching kind
       (`int & >0` rejects floats). -/
   | boundConstraint (bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)
+  /-- A struct field-count validator (`struct.MinFields(n)` / `struct.MaxFields(n)`). It
+      constrains the number of REGULAR fields (non-optional, non-required, non-hidden,
+      non-definition, non-`let`) of the struct it unifies with: `min` is satisfied iff
+      `count >= limit`, `max` iff `count <= limit`. Like `boundConstraint`, it is a validator
+      that participates in `meet`, not a value: a bare one is incomplete. `limit` is `Int` so a
+      negative bound (`MinFields(-1)`, trivially satisfied) is representable; a non-int argument
+      is a call-site type error (bottom), never reaches this node. Because field count is
+      monotone non-decreasing under unification, a satisfied `min` drops eagerly and a violated
+      `max` bottoms eagerly; the residual (unsatisfied `min` / satisfied-but-open `max`) is
+      retained in a `.conj` beside the struct and adjudicated at manifest. -/
+  | fieldCountConstraint (bound : FieldCountBound) (limit : Int)
   | conj (constraints : List Value)
   | builtinCall (name : String) (args : List Value)
   | unary (op : UnaryOp) (value : Value)
@@ -1000,6 +1029,18 @@ def regular (label : String) (value : Value) : Field :=
 
 end Field
 
+/-- The number of REGULAR fields in a struct's field list — the count `struct.MinFields`/
+    `MaxFields` constrain. Excludes optional, required, hidden, definition, `let`, and
+    import-binding members (`FieldClass.countsAsField`). -/
+def regularFieldCount (fields : List Field) : Nat :=
+  (fields.filter (fun field => field.fieldClass.countsAsField)).length
+
+/-- Whether a struct with `count` regular fields satisfies a field-count validator. -/
+def fieldCountSatisfied (bound : FieldCountBound) (limit : Int) (count : Nat) : Bool :=
+  match bound with
+  | .min => (count : Int) >= limit
+  | .max => (count : Int) <= limit
+
 /-- Drop duplicate `(labelPattern, constraint)` pairs, keeping the first occurrence so
     order is stable and meet over patterns is confluent. Equality is structural `BEq` on
     the pair (the same equality `dedupAlternatives` uses for disjunction arms). -/
@@ -1139,7 +1180,8 @@ def importBindName (imp : Import) : String :=
     (`encoding/base64` → `base64`). Shared (in the base layer) by the module loader and the
     parser's builtin-alias canonicalization. -/
 def builtinImportPaths : List String :=
-  ["strings", "list", "math", "regexp", "encoding/base64", "encoding/json", "encoding/yaml"]
+  ["strings", "list", "math", "struct", "regexp",
+   "encoding/base64", "encoding/json", "encoding/yaml"]
 
 /-- Whether an import path names a built-in stdlib package the loader must leave to the
     call-form builtin dispatch rather than resolve from disk. -/
@@ -1157,7 +1199,7 @@ def isStdlibImportPath (path : String) : Bool :=
   | none => false
 
 /-- A stdlib import path kue recognizes as a builtin package but does not yet implement
-    (`strconv`, `struct`, `time`, …): dot-free first element, absent from `builtinImportPaths`.
+    (`strconv`, `time`, …): dot-free first element, absent from `builtinImportPaths`.
     Routed to a clear "unsupported builtin package" error, NOT the disk module loader. -/
 def isUnimplementedBuiltin (path : String) : Bool :=
   isStdlibImportPath path && !isBuiltinImport path

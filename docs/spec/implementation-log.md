@@ -18791,3 +18791,75 @@ ONLY; the `struct`/`strconv` function bodies are later slices B/C.
 Not a `cue-divergence`: routing matches cue (stdlib handled by the builtin layer). The
 "unimplemented builtin" error is kue-specific only because kue's builtin coverage is a
 subset of cue's — not a semantic disagreement. Recorded as a spec-gap (message text).
+
+## Completed Slice: STDLIB-B — `struct.MinFields`/`MaxFields` field-count validators — 2026-07-10
+
+Goal: implement the CUE `struct` standard-library package's field-count constraints so
+`import "struct"` resolves and `{a:1,b:2} & struct.MinFields(2)` evaluates. `MinFields(n)` /
+`MaxFields(n)` are VALIDATORS (like a numeric bound), not pure functions: they unify with a
+struct and are satisfied iff its regular-field count is `>= n` / `<= n`.
+
+### Counting semantics (pinned empirically vs `cue` v0.16.1)
+
+Only REGULAR fields count. Verified excluded: optional (`x?`), **required (`x!`)** — a
+surprise, but `{a:1, b!:2} & struct.MinFields(2)` fails at `1 < 2` — hidden (`_x`),
+definition (`#x`), and `let`. Encoded as `FieldClass.countsAsField` (only
+`.field false false .regular` qualifies) + `regularFieldCount`. `MinFields(-1)` is trivially
+satisfied (limit is `Int`); a non-int argument (`MinFields(1.5)`) is a call-site type error
+(bottom). A bare validator is incomplete.
+
+### Design
+
+- **New `Value.fieldCountConstraint (bound : FieldCountBound) (limit : Int)`** — a validator
+  node participating in `meet`, modeled on `boundConstraint`. `FieldCountBound` is a
+  `min`/`max` sum (the two comparators differ in monotonicity under unification, so a `Bool`
+  flag would under-specify).
+- **`struct` wired into `builtinImportPaths`** (`Kue/Value.lean`); dispatch via a new
+  `.struct` `BuiltinFamily` + `evalStructBuiltin` (`Kue/Builtin.lean`) lowering
+  `struct.MinFields`/`MaxFields` to the validator. No `Parse.lean` change — the generic
+  `pkg.fn(args)` → `.builtinCall "struct.MinFields"` path + import gate handle it once
+  `struct` is a builtin package name.
+- **Meet resolves asymmetrically because field count is monotone non-decreasing under
+  unification** (`applyFieldCountConstraint`, `Kue/Lattice.lean`): a satisfied `min` DROPS
+  (stays satisfied as fields accrete → collapse to the struct), a violated `max` BOTTOMS
+  (stays violated). The undecided residual — an unsatisfied `min` (a later conjunct may add
+  the missing fields) or a satisfied `max` (a later conjunct may overflow) — is RETAINED in a
+  `.conj [struct, constraint]`. `meetConjValueWith`/`addConstraintWith` already thread a new
+  conjunct into that conj, so cross-conjunct accretion (`{a:1} & MinFields(2) & {b:2}`)
+  re-checks the constraint as `b` merges in and collapses correctly.
+- **Manifest adjudicates the surviving residual at finalization** (`finalizeFieldCountConj`,
+  `Kue/Lattice.lean`; new `.conj`/`.fieldCountConstraint` arms in `Kue/Manifest.lean`): a
+  `.conj` of one struct + field-count validators checks the final regular-field count —
+  satisfied ⇒ manifest the struct, violated ⇒ contradiction. Any other `.conj` stays
+  incomplete (unchanged). This mirrors cue's "validators run at finalization", making the
+  eager MIN-drop/MAX-bottom pure optimizations over a uniformly-correct finalize.
+- **Exhaustiveness (the `| _ =>`-on-`Value` ban):** the new constructor was threaded through
+  every value-producing `Value` match — `Lattice` (meetCore/normalizeFieldOrder),
+  `Manifest`, `Format` (renders `struct.MinFields(n)`), `Resolve`, `EvalOps`, `EvalBase`
+  (valueTag gets a fresh tag 33), `Eval`, and `Parse` (the two post-parse walkers). The build
+  enforced completeness (each missing arm a compile error).
+
+### Tests
+
+- Export fixture `testdata/export/struct_field_count.{cue,json}` — satisfied cases only (a
+  violation is a `cue export` error with no json): min exact/zero, optional-excluded, max ok,
+  min&max together, cross-conjunct accretion, negative min. Byte-identical to the `cue`
+  v0.16.1 oracle.
+- 17 `native_decide` theorems `fieldcount_*` (`Kue/Tests/FixtureTests.lean`): eager
+  min-satisfied-drop + max-violated-bottom (structural), manifest pass/fail for exact / violated
+  / zero-empty / max / min&max / negative / accretion / optional-excluded / required-excluded /
+  scalar-conflict / bare-incomplete, and the two `Format` renderings.
+- `./scripts/check.sh` GREEN.
+
+### Retraction
+
+- `docs/spec/plan.md`: STDLIB backlog item B marked LANDED; the "still FILED …
+  `struct.MinFields`/`MaxFields` (same validator seam)" note (in the math/strings-builtins
+  slice entry) annotated — struct field-count validators landed via the dedicated
+  `fieldCountConstraint` constructor, NOT the scalar `.builtinCall`-in-`meet` seam, which
+  remains the open residual for `strings.MinRunes`/`MaxRunes`.
+
+Not a `cue-divergence`: kue matches `cue` v0.16.1 on every probed case. The counting
+semantics (required fields excluded) are a stdlib-package behavior the language spec does not
+cover — recorded in `cue-spec-gaps.md` under the STDLIB-STRUCT-FIELDCOUNT entry (spec-silent
+→ cue-compat tiebreak).

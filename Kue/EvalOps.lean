@@ -56,6 +56,7 @@ def classifyArithOperand : Value -> ArithOperandClass
   | .notPrim _ => .incomplete
   | .stringRegex _ => .incomplete
   | .boundConstraint _ _ _ => .incomplete
+  | .fieldCountConstraint _ _ => .incomplete
   | .conj _ => .incomplete
   | .builtinCall _ _ => .incomplete
   | .unary _ _ => .incomplete
@@ -184,6 +185,7 @@ def collapseDefaultDisjunction : Value -> Value
   | value@(.notPrim _) => value
   | value@(.stringRegex _) => value
   | value@(.boundConstraint _ _ _) => value
+  | value@(.fieldCountConstraint _ _) => value
   | value@(.conj _) => value
   | value@(.builtinCall _ _) => value
   | value@(.unary _ _) => value
@@ -372,6 +374,7 @@ def classifyScalarOperand : Value -> ScalarOperandClass
   | .notPrim _ => .defer
   | .stringRegex _ => .defer
   | .boundConstraint _ _ _ => .defer
+  | .fieldCountConstraint _ _ => .defer
   | .conj _ => .defer
   | .builtinCall _ _ => .defer
   | .unary _ _ => .defer

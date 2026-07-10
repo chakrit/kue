@@ -35,7 +35,7 @@ survives context wipe — don't rebind the slug; recover per ace-connect Flow st
 
 ## STDLIB campaign (2026-07-10) — wild-caught from an alpha stdlib test-drive
 
-Slice **A LANDED** (this session); **B–E queued** in `plan.md` § Ranked OPEN backlog (STDLIB
+Slices **A + B LANDED**; **C–E queued** in `plan.md` § Ranked OPEN backlog (STDLIB
 campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
 
 - **A — stdlib import ROUTING + error quality. ✅ LANDED.** kue misrouted dot-free stdlib
@@ -45,9 +45,14 @@ campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
   `unsupported builtin package "<path>": …` (`collectBindings` + `loadFileBound`,
   `Kue/Module.lean`). Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/`.
   Spec-gap + log recorded.
-- **B — `struct` builtin package** (MEDIUM): implement `struct.MinFields`/`MaxFields`/… bodies.
+- **B — `struct` builtin package. ✅ LANDED.** `struct.MinFields`/`MaxFields` via a new
+  `Value.fieldCountConstraint (FieldCountBound) (Int)` validator participating in `meet`
+  (`applyFieldCountConstraint`/`finalizeFieldCountConj`, `Kue/Lattice.lean`). Counts only
+  REGULAR fields (optional/required/hidden/def/`let` excluded). Fixture
+  `testdata/export/struct_field_count`; `fieldcount_*` theorems. Spec-gap + log recorded.
 - **C — `strconv` builtin package** (MEDIUM): implement `strconv.Atoi`/`Itoa`/… (test-drive
-  trigger). B/C add to `builtinImportPaths` + dispatch once bodies exist.
+  trigger). Adds to `builtinImportPaths` + a `strconv` `BuiltinFamily` dispatch (same wiring
+  pattern as B, but pure functions — no `meet`-participating validator).
 - **D — import-placement parse grammar** (MEDIUM): a parse gap in where `import` declarations
   are accepted (must precede all other declarations); seed a failing parse fixture, fix
   `Parse.lean`.
@@ -55,7 +60,7 @@ campaign block). Test-drive against `cue` v0.16.1 surfaced five findings:
   `conflicting values (bottom)` not cue's `imported and not used: "<path>"` — a message-render
   slice (the `.importedNotUsed` reason already carries path+alias).
 
-**Next:** dispatch slice B or C (both MEDIUM, independent). Prior AUD-B5/B3d-B1 next-steps
+**Next:** dispatch slice C (`strconv`, MEDIUM) or D/E. Prior AUD-B5/B3d-B1 next-steps
 LANDED (`ed510fd`.. history); the "autonomy paused" gate above is HISTORICAL to the 2026-07-07
 attended session — the standing keep-going loop governs.
 

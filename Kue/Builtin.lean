@@ -1021,6 +1021,7 @@ inductive BuiltinFamily where
   | strings
   | list
   | math
+  | struct
   | regexp
   | base64
   | json
@@ -1039,6 +1040,7 @@ def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
   else if name.startsWith "strings." then some .strings
   else if name.startsWith "list." then some .list
   else if name.startsWith "math." then some .math
+  else if name.startsWith "struct." then some .struct
   else if name.startsWith "regexp." then some .regexp
   else if name.startsWith "base64." then some .base64
   else if name.startsWith "json." then some .json
@@ -1064,6 +1066,15 @@ def evalCoreBuiltin : String -> List Value -> Value
   | "slice", [.list items, .prim (.int low), .prim (.int high)] => listSlice items low high
   | name, args => unresolvedOrBottom name args
 
+/-- Dispatch the `struct` package builtins. `MinFields`/`MaxFields` lower to a
+    `.fieldCountConstraint` validator that unifies with a struct (checked in `meet`); a
+    non-integer argument is a resolution error routed through `unresolvedOrBottom` (a concrete
+    non-int ⇒ bottom, an abstract arg ⇒ a deferred residual). -/
+def evalStructBuiltin : String -> List Value -> Value
+  | "struct.MinFields", [.prim (.int n)] => .fieldCountConstraint .min n
+  | "struct.MaxFields", [.prim (.int n)] => .fieldCountConstraint .max n
+  | name, args => unresolvedOrBottom name args
+
 /-- Dispatch a builtin call over already-evaluated arguments. The family is classified once
     (`BuiltinFamily.ofName?`) and matched EXHAUSTIVELY — every family has an arm, with no
     catch-all over `BuiltinFamily` that could swallow a future family. A non-builtin name
@@ -1075,6 +1086,7 @@ def evalBuiltinCall (name : String) (args : List Value) : Value :=
   | some .strings => evalStringsBuiltin name args
   | some .list => evalListBuiltin name args
   | some .math => evalMathBuiltin name args
+  | some .struct => evalStructBuiltin name args
   | some .regexp => evalRegexpBuiltin name args
   | some .base64 => evalBase64Builtin name args
   | some .json => evalJsonBuiltin name args

@@ -224,9 +224,17 @@ findings, ranked. Slice A landed; B–E queued.
   `unsupported builtin package "<path>": …`. External paths route to `resolveImportTarget`
   unchanged. Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/`. Spec-gap +
   log recorded. Scope was ROUTING only — NOT the package function bodies (B/C).
-- **B — `struct` builtin package (MEDIUM).** Implement `struct.MinFields`/`struct.MaxFields`
-  (and the package's other members). Currently a recognized-but-unimplemented builtin (slice-A
-  error). Add to `builtinImportPaths` + dispatch in `evalBuiltinCall` once bodies exist.
+- **B — `struct` builtin package (MEDIUM). ✅ LANDED (2026-07-10).** `struct.MinFields(n)` /
+  `struct.MaxFields(n)` implemented as a `Value.fieldCountConstraint (bound : FieldCountBound)
+  (limit : Int)` validator that participates in `meet`. Counting semantics (pinned vs cue v0.16.1):
+  only REGULAR fields count — optional (`x?`), required (`x!`), hidden (`_x`), definition (`#x`),
+  and `let` all excluded (`FieldClass.countsAsField`). Meet resolves asymmetrically under the
+  monotone-non-decreasing field count — satisfied `min` drops, violated `max` bottoms — retaining
+  the undecided residual (unsatisfied `min` / open `max`) in a `.conj` beside the struct, which
+  `manifest` (`finalizeFieldCountConj`) adjudicates at finalization so cross-conjunct field
+  accretion (`{a:1} & MinFields(2) & {b:2}`) is spec-correct. Fixture
+  `testdata/export/struct_field_count`; theorems `fieldcount_*` in `FixtureTests`. The package's
+  OTHER members (if any) are out of scope for this slice.
 - **C — `strconv` builtin package (MEDIUM).** Implement `strconv.Atoi`/`Itoa`/`Quote`/… — the
   original test-drive trigger (`x: strconv.Atoi("42")`). Same wiring as B.
 - **D — import-placement parse grammar (MEDIUM).** An `import` clause not in the canonical
@@ -607,7 +615,10 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   `list.MatchN` family, `Eval.lean` BI-EFF EXTENSION RULE): `strings.MinRunes`/`MaxRunes` (rune-count
   CONSTRAINT validators — `"abc" & strings.MinRunes(3)` needs a `.builtinCall`-participates-in-`meet`
   seam; today `meet(scalar, .builtinCall)` ⇒ bottom, `Lattice.lean:481`, so a validator can't be
-  forced without the seam), `struct.MinFields`/`MaxFields` (same validator seam). Also still filed:
+  forced without the seam). [`struct.MinFields`/`MaxFields` are now LANDED (STDLIB-B, 2026-07-10)
+  via a dedicated `Value.fieldCountConstraint` validator that participates in `meet` directly — a
+  struct-count validator, not the scalar `.builtinCall` seam; the `strings.MinRunes`/`MaxRunes`
+  scalar-validator seam remains the open residual here.] Also still filed:
   `strings.ByteAt`/`ByteSlice` (need byte-array-repr, DEPENDENT of BYTE-ARRAY-REPR),
   `list.IsSorted`/`Sort`/`SortStable` (comparator-struct `list.Ascending`/`Descending` — the
   effectful-builtin seam BI-EFF; kue leaves these an incomplete residual today). SEPARATE

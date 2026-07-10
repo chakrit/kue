@@ -323,6 +323,7 @@ def normalizeFieldOrder : Value -> Value
   | .notPrim value => .notPrim value
   | .stringRegex pattern => .stringRegex pattern
   | .boundConstraint bound kind domain => .boundConstraint bound kind domain
+  | .fieldCountConstraint bound limit => .fieldCountConstraint bound limit
   | .conj constraints => .conj (normalizeFieldOrderList constraints)
   | .builtinCall name args => .builtinCall name (normalizeFieldOrderList args)
   | .unary op value => .unary op (normalizeFieldOrder value)
@@ -623,6 +624,11 @@ def meetCore (left right : Value) : Value :=
   | _, .list _ => .bottom
   | .ref _, _ => .bottom
   | _, .ref _ => .bottom
+  -- A field-count validator meets only a struct (handled in `meetWithFuel`); against any
+  -- non-struct it is a type conflict (cue: `mismatched types int and struct`). Reaching
+  -- `meetCore` also covers the fuel-0 fallback for the struct case, safe to bottom there.
+  | .fieldCountConstraint _ _, _ => .bottom
+  | _, .fieldCountConstraint _ _ => .bottom
   -- `meetCore` is the bottoms-everything fallthrough; the real `struct×struct` merge is the
   -- single arm in `meetWithFuel`. A struct reaching here meets a non-struct → bottom.
   | .struct .., _ => .bottom
@@ -745,6 +751,30 @@ def meetConjValueWith
   | [] => .top
   | [single] => single
   | members => .conj (sortConjMembers members)
+
+/-- Adjudicate a `.conj` that is a struct guarded by retained field-count validators at
+    finalization (`manifest`). `some structValue` when every retained `min`/`max` is satisfied by
+    the struct's final regular-field count; `some (.bottomWith …)` when any is violated; `none`
+    when the conj is not this shape (no field-count member, or field-count members with no single
+    struct partner) — a genuine incomplete residual the caller reports as-is. -/
+def finalizeFieldCountConj (constraints : List Value) : Option Value :=
+  let flat := constraints.flatMap flattenConj
+  let bounds := flat.filterMap fun value =>
+    match value with
+    | .fieldCountConstraint bound limit => some (bound, limit)
+    | _ => none
+  let rest := flat.filter fun value =>
+    match value with
+    | .fieldCountConstraint _ _ => false
+    | _ => true
+  match bounds, rest with
+  | [], _ => none
+  | _, [structValue@(.struct fields _ _ _ _)] =>
+      let count := regularFieldCount fields
+      if bounds.all (fun (bound, limit) => fieldCountSatisfied bound limit count)
+      then some structValue
+      else some (.bottomWith [.boundConflict])
+  | _, _ => none
 
 def meetListPrefixTailWith
     (meetValue : Value -> Value -> Value) : List Value -> Value -> List Value -> Option (List Value)
@@ -1266,6 +1296,21 @@ def meetListPairWith
 def meetFuel : Nat :=
   100
 
+/-- Unify a `struct.MinFields`/`MaxFields` validator with the struct it meets. Field count is
+    monotone non-decreasing under further unification, so the two bounds resolve asymmetrically:
+    a satisfied `min` DROPS (more fields keep it satisfied), a violated `max` BOTTOMS (more fields
+    keep it violated). The undecided residual — an unsatisfied `min` (a later conjunct may add the
+    missing fields) or a satisfied `max` (a later conjunct may overflow it) — is RETAINED in a
+    `.conj` beside the struct, where `meetConjValueWith` re-checks it as fields accrete and
+    `manifest` adjudicates any that survive to finalization. -/
+def applyFieldCountConstraint
+    (bound : FieldCountBound) (limit : Int) (structValue : Value) (fields : List Field) : Value :=
+  let satisfied := fieldCountSatisfied bound limit (regularFieldCount fields)
+  match bound, satisfied with
+  | .min, true => structValue
+  | .max, false => .bottomWith [.boundConflict]
+  | _, _ => .conj [structValue, .fieldCountConstraint bound limit]
+
 def meetWithFuel : Nat -> Value -> Value -> Value
   | 0, left, right => meetCore left right
   | fuel + 1, left, right =>
@@ -1309,6 +1354,15 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | collapsed => collapsed
   | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
   | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
+  -- Field-count validators: against a struct, resolve/retain per `applyFieldCountConstraint`;
+  -- against each other, keep both until a struct arrives (both must hold, e.g.
+  -- `MinFields(1) & MaxFields(3)`).
+  | .fieldCountConstraint bound limit, (.struct fields _ _ _ _) =>
+      applyFieldCountConstraint bound limit right fields
+  | (.struct fields _ _ _ _), .fieldCountConstraint bound limit =>
+      applyFieldCountConstraint bound limit left fields
+  | .fieldCountConstraint lb ll, .fieldCountConstraint rb rl =>
+      .conj [.fieldCountConstraint lb ll, .fieldCountConstraint rb rl]
   | .struct lf lo lt lp lClauses, .struct rf ro rt rp rClauses =>
       mergeStructN (meetWithFuel fuel) lf lo lt lp lClauses rf ro rt rp rClauses
   | .list leftItems, .list rightItems =>

@@ -1,0 +1,25 @@
+{
+    "min_exact": {
+        "a": 1,
+        "b": 2
+    },
+    "min_zero": {},
+    "min_optional_excluded": {
+        "a": 1
+    },
+    "max_ok": {
+        "a": 1,
+        "b": 2
+    },
+    "min_and_max": {
+        "a": 1,
+        "b": 2
+    },
+    "accrete_across_conjuncts": {
+        "a": 1,
+        "b": 2
+    },
+    "negative_min": {
+        "a": 1
+    }
+}

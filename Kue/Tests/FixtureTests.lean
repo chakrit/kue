@@ -696,6 +696,82 @@ theorem fixture_regex_bounded_repetition_pattern :
       = "x: {a12z: 2, a123z: _|_, a1z: \"skip\", [=~\"^a\\\\d{2,3}z$\"]: int}" := by
   native_decide
 
+-- struct.MinFields / struct.MaxFields validators (STDLIB-B). Counting semantics: only REGULAR
+-- fields count (optional/required/hidden/definition/let excluded). Meet resolves asymmetrically
+-- (satisfied `min` drops, violated `max` bottoms), retaining the undecided residual in a `.conj`
+-- adjudicated at manifest; `manifestValueOk` pins the finalize pass/fail without a rendered string
+-- (content is pinned by the `testdata/export/struct_field_count` fixture).
+private def structAB : Value :=
+  mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩]
+    .regularOpen none []
+private def structA : Value :=
+  mkStruct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none []
+private def structB : Value :=
+  mkStruct [⟨"b", .regular, .prim (.int 2), false⟩] .regularOpen none []
+private def structAoptB : Value :=
+  mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .optional, .prim (.int 2), false⟩]
+    .regularOpen none []
+private def structAreqB : Value :=
+  mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .required, .prim (.int 2), false⟩]
+    .regularOpen none []
+private def emptyStruct : Value := mkStruct [] .regularOpen none []
+private def manifestValueOk (value : Value) : Bool :=
+  match manifest value with
+  | .ok _ => true
+  | .error _ => false
+
+-- A satisfied `min` drops eagerly: the meet is the struct itself, no residual.
+theorem fieldcount_min_satisfied_drops :
+    (meet structAB (.fieldCountConstraint .min 2) == structAB) = true := by native_decide
+
+-- A violated `max` bottoms eagerly (count 2 > 1).
+theorem fieldcount_max_violated_bottoms :
+    (meet structAB (.fieldCountConstraint .max 1) == .bottomWith [.boundConflict]) = true := by
+  native_decide
+
+-- Manifest finalize: satisfied validators export, violated ones error.
+theorem fieldcount_min_exact_ok :
+    manifestValueOk (meet structAB (.fieldCountConstraint .min 2)) = true := by native_decide
+theorem fieldcount_min_violated_err :
+    manifestValueOk (meet structAB (.fieldCountConstraint .min 3)) = false := by native_decide
+theorem fieldcount_min_zero_empty_ok :
+    manifestValueOk (meet emptyStruct (.fieldCountConstraint .min 0)) = true := by native_decide
+theorem fieldcount_max_ok :
+    manifestValueOk (meet structAB (.fieldCountConstraint .max 3)) = true := by native_decide
+theorem fieldcount_min_and_max_ok :
+    manifestValueOk
+      (meet (meet structAB (.fieldCountConstraint .min 1)) (.fieldCountConstraint .max 3)) = true := by
+  native_decide
+theorem fieldcount_negative_min_ok :
+    manifestValueOk (meet structA (.fieldCountConstraint .min (-1))) = true := by native_decide
+
+-- Accretion across conjuncts: a field added AFTER an unsatisfied `min` satisfies it.
+theorem fieldcount_accretion_ok :
+    manifestValueOk (meet (meet structA (.fieldCountConstraint .min 2)) structB) = true := by
+  native_decide
+
+-- Only regular fields count: optional / required / hidden are excluded from the tally.
+theorem fieldcount_optional_excluded_err :
+    manifestValueOk (meet structAoptB (.fieldCountConstraint .min 2)) = false := by native_decide
+theorem fieldcount_optional_min1_ok :
+    manifestValueOk (meet structAoptB (.fieldCountConstraint .min 1)) = true := by native_decide
+theorem fieldcount_required_excluded_err :
+    manifestValueOk (meet structAreqB (.fieldCountConstraint .min 2)) = false := by native_decide
+
+-- A validator meeting a non-struct is a type conflict (bottom).
+theorem fieldcount_scalar_conflict :
+    (meet (.prim (.int 5)) (.fieldCountConstraint .min 1) == .bottom) = true := by native_decide
+
+-- A bare validator is incomplete (cannot manifest).
+theorem fieldcount_bare_incomplete :
+    manifestValueOk (.fieldCountConstraint .min 0) = false := by native_decide
+
+-- Display renders the CUE call form.
+theorem fieldcount_format_min :
+    formatField "x" (.fieldCountConstraint .min 2) = "x: struct.MinFields(2)" := by native_decide
+theorem fieldcount_format_max :
+    formatField "x" (.fieldCountConstraint .max 3) = "x: struct.MaxFields(3)" := by native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

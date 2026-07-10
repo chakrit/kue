@@ -2009,6 +2009,7 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String))
       | .notPrim _ => value
       | .stringRegex _ => value
       | .boundConstraint _ _ _ => value
+      | .fieldCountConstraint _ _ => value
       | .ref _ => value
       | .refId _ => value
       | .thisStruct => value
@@ -2084,6 +2085,7 @@ def collectReferencedHeads : Nat -> Value -> List String
     | .notPrim _ => []
     | .stringRegex _ => []
     | .boundConstraint _ _ _ => []
+    | .fieldCountConstraint _ _ => []
     | .refId _ => []
     | .thisStruct => []
   where

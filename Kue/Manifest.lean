@@ -80,7 +80,14 @@ mutual
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))
     | _ + 1, .stringRegex pattern => .error (.incomplete (.stringRegex pattern))
     | _ + 1, .boundConstraint bound kind domain => .error (.incomplete (.boundConstraint bound kind domain))
-    | _ + 1, .conj constraints => .error (.incomplete (.conj constraints))
+    | _ + 1, .fieldCountConstraint bound limit => .error (.incomplete (.fieldCountConstraint bound limit))
+    -- A struct guarded by retained field-count validators (`{a:1} & struct.MinFields(2)`) is
+    -- adjudicated HERE, at finalization: satisfied ⇒ manifest the struct, violated ⇒
+    -- contradiction. Any other `.conj` is a genuine incomplete residual.
+    | fuel + 1, .conj constraints =>
+        match finalizeFieldCountConj constraints with
+        | some resolved => manifestWithFuel fuel resolved
+        | none => .error (.incomplete (.conj constraints))
     | _ + 1, .builtinCall name args => .error (.incomplete (.builtinCall name args))
     | _ + 1, .unary op value => .error (.incomplete (.unary op value))
     | _ + 1, .binary op left right => .error (.incomplete (.binary op left right))
