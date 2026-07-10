@@ -39,6 +39,21 @@ def unusedImportReasons (reasons : List BottomReason) : List (String × Option S
     | .importedNotUsed path alias => some (path, alias)
     | _ => none
 
+/-- Finalize a disjunction arm's retained field-count residual at manifestation. An arm shaped
+    `.conj [struct, fieldCountConstraint …]` (an unsatisfied `min` deferred at meet for cross-conjunct
+    accretion, or a satisfied `max` held against overflow) reaches finalization with NO further
+    conjunct to accrete: `finalizeFieldCountConj` adjudicates it — a violated bound collapses the arm
+    to `.bottomWith`, which `liveAlternatives`/`resolveDisjDefault?` then PRUNE, exactly as an
+    in-isolation manifest would. This runs ONLY here (manifest = the genuinely-final point); doing it
+    at meet-time `normalizeDisj` would prematurely prune an arm a later conjunct could still rescue.
+    A non-conj arm, or a conj that is not this field-count shape, passes through unchanged. -/
+def finalizeDisjArm : Mark × Value -> Mark × Value
+  | (mark, .conj constraints) =>
+      match finalizeFieldCountConj constraints with
+      | some resolved => (mark, resolved)
+      | none => (mark, .conj constraints)
+  | arm => arm
+
 mutual
   def manifestFieldsWithFuel : Nat -> List Field -> Except ManifestError (List (String × ManifestValue))
     | 0, _ => .error (.incomplete .top)
@@ -157,9 +172,10 @@ mutual
         -- 2+). Unreachable until a producer exists.
         .error (.incomplete (.closure capturedEnv body))
     | fuel + 1, .disj alternatives =>
-        match resolveDisjDefault? alternatives with
+        let finalized := alternatives.map finalizeDisjArm
+        match resolveDisjDefault? finalized with
         | some value => manifestWithFuel fuel value
-        | none => .error (.ambiguous (liveAlternatives alternatives))
+        | none => .error (.ambiguous (liveAlternatives finalized))
 end
 
 def manifest (value : Value) : Except ManifestError ManifestValue :=

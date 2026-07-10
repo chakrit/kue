@@ -236,6 +236,15 @@ enforcement), surfaced by slice D's separator work, is queued below.
   accretion (`{a:1} & MinFields(2) & {b:2}`) is spec-correct. Fixture
   `testdata/export/struct_field_count`; theorems `fieldcount_*` in `FixtureTests`. The package's
   OTHER members (if any) are out of scope for this slice.
+  - **Follow-up (2026-07-10, Phase-A audit fix — FIELDCOUNT-DISJ):** the finalize pass reached a
+    retained residual only at the TOP level, not one nested inside a disjunction arm — so a
+    disjunction arm whose retained `min` is under-count (`MinFields(2) & ({a:1} | {a:1,b:2})`)
+    survived liveness (it holds no present `.bottom`) and shadowed the valid arm as a spurious
+    "ambiguous". Fixed by finalizing each disjunction arm at manifest (`finalizeDisjArm` in
+    `Kue/Manifest.lean`, reusing `finalizeFieldCountConj`); manifest-only, so meet-time accretion
+    is untouched. Wild fixture `testdata/wild/min-fields-disj-arm-underfill-pruned/`; theorems
+    `fieldcount_disj_*` in `FixtureTests` (prune, max-prune, genuine-ambiguity, accretion-preserved,
+    empty-arm, min&max). Closes audit finding #2 (no prior fieldcount×disjunction test).
 - **C — `strconv` builtin package (MEDIUM). ✅ LANDED (2026-07-10).** Pure conversions in
   `Kue/Strconv.lean`, dispatched via a new `.strconv` `BuiltinFamily` arm. **Shipped** (exact vs
   cue v0.16.1, arbitrary-precision matching Kue's `Int`): `Atoi`, `FormatInt`, `FormatUint`

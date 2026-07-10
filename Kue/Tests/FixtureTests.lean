@@ -715,6 +715,12 @@ private def structAreqB : Value :=
   mkStruct [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .required, .prim (.int 2), false⟩]
     .regularOpen none []
 private def emptyStruct : Value := mkStruct [] .regularOpen none []
+private def structX : Value :=
+  mkStruct [⟨"x", .regular, .prim (.int 9), false⟩] .regularOpen none []
+private def structABC : Value :=
+  mkStruct
+    [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩,
+     ⟨"c", .regular, .prim (.int 3), false⟩] .regularOpen none []
 private def manifestValueOk (value : Value) : Bool :=
   match manifest value with
   | .ok _ => true
@@ -765,6 +771,58 @@ theorem fieldcount_scalar_conflict :
 -- A bare validator is incomplete (cannot manifest).
 theorem fieldcount_bare_incomplete :
     manifestValueOk (.fieldCountConstraint .min 0) = false := by native_decide
+
+-- Field-count validators × disjunction (STDLIB-B follow-up). A retained `min` residual inside
+-- a disjunction arm is finalized when the disjunction resolves at manifest (`finalizeDisjArm`):
+-- an under-count arm collapses to bottom and is PRUNED, exactly as an in-isolation manifest
+-- would. The finalize is manifest-only, so meet-time accretion (a later conjunct rescuing an
+-- under-count arm) is untouched.
+
+-- PRUNE: `MinFields(2) & ({a:1} | {a:1,b:2})` → the under-count arm `{a:1}` is dropped, leaving
+-- `{a:1,b:2}` (NOT ambiguous). This is the reported bug.
+theorem fieldcount_disj_min_underfill_pruned :
+    (manifest (meet (.fieldCountConstraint .min 2) (disjOfValues structA structAB))
+      == manifest structAB) = true := by native_decide
+
+-- MAX prune (regression guard): the overfull arm bottoms eagerly at meet, leaving `{a:1}`.
+theorem fieldcount_disj_max_overfill_pruned :
+    (manifest (meet (.fieldCountConstraint .max 2) (disjOfValues structA structABC))
+      == manifest structA) = true := by native_decide
+
+-- GENUINELY AMBIGUOUS: both arms satisfy `MinFields(1)`, so neither is pruned — stays ambiguous.
+theorem fieldcount_disj_min_both_satisfied_ambiguous :
+    manifestValueOk (meet (.fieldCountConstraint .min 1) (disjOfValues structA structAB)) = false := by
+  native_decide
+
+-- MinFields(0): every struct satisfies it, so both arms stay live → ambiguous (not pruned).
+theorem fieldcount_disj_min_zero_both_live_ambiguous :
+    manifestValueOk (meet (.fieldCountConstraint .min 0) (disjOfValues emptyStruct structA)) = false := by
+  native_decide
+
+-- Empty-struct arm PRUNED: `MinFields(1) & ({} | {a:1})` → `{}` is under-count → `{a:1}`.
+theorem fieldcount_disj_empty_arm_pruned :
+    (manifest (meet (.fieldCountConstraint .min 1) (disjOfValues emptyStruct structA))
+      == manifest structA) = true := by native_decide
+
+-- ACCRETION NOT BROKEN: `MinFields(2) & ({a:1} | {x:9}) & {b:2}` keeps BOTH arms alive through the
+-- later conjunct (each reaches 2 fields) → ambiguous, NOT collapsed to bottom. A wrongly eager
+-- meet-time prune would bottom the whole disjunction; `containsBottom = false` pins that it didn't.
+theorem fieldcount_disj_accretion_not_bottomed :
+    containsBottom
+      (meet (meet (.fieldCountConstraint .min 2) (disjOfValues structA structX)) structB) = false := by
+  native_decide
+theorem fieldcount_disj_accretion_stays_ambiguous :
+    manifestValueOk
+      (meet (meet (.fieldCountConstraint .min 2) (disjOfValues structA structX)) structB) = false := by
+  native_decide
+
+-- BOTH min & max in a disjunction: `MinFields(1) & (MaxFields(1) & ({a:1} | {a:1,b:2}))`. The `max`
+-- prunes the 2-field arm; the surviving `{a:1}` satisfies both bounds → `{a:1}`.
+theorem fieldcount_disj_min_and_max :
+    (manifest
+      (meet (.fieldCountConstraint .min 1)
+        (meet (.fieldCountConstraint .max 1) (disjOfValues structA structAB)))
+      == manifest structA) = true := by native_decide
 
 -- Display renders the CUE call form.
 theorem fieldcount_format_min :

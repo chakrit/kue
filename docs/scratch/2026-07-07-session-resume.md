@@ -50,6 +50,11 @@ backlog. Test-drive against `cue` v0.16.1 surfaced five findings:
   (`applyFieldCountConstraint`/`finalizeFieldCountConj`, `Kue/Lattice.lean`). Counts only
   REGULAR fields (optional/required/hidden/def/`let` excluded). Fixture
   `testdata/export/struct_field_count`; `fieldcount_*` theorems. Spec-gap + log recorded.
+  - **Follow-up FIELDCOUNT-DISJ ✅ (2026-07-10, Phase-A audit fix).** A retained `min` residual
+    inside a disjunction arm wasn't finalized on collapse → spurious "ambiguous" on
+    `MinFields(2) & ({a:1} | {a:1,b:2})`. Fixed: `finalizeDisjArm` (`Kue/Manifest.lean`) finalizes
+    each arm at manifest (reusing `finalizeFieldCountConj`); manifest-only, accretion untouched.
+    Wild fixture `min-fields-disj-arm-underfill-pruned`; `fieldcount_disj_*` theorems (8).
 - **C — `strconv` builtin package. ✅ LANDED.** Pure conversions in `Kue/Strconv.lean` via a
   new `.strconv` `BuiltinFamily` arm. Shipped: `Atoi`, `FormatInt`, `FormatUint`, `ParseInt`,
   `ParseUint`, `FormatBool`, `ParseBool` (arbitrary-precision; base-0 prefixes + underscores +

@@ -19044,3 +19044,50 @@ top-level `.bottomWith` — only the manifest→CLI render collapsed it.
 - `docs/spec/cue-spec-gaps.md`: UNUSED-IMPORT row's message-generality residual marked CLOSED.
 - `docs/spec/implementation-log.md`: 2026-07-05 UNUSED-IMPORT entry's residual paragraph annotated
   with the STDLIB-E closure pointer.
+
+## Completed Slice: FIELDCOUNT-DISJ — finalize a retained field-count residual inside a disjunction arm — 2026-07-10
+
+Phase-A audit finding (correctness): `struct.MinFields(2) & ({a:1} | {a:1,b:2})` reported a spurious
+`ambiguous value: multiple non-default disjuncts remain` where cue exports `{"x":{"a":1,"b":2}}`. The
+1-field arm `{a:1}` violates `MinFields(2)` and should manifest bottom in isolation → be pruned,
+leaving the 2-field arm as the sole live value.
+
+### Root cause (verified in source, not taken on faith)
+
+`applyFieldCountConstraint` (`Kue/Lattice.lean`) SOUNDLY retains an unsatisfied `min` as
+`.conj [struct, .fieldCountConstraint …]` — the deferral is REQUIRED for cross-conjunct accretion
+(`{a:1} & MinFields(2) & {b:2}` ⇒ ok). Disjunction resolution prunes arms via `liveAlternatives` →
+`containsBottom`, which fires only on a PRESENT `.bottom`/`.bottomWith` node; a retained-min `.conj`
+holds none, so the under-count arm survived. `manifest` DID finalize a retained residual — but only
+at the TOP level (`.conj` arm, `finalizeFieldCountConj`), never one nested inside a `.disj` arm. So
+the two live regular arms → no unique default → `resolveDisjDefault?` returns `none` → ambiguous.
+
+### Fix
+
+- `Kue/Manifest.lean`: new `finalizeDisjArm : Mark × Value → Mark × Value` maps a `.conj` arm through
+  `finalizeFieldCountConj` (DRY — same adjudicator the top-level `.conj` arm uses). `manifestWithFuel`'s
+  `.disj` arm finalizes every alternative BEFORE `resolveDisjDefault?`/`liveAlternatives` select — a
+  violated retained bound collapses the arm to `.bottomWith`, which liveness then prunes.
+- **Manifest-ONLY** (the genuinely-final point). Meet-time `normalizeDisj`/`liveAlternatives` are
+  untouched, so an under-count arm a later conjunct could still rescue is NOT prematurely pruned:
+  `MinFields(2) & ({a:1} | {x:9}) & {b:2}` keeps both arms (each reaches 2 fields) → ambiguous, exactly
+  as cue. Putting the finalize in `liveAlternatives` would have broken accretion.
+
+### Tests
+
+- Wild fixture `testdata/wild/min-fields-disj-arm-underfill-pruned/` (`.expected` JSON `{a:1,b:2}`) —
+  the reproduced bug, RED before / GREEN after; auto-discovered by `check_wild_fixtures`.
+- `FixtureTests` `fieldcount_disj_*` (8 `native_decide`, closing audit finding #2's test-strength gap —
+  NO prior fieldcount×disjunction test): prune, max-prune (regression), genuine-ambiguity (`MinFields(1)`
+  both satisfied stays ambiguous), `MinFields(0)` both-live, empty-struct arm pruned,
+  accretion-not-bottomed + accretion-stays-ambiguous (the two-conjunct rescue case), min&max in a
+  disjunction. All cross-checked against cue v0.16.1.
+- `./scripts/check.sh` GREEN (full suite + cert-manager/realworld canaries unchanged — the manifest
+  change touches only the `.disj` arm's residual finalize, zero existing theorems broken).
+
+### Retraction
+
+- `docs/spec/plan.md`: STDLIB-B LANDED block annotated with the FIELDCOUNT-DISJ follow-up (the prior
+  "manifest adjudicates at finalization" claim reached only top-level residuals).
+- `docs/spec/cue-spec-gaps.md`: STDLIB-STRUCT-FIELDCOUNT row's finalize note + test count updated;
+  new FIELDCOUNT-DISJ row records the disjunction-arm resolution.
