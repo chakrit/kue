@@ -175,6 +175,8 @@ mutual
           | .runes, .max => "strings.MaxRunes"
         s!"{call}({limit})"
     | _, .uniqueItems => "list.UniqueItems()"
+    | _, .stringFormat .duration => "time.Duration()"
+    | _, .stringFormat .rfc3339 => "time.Time()"
     | fuel + 1, .conj constraints =>
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | fuel + 1, .builtinCall name args =>

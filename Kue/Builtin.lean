@@ -1174,10 +1174,51 @@ def evalRegexpBuiltin : String -> List Value -> Value
   | "regexp.FindAllNamedSubmatch", args => unsupportedOrBottom "regexp.FindAllNamedSubmatch" args
   | name, args => unresolvedOrBottom name args
 
+/-- Dispatch the `time` package builtins (STDLIB-TIME). The exact/structural surface:
+    `ParseDuration` (Go-duration → int64 nanoseconds), the `Duration`/`Time` validators (both
+    the zero-arg validator form yielding a `.stringFormat` node and the concrete-arg boolean
+    function form), and `Format` restricted to the RFC3339 / RFC3339Nano layouts.
+
+    A validator (`time.Duration()`, `time.Time()`, `time.Format(RFC3339)`) resolves to a
+    `.stringFormat` value that participates in `meet` (a ground non-conforming string bottoms,
+    an abstract string retains). A function form (`time.Duration(s)`, `time.Time(s)`,
+    `time.Format(s, layout)`) returns `true` on a valid concrete string and BOTTOMS on an
+    invalid one — cue errors rather than returning `false`.
+
+    DEFERRED with a clear `unsupportedBuiltin` marker (all need a civil-calendar/epoch engine or
+    Go's format machinery, see `docs/spec/cue-spec-gaps.md`): `Unix`, `Parse`, `FormatString`,
+    `Split`, `FormatDuration`, and any non-RFC3339 custom `Format` layout. A nonexistent leaf
+    (`time.Date`) has no arm and bottoms bare via `unresolvedOrBottom`. -/
+def evalTimeBuiltin : String -> List Value -> Value
+  | "time.ParseDuration", [.prim (.string s)] =>
+      match parseGoDuration s with
+      | some nanos => .prim (.int nanos)
+      | none => .bottom
+  | "time.Duration", [] => .stringFormat .duration
+  | "time.Duration", [.prim (.string s)] =>
+      if isValidDuration s then .prim (.bool true) else .bottom
+  | "time.Time", [] => .stringFormat .rfc3339
+  | "time.Time", [.prim (.string s)] =>
+      if isValidRFC3339 s then .prim (.bool true) else .bottom
+  | "time.Format", [.prim (.string layout)] =>
+      if isRFC3339Layout layout then .stringFormat .rfc3339
+      else .bottomWith [.unsupportedBuiltin "time.Format"]
+  | "time.Format", [.prim (.string value), .prim (.string layout)] =>
+      if isRFC3339Layout layout then
+        (if isValidRFC3339 value then .prim (.bool true) else .bottom)
+      else .bottomWith [.unsupportedBuiltin "time.Format"]
+  -- Real cue functions Kue recognizes but defers (civil-calendar / epoch / Go format engine).
+  | "time.Unix", args => unsupportedOrBottom "time.Unix" args
+  | "time.Parse", args => unsupportedOrBottom "time.Parse" args
+  | "time.FormatString", args => unsupportedOrBottom "time.FormatString" args
+  | "time.Split", args => unsupportedOrBottom "time.Split" args
+  | "time.FormatDuration", args => unsupportedOrBottom "time.FormatDuration" args
+  | name, args => unresolvedOrBottom name args
+
 /-- The closed set of builtin families on the FAMILY axis. `core` holds the nine exact
     unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`, plus the `slice`
-    desugar of `x[lo:hi]`); the rest are the ten qualified stdlib packages
-    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`/`path`). The
+    desugar of `x[lo:hi]`); the rest are the eleven qualified stdlib packages
+    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`/`path`/`time`). The
     within-family LEAF (e.g. `math.Pow`) stays a
     `String` — genuinely many-valued and string-dispatched inside each `eval*Builtin`. This
     is the closed, versionable axis: a new family forces a new constructor, and the
@@ -1195,6 +1236,7 @@ inductive BuiltinFamily where
   | json
   | yaml
   | path
+  | time
 deriving Repr, BEq, DecidableEq
 
 /-- Classify a builtin name into its family at the one point the name is interpreted as a
@@ -1216,6 +1258,7 @@ def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
   else if name.startsWith "json." then some .json
   else if name.startsWith "yaml." then some .yaml
   else if name.startsWith "path." then some .path
+  else if name.startsWith "time." then some .time
   else none
 
 /-- Dispatch the `core` exact-name builtins (import-free: the eight CUE built-ins plus the
@@ -1356,6 +1399,7 @@ def evalBuiltinCall (name : String) (args : List Value) : Value :=
   | some .json => evalJsonBuiltin name args
   | some .yaml => evalYamlBuiltin name args
   | some .path => evalPathBuiltin name args
+  | some .time => evalTimeBuiltin name args
   | none => unresolvedOrBottom name args
 
 end Kue

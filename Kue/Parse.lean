@@ -1073,6 +1073,48 @@ def stdlibPackageValue? (pkg label : String) : Option Value :=
   | "path", "Unix" => some (.prim (.string "unix"))
   | "path", "Windows" => some (.prim (.string "windows"))
   | "path", "Plan9" => some (.prim (.string "plan9"))
+  -- `time` package (STDLIB-TIME). The `Time`/`Duration` validators are used BARE (no call),
+  -- so they resolve to their `.stringFormat` validator VALUE here (the called forms route
+  -- through `parseCall` → `evalTimeBuiltin`). The Duration UNIT constants (int nanoseconds)
+  -- and the format-LAYOUT string constants are plain values.
+  | "time", "Time" => some (.stringFormat .rfc3339)
+  | "time", "Duration" => some (.stringFormat .duration)
+  | "time", "Nanosecond" => some (.prim (.int 1))
+  | "time", "Microsecond" => some (.prim (.int 1000))
+  | "time", "Millisecond" => some (.prim (.int 1000000))
+  | "time", "Second" => some (.prim (.int 1000000000))
+  | "time", "Minute" => some (.prim (.int 60000000000))
+  | "time", "Hour" => some (.prim (.int 3600000000000))
+  | "time", "ANSIC" => some (.prim (.string "Mon Jan _2 15:04:05 2006"))
+  | "time", "UnixDate" => some (.prim (.string "Mon Jan _2 15:04:05 MST 2006"))
+  | "time", "RubyDate" => some (.prim (.string "Mon Jan 02 15:04:05 -0700 2006"))
+  | "time", "RFC822" => some (.prim (.string "02 Jan 06 15:04 MST"))
+  | "time", "RFC822Z" => some (.prim (.string "02 Jan 06 15:04 -0700"))
+  | "time", "RFC850" => some (.prim (.string "Monday, 02-Jan-06 15:04:05 MST"))
+  | "time", "RFC1123" => some (.prim (.string "Mon, 02 Jan 2006 15:04:05 MST"))
+  | "time", "RFC1123Z" => some (.prim (.string "Mon, 02 Jan 2006 15:04:05 -0700"))
+  | "time", "RFC3339" => some (.prim (.string "2006-01-02T15:04:05Z07:00"))
+  | "time", "RFC3339Nano" => some (.prim (.string "2006-01-02T15:04:05.999999999Z07:00"))
+  | "time", "Kitchen" => some (.prim (.string "3:04PM"))
+  | "time", "January" => some (.prim (.int 1))
+  | "time", "February" => some (.prim (.int 2))
+  | "time", "March" => some (.prim (.int 3))
+  | "time", "April" => some (.prim (.int 4))
+  | "time", "May" => some (.prim (.int 5))
+  | "time", "June" => some (.prim (.int 6))
+  | "time", "July" => some (.prim (.int 7))
+  | "time", "August" => some (.prim (.int 8))
+  | "time", "September" => some (.prim (.int 9))
+  | "time", "October" => some (.prim (.int 10))
+  | "time", "November" => some (.prim (.int 11))
+  | "time", "December" => some (.prim (.int 12))
+  | "time", "Sunday" => some (.prim (.int 0))
+  | "time", "Monday" => some (.prim (.int 1))
+  | "time", "Tuesday" => some (.prim (.int 2))
+  | "time", "Wednesday" => some (.prim (.int 3))
+  | "time", "Thursday" => some (.prim (.int 4))
+  | "time", "Friday" => some (.prim (.int 5))
+  | "time", "Saturday" => some (.prim (.int 6))
   | _, _ => none
 
 mutual
@@ -2047,6 +2089,7 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String))
       | .kind _ => value
       | .notPrim _ => value
       | .stringRegex _ => value
+      | .stringFormat _ => value
       | .boundConstraint _ _ _ => value
       | .lengthConstraint _ _ _ => value
       | .uniqueItems => value
@@ -2124,6 +2167,7 @@ def collectReferencedHeads : Nat -> Value -> List String
     | .kind _ => []
     | .notPrim _ => []
     | .stringRegex _ => []
+    | .stringFormat _ => []
     | .boundConstraint _ _ _ => []
     | .lengthConstraint _ _ _ => []
     | .uniqueItems => []

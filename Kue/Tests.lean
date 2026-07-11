@@ -41,6 +41,7 @@ import Kue.Tests.SortTests
 import Kue.Tests.StrconvTests
 import Kue.Tests.StringsTests
 import Kue.Tests.StructTests
+import Kue.Tests.TimeTests
 import Kue.Tests.TwoPassTests
 import Kue.Tests.YamlTests
 import Kue.Tests.ZipTests

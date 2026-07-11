@@ -218,7 +218,8 @@ findings A–E, ranked — all LANDED (2026-07-10). A follow-on **STDLIB-F** (li
 enforcement), surfaced by slice D's separator work, is queued below.
 
 - **A — stdlib import ROUTING + error quality. ✅ LANDED (2026-07-10).** kue misrouted every
-  non-whitelisted import (dot-free stdlib paths `strconv`, `struct`, `time` included) to the
+  non-whitelisted import (dot-free stdlib paths like `net` included; `strconv`/`struct`/`time`
+  are now implemented) to the
   disk module loader, surfacing the misleading `no cue.mod/module.cue found` error. Fixed:
   `isStdlibImportPath` (`Kue/Value.lean`) classifies by first path element (dot-free ⇒ builtin
   layer, dotted-domain ⇒ external module); a recognized-but-unimplemented stdlib path now emits
@@ -312,6 +313,23 @@ enforcement), surfaced by slice D's separator work, is queued below.
   (cue's disjunction unification error). Spec-gap recorded (path is a non-core stdlib surface,
   cue-compat tiebreak). `Kue/Tests/PathTests.lean` (75 `native_decide` — every function, edges,
   os constants, plan9==unix, windows deferral, invalid os, bad-pattern, plus 3 end-to-end export).
+
+- **STDLIB-TIME — `time` builtin package (SCOPED). ✅ LANDED (2026-07-11).** High-general-leverage
+  in real CUE configs (durations, RFC3339 timestamps, validators). Algorithms in `Kue/Time.lean`
+  (Go-duration lexer, calendar-aware RFC3339 validator); dispatch via a new `.time` `BuiltinFamily`
+  arm (`evalTimeBuiltin`). Introduces `Value.stringFormat (fmt : StringFormat)` — a meet-participating
+  string validator mirroring `stringRegex`: a ground non-conforming string bottoms, an ABSTRACT string
+  RETAINS the validator (so `string & time.Duration()` stays incomplete — no abstract fabrication).
+  **Shipped (exact-integer / string-structural only):** `ParseDuration` (→ int64 nanoseconds,
+  overflow ⇒ bottom); the `Duration`/`Time` validators (bare, `()`, and boolean function forms);
+  `Format` restricted to the `RFC3339`/`RFC3339Nano` layouts; all unit/layout/month/weekday CONSTANTS.
+  RFC3339 validation is calendar-aware (leap-year days-in-month), offset structural (not range-checked,
+  matching Go). **Deferred with `unsupportedBuiltin`** (need a date↔epoch calendar engine or Go's
+  format machinery — the scope boundary): `Unix`, `Parse`, `FormatString`, `Split`, `FormatDuration`,
+  and any non-RFC3339 custom `Format` layout; `time.Date` is a nonexistent leaf ⇒ bare bottom.
+  Duration is deliberately int64-bounded (the Go `time.Duration` type contract, not a Kue-exactness
+  choice). Spec-gap recorded (STDLIB-TIME, non-core stdlib surface, cue-compat tiebreak).
+  `Kue/Tests/TimeTests.lean` (60+ `native_decide`) + `testdata/export/time_basic.cue`.
 
 **STDLIB-batch two-phase audit followup (2026-07-10, `4625079..2c3659b`).** Three remaining LOW/polish
 findings closed in one audit-followup slice; one new leniency bug QUEUED.

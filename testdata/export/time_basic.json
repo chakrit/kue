@@ -1,0 +1,20 @@
+{
+    "parse_hm": 5400000000000,
+    "parse_ms": 300000000,
+    "parse_neg": -7200000000000,
+    "parse_frac": 5400000000000,
+    "parse_combo": 5445000000000,
+    "parse_us": 100000,
+    "parse_ns": 10,
+    "nanosecond": 1,
+    "second": 1000000000,
+    "hour": 3600000000000,
+    "rfc3339": "2006-01-02T15:04:05Z07:00",
+    "kitchen": "3:04PM",
+    "january": 1,
+    "sunday": 0,
+    "dur_validated": "1h30m",
+    "time_validated": "2019-01-02T15:04:05Z",
+    "time_offset": "2020-02-29T23:59:59+07:00",
+    "fmt_validated": "2019-01-02T15:04:05Z"
+}

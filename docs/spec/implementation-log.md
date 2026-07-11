@@ -18939,7 +18939,8 @@ in `cue-divergences.md`; the spec-silent basis + cue-compat-within-contract choi
   `time`: it pinned the recognized-but-unimplemented stdlib routing/error contract via
   `strconv.Atoi`, which now RESOLVES. `time` is still an unimplemented dot-free stdlib package,
   so the package-agnostic routing guard stays live (`.cue`, `.expected.err`, PROVENANCE retraction
-  note updated).
+  note updated). [RETRACTED 2026-07-11 by STDLIB-TIME: `time` is now implemented, so the fixture
+  was repointed again `time` → `net`.]
 
 ---
 
@@ -19643,3 +19644,67 @@ edge, the rest LOW / plan-hygiene).
   retraction duty).
 - `docs/spec/plan.md`: B-3/B-4 audit findings resolved; 2A/1B/3A landed, 2B deferred-filed.
 - `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.
+
+## Completed Slice: STDLIB-TIME — `time` builtin package (scoped)
+
+The `time` package's exact-integer / string-structural surface, landing the high-leverage
+duration + RFC3339-validator functionality while deferring the civil-calendar/epoch corner.
+
+### What landed
+
+- **`Kue/Time.lean`** (new, pure): the Go-duration lexer (`parseGoDuration` → int64
+  nanoseconds; `leadingDigits`/`leadingUnit`/`parseDurationTerms`, fuel-bounded on input
+  length, structural — no `partial`), the calendar-aware RFC3339 validator (`isValidRFC3339`
+  with `daysInMonth`/`isLeapYear`, `readDigits`/`expectChar`/`validRFC3339Offset`), and
+  `stringFormatValid : StringFormat → String → Bool` (the single predicate behind the
+  validators' meet).
+- **`Value.stringFormat (fmt : StringFormat)`** — a new meet-participating string validator
+  (enum `StringFormat = duration | rfc3339`), threaded like `stringRegex` across the exhaustive
+  `Value` matches (Lattice meet/join, Order subsumption, Format, Manifest, Eval/EvalBase/EvalOps
+  hash/tag/incomplete arms, Parse residual scans). Meet discipline (`meetStringFormatPrim`,
+  Lattice): a GROUND non-conforming string bottoms, a conforming string passes, an ABSTRACT
+  string (`.kind .string`) RETAINS the validator — so `string & time.Duration()` stays
+  incomplete (reuses the isGround/finalize discipline; no abstract fabrication). A bare validator
+  manifests `.incomplete` (Manifest).
+- **`evalTimeBuiltin`** (`Builtin.lean`, new `.time` `BuiltinFamily`): `ParseDuration`; the
+  `Duration`/`Time` validators (zero-arg `()` ⇒ `.stringFormat` node; concrete-arg boolean
+  function form ⇒ `true`/bottom); `Format` restricted to the RFC3339/RFC3339Nano layouts.
+  Deferred-real functions (`Unix`/`Parse`/`FormatString`/`Split`/`FormatDuration`, non-RFC3339
+  `Format` layout) route through `unsupportedOrBottom`; `time.Date` (nonexistent) falls to the
+  bare-bottom catch.
+- **Constants** via `stdlibPackageValue?` (`Parse.lean`): unit ints (`Nanosecond`=1 … `Hour`),
+  layout strings (`RFC3339`, `Kitchen`, …), months (`January`=1 … `December`=12), weekdays
+  (`Sunday`=0 … `Saturday`=6), plus the BARE `Time`/`Duration` validators. `"time"` added to
+  `builtinImportPaths` (`Value.lean`) so `import "time"` routes to the builtin layer.
+
+### Scope boundary (the defer decision)
+
+Landed: all exact-integer / string-validation surface (no Float, no epoch arithmetic). RFC3339
+validation is FULLY calendar-aware (leap-year days-in-month — cue rejects `2019-02-29`,
+`2019-04-31`), offset structural (Go does NOT range-check the offset: `+24:00`/`+07:60` pass).
+Deferred (`unsupportedBuiltin`, spec-gap logged): everything needing a date↔epoch civil-calendar
+engine or Go's format machinery. Duration is deliberately int64-bounded (overflow ⇒ bottom) — a
+Go `time.Duration` IS int64 nanoseconds, the type contract, not a Kue-exactness question.
+Fractional-ns is EXACT integer division where Go uses float64 (Kue is spec-correct).
+
+### Tests
+
+- `Kue/Tests/TimeTests.lean` (60+ `native_decide`): ParseDuration (units incl. both µ/μ suffixes,
+  signs, fractions, combos, `.5s`/`1.s`, sub-ns truncation, int64-max, overflow⇒bottom, invalid
+  forms); Duration + Time (RFC3339) validators — concrete valid/invalid, ABSTRACT-RETAINS,
+  kind-conflict, leap-year Feb29, out-of-range month/day/hour/second, missing offset,
+  lowercase-`t`; function forms; `Format` RFC3339 landed + Kitchen deferred; deferred-fn markers;
+  nonexistent `time.Date` bare bottom; end-to-end constant/validator export.
+- `testdata/export/time_basic.cue` + `.json` (byte-identical to `cue export`, auto-discovered by
+  `check-fixtures.sh`).
+- `./scripts/check.sh` GREEN.
+
+### Retraction
+
+- Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/` REPOINTED `time` → `net`
+  (a still-unimplemented dot-free stdlib package cue recognizes): `import "time"` now RESOLVES,
+  so it no longer exercises the unimplemented-routing guard. `.cue`/`.expected.err`/PROVENANCE
+  updated.
+- `docs/spec/implementation-log.md` (STDLIB-import-routing slice) + `docs/spec/plan.md:221`:
+  annotated the "`time` is still unimplemented" claims as retracted.
+- `docs/spec/cue-spec-gaps.md`: STDLIB-TIME row added; `docs/spec/plan.md`: STDLIB-TIME LANDED.

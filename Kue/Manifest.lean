@@ -128,6 +128,7 @@ mutual
     | _ + 1, .boundConstraint bound kind domain => .error (.incomplete (.boundConstraint bound kind domain))
     | _ + 1, .lengthConstraint kind bound limit => .error (.incomplete (.lengthConstraint kind bound limit))
     | _ + 1, .uniqueItems => .error (.incomplete .uniqueItems)
+    | _ + 1, .stringFormat fmt => .error (.incomplete (.stringFormat fmt))
     -- A value guarded by retained length / uniqueness validators (`{a:1} & struct.MinFields(2)`,
     -- `[1] & list.MinItems(2)`, `[x] & list.UniqueItems`) is adjudicated HERE, at finalization:
     -- satisfied ⇒ manifest the value, violated ⇒ contradiction. Any other `.conj` is a genuine

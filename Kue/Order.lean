@@ -1,5 +1,6 @@
 import Kue.Value
 import Kue.Regex
+import Kue.Time
 
 namespace Kue
 
@@ -233,6 +234,9 @@ mutual
         (regexParseError? pattern).isNone && matchRegex pattern value
     | _ + 1, .stringRegex expectedPattern, .stringRegex actualPattern =>
         expectedPattern == actualPattern
+    | _ + 1, .kind expectedKind, .stringFormat _ => kindSubsumesKind expectedKind .string
+    | _ + 1, .stringFormat fmt, .prim (.string value) => stringFormatValid fmt value
+    | _ + 1, .stringFormat expectedFmt, .stringFormat actualFmt => expectedFmt == actualFmt
     | _ + 1, .kind expectedKind, .boundConstraint _ _ domain => kindSubsumesKind expectedKind domain.kind
     | _ + 1, .boundConstraint bound kind domain, .prim prim =>
         domain.admitsKind (Prim.kind prim)

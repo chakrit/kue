@@ -3,9 +3,23 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: STDLIB-B-PHASEB — a Phase-B audit cleanup slice (unify list-item
-extraction + rename the misnamed `isConcreteArg` shape gate + doc refreshes), committed on
-`main`, not yet pushed (attended-push pending). Prior HEAD STDLIB-VALIDATORS-SOUND below.
+resolved/historical). HEAD: STDLIB-TIME — the `time` builtin package (scoped: exact-integer +
+RFC3339-validator surface landed, civil-calendar/epoch deferred), committed on `main`, not yet
+pushed (attended-push pending). Prior HEAD STDLIB-B-PHASEB below.
+
+## Latest slice (2026-07-11) — STDLIB-TIME (`time` package, scoped)
+
+New `.time` `BuiltinFamily`. `Kue/Time.lean` holds the Go-duration lexer (`parseGoDuration`,
+structural/fuel-bounded) + calendar-aware RFC3339 validator (leap-year days-in-month). New
+`Value.stringFormat (fmt)` meet-participating string validator, threaded like `stringRegex`
+everywhere (ground non-conforming string bottoms; ABSTRACT string RETAINS — `string &
+time.Duration()` stays incomplete). Shipped: `ParseDuration`, the `Duration`/`Time` validators
+(bare/`()`/bool-fn forms), `Format` for RFC3339/Nano layouts, all unit/layout/month/weekday
+constants. Deferred (`unsupportedBuiltin`): `Unix`/`Parse`/`FormatString`/`Split`/`FormatDuration`
++ non-RFC3339 `Format` layouts (need epoch/format engine); `time.Date` bare-bottom. Duration
+int64-bounded (Go type contract). `Kue/Tests/TimeTests.lean` (60+ `native_decide`) +
+`testdata/export/time_basic.cue`. Retraction: wild `stdlib-import-misrouted-to-disk-loader`
+repointed `time` → `net`. Full detail: implementation-log.
 
 ## Latest slice (2026-07-11) — STDLIB-B-PHASEB (Phase-B audit cleanup)
 

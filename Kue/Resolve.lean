@@ -161,6 +161,7 @@ mutual
     | _ + 1, _, value@(.kind _) => value
     | _ + 1, _, value@(.notPrim _) => value
     | _ + 1, _, value@(.stringRegex _) => value
+    | _ + 1, _, value@(.stringFormat _) => value
     | _ + 1, _, value@(.boundConstraint _ _ _) => value
     | _ + 1, _, value@(.lengthConstraint _ _ _) => value
     | _ + 1, _, value@(.uniqueItems) => value

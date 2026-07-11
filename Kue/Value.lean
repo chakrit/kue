@@ -805,6 +805,16 @@ inductive LengthKind where
   | runes
 deriving Repr, BEq, DecidableEq
 
+/-- Which string-shape a `stringFormat` validator enforces (STDLIB-TIME). `duration` accepts a
+    Go duration literal (`time.Duration`), `rfc3339` an RFC3339 timestamp (`time.Time` and
+    `time.Format(RFC3339|RFC3339Nano)`). A closed sum: a new time-format surface forces a new
+    constructor and a dispatch decision, never a silent string-tag fall-through. The concrete
+    validity predicate lives in `Kue/Time.lean` (`stringFormatValid`), keyed off this. -/
+inductive StringFormat where
+  | duration
+  | rfc3339
+deriving Repr, BEq, DecidableEq, Hashable
+
 mutual
 
 inductive Value where
@@ -840,6 +850,12 @@ inductive Value where
       duplicate bottoms eagerly, otherwise the residual is retained and adjudicated at manifest
       once the list is concrete. -/
   | uniqueItems
+  /-- A string-shape validator (`time.Duration`/`time.Time`/`time.Format(RFC3339|Nano)`,
+      STDLIB-TIME). Like `stringRegex`, it participates in `meet`: a GROUND non-conforming
+      string bottoms, a conforming string passes through, and an ABSTRACT string (`.kind
+      .string`) RETAINS the validator (never fabricated to a value) so `string & time.Duration()`
+      stays incomplete. `fmt` selects the accepted shape; validity is `Kue.stringFormatValid`. -/
+  | stringFormat (fmt : StringFormat)
   | conj (constraints : List Value)
   | builtinCall (name : String) (args : List Value)
   | unary (op : UnaryOp) (value : Value)
@@ -1136,6 +1152,7 @@ def measureForLength : LengthKind -> Value -> LengthMeasure
   | .runes, .prim (.string s) => .final s.toList.length
   | .runes, .kind .string => .unknown
   | .runes, .stringRegex _ => .unknown
+  | .runes, .stringFormat _ => .unknown
   | _, _ => .mismatch
 
 /-- The measured length of a value at manifest finalization, or `none` when the length is NOT
@@ -1290,7 +1307,7 @@ def importBindName (imp : Import) : String :=
     (`encoding/base64` → `base64`). Shared (in the base layer) by the module loader and the
     parser's builtin-alias canonicalization. -/
 def builtinImportPaths : List String :=
-  ["strings", "list", "math", "struct", "regexp", "strconv", "path",
+  ["strings", "list", "math", "struct", "regexp", "strconv", "path", "time",
    "encoding/base64", "encoding/json", "encoding/yaml"]
 
 /-- Whether an import path names a built-in stdlib package the loader must leave to the

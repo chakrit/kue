@@ -24,6 +24,10 @@
   fixture pins `unsupported builtin package "<pkg>"` as its stable `.expected.err`
   substring. Not `.known-red`.
 - **Retraction (STDLIB-C, 2026-07-10):** `strconv` is now implemented, so it no longer
-  hits the unimplemented-routing path. The fixture is REPOINTED to `time` (still an
-  unimplemented dot-free stdlib package) to keep the routing/error contract under guard —
-  the guard is package-agnostic, not about `strconv` specifically.
+  hits the unimplemented-routing path. The fixture was REPOINTED to `time` to keep the
+  routing/error contract under guard — the guard is package-agnostic, not about `strconv`
+  specifically.
+- **Retraction (STDLIB-TIME, 2026-07-11):** `time` is now implemented (`import "time"`
+  resolves), so it no longer hits the unimplemented-routing path either. REPOINTED to `net`
+  (still an unimplemented dot-free stdlib package cue recognizes) — same package-agnostic
+  routing/error guard.

@@ -1,5 +1,6 @@
 import Kue.Value
 import Kue.Regex
+import Kue.Time
 
 namespace Kue
 
@@ -55,6 +56,15 @@ def meetStringRegexPrim (pattern : String) (prim : Prim) : Value :=
           else
             .bottom
       | _ => .bottomWith [.kindConflict .string (Prim.kind prim)]
+
+/-- Meet a `time.*` string-format validator against a primitive: a conforming string passes
+    through, a GROUND non-conforming string bottoms, a non-string prim is a kind conflict.
+    Mirrors `meetStringRegexPrim`. -/
+def meetStringFormatPrim (fmt : StringFormat) (prim : Prim) : Value :=
+  match prim with
+  | .string value =>
+      if stringFormatValid fmt value then .prim prim else .bottom
+  | _ => .bottomWith [.kindConflict .string (Prim.kind prim)]
 
 def minDecimal (left right : DecimalValue) : DecimalValue :=
   if decimalLeValues left right then left else right
@@ -322,6 +332,7 @@ def normalizeFieldOrder : Value -> Value
   | .kind kind => .kind kind
   | .notPrim value => .notPrim value
   | .stringRegex pattern => .stringRegex pattern
+  | .stringFormat fmt => .stringFormat fmt
   | .boundConstraint bound kind domain => .boundConstraint bound kind domain
   | .lengthConstraint kind bound limit => .lengthConstraint kind bound limit
   | .uniqueItems => .uniqueItems
@@ -549,6 +560,28 @@ def meetCore (left right : Value) : Value :=
         .stringRegex pattern
   | .stringRegex _, .boundConstraint _ _ d => .bottomWith [.kindConflict .string d.kind]
   | .boundConstraint _ _ d, .stringRegex _ => .bottomWith [.kindConflict d.kind .string]
+  -- `time.*` string-format validators (STDLIB-TIME), mirroring the `stringRegex` arms above.
+  | .stringFormat lf, .stringFormat rf =>
+      if lf == rf then .stringFormat lf else .conj [.stringFormat lf, .stringFormat rf]
+  | .stringFormat fmt, .prim prim => meetStringFormatPrim fmt prim
+  | .prim prim, .stringFormat fmt => meetStringFormatPrim fmt prim
+  | .kind kind, .stringFormat fmt =>
+      if kindAcceptsKind kind .string then .stringFormat fmt
+      else .bottomWith [.kindConflict kind .string]
+  | .stringFormat fmt, .kind kind =>
+      if kindAcceptsKind kind .string then .stringFormat fmt
+      else .bottomWith [.kindConflict .string kind]
+  | .notPrim forbidden, .stringFormat fmt =>
+      if Prim.kind forbidden = .string then .conj [.stringFormat fmt, .notPrim forbidden]
+      else .stringFormat fmt
+  | .stringFormat fmt, .notPrim forbidden =>
+      if Prim.kind forbidden = .string then .conj [.stringFormat fmt, .notPrim forbidden]
+      else .stringFormat fmt
+  | .stringFormat _, .boundConstraint _ _ d => .bottomWith [.kindConflict .string d.kind]
+  | .boundConstraint _ _ d, .stringFormat _ => .bottomWith [.kindConflict d.kind .string]
+  -- Two string validators of different families (`=~"x" & time.Duration()`): retain both.
+  | .stringRegex p, .stringFormat f => .conj [.stringRegex p, .stringFormat f]
+  | .stringFormat f, .stringRegex p => .conj [.stringFormat f, .stringRegex p]
   | .boundConstraint bound kind domain, .notPrim forbidden =>
       if domain.admitsKind (Prim.kind forbidden) then
         .conj [.boundConstraint bound kind domain, .notPrim forbidden]
@@ -631,6 +664,8 @@ def meetCore (left right : Value) : Value :=
   | _, .lengthConstraint _ _ _ => .bottom
   | .uniqueItems, _ => .bottom
   | _, .uniqueItems => .bottom
+  | .stringFormat _, _ => .bottom
+  | _, .stringFormat _ => .bottom
   -- `meetCore` is the bottoms-everything fallthrough; the real `struct×struct` merge is the
   -- single arm in `meetWithFuel`. A struct reaching here meets a non-struct → bottom.
   | .struct .., _ => .bottom
@@ -1621,6 +1656,18 @@ def join (left right : Value) : Value :=
         .stringRegex leftPattern
       else
         disjOfValues (.stringRegex leftPattern) (.stringRegex rightPattern)
+  | .kind kind, .stringFormat fmt =>
+      if kindAcceptsKind kind .string then .kind kind else disjOfValues (.kind kind) (.stringFormat fmt)
+  | .stringFormat fmt, .kind kind =>
+      if kindAcceptsKind kind .string then .kind kind else disjOfValues (.stringFormat fmt) (.kind kind)
+  | .stringFormat fmt, .prim prim =>
+      if containsBottom (meetStringFormatPrim fmt prim) then disjOfValues (.stringFormat fmt) (.prim prim)
+      else .stringFormat fmt
+  | .prim prim, .stringFormat fmt =>
+      if containsBottom (meetStringFormatPrim fmt prim) then disjOfValues (.prim prim) (.stringFormat fmt)
+      else .stringFormat fmt
+  | .stringFormat lf, .stringFormat rf =>
+      if lf == rf then .stringFormat lf else disjOfValues (.stringFormat lf) (.stringFormat rf)
   | .builtinCall leftName leftArgs, .builtinCall rightName rightArgs =>
       if leftName = rightName && leftArgs == rightArgs then
         .builtinCall leftName leftArgs
