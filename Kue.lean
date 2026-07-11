@@ -8,6 +8,7 @@ import Kue.Manifest
 import Kue.Base64
 import Kue.Json
 import Kue.Yaml
+import Kue.TextTemplate
 import Kue.Order
 import Kue.Normalize
 import Kue.EvalOps

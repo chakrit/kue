@@ -1,0 +1,5 @@
+Found: STDLIB-TEXTTEMPLATE-T1 slice, 2026-07-11, manual JSEscape non-ASCII probe.
+Bug: kue cue-file string lexer drops the backslash on a \uXXXX unicode escape
+("caf\u00e9" lexes as literal "cafu00e9" instead of "café"). Spec: CUE string
+lexical spec mandates \uXXXX -> the code point. cue v0.16.1 is correct (café).
+Unrelated to text/template; quarantined pending a string-lexer fix slice.

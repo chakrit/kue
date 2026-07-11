@@ -3,17 +3,35 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **STDLIB-NET** — the `net` package IP validator surface. EXTENDS
-the `time` `stringFormat` mechanism (11 new `StringFormat` variants, NO new `Value`
-constructor). `Kue/Net.lean` = total `net/netip` `ParseAddr`/`ParsePrefix` port + `Addr.Is*`
-classification over `NetAddr = v4 | v6`. Shipped: `IP`/`IPv4`/`IPv6`/`IPCIDR` + 7 address-class
-predicates (bare/`()`/bool-`(s)` forms), `IPv4len`/`IPv6len`. Deferred (`unsupportedBuiltin`):
-`FQDN` (full idna engine) + all struct/list/tuple functions (`SplitHostPort`/`ToIP4`/`ParseCIDR`/
-`InCIDR`/`CompareIP`/…); nonexistent leaf ⇒ bare bottom. Verified byte-identical to cue v0.16.1
-(280-case IP-class differential + CIDR battery + export). `Kue/Tests/NetTests.lean` (80+
-`native_decide`) + `testdata/export/net_basic.{cue,json}`. Retraction: wild
-`stdlib-import-misrouted-to-disk-loader` repointed `net` → `uuid`. Committed on `main`, not
-pushed (attended-push pending). Prior HEAD STDLIB-TIME below.
+resolved/historical). HEAD: **STDLIB-TEXTTEMPLATE-T1** — the `text/template` package's minimal
+green core + escapers. cue v0.16.1 exposes EXACTLY three leaves: `Execute`/`HTMLEscape`/`JSEscape`
+(all → string). New leaf module `Kue/TextTemplate.lean` (`import Kue.Value` only) = a total,
+fuel-bounded lexer + parse-tree + tree-walk evaluator over its own `TemplateData` tree (float
+UNREPRESENTABLE by construction) + the two pure escapers; `.textTemplate` `BuiltinFamily` arm +
+`Kue.manifestToTemplateData` bridge (key-sorts struct fields). Shipped: text, `{{.F}}`/`{{.A.B}}`/
+`{{.}}`, if/range(list/struct/null)/with + else, comment, `{{- -}}` trim, Go-`fmt` `map[k:v]`/`[a b c]`
+rendering, missing/null ⇒ `<no value>` (nested null ⇒ `<nil>`). Deferred (`unsupportedBuiltin`):
+FLOAT data (⇒ T3 float kernel), all FUNCS/pipelines/vars/printf/define (⇒ T2/T4), non-ASCII
+`JSEscape` (IsPrint table); malformed template / field-on-scalar ⇒ bottom, nonexistent leaf ⇒ bare
+bottom. 35-case differential byte-identical to cue. `Kue/Tests/TextTemplateTests.lean` (60+
+`native_decide`) + `testdata/export/text_template_basic.{cue,json}`. **Wild-caught OUT-OF-SCOPE bug
+queued:** `testdata/wild/cue-unicode-escape-dropped/` (`.known-red`) — kue's cue-file string lexer
+DROPS the backslash on a `\uXXXX` escape (`"café"` → `"cafu00e9"`; cue correct); seed for a
+string-lexer slice. Retraction: wild `stdlib-import-misrouted` guard stays at `uuid` (NOT repointed).
+Committed on `main`, not pushed (attended-push pending). Prior HEAD STDLIB-NET below.
+
+## Latest slice (2026-07-11) — STDLIB-TEXTTEMPLATE-T1 (`text/template`, minimal core + escapers)
+
+New `.textTemplate` `BuiltinFamily`. `Kue/TextTemplate.lean` (leaf, imports `Kue.Value` only): lexer
+(`{{`/`}}` + `{{-`/`-}}` trim), whitelist parser (`parseSeq`, fuel = item count — anything outside
+the T1 grammar ⇒ `.unsupported`), fuel-bounded tree-walk evaluator (shared decreasing budget). Float
+defer boundary = illegal-states-unrepresentable: `TemplateData` has NO float constructor, so
+`manifestToTemplateData` (`Builtin.lean`) returns `none` on a `.prim (.float …)` anywhere in the
+tree ⇒ `unsupportedBuiltin "text/template.Execute"`. Two render modes: `renderAction` (top-level
+null ⇒ `<no value>`) vs `renderGoValue` (nested null ⇒ `<nil>`, Go-`fmt` `map[]`/`[]`). `JSEscape`
+ASCII exact (7 named escapes + control `\u00XX` uppercase); non-ASCII ⇒ `unsupportedBuiltin
+"text/template.JSEscape"` (IsPrint table deferred). Full detail: implementation-log. T2/T3/T4
+roadmap in plan.md.
 
 ## Latest slice (2026-07-11) — STDLIB-NET (`net` package, scoped to IP validators)
 

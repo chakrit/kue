@@ -7,6 +7,7 @@ import Kue.Base64
 import Kue.Json
 import Kue.Yaml
 import Kue.CaseTable
+import Kue.TextTemplate
 
 namespace Kue
 
@@ -1271,10 +1272,82 @@ def evalNetBuiltin : String -> List Value -> Value
   | "net.CompareIP", args => unsupportedOrBottom "net.CompareIP" args
   | name, args => unresolvedOrBottom name args
 
+mutual
+  /-- Bridge an already-manifested value into the `text/template` data tree. A FLOAT (or a
+      `bytes` payload, whose Go-`fmt` byte-list rendering is likewise out of T1 scope) is NOT
+      representable in `TemplateData` — its presence returns `none`, which the caller routes to
+      `unsupportedBuiltin` (the deferred `strconv.FormatFloat` shortest-round-trip kernel is the
+      wall; a wrong float rendering is never emitted). Struct fields are KEY-SORTED here so both
+      the `map[…]` rendering and `range` iterate in Go's key order. -/
+  def manifestToTemplateData : ManifestValue → Option TextTemplate.TemplateData
+    | .prim .null => some .null
+    | .prim (.bool b) => some (.bool b)
+    | .prim (.int i) => some (.int i)
+    | .prim (.string s) => some (.str s)
+    | .prim (.float _ _) => none
+    | .prim (.bytes _) => none
+    | .list items => (manifestToTemplateList items).map .list
+    | .struct fields =>
+        (manifestToTemplateFields fields).map (fun fs =>
+          .struct (fs.mergeSort (fun a b => a.fst < b.fst)))
+
+  def manifestToTemplateList : List ManifestValue → Option (List TextTemplate.TemplateData)
+    | [] => some []
+    | x :: rest =>
+        match manifestToTemplateData x, manifestToTemplateList rest with
+        | some d, some ds => some (d :: ds)
+        | _, _ => none
+
+  def manifestToTemplateFields :
+      List (String × ManifestValue) → Option (List (String × TextTemplate.TemplateData))
+    | [] => some []
+    | kv :: rest =>
+        match manifestToTemplateData kv.snd, manifestToTemplateFields rest with
+        | some d, some ds => some ((kv.fst, d) :: ds)
+        | _, _ => none
+end
+
+/-- Evaluate `template.Execute(tmpl, data)`. Both arguments are manifested (forcing defaults /
+    incompleteness): a non-concrete argument that may still resolve stays a `.builtinCall`
+    residual, an incomplete-but-settled one bottoms (mirroring `json.Marshal`); a concrete
+    non-string template bottoms (cue type error). A float in the data ⇒ `unsupportedBuiltin`;
+    a template parse/eval error ⇒ bottom; a deferred construct ⇒ `unsupportedBuiltin`. -/
+def executeTemplate (tmplVal dataVal : Value) : Value :=
+  match manifest tmplVal with
+  | .error _ =>
+      if isPendingArg tmplVal then .builtinCall "template.Execute" [tmplVal, dataVal] else .bottom
+  | .ok (.prim (.string tmpl)) =>
+      match manifest dataVal with
+      | .error _ =>
+          if isPendingArg dataVal then .builtinCall "template.Execute" [tmplVal, dataVal] else .bottom
+      | .ok mdata =>
+          match manifestToTemplateData mdata with
+          | none => .bottomWith [.unsupportedBuiltin "text/template.Execute"]
+          | some data =>
+              match TextTemplate.runTemplate tmpl data with
+              | .ok s => .prim (.string s)
+              | .error .unsupported => .bottomWith [.unsupportedBuiltin "text/template.Execute"]
+              | .error .bottom => .bottom
+  | .ok _ => .bottom
+
+/-- Dispatch the `text/template` package builtins (STDLIB-TEXTTEMPLATE-T1). cue v0.16.1 exposes
+    exactly three callable leaves — `Execute(tmpl, data)`, `HTMLEscape(s)`, `JSEscape(s)`, all
+    returning a string; every other name is a nonexistent leaf that bottoms bare via
+    `unresolvedOrBottom` (cue's `cannot call non-function`). `JSEscape` of a non-ASCII string
+    defers (`unicode.IsPrint` table, see `cue-spec-gaps.md`). -/
+def evalTextTemplateBuiltin : String → List Value → Value
+  | "template.Execute", [tmplVal, dataVal] => executeTemplate tmplVal dataVal
+  | "template.HTMLEscape", [.prim (.string s)] => .prim (.string (TextTemplate.htmlEscape s))
+  | "template.JSEscape", [.prim (.string s)] =>
+      match TextTemplate.jsEscape s with
+      | some out => .prim (.string out)
+      | none => .bottomWith [.unsupportedBuiltin "text/template.JSEscape"]
+  | name, args => unresolvedOrBottom name args
+
 /-- The closed set of builtin families on the FAMILY axis. `core` holds the nine exact
     unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`, plus the `slice`
-    desugar of `x[lo:hi]`); the rest are the twelve qualified stdlib packages
-    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`/`path`/`time`/`net`). The
+    desugar of `x[lo:hi]`); the rest are the thirteen qualified stdlib packages
+    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`/`path`/`time`/`net`/`textTemplate`). The
     within-family LEAF (e.g. `math.Pow`) stays a
     `String` — genuinely many-valued and string-dispatched inside each `eval*Builtin`. This
     is the closed, versionable axis: a new family forces a new constructor, and the
@@ -1294,6 +1367,7 @@ inductive BuiltinFamily where
   | path
   | time
   | net
+  | textTemplate
 deriving Repr, BEq, DecidableEq
 
 /-- Classify a builtin name into its family at the one point the name is interpreted as a
@@ -1317,6 +1391,7 @@ def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
   else if name.startsWith "path." then some .path
   else if name.startsWith "time." then some .time
   else if name.startsWith "net." then some .net
+  else if name.startsWith "template." then some .textTemplate
   else none
 
 /-- Dispatch the `core` exact-name builtins (import-free: the eight CUE built-ins plus the
@@ -1459,6 +1534,7 @@ def evalBuiltinCall (name : String) (args : List Value) : Value :=
   | some .path => evalPathBuiltin name args
   | some .time => evalTimeBuiltin name args
   | some .net => evalNetBuiltin name args
+  | some .textTemplate => evalTextTemplateBuiltin name args
   | none => unresolvedOrBottom name args
 
 end Kue

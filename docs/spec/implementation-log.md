@@ -19814,3 +19814,95 @@ class predicate was verified against the binary.
 - Spec gap recorded (`cue-spec-gaps.md` STDLIB-NET). No `cue-divergences.md` entry — the
   shipped surface matches cue exactly; deferrals are gaps, not divergences.
 - `./scripts/check.sh` GREEN.
+
+---
+
+## Completed Slice: STDLIB-TEXTTEMPLATE-T1 — `text/template` minimal green core + escapers
+
+Goal: implement the `text/template` package's callable surface that cue v0.16.1 exposes —
+exactly three leaves: `Execute(template, data) -> string`, `HTMLEscape(s) -> string`,
+`JSEscape(s) -> string`. Every other name (`Parse`, `New`, …) is a non-function `_|_` in cue,
+so it bottoms bare via the catch-all (B-1). Confirmed the 3-leaf surface against the binary.
+
+### What landed
+
+- **`Kue/TextTemplate.lean`** (new leaf module, `import Kue.Value` only) — a total,
+  fuel-bounded lexer + parse-tree + tree-walk evaluator over its own `TemplateData` tree
+  (`null`/`bool`/`int`/`str`/`list`/`struct`), plus the two pure escapers. FLOAT is
+  deliberately UNREPRESENTABLE in `TemplateData` (no constructor), so the renderer never
+  faces one — the illegal-states-unrepresentable encoding of the float defer boundary.
+  Lexer (`{{`/`}}`, `{{-`/`-}}` trim), parser (`parseSeq`, fuel = item count; classifies each
+  action, whitelisting only the T1 grammar — everything else ⇒ `.unsupported`), evaluator
+  (`evalSeq`/`evalNode`/`evalRange`, one shared strictly-decreasing fuel budget = a data-scaled
+  bound). NO `partial`.
+- **Rendering** matches Go `fmt`: struct ⇒ `map[k:v …]` KEY-SORTED, list ⇒ `[a b c]`
+  space-joined (NOT JSON — `Kue/Json.lean` is not reused); an action rendering a null/missing
+  field ⇒ `<no value>`, but a null NESTED in a container ⇒ `<nil>` (two render modes,
+  `renderAction` vs `renderGoValue`). A missing field is nil (falsy, chains to nil), not an
+  error; a field access on a SCALAR bottoms. Go truthiness (empty string/0/false/nil/empty
+  collection ⇒ false).
+- **`Kue.manifestToTemplateData`** (`Builtin.lean`) — the `Value`→data bridge. Manifests the
+  args (forcing defaults / incompleteness), KEY-SORTS struct fields (so both `map[]` and
+  `range` iterate in Go key order), and routes any `float`/`bytes` to `none`.
+- **`evalTextTemplateBuiltin` + `executeTemplate`** (`Builtin.lean`) + `.textTemplate`
+  `BuiltinFamily` + `ofName?` (`template.` prefix) + exhaustive `evalBuiltinCall` arm.
+  `text/template` added to `builtinImportPaths` (last path element `template` binds the local
+  name; dispatch head `template.Execute`).
+
+### Defer boundary (recognized, not computed → `unsupportedBuiltin`, never a wrong result)
+
+- **Any FLOAT in the rendered data** ⇒ `unsupportedBuiltin "text/template.Execute"`. DETECTED
+  in `manifestToTemplateData`: a `.prim (.float …)` (anywhere in the tree) returns `none`,
+  which `executeTemplate` maps to the marker. This is the deferred `strconv.FormatFloat`
+  shortest-round-trip kernel (the wall) — T3, folded into the float campaign. cue DOES render
+  floats (`{{.x}}` on `1.5` → `"1.5"`), so this is a kue-subset deferral, not a cue bug.
+- **All builtin FUNCS** (`and`/`or`/`not`/`len`/`index`/`eq`/…), pipelines `{{a|b}}`,
+  variables `{{$x:=…}}`, `printf`/`print`, `{{define}}`/`{{template}}`/`{{block}}`, and `range`
+  over a scalar ⇒ `unsupportedBuiltin "text/template.Execute"`. The action classifier is a
+  strict whitelist: only `.`/`.field.chain`/`true`/`false`/`nil` operands and the
+  `if`/`else`/`end`/`range`/`with` keywords are accepted; a multi-word pipeline, a `|`, a `$`,
+  or a deferred keyword ⇒ `.unsupported`.
+- **`JSEscape` of a non-ASCII string** ⇒ `unsupportedBuiltin "text/template.JSEscape"`. Go
+  escapes non-ASCII runes per `unicode.IsPrint` (the SAME deferred Unicode table as
+  `strconv.Quote`); the ASCII surface (7 named escapes + control `\u00XX`, uppercase hex) is
+  exact. Deferred, never approximated (correctness-over-coverage). `HTMLEscape` needs no such
+  defer — it touches only `< > & ' "` + NUL⇒U+FFFD, faithful for all input.
+- **Malformed template** (unclosed action, stray `{{end}}`/`{{else}}`, empty `{{}}`) or
+  field-access-on-scalar ⇒ bottom. A **non-concrete** template/data ⇒ pending `.builtinCall`
+  residual (if the arg is ref-like) or bottom (settled-incomplete) — mirrors `json.Marshal`.
+
+### Verification against cue v0.16.1
+
+35-case rendering/control/escaper differential BYTE-IDENTICAL to `cue export --out json`
+(incl. the real prod9 shape `Execute("Hello {{ .name }}", {name:"World"})`, nested fields,
+`{{.}}` scalar/whole-struct map / list, if/else both branches, range over list AND struct
+(key order), with/with-else, comment, `{{- -}}` trim incl. newlines, missing-field & null
+`<no value>`, bool/int rendering, nested map/list, both escapers' ASCII output). Error/defer
+verdicts confirmed against the binary and pinned by `native_decide`.
+
+### Tests / verify
+
+- `Kue/Tests/TextTemplateTests.lean` (60+ `native_decide`) + `testdata/export/text_template_basic.{cue,json}`.
+- Wild fixture `testdata/wild/cue-unicode-escape-dropped/` (QUARANTINED `.known-red`): a
+  wild-caught, OUT-OF-SCOPE bug found while probing JSEscape non-ASCII — kue's cue-file string
+  lexer DROPS the backslash on a `\uXXXX` escape (`"café"` lexes as `"cafu00e9"` instead
+  of `"café"`; cue is correct). Captured red-first as the seed for a future string-lexer slice;
+  unrelated to text/template.
+- Spec gap recorded (`cue-spec-gaps.md` STDLIB-TEXTTEMPLATE-T1). No `cue-divergences.md` entry
+  — the shipped surface matches cue exactly; the deferrals are gaps (kue-does-less), not
+  divergences.
+- Retraction: the wild `stdlib-import-misrouted` guard stays repointed at `uuid` (still
+  unimplemented) — NOT repointed to text/template.
+- `./scripts/check.sh` GREEN.
+
+### Remaining text/template roadmap (T2/T3/T4)
+
+- **T2 — the builtin FUNC + pipeline layer:** `and`/`or`/`not`/`len`/`index`/`slice`/`eq`/`ne`/
+  `lt`/… , pipelines `{{a | b}}`, `{{$x := …}}` variables. Pure over `TemplateData`; the parser
+  already isolates these as `.unsupported`, so T2 is additive (widen the classifier + add a
+  command evaluator).
+- **T3 — float rendering:** folded into the FLOAT CAMPAIGN (the `strconv.FormatFloat`
+  shortest-round-trip kernel). Once that kernel lands, `TemplateData` gains a float carrier and
+  `manifestToTemplateData` stops deferring floats.
+- **T4 — `printf`/fmt verbs + `{{define}}`/`{{template}}`/`{{block}}`:** the fmt-verb formatter
+  and named-template/associated-template machinery. Largest surface; lowest prod9 priority.

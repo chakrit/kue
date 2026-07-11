@@ -353,6 +353,31 @@ enforcement), surfaced by slice D's separator work, is queued below.
   recorded (STDLIB-NET). `Kue/Tests/NetTests.lean` (80+ `native_decide`) +
   `testdata/export/net_basic.{cue,json}`.
 
+- **STDLIB-TEXTTEMPLATE-T1 — `text/template` builtin package (minimal green core + escapers).
+  ✅ LANDED (2026-07-11).** Used by prod9 `#Template` filters (`template.Execute`). cue v0.16.1
+  exposes EXACTLY three callable leaves — `Execute`/`HTMLEscape`/`JSEscape` (all → string); every
+  other name is a non-function `_|_`. New leaf module `Kue/TextTemplate.lean` (`import Kue.Value`
+  only): a total, fuel-bounded lexer + parse-tree + tree-walk evaluator over its own
+  `TemplateData` tree (float UNREPRESENTABLE by construction), plus the two pure escapers. NO new
+  `Value` shape — all three leaves return `.prim (.string …)`. `.textTemplate` `BuiltinFamily` arm
+  (`evalTextTemplateBuiltin`); `Kue.manifestToTemplateData` bridges an already-manifested `Value`
+  (key-sorting struct fields). **Shipped:** text passthrough, `{{.F}}`/`{{.A.B}}`/`{{.}}`,
+  `{{if}}`/`{{range}}`(list/struct key-sorted/null)/`{{with}}` + `{{else}}`, `{{/* */}}`,
+  `{{-`/`-}}` trim, Go-`fmt` scalar/`map[k:v …]`/`[a b c]` rendering, missing/null ⇒ `<no value>`
+  (nested null ⇒ `<nil>`), both escapers' ASCII surface. **Deferred with `unsupportedBuiltin`**
+  (the T2/T3/T4 roadmap below): any FLOAT in the data (⇒ T3, the `strconv.FormatFloat` kernel), all
+  builtin FUNCS/pipelines/variables/`printf`/`define` (⇒ T2/T4), `JSEscape` of a non-ASCII string
+  (`unicode.IsPrint` table, same wall as `strconv.Quote`); malformed template / field-on-scalar ⇒
+  bottom, nonexistent leaf ⇒ bare bottom. Verified byte-identical to cue v0.16.1 (35-case
+  differential incl. the real prod9 `Execute("Hello {{ .name }}", {name:"World"})`). Spec-gap
+  recorded (STDLIB-TEXTTEMPLATE-T1). `Kue/Tests/TextTemplateTests.lean` (60+ `native_decide`) +
+  `testdata/export/text_template_basic.{cue,json}`. **Remaining roadmap:** T2 = builtin FUNC +
+  pipeline + variable layer (additive; parser already isolates them as `.unsupported`); T3 = float
+  rendering, folded into the FLOAT campaign (`strconv.FormatFloat` shortest-round-trip kernel); T4 =
+  `printf`/fmt-verbs + `{{define}}`/`{{template}}`/`{{block}}` (largest surface, lowest priority).
+  Wild-caught OUT-OF-SCOPE bug queued: `testdata/wild/cue-unicode-escape-dropped/` (`.known-red`) —
+  kue's cue-file string lexer drops the backslash on a `\uXXXX` escape; seed for a string-lexer slice.
+
 **STDLIB-batch two-phase audit followup (2026-07-10, `4625079..2c3659b`).** Three remaining LOW/polish
 findings closed in one audit-followup slice; one new leniency bug QUEUED.
 - **Phase-B LOW-1 — `BuiltinFamily` stale doc comment. ✅ CLOSED (2026-07-10).** The doc said "eight

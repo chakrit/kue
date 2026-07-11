@@ -1324,7 +1324,7 @@ def importBindName (imp : Import) : String :=
     parser's builtin-alias canonicalization. -/
 def builtinImportPaths : List String :=
   ["strings", "list", "math", "struct", "regexp", "strconv", "path", "time", "net",
-   "encoding/base64", "encoding/json", "encoding/yaml"]
+   "encoding/base64", "encoding/json", "encoding/yaml", "text/template"]
 
 /-- Whether an import path names a built-in stdlib package the loader must leave to the
     call-form builtin dispatch rather than resolve from disk. -/

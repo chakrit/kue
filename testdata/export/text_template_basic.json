@@ -1,0 +1,19 @@
+{
+    "greeting": "Hello World",
+    "nested": "deep",
+    "dot_scalar": "hi",
+    "dot_struct": "map[a:1 b:2]",
+    "dot_list": "[1 2 3]",
+    "missing": "<no value>",
+    "null_field": "<no value>",
+    "bool_int": "true 42",
+    "if_branch": "no",
+    "range_list": "[1][2][3]",
+    "range_map": "[1][2][3]",
+    "with_block": "hi",
+    "comment": "ab",
+    "ws_trim": "aXb",
+    "nested_map": "map[a:map[b:1] c:[1 2]]",
+    "html_esc": "a&lt;b&gt;&amp;&#34;c&#39; &lt;/x&gt;",
+    "js_esc": "a\\u003Cb\\u003E\\u0026\\u003D\\\"c\\' x"
+}
