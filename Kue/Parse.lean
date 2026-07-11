@@ -76,14 +76,6 @@ partial def skipTrivia : List Char -> List Char
       else
         value :: rest
 
-partial def skipPostfixTrivia : List Char -> List Char
-  | [] => []
-  | value :: rest =>
-      if parseHorizontalWhitespace value then
-        skipPostfixTrivia rest
-      else
-        value :: rest
-
 /-- Skip same-line trivia when hunting for a trailing binary operator that would CONTINUE an
     expression: horizontal whitespace only, stopping at a newline, a line comment (`//`), or
     the next real token. A newline after a complete expression terminates it — CUE inserts an
@@ -1267,12 +1259,12 @@ mutual
     | .ok (value, rest) => parseSelectorRest value rest
 
   partial def parseSelectorRest (base : Value) (chars : List Char) : ParseResult Value :=
-    match skipPostfixTrivia chars with
+    match skipSameLineTrivia chars with
     | '.' :: rest =>
         match parseLabel (skipTrivia rest) with
         | .error error => .error error
         | .ok (label, rest) =>
-            match skipPostfixTrivia rest with
+            match skipSameLineTrivia rest with
             | '(' :: rest =>
                 -- Package-qualified call, e.g. `strings.ToUpper(x)`. Only a single
                 -- `pkg.fn(...)` shape is a builtin; deeper selectors stay field access.
@@ -1526,7 +1518,7 @@ mutual
     match parseIdentifier chars with
     | .error error => .error error
     | .ok (name, rest) =>
-        match skipPostfixTrivia rest with
+        match skipSameLineTrivia rest with
         | '(' :: rest => parseCall name rest
         | _ =>
             match name with

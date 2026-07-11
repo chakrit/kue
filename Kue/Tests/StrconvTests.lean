@@ -4,8 +4,9 @@ import Kue.Tests.EvalTestHelpers
 namespace Kue
 
 -- STDLIB-C: `strconv` builtin dispatch. Each theorem pins one implemented function against
--- cue v0.16.1 on representative, boundary, and error inputs. Deferred functions
--- (`Itoa`/`FormatFloat`/`ParseFloat`/`Quote`/…) route to `unsupportedBuiltin`.
+-- cue v0.16.1 on representative, boundary, and error inputs. Real-but-deferred functions
+-- (`FormatFloat`/`ParseFloat`/`Quote`/`Unquote` family) route to `unsupportedBuiltin`; a
+-- nonexistent leaf (`Itoa`, not a callable function in cue) bottoms bare, cue's own verdict.
 --
 -- `Value` is a mutual inductive (`BEq`, no `DecidableEq`), so theorems assert `(lhs == rhs) =
 -- true`, matching the repo's existing builtin-test convention.
@@ -181,10 +182,13 @@ theorem parsebool_invalid :
     (call "strconv.ParseBool" [.prim (.string "yes")] == .bottomWith [.strconvSyntax "yes"]) = true := by
   native_decide
 
--- Deferred functions route to unsupportedBuiltin on concrete args.
-theorem itoa_deferred :
-    (call "strconv.Itoa" [.prim (.int 255)] == .bottomWith [.unsupportedBuiltin "strconv.Itoa"]) = true := by
+-- A nonexistent leaf (`Itoa` is not a callable function in cue v0.16.1 — `cannot call
+-- non-function`) bottoms BARE, no `unsupportedBuiltin` marker: the marker is a positive
+-- recognition claim, and a nonexistent leaf is a plain type error, matching cue's verdict.
+theorem itoa_nonexistent_is_bottom :
+    (call "strconv.Itoa" [.prim (.int 255)] == .bottom) = true := by
   native_decide
+-- Real-but-deferred functions route to unsupportedBuiltin on concrete args.
 theorem parsefloat_deferred :
     (call "strconv.ParseFloat" [.prim (.string "3.14"), .prim (.int 64)]
       == .bottomWith [.unsupportedBuiltin "strconv.ParseFloat"]) = true := by native_decide

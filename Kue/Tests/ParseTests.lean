@@ -543,6 +543,13 @@ theorem parse_block_comment_value_position_rejected :
     parseFailsWith "a: /* c */ 1\n" "unexpected character '/'" = true := by
   native_decide
 
+-- Inside a string interpolation `\( … )`: the body parses through `parseExpression`, so the same
+-- stray-`/`-division mechanism rejects a block comment there too — no interpolation-local trivia
+-- bypass. `1 /* c */` reads `1`, then `/` as division whose operand starts at `*`.
+theorem parse_block_comment_in_interpolation_rejected :
+    parseFailsWith "a: \"\\( 1 /* c */ )\"\n" "unexpected character '*'" = true := by
+  native_decide
+
 -- Nested-looking `/* /* */` — CUE has no nesting; the first `/*` is already rejected.
 theorem parse_block_comment_nested_looking_rejected :
     parseFails "a: 1 /* /* */ b: 2\n" = true := by

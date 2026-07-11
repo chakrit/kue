@@ -19312,3 +19312,58 @@ volume-name/UNC/backslash handling is a large, error-prone corner) — never a s
 
 - `docs/scratch/2026-07-11-session-resume.md`: `path` removed from the "New stdlib packages" queue
   and marked landed.
+
+## Completed Slice: BLOCK-COMMENT-REJECT + STDLIB-PATH audit followup (B-1/B-2/F1/F2)
+
+Goal: fold four findings from the two-phase audit of the BLOCK-COMMENT-REJECT + STDLIB-PATH batch
+into one coherent cleanup slice — one MEDIUM (builtin fallback unify + diagnostic adjudication),
+three LOW. B-3/B-4 (test-organization) deferred to a future test-org pass.
+
+### Steps
+
+- `Kue/Builtin.lean`:
+  - New `unsupportedOrBottom` combinator, sibling of `unresolvedOrBottom`, differing ONLY in the
+    all-concrete branch (`.bottomWith [.unsupportedBuiltin name]` vs bare `.bottom`); both defer an
+    abstract-arg call and bottom a bottom-arg call identically. Extracts the two byte-identical
+    inline fallback blocks that lived in `evalStrconvBuiltin` / `evalRegexpBuiltin` (B-1 DRY).
+  - The marker is now emitted ONLY from EXPLICIT dispatch arms that name a real-but-deferred leaf:
+    strconv `FormatFloat`/`ParseFloat`/`Quote`/`Unquote`/`QuoteToASCII`; regexp `FindNamedSubmatch`/
+    `FindAllNamedSubmatch`. Both catch-alls now route through `unresolvedOrBottom` (bare bottom).
+    Nonexistent leaves (`strconv.Itoa`, `regexp.FindString`/`Split`) thus bottom BARE, no longer
+    mislabeled "unsupported".
+  - `unresolvedOrBottom` doc rewritten to the contract, dropping the "upcoming `math.*`" rollout
+    enumeration (B-2). strconv/regexp dispatcher doc-comments updated to the nonexistent-vs-real
+    split.
+- `Kue/Parse.lean`: deleted `skipPostfixTrivia` (byte-identical to `skipSameLineTrivia` — both
+  `[]`→`[]`, skip horizontal ws else stop; only arm order + name differed, verified before
+  collapsing) and repointed its three callsites to `skipSameLineTrivia` (F1).
+
+### Spec basis
+
+Diagnostic surface is spec-silent → cue-compat tiebreak. cue v0.16.1 probed for both sub-cases: a
+NONEXISTENT leaf (`strconv.Itoa`, `strconv.CanBackquote`, `regexp.FindString`/`FindAllString`/`Split`)
+and an unimplemented-but-real one alike hit cue's `cannot call non-function <name> (type _|_)` bottom;
+a leaf cue DOES implement returns a VALUE (`strconv.FormatFloat`/`ParseFloat`/`Quote`/`Unquote`/
+`QuoteToASCII`, `regexp.FindNamedSubmatch`/`FindAllNamedSubmatch`/`QuoteMeta`/`Valid`). cue has NO
+"unsupported" concept. Adjudication: the `unsupportedBuiltin` marker is a POSITIVE recognition claim
+("kue recognizes this real cue function but defers it"); the catch-all cannot substantiate recognition
+(no cue-function registry), so it default-denies the claim and bottoms bare — the cue-compatible
+verdict for a nonexistent leaf. Recorded in `cue-spec-gaps.md` (B-1 row).
+
+### Tests
+
+- Pins flipped (retraction): `StrconvTests` `itoa_deferred` → `itoa_nonexistent_is_bottom` (bare
+  bottom); `BuiltinTests` `regexp_findstring_is_unsupported` → `regexp_findstring_nonexistent_is_bottom`.
+- Pins added: `BuiltinTests` `regexp_findnamedsubmatch_is_unsupported` (real-but-deferred → marker);
+  `ParseTests` `parse_block_comment_in_interpolation_rejected` (`"\( 1 /* c */ )"` → `unexpected
+  character '*'`, F2 hardening).
+- Pins kept green (real-but-deferred still marks): `StrconvTests` `parsefloat_deferred`/`quote_deferred`/
+  `quote_render_message`; the `unknown_leaf_each_family_concrete_args_is_bottom` verdict pin (its stale
+  "regexp returns a richer bottomWith" comment updated — every family now bottoms bare for a NoSuch leaf).
+- `./scripts/check.sh` GREEN (full suite + canaries + wild fixtures).
+
+### Retraction
+
+- `docs/spec/plan.md` strconv-C entry: `Itoa` moved out of the "route to `unsupportedBuiltin`" group
+  (it bottoms bare, being a nonexistent cue function).
+- `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this followup.

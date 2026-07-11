@@ -252,10 +252,12 @@ enforcement), surfaced by slice D's separator work, is queued below.
   cover base-0 prefix auto-detect (`0x`/`0b`/`0o`/leading-`0` octal), Go's underscore-separator
   rule (base 0 only), case-insensitive digits, and the `bitSize` range check (`0` = unbounded,
   `b>0` = signed `[-2^(b-1),2^(b-1)-1]` / unsigned `[0,2^b-1]`, `b<0` = empty). Errors are typed
-  `BottomReason`s (`strconvSyntax`/`strconvRange`/`strconvInvalidBase`). **Deferred** (route to
-  `unsupportedBuiltin`): `Itoa` (not a callable function in cue v0.16.1), `FormatFloat`/`ParseFloat`
-  (float shortest-round-trip is incompatible with the exact-decimal core), `Quote`/`Unquote`/
-  `QuoteToASCII`/… (need Go's full Unicode `IsPrint` table). **Divergence:** base restricted to Go's
+  `BottomReason`s (`strconvSyntax`/`strconvRange`/`strconvInvalidBase`). **Deferred, real-but-not-computed**
+  (explicit arms → `unsupportedBuiltin`, per B-1 2026-07-11): `FormatFloat`/`ParseFloat` (float
+  shortest-round-trip is incompatible with the exact-decimal core), `Quote`/`Unquote`/`QuoteToASCII`
+  (need Go's full Unicode `IsPrint` table). `Itoa` is NOT a cue function (`cannot call non-function`)
+  so it has no arm and bottoms BARE via the catch-all, matching cue's verdict (B-1). **Divergence:**
+  base restricted to Go's
   documented `2..36`; cue leaks `math/big`'s `2..62` — recorded in `cue-divergences.md`. Fixture
   `testdata/export/strconv_basic`; theorems in `Kue/Tests/StrconvTests.lean`. STDLIB-A wild fixture
   repointed `strconv`→`time` (retraction).
@@ -339,6 +341,39 @@ findings closed in one audit-followup slice; one new leniency bug QUEUED.
   state (module.cue is parsed by `parseSource`, which rejects block comments before any textual scan).
   Guards: wild fixture `block-comment-rejected` (red→green) + `ParseTests` `parse_block_comment_*`
   (six reject positions + line-comment/division regression pins) + `ModCmdTests` applyModGet rejection.
+
+**BLOCK-COMMENT-REJECT + STDLIB-PATH two-phase audit followup (2026-07-11).** One coherent
+cleanup slice folding four findings; the two remaining are deferred to a future test-org pass.
+- **B-1 (MEDIUM) — builtin dispatch fallback unify + diagnostic adjudication. ✅ LANDED
+  (2026-07-11).** Three fallback shapes collapsed to one: a new `unsupportedOrBottom` combinator
+  (sibling of `unresolvedOrBottom`, differing only in the all-concrete branch — `unsupportedBuiltin`
+  marker vs bare bottom) replaces the two byte-identical inline blocks in `evalStrconvBuiltin` /
+  `evalRegexpBuiltin`. **Adjudication** (cue v0.16.1 probed): cue has NO "unsupported" concept — a
+  nonexistent leaf (`strconv.Itoa`, `regexp.FindString`/`Split`) and an unimplemented-but-real one
+  both hit its `cannot call non-function` bottom, while a real leaf it DOES implement (`FormatFloat`,
+  `Quote`, `FindNamedSubmatch`) returns a VALUE. So the `unsupportedBuiltin` marker is a POSITIVE
+  recognition claim, emitted ONLY from an EXPLICIT dispatch arm that names a real-but-deferred leaf
+  (strconv `FormatFloat`/`ParseFloat`/`Quote`/`Unquote`/`QuoteToASCII`; regexp `FindNamedSubmatch`/
+  `FindAllNamedSubmatch`); the catch-all defaults to bare bottom (default-deny — it can't substantiate
+  recognition without a cue-function registry). This CORRECTS the prior blunt "mark every concrete
+  leaf", which mislabeled nonexistent `Itoa`/`FindString` as "recognized" (their own comments admitted
+  they aren't cue functions). Recorded in `cue-spec-gaps.md` (B-1 row). Pins flipped: `itoa_deferred`→
+  `itoa_nonexistent_is_bottom`, `regexp_findstring_is_unsupported`→`regexp_findstring_nonexistent_is_bottom`;
+  new `regexp_findnamedsubmatch_is_unsupported`; `parsefloat_deferred`/`quote_deferred`/`quote_render_message`
+  stay green.
+- **B-2 (LOW) — stale `unresolvedOrBottom` doc. ✅ LANDED.** Dropped the "upcoming `math.*`" rollout
+  enumeration; the doc now states the contract (catch-all → bottom-or-defer; recognized leaves route
+  through `unsupportedOrBottom` from their own arm).
+- **F1 (LOW) — duplicate trivia skippers collapsed. ✅ LANDED.** `skipPostfixTrivia` was byte-identical
+  to `skipSameLineTrivia` (both: `[]`→`[]`, skip horizontal ws else stop; only arm order + name
+  differed — verified truly identical before collapsing). Deleted `skipPostfixTrivia`, repointed its
+  three callsites (`parseSelectorRest` ×2, `parseIdentifierValue`) to `skipSameLineTrivia`.
+- **F2 (LOW) — interpolation block-comment reject pin. ✅ LANDED.** New `ParseTests`
+  `parse_block_comment_in_interpolation_rejected`: `"\( 1 /* c */ )"` rejects with `unexpected
+  character '*'` (the interpolation body parses through `parseExpression`, so the stray-`/`-division
+  mechanism applies there too — hardening pin).
+- **B-3 / B-4 — DEFERRED to a future test-org pass** (test-organization findings, not code correctness;
+  fold in when the periodic test/fixture-org slice runs).
 
 0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
    MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +

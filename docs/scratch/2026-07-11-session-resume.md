@@ -2,8 +2,9 @@
 
 # Session resume — 2026-07-11
 
-Clean tree, `main` == `gh/main` at `b00129e`. `check.sh` GREEN. Standing keep-going loop
-governs (the 2026-07-07 "autonomy paused" gate is resolved/historical).
+`check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
+resolved/historical). HEAD: BLOCK-COMMENT-REJECT + STDLIB-PATH audit-followup (B-1/B-2/F1/F2)
+committed on `main`, not yet pushed (attended-push pending).
 
 ## This session (2026-07-10→11) — two LOW slices + a wild-caught STDLIB campaign
 
@@ -29,9 +30,10 @@ slices + a two-phase audit landed, all pushed, all green.
     (`Manifest.lean`) finalizes each arm at manifest; accretion untouched.
 - **STDLIB-C `326b8c4`** — `strconv` package (`Kue/Strconv.lean`, `.strconv` family).
   Shipped Atoi/FormatInt/FormatUint/ParseInt/ParseUint/FormatBool/ParseBool (arbitrary
-  precision, base-0 prefixes + underscores + bitSize). Deferred → unsupported-fn error:
-  Itoa (non-callable in cue), FormatFloat/ParseFloat (exact-decimal core),
-  Quote/Unquote/… (Unicode IsPrint table). Divergence: base 2..36 vs cue's leaked 2..62.
+  precision, base-0 prefixes + underscores + bitSize). Deferred → unsupported-fn error
+  (real-but-not-computed): FormatFloat/ParseFloat (exact-decimal core), Quote/Unquote/QuoteToASCII
+  (Unicode IsPrint table). Itoa is non-callable in cue → bottoms BARE, not "unsupported" (B-1
+  2026-07-11). Divergence: base 2..36 vs cue's leaked 2..62.
 - **STDLIB-D `d902e03`** — root cause was NOT import-specific: kue lacked CUE statement
   separation entirely. Implemented newline-as-implicit-comma (`skipSameLineTrivia` +
   `fieldSeparator`); `a: 1 b: 2` / late imports now rejected. Broad parser change, audit
@@ -53,6 +55,14 @@ Phase A (code-quality) found the FIELDCOUNT-DISJ correctness bug (fixed) + its t
 the strconv-diagnostics nit; verified STDLIB-D's ASI change sound. Phase B (architecture)
 clean — the builtin-package dispatch SCALES (~2 files + optional leaf per package), so the
 stdlib campaign is cheap to continue. Both audits logged.
+
+The BLOCK-COMMENT-REJECT + STDLIB-PATH batch's own two-phase audit filed B-1 (MEDIUM) + B-2/F1/F2
+(LOW) + B-3/B-4 (test-org). **Followup slice landed (2026-07-11):** B-1 unified the three builtin
+fallback shapes into one `unsupportedOrBottom` combinator and ADJUDICATED the marker — it's a
+positive recognition claim, emitted only from explicit real-but-deferred arms; the catch-all bottoms
+bare (nonexistent-leaf, cue-compatible). Fixed the mislabeled-nonexistent pins (Itoa, FindString).
+B-2 (stale doc), F1 (collapsed duplicate trivia skippers), F2 (interpolation block-comment pin) done.
+B-3/B-4 (test-org) DEFERRED to a future test-org pass. Detail: plan.md + implementation-log.
 
 ## Next steps — the STDLIB frontier (see `plan.md` § Ranked OPEN backlog)
 

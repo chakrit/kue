@@ -1169,11 +1169,21 @@ theorem regexp_replaceall_stays_unresolved_on_abstract_arg :
       = true := by
   native_decide
 
--- A still-deferred form (cue exposes no `FindString`/`Split` function) stays unsupported.
-theorem regexp_findstring_is_unsupported :
+-- `FindString`/`Split` are NOT cue functions (`cannot call non-function` there — a nonexistent
+-- leaf). They bottom BARE via the catch-all, no `unsupportedBuiltin` marker: the marker is a
+-- positive recognition claim, and cue's own verdict for a nonexistent leaf is a plain bottom.
+theorem regexp_findstring_nonexistent_is_bottom :
     (evalBuiltinCall "regexp.FindString"
         [.prim (.string "a"), .prim (.string "banana")]
-      == .bottomWith [.unsupportedBuiltin "regexp.FindString"]) = true := by
+      == .bottom) = true := by
+  native_decide
+
+-- `FindNamedSubmatch` IS a real cue function Kue defers (named captures, RX-1a); an explicit arm
+-- marks it `unsupportedBuiltin` — the "recognized, not implemented" signal the marker exists for.
+theorem regexp_findnamedsubmatch_is_unsupported :
+    (evalBuiltinCall "regexp.FindNamedSubmatch"
+        [.prim (.string "(?P<x>a)"), .prim (.string "a")]
+      == .bottomWith [.unsupportedBuiltin "regexp.FindNamedSubmatch"]) = true := by
   native_decide
 
 -- RX-2b: `regexp.Match` with a CONCRETE invalid pattern bottoms with `.invalidRegex` (was:
@@ -1279,9 +1289,10 @@ theorem unknown_family_bottom_arg_is_bottom :
 -- (`*_classifies_by_prefix_not_leaf` above); these pin that the per-family `eval*Builtin` then
 -- rejects the unknown leaf (concrete ⇒ bottom) for EVERY family — the in-family arm of the same
 -- soundness fix the unknown-FAMILY pins cover for the `none` arm. Asserted via `containsBottom`,
--- not `== .bottom`: most families return a bare `.bottom`, but `regexp` returns a richer
--- `.bottomWith [.unsupportedBuiltin …]` — both are a bottom VERDICT, which is the soundness
--- property. Oracle-confirmed: `cue` rejects each (bottom verdict; message differs — divergence).
+-- not `== .bottom`: a genuinely-unknown leaf (`.NoSuch`) bottoms BARE in every family (the
+-- catch-all makes no unsubstantiable recognition claim); the `unsupportedBuiltin` marker is
+-- reserved for explicitly-recognized real-but-deferred leaves. `containsBottom` holds for both
+-- shapes — the bottom VERDICT is the soundness property. Oracle-confirmed: `cue` rejects each.
 theorem unknown_leaf_each_family_concrete_args_is_bottom :
     containsBottom (evalBuiltinCall "math.NoSuch" [.prim (.int 1)])
       && containsBottom (evalBuiltinCall "strings.NoSuch" [.prim (.string "a")])

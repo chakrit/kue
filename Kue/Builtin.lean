@@ -591,16 +591,35 @@ def isPendingArg : Value -> Bool
   | .builtinCall _ _ => true
   | _ => false
 
-/-- Shared fallback for every package builtin dispatcher (`strings.*`, `list.*`,
-    and the upcoming `math.*`): a call that matched no known arm resolves to
-    bottom when any argument is bottom or all arguments are concrete (a genuine
-    CUE type error), and otherwise stays unresolved as a `.builtinCall` so a later
-    evaluation pass can complete it once references resolve. -/
+/-- Shared catch-all for every package builtin dispatcher: a call that matched no known arm
+    resolves to bottom when any argument is bottom or all arguments are concrete (a genuine CUE
+    type error — a nonexistent leaf, which `cue` also rejects as `cannot call non-function`),
+    and otherwise stays unresolved as a `.builtinCall` so a later evaluation pass can complete it
+    once references resolve. A leaf Kue RECOGNIZES as real-but-deferred routes instead through
+    `unsupportedOrBottom` from its own explicit arm — recognition is a positive claim the
+    catch-all cannot substantiate, so it defaults to the honest bare bottom. -/
 def unresolvedOrBottom (name : String) (args : List Value) : Value :=
   if args.any containsBottom then
     .bottom
   else if args.all isConcreteArg then
     .bottom
+  else
+    .builtinCall name args
+
+/-- Fallback for a builtin leaf Kue RECOGNIZES as a real `cue` function but does not compute (a
+    `Float`-model or Go-Unicode-table dependency, or a parser-deferred form). A bottom argument
+    propagates to bottom; all-concrete arguments resolve to `.bottomWith [.unsupportedBuiltin
+    name]` — a clear "recognized, not yet implemented" signal instead of a silent wrong answer;
+    a still-abstract argument stays a `.builtinCall` residual for a later pass. Reached only from
+    an EXPLICIT dispatch arm that names the leaf: the `unsupportedBuiltin` marker is a positive
+    recognition claim, never emitted from a catch-all (which cannot tell a deferred-but-real leaf
+    from a genuinely nonexistent one — that is a plain type error, bottomed bare by
+    `unresolvedOrBottom`). -/
+def unsupportedOrBottom (name : String) (args : List Value) : Value :=
+  if args.any containsBottom then
+    .bottom
+  else if args.all isConcreteArg then
+    .bottomWith [.unsupportedBuiltin name]
   else
     .builtinCall name args
 
@@ -950,11 +969,13 @@ private def stringListValue (xs : List String) : Value :=
     with `.invalidRegex` (inherited from RX-2b's contract). `ReplaceAll*` never bottoms on a
     valid pattern (a no-match returns `src` unchanged).
 
-    **Kept DEFERRED** (`unsupportedBuiltin`, not silent-wrong): cue v0.16.1's `regexp`
-    package does NOT expose `FindString*`/`FindAllString*`/`Split` as functions (calling
-    them is itself a non-function error there), and `FindNamedSubmatch`/`FindAllNamedSubmatch`
-    require named captures `(?P<…>)` which Kue's parser defers (RX-1a). Those fall through to
-    the unsupported arm. -/
+    Two deferral shapes, distinguished by whether the leaf exists in cue. `FindNamedSubmatch`/
+    `FindAllNamedSubmatch` ARE real cue functions Kue defers (named captures `(?P<…>)` which
+    Kue's parser does not yet build, RX-1a): explicit arms route them through
+    `unsupportedOrBottom` for a clear "recognized, not implemented" signal. `FindString*`/
+    `FindAllString*`/`Split` are NOT cue functions at all (calling them is a `cannot call
+    non-function` error there); they have no arm and fall to the `unresolvedOrBottom` catch-all,
+    which bottoms bare — the cue-compatible verdict for a nonexistent leaf. -/
 def evalRegexpBuiltin : String -> List Value -> Value
   | "regexp.Match", [.prim (.string pattern), .prim (.string s)] =>
       match regexParseError? pattern with
@@ -1001,15 +1022,11 @@ def evalRegexpBuiltin : String -> List Value -> Value
             let kept := if n < 0 then all else all.take n.toNat
             if kept.isEmpty then .bottom else .list (kept.map stringListValue)
         | none => .bottom
-  | name, args =>
-      if args.any containsBottom then
-        .bottom
-      else if args.all isConcreteArg then
-        -- A concrete call to a still-deferred form (`FindString*`/`Split`/named-submatch):
-        -- a clear unsupported signal, never a silent wrong answer.
-        .bottomWith [.unsupportedBuiltin name]
-      else
-        .builtinCall name args
+  -- Real cue functions Kue recognizes but defers (named captures, RX-1a) → clear unsupported
+  -- signal; a nonexistent leaf (`FindString`/`Split`) has no arm and bottoms bare below.
+  | "regexp.FindNamedSubmatch", args => unsupportedOrBottom "regexp.FindNamedSubmatch" args
+  | "regexp.FindAllNamedSubmatch", args => unsupportedOrBottom "regexp.FindAllNamedSubmatch" args
+  | name, args => unresolvedOrBottom name args
 
 /-- The closed set of builtin families on the FAMILY axis. `core` holds the nine exact
     unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`, plus the `slice`
@@ -1088,10 +1105,13 @@ def evalStructBuiltin : String -> List Value -> Value
     Base `2..36` per Go's documented contract (cue leaks `math/big`'s `2..62`; see
     `cue-divergences.md`).
 
-    Kept DEFERRED (`unsupportedBuiltin` on concrete args, else residual): `Itoa` (not a callable
-    function in cue v0.16.1), `FormatFloat`/`ParseFloat` (float shortest-round-trip formatting is
-    incompatible with Kue's exact-decimal core), and the `Quote`/`Unquote` family (needs Go's full
-    Unicode `IsPrint` table). -/
+    Two deferral shapes, distinguished by whether the leaf exists in cue. `FormatFloat`/
+    `ParseFloat` (float shortest-round-trip formatting is incompatible with Kue's exact-decimal
+    core) and the `Quote`/`Unquote` family (needs Go's full Unicode `IsPrint` table) ARE real cue
+    functions Kue defers: explicit arms route them through `unsupportedOrBottom` for a clear
+    "recognized, not implemented" signal. `Itoa` is NOT a callable function in cue v0.16.1
+    (`cannot call non-function`); it has no arm and falls to the `unresolvedOrBottom` catch-all,
+    which bottoms bare — the cue-compatible verdict for a nonexistent leaf. -/
 def evalStrconvBuiltin : String -> List Value -> Value
   | "strconv.Atoi", [.prim (.string s)] => strconvAtoi s
   | "strconv.FormatInt", [.prim (.int i), .prim (.int base)] => strconvFormatInt i base
@@ -1102,15 +1122,14 @@ def evalStrconvBuiltin : String -> List Value -> Value
       strconvParse false s base bits
   | "strconv.FormatBool", [.prim (.bool b)] => .prim (.string (if b then "true" else "false"))
   | "strconv.ParseBool", [.prim (.string s)] => strconvParseBool s
-  | name, args =>
-      if args.any containsBottom then
-        .bottom
-      else if args.all isConcreteArg then
-        -- A concrete call to a still-deferred form (`Itoa`/`FormatFloat`/`Quote`/…):
-        -- a clear unsupported signal, never a silent wrong answer.
-        .bottomWith [.unsupportedBuiltin name]
-      else
-        .builtinCall name args
+  -- Real cue functions Kue recognizes but defers (Float model / Unicode `IsPrint` table) → clear
+  -- unsupported signal; a nonexistent leaf (`Itoa`) has no arm and bottoms bare below.
+  | "strconv.FormatFloat", args => unsupportedOrBottom "strconv.FormatFloat" args
+  | "strconv.ParseFloat", args => unsupportedOrBottom "strconv.ParseFloat" args
+  | "strconv.Quote", args => unsupportedOrBottom "strconv.Quote" args
+  | "strconv.Unquote", args => unsupportedOrBottom "strconv.Unquote" args
+  | "strconv.QuoteToASCII", args => unsupportedOrBottom "strconv.QuoteToASCII" args
+  | name, args => unresolvedOrBottom name args
 
 /-- Dispatch the `path` package builtins (STDLIB-PATH). Every function is OS-parameterized; the
     os-less arms take cue's default (`unix`, except `VolumeName` whose default is `windows`, so a
