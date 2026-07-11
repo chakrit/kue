@@ -918,6 +918,56 @@ theorem string_escape_out_of_range_bigU_rejected :
     parseFails "x: \"\\UFFFFFFFF\"\n" = true := by
   native_decide
 
+-- Byte-literal escapes (single-quote). BYTE-ESCAPE-STRICT: `decodeByteEscape` mirrors the
+-- string path's strict verdict — cue's byte set (`\a\b\f\n\r\t\v\\\'\/`, `\xNN`, `\NNN`
+-- octal, `\uNNNN`/`\UNNNNNNNN`) decodes; `\"` and unknown/malformed escapes are parse
+-- errors (cue "unknown escape sequence"), not kept literally. Cross-checked vs cue v0.16.1.
+
+-- Accepted set — each decodes to its equivalent byte spelling.
+theorem byte_escape_hex_equals_ascii :
+    parseSameValue "x: '\\x41'\n" "x: 'A'\n" = true := by native_decide
+theorem byte_escape_octal_equals_ascii :
+    parseSameValue "x: '\\101'\n" "x: 'A'\n" = true := by native_decide
+theorem byte_escape_unicode_u_equals_ascii :
+    parseSameValue "x: '\\u0041'\n" "x: 'A'\n" = true := by native_decide
+theorem byte_escape_unicode_bigU_equals_ascii :
+    parseSameValue "x: '\\U00000041'\n" "x: 'A'\n" = true := by native_decide
+-- `\uNNNN` UTF-8-encodes to its multi-byte sequence (é ⇒ 0xC3 0xA9).
+theorem byte_escape_unicode_multibyte :
+    parseSameValue "x: '\\u00e9'\n" "x: '\\xc3\\xa9'\n" = true := by native_decide
+theorem byte_escape_single_quote_equals_hex :
+    parseSameValue "x: '\\''\n" "x: '\\x27'\n" = true := by native_decide
+-- `\/` decodes to `/` (cue-compatible leniency, mirror of the string path).
+theorem byte_escape_slash_equals_ascii :
+    parseSameValue "x: '\\/'\n" "x: '/'\n" = true := by native_decide
+theorem byte_escape_controls_equal_hex :
+    parseSameValue "x: '\\a\\b\\f\\v\\n\\r\\t'\n"
+      "x: '\\x07\\x08\\x0c\\x0b\\x0a\\x0d\\x09'\n" = true := by native_decide
+theorem byte_escape_backslash_equals_hex :
+    parseSameValue "x: '\\\\'\n" "x: '\\x5c'\n" = true := by native_decide
+
+-- Rejected set — RED before BYTE-ESCAPE-STRICT (kept literally / accepted leniently), now
+-- parse errors matching cue's strict verdict.
+theorem byte_escape_double_quote_rejected :
+    parseFails "x: '\\\"'\n" = true := by native_decide
+theorem byte_escape_unknown_letter_rejected :
+    parseFails "x: '\\q'\n" = true := by native_decide
+theorem byte_escape_unknown_z_rejected :
+    parseFails "x: '\\z'\n" = true := by native_decide
+theorem byte_escape_short_hex_rejected :
+    parseFails "x: '\\x4'\n" = true := by native_decide
+theorem byte_escape_short_u_rejected :
+    parseFails "x: '\\u12'\n" = true := by native_decide
+theorem byte_escape_surrogate_rejected :
+    parseFails "x: '\\uD800'\n" = true := by native_decide
+theorem byte_escape_out_of_range_bigU_rejected :
+    parseFails "x: '\\UFFFFFFFF'\n" = true := by native_decide
+-- The strict verdict holds in the multiline byte form (`'''…'''`) too.
+theorem byte_escape_unknown_rejected_in_multiline :
+    parseFails "x: '''\n\t\\q\n\t'''\n" = true := by native_decide
+theorem byte_escape_double_quote_rejected_in_multiline :
+    parseFails "x: '''\n\t\\\"\n\t'''\n" = true := by native_decide
+
 -- A content line lacking the closing-line indentation prefix is rejected, matching CUE's
 -- "invalid whitespace". The bad line `bad` is line 4 here.
 theorem multiline_under_indented_line_fails :

@@ -213,19 +213,19 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-**BYTE-ESCAPE-STRICT (LOW, 2026-07-11, filed by the STRING-ESCAPE-SET slice).** The single-quote
-byte-literal escape decoder (`decodeByteEscape`, `Kue/Parse.lean`) is LENIENT — an unrecognized
-escape keeps the escaped char literally (drops the `\`), and it accepts `\"` as a literal `"`. cue
-v0.16.1 is STRICT: a byte literal `'a\"b'` errors `unknown escape sequence` (the escapable quote is
-context-sensitive — `\'` valid in byte literals, `\"` valid only in double-quoted strings), and an
-unknown byte escape errors rather than passing through. The double-quoted STRING path was made
-strict + context-correct by the STRING-ESCAPE-SET slice (`decodeStringEscape`: `\"` valid, `\'`
-rejected, unknown ⇒ parse error); the byte path is the untouched mirror. Fix: replace the
-lenient-fallthrough in `decodeByteEscape`/`parseQuotedByteBody`/`parseMultilineByteBody` with a
-strict whitelist that rejects `\"` and unknown escapes as parse errors, matching cue. Blast radius:
-byte-literal fixtures (`byte-literal-high-byte`, `BytesTests`) + `multiline_bytes` — verify none
-rely on lenient/`\"` behavior. Kept out of the STRING slice to bound its blast radius (byte-literal
-reformatting is a separate concern, see BYTE-ARRAY-REPR spec-gap).
+**BYTE-ESCAPE-STRICT (LOW, 2026-07-11). ✅ CLOSED (2026-07-11).** The single-quote byte-literal
+escape decoder (`decodeByteEscape`, `Kue/Parse.lean`) was LENIENT — an unrecognized escape kept the
+escaped char literally, and it accepted `\"` as a literal `"`. cue v0.16.1 is STRICT: `'a\"b'` errors
+`unknown escape sequence` (escapable quote is context-sensitive — `\'` byte-only, `\"` string-only),
+and unknown escapes error. Fixed to cue-strict parity: `decodeByteEscape` drops `\"`, adds explicit
+`\/` (cue-compat leniency, mirror of the string path), gates `\u`/`\U` on `Nat.isValidChar`
+(surrogate/out-of-range rejected); both callers (`parseQuotedByteBody`, `parseMultilineByteBody`)
+raise a parse error on `none` instead of the lenient fallthrough. Byte-context `\(` now parse-errors
+("interpolation in byte literals is not supported yet") in both single- and multiline forms rather
+than emitting wrong bytes (the `byte-literal-interpolation` quarantined seed's kue-output updated;
+still red pending byte interpolation). 18 new `native_decide` in `ParseTests.lean`
+(`byte_escape_*`); `BytesTests` `lex_bytes_interp_*` flipped to the parse-error verdict.
+spec-gap `STRING-ESCAPE-SET` byte-path row closed.
 
 **STDLIB campaign (2026-07-10, from an alpha stdlib test-drive against `cue` v0.16.1).** Five
 findings A–E, ranked — all LANDED (2026-07-10). A follow-on **STDLIB-F** (list-item separator

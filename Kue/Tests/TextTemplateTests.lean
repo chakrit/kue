@@ -126,6 +126,26 @@ theorem tt_nested_if_range :
     (run "{{range .}}{{if .}}[{{.}}]{{end}}{{end}}" (.list [.int 1, .int 0, .int 2])
       == .ok "[1][2]") = true := by native_decide
 
+-- ### Fuel adequacy (false-empty / truncation guard)
+-- A deep/large legitimate render must NOT hit the `runTemplate` fuel bound (Kue/TextTemplate.lean
+-- ~:424) and false-bottom or truncate. Doubly-nested range + a moderately-large single range,
+-- both byte-matched against cue v0.16.1; an edit that weakens the fuel formula reddens these.
+
+theorem tt_range_doubly_nested_fuel :
+    (run "{{range .xs}}({{range .ys}}{{.}}-{{end}}){{end}}"
+      (st [("xs", .list [
+        st [("ys", .list [.int 1, .int 2, .int 3, .int 4])],
+        st [("ys", .list [.int 5, .int 6, .int 7])],
+        st [("ys", .list [.int 8, .int 9, .int 10, .int 11, .int 12])],
+        st [("ys", .list [.int 13, .int 14])]])])
+      == .ok "(1-2-3-4-)(5-6-7-)(8-9-10-11-12-)(13-14-)") = true := by native_decide
+
+theorem tt_range_large_single_fuel :
+    (run "{{range .}}{{.}},{{end}}"
+      (.list ((List.range 24).map (fun n => TemplateData.int (Int.ofNat (n + 1)))))
+      == .ok "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,") = true := by
+  native_decide
+
 -- ### Parse / eval errors ⇒ bottom
 
 theorem tt_parse_unclosed :
@@ -194,6 +214,24 @@ theorem tt_bridge_key_sort :
       == some (.struct [("a", .int 1), ("b", .int 2)])) = true := by native_decide
 theorem tt_bridge_scalars :
     (manifestToTemplateData (.prim (.string "s")) == some (.str "s")) = true := by native_decide
+-- Float defer propagates through nesting: a float ANYWHERE (list element, struct-in-list,
+-- list-in-struct) collapses the whole bridge to `none` ⇒ `unsupportedBuiltin`.
+theorem tt_bridge_float_in_list_defer :
+    (manifestToTemplateData (.list [.prim (.float { numerator := 3, scale := 1 } "0.3")]) == none)
+      = true := by native_decide
+theorem tt_bridge_float_struct_in_list_defer :
+    (manifestToTemplateData
+        (.list [.struct [("v", .prim (.float { numerator := 15, scale := 1 } "1.5"))]]) == none)
+      = true := by native_decide
+theorem tt_bridge_float_list_in_struct_defer :
+    (manifestToTemplateData
+        (.struct [("xs",
+          .list [.struct [("v", .prim (.float { numerator := 15, scale := 1 } "1.5"))]])])
+      == none) = true := by native_decide
+-- Contrast: the SAME nesting with an int bridges fine — the `none` is the float, not depth.
+theorem tt_bridge_nested_int_ok :
+    (manifestToTemplateData (.list [.struct [("v", .prim (.int 1))]])
+      == some (.list [.struct [("v", .int 1)]])) = true := by native_decide
 
 -- ### Dispatch verdicts through `evalBuiltinCall`
 
@@ -227,6 +265,7 @@ theorem tt_call_execute_float_defer :
 #check @tt_with_else                   -- with / with-else
 #check @tt_ws_trim_start               -- comments + whitespace trimming
 #check @tt_nested_if_range             -- nested control
+#check @tt_range_doubly_nested_fuel    -- fuel adequacy (false-empty / truncation guard)
 #check @tt_field_on_int                -- parse / eval errors ⇒ bottom
 #check @tt_template_unsupported        -- deferred constructs ⇒ unsupported
 #check @tt_js_nonascii_deferred        -- escapers (html/js) incl. non-ASCII defer

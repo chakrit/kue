@@ -173,14 +173,16 @@ def charBytes (c : Char) : List UInt8 := (String.singleton c).toUTF8.toList
 def codepointBytes (n : Nat) : List UInt8 := charBytes (Char.ofNat n)
 
 /-- Decode one byte-literal escape body (the chars AFTER the `\`), returning the decoded
-    raw bytes and the remainder, or `none` if the escape is unrecognized/malformed (the
-    caller then keeps the escaped char literally, matching CUE's lenient string escapes for
-    the simple cases). CUE byte literals additionally support `\xNN` (hex byte), `\NNN`
-    (octal byte), `\uNNNN`/`\UNNNNNNNN` (unicode → UTF-8), and `\a\b\f\v` alongside the
-    shared `\n\r\t\\\'\"`. A `\xNN`/`\NNN` names ONE raw byte — including NN ≥ 0x80, held
-    exactly by the `Array UInt8` carrier; `\uNNNN`/`\UNNNNNNNN` names a codepoint and
+    raw bytes and the remainder, or `none` when the escape is unknown or malformed — the
+    caller then raises a parse error, matching cue v0.16.1's strict single-quote escape set.
+    CUE byte literals support `\xNN` (hex byte), `\NNN` (octal byte), `\uNNNN`/`\UNNNNNNNN`
+    (unicode → UTF-8), `\a\b\f\v` and the shared `\n\r\t\\\'`, plus the lenient `\/` that
+    cue also accepts. `\"` is REJECTED (cue "unknown escape sequence"): the escapable quote
+    is context-sensitive — `\'` is byte-literal-only, `\"` string-only. A `\xNN`/`\NNN`
+    names ONE raw byte — including NN ≥ 0x80, held exactly by the `Array UInt8` carrier;
+    `\uNNNN`/`\UNNNNNNNN` names a codepoint (surrogate / out-of-range rejected) and
     UTF-8-encodes to its byte sequence. `\(` is deliberately unhandled here: byte-context
-    interpolation is not yet implemented, so it falls through to a literal `(`. -/
+    interpolation is not yet implemented, so it falls through to the caller's error path. -/
 def decodeByteEscape : List Char -> Option (List UInt8 × List Char)
   | 'x' :: rest =>
       match readHexDigits 2 0 rest with
@@ -188,11 +190,11 @@ def decodeByteEscape : List Char -> Option (List UInt8 × List Char)
       | none => none
   | 'u' :: rest =>
       match readHexDigits 4 0 rest with
-      | some (value, rest) => some (codepointBytes value, rest)
+      | some (value, rest) => if value.isValidChar then some (codepointBytes value, rest) else none
       | none => none
   | 'U' :: rest =>
       match readHexDigits 8 0 rest with
-      | some (value, rest) => some (codepointBytes value, rest)
+      | some (value, rest) => if value.isValidChar then some (codepointBytes value, rest) else none
       | none => none
   | 'a' :: rest => some ([0x07], rest)
   | 'b' :: rest => some ([0x08], rest)
@@ -203,7 +205,7 @@ def decodeByteEscape : List Char -> Option (List UInt8 × List Char)
   | 't' :: rest => some ([0x09], rest)
   | '\\' :: rest => some ([0x5c], rest)
   | '\'' :: rest => some ([0x27], rest)
-  | '"' :: rest => some ([0x22], rest)
+  | '/' :: rest => some ([0x2f], rest)
   | c :: rest =>
       match octDigitVal? c with
       | some d0 =>
@@ -264,19 +266,21 @@ def parseQuotedString : List Char -> ParseResult String
   | chars => parseError chars "expected string literal"
 
 /-- Lex a single-quoted byte literal body, decoding CUE byte escapes (`\xNN`, `\NNN` octal,
-    `\uNNNN`, `\UNNNNNNNN`, `\a\b\f\n\r\t\v\\\'\"`). Unrecognized escapes keep the escaped
-    char literally (drops the `\`), matching the lenient string path; `\(` is thus left as a
-    literal `(` since byte-context interpolation is not yet implemented. -/
+    `\uNNNN`, `\UNNNNNNNN`, `\a\b\f\n\r\t\v\\\'\/`). An unknown or malformed escape is a
+    parse error, matching cue's strict single-quote set; `\(` errors since byte-context
+    interpolation is not yet implemented. -/
 partial def parseQuotedByteBody : List Char -> List UInt8 -> ParseResult (Array UInt8)
   | [], _ => parseError [] "unterminated byte literal"
   | '\'' :: rest, acc => parseOk acc.reverse.toArray rest
+  | '\\' :: '(' :: _, _ =>
+      parseError [] "interpolation in byte literals is not supported yet"
   | '\\' :: rest, acc =>
       match decodeByteEscape rest with
       | some (decoded, rest) => parseQuotedByteBody rest (decoded.reverse ++ acc)
       | none =>
           match rest with
-          | escaped :: rest => parseQuotedByteBody rest ((charBytes escaped).reverse ++ acc)
           | [] => parseError [] "unterminated byte escape"
+          | _ => parseError rest "invalid escape sequence in byte literal"
   | value :: rest, acc => parseQuotedByteBody rest ((charBytes value).reverse ++ acc)
 
 def parseQuotedBytes : List Char -> ParseResult (Array UInt8)
@@ -1599,9 +1603,8 @@ mutual
           | some (decoded, rest) => parseMultilineByteBody strip false rest (decoded.reverse ++ acc)
           | none =>
               match rest with
-              | escaped :: rest =>
-                  parseMultilineByteBody strip false rest ((charBytes escaped).reverse ++ acc)
               | [] => parseError [] "unterminated byte escape"
+              | _ => parseError rest "invalid escape sequence in byte literal"
       | value :: rest => parseMultilineByteBody strip false rest ((charBytes value).reverse ++ acc)
 
   partial def parseMultilineBytes (chars : List Char) : ParseResult Value :=

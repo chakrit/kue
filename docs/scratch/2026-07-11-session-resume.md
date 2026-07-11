@@ -3,7 +3,20 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **STRING-ESCAPE-SET** — the CUE double-quoted string escape decoder.
+resolved/historical). HEAD: **BYTE-ESCAPE-STRICT + text/template nested-defer/fuel guards** — one
+slice folding three LOW audit findings. (1) `decodeByteEscape` (`Kue/Parse.lean`) brought to
+cue-strict parity: dropped `\"`, added explicit `\/`, gated `\u`/`\U` on `Nat.isValidChar`; both
+callers (`parseQuotedByteBody`, `parseMultilineByteBody`) now parse-error on `none` instead of the
+lenient literal fallthrough; byte-context `\(` parse-errors "interpolation not supported yet" in both
+byte forms. 18 new `byte_escape_*` `native_decide`; `BytesTests` `lex_bytes_interp_*` flipped to
+`= none`. Quarantined `byte-literal-interpolation` seed's kue-output now a parse error (still red,
+PROVENANCE annotated). (2) T1-LOW-1: 4 bridge theorems pin `manifestToTemplateData` float-defer at
+list-element / struct-in-list / list-in-struct positions (+ int-nesting contrast). (3) T1-LOW-2: 2
+byte-matched fuel guards (doubly-nested range + 24-elem single range) against a `runTemplate` fuel
+weakening. plan.md BYTE-ESCAPE-STRICT ✅ CLOSED; spec-gap `STRING-ESCAPE-SET` byte-path clause closed.
+Committed on `main`, not pushed. Prior HEAD STRING-ESCAPE-SET below.
+
+## Prior HEAD — STRING-ESCAPE-SET — the CUE double-quoted string escape decoder.
 The wild `\uXXXX`-dropped bug (below) is FIXED: `parseStringEscape` (decoded only `\n\r\t`, dropped
 the `\` on everything else) is replaced by a total `decodeStringEscape` mirroring the byte path but
 producing code points + raising a PARSE ERROR on bad escapes. Full set now decoded/rejected byte-for-byte

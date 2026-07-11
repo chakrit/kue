@@ -19955,3 +19955,66 @@ slice's blast radius (byte-literal reformatting is a separate concern). Spec-gap
 - Retraction: the STDLIB-TEXTTEMPLATE-T1 log entry + the 2026-07-11 breadcrumb both described this
   as a queued/quarantined future bug; both annotated FIXED in the same slice.
 - `./scripts/check.sh` GREEN.
+
+---
+
+## Completed Slice: BYTE-ESCAPE-STRICT + text/template nested-defer / fuel guards
+
+Goal: fold three LOW audit findings into one slice — (T1-LOW-1) pin the text/template float-defer
+bridge at nested Value positions, (T1-LOW-2) guard the `runTemplate` fuel formula against a
+false-empty/truncated render, and (BYTE-ESCAPE-STRICT) bring the single-quote byte-literal escape
+decoder to cue v0.16.1-strict parity (the mirror of the STRING-ESCAPE-SET fix `354788c`).
+
+### BYTE-ESCAPE-STRICT — byte-literal escape decoder (the code change)
+
+`decodeByteEscape` (`Kue/Parse.lean`) was lenient: unknown escapes fell through to the caller which
+kept the escaped char literally, and it accepted `\"` as a literal `"`. cue is strict — `\"` and any
+unknown/malformed byte escape error `unknown escape sequence`. Brought to cue parity, cross-checked
+against the v0.16.1 binary:
+
+- Removed the `\"` arm (cue rejects it; the escapable quote is context-sensitive — `\'` is
+  byte-literal-only, `\"` string-only).
+- Added an explicit `\/` arm decoding to `/` (cue-compat leniency, mirror of the string path; cue
+  accepts `'\/'` ⇒ byte 0x2F).
+- Gated `\u`/`\U` on `Nat.isValidChar` (surrogate / >0x10FFFF now `none` ⇒ parse error, no silent
+  replacement) — matching the string path.
+- Both callers (`parseQuotedByteBody`, `parseMultilineByteBody`) now raise a parse error on a `none`
+  escape instead of the lenient literal fallthrough. Accepted set stays `\a\b\f\n\r\t\v\\\'\/`,
+  `\xNN`, `\NNN` octal, `\uNNNN`/`\UNNNNNNNN`.
+- Byte-context interpolation `\(` gets an explicit arm in `parseQuotedByteBody` (mirroring the
+  multiline path) that parse-errors "interpolation in byte literals is not supported yet" — so `\(`
+  in a byte literal bottoms honestly rather than emitting the wrong bytes. The quarantined
+  `testdata/wild/byte-literal-interpolation` seed's kue-output changed from garbage bytes (`KDEp`) to
+  a parse error; still red (≠ cue-correct `MQ==`) pending a byte-interpolation slice — PROVENANCE
+  annotated in the same slice.
+
+### T1-LOW-1 — float-defer bridge at nested positions
+
+Four `native_decide` in `TextTemplateTests.lean`: `manifestToTemplateData` returns `none`
+(⇒ `unsupportedBuiltin`) for a float in a list element, a struct-in-list, and a list-in-struct deep
+nesting (`{xs:[{v:1.5}]}` shape); plus a contrast theorem showing the same int-only nesting bridges
+to `some` — the `none` is the float, not the depth.
+
+### T1-LOW-2 — fuel adequacy (false-empty / truncation guard)
+
+Two `native_decide` in `TextTemplateTests.lean`, both byte-matched against cue v0.16.1's
+`text/template`: a doubly-nested `{{range .xs}}({{range .ys}}{{.}}-{{end}}){{end}}` over four inner
+lists rendering to a fully-populated string, and a moderately-large single range (24 elements) — a
+future weakening of the `runTemplate` fuel formula (`Kue/TextTemplate.lean` ~:424) reddens these
+rather than silently truncating a legitimate deep/large render.
+
+### Tests / verify
+
+- `Kue/Tests/ParseTests.lean` — 18 new `byte_escape_*` theorems: 9 accepted-set equivalences
+  (hex/octal/`\u`/`\U`/multibyte/`\'`/`\/`/controls/`\\`) and 9 rejections (`\"`, unknown `\q`/`\z`,
+  short `\x4`/`\u12`, surrogate `\uD800`, out-of-range `\UFFFFFFFF`, plus `\q`/`\"` in the multiline
+  byte form).
+- `Kue/Tests/BytesTests.lean` — `lex_bytes_interp_unimplemented_rejected` (was `_keeps_literal`)
+  flipped to the parse-error verdict (`= none`); coverage tripwire anchor renamed.
+- `Kue/Tests/TextTemplateTests.lean` — 4 bridge + 2 fuel `native_decide`; new fuel-section coverage
+  tripwire anchor.
+- Spec-gap `STRING-ESCAPE-SET` byte-path clause closed (byte path now cue-strict); plan.md
+  BYTE-ESCAPE-STRICT marked ✅ CLOSED.
+- No non-quarantined testdata fixture flipped — `testdata/cue/numeric/byte_literal_escapes.cue`
+  (`'\x41z'` = escape + plain `z`) and the `byte-literal-*` wild fixtures use only valid escapes.
+- `./scripts/check.sh` GREEN.

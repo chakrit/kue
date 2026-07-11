@@ -58,10 +58,11 @@ theorem lex_bytes_unicode_high_multibyte :
 theorem lex_bytes_empty :
     lexBytes "''" = some #[] := by native_decide
 
--- Byte-context interpolation is not yet implemented: `\(` falls through to a literal `(`,
--- pinning the `byte-literal-interpolation` seed's current (quarantined-red) behavior.
-theorem lex_bytes_interp_unimplemented_keeps_literal :
-    lexBytes "'\\(1)'" = some #[0x28, 0x31, 0x29] := by native_decide
+-- Byte-context interpolation is not yet implemented: `\(` is a parse error (not silently
+-- kept as a literal `(`), pinning the `byte-literal-interpolation` seed's quarantined-red
+-- behavior — kue bottoms rather than yielding wrong bytes.
+theorem lex_bytes_interp_unimplemented_rejected :
+    lexBytes "'\\(1)'" = none := by native_decide
 
 theorem format_bytes_kind_and_primitive :
     formatValue (.kind .bytes) = "bytes"
@@ -99,6 +100,6 @@ theorem export_high_byte_base64 :
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
 -- elaboration.
 #check @export_high_byte_base64
-#check @lex_bytes_interp_unimplemented_keeps_literal
+#check @lex_bytes_interp_unimplemented_rejected
 
 end Kue
