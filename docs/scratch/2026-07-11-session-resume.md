@@ -64,9 +64,14 @@ Two tracks:
    fixture `block-comment-rejected` + `ParseTests parse_block_comment_*`. Next spec-conformance
    items: none currently queued (cue-divergences.md § kue-side is now empty).
 2. **New stdlib packages (priority-sensitive — key to which packages prod9 configs hit):**
-   `time`, `net`, `path`, `uuid`, `crypto/*`, `encoding/hex|csv`, `text/template`; finish
+   `time`, `net`, `uuid`, `crypto/*`, `encoding/hex|csv`, `text/template`; finish
    `strconv` (Quote/FormatFloat need a Unicode IsPrint table / float-format design); round
    out `strings`/`list`/`math`. Dispatch cost is low (audit-confirmed).
+   - **STDLIB-PATH ✅ LANDED (2026-07-11)** — `path` package (was the highest-usage
+     unimplemented, 11 prod9 hits). `Kue/Path.lean` + `.path` `BuiltinFamily`. Full unix/plan9:
+     Clean/Join/Split/Dir/Base/Ext/IsAbs/SplitList/Resolve/Rel/Match(Go glob)/ToSlash/FromSlash/
+     VolumeName + `path.Unix/Windows/Plan9` constants (no `path.OS` — not a real cue field).
+     Windows os DEFERRED (`unsupportedBuiltin`); invalid os bottoms. 75 theorems. Spec-gap + log.
 
 Test-drive scratch files at `~/Documents/chakrit/kue-testdrive/` (outside the repo).
 

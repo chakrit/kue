@@ -2,6 +2,7 @@ import Kue.Lattice
 import Kue.Regex
 import Kue.Decimal
 import Kue.Strconv
+import Kue.Path
 import Kue.Base64
 import Kue.Json
 import Kue.Yaml
@@ -1012,8 +1013,8 @@ def evalRegexpBuiltin : String -> List Value -> Value
 
 /-- The closed set of builtin families on the FAMILY axis. `core` holds the nine exact
     unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`, plus the `slice`
-    desugar of `x[lo:hi]`); the rest are the nine qualified stdlib packages
-    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`). The
+    desugar of `x[lo:hi]`); the rest are the ten qualified stdlib packages
+    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`/`path`). The
     within-family LEAF (e.g. `math.Pow`) stays a
     `String` — genuinely many-valued and string-dispatched inside each `eval*Builtin`. This
     is the closed, versionable axis: a new family forces a new constructor, and the
@@ -1030,6 +1031,7 @@ inductive BuiltinFamily where
   | base64
   | json
   | yaml
+  | path
 deriving Repr, BEq, DecidableEq
 
 /-- Classify a builtin name into its family at the one point the name is interpreted as a
@@ -1050,6 +1052,7 @@ def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
   else if name.startsWith "base64." then some .base64
   else if name.startsWith "json." then some .json
   else if name.startsWith "yaml." then some .yaml
+  else if name.startsWith "path." then some .path
   else none
 
 /-- Dispatch the `core` exact-name builtins (import-free: the eight CUE built-ins plus the
@@ -1109,6 +1112,67 @@ def evalStrconvBuiltin : String -> List Value -> Value
       else
         .builtinCall name args
 
+/-- Dispatch the `path` package builtins (STDLIB-PATH). Every function is OS-parameterized; the
+    os-less arms take cue's default (`unix`, except `VolumeName` whose default is `windows`, so a
+    bare call defers). `ToSlash`/`FromSlash`/`SplitList` have no os default (cue requires the
+    arg), so no os-less arm. Unix/plan9 compute exactly; a `windows` os argument defers with a
+    clear `unsupportedBuiltin` (faithful volume/UNC handling is a documented deferral, see
+    `cue-spec-gaps.md`); an invalid os string bottoms. A malformed `Match` pattern or an
+    impossible `Rel` bottoms (cue error). Unknown leaves route through `unresolvedOrBottom`. -/
+def evalPathBuiltin : String -> List Value -> Value
+  | "path.Base", [.prim (.string p)] => pathStrVal (unixBase p)
+  | "path.Base", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.Base" os (pathStrVal (unixBase p))
+  | "path.Dir", [.prim (.string p)] => pathStrVal (unixDir p)
+  | "path.Dir", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.Dir" os (pathStrVal (unixDir p))
+  | "path.Ext", [.prim (.string p)] => pathStrVal (unixExt p)
+  | "path.Ext", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.Ext" os (pathStrVal (unixExt p))
+  | "path.Clean", [.prim (.string p)] => pathStrVal (unixClean p)
+  | "path.Clean", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.Clean" os (pathStrVal (unixClean p))
+  | "path.IsAbs", [.prim (.string p)] => .prim (.bool (unixIsAbs p))
+  | "path.IsAbs", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.IsAbs" os (.prim (.bool (unixIsAbs p)))
+  | "path.Join", [.list elems] =>
+      match pathAllStrings? elems with
+      | some ss => pathStrVal (unixJoin ss)
+      | none => .bottom
+  | "path.Join", [.list elems, .prim (.string os)] =>
+      match pathAllStrings? elems with
+      | some ss => pathDispatch "path.Join" os (pathStrVal (unixJoin ss))
+      | none => .bottom
+  | "path.Split", [.prim (.string p)] =>
+      let (d, f) := unixSplit p
+      pathPairList d f
+  | "path.Split", [.prim (.string p), .prim (.string os)] =>
+      let (d, f) := unixSplit p
+      pathDispatch "path.Split" os (pathPairList d f)
+  | "path.SplitList", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.SplitList" os (.list ((unixSplitList p).map pathStrVal))
+  | "path.ToSlash", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.ToSlash" os (pathStrVal p)
+  | "path.FromSlash", [.prim (.string p), .prim (.string os)] =>
+      pathDispatch "path.FromSlash" os (pathStrVal p)
+  | "path.VolumeName", [.prim (.string _)] =>
+      -- VolumeName's os default is Windows; a bare call defers.
+      .bottomWith [.unsupportedBuiltin "path.VolumeName"]
+  | "path.VolumeName", [.prim (.string _), .prim (.string os)] =>
+      pathDispatch "path.VolumeName" os (pathStrVal "")
+  | "path.Resolve", [.prim (.string dir), .prim (.string sub)] =>
+      pathStrVal (unixResolve dir sub)
+  | "path.Resolve", [.prim (.string dir), .prim (.string sub), .prim (.string os)] =>
+      pathDispatch "path.Resolve" os (pathStrVal (unixResolve dir sub))
+  | "path.Rel", [.prim (.string b), .prim (.string t)] => pathRelVal (unixRel b t)
+  | "path.Rel", [.prim (.string b), .prim (.string t), .prim (.string os)] =>
+      pathDispatch "path.Rel" os (pathRelVal (unixRel b t))
+  | "path.Match", [.prim (.string pat), .prim (.string name)] =>
+      pathMatchVal (unixMatch pat name)
+  | "path.Match", [.prim (.string pat), .prim (.string name), .prim (.string os)] =>
+      pathDispatch "path.Match" os (pathMatchVal (unixMatch pat name))
+  | name, args => unresolvedOrBottom name args
+
 /-- Dispatch a builtin call over already-evaluated arguments. The family is classified once
     (`BuiltinFamily.ofName?`) and matched EXHAUSTIVELY — every family has an arm, with no
     catch-all over `BuiltinFamily` that could swallow a future family. A non-builtin name
@@ -1126,6 +1190,7 @@ def evalBuiltinCall (name : String) (args : List Value) : Value :=
   | some .base64 => evalBase64Builtin name args
   | some .json => evalJsonBuiltin name args
   | some .yaml => evalYamlBuiltin name args
+  | some .path => evalPathBuiltin name args
   | none => unresolvedOrBottom name args
 
 end Kue

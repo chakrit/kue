@@ -19255,3 +19255,60 @@ over-accepting spec-invalid source (`a: 1 /* c */` exported `{"a":1,"b":2}`).
 - `docs/spec/plan.md`: Ranked-backlog `BLOCK-COMMENT-REJECT` marked ✅ LANDED; the D-slice
   `skipSameLineTrivia` description de-references block comments; the MODGET-COMMENT-EXCISION history
   annotated "[Superseded in part]" for the `.block` removal.
+
+---
+
+## Completed Slice: STDLIB-PATH — the `path` builtin package
+
+Goal: implement CUE's `path` standard-library package — the highest-usage stdlib package kue
+did not yet cover (11 hits across real prod9 configs). Landed in one slice.
+
+### Steps
+
+- `Kue/Path.lean` (new): the OS-parameterized `path/filepath` algorithms as total functions.
+  - `PathOS` (`unix`/`windows`/`plan9`) + `PathOS.ofString?` classify the os argument; `unix`
+    and the `unixOS` fallback names (`darwin`/`linux`/…) collapse to one code path, since unix
+    and plan9 share separator `/`, volume-len 0, and leading-`/` `IsAbs`.
+  - Lexical (unix/plan9): `unixClean` (segment-stack normalization: drops `.`/empties, resolves
+    `..`, clamps at root), `unixBase`, `unixDir`, `unixSplit`, `unixExt`, `unixIsAbs`, `unixJoin`,
+    `unixSplitList`, `unixResolve`, `unixRel` (common-prefix walk, `..`-remainder ⇒ error/bottom).
+  - `unixMatch`: a faithful, TOTAL port of Go's `filepath.Match` glob — `scanChunk`/`matchChunk`/
+    `matchClassRanges`/`getEsc`/`starSkip`/`validateRest`/`matchLoop`. `*`/`?` never cross `/`,
+    `[^…]` negated classes, `!` literal, `\` escapes, `**` rejected, malformed ⇒ `none` (bottom).
+    Fuel-bounded on the chunk/pattern length; structural on the name-position scan (no `partial`).
+- `Kue/Builtin.lean`: `evalPathBuiltin` dispatch (placed here, beside `evalStrconvBuiltin`, since
+  it uses `unresolvedOrBottom`). New `BuiltinFamily.path` + `ofName?` `"path."` arm + the
+  exhaustive `evalBuiltinCall` arm. Each function has both os-arities cue accepts (os-less default
+  `unix`, except `VolumeName` ⇒ `windows`; `ToSlash`/`FromSlash`/`SplitList` have NO default).
+  A `windows` os argument defers with `unsupportedBuiltin` (rendered by the existing STDLIB-E path
+  as `unsupported builtin function "path.X"`); an invalid os string bottoms.
+- `Kue/Value.lean`: `"path"` added to `builtinImportPaths` (so the import routes to the builtin
+  layer, not disk resolution; `builtinPackageNames` and the import gate derive from it).
+- `Kue/Parse.lean`: `stdlibPackageValue?` resolves the three constants `path.Unix`/`Windows`/
+  `Plan9` (= `"unix"`/`"windows"`/`"plan9"`), import-gated like `list.Ascending`. There is NO
+  `path.OS` field — the cue package exposes only the three (verified against the pkg source).
+
+### Spec basis
+
+`path` is a non-core stdlib surface the CUE spec is silent on → cue-compat tiebreak (working
+agreement 2026-07-05). Signatures + constants + per-OS semantics verified against
+`cuelang.org/go/pkg/path` v0.16.1 (source `path.go`/`os.go`/`pkg.go`/`match.go`) and cross-checked
+against the `cue` v0.16.1 binary. Windows is deferred (correctness-over-coverage: faithful
+volume-name/UNC/backslash handling is a large, error-prone corner) — never a silently-wrong value.
+
+### Tests
+
+- `Kue/Tests/PathTests.lean` (75 `native_decide`): Clean normalization (dots, `..` clamp, roots,
+  trailing slash), Join (multiple/empty/embedded-empty/`.`/`..`/non-string-bottom), Base/Dir/Ext
+  edges (trailing slash, no-ext, dotfile, multi-dot, dir-dot), IsAbs, Split, SplitList, Resolve,
+  Rel (down/up/same/sibling/mixed-bottom), Match (`*`/`?`/class hit+miss, `^`-negation, `!`-literal,
+  no-sep, escapes, malformed⇒bottom, `**`⇒bottom), the os constants, plan9==unix, `unixOS` fallback,
+  windows deferral, invalid-os bottom, VolumeName (bare-defers / unix-empty), ToSlash/FromSlash,
+  unknown-leaf bottom, family classification, + 3 end-to-end `exportJsonMatches` (constant resolves,
+  os-less default call, os-const call).
+- `./scripts/check.sh` GREEN (full suite + canaries + wild fixtures).
+
+### Retraction
+
+- `docs/scratch/2026-07-11-session-resume.md`: `path` removed from the "New stdlib packages" queue
+  and marked landed.

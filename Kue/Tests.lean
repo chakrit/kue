@@ -28,6 +28,7 @@ import Kue.Tests.OciAuthTests
 import Kue.Tests.OciManifestTests
 import Kue.Tests.OrderTests
 import Kue.Tests.ParseTests
+import Kue.Tests.PathTests
 import Kue.Tests.PresenceTests
 import Kue.Tests.RegexTests
 import Kue.Tests.RegistryTests

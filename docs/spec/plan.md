@@ -292,6 +292,23 @@ enforcement), surfaced by slice D's separator work, is queued below.
   for structs, a cue bug recorded in `cue-divergences.md`). Comma/trailing-comma/nested/ellipsis/
   empty forms unchanged. Wild `testdata/wild/list-same-line-no-comma`; `ParseTests` LIST-SEP block.
 
+- **STDLIB-PATH — `path` builtin package. ✅ LANDED (2026-07-11).** Highest-usage unimplemented
+  stdlib package (11 hits in prod9 configs). Algorithms in `Kue/Path.lean`; dispatch via a new
+  `.path` `BuiltinFamily` arm (`evalPathBuiltin` in `Builtin.lean`). OS-parameterized: the three
+  string constants `path.Unix`/`Windows`/`Plan9` (`= "unix"`/`"windows"`/`"plan9"`, resolved as
+  `stdlibPackageValue?` constants; there is NO `path.OS` field — the cue package exposes only the
+  three). **Shipped fully for unix/plan9** (identical separator behavior): `Clean`, `Join`, `Split`,
+  `Dir`, `Base`, `Ext`, `IsAbs`, `SplitList`, `Resolve`, `Rel`, `Match`, `ToSlash`, `FromSlash`,
+  `VolumeName`. `Match` is a faithful total port of Go's `filepath.Match` glob (`*`/`?` non-`/`,
+  `[^…]` classes, `\` escapes, `**` rejected, malformed ⇒ bottom). Each function honors cue's os-arg
+  default (`unix`, except `VolumeName` ⇒ `windows`); `ToSlash`/`FromSlash`/`SplitList` have no
+  default (os arg required). **Deferred:** a `windows` os argument routes to `unsupportedBuiltin`
+  (`"unsupported builtin function \"path.X\""`) — faithful volume-name/UNC/backslash handling is a
+  large, error-prone corner, deferred rather than shipped wrong; an invalid os string bottoms
+  (cue's disjunction unification error). Spec-gap recorded (path is a non-core stdlib surface,
+  cue-compat tiebreak). `Kue/Tests/PathTests.lean` (75 `native_decide` — every function, edges,
+  os constants, plan9==unix, windows deferral, invalid os, bad-pattern, plus 3 end-to-end export).
+
 **STDLIB-batch two-phase audit followup (2026-07-10, `4625079..2c3659b`).** Three remaining LOW/polish
 findings closed in one audit-followup slice; one new leniency bug QUEUED.
 - **Phase-B LOW-1 — `BuiltinFamily` stale doc comment. ✅ CLOSED (2026-07-10).** The doc said "eight

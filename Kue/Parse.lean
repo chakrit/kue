@@ -1073,6 +1073,11 @@ def stdlibPackageValue? (pkg label : String) : Option Value :=
   | "list", "Ascending" => some (comparator (.binary .lt (.ref "x") (.ref "y")))
   | "list", "Descending" => some (comparator (.binary .gt (.ref "x") (.ref "y")))
   | "list", "Comparer" => some (comparator (.kind .bool))
+  -- The `path` package's three OS selector constants — plain string values (`path.OS` is NOT a
+  -- real cue constant; the package exposes only these three).
+  | "path", "Unix" => some (.prim (.string "unix"))
+  | "path", "Windows" => some (.prim (.string "windows"))
+  | "path", "Plan9" => some (.prim (.string "plan9"))
   | _, _ => none
 
 mutual
