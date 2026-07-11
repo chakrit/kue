@@ -909,6 +909,29 @@ theorem minrunes_abstract_then_violates :
 theorem minrunes_format :
     formatField "x" (.lengthConstraint .runes .min 2) = "x: strings.MinRunes(2)" := by native_decide
 
+-- HIGH-1 (STDLIB-VALIDATORS audit): an abstract `string`'s rune count is UNKNOWN, not 0. A bare
+-- `string & MinRunes(n)` (n>0) must RETAIN the residual — never fabricate a count-0 answer and
+-- declare the min violated. The meet keeps `string & MinRunes(n)`; manifest reports incomplete, not
+-- a bound-conflict bottom. `MaxRunes` retains symmetrically (an unknown length may exceed any max).
+theorem minrunes_abstract_retains_meet :
+    (meet (.kind .string) (.lengthConstraint .runes .min 2)
+      == .conj [.kind .string, .lengthConstraint .runes .min 2]) = true := by native_decide
+theorem maxrunes_abstract_retains_meet :
+    (meet (.kind .string) (.lengthConstraint .runes .max 2)
+      == .conj [.kind .string, .lengthConstraint .runes .max 2]) = true := by native_decide
+theorem minrunes_abstract_manifest_incomplete :
+    manifestValueOk (meet (.kind .string) (.lengthConstraint .runes .min 2)) = false := by native_decide
+-- A trivially-satisfied `min` (limit ≤ 0) still drops even for the unknown length.
+theorem minrunes_abstract_zero_drops :
+    (meet (.kind .string) (.lengthConstraint .runes .min 0) == .kind .string) = true := by native_decide
+-- The disjunction worst case: an abstract-string arm must SURVIVE finalization, not be
+-- fabricated-pruned to leave the concrete arm. Two live arms ⇒ ambiguous (ok = false); pruning the
+-- constrained arm would collapse the whole value to "hi" (ok = true) — a fabricated concrete.
+private def strHi : Value := .prim (.string "hi")
+theorem minrunes_abstract_disj_arm_survives :
+    manifestValueOk (disjOfValues (meet (.kind .string) (.lengthConstraint .runes .min 5)) strHi)
+      = false := by native_decide
+
 -- list.UniqueItems. Distinct elements pass; a structural duplicate bottoms eagerly (equality is
 -- field-order-independent: `{a:1,b:2}` and `{b:2,a:1}` are the same value). A distinct list retains
 -- the residual until manifest confirms it. A non-list is a type conflict.
@@ -943,6 +966,30 @@ theorem uniqueitems_with_minitems_dup_bottoms :
       (.lengthConstraint .listItems .min 2) == .bottomWith [.boundConflict]) = true := by native_decide
 theorem uniqueitems_format :
     formatField "x" .uniqueItems = "x: list.UniqueItems()" := by native_decide
+
+-- HIGH-2 (STDLIB-VALIDATORS audit): two ABSTRACT elements that coincide now (`int`==`int`,
+-- `>0`==`>0`, `string`==`string`) are NOT a definite duplicate — they can refine to distinct
+-- concretes (`[int,int] & [1,2]`) — so UniqueItems RETAINS the residual rather than eager-bottoming.
+private def intListII : Value := .list [.kind .int, .kind .int]
+private def gtZero : Value := .boundConstraint (intDecimal 0) .gt .number
+theorem uniqueitems_abstract_int_retains :
+    (meet intListII .uniqueItems == .conj [intListII, .uniqueItems]) = true := by native_decide
+theorem uniqueitems_abstract_bound_retains :
+    (meet (.list [gtZero, gtZero]) .uniqueItems
+      == .conj [.list [gtZero, gtZero], .uniqueItems]) = true := by native_decide
+theorem uniqueitems_abstract_string_retains :
+    (meet (.list [.kind .string, .kind .string]) .uniqueItems
+      == .conj [.list [.kind .string, .kind .string], .uniqueItems]) = true := by native_decide
+-- Standalone manifest of abstract-element UniqueItems ⇒ incomplete (the abstract ints), NOT bottom.
+theorem uniqueitems_abstract_manifest_incomplete :
+    manifestValueOk (meet intListII .uniqueItems) = false := by native_decide
+-- Abstract elements re-check on concretization: a UNIQUE concrete list passes; a DUPLICATE bottoms.
+theorem uniqueitems_abstract_concretizes_unique_ok :
+    manifestValueOk (meet (meet intListII .uniqueItems) (.list [.prim (.int 1), .prim (.int 2)]))
+      = true := by native_decide
+theorem uniqueitems_abstract_concretizes_dup_bottoms :
+    manifestValueOk (meet (meet intListII .uniqueItems) (.list [.prim (.int 1), .prim (.int 1)]))
+      = false := by native_decide
 
 theorem fixture_int_bounds :
     formatField "x"

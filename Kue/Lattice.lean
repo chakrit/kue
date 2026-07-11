@@ -754,12 +754,16 @@ def meetConjValueWith
   | [single] => single
   | members => .conj (sortConjMembers members)
 
-/-- Whether a list has two elements equal by structural value equality (field-order-independent,
-    `eqUpToFieldOrder`). Sound to check eagerly for a definite duplicate: structural equality is
-    stable under further unification, so a positive duplicate stays a duplicate. -/
-def hasStructuralDup : List Value -> Bool
+/-- Whether a list has two GROUND elements equal by structural value equality
+    (field-order-independent, `eqUpToFieldOrder`). Groundness is REQUIRED for a DEFINITE duplicate:
+    only ground values are stable under further unification, so `[1,1]` is a real duplicate but
+    `[int,int]` is NOT — two abstract elements that coincide now can refine to distinct concretes
+    (`[int,int] & [1,2]`). Restricting to ground pairs keeps the eager bottom sound; an abstract
+    coincidence is retained as a residual and re-checked as the list concretizes. -/
+def hasGroundDup : List Value -> Bool
   | [] => false
-  | x :: rest => rest.any (eqUpToFieldOrder x) || hasStructuralDup rest
+  | x :: rest =>
+      (x.isGround && rest.any (fun y => y.isGround && eqUpToFieldOrder x y)) || hasGroundDup rest
 
 /-- Adjudicate a `.conj` guarded by retained length / uniqueness validators at finalization
     (`manifest`). `some value` when every retained `min`/`max` bound and any `uniqueItems` is
@@ -790,7 +794,7 @@ def finalizeLengthConj (constraints : List Value) : Option Value :=
       let uniqueVerdict : Option Bool :=
         if requireUnique then
           match value with
-          | .list items => some (!hasStructuralDup items)
+          | .list items => some (!hasGroundDup items)
           | _ => none
         else some true
       match lengthVerdict, uniqueVerdict with
@@ -1339,12 +1343,24 @@ def applyLengthConstraint (kind : LengthKind) (bound : CountBound) (limit : Int)
                 else .conj [value, .lengthConstraint kind bound limit]
       | .max => if (lower : Int) > limit then .bottomWith [.boundConflict]
                 else .conj [value, .lengthConstraint kind bound limit]
+  | .unknown =>
+      -- An abstract string's rune count is UNKNOWN (not 0): floor is 0 but the true length may be
+      -- anything, so no bound may fire eagerly. `min` drops only when trivially satisfied (`limit
+      -- <= 0`), `max` bottoms only on the impossible `limit < 0`; otherwise retain the residual and
+      -- adjudicate at manifest once (if ever) the string concretizes. Deciding here would FABRICATE
+      -- a count-0 answer for an incomplete value.
+      match bound with
+      | .min => if limit <= 0 then value
+                else .conj [value, .lengthConstraint kind bound limit]
+      | .max => if limit < 0 then .bottomWith [.boundConflict]
+                else .conj [value, .lengthConstraint kind bound limit]
 
-/-- Unify a `list.UniqueItems` validator with the value it meets. A definite structural duplicate
-    bottoms eagerly (equality is stable under further unification); otherwise the residual is
-    retained beside the value and adjudicated at `manifest`, once the list is concrete. A non-list
-    value is a type conflict (bottom). Dispatches on a `UniqueTarget` classifier so the `_` catch is
-    over the finite class, not `Value`. -/
+/-- Unify a `list.UniqueItems` validator with the value it meets. A definite GROUND duplicate
+    bottoms eagerly (`hasGroundDup` — only ground elements are stable under unification); an
+    abstract coincidence (`[int,int]`, `[>0,>0]`) is NOT a duplicate, so the residual is retained
+    beside the value and re-adjudicated at `manifest` / as the list concretizes. A non-list value is
+    a type conflict (bottom). Dispatches on a `UniqueTarget` classifier so the `_` catch is over the
+    finite class, not `Value`. -/
 inductive UniqueTarget where
   | listItems (items : List Value)
   | mismatch
@@ -1359,7 +1375,7 @@ def applyUniqueItems (value : Value) : Value :=
   match classifyUniqueTarget value with
   | .mismatch => .bottom
   | .listItems items =>
-      if hasStructuralDup items then .bottomWith [.boundConflict]
+      if hasGroundDup items then .bottomWith [.boundConflict]
       else .conj [value, .uniqueItems]
 
 def meetWithFuel : Nat -> Value -> Value -> Value

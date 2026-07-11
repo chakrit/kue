@@ -3,8 +3,22 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: BLOCK-COMMENT-REJECT + STDLIB-PATH audit-followup (B-1/B-2/F1/F2)
+resolved/historical). HEAD: STDLIB-VALIDATORS-SOUND — the Phase-A audit HIGH-1/HIGH-2 fix for
+STDLIB-VALIDATORS (abstract length/uniqueness validators no longer fabricate final results),
 committed on `main`, not yet pushed (attended-push pending).
+
+## Latest slice (2026-07-11) — STDLIB-VALIDATORS-SOUND (Phase-A HIGH-1/HIGH-2 fix)
+
+Two confirmed HIGH soundness bugs from the STDLIB-VALIDATORS (`5d9b65c`) Phase-A audit, one
+shared root cause (conflating "structurally decided now" with "final/concrete" — eager
+decisions sound only on GROUND values firing on ABSTRACT ones). HIGH-1: abstract-string length
+→ `LengthMeasure.unknown` (was fabricated `lowerBound 0`), so `string & MinRunes(n)` retains
+incomplete and `(string & MinRunes(5)) | "hi"` no longer collapses to a fabricated `"hi"`.
+HIGH-2: `hasStructuralDup` → `hasGroundDup` gated on new total `Value.isGround`, so
+`[int,int] & UniqueItems` retains rather than eager-bottoming; ground dups (`[1,1]`,
+`[{a:1},{a:1}]`) still bottom. 4 RED-first wild fixtures + 11 new `native_decide`. Two
+`cue-divergences.md` rows (cue export's own abstract-UniqueItems fabrication; disj render
+delta). Full detail: implementation-log.
 
 ## This session (2026-07-10→11) — two LOW slices + a wild-caught STDLIB campaign
 

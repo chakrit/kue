@@ -748,9 +748,23 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   validator. Both participate in `meet` directly (`applyLengthConstraint`/`applyUniqueItems`,
   `Lattice.lean`); a closed list / concrete string decides at meet, a struct / open list / abstract
   string retains and finalizes at manifest (`finalizeLengthConj`). UniqueItems equality is
-  field-order-independent (`eqUpToFieldOrder`); a positive structural dup bottoms eagerly. Runes =
+  field-order-independent (`eqUpToFieldOrder`); a positive GROUND dup bottoms eagerly. Runes =
   Unicode code points, NOT bytes. Fixture `export/list_string_validators` + ~40 `native_decide`
-  (`FixtureTests.lean`). Also still filed:
+  (`FixtureTests.lean`).
+  - **Phase-A audit HIGH-1/HIGH-2 — RESOLVED (STDLIB-VALIDATORS-SOUND, 2026-07-11).** The audit
+    found two silently-wrong-concrete-result soundness bugs sharing one root cause: eager
+    meet/finalization decisions sound only on GROUND values fired on ABSTRACT values that merely
+    looked decided. HIGH-1: an abstract string's length is now `LengthMeasure.unknown` (not a
+    fabricated `lowerBound 0`), so `string & MinRunes(n)` retains as incomplete rather than
+    bottoming, and the disjunction arm `(string & MinRunes(5)) | "hi"` no longer collapses to a
+    fabricated `"hi"`. HIGH-2: `hasStructuralDup` → `hasGroundDup` (gated on the new total
+    `Value.isGround`) so `[int,int] & UniqueItems` retains rather than eager-bottoming; genuine
+    ground dups (`[1,1]`, `[{a:1},{a:1}]`) still bottom. Wild fixtures `minrunes-abstract-incomplete`
+    / `minrunes-disj-arm-fabricated` / `uniqueitems-abstract-elements` /
+    `uniqueitems-abstract-incomplete` + `FixtureTests` `minrunes_abstract_*` / `uniqueitems_abstract_*`.
+    Two `cue-divergences.md` rows added (cue export's own abstract-UniqueItems fabrication; disj
+    render delta).
+  - Also still filed:
   `strings.ByteAt`/`ByteSlice` (~~need byte-array-repr, DEPENDENT of BYTE-ARRAY-REPR~~ — **LANDED
   STDLIB-STRINGS-LEAVES, 2026-07-11**; `Prim.bytes` already existed, no new repr needed),
   `list.IsSorted`/`Sort`/`SortStable` (comparator-struct `list.Ascending`/`Descending` — the

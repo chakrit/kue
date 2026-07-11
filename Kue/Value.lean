@@ -1067,6 +1067,33 @@ end Field
 def regularFieldCount (fields : List Field) : Nat :=
   (fields.filter (fun field => field.fieldClass.countsAsField)).length
 
+mutual
+/-- Whether a value is fully GROUND — concrete, with no abstract type, bound, reference, or open
+    residual that could still refine under further unification. The sound basis for any EAGER
+    duplicate/finality decision on abstract data: a ground value cannot change, so two
+    structurally-equal ground values are a DEFINITE duplicate, whereas two abstract values that
+    merely coincide now (`int`==`int`, `>0`==`>0`) may refine to distinct concretes. Conservative
+    by construction — every non-terminal, kind, bound, or otherwise-unresolved form is non-ground,
+    so the eager decision fires only where it is certainly safe. Produces a `Bool`, so the `_`
+    catch is a probe over the finite constructor class, not a `Value`. -/
+def Value.isGround : Value -> Bool
+  | .prim _ => true
+  | .list items => isGroundValues items
+  | .struct fields _ _ _ _ => isGroundFields fields
+  | _ => false
+  termination_by structural value => value
+
+def isGroundValues : List Value -> Bool
+  | [] => true
+  | value :: rest => value.isGround && isGroundValues rest
+  termination_by structural values => values
+
+def isGroundFields : List Field -> Bool
+  | [] => true
+  | ⟨_, _, value, _⟩ :: rest => value.isGround && isGroundFields rest
+  termination_by structural fields => fields
+end
+
 /-- Whether a measured length of `count` satisfies a `min`/`max` bound. -/
 def countBoundSatisfied (bound : CountBound) (limit : Int) (count : Nat) : Bool :=
   match bound with
@@ -1075,13 +1102,17 @@ def countBoundSatisfied (bound : CountBound) (limit : Int) (count : Nat) : Bool 
 
 /-- The measured length of a value for a `lengthConstraint`, classified by finality. `final n`
     is a length that cannot change under further unification (a closed list, a concrete string);
-    `lowerBound n` is a monotone floor that may still grow (a struct's accreting fields, an open
-    list, an abstract string with no known length); `mismatch` is a value that cannot be this
-    `kind` at all (a list validator meeting a scalar) — a type conflict. Total; the `_ => .mismatch`
-    catch-all is over `Value` but PRODUCES a `LengthMeasure`, not a `Value`, so it is permitted. -/
+    `lowerBound n` is a monotone floor that is FINAL at manifest but may still grow at meet — a
+    struct's accreting fields or an open list, whose element/field count is exact once the value
+    is fully assembled; `unknown` is a length that is genuinely INDETERMINATE even at manifest — an
+    abstract string / regex whose rune count is not 0 but simply unmeasured; `mismatch` is a value
+    that cannot be this `kind` at all (a list validator meeting a scalar) — a type conflict. Total;
+    the `_ => .mismatch` catch-all is over `Value` but PRODUCES a `LengthMeasure`, not a `Value`,
+    so it is permitted. -/
 inductive LengthMeasure where
   | final (count : Nat)
   | lowerBound (count : Nat)
+  | unknown
   | mismatch
 deriving Repr, BEq, DecidableEq
 
@@ -1091,18 +1122,21 @@ def measureForLength : LengthKind -> Value -> LengthMeasure
   | .listItems, .listTail items _ => .lowerBound items.length
   | .listItems, .embeddedList items _ _ => .lowerBound items.length
   | .runes, .prim (.string s) => .final s.toList.length
-  | .runes, .kind .string => .lowerBound 0
-  | .runes, .stringRegex _ => .lowerBound 0
+  | .runes, .kind .string => .unknown
+  | .runes, .stringRegex _ => .unknown
   | _, _ => .mismatch
 
-/-- The measured length of a fully-resolved value, or `none` when the value is not an instance
-    of `kind` at all (used at manifest finalization, where every value is final — so a meet-time
-    `lowerBound` floor is the final count). -/
+/-- The measured length of a value at manifest finalization, or `none` when the length is NOT
+    determinable — either the value is not an instance of `kind` at all (`mismatch`), or its length
+    is genuinely `unknown` (an abstract string). A `lowerBound` floor IS the final count here: at
+    manifest a struct's fields and a list's elements are fully assembled. `none` signals a genuine
+    incomplete residual the caller must retain, never a fabricated count. -/
 def measuredLength? : LengthKind -> Value -> Option Nat
   | kind, value =>
       match measureForLength kind value with
       | .final count => some count
       | .lowerBound count => some count
+      | .unknown => none
       | .mismatch => none
 
 /-- Drop duplicate `(labelPattern, constraint)` pairs, keeping the first occurrence so

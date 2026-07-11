@@ -19511,3 +19511,73 @@ mismatch, residual `.builtinCall` while abstract), matching the family.
 - The historical implementation-log filings (`ByteAt`/`ByteSlice` deferred) are timeless
   snapshots left as-was; this entry records the resolution.
 - `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.
+
+---
+
+## Completed Slice: Abstract length/uniqueness validators must not fabricate final results (STDLIB-VALIDATORS-SOUND)
+
+Goal: fix TWO confirmed HIGH soundness bugs found by the Phase-A audit of STDLIB-VALIDATORS
+(`5d9b65c`). Both share ONE root cause — conflating "structurally decided now" with
+"final/concrete": an eager meet/finalization decision sound only on GROUND values fired on
+ABSTRACT values that merely looked decided, silently fabricating a concrete wrong result.
+
+### HIGH-1 — abstract-string length residual spuriously finalized to a bound-violation
+
+- Symptom: `x: string & strings.MinRunes(2)` bottomed (should be incomplete); the worst
+  case `x: (string & strings.MinRunes(5)) | "hi"` fabricated `{"x":"hi"}` (should be
+  unresolved) by bottoming and pruning the constrained arm.
+- Root: `measureForLength .runes (.kind .string)`/`(.stringRegex _)` returned
+  `.lowerBound 0`, and `measuredLength? ` collapsed `lowerBound → some 0` at manifest,
+  treating an INCOMPLETE abstract string as a FINAL 0-rune string. `finalizeLengthConj`
+  then computed count 0, declared `MinRunes(n≥1)` violated, and returned a bound-conflict
+  bottom.
+- Fix (`Kue/Value.lean`): a distinct `LengthMeasure.unknown` for the abstract string/regex
+  case (length genuinely indeterminate, not 0). `measuredLength?` maps `.unknown → none`,
+  so `finalizeLengthConj` retains a genuine incomplete residual instead of fabricating a
+  count. `applyLengthConstraint` (`Kue/Lattice.lean`) handles `.unknown` by retaining both
+  `min` and `max` (dropping only a trivially-satisfied `min ≤ 0`, bottoming only an
+  impossible `max < 0`) — meet-time behavior identical to the prior `lowerBound 0`, so
+  concretization still re-checks and struct/closed-list/listTail finalization is untouched.
+
+### HIGH-2 — `list.UniqueItems` eager-bottomed on abstract-but-equal elements
+
+- Symptom: `[int,int] & list.UniqueItems` bottomed standalone (should be incomplete) and
+  killed the satisfiable narrowing `x: [int,int] & list.UniqueItems; x: [1,2]` (should be
+  `{"x":[1,2]}`). Same for `[>0,>0]`, `[string,string]`.
+- Root: `hasStructuralDup` fired on ANY `eqUpToFieldOrder` pair, including abstract ones.
+  Two distinct list positions that coincide while abstract can refine to distinct concretes,
+  so eager bottom is unsound.
+- Fix: a total, precise `Value.isGround` predicate (`Kue/Value.lean`, mutual structural
+  recursion over `Value`/`List Value`/`List Field`; ground = concrete prim, or list/struct
+  of ground values; conservative `_ => false` for every abstract/unresolved form).
+  `hasStructuralDup` → `hasGroundDup` (`Kue/Lattice.lean`) requires BOTH duplicated elements
+  ground before bottoming; abstract coincidences retain. Applied at BOTH the meet callsite
+  (`applyUniqueItems`) and the manifest callsite (`finalizeLengthConj` uniqueVerdict).
+  Genuine GROUND dups still bottom — `[1,1]`, `[{a:1},{a:1}]`, reordered
+  `{a:1,b:2}`/`{b:2,a:1}` — unchanged.
+
+### Tests
+
+- Wild fixtures (RED-first, all four reproduced the bug before the fix):
+  `testdata/wild/minrunes-abstract-incomplete`, `minrunes-disj-arm-fabricated`,
+  `uniqueitems-abstract-elements`, `uniqueitems-abstract-incomplete`.
+- `Kue/Tests/FixtureTests.lean`: new `native_decide` for the untested abstract cells —
+  `minrunes_abstract_retains_meet` / `maxrunes_abstract_retains_meet` /
+  `minrunes_abstract_manifest_incomplete` / `minrunes_abstract_zero_drops` /
+  `minrunes_abstract_disj_arm_survives`; `uniqueitems_abstract_int_retains` /
+  `_bound_retains` / `_string_retains` / `_manifest_incomplete` /
+  `_concretizes_unique_ok` / `_concretizes_dup_bottoms`.
+- `./scripts/check.sh` GREEN (full suite + canaries + wild fixtures).
+
+### Divergences / gaps
+
+- `docs/spec/cue-divergences.md`: two new rows — (1) `cue export` fabricates a
+  `list.UniqueItems` bottom on abstract elements while `cue eval` correctly retains (cue
+  internally inconsistent; Kue follows the spec, incomplete); (2) display-only rendering
+  delta for an unresolved multi-arm disjunction export (`ambiguous` vs cue's `incomplete` —
+  same value verdict, no fabricated concrete).
+
+### Retraction
+
+- `docs/spec/plan.md`: STDLIB-VALIDATORS audit HIGH-1/HIGH-2 marked RESOLVED.
+- `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.
