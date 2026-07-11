@@ -177,6 +177,17 @@ mutual
     | _, .uniqueItems => "list.UniqueItems()"
     | _, .stringFormat .duration => "time.Duration()"
     | _, .stringFormat .rfc3339 => "time.Time()"
+    | _, .stringFormat .netIP => "net.IP()"
+    | _, .stringFormat .netIPv4 => "net.IPv4()"
+    | _, .stringFormat .netIPv6 => "net.IPv6()"
+    | _, .stringFormat .netIPCIDR => "net.IPCIDR()"
+    | _, .stringFormat .netLoopbackIP => "net.LoopbackIP()"
+    | _, .stringFormat .netMulticastIP => "net.MulticastIP()"
+    | _, .stringFormat .netInterfaceLocalMulticastIP => "net.InterfaceLocalMulticastIP()"
+    | _, .stringFormat .netLinkLocalMulticastIP => "net.LinkLocalMulticastIP()"
+    | _, .stringFormat .netLinkLocalUnicastIP => "net.LinkLocalUnicastIP()"
+    | _, .stringFormat .netGlobalUnicastIP => "net.GlobalUnicastIP()"
+    | _, .stringFormat .netUnspecifiedIP => "net.UnspecifiedIP()"
     | fuel + 1, .conj constraints =>
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | fuel + 1, .builtinCall name args =>

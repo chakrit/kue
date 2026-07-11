@@ -332,6 +332,27 @@ enforcement), surfaced by slice D's separator work, is queued below.
   choice). Spec-gap recorded (STDLIB-TIME, non-core stdlib surface, cue-compat tiebreak).
   `Kue/Tests/TimeTests.lean` (60+ `native_decide`) + `testdata/export/time_basic.cue`.
 
+- **STDLIB-NET — `net` builtin package (SCOPED to the IP validator surface). ✅ LANDED
+  (2026-07-11).** Common in infra CUE (IP/CIDR validation). EXTENDS the `time` `stringFormat`
+  pattern — 11 new `StringFormat` variants (`netIP`/`netIPv4`/`netIPv6`/`netIPCIDR` + 7
+  address-class predicates), **NO new `Value` constructor** (keeps parked-2B constructor
+  pressure flat). Algorithms in `Kue/Net.lean` (a total, fuel-bounded `net/netip`
+  `ParseAddr`/`ParsePrefix` port + the `Addr.Is*` classification, over `NetAddr = v4 | v6`);
+  dispatch via a new `.net` `BuiltinFamily` arm (`evalNetBuiltin`). Meet-participating like
+  `time` (ground non-conforming string bottoms, abstract `.kind .string` retains). **Shipped:**
+  `IP`/`IPv4`/`IPv6`, `IPCIDR`, and the class predicates `LoopbackIP`/`MulticastIP`/
+  `InterfaceLocalMulticastIP`/`LinkLocalMulticastIP`/`LinkLocalUnicastIP`/`GlobalUnicastIP`/
+  `UnspecifiedIP` (bare validators, `()`, and boolean `(s)` function forms — invalid ⇒ `false`
+  except `IPCIDR(s)` which bottoms); constants `IPv4len`/`IPv6len`. **Deferred with
+  `unsupportedBuiltin`** (the scope boundary): `FQDN` (cue = full IDNA2008 via
+  `golang.org/x/net/idna` — needs the idna engine, not a label predicate) and every function
+  returning a struct/list/tuple (`SplitHostPort`/`JoinHostPort`, `ToIP4`/`ToIP16`, `ParseCIDR`,
+  `ParseIP`, `AddIP`/`AddIPCIDR`, `InCIDR`, `CompareIP`); a nonexistent leaf (`net.Host`,
+  `net.CIDR`) ⇒ bare bottom; byte-list validator args defer too. Verified byte-identical to cue
+  v0.16.1 (280-case IP-class differential + full CIDR battery + byte-identical export). Spec-gap
+  recorded (STDLIB-NET). `Kue/Tests/NetTests.lean` (80+ `native_decide`) +
+  `testdata/export/net_basic.{cue,json}`.
+
 **STDLIB-batch two-phase audit followup (2026-07-10, `4625079..2c3659b`).** Three remaining LOW/polish
 findings closed in one audit-followup slice; one new leniency bug QUEUED.
 - **Phase-B LOW-1 — `BuiltinFamily` stale doc comment. ✅ CLOSED (2026-07-10).** The doc said "eight

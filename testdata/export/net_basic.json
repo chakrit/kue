@@ -1,0 +1,15 @@
+{
+    "ipv4": "127.0.0.1",
+    "ipv6": "2001:db8::1",
+    "ip_any": "::ffff:1.2.3.4",
+    "cidr": "10.0.0.0/8",
+    "loopback": "127.0.0.1",
+    "multicast": "224.0.0.1",
+    "ll_unicast": "169.254.1.1",
+    "global": "8.8.8.8",
+    "v4len": 4,
+    "v6len": 16,
+    "is_v4": true,
+    "not_v4": false,
+    "is_cidr": true
+}

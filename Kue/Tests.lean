@@ -37,6 +37,7 @@ import Kue.Tests.ResolveTests
 import Kue.Tests.RuntimeTests
 import Kue.Tests.Sha256Tests
 import Kue.Tests.SliceTests
+import Kue.Tests.NetTests
 import Kue.Tests.SortTests
 import Kue.Tests.StrconvTests
 import Kue.Tests.StringsTests

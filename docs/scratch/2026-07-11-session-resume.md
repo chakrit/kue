@@ -3,12 +3,27 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: STDLIB-TIME Phase-A audit followup — RFC3339 offset now
-range-checked (hour ≤ 24, min ≤ 60, boundary pinned vs cue), `dur_abstract_disj_arm_survives`
-added, `manifestValueOk` promoted to `EvalTestHelpers`, and a CONFIRMED fractional-ParseDuration
-cue divergence (`0.00427738455750h` = 15398584407 ns exact vs cue's 15398584406) logged in
-`cue-divergences.md`. Committed on `main`, not yet pushed (attended-push pending). Prior HEAD
-STDLIB-TIME below.
+resolved/historical). HEAD: **STDLIB-NET** — the `net` package IP validator surface. EXTENDS
+the `time` `stringFormat` mechanism (11 new `StringFormat` variants, NO new `Value`
+constructor). `Kue/Net.lean` = total `net/netip` `ParseAddr`/`ParsePrefix` port + `Addr.Is*`
+classification over `NetAddr = v4 | v6`. Shipped: `IP`/`IPv4`/`IPv6`/`IPCIDR` + 7 address-class
+predicates (bare/`()`/bool-`(s)` forms), `IPv4len`/`IPv6len`. Deferred (`unsupportedBuiltin`):
+`FQDN` (full idna engine) + all struct/list/tuple functions (`SplitHostPort`/`ToIP4`/`ParseCIDR`/
+`InCIDR`/`CompareIP`/…); nonexistent leaf ⇒ bare bottom. Verified byte-identical to cue v0.16.1
+(280-case IP-class differential + CIDR battery + export). `Kue/Tests/NetTests.lean` (80+
+`native_decide`) + `testdata/export/net_basic.{cue,json}`. Retraction: wild
+`stdlib-import-misrouted-to-disk-loader` repointed `net` → `uuid`. Committed on `main`, not
+pushed (attended-push pending). Prior HEAD STDLIB-TIME below.
+
+## Latest slice (2026-07-11) — STDLIB-NET (`net` package, scoped to IP validators)
+
+New `.net` `BuiltinFamily`. `Kue/Net.lean` holds the `netip` parser (strict IPv4, IPv6 `::` +
+embedded-v4 + `%zone`) + CIDR + `Addr.Is*` classification, all fuel-bounded/total. Extended
+`StringFormat` with `netIP`/`netIPv4`/`netIPv6`/`netIPCIDR` + 7 class predicates (no new `Value`
+ctor); `stringFormatValid` (`Time.lean`, now imports `Net`) dispatches them; meet unchanged
+(ground bottoms, abstract retains). `evalNetBuiltin` + bare-validator/const resolution
+(`Parse.lean`) + `net.` in `builtinImportPaths`. FQDN deferred (cue = idna `ToASCII`, full
+IDNA2008 — `ab--cd`/`xn--a` reject). Full detail: implementation-log.
 
 ## Latest slice (2026-07-11) — STDLIB-TIME Phase-A audit followup
 

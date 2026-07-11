@@ -1215,10 +1215,66 @@ def evalTimeBuiltin : String -> List Value -> Value
   | "time.FormatDuration", args => unsupportedOrBottom "time.FormatDuration" args
   | name, args => unresolvedOrBottom name args
 
+/-- Dispatch the `net` package builtins (STDLIB-NET). Scoped to the IP string-validator
+    surface: `IP`/`IPv4`/`IPv6`, `IPCIDR`, and the address-class predicates (`LoopbackIP`,
+    `MulticastIP`, `InterfaceLocalMulticastIP`, `LinkLocalMulticastIP`, `LinkLocalUnicastIP`,
+    `GlobalUnicastIP`, `UnspecifiedIP`).
+
+    Each validator has two forms, mirroring `time`: the zero-arg VALIDATOR (`net.IPv4()`)
+    resolves to a `.stringFormat` node that participates in `meet` (a ground non-conforming
+    string bottoms, an abstract string retains); the concrete-arg FUNCTION (`net.IPv4("…")`)
+    returns a bool — and, unlike `time`, an invalid address returns `false`, NOT bottom (cue's
+    `Is*` return `false`). The one exception is `IPCIDR`, whose cue form returns `(bool, error)`
+    and so BOTTOMS on an unparseable CIDR.
+
+    DEFERRED with a clear `unsupportedBuiltin` marker (need an idna engine or return
+    structs/lists/tuples, see `docs/spec/cue-spec-gaps.md`): `FQDN` (full IDNA2008 via
+    `golang.org/x/net/idna`), `SplitHostPort`/`JoinHostPort`, `ToIP4`/`ToIP16`, `ParseCIDR`,
+    `ParseIP`, `AddIP`/`AddIPCIDR`, `InCIDR`, `CompareIP`. A nonexistent leaf (`net.Host`,
+    `net.CIDR`) has no arm and bottoms bare via `unresolvedOrBottom`; a non-string validator
+    argument (a byte-list IP) likewise defers there (a documented gap). -/
+def evalNetBuiltin : String -> List Value -> Value
+  | "net.IP", [] => .stringFormat .netIP
+  | "net.IP", [.prim (.string s)] => .prim (.bool (isNetIP s))
+  | "net.IPv4", [] => .stringFormat .netIPv4
+  | "net.IPv4", [.prim (.string s)] => .prim (.bool (isNetIPv4 s))
+  | "net.IPv6", [] => .stringFormat .netIPv6
+  | "net.IPv6", [.prim (.string s)] => .prim (.bool (isNetIPv6 s))
+  | "net.IPCIDR", [] => .stringFormat .netIPCIDR
+  | "net.IPCIDR", [.prim (.string s)] =>
+      if isNetIPCIDRString s then .prim (.bool true) else .bottom
+  | "net.LoopbackIP", [] => .stringFormat .netLoopbackIP
+  | "net.LoopbackIP", [.prim (.string s)] => .prim (.bool (isNetLoopbackIP s))
+  | "net.MulticastIP", [] => .stringFormat .netMulticastIP
+  | "net.MulticastIP", [.prim (.string s)] => .prim (.bool (isNetMulticastIP s))
+  | "net.InterfaceLocalMulticastIP", [] => .stringFormat .netInterfaceLocalMulticastIP
+  | "net.InterfaceLocalMulticastIP", [.prim (.string s)] => .prim (.bool (isNetInterfaceLocalMulticastIP s))
+  | "net.LinkLocalMulticastIP", [] => .stringFormat .netLinkLocalMulticastIP
+  | "net.LinkLocalMulticastIP", [.prim (.string s)] => .prim (.bool (isNetLinkLocalMulticastIP s))
+  | "net.LinkLocalUnicastIP", [] => .stringFormat .netLinkLocalUnicastIP
+  | "net.LinkLocalUnicastIP", [.prim (.string s)] => .prim (.bool (isNetLinkLocalUnicastIP s))
+  | "net.GlobalUnicastIP", [] => .stringFormat .netGlobalUnicastIP
+  | "net.GlobalUnicastIP", [.prim (.string s)] => .prim (.bool (isNetGlobalUnicastIP s))
+  | "net.UnspecifiedIP", [] => .stringFormat .netUnspecifiedIP
+  | "net.UnspecifiedIP", [.prim (.string s)] => .prim (.bool (isNetUnspecifiedIP s))
+  -- Real cue functions Kue defers (idna engine, or struct/list/tuple results).
+  | "net.FQDN", args => unsupportedOrBottom "net.FQDN" args
+  | "net.SplitHostPort", args => unsupportedOrBottom "net.SplitHostPort" args
+  | "net.JoinHostPort", args => unsupportedOrBottom "net.JoinHostPort" args
+  | "net.ToIP4", args => unsupportedOrBottom "net.ToIP4" args
+  | "net.ToIP16", args => unsupportedOrBottom "net.ToIP16" args
+  | "net.ParseCIDR", args => unsupportedOrBottom "net.ParseCIDR" args
+  | "net.ParseIP", args => unsupportedOrBottom "net.ParseIP" args
+  | "net.AddIP", args => unsupportedOrBottom "net.AddIP" args
+  | "net.AddIPCIDR", args => unsupportedOrBottom "net.AddIPCIDR" args
+  | "net.InCIDR", args => unsupportedOrBottom "net.InCIDR" args
+  | "net.CompareIP", args => unsupportedOrBottom "net.CompareIP" args
+  | name, args => unresolvedOrBottom name args
+
 /-- The closed set of builtin families on the FAMILY axis. `core` holds the nine exact
     unqualified builtins (`close`/`len`/`and`/`or`/`div`/`mod`/`quo`/`rem`, plus the `slice`
-    desugar of `x[lo:hi]`); the rest are the eleven qualified stdlib packages
-    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`/`path`/`time`). The
+    desugar of `x[lo:hi]`); the rest are the twelve qualified stdlib packages
+    (`strings`/`list`/`math`/`struct`/`regexp`/`strconv`/`base64`/`json`/`yaml`/`path`/`time`/`net`). The
     within-family LEAF (e.g. `math.Pow`) stays a
     `String` — genuinely many-valued and string-dispatched inside each `eval*Builtin`. This
     is the closed, versionable axis: a new family forces a new constructor, and the
@@ -1237,6 +1293,7 @@ inductive BuiltinFamily where
   | yaml
   | path
   | time
+  | net
 deriving Repr, BEq, DecidableEq
 
 /-- Classify a builtin name into its family at the one point the name is interpreted as a
@@ -1259,6 +1316,7 @@ def BuiltinFamily.ofName? (name : String) : Option BuiltinFamily :=
   else if name.startsWith "yaml." then some .yaml
   else if name.startsWith "path." then some .path
   else if name.startsWith "time." then some .time
+  else if name.startsWith "net." then some .net
   else none
 
 /-- Dispatch the `core` exact-name builtins (import-free: the eight CUE built-ins plus the
@@ -1400,6 +1458,7 @@ def evalBuiltinCall (name : String) (args : List Value) : Value :=
   | some .yaml => evalYamlBuiltin name args
   | some .path => evalPathBuiltin name args
   | some .time => evalTimeBuiltin name args
+  | some .net => evalNetBuiltin name args
   | none => unresolvedOrBottom name args
 
 end Kue

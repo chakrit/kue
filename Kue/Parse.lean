@@ -1115,6 +1115,24 @@ def stdlibPackageValue? (pkg label : String) : Option Value :=
   | "time", "Thursday" => some (.prim (.int 4))
   | "time", "Friday" => some (.prim (.int 5))
   | "time", "Saturday" => some (.prim (.int 6))
+  -- `net` package (STDLIB-NET). The IP validators are used BARE (no call), resolving to
+  -- their `.stringFormat` validator VALUE here; the called forms route through `parseCall`
+  -- → `evalNetBuiltin`. `IPv4len`/`IPv6len` are plain int constants. `FQDN` is DEFERRED (full
+  -- idna engine), so it is NOT resolved bare — a bare `net.FQDN` falls through to the
+  -- unresolved path, and any call routes to `evalNetBuiltin`'s `unsupportedBuiltin`.
+  | "net", "IP" => some (.stringFormat .netIP)
+  | "net", "IPv4" => some (.stringFormat .netIPv4)
+  | "net", "IPv6" => some (.stringFormat .netIPv6)
+  | "net", "IPCIDR" => some (.stringFormat .netIPCIDR)
+  | "net", "LoopbackIP" => some (.stringFormat .netLoopbackIP)
+  | "net", "MulticastIP" => some (.stringFormat .netMulticastIP)
+  | "net", "InterfaceLocalMulticastIP" => some (.stringFormat .netInterfaceLocalMulticastIP)
+  | "net", "LinkLocalMulticastIP" => some (.stringFormat .netLinkLocalMulticastIP)
+  | "net", "LinkLocalUnicastIP" => some (.stringFormat .netLinkLocalUnicastIP)
+  | "net", "GlobalUnicastIP" => some (.stringFormat .netGlobalUnicastIP)
+  | "net", "UnspecifiedIP" => some (.stringFormat .netUnspecifiedIP)
+  | "net", "IPv4len" => some (.prim (.int 4))
+  | "net", "IPv6len" => some (.prim (.int 16))
   | _, _ => none
 
 mutual

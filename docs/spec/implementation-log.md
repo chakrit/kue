@@ -19763,3 +19763,54 @@ gap entry were tightened from a hypothetical Go-float artifact to the demonstrat
 - `Kue/Tests/TimeTests.lean` (offset boundary + disj-arm + fractional-divergence theorems);
   wild fixture `testdata/wild/rfc3339-offset-overrange/` (red→green).
 - `./scripts/check.sh` GREEN. Smoking-gun offsets re-run through the built binary now match cue.
+
+---
+
+## Completed Slice: STDLIB-NET — the `net` package IP validator surface
+
+Goal: add cue's `net` package, scoped to the string-validator surface that fits the
+existing `stringFormat` mechanism (no new `Value` constructor), deferring the parsing
+functions that return structs/lists/tuples.
+
+### Behavior added
+
+- **`Kue/Net.lean`** — a total, fuel-bounded port of Go's `net/netip`: `parseNetAddr?`
+  (`ParseAddr`: strict dotted-decimal IPv4, IPv6 with one `::`, ≤4-hex groups, embedded
+  trailing IPv4, `%zone`), `isNetIPCIDRString` (`ParsePrefix`: `addr/bits`, zone barred,
+  bits ≤ 32 v4 / ≤ 128 v6), and the `Addr.Is*` classification over `NetAddr = v4 | v6`
+  (mirroring netip's z4/z6, incl. the 4-in-6 unmap). Public bool predicates `isNetIP`,
+  `isNetIPv4/IPv6`, and the 7 address-class checks.
+- **`StringFormat` extended** (`Kue/Value.lean`) with 11 net variants (`netIP`/`netIPv4`/
+  `netIPv6`/`netIPCIDR` + the 7 class predicates) — NO new `Value` constructor. Dispatched
+  in `stringFormatValid` (`Kue/Time.lean`, which now imports `Kue.Net`); the meet
+  (`meetStringFormatPrim`) is unchanged, so a GROUND non-conforming string bottoms and an
+  ABSTRACT `.kind .string` RETAINS (abstract-retention discipline preserved — the disj-arm
+  survival path the earlier validator HIGHs lived in stays covered).
+- **`evalNetBuiltin`** (`Builtin.lean`) + `.net` `BuiltinFamily` + `ofName?` + exhaustive
+  `evalBuiltinCall` arm. Zero-arg validators → `.stringFormat`; `net.X(s)` → bool (invalid
+  ⇒ `false`, matching cue's `Is*`), except `net.IPCIDR(s)` which bottoms on an unparseable
+  CIDR (cue's `(bool, error)`). Bare validators + `IPv4len`/`IPv6len` resolved in
+  `resolveQualifiedConstant` (`Parse.lean`). `net.` added to `builtinImportPaths`.
+- **DEFERRED with `unsupportedBuiltin`:** `FQDN` (cue = full IDNA2008 via
+  `golang.org/x/net/idna`; `ab--cd`/`xn--a` reject as invalid A-labels — needs the idna
+  engine, not a label predicate), `SplitHostPort`/`JoinHostPort`, `ToIP4`/`ToIP16`,
+  `ParseCIDR`, `ParseIP`, `AddIP`/`AddIPCIDR`, `InCIDR`, `CompareIP`. A nonexistent leaf
+  (`net.Host`, `net.CIDR`) → bare bottom (B-1). Byte-list validator arguments defer too
+  (documented gap).
+
+### Verification against cue v0.16.1
+
+Every algorithm was derived from the `net/netip` + cue `pkg/net` source (read from the Go
+toolchain + go-mod cache) and confirmed byte-identical against the `cue` binary: a 280-case
+IP-class differential battery + full CIDR battery (zero diffs), plus `net_basic.{cue,json}`
+export byte-identical to `cue export`. IP classification is where cue-compat bites and every
+class predicate was verified against the binary.
+
+### Tests / verify
+
+- `Kue/Tests/NetTests.lean` (80+ `native_decide`) + `testdata/export/net_basic.{cue,json}`.
+- Retraction: wild `stdlib-import-misrouted-to-disk-loader` repointed `net` → `uuid` (net
+  now resolves; the routing guard stays package-agnostic on a still-unimplemented package).
+- Spec gap recorded (`cue-spec-gaps.md` STDLIB-NET). No `cue-divergences.md` entry — the
+  shipped surface matches cue exactly; deferrals are gaps, not divergences.
+- `./scripts/check.sh` GREEN.

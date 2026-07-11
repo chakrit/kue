@@ -813,6 +813,22 @@ deriving Repr, BEq, DecidableEq
 inductive StringFormat where
   | duration
   | rfc3339
+  /-- `net` package IP-string validators (STDLIB-NET). Each accepts the string iff cue's
+      corresponding `net.*` validator does: `netIP`/`netIPv4`/`netIPv6` are the family checks,
+      `netIPCIDR` a CIDR (`addr/bits`) string, and the remainder are address-class predicates
+      over the parsed bytes (`net/netip.Addr.Is*`). The concrete predicates live in
+      `Kue/Net.lean`. -/
+  | netIP
+  | netIPv4
+  | netIPv6
+  | netIPCIDR
+  | netLoopbackIP
+  | netMulticastIP
+  | netInterfaceLocalMulticastIP
+  | netLinkLocalMulticastIP
+  | netLinkLocalUnicastIP
+  | netGlobalUnicastIP
+  | netUnspecifiedIP
 deriving Repr, BEq, DecidableEq, Hashable
 
 mutual
@@ -1307,7 +1323,7 @@ def importBindName (imp : Import) : String :=
     (`encoding/base64` → `base64`). Shared (in the base layer) by the module loader and the
     parser's builtin-alias canonicalization. -/
 def builtinImportPaths : List String :=
-  ["strings", "list", "math", "struct", "regexp", "strconv", "path", "time",
+  ["strings", "list", "math", "struct", "regexp", "strconv", "path", "time", "net",
    "encoding/base64", "encoding/json", "encoding/yaml"]
 
 /-- Whether an import path names a built-in stdlib package the loader must leave to the

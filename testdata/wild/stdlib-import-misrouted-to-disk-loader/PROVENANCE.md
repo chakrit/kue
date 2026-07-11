@@ -31,3 +31,7 @@
   resolves), so it no longer hits the unimplemented-routing path either. REPOINTED to `net`
   (still an unimplemented dot-free stdlib package cue recognizes) — same package-agnostic
   routing/error guard.
+- **Retraction (STDLIB-NET, 2026-07-11):** `net` is now implemented (`import "net"` resolves
+  its validator surface), so it no longer hits the unimplemented-routing path. REPOINTED to
+  `uuid` (still an unimplemented dot-free stdlib package cue recognizes) — same
+  package-agnostic routing/error guard.
