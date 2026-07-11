@@ -3,9 +3,22 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: STDLIB-TIME — the `time` builtin package (scoped: exact-integer +
-RFC3339-validator surface landed, civil-calendar/epoch deferred), committed on `main`, not yet
-pushed (attended-push pending). Prior HEAD STDLIB-B-PHASEB below.
+resolved/historical). HEAD: STDLIB-TIME Phase-A audit followup — RFC3339 offset now
+range-checked (hour ≤ 24, min ≤ 60, boundary pinned vs cue), `dur_abstract_disj_arm_survives`
+added, `manifestValueOk` promoted to `EvalTestHelpers`, and a CONFIRMED fractional-ParseDuration
+cue divergence (`0.00427738455750h` = 15398584407 ns exact vs cue's 15398584406) logged in
+`cue-divergences.md`. Committed on `main`, not yet pushed (attended-push pending). Prior HEAD
+STDLIB-TIME below.
+
+## Latest slice (2026-07-11) — STDLIB-TIME Phase-A audit followup
+
+Three `56fe65e` audit findings closed in one slice. MEDIUM: `validRFC3339Offset` was
+structural-only (any two digits passed); now range-checks hour ≤ 24 / minute ≤ 60 (boundary
+verified against the cue v0.16.1 binary — 24 and 60 are the accepted maxima). LOW-1: over-range
+offset theorems + `stringFormat` disj-arm-survival theorem; `manifestValueOk` promoted to shared
+helper. LOW-2: the "fractional-division divergence" was undemonstrated — a hard probe CONFIRMED
+a real one (kue exact-integer beats cue's float64 by 1 ns), now logged + pinned. Wild fixture
+`rfc3339-offset-overrange` (red→green). Full detail: implementation-log.
 
 ## Latest slice (2026-07-11) — STDLIB-TIME (`time` package, scoped)
 

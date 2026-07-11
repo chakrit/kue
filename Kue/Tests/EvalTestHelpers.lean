@@ -7,6 +7,15 @@ def evalSourceMatches (source expected : String) : Bool :=
   | .ok output => output == expected
   | .error _ => false
 
+-- Whether a value manifests to a concrete result (`true`) or fails — a bottom, an
+-- incompleteness, or an ambiguous disjunction (`false`). The disjunction-arm-survival witness:
+-- an ambiguous 2-arm disjunction manifests `.error`, so a spurious fabrication that collapses it
+-- to one concrete arm would flip this to `true`.
+def manifestValueOk (value : Value) : Bool :=
+  match manifest value with
+  | .ok _ => true
+  | .error _ => false
+
 -- Match the JSON `export` of a single source against `expected`. Unlike
 -- `evalSourceMatches` (CUE-syntax eval output, which keeps structural decoration like
 -- `...` and `[string]: T`), this manifests to concrete JSON — the B2-stable observable

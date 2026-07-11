@@ -57,6 +57,13 @@ theorem pd_repeated_unit :
 theorem pd_subnano_truncates :
     (call "time.ParseDuration" [.prim (.string "0.0000000001s")] == .prim (.int 0)) = true := by
   native_decide
+-- Exact-integer division BEATS cue's float64 fractional rounding: `0.00427738455750h` is exactly
+-- 15398584407 ns (`427738455750 · 3600000000000 / 10^14`, remainder 0), but cue's float64
+-- `leadingFraction` truncates one ns low to 15398584406 — a genuine cue divergence, kue is
+-- spec-correct (a Duration is an exact int64 ns count). See `docs/spec/cue-divergences.md`.
+theorem pd_fractional_hour_exact_beats_cue_float :
+    (call "time.ParseDuration" [.prim (.string "0.00427738455750h")]
+      == .prim (.int 15398584407)) = true := by native_decide
 -- int64 max is the largest valid magnitude.
 theorem pd_int64_max :
     (call "time.ParseDuration" [.prim (.string "2562047h47m16.854775807s")]
@@ -108,6 +115,15 @@ theorem dur_fn_true :
     (call "time.Duration" [.prim (.string "1h")] == .prim (.bool true)) = true := by native_decide
 theorem dur_fn_invalid :
     isBottom (call "time.Duration" [.prim (.string "bad")]) = true := by native_decide
+-- DISJUNCTION-ARM SURVIVAL (mirrors `minrunes_abstract_disj_arm_survives`): an abstract
+-- `string & time.Duration()` arm must SURVIVE finalization, not be fabricated-pruned to leave the
+-- concrete `"1h"` arm. Two live arms ⇒ ambiguous (ok = false); pruning the retained validator arm
+-- would collapse the value to "1h" (ok = true) — a fabricated concrete. This is the disj twin of
+-- the abstract-retention theorems, pinning the exact `stringFormat` path the earlier validator
+-- HIGHs lived in.
+theorem dur_abstract_disj_arm_survives :
+    manifestValueOk (disjOfValues (meet (.kind .string) (.stringFormat .duration))
+      (.prim (.string "1h"))) = false := by native_decide
 
 -- ### `time.Time` / RFC3339 validator
 
@@ -156,6 +172,25 @@ theorem time_feb29_leap :
       == .prim (.string "2020-02-29T00:00:00Z")) = true := by native_decide
 theorem time_apr31 :
     isBottom (meet (.prim (.string "2019-04-31T00:00:00Z")) (.stringFormat .rfc3339)) = true := by
+  native_decide
+-- Offset RANGE validation (cue/Go `time.Parse` acceptance set: hour ≤ 24, minute ≤ 60, both
+-- inclusive). Pinned against cue v0.16.1: `+24:00`/`+24:60` accept, `+25:00`/`+24:61`/`+12:61`
+-- reject. The structural-only validator wrongly accepted any two-digit offset (wild fixture
+-- `rfc3339-offset-overrange`).
+theorem time_offset_hour_boundary_accept :
+    (meet (.prim (.string "2020-01-01T00:00:00+24:00")) (.stringFormat .rfc3339)
+      == .prim (.string "2020-01-01T00:00:00+24:00")) = true := by native_decide
+theorem time_offset_minute_boundary_accept :
+    (meet (.prim (.string "2020-01-01T00:00:00+24:60")) (.stringFormat .rfc3339)
+      == .prim (.string "2020-01-01T00:00:00+24:60")) = true := by native_decide
+theorem time_offset_hour_over_rejects :
+    isBottom (meet (.prim (.string "2020-01-01T00:00:00+25:00")) (.stringFormat .rfc3339)) = true := by
+  native_decide
+theorem time_offset_hour_over_boundary_rejects :
+    isBottom (meet (.prim (.string "2020-01-01T00:00:00+24:61")) (.stringFormat .rfc3339)) = true := by
+  native_decide
+theorem time_offset_minute_over_rejects :
+    isBottom (meet (.prim (.string "2020-01-01T00:00:00+12:61")) (.stringFormat .rfc3339)) = true := by
   native_decide
 -- Abstract string retains.
 theorem time_abstract_retains :

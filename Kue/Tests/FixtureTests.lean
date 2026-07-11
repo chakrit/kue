@@ -1,4 +1,5 @@
 import Kue.Tests.FixturePorts
+import Kue.Tests.EvalTestHelpers
 
 namespace Kue
 
@@ -721,11 +722,6 @@ private def structABC : Value :=
   mkStruct
     [⟨"a", .regular, .prim (.int 1), false⟩, ⟨"b", .regular, .prim (.int 2), false⟩,
      ⟨"c", .regular, .prim (.int 3), false⟩] .regularOpen none []
-private def manifestValueOk (value : Value) : Bool :=
-  match manifest value with
-  | .ok _ => true
-  | .error _ => false
-
 -- A satisfied `min` drops eagerly: the meet is the struct itself, no residual.
 theorem fieldcount_min_satisfied_drops :
     (meet structAB (.lengthConstraint .fields .min 2) == structAB) = true := by native_decide

@@ -323,8 +323,9 @@ enforcement), surfaced by slice D's separator work, is queued below.
   **Shipped (exact-integer / string-structural only):** `ParseDuration` (→ int64 nanoseconds,
   overflow ⇒ bottom); the `Duration`/`Time` validators (bare, `()`, and boolean function forms);
   `Format` restricted to the `RFC3339`/`RFC3339Nano` layouts; all unit/layout/month/weekday CONSTANTS.
-  RFC3339 validation is calendar-aware (leap-year days-in-month), offset structural (not range-checked,
-  matching Go). **Deferred with `unsupportedBuiltin`** (need a date↔epoch calendar engine or Go's
+  RFC3339 validation is calendar-aware (leap-year days-in-month); the offset is range-checked
+  (hour ≤ 24, minute ≤ 60, both inclusive), matching cue/Go's `time.Parse` (STDLIB-TIME Phase-A
+  followup). **Deferred with `unsupportedBuiltin`** (need a date↔epoch calendar engine or Go's
   format machinery — the scope boundary): `Unix`, `Parse`, `FormatString`, `Split`, `FormatDuration`,
   and any non-RFC3339 custom `Format` layout; `time.Date` is a nonexistent leaf ⇒ bare bottom.
   Duration is deliberately int64-bounded (the Go `time.Duration` type contract, not a Kue-exactness
@@ -361,6 +362,30 @@ findings closed in one audit-followup slice; one new leniency bug QUEUED.
   state (module.cue is parsed by `parseSource`, which rejects block comments before any textual scan).
   Guards: wild fixture `block-comment-rejected` (red→green) + `ParseTests` `parse_block_comment_*`
   (six reject positions + line-comment/division regression pins) + `ModCmdTests` applyModGet rejection.
+
+**STDLIB-TIME Phase-A audit followup (2026-07-11).** Three findings from the `56fe65e` Phase-A
+audit, all closed in one slice.
+- **MEDIUM — RFC3339 offset over-lenient. ✅ CLOSED (2026-07-11).** `validRFC3339Offset`
+  (`Kue/Time.lean`) did structural-only offset validation — any two digits passed. cue/Go's
+  `time.Parse` RANGE-checks it: hour ≤ 24, minute ≤ 60 (both inclusive — boundary pinned against
+  the v0.16.1 binary: `+24:00`/`+24:60` accept, `+25:00`/`+24:61`/`+12:61`/`+00:61` reject). Fix:
+  bind and check the two offset fields (`offHour ≤ 24 ∧ offMin ≤ 60`). Guards: wild fixture
+  `rfc3339-offset-overrange` (red→green) + `TimeTests` `time_offset_*` boundary theorems. The
+  stale "offset NOT range-checked" claims in `cue-spec-gaps.md` and this plan were corrected in
+  the same slice (retraction).
+- **LOW-1 — missing over-range + disj-arm coverage. ✅ CLOSED (2026-07-11).** Added the over-range
+  offset rejection/boundary theorems above, plus `dur_abstract_disj_arm_survives` (the
+  `stringFormat` disj-arm-survival twin of `minrunes_abstract_disj_arm_survives`: an abstract
+  `string & time.Duration()` arm survives finalization, not fabricated-pruned to the concrete
+  `"1h"` arm). Promoted `manifestValueOk` to the shared `EvalTestHelpers` (was a private copy in
+  `FixtureTests`).
+- **LOW-2 — undemonstrated fractional-division divergence. ✅ RESOLVED — divergence CONFIRMED
+  (2026-07-11).** The audit's 22 fractional cases all matched cue, but a hard probe near the
+  float64 rounding boundary found a genuine one: `time.ParseDuration("0.00427738455750h")` is
+  exactly 15398584407 ns (remainder-free integer division), cue's float64 `leadingFraction`
+  returns 15398584406 (one ns low). kue is spec-correct (a Duration is an exact int64 ns count).
+  Logged in `cue-divergences.md`; pinned by `TimeTests` `pd_fractional_hour_exact_beats_cue_float`.
+  The comment + gap entry were tightened from a hypothetical to the demonstrated divergence.
 
 **BLOCK-COMMENT-REJECT + STDLIB-PATH two-phase audit followup (2026-07-11).** One coherent
 cleanup slice folding four findings; the two remaining are deferred to a future test-org pass.

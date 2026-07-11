@@ -19682,6 +19682,9 @@ duration + RFC3339-validator functionality while deferring the civil-calendar/ep
 Landed: all exact-integer / string-validation surface (no Float, no epoch arithmetic). RFC3339
 validation is FULLY calendar-aware (leap-year days-in-month — cue rejects `2019-02-29`,
 `2019-04-31`), offset structural (Go does NOT range-check the offset: `+24:00`/`+07:60` pass).
+[RETRACTED by the STDLIB-TIME Phase-A audit followup below: the offset IS range-checked (hour ≤ 24,
+minute ≤ 60); `+07:60` passes but `+25:00`/`+12:61` reject — the original "not range-checked" claim
+was a bug.]
 Deferred (`unsupportedBuiltin`, spec-gap logged): everything needing a date↔epoch civil-calendar
 engine or Go's format machinery. Duration is deliberately int64-bounded (overflow ⇒ bottom) — a
 Go `time.Duration` IS int64 nanoseconds, the type contract, not a Kue-exactness question.
@@ -19708,3 +19711,55 @@ Fractional-ns is EXACT integer division where Go uses float64 (Kue is spec-corre
 - `docs/spec/implementation-log.md` (STDLIB-import-routing slice) + `docs/spec/plan.md:221`:
   annotated the "`time` is still unimplemented" claims as retracted.
 - `docs/spec/cue-spec-gaps.md`: STDLIB-TIME row added; `docs/spec/plan.md`: STDLIB-TIME LANDED.
+
+---
+
+## Completed Slice: STDLIB-TIME Phase-A audit followup
+
+Goal: close the three findings from the `56fe65e` STDLIB-TIME Phase-A audit — one MEDIUM
+correctness bug and two LOW hardening items.
+
+### MEDIUM — RFC3339 offset range-check
+
+`validRFC3339Offset` (`Kue/Time.lean`) validated the `±HH:MM` offset structurally only — any
+two digits passed. cue/Go's `time.Parse` also RANGE-checks it. The exact boundary was pinned
+against the `cue` v0.16.1 binary: offset hour ≤ 24 and minute ≤ 60, both inclusive (`+24:00`
+and `+24:60` accept; `+25:00`, `+24:61`, `+12:61`, `+00:61` reject — note 24 and 60 are the
+accepted maxima, not 23/59). Fix: bind the two offset fields and enforce
+`offHour ≤ 24 ∧ offMin ≤ 60`. Spec-silent stdlib surface ⇒ cue-compat tiebreak.
+
+### LOW-1 — over-range + disj-arm test coverage
+
+Added the over-range/boundary offset theorems (`time_offset_hour_boundary_accept`,
+`time_offset_minute_boundary_accept`, `time_offset_hour_over_rejects`,
+`time_offset_hour_over_boundary_rejects`, `time_offset_minute_over_rejects`) and
+`dur_abstract_disj_arm_survives` — the `stringFormat` disjunction-arm-survival twin of
+`minrunes_abstract_disj_arm_survives`: an abstract `string & time.Duration()` arm must survive
+finalization rather than be fabricated-pruned to leave the concrete `"1h"` arm (two live arms ⇒
+ambiguous, `manifestValueOk = false`). Promoted `manifestValueOk` from a private copy in
+`FixtureTests` to the shared `EvalTestHelpers`.
+
+### LOW-2 — fractional-division divergence CONFIRMED
+
+The audit's 22 fractional cases all matched cue, but a hard probe near the float64 rounding
+boundary found a genuine divergence: `time.ParseDuration("0.00427738455750h")` is exactly
+15398584407 ns (`427738455750 · 3600000000000 / 10^14`, remainder 0), but cue's float64
+`leadingFraction` returns 15398584406 (one ns low). kue's exact integer division is spec-correct
+(a Duration is an exact int64 ns count). Logged in `cue-divergences.md`; pinned by
+`pd_fractional_hour_exact_beats_cue_float`. The `parseDurationTerms` comment + the STDLIB-TIME
+gap entry were tightened from a hypothetical Go-float artifact to the demonstrated divergence.
+
+### Retraction
+
+- `Kue/Time.lean` `validRFC3339Offset` doc comment: "Go does NOT range-check the offset" → the
+  actual hour ≤ 24 / minute ≤ 60 contract.
+- `docs/spec/cue-spec-gaps.md` STDLIB-TIME row: "offset NOT range-checked; `+24:00`/`+07:60`
+  accepted" → the real range-checked behavior; the fractional-division line now cites the
+  demonstrated cue divergence.
+- `docs/spec/plan.md`: "offset structural (not range-checked, matching Go)" corrected.
+
+### Tests / verify
+
+- `Kue/Tests/TimeTests.lean` (offset boundary + disj-arm + fractional-divergence theorems);
+  wild fixture `testdata/wild/rfc3339-offset-overrange/` (red→green).
+- `./scripts/check.sh` GREEN. Smoking-gun offsets re-run through the built binary now match cue.

@@ -66,9 +66,10 @@ def leadingUnit (chars : List Char) : String × List Char :=
     positive-magnitude nanosecond total). `fuel` bounds the number of terms by the input
     length (each term consumes ≥ 1 char). Returns `none` on any malformed term (no digits,
     missing/unknown unit) or on int64 overflow. The fractional part contributes
-    `⌊frac · unit / 10^fracDigits⌋` — computed EXACTLY (integer division), where Go uses a
+    `⌊frac · unit / 10^fracDigits⌋` — computed EXACTLY (integer division), where Go/cue uses a
     float64 approximation; the exact value is spec-correct (a duration is an exact integer
-    nanosecond count) and any Go-float divergence is Go's artifact. -/
+    nanosecond count) and cue's float64 rounding is a demonstrated off-by-one divergence on
+    the rounding boundary (see `docs/spec/cue-divergences.md`). -/
 def parseDurationTerms (fuel : Nat) (acc : Int) : List Char → Option Int
   | [] => some acc
   | chars@(c :: _) =>
@@ -163,18 +164,19 @@ def expectChar (c : Char) : List Char → Option (List Char)
   | [] => none
 
 /-- Validate the offset tail of an RFC3339 timestamp: either `Z`, or a sign followed by
-    `HH:MM` (two digits, colon, two digits — Go does NOT range-check the offset, so any
-    two-digit values pass). Must consume the whole remainder. -/
+    `HH:MM` — two digits, colon, two digits — with the offset hour ≤ 24 and the offset
+    minute ≤ 60 (both inclusive), matching cue/Go's `time.Parse` acceptance set (`+24:60`
+    passes, `+25:00` and `+12:61` reject). Must consume the whole remainder. -/
 def validRFC3339Offset : List Char → Bool
   | ['Z'] => true
   | s :: rest =>
       if s == '+' ∨ s == '-' then
         match readDigits 2 rest with
-        | some (_, afterH) =>
+        | some (offHour, afterH) =>
             match expectChar ':' afterH with
             | some afterColon =>
                 match readDigits 2 afterColon with
-                | some (_, []) => true
+                | some (offMin, []) => offHour ≤ 24 ∧ offMin ≤ 60
                 | _ => false
             | none => false
         | none => false
