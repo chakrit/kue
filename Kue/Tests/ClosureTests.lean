@@ -88,9 +88,9 @@ theorem closure_eval_fuel_exhaustion :
 
 -- Inert manifest: an unforced closure is non-concrete (incomplete).
 theorem closure_manifest_incomplete :
-    manifest (.closure [(0, [])] (.prim (.int 1)))
-      = .error (.incomplete (.closure [(0, [])] (.prim (.int 1)))) := by
-  rfl
+    (manifest (.closure [(0, [])] (.prim (.int 1)))
+      == .error (.incomplete (.closure [(0, [])] (.prim (.int 1))))) = true := by
+  native_decide
 
 -- Inert meet: a closure does not unify with anything yet (slice 4 changes this).
 theorem closure_meet_bottom :

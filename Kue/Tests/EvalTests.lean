@@ -12,8 +12,8 @@ theorem format_unresolved_ref :
   native_decide
 
 theorem manifest_unresolved_ref_incomplete :
-    manifest (.ref "#A") = .error (.incomplete (.ref "#A")) := by
-  rfl
+    (manifest (.ref "#A") == .error (.incomplete (.ref "#A"))) = true := by
+  native_decide
 
 theorem eval_regular_field_reference_to_definition :
     (evalStructRefs
@@ -1121,6 +1121,19 @@ theorem eval_add_context_rounding :
         = "1.000000000000000000000000000000000e+34"
       ∧ formatValue (evalAdd (.prim (mkFloatText "1e100")) (.prim (.int 1)))
         = "1.000000000000000000000000000000000e+100" := by
+  native_decide
+
+-- Exact-tie rounding is half-UP (ties away from zero), NOT half-even. `apdRoundToContext`'s
+-- `2 * remainder >= divisor` rule rounds a dropped-part of exactly ½ up regardless of the kept
+-- digit's parity. Guard: a 35-sig-digit float ending `…125` × 10³⁴ drops the trailing `5` on an
+-- EXACT tie, and the kept 34th digit is `2` (EVEN) — half-up carries it to `3` (`…13`), whereas
+-- half-even would keep the even `2` (`…12`). Pinned both signs (the rule is magnitude-symmetric via
+-- `negative`); matches `cue` v0.16.1 (`1.000…013E+34`). Prior tie coverage was zero.
+theorem eval_add_context_rounding_half_up_even_tie :
+    formatValue (evalAdd (.prim (mkFloatText "1.0000000000000000000000000000000125e34")) (.prim (.int 0)))
+        = "1.000000000000000000000000000000013e+34"
+      ∧ formatValue (evalAdd (.prim (mkFloatText "-1.0000000000000000000000000000000125e34")) (.prim (.int 0)))
+        = "-1.000000000000000000000000000000013e+34" := by
   native_decide
 
 -- Terminating division renders without padding.

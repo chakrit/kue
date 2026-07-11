@@ -70,10 +70,15 @@ def finalizeDisjArm : Mark × Value -> Mark × Value
   | arm => arm
 
 mutual
+  -- Fuel bounds nesting DEPTH, not sibling breadth: the sibling/tail recursion threads `fuel`
+  -- UNCHANGED (only descending INTO a value via `manifestWithFuel`'s own `fuel + 1` match spends
+  -- a unit). Peeling one fuel per sibling coupled the budget to field COUNT — a struct with
+  -- `manifestFuel - 2` top-level fields ran the last field out of fuel (`incomplete value`),
+  -- regardless of how shallow. Mirrors `evalFieldRefsListWithFuel`, which likewise passes fuel
+  -- undecremented across siblings. Termination comes from the list length (see `termination_by`).
   def manifestFieldsWithFuel : Nat -> List Field -> Except ManifestError (List (String × ManifestValue))
-    | 0, _ => .error (.incomplete .top)
-    | _ + 1, [] => .ok []
-    | fuel + 1, field :: fields =>
+    | _, [] => .ok []
+    | fuel, field :: fields =>
         match Field.fieldClass field with
         | .field false false .regular =>
             match manifestWithFuel fuel (Field.value field), manifestFieldsWithFuel fuel fields with
@@ -102,15 +107,18 @@ mutual
         | .importBinding =>
             if isBottom (Field.value field) then .error .contradiction
             else manifestFieldsWithFuel fuel fields
+  termination_by n fields => (n, 2, fields.length)
 
+  -- Fuel threads UNCHANGED across list elements (breadth is free); only `manifestWithFuel`'s
+  -- descent into an item spends fuel (depth). Same breadth/depth decoupling as the field walk.
   def manifestItemsWithFuel : Nat -> List Value -> Except ManifestError (List ManifestValue)
-    | 0, _ => .error (.incomplete .top)
-    | _ + 1, [] => .ok []
-    | fuel + 1, item :: items =>
+    | _, [] => .ok []
+    | fuel, item :: items =>
         match manifestWithFuel fuel item, manifestItemsWithFuel fuel items with
         | .ok value, .ok rest => .ok (value :: rest)
         | .error error, _ => .error error
         | _, .error error => .error error
+  termination_by n items => (n, 2, items.length)
 
   def manifestWithFuel : Nat -> Value -> Except ManifestError ManifestValue
     | 0, value => .error (.incomplete value)
@@ -195,6 +203,7 @@ mutual
         match resolveDisjDefault? finalized with
         | some value => manifestWithFuel fuel value
         | none => .error (.ambiguous (liveAlternatives finalized))
+  termination_by n _ => (n, 1, 0)
 end
 
 def manifest (value : Value) : Except ManifestError ManifestValue :=

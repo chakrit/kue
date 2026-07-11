@@ -20149,3 +20149,63 @@ DEFERRED division-form cases (value-correct, form-only).
   `compat-assumptions.md` §Numeric literals + §Arithmetic expressions updated (F4 resolution +
   the division-form gap); this log; `plan.md` F4 status.
 - `./scripts/check.sh` GREEN.
+
+---
+
+## Completed Slice: MANIFEST-FIELDCOUNT — decouple manifest fuel from sibling breadth
+
+Goal: fix a HIGH audit bug — `kue export` failed ENTIRELY on any struct with ≥99 top-level
+fields (`export error: incomplete value: <value>`), on trivial input (plain int fields, no
+refs/arithmetic/deferral). Real CUE configs routinely exceed 98 fields.
+
+### Diagnosis (by OBSERVATION, not the fuel-constant coincidence)
+
+Reproduced RED on the pre-fix binary: flat struct 98 fields OK, 99 FAIL (value of the 99th
+field, list-index 98); a 500-field struct failed IDENTICALLY at index 98 — proof a constant
+bump only moves the cliff. Nested one level fails at inner index 96, exactly two below the flat
+98. That two-field offset is the mechanism's fingerprint.
+
+The "incomplete value" originates in `manifestWithFuel`'s `| 0, value => .error (.incomplete
+value)` base case (`Kue/Manifest.lean`), NOT in eval. Root cause: `manifestFieldsWithFuel` /
+`manifestItemsWithFuel` peeled one unit of `manifestFuel` (=100) per SIBLING — the
+`| fuel + 1, field :: fields =>` cons-match decremented before both the value-manifest and the
+tail recursion. So the field at list-index `i` was manifested at fuel `manifestFuel - 2 - i`,
+hitting 0 at `i = 98` (flat) / `i = 96` (nested, minus the enclosing struct's two units). Fuel
+is meant to bound nesting DEPTH (for totality), not sibling BREADTH — this coupled the budget
+to field COUNT. It is the manifest-layer twin of `evalFieldRefsListWithFuel`, which already
+passes fuel undecremented across siblings. Consumption is LINEAR in preceding-sibling count, so
+bumping the constant is a pure cliff-move (banned as a workaround).
+
+### Fix
+
+Thread `fuel` UNCHANGED across siblings in both list walks; only `manifestWithFuel`'s own
+`fuel + 1` descent INTO a value spends a unit (depth). Termination moves from
+structural-on-fuel to an explicit lexicographic well-founded measure: `manifestWithFuel`
+`(n, 1, 0)`, `manifestFieldsWithFuel`/`manifestItemsWithFuel` `(n, 2, list.length)` — the tail
+recursion decreases the length, the value-descent drops fuel (or the phase tag). Fuel now bounds
+DEPTH only (the legitimate totality bound, shared with eval's `evalFuel=100`); breadth is free.
+Verified: 99 / 500 / 5000 / arbitrary field counts export byte-identical to `cue export --out
+json`. Residual depth cliff at ~100 nesting levels is the intended totality bound (eval caps
+there too), NOT the field-count bug — noted, not a regression of this fix.
+
+### Consequence — WF recursion breaks `rfl`; migrate manifest tests to `native_decide`
+
+WF recursion is not kernel-reducible, so the ~30 `manifest …/formatManifestField … = … := by
+rfl` tests broke. Migrated them to the repo's established BEq idiom `(… == …) = true := by
+native_decide` (the `Except`-BEq instance exists for exactly this) — the house standard given
+`Value` deliberately omits `DecidableEq` (kernel-slow; behavior pinned by `native_decide`).
+Whole-surface migration in-slice: 23 in `ManifestTests.lean`, 4 in `FixtureTests.lean`, 1 each
+in `ClosureTests.lean` / `EvalTests.lean`. Non-manifest `rfl` tests in those files left
+untouched.
+
+### Tests / verify
+
+- `testdata/wild/wide-struct-export/` (110 flat fields), `wide-struct-nested/` (105 inner,
+  past the nested-96 cliff), `wide-struct-large/` (500 fields — anti-cliff-move guard). Each
+  RED on the pre-fix binary, GREEN after; byte-identical to `cue export --out json`;
+  `PROVENANCE.md` per fixture.
+- `Kue/Tests/EvalTests.lean` — folded in an unrelated LOW audit test-guard:
+  `eval_add_context_rounding_half_up_even_tie` pins `apdRoundToContext`'s half-UP (ties away
+  from zero) rule on an EXACT tie with an even kept digit, both signs (35-sig float `…125e34` →
+  `…13e+34`, verified against cue; prior tie coverage was zero).
+- `./scripts/check.sh` GREEN. Committed on `main`, not pushed.

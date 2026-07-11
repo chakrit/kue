@@ -213,6 +213,19 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**MANIFEST-FIELDCOUNT (HIGH audit fix). ✅ CLOSED (2026-07-11).** `kue export` failed ENTIRELY on
+any struct with ≥99 top-level fields (`incomplete value`), on trivial plain-int input. Root cause
+(by observation): `manifestFieldsWithFuel`/`manifestItemsWithFuel` (`Kue/Manifest.lean`) peeled one
+`manifestFuel` unit per SIBLING, coupling the budget to field COUNT (field at index `i` manifested at
+fuel `100-2-i` → `.incomplete` at `i=98`; 500-field failed identically at 98, so a constant bump is a
+pure cliff-move). Fix: thread fuel UNCHANGED across siblings (mirrors `evalFieldRefsListWithFuel`);
+only the value-descent spends fuel; WF termination via lexicographic `(fuel, phase, len)`. Fuel now
+bounds DEPTH only. WF recursion broke `rfl`, so ~30 manifest tests migrated whole-surface to the
+`(… == …) = true := by native_decide` BEq idiom. Wild fixtures `wide-struct-{export,nested,large}/`.
+**Class note: any fuel walk decrementing per list ELEMENT (vs per depth) has this bug; manifest was
+the last such site — eval was already correct.** Also folded in a LOW audit test-guard
+(`eval_add_context_rounding_half_up_even_tie`, apd half-UP tie rule, prior coverage zero).
+
 **STDLIB-FLOAT campaign (scoped float work). F0 ✅ + F4 (`+ - *`) ✅ LANDED (2026-07-11).** Scoping ruling: CUE
 numbers are arbitrary-precision apd decimal, NOT float64 — kue's `Decimal` already represents
 them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. Roadmap:

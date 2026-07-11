@@ -3,7 +3,28 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **STDLIB-FLOAT-F4 — apd result-exponent preservation for float `+ - *`.**
+resolved/historical). HEAD: **MANIFEST-FIELDCOUNT — decouple manifest fuel from sibling breadth
+(HIGH audit fix).** `kue export` failed ENTIRELY on any struct with ≥99 top-level fields
+(`incomplete value`), on trivial plain-int input. Root cause (by observation, NOT the
+`manifestFuel=100` coincidence): `manifestFieldsWithFuel`/`manifestItemsWithFuel` (`Kue/Manifest.lean`)
+peeled one fuel unit per SIBLING — the field at list-index `i` manifested at fuel `100-2-i`, hitting
+0 (`.incomplete`) at `i=98` flat / `i=96` nested (the two-field offset = the enclosing struct's two
+units). 500-field struct failed identically at index 98 → a constant bump is a pure cliff-move
+(banned). Fuel must bound nesting DEPTH, not breadth. Fix: thread `fuel` UNCHANGED across siblings
+(mirrors `evalFieldRefsListWithFuel`); only `manifestWithFuel`'s `fuel+1` descent into a value spends
+a unit; termination via explicit lexicographic `(fuel, phase, len)`. Breadth now free (99/500/5000/
+arbitrary counts byte-match `cue export --out json`); depth still capped at 100 (the legit totality
+bound, shared with eval — noted, not the bug). WF recursion breaks `rfl`, so ~30 manifest `rfl` tests
+migrated to the `(… == …) = true := by native_decide` BEq idiom (house standard; `Value` omits
+`DecidableEq` by design) — whole surface in-slice (ManifestTests 23, FixtureTests 4, Closure/Eval 1
+each). Wild fixtures `wide-struct-{export,nested,large}/` (RED→GREEN). Folded in a LOW audit
+test-guard: `eval_add_context_rounding_half_up_even_tie` (apd half-UP tie rule, both signs, prior
+coverage zero). **Class note: field-count/fuel cliffs — any fuel walk that decrements per list
+element (not per depth) has this bug; the manifest was the last such site (eval was already correct).**
+Committed on `main`, not pushed. **Next: F4-division form (derived rule ready in cue-spec-gaps.md),
+then F1–F5 residuals.** Prior HEAD STDLIB-FLOAT-F4 below.
+
+## Prior HEAD — STDLIB-FLOAT-F4 — apd result-exponent preservation for float `+ - *`.
 Float arithmetic now threads the apd `(coefficient, exponent)` form (`ApdForm` +
 `apdAdd`/`apdSub`/`apdMul` + `apdRoundToContext` + `apdCarrierText`, `Decimal.lean`) instead of
 formatting the normalized `DecimalValue` (which erased a positive exponent), so `+ - *` byte-match

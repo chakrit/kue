@@ -271,12 +271,12 @@ theorem fixture_default_disjunction_manifest :
   native_decide
 
 theorem fixture_default_override_manifest :
-    formatManifestField "x"
+    (formatManifestField "x"
       (meet
         (.disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))])
         (.prim (.string "dev")))
-      = .ok "x: \"dev\"" := by
-  rfl
+      == .ok "x: \"dev\"") = true := by
+  native_decide
 
 theorem fixture_regular_struct_meet :
     formatField "x"
@@ -1052,7 +1052,7 @@ theorem fixture_open_list_tail :
   native_decide
 
 theorem fixture_manifest_field_filtering :
-    manifest
+    (manifest
       (mkStruct [
           ⟨"a", .regular, .prim (.int 1), false⟩,
           ⟨"b", .regular, .list [.prim (.string "x")], false⟩,
@@ -1060,11 +1060,11 @@ theorem fixture_manifest_field_filtering :
           ⟨"#Schema", .definition, .kind .int, false⟩,
           ⟨"optional", .optional, .prim (.string "skip"), false⟩
         ] .regularOpen none [])
-      = .ok (.struct [("a", .prim (.int 1)), ("b", .list [.prim (.string "x")])]) := by
-  rfl
+      == .ok (.struct [("a", .prim (.int 1)), ("b", .list [.prim (.string "x")])])) = true := by
+  native_decide
 
 theorem fixture_manifest_field_filtering_format :
-    formatManifestField "x"
+    (formatManifestField "x"
       (mkStruct [
           ⟨"a", .regular, .prim (.int 1), false⟩,
           ⟨"b", .regular, .list [.prim (.string "x")], false⟩,
@@ -1072,8 +1072,8 @@ theorem fixture_manifest_field_filtering_format :
           ⟨"#Schema", .definition, .kind .int, false⟩,
           ⟨"optional", .optional, .prim (.string "skip"), false⟩
         ] .regularOpen none [])
-      = .ok "x: {a: 1, b: [\"x\"]}" := by
-  rfl
+      == .ok "x: {a: 1, b: [\"x\"]}") = true := by
+  native_decide
 
 theorem fixture_manifest_nested_default :
     manifestFieldMatches "x"
@@ -1085,10 +1085,10 @@ theorem fixture_manifest_nested_default :
   native_decide
 
 theorem fixture_manifest_ignores_absent_optional_default :
-    formatManifestField "x"
+    (formatManifestField "x"
       (mkStruct [⟨"mode", .optional, .disj [(.default, .prim (.string "prod")), (.regular, .prim (.string "dev"))], false⟩] .regularOpen none [])
-      = .ok "x: {}" := by
-  rfl
+      == .ok "x: {}") = true := by
+  native_decide
 
 theorem fixture_manifest_selects_materialized_optional_default :
     manifestFieldMatches "x"
