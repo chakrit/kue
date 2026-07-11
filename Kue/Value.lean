@@ -1116,6 +1116,18 @@ inductive LengthMeasure where
   | mismatch
 deriving Repr, BEq, DecidableEq
 
+/-- The element list a list-shaped value exposes: a plain list, an open-tailed list
+    (`[1, ...]` — the tail constrains absent elements, no output, so it is DROPPED:
+    cue `[1, ...] == [1]` ⇒ `true`), or a struct-that-IS-a-list (`embeddedList`). Any other
+    value is not list-shaped. The single shared list-item extractor — every site that pulls
+    items out of a list value (`==`, length/unique finalization, meet classification) routes
+    through this one coverage. -/
+def listItems? : Value -> Option (List Value)
+  | .list items => some items
+  | .listTail items _ => some items
+  | .embeddedList items _ _ => some items
+  | _ => none
+
 def measureForLength : LengthKind -> Value -> LengthMeasure
   | .fields, .struct fields _ _ _ _ => .lowerBound (regularFieldCount fields)
   | .listItems, .list items => .final items.length

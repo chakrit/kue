@@ -19581,3 +19581,65 @@ ABSTRACT values that merely looked decided, silently fabricating a concrete wron
 
 - `docs/spec/plan.md`: STDLIB-VALIDATORS audit HIGH-1/HIGH-2 marked RESOLVED.
 - `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.
+
+---
+
+## Completed Slice: Phase-B audit cleanup — unify list-item extraction + rename misnamed shape gate (STDLIB-B-PHASEB)
+
+Goal: fold four Phase-B audit findings into one low-risk slice (one MEDIUM latent-correctness
+edge, the rest LOW / plan-hygiene).
+
+### 2A (MEDIUM) — unify list-item extraction; fix divergent coverage
+
+- Bug (latent, drift-prevention — currently non-live): `finalizeLengthConj`'s `uniqueVerdict`
+  path (`Kue/Lattice.lean`) matched only `.list`, MISSING `.listTail`/`.embeddedList`, while
+  every other list-item extraction site (meet-time `classifyUniqueTarget`, `asListPair`,
+  `measureForLength .listItems`, `==`'s `listItems?`) covered all three. A ground `.listTail`
+  reaching finalize would fabricate a manifest pass that meet already rejected — a meet-vs-manifest
+  divergence.
+- Fix: route `uniqueVerdict` through the shared `listItems?` extractor so ALL sites share one
+  coverage. Layering: `listItems?` lived in `EvalOps.lean`, which sits ABOVE `Lattice` in the
+  import graph (`Lattice → EvalOps` would cycle via `Builtin → Lattice`), so it was HOISTED to
+  `Value.lean` — the lowest common module (both `Lattice` and `EvalOps` import it). `EvalOps`'s
+  three `==` callsites resolve to the hoisted def unchanged.
+
+### 1B (LOW) — rename misnamed `isConcreteArg` → `isSettledArg`
+
+- `isConcreteArg` (`Kue/Builtin.lean`) does NOT check concreteness — it is a dispatch-settled,
+  non-deferrable SHAPE gate (true for abstract `.list [int]`, false for concrete `.struct {a:1}`),
+  a groundness-gate bug magnet. Pure rename + doc note pointing to `Value.isGround` for real
+  groundness. Dispatch semantics untouched (redefining via `isGround` would flip `.struct`→settled
+  and abstract `.list`→deferred, breaking dispatch). Callers: `unresolvedOrBottom`,
+  `unsupportedOrBottom` (`Builtin.lean`), `runSort` (`Eval.lean`).
+- Dead-arm note (out of scope, not touched): `runSort`'s catch-all reaches `isSettledArg` only for
+  a non-`.list` first arg (`.list` is handled by an upstream arm), so `isSettledArg`'s `.list => true`
+  arm is unreachable FROM THAT CALLSITE — but live for the `Builtin.lean` callers, so not removable.
+
+### 3A (LOW) — refresh stale renamed symbols in `cue-spec-gaps.md` (retraction duty)
+
+- Rows STDLIB-STRUCT-FIELDCOUNT / FIELDCOUNT-DISJ named the pre-rename `fieldCountConstraint`,
+  `FieldCountBound`, `applyFieldCountConstraint`, `finalizeFieldCountConj` as current; refreshed to
+  `lengthConstraint .fields`, `CountBound`, `applyLengthConstraint`, `finalizeLengthConj`.
+  (`plan.md` migration note + implementation-log history left as timeless snapshots.)
+
+### Plan hygiene (docs only)
+
+- `plan.md`: B-3 DROPPED (grep-confirmed the reported test-helper duplication does not exist); B-4
+  re-scoped to "move `strings.*` theorems `BuiltinTests → StringsTests`" and kept DEFERRED (no file
+  urgently oversized); 2B FILED as a deferred MEDIUM coupled to the next validator shape (wrap
+  validator constructors in `.validator (v : Validator)`; pays off only at the 3rd shape).
+
+### Tests
+
+- `Kue/Tests/FixtureTests.lean`: `uniqueitems_listtail_meet_bottoms` +
+  `uniqueitems_listtail_finalize_bottoms` — meet (`applyUniqueItems`) and manifest
+  (`finalizeLengthConj`) agree on a ground `.listTail` duplicate (both bottom). Regression guard for
+  the divergent-coverage drift class.
+- `./scripts/check.sh` GREEN (full suite + canaries + wild fixtures).
+
+### Retraction
+
+- `docs/spec/cue-spec-gaps.md`: stale post-rename symbols refreshed (3A above — this slice's
+  retraction duty).
+- `docs/spec/plan.md`: B-3/B-4 audit findings resolved; 2A/1B/3A landed, 2B deferred-filed.
+- `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.

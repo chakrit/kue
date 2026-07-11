@@ -374,8 +374,41 @@ cleanup slice folding four findings; the two remaining are deferred to a future 
   `parse_block_comment_in_interpolation_rejected`: `"\( 1 /* c */ )"` rejects with `unexpected
   character '*'` (the interpolation body parses through `parseExpression`, so the stray-`/`-division
   mechanism applies there too — hardening pin).
-- **B-3 / B-4 — DEFERRED to a future test-org pass** (test-organization findings, not code correctness;
-  fold in when the periodic test/fixture-org slice runs).
+- **B-3 — DROPPED (moot as framed, 2026-07-11 audit-fold).** The reported per-file `call`/`s`/`i`
+  test-helper duplication was grep-confirmed NOT to exist; no shared helper to extract.
+- **B-4 (LOW) — DEFERRED to a future test-org pass.** Re-scoped: move all `strings.*` builtin
+  theorems from `BuiltinTests.lean` into `StringsTests.lean`; keep `BuiltinTests.lean` for
+  cross-package builtin machinery (`closeValue`, `lenValue`, dispatch fallbacks). No file is
+  urgently oversized (`BuiltinTests.lean` is 1565 lines, under the pain threshold), so the
+  dedicated test-org pass stays deferred; fold in when the periodic slice runs.
+
+**STDLIB-B-PHASEB two-phase audit followup (2026-07-11).** One coherent low-risk cleanup slice
+folding four Phase-B findings.
+- **2A (MEDIUM) — unified list-item extraction. ✅ LANDED (2026-07-11).** `finalizeLengthConj`
+  (`Kue/Lattice.lean`) matched only `.list` in its `uniqueVerdict` path, MISSING
+  `.listTail`/`.embeddedList` — a latent meet-vs-manifest divergence (meet's `classifyUniqueTarget`
+  measured all three, manifest fabricated a pass for the two it skipped). Fixed by routing through
+  the shared `listItems?` extractor. Layering: `listItems?` was in `EvalOps.lean` (above `Lattice`
+  in the import graph — `Lattice → EvalOps` would cycle via `Builtin`), so HOISTED to `Value.lean`
+  (lowest common module; both `Lattice` and `EvalOps` import it). All list-item extraction sites
+  now share one coverage. Guard: `FixtureTests` `uniqueitems_listtail_meet_bottoms` +
+  `uniqueitems_listtail_finalize_bottoms` (meet and manifest agree on a ground `.listTail` dup).
+- **1B (LOW) — `isConcreteArg` renamed `isSettledArg`. ✅ LANDED.** The name lied: it checks
+  dispatch-settled SHAPE (true for abstract `.list [int]`, false for concrete `.struct {a:1}`), not
+  concreteness — a groundness-gate bug magnet. Pure rename + doc pointing to `Value.isGround` for
+  real groundness; callers `unresolvedOrBottom`/`unsupportedOrBottom` (`Builtin.lean`), `runSort`
+  (`Eval.lean`). Dispatch semantics untouched. Note: the `Eval.lean` `runSort` catch-all reaches
+  `isSettledArg` only for a non-`.list` first arg (`.list` handled upstream), so `isSettledArg`'s
+  `.list => true` arm is dead FOR THAT CALLSITE — but live for the `Builtin.lean` callers, so not
+  removable; left as-is.
+- **3A (LOW) — stale renamed symbols in `cue-spec-gaps.md`. ✅ LANDED (retraction duty).** Rows
+  STDLIB-STRUCT-FIELDCOUNT / FIELDCOUNT-DISJ named the pre-rename `fieldCountConstraint`,
+  `FieldCountBound`, `applyFieldCountConstraint`, `finalizeFieldCountConj`; refreshed to
+  `lengthConstraint .fields`, `CountBound`, `applyLengthConstraint`, `finalizeLengthConj`.
+- **2B (MEDIUM) — DEFERRED, COUPLED to the next validator shape.** Wrap validator constructors in a
+  single `.validator (v : Validator)` to collapse the ~8 shotgun-edit enumeration sites (every match
+  that lists `.uniqueItems`/`.lengthConstraint`/… by hand). Pays off only at the 3rd validator
+  shape — do NOT do speculatively; land it when `list.IsSorted` or the next validator is scheduled.
 
 0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
    MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +

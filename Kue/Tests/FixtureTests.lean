@@ -991,6 +991,18 @@ theorem uniqueitems_abstract_concretizes_dup_bottoms :
     manifestValueOk (meet (meet intListII .uniqueItems) (.list [.prim (.int 1), .prim (.int 1)]))
       = false := by native_decide
 
+-- Meet-vs-manifest CONSISTENCY on a ground open-tailed list with a duplicate. The meet path
+-- (`applyUniqueItems`, via `classifyUniqueTarget`) and the manifest path (`finalizeLengthConj`)
+-- share one list-item extractor (`listItems?`), so both must reject `[1, 1, ...]`. Guards the
+-- divergent-coverage drift where `finalizeLengthConj` once matched only `.list`, skipping
+-- `.listTail`/`.embeddedList` and fabricating a pass at manifest that meet already rejected.
+private def dupListTail : Value := .listTail [.prim (.int 1), .prim (.int 1)] .top
+theorem uniqueitems_listtail_meet_bottoms :
+    (applyUniqueItems dupListTail == .bottomWith [.boundConflict]) = true := by native_decide
+theorem uniqueitems_listtail_finalize_bottoms :
+    (finalizeLengthConj [.uniqueItems, dupListTail] == some (.bottomWith [.boundConflict])) = true := by
+  native_decide
+
 theorem fixture_int_bounds :
     formatField "x"
       (meet

@@ -225,16 +225,6 @@ def outputFieldValue? (label : String) : List Field -> Option Value
       if field.fieldClass == FieldClass.regular && field.label == label then some field.value
       else outputFieldValue? label rest
 
-/-- The element list a list-shaped value exposes for `==`: a plain list, an open-tailed list
-    (`[1, ...]` — the tail is a constraint on absent elements, no output, so it is DROPPED:
-    cue `[1, ...] == [1]` ⇒ `true`), or a struct-that-IS-a-list (`embeddedList`). Any other
-    value is not list-shaped. -/
-def listItems? : Value -> Option (List Value)
-  | .list items => some items
-  | .listTail items _ => some items
-  | .embeddedList items _ _ => some items
-  | _ => none
-
 /- Full-concreteness guard for struct/list `==`. CUE holds `==` incomplete unless BOTH operands
    are fully concrete (`{a: 1} == {a: int}` stays incomplete, and an incomplete field defers even
    when another field already differs). Mirrors the manifest output-field filter: only REGULAR

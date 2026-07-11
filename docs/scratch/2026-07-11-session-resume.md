@@ -3,9 +3,22 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: STDLIB-VALIDATORS-SOUND — the Phase-A audit HIGH-1/HIGH-2 fix for
-STDLIB-VALIDATORS (abstract length/uniqueness validators no longer fabricate final results),
-committed on `main`, not yet pushed (attended-push pending).
+resolved/historical). HEAD: STDLIB-B-PHASEB — a Phase-B audit cleanup slice (unify list-item
+extraction + rename the misnamed `isConcreteArg` shape gate + doc refreshes), committed on
+`main`, not yet pushed (attended-push pending). Prior HEAD STDLIB-VALIDATORS-SOUND below.
+
+## Latest slice (2026-07-11) — STDLIB-B-PHASEB (Phase-B audit cleanup)
+
+Four Phase-B findings folded into one low-risk slice. **2A (MEDIUM, latent drift):**
+`finalizeLengthConj` matched only `.list` for uniqueness finalization, missing
+`.listTail`/`.embeddedList` while meet-time `classifyUniqueTarget` covered all three — a
+meet-vs-manifest divergence. Fixed by routing through the shared `listItems?` extractor, HOISTED
+`EvalOps.lean → Value.lean` (lowest common module; `Lattice → EvalOps` would cycle). **1B (LOW):**
+`isConcreteArg → isSettledArg` — pure rename + doc; it gates dispatch-settled SHAPE, not
+groundness (use `Value.isGround` for that). **3A (LOW, retraction):** refreshed stale post-rename
+symbols in `cue-spec-gaps.md` (`fieldCountConstraint → lengthConstraint .fields`, etc.). **Plan
+hygiene:** B-3 dropped (moot), B-4 re-scoped+deferred, 2B filed deferred (coupled to next validator
+shape). 2 new `native_decide` (listTail meet/manifest agree). Full detail: implementation-log.
 
 ## Latest slice (2026-07-11) — STDLIB-VALIDATORS-SOUND (Phase-A HIGH-1/HIGH-2 fix)
 

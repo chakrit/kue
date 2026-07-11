@@ -350,7 +350,7 @@ mutual
           -- A concrete first argument that is NOT a list is a CUE type error (`cannot use … as
           -- list`); an abstract one (a ref/kind a later pass could concretize to a list) stays
           -- unresolved.
-          | other => pure (if isConcreteArg other then .bottom else .builtinCall name [other, cmp])
+          | other => pure (if isSettledArg other then .bottom else .builtinCall name [other, cmp])
         -- SEAM (effectful builtins). These two cases are the EFFECTFUL-builtin dispatch: a
         -- builtin whose semantics require `EvalM` (evaluating a CUE function/comparator argument
         -- per element), which the pure `Builtin` layer (`Builtin → Lattice`, never `→ Eval`)

@@ -686,9 +686,12 @@ def listAvg (items : List Value) : Value :=
       | none => .bottom
   | none => .bottom
 
-/-- Whether an argument is a fully-evaluated concrete value (no kinds, refs, or
-    unresolved calls). Used to decide a builtin dispatcher's fallback. -/
-def isConcreteArg : Value -> Bool
+/-- Whether an argument has a dispatch-settled, non-deferrable SHAPE — a value no later
+    evaluation pass will reshape, so a builtin dispatcher may commit its fallback. NOT a
+    groundness check: an abstract `.list [int]` is settled (true) while a concrete
+    `.struct {a: 1}` is not a dispatch target here (false). For groundness use
+    `Value.isGround`. Used to decide a builtin dispatcher's fallback. -/
+def isSettledArg : Value -> Bool
   | .prim _ => true
   | .list _ => true
   | _ => false
@@ -714,7 +717,7 @@ def isPendingArg : Value -> Bool
 def unresolvedOrBottom (name : String) (args : List Value) : Value :=
   if args.any containsBottom then
     .bottom
-  else if args.all isConcreteArg then
+  else if args.all isSettledArg then
     .bottom
   else
     .builtinCall name args
@@ -731,7 +734,7 @@ def unresolvedOrBottom (name : String) (args : List Value) : Value :=
 def unsupportedOrBottom (name : String) (args : List Value) : Value :=
   if args.any containsBottom then
     .bottom
-  else if args.all isConcreteArg then
+  else if args.all isSettledArg then
     .bottomWith [.unsupportedBuiltin name]
   else
     .builtinCall name args

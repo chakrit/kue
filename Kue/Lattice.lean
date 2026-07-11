@@ -793,9 +793,9 @@ def finalizeLengthConj (constraints : List Value) : Option Value :=
           | _, _ => none) (some true)
       let uniqueVerdict : Option Bool :=
         if requireUnique then
-          match value with
-          | .list items => some (!hasGroundDup items)
-          | _ => none
+          match listItems? value with
+          | some items => some (!hasGroundDup items)
+          | none => none
         else some true
       match lengthVerdict, uniqueVerdict with
       | some lenOk, some uniqOk =>
