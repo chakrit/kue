@@ -1166,6 +1166,32 @@ def stdlibPackageValue? (pkg label : String) : Option Value :=
   | "net", "UnspecifiedIP" => some (.stringFormat .netUnspecifiedIP)
   | "net", "IPv4len" => some (.prim (.int 4))
   | "net", "IPv6len" => some (.prim (.int 16))
+  -- `math` package high-precision constants (STDLIB-FLOAT F0). cue exposes exactly these
+  -- eleven, each a 60–64-digit apd decimal (Go big.Float constants). They are BARE selectors
+  -- (`math.Pi`), so they resolve here; the exact literal text round-trips byte-identically
+  -- through `renderFloatText`. Values pinned against `cue export` v0.16.1.
+  | "math", "Pi" =>
+      some (.prim (mkFloatText "3.14159265358979323846264338327950288419716939937510582097494459"))
+  | "math", "E" =>
+      some (.prim (mkFloatText "2.71828182845904523536028747135266249775724709369995957496696763"))
+  | "math", "Phi" =>
+      some (.prim (mkFloatText "1.61803398874989484820458683436563811772030917980576286213544861"))
+  | "math", "Sqrt2" =>
+      some (.prim (mkFloatText "1.41421356237309504880168872420969807856967187537694807317667974"))
+  | "math", "SqrtE" =>
+      some (.prim (mkFloatText "1.64872127070012814684865078781416357165377610071014801157507931"))
+  | "math", "SqrtPi" =>
+      some (.prim (mkFloatText "1.77245385090551602729816748334114518279754945612238712821380779"))
+  | "math", "SqrtPhi" =>
+      some (.prim (mkFloatText "1.27201964951406896425242246173749149171560804184009624861664038"))
+  | "math", "Ln2" =>
+      some (.prim (mkFloatText "0.693147180559945309417232121458176568075500134360255254120680009"))
+  | "math", "Log2E" =>
+      some (.prim (mkFloatText "1.442695040888963407359924681001892137426645954152985934135449408"))
+  | "math", "Ln10" =>
+      some (.prim (mkFloatText "2.3025850929940456840179914546843642076011014886287729760333278"))
+  | "math", "Log10E" =>
+      some (.prim (mkFloatText "0.43429448190325182765112891891660508229439700580366656611445378"))
   | _, _ => none
 
 mutual

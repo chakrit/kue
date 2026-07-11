@@ -355,16 +355,19 @@ def lnRangeReduceDown : Nat -> Int -> Int -> Int × Int
 def lnRangeReduceFuel : Nat :=
   4 * lnExpScale
 
+/-- Lift a `DecimalValue` to the working scale: `num / 10^s = (num · 10^(P−s)) / 10^P`.
+    Shared by every `ln`/`exp`-family entry that consumes a decimal at `lnExpScale`. -/
+def decimalToLnExpScaled (value : DecimalValue) : Int :=
+  if value.scale <= lnExpScale then
+    value.numerator * Int.ofNat (evalPow10 (lnExpScale - value.scale))
+  else
+    value.numerator / Int.ofNat (evalPow10 (value.scale - lnExpScale))
+
 /-- `ln x` for a positive decimal `x`, returned at the working scale. Range-reduces
     `x = m · 2^k` with `m ∈ [⅔, 4/3)`, so `ln x = k·ln2 + ln m`. The caller
     guarantees `x > 0` (`x ≤ 0` is a domain error handled upstream). -/
 def decimalLnScaled (value : DecimalValue) : Int :=
-  -- Lift the input to the working scale: `num / 10^s = (num · 10^(P−s)) / 10^P`.
-  let lifted :=
-    if value.scale <= lnExpScale then
-      value.numerator * Int.ofNat (evalPow10 (lnExpScale - value.scale))
-    else
-      value.numerator / Int.ofNat (evalPow10 (value.scale - lnExpScale))
+  let lifted := decimalToLnExpScaled value
   let (m₀, k₀) := lnRangeReduceUp lnRangeReduceFuel lifted 0
   let (m, k) := lnRangeReduceDown lnRangeReduceFuel m₀ k₀
   k * ln2Scaled + lnMantissa m
@@ -437,18 +440,53 @@ def roundScaledToSigDigits (numerator : Int) (scale : Nat) : DecimalValue :=
       -- integer (scale 0), scaled up by the leftover dropped places.
       { numerator := q * Int.ofNat (evalPow10 (drop - scale)), scale := 0 }
 
+/-- Render a working-scale (`lnExpScale`) transcendental result as CUE's apd context
+    renders a `math.Log`/`Exp`/`Pow` value: round to 34 significant digits, then collapse
+    to `int` iff the rounded value is TRULY integral (every fractional digit zero —
+    `Log(1) = 0`, `Exp2(3) = 8`), otherwise emit the full 34-significant-digit float.
+    Unlike `collapseDecimalToValue`, this keeps a significant trailing zero WITHIN the 34
+    digits (`Log10(2) = 0.…244930`, `Pow(2, 0.4) = 1.…229640`) — cue's apd does not reduce
+    them, so a trim would shorten the result below cue's digit count. -/
+def renderTranscendentalScaled (scaledResult : Int) : Value :=
+  let rounded := roundScaledToSigDigits scaledResult lnExpScale
+  let divisor := Int.ofNat (evalPow10 rounded.scale)
+  if rounded.numerator % divisor == 0 then
+    .prim (.int (rounded.numerator / divisor))
+  else
+    .prim (mkFloatText (formatDecimalAtScale rounded false))
+
 /-- `base^exponent` for a POSITIVE base and a general (negative or non-½ fractional)
     exponent, in exact-precision decimal via `x^y = exp(y · ln x)`. The result is
     rounded to 34 significant digits and collapsed to `int` when integral
     (`Pow(8, ⅓) = 2`, `Pow(4, 1.5) = 8`). The caller guarantees `base > 0`. -/
 def decimalPowGeneral (base exponent : DecimalValue) : Value :=
   let lnx := decimalLnScaled base
-  let yScaled :=
-    if exponent.scale <= lnExpScale then
-      exponent.numerator * Int.ofNat (evalPow10 (lnExpScale - exponent.scale))
-    else
-      exponent.numerator / Int.ofNat (evalPow10 (exponent.scale - lnExpScale))
-  let result := decimalExpScaled (mulScaled yScaled lnx)
-  collapseDecimalToValue (roundScaledToSigDigits result lnExpScale)
+  let yScaled := decimalToLnExpScaled exponent
+  renderTranscendentalScaled (decimalExpScaled (mulScaled yScaled lnx))
+
+/-- `ln 10` at the working scale, the divisor for `math.Log10 = ln x / ln 10`. Computed
+    from the same series as every other `ln`, so `Log10(1000)` lands exactly on `3`. -/
+def ln10Scaled : Int :=
+  decimalLnScaled (intDecimal 10)
+
+/-- `math.Log x` — natural log, as a rendered `Value`. Caller guarantees `x > 0`. -/
+def mathLogValue (value : DecimalValue) : Value :=
+  renderTranscendentalScaled (decimalLnScaled value)
+
+/-- `math.Log2 x = ln x / ln 2`, rendered. Caller guarantees `x > 0`. -/
+def mathLog2Value (value : DecimalValue) : Value :=
+  renderTranscendentalScaled (divScaled (decimalLnScaled value) ln2Scaled)
+
+/-- `math.Log10 x = ln x / ln 10`, rendered. Caller guarantees `x > 0`. -/
+def mathLog10Value (value : DecimalValue) : Value :=
+  renderTranscendentalScaled (divScaled (decimalLnScaled value) ln10Scaled)
+
+/-- `math.Exp x = e^x`, rendered. Total over every real `x`. -/
+def mathExpValue (value : DecimalValue) : Value :=
+  renderTranscendentalScaled (decimalExpScaled (decimalToLnExpScaled value))
+
+/-- `math.Exp2 x = 2^x = e^{x·ln2}`, rendered. Total over every real `x`. -/
+def mathExp2Value (value : DecimalValue) : Value :=
+  renderTranscendentalScaled (decimalExpScaled (mulScaled (decimalToLnExpScaled value) ln2Scaled))
 
 end Kue

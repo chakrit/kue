@@ -935,6 +935,20 @@ def decimalSqrtSigned (value : DecimalValue) : Value :=
 def mathSqrt? (value : Prim) : Option Value :=
   (decimalFromPrim? value).map decimalSqrtSigned
 
+/-- The `math.Log`/`Log2`/`Log10` family over the domain Kue computes EXACTLY (34-digit apd
+    decimal via `decimalLnScaled`): `Log` is the natural log, `Log2`/`Log10` divide by
+    `ln 2`/`ln 10`. `none` when the argument is non-numeric (caller defers). A non-positive
+    argument is a domain error → `.bottom` (`cue` yields `-Inf`, which it then fails to render
+    for `x = 0`, and errors `invalid operation` for `x < 0`; Kue has no `Inf`, so both bottom —
+    see `cue-spec-gaps.md`). -/
+def mathLog? (kernel : DecimalValue -> Value) (value : Prim) : Option Value :=
+  (decimalFromPrim? value).map (fun d => if d.numerator <= 0 then .bottom else kernel d)
+
+/-- The `math.Exp`/`Exp2` family — `e^x` / `2^x` in 34-digit apd decimal, total over every
+    real argument. `none` when the argument is non-numeric (caller defers). -/
+def mathExp? (kernel : DecimalValue -> Value) (value : Prim) : Option Value :=
+  (decimalFromPrim? value).map kernel
+
 /-- Is the trimmed exponent exactly `½`? `num / 10^scale = 1/2 ⇔ 2·num = 10^scale`,
     so `0.5`, `0.50`, … all qualify regardless of how the literal was written. -/
 def isHalfExponent (exponent : DecimalValue) : Bool :=
@@ -1051,6 +1065,16 @@ def evalMathBuiltin : String -> List Value -> Value
       match mathPow? base exponent with
       | some value => value
       | none => unresolvedOrBottom "math.Pow" [.prim base, .prim exponent]
+  | "math.Log", [.prim value] =>
+      (mathLog? mathLogValue value).getD (unresolvedOrBottom "math.Log" [.prim value])
+  | "math.Log2", [.prim value] =>
+      (mathLog? mathLog2Value value).getD (unresolvedOrBottom "math.Log2" [.prim value])
+  | "math.Log10", [.prim value] =>
+      (mathLog? mathLog10Value value).getD (unresolvedOrBottom "math.Log10" [.prim value])
+  | "math.Exp", [.prim value] =>
+      (mathExp? mathExpValue value).getD (unresolvedOrBottom "math.Exp" [.prim value])
+  | "math.Exp2", [.prim value] =>
+      (mathExp? mathExp2Value value).getD (unresolvedOrBottom "math.Exp2" [.prim value])
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `base64.*` builtin over already-evaluated arguments. `Encode`'s first

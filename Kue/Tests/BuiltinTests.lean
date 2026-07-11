@@ -1,5 +1,6 @@
 import Kue.Builtin
 import Kue.Lattice
+import Kue.Tests.EvalTestHelpers
 
 namespace Kue
 
@@ -773,11 +774,13 @@ theorem math_pow_large_base_cube_root_matches_cue_artifact :
       == .prim (mkFloatText "9.999999999999999999999999999999998")) = true := by
   native_decide
 
--- Mid base, cube-root exponent — a genuine 34-digit irrational (`10^⅓`).
+-- Mid base, cube-root exponent — a genuine 34-digit irrational (`10^⅓`). The 34th digit is a
+-- SIGNIFICANT trailing zero cue keeps (`…6519350`); the prior trimmed pin (`…651935`) diverged
+-- from `cue export` — corrected under the shared non-trimming apd renderer (STDLIB-FLOAT F0).
 theorem math_pow_ten_cube_root_is_exact_decimal :
     (evalBuiltinCall "math.Pow"
         [.prim (.int 10), .prim (mkFloatText "0.3333333333333333333333333333333333")]
-      == .prim (mkFloatText "2.15443469003188372175929356651935")) = true := by
+      == .prim (mkFloatText "2.154434690031883721759293566519350")) = true := by
   native_decide
 
 -- Fractional base < 1 under a fractional exponent (`0.5^0.5 = √½`) — exercises the `ln m` series
@@ -926,6 +929,107 @@ theorem math_sqrt_stays_unresolved_on_abstract_arg :
 theorem math_pow_stays_unresolved_on_abstract_arg :
     (evalBuiltinCall "math.Pow" [.kind .number, .prim (.int 2)]
       == .builtinCall "math.Pow" [.kind .number, .prim (.int 2)]) = true := by
+  native_decide
+
+-- STDLIB-FLOAT F0: the `math.Log`/`Log2`/`Log10`/`Exp`/`Exp2` family, wired to the SAME exact
+-- 34-digit apd decimal `ln`/`exp` kernels the general `math.Pow` domain uses. Every expected
+-- value is byte-pinned against `cue export` v0.16.1. `renderTranscendentalScaled` keeps a
+-- significant trailing zero within the 34 digits and collapses only truly-integral results.
+
+-- `math.Log` = natural log. `Log(2) = 0.6931…1766`; `Log(1) = 0` (collapses to int).
+theorem math_log_natural_is_exact_apd :
+    (evalBuiltinCall "math.Log" [.prim (.int 2)]
+      == .prim (mkFloatText "0.6931471805599453094172321214581766")) = true := by
+  native_decide
+
+theorem math_log_one_is_zero :
+    (evalBuiltinCall "math.Log" [.prim (.int 1)] == .prim (.int 0)) = true := by
+  native_decide
+
+-- `Log(e) ≈ 1` but the finite-series `e` literal makes it `0.999…998`, matching cue's own apd.
+theorem math_log_of_e_literal_matches_cue :
+    (evalBuiltinCall "math.Log" [.prim (mkFloatText "2.718281828459045235360287471352662")]
+      == .prim (mkFloatText "0.9999999999999999999999999999999998")) = true := by
+  native_decide
+
+-- Non-positive argument is a domain error → bottom (cue: `-Inf` render failure / `invalid operation`).
+theorem math_log_zero_is_bottom :
+    (evalBuiltinCall "math.Log" [.prim (.int 0)] == .bottom) = true := by
+  native_decide
+
+theorem math_log_negative_is_bottom :
+    (evalBuiltinCall "math.Log" [.prim (.int (-1))] == .bottom) = true := by
+  native_decide
+
+-- `math.Log2`: `Log2(8) = 3` (exact int), `Log2(3) = 1.584…817`.
+theorem math_log2_power_of_two_is_int :
+    (evalBuiltinCall "math.Log2" [.prim (.int 8)] == .prim (.int 3)) = true := by
+  native_decide
+
+theorem math_log2_non_power_is_exact_apd :
+    (evalBuiltinCall "math.Log2" [.prim (.int 3)]
+      == .prim (mkFloatText "1.584962500721156181453738943947817")) = true := by
+  native_decide
+
+-- `math.Log10`: `Log10(1000) = 3` (exact int), `Log10(2) = 0.3010…4930` (trailing zero KEPT).
+theorem math_log10_power_of_ten_is_int :
+    (evalBuiltinCall "math.Log10" [.prim (.int 1000)] == .prim (.int 3)) = true := by
+  native_decide
+
+theorem math_log10_keeps_significant_trailing_zero :
+    (evalBuiltinCall "math.Log10" [.prim (.int 2)]
+      == .prim (mkFloatText "0.3010299956639811952137388947244930")) = true := by
+  native_decide
+
+theorem math_log10_zero_is_bottom :
+    (evalBuiltinCall "math.Log10" [.prim (.int 0)] == .bottom) = true := by
+  native_decide
+
+-- `math.Exp` = e^x. `Exp(1) = 2.718…662`; `Exp(0) = 1` (int); `Exp(2) = 7.389…008`.
+theorem math_exp_one_is_e :
+    (evalBuiltinCall "math.Exp" [.prim (.int 1)]
+      == .prim (mkFloatText "2.718281828459045235360287471352662")) = true := by
+  native_decide
+
+theorem math_exp_zero_is_one :
+    (evalBuiltinCall "math.Exp" [.prim (.int 0)] == .prim (.int 1)) = true := by
+  native_decide
+
+theorem math_exp_two_is_exact_apd :
+    (evalBuiltinCall "math.Exp" [.prim (.int 2)]
+      == .prim (mkFloatText "7.389056098930650227230427460575008")) = true := by
+  native_decide
+
+-- `math.Exp2` = 2^x. `Exp2(3) = 8` (int); `Exp2(0.5) = √2 = 1.414…698`.
+theorem math_exp2_integer_is_int :
+    (evalBuiltinCall "math.Exp2" [.prim (.int 3)] == .prim (.int 8)) = true := by
+  native_decide
+
+theorem math_exp2_half_is_sqrt2 :
+    (evalBuiltinCall "math.Exp2" [.prim (mkFloatText "0.5")]
+      == .prim (mkFloatText "1.414213562373095048801688724209698")) = true := by
+  native_decide
+
+-- Abstract argument keeps the call unresolved (a later pass may concretize it).
+theorem math_log_stays_unresolved_on_abstract_arg :
+    (evalBuiltinCall "math.Log" [.kind .number]
+      == .builtinCall "math.Log" [.kind .number]) = true := by
+  native_decide
+
+-- STDLIB-FLOAT F0 regression: the shared apd renderer must KEEP a significant trailing zero at
+-- the 34th digit — `Pow(2, 0.4) = 1.319…229640` (the pre-fix trim dropped it to 33 digits).
+theorem math_pow_general_keeps_significant_trailing_zero :
+    (evalBuiltinCall "math.Pow" [.prim (.int 2), .prim (mkFloatText "0.4")]
+      == .prim (mkFloatText "1.319507910772894259374001971229640")) = true := by
+  native_decide
+
+-- STDLIB-FLOAT F0 end-to-end: `math` high-precision constants (bare selectors, resolved at
+-- parse via `stdlibPackageValue?`) and the log/exp functions through parse → eval → JSON export,
+-- byte-identical to `cue export` v0.16.1.
+theorem math_constants_and_transcendentals_export_end_to_end :
+    exportJsonMatches
+      "import \"math\"\npi: math.Pi\nphi: math.Phi\nsqrtPi: math.SqrtPi\nlog2e: math.Log2E\nlogv: math.Log(2)\nexpv: math.Exp(0)\n"
+      "{\n    \"pi\": 3.14159265358979323846264338327950288419716939937510582097494459,\n    \"phi\": 1.61803398874989484820458683436563811772030917980576286213544861,\n    \"sqrtPi\": 1.77245385090551602729816748334114518279754945612238712821380779,\n    \"log2e\": 1.442695040888963407359924681001892137426645954152985934135449408,\n    \"logv\": 0.6931471805599453094172321214581766,\n    \"expv\": 1\n}\n" = true := by
   native_decide
 
 -- base64.Encode (standard padded base64; null encoding only)

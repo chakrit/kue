@@ -1,0 +1,15 @@
+import "math"
+
+logNat:     math.Log(2)
+logOne:     math.Log(1)
+log2Pow:    math.Log2(8)
+log2Three:  math.Log2(3)
+log10Pow:   math.Log10(1000)
+log10Two:   math.Log10(2)
+expE:       math.Exp(1)
+expZero:    math.Exp(0)
+expTwo:     math.Exp(2)
+exp2Int:    math.Exp2(3)
+exp2Half:   math.Exp2(0.5)
+logZeroDom: math.Log(0)
+logNegDom:  math.Log(-1)

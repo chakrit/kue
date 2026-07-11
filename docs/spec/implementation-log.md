@@ -20018,3 +20018,66 @@ rather than silently truncating a legitimate deep/large render.
 - No non-quarantined testdata fixture flipped — `testdata/cue/numeric/byte_literal_escapes.cue`
   (`'\x41z'` = escape + plain `z`) and the `byte-literal-*` wild fixtures use only valid escapes.
 - `./scripts/check.sh` GREEN.
+
+---
+
+## STDLIB-FLOAT F0 (2026-07-11) — wire decimal ln/exp kernels to math.Log/Exp family + ship math constants
+
+Goal: the cheap, no-new-kernel float-campaign win. CUE numbers are arbitrary-precision apd
+decimal (NOT float64); kue's `Decimal` already represents them exactly, and the
+`decimalLnScaled`/`decimalExpScaled` kernels (already backing `math.Pow`'s general fractional
+domain) existed but were NOT wired to the `math.*` log/exp builtins. This slice wires them,
+ships the 11 `math` constants, and closes a latent apd-rendering bug found in the process.
+
+### Behavior added
+
+- **`math.Log`/`Log2`/`Log10`/`Exp`/`Exp2`** now compute in the 34-significant-digit apd context,
+  byte-identical to `cue` v0.16.1: `Log(2)=0.6931…1766`, `Log2(8)=3`, `Log10(2)=0.…244930` (trailing
+  zero KEPT), `Exp(1)=2.718…662`, `Exp2(3)=8`. `Log2 = ln/ln2`, `Log10 = ln/ln10` (`ln10Scaled`
+  computed from the same series). Wired via `mathLog?`/`mathExp?` (`Kue/Builtin.lean`) → the new
+  kernels in `Kue/Decimal.lean` (`mathLogValue`/`mathLog2Value`/`mathLog10Value`/`mathExpValue`/`mathExp2Value`).
+- **Domain errors:** `Log`/`Log2`/`Log10` of a non-positive argument → `.bottom` (kue has no
+  `Inf`/`NaN`; `cue` errors on both `Log(0)` and `Log(neg)` too — verdict matches). Recorded in
+  `cue-spec-gaps.md` STDLIB-FLOAT-F0.
+- **`Log1p`/`Expm1` left DEFERRED** (`unsupportedBuiltin`) — `cue` computes these in float64, not apd;
+  they belong to the gated IEEE kernel (F2).
+- **11 `math` constants** shipped via `stdlibPackageValue?` (`Kue/Parse.lean`) as exact 60–64-digit apd
+  literals, byte-identical round-trip: `Pi`, `E`, `Phi`, `Sqrt2`, `SqrtE`, `SqrtPi`, `SqrtPhi`, `Ln2`,
+  `Log2E`, `Ln10`, `Log10E` (confirmed exactly these — no `MaxInt`/`Inf`/`NaN`).
+
+### Latent bug fixed (wild-caught during this slice)
+
+`decimalPowGeneral` rendered via `collapseDecimalToValue`, which TRIMS trailing zeros — dropping a
+SIGNIFICANT 34th-digit zero that `cue`'s apd keeps. New shared `renderTranscendentalScaled` (rounds
+to 34 sig, keeps trailing zeros within the 34, collapses only truly-integral results) replaces it for
+both `Pow` and the new log/exp family. Concrete: `Pow(10,⅓)` = `2.154434690031883721759293566519350`
+in cue; the committed test `math_pow_ten_cube_root_is_exact_decimal` was mis-pinned to the trimmed
+`…651935` (buggy old kue output, NOT cue) — corrected to cue's 34-digit value. Guard added:
+`math_pow_general_keeps_significant_trailing_zero` (`Pow(2,0.4) = …229640`).
+
+### Canonicalization note (item 3) — literal closed, arithmetic gap FILED (not claimed closed)
+
+Verified `1.25e3`/`1.25e+3`/`1.25E3`/`0.00125e6` through `kue eval` AND `export` vs `cue`: all
+byte-identical (`1.25e+3` / `1.25E+3`). The literal exponent-rendering claim is closed. BUT a REAL
+arithmetic gap remains: `1.25e3 + 1` → kue `1251.0` vs cue `1251` — kue's `DecimalValue` normalizes
+the apd exponent into the coefficient, losing cue's spec-correct GDA exponent preservation (`1250.0 + 1`
+agrees, `1251.0`, so it is exponent-form-specific). Filed as F4 in the plan + `compat-assumptions.md`
+§Numeric literals; NOT claimed closed.
+
+### DRY / refactor
+
+Extracted `decimalToLnExpScaled` (lift a `DecimalValue` to working scale) — was inlined in both
+`decimalLnScaled` and `decimalPowGeneral`; now shared with the new `Exp2` kernel.
+
+### Tests / verify
+
+- `Kue/Tests/BuiltinTests.lean` — 18 new `native_decide`: `math_log_*` (natural log, `Log(e)` literal,
+  zero/neg domain bottoms), `math_log2_*`, `math_log10_*` (incl. the trailing-zero-kept case), `math_exp_*`,
+  `math_exp2_*`, the abstract-arg residual, the `Pow(2,0.4)` trailing-zero guard, and
+  `math_constants_and_transcendentals_export_end_to_end` (parse→eval→JSON export byte-identical to cue).
+- `testdata/cue/builtins/math_log.{cue,expected}` + `FixturePorts` entry (functions + domain errors),
+  validated by BOTH the FixturePorts gate and the `kue eval` CLI gate.
+- Corrected the stale `math_pow_ten_cube_root_is_exact_decimal` expected (was buggy-trimmed, now cue-exact).
+- `cue-spec-gaps.md` STDLIB-FLOAT-F0 row; `plan.md` STDLIB-FLOAT F0–F5 roadmap + retraction of the
+  "deferred exp/ln increment" note; `compat-assumptions.md` §Numeric literals refined (F4 gap).
+- `./scripts/check.sh` GREEN.

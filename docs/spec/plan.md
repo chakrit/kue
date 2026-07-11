@@ -213,6 +213,29 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**STDLIB-FLOAT campaign (scoped float work). F0 ✅ LANDED (2026-07-11).** Scoping ruling: CUE
+numbers are arbitrary-precision apd decimal, NOT float64 — kue's `Decimal` already represents
+them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. Roadmap:
+- **F0 (the cheap win) ✅ LANDED 2026-07-11.** Wired the existing `decimalLnScaled`/`decimalExpScaled`
+  kernels to `math.Log`/`Log2`/`Log10`/`Exp`/`Exp2` (34-sig apd, byte-identical to cue), shipped all
+  11 `math` constants (`Pi`/`E`/`Phi`/`Sqrt2`/`SqrtE`/`SqrtPi`/`SqrtPhi`/`Ln2`/`Log2E`/`Ln10`/`Log10E`),
+  and fixed a latent trailing-zero trim bug in the shared apd renderer (`renderTranscendentalScaled`
+  replaces `collapseDecimalToValue`; `Pow(10,⅓)` was mis-pinned to a trimmed 33-digit value — corrected).
+  Domain: `Log`/`Log2`/`Log10` of ≤0 → bottom (kue has no `Inf`/`NaN`). No new kernel, no IEEE. See
+  `cue-spec-gaps.md` STDLIB-FLOAT-F0.
+- **F1 (LOW) — `math.Log1p`/`math.Expm1`.** cue exposes these as FLOAT64 (17-digit), NOT apd — a genuine
+  IEEE surface. Currently `unsupportedBuiltin`. Gated on F2.
+- **F2 (MEDIUM, gated on real prod9 need) — the IEEE float64 kernel.** A shortest-round-trip
+  `strconv.FormatFloat`/`ParseFloat` + float64 arithmetic model. This is the wall behind `strconv.FormatFloat`,
+  `text/template` T3 (float in template data), `Log1p`/`Expm1`, and the trig family. Build only when a real
+  app needs it — no speculative IEEE model.
+- **F3 — transcendental trig** (`Sin`/`Cos`/`Tan`/…), gated on F2 (cue computes them in float64).
+- **F4 — apd-exponent preservation in float arithmetic.** kue's `DecimalValue` normalizes a positive
+  exponent into the coefficient, so `1.25e3 + 1` renders `1251.0` where cue (spec-correct GDA, preserving
+  the operand exponent) gives `1251`. Literal exponent RENDERING is already byte-identical (F0-verified);
+  this is the arithmetic-side gap. See `compat-assumptions.md` §Numeric literals.
+- **F5 — `FloatConv`/template-float / `math.Float64bits`-class bit-twiddling**, gated on F2.
+
 **BYTE-ESCAPE-STRICT (LOW, 2026-07-11). ✅ CLOSED (2026-07-11).** The single-quote byte-literal
 escape decoder (`decodeByteEscape`, `Kue/Parse.lean`) was LENIENT — an unrecognized escape kept the
 escaped char literally, and it accepted `\"` as a literal `"`. cue v0.16.1 is STRICT: `'a\"b'` errors
@@ -910,7 +933,10 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   (deferred exp/ln increment, needs decimal `exp`/`ln` to 34 digits — see BI-2-residual /
   cue-spec-gaps): `math.Log`/`Log10`/`Exp`, general fractional/negative `math.Pow` exponent, and
   the `math.Pi` constant (cue ships a 64-digit literal). None soundness-bearing; kue bottoms
-  rather than emit a wrong value.
+  rather than emit a wrong value. **[Retraction 2026-07-11: LANDED as STDLIB-FLOAT F0 — the
+  `math.Log`/`Log2`/`Log10`/`Exp`/`Exp2` family + all 11 constants are wired byte-identical to
+  cue; the general/negative `math.Pow` exponent already landed via `decimalPowGeneral`. See the
+  float-campaign roadmap below.]**
 - **LIST-SLICE-MISSING (feature gap) — DONE (2026-07-04).** List slicing `x[lo:hi]` now
   parses as a postfix form alongside indexing `x[i]` and desugars to `list.Slice` (parser
   branch in `parseSelectorRest` + `parseSliceRest`, `Kue/Parse.lean`). Bounds are optional

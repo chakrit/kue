@@ -345,9 +345,15 @@ those forms.
 
 ## Numeric literals
 
-- Decimal numeric separators are stripped while parsing. Exponent literals are accepted as
-  float strings with normalized exponent signs, but Kue does not yet canonicalize all
-  exponent arithmetic the way `cue eval` does.
+- Decimal numeric separators are stripped while parsing. Exponent-literal RENDERING is
+  byte-identical to `cue` on every spelling — `1.25e3`, `1.25e+3`, `1.25E3`, `0.00125e6` all
+  eval to `1.25e+3` and export to `1.25E+3` (STDLIB-FLOAT F0 verified all four vs the binary).
+  One arithmetic gap remains: float arithmetic normalizes the apd *exponent* into the
+  coefficient (a `DecimalValue` carries only a non-negative scale), so a whole-valued result of
+  an `e`-notation operand renders with a spurious `.0` — `1.25e3 + 1` → `1251.0` where `cue`
+  (spec-correct GDA, which preserves the operand exponent through addition) gives `1251`.
+  `1250.0 + 1` agrees (`1251.0` both). Tracked for the float campaign (F-series: apd-exponent
+  preservation).
 - Lowercase non-decimal integer literals with `0x`, `0o`, and `0b` prefixes are
   canonicalized to decimal integers while parsing. Separators are accepted in their digit
   sequences.

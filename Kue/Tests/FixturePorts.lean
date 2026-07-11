@@ -3207,6 +3207,27 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "builtins/math_log.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"logNat", .regular, .builtinCall "math.Log" [.prim (.int 2)], false⟩,
+                ⟨"logOne", .regular, .builtinCall "math.Log" [.prim (.int 1)], false⟩,
+                ⟨"log2Pow", .regular, .builtinCall "math.Log2" [.prim (.int 8)], false⟩,
+                ⟨"log2Three", .regular, .builtinCall "math.Log2" [.prim (.int 3)], false⟩,
+                ⟨"log10Pow", .regular, .builtinCall "math.Log10" [.prim (.int 1000)], false⟩,
+                ⟨"log10Two", .regular, .builtinCall "math.Log10" [.prim (.int 2)], false⟩,
+                ⟨"expE", .regular, .builtinCall "math.Exp" [.prim (.int 1)], false⟩,
+                ⟨"expZero", .regular, .builtinCall "math.Exp" [.prim (.int 0)], false⟩,
+                ⟨"expTwo", .regular, .builtinCall "math.Exp" [.prim (.int 2)], false⟩,
+                ⟨"exp2Int", .regular, .builtinCall "math.Exp2" [.prim (.int 3)], false⟩,
+                ⟨"exp2Half", .regular, .builtinCall "math.Exp2" [.prim (mkFloatText "0.5")], false⟩,
+                ⟨"logZeroDom", .regular, .builtinCall "math.Log" [.prim (.int 0)], false⟩,
+                ⟨"logNegDom", .regular, .builtinCall "math.Log" [.prim (.int (-1))], false⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "builtins/math_sqrt.expected",
       content :=
         formatTopLevel

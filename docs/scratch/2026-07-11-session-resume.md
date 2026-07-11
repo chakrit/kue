@@ -3,7 +3,20 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **BYTE-ESCAPE-STRICT + text/template nested-defer/fuel guards** — one
+resolved/historical). HEAD: **STDLIB-FLOAT F0** — wired the existing decimal `ln`/`exp` kernels
+(`decimalLnScaled`/`decimalExpScaled`, already backing `math.Pow`'s general domain) to
+`math.Log`/`Log2`/`Log10`/`Exp`/`Exp2`, all byte-identical to cue at 34-sig apd; shipped all 11 `math`
+constants (`Pi`…`Log10E`) via `stdlibPackageValue?`. Fixed a latent trailing-zero trim bug: new shared
+`renderTranscendentalScaled` (keeps significant trailing zeros, collapses only true integers) replaces
+`collapseDecimalToValue` for both Pow + log/exp; corrected the mis-pinned `Pow(10,⅓)` test
+(`…651935`→`…6519350`, cue-exact). Canonicalization item: `1.25e3` literal rendering CLOSED
+(byte-identical eval+export); the `1.25e3 + 1`→`1251.0` vs cue `1251` arithmetic gap is REAL,
+FILED as F4 (apd-exponent preservation), NOT claimed closed. `Log1p`/`Expm1` stay deferred (float64,
+F2). 18 new BuiltinTests + `math_log` fixture. **Next: F1–F5 remain (see plan § Ranked OPEN backlog —
+STDLIB-FLOAT); F2 (IEEE float64 kernel) is gated on real prod9 need, not speculative.** Committed on
+`main`, not pushed. Prior HEAD BYTE-ESCAPE-STRICT below.
+
+## Prior HEAD — BYTE-ESCAPE-STRICT + text/template nested-defer/fuel guards — one
 slice folding three LOW audit findings. (1) `decodeByteEscape` (`Kue/Parse.lean`) brought to
 cue-strict parity: dropped `\"`, added explicit `\/`, gated `\u`/`\U` on `Nat.isValidChar`; both
 callers (`parseQuotedByteBody`, `parseMultilineByteBody`) now parse-error on `none` instead of the
