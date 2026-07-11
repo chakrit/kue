@@ -278,20 +278,30 @@ def asciiTitleSeparator (c : Char) : Bool :=
   c == ' ' || c == '\t' || c == '\n' || c == '\r'
     || c == Char.ofNat 0x0b || c == Char.ofNat 0x0c
 
-/-- Title-case the first ASCII letter of each whitespace-delimited word; the first
-    character of the string also starts a word. Non-ASCII runes pass through unchanged
-    (`Char.toUpper` is ASCII-only) and never start a word. Mirrors CUE's `strings.ToTitle`
-    on ASCII — per-word capitalization, NOT "upper-case every letter". -/
-def asciiToTitle (value : String) : String := Id.run do
+/-- Apply `transform` to the first character of each whitespace-delimited word (the first
+    character of the string also starts a word); every other character passes through
+    unchanged. The shared engine behind `strings.ToTitle` (transform = title/upper-case)
+    and `strings.ToCamel` (transform = lower-case). ASCII-bounded: the separator set is the
+    six ASCII whitespace runes and the case transforms are `Char.toUpper`/`Char.toLower`
+    (ASCII-only) — non-ASCII whitespace never separates and non-ASCII letters pass through,
+    the deferred boundary CUE covers via `unicode.IsSpace`/`unicode.ToTitle`. -/
+def mapWordInitial (transform : Char -> Char) (value : String) : String := Id.run do
   let mut out : List Char := []
   let mut prevSep := true
   for c in value.toList do
-    if prevSep then
-      out := c.toUpper :: out
-    else
-      out := c :: out
+    out := (if prevSep then transform c else c) :: out
     prevSep := asciiTitleSeparator c
   return String.ofList out.reverse
+
+/-- Title-case the first ASCII letter of each whitespace-delimited word. Mirrors CUE's
+    `strings.ToTitle` on ASCII — per-word capitalization, NOT "upper-case every letter". -/
+def asciiToTitle (value : String) : String := mapWordInitial Char.toUpper value
+
+/-- Lower-case the first ASCII letter of each whitespace-delimited word, leaving the rest
+    unchanged. Mirrors CUE's `strings.ToCamel` — despite the name it does NOT camel-case;
+    it only maps word-initial letters to lower case (`"Hello World"` → `"hello world"`,
+    `"CamelCase"` → `"camelCase"`). -/
+def asciiToCamel (value : String) : String := mapWordInitial Char.toLower value
 
 /-- Concatenate a list of lists; any non-list element yields bottom.
     Mirrors CUE's `list.Concat`. -/
@@ -521,6 +531,109 @@ def stringSliceRunes (s : String) (lo hi : Int) : Value :=
   else
     .prim (.string (String.ofList ((runes.drop lo.toNat).take (hi - lo).toNat)))
 
+/-- The raw UTF-8 byte carrier of a `bytes`-or-`string` argument. `strings.ByteAt` and
+    `strings.ByteSlice` accept both kinds (`BytesKind | StringKind`); a string decodes to
+    its UTF-8 encoding. Any other kind is `none` (a type error at the call site). -/
+def primBytes : Prim -> Option (Array UInt8)
+  | .string s => s.toUTF8.data
+  | .bytes b => b
+  | _ => none
+
+/-- `strings.ByteAt(b, i)`: the `i`th BYTE of the UTF-8 carrier as an int (`0`–`255`).
+    Indexes bytes, not runes — `ByteAt("é", 0) = 195`, the first byte of the two-byte
+    UTF-8 sequence. Out of range (`i < 0` or `i ≥ len`) is an error (bottom), matching
+    CUE (`index out of range`). -/
+def stringByteAt (bytes : Array UInt8) (i : Int) : Value :=
+  if i < 0 || i >= Int.ofNat bytes.size then
+    .bottom
+  else
+    .prim (.int (Int.ofNat bytes[i.toNat]!.toNat))
+
+/-- `strings.ByteSlice(b, start, end)`: the half-open `[start, end)` window of the UTF-8
+    carrier, indexed by BYTE, returned as `bytes` (CUE renders it a byte literal; JSON
+    export base64-encodes it). `start < 0`, `start > end`, or `end > len` is an error
+    (bottom), matching CUE (`index out of range`). -/
+def stringByteSlice (bytes : Array UInt8) (start endIdx : Int) : Value :=
+  if start < 0 || start > endIdx || endIdx > Int.ofNat bytes.size then
+    .bottom
+  else
+    .prim (.bytes (bytes.extract start.toNat endIdx.toNat))
+
+/-- Whether the rune `c` is one of the code points in the set string `chars`. The shared
+    membership test behind the `*Any` family — `chars` is a SET of runes, not a substring. -/
+def runeInSet (chars : String) (c : Char) : Bool :=
+  chars.toList.contains c
+
+/-- `strings.ContainsAny(s, chars)`: whether any rune of `s` is in the set `chars`. An
+    empty `chars` is the empty set, so the answer is `false`. -/
+def stringContainsAny (s chars : String) : Bool :=
+  s.toList.any (runeInSet chars)
+
+/-- `strings.IndexAny(s, chars)`: the BYTE index of the first rune of `s` that is in the
+    set `chars`, or `-1` if none (empty `chars` ⇒ `-1`). The index is a byte offset even
+    though the scan is by rune — `IndexAny("héllo", "l") = 3`, past the two-byte `é`. -/
+def stringIndexAny (s chars : String) : Int := Id.run do
+  let mut offset := 0
+  for c in s.toList do
+    if runeInSet chars c then
+      return Int.ofNat offset
+    offset := offset + c.toString.utf8ByteSize
+  return -1
+
+/-- `strings.LastIndexAny(s, chars)`: the BYTE index of the LAST rune of `s` in the set
+    `chars`, or `-1` if none. Byte offset like `IndexAny`. -/
+def stringLastIndexAny (s chars : String) : Int := Id.run do
+  let mut offset := 0
+  let mut last : Int := -1
+  for c in s.toList do
+    if runeInSet chars c then
+      last := Int.ofNat offset
+    offset := offset + c.toString.utf8ByteSize
+  return last
+
+/-- Emit successive `SplitAfter` pieces: each match of `sep` ends a piece WITH the
+    separator attached, and the unconsumed tail becomes the final piece. `remaining` caps
+    the piece count (`SplitAfterN`): `remaining == 1` stops and takes the whole tail;
+    `remaining < 0` is unbounded. `fuel` is a structural bound — each non-final step
+    consumes ≥ 1 byte of `rest`, so its UTF-8 size suffices. -/
+def stringSplitAfterLoop (fuel : Nat) (acc : List String) (rest sep : String)
+    (remaining : Int) : List String :=
+  match fuel with
+  | 0 => acc ++ [rest]
+  | fuel + 1 =>
+      if remaining == 1 then
+        acc ++ [rest]
+      else
+        let idx := stringByteIndex rest sep
+        if idx < 0 then
+          acc ++ [rest]
+        else
+          let cut := idx.toNat + sep.utf8ByteSize
+          let piece := String.fromUTF8! (rest.toUTF8.extract 0 cut)
+          let after := String.fromUTF8! (rest.toUTF8.extract cut rest.utf8ByteSize)
+          let nextRemaining := if remaining > 0 then remaining - 1 else remaining
+          stringSplitAfterLoop fuel (acc ++ [piece]) after sep nextRemaining
+
+/-- Raw `strings.SplitAfter`/`SplitAfterN` pieces of `value` on `sep`, keeping each `sep`
+    at the end of the piece it terminates (unlike `Split`, which drops it). `n == 0` yields
+    `[]`; `n < 0` is unbounded; `n > 0` caps the piece count. An empty `sep` splits into
+    runes (capped like `SplitN`), matching Go/CUE. -/
+def stringSplitAfterParts (value sep : String) (n : Int) : List String :=
+  if n == 0 then
+    []
+  else if sep.isEmpty then
+    let runes := value.toList.map (·.toString)
+    if n < 0 || runes.length <= n.toNat then
+      runes
+    else
+      runes.take (n.toNat - 1) ++ [String.join (runes.drop (n.toNat - 1))]
+  else
+    stringSplitAfterLoop value.utf8ByteSize [] value sep n
+
+/-- `strings.SplitAfter`/`SplitAfterN` as a `Value` list of string pieces. -/
+def stringSplitAfter (value sep : String) (n : Int) : List Value :=
+  (stringSplitAfterParts value sep n).map (fun piece => .prim (.string piece))
+
 /-- Sum of a numeric list. All-int ⇒ exact int (empty list ⇒ 0). Any `.float`
     element promotes to exact decimal accumulation, collapsing an integral result
     back to int (CUE: `list.Sum([1.0,2.0,3.0]) = 6`). A non-numeric element ⇒
@@ -708,6 +821,26 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.string (asciiToTitle s))
   | "strings.SliceRunes", [.prim (.string s), .prim (.int lo), .prim (.int hi)] =>
       stringSliceRunes s lo hi
+  | "strings.ByteAt", [.prim p, .prim (.int i)] =>
+      match primBytes p with
+      | some bytes => stringByteAt bytes i
+      | none => .bottom
+  | "strings.ByteSlice", [.prim p, .prim (.int start), .prim (.int endIdx)] =>
+      match primBytes p with
+      | some bytes => stringByteSlice bytes start endIdx
+      | none => .bottom
+  | "strings.ContainsAny", [.prim (.string s), .prim (.string chars)] =>
+      .prim (.bool (stringContainsAny s chars))
+  | "strings.IndexAny", [.prim (.string s), .prim (.string chars)] =>
+      .prim (.int (stringIndexAny s chars))
+  | "strings.LastIndexAny", [.prim (.string s), .prim (.string chars)] =>
+      .prim (.int (stringLastIndexAny s chars))
+  | "strings.SplitAfter", [.prim (.string s), .prim (.string sep)] =>
+      .list (stringSplitAfter s sep (-1))
+  | "strings.SplitAfterN", [.prim (.string s), .prim (.string sep), .prim (.int n)] =>
+      .list (stringSplitAfter s sep n)
+  | "strings.ToCamel", [.prim (.string s)] =>
+      .prim (.string (asciiToCamel s))
   -- Constraint validators (participate in `meet`, like `struct.MinFields`). Bound a string's
   -- rune (Unicode code-point) count, NOT its byte length: a multi-byte rune counts as one.
   | "strings.MinRunes", [.prim (.int n)] => .lengthConstraint .runes .min n

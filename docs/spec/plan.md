@@ -751,7 +751,8 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   field-order-independent (`eqUpToFieldOrder`); a positive structural dup bottoms eagerly. Runes =
   Unicode code points, NOT bytes. Fixture `export/list_string_validators` + ~40 `native_decide`
   (`FixtureTests.lean`). Also still filed:
-  `strings.ByteAt`/`ByteSlice` (need byte-array-repr, DEPENDENT of BYTE-ARRAY-REPR),
+  `strings.ByteAt`/`ByteSlice` (~~need byte-array-repr, DEPENDENT of BYTE-ARRAY-REPR~~ — **LANDED
+  STDLIB-STRINGS-LEAVES, 2026-07-11**; `Prim.bytes` already existed, no new repr needed),
   `list.IsSorted`/`Sort`/`SortStable` (comparator-struct `list.Ascending`/`Descending` — the
   effectful-builtin seam BI-EFF; kue leaves these an incomplete residual today —
   `list.IsSorted` DEFERRED again this slice: the `list.Ascending` comparator arg is the BI-EFF

@@ -90,6 +90,15 @@ Two tracks:
      Runes = code points, not bytes. UniqueItems equality field-order-independent (`eqUpToFieldOrder`).
      Bare `list.UniqueItems` + `()` form both work. ~40 theorems + `export/list_string_validators`
      fixture (byte-identical to cue). `list.IsSorted` DEFERRED (comparator arg = BI-EFF corner).
+   - **STDLIB-STRINGS-LEAVES ✅ LANDED (2026-07-11)** — the remaining PLAIN `strings` functions.
+     Oracle diff (`pkg/strings/pkg.go` = 34 funcs) → 8 missing, all pure/total, none effectful:
+     `ByteAt`/`ByteSlice` (BYTE-indexed; `ByteSlice` returns `bytes`; `Prim.bytes` already existed
+     so the "byte-array-repr" filing was moot), `ContainsAny`/`IndexAny`/`LastIndexAny` (rune SET,
+     BYTE offsets), `SplitAfter`/`SplitAfterN` (sep stays on preceding piece; trailing sep ⇒
+     trailing empty; fuel-bounded, total), `ToCamel` (word-initial lower-case; shares
+     `mapWordInitial` with `asciiToTitle`; ASCII-bounded, non-ASCII passthrough divergence in
+     spec-gaps). Task candidates `SplitAny`/`IndexRune`/`Map` DON'T exist in cue's strings pkg —
+     confirmed, nothing deferred. 25 theorems + `export/strings_leaves` fixture (byte-identical).
      Next stdlib: `time`, `net`, `uuid`, `crypto/*`, `encoding/hex|csv`; finish `strconv` Quote/Float.
 
 Test-drive scratch files at `~/Documents/chakrit/kue-testdrive/` (outside the repo).

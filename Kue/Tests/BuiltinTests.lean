@@ -1360,6 +1360,178 @@ theorem strings_trim_prefix_suffix_are_fixed_affixes :
         == .prim (.string "hel")) = true := by
   native_decide
 
+-- ## strings.ByteAt / ByteSlice — BYTE-indexed (not rune). `é` is two UTF-8 bytes
+-- (0xC3 0xA9 = 195 169), so a byte index lands mid-rune, unlike SliceRunes.
+
+theorem strings_byte_at_ascii :
+    (evalBuiltinCall "strings.ByteAt" [.prim (.string "hello"), .prim (.int 1)]
+      == .prim (.int 101)) = true := by
+  native_decide
+
+-- Byte 1 is the FIRST byte of the two-byte `é`, byte 2 the second — proves byte, not rune.
+theorem strings_byte_at_multibyte_indexes_bytes :
+    (evalBuiltinCall "strings.ByteAt" [.prim (.string "héllo"), .prim (.int 1)]
+        == .prim (.int 195))
+      && (evalBuiltinCall "strings.ByteAt" [.prim (.string "héllo"), .prim (.int 2)]
+        == .prim (.int 169)) = true := by
+  native_decide
+
+theorem strings_byte_at_out_of_range_is_bottom :
+    (evalBuiltinCall "strings.ByteAt" [.prim (.string "hi"), .prim (.int 5)]
+        == .bottom)
+      && (evalBuiltinCall "strings.ByteAt" [.prim (.string "hi"), .prim (.int (-1))]
+        == .bottom)
+      && (evalBuiltinCall "strings.ByteAt" [.prim (.string "hi"), .prim (.int 2)]
+        == .bottom) = true := by
+  native_decide
+
+theorem strings_byte_at_non_string_is_bottom :
+    (evalBuiltinCall "strings.ByteAt" [.prim (.int 5), .prim (.int 0)]
+      == .bottom) = true := by
+  native_decide
+
+-- ByteSlice returns BYTES: `[0,3)` of "héllo" is h + the two bytes of é = "hé".
+theorem strings_byte_slice_returns_bytes :
+    (evalBuiltinCall "strings.ByteSlice"
+        [.prim (.string "héllo"), .prim (.int 0), .prim (.int 3)]
+      == .prim (.bytes (textBytes "hé"))) = true := by
+  native_decide
+
+theorem strings_byte_slice_empty_window :
+    (evalBuiltinCall "strings.ByteSlice"
+        [.prim (.string "hello"), .prim (.int 2), .prim (.int 2)]
+      == .prim (.bytes #[])) = true := by
+  native_decide
+
+theorem strings_byte_slice_out_of_range_is_bottom :
+    (evalBuiltinCall "strings.ByteSlice"
+        [.prim (.string "hi"), .prim (.int 0), .prim (.int 5)]
+        == .bottom)
+      && (evalBuiltinCall "strings.ByteSlice"
+        [.prim (.string "hi"), .prim (.int (-1)), .prim (.int 1)]
+        == .bottom)
+      && (evalBuiltinCall "strings.ByteSlice"
+        [.prim (.string "hi"), .prim (.int 2), .prim (.int 1)]
+        == .bottom) = true := by
+  native_decide
+
+-- Accepts a bytes argument directly (BytesKind | StringKind).
+theorem strings_byte_slice_accepts_bytes_arg :
+    (evalBuiltinCall "strings.ByteSlice"
+        [.prim (.bytes (textBytes "héllo")), .prim (.int 0), .prim (.int 3)]
+      == .prim (.bytes (textBytes "hé"))) = true := by
+  native_decide
+
+-- ## strings.ContainsAny / IndexAny / LastIndexAny — `chars` is a rune SET; indexes
+-- are BYTE offsets. Empty set ⇒ false / -1.
+
+theorem strings_contains_any_membership :
+    (evalBuiltinCall "strings.ContainsAny" [.prim (.string "hello"), .prim (.string "xyz e")]
+        == .prim (.bool true))
+      && (evalBuiltinCall "strings.ContainsAny" [.prim (.string "hello"), .prim (.string "xyz")]
+        == .prim (.bool false)) = true := by
+  native_decide
+
+theorem strings_contains_any_empty_set_is_false :
+    (evalBuiltinCall "strings.ContainsAny" [.prim (.string "hello"), .prim (.string "")]
+        == .prim (.bool false))
+      && (evalBuiltinCall "strings.ContainsAny" [.prim (.string ""), .prim (.string "abc")]
+        == .prim (.bool false)) = true := by
+  native_decide
+
+-- `l` sits at byte 3 (past the two-byte `é`), proving a BYTE offset from a rune scan.
+theorem strings_index_any_returns_byte_offset :
+    (evalBuiltinCall "strings.IndexAny" [.prim (.string "chicken"), .prim (.string "aeiouy")]
+        == .prim (.int 2))
+      && (evalBuiltinCall "strings.IndexAny" [.prim (.string "héllo"), .prim (.string "l")]
+        == .prim (.int 3)) = true := by
+  native_decide
+
+theorem strings_index_any_miss_and_empty_set :
+    (evalBuiltinCall "strings.IndexAny" [.prim (.string "hello"), .prim (.string "xyz")]
+        == .prim (.int (-1)))
+      && (evalBuiltinCall "strings.IndexAny" [.prim (.string "hello"), .prim (.string "")]
+        == .prim (.int (-1))) = true := by
+  native_decide
+
+-- Last `l` of "héllo" is at byte 4; "go gopher" last of {g,o} is the `o` at byte 4.
+theorem strings_last_index_any_returns_last_byte_offset :
+    (evalBuiltinCall "strings.LastIndexAny" [.prim (.string "héllo"), .prim (.string "l")]
+        == .prim (.int 4))
+      && (evalBuiltinCall "strings.LastIndexAny" [.prim (.string "go gopher"), .prim (.string "go")]
+        == .prim (.int 4)) = true := by
+  native_decide
+
+theorem strings_last_index_any_miss_is_minus_one :
+    (evalBuiltinCall "strings.LastIndexAny" [.prim (.string "hello"), .prim (.string "xyz")]
+        == .prim (.int (-1)))
+      && (evalBuiltinCall "strings.LastIndexAny" [.prim (.string ""), .prim (.string "abc")]
+        == .prim (.int (-1))) = true := by
+  native_decide
+
+-- ## strings.SplitAfter / SplitAfterN — like Split but the separator STAYS on the
+-- preceding piece; a trailing separator yields a trailing empty piece.
+
+theorem strings_split_after_keeps_separator :
+    (evalBuiltinCall "strings.SplitAfter" [.prim (.string "a,b,c"), .prim (.string ",")]
+      == .list [.prim (.string "a,"), .prim (.string "b,"), .prim (.string "c")]) = true := by
+  native_decide
+
+theorem strings_split_after_trailing_sep_yields_empty :
+    (evalBuiltinCall "strings.SplitAfter" [.prim (.string "a,b,c,"), .prim (.string ",")]
+      == .list [.prim (.string "a,"), .prim (.string "b,"), .prim (.string "c,"),
+                .prim (.string "")]) = true := by
+  native_decide
+
+theorem strings_split_after_no_match_is_whole :
+    (evalBuiltinCall "strings.SplitAfter" [.prim (.string "abc"), .prim (.string ",")]
+      == .list [.prim (.string "abc")]) = true := by
+  native_decide
+
+-- Empty separator splits into runes (each its own piece), like Split.
+theorem strings_split_after_empty_sep_splits_runes :
+    (evalBuiltinCall "strings.SplitAfter" [.prim (.string "abc"), .prim (.string "")]
+      == .list [.prim (.string "a"), .prim (.string "b"), .prim (.string "c")]) = true := by
+  native_decide
+
+-- n caps the piece count: the last piece keeps the unconsumed tail (separators intact).
+theorem strings_split_after_n_caps_pieces :
+    (evalBuiltinCall "strings.SplitAfterN"
+        [.prim (.string "a,b,c,d"), .prim (.string ","), .prim (.int 2)]
+      == .list [.prim (.string "a,"), .prim (.string "b,c,d")]) = true := by
+  native_decide
+
+theorem strings_split_after_n_zero_and_one :
+    (evalBuiltinCall "strings.SplitAfterN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 0)]
+        == .list [])
+      && (evalBuiltinCall "strings.SplitAfterN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 1)]
+        == .list [.prim (.string "a,b,c")]) = true := by
+  native_decide
+
+-- Negative n is unbounded (= SplitAfter); n larger than the piece count is harmless.
+theorem strings_split_after_n_unbounded_and_oversized :
+    (evalBuiltinCall "strings.SplitAfterN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int (-1))]
+        == .list [.prim (.string "a,"), .prim (.string "b,"), .prim (.string "c")])
+      && (evalBuiltinCall "strings.SplitAfterN"
+        [.prim (.string "a,b,c"), .prim (.string ","), .prim (.int 10)]
+        == .list [.prim (.string "a,"), .prim (.string "b,"), .prim (.string "c")]) = true := by
+  native_decide
+
+theorem strings_split_after_n_empty_sep_caps_runes :
+    (evalBuiltinCall "strings.SplitAfterN"
+        [.prim (.string "abc"), .prim (.string ""), .prim (.int 2)]
+      == .list [.prim (.string "a"), .prim (.string "bc")]) = true := by
+  native_decide
+
+-- Abstract argument defers as a residual `builtinCall` (not bottom), like the other leaves.
+theorem strings_new_leaves_abstract_arg_stays_unresolved :
+    (evalBuiltinCall "strings.IndexAny" [.kind .string, .prim (.string "x")]
+      == .builtinCall "strings.IndexAny" [.kind .string, .prim (.string "x")]) = true := by
+  native_decide
+
 theorem list_reverse_reverses_and_handles_edges :
     (evalBuiltinCall "list.Reverse"
         [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]
@@ -1388,5 +1560,6 @@ theorem type_kind_meet_mismatched_domains_is_bottom :
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
 -- elaboration.
 #check @unknown_leaf_family_abstract_arg_stays_unresolved
+#check @strings_split_after_n_empty_sep_caps_runes  -- strings.ByteAt/ByteSlice/*Any/SplitAfter leaves
 
 end Kue

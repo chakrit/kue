@@ -19440,3 +19440,74 @@ kue == cue byte-for-byte on the satisfied-case export fixture. No intentional di
 - `docs/spec/plan.md` STDLIB-B entry: annotated `fieldCountConstraint`/`FieldCountBound`/
   `finalizeFieldCountConj` as generalized to `lengthConstraint`/`CountBound`/`finalizeLengthConj`.
 - `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.
+
+---
+
+## Completed Slice: STDLIB-STRINGS-LEAVES — the remaining plain `strings` functions
+
+Goal: close the gap between kue's `strings` package and cue v0.16.1. Authoritative diff
+against the oracle's registration table (`pkg/strings/pkg.go`): cue exposes 34 `strings`
+functions; kue was missing eight PLAIN (pure, total) ones. Implemented all eight. The
+task's speculative candidates `SplitAny`, `IndexRune`, `Map` do NOT exist in cue's
+`strings` package (confirmed against the binary + source), so there is NO function-argument
+(effectful-builtin) corner here — nothing deferred.
+
+### Behavior
+
+New leaves in `evalStringsBuiltin` (`Kue/Builtin.lean`), byte-vs-rune pinned per cue:
+
+- **`ByteAt(b, i)`** — the `i`th BYTE of the UTF-8 carrier as an int (`0`–`255`). BYTE, not
+  rune: `ByteAt("héllo", 1) = 195`, `ByteAt(…, 2) = 169` (the two bytes of `é`). `i` out of
+  range ⇒ bottom (cue `index out of range`). Accepts `bytes|string` (`primBytes`).
+- **`ByteSlice(b, start, end)`** — half-open `[start, end)` BYTE window, returned as
+  `bytes` (`ByteSlice("héllo",0,3)` = the bytes of `hé`; JSON export base64s to `"aMOp"`).
+  `start<0 || start>end || end>len` ⇒ bottom.
+- **`ContainsAny(s, chars)`** — any rune of `s` in the SET `chars`; empty set ⇒ `false`.
+- **`IndexAny(s, chars)` / `LastIndexAny(s, chars)`** — first/last BYTE offset of a rune of
+  `s` in the set `chars`, `-1` on miss/empty set. Byte offset from a rune scan:
+  `IndexAny("héllo","l") = 3`, `LastIndexAny(…,"l") = 4`.
+- **`SplitAfter(s, sep)` / `SplitAfterN(s, sep, n)`** — like `Split` but each `sep` STAYS on
+  the piece it terminates; a trailing `sep` yields a trailing empty piece
+  (`SplitAfter("a,b,c,",",") = ["a,","b,","c,",""]`). `n==0 ⇒ []`, `n<0` unbounded, `n>0`
+  caps (last piece keeps the tail, separators intact); empty `sep` splits into runes
+  (capped like `SplitN`). Structural fuel bound = the string's UTF-8 byte size (each step
+  consumes ≥ 1 byte), total — no `partial`.
+- **`ToCamel(s)`** — lower-cases the first letter of each whitespace word (despite the name
+  it does NOT camel-case). Refactored the existing `asciiToTitle` and `ToCamel` onto a
+  shared `mapWordInitial (transform) value` engine (title = `Char.toUpper`, camel =
+  `Char.toLower`). ASCII-bounded, same deferral boundary as `ToTitle`: a non-ASCII
+  word-initial passes through (`ToCamel("Über Alles")` = `"Über alles"`; cue = `"über
+  alles"`) — logged as a deferred capability in `cue-spec-gaps.md`, not a cue bug.
+
+`Prim.bytes (Array UInt8)` already existed — the "need byte-array-repr / DEPENDENT of
+BYTE-ARRAY-REPR" filing on `ByteAt`/`ByteSlice` was moot. All arms are concrete-only;
+abstract/wrong-shape args fall through to `unresolvedOrBottom` (bottom on concrete
+mismatch, residual `.builtinCall` while abstract), matching the family.
+
+### Tests
+
+- `Kue/Tests/BuiltinTests.lean`: 19 `native_decide` for the seven non-case leaves —
+  happy/empty/miss/out-of-range/boundary, multibyte `é` byte-vs-rune (ByteAt mid-rune,
+  IndexAny/LastIndexAny byte offset past `é`), ByteSlice returns `bytes` + accepts a bytes
+  arg + empty window, SplitAfter trailing-sep/no-match/empty-sep, SplitAfterN
+  cap/zero/one/unbounded/oversized/empty-sep, non-string ⇒ bottom, abstract ⇒ residual.
+- `Kue/Tests/StringsTests.lean`: 6 `native_decide` for `ToCamel` (word-initials, interior
+  capitals kept, empty, non-separators, non-ASCII passthrough divergence, non-string ⇒
+  bottom). Coverage tripwires updated in both modules.
+- `testdata/export/strings_leaves.{cue,json}`: end-to-end `kue export` gate over all eight
+  leaves, byte-identical to `cue export` v0.16.1 (auto-discovered by `check-fixtures.sh`).
+- `./scripts/check.sh` GREEN (full suite + canaries + wild fixtures).
+
+### Divergences / gaps
+
+- `cue-spec-gaps.md`: new `strings.ToCamel` row (ASCII-bounded, Unicode lower + word
+  boundary deferred — mirrors the existing `ToTitle` row). No `cue-divergences.md` entry
+  (kue does less, not a cue bug).
+
+### Retraction
+
+- `docs/spec/plan.md`: BI-3-RESIDUAL `strings.ByteAt`/`ByteSlice` "still FILED (need
+  byte-array-repr)" annotated LANDED — `Prim.bytes` already existed, no new repr.
+- The historical implementation-log filings (`ByteAt`/`ByteSlice` deferred) are timeless
+  snapshots left as-was; this entry records the resolution.
+- `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.

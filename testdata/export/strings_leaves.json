@@ -1,0 +1,26 @@
+{
+    "byte_at": 195,
+    "byte_slice": "aMOp",
+    "contains_any": true,
+    "contains_any_no": false,
+    "index_any": 3,
+    "index_any_miss": -1,
+    "last_index_any": 4,
+    "split_after": [
+        "a,",
+        "b,",
+        "c"
+    ],
+    "split_after_tail": [
+        "a,",
+        "b,",
+        "c,",
+        ""
+    ],
+    "split_after_n": [
+        "a,",
+        "b,c,d"
+    ],
+    "to_camel": "hello world",
+    "to_camel_mixed": "camelCase"
+}

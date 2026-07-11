@@ -4,9 +4,10 @@ import Kue.Lattice
 namespace Kue
 
 -- `strings` case-mapping builtins: `ToUpper`/`ToLower` (Unicode simple case mapping over
--- the oracle-derived BMP table — see `Kue/CaseTable.lean`) and `ToTitle` (ASCII-bounded —
--- its title-case mapping + Unicode word boundary are a separate deferred slice). Mappings
--- are cross-checked against the `cue` v0.16.1 oracle.
+-- the oracle-derived BMP table — see `Kue/CaseTable.lean`) and the word-initial mappers
+-- `ToTitle` (upper) / `ToCamel` (lower), both ASCII-bounded — Unicode title-casing and
+-- `unicode.IsSpace` word boundaries are a separate deferred slice. Mappings are
+-- cross-checked against the `cue` v0.16.1 oracle.
 
 -- ## ToUpper / ToLower — ASCII (regression: the table covers ASCII, no behavior change)
 
@@ -188,6 +189,44 @@ theorem strings_to_title_leading_whitespace :
 theorem strings_to_title_non_ascii_passthrough :
     (evalBuiltinCall "strings.ToTitle" [.prim (.string "über alles")]
       == .prim (.string "über Alles")) = true := by
+  native_decide
+
+-- ## ToCamel — word-initial LOWER-casing (the `ToTitle` sibling). Despite the name it
+-- does not camel-case; it maps the first letter of each whitespace word to lower case.
+
+theorem strings_to_camel_lowercases_word_initials :
+    (evalBuiltinCall "strings.ToCamel" [.prim (.string "Hello World")]
+      == .prim (.string "hello world")) = true := by
+  native_decide
+
+-- Only the WORD-initial is lowered; interior capitals are left untouched.
+theorem strings_to_camel_keeps_interior_capitals :
+    (evalBuiltinCall "strings.ToCamel" [.prim (.string "CamelCase")]
+      == .prim (.string "camelCase")) = true := by
+  native_decide
+
+theorem strings_to_camel_empty :
+    (evalBuiltinCall "strings.ToCamel" [.prim (.string "")]
+      == .prim (.string "")) = true := by
+  native_decide
+
+-- Already-lower input is unchanged; digits/punctuation are not word separators.
+theorem strings_to_camel_leaves_lower_and_non_separators :
+    (evalBuiltinCall "strings.ToCamel" [.prim (.string "abc A-B A_B")]
+      == .prim (.string "abc a-B a_B")) = true := by
+  native_decide
+
+-- ToCamel deferral boundary (ASCII, mirrors ToTitle): a non-ASCII word-initial letter is
+-- NOT lower-cased — `Über` stays with its capital. Kue: "Über alles"; cue: "über alles".
+-- Documented divergence (Unicode `unicode.ToLower` word-casing is the deferred slice).
+theorem strings_to_camel_non_ascii_passthrough :
+    (evalBuiltinCall "strings.ToCamel" [.prim (.string "Über Alles")]
+      == .prim (.string "Über alles")) = true := by
+  native_decide
+
+theorem strings_to_camel_non_string_is_bottom :
+    (evalBuiltinCall "strings.ToCamel" [.prim (.int 1)]
+      == .bottom) = true := by
   native_decide
 
 -- ## Argument guards (shared by the case builtins)
