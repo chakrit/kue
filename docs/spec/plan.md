@@ -213,6 +213,20 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**BYTE-ESCAPE-STRICT (LOW, 2026-07-11, filed by the STRING-ESCAPE-SET slice).** The single-quote
+byte-literal escape decoder (`decodeByteEscape`, `Kue/Parse.lean`) is LENIENT — an unrecognized
+escape keeps the escaped char literally (drops the `\`), and it accepts `\"` as a literal `"`. cue
+v0.16.1 is STRICT: a byte literal `'a\"b'` errors `unknown escape sequence` (the escapable quote is
+context-sensitive — `\'` valid in byte literals, `\"` valid only in double-quoted strings), and an
+unknown byte escape errors rather than passing through. The double-quoted STRING path was made
+strict + context-correct by the STRING-ESCAPE-SET slice (`decodeStringEscape`: `\"` valid, `\'`
+rejected, unknown ⇒ parse error); the byte path is the untouched mirror. Fix: replace the
+lenient-fallthrough in `decodeByteEscape`/`parseQuotedByteBody`/`parseMultilineByteBody` with a
+strict whitelist that rejects `\"` and unknown escapes as parse errors, matching cue. Blast radius:
+byte-literal fixtures (`byte-literal-high-byte`, `BytesTests`) + `multiline_bytes` — verify none
+rely on lenient/`\"` behavior. Kept out of the STRING slice to bound its blast radius (byte-literal
+reformatting is a separate concern, see BYTE-ARRAY-REPR spec-gap).
+
 **STDLIB campaign (2026-07-10, from an alpha stdlib test-drive against `cue` v0.16.1).** Five
 findings A–E, ranked — all LANDED (2026-07-10). A follow-on **STDLIB-F** (list-item separator
 enforcement), surfaced by slice D's separator work, is queued below.

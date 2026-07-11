@@ -132,11 +132,6 @@ partial def consumeImportClauses (chars : List Char) : List Char :=
   else
     trimmed
 
-def parseStringEscape : Char -> Char
-  | 'n' => '\n'
-  | 'r' => '\r'
-  | 't' => '\t'
-  | value => value
 
 /-- Value of a single hex digit (`0-9a-fA-F`), else `none`. -/
 def hexDigitVal? (c : Char) : Option Nat :=
@@ -218,15 +213,49 @@ def decodeByteEscape : List Char -> Option (List UInt8 × List Char)
       | none => none
   | [] => none
 
+/-- Read `count` hex digits (`\uNNNN`/`\UNNNNNNNN`) and, if they name a valid Unicode code
+    point, return it as a `Char` with the remainder. `none` if fewer digits are present, or
+    the value is a surrogate / out of range — both are escape errors in `cue`
+    (`unmatched surrogate pair`, `invalid Unicode code point`), not silent replacement. -/
+def decodeUnicodeEscape (count : Nat) (chars : List Char) : Option (Char × List Char) :=
+  match readHexDigits count 0 chars with
+  | some (value, rest) => if value.isValidChar then some (Char.ofNat value, rest) else none
+  | none => none
+
+/-- Decode one CUE double-quoted string escape body (the chars AFTER the `\`), returning
+    the decoded code point and the remainder, or `none` when the escape is unknown or
+    malformed. A bad escape in a STRING is a hard parse error the caller raises. CUE strings
+    admit the simple escapes `\a\b\f\n\r\t\v\\\/\"` and the Unicode escapes
+    `\uNNNN`/`\UNNNNNNNN`. The byte escapes `\xNN`/`\NNN` are single-quote byte-literal only,
+    and the escapable quote is context-sensitive: `\"` is the string's quote (valid here),
+    while `\'` is byte-literal only — both are rejected, matching `cue`. -/
+def decodeStringEscape : List Char -> Option (Char × List Char)
+  | 'u' :: rest => decodeUnicodeEscape 4 rest
+  | 'U' :: rest => decodeUnicodeEscape 8 rest
+  | 'a' :: rest => some (Char.ofNat 0x07, rest)
+  | 'b' :: rest => some (Char.ofNat 0x08, rest)
+  | 'f' :: rest => some (Char.ofNat 0x0c, rest)
+  | 'v' :: rest => some (Char.ofNat 0x0b, rest)
+  | 'n' :: rest => some ('\n', rest)
+  | 'r' :: rest => some ('\r', rest)
+  | 't' :: rest => some ('\t', rest)
+  | '\\' :: rest => some ('\\', rest)
+  | '/' :: rest => some ('/', rest)
+  | '"' :: rest => some ('"', rest)
+  | _ => none
+
 partial def parseQuotedWith (quote : Char) : List Char -> List Char -> ParseResult String
   | [], _ => parseError [] "unterminated string literal"
   | value :: rest, acc =>
       if value == quote then
         parseOk (String.ofList acc.reverse) rest
       else if value == '\\' then
-        match rest with
-        | [] => parseError [] "unterminated string escape"
-        | escaped :: rest => parseQuotedWith quote rest (parseStringEscape escaped :: acc)
+        match decodeStringEscape rest with
+        | some (decoded, rest) => parseQuotedWith quote rest (decoded :: acc)
+        | none =>
+            match rest with
+            | [] => parseError [] "unterminated string escape"
+            | _ => parseError rest "invalid escape sequence in string literal"
       else
         parseQuotedWith quote rest (value :: acc)
 
@@ -1457,8 +1486,13 @@ mutual
             | ')' :: rest =>
                 parseInterpolatedString rest [] (appendStringSegment acc parts ++ [hole])
             | rest => parseError rest "expected ')' to close interpolation"
-    | '\\' :: escaped :: rest => parseInterpolatedString rest (parseStringEscape escaped :: acc) parts
-    | ['\\'] => parseError [] "unterminated string escape"
+    | '\\' :: rest =>
+        match decodeStringEscape rest with
+        | some (decoded, rest) => parseInterpolatedString rest (decoded :: acc) parts
+        | none =>
+            match rest with
+            | [] => parseError [] "unterminated string escape"
+            | _ => parseError rest "invalid escape sequence in string literal"
     | value :: rest => parseInterpolatedString rest (value :: acc) parts
 
   /-- Parse the content of a multiline string/bytes literal after the opening delimiter.
@@ -1504,8 +1538,13 @@ mutual
               | ')' :: rest =>
                   parseMultilineBody quote strip false rest [] (appendStringSegment acc parts ++ [hole])
               | rest => parseError rest "expected ')' to close interpolation"
-      | '\\' :: escaped :: rest =>
-          parseMultilineBody quote strip false rest (parseStringEscape escaped :: acc) parts
+      | '\\' :: rest =>
+          match decodeStringEscape rest with
+          | some (decoded, rest) => parseMultilineBody quote strip false rest (decoded :: acc) parts
+          | none =>
+              match rest with
+              | [] => parseError [] "unterminated string escape"
+              | _ => parseError rest "invalid escape sequence in string literal"
       | value :: rest => parseMultilineBody quote strip false rest (value :: acc) parts
 
   /-- The shared opening-line handling for multiline literals: the opening delimiter must

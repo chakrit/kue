@@ -19883,11 +19883,11 @@ verdicts confirmed against the binary and pinned by `native_decide`.
 ### Tests / verify
 
 - `Kue/Tests/TextTemplateTests.lean` (60+ `native_decide`) + `testdata/export/text_template_basic.{cue,json}`.
-- Wild fixture `testdata/wild/cue-unicode-escape-dropped/` (QUARANTINED `.known-red`): a
-  wild-caught, OUT-OF-SCOPE bug found while probing JSEscape non-ASCII — kue's cue-file string
-  lexer DROPS the backslash on a `\uXXXX` escape (`"café"` lexes as `"cafu00e9"` instead
-  of `"café"`; cue is correct). Captured red-first as the seed for a future string-lexer slice;
-  unrelated to text/template.
+- Wild fixture `testdata/wild/cue-unicode-escape-dropped/`: a wild-caught, OUT-OF-SCOPE bug found
+  while probing JSEscape non-ASCII — kue's cue-file string lexer DROPS the backslash on a `\uXXXX`
+  escape (`"café"` lexes as `"cafu00e9"` instead of `"café"`; cue is correct). Captured red-first
+  and quarantined here; unrelated to text/template. **FIXED 2026-07-11 by STRING-ESCAPE-SET** —
+  fixture promoted RED→GREEN (`.known-red` removed); see that log entry below.
 - Spec gap recorded (`cue-spec-gaps.md` STDLIB-TEXTTEMPLATE-T1). No `cue-divergences.md` entry
   — the shipped surface matches cue exactly; the deferrals are gaps (kue-does-less), not
   divergences.
@@ -19906,3 +19906,52 @@ verdicts confirmed against the binary and pinned by `native_decide`.
   `manifestToTemplateData` stops deferring floats.
 - **T4 — `printf`/fmt verbs + `{{define}}`/`{{template}}`/`{{block}}`:** the fmt-verb formatter
   and named-template/associated-template machinery. Largest surface; lowest prod9 priority.
+
+## STRING-ESCAPE-SET (2026-07-11) — double-quoted string escape decoder (wild `\uNNNN` fix)
+
+Wild fixture `testdata/wild/cue-unicode-escape-dropped/` promoted RED→GREEN (`.known-red`
+removed). Seeded by the STDLIB-TEXTTEMPLATE-T1 slice: the CUE-file string lexer dropped the
+backslash on a `\uXXXX` escape (`"café"` lexed as `"cafu00e9"`; cue correct).
+
+### Root cause
+
+`parseStringEscape : Char -> Char` (removed) decoded only `\n`/`\r`/`\t` and passed every other
+escaped char through LITERALLY — dropping the leading `\`. So `é` became `u` + literal `00e9`,
+and `\x`/`\U`/octal/`\a`/`\b`/`\f`/`\v` were all silently wrong. It ran per-char, structurally
+unable to consume the multi-char hex bodies. The single-quote BYTE path already decoded correctly
+(`decodeByteEscape` → `List UInt8`); only the three double-quoted STRING sites
+(`parseQuotedWith`, `parseInterpolatedString`, `parseMultilineBody`) routed through the crippled
+handler.
+
+### What landed
+
+- New total `decodeStringEscape : List Char -> Option (Char × List Char)` (+ helper
+  `decodeUnicodeEscape`) in `Kue/Parse.lean`, mirroring `decodeByteEscape` but producing a code
+  point and, unlike the lenient byte path, signalling `none` for a bad escape so the caller raises
+  a PARSE ERROR (matching cue, which rejects unknown/malformed string escapes rather than passing
+  them through). All three string sites now consume from the post-`\` remainder via it; the leftover
+  trailing-`\` case stays "unterminated string escape".
+- Decoded set (verified byte-for-byte vs cue v0.16.1): `\uNNNN`/`\UNNNNNNNN` → code point;
+  `\a\b\f\v` → 0x07/0x08/0x0c/0x0b; `\n\r\t\\` ; `\/` → `/` (cue leniency, cue-compat);
+  `\"` → `"` (the string's quote).
+- Rejected as parse errors (cue parity): `\xNN` + `\NNN` octal (byte-literal-only in a STRING),
+  `\'` (byte-literal-only — the escapable quote is context-sensitive), unknown letters (`\q`), short
+  Unicode (`\u12`/`\U0001`), and surrogate / out-of-range code points (`\uD800`/`\UFFFFFFFF`,
+  gated on `Nat.isValidChar` so no silent replacement).
+
+### Scope boundary
+
+The mirror bug on the BYTE path (lenient fallthrough accepts `\"` and unknown escapes where cue
+errors) is NOT touched here — filed as **BYTE-ESCAPE-STRICT (LOW)** in `plan.md` to bound this
+slice's blast radius (byte-literal reformatting is a separate concern). Spec-gap
+`STRING-ESCAPE-SET` records the `\/` cue-compat leniency + the context-sensitive-quote basis.
+
+### Tests / verify
+
+- `Kue/Tests/ParseTests.lean` — 19 new `native_decide` theorems: the wild `\u` case, `\U`, the four
+  control escapes vs their `\u` spelling, `\/`, `\"`/`\\`, `\u` inside a multiline literal, and
+  eight rejection cases (`\x`, octal, `\q`, `\'`, short `\u`/`\U`, surrogate, out-of-range).
+- Wild fixture auto-run by `check_wild_fixtures` (no longer quarantined).
+- Retraction: the STDLIB-TEXTTEMPLATE-T1 log entry + the 2026-07-11 breadcrumb both described this
+  as a queued/quarantined future bug; both annotated FIXED in the same slice.
+- `./scripts/check.sh` GREEN.

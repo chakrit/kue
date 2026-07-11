@@ -830,6 +830,94 @@ theorem multiline_bytes_equals_single_line :
     parseSameValue "x: '''\n\tabc\n\tdef\n\t'''\n" "x: 'abc\\ndef'\n" = true := by
   native_decide
 
+-- String escapes (double-quoted). The lexer decodes the full CUE escape set — the wild
+-- `\uNNNN` bug (backslash dropped, hex kept as literal text) plus the rest of the set —
+-- and rejects byte-only / malformed escapes as parse errors, matching cue v0.16.1.
+
+-- Wild regression (`testdata/wild/cue-unicode-escape-dropped`): `\uNNNN` decodes to the
+-- code point, not the literal `uNNNN` text.
+theorem string_escape_unicode_u :
+    parseSameValue "x: \"caf\\u00e9\"\n" "x: \"café\"\n" = true := by
+  native_decide
+
+theorem string_escape_unicode_bigU :
+    parseSameValue "x: \"\\U0001F600\"\n" "x: \"😀\"\n" = true := by
+  native_decide
+
+-- The simple control escapes equal their `\u` spelling.
+theorem string_escape_bell_equals_u0007 :
+    parseSameValue "x: \"\\a\"\n" "x: \"\\u0007\"\n" = true := by
+  native_decide
+
+theorem string_escape_backspace_equals_u0008 :
+    parseSameValue "x: \"\\b\"\n" "x: \"\\u0008\"\n" = true := by
+  native_decide
+
+theorem string_escape_formfeed_equals_u000c :
+    parseSameValue "x: \"\\f\"\n" "x: \"\\u000c\"\n" = true := by
+  native_decide
+
+theorem string_escape_vtab_equals_u000b :
+    parseSameValue "x: \"\\v\"\n" "x: \"\\u000b\"\n" = true := by
+  native_decide
+
+-- `\/` decodes to `/` (cue-compatible leniency, cross-checked against cue v0.16.1).
+theorem string_escape_slash_is_literal :
+    parseSameValue "x: \"\\/\"\n" "x: \"/\"\n" = true := by
+  native_decide
+
+theorem string_escape_quote_equals_u0022 :
+    parseSameValue "x: \"\\\"\"\n" "x: \"\\u0022\"\n" = true := by
+  native_decide
+
+theorem string_escape_backslash_equals_u005c :
+    parseSameValue "x: \"\\\\\"\n" "x: \"\\u005c\"\n" = true := by
+  native_decide
+
+-- The same decoder runs inside a multiline `"""…"""` literal.
+theorem string_escape_unicode_in_multiline :
+    parseSameValue "x: \"\"\"\n\tcaf\\u00e9\n\t\"\"\"\n" "x: \"café\"\n" = true := by
+  native_decide
+
+-- Byte-only escapes (`\xNN`, `\NNN` octal) are a parse error in a STRING — they belong to
+-- single-quote byte literals only.
+theorem string_escape_hex_byte_rejected :
+    parseFails "x: \"\\x41\"\n" = true := by
+  native_decide
+
+theorem string_escape_octal_byte_rejected :
+    parseFails "x: \"\\101\"\n" = true := by
+  native_decide
+
+-- An unknown escape letter is a parse error (cue "unknown escape sequence").
+theorem string_escape_unknown_rejected :
+    parseFails "x: \"\\q\"\n" = true := by
+  native_decide
+
+-- The single-quote escape `\'` is byte-literal only; inside a double-quoted string it is a
+-- parse error (cue "unknown escape sequence"), while `\"` is the valid quote escape above.
+theorem string_escape_single_quote_rejected_in_string :
+    parseFails "x: \"\\'\"\n" = true := by
+  native_decide
+
+-- Short Unicode escapes (fewer than the required hex digits) are parse errors.
+theorem string_escape_short_u_rejected :
+    parseFails "x: \"\\u12\"\n" = true := by
+  native_decide
+
+theorem string_escape_short_bigU_rejected :
+    parseFails "x: \"\\U0001\"\n" = true := by
+  native_decide
+
+-- A surrogate or out-of-range code point in `\u`/`\U` is rejected (not silently mapped).
+theorem string_escape_surrogate_rejected :
+    parseFails "x: \"\\uD800\"\n" = true := by
+  native_decide
+
+theorem string_escape_out_of_range_bigU_rejected :
+    parseFails "x: \"\\UFFFFFFFF\"\n" = true := by
+  native_decide
+
 -- A content line lacking the closing-line indentation prefix is rejected, matching CUE's
 -- "invalid whitespace". The bad line `bad` is line 4 here.
 theorem multiline_under_indented_line_fails :

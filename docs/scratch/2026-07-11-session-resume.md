@@ -3,7 +3,19 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **STDLIB-TEXTTEMPLATE-T1** — the `text/template` package's minimal
+resolved/historical). HEAD: **STRING-ESCAPE-SET** — the CUE double-quoted string escape decoder.
+The wild `\uXXXX`-dropped bug (below) is FIXED: `parseStringEscape` (decoded only `\n\r\t`, dropped
+the `\` on everything else) is replaced by a total `decodeStringEscape` mirroring the byte path but
+producing code points + raising a PARSE ERROR on bad escapes. Full set now decoded/rejected byte-for-byte
+vs cue: `\uNNNN`/`\UNNNNNNNN` → code point (surrogate/out-of-range rejected via `Nat.isValidChar`),
+`\a\b\f\v\n\r\t\\\/\"` simple, and `\xNN`/octal/`\'`/unknown/short-hex all parse errors. `\'` vs `\"`
+is context-sensitive (string vs byte literal). Wild fixture promoted RED→GREEN (`.known-red` removed).
+19 new `native_decide` in `ParseTests.lean`. Mirror BYTE-path leniency (accepts `\"`/unknown where cue
+errors) filed as **BYTE-ESCAPE-STRICT (LOW)** in plan.md — NOT in this slice (blast-radius bound).
+Spec-gap `STRING-ESCAPE-SET` records the `\/` cue-compat leniency. Committed on `main`, not pushed.
+Prior HEAD STDLIB-TEXTTEMPLATE-T1 below.
+
+## Prior HEAD — STDLIB-TEXTTEMPLATE-T1 — the `text/template` package's minimal
 green core + escapers. cue v0.16.1 exposes EXACTLY three leaves: `Execute`/`HTMLEscape`/`JSEscape`
 (all → string). New leaf module `Kue/TextTemplate.lean` (`import Kue.Value` only) = a total,
 fuel-bounded lexer + parse-tree + tree-walk evaluator over its own `TemplateData` tree (float
@@ -14,10 +26,10 @@ rendering, missing/null ⇒ `<no value>` (nested null ⇒ `<nil>`). Deferred (`u
 FLOAT data (⇒ T3 float kernel), all FUNCS/pipelines/vars/printf/define (⇒ T2/T4), non-ASCII
 `JSEscape` (IsPrint table); malformed template / field-on-scalar ⇒ bottom, nonexistent leaf ⇒ bare
 bottom. 35-case differential byte-identical to cue. `Kue/Tests/TextTemplateTests.lean` (60+
-`native_decide`) + `testdata/export/text_template_basic.{cue,json}`. **Wild-caught OUT-OF-SCOPE bug
-queued:** `testdata/wild/cue-unicode-escape-dropped/` (`.known-red`) — kue's cue-file string lexer
-DROPS the backslash on a `\uXXXX` escape (`"café"` → `"cafu00e9"`; cue correct); seed for a
-string-lexer slice. Retraction: wild `stdlib-import-misrouted` guard stays at `uuid` (NOT repointed).
+`native_decide`) + `testdata/export/text_template_basic.{cue,json}`. **Wild-caught bug it seeded:**
+`testdata/wild/cue-unicode-escape-dropped/` — the `\uXXXX`-dropped string-lexer bug — is now FIXED by
+STRING-ESCAPE-SET (HEAD above; fixture promoted, `.known-red` removed). Retraction: wild
+`stdlib-import-misrouted` guard stays at `uuid` (NOT repointed).
 Committed on `main`, not pushed (attended-push pending). Prior HEAD STDLIB-NET below.
 
 ## Latest slice (2026-07-11) — STDLIB-TEXTTEMPLATE-T1 (`text/template`, minimal core + escapers)
