@@ -348,12 +348,13 @@ those forms.
 - Decimal numeric separators are stripped while parsing. Exponent-literal RENDERING is
   byte-identical to `cue` on every spelling — `1.25e3`, `1.25e+3`, `1.25E3`, `0.00125e6` all
   eval to `1.25e+3` and export to `1.25E+3` (STDLIB-FLOAT F0 verified all four vs the binary).
-  One arithmetic gap remains: float arithmetic normalizes the apd *exponent* into the
-  coefficient (a `DecimalValue` carries only a non-negative scale), so a whole-valued result of
-  an `e`-notation operand renders with a spurious `.0` — `1.25e3 + 1` → `1251.0` where `cue`
-  (spec-correct GDA, which preserves the operand exponent through addition) gives `1251`.
-  `1250.0 + 1` agrees (`1251.0` both). Tracked for the float campaign (F-series: apd-exponent
-  preservation).
+  Float `+ - *` now PRESERVE the apd result exponent (STDLIB-FLOAT-F4, 2026-07-11): arithmetic
+  threads the apd `(coefficient, exponent)` form and emits it as the result's render anchor, so
+  scientific/trailing-zero/`.0` forms byte-match `cue` (`2e2 * 3` → `6e+2`, `1e1 + 1e1` → `2e+1`,
+  `1.20 + 1.30` → `2.50`, `1e34 + 1` → `1.000…e+34`). Division's ideal-exponent (subtler apd
+  rule) is DEFERRED — `6e2 / 3` still renders `200.0` where `cue` gives `2.0e+2` (VALUE is correct
+  either way; only the form differs) — tracked in `cue-spec-gaps.md` STDLIB-FLOAT-F4 with the
+  derived exact-division rule.
 - Lowercase non-decimal integer literals with `0x`, `0o`, and `0b` prefixes are
   canonicalized to decimal integers while parsing. Separators are accepted in their digit
   sequences.
@@ -369,15 +370,19 @@ those forms.
   remain residual unary expressions until invalid operand diagnostics are modeled.
 - Additive expressions are represented explicitly. The evaluator currently handles
   concrete integer addition/subtraction plus concrete string and byte concatenation.
-  Finite decimal float addition/subtraction is evaluated exactly with scaled integer
-  arithmetic, including exponent spellings. List arithmetic is not targeted for `+`
-  because CUE v0.15.4 rejects it in favor of `list.Concat`.
+  Finite decimal float addition/subtraction is evaluated in the apd `(coefficient, exponent)`
+  form (STDLIB-FLOAT-F4): the result exponent is `min(e₁, e₂)` (apd's ideal exponent for `+`/`-`),
+  rounded half-up to the 34-significant-digit apd context, so the rendered form byte-matches
+  `cue` including scientific notation, trailing zeros, and zero-with-exponent (`1e1 + 1e1 = 2e+1`,
+  `1.20 + 1.30 = 2.50`, `1e1 - 1e1 = 0e+1`, `1e34 + 1 = 1.000…e+34`). List arithmetic is not
+  targeted for `+` because CUE v0.15.4 rejects it in favor of `list.Concat`.
 - Multiplication expressions are parsed with higher precedence than additive expressions.
-  Concrete integer multiplication yields an int. Float multiplication (and mixed
-  int×float, which promotes to float) is evaluated exactly through the `Decimal` module:
-  numerators multiply and scales add, and CUE preserves the summed scale verbatim with no
-  trailing-zero trim (`1.0 * 1.0 = 1.00`, `1.5 * 2.0 = 3.00`). Oracle-confirmed against
-  cue v0.16.1.
+  Concrete integer multiplication yields an int. Float multiplication (and mixed int×float,
+  which promotes to float) is evaluated in the apd form (STDLIB-FLOAT-F4): coefficients multiply,
+  exponents ADD (apd's ideal exponent for `*`), rounded to the 34-digit context. The summed scale
+  is preserved verbatim with no trailing-zero trim (`1.0 * 1.0 = 1.00`, `1.5 * 2.0 = 3.00`), and a
+  large-magnitude result renders scientific (`2e2 * 3 = 6e+2`, `1.5e2 * 1e2 = 1.5e+4`).
+  Oracle-confirmed against cue v0.16.1.
 - Division expressions are parsed at the same precedence as multiplication. `/` always
   yields a float, never an int (`4.0 / 2.0 = 2.0`, `6 / 2 = 3.0`); integer division is the
   separate `div` /`quo` keywords. All four operand domains (int÷int, int÷float, float÷int,
@@ -389,7 +394,12 @@ those forms.
   zero divisor, int or float) bottoms out with `divisionByZero` provenance. No documented
   division case remains deferred — the prior fixed-34-fractional-digit int divider, which
   over-emitted for quotients ≥ 1, was replaced by the shared significant-digit divider as
-  part of this slice.
+  part of this slice. **One FORM gap (STDLIB-FLOAT-F4, 2026-07-11):** unlike `+ - *`, `/` does
+  NOT yet apply apd's ideal-exponent, so a large-magnitude quotient renders fully expanded where
+  `cue` uses scientific notation (`6e2 / 3` → `200.0` vs cue `2.0e+2`). The VALUE is correct;
+  only the textual form differs. The derived exact-division rule (reduce the quotient, then for
+  an integer result shift the exponent one below the reduced form) is recorded in
+  `cue-spec-gaps.md` STDLIB-FLOAT-F4 for a follow-up slice.
 - Integer keyword expressions `div`, `mod`, `quo`, and `rem` are parsed at multiplicative
   precedence and reuse the existing integer builtin semantics. Concrete integer operands
   evaluate now; incomplete operands remain as residual infix binary expressions.

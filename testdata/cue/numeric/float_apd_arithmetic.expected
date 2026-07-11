@@ -1,0 +1,9 @@
+mulSci: 6e+2
+mulScale: 1.5e+4
+addSci: 2e+1
+addRange: 2.5e+2
+subSci: 5e+2
+zeroExp: 0e+1
+addTrail: 2.50
+addWhole: 1251.0
+addLarge: 1.000000000000000000000000000000000e+100

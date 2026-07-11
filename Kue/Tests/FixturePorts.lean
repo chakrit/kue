@@ -89,6 +89,23 @@ def fixturePorts : List FixturePort :=
               ] .regularOpen none []))
     },
     {
+      fileName := "numeric/float_apd_arithmetic.expected",
+      content :=
+        formatTopLevel
+          (resolveAndEval
+            (mkStruct [
+                ⟨"mulSci", .regular, .binary .mul (.prim (mkFloatText "2e2")) (.prim (.int 3)), false⟩,
+                ⟨"mulScale", .regular, .binary .mul (.prim (mkFloatText "1.5e2")) (.prim (mkFloatText "1e2")), false⟩,
+                ⟨"addSci", .regular, .binary .add (.prim (mkFloatText "1e1")) (.prim (mkFloatText "1e1")), false⟩,
+                ⟨"addRange", .regular, .binary .add (.prim (mkFloatText "1.5e2")) (.prim (mkFloatText "1e2")), false⟩,
+                ⟨"subSci", .regular, .binary .sub (.prim (mkFloatText "1.5e3")) (.prim (mkFloatText "1e3")), false⟩,
+                ⟨"zeroExp", .regular, .binary .sub (.prim (mkFloatText "1e1")) (.prim (mkFloatText "1e1")), false⟩,
+                ⟨"addTrail", .regular, .binary .add (.prim (mkFloatText "1.20")) (.prim (mkFloatText "1.30")), false⟩,
+                ⟨"addWhole", .regular, .binary .add (.prim (mkFloatText "1.25e3")) (.prim (.int 1)), false⟩,
+                ⟨"addLarge", .regular, .binary .add (.prim (mkFloatText "1e100")) (.prim (.int 1)), false⟩
+              ] .regularOpen none []))
+    },
+    {
       fileName := "numeric/multiplication_expressions.expected",
       content :=
         formatTopLevel

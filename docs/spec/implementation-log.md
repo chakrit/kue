@@ -20081,3 +20081,71 @@ Extracted `decimalToLnExpScaled` (lift a `DecimalValue` to working scale) — wa
 - `cue-spec-gaps.md` STDLIB-FLOAT-F0 row; `plan.md` STDLIB-FLOAT F0–F5 roadmap + retraction of the
   "deferred exp/ln increment" note; `compat-assumptions.md` §Numeric literals refined (F4 gap).
 - `./scripts/check.sh` GREEN.
+
+---
+
+## Completed Slice: STDLIB-FLOAT-F4 — apd result-exponent preservation for float `+ - *`
+
+Goal: float arithmetic must render in CUE's General Decimal Arithmetic form (scientific
+notation, trailing zeros, `.0` presence), which kue collapsed by normalizing the apd
+exponent into the `DecimalValue` coefficient (`2e2 * 3` → `600.0` where cue renders `6e+2`).
+
+### Rule derived from the binary (cue v0.16.1)
+
+Per-operation apd IDEAL result exponent, then round HALF-UP to the 34-significant-digit apd
+context precision:
+- **add/sub:** result exponent = `min(e₁, e₂)`. `1e1 + 1e1 = 2e+1`, `1.20 + 1.30 = 2.50`,
+  `1e1 - 1e1 = 0e+1` (a zero result KEEPS the ideal exponent), `1e34 + 1 = 1.000…e+34`
+  (`1e33 + 1` stays exact at 34 digits).
+- **multiply:** result exponent = `e₁ + e₂`; coefficients multiply (trailing zeros survive as
+  magnitude, `1.0 * 1.0 = 1.00`). `2e2 * 3 = 6e+2`, `1.5e2 * 1e2 = 1.5e+4`.
+- Rounding mode is HALF-UP (away from zero), NOT apd's nominal HALF-EVEN — empirically pinned
+  (`…005 + 0` rounds the even tie UP).
+- **divide:** DEFERRED (subtler ideal-exponent). Derived rule recorded in `cue-spec-gaps.md`
+  STDLIB-FLOAT-F4 for the follow-up; division's VALUE is already correct, only the
+  large-magnitude FORM diverges (`6e2 / 3 → 200.0` vs cue `2.0e+2`).
+
+### Core change (illegal-states-minimal)
+
+No change to the `DecimalValue` core type (kept its blast radius at zero). Arithmetic instead
+threads a NEW `ApdForm { negative, coefficient, exponent }` (`Decimal.lean`): `primApdForm?`
+extracts each operand's apd form from its render-anchor `text` (an int is exponent 0),
+`apdAdd`/`apdSub`/`apdMul` apply the ideal-exponent rules, `apdRoundToContext` rounds half-up to
+34 digits, and `apdCarrierText` emits a canonical carrier `text` (`[-]coefficient e exponent`)
+that `floatApdForm` round-trips EXACTLY (so every output style derives correctly) and
+`parseDecimalText` recovers the exact `DecimalValue`. The cue-RENDERED text would be lossy — a
+`.0` whole-float tail corrupts the apd exponent for JSON output — so the raw carrier is the
+faithful anchor. This reuses the existing render-anchor design (the `text` field was always
+meant to carry the apd form; only arithmetic results failed to populate it faithfully).
+
+`evalApdBinary?` dispatches `+`/`-`/`*` in `EvalOps.lean`; the dead `evalDecimalBinary?` and
+`evalDecimalMultiply?` (which formatted the normalized `DecimalValue`, losing the exponent) were
+removed. `addDecimalValues`/`subDecimalValues`/`mulDecimalValues` stay (used by `list.Sum`/`Avg`
+and `math.Pow`, which collapse rather than render arithmetically).
+
+### Scope boundary
+
+`+ - *` landed FULLY (byte-matching cue). Division DEFERRED with a logged, derived rule — mixing
+it in would triple the regression surface (exact-vs-inexact + the reduce-then-shift rule) in an
+already high-blast-radius slice.
+
+### Regression sweep
+
+Full `./scripts/check.sh` GREEN. ZERO existing testdata fixtures flipped — the prior numeric
+fixtures cover only small-magnitude arithmetic that stays in plain form, which the apd path
+reproduces identically. A broad manual kue-vs-cue sweep (37 cases: int arithmetic, plain
+decimals, division-to-34-digits, mixed int/float, scientific) matches cue everywhere except the
+DEFERRED division-form cases (value-correct, form-only).
+
+### Tests / verify
+
+- `testdata/wild/float-apd-exponent-preservation/` — wild fixture (export-json) capturing
+  `+ - *` scientific/trailing/large cases; reproduced RED against the old binary, green after.
+- `testdata/cue/numeric/float_apd_arithmetic.{cue,expected}` + `FixturePorts` entry (eval form).
+- `Kue/Tests/EvalTests.lean` — `eval_mul_scientific`, `eval_add_sub_scientific`,
+  `eval_add_trailing_zeros`, `eval_add_context_rounding`; the pre-existing `eval_mul_*` theorems
+  reworked to assert the RENDERED form (`formatValue`) rather than internal carrier text.
+- `cue-spec-gaps.md` STDLIB-FLOAT-F4 row (with the deferred-division derived rule);
+  `compat-assumptions.md` §Numeric literals + §Arithmetic expressions updated (F4 resolution +
+  the division-form gap); this log; `plan.md` F4 status.
+- `./scripts/check.sh` GREEN.

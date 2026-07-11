@@ -1,0 +1,10 @@
+{
+    "mulSci": 6E+2,
+    "mulScale": 1.5E+4,
+    "mulSmall": 1.00,
+    "addSci": 2E+1,
+    "addTrail": 2.50,
+    "addWhole": 1251,
+    "addLarge": 1.000000000000000000000000000000000E+100,
+    "subSci": 5E+2
+}

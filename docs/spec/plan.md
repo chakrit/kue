@@ -213,7 +213,7 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-**STDLIB-FLOAT campaign (scoped float work). F0 ✅ LANDED (2026-07-11).** Scoping ruling: CUE
+**STDLIB-FLOAT campaign (scoped float work). F0 ✅ + F4 (`+ - *`) ✅ LANDED (2026-07-11).** Scoping ruling: CUE
 numbers are arbitrary-precision apd decimal, NOT float64 — kue's `Decimal` already represents
 them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. Roadmap:
 - **F0 (the cheap win) ✅ LANDED 2026-07-11.** Wired the existing `decimalLnScaled`/`decimalExpScaled`
@@ -230,10 +230,17 @@ them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. 
   `text/template` T3 (float in template data), `Log1p`/`Expm1`, and the trig family. Build only when a real
   app needs it — no speculative IEEE model.
 - **F3 — transcendental trig** (`Sin`/`Cos`/`Tan`/…), gated on F2 (cue computes them in float64).
-- **F4 — apd-exponent preservation in float arithmetic.** kue's `DecimalValue` normalizes a positive
-  exponent into the coefficient, so `1.25e3 + 1` renders `1251.0` where cue (spec-correct GDA, preserving
-  the operand exponent) gives `1251`. Literal exponent RENDERING is already byte-identical (F0-verified);
-  this is the arithmetic-side gap. See `compat-assumptions.md` §Numeric literals.
+- **F4 — apd result-exponent preservation in float arithmetic. ✅ `+ - *` LANDED 2026-07-11; `/`
+  DEFERRED.** Arithmetic now threads the apd `(coefficient, exponent)` form (`ApdForm` +
+  `apdAdd`/`apdSub`/`apdMul` + `apdRoundToContext` + `apdCarrierText`, `Decimal.lean`) instead of
+  formatting the normalized `DecimalValue`, so `+ - *` byte-match cue's GDA form: add/sub exponent =
+  `min(e₁,e₂)`, multiply = `e₁+e₂`, both rounded half-up to the 34-digit apd context (`2e2 * 3 = 6e+2`,
+  `1e1 + 1e1 = 2e+1`, `1.20 + 1.30 = 2.50`, `1e34 + 1 = 1.000…e+34`, `1e1 - 1e1 = 0e+1`). NO change to
+  the `DecimalValue` core type (zero blast radius); the carrier `text` round-trips through `floatApdForm`.
+  **DIVISION's ideal-exponent is DEFERRED** (subtler apd rule) — `6e2 / 3` still renders `200.0` vs cue
+  `2.0e+2`, VALUE correct / FORM only; the derived exact-division rule (reduce, then shift exp −1 for an
+  integer result) is recorded in `cue-spec-gaps.md` STDLIB-FLOAT-F4 for a follow-up. See there +
+  `compat-assumptions.md` §Numeric literals / §Arithmetic expressions.
 - **F5 — `FloatConv`/template-float / `math.Float64bits`-class bit-twiddling**, gated on F2.
 
 **BYTE-ESCAPE-STRICT (LOW, 2026-07-11). ✅ CLOSED (2026-07-11).** The single-quote byte-literal

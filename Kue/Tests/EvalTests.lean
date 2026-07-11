@@ -1041,12 +1041,23 @@ theorem disj_meet_bound_narrows_arms :
     evalSourceMatches "x: (1|2|3) & (>=2)\n" "x: 2 | 3" = true := by
   native_decide
 
--- Was a deferred-bottom pin; float×float now evaluates exactly through the decimal
--- layer. Scales add and CUE preserves the summed scale verbatim: `1.5 * 2.0 = 3.00`
--- (oracle-confirmed, cue v0.16.1), no trailing-zero trim.
+-- Float `*` threads the apd `(coefficient, exponent)` form (F4): coefficients multiply,
+-- exponents ADD, matching cue's rendered GDA form. Scales add and the summed scale is
+-- preserved verbatim: `1.5 * 2.0 = 3.00`, no trailing-zero trim. Assertions pin the RENDERED
+-- output (`formatValue`), the observable behavior — the internal carrier `text` is an apd
+-- anchor, not the display form. All oracle-confirmed against cue v0.16.1.
 theorem eval_mul_two_floats :
-    evalMul (.prim (mkFloatText "1.5")) (.prim (mkFloatText "2.0")) = .prim (mkFloatText "3.00") := by
-  rfl
+    formatValue (evalMul (.prim (mkFloatText "1.5")) (.prim (mkFloatText "2.0"))) = "3.00" := by
+  native_decide
+
+-- Multiplication into a large-magnitude result renders in scientific form (positive exponent),
+-- NOT the fully-expanded `600.0`: `2e2 * 3 = 6e+2`, `1.5e2 * 1e2 = 1.5e+4`, `1e2 * 1e2 = 1e+4`.
+theorem eval_mul_scientific :
+    formatValue (evalMul (.prim (mkFloatText "2e2")) (.prim (.int 3))) = "6e+2"
+      ∧ formatValue (evalMul (.prim (mkFloatText "1.5e2")) (.prim (mkFloatText "1e2"))) = "1.5e+4"
+      ∧ formatValue (evalMul (.prim (mkFloatText "1e2")) (.prim (mkFloatText "1e2"))) = "1e+4"
+      ∧ formatValue (evalMul (.prim (.int 10)) (.prim (mkFloatText "1e2"))) = "1.0e+3" := by
+  native_decide
 
 -- Was a deferred-bottom pin; float÷float now evaluates through the decimal layer.
 -- `/` always yields a float; `3.0 / 2.0 = 1.5` terminates cleanly (oracle-confirmed,
@@ -1057,28 +1068,60 @@ theorem eval_div_two_floats :
 
 -- Multiplication preserves the full summed scale: `1.0 * 1.0 = 1.00`.
 theorem eval_mul_scale_preserved :
-    (evalMul (.prim (mkFloatText "1.0")) (.prim (mkFloatText "1.0")) == .prim (mkFloatText "1.00")) = true := by
+    formatValue (evalMul (.prim (mkFloatText "1.0")) (.prim (mkFloatText "1.0"))) = "1.00" := by
   native_decide
 
 -- Mixed int×float promotes to float; int contributes scale 0.
 theorem eval_mul_int_float :
-    (evalMul (.prim (.int 2)) (.prim (mkFloatText "1.5")) == .prim (mkFloatText "3.0")) = true := by
+    formatValue (evalMul (.prim (.int 2)) (.prim (mkFloatText "1.5"))) = "3.0" := by
   native_decide
 
 -- float×int likewise.
 theorem eval_mul_float_int :
-    (evalMul (.prim (mkFloatText "1.5")) (.prim (.int 2)) == .prim (mkFloatText "3.0")) = true := by
+    formatValue (evalMul (.prim (mkFloatText "1.5")) (.prim (.int 2))) = "3.0" := by
   native_decide
 
 -- Negative operand carries through multiplication.
 theorem eval_mul_negative :
-    (evalMul (.prim (mkFloatText "-1.5")) (.prim (mkFloatText "2.0")) == .prim (mkFloatText "-3.00")) = true := by
+    formatValue (evalMul (.prim (mkFloatText "-1.5")) (.prim (mkFloatText "2.0"))) = "-3.00" := by
   native_decide
 
 -- int×int stays int (no float promotion).
 theorem eval_mul_int_int :
     evalMul (.prim (.int 3)) (.prim (.int 4)) = .prim (.int 12) := by
   rfl
+
+-- Float `+`/`-` thread the apd form (F4): the result exponent is `min(e₁,e₂)`, fixing the
+-- rendered GDA form. A large-magnitude result renders scientific (`1e1 + 1e1 = 2e+1`,
+-- `1.5e2 + 1e2 = 2.5e+2`, `1.5e3 - 1e3 = 5e+2`); a zero result KEEPS the min exponent
+-- (`1e1 - 1e1 = 0e+1`); a small-magnitude result stays plain (`1e3 + 2 = 1002.0`).
+theorem eval_add_sub_scientific :
+    formatValue (evalAdd (.prim (mkFloatText "1e1")) (.prim (mkFloatText "1e1"))) = "2e+1"
+      ∧ formatValue (evalAdd (.prim (mkFloatText "1.5e2")) (.prim (mkFloatText "1e2"))) = "2.5e+2"
+      ∧ formatValue (evalSub (.prim (mkFloatText "1.5e3")) (.prim (mkFloatText "1e3"))) = "5e+2"
+      ∧ formatValue (evalSub (.prim (mkFloatText "1e1")) (.prim (mkFloatText "1e1"))) = "0e+1"
+      ∧ formatValue (evalAdd (.prim (mkFloatText "1e3")) (.prim (.int 2))) = "1002.0" := by
+  native_decide
+
+-- Trailing zeros survive via the min-exponent coefficient magnitude (no trim): `1.20 + 1.30
+-- = 2.50`, `1.50 + 1.50 = 3.00`. A whole exponent-0 result renders `.0` in cue-native but bare
+-- in JSON (`1.25e3 + 1 = 1251` under export) — pinned by the wild fixture.
+theorem eval_add_trailing_zeros :
+    formatValue (evalAdd (.prim (mkFloatText "1.20")) (.prim (mkFloatText "1.30"))) = "2.50"
+      ∧ formatValue (evalAdd (.prim (mkFloatText "1.50")) (.prim (mkFloatText "1.50"))) = "3.00"
+      ∧ formatValue (evalAdd (.prim (mkFloatText "1.25e3")) (.prim (.int 1))) = "1251.0" := by
+  native_decide
+
+-- Beyond the 34-digit apd context precision the exact sum rounds half-up and switches to
+-- scientific: `1e33 + 1` stays exact (34 digits), `1e34 + 1` rounds to `1.000…000e+34`.
+theorem eval_add_context_rounding :
+    formatValue (evalAdd (.prim (mkFloatText "1e33")) (.prim (.int 1)))
+        = "1000000000000000000000000000000001.0"
+      ∧ formatValue (evalAdd (.prim (mkFloatText "1e34")) (.prim (.int 1)))
+        = "1.000000000000000000000000000000000e+34"
+      ∧ formatValue (evalAdd (.prim (mkFloatText "1e100")) (.prim (.int 1)))
+        = "1.000000000000000000000000000000000e+100" := by
+  native_decide
 
 -- Terminating division renders without padding.
 theorem eval_div_terminating :

@@ -118,7 +118,7 @@ def evalAdd (left right : Value) : Value :=
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
   | .prim left, .prim right =>
-      match evalDecimalBinary? addDecimalValues left right with
+      match evalApdBinary? apdAdd left right with
       | some value => .prim value
       | none => .bottom
   | _, _ => arithmeticDomainResult .add left right
@@ -131,7 +131,7 @@ def evalSub (left right : Value) : Value :=
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
   | .prim left, .prim right =>
-      match evalDecimalBinary? subDecimalValues left right with
+      match evalApdBinary? apdSub left right with
       | some value => .prim value
       | none => .bottom
   | _, _ => arithmeticDomainResult .sub left right
@@ -149,7 +149,7 @@ def evalMul (left right : Value) : Value :=
   | .bottomWith reasons, _ => .bottomWith reasons
   | _, .bottomWith reasons => .bottomWith reasons
   | .prim left, .prim right =>
-      match evalDecimalMultiply? left right with
+      match evalApdBinary? apdMul left right with
       | some value => .prim value
       | none => .bottom
   | _, _ => arithmeticDomainResult .mul left right

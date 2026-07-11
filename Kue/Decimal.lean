@@ -209,12 +209,98 @@ def decimalSqrt (value : DecimalValue) : Value :=
     | some text => .prim (mkFloatText text)
     | none => .bottom
 
-/-- Multiplication of two decimal primitives, always yielding a float. The summed
-    scale is preserved verbatim (no trailing-zero trim): `1.0 * 1.0 = 1.00`. -/
-def evalDecimalMultiply? (left right : Prim) : Option Prim :=
-  match decimalFromPrim? left, decimalFromPrim? right with
-  | some left, some right =>
-      some (mkFloatText (formatDecimalAtScale (mulDecimalValues left right) true))
+/-! ### apd result-exponent preservation for float `+ - *` (F4).
+
+    CUE's arithmetic follows General Decimal Arithmetic (apd / IEEE-754-2008 decimal): each
+    operation has an IDEAL result exponent that fixes the rendered form — scientific vs plain,
+    trailing zeros, `.0` presence (`2e2 * 3` renders `6e+2`, not `600.0`). Kue's `DecimalValue`
+    normalizes a positive exponent into its coefficient, erasing it, so arithmetic threads the
+    apd `(sign, coefficient, exponent)` form here instead and emits it as the result float's
+    render-anchor `text`. Division's ideal exponent (subtler apd rule) is DEFERRED — see
+    `docs/spec/cue-spec-gaps.md`. -/
+
+/-- The apd `(sign, coefficient, exponent)` form: value = `±coefficient · 10^exponent`. The
+    render anchor consumed by `floatApdForm`/`renderFloatApd`; a positive `exponent` is exactly
+    what the normalized `DecimalValue` cannot carry. -/
+structure ApdForm where
+  negative : Bool
+  coefficient : Nat
+  exponent : Int
+deriving Repr, BEq, DecidableEq
+
+/-- Signed integer coefficient `±coefficient` — the integer the coefficient denotes at exponent
+    0, used to align and combine operands exactly. -/
+def ApdForm.signedCoefficient (value : ApdForm) : Int :=
+  if value.negative then -(Int.ofNat value.coefficient) else Int.ofNat value.coefficient
+
+/-- Build an apd form from a signed coefficient at `exponent`, normalizing `-0 ⇒ +0` (apd's
+    negative-zero rule, matching `floatApdForm`). -/
+def apdOfSigned (signed exponent : Int) : ApdForm :=
+  { negative := signed < 0, coefficient := decimalIntAbsNat signed, exponent := exponent }
+
+/-- The apd form of a numeric primitive: a float from its render-anchor `text`, an int as
+    `(|value|, exponent 0)`. `none` for a non-numeric primitive (caller bottoms). -/
+def primApdForm? : Prim -> Option ApdForm
+  | .int value => some (apdOfSigned value 0)
+  | .float _ text =>
+      let (negative, coefficient, exponent) := floatApdForm text
+      some { negative := negative, coefficient := coefficient, exponent := exponent }
+  | _ => none
+
+/-- Round an apd coefficient to CUE's apd context precision — `divisionSigDigits` (34)
+    significant digits, half-up (ties away from zero, matching cue's observed rounding) —
+    raising the exponent by the digits dropped. A half-up carry that overflows to a 35-digit
+    power of ten (`…9 ⇒ 10^34`) is renormalized down one place. Fewer than 34 digits: identity. -/
+def apdRoundToContext (value : ApdForm) : ApdForm :=
+  let digits := (toString value.coefficient).length
+  if digits <= divisionSigDigits then
+    value
+  else
+    let drop := digits - divisionSigDigits
+    let divisor := evalPow10 drop
+    let quotient := value.coefficient / divisor
+    let remainder := value.coefficient % divisor
+    let rounded := if 2 * remainder >= divisor then quotient + 1 else quotient
+    let (coefficient, extra) :=
+      if (toString rounded).length > divisionSigDigits then (rounded / 10, 1) else (rounded, 0)
+    { negative := value.negative,
+      coefficient := coefficient,
+      exponent := value.exponent + Int.ofNat (drop + extra) }
+
+/-- Float addition in apd form: align both operands to the smaller exponent (apd's ideal
+    exponent for `+`/`-`, `min(e₁,e₂)`), sum the signed coefficients, round to context. A zero
+    result keeps that exponent (`1e1 - 1e1 = 0e+1`). -/
+def apdAdd (left right : ApdForm) : ApdForm :=
+  let exponent := if left.exponent <= right.exponent then left.exponent else right.exponent
+  let leftScaled := left.signedCoefficient * Int.ofNat (evalPow10 (left.exponent - exponent).toNat)
+  let rightScaled := right.signedCoefficient * Int.ofNat (evalPow10 (right.exponent - exponent).toNat)
+  apdRoundToContext (apdOfSigned (leftScaled + rightScaled) exponent)
+
+/-- Float subtraction: `left + (−right)`. -/
+def apdSub (left right : ApdForm) : ApdForm :=
+  apdAdd left { right with negative := !right.negative }
+
+/-- Float multiplication in apd form: coefficients multiply, exponents ADD (apd's ideal
+    exponent for `*`, `e₁+e₂`), rounded to context. Trailing zeros survive as coefficient
+    magnitude (`1.0 * 1.0 = 1.00`). -/
+def apdMul (left right : ApdForm) : ApdForm :=
+  apdRoundToContext
+    (apdOfSigned (left.signedCoefficient * right.signedCoefficient) (left.exponent + right.exponent))
+
+/-- The canonical carrier `text` for an apd result: `[-]coefficient e exponent`. `floatApdForm`
+    round-trips it back to exactly this apd form (trailing zeros preserved as magnitude), so
+    every render style derives correctly, and `parseDecimalText` recovers the exact
+    `DecimalValue`. The cue-RENDERED text would be lossy — a `.0` whole-float tail corrupts the
+    apd exponent for JSON output — so this raw form is the faithful anchor. -/
+def apdCarrierText (value : ApdForm) : String :=
+  (if value.negative then "-" else "") ++ toString value.coefficient ++ "e" ++ toString value.exponent
+
+/-- Dispatch a float `+`/`-`/`*` over two primitives through the apd-form arithmetic, emitting
+    the result as a float carrying the apd-faithful render anchor. `none` when either operand is
+    non-numeric (caller bottoms). -/
+def evalApdBinary? (op : ApdForm -> ApdForm -> ApdForm) (left right : Prim) : Option Prim :=
+  match primApdForm? left, primApdForm? right with
+  | some left, some right => some (mkFloatText (apdCarrierText (op left right)))
   | _, _ => none
 
 /-- Outcome of dividing two primitives: either an operand was not numeric, the
@@ -253,13 +339,6 @@ def avgDecimalValue? (sum : DecimalValue) (count : Nat) : Option Value :=
       some (.prim (.int (sum.numerator / den)))
     else
       (divideDecimalRational? sum.numerator den).map (fun text => .prim (mkFloatText text))
-
-def evalDecimalBinary?
-    (op : DecimalValue -> DecimalValue -> DecimalValue)
-    (left right : Prim) : Option Prim :=
-  match decimalFromPrim? left, decimalFromPrim? right with
-  | some left, some right => some (mkFloatText (formatFiniteDecimal (op left right) true))
-  | _, _ => none
 
 def evalDecimalCompare?
     (op : DecimalValue -> DecimalValue -> Bool)

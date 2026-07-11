@@ -3,7 +3,25 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **STDLIB-FLOAT F0** — wired the existing decimal `ln`/`exp` kernels
+resolved/historical). HEAD: **STDLIB-FLOAT-F4 — apd result-exponent preservation for float `+ - *`.**
+Float arithmetic now threads the apd `(coefficient, exponent)` form (`ApdForm` +
+`apdAdd`/`apdSub`/`apdMul` + `apdRoundToContext` + `apdCarrierText`, `Decimal.lean`) instead of
+formatting the normalized `DecimalValue` (which erased a positive exponent), so `+ - *` byte-match
+cue's GDA render: add/sub exp = `min(e₁,e₂)`, multiply = `e₁+e₂`, both rounded HALF-UP to the 34-digit
+apd context. Fixes `2e2 * 3 → 6e+2`, `1e1 + 1e1 → 2e+1`, `1.20 + 1.30 → 2.50` (trailing zeros),
+`1e34 + 1 → 1.000…e+34`, `1e1 - 1e1 → 0e+1`. NO change to the `DecimalValue` core type — the carrier
+`text` round-trips through `floatApdForm` (the render anchor was always meant to carry the apd form;
+only arithmetic failed to populate it). Removed dead `evalDecimalBinary?`/`evalDecimalMultiply?`.
+**DIVISION DEFERRED** (subtler apd ideal-exponent) — `6e2 / 3 → 200.0` vs cue `2.0e+2` (VALUE correct,
+FORM only); derived exact-division rule (reduce, shift exp −1 for integer results) recorded in
+`cue-spec-gaps.md` STDLIB-FLOAT-F4 for a turn-key follow-up. Regression sweep: ZERO existing fixtures
+flipped; 37-case manual kue-vs-cue sweep matches everywhere except the deferred division-form cases.
+Wild fixture `float-apd-exponent-preservation/` (RED→GREEN) + `float_apd_arithmetic` cue fixture + 4
+new EvalTests theorems (mul theorems reworked to assert `formatValue`). Committed on `main`, not pushed.
+**Next: F4-division form (the derived rule is ready), then F1–F5 residuals (see plan § STDLIB-FLOAT);
+F2 IEEE float64 kernel gated on real prod9 need.** Prior HEAD STDLIB-FLOAT F0 below.
+
+## Prior HEAD — STDLIB-FLOAT F0 — wired the existing decimal `ln`/`exp` kernels
 (`decimalLnScaled`/`decimalExpScaled`, already backing `math.Pow`'s general domain) to
 `math.Log`/`Log2`/`Log10`/`Exp`/`Exp2`, all byte-identical to cue at 34-sig apd; shipped all 11 `math`
 constants (`Pi`…`Log10E`) via `stdlibPackageValue?`. Fixed a latent trailing-zero trim bug: new shared
