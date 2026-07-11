@@ -265,7 +265,7 @@ enforcement), surfaced by slice D's separator work, is queued below.
   newline never terminated an expression and consecutive declarations with no comma were
   silently accepted (`x: 1\nimport "strings"`, `foo "bar"`, `a: 1 b: 2` all passed). Fixed by
   implementing CUE's newline-termination (implicit-comma) rule: `skipSameLineTrivia` for every
-  trailing-operator lookahead (horizontal ws + block comments, stopping at newline/`//`),
+  trailing-operator lookahead (horizontal ws, stopping at newline/`//`),
   operator-at-line-END still continuing (the operand parse skips full trivia after the
   operator), plus `fieldSeparator` enforcement in `parseFieldsUntil` (a `,`/`;`/newline must sit
   between declarations, else `missing ',' in struct literal`). Late import is one instance.
@@ -313,14 +313,15 @@ findings closed in one audit-followup slice; one new leniency bug QUEUED.
   `Runtime.formatManifestError` as `unsupported builtin function "strconv.Quote": recognized but not
   yet implemented in kue`. Pins: `StrconvTests` `quote_render_message` (message) + `atoi_still_exports`
   (implemented call still concrete).
-- **BLOCK-COMMENT-REJECT — QUEUED (parser conformance, kue-leniency bug).** kue accepts C-style block
-  comments `/* */` (`Kue/Parse.lean` `dropBlockComment`, wired into `skipTrivia`/`skipSameLineTrivia`/
-  `fieldSeparatorAux`); cue v0.16.1 rejects them (`expected operand, found '/'`) and the spec sanctions
-  ONLY `//` line comments — kue diverges from BOTH spec and cue (recorded in `cue-divergences.md` §
-  Known kue-side divergences). Fix: remove the `dropBlockComment` leniency, reject `/* */` per spec.
-  BLAST RADIUS FIRST — grep any internal/fixture/testdata use of block comments before removing;
-  `ModCmd.lean`'s comment-aware `module.cue` scanner also honors `/* */` and must be checked. Own
-  fixture (red→green wild) + parse theorem.
+- **BLOCK-COMMENT-REJECT — ✅ LANDED (2026-07-11).** kue accepted C-style block comments `/* */`
+  that CUE's grammar (only `//` line comments) forbids. Fix: removed `dropBlockComment` and its
+  three call sites (`skipTrivia`/`skipSameLineTrivia`/`fieldSeparatorAux` in `Kue/Parse.lean`), so a
+  `/*` surfaces as a stray `/` (division) whose operand `*` is not a valid primary — every position
+  now rejects with `parse error: … unexpected character` (mirrors cue, which also has no
+  block-comment concept). `ModCmd.lean`'s module-file scanner lost its now-unreachable `.block` Lex
+  state (module.cue is parsed by `parseSource`, which rejects block comments before any textual scan).
+  Guards: wild fixture `block-comment-rejected` (red→green) + `ParseTests` `parse_block_comment_*`
+  (six reject positions + line-comment/division regression pins) + `ModCmdTests` applyModGet rejection.
 
 0. **AUDIT-QUOTED-BEQ (HIGH — correctness regression from `f128600`). DONE (2026-07-04);
    MECHANISM SUPERSEDED by ARCH-QUOTED-STRIP (0c, 2026-07-05).** The "STRIP route" +
@@ -799,6 +800,10 @@ LOW/deferred verdict stands. Not closable, not newly urgent.
   `native_decide` regressions added to `ModCmdTests` (line-comment `}` in deps, block-comment `}{"`
   in deps, lone `"` in a line comment, top-level `{` comment, end-to-end `applyModGet` no-corrupt).
   All previously-adversarial shapes now correct; build + `check.sh` green.
+  **[Superseded in part — BLOCK-COMMENT-REJECT (2026-07-11)]:** block comments are no longer part of
+  CUE, so the `.block` Lex state and its scanner arms were removed; module.cue block comments are now
+  rejected upstream at `parseSource`. The block-comment excision test was replaced by an
+  `applyModGet`-rejects-block-comment pin. The `.line`/string comment-awareness is unchanged.
 - **UNUSED-IMPORT-BINDNAME / AUD-B6 (MEDIUM — latent false-positive). DONE 2026-07-06** — resolved
   as the F-3 suffix-vs-declared-name MISMATCH gate, NOT the audit's assumed "defer + accept". The
   audit expected `import ".../foo"` (dir declares `package bar`) used as `bar.Field` to be a false

@@ -19210,3 +19210,48 @@ radius — `ModCmd.lean`'s comment-aware scanner also honors `/* */`).
   `BLOCK-COMMENT-REJECT` QUEUED in the Ranked OPEN backlog.
 - `docs/spec/cue-divergences.md`: new § Known kue-side divergences with the BLOCK-COMMENT-REJECT row
   (kue is WRONG — the inverse of the main table's cue-is-wrong invariant, kept in a distinct section).
+
+---
+
+## Completed Slice: BLOCK-COMMENT-REJECT — reject C-style `/* */` block comments
+
+Commit: (this slice). CUE's grammar admits ONLY `//` line comments (spec § Comments:
+"CUE supports line comments that start with the character sequence `//` and stop at the end of
+the line") — there is no block-comment production. kue accepted `/* … */` by trivia-skipping it,
+over-accepting spec-invalid source (`a: 1 /* c */` exported `{"a":1,"b":2}`).
+
+### Behavior
+
+- Removed `dropBlockComment` and its three call sites in `Kue/Parse.lean` (`skipTrivia`,
+  `skipSameLineTrivia`, `fieldSeparatorAux`). A `/*` no longer counts as trivia: the `/` surfaces as
+  a division operator whose operand starts at `*`, which is not a valid primary, so **every** position
+  rejects with `parse error: <L>:<C>: unexpected character` (`'*'` mid-expression, `'/'` at
+  top/value/list position). This mirrors `cue`, which also has no block-comment concept and errors on
+  the stray `/` (`expected operand, found '/'`). No `/* … */` can silently parse to a value: `*` is
+  never a valid operand, so the `/`+`*` pair always errors regardless of position.
+- Removed the now-unreachable `.block` state from `ModCmd.lean`'s `Lex` sum type and the
+  `dropBalanced`/`exciseAux` scanner arms. module.cue is parsed by `parseSource` in every validation
+  path (`depsFromEntries`, `readModuleInfo`, `applyModGet`), so a block comment is rejected before any
+  textual deps-excision scan runs — the module-file path rejects block comments as consistently as the
+  main `.cue` path. `.line` (line-comment) and string awareness are unchanged.
+- `//` line comments and real `/` division are untouched (regression-pinned).
+
+### Tests
+
+- Wild fixture `testdata/wild/block-comment-rejected/` (red→green, enforced not quarantined):
+  `a: 1 /* c */` must fail with `unexpected character '*'`. Provenance: found 2026-07-11 during the
+  STDLIB test-drive.
+- `ParseTests` `parse_block_comment_{mid_expression,top_level,value_position,nested_looking,
+  unterminated,in_list}_rejected` (six reject positions) + `parse_{division,line_comment}_survives_
+  block_comment_removal` (regression pins).
+- `ModCmdTests`: the prior "block comment inside deps is inert to excision" pin (a now-impossible
+  input) replaced by `applyModGet` rejecting a module.cue that carries a block comment.
+- `./scripts/check.sh` GREEN (full suite + canaries + wild fixtures).
+
+### Retraction
+
+- `docs/spec/cue-divergences.md`: the § Known kue-side divergences BLOCK-COMMENT-REJECT row removed
+  (no longer a divergence — kue now rejects like cue); section notes it as fixed.
+- `docs/spec/plan.md`: Ranked-backlog `BLOCK-COMMENT-REJECT` marked ✅ LANDED; the D-slice
+  `skipSameLineTrivia` description de-references block comments; the MODGET-COMMENT-EXCISION history
+  annotated "[Superseded in part]" for the `.block` removal.

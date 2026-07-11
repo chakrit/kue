@@ -157,11 +157,14 @@ example :
         "module: \"m@v0\"\ndeps: {\n\t// nested } brace\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\nsource: {\n\tkind: \"self\"\n}\n")
       = ("module: \"m@v0\"\nsource: {\n\tkind: \"self\"\n}\n", true) := by native_decide
 
--- A `/* */` block comment INSIDE deps, with braces AND an unterminated-looking quote, is inert.
+-- Block comments (`/* */`) are not part of CUE: a module.cue carrying one is rejected at
+-- `parseSource`, before `applyModGet`'s textual splice can run — the module-file path rejects
+-- block comments as consistently as the main `.cue` path.
 example :
-    (exciseTopLevelDeps
-        "module: \"m@v0\"\ndeps: {\n\t/* }{ \"x */\n\t\"a@v1\": {\n\t\tv: \"v1.0.0\"\n\t}\n}\nx: 1\n").1
-      = "module: \"m@v0\"\nx: 1\n" := by native_decide
+    (match applyModGet "module: \"m@v0\"\n/* c */\ndeps: {\n}\n" (dep "ex.com/a" "v1.0.0") with
+      | .error _ => true
+      | .ok _ => false)
+      = true := by native_decide
 
 -- A lone `\"` inside a line comment must NOT flip string state (it would swallow the real close).
 example :

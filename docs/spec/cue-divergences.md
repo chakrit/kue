@@ -80,6 +80,8 @@ The table above records cases where **cue** is the buggy side. This section is t
 cases where **kue** diverges from BOTH the spec AND cue — a known leniency/soundness bug kue
 carries, tracked here until fixed. Each has a QUEUED plan item.
 
-| Topic | `cue` ver | Input | `cue` output | Kue output | Spec basis (kue is wrong) | Plan item |
-|-------|-----------|-------|--------------|------------|---------------------------|-----------|
-| C-style block comments `/* */` accepted (BLOCK-COMMENT-REJECT) | v0.16.1 | `printf 'x: 1 /* c */\ny: 2\n'` | `expected operand, found '/'` (exit 1) — cue rejects; CUE has only `//` line comments | `{"x":1,"y":2}` (exit 0) — kue's `dropBlockComment` trivia-skips `/* */` | Spec (Lexical analysis → Comments): CUE sanctions ONLY the `//` line comment; there is no block-comment production. cue correctly rejects `/*`. kue is over-lenient — `Kue/Parse.lean`'s `dropBlockComment` (wired into `skipTrivia`/`skipSameLineTrivia`/`fieldSeparatorAux`) treats `/* */` as whitespace, admitting spec-invalid source. | QUEUED `BLOCK-COMMENT-REJECT` (plan.md) |
+_None currently open._ The one prior entry — C-style `/* */` block comments accepted, which
+CUE's grammar (only `//` line comments) forbids — was fixed in `BLOCK-COMMENT-REJECT`
+(2026-07-11): the `Kue/Parse.lean` trivia scanners no longer treat `/* */` as whitespace, so
+every position rejects with a `parse error: … unexpected character` (guard: wild fixture
+`block-comment-rejected` + `ParseTests` `parse_block_comment_*`).

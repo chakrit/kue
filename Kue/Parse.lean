@@ -67,15 +67,9 @@ def dropLine : List Char -> List Char
   | '\n' :: rest => rest
   | _ :: rest => dropLine rest
 
-def dropBlockComment : List Char -> List Char
-  | [] => []
-  | '*' :: '/' :: rest => rest
-  | _ :: rest => dropBlockComment rest
-
 partial def skipTrivia : List Char -> List Char
   | [] => []
   | '/' :: '/' :: rest => skipTrivia (dropLine rest)
-  | '/' :: '*' :: rest => skipTrivia (dropBlockComment rest)
   | value :: rest =>
       if parseWhitespace value then
         skipTrivia rest
@@ -91,14 +85,12 @@ partial def skipPostfixTrivia : List Char -> List Char
         value :: rest
 
 /-- Skip same-line trivia when hunting for a trailing binary operator that would CONTINUE an
-    expression: horizontal whitespace and block comments, stopping at a newline, a line
-    comment (`//`), or the next real token. A newline after a complete expression terminates
-    it — CUE inserts an implicit comma there — so it is never crossed here; it is left in
-    place for the field/element separator to observe. An operator found on the same line still
-    continues onto the next line, since the operand parse skips full trivia after the
-    operator. -/
+    expression: horizontal whitespace only, stopping at a newline, a line comment (`//`), or
+    the next real token. A newline after a complete expression terminates it — CUE inserts an
+    implicit comma there — so it is never crossed here; it is left in place for the
+    field/element separator to observe. An operator found on the same line still continues
+    onto the next line, since the operand parse skips full trivia after the operator. -/
 partial def skipSameLineTrivia : List Char -> List Char
-  | '/' :: '*' :: rest => skipSameLineTrivia (dropBlockComment rest)
   | value :: rest =>
       if parseHorizontalWhitespace value then
         skipSameLineTrivia rest
@@ -653,12 +645,11 @@ def parseCommaOrSemicolon : List Char -> List Char
 /-- Scan the trivia after a parsed field for a field separator, reporting whether one was
     crossed and advancing to the next non-trivia token. CUE separates struct declarations by
     an explicit `,`/`;` or by a newline (a newline auto-inserts a comma). A line comment ends
-    at a newline, so it counts; a block comment is bare whitespace and does not. The `sawSep`
-    accumulator carries the verdict across interleaved comments and horizontal whitespace. -/
+    at a newline, so it counts. The `sawSep` accumulator carries the verdict across
+    interleaved line comments and horizontal whitespace. -/
 partial def fieldSeparatorAux (sawSep : Bool) : List Char -> Bool × List Char
   | [] => (sawSep, [])
   | '/' :: '/' :: rest => fieldSeparatorAux true (dropLine rest)
-  | '/' :: '*' :: rest => fieldSeparatorAux sawSep (dropBlockComment rest)
   | ',' :: rest => fieldSeparatorAux true rest
   | ';' :: rest => fieldSeparatorAux true rest
   | '\n' :: rest => fieldSeparatorAux true rest

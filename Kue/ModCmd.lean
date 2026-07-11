@@ -240,18 +240,19 @@ def startsDepsField (chars : List Char) : Bool :=
   | _ => false
 
 /-- Lexer state for the module.cue textual scanners: normal code, inside a `"…"` string (tracking
-    whether the last char was the escape `\`), or inside a `//` line / `/* */` block comment. A sum
-    type so the nonsense combination (escaped while not in a string) is unrepresentable, and so
-    braces/quotes inside a string OR a comment are inert to the brace scanner. -/
+    whether the last char was the escape `\`), or inside a `//` line comment. A sum type so the
+    nonsense combination (escaped while not in a string) is unrepresentable, and so braces/quotes
+    inside a string OR a line comment are inert to the brace scanner. Block comments (`/* */`) are
+    not part of CUE, so a module.cue carrying one is rejected upstream at `parseSource` before any
+    textual scan runs — there is no block state to track. -/
 inductive Lex where
   | normal
   | str (escaped : Bool)
   | line
-  | block
 
 /-- Drop a balanced `{ … }` starting AT the `{`; return the remainder AFTER the matching `}`.
-    String- and comment-aware (`"…"` with `\` escapes, `//` and `/* */`; braces/quotes inside a
-    string or comment are inert) and brace-nested. Fuel-bounded; exhaustion returns `[]`. -/
+    String- and comment-aware (`"…"` with `\` escapes, `//` line comments; braces/quotes inside a
+    string or line comment are inert) and brace-nested. Fuel-bounded; exhaustion returns `[]`. -/
 def dropBalanced : Nat → Nat → Lex → List Char → List Char
   | 0, _, _, rest => rest
   | _, _, _, [] => []
@@ -262,14 +263,9 @@ def dropBalanced : Nat → Nat → Lex → List Char → List Char
       else dropBalanced fuel depth (.str false) rest
   | fuel + 1, depth, .line, c :: rest =>
       dropBalanced fuel depth (if c == '\n' then .normal else .line) rest
-  | fuel + 1, depth, .block, c :: rest =>
-      match c, rest with
-      | '*', '/' :: r2 => dropBalanced fuel depth .normal r2
-      | _, _ => dropBalanced fuel depth .block rest
   | fuel + 1, depth, .normal, c :: rest =>
       match c, rest with
       | '/', '/' :: r2 => dropBalanced fuel depth .line r2
-      | '/', '*' :: r2 => dropBalanced fuel depth .block r2
       | '"', _ => dropBalanced fuel depth (.str false) rest
       | '{', _ => dropBalanced fuel (depth + 1) .normal rest
       | '}', _ => if depth ≤ 1 then rest else dropBalanced fuel (depth - 1) .normal rest
@@ -289,8 +285,8 @@ where
     | r => r
 
 /-- The excision fold: walk `chars`, copying to `acc`, tracking brace depth + lexer state, and when
-    a top-level (`depth == 0`, line-start) `deps` field starts, skip its whole block. Comments are
-    copied verbatim but their braces/quotes are inert (so a `}` in a comment cannot mis-close the
+    a top-level (`depth == 0`, line-start) `deps` field starts, skip its whole block. Line comments
+    are copied verbatim but their braces/quotes are inert (so a `}` in a comment cannot mis-close the
     deps block or a top-level brace). Returns the source with any top-level `deps` block removed,
     and whether one was found. Fuel-bounded. -/
 def exciseAux : Nat → Nat → Lex → Bool → List Char → List Char → Bool → (List Char × Bool)
@@ -303,17 +299,12 @@ def exciseAux : Nat → Nat → Lex → Bool → List Char → List Char → Boo
       else exciseAux fuel depth (.str false) false rest (c :: acc) found
   | fuel + 1, depth, .line, _, c :: rest, acc, found =>
       exciseAux fuel depth (if c == '\n' then .normal else .line) (c == '\n') rest (c :: acc) found
-  | fuel + 1, depth, .block, _, c :: rest, acc, found =>
-      match c, rest with
-      | '*', '/' :: r2 => exciseAux fuel depth .normal false r2 ('/' :: '*' :: acc) found
-      | _, _ => exciseAux fuel depth .block false rest (c :: acc) found
   | fuel + 1, depth, .normal, atLineStart, c :: rest, acc, found =>
       if depth == 0 && atLineStart && startsDepsField (c :: rest) then
         exciseAux fuel 0 .normal true (afterDepsField (c :: rest)) acc true
       else
         match c, rest with
         | '/', '/' :: r2 => exciseAux fuel depth .line false r2 ('/' :: '/' :: acc) found
-        | '/', '*' :: r2 => exciseAux fuel depth .block false r2 ('*' :: '/' :: acc) found
         | '"', _ => exciseAux fuel depth (.str false) false rest (c :: acc) found
         | '{', _ => exciseAux fuel (depth + 1) .normal false rest (c :: acc) found
         | '}', _ => exciseAux fuel (depth - 1) .normal false rest (c :: acc) found

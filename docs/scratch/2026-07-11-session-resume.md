@@ -58,9 +58,11 @@ stdlib campaign is cheap to continue. Both audits logged.
 
 Two tracks:
 
-1. **Spec-conformance (unambiguous, no priority call):** `BLOCK-COMMENT-REJECT` (queued) —
-   kue accepts `/* */` that CUE forbids; mind blast radius (`ModCmd.lean` scanner also
-   honors `/* */`). Wild fixture RED-first.
+1. **Spec-conformance (unambiguous, no priority call):** `BLOCK-COMMENT-REJECT` ✅ LANDED
+   (2026-07-11) — kue now rejects `/* */` (removed `dropBlockComment` + the `.block` Lex
+   state in `ModCmd.lean`); every position errors `unexpected character`. Guarded by wild
+   fixture `block-comment-rejected` + `ParseTests parse_block_comment_*`. Next spec-conformance
+   items: none currently queued (cue-divergences.md § kue-side is now empty).
 2. **New stdlib packages (priority-sensitive — key to which packages prod9 configs hit):**
    `time`, `net`, `path`, `uuid`, `crypto/*`, `encoding/hex|csv`, `text/template`; finish
    `strconv` (Quote/FormatFloat need a Unicode IsPrint table / float-format design); round

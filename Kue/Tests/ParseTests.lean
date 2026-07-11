@@ -520,6 +520,53 @@ theorem parse_trailing_line_comment_terminates :
     parseOutputMatches "x: 1 // note\ny: 2\n" "x: 1\ny: 2" = true := by
   native_decide
 
+-- ## Block comments are not part of CUE (BLOCK-COMMENT-REJECT)
+--
+-- The CUE spec (§ Comments) admits ONLY `//` line comments; `/* */` is not in the grammar.
+-- kue previously treated `/* … */` as trivia and silently accepted it. With block-comment
+-- handling removed, a `/*` surfaces as a stray `/` (division) whose operand `*` is not a
+-- valid primary, so every position rejects — mirroring `cue`, which also has no block-comment
+-- concept and errors on the stray `/`. Recorded as wild fixture `block-comment-rejected`.
+
+-- Mid-expression: `/` reads as division, its operand starts at `*` — rejected.
+theorem parse_block_comment_mid_expression_rejected :
+    parseFailsWith "a: 1 /* c */\nb: 2\n" "unexpected character '*'" = true := by
+  native_decide
+
+-- Top of file, before any declaration.
+theorem parse_block_comment_top_level_rejected :
+    parseFailsWith "/* top */\na: 1\n" "unexpected character '/'" = true := by
+  native_decide
+
+-- In value position (after the `:`), before the operand.
+theorem parse_block_comment_value_position_rejected :
+    parseFailsWith "a: /* c */ 1\n" "unexpected character '/'" = true := by
+  native_decide
+
+-- Nested-looking `/* /* */` — CUE has no nesting; the first `/*` is already rejected.
+theorem parse_block_comment_nested_looking_rejected :
+    parseFails "a: 1 /* /* */ b: 2\n" = true := by
+  native_decide
+
+-- Unterminated `/*` is rejected the same as a terminated one (never a runaway consume).
+theorem parse_block_comment_unterminated_rejected :
+    parseFails "a: 1 /* unterminated\n" = true := by
+  native_decide
+
+-- Inside a list literal.
+theorem parse_block_comment_in_list_rejected :
+    parseFails "a: [1, /* c */ 2]\n" = true := by
+  native_decide
+
+-- Regression guard: real `/` division and `//` line comments are untouched by the removal.
+theorem parse_division_survives_block_comment_removal :
+    parseOutputMatches "a: 6 / 2\n" "a: 3.0" = true := by
+  native_decide
+
+theorem parse_line_comment_survives_block_comment_removal :
+    parseOutputMatches "a: 1 // c\nb: 2 // d\n" "a: 1\nb: 2" = true := by
+  native_decide
+
 -- ## List element separators (LIST-SEP)
 --
 -- CUE's automatic-comma-insertion rule is UNIFORM: a comma is auto-inserted after a line's
