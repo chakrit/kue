@@ -226,8 +226,10 @@ enforcement), surfaced by slice D's separator work, is queued below.
   unchanged. Wild fixture `testdata/wild/stdlib-import-misrouted-to-disk-loader/`. Spec-gap +
   log recorded. Scope was ROUTING only — NOT the package function bodies (B/C).
 - **B — `struct` builtin package (MEDIUM). ✅ LANDED (2026-07-10).** `struct.MinFields(n)` /
-  `struct.MaxFields(n)` implemented as a `Value.fieldCountConstraint (bound : FieldCountBound)
-  (limit : Int)` validator that participates in `meet`. Counting semantics (pinned vs cue v0.16.1):
+  `struct.MaxFields(n)` implemented as a validator that participates in `meet` [GENERALIZED
+  2026-07-11 by STDLIB-VALIDATORS: `Value.fieldCountConstraint (bound : FieldCountBound) (limit)` is
+  now `Value.lengthConstraint .fields (bound : CountBound) (limit)`, `finalizeFieldCountConj` is
+  `finalizeLengthConj` — same behavior]. Counting semantics (pinned vs cue v0.16.1):
   only REGULAR fields count — optional (`x?`), required (`x!`), hidden (`_x`), definition (`#x`),
   and `let` all excluded (`FieldClass.countsAsField`). Meet resolves asymmetrically under the
   monotone-non-decreasing field count — satisfied `min` drops, violated `max` bottoms — retaining
@@ -738,17 +740,22 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   rune-indexed window on `Char` scalars; oob/neg/`lo>hi` ⇒ bottom). Helpers `mathMod`/`mathSignbit`/
   `stringSliceRunes` in `Builtin.lean`, dispatch arms in `evalMathBuiltin`/`evalStringsBuiltin`.
   Fixtures `builtins/math_mod_signbit`, `builtins/strings_slicerunes` + 21 `native_decide`
-  (`BuiltinTests.lean`). **Still FILED** (validator seam kue lacks — the `matchN`/`matchIf`/
-  `list.MatchN` family, `Eval.lean` BI-EFF EXTENSION RULE): `strings.MinRunes`/`MaxRunes` (rune-count
-  CONSTRAINT validators — `"abc" & strings.MinRunes(3)` needs a `.builtinCall`-participates-in-`meet`
-  seam; today `meet(scalar, .builtinCall)` ⇒ bottom, `Lattice.lean:481`, so a validator can't be
-  forced without the seam). [`struct.MinFields`/`MaxFields` are now LANDED (STDLIB-B, 2026-07-10)
-  via a dedicated `Value.fieldCountConstraint` validator that participates in `meet` directly — a
-  struct-count validator, not the scalar `.builtinCall` seam; the `strings.MinRunes`/`MaxRunes`
-  scalar-validator seam remains the open residual here.] Also still filed:
+  (`BuiltinTests.lean`). **`strings.MinRunes`/`MaxRunes` + `list.MinItems`/`MaxItems`/`UniqueItems`
+  LANDED (STDLIB-VALIDATORS, 2026-07-11)** — NOT via the `.builtinCall`-in-`meet` seam this item
+  posited, but by GENERALIZING the `struct.MinFields`/`MaxFields` validator: `fieldCountConstraint`
+  became `Value.lengthConstraint (kind : LengthKind) (bound) (limit)` (`kind` ∈ `fields`/`listItems`/
+  `runes` — "count a measurable and bound it"), plus a sibling `Value.uniqueItems` predicate
+  validator. Both participate in `meet` directly (`applyLengthConstraint`/`applyUniqueItems`,
+  `Lattice.lean`); a closed list / concrete string decides at meet, a struct / open list / abstract
+  string retains and finalizes at manifest (`finalizeLengthConj`). UniqueItems equality is
+  field-order-independent (`eqUpToFieldOrder`); a positive structural dup bottoms eagerly. Runes =
+  Unicode code points, NOT bytes. Fixture `export/list_string_validators` + ~40 `native_decide`
+  (`FixtureTests.lean`). Also still filed:
   `strings.ByteAt`/`ByteSlice` (need byte-array-repr, DEPENDENT of BYTE-ARRAY-REPR),
   `list.IsSorted`/`Sort`/`SortStable` (comparator-struct `list.Ascending`/`Descending` — the
-  effectful-builtin seam BI-EFF; kue leaves these an incomplete residual today). SEPARATE
+  effectful-builtin seam BI-EFF; kue leaves these an incomplete residual today —
+  `list.IsSorted` DEFERRED again this slice: the `list.Ascending` comparator arg is the BI-EFF
+  corner, out of scope for a bare-validator slice). SEPARATE
   (deferred exp/ln increment, needs decimal `exp`/`ln` to 34 digits — see BI-2-residual /
   cue-spec-gaps): `math.Log`/`Log10`/`Exp`, general fractional/negative `math.Pow` exponent, and
   the `math.Pi` constant (cue ships a 64-digit literal). None soundness-bearing; kue bottoms

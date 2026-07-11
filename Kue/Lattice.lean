@@ -323,7 +323,8 @@ def normalizeFieldOrder : Value -> Value
   | .notPrim value => .notPrim value
   | .stringRegex pattern => .stringRegex pattern
   | .boundConstraint bound kind domain => .boundConstraint bound kind domain
-  | .fieldCountConstraint bound limit => .fieldCountConstraint bound limit
+  | .lengthConstraint kind bound limit => .lengthConstraint kind bound limit
+  | .uniqueItems => .uniqueItems
   | .conj constraints => .conj (normalizeFieldOrderList constraints)
   | .builtinCall name args => .builtinCall name (normalizeFieldOrderList args)
   | .unary op value => .unary op (normalizeFieldOrder value)
@@ -624,11 +625,12 @@ def meetCore (left right : Value) : Value :=
   | _, .list _ => .bottom
   | .ref _, _ => .bottom
   | _, .ref _ => .bottom
-  -- A field-count validator meets only a struct (handled in `meetWithFuel`); against any
-  -- non-struct it is a type conflict (cue: `mismatched types int and struct`). Reaching
-  -- `meetCore` also covers the fuel-0 fallback for the struct case, safe to bottom there.
-  | .fieldCountConstraint _ _, _ => .bottom
-  | _, .fieldCountConstraint _ _ => .bottom
+  -- Length / uniqueness validators resolve against their target in `meetWithFuel`; reaching
+  -- `meetCore` is the fuel-0 fallback (or a genuinely unresolvable partner), safe to bottom.
+  | .lengthConstraint _ _ _, _ => .bottom
+  | _, .lengthConstraint _ _ _ => .bottom
+  | .uniqueItems, _ => .bottom
+  | _, .uniqueItems => .bottom
   -- `meetCore` is the bottoms-everything fallthrough; the real `struct×struct` merge is the
   -- single arm in `meetWithFuel`. A struct reaching here meets a non-struct → bottom.
   | .struct .., _ => .bottom
@@ -752,29 +754,50 @@ def meetConjValueWith
   | [single] => single
   | members => .conj (sortConjMembers members)
 
-/-- Adjudicate a `.conj` that is a struct guarded by retained field-count validators at
-    finalization (`manifest`). `some structValue` when every retained `min`/`max` is satisfied by
-    the struct's final regular-field count; `some (.bottomWith …)` when any is violated; `none`
-    when the conj is not this shape (no field-count member, or field-count members with no single
-    struct partner) — a genuine incomplete residual the caller reports as-is. -/
-def finalizeFieldCountConj (constraints : List Value) : Option Value :=
+/-- Whether a list has two elements equal by structural value equality (field-order-independent,
+    `eqUpToFieldOrder`). Sound to check eagerly for a definite duplicate: structural equality is
+    stable under further unification, so a positive duplicate stays a duplicate. -/
+def hasStructuralDup : List Value -> Bool
+  | [] => false
+  | x :: rest => rest.any (eqUpToFieldOrder x) || hasStructuralDup rest
+
+/-- Adjudicate a `.conj` guarded by retained length / uniqueness validators at finalization
+    (`manifest`). `some value` when every retained `min`/`max` bound and any `uniqueItems` is
+    satisfied by the now-final value; `some (.bottomWith …)` when one is definitely violated; `none`
+    when the conj is not this shape (no validator member, no single value partner, or the value is
+    not yet measurable) — a genuine incomplete residual the caller reports as-is. -/
+def finalizeLengthConj (constraints : List Value) : Option Value :=
   let flat := constraints.flatMap flattenConj
   let bounds := flat.filterMap fun value =>
     match value with
-    | .fieldCountConstraint bound limit => some (bound, limit)
+    | .lengthConstraint kind bound limit => some (kind, bound, limit)
     | _ => none
+  let requireUnique := flat.any fun value =>
+    match value with | .uniqueItems => true | _ => false
   let rest := flat.filter fun value =>
     match value with
-    | .fieldCountConstraint _ _ => false
+    | .lengthConstraint _ _ _ => false
+    | .uniqueItems => false
     | _ => true
-  match bounds, rest with
-  | [], _ => none
-  | _, [structValue@(.struct fields _ _ _ _)] =>
-      let count := regularFieldCount fields
-      if bounds.all (fun (bound, limit) => fieldCountSatisfied bound limit count)
-      then some structValue
-      else some (.bottomWith [.boundConflict])
-  | _, _ => none
+  match bounds, requireUnique, rest with
+  | [], false, _ => none
+  | _, _, [value] =>
+      let lengthVerdict : Option Bool :=
+        bounds.foldl (fun acc (kind, bound, limit) =>
+          match acc, measuredLength? kind value with
+          | some ok, some count => some (ok && countBoundSatisfied bound limit count)
+          | _, _ => none) (some true)
+      let uniqueVerdict : Option Bool :=
+        if requireUnique then
+          match value with
+          | .list items => some (!hasStructuralDup items)
+          | _ => none
+        else some true
+      match lengthVerdict, uniqueVerdict with
+      | some lenOk, some uniqOk =>
+          if lenOk && uniqOk then some value else some (.bottomWith [.boundConflict])
+      | _, _ => none
+  | _, _, _ => none
 
 def meetListPrefixTailWith
     (meetValue : Value -> Value -> Value) : List Value -> Value -> List Value -> Option (List Value)
@@ -1296,20 +1319,48 @@ def meetListPairWith
 def meetFuel : Nat :=
   100
 
-/-- Unify a `struct.MinFields`/`MaxFields` validator with the struct it meets. Field count is
-    monotone non-decreasing under further unification, so the two bounds resolve asymmetrically:
-    a satisfied `min` DROPS (more fields keep it satisfied), a violated `max` BOTTOMS (more fields
-    keep it violated). The undecided residual — an unsatisfied `min` (a later conjunct may add the
-    missing fields) or a satisfied `max` (a later conjunct may overflow it) — is RETAINED in a
-    `.conj` beside the struct, where `meetConjValueWith` re-checks it as fields accrete and
-    `manifest` adjudicates any that survive to finalization. -/
-def applyFieldCountConstraint
-    (bound : FieldCountBound) (limit : Int) (structValue : Value) (fields : List Field) : Value :=
-  let satisfied := fieldCountSatisfied bound limit (regularFieldCount fields)
-  match bound, satisfied with
-  | .min, true => structValue
-  | .max, false => .bottomWith [.boundConflict]
-  | _, _ => .conj [structValue, .fieldCountConstraint bound limit]
+/-- Unify a `lengthConstraint` validator with the value it meets. When the measured length is
+    FINAL (a closed list, a concrete string) the bound decides immediately: satisfied ⇒ the value,
+    violated ⇒ bottom. When it is only a LOWER BOUND — a struct's fields or an open list can still
+    accrete, an abstract string's runes are unknown — the length is monotone non-decreasing, so the
+    two bounds resolve asymmetrically: a satisfied `min` DROPS (the floor only rises), a violated
+    `max` (floor already over the limit) BOTTOMS, and the undecided residual (unsatisfied `min` /
+    satisfied `max`) is RETAINED in a `.conj` beside the value, where `meetConjValueWith` re-checks
+    it as the value accretes and `manifest` adjudicates any that survive. A `.mismatch` — the value
+    cannot be this `kind` at all — is a type conflict (bottom). -/
+def applyLengthConstraint (kind : LengthKind) (bound : CountBound) (limit : Int) (value : Value) : Value :=
+  match measureForLength kind value with
+  | .mismatch => .bottom
+  | .final count =>
+      if countBoundSatisfied bound limit count then value else .bottomWith [.boundConflict]
+  | .lowerBound lower =>
+      match bound with
+      | .min => if (lower : Int) >= limit then value
+                else .conj [value, .lengthConstraint kind bound limit]
+      | .max => if (lower : Int) > limit then .bottomWith [.boundConflict]
+                else .conj [value, .lengthConstraint kind bound limit]
+
+/-- Unify a `list.UniqueItems` validator with the value it meets. A definite structural duplicate
+    bottoms eagerly (equality is stable under further unification); otherwise the residual is
+    retained beside the value and adjudicated at `manifest`, once the list is concrete. A non-list
+    value is a type conflict (bottom). Dispatches on a `UniqueTarget` classifier so the `_` catch is
+    over the finite class, not `Value`. -/
+inductive UniqueTarget where
+  | listItems (items : List Value)
+  | mismatch
+
+def classifyUniqueTarget : Value -> UniqueTarget
+  | .list items => .listItems items
+  | .listTail items _ => .listItems items
+  | .embeddedList items _ _ => .listItems items
+  | _ => .mismatch
+
+def applyUniqueItems (value : Value) : Value :=
+  match classifyUniqueTarget value with
+  | .mismatch => .bottom
+  | .listItems items =>
+      if hasStructuralDup items then .bottomWith [.boundConflict]
+      else .conj [value, .uniqueItems]
 
 def meetWithFuel : Nat -> Value -> Value -> Value
   | 0, left, right => meetCore left right
@@ -1354,15 +1405,15 @@ def meetWithFuel : Nat -> Value -> Value -> Value
           | collapsed => collapsed
   | .conj constraints, value => meetConjValueWith (meetWithFuel fuel) constraints value
   | value, .conj constraints => meetConjValueWith (meetWithFuel fuel) constraints value
-  -- Field-count validators: against a struct, resolve/retain per `applyFieldCountConstraint`;
-  -- against each other, keep both until a struct arrives (both must hold, e.g.
-  -- `MinFields(1) & MaxFields(3)`).
-  | .fieldCountConstraint bound limit, (.struct fields _ _ _ _) =>
-      applyFieldCountConstraint bound limit right fields
-  | (.struct fields _ _ _ _), .fieldCountConstraint bound limit =>
-      applyFieldCountConstraint bound limit left fields
-  | .fieldCountConstraint lb ll, .fieldCountConstraint rb rl =>
-      .conj [.fieldCountConstraint lb ll, .fieldCountConstraint rb rl]
+  -- Length / uniqueness validators against each other: keep both until the target arrives (both
+  -- must hold, e.g. `MinFields(1) & MaxFields(3)`, `MinItems(2) & UniqueItems`). Placed here so a
+  -- validator-vs-validator pair never falls into the validator-vs-value arms (below the `.disj`
+  -- arms, so a validator distributes over a disjunction target first).
+  | .lengthConstraint lk lb ll, .lengthConstraint rk rb rl =>
+      .conj [.lengthConstraint lk lb ll, .lengthConstraint rk rb rl]
+  | .lengthConstraint lk lb ll, .uniqueItems => .conj [.lengthConstraint lk lb ll, .uniqueItems]
+  | .uniqueItems, .lengthConstraint rk rb rl => .conj [.uniqueItems, .lengthConstraint rk rb rl]
+  | .uniqueItems, .uniqueItems => .uniqueItems
   | .struct lf lo lt lp lClauses, .struct rf ro rt rp rClauses =>
       mergeStructN (meetWithFuel fuel) lf lo lt lp lClauses rf ro rt rp rClauses
   | .list leftItems, .list rightItems =>
@@ -1412,6 +1463,12 @@ def meetWithFuel : Nat -> Value -> Value -> Value
         flatAlternatives.map fun alternative =>
           (alternative.fst, meetWithFuel fuel value alternative.snd)
       normalizeDisj distributed
+  -- Length / uniqueness validator against its target value: resolve or retain. BELOW the `.disj`
+  -- arms so a validator distributes over a disjunction target rather than bottoming against it.
+  | .lengthConstraint kind bound limit, value => applyLengthConstraint kind bound limit value
+  | value, .lengthConstraint kind bound limit => applyLengthConstraint kind bound limit value
+  | .uniqueItems, value => applyUniqueItems value
+  | value, .uniqueItems => applyUniqueItems value
   -- A struct with only non-output members embedding a list IS that list, carrying its
   -- declarations as selectable. With an output (regular/required) field present it
   -- conflicts (falls through to bottom). CUE v0.16.1: `{ #a:1, [1,2] }` → `[1,2]`;

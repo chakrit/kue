@@ -1065,6 +1065,9 @@ def stdlibPackageValue? (pkg label : String) : Option Value :=
   | "list", "Ascending" => some (comparator (.binary .lt (.ref "x") (.ref "y")))
   | "list", "Descending" => some (comparator (.binary .gt (.ref "x") (.ref "y")))
   | "list", "Comparer" => some (comparator (.kind .bool))
+  -- `list.UniqueItems` is used both bare and called (`list.UniqueItems()`); the bare form is a
+  -- validator VALUE, resolved here (the called form routes through `parseCall` → `evalListBuiltin`).
+  | "list", "UniqueItems" => some .uniqueItems
   -- The `path` package's three OS selector constants — plain string values (`path.OS` is NOT a
   -- real cue constant; the package exposes only these three).
   | "path", "Unix" => some (.prim (.string "unix"))
@@ -2045,7 +2048,8 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String))
       | .notPrim _ => value
       | .stringRegex _ => value
       | .boundConstraint _ _ _ => value
-      | .fieldCountConstraint _ _ => value
+      | .lengthConstraint _ _ _ => value
+      | .uniqueItems => value
       | .ref _ => value
       | .refId _ => value
       | .thisStruct => value
@@ -2121,7 +2125,8 @@ def collectReferencedHeads : Nat -> Value -> List String
     | .notPrim _ => []
     | .stringRegex _ => []
     | .boundConstraint _ _ _ => []
-    | .fieldCountConstraint _ _ => []
+    | .lengthConstraint _ _ _ => []
+    | .uniqueItems => []
     | .refId _ => []
     | .thisStruct => []
   where

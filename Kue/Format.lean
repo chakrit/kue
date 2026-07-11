@@ -165,9 +165,16 @@ mutual
     | _, .notPrim prim => "!=" ++ formatPrim prim
     | _, .stringRegex pattern => s!"=~\"{escapeCueStringContent pattern}\""
     | _, .boundConstraint bound kind _ => kind.symbol ++ formatBoundLimit bound
-    | _, .fieldCountConstraint bound limit =>
-        let fn := match bound with | .min => "MinFields" | .max => "MaxFields"
-        s!"struct.{fn}({limit})"
+    | _, .lengthConstraint kind bound limit =>
+        let call := match kind, bound with
+          | .fields, .min => "struct.MinFields"
+          | .fields, .max => "struct.MaxFields"
+          | .listItems, .min => "list.MinItems"
+          | .listItems, .max => "list.MaxItems"
+          | .runes, .min => "strings.MinRunes"
+          | .runes, .max => "strings.MaxRunes"
+        s!"{call}({limit})"
+    | _, .uniqueItems => "list.UniqueItems()"
     | fuel + 1, .conj constraints =>
         joinWith " & " (constraints.map (formatValueWithFuel fuel))
     | fuel + 1, .builtinCall name args =>

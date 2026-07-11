@@ -53,17 +53,18 @@ def unsupportedBuiltinName? (reasons : List BottomReason) : Option String :=
     | .unsupportedBuiltin name => some name
     | _ => none
 
-/-- Finalize a disjunction arm's retained field-count residual at manifestation. An arm shaped
-    `.conj [struct, fieldCountConstraint …]` (an unsatisfied `min` deferred at meet for cross-conjunct
-    accretion, or a satisfied `max` held against overflow) reaches finalization with NO further
-    conjunct to accrete: `finalizeFieldCountConj` adjudicates it — a violated bound collapses the arm
-    to `.bottomWith`, which `liveAlternatives`/`resolveDisjDefault?` then PRUNE, exactly as an
-    in-isolation manifest would. This runs ONLY here (manifest = the genuinely-final point); doing it
-    at meet-time `normalizeDisj` would prematurely prune an arm a later conjunct could still rescue.
-    A non-conj arm, or a conj that is not this field-count shape, passes through unchanged. -/
+/-- Finalize a disjunction arm's retained length / uniqueness residual at manifestation. An arm
+    shaped `.conj [value, lengthConstraint …]` or `.conj [value, uniqueItems]` (an undecided bound
+    deferred at meet for cross-conjunct accretion, or a uniqueness check held until the list is
+    concrete) reaches finalization with NO further conjunct to accrete: `finalizeLengthConj`
+    adjudicates it — a violated bound collapses the arm to `.bottomWith`, which
+    `liveAlternatives`/`resolveDisjDefault?` then PRUNE, exactly as an in-isolation manifest would.
+    This runs ONLY here (manifest = the genuinely-final point); doing it at meet-time `normalizeDisj`
+    would prematurely prune an arm a later conjunct could still rescue. A non-conj arm, or a conj
+    that is not this validator shape, passes through unchanged. -/
 def finalizeDisjArm : Mark × Value -> Mark × Value
   | (mark, .conj constraints) =>
-      match finalizeFieldCountConj constraints with
+      match finalizeLengthConj constraints with
       | some resolved => (mark, resolved)
       | none => (mark, .conj constraints)
   | arm => arm
@@ -125,12 +126,14 @@ mutual
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))
     | _ + 1, .stringRegex pattern => .error (.incomplete (.stringRegex pattern))
     | _ + 1, .boundConstraint bound kind domain => .error (.incomplete (.boundConstraint bound kind domain))
-    | _ + 1, .fieldCountConstraint bound limit => .error (.incomplete (.fieldCountConstraint bound limit))
-    -- A struct guarded by retained field-count validators (`{a:1} & struct.MinFields(2)`) is
-    -- adjudicated HERE, at finalization: satisfied ⇒ manifest the struct, violated ⇒
-    -- contradiction. Any other `.conj` is a genuine incomplete residual.
+    | _ + 1, .lengthConstraint kind bound limit => .error (.incomplete (.lengthConstraint kind bound limit))
+    | _ + 1, .uniqueItems => .error (.incomplete .uniqueItems)
+    -- A value guarded by retained length / uniqueness validators (`{a:1} & struct.MinFields(2)`,
+    -- `[1] & list.MinItems(2)`, `[x] & list.UniqueItems`) is adjudicated HERE, at finalization:
+    -- satisfied ⇒ manifest the value, violated ⇒ contradiction. Any other `.conj` is a genuine
+    -- incomplete residual.
     | fuel + 1, .conj constraints =>
-        match finalizeFieldCountConj constraints with
+        match finalizeLengthConj constraints with
         | some resolved => manifestWithFuel fuel resolved
         | none => .error (.incomplete (.conj constraints))
     | _ + 1, .builtinCall name args => .error (.incomplete (.builtinCall name args))

@@ -1,0 +1,44 @@
+{
+    "min_items": [
+        1,
+        2,
+        3
+    ],
+    "max_items": [
+        1,
+        2
+    ],
+    "items_exact": [
+        1,
+        2
+    ],
+    "unique_ok": [
+        1,
+        2,
+        3
+    ],
+    "unique_bare": [
+        4,
+        5
+    ],
+    "unique_structs": [
+        {
+            "a": 1
+        },
+        {
+            "a": 2
+        }
+    ],
+    "min_and_max_items": [
+        1,
+        2
+    ],
+    "unique_and_min": [
+        1,
+        2,
+        3
+    ],
+    "min_runes": "abc",
+    "max_runes": "abcd",
+    "runes_multibyte": "é"
+}

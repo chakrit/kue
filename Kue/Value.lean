@@ -783,14 +783,26 @@ instance : BEq Quoted := ⟨fun _ _ => true⟩
 
 instance : Coe Bool Quoted := ⟨(Quoted.mk ·)⟩
 
-/-- Which side of the field-count lattice a `struct.MinFields`/`struct.MaxFields` validator
-    bounds. A sum, never a `Bool` flag: the two are genuinely different comparators (`count >= n`
-    vs `count <= n`) with different monotonicity under unification (a `min` is monotone-satisfiable
-    as fields accrete, a `max` monotone-violable), and enumerating them forces every consumer to
-    handle both. -/
-inductive FieldCountBound where
+/-- Which side of a length lattice a `Min…`/`Max…` validator bounds. A sum, never a `Bool`
+    flag: the two are genuinely different comparators (`count >= n` vs `count <= n`) with
+    different monotonicity under unification (a `min` is monotone-satisfiable as the measured
+    length accretes, a `max` monotone-violable), and enumerating them forces every consumer to
+    handle both. Shared across struct field-count, list length, and string rune-length. -/
+inductive CountBound where
   | min
   | max
+deriving Repr, BEq, DecidableEq
+
+/-- What a `lengthConstraint` measures — the "measurable" whose length a `Min…`/`Max…`
+    validator bounds. `fields` counts a struct's REGULAR fields (`struct.MinFields`/`MaxFields`),
+    `listItems` a list's elements (`list.MinItems`/`MaxItems`), `runes` a string's Unicode
+    code points (`strings.MinRunes`/`MaxRunes`). The three share the min/max lattice and the
+    monotone-accretion logic; they differ only in the measured quantity and the value shape they
+    attach to, so one constructor parameterized by kind is DRYer than three siblings. -/
+inductive LengthKind where
+  | fields
+  | listItems
+  | runes
 deriving Repr, BEq, DecidableEq
 
 mutual
@@ -809,17 +821,25 @@ inductive Value where
       `>0 & 1.5` ⇒ `1.5`), narrowed to `int`/`float` by meeting with the matching kind
       (`int & >0` rejects floats). -/
   | boundConstraint (bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)
-  /-- A struct field-count validator (`struct.MinFields(n)` / `struct.MaxFields(n)`). It
-      constrains the number of REGULAR fields (non-optional, non-required, non-hidden,
-      non-definition, non-`let`) of the struct it unifies with: `min` is satisfied iff
-      `count >= limit`, `max` iff `count <= limit`. Like `boundConstraint`, it is a validator
-      that participates in `meet`, not a value: a bare one is incomplete. `limit` is `Int` so a
-      negative bound (`MinFields(-1)`, trivially satisfied) is representable; a non-int argument
-      is a call-site type error (bottom), never reaches this node. Because field count is
-      monotone non-decreasing under unification, a satisfied `min` drops eagerly and a violated
-      `max` bottoms eagerly; the residual (unsatisfied `min` / satisfied-but-open `max`) is
-      retained in a `.conj` beside the struct and adjudicated at manifest. -/
-  | fieldCountConstraint (bound : FieldCountBound) (limit : Int)
+  /-- A length validator over a measurable quantity (`kind`): struct regular-field count
+      (`struct.MinFields`/`MaxFields`), list element count (`list.MinItems`/`MaxItems`), or
+      string rune-length (`strings.MinRunes`/`MaxRunes`). `min` is satisfied iff `count >= limit`,
+      `max` iff `count <= limit`. Like `boundConstraint`, it is a validator that participates in
+      `meet`, not a value: a bare one is incomplete. `limit` is `Int` so a negative bound
+      (`MinFields(-1)`, trivially satisfied) is representable; a non-int argument is a call-site
+      type error (bottom), never reaches this node. Where the measured length is not yet final —
+      a struct's fields or an open list can still accrete, an abstract string's runes are unknown —
+      it is monotone non-decreasing under unification, so a satisfied `min` drops eagerly, a
+      violated `max` bottoms eagerly, and the undecided residual is retained in a `.conj` beside
+      the value and adjudicated at manifest. A final length (closed list, concrete string) decides
+      immediately. -/
+  | lengthConstraint (kind : LengthKind) (bound : CountBound) (limit : Int)
+  /-- A list-uniqueness validator (`list.UniqueItems`) — all elements distinct by structural
+      value equality (field-order-independent). No numeric bound: a predicate, not a length. Like
+      `lengthConstraint`, it participates in `meet` and is incomplete bare; a definite structural
+      duplicate bottoms eagerly, otherwise the residual is retained and adjudicated at manifest
+      once the list is concrete. -/
+  | uniqueItems
   | conj (constraints : List Value)
   | builtinCall (name : String) (args : List Value)
   | unary (op : UnaryOp) (value : Value)
@@ -1047,11 +1067,43 @@ end Field
 def regularFieldCount (fields : List Field) : Nat :=
   (fields.filter (fun field => field.fieldClass.countsAsField)).length
 
-/-- Whether a struct with `count` regular fields satisfies a field-count validator. -/
-def fieldCountSatisfied (bound : FieldCountBound) (limit : Int) (count : Nat) : Bool :=
+/-- Whether a measured length of `count` satisfies a `min`/`max` bound. -/
+def countBoundSatisfied (bound : CountBound) (limit : Int) (count : Nat) : Bool :=
   match bound with
   | .min => (count : Int) >= limit
   | .max => (count : Int) <= limit
+
+/-- The measured length of a value for a `lengthConstraint`, classified by finality. `final n`
+    is a length that cannot change under further unification (a closed list, a concrete string);
+    `lowerBound n` is a monotone floor that may still grow (a struct's accreting fields, an open
+    list, an abstract string with no known length); `mismatch` is a value that cannot be this
+    `kind` at all (a list validator meeting a scalar) — a type conflict. Total; the `_ => .mismatch`
+    catch-all is over `Value` but PRODUCES a `LengthMeasure`, not a `Value`, so it is permitted. -/
+inductive LengthMeasure where
+  | final (count : Nat)
+  | lowerBound (count : Nat)
+  | mismatch
+deriving Repr, BEq, DecidableEq
+
+def measureForLength : LengthKind -> Value -> LengthMeasure
+  | .fields, .struct fields _ _ _ _ => .lowerBound (regularFieldCount fields)
+  | .listItems, .list items => .final items.length
+  | .listItems, .listTail items _ => .lowerBound items.length
+  | .listItems, .embeddedList items _ _ => .lowerBound items.length
+  | .runes, .prim (.string s) => .final s.toList.length
+  | .runes, .kind .string => .lowerBound 0
+  | .runes, .stringRegex _ => .lowerBound 0
+  | _, _ => .mismatch
+
+/-- The measured length of a fully-resolved value, or `none` when the value is not an instance
+    of `kind` at all (used at manifest finalization, where every value is final — so a meet-time
+    `lowerBound` floor is the final count). -/
+def measuredLength? : LengthKind -> Value -> Option Nat
+  | kind, value =>
+      match measureForLength kind value with
+      | .final count => some count
+      | .lowerBound count => some count
+      | .mismatch => none
 
 /-- Drop duplicate `(labelPattern, constraint)` pairs, keeping the first occurrence so
     order is stable and meet over patterns is confluent. Equality is structural `BEq` on

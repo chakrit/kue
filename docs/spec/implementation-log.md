@@ -19367,3 +19367,76 @@ verdict for a nonexistent leaf. Recorded in `cue-spec-gaps.md` (B-1 row).
 - `docs/spec/plan.md` strconv-C entry: `Itoa` moved out of the "route to `unsupportedBuiltin`" group
   (it bottoms bare, being a nonexistent cue function).
 - `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this followup.
+
+## Completed Slice: STDLIB-VALIDATORS — list & strings constraint validators
+
+Goal: implement the `meet`-participating constraint validators of the `list`/`strings` packages —
+`list.MinItems`/`MaxItems`/`UniqueItems`, `strings.MinRunes`/`MaxRunes` — heavily used in real CUE
+schemas. Mirrors the proven `struct.MinFields`/`MaxFields` (`fieldCountConstraint`) pattern.
+
+### Value-representation decision
+
+GENERALIZED the field-count validator rather than adding siblings (philosophy: DRY + one abstraction
+with a real name — "count a measurable and bound it"). `Value.fieldCountConstraint (bound) (limit)`
+became `Value.lengthConstraint (kind : LengthKind) (bound : CountBound) (limit : Int)`, `LengthKind ∈
+{fields, listItems, runes}`. `FieldCountBound` → `CountBound` (shared min/max lattice);
+`fieldCountSatisfied` → `countBoundSatisfied`; `finalizeFieldCountConj` → `finalizeLengthConj`;
+`applyFieldCountConstraint` → `applyLengthConstraint`. The rename is uniform (`.fieldCountConstraint`
+was always `.fields`), so existing struct behavior + fixtures are behavior-preserving. `UniqueItems`
+is a genuinely different shape (a predicate, no numeric bound) → a sibling `Value.uniqueItems`.
+
+### Steps
+
+- `Kue/Value.lean`: `LengthKind`, generalized `lengthConstraint`, `uniqueItems`; `measureForLength`
+  (→ `LengthMeasure` = `final`/`lowerBound`/`mismatch`, classified by whether the length can still
+  accrete) + `measuredLength?`. A closed list / concrete string is `final` (decides at meet); a
+  struct / open list / abstract `string` is `lowerBound` (monotone, retains). Runes = Unicode code
+  points via `String.toList.length`, NOT bytes.
+- `Kue/Lattice.lean`: `applyLengthConstraint` (final ⇒ satisfied?value:bottom; lowerBound ⇒ the
+  struct-min/max monotone logic; mismatch ⇒ bottom); `applyUniqueItems` (dispatch on `UniqueTarget`
+  classifier; a positive structural dup via `hasStructuralDup`/`eqUpToFieldOrder` bottoms eagerly —
+  sound since structural equality is stable under unification — else retains); generalized
+  `finalizeLengthConj`; meet arms for validator-vs-validator (retain both) and validator-vs-value,
+  placed BELOW the `.disj` arms so a validator distributes over a disjunction target first.
+- `Kue/Builtin.lean`: `list.MinItems`/`MaxItems`/`UniqueItems()` in `evalListBuiltin`,
+  `strings.MinRunes`/`MaxRunes` in `evalStringsBuiltin`.
+- `Kue/Parse.lean`: bare `list.UniqueItems` (no call) resolves via `stdlibPackageValue?` to
+  `.uniqueItems` (import-gated), matching the `()` call form. cue accepts both.
+- `Kue/Format.lean`: render all six `Min…`/`Max…` call forms + `list.UniqueItems()`.
+- `Kue/Manifest.lean`: bare `.lengthConstraint`/`.uniqueItems` incomplete; conj finalize via
+  `finalizeLengthConj`; `finalizeDisjArm` generalized. `.uniqueItems` threaded through every
+  exhaustive `Value` match (EvalBase/Eval/EvalOps/Resolve/Parse), tag 34.
+
+### IsSorted — DEFERRED
+
+`list.IsSorted(list, cmp)` is a FUNCTION taking a comparator (`list.Ascending`/`Descending` — a
+comparator STRUCT), not a bare validator. The comparator arg is the BI-EFF effectful-builtin corner;
+out of scope for this bare-validator slice. Left as an incomplete residual (honest defer, no wrong
+value). Logged in `plan.md` BI-3-RESIDUAL.
+
+### Spec basis
+
+Signatures + semantics verified against cue v0.16.1: arg shape (int for the bounds), rune-not-byte
+counting (`"é"` = 1 rune / 2 bytes; `MaxRunes(1)` admits it), UniqueItems structural/value equality
+(field-order-independent: `{a:1,b:2}` == `{b:2,a:1}` ⇒ dup), non-target ⇒ mismatched-types bottom.
+kue == cue byte-for-byte on the satisfied-case export fixture. No intentional divergence.
+
+### Tests
+
+- `Kue/Tests/FixtureTests.lean`: ~40 `native_decide` — per validator: concrete-satisfies,
+  concrete-violates, boundary (exactly n / empty), unification of two bounds, non-target conflict,
+  bare-incomplete, format; MinItems disjunction-arm prune; MinRunes abstract-retains-then-finalizes +
+  multibyte; UniqueItems distinct/dup/struct-dup/reordered-struct-dup/empty/singleton/with-MinItems.
+- `testdata/export/list_string_validators.{cue,json}`: end-to-end `kue export` gate (satisfied cases,
+  byte-identical to cue v0.16.1), exercising import routing + builtin dispatch + bare `UniqueItems`.
+- Existing `fieldcount_*` theorems + `struct_field_count` fixture carried through the rename unchanged.
+- `./scripts/check.sh` GREEN (full suite + canaries + wild fixtures).
+
+### Retraction
+
+- `docs/spec/plan.md` BI-3-RESIDUAL: `strings.MinRunes`/`MaxRunes` + `list.MinItems`/`MaxItems`/
+  `UniqueItems` moved from "still FILED" to LANDED; the posited `.builtinCall`-in-`meet` seam is moot
+  (generalized the existing struct-validator instead).
+- `docs/spec/plan.md` STDLIB-B entry: annotated `fieldCountConstraint`/`FieldCountBound`/
+  `finalizeFieldCountConj` as generalized to `lengthConstraint`/`CountBound`/`finalizeLengthConj`.
+- `docs/scratch/2026-07-11-session-resume.md`: breadcrumb advanced to this slice.

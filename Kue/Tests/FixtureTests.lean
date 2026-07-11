@@ -728,49 +728,49 @@ private def manifestValueOk (value : Value) : Bool :=
 
 -- A satisfied `min` drops eagerly: the meet is the struct itself, no residual.
 theorem fieldcount_min_satisfied_drops :
-    (meet structAB (.fieldCountConstraint .min 2) == structAB) = true := by native_decide
+    (meet structAB (.lengthConstraint .fields .min 2) == structAB) = true := by native_decide
 
 -- A violated `max` bottoms eagerly (count 2 > 1).
 theorem fieldcount_max_violated_bottoms :
-    (meet structAB (.fieldCountConstraint .max 1) == .bottomWith [.boundConflict]) = true := by
+    (meet structAB (.lengthConstraint .fields .max 1) == .bottomWith [.boundConflict]) = true := by
   native_decide
 
 -- Manifest finalize: satisfied validators export, violated ones error.
 theorem fieldcount_min_exact_ok :
-    manifestValueOk (meet structAB (.fieldCountConstraint .min 2)) = true := by native_decide
+    manifestValueOk (meet structAB (.lengthConstraint .fields .min 2)) = true := by native_decide
 theorem fieldcount_min_violated_err :
-    manifestValueOk (meet structAB (.fieldCountConstraint .min 3)) = false := by native_decide
+    manifestValueOk (meet structAB (.lengthConstraint .fields .min 3)) = false := by native_decide
 theorem fieldcount_min_zero_empty_ok :
-    manifestValueOk (meet emptyStruct (.fieldCountConstraint .min 0)) = true := by native_decide
+    manifestValueOk (meet emptyStruct (.lengthConstraint .fields .min 0)) = true := by native_decide
 theorem fieldcount_max_ok :
-    manifestValueOk (meet structAB (.fieldCountConstraint .max 3)) = true := by native_decide
+    manifestValueOk (meet structAB (.lengthConstraint .fields .max 3)) = true := by native_decide
 theorem fieldcount_min_and_max_ok :
     manifestValueOk
-      (meet (meet structAB (.fieldCountConstraint .min 1)) (.fieldCountConstraint .max 3)) = true := by
+      (meet (meet structAB (.lengthConstraint .fields .min 1)) (.lengthConstraint .fields .max 3)) = true := by
   native_decide
 theorem fieldcount_negative_min_ok :
-    manifestValueOk (meet structA (.fieldCountConstraint .min (-1))) = true := by native_decide
+    manifestValueOk (meet structA (.lengthConstraint .fields .min (-1))) = true := by native_decide
 
 -- Accretion across conjuncts: a field added AFTER an unsatisfied `min` satisfies it.
 theorem fieldcount_accretion_ok :
-    manifestValueOk (meet (meet structA (.fieldCountConstraint .min 2)) structB) = true := by
+    manifestValueOk (meet (meet structA (.lengthConstraint .fields .min 2)) structB) = true := by
   native_decide
 
 -- Only regular fields count: optional / required / hidden are excluded from the tally.
 theorem fieldcount_optional_excluded_err :
-    manifestValueOk (meet structAoptB (.fieldCountConstraint .min 2)) = false := by native_decide
+    manifestValueOk (meet structAoptB (.lengthConstraint .fields .min 2)) = false := by native_decide
 theorem fieldcount_optional_min1_ok :
-    manifestValueOk (meet structAoptB (.fieldCountConstraint .min 1)) = true := by native_decide
+    manifestValueOk (meet structAoptB (.lengthConstraint .fields .min 1)) = true := by native_decide
 theorem fieldcount_required_excluded_err :
-    manifestValueOk (meet structAreqB (.fieldCountConstraint .min 2)) = false := by native_decide
+    manifestValueOk (meet structAreqB (.lengthConstraint .fields .min 2)) = false := by native_decide
 
 -- A validator meeting a non-struct is a type conflict (bottom).
 theorem fieldcount_scalar_conflict :
-    (meet (.prim (.int 5)) (.fieldCountConstraint .min 1) == .bottom) = true := by native_decide
+    (meet (.prim (.int 5)) (.lengthConstraint .fields .min 1) == .bottom) = true := by native_decide
 
 -- A bare validator is incomplete (cannot manifest).
 theorem fieldcount_bare_incomplete :
-    manifestValueOk (.fieldCountConstraint .min 0) = false := by native_decide
+    manifestValueOk (.lengthConstraint .fields .min 0) = false := by native_decide
 
 -- Field-count validators × disjunction (STDLIB-B follow-up). A retained `min` residual inside
 -- a disjunction arm is finalized when the disjunction resolves at manifest (`finalizeDisjArm`):
@@ -781,27 +781,27 @@ theorem fieldcount_bare_incomplete :
 -- PRUNE: `MinFields(2) & ({a:1} | {a:1,b:2})` → the under-count arm `{a:1}` is dropped, leaving
 -- `{a:1,b:2}` (NOT ambiguous). This is the reported bug.
 theorem fieldcount_disj_min_underfill_pruned :
-    (manifest (meet (.fieldCountConstraint .min 2) (disjOfValues structA structAB))
+    (manifest (meet (.lengthConstraint .fields .min 2) (disjOfValues structA structAB))
       == manifest structAB) = true := by native_decide
 
 -- MAX prune (regression guard): the overfull arm bottoms eagerly at meet, leaving `{a:1}`.
 theorem fieldcount_disj_max_overfill_pruned :
-    (manifest (meet (.fieldCountConstraint .max 2) (disjOfValues structA structABC))
+    (manifest (meet (.lengthConstraint .fields .max 2) (disjOfValues structA structABC))
       == manifest structA) = true := by native_decide
 
 -- GENUINELY AMBIGUOUS: both arms satisfy `MinFields(1)`, so neither is pruned — stays ambiguous.
 theorem fieldcount_disj_min_both_satisfied_ambiguous :
-    manifestValueOk (meet (.fieldCountConstraint .min 1) (disjOfValues structA structAB)) = false := by
+    manifestValueOk (meet (.lengthConstraint .fields .min 1) (disjOfValues structA structAB)) = false := by
   native_decide
 
 -- MinFields(0): every struct satisfies it, so both arms stay live → ambiguous (not pruned).
 theorem fieldcount_disj_min_zero_both_live_ambiguous :
-    manifestValueOk (meet (.fieldCountConstraint .min 0) (disjOfValues emptyStruct structA)) = false := by
+    manifestValueOk (meet (.lengthConstraint .fields .min 0) (disjOfValues emptyStruct structA)) = false := by
   native_decide
 
 -- Empty-struct arm PRUNED: `MinFields(1) & ({} | {a:1})` → `{}` is under-count → `{a:1}`.
 theorem fieldcount_disj_empty_arm_pruned :
-    (manifest (meet (.fieldCountConstraint .min 1) (disjOfValues emptyStruct structA))
+    (manifest (meet (.lengthConstraint .fields .min 1) (disjOfValues emptyStruct structA))
       == manifest structA) = true := by native_decide
 
 -- ACCRETION NOT BROKEN: `MinFields(2) & ({a:1} | {x:9}) & {b:2}` keeps BOTH arms alive through the
@@ -809,26 +809,140 @@ theorem fieldcount_disj_empty_arm_pruned :
 -- meet-time prune would bottom the whole disjunction; `containsBottom = false` pins that it didn't.
 theorem fieldcount_disj_accretion_not_bottomed :
     containsBottom
-      (meet (meet (.fieldCountConstraint .min 2) (disjOfValues structA structX)) structB) = false := by
+      (meet (meet (.lengthConstraint .fields .min 2) (disjOfValues structA structX)) structB) = false := by
   native_decide
 theorem fieldcount_disj_accretion_stays_ambiguous :
     manifestValueOk
-      (meet (meet (.fieldCountConstraint .min 2) (disjOfValues structA structX)) structB) = false := by
+      (meet (meet (.lengthConstraint .fields .min 2) (disjOfValues structA structX)) structB) = false := by
   native_decide
 
 -- BOTH min & max in a disjunction: `MinFields(1) & (MaxFields(1) & ({a:1} | {a:1,b:2}))`. The `max`
 -- prunes the 2-field arm; the surviving `{a:1}` satisfies both bounds → `{a:1}`.
 theorem fieldcount_disj_min_and_max :
     (manifest
-      (meet (.fieldCountConstraint .min 1)
-        (meet (.fieldCountConstraint .max 1) (disjOfValues structA structAB)))
+      (meet (.lengthConstraint .fields .min 1)
+        (meet (.lengthConstraint .fields .max 1) (disjOfValues structA structAB)))
       == manifest structA) = true := by native_decide
 
 -- Display renders the CUE call form.
 theorem fieldcount_format_min :
-    formatField "x" (.fieldCountConstraint .min 2) = "x: struct.MinFields(2)" := by native_decide
+    formatField "x" (.lengthConstraint .fields .min 2) = "x: struct.MinFields(2)" := by native_decide
 theorem fieldcount_format_max :
-    formatField "x" (.fieldCountConstraint .max 3) = "x: struct.MaxFields(3)" := by native_decide
+    formatField "x" (.lengthConstraint .fields .max 3) = "x: struct.MaxFields(3)" := by native_decide
+
+-- list.MinItems / list.MaxItems (STDLIB-VALIDATORS). A CLOSED list's length is FINAL, so the bound
+-- decides at meet: satisfied ⇒ the list, violated ⇒ bottom (no residual, unlike a struct's
+-- accreting field count). Rune/item counts are lattice-shared with field count via `lengthConstraint`.
+private def list1 : Value := .list [.prim (.int 1)]
+private def list2 : Value := .list [.prim (.int 1), .prim (.int 2)]
+private def list3 : Value := .list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]
+private def emptyList : Value := .list []
+private def structBA : Value :=
+  mkStruct [⟨"b", .regular, .prim (.int 2), false⟩, ⟨"a", .regular, .prim (.int 1), false⟩]
+    .regularOpen none []
+
+theorem minitems_satisfied_final :
+    (meet list3 (.lengthConstraint .listItems .min 2) == list3) = true := by native_decide
+theorem minitems_exact_ok :
+    (meet list2 (.lengthConstraint .listItems .min 2) == list2) = true := by native_decide
+theorem minitems_violated_bottoms :
+    (meet list1 (.lengthConstraint .listItems .min 2) == .bottomWith [.boundConflict]) = true := by
+  native_decide
+theorem minitems_zero_empty_ok :
+    (meet emptyList (.lengthConstraint .listItems .min 0) == emptyList) = true := by native_decide
+theorem maxitems_ok :
+    (meet list2 (.lengthConstraint .listItems .max 3) == list2) = true := by native_decide
+theorem maxitems_violated_bottoms :
+    (meet list3 (.lengthConstraint .listItems .max 2) == .bottomWith [.boundConflict]) = true := by
+  native_decide
+theorem minitems_and_maxitems_ok :
+    manifestValueOk
+      (meet (meet list2 (.lengthConstraint .listItems .min 1)) (.lengthConstraint .listItems .max 3))
+      = true := by native_decide
+theorem minitems_and_maxitems_conflict :
+    (meet (meet list3 (.lengthConstraint .listItems .min 1)) (.lengthConstraint .listItems .max 2)
+      == .bottomWith [.boundConflict]) = true := by native_decide
+theorem minitems_scalar_conflict :
+    (meet (.prim (.int 5)) (.lengthConstraint .listItems .min 1) == .bottom) = true := by native_decide
+theorem minitems_bare_incomplete :
+    manifestValueOk (.lengthConstraint .listItems .min 2) = false := by native_decide
+theorem minitems_format :
+    formatField "x" (.lengthConstraint .listItems .min 2) = "x: list.MinItems(2)" := by native_decide
+theorem maxitems_format :
+    formatField "x" (.lengthConstraint .listItems .max 3) = "x: list.MaxItems(3)" := by native_decide
+
+-- MinItems × disjunction: the under-count arm bottoms at meet (final length) and is pruned.
+theorem minitems_disj_underfill_pruned :
+    (manifest (meet (.lengthConstraint .listItems .min 2) (disjOfValues list1 list3))
+      == manifest list3) = true := by native_decide
+
+-- strings.MinRunes / MaxRunes. Counts RUNES (Unicode code points), not bytes: "é" is one rune,
+-- two bytes, so `MaxRunes(1)` admits it. A concrete string's length is final (decides at meet); an
+-- abstract `string` retains the residual and finalizes when a concrete string arrives.
+private def strAbc : Value := .prim (.string "abc")
+private def strA : Value := .prim (.string "a")
+private def strAbcd : Value := .prim (.string "abcd")
+private def strEacute : Value := .prim (.string "é")
+
+theorem minrunes_satisfied_final :
+    (meet strAbc (.lengthConstraint .runes .min 2) == strAbc) = true := by native_decide
+theorem minrunes_violated_bottoms :
+    (meet strA (.lengthConstraint .runes .min 2) == .bottomWith [.boundConflict]) = true := by
+  native_decide
+theorem maxrunes_violated_bottoms :
+    (meet strAbcd (.lengthConstraint .runes .max 2) == .bottomWith [.boundConflict]) = true := by
+  native_decide
+-- Rune-not-byte: "é" is 1 rune / 2 bytes; MaxRunes(1) admits it. A byte count would bottom.
+theorem maxrunes_multibyte_counts_runes :
+    (meet strEacute (.lengthConstraint .runes .max 1) == strEacute) = true := by native_decide
+theorem minrunes_scalar_conflict :
+    (meet (.prim (.int 5)) (.lengthConstraint .runes .min 2) == .bottom) = true := by native_decide
+theorem minrunes_bare_incomplete :
+    manifestValueOk (.lengthConstraint .runes .min 2) = false := by native_decide
+-- Abstract `string` retains the residual, then finalizes against a concrete string.
+theorem minrunes_abstract_retains_then_finalizes :
+    manifestValueOk (meet (meet (.kind .string) (.lengthConstraint .runes .min 2)) strAbc) = true := by
+  native_decide
+theorem minrunes_abstract_then_violates :
+    manifestValueOk (meet (meet (.kind .string) (.lengthConstraint .runes .min 2)) strA) = false := by
+  native_decide
+theorem minrunes_format :
+    formatField "x" (.lengthConstraint .runes .min 2) = "x: strings.MinRunes(2)" := by native_decide
+
+-- list.UniqueItems. Distinct elements pass; a structural duplicate bottoms eagerly (equality is
+-- field-order-independent: `{a:1,b:2}` and `{b:2,a:1}` are the same value). A distinct list retains
+-- the residual until manifest confirms it. A non-list is a type conflict.
+theorem uniqueitems_distinct_ok :
+    manifestValueOk (meet list3 .uniqueItems) = true := by native_decide
+theorem uniqueitems_duplicate_bottoms :
+    (meet (.list [.prim (.int 1), .prim (.int 2), .prim (.int 2)]) .uniqueItems
+      == .bottomWith [.boundConflict]) = true := by native_decide
+theorem uniqueitems_empty_ok :
+    manifestValueOk (meet emptyList .uniqueItems) = true := by native_decide
+theorem uniqueitems_singleton_ok :
+    manifestValueOk (meet list1 .uniqueItems) = true := by native_decide
+theorem uniqueitems_struct_dup_bottoms :
+    (meet (.list [structA, structA]) .uniqueItems == .bottomWith [.boundConflict]) = true := by
+  native_decide
+-- Field-order-independent structural equality: `{a:1,b:2}` == `{b:2,a:1}` ⇒ duplicate.
+theorem uniqueitems_struct_reordered_dup_bottoms :
+    (meet (.list [structAB, structBA]) .uniqueItems == .bottomWith [.boundConflict]) = true := by
+  native_decide
+theorem uniqueitems_struct_distinct_ok :
+    manifestValueOk (meet (.list [structA, structB]) .uniqueItems) = true := by native_decide
+theorem uniqueitems_scalar_conflict :
+    (meet (.prim (.int 5)) .uniqueItems == .bottom) = true := by native_decide
+theorem uniqueitems_bare_incomplete :
+    manifestValueOk .uniqueItems = false := by native_decide
+-- UniqueItems unifies with MinItems (both held on the same list).
+theorem uniqueitems_with_minitems_ok :
+    manifestValueOk (meet (meet list3 .uniqueItems) (.lengthConstraint .listItems .min 2)) = true := by
+  native_decide
+theorem uniqueitems_with_minitems_dup_bottoms :
+    (meet (meet (.list [.prim (.int 1), .prim (.int 1)]) .uniqueItems)
+      (.lengthConstraint .listItems .min 2) == .bottomWith [.boundConflict]) = true := by native_decide
+theorem uniqueitems_format :
+    formatField "x" .uniqueItems = "x: list.UniqueItems()" := by native_decide
 
 theorem fixture_int_bounds :
     formatField "x"

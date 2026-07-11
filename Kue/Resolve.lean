@@ -162,7 +162,8 @@ mutual
     | _ + 1, _, value@(.notPrim _) => value
     | _ + 1, _, value@(.stringRegex _) => value
     | _ + 1, _, value@(.boundConstraint _ _ _) => value
-    | _ + 1, _, value@(.fieldCountConstraint _ _) => value
+    | _ + 1, _, value@(.lengthConstraint _ _ _) => value
+    | _ + 1, _, value@(.uniqueItems) => value
     | _ + 1, _, value@(.refId _) => value
     | _ + 1, _, value@(.thisStruct) => value
     | _ + 1, _, value@(.embeddedList _ _ _) => value

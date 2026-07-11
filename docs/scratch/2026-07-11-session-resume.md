@@ -82,6 +82,15 @@ Two tracks:
      Clean/Join/Split/Dir/Base/Ext/IsAbs/SplitList/Resolve/Rel/Match(Go glob)/ToSlash/FromSlash/
      VolumeName + `path.Unix/Windows/Plan9` constants (no `path.OS` — not a real cue field).
      Windows os DEFERRED (`unsupportedBuiltin`); invalid os bottoms. 75 theorems. Spec-gap + log.
+   - **STDLIB-VALIDATORS ✅ LANDED (2026-07-11)** — the `meet`-participating constraint validators:
+     `list.MinItems`/`MaxItems`/`UniqueItems`, `strings.MinRunes`/`MaxRunes`. GENERALIZED the
+     `struct.MinFields` validator: `fieldCountConstraint` → `Value.lengthConstraint (kind)(bound)(limit)`
+     (`kind` ∈ fields/listItems/runes) + sibling `Value.uniqueItems`. Closed list / concrete string
+     decides at meet; struct / open list / abstract string retains + finalizes (`finalizeLengthConj`).
+     Runes = code points, not bytes. UniqueItems equality field-order-independent (`eqUpToFieldOrder`).
+     Bare `list.UniqueItems` + `()` form both work. ~40 theorems + `export/list_string_validators`
+     fixture (byte-identical to cue). `list.IsSorted` DEFERRED (comparator arg = BI-EFF corner).
+     Next stdlib: `time`, `net`, `uuid`, `crypto/*`, `encoding/hex|csv`; finish `strconv` Quote/Float.
 
 Test-drive scratch files at `~/Documents/chakrit/kue-testdrive/` (outside the repo).
 

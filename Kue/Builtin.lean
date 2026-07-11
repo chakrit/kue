@@ -649,6 +649,12 @@ def evalListBuiltin : String -> List Value -> Value
   | "list.Avg", [.list items] => listAvg items
   | "list.SortStrings", [.list items] => listSortStrings items
   | "list.Reverse", [.list items] => listReverse items
+  -- Constraint validators (participate in `meet`, like `struct.MinFields`). `MinItems`/`MaxItems`
+  -- lower to a `lengthConstraint .listItems`; `UniqueItems` to `.uniqueItems`. The `()`-call form
+  -- passes `[]`; the bare `list.UniqueItems` form (no call) is handled at the reference site.
+  | "list.MinItems", [.prim (.int n)] => .lengthConstraint .listItems .min n
+  | "list.MaxItems", [.prim (.int n)] => .lengthConstraint .listItems .max n
+  | "list.UniqueItems", [] => .uniqueItems
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch a `strings.*` builtin over already-evaluated arguments.
@@ -702,6 +708,10 @@ def evalStringsBuiltin : String -> List Value -> Value
       .prim (.string (asciiToTitle s))
   | "strings.SliceRunes", [.prim (.string s), .prim (.int lo), .prim (.int hi)] =>
       stringSliceRunes s lo hi
+  -- Constraint validators (participate in `meet`, like `struct.MinFields`). Bound a string's
+  -- rune (Unicode code-point) count, NOT its byte length: a multi-byte rune counts as one.
+  | "strings.MinRunes", [.prim (.int n)] => .lengthConstraint .runes .min n
+  | "strings.MaxRunes", [.prim (.int n)] => .lengthConstraint .runes .max n
   | name, args => unresolvedOrBottom name args
 
 /-- Absolute value, preserving the numeric domain: int stays int, float stays float.
@@ -1092,12 +1102,12 @@ def evalCoreBuiltin : String -> List Value -> Value
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch the `struct` package builtins. `MinFields`/`MaxFields` lower to a
-    `.fieldCountConstraint` validator that unifies with a struct (checked in `meet`); a
+    `.lengthConstraint .fields` validator that unifies with a struct (checked in `meet`); a
     non-integer argument is a resolution error routed through `unresolvedOrBottom` (a concrete
     non-int ⇒ bottom, an abstract arg ⇒ a deferred residual). -/
 def evalStructBuiltin : String -> List Value -> Value
-  | "struct.MinFields", [.prim (.int n)] => .fieldCountConstraint .min n
-  | "struct.MaxFields", [.prim (.int n)] => .fieldCountConstraint .max n
+  | "struct.MinFields", [.prim (.int n)] => .lengthConstraint .fields .min n
+  | "struct.MaxFields", [.prim (.int n)] => .lengthConstraint .fields .max n
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch the `strconv` package builtins (STDLIB-C). Numeric parsing/formatting is
