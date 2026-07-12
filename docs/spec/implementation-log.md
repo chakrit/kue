@@ -21936,3 +21936,67 @@ Guards: wild `def-flatten-closedness-disj-multidisj` (RED→GREEN, reject `f`),
 `Bug2xTests` `defflatten_multidisj_{rejects,select_admits,default_collapses,opentail_admits}`
 (native_decide). `./scripts/check.sh` fully green; zero closedness / L-series / Bug2-6..12 /
 DEF-FLATTEN-CLOSEDNESS(-DISJ) flips.
+
+---
+
+## Completed Slice: LIST-ELEM-EQ — unified structural equality (open-tail-stripping, value-based)
+
+Goal: fix the HIGH open-tail soundness bug in `list.Contains` (`.known-red` seed
+`list-contains-open-sublist`) and unify every composite-equality caller on ONE structural
+equality, resolving the coupled LIST-CONTAINS-OPENTAIL-EQ + LIST-ELEM-EQ-NUMERIC-STRICT
+filings.
+
+### The scalar-vs-structural equality distinction (the crux)
+
+CUE has TWO equalities and they must not be conflated:
+
+- **Scalar `==`** COERCES numerics (`1 == 1.0` ⇒ true). UNCHANGED by this slice.
+- **Structural equality** of composites (list `==`, struct `==`, `list.Contains`,
+  `list.UniqueItems` dedup) is defined by the spec as RECURSIVE element equality that
+  REUSES `==` — so it inherits the int→float conversion. `[1] == [1.0]` is spec **true**.
+
+cue v0.16.1 gets structural equality WRONG: it is type-strict in structural position
+(`[1]==[1.0]`→false, `Contains([1],1.0)`→false, `UniqueItems([1,1.0])`→unique). That is the
+STRUCT-EQ-LEAF-TYPESENSE cue bug adjudicated 2026-07-04. The LIST-ELEM-EQ-NUMERIC-STRICT
+filing mis-read cue's strictness as the spec rule and called kue's (spec-correct) value-based
+`[1]==[1.0]`→true a bug; it was REJECTED. The spec was verified verbatim against
+cuelang.org/docs/references/spec (Comparison operators).
+
+### Implementation
+
+One `structuralEq` (`Kue/Value.lean`), the single equality shared by all four callers:
+
+- **Open-tail stripping**, recursive and through structs, via `listItems?` — a `.listTail`/
+  `.embeddedList` element equals its concrete-prefix counterpart at every depth. This is the
+  spec-gap `open-list-value-ops` prefix-treatment extended to the equality read.
+- **Value-based prim leaves** (`primStructEq`): int↔float compare by numeric value with
+  int→float conversion; floats scale-insensitively (`decimalEqValues`); every other kind
+  exact by derived `Prim` equality (so `string` ≠ `bytes`).
+- **Order-independent struct compare** over regular output fields (`countOutputFields` +
+  `outputFieldValue?`, both relocated from `EvalOps.lean` to `Value.lean` with `structuralEq`).
+
+Callers repointed: `listContains` (`Builtin.lean`, was raw `BEq` — the open-tail bug);
+`structEqConcrete?`→`evalEq` list/struct `==` (`EvalOps.lean`, was `concreteEq`, now deleted);
+`hasGroundDup` for `list.UniqueItems` (`Lattice.lean`, was `eqUpToFieldOrder`'s exact leaf).
+Scalar `evalEq`/`evalNe` prim path is untouched (still decimal-aware coercing).
+
+### Consequences
+
+- **LIST-CONTAINS-OPENTAIL-EQ ✅** — `Contains([[1,2,...]],[1,2])` and deep/struct-nested now
+  true (matches cue). Seed `list-contains-open-sublist` RED→GREEN (its `strict` case, which
+  encoded cue's buggy `Contains([[1]],[1.0])`→false, was spec-corrected to `intVsFloat: true`).
+- **UniqueItems** float-scale (`[1.0,1.00]`) now correctly dedups (was wrongly unique vs BOTH
+  cue and spec — `eqUpToFieldOrder` was float-scale-exact). Open-tail elements stay DEFERRED
+  by the `isGround` gate (an open-tail list is non-ground; caught at manifest once closed) —
+  sound, less eager than cue, unchanged by this slice.
+- **New cue divergences** (spec-correct, logged under STRUCT-EQ-LEAF-TYPESENSE):
+  `Contains([[1]],[1.0])`→true (cue false); `UniqueItems([1,1.0])`→⊥ (cue unique).
+
+### Verification
+
+`./scripts/check.sh` fully green; zero existing fixture/theorem flips (list/struct `==`,
+UniqueItems validators, SortTests, list-ops all hold). Manual kue-vs-cue sweep on the truth
+table confirms scalar `==` unchanged (`1==1.0`→true) and structural value-based
+(`[1]==[1.0]`→true, `["a"]==['a']`→false). New theorems: `BuiltinTests`
+`list_contains_open_tail_{element,needle,deep,prefix_mismatch}` + `_int_matches_float` +
+`_string_not_bytes`; `FixtureTests` `uniqueitems_{float_scale,int_float}_dup_bottoms`.

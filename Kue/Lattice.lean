@@ -832,16 +832,19 @@ def meetConjValueWith
   | [single] => single
   | members => .conj (sortConjMembers members)
 
-/-- Whether a list has two GROUND elements equal by structural value equality
-    (field-order-independent, `eqUpToFieldOrder`). Groundness is REQUIRED for a DEFINITE duplicate:
-    only ground values are stable under further unification, so `[1,1]` is a real duplicate but
-    `[int,int]` is NOT — two abstract elements that coincide now can refine to distinct concretes
-    (`[int,int] & [1,2]`). Restricting to ground pairs keeps the eager bottom sound; an abstract
-    coincidence is retained as a residual and re-checked as the list concretizes. -/
+/-- Whether a list has two GROUND elements equal by CUE's STRUCTURAL equality (`structuralEq`:
+    open-tail-stripping, field-order-independent, value-based prim leaves) — the SAME equality list
+    `==` and `list.Contains` use, so `[1.0, 1.00]`, `[[1,2,...],[1,2]]`, and `[1, 1.0]` (int→float
+    value equality, spec-correct) are all duplicates. Groundness is REQUIRED for a DEFINITE duplicate:
+    only ground values are
+    stable under further unification, so `[1,1]` is a real duplicate but `[int,int]` is NOT — two
+    abstract elements that coincide now can refine to distinct concretes (`[int,int] & [1,2]`).
+    Restricting to ground pairs keeps the eager bottom sound; an abstract coincidence is retained as
+    a residual and re-checked as the list concretizes. -/
 def hasGroundDup : List Value -> Bool
   | [] => false
   | x :: rest =>
-      (x.isGround && rest.any (fun y => y.isGround && eqUpToFieldOrder x y)) || hasGroundDup rest
+      (x.isGround && rest.any (fun y => y.isGround && structuralEq x y)) || hasGroundDup rest
 
 /-- Adjudicate a `.conj` guarded by retained length / uniqueness validators at finalization
     (`manifest`). `some value` when every retained `min`/`max` bound and any `uniqueItems` is

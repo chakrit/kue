@@ -949,6 +949,16 @@ theorem uniqueitems_struct_reordered_dup_bottoms :
   native_decide
 theorem uniqueitems_struct_distinct_ok :
     manifestValueOk (meet (.list [structA, structB]) .uniqueItems) = true := by native_decide
+-- LIST-ELEM-EQ: UniqueItems shares the unified `structuralEq`. Floats compare scale-insensitively
+-- (`1.0` and `1.00` are the same value ⇒ duplicate).
+theorem uniqueitems_float_scale_dup_bottoms :
+    (meet (.list [.prim (mkFloatText "1.0"), .prim (mkFloatText "1.00")]) .uniqueItems
+      == .bottomWith [.boundConflict]) = true := by native_decide
+-- Value-based numeric leaves: `1` (int) and `1.0` (float) are equal ⇒ duplicate (spec-correct;
+-- cue treats them as unique — the STRUCT-EQ-LEAF-TYPESENSE cue bug, see cue-divergences.md).
+theorem uniqueitems_int_float_dup_bottoms :
+    (meet (.list [.prim (.int 1), .prim (mkFloatText "1.0")]) .uniqueItems
+      == .bottomWith [.boundConflict]) = true := by native_decide
 theorem uniqueitems_scalar_conflict :
     (meet (.prim (.int 5)) .uniqueItems == .bottom) = true := by native_decide
 theorem uniqueitems_bare_incomplete :

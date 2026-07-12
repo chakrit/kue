@@ -3,7 +3,30 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ-REF — multiple-disjunction cross-product closedness (PARTIAL: multi-disj
+HEAD: **LIST-ELEM-EQ — unified structural equality: open-tail-stripping + VALUE-BASED (LANDED 2026-07-13).**
+Fixed the coupled list-equality cluster with ONE `structuralEq` (`Kue/Value.lean`) shared by list `==`,
+struct `==`, `list.Contains`, and `list.UniqueItems` dedup: recursive open-tail stripping via `listItems?`
+(a `.listTail` element equals its concrete prefix at every depth, through structs) + VALUE-BASED prim leaves
+(`primStructEq`: int→float conversion per spec, floats scale-insensitive, `string`≠`bytes`) + order-independent
+struct compare. **CRUX / REFRAME:** the slice's "make it type-STRICT" hypothesis was FALSIFIED by the CUE spec
+(verified verbatim: numeric `==` converts int→float; list/struct equality is "recursively equal" reusing `==`).
+So structural equality is VALUE-BASED, and cue v0.16.1's structural strictness (`[1]==[1.0]`→false,
+`Contains([1],1.0)`→false, `UniqueItems([1,1.0])`→unique) is the STRUCT-EQ-LEAF-TYPESENSE cue bug already
+adjudicated 2026-07-04. **LIST-CONTAINS-OPENTAIL-EQ ✅** (open-tail was the real bug — `listContains` used raw
+`BEq`); **LIST-ELEM-EQ-NUMERIC-STRICT REJECTED** (kue's `[1]==[1.0]`→true was already spec-correct; the filing
+mis-read cue as spec). Seed `list-contains-open-sublist` RED→GREEN (its `strict` case spec-corrected to
+`intVsFloat: true`). Scalar `==` UNCHANGED (`1==1.0`→true, guard holds). New spec-correct cue divergences
+(logged under STRUCT-EQ-LEAF-TYPESENSE): `Contains([[1]],[1.0])`→true, `UniqueItems([1,1.0])`→⊥. `check.sh`
+fully green, zero flips. New theorems: `BuiltinTests` `list_contains_open_tail_*`+`_int_matches_float`+
+`_string_not_bytes`; `FixtureTests` `uniqueitems_{float_scale,int_float}_dup_bottoms`. **NEXT (ranked):**
+a two-phase **AUDIT is DUE** (Phase B pending per 2026-07-13 Phase A; this + DEF-FLATTEN-DISJ-REF + this
+LIST-ELEM-EQ are the un-audited soundness fixes to cover) → LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** /
+**UNREFERENCED-ALIAS** / **LIST-ISSORTED** / **DEF-FLATTEN-CLOSEDNESS-DISJ-REF** (ref/scalar-arm + nested-disj
+residual, `.known-red` seeds) → **PB-EVALBASE-SPLIT** nav-debt → DEFERRED float FDLIBM (chakrit's
+prioritization). **Alpha release HELD for chakrit (attended)** — committed + pushed; release awaits your
+say-so.
+
+Prior HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ-REF — multiple-disjunction cross-product closedness (PARTIAL: multi-disj
 LANDED 2026-07-13; ref/scalar-arm + nested-disj residual FILED).** Closed the multiple-disjunction residual
 of the DEF-FLATTEN-CLOSEDNESS-DISJ silent-leak cluster. A def unioning its own struct literal across TWO+
 closable disjunctions (`#X: {a:1} & (*{b:2}|{c:3}) & (*{d:4}|{e:5})`) hit the single-disjunction close

@@ -331,6 +331,52 @@ theorem list_contains_structural_element :
       == .prim (.bool true)) = true := by
   native_decide
 
+-- LIST-ELEM-EQ: `list.Contains` uses the unified `structuralEq` — open-tail-stripping (recursive,
+-- through nesting), value-based prim leaves. An open-tail ELEMENT `[1,2,...]` matches its
+-- concrete-prefix needle `[1,2]`.
+theorem list_contains_open_tail_element :
+    (evalBuiltinCall "list.Contains"
+        [.list [.listTail [.prim (.int 1), .prim (.int 2)] .top], .list [.prim (.int 1), .prim (.int 2)]]
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Open-tail NEEDLE (top-level normalized by `openListOperand`) matches a concrete element.
+theorem list_contains_open_tail_needle :
+    (evalBuiltinCall "list.Contains"
+        [.list [.list [.prim (.int 1), .prim (.int 2)]], .listTail [.prim (.int 1), .prim (.int 2)] .top]
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Deep: an open-tail two containers down matches its prefix.
+theorem list_contains_open_tail_deep :
+    (evalBuiltinCall "list.Contains"
+        [.list [.list [.listTail [.prim (.int 1)] .top]], .list [.list [.prim (.int 1)]]]
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Prefix mismatch under open-tail stripping stays FALSE (`[1,2,...]` ∌ needle `[1,2,3]`).
+theorem list_contains_open_tail_prefix_mismatch :
+    (evalBuiltinCall "list.Contains"
+        [.list [.listTail [.prim (.int 1), .prim (.int 2)] .top],
+         .list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]
+      == .prim (.bool false)) = true := by
+  native_decide
+
+-- Value-based numeric leaves: an `int` element matches an equal-value `float` needle
+-- (`Contains([[1]],[1.0])` = TRUE, spec-correct; cue's `false` is the STRUCT-EQ-LEAF-TYPESENSE bug).
+theorem list_contains_int_matches_float :
+    (evalBuiltinCall "list.Contains"
+        [.list [.list [.prim (.int 1)]], .list [.prim (mkFloatText "1.0")]]
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Non-numeric kinds stay exact: a `string` element never matches a `bytes` needle.
+theorem list_contains_string_not_bytes :
+    (evalBuiltinCall "list.Contains"
+        [.list [.list [.prim (.string "a")]], .list [.prim (.bytes "a".toUTF8.data)]]
+      == .prim (.bool false)) = true := by
+  native_decide
+
 theorem list_call_stays_unresolved_on_abstract_arg :
     (evalBuiltinCall "list.Sum" [.kind .number]
       == .builtinCall "list.Sum" [.kind .number]) = true := by

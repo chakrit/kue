@@ -204,24 +204,23 @@ rejection argument: `kue-performance.md` + implementation-log.
 ### Ranked OPEN backlog
 
 **LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 LIST-OPS-NESTED-OPENTAIL).
-OPEN, quarantined `testdata/wild/list-contains-open-sublist/` (.known-red).** `list.Contains` compares each
-element against the needle with raw Lean `BEq`, which distinguishes `.listTail` from `.list`, so
-`list.Contains([[1,2,...]],[1,2])` ⇒ kue **false**, cue **true** (deep `[[[1,...]]]∋[[1]]` and struct-nested
-`[{a:[1,...]}]∋{a:[1]}` too). Distinct mechanism from the destructure-site normalization: cue strips
-open-tails RECURSIVELY (through structs) before comparing, yet keeps STRICT prim equality
-(`list.Contains([[1]],[1.0])` = false — int ≠ float, unlike the `1==1.0` operator), so it cannot reuse
-`concreteEq` (which is decimal-aware). Fix direction: a recursive open-tail-stripping normalization applied
-to element+needle before raw `==`, or a bespoke strict-leaf structural equality that treats `.listTail
-items _` as `.list items` at every depth. Graduate the quarantined fixture in the fixing slice.
+✅ LANDED (2026-07-13 LIST-ELEM-EQ).** `list.Contains` compared each element against the needle with raw
+Lean `BEq`, which distinguishes `.listTail` from `.list`, so `list.Contains([[1,2,...]],[1,2])` ⇒ kue
+**false**, cue **true** (deep + struct-nested too). Fixed by routing `listContains`, list `==`, struct `==`,
+and `list.UniqueItems` dedup through ONE shared `structuralEq` (`Kue/Value.lean`): recursive open-tail
+stripping via `listItems?` (a `.listTail`/`.embeddedList` element equals its concrete-prefix counterpart at
+every depth, through structs), VALUE-BASED prim leaves (`primStructEq`, spec int→float conversion),
+order-independent struct compare. Wild `list-contains-open-sublist` (RED→GREEN); `BuiltinTests`
+`list_contains_open_tail_{element,needle,deep,prefix_mismatch}` + `_int_matches_float` + `_string_not_bytes`.
 
-**LIST-ELEM-EQ-NUMERIC-STRICT (MEDIUM soundness — SILENT wrong value; PRE-EXISTING, surfaced 2026-07-13).
-OPEN.** `[1] == [1.0]` ⇒ kue **true**, cue **false**. `concreteEq` (`Kue/EvalOps.lean`) reuses the
-decimal-aware leaf equality (`evalDecimalCompare?`) INSIDE list/struct element comparison, so the `1==1.0`
-scalar-operator semantics leak into structural equality; cue keeps element equality strict on numeric kind
-(`1` int ≠ `1.0` float as list elements, even though `1 == 1.0` is true as scalars). Repro: capture
-`testdata/wild/` fixture (RED) for `[1]==[1.0]`, struct `{a:1}=={a:1.0}`, and confirm the scalar
-`1==1.0`/`1.0==1` still resolves true. Fix: split the element-equality path to use strict prim `==` while the
-scalar `==` operator keeps decimal-aware compare.
+**LIST-ELEM-EQ-NUMERIC-STRICT — REJECTED (2026-07-13 LIST-ELEM-EQ). NOT a bug: kue was already
+spec-correct.** The filing claimed `[1] == [1.0]` ⇒ kue **true** is wrong and cue's **false** is right. The
+CUE spec is EXPLICIT the other way (Comparison operators: numeric `==` converts int→float; list/struct
+equality is "recursively equal" reusing `==`), so `[1]==[1.0]` is spec **true** — cue's structural `false` is
+the STRUCT-EQ-LEAF-TYPESENSE cue bug already adjudicated 2026-07-04 (`cue-divergences.md`). The unified
+`structuralEq` therefore keeps prim leaves VALUE-BASED, NOT strict; the fix scope was open-tail stripping
+only. Consistency (ONE equality) also extended value-based leaves to `list.Contains` and `list.UniqueItems`,
+so `Contains([[1]],[1.0])` ⇒ true and `UniqueItems([1,1.0])` ⇒ bottom — spec-correct, cue-divergent (logged).
 
 **DEF-FLATTEN-CLOSEDNESS-DISJ-REF (HIGH soundness — SILENT closedness leak; PRE-EXISTING).
 PARTIAL — multiple-disjunction cross-product ✅ LANDED (2026-07-13); ref/scalar-arm + nested-disj
@@ -269,15 +268,12 @@ they are untouched. Wild `list-fn-concat-open-sublist/` + `list-fn-flattenn-open
 `BuiltinTests` `list_builtins_normalize_nested_open_tail`. Spec-gap `open-list-value-ops` extended to nested
 position (`cue-spec-gaps.md`); matches cue, NO divergence. NOTE: the LIST-OPS-PROBE claim "the rest measured
 green" covered only FLAT operands — nested open-tail was untested.
-**Scoped-out (filed): LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value). OPEN, quarantined
-`testdata/wild/list-contains-open-sublist/` (.known-red).** `list.Contains` compares elements with raw Lean
-`BEq`, which distinguishes `.listTail` from `.list`, so `list.Contains([[1,2,...]],[1,2])` ⇒ kue **false**,
-cue **true** (deep + struct-nested too). A DISTINCT mechanism from the destructure-site fix: cue strips
-open-tails RECURSIVELY (through structs) before comparing, yet keeps STRICT prim equality
-(`list.Contains([[1]],[1.0])` = false — int ≠ float, unlike the `1==1.0` operator). Needs a recursive
-open-tail-stripping equality with strict leaf compare; entangled with a separate PRE-EXISTING operator
-divergence surfaced en passant: `[1] == [1.0]` ⇒ kue **true**, cue **false** (`concreteEq` uses decimal-aware
-leaf equality inside lists, which cue does not — file LIST-ELEM-EQ-NUMERIC-STRICT).
+**Scoped-out (filed): LIST-CONTAINS-OPENTAIL-EQ — ✅ LANDED (2026-07-13 LIST-ELEM-EQ; see the entry above).**
+The open-tail bug is fixed via the unified `structuralEq`. RETRACTION: this filing's "keeps STRICT prim
+equality (int ≠ float)" reading was WRONG — the CUE spec mandates VALUE-BASED recursive equality (int→float
+conversion), so `Contains([[1]],[1.0])` is spec **true** and the entangled LIST-ELEM-EQ-NUMERIC-STRICT filing
+was REJECTED (kue's `[1]==[1.0]` ⇒ true was already spec-correct). See the LANDED/REJECTED entries above and
+STRUCT-EQ-LEAF-TYPESENSE in `cue-divergences.md`.
 
 **BOUND-OPERAND-CLASSIFY (MEDIUM soundness). ✅ LANDED (2026-07-12); PA-BOUND-GROUND discharged.**
 `ScalarOperandClass.defer` split into `.incomplete` (retain the residual `.unary`) vs `.nonScalar`

@@ -152,7 +152,7 @@ theorem eval_eq_struct_reordered_true :
       == .prim (.bool true)) = true := by
   native_decide
 
--- Quoted vs unquoted label is the SAME field (`quoted` bit ignored by `concreteEq`).
+-- Quoted vs unquoted label is the SAME field (`quoted` bit ignored by `structuralEq`).
 theorem eval_eq_struct_quoted_label_true :
     (evalEq
         (mkStruct [⟨"x", .regular, .prim (.int 1), true⟩] .regularOpen none [])

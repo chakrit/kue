@@ -1447,6 +1447,80 @@ def listItems? : Value -> Option (List Value)
   | .embeddedList items _ _ => some items
   | _ => none
 
+/-- Count a struct's REGULAR OUTPUT fields (`.field false false .regular`) — the only ones
+    CUE compares for `==`. Hidden/definition/`let`/import/optional/required fields are excluded
+    (mirrors `Manifest`'s output-field filter). -/
+def countOutputFields : List Field -> Nat
+  | [] => 0
+  | field :: rest =>
+      (if field.fieldClass == FieldClass.regular then 1 else 0) + countOutputFields rest
+
+/-- The value of the regular OUTPUT field named `label`, if present. Skips non-output fields
+    (a `_label`/`#label`/optional/required same-string field is NOT this field). -/
+def outputFieldValue? (label : String) : List Field -> Option Value
+  | [] => none
+  | field :: rest =>
+      if field.fieldClass == FieldClass.regular && field.label == label then some field.value
+      else outputFieldValue? label rest
+
+/-- The leaf rule of CUE's STRUCTURAL equality (`list`/`struct` element compare, `list.Contains`,
+    `list.UniqueItems`). Numeric leaves compare BY VALUE with int→float conversion — the spec's rule
+    for `==` (Comparison operators: "When comparing an integer with a floating-point number, the
+    integer is first converted to floating-point"), reused recursively by list/struct equality — so
+    `[1] == [1.0]` and `list.Contains([[1]],[1.0])` are `true` (cue's structural `false` is the
+    STRUCT-EQ-LEAF-TYPESENSE cue bug; Kue is spec-correct and internally consistent with its scalar
+    `1 == 1.0`). Floats compare scale-insensitively (`1.0 == 1.00`); every other kind compares
+    exactly by the derived `Prim` equality (so `string` ≠ `bytes`). -/
+def primStructEq (left right : Prim) : Bool :=
+  match left, right with
+  | .int leftValue, .float rightValue _ => decimalEqValues (intDecimal leftValue) rightValue
+  | .float leftValue _, .int rightValue => decimalEqValues leftValue (intDecimal rightValue)
+  | .float leftValue _, .float rightValue _ => decimalEqValues leftValue rightValue
+  | _, _ => left == right
+
+/- CUE's STRUCTURAL equality over two composite values — the single equality shared by list `==`,
+   struct `==`, `list.Contains`, and `list.UniqueItems` dedup. Recursively STRIPS open-tail markers
+   (a `.listTail`/`.embeddedList` element equals its concrete-prefix counterpart, at every depth and
+   through structs) via `listItems?`, compares prim leaves BY VALUE (`primStructEq`: int→float
+   conversion per spec, `string` ≠ `bytes`), and compares structs ORDER-INDEPENDENTLY over regular
+   output fields (equal
+   output-field count AND every left field label-matched in the right with equal value). Distinct
+   from the scalar `==` operator, which COERCES numerics — this never does. Cross-shape pairs
+   (struct vs list, prim vs struct, …) are `false`. Returns `Bool`, so a `_` probe arm is permitted.
+   Structural over the left operand. -/
+mutual
+def structuralEq : Value -> Value -> Bool
+  | .prim left, .prim right => primStructEq left right
+  | .struct leftFields _ _ _ _, .struct rightFields _ _ _ _ =>
+      countOutputFields leftFields == countOutputFields rightFields
+        && structuralEqFields leftFields rightFields
+  | .list items, right =>
+      match listItems? right with | some rightItems => structuralEqList items rightItems | none => false
+  | .listTail items _, right =>
+      match listItems? right with | some rightItems => structuralEqList items rightItems | none => false
+  | .embeddedList items _ _, right =>
+      match listItems? right with | some rightItems => structuralEqList items rightItems | none => false
+  | _, _ => false
+  termination_by structural left => left
+
+def structuralEqFields : List Field -> List Field -> Bool
+  | [], _ => true
+  | ⟨label, fieldClass, value, _⟩ :: rest, rightFields =>
+      (if fieldClass == FieldClass.regular then
+         match outputFieldValue? label rightFields with
+         | some rightValue => structuralEq value rightValue
+         | none => false
+       else true)
+        && structuralEqFields rest rightFields
+  termination_by structural fields => fields
+
+def structuralEqList : List Value -> List Value -> Bool
+  | [], right => right.isEmpty
+  | _ :: _, [] => false
+  | left :: leftRest, right :: rightRest => structuralEq left right && structuralEqList leftRest rightRest
+  termination_by structural values => values
+end
+
 def measureForLength : LengthKind -> Value -> LengthMeasure
   | .fields, .struct fields _ _ _ _ => .lowerBound (regularFieldCount fields)
   | .listItems, .list items => .final items.length

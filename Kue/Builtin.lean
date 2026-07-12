@@ -413,10 +413,13 @@ def listTake (items : List Value) (count : Int) : Value :=
 def listDrop (items : List Value) (count : Int) : Value :=
   if count < 0 then .bottom else .list (items.drop count.toNat)
 
-/-- Whether `items` contains a value equal to `needle` (structural `BEq`).
-    Mirrors CUE's `list.Contains`. -/
+/-- Whether `items` contains a value equal to `needle` under CUE's STRUCTURAL equality
+    (`structuralEq`: open-tail-stripping, value-based prim leaves) — so an open-tail element
+    `[1,2,...]` matches its concrete-prefix needle `[1,2]`, and an `int` element matches an
+    equal-value `float` needle (`Contains([[1]],[1.0])` is `true`, spec-correct). Mirrors CUE's
+    `list.Contains`. -/
 def listContains (items : List Value) (needle : Value) : Bool :=
-  items.any (· == needle)
+  items.any (structuralEq · needle)
 
 /-- Lexicographic `≤` on UTF-8 byte sequences — the ordering Go's `sort.Strings`
     (hence CUE's `list.SortStrings`) uses. For valid UTF-8 this coincides with
