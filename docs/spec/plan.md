@@ -436,6 +436,38 @@ enforcement), surfaced by slice D's separator work, is queued below.
   Wild-caught OUT-OF-SCOPE bug queued: `testdata/wild/cue-unicode-escape-dropped/` (`.known-red`) —
   kue's cue-file string lexer drops the backslash on a `\uXXXX` escape; seed for a string-lexer slice.
 
+**STDLIB-FLOAT-F2 Phase-A code-quality audit (2026-07-12, batch `a366a3a..a9fa4c6`, 3 slices:
+EvalTests split / StringFormat leaf / IEEE float kernel).** Last-audit reconciliation: all five
+✅-LANDED filings verified against commits — PA-NET-1 + PA-SF-3/PB-SF-3 + PB-DOCGRAPH-2 in
+`4df164c`, PB-TESTORG-1 in `fb50312` (231 theorems conserved EXACTLY: 65+62+76+28, verbatim move
+confirmed). Five OPEN LOW remain legitimately filed, none due this batch, none re-ranked:
+PA-ESC-2, PA-SUB-4, PA-TT-5, PB-TESTORG-4, PB-RELEASE-3. **F2 verdict: SOUND.** Deep-audited the
+subtle kernel and could NOT construct a counterexample: `decimalRatioToFloat` is correctly-rounded
+round-half-to-even incl. the overflow round-to-inf tie (`m₀==hi`→bump→`e'>maxExp`→overflow, ties-to-
+even lands on inf) and the subnormal boundary (`e==minExp` forces the SYMMETRIC B–D interval, so the
+smallest-normal/subnormal margins are right); `roundToSig` rounds the EXACT finite decimal
+(`exactDigits` = `m·5^(-binExp)`), matching Go; `genDigits` even/odd interval closure + carry-trim is
+textbook B–D (the `1e23` upper-margin trap is pinned by fixture+theorem against cue); negative-zero is
+ONE policy normalized at the number boundary (ParseFloat via `mkFloatText`, FormatFloat input pre-
+normalized by kue's apd form) — consistent, documented divergence. No `partial def`; every catch-all
+(`| _ => none`) is over a `Char` verb / kernel `Option`/`FloatParse`, never a `Value`-producing match.
+Fixture `testdata/export/strconv_float.{cue,json}` re-verified a REAL cue oracle (byte-matches `cue
+export`), auto-enforced by `check-export-fixtures`. One NEW finding:
+
+- **PA-FLOAT-TEST-6 (LOW→MEDIUM, test-strength).** The PERMANENT F2 regression net is ~18
+  `native_decide` theorems (`StrconvTests`) + 24 export-fixture cases. The "343 kernel cases" in the
+  log/spec-gap were an EPHEMERAL out-of-tree Go reference battery run once at dev time — NOT committed
+  guards (grep confirms the kernel fns `decimalToFloat`/`shortestDigits`/`genDigits`/`roundToSig`/
+  `exactDigits` are referenced ONLY in `Float.lean`; zero direct kernel theorems). Existing coverage is
+  decent (subnormal min `5e-324`, largest finite `1.79…e308`, `1e23` boundary, over/underflow, a f32
+  narrowing tie `16777217`, two half-even ties `2.5`/`3.5`) but the hardest boundaries are UNPINNED:
+  (a) the overflow round-to-inf-vs-maxfloat half-even MIDPOINT — a value at exactly `(2^53−½)·2^971`
+  rounds to inf (odd→even), one ulp below stays maxfloat; (b) float32 overflow (`>3.4e38`→`+Inf`);
+  (c) fixed-precision carry-growth (`FormatFloat(9.995,'f',2)`→digit-count grows, `dp` shift). Fix-slice:
+  add `native_decide` theorems on `FormatFloat`/`ParseFloat` for these three boundaries (spec/cue-
+  adjudicated expected), converting the ephemeral battery's hard cases into permanent guards. Not fixed
+  inline — expected values need cue/Go adjudication, so it's a proper TDD slice, not an audit cleanup.
+
 **STDLIB campaign Phase-A code-quality audit (2026-07-12, batch `f5b1537..69453ca`, 10 slices:
 Time/Net/TextTemplate/escape-set/byte-escape/Float-F0/F4/F4-div/manifest-fieldcount).** A4
 reconciliation: all previously-deferred items remain legitimately deferred with recorded basis —

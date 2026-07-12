@@ -20555,3 +20555,19 @@ ops) BYTE-IDENTICAL to cue v0.16.1. Export fixture `testdata/export/strconv_floa
 `Kue/Tests/StrconvTests.lean` (the stale `parsefloat_deferred`/header replaced). `./scripts/check.sh`
 fully green; zero existing fixtures/theorems flipped. Unblocks F1 (`Log1p`/`Expm1`), F3 (trig),
 and F5 (template float / `Float64bits`) — all now schedulable.
+
+## Audit: STDLIB-FLOAT-F2 Phase-A code-quality (2026-07-12, batch `a366a3a..a9fa4c6`)
+
+No code change. Deep code-quality audit of the 3-slice batch (EvalTests split / StringFormat leaf /
+IEEE float kernel), F2 the primary target. Last-audit reconciliation: five ✅-LANDED filings verified
+against commits (PA-NET-1/PA-SF-3/PB-SF-3/PB-DOCGRAPH-2 in `4df164c`, PB-TESTORG-1 in `fb50312` —
+231 theorems conserved exactly, 65+62+76+28); five OPEN LOW remain legitimately filed. **F2 SOUND** —
+no counterexample constructible: correctly-rounded round-half-even incl. overflow-to-inf tie and
+subnormal symmetric-interval boundary; `roundToSig` rounds the exact decimal; `genDigits` B–D
+boundary/carry-trim textbook (`1e23` pinned); negative-zero one policy at the number boundary;
+no `partial def`; no `Value`-swallowing catch-all; fixture is a real byte-matching cue oracle. One new
+finding filed in plan.md — **PA-FLOAT-TEST-6 (LOW→MEDIUM, test-strength)**: the "343 kernel cases" were
+an ephemeral out-of-tree Go battery, NOT committed; the permanent net misses the overflow round-to-inf
+half-even midpoint, float32 overflow, and fixed-precision carry-growth. Filed (not inline — expected
+values need cue/Go adjudication). Phase B deferred this cycle (module graph changed only by adding the
+`Float` + `StringFormat` leaves + the test split; last cycle was a full infra-rotation).
