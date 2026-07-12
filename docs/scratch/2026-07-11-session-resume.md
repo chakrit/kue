@@ -4,7 +4,7 @@
 
 `check.sh` GREEN. Standing keep-going loop governs.
 HEAD: **BINARY-CMP-BYTES — bytes ordered comparison now compares by byte value instead of ⊥
-(LANDED 2026-07-13, `f1bdf83`).** `'a' < 'b'` was kue `_|_`, now `true` (cue v0.16.1). Bytes are an
+(LANDED 2026-07-13, `3fd6616`).** `'a' < 'b'` was kue `_|_`, now `true` (cue v0.16.1). Bytes are an
 ordered type; `evalPrimitiveOrdering` threaded only decimal/string compare fns so a bytes×bytes pair
 fell to ⊥. FIX (cleaner than the filed `bytesOp` param): the prim×prim case routes through
 `primOrdCompare?` (`Value.lean`, already total over number/string/bytes) and reads its `Ordering` with

@@ -578,7 +578,7 @@ designed here as ONE coherent fix, split into TWO ranked slices — soundness fi
   `testdata/wild/binary-cmp-{list,struct}-operand/` (RED→GREEN); 7 EvalOpsTests theorems (⊥ + both-direction
   retain guards + 2 equality guards).
 
-- **BINARY-CMP-BYTES (LOW correctness — bytes ordered comparison; kue BUG). ✅ LANDED** (`f1bdf83`).
+- **BINARY-CMP-BYTES (LOW correctness — bytes ordered comparison; kue BUG). ✅ LANDED** (`3fd6616`).
   `'a' < 'b'` ⇒ cue `true`, kue was `_|_`: `evalPrimitiveOrdering` threaded only `decimalOp`+`stringOp`,
   so a bytes×bytes pair found no compare fn and fell to ⊥. Spec makes `bytes` an ordered type
   (`< <= > >=` over number/string/bytes). Fix took the cleaner route than the filed `bytesOp` param:
@@ -1419,7 +1419,7 @@ already struck the landed LET-CYCLE-ERROR from the ranked head. Graph HEALTHY: a
   correctness. PB-FIXTUREPORTS-SPLIT (4237, registration-exempt) unchanged.
 
 **Reconciled ranked HEAD (philosophy: active wrong-value → type-tightening → LOW gaps → feature → nav-debt):**
-1. ~~**BINARY-CMP-BYTES**~~ ✅ LANDED `f1bdf83` — bytes ordered comparison routed through
+1. ~~**BINARY-CMP-BYTES**~~ ✅ LANDED `3fd6616` — bytes ordered comparison routed through
    `primOrdCompare?`; the LAST active wrong-value bug, now CLOSED. No active wrong-value bugs remain.
 2. **BOUND-ORDEREDPRIM** (LOW, illegal-states — ~60-site `OrderedPrim` retype, the `boundConstraint.domain`
    numeric-sentinel tightening). Type-system leverage; parallel-safe filler.
