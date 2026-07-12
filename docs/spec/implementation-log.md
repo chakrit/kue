@@ -21218,3 +21218,30 @@ per-field own label, top pattern, comparator pattern, nested + cross-scope, two-
 agrees, concrete conflict bottoms, scope non-leak, `=~` not-an-alias. Swept vs cue v0.16.1 on every
 variant — byte-identical except the split-out non-struct body (recorded). `./scripts/check.sh` fully
 green; pattern-constraint / BOUND-OPERAND / SCOPING-PROBE guards unflipped.
+
+---
+
+## Completed Slice: Phase A code-quality audit, batch 3eeff2a..b73af4e (PHASE-A-2026-07-12b)
+
+Audit-only, no code change. Reconciled the prior Phase A/B filings (`da13f69`/`3eeff2a`):
+SELF-CONJ-CYCLE-INDIRECT landed `5011cae` (PARTIAL — shape 2 correctly quarantined + re-filed
+SELF-SELECT-CYCLE-CROSSFRAME, `.known-red` fixture spec-adjudicated to `{"x":{"a":1}}`),
+DEF-FLATTEN-CLOSEDNESS landed `43c19aa`, PATTERN-LABEL-ALIAS landed `b73af4e`; all LOW/older opens
+(PB-*, BOUND-ORDEREDPRIM, BINARY-CMP-BYTES, PA-ESC-2/SUB-4/TT-5, LET-CYCLE-ERROR, UNREFERENCED-ALIAS)
+confirmed still OPEN, unlanded, none re-ranked.
+
+Deep-audited the three batch slices. All SOUND:
+- `buildFrame`/`canonicalFieldLayout` (`Kue/Resolve.lean`) verified a faithful mirror of
+  `canonicalizeFields`/`mergeUnevaluatedFieldInto` — both key first-occurrence + `mergeFieldClass.isSome`;
+  `buildFrameFrom` reads only labels, so label-at-index matches by construction across every adversarial
+  dup layout. No regression.
+- `ownLiteralUnion` (`Kue/EvalBase.lean`) correct both directions; mixed own-literal+cross-def-ref and
+  disjunction-conjunct cases both stay OPEN (extension), pure own-literal union closes.
+- `Value.patternLabel` non-output marker leak-proof: Manifest → incomplete error, meetCore → ⊥,
+  `substPatternLabel` enumerates every carrier with no catch-all, residual patterns never manifest, Format
+  → bare name is the correct residual display. No Value-producing catch-all swallows it.
+
+Two NEW findings filed in `plan.md`: **RESOLVE-DEDUP-MIRROR-GUARD** (MED, drift hazard — the two
+collapse-decision mirrors have no lockstep gate; add a `native_decide` label-layout equivalence theorem)
+and **DEF-FLATTEN-CLOSEDNESS-DISJ** (LOW, suspected pre-existing under-close of a disjunction-conjunct
+own-literal def; needs a `wild/` repro). Neither is a release-blocker.

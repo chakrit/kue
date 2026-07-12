@@ -1287,6 +1287,41 @@ so the `| _ =>` ban does not apply.
   not `flattenConjDefRef`, so this slice owns `flattenConjDefRef` alone. Seed a `testdata/wild/` repro
   FIRST.
 
+### PHASE A AUDIT (2026-07-12b, batch 3eeff2a..b73af4e) — 3 slices deep-audited
+
+Batch verdict: all three slices SOUND. `buildFrame`/`canonicalFieldLayout` verified a faithful
+mirror of `canonicalizeFields` (identical first-occurrence + `mergeFieldClass.isSome` keep/append
+decision; `buildFrameFrom` reads only labels, so the label-at-index layout matches by construction
+for every adversarial dup layout — dup+hidden-between, dup-of-def, dup+let-interleave, triple-dup,
+dup+optional). `ownLiteralUnion` correct both directions (mixed own-literal+cross-def-ref and
+disj-conjunct both fail `.all` → stay OPEN; pure own-literal union closes). `Value.patternLabel`
+non-output marker confirmed leak-proof: `Manifest` → incomplete error, `meetCore` → ⊥,
+`substPatternLabel` enumerates every carrier (no catch-all), residual patterns never manifest;
+`Format` → bare name is the correct `cue eval` display of an unapplied residual. No Value-producing
+catch-all swallows `patternLabel`. Two NEW findings:
+
+- **RESOLVE-DEDUP-MIRROR-GUARD (MED, drift hazard — no regression today). OPEN.** `canonicalFieldLayout`
+  (`Kue/Resolve.lean`) hand-copies the collapse decision of `canonicalizeFields`/`mergeUnevaluatedFieldInto`
+  (`Kue/EvalBase.lean`). Resolve imports only `Value`+`Lattice` (not `EvalBase`, which pulls the whole eval
+  stack), so it CANNOT reuse `canonicalizeFields` — hence the copy. The label-at-index equivalence holds
+  now (verified by hand across all dup-layout variants), but is pinned by NOTHING except incidental
+  behavioral fixtures: any future edit to `mergeUnevaluatedFieldInto`'s first-occurrence semantics silently
+  drifts `canonicalFieldLayout` → dangling/misdirected refs in EVERY struct with duplicate fields. This is
+  the exact "two mirrors, no gate" class the recurring-misalignments guard warns of (prose-only invariants
+  rot; script/theorem-enforced ones hold). **Fix:** add a `native_decide` lockstep theorem in a test module
+  that sees both (e.g. `EvalTests`, via `Runtime`→`EvalBase` + `Resolve`):
+  `(canonicalFieldLayout fs).map Field.label == (canonicalizeFields fs).map Field.label` over the adversarial
+  dup layouts. Alternative structural fix: hoist the shared keep/append decision into one helper both call.
+
+- **DEF-FLATTEN-CLOSEDNESS-DISJ (LOW, suspected under-close — PRE-EXISTING, not a batch regression). OPEN.**
+  `#X: {a:1} & ({b:2} | {c:3})` — a def unioning own literals through a disjunction conjunct. A `.disj`
+  conjunct is not `isUnionableDefValue`, so `ownLiteralUnion`'s `.all` fails and the def stays OPEN; a
+  use-site `#X & {d:4}` would then leak `d`. The distributed def is `{a:1,b:2}` | `{a:1,c:3}`, both closed —
+  spec likely mandates closing, so kue would be over-accepting `d`. NOT introduced by DEF-FLATTEN-CLOSEDNESS
+  (the disj case was OPEN before too; the fix only ADDED the pure-literal-union close). Needs a
+  `testdata/wild/` repro to confirm the spec-correct value (cue v0.16.1 cross-check) before fixing — file
+  as suspected.
+
 ### PHASE B AUDIT (2026-07-12, whole-graph + infra rotation) — module-graph + gates/release
 
 **Infra rotation (3rd-cycle, folded in): gates + release tooling HEALTHY.** `check.sh` globs all 4
