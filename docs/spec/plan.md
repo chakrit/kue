@@ -1402,14 +1402,21 @@ catch-all swallows `patternLabel`. Two NEW findings:
   **Coordinate with LET-CYCLE-ERROR** (also edits `Resolve.buildFrame`'s frame model): land this FIRST so the
   let-vs-field distinction builds on the single-sourced collapse layout.
 
-- **DEF-FLATTEN-CLOSEDNESS-DISJ (LOW, suspected under-close — PRE-EXISTING, not a batch regression). OPEN.**
-  `#X: {a:1} & ({b:2} | {c:3})` — a def unioning own literals through a disjunction conjunct. A `.disj`
-  conjunct is not `isUnionableDefValue`, so `ownLiteralUnion`'s `.all` fails and the def stays OPEN; a
-  use-site `#X & {d:4}` would then leak `d`. The distributed def is `{a:1,b:2}` | `{a:1,c:3}`, both closed —
-  spec likely mandates closing, so kue would be over-accepting `d`. NOT introduced by DEF-FLATTEN-CLOSEDNESS
-  (the disj case was OPEN before too; the fix only ADDED the pure-literal-union close). Needs a
-  `testdata/wild/` repro to confirm the spec-correct value (cue v0.16.1 cross-check) before fixing — file
-  as suspected.
+- **DEF-FLATTEN-CLOSEDNESS-DISJ ✅ LANDED (2026-07-13).** CONFIRMED real under-close, then fixed.
+  `#X: {a:1} & ({b:2} | {c:3})`: a `.disj` conjunct is not `isUnionableDefValue`, so `ownLiteralUnion`
+  failed and the def flattened OPEN — a use-site `#X & {d:4}` kept BOTH arms alive (kue: "ambiguous
+  value"), and with a default arm (`*{b:2}`) SILENTLY exported `{a:1,b:2,d:4}` (confirmed leak; cue v0.16.1
+  rejects `y.d`). **Fix** (`flattenConjDefRef`, `Kue/EvalBase.lean`): the gate admits a `.disj` whose every
+  arm is `isUnionableDefValue` (`isClosableDisj`); the close branch DISTRIBUTES the def's own literal union
+  across a single such disjunction and closes each arm as `closeLiteralUnion (literals ++ [arm])`, emitting
+  `.disj [{a,b}(closed), {a,c}(closed)]`. Both-direction guards hold: a `...`-tail arm stays OPEN (union
+  keeps openness); the default marker is preserved per arm. 4 wild fixtures
+  (`def-flatten-closedness-disj{,-select,-default,-open-arm}`). The pure-literal path was refactored to
+  share the same `closeLiteralUnion` helper (byte-identical). **Scoped-out (remaining, LOW):** (a) a
+  disjunction arm that is a `.refId` / scalar is NOT closable this way, so `#X: {a:1} & ({b:2} | #Base)`
+  stays OPEN (cue closes it — a remaining under-close); (b) MULTIPLE closable disjunctions (cross-product)
+  stay OPEN. Both are bounded, pre-existing, and left for a follow-up — file DEF-FLATTEN-CLOSEDNESS-DISJ-REF
+  if prioritized.
 
 ### PHASE B AUDIT (2026-07-13b, HEAD `c3f6c01`, batch `8213870..c3f6c01`) — OrderedPrim fit + strategic reconcile
 
@@ -1454,8 +1461,8 @@ fully tightened — philosophy: spec-COMPLETENESS now leads, no correctness debt
    kernel is LANDED and its SOLE justification was to unblock these — leaving it unwired is a half-finished
    seam. F1 is small and exercises the kernel end-to-end (validates the F2 investment). See § "Phase-of-work"
    below for the float-vs-probe reasoning.
-2. **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** (LOW correctness gaps) → **DEF-FLATTEN-CLOSEDNESS-DISJ**
-   (LOW, needs a `wild/` repro FIRST).
+2. **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** (LOW correctness gaps). (DEF-FLATTEN-CLOSEDNESS-DISJ
+   ✅ LANDED 2026-07-13; the ref-arm / multi-disj tail stays as an optional LOW follow-up.)
 3. **PB-EVALBASE-SPLIT** (`EvalScan.lean` first) / **PB-FIXTUREPORTS-SPLIT** — MED nav-debt, cohesion filler.
 4. **LOW tail:** PA-ESC-2/SUB-4/TT-5, PB-VERSION-CONST/CHECK-COMMENT/FOLD-PLACEMENT/PRIM-CATCHALL/RELEASE-3/
    TESTORG-4, + new PB-ORDEREDPRIM-COMPARE / PB-MKFLOATBOUND-WAIVER.
@@ -1515,7 +1522,7 @@ already struck the landed LET-CYCLE-ERROR from the ranked head. Graph HEALTHY: a
 2. **BOUND-ORDEREDPRIM** (LOW, illegal-states — ~60-site `OrderedPrim` retype, the `boundConstraint.domain`
    numeric-sentinel tightening). Type-system leverage; parallel-safe filler.
 3. **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** (LOW correctness gaps — missing feature /
-   missing validation) → **DEF-FLATTEN-CLOSEDNESS-DISJ** (LOW, needs a `wild/` repro FIRST).
+   missing validation). (DEF-FLATTEN-CLOSEDNESS-DISJ ✅ LANDED 2026-07-13.)
 4. **Float F1** (unblocked by F2, small, exercises the `BinFloat` kernel end-to-end) → F3 → F5.
 5. **PB-EVALBASE-SPLIT** (`EvalScan.lean`) / **PB-FIXTUREPORTS-SPLIT** — MED nav-debt, cohesion filler.
 

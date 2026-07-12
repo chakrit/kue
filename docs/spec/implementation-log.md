@@ -21710,3 +21710,51 @@ Verdict: GRAPH CLEAN, backlog reconciled, next phase RECOMMENDED = float feature
   field-modality if a probe is preferred), resolve by leverage.
 
 No code change; two `plan.md` LOW findings filed.
+
+## Completed Slice: DEF-FLATTEN-CLOSEDNESS-DISJ — close a def unioning own literals through a disjunction
+
+Confirmed-then-fixed a soundness UNDER-CLOSE, sibling to DEF-FLATTEN-CLOSEDNESS.
+
+Behavior added: a closed definition whose body unifies its own struct literals THROUGH a
+disjunction conjunct (`#X: {a:1} & ({b:2}|{c:3})`) now has a fixed field set PER ARM
+(`{a,b}` / `{a,c}`), identical to the source-level embedded form `{a:1, {b:2}|{c:3}}`. A
+use-site `#X & {d:4}` bottoms both arms (field not allowed); `#X & {b:2}` resolves to the
+`{a,b}` arm.
+
+Confirmation (cue v0.16.1 cross-check, spec-adjudicated): pre-fix kue kept both arms OPEN,
+so `#X & {d:4}` surfaced as "ambiguous value" and — with a default arm `*{b:2}` — SILENTLY
+exported `{a:1,b:2,d:4}`, leaking `d` past a closed definition. cue rejects `y.d`. Spec
+basis: a closed definition's arm has a fixed field set; an undeclared field is
+`field not allowed` → bottom.
+
+Fix (`flattenConjDefRef`, `Kue/EvalBase.lean`):
+- `isClosableDisj`: a `.disj` whose every arm is `isUnionableDefValue`.
+- The `ownLiteralUnion` gate admits a closable `.disj` conjunct (alongside own literals and
+  self-refs), so `close` fires.
+- The close branch DISTRIBUTES: for a SINGLE closable disjunction, each arm is closed as
+  `closeLiteralUnion (literals ++ [arm])` (pre-normalize each, `mergeDefinitionDecls`-fold,
+  normalize once — the same close the pure-literal path uses), emitting
+  `.disj [{a,b}(closed), {a,c}(closed)]`. Eval's meet then distributes the use-site fields
+  across the closed arms.
+- The pure-literal (no-disjunction) path was refactored to share the same
+  `closeLiteralUnion` helper — byte-identical to before.
+
+Why not the embedded-reshape route: a first attempt embedded the `.disj` into the merged
+literal (`{a:1,{disj}}`) and either deferred to eval or called
+`normalizeDefinitionValueWithFuel` on it. Both failed — flatten-inlined conjuncts lose
+their definition-ness (deferring left the body OPEN at the use site), and
+`normalizeDefinitionValueWithFuel` closes the OUTER struct WITHOUT distributing an embedded
+disjunction (over-closing: an arm-declared field wrongly rejected). Distributing at flatten
+and closing each arm is the route that matches eval semantics.
+
+Both-direction guards (fixtures): a `...`-tail arm stays OPEN through the union (admits
+extras); a bare arm closes. Default markers preserved per arm.
+
+Scoped-out (LOW, pre-existing, left for an optional follow-up): a disjunction arm that is a
+`.refId` / scalar is not closable this way (`#X: {a:1} & ({b:2} | #Base)` stays OPEN where
+cue closes it), and multiple closable disjunctions (cross-product) stay OPEN.
+
+Tests: 4 auto-discovered wild fixtures — `def-flatten-closedness-disj` (reject extra →
+bottom), `-select` (arm resolves to `{a:1,b:2}`), `-default` (silent-leak default → bottom),
+`-open-arm` (`...`-arm stays open → `{a:1,b:2,d:4}`). `./scripts/check.sh` fully green; zero
+existing closedness / L-series / Bug2-6..12 fixtures flipped.

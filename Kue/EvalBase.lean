@@ -1865,6 +1865,13 @@ def valueMentionsSlotAtDepth (fuel : Nat) (slot : Nat) : Value -> Bool :=
       | _ => none)
     fuel 0
 
+/-- Is `c` a `.disj` whose every arm is `isUnionableDefValue` — a disjunction the def can CLOSE
+    by embedding it into its struct body? A `.disj` with a non-struct arm (a `.refId`, a scalar)
+    is NOT closable this way. -/
+def isClosableDisj : Value -> Bool
+  | .disj alts => alts.all fun a => isUnionableDefValue a.snd
+  | _ => false
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -1987,33 +1994,67 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                     -- A self-ref conjunct (`.refId` to THIS depth-0 slot) is not cross-def
                     -- composition, so it does not block the own-literal union (the isSelfRef
                     -- case remains its subcase).
+                    -- DEF-FLATTEN-CLOSEDNESS-DISJ: a closable disjunction conjunct (a `.disj` all
+                    -- of whose arms are own struct literals) also carries the def's own fields
+                    -- and must close. It is neither `isUnionableDefValue` nor a self-ref, so the
+                    -- gate admits it explicitly; the close branch below distributes the literal
+                    -- union across its arms so closedness is fixed per arm.
                     let ownLiteralUnion :=
                       cs.any isUnionableDefValue
                       && cs.all fun c =>
                         match c with
                         | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
+                        | .disj _ => isClosableDisj c
                         | _ => isUnionableDefValue c
                     let close := field.fieldClass.isDefinition
                       && (isSelfRef || inCycle || ownLiteralUnion)
                     let expanded := cs.flatMap
                       (flattenConjDefRef env fuel (id.index.val :: expanding))
                     if close then
+                      let disjEmbeds := expanded.filter isClosableDisj
                       let literals := expanded.filter isUnionableDefValue
-                      let rest := expanded.filter (fun c => !isUnionableDefValue c)
-                      match literals.map (normalizeDefinitionValueWithFuel normalizeFuel) with
-                      | [] => expanded
-                      -- Each literal is closed FIRST so its def-body openness is settled
-                      -- (`regularOpen` → `defClosed`, an explicit `...` stays `defOpenViaTail`);
-                      -- otherwise `unionDefOpenness` reads a raw `regularOpen` literal as OPEN and
-                      -- the union would re-open. The fold UNIONS the closed literals into ONE body —
-                      -- `mergeDefinitionDecls` re-derives a SINGLE `closedClauses` over the merged
-                      -- fields (no per-literal clause concatenation) and unions openness
-                      -- (`defOpenViaTail` dominates, so a split `...` keeps the union open). The
-                      -- final close is idempotent on the already-closed merged body.
-                      | first :: more =>
-                          let merged := more.foldl mergeDefinitionDecls first
-                          let closed := normalizeDefinitionValueWithFuel normalizeFuel merged
-                          rest ++ [closed]
+                      let rest := expanded.filter
+                        (fun c => !isUnionableDefValue c && !isClosableDisj c)
+                      -- Close a set of own struct-literals into ONE fixed field set. Each literal is
+                      -- closed FIRST so its def-body openness is settled (`regularOpen` →
+                      -- `defClosed`, an explicit `...` stays `defOpenViaTail`); otherwise
+                      -- `unionDefOpenness` reads a raw `regularOpen` literal as OPEN and the union
+                      -- would re-open. `mergeDefinitionDecls` then re-derives a SINGLE
+                      -- `closedClauses` over the merged fields (no per-literal clause concatenation)
+                      -- and unions openness (`defOpenViaTail` dominates, so a split `...` keeps the
+                      -- union open). The final close is idempotent.
+                      let closeLiteralUnion := fun (vs : List Value) =>
+                        match vs.map (normalizeDefinitionValueWithFuel normalizeFuel) with
+                        | [] => none
+                        | first :: more => some (normalizeDefinitionValueWithFuel normalizeFuel
+                            (more.foldl mergeDefinitionDecls first))
+                      match disjEmbeds with
+                      -- DEF-FLATTEN-CLOSEDNESS-DISJ: DISTRIBUTE the def's own struct-literal union
+                      -- across a single closable disjunction and CLOSE each arm — so
+                      -- `#X: {a:1} & ({b:2}|{c:3})` flattens to `{a:1,b:2}(closed) |
+                      -- {a:1,c:3}(closed)`, fixing the field set per arm (a use-site `& {d:4}` then
+                      -- bottoms both arms; `& {b:2}` resolves to the `{a,b}` arm). Closing the arm
+                      -- TOGETHER with the literal union gives the arm's own declared field the
+                      -- combined allowed-set, so it is admitted, not rejected. An arm carrying a
+                      -- `...` tail stays open through the union (its extras admitted). The default
+                      -- marker is preserved per arm. Only a SINGLE closable disjunction distributes
+                      -- here; multiple disjunctions would need a cross-product, so they stay OPEN
+                      -- (pre-existing behavior, not a regression).
+                      | [.disj alts] =>
+                          match literals with
+                          | [] => expanded
+                          | _ =>
+                              let closedArms := alts.filterMap fun alt =>
+                                (closeLiteralUnion (literals ++ [alt.snd])).map (fun v => (alt.fst, v))
+                              rest ++ [.disj closedArms]
+                      -- Pure own-literal union (no disjunction): close at flatten.
+                      | [] =>
+                          match closeLiteralUnion literals with
+                          | none => expanded
+                          | some closed => rest ++ [closed]
+                      -- Multiple closable disjunctions would need a cross-product distribution;
+                      -- left OPEN (pre-existing behavior).
+                      | _ => expanded
                     else expanded
                 | _ => [constraint]
             | none => [constraint]

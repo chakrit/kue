@@ -3,7 +3,26 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **BOUND-ORDEREDPRIM — illegal bound-operand states now unrepresentable (LANDED 2026-07-13,
+HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ — CONFIRMED under-close, then FIXED (LANDED 2026-07-13).** A closed def
+unioning its own struct literals THROUGH a disjunction conjunct (`#X: {a:1} & ({b:2}|{c:3})`) flattened
+OPEN — the `.disj` conjunct failed `isUnionableDefValue`, so `ownLiteralUnion` never fired. Confirmed real
+vs cue v0.16.1: `#X & {d:4}` kept both arms alive ("ambiguous value"), and with a default arm (`*{b:2}`)
+SILENTLY exported `{a:1,b:2,d:4}` (leak). Fix (`flattenConjDefRef`, `Kue/EvalBase.lean`): gate admits a
+`.disj` all of whose arms are `isUnionableDefValue` (`isClosableDisj`); the close branch DISTRIBUTES the
+literal union across a single such disjunction, closing each arm as `closeLiteralUnion (literals ++ [arm])`
+→ `.disj [{a,b}(closed), {a,c}(closed)]`; eval's meet distributes the use-site fields per arm. Pure-literal
+path refactored to share `closeLiteralUnion` (byte-identical). Both-direction guards: `...`-arm stays OPEN,
+default marker preserved per arm. 4 wild fixtures (`def-flatten-closedness-disj{,-select,-default,-open-arm}`).
+`check.sh` GREEN, zero closedness/L-series/Bug2-6..12 flips. **Scoped-out (LOW follow-up):** ref-arm /
+scalar-arm disjunction (`#X: {a:1} & ({b:2} | #Base)`) stays OPEN where cue closes it; multiple closable
+disjunctions (cross-product) stay OPEN. File DEF-FLATTEN-CLOSEDNESS-DISJ-REF if prioritized.
+**NEXT (ranked):** a two-phase AUDIT is now DUE (BINARY-CMP-BYTES + STRING-BYTES-PROBE + BOUND-ORDEREDPRIM
++ this = 4 slices since 2026-07-13 Phase A/B) → **float F1/F3/F5** (narrow, unblocked; large campaign flagged
+for chakrit's prioritization, not auto-scheduled) → LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** /
+**UNREFERENCED-ALIAS** → **PB-EVALBASE-SPLIT** nav-debt. **Alpha release HELD for chakrit (attended)** — a
+datestamped alpha is due; handoff: this slice is committed + pushed, release awaits your say-so.
+
+Prior HEAD: **BOUND-ORDEREDPRIM — illegal bound-operand states now unrepresentable (LANDED 2026-07-13,
 `7c8eedc`).** `boundConstraint` retyped from `(bound : Prim) (kind) (domain : NumberDomain)` to
 `(bound : OrderedPrim) (kind)`. `OrderedPrim` = ordered subset of Prim (int/float/string/bytes) with
 `NumberDomain` folded into the numeric arms ONLY — a null/bool operand and a domain-bearing string/bytes
@@ -15,11 +34,8 @@ arms in `meetBoundPrim`/`meetKindWithBound`, null/bool→⊥ arms in `evalBoundO
 PA-BOUND-DOMAIN-TYPE DISCHARGED. Behavior-preserving — whole suite green, ZERO flipped theorems (the
 proof); +4 `native_decide` unrepresentability theorems in `BoundTests.lean`. No `cue` divergence, no spec
 gap. **A two-phase AUDIT is now DUE** (this refactor + BINARY-CMP-BYTES + STRING-BYTES-PROBE = 3 slices
-since the 2026-07-13 Phase A/B). **NEXT (ranked):** the AUDIT → **float F1/F3/F5** (narrow, unblocked) →
-LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** / **DEF-FLATTEN-CLOSEDNESS-DISJ** (needs
-`wild/` repro first) → **PB-EVALBASE-SPLIT** nav-debt. **Alpha release remains HELD for chakrit
-(attended)** — a datestamped alpha is due; handoff: this slice is committed + pushed, release awaits your
-say-so.
+since the 2026-07-13 Phase A/B). (NEXT pointer superseded by the live HEAD above;
+DEF-FLATTEN-CLOSEDNESS-DISJ has since LANDED.)
 
 Prior HEAD: **STRING-BYTES-PROBE — differential probe of the bytes/string value family; one wrong-value
 defect found+fixed, rest measured GREEN (LANDED 2026-07-13).** Probed ~40 minimal cases vs cue v0.16.1
