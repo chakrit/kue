@@ -21378,3 +21378,59 @@ dup-with-optional, class-mismatch let-vs-field); added to the coverage tripwire.
 `Kue/Lattice.lean` (`mergeFieldLayoutInto`), `Kue/EvalBase.lean` (`mergeUnevaluatedFieldValue`,
 `canonicalizeFields` rewired, `mergeUnevaluatedFieldInto` deleted), `Kue/Resolve.lean`
 (`canonicalFieldLayout` rewired), `Kue/Tests/ResolveTests.lean` (equivalence guard).
+
+---
+
+## Completed Slice: LET-CYCLE-ERROR — a `let` self/mutual cycle errors, not top
+
+Goal: a reference cycle sitting entirely on `let` bindings is a CUE load error, distinct from a
+FIELD reference cycle (which truncates to top). kue had collapsed a struct-level `let a = a` (and
+mutual `let a = c; let c = a`) to top like `x: x`, masking cue's `reference "a" not found` /
+`cyclic references in let clause or alias`.
+
+### Root
+
+A struct-level `let` is a `letBinding` field in the shared scope frame, so its RHS self-resolves to
+its own slot and the depth-0 `slotVisited ⇒ truncate .top` reference-cycle guard fired — correct for a
+FIELD (`x: x` → `_`), wrong for a `let` (out of scope in its own RHS).
+
+### Change (nature read at the guard, not threaded through resolution)
+
+The let-vs-field class is already available at the cycle guard: the guard re-fetches the field
+(`nthField id.index.val frame.snd`) off the live frame. So `buildFrame`/resolution is UNCHANGED — the
+distinction lives entirely in the eval classifier.
+
+- `Kue/EvalBase.lean`: `cycleSlots slot visited` = the cycle segment (prefix of `visited` up to and
+  including the repeated slot); `allLetCycle fields slots` = every slot on the cycle is a `letBinding`.
+- `Kue/Eval.lean` (`.refId`, depth-0 `slotVisited` branch): on a detected cycle, if `allLetCycle` the
+  whole segment ⇒ `.bottomWith [.letClauseCycle (Field.label field) (cycle.length > 1)]`; else keep the
+  `truncate .top` field-self rule. `isMutual := cycle length > 1` separates the self case (`reference
+  "a" not found`) from the multi-let case (`cyclic references in let clause or alias`).
+- `Kue/Value.lean`: `BottomReason.letClauseCycle (label) (isMutual)`.
+- `Kue/Manifest.lean`: `letClauseCycleReason?` extraction + `ManifestError.letClauseCycle`, routed in
+  the `.bottomWith` arm ahead of the generic contradiction (mirrors the unused-import path).
+- `Kue/Runtime.lean`: `formatManifestError` renders cue's load-error text.
+
+The saturated bottom is safe to cache — `satKey` includes `visited`, so a non-cyclic lookup of the
+same `refId` cannot be served the cycle error.
+
+### cue semantics pinned (v0.16.1)
+
+`let a = a` / `let a = a + 1` / `let a = a.b` ⇒ `reference "a" not found` (single-let cycle);
+`let a = c; let c = a` / 3-let cycle ⇒ `cyclic references in let clause or alias`; `let a = x; x: a`
+(field on the cycle) ⇒ `x: incomplete value _` (top); `let a = 1; let b = a` ⇒ resolves; `x: x` ⇒ top.
+kue matches all.
+
+### Tests
+
+Seed `testdata/wild/let-self-cycle-error/` RED→GREEN. New wild fixtures `let-mutual-cycle-error`,
+`let-arith-self-cycle-error` (error oracles), `let-cycle-through-field-top` (field-anchored cycle stays
+top), `let-chain-valid` (valid chain resolves). 6 `native_decide` theorems in `EvalTests.lean` cover
+self/arith/mutual errors + the both-direction guards (field-cycle-top, valid-chain, field-self-not-let-
+error). `./scripts/check.sh` fully green; zero existing let/scoping/cycle fixtures or theorems flipped.
+
+### Files
+
+`Kue/Value.lean`, `Kue/EvalBase.lean`, `Kue/Eval.lean`, `Kue/Manifest.lean`, `Kue/Runtime.lean`,
+`Kue/Tests/EvalTests.lean`, `testdata/wild/let-{self-cycle-error,mutual-cycle-error,arith-self-cycle-
+error,cycle-through-field-top,chain-valid}/`.

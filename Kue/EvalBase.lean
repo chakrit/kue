@@ -46,6 +46,24 @@ def slotVisited (index : Nat) : List Nat -> Bool
       else
         slotVisited index rest
 
+/-- The reference cycle a re-entered slot closes: the prefix of `visited` up to and INCLUDING
+    the first occurrence of `slot` (the repeated slot). Every slot on that segment lies on the
+    cycle. `slot` is guaranteed present (the caller checks `slotVisited` first). -/
+def cycleSlots (slot : Nat) : List Nat -> List Nat
+  | [] => []
+  | visited :: rest =>
+      if visited == slot then [visited]
+      else visited :: cycleSlots slot rest
+
+/-- Are ALL slots on a detected reference cycle `let` bindings? A pure-`let` cycle is a CUE load
+    error; a cycle touching any field truncates to top. -/
+def allLetCycle (fields : List Field) : List Nat -> Bool
+  | [] => true
+  | slot :: rest =>
+      match nthField slot fields with
+      | some field => field.fieldClass == .letBinding && allLetCycle fields rest
+      | none => false
+
 def fieldLabelIndexFrom (label : String) (index : Nat) : List Field -> Option Nat
   | [] => none
   | field :: fields =>

@@ -301,7 +301,15 @@ mutual
                         evalValueWithFuel fuel e vis bodyVal
                     if id.depth == 0 then
                       if slotVisited id.index.val visited then
-                        EvalState.truncate .top
+                        -- A reference cycle. A cycle sitting ENTIRELY on `let` slots is a CUE load
+                        -- error (a `let` name is out of scope in its own RHS); a cycle touching any
+                        -- FIELD slot truncates to top (`x: x` → `_`). The distinction is the cycle's
+                        -- slot classes, read off the live frame.
+                        let cycle := cycleSlots id.index.val visited
+                        if allLetCycle frame.snd cycle then
+                          pure (.bottomWith [.letClauseCycle (Field.label field) (cycle.length > 1)])
+                        else
+                          EvalState.truncate .top
                       else
                         recurseBody env (id.index.val :: visited)
                     else

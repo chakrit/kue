@@ -3,7 +3,25 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **RESOLVE-DEDUP-MIRROR-GUARD — field-collapse decision single-sourced in `Lattice`; drift now
+HEAD: **LET-CYCLE-ERROR — a pure-`let` reference cycle now ERRORS instead of collapsing to top
+(LANDED 2026-07-12).** `let a = a` was kue top (`b: _`), now `reference "a" not found`; mutual
+`let a = c; let c = a` now `cyclic references in let clause or alias` (cue v0.16.1). FIX: the
+let-vs-field nature is read AT the depth-0 `slotVisited` cycle guard (`Kue/Eval.lean`) off the live
+frame — `buildFrame`/resolution UNCHANGED. `cycleSlots`/`allLetCycle` (`EvalBase.lean`) classify the
+detected cycle: entirely-`letBinding` slots ⇒ `.bottomWith [.letClauseCycle label isMutual]`
+(`isMutual := len>1`), any field on the cycle ⇒ keep `truncate .top` (over-correction guard). Manifest
+surfaces the reason (`letClauseCycleReason?`, `ManifestError.letClauseCycle`) as cue's load-error text.
+Both directions pinned: `let a=x; x:a` and `x:x` STILL top; `let a=1; let b=a` STILL resolves. Seed
+`let-self-cycle-error` GRADUATED; new fixtures `let-{mutual-cycle-error,arith-self-cycle-error,cycle-
+through-field-top,chain-valid}`; 6 theorems in `EvalTests.lean`. **A two-phase AUDIT is now DUE** (3
+slices since last audit: SELF-SELECT-CYCLE-CROSSFRAME, RESOLVE-DEDUP-MIRROR-GUARD, LET-CYCLE-ERROR).
+**NEXT (ranked):** run the AUDIT (phase A code-quality → phase B architecture) → **BINARY-CMP-BYTES**
+(LOW, kue bug, `bytesOp` threading) → **BOUND-ORDEREDPRIM** (LOW, illegal-states, ~60-site tightening)
+→ **PATTERN-LABEL-ALIAS-SCALAR** (LOW) → **UNREFERENCED-ALIAS** (LOW) → **PB-EVALBASE-SPLIT** (cohesion
+filler). **Alpha release remains HELD for chakrit (attended) — handoff: this slice is committed, not
+pushed/released pending your say-so.**
+
+Prior HEAD: **RESOLVE-DEDUP-MIRROR-GUARD — field-collapse decision single-sourced in `Lattice`; drift now
 impossible by construction (LANDED 2026-07-12).** `canonicalFieldLayout` (Resolve, lexical layout) and
 `canonicalizeFields` (EvalBase, eval frame) hand-copied the SAME duplicate-collapse decision
 (first-occurrence keying + `mergeFieldClass.isSome` keep/append); they had to agree or refs dangle (the

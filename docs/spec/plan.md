@@ -1139,13 +1139,22 @@ directions, pre-pinned). **Four defects found + seeded RED** (`.known-red`, all 
   then flows to the `.refId` arm and truncates correctly. Bug2-12 direct-self-ref close path
   untouched. Over-truncation guard holds (`x: 1` + `x: x & 2` still `_|_`). Seed
   `testdata/wild/self-conj-cycle/` green; 9 `Bug2xTests` theorems added.
-- **LET-CYCLE-ERROR (MEDIUM — missing load error; kue too lenient). OPEN.** A `let` binding
-  is not in scope in its own RHS: `let a = a` ⇒ cue `reference "a" not found`; mutual
-  `let a = c; let c = a` ⇒ cue `cyclic references in let clause or alias`. kue represents a
-  struct-level `let` as a field in the shared scope frame, so the RHS self-resolves and the
-  FIELD reference-cycle rule (self→top) fires, masking the error (`b: _`). Needs a let-vs-field
-  distinction in the scope model (`Kue/Resolve.lean` `buildFrame` erases the `.letBinding`
-  class) + let-cycle detection. Seed `testdata/wild/let-self-cycle-error/`.
+- **LET-CYCLE-ERROR (MEDIUM — missing load error; kue too lenient). ✅ LANDED 2026-07-12.** A `let`
+  binding is not in scope in its own RHS: `let a = a` ⇒ `reference "a" not found`; mutual
+  `let a = c; let c = a` ⇒ `cyclic references in let clause or alias`. kue had collapsed a
+  struct-level `let` self/mutual cycle to top like a FIELD self-cycle, masking the error. FIX
+  (no scope-model change; the let-vs-field nature is read at the guard, not threaded): the
+  reference-cycle guard (`Kue/Eval.lean`, depth-0 `slotVisited`) now inspects the DETECTED cycle's
+  slot classes off the live frame — `cycleSlots`/`allLetCycle` (`EvalBase.lean`). A cycle sitting
+  ENTIRELY on `letBinding` slots raises `.bottomWith [.letClauseCycle label isMutual]`
+  (`isMutual := cycle length > 1`); a cycle touching ANY field keeps the field-self `truncate .top`
+  rule (`x: x` → `_`, `let a = x; x: a` → `_` — over-correction guard). Manifest surfaces the reason
+  (`letClauseCycleReason?`, like the unused-import path) as cue's load-error text
+  (`ManifestError.letClauseCycle`). Seed `testdata/wild/let-self-cycle-error/` RED→GREEN; wild
+  fixtures `let-{mutual-cycle-error,arith-self-cycle-error,cycle-through-field-top,chain-valid}`;
+  6 theorems in `EvalTests.lean` (self/arith/mutual error + field-cycle-top/valid-chain/field-self
+  both-direction guards). `buildFrame` unchanged — resolution still binds the let in the shared
+  frame; the distinction lives entirely in the eval cycle classifier.
 - **PATTERN-LABEL-ALIAS (MEDIUM — missing feature + parse gap). ✅ LANDED 2026-07-12 for STRUCT
   constraint bodies; non-struct body split to PATTERN-LABEL-ALIAS-SCALAR.** `[Name=string]: {n:
   Name}` binds `Name` to each matched field's concrete label. `parsePatternField` now reads an

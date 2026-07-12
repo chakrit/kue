@@ -775,6 +775,13 @@ inductive BottomReason where
       cycle (`x: x`), which resolves to `_`. Raised on the def-body force path
       (`forceClosureWithConjunct`) when an ancestor force frame repeats. -/
   | structuralCycle
+  /-- A reference cycle every node of which is a `let` binding — distinct from a FIELD reference
+      cycle (`x: x`), which resolves to top. CUE keeps a `let` name OUT of scope within its own
+      RHS, so a direct self-cycle (`let a = a`, `mutual := false`) is an unresolved reference
+      (`reference "a" not found`); a cycle spanning several lets (`let a = c; let c = a`,
+      `mutual := true`) is `cyclic references in let clause or alias`. Raised at the reference
+      cycle guard when the whole detected cycle sits on `letBinding` slots. -/
+  | letClauseCycle (label : String) (isMutual : Bool)
   /-- A comprehension `if` guard whose condition resolved to a CONCRETE value of non-`bool`
       type (`if "x" {…}`, `if 3 {…}`, `if {…} {…}`). The CUE spec requires the guard to be
       `bool`, so a concrete non-bool is a type error (cue: `cannot use … as type bool`), NOT a

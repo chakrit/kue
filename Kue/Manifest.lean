@@ -22,6 +22,11 @@ inductive ManifestError where
       Carries the qualified function name so the CLI names the unimplemented function instead of the
       generic contradiction. -/
   | unsupportedBuiltinFunction (name : String)
+  /-- A pure-`let` reference cycle (`let a = a`, or mutual `let a = c; let c = a`), tagged by the
+      evaluator's cycle guard. Carries the entry label + whether the cycle spans several lets, so
+      the CLI renders cue's `reference "<label>" not found` (self) or `cyclic references in let
+      clause or alias` (mutual) rather than the generic contradiction. -/
+  | letClauseCycle (label : String) (isMutual : Bool)
 deriving Repr, BEq
 
 /-- `Except` carries no stdlib `BEq`, so `manifest`/`formatManifestField` results cannot be
@@ -51,6 +56,14 @@ def unusedImportReasons (reasons : List BottomReason) : List (String × Option S
 def unsupportedBuiltinName? (reasons : List BottomReason) : Option String :=
   reasons.findSome? fun
     | .unsupportedBuiltin name => some name
+    | _ => none
+
+/-- The first `letClauseCycle` tag in a bottom's reason list, if any. A pure-`let` reference cycle
+    tags its bottom this way; surfacing it lets the manifest error render cue's load-error text
+    rather than the generic contradiction. -/
+def letClauseCycleReason? (reasons : List BottomReason) : Option (String × Bool) :=
+  reasons.findSome? fun
+    | .letClauseCycle label isMutual => some (label, isMutual)
     | _ => none
 
 /-- Finalize a disjunction arm's retained length / uniqueness residual at manifestation. An arm
@@ -125,10 +138,11 @@ mutual
     | _ + 1, .prim prim => .ok (.prim prim)
     | _ + 1, .bottom => .error .contradiction
     | _ + 1, .bottomWith reasons =>
-      match unusedImportReasons reasons, unsupportedBuiltinName? reasons with
-      | [], some name => .error (.unsupportedBuiltinFunction name)
-      | [], none => .error .contradiction
-      | imports, _ => .error (.importedNotUsed imports)
+      match unusedImportReasons reasons, unsupportedBuiltinName? reasons, letClauseCycleReason? reasons with
+      | [], _, some (label, isMutual) => .error (.letClauseCycle label isMutual)
+      | [], some name, _ => .error (.unsupportedBuiltinFunction name)
+      | [], none, _ => .error .contradiction
+      | imports, _, _ => .error (.importedNotUsed imports)
     | _ + 1, .top => .error (.incomplete .top)
     | _ + 1, .kind kind => .error (.incomplete (.kind kind))
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))

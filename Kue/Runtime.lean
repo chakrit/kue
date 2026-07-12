@@ -93,6 +93,9 @@ def formatManifestError : ManifestError -> String
         | some name => s!"imported and not used: \"{path}\" as {name}")
   | .unsupportedBuiltinFunction name =>
       s!"unsupported builtin function \"{name}\": recognized but not yet implemented in kue"
+  | .letClauseCycle label isMutual =>
+      if isMutual then "cyclic references in let clause or alias"
+      else s!"reference \"{label}\" not found"
 
 /-- Look up a field by label on a resolved struct-like value, returning its value when
     present. Mirrors the decl-bearing cases of `selectEvaluatedField` but distinguishes a

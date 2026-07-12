@@ -149,6 +149,44 @@ theorem constrained_reference_cycle_unchanged :
     evalSourceMatches "x: x & >=0\n" "x: >=0" = true := by
   native_decide
 
+-- LET-CYCLE-ERROR. A `let` name is out of scope in its own RHS: a reference cycle sitting
+-- ENTIRELY on `let` slots is a CUE load error, DISTINCT from a FIELD reference cycle (`x: x` →
+-- `_`, pinned above). The cycle guard reads the slot classes off the live frame — a single-let
+-- cycle is `reference "<name>" not found`, a multi-let cycle is `cyclic references in let clause
+-- or alias`, and a cycle touching any field keeps the field-self top rule (over-correction guard).
+
+-- Direct self-cycle: one `let` slot ⇒ `reference "a" not found` (cue v0.16.1).
+theorem let_self_cycle_reference_not_found :
+    exportErrorMessage "let a = a\nb: a\n" = "reference \"a\" not found" := by
+  native_decide
+
+-- Arithmetic self-cycle: still a single-let cycle, same `reference "a" not found`.
+theorem let_arith_self_cycle_reference_not_found :
+    exportErrorMessage "let a = a + 1\nb: a\n" = "reference \"a\" not found" := by
+  native_decide
+
+-- Mutual `let` cycle: several `let` slots ⇒ `cyclic references in let clause or alias`.
+theorem let_mutual_cycle_cyclic_references :
+    exportErrorMessage "let a = c\nlet c = a\nb: a\n"
+      = "cyclic references in let clause or alias" := by
+  native_decide
+
+-- Over-correction guard: a cycle THROUGH a field (`let a = x; x: a`) keeps the field-self top
+-- rule — it truncates to `_` (incomplete), NOT a let load error.
+theorem let_cycle_through_field_stays_top :
+    exportErrorMessage "let a = x\nx: a\n" = "incomplete value: _" := by
+  native_decide
+
+-- Both-direction guard: a non-cyclic let chain still resolves (`let a = 1; let b = a` → `c: 1`).
+theorem valid_let_chain_resolves :
+    exportJsonMatches "let a = 1\nlet b = a\nc: b\n" "{\n    \"c\": 1\n}\n" = true := by
+  native_decide
+
+-- Both-direction guard: the plain FIELD self-cycle is UNTOUCHED — still `_`, never a let error.
+theorem field_self_cycle_not_let_error :
+    exportErrorMessage "x: x\n" = "incomplete value: _" := by
+  native_decide
+
 -- Control (oracle #4): a FINITE-deep nesting must NOT false-positive — each layer is a DISTINCT
 -- struct body, so no body is ever on the stack twice. No `.structuralCycle` anywhere.
 theorem finite_deep_struct_no_false_cycle :
