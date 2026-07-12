@@ -334,16 +334,20 @@ def stringsLt (left right : String) : Bool :=
   charsLt left.toList right.toList
 
 /-- A scalar-op operand, classified for the bool / numeric / comparison / regex ops. `prim`
-    carries the leaf so the op can compute on it; `bottom`/`bottomReasons` propagate a bottom;
-    every ABSTRACT form (ref, kind, bound, unresolved disjunction, struct, list, comprehension,
-    …) is `defer` — the op holds a residual `.binary`/`.unary`. Fully enumerated over `Value`
-    (no catch-all) so a new constructor forces a classify decision here, exactly as
+    carries the leaf so the op can compute on it; `bottom`/`bottomReasons` propagate a bottom.
+    A genuinely-unresolved abstract form (ref, kind, bound, unresolved disjunction,
+    comprehension, top, …) is `incomplete` — the op holds a residual `.binary`/`.unary` that
+    may still refine into a scalar. A fully-resolved list/struct is `nonScalar` — it can never
+    refine into an ordered scalar, so the ordering/bound/regex/unary-arith ops that demand one
+    reject it (⊥) rather than fabricate a residual. Fully enumerated over `Value` (no
+    catch-all) so a new constructor forces a classify decision here, exactly as
     `classifyArithOperand` does for `+ - * /`. -/
 inductive ScalarOperandClass where
   | prim (value : Prim)
   | bottom
   | bottomReasons (reasons : List BottomReason)
-  | defer
+  | incomplete
+  | nonScalar
 
 /-- Classify a scalar-op operand. Shared by `evalPrimitiveOrdering`/`evalRegexMatch`/
     `evalBoolBinary`/`evalBoolNot`/`evalNumPos`/`evalNumNeg`, so each dispatches on the finite
@@ -353,35 +357,35 @@ def classifyScalarOperand : Value -> ScalarOperandClass
   | .prim value => .prim value
   | .bottom => .bottom
   | .bottomWith reasons => .bottomReasons reasons
-  | .top => .defer
-  | .kind _ => .defer
-  | .notPrim _ => .defer
-  | .stringRegex _ => .defer
-  | .stringFormat _ => .defer
-  | .boundConstraint _ _ _ => .defer
-  | .lengthConstraint _ _ _ => .defer
-  | .uniqueItems => .defer
-  | .conj _ => .defer
-  | .builtinCall _ _ => .defer
-  | .unary _ _ => .defer
-  | .binary _ _ _ => .defer
-  | .ref _ => .defer
-  | .refId _ => .defer
-  | .thisStruct => .defer
-  | .selector _ _ => .defer
-  | .index _ _ => .defer
-  | .disj _ => .defer
-  | .struct _ _ _ _ _ => .defer
-  | .list _ => .defer
-  | .listTail _ _ => .defer
-  | .embeddedList _ _ _ => .defer
-  | .embeddedScalar _ _ => .defer
-  | .comprehension _ _ => .defer
-  | .structComp _ _ _ => .defer
-  | .listComprehension _ _ => .defer
-  | .interpolation _ => .defer
-  | .dynamicField _ _ _ => .defer
-  | .closure _ _ => .defer
+  | .top => .incomplete
+  | .kind _ => .incomplete
+  | .notPrim _ => .incomplete
+  | .stringRegex _ => .incomplete
+  | .stringFormat _ => .incomplete
+  | .boundConstraint _ _ _ => .incomplete
+  | .lengthConstraint _ _ _ => .incomplete
+  | .uniqueItems => .incomplete
+  | .conj _ => .incomplete
+  | .builtinCall _ _ => .incomplete
+  | .unary _ _ => .incomplete
+  | .binary _ _ _ => .incomplete
+  | .ref _ => .incomplete
+  | .refId _ => .incomplete
+  | .thisStruct => .incomplete
+  | .selector _ _ => .incomplete
+  | .index _ _ => .incomplete
+  | .disj _ => .incomplete
+  | .struct _ _ _ _ _ => .nonScalar
+  | .list _ => .nonScalar
+  | .listTail _ _ => .nonScalar
+  | .embeddedList _ _ _ => .nonScalar
+  | .embeddedScalar _ _ => .incomplete
+  | .comprehension _ _ => .incomplete
+  | .structComp _ _ _ => .incomplete
+  | .listComprehension _ _ => .incomplete
+  | .interpolation _ => .incomplete
+  | .dynamicField _ _ _ => .incomplete
+  | .closure _ _ => .incomplete
 
 def evalPrimitiveOrdering
     (decimalOp : DecimalValue -> DecimalValue -> Bool)
@@ -445,7 +449,8 @@ def evalBoolNot (value : Value) : Value :=
   | .prim _ => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
-  | .defer => .unary .boolNot value
+  | .incomplete => .unary .boolNot value
+  | .nonScalar => .unary .boolNot value
 
 def negateFloatText (value : String) : String :=
   match value.toList with
@@ -459,7 +464,8 @@ def evalNumPos (value : Value) : Value :=
   | .prim _ => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
-  | .defer => .unary .numPos value
+  | .incomplete => .unary .numPos value
+  | .nonScalar => .bottom
 
 def evalNumNeg (value : Value) : Value :=
   match classifyScalarOperand value with
@@ -468,7 +474,8 @@ def evalNumNeg (value : Value) : Value :=
   | .prim _ => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
-  | .defer => .unary .numNeg value
+  | .incomplete => .unary .numNeg value
+  | .nonScalar => .bottom
 
 /-- Lower a comparator (`< <= > >=`) applied to a now-evaluated operand into a bound
     constraint. A ground ORDERED prim (number/string/bytes) becomes a `boundConstraint`; a
@@ -484,7 +491,8 @@ def evalBoundOp (kind : BoundKind) (value : Value) : Value :=
   | .prim (.bool _) => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
-  | .defer => .unary (.boundOp kind) value
+  | .incomplete => .unary (.boundOp kind) value
+  | .nonScalar => .bottom
 
 /-- Lower `!=` applied to a now-evaluated operand into a `notPrim` validator. -/
 def evalNeOp (value : Value) : Value :=
@@ -492,7 +500,8 @@ def evalNeOp (value : Value) : Value :=
   | .prim prim => .notPrim prim
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
-  | .defer => .unary .neOp value
+  | .incomplete => .unary .neOp value
+  | .nonScalar => .unary .neOp value
 
 /-- Lower `=~` applied to a now-evaluated operand into a `stringRegex` validator; a non-string
     operand is invalid (⊥). -/
@@ -502,7 +511,8 @@ def evalRegexMatchOp (value : Value) : Value :=
   | .prim _ => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
-  | .defer => .unary .regexMatchOp value
+  | .incomplete => .unary .regexMatchOp value
+  | .nonScalar => .bottom
 
 def evalUnary (op : UnaryOp) (value : Value) : Value :=
   match op with

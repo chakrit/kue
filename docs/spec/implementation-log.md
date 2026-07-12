@@ -20792,3 +20792,47 @@ Split deliberately: the MEDIUM soundness fix is small + independent; the represe
   ~60-site refactor (Lattice 40, EvalBase 20, + Value/Order/Format/Manifest/Resolve/Parse).
 
 No `./scripts/check.sh` run (no code change; only durable-doc edits to plan + this log).
+
+## Completed Slice: BOUND-OPERAND-CLASSIFY — ground non-scalar bound/regex/arith operand ⊥, not fabricated
+
+2026-07-12. Fixes the MEDIUM soundness regression from PATTERN-BOUND-OPERAND slice
+`a8e37e2`: `classifyScalarOperand`'s single `.defer` class conflated a genuinely-incomplete
+operand with a fully-resolved list/struct, so `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/
+`evalNumNeg` fabricated a residual constraint (`<[1,2]`, `<{a:1}`, `=~[1]`, `-[1,2]` exported
+as "incomplete value") where cue v0.16.1 hard-errors.
+
+### Classifier split
+
+`ScalarOperandClass.defer` → two constructors: `.incomplete` (unreduced expression / abstract
+value that MAY still refine into a scalar → retain the residual `.unary`) and `.nonScalar`
+(a fully-resolved `.list`/`.listTail`/`.embeddedList`/`.struct` → categorically never an
+ordered scalar). `classifyScalarOperand` maps exactly those four Value constructors to
+`.nonScalar`; everything else — including `.top`, `.disj`, `.kind`, `.embeddedScalar`, and the
+abstract-constraint values — stays `.incomplete` (cue-adjudicated: `<_`, `<(1|2)`, `<(>5)` are
+RETAINED, not errors). The enum stays fully enumerated over `Value` (no catch-all), so a new
+constructor forces a classify decision here.
+
+### Per-op behavior
+
+Every single-operand match on the class is exhaustive (no `| _ =>` swallowing `.nonScalar`
+in a Value-producing match — the illegal-states discipline that would have prevented the
+original bug). `evalNumPos`/`evalNumNeg`/`evalBoundOp`/`evalRegexMatchOp` ⇒ `.nonScalar => .bottom`;
+`evalNeOp` ⇒ `.nonScalar => .unary .neOp value` (identical to its `.incomplete` arm — neOp
+never rejects a non-scalar; `!=[1,2]`/`!={a:1}` retained, cue-confirmed); `evalBoolNot` absorbs
+`.nonScalar` into its retain arm (out of the four-op scope). The three pair-matches
+(`evalPrimitiveOrdering`/`evalRegexMatch`/`evalBoolBinary`) absorb `.nonScalar` via their
+existing `| _, _ =>` class-level catch-all — behavior preserved; the binary-comparison latent
+case (`1 < [1,2]` retains where cue errors) is a flagged sibling follow-up, out of scope.
+
+### Tests
+
+Wild guards (RED→GREEN in-slice, no `.known-red`): `testdata/wild/bound-nonscalar-list/`
+(`x: <[1,2]`), `bound-nonscalar-struct/` (`x: <{a:1}`), `neg-list-operand/` (`x: -[1,2]`),
+`regex-list-operand/` (`x: =~[1]`) — each pins the bottom verdict via `.expected.err`. 13 new
+`EvalOpsTests` theorems: list/struct/embeddedList operand ⇒ ⊥ for boundOp/regexMatchOp/numPos/
+numNeg (closing the `eval_bound_op_non_ordered_operand_bottoms` `.bool`-only coverage gap), plus
+both-direction retain guards (`neOp` list/struct retain, `<_` top retain, `<(1|2)` disj retain)
+proving the `.nonScalar`/`.incomplete` split correct in both directions. `=~5` micro-divergence
+(kue ⊥ vs cue-retained, kue more spec-correct) logged in `cue-divergences.md`.
+
+`./scripts/check.sh` fully green; zero existing fixtures/theorems flipped.

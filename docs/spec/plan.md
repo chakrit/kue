@@ -196,13 +196,18 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-**BOUND-OPERAND-CLASSIFY (MEDIUM soundness — TOP OPEN item, 2026-07-12).** `evalBoundOp`/
-`evalRegexMatchOp`/`evalNumPos`/`evalNumNeg` export a fabricated constraint where cue hard-errors on a
-ground list/struct operand (`x: <[1,2]`, `x: <{a:1}`, `x: =~[1]`, `x: -[1,2]`). Fix: split
-`ScalarOperandClass.defer` into `.incomplete` (retain) vs `.nonScalar` (list/struct/embeddedList ⇒ ⊥ for
-those four ops; `neOp` retains). Full design + cue-adjudicated operand table + TDD seeds in the
-PATTERN-BOUND-OPERAND Phase-B audit block below. Followed by **BOUND-ORDEREDPRIM (LOW)** — the
-`OrderedPrim` bound-operand retype (same block).
+**BOUND-OPERAND-CLASSIFY (MEDIUM soundness). ✅ LANDED (2026-07-12); PA-BOUND-GROUND discharged.**
+`ScalarOperandClass.defer` split into `.incomplete` (retain the residual `.unary`) vs `.nonScalar`
+(`.list`/`.listTail`/`.embeddedList`/`.struct`). `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/`evalNumNeg`
+⊥ a `.nonScalar` operand where they previously fabricated a residual constraint; `evalNeOp` retains it
+(identical to its `.incomplete` arm). `.top`/`.disj`/`.kind`/abstract-constraint values stay `.incomplete`
+(cue RETAINS `<_`, `<(1|2)`). Wild guards `testdata/wild/bound-nonscalar-{list,struct}/`,
+`neg-list-operand/`, `regex-list-operand/` (all RED→GREEN); `EvalOpsTests` pins list/struct/embeddedList
+⇒ ⊥ across the four ops + `neOp`/top/disj retain guards (both-direction correctness), closing the
+`eval_bound_op_non_ordered_operand_bottoms` `.bool`-only coverage gap. `=~5` micro-divergence (kue ⊥ vs
+cue-retained, kue more spec-correct) logged in `cue-divergences.md`. Followed by **BOUND-ORDEREDPRIM
+(LOW)** — the `OrderedPrim` bound-operand retype (Phase-B audit block below); still OPEN, does NOT subsume
+this classifier fix.
 
 **MANIFEST-FIELDCOUNT (HIGH audit fix). ✅ CLOSED (2026-07-11).** `kue export` failed ENTIRELY on
 any struct with ≥99 top-level fields (`incomplete value`), on trivial plain-int input. Root cause
@@ -522,8 +527,8 @@ designed here as ONE coherent fix, split into TWO ranked slices — soundness fi
 — because the MEDIUM soundness fix is small and independent while the representation tightening is a
 ~60-site refactor; coupling would delay the soundness fix behind a large blast radius.**
 
-- **BOUND-OPERAND-CLASSIFY (MEDIUM soundness — TOP OPEN spec-conformance item; the designed
-  PA-BOUND-GROUND fix).** Split `ScalarOperandClass.defer` into `.incomplete` (unreduced expression /
+- **BOUND-OPERAND-CLASSIFY (MEDIUM soundness — the designed PA-BOUND-GROUND fix). ✅ LANDED
+  (2026-07-12); implemented exactly as designed below.** Split `ScalarOperandClass.defer` into `.incomplete` (unreduced expression /
   cue-retained abstract value → keep the residual `.unary`) and **`.nonScalar`** (a fully-resolved
   list/struct value → categorically not an ordered scalar). **`.nonScalar` bucket (cue-confirmed
   "cannot use X for bound / invalid operation OP X"):** `.list`, `.listTail`, `.embeddedList`, `.struct`.

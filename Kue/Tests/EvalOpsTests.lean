@@ -520,11 +520,80 @@ theorem eval_regex_op_non_string_operand_bottoms :
     (evalUnary .regexMatchOp (.prim (.int 1)) == .bottom) = true := by
   native_decide
 
+-- NON-SCALAR OPERANDS (BOUND-OPERAND-CLASSIFY). A ground list/struct can never refine
+-- into an ordered scalar, so the four ordering/bound/regex/unary-arith ops that demand
+-- one REJECT it (⊥) rather than fabricate a residual `.unary`. Closes the coverage gap
+-- where `eval_bound_op_non_ordered_operand_bottoms` above tested only `.bool`.
+
+theorem eval_bound_op_list_operand_bottoms :
+    (evalUnary (.boundOp .lt) (.list [.prim (.int 1), .prim (.int 2)]) == .bottom) = true := by
+  native_decide
+
+theorem eval_bound_op_struct_operand_bottoms :
+    (evalUnary (.boundOp .lt) (.struct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [] [])
+      == .bottom) = true := by
+  native_decide
+
+theorem eval_bound_op_embedded_list_operand_bottoms :
+    (evalUnary (.boundOp .gt) (.embeddedList [.prim (.int 1)] none []) == .bottom) = true := by
+  native_decide
+
+theorem eval_regex_op_list_operand_bottoms :
+    (evalUnary .regexMatchOp (.list [.prim (.int 1)]) == .bottom) = true := by
+  native_decide
+
+theorem eval_regex_op_struct_operand_bottoms :
+    (evalUnary .regexMatchOp (.struct [] .regularOpen none [] []) == .bottom) = true := by
+  native_decide
+
+theorem eval_num_pos_list_operand_bottoms :
+    (evalUnary .numPos (.list [.prim (.int 1), .prim (.int 2)]) == .bottom) = true := by
+  native_decide
+
+theorem eval_num_pos_struct_operand_bottoms :
+    (evalUnary .numPos (.struct [] .regularOpen none [] []) == .bottom) = true := by
+  native_decide
+
+theorem eval_num_neg_list_operand_bottoms :
+    (evalUnary .numNeg (.list [.prim (.int 1), .prim (.int 2)]) == .bottom) = true := by
+  native_decide
+
+theorem eval_num_neg_struct_operand_bottoms :
+    (evalUnary .numNeg (.struct [] .regularOpen none [] []) == .bottom) = true := by
+  native_decide
+
+-- BOTH-DIRECTION RETAIN GUARDS. The split must NOT over-reach: `!=` never rejects a
+-- non-scalar (its `.nonScalar` arm is identical to `.incomplete`), and a genuinely
+-- INCOMPLETE operand — top / unresolved disjunction / bound operand — stays a residual
+-- `.unary`, NOT ⊥. These prove `.nonScalar`/`.incomplete` split correctness both ways.
+
+-- `!=[1,2]` and `!={}` RETAIN the residual — neOp never rejects a non-scalar operand.
+theorem eval_ne_op_list_operand_retains :
+    (evalUnary .neOp (.list [.prim (.int 1), .prim (.int 2)])
+      == .unary .neOp (.list [.prim (.int 1), .prim (.int 2)])) = true := by
+  native_decide
+
+theorem eval_ne_op_struct_operand_retains :
+    (evalUnary .neOp (.struct [] .regularOpen none [] [])
+      == .unary .neOp (.struct [] .regularOpen none [] [])) = true := by
+  native_decide
+
+-- `<_` (top operand) RETAINS — top is genuinely incomplete, may refine to a scalar.
+theorem eval_bound_op_top_operand_retains :
+    (evalUnary (.boundOp .lt) .top == .unary (.boundOp .lt) .top) = true := by
+  native_decide
+
+-- `<(1|2)` (unresolved disjunction operand) RETAINS — incomplete, may refine to a scalar.
+theorem eval_bound_op_disj_operand_retains :
+    (evalUnary (.boundOp .lt) (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))])
+      == .unary (.boundOp .lt) (.disj [(.regular, .prim (.int 1)), (.regular, .prim (.int 2))])) = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section; a swallowed
 -- section turns its anchor into an unknown identifier and `#check` fails to elaborate.
 #check @eval_div_repeating_leading_zeros                     -- float mul/div/add-sub
 #check @eval_add_ref_operand_defers                          -- arithmetic operator domain
 #check @eval_regex_match_non_string_is_bottom                -- comparison / boolean / unary op pins
-#check @eval_regex_op_non_string_operand_bottoms             -- deferred relational-operator lowering
+#check @eval_bound_op_disj_operand_retains                   -- deferred relational-operator lowering
 
 end Kue

@@ -3,17 +3,19 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **PATTERN-BOUND-OPERAND two-phase audit (2026-07-12, doc-only).** Phase A filed the coupled
-bound-operand core-type findings; Phase B DESIGNED the coherent fix as TWO ranked slices (plan.md +
-implementation-log). **NEXT (top open): `BOUND-OPERAND-CLASSIFY` (MEDIUM soundness)** — split
-`ScalarOperandClass.defer` into `.incomplete` (retain) vs `.nonScalar` (`.list`/`.listTail`/
-`.embeddedList`/`.struct`), so `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/`evalNumNeg` ⊥ a ground
-list/struct (cue hard-errors; kue currently exports a fabricated `<[1,2]`/`<{a:1}`/`=~[1]`/`-[1,2]`);
-`neOp` retains (`!=[1,2]` cue-confirmed kept). cue-adjudicated: `<_`/`<(1|2)`/`<(>5)` RETAIN (stay
-`.incomplete`, NOT `.ground`); `<int` is a separate non-concrete divergence, not folded in. TDD:
-`testdata/wild/{bound-nonscalar-list,bound-nonscalar-struct,neg-list-operand,regex-list-operand}/` RED
-first + EvalOpsTests theorems closing the `.bool`-only coverage gap. Then **`BOUND-ORDEREDPRIM` (LOW)** —
+HEAD: **BOUND-OPERAND-CLASSIFY — soundness regression FIXED (LANDED 2026-07-12).** Split
+`ScalarOperandClass.defer` into `.incomplete` (retain the residual `.unary`) vs `.nonScalar`
+(`.list`/`.listTail`/`.embeddedList`/`.struct`). `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/
+`evalNumNeg` now ⊥ a ground list/struct (was fabricating `<[1,2]`/`<{a:1}`/`=~[1]`/`-[1,2]`);
+`evalNeOp` retains (`.nonScalar` arm == `.incomplete` arm); `.top`/`.disj`/`.kind`/abstract-constraints
+stay `.incomplete` (`<_`, `<(1|2)` RETAINED). 4 wild guards RED→GREEN + 13 EvalOpsTests theorems
+(list/struct/embeddedList ⇒ ⊥ across the four ops, closing the `.bool`-only coverage gap; both-direction
+retain guards for neOp/top/disj). `=~5` micro-divergence logged in cue-divergences.md. PA-BOUND-GROUND
+discharged. **NEXT (ranked): `BOUND-ORDEREDPRIM` (LOW)** —
 `OrderedPrim` bound-operand retype (~60-site refactor; complements, does NOT subsume, the classifier).
+Then the flagged binary-comparison sibling (`1 < [1,2]` retains where cue errors — same class, different
+path, filed by Phase B); remaining core probes (structural cycles, scoping); F1/F3/F5; LOW audit findings
+(PA-ESC-2 / PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4).
 Prior HEAD (last CODE slice): **PATTERN-BOUND-OPERAND — comparator bounds over any ordered type (LANDED 2026-07-12).**
 Comparator bounds (`< <= > >= != =~`) now apply to ANY ordered type and to non-literal operands;
 BOTH red seeds `pattern-bound-{string,reference}-operand` GRADUATED. `boundConstraint`'s operand
