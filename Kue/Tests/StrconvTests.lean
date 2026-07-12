@@ -250,6 +250,102 @@ theorem formatfloat_verb_deferred :
       == .bottomWith [.unsupportedBuiltin "strconv.FormatFloat (verb ∉ {e,E,f,F,g,G})"])
       = true := by native_decide
 
+-- ── PA-FLOAT-TEST-6: the F2 kernel's hardest correctness boundaries, permanent guards ──
+-- The three adversarial boundaries the ephemeral 343-case Go battery covered but no
+-- committed guard pinned: (1) the float64 overflow half-even MIDPOINT (ties-to-even ONTO
+-- inf), (2) float32 overflow → ±Inf, (3) fixed-precision carry-growth. Each expected value
+-- is adjudicated against Go `strconv` semantics AND cue v0.16.1. Kernel-direct theorems
+-- (`decimalRatioToFloat`/`decimalToFloat`/`roundToSig`) localize a regression to the kernel
+-- fn; end-to-end `call` theorems guard the full pipeline against the cue oracle.
+
+-- The float64 overflow tie: the exact midpoint between maxfloat (`(2^53−1)·2^971`, mantissa
+-- ODD) and `2^53·2^971 = 2^1024` (inf). The midpoint is the integer `(2^54−1)·2^970`;
+-- ties-to-even rounds ONTO inf (inf's mantissa is even), so it overflows. One integer below
+-- stays maxfloat. (cue `ParseFloat` of the 309-digit decimal: midpoint → range error,
+-- below → 1.7976931348623157E+308.)
+private def f64OverflowTie : Nat :=
+  179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792
+
+theorem f64_overflow_tie_rounds_to_inf :
+    (decimalRatioToFloat f64Format f64OverflowTie 1 == FloatParse.overflow) = true := by
+  native_decide
+theorem f64_just_below_tie_stays_maxfloat :
+    (decimalRatioToFloat f64Format (f64OverflowTie - 1) 1
+      == FloatParse.value { neg := false, mantissa := 9007199254740991, binExp := 971 }) = true := by
+  native_decide
+theorem parsefloat_overflow_tie_range :
+    (call "strconv.ParseFloat" [.prim (.string (toString f64OverflowTie)), .prim (.int 64)]
+      == .bottomWith [.strconvRange (toString f64OverflowTie)]) = true := by native_decide
+theorem parsefloat_just_below_tie_maxfloat :
+    (call "strconv.ParseFloat" [.prim (.string (toString (f64OverflowTie - 1))), .prim (.int 64)]
+      == .prim (mkFloatText "1.7976931348623157e+308")) = true := by native_decide
+
+-- The float32 overflow tie mirrors the f64 one: maxfloat32 `= (2^24−1)·2^104` (mantissa
+-- ODD), midpoint `= (2^25−1)·2^103` ties-to-even ONTO inf. A value `>3.4e38` (`1e39`,
+-- `3.5e38`) narrowed to float32 overflows to ±Inf; both signs overflow at the kernel (sign
+-- is applied at render). cue `FormatFloat(1e39,'g',32)` = "+Inf", `(-1e39)` = "-Inf".
+private def f32OverflowTie : Nat := 340282356779733661637539395458142568448  -- (2^25−1)·2^103
+
+theorem f32_overflow_tie_rounds_to_inf :
+    (decimalRatioToFloat f32Format f32OverflowTie 1 == FloatParse.overflow) = true := by
+  native_decide
+theorem f32_just_below_tie_stays_maxfloat :
+    (decimalRatioToFloat f32Format (f32OverflowTie - 1) 1
+      == FloatParse.value { neg := false, mantissa := 16777215, binExp := 104 }) = true := by
+  native_decide
+theorem f32_decimal_overflow_both_signs :
+    (decimalToFloat f32Format false 1 39 == FloatParse.overflow) = true
+      ∧ (decimalToFloat f32Format true 1 39 == FloatParse.overflow) = true := by native_decide
+theorem formatfloat_f32_overflow_pos_inf :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "1e39"), .prim (.int 103), .prim (.int (-1)), .prim (.int 32)]
+      == .prim (.string "+Inf")) = true := by native_decide
+theorem formatfloat_f32_overflow_neg_inf :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "-1e39"), .prim (.int 103), .prim (.int (-1)), .prim (.int 32)]
+      == .prim (.string "-Inf")) = true := by native_decide
+theorem formatfloat_f32_overflow_35e38 :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "3.5e38"), .prim (.int 103), .prim (.int (-1)), .prim (.int 32)]
+      == .prim (.string "+Inf")) = true := by native_decide
+
+-- Fixed-precision carry-growth: rounding grows the integer part / ripples a carry across
+-- the decimal point. `roundToSig` (digit list, dp) direct: `99.995→100.00` grows the
+-- integer digit count and shifts dp; `999.5→1000` (half-even tie) and all-9s `0.99999→1.0`
+-- ripple the carry through every 9. The end-to-end `call` values are cue-adjudicated:
+-- `FormatFloat(99.995,'f',2)`="100.00", `(0.9995)`="1.00", `(999.5,'f',0)`="1000". The
+-- `9.995`="9.99" guard pins that the nearest double (9.9949…, BELOW 9.995) does NOT carry —
+-- Go rounds the EXACT value, so representation decides the boundary.
+theorem round_to_sig_carry_grows_int_part :
+    roundToSig [9, 9, 9, 9, 5] 2 4 = ([1, 0, 0, 0, 0], (3 : Int)) := by native_decide
+theorem round_to_sig_carry_half_even_tie :
+    roundToSig [9, 9, 9, 5] 3 3 = ([1, 0, 0, 0], (4 : Int)) := by native_decide
+theorem round_to_sig_carry_ripples_all_nines :
+    roundToSig [9, 9, 9, 9, 9] 0 4 = ([1, 0, 0, 0, 0], (1 : Int)) := by native_decide
+theorem formatfloat_carry_grows_int_part :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "99.995"), .prim (.int 102), .prim (.int 2), .prim (.int 64)]
+      == .prim (.string "100.00")) = true := by native_decide
+theorem formatfloat_carry_across_point :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "0.9995"), .prim (.int 102), .prim (.int 2), .prim (.int 64)]
+      == .prim (.string "1.00")) = true := by native_decide
+theorem formatfloat_carry_half_even_tie :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "999.5"), .prim (.int 102), .prim (.int 0), .prim (.int 64)]
+      == .prim (.string "1000")) = true := by native_decide
+theorem formatfloat_no_carry_when_double_below :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "9.995"), .prim (.int 102), .prim (.int 2), .prim (.int 64)]
+      == .prim (.string "9.99")) = true := by native_decide
+
+-- Largest-finite render: `FormatFloat(maxfloat,'e',64)` renders the 17-significant-digit
+-- shortest scientific form. cue: "1.7976931348623157e+308".
+theorem formatfloat_largest_finite_e :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "1.7976931348623157e308"), .prim (.int 101), .prim (.int (-1)), .prim (.int 64)]
+      == .prim (.string "1.7976931348623157e+308")) = true := by native_decide
+
 theorem quote_deferred :
     (call "strconv.Quote" [.prim (.string "hi")]
       == .bottomWith [.unsupportedBuiltin "strconv.Quote"]) = true := by native_decide
@@ -277,6 +373,7 @@ theorem atoi_still_exports :
 #check @parsebool_invalid                   -- FormatBool / ParseBool
 #check @parsefloat_syntax                   -- ParseFloat (F2: shortest, subnormal, over/underflow, f32)
 #check @formatfloat_verb_deferred           -- FormatFloat (F2: verbs, prec, round-half-even, defer)
+#check @formatfloat_largest_finite_e        -- F2 hardest boundaries (PA-FLOAT-TEST-6: over/underflow ties, carry-growth)
 #check @quote_deferred                      -- deferred → unsupportedBuiltin
 #check @atoi_still_exports                  -- render path (clear message + no regression)
 

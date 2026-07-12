@@ -454,19 +454,18 @@ normalized by kue's apd form) — consistent, documented divergence. No `partial
 Fixture `testdata/export/strconv_float.{cue,json}` re-verified a REAL cue oracle (byte-matches `cue
 export`), auto-enforced by `check-export-fixtures`. One NEW finding:
 
-- **PA-FLOAT-TEST-6 (LOW→MEDIUM, test-strength).** The PERMANENT F2 regression net is ~18
-  `native_decide` theorems (`StrconvTests`) + 24 export-fixture cases. The "343 kernel cases" in the
-  log/spec-gap were an EPHEMERAL out-of-tree Go reference battery run once at dev time — NOT committed
-  guards (grep confirms the kernel fns `decimalToFloat`/`shortestDigits`/`genDigits`/`roundToSig`/
-  `exactDigits` are referenced ONLY in `Float.lean`; zero direct kernel theorems). Existing coverage is
-  decent (subnormal min `5e-324`, largest finite `1.79…e308`, `1e23` boundary, over/underflow, a f32
-  narrowing tie `16777217`, two half-even ties `2.5`/`3.5`) but the hardest boundaries are UNPINNED:
-  (a) the overflow round-to-inf-vs-maxfloat half-even MIDPOINT — a value at exactly `(2^53−½)·2^971`
-  rounds to inf (odd→even), one ulp below stays maxfloat; (b) float32 overflow (`>3.4e38`→`+Inf`);
-  (c) fixed-precision carry-growth (`FormatFloat(9.995,'f',2)`→digit-count grows, `dp` shift). Fix-slice:
-  add `native_decide` theorems on `FormatFloat`/`ParseFloat` for these three boundaries (spec/cue-
-  adjudicated expected), converting the ephemeral battery's hard cases into permanent guards. Not fixed
-  inline — expected values need cue/Go adjudication, so it's a proper TDD slice, not an audit cleanup.
+- **PA-FLOAT-TEST-6 (LOW→MEDIUM, test-strength). ✅ LANDED (2026-07-12).** The three hardest F2
+  boundaries — ephemeral in the out-of-tree 343-case Go battery, missing from the committed net — are now
+  permanent guards: +20 `native_decide` theorems in `StrconvTests` (kernel-direct on `decimalRatioToFloat`/
+  `decimalToFloat`/`roundToSig` to localize a regression, plus end-to-end `call` against the cue oracle).
+  Each expected value adjudicated against Go `strconv` AND cue v0.16.1; **no boundary revealed a kernel
+  bug** (all GREEN first try). (a) float64 overflow half-even MIDPOINT `(2^54−1)·2^970` ties-to-even ONTO
+  inf, `−1` stays maxfloat (kernel + cue `ParseFloat` range/`1.797…E+308`); (b) float32 overflow tie
+  `(2^25−1)·2^103` → inf, `1e39`/`3.5e38`→`+Inf`, `-1e39`→`-Inf`; (c) fixed-precision carry-growth
+  `99.995`→"100.00", `0.9995`→"1.00", `999.5`→"1000", with `9.995`→"9.99" pinning that the nearest double
+  (9.9949…, BELOW 9.995) does NOT carry (Go rounds the EXACT value). Also pinned largest-finite `'e'`
+  render. The permanent guard now pins the hard boundaries — the ephemeral 343-case battery is fully
+  superseded for these edges.
 
 **STDLIB campaign Phase-A code-quality audit (2026-07-12, batch `f5b1537..69453ca`, 10 slices:
 Time/Net/TextTemplate/escape-set/byte-escape/Float-F0/F4/F4-div/manifest-fieldcount).** A4

@@ -20571,3 +20571,31 @@ an ephemeral out-of-tree Go battery, NOT committed; the permanent net misses the
 half-even midpoint, float32 overflow, and fixed-precision carry-growth. Filed (not inline — expected
 values need cue/Go adjudication). Phase B deferred this cycle (module graph changed only by adding the
 `Float` + `StringFormat` leaves + the test split; last cycle was a full infra-rotation).
+
+## Completed Slice: PA-FLOAT-TEST-6 — permanent guards for the F2 kernel's hardest boundaries
+
+Turned the three UNPINNED adversarial boundaries the ephemeral 343-case Go battery covered into
+permanent committed guards (`StrconvTests.lean`, 20 `native_decide` theorems; native_decide IS the
+proof). Every expected value adjudicated against Go `strconv` semantics AND cue v0.16.1 — no boundary
+revealed a kernel bug (all GREEN first try; the F2 kernel is confirmed correct on these edges).
+
+- **float64 overflow half-even midpoint.** The exact tie between maxfloat (`(2^53−1)·2^971`, ODD
+  mantissa) and `2^53·2^971 = 2^1024` (inf) is the integer `(2^54−1)·2^970`; ties-to-even rounds ONTO
+  inf. Kernel-direct: `decimalRatioToFloat f64Format <mid> 1 = .overflow`, `<mid−1> = .value maxfloat`.
+  End-to-end: cue `ParseFloat` of the 309-digit decimal → range error (mid) / `1.7976931348623157E+308`
+  (below).
+- **float32 overflow.** maxfloat32 `(2^24−1)·2^104` (ODD) / midpoint `(2^25−1)·2^103` ties ONTO inf.
+  `decimalRatioToFloat f32Format` tie → overflow, `−1` → maxf32; `decimalToFloat f32Format _ 1 39` both
+  signs → overflow. End-to-end `FormatFloat(1e39,'g',32)`="+Inf", `(-1e39)`="-Inf", `(3.5e38)`="+Inf".
+- **fixed-precision carry-growth.** `roundToSig`-direct: `99.995→100.00` (int digit-count grows, dp
+  shifts), `999.5→1000` (half-even tie), all-9s `0.99999→1.0` (carry ripples through every 9).
+  End-to-end cue: `FormatFloat(99.995,'f',2)`="100.00", `(0.9995)`="1.00", `(999.5,'f',0)`="1000". Guard
+  `9.995`="9.99" pins that the nearest double (9.9949…, BELOW 9.995) does NOT carry — Go rounds the EXACT
+  value, so representation decides the boundary (a naive decimal-literal round WOULD wrongly carry here).
+
+Also pinned largest-finite render (`FormatFloat(maxfloat,'e')`="1.7976931348623157e+308"). Skipped as
+out-of-scope/ambiguous: f64-overflow `FormatFloat` (cue errors at the CUE-number→float64 arg coercion, a
+separate surface — pinned via ParseFloat instead), f32-subnormal ParseFloat and `-0` round-trip (genuine
+apd-storage adjudication ambiguity, not among the three required boundaries). Kernel-direct theorems
+localize a regression to the kernel fn; end-to-end `call` theorems guard the full pipeline against the
+cue oracle. `#check` tripwire anchor added. `check.sh` GREEN. Committed on `main`.

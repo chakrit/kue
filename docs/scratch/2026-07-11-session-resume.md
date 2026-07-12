@@ -3,7 +3,24 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **STDLIB-FLOAT-F2 — the IEEE binary64/32 float kernel (LANDED 2026-07-12).**
+HEAD: **PA-FLOAT-TEST-6 — permanent guards for the F2 kernel's hardest boundaries (LANDED 2026-07-12).**
+Turned the three UNPINNED adversarial boundaries (ephemeral in the out-of-tree 343-case Go battery) into
+permanent committed guards: +20 `native_decide` theorems in `StrconvTests.lean`. Kernel-direct on
+`decimalRatioToFloat`/`decimalToFloat`/`roundToSig` (localize a regression) + end-to-end `call` vs the cue
+oracle. All expected values adjudicated against Go `strconv` AND cue v0.16.1 — **no kernel bug** (GREEN
+first try). (1) float64 overflow half-even midpoint `(2^54−1)·2^970` ties-to-even ONTO inf, `−1` stays
+maxfloat; (2) float32 overflow tie `(2^25−1)·2^103`→inf, `1e39`/`3.5e38`→`+Inf`, `-1e39`→`-Inf`;
+(3) fixed-prec carry-growth `99.995`→"100.00", `0.9995`→"1.00", `999.5`→"1000", + `9.995`→"9.99" (nearest
+double 9.9949… is BELOW 9.995, so NO carry — Go rounds the EXACT value). Docs: plan.md (✅ LANDED),
+implementation-log. `check.sh` GREEN, committed on `main`.
+**Next (ranked, unchanged):** **F1** (`math.Log1p`/`Expm1`, float64 via `Kue/Float.lean` + shortest-`'e'`
+anchor, smallest F-follow-up) → **F3** (trig `Sin`/`Cos`/`Tan`/…) → **F5** (`text/template` float-in-data
+render + `math.Float64bits`) → remaining LOWs: PA-ESC-2 (shared simple-escape table, `Parse.lean` DRY),
+PA-SUB-4 (`net.IPv4()⊑net.IP()` subsumption), PA-TT-5 (template fuel-bound proof), PB-RELEASE-3
+(`release.sh:43` CPU-cap bypass), PB-TESTORG-4 (BuiltinTests/TwoPassTests split).
+Prior HEAD STDLIB-FLOAT-F2 below.
+
+## Prior HEAD — STDLIB-FLOAT-F2 — the IEEE binary64/32 float kernel (LANDED 2026-07-12).
 New leaf `Kue/Float.lean` (imports `Kue.Decimal`; built via `Kue.Builtin`). Finite floats modelled
 EXACTLY as `BinFloat = (-1)^neg · mantissa · 2^binExp` — big-integer arithmetic, NO hardware `Float`.
 Three kernels: `decimalToFloat` (correctly-rounded decimal→binary, round-half-to-even, overflow→err /
