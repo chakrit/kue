@@ -1464,11 +1464,14 @@ def evalCoreBuiltin : String -> List Value -> Value
   | "rem", [left, right] => remValue left right
   -- The slice-syntax desugar (`x[lo:hi]`); a language operator that, unlike the public
   -- `list.Slice` package function, needs no `import "list"`. Concrete bounds slice; a
-  -- non-concrete bound falls through to the residual defer.
-  | "slice", [.list items, .prim (.int low), .prim (.int high)] => listSlice items low high
-  -- An open-tail list slices like its concrete prefix (`len([1,2,3,...]) = 3`); the result
-  -- is the closed sub-list, and a high bound past the prefix is out of range (bottom).
-  | "slice", [.listTail items _, .prim (.int low), .prim (.int high)] => listSlice items low high
+  -- non-concrete bound falls through to the residual defer. Every list carrier
+  -- (`.list`/`.listTail`/`.embeddedList`) presents its concrete-prefix elements via
+  -- `listItems?`, so all three slice like the closed prefix; a high bound past the prefix
+  -- is out of range (bottom). A non-list operand routes to the residual/bottom defer.
+  | "slice", [value, .prim (.int low), .prim (.int high)] =>
+      match listItems? value with
+      | some items => listSlice items low high
+      | none => unresolvedOrBottom "slice" [value, .prim (.int low), .prim (.int high)]
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch the `struct` package builtins. `MinFields`/`MaxFields` lower to a

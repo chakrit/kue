@@ -65,6 +65,45 @@ theorem slice_open_tail_omitted_high :
 theorem slice_open_tail_past_prefix_bottoms :
     exportJsonBottoms "out: [1, 2, 3, ...][1:5]\n" = true := by native_decide
 
+-- A struct-embedded list (`.embeddedList`, `{[1,2,3], _y: 9}`) slices like its concrete
+-- prefix: the slice desugar routes the operand through `listItems?` (the one carrier
+-- classifier), so all three list carriers descend by construction — the hidden `_y`
+-- governs closedness, never a value read. cue v0.16.1 diverges (bleeds `_y: 9` into the
+-- slice); spec-correct is the list `[1,2,3]` (docs/spec/cue-divergences.md).
+theorem slice_embedded_interior :
+    evalSourceMatches "out: ({[1, 2, 3], _y: 9})[0:2]\n" "out: [1, 2]" = true := by native_decide
+
+theorem slice_embedded_omitted_low :
+    evalSourceMatches "out: ({[1, 2, 3], _y: 9})[1:]\n" "out: [2, 3]" = true := by native_decide
+
+theorem slice_embedded_omitted_high :
+    evalSourceMatches "out: ({[1, 2, 3], _y: 9})[:2]\n" "out: [1, 2]" = true := by native_decide
+
+theorem slice_embedded_whole :
+    evalSourceMatches "out: ({[1, 2, 3], _y: 9})[:]\n" "out: [1, 2, 3]" = true := by native_decide
+
+theorem slice_embedded_past_prefix_bottoms :
+    exportJsonBottoms "out: ({[1, 2, 3], _y: 9})[0:5]\n" = true := by native_decide
+
+theorem slice_embedded_negative_low_bottoms :
+    exportJsonBottoms "out: ({[1, 2, 3], _y: 9})[-1:2]\n" = true := by native_decide
+
+-- An embedded list that ALSO carries an open tail (`{[1,2,3,...], _y: 9}`) slices its
+-- concrete prefix; a high bound past the prefix is out of range → bottom.
+theorem slice_embedded_open_tail_interior :
+    evalSourceMatches "out: ({[1, 2, 3, ...], _y: 9})[0:2]\n" "out: [1, 2]" = true := by native_decide
+
+theorem slice_embedded_open_tail_past_prefix_bottoms :
+    exportJsonBottoms "out: ({[1, 2, 3, ...], _y: 9})[0:5]\n" = true := by native_decide
+
+-- Regression: `len`/index on the SAME embedded-list value still agree (both already routed
+-- through `listItems?`); the slice fix leaves them untouched.
+theorem embedded_len_still_agrees :
+    evalSourceMatches "out: len({[1, 2, 3], _y: 9})\n" "out: 3" = true := by native_decide
+
+theorem embedded_index_still_selects :
+    evalSourceMatches "out: ({[1, 2, 3], _y: 9})[1]\n" "out: 2" = true := by native_decide
+
 -- Parser: every slice form parses, and a nested slice-then-index chains.
 theorem slice_forms_parse :
     (parseSucceeds "out: [1, 2, 3, 4][1:3]\n"

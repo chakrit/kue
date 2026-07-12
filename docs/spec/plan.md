@@ -232,17 +232,21 @@ DEFINITION-with-error-arm path threads the force-fold cleanly). Seed
 L-series untouched).
 
 **LIST-SLICE-EMBEDDED-CARRIER (HIGH soundness — 4th carrier-miss; NEW, 2026-07-13 Phase A audit `71598c6`).
-OPEN — falsifies "every list-carrier read routes through `listItems?`" on LIST-OPS-EMBEDDED-CARRIER below.**
-The `slice` desugar of `x[lo:hi]` in `evalCoreBuiltin` (`Kue/Builtin.lean` ~1468) hand-enumerates `.list` +
-`.listTail` and MISSES `.embeddedList` — `evalCoreBuiltin` does NOT map `openListOperand` over its args (only
-`evalListBuiltin` does), so this dispatch was never migrated by the LIST-OPS-EMBEDDED-CARRIER slice. Repro:
-`({[1,2,3], _y: 9})[0:2]` ⇒ kue **`incomplete value: slice(…)`** (deferred residual), spec/cue slice the
-embedded list. `len`/index on the same embeddedList work (routed through `listItems?`); slice is the outlier.
-Fix: route the slice operand through `listItems?` (`| "slice", [value, .prim (.int low), .prim (.int high)]
-=> match listItems? value with | some items => listSlice items low high | none => unresolvedOrBottom …`),
-preserving the non-concrete-bound deferral (bounds still pattern-matched as `.prim (.int _)`). Seed
-`testdata/wild/list-slice-embedded/` RED first. NOTE cue v0.16.1 returns `[9,1]` for the repro (a cue bug —
-embedded scalar bleeding into the slice); spec-correct is `[1,2]`, log the cue divergence.
+✅ LANDED (2026-07-13).** Carrier completeness now covers the slice desugar too — every list-carrier read
+routes through `listItems?`, restoring the LIST-OPS-EMBEDDED-CARRIER invariant the Phase A retraction flagged.
+The `slice` desugar of `x[lo:hi]` in `evalCoreBuiltin` (`Kue/Builtin.lean` ~1468) hand-enumerated `.list` +
+`.listTail` and MISSED `.embeddedList` — `evalCoreBuiltin` does NOT map `openListOperand` over its args (only
+`evalListBuiltin` did), so this dispatch was never migrated by the LIST-OPS-EMBEDDED-CARRIER slice. Repro:
+`({[1,2,3], _y: 9})[0:2]` was kue **`incomplete value: slice(…)`** (deferred residual); `len`/index on the
+same embeddedList already worked (routed through `listItems?`), slice was the lone outlier. Fix: collapsed the
+two hand-enumerated arms into ONE routed through the classifier — `| "slice", [value, .prim (.int low), .prim
+(.int high)] => match listItems? value with | some items => listSlice items low high | none =>
+unresolvedOrBottom …` — so all three carriers descend by construction, NO 3rd hand-added arm. Non-concrete
+bounds still defer (matched as `.prim (.int _)`); a non-list operand routes to the residual/bottom defer. Wild
+`testdata/wild/list-slice-embedded-carrier/` (interior/open-low/open-high/whole/embedded-open-tail);
+`SliceTests` `slice_embedded_*` + `embedded_len_still_agrees`/`embedded_index_still_selects` regression
+guards. cue v0.16.1 DIVERGES (returns `[9,1]` — bleeds the hidden `_y` into the slice, a cue bug);
+spec-correct `[1,2]`, logged in `cue-divergences.md`. `check.sh` green.
 
 **DISJ-NESTED-ERROR-ARM-AMBIGUOUS (LOW — divergent error, NOT a leak; NEW, 2026-07-13 Phase A audit).
 OPEN.** `#X: {a:1} & ({b:2} | ({c:3} | _|_))` · `#X & {extra:9}` ⇒ kue **`ambiguous value: multiple
@@ -269,9 +273,11 @@ classifier. Two MORE carrier-miss sites found beyond the filing's three — `len
 — missed `.embeddedList`, so EVERY `list.*` builtin failed on an embedded-list operand). Wild
 `list-ops-embedded-sublist/` GRADUATED, expanded to six facets (concat/flatten1/depthFull + lenEmbed/
 sumEmbed/reverseEmbed). Spec-adjudicated, cue v0.16.1 AGREES on all — no divergence. `check.sh` green.
-> RETRACTION (2026-07-13 Phase A audit): "EVERY list-carrier read routes through `listItems?`" is
-> INCOMPLETE — the `slice` desugar in `evalCoreBuiltin` was never migrated and still misses `.embeddedList`
-> (LIST-SLICE-EMBEDDED-CARRIER, filed HIGH above). "N consumers" missed one.
+> RETRACTION (2026-07-13 Phase A audit): "EVERY list-carrier read routes through `listItems?`" was
+> INCOMPLETE — the `slice` desugar in `evalCoreBuiltin` was never migrated and still missed `.embeddedList`
+> (LIST-SLICE-EMBEDDED-CARRIER, filed HIGH above). "N consumers" missed one. RESOLVED (2026-07-13,
+> LIST-SLICE-EMBEDDED-CARRIER ✅ LANDED): the slice desugar now routes through `listItems?` too, so the
+> invariant holds again across the value-level list surface.
 
 **LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 LIST-OPS-NESTED-OPENTAIL).
 ✅ LANDED (2026-07-13 LIST-ELEM-EQ).** `list.Contains` compared each element against the needle with raw
@@ -299,8 +305,9 @@ nested-disj residuals landed in the follow-up.
 > "all known soundness leaks now closed" claim (commit `f0ddb19`) is FALSIFIED — the `isDistributableDisj`
 > whitelist was all-or-nothing, so a disjunction with a bound/list arm leaked (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK,
 > ✅ LANDED 2026-07-13 — the whitelist now has a distribute-safe category; bound/list/kind arms close).
-> Still OPEN: the DIRECT `error(...)` arm leaks (DISJ-CLOSEDNESS-ERROR-ARM-LEAK, HIGH) and
-> LIST-SLICE-EMBEDDED-CARRIER (a 4th list-carrier miss). Do NOT re-claim "all soundness leaks closed".
+> Still OPEN: the DIRECT `error(...)` arm leaks (DISJ-CLOSEDNESS-ERROR-ARM-LEAK, HIGH).
+> LIST-SLICE-EMBEDDED-CARRIER (the 4th list-carrier miss) ✅ LANDED 2026-07-13. Do NOT re-claim
+> "all soundness leaks closed" — the error-arm leak remains open.
 The DEF-FLATTEN-CLOSEDNESS-DISJ fix closed a def's own-literal union across a SINGLE all-struct
 disjunction; the cross-product slice extended the distribution to MULTIPLE closable disjunctions; the
 residual slice extended it to ref/scalar arms (open-compose) and nested disjunctions (flatten-first).

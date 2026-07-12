@@ -22227,3 +22227,58 @@ BLOCKING, so the def stays OPEN. Verified PRE-EXISTING (`git stash` showed the s
 before this fix). Distinct from the filed nested-error item (which errors both ways, no
 leak). Filed HIGH in `plan.md`; a fix must thread the error force-fold, out of this slice's
 scope per the WALL guard.
+
+---
+
+## Completed Slice: LIST-SLICE-EMBEDDED-CARRIER
+
+Goal: close the 4th list-carrier miss (2026-07-13 Phase A audit `71598c6`) — the `slice`
+desugar of `x[lo:hi]` in `evalCoreBuiltin` (`Kue/Builtin.lean`) hand-enumerated `.list` +
+`.listTail` and missed `.embeddedList`. `evalCoreBuiltin` does NOT map `openListOperand`
+over its args (only `evalListBuiltin` does), so this dispatch was never migrated by the
+LIST-OPS-EMBEDDED-CARRIER slice — falsifying its "every list-carrier read routes through
+`listItems?`" invariant (flagged by the Phase A retraction). `({[1,2,3], _y: 9})[0:2]` was
+kue `incomplete value: slice(…)` (deferred residual); `len`/index on the same value already
+worked (routed through `listItems?`), so slice was the lone outlier.
+
+### Fix
+
+Collapsed the two hand-enumerated `slice` arms into ONE routed through the classifier:
+
+    | "slice", [value, .prim (.int low), .prim (.int high)] =>
+        match listItems? value with
+        | some items => listSlice items low high
+        | none => unresolvedOrBottom "slice" [value, .prim (.int low), .prim (.int high)]
+
+`listItems?` (`Kue/Value.lean`) covers all three carriers (`.list`/`.listTail`/
+`.embeddedList`), so every carrier slices its concrete prefix BY CONSTRUCTION — no
+3rd hand-added arm (the enumerate-by-hand anti-pattern the `71598c6` tightening fixed).
+Non-concrete bounds still defer (bounds matched as `.prim (.int _)`); a non-list operand
+routes to the residual/bottom defer exactly as before. `evalCoreBuiltin` is non-recursive
+at this site, so no termination cost.
+
+### cue semantics
+
+cue v0.16.1 DIVERGES on the embedded-list slice: it bleeds the hidden `_y: 9` into the list
+before slicing, so `({[1,2,3], _y:9})[0:2]` ⇒ `[9,1]`, `[:]` ⇒ `[9,1,2,3]`. This is a cue
+bug (its own `len`/index on the same value are correct — 3, `2`). Spec-correct: a struct
+embedding a list plus hidden decls IS the list `[1,2,3]` (the hidden field is non-output,
+invisible to a value read), so the slice reads the concrete prefix — `[0:2]` = `[1,2]`.
+Prefix-treatment of the open/embedded carrier is the established `open-list-value-ops`
+spec-gap adjudication, extended here to the slice position. Logged in `cue-divergences.md`.
+
+### Tests
+
+- Wild `testdata/wild/list-slice-embedded-carrier/` (RED→GREEN in-slice): interior /
+  open-low / open-high / whole / embedded-with-open-tail, spec-adjudicated, cue-divergent.
+- `SliceTests.lean`: `slice_embedded_{interior,omitted_low,omitted_high,whole}`,
+  `slice_embedded_past_prefix_bottoms`, `slice_embedded_negative_low_bottoms`,
+  `slice_embedded_open_tail_{interior,past_prefix_bottoms}`, plus regression guards
+  `embedded_len_still_agrees` / `embedded_index_still_selects` (len/index on the same
+  embedded-list value unchanged). 10 `native_decide` theorems.
+
+### Regression
+
+Full `./scripts/check.sh` green; every existing `SliceTests` `slice_*` (plain `.list` +
+`.listTail`) and list fixture unflipped — the classifier route subsumes the two prior arms
+byte-identically for those carriers.

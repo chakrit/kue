@@ -3,7 +3,31 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK — bound/list/kind disjunction arms now close (LANDED 2026-07-13).**
+HEAD: **LIST-SLICE-EMBEDDED-CARRIER — slice desugar now routes through `listItems?`; carrier completeness
+covers slice too (LANDED 2026-07-13).** The 4th list-carrier miss (2026-07-13 Phase A audit): the `slice`
+desugar of `x[lo:hi]` in `evalCoreBuiltin` (`Kue/Builtin.lean`) hand-enumerated `.list`+`.listTail` and MISSED
+`.embeddedList` — `evalCoreBuiltin` never mapped `openListOperand` (only `evalListBuiltin` did), so `71598c6`'s
+tightening never migrated this site. `({[1,2,3], _y:9})[0:2]` was kue `incomplete value: slice(…)`; `len`/index
+on the same value already worked. Fix: collapsed the two hand-enumerated arms into ONE routed through the
+classifier — `| "slice", [value, .prim (.int low), .prim (.int high)] => match listItems? value with | some
+items => listSlice items low high | none => unresolvedOrBottom …` — so all three carriers descend by
+construction, NO 3rd hand-added arm. Restores the LIST-OPS-EMBEDDED-CARRIER "every list-carrier read routes
+through `listItems?`" invariant. Wild `list-slice-embedded-carrier/` (interior/open-low/open-high/whole/
+embedded-open-tail) RED→GREEN; 10 `SliceTests` theorems incl. `embedded_len_still_agrees`/
+`embedded_index_still_selects` regression guards. cue v0.16.1 DIVERGES (`[9,1]` — bleeds hidden `_y` into the
+slice, a cue bug; its own len/index are correct); spec-correct `[1,2]`, logged `cue-divergences.md`. `check.sh`
+GREEN, zero SliceTests/list-fixture flips.
+**Do NOT re-claim "all soundness leaks closed"** — DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH) remains open.
+**NEXT (ranked):** DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH — the DIRECT `error(...)` arm leaks past closedness:
+`#X: {a:1} & ({z:9} | error("x"))` · `#X & {w:7}` ⇒ kue `{a,z,w}`, cue ⊥; the error arm is BLOCKING so the def
+stays OPEN. The closedness+disjunction family has RESISTED incremental patches — this one likely needs a
+per-arm-uniform-distribution DESIGN or Fable-5 escalation, NOT another incremental patch. FLAG that up front.)
+→ re-confirm the "all soundness leaks closed" milestone (still NOT reached until the error-arm leak closes)
+→ Phase B / two-phase audit DUE in 2-3 slices (this + DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK are un-audited) → LOW
+gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED / DISJ-NESTED-ERROR-ARM-AMBIGUOUS) →
+PB-EVALBASE-SPLIT → deferred float FDLIBM. **Alpha release HELD for chakrit (attended).**
+
+Prior HEAD: **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK — bound/list/kind disjunction arms now close (LANDED 2026-07-13).**
 The `isDistributableDisj` whitelist was all-or-nothing: one non-whitelisted arm (`.bound` `>5`, list `[1,2]`)
 made the WHOLE disjunction non-distributable, so the def flattened OPEN and a use-site extra leaked
 (`#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` ⇒ kue `{a,z,w}`, cue ⊥; same with `[1,2]`). Fix
