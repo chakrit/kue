@@ -1211,6 +1211,14 @@ directions, pre-pinned). **Four defects found + seeded RED** (`.known-red`, all 
   kue silently accepts. The alias analog of the unused-import error kue already enforces —
   a use-tracking pass over aliases/lets in each scope. Seed
   `testdata/wild/unreferenced-value-alias/`.
+- **LIST-ISSORTED (LOW — missing builtins; comparator-struct evaluation). OPEN (filed by
+  LIST-OPS-PROBE 2026-07-13).** cue's `list.IsSorted(xs, cmp)` / `list.IsSortedFunc(xs, less)`
+  are unimplemented: kue resolves the `list.Ascending`/`list.Descending` comparator VALUES to a
+  struct but leaves the `IsSorted` call an unresolved residual (`list.IsSorted([1,2,3], {…})`),
+  where cue yields `true`/`false`. Needs comparator-struct evaluation — the SAME deferred corner
+  as `list.Sort`/`SortStable` (both apply a `{T, x, y, less}` comparator to element pairs); land
+  IsSorted/IsSortedFunc/Sort/SortStable together when the comparator-application seam is built.
+  Not a bounded probe fix (effectful/comparator corner, per the working agreement's "file it").
 
 Spec-silent RENDERING note recorded in `cue-spec-gaps.md`: an irreducible self-cycle in an
 arithmetic context (`a: a + 1`) is semantically top→`_ + 1` (kue prints the substituted

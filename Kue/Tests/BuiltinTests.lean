@@ -1643,6 +1643,22 @@ theorem list_reverse_reverses_and_handles_edges :
       && (evalBuiltinCall "list.Reverse" [.list []] == .list []) = true := by
   native_decide
 
+-- An open-tail list operand presents its concrete prefix to every `list.*` value operation
+-- (`len([1,2,3,...]) = 3`); the `...` marker never survives a value-level read. A `.listTail`
+-- carrier flows through the same arms as the closed prefix.
+theorem list_builtins_operate_on_open_tail_prefix :
+    (evalBuiltinCall "list.Reverse"
+        [.listTail [.prim (.int 1), .prim (.int 2), .prim (.int 3)] Value.top]
+        == .list [.prim (.int 3), .prim (.int 2), .prim (.int 1)])
+      && (evalBuiltinCall "list.Sum"
+            [.listTail [.prim (.int 1), .prim (.int 2), .prim (.int 3)] Value.top]
+            == .prim (.int 6))
+      && (evalBuiltinCall "slice"
+            [.listTail [.prim (.int 1), .prim (.int 2), .prim (.int 3)] Value.top,
+              .prim (.int 1), .prim (.int 3)]
+            == .list [.prim (.int 2), .prim (.int 3)]) = true := by
+  native_decide
+
 -- Type/kind meet operations: SWEPT CLEAN vs `cue` v0.16.1 (BI-3 probe). Every case
 -- below agrees with `cue` — either a concrete narrowing or a bottom/incomplete verdict.
 -- `number & int → int` (incomplete, not concrete); `int & 5 → 5`; `1.5 & int → ⊥`

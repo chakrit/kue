@@ -741,11 +741,22 @@ def unsupportedOrBottom (name : String) (args : List Value) : Value :=
   else
     .builtinCall name args
 
+/-- An open-tail list presents its concrete prefix to every value-level list operation,
+    consistent with `len([1,2,3,...]) = 3`. Normalize a list operand so a dispatch that
+    destructures `.list` also serves an open-tail carrier; the `...` marker governs only
+    unification/closedness, never a value-level read. -/
+def openListOperand : Value -> Value
+  | .listTail items _ => .list items
+  | value => value
+
 /-- Dispatch a `list.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design.
+    An open-tail list operand (`[1,2,...]`) is normalized to its concrete prefix
+    (`openListOperand`) so it slices/reverses/sums like the closed prefix.
     Deferred (kept unresolved/not matched): `Sort`/`SortStable`
     (comparator-struct evaluation). -/
-def evalListBuiltin : String -> List Value -> Value
+def evalListBuiltin (name : String) (rawArgs : List Value) : Value :=
+  match name, (rawArgs.map openListOperand) with
   | "list.Concat", [.list lists] => listConcat lists
   | "list.FlattenN", [.list items, .prim (.int depth)] => .list (listFlattenN items depth)
   | "list.Repeat", [.list items, .prim (.int n)] => listRepeat items n
@@ -1436,6 +1447,9 @@ def evalCoreBuiltin : String -> List Value -> Value
   -- `list.Slice` package function, needs no `import "list"`. Concrete bounds slice; a
   -- non-concrete bound falls through to the residual defer.
   | "slice", [.list items, .prim (.int low), .prim (.int high)] => listSlice items low high
+  -- An open-tail list slices like its concrete prefix (`len([1,2,3,...]) = 3`); the result
+  -- is the closed sub-list, and a high bound past the prefix is out of range (bottom).
+  | "slice", [.listTail items _, .prim (.int low), .prim (.int high)] => listSlice items low high
   | name, args => unresolvedOrBottom name args
 
 /-- Dispatch the `struct` package builtins. `MinFields`/`MaxFields` lower to a

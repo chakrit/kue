@@ -53,6 +53,18 @@ theorem slice_incomplete_index_defers :
       "x: int\nl: [1, 2, 3, 4]\nout: slice([1, 2, 3, 4], int, 2)" = true := by
   native_decide
 
+-- Open-tail list `[a,b,c,...]` slices like its concrete prefix (`len` = prefix count): the
+-- `...` marker governs only closedness, never a value-level read. Result is the closed
+-- sub-list; a high bound past the prefix is out of range → bottom.
+theorem slice_open_tail_interior :
+    evalSourceMatches "out: [1, 2, 3, ...][1:3]\n" "out: [2, 3]" = true := by native_decide
+
+theorem slice_open_tail_omitted_high :
+    evalSourceMatches "out: [1, 2, 3, ...][1:]\n" "out: [2, 3]" = true := by native_decide
+
+theorem slice_open_tail_past_prefix_bottoms :
+    exportJsonBottoms "out: [1, 2, 3, ...][1:5]\n" = true := by native_decide
+
 -- Parser: every slice form parses, and a nested slice-then-index chains.
 theorem slice_forms_parse :
     (parseSucceeds "out: [1, 2, 3, 4][1:3]\n"

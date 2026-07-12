@@ -21758,3 +21758,50 @@ Tests: 4 auto-discovered wild fixtures — `def-flatten-closedness-disj` (reject
 bottom), `-select` (arm resolves to `{a:1,b:2}`), `-default` (silent-leak default → bottom),
 `-open-arm` (`...`-arm stays open → `{a:1,b:2,d:4}`). `./scripts/check.sh` fully green; zero
 existing closedness / L-series / Bug2-6..12 fixtures flipped.
+
+---
+
+## Completed Slice: LIST-OPS-PROBE — open-tail-list value operations (2026-07-13)
+
+Differential probe of the list-operation value family vs cue v0.16.1 (slicing, indexing,
+concatenation, `list.*` package functions, comprehensions, list unification/defaults). Most
+of the surface was already pinned and measured GREEN; one wrong-value defect family was found
+and fixed.
+
+Measured GREEN (agrees + already or now guarded): indexing `[i]` (in-bounds, oob→⊥, neg→⊥,
+non-int→⊥, float→⊥, index into open tail resolves/defers correctly); comprehensions over open
+lists (`[for v in [1,2,3,...] {v}] = [1,2,3]`, index form, filter, empty, nested); list
+unification (`[1,2]&[1,2,3]`→⊥ length mismatch, `[...int]&[1,2]`→`[1,2]`, closed&open); list
+disjunction defaults (export forces the marked default identically — the eval-display
+difference where kue prints the full `*a | b` disjunction and cue prints the selected default
+is presentation-only, both export the default).
+
+**Defect (found + fixed, bounded): value operations on an OPEN-TAIL list leaked a non-CUE
+residual.** The `[lo:hi]` slice operator and every `list.*` package function (`Slice`, `Take`,
+`Drop`, `Reverse`, `Sum`, …) destructured only `.list` in their dispatch, so a `.listTail
+items tail` operand fell through to `unresolvedOrBottom`, producing a residual like
+`slice([1,2,3,...],1,2)` / `list.Reverse([1,2,3,...])` that FAILED export as an "incomplete
+value" where cue resolves the operation on the concrete prefix. Kue already commits (pre-
+existing, cue-matching) to `len([1,2,3,...]) = 3`, so every length-dependent read MUST be
+consistent with the prefix — the fix is the coherent completion of the committed `len`
+semantics, not cue-chasing.
+
+Fix (`Kue/Builtin.lean`): `openListOperand : Value -> Value` normalizes a `.listTail items _`
+to `.list items` (the `...` marker governs only unification/closedness, never a value read);
+`evalListBuiltin` maps it over its arguments before the dispatch match, and the core `slice`
+builtin gains an explicit `.listTail` arm. Result is always the closed sub-list/prefix; a
+slice high-bound past the prefix is out of range → ⊥ (matches cue's "index N out of range").
+
+Adjudication: SPEC-SILENT on open-list value operations → recorded as spec gap
+`open-list-value-ops` in `cue-spec-gaps.md`; kue matches cue and the choice is forced by
+consistency with the committed `len` semantics. NO cue divergence.
+
+Guards: wild fixtures `testdata/wild/slice-open-tail-list/` (slice operator) and
+`testdata/wild/list-fn-open-tail/` (`list.Reverse`/`Sum`/`Drop`), both RED→GREEN;
+`SliceTests` `slice_open_tail_interior`/`_omitted_high`/`_past_prefix_bottoms`; `BuiltinTests`
+`list_builtins_operate_on_open_tail_prefix`. `./scripts/check.sh` fully green.
+
+Filed (not fixed): `list.IsSorted`/`list.IsSortedFunc` are unimplemented (cue has them; kue
+resolves `list.Ascending`/`Descending` to a comparator struct but leaves the call a residual)
+— comparator-struct evaluation, same deferred corner as `list.Sort`/`SortStable`; filed as
+LIST-ISSORTED in the plan backlog, not a bounded probe fix.

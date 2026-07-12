@@ -3,7 +3,34 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ — CONFIRMED under-close, then FIXED (LANDED 2026-07-13).** A closed def
+HEAD: **LIST-OPS-PROBE — differential probe of the list-operation value family; one wrong-value defect
+family found+fixed, rest measured GREEN (LANDED 2026-07-13).** Probed slicing, indexing, `list.*` builtins,
+comprehensions, list unification/defaults vs cue v0.16.1. **Measured GREEN:** indexing (in-bounds/oob→⊥/
+neg→⊥/non-int→⊥/float→⊥/open-tail resolves-or-defers), comprehensions over open lists (`[for v in
+[1,2,3,...]{v}]=[1,2,3]`, index/filter/empty/nested), list unification (`[1,2]&[1,2,3]`→⊥, `[...int]&[1,2]`
+→`[1,2]`, closed&open), list-disjunction defaults (export forces the marked default identically — the
+eval-display diff where kue prints `*a | b` and cue prints the selected default is presentation-only).
+**Defect (found+fixed, bounded):** value ops on an OPEN-TAIL list `[a,b,c,...]` leaked a non-CUE residual.
+The `[lo:hi]` slice operator and every `list.*` fn (`Slice`/`Take`/`Drop`/`Reverse`/`Sum`/…) destructured
+only `.list`, so a `.listTail` operand fell to `unresolvedOrBottom` → `slice([1,2,3,...],1,2)` residual that
+FAILED export as "incomplete value" where cue resolves on the concrete prefix. Kue already commits
+(pre-existing, cue-matching) to `len([1,2,3,...])=3`, so prefix-treatment is FORCED by consistency, not
+cue-chasing. Fix (`Kue/Builtin.lean`): `openListOperand` normalizes `.listTail items _`→`.list items`,
+`evalListBuiltin` maps it over args, core `slice` gains a `.listTail` arm. Spec-SILENT → spec-gap
+`open-list-value-ops` (`cue-spec-gaps.md`); matches cue, NO divergence. Wild `slice-open-tail-list/` +
+`list-fn-open-tail/` (RED→GREEN); `SliceTests` `slice_open_tail_*`; `BuiltinTests`
+`list_builtins_operate_on_open_tail_prefix`. **Filed (not fixed):** LIST-ISSORTED (LOW) —
+`list.IsSorted`/`IsSortedFunc` unimplemented (comparator-struct eval, same corner as `list.Sort`/
+`SortStable`; land together). **NO ACTIVE WRONG-VALUE BUGS REMAIN; list family now measured.**
+**NEXT (ranked):** a two-phase AUDIT is now DUE (BINARY-CMP-BYTES + STRING-BYTES-PROBE + BOUND-ORDEREDPRIM
++ DEF-FLATTEN-CLOSEDNESS-DISJ + this = 5 slices since 2026-07-13 Phase A/B) → **float F1/F3/F5 FDLIBM**
+(narrow slices unblocked; the large transcendental campaign flagged for chakrit's prioritization, not
+auto-scheduled) → LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** / **LIST-ISSORTED** /
+**DEF-FLATTEN-CLOSEDNESS-DISJ-REF** → **PB-EVALBASE-SPLIT** nav-debt. **Alpha release HELD for chakrit
+(attended)** — a datestamped alpha is due; handoff: this slice is committed + pushed, release awaits your
+say-so.
+
+Prior HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ — CONFIRMED under-close, then FIXED (LANDED 2026-07-13).** A closed def
 unioning its own struct literals THROUGH a disjunction conjunct (`#X: {a:1} & ({b:2}|{c:3})`) flattened
 OPEN — the `.disj` conjunct failed `isUnionableDefValue`, so `ownLiteralUnion` never fired. Confirmed real
 vs cue v0.16.1: `#X & {d:4}` kept both arms alive ("ambiguous value"), and with a default arm (`*{b:2}`)
