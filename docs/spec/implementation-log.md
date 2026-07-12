@@ -21434,3 +21434,41 @@ error). `./scripts/check.sh` fully green; zero existing let/scoping/cycle fixtur
 `Kue/Value.lean`, `Kue/EvalBase.lean`, `Kue/Eval.lean`, `Kue/Manifest.lean`, `Kue/Runtime.lean`,
 `Kue/Tests/EvalTests.lean`, `testdata/wild/let-{self-cycle-error,mutual-cycle-error,arith-self-cycle-
 error,cycle-through-field-top,chain-valid}/`.
+
+## Completed Slice: Phase A code-quality audit, batch 6b781a8..728c930 (PHASE-A-2026-07-12d)
+
+Audit-only. One inline doc fix. Reconciled the prior audits: SELF-SELECT-CYCLE-CROSSFRAME landed
+`fad1632`, RESOLVE-DEDUP-MIRROR-GUARD landed `21efd53`, LET-CYCLE-ERROR landed `728c930` — all three
+batch slices confirmed present. Older opens (BINARY-CMP-BYTES, BOUND-ORDEREDPRIM,
+DEF-FLATTEN-CLOSEDNESS-DISJ, PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS, PA-ESC-2/SUB-4/TT-5,
+PB-VERSION-CONST/CHECK-COMMENT/FOLD-PLACEMENT/PRIM-CATCHALL/RELEASE-3/TESTORG-4, PB-EVALBASE-SPLIT,
+PB-FIXTUREPORTS-SPLIT) — none in this batch, all still OPEN and correctly ranked.
+
+Deep-audited LET-CYCLE-ERROR (primary). **SOUND.** Verdicts:
+- `cycleSlots` segment extraction excludes the non-cycle prefix — confirmed live: `let a=b; let b=b`
+  ⇒ `reference "b" not found` (cycle `[b]`, prefix `a` dropped; self-message, not mutual), matching cue.
+- all-let/mixed boundary matches cue on every constructed mixed let+field cycle (field-anchored
+  ⇒ top; pure-let ⇒ error): `x:a;let a=x`, `let a=b.c;b:{c:a}`, `x:a;let a=y;y:b;let b=x`,
+  `let a=m;m:c;let c=a` all agree with cue.
+- `isMutual := cycle.length > 1` matches cue's self-vs-mutual message split on every case (self via
+  `a.b` selector = length 1; 3-let and prefix-then-`a↔c` = mutual).
+- Totality: `cycleSlots`/`allLetCycle`/`nthField` structural + total; `nthField` guarded (`none` ⇒
+  `false` ⇒ safe top fallback). `visited` resets to a singleton on every non-depth-0 frame crossing, so
+  all cycle slots index the same `frame.snd` — `allLetCycle frame.snd cycle` is sound.
+- No `| _ =>` violations: `BottomReason.letClauseCycle`/`ManifestError.letClauseCycle` consumed only by
+  string-formatters + Option probes; `formatManifestError` and the Manifest `.bottomWith` routing are
+  exhaustive.
+
+Spot-checks: **SELF-SELECT-CYCLE-CROSSFRAME frame-id lookup SOUND** — `pushFrame` is a deterministic
+bijection `FrameKey(parentIds,fields) ↔ id`, so a frame found by id IS structurally x's own frame;
+identical re-pushes are lexically interchangeable; a layout/key mismatch fails safe to the generic
+force-then-select path. Guards verified live (`x:{a:1};x:{a:x.a}`⇒`a:1`, label-coincidence, valid
+cross-frame, conflict⇒⊥). **RESOLVE-DEDUP-MIRROR-GUARD refactor EXACT** — `mergeFieldLayoutInto`
+folded with `mergeUnevaluatedFieldValue` is behaviorally identical to the deleted
+`mergeUnevaluatedFieldInto` (`.map (current :: ·)` == the old explicit `none`-propagation; resolve
+side's `find?`-first == walk-to-first-same-label). No behavior delta smuggled.
+
+One NEW finding, fixed inline: the live ranked-head in `plan.md` still listed the landed
+LET-CYCLE-ERROR as "NEXT" (the slice marked its primary entry LANDED but missed the ranked-head — a
+retraction-guard slip). Struck it through like the two peers above it; BINARY-CMP-BYTES is now NEXT.
+No soundness bug found in the batch; no release-blocker.

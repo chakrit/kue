@@ -1415,9 +1415,10 @@ clean small bugs → tightening/refactor):**
    same-frame + indirect + cross-frame (+ nested chains).
 2. ~~**RESOLVE-DEDUP-MIRROR-GUARD**~~ ✅ LANDED 2026-07-12 — collapse decision single-sourced in
    `Lattice.mergeFieldLayoutInto`; drift now impossible by construction; `buildFrame` layout stabilized.
-3. **LET-CYCLE-ERROR** (MED, missing load error) — builds let-vs-field on the single-sourced layout;
-   edits `Resolve.buildFrame` (now on the stabilized collapse layout). NEXT.
-4. **BINARY-CMP-BYTES** (LOW correctness, kue BUG) — small clean `bytesOp`-threading win.
+3. ~~**LET-CYCLE-ERROR**~~ ✅ LANDED 2026-07-12 — pure-`let` reference cycles raise cue's load error
+   (`reference "<name>" not found` self / `cyclic references in let clause or alias` mutual) on the
+   single-sourced collapse layout; field-touching cycles keep `truncate .top`.
+4. **BINARY-CMP-BYTES** (LOW correctness, kue BUG) — small clean `bytesOp`-threading win. NEXT.
 5. **BOUND-ORDEREDPRIM** (LOW illegal-states) — the ~60-site tightening; or a cohesion slice
    (PB-EVALBASE-SPLIT (a)) as parallel-safe filler.
 
