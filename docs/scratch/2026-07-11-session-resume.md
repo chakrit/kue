@@ -3,23 +3,24 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **BINARY-CMP-BYTES — bytes ordered comparison now compares by byte value instead of ⊥
-(LANDED 2026-07-13, `3fd6616`).** `'a' < 'b'` was kue `_|_`, now `true` (cue v0.16.1). Bytes are an
-ordered type; `evalPrimitiveOrdering` threaded only decimal/string compare fns so a bytes×bytes pair
-fell to ⊥. FIX (cleaner than the filed `bytesOp` param): the prim×prim case routes through
-`primOrdCompare?` (`Value.lean`, already total over number/string/bytes) and reads its `Ordering` with
-the op's reader (`Ordering.isLT`/`isLE`/`isGT`/`isGE`); the four `.lt/.le/.gt/.ge` sites collapse to
-one-liners. Number/string provably identical (same `decimalLtValues`/`charsLt` underneath); dead
-`stringsLt` deleted. Cross-type (bytes-vs-string/number) still ⊥ — BINARY-CMP-OPERAND guard holds.
-Wild fixture `testdata/wild/binary-cmp-bytes/` (8 fields) + 21 theorems (both dirs, inclusive `<=`/`>=`,
-byte-value order, multi-byte lexical, empty bytes, cross-type ⊥ four ways, equality unaffected). RED→
-GREEN confirmed; high-byte unsigned order sweep matches cue. **NO ACTIVE WRONG-VALUE BUGS REMAIN** —
-all soundness clusters closed. **A two-phase AUDIT is DUE in ~1-2 slices** (Phase A/B 2026-07-13 was
-the last; this is the first slice since). **NEXT (ranked, Phase B recommendation = phase (c) open a
-fresh differential PROBE on the bytes/string value family — least-measured core surface):** the probe,
-with **BOUND-ORDEREDPRIM** (LOW illegal-states, ~60-site `OrderedPrim` tightening) + **float F1**
-(narrow, unblocked) as parallel-safe filler → then LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** /
-**UNREFERENCED-ALIAS** / **DEF-FLATTEN-CLOSEDNESS-DISJ** (needs `wild/` repro first) → **PB-EVALBASE-SPLIT**
+HEAD: **STRING-BYTES-PROBE — differential probe of the bytes/string value family; one wrong-value
+defect found+fixed, rest measured GREEN (LANDED 2026-07-13).** Probed ~40 minimal cases vs cue v0.16.1
+across the gap corners (interpolation of every operand type, multiline `"""`/`'''`, unicode `len`
+[cue counts BYTES — both = 6 on `"héllo"`/`"a😀b"`], string slice/index [both ⊥], string↔bytes boundary
+[`string & bytes` ⊥; `bytes(x)`/`string(x)` NOT callable in cue], concat + `"ab"*3` repetition,
+bounds/regex/disj/default). **Defect:** a bytes value interpolated into a STRING literal (`b: 'ab';
+x: "\(b)"`) — cue `"ab"`, kue errored `incomplete value`. `classifyInterpolationPart`
+(`Kue/EvalBase.lean`) classified every `.prim (.bytes …)` `.incomplete`. FIX (bounded, test-first):
+bytes arm decodes `String.fromUTF8?` — valid UTF-8 → `.text`, invalid UTF-8 still defers (Kue's
+validated-`String` can't hold non-UTF-8; cue lossily → U+FFFD on export — spec-gap
+`bytes-interp-invalid-utf8`, deferring not fabricating). Wild fixture
+`testdata/wild/bytes-interp-into-string/` RED→GREEN; `Tests.lean` `evalInterpolation` `#guard`s updated.
+Interpolation INSIDE a byte literal (`'\(x)'`) still parse-errors "not supported yet" — separate,
+already-tracked `byte-literal-interpolation` seed, untouched. **NO ACTIVE WRONG-VALUE BUGS REMAIN.**
+**A two-phase AUDIT is DUE in ~1 slice** (last Phase A/B 2026-07-13; BINARY-CMP-BYTES + this probe are
+the 2 slices since). **NEXT (ranked):** the AUDIT → **BOUND-ORDEREDPRIM** (LOW illegal-states, ~60-site
+`OrderedPrim` tightening) → **float F1/F3/F5** (narrow, unblocked) → LOW gaps **PATTERN-LABEL-ALIAS-SCALAR**
+/ **UNREFERENCED-ALIAS** / **DEF-FLATTEN-CLOSEDNESS-DISJ** (needs `wild/` repro first) → **PB-EVALBASE-SPLIT**
 nav-debt. **Alpha release remains HELD for chakrit (attended)** — a datestamped alpha is due; handoff:
 this slice is committed + pushed, release awaits your say-so.
 

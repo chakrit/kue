@@ -1483,7 +1483,16 @@ clean small bugs → tightening/refactor):**
    single-sourced collapse layout; field-touching cycles keep `truncate .top`.
 4. ~~**BINARY-CMP-BYTES**~~ ✅ LANDED 2026-07-13 — bytes ordered comparison via `primOrdCompare?`; the
    last active wrong-value bug CLOSED.
-5. **BOUND-ORDEREDPRIM** (LOW illegal-states) — the ~60-site tightening; or a cohesion slice
+5. ~~**STRING-BYTES-PROBE**~~ ✅ LANDED 2026-07-13 — differential probe of the bytes/string value family
+   (~40 cases vs cue v0.16.1). Corners now MEASURED: interpolation of every operand type, multiline
+   `"""`/`'''` (indent/empty/interp/bytes), unicode `len` (counts BYTES), string slice/index (both ⊥),
+   string↔bytes boundary (`bytes(x)`/`string(x)` not callable in cue), concat + `"ab"*3` repetition,
+   bounds/regex/disj/default — all GREEN except ONE bug FIXED in-slice: a bytes value interpolated into
+   a string literal (`"\(b)"`) deferred instead of rendering; bytes arm of `classifyInterpolationPart`
+   now decodes valid UTF-8 (`testdata/wild/bytes-interp-into-string/`). Invalid-UTF-8 bytes defer
+   (spec-gap `bytes-interp-invalid-utf8`); interpolation INSIDE a byte literal still tracked separately
+   (`byte-literal-interpolation` seed). **A two-phase AUDIT is DUE next** (2 slices since last).
+6. **BOUND-ORDEREDPRIM** (LOW illegal-states) — the ~60-site tightening; or a cohesion slice
    (PB-EVALBASE-SPLIT (a)) as parallel-safe filler.
 
 ### PHASE B AUDIT (2026-07-12, whole-graph + infra rotation) — module-graph + gates/release

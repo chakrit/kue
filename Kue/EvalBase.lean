@@ -1160,9 +1160,10 @@ deriving BEq
 /-- Classify one evaluated interpolation hole, enumerating EVERY `Value` constructor (no
     catch-all) so a new arm forces a decision here. Mirrors `classifyDynLabel`.
 
-    `bytes` is a spec-interpolatable type, but Kue does not yet render a bytes operand to its
-    string form, so it DEFERS rather than erroring (a wrong `nonInterpolatable` would be worse
-    than an unresolved hole); byte-literal parsing/rendering is tracked separately. -/
+    `bytes` is a spec-interpolatable type: the enclosing literal kind fixes the result and the
+    operand is coerced to its string form. Valid-UTF-8 byte content decodes to text; invalid
+    UTF-8 is unrepresentable as a Lean `String`, so it DEFERS rather than fabricating (cue
+    lossily replaces invalid runes with U+FFFD on export — an obscure edge left deferred). -/
 def classifyInterpolationPart : Value -> InterpVerdict
   | .prim (.string value) => .text value
   | .prim (.int value) => .text (toString value)
@@ -1179,8 +1180,12 @@ def classifyInterpolationPart : Value -> InterpVerdict
   | .struct _ _ _ _ _ => .nonInterpolatable .struct
   -- A scalar carrier interpolates as its inner scalar — mirrors `classifyDynLabel`.
   | .embeddedScalar scalar _ => classifyInterpolationPart scalar
-  -- Interpolatable-but-unrendered (bytes) and every unresolved/abstract form ⇒ DEFER:
-  | .prim (.bytes _) => .incomplete
+  -- A bytes operand coerces to its string form; valid UTF-8 renders, invalid UTF-8 defers.
+  | .prim (.bytes value) =>
+      match String.fromUTF8? (ByteArray.mk value) with
+      | some text => .text text
+      | none => .incomplete
+  -- Every unresolved/abstract form ⇒ DEFER:
   | .top => .incomplete
   | .kind _ => .incomplete
   | .notPrim _ => .incomplete

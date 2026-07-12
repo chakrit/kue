@@ -21529,4 +21529,31 @@ unaffected). Confirmed RED at HEAD (`'a' < 'b'` exported `_|_`), GREEN after. Fu
 `./scripts/check.sh` green; manual kue-vs-cue sweep incl. high-byte unsigned order
 (`\xff`, `\x80`) matches. No `cue` divergence (kue now matches cue), no spec gap.
 
+## STRING-BYTES-PROBE (2026-07-13) — differential probe of the bytes/string value family
+
+Fresh differential probe (Phase B audit recommendation: least-measured core surface) of
+the bytes/string family vs cue v0.16.1, probing the gap corners left open by
+STRING-ESCAPE-SET / BYTE-ESCAPE-STRICT / BINARY-CMP-BYTES (escapes + comparison already
+pinned). ~40 minimal cases across: string interpolation of every operand type
+(num/float/bool/null/list/struct/bytes/nested/multi/incomplete), multiline `"""`/`'''`
+(indent strip, empty, interp, bytes), unicode `len` (multi-byte + astral — cue counts
+BYTES, both = 6), string slice/index (both ⊥, cue disallows), the string↔bytes boundary
+(`string & bytes` ⊥; `bytes(x)`/`string(x)` are NOT callable in cue), concat
+(`"a"+"b"`, `'a'+'b'`, `"a"+1` ⊥, `"a"+'b'` ⊥), string repetition (`"ab"*3="ababab"`),
+bounds/regex/disj/default/unification.
+
+**Result: one wrong-value defect; the rest measured GREEN.** Defect — a bytes value
+interpolated into a STRING literal (`b: 'ab'`, `x: "\(b)"`): cue renders `"ab"`, kue
+errored `incomplete value`. `classifyInterpolationPart` (`Kue/EvalBase.lean`) classified
+every `.prim (.bytes …)` operand `.incomplete`, deferring the whole interpolation. FIX
+(bounded, test-first): the bytes arm decodes `String.fromUTF8?`; valid UTF-8 → `.text`,
+invalid UTF-8 → still `.incomplete` (Kue's validated-`String` model cannot hold non-UTF-8
+bytes; cue lossily replaces with U+FFFD on export — an obscure edge recorded as spec-gap
+`bytes-interp-invalid-utf8`, deferring rather than fabricating). Wild fixture
+`testdata/wild/bytes-interp-into-string/` RED→GREEN (ref + inline + multi-hole);
+`Tests.lean` `evalInterpolation` `#guard`s updated (bytes→string render; invalid-UTF-8
+`#[0xff]` still defers). Interpolation INSIDE a byte literal (`'\(x)'`) remains a
+parse-error "not supported yet" — a separate, already-tracked gap
+(`byte-literal-interpolation` seed), untouched. `./scripts/check.sh` green.
+
 **No active wrong-value bugs remain.**

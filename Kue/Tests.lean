@@ -150,8 +150,10 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
 -- A null anywhere in a multi-part interpolation sinks the whole hole.
 #guard evalInterpolation [.prim (.string "x"), .prim .null, .prim (.string "y")]
   == .bottomWith [.nonInterpolatable (.scalar .null)]
--- Unresolved (ref) and bytes-pending operands defer rather than error or passthrough-render.
+-- An unresolved (ref) operand defers; a valid-UTF-8 bytes operand coerces to its string form.
 #guard evalInterpolation [.ref "b"] == .interpolation [.ref "b"]
-#guard evalInterpolation [.prim (.bytes (textBytes "x"))] == .interpolation [.prim (.bytes (textBytes "x"))]
+#guard evalInterpolation [.prim (.bytes (textBytes "x"))] == .prim (.string "x")
+#guard evalInterpolation [.prim (.string "p="), .prim (.bytes (textBytes "yz"))] == .prim (.string "p=yz")
+#guard evalInterpolation [.prim (.bytes #[0xff])] == .interpolation [.prim (.bytes #[0xff])]
 
 end Kue
