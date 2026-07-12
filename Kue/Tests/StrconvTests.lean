@@ -5,7 +5,7 @@ namespace Kue
 
 -- STDLIB-C: `strconv` builtin dispatch. Each theorem pins one implemented function against
 -- cue v0.16.1 on representative, boundary, and error inputs. Real-but-deferred functions
--- (`FormatFloat`/`ParseFloat`/`Quote`/`Unquote` family) route to `unsupportedBuiltin`; a
+-- (`Quote`/`Unquote` family) route to `unsupportedBuiltin`; a
 -- nonexistent leaf (`Itoa`, not a callable function in cue) bottoms bare, cue's own verdict.
 --
 -- `Value` is a mutual inductive (`BEq`, no `DecidableEq`), so theorems assert `(lhs == rhs) =
@@ -188,10 +188,68 @@ theorem parsebool_invalid :
 theorem itoa_nonexistent_is_bottom :
     (call "strconv.Itoa" [.prim (.int 255)] == .bottom) = true := by
   native_decide
--- Real-but-deferred functions route to unsupportedBuiltin on concrete args.
-theorem parsefloat_deferred :
-    (call "strconv.ParseFloat" [.prim (.string "3.14"), .prim (.int 64)]
-      == .bottomWith [.unsupportedBuiltin "strconv.ParseFloat"]) = true := by native_decide
+-- STDLIB-FLOAT-F2: IEEE float64/32 surface. ParseFloat's stored anchor is Go's shortest
+-- SCIENTIFIC (`'e'`) string — the apd.SetFloat64 form cue re-renders (`"100"` ↦ `1E+2`); every
+-- anchor is pinned against Go/cue v0.16.1, and its RENDER is pinned by `strconv_float` export.
+theorem parsefloat_tenth :
+    (call "strconv.ParseFloat" [.prim (.string "0.1"), .prim (.int 64)]
+      == .prim (mkFloatText "1e-01")) = true := by native_decide
+theorem parsefloat_hundred_scientific :
+    (call "strconv.ParseFloat" [.prim (.string "100"), .prim (.int 64)]
+      == .prim (mkFloatText "1e+02")) = true := by native_decide
+theorem parsefloat_e23_shortest :
+    (call "strconv.ParseFloat" [.prim (.string "1e23"), .prim (.int 64)]
+      == .prim (mkFloatText "1e+23")) = true := by native_decide
+theorem parsefloat_third_roundtrip :
+    (call "strconv.ParseFloat" [.prim (.string "0.3333333333333333333"), .prim (.int 64)]
+      == .prim (mkFloatText "3.333333333333333e-01")) = true := by native_decide
+theorem parsefloat_min_subnormal :
+    (call "strconv.ParseFloat" [.prim (.string "5e-324"), .prim (.int 64)]
+      == .prim (mkFloatText "5e-324")) = true := by native_decide
+theorem parsefloat_underflow_zero :
+    (call "strconv.ParseFloat" [.prim (.string "1e-400"), .prim (.int 64)]
+      == .prim (mkFloatText "0e+00")) = true := by native_decide
+theorem parsefloat_float32 :
+    (call "strconv.ParseFloat" [.prim (.string "16777217"), .prim (.int 32)]
+      == .prim (mkFloatText "1.6777216e+07")) = true := by native_decide
+theorem parsefloat_overflow_range :
+    (call "strconv.ParseFloat" [.prim (.string "1e400"), .prim (.int 64)]
+      == .bottomWith [.strconvRange "1e400"]) = true := by native_decide
+theorem parsefloat_syntax :
+    (call "strconv.ParseFloat" [.prim (.string "abc"), .prim (.int 64)]
+      == .bottomWith [.strconvSyntax "abc"]) = true := by native_decide
+
+-- FormatFloat: verb byte ('g'=103,'e'=101,'f'=102), prec (-1 shortest), bitSize.
+theorem formatfloat_g_shortest :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "1234.5678"), .prim (.int 103), .prim (.int (-1)), .prim (.int 64)]
+      == .prim (.string "1234.5678")) = true := by native_decide
+theorem formatfloat_e_shortest :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "1234.5678"), .prim (.int 101), .prim (.int (-1)), .prim (.int 64)]
+      == .prim (.string "1.2345678e+03")) = true := by native_decide
+theorem formatfloat_g_big_exponent :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "1e20"), .prim (.int 103), .prim (.int (-1)), .prim (.int 64)]
+      == .prim (.string "1e+20")) = true := by native_decide
+theorem formatfloat_int_input :
+    (call "strconv.FormatFloat"
+        [.prim (.int 100), .prim (.int 103), .prim (.int (-1)), .prim (.int 64)]
+      == .prim (.string "100")) = true := by native_decide
+theorem formatfloat_f_fixed_prec :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "1234.5678"), .prim (.int 102), .prim (.int 2), .prim (.int 64)]
+      == .prim (.string "1234.57")) = true := by native_decide
+theorem formatfloat_f_round_half_even :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "2.5"), .prim (.int 102), .prim (.int 0), .prim (.int 64)]
+      == .prim (.string "2")) = true := by native_decide
+theorem formatfloat_verb_deferred :
+    (call "strconv.FormatFloat"
+        [.prim (mkFloatText "1.5"), .prim (.int 120), .prim (.int (-1)), .prim (.int 64)]
+      == .bottomWith [.unsupportedBuiltin "strconv.FormatFloat (verb ∉ {e,E,f,F,g,G})"])
+      = true := by native_decide
+
 theorem quote_deferred :
     (call "strconv.Quote" [.prim (.string "hi")]
       == .bottomWith [.unsupportedBuiltin "strconv.Quote"]) = true := by native_decide
@@ -217,6 +275,8 @@ theorem atoi_still_exports :
 #check @parseint_formatint_roundtrip        -- ParseInt (base, prefix, underscore, bitSize)
 #check @parseuint_uint64_overflow           -- ParseUint
 #check @parsebool_invalid                   -- FormatBool / ParseBool
+#check @parsefloat_syntax                   -- ParseFloat (F2: shortest, subnormal, over/underflow, f32)
+#check @formatfloat_verb_deferred           -- FormatFloat (F2: verbs, prec, round-half-even, defer)
 #check @quote_deferred                      -- deferred → unsupportedBuiltin
 #check @atoi_still_exports                  -- render path (clear message + no regression)
 

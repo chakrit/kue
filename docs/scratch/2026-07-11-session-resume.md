@@ -3,7 +3,31 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **STRINGFORMAT-LEAF — NetAddr fixed-width + StringFormat leaf (PA-NET-1 + PA-SF-3 + PB-SF-3).**
+HEAD: **STDLIB-FLOAT-F2 — the IEEE binary64/32 float kernel (LANDED 2026-07-12).**
+New leaf `Kue/Float.lean` (imports `Kue.Decimal`; built via `Kue.Builtin`). Finite floats modelled
+EXACTLY as `BinFloat = (-1)^neg · mantissa · 2^binExp` — big-integer arithmetic, NO hardware `Float`.
+Three kernels: `decimalToFloat` (correctly-rounded decimal→binary, round-half-to-even, overflow→err /
+underflow→±0 / subnormal re-round), `shortestDigits` (Burger–Dybvig shortest-round-trip; even-inclusive
+boundary, carry trailing-zero trim — the `1e23` even-boundary case), `exactDigits`+`roundToSig`
+(fixed-prec rounds the EXACT finite decimal). `fmtE`/`fmtF`/`fmtG` = Go `strconv` byte-for-byte, verbs
+`e E f F g G`, shortest-`'g'` switch `eprec = 6` (cue's linked Go, NOT the old `21`). Wired
+`strconv.ParseFloat(s,{32,64})` (stores shortest-`'e'` = cue's `apd.SetFloat64` anchor → `ParseFloat("100")`
+renders `1E+2`) + `strconv.FormatFloat(f,verb,prec,{32,64})` into `.strconv`. Deferred: verbs `b`/`x`/`X`,
+bitSize∉{32,64}. Negative-zero renders `0` (divergence logged). Validated 343 kernel + 300 random CLI
+cases byte-identical to Go/cue. Fixture `testdata/export/strconv_float`; theorems `parsefloat_*`/
+`formatfloat_*` in `StrconvTests.lean`. Docs: plan.md (F2 ✅ + F1/F3/F5 UNBLOCKED), cue-spec-gaps
+(STDLIB-FLOAT-F2), cue-divergences (-0), compat-assumptions §Numeric, implementation-log. `check.sh` GREEN.
+**F2 UNBLOCKS F1/F3/F5 — all now schedulable.** Committed on `main`.
+**Next (ranked):** the F2-unblocked float wirings are now the high-leverage frontier — **F1**
+(`math.Log1p`/`Expm1`, float64 via `Kue/Float.lean` + shortest-`'e'` anchor, smallest), **F3** (trig
+`Sin`/`Cos`/`Tan`/… in float64), **F5** (`text/template` T3 float-in-data render + `math.Float64bits`).
+Then the remaining LOW audit findings: PA-ESC-2 (shared simple-escape table, `Parse.lean` DRY),
+PA-SUB-4 (`net.IPv4()⊑net.IP()` subsumption, `Order.lean`), PA-TT-5 (template fuel-bound proof),
+PB-RELEASE-3 (`release.sh:43` CPU-cap bypass), PB-TESTORG-4 (BuiltinTests/TwoPassTests split, under cap).
+Rank: F1 first (unblocked, small, exercises the new kernel end-to-end); F3/F5 next; LOWs after.
+Prior HEAD STRINGFORMAT-LEAF below.
+
+## Prior HEAD — STRINGFORMAT-LEAF — NetAddr fixed-width + StringFormat leaf (PA-NET-1 + PA-SF-3 + PB-SF-3)
 Two 2026-07-12 audit findings, one refactor, behavior-conserving. (1) `NetAddr.v6` retyped
 `List UInt8 → Vector UInt8 16` (`Kue/Net.lean`): 16-byte width now a TYPE invariant, so every `netIs*`
 classifier indexes `bs[i]` (literal <16, total) — all `bs.getD i 0` value-fallbacks gone. Smart ctor

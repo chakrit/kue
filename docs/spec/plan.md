@@ -209,9 +209,11 @@ bounds DEPTH only. WF recursion broke `rfl`, so ~30 manifest tests migrated whol
 the last such site — eval was already correct.** Also folded in a LOW audit test-guard
 (`eval_add_context_rounding_half_up_even_tie`, apd half-UP tie rule, prior coverage zero).
 
-**STDLIB-FLOAT campaign (scoped float work). F0 ✅ + F4 (`+ - * /`) ✅ LANDED (2026-07-11 / 07-12).** Scoping ruling: CUE
-numbers are arbitrary-precision apd decimal, NOT float64 — kue's `Decimal` already represents
-them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. Roadmap:
+**STDLIB-FLOAT campaign (scoped float work). F0 ✅ + F4 (`+ - * /`) ✅ + F2 (IEEE kernel) ✅ LANDED
+(2026-07-11 / 07-12).** Scoping ruling: CUE numbers are arbitrary-precision apd decimal, NOT float64 —
+kue's `Decimal` already represents them exactly, so most "float" work is decimal-kernel wiring. The
+EXCEPTION is the handful of builtins cue exposes AS float64 (`strconv.FormatFloat`/`ParseFloat`,
+`Log1p`/`Expm1`, trig): F2 (LANDED) builds the separate IEEE `BinFloat` kernel those need. Roadmap:
 - **F0 (the cheap win) ✅ LANDED 2026-07-11.** Wired the existing `decimalLnScaled`/`decimalExpScaled`
   kernels to `math.Log`/`Log2`/`Log10`/`Exp`/`Exp2` (34-sig apd, byte-identical to cue), shipped all
   11 `math` constants (`Pi`/`E`/`Phi`/`Sqrt2`/`SqrtE`/`SqrtPi`/`SqrtPhi`/`Ln2`/`Log2E`/`Ln10`/`Log10E`),
@@ -220,13 +222,24 @@ them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. 
   Domain: `Log`/`Log2`/`Log10` of ≤0 → bottom (kue has no `Inf`/`NaN`). No new kernel, no IEEE. See
   `cue-spec-gaps.md` STDLIB-FLOAT-F0.
 - **F1 (LOW) — `math.Log1p`/`math.Expm1`.** cue exposes these as FLOAT64 (17-digit), NOT apd — a genuine
-  IEEE surface. Currently `unsupportedBuiltin`. Gated on F2.
-- **F2 (MEDIUM) — the IEEE float64 kernel.** A shortest-round-trip
-  `strconv.FormatFloat`/`ParseFloat` + float64 arithmetic model. This is the wall behind
-  `strconv.FormatFloat`, `text/template` T3 (float in template data), `Log1p`/`Expm1`, and the
-  trig family — all real stdlib/spec surface, so in scope on completeness grounds. Prioritize
-  by conformance leverage (one kernel unblocks four deferred surfaces), not by usage.
-- **F3 — transcendental trig** (`Sin`/`Cos`/`Tan`/…), gated on F2 (cue computes them in float64).
+  IEEE surface. Currently `unsupportedBuiltin`. **UNBLOCKED by F2** (the `BinFloat` kernel exists); now
+  schedulable — wire float64 `log1p`/`expm1` through `Kue/Float.lean` + shortest-`'e'` render anchor.
+- **F2 (MEDIUM) — the IEEE float64/32 kernel. ✅ LANDED 2026-07-12.** `Kue/Float.lean`: a `BinFloat`
+  model (`(-1)^neg · mantissa · 2^binExp`, exact big-integer arithmetic, NO hardware `Float`),
+  correctly-rounded decimal→binary (`decimalToFloat`, round-half-to-even, overflow→error /
+  underflow→±0), Burger–Dybvig shortest-round-trip binary→decimal (`shortestDigits`), and
+  exact-finite-decimal fixed-precision (`exactDigits`+`roundToSig`). Formatting matches Go's
+  `strconv` verbs `e E f F g G` byte-for-byte (`fmtE`/`fmtF`/`fmtG`; the shortest-`'g'` switch uses
+  `eprec = 6` — cue v0.16.1's linked Go, NOT the older `21`). `strconv.ParseFloat(s, {32,64})`
+  (stores Go's shortest-`'e'` string = cue's `apd.SetFloat64` anchor, so `ParseFloat("100")` renders
+  `1E+2`) + `strconv.FormatFloat(f, verb, prec, {32,64})` wired into the `.strconv` family. Both 32
+  and 64 supported (parameterized `FloatFormat`). DEFERRED (filed): verbs `b`/`x`/`X` (hex/binary
+  float) and bitSize ∉ {32,64} → `unsupportedBuiltin`; negative-zero render divergence (see
+  cue-divergences.md). Validated: 343 kernel cases + 300 random CLI cases byte-identical to Go/cue.
+  Fixture `testdata/export/strconv_float`; theorems `parsefloat_*`/`formatfloat_*` in
+  `Kue/Tests/StrconvTests.lean`; rule in `cue-spec-gaps.md` STDLIB-FLOAT-F2.
+- **F3 — transcendental trig** (`Sin`/`Cos`/`Tan`/…), **UNBLOCKED by F2** (cue computes them in
+  float64; the `BinFloat` kernel + shortest render anchor are the missing piece).
 - **F4 — apd result-exponent preservation in float arithmetic. ✅ `+ - * /` LANDED (`+ - *`
   2026-07-11; `/` 2026-07-12).** Arithmetic threads the apd `(coefficient, exponent)` form (`ApdForm` +
   `apdAdd`/`apdSub`/`apdMul` + `apdRoundToContext` + `apdCarrierText`, `Decimal.lean`) instead of
@@ -240,7 +253,9 @@ them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. 
   quotients keep the unchanged 34-digit `divideDecimalRational?` renderer. Rule + derivation in
   `cue-spec-gaps.md` STDLIB-FLOAT-F4; see also `compat-assumptions.md` §Numeric literals / §Arithmetic
   expressions. Guarded by `testdata/wild/float-apd-division-exponent/`.
-- **F5 — `FloatConv`/template-float / `math.Float64bits`-class bit-twiddling**, gated on F2.
+- **F5 — `FloatConv`/template-float / `math.Float64bits`-class bit-twiddling**, **UNBLOCKED by F2**
+  (`text/template` T3 float-in-data can now render via `Kue/Float.lean`; `Float64bits` needs the
+  `BinFloat`→bit-pattern extraction, a small addition to the kernel).
 
 **BYTE-ESCAPE-STRICT (LOW, 2026-07-11). ✅ CLOSED (2026-07-11).** The single-quote byte-literal
 escape decoder (`decodeByteEscape`, `Kue/Parse.lean`) was LENIENT — an unrecognized escape kept the

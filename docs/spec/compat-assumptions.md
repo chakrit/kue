@@ -353,6 +353,16 @@ those forms.
   scientific/trailing-zero/`.0` forms byte-match `cue` (`2e2 * 3` → `6e+2`, `1e1 + 1e1` → `2e+1`,
   `1.20 + 1.30` → `2.50`, `1e34 + 1` → `1.000…e+34`, `6e2 / 3` → `2.0e+2`, `1000000/8` → `1.250e+5`).
   The division rule + derivation live in `cue-spec-gaps.md` STDLIB-FLOAT-F4.
+- CUE numbers are exact apd DECIMAL, not float64 — but `strconv` exposes a SEPARATE IEEE
+  binary64/32 surface. `Kue/Float.lean` (STDLIB-FLOAT-F2) models a finite binary float EXACTLY
+  as `(-1)^neg · mantissa · 2^binExp` (`BinFloat`, big-integer arithmetic, no hardware `Float`)
+  and backs `strconv.ParseFloat`/`FormatFloat`: correctly-rounded decimal→binary
+  (round-half-to-even), Burger–Dybvig shortest-round-trip binary→decimal, and exact
+  fixed-precision, byte-identical to Go's `strconv` (verbs `e`/`f`/`g`, shortest-`'g'` switch
+  `eprec = 6`) across binary64 AND binary32. `ParseFloat` stores Go's shortest-`'e'` string
+  (cue's `apd.SetFloat64` anchor), so `ParseFloat("100")` renders `1E+2`. This IEEE surface does
+  NOT touch the apd-decimal number core; it is confined to those `strconv` leaves (and the F1/F3
+  float64 builtins it now unblocks). See `cue-spec-gaps.md` STDLIB-FLOAT-F2.
 - Lowercase non-decimal integer literals with `0x`, `0o`, and `0b` prefixes are
   canonicalized to decimal integers while parsing. Separators are accepted in their digit
   sequences.

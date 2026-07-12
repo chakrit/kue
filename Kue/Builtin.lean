@@ -2,6 +2,7 @@ import Kue.Lattice
 import Kue.Regex
 import Kue.Decimal
 import Kue.Strconv
+import Kue.Float
 import Kue.Path
 import Kue.Base64
 import Kue.Json
@@ -1468,10 +1469,13 @@ def evalStrconvBuiltin : String -> List Value -> Value
       strconvParse false s base bits
   | "strconv.FormatBool", [.prim (.bool b)] => .prim (.string (if b then "true" else "false"))
   | "strconv.ParseBool", [.prim (.string s)] => strconvParseBool s
-  -- Real cue functions Kue recognizes but defers (Float model / Unicode `IsPrint` table) → clear
-  -- unsupported signal; a nonexistent leaf (`Itoa`) has no arm and bottoms bare below.
-  | "strconv.FormatFloat", args => unsupportedOrBottom "strconv.FormatFloat" args
-  | "strconv.ParseFloat", args => unsupportedOrBottom "strconv.ParseFloat" args
+  -- IEEE binary float surface (STDLIB-FLOAT-F2). ParseFloat parses to a correctly-rounded
+  -- float; FormatFloat renders one with Go's verb/precision. Both accept int or float numbers.
+  | "strconv.ParseFloat", [.prim (.string s), .prim (.int bits)] => strconvParseFloat s bits
+  | "strconv.FormatFloat", [.prim n, .prim (.int verb), .prim (.int prec), .prim (.int bits)] =>
+      strconvFormatFloat n verb prec bits
+  -- Real cue functions Kue recognizes but defers (Unicode `IsPrint` table) → clear unsupported
+  -- signal; a nonexistent leaf (`Itoa`) has no arm and bottoms bare below.
   | "strconv.Quote", args => unsupportedOrBottom "strconv.Quote" args
   | "strconv.Unquote", args => unsupportedOrBottom "strconv.Unquote" args
   | "strconv.QuoteToASCII", args => unsupportedOrBottom "strconv.QuoteToASCII" args

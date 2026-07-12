@@ -20496,3 +20496,62 @@ parser-internal list extraction, not illegal-state fallbacks. Behavior conserved
 existing theorems/fixtures flipped. Discharges PA-NET-1, PA-SF-3, PB-SF-3, and the
 PB-DOCGRAPH-2 remainder (plan edge-list + `architecture.md` §5 rewritten with the five
 stdlib leaves and the deleted `Time → Net` edge).
+
+---
+
+## Completed Slice: STDLIB-FLOAT-F2 — the IEEE binary float kernel
+
+Goal: build the IEEE-754 binary64/32 surface behind `strconv.FormatFloat`/`ParseFloat` — the
+shortest-round-trip float kernel that is the wall behind four deferred surfaces (`Log1p`/`Expm1`,
+trig, `text/template` float data, `Float64bits`-class). CUE numbers are exact apd decimal, but
+this handful of `strconv` builtins are genuinely float64, so the kernel is a SEPARATE model, not
+decimal-kernel wiring.
+
+### Behavior added
+
+New module `Kue/Float.lean` (imports `Kue.Decimal`; entered the build via `Kue.Builtin`). A finite
+binary float is modelled EXACTLY as `BinFloat = (-1)^neg · mantissa · 2^binExp` — pure big-integer
+arithmetic, NO hardware `Float` (opaque FFI rounding is distrusted and not `native_decide`-checkable;
+the kernel is total and deterministic). `FloatFormat` parameterizes binary64 (`f64Format`) and
+binary32 (`f32Format`) by significand width + exponent bounds.
+
+Three kernels:
+- `decimalToFloat` — correctly-rounded decimal → binary (round-half-to-even) via a fuel-adjusted
+  binary-exponent search (`findExp`) then a mantissa round (`roundDivHalfEven`); overflow →
+  `.overflow`, underflow → `mantissa = 0`, subnormals re-round at the fixed minimum exponent.
+- `shortestDigits` — Steele & White / Burger–Dybvig free-format shortest-round-trip binary →
+  decimal, exact in integers. Even-inclusive vs. strict boundary tests select round-half-to-even;
+  a round-up carry (`[10] ↦ [1,0]`) trims its introduced trailing zero (shortest carries none —
+  the `1e23` boundary case, which sits exactly on the even-inclusive upper margin).
+- `exactDigits` + `roundToSig` — fixed precision rounds the float's EXACT finite decimal expansion
+  (`mantissa · 5^(-binExp)` when `binExp < 0`) to the requested digit count, matching Go (which
+  rounds the exact value, e.g. `FormatFloat(1.005,'f',2)` = `1.00`).
+
+Formatting (`fmtE`/`fmtF`/`fmtG`) reproduces Go's `strconv.formatDigits` byte-for-byte for verbs
+`e E f F g G`. The shortest-`'g'` %e/%f switch uses `eprec = 6` — cue v0.16.1 links a Go whose
+`internal/strconv` moved this constant from the older `21` to `6` (root-caused by reading the
+installed `ftoa.go`; the empirical cue/Go sweep confirmed 6).
+
+Wiring into the `.strconv` `BuiltinFamily`:
+- `strconv.ParseFloat(s, {32,64})` — parses `s` (Go's decimal-float grammar; `Inf`/`NaN`/hex-float
+  deferred as syntax errors) to the correctly-rounded float, then stores Go's shortest SCIENTIFIC
+  (`'e'`) string as the render anchor via `mkFloatText`. This is cue's exact path: `apd.SetFloat64`
+  uses the `'e'` shortest string, so `ParseFloat("100")` renders `1E+2` (not `100`) — the `'e'` (not
+  `'g'`) anchor was the key correctness detail. Overflow → `strconvRange`, syntax → `strconvSyntax`.
+- `strconv.FormatFloat(f, verb, prec, {32,64})` — converts the CUE number (int or float apd) to the
+  binary float, formats with Go's verb/precision; overflow renders Go's `±Inf`.
+
+Deferred with `unsupportedBuiltin` (filed in plan.md F1/F3/F5 + spec-gap): verbs `b`/`x`/`X`
+(hex/binary float) and bitSize ∉ {32,64}. Negative-zero render diverges from cue (kue normalizes
+`-0 → 0`, one policy across the whole float surface — cue-divergences.md STDLIB-FLOAT-F2).
+
+### Verification
+
+343 kernel cases (shortest g/e/f + fixed e/f/g across subnormals, `1e23`-class boundaries,
+over/underflow, negatives, half-even ties, float32) diffed BYTE-IDENTICAL against a Go
+`strconv` reference battery; a 300-case random `cue export --out json` CLI sweep (60 floats × 5
+ops) BYTE-IDENTICAL to cue v0.16.1. Export fixture `testdata/export/strconv_float.{cue,json}`
+(cue oracle) matches kue byte-for-byte; theorems `parsefloat_*`/`formatfloat_*` in
+`Kue/Tests/StrconvTests.lean` (the stale `parsefloat_deferred`/header replaced). `./scripts/check.sh`
+fully green; zero existing fixtures/theorems flipped. Unblocks F1 (`Log1p`/`Expm1`), F3 (trig),
+and F5 (template float / `Float64bits`) — all now schedulable.
