@@ -154,6 +154,8 @@ theorem meet_struct_disjunction_distributes_with_struct_meet :
 #guard evalInterpolation [.ref "b"] == .interpolation [.ref "b"]
 #guard evalInterpolation [.prim (.bytes (textBytes "x"))] == .prim (.string "x")
 #guard evalInterpolation [.prim (.string "p="), .prim (.bytes (textBytes "yz"))] == .prim (.string "p=yz")
+-- Multi-byte valid UTF-8 (`é` = 0xC3 0xA9) DECODES — an ASCII case can't tell decode from byte-copy.
+#guard evalInterpolation [.prim (.bytes #[0xC3, 0xA9])] == .prim (.string "é")
 #guard evalInterpolation [.prim (.bytes #[0xff])] == .interpolation [.prim (.bytes #[0xff])]
 
 end Kue

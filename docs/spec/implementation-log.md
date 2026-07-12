@@ -21557,3 +21557,40 @@ parse-error "not supported yet" — a separate, already-tracked gap
 (`byte-literal-interpolation` seed), untouched. `./scripts/check.sh` green.
 
 **No active wrong-value bugs remain.**
+
+---
+
+## Phase A audit (2026-07-13, focused) — BINARY-CMP-BYTES + STRING-BYTES-PROBE
+
+Focused code-quality audit of the two slices since `8213870` (Phase B deliberately
+skipped — no new modules/architectural surface; pairs with the upcoming
+BOUND-ORDEREDPRIM refactor).
+
+Last-audit reconciliation: the 2026-07-13 Phase A/B ranked BINARY-CMP-BYTES #1 (landed
+`3fd6616`) and recommended the bytes/string differential probe (landed `6c9fd69`). Both
+confirmed landed correctly. Older OPEN backlog (BOUND-ORDEREDPRIM,
+PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS, DEF-FLATTEN-CLOSEDNESS-DISJ,
+PB-EVALBASE-SPLIT, PB-FIXTUREPORTS-SPLIT, float F1/F3/F5) verified still filed in
+`plan.md` — unchanged, carried forward.
+
+Verdict: both changes SOUND.
+
+- `evalPrimitiveOrdering` retype: the `primOrdCompare?`-routed prim×prim path is
+  behavior-identical to the old `decimalOp`+`stringOp` pair for numbers/strings (both
+  reduce to `decimalLtValues`/`charsLt` under the order trichotomy), and adds the
+  missing bytes family. The `Ordering→Bool` readers (`isLT`/`isLE`/`isGT`/`isGE`) carry
+  the inclusive boundary correctly — `isLE`/`isGE` true on `.eq`, `isLT`/`isGT` false on
+  `.eq` — pinned green by `eval_le_bytes_equal_true`/`eval_ge_bytes_equal_true`/
+  `eval_le_string_reflexive_true`. Cross-type `none ⇒ ⊥` guard preserved; incomplete/
+  abstract operands still retain `.binary` (outside the touched arm).
+- `classifyInterpolationPart` bytes arm: valid/invalid UTF-8 split via
+  `String.fromUTF8?` (total) is correct — valid decodes byte-identical to cue's render;
+  invalid defers rather than fabricating cue's lossy U+FFFD (principled, spec-gap logged).
+  Exhaustive constructor match, no catch-all. Byte-literal interpolation unaffected
+  (separate parse-stage gap).
+
+Inline test-strengthening (no `plan.md` findings): the valid-UTF-8 render coverage was
+ASCII-only, indistinguishable from a naive byte-copy. Added a multi-byte case
+(`\xc3\xa9` = "é", cue-adjudicated) to `testdata/wild/bytes-interp-into-string/` and a
+matching `Tests.lean` `#guard`, pinning the `String.fromUTF8?` decode. `./scripts/check.sh`
+green.

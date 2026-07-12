@@ -13,3 +13,7 @@ b:      'ab'
 x:      "\(b)"
 inline: "p=\('yz')-q"
 multi:  "\('a')\('b')"
+
+// Multi-byte valid UTF-8 (`\xc3\xa9` = "é"): pins the `String.fromUTF8?` DECODE, which
+// an ASCII-only case can't distinguish from a naive byte-copy.
+mb:     "\('\xc3\xa9')"
