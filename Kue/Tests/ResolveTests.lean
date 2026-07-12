@@ -148,6 +148,27 @@ theorem tl2_depth_distinguishes_underlying_nat :
 theorem tl2_fieldIndex_distinguishes_underlying_nat :
     ((⟨3⟩ : FieldIndex) == (⟨4⟩ : FieldIndex)) = false := by native_decide
 
+-- DEDUP-MIRROR-GUARD. Belt-and-suspenders over the structural single-source: the resolver's
+-- lexical slot layout and the evaluator's frame must agree on WHICH slots exist for every
+-- duplicate-bearing struct body, or a reference lands on a stale index and dangles. Both now
+-- fold the SAME `mergeFieldLayoutInto` (Lattice), so they cannot diverge by construction; this
+-- pins the label projection anyway across an adversarial dup battery (dup, dup-with-hidden-
+-- between, dup-of-definition, triple-dup, dup-with-optional, class-mismatch let-vs-field).
+theorem canonical_layout_label_mirrors_canonicalize_fields :
+    let batteries : List (List Field) := [
+      [⟨"a", .regular, .kind .int, false⟩, ⟨"a", .regular, .kind .string, false⟩],
+      [⟨"a", .regular, .kind .int, false⟩, ⟨"h", .hidden, .kind .int, false⟩,
+        ⟨"a", .regular, .kind .string, false⟩],
+      [⟨"#D", .definition, .kind .int, false⟩, ⟨"#D", .definition, .kind .string, false⟩],
+      [⟨"a", .regular, .kind .int, false⟩, ⟨"a", .regular, .kind .string, false⟩,
+        ⟨"a", .regular, .kind .int, false⟩],
+      [⟨"a", .optional, .kind .int, false⟩, ⟨"a", .regular, .kind .string, false⟩],
+      [⟨"a", .letBinding, .kind .int, false⟩, ⟨"a", .regular, .kind .string, false⟩]
+    ]
+    batteries.all (fun fs =>
+      (canonicalFieldLayout fs).map Field.label == (canonicalizeFields fs).map Field.label)
+      = true := by native_decide
+
 
 
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
@@ -155,5 +176,6 @@ theorem tl2_fieldIndex_distinguishes_underlying_nat :
 -- elaboration.
 #check @resolve_comprehension_body_outer_field_depth
 #check @tl2_fieldIndex_distinguishes_underlying_nat    -- TL-2 — `Depth`/`FieldIndex` newtype invariants
+#check @canonical_layout_label_mirrors_canonicalize_fields  -- DEDUP-MIRROR-GUARD equivalence
 
 end Kue

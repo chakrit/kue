@@ -899,6 +899,27 @@ def mergeFieldClass (left right : FieldClass) : Option FieldClass :=
   | .field ld lh lo, .field rd rh ro =>
       some (.field (ld || rd) (lh || rh) (lo.meet ro))
 
+/-- Fold one field into a deduplicated layout, single-sourcing the duplicate-collapse
+    DECISION that both the evaluator's frame (`canonicalizeFields`) and the resolver's
+    lexical layout (`canonicalFieldLayout`) index. The keep-or-append rule lives here so
+    the two mirrors cannot drift: a field collapses into the FIRST same-label slot whose
+    class merges (`mergeFieldClass`); a first same-label slot whose class does NOT merge
+    stops the search and appends (`none` → the caller appends at end). `combine` supplies
+    the value-merge for the collapsing case — the eval side passes its unevaluated
+    definition-vs-`.conj` combiner, the resolve side passes identity-keep (layout only).
+    Structural recursion on `fields`; total. -/
+def mergeFieldLayoutInto (combine : FieldClass -> Field -> Field -> Field)
+    (fields : List Field) (field : Field) : Option (List Field) :=
+  match fields with
+  | [] => some [field]
+  | current :: rest =>
+      if Field.label current = Field.label field then
+        match mergeFieldClass (Field.fieldClass current) (Field.fieldClass field) with
+        | some fieldClass => some (combine fieldClass current field :: rest)
+        | none => none
+      else
+        (mergeFieldLayoutInto combine rest field).map (current :: ·)
+
 def fieldWithClass (fieldClass : FieldClass) (label : String) (value : Value) : Field :=
   { label, fieldClass, value }
 

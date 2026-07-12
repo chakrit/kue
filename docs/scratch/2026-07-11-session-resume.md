@@ -3,7 +3,28 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **SELF-SELECT-CYCLE-CROSSFRAME — cross-frame selector reference-cycle → top FIXED (LANDED
+HEAD: **RESOLVE-DEDUP-MIRROR-GUARD — field-collapse decision single-sourced in `Lattice`; drift now
+impossible by construction (LANDED 2026-07-12).** `canonicalFieldLayout` (Resolve, lexical layout) and
+`canonicalizeFields` (EvalBase, eval frame) hand-copied the SAME duplicate-collapse decision
+(first-occurrence keying + `mergeFieldClass.isSome` keep/append); they had to agree or refs dangle (the
+SELF-CONJ-CYCLE-INDIRECT class) but nothing pinned it. FIX (structural hoist, behavior-preserving):
+extracted the fold-step to `Lattice.mergeFieldLayoutInto (combine) : List Field → Field → Option (List
+Field)` — both modules already import `Lattice` where `mergeFieldClass` lives, no cycle. EvalBase folds
+it with `mergeUnevaluatedFieldValue` (definition-vs-`.conj`); Resolve folds it with identity-keep
+`fun _ current _ => current`. `mergeUnevaluatedFieldInto` DELETED (its body was that specialization).
+Drift dies by construction — one decision, two callers cannot disagree on which slots exist. `check.sh`
+fully GREEN, ZERO fixtures/theorems flipped (true refactor). Belt-and-suspenders guard
+`canonical_layout_label_mirrors_canonicalize_fields` (`ResolveTests.lean`, in the tripwire) pins the
+label projection across a dup/dup-hidden/dup-of-def/triple-dup/dup-optional/class-mismatch battery.
+`buildFrame`'s collapse layout is now STABILIZED for LET-CYCLE-ERROR. **A two-phase AUDIT is DUE in
+~2 slices** (last full audit was Phase A/B 2026-07-12; RESOLVE-DEDUP-MIRROR-GUARD + SELF-SELECT-CYCLE-
+CROSSFRAME since). **NEXT (ranked, Phase B head):** **LET-CYCLE-ERROR** (MED, missing load error;
+`Resolve.buildFrame`/`.letBinding`, now on the stabilized collapse layout) → **BINARY-CMP-BYTES** (LOW,
+kue bug, `bytesOp` threading) → **BOUND-ORDEREDPRIM** (LOW, illegal-states, ~60-site tightening) →
+**PB-EVALBASE-SPLIT** (cohesion filler). **Alpha release remains HELD for chakrit (attended) — handoff:
+this slice is committed, not pushed/released pending your say-so.**
+
+Prior HEAD: **SELF-SELECT-CYCLE-CROSSFRAME — cross-frame selector reference-cycle → top FIXED (LANDED
 2026-07-12).** `x:{a:1}; x:{a:x.a}` was kue `{x:{a:_|_}}`, now `{x:{a:1}}` (cue v0.16.1). The
 reference-cycle→top class is now CLOSED across same-frame + indirect (index-layout) + cross-frame
 (+ nested chains `x.a.b`). OBSERVED (instrument-first, trace-diff vs preamble): `x`'s

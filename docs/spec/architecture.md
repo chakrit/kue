@@ -63,7 +63,10 @@ union. `Value.lean` imports only `Kue.Regex` (a true leaf).
 `Lattice.lean` implements total `meet` /`join` with fuel-bounded recursion through
 compound values and the normalization the laws need (flatten disjunctions, drop bottom
 alternatives, numeric-kind hierarchy); it owns the closedness admittance logic
-(`fieldAllowedByClausesWith` and the per-conjunct clause conjunction). `Normalize.lean`
+(`fieldAllowedByClausesWith` and the per-conjunct clause conjunction) and the single-sourced
+duplicate-field collapse DECISION (`mergeFieldClass` + `mergeFieldLayoutInto`, the keep-or-append
+fold both the evaluator frame (`EvalBase.canonicalizeFields`) and the resolver layout
+(`Resolve.canonicalFieldLayout`) share so they cannot drift). `Normalize.lean`
 carries definition-implied closedness normalization (a leaf, `import Kue.Value` only).
 `containsBottom` (the disjunction-prune predicate) is TOTAL/structural — no fuel cap — so
 a bottom at any depth is found, including through a `.structComp` residual's resolved

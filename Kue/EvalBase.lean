@@ -408,44 +408,31 @@ def mergeDefinitionDecls (left right : Value) : Value :=
       .structComp mergedFields (ca ++ cb) (unionDefOpenness oa ob)
   | _, _ => joinUnevaluated left right
 
-/-- Combine two *unevaluated* field declarations for the same label, selecting the value-merge
-    by the MERGED field-class: two DEFINITION-class decls close ONCE over their union
-    (`mergeDefinitionDecls`, Bug2-6); every other class (regular/hidden/optional/required/let)
-    keeps the deferred `.conj` (`joinUnevaluated`), which `meet`s lazily once the frame is in
-    scope. A class mismatch (e.g. a `let` vs a regular slot) keeps the slots separate (`none`),
-    exactly as `mergeFieldValueWith` does for the evaluated path. -/
-def mergeUnevaluatedFieldInto (fields : List Field) (field : Field) : Option (List Field) :=
-  match fields with
-  | [] => some [field]
-  | current :: rest =>
-      if Field.label current = Field.label field then
-        match mergeFieldClass (Field.fieldClass current) (Field.fieldClass field) with
-        | some fieldClass =>
-            let value :=
-              if fieldClass.isDefinition then
-                mergeDefinitionDecls (Field.value current) (Field.value field)
-              else
-                joinUnevaluated (Field.value current) (Field.value field)
-            some ({ current with fieldClass := fieldClass, value := value } :: rest)
-        | none => none
-      else
-        match mergeUnevaluatedFieldInto rest field with
-        | some mergedRest => some (current :: mergedRest)
-        | none => none
+/-- The unevaluated value-merge for a collapsing duplicate slot, selected by the MERGED
+    field-class: two DEFINITION-class decls close ONCE over their union (`mergeDefinitionDecls`,
+    Bug2-6); every other class (regular/hidden/optional/required/let) keeps the deferred `.conj`
+    (`joinUnevaluated`), which `meet`s lazily once the frame is in scope. -/
+def mergeUnevaluatedFieldValue (fieldClass : FieldClass) (current field : Field) : Field :=
+  let value :=
+    if fieldClass.isDefinition then
+      mergeDefinitionDecls (Field.value current) (Field.value field)
+    else
+      joinUnevaluated (Field.value current) (Field.value field)
+  { current with fieldClass := fieldClass, value := value }
 
 /-- Canonicalize a syntactic field list by collapsing duplicate-label slots into a single
     first-occurrence slot. A duplicate slot's body is the unevaluated `.conj` of the conjuncts
     (so the frame the evaluator indexes is deduplicated), EXCEPT two DEFINITION-class decls of
     the same path, which close ONCE over their UNION (`mergeDefinitionDecls`, Bug2-6) instead of
-    `.conj`-ing two separately-closed bodies. `mergeUnevaluatedFieldInto` folds
-    merge-into-existing-else-append, preserving first-occurrence order and shifting no earlier
-    index — `b`'s `refId ⟨0,0⟩` still lands on slot 0, now carrying the merged body. Field class
-    is combined via `mergeFieldClass`; a class mismatch keeps the slots separate, matching merge
-    semantics. Total: foldl over a finite list. -/
+    `.conj`-ing two separately-closed bodies. `mergeFieldLayoutInto` (Lattice) single-sources the
+    keep-or-append DECISION shared with the resolver's `canonicalFieldLayout`; this side supplies
+    only the value-merge. Preserves first-occurrence order and shifts no earlier index — `b`'s
+    `refId ⟨0,0⟩` still lands on slot 0, now carrying the merged body. A class mismatch keeps the
+    slots separate. Total: foldl over a finite list. -/
 def canonicalizeFields (fields : List Field) : List Field :=
   fields.foldl
     (fun merged field =>
-      match mergeUnevaluatedFieldInto merged field with
+      match mergeFieldLayoutInto mergeUnevaluatedFieldValue merged field with
       | some fields => fields
       | none => merged ++ [field])
     []

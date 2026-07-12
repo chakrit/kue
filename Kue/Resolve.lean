@@ -15,20 +15,20 @@ def buildFrameFrom (index : Nat) : List Field -> List (String × Nat)
   | field :: fields => (Field.label field, index) :: buildFrameFrom (index + 1) fields
 
 /--
-The deduplicated slot layout the evaluator indexes, mirroring `canonicalizeFields`'
-collapse decision at the class level (`mergeUnevaluatedFieldInto`): a field collapses
-into the FIRST kept slot of the same label whose field-class merges; a same-label slot
-whose class does NOT merge (a `let`/`import` binding against a regular field) is kept
-separate. Resolution must assign lexical indices against THIS layout — not the raw
-positional one — so a reference to a field sitting after a collapsed duplicate lands on
-its evaluator slot rather than a stale higher index that dangles into `unresolvedBinding`.
+The deduplicated slot layout the evaluator indexes, sharing `canonicalizeFields`' exact
+collapse decision via `mergeFieldLayoutInto` (Lattice): a field collapses into the FIRST
+kept slot of the same label whose field-class merges; a same-label slot whose class does
+NOT merge (a `let`/`import` binding against a regular field) is kept separate. Resolution
+assigns lexical indices against THIS layout — not the raw positional one — so a reference
+to a field sitting after a collapsed duplicate lands on its evaluator slot rather than a
+stale higher index that dangles into `unresolvedBinding`. The layout keeps only the first
+slot (`fun _ current _ => current`); the value-merge is the evaluator's concern.
 -/
 def canonicalFieldLayout (fields : List Field) : List Field :=
   fields.foldl
     (fun kept field =>
-      match kept.find? (fun k => Field.label k = Field.label field) with
-      | some k => if (mergeFieldClass (Field.fieldClass k) (Field.fieldClass field)).isSome
-          then kept else kept ++ [field]
+      match mergeFieldLayoutInto (fun _ current _ => current) kept field with
+      | some fields => fields
       | none => kept ++ [field])
     []
 

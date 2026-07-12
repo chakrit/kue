@@ -21331,3 +21331,50 @@ guard), `self-select-cycle-deeper-conflict` (over-truncation guard, `.expected.e
 `native_decide` pins in `EvalTests.lean` (`self_select_*`: cycle→top, sibling-noncycle,
 valid-crossframe, label-coincidence, conflict-bottoms, deeper cycle/valid/conflict). `./scripts/check.sh`
 fully green; SELF-CONJ-CYCLE + SELF-CONJ-CYCLE-INDIRECT + Bug2x/Resolve/cycle suites unchanged.
+
+---
+
+## Completed Slice: RESOLVE-DEDUP-MIRROR-GUARD — single-source the field-collapse decision
+
+Goal: kill a MED drift hazard (no live bug). `canonicalFieldLayout` (`Kue/Resolve.lean`, the
+resolver's lexical slot layout) hand-copied the duplicate-collapse decision — first-occurrence keying
++ `mergeFieldClass`-`.isSome` keep-or-append — from `canonicalizeFields`/`mergeUnevaluatedFieldInto`
+(`Kue/EvalBase.lean`, the evaluator's frame layout). The two MUST agree on which slots exist or a
+reference lands on a stale index and dangles (the exact SELF-CONJ-CYCLE-INDIRECT bug class). They
+agreed, but nothing pinned it: any future edit to the EvalBase collapse would silently drift the
+Resolve mirror.
+
+### Change (structural hoist, behavior-preserving)
+
+Both `Resolve` and `EvalBase` already import `Lattice`, where `mergeFieldClass` (the decision's only
+dependency) lives — no cycle. Hoisted the shared fold-step there:
+
+    Lattice.mergeFieldLayoutInto (combine : FieldClass → Field → Field → Field)
+        : List Field → Field → Option (List Field)
+
+`combine` parameterizes the collapsing case; the keep-or-append DECISION (first same-label slot whose
+class merges → collapse; class mismatch → stop and append; no match → append at end) lives once.
+
+- `canonicalizeFields` (EvalBase) folds with `mergeUnevaluatedFieldValue` — the extracted value-merge
+  (`mergeDefinitionDecls` when the merged class `isDefinition`, else `joinUnevaluated`).
+- `canonicalFieldLayout` (Resolve) folds with identity-keep `fun _ current _ => current` (layout only).
+- `mergeUnevaluatedFieldInto` DELETED — its body was `mergeFieldLayoutInto` specialized with the
+  value-merge. The drift source is gone, not merely guarded.
+
+Structural recursion on the list, no can't-happen branch, no partial indexing. Drift is now impossible
+by construction: resolve and eval index the SAME layout.
+
+### Tests
+
+`./scripts/check.sh` fully green with ZERO fixtures/theorems flipped — the whole suite passing (this
+touches every struct field merge AND every reference resolution) IS the proof the specialization is
+exact. Belt-and-suspenders `native_decide` guard `canonical_layout_label_mirrors_canonicalize_fields`
+(`ResolveTests.lean`) pins `(canonicalFieldLayout fs).map Field.label == (canonicalizeFields fs).map
+Field.label` across an adversarial battery (dup, dup-with-hidden-between, dup-of-definition, triple-dup,
+dup-with-optional, class-mismatch let-vs-field); added to the coverage tripwire.
+
+### Files
+
+`Kue/Lattice.lean` (`mergeFieldLayoutInto`), `Kue/EvalBase.lean` (`mergeUnevaluatedFieldValue`,
+`canonicalizeFields` rewired, `mergeUnevaluatedFieldInto` deleted), `Kue/Resolve.lean`
+(`canonicalFieldLayout` rewired), `Kue/Tests/ResolveTests.lean` (equivalence guard).

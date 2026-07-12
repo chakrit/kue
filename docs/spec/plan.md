@@ -1310,7 +1310,18 @@ non-output marker confirmed leak-proof: `Manifest` → incomplete error, `meetCo
 `Format` → bare name is the correct `cue eval` display of an unapplied residual. No Value-producing
 catch-all swallows `patternLabel`. Two NEW findings:
 
-- **RESOLVE-DEDUP-MIRROR-GUARD (MED, drift hazard — no regression today). OPEN.** `canonicalFieldLayout`
+- **RESOLVE-DEDUP-MIRROR-GUARD (MED, drift hazard — no regression today). ✅ LANDED 2026-07-12.**
+  Structural hoist per Phase B's design: the duplicate-collapse DECISION now lives ONCE in
+  `Lattice.mergeFieldLayoutInto` (parameterized over the value-merge `combine`). `canonicalizeFields`
+  (EvalBase) folds it with `mergeUnevaluatedFieldValue` (definition-vs-`.conj`); `canonicalFieldLayout`
+  (Resolve) folds it with identity-keep (`fun _ current _ => current`). `mergeUnevaluatedFieldInto`
+  DELETED — its body was that specialization. Drift is now impossible by construction: resolve and eval
+  index the SAME keep-or-append layout. `check.sh` fully green, ZERO fixtures/theorems flipped (proves the
+  specialization is exact — a true behavior-preserving refactor). Belt-and-suspenders `native_decide`
+  guard `canonical_layout_label_mirrors_canonicalize_fields` (ResolveTests) pins the label projection
+  across a dup/dup-hidden/dup-of-def/triple-dup/dup-optional/class-mismatch battery. `buildFrame`'s
+  collapse layout is now stabilized for LET-CYCLE-ERROR. Original filing:
+- **~~RESOLVE-DEDUP-MIRROR-GUARD (superseded by the LANDED note above)~~.** `canonicalFieldLayout`
   (`Kue/Resolve.lean`) hand-copies the collapse decision of `canonicalizeFields`/`mergeUnevaluatedFieldInto`
   (`Kue/EvalBase.lean`). Resolve imports only `Value`+`Lattice` (not `EvalBase`, which pulls the whole eval
   stack), so it CANNOT reuse `canonicalizeFields` — hence the copy. The label-at-index equivalence holds
@@ -1393,10 +1404,10 @@ holds; `Resolve` stays `Value`+`Lattice`-only (the very reason the mirror exists
 clean small bugs → tightening/refactor):**
 1. ~~**SELF-SELECT-CYCLE-CROSSFRAME**~~ ✅ LANDED 2026-07-12 — reference-cycle→top class CLOSED across
    same-frame + indirect + cross-frame (+ nested chains).
-2. **RESOLVE-DEDUP-MIRROR-GUARD** (MED drift, structural hoist) — cheap construction fix; kills a whole
-   dangling-ref class; STABILIZES `buildFrame`'s collapse layout for #3. LAND BEFORE LET-CYCLE-ERROR.
+2. ~~**RESOLVE-DEDUP-MIRROR-GUARD**~~ ✅ LANDED 2026-07-12 — collapse decision single-sourced in
+   `Lattice.mergeFieldLayoutInto`; drift now impossible by construction; `buildFrame` layout stabilized.
 3. **LET-CYCLE-ERROR** (MED, missing load error) — builds let-vs-field on the single-sourced layout;
-   coordinate with #2 (both edit `Resolve.buildFrame`).
+   edits `Resolve.buildFrame` (now on the stabilized collapse layout). NEXT.
 4. **BINARY-CMP-BYTES** (LOW correctness, kue BUG) — small clean `bytesOp`-threading win.
 5. **BOUND-ORDEREDPRIM** (LOW illegal-states) — the ~60-site tightening; or a cohesion slice
    (PB-EVALBASE-SPLIT (a)) as parallel-safe filler.
