@@ -1011,6 +1011,33 @@ def bindValueAlias (name : String) : Value -> Value
       .structComp (⟨name, .letBinding, .thisStruct, false⟩ :: fields) cs openness
   | value => value
 
+/-- Bind a pattern-constraint LABEL alias `[name=pattern]: constraint`: the alias `name` refers to
+    the matched field's label string, in scope within `constraint`. Prepends a non-output
+    `let`-binding whose value is the `patternLabel name` placeholder, so ordinary lexical resolution
+    routes `name` references to it; the placeholder is substituted to the concrete label at pattern
+    application. For a non-struct constraint there is nowhere to host the binding — the alias is
+    inert (`[name=string]: name` is unimplemented, tracked separately). -/
+def bindPatternAlias (name : String) : Value -> Value
+  | .struct fields openness tail ps cps =>
+      .struct (⟨name, .letBinding, .patternLabel name, false⟩ :: fields) openness tail ps cps
+  | .structComp fields cs openness =>
+      .structComp (⟨name, .letBinding, .patternLabel name, false⟩ :: fields) cs openness
+  | value => value
+
+/-- Detect a pattern-constraint label alias prefix inside `[…]`: an identifier immediately followed
+    by a single `=` that is NOT `==` (equality) and NOT `=~` (regex match — `[x=~"re"]` is a
+    comparison pattern, not an alias). Returns the alias name and the remainder positioned at the
+    pattern expression. -/
+def patternAliasHead? (chars : List Char) : Option (String × List Char) :=
+  match parseIdentifier (skipTrivia chars) with
+  | .ok (name, afterIdent) =>
+      match skipTrivia afterIdent with
+      | '=' :: '=' :: _ => none
+      | '=' :: '~' :: _ => none
+      | '=' :: rest => some (name, rest)
+      | _ => none
+  | .error _ => none
+
 /-- Three identical delimiter chars (`"""` or `'''`) at the head, else `none`. -/
 def multilineDelimiter? (quote : Char) : List Char -> Option (List Char)
   | a :: b :: c :: rest =>
@@ -1788,6 +1815,12 @@ mutual
   partial def parsePatternField (chars : List Char) : ParseResult ParsedField :=
     match skipTrivia chars with
     | '[' :: rest =>
+        -- An optional `name=` label-alias prefix binds `name` to each matched field's label within
+        -- the constraint; the alias is desugared onto the constraint by `bindPatternAlias`.
+        let (alias, rest) :=
+          match patternAliasHead? rest with
+          | some (name, afterEquals) => (some name, afterEquals)
+          | none => (none, rest)
         match parseExpression rest with
         | .error error => .error error
         | .ok (labelPattern, rest) =>
@@ -1797,7 +1830,12 @@ mutual
                 | ':' :: rest =>
                     match parseExpression rest with
                     | .error error => .error error
-                    | .ok (constraint, rest) => parseOk (.pattern labelPattern constraint) rest
+                    | .ok (constraint, rest) =>
+                        let constraint :=
+                          match alias with
+                          | some name => bindPatternAlias name constraint
+                          | none => constraint
+                        parseOk (.pattern labelPattern constraint) rest
                 | rest => parseError rest "expected ':' after pattern label"
             | rest => parseError rest "expected ']' after pattern label"
     | rest => parseError rest "expected pattern field"
@@ -2196,6 +2234,7 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String))
       | .uniqueItems => value
       | .ref _ => value
       | .refId _ => value
+      | .patternLabel _ => value
       | .thisStruct => value
   where
     canonicalizeBuiltinClause (aliasMap : List (String × String))
@@ -2273,6 +2312,7 @@ def collectReferencedHeads : Nat -> Value -> List String
     | .lengthConstraint _ _ _ => []
     | .uniqueItems => []
     | .refId _ => []
+    | .patternLabel _ => []
     | .thisStruct => []
   where
     collectReferencedHeadsClause (fuel : Nat) : Clause Value -> List String

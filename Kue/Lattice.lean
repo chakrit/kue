@@ -358,6 +358,7 @@ def normalizeFieldOrder : Value -> Value
   | .binary op left right => .binary op (normalizeFieldOrder left) (normalizeFieldOrder right)
   | .ref label => .ref label
   | .refId id => .refId id
+  | .patternLabel name => .patternLabel name
   | .thisStruct => .thisStruct
   | .selector base label => .selector (normalizeFieldOrder base) label
   | .index base key => .index (normalizeFieldOrder base) (normalizeFieldOrder key)
@@ -717,6 +718,11 @@ def meetCore (left right : Value) : Value :=
   -- opaque residual. The captured env makes this NOT pure-over-an-opaque-ref later.
   | .closure _ _, _ => .bottom
   | _, .closure _ _ => .bottom
+  -- patternLabel: a per-match alias placeholder substituted to the matched label at pattern
+  -- application (`applyPatternToFieldWith`), BEFORE the constraint meets. Reaching `meetCore` means
+  -- an unsubstituted placeholder — an unresolvable residual, inert like any other opaque ref.
+  | .patternLabel _, _ => .bottom
+  | _, .patternLabel _ => .bottom
 
 /-- Flatten a value into its top-level conjunction members, recursing into nested
     `.conj`. A non-conjunction is a singleton. Used so conjunction meets reduce over a
@@ -999,6 +1005,12 @@ def applyPatternToFieldWith
   let isRegular := Field.fieldClass field == .regular
   let labelMatches := labelMatchesPatternWith meetValue labelPattern (Field.label field)
   if isRegular && labelMatches then
+    -- A pattern label alias (`[Name=…]: …`) binds `Name` to THIS matched field's label: substitute
+    -- the placeholder before the constraint meets in. Names are the constraint's own top-level alias
+    -- bindings; nested constraints substitute their own at their application.
+    let constraint :=
+      (patternLabelAliasNames constraint).foldl
+        (fun c name => substPatternLabel name (Field.label field) c) constraint
     let value := meetValue constraint (Field.value field)
     if isBottom value then
       fieldWithClass (Field.fieldClass field) (Field.label field)

@@ -21169,3 +21169,52 @@ open-extension (`#Base: {a:1,...}` still admits) / single-decl anchor. kue match
 on every variant swept (own-union, redeclare, conflict, open-tail, open-base-ext, closed-base-ext,
 nested) — no divergence recorded. `./scripts/check.sh` fully green; Bug2-6/2-7 + L-series +
 mutual/multi-ref closedness suites unflipped.
+
+## Completed Slice: PATTERN-LABEL-ALIAS — pattern-constraint label aliases (MEDIUM, struct bodies)
+
+`[Name=string]: {n: Name}` binds `Name` to each matched field's concrete label string, in scope
+within the constraint. kue previously could not PARSE the `ident=` prefix (`missing ',' in list
+literal`); the feature (parse + per-matched-label eval binding) was unimplemented.
+
+### Mechanism
+
+Reuses the existing letBinding/lexical-frame machinery rather than a new binding path:
+
+- **Parse** (`Kue/Parse.lean`). `parsePatternField` reads an optional alias prefix via
+  `patternAliasHead?` (an identifier followed by a single `=`, NOT `==`/`=~` — so `[x=~"re"]` stays
+  a regex-match pattern). `bindPatternAlias` desugars it: a non-output `letBinding ⟨name,
+  Value.patternLabel name⟩` prepended to the (struct/structComp) constraint body — the pattern
+  analog of `bindValueAlias`. Ordinary reference resolution then routes `Name` references to the
+  placeholder, so shadowing and cross-scope nesting are handled for free.
+- **Placeholder** (`Kue/Value.lean`). New leaf `Value.patternLabel (name : String)` — a per-match
+  alias hole. It survives evaluation UNCHANGED (main-eval pass-through arm) so the per-field label
+  can still bind after the constraint is evaluated once. `substPatternLabelWithFuel` (total, fueled
+  structural map) replaces it; `patternLabelAliasNames` reads a constraint's own top-level alias
+  bindings.
+- **Apply** (`Kue/Lattice.lean`). `applyPatternToFieldWith` substitutes `patternLabel name` with the
+  matched field's label (`substPatternLabel`) BEFORE the constraint meets into the field. Names come
+  from the constraint's top-level alias bindings, so a nested constraint's own alias waits for its
+  application while an enclosing alias fills references reaching into it — matching cue's lexical
+  nesting (`{m: Name, i: Inner}` ⇒ `m` the outer label, `i` the inner).
+- New constructor handled at EVERY match site (compiler-guided exhaustiveness): Format (renders as
+  the alias name), Manifest (`.incomplete` — never reached in practice), meet (`.bottom` inert
+  residual), Resolve/Parse traversals (pass-through), and the EvalBase/EvalOps/Eval
+  classification/digest/tag probes.
+
+### Scope split
+
+Only STRUCT (and structComp) constraint bodies land: they can host the desugared `letBinding`. A
+NON-struct body that references the alias (`[Name=string]: Name`, valid in cue) has nowhere to host
+it, so `Name` stays unresolved and kue bottoms. Split to **PATTERN-LABEL-ALIAS-SCALAR** (plan +
+`cue-divergences.md`); the fix is a synthetic resolve+eval frame uniform across body shapes. Not a
+pattern-application redesign — apply changed by one substitution — so the struct-body half landed
+in full rather than parse-only.
+
+### Tests
+
+Seed `testdata/wild/pattern-label-alias/` RED→GREEN (`.known-red` removed). Ten theorems in
+`Kue/Tests/PatternAliasTests.lean` (`evalSourceMatches`/`exportJsonBottoms`): basic label binding,
+per-field own label, top pattern, comparator pattern, nested + cross-scope, two-level, concrete
+agrees, concrete conflict bottoms, scope non-leak, `=~` not-an-alias. Swept vs cue v0.16.1 on every
+variant — byte-identical except the split-out non-struct body (recorded). `./scripts/check.sh` fully
+green; pattern-constraint / BOUND-OPERAND / SCOPING-PROBE guards unflipped.

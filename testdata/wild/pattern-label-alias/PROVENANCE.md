@@ -7,6 +7,8 @@
   literal`). Missing feature: parse support + per-matched-label eval binding.
 - **Spec basis:** CUE `LabelExpr` grammar admits `"[" [ identifier "=" ] AliasExpr "]"`;
   the alias binds the matched label string.
-- **cue:** v0.16.1 ⇒ `{"foo": {"n": "foo"}}`. kue ⇒ parse error.
-- **Status:** QUARANTINED (`.known-red`). Filed as fix-slice PATTERN-LABEL-ALIAS
-  (parse the `[X=expr]` alias + bind the label value per matched field at eval).
+- **cue:** v0.16.1 ⇒ `{"foo": {"n": "foo"}}`. kue ⇒ `{"foo": {"n": "foo"}}` (matches).
+- **Status:** FIXED (PATTERN-LABEL-ALIAS, 2026-07-12). Parse reads the `ident=` alias
+  (`patternAliasHead?`) and desugars it onto the constraint (`bindPatternAlias`) as a
+  `letBinding` carrying the `Value.patternLabel` placeholder, substituted to the matched label at
+  application (`applyPatternToFieldWith`). GREEN, quarantine removed.

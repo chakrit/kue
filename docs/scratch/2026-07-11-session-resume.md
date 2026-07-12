@@ -3,7 +3,30 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-FLATTEN-CLOSEDNESS — multi-conjunct def flattened OPEN, dropping closedness; FIXED
+HEAD: **PATTERN-LABEL-ALIAS — pattern-constraint label aliases; struct bodies FIXED (LANDED
+2026-07-12).** `[Name=string]: {n: Name}` now binds `Name` to each matched field's label string.
+kue previously could not PARSE the `ident=` prefix. MECHANISM (reuses letBinding/lexical frames, no
+new binding path): parse (`patternAliasHead?`, skips `==`/`=~`) desugars the alias onto the struct
+constraint via `bindPatternAlias` — a non-output `letBinding ⟨name, Value.patternLabel name⟩`
+prepended so ordinary resolution routes `Name` refs to the new placeholder leaf; the placeholder
+survives eval unchanged and is substituted to the matched label at application
+(`applyPatternToFieldWith` via `substPatternLabel`, names from the constraint's own top-level alias
+bindings). New `Value.patternLabel` handled at EVERY match site (compiler-guided: Format/Manifest/
+meet/Resolve/Parse/EvalBase/EvalOps/Eval). Covers multiple/nested + cross-scope/top+comparator
+patterns/concrete-field/scope-non-leak; `[x=~…]` stays a regex pattern. Seed
+`testdata/wild/pattern-label-alias/` RED→GREEN; 10 theorems `Kue/Tests/PatternAliasTests.lean`.
+SPLIT: non-struct constraint body (`[Name=string]: Name`, valid in cue → value) bottoms in kue
+(nowhere to host the letBinding) — filed **PATTERN-LABEL-ALIAS-SCALAR** (LOW; `cue-divergences.md`;
+fix = synthetic resolve+eval frame). **A two-phase AUDIT is now DUE** — 3 slices since last:
+SELF-CONJ-CYCLE-INDIRECT, DEF-FLATTEN-CLOSEDNESS, PATTERN-LABEL-ALIAS. **NEXT (ranked):** run the
+AUDIT (phase A code-quality, then phase B architecture) → then remaining scoping bugs
+**LET-CYCLE-ERROR** (MED — root is `buildFrame`/`.letBinding`, recently touched by
+SELF-CONJ-CYCLE-INDIRECT's `canonicalFieldLayout` change; coordinate) → **PATTERN-LABEL-ALIAS-SCALAR**
+/ **UNREFERENCED-ALIAS** (LOW) → **SELF-SELECT-CYCLE-CROSSFRAME** (MED,
+`testdata/wild/self-conj-cycle-fieldsel/` `.known-red`) → **BOUND-ORDEREDPRIM** / **BINARY-CMP-BYTES**
+(LOW) → F1/F3/F5. **Alpha release remains HELD for chakrit (attended).**
+
+Prior HEAD: **DEF-FLATTEN-CLOSEDNESS — multi-conjunct def flattened OPEN, dropping closedness; FIXED
 (LANDED 2026-07-12). Flatten/closedness cluster soundness CLOSED.** A CLOSED def unioning its OWN struct
 literals (`#X: {a:1} & {b:3}`) leaked an undeclared use-site field (`#X & {c:4}` ⇒ kue `{a:1,b:3,c:4}`;
 cue v0.16.1 rejects `c`). ROOT: `flattenConjDefRef` (`Kue/EvalBase.lean`) closed the flattened literals

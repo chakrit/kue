@@ -122,6 +122,13 @@ working, cue-exact modulo the tracked field-ordering byte-parity gap (#3):
   ```cue
   out: [for x in [1, 2, 3] {x * 2}]  // [2, 4, 6]
   ```
+- **Pattern label aliases.** `[Name=string]: {n: Name}` binds `Name` to each matched field's label
+  string, in scope within the (struct) constraint body. Parse desugars the `ident=` prefix onto a
+  non-output `letBinding` carrying the `Value.patternLabel` placeholder; ordinary lexical resolution
+  reaches it, and it is substituted to the matched label at pattern application. Multiple/nested +
+  cross-scope aliases, top/comparator patterns all bind independently; `[x=~…]` stays a regex
+  pattern. Non-struct constraint bodies (`[Name=string]: Name`) not yet supported
+  (PATTERN-LABEL-ALIAS-SCALAR).
 - **Disjunction defaults under embedding.** Use-site narrowing distributes into every arm
   of an embedded default disjunction, pruning dead arms.
   ```cue
@@ -1139,13 +1146,25 @@ directions, pre-pinned). **Four defects found + seeded RED** (`.known-red`, all 
   FIELD reference-cycle rule (self→top) fires, masking the error (`b: _`). Needs a let-vs-field
   distinction in the scope model (`Kue/Resolve.lean` `buildFrame` erases the `.letBinding`
   class) + let-cycle detection. Seed `testdata/wild/let-self-cycle-error/`.
-- **PATTERN-LABEL-ALIAS (MEDIUM — missing feature + parse gap). OPEN.** `[Name=string]: {n: Name}`
-  binds `Name` to each matched field's concrete label. kue cannot PARSE the `[ident=expr]`
-  label-alias form (`parsePatternField` at `Kue/Parse.lean:1788` reads the label via
-  `parseExpression`, which has no `ident=` prefix rule) — cue ⇒ `{"foo":{"n":"foo"}}`. Fix:
-  parse the optional `ident=` alias in the `[…]` label, push it as a scope binder over the
-  constraint body, and bind the label string per matched field at eval (a new per-label
-  binding mechanism). Seed `testdata/wild/pattern-label-alias/`.
+- **PATTERN-LABEL-ALIAS (MEDIUM — missing feature + parse gap). ✅ LANDED 2026-07-12 for STRUCT
+  constraint bodies; non-struct body split to PATTERN-LABEL-ALIAS-SCALAR.** `[Name=string]: {n:
+  Name}` binds `Name` to each matched field's concrete label. `parsePatternField` now reads an
+  optional `ident=` alias prefix (`patternAliasHead?`, skipping `==`/`=~`) and desugars it onto the
+  constraint via `bindPatternAlias`: a non-output `letBinding ⟨name, patternLabel name⟩` prepended
+  to the (struct) body, so ordinary lexical resolution routes `Name` references to the new
+  `Value.patternLabel` placeholder. The placeholder survives eval unchanged and is substituted to
+  the matched label string at pattern application (`applyPatternToFieldWith` via
+  `substPatternLabel`, names read from the constraint's own top-level alias bindings). Covers
+  multiple-field, top/comparator patterns, nested + cross-scope aliases, concrete-field interaction,
+  and scope non-leak; `[Name=~…]` correctly stays a regex pattern. Theorems
+  `Kue/Tests/PatternAliasTests.lean`; seed `testdata/wild/pattern-label-alias/` GREEN.
+- **PATTERN-LABEL-ALIAS-SCALAR (LOW — spec-conformance gap; kue bottoms where cue yields a value).
+  OPEN.** A NON-struct pattern constraint body that references the alias (`[Name=string]: Name` ⇒
+  cue `{"foo":"foo",…}`) has nowhere to host the desugared `letBinding`, so `bindPatternAlias`
+  leaves the alias unresolved and kue bottoms. Fix: bind the alias via a synthetic frame at
+  resolve+eval (uniform for struct and non-struct) OR wrap a non-struct body so the placeholder has
+  a home. Recorded in `cue-divergences.md`. Split from PATTERN-LABEL-ALIAS (its struct-body half
+  landed).
 - **UNREFERENCED-ALIAS (LOW — missing validation; kue too lenient). OPEN.** A value alias
   never referenced (`a: X=1`) is a CUE load error (`unreferenced alias or let clause X`);
   kue silently accepts. The alias analog of the unused-import error kue already enforces —
@@ -1161,7 +1180,9 @@ form); cue reprints the original `a + 1`. Values identical (both incomplete); re
 Reconciliation: all prior-audit filings verified present + accurate (BOUND-OPERAND-CLASSIFY
 `c6be867` ✅ LANDED, BINARY-CMP-OPERAND `4bb40b3` ✅ LANDED; BOUND-ORDEREDPRIM / BINARY-CMP-BYTES /
 PA-ESC-2 / PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4 / PATTERN-LABEL-ALIAS / LET-CYCLE-ERROR
-/ UNREFERENCED-ALIAS all still OPEN, none re-ranked). SCOPING-PROBE guards non-vacuous (6 green,
+/ UNREFERENCED-ALIAS all still OPEN, none re-ranked
+[RETRACTED 2026-07-12: PATTERN-LABEL-ALIAS ✅ LANDED for struct bodies; residual non-struct half is
+PATTERN-LABEL-ALIAS-SCALAR]). SCOPING-PROBE guards non-vacuous (6 green,
 verified); 3 remaining `.known-red` seeds present.
 
 **SELF-CONJ-CYCLE verdict: SOUND for its targeted shape — NO over-fire regression.** Exhaustively

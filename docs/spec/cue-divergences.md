@@ -85,6 +85,21 @@ The table above records cases where **cue** is the buggy side. This section is t
 cases where **kue** diverges from BOTH the spec AND cue — a known leniency/soundness bug kue
 carries, tracked here until fixed. Each has a QUEUED plan item.
 
+### PATTERN-LABEL-ALIAS-SCALAR — non-struct pattern-alias constraint body bottoms (kue too weak)
+
+- **Claim.** A pattern label alias with a NON-struct constraint body binds the label just as a
+  struct body does: `[Name=string]: Name` makes each matched field's value its own label string.
+- **Spec basis.** CUE `LabelExpr` admits `"[" [ identifier "=" ] AliasExpr "]"`; the alias binds the
+  matched label in scope within the constraint, independent of the constraint's shape.
+- **cue** (v0.16.1): `{[Name=string]: Name, foo: _, bar: _}` ⇒ `{"foo":"foo","bar":"bar"}`.
+- **Kue**: `export error: conflicting values (bottom)` — the struct-body desugar (`bindPatternAlias`
+  prepends a `letBinding` to the constraint) has nowhere to host the binding on a non-struct body,
+  so `Name` stays unresolved and bottoms. Struct-body aliases are correct (PATTERN-LABEL-ALIAS).
+- **Fix (queued PATTERN-LABEL-ALIAS-SCALAR).** Bind the alias via a synthetic frame at resolve+eval
+  (uniform across body shapes) rather than a prepended field.
+
+### Prior entry (fixed)
+
 _None currently open._ The one prior entry — C-style `/* */` block comments accepted, which
 CUE's grammar (only `//` line comments) forbids — was fixed in `BLOCK-COMMENT-REJECT`
 (2026-07-11): the `Kue/Parse.lean` trivia scanners no longer treat `/* */` as whitespace, so

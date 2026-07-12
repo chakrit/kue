@@ -788,7 +788,7 @@ def selectFromConcrete (base : Value) (label : String) : Value :=
   | .bottomWith reasons => .bottomWith reasons
   | .top | .bottom | .prim _ | .kind _ | .notPrim _
   | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _ | .builtinCall _ _
-  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _ | .thisStruct
   | .selector _ _ | .index _ _ | .disj _ | .list _ | .listTail _ _
   | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
   | .interpolation _ | .dynamicField _ _ _ | .closure _ _ => .bottom
@@ -810,7 +810,7 @@ def selectEvaluatedField (base : Value) (label : String) : Value :=
       | none => .selector base label
   | .top | .bottom | .bottomWith _ | .prim _ | .kind _
   | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _
-  | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+  | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _
   | .thisStruct | .selector _ _ | .index _ _ | .struct _ _ _ _ _ | .list _
   | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
   | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
@@ -833,7 +833,7 @@ def selectEvaluatedListIndex (base key : Value) (items : List Value) : Value :=
   | .prim _ => .bottom
   | .top | .bottom | .bottomWith _ | .kind _ | .notPrim _
   | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _ | .builtinCall _ _
-  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _ | .thisStruct
   | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
   | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
   | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
@@ -851,7 +851,7 @@ def selectEvaluatedListTailIndex (base key : Value) (items : List Value) : Value
   | .prim _ => .bottom
   | .top | .bottom | .bottomWith _ | .kind _ | .notPrim _
   | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _ | .builtinCall _ _
-  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _ | .thisStruct
   | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
   | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
   | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
@@ -866,7 +866,7 @@ def selectEvaluatedFieldIndex (base key : Value) (fields : List Field) : Value :
   | .prim _ => .bottom
   | .top | .bottom | .bottomWith _ | .kind _ | .notPrim _
   | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _ | .builtinCall _ _
-  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+  | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _ | .thisStruct
   | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
   | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
   | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
@@ -883,7 +883,7 @@ def selectEvaluatedIndex (base key : Value) : Value :=
   | .bottomWith reasons => .bottomWith reasons
   | .top | .prim _ | .kind _ | .notPrim _ | .stringRegex _ | .stringFormat _
   | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _ | .builtinCall _ _ | .unary _ _
-  | .binary _ _ _ | .ref _ | .refId _ | .thisStruct | .selector _ _
+  | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _ | .thisStruct | .selector _ _
   | .index _ _ | .disj _ | .embeddedScalar _ _ | .comprehension _ _
   | .structComp _ _ _ | .listComprehension _ _ | .interpolation _
   | .dynamicField _ _ _ | .closure _ _ => .bottom
@@ -947,6 +947,7 @@ def classifyDefinedness : Value -> Definedness
   | .binary _ _ _ => .incomplete
   | .ref _ => .incomplete
   | .refId _ => .incomplete
+  | .patternLabel _ => .incomplete
   | .thisStruct => .incomplete
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
@@ -1041,6 +1042,7 @@ def classifyGuard : Value -> GuardVerdict
   | .unary _ _ => .incomplete
   | .ref _ => .incomplete
   | .refId _ => .incomplete
+  | .patternLabel _ => .incomplete
   | .thisStruct => .incomplete
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
@@ -1101,6 +1103,7 @@ def classifyDynLabel : Value -> DynLabelVerdict
   | .binary _ _ _ => .incomplete
   | .ref _ => .incomplete
   | .refId _ => .incomplete
+  | .patternLabel _ => .incomplete
   | .thisStruct => .incomplete
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
@@ -1187,6 +1190,7 @@ def classifyInterpolationPart : Value -> InterpVerdict
   | .binary _ _ _ => .incomplete
   | .ref _ => .incomplete
   | .refId _ => .incomplete
+  | .patternLabel _ => .incomplete
   | .thisStruct => .incomplete
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
@@ -1256,7 +1260,7 @@ def withDeferredComprehensions (resolved : Value) (deferred : List Value)
       | .struct fields _ _ _ _ => .structComp fields deferred openness
       | .top | .bottom | .bottomWith _ | .prim _ | .kind _
       | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _
-      | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+      | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _
       | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .list _
       | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
       | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
@@ -1330,6 +1334,7 @@ def classifyForSource : Value -> ForSourceClass
   | .binary _ _ _ => .incomplete
   | .ref _ => .incomplete
   | .refId _ => .incomplete
+  | .patternLabel _ => .incomplete
   | .thisStruct => .incomplete
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
@@ -1376,6 +1381,7 @@ def valueTag : Value -> UInt64
   | .binary _ _ _ => 11
   | .ref _ => 12
   | .refId _ => 13
+  | .patternLabel _ => 36
   | .thisStruct => 14
   | .selector _ _ => 15
   | .index _ _ => 16
@@ -1483,6 +1489,7 @@ def valueDigest : Nat → Value → UInt64
       mixHash (mixHash (valueTag (.binary op l r)) (valueDigest d l)) (valueDigest d r)
   | _ + 1, v@(.ref label) => mixHash (valueTag v) (hash label)
   | _ + 1, v@(.refId id) => mixHash (valueTag v) (mixHash (hash id.depth.val) (hash id.index.val))
+  | _ + 1, v@(.patternLabel name) => mixHash (valueTag v) (hash name)
   | _ + 1, .thisStruct => valueTag .thisStruct
   | d + 1, .selector base label =>
       mixHash (mixHash (valueTag (.selector base label)) (hash label)) (valueDigest d base)
@@ -2077,6 +2084,7 @@ def openStructValue : Value -> Value
   | value@(.binary _ _ _) => value
   | value@(.ref _) => value
   | value@(.refId _) => value
+  | value@(.patternLabel _) => value
   | value@(.thisStruct) => value
   | value@(.selector _ _) => value
   | value@(.index _ _) => value
@@ -2270,7 +2278,7 @@ def injectLetLocalNarrowings (fuel : Nat) (narrowings : List (String × Value)) 
             | .struct innerFields o tail p e => .struct (rewriteFields innerFields) o tail p e
             | .top | .bottom | .bottomWith _ | .prim _ | .kind _
             | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _
-            | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+            | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _
             | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .list _
             | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
             | .comprehension _ _ | .listComprehension _ _ | .interpolation _
@@ -2370,7 +2378,7 @@ def injectEmbedSiblingNarrowings (fuel : Nat) (narrowings : List (String × Valu
             | .struct innerFields o tail p e => .struct (rewriteFields innerFields) o tail p e
             | .top | .bottom | .bottomWith _ | .prim _ | .kind _
             | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _
-            | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+            | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _
             | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .list _
             | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
             | .comprehension _ _ | .listComprehension _ _ | .interpolation _
@@ -2503,6 +2511,7 @@ def closeEmbeddedOver (defFields embeddingFields : List Field) (defOpen : Bool) 
   | value@(.binary _ _ _) => value
   | value@(.ref _) => value
   | value@(.refId _) => value
+  | value@(.patternLabel _) => value
   | value@(.thisStruct) => value
   | value@(.selector _ _) => value
   | value@(.index _ _) => value

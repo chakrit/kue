@@ -1047,6 +1047,19 @@ inductive Value where
   generalizes the same-package lazy-conjunction merge across the import boundary.
   -/
   | closure (capturedEnv : List (Nat × List Field)) (body : Value)
+  /--
+  A pattern-constraint LABEL alias placeholder (`[Name=string]: {n: Name}`). Inside a pattern
+  constraint body, the alias `Name` binds to the concrete LABEL of each matched field, in scope
+  within the constraint. Parse prepends a `letBinding ⟨name, patternLabel name⟩` to the (struct)
+  constraint so ordinary lexical resolution routes `Name` references to this marker; it survives
+  evaluation UNCHANGED (a per-match placeholder, not yet ground) and is substituted to the matched
+  field's label string at pattern application (`applyPatternToFieldWith`), before the constraint
+  meets into the field. It NEVER reaches manifest: an unapplied pattern's constraint is dropped on
+  export, and an applied one has every marker substituted first, so its residual arms are incomplete.
+  `name` is the alias identifier, so nested pattern aliases (each binding a distinct name) resolve
+  independently.
+  -/
+  | patternLabel (name : String)
 
 /-- A single struct member: its `label`, its `fieldClass` (regular/optional/required/
     hidden/definition/let), its `value`, and whether the label was written `quoted` (`"x":`
@@ -1080,6 +1093,137 @@ structure ClosedClause where
 end
 
 deriving instance Repr, BEq for Value, Field, ClosedClause
+
+/- Substitute every pattern-label placeholder `patternLabel name` reachable in `value` with the
+   string literal `label` — the matched field's label, supplied at pattern application. Total via
+   fuel; a structural map over `Value` that recurses through every sub-value carrier (struct
+   fields/tail/patterns/clauses, lists, comprehensions, operators). A `closure` owns its own
+   captured env and is left untouched, matching `mapRefsValueWithFuel`. Placeholders with a
+   DIFFERENT `name` (a nested alias, or an enclosing alias not being applied here) pass through
+   so each alias resolves at its own application. -/
+mutual
+def substPatternLabelWithFuel (name label : String) : Nat -> Value -> Value
+  | 0, value => value
+  | _ + 1, .patternLabel other =>
+      if other == name then .prim (.string label) else .patternLabel other
+  | fuel + 1, .conj constraints =>
+      .conj (constraints.map (substPatternLabelWithFuel name label fuel))
+  | fuel + 1, .builtinCall builtin args =>
+      .builtinCall builtin (args.map (substPatternLabelWithFuel name label fuel))
+  | fuel + 1, .unary op value =>
+      .unary op (substPatternLabelWithFuel name label fuel value)
+  | fuel + 1, .binary op left right =>
+      .binary op
+        (substPatternLabelWithFuel name label fuel left)
+        (substPatternLabelWithFuel name label fuel right)
+  | fuel + 1, .selector base sel =>
+      .selector (substPatternLabelWithFuel name label fuel base) sel
+  | fuel + 1, .index base key =>
+      .index
+        (substPatternLabelWithFuel name label fuel base)
+        (substPatternLabelWithFuel name label fuel key)
+  | fuel + 1, .disj alternatives =>
+      .disj (alternatives.map fun alt => (alt.fst, substPatternLabelWithFuel name label fuel alt.snd))
+  | fuel + 1, .struct fields openness tail patterns closedClauses =>
+      .struct
+        (fields.map (substPatternLabelFieldWithFuel name label fuel))
+        openness
+        (tail.map (substPatternLabelWithFuel name label fuel))
+        (patterns.map fun pattern =>
+          (substPatternLabelWithFuel name label fuel pattern.fst,
+           substPatternLabelWithFuel name label fuel pattern.snd))
+        closedClauses
+  | fuel + 1, .list items =>
+      .list (items.map (substPatternLabelWithFuel name label fuel))
+  | fuel + 1, .listTail items tail =>
+      .listTail
+        (items.map (substPatternLabelWithFuel name label fuel))
+        (substPatternLabelWithFuel name label fuel tail)
+  | fuel + 1, .embeddedList items tail decls =>
+      .embeddedList
+        (items.map (substPatternLabelWithFuel name label fuel))
+        (tail.map (substPatternLabelWithFuel name label fuel))
+        (decls.map (substPatternLabelFieldWithFuel name label fuel))
+  | fuel + 1, .embeddedScalar scalar decls =>
+      .embeddedScalar
+        (substPatternLabelWithFuel name label fuel scalar)
+        (decls.map (substPatternLabelFieldWithFuel name label fuel))
+  | fuel + 1, .comprehension clauses body =>
+      let (cs, b) := substPatternLabelClausesWithFuel name label fuel clauses body
+      .comprehension cs b
+  | fuel + 1, .listComprehension clauses body =>
+      let (cs, b) := substPatternLabelClausesWithFuel name label fuel clauses body
+      .listComprehension cs b
+  | fuel + 1, .structComp fields comprehensions openness =>
+      .structComp
+        (fields.map (substPatternLabelFieldWithFuel name label fuel))
+        (comprehensions.map (substPatternLabelWithFuel name label fuel))
+        openness
+  | fuel + 1, .interpolation parts =>
+      .interpolation (parts.map (substPatternLabelWithFuel name label fuel))
+  | fuel + 1, .dynamicField dlabel fieldClass value =>
+      .dynamicField
+        (substPatternLabelWithFuel name label fuel dlabel)
+        fieldClass
+        (substPatternLabelWithFuel name label fuel value)
+  -- Leaves and self-contained forms: no reachable placeholder, pass through. Enumerated with no
+  -- catch-all so a new `Value` constructor forces a decision at this rewrite site.
+  | _ + 1, value@(.top) => value
+  | _ + 1, value@(.bottom) => value
+  | _ + 1, value@(.bottomWith _) => value
+  | _ + 1, value@(.prim _) => value
+  | _ + 1, value@(.kind _) => value
+  | _ + 1, value@(.notPrim _) => value
+  | _ + 1, value@(.stringRegex _) => value
+  | _ + 1, value@(.stringFormat _) => value
+  | _ + 1, value@(.boundConstraint _ _ _) => value
+  | _ + 1, value@(.lengthConstraint _ _ _) => value
+  | _ + 1, value@(.uniqueItems) => value
+  | _ + 1, value@(.ref _) => value
+  | _ + 1, value@(.refId _) => value
+  | _ + 1, value@(.thisStruct) => value
+  | _ + 1, value@(.closure _ _) => value
+
+def substPatternLabelFieldWithFuel (name label : String) (fuel : Nat) (field : Field) : Field :=
+  { field with value := substPatternLabelWithFuel name label fuel field.value }
+
+def substPatternLabelClausesWithFuel (name label : String) : Nat -> List (Clause Value) -> Value -> List (Clause Value) × Value
+  | fuel, [], body => ([], substPatternLabelWithFuel name label fuel body)
+  | fuel, .forIn key value source :: rest, body =>
+      let (cs, b) := substPatternLabelClausesWithFuel name label fuel rest body
+      (.forIn key value (substPatternLabelWithFuel name label fuel source) :: cs, b)
+  | fuel, .guard condition :: rest, body =>
+      let (cs, b) := substPatternLabelClausesWithFuel name label fuel rest body
+      (.guard (substPatternLabelWithFuel name label fuel condition) :: cs, b)
+  | fuel, .letClause clauseName value :: rest, body =>
+      let (cs, b) := substPatternLabelClausesWithFuel name label fuel rest body
+      (.letClause clauseName (substPatternLabelWithFuel name label fuel value) :: cs, b)
+end
+
+def substPatternLabelFuel : Nat := 10000
+
+/-- Substitute the pattern-label placeholder `name` with the matched field `label` throughout
+    `value`. -/
+def substPatternLabel (name label : String) (value : Value) : Value :=
+  substPatternLabelWithFuel name label substPatternLabelFuel value
+
+/-- The alias names a pattern constraint binds: the labels of its TOP-LEVEL `letBinding` fields
+    whose value is a `patternLabel` placeholder (what parse prepends for `[Name=…]:`). A constraint
+    binds at most one, but nested constraints bind their own deeper — only THIS constraint's
+    top-level bindings are collected, so an enclosing alias substituted here fills references inside
+    nested constraints while their own aliases wait for their application. -/
+def patternLabelAliasNames : Value -> List String
+  | .struct fields _ _ _ _ =>
+      fields.filterMap fun field =>
+        match field.fieldClass, field.value with
+        | .letBinding, .patternLabel _ => some field.label
+        | _, _ => none
+  | .structComp fields _ _ =>
+      fields.filterMap fun field =>
+        match field.fieldClass, field.value with
+        | .letBinding, .patternLabel _ => some field.label
+        | _, _ => none
+  | _ => []
 
 /-- The origin of a struct conjunct fed to the embed force-fold (`mergeConjOperands`), so a
     same-definition-PATH field collision can be told apart from a cross-conjunct value-meet

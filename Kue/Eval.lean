@@ -806,7 +806,7 @@ mutual
                     [spliceOperandForEmbed (embedBodyEmbedsDisjDeep (bodyForceFrameEnv capturedEnv body) evalFuel body) body (narrowing, true)]
               | .top | .bottom | .bottomWith _ | .prim _ | .kind _
               | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _
-              | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+              | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _
               | .thisStruct | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _
               | .list _ | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
               | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
@@ -932,7 +932,7 @@ mutual
                         (meetEmbedUnioningDefDecls current evaluated) rest
                 | .top | .bottom | .bottomWith _ | .prim _ | .kind _
                 | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _
-                | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+                | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _
                 | .thisStruct | .selector _ _ | .index _ _ | .disj _
                 | .struct _ _ _ _ _ | .list _ | .listTail _ _ | .embeddedList _ _ _
                 | .embeddedScalar _ _ | .comprehension _ _ | .structComp _ _ _
@@ -1025,7 +1025,7 @@ mutual
                   meetEmbeddingsWithFuel (nextFuel + 1) env (normalizeDisj distributed) rest
               | .top | .bottom | .bottomWith _ | .prim _ | .kind _
               | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .conj _
-              | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _
+              | .builtinCall _ _ | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _
               | .thisStruct | .selector _ _ | .index _ _ | .struct _ _ _ _ _ | .list _
               | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
               | .comprehension _ _ | .structComp _ _ _ | .listComprehension _ _
@@ -1244,7 +1244,7 @@ mutual
         evalValueWithFuel fuel capturedEnv [] (.conj (arms ++ narrowing))
     | .top | .bottom | .bottomWith _ | .prim _ | .kind _
     | .notPrim _ | .stringRegex _ | .stringFormat _ | .boundConstraint _ _ _ | .lengthConstraint _ _ _ | .uniqueItems | .builtinCall _ _
-    | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .thisStruct
+    | .unary _ _ | .binary _ _ _ | .ref _ | .refId _ | .patternLabel _ | .thisStruct
     | .selector _ _ | .index _ _ | .disj _ | .struct _ _ _ _ _ | .list _
     | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _ | .comprehension _ _
     | .listComprehension _ _ | .interpolation _ | .dynamicField _ _ _

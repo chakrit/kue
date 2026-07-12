@@ -65,6 +65,7 @@ def classifyArithOperand : Value -> ArithOperandClass
   | .binary _ _ _ => .incomplete
   | .ref _ => .incomplete
   | .refId _ => .incomplete
+  | .patternLabel _ => .incomplete
   | .thisStruct => .incomplete
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
@@ -196,6 +197,7 @@ def collapseDefaultDisjunction : Value -> Value
   | value@(.binary _ _ _) => value
   | value@(.ref _) => value
   | value@(.refId _) => value
+  | value@(.patternLabel _) => value
   | value@(.thisStruct) => value
   | value@(.selector _ _) => value
   | value@(.index _ _) => value
@@ -371,6 +373,7 @@ def classifyScalarOperand : Value -> ScalarOperandClass
   | .binary _ _ _ => .incomplete
   | .ref _ => .incomplete
   | .refId _ => .incomplete
+  | .patternLabel _ => .incomplete
   | .thisStruct => .incomplete
   | .selector _ _ => .incomplete
   | .index _ _ => .incomplete
