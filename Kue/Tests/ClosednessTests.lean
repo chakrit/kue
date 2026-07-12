@@ -337,10 +337,365 @@ theorem eval_pattern_disjunction_valued_rejects :
     exportJsonBottoms "out: {[string]: int | string, a: 1, b: true}\n" = true := by
   native_decide
 
+-- ### DEF-FLATTEN-CLOSEDNESS — a NON-recursive def unioning its OWN literals is CLOSED (RESOLVED).
+--
+-- `#X: {a:1} & {b:3}` is a CLOSED definition whose body unions its own struct literals — a FIXED
+-- field set `{a,b}`, exactly like the single-decl `#X: {a:1, b:3}`. A use-site `#X & {c:4}` must
+-- REJECT `c` (cue v0.16.1: `#X.c: field not allowed`). Pre-fix `flattenConjDefRef`'s close gate was
+-- `isDefinition && (isSelfRef || inCycle)`: this shape is neither self-ref nor in-cycle, so the
+-- literals flattened OPEN and `c` leaked (over-acceptance). FIXED by the `ownLiteralUnion` disjunct —
+-- fires when every non-`.refId` conjunct is `isUnionableDefValue` and no `.refId` conjunct targets a
+-- DIFFERENT slot — reusing the Bug2-12b union-then-close-once path. A def EXTENDING a reference
+-- (`#LS: #Base & {extra}`) keeps a cross-def `.refId` conjunct, so it stays on the OPEN-extension path
+-- (Bug2-6..9), proved by the open-extension guards below.
+
+-- REJECT (the bug, FLIPPED): a use-site extra `c` ∉ {a,b} on an own-literal-union def is rejected.
+theorem defflatten_ownunion_rejects_extra :
+    exportJsonBottoms "#X: {a: 1} & {b: 3}\ny: #X & {c: 4}\n" = true := by
+  native_decide
+
+-- BASE (no use-site narrow): the closed own-union yields `{a:1,b:3}` — closedness does not reject the
+-- def's own declared fields. cue `{a:1,b:3}`.
+theorem defflatten_ownunion_base_admits :
+    exportJsonMatches "#X: {a: 1} & {b: 3}\nout: #X\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- ADMIT (redeclare an existing field): `& {a:1}` is the def's OWN field, admitted + narrowed. cue agrees.
+theorem defflatten_ownunion_redeclare_admits :
+    exportJsonMatches "#X: {a: 1} & {b: 3}\nout: #X & {a: 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- CONFLICT (must bottom): a shared label re-declared with a conflicting value still `.conj`-meets and
+-- conflicts — closedness does not mask a real value clash. cue `conflicting values 3 and 99`.
+theorem defflatten_ownunion_conflict_bottoms :
+    exportJsonBottoms "#X: {a: 1} & {b: 3}\ny: #X & {b: 99}\n" = true := by
+  native_decide
+
+-- OPEN-TAIL (do NOT over-close): a `...` in ONE literal opens the union, so a use-site extra is
+-- ADMITTED — `unionDefOpenness` lets `defOpenViaTail` dominate across the own-literal union. cue admits.
+theorem defflatten_ownunion_opentail_admits :
+    exportJsonMatches "#X: {a: 1} & {b: 3, ...}\nout: #X & {c: 4}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 3,\n        \"c\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- NESTED (reject): closedness propagates into a nested struct literal across the own-union — an extra
+-- in `sub` is rejected. cue `field not allowed`.
+theorem defflatten_ownunion_nested_rejects :
+    exportJsonBottoms "#X: {sub: {s: 1}} & {t: 2}\ny: #X & {sub: {extra: 9}}\n" = true := by
+  native_decide
+
+-- OPEN-EXTENSION GUARD (must STAY open — the over-close boundary): a def EXTENDING an OPEN ref
+-- (`#Base: {a:1, ...}`, `#LS: #Base & {b:2}`) keeps a cross-def `.refId` conjunct, so `ownLiteralUnion`
+-- does NOT fire; the open base's `...` flows through the close-once fold and a use-site extra `c` is
+-- ADMITTED. Pins that the fix does not over-close the legitimate open-extension pattern. cue admits.
+theorem defflatten_open_extension_still_admits :
+    exportJsonMatches "#Base: {a: 1, ...}\n#LS: #Base & {b: 2}\nout: #LS & {c: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"c\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- CLOSED-BASE EXTENSION (reject): extending a CLOSED own-union def (`#A: {a:1} & {b:2}`) with a new
+-- field (`#B: #A & {c:3}`) rejects — `#A` is closed to `{a,b}`, so `c` is not allowed. The ref-extension
+-- path composes `#A`'s closedness correctly. cue `field not allowed`.
+theorem defflatten_closed_base_extension_rejects :
+    exportJsonBottoms "#A: {a: 1} & {b: 2}\n#B: #A & {c: 3}\nout: #B\n" = true := by
+  native_decide
+
+-- SINGLE-DECL anchor (already correct, must STAY green): the non-`.conj` body shape rejects the extra
+-- via the bare `.refId` arm, unchanged by this fix. cue rejects.
+theorem defflatten_singledecl_still_rejects :
+    exportJsonBottoms "#X: {a: 1, b: 3}\ny: #X & {c: 4}\n" = true := by
+  native_decide
+
+-- MULTI-DISJUNCTION (DEF-FLATTEN-CLOSEDNESS-DISJ-REF, reject): the own-literal union distributes across
+-- the CROSS-PRODUCT of TWO closable disjunctions, closing each of the four combinations
+-- ({a,b,d}|{a,b,e}|{a,c,d}|{a,c,e}); an undeclared `f` bottoms every combination. Before the
+-- cross-product distribution the def flattened OPEN and the defaults SILENTLY exported `{a,b,d,f}`.
+-- cue v0.16.1 `field not allowed`.
+theorem defflatten_multidisj_rejects :
+    exportJsonBottoms "#X: {a: 1} & (*{b: 2} | {c: 3}) & (*{d: 4} | {e: 5})\ny: #X & {f: 6}\n" = true := by
+  native_decide
+
+-- MULTI-DISJUNCTION SELECT (both-direction guard, admit): unifying a NON-default combination's own
+-- fields resolves to exactly that combination — `{c:3, e:5}` picks the `{a,c,e}` arm and admits `c`,`e`.
+-- Guards against over-closing a legitimately-selected combination. cue v0.16.1 admits.
+theorem defflatten_multidisj_select_admits :
+    exportJsonMatches "#X: {a: 1} & (*{b: 2} | {c: 3}) & (*{d: 4} | {e: 5})\nout: #X & {c: 3, e: 5}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"e\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- MULTI-DISJUNCTION DEFAULT (default = product of defaults): with no use-site selection the default
+-- combination is the one where EVERY component arm is a default (`*{b}` & `*{d}` → `{a,b,d}`), matching
+-- cue's product-of-defaults collapse. cue v0.16.1 `{a,b,d}`.
+theorem defflatten_multidisj_default_collapses :
+    exportJsonMatches "#X: {a: 1} & (*{b: 2} | {c: 3}) & (*{d: 4} | {e: 5})\nout: #X\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- MULTI-DISJUNCTION OPEN-TAIL ARM (both-direction guard, admit): a `...`-tail arm in the cross-product
+-- keeps its combination OPEN, so a use-site extra is ADMITTED — the over-close direction the
+-- distribution must not trip. cue v0.16.1 admits `{a,b,d,f}`.
+theorem defflatten_multidisj_opentail_admits :
+    exportJsonMatches
+      "#X: {a: 1} & (*{b: 2, ...} | {c: 3}) & (*{d: 4} | {e: 5})\nout: #X & {f: 6}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4,\n        \"f\": 6\n    }\n}\n" = true := by
+  native_decide
+
+-- REF ARM (DEF-FLATTEN-CLOSEDNESS-DISJ-REF, reject): a disjunction arm that is a def-REF (`#Base`,
+-- closed `{b:2}`) resolves as an OPEN-compose arm `{a:1} & #Base` — `a` is not in `#Base`'s closed
+-- allowed-set, so that arm bottoms; the `{z:9}` arm closes to `{a,z}` and rejects `b`,`extra`. Both
+-- arms bottom. Before per-arm distribution the ref arm failed `isClosableDisj`, so `#X` flattened
+-- OPEN and SILENTLY exported `{a,z,b,extra}`. cue v0.16.1 bottom.
+theorem defflatten_refarm_closed_rejects :
+    exportJsonBottoms "#Base: {b: 2}\n#X: {a: 1} & ({z: 9} | #Base)\ny: #X & {b: 2, extra: 7}\n"
+      = true := by
+  native_decide
+
+-- REF ARM SELECT (both-direction guard, admit the z-arm): selecting `{z:9}` picks the closed `{a,z}`
+-- arm; the `#Base` arm bottoms (`a` not allowed). Guards that distribution does not over-reject a
+-- legitimately-selected struct arm. cue v0.16.1 `{a,z}`.
+theorem defflatten_refarm_select_admits :
+    exportJsonMatches "#Base: {b: 2}\n#X: {a: 1} & ({z: 9} | #Base)\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- REF ARM base-contains-literal (both-direction guard, admit): when `#Base` CONTAINS the def's own
+-- field (`#Base: {a:1, q:9}`), the ref arm `{a:1} & #Base` composes to the closed `{a,q}` and admits
+-- `q`. The open literal must NOT be independently closed to `{a}` (which would reject `q`). cue admits.
+theorem defflatten_refarm_base_contains_admits :
+    exportJsonMatches "#Base: {a: 1, q: 9}\n#X: {a: 1} & ({z: 9} | #Base)\nout: #X & {q: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"q\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- OPEN REF ARM (over-close guard, must STAY open): an OPEN `#Base: {b:2, ...}` arm keeps the arm
+-- OPEN, so `#X & {b:2, extra:7}` ADMITS `extra` on the `#Base` arm — the distribution composes the
+-- ref's OPENNESS, it does not force-close. (The `b, a` field order reflects ref-fields-first
+-- open-composition, a PRE-EXISTING order quirk shared with plain `{a:1} & #Base`; values spec-correct,
+-- logged in `cue-divergences.md`.) cue v0.16.1 admits `{a,b,extra}`.
+theorem defflatten_refarm_open_admits :
+    exportJsonMatches "#Base: {b: 2, ...}\n#X: {a: 1} & ({z: 9} | #Base)\nout: #X & {b: 2, extra: 7}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1,\n        \"extra\": 7\n    }\n}\n" = true := by
+  native_decide
+
+-- NESTED DISJUNCTION ARM (reject): a nested `.disj` arm flattens (disjunction is associative) to
+-- `{b:2}|{c:3}|{e:5}`, each closed to `{a}∪arm`; an undeclared `g` bottoms every arm. Before flattening
+-- the nested arm failed `isClosableDisj`, so `#X` stayed OPEN and reported `ambiguous`. cue v0.16.1 bottom.
+theorem defflatten_nesteddisj_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({b: 2} | ({c: 3} | {e: 5}))\ny: #X & {g: 9}\n" = true := by
+  native_decide
+
+-- NESTED DISJUNCTION SELECT (both-direction guard, admit): selecting a flattened inner arm resolves to
+-- exactly that closed arm — `{c:3}` picks `{a,c}`. Guards against over-rejecting a nested arm. cue admits.
+theorem defflatten_nesteddisj_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({b: 2} | ({c: 3} | {e: 5}))\nout: #X & {c: 3}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- SCALAR ARM (reject): a scalar disjunction arm (`3`) dies against the def's struct literal (`{a:1} & 3`
+-- ⇒ struct-vs-int bottom), so only the `{b:2}` struct arm survives, closes to `{a,b}`, and rejects
+-- `extra`. cue v0.16.1 bottom.
+theorem defflatten_scalararm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({b: 2} | 3)\ny: #X & {b: 2, extra: 7}\n" = true := by
+  native_decide
+
+-- BOUND ARM (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK, reject): a comparator-bound disjunction arm (`>5`)
+-- dies against the def's own struct literal (`{a:1} & >5` ⇒ struct-vs-number bottom) EXACTLY like a
+-- scalar, so it is DISTRIBUTE-SAFE — its combination drops and the surviving `{z:9}` arm closes to
+-- `{a,z}`, rejecting `w`. The all-or-nothing whitelist previously excluded the bound arm, so the
+-- WHOLE disjunction stayed non-distributable, the def flattened OPEN, and `w` leaked. cue v0.16.1
+-- bottom.
+theorem defflatten_boundarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | >5)\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- BOUND ARM SELECT (both-direction guard, admit): selecting the struct arm resolves to `{a,z}`; the
+-- bound arm has dropped. Guards that distributing the bound arm does not over-reject the struct sibling.
+-- cue v0.16.1 `{a,z}`.
+theorem defflatten_boundarm_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | >5)\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- LIST ARM (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK, reject): a list-carrier disjunction arm (`[1,2]`) dies
+-- against the def's struct literal (`{a:1} & [1,2]` ⇒ struct-vs-list bottom), so it is distribute-safe
+-- like the bound arm; the `{z:9}` arm closes and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_listarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | [1, 2])\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- KIND ARM (reject): a scalar-kind disjunction arm (`string`) dies against the def's struct literal
+-- (`{a:1} & string` ⇒ struct-vs-string bottom) — every `Kind` is scalar/list, never struct, so a kind
+-- arm is always distribute-safe. cue v0.16.1 bottom.
+theorem defflatten_kindarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | string)\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- BOUND ARM MULTIDISJ (reject): a bound arm mixed into a cross-product of two disjunctions
+-- (`({z:9}|>5) & ({d:4}|{e:5})`) drops every combination it appears in; the surviving struct
+-- combinations `{a,z,d}|{a,z,e}` close and reject `w`. Pins that the per-arm distribute-safe drop
+-- composes correctly with the cross-product. cue v0.16.1 bottom.
+theorem defflatten_boundarm_multidisj_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | >5) & ({d: 4} | {e: 5})\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- BOUND ARM MULTIDISJ SELECT (both-direction guard, admit): the surviving cross-product combination
+-- `{a,z,d}` resolves when its own fields are selected. cue v0.16.1 `{a,z,d}`.
+theorem defflatten_boundarm_multidisj_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | >5) & ({d: 4} | {e: 5})\nout: #X & {z: 9, d: 4}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- BOUND ARM OPEN-TAIL SIBLING (over-close guard, must STAY open): the struct sibling carries a `...`
+-- tail (`{p:1, ...}`), so its combination stays OPEN and admits a use-site extra `w`; the bound arm
+-- still drops. Pins that distribute-safe bound handling does not force-close a legitimately-open struct
+-- sibling. cue v0.16.1 admits `{a,p,w}`.
+theorem defflatten_boundarm_opentail_sibling_admits :
+    exportJsonMatches "#X: {a: 1} & ({p: 1, ...} | >5)\nout: #X & {w: 7}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"p\": 1,\n        \"w\": 7\n    }\n}\n" = true := by
+  native_decide
+
+-- REGEX ARM (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2, reject): a string-regex arm (`=~"foo"`) is
+-- string-kinded and dies against the def's struct literal, so it is distribute-safe; the `{z:9}` arm
+-- closes and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_regexarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | =~\"foo\")\ny: #X & {z: 9, w: 7}\n" = true := by
+  native_decide
+
+-- REGEX ARM SELECT (both-direction guard, admit): the surviving struct arm resolves to `{a,z}`; the
+-- regex arm dropped, not over-rejecting the sibling. cue v0.16.1 `{a,z}`.
+theorem defflatten_regexarm_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | =~\"foo\")\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- NOTPRIM ARM (reject): a `!=` negation arm (`!=5`) is number-kinded and dies against the def's struct
+-- literal, so it is distribute-safe; the `{z:9}` arm closes and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_notprimarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | !=5)\ny: #X & {z: 9, w: 7}\n" = true := by
+  native_decide
+
+-- MINITEMS ARM (reject): a CALL-FORM list-length validator (`list.MinItems(2)`) reaches the
+-- def-flatten level as an unlowered `.builtinCall`; `disjArmClass` lowers it to a `.lengthConstraint`
+-- (`.items`) which dies against the struct literal, so it is distribute-safe; the `{z:9}` arm closes
+-- and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_minitemsarm_rejects :
+    exportJsonBottoms "import \"list\"\n#X: {a: 1} & ({z: 9} | list.MinItems(2))\ny: #X & {z: 9, w: 7}\n"
+      = true := by
+  native_decide
+
+-- MINFIELDS ARM (reject): a `struct.MinFields(2)` arm is the subtle length case — it COMPOSES-CLOSED
+-- with the def's CLOSED literal (carrying no new allowed field), so the literal closes around it and a
+-- use-site extra `w` is rejected. `disjArmClass` lowers the call-form builtin to a `.lengthConstraint`
+-- (`.fields`); the emission closes the literal, so the arm rejects extras exactly as a closed struct.
+-- cue v0.16.1 bottom (a closed definition rejects the extra regardless of the validator).
+theorem defflatten_minfieldsarm_rejects :
+    exportJsonBottoms
+      "import \"struct\"\n#X: {a: 1, b: 2} & ({z: 9} | struct.MinFields(2))\ny: #X & {w: 7}\n"
+      = true := by
+  native_decide
+
+-- MINFIELDS ARM SELECT (both-direction guard, admit): with a two-field literal satisfying the count,
+-- selecting the declared `z` resolves to `{a,b,z}`; the MinFields arm composed-closed to `{a,b}` and
+-- dropped against `z`. cue v0.16.1 `{a,b,z}`.
+theorem defflatten_minfieldsarm_select_admits :
+    exportJsonMatches
+      "import \"struct\"\n#X: {a: 1, b: 2} & ({z: 9} | struct.MinFields(2))\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- ERROR ARM (DISJ-CLOSEDNESS-ERROR-ARM-LEAK, reject): a DIRECT `error(...)` disjunction arm in a
+-- CLOSED definition. The layer separation dissolves the bug214b tension — bug214b's disjunction lives
+-- under a REGULAR field (`close=false`, never distributed), while a def-flatten `error` arm force-folds
+-- to bottom against the closed literal (its `.conj` bottoms, message preserved through the meet), so it
+-- carries no allowed field; the `{z:9}` arm closes and rejects `w`. cue v0.16.1 bottom (message `x`).
+theorem defflatten_errorarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | error(\"x\"))\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- ERROR ARM SELECT (both-direction guard, admit): selecting the declared `z` resolves to `{a,z}`; the
+-- error arm dropped as bottom, not force-folding the whole disjunction. cue v0.16.1 `{a,z}`.
+theorem defflatten_errorarm_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | error(\"x\"))\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- ### DEF-CLOSEDNESS-NESTED-CONJ-ARM — a PARENTHESIZED nested struct-literal `.conj` closes (RESOLVED).
+--
+-- `#X: {a:1} & ({b:2} & {d:4})` is a CLOSED def with a FIXED field set `{a,b,d}`, exactly like the
+-- flat `#X: {a:1} & {b:2} & {d:4}` — `&`-grouping is associative and must not change closedness. Pre-fix
+-- the parens kept `{b:2} & {d:4}` a NESTED `.conj` conjunct, which is neither `isUnionableDefValue` nor a
+-- self-ref, so `ownLiteralUnion`'s `cs.all` failed → def flattened OPEN → a use-site `z` leaked. Same
+-- root, disjunction face: a `.conj` disjunction arm (`({b:2}&{d:4}) | {c:3}`) was `disjArmClass`
+-- `.blocking` → the disjunction non-distributable → OPEN. FIXED by `normalizeDefBodyConjunct` — a def
+-- body's pure-struct-literal `.conj` conjunct is SPLICED into its members and a `.disj` conjunct's
+-- pure-struct `.conj` arms are MERGED, BEFORE the closedness gate — so both faces close exactly as the
+-- flat/plain-arm forms already do. cue v0.16.1 bottom on both.
+
+-- FACE 1 (nested-conj conjunct, reject): a use-site extra `z` on `#X: {a:1} & ({b:2} & {d:4})` is rejected.
+theorem defflatten_nestedconj_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({b: 2} & {d: 4})\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- FACE 1 BASE (admit the def's own fields): the closed nested-conj union yields `{a,b,d}`. cue agrees.
+theorem defflatten_nestedconj_base_admits :
+    exportJsonMatches "#X: {a: 1} & ({b: 2} & {d: 4})\nout: #X\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- FACE 1 DEEP (reject): a doubly-nested `.conj` (`{b:2} & ({d:4} & {e:5})`) splices recursively and
+-- still closes to `{a,b,d,e}`, rejecting `z`. cue v0.16.1 bottom.
+theorem defflatten_nestedconj_deep_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({b: 2} & ({d: 4} & {e: 5}))\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- FLAT CONTROL (already correct, must STAY green): the unparenthesized form closes identically.
+theorem defflatten_nestedconj_flat_control_rejects :
+    exportJsonBottoms "#X: {a: 1} & {b: 2} & {d: 4}\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- FACE 2 (disjunction arm is a nested `.conj`, reject): `({b:2}&{d:4}) | {c:3}` distributes to
+-- `{a,b,d} | {a,c}`, both closed; a use-site `z` bottoms both. cue v0.16.1 bottom.
+theorem defflatten_nestedconj_disjarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & (({b: 2} & {d: 4}) | {c: 3})\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- FACE 2 SELECT the conj arm (both-direction guard, admit): `{b:2,d:4}` picks the `{a,b,d}` arm. cue admits.
+theorem defflatten_nestedconj_disjarm_select_conj_admits :
+    exportJsonMatches "#X: {a: 1} & (({b: 2} & {d: 4}) | {c: 3})\nout: #X & {b: 2, d: 4}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- FACE 2 SELECT the plain arm (both-direction guard, admit): `{c:3}` picks the `{a,c}` arm; the closed
+-- conj arm rejects `c`, so only `{a,c}` survives. cue v0.16.1 `{a,c}`.
+theorem defflatten_nestedconj_disjarm_select_plain_admits :
+    exportJsonMatches "#X: {a: 1} & (({b: 2} & {d: 4}) | {c: 3})\nout: #X & {c: 3}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- FACE 2 OPEN-TAIL conj arm (over-close guard, admit): a `...` inside the merged conj arm
+-- (`{b:2} & {d:4, ...}`) keeps that arm OPEN, so a use-site extra `q` is ADMITTED — the merge
+-- normalizes-to-closed only the plain members and preserves an explicit tail. cue v0.16.1 admits.
+theorem defflatten_nestedconj_disjarm_opentail_admits :
+    exportJsonMatches "#X: {a: 1} & (({b: 2} & {d: 4, ...}) | {c: 3})\nout: #X & {b: 2, d: 4, q: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4,\n        \"q\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- MIXED-REF CONJUNCT (over-splice guard, admit): a nested `.conj` mixing a struct with a def-REF
+-- (`#Base & {c:3}` where `#Base` is OPEN) is NOT a pure-struct conj, so it is NOT spliced — the ref
+-- governs closedness and the body stays OPEN, admitting `q`. Pins that the normal form fires ONLY for
+-- pure-struct-literal `.conj`s. cue admits.
+theorem defflatten_nestedconj_mixed_ref_stays_open :
+    exportJsonMatches "#Base: {a: 1, ...}\n#X: {b: 2} & (#Base & {c: 3})\nout: #X & {q: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"b\": 2,\n        \"q\": 9\n    }\n}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section.
 #check @eval_sc4_hidden_scalar_unaffected                     -- SC-4 hidden non-struct unaffected
 #check @eval_sc4_hidden_list_elem_closes                      -- SC-4 closing recurses list elements
 #check @eval_sc4_let_disjunction_arm_extra_bottoms            -- SC-4 closing recurses disjunction arms
 #check @eval_pattern_disjunction_valued_rejects               -- pattern-constraint conformance probe
+#check @defflatten_errorarm_select_admits                     -- DEF-FLATTEN-CLOSEDNESS
+#check @defflatten_nestedconj_mixed_ref_stays_open            -- DEF-CLOSEDNESS-NESTED-CONJ-ARM
 
 end Kue

@@ -204,7 +204,23 @@ rejection argument: `kue-performance.md` + implementation-log.
 ### Ranked OPEN backlog
 
 **DEF-CLOSEDNESS-NESTED-CONJ-ARM (HIGH soundness — SILENT closedness leak / over-acceptance; NEW,
-2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). OPEN — MILESTONE NOT substantiated.** A
+2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). ✅ LANDED (2026-07-13, Phase B — normal-form
+fix `normalizeDefBodyConjunct`).** Both faces closed by a def-body NORMAL FORM applied BEFORE the
+closedness gate (fix direction (b), the design-out-the-class option): `normalizeDefBodyConjunct`
+(`Kue/EvalBase.lean`) SPLICES a pure-struct-literal `.conj` conjunct into its struct members
+(`{a} & ({b}&{d})` → the flat `{a},{b},{d}` the own-literal union already closes) and MERGES a
+`.disj` conjunct's pure-struct `.conj` arms into the single struct they denote (normalized-to-closed
+first, then `mergeDefinitionDecls` — a raw regularOpen merge would union-OPEN via `unionDefOpenness`).
+Neither `isUnionableDefValue` nor `disjArmClass` gained a `.conj` case; the special case is DELETED,
+not duplicated. Fires ONLY for a DEFINITION body and ONLY for pure-struct-literal `.conj`s (associativity
+⇒ semantics-preserving), so refs/scalars/self-refs/mutual-cycles/mixed `.conj`s stay byte-identical on
+their existing paths — the buried-self-ref guard (`x: (x&int)&1`) is untouched (a `.conj` containing a
+self-ref is impure → not spliced). Both wild seeds GREEN (conjunct + disjunction-arm faces);
+`Bug2xTests`→`ClosednessTests` `defflatten_nestedconj_*` reject / base-admit / deep / flat-control /
+disjarm-reject / select-conj / select-plain / open-tail-admit / mixed-ref-stays-open both-direction
+guards; full `check.sh` green, zero L-series/Bug2/closedness flips. Test-org: the DEF-FLATTEN-CLOSEDNESS
++ DEF-CLOSEDNESS-NESTED-CONJ-ARM sections moved Bug2xTests→ClosednessTests (Bug2xTests was over the
+1800-line test-health cap). ~~OPEN — MILESTONE NOT substantiated.~~ A
 PARENTHESIZED (nested) `.conj`-of-struct-literals conjunct in a closed definition defeats the
 own-literal-union close, leaving the def OPEN so a use-site extra field leaks. `#X: {a:1} & ({b:2} &
 {d:4})` · `#X & {z:9}` ⇒ kue **`{a,b,d,z}`** (`kue export` succeeds, emits `z:9`), cue ⊥ (`z: field

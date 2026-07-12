@@ -1986,6 +1986,55 @@ def flattenNestedDisjArms : Nat -> List (Mark × Value) -> List (Mark × Value)
               (mark, ia.snd)
         | _ => [a]
 
+/-- Splice a nested `.conj` into a flat member list — conjunction is associative, so
+    `{a} & ({b} & {c})` and `{a} & {b} & {c}` denote the same meet. `fuel` bounds nesting. -/
+def flattenConjMembers : Nat -> Value -> List Value
+  | fuel + 1, .conj cs => cs.flatMap (flattenConjMembers fuel)
+  | _, v => [v]
+
+/-- A `.conj` ALL of whose (recursively flattened) members are own struct literals
+    (`isUnionableDefValue`) — `{b:2} & {d:4}`. Returns its members for splicing into the def
+    body's flat conjunct list. A `.conj` mixing a ref/scalar (`{b:2} & #Base`) governs closedness
+    differently, so it is NOT one (`none`) — it stays a single conjunct and composes via eval. -/
+def pureStructConjMembers (fuel : Nat) (v : Value) : Option (List Value) :=
+  match v with
+  | .conj _ =>
+      let members := flattenConjMembers fuel v
+      if !members.isEmpty && members.all isUnionableDefValue then some members else none
+  | _ => none
+
+/-- Merge a pure-struct-literal `.conj` disjunction arm (`{b:2} & {d:4}`) into the single struct it
+    denotes (`{b:2,d:4}`), so `disjArmClass` classifies it `fieldCarryingClosed` and the def can
+    distribute-and-close it. Each member is normalized-to-closed BEFORE merging (mirroring
+    `closeLiteralUnion`): `mergeDefinitionDecls` unions openness, so merging two raw `regularOpen`
+    members would union-OPEN the result (`unionDefOpenness`) and leave the arm admitting extras — an
+    explicit `...`-tail member stays open through `normalizeDefinitionValueWithFuel`, a plain one
+    closes. A nested `.disj` arm recurses (associative); any other arm is unchanged. `fuel` bounds
+    nesting. -/
+def mergeDefBodyDisjArm : Nat -> Value -> Value
+  | fuel + 1, .disj alts => .disj (alts.map fun a => (a.fst, mergeDefBodyDisjArm fuel a.snd))
+  | fuel + 1, v =>
+      match (pureStructConjMembers fuel v).map
+          (List.map (normalizeDefinitionValueWithFuel normalizeFuel)) with
+      | some (first :: more) =>
+          normalizeDefinitionValueWithFuel normalizeFuel (more.foldl mergeDefinitionDecls first)
+      | _ => v
+  | _, v => v
+
+/-- Normalize ONE def-body conjunct to the flat form the own-literal-union close expects: a
+    pure-struct-literal `.conj` is SPLICED into its members (`{a} & ({b}&{c})` → `{a},{b},{c}`), a
+    `.disj` has each arm's pure-struct `.conj` MERGED (so `({b}&{d}) | {c}` is distributable), and
+    every other conjunct is unchanged. `.conj` associativity makes this semantics-preserving — it
+    only exposes to the closedness gate a struct-literal meet that a `&`-grouping otherwise hides
+    behind a `.conj`/`disjArmClass` neither predicate accepts. -/
+def normalizeDefBodyConjunct (fuel : Nat) (v : Value) : List Value :=
+  match pureStructConjMembers fuel v with
+  | some members => members
+  | none =>
+      match v with
+      | .disj alts => [.disj (alts.map fun a => (a.fst, mergeDefBodyDisjArm fuel a.snd))]
+      | other => [other]
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -2029,7 +2078,18 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
             match nthField id.index.val frame.snd with
             | some field =>
                 match Field.value field with
-                | .conj cs =>
+                | .conj rawCs =>
+                    -- DEF-CLOSEDNESS-NESTED-CONJ-ARM: a def body's conjuncts are normalized to the
+                    -- flat form the own-literal-union close expects — a pure-struct-literal `.conj`
+                    -- conjunct (`{a} & ({b}&{d})`) is spliced into its struct members, and a `.disj`
+                    -- conjunct's pure-struct `.conj` arms are merged — BEFORE the closedness gate, so
+                    -- a `&`-grouped nested struct meet closes exactly as the flat `{a}&{b}&{d}` does.
+                    -- Conjunction associativity keeps this semantics-preserving; it fires only for a
+                    -- DEFINITION body (closedness is a def property), leaving every non-def conjunct,
+                    -- ref, scalar, self-ref, and mixed `.conj` on its existing path.
+                    let cs := if field.fieldClass.isDefinition
+                      then rawCs.flatMap (normalizeDefBodyConjunct normalizeFuel)
+                      else rawCs
                     -- SELF-CONJ-CYCLE: a self-reference BURIED below the body's top-level conjuncts
                     -- (`x: (x & int) & 1`, whose body is `.conj [(x & int), 1]` — the self-ref sits
                     -- inside the nested `(x & int)` conjunct) must NOT be inlined. Inlining replaces

@@ -22531,3 +22531,42 @@ definitions + default, ref-to-scalar arm. `b6c2d6f` (Sort routing + UniqueItems 
 green, spot-checked; no new issue.
 
 `check-fixtures.sh` GREEN (new seed properly QUARANTINED, skipped). Alpha HELD.
+
+---
+
+## Completed Slice: DEF-CLOSEDNESS-NESTED-CONJ-ARM — def-body normal form (Phase B, 2026-07-13)
+
+Closes the sole residual HIGH soundness leak Phase A's milestone-reconfirmation found — a
+parenthesized nested `.conj`-of-struct-literals in a closed def defeated the own-literal-union
+close, leaving the def OPEN so a use-site extra field leaked. Both faces (top-level conjunct +
+disjunction arm) fixed by a single def-body NORMAL FORM applied before the closedness gate — fix
+direction (b), design-out-the-class, not the two-predicate patch.
+
+- **`normalizeDefBodyConjunct` (`Kue/EvalBase.lean`), + helpers `flattenConjMembers`,
+  `pureStructConjMembers`, `mergeDefBodyDisjArm`.** A definition body's conjunct list is normalized
+  before `ownLiteralUnion`/`disjArmClass`/`expanded` run:
+  - a pure-struct-literal `.conj` conjunct is SPLICED into its (recursively flattened) struct
+    members — `{a:1} & ({b:2}&{d:4})` becomes the flat `{a:1},{b:2},{d:4}` the own-literal union
+    already closes;
+  - a `.disj` conjunct's pure-struct `.conj` arms are MERGED into the single struct they denote, so
+    `disjArmClass` classifies the arm `fieldCarryingClosed` and the existing cross-product
+    distribution closes each combination.
+- **Openness bug caught mid-implementation:** merging raw `regularOpen` struct members via
+  `mergeDefinitionDecls` union-OPENS the result (`unionDefOpenness` opens on any open input), so the
+  merged arm admitted extras. Fixed by normalizing each member to closed FIRST (mirroring
+  `closeLiteralUnion`), then merging, then normalizing — a member carrying an explicit `...` stays
+  open, a plain one closes.
+- **Blast radius — bounded.** Fires ONLY for a DEFINITION body and ONLY for pure-struct-literal
+  `.conj`s (conjunction associativity ⇒ semantics-preserving); refs, scalars, self-refs, mutual
+  cycles, and mixed struct/ref `.conj`s are untouched (a `.conj` containing a ref is impure → not
+  spliced/merged). The buried-self-ref guard (`x: (x&int)&1`) is unaffected. Neither
+  `isUnionableDefValue` nor `disjArmClass` gained a `.conj` case.
+- **Tests.** Wild `def-closedness-nested-conj-arm/` (seed graduated: `.known-red` removed,
+  PROVENANCE added, comment made timeless) + new `def-closedness-nested-conj-disj-arm/` (disjunction
+  face). `defflatten_nestedconj_*` theorems (reject / base-admit / deep / flat-control / disjarm-reject
+  / select-conj / select-plain / open-tail-admit / mixed-ref-stays-open) pin both directions.
+- **Test-org.** Bug2xTests crossed the 1800-line test-health cap; the DEF-FLATTEN-CLOSEDNESS +
+  DEF-CLOSEDNESS-NESTED-CONJ-ARM sections moved to `ClosednessTests.lean` (their natural home), each
+  anchored in that file's coverage tripwire. Bug2xTests 1815→1461, ClosednessTests 346→701.
+
+Full `check.sh` GREEN; zero L-series / Bug2 / closedness flips.
