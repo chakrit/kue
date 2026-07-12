@@ -1379,6 +1379,66 @@ catch-all swallows `patternLabel`. Two NEW findings:
   `testdata/wild/` repro to confirm the spec-correct value (cue v0.16.1 cross-check) before fixing — file
   as suspected.
 
+### PHASE B AUDIT (2026-07-13, HEAD `42e5fad`, batch `6b781a8..728c930`) — new cycle/frame family placement + reconcile
+
+Whole-graph pass after the reference-cycle→top batch (SELF-SELECT-CYCLE-CROSSFRAME, RESOLVE-DEDUP-
+MIRROR-GUARD, LET-CYCLE-ERROR). Infra rotation NOT repeated (done at the 2026-07-12 Phase B block).
+Reconciliation: every OPEN item from the last Phase B (`290817b`) re-checked against HEAD — BINARY-CMP-
+BYTES, BOUND-ORDEREDPRIM, PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS, DEF-FLATTEN-CLOSEDNESS-DISJ,
+PA-ESC-2/SUB-4/TT-5, PB-VERSION-CONST/CHECK-COMMENT/FOLD-PLACEMENT/PRIM-CATCHALL/RELEASE-3/TESTORG-4,
+PB-EVALBASE-SPLIT, PB-FIXTUREPORTS-SPLIT all still unlanded, correctly ranked. Phase A (`42e5fad`)
+already struck the landed LET-CYCLE-ERROR from the ranked head. Graph HEALTHY: acyclic, `Builtin ↛ Eval`,
+`Resolve`/`Lattice` stay low; no new dead code; no `Value`-producing `| _ =>` in the new surface.
+
+- **New cycle/frame helper family — placement CORRECT, do NOT extract.** The batch added two clusters,
+  each placed with its natural kin, NOT scattered:
+  - `cycleSlots`/`allLetCycle` (EvalBase L52–64) sit immediately beside the existing `slotVisited`
+    cycle-guard primitive (L41). Tiny (5–8 lines), tightly coupled to the reference-cycle guard. Correct.
+  - `structFrameLayout?`/`frameDepthOfId`/`enclosingSelfSelectId?`/`selectChainId?` (L2071–2129) are
+    frame-identity self-select resolvers, placed beside the `thisStructFieldIndex?` select-resolution
+    family. They depend HARD on EvalBase's frame layer — `canonicalizeFields`, `lazyConjMergedFields`,
+    `Env`/`Frame`/`FrameKey`, the `pushFrame` frame table. A `CycleDetection`/`FrameId` leaf is NOT a
+    clean extraction: it would drag the entire frame layer out with them (not a leaf). RULED: keep in
+    EvalBase. This does NOT change PB-EVALBASE-SPLIT's seam — the frame-select helpers cannot leave
+    without the frame layer, so `EvalScan.lean` (the `foldValueWithDepth` scanner mutual, L92–175) is
+    STILL the natural first extraction, unchanged by this batch. The cycle-helper family is NOT the
+    EvalBase relief.
+- **`mergeFieldLayoutInto` in `Lattice` — RIGHT HOME.** It centralizes the field-collapse decision that
+  lives with `mergeFieldClass` (also `Lattice`); both callers (Resolve, EvalBase) already import Lattice,
+  no cycle. Confirmed by the RESOLVE-DEDUP design. Correct.
+- **New `BottomReason.letClauseCycle`/`ManifestError.letClauseCycle` — modeled CONSISTENTLY.**
+  `BottomReason.letClauseCycle (label) (isMutual)` sits beside `structuralCycle`, structured payload,
+  the self-vs-mutual distinction carried as a clean 2-state `Bool` (not a stringly-typed message);
+  `ManifestError.letClauseCycle` mirrors `unsupportedBuiltinFunction` (specific error → cue-shaped CLI
+  message). No loose-type drift.
+- **EvalBase size:** 2658 (was 2587 at last Phase B; +71 from these 3 slices). Still NOT gate-forced
+  (no core-module size gate). PB-EVALBASE-SPLIT unchanged: MED nav-debt, `EvalScan.lean` first, behind
+  correctness. PB-FIXTUREPORTS-SPLIT (4237, registration-exempt) unchanged.
+
+**Reconciled ranked HEAD (philosophy: active wrong-value → type-tightening → LOW gaps → feature → nav-debt):**
+1. **BINARY-CMP-BYTES** (LOW, kue BUG — the ONLY remaining active WRONG-VALUE bug: `'a' < 'b'` ⇒ kue ⊥,
+   cue `true`). `bytesOp`-threading across the four comparison call sites. NEXT.
+2. **BOUND-ORDEREDPRIM** (LOW, illegal-states — ~60-site `OrderedPrim` retype, the `boundConstraint.domain`
+   numeric-sentinel tightening). Type-system leverage; parallel-safe filler.
+3. **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** (LOW correctness gaps — missing feature /
+   missing validation) → **DEF-FLATTEN-CLOSEDNESS-DISJ** (LOW, needs a `wild/` repro FIRST).
+4. **Float F1** (unblocked by F2, small, exercises the `BinFloat` kernel end-to-end) → F3 → F5.
+5. **PB-EVALBASE-SPLIT** (`EvalScan.lean`) / **PB-FIXTUREPORTS-SPLIT** — MED nav-debt, cohesion filler.
+
+**Phase-of-work recommendation → (c) open a NEW conformance probe, bridged by BINARY-CMP-BYTES.** The
+three soundness clusters (reference-cycle→top, operand-typing, flatten-closedness) are all CLOSED; the
+remaining backlog is LOW cleanup + nav-debt + scoped float. Grinding the LOW backlog (option a) is the
+lowest-EV path — none are wrong-value, and 3 no-movement slices trip the blind-grind circuit breaker.
+Float F1/F3/F5 (option b) is real but narrow feature-completion, not the whole-surface-correctness goal.
+The differential-probe method is the highest-yield bug SOURCE for the actual target (SCOPING-PROBE just
+yielded 4 real defects, all now fixed). Sequence: land BINARY-CMP-BYTES first (active bug, ~1 slice,
+already queued), then open a fresh probe on the **bytes/string value family** — the least-measured core
+surface relative to structs/disjunctions/comprehensions, and the family BINARY-CMP-BYTES itself sits in
+(comparison, ordering, concat, `len`, slicing, interpolation edges). Run BOUND-ORDEREDPRIM (tightening)
+and float F1 as parallel-safe filler between probe slices. Escalation note: whether to probe bytes/string
+vs list/slice vs field-modality (`?`/`!`/`_`/dynamic) is a philosophy-open next-leader fork — resolve by
+leverage, do not stop to ask.
+
 ### PHASE B AUDIT (2026-07-12c, HEAD `290817b`) — mirror-guard design + split seams + ranked head
 
 Module-graph + design cycle following Phase A `290817b` (infra rotation NOT repeated — done at the

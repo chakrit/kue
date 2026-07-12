@@ -21472,3 +21472,28 @@ One NEW finding, fixed inline: the live ranked-head in `plan.md` still listed th
 LET-CYCLE-ERROR as "NEXT" (the slice marked its primary entry LANDED but missed the ranked-head — a
 retraction-guard slip). Struck it through like the two peers above it; BINARY-CMP-BYTES is now NEXT.
 No soundness bug found in the batch; no release-blocker.
+
+---
+
+## PHASE B AUDIT (2026-07-13, HEAD `42e5fad`, batch `6b781a8..728c930`)
+
+Architecture/refactor/cleanup pass over the reference-cycle→top batch. No code change (graph clean).
+
+Verdicts:
+- **New cycle/frame helper family placement CORRECT — do NOT extract.** `cycleSlots`/`allLetCycle`
+  (EvalBase L52–64) sit with `slotVisited`; `structFrameLayout?`/`frameDepthOfId`/
+  `enclosingSelfSelectId?`/`selectChainId?` (L2071–2129) sit with the `thisStructFieldIndex?` select
+  family and depend hard on the frame layer (`canonicalizeFields`, `lazyConjMergedFields`,
+  `Env`/`Frame`/`FrameKey`, `pushFrame` table). A `FrameId`/`CycleDetection` leaf is NOT clean — it drags
+  the whole frame layer out. Ruled: keep in EvalBase; does not change PB-EVALBASE-SPLIT's seam
+  (`EvalScan.lean` still the natural first extraction).
+- **`mergeFieldLayoutInto` in Lattice — right home** (with `mergeFieldClass`, both callers import it, no
+  cycle). **`BottomReason`/`ManifestError.letClauseCycle` — modeled consistently** (structured payload,
+  2-state `isMutual : Bool`; mirrors `structuralCycle` / `unsupportedBuiltinFunction`).
+- **Graph HEALTHY** — acyclic, `Builtin ↛ Eval`, `Resolve`/`Lattice` low; no dead code; no
+  `Value`-producing `| _ =>` in the new surface. EvalBase 2658 (+71), still not gate-forced.
+- **Backlog reconciled.** All prior-Phase-B OPEN items re-checked, still correctly ranked. Ranked HEAD:
+  BINARY-CMP-BYTES (the only active wrong-value bug) → BOUND-ORDEREDPRIM → LOW gaps → float F1/F3/F5 →
+  nav-debt splits. **Recommend phase (c): open a new differential probe (bytes/string value family),
+  bridged by BINARY-CMP-BYTES** — soundness clusters closed, probes are the highest-yield bug source;
+  LOW-grind risks the blind-grind breaker, float is narrow. Detail in plan.md § PHASE B AUDIT (2026-07-13).
