@@ -3,14 +3,31 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **SCOPING-PROBE — scoping / reference-resolution surface MEASURED, four defects seeded (2026-07-12).**
+HEAD: **SELF-CONJ-CYCLE — nested self-reference truncates to top; HIGH correctness bug FIXED (LANDED 2026-07-12).**
+A field body with a self-ref BURIED below its top-level conjuncts (`x:1`+`x: x & int` → `.conj[1,(x&int)]`;
+single-field `x: (x & int) & 1`) bottomed instead of collapsing to top. ROOT: `flattenConjDefRef`
+(`Kue/EvalBase.lean`) inlined the self-referential body, REPLACING the bare `refId x` with x's body and
+re-burying the self-ref one level deeper each pass; its `expanding` guard bounds only DIRECT top-level
+self-ref conjuncts (Bug2-12), so a nested one escaped, unrolled to fuel exhaustion, and bottomed — the
+`slotVisited⇒truncate .top` guard in the `.refId` arm was never reached. FIX: `flattenConjDefRef` bails
+(ref UNEXPANDED) when a non-direct-self-ref body conjunct transitively references the same slot at depth 0
+(new `valueMentionsSlotAtDepth`); the bare ref then flows to the `.refId` arm and truncates. Root-cause,
+not a shape special-case. Over-truncation guarded (`x:1`+`x: x & 2` and `x: (x & 2) & 1` STILL `_|_` — real
+conflict survives). Seed `testdata/wild/self-conj-cycle/` un-quarantined (wild gate enforces green); 9
+`Bug2xTests` theorems added. `check.sh` fully green, zero fixtures/theorems flipped (Bug2xTests cycle core intact).
+**NEXT (ranked):** remaining scoping seeds — **PATTERN-LABEL-ALIAS** / **LET-CYCLE-ERROR** (MED) →
+**UNREFERENCED-ALIAS** (LOW). Then a **two-phase AUDIT is DUE** (4 slices since last: BINARY-CMP-OPERAND,
+BOUND-OPERAND-CLASSIFY, SCOPING-PROBE, SELF-CONJ-CYCLE). Then the **DUE alpha release** (see below). Then
+BOUND-ORDEREDPRIM / BINARY-CMP-BYTES / F1/F3/F5 / LOW audit findings.
+
+Prior HEAD: **SCOPING-PROBE — scoping / reference-resolution surface MEASURED, four defects seeded (2026-07-12).**
 Systematic differential vs cue v0.16.1 over lexical scoping + reference resolution. Clean majority PINNED
 (6 byte-identical `testdata/export/scoping_*.{cue,json}`: forward `let`→`let`/`let`→field visibility,
 comprehension-var nested shadow, hidden-field ref scope, field value alias `X.b`, reducible field
 self-cycle→top `x: x & {a:1}`⇒`{a:1}`). **Four RED defects seeded (`.known-red`, all filed in plan.md
 § SCOPING/REFERENCE-RESOLUTION PROBE):** (1) **SELF-CONJ-CYCLE (HIGH, wrong value)** — `x:1; x: x & int`
-⇒ kue `_|_`, cue `{x:1}`; multi-declaration merge doesn't hit the `slotVisited⇒truncate .top` self-cycle
-guard the single form does; core `Kue/Eval.lean` `.refId` self-detect ⨯ field merge, mechanism non-obvious.
+⇒ kue `_|_`, cue `{x:1}` **[✅ FIXED — see HEAD; root was `flattenConjDefRef` re-burying the ref, not the
+merge path]**.
 (2) **LET-CYCLE-ERROR (MED, too lenient)** — `let a = a` / mutual let cycles ⇒ cue errors, kue collapses to
 top; `buildFrame` erases `.letBinding` so a struct-level `let` self-resolves like a field. (3)
 **PATTERN-LABEL-ALIAS (MED, parse+feature)** — `[Name=string]: {n: Name}` unparseable (`parsePatternField`,

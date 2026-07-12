@@ -1117,15 +1117,21 @@ field self-cycle → top (`x: x & {a:1}` ⇒ `{a:1}`, `x: x & int` ⇒ `int`), h
 same-name namespaces, ref resolving up the scope chain, `let`/field shadow load-error (both
 directions, pre-pinned). **Four defects found + seeded RED** (`.known-red`, all filed below):
 
-- **SELF-CONJ-CYCLE (HIGH correctness — wrong value; kue BUG). OPEN.** A multiply-declared
-  field whose one declaration self-references inside a conjunction (`x: 1` + `x: x & int`)
-  ⇒ kue `_|_` where cue resolves self→top and yields `{x: 1}`. The single-declaration
-  self-cycle (`x: x & int` alone) already collapses to `int` correctly; the bug is specific
-  to the same-name merge path interacting with the eval self-cycle / `visited` guard.
-  Mechanism non-obvious (core `Kue/Eval.lean` `.refId` self-detection ⨯ field merge) — NOT
-  forced in the probe. Seed `testdata/wild/self-conj-cycle/` (`{"x":1}`). Fix: trace why the
-  merged-field self-ref isn't hitting the `slotVisited ⇒ truncate .top` path the single form
-  hits; pin RED→GREEN + add `EvalTests` self-cycle-in-multiconjunct theorems.
+- **SELF-CONJ-CYCLE (HIGH correctness — wrong value; kue BUG). ✅ LANDED (2026-07-12).** A field
+  body with a self-reference BURIED below its top-level conjuncts (`x: 1` + `x: x & int`, merged
+  to `.conj [1, (x & int)]`; equally the single-field `x: (x & int) & 1`) ⇒ kue `_|_` where cue
+  resolves self→top and yields `{x: 1}`. ROOT CAUSE: `flattenConjDefRef` (`Kue/EvalBase.lean`)
+  inlined the self-referential field body, REPLACING the bare `refId x` with x's body — which
+  re-buries the self-ref one level deeper. Its `expanding` guard bounds only TOP-LEVEL self-ref
+  conjuncts (Bug2-12's `#X: #X & {a}`); a NESTED self-ref (inside `(x & int)`, a `.conj`, not a
+  bare ref) escaped and unrolled to fuel exhaustion, bottoming instead of collapsing to top. The
+  `slotVisited ⇒ truncate .top` guard in the `.refId` eval arm was never reached because the bare
+  ref was consumed by the flatten before it could be evaluated. FIX: `flattenConjDefRef` bails
+  (returns the ref UNEXPANDED) when a body conjunct that is NOT a direct top-level self-ref
+  transitively references the same slot at depth 0 (new `valueMentionsSlotAtDepth`); the bare ref
+  then flows to the `.refId` arm and truncates correctly. Bug2-12 direct-self-ref close path
+  untouched. Over-truncation guard holds (`x: 1` + `x: x & 2` still `_|_`). Seed
+  `testdata/wild/self-conj-cycle/` green; 9 `Bug2xTests` theorems added.
 - **LET-CYCLE-ERROR (MEDIUM — missing load error; kue too lenient). OPEN.** A `let` binding
   is not in scope in its own RHS: `let a = a` ⇒ cue `reference "a" not found`; mutual
   `let a = c; let c = a` ⇒ cue `cyclic references in let clause or alias`. kue represents a

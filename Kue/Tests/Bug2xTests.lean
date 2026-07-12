@@ -390,6 +390,54 @@ theorem bug29_alias_cycle_narrow_terminates :
       "{\n    \"out\": {\n        \"n\": 5\n    }\n}\n" = true := by
   native_decide
 
+-- SELF-CONJ-CYCLE (2026-07-12): a self-reference BURIED below a field body's top-level conjuncts
+-- must collapse to top (reference-cycle rule), not unroll to bottom. `flattenConjDefRef` inlined
+-- the self-referential body, re-burying the ref one level deeper each pass so the `slotVisited`
+-- guard never fired; the fix returns such a ref UNEXPANDED so the `.refId` eval arm truncates it.
+-- SEED (multi-decl): `x: 1` + `x: x & int`. The merged body is `.conj [1, (x & int)]` — the self-ref
+-- sits inside the nested `(x & int)`. cue v0.16.1: `{x: 1}`.
+theorem self_conj_cycle_multidecl :
+    evalSourceMatches "x: 1\nx: x & int\n" "x: 1" = true := by
+  native_decide
+
+-- REGRESSION CONTROL: the single-declaration self-cycle already worked and must STAY `int`
+-- (`x & int` with the self-ref → top = `int`); the fix leaves the direct-ref path untouched.
+theorem self_conj_cycle_singledecl_control :
+    evalSourceMatches "x: x & int\n" "x: int" = true := by
+  native_decide
+
+-- Nested self-ref, sibling literal: `(x & int) & 1` → the cycle → top, `int & 1` → `1`.
+theorem self_conj_cycle_nested_literal :
+    evalSourceMatches "x: (x & int) & 1\n" "x: 1" = true := by
+  native_decide
+
+-- Nested self-ref, sibling kind: `(x & int) & int` → `int` (no concrete narrowing).
+theorem self_conj_cycle_nested_kind :
+    evalSourceMatches "x: (x & int) & int\n" "x: int" = true := by
+  native_decide
+
+-- Self-ref as the FIRST operand: `1 & (x & int)` → `1`, order-independent.
+theorem self_conj_cycle_ref_first :
+    evalSourceMatches "x: 1 & (x & int)\n" "x: 1" = true := by
+  native_decide
+
+-- Chained sibling: `a: a & b & 1` with `b: int` → the `a` cycle → top, `b` = `int`, `int & 1` → `1`.
+theorem self_conj_cycle_chained_sibling :
+    evalSourceMatches "a: a & b & 1\nb: int\n" "a: 1\nb: int" = true := by
+  native_decide
+
+-- OVER-TRUNCATION GUARD (must STAY bottom): the cycle truncates to top, but a genuine DOWNSTREAM
+-- conflict must still bottom. `x: 1` + `x: x & 2`: `x & 2` with the self-ref → top = `2`, met with
+-- the sibling `1` = `_|_`. cue v0.16.1 agrees (`_|_`). A fix that over-truncated would accept this.
+theorem self_conj_cycle_real_conflict_bottoms :
+    exportJsonBottoms "x: 1\nx: x & 2\n" = true := by
+  native_decide
+
+-- OVER-TRUNCATION GUARD (nested form): `(x & 2) & 1` — the cycle → top, `x & 2` → `2`, `2 & 1` → `_|_`.
+theorem self_conj_cycle_nested_conflict_bottoms :
+    exportJsonBottoms "x: (x & 2) & 1\n" = true := by
+  native_decide
+
 -- Bug2-8 BOUNDARY WITNESS (2026-06-23 Phase-A audit): a SCALAR def value (`#x: string`) across the
 -- embed stays a MEET, never the decl-UNION — `isUnionableDefValue` is false for a scalar, so the host
 -- `#x: "hi"` × embed `#x: string` pair `.conj`-meets to `"hi"` (a union would double the display). cue

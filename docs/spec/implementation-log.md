@@ -20943,3 +20943,51 @@ reference scope, field value alias (`X={…}` ref `X.b`), reducible field self-c
 
 `./scripts/check.sh` fully green; four seeds quarantined, six new guards pass, zero existing
 fixtures/theorems flipped.
+
+## Completed Slice: SELF-CONJ-CYCLE — nested self-reference truncates to top (HIGH correctness)
+
+Fixed the SCOPING-PROBE-seeded HIGH bug: a field body with a self-reference BURIED below its
+top-level conjuncts bottomed instead of collapsing to top.
+
+### Trigger (minimal)
+
+Not multi-decl-specific — the merge just PRODUCES the nested shape. The real trigger is a
+self-ref nested inside an inner conjunct of the field body:
+
+- `x: 1` + `x: x & int` (merged body `.conj [1, (x & int)]`) ⇒ was `_|_`, now `{x: 1}`.
+- `x: (x & int) & 1` (single field, nested) ⇒ was `_|_`, now `x: 1`.
+- FLAT `x: x & int & 1` already worked (`x: 1`) — the self-ref is a DIRECT top-level conjunct.
+- Single-decl `x: x & int` already worked (`x: int`).
+
+### Root cause
+
+`flattenConjDefRef` (`Kue/EvalBase.lean`) inlines a depth-0 `refId` whose field body is a
+`.conj`, REPLACING the bare ref with the body's conjuncts (Bug2-9, so `#LS & {narrow}` folds in
+one pass). For a self-referential body it re-buries the self-ref: `refId x` → `[(x & int), 1]`,
+and `(x & int)` still holds `refId x`. The `expanding` guard (reset to `[]` at each conj eval,
+line 315 of `Eval.lean`) bounds only TOP-LEVEL self-ref conjuncts (`isSelfRef`, Bug2-12's
+`#X: #X & {a}`). A NESTED self-ref — inside a `.conj`, which the top-level flatten does not
+descend — escaped every pass and unrolled to fuel exhaustion, bottoming. The bare `refId x`
+never reached the `.refId` eval arm, so its `slotVisited ⇒ truncate .top` reference-cycle guard
+never fired.
+
+### Fix
+
+`flattenConjDefRef` bails (returns the ref UNEXPANDED) when any body conjunct that is NOT a
+direct top-level self-ref transitively references the same slot at depth 0 — detected by the new
+`valueMentionsSlotAtDepth` (a `foldValueWithDepth` scan). The bare ref then flows to the `.refId`
+arm, where `slotVisited` truncates it to top. Bug2-12's direct-self-ref close-over-literals path
+is excluded from the bail (its self-ref is a bare top-level conjunct, already `expanding`-bounded).
+
+Root-cause fix, not a shape special-case: it restores the invariant that a self-reference must
+reach the `slotVisited` guard rather than being inlined below it.
+
+### Guards
+
+Over-truncation is NOT swallowed — a genuine downstream conflict still bottoms: `x: 1` +
+`x: x & 2` (self→top ⇒ `x & 2` = `2`, met with `1` = `_|_`) and nested `x: (x & 2) & 1` both
+stay `_|_`. 9 `Bug2xTests` theorems pin the fix + both-direction guards; seed
+`testdata/wild/self-conj-cycle/` un-quarantined (now enforced green by the wild gate).
+
+`./scripts/check.sh` fully green; zero existing fixtures/theorems flipped (Bug2xTests cycle
+coverage all stayed green — this is cycle-detection core).

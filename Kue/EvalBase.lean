@@ -1837,6 +1837,17 @@ def defSlotInClosedCycle (fuel : Nat) (frame : List Field) (start : Nat)
             | [] => false
             | _ => defSlotInClosedCycle f frame start (frontier ++ seen) fresh
 
+/-- Does `value` reference the depth-0 slot `slot` — the same frame, same field it inhabits?
+    A `foldValueWithDepth` scan: the `.refId` leaf matches when the ref lands on frame depth `d`
+    (incremented per frame-pusher) at index `slot`. Used to detect a self-reference BURIED below
+    the top-level conjuncts of a field body, which `flattenConjDefRef` must not inline. -/
+def valueMentionsSlotAtDepth (fuel : Nat) (slot : Nat) : Value -> Bool :=
+  foldValueWithDepth (· || ·) false
+    (fun d v => match v with
+      | .refId id => some (id.depth.val == d && id.index.val == slot)
+      | _ => none)
+    fuel 0
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -1881,6 +1892,23 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
             | some field =>
                 match Field.value field with
                 | .conj cs =>
+                    -- SELF-CONJ-CYCLE: a self-reference BURIED below the body's top-level conjuncts
+                    -- (`x: (x & int) & 1`, whose body is `.conj [(x & int), 1]` — the self-ref sits
+                    -- inside the nested `(x & int)` conjunct) must NOT be inlined. Inlining replaces
+                    -- the bare `refId x` with x's body, re-burying the self-ref one level deeper each
+                    -- pass; the `expanding` guard bounds only TOP-LEVEL self-ref conjuncts, so a
+                    -- nested one escapes and unrolls to fuel exhaustion, bottoming instead of
+                    -- collapsing to top. Returned UNEXPANDED, the bare ref flows to the `.refId` eval
+                    -- arm, whose `slotVisited` check applies the reference-cycle rule (self → top).
+                    -- A DIRECT top-level self-ref conjunct (`#X: #X & {a:1}`, Bug2-12) is excluded —
+                    -- it is already bounded by `expanding` and needs the close-over-literals path.
+                    let directSelfRef := fun (c : Value) =>
+                      match c with
+                      | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
+                      | _ => false
+                    if cs.any (fun c => !directSelfRef c
+                        && valueMentionsSlotAtDepth fuel id.index.val c) then [constraint]
+                    else
                     -- Bug2-12: a SELF-RECURSIVE CLOSED definition (`#X: #X & {a:1}`, whose body is
                     -- the `.conj [#X, {a:1}]` reached here) loses its closedness on this flatten. A
                     -- bare depth-0 self-ref conjunct (`#X` pointing back at THIS slot) is the
