@@ -203,6 +203,28 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**LIST-OPS-EMBEDDED-CARRIER (HIGH soundness — SILENT wrong value / bottom; NEW, 2026-07-13 Phase A audit).**
+The LIST-OPS-NESTED-OPENTAIL fix added the `.listTail` arm to the three list-ops destructure sites but
+missed the THIRD list carrier, `.embeddedList` (a struct that embeds a list plus non-regular decls, e.g.
+`{[1,2], _x: 9}` — a valid list value in cue AND kue). `listItems?`/`structuralEq` (`Kue/Value.lean`) treat
+all three carriers (`.list`/`.listTail`/`.embeddedList`) as list-shaped, but `listConcat.collect`,
+`listFlattenFuel`, and `listNestingDepth` (`Kue/Builtin.lean`) enumerate only `.list` + `.listTail` and let
+`.embeddedList` fall through — a carrier-enumeration asymmetry, same defect class as LIST-OPS-NESTED-OPENTAIL
+one carrier over. Repros (vs cue v0.16.1, reachable — cue accepts `{[1,2],_x:9}` as a list):
+- `list.Concat([{[1,2],_x:9}, [3]])` ⇒ kue **bottom** (`collect`'s `| _ => none`); cue ⇒ `[1,2,3]`.
+- `list.FlattenN([{[1,2],_x:9}, [3]], 1)` ⇒ kue emits the embedded sublist **unflattened** (silent wrong);
+  cue ⇒ `[1,2,3]`.
+- `list.FlattenN([[{[1,2],_x:9}]], -1)` ⇒ `listNestingDepth` scores the embedded carrier depth 0 and
+  undersizes the fuel, so the inner list is never descended; cue ⇒ `[1,2]`.
+Fix: each of the three functions gains a `.embeddedList inner _ _` arm mirroring its `.list inner` arm
+(a direct pattern subterm, NOT an `openListOperand`/`listItems?` wrapper — the exposed `inner` must be a
+pattern subterm for the structural-recursion termination proofs, same constraint the `.listTail` arm hit).
+Expected values are spec-adjudicated (a struct-embedded list IS its embedded-element list) and MATCH cue —
+no divergence, a straight kue soundness gap. Wild seed COMMITTED RED under `.known-red`:
+`testdata/wild/list-ops-embedded-sublist/` (all three facets in one repro; graduates on the fix). Consider
+also auditing `list.Length`/`slice`/index for the same `.embeddedList` omission in the same slice (the
+carrier is under-covered across `Kue/Builtin.lean`'s list surface).
+
 **LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 LIST-OPS-NESTED-OPENTAIL).
 ✅ LANDED (2026-07-13 LIST-ELEM-EQ).** `list.Contains` compared each element against the needle with raw
 Lean `BEq`, which distinguishes `.listTail` from `.list`, so `list.Contains([[1,2,...]],[1,2])` ⇒ kue

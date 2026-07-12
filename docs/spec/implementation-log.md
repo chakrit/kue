@@ -22000,3 +22000,41 @@ table confirms scalar `==` unchanged (`1==1.0`→true) and structural value-base
 (`[1]==[1.0]`→true, `["a"]==['a']`→false). New theorems: `BuiltinTests`
 `list_contains_open_tail_{element,needle,deep,prefix_mismatch}` + `_int_matches_float` +
 `_string_not_bytes`; `FixtureTests` `uniqueitems_{float_scale,int_float}_dup_bottoms`.
+
+---
+
+## Completed Slice: Phase A audit — LIST-ELEM-EQ + closedness/open-tail batch (docs)
+
+Phase A code-quality audit of batch `93b878d..cb846df` (3 code slices: LIST-OPS-NESTED-OPENTAIL
+`089957a`, DEF-FLATTEN-CLOSEDNESS-DISJ-REF `a069efe`, LIST-ELEM-EQ `cb846df`). Doc-only plus
+one committed RED wild seed; no code change.
+
+**Last-audit reconciliation.** The `93b878d` Phase A filed LIST-OPS-NESTED-OPENTAIL and
+DEF-FLATTEN-CLOSEDNESS-DISJ-REF (LOW→HIGH); both LANDED (`089957a`, `a069efe`) and are marked
+`✅ LANDED`/`PARTIAL` in `plan.md`. Prior OPEN backlog (float FDLIBM F1 walled, PATTERN-LABEL-ALIAS-SCALAR,
+DISJ-REF ref/scalar+nested residual, PB-TESTORG-4, PA/PB LOWs) intact and correctly ranked — no re-rank.
+
+**LIST-ELEM-EQ (primary) — deep review, verdict SOUND.** The value-based-equality REFRAME is
+independently confirmed against the live CUE spec (Comparison operators, fetched verbatim): numeric
+`==` "converts the integer to floating-point"; list/struct equality is "recursively equal" reusing `==`.
+So `[1]==[1.0]`→true is spec-mandated and cue's structural `false` is the STRUCT-EQ-LEAF-TYPESENSE cue
+bug (2026-07-04 ruling verified). The two NEW divergences are spec-grounded, NOT over-reach: given the
+spec-fixed value-based `==`, making `list.Contains`/`list.UniqueItems` value-based is FORCED by internal
+consistency (both mean "equal element"/"no equal duplicate"; a structural Contains would contradict kue's
+own `==` on the same pair). `Contains([[1]],[1.0])`→true, `UniqueItems([1,1.0])`→⊥ both follow. Open-tail
+treatment verified against cue directly: `[1,2,...]==[1,2]`→true, `==[1,2,3]`→false (prefix, length-exact)
+— cue AGREES, so facet 1 (open-tail stripping) is neither a kue invention nor an over-reach. `structuralEq`
+total (structural termination, no `partial`), value-based prim leaves correct (`primStructEq`: int→float via
+`decimalEqValues`, string≠bytes via derived `Prim` BEq), order-independent struct compare via
+`countOutputFields`+label-match. `concreteEq`-deletion leak check CLEAN: its sole caller `structEqConcrete?`
+repointed; `countOutputFields`/`outputFieldValue?` relocated (identical logic); `eqUpToFieldOrder` UNTOUCHED
+and correctly kept SEPARATE — disjunct dedup is by lattice identity (type-sensitive: `1|1.0` must NOT dedup,
+distinct lattice elements), which is the right distinction from value-based `==`.
+
+**NEW finding — LIST-OPS-EMBEDDED-CARRIER (HIGH soundness).** The LIST-OPS-NESTED-OPENTAIL fix added the
+`.listTail` arm to `listConcat.collect`/`listFlattenFuel`/`listNestingDepth` but missed the THIRD list
+carrier `.embeddedList` (`{[1,2],_x:9}`); `listItems?`/`structuralEq` cover all three, these three functions
+cover two. `list.Concat([{[1,2],_x:9},[3]])` ⇒ kue bottom, cue `[1,2,3]` (confirmed on both binaries). Filed
+in `plan.md` (top of ranked backlog); RED seed committed `testdata/wild/list-ops-embedded-sublist/`
+(`.known-red`). Spot-checks of `089957a` (`.listTail` arms) and `a069efe` (`disjArmCrossProduct` distribution;
+ref/scalar+nested residual correctly quarantined) otherwise clean.
