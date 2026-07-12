@@ -348,13 +348,11 @@ those forms.
 - Decimal numeric separators are stripped while parsing. Exponent-literal RENDERING is
   byte-identical to `cue` on every spelling — `1.25e3`, `1.25e+3`, `1.25E3`, `0.00125e6` all
   eval to `1.25e+3` and export to `1.25E+3` (STDLIB-FLOAT F0 verified all four vs the binary).
-  Float `+ - *` now PRESERVE the apd result exponent (STDLIB-FLOAT-F4, 2026-07-11): arithmetic
-  threads the apd `(coefficient, exponent)` form and emits it as the result's render anchor, so
+  Float `+ - * /` PRESERVE the apd result exponent (STDLIB-FLOAT-F4): arithmetic threads the apd
+  `(coefficient, exponent)` form and emits it as the result's render anchor, so
   scientific/trailing-zero/`.0` forms byte-match `cue` (`2e2 * 3` → `6e+2`, `1e1 + 1e1` → `2e+1`,
-  `1.20 + 1.30` → `2.50`, `1e34 + 1` → `1.000…e+34`). Division's ideal-exponent (subtler apd
-  rule) is DEFERRED — `6e2 / 3` still renders `200.0` where `cue` gives `2.0e+2` (VALUE is correct
-  either way; only the form differs) — tracked in `cue-spec-gaps.md` STDLIB-FLOAT-F4 with the
-  derived exact-division rule.
+  `1.20 + 1.30` → `2.50`, `1e34 + 1` → `1.000…e+34`, `6e2 / 3` → `2.0e+2`, `1000000/8` → `1.250e+5`).
+  The division rule + derivation live in `cue-spec-gaps.md` STDLIB-FLOAT-F4.
 - Lowercase non-decimal integer literals with `0x`, `0o`, and `0b` prefixes are
   canonicalized to decimal integers while parsing. Separators are accepted in their digit
   sequences.
@@ -386,20 +384,16 @@ those forms.
 - Division expressions are parsed at the same precedence as multiplication. `/` always
   yields a float, never an int (`4.0 / 2.0 = 2.0`, `6 / 2 = 3.0`); integer division is the
   separate `div` /`quo` keywords. All four operand domains (int÷int, int÷float, float÷int,
-  float÷float) route through one `Decimal` divider. Terminating quotients render exactly
-  (`1.0 / 4.0 = 0.25`); non-terminating quotients render at **34 significant digits** (apd
-  context, matching cue v0.16.1) with round-half-up on the guard digit. Round-half-up vs
-  apd's nominal `ROUND_HALF_EVEN` is unobservable here: a rational repeating expansion
-  never produces an exact tie, so the guard digit alone decides. Division by zero (any
-  zero divisor, int or float) bottoms out with `divisionByZero` provenance. No documented
-  division case remains deferred — the prior fixed-34-fractional-digit int divider, which
-  over-emitted for quotients ≥ 1, was replaced by the shared significant-digit divider as
-  part of this slice. **One FORM gap (STDLIB-FLOAT-F4, 2026-07-11):** unlike `+ - *`, `/` does
-  NOT yet apply apd's ideal-exponent, so a large-magnitude quotient renders fully expanded where
-  `cue` uses scientific notation (`6e2 / 3` → `200.0` vs cue `2.0e+2`). The VALUE is correct;
-  only the textual form differs. The derived exact-division rule (reduce the quotient, then for
-  an integer result shift the exponent one below the reduced form) is recorded in
-  `cue-spec-gaps.md` STDLIB-FLOAT-F4 for a follow-up slice.
+  float÷float) route through one `Decimal` divider. An EXACT-TERMINATING quotient renders in the
+  apd ideal form (STDLIB-FLOAT-F4, `apdDivide?`): the form depends ONLY on the quotient value,
+  so `6e2 / 3 = 2.0e+2`, `1000000/8 = 1.250e+5`, `8/2 = 4.0`, `1/4 = 0.25`, `1e34/1 = 1e+34` all
+  byte-match cue's General-Decimal-Arithmetic render. Non-terminating quotients render at **34
+  significant digits** (apd context, matching cue v0.16.1) with round-half-up on the guard digit,
+  through the unchanged `divideDecimalRational?` path (which re-parses through the apd render
+  anchor, so its scientific/plain form derives correctly too). Round-half-up vs apd's nominal
+  `ROUND_HALF_EVEN` is unobservable here: a rational repeating expansion never produces an exact
+  tie, so the guard digit alone decides. Division by zero (any zero divisor, int or float) bottoms
+  out with `divisionByZero` provenance.
 - Integer keyword expressions `div`, `mod`, `quo`, and `rem` are parsed at multiplicative
   precedence and reuse the existing integer builtin semantics. Concrete integer operands
   evaluate now; incomplete operands remain as residual infix binary expressions.

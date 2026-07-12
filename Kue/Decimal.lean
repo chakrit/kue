@@ -287,6 +287,63 @@ def apdMul (left right : ApdForm) : ApdForm :=
   apdRoundToContext
     (apdOfSigned (left.signedCoefficient * right.signedCoefficient) (left.exponent + right.exponent))
 
+/-- Structural inner loop of `removeNatFactor`, recursing on `fuel`. -/
+def removeNatFactorAux (base : Nat) : Nat -> Nat -> Nat × Nat
+  | value, 0 => (value, 0)
+  | value, fuel + 1 =>
+      if base >= 2 && value != 0 && value % base == 0 then
+        let (rest, count) := removeNatFactorAux base (value / base) fuel
+        (rest, count + 1)
+      else
+        (value, 0)
+
+/-- Remove every factor of `base` from `value`, returning the reduced value and the count
+    removed (identity when `base < 2`). Fuel-bounded on `4 · decimalDigitCount value + 4`: each
+    step divides by `base ≥ 2`, so at most `⌈log_base value⌉ ≤ 3.33 · digits` removals occur —
+    the budget dwarfs that, and iterating past the last factor is inert (the `value % base ≠ 0`
+    guard stops it). -/
+def removeNatFactor (value base : Nat) : Nat × Nat :=
+  removeNatFactorAux base value (4 * decimalDigitCount value + 4)
+
+/-- Exact-terminating float division in apd form, or `none` when the quotient is
+    non-terminating or needs more than `divisionSigDigits` significant digits (the caller then
+    falls to the 34-significant-digit rounding renderer). The result carries CUE's apd ideal
+    form, which — verified — depends ONLY on the quotient VALUE, empirically pinned against
+    `cue export --out json` (spec-silent DISPLAY, so cue-compat; see
+    `docs/spec/cue-spec-gaps.md`). For the exact value `±m · 10^k` (minimal form, `m`
+    trailing-zero-free, `d = digits(m)`): an integer value (`k ≥ 0`) whose adjusted exponent
+    `k + d − 1 ≤ divisionSigDigits − 2` gains one trailing zero — `(10·m, k−1)`, forcing the
+    `.0`/`X.0e+n` float form — otherwise it keeps the minimal form `(m, k)`. A zero numerator
+    keeps the ideal exponent clamped to `0` (renders `0`) when `e₁ − e₂ ≥ 0`, else `−1`
+    (renders `0.0`). The caller guarantees `right.coefficient ≠ 0`. -/
+def apdDivide? (left right : ApdForm) : Option ApdForm :=
+  let idealExp := left.exponent - right.exponent
+  if left.coefficient == 0 then
+    some { negative := false, coefficient := 0, exponent := if idealExp >= 0 then 0 else -1 }
+  else
+    let gcdCoef := Nat.gcd left.coefficient right.coefficient
+    let numerator := left.coefficient / gcdCoef
+    let denominator := right.coefficient / gcdCoef
+    let (afterTwos, twos) := removeNatFactor denominator 2
+    let (afterFives, fives) := removeNatFactor afterTwos 5
+    if afterFives != 1 then
+      none
+    else
+      let places := maxNat twos fives
+      let scaledNumerator := numerator * 2 ^ (places - twos) * 5 ^ (places - fives)
+      let (mantissa, trailingZeros) := removeNatFactor scaledNumerator 10
+      let exponent := idealExp - Int.ofNat places + Int.ofNat trailingZeros
+      let mantissaDigits := decimalDigitCount mantissa
+      if mantissaDigits > divisionSigDigits then
+        none
+      else
+        let adjusted := exponent + Int.ofNat mantissaDigits - 1
+        let sign := left.negative != right.negative
+        if exponent >= 0 && adjusted <= Int.ofNat (divisionSigDigits - 2) then
+          some { negative := sign, coefficient := mantissa * 10, exponent := exponent - 1 }
+        else
+          some { negative := sign, coefficient := mantissa, exponent := exponent }
+
 /-- The canonical carrier `text` for an apd result: `[-]coefficient e exponent`. `floatApdForm`
     round-trips it back to exactly this apd form (trailing zeros preserved as magnitude), so
     every render style derives correctly, and `parseDecimalText` recovers the exact
@@ -313,16 +370,26 @@ inductive DecimalDivideResult where
   | ok (text : String)
 deriving Repr, BEq
 
-/-- Division of two decimal primitives, always yielding a float. `(n1/10^s1) /
-    (n2/10^s2) = (n1 * 10^s2) / (n2 * 10^s1)`. -/
+/-- Division of two decimal primitives, always yielding a float. An exact-terminating quotient
+    threads the apd ideal form (`apdDivide?`, carrying cue's GDA `to-scientific-string` shape);
+    a non-terminating or >34-significant-digit quotient falls to the 34-digit rounding renderer
+    over the exact ratio `(c₁ · 10^{max(e₁−e₂,0)}) / (c₂ · 10^{max(e₂−e₁,0)})`. -/
 def evalDecimalDivide? (left right : Prim) : DecimalDivideResult :=
-  match decimalFromPrim? left, decimalFromPrim? right with
-  | some left, some right =>
-      let num := left.numerator * Int.ofNat (evalPow10 right.scale)
-      let den := right.numerator * Int.ofNat (evalPow10 left.scale)
-      match divideDecimalRational? num den with
-      | some text => .ok text
-      | none => .divByZero
+  match primApdForm? left, primApdForm? right with
+  | some leftForm, some rightForm =>
+      if rightForm.coefficient == 0 then
+        .divByZero
+      else
+        match apdDivide? leftForm rightForm with
+        | some result => .ok (apdCarrierText result)
+        | none =>
+            let num := leftForm.signedCoefficient
+              * Int.ofNat (evalPow10 (leftForm.exponent - rightForm.exponent).toNat)
+            let den := rightForm.signedCoefficient
+              * Int.ofNat (evalPow10 (rightForm.exponent - leftForm.exponent).toNat)
+            match divideDecimalRational? num den with
+            | some text => .ok text
+            | none => .divByZero
   | _, _ => .nonNumeric
 
 /-- Exact-rational mean of a decimal `sum` over `count` elements. The value is

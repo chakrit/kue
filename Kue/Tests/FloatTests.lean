@@ -1,6 +1,7 @@
 import Kue.Format
 import Kue.Lattice
 import Kue.Order
+import Kue.EvalOps
 
 namespace Kue
 
@@ -134,11 +135,35 @@ theorem float_render_yaml :
       ∧ renderFloatText yamlFloatStyle "-1.00e+2" = "-100." := by
   native_decide
 
+-- Division threads the apd IDEAL exponent (F4-DIV): an exact quotient renders in cue's GDA
+-- form, NOT the fully-expanded decimal. For minimal `±m·10^k` (`m` trailing-zero-free,
+-- `d = digits(m)`): an integer value (`k ≥ 0`) with adjusted exponent `k + d − 1 ≤ 32` gains
+-- one trailing zero (`2.0e+2`, `25.0`, `10.0`, `1.0e+2`), forcing the `.0`/`X.0e+n` form; at
+-- adjusted exponent 33 the cap keeps the minimal form (`1e+34`, `1e+33`), as does a
+-- negative-scientific quotient (`2.5e-7`). Zero clamps the ideal exponent (`0.0`). A
+-- non-terminating quotient stays on the 34-digit rounding path (`1/3`). Byte-identical to cue
+-- v0.16.1 (see testdata/wild/float-apd-division-exponent for the JSON axis).
+theorem float_div_apd_ideal_exponent :
+    formatValue (evalDiv (.prim (mkFloatText "6e2")) (.prim (.int 3))) = "2.0e+2"
+      ∧ formatValue (evalDiv (.prim (.int 1000000)) (.prim (.int 8))) = "1.250e+5"
+      ∧ formatValue (evalDiv (.prim (mkFloatText "1e2")) (.prim (.int 4))) = "25.0"
+      ∧ formatValue (evalDiv (.prim (.int 10)) (.prim (.int 1))) = "10.0"
+      ∧ formatValue (evalDiv (.prim (.int 100)) (.prim (.int 1))) = "1.0e+2"
+      ∧ formatValue (evalDiv (.prim (mkFloatText "-6e2")) (.prim (.int 3))) = "-2.0e+2"
+      ∧ formatValue (evalDiv (.prim (mkFloatText "1e34")) (.prim (.int 1))) = "1e+34"
+      ∧ formatValue (evalDiv (.prim (mkFloatText "1e33")) (.prim (.int 1))) = "1e+33"
+      ∧ formatValue (evalDiv (.prim (.int 25)) (.prim (.int 100000000))) = "2.5e-7"
+      ∧ formatValue (evalDiv (.prim (.int 0)) (.prim (.int 3))) = "0.0"
+      ∧ formatValue (evalDiv (.prim (mkFloatText "0e2")) (.prim (mkFloatText "8e3"))) = "0.0"
+      ∧ formatValue (evalDiv (.prim (.int 1)) (.prim (.int 3)))
+          = "0.3333333333333333333333333333333333" := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the last theorem of each section;
 -- a swallowed section makes its anchor an unknown identifier and fails `#check`
 -- elaboration.
 #check @int_kind_rejects_float_primitive
 #check @float_pinned_across_contexts
-#check @float_render_yaml
+#check @float_div_apd_ideal_exponent
 
 end Kue

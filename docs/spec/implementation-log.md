@@ -20270,3 +20270,60 @@ reference out of the LIVE docs.
   `check-realworld.sh` real-config gate + `testdata/realworld/cert-manager/` fixture (the last
   cert-manager tie). Not done here; tearing out working infra needs authorization.
 - No code or test changes; `./scripts/check.sh` GREEN. Committed on `main`, not pushed.
+
+---
+
+## Completed Slice: STDLIB-FLOAT-F4-DIV — apd result-exponent preservation for float `/`
+
+Closes the division half of STDLIB-FLOAT-F4 (the `+ - *` half landed 2026-07-11). An
+exact-terminating float quotient now renders in cue's General-Decimal-Arithmetic ideal form
+instead of the fully-expanded decimal (`6e2 / 3` → `2.0e+2`, was `200.0`; `1e34 / 1` →
+`1e+34`, was the 35-digit expansion). VALUE was always correct; only the rendered FORM
+diverged.
+
+### Derivation (empirical, spec-silent DISPLAY → cue-compat)
+
+The CUE spec pins float VALUE but not the textual form an arithmetic result renders to, so
+the tiebreak is cue-compat, adjudicated against cue v0.16.1. Established by probing:
+
+- **The division form depends ONLY on the quotient VALUE**, not the operand exponents —
+  every spelling of a value (`100/1`, `1000/10`, `10/0.1`, `1e4/100`) renders identically.
+- Pinned via `cue export --out json`, NOT `cue eval`: JSON's empty whole-tail disambiguates a
+  real trailing `.0` (a `(10·m, k−1)` coefficient) from an integer's style suffix (a `(m, 0)`
+  coefficient rendered with the cue-native `.0` whole-tail). Eval hid that distinction and led
+  the prior recorded rule to be INCOMPLETE (it missed the adjusted-exponent cap and the zero
+  clamp).
+
+Rule for the exact value `±m · 10^k` (minimal form, `m` trailing-zero-free, `d = digits(m)`):
+an integer value (`k ≥ 0`) whose adjusted exponent `k + d − 1 ≤ 32` (= apd precision 34 − 2)
+gains ONE trailing zero — `(10·m, k − 1)`, forcing the `.0`/`X.0e+n` float form; otherwise the
+minimal form `(m, k)` is kept (fractional values, and integers at adjusted exponent ≥ 33). A
+zero numerator keeps the ideal exponent `e₁ − e₂` clamped to `0` when `≥ 0` (renders `0`/`0.0`)
+else `−1` (`0e2/8e3` → `0.0`). Validated on 3000+ random cases against `cue export --out json`
+with zero mismatches; a further 600 random export-json + 300 yaml differential cases
+byte-identical.
+
+### Implementation
+
+- `Kue/Decimal.lean`: `removeNatFactor` (fuel-bounded 2/5/10-factor stripper) + `apdDivide?`
+  (`ApdForm → ApdForm → Option ApdForm`). Termination is detected by removing 2s/5s from the
+  gcd-reduced denominator; `none` (non-terminating OR `> divisionSigDigits` significant digits)
+  routes to the unchanged 34-digit `divideDecimalRational?` renderer, which re-parses through the
+  apd render anchor so its scientific/plain form derives correctly. `evalDecimalDivide?` rewired
+  to try `apdDivide?` first (over `primApdForm?` operands), then the rounding fallback over the
+  exact ratio. NO change to the `DecimalValue` core type — zero blast radius, as the `+ - *`
+  slice held.
+- Tests: `EvalTests` div theorems reworked from carrier-`text` equality to `formatValue`
+  assertions (the anchor now carries the apd form, so text differs though the value/render is
+  identical — same idiom the `mul` theorems adopted). The division-FORM pin
+  `float_div_apd_ideal_exponent` (11 conjuncts across scientific/plain/cap/zero/inexact) lives in
+  `FloatTests` (its GDA-render home; also keeps `EvalTests` under the 1800-line test-health cap).
+- Wild fixture `testdata/wild/float-apd-division-exponent/` (RED → GREEN): 19-field export-json
+  repro pinning the full matrix.
+
+### Verification
+
+`./scripts/check.sh` GREEN. Zero existing fixtures flipped. Docs updated in-slice: `plan.md`
+(F4 `/` LANDED), `cue-spec-gaps.md` STDLIB-FLOAT-F4 (rule corrected + `/` implemented),
+`compat-assumptions.md` (§Numeric literals / §Arithmetic expressions). No `cue-divergences.md`
+entry — kue byte-matches cue here. Committed on `main`.

@@ -1063,7 +1063,7 @@ theorem eval_mul_scientific :
 -- `/` always yields a float; `3.0 / 2.0 = 1.5` terminates cleanly (oracle-confirmed,
 -- cue v0.16.1).
 theorem eval_div_two_floats :
-    (evalDiv (.prim (mkFloatText "3.0")) (.prim (mkFloatText "2.0")) == .prim (mkFloatText "1.5")) = true := by
+    formatValue (evalDiv (.prim (mkFloatText "3.0")) (.prim (mkFloatText "2.0"))) = "1.5" := by
   native_decide
 
 -- Multiplication preserves the full summed scale: `1.0 * 1.0 = 1.00`.
@@ -1136,29 +1136,29 @@ theorem eval_add_context_rounding_half_up_even_tie :
         = "-1.000000000000000000000000000000013e+34" := by
   native_decide
 
--- Terminating division renders without padding.
+-- A terminating fractional quotient keeps its minimal form: `1.0 / 4.0 = 0.25`.
 theorem eval_div_terminating :
-    (evalDiv (.prim (mkFloatText "1.0")) (.prim (mkFloatText "4.0")) == .prim (mkFloatText "0.25")) = true := by
+    formatValue (evalDiv (.prim (mkFloatText "1.0")) (.prim (mkFloatText "4.0"))) = "0.25" := by
   native_decide
 
 -- Clean division still yields a float, never an int: `4.0 / 2.0 = 2.0`.
 theorem eval_div_clean_is_float :
-    (evalDiv (.prim (mkFloatText "4.0")) (.prim (mkFloatText "2.0")) == .prim (mkFloatText "2.0")) = true := by
+    formatValue (evalDiv (.prim (mkFloatText "4.0")) (.prim (mkFloatText "2.0"))) = "2.0" := by
   native_decide
 
 -- Mixed float÷int promotes; `3.0 / 2 = 1.5`.
 theorem eval_div_float_int :
-    (evalDiv (.prim (mkFloatText "3.0")) (.prim (.int 2)) == .prim (mkFloatText "1.5")) = true := by
+    formatValue (evalDiv (.prim (mkFloatText "3.0")) (.prim (.int 2))) = "1.5" := by
   native_decide
 
 -- Mixed int÷float promotes; `2 / 4.0 = 0.5`.
 theorem eval_div_int_float :
-    (evalDiv (.prim (.int 2)) (.prim (mkFloatText "4.0")) == .prim (mkFloatText "0.5")) = true := by
+    formatValue (evalDiv (.prim (.int 2)) (.prim (mkFloatText "4.0"))) = "0.5" := by
   native_decide
 
 -- Negative division carries the sign.
 theorem eval_div_negative :
-    (evalDiv (.prim (mkFloatText "-1.0")) (.prim (mkFloatText "4.0")) == .prim (mkFloatText "-0.25")) = true := by
+    formatValue (evalDiv (.prim (mkFloatText "-1.0")) (.prim (mkFloatText "4.0"))) = "-0.25" := by
   native_decide
 
 -- Float division by zero is bottom with divisionByZero provenance.
@@ -1166,10 +1166,12 @@ theorem eval_div_float_by_zero :
     (evalDiv (.prim (mkFloatText "1.0")) (.prim (mkFloatText "0.0")) == .bottomWith [.divisionByZero]) = true := by
   native_decide
 
--- int÷int now routes through the same decimal divider and yields a float: `6 / 2 = 3.0`.
+-- int÷int routes through the same decimal divider and yields a float: `6 / 2 = 3.0`.
 theorem eval_div_int_int_is_float :
-    (evalDiv (.prim (.int 6)) (.prim (.int 2)) == .prim (mkFloatText "3.0")) = true := by
+    formatValue (evalDiv (.prim (.int 6)) (.prim (.int 2))) = "3.0" := by
   native_decide
+
+-- Division-result RENDER form (apd ideal exponent, F4-DIV) is pinned in `FloatTests`.
 
 -- Repeating-decimal division renders at 34 significant digits, round-half-up.
 -- `2.0 / 3.0 = 0.666…667` (34 sig digits). This is the apd-context subset that is

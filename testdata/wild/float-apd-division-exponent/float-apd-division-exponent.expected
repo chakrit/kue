@@ -1,0 +1,21 @@
+{
+    "divSci": 2.0E+2,
+    "divScale": 1.250E+5,
+    "divWhole": 4.0,
+    "divTrail": 25.0,
+    "divFrac": 0.25,
+    "divFrac2": 2.5,
+    "divMid": 25.0,
+    "divBig": 1E+34,
+    "divBigCap": 1E+33,
+    "divSmallSci": 2.5E-7,
+    "divNeg": -2.0E+2,
+    "divNegDen": -2.0E+2,
+    "divExp": 2.0E+9,
+    "divTens": 10,
+    "divHundred": 1.0E+2,
+    "divInexact": 0.3333333333333333333333333333333333,
+    "divInexBig": 3333333333.333333333333333333333333,
+    "divZeroInt": 0,
+    "divZeroFlt": 0.0
+}

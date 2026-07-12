@@ -2,10 +2,26 @@
 
 # Session resume — 2026-07-11
 
-`main` == `gh/main` @ `a2bc950` (pushed). `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DOCS-CLEANUP — the docs now state a
-single goal: a correct, spec-conformant CUE implementation across the whole language + stdlib
-surface (chakrit, 2026-07-12).** CLAUDE.md § Project carries the north-star (spec-conformance is
+`check.sh` GREEN. Standing keep-going loop governs.
+HEAD: **STDLIB-FLOAT-F4-DIV — closed the division half of F4 (apd result-exponent
+preservation for float `/`).** An exact-terminating float quotient now renders in cue's GDA ideal
+form (`6e2 / 3 → 2.0e+2`, was `200.0`; `1e34/1 → 1e+34`) instead of the fully-expanded decimal;
+VALUE was always correct, only FORM diverged. `apdDivide?` (`Kue/Decimal.lean`) + `removeNatFactor`;
+`evalDecimalDivide?` tries the exact apd path first, falls to the unchanged 34-digit
+`divideDecimalRational?` for non-terminating / >34-sig quotients. NO `DecimalValue` core change.
+Rule (spec-silent DISPLAY → cue-compat, pinned via `cue export --out json`): for exact `±m·10^k`
+(minimal, `d=digits(m)`), an integer value (`k≥0`) with adjusted exp `k+d−1 ≤ 32` gains one trailing
+zero `(10m, k−1)` forcing `.0`/`X.0e+n`; else keep `(m,k)`; zero clamps ideal exp to `0`/`−1`.
+Validated 3000+ random cases, zero mismatch. `EvalTests` div theorems → `formatValue` idiom; FORM pin
+`float_div_apd_ideal_exponent` in `FloatTests`; wild fixture `float-apd-division-exponent/` (RED→GREEN).
+Docs: plan.md (F4 ✅), cue-spec-gaps.md STDLIB-FLOAT-F4 (rule corrected + `/` landed), compat-assumptions.md.
+Committed on `main`. **Next: F1–F5 residuals — F2 (IEEE float64 kernel) is the leverage item (unblocks
+`strconv.FormatFloat`, `text/template` T3, `Log1p`/`Expm1`, trig), but gated per plan; F1/F3/F5 gate on F2.**
+Prior HEAD DOCS-CLEANUP below.
+
+## Prior HEAD — DOCS-CLEANUP — the docs now state a single goal
+A correct, spec-conformant CUE implementation across the whole language + stdlib
+surface (chakrit, 2026-07-12). CLAUDE.md § Project carries the north-star (spec-conformance is
 the goal; `cue` is a fallible reference; no config corpus is a target/gate/floor/priority). Swept
 every cert-manager / argocd / canary / prod9-as-goal reference out of the live docs — deleted
 outright, never negated: retired the ~90%-dead `spec-conformance-audit.md` (its 3 live rows are in
