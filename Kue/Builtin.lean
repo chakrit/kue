@@ -802,6 +802,11 @@ def evalListBuiltin (name : String) (rawArgs : List Value) : Value :=
   -- passes `[]`; the bare `list.UniqueItems` form (no call) is handled at the reference site.
   | "list.MinItems", [.prim (.int n)] => .lengthConstraint .listItems .min n
   | "list.MaxItems", [.prim (.int n)] => .lengthConstraint .listItems .max n
+  -- Call form `list.UniqueItems(list)`: decide structural uniqueness directly via `hasGroundDup`
+  -- (the SAME predicate the `.uniqueItems` validator's meet uses — value-based prim leaves). The
+  -- operand is carrier-normalized by `openListOperand` (mapped over args above), so embedded/
+  -- open-tail lists descend to their concrete prefix.
+  | "list.UniqueItems", [.list items] => .prim (.bool (!hasGroundDup items))
   | "list.UniqueItems", [] => .uniqueItems
   | name, args => unresolvedOrBottom name args
 

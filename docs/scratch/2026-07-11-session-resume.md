@@ -3,7 +3,33 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL — the closedness-disjunction distribute leak CLASS closed
+HEAD: **LIST-BUILTIN-RESIDUALS — the last two known HIGH list-builtin soundness leaks CLOSED + the effectful
+`EvalM` list path SWEPT for carrier-completeness (LANDED 2026-07-13).** (1) **LIST-SORT-EMBEDDED-CARRIER** (5th
+carrier-miss): `runSort` (`Kue/Eval.lean`) matched only `.list items`, so `list.Sort`/`SortStable` on an
+`.embeddedList`/`.listTail` DEFERRED ("incomplete value"); now routed through `listItems?` — all three carriers
+descend to their concrete prefix, settled→bottom / abstract→defer fallback intact. `list.Sort({[3,1,2],_y:9},
+list.Ascending)`, `SortStable`, open-tail all ⇒ `[1,2,3]` (cue AGREES, prefix-sorts). (2)
+**LIST-UNIQUEITEMS-CALL-FORM-BOTTOM** (pre-existing): the `(list)` call form was unrouted ⇒ ⊥; added
+`| "list.UniqueItems", [.list items] => .prim (.bool (!hasGroundDup items))` beside the validator form, deciding
+uniqueness via the SAME `hasGroundDup`/`structuralEq` predicate over the `openListOperand`-normalized operand.
+`([1,2,3])`⇒true, `([1,1])`⇒false, embedded/open-tail⇒true; `([1,1.0])`⇒false — the established
+STRUCT-EQ-LEAF-TYPESENSE value-based-equality divergence (cue `true`; extended in `cue-divergences.md`).
+**EvalM CARRIER SWEEP:** `runSort` is the SOLE list-consuming builtin site on the effectful path (Sort/SortStable
+share it; the effectful-builtin population is exactly these two). Every other `.list`/`.listTail`/`.embeddedList`
+match in `Eval.lean` is list-literal evaluation or a unification `meet` arm — carrier-preserving structural code,
+not a builtin list-read. **The effectful path is now carrier-complete: NO 6th miss.** Wild
+`list-sort-embedded-carrier/` + `list-uniqueitems-call/` RED→GREEN; `SortTests` `eval_list_sort_{embedded_list,
+stable_embedded_list,open_tail}`; `FixtureTests` `uniqueitems_call_*` + `uniqueitems_validator_form_unaffected`.
+`check.sh` GREEN, zero Sort/list/validator flips.
+**Milestone "all soundness leaks closed" — REACHED (pending audit confirmation).** These were the last two known
+HIGH silent-wrong-value leaks, and the EvalM carrier sweep found no 6th miss; both list-carrier surfaces (pure
+`Builtin` + effectful `EvalM`) now route every list read through `listItems?`. A two-phase audit CONFIRMS.
+**NEXT (ranked):** **two-phase audit DUE** (structural closedness + these list fixes un-audited — verify the
+milestone) → LOW gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED /
+DISJ-NESTED-ERROR-ARM-AMBIGUOUS) → PB-EVALBASE-SPLIT nav-debt → deferred float FDLIBM (chakrit's
+prioritization). **Alpha release HELD for chakrit (attended).**
+
+Prior HEAD: **DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL — the closedness-disjunction distribute leak CLASS closed
 STRUCTURALLY (LANDED 2026-07-13).** Replaced the hand-enumerated `isDistributableDisjArm` whitelist (which
 missed the bottoms-vs-struct arm class TWICE) with a DERIVED predicate `disjArmClass : Value → DisjArmClass`
 (`Kue/EvalBase.lean`) — a COMPLETE match over every `Value` constructor (no catch-all), so a new shape is a
@@ -23,16 +49,8 @@ force-folds untouched; a def-context `error` arm is `bottomsVsStruct` (force-fol
 **DISJ-CLOSEDNESS-ERROR-ARM-LEAK** by construction. Wild `def-closedness-disj-{excluded-arm-{regex,format,
 unique,notprim,minitems,minfields},error-arm}/` RED→GREEN; 9 `Bug2xTests` `defflatten_*arm_*` guards. cue
 error-arm diagnostic differs (cue `x` vs kue `conflicting values`) — result ⊥ agrees, message-only. `check.sh`
-GREEN, zero L-series/Bug2/closedness/bug214b flips.
-**Milestone "all soundness leaks closed" NOT yet reached** — two HIGH silent-wrong-value leaks remain:
-**LIST-SORT-EMBEDDED-CARRIER** (`runSort` matches only `.list`, not `listItems?` — 5th carrier-miss on the
-effectful `EvalM` path) and **LIST-UNIQUEITEMS-CALL-FORM-BOTTOM** (`list.UniqueItems(list)` call-form
-unhandled ⇒ ⊥). The closedness-disjunction distribute CLASS is closed; these two are list-carrier/call-form
-value bugs, not closedness.
-**NEXT (ranked):** LIST-SORT-EMBEDDED-CARRIER (HIGH) → LIST-UNIQUEITEMS-CALL-FORM-BOTTOM (HIGH) → then
-re-confirm the "all soundness leaks closed" milestone → **two-phase audit DUE** (this batch un-audited) → LOW
-gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED / DISJ-NESTED-ERROR-ARM-AMBIGUOUS) →
-PB-EVALBASE-SPLIT → deferred float FDLIBM. **Alpha release HELD for chakrit (attended).**
+GREEN, zero L-series/Bug2/closedness/bug214b flips. (The closedness-disjunction distribute CLASS is closed;
+the two list-carrier/call-form leaks it left open are the current HEAD, now LANDED.)
 
 Prior HEAD: **LIST-SLICE-EMBEDDED-CARRIER — slice desugar now routes through `listItems?`; carrier completeness
 covers slice too (LANDED 2026-07-13).** The 4th list-carrier miss (2026-07-13 Phase A audit): the `slice`

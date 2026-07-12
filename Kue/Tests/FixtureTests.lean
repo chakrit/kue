@@ -973,6 +973,34 @@ theorem uniqueitems_with_minitems_dup_bottoms :
 theorem uniqueitems_format :
     formatField "x" .uniqueItems = "x: list.UniqueItems()" := by native_decide
 
+-- CALL FORM `list.UniqueItems(list)` (distinct from the `[]`-args validator form above). Decides
+-- structural uniqueness directly via `hasGroundDup` over the carrier-normalized operand. A
+-- concrete unique list ⇒ `true`, a duplicate ⇒ `false` (was ⊥ before the call-form arm).
+theorem uniqueitems_call_unique_true :
+    (evalListBuiltin "list.UniqueItems" [.list [.prim (.int 1), .prim (.int 2), .prim (.int 3)]]
+      == .prim (.bool true)) = true := by native_decide
+theorem uniqueitems_call_dup_false :
+    (evalListBuiltin "list.UniqueItems" [.list [.prim (.int 1), .prim (.int 1)]]
+      == .prim (.bool false)) = true := by native_decide
+-- Value-based leaves: `1` (int) and `1.0` (float) coincide ⇒ NOT unique (spec-correct; cue's
+-- STRUCT-EQ-LEAF-TYPESENSE bug returns `true`, see cue-divergences.md).
+theorem uniqueitems_call_int_float_dup_false :
+    (evalListBuiltin "list.UniqueItems" [.list [.prim (.int 1), .prim (mkFloatText "1.0")]]
+      == .prim (.bool false)) = true := by native_decide
+-- Carrier completeness: an embedded / open-tail list descends via `openListOperand` to its
+-- concrete prefix, so the call form serves all three carriers.
+theorem uniqueitems_call_embedded_true :
+    (evalListBuiltin "list.UniqueItems"
+        [.embeddedList [.prim (.int 1), .prim (.int 2), .prim (.int 3)] none []]
+      == .prim (.bool true)) = true := by native_decide
+theorem uniqueitems_call_open_tail_true :
+    (evalListBuiltin "list.UniqueItems"
+        [.listTail [.prim (.int 1), .prim (.int 2), .prim (.int 3)] (.kind .int)]
+      == .prim (.bool true)) = true := by native_decide
+-- The `[]`-args validator form is UNAFFECTED — still lowers to the `.uniqueItems` constraint.
+theorem uniqueitems_validator_form_unaffected :
+    (evalListBuiltin "list.UniqueItems" [] == .uniqueItems) = true := by native_decide
+
 -- HIGH-2 (STDLIB-VALIDATORS audit): two ABSTRACT elements that coincide now (`int`==`int`,
 -- `>0`==`>0`, `string`==`string`) are NOT a definite duplicate — they can refine to distinct
 -- concretes (`[int,int] & [1,2]`) — so UniqueItems RETAINS the residual rather than eager-bottoming.

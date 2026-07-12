@@ -264,26 +264,31 @@ disjunction resolution diverges from cue independently and is out of this slice'
 `defflatten_{regexarm,notprimarm,minitemsarm}_rejects` + `defflatten_minfieldsarm_{rejects,select_admits}`.
 
 **LIST-SORT-EMBEDDED-CARRIER (HIGH soundness — SILENT wrong value; 5th carrier-miss; NEW, 2026-07-13 Phase A
-audit — the residual `f7f954f`'s re-sweep predicted). OPEN.** `runSort` (`Kue/Eval.lean` ~354) matches ONLY
-`.list items`, not `listItems?`, so a `.embeddedList`/`.listTail` operand falls to the `other` branch and
-DEFERS ("incomplete value") / bottoms instead of sorting. `list.Sort({[3,1,2], _y:9}, list.Ascending)` ⇒ kue
-**`incomplete value: list.Sort({_y:9,[3,1,2]}, …)`**, cue `[1,2,3]`; `list.Sort([3,1,2, ...int], …)` same. A
-plain `.list` sorts fine — classic carrier asymmetry, exactly the LIST-SLICE class one layer down (Sort lives
-on the EFFECTFUL `EvalM` path, so `evalListBuiltin`'s `openListOperand` normalization never reached it).
-Fix: route `runSort`'s evaluated `listValue` through `listItems?` (covers all three carriers; mirrors the
-LIST-SLICE fix), preserving the settled→bottom / abstract→defer fallback for a non-list operand. Shared by
-`list.SortStable` (same `runSort`). Seed `testdata/wild/list-sort-embedded-carrier/` RED first (embedded
-CLOSED — unambiguously `[1,2,3]`; adjudicate the open-tail `.listTail` expected per spec — cue prefix-sorts).
+audit — the residual `f7f954f`'s re-sweep predicted). ✅ LANDED (2026-07-13).** `runSort` (`Kue/Eval.lean`)
+matched ONLY `.list items`, so `.embeddedList`/`.listTail` operands DEFERRED ("incomplete value") instead of
+sorting — the carrier-miss on the EFFECTFUL `EvalM` path (`evalListBuiltin`'s `openListOperand` never reached
+it). Fix routes `runSort`'s evaluated `listValue` through `listItems?` (all three carriers present their
+concrete prefix by construction), keeping the settled→bottom / abstract→defer fallback for a non-list operand;
+`list.SortStable` shares `runSort`. `list.Sort({[3,1,2], _y:9}, list.Ascending)`, `SortStable(…)`, and open-tail
+`list.Sort([3,1,2, ...int], …)` all ⇒ `[1,2,3]` (cue AGREES — prefix-sorts, no divergence). Wild
+`testdata/wild/list-sort-embedded-carrier/` (embedded/embeddedStable/openTail + `plainList` regression);
+`SortTests` `eval_list_sort_embedded_list`/`eval_list_sort_stable_embedded_list`/`eval_list_sort_open_tail`.
+**EvalM CARRIER SWEEP:** runSort is the SOLE list-CONSUMING builtin site on the effectful path (Sort/SortStable
+share it; the effectful-builtin population is exactly these two). The other `.list`/`.listTail`/`.embeddedList`
+matches in `Eval.lean` are list-literal EVALUATION and unification `meet` arms — carrier-preserving structural
+code, not builtin list-reads. So the effectful path is now carrier-complete: NO 6th miss.
 
 **LIST-UNIQUEITEMS-CALL-FORM-BOTTOM (HIGH soundness — SILENT wrong value; wild-caught during the Phase A
-carrier re-sweep — PRE-EXISTING, NOT in the audited batch). OPEN.** `list.UniqueItems(x)` with a LIST
-argument is unhandled: only the `[]`-args validator form (`| "list.UniqueItems", [] => .uniqueItems`,
-`Kue/Builtin.lean` ~805) and the bare-reference form exist, so the `(list)` call passes `[list]` and falls to
-`unresolvedOrBottom` ⇒ ⊥. `list.UniqueItems([1,2,3])` ⇒ kue **⊥**, cue `true`; `([1,1])` ⇒ kue ⊥, cue `false`.
-Spec-adjudicate: `list.UniqueItems` applied to a concrete list yields whether its items are structurally
-unique (reuse the existing `structuralEq`/uniqueness predicate the `.uniqueItems` validator already uses).
-Fix: add a call-form arm `| "list.UniqueItems", [.list items] => .prim (.bool …)` (via `listItems?` so carriers
-descend) beside the validator form. Seed `testdata/wild/list-uniqueitems-call/` RED first.
+carrier re-sweep — PRE-EXISTING, NOT in the audited batch). ✅ LANDED (2026-07-13).** The `(list)` CALL form
+was unrouted: only the `[]`-args validator form (`| "list.UniqueItems", [] => .uniqueItems`, `Kue/Builtin.lean`)
+and the bare-reference form existed, so `list.UniqueItems([1,2,3])` fell to `unresolvedOrBottom` ⇒ ⊥ (cue
+`true`). Fix adds a call-form arm `| "list.UniqueItems", [.list items] => .prim (.bool (!hasGroundDup items))`
+beside the validator — deciding structural uniqueness via `hasGroundDup` (the SAME predicate the `.uniqueItems`
+meet uses), over the `openListOperand`-normalized operand so embedded/open-tail lists descend. `([1,2,3])`⇒true,
+`([1,1])`⇒false, embedded/open-tail⇒true (cue agrees). `([1,1.0])`⇒kue **false** / cue `true` — the established
+STRUCT-EQ-LEAF-TYPESENSE value-based-equality divergence (logged, extended in `cue-divergences.md`). Wild
+`testdata/wild/list-uniqueitems-call/`; `FixtureTests` `uniqueitems_call_{unique_true,dup_false,int_float_dup_false,
+embedded_true,open_tail_true}` + `uniqueitems_validator_form_unaffected` regression guard.
 
 **LIST-SLICE-EMBEDDED-CARRIER (HIGH soundness — 4th carrier-miss; NEW, 2026-07-13 Phase A audit `71598c6`).
 ✅ LANDED (2026-07-13).** Carrier completeness now covers the slice desugar too — every list-carrier read

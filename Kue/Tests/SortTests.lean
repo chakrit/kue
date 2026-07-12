@@ -86,6 +86,29 @@ theorem eval_list_sort_non_list_bottoms :
       = true := by
   native_decide
 
+-- CARRIER COMPLETENESS (`runSort` routes through `listItems?`). A struct-embedded list
+-- (`.embeddedList`) sorts its concrete prefix — the hidden `_y` governs unification, not the
+-- value read. Regression guard for the 5th carrier-miss on the effectful `EvalM` path.
+theorem eval_list_sort_embedded_list :
+    evalSourceMatches "import \"list\"\nout: list.Sort({[3, 1, 2], _y: 9}, list.Ascending)\n"
+        "out: [1, 2, 3]"
+      = true := by
+  native_decide
+
+-- SortStable shares `runSort`, so the same carrier fix applies.
+theorem eval_list_sort_stable_embedded_list :
+    evalSourceMatches "import \"list\"\nout: list.SortStable({[3, 1, 2], _y: 9}, list.Ascending)\n"
+        "out: [1, 2, 3]"
+      = true := by
+  native_decide
+
+-- An open-tail list (`.listTail`) sorts its concrete prefix; the `...` marker is unification-only.
+theorem eval_list_sort_open_tail :
+    evalSourceMatches "import \"list\"\nout: list.Sort([3, 1, 2, ...int], list.Ascending)\n"
+        "out: [1, 2, 3]"
+      = true := by
+  native_decide
+
 -- The predefined comparator VALUES resolve as structs (used standalone, not only inside Sort).
 theorem eval_list_ascending_is_comparator_struct :
     evalSourceMatches "import \"list\"\nout: list.Ascending\n"

@@ -351,14 +351,21 @@ mutual
         -- cue's observable order on the comparators it defines.
         let runSort : Value -> Value -> EvalM Value := fun listArg cmp => do
           let listValue <- evalValueWithFuel fuel env visited listArg
-          match listValue with
-          | .list items => sortWithComparator fuel env visited cmp items
-          | .bottom => pure .bottom
-          | .bottomWith reasons => pure (.bottomWith reasons)
-          -- A concrete first argument that is NOT a list is a CUE type error (`cannot use … as
-          -- list`); an abstract one (a ref/kind a later pass could concretize to a list) stays
-          -- unresolved.
-          | other => pure (if isSettledArg other then .bottom else .builtinCall name [other, cmp])
+          -- Route through `listItems?` so ALL THREE list carriers (`.list`/`.listTail`/
+          -- `.embeddedList`) present their concrete prefix — Sort is prefix-based, the open-tail
+          -- `...` and a struct-embed's hidden decls govern only unification, never a value read.
+          -- (The effectful `EvalM` path never went through `openListOperand`; the classifier is
+          -- the single carrier surface for this path too.)
+          match listItems? listValue with
+          | some items => sortWithComparator fuel env visited cmp items
+          | none =>
+            match listValue with
+            | .bottom => pure .bottom
+            | .bottomWith reasons => pure (.bottomWith reasons)
+            -- A concrete first argument that is NOT a list is a CUE type error (`cannot use … as
+            -- list`); an abstract one (a ref/kind a later pass could concretize to a list) stays
+            -- unresolved.
+            | other => pure (if isSettledArg other then .bottom else .builtinCall name [other, cmp])
         -- SEAM (effectful builtins). These two cases are the EFFECTFUL-builtin dispatch: a
         -- builtin whose semantics require `EvalM` (evaluating a CUE function/comparator argument
         -- per element), which the pure `Builtin` layer (`Builtin → Lattice`, never `→ Eval`)

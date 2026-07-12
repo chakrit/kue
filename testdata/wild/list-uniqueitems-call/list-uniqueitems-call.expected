@@ -1,0 +1,7 @@
+{
+    "unique": true,
+    "dup": false,
+    "dupValueEq": false,
+    "embedded": true,
+    "openTail": true
+}

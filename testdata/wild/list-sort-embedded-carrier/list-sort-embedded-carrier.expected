@@ -1,0 +1,22 @@
+{
+    "embedded": [
+        1,
+        2,
+        3
+    ],
+    "embeddedStable": [
+        1,
+        2,
+        3
+    ],
+    "openTail": [
+        1,
+        2,
+        3
+    ],
+    "plainList": [
+        1,
+        2,
+        3
+    ]
+}

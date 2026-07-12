@@ -22427,3 +22427,54 @@ differs (message-only, spec-irrelevant).
   regular-field (non-def) disjunctions still stay OPEN (matches cue); bug214b force-fold intact.
 
 `check.sh` GREEN. Zero closedness / L-series / Bug2 / DEF-FLATTEN / bug214b flips.
+
+---
+
+## Completed Slice: LIST-BUILTIN-RESIDUALS — Sort carrier-miss + UniqueItems call form
+
+Goal: close the last two known HIGH list-builtin soundness leaks and sweep the effectful
+`EvalM` list path for carrier-completeness — the SECOND carrier surface that never went
+through the `listItems?` centralization (`71598c6`/`f7f954f` covered the pure `Builtin` path).
+
+### LIST-SORT-EMBEDDED-CARRIER (5th carrier-miss, effectful path)
+
+`runSort` (`Kue/Eval.lean`) matched only `.list items`, so `list.Sort`/`list.SortStable` on a
+`.embeddedList` (`{[3,1,2], _y:9}`) or `.listTail` (`[3,1,2, ...int]`) operand fell to the
+non-list branch and DEFERRED ("incomplete value") instead of sorting. Fix routes the evaluated
+`listValue` through `listItems?` — all three carriers present their concrete prefix by
+construction — keeping the settled→bottom / abstract→defer fallback for a genuine non-list
+operand. Sort is prefix-based (the `...` tail and a struct-embed's hidden decls govern only
+unification); cue AGREES, so no divergence. `list.Sort({[3,1,2],_y:9}, list.Ascending)`,
+`SortStable(…)`, `list.Sort([3,1,2, ...int], …)` all ⇒ `[1,2,3]`.
+
+### EvalM carrier sweep result
+
+`runSort` is the SOLE list-CONSUMING builtin site on the effectful `EvalM` path — `list.Sort`
+and `list.SortStable` share it, and the effectful-builtin population is exactly these two (the
+`BI-EFF` extension rule). Every other `.list`/`.listTail`/`.embeddedList` match in `Eval.lean`
+is list-literal EVALUATION or a unification `meet` arm — carrier-preserving structural code, not
+a builtin reading a list as items. The effectful path is therefore carrier-complete: NO 6th miss.
+
+### LIST-UNIQUEITEMS-CALL-FORM-BOTTOM (pre-existing)
+
+The `(list)` CALL form of `list.UniqueItems` was unrouted — only the `[]`-args validator form
+and the bare reference existed — so `list.UniqueItems([1,2,3])` fell to `unresolvedOrBottom` ⇒ ⊥.
+Fix adds a call-form arm `| "list.UniqueItems", [.list items] => .prim (.bool (!hasGroundDup
+items))` beside the validator, deciding structural uniqueness via `hasGroundDup` (the SAME
+predicate the `.uniqueItems` meet uses) over the `openListOperand`-normalized operand (so
+embedded/open-tail lists descend). `([1,2,3])`⇒true, `([1,1])`⇒false, embedded/open-tail⇒true.
+`([1,1.0])`⇒false — value-based equality (the established STRUCT-EQ-LEAF-TYPESENSE divergence,
+cue `true`; extended in `cue-divergences.md`).
+
+### Tests
+
+- Wild (RED→GREEN): `list-sort-embedded-carrier/` (embedded/embeddedStable/openTail +
+  `plainList` regression), `list-uniqueitems-call/` (unique/dup/dupValueEq/embedded/openTail).
+- `SortTests`: `eval_list_sort_embedded_list`, `eval_list_sort_stable_embedded_list`,
+  `eval_list_sort_open_tail`.
+- `FixtureTests`: `uniqueitems_call_{unique_true,dup_false,int_float_dup_false,embedded_true,
+  open_tail_true}` + `uniqueitems_validator_form_unaffected` (validator form still lowers to
+  `.uniqueItems`).
+
+`check.sh` GREEN. Zero Sort/list/validator fixture flips. Both were the last two known HIGH
+soundness leaks; the sweep found no 6th carrier-miss — a two-phase audit confirms the milestone.
