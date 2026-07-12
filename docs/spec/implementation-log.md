@@ -21644,3 +21644,42 @@ pinned by 4 new `native_decide` theorems in `BoundTests.lean` (`ofPrim?` rejects
 lifts ordered prims with `toPrim` inverse, string/bytes carry no domain, `evalBoundOp`
 bottoms a non-ordered operand). `./scripts/check.sh` fully green. No `cue` divergence, no
 spec gap (pure internal type-tightening).
+
+## Phase A audit (2026-07-13, focused) — BOUND-ORDEREDPRIM
+
+Focused code-quality audit of the behavior-preserving type-tightening refactor `7c8eedc`
+(+ doc `4e469ac`), the one code slice since the prior focused Phase A (`9d47bc2`).
+
+Last-audit reconciliation: the `9d47bc2` focused Phase A verified BINARY-CMP-BYTES +
+STRING-BYTES-PROBE sound and added a multi-byte interpolation guard — confirmed landed
+(`Kue/Tests.lean` `#guard` + `testdata/wild/bytes-interp-into-string/` `\xc3\xa9`). The
+OPEN backlog (float F1/F3/F5, PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS,
+DEF-FLATTEN-CLOSEDNESS-DISJ, PB-EVALBASE-SPLIT, PB-FIXTUREPORTS-SPLIT, PA-ESC-2/SUB-4/TT-5,
+PB-VERSION-CONST/CHECK-COMMENT/FOLD-PLACEMENT/PRIM-CATCHALL/RELEASE-3/TESTORG-4) verified
+intact and correctly ranked in `plan.md`; BOUND-ORDEREDPRIM / PA-BOUND-DOMAIN-TYPE marked
+LANDED/discharged.
+
+Verdict: SOUND — behavior-preserving, no new findings.
+
+- Round-trip fidelity (`ofPrim?`/`toPrim`): `toPrim ∘ ofPrim?` reconstructs every ordered
+  prim exactly — int-vs-float identity and the float `text` carrier both survive (the 4-arm
+  mirror, not the lossy 3-arm sketch); `ofPrim?` always tags the bare `.number` domain, the
+  correct fresh-bound state. `ofPrim?` rejects EXACTLY null/bool. Pinned non-vacuously by
+  the 4 `native_decide` unrepresentability theorems (`ordered_prim_rejects_null_and_bool`,
+  `ordered_prim_lifts_ordered` incl. float `toPrim` inverse, `string_bytes_bounds_have_no_domain`,
+  `eval_bound_rejects_non_ordered_operand`).
+- Deleted-guard equivalence: each deleted runtime guard is exactly subsumed by the type.
+  The `.null`/`.bool ⇒ .bottom` eval arm now bottoms via `ofPrim? → none → ⊥` (same
+  verdict); parse's null/bool now defers to `.unary` via the same `none` branch (the old
+  catch-all's behavior, preserved); the `number`-sentinel meet arms fold into the numeric
+  `OrderedPrim` arms with identical conflict messages (`boundKindLabel` = `domain.kind`).
+- The join `domain? == domain?`: two domainless string bounds give `none == none = true`,
+  matching the old `number == number` sentinel comparison — same widening result.
+- Empirically confirmed against the built binary (probe set): `<null`/`>true`/`int & <"m"`/
+  `string & <5` all bottom; `>5 & 10 ⇒ 10`; `<"m" & "apple" ⇒ "apple"`; `<10 & <20 ⇒ <10`;
+  `<"z" & <"m" ⇒ <"m"`; `>=0 & <=10 & 5 ⇒ 5`; `int & >0` retained; join `<"z" | <"m" ⇒ <"z"`
+  (the two-string-bounds `none == none` path) and `>5 | >2 ⇒ >2`. All match pre-refactor
+  behavior. The Eval/EvalBase/Resolve catch-alls are genuine arity-reconstruct passthroughs
+  (explicit `.boundConstraint _ _` arms returning the value), not Value-producing dispatch.
+
+No code change; no `plan.md` findings filed.
