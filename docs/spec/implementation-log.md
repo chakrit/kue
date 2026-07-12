@@ -20743,3 +20743,52 @@ truly unreferenced. Two findings filed:
   null/bool bounds and string+numeric-domain nonsense; propose an `OrderedPrim` sum (Phase-B tightening).
 
 No inline fix (soundness finding is not low-risk). No `./scripts/check.sh` run (no code change).
+
+---
+
+## Completed Slice: PATTERN-BOUND-OPERAND Phase-B architecture/refactor/cleanup audit
+
+Audit-only (no code change), 2026-07-12. Whole module graph; pairs with the same-day
+PATTERN-BOUND-OPERAND Phase-A audit — designs its two coupled bound-operand findings
+(PA-BOUND-GROUND + PA-BOUND-DOMAIN-TYPE) into one coherent fix before any patch.
+
+### Reconciliation
+
+PATTERN-BOUND red seeds verified graduated (both `testdata/wild/pattern-bound-{string,reference}-operand/`
+live green, no `.known-red`). Five OPEN LOW re-checked against HEAD (PA-ESC-2, PA-SUB-4, PA-TT-5,
+PB-TESTORG-4, PB-RELEASE-3) — all still unlanded, correctly ranked, no re-rank, no duplication with the
+slices below. Dead-code recheck: `parseBoundValue`/`minDecimal`/`maxDecimal`/`formatBoundLimit` GONE from
+the tree (zero grep hits) — already removed, nothing to excise inline.
+
+### Module-graph verdict — HEALTHY
+
+Float (F2) + StringFormat leaves sit right (SOUND per same-day F2 Phase-A + PB-SF-3; `Time`/`Net`
+independent siblings). No oversized core module (`EvalBase` 2530 / `Parse` 2369 / `Lattice` 1718 in-band;
+`CaseTable` 2438 generated Unicode table, exempt). Test modules under the 1800 cap except mechanical
+`FixturePorts.lean` (registration, exempt); `BuiltinTests`/`TwoPassTests` tracked by PB-TESTORG-4.
+
+### Designed fix — two ranked slices (soundness first, representation second)
+
+Split deliberately: the MEDIUM soundness fix is small + independent; the representation tightening is a
+~60-site refactor. Coupling would delay the soundness fix behind a large blast radius.
+
+- **BOUND-OPERAND-CLASSIFY (MEDIUM, TOP OPEN).** Split `ScalarOperandClass.defer` into `.incomplete`
+  (retain) vs **`.nonScalar`** = `{.list, .listTail, .embeddedList, .struct}`. Everything else stays
+  `.incomplete` — corrects Phase A's `.ground` name after cue-adjudication (2026-07-12): cue RETAINS
+  `<_`/`<(1|2)`/`<(>5)` (top/disj/bound-operand are NOT errors), while `<int`/`<number` error with a
+  DIFFERENT class ("bound has fixed non-concrete value") — the non-concrete-`.kind` case is a separate
+  latent divergence, NOT folded in. Per-op `.nonScalar`: boundOp/regexMatchOp/numPos/numNeg ⇒ ⊥;
+  neOp ⇒ retain (`!=[1,2]`/`!={a:1}` cue-confirmed kept). TDD: `testdata/wild/bound-nonscalar-{list,
+  struct}/` + `neg-list-operand/` + `regex-list-operand/` RED first; EvalOpsTests theorems for list/
+  struct/embeddedList ⇒ ⊥ across the four ops + a `neq_list_operand_retains` pin, closing the
+  `.bool`-only coverage gap. Record `=~5` micro-divergence (kue ⊥, more spec-correct) in
+  `cue-divergences.md`.
+- **BOUND-ORDEREDPRIM (LOW, after the above).** `inductive OrderedPrim | number (v) (text) (domain) |
+  string (v) | bytes (v)`; `boundConstraint (bound : OrderedPrim) (kind)` folds domain into the number
+  arm — string+numeric-domain and null/bool bounds become unrepresentable; `OrderedPrim.ofPrim?` subsumes
+  the null/bool ⇒ ⊥ arm + erases dead `boundKindLabel`/`boundAdmitsKind` `.null|.bool` arms. Coherence:
+  subsumption is one-directional — `OrderedPrim` is the OUTPUT of a successful lowering; a list/struct ⊥s
+  at `.nonScalar` before reaching construction, so it does NOT erase the classifier's list/struct case.
+  ~60-site refactor (Lattice 40, EvalBase 20, + Value/Order/Format/Manifest/Resolve/Parse).
+
+No `./scripts/check.sh` run (no code change; only durable-doc edits to plan + this log).

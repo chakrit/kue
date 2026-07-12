@@ -196,6 +196,14 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**BOUND-OPERAND-CLASSIFY (MEDIUM soundness — TOP OPEN item, 2026-07-12).** `evalBoundOp`/
+`evalRegexMatchOp`/`evalNumPos`/`evalNumNeg` export a fabricated constraint where cue hard-errors on a
+ground list/struct operand (`x: <[1,2]`, `x: <{a:1}`, `x: =~[1]`, `x: -[1,2]`). Fix: split
+`ScalarOperandClass.defer` into `.incomplete` (retain) vs `.nonScalar` (list/struct/embeddedList ⇒ ⊥ for
+those four ops; `neOp` retains). Full design + cue-adjudicated operand table + TDD seeds in the
+PATTERN-BOUND-OPERAND Phase-B audit block below. Followed by **BOUND-ORDEREDPRIM (LOW)** — the
+`OrderedPrim` bound-operand retype (same block).
+
 **MANIFEST-FIELDCOUNT (HIGH audit fix). ✅ CLOSED (2026-07-11).** `kue export` failed ENTIRELY on
 any struct with ≥99 top-level fields (`incomplete value`), on trivial plain-int input. Root cause
 (by observation): `manifestFieldsWithFuel`/`manifestItemsWithFuel` (`Kue/Manifest.lean`) peeled one
@@ -481,6 +489,10 @@ match with a numeric-only assumption. Dead code confirmed unreferenced (`parseBo
   struct}/` (red first), + EvalOpsTests theorems pinning `.list`/`.struct` operand ⇒ ⊥ (the current
   `eval_bound_op_non_ordered_operand_bottoms` tests only `.bool`, MISSING list/struct — the coverage gap
   that masked this).
+  → **DESIGNED as `BOUND-OPERAND-CLASSIFY` in the Phase-B block below** (2026-07-12). The `.ground` name
+  is CORRECTED to `.nonScalar`: cue-adjudication showed `<_` (top), `<(1|2)` (disj), `<(>5)` (bound
+  operand) are all RETAINED by cue, so those ground-ish forms must stay `.incomplete`, not error. Only
+  list/struct/embeddedList error ("cannot use X for bound"). See the block for the confirmed operand table.
 - **PA-BOUND-DOMAIN-TYPE (LOW, illegal-states — Phase-B type-tightening candidate).** `boundConstraint
   (bound : Prim) (kind : BoundKind) (domain : NumberDomain)` admits two representable-nonsense states:
   (a) a null/bool operand (`bound : Prim` is too wide — a bound is only ever over an ordered type), and
@@ -491,6 +503,72 @@ match with a numeric-only assumption. Dead code confirmed unreferenced (`parseBo
   over null/bool and a string-bound-with-numeric-domain become UNREPRESENTABLE and the `boundKindLabel`/
   `boundAdmitsKind` `.null | .bool => ...` dead arms vanish. Reversible, gate-arbitrated; a clean Phase-B
   slice. (Also folds `evalBoundOp`'s `.null`/`.bool ⇒ .bottom` into construction-time impossibility.)
+  → **DESIGNED as `BOUND-ORDEREDPRIM` in the Phase-B block below** (2026-07-12); does NOT subsume the
+  classifier fix — see the coherence note in that block.
+
+**PATTERN-BOUND-OPERAND Phase-B architecture/refactor/cleanup audit (2026-07-12, whole module graph;
+follows the Phase-A block directly above).** Reconciliation: PATTERN-BOUND red seeds verified graduated
+(both `testdata/wild/pattern-bound-{string,reference}-operand/` live green, no `.known-red`). Five OPEN
+LOW re-checked against HEAD — PA-ESC-2, PA-SUB-4, PA-TT-5, PB-TESTORG-4, PB-RELEASE-3 all still unlanded,
+still correctly ranked, none re-ranked by this batch, no duplication with the two slices below.
+Dead-code recheck: `parseBoundValue`/`minDecimal`/`maxDecimal`/`formatBoundLimit` are GONE from the tree
+(zero grep hits) — already removed, nothing to excise. **Module-graph verdict: HEALTHY.** Float (F2) +
+StringFormat leaves sit right (SOUND per the same-day F2 Phase-A + PB-SF-3; `Time`/`Net` independent
+siblings, no `Time → Net`); no oversized core module (`EvalBase` 2530 / `Parse` 2369 / `Lattice` 1718 are
+in-band; `CaseTable` 2438 is the generated Unicode table, exempt); test modules under the 1800 cap except
+the mechanical `FixturePorts.lean` (registration, exempt) — `BuiltinTests`/`TwoPassTests` tracked by
+PB-TESTORG-4. **The coupled bound-operand core-type findings (PA-BOUND-GROUND + PA-BOUND-DOMAIN-TYPE) are
+designed here as ONE coherent fix, split into TWO ranked slices — soundness first, representation second
+— because the MEDIUM soundness fix is small and independent while the representation tightening is a
+~60-site refactor; coupling would delay the soundness fix behind a large blast radius.**
+
+- **BOUND-OPERAND-CLASSIFY (MEDIUM soundness — TOP OPEN spec-conformance item; the designed
+  PA-BOUND-GROUND fix).** Split `ScalarOperandClass.defer` into `.incomplete` (unreduced expression /
+  cue-retained abstract value → keep the residual `.unary`) and **`.nonScalar`** (a fully-resolved
+  list/struct value → categorically not an ordered scalar). **`.nonScalar` bucket (cue-confirmed
+  "cannot use X for bound / invalid operation OP X"):** `.list`, `.listTail`, `.embeddedList`, `.struct`.
+  **Everything else stays `.incomplete`** — INCLUDING `.top`, `.disj`, `.kind`, and the abstract-constraint
+  values (`.boundConstraint`/`.notPrim`/`.stringRegex`/`.stringFormat`/`.lengthConstraint`/`.uniqueItems`/
+  `.conj`), plus `.embeddedScalar` (wraps a scalar — may resolve to it; erroring would be wrong). This
+  corrects Phase A's `.ground` name: cue-adjudication (2026-07-12) confirmed cue RETAINS `<_`, `<(1|2)`,
+  `<(>5)` (so top/disj/bound-operand are NOT errors), while `<int`/`<number` error with a DIFFERENT class
+  ("bound has fixed non-concrete value") — that non-concrete-`.kind` divergence is a SEPARATE latent case,
+  NOT folded in here (kept `.incomplete`; file as its own follow-up divergence if pursued). **Per-op
+  `.nonScalar` behavior:** `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/`evalNumNeg` ⇒ ⊥ (the four ops the
+  bug spans); **`evalNeOp` ⇒ retain `.unary .neOp value`** (identical to its `.incomplete` arm — cue keeps
+  `!=[1,2]`/`!={a:1}`, both confirmed). So `.nonScalar` diverges from `.incomplete` ONLY in the four
+  scalar-arith/bound/regex ops; `neOp` treats them the same. The other `classifyScalarOperand` consumers
+  (`evalBoolNot`/`evalPrimitiveOrdering`/`evalBoolBinary`/binary `evalRegexMatch`) absorb `.nonScalar`
+  into their existing deferred/retain arm — behavior preserved; the binary-comparison latent case
+  (`1 < [1,2]` currently retains, cue errors) is a FLAGGED sibling follow-up, out of this slice's scope.
+  Spec basis: CUE grammar `rel_op UnaryExpr` requires the operand resolve to an ordered scalar
+  (number/string/bytes) for `< <= > >=` and a string for `=~`; a resolved list/struct is a type error, not
+  an incomplete. Also record the `=~5` micro-divergence (kue ⊥ vs cue `=~5`, kue MORE spec-correct) in
+  `cue-divergences.md`. **TDD:** wild fixtures `testdata/wild/bound-nonscalar-{list,struct}/` +
+  `testdata/wild/neg-list-operand/` (the `-[1,2]` twin) + `testdata/wild/regex-list-operand/`, all RED
+  first; EvalOpsTests theorems pinning `.list`/`.struct`/`.embeddedList` operand ⇒ ⊥ for
+  boundOp/regexMatchOp/numPos/numNeg AND a `neq_list_operand_retains` pin that `!=[1,2]` stays a residual —
+  closing the coverage gap where `eval_bound_op_non_ordered_operand_bottoms` tests only `.bool`. Small
+  (one classifier + four op arms), test-first, independent of `OrderedPrim` below.
+
+- **BOUND-ORDEREDPRIM (LOW illegal-states — the designed PA-BOUND-DOMAIN-TYPE fix; lands AFTER
+  BOUND-OPERAND-CLASSIFY).** Retype the bound operand: `inductive OrderedPrim | number (value :
+  DecimalValue) (text : String) (domain : NumberDomain) | string (value : String) | bytes (value :
+  Array UInt8)`, with `boundConstraint (bound : OrderedPrim) (kind : BoundKind)` — the domain FOLDS INTO
+  the `number` arm, so string/bytes bounds carry no domain and the inert `.number` sentinel + "string
+  operand + numeric domain" become UNREPRESENTABLE. `evalBoundOp` gains a total
+  `OrderedPrim.ofPrim? : Prim → Option OrderedPrim` (none for null/bool ⇒ ⊥), which SUBSUMES the current
+  `.null`/`.bool ⇒ .bottom` arms and erases the dead `.null | .bool` arms in `boundKindLabel`/
+  `boundAdmitsKind`. **Coherence with BOUND-OPERAND-CLASSIFY — the subsumption is PARTIAL, one direction
+  only:** `OrderedPrim` is the OUTPUT type of a *successful* lowering; the classifier decides on the INPUT
+  `Value`. A list/struct never reaches `OrderedPrim` construction — it ⊥s at the `.nonScalar` arm first —
+  so `OrderedPrim` does NOT erase the classifier's list/struct case; it complements it (tight output ⟂
+  correct input dispatch). It DOES subsume the prim-level null/bool rejection. Blast radius: ~60 sites
+  (`Lattice.lean` 40, `EvalBase.lean` 20, + `Value`/`Order`/`Format`/`Manifest`/`Resolve`/`Parse`) that
+  construct or destructure `boundConstraint` — every `.boundConstraint bound kind domain` pattern rewrites
+  to the two-field form; the number-vs-string/bytes split moves from `match bound with .int|.float ...` to
+  a match on the `OrderedPrim` constructor. Reversible-by-git, gate-arbitrated, no fork — a mechanical but
+  wide type-tightening slice; schedule after the soundness fix so it doesn't gate it.
 
 **STDLIB-FLOAT-F2 Phase-A code-quality audit (2026-07-12, batch `a366a3a..a9fa4c6`, 3 slices:
 EvalTests split / StringFormat leaf / IEEE float kernel).** Last-audit reconciliation: all five

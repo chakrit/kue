@@ -3,7 +3,18 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **PATTERN-BOUND-OPERAND — comparator bounds over any ordered type (LANDED 2026-07-12).**
+HEAD: **PATTERN-BOUND-OPERAND two-phase audit (2026-07-12, doc-only).** Phase A filed the coupled
+bound-operand core-type findings; Phase B DESIGNED the coherent fix as TWO ranked slices (plan.md +
+implementation-log). **NEXT (top open): `BOUND-OPERAND-CLASSIFY` (MEDIUM soundness)** — split
+`ScalarOperandClass.defer` into `.incomplete` (retain) vs `.nonScalar` (`.list`/`.listTail`/
+`.embeddedList`/`.struct`), so `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/`evalNumNeg` ⊥ a ground
+list/struct (cue hard-errors; kue currently exports a fabricated `<[1,2]`/`<{a:1}`/`=~[1]`/`-[1,2]`);
+`neOp` retains (`!=[1,2]` cue-confirmed kept). cue-adjudicated: `<_`/`<(1|2)`/`<(>5)` RETAIN (stay
+`.incomplete`, NOT `.ground`); `<int` is a separate non-concrete divergence, not folded in. TDD:
+`testdata/wild/{bound-nonscalar-list,bound-nonscalar-struct,neg-list-operand,regex-list-operand}/` RED
+first + EvalOpsTests theorems closing the `.bool`-only coverage gap. Then **`BOUND-ORDEREDPRIM` (LOW)** —
+`OrderedPrim` bound-operand retype (~60-site refactor; complements, does NOT subsume, the classifier).
+Prior HEAD (last CODE slice): **PATTERN-BOUND-OPERAND — comparator bounds over any ordered type (LANDED 2026-07-12).**
 Comparator bounds (`< <= > >= != =~`) now apply to ANY ordered type and to non-literal operands;
 BOTH red seeds `pattern-bound-{string,reference}-operand` GRADUATED. `boundConstraint`'s operand
 generalized `DecimalValue → Prim` (arity unchanged → ~30 wildcard match sites untouched); one total
