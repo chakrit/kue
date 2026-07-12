@@ -203,23 +203,33 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH soundness — SILENT closedness leak; NEW, 2026-07-13 Phase A
-audit `f0ddb19`). OPEN — falsifies "the LAST known HIGH silent soundness leak" claim on
-DEF-FLATTEN-CLOSEDNESS-DISJ-REF below.** `isDistributableDisj` (`Kue/EvalBase.lean`) is all-or-nothing per
-disjunction: it distributes the def's own-literal union ONLY when EVERY arm is distributable
-(struct/structComp/refId/prim/nested-disj). A disjunction carrying ONE non-whitelisted arm — a `.bound`
-(`>5`) or a list carrier (`[1,2]`) — makes `isDistributableDisj` return false for the WHOLE disjunction, so
-it lands UNEVALUATED in `rest` and the def NEVER closes its own literal around the surviving struct arms →
-extra fields leak past closedness. Repros (cue v0.16.1, both ⊥; kue leaks):
-- `#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥.
-- `#X: {a:1} & ({z:9} | [1,2])` · `#X & {w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥.
-Root: a `.bound`/list arm meeting a struct literal dies (⊥) EXACTLY like a scalar — so it SHOULD be
-distributable (emit the open-conj, eval kills that arm), same as the `.prim` case (which closes correctly:
-`… | null` + extra ⇒ kue ⊥). The `f0ddb19` exclusion of bound was to preserve the L-series force-fold path
-(`bug214b_disj_arm_*`); the fix must distribute bound/list arms that DIE against a struct literal while
-still excluding error/comprehension arms that need force-fold eval — thread that needle, not blanket-include.
-Seed `testdata/wild/def-closedness-disj-excluded-arm/` RED first; both-direction guards (a bound arm whose
-struct sibling should still close + reject extra; the L-series force-fold arm untouched).
+**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH soundness — SILENT closedness leak; 2026-07-13 Phase A
+audit `f0ddb19`). ✅ LANDED (2026-07-13).** `isDistributableDisj` (`Kue/EvalBase.lean`) was all-or-nothing
+per disjunction: one non-whitelisted arm — a `.bound` (`>5`) or a list carrier (`[1,2]`) — made the WHOLE
+disjunction non-distributable, so the def flattened OPEN and a use-site extra field leaked
+(`#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` ⇒ kue `{a,z,w}`; same with `[1,2]`). Fix: `isDistributableDisjArm`
+gains a DISTRIBUTE-SAFE category beside `.prim` — `.kind` (every `Kind` is scalar/list, never struct),
+`.boundConstraint`, and the list carriers `.list`/`.listTail`/`.embeddedList`; each DIES against the def's
+non-empty own struct literal, so its cross-product combination emits an OPEN `.conj [literal, pick]` that
+bottoms at eval (identical to the working scalar path) while the struct arms close. `error(...)`/comprehension
+arms stay OUT (force-fold / can-produce-a-struct) — bug214b untouched. Wild
+`def-closedness-disj-excluded-arm-{bound,list}` (RED→GREEN); `Bug2xTests` `defflatten_{boundarm,listarm,
+kindarm}_*` + multidisj + open-tail-sibling both-direction guards. Full cue v0.16.1 mixed-arm truth table
+in the implementation-log.
+> RESIDUAL (filed below): the DIRECT `error(...)` arm case still leaks — DISJ-CLOSEDNESS-ERROR-ARM-LEAK.
+
+**DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH soundness — SILENT closedness leak; NEW, 2026-07-13 DISJ-CLOSEDNESS-
+EXCLUDED-ARM-LEAK). OPEN.** The direct `error(...)` disjunction arm is BLOCKING (needs force-fold, kept out of
+the distribute-safe whitelist), so a def unifying it stays OPEN and leaks: `#X: {a:1} & ({z:9} | error("x"))`
+· `#X & {w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥ (force-folds the `error`, message `x`). Verified PRE-EXISTING
+(predates the EXCLUDED-ARM fix; `git stash` reproduced the leak before the whitelist change). Distinct from
+DISJ-NESTED-ERROR-ARM-AMBIGUOUS (below, LOW — errors both ways, no leak): this is a genuine OVER-ACCEPT.
+Fix must distribute an error arm as an eval-time force-fold (`.conj [literal, error]` bottoms, message may be
+lost but result ⊥ matches) WITHOUT reopening bug214b's `out: {structShape | error("nope")}` force-fold path
+(bug214b's host field is a REGULAR field, so `close=false` — distribution never fires there; verify the
+DEFINITION-with-error-arm path threads the force-fold cleanly). Seed
+`testdata/wild/def-closedness-disj-error-arm/` RED first; both-direction (valid-`z` still `{a,z}`; bug214b
+L-series untouched).
 
 **LIST-SLICE-EMBEDDED-CARRIER (HIGH soundness — 4th carrier-miss; NEW, 2026-07-13 Phase A audit `71598c6`).
 OPEN — falsifies "every list-carrier read routes through `listItems?`" on LIST-OPS-EMBEDDED-CARRIER below.**
@@ -287,9 +297,10 @@ so `Contains([[1]],[1.0])` ⇒ true and `UniqueItems([1,1.0])` ⇒ bottom — sp
 nested-disj residuals landed in the follow-up.
 > RETRACTION (2026-07-13 Phase A audit): the "closes the LAST known HIGH silent soundness leak" /
 > "all known soundness leaks now closed" claim (commit `f0ddb19`) is FALSIFIED — the `isDistributableDisj`
-> whitelist is all-or-nothing, so a disjunction with a bound/list arm leaks (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK,
-> filed HIGH above). A second residual (LIST-SLICE-EMBEDDED-CARRIER) is a 4th list-carrier miss. This entry's
-> whitelist design (excluding bound arms) is the direct cause of the closedness leak.
+> whitelist was all-or-nothing, so a disjunction with a bound/list arm leaked (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK,
+> ✅ LANDED 2026-07-13 — the whitelist now has a distribute-safe category; bound/list/kind arms close).
+> Still OPEN: the DIRECT `error(...)` arm leaks (DISJ-CLOSEDNESS-ERROR-ARM-LEAK, HIGH) and
+> LIST-SLICE-EMBEDDED-CARRIER (a 4th list-carrier miss). Do NOT re-claim "all soundness leaks closed".
 The DEF-FLATTEN-CLOSEDNESS-DISJ fix closed a def's own-literal union across a SINGLE all-struct
 disjunction; the cross-product slice extended the distribution to MULTIPLE closable disjunctions; the
 residual slice extended it to ref/scalar arms (open-compose) and nested disjunctions (flatten-first).

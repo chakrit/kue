@@ -1350,6 +1350,62 @@ theorem defflatten_scalararm_rejects :
     exportJsonBottoms "#X: {a: 1} & ({b: 2} | 3)\ny: #X & {b: 2, extra: 7}\n" = true := by
   native_decide
 
+-- BOUND ARM (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK, reject): a comparator-bound disjunction arm (`>5`)
+-- dies against the def's own struct literal (`{a:1} & >5` ⇒ struct-vs-number bottom) EXACTLY like a
+-- scalar, so it is DISTRIBUTE-SAFE — its combination drops and the surviving `{z:9}` arm closes to
+-- `{a,z}`, rejecting `w`. The all-or-nothing whitelist previously excluded the bound arm, so the
+-- WHOLE disjunction stayed non-distributable, the def flattened OPEN, and `w` leaked. cue v0.16.1
+-- bottom.
+theorem defflatten_boundarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | >5)\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- BOUND ARM SELECT (both-direction guard, admit): selecting the struct arm resolves to `{a,z}`; the
+-- bound arm has dropped. Guards that distributing the bound arm does not over-reject the struct sibling.
+-- cue v0.16.1 `{a,z}`.
+theorem defflatten_boundarm_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | >5)\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- LIST ARM (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK, reject): a list-carrier disjunction arm (`[1,2]`) dies
+-- against the def's struct literal (`{a:1} & [1,2]` ⇒ struct-vs-list bottom), so it is distribute-safe
+-- like the bound arm; the `{z:9}` arm closes and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_listarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | [1, 2])\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- KIND ARM (reject): a scalar-kind disjunction arm (`string`) dies against the def's struct literal
+-- (`{a:1} & string` ⇒ struct-vs-string bottom) — every `Kind` is scalar/list, never struct, so a kind
+-- arm is always distribute-safe. cue v0.16.1 bottom.
+theorem defflatten_kindarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | string)\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- BOUND ARM MULTIDISJ (reject): a bound arm mixed into a cross-product of two disjunctions
+-- (`({z:9}|>5) & ({d:4}|{e:5})`) drops every combination it appears in; the surviving struct
+-- combinations `{a,z,d}|{a,z,e}` close and reject `w`. Pins that the per-arm distribute-safe drop
+-- composes correctly with the cross-product. cue v0.16.1 bottom.
+theorem defflatten_boundarm_multidisj_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | >5) & ({d: 4} | {e: 5})\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- BOUND ARM MULTIDISJ SELECT (both-direction guard, admit): the surviving cross-product combination
+-- `{a,z,d}` resolves when its own fields are selected. cue v0.16.1 `{a,z,d}`.
+theorem defflatten_boundarm_multidisj_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | >5) & ({d: 4} | {e: 5})\nout: #X & {z: 9, d: 4}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- BOUND ARM OPEN-TAIL SIBLING (over-close guard, must STAY open): the struct sibling carries a `...`
+-- tail (`{p:1, ...}`), so its combination stays OPEN and admits a use-site extra `w`; the bound arm
+-- still drops. Pins that distribute-safe bound handling does not force-close a legitimately-open struct
+-- sibling. cue v0.16.1 admits `{a,p,w}`.
+theorem defflatten_boundarm_opentail_sibling_admits :
+    exportJsonMatches "#X: {a: 1} & ({p: 1, ...} | >5)\nout: #X & {w: 7}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"p\": 1,\n        \"w\": 7\n    }\n}\n" = true := by
+  native_decide
+
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
 --
 -- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)

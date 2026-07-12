@@ -3,7 +3,28 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **Phase A audit (`ca2c147..f0ddb19`) — MILESTONE NOT substantiated; 2 residual HIGH leaks found
+HEAD: **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK — bound/list/kind disjunction arms now close (LANDED 2026-07-13).**
+The `isDistributableDisj` whitelist was all-or-nothing: one non-whitelisted arm (`.bound` `>5`, list `[1,2]`)
+made the WHOLE disjunction non-distributable, so the def flattened OPEN and a use-site extra leaked
+(`#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` ⇒ kue `{a,z,w}`, cue ⊥; same with `[1,2]`). Fix
+(`isDistributableDisjArm`, `Kue/EvalBase.lean`): a DISTRIBUTE-SAFE category beside `.prim` — `.kind`,
+`.boundConstraint`, and list carriers `.list`/`.listTail`/`.embeddedList` — each DIES against the def's own
+struct literal, so its cross-product combination emits an OPEN `.conj [literal, pick]` that bottoms at eval
+(same as the working scalar path); the struct arms still close. `error(...)`/comprehension arms stay OUT
+(force-fold / can-produce-a-struct), so bug214b is untouched. Wild
+`def-closedness-disj-excluded-arm-{bound,list}` RED→GREEN; 7 `Bug2xTests` both-direction guards. cue v0.16.1
+mixed-arm truth table in the implementation-log. `check.sh` GREEN, zero L-series/Bug2/closedness flips.
+**RESIDUAL FOUND & FILED (pre-existing, NOT introduced): DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH)** — the
+DIRECT `error(...)` arm still leaks (`#X: {a:1} & ({z:9} | error("x"))` · `#X & {w:7}` ⇒ kue `{a,z,w}`, cue ⊥);
+the error arm is blocking, so the def stays OPEN. `git stash` confirmed the leak predates this fix.
+**Do NOT re-claim "all soundness leaks closed"** — LIST-SLICE-EMBEDDED-CARRIER and DISJ-CLOSEDNESS-ERROR-ARM-LEAK
+remain open.
+**NEXT (ranked):** LIST-SLICE-EMBEDDED-CARRIER (HIGH — slice desugar misses `.embeddedList`) →
+DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH — error-arm force-fold distribution) → Phase B audit (still due) →
+LOW gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED / DISJ-NESTED-ERROR-ARM-AMBIGUOUS) →
+PB-PERFGUIDE-STALE → PB-EVALBASE-SPLIT → deferred FDLIBM. **Alpha release HELD for chakrit (attended).**
+
+Prior HEAD: **Phase A audit (`ca2c147..f0ddb19`) — MILESTONE NOT substantiated; 2 residual HIGH leaks found
 (no code change, filed 2026-07-13).** The "all known soundness leaks closed" claim is FALSIFIED. (1)
 **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK** (HIGH): the `f0ddb19` `isDistributableDisj` whitelist is
 all-or-nothing — a disjunction with ONE non-whitelisted arm (`.bound` `>5`, list `[1,2]`) skips closing

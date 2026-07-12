@@ -22162,3 +22162,68 @@ Retraction pointers added IN THIS SLICE to the DEF-FLATTEN-CLOSEDNESS-DISJ-REF a
 LIST-OPS-EMBEDDED-CARRIER plan entries (their completion claims are now annotated). No code
 change; findings filed for the loop to pick up (a whitelist fix risks L-series, a slice fix
 needs a wild fixture — both are fixture-first slices, not inline audit cleanups).
+
+---
+
+## Completed Slice: DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK
+
+Goal: close the HIGH silent closedness leak where a def's own-literal union failed to close
+around a disjunction's struct arms whenever ONE arm was a `.bound` (`>5`) or a list carrier
+(`[1,2]`). `isDistributableDisj` (`Kue/EvalBase.lean`) was all-or-nothing per disjunction:
+one non-whitelisted arm made the WHOLE disjunction non-distributable, the def flattened
+OPEN, and a use-site extra field leaked. `#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` ⇒ kue
+`{a,z,w}` (leak), cue ⊥; same with `[1,2]`.
+
+### cue v0.16.1 mixed-arm truth table (a def unifying `{a:1} & ({z:9} | ARM)`, use-site extra)
+
+| ARM                    | class          | extra field ⇒ cue                | valid `z` ⇒ cue |
+|:-----------------------|:---------------|:---------------------------------|:----------------|
+| scalar `3`             | distribute-safe | ⊥ (already correct in kue)       | `{a,z}`         |
+| null                   | distribute-safe | ⊥ (already correct — `.prim`)    | `{a,z}`         |
+| bound `>5`             | distribute-safe | ⊥ (was LEAK)                     | `{a,z}`         |
+| list `[1,2]`           | distribute-safe | ⊥ (was LEAK)                     | `{a,z}`         |
+| kind `string`          | distribute-safe | ⊥ (was LEAK)                     | `{a,z}`         |
+| open-tail `{p:1,...}`  | closable-OPEN  | admit `{a,p,w}` (STAYS open)     | —               |
+| open ref `#Base{...}`  | composable-OPEN | admit (STAYS open)               | —               |
+| error `error("x")`     | BLOCKING       | ⊥ (force-fold, message `x`)      | `{a,z}`         |
+| comprehension          | BLOCKING       | ⊥ (can produce a struct)         | —               |
+
+Distribute-safe = the arm DIES against the def's non-empty own struct literal (`{a:1} & ARM
+⇒ ⊥`), so its cross-product combination bottoms and drops, leaving the struct arms to close.
+Blocking = force-fold (error) or can-resolve-to-a-struct (comprehension/unevaluated expr) —
+must NOT be assumed to bottom.
+
+### Fix
+
+`isDistributableDisjArm` (`Kue/EvalBase.lean`) gains a distribute-safe category beside the
+existing `.prim`: `.kind` (every `Kind` is scalar/list, never struct), `.boundConstraint`,
+and the list carriers `.list`/`.listTail`/`.embeddedList`. A distribute-safe pick is not
+`isUnionableDefValue`, so the existing cross-product emit path wraps its combination as an
+OPEN `.conj [literal, pick]` that bottoms at eval (identical to how the already-working
+scalar arm is handled) — the struct arms still close via `closeLiteralUnion`. `error(...)`
+and comprehension arms stay OUT of the whitelist, so a disjunction containing one stays
+non-distributable and raw — bug214b's `error`-arm force-fold path is untouched.
+
+### Tests
+
+- Wild fixtures `testdata/wild/def-closedness-disj-excluded-arm-{bound,list}/`
+  (spec-adjudicated ⊥, RED→GREEN in-slice).
+- `Bug2xTests.lean`: `defflatten_boundarm_rejects`, `defflatten_boundarm_select_admits`,
+  `defflatten_listarm_rejects`, `defflatten_kindarm_rejects`,
+  `defflatten_boundarm_multidisj_rejects`, `defflatten_boundarm_multidisj_select_admits`,
+  `defflatten_boundarm_opentail_sibling_admits` (both-direction: distribute-safe arms close
+  + struct siblings admit selected fields + open-tail sibling STAYS open).
+
+### Regression
+
+Full `./scripts/check.sh` green; bug214b force-fold + L-series + DEF-FLATTEN-CLOSEDNESS(-DISJ)
+suites unchanged.
+
+### Residual filed (out of scope — NOT introduced by this slice)
+
+DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH, NEW): the DIRECT `error(...)` arm case
+(`#X: {a:1} & ({z:9} | error("x"))` · `#X & {w:7}`) still leaks `{a,z,w}` — the error arm is
+BLOCKING, so the def stays OPEN. Verified PRE-EXISTING (`git stash` showed the same leak
+before this fix). Distinct from the filed nested-error item (which errors both ways, no
+leak). Filed HIGH in `plan.md`; a fix must thread the error force-fold, out of this slice's
+scope per the WALL guard.

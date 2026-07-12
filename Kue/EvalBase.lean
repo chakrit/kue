@@ -1877,16 +1877,26 @@ def disjArmCrossProduct : List (List (Mark × Value)) -> List (List (Mark × Val
       alts.flatMap fun a => restProduct.map fun combo => a :: combo
 
 /-- Can a def DISTRIBUTE its own-literal union across this arm and close/compose it? A default-deny
-    whitelist: a struct literal (unioned+closed), a def-`.refId` (open-composed — the ref governs
-    closedness), a scalar (dies against the struct literal ⇒ ⊥), or a NESTED distributable disjunction
-    (flattened first). An arm outside the whitelist — an `error(...)`, a comprehension, a bound — is
-    NOT distributed; the whole disjunction stays UNEVALUATED in `rest` so its existing eval path is
-    unchanged. -/
+    whitelist of two categories. CLOSABLE/COMPOSABLE arms carry field content: a struct literal
+    (unioned+closed), a def-`.refId` (open-composed — the ref governs closedness), or a NESTED
+    distributable disjunction (flattened first). DISTRIBUTE-SAFE arms carry a concrete non-struct
+    type that DIES against the def's non-empty own struct literal (`{a:1} & V ⇒ ⊥`), so the
+    combination bottoms and drops, contributing nothing: a scalar (`.prim`), a scalar-kind
+    (`.kind` — every `Kind` is a scalar/list, never struct), a comparator bound (`.boundConstraint`),
+    or a list carrier (`.list`/`.listTail`/`.embeddedList`). Both categories let the disjunction
+    close its own struct arms. Arms OUTSIDE the whitelist — an `error(...)` (force-fold), a
+    comprehension (can produce a struct), an unevaluated expression — are NOT distributed; the whole
+    disjunction stays UNEVALUATED in `rest` so its existing eval path is unchanged. -/
 def isDistributableDisjArm : Nat -> Value -> Bool
   | _, .struct _ _ _ _ _ => true
   | _, .structComp _ _ _ => true
   | _, .refId _ => true
   | _, .prim _ => true
+  | _, .kind _ => true
+  | _, .boundConstraint _ _ => true
+  | _, .list _ => true
+  | _, .listTail _ _ => true
+  | _, .embeddedList _ _ _ => true
   | fuel + 1, .disj alts => alts.all fun a => isDistributableDisjArm fuel a.snd
   | _, _ => false
 
