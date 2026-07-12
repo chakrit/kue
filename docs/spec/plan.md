@@ -241,9 +241,27 @@ EXCEPTION is the handful of builtins cue exposes AS float64 (`strconv.FormatFloa
   replaces `collapseDecimalToValue`; `Pow(10,⅓)` was mis-pinned to a trimmed 33-digit value — corrected).
   Domain: `Log`/`Log2`/`Log10` of ≤0 → bottom (kue has no `Inf`/`NaN`). No new kernel, no IEEE. See
   `cue-spec-gaps.md` STDLIB-FLOAT-F0.
-- **F1 (LOW) — `math.Log1p`/`math.Expm1`.** cue exposes these as FLOAT64 (17-digit), NOT apd — a genuine
-  IEEE surface. Currently `unsupportedBuiltin`. **UNBLOCKED by F2** (the `BinFloat` kernel exists); now
-  schedulable — wire float64 `log1p`/`expm1` through `Kue/Float.lean` + shortest-`'e'` render anchor.
+- **F1 (LOW) — `math.Log1p`/`math.Expm1`. ⛔ WALLED 2026-07-13 (blocked on F5 + a float64-arith layer).**
+  cue exposes these as FLOAT64 (17-digit), NOT apd. Probe against cue v0.16.1: cue's output is Go's
+  **FDLIBM** `math.Log1p`/`math.Expm1` byte-for-byte (verified on the probe set AND on inputs where
+  FDLIBM diverges from the correctly-rounded value — cue tracks FDLIBM, e.g. `Log1p(57.77663217306205)`
+  → `4.073744363892741`, not the correctly-rounded `…274`). FDLIBM is NOT correctly-rounded: over 18 002
+  random in-domain inputs it differs from the round-to-nearest-f64 value on **749 (4.2%) Log1p / 1090
+  (6.1%) Expm1** cases (1 ULP). Consequence: the only route the **F2 kernel composes cheaply** — compute
+  `ln(1+x)`/`exp(x)−1` in high-precision apd, round to f64, shortest-render — yields the *correctly-rounded*
+  result, byte-off from cue on those ~4–6%, with NO eval-time way to know which inputs agree; so no safe
+  subset of transcendental values ships. F2's `BinFloat` gives correctly-rounded decimal→binary,
+  shortest binary→decimal, and formatting — but NO float64 arithmetic primitive (add/sub/mul/div with
+  round-half-even at 53 bits) and NO IEEE bit-word manipulation. Byte-parity therefore requires: (a) an
+  exact float64-arithmetic layer over `BinFloat` (each op IEEE round-to-nearest-even), (b) **F5's**
+  `Float64bits`/`Frombits` bit-word extraction/insertion (FDLIBM manipulates the raw hi/lo words +
+  exponent inserts directly), (c) faithful Lean ports of FDLIBM `Log1p` (k-reduction + 7-term `Lg1..Lg7`
+  poly) and `Expm1` (reduction + rational approx). A multi-slice campaign that **depends on F5 first** —
+  no longer a "wire the kernel" slice. Exact/special cases (`Log1p(0)=0`, `Expm1(0)=0`) and domain errors
+  (`Log1p(-1)`→`-Inf`, `Log1p(<-1)`→`NaN`, `Expm1`-overflow→`+Inf` — all cue-emit-Inf/NaN, kue bottoms,
+  same class as F0) match cleanly but were NOT shipped alone: a builtin that returns a value for one input
+  and defers the transcendental core is a hollow, misleading surface. Reorder: **F5 → F1**. Stays
+  `unresolvedOrBottom` (bare bottom on concrete arg — not even an `unsupportedBuiltin` marker today).
 - **F2 (MEDIUM) — the IEEE float64/32 kernel. ✅ LANDED 2026-07-12.** `Kue/Float.lean`: a `BinFloat`
   model (`(-1)^neg · mantissa · 2^binExp`, exact big-integer arithmetic, NO hardware `Float`),
   correctly-rounded decimal→binary (`decimalToFloat`, round-half-to-even, overflow→error /
