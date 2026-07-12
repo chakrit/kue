@@ -203,6 +203,31 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**DEF-CLOSEDNESS-NESTED-CONJ-ARM (HIGH soundness — SILENT closedness leak / over-acceptance; NEW,
+2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). OPEN — MILESTONE NOT substantiated.** A
+PARENTHESIZED (nested) `.conj`-of-struct-literals conjunct in a closed definition defeats the
+own-literal-union close, leaving the def OPEN so a use-site extra field leaks. `#X: {a:1} & ({b:2} &
+{d:4})` · `#X & {z:9}` ⇒ kue **`{a,b,d,z}`** (`kue export` succeeds, emits `z:9`), cue ⊥ (`z: field
+not allowed`). The FLAT form `#X: {a:1} & {b:2} & {d:4}` closes correctly (single already-merged
+`.conj [{a:1},{b:2},{d:4}]`, all `isUnionableDefValue`); the parens keep `{b:2} & {d:4}` a NESTED
+`.conj`. **Root:** `isUnionableDefValue` (`Kue/EvalBase.lean:1814`) accepts `.struct`/`.structComp`
+but NOT `.conj`, so `ownLiteralUnion`'s `cs.all` gate fails on the nested-conj conjunct → `close`
+false → def flattens OPEN. Same root, disjunction face: `disjArmClass (.conj _) = .blocking`, so a
+`.conj` disjunction arm is NOT distributed AND poisons its innocent struct-literal siblings' closedness
+(`#X: {a:1} & (({b:2}&{d:4}) | {c:3})` · `#X & {z:9}` ⇒ kue admits `z` in BOTH arms; cue ⊥). This is
+the residual the closedness-disjunction structural fixes (DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL) did
+NOT reach — a DIFFERENT mechanism (nested `.conj` conjunct, not a disjunction arm shape). **Fix
+direction:** recognize a `.conj` all of whose relevant conjuncts are field-carrying closables as
+itself unionable/distributable — either (a) recurse `isUnionableDefValue`/`disjArmClass` through
+`.conj` (a `.conj` of `.struct`/`.structComp` → merge-then-close, matching the flat-chain path), or
+(b) FLATTEN nested `.conj` conjuncts into the def body before the own-literal-union gate so `{a:1} &
+({b:2}&{d:4})` normalizes to the already-correct `[{a:1},{b:2},{d:4}]`. Prefer (b) if the normalize
+seam is clean — it deletes the special case rather than adding a parallel one, and fixes the
+disjunction face for free (a distributed `.conj` arm becomes its merged struct). Red seed:
+`testdata/wild/def-closedness-nested-conj-arm/` (`.known-red`, no-disjunction core). Add both faces
+(no-disj + disj-arm) as fixtures + `Bug2xTests` reject/select-admit guards; verify the flat-conj and
+disjunction-of-plain-struct-arm controls stay green (regression guards — they already close).
+
 **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH soundness — SILENT closedness leak; 2026-07-13 Phase A
 audit `f0ddb19`). ✅ LANDED (2026-07-13).** `isDistributableDisj` (`Kue/EvalBase.lean`) was all-or-nothing
 per disjunction: one non-whitelisted arm — a `.bound` (`>5`) or a list carrier (`[1,2]`) — made the WHOLE

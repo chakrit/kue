@@ -3,7 +3,22 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **LIST-BUILTIN-RESIDUALS — the last two known HIGH list-builtin soundness leaks CLOSED + the effectful
+HEAD: **Phase A audit (`8090707..b6c2d6f`) — MILESTONE "all soundness leaks closed" NOT substantiated
+(2026-07-13).** Adversarial per-surface probing found ONE residual HIGH soundness leak by a NEW mechanism
+(nested `.conj` conjunct — NOT a disjunction-arm shape, NOT a list-carrier). **DEF-CLOSEDNESS-NESTED-CONJ-ARM**
+(filed, plan.md top of ranked backlog): a PARENTHESIZED nested `.conj`-of-struct-literals conjunct in a closed
+def defeats the own-literal-union close → def stays OPEN → use-site extra leaks. `#X: {a:1} & ({b:2} & {d:4})`
+· `#X & {z:9}` ⇒ kue `{a,b,d,z}` (`kue export` emits `z:9`), cue ⊥. FLAT `{a:1} & {b:2} & {d:4}` closes
+correctly. Root: `isUnionableDefValue` (`Kue/EvalBase.lean:1814`) accepts `.struct`/`.structComp` but NOT
+`.conj`; disjunction face: `disjArmClass (.conj _) = .blocking` poisons innocent sibling arms too. `disjArmClass`
+completeness itself VERIFIED sound (exhaustive match, every arm classified right); the gap is the surrounding
+union/distribute gate not recursing into `.conj`. Fix direction: FLATTEN nested `.conj` in the def body before
+the gate (deletes the special case, fixes both faces). Red seed COMMITTED (quarantined):
+`testdata/wild/def-closedness-nested-conj-arm/`. Last-audit reconciliation clean (4 HIGH fixes landed, seeds
+graduated). **NEXT: DEF-CLOSEDNESS-NESTED-CONJ-ARM fix-slice (RED→GREEN both faces) → Phase B audit → LOW gaps.**
+Alpha HELD.
+
+Prior HEAD: **LIST-BUILTIN-RESIDUALS — the last two known HIGH list-builtin soundness leaks CLOSED + the effectful
 `EvalM` list path SWEPT for carrier-completeness (LANDED 2026-07-13).** (1) **LIST-SORT-EMBEDDED-CARRIER** (5th
 carrier-miss): `runSort` (`Kue/Eval.lean`) matched only `.list items`, so `list.Sort`/`SortStable` on an
 `.embeddedList`/`.listTail` DEFERRED ("incomplete value"); now routed through `listItems?` — all three carriers
@@ -21,13 +36,10 @@ not a builtin list-read. **The effectful path is now carrier-complete: NO 6th mi
 `list-sort-embedded-carrier/` + `list-uniqueitems-call/` RED→GREEN; `SortTests` `eval_list_sort_{embedded_list,
 stable_embedded_list,open_tail}`; `FixtureTests` `uniqueitems_call_*` + `uniqueitems_validator_form_unaffected`.
 `check.sh` GREEN, zero Sort/list/validator flips.
-**Milestone "all soundness leaks closed" — REACHED (pending audit confirmation).** These were the last two known
-HIGH silent-wrong-value leaks, and the EvalM carrier sweep found no 6th miss; both list-carrier surfaces (pure
-`Builtin` + effectful `EvalM`) now route every list read through `listItems?`. A two-phase audit CONFIRMS.
-**NEXT (ranked):** **two-phase audit DUE** (structural closedness + these list fixes un-audited — verify the
-milestone) → LOW gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED /
-DISJ-NESTED-ERROR-ARM-AMBIGUOUS) → PB-EVALBASE-SPLIT nav-debt → deferred float FDLIBM (chakrit's
-prioritization). **Alpha release HELD for chakrit (attended).**
+**Milestone "all soundness leaks closed" — REACHED for the list-carrier surface (pending audit confirmation).**
+These were the last two known HIGH list-builtin leaks. (SUPERSEDED for the WHOLE-language claim: the 2026-07-13
+Phase A milestone-reconfirmation found DEF-CLOSEDNESS-NESTED-CONJ-ARM — see HEAD. The closedness surface was
+NOT fully closed.)
 
 Prior HEAD: **DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL — the closedness-disjunction distribute leak CLASS closed
 STRUCTURALLY (LANDED 2026-07-13).** Replaced the hand-enumerated `isDistributableDisjArm` whitelist (which

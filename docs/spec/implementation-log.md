@@ -22478,3 +22478,56 @@ cue `true`; extended in `cue-divergences.md`).
 
 `check.sh` GREEN. Zero Sort/list/validator fixture flips. Both were the last two known HIGH
 soundness leaks; the sweep found no 6th carrier-miss — a two-phase audit confirms the milestone.
+
+---
+
+## Completed Slice: Phase A audit — MILESTONE NOT substantiated (nested-conj closedness leak) (2026-07-13)
+
+Phase A code-quality audit + milestone-reconfirmation over the batch `8090707..b6c2d6f`
+(DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL `d7fa2d4`, LIST-BUILTIN-RESIDUALS `b6c2d6f`). No code
+change; findings folded into `plan.md`, one red seed captured.
+
+**Last-audit reconciliation.** The `8090707` Phase A filed DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2
+(→`d7fa2d4`), LIST-SORT-EMBEDDED-CARRIER (→`b6c2d6f`), LIST-UNIQUEITEMS-CALL-FORM-BOTTOM
+(→`b6c2d6f`), DISJ-CLOSEDNESS-ERROR-ARM-LEAK (→`d7fa2d4`), DISJ-NESTED-ERROR-ARM-AMBIGUOUS (LOW,
+still OPEN). All four HIGH fixes LANDED (commit-confirmed); seeds graduated (wild
+`def-closedness-disj-{error,excluded}-arm-*`, `list-sort-embedded-carrier`, `list-uniqueitems-call`
+all present, no lingering `.known-red` for them — only unrelated `unreferenced-value-alias` and
+`byte-literal-interpolation` quarantines remain, mapping to the OPEN UNREFERENCED-ALIAS + a bytes
+item). OPEN backlog (PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS, LIST-ISSORTED,
+DISJ-NESTED-ERROR-ARM-AMBIGUOUS LOW, PB-EVALBASE-SPLIT, deferred float) intact.
+
+**`disjArmClass` completeness (d7fa2d4) — verdict: match is EXHAUSTIVE and every arm classified
+correctly, BUT the surrounding own-literal-union close has a gap.** The COMPLETE match over all 33
+`Value` constructors is machine-guaranteed (no catch-all; compiles). Per-constructor classification
+verified adversarially — every judgment call holds: `.refId → fieldCarryingOpen` is sound (a
+ref-to-scalar arm bottoms via open-compose at eval, `#S:3` · `{a:1} & (#S|{c:3})` ⇒ `{a:1,c:3}`,
+cue agrees); `.structComp → fieldCarryingClosed` correct; the `bottomsVsStruct` family closes the
+literal correctly (`struct.MinFields`, bounds, list carriers, `error`, regex/format/unique all
+reject use-site extras, cue agrees); `blocking` is the safe non-distributing default. Controls green:
+plain-struct-arm disjunction closes (`{a:1} & ({b:2}|{c:3})` · `{b:2,z:9}` ⇒ ⊥); a struct arm with a
+binary/computed field VALUE (`{b:1+1}`) still closes (the arm is a `.struct`, binary is inside).
+
+**MILESTONE RECONFIRMATION: NOT substantiated.** Adversarial per-surface probing found ONE residual
+HIGH soundness leak, by a DIFFERENT mechanism than the two structurally-closed classes
+(closedness-disjunction-arm, list-carriers) — exactly the class the prompt anticipated. Filed as
+**DEF-CLOSEDNESS-NESTED-CONJ-ARM** (plan.md, top of ranked backlog):
+
+- A PARENTHESIZED (nested) `.conj`-of-struct-literals conjunct in a closed def defeats the
+  own-literal-union close. `#X: {a:1} & ({b:2} & {d:4})` · `#X & {z:9}` ⇒ kue `{a,b,d,z}` (`kue
+  export` SUCCEEDS, emits `z:9`), cue ⊥. The FLAT `#X: {a:1} & {b:2} & {d:4}` closes correctly.
+- Root: `isUnionableDefValue` (`Kue/EvalBase.lean:1814`) accepts `.struct`/`.structComp` but NOT
+  `.conj`, so `ownLiteralUnion`'s `cs.all` gate fails on the nested-conj conjunct → def flattens
+  OPEN. Same root, disjunction face: `disjArmClass (.conj _) = .blocking` → a `.conj` disj arm is not
+  distributed AND poisons its innocent struct-literal siblings (`#X: {a:1} & (({b:2}&{d:4}) | {c:3})`
+  · `#X & {z:9}` ⇒ kue admits `z` in BOTH arms).
+- Boundary confirmed: embedding (`{a:1, #B}`), `close(…)`, disjunction-of-defs-with-default all
+  close correctly; only the nested-`.conj` conjunct leaks.
+- Red seed COMMITTED (quarantined): `testdata/wild/def-closedness-nested-conj-arm/` (`.known-red`,
+  no-disjunction core, `expected.err` = `conflicting values (bottom)`).
+
+Other surfaces probed with no residual: embedding closedness, close()-over-conj, disjunction of
+definitions + default, ref-to-scalar arm. `b6c2d6f` (Sort routing + UniqueItems call form) — fixtures
+green, spot-checked; no new issue.
+
+`check-fixtures.sh` GREEN (new seed properly QUARANTINED, skipped). Alpha HELD.
