@@ -22597,3 +22597,38 @@ fix) is the preceding slice; this entry records the audit passes.
   UNREFERENCED-ALIAS / LIST-ISSORTED), then PB-EVALBASE-SPLIT (a) as nav-debt filler; float
   feature-completion leads on completeness but is chakrit-gated. Milestone "all soundness leaks closed"
   RE-REACHABLE, not claimed — next audit's adversarial sweep confirms.
+
+---
+
+## Audit Slice: Phase A milestone-reconfirmation (DEF-CLOSEDNESS-NESTED-CONJ residual), 2026-07-13
+
+Phase A code-quality audit over `a083de8..ee6edf8` (1 code slice `345f08b` + `ee6edf8` cleanups),
+run as the standing MILESTONE CONFIRMATION for "all known soundness leaks closed."
+
+**Last-audit reconciliation — clean.** `345f08b` (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed; both wild
+seeds present; the four new helpers (`flattenConjMembers`/`pureStructConjMembers`/`mergeDefBodyDisjArm`/
+`normalizeDefBodyConjunct`) are total, `| _ =>` used only in Bool/Option probe helpers (no
+Value-producing catch-all). ClosednessTests move is theorem-count-CONSERVED: 35 theorems removed from
+`Bug2xTests`, 44 added to `ClosednessTests` — 35 moved + 9 new `defflatten_nestedconj_*` = 44; nothing
+dropped. `345f08b`'s splice/merge/open-member/non-def/mixed-ref behaviour verified sound against cue
+v0.16.1 (conjunct face F1, depth-3, all-closed-closes, open-member-stays-open, non-def-field-unchanged,
+mixed-ref-composes). OPEN backlog intact.
+
+**MILESTONE NOT substantiated — residual found (DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL, HIGH, filed in
+plan.md).** The `345f08b` normal form runs only inside `flattenConjDefRef`'s `| .conj rawCs =>` arm, so
+two def-body shapes bypass it and still leak a parenthesized nested `.conj`:
+- Bare-`.disj` def body: `#X: ({b:2}&{d:4}) | {c:3}` · `#X & {z:9}` ⇒ kue `{y:{b:2,d:4,z:9}}`, cue ⊥.
+- Buried-self-ref nested `.conj`: `#X: {a:1} & (#X & {b:2})` · `#X & {z:9}` ⇒ kue `{y:{a:1,b:2,z:9}}`,
+  cue ⊥.
+Red seeds committed `.known-red`: `testdata/wild/def-closedness-bare-disj-conj-arm/`,
+`testdata/wild/def-closedness-buried-selfref-conj/`.
+
+**Adversarial sweep otherwise CLEAN (evidence the residual is the SOLE remaining Phase-A leak).** All
+matched cue v0.16.1: closedness corners — embed-def `{#B,c:1}`, def-unify-def disjoint fields, `close()`,
+comprehension-produced field, optional+extra, hidden-field, pattern-constraint; disjunction — default +
+closedness, 3-deep; non-closedness — struct-comp, scalar-embed-into-struct (⊥), bounds-unification chain
+(incomplete), list interpolation (⊥), bytes concat, big-int mul, div-by-zero (⊥), negative mod. The two
+nested-`.conj`-bypass shapes are the only divergences.
+
+No code change this audit (findings → plan.md fix-slice; red seeds captured). Full `check.sh` re-run
+green with the two new quarantined seeds. Alpha HELD (residual open).

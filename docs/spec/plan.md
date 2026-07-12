@@ -227,8 +227,10 @@ graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit 
   **PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS (graduates its `.known-red` seed) / LIST-ISSORTED** —
   cheap, parallel-safe, closes real spec-conformance gaps; then PB-EVALBASE-SPLIT (carve (a)) as
   nav-debt filler. Float feature-completion (F1→F3→F5) leads on completeness but is chakrit-GATED.
-  **Milestone "all soundness leaks closed" is RE-REACHABLE (this leak was the sole Phase-A residual);
-  NOT claimed here — next audit's adversarial sweep confirms.** Test health: BuiltinTests (1759) nearest
+  **Milestone "all soundness leaks closed" is NOT reached — the next audit's adversarial sweep
+  (2026-07-13 Phase A, below) BROKE it: `345f08b` fixed the nested-`.conj` closedness leak only for a
+  `.conj` DEF BODY; a bare-`.disj` def body and a buried-self-ref nested `.conj` both still leak.**
+  See DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL below (HIGH). Test health: BuiltinTests (1759) nearest
   the 1800 cap (PB-TESTORG-4); two `.known-red` seeds remain (`unreferenced-value-alias`,
   `byte-literal-interpolation`).
 
@@ -272,6 +274,42 @@ disjunction face for free (a distributed `.conj` arm becomes its merged struct).
 `testdata/wild/def-closedness-nested-conj-arm/` (`.known-red`, no-disjunction core). Add both faces
 (no-disj + disj-arm) as fixtures + `Bug2xTests` reject/select-admit guards; verify the flat-conj and
 disjunction-of-plain-struct-arm controls stay green (regression guards — they already close).
+
+**DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL (HIGH soundness — SILENT closedness leak / over-acceptance;
+NEW, 2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). OPEN — MILESTONE NOT substantiated.** The
+`345f08b` normal-form fix closes the nested-`.conj` leak ONLY when the definition body is a `.conj`
+(where `normalizeDefBodyConjunct` runs inside `flattenConjDefRef`'s `| .conj rawCs =>` arm). Two
+def-body shapes bypass that arm and still leak a use-site extra past a parenthesized nested `.conj`:
+- **(a) Bare-`.disj` def body.** `#X: ({b:2} & {d:4}) | {c:3}` · `#X & {z:9}` ⇒ kue emits
+  `{y:{b:2,d:4,z:9}}` (exit 0); cue ⊥ (`z: field not allowed`). Same with the nested-`.conj` in the
+  SECOND arm. When the def body IS a bare `.disj` (not `struct & disj`), `Field.value field` is
+  `.disj`, matched by `flattenConjDefRef`'s `| _ => [constraint]` — it never enters the `.conj` arm,
+  so the disj's nested-`.conj` arm is never merged and `disjArmClass (.conj _) = .blocking` still
+  poisons distribution. The `345f08b` disj-arm fixture uses the WRAPPED form `{a:1} & ((…)|{c:3})`
+  (which DOES enter the `.conj` arm), so it passes while the bare form leaks. Controls that already
+  close: bare-`.disj` with PLAIN struct arms (`#X: {b:2} | {c:3}`) and the wrapped form.
+- **(b) Buried-self-ref nested `.conj`.** `#X: {a:1} & (#X & {b:2})` · `#X & {z:9}` ⇒ kue emits
+  `{y:{a:1,b:2,z:9}}`; cue ⊥. The def resolves to the closed `{a,b}` (verified `#X & {a:1,b:2}` ⇒
+  ok), but the buried-self-ref guard returns the body UNEXPANDED (to avoid unrolling the self-ref),
+  so the own-literal-union close never runs and closedness is dropped. The FLAT form
+  `#X: {a:1} & #X & {b:2}` closes correctly (top-level self-ref → `expanding`/close-over-literals
+  path).
+
+**Root (shared):** closedness of a def body is recovered ONLY on the `.conj`-conjunct normalization /
+cross-product-disj path; any def-body shape that reaches the closedness fold by a different exit
+(bare-`.disj` body → `| _ => [constraint]`; buried-self-ref → unexpanded `[constraint]`) sees the
+raw nested `.conj` and does not close it. **Fix direction:** apply the def-body normal form
+(`normalizeDefBodyConjunct` / the merge of a pure-struct `.conj` disj arm) on the bare-`.disj`-body
+path too — i.e. normalize a DEFINITION body regardless of whether its top constructor is `.conj` or
+`.disj` — and re-derive the buried-self-ref case's closedness from its own struct literals without
+unrolling the self-ref (the top-level-self-ref close path already does this; extend it to the buried
+case). Red seeds committed `.known-red`: `testdata/wild/def-closedness-bare-disj-conj-arm/` and
+`testdata/wild/def-closedness-buried-selfref-conj/`. Add `ClosednessTests` reject / select-admit /
+flat-and-plain-disj control guards for both faces; graduate both seeds in the fixing slice. Broad
+adversarial sweep otherwise CLEAN (closedness embed-def / def-unify-def / close() / comprehension /
+optional / hidden / pattern-constraint corners; disj default+closedness, 3-deep; number precision,
+struct-comp, scalar-embed, bounds chains, interpolation, bytes, big-int, div-by-zero, mod — all
+match cue v0.16.1), so these two shapes are the SOLE remaining Phase-A residual.
 
 **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH soundness — SILENT closedness leak; 2026-07-13 Phase A
 audit `f0ddb19`). ✅ LANDED (2026-07-13).** `isDistributableDisj` (`Kue/EvalBase.lean`) was all-or-nothing
