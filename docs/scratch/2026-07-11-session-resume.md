@@ -3,7 +3,26 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **BOUND-OPERAND-CLASSIFY — soundness regression FIXED (LANDED 2026-07-12).** Split
+HEAD: **BINARY-CMP-OPERAND — ordered-comparison operand-typing soundness FIXED (LANDED 2026-07-12).**
+`evalPrimitiveOrdering`'s retain-everything catch-all accepted a ground non-scalar in `< <= > >=` as
+incomplete (`1 < [1,2]`, `{a:1} > 3` retained) where cue v0.16.1 errors. Split into
+`.incomplete,_`/`_,.incomplete => .binary` (abstract-wins retain) BEFORE `.nonScalar,_`/`_,.nonScalar =>
+.bottom` — ⊥ only when BOTH operands decided + one non-ordered; abstract on either side retains
+(`[1,2] < a`, a abstract, KEPT — cue-confirmed). Matrix measured vs cue: cross-family ground pairs ⊥,
+same-type bool/null/list/struct ⊥, ordered-comparable compute, abstract retains. EQUALITY left untouched
+(total across types: `1==[1,2]`⇒false, `1!=[1,2]`⇒true). 2 wild fixtures RED→GREEN
+(`binary-cmp-{list,struct}-operand`) + 7 EvalOpsTests theorems (⊥ + both-dir retain + 2 equality).
+**Operand-typing soundness cluster is now CLOSED** — unary bound/regex/arith (BOUND-OPERAND-CLASSIFY)
+AND binary comparison (this) both sound; the "flagged sibling follow-up" is discharged.
+**Measured-but-not-fixed:** bytes ordered comparison `'a' < 'b'` ⇒ cue `true`, kue `_|_` — a kue BUG
+(not a divergence), filed as **BINARY-CMP-BYTES (LOW)** in plan.md (add `bytesOp` across the four call sites).
+**NEXT (ranked, PIVOT AWAY from operand-typing):** remaining core probes — **structural cycles**
+(cycle-through-comprehension, disjunction-guarded cycles) and **scoping/reference-resolution** (shadowing
+across `let`/field/comprehension-var/alias, hidden-field scope); then **BOUND-ORDEREDPRIM** (LOW
+type-tightening, ~60-site `OrderedPrim` retype) and **BINARY-CMP-BYTES** (LOW); then F1/F3/F5 float; then
+LOW audit findings (PA-ESC-2 / PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4).
+
+Prior HEAD: **BOUND-OPERAND-CLASSIFY — soundness regression FIXED (LANDED 2026-07-12).** Split
 `ScalarOperandClass.defer` into `.incomplete` (retain the residual `.unary`) vs `.nonScalar`
 (`.list`/`.listTail`/`.embeddedList`/`.struct`). `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/
 `evalNumNeg` now ⊥ a ground list/struct (was fabricating `<[1,2]`/`<{a:1}`/`=~[1]`/`-[1,2]`);
@@ -14,7 +33,8 @@ retain guards for neOp/top/disj). `=~5` micro-divergence logged in cue-divergenc
 discharged. **NEXT (ranked): `BOUND-ORDEREDPRIM` (LOW)** —
 `OrderedPrim` bound-operand retype (~60-site refactor; complements, does NOT subsume, the classifier).
 Then the flagged binary-comparison sibling (`1 < [1,2]` retains where cue errors — same class, different
-path, filed by Phase B); remaining core probes (structural cycles, scoping); F1/F3/F5; LOW audit findings
+path, filed by Phase B) [DISCHARGED: BINARY-CMP-OPERAND ✅ LANDED 2026-07-12, see HEAD above]; remaining
+core probes (structural cycles, scoping); F1/F3/F5; LOW audit findings
 (PA-ESC-2 / PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4).
 Prior HEAD (last CODE slice): **PATTERN-BOUND-OPERAND — comparator bounds over any ordered type (LANDED 2026-07-12).**
 Comparator bounds (`< <= > >= != =~`) now apply to ANY ordered type and to non-literal operands;

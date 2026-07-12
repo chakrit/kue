@@ -20836,3 +20836,54 @@ proving the `.nonScalar`/`.incomplete` split correct in both directions. `=~5` m
 (kue ⊥ vs cue-retained, kue more spec-correct) logged in `cue-divergences.md`.
 
 `./scripts/check.sh` fully green; zero existing fixtures/theorems flipped.
+
+## Completed Slice: BINARY-CMP-OPERAND — ground non-scalar in ordered comparison ⊥, not retained
+
+2026-07-12. Discharges the flagged sibling follow-up of BOUND-OPERAND-CLASSIFY (same
+soundness class — an ill-typed operation accepted as incomplete — different code path:
+`evalPrimitiveOrdering`, not the unary lowerings). `1 < [1,2]` / `{a:1} > 3` RETAINED a
+fabricated `.binary` residual where cue v0.16.1 hard-errors (`invalid operands … (type int
+and list)`).
+
+### Matrix measured vs cue v0.16.1 (ordered `< <= > >=`)
+
+Every cross-family GROUND pair errors: number×{list,struct,bool,null,string,bytes},
+string×{number,bytes,bool,null,list}, bytes×{number,string}, and same-type non-ordered
+(bool×bool, null×null, list×list, struct×struct) — all ⊥. Ordered-comparable ground pairs
+(number×number, string×string, bytes×bytes) compute. ABSTRACT operands RETAIN: a reference
+to an abstract value (`a: int; b: a < 5` ⇒ kept) and — critically — a ground non-scalar
+meeting an abstract operand (`[1,2] < a`, a abstract ⇒ cue KEEPS it). So the ⊥ fires ONLY
+when BOTH operands are decided (prim or non-scalar) and at least one is non-ordered;
+`.incomplete` on either side wins and retains.
+
+### Fix
+
+`evalPrimitiveOrdering`'s retain-everything catch-all (`| _, _ => .binary op left right`)
+splits into four ordered class-arms: `.incomplete, _ => .binary` and `_, .incomplete =>
+.binary` (abstract-wins retain) precede `.nonScalar, _ => .bottom` and `_, .nonScalar =>
+.bottom` (both-ground non-ordered ⊥). The two ground prims arm and the bottom-propagation
+arms are unchanged; the pair-match stays exhaustive over `ScalarOperandClass` with no
+`Value` catch-all. EQUALITY (`==`/`!=`) is UNTOUCHED and separately verified: `evalEq` is
+total across types (structural `Prim ==` / `concreteEq` ⇒ `false` cross-type, `evalNe`
+negates ⇒ `true`); cue agrees (`1 == [1,2]` ⇒ false, `1 != [1,2]` ⇒ true), so the ordered
+⊥ must NOT leak into equality — pinned by two new guards.
+
+### Tests
+
+Wild guards (RED→GREEN in-slice, no `.known-red`): `testdata/wild/binary-cmp-list-operand/`
+(`x: 1 < [1,2]`), `binary-cmp-struct-operand/` (`x: {a:1} > 3`) — both pin the ⊥ verdict.
+Seven new `EvalOpsTests` theorems: list-right/struct-left/both-nonscalar ⇒ ⊥; two
+both-direction retain guards (`.nonScalar` vs `.incomplete` and the reverse RETAIN, proving
+the fix never bottoms an abstract operand); two equality guards (`1 == [1,2]` ⇒ false,
+`1 != [1,2]` ⇒ true).
+
+### Divergence noted (not fixed here — separate follow-up)
+
+Bytes ordered comparison: `'a' < 'b'` ⇒ cue `true`, kue `_|_`. `evalPrimitiveOrdering`
+threads only a `decimalOp`+`stringOp`; bytes fall through to ⊥. This is a kue BUG (kue
+LESS spec-correct — spec makes bytes an ordered type), not an intentional divergence, so it
+is filed as BINARY-CMP-BYTES in the plan, not in `cue-divergences.md`. Fix is a signature
+change (add `bytesOp`) across the four `.lt/.le/.gt/.ge` call sites — out of this soundness
+slice's scope.
+
+`./scripts/check.sh` fully green; zero existing fixtures/theorems flipped.

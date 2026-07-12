@@ -404,7 +404,10 @@ def evalPrimitiveOrdering
   | _, .bottom => .bottom
   | .bottomReasons reasons, _ => .bottomWith reasons
   | _, .bottomReasons reasons => .bottomWith reasons
-  | _, _ => .binary op left right
+  | .incomplete, _ => .binary op left right
+  | _, .incomplete => .binary op left right
+  | .nonScalar, _ => .bottom
+  | _, .nonScalar => .bottom
 
 def evalRegexMatch (left right : Value) : Value :=
   match classifyScalarOperand left, classifyScalarOperand right with

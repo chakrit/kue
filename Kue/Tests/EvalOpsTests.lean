@@ -331,6 +331,56 @@ theorem eval_lt_incomplete_defers :
       == .binary .lt (.kind .int) (.prim (.int 2))) = true := by
   native_decide
 
+-- BINARY-CMP-OPERAND. An ordered comparison (`< <= > >=`) requires BOTH operands to be
+-- ordered scalars. A GROUND non-scalar (list/struct) meeting a ground/comparable operand
+-- is a type error → ⊥, NOT a fabricated `.binary` residual — cue: `invalid operands …
+-- (type int and list)`. The `.nonScalar` arm of `evalPrimitiveOrdering` replaces the
+-- former retain-everything catch-all. Both operand positions + both list/struct shapes.
+
+theorem eval_lt_list_operand_right_bottoms :
+    (evalBinary .lt (.prim (.int 1)) (.list [.prim (.int 1), .prim (.int 2)])
+      == .bottom) = true := by
+  native_decide
+
+theorem eval_gt_struct_operand_left_bottoms :
+    (evalBinary .gt (.struct [⟨"a", .regular, .prim (.int 1), false⟩] .regularOpen none [] [])
+        (.prim (.int 3))
+      == .bottom) = true := by
+  native_decide
+
+theorem eval_le_both_nonscalar_bottoms :
+    (evalBinary .le (.list [.prim (.int 1)]) (.list [.prim (.int 2)]) == .bottom) = true := by
+  native_decide
+
+-- BOTH-DIRECTION RETAIN GUARDS. `.incomplete` on EITHER side wins over `.nonScalar` — a
+-- ground list compared against a genuinely-abstract operand still RETAINS (the abstract
+-- side may refine to a comparable scalar), matching cue (`[1,2] < a`, a abstract, is kept).
+-- Proves the fix bottoms only when BOTH sides are decided, never an abstract operand.
+
+theorem eval_lt_nonscalar_vs_incomplete_retains :
+    (evalBinary .lt (.list [.prim (.int 1), .prim (.int 2)]) (.kind .int)
+      == .binary .lt (.list [.prim (.int 1), .prim (.int 2)]) (.kind .int)) = true := by
+  native_decide
+
+theorem eval_lt_incomplete_vs_nonscalar_retains :
+    (evalBinary .lt (.kind .int) (.list [.prim (.int 1), .prim (.int 2)])
+      == .binary .lt (.kind .int) (.list [.prim (.int 1), .prim (.int 2)])) = true := by
+  native_decide
+
+-- EQUALITY is TOTAL across types (never ⊥, never retain for ground operands): cross-type
+-- `==` is `false`, `!=` is `true` — cue: `1 == [1,2]` ⇒ `false`, `1 != [1,2]` ⇒ `true`.
+-- Pins that the ordered-comparison ⊥ fix does NOT leak into `==`/`!=`.
+
+theorem eval_eq_int_vs_list_false :
+    (evalEq (.prim (.int 1)) (.list [.prim (.int 1), .prim (.int 2)]) == .prim (.bool false))
+      = true := by
+  native_decide
+
+theorem eval_ne_int_vs_list_true :
+    (evalNe (.prim (.int 1)) (.list [.prim (.int 1), .prim (.int 2)]) == .prim (.bool true))
+      = true := by
+  native_decide
+
 -- `==` over distinct ints is `false`.
 theorem eval_eq_int_distinct_false :
     (evalEq (.prim (.int 1)) (.prim (.int 2)) == .prim (.bool false)) = true := by

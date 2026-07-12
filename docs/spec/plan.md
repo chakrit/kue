@@ -545,7 +545,8 @@ designed here as ONE coherent fix, split into TWO ranked slices — soundness fi
   scalar-arith/bound/regex ops; `neOp` treats them the same. The other `classifyScalarOperand` consumers
   (`evalBoolNot`/`evalPrimitiveOrdering`/`evalBoolBinary`/binary `evalRegexMatch`) absorb `.nonScalar`
   into their existing deferred/retain arm — behavior preserved; the binary-comparison latent case
-  (`1 < [1,2]` currently retains, cue errors) is a FLAGGED sibling follow-up, out of this slice's scope.
+  (`1 < [1,2]` retains, cue errors) was a FLAGGED sibling follow-up — **DISCHARGED as BINARY-CMP-OPERAND
+  ✅ LANDED (2026-07-12), see below.**
   Spec basis: CUE grammar `rel_op UnaryExpr` requires the operand resolve to an ordered scalar
   (number/string/bytes) for `< <= > >=` and a string for `=~`; a resolved list/struct is a type error, not
   an incomplete. Also record the `=~5` micro-divergence (kue ⊥ vs cue `=~5`, kue MORE spec-correct) in
@@ -555,6 +556,30 @@ designed here as ONE coherent fix, split into TWO ranked slices — soundness fi
   boundOp/regexMatchOp/numPos/numNeg AND a `neq_list_operand_retains` pin that `!=[1,2]` stays a residual —
   closing the coverage gap where `eval_bound_op_non_ordered_operand_bottoms` tests only `.bool`. Small
   (one classifier + four op arms), test-first, independent of `OrderedPrim` below.
+
+- **BINARY-CMP-OPERAND (MEDIUM soundness — the BOUND-OPERAND-CLASSIFY sibling). ✅ LANDED (2026-07-12).**
+  `evalPrimitiveOrdering`'s retain-everything catch-all (`| _, _ => .binary op left right`) accepted a
+  ground non-scalar operand in an ordered comparison as incomplete (`1 < [1,2]`, `{a:1} > 3` retained)
+  where cue v0.16.1 hard-errors. Fix: split the catch-all into `.incomplete, _`/`_, .incomplete => .binary`
+  (abstract-wins retain) BEFORE `.nonScalar, _`/`_, .nonScalar => .bottom` (both-ground non-ordered ⊥) —
+  ⊥ fires only when BOTH operands are decided and one is non-ordered; abstract on either side retains
+  (cue-confirmed: `[1,2] < a`, a abstract, is KEPT). **Matrix measured vs cue v0.16.1:** every cross-family
+  GROUND ordered pair ⊥s (number/string/bytes × any incomparable, and same-type bool/null/list/struct);
+  ordered-comparable ground pairs compute; abstract operands (ref-to-kind, or non-scalar vs abstract)
+  retain. EQUALITY (`==`/`!=`) verified SEPARATELY and left untouched — total across types (`1 == [1,2]` ⇒
+  false, `1 != [1,2]` ⇒ true), the ordered ⊥ must not leak into it. Wild fixtures
+  `testdata/wild/binary-cmp-{list,struct}-operand/` (RED→GREEN); 7 EvalOpsTests theorems (⊥ + both-direction
+  retain guards + 2 equality guards).
+
+- **BINARY-CMP-BYTES (LOW correctness — bytes ordered comparison; kue BUG). OPEN.** Discovered while
+  measuring the BINARY-CMP-OPERAND matrix: `'a' < 'b'` ⇒ cue `true`, kue `_|_`. `evalPrimitiveOrdering`
+  threads only `decimalOp`+`stringOp`; a bytes×bytes pair finds no decimal/string compare and falls to ⊥.
+  Spec makes `bytes` an ordered type (`< <= > >=` defined for number/string/bytes), so kue is WRONG to
+  bottom a valid bytes comparison. Fix: add a `bytesOp : Array UInt8 → Array UInt8 → Bool` parameter
+  threaded through the four `.lt/.le/.gt/.ge` call sites in `evalBinary`, with lexical byte-array compare.
+  Not folded into BINARY-CMP-OPERAND (that slice is incomparable→⊥ soundness; this is a missing-feature
+  signature change, opposite direction). Test-first: wild fixture `'a' < 'b'` ⇒ `true`, plus le/gt/ge +
+  unequal-length lexical pins.
 
 - **BOUND-ORDEREDPRIM (LOW illegal-states — the designed PA-BOUND-DOMAIN-TYPE fix; lands AFTER
   BOUND-OPERAND-CLASSIFY).** Retype the bound operand: `inductive OrderedPrim | number (value :
