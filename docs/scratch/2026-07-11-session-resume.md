@@ -3,7 +3,30 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **BINARY-CMP-OPERAND — ordered-comparison operand-typing soundness FIXED (LANDED 2026-07-12).**
+HEAD: **SCOPING-PROBE — scoping / reference-resolution surface MEASURED, four defects seeded (2026-07-12).**
+Systematic differential vs cue v0.16.1 over lexical scoping + reference resolution. Clean majority PINNED
+(6 byte-identical `testdata/export/scoping_*.{cue,json}`: forward `let`→`let`/`let`→field visibility,
+comprehension-var nested shadow, hidden-field ref scope, field value alias `X.b`, reducible field
+self-cycle→top `x: x & {a:1}`⇒`{a:1}`). **Four RED defects seeded (`.known-red`, all filed in plan.md
+§ SCOPING/REFERENCE-RESOLUTION PROBE):** (1) **SELF-CONJ-CYCLE (HIGH, wrong value)** — `x:1; x: x & int`
+⇒ kue `_|_`, cue `{x:1}`; multi-declaration merge doesn't hit the `slotVisited⇒truncate .top` self-cycle
+guard the single form does; core `Kue/Eval.lean` `.refId` self-detect ⨯ field merge, mechanism non-obvious.
+(2) **LET-CYCLE-ERROR (MED, too lenient)** — `let a = a` / mutual let cycles ⇒ cue errors, kue collapses to
+top; `buildFrame` erases `.letBinding` so a struct-level `let` self-resolves like a field. (3)
+**PATTERN-LABEL-ALIAS (MED, parse+feature)** — `[Name=string]: {n: Name}` unparseable (`parsePatternField`,
+`Kue/Parse.lean:1788`); cue binds the label. (4) **UNREFERENCED-ALIAS (LOW, missing validation)** — `a: X=1`
+unreferenced ⇒ cue errors, kue accepts. Spec-gap SELF-CYCLE-ARITH-RENDER recorded (`a: a+1` kue `_+1` vs
+cue `a+1`, display-only). No product-code change (measurement slice). Committed on `main`.
+🚨 **ALPHA RELEASE DUE (attended action at this checkpoint):** last cut `v0.1.0-alpha.20260707.1`; major work
+landed since (F2 IEEE-float kernel, F4 float form, operand-typing soundness cluster, MANIFEST-FIELDCOUNT,
+this probe). Recommend `scripts/release.sh` (+ `release-linux.sh`) at the next clean point — attended.
+**NEXT (ranked):** the four seeded scoping fix-slices — **SELF-CONJ-CYCLE** first (HIGH, wrong value; trace
+the merged-field self-cycle guard) → **PATTERN-LABEL-ALIAS** / **LET-CYCLE-ERROR** (MED) → **UNREFERENCED-ALIAS**
+(LOW). Also remaining: structural-cycle spot-check (cycle-through-comprehension / disjunction-guarded);
+**BOUND-ORDEREDPRIM** (LOW type-tightening), **BINARY-CMP-BYTES** (LOW); F1/F3/F5 float; LOW audit findings
+(PA-ESC-2 / PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4).
+
+Prior HEAD: **BINARY-CMP-OPERAND — ordered-comparison operand-typing soundness FIXED (LANDED 2026-07-12).**
 `evalPrimitiveOrdering`'s retain-everything catch-all accepted a ground non-scalar in `< <= > >=` as
 incomplete (`1 < [1,2]`, `{a:1} > 3` retained) where cue v0.16.1 errors. Split into
 `.incomplete,_`/`_,.incomplete => .binary` (abstract-wins retain) BEFORE `.nonScalar,_`/`_,.nonScalar =>

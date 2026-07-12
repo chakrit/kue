@@ -1104,6 +1104,52 @@ folding four Phase-B findings.
   carry no `Value`; the gap was never the reference walk.) Fixtures `import_bare_pkgname_mismatch`
   (expected.err) + `import_qualifier_pkgname_rescue`.
 
+### SCOPING / REFERENCE-RESOLUTION PROBE (2026-07-12) — four defects seeded, clean majority pinned
+
+Systematic differential hunt over CUE lexical scoping + reference resolution vs cue v0.16.1
+(shadowing, `let` scoping, field/value aliases, pattern label aliases, hidden fields,
+comprehension-var scope, cross-scope refs, self/mutual cycles). **Value-level CONFORMANT**
+across most of the matrix — MEASURED + pinned (`testdata/export/scoping_*.{cue,json}`):
+inner-field shadowing (`z: x` picks nearest), comprehension-var shadowing an outer field +
+nested-`for` shadowing, forward `let`→`let` and `let`→later-field visibility, `let` in a
+comprehension, hidden-field (`_x`) reference scope, field value alias (`X={…}` ref `X.b`),
+field self-cycle → top (`x: x & {a:1}` ⇒ `{a:1}`, `x: x & int` ⇒ `int`), hidden-vs-regular
+same-name namespaces, ref resolving up the scope chain, `let`/field shadow load-error (both
+directions, pre-pinned). **Four defects found + seeded RED** (`.known-red`, all filed below):
+
+- **SELF-CONJ-CYCLE (HIGH correctness — wrong value; kue BUG). OPEN.** A multiply-declared
+  field whose one declaration self-references inside a conjunction (`x: 1` + `x: x & int`)
+  ⇒ kue `_|_` where cue resolves self→top and yields `{x: 1}`. The single-declaration
+  self-cycle (`x: x & int` alone) already collapses to `int` correctly; the bug is specific
+  to the same-name merge path interacting with the eval self-cycle / `visited` guard.
+  Mechanism non-obvious (core `Kue/Eval.lean` `.refId` self-detection ⨯ field merge) — NOT
+  forced in the probe. Seed `testdata/wild/self-conj-cycle/` (`{"x":1}`). Fix: trace why the
+  merged-field self-ref isn't hitting the `slotVisited ⇒ truncate .top` path the single form
+  hits; pin RED→GREEN + add `EvalTests` self-cycle-in-multiconjunct theorems.
+- **LET-CYCLE-ERROR (MEDIUM — missing load error; kue too lenient). OPEN.** A `let` binding
+  is not in scope in its own RHS: `let a = a` ⇒ cue `reference "a" not found`; mutual
+  `let a = c; let c = a` ⇒ cue `cyclic references in let clause or alias`. kue represents a
+  struct-level `let` as a field in the shared scope frame, so the RHS self-resolves and the
+  FIELD reference-cycle rule (self→top) fires, masking the error (`b: _`). Needs a let-vs-field
+  distinction in the scope model (`Kue/Resolve.lean` `buildFrame` erases the `.letBinding`
+  class) + let-cycle detection. Seed `testdata/wild/let-self-cycle-error/`.
+- **PATTERN-LABEL-ALIAS (MEDIUM — missing feature + parse gap). OPEN.** `[Name=string]: {n: Name}`
+  binds `Name` to each matched field's concrete label. kue cannot PARSE the `[ident=expr]`
+  label-alias form (`parsePatternField` at `Kue/Parse.lean:1788` reads the label via
+  `parseExpression`, which has no `ident=` prefix rule) — cue ⇒ `{"foo":{"n":"foo"}}`. Fix:
+  parse the optional `ident=` alias in the `[…]` label, push it as a scope binder over the
+  constraint body, and bind the label string per matched field at eval (a new per-label
+  binding mechanism). Seed `testdata/wild/pattern-label-alias/`.
+- **UNREFERENCED-ALIAS (LOW — missing validation; kue too lenient). OPEN.** A value alias
+  never referenced (`a: X=1`) is a CUE load error (`unreferenced alias or let clause X`);
+  kue silently accepts. The alias analog of the unused-import error kue already enforces —
+  a use-tracking pass over aliases/lets in each scope. Seed
+  `testdata/wild/unreferenced-value-alias/`.
+
+Spec-silent RENDERING note recorded in `cue-spec-gaps.md`: an irreducible self-cycle in an
+arithmetic context (`a: a + 1`) is semantically top→`_ + 1` (kue prints the substituted
+form); cue reprints the original `a + 1`. Values identical (both incomplete); render differs.
+
 ### COMPREHENSION/EMBEDDING/PATTERN CONFORMANCE PROBE (2026-07-04) — area clean, one parser gap seeded
 
 Bounded divergence hunt over `for`/`if`/`let` comprehensions, struct embedding, and pattern

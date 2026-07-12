@@ -20887,3 +20887,59 @@ change (add `bytesOp`) across the four `.lt/.le/.gt/.ge` call sites — out of t
 slice's scope.
 
 `./scripts/check.sh` fully green; zero existing fixtures/theorems flipped.
+
+## Completed Slice: SCOPING-PROBE — scoping / reference-resolution differential (measure + seed)
+
+Systematic differential hunt over CUE lexical scoping + reference resolution vs cue v0.16.1
+— shadowing (field/`let`/comprehension-var/alias), `let` scoping (self, sibling, forward,
+mutual, in-comprehension, in-nested-struct), field vs value aliases, pattern label aliases,
+hidden fields (`_x`), comprehension-var scope + nested shadowing, `if`-guard over a
+comprehension var, ref resolution up the lexical chain, and self/mutual reference cycles.
+No code change (a MEASUREMENT slice): pinned the clean majority, seeded four RED defects.
+
+### Coverage read (what was already pinned)
+
+Structural cycles heavily covered (`Bug2xTests`); comprehension/closedness/pattern
+constraints probed 2026-07-04 & 2026-07-12; `let`/alias-vs-field load-shadow (both
+directions) pinned (`TwoPassTests` `noshadow_*`); reference→`BindingId` resolution
+(`ResolveTests`). Reference/comprehension scoping had NO end-to-end value guards — this slice
+adds them.
+
+### Findings (each spec-adjudicated vs cue v0.16.1, cue FALLIBLE)
+
+- **SELF-CONJ-CYCLE (kue BUG, wrong value).** `x: 1` + `x: x & int` ⇒ kue `_|_`, cue `{x:1}`
+  (self→top: `x & int` = `_ & int` = `int`, unified with `1` = `1`). The single-declaration
+  self-cycle already works (`x: x & int` alone ⇒ `int`); the multi-declaration merge path
+  fails to hit the `slotVisited ⇒ truncate .top` guard. Mechanism non-obvious (core
+  `Kue/Eval.lean` `.refId` self-detection ⨯ same-name field merge) — seeded, not forced.
+- **LET-CYCLE-ERROR (kue too lenient, missing error).** `let a = a` ⇒ cue `reference "a" not
+  found`; mutual `let a = c; let c = a` ⇒ cue `cyclic references in let clause`. kue frames a
+  struct-level `let` as a field (`buildFrame` erases `.letBinding`), so the RHS self-resolves
+  and the FIELD self→top rule masks the error. Needs let-vs-field scope distinction + cycle
+  detection.
+- **PATTERN-LABEL-ALIAS (kue missing feature + parse gap).** `[Name=string]: {n: Name}` binds
+  `Name` to each matched label. kue cannot parse the `[ident=expr]` alias form
+  (`parsePatternField`, `Kue/Parse.lean:1788`). cue ⇒ `{"foo":{"n":"foo"}}`.
+- **UNREFERENCED-ALIAS (kue too lenient, missing validation).** `a: X=1` unreferenced ⇒ cue
+  `unreferenced alias or let clause X`; kue accepts. Alias analog of the unused-import check.
+
+All four filed as fix-slices in `plan.md` § SCOPING/REFERENCE-RESOLUTION PROBE and seeded RED
+under `testdata/wild/{self-conj-cycle,let-self-cycle-error,pattern-label-alias,unreferenced-value-alias}/`
+(`.known-red`, spec-adjudicated expectations, each with a PROVENANCE.md). Verified QUARANTINED.
+
+### Spec-gap recorded
+
+SELF-CYCLE-ARITH-RENDER (`cue-spec-gaps.md`): an irreducible self-cycle in arithmetic
+(`a: a + 1`) is semantically top→`_ + 1`; kue prints the substituted `_ + 1`, cue reprints
+the source `a + 1`. Values identical (both incomplete, both fail export) — display-only,
+spec-silent on render form.
+
+### Guards added (clean surface MEASURED)
+
+Six byte-identical `cue export` guards `testdata/export/scoping_*.{cue,json}`: forward
+`let`→`let`, `let`→later-field, comprehension-var shadow (nested `for`), hidden-field
+reference scope, field value alias (`X={…}` ref `X.b`), reducible field self-cycle→top
+(`x: x & {a:1}` ⇒ `{a:1}`).
+
+`./scripts/check.sh` fully green; four seeds quarantined, six new guards pass, zero existing
+fixtures/theorems flipped.
