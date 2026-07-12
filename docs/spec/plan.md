@@ -1156,6 +1156,50 @@ Spec-silent RENDERING note recorded in `cue-spec-gaps.md`: an irreducible self-c
 arithmetic context (`a: a + 1`) is semantically top→`_ + 1` (kue prints the substituted
 form); cue reprints the original `a + 1`. Values identical (both incomplete); render differs.
 
+### PHASE A AUDIT (2026-07-12, batch `ecf489d..0091463`) — SELF-CONJ-CYCLE sound, 2 under-fire gaps + 1 incidental
+
+Reconciliation: all prior-audit filings verified present + accurate (BOUND-OPERAND-CLASSIFY
+`c6be867` ✅ LANDED, BINARY-CMP-OPERAND `4bb40b3` ✅ LANDED; BOUND-ORDEREDPRIM / BINARY-CMP-BYTES /
+PA-ESC-2 / PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4 / PATTERN-LABEL-ALIAS / LET-CYCLE-ERROR
+/ UNREFERENCED-ALIAS all still OPEN, none re-ranked). SCOPING-PROBE guards non-vacuous (6 green,
+verified); 3 remaining `.known-red` seeds present.
+
+**SELF-CONJ-CYCLE verdict: SOUND for its targeted shape — NO over-fire regression.** Exhaustively
+probed the over-inlining-suppression direction (the dangerous one): `x: {a:1} & {b: x.a}`,
+`x: (x&{a:int}) & {a:1}`, forward self-ref `#X: {a: #X.b, b: 2}`, def buried self-sel
+`#X: {a:1} & {b: #X.a}`, disj-guarded `x: (x&int) | 2`, Bug2-9 narrowing + Bug2-12 direct-self-ref
++ closed-def rejection — all resolve byte-identically to cue. The bail (`valueMentionsSlotAtDepth`)
+correctly tracks depth (no shadow false-positive), excludes the direct-self-ref path, and fires only
+on genuinely-buried same-slot mentions. `valueMentionsSlotAtDepth`/`foldValueWithDepth` are total,
+fuel-bounded; the leaf's `| _ => none` means "descend structurally" (NOT a Value-producing dispatch),
+so the `| _ =>` ban does not apply.
+
+- **SELF-CONJ-CYCLE-INDIRECT (HIGH correctness — wrong value; kue BUG). OPEN — needs fix-slice.**
+  The fix's `valueMentionsSlotAtDepth` detects only a DIRECT mention of the SAME slot buried in a
+  conjunct; a reference-cycle that returns to the slot through INDIRECTION escapes the bail and still
+  unrolls to `_|_`. Two concrete shapes (pre-existing gaps, NOT regressions from `0091463` — neither
+  triggers the new bail, so behavior is identical pre/post):
+  1. **Transitive-through-sibling:** `x: 1` + `x: y & int` + `y: x` ⇒ kue `_|_`; cue `{x:1, y:1}`
+     (x = y&int = x&int → cycle→top → int, met 1 = 1). The conjunct `y & int` mentions slot `y`, not
+     slot `x`, so `valueMentionsSlotAtDepth x` returns false → no bail → flatten re-buries → bottom.
+  2. **Self-cycle via own-field selection (multi-decl):** `x: {a: 1}` + `x: {a: x.a}` ⇒ kue `_|_`;
+     cue `{x: {a: 1}}` (inner `a: x.a` = `a: a` → cycle→top → a stays 1).
+  Both are the reference-cycle→top class the SELF-CONJ-CYCLE seed pins, different shapes. FIX
+  DIRECTION: the bail predicate must detect a slot reached via a transitive cycle (a sibling/self
+  ref chain back to the flattened slot), not only a direct same-slot mention — reuse
+  `defSlotInClosedCycle`-style frontier walk over the conjunct's refs, or bail whenever ANY depth-0
+  ref conjunct's own body transitively re-references the slot. Capture both as `testdata/wild/`
+  seeds FIRST (red), then fix. NOT a release blocker (pre-existing, not a regression).
+- **DEF-FLATTEN-CLOSEDNESS (MEDIUM correctness — kue too lenient; incidental, PRE-EXISTING, out of
+  batch scope). OPEN.** Spotted while probing over-fire: a use-site adds fields a CLOSED multi-conjunct
+  def should reject. `#X: {a:1} & {b:3}` + `y: #X & {c:4}` ⇒ kue `{a:1,b:3,c:4}`; cue rejects `c`
+  (`field not allowed`). Also `#A: #B & {a:int}` + `#B: #A & {b:int}` + `x: #A & {a:1,b:2}` ⇒ kue
+  resolves, cue rejects on closedness. Unrelated to `0091463` (no self-ref → new bail never fires;
+  identical pre/post). The multi-conjunct-def flatten path drops the def's closedness on the use-site
+  meet. Verify against existing Bug2-6/2-7 closedness machinery before scoping; may already be partially
+  tracked. Adjudicate spec-correctness (cue's closedness here IS spec-mandated for closed defs) and
+  seed a `testdata/wild/` repro.
+
 ### COMPREHENSION/EMBEDDING/PATTERN CONFORMANCE PROBE (2026-07-04) — area clean, one parser gap seeded
 
 Bounded divergence hunt over `for`/`if`/`let` comprehensions, struct embedding, and pattern

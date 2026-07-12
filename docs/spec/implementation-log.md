@@ -20991,3 +20991,39 @@ stay `_|_`. 9 `Bug2xTests` theorems pin the fix + both-direction guards; seed
 
 `./scripts/check.sh` fully green; zero existing fixtures/theorems flipped (Bug2xTests cycle
 coverage all stayed green — this is cycle-detection core).
+
+## Audit Slice: Phase A code-quality (batch `ecf489d..0091463`)
+
+Goal: audit the 4 slices since the last Phase A — BOUND-OPERAND-CLASSIFY (`c6be867`),
+BINARY-CMP-OPERAND (`4bb40b3`), SCOPING-PROBE (`f2231df`), SELF-CONJ-CYCLE (`0091463`, the
+primary target: a cycle-detection-core change). No product code touched; docs-only.
+
+### Reconciliation
+
+Prior-audit filings all verified present + accurate in `plan.md`: BOUND-OPERAND-CLASSIFY and
+BINARY-CMP-OPERAND landed (commits confirmed); BOUND-ORDEREDPRIM, BINARY-CMP-BYTES, PA-ESC-2,
+PA-SUB-4, PA-TT-5, PB-RELEASE-3, PB-TESTORG-4, PATTERN-LABEL-ALIAS, LET-CYCLE-ERROR,
+UNREFERENCED-ALIAS all still OPEN, none re-ranked. SCOPING-PROBE 6 green guards non-vacuous;
+3 `.known-red` seeds present.
+
+### SELF-CONJ-CYCLE verdict — SOUND, no over-fire regression
+
+Probed the over-inlining-suppression direction (the regression-prone one) across legitimate
+buried self-mentions — struct-conj self-selection, forward self-ref, def buried self-sel,
+disj-guarded self-ref, Bug2-9 narrowing, Bug2-12 direct-self-ref + closed-def rejection — all
+resolve byte-identically to cue. `valueMentionsSlotAtDepth`/`foldValueWithDepth` total and
+fuel-bounded; depth tracking rejects shadow false-positives; the leaf's `| _ => none` means
+"descend structurally", so the Value-producing `| _ =>` ban does not apply.
+
+### Findings filed (see `plan.md` § PHASE A AUDIT 2026-07-12)
+
+- **SELF-CONJ-CYCLE-INDIRECT (HIGH, wrong value).** Two under-fire gaps the direct-same-slot bail
+  misses: transitive-through-sibling (`x:1; x: y & int; y: x` ⇒ kue `_|_`, cue `{x:1,y:1}`) and
+  self-cycle via own-field selection (`x:{a:1}; x:{a: x.a}` ⇒ kue `_|_`, cue `{x:{a:1}}`).
+  Pre-existing gaps, NOT regressions from `0091463`. Not a release blocker.
+- **DEF-FLATTEN-CLOSEDNESS (MEDIUM, kue too lenient; incidental/pre-existing).** Multi-conjunct-def
+  flatten drops closedness at the use site (`#X: {a:1}&{b:3}; y: #X & {c:4}` admits `c`; cue rejects).
+  Out of batch scope; unrelated to the self-ref fix.
+
+No inline code changes (no trivial isolated cleanup surfaced; the two real findings are HIGH/MED
+and filed, not fixed). Build unchanged; docs-only edit.
