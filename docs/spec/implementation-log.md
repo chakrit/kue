@@ -21027,3 +21027,58 @@ fuel-bounded; depth tracking rejects shadow false-positives; the leaf's `| _ => 
 
 No inline code changes (no trivial isolated cleanup surfaced; the two real findings are HIGH/MED
 and filed, not fixed). Build unchanged; docs-only edit.
+
+## Audit Slice: Phase B architecture/refactor + infra rotation (2026-07-12)
+
+Whole-graph pass + the 3rd-cycle gates/tooling rotation. Docs-only; no product code touched.
+
+### Cycle-class fix DESIGNED (SELF-CONJ-CYCLE-INDIRECT, HIGH)
+
+Isolated the reference-cycle→top bug class to a LAYER, not three shapes. Empirically (kue binary vs
+cue v0.16.1): pure ref cycle `x:y; y:x` ⇒ `{x:_,y:_}` (correct — the `slotVisited ⇒ truncate .top`
+guard at `Eval.lean:303` fires); a PARSED single meet `x: 1 & y; y:1` ⇒ `{x:1}` (correct, `.binary`
+arm); but DUPLICATE-FIELD `x:1; x:y; y:1` ⇒ `x:_|_` (wrong — `y` correctly `1`, yet `1 & y` bottoms).
+The only difference is that duplicate fields canonicalize into a `.conj` slot body routed through
+`evalConjStandard`, which does NOT honor the `visited` truncation the `.refId`/`.binary` path applies.
+Both filed under-fire shapes (transitive-through-sibling, self-cycle-via-own-field-selection) are the
+same escape reached through indirection; the `0091463` `valueMentionsSlotAtDepth` bail patched ONE
+sub-case at flatten time. DESIGN: make reference-resolution-time truncation the SINGLE authority —
+thread `visited` through the `.conj` path so in-progress-slot re-entry truncates uniformly; this
+SUBSUMES and removes the `0091463` bail (net simplification), not a third shape-specific guard.
+HONEST caveat recorded in the filing: a static trace of `evalConjStandard` predicts the CORRECT value
+(disagrees with observed `_|_`), so a hidden re-frame drops `visited` somewhere in
+`lazyConjMergedFields`/`canonicalizeFields`/`flattenConjDefRef` — the implementing slice MUST
+instrument to pin the exact escape line before editing. Wild seeds first.
+
+### DEF-FLATTEN-CLOSEDNESS root-caused (MEDIUM)
+
+Pinned to `flattenConjDefRef`'s `close := isDefinition && (isSelfRef || inCycle)` gate
+(`EvalBase.lean:1960`): a non-cyclic def whose body is a `.conj` of its OWN struct literals
+(`#X: {a:1}&{b:3}`) is neither self-ref nor in-cycle, so `close=false` and the literals flatten OPEN,
+dropping closedness (`y: #X & {c:4}` admits `c`). Single-decl `#X:{a:1,b:3}` is correct (body is a
+single `.struct`, not flattened). Coupling verdict: SAME FUNCTION as the cycle fix, INDEPENDENT
+concern — widen `close` to fire when every non-`.refId` conjunct is `isUnionableDefValue` (own
+literals) with no cross-def ref-composition, keeping `#LS: #Base & {extra}` OPEN. Coordinate the two
+slices (shared function) but they are not one change.
+
+### Infra rotation — HEALTHY; RELEASE = GO
+
+`check.sh` glob discovers all gates; every grep-gate still matches its targets (no rot); wild-fixture
+auto-discovery + `.known-red` quarantine intact; shellcheck covers all 9 scripts. `release.sh`
+traced end-to-end (version arg, clean-tree, arm64 build+shasum, tag, `gh release create/upload`,
+linux disjoint-block split, tap url+sha256+version patch) — GO for an autonomous alpha cut, no stale
+step. LOW: `kue version` static constant not bumped by `release.sh` (PB-VERSION-CONST). Cosmetic:
+`check.sh:17` cert-manager comment (PB-CHECK-COMMENT).
+
+### Module graph — clean DAG
+
+No cycles/inversions; `Builtin` does not import `Eval`. Zero Value/AST-producing `| _ =>` violations
+(swept ~200). All `partial def` outside Parse.lean waived. Filed: PB-EVALBASE-SPLIT (MEDIUM, 2558-line
+module, scanner-family + flatten/remap extraction — respecting the never-split core-force mutual
+ruling), PB-FOLD-PLACEMENT (LOW, `valueMentionsSlotAtDepth` off-cluster, may be removed by the cycle
+fix), PB-PRIM-CATCHALL (LOW, `Prim` catch-alls in math/list builtins), PB-FIXTUREPORTS-SPLIT (MEDIUM,
+4237-line harness, pair with PB-TESTORG-4). All findings in `plan.md` § PHASE B AUDIT 2026-07-12.
+
+No inline code changes: the two real correctness findings are HIGH/MEDIUM designed fix-slices, and
+the only inline-eligible cleanups (PB-CHECK-COMMENT/PB-VERSION-CONST) were filed rather than fixed to
+keep this a clean docs-only audit and avoid mixing a code edit into the audit commit. Build unchanged.

@@ -1174,31 +1174,137 @@ on genuinely-buried same-slot mentions. `valueMentionsSlotAtDepth`/`foldValueWit
 fuel-bounded; the leaf's `| _ => none` means "descend structurally" (NOT a Value-producing dispatch),
 so the `| _ =>` ban does not apply.
 
-- **SELF-CONJ-CYCLE-INDIRECT (HIGH correctness — wrong value; kue BUG). OPEN — needs fix-slice.**
-  The fix's `valueMentionsSlotAtDepth` detects only a DIRECT mention of the SAME slot buried in a
-  conjunct; a reference-cycle that returns to the slot through INDIRECTION escapes the bail and still
-  unrolls to `_|_`. Two concrete shapes (pre-existing gaps, NOT regressions from `0091463` — neither
-  triggers the new bail, so behavior is identical pre/post):
-  1. **Transitive-through-sibling:** `x: 1` + `x: y & int` + `y: x` ⇒ kue `_|_`; cue `{x:1, y:1}`
-     (x = y&int = x&int → cycle→top → int, met 1 = 1). The conjunct `y & int` mentions slot `y`, not
-     slot `x`, so `valueMentionsSlotAtDepth x` returns false → no bail → flatten re-buries → bottom.
-  2. **Self-cycle via own-field selection (multi-decl):** `x: {a: 1}` + `x: {a: x.a}` ⇒ kue `_|_`;
-     cue `{x: {a: 1}}` (inner `a: x.a` = `a: a` → cycle→top → a stays 1).
-  Both are the reference-cycle→top class the SELF-CONJ-CYCLE seed pins, different shapes. FIX
-  DIRECTION: the bail predicate must detect a slot reached via a transitive cycle (a sibling/self
-  ref chain back to the flattened slot), not only a direct same-slot mention — reuse
-  `defSlotInClosedCycle`-style frontier walk over the conjunct's refs, or bail whenever ANY depth-0
-  ref conjunct's own body transitively re-references the slot. Capture both as `testdata/wild/`
-  seeds FIRST (red), then fix. NOT a release blocker (pre-existing, not a regression).
-- **DEF-FLATTEN-CLOSEDNESS (MEDIUM correctness — kue too lenient; incidental, PRE-EXISTING, out of
-  batch scope). OPEN.** Spotted while probing over-fire: a use-site adds fields a CLOSED multi-conjunct
-  def should reject. `#X: {a:1} & {b:3}` + `y: #X & {c:4}` ⇒ kue `{a:1,b:3,c:4}`; cue rejects `c`
-  (`field not allowed`). Also `#A: #B & {a:int}` + `#B: #A & {b:int}` + `x: #A & {a:1,b:2}` ⇒ kue
-  resolves, cue rejects on closedness. Unrelated to `0091463` (no self-ref → new bail never fires;
-  identical pre/post). The multi-conjunct-def flatten path drops the def's closedness on the use-site
-  meet. Verify against existing Bug2-6/2-7 closedness machinery before scoping; may already be partially
-  tracked. Adjudicate spec-correctness (cue's closedness here IS spec-mandated for closed defs) and
-  seed a `testdata/wild/` repro.
+- **SELF-CONJ-CYCLE-INDIRECT (HIGH correctness — wrong value; kue BUG). OPEN — DESIGNED 2026-07-12
+  (Phase B), needs fix-slice.** The two shapes below plus the `0091463`-fixed direct shape are ONE
+  class with ONE root layer.
+
+  **Root layer (Phase-B observation, isolated).** The reference-cycle→top rule fires correctly at
+  REFERENCE-RESOLUTION time — the `slotVisited id.index.val visited ⇒ truncate .top` guard in the
+  `.refId` eval arm (`Kue/Eval.lean:303`). Confirmed: `x: y` + `y: x` ⇒ `{x:_, y:_}` (top, ==cue);
+  `x: 1 & y` + `y: 1` (a PARSED single meet, `.binary`/`.conj` arm) ⇒ `{x:1}` (==cue). The bug is
+  that the **`.conj` EVAL path** (`evalConjStandard`, reached ONLY for duplicate-field-canonicalized
+  bodies and multi-conjunct-def flatten — NOT for a parsed single `&`) does NOT honor that same
+  `visited` truncation. Isolation: `x: 1` + `x: y` + `y: 1` ⇒ kue `x:_|_` (y correctly `1`, yet
+  `x = 1 & y = 1 & 1` bottoms); the ONLY difference from the working `x: 1 & y` is that duplicate
+  fields canonicalize into a `.conj` slot body (`canonicalizeFields`→`joinUnevaluated`) routed
+  through `evalConjStandard`, whereas the single expression stays a `.binary` meet. The `0091463`
+  fix (`valueMentionsSlotAtDepth` bail in `flattenConjDefRef`) patched ONE escape (a DIRECT same-slot
+  mention) by routing it back to the `.refId` arm; the two shapes below are the SAME escape reached
+  through indirection, and widening the mention-scan would be a THIRD shape-specific flatten-time
+  bail — the wrong layer.
+
+  Two shapes (pre-existing, NOT `0091463` regressions — neither triggers the new bail):
+  1. **Transitive-through-sibling:** `x: 1` + `x: y & int` + `y: x` ⇒ kue `_|_`; cue `{x:1, y:1}`.
+  2. **Self-cycle via own-field selection (multi-decl):** `x: {a: 1}` + `x: {a: x.a}` ⇒ kue
+     `{x:{a:_|_}}`; cue `{x: {a: 1}}` (inner `a: x.a` = `a: a` → cycle→top → a stays 1).
+
+  **DESIGNED FIX — reference-resolution-time truncation as the SINGLE authority (not a flatten-time
+  bail).** Thread the `visited` set THROUGH the `.conj` evaluation path so a conjunct that resolves
+  (directly or transitively) to an in-progress slot hits the same `slotVisited ⇒ truncate .top`
+  rule the `.refId`/`.binary` arm already uses — uniformly, regardless of how the slot re-entry is
+  reached. Once the `.conj` path truncates uniformly, the `0091463` `valueMentionsSlotAtDepth` bail
+  is SUBSUMED and should be removed (a shape-specific patch the uniform rule replaces) — the fix is
+  a net simplification, not a third guard. Spec-adjudicated target per shape (cue v0.16.1, verified):
+  a reference participating in a cycle during its own evaluation truncates to `_` (top), and the
+  co-present concrete conjunct then dominates the meet — shape 1 ⇒ `{x:1,y:1}`, shape 2 ⇒
+  `{x:{a:1}}`, both spec-correct and cue-matching.
+
+  **Implementing-slice caveat (HONEST — the escape line is NOT yet pinned).** A static trace of
+  `evalConjStandard` PREDICTS the correct value (the `none`-branch `mapM` passes `visited` and
+  `refId_y` truncates) — it disagrees with the observed `_|_`, so a hidden re-frame / re-resolve in
+  the `lazyConjMergedFields`/`canonicalizeFields`/`flattenConjDefRef` sub-path is dropping the
+  `visited` context, and reading alone did not locate it. The slice MUST instrument (trace which
+  sub-eval loses `visited`) to pin the exact escape before touching code — do not narrate a locus.
+  Capture BOTH shapes (plus a `x:1;x:y;y:1` and `x:1;x:y;y:2`-conflict guard, and the working
+  `x: 1 & y` non-regression) as `testdata/wild/` seeds FIRST (red), then fix to green. NOT a release
+  blocker (pre-existing, not a regression).
+- **DEF-FLATTEN-CLOSEDNESS (MEDIUM correctness — kue too lenient; PRE-EXISTING). OPEN — root-cause
+  pinned 2026-07-12 (Phase B).** A use-site adds fields a CLOSED multi-conjunct def should reject.
+  `#X: {a:1} & {b:3}` + `y: #X & {c:4}` ⇒ kue `y: {a:1,b:3,c:4}` (closedness dropped ENTIRELY); cue
+  rejects `c` (`field not allowed`). Contrast the single-decl `#X: {a:1, b:3}` + `y: #X & {c:4}` ⇒
+  kue correctly `{a:1,b:3,c:_|_}` — its body is a single `.struct` (not a `.conj`), so
+  `flattenConjDefRef` returns the bare `#X` ref unchanged and it resolves CLOSED via the `.refId` arm.
+
+  **Root cause (observed):** `flattenConjDefRef`'s close gate `close := field.fieldClass.isDefinition
+  && (isSelfRef || inCycle)` (`Kue/EvalBase.lean:1960`). A def whose body is a `.conj` of the def's
+  OWN struct literals (`{a:1} & {b:3}` — all `isUnionableDefValue`, no ref conjuncts) is neither
+  self-ref nor in-cycle, so `close=false`: the literals flatten OPEN and union into the use-site
+  meet WITHOUT closing → closedness lost. The Bug2-12b close-once path (`mergeDefinitionDecls` +
+  final `normalizeDefinitionValueWithFuel`) is exactly what a closed multi-literal def needs — it is
+  just gated behind `isSelfRef || inCycle`, when the real discriminator is *the body's conjuncts are
+  the def's own split literals* (all `isUnionableDefValue`), which the self-recursive case is only a
+  sub-case of.
+
+  **Coupling verdict: SAME FUNCTION as SELF-CONJ-CYCLE-INDIRECT (`flattenConjDefRef`), INDEPENDENT
+  concern — no shared fix.** The cycle fix is about routing cyclic re-entry to `visited`-truncation;
+  this is about preserving closed-clauses through a non-cyclic literal-split flatten. **DESIGNED
+  FIX:** widen `close` to also fire when every non-`.refId` body conjunct is `isUnionableDefValue`
+  (the def's own literals) with NO cross-def ref-composition conjunct — so `{a:1}&{b:3}` closes-once
+  over `{a,b}` while `#LS: #Base & {extra}` (a REF conjunct present) stays OPEN and defers to the
+  outer close-once fold (Bug2-6..9), unchanged. Also covers the mutual-def variant `#A: #B & {a:int}`
+  + `#B: #A & {b:int}` + `x: #A & {a:1,b:2}` (already partially served by `inCycle`; verify).
+  Sequence: touches the same function as the cycle fix — coordinate the two slices (land one, rebase
+  the other) to avoid churn collision; they are NOT one change. Seed a `testdata/wild/` repro FIRST.
+
+### PHASE B AUDIT (2026-07-12, whole-graph + infra rotation) — module-graph + gates/release
+
+**Infra rotation (3rd-cycle, folded in): gates + release tooling HEALTHY.** `check.sh` globs all 4
+`check-*.sh` gates (`nullglob`), runs `lake build` + `shellcheck scripts/*.sh ./lake ./lean`; no
+gate silently skipped. Every grep-based gate's targets still exist and its pattern still matches
+(no rot): `check-comments.sh` history-idiom prohibition (0 hits = correct), `check-test-health.sh`
+block-comment/tripwire/size gates, `check-fixtures.sh` hardcoded CLI-sample paths both present.
+Wild-fixture auto-discovery (`check_wild_fixtures`, `*/` glob, 55 dirs) + `.known-red` three-state
+quarantine (4 markers) intact; export/module/realworld globs reach all 7 `testdata/` dirs.
+**RELEASE VERDICT: GO** — `scripts/release.sh <version>` traced end-to-end (version arg, clean-tree
+precondition, arm64 build + shasum, tag push, `gh release create --generate-notes <asset>`,
+`gh release upload --clobber` re-run path, `release-linux.sh` disjoint-block coordination,
+`patch-formula-block.sh` url+sha256+version tap patch asserting exactly-one-hit) would succeed for an
+autonomous alpha cut; no stale step. shellcheck covers all 9 `scripts/*.sh`.
+
+- **PB-VERSION-CONST (LOW, release consistency). OPEN.** `kue version` reports the static constant
+  `"0.1.0-alpha"` (`Kue/Runtime.lean:13`); `release.sh` does not bump it, so the shipped binary
+  self-reports a version decoupled from the datestamped release tag (formula at
+  `0.1.0-alpha.YYYYMMDD.N`). Not a release-script failure. Fix: have `release.sh` inject the version
+  into the constant (or derive it) so the binary can self-identify its release.
+- **PB-CHECK-COMMENT (COSMETIC). OPEN.** `scripts/check.sh:17` comment still references the
+  "cert-manager canary" post-DOCS-CLEANUP. The comment is accurate (about the correctly-excluded
+  LIVE canary, not the gated sanitized `realworld/cert-manager` fixture) but confusing; reword.
+
+**Module graph: clean DAG, no cycles/inversions** (`Regex` floor → `Value` → Decimal/Normalize/… →
+Lattice → Builtin → EvalOps → EvalBase → EvalDefer → Eval → Runtime). `Builtin` does NOT import
+`Eval` (intended low→high holds). `| _ =>` ban: swept ~200 occurrences, **zero Value/AST-producing
+dispatch violations** — `canonicalizeBuiltinCalls` (Parse.lean:2130) is the enumerated exemplar; all
+`_` arms are Bool/Option/List probes or fold leaves. `partial def` outside Parse.lean all carry
+waiver comments (`Kue/Module.lean:251,698,734,767`). No `String.dropRight`/`takeRight`. Core
+`Value`/`Field`/`Prim` types already strongly-typed (three-state `StructOpenness` with mkStruct
+invariant); no high-leverage tightening candidate (`boundConstraint.domain` sentinel is documented,
+marginal).
+
+- **PB-EVALBASE-SPLIT (MEDIUM, module size). OPEN.** `Kue/EvalBase.lean` (2558, largest non-generated
+  module) has ≥3 self-contained tenants: (a) the `foldValueWithDepth` scanner family + env/frame
+  primitives (~19-266), (c) conjunct-flatten/remap/splice + `defSlotInClosedCycle` (~1790-2211), (d)
+  selection/declOf scanners. (a) is imported-by-depth-only and is the natural first extraction
+  (`Kue/EvalScan.lean`); (c) is a second coherent unit. CAVEAT (durable ruling): the core-force
+  `mutual` block is NEVER split (its `termination_by` cannot cross a module boundary) — (a) and the
+  `remapConjRefs` mutual are SEPARATE blocks, so this carve buys file headroom without touching the
+  core mutual. Verify block boundaries before carving.
+- **PB-FOLD-PLACEMENT (LOW, cohesion). OPEN.** `valueMentionsSlotAtDepth` (EvalBase.lean:1844) is a
+  scanner-family member sitting 1500 lines below the cluster AND hand-rolled rather than a
+  `foldValueWithDepth` instantiation. Fold it into the shared fold (monoid `Bool`/`||`, `.refId` leaf
+  — identical shape to `defFrameRefIndices`) and relocate beside the cluster. Note: the SELF-CONJ-
+  CYCLE-INDIRECT fix may REMOVE this function entirely (it subsumes the `0091463` bail) — sequence
+  after that fix; if removed, this finding is moot.
+- **PB-PRIM-CATCHALL (LOW, hardening). OPEN.** `mathAbs`/`mathRound` (Builtin.lean:862,1035) and
+  `listMin`/`listMax` (666,676) use `| _ => .bottom` on a `Prim`/`Option` match (not a `Value`
+  dispatch, so not a strict ban violation) — a new numeric `Prim` constructor would be silently
+  bottomed. Enumerate the `Prim` constructors to match house style.
+- **PB-FIXTUREPORTS-SPLIT (MEDIUM, test-org). OPEN — distinct from PB-TESTORG-4.** `Kue/Tests/
+  FixturePorts.lean` (4237, ~2.5× the next-largest test module) is the manual fixture-port harness;
+  split by fixture domain mirroring the `*Tests.lean` topic split. Coordinate with PB-TESTORG-4
+  (`BuiltinTests.lean` 1669) as one test-org pass.
+
+`testdata/` layout tidy (cue 11 / export 144 / modules 72 / ocifetch 5 / wild 56 / zip 2 / realworld
+1); `realworld/` single-entry is intentional (CLAUDE.md: no real-world corpus is a target).
 
 ### COMPREHENSION/EMBEDDING/PATTERN CONFORMANCE PROBE (2026-07-04) — area clean, one parser gap seeded
 
