@@ -203,27 +203,24 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-**LIST-OPS-EMBEDDED-CARRIER (HIGH soundness — SILENT wrong value / bottom; NEW, 2026-07-13 Phase A audit).**
-The LIST-OPS-NESTED-OPENTAIL fix added the `.listTail` arm to the three list-ops destructure sites but
-missed the THIRD list carrier, `.embeddedList` (a struct that embeds a list plus non-regular decls, e.g.
-`{[1,2], _x: 9}` — a valid list value in cue AND kue). `listItems?`/`structuralEq` (`Kue/Value.lean`) treat
-all three carriers (`.list`/`.listTail`/`.embeddedList`) as list-shaped, but `listConcat.collect`,
-`listFlattenFuel`, and `listNestingDepth` (`Kue/Builtin.lean`) enumerate only `.list` + `.listTail` and let
-`.embeddedList` fall through — a carrier-enumeration asymmetry, same defect class as LIST-OPS-NESTED-OPENTAIL
-one carrier over. Repros (vs cue v0.16.1, reachable — cue accepts `{[1,2],_x:9}` as a list):
-- `list.Concat([{[1,2],_x:9}, [3]])` ⇒ kue **bottom** (`collect`'s `| _ => none`); cue ⇒ `[1,2,3]`.
-- `list.FlattenN([{[1,2],_x:9}, [3]], 1)` ⇒ kue emits the embedded sublist **unflattened** (silent wrong);
-  cue ⇒ `[1,2,3]`.
-- `list.FlattenN([[{[1,2],_x:9}]], -1)` ⇒ `listNestingDepth` scores the embedded carrier depth 0 and
-  undersizes the fuel, so the inner list is never descended; cue ⇒ `[1,2]`.
-Fix: each of the three functions gains a `.embeddedList inner _ _` arm mirroring its `.list inner` arm
-(a direct pattern subterm, NOT an `openListOperand`/`listItems?` wrapper — the exposed `inner` must be a
-pattern subterm for the structural-recursion termination proofs, same constraint the `.listTail` arm hit).
-Expected values are spec-adjudicated (a struct-embedded list IS its embedded-element list) and MATCH cue —
-no divergence, a straight kue soundness gap. Wild seed COMMITTED RED under `.known-red`:
-`testdata/wild/list-ops-embedded-sublist/` (all three facets in one repro; graduates on the fix). Consider
-also auditing `list.Length`/`slice`/index for the same `.embeddedList` omission in the same slice (the
-carrier is under-covered across `Kue/Builtin.lean`'s list surface).
+**LIST-OPS-EMBEDDED-CARRIER (HIGH soundness — SILENT wrong value / bottom; NEW, 2026-07-13 Phase A audit).
+✅ LANDED (2026-07-13 Phase B audit).** The three list carriers — `.list`/`.listTail`/`.embeddedList` —
+all mean "a list"; `listConcat.collect`, `listFlattenFuel`, `listNestingDepth`, `lenValue`, and
+`openListOperand` (`Kue/Builtin.lean`) hand-enumerated `.list`+`.listTail` and let `.embeddedList` (a
+struct embedding a list plus non-regular decls, `{[1,2], _x: 9}`) fall through — a carrier-enumeration
+asymmetry. **REFRAME (supersedes the filing's "add a `.embeddedList` arm to each" prescription):** the
+fix routes EVERY list-carrier read through the single classifier `listItems?` (`Kue/Value.lean`), so a
+missed carrier is designed out — one classifier, N consumers. `listConcat`/`listFlattenFuel`/`lenValue`/
+`openListOperand` route through it directly (fuel/spine recursion, no termination cost). The prior filing
+asserted the full-flatten depth site FORCES a direct `.list inner` pattern arm (structural-recursion
+subterm) — falsified: `listNestingDepth` is DELETED, replaced by `listFlattenAll`, a WF recursion through
+`listItems?` proven terminating by `sizeOf_listItems?_lt` (a carrier's element list is structurally
+smaller than the carrier) + `List.sizeOf_lt_of_mem`. So even the structural site routes through the one
+classifier. Two MORE carrier-miss sites found beyond the filing's three — `lenValue`
+(`len({[1,2,3],_x:9})` ⇒ deferred, not `3`) and `openListOperand` (the single `list.*` operand normalizer
+— missed `.embeddedList`, so EVERY `list.*` builtin failed on an embedded-list operand). Wild
+`list-ops-embedded-sublist/` GRADUATED, expanded to six facets (concat/flatten1/depthFull + lenEmbed/
+sumEmbed/reverseEmbed). Spec-adjudicated, cue v0.16.1 AGREES on all — no divergence. `check.sh` green.
 
 **LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 LIST-OPS-NESTED-OPENTAIL).
 ✅ LANDED (2026-07-13 LIST-ELEM-EQ).** `list.Contains` compared each element against the needle with raw
@@ -1522,6 +1519,67 @@ catch-all swallows `patternLabel`. Two NEW findings:
   Ranked OPEN backlog. "Stays OPEN" understated it: the residual is a SILENT SOUNDNESS LEAK — when the
   open def resolves to a single concrete arm it exports fields past a closed def, no error. Same class as
   the default-leak this slice fixed, one shape over. See the backlog entry for repros.]**
+
+### PHASE B AUDIT (2026-07-13d, HEAD post-`ca2c147`) — list-carrier completeness by construction + reconcile
+
+Whole-graph pass after Phase A (`ca2c147`). Infra rotation NOT repeated (done 2026-07-12 Phase B).
+
+**TASK 1 — LIST-CARRIER completeness, FIXED INLINE (recommended (a): single-classifier centralization).**
+LIST-OPS-EMBEDDED-CARRIER is the recurring "hand-enumerate carriers, miss one" defect. Approaches
+evaluated: (a) route every consumer through the one classifier `listItems?`; (b) collapse the three
+carriers into one `list items (tail : Option) (decls)` — REJECTED: it shifts risk, not removes it (the
+many sites that legitimately distinguish closed-plain / open / embedded — Manifest, indexing, meet — would
+have to re-derive the distinction from `tail`/`decls`, trading "miss a carrier" for "mishandle
+tail/decls"; the split is partly ESSENTIAL); (c) a `native_decide` exhaustiveness guard — dispreferred
+(guard, not construction). **Chose (a), implemented inline.** All list-carrier reads in `Kue/Builtin.lean`
+now route through `listItems?`: `listConcat`/`listFlattenFuel`/`lenValue`/`openListOperand` directly
+(fuel/spine recursion). The filing claimed the full-flatten depth site FORCES a direct pattern arm
+(structural subterm) — FALSIFIED: `listNestingDepth` DELETED, replaced by `listFlattenAll`, a WF recursion
+through `listItems?` proven terminating by the new `sizeOf_listItems?_lt` lemma + `List.sizeOf_lt_of_mem`.
+(A `sizeOf items` fuel bound was tried first — noncomputable, `List Value`'s SizeOf has no compiled form;
+WF via the proof-level sizeOf is the fix.) Found + fixed TWO carrier-miss sites beyond the filing's three:
+`lenValue` and `openListOperand` (the sole `list.*` operand normalizer — its miss broke EVERY `list.*`
+builtin on an embedded-list operand). Result: a missed carrier is designed out (one classifier, N
+consumers; a new carrier is one edit to `listItems?`). Seed GRADUATED + expanded to six facets; `check.sh`
+green. Note: `listItems?` keeps its `| _ => none` — the repo's sanctioned Option-probe idiom (full
+33-ctor enumeration is over-scaffolding the rule explicitly exempts); it is the single point to update.
+
+**TASK 2 — the two-equalities boundary: DOCUMENTED, no misuse.** Three equality notions coexist, disjoint
+domains: global derived `BEq Value` (exact/order/carrier-sensitive — cycle detection, memo keys),
+`structuralEq` (value-based, open-tail-stripping — list/struct `==`, Contains, UniqueItems),
+`eqUpToFieldOrder` (field-order-normal lattice identity — disjunct dedup). Each had a def-site comment but
+no single boundary note; ADDED one to `architecture.md` § 3 ("three notions, do not add a fourth"). Grep
+for raw `Value` `==`/dedup in the list/eval/lattice core found NO misuse — `list.Contains`/`UniqueItems`
+route through `structuralEq`; the `.contains` hits are Char/String. Phase A's "boundary correct" verdict
+holds.
+
+**TASK 3 — graph health.** Layering clean (`Builtin ↛ Eval`, no cycles among Builtin/Eval/EvalBase/
+Lattice/Normalize). No dead code (`String.dropRight`/`List.isEqv`/`sorry`/`admit`: none). All 4 non-Parse
+`partial def` (Module.lean) waived. `| _ =>` catch-alls in Value-producing matches: the graph sweep
+flagged several (EvalBase:368/754, Eval:257/1468, Normalize:34, Lattice error-bottom arms, Builtin
+listMin/Max/mathAbs/Round `| _ => .bottom`, Manifest:112) — all PRE-EXISTING, matching on Prim/kind/enum
+or defer-fallbacks that prior audits cleared; NOT re-filed (clean-is-clean, no manufacturing). Module
+sizes: EvalBase 2724, CaseTable 2438 (generated Unicode data — expected), Parse 2409 (the parser —
+expected). Only EvalBase is a genuine split candidate — PB-EVALBASE-SPLIT already filed. Perf-guide: two
+"Known limitations (current)" bullets (hash O(N²), regex-linear) are actually RESOLVED/LANDED and mis-placed
+— minor, filed PB-PERFGUIDE-STALE (LOW).
+
+**Reconciled ranked HEAD** (philosophy: active soundness leak → LOW gaps → nav-debt → chakrit-gated float):
+1. **DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual** (HIGH — the LAST silent soundness leak; ref/scalar +
+   nested disjunction arms; needs a shared `resolveDisjArm` (arm eval + nested-disj flatten) feeding the
+   cross-product. Risk (L-series/Bug2 suite) is not a stop condition — strengthen the net). Seeds
+   `.known-red`.
+2. **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** / **LIST-ISSORTED** (LOW correctness gaps —
+   missing feature / validation / builtins). Cheap, parallel-safe.
+3. **PB-PERFGUIDE-STALE** (LOW doc — move 2 resolved bullets out of "current limitations").
+4. **PB-EVALBASE-SPLIT** (`EvalScan.lean` first) / **PB-FIXTUREPORTS-SPLIT** — MED nav-debt, cohesion filler.
+5. **DEFERRED float FDLIBM campaign** (F5→F1→F3, chakrit's prioritization — not auto-scheduled).
+
+**Phase-of-work recommendation.** All LIST-family soundness now CLOSED; DEF-FLATTEN-DISJ-REF is the single
+remaining silent-wrong-value/leak, so it ranks first despite entanglement (it's the actual target —
+correctness — not filler). If its `resolveDisjArm` spike proves too entangled for one slice, clear the LOW
+gaps (item 2, quick wins) while decomposing it, rather than deferring to a probe. Hold float for chakrit's
+explicit go.
 
 ### PHASE B AUDIT (2026-07-13b, HEAD `c3f6c01`, batch `8213870..c3f6c01`) — OrderedPrim fit + strategic reconcile
 

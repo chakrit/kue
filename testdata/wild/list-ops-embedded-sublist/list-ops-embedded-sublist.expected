@@ -12,5 +12,11 @@
     "depthFull": [
         1,
         2
+    ],
+    "lenEmbed": 3,
+    "sumEmbed": 6,
+    "reverseEmbed": [
+        2,
+        1
     ]
 }

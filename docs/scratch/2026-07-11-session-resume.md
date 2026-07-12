@@ -3,7 +3,22 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **LIST-ELEM-EQ — unified structural equality: open-tail-stripping + VALUE-BASED (LANDED 2026-07-13).**
+HEAD: **LIST-OPS-EMBEDDED-CARRIER + Phase B audit — list-carrier completeness BY CONSTRUCTION (LANDED
+2026-07-13d).** The recurring "hand-enumerate list carriers, miss one" defect is designed out: every
+list-carrier read in `Kue/Builtin.lean` now routes through the ONE classifier `listItems?` (`Kue/Value.lean`)
+— `listConcat`/`listFlattenFuel`/`lenValue`/`openListOperand` directly; `listNestingDepth` DELETED, replaced
+by `listFlattenAll` (WF recursion through `listItems?`, terminating via new `sizeOf_listItems?_lt` +
+`List.sizeOf_lt_of_mem`). Falsified the filing's "must be a direct pattern arm" claim. Found+fixed 2 sites
+beyond the filing (`lenValue`, `openListOperand` — the latter's miss broke every `list.*` on an embedded-list
+operand). Seed `list-ops-embedded-sublist/` GRADUATED + expanded to 6 facets; cue agrees, no divergence.
+Phase B: equality boundary (`BEq`/`structuralEq`/`eqUpToFieldOrder`) documented in `architecture.md` § 3, no
+misuse; graph healthy; pre-existing `| _ =>` arms not re-filed (clean-is-clean). **NEXT (ranked):**
+**DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual** (HIGH — the LAST silent soundness leak; ref/scalar + nested
+disjunction arms; needs shared `resolveDisjArm`) → LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** /
+**UNREFERENCED-ALIAS** / **LIST-ISSORTED** → **PB-PERFGUIDE-STALE** (LOW doc) → **PB-EVALBASE-SPLIT** nav-debt
+→ DEFERRED float FDLIBM (F5→F1→F3, chakrit's prioritization). **Alpha release HELD for chakrit (attended).**
+
+Prior HEAD: **LIST-ELEM-EQ — unified structural equality: open-tail-stripping + VALUE-BASED (LANDED 2026-07-13).**
 Fixed the coupled list-equality cluster with ONE `structuralEq` (`Kue/Value.lean`) shared by list `==`,
 struct `==`, `list.Contains`, and `list.UniqueItems` dedup: recursive open-tail stripping via `listItems?`
 (a `.listTail` element equals its concrete prefix at every depth, through structs) + VALUE-BASED prim leaves

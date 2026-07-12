@@ -40,10 +40,11 @@ def lenValue : Value -> Value
   | .prim (.bytes value) => .prim (.int (Int.ofNat value.size))
   | .kind .string => .builtinCall "len" [.kind .string]
   | .kind .bytes => .builtinCall "len" [.kind .bytes]
-  | .list items => .prim (.int (Int.ofNat items.length))
-  | .listTail items _ => .prim (.int (Int.ofNat items.length))
   | .struct fields _ _ _ _ => .prim (.int (Int.ofNat (countRegularFields fields)))
-  | value => .builtinCall "len" [value]
+  | value =>
+      match listItems? value with
+      | some items => .prim (.int (Int.ofNat items.length))
+      | none => .builtinCall "len" [value]
 
 def andValues (values : List Value) : Value :=
   values.foldl (fun current value => meet current value) .top
@@ -306,48 +307,57 @@ def asciiToTitle (value : String) : String := mapWordInitial Char.toUpper value
 def asciiToCamel (value : String) : String := mapWordInitial Char.toLower value
 
 /-- Concatenate a list of lists; any non-list element yields bottom.
-    An open-tail sublist (`[a,b,...]`) presents its concrete prefix to the read
-    (same rule as `openListOperand`, reaching NESTED position). Mirrors CUE's `list.Concat`. -/
+    Each element is read through `listItems?`, so all three list carriers
+    (`.list`/`.listTail`/`.embeddedList`) present their concrete-prefix elements —
+    an open-tail sublist (`[a,b,...]`) or a list-embedding struct (`{[a,b], _x: 9}`)
+    contributes `[a,b]`, reaching NESTED position. Mirrors CUE's `list.Concat`. -/
 def listConcat (lists : List Value) : Value :=
   let rec collect : List Value -> Option (List Value)
     | [] => some []
-    | .list items :: rest => (collect rest).map (items ++ ·)
-    | .listTail items _ :: rest => (collect rest).map (items ++ ·)
-    | _ => none
+    | value :: rest =>
+        match listItems? value with
+        | some items => (collect rest).map (items ++ ·)
+        | none => none
   match collect lists with
   | some items => .list items
   | none => .bottom
 
-/-- Maximum nesting depth of list values in `items`: how many `.list` levels can be
-    peeled before only non-list elements remain. A structural upper bound on the
-    fuel `list.FlattenN` needs to flatten fully. -/
-def listNestingDepth : List Value -> Nat
-  | [] => 0
-  | item :: rest =>
-      let here :=
-        match item with
-        | .list inner => listNestingDepth inner + 1
-        | .listTail inner _ => listNestingDepth inner + 1
-        | _ => 0
-      max here (listNestingDepth rest)
-
 /-- Flatten at most `fuel` nested levels of `items`; a non-list element is emitted
-    as-is. Fuel decreases by one per level of descent, so the recursion is total. -/
+    as-is. Each element is read through `listItems?`, so every list carrier descends.
+    Fuel decreases by one per level of descent, so the recursion is total. -/
 def listFlattenFuel (fuel : Nat) (items : List Value) : List Value :=
   match fuel with
   | 0 => items
   | fuel + 1 =>
       items.flatMap fun item =>
-        match item with
-        | .list inner => listFlattenFuel fuel inner
-        | .listTail inner _ => listFlattenFuel fuel inner
-        | other => [other]
+        match listItems? item with
+        | some inner => listFlattenFuel fuel inner
+        | none => [item]
+
+/-- A carrier's element list is structurally smaller than the carrier itself, so a
+    flatten recursing through `listItems?` (into any list carrier) terminates. -/
+theorem sizeOf_listItems?_lt {value : Value} {items : List Value}
+    (h : listItems? value = some items) : sizeOf items < sizeOf value := by
+  cases value <;> simp_all [listItems?] <;> omega
+
+/-- Fully flatten every nested list carrier, at any depth. Reads each element through
+    `listItems?`, so all three carriers descend; recursion is well-founded on the shrinking
+    element list (`sizeOf_listItems?_lt`). The unbounded companion to `listFlattenFuel`. -/
+def listFlattenAll (items : List Value) : List Value :=
+  items.attach.flatMap fun ⟨item, _hmem⟩ =>
+    match _h : listItems? item with
+    | some inner => listFlattenAll inner
+    | none => [item]
+  termination_by sizeOf items
+  decreasing_by
+    have hinner : sizeOf inner < sizeOf item := sizeOf_listItems?_lt _h
+    have hitem : sizeOf item < sizeOf items := List.sizeOf_lt_of_mem _hmem
+    omega
 
 /-- Flatten nested lists up to `depth` levels; `depth < 0` flattens fully.
     A non-list element is emitted as-is. Mirrors CUE's `list.FlattenN`. -/
 def listFlattenN (items : List Value) (depth : Int) : List Value :=
-  let fuel := if depth < 0 then listNestingDepth items else depth.toNat
-  listFlattenFuel fuel items
+  if depth < 0 then listFlattenAll items else listFlattenFuel depth.toNat items
 
 /-- `count` copies of `items` concatenated; negative count is an error (bottom).
     Mirrors CUE's `list.Repeat`. -/
@@ -748,13 +758,15 @@ def unsupportedOrBottom (name : String) (args : List Value) : Value :=
   else
     .builtinCall name args
 
-/-- An open-tail list presents its concrete prefix to every value-level list operation,
-    consistent with `len([1,2,3,...]) = 3`. Normalize a list operand so a dispatch that
-    destructures `.list` also serves an open-tail carrier; the `...` marker governs only
-    unification/closedness, never a value-level read. -/
-def openListOperand : Value -> Value
-  | .listTail items _ => .list items
-  | value => value
+/-- Every list carrier presents its concrete-prefix elements to a value-level list
+    operation, consistent with `len([1,2,3,...]) = 3`. Normalize any list carrier
+    (`.list`/`.listTail`/`.embeddedList`, via `listItems?`) to a plain `.list` so a
+    dispatch that destructures `.list` serves all three; the open-tail `...` marker and a
+    struct-embed's non-output decls govern only unification/closedness, never a value read. -/
+def openListOperand (value : Value) : Value :=
+  match listItems? value with
+  | some items => .list items
+  | none => value
 
 /-- Dispatch a `list.*` builtin over already-evaluated arguments.
     Wrong argument shapes resolve to bottom (CUE error), per total-function design.

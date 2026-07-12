@@ -57,6 +57,25 @@ is enforced at the single `mkStruct` construction choke point, so the admittance
 the per-conjunct INTERSECTION (a field survives iff every clause admits it), not a flat
 union. `Value.lean` imports only `Kue.Regex` (a true leaf).
 
+**Value equality — three notions, disjoint domains (do not add a fourth).** Every
+value-comparison picks exactly one:
+
+- **Global derived `BEq Value`** (`deriving instance BEq`) — EXACT, order-sensitive,
+  carrier-sensitive (`.list ≠ .listTail`). Identity for cycle detection, memo keys, and
+  dedup probes where syntactic identity is what's meant.
+- **`structuralEq`** (`Value.lean`) — the CUE STRUCTURAL equality: recurses through the
+  three list carriers via `listItems?` (open-tail-stripping — a `.listTail`/`.embeddedList`
+  element equals its concrete prefix), value-based prim leaves (`primStructEq`, spec
+  int→float), order-INDEPENDENT struct compare. Backs list `==`, struct `==`,
+  `list.Contains`, `list.UniqueItems`.
+- **`eqUpToFieldOrder`** (`Lattice.lean`) — LATTICE identity: equal up to struct field
+  ORDER (field-order normal form), order-SENSITIVE over list elements. Backs
+  `dedupAlternatives` (disjunct-arm collapse), where `{a,b}|{b,a}` is one value.
+
+The single carrier classifier is `listItems?` — every list-carrier read (equality, the
+`list.*`/`len` value surface in `Builtin.lean`) routes through it, so a new list carrier is
+handled everywhere by editing that one function.
+
 ### 4. Order and lattice — `Order.lean`, `Lattice.lean`, `Normalize.lean`
 
 `Order.lean` defines subsumption (`subsumes`, a deliberate test-only oracle).

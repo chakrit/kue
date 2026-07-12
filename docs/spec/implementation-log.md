@@ -22038,3 +22038,34 @@ cover two. `list.Concat([{[1,2],_x:9},[3]])` ⇒ kue bottom, cue `[1,2,3]` (conf
 in `plan.md` (top of ranked backlog); RED seed committed `testdata/wild/list-ops-embedded-sublist/`
 (`.known-red`). Spot-checks of `089957a` (`.listTail` arms) and `a069efe` (`disjArmCrossProduct` distribution;
 ref/scalar+nested residual correctly quarantined) otherwise clean.
+
+---
+
+## Completed Slice: LIST-OPS-EMBEDDED-CARRIER + Phase B audit (2026-07-13d)
+
+Goal: fix the recurring list-carrier-enumeration soundness defect BY CONSTRUCTION, and run the Phase B
+whole-graph audit after Phase A (`ca2c147`).
+
+**Fix (recommended approach (a) — single-classifier centralization).** The three list carriers
+(`.list`/`.listTail`/`.embeddedList`) all mean "a list." Every list-carrier read in `Kue/Builtin.lean`
+now routes through the one classifier `listItems?` (`Kue/Value.lean`), so a missed carrier is designed out:
+`listConcat`/`listFlattenFuel`/`lenValue`/`openListOperand` route through it directly (fuel/spine
+recursion — no termination cost). `listNestingDepth` DELETED; full-flatten is now `listFlattenAll`, a WF
+recursion through `listItems?` proven terminating by the new `sizeOf_listItems?_lt` lemma (a carrier's
+element list is structurally smaller than the carrier) + `List.sizeOf_lt_of_mem`. This falsifies the
+filing's claim that the depth site FORCES a direct `.list inner` pattern arm. (A computable `sizeOf items`
+fuel bound was tried first and rejected — `List Value`'s SizeOf instance is noncomputable.)
+
+Found + fixed two carrier-miss sites beyond the filing's three: `lenValue` (`len({[1,2,3],_x:9})` deferred
+instead of `3`) and `openListOperand` (the sole `list.*` operand normalizer — its miss broke every `list.*`
+builtin on an embedded-list operand). Wild `list-ops-embedded-sublist/` GRADUATED and expanded to six
+facets (concat/flatten1/depthFull + lenEmbed/sumEmbed/reverseEmbed); spec-adjudicated, cue v0.16.1 agrees,
+no divergence. `check.sh` fully green.
+
+**Audit (TASK 2/3).** Equality boundary (`BEq Value` / `structuralEq` / `eqUpToFieldOrder`) documented in
+`architecture.md` § 3; no raw-equality misuse found. Graph healthy — clean layering, no cycles, no dead
+code, `partial def`s all waived. Pre-existing `| _ =>` catch-alls flagged by the graph sweep were NOT
+re-filed (match on Prim/kind/enum or defer-fallbacks, prior-audit-cleared). Reconciled ranked HEAD:
+DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual (HIGH, last soundness leak) → LOW gaps → PB-EVALBASE-SPLIT →
+deferred float FDLIBM. Filed PB-PERFGUIDE-STALE (LOW). Full audit record in `plan.md` § PHASE B AUDIT
+(2026-07-13d).
