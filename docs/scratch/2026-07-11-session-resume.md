@@ -3,8 +3,25 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual (ref/scalar + nested arms) — LAST HIGH soundness leak
-CLOSED (LANDED 2026-07-13).** A def unifying a disjunction with a def-REF/scalar arm, or a NESTED
+HEAD: **Phase A audit (`ca2c147..f0ddb19`) — MILESTONE NOT substantiated; 2 residual HIGH leaks found
+(no code change, filed 2026-07-13).** The "all known soundness leaks closed" claim is FALSIFIED. (1)
+**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK** (HIGH): the `f0ddb19` `isDistributableDisj` whitelist is
+all-or-nothing — a disjunction with ONE non-whitelisted arm (`.bound` `>5`, list `[1,2]`) skips closing
+ALL arms → `#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` leaks `{a,z,w}` (cue ⊥). Fix: distribute bound/list
+arms that DIE against a struct literal (like scalars) while keeping error/comprehension excluded for the
+L-series force-fold. (2) **LIST-SLICE-EMBEDDED-CARRIER** (HIGH): 4th carrier-miss — the `slice` desugar
+in `evalCoreBuiltin` misses `.embeddedList` (never migrated by `71598c6`, which only touched
+`evalListBuiltin`); `({[1,2,3],_y:9})[0:2]` ⇒ kue incomplete, spec `[1,2]`. Plus LOW
+DISJ-NESTED-ERROR-ARM-AMBIGUOUS (divergent error, not a leak). Both HIGHs are fixture-first slices (one
+risks L-series, one needs a wild fixture) — filed in `plan.md` Ranked OPEN backlog, NOT fixed inline.
+`f0ddb19` whitelist otherwise SOUND (closed/open-ref, scalar, refId-to-scalar all match cue); `71598c6`
+`listFlattenAll` termination sound, classifier complete except the one unmigrated slice site.
+**NEXT (ranked):** DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH) → LIST-SLICE-EMBEDDED-CARRIER (HIGH) →
+Phase B audit (still due) → LOW gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED) →
+PB-PERFGUIDE-STALE → PB-EVALBASE-SPLIT → deferred FDLIBM. **Alpha release HELD (attended).**
+
+Prior HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual (ref/scalar + nested arms) — LANDED 2026-07-13**
+(its "LAST HIGH soundness leak closed" claim RETRACTED by the Phase A audit above). A def unifying a disjunction with a def-REF/scalar arm, or a NESTED
 disjunction arm, flattened OPEN and leaked past closedness. The FILED premise (needs per-arm eval
 `resolveDisjArm`, risks L-series) was FALSIFIED: kue's eval already composes `[closed-struct-arm |
 open-ref-conj-arm]` correctly. Fix (`flattenConjDefRef`, `Kue/EvalBase.lean`): the cross-product

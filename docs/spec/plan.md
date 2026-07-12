@@ -203,6 +203,44 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH soundness — SILENT closedness leak; NEW, 2026-07-13 Phase A
+audit `f0ddb19`). OPEN — falsifies "the LAST known HIGH silent soundness leak" claim on
+DEF-FLATTEN-CLOSEDNESS-DISJ-REF below.** `isDistributableDisj` (`Kue/EvalBase.lean`) is all-or-nothing per
+disjunction: it distributes the def's own-literal union ONLY when EVERY arm is distributable
+(struct/structComp/refId/prim/nested-disj). A disjunction carrying ONE non-whitelisted arm — a `.bound`
+(`>5`) or a list carrier (`[1,2]`) — makes `isDistributableDisj` return false for the WHOLE disjunction, so
+it lands UNEVALUATED in `rest` and the def NEVER closes its own literal around the surviving struct arms →
+extra fields leak past closedness. Repros (cue v0.16.1, both ⊥; kue leaks):
+- `#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥.
+- `#X: {a:1} & ({z:9} | [1,2])` · `#X & {w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥.
+Root: a `.bound`/list arm meeting a struct literal dies (⊥) EXACTLY like a scalar — so it SHOULD be
+distributable (emit the open-conj, eval kills that arm), same as the `.prim` case (which closes correctly:
+`… | null` + extra ⇒ kue ⊥). The `f0ddb19` exclusion of bound was to preserve the L-series force-fold path
+(`bug214b_disj_arm_*`); the fix must distribute bound/list arms that DIE against a struct literal while
+still excluding error/comprehension arms that need force-fold eval — thread that needle, not blanket-include.
+Seed `testdata/wild/def-closedness-disj-excluded-arm/` RED first; both-direction guards (a bound arm whose
+struct sibling should still close + reject extra; the L-series force-fold arm untouched).
+
+**LIST-SLICE-EMBEDDED-CARRIER (HIGH soundness — 4th carrier-miss; NEW, 2026-07-13 Phase A audit `71598c6`).
+OPEN — falsifies "every list-carrier read routes through `listItems?`" on LIST-OPS-EMBEDDED-CARRIER below.**
+The `slice` desugar of `x[lo:hi]` in `evalCoreBuiltin` (`Kue/Builtin.lean` ~1468) hand-enumerates `.list` +
+`.listTail` and MISSES `.embeddedList` — `evalCoreBuiltin` does NOT map `openListOperand` over its args (only
+`evalListBuiltin` does), so this dispatch was never migrated by the LIST-OPS-EMBEDDED-CARRIER slice. Repro:
+`({[1,2,3], _y: 9})[0:2]` ⇒ kue **`incomplete value: slice(…)`** (deferred residual), spec/cue slice the
+embedded list. `len`/index on the same embeddedList work (routed through `listItems?`); slice is the outlier.
+Fix: route the slice operand through `listItems?` (`| "slice", [value, .prim (.int low), .prim (.int high)]
+=> match listItems? value with | some items => listSlice items low high | none => unresolvedOrBottom …`),
+preserving the non-concrete-bound deferral (bounds still pattern-matched as `.prim (.int _)`). Seed
+`testdata/wild/list-slice-embedded/` RED first. NOTE cue v0.16.1 returns `[9,1]` for the repro (a cue bug —
+embedded scalar bleeding into the slice); spec-correct is `[1,2]`, log the cue divergence.
+
+**DISJ-NESTED-ERROR-ARM-AMBIGUOUS (LOW — divergent error, NOT a leak; NEW, 2026-07-13 Phase A audit).
+OPEN.** `#X: {a:1} & ({b:2} | ({c:3} | _|_))` · `#X & {extra:9}` ⇒ kue **`ambiguous value: multiple
+non-default disjuncts remain`**, cue ⊥ (`field not allowed` + explicit-error empty disjunction). A nested
+disj arm containing an `error` arm is non-distributable, so the whole disj stays raw and eval reports
+ambiguity instead of collapsing to bottom. Both are ERRORS — no field leaks, no soundness impact; purely a
+divergent error path/message. Low priority.
+
 **LIST-OPS-EMBEDDED-CARRIER (HIGH soundness — SILENT wrong value / bottom; NEW, 2026-07-13 Phase A audit).
 ✅ LANDED (2026-07-13 Phase B audit).** The three list carriers — `.list`/`.listTail`/`.embeddedList` —
 all mean "a list"; `listConcat.collect`, `listFlattenFuel`, `listNestingDepth`, `lenValue`, and
@@ -221,6 +259,9 @@ classifier. Two MORE carrier-miss sites found beyond the filing's three — `len
 — missed `.embeddedList`, so EVERY `list.*` builtin failed on an embedded-list operand). Wild
 `list-ops-embedded-sublist/` GRADUATED, expanded to six facets (concat/flatten1/depthFull + lenEmbed/
 sumEmbed/reverseEmbed). Spec-adjudicated, cue v0.16.1 AGREES on all — no divergence. `check.sh` green.
+> RETRACTION (2026-07-13 Phase A audit): "EVERY list-carrier read routes through `listItems?`" is
+> INCOMPLETE — the `slice` desugar in `evalCoreBuiltin` was never migrated and still misses `.embeddedList`
+> (LIST-SLICE-EMBEDDED-CARRIER, filed HIGH above). "N consumers" missed one.
 
 **LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 LIST-OPS-NESTED-OPENTAIL).
 ✅ LANDED (2026-07-13 LIST-ELEM-EQ).** `list.Contains` compared each element against the needle with raw
@@ -243,7 +284,12 @@ so `Contains([[1]],[1.0])` ⇒ true and `UniqueItems([1,1.0])` ⇒ bottom — sp
 
 **DEF-FLATTEN-CLOSEDNESS-DISJ-REF (HIGH soundness — SILENT closedness leak; PRE-EXISTING).
 ✅ FULLY LANDED (2026-07-13).** Multiple-disjunction cross-product landed first; the ref/scalar-arm +
-nested-disj residuals landed in the follow-up (this closes the LAST known HIGH silent soundness leak).
+nested-disj residuals landed in the follow-up.
+> RETRACTION (2026-07-13 Phase A audit): the "closes the LAST known HIGH silent soundness leak" /
+> "all known soundness leaks now closed" claim (commit `f0ddb19`) is FALSIFIED — the `isDistributableDisj`
+> whitelist is all-or-nothing, so a disjunction with a bound/list arm leaks (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK,
+> filed HIGH above). A second residual (LIST-SLICE-EMBEDDED-CARRIER) is a 4th list-carrier miss. This entry's
+> whitelist design (excluding bound arms) is the direct cause of the closedness leak.
 The DEF-FLATTEN-CLOSEDNESS-DISJ fix closed a def's own-literal union across a SINGLE all-struct
 disjunction; the cross-product slice extended the distribution to MULTIPLE closable disjunctions; the
 residual slice extended it to ref/scalar arms (open-compose) and nested disjunctions (flatten-first).

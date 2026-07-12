@@ -22113,3 +22113,52 @@ admits). This closes the LAST known HIGH silent soundness leak — all known sou
 are now closed. A pre-existing ref-composition field-order divergence (kue orders ref
 fields first; values spec-correct) logged `cue-divergences.md#REF-OPEN-COMPOSE-FIELD-ORDER`.
 `check.sh` fully green.
+
+---
+
+## Completed Slice: Phase A audit — MILESTONE NOT substantiated (2 residual leaks) (2026-07-13)
+
+Phase A code-quality audit over the batch `ca2c147..f0ddb19` (LIST-OPS-EMBEDDED-CARRIER
+`71598c6` + DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual `f0ddb19`), with milestone
+confirmation of the "all known soundness leaks closed" claim entering the durable record.
+
+Last-audit reconciliation (`ca2c147`): LIST-OPS-EMBEDDED-CARRIER graduated
+(`list-ops-embedded-sublist/` live, no `.known-red`); LIST-ELEM-EQ equality-boundary note
+landed in `architecture.md` (`structuralEq`/`eqUpToFieldOrder`); REF-OPEN-COMPOSE-FIELD-ORDER
+logged in `cue-divergences.md`. OPEN LOW backlog (PATTERN-LABEL-ALIAS-SCALAR,
+UNREFERENCED-ALIAS, LIST-ISSORTED, PB-PERFGUIDE-STALE, PB-EVALBASE/FIXTUREPORTS-SPLIT,
+deferred FDLIBM) intact, unchanged.
+
+MILESTONE CONFIRMATION: NOT substantiated. Adversarial probing found TWO residual
+soundness leaks, both filed HIGH in `plan.md`:
+
+- **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK** — the `f0ddb19` `isDistributableDisj` whitelist is
+  all-or-nothing per disjunction. A disjunction carrying ONE non-whitelisted arm (`.bound`
+  `>5`, a list `[1,2]`) makes the whole disjunction non-distributable, so the def never
+  closes its own literal around the surviving struct arms → fields leak past closedness.
+  `#X: {a:1} & ({z:9} | >5)` · `#X & {w:7}` ⇒ kue `{a,z,w}`, cue ⊥. The bound-arm exclusion
+  (added to preserve L-series force-fold) is the direct cause; a bound/list arm meeting a
+  struct literal dies exactly like a scalar and should distribute. `.prim`/null arms close
+  correctly (control), isolating the leak to bound/list arms.
+- **LIST-SLICE-EMBEDDED-CARRIER** — the `slice` desugar of `x[lo:hi]` in `evalCoreBuiltin`
+  (`Kue/Builtin.lean`) hand-enumerates `.list`+`.listTail`, misses `.embeddedList`;
+  `evalCoreBuiltin` never applies `openListOperand`, so `71598c6` did not migrate it. A 4th
+  carrier-miss. `({[1,2,3], _y: 9})[0:2]` ⇒ kue incomplete/deferred, spec slices `[1,2]`.
+  `len`/index on the same value work (routed through `listItems?`); slice is the outlier.
+
+Also filed DISJ-NESTED-ERROR-ARM-AMBIGUOUS (LOW): a nested disj with an `error` arm +
+extra field ⇒ kue `ambiguous` vs cue ⊥ — both errors, NOT a leak; divergent error path only.
+
+`f0ddb19` whitelist verdict: SOUND in the tested directions — closed-ref-arm rejects extra,
+open-ref-arm admits, scalar/refId-to-scalar arms die correctly (all match cue modulo the
+logged field-order divergence) — EXCEPT the too-restrictive `.bound`/list exclusion above.
+`71598c6` carrier verdict: `listFlattenAll` WF termination sound
+(`sizeOf_listItems?_lt` + `List.sizeOf_lt_of_mem`, strictly-shrinking element list); the
+classifier covers all 3 carriers and every `evalListBuiltin`/`lenValue` site routes through
+it; the ONE unmigrated site is the `evalCoreBuiltin` slice desugar (filed above). No
+`| _ =>` Value-producing catch-all introduced.
+
+Retraction pointers added IN THIS SLICE to the DEF-FLATTEN-CLOSEDNESS-DISJ-REF and
+LIST-OPS-EMBEDDED-CARRIER plan entries (their completion claims are now annotated). No code
+change; findings filed for the loop to pick up (a whitelist fix risks L-series, a slice fix
+needs a wild fixture — both are fixture-first slices, not inline audit cleanups).
