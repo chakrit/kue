@@ -20713,3 +20713,33 @@ bounds unchanged (`>0 & 1.5` → `1.5`, `>=0.5 & 1.0` → `1.0`).
 
 `./scripts/check.sh` GREEN. NOT a cue-divergence (cue was spec-correct); no `cue-divergences.md`
 entry. Committed on `main`.
+
+---
+
+## Completed Slice: PATTERN-BOUND-OPERAND Phase-A code-quality audit
+
+Batch `1710ac3..a8e37e2` (PA-FLOAT-TEST-6 / CORE-CONFORMANCE-PROBE / PATTERN-BOUND-OPERAND).
+Audit-only, no code change. Full write-up in [`plan.md`](plan.md) under the same title.
+
+### Reconciliation
+
+PA-FLOAT-TEST-6 ✅-LANDED verified (`ef25e93`). Five OPEN LOW still filed (PA-ESC-2, PA-SUB-4,
+PA-TT-5, PB-TESTORG-4, PB-RELEASE-3), none re-ranked. Both PATTERN-BOUND red seeds GRADUATED —
+`.known-red` deleted in `a8e37e2`.
+
+### Verdict
+
+Meet/order/format layer SOUND: `primOrdCompare?` total + exact-decimal/code-point/byte correct,
+every `none`-caller conflicts (no fabricated ordering), the `number` sentinel proven inert at every
+domain-reading site (all match `bound` first), untouched wildcard `.boundConstraint` sites are probes
+or verbatim-reconstruct arms, dead code (`parseBoundValue`/`minDecimal`/`maxDecimal`/`formatBoundLimit`)
+truly unreferenced. Two findings filed:
+
+- **PA-BOUND-GROUND (MEDIUM)** — `classifyScalarOperand.defer` conflates ground non-scalar with
+  incomplete; `evalBoundOp`/`evalRegexMatchOp` emit `<[1,2]`/`<{a:1}`/`=~[1]` where cue hard-errors
+  (regression from a pre-slice parse error). Same root bug pre-exists in `evalNumPos`/`evalNumNeg`
+  (`-[1,2]`). Fix: split `.defer` into `.ground`/`.incomplete`.
+- **PA-BOUND-DOMAIN-TYPE (LOW)** — `boundConstraint (bound : Prim) … (domain : NumberDomain)` admits
+  null/bool bounds and string+numeric-domain nonsense; propose an `OrderedPrim` sum (Phase-B tightening).
+
+No inline fix (soundness finding is not low-risk). No `./scripts/check.sh` run (no code change).

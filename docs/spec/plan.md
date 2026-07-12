@@ -436,6 +436,62 @@ enforcement), surfaced by slice D's separator work, is queued below.
   Wild-caught OUT-OF-SCOPE bug queued: `testdata/wild/cue-unicode-escape-dropped/` (`.known-red`) —
   kue's cue-file string lexer drops the backslash on a `\uXXXX` escape; seed for a string-lexer slice.
 
+**PATTERN-BOUND-OPERAND Phase-A code-quality audit (2026-07-12, batch `1710ac3..a8e37e2`, 3 slices:
+PA-FLOAT-TEST-6 / CORE-CONFORMANCE-PROBE / PATTERN-BOUND-OPERAND).** Last-audit reconciliation:
+PA-FLOAT-TEST-6 ✅-LANDED verified (`ef25e93`, +20 StrconvTests guards); five OPEN LOW remain
+legitimately filed (PA-ESC-2, PA-SUB-4, PA-TT-5, PB-TESTORG-4, PB-RELEASE-3), none due this batch,
+none re-ranked. Both PATTERN-BOUND red seeds GRADUATED — `.known-red` deleted in `a8e37e2`,
+`testdata/wild/pattern-bound-{string,reference}-operand/` now live green fixtures with spec-adjudicated
+oracles. **PATTERN-BOUND verdict: SOUND at the meet/order/format layer; ONE eval-layer soundness bug
+(PA-BOUND-GROUND, MEDIUM) + one type-leverage finding.** Deep audit: `primOrdCompare?` is TOTAL and
+correct — numbers by EXACT decimal (`decimalLtValues`, no float rounding), strings by code point
+(`charsLt` on `Char.toNat`), bytes by `UInt8` order; returns `none` for cross-family and null/bool,
+and EVERY caller (`admitsPrim?`/`meetBoundPrim`/`meetTwoBounds`/`rangeFeasible`/`tightenSameSide`/join
+canonical-order/`boundSubsumesBound`) handles `none` as a conflict or a stable-order fallback, never a
+fabricated ordering. The `number`-sentinel demotion is genuinely INERT: every site that reads a
+string/bytes bound's `domain` (`boundKindLabel`, `boundAdmitsKind`, `meetKindWithBound`, `meetBoundPrim`)
+matches on `bound` FIRST and never consults `domain` for a non-numeric operand; `meetTwoBounds` narrows
+`.number.narrow .number = some .number` harmlessly. The ~30 untouched `.boundConstraint _ _ _` wildcard
+sites were spot-checked — all are Bool/Option probes (`classifyScalarOperand`, `isBottom`-class) or
+verbatim-reconstruct arms (`| .boundConstraint b k d => .boundConstraint b k d`), none a Value-PRODUCING
+match with a numeric-only assumption. Dead code confirmed unreferenced (`parseBoundValue`, `minDecimal`,
+`maxDecimal`, `formatBoundLimit`: zero grep hits). Two findings:
+
+- **PA-BOUND-GROUND (MEDIUM, correctness/soundness — eval-layer, NOT low-risk → filed not fixed).**
+  `evalBoundOp`/`evalRegexMatchOp` (`Kue/EvalOps.lean`) route a GROUND non-scalar operand (list/struct)
+  through `classifyScalarOperand`, whose `.defer` bucket CONFLATES "genuinely incomplete (ref/binary/
+  selector/comprehension)" with "ground but non-scalar (list/struct)". A ground list/struct is then
+  wrongly DEFERRED to a residual `.unary` node that FORMATS and EXPORTS as a fabricated constraint,
+  where CUE hard-errors. Concrete repros (kue vs cue v0.16.1):
+  `x: <[1,2]` → kue `x: <[1, 2]`, cue `cannot use list for bound <`;
+  `x: <{a:1}` → kue `x: <{a: 1}`, cue `cannot use struct for bound <`;
+  `x: =~[1]` → kue `x: =~[1]`, cue `cannot use list for bound =~`.
+  Regression: pre-slice `parseBoundValue` made `<[1,2]` a PARSE ERROR (rejection); this slice turned a
+  rejection into a fabricated non-⊥ output. Root cause is the shared classifier — the SAME conflation
+  already mis-handles `x: -[1,2]` (kue `-[1, 2]`, cue `invalid operation - list`), so `evalNumPos`/
+  `evalNumNeg` carry the pre-existing bug and this slice EXTENDED its surface to bound/regex lowering.
+  Fix (type-leverage): split `ScalarOperandClass.defer` into `.ground` (resolved non-scalar → each op
+  decides: bound/neg/pos/regex on list/struct ⇒ ⊥ per CUE, `!=` on list stays a legit `notPrim`) vs
+  `.incomplete` (unresolved → defer), fixing all five ops at once. `!=[1,2]` correctly stays valid in
+  BOTH (cue keeps `!=[1, 2]`; the `.ground` arm for `neOp` must still lower to `notPrim`). Spec basis:
+  CUE grammar `rel_op UnaryExpr` requires the operand resolve to an ORDERED scalar (number/string/bytes)
+  for `< <= > >=` and a string for `=~`; a ground non-scalar is a type error, not an incomplete. Adjudge
+  the `=~5` micro-divergence too (kue ⊥ vs cue `=~5`): kue is MORE spec-correct — `=~` operand must be a
+  string — record in `cue-divergences.md`. TDD: wild fixtures `testdata/wild/bound-ground-nonscalar-{list,
+  struct}/` (red first), + EvalOpsTests theorems pinning `.list`/`.struct` operand ⇒ ⊥ (the current
+  `eval_bound_op_non_ordered_operand_bottoms` tests only `.bool`, MISSING list/struct — the coverage gap
+  that masked this).
+- **PA-BOUND-DOMAIN-TYPE (LOW, illegal-states — Phase-B type-tightening candidate).** `boundConstraint
+  (bound : Prim) (kind : BoundKind) (domain : NumberDomain)` admits two representable-nonsense states:
+  (a) a null/bool operand (`bound : Prim` is too wide — a bound is only ever over an ordered type), and
+  (b) a string/bytes bound carrying a numeric `domain` (the inert `.number` sentinel). Both are handled
+  defensively at runtime (null/bool ⇒ conflict everywhere; sentinel proven inert above), i.e. exactly
+  the "loose type guarded by runtime checks" the repo exists to erase. Propose a dedicated `OrderedPrim`
+  sum — `num (v : DecimalValue) (domain : NumberDomain) | str String | bytes ByteArray` — so a bound
+  over null/bool and a string-bound-with-numeric-domain become UNREPRESENTABLE and the `boundKindLabel`/
+  `boundAdmitsKind` `.null | .bool => ...` dead arms vanish. Reversible, gate-arbitrated; a clean Phase-B
+  slice. (Also folds `evalBoundOp`'s `.null`/`.bool ⇒ .bottom` into construction-time impossibility.)
+
 **STDLIB-FLOAT-F2 Phase-A code-quality audit (2026-07-12, batch `a366a3a..a9fa4c6`, 3 slices:
 EvalTests split / StringFormat leaf / IEEE float kernel).** Last-audit reconciliation: all five
 ✅-LANDED filings verified against commits — PA-NET-1 + PA-SF-3/PB-SF-3 + PB-DOCGRAPH-2 in
