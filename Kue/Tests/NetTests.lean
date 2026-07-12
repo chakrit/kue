@@ -219,6 +219,20 @@ theorem net_export_end_to_end :
       "{\n    \"ip\": \"10.0.0.1\",\n    \"cidr\": \"10.0.0.0/8\",\n    \"v4l\": 4,\n    \"v6l\": 16\n}\n" = true := by
   native_decide
 
+-- ### Fixed-width v6 invariant (PA-NET-1): `NetAddr.v6` carries `Vector UInt8 16`, so a
+-- parsed v6 address is exactly 16 bytes by construction and a wrong-width address is
+-- unrepresentable — the classifiers index with no can't-happen fallback. `mkNetAddrV6?` is
+-- the sole trust boundary refining the parser's list into the fixed-width vector.
+theorem v6_width_by_construction :
+    (parseNetAddr? "::1").map (fun a => match a with | .v6 v => v.toList.length | .v4 .. => 4)
+      = some 16 := by native_decide
+theorem v6_embedded_width :
+    (parseNetAddr? "::ffff:1.2.3.4").map (fun a => match a with | .v6 v => v.toList.length | .v4 .. => 4)
+      = some 16 := by native_decide
+theorem mkV6_accepts_16 : (mkNetAddrV6? (List.replicate 16 0)).isSome = true := by native_decide
+theorem mkV6_rejects_short : mkNetAddrV6? [0, 0, 0] = none := by native_decide
+theorem mkV6_rejects_long : mkNetAddrV6? (List.replicate 17 0) = none := by native_decide
+
 -- Coverage tripwire: one anchor per section — a section swallowed by an editing slip makes
 -- its `#check` an unknown identifier (a hard build error), not a silently dropped test.
 #check @loopback_validator_value          -- validator VALUES
@@ -231,5 +245,6 @@ theorem net_export_end_to_end :
 #check @cidr_leaf_nonexistent             -- deferred functions + nonexistent leaf
 #check @net_family                        -- family classification
 #check @net_export_end_to_end             -- end-to-end export
+#check @v6_width_by_construction          -- fixed-width v6 invariant
 
 end Kue

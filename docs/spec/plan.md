@@ -433,23 +433,20 @@ resolve) with zero catch-all swallow; zero new `partial def` (all totality via f
 compiler-verified via `termination_by`); documented cue-divergences (exact-int duration frac,
 decimal Sqrt). Five findings, none inline-fixable low-risk (all touch core parse/type or are
 Phase-B placement), all filed:
-- **PA-NET-1 (MEDIUM, illegal-states).** `NetAddr.v6 (bytes : List UInt8)` carries a
-  "always length 16 by construction" invariant as a DOC COMMENT, not the type — every classifier
-  then reads it with `bs.getD i 0` defaults that can't fire. Tighten the carrier to fixed width
-  (a 16-field tuple like `.v4`, or `Vector UInt8 16`), erasing the defaults and the comment.
-  `finalizeIPv6` already only ever emits exactly-16 lists, so the smart-constructor is free. The
-  repo's reason-to-be finding (philosophy §1). Medium blast radius (touches all `netIs*`), file
-  not inline.
+- **PA-NET-1 (MEDIUM, illegal-states). ✅ LANDED (2026-07-12, STRINGFORMAT-LEAF).** `NetAddr.v6`
+  now carries `Vector UInt8 16` — the 16-byte width is in the type, so every classifier indexes
+  with `bs[i]` (literal < 16, auto-total) and the `bs.getD i 0` value-fallbacks are gone. Smart
+  constructor `mkNetAddrV6?` is the single trust boundary refining `finalizeIPv6`'s list into the
+  fixed-width vector; the `v4` carrier was already tight (4 fields), untouched. Invariant pinned by
+  `v6_width_by_construction`/`mkV6_*` theorems in `NetTests`.
 - **PA-ESC-2 (LOW, DRY).** `decodeStringEscape` and `decodeByteEscape` (`Kue/Parse.lean`)
   duplicate the shared simple-escape core (`\a\b\f\n\r\t\v\\\/` + `\u`/`\U` codepoint). Extract a
   shared `simpleEscapeCodepoint? : Char → Option Nat` both consume (byte via raw byte /
   `codepointBytes`, string via `Char.ofNat`); keep the context-specific arms separate (`\x`/`\NNN`/`\'`
   byte-only, `\"` string-only). Core-parse edit → file, TDD.
-- **PA-SF-3 (LOW, arch — Phase-B candidate).** `stringFormatValid` (the `StringFormat`→predicate
-  dispatcher spanning BOTH time and net validators) lives in `Kue/Time.lean`, forcing a
-  `Time → Net` import for a function that is neither time- nor net-specific. Belongs with
-  `StringFormat`'s definition (own leaf module, or wherever both `Time` and `Net` predicates can be
-  imported). Layering smell, not a bug.
+- **PA-SF-3 (LOW, arch — Phase-B candidate). ✅ LANDED (2026-07-12, STRINGFORMAT-LEAF; see PB-SF-3).**
+  `stringFormatValid` moved to its own `Kue/StringFormat.lean` leaf importing `Time` + `Net` as
+  siblings; the `Time → Net` edge is erased. Landed jointly with PA-NET-1.
 - **PA-SUB-4 (LOW, precision — sound).** `Kue/Order.lean` stringFormat subsumption is
   equality-only (`expectedFmt == actualFmt`), so `net.IP()` does not subsume `net.IPv4()`/`net.IPv6()`
   and the address-class hierarchy is flat. Sound (conservative false-negative, mirrors the
@@ -473,16 +470,12 @@ deliberately unwired (live network, human-gated). Every cheap grep still matches
 test module escapes via `private theorem`/`@[…]`, block-comment `^[[:space:]]*/-`); wild
 auto-discovery + `.known-red` three-state quarantine (`handle_known_red`) intact. Findings:
 
-- **PB-SF-3 (LOW→MEDIUM arch, REINFORCES PA-SF-3) — the `Time → Net` import edge is real and is
-  the ONLY reason `Net` is imported by anything but tests.** Confirmed: `Kue/Net.lean` imports only
-  `Value`; the sole non-test importer of `Net` is `Time.lean:2`, purely to host `stringFormatValid`
-  (`Time.lean:258`), the `StringFormat`→predicate dispatcher that spans BOTH time and net validators
-  and is called from `Lattice.lean:66` + `Order.lean:238`. `StringFormat` itself is defined in
-  `Value.lean:813`. Fix: extract `stringFormatValid` into its own leaf (e.g. `StringFormat.lean`
-  importing `Time` + `Net` predicate helpers) that `Lattice`/`Order` import — erasing the
-  sibling-leaf `Time → Net` edge. Do the plan §"Durable whole-graph facts" + `architecture.md` graph
-  update IN THIS SLICE (both currently omit the three 2026-07-11 leaves and the edge). Small blast
-  radius (two call sites + one import move). Bundle with PA-NET-1's `Net` retype if landed together.
+- **PB-SF-3 (LOW→MEDIUM arch, REINFORCES PA-SF-3). ✅ LANDED (2026-07-12, STRINGFORMAT-LEAF).**
+  `stringFormatValid` extracted into `Kue/StringFormat.lean` — a leaf importing `Time` + `Net` as
+  siblings; `Lattice.lean:66` and `Order.lean:238` now `import Kue.StringFormat` (was `Kue.Time`).
+  `Time.lean` imports only `Value` again — the `Time → Net` edge is gone, `Time`/`Net` are
+  independent sibling leaves. Bundled with PA-NET-1's `Net` retype. Graph docs updated below +
+  in `architecture.md` §5 (PB-DOCGRAPH-2 remainder discharged here).
 
 - **PB-TESTORG-1 (MEDIUM, test-org — B-4 IS NOW DUE). ✅ LANDED.** Split `Kue/Tests/EvalTests.lean`
   (was 1792 lines, 8 under the 1800 cap) by theme into four sibling modules, all comfortably under
@@ -502,13 +495,11 @@ auto-discovery + `.known-red` three-state quarantine (`handle_known_red`) intact
   have headroom and forcing a bad thematic cut in the same slice was the wrong trade). Split each by
   theme when either nears the cap. Also dedupe `testdata/` where fixtures overlap.
 
-- **PB-DOCGRAPH-2 (LOW, doc currency). ✅ PARTIALLY FIXED INLINE (this audit).** `architecture.md`
-  §5 listed `Strconv.lean` but OMITTED the four newer stdlib-package leaves (`Path`/`Time`/`Net`/
-  `TextTemplate`, all landed 2026-07-11) — a drift against the "doc that names files is updated in the
-  slice that adds a file" guard. Fixed the §5 prose inline (added the four namespaces + leaf modules).
-  REMAINING: the plan §"Durable whole-graph facts" import-edge enumeration still omits the three
-  leaves + the `Time → Net` edge; left for the PB-SF-3 slice so the graph prose is rewritten ONCE
-  after the edge is resolved (avoids documenting an edge that is about to be deleted).
+- **PB-DOCGRAPH-2 (LOW, doc currency). ✅ LANDED (2026-07-12, STRINGFORMAT-LEAF).** `architecture.md`
+  §5 got the four stdlib-package leaves (`Path`/`Time`/`Net`/`TextTemplate`) inline at audit time;
+  this slice adds the `StringFormat` leaf, records `Time`/`Net` as independent siblings (no
+  `Time → Net`), and rewrites the plan §"Durable whole-graph facts" edge list to match — done ONCE
+  after the edge was resolved, as planned.
 
 - **PB-RELEASE-3 (LOW, tooling consistency).** `scripts/release.sh:43` builds via bare
   `lake build kue` (in a `cd $REPO_ROOT` subshell) — it does NOT route through the `./lake` wrapper
@@ -1523,9 +1514,14 @@ COMPLETE (see § List-embed, default-disjunction & def-closedness fixes). Releas
 The module graph is ACYCLIC + strictly layered (`Builtin → {Lattice, Regex, Decimal,
 Base64, Json, Yaml, CaseTable}`, NO `Eval`/`EvalOps` edge; `EvalOps → {Builtin, Decimal,
 Regex}` no back-edge; the evaluator is the carved chain `EvalBase → EvalDefer → Eval`, with
-`Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`; `Lattice → {Value, Regex}`;
+`Eval → {Builtin, Decimal, EvalOps, Lattice, Regex, Normalize}`;
+`Lattice → {Value, Regex, StringFormat}`; `Order → {Value, Regex, StringFormat}`;
 `Runtime → Eval`; `Module → {Parse, Runtime, Registry, OciFetch, Zip, Sha256}`;
 `OciFetch → {Oci, OciAuth, Base64, Sha256, Registry}`; `Cli → Runtime`; `Normalize → Value`).
+The stdlib string-format validators are independent sibling leaves — `Strconv`, `Path`, `Time`,
+`Net`, `TextTemplate` each `→ Value` only, no cross-edges among them (the former `Time → Net`
+edge is DELETED); `StringFormat → {Time, Net}` is the single join that hosts `stringFormatValid`,
+imported by `Lattice`/`Order`.
 The marshalling builtins are a deliberate forward edge into export (`Builtin → Json → Manifest`,
 `Yaml → Json`) — legitimate layering, not a cycle. Cleanliness sweeps clean (no
 `sorry`/`panic!`/`unreachable!`/`.get!`-in-pure-code, no dead code, no stale markers;

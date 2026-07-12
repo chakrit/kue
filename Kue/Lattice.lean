@@ -1,6 +1,6 @@
 import Kue.Value
 import Kue.Regex
-import Kue.Time
+import Kue.StringFormat
 
 namespace Kue
 

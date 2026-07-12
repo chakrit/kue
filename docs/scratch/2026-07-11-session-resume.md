@@ -3,7 +3,28 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **PB-TESTORG-1 — split oversized `EvalTests.lean` under the 1800-line test-health cap.**
+HEAD: **STRINGFORMAT-LEAF — NetAddr fixed-width + StringFormat leaf (PA-NET-1 + PA-SF-3 + PB-SF-3).**
+Two 2026-07-12 audit findings, one refactor, behavior-conserving. (1) `NetAddr.v6` retyped
+`List UInt8 → Vector UInt8 16` (`Kue/Net.lean`): 16-byte width now a TYPE invariant, so every `netIs*`
+classifier indexes `bs[i]` (literal <16, total) — all `bs.getD i 0` value-fallbacks gone. Smart ctor
+`mkNetAddrV6?` is the single trust boundary refining `finalizeIPv6`'s exactly-16 list into the vector;
+`parseNetAddr?` v6 arm `.bind`s it. `v4` carrier already tight (4 fields), untouched. (2)
+`stringFormatValid` extracted from `Time.lean` into new leaf `Kue/StringFormat.lean` (imports `Time`+`Net`
+as siblings); `Time.lean` now imports only `Value` — **`Time→Net` edge DELETED**; `Lattice`/`Order` swap
+`import Kue.Time`→`import Kue.StringFormat`. New theorems `v6_width_by_construction`/`v6_embedded_width`/
+`mkV6_{accepts_16,rejects_short,rejects_long}` in `NetTests`; +`#check @` anchor. All existing theorems
+conserved. Docs: plan.md (PA-NET-1/PA-SF-3/PB-SF-3/PB-DOCGRAPH-2 ✅ + edge-list rewrite), architecture.md
+§5 (5 stdlib leaves, `Time→Net` deleted), implementation-log. `check.sh` GREEN. Committed on `main`.
+**Next (ranked): remaining LOW audit findings — (a) PA-ESC-2 shared simple-escape table
+(`decode{String,Byte}Escape` DRY, `Parse.lean`); (b) PA-SUB-4 stringFormat subsumption precision
+(`net.IPv4()⊑net.IP()` class hierarchy, `Order.lean`); (c) PA-TT-5 template fuel bound proof; (d)
+PB-RELEASE-3 `release.sh:43` bypasses `./lake` CPU cap; (e) PB-TESTORG-4 BuiltinTests/TwoPassTests split
+(both under cap, no urgent seam). OR the leverage float item F2 (IEEE float64 kernel — unblocks
+`strconv.FormatFloat`, `text/template` T3, `Log1p`/`Expm1`, trig; F1/F3/F5 gate on it).** Rank: F2 is
+highest-leverage but largest; among LOWs, PA-ESC-2 (real DRY, small) and PA-SUB-4 (precision) first.
+Prior HEAD PB-TESTORG-1 below.
+
+## Prior HEAD — PB-TESTORG-1 — split oversized `EvalTests.lean` under the 1800-line test-health cap
 `EvalTests.lean` was 1792 lines (8 under cap, one slice from a hard gate failure). Split by THEME into
 four sibling modules, verbatim move: `EvalTests.lean` (494 — refs/memo/structural-cycles/terminating-
 disjuncts/embedding carriers), `EvalExprTests.lean` (581 — arithmetic/comparison/logical/unary/regex
@@ -13,11 +34,7 @@ eval, ref cycles, value aliases, default-disjunction resolve, F1 mark algebra, d
 conserved exactly (65+62+76+28); all three new modules registered in `Kue/Tests.lean`; each carries a
 `#check @` tripwire. `check.sh` GREEN (`test health ok`, full build). NO product-code change. Discharges
 B-4; BuiltinTests(1669)/TwoPassTests(1542) deferred to PB-TESTORG-4 (under cap, no urgent seam).
-Committed on `main`. **Next (ranked): the leverage float item is F2 (IEEE float64 kernel — unblocks
-`strconv.FormatFloat`, `text/template` T3, `Log1p`/`Expm1`, trig; F1/F3/F5 gate on it). Otherwise the
-remaining Phase-A/B audit findings: PA-NET-1 + PB-SF-3 bundled (StringFormat leaf extraction erasing the
-`Time→Net` edge), PA-ESC-2, PA-SUB-4, PA-TT-5, PB-RELEASE-3 (`release.sh:43` bypasses `./lake` CPU cap).**
-Prior HEAD STDLIB-FLOAT-F4-DIV below.
+Committed on `main`. Prior HEAD STDLIB-FLOAT-F4-DIV below.
 
 ## Prior HEAD — STDLIB-FLOAT-F4-DIV — closed the division half of F4
 **STDLIB-FLOAT-F4-DIV — closed the division half of F4 (apd result-exponent
@@ -166,7 +183,8 @@ roadmap in plan.md.
 New `.net` `BuiltinFamily`. `Kue/Net.lean` holds the `netip` parser (strict IPv4, IPv6 `::` +
 embedded-v4 + `%zone`) + CIDR + `Addr.Is*` classification, all fuel-bounded/total. Extended
 `StringFormat` with `netIP`/`netIPv4`/`netIPv6`/`netIPCIDR` + 7 class predicates (no new `Value`
-ctor); `stringFormatValid` (`Time.lean`, now imports `Net`) dispatches them; meet unchanged
+ctor); `stringFormatValid` dispatches them (extracted to the `StringFormat.lean` leaf by
+STRINGFORMAT-LEAF; was in `Time.lean`); meet unchanged
 (ground bottoms, abstract retains). `evalNetBuiltin` + bare-validator/const resolution
 (`Parse.lean`) + `net.` in `builtinImportPaths`. FQDN deferred (cue = idna `ToASCII`, full
 IDNA2008 — `ab--cd`/`xn--a` reject). Full detail: implementation-log.

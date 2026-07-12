@@ -23,12 +23,14 @@ needs the idna engine, not a label-rule predicate. -/
     is a dotted-decimal address (netip's `z4` form), `v6` a 16-byte address (`z6`). The
     distinction — not merely the bytes — drives classification: `Is4`/`Is6` key off it, and
     every class predicate unmaps an IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) to its v4
-    form first (except `InterfaceLocalMulticast`, which excludes 4-in-6). A `v6`'s `bytes`
-    is always length 16 by construction (the parser fills exactly 16). Zone identifiers are
-    accepted by the parser but dropped — no classification predicate inspects them. -/
+    form first (except `InterfaceLocalMulticast`, which excludes 4-in-6). The `v6` width is
+    fixed at 16 in the type (`Vector UInt8 16`): wrong-width addresses are unrepresentable,
+    so every classifier indexes by construction with no can't-happen fallback. Zone
+    identifiers are accepted by the parser but dropped — no classification predicate
+    inspects them. -/
 inductive NetAddr where
   | v4 (a b c d : UInt8)
-  | v6 (bytes : List UInt8)
+  | v6 (bytes : Vector UInt8 16)
 deriving Repr, BEq
 
 /-- Whether `c` is an ASCII decimal digit. -/
@@ -169,25 +171,33 @@ def firstAddrMark : List Char → Option Char
   | [] => none
   | c :: rest => if c == '.' ∨ c == ':' ∨ c == '%' then some c else firstAddrMark rest
 
+/-- Build a `v6` address from the parser's 16-byte list, refining the width into the type.
+    The IPv6 parser fills exactly 16 bytes (`finalizeIPv6`), so the length guard passes on
+    every real parse; it is the single trust boundary that turns the runtime list into the
+    fixed-width `Vector UInt8 16` the classifiers rely on. -/
+def mkNetAddrV6? (bytes : List UInt8) : Option NetAddr :=
+  if h : bytes.length = 16 then some (.v6 ⟨bytes.toArray, by simp [List.size_toArray, h]⟩)
+  else none
+
 /-- Parse a string as an IP address (`netip.ParseAddr`): dispatch on whichever of `.`/`:`
     appears first (a leading `%`, or neither mark, fails). -/
 def parseNetAddr? (s : String) : Option NetAddr :=
   let chars := s.toList
   match firstAddrMark chars with
   | some '.' => (parseIPv4Addr chars).map (fun bs => .v4 (bs.getD 0 0) (bs.getD 1 0) (bs.getD 2 0) (bs.getD 3 0))
-  | some ':' => (parseIPv6Addr chars).map NetAddr.v6
+  | some ':' => (parseIPv6Addr chars).bind mkNetAddrV6?
   | _ => none
 
 /-! ## Classification (`net/netip.Addr.Is*`) -/
 
 /-- Whether the 16-byte address is IPv4-mapped IPv6 (`::ffff:0:0/96`): bytes 0–9 zero, bytes
     10–11 `0xff`. -/
-def isMappedV4 (bs : List UInt8) : Bool :=
-  (bs.take 10).all (· == 0) ∧ bs.getD 10 0 == 0xff ∧ bs.getD 11 0 == 0xff
+def isMappedV4 (bs : Vector UInt8 16) : Bool :=
+  (bs.toList.take 10).all (· == 0) ∧ bs[10] == 0xff ∧ bs[11] == 0xff
 
 /-- Unmap an IPv4-mapped IPv6 address to its v4 form (`Addr.Unmap`); a no-op otherwise. -/
 def netUnmap : NetAddr → NetAddr
-  | .v6 bs => if isMappedV4 bs then .v4 (bs.getD 12 0) (bs.getD 13 0) (bs.getD 14 0) (bs.getD 15 0) else .v6 bs
+  | .v6 bs => if isMappedV4 bs then .v4 bs[12] bs[13] bs[14] bs[15] else .v6 bs
   | a => a
 
 /-- `Addr.Is4`: a pure IPv4 address (not IPv4-mapped IPv6). -/
@@ -204,38 +214,38 @@ def netIs6 : NetAddr → Bool
 def netIsLoopback (a : NetAddr) : Bool :=
   match netUnmap a with
   | .v4 x _ _ _ => x == 127
-  | .v6 bs => (bs.take 15).all (· == 0) ∧ bs.getD 15 0 == 1
+  | .v6 bs => (bs.toList.take 15).all (· == 0) ∧ bs[15] == 1
 
 /-- `Addr.IsMulticast`: IPv4 `224.0.0.0/4`, IPv6 `ff00::/8`. -/
 def netIsMulticast (a : NetAddr) : Bool :=
   match netUnmap a with
   | .v4 x _ _ _ => (x &&& 0xf0) == 0xe0
-  | .v6 bs => bs.getD 0 0 == 0xff
+  | .v6 bs => bs[0] == 0xff
 
 /-- `Addr.IsInterfaceLocalMulticast`: IPv6-only `ff01::/16`; explicitly excludes IPv4-mapped
     IPv6 (no unmap). -/
 def netIsInterfaceLocalMulticast (a : NetAddr) : Bool :=
   match a with
-  | .v6 bs => if isMappedV4 bs then false else (bs.getD 0 0 == 0xff ∧ (bs.getD 1 0 &&& 0x0f) == 0x01)
+  | .v6 bs => if isMappedV4 bs then false else (bs[0] == 0xff ∧ (bs[1] &&& 0x0f) == 0x01)
   | .v4 .. => false
 
 /-- `Addr.IsLinkLocalMulticast`: IPv4 `224.0.0.0/24`, IPv6 `ff02::/16`. -/
 def netIsLinkLocalMulticast (a : NetAddr) : Bool :=
   match netUnmap a with
   | .v4 x y z _ => x == 224 ∧ y == 0 ∧ z == 0
-  | .v6 bs => bs.getD 0 0 == 0xff ∧ (bs.getD 1 0 &&& 0x0f) == 0x02
+  | .v6 bs => bs[0] == 0xff ∧ (bs[1] &&& 0x0f) == 0x02
 
 /-- `Addr.IsLinkLocalUnicast`: IPv4 `169.254.0.0/16`, IPv6 `fe80::/10`. -/
 def netIsLinkLocalUnicast (a : NetAddr) : Bool :=
   match netUnmap a with
   | .v4 x y _ _ => x == 169 ∧ y == 254
-  | .v6 bs => bs.getD 0 0 == 0xfe ∧ (bs.getD 1 0 &&& 0xc0) == 0x80
+  | .v6 bs => bs[0] == 0xfe ∧ (bs[1] &&& 0xc0) == 0x80
 
 /-- `Addr.IsUnspecified`: IPv4 `0.0.0.0` or IPv6 `::` (no unmap). -/
 def netIsUnspecified (a : NetAddr) : Bool :=
   match a with
   | .v4 x y z w => x == 0 ∧ y == 0 ∧ z == 0 ∧ w == 0
-  | .v6 bs => bs.all (· == 0)
+  | .v6 bs => bs.toList.all (· == 0)
 
 /-- `Addr.IsGlobalUnicast`: everything that is not unspecified, loopback, multicast, or
     link-local unicast — and, for IPv4, not the broadcast `255.255.255.255`. Private IPv4
@@ -248,7 +258,7 @@ def netIsGlobalUnicast (a : NetAddr) : Bool :=
       if netIsUnspecified u ∨ bcast then false
       else !netIsLoopback u ∧ !netIsMulticast u ∧ !netIsLinkLocalUnicast u
   | .v6 bs =>
-      if bs.all (· == 0) then false
+      if bs.toList.all (· == 0) then false
       else !netIsLoopback u ∧ !netIsMulticast u ∧ !netIsLinkLocalUnicast u
 
 /-! ## CIDR (`netip.ParsePrefix`) -/

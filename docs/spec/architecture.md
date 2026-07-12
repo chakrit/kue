@@ -104,8 +104,11 @@ default-disjunction collapse) carved out from under the recursive evaluator — 
 builtin helpers (`close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, the `strings`
 /`list`/`math`/`struct`/`strconv`/`path`/`time`/`net`/`text/template` namespaces, `math.Pow` 's
 exact domain, Unicode case mapping via `CaseTable.lean`; the pure per-package algorithms live in
-their own leaf modules — `Strconv.lean`, `Path.lean`, `Time.lean`, `Net.lean`, `TextTemplate.lean`
-— each dispatched from `Builtin` via a `BuiltinFamily` arm); `Eval` dispatches resolved builtin calls and preserves incomplete ones
+their own leaf modules — `Strconv.lean`, `Path.lean`, `Time.lean`, `Net.lean`, `TextTemplate.lean`,
+each `→ Value` only with no cross-edges among them, dispatched from `Builtin` via a `BuiltinFamily`
+arm; the `stringFormat` string-validators join `Time` + `Net` in a dedicated `StringFormat.lean`
+leaf — `StringFormat → {Time, Net}`, imported by `Lattice`/`Order` — so `Time` and `Net` stay
+independent siblings with no edge between them); `Eval` dispatches resolved builtin calls and preserves incomplete ones
 as semantic values. Effectful builtins whose comparator needs `EvalM`
 (`list.Sort`/`SortStable`) are intercepted in `Eval` rather than `Builtin` (which must
 stay pure — there is no `Builtin → Eval` back-edge). The marshalling builtins are a

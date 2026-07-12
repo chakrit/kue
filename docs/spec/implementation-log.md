@@ -20454,3 +20454,45 @@ headroom), full `lake build` passes (every moved theorem still elaborates). Theo
 conserved exactly: 231 → 65 + 62 + 76 + 28 = 231. No product-code change; no block
 comments introduced. Discharges the long-deferred B-4 test-org pass; BuiltinTests (1669) /
 TwoPassTests (1542) split deferred to PB-TESTORG-4 (both under cap, no urgent seam).
+
+---
+
+## Completed Slice: STRINGFORMAT-LEAF — NetAddr fixed-width + StringFormat leaf
+
+Goal: land two 2026-07-12 audit findings as one coherent refactor — tighten `NetAddr.v6`
+so the 16-byte width is a type invariant (PA-NET-1), and extract the `stringFormat`
+dispatcher into its own leaf to erase the `Time → Net` import edge (PA-SF-3 / PB-SF-3).
+Behavior-conserving; the existing `NetTests`/format theorems are the safety net.
+
+### Steps
+
+1. PA-NET-1: retyped `NetAddr.v6` from `List UInt8` to `Vector UInt8 16` in `Kue/Net.lean`.
+   The width now lives in the type, so every `netIs*` classifier indexes with `bs[i]`
+   (literal `< 16`, totality auto-discharged) instead of `bs.getD i 0` value-fallbacks that
+   could never fire. Prefix-zero checks read `bs.toList.take k |>.all (· == 0)`. Added smart
+   constructor `mkNetAddrV6? : List UInt8 → Option NetAddr` — the single trust boundary that
+   refines `finalizeIPv6`'s exactly-16 list into the fixed-width vector; `parseNetAddr?`'s v6
+   arm routes through it (`.bind mkNetAddrV6?`). The `v4` carrier was already tight (4 named
+   fields), left unchanged.
+
+2. PA-SF-3 / PB-SF-3: moved `stringFormatValid` out of `Kue/Time.lean` into a new leaf
+   `Kue/StringFormat.lean` that imports `Time` + `Net` as siblings. `Time.lean` drops
+   `import Kue.Net` (imports only `Value` again). `Lattice.lean` and `Order.lean` swap
+   `import Kue.Time` → `import Kue.StringFormat` (their only use of the module was the
+   dispatcher). The `Time → Net` edge is gone; `Time`/`Net` are independent sibling leaves,
+   `StringFormat → {Time, Net}` the single join.
+
+3. Tests: added `v6_width_by_construction` + `v6_embedded_width` (a parsed v6/4-in-6 address
+   is exactly 16 bytes through the real parser) and `mkV6_accepts_16`/`mkV6_rejects_short`/
+   `mkV6_rejects_long` (boundary constructor) to `NetTests.lean`, with a `#check @` tripwire
+   anchor. All existing net/time/format theorems conserved unchanged.
+
+### Verification
+
+`./scripts/check.sh` fully green. `Time.lean` imports only `Value` (grep-confirmed edge
+removal); no import cycle (`StringFormat` sits above `Time`/`Net`, below `Lattice`/`Order`).
+All `bs.getD i 0` v6 classifier fallbacks eliminated; remaining `getD` in `Net.lean` are
+parser-internal list extraction, not illegal-state fallbacks. Behavior conserved — zero
+existing theorems/fixtures flipped. Discharges PA-NET-1, PA-SF-3, PB-SF-3, and the
+PB-DOCGRAPH-2 remainder (plan edge-list + `architecture.md` §5 rewritten with the five
+stdlib leaves and the deleted `Time → Net` edge).
