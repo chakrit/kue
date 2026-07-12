@@ -1865,13 +1865,6 @@ def valueMentionsSlotAtDepth (fuel : Nat) (slot : Nat) : Value -> Bool :=
       | _ => none)
     fuel 0
 
-/-- Is `c` a `.disj` whose every arm is `isUnionableDefValue` — a disjunction the def can CLOSE
-    by embedding it into its struct body? A `.disj` with a non-struct arm (a `.refId`, a scalar)
-    is NOT closable this way. -/
-def isClosableDisj : Value -> Bool
-  | .disj alts => alts.all fun a => isUnionableDefValue a.snd
-  | _ => false
-
 /-- The cross-product of a list of disjunction arm-lists: one pick from each list, in every
     combination. `[[b,c],[d,e]]` yields `[[b,d],[b,e],[c,d],[c,e]]`. Structural on the outer
     list; the empty product is the single empty combination `[[]]` (identity), so a one-list
@@ -1882,6 +1875,43 @@ def disjArmCrossProduct : List (List (Mark × Value)) -> List (List (Mark × Val
   | alts :: rest =>
       let restProduct := disjArmCrossProduct rest
       alts.flatMap fun a => restProduct.map fun combo => a :: combo
+
+/-- Can a def DISTRIBUTE its own-literal union across this arm and close/compose it? A default-deny
+    whitelist: a struct literal (unioned+closed), a def-`.refId` (open-composed — the ref governs
+    closedness), a scalar (dies against the struct literal ⇒ ⊥), or a NESTED distributable disjunction
+    (flattened first). An arm outside the whitelist — an `error(...)`, a comprehension, a bound — is
+    NOT distributed; the whole disjunction stays UNEVALUATED in `rest` so its existing eval path is
+    unchanged. -/
+def isDistributableDisjArm : Nat -> Value -> Bool
+  | _, .struct _ _ _ _ _ => true
+  | _, .structComp _ _ _ => true
+  | _, .refId _ => true
+  | _, .prim _ => true
+  | fuel + 1, .disj alts => alts.all fun a => isDistributableDisjArm fuel a.snd
+  | _, _ => false
+
+/-- Is `c` a `.disj` every arm of which is `isDistributableDisjArm` — a disjunction the def can
+    distribute its own-literal union across (per-arm close for struct literals, open-compose for
+    ref/scalar arms)? `fuel` bounds the nesting depth. -/
+def isDistributableDisj (fuel : Nat) : Value -> Bool
+  | .disj alts => alts.all fun a => isDistributableDisjArm fuel a.snd
+  | _ => false
+
+/-- Flatten a disjunction's arm-list, splicing a NESTED `.disj` arm's own arms into the flat list —
+    disjunction is associative, so `{b}|({c}|{e})` is the three-arm `{b}|{c}|{e}`. A nested arm's
+    default marker composes with its parent's: an inner arm is `default` only when BOTH the outer and
+    inner marks are `default`. `fuel` bounds the nesting depth. -/
+def flattenNestedDisjArms : Nat -> List (Mark × Value) -> List (Mark × Value)
+  | 0, arms => arms
+  | fuel + 1, arms =>
+      arms.flatMap fun a =>
+        match a.snd with
+        | .disj inner =>
+            (flattenNestedDisjArms fuel inner).map fun ia =>
+              let mark := if a.fst == Mark.default && ia.fst == Mark.default
+                then Mark.default else Mark.regular
+              (mark, ia.snd)
+        | _ => [a]
 
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
@@ -2015,17 +2045,17 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                       && cs.all fun c =>
                         match c with
                         | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
-                        | .disj _ => isClosableDisj c
+                        | .disj _ => isDistributableDisj normalizeFuel c
                         | _ => isUnionableDefValue c
                     let close := field.fieldClass.isDefinition
                       && (isSelfRef || inCycle || ownLiteralUnion)
                     let expanded := cs.flatMap
                       (flattenConjDefRef env fuel (id.index.val :: expanding))
                     if close then
-                      let disjEmbeds := expanded.filter isClosableDisj
+                      let disjEmbeds := expanded.filter (isDistributableDisj normalizeFuel)
                       let literals := expanded.filter isUnionableDefValue
                       let rest := expanded.filter
-                        (fun c => !isUnionableDefValue c && !isClosableDisj c)
+                        (fun c => !isUnionableDefValue c && !isDistributableDisj normalizeFuel c)
                       -- Close a set of own struct-literals into ONE fixed field set. Each literal is
                       -- closed FIRST so its def-body openness is settled (`regularOpen` →
                       -- `defClosed`, an explicit `...` stays `defOpenViaTail`); otherwise
@@ -2041,7 +2071,7 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                             (more.foldl mergeDefinitionDecls first))
                       let disjAltLists := disjEmbeds.filterMap fun c =>
                         match c with
-                        | .disj alts => some alts
+                        | .disj alts => some (flattenNestedDisjArms normalizeFuel alts)
                         | _ => none
                       match disjAltLists with
                       -- Pure own-literal union (no disjunction): close at flatten.
@@ -2050,8 +2080,8 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                           | none => expanded
                           | some closed => rest ++ [closed]
                       -- DEF-FLATTEN-CLOSEDNESS-DISJ(-REF): DISTRIBUTE the def's own struct-literal
-                      -- union across the CROSS-PRODUCT of every closable disjunction conjunct and
-                      -- CLOSE each combination — so `#X: {a:1} & ({b:2}|{c:3})` flattens to
+                      -- union across the CROSS-PRODUCT of every disjunction conjunct and close/compose
+                      -- each combination — so `#X: {a:1} & ({b:2}|{c:3})` flattens to
                       -- `{a:1,b:2}(closed) | {a:1,c:3}(closed)`, and
                       -- `#X: {a:1} & (*{b:2}|{c:3}) & (*{d:4}|{e:5})` flattens to the four closed
                       -- combinations `{a,b,d}|{a,b,e}|{a,c,d}|{a,c,e}`, fixing the field set per
@@ -2062,8 +2092,16 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                       -- through the union (its extras admitted). The default marker of a combination
                       -- is `default` iff EVERY component arm is a default (`*{b}` & `*{d}` → the
                       -- default combination), matching cue's product-of-defaults collapse. A single
-                      -- disjunction is the one-list cross-product (identity), reproducing the prior
-                      -- per-arm distribution unchanged.
+                      -- disjunction is the one-list cross-product (identity).
+                      --
+                      -- A combination containing a NON-struct-literal pick (a def-REF arm `#Base`, a
+                      -- scalar) does NOT close the union: the pick governs its own closedness, so the
+                      -- combination is emitted as an OPEN `.conj` of the def's literals + every pick,
+                      -- UNCHANGED, and normal eval composes it. A CLOSED ref rejects a foreign literal
+                      -- field (`{a:1} & #Base{b}` ⇒ ⊥); an OPEN ref (`#Base{b, ...}`) admits it; a
+                      -- scalar dies against the struct literal (`{a:1} & 3` ⇒ ⊥). Independently closing
+                      -- the literal (to `{a}`) would wrongly reject a field the ref DOES allow
+                      -- (`#Base{a,q}` admits `q`), so the literal stays open under the ref.
                       | _ =>
                           match literals with
                           | [] => expanded
@@ -2072,8 +2110,11 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                                 fun combo =>
                                   let mark := if combo.all (fun p => p.fst == Mark.default)
                                     then Mark.default else Mark.regular
-                                  (closeLiteralUnion (literals ++ combo.map (·.snd))).map
-                                    (fun v => (mark, v))
+                                  let picks := combo.map (·.snd)
+                                  if picks.all isUnionableDefValue then
+                                    (closeLiteralUnion (literals ++ picks)).map (fun v => (mark, v))
+                                  else
+                                    some (mark, .conj (literals ++ picks))
                               rest ++ [.disj closedArms]
                     else expanded
                 | _ => [constraint]

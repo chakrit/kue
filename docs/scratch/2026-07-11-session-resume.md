@@ -3,7 +3,29 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **LIST-OPS-EMBEDDED-CARRIER + Phase B audit — list-carrier completeness BY CONSTRUCTION (LANDED
+HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual (ref/scalar + nested arms) — LAST HIGH soundness leak
+CLOSED (LANDED 2026-07-13).** A def unifying a disjunction with a def-REF/scalar arm, or a NESTED
+disjunction arm, flattened OPEN and leaked past closedness. The FILED premise (needs per-arm eval
+`resolveDisjArm`, risks L-series) was FALSIFIED: kue's eval already composes `[closed-struct-arm |
+open-ref-conj-arm]` correctly. Fix (`flattenConjDefRef`, `Kue/EvalBase.lean`): the cross-product
+distribution splits each combo — all-struct-literal combos union+close (existing); a combo with a
+NON-struct pick (`.refId`/scalar) emits an OPEN `.conj [own-literals, ...picks]` UNCHANGED, so eval
+composes it (closed ref rejects a foreign field, open ref admits, scalar dies against the struct). The
+own literal stays OPEN under the ref (closing it to `{a}` would reject a ref-allowed field). `isClosableDisj`
+RETIRED for `isDistributableDisj` — a default-deny WHITELIST (struct/structComp/refId/scalar/nested-disj);
+`error(...)`/comprehension/bound arms are NOT distributed (stay in `rest`), preserving the L-series
+force-fold (`bug214b_disj_arm_*`) — the regression a naive "distribute any `.disj`" tripped.
+`flattenNestedDisjArms` splices nested disjunction arms flat before the cross-product (also cured the
+nested case's `ambiguous`). Seeds `def-flatten-closedness-disj-{ref,nested}` GRADUATED (RED→GREEN); 7
+`Bug2xTests` theorems (both-direction guards). Pre-existing ref-composition field-order divergence
+(values spec-correct) logged `cue-divergences.md#REF-OPEN-COMPOSE-FIELD-ORDER`. **ALL KNOWN SOUNDNESS
+LEAKS NOW CLOSED.** `check.sh` green, zero L-series/Bug2 flips. **NEXT (ranked):** a two-phase **AUDIT is
+DUE** (Phase B pending; this + LIST-ELEM-EQ + LIST-OPS-EMBEDDED-CARRIER are the un-audited soundness fixes
+to cover) → LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** / **LIST-ISSORTED** →
+**PB-PERFGUIDE-STALE** (LOW doc) → **PB-EVALBASE-SPLIT** nav-debt → DEFERRED float FDLIBM (F5→F1→F3,
+chakrit's prioritization). **Alpha release HELD for chakrit (attended).**
+
+Prior HEAD: **LIST-OPS-EMBEDDED-CARRIER + Phase B audit — list-carrier completeness BY CONSTRUCTION (LANDED
 2026-07-13d).** The recurring "hand-enumerate list carriers, miss one" defect is designed out: every
 list-carrier read in `Kue/Builtin.lean` now routes through the ONE classifier `listItems?` (`Kue/Value.lean`)
 — `listConcat`/`listFlattenFuel`/`lenValue`/`openListOperand` directly; `listNestingDepth` DELETED, replaced

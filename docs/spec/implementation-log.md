@@ -22069,3 +22069,47 @@ re-filed (match on Prim/kind/enum or defer-fallbacks, prior-audit-cleared). Reco
 DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual (HIGH, last soundness leak) → LOW gaps → PB-EVALBASE-SPLIT →
 deferred float FDLIBM. Filed PB-PERFGUIDE-STALE (LOW). Full audit record in `plan.md` § PHASE B AUDIT
 (2026-07-13d).
+
+---
+
+## Completed Slice: DEF-FLATTEN-CLOSEDNESS-DISJ-REF residual (ref/scalar + nested arms) — LAST HIGH soundness leak
+
+Goal: close the two arm-resolution residuals left by the multi-disjunction cross-product
+slice — a def unifying a disjunction with a def-REF or scalar arm, or with a NESTED
+disjunction arm, flattened OPEN and leaked past closedness.
+
+The residual was FILED as needing per-arm EVALUATION (`resolveDisjArm`) to resolve a
+`.refId` arm to its closed/open field set before the closability test — flagged as risking
+a representation change and the L-series/Bug2 suite. That anticipation was FALSIFIED:
+kue's eval already composes a mixed disjunction of `[closed-struct-arm | open-ref-conj-arm]`
+correctly (validated against cue on the closed-rejects / open-admits / base-contains
+directions). NO arm eval is needed at flatten time.
+
+**Fix (`flattenConjDefRef`, `Kue/EvalBase.lean`).** The cross-product distribution now
+splits each combination: an all-struct-literal combo unions+closes via `closeLiteralUnion`
+(existing path); a combo carrying a NON-struct pick (`.refId`, scalar) is emitted as an
+OPEN `.conj [own-literals, ...picks]`, UNCHANGED, so normal eval composes it — a CLOSED ref
+rejects a foreign literal field (`{a:1} & #Base{b}` ⇒ ⊥), an OPEN ref (`#Base{b, ...}`)
+admits it, a scalar dies against the struct literal (`{a:1} & 3` ⇒ ⊥). The own literal
+stays OPEN under the ref — independently closing it to `{a}` would wrongly reject a field
+the ref DOES allow (`#Base{a,q}` admits `q`). `isClosableDisj` (all-arms-struct-literal)
+RETIRED for `isDistributableDisj`, a default-deny WHITELIST over arm shapes
+(struct / structComp / `.refId` / scalar / nested distributable disj); an `error(...)`,
+comprehension, or bound arm is NOT distributed (the disjunction stays UNEVALUATED in
+`rest`), which preserves the L-series force-fold path (`bug214b_disj_arm_*`) — the
+regression a naive "distribute any `.disj`" broadening tripped.
+
+Nested disjunction arms are handled by `flattenNestedDisjArms`, which splices a nested
+`.disj` arm's own arms into the flat arm-list before the cross-product (disjunction is
+associative; a nested arm is `default` only when both outer and inner marks are `default`).
+This also cured the `ambiguous` export the nested case reported (both inner arms survived
+the open meet when the def stayed OPEN).
+
+Seeds `def-flatten-closedness-disj-{ref,nested}` GRADUATED (RED→GREEN). `Bug2xTests`:
+`defflatten_refarm_{closed_rejects,select_admits,base_contains_admits,open_admits}`,
+`defflatten_nesteddisj_{rejects,select_admits}`, `defflatten_scalararm_rejects` (7 theorems;
+both-direction guards — closed rejects extra, open ref-arm admits extra, valid select
+admits). This closes the LAST known HIGH silent soundness leak — all known soundness leaks
+are now closed. A pre-existing ref-composition field-order divergence (kue orders ref
+fields first; values spec-correct) logged `cue-divergences.md#REF-OPEN-COMPOSE-FIELD-ORDER`.
+`check.sh` fully green.

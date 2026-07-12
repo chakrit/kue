@@ -98,6 +98,18 @@ carries, tracked here until fixed. Each has a QUEUED plan item.
 - **Fix (queued PATTERN-LABEL-ALIAS-SCALAR).** Bind the alias via a synthetic frame at resolve+eval
   (uniform across body shapes) rather than a prepended field.
 
+### REF-OPEN-COMPOSE-FIELD-ORDER — struct field order in open ref composition (kue, display-only)
+
+- **Claim.** Unifying an open struct literal with an OPEN def-ref preserves first-appearance field
+  order: `{a:1} & #Base` (with `#Base: {b:2, ...}`) exports `a` before `b`.
+- **Spec basis.** CUE preserves the order in which fields first appear across the unified conjuncts;
+  the literal's `a` appears before the ref's `b`.
+- **cue** (v0.16.1): `{a:1} & #Base & {extra:7}` ⇒ `{"a":1,"b":2,"extra":7}`.
+- **Kue**: `{"b":2,"a":1,"extra":7}` — the ref's fields lead in the merged frame layout. VALUES are
+  identical and closedness is spec-correct (both admit `extra`); only the JSON key order differs.
+- **Scope.** Pre-existing across the whole open-ref-merge surface (not the DEF-FLATTEN-CLOSEDNESS-DISJ
+  distribution — it reproduces on plain `{a:1} & #Base`). Display-only, LOW; not yet queued.
+
 ### Prior entry (fixed)
 
 _None currently open._ The one prior entry — C-style `/* */` block comments accepted, which

@@ -1293,6 +1293,63 @@ theorem defflatten_multidisj_opentail_admits :
       "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4,\n        \"f\": 6\n    }\n}\n" = true := by
   native_decide
 
+-- REF ARM (DEF-FLATTEN-CLOSEDNESS-DISJ-REF, reject): a disjunction arm that is a def-REF (`#Base`,
+-- closed `{b:2}`) resolves as an OPEN-compose arm `{a:1} & #Base` — `a` is not in `#Base`'s closed
+-- allowed-set, so that arm bottoms; the `{z:9}` arm closes to `{a,z}` and rejects `b`,`extra`. Both
+-- arms bottom. Before per-arm distribution the ref arm failed `isClosableDisj`, so `#X` flattened
+-- OPEN and SILENTLY exported `{a,z,b,extra}`. cue v0.16.1 bottom.
+theorem defflatten_refarm_closed_rejects :
+    exportJsonBottoms "#Base: {b: 2}\n#X: {a: 1} & ({z: 9} | #Base)\ny: #X & {b: 2, extra: 7}\n"
+      = true := by
+  native_decide
+
+-- REF ARM SELECT (both-direction guard, admit the z-arm): selecting `{z:9}` picks the closed `{a,z}`
+-- arm; the `#Base` arm bottoms (`a` not allowed). Guards that distribution does not over-reject a
+-- legitimately-selected struct arm. cue v0.16.1 `{a,z}`.
+theorem defflatten_refarm_select_admits :
+    exportJsonMatches "#Base: {b: 2}\n#X: {a: 1} & ({z: 9} | #Base)\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- REF ARM base-contains-literal (both-direction guard, admit): when `#Base` CONTAINS the def's own
+-- field (`#Base: {a:1, q:9}`), the ref arm `{a:1} & #Base` composes to the closed `{a,q}` and admits
+-- `q`. The open literal must NOT be independently closed to `{a}` (which would reject `q`). cue admits.
+theorem defflatten_refarm_base_contains_admits :
+    exportJsonMatches "#Base: {a: 1, q: 9}\n#X: {a: 1} & ({z: 9} | #Base)\nout: #X & {q: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"q\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- OPEN REF ARM (over-close guard, must STAY open): an OPEN `#Base: {b:2, ...}` arm keeps the arm
+-- OPEN, so `#X & {b:2, extra:7}` ADMITS `extra` on the `#Base` arm — the distribution composes the
+-- ref's OPENNESS, it does not force-close. (The `b, a` field order reflects ref-fields-first
+-- open-composition, a PRE-EXISTING order quirk shared with plain `{a:1} & #Base`; values spec-correct,
+-- logged in `cue-divergences.md`.) cue v0.16.1 admits `{a,b,extra}`.
+theorem defflatten_refarm_open_admits :
+    exportJsonMatches "#Base: {b: 2, ...}\n#X: {a: 1} & ({z: 9} | #Base)\nout: #X & {b: 2, extra: 7}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1,\n        \"extra\": 7\n    }\n}\n" = true := by
+  native_decide
+
+-- NESTED DISJUNCTION ARM (reject): a nested `.disj` arm flattens (disjunction is associative) to
+-- `{b:2}|{c:3}|{e:5}`, each closed to `{a}∪arm`; an undeclared `g` bottoms every arm. Before flattening
+-- the nested arm failed `isClosableDisj`, so `#X` stayed OPEN and reported `ambiguous`. cue v0.16.1 bottom.
+theorem defflatten_nesteddisj_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({b: 2} | ({c: 3} | {e: 5}))\ny: #X & {g: 9}\n" = true := by
+  native_decide
+
+-- NESTED DISJUNCTION SELECT (both-direction guard, admit): selecting a flattened inner arm resolves to
+-- exactly that closed arm — `{c:3}` picks `{a,c}`. Guards against over-rejecting a nested arm. cue admits.
+theorem defflatten_nesteddisj_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({b: 2} | ({c: 3} | {e: 5}))\nout: #X & {c: 3}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- SCALAR ARM (reject): a scalar disjunction arm (`3`) dies against the def's struct literal (`{a:1} & 3`
+-- ⇒ struct-vs-int bottom), so only the `{b:2}` struct arm survives, closes to `{a,b}`, and rejects
+-- `extra`. cue v0.16.1 bottom.
+theorem defflatten_scalararm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({b: 2} | 3)\ny: #X & {b: 2, extra: 7}\n" = true := by
+  native_decide
+
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
 --
 -- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)
