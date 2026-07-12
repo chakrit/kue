@@ -306,11 +306,13 @@ def asciiToTitle (value : String) : String := mapWordInitial Char.toUpper value
 def asciiToCamel (value : String) : String := mapWordInitial Char.toLower value
 
 /-- Concatenate a list of lists; any non-list element yields bottom.
-    Mirrors CUE's `list.Concat`. -/
+    An open-tail sublist (`[a,b,...]`) presents its concrete prefix to the read
+    (same rule as `openListOperand`, reaching NESTED position). Mirrors CUE's `list.Concat`. -/
 def listConcat (lists : List Value) : Value :=
   let rec collect : List Value -> Option (List Value)
     | [] => some []
     | .list items :: rest => (collect rest).map (items ++ ·)
+    | .listTail items _ :: rest => (collect rest).map (items ++ ·)
     | _ => none
   match collect lists with
   | some items => .list items
@@ -325,6 +327,7 @@ def listNestingDepth : List Value -> Nat
       let here :=
         match item with
         | .list inner => listNestingDepth inner + 1
+        | .listTail inner _ => listNestingDepth inner + 1
         | _ => 0
       max here (listNestingDepth rest)
 
@@ -337,6 +340,7 @@ def listFlattenFuel (fuel : Nat) (items : List Value) : List Value :=
       items.flatMap fun item =>
         match item with
         | .list inner => listFlattenFuel fuel inner
+        | .listTail inner _ => listFlattenFuel fuel inner
         | other => [other]
 
 /-- Flatten nested lists up to `depth` levels; `depth < 0` flattens fully.

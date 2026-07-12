@@ -21841,3 +21841,50 @@ Two soundness findings filed (both PRE-EXISTING-class silent leaks, HIGH):
 `./scripts/check.sh` not re-run (doc-only edits; batch already green at `355e249`, tree clean
 and pushed). No inline code fixes applied — both findings are non-trivial soundness fixes
 that need TDD fix-slices, not low-risk cleanups.
+
+---
+
+## Completed Slice: LIST-OPS-NESTED-OPENTAIL (2026-07-13)
+
+Closes the HIGH-soundness follow-up the Phase A audit filed against LIST-OPS-PROBE: the
+open-tail→prefix normalization reached only TOP-level `list.*` operands, so a `list.*` fn
+that destructures a NESTED sublist as a list operand never normalized an open-tail one.
+Two silent defects vs cue v0.16.1:
+- `list.Concat([[1,2,...],[3,4]])` ⇒ kue ⊥; cue `[1,2,3,4]` (`collect` matched only `.list`,
+  so a `.listTail` sublist fell to `none` → bottom).
+- `list.FlattenN([[1,2,...],[3]], 1)` ⇒ kue `[[1,2],3]` (SILENT WRONG — the open sublist
+  emitted UNFLATTENED); cue `[1,2,3]`. Full-flatten (`-1`) additionally undercounted nesting
+  depth through a `.listTail` carrier.
+
+Fix (`Kue/Builtin.lean`): the two destructure sites plus the full-flatten fuel sizer each
+gain a `.listTail inner _` arm mirroring `.list inner` — `listConcat`'s `collect`,
+`listFlattenFuel`, and `listNestingDepth`. A direct pattern-match, NOT an `openListOperand`
+wrapper: Lean's structural-recursion termination needs the exposed `inner` to be a pattern
+subterm of the matched value, which a wrapper's result is not. An open-tail sublist thus reads
+as its concrete prefix, the same rule (and `len`-consistency basis) as the top-level operand.
+
+Per-function, NOT blanket: Reverse/Take/Drop/Repeat/Slice treat a nested sublist OPAQUELY and
+the manifest already strips its `...` on export — verified kue==cue across those, so they are
+untouched (blanket-normalizing an opaquely-treated sublist would be a needless deviation from
+the established per-op behavior).
+
+Adjudication: SPEC-SILENT → the `open-list-value-ops` gap (`cue-spec-gaps.md`) is extended to
+nested position; forced by the same `len` consistency that fixed the top level. NO cue
+divergence.
+
+Guards: wild fixtures `testdata/wild/list-fn-concat-open-sublist/` (basic + top-and-nested-
+open + inner-open-preserved-one-level) and `testdata/wild/list-fn-flattenn-open-sublist/`
+(depth 1, deep depth 2, full `-1`, deep-full through a `.listTail` carrier), both RED→GREEN;
+`BuiltinTests` `list_builtins_normalize_nested_open_tail` (Concat + FlattenN nested + flat-
+unaffected regression). `./scripts/check.sh` fully green; existing top-level open-tail guards
+(`list_builtins_operate_on_open_tail_prefix`, `slice_open_tail_*`) and all list fixtures hold.
+
+Filed (not fixed):
+- **LIST-CONTAINS-OPENTAIL-EQ** (HIGH, quarantined `testdata/wild/list-contains-open-sublist/`
+  `.known-red`) — `list.Contains` compares with raw `BEq`, distinguishing `.listTail` from
+  `.list`: `list.Contains([[1,2,...]],[1,2])` ⇒ kue false, cue true (deep + struct-nested too).
+  A distinct mechanism (recursive open-tail strip through structs) with STRICT prim equality
+  (`list.Contains([[1]],[1.0])` = false), so it cannot reuse `concreteEq`.
+- **LIST-ELEM-EQ-NUMERIC-STRICT** — surfaced en passant: `[1] == [1.0]` ⇒ kue true, cue false.
+  `concreteEq` applies decimal-aware leaf equality INSIDE lists (so `1==1.0` leaks into list
+  equality); cue keeps element equality strict on kind. Pre-existing, separate from open-tail.

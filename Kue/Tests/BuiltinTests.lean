@@ -1659,6 +1659,34 @@ theorem list_builtins_operate_on_open_tail_prefix :
             == .list [.prim (.int 2), .prim (.int 3)]) = true := by
   native_decide
 
+-- The open-tail→prefix normalization reaches NESTED sublists, not just the top-level operand.
+-- `list.Concat` destructures each element as a sublist: an open-tail element presents its
+-- prefix (previously fell through to bottom). `list.FlattenN` splices a nested open-tail's
+-- prefix (previously emitted it UNFLATTENED — a silent wrong value) and measures full-flatten
+-- depth through the `.listTail` carrier.
+theorem list_builtins_normalize_nested_open_tail :
+    -- Concat: [[1,2,...],[3,4]] ⇒ [1,2,3,4]
+    (evalBuiltinCall "list.Concat"
+        [.list [.listTail [.prim (.int 1), .prim (.int 2)] Value.top,
+                .list [.prim (.int 3), .prim (.int 4)]]]
+        == .list [.prim (.int 1), .prim (.int 2), .prim (.int 3), .prim (.int 4)])
+      -- FlattenN 1: [[1,2,...],[3]] ⇒ [1,2,3]
+      && (evalBuiltinCall "list.FlattenN"
+            [.list [.listTail [.prim (.int 1), .prim (.int 2)] Value.top,
+                    .list [.prim (.int 3)]], .prim (.int 1)]
+            == .list [.prim (.int 1), .prim (.int 2), .prim (.int 3)])
+      -- FlattenN -1 (full flatten) measures depth through a nested open-tail carrier:
+      -- [[1,[2,...]]] ⇒ [1,2]
+      && (evalBuiltinCall "list.FlattenN"
+            [.list [.list [.prim (.int 1),
+                           .listTail [.prim (.int 2)] Value.top]], .prim (.int (-1))]
+            == .list [.prim (.int 1), .prim (.int 2)])
+      -- Flat lists unaffected: Concat [[1],[2]] ⇒ [1,2]
+      && (evalBuiltinCall "list.Concat"
+            [.list [.list [.prim (.int 1)], .list [.prim (.int 2)]]]
+            == .list [.prim (.int 1), .prim (.int 2)]) = true := by
+  native_decide
+
 -- Type/kind meet operations: SWEPT CLEAN vs `cue` v0.16.1 (BI-3 probe). Every case
 -- below agrees with `cue` — either a concrete narrowing or a bottom/incomplete verdict.
 -- `number & int → int` (incomplete, not concrete); `int & 5 → 5`; `1.5 & int → ⊥`

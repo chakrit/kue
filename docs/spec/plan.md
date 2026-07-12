@@ -203,6 +203,26 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 LIST-OPS-NESTED-OPENTAIL).
+OPEN, quarantined `testdata/wild/list-contains-open-sublist/` (.known-red).** `list.Contains` compares each
+element against the needle with raw Lean `BEq`, which distinguishes `.listTail` from `.list`, so
+`list.Contains([[1,2,...]],[1,2])` ⇒ kue **false**, cue **true** (deep `[[[1,...]]]∋[[1]]` and struct-nested
+`[{a:[1,...]}]∋{a:[1]}` too). Distinct mechanism from the destructure-site normalization: cue strips
+open-tails RECURSIVELY (through structs) before comparing, yet keeps STRICT prim equality
+(`list.Contains([[1]],[1.0])` = false — int ≠ float, unlike the `1==1.0` operator), so it cannot reuse
+`concreteEq` (which is decimal-aware). Fix direction: a recursive open-tail-stripping normalization applied
+to element+needle before raw `==`, or a bespoke strict-leaf structural equality that treats `.listTail
+items _` as `.list items` at every depth. Graduate the quarantined fixture in the fixing slice.
+
+**LIST-ELEM-EQ-NUMERIC-STRICT (MEDIUM soundness — SILENT wrong value; PRE-EXISTING, surfaced 2026-07-13).
+OPEN.** `[1] == [1.0]` ⇒ kue **true**, cue **false**. `concreteEq` (`Kue/EvalOps.lean`) reuses the
+decimal-aware leaf equality (`evalDecimalCompare?`) INSIDE list/struct element comparison, so the `1==1.0`
+scalar-operator semantics leak into structural equality; cue keeps element equality strict on numeric kind
+(`1` int ≠ `1.0` float as list elements, even though `1 == 1.0` is true as scalars). Repro: capture
+`testdata/wild/` fixture (RED) for `[1]==[1.0]`, struct `{a:1}=={a:1.0}`, and confirm the scalar
+`1==1.0`/`1.0==1` still resolves true. Fix: split the element-equality path to use strict prim `==` while the
+scalar `==` operator keeps decimal-aware compare.
+
 **DEF-FLATTEN-CLOSEDNESS-DISJ-REF (HIGH soundness — SILENT closedness leak; PRE-EXISTING). OPEN
 (re-ranked from LOW by 2026-07-13 Phase A audit).** The DEF-FLATTEN-CLOSEDNESS-DISJ fix closes a def's
 own-literal union across a SINGLE all-struct disjunction, but leaves three residual shapes fully OPEN, and
@@ -224,19 +244,33 @@ Root cause: `isClosableDisj` (`Kue/EvalBase.lean`) requires EVERY arm to be a pl
 the cross-product of multiple disjunctions; flatten nested disjunctions first. Capture each repro as a
 `testdata/wild/` fixture FIRST (RED), spec-adjudicated to bottom.
 
-**LIST-OPS-NESTED-OPENTAIL (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 Phase A audit). OPEN.**
-LIST-OPS-PROBE normalized open-tail list operands (`.listTail items _ → .list items`) only at the TOP
-level (`evalListBuiltin` maps `openListOperand` over `rawArgs`), so `list.*` functions that destructure
-NESTED lists as elements never normalize an open-tail SUBLIST — the same defect family the slice claimed to
-close, one level down. Repros (vs cue v0.16.1):
+**LIST-OPS-NESTED-OPENTAIL (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 Phase A audit). ✅ LANDED
+(2026-07-13).** LIST-OPS-PROBE normalized open-tail list operands (`.listTail items _ → .list items`) only
+at the TOP level (`evalListBuiltin` maps `openListOperand` over `rawArgs`), so `list.*` functions that
+destructure NESTED lists as elements never normalized an open-tail SUBLIST — the same defect family the
+slice claimed to close, one level down. Repros (vs cue v0.16.1):
 - `list.Concat([[1,2,...],[3,4]])` ⇒ kue **bottom**; cue ⇒ `[1,2,3,4]`.
 - `list.FlattenN([[1,2,...],[3]], 1)` ⇒ kue **`[[1,2],3]`** (SILENT WRONG — un-flattened open sublist);
   cue ⇒ `[1,2,3]`. `list.FlattenN(…, -1)` (full flatten) same defect.
-Root cause: `openListOperand` is applied to the outer operand list, not recursively to nested list
-elements that Concat/Flatten consume. Fix: normalize open-tail lists wherever a builtin reads a nested
-list's elements (Concat, Flatten/FlattenN, and any element-consuming list fn). TDD: wild fixtures
-`list-fn-concat-open-sublist/`, `list-fn-flattenn-open-sublist/` (RED→GREEN) + BuiltinTests. NOTE: the
-LIST-OPS-PROBE claim "the rest measured green" covered only FLAT operands — nested open-tail was untested.
+Root cause: only `.list` was matched at the two DESTRUCTURE sites that read a nested sublist as a list
+operand — `listConcat`'s `collect` and `listFlattenFuel` (plus `listNestingDepth`, which sizes the
+full-flatten fuel). Fix (`Kue/Builtin.lean`): each gains a `.listTail inner _` arm mirroring `.list inner`
+(a direct pattern-match, NOT an `openListOperand` wrapper — the exposed `inner` must be a pattern subterm
+for Lean's structural-recursion termination). Per-function, NOT blanket: Reverse/Take/Drop/Repeat/Slice
+treat a nested sublist OPAQUELY and the manifest already strips its `...` on export (verified kue==cue), so
+they are untouched. Wild `list-fn-concat-open-sublist/` + `list-fn-flattenn-open-sublist/` (RED→GREEN);
+`BuiltinTests` `list_builtins_normalize_nested_open_tail`. Spec-gap `open-list-value-ops` extended to nested
+position (`cue-spec-gaps.md`); matches cue, NO divergence. NOTE: the LIST-OPS-PROBE claim "the rest measured
+green" covered only FLAT operands — nested open-tail was untested.
+**Scoped-out (filed): LIST-CONTAINS-OPENTAIL-EQ (HIGH soundness — SILENT wrong value). OPEN, quarantined
+`testdata/wild/list-contains-open-sublist/` (.known-red).** `list.Contains` compares elements with raw Lean
+`BEq`, which distinguishes `.listTail` from `.list`, so `list.Contains([[1,2,...]],[1,2])` ⇒ kue **false**,
+cue **true** (deep + struct-nested too). A DISTINCT mechanism from the destructure-site fix: cue strips
+open-tails RECURSIVELY (through structs) before comparing, yet keeps STRICT prim equality
+(`list.Contains([[1]],[1.0])` = false — int ≠ float, unlike the `1==1.0` operator). Needs a recursive
+open-tail-stripping equality with strict leaf compare; entangled with a separate PRE-EXISTING operator
+divergence surfaced en passant: `[1] == [1.0]` ⇒ kue **true**, cue **false** (`concreteEq` uses decimal-aware
+leaf equality inside lists, which cue does not — file LIST-ELEM-EQ-NUMERIC-STRICT).
 
 **BOUND-OPERAND-CLASSIFY (MEDIUM soundness). ✅ LANDED (2026-07-12); PA-BOUND-GROUND discharged.**
 `ScalarOperandClass.defer` split into `.incomplete` (retain the residual `.unary`) vs `.nonScalar`

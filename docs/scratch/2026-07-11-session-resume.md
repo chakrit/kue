@@ -3,7 +3,32 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **LIST-OPS-PROBE — differential probe of the list-operation value family; one wrong-value defect
+HEAD: **LIST-OPS-NESTED-OPENTAIL — nested open-tail sublists in `list.*` ops normalized to prefix
+(LANDED 2026-07-13).** Closed the Phase A follow-up to LIST-OPS-PROBE: the open-tail→prefix rule reached
+only TOP-level operands, so `list.Concat`/`FlattenN` on a NESTED open-tail sublist gave wrong values —
+`Concat([[1,2,...],[3,4]])` ⇒ ⊥ (cue `[1,2,3,4]`), `FlattenN([[1,2,...],[3]],1)` ⇒ `[[1,2],3]` SILENT WRONG
+(cue `[1,2,3]`). Fix (`Kue/Builtin.lean`): the two destructure sites (`listConcat.collect`,
+`listFlattenFuel`) + the full-flatten fuel sizer (`listNestingDepth`) each gain a `.listTail inner _` arm
+mirroring `.list inner` — a DIRECT pattern-match (not an `openListOperand` wrapper, which breaks Lean
+structural-recursion termination since the exposed `inner` must be a pattern subterm). Per-function, NOT
+blanket: Reverse/Take/Drop/Repeat/Slice treat a nested sublist opaquely and the manifest strips its `...` on
+export (verified kue==cue), so untouched. Wild `list-fn-concat-open-sublist/` + `list-fn-flattenn-open-sublist/`
+(RED→GREEN); `BuiltinTests` `list_builtins_normalize_nested_open_tail`; spec-gap `open-list-value-ops`
+extended to nested position. NO cue divergence. **Filed (not fixed):** LIST-CONTAINS-OPENTAIL-EQ (HIGH,
+quarantined `list-contains-open-sublist/` .known-red) — `list.Contains` uses raw `BEq` so an open-tail
+element/needle mismatches its prefix (`Contains([[1,2,...]],[1,2])` kue false, cue true); needs a recursive
+strict-leaf open-tail-stripping equality. LIST-ELEM-EQ-NUMERIC-STRICT (MEDIUM, PRE-EXISTING, surfaced en
+passant) — `[1]==[1.0]` kue true, cue false (`concreteEq` leaks decimal-aware leaf eq into list equality).
+**NEXT (ranked):** **DEF-FLATTEN-CLOSEDNESS-DISJ-REF** (HIGH closedness silent leak, the other Phase A
+finding) → a two-phase AUDIT is DUE (Phase B pending per the 2026-07-13 Phase A; ~4 slices since) → LOW gaps
+**PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** / **LIST-ISSORTED** + the new
+**LIST-CONTAINS-OPENTAIL-EQ** / **LIST-ELEM-EQ-NUMERIC-STRICT** → **PB-EVALBASE-SPLIT** nav-debt → the
+DEFERRED float FDLIBM campaign (F5→F1→F3, chakrit's prioritization, not auto-scheduled). **Alpha release HELD
+for chakrit (attended)** — the Phase A audit flagged NO release until this silent-wrong-value path was fixed;
+THIS slice clears that specific blocker, but the alpha remains HELD for chakrit's say-so. Handoff: committed +
+pushed, release awaits your say-so.
+
+Prior HEAD: **LIST-OPS-PROBE — differential probe of the list-operation value family; one wrong-value defect
 family found+fixed, rest measured GREEN (LANDED 2026-07-13).** Probed slicing, indexing, `list.*` builtins,
 comprehensions, list unification/defaults vs cue v0.16.1. **Measured GREEN:** indexing (in-bounds/oob→⊥/
 neg→⊥/non-int→⊥/float→⊥/open-tail resolves-or-defers), comprehensions over open lists (`[for v in

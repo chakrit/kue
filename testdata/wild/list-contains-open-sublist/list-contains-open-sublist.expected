@@ -1,0 +1,6 @@
+{
+    "shallow": true,
+    "needle": true,
+    "deep": true,
+    "strict": false
+}
