@@ -3,7 +3,24 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **STDLIB-FLOAT-F4-DIV — closed the division half of F4 (apd result-exponent
+HEAD: **PB-TESTORG-1 — split oversized `EvalTests.lean` under the 1800-line test-health cap.**
+`EvalTests.lean` was 1792 lines (8 under cap, one slice from a hard gate failure). Split by THEME into
+four sibling modules, verbatim move: `EvalTests.lean` (494 — refs/memo/structural-cycles/terminating-
+disjuncts/embedding carriers), `EvalExprTests.lean` (581 — arithmetic/comparison/logical/unary/regex
+eval, ref cycles, value aliases, default-disjunction resolve, F1 mark algebra, disj-meet sweep),
+`EvalOpsTests.lean` (488 — float mul/div/add-sub, operator domain E#4, scalar op pins),
+`EvalStructEqTests.lean` (283 — sibling merge, lazy meet, struct/list equality). 231 theorems
+conserved exactly (65+62+76+28); all three new modules registered in `Kue/Tests.lean`; each carries a
+`#check @` tripwire. `check.sh` GREEN (`test health ok`, full build). NO product-code change. Discharges
+B-4; BuiltinTests(1669)/TwoPassTests(1542) deferred to PB-TESTORG-4 (under cap, no urgent seam).
+Committed on `main`. **Next (ranked): the leverage float item is F2 (IEEE float64 kernel — unblocks
+`strconv.FormatFloat`, `text/template` T3, `Log1p`/`Expm1`, trig; F1/F3/F5 gate on it). Otherwise the
+remaining Phase-A/B audit findings: PA-NET-1 + PB-SF-3 bundled (StringFormat leaf extraction erasing the
+`Time→Net` edge), PA-ESC-2, PA-SUB-4, PA-TT-5, PB-RELEASE-3 (`release.sh:43` bypasses `./lake` CPU cap).**
+Prior HEAD STDLIB-FLOAT-F4-DIV below.
+
+## Prior HEAD — STDLIB-FLOAT-F4-DIV — closed the division half of F4
+**STDLIB-FLOAT-F4-DIV — closed the division half of F4 (apd result-exponent
 preservation for float `/`).** An exact-terminating float quotient now renders in cue's GDA ideal
 form (`6e2 / 3 → 2.0e+2`, was `200.0`; `1e34/1 → 1e+34`) instead of the fully-expanded decimal;
 VALUE was always correct, only FORM diverged. `apdDivide?` (`Kue/Decimal.lean`) + `removeNatFactor`;

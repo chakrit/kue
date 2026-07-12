@@ -484,13 +484,23 @@ auto-discovery + `.known-red` three-state quarantine (`handle_known_red`) intact
   update IN THIS SLICE (both currently omit the three 2026-07-11 leaves and the edge). Small blast
   radius (two call sites + one import move). Bundle with PA-NET-1's `Net` retype if landed together.
 
-- **PB-TESTORG-1 (MEDIUM, test-org — B-4 IS NOW DUE).** `check-test-health.sh` `size_cap=1800`;
-  `Kue/Tests/EvalTests.lean` is at **1792 lines — 8 under the cap**. The next slice adding a handful
-  of eval theorems trips the gate. The deferred test-org pass (B-4) is no longer discretionary: the
-  tightest module is one commit from a hard gate failure. Schedule a dedicated test-org slice —
-  split `EvalTests.lean` by subsystem (and audit `EvalTests`/`BuiltinTests` 1669 / `TwoPassTests`
-  1542, the next-tightest), dedupe `testdata/` where fixtures overlap. This is the periodic test-org
-  pass the slice loop flags; it is due.
+- **PB-TESTORG-1 (MEDIUM, test-org — B-4 IS NOW DUE). ✅ LANDED.** Split `Kue/Tests/EvalTests.lean`
+  (was 1792 lines, 8 under the 1800 cap) by theme into four sibling modules, all comfortably under
+  cap: `EvalTests.lean` (494 — refs/selectors/memoization/structural-cycles/terminating-disjuncts/
+  scalar+list embedding carriers), `EvalExprTests.lean` (581 — arithmetic/comparison/logical/unary/
+  regex expression eval, reference cycles, value aliases, default-disjunction resolve, F1 default-mark
+  algebra, disjunction-meet sweep), `EvalOpsTests.lean` (488 — float mul/div/add-sub, arithmetic
+  operator domain E#4, scalar comparison/boolean/unary op pins), `EvalStructEqTests.lean` (283 —
+  in-struct sibling merge, lazy meet, concrete struct/list equality). Verbatim move: 231 theorems
+  conserved exactly (65+62+76+28). All three new modules registered in `Kue/Tests.lean`; each carries
+  its own `#check @` coverage tripwire. **B-4 discharged.** Follow-up: PB-TESTORG-4 for
+  `BuiltinTests`/`TwoPassTests` (both under cap, rising).
+
+- **PB-TESTORG-4 (LOW, test-org — follow-up to PB-TESTORG-1).** `Kue/Tests/BuiltinTests.lean` (1669)
+  and `TwoPassTests.lean` (1542) are the next-tightest hand-authored test modules — both under the
+  1800 cap but rising. Deferred from PB-TESTORG-1 (EvalTests was the urgent one, 8 under cap; these
+  have headroom and forcing a bad thematic cut in the same slice was the wrong trade). Split each by
+  theme when either nears the cap. Also dedupe `testdata/` where fixtures overlap.
 
 - **PB-DOCGRAPH-2 (LOW, doc currency). ✅ PARTIALLY FIXED INLINE (this audit).** `architecture.md`
   §5 listed `Strconv.lean` but OMITTED the four newer stdlib-package leaves (`Path`/`Time`/`Net`/
@@ -602,11 +612,10 @@ cleanup slice folding four findings; the two remaining are deferred to a future 
   mechanism applies there too — hardening pin).
 - **B-3 — DROPPED (moot as framed, 2026-07-11 audit-fold).** The reported per-file `call`/`s`/`i`
   test-helper duplication was grep-confirmed NOT to exist; no shared helper to extract.
-- **B-4 (LOW) — DEFERRED to a future test-org pass.** Re-scoped: move all `strings.*` builtin
-  theorems from `BuiltinTests.lean` into `StringsTests.lean`; keep `BuiltinTests.lean` for
-  cross-package builtin machinery (`closeValue`, `lenValue`, dispatch fallbacks). No file is
-  urgently oversized (`BuiltinTests.lean` is 1565 lines, under the pain threshold), so the
-  dedicated test-org pass stays deferred; fold in when the periodic slice runs.
+- **B-4 (LOW) — ✅ DISCHARGED via PB-TESTORG-1 (2026-07-12).** The periodic test-org pass ran:
+  `EvalTests.lean` (the module actually at the cap) was split by theme into four sibling modules.
+  The originally-scoped `strings.*` extraction from `BuiltinTests.lean` folds into the PB-TESTORG-4
+  follow-up (BuiltinTests/TwoPassTests split), scheduled when either nears the cap.
 
 **STDLIB-B-PHASEB two-phase audit followup (2026-07-11).** One coherent low-risk cleanup slice
 folding four Phase-B findings.

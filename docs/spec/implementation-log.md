@@ -20418,3 +20418,39 @@ reinforced with the concrete import edge.
 
 Docs only — `architecture.md` §5 (inline currency fix) + plan.md findings + this log entry. Git
 state pre-audit: tree clean, HEAD == upstream at `7ea0ae4`. Committed on `main`.
+
+---
+
+## Completed Slice: PB-TESTORG-1 — split oversized EvalTests under the test-health cap
+
+Goal: `Kue/Tests/EvalTests.lean` sat at 1792 lines — 8 under the hard 1800-line
+`check-test-health.sh` cap. One eval-theorem slice from a build-gate failure. Split it by
+theme so no resulting module approaches the cap.
+
+### Steps
+
+1. Split `EvalTests.lean` (1792) by theme into four sibling modules, verbatim move (no
+   theorem altered, renamed, or dropped):
+   - `EvalTests.lean` (494) — refs/selectors, memoization, structural-cycle detection,
+     terminating-disjuncts, scalar/list struct-embedding carriers.
+   - `EvalExprTests.lean` (581) — arithmetic/comparison/logical/unary/regex expression
+     eval, reference cycles, value aliases, default-disjunction resolve, F1 default-mark
+     algebra, disjunction-meet sweep.
+   - `EvalOpsTests.lean` (488) — float mul/div/add-sub, arithmetic operator domain (E#4),
+     scalar comparison/boolean/unary op pins.
+   - `EvalStructEqTests.lean` (283) — in-struct sibling merge, lazy meet, concrete
+     struct/list equality.
+
+2. Registered all three new modules in `Kue/Tests.lean` (after `EvalTests`) so `lake
+   build` compiles them — an unimported test module silently stops building.
+
+3. Each module carries its own `#check @` coverage tripwire anchoring the last theorem of
+   each section, per the test-health convention.
+
+### Verification
+
+`./scripts/check.sh` fully green — `test health ok` (all four modules under cap with
+headroom), full `lake build` passes (every moved theorem still elaborates). Theorem count
+conserved exactly: 231 → 65 + 62 + 76 + 28 = 231. No product-code change; no block
+comments introduced. Discharges the long-deferred B-4 test-org pass; BuiltinTests (1669) /
+TwoPassTests (1542) split deferred to PB-TESTORG-4 (both under cap, no urgent seam).

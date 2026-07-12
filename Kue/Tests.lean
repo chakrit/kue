@@ -11,6 +11,9 @@ import Kue.Tests.ComprehensionTests
 import Kue.Tests.EvalPerfTests
 import Kue.Tests.EvalTestHelpers
 import Kue.Tests.EvalTests
+import Kue.Tests.EvalExprTests
+import Kue.Tests.EvalOpsTests
+import Kue.Tests.EvalStructEqTests
 import Kue.Tests.ExclusionTests
 import Kue.Tests.FixturePorts
 import Kue.Tests.FixtureTests
