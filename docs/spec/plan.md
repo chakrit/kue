@@ -1308,10 +1308,37 @@ catch-all swallows `patternLabel`. Two NEW findings:
   behavioral fixtures: any future edit to `mergeUnevaluatedFieldInto`'s first-occurrence semantics silently
   drifts `canonicalFieldLayout` → dangling/misdirected refs in EVERY struct with duplicate fields. This is
   the exact "two mirrors, no gate" class the recurring-misalignments guard warns of (prose-only invariants
-  rot; script/theorem-enforced ones hold). **Fix:** add a `native_decide` lockstep theorem in a test module
-  that sees both (e.g. `EvalTests`, via `Runtime`→`EvalBase` + `Resolve`):
-  `(canonicalFieldLayout fs).map Field.label == (canonicalizeFields fs).map Field.label` over the adversarial
-  dup layouts. Alternative structural fix: hoist the shared keep/append decision into one helper both call.
+  rot; script/theorem-enforced ones hold). **Fix (RECOMMENDED — structural hoist, Phase-B-designed
+  2026-07-12): single-source the collapse DECISION in `Lattice`, drift impossible by construction.** Both
+  `Resolve` and `EvalBase` already import `Lattice`, where `mergeFieldClass` (the decision's only dependency)
+  already lives — no cycle, natural home, no `Resolve → EvalBase` upward edge (which would pull the whole
+  eval/stdlib stack into a lexical-scope pass). Extract the fold-step, parameterized over the value-merge so
+  the eval side keeps its `mergeDefinitionDecls`/`joinUnevaluated` (EvalBase-level) and the resolve side
+  passes a drop-combine:
+  ```
+  -- Lattice.lean (beside mergeFieldClass)
+  def mergeFieldLayoutInto (combine : FieldClass → Field → Field → Field)
+      (fields : List Field) (field : Field) : Option (List Field) :=
+    match fields with
+    | [] => some [field]                                   -- no same-label slot → append at end
+    | current :: rest =>
+        if current.label = field.label then
+          match mergeFieldClass current.fieldClass field.fieldClass with
+          | some fc => some (combine fc current field :: rest)  -- first label match, class merges → collapse
+          | none    => none                                     -- class mismatch → append, STOP (first-label rule)
+        else (mergeFieldLayoutInto combine rest field).map (current :: ·)
+  ```
+  Then `canonicalizeFields` (EvalBase) folds with a `combine` that recomputes value via the passed `fc`
+  (`if fc.isDefinition then mergeDefinitionDecls … else joinUnevaluated …`); `canonicalFieldLayout` (Resolve)
+  folds with `fun _ current _ => current` (layout only — drop the duplicate). `mergeUnevaluatedFieldInto` is
+  DELETED (its body IS `mergeFieldLayoutInto` specialized). No can't-happen branch, no partial indexing,
+  structural recursion on `rest` — clean. The keep/append decision now exists ONCE; resolve and eval cannot
+  disagree on which slots exist. NOT implemented inline: a 3-module core-merge refactor feeding EVERY struct
+  merge + the exact SELF-CONJ-CYCLE-INDIRECT dangling-ref class — its own test-first slice (add 2–3
+  adversarial dup-layout fixtures + a `native_decide` `(canonicalFieldLayout fs).map Field.label ==
+  (canonicalizeFields fs).map Field.label` as migration insurance, though construction already guarantees it).
+  **Coordinate with LET-CYCLE-ERROR** (also edits `Resolve.buildFrame`'s frame model): land this FIRST so the
+  let-vs-field distinction builds on the single-sourced collapse layout.
 
 - **DEF-FLATTEN-CLOSEDNESS-DISJ (LOW, suspected under-close — PRE-EXISTING, not a batch regression). OPEN.**
   `#X: {a:1} & ({b:2} | {c:3})` — a def unioning own literals through a disjunction conjunct. A `.disj`
@@ -1321,6 +1348,47 @@ catch-all swallows `patternLabel`. Two NEW findings:
   (the disj case was OPEN before too; the fix only ADDED the pure-literal-union close). Needs a
   `testdata/wild/` repro to confirm the spec-correct value (cue v0.16.1 cross-check) before fixing — file
   as suspected.
+
+### PHASE B AUDIT (2026-07-12c, HEAD `290817b`) — mirror-guard design + split seams + ranked head
+
+Module-graph + design cycle following Phase A `290817b` (infra rotation NOT repeated — done at the
+2026-07-12 Phase B block below, 3 slices ago). Reconciliation: Phase A's two filings both verified
+present + accurate (RESOLVE-DEDUP-MIRROR-GUARD, DEF-FLATTEN-CLOSEDNESS-DISJ); every older OPEN
+(SELF-SELECT-CYCLE-CROSSFRAME, LET-CYCLE-ERROR, BINARY-CMP-BYTES, BOUND-ORDEREDPRIM,
+PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS, PA-ESC-2/SUB-4/TT-5, PB-VERSION-CONST/CHECK-COMMENT/
+FOLD-PLACEMENT/PRIM-CATCHALL/RELEASE-3/TESTORG-4, PB-EVALBASE-SPLIT, PB-FIXTUREPORTS-SPLIT) re-checked
+against HEAD — all still unlanded, correctly ranked. No new dead code; no cycle; `Builtin ↛ Eval`
+holds; `Resolve` stays `Value`+`Lattice`-only (the very reason the mirror exists).
+
+- **RESOLVE-DEDUP-MIRROR-GUARD — DESIGNED (primary task).** Recommendation: **structural hoist over the
+  `native_decide` guard.** The hoist eliminates drift BY CONSTRUCTION (single decision in `Lattice`, no
+  cycle — both modules already import it and `mergeFieldClass` lives there); the theorem only pins a
+  copy that still exists. Construction > test is Phase B's home turf. Concrete design (parameterized
+  `mergeFieldLayoutInto` fold-step) folded into the filing above; NOT implemented inline (3-module
+  core-merge refactor, own test-first slice). Sequence before LET-CYCLE-ERROR (shared `buildFrame`).
+- **Module-graph: HEALTHY.** `Value.patternLabel`/`substPatternLabel` placement CORRECT — `substPatternLabel`
+  in `Value.lean` (leaf); `patternLabel` modeled CONSISTENTLY with the `thisStruct` non-output marker
+  family (Manifest routes both to `.error (.incomplete …)`, Format renders both, `substPatternLabel`
+  enumerates every carrier with no `Value`-producing catch-all). No new loose-type-carrying-invariant
+  candidate beyond the already-filed `boundConstraint.domain` sentinel (→ BOUND-ORDEREDPRIM).
+- **Oversized modules (both re-assessed, refined above): NEITHER gate-forced.** `EvalBase` (2587) has no
+  enforced core-module size gate; `FixturePorts` (4237) is registration-exempt from the 1800 test cap.
+  Both are nav/cohesion debt with confirmed clean seams (PB-EVALBASE-SPLIT (a) `EvalScan.lean` first;
+  PB-FIXTUREPORTS-SPLIT domain-mirror) — schedule behind correctness, never ahead.
+- `| _ =>` ban: spot-checked the new pattern-alias surface (`Resolve.mapRefsValueWithFuel` fully
+  enumerated, `substPatternLabel` no catch-all) — zero `Value`-producing violations. perf-guide: no new
+  slow pattern surfaced this cycle; left as-is.
+
+**Reconciled ranked HEAD (philosophy: active wrong-value correctness → construction-drift guards →
+clean small bugs → tightening/refactor):**
+1. **SELF-SELECT-CYCLE-CROSSFRAME** (MED correctness, wrong value, kue BUG, root observed) — active.
+2. **RESOLVE-DEDUP-MIRROR-GUARD** (MED drift, structural hoist) — cheap construction fix; kills a whole
+   dangling-ref class; STABILIZES `buildFrame`'s collapse layout for #3.
+3. **LET-CYCLE-ERROR** (MED, missing load error) — builds let-vs-field on the single-sourced layout;
+   coordinate with #2 (both edit `Resolve.buildFrame`).
+4. **BINARY-CMP-BYTES** (LOW correctness, kue BUG) — small clean `bytesOp`-threading win.
+5. **BOUND-ORDEREDPRIM** (LOW illegal-states) — the ~60-site tightening; or a cohesion slice
+   (PB-EVALBASE-SPLIT (a)) as parallel-safe filler.
 
 ### PHASE B AUDIT (2026-07-12, whole-graph + infra rotation) — module-graph + gates/release
 
@@ -1356,14 +1424,18 @@ waiver comments (`Kue/Module.lean:251,698,734,767`). No `String.dropRight`/`take
 invariant); no high-leverage tightening candidate (`boundConstraint.domain` sentinel is documented,
 marginal).
 
-- **PB-EVALBASE-SPLIT (MEDIUM, module size). OPEN.** `Kue/EvalBase.lean` (2558, largest non-generated
-  module) has ≥3 self-contained tenants: (a) the `foldValueWithDepth` scanner family + env/frame
-  primitives (~19-266), (c) conjunct-flatten/remap/splice + `defSlotInClosedCycle` (~1790-2211), (d)
-  selection/declOf scanners. (a) is imported-by-depth-only and is the natural first extraction
-  (`Kue/EvalScan.lean`); (c) is a second coherent unit. CAVEAT (durable ruling): the core-force
-  `mutual` block is NEVER split (its `termination_by` cannot cross a module boundary) — (a) and the
-  `remapConjRefs` mutual are SEPARATE blocks, so this carve buys file headroom without touching the
-  core mutual. Verify block boundaries before carving.
+- **PB-EVALBASE-SPLIT (MEDIUM, module size — NOT gate-forced; nav/cohesion debt). OPEN.**
+  `Kue/EvalBase.lean` (2587) is the largest non-generated module, but there is NO enforced size gate on
+  core modules (the 1800-line gate is test-modules-only), so this is cohesion/navigation debt, not a due
+  fix. **Seam CONFIRMED clean (Phase-B 2026-07-12, block boundaries re-verified):** (a) the
+  `foldValueWithDepth` scanner mutual (`mutual` at L92–175) is a SEPARATE block from the core-force
+  mutual — the natural first extraction to `Kue/EvalScan.lean` (imported-by-depth-only); (c) the
+  `remapConjRefs` mutual (L481–630) + conjunct-flatten/splice + `defSlotInClosedCycle` (~1790–2211) is a
+  second coherent unit. `canonicalizeFields` (L445) is standalone (folds into RESOLVE-DEDUP's
+  `mergeFieldLayoutInto` first — sequence that before carving (c)). CAVEAT (durable ruling): the
+  core-force `mutual` is NEVER split (its `termination_by` cannot cross a module boundary); (a) and (c)
+  are separate blocks, so this carve buys headroom without touching it. Schedule as a cohesion slice; do
+  NOT block correctness work on it.
 - **PB-FOLD-PLACEMENT (LOW, cohesion). OPEN.** `valueMentionsSlotAtDepth` (EvalBase.lean:1844) is a
   scanner-family member sitting 1500 lines below the cluster AND hand-rolled rather than a
   `foldValueWithDepth` instantiation. Fold it into the shared fold (monoid `Bool`/`||`, `.refId` leaf
@@ -1374,10 +1446,14 @@ marginal).
   `listMin`/`listMax` (666,676) use `| _ => .bottom` on a `Prim`/`Option` match (not a `Value`
   dispatch, so not a strict ban violation) — a new numeric `Prim` constructor would be silently
   bottomed. Enumerate the `Prim` constructors to match house style.
-- **PB-FIXTUREPORTS-SPLIT (MEDIUM, test-org). OPEN — distinct from PB-TESTORG-4.** `Kue/Tests/
-  FixturePorts.lean` (4237, ~2.5× the next-largest test module) is the manual fixture-port harness;
-  split by fixture domain mirroring the `*Tests.lean` topic split. Coordinate with PB-TESTORG-4
-  (`BuiltinTests.lean` 1669) as one test-org pass.
+- **PB-FIXTUREPORTS-SPLIT (MEDIUM, test-org — NOT gate-forced; registration-exempt). OPEN — distinct
+  from PB-TESTORG-4.** `Kue/Tests/FixturePorts.lean` (4237, ~2.5× the next-largest test module) is the
+  manual fixture-port harness, EXEMPT from the 1800-line test-module cap (mechanical registration, prior
+  audit L531), so this is pure navigation debt, not a due fix. **Seam:** split by fixture domain
+  mirroring the `*Tests.lean` topic split (each `registerFixture` cluster → a sibling
+  `FixturePorts<Domain>.lean`, re-aggregated in `Tests.lean`); no logic moves, verbatim relocation.
+  Pair with PB-TESTORG-4 (`BuiltinTests.lean` 1669) as ONE test-org pass. Low risk (registration only),
+  but low value — schedule when a test-org pass is otherwise due, not ahead of correctness.
 
 `testdata/` layout tidy (cue 11 / export 144 / modules 72 / ocifetch 5 / wild 56 / zip 2 / realworld
 1); `realworld/` single-entry is intentional (CLAUDE.md: no real-world corpus is a target).

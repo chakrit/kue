@@ -21245,3 +21245,31 @@ Two NEW findings filed in `plan.md`: **RESOLVE-DEDUP-MIRROR-GUARD** (MED, drift 
 collapse-decision mirrors have no lockstep gate; add a `native_decide` label-layout equivalence theorem)
 and **DEF-FLATTEN-CLOSEDNESS-DISJ** (LOW, suspected pre-existing under-close of a disjunction-conjunct
 own-literal def; needs a `wild/` repro). Neither is a release-blocker.
+
+## Completed Slice: Phase B architecture/design audit, HEAD `290817b` (PHASE-B-2026-07-12c)
+
+Audit-only, no code change. Followed Phase A `290817b`; infra rotation NOT repeated (done 3 slices ago
+at the 2026-07-12 Phase B). Reconciled both Phase-A filings (RESOLVE-DEDUP-MIRROR-GUARD,
+DEF-FLATTEN-CLOSEDNESS-DISJ) + the full older backlog against HEAD — all still OPEN, correctly ranked.
+
+Primary task — **designed RESOLVE-DEDUP-MIRROR-GUARD's fix and RECOMMENDED the structural hoist over the
+`native_decide` guard.** Traced the import DAG: `Resolve` and `EvalBase` both already import `Lattice`,
+where `mergeFieldClass` (the collapse decision's only dependency) lives — so the shared decision hoists
+into `Lattice` with NO cycle and no `Resolve → EvalBase` inversion (which would drag the whole eval/stdlib
+stack into a lexical-scope pass). Concrete design folded into the filing: a parameterized
+`mergeFieldLayoutInto (combine : FieldClass → Field → Field → Field)` fold-step; `canonicalizeFields`
+passes the unevaluated value-merge, `canonicalFieldLayout` passes a drop-combine, `mergeUnevaluatedFieldInto`
+is deleted (its body IS the specialization). No can't-happen branch, no partial indexing — construction
+kills drift, which beats a theorem pinning a still-duplicated copy (Phase B's home turf). Filed, not
+inlined: 3-module core-merge refactor feeding every struct merge — its own test-first slice. Coordinate
+with LET-CYCLE-ERROR (shared `buildFrame`); land the hoist first.
+
+Verified both split filings' seams and refined them: **PB-EVALBASE-SPLIT** — block boundaries re-checked,
+(a) `foldValueWithDepth` mutual (L92–175) and (c) `remapConjRefs` mutual (L481–630) are SEPARATE from the
+core-force mutual, carve is clean; NOT gate-forced (no core-module size gate). **PB-FIXTUREPORTS-SPLIT** —
+registration-exempt from the 1800 test cap, pure nav debt, domain-mirror seam. Both refined to "schedule
+behind correctness". Module graph HEALTHY: `patternLabel`/`substPatternLabel` placed right and modeled
+consistently with the `thisStruct` non-output marker family; no cycle; `Builtin ↛ Eval`; zero
+`Value`-producing `| _ =>` on the new pattern surface. Reconciled the whole backlog into a ranked head
+(SELF-SELECT-CYCLE-CROSSFRAME → RESOLVE-DEDUP-MIRROR-GUARD → LET-CYCLE-ERROR → BINARY-CMP-BYTES →
+BOUND-ORDEREDPRIM). No inline code change this cycle.
