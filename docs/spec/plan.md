@@ -223,26 +223,33 @@ scalar-operator semantics leak into structural equality; cue keeps element equal
 `1==1.0`/`1.0==1` still resolves true. Fix: split the element-equality path to use strict prim `==` while the
 scalar `==` operator keeps decimal-aware compare.
 
-**DEF-FLATTEN-CLOSEDNESS-DISJ-REF (HIGH soundness — SILENT closedness leak; PRE-EXISTING). OPEN
-(re-ranked from LOW by 2026-07-13 Phase A audit).** The DEF-FLATTEN-CLOSEDNESS-DISJ fix closes a def's
-own-literal union across a SINGLE all-struct disjunction, but leaves three residual shapes fully OPEN, and
-"open" here means the def resolves to a concrete single arm and SILENTLY EXPORTS undeclared fields past a
-closed definition — the exact silent-leak class the parent slice fixed, one shape over. Repros (kue exports
-wrong value; cue bottoms):
-- **ref/scalar arm (no default needed):** `#Base: {b:2}` · `#X: {a:1} & ({z:9} | #Base)` ·
-  `y: #X & {b:2, extra:7}` ⇒ kue exports `{a:1,z:9,b:2,extra:7}`; cue ⇒ `3 errors in empty disjunction`
-  (bottom). `isClosableDisj` is false (the `#Base` arm is a `.refId`), so the whole `#X` stays open and
-  arm1 admits `extra`.
-- **multiple disjunctions + defaults:** `#X: {a:1} & (*{b:2}|{c:3}) & (*{d:4}|{e:5})` · `y: #X & {f:6}`
-  ⇒ kue exports `{a:1,b:2,d:4,f:6}`; cue ⇒ `y.f: field not allowed` (bottom). Cross-product scoped out →
-  open → defaults collapse to one arm → silent leak.
-- **nested disjunction arm:** `#X: {a:1} & ({b:2} | ({c:3}|{e:5}))` · `y: #X & {g:9}` ⇒ kue `ambiguous`;
-  cue bottom (under-close; would leak with defaults, same as above).
-Root cause: `isClosableDisj` (`Kue/EvalBase.lean`) requires EVERY arm to be a plain struct literal
-(`isUnionableDefValue`), and the close branch distributes across only a SINGLE disjunction. Fix directions
-(follow-up slice): admit ref/scalar arms by resolving them before the closability test; distribute across
-the cross-product of multiple disjunctions; flatten nested disjunctions first. Capture each repro as a
-`testdata/wild/` fixture FIRST (RED), spec-adjudicated to bottom.
+**DEF-FLATTEN-CLOSEDNESS-DISJ-REF (HIGH soundness — SILENT closedness leak; PRE-EXISTING).
+PARTIAL — multiple-disjunction cross-product ✅ LANDED (2026-07-13); ref/scalar-arm + nested-disj
+residual FILED (below).** The DEF-FLATTEN-CLOSEDNESS-DISJ fix closed a def's own-literal union across a
+SINGLE all-struct disjunction; this slice extends the distribution to the CROSS-PRODUCT of MULTIPLE
+closable disjunctions, and files the two arm-resolution residuals.
+- **multiple disjunctions + defaults ✅ FIXED.** `#X: {a:1} & (*{b:2}|{c:3}) & (*{d:4}|{e:5})` ·
+  `y: #X & {f:6}` was kue `{a,b,d,f}` (leak), cue bottom. Fix: `disjArmCrossProduct` (`Kue/EvalBase.lean`)
+  distributes the own-literal union across the cross-product of every closable disjunction conjunct,
+  closing each of the four combinations (`{a,b,d}|{a,b,e}|{a,c,d}|{a,c,e}`); a combination is a default
+  iff EVERY component arm is a default (product-of-defaults collapse → `{a,b,d}`). A single disjunction is
+  the one-list cross-product (identity), so the parent's per-arm behavior is unchanged. Wild
+  `def-flatten-closedness-disj-multidisj{,-select,-open}` (RED→GREEN + both-direction guards);
+  `Bug2xTests` `defflatten_multidisj_{rejects,select_admits,default_collapses,opentail_admits}`.
+- **ref/scalar arm — RESIDUAL, quarantined `.known-red`.** `#Base: {b:2}` · `#X: {a:1} & ({z:9} | #Base)`
+  · `y: #X & {b:2, extra:7}` ⇒ kue `{a,z,b,extra}`; cue bottom. `isClosableDisj` is false (the `#Base` arm
+  is a `.refId`), so `#X` stays open. Needs per-arm RESOLUTION — resolve a `.refId`/scalar arm to its
+  (closed or OPEN) field set BEFORE the closability test. `flattenConjDefRef` runs on UNEVALUATED
+  constraints; resolving an arm to a concrete closed struct is an eval — a representation change that risks
+  the L-series/Bug2 closedness suite, deliberately scoped out. Over-close hazard: an OPEN ref arm
+  (`#Base: {b:2, ...}`) must STAY open (cue admits `extra`). Seed: `testdata/wild/def-flatten-closedness-disj-ref/`.
+- **nested disjunction arm — RESIDUAL, quarantined `.known-red`.** `#X: {a:1} & ({b:2} | ({c:3}|{e:5}))` ·
+  `y: #X & {g:9}` ⇒ kue `ambiguous` (a distinct disjunction-resolution issue entangled here); cue bottom.
+  Needs the nested disjunction flattened before the closability test. Seed:
+  `testdata/wild/def-flatten-closedness-disj-nested/`.
+Follow-up slice (ref/scalar + nested): a shared `resolveDisjArm` that evaluates each arm to its
+closed/open field set (or bottom) and flattens nested disjunctions, feeding the existing cross-product
+distribution. Both seeds are committed RED under `.known-red`; the follow-up graduates them.
 
 **LIST-OPS-NESTED-OPENTAIL (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 Phase A audit). ✅ LANDED
 (2026-07-13).** LIST-OPS-PROBE normalized open-tail list operands (`.listTail items _ → .list items`) only

@@ -21888,3 +21888,51 @@ Filed (not fixed):
 - **LIST-ELEM-EQ-NUMERIC-STRICT** — surfaced en passant: `[1] == [1.0]` ⇒ kue true, cue false.
   `concreteEq` applies decimal-aware leaf equality INSIDE lists (so `1==1.0` leaks into list
   equality); cue keeps element equality strict on kind. Pre-existing, separate from open-tail.
+
+---
+
+## Completed Slice: DEF-FLATTEN-CLOSEDNESS-DISJ-REF (multiple-disjunction cross-product)
+
+Goal: close the multiple-disjunction residual of DEF-FLATTEN-CLOSEDNESS-DISJ — a def
+whose body unions its own struct literal across TWO OR MORE closable disjunction
+conjuncts flattened OPEN and silently leaked undeclared fields past a closed definition.
+
+Defect: `flattenConjDefRef`'s close branch (`Kue/EvalBase.lean`) distributed the
+own-literal union across only a SINGLE disjunction (`[.disj alts]`); two or more
+disjunction conjuncts hit the `| _ => expanded` fall-through and flattened OPEN. With
+defaults the arms collapsed to one combination, so `#X: {a:1} & (*{b:2}|{c:3}) &
+(*{d:4}|{e:5})` + `y: #X & {f:6}` SILENTLY exported `{a,b,d,f}`; cue v0.16.1 rejects `f`.
+
+Fix: `disjArmCrossProduct` (structural on the outer arm-list list) computes the
+cross-product of every closable disjunction conjunct's arms; the close branch closes each
+combination together with the own-literal union via the shared `closeLiteralUnion`,
+producing the four closed combinations `{a,b,d}|{a,b,e}|{a,c,d}|{a,c,e}`. A combination's
+default marker is `default` iff EVERY component arm is a default (`*{b}` & `*{d}` →
+`{a,b,d}`), matching cue's product-of-defaults collapse. A single disjunction is the
+one-list cross-product (identity), so the parent's per-arm distribution is byte-unchanged;
+the pure-literal (no-disjunction) path is untouched. An arm carrying a `...` tail keeps its
+combination OPEN through the union (both-direction guard, not force-closed).
+
+Adjudication: SPEC — closedness is core; a closed def has a fixed field set per reachable
+disjunction-arm combination, and an undeclared field bottoms every combination. cue v0.16.1
+is spec-correct here; NO divergence, NO spec-gap.
+
+Scope: BOUNDED extension of the existing distribution. Two arm-resolution residuals were
+scoped out and FILED (RED-seeded, `.known-red`):
+- **ref/scalar arm** (`#X: {a:1} & ({z:9} | #Base)`) — a `.refId`/scalar arm fails
+  `isClosableDisj`, so `#X` stays open and leaks. Needs per-arm RESOLUTION (resolve the ref
+  to its closed-or-OPEN field set, detect a scalar type conflict) BEFORE the closability
+  test — an eval over what is currently an unevaluated-constraint pass, a representation
+  change risking the L-series/Bug2 suite. Over-close hazard: an OPEN ref arm
+  (`#Base: {b:2, ...}`) must STAY open. Seed `testdata/wild/def-flatten-closedness-disj-ref/`.
+- **nested disjunction arm** (`#X: {a:1} & ({b:2} | ({c:3}|{e:5}))`) — the nested `.disj`
+  arm fails `isClosableDisj`; kue additionally reports `ambiguous` (a distinct
+  disjunction-resolution issue), so the repro is not a clean isolate. Needs the nested
+  disjunction flattened first. Seed `testdata/wild/def-flatten-closedness-disj-nested/`.
+
+Guards: wild `def-flatten-closedness-disj-multidisj` (RED→GREEN, reject `f`),
+`-multidisj-select` (both-direction: select `{c,e}` → `{a,c,e}` admitted),
+`-multidisj-open` (both-direction: `...`-tail arm keeps combination open, admits `f`);
+`Bug2xTests` `defflatten_multidisj_{rejects,select_admits,default_collapses,opentail_admits}`
+(native_decide). `./scripts/check.sh` fully green; zero closedness / L-series / Bug2-6..12 /
+DEF-FLATTEN-CLOSEDNESS(-DISJ) flips.

@@ -1259,6 +1259,40 @@ theorem defflatten_singledecl_still_rejects :
     exportJsonBottoms "#X: {a: 1, b: 3}\ny: #X & {c: 4}\n" = true := by
   native_decide
 
+-- MULTI-DISJUNCTION (DEF-FLATTEN-CLOSEDNESS-DISJ-REF, reject): the own-literal union distributes across
+-- the CROSS-PRODUCT of TWO closable disjunctions, closing each of the four combinations
+-- ({a,b,d}|{a,b,e}|{a,c,d}|{a,c,e}); an undeclared `f` bottoms every combination. Before the
+-- cross-product distribution the def flattened OPEN and the defaults SILENTLY exported `{a,b,d,f}`.
+-- cue v0.16.1 `field not allowed`.
+theorem defflatten_multidisj_rejects :
+    exportJsonBottoms "#X: {a: 1} & (*{b: 2} | {c: 3}) & (*{d: 4} | {e: 5})\ny: #X & {f: 6}\n" = true := by
+  native_decide
+
+-- MULTI-DISJUNCTION SELECT (both-direction guard, admit): unifying a NON-default combination's own
+-- fields resolves to exactly that combination — `{c:3, e:5}` picks the `{a,c,e}` arm and admits `c`,`e`.
+-- Guards against over-closing a legitimately-selected combination. cue v0.16.1 admits.
+theorem defflatten_multidisj_select_admits :
+    exportJsonMatches "#X: {a: 1} & (*{b: 2} | {c: 3}) & (*{d: 4} | {e: 5})\nout: #X & {c: 3, e: 5}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"e\": 5\n    }\n}\n" = true := by
+  native_decide
+
+-- MULTI-DISJUNCTION DEFAULT (default = product of defaults): with no use-site selection the default
+-- combination is the one where EVERY component arm is a default (`*{b}` & `*{d}` → `{a,b,d}`), matching
+-- cue's product-of-defaults collapse. cue v0.16.1 `{a,b,d}`.
+theorem defflatten_multidisj_default_collapses :
+    exportJsonMatches "#X: {a: 1} & (*{b: 2} | {c: 3}) & (*{d: 4} | {e: 5})\nout: #X\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- MULTI-DISJUNCTION OPEN-TAIL ARM (both-direction guard, admit): a `...`-tail arm in the cross-product
+-- keeps its combination OPEN, so a use-site extra is ADMITTED — the over-close direction the
+-- distribution must not trip. cue v0.16.1 admits `{a,b,d,f}`.
+theorem defflatten_multidisj_opentail_admits :
+    exportJsonMatches
+      "#X: {a: 1} & (*{b: 2, ...} | {c: 3}) & (*{d: 4} | {e: 5})\nout: #X & {f: 6}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"d\": 4,\n        \"f\": 6\n    }\n}\n" = true := by
+  native_decide
+
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
 --
 -- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)

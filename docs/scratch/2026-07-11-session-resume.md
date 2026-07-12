@@ -3,7 +3,32 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **LIST-OPS-NESTED-OPENTAIL — nested open-tail sublists in `list.*` ops normalized to prefix
+HEAD: **DEF-FLATTEN-CLOSEDNESS-DISJ-REF — multiple-disjunction cross-product closedness (PARTIAL: multi-disj
+LANDED 2026-07-13; ref/scalar-arm + nested-disj residual FILED).** Closed the multiple-disjunction residual
+of the DEF-FLATTEN-CLOSEDNESS-DISJ silent-leak cluster. A def unioning its own struct literal across TWO+
+closable disjunctions (`#X: {a:1} & (*{b:2}|{c:3}) & (*{d:4}|{e:5})`) hit the single-disjunction close
+branch's `| _ => expanded` fall-through → flattened OPEN → defaults collapsed to one arm → SILENTLY exported
+`{a,b,d,f}` (cue ⊥). Fix (`Kue/EvalBase.lean`): `disjArmCrossProduct` distributes the own-literal union
+across the cross-product of every closable disjunction, closing each of the four combinations; a combination
+is a default iff EVERY component arm is a default (product-of-defaults → `{a,b,d}`). Single disjunction =
+one-list cross-product (identity) → parent behavior byte-unchanged. Wild `def-flatten-closedness-disj-multidisj
+{,-select,-open}` (RED→GREEN + both-direction guards); `Bug2xTests` `defflatten_multidisj_*` (4 native_decide).
+SPEC (core closedness), cue-correct, NO divergence. **Filed (RED-seeded, `.known-red`):** the two arm-RESOLUTION
+residuals — **ref/scalar arm** (`{a:1} & ({z:9} | #Base)`, `.refId` arm fails `isClosableDisj`; needs
+resolving the arm to its closed-or-OPEN field set, an eval risking the L-series/Bug2 suite; over-close hazard:
+an OPEN `#Base:{b,...}` arm must stay open) and **nested disjunction arm** (`{a:1} & ({b:2}|({c:3}|{e:5}))`,
+also kue `ambiguous` — a distinct disjunction-resolution issue entangled; needs the nested disjunction
+flattened first). Follow-up: a shared `resolveDisjArm` (arm eval + nested flatten) feeding the cross-product.
+Seeds `testdata/wild/def-flatten-closedness-disj-{ref,nested}/`. **NEXT (ranked):** the coupled LIST-EQUALITY
+fix — **LIST-CONTAINS-OPENTAIL-EQ** (HIGH) + **LIST-ELEM-EQ-NUMERIC-STRICT** (MED), shared root: list/struct
+element equality needs a strict, type-aware, open-tail-stripping recursive compare (fix TOGETHER) → a two-phase
+**AUDIT is DUE** (Phase B pending per 2026-07-13 Phase A; several slices since) → LOW gaps
+**PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** / **LIST-ISSORTED** → **PB-EVALBASE-SPLIT** nav-debt →
+the DEFERRED float FDLIBM campaign (chakrit's prioritization, not auto-scheduled). **Alpha release HELD for
+chakrit (attended)** — commit pushed; release awaits your say-so. The ref/nested residual is a filed follow-up,
+not a release blocker (the multi-disj leak is closed; the residuals are quarantined RED seeds).
+
+Prior HEAD: **LIST-OPS-NESTED-OPENTAIL — nested open-tail sublists in `list.*` ops normalized to prefix
 (LANDED 2026-07-13).** Closed the Phase A follow-up to LIST-OPS-PROBE: the open-tail→prefix rule reached
 only TOP-level operands, so `list.Concat`/`FlattenN` on a NESTED open-tail sublist gave wrong values —
 `Concat([[1,2,...],[3,4]])` ⇒ ⊥ (cue `[1,2,3,4]`), `FlattenN([[1,2,...],[3]],1)` ⇒ `[[1,2],3]` SILENT WRONG
@@ -28,7 +53,7 @@ for chakrit (attended)** — the Phase A audit flagged NO release until this sil
 THIS slice clears that specific blocker, but the alpha remains HELD for chakrit's say-so. Handoff: committed +
 pushed, release awaits your say-so.
 
-Prior HEAD: **LIST-OPS-PROBE — differential probe of the list-operation value family; one wrong-value defect
+Earlier HEAD: **LIST-OPS-PROBE — differential probe of the list-operation value family; one wrong-value defect
 family found+fixed, rest measured GREEN (LANDED 2026-07-13).** Probed slicing, indexing, `list.*` builtins,
 comprehensions, list unification/defaults vs cue v0.16.1. **Measured GREEN:** indexing (in-bounds/oob→⊥/
 neg→⊥/non-int→⊥/float→⊥/open-tail resolves-or-defers), comprehensions over open lists (`[for v in

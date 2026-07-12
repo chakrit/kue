@@ -1872,6 +1872,17 @@ def isClosableDisj : Value -> Bool
   | .disj alts => alts.all fun a => isUnionableDefValue a.snd
   | _ => false
 
+/-- The cross-product of a list of disjunction arm-lists: one pick from each list, in every
+    combination. `[[b,c],[d,e]]` yields `[[b,d],[b,e],[c,d],[c,e]]`. Structural on the outer
+    list; the empty product is the single empty combination `[[]]` (identity), so a one-list
+    input reproduces that list's arms. Used to distribute a def's own-literal union across the
+    cross-product of MULTIPLE closable disjunction conjuncts. -/
+def disjArmCrossProduct : List (List (Mark × Value)) -> List (List (Mark × Value))
+  | [] => [[]]
+  | alts :: rest =>
+      let restProduct := disjArmCrossProduct rest
+      alts.flatMap fun a => restProduct.map fun combo => a :: combo
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -2028,33 +2039,42 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                         | [] => none
                         | first :: more => some (normalizeDefinitionValueWithFuel normalizeFuel
                             (more.foldl mergeDefinitionDecls first))
-                      match disjEmbeds with
-                      -- DEF-FLATTEN-CLOSEDNESS-DISJ: DISTRIBUTE the def's own struct-literal union
-                      -- across a single closable disjunction and CLOSE each arm — so
-                      -- `#X: {a:1} & ({b:2}|{c:3})` flattens to `{a:1,b:2}(closed) |
-                      -- {a:1,c:3}(closed)`, fixing the field set per arm (a use-site `& {d:4}` then
-                      -- bottoms both arms; `& {b:2}` resolves to the `{a,b}` arm). Closing the arm
-                      -- TOGETHER with the literal union gives the arm's own declared field the
-                      -- combined allowed-set, so it is admitted, not rejected. An arm carrying a
-                      -- `...` tail stays open through the union (its extras admitted). The default
-                      -- marker is preserved per arm. Only a SINGLE closable disjunction distributes
-                      -- here; multiple disjunctions would need a cross-product, so they stay OPEN
-                      -- (pre-existing behavior, not a regression).
-                      | [.disj alts] =>
-                          match literals with
-                          | [] => expanded
-                          | _ =>
-                              let closedArms := alts.filterMap fun alt =>
-                                (closeLiteralUnion (literals ++ [alt.snd])).map (fun v => (alt.fst, v))
-                              rest ++ [.disj closedArms]
+                      let disjAltLists := disjEmbeds.filterMap fun c =>
+                        match c with
+                        | .disj alts => some alts
+                        | _ => none
+                      match disjAltLists with
                       -- Pure own-literal union (no disjunction): close at flatten.
                       | [] =>
                           match closeLiteralUnion literals with
                           | none => expanded
                           | some closed => rest ++ [closed]
-                      -- Multiple closable disjunctions would need a cross-product distribution;
-                      -- left OPEN (pre-existing behavior).
-                      | _ => expanded
+                      -- DEF-FLATTEN-CLOSEDNESS-DISJ(-REF): DISTRIBUTE the def's own struct-literal
+                      -- union across the CROSS-PRODUCT of every closable disjunction conjunct and
+                      -- CLOSE each combination — so `#X: {a:1} & ({b:2}|{c:3})` flattens to
+                      -- `{a:1,b:2}(closed) | {a:1,c:3}(closed)`, and
+                      -- `#X: {a:1} & (*{b:2}|{c:3}) & (*{d:4}|{e:5})` flattens to the four closed
+                      -- combinations `{a,b,d}|{a,b,e}|{a,c,d}|{a,c,e}`, fixing the field set per
+                      -- combination (a use-site `& {f:6}` bottoms all four; `& {c:3,e:5}` resolves
+                      -- to the `{a,c,e}` combination). Closing each combination TOGETHER with the
+                      -- literal union gives each arm's own declared field the combined allowed-set,
+                      -- so it is admitted, not rejected. An arm carrying a `...` tail stays open
+                      -- through the union (its extras admitted). The default marker of a combination
+                      -- is `default` iff EVERY component arm is a default (`*{b}` & `*{d}` → the
+                      -- default combination), matching cue's product-of-defaults collapse. A single
+                      -- disjunction is the one-list cross-product (identity), reproducing the prior
+                      -- per-arm distribution unchanged.
+                      | _ =>
+                          match literals with
+                          | [] => expanded
+                          | _ =>
+                              let closedArms := (disjArmCrossProduct disjAltLists).filterMap
+                                fun combo =>
+                                  let mark := if combo.all (fun p => p.fst == Mark.default)
+                                    then Mark.default else Mark.regular
+                                  (closeLiteralUnion (literals ++ combo.map (·.snd))).map
+                                    (fun v => (mark, v))
+                              rest ++ [.disj closedArms]
                     else expanded
                 | _ => [constraint]
             | none => [constraint]
