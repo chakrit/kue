@@ -272,8 +272,8 @@ theorem eval_mul_incomplete_partner_list_defers :
 
 -- A bound-constraint operand is incomplete → arithmetic defers (it may concretize to a number).
 theorem eval_add_bound_operand_defers :
-    evalAdd (.boundConstraint (.int 0) .gt .number) (.prim (.int 1))
-      = .binary .add (.boundConstraint (.int 0) .gt .number) (.prim (.int 1)) := by
+    evalAdd (.boundConstraint (.int 0 .number) .gt) (.prim (.int 1))
+      = .binary .add (.boundConstraint (.int 0 .number) .gt) (.prim (.int 1)) := by
   rfl
 
 -- An unresolved ref operand is incomplete → defers (the pre-fix baseline, must stay).
@@ -617,12 +617,12 @@ theorem eval_regex_match_non_string_is_bottom :
 
 -- `>k` with `k` resolved to a string lowers to a string bound constraint.
 theorem eval_bound_op_lowers_string_operand :
-    (evalUnary (.boundOp .gt) (.prim (.string "m")) == .boundConstraint (.string "m") .gt .number) = true := by
+    (evalUnary (.boundOp .gt) (.prim (.string "m")) == .boundConstraint (.string "m") .gt) = true := by
   native_decide
 
 -- `<k` with `k` resolved to a number lowers to a numeric bound constraint.
 theorem eval_bound_op_lowers_numeric_operand :
-    (evalUnary (.boundOp .lt) (.prim (.int 5)) == .boundConstraint (.int 5) .lt .number) = true := by
+    (evalUnary (.boundOp .lt) (.prim (.int 5)) == .boundConstraint (.int 5 .number) .lt) = true := by
   native_decide
 
 -- `!=z` with `z` resolved to a prim lowers to a `notPrim` validator.

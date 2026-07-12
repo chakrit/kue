@@ -56,7 +56,7 @@ def classifyArithOperand : Value -> ArithOperandClass
   | .notPrim _ => .incomplete
   | .stringRegex _ => .incomplete
   | .stringFormat _ => .incomplete
-  | .boundConstraint _ _ _ => .incomplete
+  | .boundConstraint _ _ => .incomplete
   | .lengthConstraint _ _ _ => .incomplete
   | .uniqueItems => .incomplete
   | .conj _ => .incomplete
@@ -188,7 +188,7 @@ def collapseDefaultDisjunction : Value -> Value
   | value@(.notPrim _) => value
   | value@(.stringRegex _) => value
   | value@(.stringFormat _) => value
-  | value@(.boundConstraint _ _ _) => value
+  | value@(.boundConstraint _ _) => value
   | value@(.lengthConstraint _ _ _) => value
   | value@(.uniqueItems) => value
   | value@(.conj _) => value
@@ -361,7 +361,7 @@ def classifyScalarOperand : Value -> ScalarOperandClass
   | .notPrim _ => .incomplete
   | .stringRegex _ => .incomplete
   | .stringFormat _ => .incomplete
-  | .boundConstraint _ _ _ => .incomplete
+  | .boundConstraint _ _ => .incomplete
   | .lengthConstraint _ _ _ => .incomplete
   | .uniqueItems => .incomplete
   | .conj _ => .incomplete
@@ -486,12 +486,10 @@ def evalNumNeg (value : Value) : Value :=
     stays the deferred `.unary` node. Bare bounds are `number`-domain, matching the parser. -/
 def evalBoundOp (kind : BoundKind) (value : Value) : Value :=
   match classifyScalarOperand value with
-  | .prim (.int v) => .boundConstraint (.int v) kind .number
-  | .prim (.float v text) => .boundConstraint (.float v text) kind .number
-  | .prim (.string v) => .boundConstraint (.string v) kind .number
-  | .prim (.bytes v) => .boundConstraint (.bytes v) kind .number
-  | .prim (.null) => .bottom
-  | .prim (.bool _) => .bottom
+  | .prim prim =>
+      match OrderedPrim.ofPrim? prim with
+      | some bound => .boundConstraint bound kind
+      | none => .bottom
   | .bottom => .bottom
   | .bottomReasons reasons => .bottomWith reasons
   | .incomplete => .unary (.boundOp kind) value

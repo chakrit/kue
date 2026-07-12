@@ -147,7 +147,7 @@ mutual
     | _ + 1, .kind kind => .error (.incomplete (.kind kind))
     | _ + 1, .notPrim prim => .error (.incomplete (.notPrim prim))
     | _ + 1, .stringRegex pattern => .error (.incomplete (.stringRegex pattern))
-    | _ + 1, .boundConstraint bound kind domain => .error (.incomplete (.boundConstraint bound kind domain))
+    | _ + 1, .boundConstraint bound kind => .error (.incomplete (.boundConstraint bound kind))
     | _ + 1, .lengthConstraint kind bound limit => .error (.incomplete (.lengthConstraint kind bound limit))
     | _ + 1, .uniqueItems => .error (.incomplete .uniqueItems)
     | _ + 1, .stringFormat fmt => .error (.incomplete (.stringFormat fmt))

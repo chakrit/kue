@@ -591,8 +591,19 @@ designed here as ONE coherent fix, split into TWO ranked slices — soundness fi
   theorems (both directions, inclusive `<=`/`>=`, byte-value order, multi-byte lexical, empty bytes,
   cross-type ⊥ both ways, equality-unaffected). **The last active wrong-value bug — CLOSED.**
 
-- **BOUND-ORDEREDPRIM (LOW illegal-states — the designed PA-BOUND-DOMAIN-TYPE fix; lands AFTER
-  BOUND-OPERAND-CLASSIFY).** Retype the bound operand: `inductive OrderedPrim | number (value :
+- **BOUND-ORDEREDPRIM ✅ LANDED (2026-07-13).** Illegal bound-operand states now
+  unrepresentable; **PA-BOUND-DOMAIN-TYPE discharged**. `boundConstraint (bound : OrderedPrim)
+  (kind : BoundKind)` — `OrderedPrim` is the ordered subset of `Prim` (int/float/string/bytes)
+  with `NumberDomain` folded into the numeric arms only, so a `null`/`bool` operand and a
+  domain-bearing string/bytes bound are both structurally impossible. `OrderedPrim.ofPrim?`
+  (null/bool → `none`) is the single trust boundary; the subsumed runtime guards
+  (`boundKindLabel`/`boundAdmitsKind` null/bool arms, the `number` sentinel, the eval/parse
+  null/bool→⊥ arms) are DELETED. Shipped as a 4-arm mirror (not the 3-arm sketch below) because
+  `formatBoundOperand`'s int-vs-float render is observable — see implementation-log. Behavior-
+  preserving: whole suite green, zero flipped theorems; 4 new unrepresentability theorems in
+  `BoundTests.lean`. Original design sketch retained below for reference.
+
+  Retype the bound operand: `inductive OrderedPrim | number (value :
   DecimalValue) (text : String) (domain : NumberDomain) | string (value : String) | bytes (value :
   Array UInt8)`, with `boundConstraint (bound : OrderedPrim) (kind : BoundKind)` — the domain FOLDS INTO
   the `number` arm, so string/bytes bounds carry no domain and the inert `.number` sentinel + "string

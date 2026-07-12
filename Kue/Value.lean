@@ -417,6 +417,62 @@ def rank : NumberDomain -> Nat
 
 end NumberDomain
 
+/-- The ordered operand a comparator bound (`<`, `<=`, `>`, `>=`) constrains: a number, a
+    string, or bytes — the ordered subset of `Prim`. `null`/`bool` are structurally excluded,
+    so a bound can never hold a non-ordered operand. The numeric `NumberDomain` (bare bounds
+    are `number`, narrowed to `int`/`float` by meeting a kind) lives ONLY in the numeric arms,
+    so a string/bytes bound cannot carry a domain. The `int`/`float` arms mirror
+    `Prim.int`/`Prim.float`, so `toPrim` reconstructs the exact operand for comparison and
+    rendering (int renders via `toString`, float via its decimal — the distinction is
+    observable). -/
+inductive OrderedPrim where
+  | int (value : Int) (domain : NumberDomain)
+  | float (value : DecimalValue) (text : String) (domain : NumberDomain)
+  | string (value : String)
+  | bytes (value : Array UInt8)
+deriving Repr, BEq, DecidableEq
+
+namespace OrderedPrim
+
+/-- The raw `Prim` this operand compares and renders as. Total; drops the numeric domain (a
+    `Prim` carries none). -/
+def toPrim : OrderedPrim -> Prim
+  | .int value _ => .int value
+  | .float value text _ => .float value text
+  | .string value => .string value
+  | .bytes value => .bytes value
+
+/-- Refine a `Prim` into a bound operand at the bare `number` domain — the single trust
+    boundary where an operand becomes a bound. `null`/`bool` are not ordered, so they yield
+    `none` (the caller bottoms or defers). -/
+def ofPrim? : Prim -> Option OrderedPrim
+  | .int value => some (.int value .number)
+  | .float value text => some (.float value text .number)
+  | .string value => some (.string value)
+  | .bytes value => some (.bytes value)
+  | .null | .bool _ => none
+
+/-- The numeric domain this operand gates by; `none` for string/bytes (they gate by family). -/
+def domain? : OrderedPrim -> Option NumberDomain
+  | .int _ domain => some domain
+  | .float _ _ domain => some domain
+  | .string _ | .bytes _ => none
+
+/-- Re-tag a numeric operand's domain (the narrowed domain from meeting bounds); identity on
+    string/bytes, which carry no domain. -/
+def withDomain : OrderedPrim -> NumberDomain -> OrderedPrim
+  | .int value _, domain => .int value domain
+  | .float value text _, domain => .float value text domain
+  | .string value, _ => .string value
+  | .bytes value, _ => .bytes value
+
+end OrderedPrim
+
+/-- A `number`-domain float bound operand from its source text — the `OrderedPrim` mirror of
+    `mkFloatText`, parsing the decimal once. -/
+def mkFloatBound (text : String) : OrderedPrim :=
+  .float ((parseDecimalText text).getD (intDecimal 0)) text .number
+
 /-- The comparator carried by a numeric bound constraint (`>=n`, `>n`, `<=n`, `<n`). The
     four CUE bound forms collapse to one `boundConstraint` parameterized over this kind, so
     the meet/format/order layers carry one bound arm with a per-kind comparator rather than
@@ -489,23 +545,22 @@ end BoundKind
 
 /-- The `Kind` a bound's operand belongs to, for conflict messages and family tests. A numeric
     bound reports its `domain`'s kind (`number`/`int`/`float`); a string/bytes bound its own. -/
-def boundKindLabel (bound : Prim) (domain : NumberDomain) : Kind :=
+def boundKindLabel (bound : OrderedPrim) : Kind :=
   match bound with
-  | .int _ | .float _ _ => domain.kind
+  | .int _ domain => domain.kind
+  | .float _ _ domain => domain.kind
   | .string _ => .string
   | .bytes _ => .bytes
-  | .null => .null
-  | .bool _ => .bool
 
 /-- Can a prim of kind `k` be admitted by this bound? A numeric bound gates by `domain`
     (`number` admits int+float); a string/bytes bound admits only its own family. Decides
     whether a `!=p` sits INSIDE a bound's domain (so both are retained) or is disjoint. -/
-def boundAdmitsKind (bound : Prim) (domain : NumberDomain) (k : Kind) : Bool :=
+def boundAdmitsKind (bound : OrderedPrim) (k : Kind) : Bool :=
   match bound with
-  | .int _ | .float _ _ => domain.admitsKind k
+  | .int _ domain => domain.admitsKind k
+  | .float _ _ domain => domain.admitsKind k
   | .string _ => k == .string
   | .bytes _ => k == .bytes
-  | .null | .bool _ => false
 
 inductive UnaryOp where
   | boolNot
@@ -928,12 +983,13 @@ inductive Value where
   /-- A comparator bound constraint (`>=x`, `>x`, `<=x`, `<x`) over ANY ordered type. `kind`
       selects the comparator; `bound` is the ordered ground operand — a number (exact decimal,
       so `>0.5` is representable), a string (lexical, by code point), or bytes (by byte order).
-      `domain` applies ONLY to a numeric bound: a bare numeric bound is `number` (admits both
-      int and float, e.g. `>0 & 1.5` ⇒ `1.5`), narrowed to `int`/`float` by meeting with the
-      matching kind (`int & >0` rejects floats). For a string/bytes bound `domain` is an inert
-      `number` sentinel — the admitted kind is fixed by the operand's own kind (only strings
-      compare to a string bound), so the meet keys off `bound`, not `domain`. -/
-  | boundConstraint (bound : Prim) (kind : BoundKind) (domain : NumberDomain)
+      A numeric bound carries its `NumberDomain` inside the operand: a bare numeric bound is
+      `number` (admits both int and float, e.g. `>0 & 1.5` ⇒ `1.5`), narrowed to `int`/`float`
+      by meeting with the matching kind (`int & >0` rejects floats). A string/bytes operand
+      carries no domain — its admitted family is fixed by its own arm. `OrderedPrim` makes a
+      non-ordered (`null`/`bool`) operand and a domain-bearing string/bytes bound both
+      unrepresentable. -/
+  | boundConstraint (bound : OrderedPrim) (kind : BoundKind)
   /-- A length validator over a measurable quantity (`kind`): struct regular-field count
       (`struct.MinFields`/`MaxFields`), list element count (`list.MinItems`/`MaxItems`), or
       string rune-length (`strings.MinRunes`/`MaxRunes`). `min` is satisfied iff `count >= limit`,
@@ -1183,7 +1239,7 @@ def substPatternLabelWithFuel (name label : String) : Nat -> Value -> Value
   | _ + 1, value@(.notPrim _) => value
   | _ + 1, value@(.stringRegex _) => value
   | _ + 1, value@(.stringFormat _) => value
-  | _ + 1, value@(.boundConstraint _ _ _) => value
+  | _ + 1, value@(.boundConstraint _ _) => value
   | _ + 1, value@(.lengthConstraint _ _ _) => value
   | _ + 1, value@(.uniqueItems) => value
   | _ + 1, value@(.ref _) => value

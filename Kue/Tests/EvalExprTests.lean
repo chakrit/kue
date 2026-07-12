@@ -222,18 +222,18 @@ theorem eval_three_reference_cycle_as_top :
 
 theorem eval_direct_constrained_cycle_keeps_constraint :
     (evalStructRefs
-      (resolveStructRefs (mkStruct [⟨"x", .regular, .conj [.ref "x", .boundConstraint (.int 0) .ge .number], false⟩] .regularOpen none []))
-      == mkStruct [⟨"x", .regular, .boundConstraint (.int 0) .ge .number, false⟩] .regularOpen none []) = true := by
+      (resolveStructRefs (mkStruct [⟨"x", .regular, .conj [.ref "x", .boundConstraint (.int 0 .number) .ge], false⟩] .regularOpen none []))
+      == mkStruct [⟨"x", .regular, .boundConstraint (.int 0 .number) .ge, false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_mutual_constrained_cycle_keeps_constraint :
     (evalStructRefs
       (resolveStructRefs
         (mkStruct [
-            ⟨"a", .regular, .conj [.ref "b", .boundConstraint (.int 0) .ge .number], false⟩,
+            ⟨"a", .regular, .conj [.ref "b", .boundConstraint (.int 0 .number) .ge], false⟩,
             ⟨"b", .regular, .ref "a", false⟩
           ] .regularOpen none []))
-      == mkStruct [⟨"a", .regular, .boundConstraint (.int 0) .ge .number, false⟩, ⟨"b", .regular, .boundConstraint (.int 0) .ge .number, false⟩] .regularOpen none []) = true := by
+      == mkStruct [⟨"a", .regular, .boundConstraint (.int 0 .number) .ge, false⟩, ⟨"b", .regular, .boundConstraint (.int 0 .number) .ge, false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_non_cycle_reference_still_uses_target_value :
@@ -278,8 +278,8 @@ theorem eval_value_alias_cycle_bounds_to_top :
 
 theorem eval_regular_disjunction_uses_join_normalization :
     (evalStructRefs
-      (mkStruct [⟨"x", .regular, .disj [(.regular, .boundConstraint (.int 5) .ge .number), (.regular, .boundConstraint (.int 0) .ge .number)], false⟩] .regularOpen none [])
-      == mkStruct [⟨"x", .regular, .boundConstraint (.int 0) .ge .number, false⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"x", .regular, .disj [(.regular, .boundConstraint (.int 5 .number) .ge), (.regular, .boundConstraint (.int 0 .number) .ge)], false⟩] .regularOpen none [])
+      == mkStruct [⟨"x", .regular, .boundConstraint (.int 0 .number) .ge, false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem eval_regular_field_reference_to_hidden :

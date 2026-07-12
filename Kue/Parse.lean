@@ -1466,10 +1466,10 @@ mutual
     | .error error => .error error
     | .ok (operand, rest) =>
         match operand with
-        | .prim (.int v) => parseOk (.boundConstraint (.int v) kind .number) rest
-        | .prim (.float v text) => parseOk (.boundConstraint (.float v text) kind .number) rest
-        | .prim (.string v) => parseOk (.boundConstraint (.string v) kind .number) rest
-        | .prim (.bytes v) => parseOk (.boundConstraint (.bytes v) kind .number) rest
+        | .prim prim =>
+            match OrderedPrim.ofPrim? prim with
+            | some bound => parseOk (.boundConstraint bound kind) rest
+            | none => parseOk (.unary (.boundOp kind) operand) rest
         | _ => parseOk (.unary (.boundOp kind) operand) rest
 
   partial def parsePrimaryAtom (chars : List Char) : ParseResult Value :=
@@ -2229,7 +2229,7 @@ def canonicalizeBuiltinCalls (aliasMap : List (String × String))
       | .notPrim _ => value
       | .stringRegex _ => value
       | .stringFormat _ => value
-      | .boundConstraint _ _ _ => value
+      | .boundConstraint _ _ => value
       | .lengthConstraint _ _ _ => value
       | .uniqueItems => value
       | .ref _ => value
@@ -2308,7 +2308,7 @@ def collectReferencedHeads : Nat -> Value -> List String
     | .notPrim _ => []
     | .stringRegex _ => []
     | .stringFormat _ => []
-    | .boundConstraint _ _ _ => []
+    | .boundConstraint _ _ => []
     | .lengthConstraint _ _ _ => []
     | .uniqueItems => []
     | .refId _ => []

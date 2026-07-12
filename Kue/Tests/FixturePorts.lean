@@ -459,7 +459,7 @@ def fixturePorts : List FixturePort :=
       content :=
         formatTopLevel
           (mkStruct [
-              ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (.int 0) .gt .number, .prim (.int 7)], false⟩,
+              ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (.int 0 .number) .gt, .prim (.int 7)], false⟩,
               ⟨"orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")], false⟩
             ] .regularOpen none [])
     },
@@ -1483,8 +1483,8 @@ def fixturePorts : List FixturePort :=
         formatTopLevel
           (resolveAndEval
             (mkStruct [
-                ⟨"x", .regular, .conj [.ref "x", .boundConstraint (.int 0) .ge .number], false⟩,
-                ⟨"a", .regular, .conj [.ref "b", .boundConstraint (.int 0) .ge .number], false⟩,
+                ⟨"x", .regular, .conj [.ref "x", .boundConstraint (.int 0 .number) .ge], false⟩,
+                ⟨"a", .regular, .conj [.ref "b", .boundConstraint (.int 0 .number) .ge], false⟩,
                 ⟨"b", .regular, .ref "a", false⟩
               ] .regularOpen none []))
     },
@@ -1736,11 +1736,11 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "disjunctions/int_bound_disjunction.expected",
-      content := formatField "x" (join (.boundConstraint (.int 5) .ge .number) (.boundConstraint (.int 0) .ge .number))
+      content := formatField "x" (join (.boundConstraint (.int 5 .number) .ge) (.boundConstraint (.int 0 .number) .ge))
     },
     {
       fileName := "bounds/int_bounds.expected",
-      content := formatField "x" (meet (meet (.boundConstraint (.int 0) .ge .number) (.boundConstraint (.int 10) .le .number)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.boundConstraint (.int 0 .number) .ge) (.boundConstraint (.int 10 .number) .le)) (.prim (.int 7)))
     },
     {
       fileName := "bounds/kind_meet_int.expected",
@@ -1909,7 +1909,7 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "bounds/number_int_bound.expected",
-      content := formatField "x" (meet (meet (.kind .number) (.boundConstraint (.int 0) .ge .number)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.kind .number) (.boundConstraint (.int 0 .number) .ge)) (.prim (.int 7)))
     },
     {
       fileName := "numeric/number_kind.expected",
@@ -2125,25 +2125,25 @@ def fixturePorts : List FixturePort :=
     },
     {
       fileName := "bounds/strict_int_bounds.expected",
-      content := formatField "x" (meet (meet (.boundConstraint (.int 0) .gt .number) (.boundConstraint (.int 10) .lt .number)) (.prim (.int 7)))
+      content := formatField "x" (meet (meet (.boundConstraint (.int 0 .number) .gt) (.boundConstraint (.int 10 .number) .lt)) (.prim (.int 7)))
     },
     {
       -- A bare bound is number-domain: it admits a float operand (`>0 & 1.5` ⇒ `1.5`),
       -- where an int-only bound would conflict. The 2b fix to the prior over-strict bound.
       fileName := "bounds/number_bound_float.expected",
-      content := formatField "x" (meet (.boundConstraint (.int 0) .gt .number) (.prim (mkFloatText "1.5")))
+      content := formatField "x" (meet (.boundConstraint (.int 0 .number) .gt) (.prim (mkFloatText "1.5")))
     },
     {
       -- A decimal bound literal (`>0.5`) compares its limit exactly against a float operand.
       fileName := "bounds/decimal_bound_float.expected",
-      content := formatField "x" (meet (.boundConstraint (mkFloatText "0.5") .gt .number) (.prim (mkFloatText "1.0")))
+      content := formatField "x" (meet (.boundConstraint (mkFloatBound "0.5") .gt) (.prim (mkFloatText "1.0")))
     },
     {
       -- A bare two-sided range is number-domain on both ends: `>=0 & <=10 & 5.5` ⇒ `5.5`.
       fileName := "bounds/number_range_float.expected",
       content :=
         formatField "x"
-          (meet (meet (.boundConstraint (.int 0) .ge .number) (.boundConstraint (.int 10) .le .number)) (.prim (mkFloatText "5.5")))
+          (meet (meet (.boundConstraint (.int 0 .number) .ge) (.boundConstraint (.int 10 .number) .le)) (.prim (mkFloatText "5.5")))
     },
     {
       fileName := "definitions/string_pattern_conflict.expected",
@@ -4081,7 +4081,7 @@ def fixturePorts : List FixturePort :=
           (resolveAndEval
             (mkStruct [
                 ⟨"d", .regular, mkStruct [⟨"a", .regular, .kind .int, false⟩, ⟨"b", .regular, .ref "a", false⟩] .regularOpen none [], false⟩,
-                ⟨"y", .regular, .conj [.ref "d", mkStruct [⟨"a", .regular, .boundConstraint (.int 0) .gt .number, false⟩] .regularOpen none []], false⟩
+                ⟨"y", .regular, .conj [.ref "d", mkStruct [⟨"a", .regular, .boundConstraint (.int 0 .number) .gt, false⟩] .regularOpen none []], false⟩
               ] .regularOpen none []))
     },
     {

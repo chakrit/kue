@@ -239,15 +239,15 @@ mutual
     | _ + 1, .kind expectedKind, .stringFormat _ => kindSubsumesKind expectedKind .string
     | _ + 1, .stringFormat fmt, .prim (.string value) => stringFormatValid fmt value
     | _ + 1, .stringFormat expectedFmt, .stringFormat actualFmt => expectedFmt == actualFmt
-    | _ + 1, .kind expectedKind, .boundConstraint bound _ domain =>
-        kindSubsumesKind expectedKind (boundKindLabel bound domain)
-    | _ + 1, .boundConstraint bound kind domain, .prim prim =>
-        boundAdmitsKind bound domain (Prim.kind prim)
-          && (match kind.admitsPrim? bound prim with
+    | _ + 1, .kind expectedKind, .boundConstraint bound _ =>
+        kindSubsumesKind expectedKind (boundKindLabel bound)
+    | _ + 1, .boundConstraint bound kind, .prim prim =>
+        boundAdmitsKind bound (Prim.kind prim)
+          && (match kind.admitsPrim? bound.toPrim prim with
               | some result => result
               | none => false)
-    | _ + 1, .boundConstraint expectedBound expectedKind _, .boundConstraint actualBound actualKind _ =>
-        boundSubsumesBound expectedBound expectedKind actualBound actualKind
+    | _ + 1, .boundConstraint expectedBound expectedKind, .boundConstraint actualBound actualKind =>
+        boundSubsumesBound expectedBound.toPrim expectedKind actualBound.toPrim actualKind
     | fuel + 1, .conj constraints, value => allConstraintsSubsumeWithFuel fuel constraints value
     | _ + 1, .builtinCall expectedName expectedArgs, .builtinCall actualName actualArgs =>
         expectedName = actualName && expectedArgs == actualArgs

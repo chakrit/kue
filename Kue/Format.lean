@@ -175,7 +175,7 @@ mutual
     | _, .kind kind => formatKind kind
     | _, .notPrim prim => "!=" ++ formatPrim prim
     | _, .stringRegex pattern => s!"=~\"{escapeCueStringContent pattern}\""
-    | _, .boundConstraint bound kind _ => kind.symbol ++ formatBoundOperand bound
+    | _, .boundConstraint bound kind => kind.symbol ++ formatBoundOperand bound.toPrim
     | _, .lengthConstraint kind bound limit =>
         let call := match kind, bound with
           | .fields, .min => "struct.MinFields"

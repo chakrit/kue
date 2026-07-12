@@ -21594,3 +21594,53 @@ ASCII-only, indistinguishable from a naive byte-copy. Added a multi-byte case
 (`\xc3\xa9` = "é", cue-adjudicated) to `testdata/wild/bytes-interp-into-string/` and a
 matching `Tests.lean` `#guard`, pinning the `String.fromUTF8?` decode. `./scripts/check.sh`
 green.
+
+## Completed Slice: BOUND-ORDEREDPRIM — illegal bound-operand states unrepresentable
+
+Goal (LOW illegal-states, behavior-preserving): `boundConstraint (bound : Prim) (kind :
+BoundKind) (domain : NumberDomain)` carried two representable-but-illegal states — a
+`null`/`bool` operand (nonsense for a comparator bound, excluded only by a runtime guard)
+and a numeric `domain` on a string/bytes operand (an inert `number` sentinel). Both are the
+exact "loose type + runtime guard" this repo exists to erase (the designed
+PA-BOUND-DOMAIN-TYPE fix).
+
+Design: new `inductive OrderedPrim | int (value) (domain) | float (value) (text) (domain) |
+string (value) | bytes (value)` in `Value.lean` — the ordered subset of `Prim`, with
+`NumberDomain` folded ONLY into the two numeric arms. `null`/`bool` and a domain-bearing
+string/bytes bound are both structurally unrepresentable. `boundConstraint` becomes
+`(bound : OrderedPrim) (kind : BoundKind)`. Deviation from the plan's 3-arm sketch
+(`number (DecimalValue) (text) (domain)`): that form is LOSSY — `formatBoundOperand`
+renders an int operand via `toString` and a float via `formatFiniteDecimal`, an observable
+distinction, so the operand's int/float identity must survive. The 4-arm mirror of Prim's
+ordered subset makes `toPrim` a faithful inverse.
+
+Two total conversions are the trust boundary: `OrderedPrim.ofPrim? : Prim → Option
+OrderedPrim` (null/bool → `none`, the single point where an operand becomes a bound) and
+`OrderedPrim.toPrim : OrderedPrim → Prim` (for comparison/rendering); plus `domain?` and
+`withDomain` for the meet-time domain narrowing (`narrowBoundDomains`).
+
+Subsumed and DELETED (the illegal states are now gone, not half-guarded): the
+`.null`/`.bool` arms of `boundKindLabel`/`boundAdmitsKind` (both retyped over
+`OrderedPrim`, four arms each); the `.null | .bool` conflict arm and `.int _ | .float _ _`
+domain-sentinel handling in `meetBoundPrim`/`meetKindWithBound`; the `.prim (.null)` /
+`.prim (.bool _) ⇒ .bottom` arms in `evalBoundOp` and the mirror arms in
+`parseBoundOperand` (both collapse to one `ofPrim?` call — null/bool → `.bottom` at eval,
+deferred `.unary` at parse, exactly as before). The old `domain == domain` join test
+becomes `domain? == domain?`.
+
+Sites: ~2 construction (`evalBoundOp`, `parseBoundOperand`, both via `ofPrim?`) + ~40
+consumption across `Lattice.lean` (meet/join dispatch, `meetBoundPrim`, `meetRangePrim`,
+`tightenSameSide`, `rangeFeasible`, `meetTwoBounds`, `meetKindWithBound`, `conjMemberKey`/
+`conjMemberLe`), `Order.lean` (3 subsume arms), `Format.lean`, `Manifest.lean`, and the
+arity-only catch-alls in `Eval`/`EvalBase`/`Resolve`. ~70 test literals rewritten (int
+operand carries `.int N .number`; float via new `mkFloatBound`; string/bytes drop the
+sentinel).
+
+Behavior-preserving — the WHOLE suite green with ZERO flipped theorems/fixtures IS the
+proof (every bound test: numeric/string/bytes bounds, cross-type ⊥, ranges, join-widening,
+`int &`/`float &` narrowing, BINARY-CMP-BYTES). No `| _ =>` in any `Value`-producing match;
+`OrderedPrim`-producing helpers fully enumerated; no `partial def` added. Unrepresentability
+pinned by 4 new `native_decide` theorems in `BoundTests.lean` (`ofPrim?` rejects null/bool,
+lifts ordered prims with `toPrim` inverse, string/bytes carry no domain, `evalBoundOp`
+bottoms a non-ordered operand). `./scripts/check.sh` fully green. No `cue` divergence, no
+spec gap (pure internal type-tightening).
