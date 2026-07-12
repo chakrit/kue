@@ -22570,3 +22570,30 @@ direction (b), design-out-the-class, not the two-predicate patch.
   anchored in that file's coverage tripwire. Bug2xTests 1815→1461, ClosednessTests 346→701.
 
 Full `check.sh` GREEN; zero L-series / Bug2 / closedness flips.
+
+---
+
+## Audit Slice: Phase B (3rd-cycle infra rotation + module graph + backlog), 2026-07-13
+
+Phase B audit following Phase A's milestone-reconfirmation. Primary task (DEF-CLOSEDNESS-NESTED-CONJ-ARM
+fix) is the preceding slice; this entry records the audit passes.
+
+- **INFRA/GATES rotation (3rd cycle, DUE) — NO rot.** `check.sh` aggregator globs every
+  `scripts/check-*.sh` and shellchecks all 9 `scripts/*.sh` + `./lake`/`./lean` (verified clean). Every
+  gate's cheap greps re-tested against crafted positives and still match: comment-history denylist,
+  test-health block-comment reject + 1800 cap, wild-fixture `.known-red` three-state (enforce /
+  skip-quarantined / graduation-hard-fail), export/module/realworld discovery globs. No silent-rot gate.
+- **Module graph — clean DAG, NO dead code.** All closedness helpers live (incl. the four new
+  normal-form functions). `EvalBase.lean` at 2909 lines (PB-EVALBASE-SPLIT, MED nav-debt, unchanged).
+- **Durable ruling — closedness predicates stay distinct.** `isUnionableDefValue` and `disjArmClass`
+  answer different questions and agree on the struct case by construction (coarsening, not the
+  drift-prone duplication the nested-conj fix killed); folding would inject builtin evaluation into a
+  pure-syntactic test. Recorded in plan.md so a future audit doesn't re-propose the fold.
+- **Inline cleanups landed this audit:** PB-CHECK-COMMENT (`scripts/check.sh` stale cert-manager-canary
+  comment → the actual `check-ghcr-live.lean` live canary); PB-PERFGUIDE-STALE (`docs/guides/
+  kue-performance.md`: the two resolved bullets — O(N²) memo-hash FIX, linear-regex — moved out of
+  "Known limitations (current)" into a "Resolved perf work" section).
+- **Ranked HEAD:** the autonomously-actionable LOW correctness cluster (PATTERN-LABEL-ALIAS-SCALAR /
+  UNREFERENCED-ALIAS / LIST-ISSORTED), then PB-EVALBASE-SPLIT (a) as nav-debt filler; float
+  feature-completion leads on completeness but is chakrit-gated. Milestone "all soundness leaks closed"
+  RE-REACHABLE, not claimed — next audit's adversarial sweep confirms.

@@ -3,20 +3,18 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **Phase A audit (`8090707..b6c2d6f`) — MILESTONE "all soundness leaks closed" NOT substantiated
-(2026-07-13).** Adversarial per-surface probing found ONE residual HIGH soundness leak by a NEW mechanism
-(nested `.conj` conjunct — NOT a disjunction-arm shape, NOT a list-carrier). **DEF-CLOSEDNESS-NESTED-CONJ-ARM**
-(filed, plan.md top of ranked backlog): a PARENTHESIZED nested `.conj`-of-struct-literals conjunct in a closed
-def defeats the own-literal-union close → def stays OPEN → use-site extra leaks. `#X: {a:1} & ({b:2} & {d:4})`
-· `#X & {z:9}` ⇒ kue `{a,b,d,z}` (`kue export` emits `z:9`), cue ⊥. FLAT `{a:1} & {b:2} & {d:4}` closes
-correctly. Root: `isUnionableDefValue` (`Kue/EvalBase.lean:1814`) accepts `.struct`/`.structComp` but NOT
-`.conj`; disjunction face: `disjArmClass (.conj _) = .blocking` poisons innocent sibling arms too. `disjArmClass`
-completeness itself VERIFIED sound (exhaustive match, every arm classified right); the gap is the surrounding
-union/distribute gate not recursing into `.conj`. Fix direction: FLATTEN nested `.conj` in the def body before
-the gate (deletes the special case, fixes both faces). Red seed COMMITTED (quarantined):
-`testdata/wild/def-closedness-nested-conj-arm/`. Last-audit reconciliation clean (4 HIGH fixes landed, seeds
-graduated). **NEXT: DEF-CLOSEDNESS-NESTED-CONJ-ARM fix-slice (RED→GREEN both faces) → Phase B audit → LOW gaps.**
-Alpha HELD.
+HEAD: **DEF-CLOSEDNESS-NESTED-CONJ-ARM ✅ LANDED (`345f08b`, 2026-07-13, Phase B).** The sole residual
+HIGH soundness leak Phase A found is closed — a def-body NORMAL FORM (`normalizeDefBodyConjunct`,
+`Kue/EvalBase.lean`) applied BEFORE the closedness gate: a pure-struct-literal `.conj` conjunct is
+SPLICED into its members, a `.disj` conjunct's pure-struct `.conj` arms are MERGED (normalized-to-closed
+then `mergeDefinitionDecls`). Both faces green (conjunct + disjunction-arm wild seeds); neither
+`isUnionableDefValue` nor `disjArmClass` gained a `.conj` case — special case deleted, not duplicated.
+Bounded: def bodies + pure-struct `.conj`s only; refs/scalars/self-refs/mutual-cycles/mixed conjs untouched.
+Test-org: DEF-FLATTEN-CLOSEDNESS + this section moved Bug2xTests→ClosednessTests (Bug2xTests was over the
+1800-line cap). `check.sh` GREEN, zero L-series/Bug2/closedness flips. Pushed.
+**Phase B audit (this session) IN PROGRESS:** TASK 1 (above) done; TASK 2 (infra/gates rotation, 3rd cycle)
++ TASK 3 (module graph + backlog) running. **With this leak closed, the "all soundness leaks closed"
+milestone is RE-REACHABLE — next audit's adversarial sweep confirms; NOT claimed here.** Alpha HELD.
 
 Prior HEAD: **LIST-BUILTIN-RESIDUALS — the last two known HIGH list-builtin soundness leaks CLOSED + the effectful
 `EvalM` list path SWEPT for carrier-completeness (LANDED 2026-07-13).** (1) **LIST-SORT-EMBEDDED-CARRIER** (5th

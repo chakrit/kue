@@ -14,7 +14,8 @@ export PATH="${repo_root}:${PATH}"
 # gate (glob-discovered so a new gate needs zero wiring here), then `shellcheck scripts/*.sh`.
 # Collects all failures instead of stopping at the first, and prints a PASS/FAIL summary.
 # Strictly repo-local and clone-portable — no absolute paths, no external repos. The
-# cert-manager canary is deliberately NOT part of this aggregator.
+# human-gated live canary (`check-ghcr-live.lean`, needs a real registry) is deliberately NOT
+# part of this aggregator.
 main() {
   local status=0
   local failures=()

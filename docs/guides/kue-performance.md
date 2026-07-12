@@ -116,21 +116,6 @@ caching is purely a speedup — byte-identical output.
   (a non-dependent field's value is frame-id-independent under the augment). This helps defs with
   dozens of fields and a handful of `Self.<embed>` reads; on a deep config whose cost is dominated
   by broader frame-id divergence (see below) it does not move the wall-clock.
-- **Cache-key hash deepened to a bounded-depth digest — O(N²) memo lookups FIXED (item 7,
-  landed 2026-06-19).** The `EvalKey`/`SatKey` hashes used to key on `valueTag` (the top
-  constructor tag only) + `envIds.LENGTH`, so at a deep config's steady state every distinct
-  `.struct`/`.selector` value at the ceiling fuel collided into ONE hash bucket; each
-  `cache.get?` then ran structural `BEq` over the full value tree against every colliding
-  entry → O(N) per lookup, O(N²) total. The fix swaps in `valueDigest DIGEST_DEPTH` (depth 3)
-  — a TOTAL, fuel-free, bounded-depth structural digest mixing each constructor's tag with its
-  field labels + child digests — and hashes the FULL `envIds` (not `.length`). It is provably
-  sound by construction: a hash only selects a bucket, `BEq` (UNCHANGED) is the sole
-  equality arbiter, so a lossy digest can only cause a recompute-miss or collide-scan
-  (slower), never a wrong value — proven by zero fixture byte-drift. On a deep real config the
-  measured effect is roughly a 4× speedup. A bucket-distribution `native_decide` pin witnesses
-  1000 distinct k8s-shaped structs → 1000 distinct buckets at depth 3 (vs 1 under the old
-  `valueTag` hash). `FrameKey`'s hash was profiled with the same deepening and showed ZERO
-  change (frame sharing + `parentIds` already discriminate the table), so it was left shallow.
 - **A large real config's residual wall (~tens of seconds) is the per-eval-constant
   frontier, not fuel and not a subtree hot spot.** Profiling (instrumented cache probes,
   `KUE_PROFILE=1`) characterizes it:
@@ -154,17 +139,32 @@ caching is purely a speedup — byte-identical output.
     empty-`cache`-skip above.
   - **The only lever left is the eval COUNT** — flatten / shorten chains (the expensive-patterns
     table above). The floor is the genuine meet work, not recoverable cache/hash overhead.
-- **Regex matching is linear (RX-1a/b LANDED 2026-06-19).** The `=~`/`regexp.Match` engine
-  is now a Thompson-NFA + Pike-VM in `Kue/Regex.lean` (replaced the old backtracking
-  fuel-matcher, which is deleted): LINEAR in `input.length × NFA.size`, NO backtracking
-  blowup, NO fuel-out-reads-as-non-match soundness hole — the ε-closure dedups by pc over a
-  fixed-size program (fuel = `insts.size`, exact, never spuriously reached). Deeply-nested
-  quantifiers (`(a*)*`) terminate and match correctly; there is no regex perf cliff. Remaining
-  regex work is feature coverage — RX-1c submatch/`ReplaceAll`, RX-2a in-class perl negation —
-  not perf.
 - **Field ordering** in output may differ from `cue` (`cue` orders `ref & {own}` own-fields
   first; Kue is left-struct first). This is a byte-diffing concern, not a correctness or
   speed one (YAML maps are unordered).
+
+## Resolved perf work (2026-06-19)
+
+- **Cache-key hash deepened to a bounded-depth digest — O(N²) memo lookups.** The
+  `EvalKey`/`SatKey` hashes keyed on `valueTag` (the top constructor tag only) + `envIds.LENGTH`,
+  so at a deep config's steady state every distinct `.struct`/`.selector` value at the ceiling
+  fuel collided into ONE hash bucket; each `cache.get?` then ran structural `BEq` over the full
+  value tree against every colliding entry → O(N) per lookup, O(N²) total. The fix swaps in
+  `valueDigest DIGEST_DEPTH` (depth 3) — a TOTAL, fuel-free, bounded-depth structural digest
+  mixing each constructor's tag with its field labels + child digests — and hashes the FULL
+  `envIds` (not `.length`). Sound by construction: a hash only selects a bucket, `BEq` is the
+  sole equality arbiter, so a lossy digest can only cause a recompute-miss or collide-scan
+  (slower), never a wrong value — proven by zero fixture byte-drift. Roughly a 4× speedup on a
+  deep real config. A bucket-distribution `native_decide` pin witnesses 1000 distinct k8s-shaped
+  structs → 1000 distinct buckets at depth 3 (vs 1 under the old `valueTag` hash). `FrameKey`'s
+  hash showed ZERO change under the same deepening (frame sharing + `parentIds` already
+  discriminate the table), so it stays shallow.
+- **Regex matching is linear (RX-1a/b).** The `=~`/`regexp.Match` engine is a Thompson-NFA +
+  Pike-VM in `Kue/Regex.lean`: LINEAR in `input.length × NFA.size`, NO backtracking blowup, NO
+  fuel-out-reads-as-non-match soundness hole — the ε-closure dedups by pc over a fixed-size
+  program (fuel = `insts.size`, exact, never spuriously reached). Deeply-nested quantifiers
+  (`(a*)*`) terminate and match correctly; there is no regex perf cliff. Remaining regex work is
+  feature coverage — RX-1c submatch/`ReplaceAll`, RX-2a in-class perl negation — not perf.
 
 ## Reporting a slow case
 

@@ -203,6 +203,35 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**Phase B audit reconciliation (2026-07-13, post-`345f08b`; 3rd-cycle INFRA/GATES rotation + module
+graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit outcomes:
+- **Gates/tooling — NO rot.** `check.sh` glob complete, shellcheck reaches all 9 `scripts/*.sh` +
+  `./lake`/`./lean`. Every gate's greps re-verified against crafted positives: comment-history denylist
+  (bans `formerly`/`before the fix`/`after the fix`/`the old` — deliberately NOT `no longer`),
+  test-health block-comment reject + 1800 cap, wild-fixture `.known-red` THREE-STATE (enforce /
+  skip-quarantined / graduation-hard-fail) all live. PB-VERSION-CONST reconfirmed OPEN (LOW, cosmetic
+  self-id); PB-CHECK-COMMENT + PB-PERFGUIDE-STALE fixed inline this audit.
+- **Module graph — clean DAG, NO dead code.** All 12 closedness helpers (incl. the new
+  `flattenConjMembers`/`pureStructConjMembers`/`mergeDefBodyDisjArm`/`normalizeDefBodyConjunct`) have
+  live callers. `EvalBase.lean` grew to **2909** (PB-EVALBASE-SPLIT unchanged: MED nav-debt, no
+  core-module size gate; carve (a) `EvalScan.lean` or (c) closedness-cluster both clean seams).
+- **Closedness architecture — DO NOT FOLD `isUnionableDefValue` into `disjArmClass` (durable ruling).**
+  They answer DIFFERENT questions (coarse "struct-literal?" vs the 4-way distribution class) and agree
+  on the struct case by construction — a coarsening, NOT the drift-prone duplication the nested-conj fix
+  killed (that was a predicate and classifier that could *disagree*). Folding would inject
+  `disjArmClass`'s `.builtinCall`→`evalBuiltinCall` evaluation into the hot pure-syntactic conjunct test
+  — a regression. Optional VERY-LOW hardening: a `native_decide` pin
+  `isUnionableDefValue v = (disjArmClass v == .fieldCarryingClosed)` guards struct-constructor drift
+  without a signature change. Do not prioritize.
+- **Ranked HEAD (autonomously-actionable):** the LOW correctness-gap cluster —
+  **PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS (graduates its `.known-red` seed) / LIST-ISSORTED** —
+  cheap, parallel-safe, closes real spec-conformance gaps; then PB-EVALBASE-SPLIT (carve (a)) as
+  nav-debt filler. Float feature-completion (F1→F3→F5) leads on completeness but is chakrit-GATED.
+  **Milestone "all soundness leaks closed" is RE-REACHABLE (this leak was the sole Phase-A residual);
+  NOT claimed here — next audit's adversarial sweep confirms.** Test health: BuiltinTests (1759) nearest
+  the 1800 cap (PB-TESTORG-4); two `.known-red` seeds remain (`unreferenced-value-alias`,
+  `byte-literal-interpolation`).
+
 **DEF-CLOSEDNESS-NESTED-CONJ-ARM (HIGH soundness — SILENT closedness leak / over-acceptance; NEW,
 2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). ✅ LANDED (2026-07-13, Phase B — normal-form
 fix `normalizeDefBodyConjunct`).** Both faces closed by a def-body NORMAL FORM applied BEFORE the
@@ -1953,9 +1982,9 @@ autonomous alpha cut; no stale step. shellcheck covers all 9 `scripts/*.sh`.
   self-reports a version decoupled from the datestamped release tag (formula at
   `0.1.0-alpha.YYYYMMDD.N`). Not a release-script failure. Fix: have `release.sh` inject the version
   into the constant (or derive it) so the binary can self-identify its release.
-- **PB-CHECK-COMMENT (COSMETIC). OPEN.** `scripts/check.sh:17` comment still references the
-  "cert-manager canary" post-DOCS-CLEANUP. The comment is accurate (about the correctly-excluded
-  LIVE canary, not the gated sanitized `realworld/cert-manager` fixture) but confusing; reword.
+- **PB-CHECK-COMMENT (COSMETIC). ✅ RESOLVED (2026-07-13 Phase B audit).** `scripts/check.sh` comment
+  reworded from the post-DOCS-CLEANUP-stale "cert-manager canary" to the actual excluded live canary
+  (`check-ghcr-live.lean`, needs a real registry).
 
 **Module graph: clean DAG, no cycles/inversions** (`Regex` floor → `Value` → Decimal/Normalize/… →
 Lattice → Builtin → EvalOps → EvalBase → EvalDefer → Eval → Runtime). `Builtin` does NOT import
