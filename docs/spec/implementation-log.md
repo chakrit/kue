@@ -20243,3 +20243,30 @@ defer, or deprioritize. `cue` remains a fallible reference, never the gate.
   cert-manager canary check-gate in `scripts/check-*.sh`, the prod9-sourced `testdata` fixtures,
   and any remaining prod9-gated deferrals are the mechanism-level residue of the old framing.
 - No code or test changes; `./scripts/check.sh` GREEN. Committed on `main`, not pushed.
+
+---
+
+## Completed Slice: DOCS-CLEANUP — delete stale corpus/canary refs (no negation) (chakrit, 2026-07-12)
+
+Docs-only. Supersedes the negation approach of the prior DOCS-REALIGN slice: stale/invalid
+references are DELETED so they are simply unmentioned, never negated ("X is not a measure" is
+itself clutter). Swept every `cert-manager` / `argocd` / "canary" / "corpus" / prod9-as-goal
+reference out of the LIVE docs.
+
+- Retired `docs/spec/spec-conformance-audit.md` (deleted; ~90% dead audit-history duplicating this
+  log). Its 3 residual rows (perf#7 WON'T-FIX, NESTED-DISJ-MARK, SC-3) already live in `plan.md` +
+  `cue-divergences.md`/`cue-spec-gaps.md`; `plan.md` now owns the single ranked backlog; `README.md`
+  routing repointed.
+- `plan.md` — deleted the real-app-status block; reframed the "L1–L5" section as construct-level
+  semantic fixes; swept every corpus/canary/prod9 mention (grep-clean).
+- Guides (`kue-performance`, `failure-modes`, `slice-loop`, `lean4-guide`) — genericized the anecdotes
+  and wall-clock figures, kept the technical lessons; collapsed every "no longer X" to a positive
+  current statement; the `check-realworld.sh` gate is described as an anonymous real-config regression
+  fixture (no cert-manager, no "canary").
+- Small surgical: `CLAUDE.md` (deleted the canary bullet the prior slice added), `compat-assumptions`,
+  `cue-spec-gaps`, `architecture`, `cue-divergences`.
+- Left as immutable history: `implementation-log.md` (this file), `docs/decisions/*`, dated `scratch/*`.
+- **OPEN (needs chakrit's explicit go — working test infra, not docs):** remove the
+  `check-realworld.sh` real-config gate + `testdata/realworld/cert-manager/` fixture (the last
+  cert-manager tie). Not done here; tearing out working infra needs authorization.
+- No code or test changes; `./scripts/check.sh` GREEN. Committed on `main`, not pushed.

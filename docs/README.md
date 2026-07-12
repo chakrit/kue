@@ -30,9 +30,8 @@ memoization, refactors — get none. See [`guides/slice-loop.md`](guides/slice-l
   boundaries, and near-term milestones.
 - [Compatibility Assumptions](spec/compat-assumptions.md) — assumptions and deliberately
   narrow choices made while matching CUE behavior.
-- [Plan](spec/plan.md) — live roadmap: standing capabilities and the next slices.
-- [Spec-Conformance Audit](spec/spec-conformance-audit.md) — the spec-first re-audit of
-  every `cue`-grounded behavior; owns the consolidated conformance fix backlog.
+- [Plan](spec/plan.md) — live roadmap: standing capabilities, the next slices, and the
+  authoritative spec-conformance fix backlog.
 - [Implementation Log](spec/implementation-log.md) — the full slice-by-slice record of
   completed work, retained for verification.
 - [CUE Divergences](spec/cue-divergences.md) — where `cue` disagrees with the spec and Kue

@@ -163,8 +163,7 @@ The semantic core, evaluator, manifestation, CLI, builtins (exact-decimal numeri
 [`../decisions/2026-06-22-numeric-model-exact-decimal-no-float.md`](../decisions/2026-06-22-numeric-model-exact-decimal-no-float.md)
 — Float/NaN deliberately avoided), imports/module resolution, and the OCI/registry fetch
 (B3d, live-proven against `ghcr.io`) are implemented and oracle-checked against `cue`
-v0.16.1 — see `plan.md` § Standing Capabilities. Early conformance was spot-checked against
-real-world config samples (historical, as of 2026-06-23). The **current front is
+v0.16.1 — see `plan.md` § Standing Capabilities. The **current front is
 spec-conformance and robustness across the whole language + stdlib surface** — systematic
 coverage of the spec and its edges, not any config corpus (§ Project goal, CLAUDE.md). See
 `plan.md` § Current front. Remaining

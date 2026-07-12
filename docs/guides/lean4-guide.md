@@ -287,11 +287,10 @@ A slice is not done until the single entrypoint passes:
 
 `check.sh` runs `lake build` (builds + checks every theorem), then every `check-*.sh` gate
 by glob — fixture pairs (`check-fixtures.sh`), test-file health (`check-test-health.sh`), and
-the sanitized real-app canary (`check-realworld.sh`, the in-gate cert-manager fixture) — then
-`shellcheck scripts/*.sh`. It collects all failures and prints a PASS/FAIL summary. A new
-gate needs zero wiring: drop a `scripts/check-*.sh` and the glob picks it up. The LIVE-infra
-cert-manager canary (`cd /Users/chakrit/Documents/prod9/infra && …`) is an optional attended
-spot-check, deliberately NOT in `check.sh`.
+the real-config regression fixtures (`check-realworld.sh`, self-contained under
+`testdata/realworld/`) — then `shellcheck scripts/*.sh`. It collects all failures and prints
+a PASS/FAIL summary. A new gate needs zero wiring: drop a `scripts/check-*.sh` and the glob
+picks it up.
 
 ### Oracle-checking against `cue`
 

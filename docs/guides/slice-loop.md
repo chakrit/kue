@@ -80,16 +80,10 @@ misalignments).
   `nice`. The gate scripts route `lake` through it automatically (repo root on `PATH`);
   slices must call `./lake` explicitly. Override upward on a dedicated box
   (`LEAN_NUM_THREADS=8 ./lake build`).
-- **Canary — two tiers.** The **sanitized, self-contained cert-manager fixture**
-  (`testdata/realworld/cert-manager/{cert-manager.cue,.expected}`) runs IN-GATE via
-  `scripts/check-realworld.sh` (auto-globbed by `./scripts/check.sh`) — portable, no
-  external repo, part of the standard verify. The **LIVE-infra attended canary**
-  (`( cd /Users/chakrit/Documents/prod9/infra && kue export apps/<app>.cue )`) is an
-  OPTIONAL eval-core spot-check, explicitly NOT part of `check.sh` (external repo,
-  non-portable, attended-only). When you run it: CUE module resolution is CWD-sensitive —
-  from the Kue repo root, `apps/...` 404s and the corpus looks "absent" when it is not.
-  "Not found" means wrong cwd, never a missing corpus; the corpus is READ-ONLY (never
-  write into it).
+- **Real-config regression fixture.** A sanitized, self-contained real config under
+  `testdata/realworld/…` runs IN-GATE via `scripts/check-realworld.sh` (auto-globbed by
+  `./scripts/check.sh`) — portable, no external repo, part of the standard verify. Add a new
+  such fixture whenever a real config surfaces a divergence worth pinning.
 - **Commit with an explicit pathspec — never a bare commit.** `git commit -F msg -- <files>`,
   always. A bare `git commit` (even after `git add <own paths>`) commits the WHOLE index and
   sweeps a parallel peer's already-staged changes into your commit. When fanning out parallel
@@ -103,10 +97,10 @@ misalignments).
 - **Confirm the push, don't assert it:** before reporting "pushed", check the actual
   `git push` output shows `main -> main`. A "pushed" claim without that line is unverified —
   the orchestrator re-checks HEAD==upstream regardless (see Notes).
-- **Real-app depth claims are EMPIRICAL, not design-level:** never report "one fix away" /
-  "same fix" for a real-app blocker from design analysis alone — verify by actually running
-  the canary export. An honest "one confirmed layer; unknown if more behind it" beats a
-  confident design estimate (which has been falsified by the real app, twice).
+- **Real-config depth claims are EMPIRICAL, not design-level:** never report "one fix away" /
+  "same fix" for a real-config blocker from design analysis alone — verify by actually running
+  the real end-to-end export. An honest "one confirmed layer; unknown if more behind it" beats
+  a confident design estimate (which has been falsified by the real config, twice).
 
 **The CUE spec is the authority, NOT the `cue` binary.** Kue exists because `cue` is
 frequently buggy; `cue` v0.16.1 is a *fallible reference implementation*, never the gold
@@ -126,11 +120,11 @@ non-`cue`-buggy domain like the Unicode case table — is governed by
 [the oracle-as-data-source decision](../decisions/2026-06-20-oracle-as-data-source.md); it is
 NEVER a correctness gate for CUE semantics.)
 
-**Wild-caught regressions → `testdata/wild/` fixture FIRST, then fix.** The canaries are a
-tiny sample; the moment a *real* situation surfaces a divergence outside a planned slice —
-a prod9 app export that errors or differs, a manual exploration, an orchestrator/user
+**Wild-caught regressions → `testdata/wild/` fixture FIRST, then fix.** The curated fixtures
+are a tiny sample; the moment a *real* situation surfaces a divergence outside a planned slice
+— a real config export that errors or differs, a manual exploration, an orchestrator/user
 stumble — it is captured as a regression fixture *before* any fix. This is the highest-signal
-test we get (the wild corpus the curated fixtures miss), and the rule is test-first even
+test we get (the wild cases the curated fixtures miss), and the rule is test-first even
 here: the fixture must REPRODUCE (fail) first, the fix turns it green, and it stays a
 permanent guard so the same real-world case can never silently regress.
 
@@ -140,7 +134,7 @@ permanent guard so the same real-world case can never silently regress.
   Consequence: wild fixtures are enforced ONLY by the shell gate — `lake build` never
   sees them, so a slice is not green until `check-fixtures.sh` passes too.
 - **Minimal + self-contained:** lift the offending construct OUT of any private dep — the
-  repro must need no registry/network/prod9 corpus (inline the few lines that trigger it).
+  repro must need no registry/network/external repo (inline the few lines that trigger it).
   A `<slug>.cue` (+ a tiny `cue.mod` module repro only if the bug is import/module-shaped)
   plus its expected output.
 - **Expected value is SPEC-adjudicated, never `cue`-matched.** A `bottom` or a diff vs `cue`
@@ -261,8 +255,9 @@ item was self-startable while the breadcrumb said it awaited chakrit):
 ## Blind-grind circuit breaker
 
 Each campaign names its **target metric** up front (e.g. an L-series grind = the specific
-RED seeds going green; a real-app push = the prod9 drop-in count). After **~3 consecutive
-fix-slices with ZERO movement in that metric**, a MANDATORY reassessment checkpoint fires:
+RED seeds going green; a real-config push = the count of real configs exporting correctly).
+After **~3 consecutive fix-slices with ZERO movement in that metric**, a MANDATORY
+reassessment checkpoint fires:
 re-scope, bisect from a different angle, or escalate — OR record an explicit justification
 to continue (some correct prerequisite work legitimately shows no needle movement, so this
 is a forced stop-and-think, NOT an auto-halt). Attended → escalate to chakrit; AFK → log
@@ -286,11 +281,11 @@ re-scope/continue call) and proceed only on a recorded justification.
   claim is never trusted on its word (HEAD has been caught ahead of upstream).
 - **Independently re-verify high-stakes claims — don't just trust the report.** Routine
   slice reports the orchestrator confirms with the cheap done-check; but MILESTONE-grade
-  (real-app byte/content-identical drop-in), SOUNDNESS-grade (perf-fix byte-identity, cache
-  correctness), PUSH, and RELEASE claims the orchestrator re-runs DIRECTLY — re-export the
-  canary + `jq -S` diff, re-run the build/fixture gate, re-check the published asset/formula
-  — before the claim enters the durable record. A high-stakes subagent claim is a hypothesis,
-  not a fact.
+  (real-config byte/content-identical drop-in), SOUNDNESS-grade (perf-fix byte-identity,
+  cache correctness), PUSH, and RELEASE claims the orchestrator re-runs DIRECTLY — re-export
+  the real config + `jq -S` diff, re-run the build/fixture gate, re-check the published
+  asset/formula — before the claim enters the durable record. A high-stakes subagent claim
+  is a hypothesis, not a fact.
 - No manual `/ace-save` or `/clear` between slices — the subagent boundary gives fresh
   context; the breadcrumb gives continuity.
 - **"User-gated" is a high bar — don't inherit it from audit caution.** Audit verdicts of

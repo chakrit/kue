@@ -2,21 +2,22 @@
 
 # Session resume — 2026-07-11
 
-`check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **DOCS-REALIGN — goal reframed to spec-conformance/robustness; no
-config corpus is a target, gate, floor, or priority axis (chakrit, 2026-07-12).** Reframed the
-forward-framing across CLAUDE.md (§ Project north-star; wild-fixture rule de-prod9-ified; canary
-demoted to a legacy regression fixture, not a measure), plan.md (goal statement; F2 ungated from
-"real prod9 need" → in-scope on completeness, prioritized by conformance leverage),
-architecture.md (current front = the spec/language surface, not a corpus), cue-spec-gaps.md
-(deferral justifications re-grounded on spec-murkiness, not "prod9 never hits it"). Historical
-audit records left as history. **Corpus-as-goal is dead; prod9 is at most an incidental wild-bug
-source.** FLAGGED for chakrit's separate go: removing the cert-manager canary check-gate +
-prod9-sourced fixtures (tearing out working test infra needs explicit authorization). **Next:
-chakrit's call on the canary-gate removal; otherwise resume spec-conformance/robustness work —
-the language-surface coverage the audits flagged as unmeasured (comprehensions, closedness,
-pattern constraints, structural cycles, scoping) plus the F1–F5 float residuals, prioritized by
-conformance not usage.** Prior HEAD MANIFEST-FIELDCOUNT below.
+`check.sh` GREEN. Standing keep-going loop governs. HEAD: **DOCS-CLEANUP — the docs now state a
+single goal: a correct, spec-conformant CUE implementation across the whole language + stdlib
+surface (chakrit, 2026-07-12).** CLAUDE.md § Project carries the north-star (spec-conformance is
+the goal; `cue` is a fallible reference; no config corpus is a target/gate/floor/priority). Swept
+every cert-manager / argocd / canary / prod9-as-goal reference out of the live docs — deleted
+outright, never negated: retired the ~90%-dead `spec-conformance-audit.md` (its 3 live rows are in
+plan.md, which now owns the ranked backlog); deleted plan.md's real-app-status block and reframed
+the L1–L5 section as construct-level semantic fixes; genericized the perf / failure-modes /
+slice-loop guides (kept the lessons, dropped the anecdotes); cleaned lean4-guide, compat-assumptions,
+architecture, cue-spec-gaps, cue-divergences. `implementation-log.md` + `decisions/` left as
+immutable history. **OPEN for chakrit (explicit go needed — working test infra, not docs):** remove
+the `check-realworld.sh` real-config gate + `testdata/realworld/cert-manager/` fixture, the last
+cert-manager tie. **Next: resume spec-conformance / robustness work — the language-surface coverage
+the audits flagged unmeasured (comprehensions, closedness, pattern constraints, structural cycles,
+scoping) + the F1–F5 float residuals, prioritized by conformance not usage.** Prior HEAD
+MANIFEST-FIELDCOUNT below.
 
 ## Prior HEAD — MANIFEST-FIELDCOUNT — decouple manifest fuel from sibling breadth (HIGH audit fix)
 

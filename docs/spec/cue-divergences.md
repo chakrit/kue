@@ -63,7 +63,7 @@ struct-embedding scope, `strings`/`list` builtins, decimal-lift refactor) oracle
 clean against `cue` v0.16.1; the `export -e` entry was the first deliberate disagreement,
 surfaced by the `kue export -e` slice.
 
-## Resolved (no longer divergent)
+## Resolved
 
 - **`for` over a concrete non-iterable — RESOLVED (fix-slice (d), 2026-07-02).** Kue formerly
   zero-iterated a non-iterable `for` source (`for x in 5` → `[]`) where cue hard-errors

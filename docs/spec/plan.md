@@ -9,7 +9,7 @@ Status: accepted — living roadmap.
 
 > **Protocol amendments A1–A8 (keep-going critique) — APPLIED 2026-07-03.** All eight
 > ratified process amendments landed (A1 retraction duty, A2 strict-xfail quarantine, A3
-> `check.sh` + sanitized canary, A4 audit-the-last-audit, A5 doc precedence, A6 blind-grind
+> `check.sh` + sanitized real-world gate, A4 audit-the-last-audit, A5 doc precedence, A6 blind-grind
 > breaker, A7 infra-in-audit, A8 git-ban settings). Batch record in the implementation-log;
 > the discharged proposal note carries an APPLIED retraction stamp. Not re-open.
 
@@ -50,13 +50,11 @@ target is the language as specified, not bug-for-bug parity. See
   general, no app-keyed code). If a real-world input ever surfaces a bug, it enters as a
   spec-adjudicated `wild/` fixture — an incidental bug source, never a target to please.
 
-## Prod9 eval-conformance campaign — L1–L5 COMPLETE (2026-07-03)
+## List-embed, default-disjunction & def-closedness fixes (L1–L5) — COMPLETE (2026-07-03)
 
-The `apps/{lem,n8n,x9,typesense}.cue` bottom-out (via `prodigy9.co/defs@v0.3.19`
-`packs.#WebApp` / `defaults.#Basics`) was peeled layer by layer. Each blocking construct was
-lifted OUT of the private dep into a self-contained `testdata/wild/` fixture (reproduced RED
-first), fixed with a GENERAL, spec-grounded change (never per-app narrowing), and left
-gate-enforced green. All layers resolved:
+A cluster of embedded-disjunction / list-carrier / def-closedness defects, each captured as a
+self-contained `testdata/wild/` fixture (reproduced RED first) and fixed with a GENERAL,
+spec-grounded change, left gate-enforced green. All resolved:
 
 - **L1 — Self.#hidden in list embeddings** (`self-hidden-in-list-embed`). The embedding-`Self`
   two-pass scanned only static fields; now re-evaluates embeddings against the augmented frame
@@ -85,21 +83,16 @@ gate-enforced green. All layers resolved:
   Dropping the `.defOpenViaTail → false` special case (open now contributes `openness.isOpen`;
   closedness still ANDs) fixed it without under-rejecting a genuinely-closed sibling.
 
-**Durable ruling carried out of the campaign:** every fix was general and oracle-pinned at
-single-package granularity — none keyed to an app (the Bug2-5..2-14c discipline). Full
-bisection trails + adversarial pins live in `implementation-log.md` + git; the soundness
-argument lives at each wild fixture. A full end-to-end re-export of the four apps is the
-outstanding EMPIRICAL check (the captured blocking constructs are all fixed; whole-app export
-was not re-run this campaign — do NOT claim the apps export clean without running the canary).
+**Durable ruling:** every fix was general and oracle-pinned at single-package granularity —
+none keyed to a specific config (the Bug2-5..2-14c discipline). Full bisection trails +
+adversarial pins live in `implementation-log.md` + git; the soundness argument lives at each
+wild fixture.
 
 ## Standing Capabilities (what Kue does now)
 
 The semantic core is broad and oracle-checked against `cue` v0.16.1
-(`/Users/chakrit/go/bin/cue`). Scope qualifier: drop-in status was demonstrated on a
-2-app sample (argocd + cert-manager) as of 2026-06-23; argocd has since been removed from
-the infra checkout (its claim is historical, not re-verifiable), and the broader prod9
-corpus is the open Current front. Currently working, cue-exact modulo the tracked
-field-ordering byte-parity gap (#3):
+(`/Users/chakrit/go/bin/cue`); the current front is spec/stdlib-surface coverage. Currently
+working, cue-exact modulo the tracked field-ordering byte-parity gap (#3):
 
 - **Evaluator + lattice.** Total `meet` /`join` over the full `Value` domain; primitives,
   kinds, bounds, regex, struct/list shapes. `Field` is a `structure`. Disjunctions with
@@ -167,29 +160,18 @@ field-ordering byte-parity gap (#3):
 - **CLI.** `kue eval`, `kue export [--out yaml|json] [file|dir]` (stdin or arg), `kue
   version`, clean missing-file diagnostics + exit codes.
 
-**Real-app status** (prod9 infra, read-only oracle) — drop-in status was demonstrated on
-the {argocd, cert-manager} 2-app sample as of 2026-06-23; the broader corpus (lem, n8n,
-x9, typesense) is the open eval-conformance front above:
-- **cert-manager: content-identical drop-in, ~11.7s — the ONLY live canary.** Exports
-  correctly at production fuel, byte-identical to `cue` modulo field-order #3. Runs IN-GATE
-  via `scripts/check-realworld.sh` (sanitized, self-contained fixture).
-- **argocd: content-identical drop-in, ~50.3s (2026-06-23) — HISTORICAL.** Exported
-  content-identical (jq -S diff = 0) before being REMOVED from the infra checkout; the claim
-  is not re-verifiable and stands as the record of the Bug2-5..2-14c chain's outcome.
-
-The argocd milestone closed a 10-fix narrowing/close-once chain (**Bug2-5 → Bug2-14c**,
-2026-06-22..23): definition multi-declaration close-once across reference / embed /
-cross-package boundaries, use-site narrowing delivery to deferred def interiors,
-unset-optional selection, and the `#Mixin` structural-disjunction let-local narrowing
-(Bug2-14b/c). The blow-by-blow is HISTORY (`implementation-log.md`, `spec-conformance-audit.md`,
-`git log`). Durable rulings that survived the chain are in Resolved/ruled-out below.
+A large real config exports content-identical at production fuel (~11.7s), byte-identical to
+`cue` modulo field-order #3, and runs IN-GATE via `scripts/check-realworld.sh` (sanitized,
+self-contained fixture). The Bug2-5 → Bug2-14c chain (2026-06-22..23) that hardened this path
+— definition multi-declaration close-once across reference / embed / cross-package boundaries,
+use-site narrowing delivery to deferred def interiors, unset-optional selection, and the
+structural-disjunction let-local narrowing (Bug2-14b/c) — is HISTORY (`implementation-log.md`,
+`git log`). Durable rulings that survived it are in Resolved/ruled-out below.
 
 ## Live Backlog (open work, ranked)
 
-Correctness gates real-app adoption; cleanups are parallel-safe filler. The
-**spec-conformance fixes** are owned by
-[`spec-conformance-audit.md`](spec-conformance-audit.md) § Genuinely-open ranked backlog (the
-authoritative ranked list — do NOT duplicate it here). Everything spec-conformance-HIGH is
+Correctness gates adoption; cleanups are parallel-safe filler. This plan owns the single
+authoritative **spec-conformance fixes** ranked backlog (below). Everything spec-conformance-HIGH is
 DONE (the closedness family incl. SC-1b/1e + EMBED-CLOSE-1, the MEET-RESID-1/A#6 family, the
 dyn-field family, D-area, regex, BI-1/BI-2, E#4, F-1/2/3, SC-4, Bug2-12 MUTUAL, EvalOps).
 **NESTED-DISJ-MARK is CLOSED (2026-07-05): Kue was already SPEC-CORRECT; `cue` is the buggy
@@ -203,11 +185,11 @@ designed 3rd-`Mark`-state fix is WITHDRAWN (it would have imported `cue`'s bug).
 VALUE-level divergences.** **SC-3** is a display-only spec-gap (multi-arm-default display
 divergence; a 2026-07-04 AFK sweep of the whole disjunction/default area confirmed ZERO export
 divergence and recorded the all-default `*1 | *2` display as an SC-3 sub-case — guards
-`EvalTests` `disj_meet_*`). Full records: `spec-conformance-audit.md` + `cue-spec-gaps.md`.
+`EvalTests` `disj_meet_*`). Full records: `cue-spec-gaps.md`.
 
 **perf #7 frame-sharing across env-DEPENDENT evals — WON'T-FIX (2026-06-23,
-measurement-driven).** A zero-risk content-addressed shadow measured the share ceiling:
-cert-manager 0.045%, argocd 0.059%. The ~175× re-eval is real but NOT content-redundant (the
+measurement-driven).** A zero-risk content-addressed shadow measured the share ceiling at
+0.045% and 0.059% across two large real configs. The ~175× re-eval is real but NOT content-redundant (the
 same shape is reached under genuinely-different observable bindings), so no sound frame-sharing
 reclaims it — the residual wall is the irreducible cost of distinct content. Full data +
 rejection argument: `kue-performance.md` + implementation-log.
@@ -357,7 +339,7 @@ enforcement), surfaced by slice D's separator work, is queued below.
   empty forms unchanged. Wild `testdata/wild/list-same-line-no-comma`; `ParseTests` LIST-SEP block.
 
 - **STDLIB-PATH — `path` builtin package. ✅ LANDED (2026-07-11).** Highest-usage unimplemented
-  stdlib package (11 hits in prod9 configs). Algorithms in `Kue/Path.lean`; dispatch via a new
+  stdlib package (11 hits in real configs). Algorithms in `Kue/Path.lean`; dispatch via a new
   `.path` `BuiltinFamily` arm (`evalPathBuiltin` in `Builtin.lean`). OS-parameterized: the three
   string constants `path.Unix`/`Windows`/`Plan9` (`= "unix"`/`"windows"`/`"plan9"`, resolved as
   `stdlibPackageValue?` constants; there is NO `path.OS` field — the cue package exposes only the
@@ -413,7 +395,7 @@ enforcement), surfaced by slice D's separator work, is queued below.
   `testdata/export/net_basic.{cue,json}`.
 
 - **STDLIB-TEXTTEMPLATE-T1 — `text/template` builtin package (minimal green core + escapers).
-  ✅ LANDED (2026-07-11).** Used by prod9 `#Template` filters (`template.Execute`). cue v0.16.1
+  ✅ LANDED (2026-07-11).** Used by real `#Template` filters (`template.Execute`). cue v0.16.1
   exposes EXACTLY three callable leaves — `Execute`/`HTMLEscape`/`JSEscape` (all → string); every
   other name is a non-function `_|_`. New leaf module `Kue/TextTemplate.lean` (`import Kue.Value`
   only): a total, fuel-bounded lexer + parse-tree + tree-walk evaluator over its own
@@ -428,7 +410,7 @@ enforcement), surfaced by slice D's separator work, is queued below.
   builtin FUNCS/pipelines/variables/`printf`/`define` (⇒ T2/T4), `JSEscape` of a non-ASCII string
   (`unicode.IsPrint` table, same wall as `strconv.Quote`); malformed template / field-on-scalar ⇒
   bottom, nonexistent leaf ⇒ bare bottom. Verified byte-identical to cue v0.16.1 (35-case
-  differential incl. the real prod9 `Execute("Hello {{ .name }}", {name:"World"})`). Spec-gap
+  differential incl. a real `Execute("Hello {{ .name }}", {name:"World"})`). Spec-gap
   recorded (STDLIB-TEXTTEMPLATE-T1). `Kue/Tests/TextTemplateTests.lean` (60+ `native_decide`) +
   `testdata/export/text_template_basic.{cue,json}`. **Remaining roadmap:** T2 = builtin FUNC +
   pipeline + variable layer (additive; parser already isolates them as `.unsupported`); T3 = float
@@ -573,7 +555,7 @@ folding four Phase-B findings.
    parse→eval seams (`parseDocument`, `parseDocumentFile`), AFTER `checkLetFieldShadow` reads the
    true quoting. Derived `BEq`/`DecidableEq` then see a uniform `false` and stay consistent (no
    custom instance). Seed graduated; dedup + nested-list + necessary-quoting fixtures + 4
-   `native_decide` theorems added; all 24 `noshadow_*` theorems intact; cert-manager canary empty.
+   `native_decide` theorems added; all 24 `noshadow_*` theorems intact; real-world gate empty.
 
    **Split-out (the `==` symptom was NOT this bug):** `({x:1}) == ({"x":1})` still errors
    `incomplete value` — filed as **AUDIT-STRUCT-EQ** below. `evalEq` DEFERS all non-`.prim`
@@ -609,7 +591,7 @@ folding four Phase-B findings.
      primitives reuse the decimal-aware leaf equality; cross-shape → `false`. `evalNe`/`.ne` inherit
      the negation. Seed `struct-equality-quoted-labels-defers` graduated; 5 export fixtures +
      `struct-equality-incomplete-defers` wild guard + 14 `native_decide` theorems; gate green;
-     cert-manager canary empty. Probe-matrix matches cue v0.16.1 on the tested cases (reordered/
+     real-world gate empty. Probe-matrix matches cue v0.16.1 on the tested cases (reordered/
      quoted/hidden-ignored/nested/open-tail/cross-shape/lists/scalar `1==1.0`) — but the "matches
      EXACTLY" claim was overstated: the 2026-07-04 Phase A audit found the matrix MISSED int-vs-float
      leaves inside containers (`[1.0]==[1]`, `{a:1.0}=={a:1}` → kue `true`, cue `false`). Filed as
@@ -629,7 +611,7 @@ folding four Phase-B findings.
      guarded: differing value / label-set / openness / field-class / list-element-order all stay
      distinct. 17 `native_decide` theorems (`LatticeTests` `structeq_*`) + `structeq_disj_reorder`
      export fixture (reordered/three-way/nested, kue == cue). `./scripts/check.sh` GREEN;
-     cert-manager canary in-gate GREEN. The reordered-dedup divergence is REMOVED from
+     real-world gate in-gate GREEN. The reordered-dedup divergence is REMOVED from
      `cue-divergences.md` (kue now agrees with cue and spec). **AUDIT-STRUCT-EQ is fully CLOSED.**
 
 0c. **ARCH-QUOTED-STRIP — ✅ DONE (2026-07-05, Option B).** `Field.quoted` was parse provenance on
@@ -655,7 +637,7 @@ folding four Phase-B findings.
    which was that decision's actual concern — so it supersedes cleanly. TDD red→green demonstrated
    (payload-respecting `BEq Quoted` ⇒ the `quoted_inert_*` pins + `ParseTests` dedup pins go RED; the
    digest-consistency pin stays green, proving BEq was the sole leak). 6 new `native_decide` theorems
-   (`LatticeTests` `quoted_inert_*`); `./scripts/check.sh` GREEN; cert-manager canary byte-identical.
+   (`LatticeTests` `quoted_inert_*`); `./scripts/check.sh` GREEN; real-world gate byte-identical.
 
 0d. **STRUCT-EQ-LEAF-TYPESENSE — ✅ RESOLVED (2026-07-04 Phase B, kue correct / cue buggy).**
    Adjudicated against the CUE spec: **value-based numeric equality applies recursively inside
@@ -680,7 +662,7 @@ folding four Phase-B findings.
    fallback in `primsUnifyEqual` is ERASED (the float arm is now a total `decimalEqValues` on the two
    stored values). `mathAbs`/`mathRound` also drop their per-call `parseDecimalText`. Behavior-
    preserving by construction: `value` is a deterministic function of `text`, so derived `BEq` on
-   `Prim.float` still reduces to text-equality (fixtures + cert-manager canary byte-identical). 5 new
+   `Prim.float` still reduces to text-equality (fixtures + real-world gate byte-identical). 5 new
    `native_decide` theorems in `FloatTests.lean` pin the invariants (stored-decimal exactness/totality,
    by-value unify, verbatim text round-trip incl. trailing-zero/scientific, BEq≡text, bound edges).
    Original spec retained for provenance: `Prim.float` carried the raw literal `String` (`Kue/Value.lean:19`), so every
@@ -799,7 +781,7 @@ folding four Phase-B findings.
   silently swallowed. Byte-identical behavior (all swallowed ctors were pass-through under the
   catch-all and remain so; `closure` stays pass-through — it owns its `capturedEnv`, not the
   enclosing `scopes`; `embeddedList`/`embeddedScalar` are eval-only, never present at the two
-  pre-eval call sites). No latent bug surfaced. cert-manager canary EMPTY; `check.sh` green.
+  pre-eval call sites). No latent bug surfaced. real-world gate EMPTY; `check.sh` green.
 - **UNUSED-IMPORT-BINDNAME / AUD-B6 (MEDIUM — latent false-positive; filed by the `0427bf1..HEAD`
   Phase A audit) — DONE 2026-07-06.** RETRACTION: this entry's original diagnosis assumed `cue`
   ACCEPTS a bare `import ".../x/foo"` whose dir declares `package bar` (used as `bar.Field`) and
@@ -847,9 +829,9 @@ theorems: `ComprehensionTests` `listcomp_for_kv_skips_nonregular`/`structcomp_fo
   expected). NOT a cue-divergence (cue is spec-correct here); a plain kue completeness bug.
 - **Embed/comprehension field ORDER — already-ratified spec gap, NOT re-filed.** `{ {a:1}, b:2 }`
   → kue `{b,a}` (declaration order, embeddings after regular fields), cue `{a,b}`. This is
-  "Field order #3" (spec-conformance-audit § RATIFIED): spec declares structs unordered, cue's
+  "Field order #3" (RATIFIED): spec declares structs unordered, cue's
   order is "an undocumented internal-graph artifact"; parity DECLINED, Kue keeps source order.
-  jq `-S` canary is order-insensitive. Recognized + skipped per probe instructions.
+  the jq `-S` export gate is order-insensitive. Recognized + skipped per probe instructions.
 
 ### NUMERIC/BUILTIN CONFORMANCE PROBE (2026-07-04) — one bug fixed, follow-ups filed
 
@@ -911,9 +893,9 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   message text differs): all negative/oob/empty-list arg errors on `list.Take`/`Slice`/`Repeat`/
   `Range(zerostep)`/`Min`/`Avg`, `strings.Repeat(neg)`. **cue-non-functions confirmed** (kue
   bottom is correct — these are NOT functions in cue v0.16.1): `strings.Title`/`PadLeft`/`PadRight`,
-  `math.GreatestCommonDivisor`, `math.MaxInt64` (undefined field). Canary EMPTY.
+  `math.GreatestCommonDivisor`, `math.MaxInt64` (undefined field). Real-world gate EMPTY.
 - **BI-3-RESIDUAL (bounded subset DONE 2026-07-04; validators + byte-repr still FILED).**
-  **Registered & implemented this slice** (kue == cue v0.16.1 on the agreeing corpus): `math.Mod`
+  **Registered & implemented this slice** (kue == cue v0.16.1 on the agreeing cases): `math.Mod`
   (Go float-remainder, sign of dividend, exact-decimal `x − trunc(x/y)·y`; `Mod(x,0)` ⇒ bottom;
   DIVERGES from cue's float64 on non-float64-exact remainders — `Mod(5.5,2.1)`=`1.3` vs cue
   `1.2999…998`, recorded in `cue-divergences.md`), `math.Signbit` (true iff `numerator<0`;
@@ -965,7 +947,7 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   (omitted low = `0`, omitted high = `len(base)`). Semantics inherited from the existing
   `listSlice` + builtin-defer machinery: list-only operand, half-open 0-based; oob-high /
   negative / `lo>hi` → bottom; string operand → bottom; incomplete bound → residual defer.
-  kue == cue v0.16.1 across the matrix (canary empty). Fixture `list_slice` + 14
+  kue == cue v0.16.1 across the matrix (real-world gate empty). Fixture `list_slice` + 14
   `native_decide` (`SliceTests.lean`). Follow-up: BYTES-SLICE-MISSING (below).
 - **BYTES-SLICE-MISSING (feature gap; FILE, not a bug — DEPENDENT of BYTE-ARRAY-REPR rank 0f; repr
   prerequisite MET 2026-07-05, impl still open — the `Array UInt8` carrier makes the slice a clean
@@ -984,7 +966,7 @@ bounds (`>=0 & <=10 & 5`, `>3 & int`, conflicting → bottom, `>=1.5 & int`), `m
   operand to `bool|string|bytes|number`. Fix: `classifyInterpolationPart` (total, all-ctor
   enumeration, mirrors `classifyDynLabel`) + `combineInterpVerdict` fold in `EvalBase.lean`, new
   `BottomReason.nonInterpolatable`. Concrete scalars still render; UNRESOLVED operands (ref/kind/
-  bound/disj) still DEFER (no false errors — cert-manager canary EMPTY). Fixture
+  bound/disj) still DEFER (no false errors — real-world gate EMPTY). Fixture
   `numeric/interpolation_type_error` + 8 `native_decide` (`Tests.lean`).
 - **BYTE-LITERAL-LEXING (bug; escape half DONE 2026-07-04; interpolation DEFERRED).** Escape
   decoding FIXED: `decodeByteEscape` + `parseQuotedByteBody` in `Parse.lean` decode `\xNN` (hex
@@ -1108,7 +1090,7 @@ and GDA-FLOAT-RENDER have since LANDED — see their entries above.] Two LOW fin
   like a plain struct instead of over-DEFERring, matching cue's eval type-error on
   `"\({[string]:int})"`. Exhaustiveness preserved (struct covered once). Regression: `out_pattern`
   in `numeric/interpolation_type_error` fixture (`→ _|_`) + native_decide guard in `Tests.lean`
-  (pattern-struct → bottom; incomplete-scalar interp still DEFERS). cert-manager canary empty.
+  (pattern-struct → bottom; incomplete-scalar interp still DEFERS). real-world gate empty.
 - **BYTE-HIGHBYTE-NO-RED-SEED (test-debt / rule-compliance). ✅ SEEDED 2026-07-04 → GRADUATED GREEN
   2026-07-05** (BYTE-ARRAY-REPR rank 0f). Wild seed `testdata/wild/byte-literal-high-byte`
   (`a: '\xff'` → `{ "a": "/w==" }`) was RED against HEAD (kue exported `w78=`, the 2-byte UTF-8 of
@@ -1144,7 +1126,7 @@ The **2026-07-03 two-phase audit** closed CLEAN, both phases, zero fix-slices fi
 under-rejection across meet orders, 3-way conjunctions, nested, field-referenced). Phase B
 (`7487d06`, A7 infra-in-scope rotation): module graph layering/cycles clean, the
 `EvalOps → EvalBase → EvalDefer → Eval` carve matched by `architecture.md`; infra (`check.sh` /
-`./lake`+`./lean` cap / strict-xfail quarantine / `check-realworld.sh` + sanitized cert-manager)
+`./lake`+`./lean` cap / strict-xfail quarantine / `check-realworld.sh` + sanitized real-world fixture)
 all sound; one LOW hole fixed inline (`check.sh` now shellchecks the `./lake`/`./lean` root
 wrappers). Toolchain is Lean **v4.31.0** (`1d7fc37`). No open audit-filed fix-slice remains.
 
@@ -1278,7 +1260,7 @@ type-directed `⟨⟩` elaboration precludes a silent mis-target; `, false` make
 predicate-parameterised `collectMemberLabels` is correct both directions, DRY, and readable (its
 `| _ => []` is a `List String` COLLECTOR terminal, not a Value-dispatch), with real over-rejection
 accept-guards (quoted/def/dynamic/for-var/comprehension-let/incomparable-sibling) and an EMPTY
-cert-manager canary; file-scoped imports' `mapRefsValueWithFuel` unification shares every binder
+real-world gate; file-scoped imports' `mapRefsValueWithFuel` unification shares every binder
 frame and its NUL-separated synthetic labels are uncollidable + `importBinding`-class (non-output)
 + shadow-aware; the `cue-spec-gaps` reverse no-shadow row is CLOSED and matches the code.
 
@@ -1300,8 +1282,8 @@ frame and its NUL-separated synthetic labels are uncollidable + `importBinding`-
    is the principled, test-pinned choice; `cue`'s cross-conjunct order is an undocumented
    internal-graph artifact. `cue-spec-gaps.md` RATIFIED row. Reopen only if a fixture demands
    cue's exact bytes (none does).
-5. **Per-eval-cost perf frontier — CLOSED (2026-06-23).** Hash digest DONE (119s → ~30s
-   cert-manager); perf #7 safe wins landed; frame-sharing WON'T-FIX (above); per-eval constant
+5. **Per-eval-cost perf frontier — CLOSED (2026-06-23).** Hash digest DONE (119s → ~30s on a
+   large real config); perf #7 safe wins landed; frame-sharing WON'T-FIX (above); per-eval constant
    floor-characterized; multi-ref-cyclic flatten fan-out FIXED (visited-path bound). Only
    remaining lever is user-controllable flatten/shorten. Full data: `kue-performance.md` + log.
 6. **Borderline / LOW open items — see § Ranked OPEN backlog + LOW tail above.**
@@ -1332,7 +1314,7 @@ Modules: `Registry` (CUE_REGISTRY parse + module→OCI-ref + cache-path authorit
 dirhash), `Inflate` (RFC 1951 DEFLATE), `Zip` (PKWARE + CRC-32), `Semver` (Go `x/mod/semver`
 port), `Mvs` (pure MVS solver), and `Module.lean` wiring (`fetchAndCacheModule` + atomic
 cache-write). B3d-1...B3d-5 (+5a/5z), B3d-6a, B3d-A1, and B3d-7 (OCI bearer-token auth — proven
-LIVE against real `ghcr.io` for `prodigy9.co/defs@v0.3.19`) are DONE. Per-slice detail:
+LIVE against real `ghcr.io` for a private-registry module) are DONE. Per-slice detail:
 `implementation-log.md` (71+ B3d entries) + git.
 
 Both 2026-06-26 audit rounds closed **HEALTHY**: module graph is a clean DAG (IO confined to
@@ -1360,9 +1342,9 @@ staged-but-unused primitive.
     version with the selected one. Cross-module selection is now max-of-mins, not per-hop. On-disk
     diamond fixture `testdata/modules/crossmod_diamond` (`a`→c@v0.1.0, `b`→c@v0.2.0; MVS picks
     v0.2.0 for both) — red-first proved per-hop gave `fromA`=v0.1.0, the fix gives v0.2.0 both,
-    cross-checked byte-identical against cue v0.16.1. **Canary-safe by construction:** a
+    cross-checked byte-identical against cue v0.16.1. **Regression-safe by construction:** a
     single-version graph selects each path's only version (override is a no-op), and a non-buildable
-    graph falls back to an EMPTY override (per-hop, today's behavior) — the cert-manager canary
+    graph falls back to an EMPTY override (per-hop, today's behavior) — the real-world gate
     re-ran byte-identical. 7 new `native_decide` tests pin diamond/3-deep/single/main-conflict
     selection + `selectedVersion`. Divergence CLOSED in `compat-assumptions.md`. The flat-requirement
     *enforcement* (cue requires every transitive dep pinned in main) is deliberately NOT in scope —
@@ -1426,11 +1408,10 @@ all discharged); the 2026-07-03 two-phase audit (`a8d07b7`/`7487d06`, both CLEAN
 resilience/retrospective pass (once flagged OVERDUE) rode the `890d453..2bd75eb` batch; its
 learnings live in `failure-modes.md` + `slice-loop.md`.
 
-**🎯 CONSOLIDATED-COMPLETE STATE (2026-06-23) — partially RETRACTED 2026-06-28.** The
-{argocd, cert-manager} 2-app sample was a content-identical drop-in and the per-eval perf
-frontier CLOSED; a root-A soundness over-accept was found after, and the broader prod9 corpus
-opened the eval-conformance front (L1–L5, now COMPLETE — see § Prod9 eval-conformance campaign).
-Released `v0.1.0-alpha.20260623` (3 platforms, race-safe tooling).
+**Consolidated milestone (2026-06-23).** A large real config exported content-identical and the
+per-eval perf frontier CLOSED; the follow-on root-A soundness over-accept and the L1–L5 fixes are
+COMPLETE (see § List-embed, default-disjunction & def-closedness fixes). Released
+`v0.1.0-alpha.20260623` (3 platforms, race-safe tooling).
 
 ### Durable whole-graph facts (a future audit re-verifies these)
 
@@ -1524,8 +1505,7 @@ FULLY total). Test-health guarded by the TEST-HEALTH CONVENTION + `check-test-he
   [`implementation-log.md`](implementation-log.md)
   (chronological, one entry per commit) and `git log`. Every audit batch and design spike
   is recorded there — this plan holds only the live roadmap.
-- **Spec-conformance fix backlog (authoritative):**
-  [`spec-conformance-audit.md`](spec-conformance-audit.md) § Genuinely-open ranked backlog.
+- **Spec-conformance fix backlog (authoritative):** this plan's § Ranked OPEN backlog.
 - **CUE-divergence record:**
   [`cue-divergences.md`](cue-divergences.md).
 - **CUE spec-gap record:**

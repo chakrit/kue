@@ -130,31 +130,34 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
 ## A sound correctness fix regresses performance
 
 - **Symptom:** a correct, byte-identical-output change makes a basic case markedly slower.
-- **Seen:** 2026-06-18 — the link-3/4 parser collapse routed the dominant prod9 def shape
-  through a heavier two-pass embed re-eval; cert-manager went ~31s → ~92s (output unchanged).
+- **Seen:** 2026-06-18 — the link-3/4 parser collapse routed a dominant self-ref def shape
+  through a heavier two-pass embed re-eval; a large real config's export slowed ~3× (output
+  unchanged).
 - **Guard:** correctness ships regardless (per the correctness-over-performance decision),
   but the regression is logged in `kue-performance.md` and filed as a perf fix-slice;
-  re-probe a flagship real-app's wall-clock after any eval-path change so regressions are
+  re-probe a large real config's wall-clock after any eval-path change so regressions are
   caught, not discovered later.
 
-## A design-level prediction (perf OR correctness-depth) proves wrong against the real app
+## A design-level prediction (perf OR correctness-depth) proves wrong against the real config
 
 - **Symptom:** an audit / design subagent declares a depth estimate — "the regression is
-  REDUNDANT, a cheap fix reclaims it" (perf) or "argocd is one fix away" / "the cross-package
-  case is the same fix" (correctness) — from design-level analysis alone, and the real app
-  falsifies it when actually run.
+  REDUNDANT, a cheap fix reclaims it" (perf) or "the blocker is one fix away" / "the
+  cross-package case is the same fix" (correctness) — from design-level analysis alone, and
+  the real config falsifies it when actually run.
 - **Seen:** 2026-06-18 — the link-3/4 audit modeled Pass-2 per-field redundancy as the
-  dominant cost and predicted a cheap selective-re-eval reclaims the cert-manager 31s→92s.
-  The fix shipped (sound, byte-identical, helps many-unrelated-field defs) but cert-manager
-  was statistically unchanged — the dominant cost was broader **frame-id divergence**, not
-  the modeled redundancy. 2026-06-23 — a design subagent TWICE predicted "argocd is one fix
-  away" / "cross-package is the same fix"; both were empirically WRONG when the next slice
-  actually ran `kue export apps/argocd.cue` (another layer sat behind the predicted one).
+  dominant cost and predicted a cheap selective-re-eval reclaims the regression. The fix
+  shipped (sound, byte-identical, helps many-unrelated-field defs) but the real config's
+  wall-clock was statistically unchanged — the dominant cost was broader **frame-id
+  divergence**, not the modeled redundancy. 2026-06-23 — a design subagent TWICE predicted a
+  real-config blocker was "one fix away" / "the same fix"; both were empirically WRONG when
+  the next slice actually ran the real end-to-end export (another layer sat behind the
+  predicted one).
 - **Guard:** treat ANY design-level depth/blocker claim — perf OR correctness — as a
-  HYPOTHESIS, not a fact. Before building on it, confirm EMPIRICALLY by running the REAL app
-  (canary export, not a synthetic repro that merely exhibits the modeled effect). An honest
-  "one confirmed remaining layer; unknown if more behind it" beats a confident design
-  estimate. A fix validated against a synthetic repro may be correct yet not move the real app.
+  HYPOTHESIS, not a fact. Before building on it, confirm EMPIRICALLY with a real end-to-end
+  run (a real config export, not a synthetic repro that merely exhibits the modeled effect).
+  An honest "one confirmed remaining layer; unknown if more behind it" beats a confident
+  design estimate. A fix validated against a synthetic repro may be correct yet not move the
+  real config.
 
 ## Theorems silently dead — build stays green, kernel never checks them
 
@@ -184,31 +187,17 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
 ## Prose-only conventions rot; script-enforced gates hold
 
 - **Symptom:** a convention declared "applies to ALL X" is honored only on new/touched
-  files; the existing corpus never migrates, and the durable doc overstates the protection
+  files; the existing files never migrate, and the durable doc overstates the protection
   actually in force.
 - **Seen:** 2026-07-02 audit — the TEST-HEALTH convention above was declared for ALL
   `Kue/Tests/*.lean` (Phase B `0150095`), but later agents applied it only to files they
   touched: ~4/37 files have coverage tripwires, ~23 retain block-comment headers, and no
   script checks any of it. The doc read as if the guard were repo-wide.
 - **Guard:** land a convention WITH its migration in the same slice — a declared-for-ALL
-  rule that ships without retrofitting the existing corpus is a wish, not a guard. Wire
+  rule that ships without retrofitting the existing files is a wish, not a guard. Wire
   every such convention into a machine gate (`scripts/check-*.sh`) so drift fails the
   verify step instead of accumulating silently; prose in a doc binds only the agent that
   wrote it.
-
-## prod9 canary mis-reported "absent" — it's a wrong-CWD artifact, not a missing corpus
-
-- **Symptom:** a subagent runs a prod9 canary, gets "not found" / "no such file", and
-  concludes the prod9 corpus is absent — abandoning the real-app cross-check.
-- **Seen:** 2026-06-23 — subagents repeatedly reported the corpus absent. Root cause: CUE
-  module resolution is CWD-sensitive; `kue export apps/cert-manager.cue` only resolves its
-  module from `/Users/chakrit/Documents/prod9/infra`. Run from the Kue repo root (where
-  `apps/...` doesn't exist), it 404s — the corpus is there, the cwd was wrong.
-- **Guard:** ALWAYS run prod9 canaries from the infra root, in a subshell so cwd doesn't
-  leak: `( cd /Users/chakrit/Documents/prod9/infra && kue export apps/<app>.cue )`. The
-  corpus DOES exist there (READ-ONLY — never write into it). "Not found" means wrong cwd,
-  NOT absent — fix the cwd, do not conclude the corpus is gone. Codified in slice-loop's
-  canary convention + the subagent-prompt template.
 
 ## A subagent claims "pushed" when HEAD is still ahead of upstream
 
@@ -222,16 +211,16 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
   `<branch> -> <branch>` line, e.g. `main -> main`) before reporting "pushed" — a claim
   without that line is unverified.
 
-## An invasive change to a foundational type slips a regression past the canary
+## An invasive change to a foundational type slips a regression past the fixtures
 
 - **Symptom:** a field added to (or a reshaping of) a widely-matched, equality-derived type
-  silently changes behavior the canary corpus does not exercise; the canary stays green, so
+  silently changes behavior the fixtures do not exercise; the gate stays green, so
   "done" is declared with a live regression, caught only by a later code-quality audit.
 - **Seen:** 2026-07-04 — adding `Field.quoted` to `Value.Field` (`f128600`) silently joined
   it to the DERIVED `BEq`/`DecidableEq`, so `{x:1} != {"x":1}` (quoted vs unquoted label now
-  compared unequal). The cert-manager canary MISSED it — the corpus has no quoted-vs-unquoted
-  label equality — and only the follow-up Phase A code-quality audit caught it.
-- **Guard:** TWO facets. (i) The canary proves ONLY what the corpus exercises; it is NOT a
+  compared unequal). The fixtures MISSED it — none exercises quoted-vs-unquoted label
+  equality — and only the follow-up Phase A code-quality audit caught it.
+- **Guard:** TWO facets. (i) A fixture set proves ONLY what it exercises; it is NOT a
   substitute for a code-quality audit after an invasive/foundational change. A two-phase
   audit is MANDATORY before "done" whenever a field is added to — or the shape changed of —
   an equality-derived or widely-matched type. (ii) Adding a field to a `deriving
@@ -242,16 +231,16 @@ Format per entry: **Symptom** (how it shows up) · **Seen** (concrete instance) 
 
 ## A milestone / soundness claim over-stated — orchestrator must independently re-verify
 
-- **Symptom:** a subagent reports a high-stakes result ("argocd exports byte-identical",
+- **Symptom:** a subagent reports a high-stakes result ("a real config exports byte-identical",
   "the cache is sound", "released") that, if wrong, corrupts the durable record or ships a
   bug — and the report is the only evidence.
-- **Seen:** 2026-06-23 — a milestone "argocd exports byte-identical" claim; the orchestrator
-  re-ran the export + `jq -S` diff directly and confirmed (diff = 0) rather than trusting the
-  report.
+- **Seen:** 2026-06-23 — a milestone "a real config exports byte-identical" claim; the
+  orchestrator re-ran the export + `jq -S` diff directly and confirmed (diff = 0) rather than
+  trusting the report.
 - **Guard:** the orchestrator INDEPENDENTLY re-verifies milestone-grade and soundness-grade
-  claims, not just routine ones — re-run the canary/export, the build, the fixture gate.
+  claims, not just routine ones — re-run the export, the build, the fixture gate.
   Claims that warrant direct orchestrator verification: **milestones** (byte-identical /
-  content-identical real-app drop-ins), **soundness gates** (perf-fix byte-identity, cache
+  content-identical real-config drop-ins), **soundness gates** (perf-fix byte-identity, cache
   correctness), **pushes** (HEAD==upstream, above), **releases** (asset published, formula
   patched). A subagent's high-stakes claim is a HYPOTHESIS the orchestrator cheaply confirms
   before it enters the durable record.

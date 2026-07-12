@@ -124,7 +124,7 @@ those forms.
   - **DEFERRED — the `nsp` /`#Argo` *direct* manifest still bottoms, but that matches
     `cue`.** `x: packs.#Argo & {#name:…}` (no `[...]` in the consuming struct) errors in
     *both* kue and `cue` (struct/list conflict): the consuming struct must itself carry a
-    `[...]` embed (`configs: packs.#Argo & {[...], #name:…}`, as the real prod9 files do)
+    `[...]` embed (`configs: packs.#Argo & {[...], #name:…}`)
     for the embeddedList path to engage. With `[...]` present, `cue` proceeds and the next
     gate is the **`if Self.#x!= _|_` presence-test comprehension guard**. The `!= _|_`
     *comparison* is now fixed (see Comparison section — definedness test landed
@@ -206,7 +206,7 @@ those forms.
   scope. (2) When the requirement graph is not buildable off disk (a declared dep absent from
   vendor+cache), the override is EMPTY and resolution falls back to per-hop — a currently-resolving
   lenient load is never regressed into a build error; a single-version graph selects each path's
-  only version, so the override is a no-op (the cert-manager canary is provably byte-identical). A
+  only version, so the override is a no-op. A
   main-path conflict (a dep requiring a higher version of the main module's own path — the case cue
   rejects) surfaces as a typed error via `solveChecked`, never a silent pin. **`kue mod tidy`
   (B3d-6b) also runs the same solver** over a REGISTRY-fetched graph and writes `cue.sum`.
@@ -217,7 +217,7 @@ those forms.
   writes it into the cue cache (`mod/download/<esc-path>/@v/<esc-ver>.zip` +
   `mod/extract/<esc-path>@<esc-ver>/`), and retries the locate — the existing read-path then
   takes over unchanged. A module already on disk takes the read-path with NO fetch (byte-identical
-  to before — the argocd/cert-manager canaries are unaffected). Only when the registry is `none`/
+  to before). Only when the registry is `none`/
   unset, the fetch fails, or verification fails does the deferral error surface
   (`unresolved import …: module <modpath>@<ver> not found in vendor or cue cache …`). **Cache
   write is ATOMIC (B3d-A1).** Both writes go through temp-then-`rename`: the extract entries
@@ -260,7 +260,7 @@ those forms.
   `.../tags/list`. **B3d-6b is now fully closed — no FILED dependents remain.** See
   [`plan.md`](plan.md) § B3d track.
 - **Deferred (B3b):** aliased-import edges, nested-path corners, and grouped-import
-  comment/ trailing-comma robustness. Real prod9 grouped imports parse fine today, so this
+  comment/ trailing-comma robustness. Typical grouped imports parse fine today, so this
   stays parked. The stdin and multi-file CLI paths still discard imports (pre-B3a
   behavior), so a stdin file with a non-builtin import is unaffected.
 - **`export -e <expr>
@@ -272,13 +272,13 @@ those forms.
   field's own refs bind before the next lookup. A missing segment errors with
   `reference "<seg>" not found` and exit 1 (mirrors `cue`); a present-but-incomplete
   selection falls through to the usual `incomplete value …` manifest error. **Scope:
-  dotted field paths only** (`common`, `a.b.c`). **Deferred** (not yet needed for real
-  prod9 apps, each a clean add when wanted): index/slice selectors (`a[0]`), repeated `-e`
+  dotted field paths only** (`common`, `a.b.c`). **Deferred** (each a clean add when
+  wanted): index/slice selectors (`a[0]`), repeated `-e`
   → multi-document output (`cue` emits one doc per `-e`), and arbitrary CUE expressions as
   the selector (`cue` evaluates `-e` in the root scope, so e.g. `-e 'a.b & {x:1}'` works
   there). A malformed path (empty segment from a leading/trailing/doubled dot) is a clean
   `invalid -e expression` error, not a crash. **YAML over-quoting now fixed (see YAML
-  scalar quoting below).** A whole-file `--out yaml` of `hatari/infra/apps/common.cue` is
+  scalar quoting below).** A whole-file `--out yaml` of a `common.cue` is
   byte-identical to `cue` v0.16.1 (IPs now bare).
 - The executable reads CUE from stdin or from explicit file arguments and prints
   resolved/evaluated Kue output. Empty stdin still prints the existing semantic smoke
@@ -288,7 +288,7 @@ those forms.
   siblings are meet-merged (reusing the imported-package loader `loadPackage` —
   package-name consistency, sibling merge, per-file import binding) before
   eval/export/`-e`-selection. A bare *file* argument loads only that file with **no**
-  sibling merge — exactly `cue` 's contract (`cue export apps/argocd.cue` errors on a
+  sibling merge — exactly `cue` 's contract (`cue export a.cue` errors on a
   sibling-defined reference; `cue export ./apps` resolves it). The split is
   `FilePath.isDir` at the IO boundary; the single-file and stdin paths are byte-unchanged.
   A directory with two differing named packages is rejected (kue via the
@@ -429,7 +429,7 @@ those forms.
     idiom is unaffected; only a bare `x.absent == _|_` outside a guard would differ.
     Tightening missing-field-on-closed-struct to bottom is the principled fix (the loose
     incomplete/bottom conflation the type-system lens flags) but has broad blast radius
-    across every selection path and does NOT unblock the argocd gate, so it is deferred.
+    across every selection path, so it is deferred.
   - **Lazy field resolution through definition-meet — RESOLVED.** A definition's
     comprehension body + field refs now resolve against the *merged* meet scope, not the
     pre-meet scope, both same-package (slice 2c.2 + the `#x?` optional-definition fix —
@@ -514,7 +514,7 @@ those forms.
     merged value and is tracked as broader resolver work, not an alias gap.
   - **Deferred:** a **bare** `Self` (the whole struct as a value, e.g. `copy: Self`) emits
     the residual `@self` rather than a value; `cue` rejects it as a structural cycle. The
-    load-bearing prod9 pattern is always `Self.field` (a selector), never bare `Self`, so
+    load-bearing pattern is always `Self.field` (a selector), never bare `Self`, so
     this is left as a documented boundary.
   - **Permissiveness note (not a divergence):** `cue` rejects an *unreferenced* value
     alias as a hard error (`unreferenced alias or let clause X`); Kue accepts it and emits
@@ -610,12 +610,10 @@ lives in the reusable `Kue/Json.lean` (`manifestToJson`), shared with B5.
   unresolved `.builtinCall` so a later evaluation pass can complete it. **Deferred:**
   `json.MarshalStream` (multi-doc), `json.Indent` (pretty-printing), `json.Unmarshal`
   /`json.Validate` (parsing).
-- **Composition note (infra docker-config).** The prod9/infra
+- **Composition note (docker-config).** The
   `base64.Encode(null, json.Marshal({auths: …}))` chain evaluates correctly when the inner
-  struct's fields resolve. The two former blockers on `infra-defs/secret.cue` are now
-  RESOLVED: hidden-field references resolve (`_a: "secret"; y: _a` → `y: "secret"`), and
-  the non-string label-pattern (`[string]: string`) parses. The encoding builtins were
-  never the blocker, and neither residual gap remains.
+  struct's fields resolve: hidden-field references resolve (`_a: "secret"; y: _a` →
+  `y: "secret"`), and the non-string label-pattern (`[string]: string`) parses.
 
 ## Manifest output: `export` CLI mode, YAML serializer, `yaml.Marshal`
 

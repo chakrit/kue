@@ -207,12 +207,6 @@ autonomous pass. Follow them as hard rules:
   annotates every site — a stale "🎯 DONE" block one section below the live front is a
   restore hazard — IN THE SAME SLICE that reopens the work. This is the fifth per-slice
   duty (§ Continuous slice loop).
-- **The cert-manager canary is a legacy regression fixture, not a measure of correctness.**
-  It is a real-world config sample wired as a gate in an earlier prod9-centric phase; a green
-  canary does not mean conformant, and no config corpus is the goal (§ Project). Treat it as
-  one incidental regression guard, pending a decision on removing the prod9-sourced gate
-  entirely. (Historical: argocd was a second sample, GONE from that checkout — do not try to
-  re-verify it.)
 
 ## Docs
 
