@@ -1,0 +1,10 @@
+{
+    "lt": true,
+    "gtFalse": false,
+    "leEq": true,
+    "byteVal": true,
+    "lexical": true,
+    "emptyLt": true,
+    "geFalse": false,
+    "gtLonger": true
+}

@@ -578,15 +578,18 @@ designed here as ONE coherent fix, split into TWO ranked slices — soundness fi
   `testdata/wild/binary-cmp-{list,struct}-operand/` (RED→GREEN); 7 EvalOpsTests theorems (⊥ + both-direction
   retain guards + 2 equality guards).
 
-- **BINARY-CMP-BYTES (LOW correctness — bytes ordered comparison; kue BUG). OPEN.** Discovered while
-  measuring the BINARY-CMP-OPERAND matrix: `'a' < 'b'` ⇒ cue `true`, kue `_|_`. `evalPrimitiveOrdering`
-  threads only `decimalOp`+`stringOp`; a bytes×bytes pair finds no decimal/string compare and falls to ⊥.
-  Spec makes `bytes` an ordered type (`< <= > >=` defined for number/string/bytes), so kue is WRONG to
-  bottom a valid bytes comparison. Fix: add a `bytesOp : Array UInt8 → Array UInt8 → Bool` parameter
-  threaded through the four `.lt/.le/.gt/.ge` call sites in `evalBinary`, with lexical byte-array compare.
-  Not folded into BINARY-CMP-OPERAND (that slice is incomparable→⊥ soundness; this is a missing-feature
-  signature change, opposite direction). Test-first: wild fixture `'a' < 'b'` ⇒ `true`, plus le/gt/ge +
-  unequal-length lexical pins.
+- **BINARY-CMP-BYTES (LOW correctness — bytes ordered comparison; kue BUG). ✅ LANDED** (`f1bdf83`).
+  `'a' < 'b'` ⇒ cue `true`, kue was `_|_`: `evalPrimitiveOrdering` threaded only `decimalOp`+`stringOp`,
+  so a bytes×bytes pair found no compare fn and fell to ⊥. Spec makes `bytes` an ordered type
+  (`< <= > >=` over number/string/bytes). Fix took the cleaner route than the filed `bytesOp` param:
+  `evalPrimitiveOrdering` now routes the prim×prim case through `primOrdCompare?` (the single
+  ordered-comparison primitive, already handling number/string/bytes) and reads its `Ordering` with the
+  op's reader (`Ordering.isLT`/`isLE`/`isGT`/`isGE`). Bytes flow through for free; number/string paths
+  are provably identical (`primOrdCompare?` uses the same `decimalLtValues`/`charsLt` the old lambdas
+  did); the dead `stringsLt` helper dropped. Cross-type pairs (bytes-vs-string/number) still ⇒ `none`
+  ⇒ ⊥ — the BINARY-CMP-OPERAND guard holds. Wild fixture `testdata/wild/binary-cmp-bytes/` + 21 unit
+  theorems (both directions, inclusive `<=`/`>=`, byte-value order, multi-byte lexical, empty bytes,
+  cross-type ⊥ both ways, equality-unaffected). **The last active wrong-value bug — CLOSED.**
 
 - **BOUND-ORDEREDPRIM (LOW illegal-states — the designed PA-BOUND-DOMAIN-TYPE fix; lands AFTER
   BOUND-OPERAND-CLASSIFY).** Retype the bound operand: `inductive OrderedPrim | number (value :
@@ -1416,8 +1419,8 @@ already struck the landed LET-CYCLE-ERROR from the ranked head. Graph HEALTHY: a
   correctness. PB-FIXTUREPORTS-SPLIT (4237, registration-exempt) unchanged.
 
 **Reconciled ranked HEAD (philosophy: active wrong-value → type-tightening → LOW gaps → feature → nav-debt):**
-1. **BINARY-CMP-BYTES** (LOW, kue BUG — the ONLY remaining active WRONG-VALUE bug: `'a' < 'b'` ⇒ kue ⊥,
-   cue `true`). `bytesOp`-threading across the four comparison call sites. NEXT.
+1. ~~**BINARY-CMP-BYTES**~~ ✅ LANDED `f1bdf83` — bytes ordered comparison routed through
+   `primOrdCompare?`; the LAST active wrong-value bug, now CLOSED. No active wrong-value bugs remain.
 2. **BOUND-ORDEREDPRIM** (LOW, illegal-states — ~60-site `OrderedPrim` retype, the `boundConstraint.domain`
    numeric-sentinel tightening). Type-system leverage; parallel-safe filler.
 3. **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** (LOW correctness gaps — missing feature /
@@ -1478,7 +1481,8 @@ clean small bugs → tightening/refactor):**
 3. ~~**LET-CYCLE-ERROR**~~ ✅ LANDED 2026-07-12 — pure-`let` reference cycles raise cue's load error
    (`reference "<name>" not found` self / `cyclic references in let clause or alias` mutual) on the
    single-sourced collapse layout; field-touching cycles keep `truncate .top`.
-4. **BINARY-CMP-BYTES** (LOW correctness, kue BUG) — small clean `bytesOp`-threading win. NEXT.
+4. ~~**BINARY-CMP-BYTES**~~ ✅ LANDED 2026-07-13 — bytes ordered comparison via `primOrdCompare?`; the
+   last active wrong-value bug CLOSED.
 5. **BOUND-ORDEREDPRIM** (LOW illegal-states) — the ~60-site tightening; or a cohesion slice
    (PB-EVALBASE-SPLIT (a)) as parallel-safe filler.
 

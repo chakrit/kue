@@ -21497,3 +21497,36 @@ Verdicts:
   nav-debt splits. **Recommend phase (c): open a new differential probe (bytes/string value family),
   bridged by BINARY-CMP-BYTES** — soundness clusters closed, probes are the highest-yield bug source;
   LOW-grind risks the blind-grind breaker, float is narrow. Detail in plan.md § PHASE B AUDIT (2026-07-13).
+
+---
+
+## Completed Slice: BINARY-CMP-BYTES — bytes ordered comparison
+
+Goal: `'a' < 'b'` returned `_|_`; cue v0.16.1 and the CUE spec make `bytes` an ordered
+type (`< <= > >=` over number/string/bytes, bytes compared lexically by byte value). kue
+was WRONG to bottom every bytes ordered comparison. The last active wrong-value bug.
+
+Root: `evalPrimitiveOrdering` threaded a `decimalOp` and a `stringOp`; a bytes×bytes
+operand pair matched neither and fell to the `.bottom` arm.
+
+Fix (cleaner than the filed `bytesOp`-param plan): `evalPrimitiveOrdering` now routes the
+prim×prim case through `primOrdCompare?` — the single ordered-comparison primitive in
+`Value.lean`, already total over number/string/bytes — and interprets its `Ordering` with
+the op's reader (`Ordering.isLT`/`isLE`/`isGT`/`isGE`). The four `.lt/.le/.gt/.ge` sites in
+`evalBinary` collapse to one-liners passing the matching reader. Number/string behavior is
+provably identical: `primOrdCompare?` uses the same `decimalLtValues`/`charsLt` the removed
+lambdas did. The now-dead `stringsLt` helper is deleted.
+
+Cross-type guard preserved: `primOrdCompare?` returns `none` for a cross-family or
+non-ordered pair (bytes-vs-string, bytes-vs-number, null/bool), so the BINARY-CMP-OPERAND
+soundness guard still ⊥s — proven both directions.
+
+Tests: wild fixture `testdata/wild/binary-cmp-bytes/` (8 fields: both directions,
+inclusive `<=`, byte-value order, multi-byte lexical, empty-vs-nonempty, prefix ordering)
++ 21 `native_decide` theorems in `EvalOpsTests.lean` (bytes ordering both ways, `<=`/`>=`
+inclusive, `\x01<\x02`, `ab<ac`, `''<a`, `ab>a`, cross-type ⊥ four ways, bytes equality
+unaffected). Confirmed RED at HEAD (`'a' < 'b'` exported `_|_`), GREEN after. Full
+`./scripts/check.sh` green; manual kue-vs-cue sweep incl. high-byte unsigned order
+(`\xff`, `\x80`) matches. No `cue` divergence (kue now matches cue), no spec gap.
+
+**No active wrong-value bugs remain.**

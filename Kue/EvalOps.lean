@@ -332,9 +332,6 @@ def evalNe (left right : Value) : Value :=
   | .binary .eq left right => .binary .ne left right
   | value => value
 
-def stringsLt (left right : String) : Bool :=
-  charsLt left.toList right.toList
-
 /-- A scalar-op operand, classified for the bool / numeric / comparison / regex ops. `prim`
     carries the leaf so the op can compute on it; `bottom`/`bottomReasons` propagate a bottom.
     A genuinely-unresolved abstract form (ref, kind, bound, unresolved disjunction,
@@ -390,19 +387,19 @@ def classifyScalarOperand : Value -> ScalarOperandClass
   | .dynamicField _ _ _ => .incomplete
   | .closure _ _ => .incomplete
 
+/-- Evaluate an ordered comparison (`< <= > >=`). The prim×prim case routes through
+    `primOrdCompare?` — the single ordered-comparison primitive over number/string/bytes —
+    and reads its `Ordering` with `ordOp` (`isLT`/`isLE`/`isGT`/`isGE`). Cross-type or
+    non-ordered pairs yield `none` ⇒ ⊥ (e.g. bytes-vs-string, `null`/`bool`). -/
 def evalPrimitiveOrdering
-    (decimalOp : DecimalValue -> DecimalValue -> Bool)
-    (stringOp : String -> String -> Bool)
+    (ordOp : Ordering -> Bool)
     (op : BinaryOp)
     (left right : Value) : Value :=
   match classifyScalarOperand left, classifyScalarOperand right with
   | .prim left, .prim right =>
-      match evalDecimalCompare? decimalOp left right with
-      | some value => .prim (.bool value)
-      | none =>
-          match left, right with
-          | .string left, .string right => .prim (.bool (stringOp left right))
-          | _, _ => .bottom
+      match primOrdCompare? left right with
+      | some ordering => .prim (.bool (ordOp ordering))
+      | none => .bottom
   | .bottom, _ => .bottom
   | _, .bottom => .bottom
   | .bottomReasons reasons, _ => .bottomWith reasons
@@ -541,22 +538,10 @@ def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   | .intRem => evalIntKeywordBinary .intRem remValue left right
   | .eq => evalEq left right
   | .ne => evalNe left right
-  | .lt => evalPrimitiveOrdering decimalLtValues stringsLt .lt left right
-  | .le =>
-      evalPrimitiveOrdering
-        (fun left right => decimalEqValues left right || decimalLtValues left right)
-        (fun left right => !stringsLt right left)
-        .le
-        left
-        right
-  | .gt => evalPrimitiveOrdering (fun left right => decimalLtValues right left) (fun left right => stringsLt right left) .gt left right
-  | .ge =>
-      evalPrimitiveOrdering
-        (fun left right => decimalEqValues left right || decimalLtValues right left)
-        (fun left right => !stringsLt left right)
-        .ge
-        left
-        right
+  | .lt => evalPrimitiveOrdering Ordering.isLT .lt left right
+  | .le => evalPrimitiveOrdering Ordering.isLE .le left right
+  | .gt => evalPrimitiveOrdering Ordering.isGT .gt left right
+  | .ge => evalPrimitiveOrdering Ordering.isGE .ge left right
   | .regexMatch => evalRegexMatch left right
   | .regexNotMatch => evalRegexNotMatch left right
   | .boolAnd => evalBoolBinary .boolAnd (fun left right => left && right) left right

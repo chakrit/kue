@@ -315,7 +315,7 @@ theorem eval_ge_int_true :
   native_decide
 
 -- Comparison over INCOMPARABLE kinds (int vs string) bottoms — cue: `invalid operands …
--- to '<'`. The `prim,prim` arm finds no decimal compare and no same-string match ⇒ `.bottom`.
+-- to '<'`. `primOrdCompare?` returns `none` for a cross-family pair ⇒ `.bottom`.
 theorem eval_lt_incomparable_kinds_is_bottom :
     (evalBinary .lt (.prim (.int 1)) (.prim (.string "a")) == .bottom) = true := by
   native_decide
@@ -403,23 +403,103 @@ theorem eval_ne_cross_kind_int_string_true :
     (evalNe (.prim (.int 1)) (.prim (.string "1")) == .prim (.bool true)) = true := by
   native_decide
 
--- AUDIT (EvalOps gap): string `<=` is `!stringsLt right left` — pins the REVERSED-operand lambda
--- in the `.le` arm (`"b" <= "a"` ⇒ `false`). Oracle: cue `"b" <= "a"` ⇒ `false`.
+-- AUDIT (EvalOps gap): string `<=` reads `Ordering.isLE` off `primOrdCompare?`
+-- (`"b" <= "a"` ⇒ `false`, ordering `.gt`). Oracle: cue `"b" <= "a"` ⇒ `false`.
 theorem eval_le_string_reverse_false :
     (evalBinary .le (.prim (.string "b")) (.prim (.string "a")) == .prim (.bool false)) = true := by
   native_decide
 
--- AUDIT (EvalOps gap): string `>=` is `!stringsLt left right` — pins the `.ge` string lambda
--- (`"b" >= "a"` ⇒ `true`). Oracle: cue `"b" >= "a"` ⇒ `true`.
+-- AUDIT (EvalOps gap): string `>=` reads `Ordering.isGE` off `primOrdCompare?`
+-- (`"b" >= "a"` ⇒ `true`, ordering `.gt`). Oracle: cue `"b" >= "a"` ⇒ `true`.
 theorem eval_ge_string_reverse_true :
     (evalBinary .ge (.prim (.string "b")) (.prim (.string "a")) == .prim (.bool true)) = true := by
   native_decide
 
--- AUDIT (EvalOps gap): string `<=` is reflexive at equality (`"a" <= "a"` ⇒ `true`) — the
--- `decimalEqValues || …` short-circuit has no string analog, so this exercises the
--- `!stringsLt right left` path at the boundary where both `stringsLt` directions are false.
+-- AUDIT (EvalOps gap): string `<=` is reflexive at equality (`"a" <= "a"` ⇒ `true`) —
+-- `primOrdCompare?` reports `.eq` and `Ordering.isLE .eq = true`.
 theorem eval_le_string_reflexive_true :
     (evalBinary .le (.prim (.string "a")) (.prim (.string "a")) == .prim (.bool true)) = true := by
+  native_decide
+
+-- BINARY-CMP-BYTES. Bytes are an ORDERED type — `< <= > >=` compare bytes lexically by
+-- byte value (cue v0.16.1: `'a' < 'b'` ⇒ `true`). kue previously bottomed every bytes
+-- ordered comparison; `evalPrimitiveOrdering` now routes bytes through `primOrdCompare?`.
+-- Covers both directions, `<=`/`>=` inclusive, byte-value order, multi-byte lexical, and
+-- empty-vs-nonempty.
+
+theorem eval_lt_bytes_true :
+    (evalBinary .lt (.prim (.bytes #[0x61])) (.prim (.bytes #[0x62])) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_lt_bytes_reverse_false :
+    (evalBinary .lt (.prim (.bytes #[0x62])) (.prim (.bytes #[0x61])) == .prim (.bool false)) = true := by
+  native_decide
+
+theorem eval_le_bytes_equal_true :
+    (evalBinary .le (.prim (.bytes #[0x61])) (.prim (.bytes #[0x61])) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_ge_bytes_equal_true :
+    (evalBinary .ge (.prim (.bytes #[0x61])) (.prim (.bytes #[0x61])) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_gt_bytes_true :
+    (evalBinary .gt (.prim (.bytes #[0x62])) (.prim (.bytes #[0x61])) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_ge_bytes_false :
+    (evalBinary .ge (.prim (.bytes #[0x61])) (.prim (.bytes #[0x62])) == .prim (.bool false)) = true := by
+  native_decide
+
+-- Byte VALUE order (not code-point): `\x01 < \x02`.
+theorem eval_lt_bytes_byte_value_true :
+    (evalBinary .lt (.prim (.bytes #[0x01])) (.prim (.bytes #[0x02])) == .prim (.bool true)) = true := by
+  native_decide
+
+-- Multi-byte LEXICAL: `'ab' < 'ac'` differs at the second byte.
+theorem eval_lt_bytes_lexical_true :
+    (evalBinary .lt (.prim (.bytes #[0x61, 0x62])) (.prim (.bytes #[0x61, 0x63]))
+      == .prim (.bool true)) = true := by
+  native_decide
+
+-- Empty bytes is the least: `'' < 'a'`.
+theorem eval_lt_bytes_empty_true :
+    (evalBinary .lt (.prim (.bytes #[])) (.prim (.bytes #[0x61])) == .prim (.bool true)) = true := by
+  native_decide
+
+-- Prefix ordering: `'ab' > 'a'` (a proper extension is greater).
+theorem eval_gt_bytes_prefix_true :
+    (evalBinary .gt (.prim (.bytes #[0x61, 0x62])) (.prim (.bytes #[0x61])) == .prim (.bool true)) = true := by
+  native_decide
+
+-- CROSS-TYPE GUARD. Bytes ordered comparison stays WITHIN the bytes family. A bytes×string
+-- or bytes×number pair is incomparable — `primOrdCompare?` returns `none` ⇒ ⊥ (cue:
+-- `invalid operands … (type bytes and string/int)`). Both directions pin the guard.
+
+theorem eval_lt_bytes_vs_string_bottoms :
+    (evalBinary .lt (.prim (.bytes #[0x61])) (.prim (.string "a")) == .bottom) = true := by
+  native_decide
+
+theorem eval_lt_string_vs_bytes_bottoms :
+    (evalBinary .lt (.prim (.string "a")) (.prim (.bytes #[0x61])) == .bottom) = true := by
+  native_decide
+
+theorem eval_lt_bytes_vs_int_bottoms :
+    (evalBinary .lt (.prim (.bytes #[0x61])) (.prim (.int 1)) == .bottom) = true := by
+  native_decide
+
+theorem eval_gt_int_vs_bytes_bottoms :
+    (evalBinary .gt (.prim (.int 1)) (.prim (.bytes #[0x61])) == .bottom) = true := by
+  native_decide
+
+-- Bytes EQUALITY is unaffected by the ordered-comparison change (routes through `evalEq`,
+-- total across types): `'a' == 'a'` ⇒ `true`, `'a' == 'b'` ⇒ `false`.
+theorem eval_eq_bytes_true :
+    (evalEq (.prim (.bytes #[0x61])) (.prim (.bytes #[0x61])) == .prim (.bool true)) = true := by
+  native_decide
+
+theorem eval_eq_bytes_distinct_false :
+    (evalEq (.prim (.bytes #[0x61])) (.prim (.bytes #[0x62])) == .prim (.bool false)) = true := by
   native_decide
 
 -- `&&` over bools decides directly.
