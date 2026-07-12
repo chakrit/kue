@@ -20209,3 +20209,37 @@ untouched.
   from zero) rule on an EXACT tie with an even kept digit, both signs (35-sig float `…125e34` →
   `…13e+34`, verified against cue; prior tie coverage was zero).
 - `./scripts/check.sh` GREEN. Committed on `main`, not pushed.
+
+---
+
+## Completed Slice: DOCS-REALIGN — goal reframed to spec-conformance, no corpus as target (chakrit, 2026-07-12)
+
+Docs/instructions-only slice (no code, no test changes). Realigns the forward-looking framing
+across the durable surfaces so the stated goal is a **correct, robust CUE implementation
+conforming to the spec** (lattice first principles where silent), not matching any configuration
+corpus. Basis: chakrit, 2026-07-12 — prod9 (or any real-world config set) is not a target, gate,
+floor, or prioritization axis; "a real config doesn't exercise it" is never a reason to build,
+defer, or deprioritize. `cue` remains a fallible reference, never the gate.
+
+- `CLAUDE.md` — § Project gains the north-star paragraph (goal = spec-conformance across the whole
+  language + stdlib surface; no corpus is a target/gate/floor/priority-axis). Wild-fixture rule
+  de-prod9-ified (real-world inputs are a high-signal bug SOURCE, never a target; repro lifted out
+  of any private/external dep, not "prod9"). Canary note demoted: the cert-manager canary is a
+  legacy regression fixture, not a measure of correctness, pending a decision on removing the
+  prod9-sourced gate.
+- `docs/spec/plan.md` — goal statement rewritten ("no configuration corpus is the goal or the test
+  strategy"; strategy = spec-conformance fixtures + first-principles edge coverage; drop the
+  "stress test" hedge). F2 (IEEE float64 kernel) ungated from "real prod9 need" → in scope on
+  completeness grounds, prioritized by conformance leverage.
+- `docs/spec/architecture.md` — "current front" reframed from the prod9 corpus to spec-conformance
+  and robustness across the language surface.
+- `docs/spec/cue-spec-gaps.md` — two deferral justifications re-grounded from "prod9 never hits
+  it / IF a real config needs it" to spec-murkiness / cue-unobservability (the `__`-package-name
+  corner; the aliased-field import-redeclaration corner).
+- Historical audit records (`spec-conformance-audit.md`, prior implementation-log/breadcrumb
+  entries, the dated "Prod9 eval-conformance campaign" record) left INTACT as history — they record
+  what was checked at the time; only forward-framing was changed.
+- **Flagged, NOT acted on** (needs chakrit's explicit go — tearing out working test infra): the
+  cert-manager canary check-gate in `scripts/check-*.sh`, the prod9-sourced `testdata` fixtures,
+  and any remaining prod9-gated deferrals are the mechanism-level residue of the old framing.
+- No code or test changes; `./scripts/check.sh` GREEN. Committed on `main`, not pushed.

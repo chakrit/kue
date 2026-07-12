@@ -163,10 +163,11 @@ The semantic core, evaluator, manifestation, CLI, builtins (exact-decimal numeri
 [`../decisions/2026-06-22-numeric-model-exact-decimal-no-float.md`](../decisions/2026-06-22-numeric-model-exact-decimal-no-float.md)
 — Float/NaN deliberately avoided), imports/module resolution, and the OCI/registry fetch
 (B3d, live-proven against `ghcr.io`) are implemented and oracle-checked against `cue`
-v0.16.1 — see `plan.md` § Standing Capabilities. That completeness was demonstrated on a
-2-app sample (argocd + cert-manager, content-identical drop-ins as of 2026-06-23); the
-broader prod9 corpus then exposed real eval divergences, so the **current front is
-eval-conformance** (five bugs fixed, L5 open — `plan.md` § Current front). Remaining
+v0.16.1 — see `plan.md` § Standing Capabilities. Early conformance was spot-checked against
+real-world config samples (historical, as of 2026-06-23). The **current front is
+spec-conformance and robustness across the whole language + stdlib surface** — systematic
+coverage of the spec and its edges, not any config corpus (§ Project goal, CLAUDE.md). See
+`plan.md` § Current front. Remaining
 tails: B3d-6b CORE + leg4 LANDED (`kue mod tidy` — requirement-graph fetch + MVS + `cue.sum` write, in
 the new `Kue/ModCmd.lean`; import-resolution MVS wiring now landed too; one filed dependent: `mod get`) and the
 item-6 LOW list, all ranked in [`plan.md`](plan.md); the full slice-by-slice history is in

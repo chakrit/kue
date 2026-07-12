@@ -3,8 +3,24 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs (the 2026-07-07 "autonomy paused" gate is
-resolved/historical). HEAD: **MANIFEST-FIELDCOUNT — decouple manifest fuel from sibling breadth
-(HIGH audit fix).** `kue export` failed ENTIRELY on any struct with ≥99 top-level fields
+resolved/historical). HEAD: **DOCS-REALIGN — goal reframed to spec-conformance/robustness; no
+config corpus is a target, gate, floor, or priority axis (chakrit, 2026-07-12).** Reframed the
+forward-framing across CLAUDE.md (§ Project north-star; wild-fixture rule de-prod9-ified; canary
+demoted to a legacy regression fixture, not a measure), plan.md (goal statement; F2 ungated from
+"real prod9 need" → in-scope on completeness, prioritized by conformance leverage),
+architecture.md (current front = the spec/language surface, not a corpus), cue-spec-gaps.md
+(deferral justifications re-grounded on spec-murkiness, not "prod9 never hits it"). Historical
+audit records left as history. **Corpus-as-goal is dead; prod9 is at most an incidental wild-bug
+source.** FLAGGED for chakrit's separate go: removing the cert-manager canary check-gate +
+prod9-sourced fixtures (tearing out working test infra needs explicit authorization). **Next:
+chakrit's call on the canary-gate removal; otherwise resume spec-conformance/robustness work —
+the language-surface coverage the audits flagged as unmeasured (comprehensions, closedness,
+pattern constraints, structural cycles, scoping) plus the F1–F5 float residuals, prioritized by
+conformance not usage.** Prior HEAD MANIFEST-FIELDCOUNT below.
+
+## Prior HEAD — MANIFEST-FIELDCOUNT — decouple manifest fuel from sibling breadth (HIGH audit fix)
+
+`kue export` failed ENTIRELY on any struct with ≥99 top-level fields
 (`incomplete value`), on trivial plain-int input. Root cause (by observation, NOT the
 `manifestFuel=100` coincidence): `manifestFieldsWithFuel`/`manifestItemsWithFuel` (`Kue/Manifest.lean`)
 peeled one fuel unit per SIBLING — the field at list-index `i` manifested at fuel `100-2-i`, hitting

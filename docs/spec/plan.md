@@ -41,13 +41,14 @@ target is the language as specified, not bug-for-bug parity. See
   it is silent, to lattice first principles (precise, total,
   illegal-states-unrepresentable). When `cue` disagrees with the spec it is WRONG → follow
   the spec, record in `cue-divergences.md`.
-- **Real-app compilation is a stress test, not the goal.** Getting prod9 infra (argocd,
-  cert-manager) to `export` *validates* correct semantics; it is never an end in itself.
-  Rank slices by spec-correctness and clean design evolution — never let one app's shape
-  pull the loop into per-app special-casing. A real-app blocker is a stress-test finding,
-  resolved by GENERAL semantic fixes as they mature, never by per-app narrowing — the
-  Bug2-5..2-14c argocd chain landed exactly this way (each fix general, oracle-pinned at
-  single-package granularity, no argocd-keyed code).
+- **No configuration corpus is the goal or the test strategy.** The target is
+  spec-conformance and robustness across the whole language + stdlib surface; the test
+  strategy is spec-conformance fixtures + first-principles edge coverage, not getting any
+  real config to `export`. Rank slices by spec-correctness and clean design evolution.
+  Never special-case a config's shape — a fix is always a GENERAL semantic fix, oracle-pinned
+  at single-package granularity (the Bug2-5..2-14c chain landed exactly this way — each fix
+  general, no app-keyed code). If a real-world input ever surfaces a bug, it enters as a
+  spec-adjudicated `wild/` fixture — an incidental bug source, never a target to please.
 
 ## Prod9 eval-conformance campaign — L1–L5 COMPLETE (2026-07-03)
 
@@ -238,10 +239,11 @@ them exactly, so most "float" work is decimal-kernel wiring, not an IEEE model. 
   `cue-spec-gaps.md` STDLIB-FLOAT-F0.
 - **F1 (LOW) — `math.Log1p`/`math.Expm1`.** cue exposes these as FLOAT64 (17-digit), NOT apd — a genuine
   IEEE surface. Currently `unsupportedBuiltin`. Gated on F2.
-- **F2 (MEDIUM, gated on real prod9 need) — the IEEE float64 kernel.** A shortest-round-trip
-  `strconv.FormatFloat`/`ParseFloat` + float64 arithmetic model. This is the wall behind `strconv.FormatFloat`,
-  `text/template` T3 (float in template data), `Log1p`/`Expm1`, and the trig family. Build only when a real
-  app needs it — no speculative IEEE model.
+- **F2 (MEDIUM) — the IEEE float64 kernel.** A shortest-round-trip
+  `strconv.FormatFloat`/`ParseFloat` + float64 arithmetic model. This is the wall behind
+  `strconv.FormatFloat`, `text/template` T3 (float in template data), `Log1p`/`Expm1`, and the
+  trig family — all real stdlib/spec surface, so in scope on completeness grounds. Prioritize
+  by conformance leverage (one kernel unblocks four deferred surfaces), not by usage.
 - **F3 — transcendental trig** (`Sin`/`Cos`/`Tan`/…), gated on F2 (cue computes them in float64).
 - **F4 — apd result-exponent preservation in float arithmetic. ✅ `+ - *` LANDED 2026-07-11; `/`
   DEFERRED.** Arithmetic now threads the apd `(coefficient, exponent)` form (`ApdForm` +

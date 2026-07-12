@@ -9,6 +9,14 @@ techniques. CUE's semantics are the subject: preserve intentional behavioral
 compatibility; make type-system, constraint-solving, and proof tradeoffs explicit. Prefer
 precise, testable, formally-reasonable designs over loosely-typed or ad hoc ones.
 
+The goal is a correct, robust CUE implementation — conforming to the CUE spec, and to
+lattice-theoretic first principles where the spec is silent — across the WHOLE language and
+stdlib surface. Bugs are the enemy; correctness and completeness are the target. `cue` is a
+fallible reference, never the gate. No configuration corpus — anyone's real-world configs
+included — is a target, a gate, a floor, or a prioritization axis: spec-completeness and
+correctness decide scope. That a construct is or isn't exercised by some real config is
+never a reason to build, defer, or deprioritize it.
+
 ## Working Agreement (standing — state it's in effect at the start of every fresh session)
 
 Standing grant for this repo (chakrit, 2026-06-14):
@@ -90,16 +98,17 @@ You are a thin orchestrator, not the implementer:
    - **Tests are first-class.** Don't settle for one happy-path fixture — audit edge/error
      cases and expand coverage (fixtures + `native_decide` theorems) until behavior is
      pinned. Strengthen weak existing tests you touch.
-   - **Wild-caught regressions become fixtures FIRST.** A bug found in the wild — a real
-     prod9 app export, a manual run, any stumble *outside* a planned slice — is captured as
+   - **Wild-caught regressions become fixtures FIRST.** A bug found in the wild — a manual
+     run, an example from the wild, any stumble *outside* a planned slice — is captured as
      a minimal, self-contained *failing* fixture under `testdata/wild/<slug>/` BEFORE the
      fix (reproduce red first, the fix turns it green, it stays a permanent guard). Lift the
-     offending construct out of any private dep so the repro needs no registry/prod9. The
-     expected value is **spec-adjudicated, not `cue`-matched** — a `bottom`/diff vs `cue`
-     may mean `cue` is the buggy side, so pin the spec-correct value and log any `cue`
-     disagreement in `cue-divergences.md`. Real-world cases are the highest-signal tests we
-     have (the corpus the canaries miss); none is fixed-and-forgotten without a `wild/`
-     entry. Procedure: [`docs/guides/slice-loop.md`](docs/guides/slice-loop.md).
+     offending construct out of any private or external dependency so the repro is
+     self-contained (no registry, no private repo). The expected value is
+     **spec-adjudicated, not `cue`-matched** — a `bottom`/diff vs `cue` may mean `cue` is the
+     buggy side, so pin the spec-correct value and log any `cue` disagreement in
+     `cue-divergences.md`. Real-world inputs are a high-signal bug SOURCE, never a target or
+     a corpus to please; none is fixed-and-forgotten without a `wild/` entry. Procedure:
+     [`docs/guides/slice-loop.md`](docs/guides/slice-loop.md).
    - **Spec is authority; `cue` is a fallible reference.** Kue exists because `cue` is
      buggy — byte-identical-to-`cue` is NEVER the gate (that gate replicates bugs).
      Conform to the CUE spec; where it's silent, to lattice-theoretic first principles
@@ -198,8 +207,12 @@ autonomous pass. Follow them as hard rules:
   annotates every site — a stale "🎯 DONE" block one section below the live front is a
   restore hazard — IN THE SAME SLICE that reopens the work. This is the fifth per-slice
   duty (§ Continuous slice loop).
-- **Canary is cert-manager** (from `/Users/chakrit/Documents/prod9/infra`); argocd is
-  GONE from that checkout — its drop-in status is historical, do not try to re-verify it.
+- **The cert-manager canary is a legacy regression fixture, not a measure of correctness.**
+  It is a real-world config sample wired as a gate in an earlier prod9-centric phase; a green
+  canary does not mean conformant, and no config corpus is the goal (§ Project). Treat it as
+  one incidental regression guard, pending a decision on removing the prod9-sourced gate
+  entirely. (Historical: argocd was a second sample, GONE from that checkout — do not try to
+  re-verify it.)
 
 ## Docs
 
