@@ -969,6 +969,18 @@ theorems: `ComprehensionTests` `listcomp_for_kv_skips_nonregular`/`structcomp_fo
   incomplete) before applying the relation. Bounds are pervasive → own careful attended slice.
   Red seed `testdata/wild/pattern-bound-reference-operand/` (`.known-red`; spec-adjudicated
   expected). NOT a cue-divergence (cue is spec-correct here); a plain kue completeness bug.
+  **CORE-CONFORMANCE-PROBE (2026-07-12) added a second facet:** a LITERAL string/bytes bound
+  operand (`x: <"m"`, `x: >='a'`, `{[>"m"]: int}`) — NO reference, no deferral, yet still
+  unrepresentable because `boundConstraint (bound : DecimalValue)` is numeric-only. Bounds
+  apply to any ORDERED type (numbers, strings lexically by code point, bytes by byte order);
+  the fix must generalize the bound operand from `DecimalValue` to a `Prim`-or-expression and
+  teach meet/order/manifest lexical string + byte-order comparison — the SAME core change, so
+  both facets land together. Second red seed `testdata/wild/pattern-bound-string-operand/`
+  (`.known-red`). Probe otherwise found the pattern-constraint surface CONFORMING: regex label
+  filtering, overlapping-pattern constraint intersection (incl. comparator-bound values),
+  recursive patterns, unification-introduced patterns, disjunction-valued patterns all
+  byte-identical to cue — now MEASURED + pinned (`testdata/export/pattern_constraints.{cue,json}`
+  + `ClosednessTests` pattern-constraint conformance probe section).
 - **Embed/comprehension field ORDER — already-ratified spec gap, NOT re-filed.** `{ {a:1}, b:2 }`
   → kue `{b,a}` (declaration order, embeddings after regular fields), cue `{a,b}`. This is
   "Field order #3" (RATIFIED): spec declares structs unordered, cue's

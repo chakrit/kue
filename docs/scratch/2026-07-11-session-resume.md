@@ -3,7 +3,33 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **PA-FLOAT-TEST-6 — permanent guards for the F2 kernel's hardest boundaries (LANDED 2026-07-12).**
+HEAD: **CORE-CONFORMANCE-PROBE — pattern-constraint core surface MEASURED (LANDED 2026-07-12).**
+Bounded differential hunt (~30 cases) over pattern constraints (`[pattern]: constraint`), the
+least-recently-probed flagged core area (structural cycles are heavily covered by `Bug2xTests`;
+closedness/comprehensions probed 2026-07-04). **Surface is CONFORMING** — regex label filtering,
+overlapping-pattern constraint INTERSECTION (incl. comparator-bound values: `[=~"a"]:<10 &
+[=~"b"]:>5` meets to `<10 & >5` on a doubly-matched field), recursive patterns, unification-
+introduced patterns, disjunction-valued patterns — all byte-identical to cue v0.16.1. Now MEASURED
++ pinned: `testdata/export/pattern_constraints.{cue,json}` + 6 `native_decide` in `ClosednessTests`
+(pattern-constraint conformance probe section). **ONE gap found (NEW facet of an already-filed
+bug):** a LITERAL string/bytes bound operand (`x: <"m"`, `{[>"m"]: int}`, `>='a'`) fails to parse
+("expected number digits") — `parseBoundValue` is numeric-literal-only and `boundConstraint` carries
+`DecimalValue` (numeric by construction). SAME root cause as the filed **PATTERN-BOUND-REF-OPERAND**
+(reference operands); both land together via the one core change (generalize bound operand →
+`Prim`/expr + lexical string/byte-order compare in meet/order/manifest). Red-seeded
+`testdata/wild/pattern-bound-string-operand/` (`.known-red`). NOT a cue-divergence (cue spec-correct).
+No product-code change. Docs: plan.md (PATTERN-BOUND-REF-OPERAND facet + measured record),
+implementation-log. `check.sh` GREEN, committed on `main`.
+**Next (ranked):** remaining UNMEASURED core areas to probe — **structural cycles** (spot-check the
+Bug2x coverage for gaps in cycle-through-comprehension / disjunction-guarded cycles), **scoping/
+reference-resolution** (shadowing across `let`/field/comprehension-var/alias, hidden-field scope);
+then the filed **PATTERN-BOUND-{REF,STRING}-OPERAND** core fix (attended, broad — generalizes the
+bound operand, graduates BOTH red seeds); then float follow-ups **F1** (`math.Log1p`/`Expm1`) → **F3**
+(trig) → **F5** (`text/template` float render + `math.Float64bits`); then LOWs PA-ESC-2 / PA-SUB-4 /
+PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4.
+Prior HEAD PA-FLOAT-TEST-6 below.
+
+## Prior HEAD — PA-FLOAT-TEST-6 — permanent guards for the F2 kernel's hardest boundaries (LANDED 2026-07-12).
 Turned the three UNPINNED adversarial boundaries (ephemeral in the out-of-tree 343-case Go battery) into
 permanent committed guards: +20 `native_decide` theorems in `StrconvTests.lean`. Kernel-direct on
 `decimalRatioToFloat`/`decimalToFloat`/`roundToSig` (localize a regression) + end-to-end `call` vs the cue

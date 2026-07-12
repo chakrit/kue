@@ -283,9 +283,64 @@ theorem eval_sc4_let_disjunction_arm_extra_bottoms :
     exportJsonBottoms "#A: {let _t = {x: int} | {y: int}, v: _t}\nout: #A & {v: {x: 1, extra: 2}}\n" = true := by
   native_decide
 
+-- ### PATTERN-CONSTRAINT CONFORMANCE PROBE (CORE-CONFORMANCE-PROBE, 2026-07-12).
+--
+-- Measures pattern-constraint APPLICATION: a `[pattern]: constraint` pair constrains every
+-- field whose label matches `pattern`. Probed differentially vs cue v0.16.1 (export
+-- byte-identical); the one gap found — a NON-NUMERIC bound OPERAND in a label predicate
+-- (`[>"m"]`) — is filed (PATTERN-BOUND-REF-OPERAND) and red-seeded
+-- (`testdata/wild/pattern-bound-string-operand/`), not a divergence in the surface pinned here.
+
+-- A regex label predicate constrains matching fields (`apple` ⇒ int) and leaves non-matching
+-- fields (`box`) unconstrained by that pattern. cue agrees.
+theorem eval_pattern_regex_filters_by_label :
+    exportJsonMatches
+        "out: {[=~\"^a\"]: int, apple: 1, box: 2}\n"
+        "{\n    \"out\": {\n        \"apple\": 1,\n        \"box\": 2\n    }\n}\n"
+      = true := by
+  native_decide
+
+-- OVERLAPPING patterns INTERSECT their value constraints: `ab` matches both `[=~"a"]` and
+-- `[=~"b"]`, so its value must satisfy `<10 & >5`; 7 passes. cue agrees.
+theorem eval_pattern_overlap_intersects_bound_constraints :
+    exportJsonMatches
+        "out: {[=~\"a\"]: <10, [=~\"b\"]: >5, ab: 7}\n"
+        "{\n    \"out\": {\n        \"ab\": 7\n    }\n}\n"
+      = true := by
+  native_decide
+
+-- Same overlap, value out of the intersected bound: `ab: 20` violates `<10` ⇒ bottom. cue
+-- agrees (`invalid value 20 (out of bound <10)`).
+theorem eval_pattern_overlap_intersects_bound_rejects :
+    exportJsonBottoms "out: {[=~\"a\"]: <10, [=~\"b\"]: >5, ab: 20}\n" = true := by
+  native_decide
+
+-- A recursive pattern (constraint is itself a pattern struct) applies at each level. cue agrees.
+theorem eval_pattern_recursive_applies :
+    exportJsonMatches
+        "out: {[string]: {y: int}, a: {y: 1}, b: {y: 2}}\n"
+        "{\n    \"out\": {\n        \"a\": {\n            \"y\": 1\n        },\n        \"b\": {\n            \"y\": 2\n        }\n    }\n}\n"
+      = true := by
+  native_decide
+
+-- A pattern introduced by UNIFICATION with a later struct constrains that struct's fields. cue agrees.
+theorem eval_pattern_via_unification_constrains :
+    exportJsonMatches
+        "out: {[string]: int} & {n: 3}\n"
+        "{\n    \"out\": {\n        \"n\": 3\n    }\n}\n"
+      = true := by
+  native_decide
+
+-- A DISJUNCTION-valued pattern admits a field satisfying either arm and bottoms one satisfying
+-- neither (`b: true` is neither int nor string). cue agrees (empty disjunction).
+theorem eval_pattern_disjunction_valued_rejects :
+    exportJsonBottoms "out: {[string]: int | string, a: 1, b: true}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section.
 #check @eval_sc4_hidden_scalar_unaffected                     -- SC-4 hidden non-struct unaffected
 #check @eval_sc4_hidden_list_elem_closes                      -- SC-4 closing recurses list elements
 #check @eval_sc4_let_disjunction_arm_extra_bottoms            -- SC-4 closing recurses disjunction arms
+#check @eval_pattern_disjunction_valued_rejects               -- pattern-constraint conformance probe
 
 end Kue

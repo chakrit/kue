@@ -1,0 +1,6 @@
+{
+    "out": {
+        "apple": "keep",
+        "zebra": 1
+    }
+}

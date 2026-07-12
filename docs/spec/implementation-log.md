@@ -20599,3 +20599,52 @@ separate surface — pinned via ParseFloat instead), f32-subnormal ParseFloat an
 apd-storage adjudication ambiguity, not among the three required boundaries). Kernel-direct theorems
 localize a regression to the kernel fn; end-to-end `call` theorems guard the full pipeline against the
 cue oracle. `#check` tripwire anchor added. `check.sh` GREEN. Committed on `main`.
+
+---
+
+## Completed Slice: CORE-CONFORMANCE-PROBE — pattern-constraint surface measured
+
+Goal: measure the pattern-constraint core-semantics surface (flagged UNMEASURED by the
+audits) with a bounded differential hunt vs cue v0.16.1 + spec, converting every finding
+into a permanent guard.
+
+Area picked: **pattern constraints** (`[pattern]: constraint`) — least-recently-probed of
+the flagged core areas (structural cycles are heavily covered by `Bug2xTests`; closedness/
+comprehensions were probed 2026-07-04). ~30 differential cases across: `[string]:T`,
+`[=~"re"]:T`, comparator-bound labels (`[<10]:T`), overlapping/multiple patterns,
+pattern+concrete-field unify, disjunction-valued patterns, recursive patterns, pattern
+introduced via `&`, numeric/float/string bound operands.
+
+Findings:
+
+- **kue-bug (NEW facet of an already-filed gap):** a LITERAL string/bytes operand after a
+  comparator — `x: <"m"`, `x: >='a'`, `{[>"m"]: int}`, `<'m'` — fails to parse ("expected
+  number digits"). `parseBoundValue` (`Kue/Parse.lean`) accepts only numeric literals, and
+  the `boundConstraint (bound : DecimalValue) …` node is numeric-only by construction, so no
+  ordered non-numeric operand is representable. Spec: bounds apply to any ORDERED type
+  (numbers, strings lexically by code point, bytes by byte order). SAME root cause as the
+  filed PATTERN-BOUND-REF-OPERAND (reference operands); this is the literal-operand facet
+  (no deferral needed). Both land together via the one core change (generalize the bound
+  operand + teach meet/order/manifest lexical comparison). Red-seeded
+  `testdata/wild/pattern-bound-string-operand/` (`.known-red`, spec-adjudicated expected).
+  NOT a cue-divergence — cue is spec-correct.
+- **known (already recorded):** kue's `eval` TEXT keeps a pattern (`[string]: int`) visible
+  where cue elides it; export (the semantic output) is byte-identical. Recorded in
+  `ClosednessTests` (B2.2 pattern path) already — a display divergence, not re-filed.
+- **clean (CONFORMING, now MEASURED):** regex label filtering, overlapping patterns
+  intersecting their value constraints (incl. comparator-bound values — `[=~"a"]:<10 &
+  [=~"b"]:>5` correctly meets to `<10 & >5` on the doubly-matched field), recursive
+  patterns, unification-introduced patterns, disjunction-valued patterns — all byte-identical
+  to cue. Every error-message diff observed was formatting-only (both sides bottom).
+
+Guards added:
+- `testdata/export/pattern_constraints.{cue,json}` — end-to-end export fixture over the
+  conforming surface (byte-identical to `cue export`; auto-gated by `check-fixtures.sh`).
+- `Kue/Tests/ClosednessTests.lean` — pattern-constraint conformance probe section: 6
+  `native_decide` (regex filter, overlap-bound intersect pass/reject, recursive, via-
+  unification, disjunction-valued reject) + `#check` tripwire anchor.
+- `testdata/wild/pattern-bound-string-operand/` — red seed (quarantined).
+
+Plan updated (PATTERN-BOUND-REF-OPERAND entry gains the literal-operand facet + the measured-
+surface record). `check.sh` GREEN. No product-code change (probe + guards + red seed).
+Committed on `main`.

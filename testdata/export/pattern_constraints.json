@@ -1,0 +1,27 @@
+{
+    "regexFilter": {
+        "apple": 1,
+        "box": 2
+    },
+    "multiPatternIntersect": {
+        "ab": 7
+    },
+    "disjunctionValued": {
+        "a": 1,
+        "b": "s"
+    },
+    "recursivePattern": {
+        "a": {
+            "y": 1
+        },
+        "b": {
+            "y": 2
+        }
+    },
+    "viaUnification": {
+        "n": 3
+    },
+    "boundLabel": {
+        "5": 9
+    }
+}
