@@ -20378,3 +20378,43 @@ shape; `list.IsSorted` blocked on the BI-EFF comparator seam; strconv `Quote`/`U
 
 No code touched — plan.md + this log entry only. Git state pre-audit: tree clean, HEAD ==
 upstream at `69453ca`. Committed on `main`.
+
+## Audit Slice: STDLIB campaign Phase-B architecture + INFRASTRUCTURE audit (2026-07-12)
+
+Whole module-graph + infra-rotation cycle (~4 audit cycles since the 2026-07-04 gate rotation).
+Follows Phase A (`7ea0ae4`). Reconciled with Phase A's 5 findings — no duplication; PA-SF-3
+reinforced with the concrete import edge.
+
+### Infrastructure verdict — gates SOUND, no silent rot
+
+- **`check.sh` aggregator.** Glob-discovers every `scripts/check-*.sh`; `check.sh` itself has no
+  hyphen so it never self-matches; shellcheck extends over `./lake`/`./lean` wrappers by name. No
+  gate silently skipped.
+- **`.lean` gates wired.** `check-{ocifetch,zip,mod-tidy,fetch-pipeline}.lean` run via
+  `check-fixtures.sh` (`lake env lean --run`); `check-ghcr-live.lean` deliberately unwired (live
+  network, human-gated) — expected, not rot.
+- **Grep currency.** `check-comments` history-idiom denylist, `check-test-health` `^theorem `/
+  `#check @` tripwire (verified NO test module escapes via `private theorem`/`@[…]`) + block-comment
+  `^[[:space:]]*/-` + `size_cap`, wild auto-discovery + `.known-red` three-state `handle_known_red`
+  quarantine — all still match their targets.
+- **Test-health cap near-breach flagged** (PB-TESTORG-1): `EvalTests.lean` at 1792/1800.
+
+### Findings (5, filed to plan.md — one PARTIAL inline fix)
+
+- **PB-SF-3 (LOW→MEDIUM arch).** Reinforces PA-SF-3: `Time → Net` is a real sibling-leaf edge, the
+  only non-test importer of `Net`, existing purely to host `stringFormatValid` (time+net dispatcher)
+  in `Time.lean`. Extract to a `StringFormat` leaf; erase the edge.
+- **PB-TESTORG-1 (MEDIUM).** B-4 test-org pass is now DUE — `EvalTests.lean` 8 lines under the 1800
+  cap; one slice from a hard gate failure. Schedule a dedicated split-by-subsystem slice.
+- **PB-DOCGRAPH-2 (LOW). ✅ PARTIAL inline fix.** `architecture.md` §5 omitted the four 2026-07-11
+  stdlib leaves (`Path`/`Time`/`Net`/`TextTemplate`); added them inline. Plan §"Durable whole-graph
+  facts" edge list left for the PB-SF-3 slice (rewrite once, post-edge-removal).
+- **PB-RELEASE-3 (LOW).** `release.sh:43` builds via bare `lake build kue`, bypassing the `./lake`
+  CPU cap — release build saturates all cores. Route through `./lake`.
+- **PB-CATCHALL-4 (cleared).** `| _ =>` in `Time`/`Net`/`TextTemplate` all produce internal
+  (non-`Value`) types; ban does not apply.
+
+### Verification
+
+Docs only — `architecture.md` §5 (inline currency fix) + plan.md findings + this log entry. Git
+state pre-audit: tree clean, HEAD == upstream at `7ea0ae4`. Committed on `main`.

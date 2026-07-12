@@ -462,6 +462,59 @@ Phase-B placement), all filed:
   proven sufficient for nesting depth. If a real nested-range template ever bottoms, capture a
   `wild/` fixture and lift the bound to `nodeCount · ds^depth`.
 
+**STDLIB campaign Phase-B architecture/refactor/cleanup + INFRASTRUCTURE audit (2026-07-12, whole
+module graph + gates/tooling).** Infra-rotation cycle (~4 audit cycles since the 2026-07-04 gate
+rotation). Reconciled with Phase A's 5 findings — no duplication; PA-SF-3 REINFORCED below with the
+concrete import edge. **Infra verdict: gates SOUND, no silent rot.** `check.sh` glob-discovers every
+`check-*.sh`; the four `.lean` gates (`check-{ocifetch,zip,mod-tidy,fetch-pipeline}.lean`) are driven
+by `check-fixtures.sh` via `lake env lean --run` (not orphaned); `check-ghcr-live.lean` is
+deliberately unwired (live network, human-gated). Every cheap grep still matches its target
+(`check-comments` denylist idioms, `check-test-health` `^theorem `/`#check @` tripwire — verified no
+test module escapes via `private theorem`/`@[…]`, block-comment `^[[:space:]]*/-`); wild
+auto-discovery + `.known-red` three-state quarantine (`handle_known_red`) intact. Findings:
+
+- **PB-SF-3 (LOW→MEDIUM arch, REINFORCES PA-SF-3) — the `Time → Net` import edge is real and is
+  the ONLY reason `Net` is imported by anything but tests.** Confirmed: `Kue/Net.lean` imports only
+  `Value`; the sole non-test importer of `Net` is `Time.lean:2`, purely to host `stringFormatValid`
+  (`Time.lean:258`), the `StringFormat`→predicate dispatcher that spans BOTH time and net validators
+  and is called from `Lattice.lean:66` + `Order.lean:238`. `StringFormat` itself is defined in
+  `Value.lean:813`. Fix: extract `stringFormatValid` into its own leaf (e.g. `StringFormat.lean`
+  importing `Time` + `Net` predicate helpers) that `Lattice`/`Order` import — erasing the
+  sibling-leaf `Time → Net` edge. Do the plan §"Durable whole-graph facts" + `architecture.md` graph
+  update IN THIS SLICE (both currently omit the three 2026-07-11 leaves and the edge). Small blast
+  radius (two call sites + one import move). Bundle with PA-NET-1's `Net` retype if landed together.
+
+- **PB-TESTORG-1 (MEDIUM, test-org — B-4 IS NOW DUE).** `check-test-health.sh` `size_cap=1800`;
+  `Kue/Tests/EvalTests.lean` is at **1792 lines — 8 under the cap**. The next slice adding a handful
+  of eval theorems trips the gate. The deferred test-org pass (B-4) is no longer discretionary: the
+  tightest module is one commit from a hard gate failure. Schedule a dedicated test-org slice —
+  split `EvalTests.lean` by subsystem (and audit `EvalTests`/`BuiltinTests` 1669 / `TwoPassTests`
+  1542, the next-tightest), dedupe `testdata/` where fixtures overlap. This is the periodic test-org
+  pass the slice loop flags; it is due.
+
+- **PB-DOCGRAPH-2 (LOW, doc currency). ✅ PARTIALLY FIXED INLINE (this audit).** `architecture.md`
+  §5 listed `Strconv.lean` but OMITTED the four newer stdlib-package leaves (`Path`/`Time`/`Net`/
+  `TextTemplate`, all landed 2026-07-11) — a drift against the "doc that names files is updated in the
+  slice that adds a file" guard. Fixed the §5 prose inline (added the four namespaces + leaf modules).
+  REMAINING: the plan §"Durable whole-graph facts" import-edge enumeration still omits the three
+  leaves + the `Time → Net` edge; left for the PB-SF-3 slice so the graph prose is rewritten ONCE
+  after the edge is resolved (avoids documenting an edge that is about to be deleted).
+
+- **PB-RELEASE-3 (LOW, tooling consistency).** `scripts/release.sh:43` builds via bare
+  `lake build kue` (in a `cd $REPO_ROOT` subshell) — it does NOT route through the `./lake` wrapper
+  (no repo-root on `PATH`, no `LEAN_NUM_THREADS=2`/`nice` cap), so a release build saturates every
+  core, contrary to the slice-loop "build only via `./lake`" convention. Attended-only + infrequent,
+  hence LOW, but the CPU-cap convention should hold for release too: prepend `repo_root` to `PATH`
+  (mirroring `check.sh`) or call `"$REPO_ROOT/lake" build kue` directly. `release-linux.sh` builds in
+  Docker, unaffected.
+
+- **PB-CATCHALL-4 (NONE — cleared).** Swept the `| _ =>` occurrences in the three new leaves
+  (`Time`/`Net`/`TextTemplate`): all produce internal parser/evaluator types (tuples, `Bool`,
+  `Option NetAddr`, `TemplateResult`/`.unsupported`/`.bottom`) over their OWN data — none is a match on
+  `Value`/AST that produces a `Value`, so the ban does not apply. Recorded so a future audit does not
+  re-flag them. The `.stringFormat`/`.stringRegex` Value-level dispatch (Phase A verdict) stays
+  catch-all-free.
+
 **STDLIB-batch two-phase audit followup (2026-07-10, `4625079..2c3659b`).** Three remaining LOW/polish
 findings closed in one audit-followup slice; one new leniency bug QUEUED.
 - **Phase-B LOW-1 — `BuiltinFamily` stale doc comment. ✅ CLOSED (2026-07-10).** The doc said "eight

@@ -102,9 +102,10 @@ algebra (arithmetic/comparison/boolean/unary operand classification and evaluati
 default-disjunction collapse) carved out from under the recursive evaluator — `EvalOps →
 {Builtin, Decimal, Regex}`, with no back-edge into `Eval`. `Builtin.lean` holds the pure
 builtin helpers (`close`, `len`, `and`, `or`, `div`, `mod`, `quo`, `rem`, the `strings`
-/`list`/`math`/`struct`/`strconv` namespaces, `math.Pow` 's exact domain, Unicode case mapping via
-`CaseTable.lean`; the `strconv` pure conversions live in their own `Strconv.lean`, imported by
-`Builtin`); `Eval` dispatches resolved builtin calls and preserves incomplete ones
+/`list`/`math`/`struct`/`strconv`/`path`/`time`/`net`/`text/template` namespaces, `math.Pow` 's
+exact domain, Unicode case mapping via `CaseTable.lean`; the pure per-package algorithms live in
+their own leaf modules — `Strconv.lean`, `Path.lean`, `Time.lean`, `Net.lean`, `TextTemplate.lean`
+— each dispatched from `Builtin` via a `BuiltinFamily` arm); `Eval` dispatches resolved builtin calls and preserves incomplete ones
 as semantic values. Effectful builtins whose comparator needs `EvalM`
 (`list.Sort`/`SortStable`) are intercepted in `Eval` rather than `Builtin` (which must
 stay pure — there is no `Builtin → Eval` back-edge). The marshalling builtins are a
