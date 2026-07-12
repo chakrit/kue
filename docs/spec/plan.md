@@ -203,6 +203,41 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**DEF-FLATTEN-CLOSEDNESS-DISJ-REF (HIGH soundness — SILENT closedness leak; PRE-EXISTING). OPEN
+(re-ranked from LOW by 2026-07-13 Phase A audit).** The DEF-FLATTEN-CLOSEDNESS-DISJ fix closes a def's
+own-literal union across a SINGLE all-struct disjunction, but leaves three residual shapes fully OPEN, and
+"open" here means the def resolves to a concrete single arm and SILENTLY EXPORTS undeclared fields past a
+closed definition — the exact silent-leak class the parent slice fixed, one shape over. Repros (kue exports
+wrong value; cue bottoms):
+- **ref/scalar arm (no default needed):** `#Base: {b:2}` · `#X: {a:1} & ({z:9} | #Base)` ·
+  `y: #X & {b:2, extra:7}` ⇒ kue exports `{a:1,z:9,b:2,extra:7}`; cue ⇒ `3 errors in empty disjunction`
+  (bottom). `isClosableDisj` is false (the `#Base` arm is a `.refId`), so the whole `#X` stays open and
+  arm1 admits `extra`.
+- **multiple disjunctions + defaults:** `#X: {a:1} & (*{b:2}|{c:3}) & (*{d:4}|{e:5})` · `y: #X & {f:6}`
+  ⇒ kue exports `{a:1,b:2,d:4,f:6}`; cue ⇒ `y.f: field not allowed` (bottom). Cross-product scoped out →
+  open → defaults collapse to one arm → silent leak.
+- **nested disjunction arm:** `#X: {a:1} & ({b:2} | ({c:3}|{e:5}))` · `y: #X & {g:9}` ⇒ kue `ambiguous`;
+  cue bottom (under-close; would leak with defaults, same as above).
+Root cause: `isClosableDisj` (`Kue/EvalBase.lean`) requires EVERY arm to be a plain struct literal
+(`isUnionableDefValue`), and the close branch distributes across only a SINGLE disjunction. Fix directions
+(follow-up slice): admit ref/scalar arms by resolving them before the closability test; distribute across
+the cross-product of multiple disjunctions; flatten nested disjunctions first. Capture each repro as a
+`testdata/wild/` fixture FIRST (RED), spec-adjudicated to bottom.
+
+**LIST-OPS-NESTED-OPENTAIL (HIGH soundness — SILENT wrong value; NEW, 2026-07-13 Phase A audit). OPEN.**
+LIST-OPS-PROBE normalized open-tail list operands (`.listTail items _ → .list items`) only at the TOP
+level (`evalListBuiltin` maps `openListOperand` over `rawArgs`), so `list.*` functions that destructure
+NESTED lists as elements never normalize an open-tail SUBLIST — the same defect family the slice claimed to
+close, one level down. Repros (vs cue v0.16.1):
+- `list.Concat([[1,2,...],[3,4]])` ⇒ kue **bottom**; cue ⇒ `[1,2,3,4]`.
+- `list.FlattenN([[1,2,...],[3]], 1)` ⇒ kue **`[[1,2],3]`** (SILENT WRONG — un-flattened open sublist);
+  cue ⇒ `[1,2,3]`. `list.FlattenN(…, -1)` (full flatten) same defect.
+Root cause: `openListOperand` is applied to the outer operand list, not recursively to nested list
+elements that Concat/Flatten consume. Fix: normalize open-tail lists wherever a builtin reads a nested
+list's elements (Concat, Flatten/FlattenN, and any element-consuming list fn). TDD: wild fixtures
+`list-fn-concat-open-sublist/`, `list-fn-flattenn-open-sublist/` (RED→GREEN) + BuiltinTests. NOTE: the
+LIST-OPS-PROBE claim "the rest measured green" covered only FLAT operands — nested open-tail was untested.
+
 **BOUND-OPERAND-CLASSIFY (MEDIUM soundness). ✅ LANDED (2026-07-12); PA-BOUND-GROUND discharged.**
 `ScalarOperandClass.defer` split into `.incomplete` (retain the residual `.unary`) vs `.nonScalar`
 (`.list`/`.listTail`/`.embeddedList`/`.struct`). `evalBoundOp`/`evalRegexMatchOp`/`evalNumPos`/`evalNumNeg`
@@ -1423,8 +1458,11 @@ catch-all swallows `patternLabel`. Two NEW findings:
   share the same `closeLiteralUnion` helper (byte-identical). **Scoped-out (remaining, LOW):** (a) a
   disjunction arm that is a `.refId` / scalar is NOT closable this way, so `#X: {a:1} & ({b:2} | #Base)`
   stays OPEN (cue closes it — a remaining under-close); (b) MULTIPLE closable disjunctions (cross-product)
-  stay OPEN. Both are bounded, pre-existing, and left for a follow-up — file DEF-FLATTEN-CLOSEDNESS-DISJ-REF
-  if prioritized.
+  stay OPEN; (c) a NESTED disjunction arm (`({b:2} | ({c:3}|{e:5}))`) is not `isUnionableDefValue` either,
+  same class. **[RE-RANKED 2026-07-13 Phase A audit → HIGH, FILED as DEF-FLATTEN-CLOSEDNESS-DISJ-REF in the
+  Ranked OPEN backlog. "Stays OPEN" understated it: the residual is a SILENT SOUNDNESS LEAK — when the
+  open def resolves to a single concrete arm it exports fields past a closed def, no error. Same class as
+  the default-leak this slice fixed, one shape over. See the backlog entry for repros.]**
 
 ### PHASE B AUDIT (2026-07-13b, HEAD `c3f6c01`, batch `8213870..c3f6c01`) — OrderedPrim fit + strategic reconcile
 

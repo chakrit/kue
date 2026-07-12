@@ -21805,3 +21805,39 @@ Filed (not fixed): `list.IsSorted`/`list.IsSortedFunc` are unimplemented (cue ha
 resolves `list.Ascending`/`Descending` to a comparator struct but leaves the call a residual)
 — comparator-struct evaluation, same deferred corner as `list.Sort`/`SortStable`; filed as
 LIST-ISSORTED in the plan backlog, not a bounded probe fix.
+
+---
+
+## Completed Slice: Phase A code-quality audit (2026-07-13, batch `89397a2..355e249`)
+
+Code-quality audit of the 2-slice batch DEF-FLATTEN-CLOSEDNESS-DISJ (`8a2dcd2`) +
+LIST-OPS-PROBE (`355e249`) (F1 `f70f420` between them was a doc-only WALL, no code). No
+code change; findings folded into `plan.md` § Ranked OPEN backlog.
+
+Last-audit reconciliation: the 2026-07-13 Phase A/B verdicts held; F1 WALL doc verified
+accurate (cue tracks Go FDLIBM byte-for-byte, blocked on F5 + a float64-arith layer) with
+the roadmap reorder F5→F1 recorded; LIST-ISSORTED filing present; OPEN backlog intact.
+
+DEF-FLATTEN-CLOSEDNESS-DISJ (`flattenConjDefRef`, `Kue/EvalBase.lean`) verdict: **SOUND — no
+over-close regression.** The over-close direction (legit-open cases that MUST stay open) was
+exercised directly and all held: an explicit-`...` arm stays open (`{a:1} & ({b:2,...}|{c:3})`
+admits extras per cue); an own-literal `...` tail keeps both arms open; a regular (non-def)
+field with a closable-shaped disjunction is never closed (gated on `isDefinition`); the
+pure-literal path refactor is byte-identical (`#X: {a:1}&{b:2}` still bottoms an extra). The
+distribution itself is correct across 3-way disjunctions, shared-field arms, empty-`{}` arms,
+own-literal-vs-arm conflicts, and select-vs-reject use sites (all match cue v0.16.1). No
+`Value`-producing `| _ =>` introduced (`isClosableDisj`'s `_ => false` is a Bool probe).
+
+Two soundness findings filed (both PRE-EXISTING-class silent leaks, HIGH):
+- **DEF-FLATTEN-CLOSEDNESS-DISJ-REF** — the residual the parent slice scoped out as "LOW /
+  stays OPEN" is a SILENT closedness leak: ref/scalar disjunction arms (no default needed),
+  multiple disjunctions with defaults, and nested-disjunction arms all resolve to a concrete
+  single arm that exports fields past a closed def with no error. Re-ranked LOW→HIGH.
+- **LIST-OPS-NESTED-OPENTAIL** (NEW) — LIST-OPS-PROBE normalized open-tail operands only at
+  top level; `list.Concat`/`FlattenN`/`Flatten` on a NESTED open-tail sublist give a wrong
+  value (`Concat([[1,2,...],[3,4]])` ⇒ ⊥ vs cue `[1,2,3,4]`; `FlattenN([[1,2,...],[3]],1)` ⇒
+  `[[1,2],3]` silent-wrong vs cue `[1,2,3]`). Same defect family, one nesting level down.
+
+`./scripts/check.sh` not re-run (doc-only edits; batch already green at `355e249`, tree clean
+and pushed). No inline code fixes applied — both findings are non-trivial soundness fixes
+that need TDD fix-slices, not low-risk cleanups.
